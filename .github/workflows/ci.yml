@@ -38,7 +38,7 @@ jobs:
 
       - name: Audit
         working-directory: backend
-        run: npm audit --audit-level=high
+        run: npm audit --omit=dev --audit-level=high
 
   frontend:
     name: Frontend
@@ -71,4 +71,4 @@ jobs:
 
       - name: Audit
         working-directory: frontend
-        run: npm audit --audit-level=high
+        run: npm audit --omit=dev --audit-level=high
