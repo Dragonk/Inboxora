@@ -1250,6 +1250,8 @@
         "save": "Save configuration",
         "savedNote": "Configuration saved. Click \"Connect account\" to authorize.",
         "connectedNote": "Microsoft 365 account connected successfully! Check the Accounts tab.",
+        "userNoteConfigured": "Your administrator has set up Microsoft 365 sign-in. Connect your Outlook.com, Hotmail, or Microsoft 365 account below.",
+        "userNoteNotConfigured": "Microsoft 365 sign-in has not been set up by an administrator yet. Please ask your administrator to configure it.",
         "remove": "Remove",
         "deviceCodeTitle": "Connect with device code",
         "deviceCodeNote": "No redirect URI or client secret needed. In Azure, go to Authentication and set 'Allow public client flows' to Yes. Best for personal Outlook.com / Hotmail accounts.",

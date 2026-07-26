@@ -1250,6 +1250,8 @@
         "save": "Salva configurazione",
         "savedNote": "Configurazione salvata. Fai clic su \"Connetti account\" per autorizzare.",
         "connectedNote": "Account Microsoft 365 connesso con successo! Controlla la scheda Account.",
+        "userNoteConfigured": "Il tuo amministratore ha configurato l'accesso a Microsoft 365. Collega qui sotto il tuo account Outlook.com, Hotmail o Microsoft 365.",
+        "userNoteNotConfigured": "L'accesso a Microsoft 365 non è ancora stato configurato da un amministratore. Chiedi al tuo amministratore di configurarlo.",
         "remove": "Rimuovi",
         "deviceCodeTitle": "Connetti con codice dispositivo",
         "deviceCodeNote": "Nessun URI di reindirizzamento o segreto client richiesto. In Azure, vai su Autenticazione e imposta 'Consenti flussi di client pubblici' su Sì. Ideale per account personali Outlook.com / Hotmail.",

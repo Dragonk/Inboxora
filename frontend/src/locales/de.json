@@ -1183,6 +1183,8 @@
         "save": "Konfiguration speichern",
         "savedNote": "Konfiguration gespeichert. Auf \"Konto verbinden\" klicken zum Autorisieren.",
         "connectedNote": "Microsoft 365-Konto erfolgreich verbunden! Im Konten-Tab nachsehen.",
+        "userNoteConfigured": "Ihr Administrator hat die Microsoft-365-Anmeldung eingerichtet. Verbinden Sie unten Ihr Outlook.com-, Hotmail- oder Microsoft-365-Konto.",
+        "userNoteNotConfigured": "Die Microsoft-365-Anmeldung wurde noch nicht von einem Administrator eingerichtet. Bitte bitten Sie Ihren Administrator, sie zu konfigurieren.",
         "remove": "Entfernen",
         "deviceCodeTitle": "Mit Gerätecode verbinden",
         "deviceCodeNote": "Keine Weiterleitungs-URI oder Client-Secret erforderlich. In Azure unter Authentifizierung 'Öffentliche Clientflows zulassen' auf Ja setzen. Ideal für persönliche Outlook.com / Hotmail-Konten.",

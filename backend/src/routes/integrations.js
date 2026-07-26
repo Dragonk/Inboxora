@@ -22,6 +22,20 @@ router.get('/', requireAdmin, async (req, res) => {
   res.json(configs);
 });
 
+// Capability check for any authenticated user (non-admins included). Reports only
+// whether each provider is configured — never the client ID, secret, or any other
+// credential. This lets a non-admin see that Microsoft OAuth is available and enable
+// the connect buttons, while the config read/write/delete endpoints stay admin-only.
+// The OAuth connect routes already require only an authenticated session and bind the
+// resulting mailbox to that user, so no privilege is granted here. (#315)
+router.get('/status', async (req, res) => {
+  res.json({
+    microsoft: {
+      configured: !!process.env.MS_CLIENT_ID,
+    },
+  });
+});
+
 // Save/update integration config — admin only (writes affect global OAuth env vars)
 router.post('/:provider', requireAdmin, async (req, res) => {
   const { provider } = req.params;

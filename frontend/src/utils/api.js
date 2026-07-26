@@ -185,6 +185,7 @@ export const api = {
 
   // Integrations
   getIntegrations: () => request('GET', '/integrations'),
+  getIntegrationsStatus: () => request('GET', '/integrations/status'),
   saveIntegration: (provider, config) => request('POST', `/integrations/${provider}`, config),
   deleteIntegration: (provider) => request('DELETE', `/integrations/${provider}`),
   startMsDeviceFlow: async () => {

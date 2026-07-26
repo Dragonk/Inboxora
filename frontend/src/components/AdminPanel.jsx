@@ -2121,9 +2121,13 @@ function CardDavCard() {
 
 function IntegrationsTab() {
   const { t } = useTranslation();
-  const { setAccounts, setTodoistConnected } = useStore();
+  const { setAccounts, setTodoistConnected, user } = useStore();
+  const isAdmin = !!user?.isAdmin;
   const [subTab, setSubTab] = useState('emailProviders');
   const [configs, setConfigs] = useState({});
+  // Non-admins can't read the full config (admin-only), but need to know whether
+  // Microsoft OAuth is configured so the connect buttons enable. (#315)
+  const [msStatus, setMsStatus] = useState(null); // { configured } for non-admins
   const [loading, setLoading] = useState(true);
   const [msForm, setMsForm] = useState({ clientId: '', clientSecret: '', tenantId: '', redirectUri: '' });
   const [msExpanded, setMsExpanded] = useState(false);
@@ -2144,21 +2148,32 @@ function IntegrationsTab() {
   const [tdError, setTdError] = useState('');
 
   useEffect(() => {
-    api.getIntegrations()
-      .then(data => {
-        setConfigs(data);
-        if (data.microsoft) {
-          setMsForm({
-            clientId: data.microsoft.clientId || '',
-            clientSecret: data.microsoft.clientSecret || '',
-            tenantId: data.microsoft.tenantId || '',
-            redirectUri: data.microsoft.redirectUri || '',
-          });
-          setMsExpanded(true);
-        }
-      })
-      .catch(console.error)
-      .finally(() => setLoading(false));
+    if (isAdmin) {
+      api.getIntegrations()
+        .then(data => {
+          setConfigs(data);
+          if (data.microsoft) {
+            setMsForm({
+              clientId: data.microsoft.clientId || '',
+              clientSecret: data.microsoft.clientSecret || '',
+              tenantId: data.microsoft.tenantId || '',
+              redirectUri: data.microsoft.redirectUri || '',
+            });
+            setMsExpanded(true);
+          }
+        })
+        .catch(console.error)
+        .finally(() => setLoading(false));
+    } else {
+      // Non-admins can only read the capability status, not the config itself.
+      api.getIntegrationsStatus()
+        .then(data => {
+          setMsStatus(data.microsoft || null);
+          if (data.microsoft?.configured) setMsExpanded(true);
+        })
+        .catch(console.error)
+        .finally(() => setLoading(false));
+    }
 
     api.todoist.status()
       .then(({ connected }) => {
@@ -2177,8 +2192,9 @@ function IntegrationsTab() {
       if (e.data?.type === 'oauth_success' && e.data?.provider === 'microsoft') {
         setSaveMsg(t('admin.integrations.microsoft.connectedNote'));
         setConnectingMs(false);
-        // Reload both so the new account appears in the sidebar immediately
-        api.getIntegrations().then(setConfigs).catch(console.error);
+        // Reload both so the new account appears in the sidebar immediately.
+        // getIntegrations is admin-only; non-admins already have the capability status.
+        if (isAdmin) api.getIntegrations().then(setConfigs).catch(console.error);
         api.getAccounts().then(setAccounts).catch(console.error);
       } else if (e.data?.type === 'oauth_error') {
         setSaveMsg('Error: ' + e.data.error);
@@ -2297,7 +2313,7 @@ function IntegrationsTab() {
     }
   };
 
-  const msConfigured = configs.microsoft?.clientId;
+  const msConfigured = isAdmin ? configs.microsoft?.clientId : msStatus?.configured;
 
   const subTabStyle = (key) => ({
     padding: '7px 14px',
@@ -2395,6 +2411,10 @@ function IntegrationsTab() {
             {/* Expanded form */}
             {msExpanded && (
               <div style={{ padding: '16px', borderTop: '1px solid var(--border-subtle)' }}>
+                {/* Admin-only: setup instructions + credential form. Non-admins can't
+                    read or write the global config, so they see only the note + connect
+                    buttons below. (#315) */}
+                {isAdmin && (<>
                 {/* Setup instructions */}
                 <div style={{
                   padding: '12px 14px', borderRadius: 8, marginBottom: 16,
@@ -2455,6 +2475,21 @@ function IntegrationsTab() {
                     {t('admin.integrations.microsoft.redirectUriNote', { uri: `${window.location.protocol}//${window.location.hostname}${window.location.port ? ':' + window.location.port : ''}/oauth/microsoft/callback` })}
                   </div>
                 </Field>
+                </>)}
+
+                {/* Non-admin: no config form; just a short note about connecting */}
+                {!isAdmin && (
+                  <div style={{
+                    padding: '12px 14px', borderRadius: 8, marginBottom: 16,
+                    background: 'rgba(124,106,247,0.06)',
+                    border: '1px solid rgba(124,106,247,0.15)',
+                    fontSize: 12, color: 'var(--text-secondary)', lineHeight: 1.6,
+                  }}>
+                    {msConfigured
+                      ? t('admin.integrations.microsoft.userNoteConfigured')
+                      : t('admin.integrations.microsoft.userNoteNotConfigured')}
+                  </div>
+                )}
 
                 {saveMsg && (
                   <div style={{
@@ -2468,6 +2503,7 @@ function IntegrationsTab() {
                 )}
 
                 <div style={{ display: 'flex', gap: 8 }}>
+                  {isAdmin && (
                   <button onClick={handleSaveMs} disabled={saving} style={{
                     padding: '9px 16px', background: 'var(--bg-elevated)',
                     border: '1px solid var(--border)', borderRadius: 8,
@@ -2476,6 +2512,7 @@ function IntegrationsTab() {
                   }}>
                     {saving ? t('common.saving') : t('admin.integrations.microsoft.save')}
                   </button>
+                  )}
 
                   <button
                     onClick={handleConnectMs}
@@ -2500,7 +2537,7 @@ function IntegrationsTab() {
                     {connectingMs ? t('admin.integrations.microsoft.redirecting') : t('admin.integrations.microsoft.connect')}
                   </button>
 
-                  {msConfigured && (
+                  {isAdmin && msConfigured && (
                     <button onClick={async () => {
                       stopDeviceFlow();
                       await api.deleteIntegration('microsoft');
