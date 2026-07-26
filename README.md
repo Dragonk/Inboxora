@@ -440,16 +440,28 @@ Gmail requires an **App Password** (not your normal password):
 
 ### Microsoft 365 / Outlook (OAuth2)
 
-**Work / school accounts (Microsoft 365):** require modern auth via Azure App Registration:
+Microsoft has disabled basic (password) auth for Outlook.com, Hotmail, and most
+Microsoft 365 accounts, so they connect via OAuth2 under **Settings → Integrations →
+Microsoft 365** (not the normal Add Account form). Both paths need a free
+[Microsoft Entra app registration](https://portal.azure.com) for a **Client ID**.
+When registering, choose "Accounts in any organizational directory and personal
+Microsoft accounts" so it covers both.
 
-1. In MailFlow settings → Integrations → Microsoft 365 — follow the Azure App
-   Registration instructions shown there
-2. After saving the config, click **Connect Microsoft account**
+**Work / school accounts (Microsoft 365)** (confidential client):
 
-**Personal accounts (Outlook.com / Hotmail):** no Azure registration needed — uses the device code flow:
+1. In the Azure app, add a **client secret** and a redirect URI of
+   `https://<your-mailflow-host>/oauth/microsoft/callback` (the exact value is shown
+   on the Integrations screen).
+2. In Integrations → Microsoft 365, enter the Client ID, Tenant ID, Client Secret,
+   and Redirect URI, then save and click **Connect Microsoft account**.
 
-1. Settings → Accounts → Add Account → Outlook.com / Hotmail
-2. MailFlow displays a short code — visit [microsoft.com/devicelogin](https://microsoft.com/devicelogin) and enter it to authorise
+**Personal accounts (Outlook.com / Hotmail)** (public client, device code):
+
+1. In Integrations → Microsoft 365, enter just the **Client ID** and **Tenant ID**
+   (`common`), leaving Client Secret and Redirect URI blank, then save.
+2. Start the device-code flow shown there. MailFlow displays a short code; visit
+   [microsoft.com/devicelogin](https://microsoft.com/devicelogin) and enter it to
+   authorise.
 
 ### Custom IMAP
 
