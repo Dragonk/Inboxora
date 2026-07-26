@@ -6,6 +6,7 @@ import { activateOnKey, collapsedTooltip } from '../utils/sidebar.js';
 import { useMobile } from '../hooks/useMobile.js';
 import LogoMark from './LogoMark.jsx';
 import ProfileModal from './ProfileModal.jsx';
+import { useUiScale, descale } from '../hooks/useUiScale.js';
 
 const ICONS = {
   inbox: (
@@ -150,6 +151,7 @@ function buildFolderTree(folders) {
 // ─── Sidebar context menu (folders + accounts) ────────────────────────────────
 function SidebarCtxMenu({ x, y, items, title, subtitle, onClose }) {
   const menuRef = useRef(null);
+  const uiScale = useUiScale();
   const [pos, setPos] = useState({ x, y });
 
   useEffect(() => {
@@ -184,7 +186,7 @@ function SidebarCtxMenu({ x, y, items, title, subtitle, onClose }) {
     <div
       ref={menuRef}
       style={{
-        position: 'fixed', left: pos.x, top: pos.y,
+        position: 'fixed', left: descale(pos.x, uiScale), top: descale(pos.y, uiScale),
         background: 'var(--bg-elevated)',
         border: '1px solid var(--border)',
         borderRadius: 10, zIndex: 4000,
@@ -281,6 +283,7 @@ function CtxMenuItem({ icon, label, onClick, danger, disabled }) {
 // ─── Main Sidebar ─────────────────────────────────────────────────────────────
 export default function Sidebar() {
   const { t } = useTranslation();
+  const uiScale = useUiScale();
   const {
     accounts, unreadCounts, selectedAccountId, selectedFolder,
     setSelectedAccount, setShowAdmin, setAdminTab, openCompose,
@@ -1728,8 +1731,8 @@ export default function Sidebar() {
           ref={userMenuPopoverRef}
           style={{
             position: 'fixed',
-            bottom: userMenuPos.bottom,
-            left: userMenuPos.left,
+            bottom: descale(userMenuPos.bottom, uiScale),
+            left: descale(userMenuPos.left, uiScale),
             width: 230,
             background: 'var(--bg-secondary)',
             border: '1px solid var(--border)',

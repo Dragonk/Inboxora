@@ -5,6 +5,7 @@ import { api } from '../utils/api.js';
 import { GTD_STATES, GTD_COLORS, resolveAccountGtdFolders, gtdStatesInFolders } from '../utils/gtd.js';
 import { getContextMenuPolicy, resolveContextMenuMessage } from '../utils/contextMenuPolicy.js';
 import MessageHeaderModal from './MessageHeaderModal.jsx';
+import { useUiScale, descale } from '../hooks/useUiScale.js';
 
 // Module-level regex — spam-name heuristic shared with MessagePane.jsx so
 // it isn't recompiled on every render. Mirrors resolveAllSpamPaths on the
@@ -16,6 +17,7 @@ const CATEGORIES = ['primary', 'newsletter', 'promotion', 'automated', 'social']
 
 export default function ContextMenu({ x, y, message, onClose, onAction, defaultMoveView = false, variant = 'inbox' }) {
   const { t } = useTranslation();
+  const uiScale = useUiScale();
   // Variants share one menu; the policy removes actions that depend on the center
   // list or conflict with GTD's Done contract while preserving ordinary mail actions.
   const menuPolicy = getContextMenuPolicy(variant);
@@ -276,7 +278,7 @@ export default function ContextMenu({ x, y, message, onClose, onAction, defaultM
         ref={menuRef}
         onClick={e => e.stopPropagation()}
         style={{
-          position: 'fixed', left: pos.x, top: pos.y,
+          position: 'fixed', left: descale(pos.x, uiScale), top: descale(pos.y, uiScale),
           background: 'var(--bg-elevated)',
           border: '1px solid var(--border)',
           borderRadius: 10, zIndex: 4000,

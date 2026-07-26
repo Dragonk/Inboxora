@@ -9,6 +9,7 @@ import { useSwipeRow } from '../hooks/useSwipeRow.js';
 import ContextMenu from './ContextMenu.jsx';
 import RowHoverActions from './RowHoverActions.jsx';
 import GtdTabList from './GtdTabList.jsx';
+import { useUiScale, descale } from '../hooks/useUiScale.js';
 import {
   gtdActiveForContext, buildGtdDisplaySections, GTD_COLORS, GTD_CHIP_BG, sectionBadge, isSelectedRow,
   classifyThread, unclassifyThread,
@@ -97,6 +98,7 @@ function SwipeBackground({ side, actionView, innerRef }) {
 
 export default function MessageList() {
   const { t } = useTranslation();
+  const uiScale = useUiScale();
   const {
     selectedAccountId, selectedFolder, messages, setMessages,
     appendMessages, messagesTotal, setMessagesTotal,
@@ -2445,7 +2447,7 @@ export default function MessageList() {
 
                 {showLayoutPicker && layoutPickerPos && (
                   <div style={{
-                    position: 'fixed', top: layoutPickerPos.top, right: layoutPickerPos.right,
+                    position: 'fixed', top: descale(layoutPickerPos.top, uiScale), right: descale(layoutPickerPos.right, uiScale),
                     background: 'var(--bg-elevated)',
                     border: '1px solid var(--border)',
                     borderRadius: 10,
@@ -2608,7 +2610,7 @@ export default function MessageList() {
               </button>
               {showLayoutPicker && layoutPickerPos && (
                 <div style={{
-                  position: 'fixed', top: layoutPickerPos.top, right: layoutPickerPos.right,
+                  position: 'fixed', top: descale(layoutPickerPos.top, uiScale), right: descale(layoutPickerPos.right, uiScale),
                   background: 'var(--bg-elevated)',
                   border: '1px solid var(--border)',
                   borderRadius: 10,
