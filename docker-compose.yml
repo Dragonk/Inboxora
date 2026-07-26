@@ -45,11 +45,12 @@ services:
       SESSION_SECRET: ${SESSION_SECRET}
       APP_URL: ${APP_URL:-}
       FRONTEND_URL: ${APP_URL:-}
-      DB_HOST: postgres
-      DB_NAME: mailflow
-      DB_USER: mailflow
+      DB_HOST: ${DB_HOST:-postgres}
+      DB_PORT: ${DB_PORT:-5432}
+      DB_NAME: ${DB_NAME:-mailflow}
+      DB_USER: ${DB_USER:-mailflow}
       DB_PASSWORD: ${DB_PASSWORD}
-      REDIS_URL: redis://redis:6379
+      REDIS_URL: ${REDIS_URL:-redis://redis:6379}
       ENCRYPTION_KEY: ${ENCRYPTION_KEY:-}
       VAPID_PUBLIC_KEY: ${VAPID_PUBLIC_KEY:-}
       VAPID_PRIVATE_KEY: ${VAPID_PRIVATE_KEY:-}
@@ -73,12 +74,16 @@ services:
     image: postgres:16-alpine
     container_name: mailflow-postgres
     restart: unless-stopped
+    # PUID/PGID default to 0:0 (root), identical to the image's normal behaviour.
+    # Set them (e.g. 99:100 on Unraid) only when bind-mounting POSTGRES_DATA to a host
+    # share, and chown that share to the same uid:gid first.
+    user: "${PUID:-0}:${PGID:-0}"
     environment:
-      POSTGRES_DB: mailflow
-      POSTGRES_USER: mailflow
+      POSTGRES_DB: ${DB_NAME:-mailflow}
+      POSTGRES_USER: ${DB_USER:-mailflow}
       POSTGRES_PASSWORD: ${DB_PASSWORD}
     volumes:
-      - postgres_data:/var/lib/postgresql/data
+      - ${POSTGRES_DATA:-postgres_data}:/var/lib/postgresql/data
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U mailflow -d mailflow"]
       interval: 10s
@@ -93,9 +98,10 @@ services:
     image: redis:7-alpine
     container_name: mailflow-redis
     restart: unless-stopped
+    user: "${PUID:-0}:${PGID:-0}"
     command: redis-server --save 60 1 --loglevel warning
     volumes:
-      - redis_data:/data
+      - ${REDIS_DATA:-redis_data}:/data
     healthcheck:
       test: ["CMD", "redis-cli", "ping"]
       interval: 10s
