@@ -170,6 +170,19 @@ export const useStore = create((set, get) => ({
     searchResults: state.searchResults.filter(m => m.id !== id),
     selectedMessageId: state.selectedMessageId === id ? null : state.selectedMessageId,
   })),
+  // Remove many messages in a single state update. Bulk triage (e.g. archiving ~40 rows)
+  // otherwise calls removeMessage once per id, firing one store update — and, in a
+  // non-virtualized list, one re-render — each, which stalls the UI. This collapses them
+  // into one filter pass and one update.
+  removeMessages: (ids) => set(state => {
+    const idSet = ids instanceof Set ? ids : new Set(ids);
+    if (idSet.size === 0) return {};
+    return {
+      messages: state.messages.filter(m => !idSet.has(m.id)),
+      searchResults: state.searchResults.filter(m => !idSet.has(m.id)),
+      selectedMessageId: idSet.has(state.selectedMessageId) ? null : state.selectedMessageId,
+    };
+  }),
   restoreMessages: (msgs) => set(state => {
     const list = Array.isArray(msgs) ? msgs : [msgs];
     const sort = arr => [...arr].sort((a, b) => new Date(b.date) - new Date(a.date));

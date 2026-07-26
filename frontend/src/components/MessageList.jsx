@@ -104,7 +104,7 @@ export default function MessageList() {
     appendMessages, messagesTotal, setMessagesTotal,
     setMessagesOffset, hasMoreMessages, setHasMoreMessages,
     loadingMessages, setLoadingMessages, selectedMessageId, lastViewedMessageId,
-    setSelectedMessage, updateMessage, removeMessage,
+    setSelectedMessage, updateMessage, removeMessage, removeMessages,
     decrementUnread, incrementUnread, addNotification, notifications, removeNotification,
     searchQuery, setSearchQuery, setIsSearching,
     searchResults, setSearchResults, openCompose, accountsReady, accounts,
@@ -1508,7 +1508,11 @@ export default function MessageList() {
 
   const handleBulkArchive = useCallback((ids, msgs) => {
     refreshRequestRef.current.invalidate();
-    ids.forEach(id => removeMessage(id));
+    // Tombstone the ids so a background refresh/websocket refetch during the undo window
+    // can't resurrect them — applyDeleteGuard filters pending/completed ids out of refetch
+    // results — and drop every row in one batched state update rather than one per id.
+    ids.forEach(id => setPendingDelete(id));
+    removeMessages(ids);
     msgs.forEach(msg => { if (!msg.is_read) decrementUnread(msg.account_id); });
     setSelectedIds(new Set());
     setSelectionModeActive(false);
@@ -1519,6 +1523,9 @@ export default function MessageList() {
       try {
         const result = await api.bulkArchive(ids);
         const archivedSet = new Set(result.archived ?? []);
+        // Archived: keep guarding briefly (completed grace) so an in-flight refetch can't
+        // bring them back; not archived: release the guard so those rows can return.
+        ids.forEach(id => (archivedSet.has(id) ? setCompletedDelete(id) : clearDeleteGuard(id)));
         const failedMsgs = msgs.filter(msg => !archivedSet.has(msg.id));
         if (failedMsgs.length > 0) {
           useStore.getState().restoreMessages(failedMsgs);
@@ -1531,6 +1538,7 @@ export default function MessageList() {
         }
       } catch (err) {
         console.error('Bulk archive failed:', err);
+        ids.forEach(id => clearDeleteGuard(id));
         useStore.getState().restoreMessages(msgs);
         msgs.forEach(msg => { if (!msg.is_read) incrementUnread(msg.account_id); });
         addNotification({ title: t('messageList.bulkArchived.failTitle'), body: t('messageList.bulkArchived.failBody', { count: ids.length }) });
@@ -1542,11 +1550,12 @@ export default function MessageList() {
       onUndo: () => {
         undone = true;
         clearTimeout(timer);
+        ids.forEach(id => clearPendingDelete(id));
         useStore.getState().restoreMessages(msgs);
         msgs.forEach(msg => { if (!msg.is_read) incrementUnread(msg.account_id); });
       },
     });
-  }, [removeMessage, decrementUnread, incrementUnread, addNotification, t]);
+  }, [removeMessages, decrementUnread, incrementUnread, addNotification, t]);
 
   const handleBulkMarkRead = useCallback(async (ids, msgs) => {
     const markAsRead = msgs.some(m => !m.is_read);
@@ -1681,14 +1690,16 @@ export default function MessageList() {
         const msg = pool.find(m => m.id === selectedMessageId);
         if (!msg) return;
         refreshRequestRef.current.invalidate();
+        setPendingDelete(selectedMessageId);
         advanceSelectionAfterRemoval(selectedMessageId);
         removeMessage(selectedMessageId);
         if (!msg.is_read) decrementUnread(msg.account_id);
         api.bulkArchive([selectedMessageId]).then(result => {
+          setCompletedDelete(selectedMessageId);
           if (result.noArchiveFolder?.length) {
             addNotification({ title: tRef.current('messageList.noArchiveFolder.title'), body: tRef.current('messageList.noArchiveFolder.body') });
           }
-        }).catch(console.error);
+        }).catch(err => { clearDeleteGuard(selectedMessageId); console.error(err); });
       }
     };
 
