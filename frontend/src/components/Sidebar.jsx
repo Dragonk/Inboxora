@@ -2,7 +2,14 @@ import { useState, useEffect, useRef, useCallback } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useStore } from '../store/index.js';
 import { api } from '../utils/api.js';
-import { activateOnKey, collapsedTooltip } from '../utils/sidebar.js';
+import {
+  activateOnKey,
+  buildFolderTree,
+  collapsedTooltip,
+  FOLDER_ORDER_DRAG_TYPE,
+  folderDropPosition,
+  resolveFolderOrderDrop,
+} from '../utils/sidebar.js';
 import { useMobile } from '../hooks/useMobile.js';
 import LogoMark from './LogoMark.jsx';
 import ProfileModal from './ProfileModal.jsx';
@@ -103,49 +110,6 @@ function isProtectedFolder(folder, folderMappings) {
     p.includes('trash') || p.includes('deleted') ||
     p.startsWith('[gmail]/')
   );
-}
-
-// Build a nested tree from a flat sorted folder list using the IMAP delimiter.
-// Folders whose parent path isn't in the list are attached to the root.
-function buildFolderTree(folders) {
-  const delimiter = folders.find(f => f.delimiter)?.delimiter || '/';
-  const map = {};
-  for (const f of folders) map[f.path] = { ...f, children: [] };
-
-  // Synthesize placeholder nodes for any intermediate paths missing from the DB
-  // (e.g. INBOX when the server omits it from LIST, or any deeper gap). This is a
-  // safety net; the backend also ensures INBOX always has a row after syncFolders.
-  for (const f of folders) {
-    const parts = f.path.split(delimiter);
-    for (let depth = 1; depth < parts.length; depth++) {
-      const ancestorPath = parts.slice(0, depth).join(delimiter);
-      if (!map[ancestorPath]) {
-        map[ancestorPath] = {
-          path: ancestorPath,
-          name: parts[depth - 1],
-          delimiter,
-          special_use: null,
-          account_id: f.account_id,
-          children: [],
-        };
-      }
-    }
-  }
-
-  const roots = [];
-  // Sort all nodes (real + synthesized) by path so parents are always processed
-  // before their children and the sidebar order stays alphabetical.
-  const allNodes = Object.values(map).sort((a, b) => a.path.localeCompare(b.path));
-  for (const node of allNodes) {
-    const parts = node.path.split(delimiter);
-    const parentPath = parts.length > 1 ? parts.slice(0, -1).join(delimiter) : null;
-    if (parentPath && map[parentPath] && parentPath !== node.path) {
-      map[parentPath].children.push(node);
-    } else {
-      roots.push(node);
-    }
-  }
-  return roots;
 }
 
 // ─── Sidebar context menu (folders + accounts) ────────────────────────────────
@@ -291,6 +255,7 @@ export default function Sidebar() {
     blockRemoteImages, setBlockRemoteImages, setMobileSidebarOpen, addNotification,
     searchAllFolders, setSearchAllFolders,
     hiddenFolders, setHiddenFolders,
+    folderOrder, setFolderOrder,
     favoriteFolders, addFavoriteFolder, removeFavoriteFolder, renameFavoriteFolder, reorderFavoriteFolders,
     expandedAccounts, setExpandedAccounts,
     collapsedFolders, toggleCollapsedFolder,
@@ -310,13 +275,23 @@ export default function Sidebar() {
   }, [selectedAccountId, selectedFolder]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const [msgDragTarget, setMsgDragTarget] = useState(null);
+  const [folderDrag, setFolderDrag] = useState(null);
+  const [folderDropTarget, setFolderDropTarget] = useState(null);
 
-  // Clear any stale msgDragTarget when a drag operation ends anywhere on the page
+  const clearFolderDrag = useCallback(() => {
+    setFolderDrag(null);
+    setFolderDropTarget(null);
+  }, []);
+
+  // Clear any stale drag state when a drag operation ends anywhere on the page.
   useEffect(() => {
-    const clear = () => setMsgDragTarget(null);
+    const clear = () => {
+      setMsgDragTarget(null);
+      clearFolderDrag();
+    };
     document.addEventListener('dragend', clear);
     return () => document.removeEventListener('dragend', clear);
-  }, []);
+  }, [clearFolderDrag]);
 
   const handleMsgDrop = useCallback((e, targetFolder) => {
     e.preventDefault();
@@ -1274,7 +1249,62 @@ export default function Sidebar() {
                 const accountHiddenPaths = hiddenFolders[account.id] || [];
                 const showingHidden = showHiddenFor.has(account.id);
 
-                const renderNode = (node, depth) => {
+                const handleFolderOrderDragStart = (event, path) => {
+                  event.stopPropagation();
+                  event.dataTransfer.effectAllowed = 'move';
+                  event.dataTransfer.setData(
+                    FOLDER_ORDER_DRAG_TYPE,
+                    JSON.stringify({ accountId: account.id, path }),
+                  );
+                  setMsgDragTarget(null);
+                  setFolderDrag({ accountId: account.id, path });
+                  setFolderDropTarget(null);
+                };
+
+                const handleFolderOrderDragOver = (event, path, siblings) => {
+                  if (!event.dataTransfer.types.includes(FOLDER_ORDER_DRAG_TYPE)) return false;
+                  event.preventDefault();
+                  event.stopPropagation();
+                  const validTarget = (
+                    folderDrag?.accountId === account.id
+                    && folderDrag.path !== path
+                    && siblings.some(sibling => sibling.path === folderDrag.path)
+                  );
+                  event.dataTransfer.dropEffect = validTarget ? 'move' : 'none';
+                  if (!validTarget) {
+                    setFolderDropTarget(null);
+                    return true;
+                  }
+                  setFolderDropTarget({
+                    accountId: account.id,
+                    path,
+                    position: folderDropPosition(
+                      event.clientY,
+                      event.currentTarget.getBoundingClientRect(),
+                    ),
+                  });
+                  return true;
+                };
+
+                const handleFolderOrderDrop = (event, path) => {
+                  if (!event.dataTransfer.types.includes(FOLDER_ORDER_DRAG_TYPE)) return false;
+                  event.preventDefault();
+                  event.stopPropagation();
+                  const next = resolveFolderOrderDrop(
+                    accountFolders,
+                    folderOrder[account.id],
+                    event.dataTransfer,
+                    account.id,
+                    path,
+                    event.clientY,
+                    event.currentTarget.getBoundingClientRect(),
+                  );
+                  if (next) setFolderOrder(account.id, next);
+                  clearFolderDrag();
+                  return true;
+                };
+
+                const renderNode = (node, depth, siblings) => {
                   const { children, ...folder } = node;
                   const isHidden = accountHiddenPaths.includes(folder.path);
                   if (isHidden && !showingHidden) return null;
@@ -1286,6 +1316,11 @@ export default function Sidebar() {
                   const collapseKey = `${account.id}:${folder.path}`;
                   const isExpanded = !collapsedFolders.includes(collapseKey);
                   const indent = BASE_INDENT + depth * DEPTH_INDENT;
+                  const canReorder = !isMobile && siblings.length >= 2;
+                  const dropPosition = (
+                    folderDropTarget?.accountId === account.id
+                    && folderDropTarget.path === folder.path
+                  ) ? folderDropTarget.position : null;
 
                   return (
                     <div key={folder.path} style={isHidden ? { opacity: 0.45 } : undefined}>
@@ -1296,15 +1331,53 @@ export default function Sidebar() {
                           cursor: isRenaming ? 'default' : 'pointer',
                           background: (msgDragTarget === `${account.id}:${folder.path}`) ? 'var(--accent-dim)' : isFolderSelected ? 'var(--bg-hover)' : 'transparent',
                           transition: 'background 0.1s',
+                          boxShadow: dropPosition === 'before'
+                            ? 'inset 0 2px var(--accent)'
+                            : dropPosition === 'after'
+                              ? 'inset 0 -2px var(--accent)'
+                              : 'none',
                         }}
                         onMouseEnter={e => { if (!isFolderSelected && !isRenaming) e.currentTarget.style.background = 'var(--bg-tertiary)'; }}
                         onMouseLeave={e => { if (!isFolderSelected) e.currentTarget.style.background = 'transparent'; }}
                         onClick={() => !isRenaming && setSelectedAccount(account.id, folder.path)}
                         onContextMenu={e => openFolderCtxMenu(e, account.id, folder)}
-                        onDragOver={e => { e.preventDefault(); e.dataTransfer.dropEffect = 'move'; setMsgDragTarget(`${account.id}:${folder.path}`); }}
-                        onDragLeave={e => { if (!e.currentTarget.contains(e.relatedTarget)) setMsgDragTarget(null); }}
-                        onDrop={e => handleMsgDrop(e, folder.path)}
+                        onDragOver={event => {
+                          if (handleFolderOrderDragOver(event, folder.path, siblings)) return;
+                          event.preventDefault();
+                          event.dataTransfer.dropEffect = 'move';
+                          setMsgDragTarget(`${account.id}:${folder.path}`);
+                        }}
+                        onDragLeave={event => {
+                          if (event.currentTarget.contains(event.relatedTarget)) return;
+                          setMsgDragTarget(null);
+                          if (
+                            folderDropTarget?.accountId === account.id
+                            && folderDropTarget.path === folder.path
+                          ) setFolderDropTarget(null);
+                        }}
+                        onDrop={event => {
+                          if (handleFolderOrderDrop(event, folder.path)) return;
+                          handleMsgDrop(event, folder.path);
+                        }}
                       >
+                        {canReorder && (
+                          <span
+                            draggable
+                            onDragStart={event => handleFolderOrderDragStart(event, folder.path)}
+                            onDragEnd={clearFolderDrag}
+                            title={t('sidebar.reorderFolder', 'Drag to reorder folder')}
+                            style={{
+                              color: 'var(--text-tertiary)', flexShrink: 0,
+                              display: 'flex', opacity: 0.4, cursor: 'grab',
+                            }}
+                          >
+                            <svg width="10" height="14" viewBox="0 0 10 14" fill="currentColor">
+                              <circle cx="2" cy="2" r="1.5"/><circle cx="8" cy="2" r="1.5"/>
+                              <circle cx="2" cy="7" r="1.5"/><circle cx="8" cy="7" r="1.5"/>
+                              <circle cx="2" cy="12" r="1.5"/><circle cx="8" cy="12" r="1.5"/>
+                            </svg>
+                          </span>
+                        )}
                         {/* Chevron toggle for parent folders; invisible spacer for leaf folders to align icons */}
                         {hasChildren ? (
                           <button
@@ -1374,7 +1447,7 @@ export default function Sidebar() {
                       {/* Children — shown when expanded */}
                       {hasChildren && isExpanded && (
                         <>
-                          {visibleChildren.map(child => renderNode(child, depth + 1))}
+                          {visibleChildren.map(child => renderNode(child, depth + 1, visibleChildren))}
                           {creatingFolder?.accountId === account.id && creatingFolder?.parentPath === folder.path &&
                             createFolderInput(BASE_INDENT + (depth + 1) * DEPTH_INDENT)}
                         </>
@@ -1383,10 +1456,13 @@ export default function Sidebar() {
                   );
                 };
 
-                const tree = buildFolderTree(accountFolders);
+                const tree = buildFolderTree(accountFolders, folderOrder[account.id]);
+                const visibleTree = showingHidden
+                  ? tree
+                  : tree.filter(node => !accountHiddenPaths.includes(node.path));
                 return (
                   <div>
-                    {tree.map(node => renderNode(node, 0))}
+                    {visibleTree.map(node => renderNode(node, 0, visibleTree))}
                     {/* Show/hide hidden folders toggle */}
                     {accountHiddenPaths.length > 0 && (
                       <button
