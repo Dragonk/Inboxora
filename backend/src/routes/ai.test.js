@@ -33,7 +33,7 @@ vi.mock('../services/openaiCodexAuth.js', () => ({
 }));
 
 import express from 'express';
-import aiRoutes from './ai.js';
+import aiRoutes, { aiLanguageInstruction } from './ai.js';
 
 const ADMIN = 'admin-user';
 const MEMBER = 'ordinary-user';
@@ -98,6 +98,7 @@ beforeEach(() => {
     }
     if (/SELECT id FROM users/i.test(sql)) return { rows: params[0] ? [{ id: params[0] }] : [] };
     if (/system_settings/i.test(sql)) return { rows: [] };
+    if (/SELECT preferences FROM users/i.test(sql)) return { rows: [{ preferences: {} }] };
     throw new Error(`Unexpected SQL: ${sql}`);
   });
   mocks.getAdminAiConfig.mockResolvedValue(null);
@@ -289,7 +290,10 @@ describe('authenticated AI status and streaming', () => {
       + 'data: {"choices":[{"delta":{"content":"lo"}}]}\n\n'
       + 'data: [DONE]\n\n',
     );
-    expect(mocks.streamChat).toHaveBeenCalledWith(messages, { signal: expect.any(AbortSignal) });
+    expect(mocks.streamChat).toHaveBeenCalledWith(
+      [{ role: 'system', content: aiLanguageInstruction('en') }, ...messages],
+      { signal: expect.any(AbortSignal) },
+    );
   });
 
   it('returns 503 before streaming when the selected provider is unavailable', async () => {
@@ -346,4 +350,29 @@ describe('authenticated AI status and streaming', () => {
     expect(text).toContain('data: [DONE]\n\n');
     expect(text).not.toContain('access-token-secret');
   });
+});
+
+describe('aiLanguageInstruction', () => {
+  it.each([
+    ['en', 'English'],
+    ['ru', 'Russian'],
+    ['de', 'German'],
+    ['es', 'Spanish'],
+    ['fr', 'French'],
+    ['it', 'Italian'],
+    ['zhCN', 'Simplified Chinese'],
+  ])('maps %s to %s', (language, name) => {
+    expect(aiLanguageInstruction(language)).toBe(
+      `Always respond in ${name}, unless the user explicitly asks for another language. For email drafting and rewriting, preserve the original email language when it differs from ${name}.`,
+    );
+  });
+
+  it.each([undefined, null, '', 'pt', 'constructor', 'toString'])(
+    'uses a non-interpolating fallback for unsupported value %s',
+    (language) => {
+      expect(aiLanguageInstruction(language)).toBe(
+        'Always respond in the user interface language, unless the user explicitly asks for another language. For email drafting and rewriting, preserve the original email language when it differs from the user interface language.',
+      );
+    },
+  );
 });

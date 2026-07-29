@@ -1,5 +1,6 @@
 import { Router } from 'express';
 import { requireAuth, requireAdmin } from '../middleware/auth.js';
+import { query } from '../services/db.js';
 import {
   deleteAiConfig,
   getAdminAiConfig,
@@ -18,6 +19,23 @@ import {
 
 const router = Router();
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+const AI_LANGUAGE_NAMES = {
+  en: 'English',
+  ru: 'Russian',
+  de: 'German',
+  es: 'Spanish',
+  fr: 'French',
+  it: 'Italian',
+  zhCN: 'Simplified Chinese',
+};
+
+export function aiLanguageInstruction(language) {
+  const name = Object.hasOwn(AI_LANGUAGE_NAMES, language)
+    ? AI_LANGUAGE_NAMES[language]
+    : 'the user interface language';
+  return `Always respond in ${name}, unless the user explicitly asks for another language. For email drafting and rewriting, preserve the original email language when it differs from ${name}.`;
+}
 
 function serviceError(res, error, fallback = 'Request failed') {
   const status = Number.isInteger(error?.status) && error.status >= 400 && error.status < 600
@@ -167,6 +185,16 @@ router.post('/ai/chat', requireAuth, async (req, res) => {
     return res.status(503).json({ error });
   }
 
+  let language = 'en';
+  try {
+    const prefResult = await query('SELECT preferences FROM users WHERE id = $1', [req.session.userId]);
+    language = prefResult.rows[0]?.preferences?.language || 'en';
+  } catch { /* non-critical: fall back to English on a preferences read error */ }
+  const providerMessages = [
+    { role: 'system', content: aiLanguageInstruction(language) },
+    ...messages,
+  ];
+
   const controller = new AbortController();
   const abort = () => {
     if (!res.writableEnded && !controller.signal.aborted) controller.abort();
@@ -180,7 +208,7 @@ router.post('/ai/chat', requireAuth, async (req, res) => {
   res.flushHeaders();
 
   try {
-    for await (const delta of streamChat(messages, { signal: controller.signal })) {
+    for await (const delta of streamChat(providerMessages, { signal: controller.signal })) {
       if (controller.signal.aborted || res.destroyed) break;
       res.write(`data: ${JSON.stringify({ choices: [{ delta: { content: delta } }] })}\n\n`);
     }
