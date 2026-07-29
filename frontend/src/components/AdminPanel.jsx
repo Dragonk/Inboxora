@@ -1459,7 +1459,8 @@ function SwipeActionIcon({ action, size = 17 }) {
 function LayoutsTab() {
   const { t } = useTranslation();
   const isMobile = useMobile();
-  const { layout, setLayout, pageSize, setPageSize, scrollMode, setScrollMode, swipeActions, setSwipeAction, syncInterval, setSyncInterval, folderSyncInterval, setFolderSyncInterval, threadedView, setThreadedView, plaintextEmail, setPlaintextEmail, hoverQuickActions, setHoverQuickActions, showMobileAvatars, setShowMobileAvatars, gravatarAvatars, setGravatarAvatars, replyDefault, setReplyDefault, markReadBehavior, setMarkReadBehavior, markReadDelay, setMarkReadDelay } = useStore();
+  const { layout, setLayout, pageSize, setPageSize, scrollMode, setScrollMode, swipeActions, setSwipeAction, syncInterval, setSyncInterval, folderSyncInterval, setFolderSyncInterval, threadedView, setThreadedView, plaintextEmail, setPlaintextEmail, hoverQuickActions, setHoverQuickActions, showMobileAvatars, setShowMobileAvatars, gravatarAvatars, setGravatarAvatars, replyDefault, setReplyDefault, markReadBehavior, setMarkReadBehavior, markReadDelay, setMarkReadDelay, senderFavicons, senderFaviconsSaving, setSenderFavicons } = useStore();
+  const [senderFaviconsError, setSenderFaviconsError] = useState('');
 
   // "Set MailFlow as your default email app": registerProtocolHandler is the
   // cross-browser path (works in Firefox and non-installed Chromium) and must be
@@ -1744,6 +1745,54 @@ function LayoutsTab() {
             </div>
           </div>
         )}
+
+        <div style={{ marginTop: 18, paddingTop: 18, borderTop: '1px solid var(--border-subtle)' }}>
+          <div style={{
+            display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 16,
+            padding: '12px 14px', borderRadius: 8,
+            background: 'var(--bg-tertiary)', border: '1px solid var(--border-subtle)',
+          }}>
+            <div>
+              <div style={{ fontSize: 13, fontWeight: 500, color: 'var(--text-primary)' }}>
+                {t('admin.messageList.senderFavicons')}
+              </div>
+              <div style={{ fontSize: 12, color: 'var(--text-tertiary)', marginTop: 2 }}>
+                {t('admin.messageList.senderFaviconsDesc')}
+              </div>
+            </div>
+            <button
+              type="button"
+              role="switch"
+              aria-checked={senderFavicons}
+              aria-label={t('admin.messageList.senderFavicons')}
+              disabled={senderFaviconsSaving}
+              onClick={async () => {
+                setSenderFaviconsError('');
+                try { await setSenderFavicons(!senderFavicons); }
+                catch { setSenderFaviconsError(t('admin.messageList.senderFaviconsSaveError')); }
+              }}
+              style={{
+                width: 44, height: 24, borderRadius: 12,
+                background: senderFavicons ? 'var(--accent)' : 'var(--bg-elevated)',
+                border: `1px solid ${senderFavicons ? 'var(--accent)' : 'var(--border)'}`,
+                cursor: senderFaviconsSaving ? 'not-allowed' : 'pointer',
+                position: 'relative', transition: 'all 0.2s', flexShrink: 0,
+                opacity: senderFaviconsSaving ? 0.6 : 1,
+              }}
+            >
+              <span style={{
+                position: 'absolute', top: 3, left: senderFavicons ? 22 : 3,
+                width: 16, height: 16, borderRadius: '50%', background: 'white',
+                transition: 'left 0.2s', boxShadow: '0 1px 3px rgba(0,0,0,0.3)',
+              }} />
+            </button>
+          </div>
+          {senderFaviconsError && (
+            <div style={{ color: 'var(--red)', fontSize: 12, marginTop: 8 }}>
+              {senderFaviconsError}
+            </div>
+          )}
+        </div>
 
         {isMobile && (
           <div style={{ marginTop: 22, paddingTop: 18, borderTop: '1px solid var(--border-subtle)' }}>
@@ -7816,6 +7865,11 @@ function makeSearchIndex(t) {
     { label: t('admin.messageList.scrollingMode'), keywords: ['scroll', 'infinite', 'paginated', 'pagination', 'pages'], tab: 'appearance', subtab: 'layout', breadcrumb: layoutCrumb },
     { label: t('admin.messageList.perPagePaginated'), keywords: ['per page', 'batch', 'messages per page', 'count', '25', '50', '100', '200', 'page size'], tab: 'appearance', subtab: 'layout', breadcrumb: layoutCrumb },
     { label: t('admin.messageList.hoverQuickActionsMode'), keywords: ['hover', 'quick actions', 'hover buttons', 'row actions'], tab: 'appearance', subtab: 'layout', breadcrumb: layoutCrumb },
+    {
+      label: t('admin.messageList.senderFavicons'),
+      keywords: ['sender', 'favicon', 'avatar', 'contact photo', 'website icon', 'logo'],
+      tab: 'appearance', subtab: 'layout', breadcrumb: layoutCrumb,
+    },
     { label: t('admin.messageList.swipeActions'), keywords: ['swipe', 'gesture', 'mobile', 'swipe left', 'swipe right', 'touch'], tab: 'appearance', subtab: 'layout', breadcrumb: layoutCrumb },
     { label: t('admin.messageList.syncFrequency'), keywords: ['sync', 'interval', 'frequency', 'refresh', 'poll', 'check mail', '15s', '30s', '60s'], tab: 'appearance', subtab: 'layout', breadcrumb: layoutCrumb },
     { label: t('admin.messageList.folderSyncFrequency'), keywords: ['folder', 'sync', 'structure', 'list', 'refresh', 'mailbox', '15 min', '30 min', '1 hour', 'never'], tab: 'appearance', subtab: 'layout', breadcrumb: layoutCrumb },

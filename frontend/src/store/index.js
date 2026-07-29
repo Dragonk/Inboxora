@@ -52,7 +52,14 @@ function readGtdCollapsedSections() {
 export const useStore = create((set, get) => ({
   // Auth
   user: null,
-  setUser: (user) => set({ user }),
+  setUser: (user) => set(state => ({
+    user,
+    ...(state.user?.id !== user?.id ? {
+      senderFaviconsLoaded: false,
+      senderFavicons: false,
+      senderFaviconsSaving: false,
+    } : {}),
+  })),
   updateUser: (updates) => set(state => ({ user: state.user ? { ...state.user, ...updates } : state.user })),
 
   // Todoist integration status (persisted across page loads via localStorage)
@@ -669,6 +676,35 @@ export const useStore = create((set, get) => ({
   // Image privacy
   blockRemoteImages: true,
   imageWhitelist: { addresses: [], domains: [] },
+  senderFaviconsLoaded: false,
+  senderFavicons: false,
+  senderFaviconsSaving: false,
+  // Monotonic counter bumped on every toggle. loadPreferences captures it before
+  // its GET so a stale hydration response can't clobber a toggle the user made
+  // while the fetch was in flight. Never reset — the user-id guard covers account
+  // switches, and monotonicity avoids ABA.
+  senderFaviconsEpoch: 0,
+  setSenderFavicons: async (enabled) => {
+    if (get().senderFaviconsSaving) return;
+    const userId = get().user?.id;
+    set(state => ({ senderFaviconsSaving: true, senderFaviconsEpoch: state.senderFaviconsEpoch + 1 }));
+    if (!enabled) {
+      set({ senderFavicons: false });
+      try { await api.savePreferences({ senderFavicons: false }); }
+      finally {
+        if (get().user?.id === userId) set({ senderFaviconsSaving: false });
+      }
+      return;
+    }
+    try {
+      await api.savePreferences({ senderFavicons: true });
+      if (get().user?.id === userId) {
+        set({ senderFaviconsLoaded: true, senderFavicons: true });
+      }
+    } finally {
+      if (get().user?.id === userId) set({ senderFaviconsSaving: false });
+    }
+  },
   setBlockRemoteImages: (val) => {
     set({ blockRemoteImages: val });
     return api.savePreferences({ blockRemoteImages: val });
@@ -807,8 +843,11 @@ export const useStore = create((set, get) => ({
   // Fetch server preferences and apply them — call after any successful login.
   // Sets localStorage so subsequent page loads apply the right values instantly.
   loadPreferences: async () => {
+    const userId = get().user?.id;
+    const faviconEpoch = get().senderFaviconsEpoch;
     try {
       const prefs = await api.getPreferences();
+      if (get().user?.id !== userId) return;
       if (prefs.theme) {
         localStorage.setItem('mailflow_theme', prefs.theme);
         set({ theme: prefs.theme });
@@ -877,6 +916,13 @@ export const useStore = create((set, get) => ({
         set({ autoLockMinutes: [0, 1, 5, 15, 30].includes(n) ? n : 0 });
       }
       if (prefs.imageWhitelist) set({ imageWhitelist: prefs.imageWhitelist });
+      // Hydration is done, but if the user toggled while this GET was in flight
+      // (epoch bumped), the toggle owns senderFavicons — only mark it loaded.
+      if (get().senderFaviconsEpoch === faviconEpoch) {
+        set({ senderFaviconsLoaded: true, senderFavicons: prefs.senderFavicons === true });
+      } else {
+        set({ senderFaviconsLoaded: true });
+      }
       if (prefs.shortcuts) set({ shortcuts: prefs.shortcuts });
       if (Array.isArray(prefs.aiActions)) {
         set({ aiActions: prefs.aiActions });

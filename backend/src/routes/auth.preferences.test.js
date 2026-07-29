@@ -62,3 +62,37 @@ describe('PATCH /auth/preferences folderOrder', () => {
     expect(res.json).toHaveBeenCalledWith({ ok: true });
   });
 });
+
+describe('PATCH /auth/preferences senderFavicons', () => {
+  it('merges the senderFavicons boolean into preferences as JSONB', async () => {
+    const req = { session: { userId: 'user-1' }, body: { senderFavicons: true } };
+    const res = {
+      status: vi.fn().mockReturnThis(),
+      json: vi.fn(),
+    };
+
+    await patchPreferences(req, res);
+
+    const [sql, params] = query.mock.calls[0];
+    expect(sql).toContain(
+      "jsonb_build_object('senderFavicons', $40::boolean)",
+    );
+    expect(params[0]).toBe('user-1');
+    expect(params[39]).toBe(true);
+    expect(res.json).toHaveBeenCalledWith({ ok: true });
+  });
+
+  it('rejects a non-boolean senderFavicons without querying', async () => {
+    const req = { session: { userId: 'user-1' }, body: { senderFavicons: 'yes' } };
+    const res = {
+      status: vi.fn().mockReturnThis(),
+      json: vi.fn(),
+    };
+
+    await patchPreferences(req, res);
+
+    expect(res.status).toHaveBeenCalledWith(400);
+    expect(res.json).toHaveBeenCalledWith({ error: 'senderFavicons must be a boolean' });
+    expect(query).not.toHaveBeenCalled();
+  });
+});

@@ -27,6 +27,7 @@ import todoistRoutes from './routes/todoist.js';
 import aiRoutes from './routes/ai.js';
 import categoriesRoutes from './routes/categories.js';
 import gtdRoutes from './routes/gtd.js';
+import senderFaviconsRoutes from './routes/senderFavicons.js';
 import carddavRouter from './routes/carddav.js';
 import carddavAccountRouter from './routes/carddavAccount.js';
 import { startCardavScheduler } from './services/carddavSync.js';
@@ -179,6 +180,7 @@ app.use('/api', categoriesRoutes);
 // requireAuth cannot intercept the unauthenticated /api/health and /api/version
 // probes registered below. Its routes drop the gtd/ path prefix accordingly.
 app.use('/api/gtd', gtdRoutes);
+app.use('/api/sender-favicons', senderFaviconsRoutes);
 
 // CardDAV server — body is read lazily inside each handler via rawBody()
 app.use('/carddav', carddavRouter);

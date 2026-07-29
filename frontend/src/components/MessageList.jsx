@@ -17,6 +17,7 @@ import {
 } from '../utils/gtd.js';
 import { formatDate } from '../utils/formatDate.js';
 import { openReplyFromMessage, openForwardFromMessage } from '../utils/composeFromMessage.js';
+import SenderAvatarImage from './SenderAvatarImage.jsx';
 import { shortcutBus } from '../utils/shortcutBus.js';
 import { createLatestRequest } from '../utils/latestRequest.js';
 import { pendingMarkReadMap, completedMarkReadMap, setPending } from '../utils/pendingReads.js';
@@ -113,7 +114,7 @@ export default function MessageList() {
     setMobileSidebarOpen, unreadCounts, showContacts, setShowContacts,
     threadedView, expandedThreadId, setExpandedThreadId,
     threadMessages, setThreadMessages, loadingThread, setLoadingThread,
-    hoverQuickActions, showMobileAvatars, gravatarAvatars,
+    hoverQuickActions, showMobileAvatars,
     swipeActions,
     folders, favoriteFolders, addFavoriteFolder, removeFavoriteFolder, setSelectedAccount,
     categorizationEnabled, categoryCounts, setCategoryCounts, adjustCategoryCount,
@@ -3435,7 +3436,6 @@ export default function MessageList() {
                 isNarrow={isNarrow}
                 onThreadClick={() => handleThreadClick(message)}
                 showMobileAvatars={showMobileAvatars}
-                gravatarAvatars={gravatarAvatars}
                 onSelect={handleSelect}
                 onMarkRead={handleThreadMarkRead}
                 onStar={handleStar}
@@ -3479,7 +3479,6 @@ export default function MessageList() {
                 onRangeSelect={handleRangeSelect}
                 onAvatarClick={!isMobile ? handleAvatarClick : undefined}
                 showMobileAvatars={showMobileAvatars}
-                gravatarAvatars={gravatarAvatars}
                 onMarkRead={handleMarkRead}
                 onStar={handleStar}
                 onDelete={handleDelete}
@@ -3913,7 +3912,7 @@ function EmptyState({ folderSyncing, searchQuery, unreadOnly, selectedFolder, ac
   );
 }
 
-function ThreadRow({ message, isExpanded, threadMsgs, isLoadingThread, selectedMessageId, selectedMid, lastViewedMessageId, showAccount, isNarrow, onThreadClick, showMobileAvatars, gravatarAvatars, onSelect, onMarkRead, onStar, onDelete, hoverQuickActions, onContextMenu, onMove, onGtdDone, isMobile, swipeLeftAction, swipeRightAction, onSwipeLeft, onSwipeRight, isChecked, selectionMode, onToggleSelect, onRangeSelect, onLongPress }) {
+function ThreadRow({ message, isExpanded, threadMsgs, isLoadingThread, selectedMessageId, selectedMid, lastViewedMessageId, showAccount, isNarrow, onThreadClick, showMobileAvatars, onSelect, onMarkRead, onStar, onDelete, hoverQuickActions, onContextMenu, onMove, onGtdDone, isMobile, swipeLeftAction, swipeRightAction, onSwipeLeft, onSwipeRight, isChecked, selectionMode, onToggleSelect, onRangeSelect, onLongPress }) {
   const { t } = useTranslation();
   const [hovered, setHovered] = useState(false);
   const messageCount = message.message_count || 1;
@@ -4037,23 +4036,10 @@ function ThreadRow({ message, isExpanded, threadMsgs, isLoadingThread, selectedM
             ) : (
               <>
                 {(message.from_name || message.from_email || '?')[0].toUpperCase()}
-                {message.has_contact_photo && message.from_email && (
-                  <img
-                    src={`/api/contacts/photo?email=${encodeURIComponent(message.from_email)}`}
-                    alt=""
-                    style={{ position: 'absolute', inset: 0, width: '100%', height: '100%', objectFit: 'cover' }}
-                    onError={e => { e.currentTarget.style.display = 'none'; }}
-                  />
-                )}
-                {!message.has_contact_photo && gravatarAvatars && message.from_email && (
-                  <img
-                    src={`/api/contacts/gravatar?email=${encodeURIComponent(message.from_email)}`}
-                    alt=""
-                    loading="lazy"
-                    style={{ position: 'absolute', inset: 0, width: '100%', height: '100%', objectFit: 'cover' }}
-                    onError={e => { e.currentTarget.style.display = 'none'; }}
-                  />
-                )}
+                <SenderAvatarImage
+                  email={message.from_email}
+                  hasContactPhoto={message.has_contact_photo}
+                />
               </>
             )}
           </div>
@@ -4203,7 +4189,7 @@ function ThreadRow({ message, isExpanded, threadMsgs, isLoadingThread, selectedM
   );
 }
 
-function MessageRow({ message, selected, lastViewed, isChecked, selectionMode, showAccount, isNarrow, onSelect, onToggleSelect, onRangeSelect, onAvatarClick, showMobileAvatars, gravatarAvatars, onMarkRead, onStar, onDelete, hoverQuickActions, onContextMenu, onMove, onGtdDone, onDragStart, isMobile, swipeLeftAction, swipeRightAction, onSwipeLeft, onSwipeRight, onLongPress }) {
+function MessageRow({ message, selected, lastViewed, isChecked, selectionMode, showAccount, isNarrow, onSelect, onToggleSelect, onRangeSelect, onAvatarClick, showMobileAvatars, onMarkRead, onStar, onDelete, hoverQuickActions, onContextMenu, onMove, onGtdDone, onDragStart, isMobile, swipeLeftAction, swipeRightAction, onSwipeLeft, onSwipeRight, onLongPress }) {
   const { t } = useTranslation();
   const [hovered, setHovered] = useState(false);
   const [avatarHovered, setAvatarHovered] = useState(false);
@@ -4371,23 +4357,10 @@ function MessageRow({ message, selected, lastViewed, isChecked, selectionMode, s
             ) : (
               <>
                 {(message.from_name || message.from_email || '?')[0].toUpperCase()}
-                {message.has_contact_photo && message.from_email && (
-                  <img
-                    src={`/api/contacts/photo?email=${encodeURIComponent(message.from_email)}`}
-                    alt=""
-                    style={{ position: 'absolute', inset: 0, width: '100%', height: '100%', objectFit: 'cover' }}
-                    onError={e => { e.currentTarget.style.display = 'none'; }}
-                  />
-                )}
-                {!message.has_contact_photo && gravatarAvatars && message.from_email && (
-                  <img
-                    src={`/api/contacts/gravatar?email=${encodeURIComponent(message.from_email)}`}
-                    alt=""
-                    loading="lazy"
-                    style={{ position: 'absolute', inset: 0, width: '100%', height: '100%', objectFit: 'cover' }}
-                    onError={e => { e.currentTarget.style.display = 'none'; }}
-                  />
-                )}
+                <SenderAvatarImage
+                  email={message.from_email}
+                  hasContactPhoto={message.has_contact_photo}
+                />
               </>
             )}
           </div>
