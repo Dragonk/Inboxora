@@ -7,8 +7,8 @@ import { query, pool } from '../services/db.js';
 import { imapManager } from '../index.js';
 import { decrypt, encrypt } from '../services/encryption.js';
 import { pushConfigured } from '../services/pushNotifications.js';
-import nodemailer from 'nodemailer';
 import { validateHost, resolveForConnection } from '../services/hostValidation.js';
+import { createSmtpTransport } from '../services/smtpTransport.js';
 import { getConnectionPolicy } from '../services/connectionPolicy.js';
 import { authLimiterConfig } from '../services/authLimiter.js';
 import { logAuthEvent } from '../services/authEvents.js';
@@ -1004,8 +1004,8 @@ router.post('/forgot-password', authLimiter, async (req, res) => {
             const sysResolved = await resolveForConnection(cfg.host);
             const sysTls = { rejectUnauthorized: true };
             if (sysResolved.servername) sysTls.servername = sysResolved.servername;
-            transport = nodemailer.createTransport({
-              host: sysResolved.host, port: cfg.port || 587,
+            transport = createSmtpTransport(sysResolved, {
+              port: cfg.port || 587,
               secure: (cfg.port || 587) === 465,
               auth: { user: cfg.user, pass }, tls: sysTls,
             });
@@ -1038,8 +1038,8 @@ router.post('/forgot-password', authLimiter, async (req, res) => {
           const acctResolved = await resolveForConnection(acct.smtp_host, { allowPrivate: policy.allowPrivateHosts });
           const acctTls = { rejectUnauthorized: policy.allowInsecureTls ? !acct.imap_skip_tls_verify : true };
           if (acctResolved.servername) acctTls.servername = acctResolved.servername;
-          transport = nodemailer.createTransport({
-            host: acctResolved.host, port: acct.smtp_port,
+          transport = createSmtpTransport(acctResolved, {
+            port: acct.smtp_port,
             secure: acct.smtp_port === 465,
             auth: smtpAuth, tls: acctTls,
           });
