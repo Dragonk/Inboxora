@@ -28,6 +28,7 @@ import GtdZeroPet from './GtdZeroPet.jsx';
 import { getEffectiveShortcuts, getGroupedActions, ACTION_DEFS, SPECIAL_KEY_LABELS, parseModKey, modLabel } from '../utils/defaultShortcuts.js';
 import { DEFAULT_GTD_FOLDERS, GTD_STATES, resolveAccountGtdFolders, diffGtdFolders, findGtdFolderCollisions } from '../utils/gtd.js';
 import { unifiedUnreadTotal } from '../utils/unifiedInbox.js';
+import { isValidForwardAddress } from '../utils/ruleActions.js';
 
 // ─── Shared field component ───────────────────────────────────────────────────
 function Field({ label, required, children }) {
@@ -6006,6 +6007,11 @@ function RulesTab() {
       setFormError(t('admin.rules.errorMoveFolder'));
       return;
     }
+    const forwardAction = actions.find(action => action.type === 'forward');
+    if (forwardAction && !isValidForwardAddress(forwardAction.value)) {
+      setFormError(t('admin.rules.errorForwardEmail'));
+      return;
+    }
     setFormSaving(true);
     setFormError('');
     try {
@@ -6102,7 +6108,7 @@ function RulesTab() {
   function actionSummary(rule) {
     const acts = Array.isArray(rule.actions) ? rule.actions : [];
     if (!acts.length) return '—';
-    const labels = { mark_read: t('admin.rules.actionMarkRead'), star: t('admin.rules.actionStar'), archive: t('admin.rules.actionArchive'), delete: t('admin.rules.actionDelete'), move: t('admin.rules.actionMove') };
+    const labels = { mark_read: t('admin.rules.actionMarkRead'), star: t('admin.rules.actionStar'), forward: t('admin.rules.actionForward'), archive: t('admin.rules.actionArchive'), delete: t('admin.rules.actionDelete'), move: t('admin.rules.actionMove') };
     return acts.map(a => labels[a.type] || a.type).join(', ');
   }
 
@@ -6126,6 +6132,7 @@ function RulesTab() {
   const ACTION_TYPES = [
     { type: 'mark_read', label: t('admin.rules.actionMarkRead') },
     { type: 'star',      label: t('admin.rules.actionStar') },
+    { type: 'forward',   label: t('admin.rules.actionForward') },
     { type: 'archive',   label: t('admin.rules.actionArchive') },
     { type: 'delete',    label: t('admin.rules.actionDelete') },
     { type: 'move',      label: t('admin.rules.actionMove') },
@@ -6324,6 +6331,17 @@ function RulesTab() {
                     />
                   );
                 })()}
+                {type === 'forward' && checked && (
+                  <input
+                    type="email"
+                    autoComplete="off"
+                    aria-label={t('admin.rules.actionForward')}
+                    style={{ ...inputStyle, marginTop: 6, marginLeft: 22 }}
+                    value={fd.actions.find(action => action.type === 'forward')?.value || ''}
+                    onChange={event => setActionValue('forward', event.target.value)}
+                    placeholder={t('admin.rules.actionForwardPlaceholder')}
+                  />
+                )}
               </div>
             );
           })}
