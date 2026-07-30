@@ -354,17 +354,27 @@ export default function ContactsPage() {
     <>
       {!selected && !showNew && !isMobile && (
         <div style={{
-          height: '100%', display: 'flex', flexDirection: 'column',
+          display: 'flex', flexDirection: 'column',
           alignItems: 'center', justifyContent: 'center',
-          color: 'var(--text-tertiary)',
+          color: 'var(--text-tertiary)', textAlign: 'center', gap: 14, padding: 24,
         }}>
-          <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.2" style={{ opacity: 0.3, marginBottom: 12 }}>
+          <svg width="56" height="56" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.2" style={{ opacity: 0.25 }}>
             <path d="M17 21v-2a4 4 0 00-4-4H5a4 4 0 00-4 4v2"/>
             <circle cx="9" cy="7" r="4"/>
             <path d="M23 21v-2a4 4 0 00-3-3.87"/>
             <path d="M16 3.13a4 4 0 010 7.75"/>
           </svg>
-          <div style={{ fontSize: 14 }}>{t('contacts.selectHint')}</div>
+          <div style={{ fontSize: 15, color: 'var(--text-secondary)' }}>{t('contacts.selectHint')}</div>
+          <button
+            onClick={startNew}
+            style={{
+              marginTop: 4, background: 'var(--accent)', border: 'none', borderRadius: 7,
+              color: 'var(--accent-text)', fontSize: 13, fontWeight: 500,
+              padding: '7px 14px', cursor: 'pointer',
+            }}
+          >
+            + {t('contacts.new')}
+          </button>
         </div>
       )}
       {inForm && (
@@ -492,7 +502,7 @@ export default function ContactsPage() {
 
   // ── Desktop layout ────────────────────────────────────────────────────────
   return (
-    <div style={{ display: 'flex', height: '100%', overflow: 'hidden', background: 'var(--bg-primary)' }}>
+    <div style={{ display: 'flex', flex: 1, minWidth: 0, height: '100%', overflow: 'hidden', background: 'var(--bg-primary)' }}>
 
       {/* Contact list panel */}
       <div style={{
@@ -535,8 +545,13 @@ export default function ContactsPage() {
         {listPanel}
       </div>
 
-      {/* Detail / form panel — keyed by contact id so scroll resets when switching contacts */}
-      <div key={selected?.id ?? (showNew ? 'new' : 'empty')} style={{ flex: 1, overflow: 'hidden auto', padding: 32, minWidth: 0 }}>
+      {/* Detail / form panel — keyed by contact id so scroll resets when switching contacts.
+          When nothing is selected, center the empty-state placeholder in the full pane. */}
+      <div key={selected?.id ?? (showNew ? 'new' : 'empty')} style={{
+        flex: 1, overflow: 'hidden auto', minWidth: 0,
+        padding: (!selected && !showNew) ? 0 : 32,
+        ...((!selected && !showNew) && { display: 'flex', alignItems: 'center', justifyContent: 'center' }),
+      }}>
         {detailPanel}
       </div>
     </div>
