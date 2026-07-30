@@ -971,7 +971,7 @@
       "mailPolicyTitle": "Mail Server Connection Policy",
       "mailPolicyDesc": "Controls which connection types users are permitted to configure. Disable these for internet-facing deployments.",
       "allowPrivateHosts": "Allow private / local hosts",
-      "allowPrivateHostsDesc": "Permits connecting to IMAP and SMTP servers at private or local addresses (e.g. 127.0.0.1, 192.168.x.x). Required for protonmail-bridge and similar local mail bridges.",
+      "allowPrivateHostsDesc": "Permits connecting to IMAP/SMTP mail servers, CardDAV servers, and AI providers at private or local addresses (e.g. 127.0.0.1, 192.168.x.x). Required for protonmail-bridge, a self-hosted CardDAV/Nextcloud server, or a local AI model.",
       "allowInsecureTls": "Allow insecure TLS",
       "allowInsecureTlsDesc": "Allows users to disable TLS certificate verification per account. Required for servers with self-signed certificates.",
       "allowNonstandardPorts": "Allow non-standard ports",

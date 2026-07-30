@@ -971,7 +971,7 @@
       "mailPolicyTitle": "Politique de connexion au serveur de messagerie",
       "mailPolicyDesc": "Contrôle les types de connexion que les utilisateurs peuvent configurer. Désactiver pour les déploiements exposés à Internet.",
       "allowPrivateHosts": "Autoriser les hôtes privés / locaux",
-      "allowPrivateHostsDesc": "Permet de se connecter à des serveurs IMAP et SMTP sur des adresses privées ou locales (p. ex. 127.0.0.1, 192.168.x.x). Nécessaire pour protonmail-bridge et les passerelles de messagerie locales similaires.",
+      "allowPrivateHostsDesc": "Permet de se connecter aux serveurs de messagerie IMAP/SMTP, aux serveurs CardDAV et aux fournisseurs d'IA sur des adresses privées ou locales (p. ex. 127.0.0.1, 192.168.x.x). Nécessaire pour protonmail-bridge, un serveur CardDAV/Nextcloud auto-hébergé ou un modèle d'IA local.",
       "allowInsecureTls": "Autoriser le TLS non sécurisé",
       "allowInsecureTlsDesc": "Permet aux utilisateurs de désactiver la vérification du certificat TLS par compte. Nécessaire pour les serveurs avec des certificats auto-signés.",
       "allowNonstandardPorts": "Autoriser les ports non standard",

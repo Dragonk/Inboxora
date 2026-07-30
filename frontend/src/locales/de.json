@@ -901,7 +901,7 @@
       "mailPolicyTitle": "Verbindungsrichtlinie für Mailserver",
       "mailPolicyDesc": "Legt fest, welche Verbindungstypen Benutzer konfigurieren dürfen. Für öffentlich zugängliche Instanzen deaktivieren.",
       "allowPrivateHosts": "Private / lokale Hosts erlauben",
-      "allowPrivateHostsDesc": "Ermöglicht Verbindungen zu IMAP- und SMTP-Servern unter privaten oder lokalen Adressen (z.B. 127.0.0.1, 192.168.x.x). Erforderlich für protonmail-bridge und ähnliche lokale Mail-Bridges.",
+      "allowPrivateHostsDesc": "Ermöglicht Verbindungen zu IMAP-/SMTP-Mailservern, CardDAV-Servern und KI-Anbietern unter privaten oder lokalen Adressen (z.B. 127.0.0.1, 192.168.x.x). Erforderlich für protonmail-bridge, einen selbst gehosteten CardDAV-/Nextcloud-Server oder ein lokales KI-Modell.",
       "allowInsecureTls": "Unsicheres TLS erlauben",
       "allowInsecureTlsDesc": "Erlaubt Benutzern, die TLS-Zertifikatsprüfung pro Konto zu deaktivieren. Erforderlich für Server mit selbstsignierten Zertifikaten.",
       "allowNonstandardPorts": "Nicht-standardmäßige Ports erlauben",
