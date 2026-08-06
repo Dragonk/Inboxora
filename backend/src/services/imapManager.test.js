@@ -1272,3 +1272,29 @@ describe('walkStructure attachment classification', () => {
     expect(results.attachments[0].filename).toBe('invoice.pdf');
   });
 });
+
+// ── _shouldAutoBackfillOnConnect — auto-backfill gate (#354) ──────────────────
+// The gate itself was always correct; #354 was the connect flow evaluating it
+// AFTER the initial INBOX sync inserted rows. These lock the gate contract:
+// providers without the flag always backfill; PurelyMail backfills only when the
+// account is genuinely empty (which connectAccount now captures pre-sync).
+
+describe('_shouldAutoBackfillOnConnect (#354)', () => {
+  const gate = acct => ImapManager.prototype._shouldAutoBackfillOnConnect.call({}, acct);
+  beforeEach(() => vi.clearAllMocks());
+
+  it('always backfills a provider without autoBackfillExistingOnConnect:false, without a DB check', async () => {
+    await expect(gate({ imap_host: 'mail.example.com', id: 'a1' })).resolves.toBe(true);
+    expect(query).not.toHaveBeenCalled();
+  });
+
+  it('backfills a fresh PurelyMail account with no cached messages', async () => {
+    query.mockResolvedValueOnce({ rows: [] });
+    await expect(gate({ imap_host: 'imap.purelymail.com', id: 'a1' })).resolves.toBe(true);
+  });
+
+  it('skips backfill for a PurelyMail account that already has cached messages', async () => {
+    query.mockResolvedValueOnce({ rows: [{ exists: 1 }] });
+    await expect(gate({ imap_host: 'imap.purelymail.com', id: 'a1' })).resolves.toBe(false);
+  });
+});

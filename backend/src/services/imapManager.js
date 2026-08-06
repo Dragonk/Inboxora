@@ -1815,6 +1815,15 @@ export class ImapManager {
       this.connections.set(account.id, client);
       await query('UPDATE email_accounts SET sync_error = NULL WHERE id = $1', [account.id]);
 
+      // Decide whether to auto-backfill BEFORE the initial sync below runs. For providers
+      // with autoBackfillExistingOnConnect:false (e.g. PurelyMail) the gate skips backfill
+      // when the account already has cached mail — but the initial INBOX sync inserts ~20
+      // recent rows, so evaluating this AFTER the sync made a genuinely fresh account
+      // (0 messages, e.g. right after delete + re-add) look non-empty and never backfill
+      // until a manual /reindex (#354). Capturing it here preserves the "don't re-backfill
+      // an established account on reconnect" intent while fixing the fresh-account case.
+      const shouldBackfill = await this._shouldAutoBackfillOnConnect(account);
+
       // Initial sync is non-fatal — throttling or temporary IMAP errors here should
       // not prevent the account from being marked connected. The 60-second interval
       // will retry the sync on the next tick.
@@ -1852,7 +1861,7 @@ export class ImapManager {
 
       // Backfill uses its OWN connection so it doesn't block the sync connection.
       // backfillAllFolders runs INBOX first, then all other known folders sequentially.
-      if (await this._shouldAutoBackfillOnConnect(account)) {
+      if (shouldBackfill) {
         this.backfillAllFolders(account).catch(err =>
           console.error(`Backfill error for ${logAccount(account)}:`, err.message)
         );
