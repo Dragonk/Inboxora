@@ -179,6 +179,15 @@
     }
   },
   "message": {
+    "find": {
+      "title": "Buscar",
+      "close": "Cerrar búsqueda",
+      "label": "Buscar:",
+      "matchCase": "Distinguir mayúsculas",
+      "previous": "Anterior",
+      "next": "Siguiente",
+      "closeButton": "Cerrar"
+    },
     "selectToRead": "Selecciona un mensaje para leer",
     "noSubject": "(sin asunto)",
     "to": "Para:",
@@ -403,6 +412,7 @@
     "updateAvailable": "Actualización disponible: v{{version}}"
   },
   "contextMenu": {
+    "find": "Buscar",
     "open": "Abrir",
     "markRead": "Marcar como leído",
     "markUnread": "Marcar como no leído",

@@ -179,6 +179,15 @@
     }
   },
   "message": {
+    "find": {
+      "title": "Cerca",
+      "close": "Chiudi ricerca",
+      "label": "Trova:",
+      "matchCase": "Maiuscole/minuscole",
+      "previous": "Precedente",
+      "next": "Successivo",
+      "closeButton": "Chiudi"
+    },
     "selectToRead": "Seleziona un messaggio da leggere",
     "noSubject": "(nessun oggetto)",
     "to": "A:",
@@ -403,6 +412,7 @@
     "updateAvailable": "Aggiornamento disponibile: v{{version}}"
   },
   "contextMenu": {
+    "find": "Trova",
     "open": "Apri",
     "markRead": "Segna come letto",
     "markUnread": "Segna come non letto",

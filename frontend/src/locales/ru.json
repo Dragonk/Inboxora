@@ -179,6 +179,15 @@
     }
   },
   "message": {
+    "find": {
+      "title": "Поиск",
+      "close": "Закрыть поиск",
+      "label": "Найти:",
+      "matchCase": "Учитывать регистр",
+      "previous": "Назад",
+      "next": "Далее",
+      "closeButton": "Закрыть"
+    },
     "selectToRead": "Выберите сообщение для чтения",
     "noSubject": "(без темы)",
     "to": "Кому:",
@@ -403,6 +412,7 @@
     "updateAvailable": "Доступно обновление: v{{version}}"
   },
   "contextMenu": {
+    "find": "Найти",
     "open": "Открыть",
     "markRead": "Отметить как прочитанное",
     "markUnread": "Отметить как непрочитанное",

@@ -179,6 +179,15 @@
     }
   },
   "message": {
+    "find": {
+      "title": "Rechercher",
+      "close": "Fermer la recherche",
+      "label": "Rechercher :",
+      "matchCase": "Respecter la casse",
+      "previous": "Précédent",
+      "next": "Suivant",
+      "closeButton": "Fermer"
+    },
     "selectToRead": "Sélectionnez un message à lire",
     "noSubject": "(sans objet)",
     "to": "À :",
@@ -403,6 +412,7 @@
     "updateAvailable": "Mise à jour disponible : v{{version}}"
   },
   "contextMenu": {
+    "find": "Rechercher",
     "open": "Ouvrir",
     "markRead": "Marquer comme lu",
     "markUnread": "Marquer comme non lu",
