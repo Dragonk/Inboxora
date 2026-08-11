@@ -255,8 +255,9 @@ describe('runTransitionsForSentMessage', () => {
   });
 
   it('is inert when the account has GTD disabled — no query, no engine', async () => {
+    getGtdConfig.mockResolvedValue({ enabled: false, folders: DEFAULT_FOLDERS });
     const mgr = fakeManager();
-    await runTransitionsForSentMessage(mgr, { ...account, gtd_enabled: false }, '<abc@example.com>');
+    await runTransitionsForSentMessage(mgr, account, '<abc@example.com>');
     expect(query).not.toHaveBeenCalled();
     expect(mgr.removeMessageCopy).not.toHaveBeenCalled();
     expect(mgr.broadcast).not.toHaveBeenCalled();

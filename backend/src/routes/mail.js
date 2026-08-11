@@ -17,6 +17,15 @@ import { safeFetch } from '../services/safeFetch.js';
 const router = Router();
 router.use(requireAuth);
 
+// Whether an account-scoped plugin that maintains label sibling rows (currently GTD) is active for
+// this account — the modern replacement for the former email_accounts.gtd_enabled gate on the
+// read/star sibling fan-out. Core stays plugin-agnostic: it asks the registry, never GTD directly.
+// Folds plugin activation in (strictly safer than the old raw column — a deactivated plugin no
+// longer triggers fan-out). The fan-out itself is still additionally gated on the message actually
+// having siblings, so a non-plugin account stays byte-identical to pre-GTD.
+const accountMaintainsLabelSiblings = (accountId) =>
+  pluginRegistry.hasActiveAsync('inboxIngest', { account: { id: accountId } });
+
 // Sanitize an attachment filename for use in Content-Disposition.
 // Strips path separators and control characters; falls back to 'attachment'.
 function safeFilename(name) {
@@ -694,7 +703,7 @@ router.patch('/messages/:id/read', async (req, res) => {
   // fast path. The IMAP \Seen flag is written to the acted folder only (below): Gmail
   // propagates \Seen message-wide server-side, and per-copy writes to N folders would
   // multiply round-trips — an asymmetry accepted in the GTD design.
-  if (accountResult.rows[0]?.gtd_enabled && Number(message.sibling_count) > 1) {
+  if (Number(message.sibling_count) > 1 && await accountMaintainsLabelSiblings(message.account_id)) {
     await fanOutReadToSiblings(message.account_id, message.message_id, read);
   }
 
@@ -745,7 +754,7 @@ router.patch('/messages/:id/star', async (req, res) => {
   // handler). Gated on gtd_enabled to keep a non-GTD account byte-identical to pre-GTD.
   // Stars don't affect folder unread counts, so no count adjustment. The IMAP \Flagged
   // write below stays on the acted folder only.
-  if (accountResult.rows[0]?.gtd_enabled && Number(message.sibling_count) > 1) {
+  if (Number(message.sibling_count) > 1 && await accountMaintainsLabelSiblings(message.account_id)) {
     await fanOutStarToSiblings(message.account_id, message.message_id, starred);
   }
 
@@ -967,7 +976,7 @@ router.post('/messages/bulk-read', async (req, res) => {
 
   try {
     const result = await query(
-      `SELECT m.id, m.uid, m.folder, m.is_read, m.account_id, m.message_id, a.gtd_enabled FROM messages m
+      `SELECT m.id, m.uid, m.folder, m.is_read, m.account_id, m.message_id FROM messages m
        JOIN email_accounts a ON m.account_id = a.id
        WHERE m.id = ANY($2::uuid[]) AND a.user_id = $1`,
       [req.session.userId, ids]
@@ -1008,7 +1017,12 @@ router.post('/messages/bulk-read', async (req, res) => {
     // acted message's own state changed. That asymmetry is acceptable: nothing else in this
     // path can push a sibling out of sync with its head, and the label-folder tick already
     // self-heals any divergence on the next read.
-    const gtdUpdatedIds = toUpdate.filter(m => m.gtd_enabled).map(m => m.id);
+    const acctIds = [...new Set(toUpdate.map(m => m.account_id))];
+    const gtdAccts = new Set();
+    await Promise.all(acctIds.map(async (aid) => {
+      if (await accountMaintainsLabelSiblings(aid)) gtdAccts.add(aid);
+    }));
+    const gtdUpdatedIds = toUpdate.filter(m => gtdAccts.has(m.account_id)).map(m => m.id);
     if (gtdUpdatedIds.length) await fanOutBulkReadToSiblings(gtdUpdatedIds, read);
     // Reflect the bulk read/unread change on the user's other sessions in place (no full refetch).
     imapManager.broadcast({ type: 'message_flags', changes: toUpdate.map(m => ({ id: m.id, is_read: read })) }, req.session.userId);

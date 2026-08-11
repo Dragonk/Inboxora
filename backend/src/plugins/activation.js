@@ -44,6 +44,15 @@ export async function isPluginActivated(userId, pluginId) {
   return (await getActivatedPlugins(userId)).has(pluginId);
 }
 
+// Whether a plugin is activated for the user who OWNS an account. Lets a plugin compose activation
+// into per-account logic without holding the account's userId (it resolves the owner internally).
+export async function isPluginActivatedForAccount(pluginId, accountId) {
+  const { rows } = await query('SELECT user_id FROM email_accounts WHERE id = $1', [accountId]);
+  const userId = rows[0]?.user_id;
+  if (!userId) return false;
+  return isPluginActivated(userId, pluginId);
+}
+
 // Turn a plugin on/off for a user (persisted to preferences.enabledPlugins) and drop the cache so
 // the change takes effect immediately. Returns the new activated set. Read-modify-write is fine
 // here: activation toggles are rare and single-user, never a hot concurrent path.

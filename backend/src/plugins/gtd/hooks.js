@@ -12,7 +12,7 @@ import { getGtdFolderSet, getGtdConfig, gtdTickFolders, sanitizeGtdFoldersDetail
 import { runGtdTransitions, threadKeysForMessageIds, threadKeysInFolders, runTransitionsForSentMessage, invalidateOwnerAddressesCache } from './gtdTransitions.js';
 import { emitGtdIfRelevant } from './gtdSections.js';
 import { deleteUserPet } from './gtdPet.js';
-import { logger, getThreadKeyForUid, listUserAccounts } from '../api.js';
+import { logger, getThreadKeyForUid, listUserAccounts, getAccountConfig, setAccountConfig } from '../api.js';
 
 // Choose the INBOX message ids to run GTD transitions over after a sync batch completes.
 //   newInboxIds — the id of every row the sync newly inserted into INBOX, collected REGARDLESS
@@ -75,8 +75,14 @@ export async function inboxIngest({ mgr, account, newInboxIds, deletedIds }) {
 
 // True when GTD's account-scoped participation (the inbox-ingest transition run and the periodic
 // tick) should be active: GTD is enabled for this account. Kept as a named predicate so the
-// manifest hooks and the sync descriptor share one definition.
-export const gtdEnabledForAccount = (ctx) => !!ctx?.account?.gtd_enabled;
+// manifest hooks and the sync descriptor share one definition. Async because the per-account
+// enabled flag now lives in the plugin config store (getGtdConfig), not on the account row — core
+// gates on it via registry.hasActiveAsync / an awaited sync.isActive.
+export const gtdEnabledForAccount = async (ctx) => {
+  const id = ctx?.account?.id;
+  if (!id) return false;
+  return (await getGtdConfig(id)).enabled;
+};
 
 // sync.tick: one GTD tick's body. Sync each designated label folder for a connected account, then
 // broadcast a single gtd_sections_updated if any folder actually changed. Folders are synced one
@@ -145,7 +151,7 @@ export function emitAfterDeferredCopySync(mgr, account, toFolder, srcUid, fromFo
   return mgr.syncFolderOnDemand(account, toFolder)
     .then(async () => {
       mgr.broadcast({ type: 'gtd_sections_updated', accountId: account.id }, account.user_id);
-      if (!account.gtd_enabled) return;
+      if (!(await getGtdConfig(account.id)).enabled) return;
       try {
         const threadKey = await getThreadKeyForUid(account.id, srcUid, fromFolder);
         if (threadKey) await runGtdTransitions(mgr, account, [threadKey]);
@@ -199,15 +205,31 @@ export async function onUserDelete({ userId }) {
   await deleteUserPet(userId).catch(err => console.warn('pet cleanup on delete:', err.message));
 }
 
+// collectHook('enrichAccount'): the accounts list/read endpoints let a plugin attach its own
+// account-scoped fields onto the response so the client sees them as if they were columns. GTD's
+// per-account config (gtd_enabled / gtd_folders) used to be email_accounts columns; now it lives in
+// the plugin config store, so re-attach it here. gtd_enabled is the RAW per-account flag (the
+// checkbox state), not the effective gate — activation is folded in only on the backend read path
+// (getGtdConfig). Read-only; a failure contributes nothing and the account still returns.
+export async function enrichAccount({ account }) {
+  if (!account?.id) return undefined;
+  const cfg = await getAccountConfig('gtd', account.id);
+  return {
+    gtd_enabled: cfg?.enabled === true,
+    gtd_folders: (cfg?.folders && typeof cfg.folders === 'object') ? cfg.folders : {},
+  };
+}
+
 // collectHook('validateAccountSettings'): the account-settings PATCH endpoint lets a plugin
-// validate/sanitize the fields it owns before the DB write. GTD owns `gtd_folders` (the state→
-// folder override map). Returns undefined (contributes nothing) unless gtd_folders is being set.
-// On a hard validation failure returns { error: { status, body } } so the route aborts with that
-// response; otherwise returns { patch } (the sanitized value to persist, overriding the raw
-// input), { rejected } (per-field sub-values reset to defaults, surfaced to the client), and
-// { requiresReconnect } (a folder remap needs a reconnect so connectAccount backfills the newly
-// designated folder). Pure — no DB — so it stays synchronous under collectHook.
-export function validateAccountSettings({ updates, existing }) {
+// validate the fields it owns before anything is persisted. GTD owns `gtd_folders` (the state→
+// folder override map) and `gtd_enabled`. Returns undefined (contributes nothing) unless a GTD
+// field is being set. On a hard validation failure returns { error: { status, body } } so the route
+// aborts with that response; otherwise returns { rejected } (per-field sub-values reset to defaults,
+// surfaced to the client) and { requiresReconnect } (a folder remap / enable toggle needs a
+// reconnect so connectAccount arms the tick / backfills the newly designated folder). The actual
+// write is done in persistAccountSettings (below); this only validates. Async because the
+// reconnect-diff reads the stored config.
+export async function validateAccountSettings({ updates, accountId }) {
   const touchesGtd = updates && ('gtd_folders' in updates || 'gtd_enabled' in updates);
   if (!touchesGtd) return undefined;
   // Toggling gtd_enabled always needs a reconnect: the sync tick is only armed/torn down at
@@ -228,20 +250,35 @@ export function validateAccountSettings({ updates, existing }) {
     }
     // A folder remap needs a reconnect so connectAccount's backfill pulls the newly designated
     // folder's existing mail into the rail. Canonicalize both sides through the same sanitizer.
-    const before = sanitizeGtdFoldersDetailed(existing?.gtd_folders).folders;
+    const cfg = await getAccountConfig('gtd', accountId);
+    const before = sanitizeGtdFoldersDetailed(cfg?.folders).folders;
     requiresReconnect = requiresReconnect || JSON.stringify(before) !== JSON.stringify(folders);
-    out.patch = { gtd_folders: folders };
     out.rejected = { gtd_folders: rejected };
   }
   out.requiresReconnect = requiresReconnect;
   return out;
 }
 
-// runHook('onAccountSettingsChanged'): a GTD config field changed — drop the cached
-// { enabled, folders } so the tick, transition engine, and classify routes read the new value
-// immediately. Gated cheaply on the two GTD fields.
-export async function onAccountSettingsChanged({ accountId, updates }) {
-  if (updates && ('gtd_enabled' in updates || 'gtd_folders' in updates)) invalidateGtdConfigCache(accountId);
+// collectHook('persistAccountSettings'): the account-settings PATCH lets a plugin persist the fields
+// it owns into its OWN store rather than core writing columns. GTD writes gtd_enabled / gtd_folders
+// into the plugin config store (plugin_account_config) and drops its cache. Returns { patch } — the
+// saved values echoed back on the response so the client sees them — or undefined when nothing GTD
+// owns changed. Runs after validateAccountSettings has already hard-rejected bad input; the folder
+// re-sanitize here is defensive (idempotent) so the stored blob is always canonical.
+export async function persistAccountSettings({ accountId, updates }) {
+  const touchesGtd = updates && ('gtd_folders' in updates || 'gtd_enabled' in updates);
+  if (!touchesGtd) return undefined;
+  const cfg = await getAccountConfig('gtd', accountId);
+  const next = {
+    enabled: 'gtd_enabled' in updates ? !!updates.gtd_enabled : cfg?.enabled === true,
+    folders: (cfg?.folders && typeof cfg.folders === 'object') ? cfg.folders : {},
+  };
+  if ('gtd_folders' in updates) {
+    next.folders = sanitizeGtdFoldersDetailed(updates.gtd_folders).folders;
+  }
+  await setAccountConfig('gtd', accountId, next);
+  invalidateGtdConfigCache(accountId);
+  return { patch: { gtd_enabled: next.enabled, gtd_folders: next.folders } };
 }
 
 // runHook('onAccountIdentityChanged'): the account's aliases/identity changed — invalidate the

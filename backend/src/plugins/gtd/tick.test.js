@@ -7,9 +7,11 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 // enable + folder-set derivation is exercised end-to-end; unique account ids + cache invalidation
 // keep the config cache from leaking across cases.
 vi.mock('../../services/db.js', () => ({ query: vi.fn() }));
-// getGtdConfig folds in per-user plugin activation; the tick runs for real config here, so keep
-// GTD activated (the tick's own gtd_enabled/folder logic is what these tests exercise).
-vi.mock('../activation.js', () => ({ isPluginActivated: vi.fn().mockResolvedValue(true) }));
+// getGtdConfig reads per-account config from the plugin config store and folds in per-user plugin
+// activation. Drive the config directly and keep GTD activated; the tick's own enable/folder-set
+// logic (gtdTickFolders) runs for real, which is what these tests exercise.
+vi.mock('../accountConfig.js', () => ({ getAccountConfig: vi.fn() }));
+vi.mock('../activation.js', () => ({ isPluginActivatedForAccount: vi.fn().mockResolvedValue(true) }));
 vi.mock('./gtdTransitions.js', () => ({
   runGtdTransitions: vi.fn(),
   threadKeysForMessageIds: vi.fn(),
@@ -17,6 +19,7 @@ vi.mock('./gtdTransitions.js', () => ({
 }));
 
 import { query } from '../../services/db.js';
+import { getAccountConfig } from '../accountConfig.js';
 import { invalidateGtdConfigCache } from './gtdConfig.js';
 import { runGtdTransitions, threadKeysInFolders } from './gtdTransitions.js';
 import { gtdSyncTick } from './hooks.js';
@@ -33,6 +36,7 @@ describe('gtd hooks — gtdSyncTick', () => {
 
   beforeEach(() => {
     query.mockReset();
+    getAccountConfig.mockReset();
     runGtdTransitions.mockReset();
     threadKeysInFolders.mockReset();
     [
@@ -45,12 +49,12 @@ describe('gtd hooks — gtdSyncTick', () => {
     const mgr = { connections: new Map(), onDemandSyncing: new Set(), folderFingerprint: vi.fn(), syncFolderViaPool: vi.fn(), broadcast: vi.fn() };
     const account = { id: 'acct-tick-noconn', user_id: 'user-1' };
     await gtdSyncTick({ mgr, account });
-    expect(query).not.toHaveBeenCalled();
+    expect(getAccountConfig).not.toHaveBeenCalled();
     expect(mgr.broadcast).not.toHaveBeenCalled();
   });
 
   it('logs and swallows a config-fetch rejection instead of letting it escape as an unhandled rejection', async () => {
-    query.mockRejectedValueOnce(new Error('db boom')); // getGtdConfig lookup throws
+    getAccountConfig.mockRejectedValueOnce(new Error('db boom')); // getGtdConfig lookup throws
     const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
     const mgr = mgrWithConnection('acct-tick-err');
     const account = { id: 'acct-tick-err', user_id: 'user-1' };
@@ -61,7 +65,7 @@ describe('gtd hooks — gtdSyncTick', () => {
   });
 
   it('is inert — no folder sync, no broadcast — when GTD is disabled for the account', async () => {
-    query.mockResolvedValueOnce({ rows: [{ gtd_enabled: false, gtd_folders: {} }] });
+    getAccountConfig.mockResolvedValueOnce({ enabled: false, folders: {} });
     const mgr = mgrWithConnection('acct-tick-off');
     const account = { id: 'acct-tick-off', user_id: 'user-1' };
     await gtdSyncTick({ mgr, account });
@@ -71,7 +75,7 @@ describe('gtd hooks — gtdSyncTick', () => {
 
   it('does not broadcast or re-run transitions when the folder fingerprint is unchanged', async () => {
     const allTodo = { todo: 'Todo', watch: 'Todo', delegated: 'Todo', someday: 'Todo', reference: 'Todo' };
-    query.mockResolvedValueOnce({ rows: [{ gtd_enabled: true, gtd_folders: allTodo }] });
+    getAccountConfig.mockResolvedValueOnce({ enabled: true, folders: allTodo });
     const mgr = mgrWithConnection('acct-tick-same', {
       folderFingerprint: vi.fn().mockResolvedValue('3:1:60:30'), // same before/after
     });
@@ -84,7 +88,7 @@ describe('gtd hooks — gtdSyncTick', () => {
 
   it('broadcasts gtd_sections_updated and re-runs transitions when a folder fingerprint changes', async () => {
     const allTodo = { todo: 'Todo', watch: 'Todo', delegated: 'Todo', someday: 'Todo', reference: 'Todo' };
-    query.mockResolvedValueOnce({ rows: [{ gtd_enabled: true, gtd_folders: allTodo }] });
+    getAccountConfig.mockResolvedValueOnce({ enabled: true, folders: allTodo });
     threadKeysInFolders.mockResolvedValueOnce(['thr-1', 'thr-2']);
     const mgr = mgrWithConnection('acct-tick-changed', {
       folderFingerprint: vi.fn()
@@ -101,7 +105,7 @@ describe('gtd hooks — gtdSyncTick', () => {
 
   it('broadcasts gtd_sections_updated when an empty folder gains its first message', async () => {
     const allWatch = { todo: 'Watch', watch: 'Watch', delegated: 'Watch', someday: 'Watch', reference: 'Watch' };
-    query.mockResolvedValueOnce({ rows: [{ gtd_enabled: true, gtd_folders: allWatch }] });
+    getAccountConfig.mockResolvedValueOnce({ enabled: true, folders: allWatch });
     threadKeysInFolders.mockResolvedValueOnce(['thr-first']);
     const mgr = mgrWithConnection('acct-tick-first', {
       folderFingerprint: vi.fn()
@@ -117,7 +121,7 @@ describe('gtd hooks — gtdSyncTick', () => {
   it('keeps processing remaining folders when one folder sync throws', async () => {
     // todo/delegated/reference -> Todo, watch/someday -> Watch: two distinct designated folders.
     const twoFolders = { todo: 'Todo', watch: 'Watch', delegated: 'Todo', someday: 'Watch', reference: 'Todo' };
-    query.mockResolvedValueOnce({ rows: [{ gtd_enabled: true, gtd_folders: twoFolders }] });
+    getAccountConfig.mockResolvedValueOnce({ enabled: true, folders: twoFolders });
     const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
     const mgr = mgrWithConnection('acct-tick-partial', {
       folderFingerprint: vi.fn().mockResolvedValue('1:0:10:10'), // unchanged for the folder that completes

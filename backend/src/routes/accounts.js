@@ -49,7 +49,6 @@ const SAFE_FIELDS = [
   'include_in_unified_inbox',
   'last_sync', 'sync_error', 'sort_order', 'folder_mappings',
   'signature', 'created_at', 'categorization_enabled',
-  'gtd_enabled', 'gtd_folders',
 ];
 function safeAccount(row) {
   const obj = Object.fromEntries(SAFE_FIELDS.map(k => [k, row[k]]));
@@ -64,7 +63,7 @@ router.get('/', async (req, res) => {
             smtp_host, smtp_port, smtp_tls, auth_user, smtp_auth_user, oauth_provider, enabled,
             include_in_unified_inbox,
             last_sync, sync_error, sort_order, folder_mappings, signature, created_at,
-            categorization_enabled, gtd_enabled, gtd_folders
+            categorization_enabled
      FROM email_accounts WHERE user_id = $1 ORDER BY sort_order, created_at`,
     [req.session.userId]
   );
@@ -84,14 +83,21 @@ router.get('/', async (req, res) => {
     }
   }
 
-  res.json(result.rows.map(a => ({
-    ...a,
-    signature: a.signature ? sanitizeSignature(a.signature) : a.signature,
-    aliases: (aliasMap[a.id] || []).map(alias => ({
-      ...alias,
-      signature: alias.signature ? sanitizeSignature(alias.signature) : alias.signature,
-    })),
-  })));
+  // Let plugins re-attach their own account-scoped fields (GTD: gtd_enabled/gtd_folders, no longer
+  // columns) so the client sees them as before. Each enrichAccount handler returns a field patch.
+  const enriched = await Promise.all(result.rows.map(async (a) => {
+    const patches = await pluginRegistry.collectHook('enrichAccount', { account: a });
+    return {
+      ...a,
+      ...Object.assign({}, ...patches),
+      signature: a.signature ? sanitizeSignature(a.signature) : a.signature,
+      aliases: (aliasMap[a.id] || []).map(alias => ({
+        ...alias,
+        signature: alias.signature ? sanitizeSignature(alias.signature) : alias.signature,
+      })),
+    };
+  }));
+  res.json(enriched);
 });
 
 router.post('/', async (req, res) => {
@@ -160,9 +166,8 @@ router.put('/:id', async (req, res) => {
   const { id } = req.params;
   const updates = req.body;
 
-  // Verify ownership. gtd_folders comes back too so a folder remap can be compared
-  // against the stored value below (a change must reconnect to backfill the new folder).
-  const check = await query('SELECT id, gtd_folders FROM email_accounts WHERE id = $1 AND user_id = $2', [id, req.session.userId]);
+  // Verify ownership.
+  const check = await query('SELECT id FROM email_accounts WHERE id = $1 AND user_id = $2', [id, req.session.userId]);
   if (!check.rows.length) return res.status(404).json({ error: 'Account not found' });
 
   if ('name' in updates && hasHeaderInjectionChars(updates.name)) {
@@ -196,24 +201,24 @@ router.put('/:id', async (req, res) => {
 
   if ('imap_port' in updates) updates.imap_tls = Number(updates.imap_port) % 1000 === 993;
 
-  // Let plugins validate/sanitize the settings fields they own (GTD owns gtd_folders) before we
-  // touch the DB. A plugin may hard-reject the change (return an error response), patch a field
-  // to its sanitized value, report per-field sub-values it reset to defaults, and flag whether
-  // its change requires a reconnect. This is the generic account-scoped settings surface; core
-  // knows nothing GTD-specific here.
+  // Let plugins validate the settings fields they own (GTD owns gtd_enabled/gtd_folders) before we
+  // touch anything. A plugin may hard-reject the change (return an error response), report per-field
+  // sub-values it reset to defaults, and flag whether its change requires a reconnect. The actual
+  // write of a plugin's fields happens in persistAccountSettings below (into the plugin's own store,
+  // not a column). This is the generic account-scoped settings surface; core knows nothing
+  // GTD-specific here.
   const settingsResults = await pluginRegistry.collectHook('validateAccountSettings', {
-    updates, existing: check.rows[0],
+    updates, accountId: id,
   });
   const rejectedByField = {};
   let pluginRequiresReconnect = false;
   for (const r of settingsResults) {
     if (r.error) return res.status(r.error.status).json(r.error.body);
-    if (r.patch) Object.assign(updates, r.patch);           // persist the sanitized value
     if (r.rejected) Object.assign(rejectedByField, r.rejected);
     if (r.requiresReconnect) pluginRequiresReconnect = true;
   }
 
-  const allowed = ['name', 'sender_name', 'color', 'enabled', 'include_in_unified_inbox', 'auth_user', 'auth_pass', 'sort_order', 'imap_host', 'imap_port', 'imap_tls', 'imap_skip_tls_verify', 'smtp_host', 'smtp_port', 'smtp_tls', 'smtp_auth_user', 'smtp_auth_pass', 'folder_mappings', 'signature', 'categorization_enabled', 'gtd_enabled', 'gtd_folders'];
+  const allowed = ['name', 'sender_name', 'color', 'enabled', 'include_in_unified_inbox', 'auth_user', 'auth_pass', 'sort_order', 'imap_host', 'imap_port', 'imap_tls', 'imap_skip_tls_verify', 'smtp_host', 'smtp_port', 'smtp_tls', 'smtp_auth_user', 'smtp_auth_pass', 'folder_mappings', 'signature', 'categorization_enabled'];
   const sets = [];
   const values = [];
   let i = 1;
@@ -223,30 +228,47 @@ router.put('/:id', async (req, res) => {
       const value = ((key === 'auth_pass' || key === 'smtp_auth_pass') && updates[key]) ? encrypt(updates[key])
         : (key === 'smtp_auth_user' || key === 'smtp_auth_pass') ? (updates[key] || null)
         : (key === 'signature') ? sanitizeSignature(updates[key]) || null
-        : (key === 'gtd_enabled') ? !!updates[key]
         : (key === 'include_in_unified_inbox') ? !!updates[key]
         : updates[key];
       values.push(value);
     }
   }
-  if (!sets.length) return res.status(400).json({ error: 'No valid fields to update' });
 
-  values.push(id);
-  const result = await query(
-    `UPDATE email_accounts SET ${sets.join(', ')} WHERE id = $${i} RETURNING *`,
-    values
-  );
-  const updated = result.rows[0];
-  const payload = safeAccount(updated);
+  // Write the core columns (if any changed), then let plugins persist their own owned fields into
+  // their stores (GTD: gtd_enabled/gtd_folders → plugin_account_config). A request may touch ONLY
+  // plugin fields (e.g. the GTD enable toggle), in which case there are no core columns to write —
+  // re-read the row for the response base instead of running an empty UPDATE.
+  let updated;
+  if (sets.length) {
+    values.push(id);
+    const result = await query(
+      `UPDATE email_accounts SET ${sets.join(', ')} WHERE id = $${i} RETURNING *`,
+      values
+    );
+    updated = result.rows[0];
+  } else {
+    const reread = await query('SELECT * FROM email_accounts WHERE id = $1', [id]);
+    updated = reread.rows[0];
+  }
+
+  // Persist plugin-owned fields into their own stores; each returns { patch } (the saved values) to
+  // echo back on the response so the client sees them as if they were columns.
+  const persistResults = await pluginRegistry.collectHook('persistAccountSettings', {
+    accountId: id, updates,
+  });
+  const pluginPatch = {};
+  let pluginPersisted = false;
+  for (const r of persistResults) {
+    if (r?.patch) { Object.assign(pluginPatch, r.patch); pluginPersisted = true; }
+  }
+
+  if (!sets.length && !pluginPersisted) return res.status(400).json({ error: 'No valid fields to update' });
+
+  const payload = { ...safeAccount(updated), ...pluginPatch };
   // Surface any plugin-rejected field sub-values (e.g. GTD folder paths reset to defaults) so the
   // settings form can flag them. Keyed by field name as the client expects.
   if (rejectedByField.gtd_folders) payload.gtd_folders_rejected = rejectedByField.gtd_folders;
   res.json(payload);
-
-  // Let plugins react to the settings change (GTD drops its cached { enabled, folders }). Fired
-  // unconditionally; each plugin gates on its own fields internally.
-  pluginRegistry.runHook('onAccountSettingsChanged', { accountId: id, updates })
-    .catch(err => console.warn('onAccountSettingsChanged hook failed:', err.message));
 
   // Sync live IMAP state after DB update (fire-and-forget, non-fatal). Core reconnect triggers
   // are the connection/credential/host fields; a plugin can also require a reconnect for its own

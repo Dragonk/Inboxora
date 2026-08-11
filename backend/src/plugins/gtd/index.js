@@ -6,7 +6,7 @@
 // of its own. GTD's code still lives under routes/ and services/; later phases move its
 // storage and UI behind the plugin boundary. Behavior is unchanged.
 import gtdRoutes from './routes.js';
-import { relocateExemptFolders, sectionsChanged, inboxIngest, afterLabelCopy, afterLabelRemove, onMailMutation, onSentMessage, onUserDelete, validateAccountSettings, onAccountSettingsChanged, onAccountIdentityChanged, onPluginActivationChanged, gtdEnabledForAccount, gtdSyncTick } from './hooks.js';
+import { relocateExemptFolders, sectionsChanged, inboxIngest, afterLabelCopy, afterLabelRemove, onMailMutation, onSentMessage, onUserDelete, enrichAccount, validateAccountSettings, persistAccountSettings, onAccountIdentityChanged, onPluginActivationChanged, gtdEnabledForAccount, gtdSyncTick } from './hooks.js';
 
 export const gtdPlugin = {
   id: 'gtd',
@@ -36,11 +36,13 @@ export const gtdPlugin = {
     onMailMutation,
     onSentMessage,
     onUserDelete,
-    // Fired by the account-settings route: validate GTD's own fields (gtd_folders) before the
-    // write, and invalidate GTD's caches when config / identity changes. This is the account-
-    // scoped settings surface future plugins reuse.
+    // Fired by the account-settings routes: enrich the GET response with GTD's per-account config
+    // (it's no longer a column), validate GTD's own fields before the write, persist them into the
+    // plugin config store, and invalidate GTD's identity cache. This is the account-scoped settings
+    // surface future plugins reuse.
+    enrichAccount,
     validateAccountSettings,
-    onAccountSettingsChanged,
+    persistAccountSettings,
     onAccountIdentityChanged,
     // Fired by the plugin-management route when the user toggles GTD's activation: invalidate the
     // per-account config cache so getGtdConfig's effective gate flips at once.

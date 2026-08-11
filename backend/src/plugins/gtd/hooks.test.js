@@ -10,12 +10,17 @@ vi.mock('./gtdConfig.js', () => ({
 vi.mock('./gtdTransitions.js', () => ({ runGtdTransitions: vi.fn(), threadKeysForMessageIds: vi.fn(), threadKeysInFolders: vi.fn(), runTransitionsForSentMessage: vi.fn(), invalidateOwnerAddressesCache: vi.fn() }));
 vi.mock('./gtdSections.js', () => ({ emitGtdIfRelevant: vi.fn() }));
 vi.mock('./gtdPet.js', () => ({ deleteUserPet: vi.fn() }));
+// Per-account plugin config store (backs enrichAccount / persistAccountSettings and the effective
+// gate inside getGtdConfig). Mocked at the source module so the api.js barrel re-export resolves to
+// these fns too.
+vi.mock('../accountConfig.js', () => ({ getAccountConfig: vi.fn(), setAccountConfig: vi.fn() }));
 import { query } from '../../services/db.js';
 import { getGtdFolderSet, getGtdConfig, sanitizeGtdFoldersDetailed, findGtdFolderCollisions, invalidateGtdConfigCache } from './gtdConfig.js';
+import { getAccountConfig, setAccountConfig } from '../accountConfig.js';
 import { runGtdTransitions, threadKeysForMessageIds, runTransitionsForSentMessage, invalidateOwnerAddressesCache } from './gtdTransitions.js';
 import { emitGtdIfRelevant } from './gtdSections.js';
 import { deleteUserPet } from './gtdPet.js';
-import { relocateExemptFolders, sectionsChanged, inboxIngest, selectGtdReevalIds, gtdEnabledForAccount, emitAfterDeferredCopySync, afterLabelCopy, afterLabelRemove, onMailMutation, onSentMessage, onUserDelete, validateAccountSettings, onAccountSettingsChanged, onAccountIdentityChanged, onPluginActivationChanged } from './hooks.js';
+import { relocateExemptFolders, sectionsChanged, inboxIngest, selectGtdReevalIds, gtdEnabledForAccount, emitAfterDeferredCopySync, afterLabelCopy, afterLabelRemove, onMailMutation, onSentMessage, onUserDelete, enrichAccount, validateAccountSettings, persistAccountSettings, onAccountIdentityChanged, onPluginActivationChanged } from './hooks.js';
 
 describe('gtd hooks — relocateExemptFolders', () => {
   beforeEach(() => getGtdFolderSet.mockReset());
@@ -117,16 +122,22 @@ describe('gtd hooks — inboxIngest', () => {
     expect(runGtdTransitions).not.toHaveBeenCalled();
   });
 
-  it('gtdEnabledForAccount reflects account.gtd_enabled', () => {
-    expect(gtdEnabledForAccount({ account: { gtd_enabled: true } })).toBe(true);
-    expect(gtdEnabledForAccount({ account: { gtd_enabled: false } })).toBe(false);
-    expect(gtdEnabledForAccount({})).toBe(false);
-    expect(gtdEnabledForAccount(undefined)).toBe(false);
+  it('gtdEnabledForAccount reflects the account\'s effective GTD config', async () => {
+    getGtdConfig.mockResolvedValueOnce({ enabled: true });
+    expect(await gtdEnabledForAccount({ account: { id: 'a1' } })).toBe(true);
+    getGtdConfig.mockResolvedValueOnce({ enabled: false });
+    expect(await gtdEnabledForAccount({ account: { id: 'a1' } })).toBe(false);
+    // No account id → false without a config read.
+    expect(await gtdEnabledForAccount({})).toBe(false);
+    expect(await gtdEnabledForAccount(undefined)).toBe(false);
   });
 });
 
 describe('gtd hooks — emitAfterDeferredCopySync', () => {
-  beforeEach(() => { query.mockReset(); runGtdTransitions.mockReset(); });
+  beforeEach(() => {
+    query.mockReset(); runGtdTransitions.mockReset();
+    getGtdConfig.mockReset(); getGtdConfig.mockResolvedValue({ enabled: false }); // GTD off unless a test enables it
+  });
 
   it('re-emits gtd_sections_updated after the deferred destination sync resolves', async () => {
     const mgr = { syncFolderOnDemand: vi.fn().mockResolvedValue(undefined), broadcast: vi.fn() };
@@ -147,7 +158,8 @@ describe('gtd hooks — emitAfterDeferredCopySync', () => {
 
   it('re-runs the transition engine over the copied message thread once the sibling syncs', async () => {
     const mgr = { syncFolderOnDemand: vi.fn().mockResolvedValue(undefined), broadcast: vi.fn() };
-    const account = { id: 'acct-1', user_id: 'user-1', gtd_enabled: true };
+    const account = { id: 'acct-1', user_id: 'user-1' };
+    getGtdConfig.mockResolvedValue({ enabled: true });
     query.mockResolvedValueOnce({ rows: [{ thread_key: 'thr-9' }] });
     await emitAfterDeferredCopySync(mgr, account, 'Todo', 100, 'INBOX');
     expect(query.mock.calls[0][1]).toEqual(['acct-1', 100, 'INBOX']);
@@ -156,7 +168,8 @@ describe('gtd hooks — emitAfterDeferredCopySync', () => {
 
   it('swallows a transition re-run failure after still emitting', async () => {
     const mgr = { syncFolderOnDemand: vi.fn().mockResolvedValue(undefined), broadcast: vi.fn() };
-    const account = { id: 'acct-1', user_id: 'user-1', gtd_enabled: true };
+    const account = { id: 'acct-1', user_id: 'user-1' };
+    getGtdConfig.mockResolvedValue({ enabled: true });
     query.mockRejectedValueOnce(new Error('db boom'));
     await emitAfterDeferredCopySync(mgr, account, 'Todo', 100, 'INBOX');
     expect(mgr.broadcast).toHaveBeenCalled();
@@ -220,64 +233,94 @@ describe('gtd hooks — route-layer adapters (onMailMutation / onSentMessage / o
   });
 });
 
-describe('gtd hooks — account settings (validateAccountSettings / onAccountSettingsChanged / onAccountIdentityChanged)', () => {
+describe('gtd hooks — account settings (enrichAccount / validateAccountSettings / persistAccountSettings / onAccountIdentityChanged)', () => {
   beforeEach(() => {
     sanitizeGtdFoldersDetailed.mockReset(); findGtdFolderCollisions.mockReset();
     invalidateGtdConfigCache.mockReset(); invalidateOwnerAddressesCache.mockReset();
+    getAccountConfig.mockReset(); getAccountConfig.mockResolvedValue({ enabled: false, folders: {} });
+    setAccountConfig.mockReset();
   });
 
-  it('contributes nothing when neither gtd field is being updated', () => {
-    expect(validateAccountSettings({ updates: { color: '#fff' }, existing: {} })).toBeUndefined();
+  it('enrichAccount attaches gtd_enabled/gtd_folders from the config store', async () => {
+    getAccountConfig.mockResolvedValueOnce({ enabled: true, folders: { todo: 'Tasks' } });
+    const out = await enrichAccount({ account: { id: 'a1' } });
+    expect(getAccountConfig).toHaveBeenCalledWith('gtd', 'a1');
+    expect(out).toEqual({ gtd_enabled: true, gtd_folders: { todo: 'Tasks' } });
+  });
+
+  it('enrichAccount defaults to disabled + empty folders when no config is stored', async () => {
+    getAccountConfig.mockResolvedValueOnce({});
+    expect(await enrichAccount({ account: { id: 'a1' } })).toEqual({ gtd_enabled: false, gtd_folders: {} });
+  });
+
+  it('validateAccountSettings contributes nothing when neither gtd field is being updated', async () => {
+    expect(await validateAccountSettings({ updates: { color: '#fff' }, accountId: 'a1' })).toBeUndefined();
     expect(sanitizeGtdFoldersDetailed).not.toHaveBeenCalled();
   });
 
-  it('flags a reconnect for a gtd_enabled toggle even without a folder change', () => {
-    const out = validateAccountSettings({ updates: { gtd_enabled: true }, existing: {} });
+  it('flags a reconnect for a gtd_enabled toggle even without a folder change', async () => {
+    const out = await validateAccountSettings({ updates: { gtd_enabled: true }, accountId: 'a1' });
     expect(out).toEqual({ requiresReconnect: true });
     expect(sanitizeGtdFoldersDetailed).not.toHaveBeenCalled();
   });
 
-  it('hard-rejects a state mapped to a reserved system folder', () => {
+  it('hard-rejects a state mapped to a reserved system folder', async () => {
     sanitizeGtdFoldersDetailed.mockReturnValueOnce({ folders: {}, rejected: [], reserved: ['INBOX'] });
-    const out = validateAccountSettings({ updates: { gtd_folders: { todo: 'INBOX' } }, existing: {} });
+    const out = await validateAccountSettings({ updates: { gtd_folders: { todo: 'INBOX' } }, accountId: 'a1' });
     expect(out.error.status).toBe(400);
     expect(out.error.body.reserved).toEqual(['INBOX']);
   });
 
-  it('hard-rejects a folder collision', () => {
+  it('hard-rejects a folder collision', async () => {
     sanitizeGtdFoldersDetailed.mockReturnValueOnce({ folders: { todo: 'X', watch: 'X' }, rejected: [], reserved: [] });
     findGtdFolderCollisions.mockReturnValueOnce(['X']);
-    const out = validateAccountSettings({ updates: { gtd_folders: { todo: 'X', watch: 'X' } }, existing: {} });
+    const out = await validateAccountSettings({ updates: { gtd_folders: { todo: 'X', watch: 'X' } }, accountId: 'a1' });
     expect(out.error.status).toBe(400);
     expect(out.error.body.collisions).toEqual(['X']);
   });
 
-  it('patches the sanitized folders, reports rejections, and reconnects on a real change', () => {
-    // existing folders differ from the new ones → requiresReconnect
+  it('reports rejections and reconnects on a real folder change (against the stored config)', async () => {
+    // stored config folders differ from the new ones → requiresReconnect
+    getAccountConfig.mockResolvedValueOnce({ enabled: true, folders: {} });
     sanitizeGtdFoldersDetailed
       .mockReturnValueOnce({ folders: { todo: 'Tasks' }, rejected: ['bad/../path'], reserved: [] }) // new
-      .mockReturnValueOnce({ folders: { todo: 'Todo' } });                                            // existing
+      .mockReturnValueOnce({ folders: { todo: 'Todo' } });                                            // stored
     findGtdFolderCollisions.mockReturnValueOnce([]);
-    const out = validateAccountSettings({ updates: { gtd_folders: { todo: 'Tasks' } }, existing: { gtd_folders: {} } });
-    expect(out.patch).toEqual({ gtd_folders: { todo: 'Tasks' } });
+    const out = await validateAccountSettings({ updates: { gtd_folders: { todo: 'Tasks' } }, accountId: 'a1' });
+    expect(out.patch).toBeUndefined();                       // validate no longer writes
     expect(out.rejected).toEqual({ gtd_folders: ['bad/../path'] });
     expect(out.requiresReconnect).toBe(true);
   });
 
-  it('does not require a reconnect when the sanitized folders are unchanged', () => {
+  it('does not require a reconnect when the sanitized folders match the stored config', async () => {
+    getAccountConfig.mockResolvedValueOnce({ enabled: true, folders: {} });
     sanitizeGtdFoldersDetailed
       .mockReturnValueOnce({ folders: { todo: 'Todo' }, rejected: [], reserved: [] }) // new
-      .mockReturnValueOnce({ folders: { todo: 'Todo' } });                            // existing
+      .mockReturnValueOnce({ folders: { todo: 'Todo' } });                            // stored
     findGtdFolderCollisions.mockReturnValueOnce([]);
-    const out = validateAccountSettings({ updates: { gtd_folders: { todo: 'Todo' } }, existing: { gtd_folders: {} } });
+    const out = await validateAccountSettings({ updates: { gtd_folders: { todo: 'Todo' } }, accountId: 'a1' });
     expect(out.requiresReconnect).toBe(false);
   });
 
-  it('onAccountSettingsChanged invalidates the config cache only for gtd fields', async () => {
-    await onAccountSettingsChanged({ accountId: 'a1', updates: { color: '#fff' } });
-    expect(invalidateGtdConfigCache).not.toHaveBeenCalled();
-    await onAccountSettingsChanged({ accountId: 'a1', updates: { gtd_enabled: true } });
+  it('persistAccountSettings writes gtd_enabled into the config store, preserving stored folders', async () => {
+    getAccountConfig.mockResolvedValueOnce({ enabled: false, folders: { todo: 'Tasks' } });
+    const out = await persistAccountSettings({ accountId: 'a1', updates: { gtd_enabled: true } });
+    expect(setAccountConfig).toHaveBeenCalledWith('gtd', 'a1', { enabled: true, folders: { todo: 'Tasks' } });
+    expect(out).toEqual({ patch: { gtd_enabled: true, gtd_folders: { todo: 'Tasks' } } });
     expect(invalidateGtdConfigCache).toHaveBeenCalledWith('a1');
+  });
+
+  it('persistAccountSettings writes sanitized folders, preserving the stored enabled flag', async () => {
+    getAccountConfig.mockResolvedValueOnce({ enabled: true, folders: {} });
+    sanitizeGtdFoldersDetailed.mockReturnValueOnce({ folders: { todo: 'Tasks' }, rejected: [], reserved: [] });
+    const out = await persistAccountSettings({ accountId: 'a1', updates: { gtd_folders: { todo: 'Tasks' } } });
+    expect(setAccountConfig).toHaveBeenCalledWith('gtd', 'a1', { enabled: true, folders: { todo: 'Tasks' } });
+    expect(out.patch).toEqual({ gtd_enabled: true, gtd_folders: { todo: 'Tasks' } });
+  });
+
+  it('persistAccountSettings contributes nothing (no write) when no gtd field changed', async () => {
+    expect(await persistAccountSettings({ accountId: 'a1', updates: { color: '#fff' } })).toBeUndefined();
+    expect(setAccountConfig).not.toHaveBeenCalled();
   });
 
   it('onAccountIdentityChanged invalidates the owner-address cache', async () => {

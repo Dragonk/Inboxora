@@ -1,5 +1,4 @@
-import { query } from '../../services/db.js';
-import { isPluginActivated } from '../api.js';
+import { isPluginActivatedForAccount, getAccountConfig } from '../api.js';
 
 // Default GTD state → folder-path map. An account's gtd_folders JSONB overrides
 // individual entries; any state it omits falls back to the value here. An empty
@@ -174,14 +173,13 @@ export async function getGtdConfig(accountId) {
   const cached = gtdConfigCache.get(accountId);
   if (cached && cached.expiry > Date.now()) return cached.value;
 
-  const result = await query(
-    'SELECT gtd_enabled, gtd_folders, user_id FROM email_accounts WHERE id = $1',
-    [accountId]
-  );
-  const row = result.rows[0];
-  const enabled = row?.gtd_enabled === true && await isPluginActivated(row.user_id, 'gtd');
-  // gtd_folders is JSONB; the pg driver parses it into an object already.
-  const stored = row?.gtd_folders && typeof row.gtd_folders === 'object' ? row.gtd_folders : {};
+  // Per-account config now lives in the generic per-account plugin config store (not on
+  // email_accounts). `enabled` is EFFECTIVE = this account's own flag AND the owning user having
+  // the GTD plugin activated.
+  const cfg = await getAccountConfig('gtd', accountId);
+  const enabled = cfg?.enabled === true && await isPluginActivatedForAccount('gtd', accountId);
+  // folders is JSONB; the pg driver parses it into an object already.
+  const stored = cfg?.folders && typeof cfg.folders === 'object' ? cfg.folders : {};
   // Legacy hardening: a mapping saved before the reserved-folder denylist existed
   // could point a state at a system folder. /done would then permanently delete real
   // mail, so drop only reserved values on read and fall back to the safe default;

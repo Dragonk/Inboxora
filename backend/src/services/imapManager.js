@@ -1778,7 +1778,7 @@ export class ImapManager {
       // (e.g. GTD's label-folder tick when gtd_enabled). A plugin with no active tick for this
       // account starts no timer at all, so ticks stay inert when nobody uses the feature.
       // (Enabling such a feature on a live account takes effect on its next reconnect.)
-      this._startPluginSyncTimers(account);
+      this._startPluginSyncTimers(account).catch(err => console.warn(`Plugin sync timer arm failed for ${logAccount(account)}:`, err.message));
 
       this._connectCooldown.delete(account.id); // healthy again — clear any refusal cooldown
       console.log(`Connected account: ${logAccount(account)}`);
@@ -2204,11 +2204,13 @@ export class ImapManager {
   // isActive rejects this account (e.g. GTD when gtd_enabled is false) arms nothing, so ticks
   // stay fully inert when unused. tick(ctx) owns its own error handling; we still guard the
   // dispatch so a throwing/rejecting tick can never crash the timer.
-  _startPluginSyncTimers(account) {
+  async _startPluginSyncTimers(account) {
     for (const plugin of pluginRegistry.list()) {
       const sync = plugin.sync;
       if (!sync || typeof sync.tick !== 'function') continue;
-      try { if (sync.isActive && !sync.isActive({ account })) continue; } catch { continue; }
+      // isActive may be async (GTD's per-account enable now lives in the plugin config store, not
+      // on the account row), so await it — a false gate arms nothing, keeping ticks inert when unused.
+      try { if (sync.isActive && !(await sync.isActive({ account }))) continue; } catch { continue; }
       const key = `${account.id}::${plugin.id}`;
       const intervalMs = sync.intervalMs || DEFAULT_PLUGIN_SYNC_INTERVAL_MS;
       const fire = () => {
@@ -2433,7 +2435,7 @@ export class ImapManager {
         // `wantsInboxIngest` gates all of this on there being an active inbox-ingest plugin for
         // THIS account (GTD's handler is active only when gtd_enabled), so a mailbox with no such
         // plugin collects nothing and issues no extra queries — identical to the pre-plugin gate.
-        const wantsInboxIngest = folder === 'INBOX' && pluginRegistry.hasActive('inboxIngest', { account });
+        const wantsInboxIngest = folder === 'INBOX' && await pluginRegistry.hasActiveAsync('inboxIngest', { account });
         const newInboxIds = [];
         const ingestDeletedIds = new Set();
 

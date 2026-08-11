@@ -4,8 +4,7 @@ import { getGtdSections } from './gtdSections.js';
 import { queueGistGeneration } from './gtdGist.js';
 import { importPet, decodeUploadedSheet, getPetMeta, getPetSheet, parsePetSlug, customPetSlug } from './gtdPet.js';
 import { getGtdConfig, resolveGtdStateFolder, sanitizeGtdFolders, sanitizeGtdFoldersDetailed, DEFAULT_GTD_FOLDERS, planGtdFolderPersist, invalidateGtdConfigCache } from './gtdConfig.js';
-import { applyLabel, removeLabel, markThreadRead, ensureLabelFolders, archiveInboxCopy, broadcast, loadOwnedMessage, getOwnedAccount, getMessageCopyFolders } from '../api.js';
-import { query } from '../../services/db.js';
+import { applyLabel, removeLabel, markThreadRead, ensureLabelFolders, archiveInboxCopy, broadcast, loadOwnedMessage, getOwnedAccount, getMessageCopyFolders, getAccountConfig, setAccountConfig } from '../api.js';
 
 const router = Router();
 router.use(requireAuth);
@@ -345,13 +344,15 @@ router.post('/folders/ensure', async (req, res) => {
   // may only be persisted for a state whose *stored* configured name is what actually got
   // ensured this call. Otherwise clicking "Create missing folders" with an unsaved edit would
   // silently write that edit's effective path to the DB, bypassing Save.
-  const storedMerged = { ...DEFAULT_GTD_FOLDERS, ...sanitizeGtdFolders(account.gtd_folders) };
-  const plan = planGtdFolderPersist({ merged: storedMerged, stored: account.gtd_folders, results });
+  const gtdCfg = await getAccountConfig('gtd', accountId);
+  const storedFolders = gtdCfg?.folders && typeof gtdCfg.folders === 'object' ? gtdCfg.folders : {};
+  const storedMerged = { ...DEFAULT_GTD_FOLDERS, ...sanitizeGtdFolders(storedFolders) };
+  const plan = planGtdFolderPersist({ merged: storedMerged, stored: storedFolders, results });
   if (plan.collisions) {
     return res.status(400).json({ error: 'Two GTD states cannot map to the same folder', collisions: plan.collisions });
   }
   if (plan.changed) {
-    await query('UPDATE email_accounts SET gtd_folders = $1 WHERE id = $2', [plan.folders, accountId]);
+    await setAccountConfig('gtd', accountId, { ...gtdCfg, folders: plan.folders });
     invalidateGtdConfigCache(accountId);
   }
 

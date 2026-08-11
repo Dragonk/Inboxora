@@ -101,6 +101,26 @@ export function createPluginRegistry() {
   // Cheap synchronous check: does any plugin have an active handler for `hookName` in this ctx?
   const hasActive = (hookName, ctx) => activeHandlers(hookName, ctx).length > 0;
 
+  // Async variant of hasActive: awaits each plugin's (possibly async) isActive predicate. Needed
+  // when a hook's gate reads state asynchronously — e.g. GTD's per-account config now lives in the
+  // plugin_account_config table, so `gtdEnabledForAccount` is async. activeHandlers (sync) can't
+  // await it, so any core gate that must know "is this hook actually active for this ctx" ahead of
+  // running it (the inbox-ingest gate in syncMessages, the per-account sync-timer arm) uses this.
+  async function hasActiveAsync(hookName, ctx) {
+    for (const p of plugins.values()) {
+      const resolved = resolveHook(p.hooks?.[hookName]);
+      if (!resolved) continue;
+      try {
+        if (p.isActive && !(await p.isActive(ctx))) continue;
+        if (resolved.isActive && !(await resolved.isActive(ctx))) continue;
+      } catch {
+        continue;
+      }
+      return true;
+    }
+    return false;
+  }
+
   // Fire-and-forget: run all active handlers, await them, never throw. Individual failures
   // are swallowed (and returned for optional logging) so one plugin can't break core.
   async function runHook(hookName, ctx) {
@@ -123,7 +143,7 @@ export function createPluginRegistry() {
     return results.filter((r) => r !== undefined);
   }
 
-  return { register, get, list, has, runHook, collectHook, hasActive };
+  return { register, get, list, has, runHook, collectHook, hasActive, hasActiveAsync };
 }
 
 // The process-wide registry. Core imports this; plugins register into it at boot.

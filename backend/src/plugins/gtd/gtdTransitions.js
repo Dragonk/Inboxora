@@ -171,7 +171,8 @@ export async function runGtdTransitions(imapManager, account, threadKeys) {
 // later post-send sync attempt (or, on Gmail, the next tick) retries. Errors propagate to the
 // caller, which swallows them (a missed strip self-heals on the next inbound sync / tick).
 export async function runTransitionsForSentMessage(imapManager, account, messageId) {
-  if (!account?.gtd_enabled || !messageId) return;
+  if (!account?.id || !messageId) return;
+  if (!(await getGtdConfig(account.id)).enabled) return;
   const bare = String(messageId).replace(/[<>]/g, '').trim();
   if (!bare) return;
 

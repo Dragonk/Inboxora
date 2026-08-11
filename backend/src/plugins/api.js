@@ -67,7 +67,11 @@ export { requireAuth } from '../middleware/auth.js';
 // ── Activation ────────────────────────────────────────────────────────────────
 // Whether a plugin is activated for a user (per-user, from preferences). A plugin composes this
 // with its own config to decide whether it is effectively on for an account.
-export { isPluginActivated } from './activation.js';
+export { isPluginActivated, isPluginActivatedForAccount } from './activation.js';
+
+// ── Per-account plugin config ───────────────────────────────────────────────────
+// A plugin's own configuration for one account (opaque blob), cascade-cleaned with the account.
+export { getAccountConfig, setAccountConfig } from './accountConfig.js';
 
 // ── Folder resolution ─────────────────────────────────────────────────────────
 // Resolve an account's Drafts folder paths (across provider naming). A safe read over the

@@ -581,14 +581,14 @@ describe('_startPluginSyncTimers / _stopPluginSyncTimers', () => {
   beforeEach(() => { vi.useFakeTimers(); vi.spyOn(Math, 'random').mockReturnValue(0); });
   afterEach(() => { listSpy?.mockRestore(); vi.restoreAllMocks(); vi.useRealTimers(); });
 
-  it('arms a jittered first fire then a steady interval for an active plugin tick', () => {
+  it('arms a jittered first fire then a steady interval for an active plugin tick', async () => {
     const tick = vi.fn().mockResolvedValue(undefined);
     listSpy = vi.spyOn(pluginRegistry, 'list').mockReturnValue([
       { id: 'fake', sync: { intervalMs: 1000, isActive: () => true, tick } },
     ]);
     const mgr = makeMgr();
     const account = { id: 'a1', user_id: 'u1', email_address: 'e@x' };
-    mgr._startPluginSyncTimers(account);
+    await mgr._startPluginSyncTimers(account); // isActive is awaited before arming
     expect(tick).not.toHaveBeenCalled();     // still waiting on the (zeroed) jitter delay
     vi.advanceTimersByTime(1);               // jitter fires
     expect(tick).toHaveBeenCalledTimes(1);
@@ -597,33 +597,33 @@ describe('_startPluginSyncTimers / _stopPluginSyncTimers', () => {
     expect(tick).toHaveBeenCalledTimes(2);
   });
 
-  it('arms nothing for a plugin whose sync.isActive rejects the account', () => {
+  it('arms nothing for a plugin whose sync.isActive rejects the account', async () => {
     const tick = vi.fn();
     listSpy = vi.spyOn(pluginRegistry, 'list').mockReturnValue([
       { id: 'gated', sync: { intervalMs: 1000, isActive: (ctx) => ctx.account.on === true, tick } },
     ]);
     const mgr = makeMgr();
-    mgr._startPluginSyncTimers({ id: 'a2', on: false });
+    await mgr._startPluginSyncTimers({ id: 'a2', on: false });
     expect(mgr.pluginSyncIntervals.size).toBe(0);
     vi.advanceTimersByTime(5000);
     expect(tick).not.toHaveBeenCalled();
   });
 
-  it('ignores a plugin with no sync descriptor', () => {
+  it('ignores a plugin with no sync descriptor', async () => {
     listSpy = vi.spyOn(pluginRegistry, 'list').mockReturnValue([{ id: 'routeronly' }]);
     const mgr = makeMgr();
-    mgr._startPluginSyncTimers({ id: 'a3' });
+    await mgr._startPluginSyncTimers({ id: 'a3' });
     expect(mgr.pluginSyncIntervals.size).toBe(0);
   });
 
-  it('tears down only the given account\'s timers', () => {
+  it('tears down only the given account\'s timers', async () => {
     const tick = vi.fn();
     listSpy = vi.spyOn(pluginRegistry, 'list').mockReturnValue([
       { id: 'fake', sync: { intervalMs: 1000, isActive: () => true, tick } },
     ]);
     const mgr = makeMgr();
-    mgr._startPluginSyncTimers({ id: 'a1', user_id: 'u1' });
-    mgr._startPluginSyncTimers({ id: 'a2', user_id: 'u1' });
+    await mgr._startPluginSyncTimers({ id: 'a1', user_id: 'u1' });
+    await mgr._startPluginSyncTimers({ id: 'a2', user_id: 'u1' });
     expect(mgr.pluginSyncIntervals.size).toBe(2);
     mgr._stopPluginSyncTimers('a1');
     expect(mgr.pluginSyncIntervals.has('a1::fake')).toBe(false);
@@ -1008,7 +1008,7 @@ describe('syncMessages — empty local cache vs nonempty server (wiring)', () =>
     // wire: an active inbox-ingest plugin makes syncMessages collect the new row's id and
     // dispatch runHook('inboxIngest', …). We spy the registry rather than register a real
     // plugin so the singleton stays clean for other suites.
-    const hasActive = vi.spyOn(pluginRegistry, 'hasActive').mockImplementation((name) => name === 'inboxIngest');
+    const hasActive = vi.spyOn(pluginRegistry, 'hasActiveAsync').mockImplementation(async (name) => name === 'inboxIngest');
     const runHook = vi.spyOn(pluginRegistry, 'runHook').mockResolvedValue([]);
     try {
       const account = {
@@ -1057,7 +1057,7 @@ describe('syncMessages — empty local cache vs nonempty server (wiring)', () =>
   });
 
   it('does not dispatch inboxIngest when no ingest plugin is active', async () => {
-    const hasActive = vi.spyOn(pluginRegistry, 'hasActive').mockReturnValue(false);
+    const hasActive = vi.spyOn(pluginRegistry, 'hasActiveAsync').mockResolvedValue(false);
     const runHook = vi.spyOn(pluginRegistry, 'runHook').mockResolvedValue([]);
     try {
       const account = {

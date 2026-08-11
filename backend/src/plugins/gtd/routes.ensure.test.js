@@ -14,11 +14,15 @@ vi.mock('./gtdConfig.js', async (importOriginal) => {
   const actual = await importOriginal();
   return { ...actual, invalidateGtdConfigCache: vi.fn() };
 });
+// Per-account config store: the route reads the stored folders from here and persists the
+// reconciled effective paths back. Mocked at the source so the api.js barrel re-export resolves here.
+vi.mock('../accountConfig.js', () => ({ getAccountConfig: vi.fn(), setAccountConfig: vi.fn() }));
 
 import express from 'express';
 import { query } from '../../services/db.js';
 import { setMailEngine } from '../mailEngine.js';
 import { invalidateGtdConfigCache } from './gtdConfig.js';
+import { getAccountConfig, setAccountConfig } from '../accountConfig.js';
 import gtdRoutes from './routes.js';
 
 // ensureLabelFolders is a bound plugin-api capability; inject a mock engine (its ensureFolder is
@@ -33,9 +37,14 @@ function buildApp() {
   return app;
 }
 
-const account = { id: 'a1a1a1a1-a1a1-4a1a-8a1a-a1a1a1a1a1a1', user_id: 'u1', gtd_folders: {} };
+const ACCOUNT_ID = 'a1a1a1a1-a1a1-4a1a-8a1a-a1a1a1a1a1a1';
+const account = { id: ACCOUNT_ID, user_id: 'u1' };
 
-// Route the SELECT to the account row and let the UPDATE resolve to nothing.
+// The account's stored GTD config (returned by the mocked getAccountConfig). Individual tests
+// mutate `.folders` to represent an already-saved folder map.
+let storedConfig;
+
+// Route the ownership SELECT (getOwnedAccount) to the account row; everything else resolves empty.
 function stubQuery() {
   query.mockImplementation(async (sql) => {
     if (sql.startsWith('SELECT * FROM email_accounts')) return { rows: [account] };
@@ -46,10 +55,11 @@ function stubQuery() {
 const ensure = (folders = {}) => fetch(`${base}/api/gtd/folders/ensure`, {
   method: 'POST',
   headers: { 'Content-Type': 'application/json' },
-  body: JSON.stringify({ accountId: 'a1a1a1a1-a1a1-4a1a-8a1a-a1a1a1a1a1a1', folders }),
+  body: JSON.stringify({ accountId: ACCOUNT_ID, folders }),
 });
 
-const updateCall = () => query.mock.calls.find(c => c[0].startsWith('UPDATE email_accounts'));
+// The config-store write (setAccountConfig('gtd', accountId, config)), if any.
+const persistCall = () => setAccountConfig.mock.calls[0];
 
 let server;
 let base;
@@ -67,7 +77,11 @@ beforeEach(() => {
   query.mockReset();
   imapManager.ensureFolder.mockReset();
   invalidateGtdConfigCache.mockClear();
-  account.gtd_folders = {}; // reset between tests that mutate the stored config
+  storedConfig = { enabled: true, folders: {} }; // reset between tests that mutate the stored config
+  getAccountConfig.mockReset();
+  getAccountConfig.mockImplementation(async () => storedConfig);
+  setAccountConfig.mockReset();
+  setAccountConfig.mockResolvedValue(undefined);
   stubQuery();
 });
 
@@ -88,12 +102,14 @@ describe('POST /api/gtd/folders/ensure — persist effective paths', () => {
     };
     // Response reflects what was persisted, so the settings form can show the real paths.
     expect(body.folders).toEqual(expected);
-    // The JSONB update wrote exactly that map for this account.
-    const upd = updateCall();
+    // The config-store write persisted exactly that map for this account (preserving enabled).
+    const upd = persistCall();
     expect(upd).toBeTruthy();
-    expect(upd[1]).toEqual([expected, 'a1a1a1a1-a1a1-4a1a-8a1a-a1a1a1a1a1a1']);
+    expect(upd[0]).toBe('gtd');
+    expect(upd[1]).toBe(ACCOUNT_ID);
+    expect(upd[2]).toEqual({ enabled: true, folders: expected });
     // Cache dropped so getGtdConfig re-reads the relocated map.
-    expect(invalidateGtdConfigCache).toHaveBeenCalledWith('a1a1a1a1-a1a1-4a1a-8a1a-a1a1a1a1a1a1');
+    expect(invalidateGtdConfigCache).toHaveBeenCalledWith(ACCOUNT_ID);
   });
 
   it('is a no-op on a flat server: no update, no cache invalidation, plain results', async () => {
@@ -105,7 +121,7 @@ describe('POST /api/gtd/folders/ensure — persist effective paths', () => {
 
     expect(body.folders).toBeUndefined();
     expect(body.results).toHaveLength(5);
-    expect(updateCall()).toBeUndefined();
+    expect(setAccountConfig).not.toHaveBeenCalled();
     expect(invalidateGtdConfigCache).not.toHaveBeenCalled();
   });
 
@@ -124,7 +140,7 @@ describe('POST /api/gtd/folders/ensure — persist effective paths', () => {
     // watch is already saved as 'todo' (not just typed in the form this request), so its
     // stored configured name matches what the request ensures; a case-insensitive server
     // then returns INBOX.Todo for both 'Todo' and 'todo'.
-    account.gtd_folders = { watch: 'todo' };
+    storedConfig.folders = { watch: 'todo' };
     imapManager.ensureFolder.mockImplementation(async (_acct, folder) => ({
       path: folder.toLowerCase() === 'todo' ? 'INBOX.Todo' : `INBOX.${folder}`,
       created: false,
@@ -135,7 +151,7 @@ describe('POST /api/gtd/folders/ensure — persist effective paths', () => {
     const body = await res.json();
     expect(body.error).toMatch(/same folder/i);
     expect(body.collisions).toEqual([{ folder: 'INBOX.Todo', states: ['todo', 'watch'] }]);
-    expect(updateCall()).toBeUndefined();
+    expect(setAccountConfig).not.toHaveBeenCalled();
     expect(invalidateGtdConfigCache).not.toHaveBeenCalled();
   });
 
@@ -158,8 +174,8 @@ describe('POST /api/gtd/folders/ensure — persist effective paths', () => {
       reference: 'INBOX.Reference',
     });
     expect(body.folders.todo).toBeUndefined();
-    const upd = updateCall();
-    expect(upd[1][0]).toEqual(body.folders);
-    expect(invalidateGtdConfigCache).toHaveBeenCalledWith('a1a1a1a1-a1a1-4a1a-8a1a-a1a1a1a1a1a1');
+    const upd = persistCall();
+    expect(upd[2].folders).toEqual(body.folders);
+    expect(invalidateGtdConfigCache).toHaveBeenCalledWith(ACCOUNT_ID);
   });
 });
