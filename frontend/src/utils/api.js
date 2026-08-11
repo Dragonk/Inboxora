@@ -405,6 +405,13 @@ export const api = {
   getGtdPetMeta: (slug) => request('GET', `/gtd/pet/${encodeURIComponent(slug)}/meta`),
   gtdPetSheetUrl: (slug) => `${BASE}/gtd/pet/${encodeURIComponent(slug)}/sheet`,
 
+  // Plugins — registered plugins for this build plus the user's per-user activation. Activation is
+  // independent of a plugin's own per-account config (e.g. GTD's gtd_enabled).
+  plugins: {
+    list: () => request('GET', '/plugins'),
+    setActivated: (id, activated) => request('PATCH', `/plugins/${encodeURIComponent(id)}`, { activated }),
+  },
+
   // Todoist integration
   todoist: {
     status:       ()       => request('GET',    '/todoist/status'),

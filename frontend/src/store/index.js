@@ -62,6 +62,20 @@ export const useStore = create((set, get) => ({
   })),
   updateUser: (updates) => set(state => ({ user: state.user ? { ...state.user, ...updates } : state.user })),
 
+  // Plugin activation — the per-user set of activated plugin ids (users.preferences.enabledPlugins).
+  // Hydrated in loadPreferences and mutated only via setPluginActivated (the Plugins settings
+  // section). Independent of a plugin's own per-account config; a plugin's UI gates on membership
+  // here (e.g. GTD's gtdActiveForContext requires 'gtd' to be present).
+  enabledPlugins: [],
+  setPluginActivated: async (id, activated) => {
+    await api.plugins.setActivated(id, activated);
+    set(state => {
+      const next = new Set(state.enabledPlugins);
+      if (activated) next.add(id); else next.delete(id);
+      return { enabledPlugins: [...next] };
+    });
+  },
+
   // Todoist integration status (persisted across page loads via localStorage)
   todoistConnected: localStorage.getItem('mailflow_todoist_connected') === '1',
   setTodoistConnected: (connected) => {
@@ -866,6 +880,9 @@ export const useStore = create((set, get) => ({
     try {
       const prefs = await api.getPreferences();
       if (get().user?.id !== userId) return;
+      // Per-user plugin activation. Absent = nothing activated (new users start with GTD off);
+      // existing GTD users were grandfathered into ['gtd'] by migration 0042.
+      set({ enabledPlugins: Array.isArray(prefs.enabledPlugins) ? prefs.enabledPlugins : [] });
       if (prefs.theme) {
         localStorage.setItem('mailflow_theme', prefs.theme);
         set({ theme: prefs.theme });

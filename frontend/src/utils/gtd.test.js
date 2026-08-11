@@ -158,6 +158,16 @@ describe('gtdActiveForContext', () => {
     assert.equal(gtdActiveForContext([], null), false);
     assert.equal(gtdActiveForContext(undefined, null), false);
   });
+  it('gates on the GTD plugin being activated (3rd arg); defaults to activated', () => {
+    // Deactivated: false regardless of per-account gtd_enabled, unified or single.
+    assert.equal(gtdActiveForContext(accounts, null, false), false);
+    assert.equal(gtdActiveForContext(accounts, 'a', false), false);
+    // Activated (explicit) behaves like the default.
+    assert.equal(gtdActiveForContext(accounts, null, true), true);
+    assert.equal(gtdActiveForContext(accounts, 'a', true), true);
+    // Omitted arg defaults to activated (pre-plugin behavior preserved).
+    assert.equal(gtdActiveForContext(accounts, null), true);
+  });
 });
 
 describe('mergeWaiting', () => {

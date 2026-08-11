@@ -621,7 +621,8 @@
       "groupAccountMail": "Konto und Mail",
       "groupDisplay": "Anzeige",
       "groupSecurityIntegrations": "Sicherheit und Integrationen",
-      "groupAdmin": "Administration"
+      "groupAdmin": "Administration",
+      "plugins": "Plugins"
     },
     "accounts": {
       "title": "E-Mail-Konten",
@@ -1406,6 +1407,15 @@
       "autoLockNeedsPin": "Lege eine PIN fest, um die automatische Sperre zu aktivieren",
       "autoLockOff": "Aus",
       "autoLockMin": "{{n}} Min."
+    },
+    "plugins": {
+      "title": "Plugins",
+      "description": "Aktivieren oder deaktivieren Sie optionale Funktionen für Ihr Konto. Ein aktiviertes Plugin fügt eigene Einstellungen und Oberflächen hinzu.",
+      "activated": "Aktiviert",
+      "deactivated": "Nicht aktiviert",
+      "empty": "In dieser Version sind keine Plugins verfügbar.",
+      "error": "Das Plugin konnte nicht aktualisiert werden. Bitte versuchen Sie es erneut.",
+      "configureIn": "Optionen in {{location}} konfigurieren"
     }
   },
   "blockList": {

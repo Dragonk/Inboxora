@@ -120,8 +120,11 @@ export default function MessageList() {
     categorizationEnabled, categoryCounts, setCategoryCounts, adjustCategoryCount,
     markReadBehavior, markReadDelay,
     searchAllFolders,
-    activeGtdTab, setActiveGtdTab, gtdSections,
+    activeGtdTab, setActiveGtdTab, gtdSections, enabledPlugins,
   } = useStore();
+  // GTD's UI surfaces (pills, rail, per-row "done") gate on the GTD plugin being activated for the
+  // user, on top of each account's gtd_enabled — deactivating hides them entirely.
+  const gtdPluginActive = enabledPlugins.includes('gtd');
   // RFC message_id of the open message, so a row highlights when it is a different DB copy
   // of the selected message (multi-folder model) — e.g. the inbox copy of a GTD sidebar click.
   const selectedMid = useStore(selectSelectedMessageMid);
@@ -230,7 +233,7 @@ export default function MessageList() {
   }, [activeCategory, selectedAccountId, selectedFolder, categorizationEnabled, updateCatScrollEdges]);
 
   // GTD surfaces (pills + tab list) apply when GTD is enabled for the context.
-  const gtdActive = gtdActiveForContext(accounts, selectedAccountId);
+  const gtdActive = gtdActiveForContext(accounts, selectedAccountId, gtdPluginActive);
   // While a GTD tab is selected the list body shows that section instead of the
   // folder listing. Same visibility envelope as the tab strip (INBOX, no search).
   const showGtdTab = gtdActive && !!activeGtdTab && selectedFolder === 'INBOX' && !searchQuery.trim();
@@ -3447,7 +3450,7 @@ export default function MessageList() {
                   setContextMenu({ x: e.clientX, y: e.clientY, message: msg });
                 }}
                 onMove={handleRowMove}
-                onGtdDone={gtdActiveForContext(accounts, message.account_id) ? handleGtdDone : undefined}
+                onGtdDone={gtdActiveForContext(accounts, message.account_id, gtdPluginActive) ? handleGtdDone : undefined}
                 isMobile={isMobile}
                 swipeLeftAction={swipeLeftAction}
                 swipeRightAction={swipeRightAction}
@@ -3490,7 +3493,7 @@ export default function MessageList() {
                   setContextMenu({ x: e.clientX, y: e.clientY, message: msg });
                 }}
                 onMove={handleRowMove}
-                onGtdDone={gtdActiveForContext(accounts, message.account_id) ? handleGtdDone : undefined}
+                onGtdDone={gtdActiveForContext(accounts, message.account_id, gtdPluginActive) ? handleGtdDone : undefined}
                 onDragStart={handleRowDragStart}
                 isMobile={isMobile}
                 swipeLeftAction={swipeLeftAction}

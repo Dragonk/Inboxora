@@ -621,7 +621,8 @@
       "groupAccountMail": "Cuenta y correo",
       "groupDisplay": "Visualización",
       "groupSecurityIntegrations": "Seguridad e integraciones",
-      "groupAdmin": "Administración"
+      "groupAdmin": "Administración",
+      "plugins": "Complementos"
     },
     "rules": {
       "title": "Reglas de bandeja de entrada",
@@ -1406,6 +1407,15 @@
       "autoLockNeedsPin": "Configura un PIN para activar el bloqueo automático",
       "autoLockOff": "Desactivado",
       "autoLockMin": "{{n}} min"
+    },
+    "plugins": {
+      "title": "Complementos",
+      "description": "Activa o desactiva funciones opcionales para tu cuenta. Al activar un complemento se añaden sus propios ajustes e interfaz.",
+      "activated": "Activado",
+      "deactivated": "No activado",
+      "empty": "No hay complementos disponibles en esta versión.",
+      "error": "No se pudo actualizar el complemento. Inténtalo de nuevo.",
+      "configureIn": "Configura las opciones en {{location}}"
     }
   },
   "blockList": {

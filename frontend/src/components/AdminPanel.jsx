@@ -4098,6 +4098,9 @@ function AiActionsTab() {
 function CategoriesSection({ initialSubTab }) {
   const { t } = useTranslation();
   const { accounts, categorizationEnabled, setCategorizationEnabled } = useStore();
+  // GTD's per-account settings are only reachable when the GTD plugin is activated for the user
+  // (Settings › Plugins). Deactivating hides this whole block; the config is preserved server-side.
+  const gtdPluginActive = useStore(s => s.enabledPlugins).includes('gtd');
   // GTD settings live under Categories now, behind a local disclosure toggle.
   // This toggle never writes to the backend — the per-account toggles inside
   // GtdSection stay the real gates. Default open if any account already has GTD
@@ -4383,37 +4386,144 @@ function CategoriesSection({ initialSubTab }) {
         </>
       )}
 
-      <div style={{ height: 1, background: 'var(--border-subtle)', margin: '24px 0 20px' }} />
-      <div style={{ display: 'flex', alignItems: 'flex-start', gap: 10, marginBottom: gtdRevealed ? 20 : 0 }}>
-        <button
-          type="button"
-          onClick={handleToggleGtd}
-          style={{
-            width: 36, height: 20, borderRadius: 10, border: 'none', cursor: 'pointer', padding: 0,
-            background: gtdRevealed ? 'var(--accent)' : TOGGLE_OFF_BACKGROUND,
-            position: 'relative', transition: 'background 0.2s', flexShrink: 0, marginTop: 1,
-          }}
-        >
-          <span style={{
-            position: 'absolute', top: 2, left: gtdRevealed ? 18 : 2, width: 16, height: 16,
-            borderRadius: '50%', background: 'white', transition: 'left 0.2s',
-          }} />
-        </button>
-        <div>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 7 }}>
-            <span style={{ fontSize: 13, color: 'var(--text-primary)', fontWeight: 500 }}>{t('admin.categories.gtdReveal')}</span>
-            <span style={{ fontSize: 9, fontWeight: 700, letterSpacing: '0.06em', padding: '1px 4px', borderRadius: 3, background: 'color-mix(in srgb, var(--accent) 15%, transparent)', color: 'var(--accent)' }}>BETA</span>
+      {gtdPluginActive && (
+        <>
+          <div style={{ height: 1, background: 'var(--border-subtle)', margin: '24px 0 20px' }} />
+          <div style={{ display: 'flex', alignItems: 'flex-start', gap: 10, marginBottom: gtdRevealed ? 20 : 0 }}>
+            <button
+              type="button"
+              onClick={handleToggleGtd}
+              style={{
+                width: 36, height: 20, borderRadius: 10, border: 'none', cursor: 'pointer', padding: 0,
+                background: gtdRevealed ? 'var(--accent)' : TOGGLE_OFF_BACKGROUND,
+                position: 'relative', transition: 'background 0.2s', flexShrink: 0, marginTop: 1,
+              }}
+            >
+              <span style={{
+                position: 'absolute', top: 2, left: gtdRevealed ? 18 : 2, width: 16, height: 16,
+                borderRadius: '50%', background: 'white', transition: 'left 0.2s',
+              }} />
+            </button>
+            <div>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 7 }}>
+                <span style={{ fontSize: 13, color: 'var(--text-primary)', fontWeight: 500 }}>{t('admin.categories.gtdReveal')}</span>
+                <span style={{ fontSize: 9, fontWeight: 700, letterSpacing: '0.06em', padding: '1px 4px', borderRadius: 3, background: 'color-mix(in srgb, var(--accent) 15%, transparent)', color: 'var(--accent)' }}>BETA</span>
+              </div>
+              <div style={{ fontSize: 11, color: 'var(--text-tertiary)', marginTop: 2 }}>{t('admin.categories.gtdRevealDesc')}</div>
+            </div>
           </div>
-          <div style={{ fontSize: 11, color: 'var(--text-tertiary)', marginTop: 2 }}>{t('admin.categories.gtdRevealDesc')}</div>
-        </div>
-      </div>
 
-      {gtdRevealed && <GtdSection />}
+          {gtdRevealed && <GtdSection />}
+        </>
+      )}
     </div>
   );
 }
 
 // ─── GTD Section ──────────────────────────────────────────────────────────────
+// Where each plugin's own settings live, so the Plugins tab can point the user there once it's
+// activated (its config stays in its home section, not duplicated here). tab/subtab feed
+// navigateTo; labelKey names the destination for the hint. Frontend-owned because it's a nav-
+// structure concern; a future plugin-settings slot would let plugins declare this themselves.
+const PLUGIN_SETTINGS_LOCATION = {
+  gtd: { tab: 'categories', subtab: 'gtd', labelKey: 'admin.tabs.categories' },
+};
+
+// Plugins settings tab — lists the plugins registered in this build and lets the user activate/
+// deactivate each for themselves. Activation is per-user (persisted server-side) and independent of
+// a plugin's own per-account config; deactivating hides that plugin's UI and makes it inert.
+function PluginsSection({ onNavigate }) {
+  const { t } = useTranslation();
+  const enabledPlugins = useStore(s => s.enabledPlugins);
+  const setPluginActivated = useStore(s => s.setPluginActivated);
+  const [manifests, setManifests] = useState(null); // null = loading
+  const [busyId, setBusyId] = useState(null);
+  const [error, setError] = useState(false);
+
+  useEffect(() => {
+    let alive = true;
+    api.plugins.list()
+      .then(list => { if (alive) setManifests(Array.isArray(list) ? list : []); })
+      .catch(() => { if (alive) { setManifests([]); setError(true); } });
+    return () => { alive = false; };
+  }, []);
+
+  const toggle = async (id, next) => {
+    setBusyId(id);
+    setError(false);
+    try { await setPluginActivated(id, next); }
+    catch { setError(true); }
+    finally { setBusyId(null); }
+  };
+
+  return (
+    <div>
+      <h2 style={{ fontSize: 18, fontWeight: 600, color: 'var(--text-primary)', margin: '0 0 4px' }}>{t('admin.plugins.title')}</h2>
+      <p style={{ fontSize: 13, color: 'var(--text-tertiary)', margin: '0 0 20px', lineHeight: 1.5 }}>{t('admin.plugins.description')}</p>
+
+      {error && (
+        <div style={{ fontSize: 12, color: 'var(--danger, #d94a4a)', marginBottom: 12 }}>{t('admin.plugins.error')}</div>
+      )}
+      {manifests === null && (
+        <div style={{ fontSize: 13, color: 'var(--text-tertiary)' }}>{t('common.loading')}</div>
+      )}
+      {manifests && manifests.length === 0 && !error && (
+        <div style={{ fontSize: 13, color: 'var(--text-tertiary)' }}>{t('admin.plugins.empty')}</div>
+      )}
+
+      {manifests && manifests.map(p => {
+        const on = enabledPlugins.includes(p.id);
+        const busy = busyId === p.id;
+        return (
+          <div key={p.id} style={{ display: 'flex', alignItems: 'flex-start', gap: 12, padding: '14px 0', borderBottom: '1px solid var(--border-subtle)' }}>
+            <button
+              type="button"
+              onClick={() => toggle(p.id, !on)}
+              disabled={busy}
+              aria-pressed={on}
+              aria-label={p.name}
+              style={{
+                width: 36, height: 20, borderRadius: 10, border: 'none', cursor: busy ? 'default' : 'pointer', padding: 0,
+                background: on ? 'var(--accent)' : TOGGLE_OFF_BACKGROUND,
+                position: 'relative', transition: 'background 0.2s', flexShrink: 0, marginTop: 1, opacity: busy ? 0.6 : 1,
+              }}
+            >
+              <span style={{ position: 'absolute', top: 2, left: on ? 18 : 2, width: 16, height: 16, borderRadius: '50%', background: 'white', transition: 'left 0.2s' }} />
+            </button>
+            <div style={{ minWidth: 0 }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 7 }}>
+                <span style={{ fontSize: 14, color: 'var(--text-primary)', fontWeight: 500 }}>{p.name}</span>
+                <span style={{ fontSize: 11, color: 'var(--text-tertiary)' }}>v{p.version}</span>
+              </div>
+              {(() => {
+                const loc = PLUGIN_SETTINGS_LOCATION[p.id];
+                // Activated + has a settings home → a clickable pointer to it. Activated with no
+                // settings, or not activated → a plain status line.
+                if (on && loc && onNavigate) {
+                  return (
+                    <button
+                      type="button"
+                      onClick={() => onNavigate(loc.tab, loc.subtab)}
+                      style={{ marginTop: 3, padding: 0, border: 'none', background: 'none', cursor: 'pointer', fontSize: 12, color: 'var(--accent)', textAlign: 'left' }}
+                    >
+                      {t('admin.plugins.configureIn', { location: t(loc.labelKey) })} →
+                    </button>
+                  );
+                }
+                return (
+                  <div style={{ fontSize: 12, color: 'var(--text-tertiary)', marginTop: 2 }}>
+                    {on ? t('admin.plugins.activated') : t('admin.plugins.deactivated')}
+                  </div>
+                );
+              })()}
+            </div>
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
 function GtdSection() {
   const { t } = useTranslation();
   const { accounts } = useStore();
@@ -6683,7 +6793,7 @@ function RulesAndBlockListTab({ initialSubTab }) {
 const TAB_GROUPS = [
   { id: 'account-mail', labelKey: 'admin.tabs.groupAccountMail', tabIds: ['accounts', 'notifications', 'rules', 'categories'] },
   { id: 'display', labelKey: 'admin.tabs.groupDisplay', tabIds: ['appearance', 'shortcuts'] },
-  { id: 'security-integrations', labelKey: 'admin.tabs.groupSecurityIntegrations', tabIds: ['security', 'integrations', 'ai', 'ai-actions'] },
+  { id: 'security-integrations', labelKey: 'admin.tabs.groupSecurityIntegrations', tabIds: ['security', 'integrations', 'ai', 'ai-actions', 'plugins'] },
   { id: 'admin', labelKey: 'admin.tabs.groupAdmin', tabIds: ['users', 'sso'] },
 ];
 
@@ -6732,6 +6842,10 @@ const TABS = [
   {
     id: 'ai-actions', labelKey: 'admin.tabs.aiActions', beta: true,
     icon: <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round"><path d="M15 4V2M15 16v-2M8 9h2M20 9h2M17.8 11.8 19 13M15 9h.01M17.8 6.2 19 5M3 21l9-9M12.2 6.2 11 5"/></svg>,
+  },
+  {
+    id: 'plugins', labelKey: 'admin.tabs.plugins', beta: true,
+    icon: <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round"><path d="M6 3v6M18 3v6M6 21v-6M18 21v-6M4 9h16v3a6 6 0 01-6 6h-4a6 6 0 01-6-6V9z"/></svg>,
   },
   // Admin
   {
@@ -8211,6 +8325,7 @@ function makeSearchIndex(t) {
     // Integrations
     { label: t('admin.integrations.microsoft.title'), keywords: ['microsoft', 'outlook', '365', 'oauth', 'azure', 'client id', 'tenant', 'ms365', 'office'], tab: 'integrations', breadcrumb: tabLabel('integrations') },
     { label: t('admin.ai.title'), keywords: ['ai', 'artificial intelligence', 'chatgpt', 'ollama', 'llm', 'language model', 'summarize', 'draft', 'compose assistant', 'openai', 'local ai', 'inference', 'gpt'], tab: 'ai', adminOnly: true, breadcrumb: tabLabel('ai') },
+    { label: t('admin.plugins.title'), keywords: ['plugin', 'plugins', 'extension', 'extensions', 'add-on', 'addon', 'gtd', 'activate', 'enable feature', 'modules'], tab: 'plugins', breadcrumb: tabLabel('plugins') },
     { label: t('admin.categories.title'), keywords: ['categories', 'categorize', 'newsletter', 'promotion', 'social', 'automated', 'inbox tabs', 'sort emails', 'classify'], tab: 'categories', breadcrumb: tabLabel('categories') },
     { label: t('admin.categories.gtdReveal'), keywords: ['gtd', 'todo', 'getting things done', 'watch', 'delegated', 'someday', 'reference', 'next action', 'waiting', 'inbox zero', 'pet'], tab: 'categories', subtab: 'gtd', breadcrumb: `${tabLabel('categories')} › ${t('admin.categories.gtdReveal')}` },
     // Security
@@ -8357,6 +8472,7 @@ export default function AdminPanel() {
       {adminTab === 'shortcuts' && !isMobile && <ShortcutsTab />}
       {adminTab === 'ai' && <AISection />}
       {adminTab === 'ai-actions' && <AiActionsTab />}
+      {adminTab === 'plugins' && <PluginsSection onNavigate={navigateTo} />}
       {adminTab === 'about' && <AboutTab />}
     </>
   );
@@ -8473,6 +8589,9 @@ export default function AdminPanel() {
             {searchInput(true)}
           </div>
 
+          {/* Scrollable tab list — keeps the Close button pinned even when the tab list is taller
+              than the modal (e.g. once several plugins/beta tabs are present). */}
+          <div style={{ flex: 1, minHeight: 0, overflowY: 'auto' }}>
           {TAB_GROUPS.map((group, gi) => {
             const groupTabs = visibleTabs.filter(tab => group.tabIds.includes(tab.id));
             if (groupTabs.length === 0) return null;
@@ -8542,9 +8661,9 @@ export default function AdminPanel() {
               </button>
             );
           })}
+          </div>
 
-          <div style={{ flex: 1 }} />
-
+          <div style={{ height: 1, background: 'var(--border-subtle)', margin: '6px 0' }} />
           <button
             onClick={() => setShowAdmin(false)}
             style={{

@@ -124,9 +124,12 @@ export function resolveRowDisplay(thread, sectionKey) {
 }
 
 // Whether GTD display surfaces apply to the current context.
-// Unified (no account selected) → any account with GTD on; single account →
-// that account's flag only.
-export function gtdActiveForContext(accounts, selectedAccountId) {
+// Gated first on the user having the GTD plugin activated (deactivating hides every GTD surface,
+// independent of per-account config), then: unified (no account selected) → any account with GTD
+// on; single account → that account's flag only. gtdActivated defaults true so callers that don't
+// yet thread activation (and the unit tests) keep the pre-plugin behavior.
+export function gtdActiveForContext(accounts, selectedAccountId, gtdActivated = true) {
+  if (!gtdActivated) return false;
   if (!Array.isArray(accounts) || accounts.length === 0) return false;
   if (selectedAccountId == null) {
     return accounts.some(a => a?.gtd_enabled && a?.include_in_unified_inbox !== false);

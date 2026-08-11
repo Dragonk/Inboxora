@@ -129,8 +129,8 @@ export function useWebSocket() {
         // fired while the socket was down are lost, not buffered. Refetch them the
         // same way we refresh messages/unread, but only for GTD users so a non-GTD
         // context adds no extra traffic on every reconnect.
-        const { accounts, selectedAccountId, scheduleGtdSectionsFetch } = useStore.getState();
-        if (gtdActiveForContext(accounts, selectedAccountId)) scheduleGtdSectionsFetch();
+        const { accounts, selectedAccountId, enabledPlugins, scheduleGtdSectionsFetch } = useStore.getState();
+        if (gtdActiveForContext(accounts, selectedAccountId, enabledPlugins.includes('gtd'))) scheduleGtdSectionsFetch();
       }
     };
 

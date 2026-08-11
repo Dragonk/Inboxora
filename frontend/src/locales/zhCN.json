@@ -621,7 +621,8 @@
       "groupAccountMail": "账户与邮件",
       "groupDisplay": "显示",
       "groupSecurityIntegrations": "安全与集成",
-      "groupAdmin": "管理"
+      "groupAdmin": "管理",
+      "plugins": "插件"
     },
     "rules": {
       "title": "收件箱规则",
@@ -1406,6 +1407,15 @@
       "autoLockNeedsPin": "设置 PIN 码以启用自动锁定",
       "autoLockOff": "关闭",
       "autoLockMin": "{{n}} 分钟"
+    },
+    "plugins": {
+      "title": "插件",
+      "description": "为你的账户开启或关闭可选功能。启用插件后会添加其自身的设置和界面。",
+      "activated": "已启用",
+      "deactivated": "未启用",
+      "empty": "此版本中没有可用的插件。",
+      "error": "无法更新插件，请重试。",
+      "configureIn": "在「{{location}}」中配置选项"
     }
   },
   "blockList": {

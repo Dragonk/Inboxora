@@ -145,6 +145,10 @@ const SAME_VALUE_ALLOWED = {
   // "Website" — international term, same in de and en
   'admin.about.website': [['de', 'en']],
 
+  // "Plugins" — loanword, same spelling in de and en (it uses singular "Plugin")
+  'admin.tabs.plugins':  [['de', 'en']],
+  'admin.plugins.title': [['de', 'en']],
+
   // "Alias" — Latin origin, same spelling in es, fr, it
   'admin.accounts.aliases': [['es', 'fr', 'it']],
   'admin.aliases.title':     [['es', 'fr', 'it']],

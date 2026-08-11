@@ -74,6 +74,7 @@ export default function MailApp() {
   const syncInterval = useStore(s => s.syncInterval);
   const autoLockMinutes = useStore(s => s.autoLockMinutes);
   const lockScreen = useStore(s => s.lockScreen);
+  const gtdPluginActive = useStore(s => s.enabledPlugins).includes('gtd');
 
   // Auto-lock after inactivity (#235). MailApp only mounts while unlocked, so this
   // timer runs only when unlocked; hitting the timeout locks and unmounts this tree.
@@ -101,7 +102,7 @@ export default function MailApp() {
   // Single owner of the GTD sections fetch: reload whenever the context (unified
   // vs a single account) changes and GTD is active there. Both the rail and the
   // tab list read the resulting store slice; live updates arrive via WS.
-  const gtdActive = gtdActiveForContext(accounts, selectedAccountId);
+  const gtdActive = gtdActiveForContext(accounts, selectedAccountId, gtdPluginActive);
   // Also key on the set of GTD-enabled accounts so enabling a second account refetches
   // the unified sections — gtdActive alone stays true and wouldn't retrigger when it
   // flips from one enabled account to two.

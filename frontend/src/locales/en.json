@@ -621,7 +621,8 @@
       "groupAccountMail": "Account & Mail",
       "groupDisplay": "Display",
       "groupSecurityIntegrations": "Security & Integrations",
-      "groupAdmin": "Administration"
+      "groupAdmin": "Administration",
+      "plugins": "Plugins"
     },
     "rules": {
       "title": "Inbox rules",
@@ -1406,6 +1407,15 @@
       "autoLockNeedsPin": "Set a PIN to enable auto-lock",
       "autoLockOff": "Off",
       "autoLockMin": "{{n}} min"
+    },
+    "plugins": {
+      "title": "Plugins",
+      "description": "Turn optional features on or off for your account. Enabling a plugin adds its own settings and interface.",
+      "activated": "Activated",
+      "deactivated": "Not activated",
+      "empty": "No plugins are available in this build.",
+      "error": "Couldn't update the plugin. Please try again.",
+      "configureIn": "Configure options in {{location}}"
     }
   },
   "blockList": {

@@ -621,7 +621,8 @@
       "groupAccountMail": "Account e posta",
       "groupDisplay": "Schermo",
       "groupSecurityIntegrations": "Sicurezza e integrazioni",
-      "groupAdmin": "Amministrazione"
+      "groupAdmin": "Amministrazione",
+      "plugins": "Plugin"
     },
     "rules": {
       "title": "Regole posta in arrivo",
@@ -1406,6 +1407,15 @@
       "autoLockNeedsPin": "Imposta un PIN per abilitare il blocco automatico",
       "autoLockOff": "Disattivato",
       "autoLockMin": "{{n}} min"
+    },
+    "plugins": {
+      "title": "Plugin",
+      "description": "Attiva o disattiva funzionalità opzionali per il tuo account. Un plugin attivato aggiunge le proprie impostazioni e interfaccia.",
+      "activated": "Attivato",
+      "deactivated": "Non attivato",
+      "empty": "Nessun plugin disponibile in questa versione.",
+      "error": "Impossibile aggiornare il plugin. Riprova.",
+      "configureIn": "Configura le opzioni in {{location}}"
     }
   },
   "blockList": {

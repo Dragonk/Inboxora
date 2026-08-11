@@ -621,7 +621,8 @@
       "groupAccountMail": "Compte et courrier",
       "groupDisplay": "Affichage",
       "groupSecurityIntegrations": "Sécurité et intégrations",
-      "groupAdmin": "Administration"
+      "groupAdmin": "Administration",
+      "plugins": "Extensions"
     },
     "rules": {
       "title": "Règles de boîte de réception",
@@ -1406,6 +1407,15 @@
       "autoLockNeedsPin": "Définissez un PIN pour activer le verrouillage automatique",
       "autoLockOff": "Désactivé",
       "autoLockMin": "{{n}} min"
+    },
+    "plugins": {
+      "title": "Extensions",
+      "description": "Activez ou désactivez des fonctionnalités optionnelles pour votre compte. Une extension activée ajoute ses propres réglages et son interface.",
+      "activated": "Activée",
+      "deactivated": "Non activée",
+      "empty": "Aucune extension n'est disponible dans cette version.",
+      "error": "Impossible de mettre à jour l'extension. Veuillez réessayer.",
+      "configureIn": "Configurer les options dans {{location}}"
     }
   },
   "blockList": {
