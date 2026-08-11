@@ -10,14 +10,6 @@ vi.mock('../../services/db.js', () => ({ query: vi.fn() }));
 vi.mock('../../middleware/auth.js', () => ({
   requireAuth: (req, _res, next) => { req.session = { userId: 'u1' }; next(); },
 }));
-vi.mock('../../index.js', () => ({
-  imapManager: {
-    ensureFolder: vi.fn(),
-    copyMessage: vi.fn(),
-    removeMessageCopy: vi.fn(),
-    broadcast: vi.fn(),
-  },
-}));
 vi.mock('./gtdConfig.js', async (importOriginal) => {
   const actual = await importOriginal();
   return { ...actual, getGtdConfig: vi.fn() };
@@ -25,9 +17,20 @@ vi.mock('./gtdConfig.js', async (importOriginal) => {
 
 import express from 'express';
 import { query } from '../../services/db.js';
-import { imapManager } from '../../index.js';
+import { setMailEngine } from '../mailEngine.js';
 import { getGtdConfig, DEFAULT_GTD_FOLDERS } from './gtdConfig.js';
 import gtdRoutes from './routes.js';
+
+// The label/broadcast capabilities the routes use are bound (via plugin-api) to the platform's
+// mail engine. Inject a mock engine instead of the real imapManager; the same object is asserted
+// on below (its copyMessage/removeMessageCopy/broadcast are what the label capabilities call).
+const imapManager = {
+  ensureFolder: vi.fn(),
+  copyMessage: vi.fn(),
+  removeMessageCopy: vi.fn(),
+  broadcast: vi.fn(),
+};
+setMailEngine(imapManager);
 
 const MSG_ID = 'dddddddd-dddd-4ddd-8ddd-dddddddddddd';
 const ACCT_ID = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa';

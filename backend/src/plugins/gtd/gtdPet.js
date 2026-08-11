@@ -1,4 +1,4 @@
-import * as pluginStorage from '../storage.js';
+import { storage as pluginStorage } from '../api.js';
 
 // GTD Inbox-Zero pet: cache a user's OWN imported pet (an uploaded pet.json + spritesheet)
 // and serve its animation descriptor and spritesheet bytes to the GtdZeroPet component,

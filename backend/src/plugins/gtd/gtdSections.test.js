@@ -61,17 +61,18 @@ describe('getGtdSections — account resolution', () => {
     }
   });
 
-  it('scopes the accounts query to the user, enabled, and gtd_enabled', async () => {
+  it('scopes the accounts read to the user (via the listUserAccounts capability)', async () => {
     query.mockResolvedValueOnce({ rows: [] });
     await getGtdSections({ userId: 'u1' });
-    const sql = query.mock.calls[0][0];
+    // listUserAccounts issues the user-scoped account read; the enabled filter is applied in JS
+    // and the per-account GTD gate via getGtdConfig — no gtd_enabled in the SQL anymore.
+    const [sql, params] = query.mock.calls[0];
     expect(sql).toContain('user_id = $1');
-    expect(sql).toContain('enabled = true');
-    expect(sql).toContain('gtd_enabled = true');
+    expect(params).toEqual(['u1']);
   });
 
   it('excludes accounts the caller does not own when accountId is supplied', async () => {
-    query.mockResolvedValueOnce({ rows: [{ id: 'acc-1', folder_mappings: null }] }); // accounts
+    query.mockResolvedValueOnce({ rows: [{ id: 'acc-1', folder_mappings: null, enabled: true }] }); // accounts
 
     const { sections } = await getGtdSections({ userId: 'u1', accountId: 'acc-other' });
 
@@ -84,7 +85,7 @@ describe('getGtdSections — account resolution', () => {
 describe('getGtdSections — section folding', () => {
   it('places a multi-folder thread in every state section it belongs to, once each, preserving in_inbox', async () => {
     query
-      .mockResolvedValueOnce({ rows: [{ id: 'acc-1', folder_mappings: null }] }) // accounts
+      .mockResolvedValueOnce({ rows: [{ id: 'acc-1', folder_mappings: null, enabled: true }] }) // accounts
       .mockResolvedValueOnce({ rows: [
         headRow({ state: 'todo', folders: ['INBOX', 'Todo', 'Reference'], in_inbox: true }),
         headRow({ state: 'reference', folders: ['INBOX', 'Todo', 'Reference'], in_inbox: true }),
@@ -102,7 +103,7 @@ describe('getGtdSections — section folding', () => {
 
   it('surfaces an archived (inbox-absent) thread with in_inbox false', async () => {
     query
-      .mockResolvedValueOnce({ rows: [{ id: 'acc-1', folder_mappings: null }] })
+      .mockResolvedValueOnce({ rows: [{ id: 'acc-1', folder_mappings: null, enabled: true }] })
       .mockResolvedValueOnce({ rows: [
         headRow({ state: 'watch', folders: ['Watch'], in_inbox: false, total: 1, unread: 0, thread_unread: false }),
       ] });
@@ -115,7 +116,7 @@ describe('getGtdSections — section folding', () => {
 
   it('reports per-section total and unread from the query pass', async () => {
     query
-      .mockResolvedValueOnce({ rows: [{ id: 'acc-1', folder_mappings: null }] })
+      .mockResolvedValueOnce({ rows: [{ id: 'acc-1', folder_mappings: null, enabled: true }] })
       .mockResolvedValueOnce({ rows: [
         headRow({ id: 'a', message_id: '<a>', thread_key: 'ta', total: 3, unread: 2, thread_unread: true }),
         headRow({ id: 'b', message_id: '<b>', thread_key: 'tb', total: 3, unread: 2, thread_unread: true, date: '2026-06-30T10:00:00Z' }),
@@ -135,7 +136,7 @@ describe('getGtdSections — section folding', () => {
 describe('getGtdSections — thread-level unread', () => {
   it('surfaces a thread with a read head but an unread sibling copy as unread', async () => {
     query
-      .mockResolvedValueOnce({ rows: [{ id: 'acc-1', folder_mappings: null }] })
+      .mockResolvedValueOnce({ rows: [{ id: 'acc-1', folder_mappings: null, enabled: true }] })
       .mockResolvedValueOnce({ rows: [
         // The head is the READ Todo-folder copy; a newer reply exists only in INBOX and
         // is unread, so SECTION_SQL reports thread_unread true. is_read simulates the
@@ -151,7 +152,7 @@ describe('getGtdSections — thread-level unread', () => {
 
   it('surfaces a thread whose copies are all read as read', async () => {
     query
-      .mockResolvedValueOnce({ rows: [{ id: 'acc-1', folder_mappings: null }] })
+      .mockResolvedValueOnce({ rows: [{ id: 'acc-1', folder_mappings: null, enabled: true }] })
       .mockResolvedValueOnce({ rows: [
         headRow({ thread_unread: false, total: 1, unread: 0 }),
       ] });
@@ -164,7 +165,7 @@ describe('getGtdSections — thread-level unread', () => {
 
   it('keeps the waiting rollup unread on the same thread-level basis as the row flag', async () => {
     query
-      .mockResolvedValueOnce({ rows: [{ id: 'acc-1', folder_mappings: null }] })
+      .mockResolvedValueOnce({ rows: [{ id: 'acc-1', folder_mappings: null, enabled: true }] })
       .mockResolvedValueOnce({ rows: [
         headRow({ state: 'watch', thread_unread: true, total: 1, unread: 1, waiting_total: 1, waiting_unread: 1 }),
       ] });
@@ -181,8 +182,8 @@ describe('getGtdSections — unified merge', () => {
   it('omits opted-out accounts from the unified GTD rail', async () => {
     query
       .mockResolvedValueOnce({ rows: [
-        { id: 'acc-1', folder_mappings: null, include_in_unified_inbox: true },
-        { id: 'acc-2', folder_mappings: null, include_in_unified_inbox: false },
+        { id: 'acc-1', folder_mappings: null, include_in_unified_inbox: true, enabled: true },
+        { id: 'acc-2', folder_mappings: null, include_in_unified_inbox: false, enabled: true },
       ] })
       .mockResolvedValueOnce({ rows: [
         headRow({ account_id: 'acc-1', id: 'a', message_id: '<a>', thread_key: 'ta' }),
@@ -197,8 +198,8 @@ describe('getGtdSections — unified merge', () => {
   it('sums counts and merges heads newest-first across accounts', async () => {
     query
       .mockResolvedValueOnce({ rows: [
-        { id: 'acc-1', folder_mappings: null },
-        { id: 'acc-2', folder_mappings: null },
+        { id: 'acc-1', folder_mappings: null, enabled: true },
+        { id: 'acc-2', folder_mappings: null, enabled: true },
       ] })
       .mockResolvedValueOnce({ rows: [
         headRow({ account_id: 'acc-1', id: 'a', message_id: '<a>', thread_key: 'ta', total: 1, unread: 1, date: '2026-07-02T00:00:00Z' }),
@@ -218,8 +219,8 @@ describe('getGtdSections — unified merge', () => {
   it('dedupes the same message_id appearing across two accounts', async () => {
     query
       .mockResolvedValueOnce({ rows: [
-        { id: 'acc-1', folder_mappings: null },
-        { id: 'acc-2', folder_mappings: null },
+        { id: 'acc-1', folder_mappings: null, enabled: true },
+        { id: 'acc-2', folder_mappings: null, enabled: true },
       ] })
       .mockResolvedValueOnce({ rows: [
         headRow({ account_id: 'acc-1', id: 'a', message_id: '<shared>', thread_key: 'ta', total: 1, unread: 0, thread_unread: false }),
@@ -237,7 +238,7 @@ describe('getGtdSections — unified merge', () => {
 describe('getGtdSections — query shape and limits', () => {
   it('clamps the per-section limit to the default when absent and caps at 50', async () => {
     query
-      .mockResolvedValueOnce({ rows: [{ id: 'acc-1', folder_mappings: null }] })
+      .mockResolvedValueOnce({ rows: [{ id: 'acc-1', folder_mappings: null, enabled: true }] })
       .mockResolvedValueOnce({ rows: [] });
     await getGtdSections({ userId: 'u1' });
     expect(query.mock.calls[1][1][4]).toBe(8); // default limit param ($5)
@@ -246,7 +247,7 @@ describe('getGtdSections — query shape and limits', () => {
     getGtdConfig.mockResolvedValue({ enabled: true, folders: DEFAULT_FOLDERS });
     resolveAllDraftsPaths.mockResolvedValue(new Set(['Drafts']));
     query
-      .mockResolvedValueOnce({ rows: [{ id: 'acc-1', folder_mappings: null }] })
+      .mockResolvedValueOnce({ rows: [{ id: 'acc-1', folder_mappings: null, enabled: true }] })
       .mockResolvedValueOnce({ rows: [] });
     await getGtdSections({ userId: 'u1', limit: 500 });
     expect(query.mock.calls[1][1][4]).toBe(50); // capped ($5)
@@ -255,7 +256,7 @@ describe('getGtdSections — query shape and limits', () => {
   it('passes the resolved draft paths and excludes them in the query', async () => {
     resolveAllDraftsPaths.mockResolvedValue(new Set(['Drafts', '[Gmail]/Drafts']));
     query
-      .mockResolvedValueOnce({ rows: [{ id: 'acc-1', folder_mappings: null }] })
+      .mockResolvedValueOnce({ rows: [{ id: 'acc-1', folder_mappings: null, enabled: true }] })
       .mockResolvedValueOnce({ rows: [] });
 
     await getGtdSections({ userId: 'u1' });
@@ -271,7 +272,7 @@ describe('getGtdSections — query shape and limits', () => {
 
   it('picks the thread head from a GTD-label folder so its row id is stable to click', async () => {
     query
-      .mockResolvedValueOnce({ rows: [{ id: 'acc-1', folder_mappings: null }] })
+      .mockResolvedValueOnce({ rows: [{ id: 'acc-1', folder_mappings: null, enabled: true }] })
       .mockResolvedValueOnce({ rows: [] });
 
     await getGtdSections({ userId: 'u1' });
@@ -285,7 +286,7 @@ describe('getGtdSections — query shape and limits', () => {
 
   it('computes unread thread-level (bool_or over all copies), one truth for counts and rows', async () => {
     query
-      .mockResolvedValueOnce({ rows: [{ id: 'acc-1', folder_mappings: null }] })
+      .mockResolvedValueOnce({ rows: [{ id: 'acc-1', folder_mappings: null, enabled: true }] })
       .mockResolvedValueOnce({ rows: [] });
 
     await getGtdSections({ userId: 'u1' });
@@ -303,7 +304,7 @@ describe('getGtdSections — query shape and limits', () => {
 
   it('selects is_starred on the head so GTD entries can render a real (two-way) star', async () => {
     query
-      .mockResolvedValueOnce({ rows: [{ id: 'acc-1', folder_mappings: null }] })
+      .mockResolvedValueOnce({ rows: [{ id: 'acc-1', folder_mappings: null, enabled: true }] })
       .mockResolvedValueOnce({ rows: [] });
 
     await getGtdSections({ userId: 'u1' });
@@ -313,7 +314,7 @@ describe('getGtdSections — query shape and limits', () => {
 
   it('ships a deduped Waiting rollup via COUNT(DISTINCT) and passes the waiting states as $6', async () => {
     query
-      .mockResolvedValueOnce({ rows: [{ id: 'acc-1', folder_mappings: null }] })
+      .mockResolvedValueOnce({ rows: [{ id: 'acc-1', folder_mappings: null, enabled: true }] })
       .mockResolvedValueOnce({ rows: [] });
 
     await getGtdSections({ userId: 'u1' });
@@ -332,7 +333,7 @@ describe('getGtdSections — query shape and limits', () => {
 describe('getGtdSections — waiting rollup + star', () => {
   it('surfaces the head is_starred flag on the mapped thread', async () => {
     query
-      .mockResolvedValueOnce({ rows: [{ id: 'acc-1', folder_mappings: null }] })
+      .mockResolvedValueOnce({ rows: [{ id: 'acc-1', folder_mappings: null, enabled: true }] })
       .mockResolvedValueOnce({ rows: [headRow({ state: 'todo', is_starred: true })] });
 
     const { sections } = await getGtdSections({ userId: 'u1' });
@@ -344,7 +345,7 @@ describe('getGtdSections — waiting rollup + star', () => {
     // Account query returns watch + delegated heads for one thread labelled BOTH: the
     // per-state totals sum to 2, but the query's waiting_total (deduped) is 1.
     query
-      .mockResolvedValueOnce({ rows: [{ id: 'acc-1', folder_mappings: null }] })
+      .mockResolvedValueOnce({ rows: [{ id: 'acc-1', folder_mappings: null, enabled: true }] })
       .mockResolvedValueOnce({ rows: [
         headRow({ state: 'watch', id: 'a', message_id: '<a>', thread_key: 'ta', total: 1, unread: 1, thread_unread: true, waiting_total: 1, waiting_unread: 1 }),
         headRow({ state: 'delegated', id: 'a', message_id: '<a>', thread_key: 'ta', total: 1, unread: 1, thread_unread: true, waiting_total: 1, waiting_unread: 1 }),
@@ -361,8 +362,8 @@ describe('getGtdSections — waiting rollup + star', () => {
   it('sums the waiting rollup across accounts (once per account, from its first row)', async () => {
     query
       .mockResolvedValueOnce({ rows: [
-        { id: 'acc-1', folder_mappings: null },
-        { id: 'acc-2', folder_mappings: null },
+        { id: 'acc-1', folder_mappings: null, enabled: true },
+        { id: 'acc-2', folder_mappings: null, enabled: true },
       ] })
       .mockResolvedValueOnce({ rows: [
         headRow({ account_id: 'acc-1', state: 'watch', id: 'a', message_id: '<a>', thread_key: 'ta', waiting_total: 3, waiting_unread: 2 }),

@@ -10,7 +10,6 @@ vi.mock('../../services/db.js', () => ({ query: vi.fn() }));
 vi.mock('../../middleware/auth.js', () => ({
   requireAuth: (req, _res, next) => { req.session = { userId: 'u1' }; next(); },
 }));
-vi.mock('../../index.js', () => ({ imapManager: { ensureFolder: vi.fn(), broadcast: vi.fn() } }));
 vi.mock('./gtdConfig.js', async (importOriginal) => {
   const actual = await importOriginal();
   return { ...actual, invalidateGtdConfigCache: vi.fn() };
@@ -18,9 +17,14 @@ vi.mock('./gtdConfig.js', async (importOriginal) => {
 
 import express from 'express';
 import { query } from '../../services/db.js';
-import { imapManager } from '../../index.js';
+import { setMailEngine } from '../mailEngine.js';
 import { invalidateGtdConfigCache } from './gtdConfig.js';
 import gtdRoutes from './routes.js';
+
+// ensureLabelFolders is a bound plugin-api capability; inject a mock engine (its ensureFolder is
+// asserted on below).
+const imapManager = { ensureFolder: vi.fn(), broadcast: vi.fn() };
+setMailEngine(imapManager);
 
 function buildApp() {
   const app = express();

@@ -1,5 +1,5 @@
 import { query } from '../../services/db.js';
-import { isPluginActivated } from '../activation.js';
+import { isPluginActivated } from '../api.js';
 
 // Default GTD state → folder-path map. An account's gtd_folders JSONB overrides
 // individual entries; any state it omits falls back to the value here. An empty

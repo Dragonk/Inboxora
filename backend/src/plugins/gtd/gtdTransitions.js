@@ -1,7 +1,5 @@
-import { query } from '../../services/db.js';
 import { getGtdConfig } from './gtdConfig.js';
-import { resolveAllDraftsPaths } from '../../utils/mailUtils.js';
-import { logger } from '../../services/logger.js';
+import { resolveAllDraftsPaths, logger, getAccountAddresses, getThreadKeysForMessageIds as _threadKeysForIds, getThreadKeysInFolders as _threadKeysInFolders, getThreadKeysForMessageIdHeaders, getMessagesByThreadKeys } from '../api.js';
 
 // Transition rules for auto-stripping a GTD label once a thread's state has moved on,
 // evaluated per thread against its LAST non-draft message. Designed to match the
@@ -52,15 +50,10 @@ export async function getOwnerAddresses(accountId) {
   const cached = ownerCache.get(accountId);
   if (cached && cached.expiry > Date.now()) return cached.value;
 
-  const { rows } = await query(
-    `SELECT email_address AS addr FROM email_accounts WHERE id = $1
-     UNION ALL
-     SELECT email AS addr FROM account_aliases WHERE account_id = $1`,
-    [accountId]
-  );
+  const addrs = await getAccountAddresses(accountId);
   const set = new Set();
-  for (const r of rows) {
-    const a = normalizeAddress(r.addr);
+  for (const raw of addrs) {
+    const a = normalizeAddress(raw);
     if (a) set.add(a);
   }
   ownerCache.set(accountId, { value: set, expiry: Date.now() + CACHE_TTL_MS });
@@ -71,25 +64,10 @@ export async function getOwnerAddresses(accountId) {
 // The INBOX post-ingest hook knows the surviving new rows' ids but not their thread_keys;
 // the GTD tick knows which label folders changed but not which threads they touched.
 
-export async function threadKeysForMessageIds(accountId, ids) {
-  if (!ids || ids.length === 0) return [];
-  const { rows } = await query(
-    `SELECT DISTINCT thread_key FROM messages
-     WHERE account_id = $1 AND id = ANY($2::uuid[])`,
-    [accountId, ids]
-  );
-  return rows.map((r) => r.thread_key);
-}
-
-export async function threadKeysInFolders(accountId, folders) {
-  if (!folders || folders.length === 0) return [];
-  const { rows } = await query(
-    `SELECT DISTINCT thread_key FROM messages
-     WHERE account_id = $1 AND folder = ANY($2::text[]) AND is_deleted = false`,
-    [accountId, folders]
-  );
-  return rows.map((r) => r.thread_key);
-}
+// Thin GTD-facing wrappers over the mail-access capabilities (kept as exports so the hooks and
+// tests that import them from here are unchanged).
+export const threadKeysForMessageIds = (accountId, ids) => _threadKeysForIds(accountId, ids);
+export const threadKeysInFolders = (accountId, folders) => _threadKeysInFolders(accountId, folders);
 
 // ── Transition engine ────────────────────────────────────────────────────────
 // Apply the GTD Labeler rules to a set of threads for one account.
@@ -133,12 +111,7 @@ export async function runGtdTransitions(imapManager, account, threadKeys) {
   const draftPaths = await resolveAllDraftsPaths(account.id, account.folder_mappings);
   const owner = await getOwnerAddresses(account.id);
 
-  const { rows } = await query(
-    `SELECT thread_key, uid, folder, from_email, date, id
-     FROM messages
-     WHERE account_id = $1 AND thread_key = ANY($2::text[]) AND is_deleted = false`,
-    [account.id, keys]
-  );
+  const rows = await getMessagesByThreadKeys(account.id, keys);
 
   const byThread = new Map();
   for (const row of rows) {
@@ -202,10 +175,6 @@ export async function runTransitionsForSentMessage(imapManager, account, message
   const bare = String(messageId).replace(/[<>]/g, '').trim();
   if (!bare) return;
 
-  const { rows } = await query(
-    `SELECT DISTINCT thread_key FROM messages
-     WHERE account_id = $1 AND message_id = ANY($2::text[]) AND is_deleted = false`,
-    [account.id, [bare, `<${bare}>`]]
-  );
-  await runGtdTransitions(imapManager, account, rows.map((r) => r.thread_key));
+  const threadKeys = await getThreadKeysForMessageIdHeaders(account.id, [bare, `<${bare}>`]);
+  await runGtdTransitions(imapManager, account, threadKeys);
 }

@@ -297,9 +297,11 @@ describe('gtd hooks — onPluginActivationChanged', () => {
   beforeEach(() => { query.mockReset(); invalidateGtdConfigCache.mockReset(); });
 
   it('invalidates GTD config cache for all the user\'s accounts when gtd is toggled', async () => {
+    // onPluginActivationChanged lists the user's accounts via the listUserAccounts capability
+    // (user-scoped query) and invalidates GTD's config cache for each.
     query.mockResolvedValueOnce({ rows: [{ id: 'a1' }, { id: 'a2' }] });
     await onPluginActivationChanged({ userId: 'u1', pluginId: 'gtd', activated: false });
-    expect(query).toHaveBeenCalledWith('SELECT id FROM email_accounts WHERE user_id = $1', ['u1']);
+    expect(query.mock.calls[0][1]).toEqual(['u1']);
     expect(invalidateGtdConfigCache).toHaveBeenCalledWith('a1');
     expect(invalidateGtdConfigCache).toHaveBeenCalledWith('a2');
   });

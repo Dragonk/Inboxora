@@ -13,7 +13,7 @@ import { getGtdFolderSet, getGtdConfig, gtdTickFolders, sanitizeGtdFoldersDetail
 import { runGtdTransitions, threadKeysForMessageIds, threadKeysInFolders, runTransitionsForSentMessage, invalidateOwnerAddressesCache } from './gtdTransitions.js';
 import { emitGtdIfRelevant } from './gtdSections.js';
 import { customPetSlug } from './gtdPet.js';
-import { logger } from '../../services/logger.js';
+import { logger, getThreadKeyForUid, listUserAccounts } from '../api.js';
 
 // Choose the INBOX message ids to run GTD transitions over after a sync batch completes.
 //   newInboxIds — the id of every row the sync newly inserted into INBOX, collected REGARDLESS
@@ -148,11 +148,7 @@ export function emitAfterDeferredCopySync(mgr, account, toFolder, srcUid, fromFo
       mgr.broadcast({ type: 'gtd_sections_updated', accountId: account.id }, account.user_id);
       if (!account.gtd_enabled) return;
       try {
-        const { rows } = await query(
-          'SELECT thread_key FROM messages WHERE account_id = $1 AND uid = $2 AND folder = $3 LIMIT 1',
-          [account.id, srcUid, fromFolder]
-        );
-        const threadKey = rows[0]?.thread_key;
+        const threadKey = await getThreadKeyForUid(account.id, srcUid, fromFolder);
         if (threadKey) await runGtdTransitions(mgr, account, [threadKey]);
       } catch (err) {
         logger.debug(`post-copy transition re-run failed for ${toFolder}: ${err.message}`);
@@ -267,6 +263,6 @@ export async function onAccountIdentityChanged({ accountId }) {
 // reactivating restores everything.
 export async function onPluginActivationChanged({ userId, pluginId }) {
   if (pluginId !== 'gtd' || !userId) return;
-  const { rows } = await query('SELECT id FROM email_accounts WHERE user_id = $1', [userId]);
-  for (const r of rows) invalidateGtdConfigCache(r.id);
+  const accounts = await listUserAccounts(userId);
+  for (const a of accounts) invalidateGtdConfigCache(a.id);
 }

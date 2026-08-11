@@ -28,6 +28,7 @@ import aiRoutes from './routes/ai.js';
 import categoriesRoutes from './routes/categories.js';
 import { pluginRegistry } from './plugins/registry.js';
 import { loadBundledPlugins } from './plugins/loadPlugins.js';
+import { setMailEngine } from './plugins/mailEngine.js';
 import pluginsRoutes from './routes/plugins.js';
 import senderFaviconsRoutes from './routes/senderFavicons.js';
 import carddavRouter from './routes/carddav.js';
@@ -157,6 +158,9 @@ app.use('/api', (req, res, next) => {
 // Make imap manager available globally
 export const imapManager = new ImapManager(wss);
 app.set('imapManager', imapManager);
+// Hand the mail engine to the plugin platform so plugin-api capabilities (labels, archive,
+// broadcast) can be bound to it without any plugin importing the mail engine or this entry file.
+setMailEngine(imapManager);
 
 // Routes
 app.use('/api/auth', authRoutes);

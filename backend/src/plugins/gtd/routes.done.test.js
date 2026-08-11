@@ -10,16 +10,6 @@ vi.mock('../../services/db.js', () => ({ query: vi.fn() }));
 vi.mock('../../middleware/auth.js', () => ({
   requireAuth: (req, _res, next) => { req.session = { userId: 'u1' }; next(); },
 }));
-vi.mock('../../index.js', () => ({
-  imapManager: {
-    moveMessage: vi.fn(),
-    setFlag: vi.fn(),
-    removeMessageCopy: vi.fn(),
-    _guardMoveUid: vi.fn(),
-    _unguardMoveUid: vi.fn(),
-    broadcast: vi.fn(),
-  },
-}));
 vi.mock('../../utils/mailUtils.js', async (importOriginal) => {
   const actual = await importOriginal();
   return {
@@ -37,9 +27,21 @@ vi.mock('./gtdConfig.js', async (importOriginal) => {
 
 import express from 'express';
 import { query } from '../../services/db.js';
-import { imapManager } from '../../index.js';
+import { setMailEngine } from '../mailEngine.js';
 import { resolveArchiveFolder, isAllMailFolder, adjustFolderCounts, fanOutReadToSiblings } from '../../utils/mailUtils.js';
 import { getGtdConfig, DEFAULT_GTD_FOLDERS } from './gtdConfig.js';
+
+// The done route's mail actions (label strip, mark-read, archive, broadcast) go through the bound
+// plugin-api capabilities; inject a mock engine, asserted on directly below.
+const imapManager = {
+  moveMessage: vi.fn(),
+  setFlag: vi.fn(),
+  removeMessageCopy: vi.fn(),
+  _guardMoveUid: vi.fn(),
+  _unguardMoveUid: vi.fn(),
+  broadcast: vi.fn(),
+};
+setMailEngine(imapManager);
 import gtdRoutes from './routes.js';
 
 const MSG_ID = 'dddddddd-dddd-4ddd-8ddd-dddddddddddd';

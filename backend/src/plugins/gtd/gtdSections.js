@@ -1,7 +1,5 @@
-import { query } from '../../services/db.js';
 import { getGtdConfig, GTD_STATES } from './gtdConfig.js';
-import { resolveAllDraftsPaths } from '../../utils/mailUtils.js';
-import { listThreadHeadsByLabels, notifyOnLabelTouch } from '../../services/labelsRead.js';
+import { resolveAllDraftsPaths, listThreadHeadsByLabels, notifyOnLabelTouch, listUserAccounts } from '../api.js';
 
 // States the frontend merges into the single "Waiting" section (utils/gtd.js). Their
 // counts must dedupe a thread holding BOTH labels; see the waiting_agg CTE below.
@@ -49,11 +47,9 @@ function mapHead(row) {
 export async function getGtdSections({ userId, accountId = null, limit } = {}) {
   const safeLimit = Math.min(Math.max(parseInt(limit) || DEFAULT_LIMIT, 1), MAX_LIMIT);
 
-  const accountsResult = await query(
-    'SELECT id, folder_mappings, include_in_unified_inbox FROM email_accounts WHERE user_id = $1 AND enabled = true AND gtd_enabled = true',
-    [userId]
-  );
-  let targets = accountsResult.rows;
+  // The user's enabled accounts; the per-account GTD gate (gtd active for the account) is applied
+  // per account below via getGtdConfig, so accounts where GTD is off simply contribute nothing.
+  let targets = (await listUserAccounts(userId)).filter(a => a.enabled);
   if (accountId) targets = targets.filter(a => a.id === accountId);
   else targets = targets.filter(a => a.include_in_unified_inbox !== false);
   if (!targets.length) return { sections: { ...emptySections(), waiting: { total: 0, unread: 0 } } };
@@ -65,7 +61,8 @@ export async function getGtdSections({ userId, accountId = null, limit } = {}) {
   const waiting = { total: 0, unread: 0 };
 
   for (const acct of targets) {
-    const { folders } = await getGtdConfig(acct.id);
+    const { enabled, folders } = await getGtdConfig(acct.id);
+    if (!enabled) continue; // GTD not active for this account (config off or plugin deactivated)
     // Only states that map to a folder, in canonical order.
     const states = GTD_STATES.filter(s => folders[s]);
     const folderPaths = states.map(s => folders[s]);

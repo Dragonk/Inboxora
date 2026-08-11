@@ -1,5 +1,5 @@
 import { query } from '../../services/db.js';
-import { summarizeMessage, summarizeAvailable } from '../../services/summarize.js';
+import { summarizeMessage, summarizeAvailable } from '../api.js';
 
 // AI-condensed one-line gist for GTD "waiting" entries. The client shows the raw
 // message snippet by default; when a gist has been generated for a waiting thread's
