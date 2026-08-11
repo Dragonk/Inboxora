@@ -7,6 +7,9 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 // enable + folder-set derivation is exercised end-to-end; unique account ids + cache invalidation
 // keep the config cache from leaking across cases.
 vi.mock('../../services/db.js', () => ({ query: vi.fn() }));
+// getGtdConfig folds in per-user plugin activation; the tick runs for real config here, so keep
+// GTD activated (the tick's own gtd_enabled/folder logic is what these tests exercise).
+vi.mock('../activation.js', () => ({ isPluginActivated: vi.fn().mockResolvedValue(true) }));
 vi.mock('./gtdTransitions.js', () => ({
   runGtdTransitions: vi.fn(),
   threadKeysForMessageIds: vi.fn(),

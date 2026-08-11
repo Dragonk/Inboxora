@@ -6,7 +6,7 @@
 // of its own. GTD's code still lives under routes/ and services/; later phases move its
 // storage and UI behind the plugin boundary. Behavior is unchanged.
 import gtdRoutes from './routes.js';
-import { relocateExemptFolders, sectionsChanged, inboxIngest, afterLabelCopy, afterLabelRemove, onMailMutation, onSentMessage, onUserDelete, validateAccountSettings, onAccountSettingsChanged, onAccountIdentityChanged, gtdEnabledForAccount, gtdSyncTick } from './hooks.js';
+import { relocateExemptFolders, sectionsChanged, inboxIngest, afterLabelCopy, afterLabelRemove, onMailMutation, onSentMessage, onUserDelete, validateAccountSettings, onAccountSettingsChanged, onAccountIdentityChanged, onPluginActivationChanged, gtdEnabledForAccount, gtdSyncTick } from './hooks.js';
 
 export const gtdPlugin = {
   id: 'gtd',
@@ -42,6 +42,9 @@ export const gtdPlugin = {
     validateAccountSettings,
     onAccountSettingsChanged,
     onAccountIdentityChanged,
+    // Fired by the plugin-management route when the user toggles GTD's activation: invalidate the
+    // per-account config cache so getGtdConfig's effective gate flips at once.
+    onPluginActivationChanged,
   },
   // Periodic background tick core arms per connected account whose gtd_enabled gate passes. Keeps
   // the non-INBOX GTD label folders (Todo/Watch/…) fresh — INBOX gets IDLE + the fast tick, but

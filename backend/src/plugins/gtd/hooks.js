@@ -259,3 +259,14 @@ export async function onAccountSettingsChanged({ accountId, updates }) {
 export async function onAccountIdentityChanged({ accountId }) {
   invalidateOwnerAddressesCache(accountId);
 }
+
+// runHook('onPluginActivationChanged'): the user activated/deactivated a plugin. When it's GTD,
+// drop the cached { enabled, folders } for ALL this user's accounts — getGtdConfig folds activation
+// into its `enabled`, so the live tick, hooks, and classify/done routes must re-read to see the
+// flip immediately. The per-account gtd_enabled/folders config in the DB is untouched, so
+// reactivating restores everything.
+export async function onPluginActivationChanged({ userId, pluginId }) {
+  if (pluginId !== 'gtd' || !userId) return;
+  const { rows } = await query('SELECT id FROM email_accounts WHERE user_id = $1', [userId]);
+  for (const r of rows) invalidateGtdConfigCache(r.id);
+}

@@ -15,7 +15,7 @@ import { getGtdFolderSet, getGtdConfig, sanitizeGtdFoldersDetailed, findGtdFolde
 import { runGtdTransitions, threadKeysForMessageIds, runTransitionsForSentMessage, invalidateOwnerAddressesCache } from './gtdTransitions.js';
 import { emitGtdIfRelevant } from './gtdSections.js';
 import { customPetSlug } from './gtdPet.js';
-import { relocateExemptFolders, sectionsChanged, inboxIngest, selectGtdReevalIds, gtdEnabledForAccount, emitAfterDeferredCopySync, afterLabelCopy, afterLabelRemove, onMailMutation, onSentMessage, onUserDelete, validateAccountSettings, onAccountSettingsChanged, onAccountIdentityChanged } from './hooks.js';
+import { relocateExemptFolders, sectionsChanged, inboxIngest, selectGtdReevalIds, gtdEnabledForAccount, emitAfterDeferredCopySync, afterLabelCopy, afterLabelRemove, onMailMutation, onSentMessage, onUserDelete, validateAccountSettings, onAccountSettingsChanged, onAccountIdentityChanged, onPluginActivationChanged } from './hooks.js';
 
 describe('gtd hooks — relocateExemptFolders', () => {
   beforeEach(() => getGtdFolderSet.mockReset());
@@ -290,5 +290,23 @@ describe('gtd hooks — account settings (validateAccountSettings / onAccountSet
   it('onAccountIdentityChanged invalidates the owner-address cache', async () => {
     await onAccountIdentityChanged({ accountId: 'a1' });
     expect(invalidateOwnerAddressesCache).toHaveBeenCalledWith('a1');
+  });
+});
+
+describe('gtd hooks — onPluginActivationChanged', () => {
+  beforeEach(() => { query.mockReset(); invalidateGtdConfigCache.mockReset(); });
+
+  it('invalidates GTD config cache for all the user\'s accounts when gtd is toggled', async () => {
+    query.mockResolvedValueOnce({ rows: [{ id: 'a1' }, { id: 'a2' }] });
+    await onPluginActivationChanged({ userId: 'u1', pluginId: 'gtd', activated: false });
+    expect(query).toHaveBeenCalledWith('SELECT id FROM email_accounts WHERE user_id = $1', ['u1']);
+    expect(invalidateGtdConfigCache).toHaveBeenCalledWith('a1');
+    expect(invalidateGtdConfigCache).toHaveBeenCalledWith('a2');
+  });
+
+  it('ignores a non-gtd plugin (no query, no invalidation)', async () => {
+    await onPluginActivationChanged({ userId: 'u1', pluginId: 'other', activated: true });
+    expect(query).not.toHaveBeenCalled();
+    expect(invalidateGtdConfigCache).not.toHaveBeenCalled();
   });
 });

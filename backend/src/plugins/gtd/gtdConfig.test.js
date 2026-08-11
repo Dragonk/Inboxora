@@ -1,8 +1,12 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 
 vi.mock('../../services/db.js', () => ({ query: vi.fn() }));
+// getGtdConfig now folds in per-user plugin activation; default it to activated so the existing
+// config/folder assertions exercise the gtd_enabled path. A dedicated test flips it off.
+vi.mock('../activation.js', () => ({ isPluginActivated: vi.fn() }));
 
 import { query } from '../../services/db.js';
+import { isPluginActivated } from '../activation.js';
 import {
   DEFAULT_GTD_FOLDERS,
   GTD_STATES,
@@ -23,10 +27,12 @@ let nextId = 0;
 const freshId = () => `acct-${++nextId}`;
 
 const mockAccount = (gtd_enabled, gtd_folders) =>
-  query.mockResolvedValue({ rows: [{ gtd_enabled, gtd_folders }] });
+  query.mockResolvedValue({ rows: [{ gtd_enabled, gtd_folders, user_id: 'u1' }] });
 
 beforeEach(() => {
   query.mockReset();
+  isPluginActivated.mockReset();
+  isPluginActivated.mockResolvedValue(true); // GTD plugin activated for the user unless a test says otherwise
 });
 
 describe('DEFAULT_GTD_FOLDERS', () => {
@@ -247,6 +253,17 @@ describe('getGtdConfig', () => {
     mockAccount(false, {});
     const cfg = await getGtdConfig(id);
     expect(cfg.enabled).toBe(false);
+  });
+
+  it('reports enabled=false when the user has the GTD plugin deactivated (even if gtd_enabled)', async () => {
+    const id = freshId();
+    mockAccount(true, {});
+    isPluginActivated.mockResolvedValueOnce(false); // plugin off for this user
+    const cfg = await getGtdConfig(id);
+    expect(cfg.enabled).toBe(false);
+    expect(isPluginActivated).toHaveBeenCalledWith('u1', 'gtd');
+    // folders are still resolved (config preserved), only the effective gate is off
+    expect(cfg.folders).toEqual(DEFAULT_GTD_FOLDERS);
   });
 
   it('treats a missing account row as disabled with default folders', async () => {

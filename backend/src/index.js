@@ -28,6 +28,7 @@ import aiRoutes from './routes/ai.js';
 import categoriesRoutes from './routes/categories.js';
 import { pluginRegistry } from './plugins/registry.js';
 import { loadBundledPlugins } from './plugins/loadPlugins.js';
+import pluginsRoutes from './routes/plugins.js';
 import senderFaviconsRoutes from './routes/senderFavicons.js';
 import carddavRouter from './routes/carddav.js';
 import carddavAccountRouter from './routes/carddavAccount.js';
@@ -182,6 +183,8 @@ app.use('/api', categoriesRoutes);
 // plugin's router-level auth can't intercept them. GTD is the first such plugin; its
 // router mounts at /api/gtd exactly as before.
 loadBundledPlugins();
+// Platform API: list registered plugins + per-user activation (must be after loadBundledPlugins).
+app.use('/api/plugins', pluginsRoutes);
 for (const plugin of pluginRegistry.list()) {
   if (plugin.router) app.use(plugin.router.base, plugin.router.handler);
 }

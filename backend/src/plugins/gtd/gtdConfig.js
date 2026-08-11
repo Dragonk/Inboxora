@@ -1,4 +1,5 @@
 import { query } from '../../services/db.js';
+import { isPluginActivated } from '../activation.js';
 
 // Default GTD state → folder-path map. An account's gtd_folders JSONB overrides
 // individual entries; any state it omits falls back to the value here. An empty
@@ -161,16 +162,24 @@ export function invalidateGtdConfigCache(accountId) {
 // Returns { enabled, folders } for an account. `folders` is the full five-state
 // map with the account's stored gtd_folders merged over DEFAULT_GTD_FOLDERS.
 // Cached with a short TTL; a missing account row reads as disabled + defaults.
+//
+// `enabled` is the EFFECTIVE gate: the account's own gtd_enabled AND the owning user having the
+// GTD plugin activated (users.preferences.enabledPlugins). getGtdConfig is the single point every
+// GTD path funnels through (tick body, transitions, classify/done routes, sections, broadcasts,
+// relocate-exemption), so composing activation here makes deactivating the plugin fully inert
+// backend-side while leaving the per-account gtd_enabled/folders config untouched (reactivation
+// restores everything). The cached value folds activation in, so a toggle must invalidate this
+// cache for the user's accounts — GTD's onPluginActivationChanged hook does that.
 export async function getGtdConfig(accountId) {
   const cached = gtdConfigCache.get(accountId);
   if (cached && cached.expiry > Date.now()) return cached.value;
 
   const result = await query(
-    'SELECT gtd_enabled, gtd_folders FROM email_accounts WHERE id = $1',
+    'SELECT gtd_enabled, gtd_folders, user_id FROM email_accounts WHERE id = $1',
     [accountId]
   );
   const row = result.rows[0];
-  const enabled = row?.gtd_enabled === true;
+  const enabled = row?.gtd_enabled === true && await isPluginActivated(row.user_id, 'gtd');
   // gtd_folders is JSONB; the pg driver parses it into an object already.
   const stored = row?.gtd_folders && typeof row.gtd_folders === 'object' ? row.gtd_folders : {};
   // Legacy hardening: a mapping saved before the reserved-folder denylist existed
