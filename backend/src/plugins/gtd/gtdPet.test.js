@@ -11,6 +11,7 @@ import {
   customPetSlug,
   decodeUploadedSheet,
   importPet,
+  deleteUserPet,
 } from './gtdPet.js';
 
 // ── Image-header fixtures (crafted magic bytes, no image library) ──────────────
@@ -300,5 +301,22 @@ describe('importPet', () => {
     expect(pet.descriptor.polluted).toBeUndefined();
     expect(Object.prototype.hasOwnProperty.call(pet.descriptor, '__proto__')).toBe(false);
     expect({}.polluted).toBeUndefined();
+  });
+});
+
+describe('deleteUserPet', () => {
+  beforeEach(() => query.mockReset());
+
+  it('removes the user\'s pet row from plugin storage by derived slug', async () => {
+    query.mockResolvedValueOnce({ rowCount: 1 });
+    await deleteUserPet('11111111-1111-4111-8111-111111111111');
+    const slug = customPetSlug('11111111-1111-4111-8111-111111111111');
+    const del = query.mock.calls.find(([sql]) => /DELETE FROM plugin_data/.test(sql));
+    expect(del[1]).toEqual(['gtd', slug]);
+  });
+
+  it('is a no-op for a userId with no derivable slug', async () => {
+    await deleteUserPet(null);
+    expect(query).not.toHaveBeenCalled();
   });
 });

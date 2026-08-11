@@ -279,6 +279,15 @@ export async function importPet({ petJsonText, sheet, userId }) {
   return finalizeAndStorePet({ slug, petJson, sheet, displayNameFallback: slug, userId });
 }
 
+// Delete a user's imported pet from plugin storage. Called on user deletion: migrated pet rows
+// have a NULL owner_id (so the plugin_data user-cascade doesn't reach them), so we remove the
+// slug-keyed row explicitly. A no-op when the user has no custom pet.
+export async function deleteUserPet(userId) {
+  const slug = customPetSlug(userId);
+  if (!slug) return;
+  await pluginStorage.del('gtd', slug);
+}
+
 // Read a cached pet's metadata (descriptor) for the frontend. Returns null when the
 // slug is invalid or not cached. `isCustom` feeds the read routes' ownership gate;
 // the routes strip it before responding.

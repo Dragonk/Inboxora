@@ -8,11 +8,10 @@
 // Registered on the GTD manifest's `hooks` map (see ./index.js). Handlers must never throw
 // into core — the registry swallows per-plugin errors — but they still guard internally so a
 // transient DB blip degrades to "nothing contributed" rather than a noisy rejection.
-import { query } from '../../services/db.js';
 import { getGtdFolderSet, getGtdConfig, gtdTickFolders, sanitizeGtdFoldersDetailed, findGtdFolderCollisions, DEFAULT_GTD_FOLDERS, invalidateGtdConfigCache } from './gtdConfig.js';
 import { runGtdTransitions, threadKeysForMessageIds, threadKeysInFolders, runTransitionsForSentMessage, invalidateOwnerAddressesCache } from './gtdTransitions.js';
 import { emitGtdIfRelevant } from './gtdSections.js';
-import { customPetSlug } from './gtdPet.js';
+import { deleteUserPet } from './gtdPet.js';
 import { logger, getThreadKeyForUid, listUserAccounts } from '../api.js';
 
 // Choose the INBOX message ids to run GTD transitions over after a sync batch completes.
@@ -193,15 +192,11 @@ export async function onSentMessage({ imapManager, account, messageId }) {
   await runTransitionsForSentMessage(imapManager, account, messageId);
 }
 
-// runHook('onUserDelete'): a user was deleted. The imported GTD pet lives under a slug DERIVED
-// from the user id (customPetSlug) rather than an FK, so the cascade delete can't reach it —
-// remove it explicitly or its row (up to a 5MB spritesheet) is orphaned in gtd_pets forever.
+// runHook('onUserDelete'): a user was deleted. Remove their imported GTD pet from plugin storage
+// (migrated pet rows carry a NULL owner_id, so the plugin_data cascade doesn't reach them).
 // Best-effort: the user row is already gone, so a failure here must not surface as an error.
 export async function onUserDelete({ userId }) {
-  const slug = customPetSlug(userId);
-  if (!slug) return;
-  await query('DELETE FROM gtd_pets WHERE slug = $1', [slug])
-    .catch(err => console.warn('gtd_pets cleanup on delete:', err.message));
+  await deleteUserPet(userId).catch(err => console.warn('pet cleanup on delete:', err.message));
 }
 
 // collectHook('validateAccountSettings'): the account-settings PATCH endpoint lets a plugin

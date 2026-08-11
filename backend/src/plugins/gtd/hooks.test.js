@@ -9,12 +9,12 @@ vi.mock('./gtdConfig.js', () => ({
 }));
 vi.mock('./gtdTransitions.js', () => ({ runGtdTransitions: vi.fn(), threadKeysForMessageIds: vi.fn(), threadKeysInFolders: vi.fn(), runTransitionsForSentMessage: vi.fn(), invalidateOwnerAddressesCache: vi.fn() }));
 vi.mock('./gtdSections.js', () => ({ emitGtdIfRelevant: vi.fn() }));
-vi.mock('./gtdPet.js', () => ({ customPetSlug: vi.fn() }));
+vi.mock('./gtdPet.js', () => ({ deleteUserPet: vi.fn() }));
 import { query } from '../../services/db.js';
 import { getGtdFolderSet, getGtdConfig, sanitizeGtdFoldersDetailed, findGtdFolderCollisions, invalidateGtdConfigCache } from './gtdConfig.js';
 import { runGtdTransitions, threadKeysForMessageIds, runTransitionsForSentMessage, invalidateOwnerAddressesCache } from './gtdTransitions.js';
 import { emitGtdIfRelevant } from './gtdSections.js';
-import { customPetSlug } from './gtdPet.js';
+import { deleteUserPet } from './gtdPet.js';
 import { relocateExemptFolders, sectionsChanged, inboxIngest, selectGtdReevalIds, gtdEnabledForAccount, emitAfterDeferredCopySync, afterLabelCopy, afterLabelRemove, onMailMutation, onSentMessage, onUserDelete, validateAccountSettings, onAccountSettingsChanged, onAccountIdentityChanged, onPluginActivationChanged } from './hooks.js';
 
 describe('gtd hooks — relocateExemptFolders', () => {
@@ -191,7 +191,7 @@ describe('gtd hooks — afterLabelCopy / afterLabelRemove', () => {
 });
 
 describe('gtd hooks — route-layer adapters (onMailMutation / onSentMessage / onUserDelete)', () => {
-  beforeEach(() => { emitGtdIfRelevant.mockReset(); runTransitionsForSentMessage.mockReset(); customPetSlug.mockReset(); query.mockReset(); });
+  beforeEach(() => { emitGtdIfRelevant.mockReset(); runTransitionsForSentMessage.mockReset(); deleteUserPet.mockReset(); query.mockReset(); });
 
   it('onMailMutation delegates to emitGtdIfRelevant with the mutation context', async () => {
     emitGtdIfRelevant.mockResolvedValueOnce(undefined);
@@ -208,21 +208,14 @@ describe('gtd hooks — route-layer adapters (onMailMutation / onSentMessage / o
     expect(runTransitionsForSentMessage).toHaveBeenCalledWith(mgr, account, '<abc@x>');
   });
 
-  it('onUserDelete removes the user\'s legacy pet row by derived slug', async () => {
-    customPetSlug.mockReturnValueOnce('pet-user-1');
-    query.mockResolvedValueOnce({ rowCount: 1 });
+  it('onUserDelete removes the user\'s pet through the plugin storage capability', async () => {
+    deleteUserPet.mockResolvedValueOnce(undefined);
     await onUserDelete({ userId: 'user-1' });
-    expect(customPetSlug).toHaveBeenCalledWith('user-1');
-    expect(query).toHaveBeenCalledWith('DELETE FROM gtd_pets WHERE slug = $1', ['pet-user-1']);
+    expect(deleteUserPet).toHaveBeenCalledWith('user-1');
   });
 
-  it('onUserDelete is a no-op when no slug derives and swallows a cleanup failure', async () => {
-    customPetSlug.mockReturnValueOnce(null);
-    await onUserDelete({ userId: 'user-2' });
-    expect(query).not.toHaveBeenCalled();
-
-    customPetSlug.mockReturnValueOnce('pet-user-3');
-    query.mockRejectedValueOnce(new Error('db boom'));
+  it('onUserDelete swallows a pet-cleanup failure without throwing', async () => {
+    deleteUserPet.mockRejectedValueOnce(new Error('storage boom'));
     await expect(onUserDelete({ userId: 'user-3' })).resolves.toBeUndefined();
   });
 });
