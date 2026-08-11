@@ -29,7 +29,7 @@ const SECTION_SQL = `
   ),
   msg AS (
     SELECT m.id, m.account_id, m.thread_key, m.message_id, m.folder,
-           m.subject, m.from_name, m.from_email, m.date, m.snippet, m.is_read, m.is_starred, m.uid, m.gtd_gist
+           m.subject, m.from_name, m.from_email, m.date, m.snippet, m.is_read, m.is_starred, m.uid
     FROM messages m
     WHERE m.account_id = $1
       AND m.is_deleted = false
@@ -46,7 +46,7 @@ const SECTION_SQL = `
   head AS (
     SELECT DISTINCT ON (account_id, thread_key)
            thread_key, account_id, message_id, folder,
-           subject, from_name, from_email, date, snippet, is_starred, uid, id, gtd_gist
+           subject, from_name, from_email, date, snippet, is_starred, uid, id
     FROM msg
     ORDER BY account_id, thread_key, (folder IN (SELECT folder FROM gtd)) DESC, date DESC, id DESC
   ),
@@ -66,7 +66,7 @@ const SECTION_SQL = `
   ranked AS (
     SELECT ts.state,
            h.thread_key, h.account_id, h.message_id, h.folder,
-           h.subject, h.from_name, h.from_email, h.date, h.snippet, h.is_starred, h.uid, h.id, h.gtd_gist,
+           h.subject, h.from_name, h.from_email, h.date, h.snippet, h.is_starred, h.uid, h.id,
            fa.folders, fa.in_inbox, fa.thread_unread,
            COUNT(*)                                  OVER (PARTITION BY ts.state) AS total,
            COUNT(*) FILTER (WHERE fa.thread_unread)  OVER (PARTITION BY ts.state) AS unread,
@@ -76,7 +76,7 @@ const SECTION_SQL = `
     JOIN folders_agg fa ON fa.thread_key = ts.thread_key
   )
   SELECT state, thread_key, account_id, message_id, folder,
-         subject, from_name, from_email, date, snippet, is_starred, uid, id, gtd_gist,
+         subject, from_name, from_email, date, snippet, is_starred, uid, id,
          folders, in_inbox, thread_unread, total::int AS total, unread::int AS unread,
          waiting_total::int AS waiting_total, waiting_unread::int AS waiting_unread
   FROM ranked

@@ -119,3 +119,47 @@ export async function getMessageCopyFolders(accountId, messageIdHeader) {
   );
   return rows.map((r) => r.folder);
 }
+
+// Display/summarize fields for a set of message rows within an account (the body is the text body
+// falling back to the snippet). Used e.g. to feed a summarizer.
+export async function getMessageFields(accountId, ids) {
+  if (!ids || ids.length === 0) return [];
+  const { rows } = await query(
+    `SELECT id, subject, from_name, from_email,
+            COALESCE(NULLIF(body_text, ''), snippet) AS content
+       FROM messages
+      WHERE id = ANY($1::uuid[]) AND account_id = $2`,
+    [ids, accountId]
+  );
+  return rows;
+}
+
+// A plugin's own per-message annotations for a set of message ids within an account, as
+// { [messageId]: <the plugin's annotation object> }. Reads only this plugin's namespace.
+export async function getMessageAnnotations(accountId, ids, pluginId) {
+  if (!ids || ids.length === 0) return {};
+  const { rows } = await query(
+    'SELECT id, plugin_annotations -> $3 AS ann FROM messages WHERE account_id = $1 AND id = ANY($2::uuid[])',
+    [accountId, ids, pluginId]
+  );
+  const out = {};
+  for (const r of rows) if (r.ann != null) out[r.id] = r.ann;
+  return out;
+}
+
+// Merge `patch` into a plugin's namespace of a message's annotations (creating the namespace if
+// absent). Only ever touches plugin_annotations -> pluginId. Returns rows updated (0 if the
+// message isn't in the account). The annotation cache is cleaned with the message row on delete.
+export async function setMessageAnnotation(accountId, messageId, pluginId, patch) {
+  const { rowCount } = await query(
+    `UPDATE messages
+        SET plugin_annotations = jsonb_set(
+              COALESCE(plugin_annotations, '{}'::jsonb),
+              ARRAY[$3::text],
+              COALESCE(plugin_annotations -> $3, '{}'::jsonb) || $4::jsonb,
+              true)
+      WHERE id = $2 AND account_id = $1`,
+    [accountId, messageId, pluginId, JSON.stringify(patch)]
+  );
+  return rowCount;
+}

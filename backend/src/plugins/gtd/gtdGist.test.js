@@ -84,7 +84,8 @@ describe('queueGistGeneration — provider gating', () => {
 
 describe('queueGistGeneration — write path', () => {
   const isBodySelect = (sql) => /FROM messages/i.test(sql) && /SELECT id, subject/i.test(sql);
-  const isGistUpdate = (sql) => /UPDATE messages SET gtd_gist/i.test(sql);
+  // The gist is now stored as a plugin annotation on the message (jsonb_set into plugin_annotations).
+  const isGistUpdate = (sql) => /UPDATE messages\s+SET plugin_annotations/i.test(sql);
 
   // Route query() by SQL rather than by call order: GIST_CONCURRENCY runs UPDATEs from
   // the pool concurrently, so their relative ordering isn't deterministic. The body
@@ -119,7 +120,7 @@ describe('queueGistGeneration — write path', () => {
 
   afterEach(() => { vi.unstubAllGlobals(); });
 
-  it('writes the sanitised gist keyed on id + gtd_gist IS NULL and broadcasts once (wrote > 0)', async () => {
+  it('writes the sanitised gist into the message\'s gtd annotation and broadcasts once (wrote > 0)', async () => {
     mockDb();
     const broadcast = vi.fn();
 
@@ -131,13 +132,13 @@ describe('queueGistGeneration — write path', () => {
     expect(fetch).not.toHaveBeenCalled();
 
     const selectCall = query.mock.calls.find((c) => isBodySelect(c[0]));
-    // FIX 2: the body SELECT is scoped to the account, not just the id list.
+    // The body read (getMessageFields) is scoped to the account, not just the id list.
     expect(selectCall[0]).toMatch(/account_id = \$2/);
     expect(selectCall[1]).toEqual([['w1'], 'a1']);
 
+    // Persists the sanitised gist under the message's GTD annotation namespace (account-scoped).
     const updateCall = query.mock.calls.find((c) => isGistUpdate(c[0]));
-    expect(updateCall[0]).toMatch(/gtd_gist IS NULL/); // lost-race re-check preserved
-    expect(updateCall[1]).toEqual(['waiting on their reply', 'w1']);
+    expect(updateCall[1]).toEqual(['a1', 'w1', 'gtd', JSON.stringify({ gist: 'waiting on their reply' })]);
 
     expect(broadcast).toHaveBeenCalledTimes(1);
     expect(broadcast).toHaveBeenCalledWith({ type: 'gtd_sections_updated', accountId: 'a1' }, 'u1');

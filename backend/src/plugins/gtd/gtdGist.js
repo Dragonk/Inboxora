@@ -1,5 +1,4 @@
-import { query } from '../../services/db.js';
-import { summarizeMessage, summarizeAvailable } from '../api.js';
+import { summarizeMessage, summarizeAvailable, getMessageFields, getMessageAnnotations, setMessageAnnotation } from '../api.js';
 
 // AI-condensed one-line gist for GTD "waiting" entries. The client shows the raw
 // message snippet by default; when a gist has been generated for a waiting thread's
@@ -61,13 +60,13 @@ async function runPool(items, limit, worker) {
 const _inFlight = new Set();
 
 async function generateForAccount(accountId, ids) {
-  const { rows } = await query(
-    `SELECT id, subject, from_name, from_email,
-            COALESCE(NULLIF(body_text, ''), snippet) AS content
-     FROM messages
-     WHERE id = ANY($1::uuid[]) AND account_id = $2 AND gtd_gist IS NULL`,
-    [ids, accountId]
-  );
+  // Skip ids that already carry a cached gist (belt-and-suspenders over the sections-side filter,
+  // so a head that got a gist since the sections snapshot isn't regenerated / doesn't re-broadcast).
+  const existing = await getMessageAnnotations(accountId, ids, 'gtd');
+  const need = ids.filter((id) => !existing[id]?.gist);
+  if (!need.length) return 0;
+
+  const rows = await getMessageFields(accountId, need);
   let wrote = 0;
   await runPool(rows, GIST_CONCURRENCY, async (row) => {
     const gist = await summarizeMessage({
@@ -76,12 +75,9 @@ async function generateForAccount(accountId, ids) {
       content: row.content,
     });
     if (!gist) return;
-    // Re-check NULL so a newer head that raced in isn't clobbered.
-    const res = await query(
-      'UPDATE messages SET gtd_gist = $1 WHERE id = $2 AND gtd_gist IS NULL',
-      [gist, row.id]
-    );
-    if (res.rowCount > 0) wrote++;
+    // Store under GTD's annotation namespace on the message (cleaned with the message on delete).
+    const n = await setMessageAnnotation(accountId, row.id, 'gtd', { gist });
+    if (n > 0) wrote++;
   });
   return wrote;
 }

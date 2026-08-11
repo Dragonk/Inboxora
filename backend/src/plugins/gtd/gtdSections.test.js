@@ -6,6 +6,9 @@ vi.mock('./gtdConfig.js', () => ({
   GTD_STATES: ['todo', 'watch', 'delegated', 'someday', 'reference'],
 }));
 vi.mock('../../utils/mailUtils.js', () => ({ resolveAllDraftsPaths: vi.fn() }));
+// The per-message gist merge is a separate capability call; stub it to no annotations so it
+// doesn't consume the mocked query sequence (the account/section reads still run for real).
+vi.mock('../../services/mailAccess.js', async (io) => ({ ...await io(), getMessageAnnotations: vi.fn().mockResolvedValue({}) }));
 
 import { query } from '../../services/db.js';
 import { getGtdConfig } from './gtdConfig.js';

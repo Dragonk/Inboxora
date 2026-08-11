@@ -88,4 +88,7 @@ export {
   getMessagesByThreadKeys,
   getThreadKeyForUid,
   getMessageCopyFolders,
+  getMessageFields,
+  getMessageAnnotations,
+  setMessageAnnotation,
 } from '../services/mailAccess.js';

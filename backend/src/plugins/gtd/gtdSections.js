@@ -1,5 +1,5 @@
 import { getGtdConfig, GTD_STATES } from './gtdConfig.js';
-import { resolveAllDraftsPaths, listThreadHeadsByLabels, notifyOnLabelTouch, listUserAccounts } from '../api.js';
+import { resolveAllDraftsPaths, listThreadHeadsByLabels, notifyOnLabelTouch, listUserAccounts, getMessageAnnotations } from '../api.js';
 
 // States the frontend merges into the single "Waiting" section (utils/gtd.js). Their
 // counts must dedupe a thread holding BOTH labels; see the waiting_agg CTE below.
@@ -34,9 +34,10 @@ function mapHead(row) {
     folder: row.folder,
     folders: row.folders || [],
     in_inbox: row.in_inbox === true,
-    // AI-condensed one-line gist for waiting rows, when cached on this head.
-    // Null until lazily generated; the client falls back to the raw snippet.
-    gist: row.gtd_gist || null,
+    // AI-condensed one-line gist for waiting rows, when cached (in the message's plugin
+    // annotations, merged onto the row below). Null until lazily generated; client falls back
+    // to the raw snippet.
+    gist: row.gist ?? null,
   };
 }
 
@@ -70,6 +71,11 @@ export async function getGtdSections({ userId, accountId = null, limit } = {}) {
     const draftPaths = [...(await resolveAllDraftsPaths(acct.id, acct.folder_mappings))];
 
     const rows = await listThreadHeadsByLabels(acct.id, { labels: states, labelFolders: folderPaths, draftFolders: draftPaths, limit: safeLimit, unionLabels: waitingStates });
+
+    // The labels-read capability is generic (no GTD columns); merge GTD's own per-message gist
+    // (stored in the message's plugin annotations) onto each head so mapHead can surface it.
+    const gists = await getMessageAnnotations(acct.id, rows.map(r => r.id), 'gtd');
+    for (const row of rows) row.gist = gists[row.id]?.gist ?? null;
 
     // Fold this account's rows in. total/unread are constant within a state, so add
     // each state's figure exactly once (from its first row) rather than per head.
