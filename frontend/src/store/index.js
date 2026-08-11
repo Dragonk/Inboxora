@@ -2,7 +2,7 @@ import { create } from 'zustand';
 import { api } from '../utils/api.js';
 import { accountAffectsUnifiedInbox } from '../utils/unifiedInbox.js';
 import { applyTheme, applyCustomCss, getInitialTheme } from '../themes.js';
-import { applyFontSet, applyFontSize } from '../fonts.js';
+import { applyFontSet, applyFontSize, effectiveFontSet, isRetroFont, THEME_FONT } from '../fonts.js';
 import { applyLayout, normalizeLayout } from '../layouts.js';
 import { DEFAULT_AI_ACTIONS } from '../aiActions.js';
 import {
@@ -500,6 +500,15 @@ export const useStore = create((set, get) => ({
     localStorage.setItem('mailflow_theme', theme);
     set({ theme });
     applyTheme(theme); // keep CSS vars + favicon in sync
+    // If a retro font was left as the saved choice, a non-retro theme must not keep it —
+    // normalise the stored choice so it can't "stick" (and the font picker stays honest).
+    if (!THEME_FONT[theme] && isRetroFont(get().fontSet)) {
+      localStorage.setItem('mailflow_font', 'default');
+      set({ fontSet: 'default' });
+      schedulePrefSave({ font: 'default' });
+    }
+    // Retro themes bring their own font; other themes fall back to the saved choice.
+    applyFontSet(effectiveFontSet(theme, get().fontSet));
     schedulePrefSave({ theme });
   },
 
@@ -508,7 +517,8 @@ export const useStore = create((set, get) => ({
   setFontSet: (fontSet) => {
     localStorage.setItem('mailflow_font', fontSet);
     set({ fontSet });
-    applyFontSet(fontSet);
+    // A retro theme's paired font still wins over an explicit pick while it's active.
+    applyFontSet(effectiveFontSet(get().theme, fontSet));
     schedulePrefSave({ font: fontSet });
   },
 
@@ -864,8 +874,10 @@ export const useStore = create((set, get) => ({
       if (prefs.font) {
         localStorage.setItem('mailflow_font', prefs.font);
         set({ fontSet: prefs.font });
-        applyFontSet(prefs.font);
       }
+      // Apply the effective font once theme + font are both known, so a retro theme's
+      // paired font overrides the saved font on load.
+      applyFontSet(effectiveFontSet(get().theme, get().fontSet));
       if (prefs.fontSize) {
         const n = parseInt(prefs.fontSize) || 100;
         localStorage.setItem('mailflow_font_size', String(n));

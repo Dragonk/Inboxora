@@ -384,3 +384,145 @@ body, #root {
   max-width: 100%;
   color-scheme: light;
 }
+
+/* ── Retro themes: skeuomorphic chrome ────────────────────────────────────────
+   Scoped by the data-mailflow-theme attribute (set in applyTheme). Only targets
+   surfaces that components DON'T set via inline styles — scrollbars and text
+   selection — so it layers over the color-token palette without fighting inline
+   component styles. The email body renders in a separate iframe document and is
+   unaffected, so messages still display normally. */
+
+/* Windows XP — Luna: glossy blue scrollbars, blue selection */
+[data-mailflow-theme="winxp"] ::selection { background: #2a5fd8; color: #fff; }
+[data-mailflow-theme="winxp"] ::-webkit-scrollbar { width: 17px; height: 17px; }
+[data-mailflow-theme="winxp"] ::-webkit-scrollbar-track {
+  background: #d6e2f5;
+  box-shadow: inset 1px 0 0 #b9cdea;
+}
+[data-mailflow-theme="winxp"] ::-webkit-scrollbar-thumb {
+  background: linear-gradient(180deg, #eaf1fc 0%, #b9d0ee 45%, #a3c1e8 100%);
+  border: 1px solid #3a6ea5;
+  border-radius: 3px;
+}
+[data-mailflow-theme="winxp"] ::-webkit-scrollbar-thumb:hover {
+  background: linear-gradient(180deg, #f4f8ff 0%, #c7dbf5 45%, #b0cbee 100%);
+}
+[data-mailflow-theme="winxp"] ::-webkit-scrollbar-corner { background: #d6e2f5; }
+
+/* Windows Classic — 95/98/2000: raised 3D grey scrollbars, navy selection */
+[data-mailflow-theme="win9x"] ::selection { background: #000080; color: #fff; }
+[data-mailflow-theme="win9x"] ::-webkit-scrollbar { width: 16px; height: 16px; }
+[data-mailflow-theme="win9x"] ::-webkit-scrollbar-track { background: #d4d0c8; }
+[data-mailflow-theme="win9x"] ::-webkit-scrollbar-thumb {
+  background: #c0c0c0;
+  border: 0;
+  border-radius: 0;
+  box-shadow:
+    inset  1px  1px 0 #ffffff,
+    inset -1px -1px 0 #000000,
+    inset  2px  2px 0 #dfdfdf,
+    inset -2px -2px 0 #808080;
+}
+[data-mailflow-theme="win9x"] ::-webkit-scrollbar-corner { background: #d4d0c8; }
+
+/* ── Retro skeuomorphism: buttons, fields, focus ──────────────────────────────
+   Broad element selectors with !important, scoped to the retro themes, reach the
+   real <button>/<input>/<select> elements even though components style inline.
+   All borders are safe because box-sizing is border-box globally, and bevels use
+   box-shadow (no layout impact). List rows/cards are <div>s and stay untouched;
+   the email body renders in its own iframe and is unaffected. Colored icons go
+   monochrome here — an authentic period trade-off for guaranteed text legibility. */
+
+/* ---- Windows Classic (95/98/2000): hard 3D chisel, aliased text ---- */
+[data-mailflow-theme="win9x"] { -webkit-font-smoothing: none; -moz-osx-font-smoothing: unset; }
+[data-mailflow-theme="win9x"] button {
+  background: #c0c0c0 !important;
+  background-image: none !important;
+  color: #000 !important;
+  border: 0 !important;
+  border-radius: 0 !important;
+  text-shadow: none !important;
+  box-shadow:
+    inset -1px -1px 0 0 #0a0a0a,
+    inset  1px  1px 0 0 #ffffff,
+    inset -2px -2px 0 0 #808080,
+    inset  2px  2px 0 0 #dfdfdf !important;
+}
+[data-mailflow-theme="win9x"] button:active {
+  box-shadow:
+    inset  1px  1px 0 0 #0a0a0a,
+    inset -1px -1px 0 0 #ffffff,
+    inset  2px  2px 0 0 #808080,
+    inset -2px -2px 0 0 #dfdfdf !important;
+}
+[data-mailflow-theme="win9x"] button:focus-visible {
+  outline: 1px dotted #000 !important;
+  outline-offset: -4px !important;
+}
+[data-mailflow-theme="win9x"] input:not([type="checkbox"]):not([type="radio"]):not([type="range"]):not([type="color"]):not([type="file"]),
+[data-mailflow-theme="win9x"] textarea,
+[data-mailflow-theme="win9x"] select {
+  background: #ffffff !important;
+  background-image: none !important;
+  color: #000 !important;
+  border: 0 !important;
+  border-radius: 0 !important;
+  box-shadow:
+    inset -1px -1px 0 0 #ffffff,
+    inset  1px  1px 0 0 #808080,
+    inset -2px -2px 0 0 #dfdfdf,
+    inset  2px  2px 0 0 #0a0a0a !important;
+}
+
+/* ---- Windows XP (Luna): glossy gradient buttons, blue fields ---- */
+[data-mailflow-theme="winxp"] button {
+  background: #ece9d8 linear-gradient(180deg, #ffffff 0%, #f2f5fb 44%, #dbe4f2 52%, #e9eff7 100%) !important;
+  color: #000 !important;
+  border: 1px solid #003c74 !important;
+  border-radius: 3px !important;
+  text-shadow: none !important;
+  box-shadow: inset 0 0 0 1px rgba(255,255,255,0.65) !important;
+}
+[data-mailflow-theme="winxp"] button:hover {
+  border-color: #e29500 !important;
+  box-shadow: inset 0 0 0 1px rgba(255,255,255,0.65), 0 0 4px 1px rgba(240,180,0,0.55) !important;
+}
+[data-mailflow-theme="winxp"] button:active {
+  background: #d9e2ef linear-gradient(180deg, #cdd9ea 0%, #dde6f2 55%, #eef3fa 100%) !important;
+  box-shadow: inset 1px 1px 2px rgba(0,0,60,0.25) !important;
+}
+[data-mailflow-theme="winxp"] button:focus-visible {
+  outline: 1px dotted #24417a !important;
+  outline-offset: -4px !important;
+}
+[data-mailflow-theme="winxp"] input:not([type="checkbox"]):not([type="radio"]):not([type="range"]):not([type="color"]):not([type="file"]),
+[data-mailflow-theme="winxp"] textarea,
+[data-mailflow-theme="winxp"] select {
+  background: #ffffff !important;
+  background-image: none !important;
+  color: #000 !important;
+  border: 1px solid #7f9db9 !important;
+  border-radius: 0 !important;
+  box-shadow: inset 1px 1px 1px rgba(0,0,0,0.07) !important;
+}
+[data-mailflow-theme="winxp"] input:focus,
+[data-mailflow-theme="winxp"] textarea:focus,
+[data-mailflow-theme="winxp"] select:focus {
+  border-color: #5a8bd4 !important;
+  box-shadow: 0 0 3px rgba(90,139,212,0.55) !important;
+  outline: none !important;
+}
+
+/* Compose Cc/Bcc quick-add: those buttons are borderless text links with 0 right
+   padding, which reads as cramped once the retro bevel wraps them. Give them room
+   and a gap only under the retro themes; normal themes keep the plain-link look. */
+[data-mailflow-theme="winxp"] .compose-ccbcc-quickadd,
+[data-mailflow-theme="win9x"] .compose-ccbcc-quickadd {
+  gap: 5px;
+  align-items: center;
+  padding: 0 3px;
+}
+[data-mailflow-theme="winxp"] .compose-ccbcc-quickadd button,
+[data-mailflow-theme="win9x"] .compose-ccbcc-quickadd button {
+  padding: 3px 9px !important;
+}

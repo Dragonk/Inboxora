@@ -19,7 +19,7 @@ import {
   selectAiConnectionMethod,
 } from '../utils/aiConfig.js';
 import { THEMES, applyTheme, applyCustomCss } from '../themes.js';
-import { FONT_SETS, loadFontSet } from '../fonts.js';
+import { FONT_SETS, loadFontSet, isRetroFont } from '../fonts.js';
 import { LAYOUTS, applyLayout } from '../layouts.js';
 import { NOTIFICATION_SOUNDS, playNotificationSound, playCustomSound, warmUpAudioContext } from '../utils/notificationSounds.js';
 import { usePushNotifications } from '../hooks/usePushNotifications.js';
@@ -1326,7 +1326,7 @@ function FontsTab() {
       </div>
 
       <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-        {Object.entries(FONT_SETS).map(([key, set]) => {
+        {Object.entries(FONT_SETS).filter(([key]) => !isRetroFont(key)).map(([key, set]) => {
           const isActive = fontSet === key;
           return (
             <button

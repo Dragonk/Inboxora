@@ -1789,7 +1789,7 @@ export default function ComposeModal() {
             getSuggestions={getSuggestions}
           />
           {(!showCc || !showBcc) && (
-            <div style={{ display: 'flex', flexShrink: 0 }}>
+            <div className="compose-ccbcc-quickadd" style={{ display: 'flex', flexShrink: 0 }}>
               {!showCc && (
                 <button onClick={() => setShowCc(true)} style={{ background: 'none', border: 'none', color: 'var(--text-tertiary)', cursor: 'pointer', fontSize: 11, padding: '9px 0 4px 6px' }}>
                   {t('compose.cc')}

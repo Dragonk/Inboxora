@@ -389,6 +389,32 @@ export const FONT_SETS = {
       '--font-display': "'Cabin', sans-serif",
     },
   },
+
+  // Retro font sets pair with the winxp / win9x themes. These reference the era's
+  // system UI fonts (installed locally on Windows clients) with graceful fallbacks —
+  // no @font-face, nothing bundled. Cross-platform-authentic open clones can be
+  // added later; for now Windows users see the real thing and others degrade cleanly.
+  winxp: {
+    label: 'Windows XP',
+    description: 'Tahoma × Trebuchet MS — Luna-era UI',
+    preview: { heading: 'Trebuchet MS', body: 'Tahoma', mono: 'Lucida Console' },
+    vars: {
+      '--font-sans': "Tahoma, 'Segoe UI', Verdana, 'DejaVu Sans', sans-serif",
+      '--font-mono': "'Lucida Console', 'Courier New', monospace",
+      '--font-display': "'Trebuchet MS', Tahoma, sans-serif",
+    },
+  },
+
+  win9x: {
+    label: 'Windows Classic',
+    description: 'MS Sans Serif — 95/98/2000 system font',
+    preview: { heading: 'MS Sans Serif', body: 'MS Sans Serif', mono: 'Fixedsys' },
+    vars: {
+      '--font-sans': "'MS Sans Serif', Tahoma, Geneva, 'DejaVu Sans', sans-serif",
+      '--font-mono': "Fixedsys, 'Courier New', monospace",
+      '--font-display': "'MS Sans Serif', Tahoma, sans-serif",
+    },
+  },
 };
 
 // Fonts are self-hosted and declared up front in public/fonts/fonts.css (loaded from
@@ -410,3 +436,21 @@ export function applyFontSet(fontKey) {
 // Font size scaling is applied reactively in MailApp via the store's fontSize
 // value using CSS transform, so no root-level changes are needed here.
 export function applyFontSize() {}
+
+// Retro themes ship with a period-correct font: selecting the theme auto-applies the
+// matching font set. Any theme not listed here uses the user's chosen font.
+export const THEME_FONT = { winxp: 'winxp', win9x: 'win9x' };
+
+// Retro fonts are theme-bound — they're applied automatically by their theme and must NOT
+// be selectable as standalone choices in the font picker, or they'd become the user's saved
+// font and "stick" after switching back to a normal theme.
+const RETRO_FONTS = new Set(Object.values(THEME_FONT));
+export function isRetroFont(key) { return RETRO_FONTS.has(key); }
+
+// The font that should actually render for a given theme: the paired retro font when the
+// theme has one, otherwise the user's saved choice — but never a retro font under a normal
+// theme (that's the "font won't change back" bug), so fall back to the default in that case.
+export function effectiveFontSet(theme, savedFont) {
+  if (THEME_FONT[theme]) return THEME_FONT[theme];
+  return isRetroFont(savedFont) ? 'default' : (savedFont || 'default');
+}

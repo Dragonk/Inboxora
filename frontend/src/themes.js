@@ -524,6 +524,56 @@ export const THEMES = {
       '--amber': '#e0a040',
     }
   },
+
+  winxp: {
+    label: 'Windows XP',
+    description: 'Luna blue and silver — early-2000s Windows',
+    preview: ['#ece9d8', '#ffffff', '#2a5fd8', '#0a0a0a'],
+    vars: {
+      '--bg-primary': '#ece9d8',
+      '--bg-secondary': '#ffffff',
+      '--bg-tertiary': '#f4f2e8',
+      '--bg-elevated': '#ffffff',
+      '--bg-hover': '#d8e6fb',
+      '--border': '#aca899',
+      '--border-subtle': '#d4d0c8',
+      '--text-primary': '#0a0a0a',
+      '--text-secondary': '#48453c',
+      '--text-tertiary': '#7c7868',
+      '--accent': '#2a5fd8',
+      '--accent-text': '#ffffff',
+      '--accent-dim': '#cbdcf7',
+      '--accent-glow': 'rgba(42,95,216,0.18)',
+      '--green': '#2f9e2f',
+      '--red': '#d42d2d',
+      '--amber': '#e39400',
+    }
+  },
+
+  win9x: {
+    label: 'Windows Classic',
+    description: 'Battleship grey and navy — 95/98/2000 chrome',
+    preview: ['#c0c0c0', '#ffffff', '#000080', '#000000'],
+    vars: {
+      '--bg-primary': '#c0c0c0',
+      '--bg-secondary': '#ffffff',
+      '--bg-tertiary': '#cececa',
+      '--bg-elevated': '#c0c0c0',
+      '--bg-hover': '#cddaf0',
+      '--border': '#808080',
+      '--border-subtle': '#dfdfdf',
+      '--text-primary': '#000000',
+      '--text-secondary': '#3d3d3d',
+      '--text-tertiary': '#6e6e6e',
+      '--accent': '#000080',
+      '--accent-text': '#ffffff',
+      '--accent-dim': '#c6d4ec',
+      '--accent-glow': 'rgba(0,0,128,0.15)',
+      '--green': '#008000',
+      '--red': '#a80000',
+      '--amber': '#9a6a00',
+    }
+  },
 };
 
 // ── Color helpers ────────────────────────────────────────────────────────────
@@ -697,6 +747,11 @@ function refreshAccentDerived() {
 
 export function applyTheme(themeName) {
   const theme = THEMES[themeName] || THEMES.dark;
+
+  // Expose the active theme as an attribute so a theme can layer scoped skeuomorphic
+  // chrome (beveled scrollbars, selection tint) via CSS in index.css without adding
+  // structural tokens to every palette. Retro themes (winxp/win9x) use this.
+  document.documentElement.setAttribute('data-mailflow-theme', THEMES[themeName] ? themeName : 'dark');
 
   // Inject vars via a <style> element rather than root.style.setProperty so
   // that <style id="mailflow-custom-css"> (appended afterward) can override
