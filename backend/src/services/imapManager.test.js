@@ -575,7 +575,7 @@ describe('emitSectionsChanged', () => {
 // scheduler: it honors sync.isActive, fires the tick, and tears down per-account independently.
 
 describe('_startPluginSyncTimers / _stopPluginSyncTimers', () => {
-  const makeMgr = () => { const m = Object.create(ImapManager.prototype); m.pluginSyncIntervals = new Map(); return m; };
+  const makeMgr = () => { const m = Object.create(ImapManager.prototype); m.pluginSyncIntervals = new Map(); m.pluginFacade = { __facade: true }; return m; };
   let listSpy;
 
   beforeEach(() => { vi.useFakeTimers(); vi.spyOn(Math, 'random').mockReturnValue(0); });
@@ -592,7 +592,7 @@ describe('_startPluginSyncTimers / _stopPluginSyncTimers', () => {
     expect(tick).not.toHaveBeenCalled();     // still waiting on the (zeroed) jitter delay
     vi.advanceTimersByTime(1);               // jitter fires
     expect(tick).toHaveBeenCalledTimes(1);
-    expect(tick).toHaveBeenCalledWith({ mgr, account });
+    expect(tick).toHaveBeenCalledWith({ mgr: mgr.pluginFacade, account }); // facade, not the raw engine
     vi.advanceTimersByTime(1000);            // one steady interval later
     expect(tick).toHaveBeenCalledTimes(2);
   });
@@ -1043,12 +1043,13 @@ describe('syncMessages — empty local cache vs nonempty server (wiring)', () =>
         snippet: 'hi', isRead: true, isStarred: false, hasAttachments: false, flags: ['\\Seen'], isBulk: false, parsedHeaders: {},
       });
 
-      const mgr = {};
+      const mgr = { pluginFacade: { __facade: true } };
       await ImapManager.prototype.syncMessages.call(mgr, account, client, 'INBOX', 50, false, true);
 
       expect(hasActive).toHaveBeenCalledWith('inboxIngest', { account });
+      // The hook receives the bounded facade, never the raw engine (`this`).
       expect(runHook).toHaveBeenCalledWith('inboxIngest', {
-        mgr, account, newInboxIds: ['ingest-1'], deletedIds: new Set(),
+        mgr: mgr.pluginFacade, account, newInboxIds: ['ingest-1'], deletedIds: new Set(),
       });
     } finally {
       hasActive.mockRestore();

@@ -88,25 +88,23 @@ export const gtdEnabledForAccount = async (ctx) => {
 // broadcast a single gtd_sections_updated if any folder actually changed. Folders are synced one
 // at a time (not in parallel) so a multi-folder account doesn't grab a handful of pooled
 // connections at once, and core's on-demand sync lock is respected so a user-triggered folder open
-// and this tick never double-sync the same folder. Uses only the generic sync-capability
-// primitives core exposes on `mgr` (connections, onDemandSyncing, folderFingerprint,
-// syncFolderViaPool, broadcast) — no reach into the sync engine's internals. The whole body is
+// and this tick never double-sync the same folder. `mgr` is core's bounded engine facade (see
+// mailEngineFacade): only the reviewed sync-capability primitives (isConnected, tryClaim/
+// releaseFolderSync, folderFingerprint, syncFolderViaPool, broadcast) — no raw engine. The body is
 // wrapped in one try/catch so a config-fetch DB blip is logged with account context instead of
 // escaping as an unhandled rejection.
 export async function gtdSyncTick({ mgr, account }) {
   try {
     // Live persistent connection is our signal the account is healthy; syncFolderViaPool runs on
     // a pooled connection, so it never disturbs the IDLE sync client.
-    if (!mgr.connections.has(account.id)) return;
+    if (!mgr.isConnected(account.id)) return;
     const config = await getGtdConfig(account.id);
     const folders = gtdTickFolders(config); // [] when GTD was turned off — inert
     if (folders.length === 0) return;
 
     const changedFolders = [];
     for (const folder of folders) {
-      const key = `${account.id}:${folder}`;
-      if (mgr.onDemandSyncing.has(key)) continue; // a user-triggered sync owns this folder
-      mgr.onDemandSyncing.add(key);
+      if (!mgr.tryClaimFolderSync(account.id, folder)) continue; // a user-triggered sync owns this folder
       try {
         const before = await mgr.folderFingerprint(account.id, folder);
         await mgr.syncFolderViaPool(account, folder);
@@ -115,7 +113,7 @@ export async function gtdSyncTick({ mgr, account }) {
       } catch (err) {
         console.warn(`GTD sync error ${account.id}/${folder}:`, err.message);
       } finally {
-        mgr.onDemandSyncing.delete(key);
+        mgr.releaseFolderSync(account.id, folder);
       }
     }
 

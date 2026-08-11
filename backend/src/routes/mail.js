@@ -110,7 +110,7 @@ function notifyMailMutation(rows, userId) {
   }
   for (const [accountId, { mids, folders }] of byAccount) {
     pluginRegistry.runHook('onMailMutation', {
-      imapManager, accountId, userId, messageIds: [...mids], actedFolders: [...folders],
+      imapManager: imapManager.pluginFacade, accountId, userId, messageIds: [...mids], actedFolders: [...folders],
     }).catch(err => console.warn('onMailMutation hook failed:', err.message));
   }
 }

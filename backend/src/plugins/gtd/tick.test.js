@@ -25,9 +25,11 @@ import { runGtdTransitions, threadKeysInFolders } from './gtdTransitions.js';
 import { gtdSyncTick } from './hooks.js';
 
 describe('gtd hooks — gtdSyncTick', () => {
+  // mgr is core's bounded engine facade (mailEngineFacade), not the raw engine.
   const mgrWithConnection = (accountId, overrides = {}) => ({
-    connections: new Map([[accountId, {}]]),
-    onDemandSyncing: new Set(),
+    isConnected: (id) => id === accountId,
+    tryClaimFolderSync: vi.fn().mockReturnValue(true),
+    releaseFolderSync: vi.fn(),
     folderFingerprint: vi.fn(),
     syncFolderViaPool: vi.fn().mockResolvedValue(undefined),
     broadcast: vi.fn(),
@@ -46,7 +48,7 @@ describe('gtd hooks — gtdSyncTick', () => {
   });
 
   it('skips entirely — no config read, no sync — when the account has no live connection', async () => {
-    const mgr = { connections: new Map(), onDemandSyncing: new Set(), folderFingerprint: vi.fn(), syncFolderViaPool: vi.fn(), broadcast: vi.fn() };
+    const mgr = { isConnected: () => false, tryClaimFolderSync: vi.fn(), releaseFolderSync: vi.fn(), folderFingerprint: vi.fn(), syncFolderViaPool: vi.fn(), broadcast: vi.fn() };
     const account = { id: 'acct-tick-noconn', user_id: 'user-1' };
     await gtdSyncTick({ mgr, account });
     expect(getAccountConfig).not.toHaveBeenCalled();

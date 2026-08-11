@@ -3,6 +3,7 @@ import { query } from './db.js';
 import { parseMessage, snippetFromBody, detectBulkFromParsedHeaders, parseHeadersInput, headersToRawString, decodeMimeWords, enrichParsedMetadata } from './messageParser.js';
 import { classifyMessage, loadSocialDomains, getGlobalCategorizationEnabled } from './categorizer.js';
 import { pluginRegistry } from '../plugins/registry.js';
+import { createPluginMailFacade } from '../plugins/mailEngineFacade.js';
 import { refreshMicrosoftToken } from '../routes/oauth.js';
 import { sanitizeEmail } from './emailSanitizer.js';
 import { logger } from './logger.js';
@@ -1209,6 +1210,9 @@ export class ImapManager {
     this._backfillSem = createKeyedSemaphore(BACKFILL_MAX_PER_HOST); // cap concurrent backfills per provider host
     this._connectCooldown = new Map(); // accountId -> { until: ms, failures: number } after connection refusals
     this.onDemandSyncing = new Set(); // `${accountId}:${folder}` — prevent duplicate on-demand syncs
+    // Bounded engine facade handed to plugin hooks instead of `this` — plugins get only the reviewed
+    // sync/label primitives (see mailEngineFacade), never the raw engine, its connections, or locks.
+    this.pluginFacade = createPluginMailFacade(this);
     this.syncingAccounts = new Set(); // prevent overlapping interval syncs
     this.syncStartedAt = new Map();   // accountId -> ms when the current sync tick began (hung-sync detection)
     this.syncThrottleSkips = new Map(); // accountId -> remaining ticks to skip when throttled
@@ -2170,7 +2174,7 @@ export class ImapManager {
             // mutation the periodic GTD tick — which syncs only the label folders, never INBOX —
             // won't otherwise surface, so refresh GTD section data like the other mutation paths. Gated:
             // inert for non-GTD accounts (cached config). See emitSectionsChanged.
-            await emitSectionsChanged(this, account, changed);
+            await emitSectionsChanged(this.pluginFacade, account, changed);
           }
         } finally {
           lock.release();
@@ -2198,7 +2202,7 @@ export class ImapManager {
 
   // Arm every plugin-declared background sync tick that is active for this account. A plugin
   // declares one via a `sync: { intervalMs?, isActive?(ctx), tick(ctx) }` descriptor on its
-  // manifest; `ctx` is { mgr: this, account }. Each armed tick mirrors _startSyncInterval
+  // manifest; `ctx` is { mgr: this.pluginFacade, account }. Each armed tick mirrors _startSyncInterval
   // (jittered first fire, then a steady interval) and is keyed `${accountId}::${pluginId}` so
   // several plugins — and several accounts — coexist and tear down independently. A plugin whose
   // isActive rejects this account (e.g. GTD when gtd_enabled is false) arms nothing, so ticks
@@ -2214,7 +2218,7 @@ export class ImapManager {
       const key = `${account.id}::${plugin.id}`;
       const intervalMs = sync.intervalMs || DEFAULT_PLUGIN_SYNC_INTERVAL_MS;
       const fire = () => {
-        try { Promise.resolve(sync.tick({ mgr: this, account })).catch(err => console.warn(`Plugin ${plugin.id} sync tick error for ${logAccount(account)}:`, err.message)); }
+        try { Promise.resolve(sync.tick({ mgr: this.pluginFacade, account })).catch(err => console.warn(`Plugin ${plugin.id} sync tick error for ${logAccount(account)}:`, err.message)); }
         catch (err) { console.warn(`Plugin ${plugin.id} sync tick error for ${logAccount(account)}:`, err.message); }
       };
       const jitter = Math.floor(Math.random() * Math.min(intervalMs, 30000));
@@ -2362,7 +2366,7 @@ export class ImapManager {
             // A UIDVALIDITY purge drops every row for this folder — including any GTD thread's copy
             // here — so refresh GTD section data like the other sync-delete paths. Backfill re-populates
             // below; the emit just avoids a stale gap. See emitSectionsChanged.
-            await emitSectionsChanged(this, account, purged.rowCount);
+            await emitSectionsChanged(this.pluginFacade, account, purged.rowCount);
             // Route through the per-host backfill cap too: a provider-side mailbox rebuild
             // can reset UIDVALIDITY across many accounts/folders at once, which would
             // otherwise flood connections on exactly the many-account-per-provider setup the
@@ -2676,7 +2680,7 @@ export class ImapManager {
               // delta path (per-folder flag deltas). A read/star flip on a label-folder OR INBOX copy
               // is GTD-relevant, so refresh GTD section data like the other mutation paths rather than waiting
               // for the next tick. Gated: inert for non-GTD accounts. See emitSectionsChanged.
-              await emitSectionsChanged(this, account, changed);
+              await emitSectionsChanged(this.pluginFacade, account, changed);
             }
           }
         } else if (plan === 'full') {
@@ -2852,7 +2856,7 @@ export class ImapManager {
         // to hand off and an ingest plugin is active (wantsInboxIngest).
         if (wantsInboxIngest && newInboxIds.length > 0) {
           await pluginRegistry.runHook('inboxIngest', {
-            mgr: this, account, newInboxIds, deletedIds: ingestDeletedIds,
+            mgr: this.pluginFacade, account, newInboxIds, deletedIds: ingestDeletedIds,
           });
         }
         await query('UPDATE email_accounts SET last_sync = NOW() WHERE id = $1', [account.id]);
@@ -2978,7 +2982,7 @@ export class ImapManager {
               console.warn(`Backfill: UIDVALIDITY changed for ${logAccount(account)}/${folder}: ${storedValidity} → ${currentValidity}. Purging stale messages.`);
               const purged = await query('DELETE FROM messages WHERE account_id = $1 AND folder = $2', [account.id, folder]);
               // Same GTD section-data staleness gap as the syncMessages purge path.
-              await emitSectionsChanged(this, account, purged.rowCount);
+              await emitSectionsChanged(this.pluginFacade, account, purged.rowCount);
             }
             // Always keep stored validity current
             await query(
@@ -3288,7 +3292,7 @@ export class ImapManager {
       // folder is a designated GTD folder and any row changed, nudge GTD section clients. One emit per
       // affected folder (backfillAllFolders loops here); the client debounces. Gated cheaply
       // on gtd_enabled + changedCount>0 only.
-      await emitSectionsChanged(this, account, backfilledRows);
+      await emitSectionsChanged(this.pluginFacade, account, backfilledRows);
     } catch (err) {
       console.error(`Backfill failed for ${logAccount(account)}/${folder}:`, err.message);
     } finally {
@@ -4409,7 +4413,7 @@ export class ImapManager {
     // plugin whether the sibling is available now (UIDPLUS) or deferred to a destination sync
     // (null). The hook swallows per-plugin errors and the plugin's deferred work is fire-and-
     // forget, so this never blocks or breaks the copy.
-    await pluginRegistry.runHook('afterLabelCopy', { mgr: this, account, toFolder, fromFolder, srcUid: uid, newUid });
+    await pluginRegistry.runHook('afterLabelCopy', { mgr: this.pluginFacade, account, toFolder, fromFolder, srcUid: uid, newUid });
 
     if (newUid == null) return null;
 
@@ -4431,7 +4435,7 @@ export class ImapManager {
     await this.permanentDeleteMessage(account, uid, folder);
     const result = await deleteMessageCopyRow(accountId, uid, folder);
     // Removing a label copy changes label-feed data — let plugins broadcast their refresh.
-    await pluginRegistry.runHook('afterLabelRemove', { mgr: this, account, folder, uid });
+    await pluginRegistry.runHook('afterLabelRemove', { mgr: this.pluginFacade, account, folder, uid });
     return result;
   }
 
@@ -4970,7 +4974,7 @@ export class ImapManager {
       // Reconcile just removed server-deleted rows across one or more folders. If any was a GTD
       // thread's INBOX (or label) copy GTD section data is now stale — this covers threads archived or
       // deleted by an external mail client, which nothing else here would refresh. Cheap gate.
-      await emitSectionsChanged(this, account, deletedCount);
+      await emitSectionsChanged(this.pluginFacade, account, deletedCount);
     }
   }
 

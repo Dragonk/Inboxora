@@ -463,7 +463,7 @@ router.post('/send', async (req, res) => {
               // (Sent isn't INBOX, and the tick watches only the state folders), so this is the
               // only trigger. The hook swallows per-plugin errors — the next inbound sync / tick
               // self-heals.
-              .then(() => pluginRegistry.runHook('onSentMessage', { imapManager, account, messageId: mailOptions.messageId }))
+              .then(() => pluginRegistry.runHook('onSentMessage', { imapManager: imapManager.pluginFacade, account, messageId: mailOptions.messageId }))
               .catch(e => console.error(`Post-append sync failed: ${e.message}`));
           }, 1000);
         } catch (appendErr) {
@@ -486,7 +486,7 @@ router.post('/send', async (req, res) => {
         const syncAttempt = (label) => imapManager.syncFolderOnDemand(account, sentFolder)
           .then(() => {
             console.log(`Post-send ${label} sync done: ${redactEmail(account.email_address)}/${sentFolder}`);
-            return pluginRegistry.runHook('onSentMessage', { imapManager, account, messageId: mailOptions.messageId });
+            return pluginRegistry.runHook('onSentMessage', { imapManager: imapManager.pluginFacade, account, messageId: mailOptions.messageId });
           })
           .catch(e => console.error(`Post-send ${label} sync failed: ${e.message}`));
         setTimeout(() => syncAttempt('3s'), 3000);
