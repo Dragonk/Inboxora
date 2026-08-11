@@ -1,4 +1,4 @@
-import { query } from './db.js';
+import * as pluginStorage from '../storage.js';
 
 // GTD Inbox-Zero pet: cache a user's OWN imported pet (an uploaded pet.json + spritesheet)
 // and serve its animation descriptor and spritesheet bytes to the GtdZeroPet component,
@@ -221,7 +221,7 @@ export function parsePetJson(petJson, imageSize) {
 // descriptor, and upsert the cache row. The image type is decided by MAGIC BYTES only,
 // never a declared/HTTP content-type; the stored descriptor is DERIVED (raw pet.json is
 // never persisted). Throws an Error with a `.code` on any validation failure.
-async function finalizeAndStorePet({ slug, petJson, sheet, displayNameFallback }) {
+async function finalizeAndStorePet({ slug, petJson, sheet, displayNameFallback, userId = null }) {
   const mime = sniffImageMime(sheet);
   if (!mime) throw Object.assign(new Error('Spritesheet is not a recognised image'), { code: 'BAD_IMAGE' });
   const size = readImageSize(sheet);
@@ -245,20 +245,16 @@ async function finalizeAndStorePet({ slug, petJson, sheet, displayNameFallback }
     ? meta.displayName.trim().slice(0, 120)
     : displayNameFallback;
 
-  await query(
-    `INSERT INTO gtd_pets (slug, display_name, descriptor, sheet_data, sheet_mime, is_custom, fetched_at)
-     VALUES ($1, $2, $3::jsonb, $4, $5, $6, NOW())
-     ON CONFLICT (slug) DO UPDATE
-       SET display_name = EXCLUDED.display_name,
-           descriptor   = EXCLUDED.descriptor,
-           sheet_data   = EXCLUDED.sheet_data,
-           sheet_mime   = EXCLUDED.sheet_mime,
-           is_custom    = EXCLUDED.is_custom,
-           fetched_at   = NOW()`,
-    // is_custom is always true: importPet is the only writer, and imported pets
-    // are private to their importer (the meta/sheet read gate keys off it).
-    [slug, displayName, JSON.stringify(descriptor), sheet, mime, true]
-  );
+  // Store via generic per-plugin storage. Imported pets are always private to their importer
+  // (visibility='private' is the provenance the meta/sheet read gate keys off — what used to
+  // be is_custom=true). ownerId lets a user-delete cascade clean the row up.
+  await pluginStorage.put('gtd', slug, {
+    value: { displayName, descriptor },
+    blob: sheet,
+    mime,
+    ownerId: userId,
+    visibility: 'private',
+  });
 
   return { slug, displayName, descriptor };
 }
@@ -280,7 +276,7 @@ export async function importPet({ petJsonText, sheet, userId }) {
   if (!Buffer.isBuffer(sheet) || !sheet.length) throw Object.assign(new Error('Spritesheet bytes are required'), { code: 'BAD_IMAGE' });
   if (sheet.length > SHEET_CAP) throw Object.assign(new Error('Spritesheet exceeds size cap'), { code: 'TOO_LARGE' });
 
-  return finalizeAndStorePet({ slug, petJson, sheet, displayNameFallback: slug });
+  return finalizeAndStorePet({ slug, petJson, sheet, displayNameFallback: slug, userId });
 }
 
 // Read a cached pet's metadata (descriptor) for the frontend. Returns null when the
@@ -289,16 +285,16 @@ export async function importPet({ petJsonText, sheet, userId }) {
 export async function getPetMeta(slug) {
   const s = parsePetSlug(slug);
   if (!s) return null;
-  const { rows } = await query('SELECT slug, display_name, descriptor, is_custom FROM gtd_pets WHERE slug = $1', [s]);
-  if (!rows.length) return null;
-  return { slug: rows[0].slug, displayName: rows[0].display_name, descriptor: rows[0].descriptor, isCustom: rows[0].is_custom };
+  const row = await pluginStorage.getValue('gtd', s);
+  if (!row) return null;
+  return { slug: row.key, displayName: row.value.displayName, descriptor: row.value.descriptor, isCustom: row.visibility === 'private' };
 }
 
 // Read a cached pet's spritesheet bytes + mime. Returns null when absent.
 export async function getPetSheet(slug) {
   const s = parsePetSlug(slug);
   if (!s) return null;
-  const { rows } = await query('SELECT sheet_data, sheet_mime, is_custom FROM gtd_pets WHERE slug = $1', [s]);
-  if (!rows.length) return null;
-  return { data: rows[0].sheet_data, mime: rows[0].sheet_mime, isCustom: rows[0].is_custom };
+  const row = await pluginStorage.getBlob('gtd', s);
+  if (!row) return null;
+  return { data: row.blob, mime: row.blob_mime, isCustom: row.visibility === 'private' };
 }

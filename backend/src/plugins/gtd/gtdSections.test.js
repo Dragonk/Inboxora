@@ -1,15 +1,15 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 
-vi.mock('./db.js', () => ({ query: vi.fn() }));
+vi.mock('../../services/db.js', () => ({ query: vi.fn() }));
 vi.mock('./gtdConfig.js', () => ({
   getGtdConfig: vi.fn(),
   GTD_STATES: ['todo', 'watch', 'delegated', 'someday', 'reference'],
 }));
-vi.mock('../utils/mailUtils.js', () => ({ resolveAllDraftsPaths: vi.fn() }));
+vi.mock('../../utils/mailUtils.js', () => ({ resolveAllDraftsPaths: vi.fn() }));
 
-import { query } from './db.js';
+import { query } from '../../services/db.js';
 import { getGtdConfig } from './gtdConfig.js';
-import { resolveAllDraftsPaths } from '../utils/mailUtils.js';
+import { resolveAllDraftsPaths } from '../../utils/mailUtils.js';
 import { getGtdSections, emitGtdIfRelevant } from './gtdSections.js';
 
 const DEFAULT_FOLDERS = {

@@ -1,58 +1,18 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 
-vi.mock('./db.js', () => ({ query: vi.fn() }));
-vi.mock('./aiProvider.js', () => ({ getAiStatus: vi.fn(), completeText: vi.fn() }));
+vi.mock('../../services/db.js', () => ({ query: vi.fn() }));
+vi.mock('../../services/aiProvider.js', () => ({ getAiStatus: vi.fn(), completeText: vi.fn() }));
 
-import { query } from './db.js';
-import { completeText, getAiStatus } from './aiProvider.js';
+import { query } from '../../services/db.js';
+import { completeText, getAiStatus } from '../../services/aiProvider.js';
 import {
-  buildGistPrompt,
-  sanitizeGist,
   selectGistCandidates,
   queueGistGeneration,
 } from './gtdGist.js';
 
-describe('buildGistPrompt', () => {
-  it('includes from, subject, and a whitespace-collapsed body', () => {
-    const prompt = buildGistPrompt({ subject: 'Reports', from: 'Alice', content: 'pulling   the\n\nDeel  reports friday' });
-    expect(prompt).toContain('From: Alice');
-    expect(prompt).toContain('Subject: Reports');
-    expect(prompt).toContain('Body: pulling the Deel reports friday');
-    expect(prompt).toMatch(/ONE line of at most 120 characters/);
-  });
-
-  it('caps the body length and tolerates missing fields', () => {
-    const prompt = buildGistPrompt({ content: 'x'.repeat(5000) });
-    expect(prompt).toContain('From: (unknown)');
-    // 1000-char body cap: the prompt shouldn't carry the whole 5000-char blob.
-    expect(prompt.length).toBeLessThan(1400);
-  });
-});
-
-describe('sanitizeGist', () => {
-  it('takes the first non-empty line and trims', () => {
-    expect(sanitizeGist('\n  pulling the Deel reports friday  \nextra')).toBe('pulling the Deel reports friday');
-  });
-
-  it('strips wrapping quotes and emoji', () => {
-    expect(sanitizeGist('"waiting on their reply 🎉"')).toBe('waiting on their reply');
-    expect(sanitizeGist('“sending the invoice ❤️ next week”')).toBe('sending the invoice next week');
-  });
-
-  it('collapses whitespace and hard-caps at 120 chars', () => {
-    const long = 'a '.repeat(200);
-    const out = sanitizeGist(long);
-    expect(out.length).toBeLessThanOrEqual(120);
-    expect(out).not.toMatch(/\s{2,}/);
-  });
-
-  it('returns null for empty or non-string input', () => {
-    expect(sanitizeGist('')).toBeNull();
-    expect(sanitizeGist('   ')).toBeNull();
-    expect(sanitizeGist(null)).toBeNull();
-    expect(sanitizeGist(42)).toBeNull();
-  });
-});
+// buildGistPrompt/sanitizeGist moved to the generic `summarize` capability — see
+// summarize.test.js. This file now covers only GTD's orchestration: candidate selection,
+// provider gating, and the bounded write/broadcast path.
 
 describe('selectGistCandidates', () => {
   const head = (over) => ({ id: over.id, account_id: over.account_id ?? 'a1', gist: over.gist ?? null });

@@ -8,7 +8,7 @@ import { imapManager } from '../index.js';
 import { sanitizeEmail, stripEmailHead, hasRemoteImages, blockRemoteImages, rewriteEbayImageserUrls, rewriteAnchorHrefs } from '../services/emailSanitizer.js';
 import { snippetFromBody, decodeMimeWords, parseRawHeaders, buildHeadersFromMessage } from '../services/messageParser.js';
 import { resolveTrashFolder, resolveAllTrashPaths, resolveAllDraftsPaths, resolveArchiveFolder, isAllMailFolder, resolveSpamFolder, resolveAllSpamPaths, getDeleteStrategy, adjustFolderCounts, fanOutReadToSiblings, fanOutStarToSiblings, fanOutBulkReadToSiblings } from '../utils/mailUtils.js';
-import { emitGtdIfRelevant } from '../services/gtdSections.js';
+import { pluginRegistry } from '../plugins/registry.js';
 import { listMessages } from '../services/messageService.js';
 import { resolveAccountScope } from '../services/unifiedInbox.js';
 import { validateHost } from '../services/hostValidation.js';
@@ -82,15 +82,15 @@ function snippetIsGarbled(s) {
   );
 }
 
-// Fire-and-forget GTD sections refresh after an ordinary mail mutation. Groups the acted
-// rows by account and asks emitGtdIfRelevant to broadcast gtd_sections_updated per
-// account whose messages still touch a designated GTD folder — either a live sibling
-// post-mutation, or one of the acted rows sitting in a GTD folder pre-mutation (covers
-// removing the last GTD-folder copy of a thread, which leaves no post-mutation sibling
-// to find). Rows are the pre-mutation message rows so their message_id and folder are
-// captured before a move/delete can drop them; a failed emit is logged, never surfaced,
-// so it can't turn a completed mutation into a 500.
-function emitGtdSectionsRefresh(rows, userId) {
+// Fire-and-forget notification to label plugins after an ordinary mail mutation. Groups the
+// acted rows by account and dispatches the generic `onMailMutation` hook per account; a label
+// plugin (GTD) decides whether the mutation touched one of its labelled threads and broadcasts
+// its own scoped refresh — either a live sibling post-mutation, or one of the acted rows sitting
+// in a label folder pre-mutation (covers removing the last label copy of a thread, which leaves
+// no post-mutation sibling to find). Rows are the pre-mutation message rows so their message_id
+// and folder are captured before a move/delete can drop them; the hook swallows per-plugin
+// errors, so a completed mutation is never turned into a 500.
+function notifyMailMutation(rows, userId) {
   const byAccount = new Map();
   for (const m of rows) {
     if (!m.message_id) continue;
@@ -100,8 +100,9 @@ function emitGtdSectionsRefresh(rows, userId) {
     if (m.folder) entry.folders.add(m.folder);
   }
   for (const [accountId, { mids, folders }] of byAccount) {
-    emitGtdIfRelevant(imapManager, accountId, userId, [...mids], [...folders])
-      .catch(err => console.warn('GTD sections refresh emit failed:', err.message));
+    pluginRegistry.runHook('onMailMutation', {
+      imapManager, accountId, userId, messageIds: [...mids], actedFolders: [...folders],
+    }).catch(err => console.warn('onMailMutation hook failed:', err.message));
   }
 }
 
@@ -708,7 +709,7 @@ router.patch('/messages/:id/read', async (req, res) => {
   }
 
   // Refresh GTD section data if this message's thread carries a GTD label (its head shows read state).
-  emitGtdSectionsRefresh([message], req.session.userId);
+  notifyMailMutation([message], req.session.userId);
 
   res.json({ ok: true, is_read: read });
 });
@@ -758,7 +759,7 @@ router.patch('/messages/:id/star', async (req, res) => {
   }
 
   // Refresh GTD section data if this message's thread carries a GTD label (its head shows star state).
-  emitGtdSectionsRefresh([message], req.session.userId);
+  notifyMailMutation([message], req.session.userId);
   // Reflect the star change on the user's other sessions in place (no full refetch).
   if (!!message.is_starred !== !!starred) {
     imapManager.broadcast({ type: 'message_flags', accountId: message.account_id, changes: [{ id, is_starred: starred }] }, req.session.userId);
@@ -1036,7 +1037,7 @@ router.post('/messages/bulk-read', async (req, res) => {
     }
 
     // Refresh GTD section data for any updated thread that carries a GTD label.
-    emitGtdSectionsRefresh(toUpdate, req.session.userId);
+    notifyMailMutation(toUpdate, req.session.userId);
 
     res.json({ ok: true, updated: toUpdate.map(m => m.id) });
   } catch (err) {
@@ -1243,7 +1244,7 @@ router.post('/messages/bulk-delete', async (req, res) => {
     }
 
     // Refresh GTD section data for any deleted thread that still carries a GTD label sibling.
-    emitGtdSectionsRefresh(owned, req.session.userId);
+    notifyMailMutation(owned, req.session.userId);
 
     res.json({ ok: true, deleted: allSucceeded });
   } catch (err) {
@@ -1402,7 +1403,7 @@ router.post('/messages/bulk-move', async (req, res) => {
     }
 
     // Refresh GTD section data for any moved thread that still carries a GTD label sibling.
-    emitGtdSectionsRefresh(owned, req.session.userId);
+    notifyMailMutation(owned, req.session.userId);
 
     res.json({ ok: true, moved: movedIds });
   } catch (err) {
@@ -1586,7 +1587,7 @@ router.post('/messages/bulk-archive', async (req, res) => {
     }
 
     // Refresh GTD section data for any archived thread that still carries a GTD label sibling.
-    emitGtdSectionsRefresh(owned, req.session.userId);
+    notifyMailMutation(owned, req.session.userId);
 
     res.json({ ok: true, archived: archivedIds.map(a => a.id), noArchiveFolder });
   } catch (err) {
@@ -1771,7 +1772,7 @@ router.post('/messages/:id/snooze', async (req, res) => {
   }
 
   // Refresh GTD section data if the snoozed conversation carries a GTD label (its in_inbox flips).
-  emitGtdSectionsRefresh(convo, req.session.userId);
+  notifyMailMutation(convo, req.session.userId);
 
   res.json({ ok: true });
 });
@@ -1861,7 +1862,7 @@ router.delete('/messages/:id', async (req, res) => {
   imapManager.broadcast({ type: 'folder_updated', folder: message.folder, accountId: message.account_id }, req.session.userId);
   // Refresh GTD section data if this thread still carries a GTD label sibling (same staleness the
   // bulk-delete route addresses, reached via the single-message delete button).
-  emitGtdSectionsRefresh([message], req.session.userId);
+  notifyMailMutation([message], req.session.userId);
   res.json({ ok: true });
 });
 
@@ -1971,7 +1972,7 @@ async function moveForSpamLabel(messageId, userId, destinationFolder, label) {
   // Refresh GTD section data if the (un)spammed message's thread carries a GTD label. Covers both
   // /spam and /ham, which share this mover. The already-in-folder no-op path above returns
   // early without a move, so GTD section data is untouched there.
-  emitGtdSectionsRefresh([message], userId);
+  notifyMailMutation([message], userId);
 
   return { ok: true, status: 200, body: { ok: true, folder: destinationFolder, newUid: newUid || null } };
 }

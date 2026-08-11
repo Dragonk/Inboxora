@@ -2,12 +2,12 @@ import { describe, it, expect, vi } from 'vitest';
 
 // gtd.js registers auth middleware and pulls imapManager from the app entrypoint
 // at import time; neither is exercised by the pure helper under test, so stub them.
-vi.mock('../services/db.js', () => ({ query: vi.fn() }));
-vi.mock('../middleware/auth.js', () => ({ requireAuth: vi.fn() }));
-vi.mock('../index.js', () => ({ imapManager: {} }));
+vi.mock('../../services/db.js', () => ({ query: vi.fn() }));
+vi.mock('../../middleware/auth.js', () => ({ requireAuth: vi.fn() }));
+vi.mock('../../index.js', () => ({ imapManager: {} }));
 
-import { classifyTarget, resolveDoneFolders } from './gtd.js';
-import { DEFAULT_GTD_FOLDERS } from '../services/gtdConfig.js';
+import { classifyTarget, resolveDoneFolders } from './routes.js';
+import { DEFAULT_GTD_FOLDERS } from './gtdConfig.js';
 
 describe('classifyTarget', () => {
   it('rejects with 400 when GTD is disabled for the account', () => {

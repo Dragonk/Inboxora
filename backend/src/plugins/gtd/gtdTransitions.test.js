@@ -1,9 +1,9 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 
-vi.mock('./db.js', () => ({ query: vi.fn() }));
+vi.mock('../../services/db.js', () => ({ query: vi.fn() }));
 vi.mock('./gtdConfig.js', () => ({ getGtdConfig: vi.fn() }));
-vi.mock('../utils/mailUtils.js', () => ({ resolveAllDraftsPaths: vi.fn() }));
-vi.mock('./logger.js', () => ({ logger: { debug: vi.fn(), info: vi.fn(), warn: vi.fn(), error: vi.fn() } }));
+vi.mock('../../utils/mailUtils.js', () => ({ resolveAllDraftsPaths: vi.fn() }));
+vi.mock('../../services/logger.js', () => ({ logger: { debug: vi.fn(), info: vi.fn(), warn: vi.fn(), error: vi.fn() } }));
 
 import {
   getOwnerAddresses,
@@ -13,9 +13,9 @@ import {
   threadKeysForMessageIds,
   threadKeysInFolders,
 } from './gtdTransitions.js';
-import { query } from './db.js';
+import { query } from '../../services/db.js';
 import { getGtdConfig } from './gtdConfig.js';
-import { resolveAllDraftsPaths } from '../utils/mailUtils.js';
+import { resolveAllDraftsPaths } from '../../utils/mailUtils.js';
 
 const DEFAULT_FOLDERS = { todo: 'Todo', watch: 'Watch', delegated: 'Delegated', someday: 'Someday', reference: 'Reference' };
 const account = { id: 'acct-1', user_id: 'user-1', email_address: 'me@example.com', folder_mappings: {} };

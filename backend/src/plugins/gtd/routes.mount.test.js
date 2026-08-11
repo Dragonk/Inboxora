@@ -4,11 +4,11 @@ import { describe, it, expect, vi, beforeAll, afterAll } from 'vitest';
 // layer at import time; stub both so importing the real router never boots index.js
 // or opens a pg pool. requireAuth is deliberately NOT mocked — this test exercises the
 // real middleware to prove the mounting keeps it off the public probes.
-vi.mock('../services/db.js', () => ({ query: vi.fn() }));
-vi.mock('../index.js', () => ({ imapManager: { broadcast: vi.fn() } }));
+vi.mock('../../services/db.js', () => ({ query: vi.fn() }));
+vi.mock('../../index.js', () => ({ imapManager: { broadcast: vi.fn() } }));
 
 import express from 'express';
-import gtdRoutes from './gtd.js';
+import gtdRoutes from './routes.js';
 
 // Mirrors index.js's route registration: the gtd router (whose router.use(requireAuth)
 // guards its whole subtree) lives under /api/gtd, while /api/health and /api/version are

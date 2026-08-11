@@ -1,7 +1,7 @@
-import { query } from './db.js';
+import { query } from '../../services/db.js';
 import { getGtdConfig } from './gtdConfig.js';
-import { resolveAllDraftsPaths } from '../utils/mailUtils.js';
-import { logger } from './logger.js';
+import { resolveAllDraftsPaths } from '../../utils/mailUtils.js';
+import { logger } from '../../services/logger.js';
 
 // Transition rules for auto-stripping a GTD label once a thread's state has moved on,
 // evaluated per thread against its LAST non-draft message. Designed to match the

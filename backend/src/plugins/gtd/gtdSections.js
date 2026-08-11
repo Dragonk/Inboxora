@@ -1,6 +1,7 @@
-import { query } from './db.js';
+import { query } from '../../services/db.js';
 import { getGtdConfig, GTD_STATES } from './gtdConfig.js';
-import { resolveAllDraftsPaths } from '../utils/mailUtils.js';
+import { resolveAllDraftsPaths } from '../../utils/mailUtils.js';
+import { listThreadHeadsByLabels, notifyOnLabelTouch } from '../../services/labelsRead.js';
 
 // States the frontend merges into the single "Waiting" section (utils/gtd.js). Their
 // counts must dedupe a thread holding BOTH labels; see the waiting_agg CTE below.
@@ -8,101 +9,6 @@ export const WAITING_STATES = ['watch', 'delegated'];
 
 const DEFAULT_LIMIT = 8;
 const MAX_LIMIT = 50;
-
-// Per-account, single-pass section query.
-//
-// The existing thread queries dedupe to the INBOX copy and hide label rows, so this is
-// written fresh rather than reused. A thread "belongs to" a state when it has a
-// (non-draft) row in that state's folder; the head is the thread's newest non-draft
-// row across all its folders. array_agg exposes the full folder set and bool_or flags
-// an INBOX sibling, so GTD display surfaces can show an archived-but-labelled commitment (in_inbox
-// false) distinctly from one still in the box.
-//
-// Unread is THREAD-LEVEL: a thread is unread while ANY of its non-deleted, non-draft
-// copies is unread, not just the head. The head prefers the (often older) GTD-label
-// copy for id stability, so on folder-based servers a newer reply that exists only in
-// INBOX would otherwise be invisible to every unread figure. folders_agg computes the
-// aggregate once (thread_unread) and it is the single truth for the per-state unread
-// counts, the waiting rollup, and the per-row flag mapHead surfaces.
-//
-// Params: $1 accountId, $2 state names[], $3 state folder paths[] (parallel to $2),
-//         $4 draft folder paths[] (excluded), $5 per-section limit,
-//         $6 waiting state names[] (the subset of $2 the client merges into Waiting).
-const SECTION_SQL = `
-  WITH gtd(state, folder) AS (
-    SELECT * FROM unnest($2::text[], $3::text[])
-  ),
-  msg AS (
-    SELECT m.id, m.account_id, m.thread_key, m.message_id, m.folder,
-           m.subject, m.from_name, m.from_email, m.date, m.snippet, m.is_read, m.is_starred, m.uid, m.gtd_gist
-    FROM messages m
-    WHERE m.account_id = $1
-      AND m.is_deleted = false
-      AND m.folder <> ALL($4::text[])
-  ),
-  folders_agg AS (
-    SELECT thread_key,
-           array_agg(DISTINCT folder) AS folders,
-           bool_or(folder = 'INBOX')  AS in_inbox,
-           bool_or(NOT is_read)       AS thread_unread
-    FROM msg
-    GROUP BY thread_key
-  ),
-  head AS (
-    SELECT DISTINCT ON (account_id, thread_key)
-           thread_key, account_id, message_id, folder,
-           subject, from_name, from_email, date, snippet, is_starred, uid, id, gtd_gist
-    FROM msg
-    -- Prefer a row that lives in a GTD label folder: that copy's id is stable for as long
-    -- as the thread is in a section, whereas a transient INBOX copy (archived/purged out
-    -- from under the section feed) leaves the client deep-linking to a since-deleted id. Then newest.
-    ORDER BY account_id, thread_key, (folder IN (SELECT folder FROM gtd)) DESC, date DESC, id DESC
-  ),
-  thread_state AS (
-    SELECT DISTINCT msg.thread_key, gtd.state
-    FROM msg
-    JOIN gtd ON gtd.folder = msg.folder
-  ),
-  -- Deduped counts for the merged Waiting section. A thread carrying BOTH watch and
-  -- delegated labels has two thread_state rows (one per state) but a single head, so the
-  -- per-state totals below count it twice; COUNT(DISTINCT thread_key) collapses it to one.
-  -- thread_key is the identity here because within this per-account query each thread_key
-  -- resolves to exactly one head row — so its message_id/id is fixed and deduping by
-  -- thread_key yields the same one-row-per-thread result the client's message_id||id
-  -- dedupe (mergeWaiting) produces. Doing it server-side stays correct past the per-section
-  -- head window the client sees, where the client can no longer spot the overlap.
-  -- Scope note: this rollup, like every per-state total in this query, is PER-ACCOUNT (the
-  -- msg CTE filters account_id = $1). A thread that spans accounts is summed independently
-  -- per account and not deduped across them — an accepted limitation.
-  waiting_agg AS (
-    SELECT
-      COUNT(DISTINCT ts.thread_key)                                  AS waiting_total,
-      COUNT(DISTINCT ts.thread_key) FILTER (WHERE fa.thread_unread)  AS waiting_unread
-    FROM thread_state ts
-    JOIN folders_agg fa ON fa.thread_key = ts.thread_key
-    WHERE ts.state = ANY($6::text[])
-  ),
-  ranked AS (
-    SELECT ts.state,
-           h.thread_key, h.account_id, h.message_id, h.folder,
-           h.subject, h.from_name, h.from_email, h.date, h.snippet, h.is_starred, h.uid, h.id, h.gtd_gist,
-           fa.folders, fa.in_inbox, fa.thread_unread,
-           COUNT(*)                                  OVER (PARTITION BY ts.state) AS total,
-           COUNT(*) FILTER (WHERE fa.thread_unread)  OVER (PARTITION BY ts.state) AS unread,
-           ROW_NUMBER() OVER (PARTITION BY ts.state ORDER BY h.date DESC, h.id DESC) AS rn
-    FROM thread_state ts
-    JOIN head h         ON h.thread_key = ts.thread_key
-    JOIN folders_agg fa ON fa.thread_key = ts.thread_key
-  )
-  SELECT state, thread_key, account_id, message_id, folder,
-         subject, from_name, from_email, date, snippet, is_starred, uid, id, gtd_gist,
-         folders, in_inbox, thread_unread, total::int AS total, unread::int AS unread,
-         waiting_total::int AS waiting_total, waiting_unread::int AS waiting_unread
-  FROM ranked
-  CROSS JOIN waiting_agg
-  WHERE rn <= $5
-  ORDER BY state, rn
-`;
 
 function emptySections() {
   const s = {};
@@ -166,7 +72,7 @@ export async function getGtdSections({ userId, accountId = null, limit } = {}) {
     const waitingStates = states.filter(s => WAITING_STATES.includes(s));
     const draftPaths = [...(await resolveAllDraftsPaths(acct.id, acct.folder_mappings))];
 
-    const { rows } = await query(SECTION_SQL, [acct.id, states, folderPaths, draftPaths, safeLimit, waitingStates]);
+    const rows = await listThreadHeadsByLabels(acct.id, { labels: states, labelFolders: folderPaths, draftFolders: draftPaths, limit: safeLimit, unionLabels: waitingStates });
 
     // Fold this account's rows in. total/unread are constant within a state, so add
     // each state's figure exactly once (from its first row) rather than per head.
@@ -230,24 +136,19 @@ export async function getGtdSections({ userId, accountId = null, limit } = {}) {
 export async function emitGtdIfRelevant(imapManager, accountId, userId, messageIds, actedFolders) {
   if (!accountId || !userId) return;
   const ids = [...new Set((messageIds || []).filter(Boolean))];
-  if (!ids.length) return;
+  if (!ids.length) return; // short-circuit before touching config (no getGtdConfig on an empty batch)
 
   const { enabled, folders } = await getGtdConfig(accountId);
   if (!enabled) return;
-  const folderPaths = [...new Set(Object.values(folders))];
-  if (!folderPaths.length) return;
 
-  const gtdFolderSet = new Set(folderPaths);
-  const preMutationHit = (actedFolders || []).some(f => gtdFolderSet.has(f));
-
-  const { rows } = await query(
-    `SELECT 1 FROM messages
-      WHERE account_id = $1
-        AND message_id = ANY($2::text[])
-        AND folder = ANY($3::text[])
-        AND is_deleted = false
-      LIMIT 1`,
-    [accountId, ids, folderPaths]
-  );
-  if (preMutationHit || rows.length) imapManager.broadcast({ type: 'gtd_sections_updated', accountId }, userId);
+  // Delegate relevance + the scoped broadcast to the generic labels-touch notify capability;
+  // GTD only supplies its designated label folders and its refresh event name.
+  await notifyOnLabelTouch(imapManager, {
+    accountId,
+    userId,
+    messageIds: ids,
+    actedFolders,
+    labelFolders: [...new Set(Object.values(folders))],
+    event: 'gtd_sections_updated',
+  });
 }

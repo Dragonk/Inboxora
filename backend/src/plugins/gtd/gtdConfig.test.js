@@ -1,8 +1,8 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 
-vi.mock('./db.js', () => ({ query: vi.fn() }));
+vi.mock('../../services/db.js', () => ({ query: vi.fn() }));
 
-import { query } from './db.js';
+import { query } from '../../services/db.js';
 import {
   DEFAULT_GTD_FOLDERS,
   GTD_STATES,

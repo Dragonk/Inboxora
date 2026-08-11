@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach, beforeAll, afterAll } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach, beforeAll, afterAll } from 'vitest';
 
 // Alias CRUD is exercised through the mounted accounts router so these tests cover the
 // ownership checks, successful mutations, and the owner-address cache boundary together.
@@ -8,17 +8,19 @@ vi.mock('../middleware/auth.js', () => ({
   requireAuth: (req, _res, next) => { req.session = { userId: 'u1' }; next(); },
 }));
 vi.mock('../index.js', () => ({ imapManager: {} }));
-vi.mock('../services/gtdTransitions.js', () => ({
-  invalidateOwnerAddressesCache: vi.fn(),
-}));
 
 // index.js normally installs this Express 4 patch before mounting routes. Because index.js is
 // mocked above, install it explicitly and give rejected async handlers the same 500 boundary.
 import 'express-async-errors';
 import express from 'express';
 import { query } from '../services/db.js';
-import { invalidateOwnerAddressesCache } from '../services/gtdTransitions.js';
+import { pluginRegistry } from '../plugins/registry.js';
 import accountRoutes from './accounts.js';
+
+// The route now signals identity changes through the generic `onAccountIdentityChanged` hook
+// (GTD's owner-address cache invalidation lives behind it), so we assert the hook dispatch as the
+// boundary rather than the plugin-internal cache call.
+let identityHook;
 
 const URL_ACCOUNT_ID = 'account-from-url';
 const CHECKED_ACCOUNT_ID = 'account-from-ownership-check';
@@ -95,9 +97,21 @@ afterAll(async () => {
 
 beforeEach(() => {
   query.mockReset();
-  invalidateOwnerAddressesCache.mockReset();
+  identityHook = vi.spyOn(pluginRegistry, 'runHook').mockResolvedValue([]);
   stubQueries();
 });
+
+afterEach(() => { identityHook.mockRestore(); });
+
+// Assert the onAccountIdentityChanged hook fired exactly once for the given account.
+function expectIdentityInvalidated(accountId) {
+  const calls = identityHook.mock.calls.filter(([name]) => name === 'onAccountIdentityChanged');
+  expect(calls).toHaveLength(1);
+  expect(calls[0][1]).toEqual({ accountId });
+}
+function expectNoIdentityInvalidation() {
+  expect(identityHook.mock.calls.filter(([name]) => name === 'onAccountIdentityChanged')).toHaveLength(0);
+}
 
 describe('account alias mutations invalidate the owner-address cache', () => {
   it('invalidates the URL account once after a successful INSERT', async () => {
@@ -105,8 +119,7 @@ describe('account alias mutations invalidate the owner-address cache', () => {
 
     expect(res.status).toBe(200);
     expect(await res.json()).toEqual(insertedAlias);
-    expect(invalidateOwnerAddressesCache).toHaveBeenCalledOnce();
-    expect(invalidateOwnerAddressesCache).toHaveBeenCalledWith(URL_ACCOUNT_ID);
+    expectIdentityInvalidated(URL_ACCOUNT_ID);
   });
 
   it('invalidates the ownership-check account once after a successful UPDATE', async () => {
@@ -117,8 +130,7 @@ describe('account alias mutations invalidate the owner-address cache', () => {
 
     expect(res.status).toBe(200);
     expect(await res.json()).toEqual(updatedAlias);
-    expect(invalidateOwnerAddressesCache).toHaveBeenCalledOnce();
-    expect(invalidateOwnerAddressesCache).toHaveBeenCalledWith(CHECKED_ACCOUNT_ID);
+    expectIdentityInvalidated(CHECKED_ACCOUNT_ID);
   });
 
   it('invalidates the ownership-check account once after a successful DELETE', async () => {
@@ -126,8 +138,7 @@ describe('account alias mutations invalidate the owner-address cache', () => {
 
     expect(res.status).toBe(200);
     expect(await res.json()).toEqual({ ok: true });
-    expect(invalidateOwnerAddressesCache).toHaveBeenCalledOnce();
-    expect(invalidateOwnerAddressesCache).toHaveBeenCalledWith(CHECKED_ACCOUNT_ID);
+    expectIdentityInvalidated(CHECKED_ACCOUNT_ID);
   });
 });
 
@@ -141,7 +152,7 @@ describe('account alias ownership failures do not invalidate the cache', () => {
 
     expect(res.status).toBe(404);
     expect(query).toHaveBeenCalledTimes(1);
-    expect(invalidateOwnerAddressesCache).not.toHaveBeenCalled();
+    expectNoIdentityInvalidation();
   });
 
   it('returns 404 for DELETE when the alias ownership check finds no row', async () => {
@@ -151,7 +162,7 @@ describe('account alias ownership failures do not invalidate the cache', () => {
 
     expect(res.status).toBe(404);
     expect(query).toHaveBeenCalledTimes(1);
-    expect(invalidateOwnerAddressesCache).not.toHaveBeenCalled();
+    expectNoIdentityInvalidation();
   });
 });
 
@@ -165,6 +176,6 @@ describe('account alias mutation failures do not invalidate the cache', () => {
 
     expect(res.status).toBe(500);
     expect(query).toHaveBeenCalledTimes(2);
-    expect(invalidateOwnerAddressesCache).not.toHaveBeenCalled();
+    expectNoIdentityInvalidation();
   });
 });

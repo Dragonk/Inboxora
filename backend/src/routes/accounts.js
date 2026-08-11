@@ -6,8 +6,7 @@ import { encrypt } from '../services/encryption.js';
 import { sanitizeSignature } from '../services/emailSanitizer.js';
 import { validateHost } from '../services/hostValidation.js';
 import { getConnectionPolicy } from '../services/connectionPolicy.js';
-import { invalidateGtdConfigCache, sanitizeGtdFoldersDetailed, findGtdFolderCollisions, DEFAULT_GTD_FOLDERS } from '../services/gtdConfig.js';
-import { invalidateOwnerAddressesCache } from '../services/gtdTransitions.js';
+import { pluginRegistry } from '../plugins/registry.js';
 import { createKeyedSerializer } from '../utils/keyedSerializer.js';
 
 // Serialize an account's reconnect triggers so a rapid settings change (e.g. a
@@ -197,30 +196,21 @@ router.put('/:id', async (req, res) => {
 
   if ('imap_port' in updates) updates.imap_tls = Number(updates.imap_port) % 1000 === 993;
 
-  // Sanitize + validate GTD folder overrides up front so a folder collision or an
-  // over-long/traversal path is caught before we touch the DB. Collisions (two states
-  // resolving to one folder) are rejected outright; over-long/traversal values fall
-  // back to defaults and are reported to the client so the settings UI can flag them.
-  let gtdFoldersValue;
-  let gtdRejected = [];
-  let gtdFoldersChanged = false;
-  if ('gtd_folders' in updates) {
-    const { folders, rejected, reserved } = sanitizeGtdFoldersDetailed(updates.gtd_folders);
-    // A state mapped onto a live system folder (INBOX, Sent, …) is a hard error: /done would
-    // permanently delete that folder's real mail. Reject before any DB write.
-    if (reserved.length) {
-      return res.status(400).json({ error: 'A GTD state cannot map to a reserved system folder', reserved });
-    }
-    const collisions = findGtdFolderCollisions({ ...DEFAULT_GTD_FOLDERS, ...folders });
-    if (collisions.length) {
-      return res.status(400).json({ error: 'Two GTD states cannot map to the same folder', collisions });
-    }
-    gtdFoldersValue = folders;
-    gtdRejected = rejected;
-    // Did the overrides actually change? Sanitize both sides through the same function so
-    // key order is canonical, then compare. Only a real change forces a reconnect below.
-    const before = sanitizeGtdFoldersDetailed(check.rows[0].gtd_folders).folders;
-    gtdFoldersChanged = JSON.stringify(before) !== JSON.stringify(folders);
+  // Let plugins validate/sanitize the settings fields they own (GTD owns gtd_folders) before we
+  // touch the DB. A plugin may hard-reject the change (return an error response), patch a field
+  // to its sanitized value, report per-field sub-values it reset to defaults, and flag whether
+  // its change requires a reconnect. This is the generic account-scoped settings surface; core
+  // knows nothing GTD-specific here.
+  const settingsResults = await pluginRegistry.collectHook('validateAccountSettings', {
+    updates, existing: check.rows[0],
+  });
+  const rejectedByField = {};
+  let pluginRequiresReconnect = false;
+  for (const r of settingsResults) {
+    if (r.error) return res.status(r.error.status).json(r.error.body);
+    if (r.patch) Object.assign(updates, r.patch);           // persist the sanitized value
+    if (r.rejected) Object.assign(rejectedByField, r.rejected);
+    if (r.requiresReconnect) pluginRequiresReconnect = true;
   }
 
   const allowed = ['name', 'sender_name', 'color', 'enabled', 'include_in_unified_inbox', 'auth_user', 'auth_pass', 'sort_order', 'imap_host', 'imap_port', 'imap_tls', 'imap_skip_tls_verify', 'smtp_host', 'smtp_port', 'smtp_tls', 'smtp_auth_user', 'smtp_auth_pass', 'folder_mappings', 'signature', 'categorization_enabled', 'gtd_enabled', 'gtd_folders'];
@@ -235,7 +225,6 @@ router.put('/:id', async (req, res) => {
         : (key === 'signature') ? sanitizeSignature(updates[key]) || null
         : (key === 'gtd_enabled') ? !!updates[key]
         : (key === 'include_in_unified_inbox') ? !!updates[key]
-        : (key === 'gtd_folders') ? gtdFoldersValue
         : updates[key];
       values.push(value);
     }
@@ -249,23 +238,20 @@ router.put('/:id', async (req, res) => {
   );
   const updated = result.rows[0];
   const payload = safeAccount(updated);
-  // Tell the client which submitted folder values were rejected (over-long /
-  // traversal) and reset to defaults, so the settings form can surface it.
-  if ('gtd_folders' in updates) payload.gtd_folders_rejected = gtdRejected;
+  // Surface any plugin-rejected field sub-values (e.g. GTD folder paths reset to defaults) so the
+  // settings form can flag them. Keyed by field name as the client expects.
+  if (rejectedByField.gtd_folders) payload.gtd_folders_rejected = rejectedByField.gtd_folders;
   res.json(payload);
 
-  // A GTD config change must drop the cached { enabled, folders } so the tick,
-  // transition engine, and classify routes read the new value immediately.
-  if ('gtd_enabled' in updates || 'gtd_folders' in updates) invalidateGtdConfigCache(id);
+  // Let plugins react to the settings change (GTD drops its cached { enabled, folders }). Fired
+  // unconditionally; each plugin gates on its own fields internally.
+  pluginRegistry.runHook('onAccountSettingsChanged', { accountId: id, updates })
+    .catch(err => console.warn('onAccountSettingsChanged hook failed:', err.message));
 
-  // Sync live IMAP state after DB update (fire-and-forget, non-fatal).
-  // Toggling gtd_enabled reconnects so the GTD sync tick is armed/torn down (it is
-  // only decided at connectAccount) and the persistent-connection account object the
-  // INBOX/send transition hooks close over picks up the new flag. Remapping a GTD state
-  // to a different folder reconnects for the same reason: connectAccount's syncFolders +
-  // backfillAllFolders is what pulls the newly-designated folder's existing mail into the
-  // rail (backfillAllFolders backfills every discovered folder except the provider's
-  // skipFolderPatterns, which a GTD label folder never matches).
+  // Sync live IMAP state after DB update (fire-and-forget, non-fatal). Core reconnect triggers
+  // are the connection/credential/host fields; a plugin can also require a reconnect for its own
+  // field change (GTD: a gtd_enabled toggle re-arms the tick, a folder remap backfills the newly
+  // designated folder) via validateAccountSettings' requiresReconnect.
   const isDisabling = 'enabled' in updates && !updates.enabled;
   const needsReconnect = !isDisabling && (
     'enabled' in updates ||
@@ -275,8 +261,7 @@ router.put('/:id', async (req, res) => {
     'imap_port' in updates ||
     'imap_tls' in updates ||
     'imap_skip_tls_verify' in updates ||
-    'gtd_enabled' in updates ||
-    gtdFoldersChanged
+    pluginRequiresReconnect
   );
 
   // Both branches queue through the per-account serializer so overlapping settings
@@ -355,7 +340,7 @@ router.post('/:id/aliases', async (req, res) => {
     'INSERT INTO account_aliases (account_id, name, email, reply_to, signature) VALUES ($1, $2, $3, $4, $5) RETURNING *',
     [id, name, email, reply_to || null, sanitizeSignature(signature) || null]
   );
-  invalidateOwnerAddressesCache(id);
+  pluginRegistry.runHook('onAccountIdentityChanged', { accountId: id }).catch(err => console.warn('onAccountIdentityChanged hook failed:', err.message));
   res.json(result.rows[0]);
 });
 
@@ -379,7 +364,7 @@ router.put('/:id/aliases/:aliasId', async (req, res) => {
     'UPDATE account_aliases SET name = $1, email = $2, reply_to = $3, signature = $4 WHERE id = $5 RETURNING *',
     [name, email, reply_to || null, sanitizeSignature(signature) || null, aliasId]
   );
-  invalidateOwnerAddressesCache(check.rows[0].account_id);
+  pluginRegistry.runHook('onAccountIdentityChanged', { accountId: check.rows[0].account_id }).catch(err => console.warn('onAccountIdentityChanged hook failed:', err.message));
   res.json(result.rows[0]);
 });
 
@@ -395,7 +380,7 @@ router.delete('/:id/aliases/:aliasId', async (req, res) => {
   if (!check.rows.length) return res.status(404).json({ error: 'Alias not found' });
 
   await query('DELETE FROM account_aliases WHERE id = $1', [aliasId]);
-  invalidateOwnerAddressesCache(check.rows[0].account_id);
+  pluginRegistry.runHook('onAccountIdentityChanged', { accountId: check.rows[0].account_id }).catch(err => console.warn('onAccountIdentityChanged hook failed:', err.message));
   res.json({ ok: true });
 });
 

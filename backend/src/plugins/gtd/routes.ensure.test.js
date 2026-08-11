@@ -6,21 +6,21 @@ import { describe, it, expect, vi, beforeEach, beforeAll, afterAll } from 'vites
 // stubbed; requireAuth is replaced with a passthrough that injects a session. gtdConfig is
 // partially mocked so invalidateGtdConfigCache is observable while the real planner/collision
 // logic still runs.
-vi.mock('../services/db.js', () => ({ query: vi.fn() }));
-vi.mock('../middleware/auth.js', () => ({
+vi.mock('../../services/db.js', () => ({ query: vi.fn() }));
+vi.mock('../../middleware/auth.js', () => ({
   requireAuth: (req, _res, next) => { req.session = { userId: 'u1' }; next(); },
 }));
-vi.mock('../index.js', () => ({ imapManager: { ensureFolder: vi.fn(), broadcast: vi.fn() } }));
-vi.mock('../services/gtdConfig.js', async (importOriginal) => {
+vi.mock('../../index.js', () => ({ imapManager: { ensureFolder: vi.fn(), broadcast: vi.fn() } }));
+vi.mock('./gtdConfig.js', async (importOriginal) => {
   const actual = await importOriginal();
   return { ...actual, invalidateGtdConfigCache: vi.fn() };
 });
 
 import express from 'express';
-import { query } from '../services/db.js';
-import { imapManager } from '../index.js';
-import { invalidateGtdConfigCache } from '../services/gtdConfig.js';
-import gtdRoutes from './gtd.js';
+import { query } from '../../services/db.js';
+import { imapManager } from '../../index.js';
+import { invalidateGtdConfigCache } from './gtdConfig.js';
+import gtdRoutes from './routes.js';
 
 function buildApp() {
   const app = express();

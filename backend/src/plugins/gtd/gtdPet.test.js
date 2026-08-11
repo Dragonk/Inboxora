@@ -1,8 +1,8 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 
-vi.mock('./db.js', () => ({ query: vi.fn() }));
+vi.mock('../../services/db.js', () => ({ query: vi.fn() }));
 
-import { query } from './db.js';
+import { query } from '../../services/db.js';
 import {
   parsePetSlug,
   sniffImageMime,
@@ -205,12 +205,13 @@ describe('importPet', () => {
       width: 1536, height: 1872,
     });
 
-    // Persisted with the derived slug (bound param $1) and the sniffed mime ($5) — never
-    // a client-chosen key.
+    // Persisted via generic plugin storage: plugin id ($1), the server-derived slug ($2,
+    // never a client-chosen key), and the sniffed mime ($6).
     expect(query).toHaveBeenCalledTimes(1);
     const params = query.mock.calls[0][1];
-    expect(params[0]).toBe(DERIVED_SLUG);
-    expect(params[4]).toBe('image/webp');
+    expect(params[0]).toBe('gtd');
+    expect(params[1]).toBe(DERIVED_SLUG);
+    expect(params[5]).toBe('image/webp');
   });
 
   it('rejects a spritesheet over the 5 MB cap (TOO_LARGE) without storing', async () => {

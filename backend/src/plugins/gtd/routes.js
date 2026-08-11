@@ -1,13 +1,13 @@
 import { Router } from 'express';
-import { requireAuth } from '../middleware/auth.js';
-import { getGtdSections } from '../services/gtdSections.js';
-import { queueGistGeneration } from '../services/gtdGist.js';
-import { importPet, decodeUploadedSheet, getPetMeta, getPetSheet, parsePetSlug, customPetSlug } from '../services/gtdPet.js';
-import { getGtdConfig, resolveGtdStateFolder, sanitizeGtdFolders, sanitizeGtdFoldersDetailed, DEFAULT_GTD_FOLDERS, planGtdFolderPersist, invalidateGtdConfigCache } from '../services/gtdConfig.js';
-import { fanOutReadToSiblings } from '../utils/mailUtils.js';
-import { archiveInboxCopy } from '../services/archiveInbox.js';
-import { query } from '../services/db.js';
-import { imapManager } from '../index.js';
+import { requireAuth } from '../../middleware/auth.js';
+import { getGtdSections } from './gtdSections.js';
+import { queueGistGeneration } from './gtdGist.js';
+import { importPet, decodeUploadedSheet, getPetMeta, getPetSheet, parsePetSlug, customPetSlug } from './gtdPet.js';
+import { getGtdConfig, resolveGtdStateFolder, sanitizeGtdFolders, sanitizeGtdFoldersDetailed, DEFAULT_GTD_FOLDERS, planGtdFolderPersist, invalidateGtdConfigCache } from './gtdConfig.js';
+import { archiveInboxCopy } from '../../services/archiveInbox.js';
+import { applyLabel, removeLabel, markThreadRead, ensureLabelFolders } from '../../services/labels.js';
+import { query } from '../../services/db.js';
+import { imapManager } from '../../index.js';
 
 const router = Router();
 router.use(requireAuth);
@@ -177,8 +177,7 @@ router.post('/classify', async (req, res) => {
   const account = accountResult.rows[0];
 
   try {
-    await imapManager.ensureFolder(account, toFolder);
-    await imapManager.copyMessage(msg.account_id, msg.uid, msg.folder, toFolder);
+    await applyLabel(imapManager, account, msg, toFolder);
   } catch (err) {
     console.error(`GTD classify failed for message ${messageId} -> ${toFolder}:`, err.message);
     return res.status(500).json({ error: 'Failed to apply GTD label' });
@@ -186,19 +185,6 @@ router.post('/classify', async (req, res) => {
 
   res.json({ ok: true, folder: toFolder });
 });
-
-// Resolve the folder-copy uid a message has in `folder` for this account, or null. The
-// acted row is used directly when it already lives there; otherwise the shared RFC
-// Message-ID (COPY duplicates it verbatim) joins to the sibling copy. Shared by DELETE
-// /classify (below) and POST /done's label strip.
-async function resolveCopyUid(msg, folder) {
-  if (msg.folder === folder) return msg.uid;
-  const sib = await query(
-    'SELECT uid FROM messages WHERE account_id = $1 AND folder = $2 AND message_id = $3 AND is_deleted = false LIMIT 1',
-    [msg.account_id, folder, msg.message_id]
-  );
-  return sib.rows[0]?.uid ?? null;
-}
 
 // DELETE /api/gtd/classify { messageId, state } — remove a GTD label by deleting
 // the message's copy that lives in the state folder, leaving all other copies
@@ -224,11 +210,9 @@ router.delete('/classify', async (req, res) => {
   if (msg.folder !== stateFolder && !msg.message_id) {
     return res.status(400).json({ error: 'Message has no Message-ID — cannot resolve GTD copy' });
   }
-  const siblingUid = await resolveCopyUid(msg, stateFolder);
-  if (siblingUid == null) return res.json({ ok: true, removed: false });
-
   try {
-    await imapManager.removeMessageCopy(msg.account_id, siblingUid, stateFolder);
+    const { removed } = await removeLabel(imapManager, msg, stateFolder);
+    if (!removed) return res.json({ ok: true, removed: false });
   } catch (err) {
     console.error(`GTD unclassify failed for message ${messageId} in ${stateFolder}:`, err.message);
     return res.status(500).json({ error: 'Failed to remove GTD label' });
@@ -283,19 +267,8 @@ router.post('/done', async (req, res) => {
   // copy and adjusts each folder's unread count; \Seen is set on the durable INBOX copy
   // only (it rides the archive move; Gmail propagates message-wide) — the same per-copy
   // asymmetry the ordinary read route accepts. A best-effort flag push is never fatal.
-  const inbox = await query(
-    'SELECT id, uid, is_read FROM messages WHERE account_id = $1 AND folder = $2 AND message_id = $3 AND is_deleted = false LIMIT 1',
-    [msg.account_id, 'INBOX', msg.message_id]
-  );
-  const inboxCopy = inbox.rows[0] || null;
-  try {
-    await fanOutReadToSiblings(msg.account_id, msg.message_id, true);
-    if (inboxCopy && !inboxCopy.is_read) {
-      await imapManager.setFlag(account, inboxCopy.uid, 'INBOX', '\\Seen', true);
-    }
-  } catch (err) {
-    console.warn(`GTD done: mark-read for ${id} degraded:`, err.message);
-  }
+  const { inboxCopy, error: markReadError } = await markThreadRead(imapManager, account, msg);
+  if (markReadError) console.warn(`GTD done: mark-read for ${id} degraded:`, markReadError.message);
 
   // (b) Strip this row's GTD label copies. Each is a distinct folder copy resolved from
   // the shared Message-ID; removeMessageCopy deletes the IMAP + DB copy and adjusts that
@@ -314,10 +287,8 @@ router.post('/done', async (req, res) => {
   const removed = [];
   try {
     for (const folder of stripOrder) {
-      const uid = await resolveCopyUid(msg, folder);
-      if (uid == null) continue; // already gone
-      await imapManager.removeMessageCopy(msg.account_id, uid, folder);
-      removed.push(folder);
+      const { removed: didRemove } = await removeLabel(imapManager, msg, folder);
+      if (didRemove) removed.push(folder);
     }
   } catch (err) {
     console.error(`GTD done: label strip for ${id} failed:`, err.message);
@@ -379,21 +350,10 @@ router.post('/folders/ensure', async (req, res) => {
   const merged = { ...DEFAULT_GTD_FOLDERS, ...formFolders };
   const paths = [...new Set(Object.values(merged))];
 
-  const results = [];
-  for (const folder of paths) {
-    try {
-      // ensureFolder returns the REAL server path (e.g. 'INBOX.Todo' on a prefixed IMAP
-      // server) alongside whether this call created it; report `path` so the settings UI
-      // shows where the label folder actually landed, not just the bare requested name.
-      // resolvePath makes an already-existing folder resolve its true server casing too,
-      // since this route persists `path` (planGtdFolderPersist).
-      const { path, created } = await imapManager.ensureFolder(account, folder, { resolvePath: true });
-      results.push({ folder, path, created });
-    } catch (err) {
-      console.error(`GTD ensureFolder failed for ${folder}:`, err.message);
-      results.push({ folder, error: true });
-    }
-  }
+  // Delegate the IMAP folder-ensuring to the generic labels capability; it resolves each to its
+  // REAL server path (e.g. 'INBOX.Todo' on a prefixed server) and reports whether it created it.
+  // GTD keeps ownership of the config reconciliation below, which is keyed off these results.
+  const results = await ensureLabelFolders(imapManager, account, paths);
 
   // Reconcile stored config with where the folders actually landed. On a prefixed namespace
   // the configured bare name resolves to a different real path (INBOX.Todo), so persist that

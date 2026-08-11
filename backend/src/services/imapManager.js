@@ -2,8 +2,7 @@ import { ImapFlow } from 'imapflow';
 import { query } from './db.js';
 import { parseMessage, snippetFromBody, detectBulkFromParsedHeaders, parseHeadersInput, headersToRawString, decodeMimeWords, enrichParsedMetadata } from './messageParser.js';
 import { classifyMessage, loadSocialDomains, getGlobalCategorizationEnabled } from './categorizer.js';
-import { getGtdFolderSet, getGtdConfig, gtdTickFolders } from './gtdConfig.js';
-import { runGtdTransitions, threadKeysForMessageIds, threadKeysInFolders } from './gtdTransitions.js';
+import { pluginRegistry } from '../plugins/registry.js';
 import { refreshMicrosoftToken } from '../routes/oauth.js';
 import { sanitizeEmail } from './emailSanitizer.js';
 import { logger } from './logger.js';
@@ -165,11 +164,10 @@ const DELTA_SCAN_UID_WINDOW = 5000;
 // deprioritising background traffic whenever the user is actively reading mail.
 const QUIET_WINDOW_MS = 8000;
 
-// How often (ms) to sync a gtd_enabled account's designated label folders. Only INBOX
-// gets IDLE + the fast periodic tick; GTD label folders otherwise sync on open only, so
-// this slower tick keeps the non-INBOX GTD sections (Todo/Watch/…) fresh in the
-// background. Slower than the INBOX interval on purpose — label folders change far less.
-const GTD_SYNC_INTERVAL_MS = 120000;
+// Fallback cadence (ms) for a plugin-declared background sync tick that omits its own
+// `sync.intervalMs`. Slower than the INBOX interval on purpose — a plugin's label folders
+// (which is what these ticks refresh) change far less than INBOX. GTD declares 120000.
+const DEFAULT_PLUGIN_SYNC_INTERVAL_MS = 120000;
 
 // Default folder-structure sync cadence (LIST + folders-table upsert). Folders
 // created/renamed in other clients otherwise only appear when a connection is
@@ -625,25 +623,28 @@ const PROVIDERS = {
   },
 };
 
-// Builds the GTD portion of the move-detector relocate guard, shared by the
-// sync and backfill relocate UPDATEs so their exemption logic stays identical.
-// A GTD-labeled message intentionally lives in multiple folders as sibling rows;
-// relocating in place would collapse them and ping-pong the message. So a row is
-// exempt from relocation when either the folder being synced ($1, the relocate
-// target) or the row's current folder is GTD-designated — both fall through to a
-// sibling INSERT instead.
+// Builds the move-detector relocate guard from a set of relocate-exempt "label" folders,
+// shared by the sync and backfill relocate UPDATEs so their exemption logic stays identical.
+// A labeled message intentionally lives in multiple folders as sibling rows; relocating in
+// place would collapse them and ping-pong the message. So a row is exempt from relocation
+// when either the folder being synced ($1, the relocate target) or the row's current folder
+// is an exempt label folder — both fall through to a sibling INSERT instead.
 //
-// gtdFolders: array of designated folder paths (empty when GTD is disabled).
+// The exempt folder set is generic: any plugin can contribute folders via the
+// `relocateExemptFolders` collect-hook (see collectRelocateExemptFolders). GTD is the
+// first contributor (its designated state folders). Nothing here knows about GTD.
+//
+// exemptFolders: array of exempt folder paths (empty when no plugin contributes any).
 // paramIndex: the next positional bind index ($N) available in the caller's query.
-// Returns { clause, params }. With no GTD folders the clause is '' and params is
-// [], so a GTD-disabled account runs byte-identical SQL to before this feature.
-export function gtdRelocateGuard(gtdFolders, paramIndex) {
-  if (!gtdFolders || gtdFolders.length === 0) return { clause: '', params: [] };
+// Returns { clause, params }. With no exempt folders the clause is '' and params is
+// [], so an account with no label plugins runs byte-identical SQL to before this feature.
+export function relocateExemptGuard(exemptFolders, paramIndex) {
+  if (!exemptFolders || exemptFolders.length === 0) return { clause: '', params: [] };
   const p = `$${paramIndex}`;
   const clause =
     `\n                  AND $1 <> ALL(${p}::text[])` +
     `\n                  AND folder <> ALL(${p}::text[])`;
-  return { clause, params: [gtdFolders] };
+  return { clause, params: [exemptFolders] };
 }
 
 // DB half of copyMessage: insert the destination sibling row for a message that was
@@ -653,7 +654,7 @@ export function gtdRelocateGuard(gtdFolders, paramIndex) {
 // makes it idempotent against the destination folder's next sync, which would insert
 // the same row. Destination counts are bumped only when a row is actually created
 // (RETURNING is empty if a sync beat us to it), and unread only when the copy is
-// unread. Extracted (like gtdRelocateGuard) so the DB behavior is unit-testable
+// unread. Extracted (like relocateExemptGuard) so the DB behavior is unit-testable
 // without a live IMAP pool.
 export async function insertCopiedSibling(accountId, uid, fromFolder, toFolder, newUid) {
   const res = await query(`
@@ -704,138 +705,23 @@ export async function deleteMessageCopyRow(accountId, uid, folder) {
   return row ? 1 : 0;
 }
 
-// On a non-UIDPLUS COPY the destination sibling row is deferred to syncFolderOnDemand, so
-// the early gtd_sections_updated emit can leave GTD section data stale until that sync lands (up
-// to a GTD tick away). Re-emit once the deferred sync resolves so the data converges
-// immediately; on sync failure keep the existing warn and skip the re-emit (the next GTD
-// tick still reconciles). srcUid/fromFolder identify the copied message so the transition
-// engine can be re-run over its thread now that the sibling exists: a transition run that
-// raced ahead of the deferred insert saw stale thread state, so re-running here applies any
-// needed strip immediately instead of at the next tick. Gated on gtd_enabled; transition
-// failures are debug-level (the tick still reconciles). Extracted (like insertCopiedSibling)
-// so the emit/transition sequencing is unit-testable without a live IMAP pool.
-export function emitAfterDeferredCopySync(mgr, account, toFolder, srcUid, fromFolder) {
-  return mgr.syncFolderOnDemand(account, toFolder)
-    .then(async () => {
-      mgr.broadcast({ type: 'gtd_sections_updated', accountId: account.id }, account.user_id);
-      if (!account.gtd_enabled) return;
-      try {
-        const { rows } = await query(
-          'SELECT thread_key FROM messages WHERE account_id = $1 AND uid = $2 AND folder = $3 LIMIT 1',
-          [account.id, srcUid, fromFolder]
-        );
-        const threadKey = rows[0]?.thread_key;
-        if (threadKey) await runGtdTransitions(mgr, account, [threadKey]);
-      } catch (err) {
-        logger.debug(`post-copy transition re-run failed for ${toFolder}: ${err.message}`);
-      }
-    })
-    .catch(err => console.warn(`post-copy destination sync failed for ${toFolder}:`, err.message));
-}
-
-// Broadcast a GTD sections refresh after a batch changed the messages table outside a GTD tick, so
-// the tick's fingerprint can't detect the change on its own. Two triggers:
-//   • an ORDINARY sync that DELETED rows the server no longer has (reconcile orphan-removal,
-//     UIDVALIDITY purge) — dropping a GTD thread's INBOX/label copy; and
-//   • a BACKFILL that INSERTED historical rows into a GTD folder (account remap/toggle
-//     reconnect, POST /reindex) — the tick's before==after fingerprint misses rows backfill
-//     already wrote.
-// Either way clients would otherwise show stale GTD section data until the next GTD tick or a user
-// action (the frontend click self-heal only masks the worst symptom). Gated cheaply: skip when
-// nothing changed, and skip when GTD is off for the account (getGtdConfig is cached, so a
-// disabled account adds no query on the hot path — and, per that cache's 5-min TTL, an account
-// whose GTD was just toggled converges within a tick). No per-row relevance check: the client
-// debounces refreshes at 400ms, so a harmless over-emit is preferred to a missed one, and a
-// missed emit leaves durable stale GTD section data. mgr is injected (like emitAfterDeferredCopySync) so this
-// stays unit-testable without a live socket server; emit failures never disturb the caller.
-export async function emitGtdSectionsRefreshIfEnabled(mgr, account, changedCount) {
+// Notify label-feed plugins that an ordinary mail mutation changed the messages table outside
+// their own periodic tick, so a tick's change-fingerprint can't detect it. Fires the generic
+// `sectionsChanged` hook; each active plugin decides whether the change is relevant to its
+// labels and broadcasts its own scoped refresh event (GTD broadcasts gtd_sections_updated when
+// GTD is enabled — see plugins/gtd/hooks.js). Two kinds of trigger drive it:
+//   • an ORDINARY sync/reconcile that DELETED rows the server no longer has (orphan-removal,
+//     UIDVALIDITY purge) — dropping a labeled thread's INBOX/label copy; and
+//   • a BACKFILL that INSERTED historical rows into a label folder (account remap/toggle
+//     reconnect, POST /reindex) — a tick's before==after fingerprint misses rows already written.
+// Gated cheaply: when nothing changed we don't even dispatch the hook, so a non-label account
+// adds no work on the hot path. No per-row relevance check here: the client debounces refreshes,
+// so a harmless over-emit is preferred to a missed one that leaves durable stale section data.
+// mgr is injected so plugin handlers stay unit-testable without a live socket server; the hook
+// swallows per-plugin errors so an emit failure never disturbs the caller.
+export async function emitSectionsChanged(mgr, account, changedCount) {
   if (!(changedCount > 0)) return;
-  try {
-    const { enabled } = await getGtdConfig(account.id);
-    if (enabled) mgr.broadcast({ type: 'gtd_sections_updated', accountId: account.id }, account.user_id);
-  } catch (err) {
-    logger.debug(`GTD sections refresh emit skipped for ${logAccount(account)}: ${err.message}`);
-  }
-}
-
-// Alias so each call site's name documents which trigger fired the emit: insert-triggered
-// (backfill) call sites import emitGtdSectionsRefreshIfEnabled, delete-triggered (reconcile
-// orphan-removal / UIDVALIDITY purge) call sites import this name — the gate logic itself
-// is identical either way.
-export const emitGtdSectionsRefreshOnDelete = emitGtdSectionsRefreshIfEnabled;
-
-// One GTD tick's body: sync each designated label folder for a connected gtd_enabled
-// account, then broadcast a single gtd_sections_updated if any folder actually changed.
-// Folders are synced one at a time (not in parallel) so a multi-folder account doesn't
-// grab a handful of pooled connections at once, and the on-demand sync lock is respected
-// so a user-triggered folder open and this tick never double-sync the same folder.
-// Extracted out of the class (like emitAfterDeferredCopySync) so this sequencing is
-// unit-testable with a mock manager, without a live socket server or IMAP pool; mgr is
-// injected for the same reason. The whole body is wrapped in one try/catch (mirrors
-// _syncTick) so a config-fetch DB blip is logged with account context here instead of
-// only surfacing via the process-wide unhandledRejection handler.
-export async function runGtdSyncTick(mgr, account) {
-  try {
-    // Live persistent connection is our signal the account is healthy; syncMessages here
-    // runs on a pooled connection, so it never disturbs the IDLE sync client.
-    if (!mgr.connections.has(account.id)) return;
-    const config = await getGtdConfig(account.id);
-    const folders = gtdTickFolders(config); // [] when GTD was turned off — inert
-    if (folders.length === 0) return;
-
-    const changedFolders = [];
-    for (const folder of folders) {
-      const key = `${account.id}:${folder}`;
-      if (mgr.onDemandSyncing.has(key)) continue; // a user-triggered sync owns this folder
-      mgr.onDemandSyncing.add(key);
-      try {
-        const before = await mgr._gtdFolderFingerprint(account.id, folder);
-        await mgr._gtdSyncFolder(account, folder);
-        const after = await mgr._gtdFolderFingerprint(account.id, folder);
-        if (before !== after) changedFolders.push(folder);
-      } catch (err) {
-        console.warn(`GTD sync error ${logAccount(account)}/${folder}:`, err.message);
-      } finally {
-        mgr.onDemandSyncing.delete(key);
-      }
-    }
-
-    if (changedFolders.length > 0) {
-      // A label folder's membership changed (a state added/removed elsewhere — another
-      // client or an external automation). Re-run transitions for the threads those folders
-      // now touch so a newly-labeled thread whose newest message already satisfies a strip
-      // rule converges without waiting for new INBOX mail. Idempotent: re-evaluating a
-      // thread the tick just stripped finds nothing left and is a no-op. Runs before the
-      // emit so the GTD sections refetch reflects the post-strip state.
-      try {
-        const threadKeys = await threadKeysInFolders(account.id, changedFolders);
-        await runGtdTransitions(mgr, account, threadKeys);
-      } catch (err) {
-        console.warn(`GTD transitions error ${logAccount(account)}:`, err.message);
-      }
-      mgr.broadcast({ type: 'gtd_sections_updated', accountId: account.id }, account.user_id);
-    }
-  } catch (err) {
-    console.warn(`GTD tick error ${logAccount(account)}:`, err.message);
-  }
-}
-
-// Choose the INBOX message ids to run GTD transitions over after a sync batch completes.
-//   newInboxIds — the id of every row this sync newly inserted into INBOX, collected REGARDLESS
-//     of read state. An inbound reply that arrived already \Seen (read on another device before
-//     this sync landed) must still clear its thread's Watch/Delegated label, yet such a row never
-//     enters the unread-gated `newMessages` notification list — so that list cannot be reused as
-//     the GTD candidate set. Read state is deliberately not consulted here.
-//   deletedIds — ids the block-list / inbox rules genuinely DELETED (expunged / dropped) from
-//     INBOX; those threads lost this arrival entirely, so they are excluded. A rule-MOVED reply
-//     is NOT in this set — its row still lives (in another folder) and its thread must still be
-//     re-evaluated, so it stays a candidate. Rules only ever run on the unread subset, so a read
-//     row is never among these ids.
-// Extracted (like insertCopiedSibling) so the candidate selection is unit-testable without
-// standing up the full syncMessages fetch loop.
-export function selectGtdReevalIds(newInboxIds, deletedIds) {
-  const removed = deletedIds instanceof Set ? deletedIds : new Set(deletedIds || []);
-  return newInboxIds.filter((id) => !removed.has(id));
+  await pluginRegistry.runHook('sectionsChanged', { mgr, account, changedCount });
 }
 
 export function providerProfile(account) {
@@ -909,14 +795,24 @@ function relocateMessageParams(folder, parsed, accountId, msgId) {
   ];
 }
 
-// GTD-aware relocate: GTD label folders are exempt from relocation because a labeled message
-// intentionally lives as sibling rows in several folders, and relocating in place would
+// Label-aware relocate: exempt label folders are excluded from relocation because a labeled
+// message intentionally lives as sibling rows in several folders, and relocating in place would
 // collapse them and ping-pong the message. Appends the sibling-exemption guard (empty, so
-// behavior is unchanged when GTD is off) plus RETURNING, so the sync and backfill relocate
-// call sites share one implementation and both inherit the exemption. See gtdRelocateGuard.
-// gtdFolders is [] when GTD is disabled for the account.
-function relocateMessageQuery(folder, parsed, accountId, msgId, gtdFolders) {
-  const guard = gtdRelocateGuard(gtdFolders, 12);
+// behavior is unchanged when no plugin contributes folders) plus RETURNING, so the sync and
+// backfill relocate call sites share one implementation and both inherit the exemption. See
+// relocateExemptGuard. exemptFolders is [] when no label plugin is active for the account.
+// Union of every active plugin's relocate-exempt label folders for this account, via the
+// generic `relocateExemptFolders` collect-hook. Empty when no label plugin is active (so a
+// non-GTD account keeps byte-identical relocate SQL). Errors in a plugin contribute nothing
+// (collectHook swallows), so a misbehaving plugin can never disturb the sync relocate path.
+// Module-level (not a method) so it depends only on the registry, never on manager state.
+export async function collectRelocateExemptFolders(account) {
+  const sets = await pluginRegistry.collectHook('relocateExemptFolders', { account, accountId: account.id });
+  return [...new Set(sets.flat().filter(Boolean))];
+}
+
+function relocateMessageQuery(folder, parsed, accountId, msgId, exemptFolders) {
+  const guard = relocateExemptGuard(exemptFolders, 12);
   return {
     sql: `${RELOCATE_MESSAGE_SQL}${guard.clause}\n  RETURNING id`,
     params: [...relocateMessageParams(folder, parsed, accountId, msgId), ...guard.params],
@@ -1307,7 +1203,7 @@ export class ImapManager {
     this.wss = wss;
     this.connections = new Map();   // accountId -> ImapFlow (persistent sync connection)
     this.syncIntervals = new Map();
-    this.gtdSyncIntervals = new Map(); // accountId -> timer for the periodic GTD label-folder tick
+    this.pluginSyncIntervals = new Map(); // `${accountId}::${pluginId}` -> timer for a plugin's periodic sync tick
     this.backfillRunning = new Set(); // `${accountId}:${folder}` — prevent duplicate folder backfills
     this.backfillAllRunning = new Set(); // accountId — prevent concurrent full backfill sequences
     this._backfillSem = createKeyedSemaphore(BACKFILL_MAX_PER_HOST); // cap concurrent backfills per provider host
@@ -1878,10 +1774,11 @@ export class ImapManager {
 
       const intervalMs = this.userSyncIntervalMs.get(account.user_id) || 60000;
       this._startSyncInterval(account, intervalMs);
-      // Only gtd_enabled accounts arm a GTD tick — a non-GTD account starts no extra
-      // timer at all, so the whole tick stays inert when nobody uses GTD. (Enabling GTD
-      // on a live account takes effect on its next reconnect.)
-      if (account.gtd_enabled) this._startGtdSyncInterval(account);
+      // Arm any plugin-declared background sync ticks whose isActive gate accepts this account
+      // (e.g. GTD's label-folder tick when gtd_enabled). A plugin with no active tick for this
+      // account starts no timer at all, so ticks stay inert when nobody uses the feature.
+      // (Enabling such a feature on a live account takes effect on its next reconnect.)
+      this._startPluginSyncTimers(account);
 
       this._connectCooldown.delete(account.id); // healthy again — clear any refusal cooldown
       console.log(`Connected account: ${logAccount(account)}`);
@@ -1907,8 +1804,7 @@ export class ImapManager {
     const timer = this.syncIntervals.get(accountId);
     // clearTimeout works for both setTimeout and setInterval Timeout objects in Node.js
     if (timer) { clearTimeout(timer); this.syncIntervals.delete(accountId); }
-    const gtdTimer = this.gtdSyncIntervals.get(accountId);
-    if (gtdTimer) { clearTimeout(gtdTimer); this.gtdSyncIntervals.delete(accountId); }
+    this._stopPluginSyncTimers(accountId);
     const client = this.connections.get(accountId);
     if (client) {
       try { await client.logout(); } catch { /* already disconnected */ }
@@ -2273,8 +2169,8 @@ export class ImapManager {
             // counts, the Inbox pill badge, two-way GTD entry star). This reactive/poll flag path is a
             // mutation the periodic GTD tick — which syncs only the label folders, never INBOX —
             // won't otherwise surface, so refresh GTD section data like the other mutation paths. Gated:
-            // inert for non-GTD accounts (cached config). See emitGtdSectionsRefreshIfEnabled.
-            await emitGtdSectionsRefreshIfEnabled(this, account, changed);
+            // inert for non-GTD accounts (cached config). See emitSectionsChanged.
+            await emitSectionsChanged(this, account, changed);
           }
         } finally {
           lock.release();
@@ -2300,26 +2196,49 @@ export class ImapManager {
     this.syncIntervals.set(account.id, t);
   }
 
-  // Arm the periodic GTD label-folder tick for a gtd_enabled account. Mirrors
-  // _startSyncInterval (jittered first fire, then a steady interval) and shares the same
-  // disconnect teardown. Only ever called for gtd_enabled accounts, so nothing schedules
-  // when GTD is off.
-  _startGtdSyncInterval(account) {
-    const jitter = Math.floor(Math.random() * Math.min(GTD_SYNC_INTERVAL_MS, 30000));
-    const t = setTimeout(() => {
-      if (!this.gtdSyncIntervals.has(account.id)) return; // disconnected during jitter window
-      runGtdSyncTick(this, account);
-      const interval = setInterval(() => runGtdSyncTick(this, account), GTD_SYNC_INTERVAL_MS);
-      this.gtdSyncIntervals.set(account.id, interval);
-    }, jitter);
-    this.gtdSyncIntervals.set(account.id, t);
+  // Arm every plugin-declared background sync tick that is active for this account. A plugin
+  // declares one via a `sync: { intervalMs?, isActive?(ctx), tick(ctx) }` descriptor on its
+  // manifest; `ctx` is { mgr: this, account }. Each armed tick mirrors _startSyncInterval
+  // (jittered first fire, then a steady interval) and is keyed `${accountId}::${pluginId}` so
+  // several plugins — and several accounts — coexist and tear down independently. A plugin whose
+  // isActive rejects this account (e.g. GTD when gtd_enabled is false) arms nothing, so ticks
+  // stay fully inert when unused. tick(ctx) owns its own error handling; we still guard the
+  // dispatch so a throwing/rejecting tick can never crash the timer.
+  _startPluginSyncTimers(account) {
+    for (const plugin of pluginRegistry.list()) {
+      const sync = plugin.sync;
+      if (!sync || typeof sync.tick !== 'function') continue;
+      try { if (sync.isActive && !sync.isActive({ account })) continue; } catch { continue; }
+      const key = `${account.id}::${plugin.id}`;
+      const intervalMs = sync.intervalMs || DEFAULT_PLUGIN_SYNC_INTERVAL_MS;
+      const fire = () => {
+        try { Promise.resolve(sync.tick({ mgr: this, account })).catch(err => console.warn(`Plugin ${plugin.id} sync tick error for ${logAccount(account)}:`, err.message)); }
+        catch (err) { console.warn(`Plugin ${plugin.id} sync tick error for ${logAccount(account)}:`, err.message); }
+      };
+      const jitter = Math.floor(Math.random() * Math.min(intervalMs, 30000));
+      const t = setTimeout(() => {
+        if (!this.pluginSyncIntervals.has(key)) return; // disconnected during jitter window
+        fire();
+        const interval = setInterval(fire, intervalMs);
+        this.pluginSyncIntervals.set(key, interval);
+      }, jitter);
+      this.pluginSyncIntervals.set(key, t);
+    }
   }
 
-  // Cheap change fingerprint for one folder's rows. Advances when a row is inserted,
-  // removed, moved in/out, or flipped read/unread — enough to decide whether a GTD tick
-  // changed anything worth telling GTD section clients about. SUM(uid) catches same-count membership
-  // churn (one in, one out) that COUNT alone would miss.
-  async _gtdFolderFingerprint(accountId, folder) {
+  // Tear down every plugin sync timer armed for this account (all `${accountId}::*` keys).
+  _stopPluginSyncTimers(accountId) {
+    const prefix = `${accountId}::`;
+    for (const [key, timer] of this.pluginSyncIntervals) {
+      if (key.startsWith(prefix)) { clearTimeout(timer); this.pluginSyncIntervals.delete(key); }
+    }
+  }
+
+  // Cheap change fingerprint for one folder's rows — a generic sync-capability primitive plugin
+  // ticks use to decide whether a folder actually changed. Advances when a row is inserted,
+  // removed, moved in/out, or flipped read/unread. SUM(uid) catches same-count membership churn
+  // (one in, one out) that COUNT alone would miss.
+  async folderFingerprint(accountId, folder) {
     const { rows } = await query(
       `SELECT COUNT(*)::int AS n,
               COUNT(*) FILTER (WHERE NOT is_read)::int AS unread,
@@ -2333,10 +2252,10 @@ export class ImapManager {
     return `${r.n}:${r.unread}:${r.uidsum}:${r.maxuid}`;
   }
 
-  // One label folder's pooled-connection sync for a GTD tick — pulled out of the tick loop
-  // (like _gtdFolderFingerprint) so runGtdSyncTick can mock this away in tests instead of
-  // exercising a live IMAP pool. Behavior is unchanged from the tick's former inline call.
-  async _gtdSyncFolder(account, folder) {
+  // Sync one folder on a pooled connection — a generic sync-capability primitive plugin ticks
+  // use to refresh a label folder without disturbing the persistent IDLE sync client. Testable:
+  // a plugin tick can mock this away instead of exercising a live IMAP pool.
+  async syncFolderViaPool(account, folder) {
     return withFreshClient(account, (client) =>
       this.syncMessages(account, client, folder, 100, false, true));
   }
@@ -2440,8 +2359,8 @@ export class ImapManager {
             storedModseq = null;
             // A UIDVALIDITY purge drops every row for this folder — including any GTD thread's copy
             // here — so refresh GTD section data like the other sync-delete paths. Backfill re-populates
-            // below; the emit just avoids a stale gap. See emitGtdSectionsRefreshOnDelete.
-            await emitGtdSectionsRefreshOnDelete(this, account, purged.rowCount);
+            // below; the emit just avoids a stale gap. See emitSectionsChanged.
+            await emitSectionsChanged(this, account, purged.rowCount);
             // Route through the per-host backfill cap too: a provider-side mailbox rebuild
             // can reset UIDVALIDITY across many accounts/folders at once, which would
             // otherwise flood connections on exactly the many-account-per-provider setup the
@@ -2502,21 +2421,27 @@ export class ImapManager {
         let insertedCount = 0;
         let broadcastedNewMessages = false;
 
-        // GTD re-evaluation candidates: the id of every row this sync newly inserts into INBOX,
-        // read or unread. Kept separate from `newMessages` (which is unread-only for
-        // notifications) because an inbound reply already \Seen on another device must still
-        // clear its thread's Watch/Delegated label. `gtdDeletedIds` collects only the ids the
-        // block-list / inbox rules genuinely DELETED (expunged / dropped) from INBOX, so they can
-        // be excluded below; a rule-MOVED reply is intentionally kept — its thread still needs
-        // re-evaluating even though the reply was filed elsewhere.
-        const gtdNewInboxIds = [];
-        const gtdDeletedIds = new Set();
+        // Inbox-ingest facts core hands to plugins after this batch (via the `inboxIngest` hook):
+        //   • newInboxIds — the id of every row this sync newly inserts into INBOX, read or unread.
+        //     Kept separate from `newMessages` (which is unread-only for notifications) because an
+        //     inbound reply already \Seen on another device must still let a plugin re-evaluate its
+        //     thread (e.g. clear a GTD Watch/Delegated label).
+        //   • ingestDeletedIds — only the ids the block-list / inbox rules genuinely DELETED
+        //     (expunged / dropped) from INBOX, so a plugin can exclude them; a rule-MOVED reply is
+        //     intentionally kept — its thread still needs re-evaluating even though it was filed
+        //     elsewhere.
+        // `wantsInboxIngest` gates all of this on there being an active inbox-ingest plugin for
+        // THIS account (GTD's handler is active only when gtd_enabled), so a mailbox with no such
+        // plugin collects nothing and issues no extra queries — identical to the pre-plugin gate.
+        const wantsInboxIngest = folder === 'INBOX' && pluginRegistry.hasActive('inboxIngest', { account });
+        const newInboxIds = [];
+        const ingestDeletedIds = new Set();
 
-        // Designated GTD folder paths for this account (empty when GTD is off).
-        // Loaded once per sync — the config is cached — so the relocate guard
-        // keeps a GTD-labeled message's sibling rows instead of collapsing them
-        // onto whichever folder synced last. See relocateMessageQuery / gtdRelocateGuard.
-        const gtdFolderPaths = [...(await getGtdFolderSet(account.id))];
+        // Relocate-exempt label folders for this account (empty when no label plugin is
+        // active). Loaded once per sync — the plugins' folder sets are cheap/cached — so the
+        // relocate guard keeps a labeled message's sibling rows instead of collapsing them
+        // onto whichever folder synced last. See relocateMessageQuery / collectRelocateExemptFolders.
+        const exemptFolders = await collectRelocateExemptFolders(account);
 
         // Insert/update a single fetched message and track it as new if appropriate.
         // Called from both Phase 1 and Phase 2; ON CONFLICT handles deduplication so
@@ -2554,7 +2479,7 @@ export class ImapManager {
             // [Gmail]/All Mail simultaneously).
             if (msgId) {
               const { sql: relocateSql, params: relocateParams } =
-                relocateMessageQuery(folder, parsed, account.id, msgId, gtdFolderPaths);
+                relocateMessageQuery(folder, parsed, account.id, msgId, exemptFolders);
               const relocated = await query(relocateSql, relocateParams);
               if (relocated.rows.length > 0) return;
             }
@@ -2643,11 +2568,12 @@ export class ImapManager {
             ]);
             if (result.rows[0]?.is_new) {
               insertedCount++;
-              // GTD candidate: any newly-inserted INBOX row, read OR unread (read state is not a
-              // gate here — see selectGtdReevalIds). The unread-only push below still drives
-              // notifications. Gated on gtd_enabled so a non-GTD account builds nothing extra.
-              if (folder === 'INBOX' && account.gtd_enabled) {
-                gtdNewInboxIds.push(result.rows[0].id);
+              // Inbox-ingest candidate: any newly-inserted INBOX row, read OR unread (read state
+              // is not a gate here — the plugin decides). The unread-only push below still drives
+              // notifications. Gated on wantsInboxIngest so a mailbox with no ingest plugin builds
+              // nothing extra.
+              if (wantsInboxIngest) {
+                newInboxIds.push(result.rows[0].id);
               }
               if (!parsed.isRead) {
                 newMessages.push({ ...parsed, id: result.rows[0].id, accountId: account.id, folder });
@@ -2747,8 +2673,8 @@ export class ImapManager {
               // Externally-changed flags on a GTD-designated folder's rows now flow through this new
               // delta path (per-folder flag deltas). A read/star flip on a label-folder OR INBOX copy
               // is GTD-relevant, so refresh GTD section data like the other mutation paths rather than waiting
-              // for the next tick. Gated: inert for non-GTD accounts. See emitGtdSectionsRefreshIfEnabled.
-              await emitGtdSectionsRefreshIfEnabled(this, account, changed);
+              // for the next tick. Gated: inert for non-GTD accounts. See emitSectionsChanged.
+              await emitSectionsChanged(this, account, changed);
             }
           }
         } else if (plan === 'full') {
@@ -2805,9 +2731,9 @@ export class ImapManager {
           // don't still alert the user about mail they chose to auto-silence.
           let mutedIds = new Set();
           if (folder === 'INBOX') {
-            // Snapshot the unread candidates before the block-list / rules run, so the GTD
-            // re-eval below can exclude any they move out of INBOX. Only needed when GTD is on.
-            const gtdUnreadBefore = account.gtd_enabled ? newMessages.map(m => m.id) : null;
+            // Snapshot the unread candidates before the block-list / rules run, so the ingest
+            // re-eval below can exclude any they move out of INBOX. Only needed with an ingest plugin.
+            const unreadBeforeRules = wantsInboxIngest ? newMessages.map(m => m.id) : null;
             try {
               newMessages = await applyBlockList(newMessages, account, this);
             } catch (err) {
@@ -2822,13 +2748,13 @@ export class ImapManager {
             }
             // Any unread candidate no longer in `newMessages` was moved out of / deleted from
             // INBOX by the block-list or a rule. Only genuinely-DELETED ones are excluded from
-            // the GTD re-eval: a rule that merely MOVED an inbound reply (its row still lives,
-            // in another folder) must still re-evaluate the thread so a self-reply's Watch/
-            // Delegated label clears. Distinguish the two by a single is_deleted probe over the
-            // removed ids — a moved row survives (is_deleted = false), a deleted one does not.
-            if (gtdUnreadBefore) {
+            // the ingest re-eval: a rule that merely MOVED an inbound reply (its row still lives,
+            // in another folder) must still let the plugin re-evaluate the thread so a self-reply's
+            // Watch/Delegated label clears. Distinguish the two by a single is_deleted probe over
+            // the removed ids — a moved row survives (is_deleted = false), a deleted one does not.
+            if (unreadBeforeRules) {
               const survivingIds = new Set(newMessages.map(m => m.id));
-              const removedIds = gtdUnreadBefore.filter(id => !survivingIds.has(id));
+              const removedIds = unreadBeforeRules.filter(id => !survivingIds.has(id));
               if (removedIds.length) {
                 const alive = await query(
                   'SELECT id FROM messages WHERE id = ANY($1::uuid[]) AND is_deleted = false',
@@ -2836,7 +2762,7 @@ export class ImapManager {
                 );
                 const aliveIds = new Set(alive.rows.map(r => r.id));
                 for (const id of removedIds) {
-                  if (!aliveIds.has(id)) gtdDeletedIds.add(id);
+                  if (!aliveIds.has(id)) ingestDeletedIds.add(id);
                 }
               }
             }
@@ -2914,22 +2840,18 @@ export class ImapManager {
           }
         }
 
-        // GTD transitions: re-evaluate every newly-arrived INBOX thread, independent of the
-        // unread notification path above — an inbound reply that arrived already \Seen (read
-        // on another device) never enters `newMessages`, so it must be picked up from the
-        // read-inclusive candidate set. Excludes rows the block-list / rules moved or deleted.
-        // Runs even when `newMessages` is empty (all arrivals were already read). Gated on
-        // gtd_enabled so a non-GTD account issues zero extra queries.
-        if (folder === 'INBOX' && account.gtd_enabled) {
-          const gtdIds = selectGtdReevalIds(gtdNewInboxIds, gtdDeletedIds);
-          if (gtdIds.length > 0) {
-            try {
-              const threadKeys = await threadKeysForMessageIds(account.id, gtdIds);
-              await runGtdTransitions(this, account, threadKeys);
-            } catch (err) {
-              console.error('gtdTransitions error:', err.message);
-            }
-          }
+        // Inbox-ingest: hand the newly-arrived INBOX rows to any active ingest plugin so it can
+        // re-evaluate the affected threads, independent of the unread notification path above —
+        // an inbound reply that arrived already \Seen (read on another device) never enters
+        // `newMessages`, so the plugin sees it via the read-inclusive candidate set. Runs even
+        // when `newMessages` is empty (all arrivals were already read). `ingestDeletedIds` lets
+        // the plugin drop rows the block-list / rules deleted. The hook swallows per-plugin
+        // errors, so a plugin can never break the sync batch. Only fires when there is something
+        // to hand off and an ingest plugin is active (wantsInboxIngest).
+        if (wantsInboxIngest && newInboxIds.length > 0) {
+          await pluginRegistry.runHook('inboxIngest', {
+            mgr: this, account, newInboxIds, deletedIds: ingestDeletedIds,
+          });
         }
         await query('UPDATE email_accounts SET last_sync = NOW() WHERE id = $1', [account.id]);
         return { insertedCount, broadcastedNewMessages };
@@ -2961,10 +2883,11 @@ export class ImapManager {
     // don't permanently modify the shared PROVIDERS singleton for other accounts.
     const cfg = { ...providerProfile(account) };
 
-    // Designated GTD folder paths for this account (empty when GTD is off).
-    // Loaded once per backfill — the config is cached — so the relocate guard
-    // keeps GTD-labeled messages' sibling rows. See relocateMessageQuery / gtdRelocateGuard.
-    const gtdFolderPaths = [...(await getGtdFolderSet(account.id))];
+    // Relocate-exempt label folders for this account (empty when no label plugin is active).
+    // Loaded once per backfill — the plugins' folder sets are cheap/cached — so the relocate
+    // guard keeps labeled messages' sibling rows. See relocateMessageQuery /
+    // collectRelocateExemptFolders.
+    const exemptFolders = await collectRelocateExemptFolders(account);
 
     // Dedicated connection managed here — completely independent of the shared pool
     // so backfilling never blocks the user from opening emails.
@@ -3053,7 +2976,7 @@ export class ImapManager {
               console.warn(`Backfill: UIDVALIDITY changed for ${logAccount(account)}/${folder}: ${storedValidity} → ${currentValidity}. Purging stale messages.`);
               const purged = await query('DELETE FROM messages WHERE account_id = $1 AND folder = $2', [account.id, folder]);
               // Same GTD section-data staleness gap as the syncMessages purge path.
-              await emitGtdSectionsRefreshOnDelete(this, account, purged.rowCount);
+              await emitSectionsChanged(this, account, purged.rowCount);
             }
             // Always keep stored validity current
             await query(
@@ -3139,7 +3062,7 @@ export class ImapManager {
       let i = 0;
       // Count rows this backfill actually wrote (inserts + relocations) so GTD section data can be
       // refreshed once at completion when the account is gtd_enabled — the tick's fingerprint
-      // can't see rows backfill already wrote (before==after). See emitGtdSectionsRefreshIfEnabled.
+      // can't see rows backfill already wrote (before==after). See emitSectionsChanged.
       let backfilledRows = 0;
 
       while (i < missingUids.length) {
@@ -3207,7 +3130,7 @@ export class ImapManager {
 
                 if (bfMsgId) {
                   const { sql: relocateSql, params: relocateParams } =
-                    relocateMessageQuery(folder, parsed, account.id, bfMsgId, gtdFolderPaths);
+                    relocateMessageQuery(folder, parsed, account.id, bfMsgId, exemptFolders);
                   const relocated = await query(relocateSql, relocateParams);
                   if (relocated.rows.length > 0) { backfilledRows += relocated.rows.length; continue; }
                 }
@@ -3363,7 +3286,7 @@ export class ImapManager {
       // folder is a designated GTD folder and any row changed, nudge GTD section clients. One emit per
       // affected folder (backfillAllFolders loops here); the client debounces. Gated cheaply
       // on gtd_enabled + changedCount>0 only.
-      await emitGtdSectionsRefreshIfEnabled(this, account, backfilledRows);
+      await emitSectionsChanged(this, account, backfilledRows);
     } catch (err) {
       console.error(`Backfill failed for ${logAccount(account)}/${folder}:`, err.message);
     } finally {
@@ -4444,15 +4367,18 @@ export class ImapManager {
     });
   }
 
-  // Add a GTD label = COPY the message into the label folder, keeping the source copy.
+  // Apply a label = COPY the message into the label folder, keeping the source copy.
   // Mirrors moveMessage's connection acquisition, folder lock, and error discipline,
   // but uses COPY (not MOVE) so the source row stays put and the label becomes a
   // sibling row. On UIDPLUS the copyuid is known, so the destination sibling is
   // inserted immediately (label shows without waiting for a sync). Without UIDPLUS the
   // destination UID is unknown, so we pull the folder and let the next sync ingest the
-  // copy as a sibling (the GTD relocate exemption keeps it from collapsing onto the
+  // copy as a sibling (the relocate-exemption keeps it from collapsing onto the
   // source) — the same non-UIDPLUS reliance the move path has. No _guardMoveUid is
   // needed: COPY leaves the source in place, so nothing looks like an orphan mid-flight.
+  // Post-copy notification/re-evaluation is a plugin concern: the generic `afterLabelCopy`
+  // hook lets the owning plugin (GTD) broadcast its refresh event and, on the deferred path,
+  // reconcile once the sibling lands. copyMessage itself stays label-feature-agnostic.
   async copyMessage(accountId, uid, fromFolder, toFolder) {
     const accountResult = await query('SELECT * FROM email_accounts WHERE id = $1', [accountId]);
     const account = accountResult.rows[0];
@@ -4475,26 +4401,26 @@ export class ImapManager {
       throw err;
     }
 
-    // A classify action changed this account's label folders — tell GTD section clients. Emitted at
-    // the manager level so every caller of copyMessage inherits it. Safe on both paths:
-    // it carries no row and doesn't assume the sibling row exists yet (it won't on the
-    // non-UIDPLUS path, where the row is deferred to the destination sync below).
-    this.broadcast({ type: 'gtd_sections_updated', accountId }, account.user_id);
+    // Hand off to label plugins (GTD broadcasts its section-refresh and, on the deferred path,
+    // reconciles once the sibling lands — see plugins/gtd/hooks.js afterLabelCopy). Fired before
+    // the sibling INSERT to preserve the historical emit-then-insert order; `newUid` tells the
+    // plugin whether the sibling is available now (UIDPLUS) or deferred to a destination sync
+    // (null). The hook swallows per-plugin errors and the plugin's deferred work is fire-and-
+    // forget, so this never blocks or breaks the copy.
+    await pluginRegistry.runHook('afterLabelCopy', { mgr: this, account, toFolder, fromFolder, srcUid: uid, newUid });
 
-    if (newUid == null) {
-      emitAfterDeferredCopySync(this, account, toFolder, uid, fromFolder);
-      return null;
-    }
+    if (newUid == null) return null;
 
     await insertCopiedSibling(accountId, uid, fromFolder, toFolder, newUid);
     return newUid;
   }
 
-  // Remove a single GTD label = delete ONE folder's copy of the message, leaving the
-  // other sibling rows intact. IMAP delete/expunge mechanics reuse permanentDeleteMessage
-  // (which locks the folder and deletes that uid); the DB delete is scoped to that one
-  // folder's row. If the IMAP delete throws, the DB row is left in place so the two
-  // never silently diverge.
+  // Remove a single label = delete ONE folder's copy of the message, leaving the other
+  // sibling rows intact. IMAP delete/expunge mechanics reuse permanentDeleteMessage (which
+  // locks the folder and deletes that uid); the DB delete is scoped to that one folder's row.
+  // If the IMAP delete throws, the DB row is left in place so the two never silently diverge.
+  // Post-remove notification is a plugin concern (generic `afterLabelRemove` hook), so this
+  // stays label-feature-agnostic.
   async removeMessageCopy(accountId, uid, folder) {
     const accountResult = await query('SELECT * FROM email_accounts WHERE id = $1', [accountId]);
     const account = accountResult.rows[0];
@@ -4502,8 +4428,8 @@ export class ImapManager {
 
     await this.permanentDeleteMessage(account, uid, folder);
     const result = await deleteMessageCopyRow(accountId, uid, folder);
-    // Removing a label copy changes GTD section data — same manager-level emit as copy.
-    this.broadcast({ type: 'gtd_sections_updated', accountId }, account.user_id);
+    // Removing a label copy changes label-feed data — let plugins broadcast their refresh.
+    await pluginRegistry.runHook('afterLabelRemove', { mgr: this, account, folder, uid });
     return result;
   }
 
@@ -5042,7 +4968,7 @@ export class ImapManager {
       // Reconcile just removed server-deleted rows across one or more folders. If any was a GTD
       // thread's INBOX (or label) copy GTD section data is now stale — this covers threads archived or
       // deleted by an external mail client, which nothing else here would refresh. Cheap gate.
-      await emitGtdSectionsRefreshOnDelete(this, account, deletedCount);
+      await emitSectionsChanged(this, account, deletedCount);
     }
   }
 

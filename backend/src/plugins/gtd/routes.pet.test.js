@@ -7,27 +7,27 @@ import { describe, it, expect, vi, beforeEach, beforeAll, afterAll } from 'vites
 // readable. db + index.js are stubbed; requireAuth is a passthrough that injects a
 // session, with the userId switchable per request via an x-test-user header so owner
 // vs. non-owner reads can share one running app.
-vi.mock('../services/db.js', () => ({ query: vi.fn() }));
-vi.mock('../middleware/auth.js', () => ({
+vi.mock('../../services/db.js', () => ({ query: vi.fn() }));
+vi.mock('../../middleware/auth.js', () => ({
   requireAuth: (req, _res, next) => {
     req.session = { userId: req.headers['x-test-user'] || '3f2a1b4c-5d6e-7f80-9a1b-2c3d4e5f6071' };
     next();
   },
 }));
-vi.mock('../index.js', () => ({ imapManager: { broadcast: vi.fn() } }));
+vi.mock('../../index.js', () => ({ imapManager: { broadcast: vi.fn() } }));
 // POST /pet/import delegates the validation + storage work to importPet; stub just that
 // (keeping customPetSlug / decodeUploadedSheet / getPetMeta / getPetSheet real for the
 // scoping tests + the import route's decode step) so the tests below can drive the route's
 // error-code → status mapping in isolation.
-vi.mock('../services/gtdPet.js', async (importOriginal) => {
+vi.mock('./gtdPet.js', async (importOriginal) => {
   const actual = await importOriginal();
   return { ...actual, importPet: vi.fn() };
 });
 
 import express from 'express';
-import { query } from '../services/db.js';
-import { customPetSlug, importPet } from '../services/gtdPet.js';
-import gtdRoutes from './gtd.js';
+import { query } from '../../services/db.js';
+import { customPetSlug, importPet } from './gtdPet.js';
+import gtdRoutes from './routes.js';
 
 // Must match the requireAuth mock's default userId above.
 const OWNER_ID = '3f2a1b4c-5d6e-7f80-9a1b-2c3d4e5f6071';
@@ -41,18 +41,23 @@ const BUILTIN_PET_ROW = { slug: 'steve-jobs', display_name: 'Steve Jobs', descri
 const CUSTOM_PREFIX_PUBLIC_ROW = { slug: 'custom-cat', display_name: 'Custom Cat', descriptor: { cols: 8 }, is_custom: false };
 const META_ROWS = { [OWNER_SLUG]: OWNER_PET_ROW, 'steve-jobs': BUILTIN_PET_ROW, 'custom-cat': CUSTOM_PREFIX_PUBLIC_ROW };
 
-function sheetRow(isCustom) {
-  return { sheet_data: Buffer.from('fake-sheet-bytes'), sheet_mime: 'image/webp', is_custom: isCustom };
+// The pet now reads from generic plugin storage (plugin_data). Map the fixture rows to that
+// shape: is_custom → visibility ('private' = custom), and the metadata lives in `value`.
+function metaRow(r) {
+  return { key: r.slug, owner_id: null, value: { displayName: r.display_name, descriptor: r.descriptor }, visibility: r.is_custom ? 'private' : 'public' };
+}
+function blobRow(isCustom) {
+  return { blob: Buffer.from('fake-sheet-bytes'), blob_mime: 'image/webp', owner_id: null, visibility: isCustom ? 'private' : 'public' };
 }
 
 function stubQuery() {
   query.mockImplementation(async (sql, params) => {
-    const slug = params?.[0];
-    if (sql.startsWith('SELECT slug, display_name, descriptor, is_custom')) {
-      return { rows: META_ROWS[slug] ? [META_ROWS[slug]] : [] };
+    const slug = params?.[1]; // storage keys are (plugin_id, key) → the pet slug is params[1]
+    if (sql.startsWith('SELECT key, owner_id, value, visibility FROM plugin_data')) {
+      return { rows: META_ROWS[slug] ? [metaRow(META_ROWS[slug])] : [] };
     }
-    if (sql.startsWith('SELECT sheet_data, sheet_mime, is_custom')) {
-      return { rows: META_ROWS[slug] ? [sheetRow(META_ROWS[slug].is_custom)] : [] };
+    if (sql.startsWith('SELECT blob, blob_mime, owner_id, visibility FROM plugin_data')) {
+      return { rows: META_ROWS[slug] ? [blobRow(META_ROWS[slug].is_custom)] : [] };
     }
     return { rows: [] };
   });

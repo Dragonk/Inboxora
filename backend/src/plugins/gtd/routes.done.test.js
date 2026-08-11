@@ -6,11 +6,11 @@ import { describe, it, expect, vi, beforeEach, beforeAll, afterAll } from 'vites
 // stubbed; mailUtils' side-effecting helpers (archive resolution, count adjust, read fan-out)
 // are mocked so the archive DB write's rowCount is the only thing under test. getGtdConfig is
 // mocked to a fixed enabled config; requireAuth is a passthrough injecting a session.
-vi.mock('../services/db.js', () => ({ query: vi.fn() }));
-vi.mock('../middleware/auth.js', () => ({
+vi.mock('../../services/db.js', () => ({ query: vi.fn() }));
+vi.mock('../../middleware/auth.js', () => ({
   requireAuth: (req, _res, next) => { req.session = { userId: 'u1' }; next(); },
 }));
-vi.mock('../index.js', () => ({
+vi.mock('../../index.js', () => ({
   imapManager: {
     moveMessage: vi.fn(),
     setFlag: vi.fn(),
@@ -20,7 +20,7 @@ vi.mock('../index.js', () => ({
     broadcast: vi.fn(),
   },
 }));
-vi.mock('../utils/mailUtils.js', async (importOriginal) => {
+vi.mock('../../utils/mailUtils.js', async (importOriginal) => {
   const actual = await importOriginal();
   return {
     ...actual,
@@ -30,17 +30,17 @@ vi.mock('../utils/mailUtils.js', async (importOriginal) => {
     fanOutReadToSiblings: vi.fn(),
   };
 });
-vi.mock('../services/gtdConfig.js', async (importOriginal) => {
+vi.mock('./gtdConfig.js', async (importOriginal) => {
   const actual = await importOriginal();
   return { ...actual, getGtdConfig: vi.fn() };
 });
 
 import express from 'express';
-import { query } from '../services/db.js';
-import { imapManager } from '../index.js';
-import { resolveArchiveFolder, isAllMailFolder, adjustFolderCounts, fanOutReadToSiblings } from '../utils/mailUtils.js';
-import { getGtdConfig, DEFAULT_GTD_FOLDERS } from '../services/gtdConfig.js';
-import gtdRoutes from './gtd.js';
+import { query } from '../../services/db.js';
+import { imapManager } from '../../index.js';
+import { resolveArchiveFolder, isAllMailFolder, adjustFolderCounts, fanOutReadToSiblings } from '../../utils/mailUtils.js';
+import { getGtdConfig, DEFAULT_GTD_FOLDERS } from './gtdConfig.js';
+import gtdRoutes from './routes.js';
 
 const MSG_ID = 'dddddddd-dddd-4ddd-8ddd-dddddddddddd';
 const ACCT_ID = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa';

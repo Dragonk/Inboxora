@@ -1,5 +1,5 @@
-import { query } from './db.js';
-import { completeText, getAiStatus } from './aiProvider.js';
+import { query } from '../../services/db.js';
+import { summarizeMessage, summarizeAvailable } from '../../services/summarize.js';
 
 // AI-condensed one-line gist for GTD "waiting" entries. The client shows the raw
 // message snippet by default; when a gist has been generated for a waiting thread's
@@ -11,59 +11,19 @@ import { completeText, getAiStatus } from './aiProvider.js';
 //   - one gtd_sections_updated broadcast per account once its batch writes ≥1 gist,
 //     so clients receive the gist on the next refetch with no spinner.
 //
-// The pure pieces (prompt building, output sanitising, candidate selection) are
-// exported and unit-tested; the DB/AI/broadcast orchestration reuses the same
-// shared provider adapter as categorizer.aiClassifyMessage.
+// The prompt-building / output-sanitising / provider mechanics now live in the generic
+// `summarize` capability (summarizeMessage/summarizeAvailable); this module keeps only the
+// GTD-specific orchestration — which states carry a gist, the gtd_gist column, the bounded
+// per-account batch, and the section-refresh broadcast.
 
 const GIST_CONCURRENCY = 2;
 // Per-account, per-invocation cap. Concurrency already rate-limits load; this bounds
 // a pathological first-load burst (a section is capped at 50 heads). Any remainder is
 // picked up on the next refetch (each completed batch broadcasts an update).
 const MAX_GISTS_PER_ACCOUNT = 20;
-const GIST_MAX_LEN = 120;
 
 // Only "waiting" states carry a gist (the Watch/Delegated entry's last line).
 const GIST_STATES = ['watch', 'delegated'];
-
-// Build the one-line-gist prompt for a message. Pure — the load-bearing decision
-// (what we ask the model for) is unit-testable without a provider.
-export function buildGistPrompt({ subject, from, content } = {}) {
-  const body = (content || '').replace(/\s+/g, ' ').trim().slice(0, 1000);
-  return `Condense this email into ONE line of at most ${GIST_MAX_LEN} characters.
-Rules: plain text only, no quotation marks, no emoji, present tense. Capture what the sender said and what happens next. Reply with only the line, nothing else.
-
-From: ${from || '(unknown)'}
-Subject: ${(subject || '').slice(0, 200)}
-Body: ${body}`;
-}
-
-// Strip emoji ("no emoji" rule) while leaving accented letters and CJK intact so
-// non-English gists survive: pictographs + regional-indicator flags via Unicode
-// property escapes, then the zero-width joiner / variation selectors / keycap
-// combiner that stitch emoji sequences together (removed with single-char escapes —
-// a character class of combining chars trips no-misleading-character-class).
-function stripEmoji(s) {
-  return s
-    .replace(/[\p{Extended_Pictographic}\p{Regional_Indicator}]/gu, '')
-    .replace(/‍/g, '')  // zero-width joiner
-    .replace(/︎/g, '')  // variation selector-15 (text)
-    .replace(/️/g, '')  // variation selector-16 (emoji)
-    .replace(/⃣/g, ''); // combining enclosing keycap
-}
-
-// Sanitise a model response into a single clean ≤120-char line, or null when the
-// output is unusable. Pure. Takes the first non-empty line, strips wrapping quotes
-// and emoji, collapses whitespace, and hard-caps the length.
-export function sanitizeGist(raw) {
-  if (typeof raw !== 'string') return null;
-  let s = (raw.split(/\r?\n/).map(l => l.trim()).find(l => l.length > 0) || '');
-  s = s.replace(/^["'“”‘’`]+/, '').replace(/["'“”‘’`]+$/, '');
-  s = stripEmoji(s);
-  s = s.replace(/\s+/g, ' ').trim();
-  if (!s) return null;
-  if (s.length > GIST_MAX_LEN) s = s.slice(0, GIST_MAX_LEN).trim();
-  return s || null;
-}
 
 // Pick the waiting heads that still need a gist from a sections payload. Pure and
 // DB-free so "no candidates" and "no provider" can short-circuit before any query.
@@ -83,26 +43,6 @@ export function selectGistCandidates(sections) {
     }
   }
   return out;
-}
-
-// Check provider availability through the shared adapter and respect the summarize
-// feature gate. Fail closed so a sections fetch never fails just because AI is down.
-async function gistProviderAvailable() {
-  try {
-    const status = await getAiStatus();
-    return status.enabled === true && status.features?.summarize !== false;
-  } catch {
-    return false;
-  }
-}
-
-async function callGistProvider(prompt) {
-  try {
-    const response = await completeText([{ role: 'user', content: prompt }], { maxTokens: 120 });
-    return sanitizeGist(response);
-  } catch {
-    return null;
-  }
 }
 
 // Bounded-concurrency runner: at most `limit` workers in flight over `items`.
@@ -130,11 +70,11 @@ async function generateForAccount(accountId, ids) {
   );
   let wrote = 0;
   await runPool(rows, GIST_CONCURRENCY, async (row) => {
-    const gist = await callGistProvider(buildGistPrompt({
+    const gist = await summarizeMessage({
       subject: row.subject,
       from: row.from_name || row.from_email,
       content: row.content,
-    }));
+    });
     if (!gist) return;
     // Re-check NULL so a newer head that raced in isn't clobbered.
     const res = await query(
@@ -163,7 +103,7 @@ export async function queueGistGeneration({ sections, userId, broadcast } = {}) 
   const reserved = new Set(candidates.map(c => c.id));
 
   try {
-    if (!await gistProviderAvailable()) return;
+    if (!await summarizeAvailable()) return;
 
     const byAccount = new Map();
     for (const c of candidates) {

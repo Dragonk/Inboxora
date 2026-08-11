@@ -11,7 +11,7 @@ import { redactEmail } from '../utils/redact.js';
 import { generateVCard } from '../utils/vcard.js';
 import { createAccountSmtpTransport } from '../services/smtpTransport.js';
 import { imapManager } from '../index.js';
-import { runTransitionsForSentMessage } from '../services/gtdTransitions.js';
+import { pluginRegistry } from '../plugins/registry.js';
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
@@ -457,13 +457,13 @@ router.post('/send', async (req, res) => {
           }
           setTimeout(() => {
             imapManager.syncFolderOnDemand(account, sentFolder)
-              // Once the Sent copy is in the DB, re-run GTD transitions for its thread: a reply
-              // to a Todo/Someday thread means the owner acted, so that label should drop. The
-              // sent message reaches no other GTD hook (Sent isn't INBOX, and the tick watches
-              // only the state folders), so this is the only trigger. Swallow on failure — the
-              // next inbound sync / GTD tick self-heals.
-              .then(() => runTransitionsForSentMessage(imapManager, account, mailOptions.messageId)
-                .catch(e => console.warn(`Post-append GTD transition failed: ${e.message}`)))
+              // Once the Sent copy is in the DB, notify label plugins the message synced: GTD
+              // re-runs transitions for its thread (a reply to a Todo/Someday thread means the
+              // owner acted, so that label should drop). The sent message reaches no other hook
+              // (Sent isn't INBOX, and the tick watches only the state folders), so this is the
+              // only trigger. The hook swallows per-plugin errors — the next inbound sync / tick
+              // self-heals.
+              .then(() => pluginRegistry.runHook('onSentMessage', { imapManager, account, messageId: mailOptions.messageId }))
               .catch(e => console.error(`Post-append sync failed: ${e.message}`));
           }, 1000);
         } catch (appendErr) {
@@ -486,8 +486,7 @@ router.post('/send', async (req, res) => {
         const syncAttempt = (label) => imapManager.syncFolderOnDemand(account, sentFolder)
           .then(() => {
             console.log(`Post-send ${label} sync done: ${redactEmail(account.email_address)}/${sentFolder}`);
-            return runTransitionsForSentMessage(imapManager, account, mailOptions.messageId)
-              .catch(e => console.warn(`Post-send ${label} GTD transition failed: ${e.message}`));
+            return pluginRegistry.runHook('onSentMessage', { imapManager, account, messageId: mailOptions.messageId });
           })
           .catch(e => console.error(`Post-send ${label} sync failed: ${e.message}`));
         setTimeout(() => syncAttempt('3s'), 3000);
