@@ -1,5 +1,7 @@
 import { useTranslation } from 'react-i18next';
-import { GTD_STATES, GTD_COLORS, resolveAccountGtdFolders, gtdStatesInFolders } from '../../utils/gtd.js';
+import { GTD_STATES, GTD_COLORS, resolveAccountGtdFolders, gtdStatesInFolders, classifyThread, unclassifyThread } from '../../utils/gtd.js';
+import { useStore } from '../../store/index.js';
+import { api } from '../../utils/api.js';
 
 // GTD's context-menu contributions, injected into core's 'context-menu-actions' collector so the
 // menu itself carries no GTD-specific code. Placement is preserved: core splices these items into
@@ -10,10 +12,16 @@ import { GTD_STATES, GTD_COLORS, resolveAccountGtdFolders, gtdStatesInFolders } 
 // The classify + remove submenu shown when the "GTD" item is opened. Renders its own back row and
 // takes over the menu content area (via core's generic plugin-submenu view). Classify offers every
 // state; "Remove from <state>" is offered only for the states this thread is actually labelled with.
-function GtdContextSubmenu({ message, account, onAction, onClose, onBack }) {
+function GtdContextSubmenu({ message, account, onClose, onBack }) {
   const { t } = useTranslation();
+  const addNotification = useStore(s => s.addNotification);
+  const scheduleGtdSectionsFetch = useStore(s => s.scheduleGtdSectionsFetch);
   const gtdFolders = resolveAccountGtdFolders(account);
   const removableStates = gtdStatesInFolders(message.folders, gtdFolders);
+  // Classify = COPY into the state's label folder (message stays put); remove = strip that label.
+  // Store-based, so they run the same on every surface — no dependency on the caller's onAction.
+  const classify = (state) => { classifyThread(message.id, state, { gtdClassify: api.gtdClassify, addNotification, scheduleGtdSectionsFetch, t }); onClose(); };
+  const removeFrom = (state) => { unclassifyThread(message.id, state, { gtdUnclassify: api.gtdUnclassify, addNotification, scheduleGtdSectionsFetch, t }); onClose(); };
   return (
     <>
       <div
@@ -35,7 +43,7 @@ function GtdContextSubmenu({ message, account, onAction, onClose, onBack }) {
       {GTD_STATES.map(state => (
         <div
           key={state}
-          onClick={() => { onAction('gtdClassify', state); onClose(); }}
+          onClick={() => classify(state)}
           style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '7px 14px', cursor: 'pointer', fontSize: 13, color: 'var(--text-primary)' }}
           onMouseEnter={e => e.currentTarget.style.background = 'var(--bg-hover)'}
           onMouseLeave={e => e.currentTarget.style.background = 'transparent'}
@@ -50,7 +58,7 @@ function GtdContextSubmenu({ message, account, onAction, onClose, onBack }) {
           {removableStates.map(state => (
             <div
               key={`rm-${state}`}
-              onClick={() => { onAction('gtdRemove', state); onClose(); }}
+              onClick={() => removeFrom(state)}
               style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '7px 14px', cursor: 'pointer', fontSize: 13, color: 'var(--text-secondary)' }}
               onMouseEnter={e => e.currentTarget.style.background = 'var(--bg-hover)'}
               onMouseLeave={e => e.currentTarget.style.background = 'transparent'}
@@ -79,7 +87,7 @@ export function buildGtdContextItems(ctx) {
       keepOpen: true,
       hasSubmenu: true,
       action: () => openSubmenu((onBack) => (
-        <GtdContextSubmenu message={message} account={account} onAction={onAction} onClose={onClose} onBack={onBack} />
+        <GtdContextSubmenu message={message} account={account} onClose={onClose} onBack={onBack} />
       )),
     });
   }

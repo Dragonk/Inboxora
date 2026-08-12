@@ -13,7 +13,6 @@ import { BUILTIN_SUMMARIZE } from '../aiActions.js';
 import { getResults, saveResult, removeResult } from '../aiResults.js';
 import { renderMarkdown } from '../utils/renderMarkdown.js';
 import { pickReplyAlias } from '../utils/replyAlias.js';
-import { classifyThread, unclassifyThread } from '../utils/gtd.js';
 const USE_DIV_RENDER = import.meta.env.VITE_EMAIL_DIV_RENDER === 'true';
 const MESSAGE_OPENING_EVENT = 'mailflow:message-opening';
 
@@ -1566,7 +1565,6 @@ ${bodyContent}
     switch (action) {
       case 'open':
       case 'bulkSelect':
-      case 'gtdDone':
         break;
       case 'copy':
       case 'copySelection': {
@@ -1656,22 +1654,6 @@ ${bodyContent}
             addNotification({ title: t('message.snoozed.failTitle'), body: t('message.snoozed.failBody') });
           });
         }
-        break;
-      case 'gtdClassify':
-        await classifyThread(message.id, data, {
-          gtdClassify: api.gtdClassify,
-          addNotification,
-          scheduleGtdSectionsFetch: useStore.getState().scheduleGtdSectionsFetch,
-          t,
-        });
-        break;
-      case 'gtdRemove':
-        await unclassifyThread(message.id, data, {
-          gtdUnclassify: api.gtdUnclassify,
-          addNotification,
-          scheduleGtdSectionsFetch: useStore.getState().scheduleGtdSectionsFetch,
-          t,
-        });
         break;
       case 'createRuleFromMessage': {
         const store = useStore.getState();

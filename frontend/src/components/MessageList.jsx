@@ -13,7 +13,6 @@ import GtdTabList from './GtdTabList.jsx';
 import { useUiScale, descale } from '../hooks/useUiScale.js';
 import {
   gtdActiveForContext, buildGtdDisplaySections, GTD_COLORS, GTD_CHIP_BG, sectionBadge, isSelectedRow,
-  classifyThread, unclassifyThread,
 } from '../utils/gtd.js';
 import { formatDate } from '../utils/formatDate.js';
 import { advanceSelectionAfterRemoval } from '../utils/listSelection.js';
@@ -1743,23 +1742,7 @@ export default function MessageList() {
       searchInputRef.current?.select();
     };
 
-    // GTD classify keys (t/w/d): COPY the selected message into a state's label
-    // folder, reusing the same classify dispatch as the context menu (no parallel
-    // action path). Silent no-op unless the message's account has GTD enabled, so
-    // the keys stay inert for non-GTD accounts.
-    const gtdClassifySelected = (state) => () => {
-      const { messages, searchResults, searchQuery, selectedMessageId, accounts } = getState();
-      if (!selectedMessageId) return;
-      const pool = searchQuery.trim() ? searchResults : messages;
-      const msg = pool.find(m => m.id === selectedMessageId);
-      if (!msg) return;
-      if (!accounts.find(a => a.id === msg.account_id)?.gtd_enabled) return;
-      handleContextActionRef.current?.('gtdClassify', msg, state);
-    };
-    const onGtdTodo      = gtdClassifySelected('todo');
-    const onGtdWatch     = gtdClassifySelected('watch');
-    const onGtdDelegated = gtdClassifySelected('delegated');
-
+    // (GTD classify keys t/w/d are handled by the GTD plugin's runtime, not here.)
     shortcutBus.on('nextMessage',   onNext);
     shortcutBus.on('prevMessage',   onPrev);
     shortcutBus.on('openMessage',   onOpen);
@@ -1768,9 +1751,6 @@ export default function MessageList() {
     shortcutBus.on('delete',        onDelete);
     shortcutBus.on('toggleRead',    onToggleRead);
     shortcutBus.on('focusSearch',   onFocusSearch);
-    shortcutBus.on('gtdTodo',       onGtdTodo);
-    shortcutBus.on('gtdWatch',      onGtdWatch);
-    shortcutBus.on('gtdDelegated',  onGtdDelegated);
 
     return () => {
       shortcutBus.off('nextMessage',   onNext);
@@ -1781,9 +1761,6 @@ export default function MessageList() {
       shortcutBus.off('delete',        onDelete);
       shortcutBus.off('toggleRead',    onToggleRead);
       shortcutBus.off('focusSearch',   onFocusSearch);
-      shortcutBus.off('gtdTodo',       onGtdTodo);
-      shortcutBus.off('gtdWatch',      onGtdWatch);
-      shortcutBus.off('gtdDelegated',  onGtdDelegated);
     };
   }, []);
 
@@ -1980,27 +1957,6 @@ export default function MessageList() {
           useStore.getState().restoreMessages([snoozedMsg]);
           if (!snoozedMsg.is_read) incrementUnread(snoozedMsg.account_id);
           addNotification({ title: t('message.snoozed.failTitle'), body: t('message.snoozed.failBody') });
-        });
-        break;
-      }
-      case 'gtdClassify': {
-        // Classify = COPY into the state's label folder. The message stays put
-        // (no optimistic removal / undo — it does not leave INBOX), so we just
-        // fire the copy and poke the GTD sections store instead of waiting on the WS event.
-        await classifyThread(message.id, data, {
-          gtdClassify: api.gtdClassify,
-          addNotification,
-          scheduleGtdSectionsFetch: useStore.getState().scheduleGtdSectionsFetch,
-          t,
-        });
-        break;
-      }
-      case 'gtdRemove': {
-        await unclassifyThread(message.id, data, {
-          gtdUnclassify: api.gtdUnclassify,
-          addNotification,
-          scheduleGtdSectionsFetch: useStore.getState().scheduleGtdSectionsFetch,
-          t,
         });
         break;
       }
