@@ -316,9 +316,14 @@ router.post('/send', async (req, res) => {
     const serverAutoSaves = !!account.oauth_provider;
 
     // For servers that don't auto-save, generate the raw MIME now so we can APPEND it.
+    // Use CRLF newlines ('windows'): RFC 5322 / IMAP APPEND require CRLF. A bare-LF message is
+    // stored verbatim by strict servers (e.g. PurelyMail/Dovecot), and downstream clients then
+    // mis-parse the headers — the reporter saw Subject and the To display-name dropped (#365). This
+    // only affects non-OAuth accounts (OAuth servers auto-save and skip this path); the SMTP-
+    // delivered copy uses a separate transport that is already CRLF, so only the Sent copy was wrong.
     let rawMessage = null;
     if (!serverAutoSaves) {
-      const streamTransport = nodemailer.createTransport({ streamTransport: true, newline: 'unix' });
+      const streamTransport = nodemailer.createTransport({ streamTransport: true, newline: 'windows' });
       const streamInfo = await streamTransport.sendMail(mailOptions);
       const chunks = [];
       await new Promise((resolve, reject) => {
