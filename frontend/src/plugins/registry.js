@@ -52,3 +52,19 @@ export function registerRuntime(contribution) {
 export function getRuntimes() {
   return runtimes;
 }
+
+// Data (descriptor) contributions a plugin injects into a core-rendered list — e.g. context-menu
+// items. Unlike slots (which render), a collector's `build(ctx)` returns plain descriptor arrays that
+// core renders with its OWN chrome (so placement/styling stay consistent). Gathered via
+// usePluginCollected, activation-gated.
+const collectors = new Map(); // name -> [{ pluginId, build }]
+
+export function registerCollector(name, contribution) {
+  const list = collectors.get(name) || [];
+  list.push(contribution);
+  collectors.set(name, list);
+}
+
+export function getCollectors(name) {
+  return collectors.get(name) || [];
+}

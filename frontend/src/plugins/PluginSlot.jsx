@@ -1,6 +1,6 @@
 import { Fragment } from 'react';
 import { useStore } from '../store/index.js';
-import { getSlotContributions, getRuntimes } from './registry.js';
+import { getSlotContributions, getRuntimes, getCollectors } from './registry.js';
 
 // The contributions registered for slot `name` that are live for this `ctx`: their plugin is
 // activated (store.enabledPlugins) AND their own isActive(ctx) passes. Exposed as a hook so a caller
@@ -11,6 +11,15 @@ export function usePluginSlot(name, ctx) {
   return getSlotContributions(name).filter(
     c => enabledPlugins.includes(c.pluginId) && c.isActive(ctx)
   );
+}
+
+// The merged descriptor array contributed by activated plugins for collector `name`. Core renders
+// the descriptors with its own chrome (e.g. context-menu rows). A throwing builder contributes nothing.
+export function usePluginCollected(name, ctx) {
+  const enabledPlugins = useStore(s => s.enabledPlugins);
+  return getCollectors(name)
+    .filter(c => enabledPlugins.includes(c.pluginId))
+    .flatMap(c => { try { return c.build(ctx) || []; } catch { return []; } });
 }
 
 // Render every live contribution for slot `name`, in registration order. Core drops this at a seam

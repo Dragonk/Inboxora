@@ -4,12 +4,13 @@
 // the frontend twin of backend/src/plugins/gtd. Imported for its side effects by plugins/index.js.
 // (The GTD UI components/utils still live under components/ & utils/ for now; later slices relocate
 // them wholesale into this directory.)
-import { registerSlot, registerPluginMeta, registerRuntime } from '../registry.js';
+import { registerSlot, registerPluginMeta, registerRuntime, registerCollector } from '../registry.js';
 import { registerWsHandler, registerReconnectHandler } from '../events.js';
 import GtdSidebarContent from '../../components/GtdSidebarContent.jsx';
 import GtdRuntime from './GtdRuntime.jsx';
 import GtdSettings from './GtdSettings.jsx';
 import GtdRowDone from './GtdRowDone.jsx';
+import { buildGtdContextItems } from './GtdContextMenu.jsx';
 import { gtdActiveForContext } from '../../utils/gtd.js';
 import { accountAffectsUnifiedInbox } from '../../utils/unifiedInbox.js';
 import { useStore } from '../../store/index.js';
@@ -38,6 +39,10 @@ registerSlot('right-sidebar', {
   isActive: (ctx) => gtdActiveForContext(ctx.accounts, ctx.selectedAccountId, true),
   render: (ctx) => <GtdSidebarContent onCollapse={ctx.onCollapse} toggleHint={ctx.toggleHint} />,
 });
+
+// Context-menu items (GTD submenu + sidebar "Done"), injected into the 'Actions' group at the seam
+// where GTD used to sit. ctx: { message, account, variant, onAction, onClose, openSubmenu, t }.
+registerCollector('context-menu-actions', { pluginId: 'gtd', build: buildGtdContextItems });
 
 // Row hover "done" checkmark on main-list rows of a GTD-active account (activation already gated by
 // the registry). ctx: { message }.
