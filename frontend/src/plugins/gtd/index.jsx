@@ -4,9 +4,10 @@
 // the frontend twin of backend/src/plugins/gtd. Imported for its side effects by plugins/index.js.
 // (The GTD UI components/utils still live under components/ & utils/ for now; later slices relocate
 // them wholesale into this directory.)
-import { registerSlot } from '../registry.js';
+import { registerSlot, registerPluginMeta, registerRuntime } from '../registry.js';
 import { registerWsHandler, registerReconnectHandler } from '../events.js';
 import GtdSidebarContent from '../../components/GtdSidebarContent.jsx';
+import GtdRuntime from './GtdRuntime.jsx';
 import { gtdActiveForContext } from '../../utils/gtd.js';
 import { accountAffectsUnifiedInbox } from '../../utils/unifiedInbox.js';
 import { useStore } from '../../store/index.js';
@@ -14,6 +15,15 @@ import { useStore } from '../../store/index.js';
 // Right-sidebar panel: GTD's triage rail. Live when GTD is on for the current account scope
 // (per-user activation is already checked by the slot registry, so pass `true` here).
 // ctx: { accounts, selectedAccountId, onCollapse, toggleHint }.
+// Where GTD's own settings live, so the Plugins tab can point the user there once GTD is activated.
+// Replaces core's former hardcoded PLUGIN_SETTINGS_LOCATION map (a nav fact core shouldn't own).
+registerPluginMeta('gtd', {
+  settingsLocation: { tab: 'categories', subtab: 'gtd', labelKey: 'admin.tabs.categories' },
+});
+
+// Headless runtime: owns the GTD sections fetch (mounted only while GTD is activated).
+registerRuntime({ pluginId: 'gtd', component: GtdRuntime });
+
 registerSlot('right-sidebar', {
   pluginId: 'gtd',
   isActive: (ctx) => gtdActiveForContext(ctx.accounts, ctx.selectedAccountId, true),

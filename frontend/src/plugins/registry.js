@@ -26,3 +26,29 @@ export function registerSlot(slotName, contribution) {
 export function getSlotContributions(slotName) {
   return slots.get(slotName) || [];
 }
+
+// Static per-plugin metadata a plugin declares about itself, so core never hardcodes plugin facts.
+// e.g. settingsLocation: { tab, subtab, labelKey } tells the Plugins tab where a plugin's own
+// settings live, replacing core's former hardcoded PLUGIN_SETTINGS_LOCATION map.
+const pluginMeta = new Map(); // pluginId -> meta object
+
+export function registerPluginMeta(pluginId, meta) {
+  pluginMeta.set(pluginId, { ...pluginMeta.get(pluginId), ...meta });
+}
+
+export function getPluginMeta(pluginId) {
+  return pluginMeta.get(pluginId) || null;
+}
+
+// Headless runtime components a plugin mounts once (near the app root) to run background behaviour
+// with no UI of its own — data-fetch effects, subscriptions, timers. Rendered by <PluginRuntime/>
+// only while the plugin is activated, so a plugin's effects tear down when the user deactivates it.
+const runtimes = []; // [{ pluginId, component }]
+
+export function registerRuntime(contribution) {
+  runtimes.push(contribution);
+}
+
+export function getRuntimes() {
+  return runtimes;
+}

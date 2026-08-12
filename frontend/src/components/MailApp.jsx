@@ -14,8 +14,7 @@ import MessageList from './MessageList.jsx';
 import MessagePane from './MessagePane.jsx';
 import NotificationToasts from './NotificationToasts.jsx';
 import CommandPalette from './CommandPalette.jsx';
-import { gtdActiveForContext } from '../utils/gtd.js';
-import { usePluginSlot } from '../plugins/PluginSlot.jsx';
+import { usePluginSlot, PluginRuntime } from '../plugins/PluginSlot.jsx';
 
 const ContactsPage = lazy(() => import('./ContactsPage.jsx'));
 
@@ -69,12 +68,11 @@ export default function MailApp() {
     sidebarWidth, setSidebarWidth, setIsSidebarResizing,
     showContacts, setTodoistConnected,
     accounts, rightSidebarWidth, setRightSidebarWidth, isRightSidebarResizing, setIsRightSidebarResizing,
-    fetchGtdSections, rightSidebarHidden, toggleRightSidebarHidden,
+    rightSidebarHidden, toggleRightSidebarHidden,
   } = useStore();
   const syncInterval = useStore(s => s.syncInterval);
   const autoLockMinutes = useStore(s => s.autoLockMinutes);
   const lockScreen = useStore(s => s.lockScreen);
-  const gtdPluginActive = useStore(s => s.enabledPlugins).includes('gtd');
 
   // Auto-lock after inactivity (#235). MailApp only mounts while unlocked, so this
   // timer runs only when unlocked; hitting the timeout locks and unmounts this tree.
@@ -98,18 +96,6 @@ export default function MailApp() {
       events.forEach(e => window.removeEventListener(e, bump));
     };
   }, [autoLockMinutes, lockScreen]);
-
-  // Single owner of the GTD sections fetch: reload whenever the context (unified
-  // vs a single account) changes and GTD is active there. Both the rail and the
-  // tab list read the resulting store slice; live updates arrive via WS.
-  const gtdActive = gtdActiveForContext(accounts, selectedAccountId, gtdPluginActive);
-  // Also key on the set of GTD-enabled accounts so enabling a second account refetches
-  // the unified sections — gtdActive alone stays true and wouldn't retrigger when it
-  // flips from one enabled account to two.
-  const gtdEnabledKey = accounts.filter(a => a.gtd_enabled).map(a => a.id).sort().join(',');
-  useEffect(() => {
-    if (gtdActive) fetchGtdSections();
-  }, [gtdActive, selectedAccountId, gtdEnabledKey, fetchGtdSections]);
 
   const scale = fontSize / 100;
   const hasNativeBridge = Boolean(window.mailflowNative || window.Capacitor?.isNativePlatform?.());
@@ -874,6 +860,7 @@ export default function MailApp() {
       <Suspense fallback={lazyFallback}>{showAdmin && <AdminPanel />}</Suspense>
       <Suspense fallback={null}>{hasNativeBridge && <ElectronNotificationBridge />}</Suspense>
       <NotificationToasts />
+      <PluginRuntime />
       <CommandPalette open={paletteOpen} onClose={() => setPaletteOpen(false)} />
 
       {/* Keyboard shortcut help overlay — toggled by the '?' key */}
