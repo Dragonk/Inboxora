@@ -12,10 +12,10 @@ import { buildKeyMap, buildModKeyMap, getEffectiveShortcuts, getGroupedActions, 
 import Sidebar from './Sidebar.jsx';
 import MessageList from './MessageList.jsx';
 import MessagePane from './MessagePane.jsx';
-import GtdSidebarContent from './GtdSidebarContent.jsx';
 import NotificationToasts from './NotificationToasts.jsx';
 import CommandPalette from './CommandPalette.jsx';
 import { gtdActiveForContext } from '../utils/gtd.js';
+import { usePluginSlot } from '../plugins/PluginSlot.jsx';
 
 const ContactsPage = lazy(() => import('./ContactsPage.jsx'));
 
@@ -200,12 +200,12 @@ export default function MailApp() {
   // live shortcut map via the existing helpers — no new plumbing. '' when unbound.
   const rightSidebarToggleParsed = parseModKey(getEffectiveShortcuts(shortcuts).toggleRightSidebar);
   const rightSidebarToggleHint = rightSidebarToggleParsed ? `${modLabel(rightSidebarToggleParsed.mod)}${rightSidebarToggleParsed.bare}` : '';
-  // The right sidebar renders when a feature supplies content. GTD is the
-  // current (only) provider; the layout/shortcut infrastructure below is
-  // feature-agnostic and keys off the seam, not the feature.
-  const rightSidebarContent = gtdActive
-    ? <GtdSidebarContent onCollapse={toggleRightSidebarHidden} toggleHint={rightSidebarToggleHint} />
-    : null;
+  // The right sidebar renders when a plugin supplies content for the 'right-sidebar' slot. Core is
+  // plugin-agnostic here — it places the seam; a plugin (currently GTD) fills it. The layout/shortcut
+  // infrastructure below keys off whether any content exists, not off any specific feature.
+  const rightSidebarCtx = { accounts, selectedAccountId, onCollapse: toggleRightSidebarHidden, toggleHint: rightSidebarToggleHint };
+  const rightSidebarProviders = usePluginSlot('right-sidebar', rightSidebarCtx);
+  const rightSidebarContent = rightSidebarProviders.length ? rightSidebarProviders[0].render(rightSidebarCtx) : null;
   const rightSidebarApplicable = !isMobile && currentLayout.direction === 'row' && rightSidebarContent != null;
 
   const handleListResizeMouseDown = (e) => {
