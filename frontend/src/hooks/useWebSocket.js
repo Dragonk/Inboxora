@@ -5,8 +5,8 @@ import { api } from '../utils/api.js';
 import { installCapacitorNativeBridge } from '../utils/capacitorNativeBridge.js';
 import { playNotificationSound } from '../utils/notificationSounds.js';
 import { pendingMarkReadMap } from '../utils/pendingReads.js';
-import { gtdActiveForContext } from '../utils/gtd.js';
 import { updateFaviconBadge } from '../themes.js';
+import { dispatchPluginWsMessage, dispatchPluginReconnect } from '../plugins/events.js';
 import { accountAffectsUnifiedInbox } from '../utils/unifiedInbox.js';
 
 // Compute the correct favicon count given unread counts and the currently
@@ -125,12 +125,10 @@ export function useWebSocket() {
         api.getUnreadCounts().then(counts => {
           useStore.setState({ unreadCounts: counts });
         }).catch(() => {});
-        // Rail sections can drift during the outage — gtd_sections_updated events
-        // fired while the socket was down are lost, not buffered. Refetch them the
-        // same way we refresh messages/unread, but only for GTD users so a non-GTD
-        // context adds no extra traffic on every reconnect.
-        const { accounts, selectedAccountId, enabledPlugins, scheduleGtdSectionsFetch } = useStore.getState();
-        if (gtdActiveForContext(accounts, selectedAccountId, enabledPlugins.includes('gtd'))) scheduleGtdSectionsFetch();
+        // A plugin's rail/derived data can drift during the outage — events fired while the socket
+        // was down are lost, not buffered. Let each activated plugin resync (GTD refetches its
+        // sections). Core stays plugin-agnostic.
+        dispatchPluginReconnect();
       }
     };
 
@@ -342,22 +340,6 @@ export function useWebSocket() {
         break;
       }
 
-      case 'gtd_sections_updated': {
-        // GTD label folders changed (tick, classify copy/remove, or a transition
-        // strip). Refetch the rail/tab sections — NOT gated on selectedFolder
-        // (label folders never become the selected folder), debounced in the
-        // store since this can fire several times per tick. Only refetch when the
-        // event's account is in the current rail scope.
-        const store = useStore.getState();
-        if (
-          (store.selectedAccountId === null && accountAffectsUnifiedInbox(store.accounts, data.accountId)) ||
-          store.selectedAccountId === data.accountId
-        ) {
-          store.scheduleGtdSectionsFetch();
-        }
-        break;
-      }
-
       case 'message_flags': {
         // A read/star flag changed on ANOTHER of this user's devices. Apply it to the matching
         // rows in place — no full folder refetch (that would flicker and refetch-storm while
@@ -379,6 +361,11 @@ export function useWebSocket() {
         }
         break;
       }
+
+      default:
+        // A message type core doesn't handle — hand it to any activated plugin that registered for
+        // it (e.g. GTD's 'gtd_sections_updated'). No-op when nothing is registered.
+        dispatchPluginWsMessage(data);
     }
   }, [addNotification, updateAccount, setFolders, setBackfillProgress, t]);
 
