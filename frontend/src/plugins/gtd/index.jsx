@@ -5,8 +5,11 @@
 // (The GTD UI components/utils still live under components/ & utils/ for now; later slices relocate
 // them wholesale into this directory.)
 import { registerSlot } from '../registry.js';
+import { registerWsHandler, registerReconnectHandler } from '../events.js';
 import GtdSidebarContent from '../../components/GtdSidebarContent.jsx';
 import { gtdActiveForContext } from '../../utils/gtd.js';
+import { accountAffectsUnifiedInbox } from '../../utils/unifiedInbox.js';
+import { useStore } from '../../store/index.js';
 
 // Right-sidebar panel: GTD's triage rail. Live when GTD is on for the current account scope
 // (per-user activation is already checked by the slot registry, so pass `true` here).
@@ -15,4 +18,30 @@ registerSlot('right-sidebar', {
   pluginId: 'gtd',
   isActive: (ctx) => gtdActiveForContext(ctx.accounts, ctx.selectedAccountId, true),
   render: (ctx) => <GtdSidebarContent onCollapse={ctx.onCollapse} toggleHint={ctx.toggleHint} />,
+});
+
+// WS: a GTD label folder changed (tick / classify copy-remove / transition strip). Refetch the
+// rail+tab sections when the event's account is in the current rail scope (debounced in the store).
+registerWsHandler('gtd_sections_updated', {
+  pluginId: 'gtd',
+  handler: (data) => {
+    const store = useStore.getState();
+    if (
+      (store.selectedAccountId === null && accountAffectsUnifiedInbox(store.accounts, data.accountId)) ||
+      store.selectedAccountId === data.accountId
+    ) {
+      store.scheduleGtdSectionsFetch();
+    }
+  },
+});
+
+// On WS reconnect, gtd_sections_updated events fired during the outage are lost (not buffered).
+// Refetch the sections if GTD is active in the current scope (activation is already gated by the
+// dispatcher, so the account-scope check is what matters here).
+registerReconnectHandler({
+  pluginId: 'gtd',
+  handler: () => {
+    const { accounts, selectedAccountId, scheduleGtdSectionsFetch } = useStore.getState();
+    if (gtdActiveForContext(accounts, selectedAccountId, true)) scheduleGtdSectionsFetch();
+  },
 });
