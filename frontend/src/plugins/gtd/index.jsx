@@ -8,6 +8,7 @@ import { registerSlot, registerPluginMeta, registerRuntime } from '../registry.j
 import { registerWsHandler, registerReconnectHandler } from '../events.js';
 import GtdSidebarContent from '../../components/GtdSidebarContent.jsx';
 import GtdRuntime from './GtdRuntime.jsx';
+import GtdSettings from './GtdSettings.jsx';
 import { gtdActiveForContext } from '../../utils/gtd.js';
 import { accountAffectsUnifiedInbox } from '../../utils/unifiedInbox.js';
 import { useStore } from '../../store/index.js';
@@ -23,6 +24,13 @@ registerPluginMeta('gtd', {
 
 // Headless runtime: owns the GTD sections fetch (mounted only while GTD is activated).
 registerRuntime({ pluginId: 'gtd', component: GtdRuntime });
+
+// Settings: GTD's per-account + pet settings block, shown under the Categories tab (rendered only
+// while GTD is activated). ctx: { initialSubTab } — 'gtd' deep-links the block open.
+registerSlot('settings-categories', {
+  pluginId: 'gtd',
+  render: (ctx) => <GtdSettings initialSubTab={ctx.initialSubTab} />,
+});
 
 registerSlot('right-sidebar', {
   pluginId: 'gtd',
