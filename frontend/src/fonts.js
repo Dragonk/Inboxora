@@ -426,6 +426,7 @@ export function loadFontSet() {}
 // Apply a font set: update the CSS custom properties. The self-hosted @font-face rules
 // are already present, so the browser lazy-loads only the active set's files.
 export function applyFontSet(fontKey) {
+  if (typeof document === 'undefined') return; // no-op without a DOM (SSR / tests)
   const set = FONT_SETS[fontKey] || FONT_SETS.default;
   const root = document.documentElement;
   for (const [key, value] of Object.entries(set.vars)) {
