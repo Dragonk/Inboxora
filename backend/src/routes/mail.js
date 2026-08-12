@@ -13,6 +13,7 @@ import { listMessages } from '../services/messageService.js';
 import { resolveAccountScope } from '../services/unifiedInbox.js';
 import { validateHost } from '../services/hostValidation.js';
 import { safeFetch } from '../services/safeFetch.js';
+import { safeFilename, attachmentDisposition } from '../utils/contentDisposition.js';
 
 const router = Router();
 router.use(requireAuth);
@@ -25,22 +26,6 @@ router.use(requireAuth);
 // having siblings, so a non-plugin account stays byte-identical to pre-GTD.
 const accountMaintainsLabelSiblings = (accountId) =>
   pluginRegistry.hasActiveAsync('inboxIngest', { account: { id: accountId } });
-
-// Sanitize an attachment filename for use in Content-Disposition.
-// Strips path separators and control characters; falls back to 'attachment'.
-function safeFilename(name) {
-  if (!name) return 'attachment';
-  // Strip path separators, control chars, and Unicode bidi override chars that could
-  // spoof displayed file extensions (e.g. U+202E reverses the filename visually).
-  const cleaned = String(name)
-    .replace(/[/\\]/g, '_')
-    // eslint-disable-next-line no-control-regex -- intentionally stripping control characters
-    .replace(/[\x00-\x1f\x7f]/g, '')
-    .replace(/[‪-‮⁦-⁩‏؜]/g, '')
-    .trim()
-    .substring(0, 255);
-  return cleaned || 'attachment';
-}
 
 // Validate a folder name / path component: no control chars, max 255 chars.
 function isValidFolderName(name) {
@@ -585,10 +570,9 @@ router.get('/messages/:id/attachments.zip', async (req, res) => {
 
     if (entries.length === 0) return res.status(404).json({ error: 'Could not fetch attachments' });
 
-    const zipName = safeFilename((message.subject || 'attachments').substring(0, 100)) + '-attachments.zip';
-    const encoded = encodeURIComponent(zipName);
+    const zipName = (message.subject || 'attachments').substring(0, 100) + '-attachments.zip';
     res.setHeader('Content-Type', 'application/zip');
-    res.setHeader('Content-Disposition', `attachment; filename="${zipName}"; filename*=UTF-8''${encoded}`);
+    res.setHeader('Content-Disposition', attachmentDisposition(zipName));
 
     const archive = archiver('zip', { zlib: { level: 6 } });
     archive.on('error', err => {
@@ -648,10 +632,8 @@ router.get('/messages/:id/attachments/:part', async (req, res) => {
 
     if (!buffer) return res.status(404).json({ error: 'Could not fetch attachment' });
 
-    const safe = safeFilename(att.filename);
-    const encoded = encodeURIComponent(att.filename || 'attachment');
     res.setHeader('Content-Type', att.type || 'application/octet-stream');
-    res.setHeader('Content-Disposition', `attachment; filename="${safe}"; filename*=UTF-8''${encoded}`);
+    res.setHeader('Content-Disposition', attachmentDisposition(att.filename));
     res.setHeader('Content-Length', buffer.length);
     res.send(buffer);
   } catch (err) {
