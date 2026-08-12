@@ -9,6 +9,7 @@ import { registerWsHandler, registerReconnectHandler } from '../events.js';
 import GtdSidebarContent from '../../components/GtdSidebarContent.jsx';
 import GtdRuntime from './GtdRuntime.jsx';
 import GtdSettings from './GtdSettings.jsx';
+import GtdRowDone from './GtdRowDone.jsx';
 import { gtdActiveForContext } from '../../utils/gtd.js';
 import { accountAffectsUnifiedInbox } from '../../utils/unifiedInbox.js';
 import { useStore } from '../../store/index.js';
@@ -36,6 +37,16 @@ registerSlot('right-sidebar', {
   pluginId: 'gtd',
   isActive: (ctx) => gtdActiveForContext(ctx.accounts, ctx.selectedAccountId, true),
   render: (ctx) => <GtdSidebarContent onCollapse={ctx.onCollapse} toggleHint={ctx.toggleHint} />,
+});
+
+// Row hover "done" checkmark on main-list rows of a GTD-active account (activation already gated by
+// the registry). ctx: { message }.
+registerSlot('row-hover-action', {
+  pluginId: 'gtd',
+  isActive: (ctx) => gtdActiveForContext(useStore.getState().accounts, ctx.message.account_id, true),
+  // ctx.done (optional) lets a surface inject its own done action (the GTD sidebar's section-scoped
+  // strip); the main list omits it and GtdRowDone runs its inbox-archive default.
+  render: (ctx) => <GtdRowDone message={ctx.message} done={ctx.done} />,
 });
 
 // WS: a GTD label folder changed (tick / classify copy-remove / transition strip). Refetch the

@@ -1,13 +1,15 @@
 import { useState } from 'react';
 import { useTranslation } from 'react-i18next';
+import { PluginSlot } from '../plugins/PluginSlot.jsx';
 
 // Bottom-right hover quick-actions cluster shared by the flat MessageRow and the threaded
 // ThreadRow and GTD sidebar rows. Presentational and closure-free: each action
 // is a handler the caller passes as (e, message); a handler's absence hides its button (the
 // same convention onMove already uses). `isRead` drives the mark-read icon/label polarity,
 // and `background` + `deleteTitleKey` keep each call site's prior rendering byte-identical.
-// `onGtdDone`, when present, adds the GTD "done" checkmark (inbox rows on a GTD-enabled account).
-export default function RowHoverActions({ message, isRead, background, deleteTitleKey = 'common.delete', onMarkRead, onStar, onDelete, onMove, onGtdDone }) {
+// `rowActionCtx`, when present (main-list rows only), renders the 'row-hover-action' plugin slot —
+// a plugin can add its own leading hover button (GTD adds a "done" checkmark). Sidebar rows omit it.
+export default function RowHoverActions({ message, isRead, background, deleteTitleKey = 'common.delete', onMarkRead, onStar, onDelete, onMove, rowActionCtx }) {
   const { t } = useTranslation();
   return (
     <div style={{
@@ -17,13 +19,7 @@ export default function RowHoverActions({ message, isRead, background, deleteTit
       borderRadius: 5,
       padding: '1px 2px',
     }}>
-      {onGtdDone && (
-        <ActionBtn title={t('gtd.done')} onClick={e => onGtdDone(e, message)}>
-          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-            <polyline points="20 6 9 17 4 12"/>
-          </svg>
-        </ActionBtn>
-      )}
+      {rowActionCtx && <PluginSlot name="row-hover-action" ctx={rowActionCtx} />}
 
       <ActionBtn
         title={isRead ? t('contextMenu.markUnread') : t('contextMenu.markRead')}
@@ -66,7 +62,7 @@ export default function RowHoverActions({ message, isRead, background, deleteTit
   );
 }
 
-function ActionBtn({ children, onClick, title }) {
+export function ActionBtn({ children, onClick, title }) {
   const [hov, setHov] = useState(false);
   return (
     <button

@@ -46,7 +46,7 @@ export default function GtdTriageRow({ thread, sectionKey, variant, selected, on
           onStar={(e, m) => { e.stopPropagation(); rowActions.toggleStar(m); }}
           onDelete={(e, m) => { e.stopPropagation(); rowActions.deleteRow(m, doneStates); }}
           onMove={e => { e.stopPropagation(); const r = e.currentTarget.getBoundingClientRect(); openMenuAt(r.left, r.bottom + 4, true); }}
-          onGtdDone={(e, m) => { e.stopPropagation(); rowActions.done(m, doneStates); }}
+          rowActionCtx={{ message: thread, done: (e) => { e.stopPropagation(); rowActions.done(thread, doneStates); } }}
         />
       ) : undefined}
     />

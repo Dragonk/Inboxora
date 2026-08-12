@@ -16,6 +16,7 @@ import {
   classifyThread, unclassifyThread,
 } from '../utils/gtd.js';
 import { formatDate } from '../utils/formatDate.js';
+import { advanceSelectionAfterRemoval } from '../utils/listSelection.js';
 import { openReplyFromMessage, openForwardFromMessage } from '../utils/composeFromMessage.js';
 import SenderAvatarImage from './SenderAvatarImage.jsx';
 import { shortcutBus } from '../utils/shortcutBus.js';
@@ -33,21 +34,6 @@ function FolderIcon({ specialUse, size = 13 }) {
   return <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M22 19a2 2 0 01-2 2H4a2 2 0 01-2-2V5a2 2 0 012-2h5l2 3h9a2 2 0 012 2z"/></svg>;
 }
 
-
-// Auto-advance the reading pane when the open message leaves the list: select the
-// row that takes its place (next in display order, or previous if it was the last,
-// or nothing if the list is now empty). Mirrors scheduleDelete's inline advance;
-// call before removeMessage so the outgoing row is still present for the lookup.
-// No-op unless the removed message is the currently selected one.
-function advanceSelectionAfterRemoval(removedId) {
-  const { messages, searchResults, searchQuery, selectedMessageId, setSelectedMessage } = useStore.getState();
-  if (selectedMessageId !== removedId) return;
-  const displayMsgs = searchQuery.trim() ? searchResults : messages;
-  const idx = displayMsgs.findIndex(m => m.id === removedId);
-  if (idx === -1) return;
-  const next = displayMsgs[idx + 1] || displayMsgs[idx - 1] || null;
-  setSelectedMessage(next?.id ?? null);
-}
 
 const SWIPE_ACTIONS = {
   archive: { color: 'var(--amber, #d97706)' },
@@ -862,35 +848,6 @@ export default function MessageList() {
     e.stopPropagation();
     setMessagesStarredState(message, !message.is_starred);
   };
-
-  // GTD "done" from the inbox hover cluster (all-states mode): the backend marks the thread
-  // read, strips every GTD label it carries, and archives the INBOX copy. Optimistic like
-  // archive — advance the selection and drop the row immediately, no undo toast — and on
-  // failure restore the row and surface the same notification the GTD sidebar's done uses.
-  const handleGtdDone = useCallback(async (e, message) => {
-    e.stopPropagation();
-    advanceSelectionAfterRemoval(message.id);
-    removeMessage(message.id);
-    // gtdDone marks the WHOLE thread read server-side and unreadCounts is message-based, so
-    // drop the row's full thread-unread (unread_count) like scheduleDelete does — a fixed -1
-    // under-counts a multi-unread thread. Fall back to this row's own unread when absent.
-    const unreadCount = Number.parseInt(message.unread_count, 10);
-    const unreadDelta = Number.isFinite(unreadCount) ? unreadCount : (message.is_read ? 0 : 1);
-    if (unreadDelta > 0) decrementUnread(message.account_id, unreadDelta);
-    try {
-      const res = await api.gtdDone(message.id);
-      // Labels stripped but the archive step failed: the optimistic removal is still
-      // correct, but the email is still in the inbox — say so rather than leave a gap.
-      if (res?.archiveFailed) {
-        addNotification({ title: t('gtd.doneArchiveFailed'), body: message.subject || t('common.noSubject') });
-      }
-    } catch (err) {
-      console.error('GTD done failed:', err.message);
-      useStore.getState().restoreMessages([message]);
-      if (unreadDelta > 0) incrementUnread(message.account_id, unreadDelta);
-      addNotification({ title: t('gtd.doneFailed'), body: message.subject || t('common.noSubject') });
-    }
-  }, [removeMessage, decrementUnread, incrementUnread, addNotification, t]);
 
   // Undo-able delete: optimistically remove, delay the API call by 4.5s so user can undo
   const scheduleDelete = useCallback(async (message) => {
@@ -3450,7 +3407,6 @@ export default function MessageList() {
                   setContextMenu({ x: e.clientX, y: e.clientY, message: msg });
                 }}
                 onMove={handleRowMove}
-                onGtdDone={gtdActiveForContext(accounts, message.account_id, gtdPluginActive) ? handleGtdDone : undefined}
                 isMobile={isMobile}
                 swipeLeftAction={swipeLeftAction}
                 swipeRightAction={swipeRightAction}
@@ -3493,7 +3449,6 @@ export default function MessageList() {
                   setContextMenu({ x: e.clientX, y: e.clientY, message: msg });
                 }}
                 onMove={handleRowMove}
-                onGtdDone={gtdActiveForContext(accounts, message.account_id, gtdPluginActive) ? handleGtdDone : undefined}
                 onDragStart={handleRowDragStart}
                 isMobile={isMobile}
                 swipeLeftAction={swipeLeftAction}
@@ -3917,7 +3872,7 @@ function EmptyState({ folderSyncing, searchQuery, unreadOnly, selectedFolder, ac
   );
 }
 
-function ThreadRow({ message, isExpanded, threadMsgs, isLoadingThread, selectedMessageId, selectedMid, lastViewedMessageId, showAccount, isNarrow, onThreadClick, showMobileAvatars, showMessagePreviews, onSelect, onMarkRead, onStar, onDelete, hoverQuickActions, onContextMenu, onMove, onGtdDone, isMobile, swipeLeftAction, swipeRightAction, onSwipeLeft, onSwipeRight, isChecked, selectionMode, onToggleSelect, onRangeSelect, onLongPress }) {
+function ThreadRow({ message, isExpanded, threadMsgs, isLoadingThread, selectedMessageId, selectedMid, lastViewedMessageId, showAccount, isNarrow, onThreadClick, showMobileAvatars, showMessagePreviews, onSelect, onMarkRead, onStar, onDelete, hoverQuickActions, onContextMenu, onMove, isMobile, swipeLeftAction, swipeRightAction, onSwipeLeft, onSwipeRight, isChecked, selectionMode, onToggleSelect, onRangeSelect, onLongPress }) {
   const { t } = useTranslation();
   const [hovered, setHovered] = useState(false);
   const messageCount = message.message_count || 1;
@@ -4129,7 +4084,7 @@ function ThreadRow({ message, isExpanded, threadMsgs, isLoadingThread, selectedM
             onStar={onStar}
             onDelete={onDelete}
             onMove={onMove}
-            onGtdDone={onGtdDone}
+            rowActionCtx={{ message }}
           />
         )}
       </div>
@@ -4197,7 +4152,7 @@ function ThreadRow({ message, isExpanded, threadMsgs, isLoadingThread, selectedM
   );
 }
 
-function MessageRow({ message, selected, lastViewed, isChecked, selectionMode, showAccount, isNarrow, onSelect, onToggleSelect, onRangeSelect, onAvatarClick, showMobileAvatars, showMessagePreviews, onMarkRead, onStar, onDelete, hoverQuickActions, onContextMenu, onMove, onGtdDone, onDragStart, isMobile, swipeLeftAction, swipeRightAction, onSwipeLeft, onSwipeRight, onLongPress }) {
+function MessageRow({ message, selected, lastViewed, isChecked, selectionMode, showAccount, isNarrow, onSelect, onToggleSelect, onRangeSelect, onAvatarClick, showMobileAvatars, showMessagePreviews, onMarkRead, onStar, onDelete, hoverQuickActions, onContextMenu, onMove, onDragStart, isMobile, swipeLeftAction, swipeRightAction, onSwipeLeft, onSwipeRight, onLongPress }) {
   const { t } = useTranslation();
   const [hovered, setHovered] = useState(false);
   const [avatarHovered, setAvatarHovered] = useState(false);
@@ -4450,7 +4405,7 @@ function MessageRow({ message, selected, lastViewed, isChecked, selectionMode, s
           onStar={onStar}
           onDelete={onDelete}
           onMove={onMove}
-          onGtdDone={onGtdDone}
+          rowActionCtx={{ message }}
         />
       )}
       </div>
