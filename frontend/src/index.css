@@ -559,3 +559,21 @@ body, #root {
   border: 1px solid #7f9db9 !important;   /* XP field border */
   box-shadow: inset 1px 1px 1px rgba(0,0,0,0.07) !important;
 }
+
+/* The compose window is a dialog/window, so it gets a RAISED (outset) frame that pops out, unlike
+   the sunken content cards above. Keeps a soft drop shadow so it still separates from the app. */
+[data-mailflow-theme="win9x"] .compose-window {
+  border-radius: 0 !important;
+  border: 0 !important;
+  box-shadow:
+    inset -1px -1px 0 0 #0a0a0a,
+    inset  1px  1px 0 0 #ffffff,
+    inset -2px -2px 0 0 #808080,
+    inset  2px  2px 0 0 #dfdfdf,
+    3px 3px 10px rgba(0,0,0,0.35) !important;
+}
+[data-mailflow-theme="winxp"] .compose-window {
+  border-radius: 0 !important;
+  border: 1px solid #0055ea !important;   /* XP window frame blue */
+  box-shadow: 0 6px 22px rgba(0,0,0,0.4) !important;
+}

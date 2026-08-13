@@ -1608,6 +1608,7 @@ export default function ComposeModal() {
       )}
     <div
       ref={composeWindowRef}
+      className="compose-window"
       onKeyDown={handleKeyDown}
       style={maximized ? {
         position: 'fixed', top: 28, left: 28, right: 28, bottom: 28,
