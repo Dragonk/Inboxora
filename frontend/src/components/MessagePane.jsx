@@ -2328,7 +2328,7 @@ ${bodyContent}
       <div style={{ padding: isMobile ? '12px 0 0' : '24px 28px 0' }}>
 
         {/* Sender card — subject lives here as the card header */}
-        <div style={{
+        <div className="msg-card" style={{
           marginBottom: isMobile ? 12 : 24,
           marginLeft: isMobile ? 0 : undefined,
           marginRight: isMobile ? 0 : undefined,
@@ -2628,7 +2628,7 @@ ${bodyContent}
         <div style={{ padding: isMobile ? '0 0 16px' : '0 28px 24px' }}>
           {/* Unsubscribe banner — shown for newsletter messages that have a List-Unsubscribe header */}
           {message.list_unsubscribe && !message.unsubscribed_at && unsubscribeStatus !== 'done' && (
-            <div style={{
+            <div className="msg-notice" style={{
               marginBottom: 10, padding: '9px 14px',
               background: 'var(--bg-secondary)',
               border: '1px solid var(--border)',
@@ -2659,7 +2659,7 @@ ${bodyContent}
 
           {/* AI classify banner — shown for messages with no category signal when AI is available */}
           {!message.category && (categorizationEnabled || accounts.find(a => a.id === message.account_id)?.categorization_enabled) && aiStatus?.enabled && (
-            <div style={{
+            <div className="msg-notice" style={{
               marginBottom: 10, padding: '9px 14px',
               background: 'var(--bg-secondary)',
               border: '1px solid var(--border)',
@@ -2687,7 +2687,7 @@ ${bodyContent}
           )}
 
           {body.hasBlockedRemoteImages && (
-            <div style={{
+            <div className="msg-notice" style={{
               marginBottom: 10, padding: '9px 14px',
               background: 'var(--bg-secondary)',
               border: '1px solid var(--border)',
@@ -2727,7 +2727,7 @@ ${bodyContent}
               </div>
             </div>
           )}
-          <div style={{
+          <div className="msg-card" style={{
             position: 'relative',
             padding: '14px 16px 12px',
             background: 'white',
@@ -2818,7 +2818,7 @@ ${bodyContent}
           padding: isMobile ? '0 0px 16px' : '0 28px 24px',
         }}>
           {message.list_unsubscribe && !message.unsubscribed_at && unsubscribeStatus !== 'done' && (
-            <div style={{
+            <div className="msg-notice" style={{
               marginBottom: 10, padding: '9px 14px',
               background: 'var(--bg-secondary)', border: '1px solid var(--border)',
               borderLeft: '3px solid var(--text-tertiary)', borderRadius: 8,
@@ -2840,7 +2840,7 @@ ${bodyContent}
             </div>
           )}
           {!message.category && (categorizationEnabled || accounts.find(a => a.id === message.account_id)?.categorization_enabled) && aiStatus?.enabled && (
-            <div style={{
+            <div className="msg-notice" style={{
               marginBottom: 10, padding: '9px 14px',
               background: 'var(--bg-secondary)', border: '1px solid var(--border)',
               borderLeft: '3px solid var(--text-tertiary)', borderRadius: 8,
@@ -2859,7 +2859,7 @@ ${bodyContent}
               </button>
             </div>
           )}
-          <div style={{
+          <div className="msg-card" style={{
             margin: 0, padding: '14px 16px 12px',
             whiteSpace: 'pre-wrap', wordBreak: 'break-word',
             fontSize: 14, color: '#1a1a1a', lineHeight: 1.7,

@@ -526,3 +526,36 @@ body, #root {
 [data-mailflow-theme="win9x"] .compose-ccbcc-quickadd button {
   padding: 3px 9px !important;
 }
+
+/* Card panels + notice banners. The retro themes only reskin real form controls by default, so the
+   div-based sidebar selection (.nav-item), the message header/body cards (.msg-card), and the
+   message-pane notice banners (.msg-notice — unsubscribe, blocked-images) keep the modern
+   rounded/flat look. Flatten them to match. These carry inline border-radius, so overrides need
+   !important; bevels use box-shadow (no layout impact). */
+[data-mailflow-theme="win9x"] .nav-item { border-radius: 0 !important; }
+[data-mailflow-theme="win9x"] .nav-item-active {
+  background: #000080 !important;   /* classic selected-item navy + white */
+  color: #ffffff !important;
+}
+[data-mailflow-theme="win9x"] .msg-card,
+[data-mailflow-theme="win9x"] .msg-notice {
+  border-radius: 0 !important;
+  border: 0 !important;
+  box-shadow:                        /* sunken client edge, same as the retro fields */
+    inset -1px -1px 0 0 #ffffff,
+    inset  1px  1px 0 0 #808080,
+    inset -2px -2px 0 0 #dfdfdf,
+    inset  2px  2px 0 0 #0a0a0a !important;
+}
+
+[data-mailflow-theme="winxp"] .nav-item { border-radius: 0 !important; }
+[data-mailflow-theme="winxp"] .nav-item-active {
+  background: #316ac5 !important;    /* XP selection blue */
+  color: #ffffff !important;
+}
+[data-mailflow-theme="winxp"] .msg-card,
+[data-mailflow-theme="winxp"] .msg-notice {
+  border-radius: 0 !important;
+  border: 1px solid #7f9db9 !important;   /* XP field border */
+  box-shadow: inset 1px 1px 1px rgba(0,0,0,0.07) !important;
+}

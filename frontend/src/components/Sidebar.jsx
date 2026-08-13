@@ -1985,6 +1985,7 @@ export default function Sidebar() {
 function NavItem({ icon, label, active, collapsed, badge, onClick }) {
   return (
     <div
+      className={active ? 'nav-item nav-item-active' : 'nav-item'}
       onClick={onClick}
       onKeyDown={activateOnKey(onClick)}
       role="button"
