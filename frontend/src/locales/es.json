@@ -414,6 +414,7 @@
   "contextMenu": {
     "find": "Buscar",
     "open": "Abrir",
+    "openInNewWindow": "Abrir en ventana nueva",
     "markRead": "Marcar como leído",
     "markUnread": "Marcar como no leído",
     "star": "Destacar mensaje",
@@ -1524,5 +1525,9 @@
       "someday": "Algún día",
       "reference": "Referencia"
     }
+  },
+  "window": {
+    "minimize": "Minimizar",
+    "close": "Cerrar"
   }
 }

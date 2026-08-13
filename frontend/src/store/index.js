@@ -377,6 +377,60 @@ export const useStore = create((set, get) => ({
   composeData: null,
   openCompose: (data = null) => set({ composing: true, composeData: data }),
   closeCompose: () => set({ composing: false, composeData: null }),
+
+  // Detached message windows (#219): floating, draggable/resizable in-app windows
+  // that each show one message via a MessagePane instance. Desktop-only; mounted by
+  // WindowLayer. `_winSeq` is a monotonic counter serving as both a unique id source
+  // and the z-order stamp (higher = on top / more recently focused).
+  messageWindows: [],
+  _winSeq: 0,
+  openMessageWindow: (messageId) => set(state => {
+    const seq = state._winSeq + 1;
+    // Re-opening a message that already has a window focuses + un-minimizes it
+    // rather than spawning a duplicate.
+    if (state.messageWindows.some(w => w.messageId === messageId)) {
+      return {
+        _winSeq: seq,
+        messageWindows: state.messageWindows.map(w =>
+          w.messageId === messageId ? { ...w, minimized: false, z: seq } : w),
+      };
+    }
+    const vw = typeof window !== 'undefined' ? window.innerWidth : 1280;
+    const vh = typeof window !== 'undefined' ? window.innerHeight : 800;
+    const w = Math.min(660, Math.max(360, vw - 80));
+    const h = Math.min(740, Math.max(280, vh - 80));
+    // Cascade each new window down-right so they don't stack exactly on top.
+    const cascade = (state.messageWindows.length % 6) * 28;
+    const x = Math.max(12, Math.min(vw - w - 12, Math.round((vw - w) / 2) - 80 + cascade));
+    const y = Math.max(12, Math.min(vh - h - 12, 72 + cascade));
+    return {
+      _winSeq: seq,
+      messageWindows: [...state.messageWindows, { winId: `mw-${seq}`, messageId, x, y, w, h, z: seq, minimized: false }],
+    };
+  }),
+  closeMessageWindow: (winId) => set(state => ({
+    messageWindows: state.messageWindows.filter(w => w.winId !== winId),
+  })),
+  focusMessageWindow: (winId) => set(state => {
+    const seq = state._winSeq + 1;
+    return {
+      _winSeq: seq,
+      messageWindows: state.messageWindows.map(w => w.winId === winId ? { ...w, z: seq } : w),
+    };
+  }),
+  setMessageWindowMinimized: (winId, minimized) => set(state => {
+    const seq = state._winSeq + 1;
+    return {
+      _winSeq: seq,
+      // Restoring (minimized=false) also brings the window to the front.
+      messageWindows: state.messageWindows.map(w =>
+        w.winId === winId ? { ...w, minimized, z: minimized ? w.z : seq } : w),
+    };
+  }),
+  updateMessageWindowRect: (winId, rect) => set(state => ({
+    messageWindows: state.messageWindows.map(w => w.winId === winId ? { ...w, ...rect } : w),
+  })),
+  closeAllMessageWindows: () => set({ messageWindows: [] }),
   searchQuery: '',
   setSearchQuery: (q) => set({ searchQuery: q }),
   isSearching: false,

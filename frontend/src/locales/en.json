@@ -414,6 +414,7 @@
   "contextMenu": {
     "find": "Find",
     "open": "Open",
+    "openInNewWindow": "Open in new window",
     "markRead": "Mark as read",
     "markUnread": "Mark as unread",
     "star": "Star message",
@@ -1524,5 +1525,9 @@
       "someday": "Someday",
       "reference": "Reference"
     }
+  },
+  "window": {
+    "minimize": "Minimize",
+    "close": "Close"
   }
 }

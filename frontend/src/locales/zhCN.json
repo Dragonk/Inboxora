@@ -414,6 +414,7 @@
   "contextMenu": {
     "find": "查找",
     "open": "打开",
+    "openInNewWindow": "在新窗口中打开",
     "markRead": "标为已读",
     "markUnread": "标为未读",
     "star": "加星标",
@@ -1524,5 +1525,9 @@
       "someday": "将来",
       "reference": "参考"
     }
+  },
+  "window": {
+    "minimize": "最小化",
+    "close": "关闭"
   }
 }

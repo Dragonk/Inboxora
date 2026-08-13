@@ -106,6 +106,7 @@ export default function MessageList() {
     markReadBehavior, markReadDelay,
     searchAllFolders,
     activeGtdTab, setActiveGtdTab, gtdSections, enabledPlugins,
+    openMessageWindow,
   } = useStore();
   // GTD's UI surfaces (pills, rail, per-row "done") gate on the GTD plugin being activated for the
   // user, on top of each account's gtd_enabled — deactivating hides them entirely.
@@ -1794,6 +1795,9 @@ export default function MessageList() {
       case 'open':
         handleSelect(message);
         break;
+      case 'openWindow':
+        handleOpenInWindow(message);
+        break;
       case 'markRead': {
         const uc = parseInt(message.unread_count);
         const threadUnread = Number.isFinite(uc) && uc > 0;
@@ -2086,36 +2090,51 @@ export default function MessageList() {
     api.getMessageBody(message.id).catch(() => {});
     setSelectedMessage(message.id);
     listRef.current?.focus({ preventScroll: true });
+    markMessageReadOnOpen(message);
+  };
+
+  // Mark a message read when it is opened, honoring the manual/delay/instant setting.
+  // Shared by the main-pane selection (handleSelect) and the detached-window open
+  // path (#219) so both routes behave identically.
+  const markMessageReadOnOpen = (message) => {
     clearTimeout(autoMarkReadTimerRef.current);
     autoMarkReadTimerRef.current = null;
-    if (!message.is_read && markReadBehavior !== 'manual') {
-      const prevUnread = message.unread_count;
-      const doMarkRead = () => {
-        updateMessage(message.id, { is_read: true, unread_count: 0 });
-        decrementUnread(message.account_id);
-        adjustCategoryCount(message.category, -1);
-        setPending(message.id, message.account_id);
-        api.bulkRead([message.id], true)
-          .catch(() => api.bulkRead([message.id], true))
-          .then(() => {
-            pendingMarkReadMap.delete(message.id);
-            completedMarkReadMap.set(message.id, message.account_id);
-            setTimeout(() => completedMarkReadMap.delete(message.id), 10000);
-          })
-          .catch(e => {
-            console.error('markRead failed:', e.message);
-            updateMessage(message.id, { is_read: false, unread_count: prevUnread });
-            incrementUnread(message.account_id);
-            adjustCategoryCount(message.category, 1);
-            pendingMarkReadMap.delete(message.id);
-          });
-      };
-      if (markReadBehavior === 'delay') {
-        autoMarkReadTimerRef.current = setTimeout(doMarkRead, markReadDelay * 1000);
-      } else {
-        doMarkRead();
-      }
+    if (message.is_read || markReadBehavior === 'manual') return;
+    const prevUnread = message.unread_count;
+    const doMarkRead = () => {
+      updateMessage(message.id, { is_read: true, unread_count: 0 });
+      decrementUnread(message.account_id);
+      adjustCategoryCount(message.category, -1);
+      setPending(message.id, message.account_id);
+      api.bulkRead([message.id], true)
+        .catch(() => api.bulkRead([message.id], true))
+        .then(() => {
+          pendingMarkReadMap.delete(message.id);
+          completedMarkReadMap.set(message.id, message.account_id);
+          setTimeout(() => completedMarkReadMap.delete(message.id), 10000);
+        })
+        .catch(e => {
+          console.error('markRead failed:', e.message);
+          updateMessage(message.id, { is_read: false, unread_count: prevUnread });
+          incrementUnread(message.account_id);
+          adjustCategoryCount(message.category, 1);
+          pendingMarkReadMap.delete(message.id);
+        });
+    };
+    if (markReadBehavior === 'delay') {
+      autoMarkReadTimerRef.current = setTimeout(doMarkRead, markReadDelay * 1000);
+    } else {
+      doMarkRead();
     }
+  };
+
+  // Open a message in a detached floating window (#219). Warms the body cache and marks
+  // it read (like a normal open) without disturbing the main-pane selection.
+  const handleOpenInWindow = (message) => {
+    if (!message || isMobile) return;
+    openMessageWindow(message.id);
+    api.getMessageBody(message.id).catch(() => {});
+    markMessageReadOnOpen(message);
   };
 
   const handleThreadClick = async (message) => {
@@ -3354,6 +3373,7 @@ export default function MessageList() {
                 showMobileAvatars={showMobileAvatars}
                 showMessagePreviews={showMessagePreviews}
                 onSelect={handleSelect}
+                onOpenWindow={!isMobile ? handleOpenInWindow : undefined}
                 onMarkRead={handleThreadMarkRead}
                 onStar={handleStar}
                 onDelete={handleDelete}
@@ -3391,6 +3411,7 @@ export default function MessageList() {
                 showAccount={false} /* No per-account dot on unified rows: it added noise beside the unread indicator; the account is visible in the message pane header. */
                 isNarrow={isNarrow}
                 onSelect={handleSelect}
+                onOpenWindow={!isMobile ? handleOpenInWindow : undefined}
                 onToggleSelect={handleRowToggleSelect}
                 onRangeSelect={handleRangeSelect}
                 onAvatarClick={!isMobile ? handleAvatarClick : undefined}
@@ -3828,7 +3849,7 @@ function EmptyState({ folderSyncing, searchQuery, unreadOnly, selectedFolder, ac
   );
 }
 
-function ThreadRow({ message, isExpanded, threadMsgs, isLoadingThread, selectedMessageId, selectedMid, lastViewedMessageId, showAccount, isNarrow, onThreadClick, showMobileAvatars, showMessagePreviews, onSelect, onMarkRead, onStar, onDelete, hoverQuickActions, onContextMenu, onMove, isMobile, swipeLeftAction, swipeRightAction, onSwipeLeft, onSwipeRight, isChecked, selectionMode, onToggleSelect, onRangeSelect, onLongPress }) {
+function ThreadRow({ message, isExpanded, threadMsgs, isLoadingThread, selectedMessageId, selectedMid, lastViewedMessageId, showAccount, isNarrow, onThreadClick, showMobileAvatars, showMessagePreviews, onSelect, onOpenWindow, onMarkRead, onStar, onDelete, hoverQuickActions, onContextMenu, onMove, isMobile, swipeLeftAction, swipeRightAction, onSwipeLeft, onSwipeRight, isChecked, selectionMode, onToggleSelect, onRangeSelect, onLongPress }) {
   const { t } = useTranslation();
   const [hovered, setHovered] = useState(false);
   const messageCount = message.message_count || 1;
@@ -4061,6 +4082,7 @@ function ThreadRow({ message, isExpanded, threadMsgs, isLoadingThread, selectedM
             <div
               key={msg.id}
               onClick={e => { e.stopPropagation(); if (!selectionMode) onSelect(msg); }}
+              onDoubleClick={onOpenWindow ? (e => { e.stopPropagation(); onOpenWindow(msg); }) : undefined}
               onContextMenu={!isMobile ? (e => { e.preventDefault(); onContextMenu(e, msg); }) : undefined}
               style={{
                 display: 'flex', alignItems: 'flex-start', gap: 8,
@@ -4108,7 +4130,7 @@ function ThreadRow({ message, isExpanded, threadMsgs, isLoadingThread, selectedM
   );
 }
 
-function MessageRow({ message, selected, lastViewed, isChecked, selectionMode, showAccount, isNarrow, onSelect, onToggleSelect, onRangeSelect, onAvatarClick, showMobileAvatars, showMessagePreviews, onMarkRead, onStar, onDelete, hoverQuickActions, onContextMenu, onMove, onDragStart, isMobile, swipeLeftAction, swipeRightAction, onSwipeLeft, onSwipeRight, onLongPress }) {
+function MessageRow({ message, selected, lastViewed, isChecked, selectionMode, showAccount, isNarrow, onSelect, onOpenWindow, onToggleSelect, onRangeSelect, onAvatarClick, showMobileAvatars, showMessagePreviews, onMarkRead, onStar, onDelete, hoverQuickActions, onContextMenu, onMove, onDragStart, isMobile, swipeLeftAction, swipeRightAction, onSwipeLeft, onSwipeRight, onLongPress }) {
   const { t } = useTranslation();
   const [hovered, setHovered] = useState(false);
   const [avatarHovered, setAvatarHovered] = useState(false);
@@ -4185,6 +4207,7 @@ function MessageRow({ message, selected, lastViewed, isChecked, selectionMode, s
         draggable={!isMobile}
         onDragStart={!isMobile ? (e) => onDragStart(e, message) : undefined}
         onClick={handleClick}
+        onDoubleClick={onOpenWindow ? (() => onOpenWindow(message)) : undefined}
         onContextMenu={!isMobile ? (e => onContextMenu(e, message)) : undefined}
         style={{
           padding: 'var(--layout-row-py, 11px) var(--layout-row-px, 14px)',

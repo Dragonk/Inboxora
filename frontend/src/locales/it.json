@@ -414,6 +414,7 @@
   "contextMenu": {
     "find": "Trova",
     "open": "Apri",
+    "openInNewWindow": "Apri in una nuova finestra",
     "markRead": "Segna come letto",
     "markUnread": "Segna come non letto",
     "star": "Segna messaggio con stella",
@@ -1524,5 +1525,9 @@
       "someday": "Un giorno",
       "reference": "Riferimento"
     }
+  },
+  "window": {
+    "minimize": "Riduci a icona",
+    "close": "Chiudi"
   }
 }

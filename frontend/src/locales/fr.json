@@ -414,6 +414,7 @@
   "contextMenu": {
     "find": "Rechercher",
     "open": "Ouvrir",
+    "openInNewWindow": "Ouvrir dans une nouvelle fenêtre",
     "markRead": "Marquer comme lu",
     "markUnread": "Marquer comme non lu",
     "star": "Ajouter une étoile",
@@ -1524,5 +1525,9 @@
       "someday": "Un jour",
       "reference": "Référence"
     }
+  },
+  "window": {
+    "minimize": "Réduire",
+    "close": "Fermer"
   }
 }

@@ -631,3 +631,54 @@ body, #root {
   box-shadow: inset 0 -2px 0 0 currentColor !important;
   font-weight: 700 !important;
 }
+
+/* ── Detached message windows (#219) ──────────────────────────────────────────
+   Floating, draggable/resizable in-app windows that each show one message. */
+.mailflow-window-btn:hover {
+  background: var(--bg-hover, rgba(127, 127, 127, 0.15));
+  color: var(--text-primary);
+}
+.mailflow-window-min:hover { border-color: var(--accent); }
+.mailflow-window-min button:hover {
+  background: var(--bg-hover, rgba(127, 127, 127, 0.15));
+  color: var(--text-primary);
+}
+
+/* Retro themes: give the window a raised era frame (matching .compose-window) and
+   square every corner inside it, so it reads as a period window, not a modern card. */
+[data-mailflow-theme="win9x"] .mailflow-window {
+  border-radius: 0 !important;
+  border: 0 !important;
+  box-shadow:
+    inset -1px -1px 0 0 #0a0a0a,
+    inset  1px  1px 0 0 #ffffff,
+    inset -2px -2px 0 0 #808080,
+    inset  2px  2px 0 0 #dfdfdf,
+    3px 3px 10px rgba(0,0,0,0.35) !important;
+}
+[data-mailflow-theme="winxp"] .mailflow-window {
+  border-radius: 0 !important;
+  border: 1px solid #0055ea !important;
+  box-shadow: 0 6px 22px rgba(0,0,0,0.4) !important;
+}
+[data-mailflow-theme="win9x"] .mailflow-window *,
+[data-mailflow-theme="winxp"] .mailflow-window *,
+[data-mailflow-theme="win9x"] .mailflow-window-min,
+[data-mailflow-theme="winxp"] .mailflow-window-min {
+  border-radius: 0 !important;
+}
+/* Active-window title bar accent in the era selection colors. */
+[data-mailflow-theme="win9x"] .mailflow-window-titlebar {
+  background: #000080 !important;
+}
+[data-mailflow-theme="win9x"] .mailflow-window-titlebar,
+[data-mailflow-theme="win9x"] .mailflow-window-titlebar .mailflow-window-btn {
+  color: #ffffff !important;
+}
+[data-mailflow-theme="winxp"] .mailflow-window-titlebar {
+  background: linear-gradient(#0055ea, #2f7bee) !important;
+}
+[data-mailflow-theme="winxp"] .mailflow-window-titlebar,
+[data-mailflow-theme="winxp"] .mailflow-window-titlebar .mailflow-window-btn {
+  color: #ffffff !important;
+}

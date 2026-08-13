@@ -90,16 +90,28 @@ function fileIcon(type) {
   );
 }
 
-export default function MessagePane() {
+export default function MessagePane({ windowMessageId = null, onWindowClose = null } = {}) {
   const { t } = useTranslation();
   const {
-    messages, searchResults, searchQuery, selectedMessageId, setSelectedMessage,
+    messages, searchResults, searchQuery, selectedMessageId: globalSelectedId, setSelectedMessage,
     updateMessage, removeMessage, decrementUnread, incrementUnread, openCompose, accounts, addNotification,
     imageWhitelist, addToImageWhitelist, blockRemoteImages, threadMessages,
     replyDefault, shortcuts, recentFolders, favoriteFolders, todoistConnected,
     categorizationEnabled, setCategoryCounts, adjustCategoryCount,
     aiActions, setShowAdmin, setAdminTab,
   } = useStore();
+
+  // Detached-window mode (#219): when a message id is passed in, this pane renders that
+  // specific message independently of the global list selection. Shadowing selectedMessageId
+  // lets the entire component below run unchanged — for the main reading pane windowMode is
+  // false and selectedMessageId === the global selection, so behavior is byte-identical.
+  const windowMode = windowMessageId != null;
+  const selectedMessageId = windowMode ? windowMessageId : globalSelectedId;
+  // Closing actions (archive/trash/move/spam/snooze) should dismiss the window they run in;
+  // in the main pane this is a no-op and the store's own selection handling applies.
+  const closeWindowIfWindowed = useCallback(() => {
+    if (windowMode) onWindowClose?.();
+  }, [windowMode, onWindowClose]);
 
   const isMobile = useMobile();
   const defaultReplyAll = replyDefault === 'replyAll';
@@ -211,6 +223,17 @@ export default function MessagePane() {
     setResolvedSubject(null);
   }, [message?.id]);
 
+  // In window mode, if the message leaves the store (archived/moved from another view,
+  // a background sync, or an action taken here), close the window rather than showing an
+  // empty pane. The ref guards the initial mount, where the store copy can momentarily be
+  // absent, from self-closing before the message has ever resolved.
+  const sawMessageRef = useRef(false);
+  useEffect(() => {
+    if (!windowMode) return;
+    if (message) { sawMessageRef.current = true; return; }
+    if (sawMessageRef.current) onWindowClose?.();
+  }, [windowMode, message, onWindowClose]);
+
   // Antispam (v0.1) — toolbar visibility for the spam / ham buttons.
   // Mirrors the heuristic in ContextMenu.jsx so the toolbar matches the menu.
   const account = accounts.find(a => a.id === message?.account_id);
@@ -232,6 +255,7 @@ export default function MessagePane() {
     if (!message) return;
     const wasUnread = !message.is_read;
     removeMessage(message.id);
+    closeWindowIfWindowed();
     if (wasUnread) decrementUnread(message.account_id);
     let settled = false;
     const undo = () => {
@@ -259,7 +283,7 @@ export default function MessagePane() {
       body: message.subject || t('common.noSubject'),
       onUndo: undo,
     });
-  }, [message, removeMessage, decrementUnread, incrementUnread, addNotification, t]);
+  }, [message, removeMessage, decrementUnread, incrementUnread, addNotification, t, closeWindowIfWindowed]);
 
   const currentIdx = allMessages.findIndex(m => m.id === selectedMessageId);
   const hasPrev = currentIdx > 0;
@@ -306,8 +330,8 @@ export default function MessagePane() {
   // no flash of empty content between skeleton-gone and email-shown.
   const prepared = useMemo(() => {
     if (!USE_DIV_RENDER || !body?.html) return null;
-    return prepareEmailHtml(body.html, String(message?.id ?? 'preview'));
-  }, [body?.html, message?.id]);
+    return prepareEmailHtml(body.html, windowMode ? `w${message?.id ?? 'preview'}` : String(message?.id ?? 'preview'));
+  }, [body?.html, message?.id, windowMode]);
   const outerRef = useRef(null);
   const scaleRef = useRef(null);
   const innerRef = useRef(null);
@@ -1388,6 +1412,7 @@ ${bodyContent}
     setShowMovePicker(false);
     const moved = message;
     removeMessage(moved.id);
+    closeWindowIfWindowed();
     if (!moved.is_read) decrementUnread(moved.account_id);
     let undone = false;
     const timer = setTimeout(async () => {
@@ -1412,7 +1437,7 @@ ${bodyContent}
         if (!moved.is_read) incrementUnread(moved.account_id);
       },
     });
-  }, [message, removeMessage, decrementUnread, incrementUnread, addNotification, t]);
+  }, [message, removeMessage, decrementUnread, incrementUnread, addNotification, t, closeWindowIfWindowed]);
 
   // Close move picker when the selected message changes and handle click-outside
   useEffect(() => {
@@ -1450,6 +1475,9 @@ ${bodyContent}
     : [];
 
   if (!message) {
+    // A detached window with no message is mid-close (see auto-close effect above) —
+    // render nothing rather than the list's "select a message" placeholder.
+    if (windowMode) return null;
     return (
       <div style={{
         flex: 1, display: 'flex', flexDirection: 'column',
@@ -1502,6 +1530,7 @@ ${bodyContent}
     const deleted = message;
     setPendingDelete(deleted.id);
     removeMessage(deleted.id);
+    closeWindowIfWindowed();
     if (!deleted.is_read) decrementUnread(deleted.account_id);
     let undone = false;
     const timer = setTimeout(async () => {
@@ -1532,6 +1561,7 @@ ${bodyContent}
   const handleArchive = () => {
     const archived = message;
     removeMessage(archived.id);
+    closeWindowIfWindowed();
     if (!archived.is_read) decrementUnread(archived.account_id);
     let undone = false;
     const timer = setTimeout(async () => {
@@ -1645,6 +1675,7 @@ ${bodyContent}
         if (data) {
           const snoozedMsg = message;
           removeMessage(snoozedMsg.id);
+          closeWindowIfWindowed();
           if (!snoozedMsg.is_read) decrementUnread(snoozedMsg.account_id);
           addNotification({ title: t('message.snoozed.title'), body: snoozedMsg.subject || t('common.noSubject') });
           api.snoozeMessage(snoozedMsg.id, data).catch(err => {
