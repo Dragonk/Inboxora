@@ -577,3 +577,57 @@ body, #root {
   border: 1px solid #0055ea !important;   /* XP window frame blue */
   box-shadow: 0 6px 22px rgba(0,0,0,0.4) !important;
 }
+
+/* ── Settings modal (AdminPanel) ──────────────────────────────────────────────
+   Square every corner inside it (period-authentic), give the desktop window a raised frame, and
+   keep the tab / sub-tab buttons looking like nav — not the generic grey retro buttons — with a
+   clear active state. .admin-window is desktop-only (the mobile panel is full-screen edge-to-edge). */
+[data-mailflow-theme="win9x"] .admin-window {
+  border-radius: 0 !important;
+  border: 0 !important;
+  box-shadow:                            /* raised window frame + soft drop shadow */
+    inset -1px -1px 0 0 #0a0a0a,
+    inset  1px  1px 0 0 #ffffff,
+    inset -2px -2px 0 0 #808080,
+    inset  2px  2px 0 0 #dfdfdf,
+    3px 3px 12px rgba(0,0,0,0.4) !important;
+}
+[data-mailflow-theme="winxp"] .admin-window {
+  border-radius: 0 !important;
+  border: 1px solid #0055ea !important;
+  box-shadow: 0 8px 26px rgba(0,0,0,0.45) !important;
+}
+
+[data-mailflow-theme="win9x"] .admin-panel *,
+[data-mailflow-theme="winxp"] .admin-panel * {
+  border-radius: 0 !important;
+}
+
+/* Top-level tabs (menu items): flat nav; active = classic selection highlight. */
+[data-mailflow-theme="win9x"] .admin-panel .admin-tab,
+[data-mailflow-theme="winxp"] .admin-panel .admin-tab {
+  background: transparent !important;
+  box-shadow: none !important;
+  border: 0 !important;
+}
+[data-mailflow-theme="win9x"] .admin-panel .admin-tab.admin-tab-active {
+  background: #000080 !important;
+  color: #ffffff !important;
+}
+[data-mailflow-theme="winxp"] .admin-panel .admin-tab.admin-tab-active {
+  background: #316ac5 !important;
+  color: #ffffff !important;
+}
+
+/* Sub-tabs (submenu items): flat; the active one gets a bottom-border underline + bold. */
+[data-mailflow-theme="win9x"] .admin-panel .admin-subtab,
+[data-mailflow-theme="winxp"] .admin-panel .admin-subtab {
+  background: transparent !important;
+  box-shadow: none !important;
+  border: 0 !important;
+}
+[data-mailflow-theme="win9x"] .admin-panel .admin-subtab.admin-subtab-active,
+[data-mailflow-theme="winxp"] .admin-panel .admin-subtab.admin-subtab-active {
+  box-shadow: inset 0 -2px 0 0 currentColor !important;
+  font-weight: 700 !important;
+}

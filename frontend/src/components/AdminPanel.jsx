@@ -5517,6 +5517,7 @@ function SubTabs({ tabs, initialTab }) {
         {tabs.map(tab => (
           <button
             key={tab.id}
+            className={active === tab.id ? 'admin-subtab admin-subtab-active' : 'admin-subtab'}
             onClick={() => setActive(tab.id)}
             style={{
               padding: '8px 16px',
@@ -8088,7 +8089,7 @@ export default function AdminPanel() {
 
   if (isMobile) {
     return (
-      <div style={{
+      <div className="admin-panel" style={{
         position: 'fixed', inset: 0, zIndex: 2000,
         background: 'var(--bg-secondary)',
         display: 'flex', flexDirection: 'column',
@@ -8133,6 +8134,7 @@ export default function AdminPanel() {
             {visibleTabs.map(tab => (
               <button
                 key={tab.id}
+                className={adminTab === tab.id && !searchResults ? 'admin-tab admin-tab-active' : 'admin-tab'}
                 onClick={() => handleTabClick(tab.id)}
                 style={{
                   display: 'flex', alignItems: 'center', gap: 6,
@@ -8181,7 +8183,7 @@ export default function AdminPanel() {
         animation: 'backdrop-enter var(--motion-fast) var(--ease-standard) both',
       }}
     >
-      <div style={{
+      <div className="admin-panel admin-window" style={{
         background: 'var(--bg-secondary)', border: '1px solid var(--border)',
         borderRadius: 16, width: '100%', maxWidth: 680,
         height: '82vh', maxHeight: 700, display: 'flex', overflow: 'hidden',
@@ -8220,6 +8222,7 @@ export default function AdminPanel() {
                   return (
                     <button
                       key={tab.id}
+                      className={isActive ? 'admin-tab admin-tab-active' : 'admin-tab'}
                       onClick={() => handleTabClick(tab.id)}
                       style={{
                         display: 'flex', alignItems: 'center', gap: 9,
