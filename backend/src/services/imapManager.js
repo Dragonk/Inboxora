@@ -18,6 +18,7 @@ import { generateVCard } from '../utils/vcard.js';
 import { randomUUID } from 'crypto';
 import { resolveThreadId } from './threading/threadingRepository.js';
 import { normalizedSubject } from './threading/threadingEngine.js';
+import { normalizeMessageId } from './threading/normalizeMessageId.js';
 
 
 // Shorthand for log lines — keeps domain visible while masking the local part.
@@ -2410,8 +2411,8 @@ export class ImapManager {
               text = body.text;
               atts = body.attachments;
             }
-            const msgId = sanitizeStr(parsed.messageId);
-            const inReplyTo = sanitizeStr(parsed.inReplyTo);
+            const msgId = normalizeMessageId(sanitizeStr(parsed.messageId));
+            const inReplyTo = normalizeMessageId(sanitizeStr(parsed.inReplyTo));
             const refs = sanitizeStr(parsed.references);
             const threadId = await computeThreadId(account.id, msgId, inReplyTo, refs, sanitizeStr(parsed.subject));
 
@@ -3066,8 +3067,8 @@ export class ImapManager {
                   atts = body.attachments;
                 }
 
-                const bfMsgId    = sanitizeStr(parsed.messageId);
-                const bfReplyTo  = sanitizeStr(parsed.inReplyTo);
+                const bfMsgId = normalizeMessageId(sanitizeStr(parsed.messageId));
+                const bfReplyTo = normalizeMessageId(sanitizeStr(parsed.inReplyTo));
                 const bfRefs     = sanitizeStr(parsed.references);
                 const bfThreadId = await computeThreadId(account.id, bfMsgId, bfReplyTo, bfRefs, sanitizeStr(parsed.subject));
 
