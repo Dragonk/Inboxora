@@ -16,6 +16,8 @@ import { getConnectionPolicy } from './connectionPolicy.js';
 import { applyInboxRules, applyBlockList } from './inboxRules.js';
 import { generateVCard } from '../utils/vcard.js';
 import { randomUUID } from 'crypto';
+import { resolveThreadId } from './threading/threadingRepository.js';
+import { normalizedSubject } from './threading/threadingEngine.js';
 
 
 // Shorthand for log lines — keeps domain visible while masking the local part.
@@ -826,82 +828,17 @@ function sanitizeStr(str) {
   return str.replace(/\0/g, '');
 }
 
-// Parse RFC 5322 References header into an ordered array of angle-bracketed Message-IDs.
-function parseReferences(refHeader) {
-  if (!refHeader) return [];
-  return refHeader.match(/<[^>]+>/g) || [];
-}
-
-// Strip common reply/forward prefixes (Re:, FW:, AW:, SV:, …) from a subject,
-// handling multiple nested levels, and return the lowercase core.
-const SUBJECT_PREFIX_RE = /^(?:re|fw|fwd|aw|sv|vs|tr|wg|ant|antw|ref|rif|ynt|odp|vb|atb)\s*:\s*/i;
-function normalizeSubject(subject) {
-  if (!subject) return '';
-  let s = subject.trim();
-  let prev;
-  do {
-    prev = s;
-    s = s.replace(SUBJECT_PREFIX_RE, '').trim();
-  } while (s !== prev);
-  return s.toLowerCase();
-}
-
-// Compute the thread_id for an incoming message.
-// Primary: RFC 5322 References / In-Reply-To header chain.
-// Fallback: subject normalization when headers are absent (e.g. Outlook RE: replies).
+// Compute the thread_id for an incoming message using account-scoped RFC 5322
+// ancestry, with the legacy subject heuristic retained only as an explicit fallback.
 async function computeThreadId(accountId, messageId, inReplyTo, references, subject) {
-  if (!messageId) return null;
-
-  const refIds = parseReferences(references);
-  const candidates = [...refIds];
-  if (inReplyTo && !candidates.includes(inReplyTo)) candidates.push(inReplyTo);
-
-  if (candidates.length > 0) {
-    // Fetch all candidates in one query instead of N sequential lookups.
-    // Priority: RFC 5322 root (candidates[0]) > newest ancestor (candidates[last]).
-    const rows = await query(
-      `SELECT message_id, thread_id FROM messages
-       WHERE account_id = $1 AND message_id = ANY($2) AND thread_id IS NOT NULL`,
-      [accountId, candidates]
-    );
-
-    if (rows.rows.length > 0) {
-      const found = new Map(rows.rows.map(r => [r.message_id, r.thread_id]));
-      // Prefer the thread root (first Reference per RFC 5322).
-      if (found.has(candidates[0])) return found.get(candidates[0]);
-      // Otherwise use the most recent ancestor present in the DB (newest→oldest).
-      for (let i = candidates.length - 1; i >= 0; i--) {
-        if (found.has(candidates[i])) return found.get(candidates[i]);
-      }
-    }
-
-    // Ancestor referenced but not yet in DB — use the root as a provisional thread_id.
-    // When it arrives its thread_id will equal its own message_id, so threads converge.
-    // Don't fall through to subject fallback; the header chain takes priority.
-    return candidates[0] || messageId;
-  }
-
-  // No RFC 5322 threading headers — fall back to subject normalization.
-  // Looks for the earliest message in the same account with the same normalized subject
-  // within the past 90 days and joins that thread.
-  const normalized = normalizeSubject(subject);
-  if (normalized) {
-    const subjectRow = await query(
-      `SELECT thread_id FROM messages
-       WHERE account_id = $1
-         AND is_deleted = false
-         AND message_id IS DISTINCT FROM $2
-         AND thread_id IS NOT NULL
-         AND normalized_subject = $3
-         AND date > NOW() - INTERVAL '90 days'
-       ORDER BY date ASC
-       LIMIT 1`,
-      [accountId, messageId, normalized]
-    );
-    if (subjectRow.rows.length > 0) return subjectRow.rows[0].thread_id;
-  }
-
-  return messageId;
+  return resolveThreadId({
+    accountId,
+    messageId,
+    inReplyTo,
+    references,
+    subject,
+    normalizeSubject: normalizedSubject,
+  });
 }
 
 // Ensure OAuth token is fresh before connecting
