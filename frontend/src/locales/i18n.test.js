@@ -160,7 +160,8 @@ const SAME_VALUE_ALLOWED = {
   'admin.aliases.emailPh':     [['de', 'en', 'ru', 'zhCN']],
   'admin.privacy.addDomainPh': [['de', 'en', 'pl', 'ru', 'zhCN']],
   'admin.privacy.addSenderPh': [['en', 'ru', 'zhCN']],
-  'admin.integrations.carddav.serverPh': [['en', 'pl']],
+  'admin.aliases.replyToLabel': [['en', 'pl']],
+
   'admin.rules.actionForwardPlaceholder': [['es', 'it']],
   'admin.sso.domainsPh':       [['de', 'en', 'pl', 'ru', 'zhCN']],
   'admin.users.invitePh':      [['de', 'en', 'ru', 'zhCN']],
@@ -322,7 +323,8 @@ const SAME_VALUE_ALLOWED = {
   // "Todoist" — brand name, same in all locales
   'admin.integrations.todoist.title': 'any',
   // "Beta" — same spelling in de, en, es, it; fr uses "Bêta", ru uses "Бета", zh uses "测试版"
-  'todoist.betaLabel': [['de', 'en', 'es', 'it']],
+  'todoist.betaLabel': [['de', 'en', 'es', 'it', 'pl']],
+
   // "Description" — same spelling in en and fr
   'todoist.description': [['en', 'fr']],
   // "Labels" — international loanword, same in de and en
