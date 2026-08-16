@@ -140,7 +140,7 @@ const SAME_VALUE_ALLOWED = {
   // "Version" — same spelling in de, en, fr
   'admin.about.version': [['de', 'en', 'fr']],
   // "{{n}} min" — the "min" abbreviation is shared in en, es, fr, it
-  'admin.lock.autoLockMin': [['en', 'es', 'fr', 'it']],
+  'admin.lock.autoLockMin': [['en', 'es', 'fr', 'it', 'pl']],
 
   // "Website" — international term, same in de and en
   'admin.about.website': [['de', 'en']],
@@ -157,13 +157,14 @@ const SAME_VALUE_ALLOWED = {
   // email placeholder — example.com address looks the same in en, ru, zhCN
   'admin.accounts.emailPh':    [['en', 'ru', 'zhCN']],
   'admin.aliases.emailPh':     [['de', 'en', 'ru', 'zhCN']],
-  'admin.privacy.addDomainPh': [['de', 'en', 'ru', 'zhCN']],
+  'admin.privacy.addDomainPh': [['de', 'en', 'pl', 'ru', 'zhCN']],
   'admin.privacy.addSenderPh': [['en', 'ru', 'zhCN']],
+  'admin.integrations.carddav.serverPh': [['en', 'pl']],
   'admin.rules.actionForwardPlaceholder': [['es', 'it']],
-  'admin.sso.domainsPh':       [['de', 'en', 'ru', 'zhCN']],
+  'admin.sso.domainsPh':       [['de', 'en', 'pl', 'ru', 'zhCN']],
   'admin.users.invitePh':      [['de', 'en', 'ru', 'zhCN']],
-  'compose.bccPh':             [['de', 'en', 'ru', 'zhCN']],
-  'compose.ccPh':              [['de', 'en', 'ru', 'zhCN']],
+  'compose.bccPh':             [['de', 'en', 'pl', 'ru', 'zhCN']],
+  'compose.ccPh':              [['de', 'en', 'pl', 'ru', 'zhCN']],
   'compose.toPh':              [['en', 'ru', 'zhCN']],
 
   // "Port" — universal technical term, same in de, en, fr
@@ -183,7 +184,7 @@ const SAME_VALUE_ALLOWED = {
   'admin.appearance.typographyDisplay': [['en', 'it']],
 
   // "Mono" — typography abbreviation, same in de, en, es, fr, it
-  'admin.appearance.typographyMono': [['de', 'en', 'es', 'fr', 'it']],
+  'admin.appearance.typographyMono': [['de', 'en', 'es', 'fr', 'it', 'pl']],
 
   // "Archive" — same spelling in en and fr
   'admin.folderMappings.archive': [['en', 'fr']],
@@ -235,7 +236,11 @@ const SAME_VALUE_ALLOWED = {
   'admin.sso.title': [['de', 'en', 'it']],
 
   // "SSO" — acronym, same in de, en, es, fr, it, ru
-  'admin.tabs.sso': [['de', 'en', 'es', 'fr', 'it', 'ru']],
+  'admin.tabs.sso': [['de', 'en', 'es', 'fr', 'it', 'pl', 'ru']],
+
+  // "Telefon" / "Projekt" — established Polish/German technical loanwords
+  'contacts.fields.phone': [['de', 'pl']],
+  'todoist.project':       [['de', 'pl']],
 
   // "Password" — international term, same in en and it
   'admin.systemEmail.password':      [['en', 'it']],
@@ -328,6 +333,22 @@ const SAME_VALUE_ALLOWED = {
   // "Media" — "Medium" translates identically in es and it (Romance languages)
   'todoist.priorityMedium': [['es', 'it']],
 };
+
+// Polish requires additional Intl.PluralRules categories that are not present
+// in the other locale files. These keys intentionally remain pl-only.
+const LOCALE_SPECIFIC_KEYS = new Set([
+  'message.attachment_few', 'message.attachment_many',
+  'messageList.bulkDeleted.title_few', 'messageList.bulkDeleted.title_many',
+  'messageList.bulkDeleted.failBody_few', 'messageList.bulkDeleted.failBody_many',
+  'messageList.bulkMoved.title_few', 'messageList.bulkMoved.title_many',
+  'messageList.bulkMoved.failBody_few', 'messageList.bulkMoved.failBody_many',
+  'messageList.bulkArchived.title_few', 'messageList.bulkArchived.title_many',
+  'messageList.bulkArchived.failBody_few', 'messageList.bulkArchived.failBody_many',
+  'sidebar.hiddenFolders_few', 'sidebar.hiddenFolders_many',
+  'admin.messageList.markReadDelaySeconds_one',
+  'admin.messageList.markReadDelaySeconds_few',
+  'admin.messageList.markReadDelaySeconds_many',
+]);
 
 // Keys referenced dynamically (via a variable passed to t()) that cannot be
 // found by a plain text search of the source. Add here to suppress false
@@ -541,7 +562,7 @@ function isAllowedPair(key, lang1, lang2) {
 
 const locales = loadLocales();
 const langs = Object.keys(locales).sort();
-const allKeys = [...new Set(langs.flatMap(l => Object.keys(locales[l])))].sort();
+const allKeys = [...new Set(langs.flatMap(l => Object.keys(locales[l])))].filter(k => !LOCALE_SPECIFIC_KEYS.has(k)).sort();
 
 describe('i18n locale files', () => {
 
@@ -565,6 +586,14 @@ describe('i18n locale files', () => {
     it('no unused keys', () => {
       const source = loadSourceText();
       const unused = allKeys.filter(k => !DYNAMIC_KEYS.has(k) && !source.includes(baseKey(k)));
+      for (const key of LOCALE_SPECIFIC_KEYS) {
+        assert.equal(typeof locales.pl?.[key], 'string', `pl is missing locale-specific key ${key}`);
+        assert.notEqual(locales.pl[key], '', `pl locale-specific key ${key} is empty`);
+        assert.equal(source.includes(baseKey(key)), true, `locale-specific key ${key} is not referenced via its base key`);
+        for (const lang of langs) {
+          if (lang !== 'pl') assert.equal(locales[lang]?.[key], undefined, `${key} must exist only in pl`);
+        }
+      }
       assert.equal(unused.length, 0,
         `Unused keys (remove from all locale files or add to DYNAMIC_KEYS if referenced dynamically):\n${unused.map(k => `  - ${k}`).join('\n')}`);
     });
