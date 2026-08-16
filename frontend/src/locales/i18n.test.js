@@ -103,6 +103,7 @@ import assert from 'node:assert/strict';
 import { readFileSync, readdirSync } from 'node:fs';
 import { join, dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import i18next from 'i18next';
 
 const dir = dirname(fileURLToPath(import.meta.url));
 
@@ -334,21 +335,27 @@ const SAME_VALUE_ALLOWED = {
   'todoist.priorityMedium': [['es', 'it']],
 };
 
-// Polish requires additional Intl.PluralRules categories that are not present
-// in the other locale files. These keys intentionally remain pl-only.
-const LOCALE_SPECIFIC_KEYS = new Set([
-  'message.attachment_few', 'message.attachment_many',
-  'messageList.bulkDeleted.title_few', 'messageList.bulkDeleted.title_many',
-  'messageList.bulkDeleted.failBody_few', 'messageList.bulkDeleted.failBody_many',
-  'messageList.bulkMoved.title_few', 'messageList.bulkMoved.title_many',
-  'messageList.bulkMoved.failBody_few', 'messageList.bulkMoved.failBody_many',
-  'messageList.bulkArchived.title_few', 'messageList.bulkArchived.title_many',
-  'messageList.bulkArchived.failBody_few', 'messageList.bulkArchived.failBody_many',
-  'sidebar.hiddenFolders_few', 'sidebar.hiddenFolders_many',
-  'admin.messageList.markReadDelaySeconds_one',
-  'admin.messageList.markReadDelaySeconds_few',
-  'admin.messageList.markReadDelaySeconds_many',
-]);
+// Locale-specific plural forms are allowed per locale. A locale may add forms
+// required by its Intl.PluralRules categories without forcing every other locale
+// to carry unused keys. Existing locale files may also define their own forms.
+const LOCALE_SPECIFIC_KEYS_BY_LOCALE = {
+  pl: new Set([
+    'message.attachment_few', 'message.attachment_many',
+    'messageList.bulkDeleted.title_few', 'messageList.bulkDeleted.title_many',
+    'messageList.bulkDeleted.failBody_few', 'messageList.bulkDeleted.failBody_many',
+    'messageList.bulkMoved.title_few', 'messageList.bulkMoved.title_many',
+    'messageList.bulkMoved.failBody_few', 'messageList.bulkMoved.failBody_many',
+    'messageList.bulkArchived.title_few', 'messageList.bulkArchived.title_many',
+    'messageList.bulkArchived.failBody_few', 'messageList.bulkArchived.failBody_many',
+    'sidebar.hiddenFolders_few', 'sidebar.hiddenFolders_many',
+    'admin.messageList.markReadDelaySeconds_one',
+    'admin.messageList.markReadDelaySeconds_few',
+    'admin.messageList.markReadDelaySeconds_many',
+  ]),
+};
+const LOCALE_SPECIFIC_KEYS = new Set(
+  Object.values(LOCALE_SPECIFIC_KEYS_BY_LOCALE).flatMap(keys => [...keys]),
+);
 
 // Keys referenced dynamically (via a variable passed to t()) that cannot be
 // found by a plain text search of the source. Add here to suppress false
@@ -586,12 +593,11 @@ describe('i18n locale files', () => {
     it('no unused keys', () => {
       const source = loadSourceText();
       const unused = allKeys.filter(k => !DYNAMIC_KEYS.has(k) && !source.includes(baseKey(k)));
-      for (const key of LOCALE_SPECIFIC_KEYS) {
-        assert.equal(typeof locales.pl?.[key], 'string', `pl is missing locale-specific key ${key}`);
-        assert.notEqual(locales.pl[key], '', `pl locale-specific key ${key} is empty`);
-        assert.equal(source.includes(baseKey(key)), true, `locale-specific key ${key} is not referenced via its base key`);
-        for (const lang of langs) {
-          if (lang !== 'pl') assert.equal(locales[lang]?.[key], undefined, `${key} must exist only in pl`);
+      for (const [owner, keys] of Object.entries(LOCALE_SPECIFIC_KEYS_BY_LOCALE)) {
+        for (const key of keys) {
+          assert.equal(typeof locales[owner]?.[key], 'string', `${owner} is missing locale-specific key ${key}`);
+          assert.notEqual(locales[owner][key], '', `${owner} locale-specific key ${key} is empty`);
+          assert.equal(source.includes(baseKey(key)), true, `locale-specific key ${key} is not referenced via its base key`);
         }
       }
       assert.equal(unused.length, 0,
@@ -664,4 +670,34 @@ describe('i18n locale files', () => {
     });
   });
 
+});
+
+describe('Polish plural resolution', () => {
+  it('selects one/few/many forms for representative Polish counts', async () => {
+    const instance = i18next.createInstance();
+    await instance.init({
+      lng: 'pl',
+      fallbackLng: false,
+      resources: {
+        pl: { translation: JSON.parse(readFileSync(join(dir, 'pl.json'), 'utf8')) },
+      },
+      interpolation: { escapeValue: false },
+    });
+
+    const expected = new Map([
+      [1, '1 załącznik'],
+      [2, '2 załączniki'],
+      [5, '5 załączników'],
+      [21, '21 załączników'],
+      [22, '22 załączniki'],
+      [25, '25 załączników'],
+      [101, '101 załączników'],
+      [102, '102 załączniki'],
+      [111, '111 załączników'],
+    ]);
+
+    for (const [count, value] of expected) {
+      assert.equal(instance.t('message.attachment', { count }), value, `count=${count}`);
+    }
+  });
 });
