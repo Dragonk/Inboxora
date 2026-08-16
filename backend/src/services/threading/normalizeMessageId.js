@@ -10,7 +10,6 @@ export function normalizeMessageId(value) {
   const angleWrapped = text.match(/^<([^<>]*)>$/);
   const candidate = (angleWrapped ? angleWrapped[1] : text).trim();
   if (!candidate || candidate.length > MAX_MESSAGE_ID_LENGTH) return null;
-  // Folding/unfolding belongs to header parsing; whitespace is not valid inside msg-id.
   if (/\s/.test(candidate) || /[^\x21-\x7e]/.test(candidate) || /[<>]/.test(candidate)) return null;
   return `<${candidate}>`;
 }
@@ -28,4 +27,11 @@ export function normalizeMessageIdList(value) {
     }
   }
   return ids;
+}
+
+export function messageIdLookupVariants(value) {
+  const normalized = normalizeMessageId(value);
+  if (!normalized) return [];
+  const bare = normalized.slice(1, -1);
+  return [normalized, bare];
 }

@@ -1,18 +1,24 @@
 import { query } from '../db.js';
-import { normalizeMessageId, normalizeMessageIdList } from './normalizeMessageId.js';
+import { normalizeMessageId, normalizeMessageIdList, messageIdLookupVariants } from './normalizeMessageId.js';
 
 export async function findThreadParents(accountId, messageIds) {
   const ids = [...new Set(messageIds.map(normalizeMessageId).filter(Boolean))];
   if (!accountId || !ids.length) return new Map();
+  const variants = [...new Set(ids.flatMap(messageIdLookupVariants))];
   const result = await query(
     `SELECT message_id, thread_id
        FROM messages
       WHERE account_id = $1
         AND message_id = ANY($2::text[])
         AND thread_id IS NOT NULL`,
-    [accountId, ids]
+    [accountId, variants]
   );
-  return new Map(result.rows.map(row => [row.message_id, row.thread_id]));
+  const found = new Map();
+  for (const row of result.rows) {
+    const normalized = normalizeMessageId(row.message_id);
+    if (normalized && !found.has(normalized)) found.set(normalized, row.thread_id);
+  }
+  return found;
 }
 
 export async function findSubjectThread(accountId, messageId, normalized) {
