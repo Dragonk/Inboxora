@@ -132,6 +132,15 @@ describe('subject prefixing', () => {
 });
 
 describe('references chain', () => {
+  it('preserves the full stored References chain before the selected parent', async () => {
+    const h = harness();
+    await openReplyFromMessage(
+      { account_id: 'a', reply_to: [], from_email: 'f@example.com', thread_references: '<root> <parent>', in_reply_to: '<parent>', message_id: '<child>' },
+      { accounts: [], openCompose: h.openCompose, getMessageBody: h.getMessageBody },
+    );
+    assert.equal(h.payload().references, '<root> <parent> <child>');
+  });
+
   it('joins in_reply_to and message_id', async () => {
     const h = harness();
     await openReplyFromMessage(

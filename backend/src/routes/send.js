@@ -102,6 +102,23 @@ function sanitizeHeaderValue(value) {
   return value.replace(/[\r\n\0]/g, '').trim();
 }
 
+function normalizeMessageId(value) {
+  if (typeof value !== 'string') return null;
+  const match = value.trim().match(/^<([^<>\s]+)>$/) || value.trim().match(/^([^<>\s]+)$/);
+  return match ? `<${match[1]}>` : null;
+}
+
+function buildOutgoingReferences(references, inReplyTo) {
+  const values = [];
+  const seen = new Set();
+  const raw = [references, inReplyTo].filter(v => typeof v === 'string').join(' ');
+  for (const token of raw.matchAll(/<[^<>\s]+>|[^<>\s]+/g)) {
+    const id = normalizeMessageId(token[0]);
+    if (id && !seen.has(id)) { seen.add(id); values.push(id); }
+  }
+  return values.slice(-20).join(' ');
+}
+
 function textToHtml(text) {
   return '<div style="font-family:sans-serif;font-size:14px;line-height:1.6">' +
     text.split('\n').map(l => `<p style="margin:0">${escapeHtml(l) || '&nbsp;'}</p>`).join('') +
@@ -295,7 +312,7 @@ router.post('/send', async (req, res) => {
     if (inReplyTo) {
       mailOptions.inReplyTo = sanitizeHeaderValue(inReplyTo);
       // Use the full prior references chain if available; fall back to just inReplyTo.
-      mailOptions.references = sanitizeHeaderValue(references || inReplyTo);
+      mailOptions.references = buildOutgoingReferences(references, inReplyTo);
     }
     const allAttachments = [
       ...inlineImageAttachments,
