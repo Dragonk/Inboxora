@@ -61,6 +61,10 @@ export async function upsertConversationCopy(copy, { identities = [], provider =
     if (override.merge?.target_id) requestedConversationId = await resolveConversationAlias(client, { userId: hydrated.userId, conversationId: override.merge.target_id });
     if (override.split?.target_id) requestedConversationId = await resolveConversationAlias(client, { userId: hydrated.userId, conversationId: override.split.target_id });
     if (override.forceExclude) conversationId = null;
+    if (override.forceExclude) {
+      await client.query('UPDATE messages SET logical_message_id = NULL, conversation_id = NULL, conversation_user_id = NULL, canonical_message_id = NULL, threading_reason = $1, threading_confidence = 0 WHERE id = $2', ['manual-force-exclude', source.id]);
+      return { logicalMessageId: null, conversationId: null, kind: 'excluded', canonicalSubject: hydrated.canonicalSubject };
+    }
     if (override.forceInclude?.target_id) requestedConversationId = await resolveConversationAlias(client, { userId: hydrated.userId, conversationId: override.forceInclude.target_id });
     if (override.locked && conversationId) requestedConversationId = await resolveConversationAlias(client, { userId: hydrated.userId, conversationId });
     if (requestedConversationId) conversationId = requestedConversationId;

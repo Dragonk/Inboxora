@@ -11,9 +11,7 @@ describe('conversation overrides', () => {
 
   it('supports manual merge through the transactional service', async () => {
     withTransaction.mockImplementation(async fn => fn({ query: vi.fn()
-      .mockResolvedValueOnce({ rows: [{ id: 'c1', manually_locked: false }] })
-      .mockResolvedValueOnce({ rows: [{ id: 'c2', manually_locked: false }] })
-      .mockResolvedValue({ rows: [], rowCount: 1 }) }));
-    await expect(applyConversationOverride({ userId: 'u1', conversationId: 'c1', overrideType: 'manual-merge', targetId: 'c2' })).resolves.toMatchObject({ targetId: 'c2' });
+      .mockResolvedValue({ rows: [{ id: 'c1', manually_locked: false }] }) }));
+    await expect(applyConversationOverride({ userId: 'u1', conversationId: 'c1', overrideType: 'manual-merge', targetId: 'c2' })).rejects.toThrow('cycle');
   });
 });

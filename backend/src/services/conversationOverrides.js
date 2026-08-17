@@ -1,21 +1,11 @@
 import { query, withTransaction } from './db.js';
-import { assertConversationOwner, refreshConversationAggregates } from './conversationOverridePolicy.js';
+import { assertConversationOwner, refreshConversationAggregates, resolveConversationAlias } from './conversationOverridePolicy.js';
 
 const OVERRIDE_TYPES = new Set(['force-include', 'force-exclude', 'manual-split', 'manual-merge', 'lock-conversation']);
 
 export function validateOverrideType(value) {
   if (!OVERRIDE_TYPES.has(value)) throw new Error('Unsupported conversation override type');
   return value;
-}
-
-async function ownedConversation(client, userId, conversationId) {
-  const result = await client.query('SELECT id, manually_locked FROM conversations WHERE id = $1 AND user_id = $2 FOR UPDATE', [conversationId, userId]);
-  if (!result.rows[0]) {
-    const error = new Error('Conversation not found');
-    error.statusCode = 404;
-    throw error;
-  }
-  return result.rows[0];
 }
 
 export async function applyConversationOverride({ userId, conversationId, logicalMessageId = null, overrideType, targetId = null, reason = null }) {
@@ -32,13 +22,17 @@ export async function applyConversationOverride({ userId, conversationId, logica
     }
     if (overrideType === 'manual-merge') {
       if (!targetId || targetId === conversationId) throw new Error('manual-merge requires a different target conversation');
-      await ownedConversation(client, userId, targetId);
-      await client.query('INSERT INTO conversation_aliases (user_id, alias_conversation_id, canonical_conversation_id, reason) VALUES ($1,$2,$3,$4) ON CONFLICT (user_id, alias_conversation_id) DO UPDATE SET canonical_conversation_id = EXCLUDED.canonical_conversation_id, reason = EXCLUDED.reason', [userId, conversationId, targetId, reason || 'manual-merge']);
-      await client.query('UPDATE messages SET conversation_id = $1, conversation_user_id = $2 WHERE conversation_id = $3 AND conversation_user_id = $2', [targetId, userId, conversationId]);
-      await client.query('UPDATE logical_messages SET conversation_id = $1 WHERE conversation_id = $2', [targetId, conversationId]);
-      await client.query('UPDATE conversation_evidence SET conversation_id = $1 WHERE conversation_id = $2', [targetId, conversationId]);
-      await refreshConversationAggregates(client, userId, targetId);
-      await refreshConversationAggregates(client, userId, conversationId);
+      const sourceCanonical = await resolveConversationAlias(client, { userId, conversationId });
+      const targetCanonical = await resolveConversationAlias(client, { userId, conversationId: targetId });
+      if (sourceCanonical === targetCanonical) throw new Error('manual-merge would create an alias cycle');
+      await assertConversationOwner(client, userId, targetCanonical);
+      await client.query('INSERT INTO conversation_aliases (user_id, alias_conversation_id, canonical_conversation_id, reason) VALUES ($1,$2,$3,$4) ON CONFLICT (user_id, alias_conversation_id) DO UPDATE SET canonical_conversation_id = EXCLUDED.canonical_conversation_id, reason = EXCLUDED.reason', [userId, sourceCanonical, targetCanonical, reason || 'manual-merge']);
+      await client.query('UPDATE messages SET conversation_id = $1, conversation_user_id = $2 WHERE conversation_id = $3 AND conversation_user_id = $2', [targetCanonical, userId, sourceCanonical]);
+      await client.query('UPDATE logical_messages SET conversation_id = $1 WHERE conversation_id = $2 AND user_id = $3', [targetCanonical, sourceCanonical, userId]);
+      await client.query('UPDATE conversation_evidence SET conversation_id = $1 WHERE conversation_id = $2 AND user_id = $3', [targetCanonical, sourceCanonical, userId]);
+      await refreshConversationAggregates(client, userId, targetCanonical);
+      await refreshConversationAggregates(client, userId, sourceCanonical);
+      targetId = targetCanonical;
     }
     if (overrideType === 'manual-split') {
       if (!logicalMessageId) throw new Error('manual-split requires logicalMessageId');
