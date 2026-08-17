@@ -2,12 +2,14 @@ import { Router } from 'express';
 import { query } from '../services/db.js';
 import { requireAuth } from '../middleware/auth.js';
 import { getConversationRebuildJob, startConversationRebuildJob, recordConversationRebuildAudit } from '../services/conversationRebuildJobs.js';
+import { consumeConversationRebuildRateLimit } from '../services/conversationRebuildRateLimit.js';
 
 const router = Router();
 router.use(requireAuth);
 
 router.post('/conversations/rebuild', async (req, res) => {
   const userId = req.session.userId;
+  await consumeConversationRebuildRateLimit(userId);
   const accountId = req.body?.accountId || null;
   if (accountId) {
     const owned = await query('SELECT 1 FROM email_accounts WHERE id = $1 AND user_id = $2', [accountId, userId]);
