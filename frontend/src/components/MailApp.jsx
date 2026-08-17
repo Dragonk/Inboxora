@@ -81,9 +81,9 @@ export default function MailApp() {
   const [conversationId, setConversationId] = useState(null);
   const [targetLogicalMessageId, setTargetLogicalMessageId] = useState(null);
   const openConversationTarget = useCallback((row) => {
-    if (conversationReaderViewEnabled && row?.conversation_id && (row.logical_message_id || row.logical_id)) {
+    if (conversationReaderViewEnabled && row?.conversation_id) {
       setConversationId(row.conversation_id);
-      setTargetLogicalMessageId(row.logical_message_id || row.logical_id);
+      setTargetLogicalMessageId(row.logical_message_id || row.logical_id || null);
       return;
     }
     const physicalId = row?.latestCopyId || row?.id || row?.message_id;

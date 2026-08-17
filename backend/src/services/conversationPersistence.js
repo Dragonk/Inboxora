@@ -3,6 +3,7 @@ import { withTransaction } from './db.js';
 import { effectiveConversationOverride, resolveConversationAlias, refreshConversationAggregates } from './conversationOverridePolicy.js';
 import { normalizeMessageIdList } from './threading/normalizeMessageId.js';
 import { canonicalConversationSubject, classifyDirection, logicalMessageIdentity, threadingDecision } from './conversationEngine.js';
+import { strictSeriesDecision, smartSeriesDecision } from './automatedSeries.js';
 
 function fingerprintCopy(copy) {
   return createHash('sha256').update(JSON.stringify([copy.body_text || '', copy.subject || '', copy.from_email || '', copy.date || '', copy.in_reply_to || '', copy.thread_references || ''])).digest('hex');
@@ -33,9 +34,14 @@ async function findParentLogical(client, hydrated) {
   }
   const refs = normalizeMessageIdList(hydrated.rawReferences);
   if (!refs.length) return null;
-  const result = await client.query(`SELECT id, conversation_id, canonical_message_id, subject FROM logical_messages WHERE user_id = $1 AND canonical_message_id = ANY($2::text[]) ORDER BY array_position($2::text[], canonical_message_id) DESC LIMIT 1 FOR UPDATE`, [hydrated.userId, refs]);
+  const result = await client.query(`SELECT id, conversation_id, canonical_message_id, subject FROM logical_messages WHERE user_id = $1 AND canonical_message_id = ANY($2::text[]) ORDER BY array_position($2::text[], canonical_message_id) DESC FOR UPDATE`, [hydrated.userId, refs]);
   if (result.rows.length > 1) return { ambiguous: true, relationType: 'ambiguous-references', canonical_message_id: refs.at(-1) };
   return result.rows[0] ? { ...result.rows[0], relationType: 'references' } : null;
+}
+
+async function findPreviousSeriesMessage(client, hydrated) {
+  const result = await client.query(`SELECT lm.*, m.from_email, m.to_addresses, m.body_text, m.date FROM logical_messages lm JOIN messages m ON m.logical_message_id = lm.id WHERE lm.user_id = $1 AND lm.canonical_subject = $2 ORDER BY lm.message_date DESC NULLS LAST LIMIT 1`, [hydrated.userId, hydrated.canonicalSubject]);
+  return result.rows[0] || null;
 }
 
 async function findProviderConversation(client, hydrated, provider) {
@@ -53,6 +59,10 @@ export async function upsertConversationCopy(copy, { identities = [], provider =
     let requestedConversationId = null;
     const parent = await findParentLogical(client, hydrated);
     const decision = threadingDecision({ message: source, parent: parent?.ambiguous ? null : parent, provider, identities });
+    const seriesMode = source.automated_series_mode || 'off';
+    const previousSeries = await findPreviousSeriesMessage(client, hydrated);
+    const series = seriesMode === 'strict' ? strictSeriesDecision({ message: source, previous: previousSeries, mode: 'strict' }) : seriesMode === 'smart' ? smartSeriesDecision({ message: source, previous: previousSeries, enabled: true }) : null;
+    if (series && !parent?.ambiguous) { decision.kind = series.kind || decision.kind; decision.reason = series.kind || decision.reason; decision.confidence = series.confidence || decision.confidence; }
     if (parent?.ambiguous) decision.reason = parent.relationType;
     const existing = await findExistingLogical(client, hydrated);
     let logical = existing.logical;
@@ -60,6 +70,7 @@ export async function upsertConversationCopy(copy, { identities = [], provider =
     if (!logical) logical = (await client.query(`INSERT INTO logical_messages (user_id, canonical_message_id, raw_message_id, message_id_collision_key, raw_headers, raw_in_reply_to, raw_references, parsed_in_reply_to, parsed_references, subject, canonical_subject, direction, message_date, body_fingerprint, header_fingerprint, threading_reason, threading_confidence) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17) RETURNING id, conversation_id`, [hydrated.userId, hydrated.canonicalMessageId, hydrated.rawMessageId, hydrated.collisionKey, hydrated.rawHeaders, hydrated.rawInReplyTo, hydrated.rawReferences, JSON.stringify(normalizeMessageIdList(hydrated.rawInReplyTo)), JSON.stringify(normalizeMessageIdList(hydrated.rawReferences)), source.subject || null, hydrated.canonicalSubject, hydrated.direction, hydrated.messageDate, hydrated.bodyFingerprint, hydrated.headerFingerprint, decision.reason, decision.confidence])).rows[0];
     else await client.query('UPDATE logical_messages SET raw_headers = COALESCE(raw_headers, $2), updated_at = NOW(), threading_reason = $3, threading_confidence = $4 WHERE id = $1', [logical.id, hydrated.rawHeaders, decision.reason, decision.confidence]);
     let conversationId = logical.conversation_id || await findProviderConversation(client, hydrated, provider) || (decision.reason === 'subject-change-split' ? null : parent?.conversation_id);
+    if (series?.kind === 'automated_reference_series' || series?.kind === 'automated_smart_series') conversationId = previousSeries?.conversation_id || conversationId;
     const override = await effectiveConversationOverride(client, { userId: hydrated.userId, conversationId, logicalMessageId: logical.id });
     if (override.merge?.target_id) requestedConversationId = await resolveConversationAlias(client, { userId: hydrated.userId, conversationId: override.merge.target_id });
     if (override.split?.target_id) requestedConversationId = await resolveConversationAlias(client, { userId: hydrated.userId, conversationId: override.split.target_id });

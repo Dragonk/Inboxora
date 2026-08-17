@@ -10,10 +10,13 @@ function scopeId(accountId) {
 }
 
 function cursorPredicate(values, checkpoint) {
-  if (!checkpoint?.last_message_id) return { sql: '', values };
-  const next = [...values, checkpoint.last_sort_is_null, checkpoint.last_message_date, checkpoint.last_message_id];
+  if (!checkpoint?.last_message_id && !checkpoint?.id) return { sql: '', values };
+  const lastIsNull = checkpoint.last_sort_is_null ?? checkpoint.isNull ?? false;
+  const lastDate = checkpoint.last_message_date ?? checkpoint.date ?? null;
+  const lastId = checkpoint.last_message_id ?? checkpoint.id;
+  const next = [...values, lastIsNull, lastDate, lastId];
   const base = next.length - 2;
-  const predicate = checkpoint.last_sort_is_null
+  const predicate = lastIsNull
     ? `(m.date IS NULL AND m.id > $${next.length}::uuid)`
     : `((m.date IS NOT NULL AND (m.date > $${base + 1}::timestamptz OR (m.date = $${base + 1}::timestamptz AND m.id > $${next.length}::uuid))) OR m.date IS NULL)`;
   return {
@@ -22,7 +25,7 @@ function cursorPredicate(values, checkpoint) {
   };
 }
 
-export async function rebuildConversationCopies({ userId, accountId = null, limit = 100, dryRun = true, force = false } = {}) {
+export async function rebuildConversationCopies({ userId, accountId = null, limit = 100, dryRun = true, force = false, cursor = null } = {}) {
   if (!userId) throw new Error('userId is required');
   const safeLimit = Math.min(Math.max(Number(limit) || 100, 1), 500);
   const scope = scopeId(accountId);
@@ -33,10 +36,10 @@ export async function rebuildConversationCopies({ userId, accountId = null, limi
     const checkpointResult = await client.query('SELECT * FROM conversation_rebuild_checkpoints WHERE user_id = $1 AND scope_account_id = $2', [userId, scope]);
     const checkpoint = checkpointResult.rows[0] || null;
     if (!dryRun && checkpoint?.status === 'complete' && !force) return { scanned: 0, updated: 0, complete: true, next: null, dryRun: false };
-    const effectiveCheckpoint = force ? null : checkpoint;
+    const effectiveCheckpoint = cursor || (force ? null : checkpoint);
     const baseValues = accountId ? [userId, accountId] : [userId];
     const accountFilter = accountId ? 'AND m.account_id = $2' : '';
-    const scoped = dryRun ? { sql: '', values: baseValues } : cursorPredicate(baseValues, effectiveCheckpoint);
+    const scoped = cursorPredicate(baseValues, effectiveCheckpoint);
     const limitParam = scoped.values.length + 1;
     const rows = await client.query(`
       SELECT m.*, a.user_id, a.email_address
@@ -48,6 +51,12 @@ export async function rebuildConversationCopies({ userId, accountId = null, limi
     `, [...scoped.values, safeLimit]);
 
     let updated = 0;
+    let wouldChange = 0;
+    if (dryRun) {
+      // Dry-run never calls the mutating persistence path. Count rows whose
+      // conversation projection is incomplete or from an older algorithm.
+      wouldChange = rows.rows.filter(row => !row.conversation_id || !row.logical_message_id || row.threading_algorithm_version !== 'conversation-v2').length;
+    }
     if (!dryRun) {
       for (const row of rows.rows) {
         const before = await client.query('SELECT conversation_id, logical_message_id, canonical_message_id, provider_thread_id, threading_reason, threading_confidence FROM messages WHERE id = $1', [row.id]);
@@ -79,7 +88,7 @@ export async function rebuildConversationCopies({ userId, accountId = null, limi
       `, [userId, scope, last ? last.date === null : effectiveCheckpoint?.last_sort_is_null ?? null, last?.date || null, last?.id || null, complete ? 'complete' : 'paused', rows.rows.length, updated, JSON.stringify({ limit: safeLimit, complete, force })]);
     }
 
-    return { scanned: rows.rows.length, updated, wouldChange: updated, changed: updated, complete, next: complete ? null : { date: last?.date || null, id: last?.id, isNull: last?.date === null }, dryRun, batches: 1, totalScanned: rows.rows.length, totalUpdated: updated };
+    return { scanned: rows.rows.length, updated, wouldChange: dryRun ? wouldChange : updated, changed: updated, complete, next: complete ? null : { date: last?.date || null, id: last?.id, isNull: last?.date === null }, dryRun, batches: 1, totalScanned: rows.rows.length, totalUpdated: updated };
   } finally {
     await client.query('SELECT pg_advisory_unlock(hashtext($1))', [lockKey]).catch(() => {});
     client.release();

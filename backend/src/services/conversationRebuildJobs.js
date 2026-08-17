@@ -19,11 +19,13 @@ export function startConversationRebuildJob({ userId, accountId = null, limit = 
       let totalScanned = 0;
       let totalUpdated = 0;
       let batches = 0;
+      let cursor = null;
       do {
-        cursorResult = await rebuildConversationCopies({ userId, accountId, limit, dryRun, force: force && batches === 0 });
+        cursorResult = await rebuildConversationCopies({ userId, accountId, limit, dryRun, cursor, force: force && batches === 0 });
         totalScanned += cursorResult.scanned || 0;
         totalUpdated += cursorResult.updated || 0;
         batches += 1;
+        cursor = cursorResult.next;
         job.result = { ...cursorResult, scanned: totalScanned, updated: totalUpdated, would_change: totalUpdated, changed: totalUpdated, batches };
       } while (!cursorResult.complete && job.status !== 'cancelled');
       if (job.status === 'cancelled') return;

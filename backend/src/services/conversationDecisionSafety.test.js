@@ -19,7 +19,7 @@ describe('conversation v2 decision safety', () => {
   });
 
   it('requires explicit smart-series enablement', () => {
-    const base = { canonical_subject: 'notice', from_email: 'no-reply@example.com', headers: { 'auto-submitted': 'auto-generated' }, to_addresses: [{ email: 'me@example.com' }], body_text: 'hello 1234', date: '2026-01-01T00:00:00Z' };
+    const base = { canonical_subject: 'notice', from_email: 'no-reply@example.com', headers: { 'auto-submitted': 'auto-generated' }, to_addresses: [{ email: 'me@example.com' }], body_text: 'hello 1234', date: '2026-01-01T00:00:00Z', referencesAnchor: '<anchor@example.test>' };
     expect(smartSeriesDecision({ message: base, previous: base, enabled: false })).toBeNull();
     expect(strictSeriesDecision({ message: base, previous: base }).kind).toBe('automated_reference_series');
   });

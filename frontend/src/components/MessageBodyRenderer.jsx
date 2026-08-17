@@ -17,7 +17,7 @@ export function sanitizeMessageHtml(html = '', { remoteImages = false } = {}) {
   });
   if (remoteImages) return sanitized;
   return sanitized
-    .replace(/\s(?:src|href)=("|')https?:[^"']*\1/gi, '')
+    .replace(/\ssrc=("|')https?:[^"']*\1/gi, '')
     .replace(/\ssrcset=("|')[^"']*\1/gi, '')
     .replace(/url\s*\(\s*["']?https?:[^)]+\)/gi, 'none');
 }

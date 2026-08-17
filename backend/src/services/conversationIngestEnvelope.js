@@ -16,6 +16,13 @@ export function ownIdentityAddresses(account = {}) {
   return [account.email_address, ...(account.aliases || []).map(alias => alias.email || alias), ...(account.delivery_addresses || []).map(item => item.email || item)].filter(Boolean);
 }
 
+export async function resolveOwnIdentityAddresses(db, accountId) {
+  const result = await db.query(`SELECT a.email_address, COALESCE(json_agg(json_build_object('email', aa.email)) FILTER (WHERE aa.id IS NOT NULL), '[]'::json) AS aliases
+    FROM email_accounts a LEFT JOIN account_aliases aa ON aa.account_id = a.id
+   WHERE a.id = $1 GROUP BY a.id`, [accountId]);
+  return ownIdentityAddresses(result?.rows?.[0] || {});
+}
+
 export function conversationPersistedFields(rawMessage, account) {
   const provider = providerMetadataForMessage(rawMessage, account);
   return {

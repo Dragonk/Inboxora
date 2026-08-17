@@ -46,7 +46,8 @@ router.get('/conversations', async (req, res) => {
            COALESCE(c.last_message_at, c.created_at) AS sort_date,
            BOOL_OR(COALESCE(m.has_attachments, false)) AS has_attachments,
            BOOL_OR(latest.direction IN ('outgoing', 'self')) FILTER (WHERE latest.id IS NOT NULL) AS latest_message_is_mine,
-           COALESCE(preview.logical_messages, '[]'::jsonb) AS logical_messages
+           COALESCE(preview.logical_messages, '[]'::jsonb) AS logical_messages,
+           top_latest.id AS latest_copy_id
       FROM conversations c
       JOIN messages m ON m.conversation_id = c.id AND m.is_deleted = false
       JOIN email_accounts a ON a.id = m.account_id AND a.user_id = $1
@@ -57,6 +58,13 @@ router.get('/conversations', async (req, res) => {
          ORDER BY lm.message_date DESC NULLS LAST, lm.id DESC
          LIMIT 1
       ) latest ON true
+     LEFT JOIN LATERAL (
+       SELECT m.id
+         FROM messages m
+        WHERE m.conversation_id = c.id AND m.is_deleted = false
+        ORDER BY m.date DESC NULLS LAST, m.id DESC
+        LIMIT 1
+     ) top_latest ON true
      LEFT JOIN LATERAL (
        SELECT jsonb_agg(jsonb_build_object(
          'id', lm.id, 'subject', lm.subject, 'canonicalSubject', lm.canonical_subject,
@@ -74,10 +82,11 @@ router.get('/conversations', async (req, res) => {
        WHERE lm.conversation_id = c.id
      ) preview ON true
      WHERE c.user_id = $1 ${accountFilter} ${cursorFilter}
-     GROUP BY c.id
+     GROUP BY c.id, top_latest.id
      ORDER BY COALESCE(c.last_message_at, c.created_at) DESC, c.id DESC
      LIMIT $${limitParam}
   `, values);
+  for (const row of result.rows) row.latestCopyId = row.latest_copy_id;
   const nextCursor = result.rows.length === parseLimit(limit) ? encodeCursor(result.rows.at(-1)) : null;
   res.json({ conversations: result.rows, nextCursor });
 });
@@ -103,7 +112,7 @@ router.get('/conversations/:id', async (req, res) => {
         LEFT JOIN logical_messages lm ON lm.conversation_id = c.id
         LEFT JOIN messages m ON m.logical_message_id = lm.id AND m.is_deleted = false
        WHERE c.id = $1 AND c.user_id = $2
-       GROUP BY c.id, lm.id
+       GROUP BY c.id, top_latest.id, lm.id
        ORDER BY lm.message_date ASC NULLS LAST, lm.id
     `, [canonicalId, req.session.userId]);
     if (!result.rows.length) return res.status(404).json({ error: 'Conversation not found' });

@@ -12,7 +12,7 @@ export async function applyConversationOverride({ userId, conversationId, logica
   validateOverrideType(overrideType);
   return withTransaction(async client => {
     const canonicalConversationId = await resolveConversationAlias(client, { userId, conversationId });
-    const conversation = await assertConversationOwner(client, userId, canonicalConversationId);
+    const conversation = overrideType === 'manual-merge' ? null : await assertConversationOwner(client, userId, canonicalConversationId);
     conversationId = canonicalConversationId;
     if (logicalMessageId) {
       const message = await client.query('SELECT id FROM logical_messages WHERE id = $1 AND user_id = $2 AND conversation_id = $3 FOR UPDATE', [logicalMessageId, userId, conversationId]);
@@ -60,13 +60,19 @@ export async function applyConversationOverride({ userId, conversationId, logica
       await client.query('UPDATE messages SET conversation_id = $1, conversation_user_id = $2 WHERE logical_message_id IN (SELECT id FROM logical_messages WHERE conversation_id = $1) AND conversation_user_id = $2', [newConversationId, userId]);
       await client.query('UPDATE conversation_evidence SET conversation_id = $1 WHERE logical_message_id IN (SELECT id FROM logical_messages WHERE conversation_id = $1) AND user_id = $2', [newConversationId, userId]);
       await client.query('UPDATE conversation_overrides SET conversation_id = $1, target_id = CASE WHEN target_id = $3 THEN $1 ELSE target_id END WHERE logical_message_id IN (SELECT id FROM logical_messages WHERE conversation_id = $1) AND user_id = $2', [newConversationId, userId, conversationId]);
+      await client.query(`UPDATE logical_messages child SET parent_logical_message_id = NULL
+        WHERE child.user_id = $1 AND child.conversation_id <> $2
+          AND child.parent_logical_message_id IN (SELECT id FROM logical_messages WHERE conversation_id = $2)`, [userId, newConversationId]);
+      const crossEdge = await client.query(`SELECT 1 FROM logical_messages child JOIN logical_messages parent ON parent.id = child.parent_logical_message_id
+        WHERE child.user_id = $1 AND (child.conversation_id IS DISTINCT FROM parent.conversation_id) LIMIT 1`, [userId]);
+      if (crossEdge.rows.length) throw new Error('conversation split left a cross-conversation parent edge');
       await refreshConversationAggregates(client, userId, conversationId);
       await refreshConversationAggregates(client, userId, newConversationId);
       targetId = newConversationId;
     }
     if (overrideType === 'lock-conversation') await client.query('UPDATE conversations SET manually_locked = true, updated_at = NOW() WHERE id = $1', [conversationId]);
     await client.query('INSERT INTO conversation_overrides (user_id, conversation_id, logical_message_id, override_type, target_id, reason) VALUES ($1,$2,$3,$4,$5,$6)', [userId, conversationId, logicalMessageId, overrideType, targetId, reason]);
-    return { conversationId, overrideType, targetId, manuallyLocked: overrideType === 'lock-conversation' || conversation.manually_locked };
+    return { conversationId, overrideType, targetId, manuallyLocked: overrideType === 'lock-conversation' || Boolean(conversation?.manually_locked) };
   }, { serializable: true });
 }
 
