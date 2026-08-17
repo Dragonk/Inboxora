@@ -4,29 +4,19 @@ import { normalizeMessageIdList } from './threading/normalizeMessageId.js';
 import { canonicalConversationSubject, classifyDirection, logicalMessageIdentity, threadingDecision } from './conversationEngine.js';
 
 function fingerprintCopy(copy) {
-  return createHash('sha256').update(JSON.stringify([
-    copy.body_text || '', copy.subject || '', copy.from_email || '', copy.date || '', copy.in_reply_to || '', copy.thread_references || '',
-  ])).digest('hex');
+  return createHash('sha256').update(JSON.stringify([copy.body_text || '', copy.subject || '', copy.from_email || '', copy.date || '', copy.in_reply_to || '', copy.thread_references || ''])).digest('hex');
 }
 
 export async function hydrateLogicalMessage(copy, { identities = [] } = {}) {
   const owner = copy.user_id || copy.userId;
   const identity = logicalMessageIdentity(copy, { userId: owner });
-  const canonicalSubject = canonicalConversationSubject(copy.subject);
-  return { ...identity, userId: owner, accountId: copy.account_id,
-    rawInReplyTo: copy.in_reply_to || null, rawReferences: copy.thread_references || null,
-    canonicalSubject, direction: classifyDirection(copy, identities), messageDate: copy.date || null,
-    bodyFingerprint: createHash('sha256').update(String(copy.body_text || '')).digest('hex'),
-    headerFingerprint: createHash('sha256').update(JSON.stringify([copy.message_id, copy.in_reply_to, copy.thread_references])).digest('hex'),
-    copyFingerprint: fingerprintCopy(copy) };
+  return { ...identity, userId: owner, accountId: copy.account_id, rawInReplyTo: copy.in_reply_to || null, rawReferences: copy.thread_references || null, canonicalSubject: canonicalConversationSubject(copy.subject), direction: classifyDirection(copy, identities), messageDate: copy.date || null, bodyFingerprint: createHash('sha256').update(String(copy.body_text || '')).digest('hex'), headerFingerprint: createHash('sha256').update(JSON.stringify([copy.message_id, copy.in_reply_to, copy.thread_references])).digest('hex'), copyFingerprint: fingerprintCopy(copy) };
 }
 
 async function findExistingLogical(client, hydrated) {
-  if (hydrated.canonicalMessageId) {
-    const result = await client.query(`SELECT id, conversation_id FROM logical_messages WHERE user_id = $1 AND canonical_message_id = $2 ORDER BY created_at ASC LIMIT 1 FOR UPDATE`, [hydrated.userId, hydrated.canonicalMessageId]);
-    if (result.rows[0]) return result.rows[0];
-  }
-  const result = await client.query(`SELECT id, conversation_id FROM logical_messages WHERE user_id = $1 AND canonical_message_id IS NULL AND body_fingerprint = $2 AND header_fingerprint = $3 ORDER BY created_at ASC LIMIT 1 FOR UPDATE`, [hydrated.userId, hydrated.bodyFingerprint, hydrated.headerFingerprint]);
+  const result = hydrated.canonicalMessageId
+    ? await client.query(`SELECT id, conversation_id FROM logical_messages WHERE user_id = $1 AND canonical_message_id = $2 ORDER BY created_at ASC LIMIT 1 FOR UPDATE`, [hydrated.userId, hydrated.canonicalMessageId])
+    : await client.query(`SELECT id, conversation_id FROM logical_messages WHERE user_id = $1 AND canonical_message_id IS NULL AND body_fingerprint = $2 AND header_fingerprint = $3 ORDER BY created_at ASC LIMIT 1 FOR UPDATE`, [hydrated.userId, hydrated.bodyFingerprint, hydrated.headerFingerprint]);
   return result.rows[0] || null;
 }
 
@@ -59,22 +49,20 @@ export async function upsertConversationCopy(copy, { identities = [], provider =
     let logical = await findExistingLogical(client, hydrated);
     if (!logical) logical = (await client.query(`INSERT INTO logical_messages (user_id, canonical_message_id, raw_message_id, message_id_collision_key, raw_in_reply_to, raw_references, parsed_in_reply_to, parsed_references, subject, canonical_subject, direction, message_date, body_fingerprint, header_fingerprint, threading_reason, threading_confidence) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16) RETURNING id, conversation_id`, [hydrated.userId, hydrated.canonicalMessageId, hydrated.rawMessageId, hydrated.collisionKey, hydrated.rawInReplyTo, hydrated.rawReferences, JSON.stringify(normalizeMessageIdList(hydrated.rawInReplyTo)), JSON.stringify(normalizeMessageIdList(hydrated.rawReferences)), source.subject || null, hydrated.canonicalSubject, hydrated.direction, hydrated.messageDate, hydrated.bodyFingerprint, hydrated.headerFingerprint, decision.reason, decision.confidence])).rows[0];
     else await client.query('UPDATE logical_messages SET updated_at = NOW(), threading_reason = $2, threading_confidence = $3 WHERE id = $1', [logical.id, decision.reason, decision.confidence]);
-
     let conversationId = logical.conversation_id || await findProviderConversation(client, hydrated, provider) || parent?.conversation_id;
     if (!conversationId) conversationId = (await client.query(`INSERT INTO conversations (user_id, kind, subject_snapshot, canonical_subject, first_message_at, last_message_at, logical_message_count, copy_count, unread_count, threading_confidence) VALUES ($1,$2,$3,$4,$5,$5,0,0,0,$6) RETURNING id`, [hydrated.userId, decision.kind, source.subject || null, hydrated.canonicalSubject, hydrated.messageDate, decision.confidence])).rows[0].id;
     await client.query('UPDATE logical_messages SET conversation_id = $1, parent_logical_message_id = COALESCE(parent_logical_message_id, $2), updated_at = NOW() WHERE id = $3', [conversationId, parent?.id || null, logical.id]);
-
     const attached = await client.query(`UPDATE messages SET logical_message_id = $1, conversation_id = $2, canonical_message_id = $3, provider_message_id = COALESCE($4, provider_message_id), provider_thread_id = COALESCE($5, provider_thread_id), provider_namespace = COALESCE($6, provider_namespace), threading_reason = $7, threading_confidence = $8, threading_algorithm_version = 'conversation-v2', row_version = row_version + 1 WHERE id = $9 RETURNING id`, [logical.id, conversationId, hydrated.canonicalMessageId, provider?.providerMessageId || null, provider?.providerThreadId || null, provider?.namespace || provider?.provider || null, decision.reason, decision.confidence, source.id]);
     if (attached.rowCount !== 1) throw new Error('Conversation copy attachment failed');
     if (provider?.providerThreadId) await client.query(`INSERT INTO provider_thread_mappings (user_id, account_id, provider, provider_thread_id, conversation_id, last_seen_at, diagnostics) VALUES ($1,$2,$3,$4,$5,NOW(),$6::jsonb) ON CONFLICT (user_id, account_id, provider, provider_thread_id) DO UPDATE SET conversation_id = EXCLUDED.conversation_id, last_seen_at = NOW(), diagnostics = EXCLUDED.diagnostics`, [hydrated.userId, hydrated.accountId, provider.provider, provider.providerThreadId, conversationId, JSON.stringify(provider.diagnostics || {})]);
-
     const unresolved = [...new Set([...normalizeMessageIdList(hydrated.rawInReplyTo), ...normalizeMessageIdList(hydrated.rawReferences)])].filter(id => id !== hydrated.canonicalMessageId);
     if (unresolved.length) {
       const known = await client.query(`SELECT canonical_message_id FROM logical_messages WHERE user_id = $1 AND canonical_message_id = ANY($2::text[])`, [hydrated.userId, unresolved]);
       const knownIds = new Set(known.rows.map(row => row.canonical_message_id));
       for (const [position, referenced] of unresolved.entries()) if (!knownIds.has(referenced)) await client.query(`INSERT INTO unresolved_message_references (user_id, child_logical_message_id, referenced_message_id, relation_type, reference_position) VALUES ($1,$2,$3,$4,$5) ON CONFLICT DO NOTHING`, [hydrated.userId, logical.id, referenced, referenced === normalizeMessageIdList(hydrated.rawInReplyTo).at(-1) ? 'in-reply-to' : 'references', position]);
     }
-    await client.query(`INSERT INTO conversation_evidence (conversation_id, logical_message_id, evidence_type, evidence_value_hash, weight, details) VALUES ($1,$2,$3,$4,$5,$6::jsonb)`, [conversationId, logical.id, decision.reason, createHash('sha256').update(String(decision.reason)).digest('hex'), decision.confidence, JSON.stringify({ relationType: parent?.relationType || null, provider: provider?.provider || null })]);
+    const evidence = [[decision.reason, decision.confidence, { relationType: parent?.relationType || null, provider: provider?.provider || null }], ...(parent ? [['rfc-parent', 0.99, { parentLogicalMessageId: parent.id }]] : []), ...(provider?.providerThreadId ? [['provider-thread-id', 1, { provider: provider.provider }]] : [])];
+    for (const [type, weight, details] of evidence) await client.query(`INSERT INTO conversation_evidence (conversation_id, logical_message_id, evidence_type, evidence_value_hash, weight, details) VALUES ($1,$2,$3,$4,$5,$6::jsonb)`, [conversationId, logical.id, type, createHash('sha256').update(JSON.stringify(details)).digest('hex'), weight, JSON.stringify(details)]);
     await client.query(`UPDATE conversations c SET first_message_at = (SELECT MIN(message_date) FROM logical_messages WHERE conversation_id = c.id), last_message_at = (SELECT MAX(message_date) FROM logical_messages WHERE conversation_id = c.id), subject_snapshot = COALESCE((SELECT subject FROM logical_messages WHERE conversation_id = c.id ORDER BY message_date ASC NULLS LAST, id LIMIT 1), c.subject_snapshot), canonical_subject = COALESCE((SELECT canonical_subject FROM logical_messages WHERE conversation_id = c.id ORDER BY message_date ASC NULLS LAST, id LIMIT 1), c.canonical_subject), logical_message_count = (SELECT COUNT(*) FROM logical_messages WHERE conversation_id = c.id), copy_count = (SELECT COUNT(*) FROM messages WHERE conversation_id = c.id AND is_deleted = false), unread_count = (SELECT COUNT(*) FROM messages WHERE conversation_id = c.id AND is_deleted = false AND is_read = false), updated_at = NOW() WHERE c.id = $1`, [conversationId]);
     return { logicalMessageId: logical.id, conversationId, kind: decision.kind, canonicalSubject: hydrated.canonicalSubject };
   });
