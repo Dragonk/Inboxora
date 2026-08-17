@@ -10,6 +10,8 @@ import {
   restoreGtdThreadRemoval,
   setGtdThreadReadInSections,
   snapshotGtdThreadRemoval,
+  appendMessagesByIdentity,
+  missingByIdentity,
 } from '../utils/gtd.js';
 import { applyGtdRemovalGuard } from '../utils/pendingGtdRemovals.js';
 import { clampRightSidebarWidth } from '../utils/rightSidebar.js';
@@ -167,15 +169,12 @@ export const useStore = create((set, get) => ({
   messages: [],
   setMessages: (messages) => set({ messages }),
   appendMessages: (newMessages) => set(state => {
-    // Deduplicate by id: if the same message already exists in state, keep the
-    // existing copy (which may carry optimistic local-only fields the network
-    // refresh just lost, like unread_count). Without this, bulk operations
-    // (Mark as Spam, moveTo, scheduleDelete...) followed by Undo + a network
-    // refresh can briefly produce visible "clones" of the same message.
-    const existing = new Set(state.messages.map(m => m.id));
-    const additions = newMessages.filter(m => m && !existing.has(m.id));
-    if (additions.length === 0) return {};
-    return { messages: [...state.messages, ...additions] };
+    // Merge by stable identity (Message-ID when present, else id): a same-id row is dropped so the
+    // existing copy keeps any optimistic local-only fields a refresh lost (unread_count, etc.),
+    // while a reindexed message (same Message-ID, new id after a purge+reinsert) replaces its stale
+    // row in place instead of appearing as a duplicate. See appendMessagesByIdentity.
+    const messages = appendMessagesByIdentity(state.messages, newMessages);
+    return messages === state.messages ? {} : { messages };
   }),
   updateMessage: (id, updates) => set(state => {
     const apply = (m) => m.id === id ? { ...m, ...updates } : m;
@@ -219,15 +218,13 @@ export const useStore = create((set, get) => ({
   restoreMessages: (msgs) => set(state => {
     const list = Array.isArray(msgs) ? msgs : [msgs];
     const sort = arr => [...arr].sort((a, b) => new Date(b.date) - new Date(a.date));
-    // Deduplicate against both the main list and searchResults: if the message
-    // is already present (e.g. user clicked Undo after the messages had already
-    // been restored by a network refresh), skip it. The local copy carries the
-    // freshest optimistic state, so we prefer it over the server view.
-    const inMessages = new Set(state.messages.map(m => m.id));
-    const missing = list.filter(m => m && !inMessages.has(m.id));
+    // Deduplicate against both the main list and searchResults by stable identity (Message-ID when
+    // present, else id): if the message is already present — including re-added by a network
+    // refresh under a regenerated id (matched via Message-ID) — skip it. The local copy carries the
+    // freshest optimistic state, so we prefer it over the server view. See missingByIdentity.
+    const missing = missingByIdentity(state.messages, list);
     if (missing.length === 0 && !state.searchQuery.trim()) return {};
-    const inSearch = new Set(state.searchResults.map(m => m.id));
-    const missingFromSearch = list.filter(m => m && !inSearch.has(m.id));
+    const missingFromSearch = missingByIdentity(state.searchResults, list);
     return {
       messages: missing.length ? sort([...state.messages, ...missing]) : state.messages,
       searchResults: state.searchQuery.trim() && missingFromSearch.length

@@ -454,6 +454,66 @@ export function isSelectedRow(row, selectedId, selectedMid) {
   return row.id != null && row.id === selectedId;
 }
 
+// A stable identity for a message list row: the RFC Message-ID when present, else the (volatile)
+// DB row id. The row's UUID id is regenerated whenever a message is purged and re-inserted
+// (folder move / resync / UID change), so deduplicating a list by id ALONE lets a reindexed
+// message linger under its old id AND reappear under the new one — two rows with the same
+// Message-ID, which the message-list renders as a visible duplicate (and isSelectedRow highlights
+// together). Keying on the Message-ID collapses those; rows without one keep id identity so two
+// distinct id-only rows never merge. Namespaced so a Message-ID can never collide with a UUID.
+// Pure. Mirrors the identity rule in isSelectedRow / pickThreadMessage.
+export function messageIdentity(m) {
+  if (!m) return null;
+  return m.message_id ? `mid:${m.message_id}` : `id:${m.id}`;
+}
+
+// Merge a freshly-fetched page of messages into an existing list, keyed by messageIdentity:
+//  - an incoming row with the SAME DB id as an existing row is dropped (the existing copy may
+//    carry optimistic local-only fields a network refresh lost, e.g. unread_count);
+//  - an incoming row that shares a Message-ID with an existing row but carries a NEW id (the
+//    message was purged+reinserted, regenerating its id) REPLACES that stale row in place, so a
+//    reindexed message never shows as a duplicate and the surviving row is the fresh, clickable one;
+//  - anything genuinely new is appended, de-duplicated within the incoming batch by identity.
+// Returns the original array reference unchanged when nothing was added or replaced, so callers can
+// skip a no-op state update. Pure.
+export function appendMessagesByIdentity(existing, incoming) {
+  const items = (incoming || []).filter(Boolean);
+  if (items.length === 0) return existing;
+
+  const existingIds = new Set(existing.map(m => m.id));
+  const idxByMid = new Map();
+  existing.forEach((m, i) => { if (m.message_id) idxByMid.set(m.message_id, i); });
+
+  let messages = existing;
+  let mutated = false;
+  const additions = [];
+  const takenKeys = new Set(); // identities already consumed from the incoming batch
+
+  for (const m of items) {
+    if (existingIds.has(m.id)) continue;   // exact same row already present — keep existing
+    const key = messageIdentity(m);
+    if (takenKeys.has(key)) continue;      // a same-identity incoming row was already handled
+    takenKeys.add(key);
+    if (m.message_id && idxByMid.has(m.message_id)) {
+      if (!mutated) { messages = existing.slice(); mutated = true; }
+      messages[idxByMid.get(m.message_id)] = m; // reindexed: replace the stale row in place
+    } else {
+      additions.push(m);                        // genuinely new
+    }
+  }
+
+  if (!mutated && additions.length === 0) return existing;
+  return additions.length ? [...messages, ...additions] : messages;
+}
+
+// Filter `incoming` to the messages whose stable identity is not already present in `existing`.
+// Used by restore/undo so a message the network refresh already brought back — possibly under a
+// regenerated id, matched via Message-ID — is not re-added as a duplicate. Pure.
+export function missingByIdentity(existing, incoming) {
+  const present = new Set(existing.map(messageIdentity));
+  return (incoming || []).filter(m => m && !present.has(messageIdentity(m)));
+}
+
 // Choose which message of a thread a deep-link should open, given the thread's rows and
 // the head's RFC message_id. Prefers the row whose message_id matches — that identity is
 // stable across a purge+reinsert, whereas the row PK is not — then the newest row, then
