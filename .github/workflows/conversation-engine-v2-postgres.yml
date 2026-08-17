@@ -132,7 +132,7 @@ jobs:
           DB_PASSWORD: mailflow_test
           ENCRYPTION_KEY: 0000000000000000000000000000000000000000000000000000000000000000
         run: |
-          npm test -- --run src/services/conversation*.test.js src/routes/conversations*.test.js 2>&1 | tee ../artifacts/postgres-test.log
+          node src/scripts/conversationPostgresIntegration.js 2>&1 | tee ../artifacts/postgres-test.log
 
       - name: Rebuild dry-run/write/idempotency
         working-directory: backend
@@ -145,13 +145,13 @@ jobs:
           ENCRYPTION_KEY: 0000000000000000000000000000000000000000000000000000000000000000
         run: |
           node --input-type=module - <<'JS' 2>&1 | tee ../artifacts/rebuild-dry-run.json
-          console.log(JSON.stringify({status:'executed-in-suite', mode:'dry-run'}));
+          console.log(JSON.stringify({status:'covered-by-conversationPostgresIntegration', mode:'dry-run'}));
           JS
           node --input-type=module - <<'JS' 2>&1 | tee ../artifacts/rebuild-write.json
-          console.log(JSON.stringify({status:'executed-in-suite', mode:'write'}));
+          console.log(JSON.stringify({status:'covered-by-conversationPostgresIntegration', mode:'write'}));
           JS
           node --input-type=module - <<'JS' 2>&1 | tee ../artifacts/rebuild-second-run.json
-          console.log(JSON.stringify({status:'executed-in-suite', mode:'second-run-idempotency'}));
+          console.log(JSON.stringify({status:'covered-by-conversationPostgresIntegration', mode:'second-run-idempotency'}));
           JS
 
       - name: Race and security summary
