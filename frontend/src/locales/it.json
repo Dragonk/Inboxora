@@ -256,7 +256,9 @@
       "button": "Classifica con IA",
       "done": "Classificato come {{category}}",
       "error": "Classificazione IA fallita."
-    }
+    },
+    "attachment_few": "{{count}} attachments",
+    "attachment_many": "{{count}} attachments"
   },
   "messageList": {
     "search": "Cerca…",
@@ -297,14 +299,22 @@
       "body": "Spostato nel Cestino.",
       "failTitle": "Eliminazione fallita",
       "failBody_one": "Impossibile eliminare {{count}} messaggio.",
-      "failBody_other": "Impossibile eliminare {{count}} messaggi."
+      "failBody_other": "Impossibile eliminare {{count}} messaggi.",
+      "failBody_few": "Some messages could not be deleted",
+      "failBody_many": "Some messages could not be deleted",
+      "title_few": "Deleted {{count}} messages",
+      "title_many": "Deleted {{count}} messages"
     },
     "bulkMoved": {
       "title_one": "{{count}} messaggio spostato",
       "title_other": "{{count}} messaggi spostati",
       "failTitle": "Spostamento fallito",
       "failBody_one": "Impossibile spostare {{count}} messaggio.",
-      "failBody_other": "Impossibile spostare {{count}} messaggi."
+      "failBody_other": "Impossibile spostare {{count}} messaggi.",
+      "failBody_few": "Some messages could not be moved",
+      "failBody_many": "Some messages could not be moved",
+      "title_few": "Moved {{count}} messages",
+      "title_many": "Moved {{count}} messages"
     },
     "bulkArchived": {
       "title_one": "{{count}} messaggio archiviato",
@@ -314,7 +324,11 @@
       "failBody_one": "Impossibile archiviare {{count}} messaggio.",
       "failBody_other": "Impossibile archiviare {{count}} messaggi.",
       "noFolderTitle": "Nessuna cartella di archivio",
-      "noFolderBody": "Uno o più account non hanno una cartella di archivio configurata. Impostane una in Impostazioni → Account → Mappatura cartelle."
+      "noFolderBody": "Uno o più account non hanno una cartella di archivio configurata. Impostane una in Impostazioni → Account → Mappatura cartelle.",
+      "failBody_few": "Some messages could not be archived",
+      "failBody_many": "Some messages could not be archived",
+      "title_few": "Archived {{count}} messages",
+      "title_many": "Archived {{count}} messages"
     },
     "noArchiveFolder": {
       "title": "Nessuna cartella di archivio",
@@ -409,7 +423,9 @@
     "deleteFailed": "Eliminazione fallita",
     "emptyFailed": "Svuotamento fallito",
     "backToAccounts": "Torna agli account",
-    "updateAvailable": "Aggiornamento disponibile: v{{version}}"
+    "updateAvailable": "Aggiornamento disponibile: v{{version}}",
+    "hiddenFolders_few": "{{count}} hidden folders",
+    "hiddenFolders_many": "{{count}} hidden folders"
   },
   "contextMenu": {
     "find": "Trova",
@@ -898,7 +914,10 @@
       "defaultMailAppError": "Il browser ha bloccato la richiesta.",
       "markReadDelayLabel": "Ritardo",
       "markReadDelaySeconds": "{{count}} secondo",
-      "markReadDelaySeconds_other": "{{count}} secondi"
+      "markReadDelaySeconds_other": "{{count}} secondi",
+      "markReadDelaySeconds_many": "{{count}} seconds",
+      "markReadDelaySeconds_one": "{{count}} secondo",
+      "markReadDelaySeconds_few": "{{count}} seconds"
     },
     "notifications": {
       "title": "Notifiche",

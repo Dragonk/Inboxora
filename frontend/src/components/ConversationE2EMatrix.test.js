@@ -1,14 +1,15 @@
-import { describe, expect, it } from 'vitest';
-import { readFileSync } from 'fs';
+import assert from 'node:assert/strict';
+import { describe, it } from 'node:test';
+import { readFileSync } from 'node:fs';
 
-describe('conversation E2E matrix contract', () => {
-  it.each([
-    [false, false], [false, true], [true, false], [true, true],
-  ])('defines list=%s reader=%s feature preference combination', (list, reader) => {
-    const source = readFileSync('src/components/MailApp.jsx', 'utf8');
-    expect(source).toContain('conversationListViewEnabled');
-    expect(source).toContain('conversationReaderViewEnabled');
-    expect(typeof list).toBe('boolean');
-    expect(typeof reader).toBe('boolean');
+describe('Conversation E2E matrix contract', () => {
+  it('covers all four list/reader preference combinations', () => {
+    const source = readFileSync(new URL('./MailApp.jsx', import.meta.url), 'utf8');
+    for (const list of [false, true]) for (const reader of [false, true]) {
+      assert.equal(typeof list, 'boolean');
+      assert.equal(typeof reader, 'boolean');
+      assert.match(source, /conversationListViewEnabled/);
+      assert.match(source, /conversationReaderViewEnabled/);
+    }
   });
 });

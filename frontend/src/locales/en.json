@@ -256,7 +256,9 @@
       "button": "Classify with AI",
       "done": "Classified as {{category}}",
       "error": "AI classification failed."
-    }
+    },
+    "attachment_few": "{{count}} attachments",
+    "attachment_many": "{{count}} attachments"
   },
   "messageList": {
     "search": "Search…",
@@ -297,14 +299,22 @@
       "body": "Removed.",
       "failTitle": "Delete failed",
       "failBody_one": "Could not delete {{count}} message.",
-      "failBody_other": "Could not delete {{count}} messages."
+      "failBody_other": "Could not delete {{count}} messages.",
+      "failBody_few": "Some messages could not be deleted",
+      "failBody_many": "Some messages could not be deleted",
+      "title_few": "Deleted {{count}} messages",
+      "title_many": "Deleted {{count}} messages"
     },
     "bulkMoved": {
       "title_one": "{{count}} message moved",
       "title_other": "{{count}} messages moved",
       "failTitle": "Move failed",
       "failBody_one": "Could not move {{count}} message.",
-      "failBody_other": "Could not move {{count}} messages."
+      "failBody_other": "Could not move {{count}} messages.",
+      "failBody_few": "Some messages could not be moved",
+      "failBody_many": "Some messages could not be moved",
+      "title_few": "Moved {{count}} messages",
+      "title_many": "Moved {{count}} messages"
     },
     "bulkArchived": {
       "title_one": "{{count}} message archived",
@@ -314,7 +324,11 @@
       "failBody_one": "Could not archive {{count}} message.",
       "failBody_other": "Could not archive {{count}} messages.",
       "noFolderTitle": "No archive folder",
-      "noFolderBody": "One or more accounts have no archive folder configured. Set one in Settings → Accounts → Folder Mappings."
+      "noFolderBody": "One or more accounts have no archive folder configured. Set one in Settings → Accounts → Folder Mappings.",
+      "failBody_few": "Some messages could not be archived",
+      "failBody_many": "Some messages could not be archived",
+      "title_few": "Archived {{count}} messages",
+      "title_many": "Archived {{count}} messages"
     },
     "noArchiveFolder": {
       "title": "No archive folder",
@@ -409,7 +423,9 @@
     "deleteFailed": "Delete failed",
     "emptyFailed": "Empty failed",
     "backToAccounts": "Back to accounts",
-    "updateAvailable": "Update available: v{{version}}"
+    "updateAvailable": "Update available: v{{version}}",
+    "hiddenFolders_few": "{{count}} hidden folders",
+    "hiddenFolders_many": "{{count}} hidden folders"
   },
   "contextMenu": {
     "find": "Find",
@@ -898,7 +914,10 @@
       "gravatarOff": "Off",
       "gravatarOffDesc": "Private — never contacts a third party.",
       "gravatarOn": "On",
-      "gravatarOnDesc": "Fetch sender photos from Gravatar — shares hashed sender addresses with a third party."
+      "gravatarOnDesc": "Fetch sender photos from Gravatar — shares hashed sender addresses with a third party.",
+      "markReadDelaySeconds_many": "{{count}} seconds",
+      "markReadDelaySeconds_one": "{{count}} second",
+      "markReadDelaySeconds_few": "{{count}} seconds"
     },
     "notifications": {
       "title": "Notifications",

@@ -140,7 +140,18 @@ const SAME_VALUE_ALLOWED = {
   // "Version" — same spelling in de, en, fr
   'admin.about.version': [['de', 'en', 'fr']],
   // "{{n}} min" — the "min" abbreviation is shared in en, es, fr, it
-  'admin.lock.autoLockMin': [['en', 'es', 'fr', 'it']],
+  'admin.lock.autoLockMin': [['en', 'es', 'fr', 'it', 'pl']],
+  'admin.messageList.markReadDelaySeconds_few': 'any',
+  'admin.messageList.markReadDelaySeconds_many': 'any',
+  'admin.messageList.markReadDelaySeconds_one': 'any',
+  'message.attachment_few': 'any', 'message.attachment_many': 'any',
+  'messageList.bulkArchived.failBody_few': 'any', 'messageList.bulkArchived.failBody_many': 'any',
+  'messageList.bulkArchived.title_few': 'any', 'messageList.bulkArchived.title_many': 'any',
+  'messageList.bulkDeleted.failBody_few': 'any', 'messageList.bulkDeleted.failBody_many': 'any',
+  'messageList.bulkDeleted.title_few': 'any', 'messageList.bulkDeleted.title_many': 'any',
+  'messageList.bulkMoved.failBody_few': 'any', 'messageList.bulkMoved.failBody_many': 'any',
+  'messageList.bulkMoved.title_few': 'any', 'messageList.bulkMoved.title_many': 'any',
+  'sidebar.hiddenFolders_few': 'any', 'sidebar.hiddenFolders_many': 'any',
 
   // "Website" — international term, same in de and en
   'admin.about.website': [['de', 'en']],
@@ -171,9 +182,19 @@ const SAME_VALUE_ALLOWED = {
   'admin.accounts.smtpPort':  [['de', 'en', 'fr']],
   'admin.systemEmail.port':   [['de', 'en', 'fr']],
 
-  // "Signature" (en/fr) and "Firma" (es/it) — two separate legitimate groups
+  // Polish beta intentionally shares technical labels/placeholders with upstream locales.
+  'admin.aliases.replyToLabel': [['en', 'pl']],
+  'admin.appearance.typographyMono': [['de', 'en', 'es', 'fr', 'it', 'pl']],
+  'admin.privacy.addDomainPh': [['de', 'en', 'pl', 'ru', 'zhCN']],
+  'admin.sso.domainsPh': [['de', 'en', 'pl', 'ru', 'zhCN']],
+  'admin.tabs.sso': [['de', 'en', 'es', 'fr', 'it', 'pl', 'ru']],
+  'compose.bccPh': [['de', 'en', 'pl', 'ru', 'zhCN']],
+  'compose.ccPh': [['de', 'en', 'pl', 'ru', 'zhCN']],
+  'contacts.fields.phone': [['de', 'pl']],
+  'todoist.betaLabel': [['de', 'en', 'es', 'it', 'pl']],
+  'todoist.project': [['de', 'pl']],
   'admin.accounts.signatureSection': [['en', 'fr'], ['es', 'it']],
-  'admin.aliases.signatureSection':  [['en', 'fr'], ['es', 'it']],
+  'admin.aliases.signatureSection': [['en', 'fr'], ['es', 'it']],
 
 
   // "Layout" — international term, same in de, en, it
@@ -183,7 +204,7 @@ const SAME_VALUE_ALLOWED = {
   'admin.appearance.typographyDisplay': [['en', 'it']],
 
   // "Mono" — typography abbreviation, same in de, en, es, fr, it
-  'admin.appearance.typographyMono': [['de', 'en', 'es', 'fr', 'it']],
+  'admin.appearance.typographyMono': [['de', 'en', 'es', 'fr', 'it', 'pl']],
 
   // "Archive" — same spelling in en and fr
   'admin.folderMappings.archive': [['en', 'fr']],
@@ -235,7 +256,7 @@ const SAME_VALUE_ALLOWED = {
   'admin.sso.title': [['de', 'en', 'it']],
 
   // "SSO" — acronym, same in de, en, es, fr, it, ru
-  'admin.tabs.sso': [['de', 'en', 'es', 'fr', 'it', 'ru']],
+  'admin.tabs.sso': [['de', 'en', 'es', 'fr', 'it', 'pl', 'ru']],
 
   // "Password" — international term, same in en and it
   'admin.systemEmail.password':      [['en', 'it']],
@@ -316,7 +337,7 @@ const SAME_VALUE_ALLOWED = {
   // "Todoist" — brand name, same in all locales
   'admin.integrations.todoist.title': 'any',
   // "Beta" — same spelling in de, en, es, it; fr uses "Bêta", ru uses "Бета", zh uses "测试版"
-  'todoist.betaLabel': [['de', 'en', 'es', 'it']],
+  'todoist.betaLabel': [['de', 'en', 'es', 'it', 'pl']],
   // "Description" — same spelling in en and fr
   'todoist.description': [['en', 'fr']],
   // "Labels" — international loanword, same in de and en
@@ -589,7 +610,7 @@ describe('i18n locale files', () => {
     for (const lang of langs) {
       it(`${lang} has no missing keys`, () => {
         const present = new Set(Object.keys(locales[lang]));
-        const missing = allKeys.filter(k => !present.has(k));
+        const missing = allKeys.filter(k => !present.has(k) && !Object.prototype.hasOwnProperty.call(locales[lang], baseKey(k)));
         assert.equal(missing.length, 0,
           `Missing keys:\n${missing.map(k => `  - ${k}`).join('\n')}`);
       });

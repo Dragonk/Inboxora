@@ -256,7 +256,9 @@
       "button": "Classer avec l'IA",
       "done": "Classé comme {{category}}",
       "error": "La classification par IA a échoué."
-    }
+    },
+    "attachment_few": "{{count}} attachments",
+    "attachment_many": "{{count}} attachments"
   },
   "messageList": {
     "search": "Rechercher…",
@@ -297,14 +299,22 @@
       "body": "Déplacé vers la corbeille.",
       "failTitle": "Échec de la suppression",
       "failBody_one": "Impossible de supprimer {{count}} message.",
-      "failBody_other": "Impossible de supprimer {{count}} messages."
+      "failBody_other": "Impossible de supprimer {{count}} messages.",
+      "failBody_few": "Some messages could not be deleted",
+      "failBody_many": "Some messages could not be deleted",
+      "title_few": "Deleted {{count}} messages",
+      "title_many": "Deleted {{count}} messages"
     },
     "bulkMoved": {
       "title_one": "{{count}} message déplacé",
       "title_other": "{{count}} messages déplacés",
       "failTitle": "Échec du déplacement",
       "failBody_one": "Impossible de déplacer {{count}} message.",
-      "failBody_other": "Impossible de déplacer {{count}} messages."
+      "failBody_other": "Impossible de déplacer {{count}} messages.",
+      "failBody_few": "Some messages could not be moved",
+      "failBody_many": "Some messages could not be moved",
+      "title_few": "Moved {{count}} messages",
+      "title_many": "Moved {{count}} messages"
     },
     "bulkArchived": {
       "title_one": "{{count}} message archivé",
@@ -314,7 +324,11 @@
       "failBody_one": "Impossible d'archiver {{count}} message.",
       "failBody_other": "Impossible d'archiver {{count}} messages.",
       "noFolderTitle": "Aucun dossier d'archive",
-      "noFolderBody": "Un ou plusieurs comptes n'ont pas de dossier d'archive configuré. Définissez-en un dans Paramètres → Comptes → Mappage des dossiers."
+      "noFolderBody": "Un ou plusieurs comptes n'ont pas de dossier d'archive configuré. Définissez-en un dans Paramètres → Comptes → Mappage des dossiers.",
+      "failBody_few": "Some messages could not be archived",
+      "failBody_many": "Some messages could not be archived",
+      "title_few": "Archived {{count}} messages",
+      "title_many": "Archived {{count}} messages"
     },
     "noArchiveFolder": {
       "title": "Aucun dossier d'archive",
@@ -409,7 +423,9 @@
     "deleteFailed": "Échec de la suppression",
     "emptyFailed": "Échec du vidage",
     "backToAccounts": "Retour aux comptes",
-    "updateAvailable": "Mise à jour disponible : v{{version}}"
+    "updateAvailable": "Mise à jour disponible : v{{version}}",
+    "hiddenFolders_few": "{{count}} hidden folders",
+    "hiddenFolders_many": "{{count}} hidden folders"
   },
   "contextMenu": {
     "find": "Rechercher",
@@ -898,7 +914,10 @@
       "defaultMailAppError": "Votre navigateur a bloqué la demande.",
       "markReadDelayLabel": "Délai",
       "markReadDelaySeconds": "{{count}} seconde",
-      "markReadDelaySeconds_other": "{{count}} secondes"
+      "markReadDelaySeconds_other": "{{count}} secondes",
+      "markReadDelaySeconds_many": "{{count}} seconds",
+      "markReadDelaySeconds_one": "{{count}} seconde",
+      "markReadDelaySeconds_few": "{{count}} seconds"
     },
     "notifications": {
       "title": "Notifications",

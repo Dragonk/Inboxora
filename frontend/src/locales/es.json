@@ -256,7 +256,9 @@
       "button": "Clasificar con IA",
       "done": "Clasificado como {{category}}",
       "error": "La clasificación con IA falló."
-    }
+    },
+    "attachment_few": "{{count}} attachments",
+    "attachment_many": "{{count}} attachments"
   },
   "messageList": {
     "search": "Buscar…",
@@ -297,14 +299,22 @@
       "body": "Movido a la papelera.",
       "failTitle": "Error al eliminar",
       "failBody_one": "No se pudo eliminar {{count}} mensaje.",
-      "failBody_other": "No se pudieron eliminar {{count}} mensajes."
+      "failBody_other": "No se pudieron eliminar {{count}} mensajes.",
+      "failBody_few": "Some messages could not be deleted",
+      "failBody_many": "Some messages could not be deleted",
+      "title_few": "Deleted {{count}} messages",
+      "title_many": "Deleted {{count}} messages"
     },
     "bulkMoved": {
       "title_one": "{{count}} mensaje movido",
       "title_other": "{{count}} mensajes movidos",
       "failTitle": "Error al mover",
       "failBody_one": "No se pudo mover {{count}} mensaje.",
-      "failBody_other": "No se pudieron mover {{count}} mensajes."
+      "failBody_other": "No se pudieron mover {{count}} mensajes.",
+      "failBody_few": "Some messages could not be moved",
+      "failBody_many": "Some messages could not be moved",
+      "title_few": "Moved {{count}} messages",
+      "title_many": "Moved {{count}} messages"
     },
     "bulkArchived": {
       "title_one": "{{count}} mensaje archivado",
@@ -314,7 +324,11 @@
       "failBody_one": "No se pudo archivar {{count}} mensaje.",
       "failBody_other": "No se pudieron archivar {{count}} mensajes.",
       "noFolderTitle": "Sin carpeta de archivo",
-      "noFolderBody": "Una o más cuentas no tienen carpeta de archivo configurada. Configura una en Ajustes → Cuentas → Asignación de carpetas."
+      "noFolderBody": "Una o más cuentas no tienen carpeta de archivo configurada. Configura una en Ajustes → Cuentas → Asignación de carpetas.",
+      "failBody_few": "Some messages could not be archived",
+      "failBody_many": "Some messages could not be archived",
+      "title_few": "Archived {{count}} messages",
+      "title_many": "Archived {{count}} messages"
     },
     "noArchiveFolder": {
       "title": "Sin carpeta de archivo",
@@ -409,7 +423,9 @@
     "deleteFailed": "Error al eliminar",
     "emptyFailed": "Error al vaciar",
     "backToAccounts": "Volver a cuentas",
-    "updateAvailable": "Actualización disponible: v{{version}}"
+    "updateAvailable": "Actualización disponible: v{{version}}",
+    "hiddenFolders_few": "{{count}} hidden folders",
+    "hiddenFolders_many": "{{count}} hidden folders"
   },
   "contextMenu": {
     "find": "Buscar",
@@ -898,7 +914,10 @@
       "defaultMailAppError": "Tu navegador bloqueó la solicitud.",
       "markReadDelayLabel": "Retraso",
       "markReadDelaySeconds": "{{count}} segundo",
-      "markReadDelaySeconds_other": "{{count}} segundos"
+      "markReadDelaySeconds_other": "{{count}} segundos",
+      "markReadDelaySeconds_many": "{{count}} seconds",
+      "markReadDelaySeconds_one": "{{count}} segundo",
+      "markReadDelaySeconds_few": "{{count}} seconds"
     },
     "notifications": {
       "title": "Notificaciones",

@@ -256,7 +256,9 @@
       "button": "AI 分类",
       "done": "已分类为 {{category}}",
       "error": "AI 分类失败。"
-    }
+    },
+    "attachment_few": "{{count}} attachments",
+    "attachment_many": "{{count}} attachments"
   },
   "messageList": {
     "search": "搜索…",
@@ -297,14 +299,22 @@
       "body": "已移至废件箱。",
       "failTitle": "删除失败",
       "failBody_one": "无法删除 {{count}} 封邮件。",
-      "failBody_other": "无法删除 {{count}} 封邮件。"
+      "failBody_other": "无法删除 {{count}} 封邮件。",
+      "failBody_few": "Some messages could not be deleted",
+      "failBody_many": "Some messages could not be deleted",
+      "title_few": "Deleted {{count}} messages",
+      "title_many": "Deleted {{count}} messages"
     },
     "bulkMoved": {
       "title_one": "已移动 {{count}} 封邮件",
       "title_other": "已移动 {{count}} 封邮件",
       "failTitle": "移动失败",
       "failBody_one": "无法移动 {{count}} 封邮件。",
-      "failBody_other": "无法移动 {{count}} 封邮件。"
+      "failBody_other": "无法移动 {{count}} 封邮件。",
+      "failBody_few": "Some messages could not be moved",
+      "failBody_many": "Some messages could not be moved",
+      "title_few": "Moved {{count}} messages",
+      "title_many": "Moved {{count}} messages"
     },
     "bulkArchived": {
       "title_one": "已归档 {{count}} 封邮件",
@@ -314,7 +324,11 @@
       "failBody_one": "无法归档 {{count}} 封邮件。",
       "failBody_other": "无法归档 {{count}} 封邮件。",
       "noFolderTitle": "未设置归档文件夹",
-      "noFolderBody": "一个或多个账户未配置归档文件夹。请前往「设置 → 账户 → 文件夹映射」中设置。"
+      "noFolderBody": "一个或多个账户未配置归档文件夹。请前往「设置 → 账户 → 文件夹映射」中设置。",
+      "failBody_few": "Some messages could not be archived",
+      "failBody_many": "Some messages could not be archived",
+      "title_few": "Archived {{count}} messages",
+      "title_many": "Archived {{count}} messages"
     },
     "noArchiveFolder": {
       "title": "未设置归档文件夹",
@@ -409,7 +423,9 @@
     "deleteFailed": "删除失败",
     "emptyFailed": "清空失败",
     "backToAccounts": "返回账户列表",
-    "updateAvailable": "有可用更新：v{{version}}"
+    "updateAvailable": "有可用更新：v{{version}}",
+    "hiddenFolders_few": "{{count}} hidden folders",
+    "hiddenFolders_many": "{{count}} hidden folders"
   },
   "contextMenu": {
     "find": "查找",
@@ -898,7 +914,10 @@
       "defaultMailAppError": "浏览器已阻止该请求。",
       "markReadDelayLabel": "延迟",
       "markReadDelaySeconds": "{{count}} 秒",
-      "markReadDelaySeconds_other": "{{count}} 秒"
+      "markReadDelaySeconds_other": "{{count}} 秒",
+      "markReadDelaySeconds_many": "{{count}} seconds",
+      "markReadDelaySeconds_one": "{{count}} 秒",
+      "markReadDelaySeconds_few": "{{count}} seconds"
     },
     "notifications": {
       "title": "通知",

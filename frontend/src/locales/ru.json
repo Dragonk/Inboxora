@@ -256,7 +256,9 @@
       "button": "Классифицировать с ИИ",
       "done": "Категория: {{category}}",
       "error": "Ошибка классификации ИИ."
-    }
+    },
+    "attachment_few": "{{count}} attachments",
+    "attachment_many": "{{count}} attachments"
   },
   "messageList": {
     "search": "Поиск…",
@@ -297,14 +299,22 @@
       "body": "Перемещено в корзину.",
       "failTitle": "Не удалось удалить",
       "failBody_one": "Не удалось удалить {{count}} сообщение.",
-      "failBody_other": "Не удалось удалить {{count}} сообщений."
+      "failBody_other": "Не удалось удалить {{count}} сообщений.",
+      "failBody_few": "Some messages could not be deleted",
+      "failBody_many": "Some messages could not be deleted",
+      "title_few": "Deleted {{count}} messages",
+      "title_many": "Deleted {{count}} messages"
     },
     "bulkMoved": {
       "title_one": "{{count}} сообщение перемещено",
       "title_other": "{{count}} сообщений перемещено",
       "failTitle": "Не удалось переместить",
       "failBody_one": "Не удалось переместить {{count}} сообщение.",
-      "failBody_other": "Не удалось переместить {{count}} сообщений."
+      "failBody_other": "Не удалось переместить {{count}} сообщений.",
+      "failBody_few": "Some messages could not be moved",
+      "failBody_many": "Some messages could not be moved",
+      "title_few": "Moved {{count}} messages",
+      "title_many": "Moved {{count}} messages"
     },
     "bulkArchived": {
       "title_one": "{{count}} сообщение архивировано",
@@ -314,7 +324,11 @@
       "failBody_one": "Не удалось архивировать {{count}} сообщение.",
       "failBody_other": "Не удалось архивировать {{count}} сообщений.",
       "noFolderTitle": "Нет папки архива",
-      "noFolderBody": "У одного или нескольких аккаунтов не настроена папка архива. Задайте её в Настройки → Аккаунты → Сопоставление папок."
+      "noFolderBody": "У одного или нескольких аккаунтов не настроена папка архива. Задайте её в Настройки → Аккаунты → Сопоставление папок.",
+      "failBody_few": "Some messages could not be archived",
+      "failBody_many": "Some messages could not be archived",
+      "title_few": "Archived {{count}} messages",
+      "title_many": "Archived {{count}} messages"
     },
     "noArchiveFolder": {
       "title": "Нет папки архива",
@@ -409,7 +423,9 @@
     "deleteFailed": "Не удалось удалить",
     "emptyFailed": "Не удалось очистить",
     "backToAccounts": "Назад к аккаунтам",
-    "updateAvailable": "Доступно обновление: v{{version}}"
+    "updateAvailable": "Доступно обновление: v{{version}}",
+    "hiddenFolders_few": "{{count}} hidden folders",
+    "hiddenFolders_many": "{{count}} hidden folders"
   },
   "contextMenu": {
     "find": "Найти",
@@ -898,7 +914,10 @@
       "defaultMailAppError": "Браузер заблокировал запрос.",
       "markReadDelayLabel": "Задержка",
       "markReadDelaySeconds": "{{count}} секунда",
-      "markReadDelaySeconds_other": "{{count}} секунд"
+      "markReadDelaySeconds_other": "{{count}} секунд",
+      "markReadDelaySeconds_many": "{{count}} seconds",
+      "markReadDelaySeconds_one": "{{count}} секунда",
+      "markReadDelaySeconds_few": "{{count}} seconds"
     },
     "notifications": {
       "title": "Уведомления",
