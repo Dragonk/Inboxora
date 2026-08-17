@@ -3739,6 +3739,8 @@ export class ImapManager {
       JSON.stringify(to), JSON.stringify(cc),
       safeDate(date), sanitizeStr(snippet || ''), threadId,
     ]);
+    const row = await query('SELECT id FROM messages WHERE account_id = $1 AND uid = $2 AND folder = $3', [account.id, uid, folder]);
+    if (row.rows[0]) await persistConversationCopyForRow(row.rows[0].id, account, { messageId, inReplyTo: null, references: null });
   }
 
   // Persist a local Drafts row immediately after appending a draft to IMAP, so the
@@ -3800,6 +3802,8 @@ export class ImapManager {
       bodyText != null ? sanitizeStr(bodyText) : null,
       msgId || null,
     ]);
+    const row = await query('SELECT id FROM messages WHERE account_id = $1 AND uid = $2 AND folder = $3', [account.id, uid, folder]);
+    if (row.rows[0]) await persistConversationCopyForRow(row.rows[0].id, account, { messageId, inReplyTo, references: null });
   }
 
   async findUidByMessageId(account, folder, messageId) {
