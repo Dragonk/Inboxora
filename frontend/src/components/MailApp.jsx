@@ -13,6 +13,8 @@ import Sidebar from './Sidebar.jsx';
 import MessageList from './MessageList.jsx';
 import MessagePane from './MessagePane.jsx';
 import NotificationToasts from './NotificationToasts.jsx';
+import ConversationList from './ConversationList.jsx';
+import ConversationPane from './ConversationPane.jsx';
 import CommandPalette from './CommandPalette.jsx';
 import { usePluginSlot, PluginRuntime } from '../plugins/PluginSlot.jsx';
 
@@ -70,10 +72,14 @@ export default function MailApp() {
     showContacts, setTodoistConnected,
     accounts, rightSidebarWidth, setRightSidebarWidth, isRightSidebarResizing, setIsRightSidebarResizing,
     rightSidebarHidden, toggleRightSidebarHidden,
+    conversationListViewEnabled, conversationReaderViewEnabled,
   } = useStore();
   const syncInterval = useStore(s => s.syncInterval);
   const autoLockMinutes = useStore(s => s.autoLockMinutes);
   const lockScreen = useStore(s => s.lockScreen);
+  const conversationMode = conversationListViewEnabled || conversationReaderViewEnabled;
+  const [conversationId, setConversationId] = useState(null);
+  const openConversation = useCallback(row => setConversationId(row.conversation_id), []);
 
   // Auto-lock after inactivity (#235). MailApp only mounts while unlocked, so this
   // timer runs only when unlocked; hitting the timeout locks and unmounts this tree.
@@ -748,10 +754,10 @@ export default function MailApp() {
             <Suspense fallback={lazyFallback}><ContactsPage /></Suspense>
           </div>
           <div style={{ flex: 1, display: !showContacts && !selectedMessageId ? 'flex' : 'none', overflow: 'hidden', height: '100%' }}>
-            <MessageList />
+            {conversationMode ? <ConversationList params={{}} onOpenMessage={openConversation} /> : <MessageList />}
           </div>
           <div style={{ flex: 1, display: !showContacts && selectedMessageId ? 'flex' : 'none', overflow: 'hidden', height: '100%' }}>
-            <MessagePane />
+            {conversationMode && conversationId ? <ConversationPane conversationId={conversationId} /> : <MessagePane />
           </div>
         </>
       ) : (
@@ -780,7 +786,7 @@ export default function MailApp() {
               <Suspense fallback={lazyFallback}><ContactsPage /></Suspense>
             </div>
             <div style={{ display: showContacts ? 'none' : 'flex', flex: 1, minWidth: 0, overflow: 'hidden', height: '100%', flexDirection: currentLayout.direction }}>
-              <MessageList />
+              {conversationMode ? <ConversationList params={{}} onOpenMessage={openConversation} /> : <MessageList />}
               {currentLayout.direction === 'row' && (
                 <div
                   onMouseDown={handleListResizeMouseDown}
@@ -793,7 +799,7 @@ export default function MailApp() {
                   onMouseLeave={e => { e.currentTarget.style.background = 'var(--border-subtle)'; }}
                 />
               )}
-              <MessagePane />
+              {conversationMode && conversationId ? <ConversationPane conversationId={conversationId} /> : <MessagePane />}
               {/* Generic right-sidebar column, populated from the content seam above. */}
               {currentLayout.direction === 'row' && rightSidebarContent != null && (
                 <>

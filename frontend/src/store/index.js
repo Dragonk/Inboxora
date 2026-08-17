@@ -481,6 +481,10 @@ export const useStore = create((set, get) => ({
     schedulePrefSave({ language: lng });
   },
 
+  // Conversation Engine v2 feature flags
+  conversationListViewEnabled: false,
+  conversationReaderViewEnabled: false,
+
   // Threaded view
   threadedView: localStorage.getItem('mailflow_threaded_view') === 'true',
   setThreadedView: (val) => {
