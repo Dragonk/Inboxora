@@ -18,8 +18,8 @@ try {
   await client.query('DELETE FROM conversations WHERE user_id = $1', [userId]);
   await client.query('DELETE FROM email_accounts WHERE user_id = $1', [userId]);
   const accounts = [];
-  for (const [name, email] of [['Gmail fixture', 'me@gmail.test'], ['Outlook fixture', 'me@outlook.test'], ['Fastmail fixture', 'me@fastmail.test']]) {
-    const result = await client.query('INSERT INTO email_accounts (user_id, name, email_address, auth_user, enabled, protocol) VALUES ($1, $2, $3, $3, false, \'imap\') RETURNING id', [userId, name, email]);
+  for (const [name, email, host] of [['Gmail fixture', 'me@gmail.test', 'imap.gmail.com'], ['Outlook fixture', 'me@outlook.test', 'outlook.office365.com'], ['Fastmail fixture', 'me@fastmail.test', 'imap.fastmail.com']]) {
+    const result = await client.query('INSERT INTO email_accounts (user_id, name, email_address, auth_user, imap_host, enabled, protocol) VALUES ($1, $2, $3, $3, $4, false, \'imap\') RETURNING id', [userId, name, email, host]);
     accounts.push(result.rows[0].id);
   }
   for (const [index, subject] of ['Gmail reply chain', 'Outlook conversation', 'Fastmail generic IMAP'].entries()) {
