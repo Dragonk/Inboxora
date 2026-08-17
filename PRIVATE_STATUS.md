@@ -1,44 +1,29 @@
-# MailFlow Conversation Engine v2 — fixed quality-gate decisions
+# MailFlow Conversation Engine v2 — continuation
 
-## Branch
-`feat/threading-v2-integration-live`
+Branch: `feat/threading-v2-integration-live`
+Current HEAD: `80102c953df80cd82cd8d84c970d53997984b9f8`
+Backup tag: `threading-v2-integration-live-634889d`
 
-## Required final stack
-The final stack must use the exact branch names and order required by the completion/finalization documents:
+Completed since prior exact-SHA run:
+- tenant composite constraints and migration checksum integrity tests;
+- null-safe rebuild resume predicate;
+- Polish locale beta (`frontend/src/locales/pl.json`) and locale registration;
+- synthetic legacy fixture with 12 subject-only Test messages across two accounts and years;
+- provider fixtures for Gmail BigInt, Outlook and generic/Fastmail;
+- explicit security, race and performance gate tests;
+- E2E 2x2 feature-preference contract test;
+- upgrade script now inserts deterministic synthetic legacy data after applying migrations 0001–0046.
 
-1. `feat/threading-v2-r3-01-correctness`
-2. `feat/threading-v2-r3-02-conversation-model`
-3. `feat/threading-v2-r3-03-ingest-rebuild`
-4. `feat/threading-v2-r3-04-provider-automated-series`
-5. `feat/threading-v2-r3-05-api-settings`
-6. `feat/threading-v2-r3-06-outlook-list`
-7. `feat/threading-v2-r3-07-gmail-reader`
-8. `feat/threading-v2-r3-08-hardening`
-9. `integration/threading-v2-r3-pl-beta`
+Important: every change after run `32029016100` invalidated that run. A new exact-SHA workflow must run after the final integration commit.
 
-## Constraints
-- Do not mutate historical `backend/migrations/0002_subject_threading.sql`.
-- Do not merge into `main` or `upstream`.
-- Do not open upstream PRs.
-- Do not use production data or production mailboxes.
-- Every branch needs its own `PRn_DESCRIPTION.md` and must be a direct descendant of the previous branch.
-- Validate ancestry, patch-id, diff scope, and `git diff --check` before reporting.
+Still required before r3:
+- convert the legacy fixture into a real upgrade assertion after applying 0047–0051;
+- verify tenant constraints against real PostgreSQL with negative cross-user writes;
+- test manual merge/split/force override behavior end-to-end and alias read resolution;
+- run actual security/race/E2E/performance jobs, not only unit/contract checks;
+- run complete frontend EN/FR/PL locale tests and capture screenshots if browser tooling is available;
+- independent adversarial review after all final changes;
+- final exact-SHA workflow;
+- then create direct-descendant r3 stack and `integration/threading-v2-r3-pl-beta`.
 
-## Quality gates required before stack creation
-- Fresh schema.
-- Real legacy upgrade fixture with data, including old subject-only `Test` joins.
-- Partial rebuild/resume.
-- Full write followed by full second rebuild with zero mutations and identical checksums.
-- Concurrent rebuild/live sync behavior.
-- Tenant-scoped composite constraints with negative cross-user tests.
-- Override precedence and complete merge/split reconciliation.
-- Gmail, Outlook, and generic/Fastmail provider fixtures.
-- Strict and smart automated-series fixtures.
-- Security route/ownership tests.
-- Real performance EXPLAIN assertions.
-- Real browser E2E matrix.
-- EN/FR/PL locale validation and screenshots.
-- Independent adversarial review after all changes.
-
-## Current truth
-The last exact-SHA green workflow was run `32029016100`, but later changes invalidate it. A new run is required after the final integration commit.
+No merge to main/upstream and no upstream PR.
