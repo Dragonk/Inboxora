@@ -95,8 +95,7 @@ router.get('/conversations/:id', async (req, res) => {
 
 router.get('/messages/:id/conversation', async (req, res) => {
   const result = await query(`
-    SELECT m.conversation_id, m.logical_message_id,
-           c.id AS canonical_conversation_id
+    SELECT m.conversation_id, m.logical_message_id
       FROM messages m
       JOIN email_accounts a ON a.id = m.account_id
      WHERE m.id = $1 AND a.user_id = $2 AND m.is_deleted = false

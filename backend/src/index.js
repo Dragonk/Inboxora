@@ -42,6 +42,7 @@ import { setupWebSocket } from './services/websocket.js';
 import { ImapManager } from './services/imapManager.js';
 import { getUpdateStatus } from './services/updateCheck.js';
 import conversationsRoutes from './routes/conversations.js';
+import { retryConversationIngestFailures } from './services/conversationIngestRetry.js';
 
 const packageMeta = JSON.parse(readFileSync(new URL('../package.json', import.meta.url), 'utf-8'));
 let buildMeta = {};
@@ -259,6 +260,8 @@ imapManager.startSnoozeWatcher();
 
 // Schedule periodic CardDAV contact sync for any connected accounts.
 startCardavScheduler();
+// Retry conversation persistence failures without blocking IMAP synchronization.
+setInterval(() => retryConversationIngestFailures({ limit: 25 }).catch(err => console.warn('Conversation ingest retry failed:', err.message)), 5 * 60 * 1000);
 
 // Re-connect all enabled IMAP accounts on startup with bounded concurrency so a
 // large user base doesn't hammer IMAP servers and the DB connection pool at once.
