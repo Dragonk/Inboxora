@@ -66,17 +66,28 @@ router.get('/conversations', async (req, res) => {
 router.get('/conversations/:id', async (req, res) => {
   const result = await query(`
     SELECT c.*, lm.id AS logical_id, lm.canonical_message_id, lm.subject,
-           lm.direction, lm.message_date, lm.threading_reason, lm.threading_confidence
+           lm.direction, lm.message_date, lm.threading_reason, lm.threading_confidence,
+           COALESCE(jsonb_agg(jsonb_build_object(
+             'id', m.id, 'accountId', m.account_id, 'folder', m.folder,
+             'messageId', m.message_id, 'canonicalMessageId', m.canonical_message_id,
+             'subject', m.subject, 'fromName', m.from_name, 'fromEmail', m.from_email,
+             'to', m.to_addresses, 'cc', m.cc_addresses, 'date', m.date,
+             'snippet', m.snippet, 'bodyText', m.body_text, 'bodyHtml', m.body_html,
+             'attachments', m.attachments, 'isRead', m.is_read, 'isStarred', m.is_starred
+           ) ORDER BY m.date ASC NULLS LAST, m.id) FILTER (WHERE m.id IS NOT NULL), '[]'::jsonb) AS copies
       FROM conversations c
       LEFT JOIN logical_messages lm ON lm.conversation_id = c.id
+      LEFT JOIN messages m ON m.logical_message_id = lm.id AND m.is_deleted = false
+      JOIN email_accounts a ON a.user_id = c.user_id
      WHERE c.id = $1 AND c.user_id = $2
+     GROUP BY c.id, lm.id
      ORDER BY lm.message_date ASC NULLS LAST, lm.id
   `, [req.params.id, req.session.userId]);
   if (!result.rows.length) return res.status(404).json({ error: 'Conversation not found' });
   const logicalRows = result.rows.filter(row => row.logical_id).map(row => ({
     id: row.logical_id, canonicalMessageId: row.canonical_message_id, subject: row.subject,
     direction: row.direction, messageDate: row.message_date, threadingReason: row.threading_reason,
-    threadingConfidence: row.threading_confidence,
+    threadingConfidence: row.threading_confidence, copies: row.copies || [],
   }));
   const first = result.rows[0];
   const summary = first ? Object.fromEntries(Object.entries(first).filter(([key]) => !['logical_id', 'canonical_message_id', 'subject', 'direction', 'message_date', 'threading_reason', 'threading_confidence'].includes(key))) : {};
