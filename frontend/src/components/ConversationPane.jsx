@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { conversationApi } from '../utils/conversationApi.js';
 import MessageBodyRenderer from './MessageBodyRenderer.jsx';
@@ -12,6 +12,8 @@ export default function ConversationPane({ conversationId, targetLogicalMessageI
   const [state, setState] = useState({ loading: true, error: null, data: null });
   const [expanded, setExpanded] = useState(new Set());
   const [bodies, setBodies] = useState({});
+  const [bodyStatus, setBodyStatus] = useState({});
+  const inFlight = useRef(new Map());
   useEffect(() => {
     let cancelled = false;
     setState({ loading: true, error: null, data: null });
@@ -22,14 +24,25 @@ export default function ConversationPane({ conversationId, targetLogicalMessageI
       const unread = messages.filter(message => message.copies?.some(copy => !copy.isRead)).map(message => message.id);
       setExpanded(new Set([newest, ...unread, targetLogicalMessageId].filter(Boolean)));
       setState({ loading: false, error: null, data });
+      for (const message of messages) if (new Set([newest, ...unread, targetLogicalMessageId].filter(Boolean)).has(message.id)) loadBody(message.id).catch(() => {});
     }).catch(error => { if (!cancelled) setState({ loading: false, error: error.message || t('conversation.loadFailed'), data: null }); });
     return () => { cancelled = true; };
-  }, [conversationId, targetLogicalMessageId, t]);
+  }, [conversationId, targetLogicalMessageId, t]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  const loadBody = async (logicalId) => {
-    if (bodies[logicalId]) return;
-    const body = await conversationApi.body(conversationId, logicalId);
-    setBodies(previous => ({ ...previous, [logicalId]: body }));
+  useEffect(() => () => { for (const controller of inFlight.current.values()) controller.abort(); inFlight.current.clear(); }, [conversationId]);
+
+  const loadBody = async (logicalId, force = false) => {
+    if (!force && (bodies[logicalId] || inFlight.current.has(logicalId))) return;
+    const controller = new AbortController();
+    inFlight.current.set(logicalId, controller);
+    setBodyStatus(previous => ({ ...previous, [logicalId]: { loading: true, error: null } }));
+    try {
+      const body = await conversationApi.body(conversationId, logicalId, controller.signal);
+      setBodies(previous => ({ ...previous, [logicalId]: body }));
+      setBodyStatus(previous => ({ ...previous, [logicalId]: { loading: false, error: null } }));
+    } catch (error) {
+      if (error.name !== 'AbortError') setBodyStatus(previous => ({ ...previous, [logicalId]: { loading: false, error: error.message || t('conversation.loadFailed') } }));
+    } finally { inFlight.current.delete(logicalId); }
   };
   if (state.loading) return <div role="status">{t('conversation.loading')}</div>;
   if (state.error) return <div role="alert">{state.error}</div>;
@@ -51,6 +64,8 @@ export default function ConversationPane({ conversationId, targetLogicalMessageI
         </button>
         {open && <div role="region" aria-label={t('conversation.bodyLabel')}>
           <p>{copy?.snippet || ''}</p>
+          {bodyStatus[message.id]?.loading && <div role="status">{t('conversation.loading')}</div>}
+          {bodyStatus[message.id]?.error && <div role="alert">{bodyStatus[message.id].error} <button type="button" onClick={() => loadBody(message.id, true)}>{t('common.retry')}</button></div>}
           {body && <MessageBodyRenderer html={body.body_html} text={body.body_text} />}
           <div className="conversation-actions">
             <button type="button" onClick={() => onReply?.({ ...copy, copies: message.copies, logicalMessageId: message.id })}>{t('conversation.reply')}</button>

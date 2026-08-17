@@ -27,8 +27,9 @@ export async function applyConversationOverride({ userId, conversationId, logica
       const sourceCanonical = await resolveConversationAlias(client, { userId, conversationId });
       const targetCanonical = await resolveConversationAlias(client, { userId, conversationId: targetId });
       if (sourceCanonical === targetCanonical) throw new Error('manual-merge would create an alias cycle');
-      await assertConversationOwner(client, userId, targetCanonical);
       await lockConversationsDeterministically(client, userId, [sourceCanonical, targetCanonical]);
+      await assertConversationOwner(client, userId, sourceCanonical);
+      await assertConversationOwner(client, userId, targetCanonical);
       await client.query('INSERT INTO conversation_aliases (user_id, alias_conversation_id, canonical_conversation_id, reason) VALUES ($1,$2,$3,$4) ON CONFLICT (user_id, alias_conversation_id) DO UPDATE SET canonical_conversation_id = EXCLUDED.canonical_conversation_id, reason = EXCLUDED.reason', [userId, sourceCanonical, targetCanonical, reason || 'manual-merge']);
       await client.query('UPDATE messages SET conversation_id = $1, conversation_user_id = $2 WHERE conversation_id = $3 AND conversation_user_id = $2', [targetCanonical, userId, sourceCanonical]);
       await client.query('UPDATE logical_messages SET conversation_id = $1 WHERE conversation_id = $2 AND user_id = $3', [targetCanonical, sourceCanonical, userId]);
@@ -46,7 +47,15 @@ export async function applyConversationOverride({ userId, conversationId, logica
       if (!['message-only', 'message-with-descendants'].includes(scope)) throw new Error('Unsupported manual-split scope');
       const created = await client.query(`INSERT INTO conversations (user_id, kind, subject_snapshot, canonical_subject, first_message_at, last_message_at, segment_number) SELECT user_id, 'manual_conversation', subject_snapshot, canonical_subject, first_message_at, last_message_at, segment_number + 1 FROM conversations WHERE id = $1 RETURNING id`, [conversationId]);
       const newConversationId = created.rows[0].id;
-      const scopeFilter = scope === 'message-with-descendants' ? `WITH RECURSIVE descendants AS (SELECT id FROM logical_messages WHERE id = $2 AND user_id = $3 UNION ALL SELECT lm.id FROM logical_messages lm JOIN descendants d ON lm.parent_logical_message_id = d.id WHERE lm.user_id = $3) UPDATE logical_messages SET conversation_id = $1, parent_logical_message_id = NULL WHERE id IN (SELECT id FROM descendants)` : 'UPDATE logical_messages SET conversation_id = $1, parent_logical_message_id = NULL WHERE id = $2 AND user_id = $3';
+      const scopeFilter = scope === 'message-with-descendants' ? `WITH RECURSIVE descendants(id, path) AS (
+        SELECT id, ARRAY[id] FROM logical_messages WHERE id = $2 AND user_id = $3
+        UNION ALL
+        SELECT lm.id, d.path || lm.id FROM logical_messages lm JOIN descendants d ON lm.parent_logical_message_id = d.id
+         WHERE lm.user_id = $3 AND NOT lm.id = ANY(d.path)
+      ) UPDATE logical_messages lm SET conversation_id = $1,
+        parent_logical_message_id = CASE WHEN lm.id = $2 THEN NULL ELSE lm.parent_logical_message_id END
+       WHERE lm.id IN (SELECT id FROM descendants)` :
+      'UPDATE logical_messages SET conversation_id = $1, parent_logical_message_id = NULL WHERE id = $2 AND user_id = $3';
       await client.query(scopeFilter, [newConversationId, logicalMessageId, userId]);
       await client.query('UPDATE messages SET conversation_id = $1, conversation_user_id = $2 WHERE logical_message_id IN (SELECT id FROM logical_messages WHERE conversation_id = $1) AND conversation_user_id = $2', [newConversationId, userId]);
       await client.query('UPDATE conversation_evidence SET conversation_id = $1 WHERE logical_message_id IN (SELECT id FROM logical_messages WHERE conversation_id = $1) AND user_id = $2', [newConversationId, userId]);

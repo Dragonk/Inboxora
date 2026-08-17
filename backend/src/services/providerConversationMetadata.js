@@ -1,6 +1,15 @@
 import { normalizeMessageIdList } from './threading/normalizeMessageId.js';
 import { parseProviderMetadata, providerNamespace } from './providerThreadAdapter.js';
 
+function outlookConversationRoot(value) {
+  if (!value) return null;
+  try {
+    const raw = Buffer.from(String(value).replace(/\s+/g, ''), 'base64');
+    if (raw.length < 22 || (raw.length - 22) % 5 !== 0) return null;
+    return raw.subarray(0, 22).toString('hex');
+  } catch { return null; }
+}
+
 export function providerMetadataForMessage(parsed, account) {
   const metadata = parseProviderMetadata(parsed, account);
   const attributes = parsed?.attributes || parsed || {};
@@ -24,9 +33,9 @@ export function providerMetadataForMessage(parsed, account) {
     namespace: providerNamespace({ provider: metadata.provider, accountId: account?.id, host: account?.imap_host }),
     threadIndex: threadIndex == null ? null : String(threadIndex),
     threadTopic: threadTopic == null ? null : String(threadTopic),
-    providerThreadId: metadata.providerThreadId || (metadata.provider === 'outlook' && threadIndex ? threadIndex : null),
-    isStrong: metadata.providerThreadId != null || (metadata.provider === 'outlook' && Boolean(threadIndex)),
-    source: metadata.providerThreadId ? (metadata.source || 'provider-thread-id') : threadIndex ? 'outlook-thread-index' : metadata.source,
+    providerThreadId: metadata.providerThreadId || (metadata.provider === 'outlook' ? outlookConversationRoot(threadIndex) : null),
+    isStrong: metadata.providerThreadId != null || (metadata.provider === 'outlook' && Boolean(outlookConversationRoot(threadIndex))),
+    source: metadata.providerThreadId ? (metadata.source || 'provider-thread-id') : outlookConversationRoot(threadIndex) ? 'outlook-conversation-index-root' : metadata.source,
     references: parsed?.references ? metadata.references : [],
     inReplyTo: normalizeMessageIdList(parsed?.inReplyTo).at(-1) || null,
   };

@@ -81,15 +81,20 @@ export default function MailApp() {
   const [conversationId, setConversationId] = useState(null);
   const [targetLogicalMessageId, setTargetLogicalMessageId] = useState(null);
   const openConversationTarget = useCallback((row) => {
+    if (conversationReaderViewEnabled && row?.conversation_id && (row.logical_message_id || row.logical_id)) {
+      setConversationId(row.conversation_id);
+      setTargetLogicalMessageId(row.logical_message_id || row.logical_id);
+      return;
+    }
     const physicalId = row?.latestCopyId || row?.id || row?.message_id;
     if (!physicalId) return;
     return api.resolveMessage(physicalId).then(resolved => {
       if (conversationReaderViewEnabled) {
         setConversationId(resolved.conversation_id || row.conversation_id || null);
         setTargetLogicalMessageId(resolved.logical_message_id || row.logical_message_id || null);
-        return;
+      } else {
+        return api.getMessage(physicalId).then(message => setSelectedMessage(message.id || physicalId));
       }
-      return api.getMessage(physicalId).then(message => setSelectedMessage(message.id || physicalId));
     });
   }, [conversationReaderViewEnabled, setSelectedMessage]);
 

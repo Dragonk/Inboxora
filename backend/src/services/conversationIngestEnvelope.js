@@ -12,6 +12,10 @@ export function conversationRawHeaders(rawMessage) {
   return null;
 }
 
+export function ownIdentityAddresses(account = {}) {
+  return [account.email_address, ...(account.aliases || []).map(alias => alias.email || alias), ...(account.delivery_addresses || []).map(item => item.email || item)].filter(Boolean);
+}
+
 export function conversationPersistedFields(rawMessage, account) {
   const provider = providerMetadataForMessage(rawMessage, account);
   return {
@@ -19,6 +23,6 @@ export function conversationPersistedFields(rawMessage, account) {
     conversation_thread_index: provider.threadIndex,
     conversation_thread_topic: provider.threadTopic,
     provider,
-    identities: [account?.email_address].filter(Boolean),
+    identities: ownIdentityAddresses(account),
   };
 }

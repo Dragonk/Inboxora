@@ -1,3 +1,4 @@
+import { ownIdentityAddresses } from './conversationIngestEnvelope.js';
 import { providerIdentityForCopy } from './conversationProviderEnvelope.js';
 import { pool } from './db.js';
 import { upsertConversationCopy } from './conversationPersistence.js';
@@ -51,7 +52,7 @@ export async function rebuildConversationCopies({ userId, accountId = null, limi
       for (const row of rows.rows) {
         const before = await client.query('SELECT conversation_id, logical_message_id, canonical_message_id, provider_thread_id, threading_reason, threading_confidence FROM messages WHERE id = $1', [row.id]);
         await upsertConversationCopy(row, {
-          identities: [row.email_address].filter(Boolean),
+          identities: ownIdentityAddresses(row),
           provider: providerIdentityForCopy(row),
         });
         const after = await client.query('SELECT conversation_id, logical_message_id, canonical_message_id, provider_thread_id, threading_reason, threading_confidence FROM messages WHERE id = $1', [row.id]);
@@ -78,7 +79,7 @@ export async function rebuildConversationCopies({ userId, accountId = null, limi
       `, [userId, scope, last ? last.date === null : effectiveCheckpoint?.last_sort_is_null ?? null, last?.date || null, last?.id || null, complete ? 'complete' : 'paused', rows.rows.length, updated, JSON.stringify({ limit: safeLimit, complete, force })]);
     }
 
-    return { scanned: rows.rows.length, updated, complete, next: complete ? null : { date: last?.date || null, id: last?.id, isNull: last?.date === null }, dryRun };
+    return { scanned: rows.rows.length, updated, wouldChange: updated, changed: updated, complete, next: complete ? null : { date: last?.date || null, id: last?.id, isNull: last?.date === null }, dryRun, batches: 1, totalScanned: rows.rows.length, totalUpdated: updated };
   } finally {
     await client.query('SELECT pg_advisory_unlock(hashtext($1))', [lockKey]).catch(() => {});
     client.release();

@@ -28,11 +28,13 @@ async function findParentLogical(client, hydrated) {
   const replyId = normalizeMessageIdList(hydrated.rawInReplyTo).at(-1);
   if (replyId) {
     const direct = await client.query(`SELECT id, conversation_id, canonical_message_id, subject FROM logical_messages WHERE user_id = $1 AND canonical_message_id = $2 FOR UPDATE`, [hydrated.userId, replyId]);
-    if (direct.rows[0]) return { ...direct.rows[0], relationType: 'in-reply-to' };
+    if (direct.rows.length === 1) return { ...direct.rows[0], relationType: 'in-reply-to' };
+    if (direct.rows.length > 1) return { ambiguous: true, relationType: 'ambiguous-in-reply-to', canonical_message_id: replyId };
   }
   const refs = normalizeMessageIdList(hydrated.rawReferences);
   if (!refs.length) return null;
   const result = await client.query(`SELECT id, conversation_id, canonical_message_id, subject FROM logical_messages WHERE user_id = $1 AND canonical_message_id = ANY($2::text[]) ORDER BY array_position($2::text[], canonical_message_id) DESC LIMIT 1 FOR UPDATE`, [hydrated.userId, refs]);
+  if (result.rows.length > 1) return { ambiguous: true, relationType: 'ambiguous-references', canonical_message_id: refs.at(-1) };
   return result.rows[0] ? { ...result.rows[0], relationType: 'references' } : null;
 }
 
@@ -50,7 +52,8 @@ export async function upsertConversationCopy(copy, { identities = [], provider =
     const hydrated = await hydrateLogicalMessage(source, { identities });
     let requestedConversationId = null;
     const parent = await findParentLogical(client, hydrated);
-    const decision = threadingDecision({ message: source, parent, provider, identities });
+    const decision = threadingDecision({ message: source, parent: parent?.ambiguous ? null : parent, provider, identities });
+    if (parent?.ambiguous) decision.reason = parent.relationType;
     const existing = await findExistingLogical(client, hydrated);
     let logical = existing.logical;
     const collision = existing.collision;
@@ -63,7 +66,7 @@ export async function upsertConversationCopy(copy, { identities = [], provider =
     const previousConversationId = conversationId;
     if (override.forceExclude) conversationId = null;
     if (override.forceExclude) {
-      await client.query('UPDATE messages SET logical_message_id = NULL, conversation_id = NULL, conversation_user_id = NULL, canonical_message_id = NULL, threading_reason = $1, threading_confidence = 0 WHERE logical_message_id = $2 AND conversation_user_id = $3', ['manual-force-exclude', logical.id, hydrated.userId]);
+      await client.query('UPDATE messages SET conversation_id = NULL, conversation_user_id = NULL, threading_reason = $1, threading_confidence = 0 WHERE logical_message_id = $2 AND conversation_user_id = $3', ['manual-force-exclude', logical.id, hydrated.userId]);
       await client.query('UPDATE logical_messages SET conversation_id = NULL, parent_logical_message_id = NULL, updated_at = NOW() WHERE id = $1 AND user_id = $2', [logical.id, hydrated.userId]);
       if (previousConversationId) await client.query('DELETE FROM conversation_evidence WHERE logical_message_id = $1 AND conversation_id = $2 AND user_id = $3', [logical.id, previousConversationId, hydrated.userId]);
       await client.query('UPDATE unresolved_message_references SET resolved_logical_message_id = NULL, resolved_at = NULL WHERE resolved_logical_message_id = $1 AND user_id = $2', [logical.id, hydrated.userId]);
@@ -75,7 +78,7 @@ export async function upsertConversationCopy(copy, { identities = [], provider =
     if (requestedConversationId) conversationId = requestedConversationId;
     const relatedParentConversationId = decision.reason === 'subject-change-split' ? parent?.conversation_id : null;
     if (!conversationId) conversationId = (await client.query(`INSERT INTO conversations (user_id, kind, subject_snapshot, canonical_subject, first_message_at, last_message_at, logical_message_count, copy_count, unread_count, threading_confidence) VALUES ($1,$2,$3,$4,$5,$5,0,0,0,$6) RETURNING id`, [hydrated.userId, decision.kind, source.subject || null, hydrated.canonicalSubject, hydrated.messageDate, decision.confidence])).rows[0].id;
-    await client.query('UPDATE logical_messages SET conversation_id = $1, parent_logical_message_id = COALESCE(parent_logical_message_id, $2), updated_at = NOW() WHERE id = $3', [conversationId, parent?.id || null, logical.id]);
+    await client.query(`UPDATE logical_messages SET conversation_id = $1, parent_logical_message_id = CASE WHEN $4::text = 'subject-change-split' THEN NULL ELSE COALESCE(parent_logical_message_id, $2) END, updated_at = NOW() WHERE id = $3`, [conversationId, parent?.id || null, logical.id, decision.reason]);
     const attached = await client.query(`UPDATE messages SET logical_message_id = $1, conversation_id = $2, conversation_user_id = $3, canonical_message_id = $4, provider_message_id = COALESCE($5, provider_message_id), provider_thread_id = COALESCE($6, provider_thread_id), provider_namespace = COALESCE($7, provider_namespace), threading_reason = $8, threading_confidence = $9, threading_algorithm_version = 'conversation-v2', row_version = row_version + 1 WHERE id = $10 RETURNING id`, [logical.id, conversationId, hydrated.userId, hydrated.canonicalMessageId, provider?.providerMessageId || null, provider?.providerThreadId || null, provider?.namespace || provider?.provider || null, decision.reason, decision.confidence, source.id]);
     if (attached.rowCount !== 1) throw new Error('Conversation copy attachment failed');
     if (provider?.providerThreadId) await client.query(`INSERT INTO provider_thread_mappings (user_id, account_id, provider, provider_thread_id, conversation_id, last_seen_at, diagnostics) VALUES ($1,$2,$3,$4,$5,NOW(),$6::jsonb) ON CONFLICT (user_id, account_id, provider, provider_thread_id) DO UPDATE SET conversation_id = EXCLUDED.conversation_id, last_seen_at = NOW(), diagnostics = EXCLUDED.diagnostics`, [hydrated.userId, hydrated.accountId, provider.provider, provider.providerThreadId, conversationId, JSON.stringify(provider.diagnostics || {})]);
@@ -93,14 +96,19 @@ export async function upsertConversationCopy(copy, { identities = [], provider =
     const waiting = await client.query(`SELECT id, child_logical_message_id FROM unresolved_message_references WHERE user_id = $1 AND referenced_message_id = $2 AND resolved_at IS NULL FOR UPDATE`, [hydrated.userId, hydrated.canonicalMessageId]);
     for (const reference of waiting.rows) {
       await client.query('UPDATE unresolved_message_references SET resolved_logical_message_id = $1, resolved_at = NOW() WHERE id = $2', [logical.id, reference.id]);
-      const child = await client.query('SELECT conversation_id FROM logical_messages WHERE id = $1 AND user_id = $2 FOR UPDATE', [reference.child_logical_message_id, hydrated.userId]);
-      if (child.rows[0]?.conversation_id && child.rows[0].conversation_id !== conversationId) {
+      const child = await client.query(`SELECT lm.conversation_id, c.manually_locked
+        FROM logical_messages lm LEFT JOIN conversations c ON c.id = lm.conversation_id
+       WHERE lm.id = $1 AND lm.user_id = $2 FOR UPDATE`, [reference.child_logical_message_id, hydrated.userId]);
+      const childOverride = await effectiveConversationOverride(client, { userId: hydrated.userId, conversationId: child.rows[0]?.conversation_id, logicalMessageId: reference.child_logical_message_id });
+      const blockedMove = childOverride.forceExclude || childOverride.forceInclude || childOverride.split || childOverride.locked || child.rows[0]?.manually_locked;
+      if (!blockedMove && child.rows[0]?.conversation_id && child.rows[0].conversation_id !== conversationId) {
         await client.query('UPDATE logical_messages SET conversation_id = $1, parent_logical_message_id = $2, updated_at = NOW() WHERE id = $3', [conversationId, logical.id, reference.child_logical_message_id]);
         await client.query('UPDATE messages SET conversation_id = $1, conversation_user_id = $2 WHERE logical_message_id = $3 AND conversation_user_id = $2', [conversationId, hydrated.userId, reference.child_logical_message_id]);
         await refreshConversationAggregates(client, hydrated.userId, child.rows[0].conversation_id);
         await refreshConversationAggregates(client, hydrated.userId, conversationId);
       }
     }
+    if (parent?.ambiguous) await client.query(`INSERT INTO conversation_evidence (user_id, conversation_id, logical_message_id, evidence_type, evidence_value_hash, weight, details) VALUES ($1,$2,$3,'ambiguous-parent',$4,0,$5::jsonb) ON CONFLICT DO NOTHING`, [hydrated.userId, conversationId, logical.id, createHash('sha256').update(String(parent.canonical_message_id)).digest('hex'), JSON.stringify({ canonical_message_id: parent.canonical_message_id, relation_type: parent.relationType })]);
     if (relatedParentConversationId) await client.query(`INSERT INTO conversation_evidence (user_id, conversation_id, logical_message_id, evidence_type, evidence_value_hash, weight, details) VALUES ($1,$2,$3,'subject-change-split',$4,1,$5::jsonb) ON CONFLICT DO NOTHING`, [hydrated.userId, relatedParentConversationId, logical.id, createHash('sha256').update(String(logical.id)).digest('hex'), JSON.stringify({ relatedConversation_id: conversationId, parent_logical_message_id: parent.id })]);
     const evidence = [[decision.reason, decision.confidence, { relationType: parent?.relationType || null, provider: provider?.provider || null }], ...(parent ? [['rfc-parent', 0.99, { parentLogicalMessageId: parent.id }]] : []), ...(provider?.providerThreadId ? [['provider-thread-id', 1, { provider: provider.provider }]] : [])];
     if (collision) evidence.push(['message-id-collision', 0, { canonicalMessageId: hydrated.canonicalMessageId, collisionKey: hydrated.collisionKey }]);

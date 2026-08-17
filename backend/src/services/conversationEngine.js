@@ -36,7 +36,7 @@ export function fingerprint(value) {
 export function logicalMessageIdentity(message, { userId } = {}) {
   const rawId = message.message_id || message.messageId || null;
   const canonical = rawId ? String(rawId).trim().replace(/^<|>$/g, '') : null;
-  const stable = [userId || '', canonical || '', message.date || '', message.subject || ''].join('\u001f');
+  const stable = [userId || '', canonical || '', message.date || '', message.subject || '', message.from_email || '', message.body_fingerprint || message.body_text || '', message.header_fingerprint || message.thread_references || '', message.in_reply_to || ''].join('\u001f');
   return { userId: userId || null, canonicalMessageId: canonical ? `<${canonical}>` : null, rawMessageId: rawId, collisionKey: fingerprint(stable) };
 }
 

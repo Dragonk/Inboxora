@@ -15,7 +15,18 @@ export function startConversationRebuildJob({ userId, accountId = null, limit = 
     if (!job) return;
     job.status = 'running';
     try {
-      job.result = await rebuildConversationCopies({ userId, accountId, limit, dryRun, force });
+      let cursorResult = null;
+      let totalScanned = 0;
+      let totalUpdated = 0;
+      let batches = 0;
+      do {
+        cursorResult = await rebuildConversationCopies({ userId, accountId, limit, dryRun, force: force && batches === 0 });
+        totalScanned += cursorResult.scanned || 0;
+        totalUpdated += cursorResult.updated || 0;
+        batches += 1;
+        job.result = { ...cursorResult, scanned: totalScanned, updated: totalUpdated, would_change: totalUpdated, changed: totalUpdated, batches };
+      } while (!cursorResult.complete && job.status !== 'cancelled');
+      if (job.status === 'cancelled') return;
       job.status = 'complete';
       await recordConversationRebuildAudit({ userId, jobId, action: 'completed', details: { accountId, dryRun, result: job.result } });
     } catch (error) {

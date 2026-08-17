@@ -1,3 +1,13 @@
+function messageIds(value) {
+  const text = Array.isArray(value) ? value.join(' ') : String(value || '');
+  const ids = [];
+  for (const match of text.matchAll(/<[^<>\r\n]+>/g)) {
+    const id = match[0].trim();
+    if (!ids.includes(id)) ids.push(id);
+  }
+  return ids;
+}
+
 function parseAddressField(raw) {
   try {
     const arr = Array.isArray(raw) ? raw : JSON.parse(raw || '[]');
@@ -55,8 +65,8 @@ export async function openReplyFromMessage(message, { accounts, openCompose, get
     } catch { return []; }
   })();
 
-  const referencesChain = [message.in_reply_to, message.message_id]
-    .filter(Boolean).join(' ').trim() || null;
+  const referencesChain = [...messageIds(message.references || message.thread_references), ...messageIds(message.in_reply_to), ...messageIds(message.message_id)]
+    .filter((id, index, all) => all.indexOf(id) === index).join(' ') || null;
   const rawSubject = (message.subject || '').trim();
 
   const replyBody = await getMessageBody(message.id).catch(() => null);
@@ -79,7 +89,7 @@ export async function openReplyFromMessage(message, { accounts, openCompose, get
     body: '',
     quotedBody: quotedText,
     quotedBodyHtml,
-    inReplyTo: message.message_id,
+    inReplyTo: message.message_id || null,
     references: referencesChain,
     accountId: message.account_id,
     aliasId: replyAliasId,

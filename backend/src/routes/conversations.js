@@ -94,7 +94,7 @@ router.get('/conversations/:id', async (req, res) => {
                'messageId', m.message_id, 'canonicalMessageId', m.canonical_message_id,
                'subject', m.subject, 'fromName', m.from_name, 'fromEmail', m.from_email,
                'to', m.to_addresses, 'cc', m.cc_addresses, 'date', m.date,
-               'snippet', m.snippet, 'attachments', m.attachments,
+               'snippet', m.snippet, 'replyTo', m.reply_to, 'inReplyTo', m.in_reply_to, 'references', m.thread_references, 'attachments', m.attachments,
                'isRead', m.is_read, 'isStarred', m.is_starred,
                'providerMessageId', m.provider_message_id, 'providerThreadId', m.provider_thread_id,
                'providerNamespace', m.provider_namespace

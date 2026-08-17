@@ -8,11 +8,12 @@ export const CSRF_HEADER = 'X-Requested-With';
 export const CSRF_VALUE = 'MailFlow';
 const messageBodyRequests = new Map();
 
-async function request(method, path, body, extraHeaders) {
+async function request(method, path, body, extraHeaders, extraOptions = {}) {
   const opts = {
     method,
     credentials: 'include',
     headers: { [CSRF_HEADER]: CSRF_VALUE, ...(extraHeaders || {}) },
+    ...extraOptions,
   };
   if (body) {
     opts.headers['Content-Type'] = 'application/json';
@@ -112,7 +113,7 @@ function getMessageBody(id, remoteImages = false) {
 }
 
 export const api = {
-  get: (path) => request('GET', path),
+  get: (path, extraOptions = {}) => request('GET', path, undefined, undefined, extraOptions),
   post: (path, body, extraHeaders) => request('POST', path, body, extraHeaders),
   put: (path, body) => request('PUT', path, body),
   patch: (path, body) => request('PATCH', path, body),
