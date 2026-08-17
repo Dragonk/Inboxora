@@ -1117,6 +1117,8 @@ export const useStore = create((set, get) => ({
         localStorage.setItem('mailflow_right_sidebar_hidden', String(prefs.rightSidebarHidden));
         set({ rightSidebarHidden: prefs.rightSidebarHidden });
       }
+      if (typeof prefs.conversation_list_view_enabled === 'boolean') set({ conversationListViewEnabled: prefs.conversation_list_view_enabled });
+      if (typeof prefs.conversation_reader_view_enabled === 'boolean') set({ conversationReaderViewEnabled: prefs.conversation_reader_view_enabled });
       if (prefs.customCss) {
         applyCustomCss(prefs.customCss);
       }
