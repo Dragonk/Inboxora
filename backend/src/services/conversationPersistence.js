@@ -4,6 +4,7 @@ import { effectiveConversationOverride, resolveConversationAlias, refreshConvers
 import { normalizeMessageIdList } from './threading/normalizeMessageId.js';
 import { canonicalConversationSubject, classifyDirection, logicalMessageIdentity, threadingDecision } from './conversationEngine.js';
 import { strictSeriesDecision, smartSeriesDecision } from './automatedSeries.js';
+import { referencesAnchor } from './automatedSeriesAnchor.js';
 
 function fingerprintCopy(copy) {
   return createHash('sha256').update(JSON.stringify([copy.body_text || '', copy.subject || '', copy.from_email || '', copy.date || '', copy.in_reply_to || '', copy.thread_references || ''])).digest('hex');
@@ -28,15 +29,17 @@ async function findExistingLogical(client, hydrated) {
 async function findParentLogical(client, hydrated) {
   const replyId = normalizeMessageIdList(hydrated.rawInReplyTo).at(-1);
   if (replyId) {
-    const direct = await client.query(`SELECT id, conversation_id, canonical_message_id, subject FROM logical_messages WHERE user_id = $1 AND canonical_message_id = $2 FOR UPDATE`, [hydrated.userId, replyId]);
+    const direct = await client.query(`SELECT id, conversation_id, canonical_message_id, subject FROM logical_messages WHERE user_id = $1 AND canonical_message_id = $2 ORDER BY created_at ASC FOR UPDATE`, [hydrated.userId, replyId]);
     if (direct.rows.length === 1) return { ...direct.rows[0], relationType: 'in-reply-to' };
     if (direct.rows.length > 1) return { ambiguous: true, relationType: 'ambiguous-in-reply-to', canonical_message_id: replyId };
   }
   const refs = normalizeMessageIdList(hydrated.rawReferences);
-  if (!refs.length) return null;
-  const result = await client.query(`SELECT id, conversation_id, canonical_message_id, subject FROM logical_messages WHERE user_id = $1 AND canonical_message_id = ANY($2::text[]) ORDER BY array_position($2::text[], canonical_message_id) DESC FOR UPDATE`, [hydrated.userId, refs]);
-  if (result.rows.length > 1) return { ambiguous: true, relationType: 'ambiguous-references', canonical_message_id: refs.at(-1) };
-  return result.rows[0] ? { ...result.rows[0], relationType: 'references' } : null;
+  for (const referencedId of [...refs].reverse()) {
+    const result = await client.query(`SELECT id, conversation_id, canonical_message_id, subject FROM logical_messages WHERE user_id = $1 AND canonical_message_id = $2 ORDER BY created_at ASC FOR UPDATE`, [hydrated.userId, referencedId]);
+    if (result.rows.length === 1) return { ...result.rows[0], relationType: 'references' };
+    if (result.rows.length > 1) return { ambiguous: true, relationType: 'ambiguous-references', canonical_message_id: referencedId };
+  }
+  return null;
 }
 
 async function findPreviousSeriesMessage(client, hydrated) {
@@ -61,7 +64,7 @@ export async function upsertConversationCopy(copy, { identities = [], provider =
     const decision = threadingDecision({ message: source, parent: parent?.ambiguous ? null : parent, provider, identities });
     const seriesMode = source.automated_series_mode || 'off';
     const previousSeries = await findPreviousSeriesMessage(client, hydrated);
-    const series = seriesMode === 'strict' ? strictSeriesDecision({ message: source, previous: previousSeries, mode: 'strict' }) : seriesMode === 'smart' ? smartSeriesDecision({ message: source, previous: previousSeries, enabled: true }) : null;
+    const series = seriesMode === 'strict' ? strictSeriesDecision({ message: { ...source, referencesAnchor: referencesAnchor(source) }, previous: previousSeries ? { ...previousSeries, referencesAnchor: referencesAnchor(previousSeries) } : null, mode: 'strict' }) : seriesMode === 'smart' ? smartSeriesDecision({ message: source, previous: previousSeries, enabled: true }) : null;
     if (series && !parent?.ambiguous) { decision.kind = series.kind || decision.kind; decision.reason = series.kind || decision.reason; decision.confidence = series.confidence || decision.confidence; }
     if (parent?.ambiguous) decision.reason = parent.relationType;
     const existing = await findExistingLogical(client, hydrated);

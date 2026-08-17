@@ -112,7 +112,7 @@ router.get('/conversations/:id', async (req, res) => {
         LEFT JOIN logical_messages lm ON lm.conversation_id = c.id
         LEFT JOIN messages m ON m.logical_message_id = lm.id AND m.is_deleted = false
        WHERE c.id = $1 AND c.user_id = $2
-       GROUP BY c.id, top_latest.id, lm.id
+       GROUP BY c.id, lm.id
        ORDER BY lm.message_date ASC NULLS LAST, lm.id
     `, [canonicalId, req.session.userId]);
     if (!result.rows.length) return res.status(404).json({ error: 'Conversation not found' });

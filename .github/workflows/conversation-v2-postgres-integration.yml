@@ -122,7 +122,10 @@ jobs:
       - name: Schema dump
         env:
           PGPASSWORD: mailflow_test
-        run: pg_dump --schema-only --no-owner --no-privileges -h 127.0.0.1 -U mailflow_test -d mailflow_test > artifacts/schema-dump.sql
+        run: |
+          docker run --rm --network host -e PGPASSWORD=mailflow_test postgres:16-alpine \
+            pg_dump --schema-only --no-owner --no-privileges -h 127.0.0.1 -U mailflow_test -d mailflow_test > artifacts/schema-dump.sql
+          test -s artifacts/schema-dump.sql
 
       - name: Migration upgrade fixture
         working-directory: backend

@@ -18,11 +18,19 @@ export function ownIdentityAddresses(account = {}) {
   return [account.email_address, ...aliases.map(alias => alias.email || alias), ...delivery.map(item => item.email || item)].filter(Boolean);
 }
 
-export async function resolveOwnIdentityAddresses(db, accountId) {
-  const result = await db.query(`SELECT a.email_address, COALESCE(json_agg(json_build_object('email', aa.email)) FILTER (WHERE aa.id IS NOT NULL), '[]'::json) AS aliases
+export async function resolveOwnIdentityAddresses(db, accountId, message = null) {
+  const result = await db.query(`SELECT a.email_address,
+      COALESCE(json_agg(DISTINCT jsonb_build_object('email', aa.email)) FILTER (WHERE aa.id IS NOT NULL), '[]'::json) AS aliases
     FROM email_accounts a LEFT JOIN account_aliases aa ON aa.account_id = a.id
    WHERE a.id = $1 GROUP BY a.id`, [accountId]);
-  return ownIdentityAddresses(result?.rows?.[0] || {});
+  const account = result?.rows?.[0] || {};
+  const identities = ownIdentityAddresses(account);
+  const deliveryHeaders = message?.headers || message?.parsedHeaders || {};
+  for (const key of ['delivered-to', 'x-original-to', 'envelope-to']) {
+    const value = deliveryHeaders[key] || deliveryHeaders[key.toLowerCase()];
+    if (value) identities.push(...String(value).split(',').map(item => item.trim()).filter(Boolean));
+  }
+  return [...new Set(identities.map(String).map(value => value.toLowerCase()))];
 }
 
 export function conversationPersistedFields(rawMessage, account) {

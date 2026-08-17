@@ -12,7 +12,7 @@ export async function retryConversationIngestFailures({ userId = null, limit = 2
       const row = await query(`SELECT m.*, a.user_id, a.email_address FROM messages m JOIN email_accounts a ON a.id = m.account_id WHERE m.id = $1 AND a.user_id = $2`, [failure.message_row_id, failure.user_id]);
       if (row.rows.length !== 1) throw new Error('Message row no longer exists');
       const account = row.rows[0];
-      const identities = await resolveOwnIdentityAddresses({ query }, account.account_id);
+      const identities = await resolveOwnIdentityAddresses({ query }, account.account_id, account);
       await upsertConversationCopy(row.rows[0], {
         identities,
         provider: providerIdentityForCopy(row.rows[0]),

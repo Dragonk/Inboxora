@@ -34,7 +34,7 @@ async function persistConversationCopyForRow(rowId, account, rawMessage) {
        WHERE m.id = $1 AND a.id = $2`, [rowId, account.id]);
     if (result.rows.length !== 1) return;
     const envelope = conversationPersistedFields(rawMessage, account);
-    envelope.identities = await resolveOwnIdentityAddresses({ query }, account.id);
+    envelope.identities = await resolveOwnIdentityAddresses({ query }, account.id, rawMessage);
     await query(`UPDATE messages SET conversation_raw_headers = COALESCE($1, conversation_raw_headers), conversation_thread_index = COALESCE($2, conversation_thread_index), conversation_thread_topic = COALESCE($3, conversation_thread_topic) WHERE id = $4`, [envelope.conversation_raw_headers, envelope.conversation_thread_index, envelope.conversation_thread_topic, rowId]);
     await upsertConversationCopy({ ...result.rows[0], ...envelope }, {
       identities: envelope.identities,

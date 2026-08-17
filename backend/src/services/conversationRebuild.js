@@ -61,7 +61,7 @@ export async function rebuildConversationCopies({ userId, accountId = null, limi
       for (const row of rows.rows) {
         const before = await client.query('SELECT conversation_id, logical_message_id, canonical_message_id, provider_thread_id, threading_reason, threading_confidence FROM messages WHERE id = $1', [row.id]);
         await upsertConversationCopy(row, {
-          identities: await resolveOwnIdentityAddresses(client, row.account_id),
+          identities: await resolveOwnIdentityAddresses(client, row.account_id, row),
           provider: providerIdentityForCopy(row),
         });
         const after = await client.query('SELECT conversation_id, logical_message_id, canonical_message_id, provider_thread_id, threading_reason, threading_confidence FROM messages WHERE id = $1', [row.id]);
