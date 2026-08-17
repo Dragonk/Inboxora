@@ -16,7 +16,7 @@ router.post('/conversations/rebuild', async (req, res) => {
     if (!owned.rows.length) return res.status(404).json({ error: 'Account not found' });
   }
   const result = startConversationRebuildJob({ userId, accountId, limit: req.body?.limit, dryRun: req.body?.dryRun !== false, force: req.body?.force === true });
-  await recordConversationRebuildAudit({ userId, jobId: result.jobId, action: 'requested', details: { accountId, dryRun: req.body?.dryRun !== false } });
+  await recordConversationRebuildAudit({ userId, jobId: result.jobId, action: 'requested', details: { accountId, dryRun: req.body?.dryRun !== false, force: req.body?.force === true } });
   res.status(202).json(result);
 });
 

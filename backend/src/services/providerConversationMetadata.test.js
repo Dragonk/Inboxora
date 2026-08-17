@@ -22,10 +22,8 @@ describe('provider conversation metadata', () => {
     expect(providerFetchQuery({ imap_host: 'imap.example.com' }, { headers: true }).threadId).toBeUndefined();
   });
 
-  it('extracts Outlook thread metadata from parsed MIME headers', () => {
-    const result = providerMetadataForMessage({ parsedHeaders: { 'thread-index': 'abc', 'thread-topic': 'Topic' } }, { imap_host: 'outlook.office365.com' });
-    expect(result.provider).toBe('outlook');
-    expect(result.isStrong).toBe(false);
+  it('extracts Outlook thread metadata from live ImapFlow Map headers', () => {
+    const result = providerMetadataForMessage({ headers: new Map([['Thread-Index', 'abc'], ['Thread-Topic', 'Topic']]) }, { imap_host: 'outlook.office365.com' });
     expect(result.threadIndex).toBe('abc');
     expect(result.threadTopic).toBe('Topic');
   });

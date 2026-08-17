@@ -6,6 +6,14 @@ export function providerMetadataForMessage(parsed, account) {
   const attributes = parsed?.attributes || parsed || {};
   const headers = parsed?.parsedHeaders || parsed?.headers || {};
   const header = (name) => {
+    if (headers && typeof headers.get === 'function') {
+      const direct = headers.get(name) ?? headers.get(name.toLowerCase());
+      if (direct != null) return direct;
+      for (const [key, value] of headers.entries()) {
+        if (String(key).toLowerCase() === name.toLowerCase()) return value;
+      }
+      return null;
+    }
     const key = Object.keys(headers || {}).find(candidate => candidate.toLowerCase() === name.toLowerCase());
     return key ? headers[key] : null;
   };
