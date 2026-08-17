@@ -13,7 +13,9 @@ export function conversationRawHeaders(rawMessage) {
 }
 
 export function ownIdentityAddresses(account = {}) {
-  return [account.email_address, ...(account.aliases || []).map(alias => alias.email || alias), ...(account.delivery_addresses || []).map(item => item.email || item)].filter(Boolean);
+  const aliases = Array.isArray(account.aliases) ? account.aliases : [];
+  const delivery = Array.isArray(account.delivery_addresses) ? account.delivery_addresses : [];
+  return [account.email_address, ...aliases.map(alias => alias.email || alias), ...delivery.map(item => item.email || item)].filter(Boolean);
 }
 
 export async function resolveOwnIdentityAddresses(db, accountId) {

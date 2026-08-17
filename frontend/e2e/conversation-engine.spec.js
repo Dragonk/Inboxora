@@ -7,7 +7,7 @@ function visibleList(page) {
 test.describe('conversation engine browser E2E', () => {
   test.beforeEach(async ({ page, fixtureApi }) => {
     await fixtureApi;
-    await page.goto('/');
+    await page.goto('/?list=1&reader=1');
     await expect(visibleList(page)).toBeVisible();
   });
 
@@ -18,26 +18,44 @@ test.describe('conversation engine browser E2E', () => {
     const expand = list.locator('[data-testid="conversation-expand-conversation-gmail"]');
     await expand.click();
     await expect(expand).toHaveAttribute('aria-expanded', 'true');
-    await list.getByRole('button', { name: 'Gmail reply chain', exact: true }).last().click();
+    await list.locator('[data-logical-message-id]').first().click();
     const pane = page.locator('section[data-conversation-id]:visible').first();
     await expect(pane).toBeVisible();
-    await pane.locator('article').first().locator('button').first().click({ force: true });
-    await expect(pane.locator('[role="region"]:visible').first()).toBeVisible();
-    await expect(pane.getByText('Fixture body 1', { exact: true })).toBeVisible();
+    await expect(pane.locator('[data-logical-message-id]').first()).toBeVisible();
+    await expect(pane.getByText('Fixture body lazy', { exact: true }).first()).toBeVisible();
   });
 
-  test('supports reply and manual split controls', async ({ page }) => {
+  test('supports reply and Reply All controls after lazy body load', async ({ page }) => {
     const list = visibleList(page);
     await list.getByText('Gmail reply chain', { exact: true }).first().click();
     const pane = page.locator('section[data-conversation-id]:visible').first();
     await pane.locator('article').first().locator('button').first().click({ force: true });
-    await expect(pane.getByRole('button', { name: /Odpowiedz|Reply/i }).first()).toBeVisible();
-    await expect(pane.getByRole('button', { name: /Podziel|Split/i }).first()).toBeVisible();
+    await expect(pane.getByRole('button', { name: /Odpowiedz$|Reply$/i }).first()).toBeVisible();
+    await expect(pane.getByRole('button', { name: /Odpowiedz wszystkim|Reply All/i }).first()).toBeVisible();
   });
 
-  test('keeps the feature matrix and Polish UI usable on mobile', async ({ page, isMobile }) => {
-    if (!isMobile) test.skip();
-    await expect(visibleList(page).getByText('Gmail reply chain', { exact: true })).toBeVisible();
-    await expect(visibleList(page)).toHaveAttribute('aria-label', /Rozmowy|Conversations/i);
-  });
+  for (const [listEnabled, readerEnabled] of [[false, false], [true, false], [false, true], [true, true]]) {
+    test(`opens parent and child with list=${listEnabled} reader=${readerEnabled}`, async ({ page, fixtureApi }) => {
+      await fixtureApi;
+      await page.goto(`/?list=${Number(listEnabled)}&reader=${Number(readerEnabled)}`);
+      const list = visibleList(page);
+      await expect(list.getByText('Gmail reply chain', { exact: true }).first()).toBeVisible();
+      const parent = list.getByText('Gmail reply chain', { exact: true }).first();
+      await parent.click();
+      if (readerEnabled) {
+        await expect(page.locator('section[data-conversation-id]:visible')).toBeVisible();
+      } else {
+        await expect(page.locator('[data-testid="message-pane"]:visible, .message-pane:visible').first()).toBeVisible();
+      }
+      if (listEnabled) {
+        await page.goBack().catch(() => {});
+        await page.goto(`/?list=${Number(listEnabled)}&reader=${Number(readerEnabled)}`);
+        const expandedList = visibleList(page);
+        await expandedList.locator('[data-testid="conversation-expand-conversation-gmail"]').click();
+        await expandedList.locator('[data-logical-message-id]').first().click();
+        if (readerEnabled) await expect(page.locator('section[data-conversation-id]:visible')).toBeVisible();
+        else await expect(page.locator('[data-testid="message-pane"]:visible, .message-pane:visible').first()).toBeVisible();
+      }
+    });
+  }
 });

@@ -328,10 +328,11 @@ export default function MessagePane({ windowMessageId = null, onWindowClose = nu
   const roRef = useRef(null);
   // useMemo so prepared is available in the same render as body.html — no extra frame,
   // no flash of empty content between skeleton-gone and email-shown.
+  const renderableHtml = useMemo(() => body?.html ? sanitizeMessageHtml(body.html, { remoteImages: !blockRemoteImages }) : '', [body?.html, blockRemoteImages]);
   const prepared = useMemo(() => {
-    if (!USE_DIV_RENDER || !body?.html) return null;
-    return prepareEmailHtml(body.html, windowMode ? `w${message?.id ?? 'preview'}` : String(message?.id ?? 'preview'));
-  }, [body?.html, message?.id, windowMode]);
+    if (!USE_DIV_RENDER || !renderableHtml) return null;
+    return prepareEmailHtml(renderableHtml, windowMode ? `w${message?.id ?? 'preview'}` : String(message?.id ?? 'preview'));
+  }, [renderableHtml, message?.id, windowMode]);
   const outerRef = useRef(null);
   const scaleRef = useRef(null);
   const innerRef = useRef(null);
@@ -2803,7 +2804,7 @@ ${bodyContent}
                 <meta http-equiv="Content-Security-Policy" content="script-src 'none'; object-src 'none'; frame-src 'none'; form-action 'none'; style-src 'unsafe-inline';">
                 <base target="_blank">
               </head><body><div id="mf-scale-wrapper">${
-                body.html.replace(/<a(\s)/gi, '<a rel="noopener noreferrer"$1')
+                renderableHtml.replace(/<a(\s)/gi, '<a rel="noopener noreferrer"$1')
               }</div><style>
                   /* Injected AFTER email HTML so our rules win the source-order tiebreak
                      for same-specificity !important declarations inside the email's own

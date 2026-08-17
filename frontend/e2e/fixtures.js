@@ -14,6 +14,8 @@ const fixture = {
       logical_message_count: 3,
       visible_copy_count: 3,
       latest_message_is_mine: true,
+      latestCopyId: 'conversation-fastmail-copy-2',
+      latestCopyId: 'conversation-gmail-copy-3',
     },
     {
       conversation_id: 'conversation-outlook',
@@ -21,6 +23,7 @@ const fixture = {
       logical_message_count: 2,
       visible_copy_count: 2,
       latest_message_is_mine: false,
+      latestCopyId: 'conversation-outlook-copy-2',
     },
     {
       conversation_id: 'conversation-fastmail',
@@ -63,6 +66,7 @@ export const test = base.extend({
         theme: 'light',
         conversation_list_view_enabled: true,
         conversation_reader_view_enabled: true,
+        block_remote_images: true,
       } });
     });
     await page.route('**/api/accounts', route => route.fulfill({ json: fixture.accounts }));
@@ -73,6 +77,7 @@ export const test = base.extend({
       if (id && id !== 'conversations') return route.fulfill({ json: details(id) });
       return route.fulfill({ json: { conversations: fixture.conversations, nextCursor: null } });
     });
+    await page.route('**/api/mail/conversations/*/logical-messages/*/body', route => route.fulfill({ json: { body_text: 'Fixture body lazy', body_html: '<p>Fixture body lazy</p><img src=\"https://tracker.example.test/pixel.gif\"><a href=\"https://example.test\">Safe link</a>' } }));
     await page.route('**/api/mail/messages/*/conversation', route => route.fulfill({ json: { conversation_id: 'conversation-gmail', logical_message_id: 'conversation-gmail-logical-1' } }));
     await page.route('**/api/mail/conversations/*/overrides', route => route.fulfill({ json: { ok: true, overrides: [] } }));
     await use(fixture);

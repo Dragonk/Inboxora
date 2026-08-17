@@ -24,9 +24,10 @@ export function startConversationRebuildJob({ userId, accountId = null, limit = 
         cursorResult = await rebuildConversationCopies({ userId, accountId, limit, dryRun, cursor, force: force && batches === 0 });
         totalScanned += cursorResult.scanned || 0;
         totalUpdated += cursorResult.updated || 0;
+        const totalWouldChange = (job.result?.would_change || 0) + (cursorResult.wouldChange || 0);
         batches += 1;
         cursor = cursorResult.next;
-        job.result = { ...cursorResult, scanned: totalScanned, updated: totalUpdated, would_change: totalUpdated, changed: totalUpdated, batches };
+        job.result = { ...cursorResult, scanned: totalScanned, updated: totalUpdated, would_change: totalWouldChange, changed: totalUpdated, batches };
       } while (!cursorResult.complete && job.status !== 'cancelled');
       if (job.status === 'cancelled') return;
       job.status = 'complete';

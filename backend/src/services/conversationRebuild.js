@@ -1,4 +1,4 @@
-import { ownIdentityAddresses } from './conversationIngestEnvelope.js';
+import { resolveOwnIdentityAddresses } from './conversationIngestEnvelope.js';
 import { providerIdentityForCopy } from './conversationProviderEnvelope.js';
 import { pool } from './db.js';
 import { upsertConversationCopy } from './conversationPersistence.js';
@@ -33,9 +33,9 @@ export async function rebuildConversationCopies({ userId, accountId = null, limi
   const client = await pool.connect();
   try {
     await client.query('SELECT pg_advisory_lock(hashtext($1))', [lockKey]);
-    const checkpointResult = await client.query('SELECT * FROM conversation_rebuild_checkpoints WHERE user_id = $1 AND scope_account_id = $2', [userId, scope]);
-    const checkpoint = checkpointResult.rows[0] || null;
-    if (!dryRun && checkpoint?.status === 'complete' && !force) return { scanned: 0, updated: 0, complete: true, next: null, dryRun: false };
+    const result = await client.query(`SELECT * FROM conversation_rebuild_checkpoints WHERE user_id = $1 AND scope_account_id = $2`, [userId, scope]);
+    const checkpoint = result.rows[0] || null;
+    if (!dryRun && checkpoint?.status === 'complete' && !force && !cursor) return { scanned: 0, updated: 0, wouldChange: 0, complete: true, next: null, dryRun: false };
     const effectiveCheckpoint = cursor || (force ? null : checkpoint);
     const baseValues = accountId ? [userId, accountId] : [userId];
     const accountFilter = accountId ? 'AND m.account_id = $2' : '';
@@ -61,7 +61,7 @@ export async function rebuildConversationCopies({ userId, accountId = null, limi
       for (const row of rows.rows) {
         const before = await client.query('SELECT conversation_id, logical_message_id, canonical_message_id, provider_thread_id, threading_reason, threading_confidence FROM messages WHERE id = $1', [row.id]);
         await upsertConversationCopy(row, {
-          identities: ownIdentityAddresses(row),
+          identities: await resolveOwnIdentityAddresses(client, row.account_id),
           provider: providerIdentityForCopy(row),
         });
         const after = await client.query('SELECT conversation_id, logical_message_id, canonical_message_id, provider_thread_id, threading_reason, threading_confidence FROM messages WHERE id = $1', [row.id]);

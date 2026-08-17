@@ -52,7 +52,7 @@ async function findProviderConversation(client, hydrated, provider) {
 
 export async function upsertConversationCopy(copy, { identities = [], provider = null } = {}) {
   return withTransaction(async client => {
-    const verified = await client.query(`SELECT m.*, a.user_id FROM messages m JOIN email_accounts a ON a.id = m.account_id WHERE m.id = $1 AND a.user_id IS NOT NULL FOR UPDATE`, [copy.id]);
+      const verified = await client.query(`SELECT m.*, a.user_id, a.automated_series_mode FROM messages m JOIN email_accounts a ON a.id = m.account_id WHERE m.id = $1 AND a.user_id IS NOT NULL FOR UPDATE`, [copy.id]);
     if (verified.rows.length !== 1) throw new Error('Conversation copy not found or owner mismatch');
     const source = { ...verified.rows[0], user_id: verified.rows[0].user_id };
     const hydrated = await hydrateLogicalMessage(source, { identities });
@@ -107,21 +107,31 @@ export async function upsertConversationCopy(copy, { identities = [], provider =
     const waiting = await client.query(`SELECT id, child_logical_message_id FROM unresolved_message_references WHERE user_id = $1 AND referenced_message_id = $2 AND resolved_at IS NULL FOR UPDATE`, [hydrated.userId, hydrated.canonicalMessageId]);
     for (const reference of waiting.rows) {
       await client.query('UPDATE unresolved_message_references SET resolved_logical_message_id = $1, resolved_at = NOW() WHERE id = $2', [logical.id, reference.id]);
-      const child = await client.query(`SELECT lm.conversation_id, c.manually_locked
-        FROM logical_messages lm LEFT JOIN conversations c ON c.id = lm.conversation_id
-       WHERE lm.id = $1 AND lm.user_id = $2 FOR UPDATE`, [reference.child_logical_message_id, hydrated.userId]);
-      const childOverride = await effectiveConversationOverride(client, { userId: hydrated.userId, conversationId: child.rows[0]?.conversation_id, logicalMessageId: reference.child_logical_message_id });
-      const blockedMove = childOverride.forceExclude || childOverride.forceInclude || childOverride.split || childOverride.locked || child.rows[0]?.manually_locked;
-      if (!blockedMove && child.rows[0]?.conversation_id && child.rows[0].conversation_id !== conversationId) {
-        await client.query('UPDATE logical_messages SET conversation_id = $1, parent_logical_message_id = $2, updated_at = NOW() WHERE id = $3', [conversationId, logical.id, reference.child_logical_message_id]);
-        await client.query('UPDATE messages SET conversation_id = $1, conversation_user_id = $2 WHERE logical_message_id = $3 AND conversation_user_id = $2', [conversationId, hydrated.userId, reference.child_logical_message_id]);
-        await refreshConversationAggregates(client, hydrated.userId, child.rows[0].conversation_id);
-        await refreshConversationAggregates(client, hydrated.userId, conversationId);
+      const component = await client.query(`WITH RECURSIVE component(id, path) AS (
+        SELECT id, ARRAY[id] FROM logical_messages WHERE id = $1 AND user_id = $2
+        UNION ALL
+        SELECT lm.id, component.path || lm.id FROM logical_messages lm JOIN component ON lm.parent_logical_message_id = component.id
+         WHERE lm.user_id = $2 AND NOT lm.id = ANY(component.path)
+      ) SELECT lm.id, lm.conversation_id, c.manually_locked FROM logical_messages lm JOIN component ON component.id = lm.id LEFT JOIN conversations c ON c.id = lm.conversation_id FOR UPDATE`, [reference.child_logical_message_id, hydrated.userId]);
+      let blockedMove = false;
+      const oldConversationIds = new Set();
+      for (const node of component.rows) {
+        if (node.conversation_id) oldConversationIds.add(node.conversation_id);
+        const nodeOverride = await effectiveConversationOverride(client, { userId: hydrated.userId, conversationId: node.conversation_id, logicalMessageId: node.id });
+        if (node.manually_locked || nodeOverride.forceExclude || nodeOverride.forceInclude || nodeOverride.split || nodeOverride.locked) blockedMove = true;
+      }
+      if (!blockedMove && component.rows.length && [...oldConversationIds].some(id => id !== conversationId)) {
+        await client.query(`UPDATE logical_messages SET conversation_id = $1, parent_logical_message_id = CASE WHEN id = $2 THEN $3 ELSE parent_logical_message_id END, updated_at = NOW() WHERE id = ANY($4::uuid[]) AND user_id = $5`, [conversationId, reference.child_logical_message_id, logical.id, component.rows.map(node => node.id), hydrated.userId]);
+        await client.query('UPDATE messages SET conversation_id = $1, conversation_user_id = $2 WHERE logical_message_id = ANY($3::uuid[]) AND conversation_user_id = $2', [conversationId, hydrated.userId, component.rows.map(node => node.id)]);
+        const touched = new Set([...oldConversationIds, conversationId]);
+        for (const touchedId of touched) await refreshConversationAggregates(client, hydrated.userId, touchedId);
+        const crossEdge = await client.query(`SELECT 1 FROM logical_messages child JOIN logical_messages parent ON parent.id = child.parent_logical_message_id WHERE child.user_id = $1 AND child.conversation_id IS DISTINCT FROM parent.conversation_id LIMIT 1`, [hydrated.userId]);
+        if (crossEdge.rows.length) throw new Error('delayed parent reconcile left a cross-conversation parent edge');
       }
     }
     if (parent?.ambiguous) await client.query(`INSERT INTO conversation_evidence (user_id, conversation_id, logical_message_id, evidence_type, evidence_value_hash, weight, details) VALUES ($1,$2,$3,'ambiguous-parent',$4,0,$5::jsonb) ON CONFLICT DO NOTHING`, [hydrated.userId, conversationId, logical.id, createHash('sha256').update(String(parent.canonical_message_id)).digest('hex'), JSON.stringify({ canonical_message_id: parent.canonical_message_id, relation_type: parent.relationType })]);
     if (relatedParentConversationId) await client.query(`INSERT INTO conversation_evidence (user_id, conversation_id, logical_message_id, evidence_type, evidence_value_hash, weight, details) VALUES ($1,$2,$3,'subject-change-split',$4,1,$5::jsonb) ON CONFLICT DO NOTHING`, [hydrated.userId, relatedParentConversationId, logical.id, createHash('sha256').update(String(logical.id)).digest('hex'), JSON.stringify({ relatedConversation_id: conversationId, parent_logical_message_id: parent.id })]);
-    const evidence = [[decision.reason, decision.confidence, { relationType: parent?.relationType || null, provider: provider?.provider || null }], ...(parent ? [['rfc-parent', 0.99, { parentLogicalMessageId: parent.id }]] : []), ...(provider?.providerThreadId ? [['provider-thread-id', 1, { provider: provider.provider }]] : [])];
+    const evidence = [[decision.reason, decision.confidence, { relationType: parent?.relationType || null, provider: provider?.provider || null }], ...(series ? [[series.kind, series.confidence, { mode: seriesMode, previousLogicalMessageId: previousSeries?.id || null }]] : []), ...(parent ? [['rfc-parent', 0.99, { parentLogicalMessageId: parent.id }]] : []), ...(provider?.providerThreadId ? [['provider-thread-id', 1, { provider: provider.provider }]] : [])];
     if (collision) evidence.push(['message-id-collision', 0, { canonicalMessageId: hydrated.canonicalMessageId, collisionKey: hydrated.collisionKey }]);
     for (const [type, weight, details] of evidence) await client.query(`INSERT INTO conversation_evidence (user_id, conversation_id, logical_message_id, evidence_type, evidence_value_hash, weight, details) VALUES ($1,$2,$3,$4,$5,$6,$7::jsonb) ON CONFLICT (conversation_id, logical_message_id, evidence_type, evidence_value_hash) DO NOTHING`, [hydrated.userId, conversationId, logical.id, type, createHash('sha256').update(JSON.stringify(details)).digest('hex'), weight, JSON.stringify(details)]);
     await client.query(`UPDATE conversations c SET first_message_at = (SELECT MIN(message_date) FROM logical_messages WHERE conversation_id = c.id), last_message_at = (SELECT MAX(message_date) FROM logical_messages WHERE conversation_id = c.id), subject_snapshot = COALESCE((SELECT subject FROM logical_messages WHERE conversation_id = c.id ORDER BY message_date ASC NULLS LAST, id LIMIT 1), c.subject_snapshot), canonical_subject = COALESCE((SELECT canonical_subject FROM logical_messages WHERE conversation_id = c.id ORDER BY message_date ASC NULLS LAST, id LIMIT 1), c.canonical_subject), logical_message_count = (SELECT COUNT(*) FROM logical_messages WHERE conversation_id = c.id), copy_count = (SELECT COUNT(*) FROM messages WHERE conversation_id = c.id AND is_deleted = false), unread_count = (SELECT COUNT(*) FROM messages WHERE conversation_id = c.id AND is_deleted = false AND is_read = false), updated_at = NOW() WHERE c.id = $1`, [conversationId]);
