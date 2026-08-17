@@ -6,8 +6,7 @@ const isRealApp = process.env.PLAYWRIGHT_REAL_APP === '1';
 const isMatrix = process.env.PLAYWRIGHT_MATRIX === '1';
 
 export default defineConfig({
-  testDir: './e2e',
-  testMatch: isRealApp ? '**/real-app.spec.js' : '**/conversation-engine.spec.js',
+  testIgnore: ['**/chromium-smoke.js'],
   timeout: 30_000,
   expect: { timeout: 5_000 },
   fullyParallel: false,

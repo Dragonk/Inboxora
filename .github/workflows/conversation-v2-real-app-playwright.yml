@@ -109,6 +109,12 @@ jobs:
           PLAYWRIGHT_USERNAME: playwright@example.test
           PLAYWRIGHT_PASSWORD: PlaywrightPassword123!
         run: npm run test:e2e
+
+      - name: Chromium smoke and locale report
+        working-directory: frontend
+        env:
+          PLAYWRIGHT_BROWSERS_PATH: ${{ runner.temp }}/ms-playwright
+        run: node e2e/chromium-smoke.js
       - name: Stop backend
         if: always()
         run: if [ -f e2e-artifacts/backend.pid ]; then kill "$(cat e2e-artifacts/backend.pid)" 2>/dev/null || true; fi
