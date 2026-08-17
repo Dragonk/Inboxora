@@ -39,8 +39,8 @@ import { runMigrations } from './services/migrations.js';
 import { parseVCard } from './utils/vcard.js';
 import { reloadAuthSettings } from './services/authLimiter.js';
 import { setupWebSocket } from './services/websocket.js';
-import { ImapManager } from './services/imapManager.js';
 import { getUpdateStatus } from './services/updateCheck.js';
+import conversationsRoutes from './routes/conversations.js';
 
 const packageMeta = JSON.parse(readFileSync(new URL('../package.json', import.meta.url), 'utf-8'));
 let buildMeta = {};
@@ -170,6 +170,7 @@ app.use('/oauth', oauthRoutes);
 app.use('/api/integrations', integrationsRoutes);
 app.use('/api/accounts', accountRoutes);
 app.use('/api/mail', mailRoutes);
+app.use('/api/mail', conversationsRoutes);
 app.use('/api/mail', sendRoutes);
 app.use('/api/mail', draftRoutes);
 app.use('/api/search', searchRoutes);
