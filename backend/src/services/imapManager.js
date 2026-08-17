@@ -2591,9 +2591,9 @@ export class ImapManager {
               sanitizeStr(decodeMimeWords(parsed.parsedHeaders?.['list-unsubscribe-post'] ?? null)),
               JSON.stringify(parsed.deliveryAddresses || []),
             ]);
+            await persistConversationCopyForRow(result.rows[0].id, account, msg);
             if (result.rows[0]?.is_new) {
               insertedCount++;
-              await persistConversationCopyForRow(result.rows[0].id, account, msg);
               // Inbox-ingest candidate: any newly-inserted INBOX row, read OR unread (read state
               // is not a gate here — the plugin decides). The unread-only push below still drives
               // notifications. Gated on wantsInboxIngest so a mailbox with no ingest plugin builds
