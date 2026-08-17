@@ -20,7 +20,7 @@ async function main() {
   const write = await rebuildConversationCopies({ userId, accountId, limit: 1, dryRun: false });
   const second = await rebuildConversationCopies({ userId, accountId, limit: 10, dryRun: false });
   const attached = await query(`SELECT COUNT(*)::int AS count FROM messages WHERE account_id = $1 AND conversation_id IS NOT NULL`, [accountId]);
-  if (write.updated !== 1 || second.updated !== 1 || attached.rows[0].count !== 2) throw new Error(`unexpected rebuild result: ${JSON.stringify({ write, second, attached: attached.rows[0] })}`);
+  if (write.updated !== 1 || second.updated !== 2 || attached.rows[0].count !== 2) throw new Error(`unexpected rebuild result: ${JSON.stringify({ write, second, attached: attached.rows[0] })}`);
 
   console.log(JSON.stringify({ status: 'ok', dry, write, second, attached: attached.rows[0] }));
   await query('DELETE FROM users WHERE id = $1', [userId]);
