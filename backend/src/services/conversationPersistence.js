@@ -59,7 +59,8 @@ export async function upsertConversationCopy(copy, { identities = [], provider =
     let conversationId = logical.conversation_id || await findProviderConversation(client, hydrated, provider) || parent?.conversation_id;
     const override = await effectiveConversationOverride(client, { userId: hydrated.userId, conversationId, logicalMessageId: logical.id });
     if (override.merge?.target_id) requestedConversationId = await resolveConversationAlias(client, { userId: hydrated.userId, conversationId: override.merge.target_id });
-    if (override.forceExclude || override.split) conversationId = null;
+    if (override.split?.target_id) requestedConversationId = await resolveConversationAlias(client, { userId: hydrated.userId, conversationId: override.split.target_id });
+    if (override.forceExclude) conversationId = null;
     if (override.forceInclude?.target_id) requestedConversationId = await resolveConversationAlias(client, { userId: hydrated.userId, conversationId: override.forceInclude.target_id });
     if (override.locked && conversationId) requestedConversationId = await resolveConversationAlias(client, { userId: hydrated.userId, conversationId });
     if (requestedConversationId) conversationId = requestedConversationId;
