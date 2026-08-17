@@ -1218,8 +1218,17 @@ export default function MessageList() {
       } catch { return []; }
     })();
 
-    const referencesChain = [message.in_reply_to, message.message_id]
-      .filter(Boolean).join(' ').trim() || null;
+    const referencesChain = (() => {
+      const raw = [message.thread_references, message.in_reply_to, message.message_id]
+        .filter(Boolean).join(' ');
+      const ids = [];
+      const seen = new Set();
+      for (const token of raw.matchAll(/<[^<>\s]+>|[^<>\s]+/g)) {
+        const id = token[0].replace(/^<|>$/g, '');
+        if (id && !seen.has(id)) { seen.add(id); ids.push(`<${id}>`); }
+      }
+      return ids.slice(-20).join(' ') || null;
+    })();
     const rawSubject = (message.subject || '').trim();
 
     openCompose({
