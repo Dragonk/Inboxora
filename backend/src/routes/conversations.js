@@ -78,7 +78,6 @@ router.get('/conversations/:id', async (req, res) => {
       FROM conversations c
       LEFT JOIN logical_messages lm ON lm.conversation_id = c.id
       LEFT JOIN messages m ON m.logical_message_id = lm.id AND m.is_deleted = false
-      JOIN email_accounts a ON a.user_id = c.user_id
      WHERE c.id = $1 AND c.user_id = $2
      GROUP BY c.id, lm.id
      ORDER BY lm.message_date ASC NULLS LAST, lm.id
