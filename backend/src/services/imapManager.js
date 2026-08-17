@@ -73,10 +73,14 @@ export function createKeyedSemaphore(limit) {
   };
 }
 
-// Max concurrent full backfills per provider host. Small so a many-account-on-one-provider
-// user stays well under connection limits; backfill is background catch-up, so serialising
-// it is safe. Other providers/accounts are unaffected (the semaphore is keyed by host).
-const BACKFILL_MAX_PER_HOST = 2;
+// Max concurrent BACKGROUND IMAP connections per provider host — shared by full backfills and
+// the snippet indexer. Small so a many-account-on-one-provider user stays well under the
+// provider's per-user/per-IP connection limit: background catch-up connections across every
+// account on one host draw from this single per-host budget instead of each account opening its
+// own and tripping the limit (Dovecot's mail_max_userip_connections defaults to 10). Live sync
+// (IDLE + the periodic interval) is separate and always flows. Keyed by host, so other
+// providers/accounts are unaffected. See _bgConnSem.
+const BACKGROUND_CONN_MAX_PER_HOST = 2;
 
 // Connection-refusal cooldown. When a provider refuses a NEW connection (per-IP/per-account
 // limit, "try again later", temporary lock, throttling), back that account off with growing
@@ -1207,7 +1211,7 @@ export class ImapManager {
     this.pluginSyncIntervals = new Map(); // `${accountId}::${pluginId}` -> timer for a plugin's periodic sync tick
     this.backfillRunning = new Set(); // `${accountId}:${folder}` — prevent duplicate folder backfills
     this.backfillAllRunning = new Set(); // accountId — prevent concurrent full backfill sequences
-    this._backfillSem = createKeyedSemaphore(BACKFILL_MAX_PER_HOST); // cap concurrent backfills per provider host
+    this._bgConnSem = createKeyedSemaphore(BACKGROUND_CONN_MAX_PER_HOST); // cap concurrent background IMAP conns (backfill + snippet indexer) per provider host
     this._connectCooldown = new Map(); // accountId -> { until: ms, failures: number } after connection refusals
     this.onDemandSyncing = new Set(); // `${accountId}:${folder}` — prevent duplicate on-demand syncs
     // Bounded engine facade handed to plugin hooks instead of `this` — plugins get only the reviewed
@@ -1221,7 +1225,7 @@ export class ImapManager {
     this.userFolderSyncIntervalMs = new Map(); // userId -> folder-structure sync ms (0 = never)
     this.lastFolderSyncAt = new Map(); // accountId -> last folder-structure sync timestamp
     this.snippetIndexerRunning = new Set(); // accountId — prevent duplicate snippet-index runs
-    this.snippetBackoff = new Map();        // accountId -> { failures, until } circuit breaker
+    this.snippetBackoff = new Map();        // imap_host -> { failures, until } circuit breaker (host-level: a per-host connection limit hits every account on that host, so back them all off together)
     this.lastUserActivity = new Map();      // accountId -> ms timestamp of last live body fetch
     this.syncTickCount = new Map(); // accountId -> successful sync ticks (for reconcile scheduling)
     this.lastSyncOkAt = new Map(); // accountId -> ms timestamp of last successful sync tick (staleness detection)
@@ -1286,8 +1290,6 @@ export class ImapManager {
       try {
         for (const accountId of this.connections.keys()) {
           if (this.snippetIndexerRunning.has(accountId)) continue;
-          const bo = this.snippetBackoff.get(accountId);
-          if (bo && Date.now() < bo.until) continue;
           const backlog = await query(
             "SELECT 1 FROM messages WHERE account_id = $1 AND (snippet IS NULL OR snippet = '') LIMIT 1",
             [accountId]
@@ -1295,6 +1297,11 @@ export class ImapManager {
           if (!backlog.rows.length) continue;
           const acct = await query('SELECT * FROM email_accounts WHERE id = $1', [accountId]);
           if (!acct.rows.length) continue;
+          // Host-level circuit breaker: skip if this account's provider host is backing off
+          // (another account on it was just refused). startSnippetIndexer re-checks; this only
+          // avoids the run setup. Keyed by imap_host, so it needs the fetched account row.
+          const bo = this.snippetBackoff.get((acct.rows[0].imap_host || '').toLowerCase());
+          if (bo && Date.now() < bo.until) continue;
           this.startSnippetIndexer(acct.rows[0]).catch(err =>
             console.warn(`Scheduled snippet indexer failed for account ${accountId}:`, err.message)
           );
@@ -2375,13 +2382,13 @@ export class ImapManager {
             // internal acquire would self-deadlock at the limit.
             const reindexHost = (account.imap_host || '').toLowerCase();
             setImmediate(async () => {
-              await this._backfillSem.acquire(reindexHost);
+              await this._bgConnSem.acquire(reindexHost);
               try {
                 await this.backfillMessages(account, folder);
               } catch (err) {
                 console.error(`Post-UIDVALIDITY backfill error for ${logAccount(account)}/${folder}:`, err.message);
               } finally {
-                this._backfillSem.release(reindexHost);
+                this._bgConnSem.release(reindexHost);
               }
             });
           }
@@ -3431,11 +3438,11 @@ export class ImapManager {
     this.broadcast({ type: 'backfill_all_start', accountId: account.id }, account.user_id);
     let slotHeld = false;
     try {
-      // Cap concurrent backfills per provider host: a user with many accounts on one
-      // provider would otherwise open a backfill connection for every account at once,
-      // tripping connection limits. This only queues the background catch-up — live sync
-      // (IDLE + the periodic interval) is unaffected and keeps flowing while queued.
-      await this._backfillSem.acquire(host);
+      // Draw from the per-host background-connection budget (shared with the snippet indexer):
+      // a user with many accounts on one provider would otherwise open a background connection
+      // for every account at once, tripping connection limits. This only queues the background
+      // catch-up — live sync (IDLE + the periodic interval) is unaffected and keeps flowing.
+      await this._bgConnSem.acquire(host);
       slotHeld = true;
       const { skipFolderPatterns, skipFolderNames } = providerProfile(account);
 
@@ -3458,7 +3465,7 @@ export class ImapManager {
       }
 
     } finally {
-      if (slotHeld) this._backfillSem.release(host); // free the per-host slot for the next account
+      if (slotHeld) this._bgConnSem.release(host); // free the per-host slot for the next background job
       this.backfillAllRunning.delete(account.id);
       this.broadcast({ type: 'backfill_all_complete', accountId: account.id }, account.user_id);
       // Both run as background jobs after the complete signal — neither should block the UI.
@@ -3487,9 +3494,11 @@ export class ImapManager {
     if (!cfg.snippetIndex) return;
 
     if (this.snippetIndexerRunning.has(account.id)) return;
-    // Honor the circuit breaker for every caller (scheduler, post-connect, post-sync)
-    // so a persistently-failing account is not retried on each reconnect either.
-    const backoff = this.snippetBackoff.get(account.id);
+    // Honor the HOST-level circuit breaker for every caller (scheduler, post-connect, post-sync):
+    // a connection-limit refusal is a property of the provider host shared by every account on
+    // it, so once one account is refused none should retry until the backoff clears.
+    const host = (account.imap_host || '').toLowerCase();
+    const backoff = this.snippetBackoff.get(host);
     if (backoff && Date.now() < backoff.until) return;
     this.snippetIndexerRunning.add(account.id);
 
@@ -3505,7 +3514,8 @@ export class ImapManager {
     // without indexing anything (the case that should trip the circuit breaker).
     let batchCount = 0;
     let failed = false;
-    let refused = false; // provider refused a connection (at its per-account limit) — back off hard
+    let refused = false; // provider refused a connection (at its per-host limit) — back off hard
+    let slotHeld = false; // holding a per-host background-connection slot
     try {
       // Check if there's anything to index before opening a connection
       const countResult = await query(
@@ -3516,6 +3526,13 @@ export class ImapManager {
       if (totalMissing === 0) return;
 
       logger.debug(`Snippet indexer: ${logAccount(account)} has ${totalMissing} messages without snippets`);
+
+      // Draw from the per-host background-connection budget (shared with backfill) so every
+      // account on one provider host shares a bounded number of background connections instead
+      // of each opening its own and tripping the provider's per-IP limit. Acquired only once
+      // there is work to do; released in the finally.
+      await this._bgConnSem.acquire(host);
+      slotHeld = true;
 
       const openClient = async () => {
         if (siClient) { try { await siClient.logout(); } catch { /* already disconnected */ } siClient = null; }
@@ -3602,11 +3619,12 @@ export class ImapManager {
           } catch (err) {
             consecutiveErrors++;
             console.error(`Snippet indexer batch error ${logAccount(account)}/${folder}:`, err.message);
-            // Connection refusal = the provider is at its per-account connection limit (iCloud
-            // especially, right after a startup backfill burst). Reopening a fresh connection to
-            // retry would only pile on more pressure and can starve the live sync/IDLE connection
-            // — the exact failure that lets new mail slip through. Stop this run and back off hard
-            // instead; the 10-minute scheduler resumes the backlog once the provider is calm.
+            // Connection refusal = the provider is at its per-host/per-IP connection limit
+            // (iCloud especially, or many accounts on one server, right after a startup backfill
+            // burst). Reopening a fresh connection to retry would only pile on more pressure and
+            // can starve the live sync/IDLE connection — the exact failure that lets new mail slip
+            // through. Stop this run and back the whole host off hard instead; the 10-minute
+            // scheduler resumes the backlog once the provider is calm.
             if (isConnectionRefusal(err.message)) {
               failed = true;
               refused = true;
@@ -3636,22 +3654,23 @@ export class ImapManager {
       console.error(`Snippet indexer error ${logAccount(account)}:`, err.message);
     } finally {
       if (siClient) { try { await siClient.logout(); } catch { /* already disconnected */ } }
+      if (slotHeld) this._bgConnSem.release(host); // free the per-host slot for the next background job
       this.snippetIndexerRunning.delete(account.id);
-      // Circuit breaker: a run that failed without indexing a single batch (e.g. iCloud
-      // refusing the extra connection at its per-account limit) backs off exponentially
-      // so the scheduler stops reopening competing IMAP connections that slow live body
-      // fetches. Any progress — or a clean/no-work finish — clears the backoff.
+      // HOST-level circuit breaker: a run that failed without indexing a single batch (e.g. the
+      // provider refusing the extra connection at its per-host limit) backs the whole host off
+      // exponentially so the scheduler stops reopening competing IMAP connections for every
+      // account on it. Any progress — or a clean/no-work finish — clears the host's backoff.
       // Back off when the run made no progress, OR when the provider refused a connection at
       // its limit even if some batches got through — in the refusal case, continuing to reopen
       // connections on the 10-minute cadence keeps competing with the live sync during exactly
       // the window when new mail must not be missed.
       if (refused || (failed && batchCount === 0)) {
-        const failures = (this.snippetBackoff.get(account.id)?.failures || 0) + 1;
+        const failures = (this.snippetBackoff.get(host)?.failures || 0) + 1;
         const delay = Math.min(SNIPPET_BACKOFF_BASE_MS * 2 ** (failures - 1), SNIPPET_BACKOFF_MAX_MS);
-        this.snippetBackoff.set(account.id, { failures, until: Date.now() + delay });
+        this.snippetBackoff.set(host, { failures, until: Date.now() + delay });
         console.log(`Snippet indexer backing off ${logAccount(account)} for ${Math.round(delay / 60000)}m (failure #${failures})`);
       } else {
-        this.snippetBackoff.delete(account.id);
+        this.snippetBackoff.delete(host);
       }
     }
   }
