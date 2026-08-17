@@ -4,10 +4,14 @@ on:
   push:
     branches:
       - feat/threading-v2-integration-live
+      - feat/threading-v2-final-completion
+      - integration/threading-v2-r3-pl-beta
       - integration/threading-v2-r3-pl-beta
   pull_request:
     branches:
       - feat/threading-v2-integration-live
+      - feat/threading-v2-final-completion
+      - integration/threading-v2-r3-pl-beta
       - integration/threading-v2-r3-pl-beta
   workflow_dispatch:
 
