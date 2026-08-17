@@ -141,6 +141,13 @@ jobs:
           await runMigrations();
           console.log('upgrade migrations completed');
           JS
+          node --input-type=module - <<'JS' 2>&1 | tee -a ../artifacts/migration-upgrade.log
+          import { query, pool } from './src/services/db.js';
+          const result = await query(`SELECT COUNT(*)::int AS messages, COUNT(DISTINCT account_id)::int AS accounts FROM messages WHERE message_id LIKE '<legacy-test-%@fixture.test>'`);
+          if (result.rows[0].messages !== 12 || result.rows[0].accounts !== 2) throw new Error(`legacy fixture assertion failed: ${JSON.stringify(result.rows[0])}`);
+          console.log(JSON.stringify({ legacyFixture: result.rows[0] }));
+          await pool.end();
+          JS
 
       - name: PostgreSQL integration suite
         working-directory: backend
@@ -169,18 +176,43 @@ jobs:
           import json
           from pathlib import Path
           result = json.loads(Path('../artifacts/postgres-rebuild-full.log').read_text().strip().splitlines()[-1])
+          assert result['second']['updated'] == 0
+          assert result['firstChecksum'] == result['secondChecksum']
           Path('../artifacts/rebuild-dry-run.json').write_text(json.dumps(result['dry'], indent=2) + '\n')
           Path('../artifacts/rebuild-write.json').write_text(json.dumps(result['first'], indent=2) + '\n')
           Path('../artifacts/rebuild-second-run.json').write_text(json.dumps(result['second'], indent=2) + '\n')
           PY
 
-      - name: Race/security/E2E gate summary
+      - name: Security gate
+        working-directory: backend
+        run: npm test -- --run src/services/conversationSecurity.test.js
+
+      - name: Race gate
+        working-directory: backend
+        run: npm test -- --run src/services/conversationRace.test.js
+
+      - name: Performance/EXPLAIN gate
+        working-directory: backend
+        env:
+          REQUIRE_DB_PERF_GATE: '1'
+          DB_HOST: 127.0.0.1
+          DB_PORT: 5432
+          DB_NAME: mailflow_test
+          DB_USER: mailflow_test
+          DB_PASSWORD: mailflow_test
+        run: npm test -- --run src/services/conversationPerformance.test.js
+
+      - name: E2E 2x2 feature matrix gate
+        working-directory: frontend
+        run: npm test -- --test-name-pattern='conversation E2E matrix'
+
+      - name: EN/FR/PL locale gate
+        working-directory: frontend
+        run: npm test -- --test-name-pattern='i18n locale files'
+
+      - name: Gate summary
         run: |
-          {
-            echo "race: covered by transactional integration harness and advisory lock"
-            echo "security: authenticated route ownership and DOMPurify coverage"
-            echo "e2e: feature matrix requires browser harness follow-up"
-          } | tee artifacts/race-tests.log
+          printf '%s\n' 'security: passed' 'race: passed' 'performance: passed' 'e2e-2x2: passed' 'locale-en-fr-pl: passed' | tee artifacts/gate-summary.log
 
       - name: Test summary
         if: always()
