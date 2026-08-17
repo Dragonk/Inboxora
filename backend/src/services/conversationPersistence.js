@@ -1,5 +1,6 @@
 import { createHash } from 'crypto';
 import { withTransaction } from './db.js';
+import { effectiveConversationOverride, resolveConversationAlias } from './conversationOverridePolicy.js';
 import { normalizeMessageIdList } from './threading/normalizeMessageId.js';
 import { canonicalConversationSubject, classifyDirection, logicalMessageIdentity, threadingDecision } from './conversationEngine.js';
 
@@ -47,6 +48,7 @@ export async function upsertConversationCopy(copy, { identities = [], provider =
     if (verified.rows.length !== 1) throw new Error('Conversation copy not found or owner mismatch');
     const source = { ...verified.rows[0], ...copy, user_id: verified.rows[0].user_id };
     const hydrated = await hydrateLogicalMessage(source, { identities });
+    let requestedConversationId = null;
     const parent = await findParentLogical(client, hydrated);
     const decision = threadingDecision({ message: source, parent, provider, identities });
     const existing = await findExistingLogical(client, hydrated);
@@ -55,6 +57,12 @@ export async function upsertConversationCopy(copy, { identities = [], provider =
     if (!logical) logical = (await client.query(`INSERT INTO logical_messages (user_id, canonical_message_id, raw_message_id, message_id_collision_key, raw_headers, raw_in_reply_to, raw_references, parsed_in_reply_to, parsed_references, subject, canonical_subject, direction, message_date, body_fingerprint, header_fingerprint, threading_reason, threading_confidence) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17) RETURNING id, conversation_id`, [hydrated.userId, hydrated.canonicalMessageId, hydrated.rawMessageId, hydrated.collisionKey, hydrated.rawHeaders, hydrated.rawInReplyTo, hydrated.rawReferences, JSON.stringify(normalizeMessageIdList(hydrated.rawInReplyTo)), JSON.stringify(normalizeMessageIdList(hydrated.rawReferences)), source.subject || null, hydrated.canonicalSubject, hydrated.direction, hydrated.messageDate, hydrated.bodyFingerprint, hydrated.headerFingerprint, decision.reason, decision.confidence])).rows[0];
     else await client.query('UPDATE logical_messages SET raw_headers = COALESCE(raw_headers, $2), updated_at = NOW(), threading_reason = $3, threading_confidence = $4 WHERE id = $1', [logical.id, hydrated.rawHeaders, decision.reason, decision.confidence]);
     let conversationId = logical.conversation_id || await findProviderConversation(client, hydrated, provider) || parent?.conversation_id;
+    const override = await effectiveConversationOverride(client, { userId: hydrated.userId, conversationId, logicalMessageId: logical.id });
+    if (override.merge?.target_id) requestedConversationId = await resolveConversationAlias(client, { userId: hydrated.userId, conversationId: override.merge.target_id });
+    if (override.forceExclude || override.split) conversationId = null;
+    if (override.forceInclude?.target_id) requestedConversationId = await resolveConversationAlias(client, { userId: hydrated.userId, conversationId: override.forceInclude.target_id });
+    if (override.locked && conversationId) requestedConversationId = await resolveConversationAlias(client, { userId: hydrated.userId, conversationId });
+    if (requestedConversationId) conversationId = requestedConversationId;
     if (!conversationId) conversationId = (await client.query(`INSERT INTO conversations (user_id, kind, subject_snapshot, canonical_subject, first_message_at, last_message_at, logical_message_count, copy_count, unread_count, threading_confidence) VALUES ($1,$2,$3,$4,$5,$5,0,0,0,$6) RETURNING id`, [hydrated.userId, decision.kind, source.subject || null, hydrated.canonicalSubject, hydrated.messageDate, decision.confidence])).rows[0].id;
     await client.query('UPDATE logical_messages SET conversation_id = $1, parent_logical_message_id = COALESCE(parent_logical_message_id, $2), updated_at = NOW() WHERE id = $3', [conversationId, parent?.id || null, logical.id]);
     const attached = await client.query(`UPDATE messages SET logical_message_id = $1, conversation_id = $2, canonical_message_id = $3, provider_message_id = COALESCE($4, provider_message_id), provider_thread_id = COALESCE($5, provider_thread_id), provider_namespace = COALESCE($6, provider_namespace), threading_reason = $7, threading_confidence = $8, threading_algorithm_version = 'conversation-v2', row_version = row_version + 1 WHERE id = $9 RETURNING id`, [logical.id, conversationId, hydrated.canonicalMessageId, provider?.providerMessageId || null, provider?.providerThreadId || null, provider?.namespace || provider?.provider || null, decision.reason, decision.confidence, source.id]);

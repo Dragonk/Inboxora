@@ -40,11 +40,13 @@ export async function rebuildConversationCopies({ userId, accountId = null, limi
     let updated = 0;
     if (!dryRun) {
       for (const row of rows.rows) {
+        const before = await client.query('SELECT conversation_id, logical_message_id, canonical_message_id, provider_thread_id, threading_reason, threading_confidence FROM messages WHERE id = $1', [row.id]);
         await upsertConversationCopy(row, {
           identities: [row.email_address].filter(Boolean),
           provider: providerIdentityForCopy(row),
         });
-        updated++;
+        const after = await client.query('SELECT conversation_id, logical_message_id, canonical_message_id, provider_thread_id, threading_reason, threading_confidence FROM messages WHERE id = $1', [row.id]);
+        if (JSON.stringify(before.rows[0] || null) !== JSON.stringify(after.rows[0] || null)) updated++;
       }
     }
 
