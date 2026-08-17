@@ -23,13 +23,19 @@ router.get('/conversations', async (req, res) => {
     SELECT c.id AS conversation_id, c.kind, c.canonical_subject,
            c.first_message_at, c.last_message_at, c.logical_message_count,
            c.copy_count, c.unread_count, c.threading_confidence,
+           COALESCE(latest.direction IN ('outgoing','self'), false) AS latest_message_is_mine,
            COUNT(DISTINCT m.id)::int AS visible_copy_count,
-           MAX(m.has_attachments::int)::boolean AS has_attachments
+           COALESCE(BOOL_OR(m.has_attachments), false) AS has_attachments
       FROM conversations c
       JOIN messages m ON m.conversation_id = c.id AND m.is_deleted = false
       JOIN email_accounts a ON a.id = m.account_id AND a.user_id = $1
+      LEFT JOIN logical_messages latest ON latest.id = (
+        SELECT lm.id FROM logical_messages lm
+         WHERE lm.conversation_id = c.id
+         ORDER BY lm.message_date DESC NULLS LAST, lm.id DESC LIMIT 1
+      )
      WHERE c.user_id = $1 ${accountFilter} ${cursorFilter}
-     GROUP BY c.id
+     GROUP BY c.id, latest.direction
      ORDER BY c.last_message_at DESC NULLS LAST, c.id DESC
      LIMIT $${limitParam}
   `, values);
