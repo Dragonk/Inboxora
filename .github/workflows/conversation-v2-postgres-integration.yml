@@ -185,14 +185,15 @@ jobs:
       - name: Test summary
         if: always()
         run: |
-          {
-            echo '{'
-            echo "  \"tested_sha\": \"$GITHUB_SHA\","
-            echo "  \"run_id\": \"$GITHUB_RUN_ID\","
-            echo "  \"run_url\": \"https://github.com/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID\","
-            echo '  \"workflow\": \"Conversation Engine v2 PostgreSQL Integration\"'
-            echo '}'
-          } > artifacts/test-summary.json
+          python3 - <<'PY' > artifacts/test-summary.json
+          import json, os
+          print(json.dumps({
+            "tested_sha": os.environ["GITHUB_SHA"],
+            "run_id": os.environ["GITHUB_RUN_ID"],
+            "run_url": f"https://github.com/{os.environ['GITHUB_REPOSITORY']}/actions/runs/{os.environ['GITHUB_RUN_ID']}",
+            "workflow": os.environ.get("GITHUB_WORKFLOW"),
+          }, indent=2))
+          PY
           sha256sum artifacts/* > artifacts/artifact-checksums.txt
 
       - name: Upload all artifacts

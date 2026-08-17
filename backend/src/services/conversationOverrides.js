@@ -1,4 +1,5 @@
 import { query, withTransaction } from './db.js';
+import { assertConversationOwner, refreshConversationAggregates } from './conversationOverridePolicy.js';
 
 const OVERRIDE_TYPES = new Set(['force-include', 'force-exclude', 'manual-split', 'manual-merge', 'lock-conversation']);
 
@@ -20,7 +21,7 @@ async function ownedConversation(client, userId, conversationId) {
 export async function applyConversationOverride({ userId, conversationId, logicalMessageId = null, overrideType, targetId = null, reason = null }) {
   validateOverrideType(overrideType);
   return withTransaction(async client => {
-    const conversation = await ownedConversation(client, userId, conversationId);
+    const conversation = await assertConversationOwner(client, userId, conversationId);
     if (logicalMessageId) {
       const message = await client.query('SELECT id FROM logical_messages WHERE id = $1 AND user_id = $2 AND conversation_id = $3 FOR UPDATE', [logicalMessageId, userId, conversationId]);
       if (!message.rows[0]) {
@@ -35,6 +36,9 @@ export async function applyConversationOverride({ userId, conversationId, logica
       await client.query('INSERT INTO conversation_aliases (user_id, alias_conversation_id, canonical_conversation_id, reason) VALUES ($1,$2,$3,$4) ON CONFLICT (user_id, alias_conversation_id) DO UPDATE SET canonical_conversation_id = EXCLUDED.canonical_conversation_id, reason = EXCLUDED.reason', [userId, conversationId, targetId, reason || 'manual-merge']);
       await client.query('UPDATE messages SET conversation_id = $1 WHERE conversation_id = $2', [targetId, conversationId]);
       await client.query('UPDATE logical_messages SET conversation_id = $1 WHERE conversation_id = $2', [targetId, conversationId]);
+      await client.query('UPDATE conversation_evidence SET conversation_id = $1 WHERE conversation_id = $2', [targetId, conversationId]);
+      await refreshConversationAggregates(client, userId, targetId);
+      await refreshConversationAggregates(client, userId, conversationId);
     }
     if (overrideType === 'manual-split') {
       if (!logicalMessageId) throw new Error('manual-split requires logicalMessageId');
@@ -42,6 +46,8 @@ export async function applyConversationOverride({ userId, conversationId, logica
       const newConversationId = created.rows[0].id;
       await client.query('UPDATE logical_messages SET conversation_id = $1, parent_logical_message_id = NULL WHERE id = $2 AND user_id = $3', [newConversationId, logicalMessageId, userId]);
       await client.query('UPDATE messages SET conversation_id = $1 WHERE logical_message_id = $2', [newConversationId, logicalMessageId]);
+      await refreshConversationAggregates(client, userId, conversationId);
+      await refreshConversationAggregates(client, userId, newConversationId);
       targetId = newConversationId;
     }
     if (overrideType === 'lock-conversation') await client.query('UPDATE conversations SET manually_locked = true, updated_at = NOW() WHERE id = $1', [conversationId]);
