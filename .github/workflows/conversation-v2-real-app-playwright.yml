@@ -65,7 +65,7 @@ jobs:
           DB_NAME: mailflow_test
           DB_USER: mailflow_test
           DB_PASSWORD: mailflow_test
-          ENCRYPTION_KEY: 0000000000000000000000000000000000000000000000000000000000000000
+          ENCRYPTION_KEY: "0000000000000000000000000000000000000000000000000000000000000000"
         run: node --input-type=module -e "import { runMigrations } from './src/services/migrations.js'; await runMigrations();"
       - name: Seed real app fixture
         working-directory: backend
@@ -75,7 +75,7 @@ jobs:
           DB_NAME: mailflow_test
           DB_USER: mailflow_test
           DB_PASSWORD: mailflow_test
-          ENCRYPTION_KEY: 0000000000000000000000000000000000000000000000000000000000000000
+          ENCRYPTION_KEY: "0000000000000000000000000000000000000000000000000000000000000000"
         run: node src/scripts/playwrightSeed.js
       - name: Start backend
         working-directory: backend
@@ -92,7 +92,7 @@ jobs:
           DB_USER: mailflow_test
           DB_PASSWORD: mailflow_test
           REDIS_URL: redis://127.0.0.1:6379
-          ENCRYPTION_KEY: 0000000000000000000000000000000000000000000000000000000000000000
+          ENCRYPTION_KEY: "0000000000000000000000000000000000000000000000000000000000000000"
         run: |
           mkdir -p ../e2e-artifacts
           node src/index.js > ../e2e-artifacts/backend.log 2>&1 &

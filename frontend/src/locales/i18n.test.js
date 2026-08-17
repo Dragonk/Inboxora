@@ -375,6 +375,9 @@ const DYNAMIC_KEYS = new Set([
   // appear as literals; the other three do via the tab pills).
   'gtd.state.watch',
   'gtd.state.delegated',
+  // t(`conversation.${override}`) — conversation manual action labels are selected dynamically.
+  'conversation.lock',
+  'conversation.split',
 ]);
 
 // JSX attribute names whose values must never be plain strings — always t().
