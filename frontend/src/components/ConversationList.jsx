@@ -12,12 +12,20 @@ export default function ConversationList({ params = {}, onOpenMessage }) {
   const { t } = useTranslation();
   const [rows, setRows] = useState([]);
   const [expanded, setExpanded] = useState(null);
+  const [nextCursor, setNextCursor] = useState(null);
+  const [loadingMore, setLoadingMore] = useState(false);
   const [error, setError] = useState(null);
 
   const paramsKey = JSON.stringify(params);
   useEffect(() => {
     let cancelled = false;
-    conversationApi.list(params).then(data => { if (!cancelled) setRows(data.conversations || []); }).catch(err => {
+    setError(null);
+    conversationApi.list(params).then(data => {
+      if (!cancelled) {
+        setRows(data.conversations || []);
+        setNextCursor(data.nextCursor || null);
+      }
+    }).catch(err => {
       if (!cancelled) setError(err.message || t('conversation.loadFailed'));
     });
     return () => { cancelled = true; };
@@ -44,5 +52,17 @@ export default function ConversationList({ params = {}, onOpenMessage }) {
         </div>}
       </div>;
     })}
+    {nextCursor && <button type="button" onClick={async () => {
+      setLoadingMore(true);
+      try {
+        const data = await conversationApi.list({ ...params, cursor: nextCursor });
+        setRows(previous => [...previous, ...(data.conversations || [])]);
+        setNextCursor(data.nextCursor || null);
+      } catch (err) {
+        setError(err.message || t('conversation.loadFailed'));
+      } finally {
+        setLoadingMore(false);
+      }
+    }} disabled={loadingMore}>{loadingMore ? t('conversation.loading') : t('conversation.loadMore')}</button>}
   </div>;
 }

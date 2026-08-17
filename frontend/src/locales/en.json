@@ -1538,10 +1538,9 @@
     "label": "conversation",
     "expand": "Expand",
     "collapse": "Collapse",
-    "noSubject": "(no subject)",
-    "messageCount": "{{count}} messages",
     "loadFailed": "Failed to load conversation",
     "loading": "Loading conversation…",
+    "loadMore": "Load more",
     "bodyLabel": "Message body",
     "reply": "Reply"
   }

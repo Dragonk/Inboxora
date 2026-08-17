@@ -1537,10 +1537,9 @@
     "label": "conversation",
     "expand": "Développer",
     "collapse": "Réduire",
-    "noSubject": "(sans objet)",
-    "messageCount": "{{count}} messages",
     "loadFailed": "Échec du chargement de la conversation",
     "loading": "Chargement de la conversation…",
+    "loadMore": "Charger plus",
     "bodyLabel": "Corps du message",
     "reply": "Répondre"
   }

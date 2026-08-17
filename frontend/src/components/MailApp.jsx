@@ -80,6 +80,15 @@ export default function MailApp() {
   const conversationMode = conversationListViewEnabled || conversationReaderViewEnabled;
   const [conversationId, setConversationId] = useState(null);
   const openConversation = useCallback(row => setConversationId(row.conversation_id), []);
+  const replyFromConversation = useCallback(copy => {
+    if (!copy) return;
+    openCompose({
+      accountId: copy.accountId,
+      to: copy.fromEmail ? [copy.fromEmail] : [],
+      subject: copy.subject ? `Re: ${copy.subject}` : '',
+      inReplyTo: copy.messageId || copy.canonicalMessageId || null,
+    });
+  }, [openCompose]);
 
   // Auto-lock after inactivity (#235). MailApp only mounts while unlocked, so this
   // timer runs only when unlocked; hitting the timeout locks and unmounts this tree.
@@ -754,7 +763,7 @@ export default function MailApp() {
             {conversationMode ? <ConversationList params={{}} onOpenMessage={openConversation} /> : <MessageList />}
           </div>
           <div style={{ flex: 1, display: !showContacts && selectedMessageId ? 'flex' : 'none', overflow: 'hidden', height: '100%' }}>
-            {conversationMode && conversationId ? <ConversationPane conversationId={conversationId} /> : <MessagePane />}
+            {conversationMode && conversationId ? <ConversationPane conversationId={conversationId} onReply={replyFromConversation} /> : <MessagePane />}
           </div>
         </>
       ) : (
@@ -796,7 +805,7 @@ export default function MailApp() {
                   onMouseLeave={e => { e.currentTarget.style.background = 'var(--border-subtle)'; }}
                 />
               )}
-              {conversationMode && conversationId ? <ConversationPane conversationId={conversationId} /> : <MessagePane />}
+              {conversationMode && conversationId ? <ConversationPane conversationId={conversationId} onReply={replyFromConversation} /> : <MessagePane />}
               {/* Generic right-sidebar column, populated from the content seam above. */}
               {currentLayout.direction === 'row' && rightSidebarContent != null && (
                 <>

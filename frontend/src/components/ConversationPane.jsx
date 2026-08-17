@@ -29,7 +29,10 @@ export default function ConversationPane({ conversationId, targetLogicalMessageI
           {message.subject || t('conversation.noSubject')} — {message.direction}
         </button>
         {open && <div role="region" aria-label={t('conversation.bodyLabel')}>
-          <button type="button" onClick={() => onReply?.(message)}>{t('conversation.reply')}</button>
+          {message.copies?.map(copy => <div key={copy.id} data-copy-id={copy.id}>
+            {copy.bodyHtml ? <div dangerouslySetInnerHTML={{ __html: copy.bodyHtml }} /> : <p>{copy.bodyText || copy.snippet || ''}</p>}
+          </div>)}
+          <button type="button" onClick={() => onReply?.(message.copies?.[0] || message)}>{t('conversation.reply')}</button>
         </div>}
       </article>;
     })}
