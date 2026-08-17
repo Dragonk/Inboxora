@@ -14,9 +14,7 @@ export async function hydrateLogicalMessage(copy, { identities = [] } = {}) {
 }
 
 async function findExistingLogical(client, hydrated) {
-  const result = hydrated.canonicalMessageId
-    ? await client.query(`SELECT id, conversation_id FROM logical_messages WHERE user_id = $1 AND canonical_message_id = $2 ORDER BY created_at ASC LIMIT 1 FOR UPDATE`, [hydrated.userId, hydrated.canonicalMessageId])
-    : await client.query(`SELECT id, conversation_id FROM logical_messages WHERE user_id = $1 AND canonical_message_id IS NULL AND body_fingerprint = $2 AND header_fingerprint = $3 ORDER BY created_at ASC LIMIT 1 FOR UPDATE`, [hydrated.userId, hydrated.bodyFingerprint, hydrated.headerFingerprint]);
+  const result = hydrated.canonicalMessageId ? await client.query(`SELECT id, conversation_id FROM logical_messages WHERE user_id = $1 AND canonical_message_id = $2 ORDER BY created_at ASC LIMIT 1 FOR UPDATE`, [hydrated.userId, hydrated.canonicalMessageId]) : await client.query(`SELECT id, conversation_id FROM logical_messages WHERE user_id = $1 AND canonical_message_id IS NULL AND body_fingerprint = $2 AND header_fingerprint = $3 ORDER BY created_at ASC LIMIT 1 FOR UPDATE`, [hydrated.userId, hydrated.bodyFingerprint, hydrated.headerFingerprint]);
   return result.rows[0] || null;
 }
 
