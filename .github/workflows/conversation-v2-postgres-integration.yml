@@ -164,9 +164,15 @@ jobs:
           DB_PASSWORD: mailflow_test
           ENCRYPTION_KEY: 0000000000000000000000000000000000000000000000000000000000000000
         run: |
-          node src/scripts/conversationPostgresIntegration.js > ../artifacts/rebuild-dry-run.json
-          cp ../artifacts/rebuild-dry-run.json ../artifacts/rebuild-write.json
-          cp ../artifacts/rebuild-dry-run.json ../artifacts/rebuild-second-run.json
+          node src/scripts/conversationPostgresIntegration.js 2>&1 | tee ../artifacts/postgres-rebuild-full.log
+          python3 - <<'PY'
+          import json
+          from pathlib import Path
+          result = json.loads(Path('../artifacts/postgres-rebuild-full.log').read_text().strip().splitlines()[-1])
+          Path('../artifacts/rebuild-dry-run.json').write_text(json.dumps(result['dry'], indent=2) + '\n')
+          Path('../artifacts/rebuild-write.json').write_text(json.dumps(result['first'], indent=2) + '\n')
+          Path('../artifacts/rebuild-second-run.json').write_text(json.dumps(result['second'], indent=2) + '\n')
+          PY
 
       - name: Race/security/E2E gate summary
         run: |

@@ -46,7 +46,7 @@ export async function upsertConversationCopy(copy, { identities = [], provider =
   return withTransaction(async client => {
     const verified = await client.query(`SELECT m.*, a.user_id FROM messages m JOIN email_accounts a ON a.id = m.account_id WHERE m.id = $1 AND a.user_id IS NOT NULL FOR UPDATE`, [copy.id]);
     if (verified.rows.length !== 1) throw new Error('Conversation copy not found or owner mismatch');
-    const source = { ...verified.rows[0], ...copy, user_id: verified.rows[0].user_id };
+    const source = { ...verified.rows[0], user_id: verified.rows[0].user_id };
     const hydrated = await hydrateLogicalMessage(source, { identities });
     let requestedConversationId = null;
     const parent = await findParentLogical(client, hydrated);
