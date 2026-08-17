@@ -1,46 +1,33 @@
-# MailFlow Conversation Engine v2 — Integration Status
+# MailFlow Conversation Engine v2 — Quality Gates Status
 
 Updated: 2026-08-17
 
 ## Truth branch
-- `feat/threading-v2-integration-live`
-- Current HEAD is tracked locally; worktree clean.
-- No merge to `main` or `upstream`; no upstream PR opened.
-- Existing r2 stack/worktrees and backup refs preserved.
+- Branch: `feat/threading-v2-integration-live`
+- Current integration HEAD before this continuation: `61228ed5c9e37133dedf27ecfd4be1962b169ede`.
+- Backup tag: `threading-v2-integration-live-61228ed`.
+- Backup branch: `backup/threading-v2-integration-live-61228ed-20260817112013`.
+- No merge to `main`/`upstream`; no upstream PR.
 
-## Inputs
-- The full primary spec file was not found on disk or in repository/worktrees.
-- Only the completion-prompt fragment was available in conversation context.
-- Full compliance cannot be claimed until the primary spec is recovered.
+## Exact-SHA CI truth
+The previously successful run `32023725619` tested `9e3a051`, not `61228ed`; therefore it is not a valid final gate for `61228ed`.
 
-## Implemented and verified
-- Conversation Engine v2 migration is preserved.
-- User-scoped conversation persistence now uses serializable transactions with retry.
-- Canonical Message-ID logical dedup is user-scoped, while physical copies remain account-scoped.
-- Parent selection now prioritizes `In-Reply-To`, then last resolvable `References` ID.
-- Unresolved references and evidence are persisted.
-- Main IMAP sync and backfill call conversation persistence.
-- Sent and draft metadata paths call conversation persistence.
-- Gmail/Outlook/generic provider metadata is normalized through the shared adapter; Gmail BigInt values are safe.
-- Conversation list API has stable timestamp+UUID cursor ordering, explicit boolean aggregation, and latest-own-reply projection.
-- Conversation detail API returns authorized physical copies/body metadata under user-scoped conversation access.
-- Frontend conversation list/reader are i18n-compliant; frontend lint, full test suite, i18n test and production build passed in latest run.
+## Required remaining work
+- Commit workflow rename/concurrency and run it on the exact final integration HEAD.
+- Add real full-write-from-start rebuild idempotency with data checksums.
+- Complete manual override enforcement and route tests.
+- Complete provider fixtures/discovery for Gmail, Outlook and generic/Fastmail.
+- Add real race, security, performance/EXPLAIN, E2E 2x2 and screenshots.
+- Verify EN/FR/PL; existing repository locales are EN/FR/ES/DE/RU/ZH/IT, so Polish requires explicit implementation or a documented scope decision.
+- Only after all gates are green create the linear `-r3` stack and PR descriptions.
 
-## Remaining blockers before final stack/review
-- Persistence still needs durable retry/error recording rather than only logging failures from IMAP hook.
-- Sent/draft calls need complete RFC references/provider metadata propagation and dedicated tests.
-- Missing-parent reconciliation must reparent descendants when the referenced message arrives.
-- Manual overrides/aliases are not yet enforced.
-- Conversation components are not wired into `MailApp` behind the feature preference; they remain separately implemented.
-- No rebuild/audit API with dry-run/write/resume/idempotency has been completed in this integration.
-- No full DB-backed route/persistence tests, fresh/upgrade migration tests, E2E 2x2, screenshots, performance review, or production-provider verification yet.
-- Full primary spec remains unavailable.
+## Exact known issue discovered
+`git diff upstream/main -- backend/migrations/0002_subject_threading.sql` is non-empty on the current branch. The historical migration must be restored exactly; repair belongs in a new migration. Do not proceed to final stack until this is fixed and verified.
 
 ## Next steps
-1. Add durable ingest failure table/retry path and missing-parent reconciliation.
-2. Implement override/alias semantics and rebuild/audit/settings API.
-3. Wire feature-gated conversation UI into MailApp with legacy fallback and deep links.
-4. Add DB-backed API/persistence tests and provider fixtures.
-5. Run full quality gates, migration fresh/upgrade, rebuild dry-run/write/resume/idempotency, provider discovery, strict/smart, API contract, E2E, security, performance, screenshots and i18n.
-6. Only after all are green, create fresh linear eight-branch `-r2` stack and verify ancestry/patch-id/duplicates.
-7. Produce the required final report with P0/P1 list empty and explicit no-merge/no-upstream-PR confirmation.
+1. Restore `0002_subject_threading.sql` exactly to `upstream/main` and add a separate repair migration.
+2. Run backend/frontend quality gates locally.
+3. Commit integration fixes.
+4. Run hosted PostgreSQL workflow on exact resulting HEAD and download artifacts/checksums.
+5. Perform subagent review, resolve P0/P1.
+6. Create/verify final `-r3` stack only after green integration.

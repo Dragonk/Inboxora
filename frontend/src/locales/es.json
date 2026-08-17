@@ -1543,6 +1543,8 @@
     "loading": "Cargando conversación…",
     "bodyLabel": "Cuerpo del mensaje",
     "reply": "Responder",
-    "loadMore": "Cargar más"
+    "loadMore": "Cargar más",
+    "split": "Separar conversación",
+    "lock": "Bloquear conversación"
   }
 }

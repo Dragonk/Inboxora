@@ -1543,6 +1543,8 @@
     "bodyLabel": "Corps du message",
     "reply": "Répondre",
     "noSubject": "(sans objet)",
-    "messageCount": "{{count}} messages dans la discussion"
+    "messageCount": "{{count}} messages dans la discussion",
+    "split": "Séparer la discussion",
+    "lock": "Verrouiller la discussion"
   }
 }

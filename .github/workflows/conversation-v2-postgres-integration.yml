@@ -1,4 +1,4 @@
-name: Conversation Engine v2 PostgreSQL Gate
+name: Conversation Engine v2 PostgreSQL Integration
 
 on:
   push:
@@ -10,6 +10,10 @@ on:
 
 permissions:
   contents: read
+
+concurrency:
+  group: conversation-v2-postgres-${{ github.ref }}
+  cancel-in-progress: true
 
 jobs:
   postgres-integration:

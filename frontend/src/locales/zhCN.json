@@ -1543,6 +1543,8 @@
     "loading": "正在加载对话…",
     "bodyLabel": "消息正文",
     "reply": "回复",
-    "loadMore": "加载更多"
+    "loadMore": "加载更多",
+    "split": "拆分对话",
+    "lock": "锁定对话"
   }
 }

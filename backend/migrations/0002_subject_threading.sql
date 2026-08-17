@@ -57,5 +57,29 @@ BEGIN
 END;
 $$;
 
--- Subject-only grouping is intentionally not performed. Messages without RFC/provider
--- evidence remain separate until the Conversation Engine classifies them explicitly.
+-- Retroactively group remaining singletons (no RFC 5322 headers at all) by
+-- normalized subject — same logic as the forward-path fallback in computeThreadId.
+WITH rethreaded AS (
+  SELECT
+    id,
+    FIRST_VALUE(message_id) OVER (
+      PARTITION BY account_id, normalized_subject
+      ORDER BY date ASC
+      ROWS BETWEEN UNBOUNDED PRECEDING AND UNBOUNDED FOLLOWING
+    ) AS new_thread_id,
+    COUNT(*) OVER (PARTITION BY account_id, normalized_subject) AS group_size
+  FROM messages
+  WHERE is_deleted = false
+    AND normalized_subject IS NOT NULL
+    AND normalized_subject != ''
+    AND message_id IS NOT NULL
+    AND thread_id = message_id
+    AND (in_reply_to IS NULL OR in_reply_to = '')
+    AND (thread_references IS NULL OR thread_references = '')
+)
+UPDATE messages m
+SET thread_id = r.new_thread_id
+FROM rethreaded r
+WHERE m.id = r.id
+  AND r.group_size > 1
+  AND m.thread_id IS DISTINCT FROM r.new_thread_id;

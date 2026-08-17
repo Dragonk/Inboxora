@@ -1543,6 +1543,8 @@
     "loading": "Caricamento della conversazione…",
     "bodyLabel": "Corpo del messaggio",
     "reply": "Rispondi",
-    "loadMore": "Carica altro"
+    "loadMore": "Carica altro",
+    "split": "Dividi conversazione",
+    "lock": "Blocca conversazione"
   }
 }

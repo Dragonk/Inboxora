@@ -33,7 +33,17 @@ export default function ConversationPane({ conversationId, targetLogicalMessageI
           {message.copies?.map(copy => <div key={copy.id} data-copy-id={copy.id}>
             {copy.bodyHtml ? <div dangerouslySetInnerHTML={{ __html: DOMPurify.sanitize(copy.bodyHtml, { ADD_ATTR: ['target'] }) }} /> : <p>{copy.bodyText || copy.snippet || ''}</p>}
           </div>)}
-          <button type="button" onClick={() => onReply?.(message.copies?.[0] || message)}>{t('conversation.reply')}</button>
+          <div className="conversation-actions">
+            <button type="button" onClick={() => onReply?.(message.copies?.[0] || message)}>{t('conversation.reply')}</button>
+            <button type="button" onClick={async () => {
+              await conversationApi.applyOverride(conversationId, { overrideType: 'manual-split', logicalMessageId: message.id, reason: 'user-requested-split' });
+              const data = await conversationApi.detail(conversationId);
+              setState({ loading: false, error: null, data });
+            }}>{t('conversation.split')}</button>
+            <button type="button" onClick={async () => {
+              await conversationApi.applyOverride(conversationId, { overrideType: 'lock-conversation', reason: 'user-requested-lock' });
+            }}>{t('conversation.lock')}</button>
+          </div>
         </div>}
       </article>;
     })}

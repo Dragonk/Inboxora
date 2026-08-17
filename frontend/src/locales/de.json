@@ -1543,6 +1543,8 @@
     "loading": "Unterhaltung wird geladen…",
     "bodyLabel": "Nachrichtentext",
     "reply": "Antworten",
-    "loadMore": "Mehr laden"
+    "loadMore": "Mehr laden",
+    "split": "Unterhaltung teilen",
+    "lock": "Unterhaltung sperren"
   }
 }

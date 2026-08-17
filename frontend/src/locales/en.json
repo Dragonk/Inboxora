@@ -1543,6 +1543,8 @@
     "bodyLabel": "Message body",
     "reply": "Reply",
     "noSubject": "(no subject)",
-    "messageCount": "{{count}} messages"
+    "messageCount": "{{count}} messages",
+    "split": "Split conversation",
+    "lock": "Lock conversation"
   }
 }
