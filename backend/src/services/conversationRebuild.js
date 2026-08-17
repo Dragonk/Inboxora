@@ -9,9 +9,16 @@ function scopeId(accountId) {
 }
 
 function cursorPredicate(values, checkpoint) {
-  if (!checkpoint?.last_message_id || checkpoint.last_sort_is_null === null || checkpoint.last_sort_is_null === undefined) return { sql: '', values };
+  if (!checkpoint?.last_message_id) return { sql: '', values };
   const next = [...values, checkpoint.last_sort_is_null, checkpoint.last_message_date, checkpoint.last_message_id];
-  return { sql: `AND ((m.date IS NULL), m.date, m.id) > ($${next.length - 2}::boolean, $${next.length - 1}::timestamptz, $${next.length}::uuid)`, values: next };
+  const base = next.length - 2;
+  return {
+    sql: `AND ((m.date IS NULL AND $${base}::boolean = true AND m.id > $${next.length}::uuid)
+      OR (m.date IS NOT NULL AND $${base}::boolean = true)
+      OR (m.date IS NOT NULL AND $${base}::boolean = false AND m.date > $${base + 1}::timestamptz)
+      OR (m.date IS NOT NULL AND $${base}::boolean = false AND m.date = $${base + 1}::timestamptz AND m.id > $${next.length}::uuid))`,
+    values: next,
+  };
 }
 
 export async function rebuildConversationCopies({ userId, accountId = null, limit = 100, dryRun = true } = {}) {

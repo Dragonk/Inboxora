@@ -34,7 +34,7 @@ export async function applyConversationOverride({ userId, conversationId, logica
       if (!targetId || targetId === conversationId) throw new Error('manual-merge requires a different target conversation');
       await ownedConversation(client, userId, targetId);
       await client.query('INSERT INTO conversation_aliases (user_id, alias_conversation_id, canonical_conversation_id, reason) VALUES ($1,$2,$3,$4) ON CONFLICT (user_id, alias_conversation_id) DO UPDATE SET canonical_conversation_id = EXCLUDED.canonical_conversation_id, reason = EXCLUDED.reason', [userId, conversationId, targetId, reason || 'manual-merge']);
-      await client.query('UPDATE messages SET conversation_id = $1 WHERE conversation_id = $2', [targetId, conversationId]);
+      await client.query('UPDATE messages SET conversation_id = $1, conversation_user_id = $2 WHERE conversation_id = $3 AND conversation_user_id = $2', [targetId, userId, conversationId]);
       await client.query('UPDATE logical_messages SET conversation_id = $1 WHERE conversation_id = $2', [targetId, conversationId]);
       await client.query('UPDATE conversation_evidence SET conversation_id = $1 WHERE conversation_id = $2', [targetId, conversationId]);
       await refreshConversationAggregates(client, userId, targetId);
@@ -45,7 +45,7 @@ export async function applyConversationOverride({ userId, conversationId, logica
       const created = await client.query(`INSERT INTO conversations (user_id, kind, subject_snapshot, canonical_subject, first_message_at, last_message_at, segment_number) SELECT user_id, 'manual_conversation', subject_snapshot, canonical_subject, first_message_at, last_message_at, segment_number + 1 FROM conversations WHERE id = $1 RETURNING id`, [conversationId]);
       const newConversationId = created.rows[0].id;
       await client.query('UPDATE logical_messages SET conversation_id = $1, parent_logical_message_id = NULL WHERE id = $2 AND user_id = $3', [newConversationId, logicalMessageId, userId]);
-      await client.query('UPDATE messages SET conversation_id = $1 WHERE logical_message_id = $2', [newConversationId, logicalMessageId]);
+      await client.query('UPDATE messages SET conversation_id = $1, conversation_user_id = $2 WHERE logical_message_id = $3 AND conversation_user_id = $2', [newConversationId, userId, logicalMessageId]);
       await refreshConversationAggregates(client, userId, conversationId);
       await refreshConversationAggregates(client, userId, newConversationId);
       targetId = newConversationId;
