@@ -13,7 +13,7 @@ try {
   await client.query('CREATE SCHEMA public');
   for (const name of files) {
     const sql = await readFile(join(dir, name), 'utf8');
-    const statements = sql.replace(/^--\s*no-transaction\s*$/gim, '').split(';').map(s => s.trim()).filter(Boolean);
+    const statements = sql.replace(/^--\s*no-transaction\s*$/gim, '').split(/;\s*\n(?=(?:ALTER|CREATE|DROP|INSERT|UPDATE|DELETE|DO)\b)/i).map(s => s.trim()).filter(Boolean);
     await client.query('BEGIN');
     try {
       for (const statement of statements) await client.query(statement);
