@@ -1,12 +1,12 @@
 import { describe, expect, it, vi, beforeEach } from 'vitest';
 
-const { claim, resolve, query, upsert } = vi.hoisted(() => ({
-  claim: vi.fn(), resolve: vi.fn(), query: vi.fn(), upsert: vi.fn(),
+const { claim, resolve, query, upsert, providerIdentity } = vi.hoisted(() => ({
+  claim: vi.fn(), resolve: vi.fn(), query: vi.fn(), upsert: vi.fn(), providerIdentity: vi.fn(() => ({ provider: 'gmail', providerThreadId: 't1', isStrong: true })),
 }));
 vi.mock('./conversationIngestFailures.js', () => ({ claimConversationIngestFailures: claim, resolveConversationIngestFailure: resolve }));
 vi.mock('./db.js', () => ({ query }));
+vi.mock('./conversationProviderEnvelope.js', () => ({ providerIdentityForCopy: providerIdentity }));
 vi.mock('./conversationPersistence.js', () => ({ upsertConversationCopy: upsert }));
-
 import { retryConversationIngestFailures } from './conversationIngestRetry.js';
 
 describe('conversation ingest retry', () => {
@@ -19,7 +19,7 @@ describe('conversation ingest retry', () => {
     query.mockResolvedValueOnce({ rows: [{ id: 'm1', user_id: 'u1' }] });
     upsert.mockResolvedValueOnce({ conversationId: 'c1' });
     const result = await retryConversationIngestFailures({ userId: 'u1' });
-    expect(upsert).toHaveBeenCalledWith({ id: 'm1', user_id: 'u1' });
+    expect(upsert).toHaveBeenCalledWith(expect.objectContaining({ id: 'm1', user_id: 'u1' }), expect.objectContaining({ provider: expect.objectContaining({ providerThreadId: 't1' }) }));
     expect(resolve).toHaveBeenCalledWith('f1');
     expect(result).toEqual([{ id: 'f1', resolved: true }]);
   });
