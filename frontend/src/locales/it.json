@@ -1529,8 +1529,7 @@
   "window": {
     "minimize": "Riduci a icona",
     "close": "Chiudi"
-  }
-,
+  },
   "conversation": {
     "latestOwnReply": "Ultima risposta propria",
     "listLabel": "Conversazioni",
@@ -1543,6 +1542,7 @@
     "loadFailed": "Impossibile caricare la conversazione",
     "loading": "Caricamento della conversazione…",
     "bodyLabel": "Corpo del messaggio",
-    "reply": "Rispondi"
+    "reply": "Rispondi",
+    "loadMore": "Carica altro"
   }
 }

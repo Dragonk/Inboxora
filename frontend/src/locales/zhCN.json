@@ -1529,8 +1529,7 @@
   "window": {
     "minimize": "最小化",
     "close": "关闭"
-  }
-,
+  },
   "conversation": {
     "latestOwnReply": "最近的本人回复",
     "listLabel": "对话",
@@ -1543,6 +1542,7 @@
     "loadFailed": "无法加载对话",
     "loading": "正在加载对话…",
     "bodyLabel": "消息正文",
-    "reply": "回复"
+    "reply": "回复",
+    "loadMore": "加载更多"
   }
 }

@@ -1529,8 +1529,7 @@
   "window": {
     "minimize": "Minimize",
     "close": "Close"
-  }
-,
+  },
   "conversation": {
     "latestOwnReply": "Latest own reply",
     "listLabel": "Conversations",
@@ -1542,6 +1541,8 @@
     "loading": "Loading conversation…",
     "loadMore": "Load more",
     "bodyLabel": "Message body",
-    "reply": "Reply"
+    "reply": "Reply",
+    "noSubject": "(no subject)",
+    "messageCount": "{{count}} messages"
   }
 }

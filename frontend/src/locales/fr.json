@@ -1532,15 +1532,17 @@
   },
   "conversation": {
     "latestOwnReply": "Dernière réponse personnelle",
-    "listLabel": "Conversations",
+    "listLabel": "Fils de discussion",
     "messagesLabel": "Messages de la conversation",
-    "label": "conversation",
+    "label": "discussion",
     "expand": "Développer",
     "collapse": "Réduire",
     "loadFailed": "Échec du chargement de la conversation",
     "loading": "Chargement de la conversation…",
     "loadMore": "Charger plus",
     "bodyLabel": "Corps du message",
-    "reply": "Répondre"
+    "reply": "Répondre",
+    "noSubject": "(sans objet)",
+    "messageCount": "{{count}} messages dans la discussion"
   }
 }

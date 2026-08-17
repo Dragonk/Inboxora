@@ -1529,8 +1529,7 @@
   "window": {
     "minimize": "Minimieren",
     "close": "Schließen"
-  }
-,
+  },
   "conversation": {
     "latestOwnReply": "Letzte eigene Antwort",
     "listLabel": "Unterhaltungen",
@@ -1543,6 +1542,7 @@
     "loadFailed": "Unterhaltung konnte nicht geladen werden",
     "loading": "Unterhaltung wird geladen…",
     "bodyLabel": "Nachrichtentext",
-    "reply": "Antworten"
+    "reply": "Antworten",
+    "loadMore": "Mehr laden"
   }
 }
