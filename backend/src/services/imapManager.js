@@ -19,6 +19,7 @@ import { randomUUID } from 'crypto';
 import { upsertConversationCopy } from './conversationPersistence.js';
 import { recordConversationIngestFailure } from './conversationIngestFailures.js';
 import { conversationPersistedFields } from './conversationIngestEnvelope.js';
+import { providerFetchQuery } from './providerThreadAdapter.js';
 
 
 // Shorthand for log lines — keeps domain visible while masking the local part.
@@ -2427,13 +2428,13 @@ export class ImapManager {
 
         // Omit body parts for providers that throttle BODY[] fetches, and when
         // noBodyParts is set. Envelope/flags/uid/bodyStructure always fetched.
-        const fetchQuery = {
+        let fetchQuery = providerFetchQuery(account, {
           uid: true, flags: true, envelope: true,
           bodyStructure: true,
           size: true,
           internalDate: true,
           headers: true,
-        };
+        });
         if (provider.fetchBody && !noBodyParts) {
           fetchQuery.bodyParts = BODY_PREFETCH_PARTS;
         }
@@ -3122,12 +3123,12 @@ export class ImapManager {
           try {
             // Third arg { uid: true } issues UID FETCH instead of sequence FETCH.
             // bodyParts omitted for Gmail (empty array) — metadata only, no throttling.
-            const bfQuery = {
+            const bfQuery = providerFetchQuery(account, {
               uid: true, flags: true, envelope: true,
               bodyStructure: true, size: true,
               internalDate: true,
               headers: true,
-            };
+            });
             if (bodyParts.length > 0) bfQuery.bodyParts = bodyParts;
 
             for await (const msg of bfClient.fetch(uidSet, bfQuery, { uid: true })) {

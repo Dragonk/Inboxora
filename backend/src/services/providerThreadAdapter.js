@@ -13,8 +13,8 @@ export function parseProviderMetadata(msg, account) {
   const attributes = msg?.attributes || msg || {};
   const host = String(account?.imap_host || '').toLowerCase();
   const provider = host.includes('gmail') ? 'gmail' : host.includes('outlook') || host.includes('office365') || host.includes('microsoft') ? 'outlook' : 'generic';
-  const msgId = attributes.xGmMsgId ?? attributes['x-gm-msgid'] ?? attributes.x_gm_msgid ?? null;
-  const threadId = attributes.xGmThrid ?? attributes['x-gm-thrid'] ?? attributes.x_gm_thrid ?? null;
+  const msgId = attributes.emailId ?? attributes.xGmMsgId ?? attributes['x-gm-msgid'] ?? attributes.x_gm_msgid ?? null;
+  const threadId = attributes.threadId ?? attributes.xGmThrid ?? attributes['x-gm-thrid'] ?? attributes.x_gm_thrid ?? null;
   const safeMsgId = toScalar(msgId);
   const safeThreadId = toScalar(threadId);
   return {
@@ -32,7 +32,7 @@ export function parseProviderMetadata(msg, account) {
 
 export function providerFetchQuery(account, base = {}) {
   const host = (account?.imap_host || '').toLowerCase();
-  return host.includes('gmail') ? { ...base, headers: true } : { ...base };
+  return host.includes('gmail') ? { ...base, headers: true, threadId: true } : { ...base };
 }
 
 export function normalizeProviderReferences(value) {

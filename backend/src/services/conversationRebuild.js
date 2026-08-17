@@ -21,7 +21,7 @@ function cursorPredicate(values, checkpoint) {
   };
 }
 
-export async function rebuildConversationCopies({ userId, accountId = null, limit = 100, dryRun = true } = {}) {
+export async function rebuildConversationCopies({ userId, accountId = null, limit = 100, dryRun = true, force = false } = {}) {
   if (!userId) throw new Error('userId is required');
   const safeLimit = Math.min(Math.max(Number(limit) || 100, 1), 500);
   const scope = scopeId(accountId);
@@ -31,10 +31,11 @@ export async function rebuildConversationCopies({ userId, accountId = null, limi
     await client.query('SELECT pg_advisory_lock(hashtext($1))', [lockKey]);
     const checkpointResult = await client.query('SELECT * FROM conversation_rebuild_checkpoints WHERE user_id = $1 AND scope_account_id = $2', [userId, scope]);
     const checkpoint = checkpointResult.rows[0] || null;
-    if (!dryRun && checkpoint?.status === 'complete') return { scanned: 0, updated: 0, complete: true, next: null, dryRun: false };
+    if (!dryRun && checkpoint?.status === 'complete' && !force) return { scanned: 0, updated: 0, complete: true, next: null, dryRun: false };
+    const effectiveCheckpoint = force ? null : checkpoint;
     const baseValues = accountId ? [userId, accountId] : [userId];
     const accountFilter = accountId ? 'AND m.account_id = $2' : '';
-    const scoped = dryRun ? { sql: '', values: baseValues } : cursorPredicate(baseValues, checkpoint);
+    const scoped = dryRun ? { sql: '', values: baseValues } : cursorPredicate(baseValues, effectiveCheckpoint);
     const limitParam = scoped.values.length + 1;
     const rows = await client.query(`
       SELECT m.*, a.user_id, a.email_address
@@ -74,7 +75,7 @@ export async function rebuildConversationCopies({ userId, accountId = null, limi
           updated_count = conversation_rebuild_checkpoints.updated_count + EXCLUDED.updated_count,
           diagnostics = EXCLUDED.diagnostics,
           updated_at = NOW()
-      `, [userId, scope, last ? last.date === null : checkpoint?.last_sort_is_null ?? null, last?.date || null, last?.id || null, complete ? 'complete' : 'paused', rows.rows.length, updated, JSON.stringify({ limit: safeLimit, complete })]);
+      `, [userId, scope, last ? last.date === null : effectiveCheckpoint?.last_sort_is_null ?? null, last?.date || null, last?.id || null, complete ? 'complete' : 'paused', rows.rows.length, updated, JSON.stringify({ limit: safeLimit, complete, force })]);
     }
 
     return { scanned: rows.rows.length, updated, complete, next: complete ? null : { date: last?.date || null, id: last?.id, isNull: last?.date === null }, dryRun };

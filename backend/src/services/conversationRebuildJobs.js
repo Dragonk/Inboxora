@@ -6,16 +6,16 @@ const jobs = new Map();
 const MAX_JOBS = 100;
 const JOB_TTL_MS = 60 * 60 * 1000;
 
-export function startConversationRebuildJob({ userId, accountId = null, limit = 100, dryRun = true }) {
+export function startConversationRebuildJob({ userId, accountId = null, limit = 100, dryRun = true, force = false }) {
   const jobId = randomUUID();
-  jobs.set(jobId, { jobId, userId, accountId, status: 'queued', createdAt: Date.now(), result: null, error: null });
+  jobs.set(jobId, { jobId, userId, accountId, force, status: 'queued', createdAt: Date.now(), result: null, error: null });
   while (jobs.size > MAX_JOBS) jobs.delete(jobs.keys().next().value);
   setImmediate(async () => {
     const job = jobs.get(jobId);
     if (!job) return;
     job.status = 'running';
     try {
-      job.result = await rebuildConversationCopies({ userId, accountId, limit, dryRun });
+      job.result = await rebuildConversationCopies({ userId, accountId, limit, dryRun, force });
       job.status = 'complete';
       await recordConversationRebuildAudit({ userId, jobId, action: 'completed', details: { accountId, dryRun, result: job.result } });
     } catch (error) {

@@ -15,7 +15,7 @@ router.post('/conversations/rebuild', async (req, res) => {
     const owned = await query('SELECT 1 FROM email_accounts WHERE id = $1 AND user_id = $2', [accountId, userId]);
     if (!owned.rows.length) return res.status(404).json({ error: 'Account not found' });
   }
-  const result = startConversationRebuildJob({ userId, accountId, limit: req.body?.limit, dryRun: req.body?.dryRun !== false });
+  const result = startConversationRebuildJob({ userId, accountId, limit: req.body?.limit, dryRun: req.body?.dryRun !== false, force: req.body?.force === true });
   await recordConversationRebuildAudit({ userId, jobId: result.jobId, action: 'requested', details: { accountId, dryRun: req.body?.dryRun !== false } });
   res.status(202).json(result);
 });

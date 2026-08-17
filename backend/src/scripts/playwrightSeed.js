@@ -1,5 +1,5 @@
 import bcrypt from 'bcryptjs';
-import { pool, query, withTransaction } from '../services/db.js';
+import { pool } from '../services/db.js';
 
 const username = process.env.PLAYWRIGHT_USERNAME || 'playwright@example.test';
 const password = process.env.PLAYWRIGHT_PASSWORD || 'PlaywrightPassword123!';

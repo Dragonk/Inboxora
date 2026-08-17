@@ -4,8 +4,13 @@ import { parseProviderMetadata, providerNamespace } from './providerThreadAdapte
 export function providerMetadataForMessage(parsed, account) {
   const metadata = parseProviderMetadata(parsed, account);
   const attributes = parsed?.attributes || parsed || {};
-  const threadIndex = attributes.threadIndex ?? attributes['thread-index'] ?? null;
-  const threadTopic = attributes.threadTopic ?? attributes['thread-topic'] ?? null;
+  const headers = parsed?.parsedHeaders || parsed?.headers || {};
+  const header = (name) => {
+    const key = Object.keys(headers || {}).find(candidate => candidate.toLowerCase() === name.toLowerCase());
+    return key ? headers[key] : null;
+  };
+  const threadIndex = attributes.threadIndex ?? attributes['thread-index'] ?? header('thread-index');
+  const threadTopic = attributes.threadTopic ?? attributes['thread-topic'] ?? header('thread-topic');
   return {
     ...metadata,
     namespace: providerNamespace({ provider: metadata.provider, accountId: account?.id, host: account?.imap_host }),
