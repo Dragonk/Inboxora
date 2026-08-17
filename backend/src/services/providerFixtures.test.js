@@ -10,8 +10,9 @@ describe('provider fixtures', () => {
     expect(result.isStrong).toBe(true);
   });
 
-  it('uses account and host in generic namespaces', () => {
+  it('covers Gmail, Outlook and generic/Fastmail namespaces', () => {
     expect(providerNamespace({ provider: 'generic', accountId: 'a1', host: 'imap.fastmail.com' })).toBe('generic:a1:imap.fastmail.com');
     expect(parseProviderMetadata({}, { id: 'a2', imap_host: 'outlook.office365.com' }).provider).toBe('outlook');
+    expect(parseProviderMetadata({}, { id: 'a3', imap_host: 'imap.fastmail.com' }).provider).toBe('generic');
   });
 });

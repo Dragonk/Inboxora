@@ -15,4 +15,10 @@ describe('migration integrity', () => {
     expect(sql).toContain('fk_provider_mapping_conversation_owner');
     expect(sql).toContain('fk_message_conversation_owner');
   });
+
+  it('records migration checksums in the runner', () => {
+    const source = readFileSync(join(process.cwd(), 'src/services/migrations.js'), 'utf8');
+    expect(source).toContain('sha256');
+    expect(source).toContain('Migration checksum mismatch');
+  });
 });
