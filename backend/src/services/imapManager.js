@@ -17,8 +17,8 @@ import { applyInboxRules, applyBlockList } from './inboxRules.js';
 import { generateVCard } from '../utils/vcard.js';
 import { randomUUID } from 'crypto';
 import { upsertConversationCopy } from './conversationPersistence.js';
-import { providerMetadataForMessage } from './providerConversationMetadata.js';
 import { recordConversationIngestFailure } from './conversationIngestFailures.js';
+import { conversationPersistedFields } from './conversationIngestEnvelope.js';
 
 
 // Shorthand for log lines — keeps domain visible while masking the local part.
@@ -32,9 +32,10 @@ async function persistConversationCopyForRow(rowId, account, rawMessage) {
         JOIN email_accounts a ON a.id = m.account_id
        WHERE m.id = $1 AND a.id = $2`, [rowId, account.id]);
     if (result.rows.length !== 1) return;
-    await upsertConversationCopy(result.rows[0], {
+    const envelope = conversationPersistedFields(rawMessage, account);
+    await upsertConversationCopy({ ...result.rows[0], ...envelope }, {
       identities: [account.email_address],
-      provider: providerMetadataForMessage(rawMessage, account),
+      provider: envelope.provider,
     });
   } catch (err) {
     console.error('Conversation persistence error:', err.message);
