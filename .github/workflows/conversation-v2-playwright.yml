@@ -90,6 +90,7 @@ jobs:
         env:
           PLAYWRIGHT_BROWSERS_PATH: ${{ runner.temp }}/ms-playwright
         run: |
+          mkdir -p artifacts
           {
             echo "tested_sha=$GITHUB_SHA"
             echo "playwright_version=$(node -p \"require('@playwright/test/package.json').version\")"
