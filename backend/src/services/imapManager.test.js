@@ -12,7 +12,7 @@ vi.mock('../utils/redact.js', () => ({ redactEmail: vi.fn() }));
 vi.mock('./hostValidation.js', () => ({ resolveForConnection: vi.fn() }));
 vi.mock('./connectionPolicy.js', () => ({ getConnectionPolicy: vi.fn() }));
 
-import { ImapManager, providerProfile, makeClientCfg, relocateExemptGuard, insertCopiedSibling, deleteMessageCopyRow, emitSectionsChanged, ensureMailbox, createKeyedSemaphore, isConnectionRefusal, connectCooldownMs, effectiveSyncIntervalMs, folderSyncDue, planModseqSync, connectStaggerFor, walkStructure } from './imapManager.js';
+import { ImapManager, providerProfile, makeClientCfg, relocateExemptGuard, insertCopiedSibling, deleteMessageCopyRow, emitSectionsChanged, ensureMailbox, createKeyedSemaphore, isConnectionRefusal, connectCooldownMs, effectiveSyncIntervalMs, folderSyncDue, planModseqSync, connectStaggerFor, walkStructure, parsePersistentCap, resolvePersistentCap, persistentEligible } from './imapManager.js';
 import { pluginRegistry } from '../plugins/registry.js';
 import { EventEmitter } from 'node:events';
 import { ImapFlow } from 'imapflow';
@@ -722,6 +722,50 @@ describe('isConnectionRefusal', () => {
     [undefined],
   ])('does not flag a non-refusal: %s', (msg) => {
     expect(isConnectionRefusal(msg)).toBe(false);
+  });
+});
+
+describe('parsePersistentCap', () => {
+  it('parses a positive integer as the cap', () => {
+    expect(parsePersistentCap('5')).toBe(5);
+    expect(parsePersistentCap('1')).toBe(1);
+  });
+  it.each(['0', '-3', '', 'abc', null, undefined, ' '])('treats %s as unlimited', (raw) => {
+    expect(parsePersistentCap(raw)).toBe(Infinity);
+  });
+});
+
+describe('resolvePersistentCap', () => {
+  it('is unlimited when neither env nor profile caps', () => {
+    expect(resolvePersistentCap(Infinity, undefined)).toBe(Infinity);
+  });
+  it('uses whichever cap is set', () => {
+    expect(resolvePersistentCap(Infinity, 4)).toBe(4);
+    expect(resolvePersistentCap(6, undefined)).toBe(6);
+  });
+  it('takes the tighter of the two', () => {
+    expect(resolvePersistentCap(10, 3)).toBe(3);
+    expect(resolvePersistentCap(2, 8)).toBe(2);
+  });
+  it('ignores non-positive caps', () => {
+    expect(resolvePersistentCap(0, 0)).toBe(Infinity);
+  });
+});
+
+describe('persistentEligible', () => {
+  const host = ['a', 'b', 'c', 'd']; // stable order (created_at, then id)
+  it('is always eligible when the cap is unlimited or non-positive', () => {
+    expect(persistentEligible(host, 'd', Infinity)).toBe(true);
+    expect(persistentEligible(host, 'd', 0)).toBe(true);
+  });
+  it('keeps the first `cap` accounts persistent and demotes the rest', () => {
+    expect(persistentEligible(host, 'a', 2)).toBe(true);
+    expect(persistentEligible(host, 'b', 2)).toBe(true);
+    expect(persistentEligible(host, 'c', 2)).toBe(false); // surplus → poll-only
+    expect(persistentEligible(host, 'd', 2)).toBe(false);
+  });
+  it('fails safe to eligible for an account not in the host list', () => {
+    expect(persistentEligible(host, 'zz', 2)).toBe(true);
   });
 });
 

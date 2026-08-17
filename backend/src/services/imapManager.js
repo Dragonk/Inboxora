@@ -111,6 +111,43 @@ export function connectCooldownMs(failures) {
   return Math.min(CONNECT_COOLDOWN_BASE_MS * (2 ** Math.min(n - 1, 5)), CONNECT_COOLDOWN_MAX_MS);
 }
 
+// ── Per-host persistent-connection budget (#379 Phase 2) ─────────────────────────────────────
+// Every enabled account otherwise holds one always-on IDLE connection, so N accounts on one
+// provider host = N simultaneous connections — which blows a per-user/per-IP limit (Dovecot's
+// mail_max_userip_connections defaults to 10) when many family/work accounts live on one server.
+// When a finite cap is configured, the first `cap` accounts on a host (in a STABLE order) keep a
+// persistent connection and the rest run "poll-only": no IDLE, just a periodic fresh
+// open→sync→close, the way Apple Mail/Thunderbird demote secondary accounts. Default is unlimited
+// (today's behavior, zero regression); a cap only takes effect when an operator sets one.
+
+// Parse a cap from config: a positive integer caps; 0, negative, empty, or non-numeric = unlimited.
+export function parsePersistentCap(raw) {
+  const n = Number.parseInt(raw, 10);
+  return Number.isInteger(n) && n > 0 ? n : Infinity;
+}
+
+// The tighter of the global env cap and any provider-profile cap; Infinity (unlimited) when neither
+// is set. Pure given its inputs.
+export function resolvePersistentCap(envCap, profileCap) {
+  return Math.min(
+    Number.isFinite(envCap) && envCap > 0 ? envCap : Infinity,
+    Number.isFinite(profileCap) && profileCap > 0 ? profileCap : Infinity,
+  );
+}
+
+// Whether an account keeps a persistent connection, given the host's accounts in a STABLE order
+// (created_at, then id) and the cap: the first `cap` hold IDLE, the rest go poll-only. An account
+// absent from the list defaults to eligible (fail-safe to today's behavior). Pure.
+export function persistentEligible(orderedHostAccountIds, accountId, cap) {
+  if (!Number.isFinite(cap) || cap <= 0) return true;
+  const rank = orderedHostAccountIds.indexOf(accountId);
+  return rank === -1 ? true : rank < cap;
+}
+
+// Global env default, parsed once at load. A provider profile MAY override per host via
+// `maxPersistentPerHost` (none do by default, so no provider is capped unless an operator opts in).
+const PERSISTENT_CAP_ENV = parsePersistentCap(process.env.IMAP_MAX_PERSISTENT_PER_HOST);
+
 // Decide a folder's sync fetch strategy from its CONDSTORE modseq state. Pure and total so
 // it can be exhaustively unit-tested — it is the load-bearing correctness decision for delta
 // sync. A nonempty server mailbox with no local UID is an incomplete cache whose modseq
@@ -1224,6 +1261,7 @@ export class ImapManager {
     this.userSyncIntervalMs = new Map(); // userId -> interval ms (user-configurable)
     this.userFolderSyncIntervalMs = new Map(); // userId -> folder-structure sync ms (0 = never)
     this.lastFolderSyncAt = new Map(); // accountId -> last folder-structure sync timestamp
+    this._pollOnlyAccounts = new Set(); // accountId — demoted to poll-only (no persistent IDLE) by the per-host connection budget (#379)
     this.snippetIndexerRunning = new Set(); // accountId — prevent duplicate snippet-index runs
     this.snippetBackoff = new Map();        // imap_host -> { failures, until } circuit breaker (host-level: a per-host connection limit hits every account on that host, so back them all off together)
     this.lastUserActivity = new Map();      // accountId -> ms timestamp of last live body fetch
@@ -1252,7 +1290,12 @@ export class ImapManager {
           "SELECT id, email_address FROM email_accounts WHERE enabled = true AND protocol = 'imap'"
         );
         for (const row of result.rows) {
-          if (!this.connections.has(row.id) && !this.connectingAccounts.has(row.id)) {
+          // A poll-only account (per-host budget) holds no persistent connection by design; while
+          // its poll timer is live it is healthy, so don't treat it as "not connected" and try to
+          // reconnect it into an always-on connection. If its timer somehow died it falls through
+          // and reconnects — which re-establishes poll-only via connectAccount.
+          const pollOnlyHealthy = this._pollOnlyAccounts.has(row.id) && this.syncIntervals.has(row.id);
+          if (!this.connections.has(row.id) && !this.connectingAccounts.has(row.id) && !pollOnlyHealthy) {
             // Respect the connection-refusal cooldown — connectAccount would bail anyway, so
             // skip early to avoid a needless credential fetch and a misleading log line.
             const cd = this._connectCooldown.get(row.id);
@@ -1690,6 +1733,21 @@ export class ImapManager {
     // intervals running whenever the connection died between reconnect attempts.
     await this.disconnectAccount(account.id);
 
+    // Per-host persistent-connection budget (#379 Phase 2). When an operator has set a finite cap
+    // for this (connection-limited) host and this account is beyond it, run poll-only instead of
+    // holding an always-on IDLE connection: no entry in this.connections, just a periodic fresh
+    // open→sync→close. Default cap is unlimited, so this whole branch is skipped and behavior is
+    // unchanged for everyone who hasn't opted in. A lookup error fails safe to the persistent path.
+    const persistentCap = this._effectivePersistentCap(account);
+    if (Number.isFinite(persistentCap)) {
+      const eligible = await this._isPersistentEligible(account, persistentCap).catch(() => true);
+      if (!eligible) {
+        try { this._startPollOnly(account); }
+        finally { this.connectingAccounts.delete(account.id); }
+        return true;
+      }
+    }
+
     // Refresh OAuth token if needed before connecting
     account = await ensureFreshToken(account);
     const { resolved, policy } = await resolveAccountHost(account);
@@ -1815,6 +1873,7 @@ export class ImapManager {
     const timer = this.syncIntervals.get(accountId);
     // clearTimeout works for both setTimeout and setInterval Timeout objects in Node.js
     if (timer) { clearTimeout(timer); this.syncIntervals.delete(accountId); }
+    this._pollOnlyAccounts.delete(accountId); // poll-only timer lives in syncIntervals (cleared above)
     this._stopPluginSyncTimers(accountId);
     const client = this.connections.get(accountId);
     if (client) {
@@ -1830,6 +1889,108 @@ export class ImapManager {
     const expungeTimer = this._expungeDebounceTimers.get(accountId);
     if (expungeTimer) { clearTimeout(expungeTimer); this._expungeDebounceTimers.delete(accountId); }
     evictPool(accountId);
+  }
+
+  // Effective per-host persistent-connection cap for an account: the tighter of the env default and
+  // any provider-profile cap. Infinity = unlimited (default), which short-circuits the whole
+  // poll-only path in connectAccount so behavior is unchanged.
+  _effectivePersistentCap(account) {
+    return resolvePersistentCap(PERSISTENT_CAP_ENV, providerProfile(account).maxPersistentPerHost);
+  }
+
+  // Whether this account is within its host's persistent-connection budget. Queries the enabled
+  // IMAP accounts sharing the host in a STABLE order (created_at, then id) so the same accounts
+  // keep the persistent slots across restarts and reconnects rather than flip-flopping by connect
+  // order. Only called when a finite cap is configured.
+  async _isPersistentEligible(account, cap) {
+    if (!Number.isFinite(cap)) return true;
+    const host = (account.imap_host || '').toLowerCase();
+    if (!host) return true;
+    const rows = await query(
+      "SELECT id FROM email_accounts WHERE enabled = true AND protocol = 'imap' AND lower(imap_host) = $1 ORDER BY created_at ASC NULLS FIRST, id ASC",
+      [host]
+    );
+    return persistentEligible(rows.rows.map(r => r.id), account.id, cap);
+  }
+
+  // Run an account in poll-only mode: no persistent IDLE connection, just a periodic fresh
+  // open→sync→close on the sync interval. New-mail latency becomes the sync interval (like a
+  // secondary account in a desktop client), but the account stops consuming an always-on slot on a
+  // connection-limited host. The timer lives in syncIntervals so disconnectAccount tears it down.
+  _startPollOnly(account) {
+    this._pollOnlyAccounts.add(account.id);
+    console.log(`Poll-only mode for ${logAccount(account)} — ${account.imap_host} at persistent-connection budget; polling INBOX on the interval instead of holding IDLE`);
+    query('UPDATE email_accounts SET sync_error = NULL WHERE id = $1', [account.id]).catch(() => {});
+    this.broadcast({ type: 'account_connected', accountId: account.id }, account.user_id);
+    // Initial poll now, then on the interval. Stagger the first tick so many demoted accounts on one
+    // host don't all open at the same instant (mirrors _startSyncInterval's jitter).
+    this._pollOnlyTick(account).catch(err => console.warn(`Poll-only initial sync failed for ${logAccount(account)}: ${err.message}`));
+    const ms = effectiveSyncIntervalMs(account, this.userSyncIntervalMs.get(account.user_id) || 60000);
+    const jitter = Math.floor(Math.random() * Math.min(ms, 30000));
+    const t = setTimeout(() => {
+      if (!this._pollOnlyAccounts.has(account.id)) return; // disconnected/promoted during the jitter window
+      const interval = setInterval(() => {
+        this._pollOnlyTick(account).catch(err => console.warn(`Poll-only sync failed for ${logAccount(account)}: ${err.message}`));
+      }, ms);
+      this.syncIntervals.set(account.id, interval);
+    }, jitter);
+    this.syncIntervals.set(account.id, t);
+  }
+
+  // One poll-only sync cycle: a single short-lived connection (drawn from the per-host background
+  // budget so it can never exceed the cap) that refreshes folders occasionally and syncs INBOX,
+  // then logs out. Honors the refusal cooldown and arms it on a refusal, exactly like the
+  // persistent sync path. Cross-device flag changes to OLD mail are not polled here (v1); INBOX
+  // new-mail and its flags are, which is what a demoted secondary account needs.
+  async _pollOnlyTick(account) {
+    if (this.syncingAccounts.has(account.id)) return;
+    const cd = this._connectCooldown.get(account.id);
+    if (cd && Date.now() < cd.until) return;
+    this.syncingAccounts.add(account.id);
+    const host = (account.imap_host || '').toLowerCase();
+    let client = null;
+    let slotHeld = false;
+    try {
+      await this._bgConnSem.acquire(host);
+      slotHeld = true;
+      const fresh = await raceTimeout(ensureFreshToken(account), 15000, 'Poll-only token refresh');
+      const { resolved, policy } = await raceTimeout(resolveAccountHost(fresh), 15000, 'Poll-only host resolve');
+      client = new ImapFlow(makeClientCfg(fresh, resolved, { enableIdle: false, policy }));
+      client.on('error', () => {}); // logout() below aborts a timed-out socket; swallow the resulting error
+      await Promise.race([
+        client.connect(),
+        new Promise((_, rej) => setTimeout(() => rej(new Error('Poll-only connect timeout (30s)')), 30000)),
+      ]);
+
+      const folderMs = this.userFolderSyncIntervalMs.has(account.user_id)
+        ? this.userFolderSyncIntervalMs.get(account.user_id)
+        : DEFAULT_FOLDER_SYNC_INTERVAL_MS;
+      if (folderSyncDue(folderMs, this.lastFolderSyncAt.get(account.id))) {
+        this.lastFolderSyncAt.set(account.id, Date.now());
+        await raceTimeout(this.syncFolders(fresh, client), 20000, 'Poll-only folder sync')
+          .then(() => this.broadcast({ type: 'folders_synced', accountId: account.id }, account.user_id))
+          .catch(err => console.warn(`Poll-only folder sync failed for ${logAccount(account)}: ${err.message}`));
+      }
+
+      const syncResult = await raceTimeout(
+        this.syncMessages(fresh, client, 'INBOX', 20, false, true),
+        40000,
+        'Poll-only INBOX sync',
+      );
+      this.lastSyncOkAt.set(account.id, Date.now());
+      this._connectCooldown.delete(account.id);
+      if ((syncResult?.insertedCount || 0) > 0 && !syncResult?.broadcastedNewMessages) {
+        this.broadcast({ type: 'sync_complete', accountId: account.id }, account.user_id);
+      }
+    } catch (err) {
+      const detail = extractImapError(err);
+      if (isConnectionRefusal(detail)) this._noteConnectionRefusal(account);
+      console.warn(`Poll-only sync error for ${logAccount(account)}: ${detail}`);
+    } finally {
+      if (client) { try { await client.logout(); } catch { /* already closed */ } }
+      if (slotHeld) this._bgConnSem.release(host);
+      this.syncingAccounts.delete(account.id);
+    }
   }
 
   async disconnectUser(userId) {
