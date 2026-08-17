@@ -14,7 +14,7 @@ describe('conversation rebuild', () => {
     query.mockResolvedValueOnce({ rows: [] });
     const result = await rebuildConversationCopies({ userId: 'u1', limit: 1, dryRun: true });
     expect(result).toMatchObject({ scanned: 1, updated: 0, complete: false, dryRun: true });
-    expect(query.mock.calls[1][0]).toContain('ORDER BY m.date ASC NULLS LAST, m.id ASC');
+    expect(query.mock.calls[1][0]).toContain('ORDER BY (m.date IS NULL), m.date ASC, m.id ASC');
     expect(query.mock.calls[1][0]).toContain('LIMIT $2');
   });
 });

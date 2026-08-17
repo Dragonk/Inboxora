@@ -19,5 +19,6 @@ export function conversationPersistedFields(rawMessage, account) {
     conversation_thread_index: provider.threadIndex,
     conversation_thread_topic: provider.threadTopic,
     provider,
+    identities: [account?.email_address].filter(Boolean),
   };
 }
