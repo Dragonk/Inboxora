@@ -39,6 +39,7 @@ import { runMigrations } from './services/migrations.js';
 import { parseVCard } from './utils/vcard.js';
 import { reloadAuthSettings } from './services/authLimiter.js';
 import { setupWebSocket } from './services/websocket.js';
+import { ImapManager } from './services/imapManager.js';
 import { getUpdateStatus } from './services/updateCheck.js';
 import conversationsRoutes from './routes/conversations.js';
 

@@ -1530,4 +1530,19 @@
     "minimize": "Minimizar",
     "close": "Cerrar"
   }
+,
+  "conversation": {
+    "latestOwnReply": "Última respuesta propia",
+    "listLabel": "Conversaciones",
+    "messagesLabel": "Mensajes de la conversación",
+    "label": "conversación",
+    "expand": "Expandir",
+    "collapse": "Contraer",
+    "noSubject": "(sin asunto)",
+    "messageCount": "{{count}} mensajes",
+    "loadFailed": "No se pudo cargar la conversación",
+    "loading": "Cargando conversación…",
+    "bodyLabel": "Cuerpo del mensaje",
+    "reply": "Responder"
+  }
 }

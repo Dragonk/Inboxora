@@ -5,19 +5,36 @@ import { requireAuth } from '../middleware/auth.js';
 const router = Router();
 router.use(requireAuth);
 
-function accountScope(userId, accountId) {
-  return accountId ? [accountId, userId] : [userId];
+function parseLimit(value) {
+  return Math.min(Math.max(Number(value) || 50, 1), 100);
+}
+
+function decodeCursor(value) {
+  if (!value) return null;
+  try {
+    const parsed = JSON.parse(Buffer.from(String(value), 'base64url').toString('utf8'));
+    if (!parsed?.date || !parsed?.id) return null;
+    return parsed;
+  } catch { return null; }
+}
+
+function encodeCursor(row) {
+  return Buffer.from(JSON.stringify({ date: row.last_message_at, id: row.conversation_id })).toString('base64url');
 }
 
 router.get('/conversations', async (req, res) => {
   const userId = req.session.userId;
   const { accountId, limit = 50, cursor } = req.query;
+  const cursorValue = decodeCursor(cursor);
+  if (cursor && !cursorValue) return res.status(400).json({ error: 'Invalid conversation cursor' });
   const values = accountId ? [userId, accountId] : [userId];
   const accountFilter = accountId ? 'AND m.account_id = $2' : '';
-  const cursorValue = cursor ? String(cursor) : null;
-  if (cursorValue) values.push(cursorValue);
-  const cursorFilter = cursorValue ? `AND c.last_message_at < $${values.length}::timestamptz` : '';
-  values.push(Math.min(Math.max(Number(limit) || 50, 1), 100));
+  let cursorFilter = '';
+  if (cursorValue) {
+    values.push(cursorValue.date, cursorValue.id);
+    cursorFilter = `AND (c.last_message_at, c.id) < ($${values.length - 1}::timestamptz, $${values.length}::uuid)`;
+  }
+  values.push(parseLimit(limit));
   const limitParam = values.length;
   const result = await query(`
     SELECT c.id AS conversation_id, c.kind, c.canonical_subject,
@@ -33,7 +50,7 @@ router.get('/conversations', async (req, res) => {
      ORDER BY c.last_message_at DESC NULLS LAST, c.id DESC
      LIMIT $${limitParam}
   `, values);
-  const nextCursor = result.rows.length ? result.rows.at(-1).last_message_at : null;
+  const nextCursor = result.rows.length === parseLimit(limit) ? encodeCursor(result.rows.at(-1)) : null;
   res.json({ conversations: result.rows, nextCursor });
 });
 
@@ -47,12 +64,14 @@ router.get('/conversations/:id', async (req, res) => {
      ORDER BY lm.message_date ASC NULLS LAST, lm.id
   `, [req.params.id, req.session.userId]);
   if (!result.rows.length) return res.status(404).json({ error: 'Conversation not found' });
-  const { id, logical_id: _, ...summary } = result.rows[0];
-  res.json({ summary: { ...summary, conversation_id: id }, logicalMessages: result.rows.map(row => ({
+  const logicalRows = result.rows.filter(row => row.logical_id).map(row => ({
     id: row.logical_id, canonicalMessageId: row.canonical_message_id, subject: row.subject,
     direction: row.direction, messageDate: row.message_date, threadingReason: row.threading_reason,
     threadingConfidence: row.threading_confidence,
-  })).filter(row => row.id) });
+  }));
+  const first = result.rows[0];
+  const summary = first ? Object.fromEntries(Object.entries(first).filter(([key]) => !['logical_id', 'canonical_message_id', 'subject', 'direction', 'message_date', 'threading_reason', 'threading_confidence'].includes(key))) : {};
+  res.json({ summary: { ...summary, conversation_id: first.id }, logicalMessages: logicalRows });
 });
 
 router.get('/messages/:id/conversation', async (req, res) => {

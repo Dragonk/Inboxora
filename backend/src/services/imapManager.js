@@ -16,10 +16,29 @@ import { getConnectionPolicy } from './connectionPolicy.js';
 import { applyInboxRules, applyBlockList } from './inboxRules.js';
 import { generateVCard } from '../utils/vcard.js';
 import { randomUUID } from 'crypto';
+import { upsertConversationCopy } from './conversationPersistence.js';
+import { providerMetadataForMessage } from './providerConversationMetadata.js';
 
 
 // Shorthand for log lines — keeps domain visible while masking the local part.
 const logAccount = (account) => redactEmail(account?.email_address || '');
+
+async function persistConversationCopyForRow(rowId, account, rawMessage) {
+  try {
+    const result = await query(`
+      SELECT m.*, a.user_id
+        FROM messages m
+        JOIN email_accounts a ON a.id = m.account_id
+       WHERE m.id = $1 AND a.id = $2`, [rowId, account.id]);
+    if (result.rows.length !== 1) return;
+    await upsertConversationCopy(result.rows[0], {
+      identities: [account.email_address],
+      provider: providerMetadataForMessage(rawMessage, account),
+    });
+  } catch (err) {
+    console.error('Conversation persistence error:', err.message);
+  }
+}
 
 // Resolves the IMAP host for an account, applying server-level connection policy.
 // Returns { resolved, policy } so callers can pass policy to makeClientCfg.
@@ -2574,6 +2593,7 @@ export class ImapManager {
             ]);
             if (result.rows[0]?.is_new) {
               insertedCount++;
+              await persistConversationCopyForRow(result.rows[0].id, account, msg);
               // Inbox-ingest candidate: any newly-inserted INBOX row, read OR unread (read state
               // is not a gate here — the plugin decides). The unread-only push below still drives
               // notifications. Gated on wantsInboxIngest so a mailbox with no ingest plugin builds
@@ -3223,6 +3243,8 @@ export class ImapManager {
                   JSON.stringify(parsed.deliveryAddresses || []),
                 ]);
                 backfilledRows++;
+                const inserted = await query(`SELECT id FROM messages WHERE account_id = $1 AND uid = $2 AND folder = $3`, [account.id, parsed.uid, folder]);
+                if (inserted.rows[0]) await persistConversationCopyForRow(inserted.rows[0].id, account, msg);
                 if (bfThreadId && bfThreadId !== bfMsgId) {
                   await query(
                     `UPDATE messages SET thread_id = $1

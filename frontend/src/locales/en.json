@@ -1530,4 +1530,19 @@
     "minimize": "Minimize",
     "close": "Close"
   }
+,
+  "conversation": {
+    "latestOwnReply": "Latest own reply",
+    "listLabel": "Conversations",
+    "messagesLabel": "Conversation messages",
+    "label": "conversation",
+    "expand": "Expand",
+    "collapse": "Collapse",
+    "noSubject": "(no subject)",
+    "messageCount": "{{count}} messages",
+    "loadFailed": "Failed to load conversation",
+    "loading": "Loading conversation…",
+    "bodyLabel": "Message body",
+    "reply": "Reply"
+  }
 }

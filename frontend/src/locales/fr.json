@@ -1529,5 +1529,19 @@
   "window": {
     "minimize": "Réduire",
     "close": "Fermer"
+  },
+  "conversation": {
+    "latestOwnReply": "Dernière réponse personnelle",
+    "listLabel": "Conversations",
+    "messagesLabel": "Messages de la conversation",
+    "label": "conversation",
+    "expand": "Développer",
+    "collapse": "Réduire",
+    "noSubject": "(sans objet)",
+    "messageCount": "{{count}} messages",
+    "loadFailed": "Échec du chargement de la conversation",
+    "loading": "Chargement de la conversation…",
+    "bodyLabel": "Corps du message",
+    "reply": "Répondre"
   }
 }

@@ -9,12 +9,12 @@ export function canonicalConversationSubject(subject = '') {
     .normalize('NFKC')
     .replace(/\s+/gu, ' ')
     .trim();
-  if (FORWARD_PREFIX_RE.test(decoded)) return decoded.toLocaleLowerCase('en-US');
-  return decoded.replace(REPLY_PREFIX_RE, '').trim().toLocaleLowerCase('en-US');
+  if (FORWARD_PREFIX_RE.test(decoded)) return decoded.toLowerCase();
+  return decoded.replace(REPLY_PREFIX_RE, '').trim().toLowerCase();
 }
 
 export function automatedSubjectTemplate(subject = '') {
-  return String(subject || '').normalize('NFKC').replace(/\s+/gu, ' ').trim().toLocaleLowerCase('en-US');
+  return String(subject || '').normalize('NFKC').replace(/\s+/gu, ' ').trim().toLowerCase();
 }
 
 function addressOf(value) {

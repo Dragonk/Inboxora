@@ -1530,4 +1530,19 @@
     "minimize": "Minimieren",
     "close": "Schließen"
   }
+,
+  "conversation": {
+    "latestOwnReply": "Letzte eigene Antwort",
+    "listLabel": "Unterhaltungen",
+    "messagesLabel": "Nachrichten der Unterhaltung",
+    "label": "Unterhaltung",
+    "expand": "Aufklappen",
+    "collapse": "Zuklappen",
+    "noSubject": "(kein Betreff)",
+    "messageCount": "{{count}} Nachrichten",
+    "loadFailed": "Unterhaltung konnte nicht geladen werden",
+    "loading": "Unterhaltung wird geladen…",
+    "bodyLabel": "Nachrichtentext",
+    "reply": "Antworten"
+  }
 }

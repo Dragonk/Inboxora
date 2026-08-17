@@ -1530,4 +1530,19 @@
     "minimize": "Свернуть",
     "close": "Закрыть"
   }
+,
+  "conversation": {
+    "latestOwnReply": "Последний собственный ответ",
+    "listLabel": "Переписки",
+    "messagesLabel": "Сообщения переписки",
+    "label": "переписка",
+    "expand": "Развернуть",
+    "collapse": "Свернуть",
+    "noSubject": "(без темы)",
+    "messageCount": "{{count}} сообщений",
+    "loadFailed": "Не удалось загрузить переписку",
+    "loading": "Загрузка переписки…",
+    "bodyLabel": "Текст сообщения",
+    "reply": "Ответить"
+  }
 }
