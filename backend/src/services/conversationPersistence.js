@@ -55,9 +55,23 @@ export async function upsertConversationCopy(copy, { identities = [], provider =
     if (provider?.providerThreadId) await client.query(`INSERT INTO provider_thread_mappings (user_id, account_id, provider, provider_thread_id, conversation_id, last_seen_at, diagnostics) VALUES ($1,$2,$3,$4,$5,NOW(),$6::jsonb) ON CONFLICT (user_id, account_id, provider, provider_thread_id) DO UPDATE SET conversation_id = EXCLUDED.conversation_id, last_seen_at = NOW(), diagnostics = EXCLUDED.diagnostics`, [hydrated.userId, hydrated.accountId, provider.provider, provider.providerThreadId, conversationId, JSON.stringify(provider.diagnostics || {})]);
     const unresolved = [...new Set([...normalizeMessageIdList(hydrated.rawInReplyTo), ...normalizeMessageIdList(hydrated.rawReferences)])].filter(id => id !== hydrated.canonicalMessageId);
     if (unresolved.length) {
-      const known = await client.query(`SELECT canonical_message_id FROM logical_messages WHERE user_id = $1 AND canonical_message_id = ANY($2::text[])`, [hydrated.userId, unresolved]);
+      const known = await client.query(`SELECT id, canonical_message_id FROM logical_messages WHERE user_id = $1 AND canonical_message_id = ANY($2::text[])`, [hydrated.userId, unresolved]);
       const knownIds = new Set(known.rows.map(row => row.canonical_message_id));
-      for (const [position, referenced] of unresolved.entries()) if (!knownIds.has(referenced)) await client.query(`INSERT INTO unresolved_message_references (user_id, child_logical_message_id, referenced_message_id, relation_type, reference_position) VALUES ($1,$2,$3,$4,$5) ON CONFLICT DO NOTHING`, [hydrated.userId, logical.id, referenced, referenced === normalizeMessageIdList(hydrated.rawInReplyTo).at(-1) ? 'in-reply-to' : 'references', position]);
+      for (const [position, referenced] of unresolved.entries()) {
+        const relationType = referenced === normalizeMessageIdList(hydrated.rawInReplyTo).at(-1) ? 'in-reply-to' : 'references';
+        if (!knownIds.has(referenced)) {
+          await client.query(`INSERT INTO unresolved_message_references (user_id, child_logical_message_id, referenced_message_id, relation_type, reference_position) VALUES ($1,$2,$3,$4,$5) ON CONFLICT DO NOTHING`, [hydrated.userId, logical.id, referenced, relationType, position]);
+        }
+      }
+    }
+    const waiting = await client.query(`SELECT id, child_logical_message_id FROM unresolved_message_references WHERE user_id = $1 AND referenced_message_id = $2 AND resolved_at IS NULL FOR UPDATE`, [hydrated.userId, hydrated.canonicalMessageId]);
+    for (const reference of waiting.rows) {
+      await client.query('UPDATE unresolved_message_references SET resolved_logical_message_id = $1, resolved_at = NOW() WHERE id = $2', [logical.id, reference.id]);
+      const child = await client.query('SELECT conversation_id FROM logical_messages WHERE id = $1 AND user_id = $2 FOR UPDATE', [reference.child_logical_message_id, hydrated.userId]);
+      if (child.rows[0]?.conversation_id && child.rows[0].conversation_id !== conversationId) {
+        await client.query('UPDATE logical_messages SET conversation_id = $1, parent_logical_message_id = $2, updated_at = NOW() WHERE id = $3', [conversationId, logical.id, reference.child_logical_message_id]);
+        await client.query('UPDATE messages SET conversation_id = $1 WHERE logical_message_id = $2', [conversationId, reference.child_logical_message_id]);
+      }
     }
     const evidence = [[decision.reason, decision.confidence, { relationType: parent?.relationType || null, provider: provider?.provider || null }], ...(parent ? [['rfc-parent', 0.99, { parentLogicalMessageId: parent.id }]] : []), ...(provider?.providerThreadId ? [['provider-thread-id', 1, { provider: provider.provider }]] : [])];
     for (const [type, weight, details] of evidence) await client.query(`INSERT INTO conversation_evidence (conversation_id, logical_message_id, evidence_type, evidence_value_hash, weight, details) VALUES ($1,$2,$3,$4,$5,$6::jsonb)`, [conversationId, logical.id, type, createHash('sha256').update(JSON.stringify(details)).digest('hex'), weight, JSON.stringify(details)]);
