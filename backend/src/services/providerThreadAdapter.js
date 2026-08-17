@@ -2,7 +2,8 @@ import { createHash } from 'crypto';
 
 function toScalar(value) {
   if (value === null || value === undefined) return null;
-  return typeof value === 'bigint' ? String(value) : String(value);
+  const scalar = typeof value === 'bigint' ? String(value) : String(value);
+  return scalar === '' || scalar.toUpperCase() === 'NIL' ? null : scalar;
 }
 
 export function providerNamespace({ provider, accountId, host }) {
@@ -13,20 +14,30 @@ export function parseProviderMetadata(msg, account) {
   const attributes = msg?.attributes || msg || {};
   const host = String(account?.imap_host || '').toLowerCase();
   const provider = host.includes('gmail') ? 'gmail' : host.includes('outlook') || host.includes('office365') || host.includes('microsoft') ? 'outlook' : 'generic';
+  // ImapFlow intentionally normalizes OBJECTID and X-GM-MSGID into `emailId`.
+  // Keep that value provider-neutral; only the legacy xGm* aliases are explicitly
+  // identified as Gmail extensions. This prevents OBJECTID from being mislabeled
+  // as X-GM-MSGID while retaining compatibility with older fixtures.
   const msgId = attributes.emailId ?? attributes.xGmMsgId ?? attributes['x-gm-msgid'] ?? attributes.x_gm_msgid ?? null;
   const threadId = attributes.threadId ?? attributes.xGmThrid ?? attributes['x-gm-thrid'] ?? attributes.x_gm_thrid ?? null;
   const safeMsgId = toScalar(msgId);
   const safeThreadId = toScalar(threadId);
+  const legacyGmailMsgId = attributes.xGmMsgId ?? attributes['x-gm-msgid'] ?? attributes.x_gm_msgid;
+  const legacyGmailThreadId = attributes.xGmThrid ?? attributes['x-gm-thrid'] ?? attributes.x_gm_thrid;
   return {
     provider,
     accountId: account?.id || null,
     providerMessageId: safeMsgId,
     providerThreadId: safeThreadId,
     namespace: providerNamespace({ provider, accountId: account?.id, host: account?.imap_host }),
-    source: safeThreadId ? 'x-gm-thread' : safeMsgId ? 'x-gm-message' : null,
+    source: safeThreadId ? (legacyGmailThreadId != null ? 'x-gm-thread' : 'provider-thread-id') : safeMsgId ? (legacyGmailMsgId != null ? 'x-gm-message' : 'provider-email-id') : null,
     isStrong: provider === 'gmail' && safeThreadId !== null,
     confidence: safeThreadId ? 1 : safeMsgId ? 0.8 : 0,
-    diagnostics: { fingerprint: createHash('sha256').update([provider, safeMsgId || '', safeThreadId || ''].join('|')).digest('hex') },
+    diagnostics: {
+      fingerprint: createHash('sha256').update([provider, safeMsgId || '', safeThreadId || ''].join('|')).digest('hex'),
+      messageIdSource: legacyGmailMsgId != null ? 'x-gm-msgid-alias' : attributes.emailId != null ? 'imapflow-email-id' : null,
+      threadIdSource: legacyGmailThreadId != null ? 'x-gm-thrid-alias' : attributes.threadId != null ? 'imapflow-thread-id' : null,
+    },
   };
 }
 
