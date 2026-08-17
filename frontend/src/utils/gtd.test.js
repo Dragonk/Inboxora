@@ -23,6 +23,9 @@ import {
   unclassifyThread,
   pickThreadMessage,
   isSelectedRow,
+  messageIdentity,
+  appendMessagesByIdentity,
+  missingByIdentity,
   DEFAULT_GTD_FOLDERS,
   resolveAccountGtdFolders,
   gtdStatesInFolders,
@@ -455,6 +458,97 @@ describe('isSelectedRow', () => {
     assert.equal(isSelectedRow(null, 'a', '<m1>'), false);
     assert.equal(isSelectedRow(undefined, 'a', '<m1>'), false);
     assert.equal(isSelectedRow({ id: 'a', message_id: '<m1>' }, null, null), false);
+  });
+});
+
+describe('messageIdentity', () => {
+  it('keys on the Message-ID when present', () => {
+    assert.equal(messageIdentity({ id: 'uuid-1', message_id: '<m1>' }), 'mid:<m1>');
+    // Same Message-ID under a regenerated id yields the SAME identity.
+    assert.equal(
+      messageIdentity({ id: 'uuid-2', message_id: '<m1>' }),
+      messageIdentity({ id: 'uuid-1', message_id: '<m1>' })
+    );
+  });
+
+  it('falls back to the row id when Message-ID is absent, and never collapses distinct ids', () => {
+    assert.equal(messageIdentity({ id: 'uuid-1', message_id: null }), 'id:uuid-1');
+    assert.equal(messageIdentity({ id: 'uuid-1', message_id: '' }), 'id:uuid-1');
+    assert.notEqual(
+      messageIdentity({ id: 'uuid-1' }),
+      messageIdentity({ id: 'uuid-2' })
+    );
+  });
+
+  it('returns null for a missing row', () => {
+    assert.equal(messageIdentity(null), null);
+    assert.equal(messageIdentity(undefined), null);
+  });
+});
+
+describe('appendMessagesByIdentity', () => {
+  it('replaces a reindexed message in place instead of duplicating it (the #378 bug)', () => {
+    // Existing list holds the message under its old DB id; the fetched page carries the same
+    // Message-ID under a NEW id (purge+reinsert regenerated the UUID).
+    const existing = [{ id: 'old', message_id: '<m1>', snippet: 'a' }];
+    const incoming = [{ id: 'new', message_id: '<m1>', snippet: 'a' }];
+    const result = appendMessagesByIdentity(existing, incoming);
+    assert.equal(result.length, 1);              // no duplicate
+    assert.equal(result[0].id, 'new');           // survivor is the fresh, clickable copy
+  });
+
+  it('drops an incoming row with the same DB id, preserving the existing (optimistic) copy', () => {
+    const existing = [{ id: 'a', message_id: '<m1>', unread_count: 3 }];
+    const incoming = [{ id: 'a', message_id: '<m1>', unread_count: 0 }];
+    const result = appendMessagesByIdentity(existing, incoming);
+    assert.equal(result, existing);              // unchanged reference — no-op
+  });
+
+  it('appends genuinely new messages', () => {
+    const existing = [{ id: 'a', message_id: '<m1>' }];
+    const incoming = [{ id: 'b', message_id: '<m2>' }, { id: 'c', message_id: '<m3>' }];
+    const result = appendMessagesByIdentity(existing, incoming);
+    assert.deepEqual(result.map(m => m.id), ['a', 'b', 'c']);
+  });
+
+  it('de-duplicates within the incoming batch by identity', () => {
+    const existing = [];
+    const incoming = [{ id: 'b', message_id: '<m2>' }, { id: 'b2', message_id: '<m2>' }];
+    const result = appendMessagesByIdentity(existing, incoming);
+    assert.equal(result.length, 1);
+  });
+
+  it('never collapses distinct messages that both lack a Message-ID', () => {
+    const existing = [{ id: 'a', message_id: null }];
+    const incoming = [{ id: 'b', message_id: null }];
+    const result = appendMessagesByIdentity(existing, incoming);
+    assert.deepEqual(result.map(m => m.id), ['a', 'b']);
+  });
+
+  it('returns the original reference when there is nothing to add or replace', () => {
+    const existing = [{ id: 'a', message_id: '<m1>' }];
+    assert.equal(appendMessagesByIdentity(existing, []), existing);
+    assert.equal(appendMessagesByIdentity(existing, null), existing);
+  });
+});
+
+describe('missingByIdentity', () => {
+  it('skips messages already present under a regenerated id (matched by Message-ID)', () => {
+    const existing = [{ id: 'new', message_id: '<m1>' }];
+    const incoming = [{ id: 'old', message_id: '<m1>' }]; // same message, stale id
+    assert.deepEqual(missingByIdentity(existing, incoming), []);
+  });
+
+  it('returns messages that are genuinely absent', () => {
+    const existing = [{ id: 'a', message_id: '<m1>' }];
+    const incoming = [{ id: 'b', message_id: '<m2>' }];
+    assert.deepEqual(missingByIdentity(existing, incoming).map(m => m.id), ['b']);
+  });
+
+  it('keeps distinct id-only rows apart', () => {
+    const existing = [{ id: 'a', message_id: null }];
+    const incoming = [{ id: 'b', message_id: null }];
+    assert.deepEqual(missingByIdentity(existing, incoming).map(m => m.id), ['b']);
   });
 });
 
