@@ -168,13 +168,9 @@ const SAME_VALUE_ALLOWED = {
   // email placeholder — example.com address looks the same in en, ru, zhCN
   'admin.accounts.emailPh':    [['en', 'ru', 'zhCN']],
   'admin.aliases.emailPh':     [['de', 'en', 'ru', 'zhCN']],
-  'admin.privacy.addDomainPh': [['de', 'en', 'ru', 'zhCN']],
   'admin.privacy.addSenderPh': [['en', 'ru', 'zhCN']],
   'admin.rules.actionForwardPlaceholder': [['es', 'it']],
-  'admin.sso.domainsPh':       [['de', 'en', 'ru', 'zhCN']],
   'admin.users.invitePh':      [['de', 'en', 'ru', 'zhCN']],
-  'compose.bccPh':             [['de', 'en', 'ru', 'zhCN']],
-  'compose.ccPh':              [['de', 'en', 'ru', 'zhCN']],
   'compose.toPh':              [['en', 'ru', 'zhCN']],
 
   // "Port" — universal technical term, same in de, en, fr
@@ -184,14 +180,11 @@ const SAME_VALUE_ALLOWED = {
 
   // Polish beta intentionally shares technical labels/placeholders with upstream locales.
   'admin.aliases.replyToLabel': [['en', 'pl']],
-  'admin.appearance.typographyMono': [['de', 'en', 'es', 'fr', 'it', 'pl']],
   'admin.privacy.addDomainPh': [['de', 'en', 'pl', 'ru', 'zhCN']],
   'admin.sso.domainsPh': [['de', 'en', 'pl', 'ru', 'zhCN']],
-  'admin.tabs.sso': [['de', 'en', 'es', 'fr', 'it', 'pl', 'ru']],
   'compose.bccPh': [['de', 'en', 'pl', 'ru', 'zhCN']],
   'compose.ccPh': [['de', 'en', 'pl', 'ru', 'zhCN']],
   'contacts.fields.phone': [['de', 'pl']],
-  'todoist.betaLabel': [['de', 'en', 'es', 'it', 'pl']],
   'todoist.project': [['de', 'pl']],
   'admin.accounts.signatureSection': [['en', 'fr'], ['es', 'it']],
   'admin.aliases.signatureSection': [['en', 'fr'], ['es', 'it']],
