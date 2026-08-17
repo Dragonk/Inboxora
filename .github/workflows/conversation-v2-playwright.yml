@@ -1,0 +1,108 @@
+name: Conversation Engine v2 Playwright E2E
+
+on:
+  push:
+    branches:
+      - feat/threading-v2-integration-live
+      - integration/threading-v2-r3-pl-beta
+  pull_request:
+    branches:
+      - feat/threading-v2-integration-live
+      - integration/threading-v2-r3-pl-beta
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: conversation-v2-playwright-${{ github.ref }}
+  cancel-in-progress: true
+
+defaults:
+  run:
+    shell: bash -euo pipefail {0}
+
+jobs:
+  playwright:
+    name: Playwright browser E2E (desktop + mobile)
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: mailflow_test
+          POSTGRES_PASSWORD: mailflow_test
+          POSTGRES_DB: mailflow_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U mailflow_test -d mailflow_test"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 20
+
+    steps:
+      - name: Checkout exact tested SHA
+        uses: actions/checkout@v6
+        with:
+          ref: ${{ github.sha }}
+
+      - name: Assert exact SHA
+        run: test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v6
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Install frontend dependencies
+        working-directory: frontend
+        run: npm ci
+
+      - name: Install Chromium and Linux dependencies
+        working-directory: frontend
+        env:
+          PLAYWRIGHT_BROWSERS_PATH: ${{ runner.temp }}/ms-playwright
+        run: npx playwright install --with-deps chromium
+
+      - name: Run frontend unit suite
+        working-directory: frontend
+        run: npm test
+
+      - name: Build frontend
+        working-directory: frontend
+        run: npm run build
+
+      - name: Run browser E2E desktop and mobile
+        working-directory: frontend
+        env:
+          PLAYWRIGHT_BROWSERS_PATH: ${{ runner.temp }}/ms-playwright
+          PLAYWRIGHT_BASE_URL: http://127.0.0.1:4173
+        run: npm run test:e2e
+
+      - name: Write Playwright environment report
+        if: always()
+        working-directory: frontend
+        env:
+          PLAYWRIGHT_BROWSERS_PATH: ${{ runner.temp }}/ms-playwright
+        run: |
+          {
+            echo "tested_sha=$GITHUB_SHA"
+            echo "playwright_version=$(node -p \"require('@playwright/test/package.json').version\")"
+            echo "browser_path=$PLAYWRIGHT_BROWSERS_PATH"
+            npx playwright --version
+            npx playwright install --dry-run chromium
+          } > artifacts/playwright-environment.txt
+
+      - name: Upload Playwright artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: conversation-v2-playwright-${{ github.run_id }}
+          if-no-files-found: warn
+          path: |
+            frontend/artifacts/playwright-report/
+            frontend/artifacts/playwright-test-results/
+            frontend/artifacts/playwright-environment.txt

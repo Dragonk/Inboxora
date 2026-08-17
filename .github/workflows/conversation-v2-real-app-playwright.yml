@@ -1,0 +1,111 @@
+name: Conversation Engine v2 Real App Playwright E2E
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - feat/threading-v2-integration-live
+      - integration/threading-v2-r3-pl-beta
+  pull_request:
+    branches:
+      - feat/threading-v2-integration-live
+      - integration/threading-v2-r3-pl-beta
+
+permissions:
+  contents: read
+
+jobs:
+  real-app-playwright:
+    name: Real app Playwright E2E
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: mailflow_test
+          POSTGRES_PASSWORD: mailflow_test
+          POSTGRES_DB: mailflow_test
+        ports: ['5432:5432']
+        options: >-
+          --health-cmd "pg_isready -U mailflow_test -d mailflow_test"
+          --health-interval 5s --health-timeout 5s --health-retries 20
+      redis:
+        image: redis:7-alpine
+        ports: ['6379:6379']
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 5s --health-timeout 5s --health-retries 20
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          ref: ${{ github.sha }}
+      - uses: actions/setup-node@v6
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: |
+            backend/package-lock.json
+            frontend/package-lock.json
+      - name: Install dependencies
+        run: npm ci --prefix backend && npm ci --prefix frontend
+      - name: Install Chromium
+        working-directory: frontend
+        env:
+          PLAYWRIGHT_BROWSERS_PATH: ${{ runner.temp }}/ms-playwright
+        run: npx playwright install --with-deps chromium
+      - name: Prepare database
+        working-directory: backend
+        env:
+          DB_HOST: 127.0.0.1
+          DB_PORT: 5432
+          DB_NAME: mailflow_test
+          DB_USER: mailflow_test
+          DB_PASSWORD: mailflow_test
+          ENCRYPTION_KEY: 0000000000000000000000000000000000000000000000000000000000000000
+        run: node --input-type=module -e "import { runMigrations } from './src/services/migrations.js'; await runMigrations();"
+      - name: Seed real app fixture
+        working-directory: backend
+        env:
+          DB_HOST: 127.0.0.1
+          DB_PORT: 5432
+          DB_NAME: mailflow_test
+          DB_USER: mailflow_test
+          DB_PASSWORD: mailflow_test
+          ENCRYPTION_KEY: 0000000000000000000000000000000000000000000000000000000000000000
+        run: node src/scripts/playwrightSeed.js
+      - name: Start backend
+        working-directory: backend
+        env:
+          PORT: 3000
+          NODE_ENV: test
+          APP_URL: http://127.0.0.1:4173
+          FRONTEND_URL: http://127.0.0.1:4173
+          SESSION_SECRET: playwright-session-secret-012345678901234567890123
+          DB_HOST: 127.0.0.1
+          DB_PORT: 5432
+          DB_NAME: mailflow_test
+          DB_USER: mailflow_test
+          DB_PASSWORD: mailflow_test
+          REDIS_URL: redis://127.0.0.1:6379
+          ENCRYPTION_KEY: 0000000000000000000000000000000000000000000000000000000000000000
+        run: node src/index.js > ../artifacts-backend.log 2>&1 &
+      - name: Run real app E2E
+        working-directory: frontend
+        env:
+          PLAYWRIGHT_REAL_APP: '1'
+          PLAYWRIGHT_BROWSERS_PATH: ${{ runner.temp }}/ms-playwright
+          PLAYWRIGHT_WEB_SERVER_COMMAND: npm run dev -- --host 127.0.0.1 --port 4173
+          PLAYWRIGHT_BASE_URL: http://127.0.0.1:4173
+          PLAYWRIGHT_USERNAME: playwright@example.test
+          PLAYWRIGHT_PASSWORD: PlaywrightPassword123!
+        run: npm run test:e2e
+      - name: Upload browser artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: conversation-v2-real-app-playwright-${{ github.run_id }}
+          if-no-files-found: warn
+          path: |
+            frontend/artifacts/playwright-report/
+            frontend/artifacts/playwright-test-results/
+            artifacts-backend.log

@@ -37,7 +37,7 @@ export default function ConversationList({ params = {}, onOpenMessage }) {
       const open = expanded === row.conversation_id;
       return <div key={row.conversation_id} role="listitem">
         <div style={{ display: 'flex', alignItems: 'center', minHeight: 44 }}>
-          <button type="button" aria-label={`${open ? t('conversation.collapse') : t('conversation.expand')} ${t('conversation.label')}`} aria-expanded={open}
+          <button type="button" data-testid={`conversation-expand-${row.conversation_id}`} aria-label={`${open ? t('conversation.collapse') : t('conversation.expand')} ${t('conversation.label')}`} aria-expanded={open}
             onClick={() => setExpanded(open ? null : row.conversation_id)}>{open ? '▾' : '▸'}</button>
           <button type="button" style={{ flex: 1, textAlign: 'left', minHeight: 44 }} onClick={() => onOpenMessage?.(row)}>
             <span>{row.canonical_subject || t('conversation.noSubject')}</span>{' '}
