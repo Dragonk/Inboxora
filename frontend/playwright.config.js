@@ -3,6 +3,7 @@ import { defineConfig, devices } from '@playwright/test';
 const baseURL = process.env.PLAYWRIGHT_BASE_URL || 'http://127.0.0.1:4173';
 const webServerCommand = process.env.PLAYWRIGHT_WEB_SERVER_COMMAND || 'npm run preview -- --host 127.0.0.1 --port 4173';
 const isRealApp = process.env.PLAYWRIGHT_REAL_APP === '1';
+const isMatrix = process.env.PLAYWRIGHT_MATRIX === '1';
 
 export default defineConfig({
   testDir: './e2e',
