@@ -46,9 +46,12 @@ export default function ConversationList({ params = {}, onOpenMessage }) {
           </button>
         </div>
         {open && <div role="group" aria-label={t('conversation.messagesLabel')}>
-          <button type="button" style={{ minHeight: 44, width: '100%', textAlign: 'left' }} onClick={() => onOpenMessage?.(row)}>
-            {row.canonical_subject || t('conversation.noSubject')}
-          </button>
+          {(row.logical_messages || []).map(message => <button key={message.id} type="button" data-logical-message-id={message.id} style={{ minHeight: 44, width: '100%', textAlign: 'left', fontWeight: message.unread ? 700 : 400 }} onClick={() => onOpenMessage?.({ ...row, logical_message_id: message.id })}>
+            <span>{message.direction === 'outgoing' || message.direction === 'self' ? t('message.you') : (message.fromName || message.fromEmail || t('conversation.unknownSender'))}</span>{' '}
+            <span>{message.snippet || message.subject || t('conversation.noSubject')}</span>{' '}
+            {message.hasAttachments && <span aria-label={t('message.hasAttachments')}>📎</span>}
+            {message.isLatest && row.latest_message_is_mine && <OwnReplyMarker visible />}
+          </button>)}
         </div>}
       </div>;
     })}

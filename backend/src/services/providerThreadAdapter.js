@@ -43,7 +43,10 @@ export function parseProviderMetadata(msg, account) {
 
 export function providerFetchQuery(account, base = {}) {
   const host = (account?.imap_host || '').toLowerCase();
-  return host.includes('gmail') ? { ...base, headers: true, threadId: true } : { ...base };
+  const caps = account?.capabilities || account?.imap_capabilities || [];
+  const capabilityText = Array.isArray(caps) ? caps.join(' ').toUpperCase() : String(caps).toUpperCase();
+  const supportsThreadId = host.includes('gmail') || /(?:OBJECTID|THREADID|X-GM-EXT-1)/.test(capabilityText);
+  return supportsThreadId ? { ...base, headers: true, threadId: true } : { ...base };
 }
 
 export function normalizeProviderReferences(value) {

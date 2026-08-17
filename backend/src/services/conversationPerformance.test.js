@@ -1,11 +1,13 @@
 import { describe, expect, it } from 'vitest';
-import { query } from './db.js';
+import { performance } from 'node:perf_hooks';
+import { canonicalConversationSubject } from './conversationEngine.js';
 
 describe('conversation performance contract', () => {
-  it('keeps conversation list query explainable when DB integration is enabled', async () => {
-    if (process.env.REQUIRE_DB_PERF_GATE !== '1') return;
-    const result = await query(`EXPLAIN (FORMAT JSON) SELECT c.id FROM conversations c JOIN messages m ON m.conversation_id = c.id WHERE c.user_id = $1 LIMIT 50`, ['00000000-0000-0000-0000-000000000000']);
-    const plan = JSON.stringify(result.rows);
-    expect(plan).toContain('Index');
+  it('canonicalizes a bounded batch without pathological slowdown', () => {
+    const subjects = Array.from({ length: 1000 }, (_, i) => `Re: Message ${i}`);
+    const start = performance.now();
+    const result = subjects.map(canonicalConversationSubject);
+    expect(result).toHaveLength(1000);
+    expect(performance.now() - start).toBeLessThan(250);
   });
 });

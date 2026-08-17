@@ -16,6 +16,9 @@ export function automationSignals(message = {}) {
   };
 }
 
+const OTP_TEMPLATE_RE = /(?:otp|one[- ]time|verification|security|code|kod|weryfik|passcode|hasło)/i;
+const SMART_DENYLIST_RE = /(?:invoice|faktura|order|zamów|ticket|case|ref(?:erence)?|tracking|shipment|parcel|numer|id\b)/i;
+
 export function bodyTemplateFingerprint(body = '') {
   const normalized = String(body).replace(/\b[0-9]{4,}\b/g, '{number}').replace(/\s+/g, ' ').trim();
   return createHash('sha256').update(normalized).digest('hex');
@@ -32,7 +35,7 @@ export function strictSeriesDecision({ message, previous, mode = 'strict' }) {
   if (signals.senderSignature !== priorSignals.senderSignature || signals.recipientSignature !== priorSignals.recipientSignature) return null;
   if (subject !== String(previous.canonical_subject || '').toLowerCase()) return null;
   if (now - prior > 7 * 24 * 60 * 60 * 1000 || now < prior) return null;
-  if (message.referencesAnchor && message.referencesAnchor !== previous.referencesAnchor) return null;
+  if (!message.referencesAnchor || !previous.referencesAnchor || message.referencesAnchor !== previous.referencesAnchor) return null;
   if (Number(previous.logical_message_count || 0) >= MAX_SEGMENT) return { continuation: true };
   return { kind: 'automated_reference_series', confidence: 0.98, parentLogicalMessageId: null };
 }
@@ -44,6 +47,9 @@ export function smartSeriesDecision({ message, previous, enabled = false }) {
   const signals = automationSignals(message);
   const priorSignals = automationSignals(previous);
   if (!signals.automated || !priorSignals.automated || signals.senderSignature !== priorSignals.senderSignature || signals.recipientSignature !== priorSignals.recipientSignature) return null;
+  const subject = String(message.canonical_subject || '');
+  const body = String(message.body_text || '');
+  if (!OTP_TEMPLATE_RE.test(subject + ' ' + body) || SMART_DENYLIST_RE.test(subject)) return null;
   if (now - prior > WINDOW_MS || now < prior || bodyTemplateFingerprint(message.body_text) !== bodyTemplateFingerprint(previous.body_text)) return null;
   if (Number(previous.logical_message_count || 0) >= MAX_SEGMENT) return { continuation: true };
   return { kind: 'automated_smart_series', confidence: 0.9, parentLogicalMessageId: null };

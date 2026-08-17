@@ -24,8 +24,9 @@ export function providerMetadataForMessage(parsed, account) {
     namespace: providerNamespace({ provider: metadata.provider, accountId: account?.id, host: account?.imap_host }),
     threadIndex: threadIndex == null ? null : String(threadIndex),
     threadTopic: threadTopic == null ? null : String(threadTopic),
-    isStrong: metadata.provider === 'gmail' && metadata.providerThreadId != null,
-    source: metadata.providerThreadId ? 'provider-thread-id' : threadIndex ? 'thread-index' : metadata.source,
+    providerThreadId: metadata.providerThreadId || (metadata.provider === 'outlook' && threadIndex ? threadIndex : null),
+    isStrong: metadata.providerThreadId != null || (metadata.provider === 'outlook' && Boolean(threadIndex)),
+    source: metadata.providerThreadId ? (metadata.source || 'provider-thread-id') : threadIndex ? 'outlook-thread-index' : metadata.source,
     references: parsed?.references ? metadata.references : [],
     inReplyTo: normalizeMessageIdList(parsed?.inReplyTo).at(-1) || null,
   };

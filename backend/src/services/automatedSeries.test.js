@@ -19,6 +19,11 @@ describe('automated series', () => {
     expect(strictSeriesDecision({ message: { ...base, referencesAnchor: '<other>' }, previous: base })).toBeNull();
   });
 
+  it('requires a real anchor for strict and rejects business identifiers in smart mode', () => {
+    expect(strictSeriesDecision({ message: { ...base, referencesAnchor: null }, previous: base })).toBeNull();
+    expect(smartSeriesDecision({ message: { ...base, canonical_subject: 'Invoice 123456' }, previous: base, enabled: true })).toBeNull();
+  });
+
   it('keeps smart series behind an explicit flag and bounded window', () => {
     expect(smartSeriesDecision({ message: base, previous: base, enabled: false })).toBeNull();
     expect(smartSeriesDecision({ message: { ...base, received_at: '2026-01-04T00:00:00Z' }, previous: base, enabled: true }).kind).toBe('automated_smart_series');

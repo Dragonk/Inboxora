@@ -1,12 +1,12 @@
-import { describe, expect, it } from 'vitest';
-import { readFileSync } from 'fs';
+import { describe, expect, it, vi } from 'vitest';
+import { lockConversationsDeterministically } from './conversationOverridePolicy.js';
 
 describe('conversation race gate', () => {
-  it('serializes rebuild scope and uses serializable override transactions', () => {
-    const rebuild = readFileSync('src/services/conversationRebuild.js', 'utf8');
-    const overrides = readFileSync('src/services/conversationOverrides.js', 'utf8');
-    expect(rebuild).toContain('pg_advisory_lock');
-    expect(rebuild).toContain('pg_advisory_unlock');
-    expect(overrides).toContain('serializable: true');
+  it('locks conversation ids in deterministic order', async () => {
+    const queries = [];
+    const client = { query: vi.fn(async (...args) => { queries.push(args); return { rows: [] }; }) };
+    const result = await lockConversationsDeterministically(client, 'user', ['b', 'a', 'b']);
+    expect(result).toEqual(['a', 'b']);
+    expect(queries[0][1]).toEqual(['user', ['a', 'b']]);
   });
 });

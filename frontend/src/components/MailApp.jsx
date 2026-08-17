@@ -8,6 +8,7 @@ import { LAYOUTS } from '../layouts.js';
 import { updateFaviconBadge } from '../themes.js';
 import { shortcutBus } from '../utils/shortcutBus.js';
 import { setPending, pendingMarkReadMap, completedMarkReadMap } from '../utils/pendingReads.js';
+import { openReplyFromMessage, openForwardFromMessage } from '../utils/composeFromMessage.js';
 import { buildKeyMap, buildModKeyMap, getEffectiveShortcuts, getGroupedActions, parseModKey, modLabel, SPECIAL_KEYS, SPECIAL_KEY_LABELS } from '../utils/defaultShortcuts.js';
 import Sidebar from './Sidebar.jsx';
 import MessageList from './MessageList.jsx';
@@ -77,18 +78,40 @@ export default function MailApp() {
   const syncInterval = useStore(s => s.syncInterval);
   const autoLockMinutes = useStore(s => s.autoLockMinutes);
   const lockScreen = useStore(s => s.lockScreen);
-  const conversationMode = conversationListViewEnabled || conversationReaderViewEnabled;
   const [conversationId, setConversationId] = useState(null);
-  const openConversation = useCallback(row => setConversationId(row.conversation_id), []);
+  const [targetLogicalMessageId, setTargetLogicalMessageId] = useState(null);
+  const openConversationTarget = useCallback((row) => {
+    const physicalId = row?.latestCopyId || row?.id || row?.message_id;
+    if (!physicalId) return;
+    return api.resolveMessage(physicalId).then(resolved => {
+      if (conversationReaderViewEnabled) {
+        setConversationId(resolved.conversation_id || row.conversation_id || null);
+        setTargetLogicalMessageId(resolved.logical_message_id || row.logical_message_id || null);
+        return;
+      }
+      return api.getMessage(physicalId).then(message => setSelectedMessage(message.id || physicalId));
+    });
+  }, [conversationReaderViewEnabled, setSelectedMessage]);
+
   const replyFromConversation = useCallback(copy => {
     if (!copy) return;
-    openCompose({
-      accountId: copy.accountId,
-      to: copy.fromEmail ? [copy.fromEmail] : [],
-      subject: copy.subject ? `Re: ${copy.subject}` : '',
-      inReplyTo: copy.messageId || copy.canonicalMessageId || null,
-    });
-  }, [openCompose]);
+    const physical = { ...copy, id: copy.id, account_id: copy.accountId, message_id: copy.messageId || copy.canonicalMessageId, subject: copy.subject, from_email: copy.fromEmail, from_name: copy.fromName, to_addresses: copy.to || [], cc_addresses: copy.cc || [], reply_to: copy.replyTo || [], in_reply_to: copy.inReplyTo || null, thread_references: copy.references || null, date: copy.date };
+    const account = accounts.find(item => item.id === physical.account_id);
+    if (copy.forward) return openForwardFromMessage(physical, { openCompose, getMessageBody: api.getMessageBody });
+    return openReplyFromMessage(physical, { accounts: account ? [account] : accounts, openCompose, getMessageBody: api.getMessageBody, replyAll: Boolean(copy.replyAll) });
+  }, [accounts, openCompose]);
+
+  useEffect(() => {
+    if (!conversationReaderViewEnabled || conversationId || !selectedMessageId) return undefined;
+    let cancelled = false;
+    api.resolveMessage(selectedMessageId).then(resolved => {
+      if (!cancelled && resolved?.conversation_id) {
+        setConversationId(resolved.conversation_id);
+        setTargetLogicalMessageId(resolved.logical_message_id || null);
+      }
+    }).catch(() => {});
+    return () => { cancelled = true; };
+  }, [conversationReaderViewEnabled, conversationId, selectedMessageId]);
 
   // Auto-lock after inactivity (#235). MailApp only mounts while unlocked, so this
   // timer runs only when unlocked; hitting the timeout locks and unmounts this tree.
@@ -759,11 +782,11 @@ export default function MailApp() {
             <Sidebar />
           </div>
           {/* Keep all three mounted so scroll/state survive navigation. */}
-          <div style={{ flex: 1, display: !showContacts && !selectedMessageId && !conversationId ? 'flex' : 'none', overflow: 'hidden', height: '100%' }}>
-            {conversationMode ? <ConversationList params={{}} onOpenMessage={openConversation} /> : <MessageList />}
+          <div style={{ flex: 1, display: !showContacts && !selectedMessageId && !(conversationReaderViewEnabled && conversationId) ? 'flex' : 'none', overflow: 'hidden', height: '100%' }}>
+            {conversationListViewEnabled ? <ConversationList params={{}} onOpenMessage={openConversationTarget} /> : <MessageList />}
           </div>
-          <div style={{ flex: 1, display: !showContacts && (selectedMessageId || conversationId) ? 'flex' : 'none', overflow: 'hidden', height: '100%' }}>
-            {conversationMode && conversationId ? <ConversationPane conversationId={conversationId} onReply={replyFromConversation} /> : <MessagePane />}
+          <div style={{ flex: 1, display: !showContacts && (selectedMessageId || (conversationReaderViewEnabled && conversationId)) ? 'flex' : 'none', overflow: 'hidden', height: '100%' }}>
+            {conversationReaderViewEnabled && conversationId ? <ConversationPane conversationId={conversationId} targetLogicalMessageId={targetLogicalMessageId} onReply={replyFromConversation} /> : <MessagePane />}
           </div>
         </>
       ) : (
@@ -792,7 +815,7 @@ export default function MailApp() {
               <Suspense fallback={lazyFallback}><ContactsPage /></Suspense>
             </div>
             <div style={{ display: showContacts ? 'none' : 'flex', flex: 1, minWidth: 0, overflow: 'hidden', height: '100%', flexDirection: currentLayout.direction }}>
-              {conversationMode ? <ConversationList params={{}} onOpenMessage={openConversation} /> : <MessageList />}
+              {conversationListViewEnabled ? <ConversationList params={{}} onOpenMessage={openConversationTarget} /> : <MessageList />}
               {currentLayout.direction === 'row' && (
                 <div
                   onMouseDown={handleListResizeMouseDown}
@@ -805,7 +828,7 @@ export default function MailApp() {
                   onMouseLeave={e => { e.currentTarget.style.background = 'var(--border-subtle)'; }}
                 />
               )}
-              {conversationMode && conversationId ? <ConversationPane conversationId={conversationId} onReply={replyFromConversation} /> : <MessagePane />}
+              {conversationReaderViewEnabled && conversationId ? <ConversationPane conversationId={conversationId} targetLogicalMessageId={targetLogicalMessageId} onReply={replyFromConversation} /> : <MessagePane />}
               {/* Generic right-sidebar column, populated from the content seam above. */}
               {currentLayout.direction === 'row' && rightSidebarContent != null && (
                 <>

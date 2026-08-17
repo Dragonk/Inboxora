@@ -45,6 +45,12 @@ export async function refreshConversationAggregates(client, userId, conversation
   `, [conversationId, userId]);
 }
 
+export async function lockConversationsDeterministically(client, userId, ids) {
+  const ordered = [...new Set(ids.filter(Boolean))].sort();
+  if (ordered.length) await client.query('SELECT id FROM conversations WHERE user_id = $1 AND id = ANY($2::uuid[]) ORDER BY id FOR UPDATE', [userId, ordered]);
+  return ordered;
+}
+
 export async function assertConversationOwner(client, userId, conversationId) {
   const result = await client.query('SELECT id, user_id, manually_locked FROM conversations WHERE id = $1 AND user_id = $2 FOR UPDATE', [conversationId, userId]);
   if (!result.rows[0]) { const error = new Error('Conversation not found'); error.statusCode = 404; throw error; }

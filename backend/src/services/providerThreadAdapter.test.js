@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { normalizeProviderReferences, parseProviderMetadata, providerNamespace } from './providerThreadAdapter.js';
+import { normalizeProviderReferences, parseProviderMetadata, providerNamespace, providerFetchQuery } from './providerThreadAdapter.js';
 
 describe('provider thread adapter foundations', () => {
   it('namespaces provider ids by account', () => {
@@ -13,6 +13,10 @@ describe('provider thread adapter foundations', () => {
     expect(result.providerThreadId).toBe('99');
     expect(result.isStrong).toBe(true);
     expect(result.source).toBe('x-gm-thread');
+  });
+
+  it('requests generic OBJECTID thread metadata when the capability is advertised', () => {
+    expect(providerFetchQuery({ imap_host: 'imap.example.com', capabilities: ['OBJECTID', 'THREADID'] }, {}).threadId).toBe(true);
   });
 
   it('keeps ImapFlow OBJECTID/emailId provider-neutral', () => {

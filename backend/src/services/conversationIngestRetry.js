@@ -8,10 +8,12 @@ export async function retryConversationIngestFailures({ userId = null, limit = 2
   const results = [];
   for (const failure of failures) {
     try {
-      const row = await query(`SELECT m.*, a.user_id FROM messages m JOIN email_accounts a ON a.id = m.account_id WHERE m.id = $1 AND a.user_id = $2`, [failure.message_row_id, failure.user_id]);
+      const row = await query(`SELECT m.*, a.user_id, a.email_address FROM messages m JOIN email_accounts a ON a.id = m.account_id WHERE m.id = $1 AND a.user_id = $2`, [failure.message_row_id, failure.user_id]);
       if (row.rows.length !== 1) throw new Error('Message row no longer exists');
+      const aliases = await query('SELECT email FROM account_aliases WHERE account_id = $1 ORDER BY created_at ASC', [row.rows[0].account_id]);
+      const identities = [row.rows[0].email_address, ...aliases.rows.map(alias => alias.email), ...((row.rows[0].delivery_addresses || []).map(item => item.email || item))].filter(Boolean);
       await upsertConversationCopy(row.rows[0], {
-        identities: [row.rows[0].email_address].filter(Boolean),
+        identities,
         provider: providerIdentityForCopy(row.rows[0]),
       });
       await resolveConversationIngestFailure(failure.id);

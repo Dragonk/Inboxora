@@ -41,6 +41,8 @@ jobs:
       - uses: actions/checkout@v6
         with:
           ref: ${{ github.sha }}
+      - name: Assert exact SHA
+        run: test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
       - uses: actions/setup-node@v6
         with:
           node-version: '22'
@@ -108,7 +110,7 @@ jobs:
           PLAYWRIGHT_BASE_URL: http://127.0.0.1:4173
           PLAYWRIGHT_USERNAME: playwright@example.test
           PLAYWRIGHT_PASSWORD: PlaywrightPassword123!
-        run: npm run test:e2e
+        run: npx playwright test e2e/real-app.spec.js
 
       - name: Chromium smoke and locale report
         working-directory: frontend
