@@ -98,6 +98,7 @@ jobs:
             npx playwright --version
             npx playwright install --dry-run chromium
           } > artifacts/playwright-environment.txt
+          test -s artifacts/playwright-environment.txt
 
       - name: Upload Playwright artifacts
         if: always()

@@ -15,7 +15,7 @@ try {
   } else {
     await client.query('UPDATE users SET password_hash = $1, is_admin = true WHERE id = $2', [passwordHash, userId]);
   }
-  await client.query('DELETE FROM messages WHERE conversation_user_id = $1', [userId]);
+  await client.query('DELETE FROM messages WHERE account_id IN (SELECT id FROM email_accounts WHERE user_id = $1)', [userId]);
   await client.query('DELETE FROM conversations WHERE user_id = $1', [userId]);
   await client.query('DELETE FROM email_accounts WHERE user_id = $1', [userId]);
   const accounts = [];
