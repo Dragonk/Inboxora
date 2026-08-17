@@ -12,11 +12,11 @@ function cursorPredicate(values, checkpoint) {
   if (!checkpoint?.last_message_id) return { sql: '', values };
   const next = [...values, checkpoint.last_sort_is_null, checkpoint.last_message_date, checkpoint.last_message_id];
   const base = next.length - 2;
+  const predicate = checkpoint.last_sort_is_null
+    ? `(m.date IS NULL AND m.id > $${next.length}::uuid)`
+    : `((m.date IS NOT NULL AND (m.date > $${base + 1}::timestamptz OR (m.date = $${base + 1}::timestamptz AND m.id > $${next.length}::uuid))) OR m.date IS NULL)`;
   return {
-    sql: `AND ((m.date IS NULL AND $${base}::boolean = true AND m.id > $${next.length}::uuid)
-      OR (m.date IS NOT NULL AND $${base}::boolean = true)
-      OR (m.date IS NOT NULL AND $${base}::boolean = false AND m.date > $${base + 1}::timestamptz)
-      OR (m.date IS NOT NULL AND $${base}::boolean = false AND m.date = $${base + 1}::timestamptz AND m.id > $${next.length}::uuid))`,
+    sql: `AND ${predicate}`,
     values: next,
   };
 }
