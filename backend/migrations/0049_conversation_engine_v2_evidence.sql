@@ -10,7 +10,7 @@ CREATE INDEX IF NOT EXISTS idx_logical_messages_collision
 DO $$
 BEGIN
   IF NOT EXISTS (
-    SELECT 1 FROM pg_constraint WHERE conname = 'uq_conversation_evidence_identity'
+    SELECT 1 FROM pg_class WHERE relname = 'uq_conversation_evidence_identity'
   ) THEN
     DELETE FROM conversation_evidence older
      USING conversation_evidence newer
@@ -36,6 +36,5 @@ CREATE TABLE IF NOT EXISTS conversation_rebuild_checkpoints (
   updated_count BIGINT NOT NULL DEFAULT 0,
   diagnostics JSONB NOT NULL DEFAULT '{}',
   updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-  PRIMARY KEY (user_id, scope_account_id),
-  FOREIGN KEY (scope_account_id) REFERENCES email_accounts(id) ON DELETE CASCADE
+  PRIMARY KEY (user_id, scope_account_id)
 );
