@@ -4,46 +4,43 @@ Updated: 2026-08-17
 
 ## Truth branch
 - `feat/threading-v2-integration-live`
-- HEAD: `600d439` before the latest local IMAP hook change; current worktree has an uncommitted hook adjustment.
+- Current HEAD is tracked locally; worktree clean.
 - No merge to `main` or `upstream`; no upstream PR opened.
-- Existing r2 stack and worktrees preserved.
+- Existing r2 stack/worktrees and backup refs preserved.
 
-## Recovered inputs
-- The full primary spec file was not found on disk or in the repository/worktrees.
-- The completion prompt fragment was available in conversation context.
-- Therefore full compliance cannot yet be claimed.
+## Inputs
+- The full primary spec file was not found on disk or in repository/worktrees.
+- Only the completion-prompt fragment was available in conversation context.
+- Full compliance cannot be claimed until the primary spec is recovered.
 
-## Work completed
-- New integration branch created from existing r2 integration.
-- Conversation Engine v2 migration already present and preserved.
-- Persistence now has transactional logical-message/conversation upsert, user-owner verification, provider mappings, parent lookup, message-ID-less body/header deduplication, aggregate refresh, and IMAP main/backfill hooks.
-- Provider metadata normalized for Gmail/Outlook/generic and BigInt-safe.
-- Conversation API uses authenticated user scoping and keyset cursor structure.
-- Frontend list/reader components use i18n; all frontend lint/build/i18n tests passed in the latest run.
+## Implemented and verified
+- Conversation Engine v2 migration is preserved.
+- User-scoped conversation persistence now uses serializable transactions with retry.
+- Canonical Message-ID logical dedup is user-scoped, while physical copies remain account-scoped.
+- Parent selection now prioritizes `In-Reply-To`, then last resolvable `References` ID.
+- Unresolved references and evidence are persisted.
+- Main IMAP sync and backfill call conversation persistence.
+- Sent and draft metadata paths call conversation persistence.
+- Gmail/Outlook/generic provider metadata is normalized through the shared adapter; Gmail BigInt values are safe.
+- Conversation list API has stable timestamp+UUID cursor ordering, explicit boolean aggregation, and latest-own-reply projection.
+- Conversation detail API returns authorized physical copies/body metadata under user-scoped conversation access.
+- Frontend conversation list/reader are i18n-compliant; frontend lint, full test suite, i18n test and production build passed in latest run.
 
-## Latest independent review — blockers still open
-- List API uses invalid `MAX(boolean::int)::boolean` aggregate and needs `BOOL_OR`.
-- Multi-account canonical Message-ID dedup is still account-sensitive.
-- Transaction is not serializable/advisory-locked; race-safe uniqueness is missing.
-- Evidence and unresolved-reference tables are not populated/reconciled.
-- Parent precedence must be In-Reply-To first, then last resolvable References.
-- Sent/draft paths are not yet wired to conversation persistence.
-- Existing-row header refresh can leave stale conversation evidence.
-- Provider metadata implementations are duplicated and namespace persistence is inconsistent.
-- Detail API lacks physical message copies/body/capabilities.
-- NULL timestamp cursor semantics are unsafe.
-- Latest-own-reply projection is missing.
-- ConversationList effect still includes object `params` dependency.
-- Components are not wired into MailApp.
-- Manual overrides/aliases are not enforced.
-- Persistence errors are swallowed without durable retry state.
+## Remaining blockers before final stack/review
+- Persistence still needs durable retry/error recording rather than only logging failures from IMAP hook.
+- Sent/draft calls need complete RFC references/provider metadata propagation and dedicated tests.
+- Missing-parent reconciliation must reparent descendants when the referenced message arrives.
+- Manual overrides/aliases are not yet enforced.
+- Conversation components are not wired into `MailApp` behind the feature preference; they remain separately implemented.
+- No rebuild/audit API with dry-run/write/resume/idempotency has been completed in this integration.
+- No full DB-backed route/persistence tests, fresh/upgrade migration tests, E2E 2x2, screenshots, performance review, or production-provider verification yet.
+- Full primary spec remains unavailable.
 
-## Required next steps
-1. Fix the listed P1/P0 findings before any r2 stack recreation.
-2. Add DB-backed route/persistence/ingest tests and migration fresh/upgrade tests.
-3. Implement rebuild/audit API with dry-run/write/resume/idempotency and durable errors.
-4. Wire sent/draft ingest and MailApp feature-gated UI.
-5. Add provider discovery and Gmail/Outlook/generic capability tests.
-6. Add E2E 2x2, deep-link, mobile, security, performance and screenshot checks.
-7. Run all quality gates and only then recreate the exact eight-branch linear `-r2` stack from green integration.
-8. Produce final report with SHA/refs/DAG/patch-id/diffs/tests/migrations/rebuild/provider/API/E2E/security/performance/i18n/rollout/rollback/descriptions/limitations and empty P0/P1 list.
+## Next steps
+1. Add durable ingest failure table/retry path and missing-parent reconciliation.
+2. Implement override/alias semantics and rebuild/audit/settings API.
+3. Wire feature-gated conversation UI into MailApp with legacy fallback and deep links.
+4. Add DB-backed API/persistence tests and provider fixtures.
+5. Run full quality gates, migration fresh/upgrade, rebuild dry-run/write/resume/idempotency, provider discovery, strict/smart, API contract, E2E, security, performance, screenshots and i18n.
+6. Only after all are green, create fresh linear eight-branch `-r2` stack and verify ancestry/patch-id/duplicates.
+7. Produce the required final report with P0/P1 list empty and explicit no-merge/no-upstream-PR confirmation.
