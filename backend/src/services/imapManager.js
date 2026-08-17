@@ -18,6 +18,7 @@ import { generateVCard } from '../utils/vcard.js';
 import { randomUUID } from 'crypto';
 import { upsertConversationCopy } from './conversationPersistence.js';
 import { providerMetadataForMessage } from './providerConversationMetadata.js';
+import { recordConversationIngestFailure } from './conversationIngestFailures.js';
 
 
 // Shorthand for log lines — keeps domain visible while masking the local part.
@@ -37,6 +38,7 @@ async function persistConversationCopyForRow(rowId, account, rawMessage) {
     });
   } catch (err) {
     console.error('Conversation persistence error:', err.message);
+    await recordConversationIngestFailure({ userId: account.user_id, accountId: account.id, messageRowId: rowId, operation: 'imap-ingest', error: err, diagnostics: { rawMessageId: rawMessage?.envelope?.messageId || rawMessage?.messageId || null } }).catch(recordErr => console.error('Conversation failure recording error:', recordErr.message));
   }
 }
 
