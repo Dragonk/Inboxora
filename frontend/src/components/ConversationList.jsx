@@ -21,7 +21,7 @@ export default function ConversationList({ params = {}, onOpenMessage }) {
       if (!cancelled) setError(err.message || t('conversation.loadFailed'));
     });
     return () => { cancelled = true; };
-  }, [paramsKey, t]); // params is intentionally represented by paramsKey
+  }, [paramsKey, t]); // eslint-disable-line react-hooks/exhaustive-deps
 
   if (error) return <div role="alert">{error}</div>;
   return <div role="list" aria-label={t('conversation.listLabel')}>

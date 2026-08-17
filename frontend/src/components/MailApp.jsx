@@ -750,14 +750,11 @@ export default function MailApp() {
             <Sidebar />
           </div>
           {/* Keep all three mounted so scroll/state survive navigation. */}
-          <div style={{ flex: 1, overflow: 'hidden', height: '100%', display: showContacts ? 'flex' : 'none' }}>
-            <Suspense fallback={lazyFallback}><ContactsPage /></Suspense>
-          </div>
           <div style={{ flex: 1, display: !showContacts && !selectedMessageId ? 'flex' : 'none', overflow: 'hidden', height: '100%' }}>
             {conversationMode ? <ConversationList params={{}} onOpenMessage={openConversation} /> : <MessageList />}
           </div>
           <div style={{ flex: 1, display: !showContacts && selectedMessageId ? 'flex' : 'none', overflow: 'hidden', height: '100%' }}>
-            {conversationMode && conversationId ? <ConversationPane conversationId={conversationId} /> : <MessagePane />
+            {conversationMode && conversationId ? <ConversationPane conversationId={conversationId} /> : <MessagePane />}
           </div>
         </>
       ) : (
