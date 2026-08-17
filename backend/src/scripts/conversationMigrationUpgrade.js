@@ -45,14 +45,14 @@ async function insertLegacyFixture(client) {
   await client.query('DELETE FROM users WHERE id = $1', [userId]);
   await client.query('INSERT INTO users (id, username) VALUES ($1,$2)', [userId, `legacy-fixture-${Date.now()}`]);
   await client.query('INSERT INTO email_accounts (id,user_id,name,email_address) VALUES ($1,$3,$4,$5),($2,$3,$6,$7)', [accountA, accountB, userId, 'Legacy A', 'legacy-a@example.test', 'Legacy B', 'legacy-b@example.test']);
-  for (let i = 1; i <= 12; i++) {
-    const accountId = i % 2 ? accountA : accountB;
-    const id = `00000000-0000-0000-0000-0000000002${String(10 + i).padStart(2, '0')}`;
-    const messageId = `<legacy-test-${i}@fixture.test>`;
+  const fixture = await client.query('SELECT * FROM legacy_conversation_fixture ORDER BY fixture_key');
+  const accounts = { 'account-a': accountA, 'account-b': accountB };
+  for (const row of fixture.rows) {
+    const id = `00000000-0000-0000-0000-${String(200 + fixture.rows.indexOf(row)).padStart(12, '0')}`;
     await client.query(`INSERT INTO messages (id,account_id,uid,folder,message_id,subject,from_email,to_addresses,date,in_reply_to,thread_references,thread_id)
-      VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,NULL,NULL,$5)`, [id, accountId, i, i % 5 === 0 ? 'Sent' : 'INBOX', messageId, i % 3 === 0 ? 'Re: Test' : 'Test', `sender-${i}@fixture.test`, JSON.stringify([{ email: `recipient-${i}@fixture.test` }]), `${2014 + (i % 4) * 5}-01-01T12:00:00Z`]);
+      VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$5)`, [id, accounts[row.account_key], fixture.rows.indexOf(row) + 1, row.sent_copy ? 'Sent' : 'INBOX', row.message_id, row.subject, row.sender, JSON.stringify([{ email: row.recipient }]), row.message_date, row.in_reply_to, row.references_header]);
   }
-  return { userId, accounts: 2, messages: 12 };
+  return { userId, accounts: 2, messages: fixture.rows.length };
 }
 
 const client = new Client();
@@ -72,6 +72,8 @@ try {
       catch (error) { await client.query('ROLLBACK'); throw error; }
     }
   }
+  const fixtureSql = await readFile(fixturePath, 'utf8');
+  for (const statement of splitStatements(fixtureSql)) await client.query(statement);
   const fixture = await insertLegacyFixture(client);
   await client.query('CREATE TABLE IF NOT EXISTS schema_migrations (version VARCHAR(255) PRIMARY KEY, applied_at TIMESTAMPTZ DEFAULT NOW())');
   for (const name of files) await client.query('INSERT INTO schema_migrations (version) VALUES ($1)', [name.replace(/\.sql$/, '')]);
