@@ -31,6 +31,7 @@ export async function rebuildConversationCopies({ userId, accountId = null, limi
     await client.query('SELECT pg_advisory_lock(hashtext($1))', [lockKey]);
     const checkpointResult = await client.query('SELECT * FROM conversation_rebuild_checkpoints WHERE user_id = $1 AND scope_account_id = $2', [userId, scope]);
     const checkpoint = checkpointResult.rows[0] || null;
+    if (!dryRun && checkpoint?.status === 'complete') return { scanned: 0, updated: 0, complete: true, next: null, dryRun: false };
     const baseValues = accountId ? [userId, accountId] : [userId];
     const accountFilter = accountId ? 'AND m.account_id = $2' : '';
     const scoped = dryRun ? { sql: '', values: baseValues } : cursorPredicate(baseValues, checkpoint);

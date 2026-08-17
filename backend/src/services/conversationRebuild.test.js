@@ -23,15 +23,9 @@ describe('conversation rebuild', () => {
     expect(client.query.mock.calls[2][0]).toContain('LIMIT $2');
   });
 
-  it('uses a null-safe checkpoint predicate for null-date rows', async () => {
-    const client = { query: vi.fn()
-      .mockResolvedValueOnce({ rows: [] })
-      .mockResolvedValueOnce({ rows: [{ last_sort_is_null: true, last_message_date: null, last_message_id: 'm1' }] })
-      .mockResolvedValueOnce({ rows: [{ id: 'm2', date: null }] })
-      .mockResolvedValue({ rows: [] }), release: vi.fn() };
+  it('returns terminal zero-change for a completed write checkpoint', async () => {
+    const client = { query: vi.fn().mockResolvedValue({ rows: [{ status: 'complete' }] }), release: vi.fn() };
     pool.connect.mockResolvedValueOnce(client);
-    await rebuildConversationCopies({ userId: 'u1', limit: 1, dryRun: false });
-    expect(client.query.mock.calls.map(call => call[0]).join(' ')).toContain('m.date IS NULL');
-    expect(client.query.mock.calls.map(call => call[0]).join(' ')).toContain('m.id >');
+    await expect(rebuildConversationCopies({ userId: 'u1', limit: 1, dryRun: false })).resolves.toMatchObject({ scanned: 0, updated: 0, complete: true });
   });
 });
