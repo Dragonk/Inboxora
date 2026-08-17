@@ -50,7 +50,7 @@ async function insertLegacyFixture(client) {
   for (const row of fixture.rows) {
     const id = `00000000-0000-0000-0000-${String(200 + fixture.rows.indexOf(row)).padStart(12, '0')}`;
     await client.query(`INSERT INTO messages (id,account_id,uid,folder,message_id,subject,from_email,to_addresses,date,in_reply_to,thread_references,thread_id)
-      VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$5)`, [id, accounts[row.account_key], fixture.rows.indexOf(row) + 1, row.sent_copy ? 'Sent' : 'INBOX', row.message_id, row.subject, row.sender, JSON.stringify([{ email: row.recipient }]), row.message_date, row.in_reply_to, row.references_header]);
+      VALUES ($1::uuid,$2::uuid,$3::int,$4::text,$5::text,$6::text,$7::text,$8::jsonb,$9::timestamptz,$10::text,$11::text,$5::text)`, [id, accounts[row.account_key], fixture.rows.indexOf(row) + 1, row.sent_copy ? 'Sent' : 'INBOX', row.message_id, row.subject, row.sender, JSON.stringify([{ email: row.recipient }]), row.message_date, row.in_reply_to, row.references_header]);
   }
   return { userId, accounts: 2, messages: fixture.rows.length };
 }
