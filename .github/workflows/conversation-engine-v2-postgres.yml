@@ -109,6 +109,11 @@ jobs:
       - name: Migration upgrade fixture
         working-directory: backend
         env:
+          PGHOST: 127.0.0.1
+          PGPORT: 5432
+          PGDATABASE: mailflow_test
+          PGUSER: mailflow_test
+          PGPASSWORD: mailflow_test
           DB_HOST: 127.0.0.1
           DB_PORT: 5432
           DB_NAME: mailflow_test
@@ -116,10 +121,11 @@ jobs:
           DB_PASSWORD: mailflow_test
           ENCRYPTION_KEY: 0000000000000000000000000000000000000000000000000000000000000000
         run: |
-          node --input-type=module - <<'JS' 2>&1 | tee ../artifacts/migration-upgrade.log
-          import { query } from './src/services/db.js';
-          const checks = await query(`SELECT COUNT(*)::int AS migrations FROM schema_migrations`);
-          console.log(JSON.stringify({ migrationRows: checks.rows[0] }));
+          node src/scripts/conversationMigrationUpgrade.js 2>&1 | tee ../artifacts/migration-upgrade.log
+          node --input-type=module - <<'JS' 2>&1 | tee -a ../artifacts/migration-upgrade.log
+          import { runMigrations } from './src/services/migrations.js';
+          await runMigrations();
+          console.log('upgrade migrations completed');
           JS
 
       - name: PostgreSQL integration suite
