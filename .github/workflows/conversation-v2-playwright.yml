@@ -93,8 +93,7 @@ jobs:
           mkdir -p artifacts
           {
             echo "tested_sha=$GITHUB_SHA"
-            echo "playwright_version=$(node -p \"require('@playwright/test/package.json').version\")"
-            echo "browser_path=$PLAYWRIGHT_BROWSERS_PATH"
+            echo "playwright_version=$(node -p 'require("@playwright/test/package.json").version')"
             npx playwright --version
             npx playwright install --dry-run chromium
           } > artifacts/playwright-environment.txt
