@@ -29,6 +29,6 @@ ALTER TABLE unresolved_message_references
   ADD CONSTRAINT fk_unresolved_resolved_owner FOREIGN KEY (resolved_logical_message_id, user_id) REFERENCES logical_messages(id, user_id);
 ALTER TABLE messages ADD COLUMN IF NOT EXISTS conversation_user_id UUID;
 UPDATE messages m SET conversation_user_id = c.user_id FROM conversations c WHERE c.id = m.conversation_id AND m.conversation_user_id IS NULL;
-ALTER TABLE messages ALTER COLUMN conversation_user_id SET NOT NULL;
+ALTER TABLE messages ADD CONSTRAINT chk_message_conversation_owner_present CHECK (conversation_id IS NULL OR conversation_user_id IS NOT NULL);
 ALTER TABLE messages ADD CONSTRAINT fk_message_conversation_owner FOREIGN KEY (conversation_id, conversation_user_id) REFERENCES conversations(id, user_id) DEFERRABLE INITIALLY DEFERRED;
 ALTER TABLE messages ADD CONSTRAINT fk_message_account_conversation_owner FOREIGN KEY (account_id, conversation_user_id) REFERENCES email_accounts(id, user_id) DEFERRABLE INITIALLY DEFERRED;
