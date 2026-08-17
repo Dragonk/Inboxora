@@ -19,7 +19,7 @@ function decodeCursor(value) {
 }
 
 function encodeCursor(row) {
-  return Buffer.from(JSON.stringify({ date: row.last_message_at, id: row.conversation_id })).toString('base64url');
+  return Buffer.from(JSON.stringify({ date: row.sort_date, id: row.conversation_id })).toString('base64url');
 }
 
 router.get('/conversations', async (req, res) => {
@@ -32,7 +32,7 @@ router.get('/conversations', async (req, res) => {
   let cursorFilter = '';
   if (cursorValue) {
     values.push(cursorValue.date, cursorValue.id);
-    cursorFilter = `AND (c.last_message_at, c.id) < ($${values.length - 1}::timestamptz, $${values.length}::uuid)`;
+    cursorFilter = `AND (COALESCE(c.last_message_at, c.created_at), c.id) < ($${values.length - 1}::timestamptz, $${values.length}::uuid)`;
   }
   values.push(parseLimit(limit));
   const limitParam = values.length;
@@ -41,13 +41,22 @@ router.get('/conversations', async (req, res) => {
            c.first_message_at, c.last_message_at, c.logical_message_count,
            c.copy_count, c.unread_count, c.threading_confidence,
            COUNT(DISTINCT m.id)::int AS visible_copy_count,
-           MAX(m.has_attachments::int)::boolean AS has_attachments
+           COALESCE(c.last_message_at, c.created_at) AS sort_date,
+           BOOL_OR(COALESCE(m.has_attachments, false)) AS has_attachments,
+           BOOL_OR(latest.direction IN ('outgoing', 'self')) FILTER (WHERE latest.id IS NOT NULL) AS latest_message_is_mine
       FROM conversations c
       JOIN messages m ON m.conversation_id = c.id AND m.is_deleted = false
       JOIN email_accounts a ON a.id = m.account_id AND a.user_id = $1
+      LEFT JOIN LATERAL (
+        SELECT lm.direction, lm.id
+          FROM logical_messages lm
+         WHERE lm.conversation_id = c.id
+         ORDER BY lm.message_date DESC NULLS LAST, lm.id DESC
+         LIMIT 1
+      ) latest ON true
      WHERE c.user_id = $1 ${accountFilter} ${cursorFilter}
      GROUP BY c.id
-     ORDER BY c.last_message_at DESC NULLS LAST, c.id DESC
+     ORDER BY COALESCE(c.last_message_at, c.created_at) DESC, c.id DESC
      LIMIT $${limitParam}
   `, values);
   const nextCursor = result.rows.length === parseLimit(limit) ? encodeCursor(result.rows.at(-1)) : null;

@@ -21,7 +21,7 @@ export default function ConversationList({ params = {}, onOpenMessage }) {
       if (!cancelled) setError(err.message || t('conversation.loadFailed'));
     });
     return () => { cancelled = true; };
-  }, [paramsKey, t, params]);
+  }, [paramsKey, t]);
 
   if (error) return <div role="alert">{error}</div>;
   return <div role="list" aria-label={t('conversation.listLabel')}>
