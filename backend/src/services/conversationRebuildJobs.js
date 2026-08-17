@@ -17,9 +17,11 @@ export function startConversationRebuildJob({ userId, accountId = null, limit = 
     try {
       job.result = await rebuildConversationCopies({ userId, accountId, limit, dryRun });
       job.status = 'complete';
+      await recordConversationRebuildAudit({ userId, jobId, action: 'completed', details: { accountId, dryRun, result: job.result } });
     } catch (error) {
       job.error = error.message;
       job.status = 'failed';
+      await recordConversationRebuildAudit({ userId, jobId, action: 'failed', details: { accountId, dryRun, error: error.message } }).catch(() => {});
     }
   });
   return { jobId, status: 'queued' };
