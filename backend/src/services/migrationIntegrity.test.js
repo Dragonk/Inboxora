@@ -8,4 +8,11 @@ describe('migration integrity', () => {
     const current = readFileSync(join(process.cwd(), 'migrations/0002_subject_threading.sql'));
     expect(createHash('sha256').update(current).digest('hex')).toBe('b38fc30e6626f4e8a75819263b31531945a164f36e6a86f1ce0d301b3b421116');
   });
+
+  it('contains tenant composite constraints in the repair migration', () => {
+    const sql = readFileSync(join(process.cwd(), 'migrations/0051_conversation_tenant_constraints.sql'), 'utf8');
+    expect(sql).toContain('fk_logical_conversation_owner');
+    expect(sql).toContain('fk_provider_mapping_conversation_owner');
+    expect(sql).toContain('fk_message_conversation_owner');
+  });
 });
