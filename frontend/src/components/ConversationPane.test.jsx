@@ -1,8 +1,9 @@
-import { expect, it } from 'vitest';
+import assert from 'node:assert/strict';
+import { test } from 'node:test';
 import { renderToStaticMarkup } from 'react-dom/server';
 import ConversationPane from './ConversationPane.jsx';
 
-it('renders the conversation pane component', () => {
+test('renders the conversation pane component', () => {
   const html = renderToStaticMarkup(<ConversationPane conversationId="c1" />);
-  expect(html).toBeDefined();
+  assert.ok(html);
 });
