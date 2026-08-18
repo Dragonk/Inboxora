@@ -1,5 +1,5 @@
-import { query, withTransaction } from './db.js';
-import { assertConversationOwner, lockConversationsDeterministically, refreshConversationAggregates, resolveConversationAlias } from './conversationOverridePolicy.js';
+import { pool, withTransaction } from './db.js';
+import { assertConversationOwner, assertNoAliasCycle, lockConversationsDeterministically, refreshConversationAggregates, resolveConversationAlias } from './conversationOverridePolicy.js';
 
 const OVERRIDE_TYPES = new Set(['force-include', 'force-exclude', 'manual-split', 'manual-merge', 'lock-conversation']);
 
@@ -30,6 +30,7 @@ export async function applyConversationOverride({ userId, conversationId, logica
       await lockConversationsDeterministically(client, userId, [sourceCanonical, targetCanonical]);
       await assertConversationOwner(client, userId, sourceCanonical);
       await assertConversationOwner(client, userId, targetCanonical);
+      await assertNoAliasCycle(client, { userId, sourceConversationId: sourceCanonical, targetConversationId: targetCanonical });
       await client.query('INSERT INTO conversation_aliases (user_id, alias_conversation_id, canonical_conversation_id, reason) VALUES ($1,$2,$3,$4) ON CONFLICT (user_id, alias_conversation_id) DO UPDATE SET canonical_conversation_id = EXCLUDED.canonical_conversation_id, reason = EXCLUDED.reason', [userId, sourceCanonical, targetCanonical, reason || 'manual-merge']);
       await client.query('UPDATE messages SET conversation_id = $1, conversation_user_id = $2 WHERE conversation_id = $3 AND conversation_user_id = $2', [targetCanonical, userId, sourceCanonical]);
       await client.query('UPDATE logical_messages SET conversation_id = $1 WHERE conversation_id = $2 AND user_id = $3', [targetCanonical, sourceCanonical, userId]);
@@ -77,6 +78,15 @@ export async function applyConversationOverride({ userId, conversationId, logica
 }
 
 export async function listConversationOverrides({ userId, conversationId }) {
-  const result = await query('SELECT * FROM conversation_overrides WHERE user_id = $1 AND conversation_id = $2 ORDER BY created_at DESC', [userId, conversationId]);
-  return result.rows;
+  const client = await pool.connect();
+  try {
+    const canonicalId = await resolveConversationAlias(client, { userId, conversationId });
+    const result = await client.query(
+      'SELECT * FROM conversation_overrides WHERE user_id = $1 AND conversation_id = $2 ORDER BY created_at DESC',
+      [userId, canonicalId],
+    );
+    return result.rows;
+  } finally {
+    client.release();
+  }
 }

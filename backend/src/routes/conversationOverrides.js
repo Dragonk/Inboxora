@@ -10,6 +10,7 @@ router.post('/conversations/:id/overrides', async (req, res) => {
     userId: req.session.userId,
     conversationId: req.params.id,
     logicalMessageId: req.body?.logicalMessageId || null,
+    scope: req.body?.scope || 'message-only',
     overrideType: req.body?.overrideType,
     targetId: req.body?.targetId || null,
     reason: req.body?.reason || null,

@@ -4,7 +4,7 @@ import { conversationApi } from '../utils/conversationApi.js';
 import MessageBodyRenderer from './MessageBodyRenderer.jsx';
 
 function newestCopy(message) {
-  return [...(message.copies || [])].sort((a, b) => Number(Boolean(b.isRead)) - Number(Boolean(a.isRead)) || String(b.date || '').localeCompare(String(a.date || '')))[0] || null;
+  return [...(message.copies || [])].sort((a, b) => String(b.date || '').localeCompare(String(a.date || '')) || Number(Boolean(a.isRead)) - Number(Boolean(b.isRead)))[0] || null;
 }
 
 export default function ConversationPane({ conversationId, targetLogicalMessageId = null, onReply }) {
@@ -54,8 +54,9 @@ export default function ConversationPane({ conversationId, targetLogicalMessageI
       const open = expanded.has(message.id);
       const copy = newestCopy(message);
       const body = bodies[message.id];
-      return <article key={message.id} id={`logical-message-${message.id}`} data-logical-message-id={message.id} aria-expanded={open}>
-        <button type="button" style={{ minHeight: 44, width: '100%', textAlign: 'left' }} onClick={() => {
+      const bodyId = `logical-message-body-${message.id}`;
+      return <article key={message.id} id={`logical-message-${message.id}`} data-logical-message-id={message.id}>
+        <button type="button" aria-expanded={open} aria-controls={bodyId} style={{ minHeight: 44, width: '100%', textAlign: 'left' }} onClick={() => {
           setExpanded(previous => { const next = new Set(previous); if (next.has(message.id)) next.delete(message.id); else next.add(message.id); return next; });
           if (!body) loadBody(message.id).catch(() => {});
         }}>
@@ -63,7 +64,7 @@ export default function ConversationPane({ conversationId, targetLogicalMessageI
           <span>{message.subject || t('conversation.noSubject')}</span>{' '}
           <time>{message.messageDate ? new Date(message.messageDate).toLocaleString() : ''}</time>
         </button>
-        {open && <div role="region" aria-label={t('conversation.bodyLabel')}>
+        {open && <div id={bodyId} role="region" aria-label={t('conversation.bodyLabel')}>
           <p>{copy?.snippet || ''}</p>
           {bodyStatus[message.id]?.loading && <div role="status">{t('conversation.loading')}</div>}
           {bodyStatus[message.id]?.error && <div role="alert">{bodyStatus[message.id].error} <button type="button" onClick={() => loadBody(message.id, true)}>{t('common.retry')}</button></div>}

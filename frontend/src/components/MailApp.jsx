@@ -82,6 +82,10 @@ export default function MailApp() {
   const [targetLogicalMessageId, setTargetLogicalMessageId] = useState(null);
   const openConversationTarget = useCallback((row) => {
     if (conversationReaderViewEnabled && row?.conversation_id) {
+      // A physical message selection belongs to the legacy reader. Clear it before
+      // opening a conversation so the selection effect cannot reopen the previous
+      // conversation after this navigation completes.
+      setSelectedMessage(null);
       setConversationId(row.conversation_id);
       setTargetLogicalMessageId(row.logical_message_id || row.logical_id || null);
       return;
@@ -107,7 +111,7 @@ export default function MailApp() {
   }, [accounts, openCompose]);
 
   useEffect(() => {
-    if (!conversationReaderViewEnabled || conversationId || !selectedMessageId) return undefined;
+    if (!conversationReaderViewEnabled || !selectedMessageId) return undefined;
     let cancelled = false;
     api.resolveMessage(selectedMessageId).then(resolved => {
       if (!cancelled && resolved?.conversation_id) {
@@ -116,7 +120,7 @@ export default function MailApp() {
       }
     }).catch(() => {});
     return () => { cancelled = true; };
-  }, [conversationReaderViewEnabled, conversationId, selectedMessageId]);
+  }, [conversationReaderViewEnabled, selectedMessageId]);
 
   // Auto-lock after inactivity (#235). MailApp only mounts while unlocked, so this
   // timer runs only when unlocked; hitting the timeout locks and unmounts this tree.

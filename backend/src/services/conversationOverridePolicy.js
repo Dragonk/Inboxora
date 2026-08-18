@@ -32,6 +32,24 @@ export async function resolveConversationAlias(client, { userId, conversationId 
   throw new Error('Conversation alias chain too deep');
 }
 
+export async function assertNoAliasCycle(client, { userId, sourceConversationId, targetConversationId }) {
+  let current = targetConversationId;
+  const seen = new Set();
+  for (let i = 0; i < 20; i++) {
+    if (current === sourceConversationId) throw new Error('manual-merge would create an alias cycle');
+    if (seen.has(current)) throw new Error('Conversation alias cycle detected');
+    seen.add(current);
+    const result = await client.query(
+      'SELECT canonical_conversation_id FROM conversation_aliases WHERE user_id = $1 AND alias_conversation_id = $2 FOR UPDATE',
+      [userId, current],
+    );
+    const next = result.rows[0]?.canonical_conversation_id;
+    if (!next || next === current) return;
+    current = next;
+  }
+  throw new Error('Conversation alias chain too deep');
+}
+
 export async function refreshConversationAggregates(client, userId, conversationId) {
   await client.query(`
     UPDATE conversations c SET

@@ -88,7 +88,9 @@ router.get('/conversations', async (req, res) => {
        WHERE lm.conversation_id = c.id
          AND EXISTS (SELECT 1 FROM messages visible_lm WHERE visible_lm.logical_message_id = lm.id AND visible_lm.is_deleted = false ${accountId ? 'AND visible_lm.account_id = $2' : ''})
      ) preview ON true
-     WHERE c.user_id = $1 ${accountFilter} ${cursorFilter}
+     WHERE c.user_id = $1
+       AND NOT EXISTS (SELECT 1 FROM conversation_aliases ca WHERE ca.user_id = $1 AND ca.alias_conversation_id = c.id)
+       ${accountFilter} ${cursorFilter}
      GROUP BY c.id, top_latest.id, preview.logical_messages
      ORDER BY COALESCE(c.last_message_at, c.created_at) DESC, c.id DESC
      LIMIT $${limitParam}
@@ -117,7 +119,7 @@ router.get('/conversations/:id', async (req, res) => {
              ) ORDER BY m.date ASC NULLS LAST, m.id) FILTER (WHERE m.id IS NOT NULL), '[]'::jsonb) AS copies
         FROM conversations c
         LEFT JOIN logical_messages lm ON lm.conversation_id = c.id
-        LEFT JOIN messages m ON m.logical_message_id = lm.id AND m.is_deleted = false
+        LEFT JOIN messages m ON m.logical_message_id = lm.id AND m.conversation_id = c.id AND m.is_deleted = false
        WHERE c.id = $1 AND c.user_id = $2
        GROUP BY c.id, lm.id
        ORDER BY lm.message_date ASC NULLS LAST, lm.id
@@ -141,7 +143,8 @@ router.get('/conversations/:conversationId/logical-messages/:logicalMessageId/bo
     const result = await client.query(`
       SELECT lm.id, m.body_text, m.body_html, m.attachments
         FROM logical_messages lm
-        JOIN messages m ON m.logical_message_id = lm.id AND m.is_deleted = false
+        JOIN messages m ON m.logical_message_id = lm.id AND m.conversation_id = $3 AND m.is_deleted = false
+        JOIN email_accounts a ON a.id = m.account_id AND a.user_id = $2
        WHERE lm.id = $1 AND lm.user_id = $2 AND lm.conversation_id = $3
        ORDER BY m.is_read ASC, m.date DESC NULLS LAST, m.id DESC
        LIMIT 1
