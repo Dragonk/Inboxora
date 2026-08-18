@@ -41,6 +41,16 @@ function raceTimeout(promise, ms, label) {
   ]);
 }
 
+// Max concurrent connection ESTABLISHMENTS per provider host (#384). Every IMAP connect (persistent,
+// reconnect, pool, backfill, poll-only, snippet) goes through connectImapClient, which holds one of
+// these slots only for the duration of the handshake and frees it the instant connect resolves. So
+// this smooths the startup/backfill burst — persistent connects + pool pre-warms + backfills all
+// firing at once — that otherwise stampedes a provider like Gmail into "Connection not available"
+// refusals, WITHOUT capping how many connections stay open (a long-lived IDLE connection frees its
+// slot as soon as it's established). Keyed by host, so one provider's burst never starves another.
+const CONNECT_CONCURRENCY_PER_HOST = 3;
+const hostConnectSem = createKeyedSemaphore(CONNECT_CONCURRENCY_PER_HOST);
+
 // Connect a fresh ImapFlow client, with an IPv4 fallback for broken IPv6 (#382). autoSelectFamily
 // (set in makeClientCfg) already races the TCP connect and recovers when a family's TCP handshake
 // is dead or hangs — but it commits to whichever family wins the TCP race, so an IPv6 path that
@@ -50,11 +60,20 @@ function raceTimeout(promise, ms, label) {
 // triggers the retry — refusals / auth / cert errors are not a family problem, so they propagate
 // unchanged. Returns a connected client the caller owns (it attaches its own 'close'/idle listeners).
 async function connectImapClient(account, resolved, cfgOpts, timeoutMs, label) {
+  const host = (account.imap_host || '').toLowerCase();
+  let sawRefusal = false; // a provider refusal ('Connection not available' etc.) fired mid-attempt
   const attempt = async (res, tag) => {
     const client = new ImapFlow(makeClientCfg(account, res, cfgOpts));
     // #360: an 'error' emitted during the handshake with no listener is unhandled and crashes the
     // process. Attach one that outlives connect; a caller adding its own later just logs alongside.
-    client.on('error', (err) => console.error(`IMAP error for ${logAccount(account)}:`, err.message));
+    client.on('error', (err) => {
+      if (isConnectionRefusal(err?.message)) sawRefusal = true;
+      console.error(`IMAP error for ${logAccount(account)}:`, err.message);
+    });
+    // Admission control (#384): cap concurrent connection establishment per host so a startup /
+    // backfill burst can't stampede the provider into refusals. Held only for the handshake and
+    // released the instant connect resolves, so it bounds the open RATE, not open connections.
+    await hostConnectSem.acquire(host);
     try {
       await raceTimeout(client.connect(), timeoutMs, tag);
     } catch (err) {
@@ -63,13 +82,19 @@ async function connectImapClient(account, resolved, cfgOpts, timeoutMs, label) {
       // wedged/half-open connection (the exact failure we're recovering from).
       try { client.close(); } catch { /* already closed */ }
       throw err;
+    } finally {
+      hostConnectSem.release(host);
     }
     return client;
   };
   try {
     return await attempt(resolved, label);
   } catch (err) {
-    if (!shouldRetryIPv4(err?.message, resolved.addresses)) throw err;
+    // Skip the IPv4 fallback when the provider REFUSED (a connection-limit / throttle, not an IPv6
+    // stall): a second attempt just piles on pressure and doubles the delay — let the refusal
+    // propagate so the caller's cooldown backs off (#384). Otherwise retry IPv4-only for a wedged
+    // IPv6 TLS handshake (#382).
+    if (!shouldRetryIPv4(err?.message, resolved.addresses, sawRefusal)) throw err;
     const v4 = resolved.addresses.filter(a => !a.includes(':'));
     console.warn(`IMAP connect stalled for ${logAccount(account)} (${label}); retrying IPv4-only`);
     const v4Resolved = { ...resolved, addresses: v4, host: v4[0], lookup: createPinnedLookup(v4) };
@@ -78,10 +103,13 @@ async function connectImapClient(account, resolved, cfgOpts, timeoutMs, label) {
 }
 
 // Decide whether a failed connect should be retried IPv4-only: only when it was a TIMEOUT (a stall
-// a family switch can bypass — not an auth / refusal / cert error, which IPv4 won't help) AND the
-// host is genuinely dual-stack (both families resolved, so a wedged IPv6 handshake is the plausible
-// cause and there is a v4 address to fall back to). Pure and unit-testable. (#382)
-export function shouldRetryIPv4(errMessage, addresses) {
+// a family switch can bypass — not an auth / cert error, which IPv4 won't help) AND the host is
+// genuinely dual-stack (both families resolved, so a wedged IPv6 handshake is the plausible cause
+// and there is a v4 address to fall back to) AND the provider did not REFUSE during the attempt.
+// A refusal ('Connection not available' / throttle) means the host is at its limit — a second
+// attempt just piles on pressure and doubles the delay, so back off instead (#384). Pure. (#382)
+export function shouldRetryIPv4(errMessage, addresses, sawRefusal = false) {
+  if (sawRefusal) return false;
   const addrs = addresses || [];
   const v4 = addrs.filter(a => !a.includes(':')); // IPv6 literals always contain a colon
   return /timeout/i.test(String(errMessage || '')) && v4.length > 0 && v4.length !== addrs.length;

@@ -790,6 +790,11 @@ describe('shouldRetryIPv4', () => {
     expect(shouldRetryIPv4('', dual)).toBe(false);
     expect(shouldRetryIPv4(null, dual)).toBe(false);
   });
+  it('does not retry when a provider refusal was seen during the attempt (#384)', () => {
+    // A timeout on a dual-stack host would normally retry, but a refusal means back off instead.
+    expect(shouldRetryIPv4('connect timeout', dual, true)).toBe(false);
+    expect(shouldRetryIPv4('connect timeout', dual, false)).toBe(true);
+  });
 });
 
 describe('connectCooldownMs', () => {
