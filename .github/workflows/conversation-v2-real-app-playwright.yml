@@ -116,7 +116,14 @@ jobs:
         working-directory: frontend
         env:
           PLAYWRIGHT_BROWSERS_PATH: ${{ runner.temp }}/ms-playwright
-        run: node e2e/chromium-smoke.js
+          VITE_E2E_API_TARGET: http://127.0.0.1:3000
+        run: |
+          VITE_E2E_API_TARGET=http://127.0.0.1:3000 npm run dev -- --host 127.0.0.1 --port 4173 > ../e2e-artifacts/smoke-frontend.log 2>&1 &
+          smoke_pid=$!
+          trap 'kill "$smoke_pid" 2>/dev/null || true' EXIT
+          for i in {1..60}; do curl --fail --silent http://127.0.0.1:4173/ >/dev/null && break; sleep 1; done
+          curl --fail --silent http://127.0.0.1:4173/ >/dev/null
+          node e2e/chromium-smoke.js
       - name: Stop backend
         if: always()
         run: if [ -f e2e-artifacts/backend.pid ]; then kill "$(cat e2e-artifacts/backend.pid)" 2>/dev/null || true; fi
