@@ -14,7 +14,7 @@ export const test = base.extend({
     await page.getByRole('button', { name: /Sign in|Zaloguj/i }).click();
     await page.waitForURL(url => url.pathname === '/');
     await expect.poll(() => responses.some(item => item.url.includes('/api/auth/login') && item.status === 200)).toBe(true);
-    await use({ page, responses });
+    await use(page);
   },
 });
 
