@@ -12,7 +12,8 @@ export const test = base.extend({
     await page.getByLabel(/Username|Nazwa użytkownika/i).fill(username);
     await page.getByLabel(/Password|Hasło/i).fill(password);
     await page.getByRole('button', { name: /Sign in|Zaloguj/i }).click();
-    await page.waitForURL(url => url.pathname === '/');
+    await page.waitForURL(url => url.pathname === '/' || url.pathname === '/login', { waitUntil: 'domcontentloaded' });
+    await expect.poll(() => page.url()).toContain('/');
     await expect.poll(() => responses.some(item => item.url.includes('/api/auth/login') && item.status === 200)).toBe(true);
     await use(page);
   },

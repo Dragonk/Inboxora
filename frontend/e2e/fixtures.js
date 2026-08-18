@@ -78,7 +78,7 @@ export const test = base.extend({
     });
     await page.route('**/api/accounts', route => route.fulfill({ json: fixture.accounts }));
     await page.route('**/api/mail/unread-counts', route => route.fulfill({ json: { total: 0, byAccount: {} } }));
-    await page.route('**/api/mail/conversations/*/logical-messages/*/body', route => route.fulfill({ json: { body_text: 'Fixture body 1', body_html: '<p>Fixture body 1</p><img src=\"https://tracker.example.test/pixel.gif\"><a href=\"https://example.test\">Safe link</a>' } }));
+    await page.route('**/api/mail/conversations/*/logical-messages/*/body', route => route.fulfill({ json: { body_text: 'Fixture body lazy', body_html: '<p>Fixture body lazy</p><img src=\"https://tracker.example.test/pixel.gif\"><a href=\"https://example.test\">Safe link</a>' } }));
     await page.route('**/api/mail/conversations**', route => {
       const url = new URL(route.request().url());
       const parts = url.pathname.split('/').filter(Boolean);
