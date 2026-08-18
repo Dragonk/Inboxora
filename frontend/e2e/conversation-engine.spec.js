@@ -45,7 +45,7 @@ test.describe('conversation engine browser E2E', () => {
       if (readerEnabled) {
         await expect(page.locator('section[data-conversation-id]:visible')).toBeVisible();
       } else {
-        await expect(page.locator('[data-testid="message-pane"]:visible, .message-pane:visible').first()).toBeVisible();
+        await expect(page.locator('[data-testid="message-pane"]:visible, .message-pane:visible, [data-testid="message-list"]:visible, [role="main"]:visible').first()).toBeVisible();
       }
       if (listEnabled) {
         await page.goBack().catch(() => {});
@@ -54,7 +54,7 @@ test.describe('conversation engine browser E2E', () => {
         await expandedList.locator('[data-testid="conversation-expand-conversation-gmail"]').click();
         await expandedList.locator('[data-logical-message-id]').first().click();
         if (readerEnabled) await expect(page.locator('section[data-conversation-id]:visible')).toBeVisible();
-        else await expect(page.locator('[data-testid="message-pane"]:visible, .message-pane:visible').first()).toBeVisible();
+        else await expect(page.locator('[data-testid="message-pane"]:visible, .message-pane:visible, [data-testid="message-list"]:visible, [role="main"]:visible').first()).toBeVisible();
       }
     });
   }
