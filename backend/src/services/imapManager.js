@@ -2481,12 +2481,16 @@ export class ImapManager {
     try {
       const mailboxes = await client.list();
       for (const mb of mailboxes) {
+        // \Noselect (e.g. Gmail's "[Gmail]" parent) and \NonExistent mailboxes cannot be
+        // SELECTed. Persist that so role resolvers never route to them and the folder-mapping
+        // UI can hide them — see migration 0047 and mailUtils.mappedFolderUsable.
+        const noSelect = !!(mb.flags && (mb.flags.has('\\Noselect') || mb.flags.has('\\NonExistent')));
         await query(`
-          INSERT INTO folders (account_id, path, name, delimiter, special_use)
-          VALUES ($1, $2, $3, $4, $5)
+          INSERT INTO folders (account_id, path, name, delimiter, special_use, no_select)
+          VALUES ($1, $2, $3, $4, $5, $6)
           ON CONFLICT (account_id, path) DO UPDATE
-          SET name = $3, special_use = $5, updated_at = NOW()
-        `, [account.id, mb.path, mb.name, mb.delimiter, mb.specialUse || null]);
+          SET name = $3, special_use = $5, no_select = $6, updated_at = NOW()
+        `, [account.id, mb.path, mb.name, mb.delimiter, mb.specialUse || null, noSelect]);
       }
       // Many IMAP servers omit INBOX from LIST responses (it is implicit per RFC 3501).
       // Without a row in folders, subfolders like INBOX/Work have no parent in the map

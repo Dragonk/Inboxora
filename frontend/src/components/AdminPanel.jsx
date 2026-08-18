@@ -907,7 +907,7 @@ function AccountsTab() {
                   <option value="" style={{ background: 'var(--bg-tertiary)' }}>
                     {autoFolder ? `${t('admin.folderMappings.autoDetect')} (${autoFolder.path})` : t('admin.folderMappings.autoDetectNone')}
                   </option>
-                  {availableFolders.map(f => (
+                  {availableFolders.filter(f => !f.no_select).map(f => (
                     <option key={f.path} value={f.path} style={{ background: 'var(--bg-tertiary)' }}>
                       {f.path}
                     </option>

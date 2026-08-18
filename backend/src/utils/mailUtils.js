@@ -1,10 +1,32 @@
 import { query } from '../services/db.js';
 
+// A stored folder mapping is only trustworthy if the mailbox still exists AND is selectable.
+// IMAP exposes non-selectable placeholders — most notably Gmail's "[Gmail]" parent, which
+// carries \Noselect — and a mapping can also go stale when a folder is renamed or deleted.
+// Trusting such a value makes every resolve of that role route to a mailbox the server
+// rejects on SELECT ("Command failed"), silently breaking the role (sent messages never
+// import, trash moves fail, etc. — issue #386). When the mapped path is missing or
+// non-selectable, return null so the caller falls back to special-use / name detection.
+// This self-heals affected accounts on the next resolve, once folder sync (syncFolders) has
+// flagged the offending folder as no_select.
+export async function mappedFolderUsable(accountId, path) {
+  if (!path) return null;
+  const result = await query(
+    `SELECT 1 FROM folders
+     WHERE account_id = $1 AND path = $2 AND no_select = false
+     LIMIT 1`,
+    [accountId, path]
+  );
+  return result.rows.length ? path : null;
+}
+
 // Resolve the canonical trash folder path for an account (used as move destination).
-// folder_mappings.trash (user-configured) takes priority over special_use and name heuristics.
+// folder_mappings.trash (user-configured) takes priority over special_use and name heuristics,
+// but only when it points at a selectable folder (see mappedFolderUsable).
 // Also matches "Deleted Messages" / "Deleted Items" in addition to "Trash"-named folders.
 export async function resolveTrashFolder(accountId, folderMappings) {
-  if (folderMappings?.trash) return folderMappings.trash;
+  const mapped = await mappedFolderUsable(accountId, folderMappings?.trash);
+  if (mapped) return mapped;
   const result = await query(
     `SELECT path FROM folders WHERE account_id = $1
      AND (special_use = '\\Trash' OR lower(name) LIKE '%trash%' OR lower(name) LIKE '%deleted%')
@@ -20,7 +42,8 @@ export async function resolveTrashFolder(accountId, folderMappings) {
 // Otherwise every folder that matches the trash heuristic is included — this handles
 // accounts that have both e.g. "Trash" and "Deleted Messages" in their folder list.
 export async function resolveAllTrashPaths(accountId, folderMappings) {
-  if (folderMappings?.trash) return new Set([folderMappings.trash]);
+  const mapped = await mappedFolderUsable(accountId, folderMappings?.trash);
+  if (mapped) return new Set([mapped]);
   const result = await query(
     `SELECT path FROM folders WHERE account_id = $1
      AND (special_use = '\\Trash' OR lower(name) LIKE '%trash%' OR lower(name) LIKE '%deleted%')`,
@@ -30,7 +53,8 @@ export async function resolveAllTrashPaths(accountId, folderMappings) {
 }
 
 export async function resolveAllDraftsPaths(accountId, folderMappings) {
-  if (folderMappings?.drafts) return new Set([folderMappings.drafts]);
+  const mapped = await mappedFolderUsable(accountId, folderMappings?.drafts);
+  if (mapped) return new Set([mapped]);
   const result = await query(
     `SELECT path FROM folders WHERE account_id = $1
      AND (special_use = '\\Drafts' OR lower(name) LIKE '%draft%')`,
@@ -47,7 +71,8 @@ export async function resolveAllDraftsPaths(accountId, folderMappings) {
 // IMPORTANT: callers that persist the destination back to the messages table must
 // special-case an '\All' result — see isAllMailFolder below.
 export async function resolveArchiveFolder(accountId, folderMappings) {
-  if (folderMappings?.archive) return folderMappings.archive;
+  const mapped = await mappedFolderUsable(accountId, folderMappings?.archive);
+  if (mapped) return mapped;
   const result = await query(
     `SELECT path FROM folders WHERE account_id = $1
      AND (special_use = '\\Archive' OR lower(name) LIKE '%archive%' OR special_use = '\\All')
@@ -86,7 +111,8 @@ export async function isAllMailFolder(accountId, path) {
 //   - GMX:                Spamverdacht
 //   - Italian providers:  Indesiderata, Posta indesiderata
 export async function resolveSpamFolder(accountId, folderMappings) {
-  if (folderMappings?.spam) return folderMappings.spam;
+  const mapped = await mappedFolderUsable(accountId, folderMappings?.spam);
+  if (mapped) return mapped;
   const result = await query(
     `SELECT path FROM folders WHERE account_id = $1
      AND (special_use = '\\Junk'
@@ -102,7 +128,8 @@ export async function resolveSpamFolder(accountId, folderMappings) {
 // Same pattern as resolveAllTrashPaths: when user has configured folder_mappings.spam,
 // only that path is returned. Otherwise every folder matching the heuristic.
 export async function resolveAllSpamPaths(accountId, folderMappings) {
-  if (folderMappings?.spam) return new Set([folderMappings.spam]);
+  const mapped = await mappedFolderUsable(accountId, folderMappings?.spam);
+  if (mapped) return new Set([mapped]);
   const result = await query(
     `SELECT path FROM folders WHERE account_id = $1
      AND (special_use = '\\Junk'
@@ -110,6 +137,20 @@ export async function resolveAllSpamPaths(accountId, folderMappings) {
     [accountId]
   );
   return new Set(result.rows.map(r => r.path));
+}
+
+// Resolve the canonical Sent folder path for an account (APPEND target for sent copies).
+// folder_mappings.sent (user-configured) takes priority over special_use auto-detect, but
+// only when it points at a selectable folder (see mappedFolderUsable) — a mapping left on a
+// non-selectable parent like "[Gmail]" would make every sent copy fail to APPEND/sync.
+export async function resolveSentFolder(accountId, folderMappings) {
+  const mapped = await mappedFolderUsable(accountId, folderMappings?.sent);
+  if (mapped) return mapped;
+  const result = await query(
+    "SELECT path FROM folders WHERE account_id = $1 AND special_use = '\\Sent' LIMIT 1",
+    [accountId]
+  );
+  return result.rows[0]?.path || null;
 }
 
 // Adjust cached folder row counts after local message mutations so that pagination

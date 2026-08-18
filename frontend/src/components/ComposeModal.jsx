@@ -777,7 +777,12 @@ export default function ComposeModal() {
       if (draftUid != null && draftFolder != null && draftAccountId) {
         api.deleteDraft(draftAccountId, draftUid, draftFolder).catch(() => {});
       }
-      const sentFolder = accounts.find(a => a.id === accountId)?.folder_mappings?.sent || 'Sent';
+      // Prefer the Sent folder the backend actually resolved to; fall back to the account's
+      // mapping only if the response didn't carry one. Avoids navigating "View" to a stale
+      // mapping (e.g. a non-selectable "[Gmail]" parent) that the send path bypassed (#386).
+      const sentFolder = sendResult?.sentFolder
+        || accounts.find(a => a.id === accountId)?.folder_mappings?.sent
+        || 'Sent';
       // The message was delivered; sentCopySaved:false means it couldn't be saved to the
       // account's Sent folder — tell the user so they know their record is incomplete.
       const sentCopyFailed = sendResult?.sentCopySaved === false;

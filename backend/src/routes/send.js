@@ -8,6 +8,7 @@ import { sanitizeSignature, sanitizeComposeBody } from '../services/emailSanitiz
 import { embedInlineDataImages } from '../utils/inlineImages.js';
 import { redisClient } from '../services/redis.js';
 import { redactEmail } from '../utils/redact.js';
+import { resolveSentFolder } from '../utils/mailUtils.js';
 import { generateVCard } from '../utils/vcard.js';
 import { createAccountSmtpTransport } from '../services/smtpTransport.js';
 import { imapManager } from '../index.js';
@@ -415,15 +416,9 @@ router.post('/send', async (req, res) => {
       });
     }
 
-    // Get the Sent folder path (manual mapping takes priority over special_use auto-detect)
-    let sentFolder = account.folder_mappings?.sent || null;
-    if (!sentFolder) {
-      const folderResult = await query(
-        "SELECT path FROM folders WHERE account_id = $1 AND special_use = '\\Sent' LIMIT 1",
-        [accountId]
-      );
-      sentFolder = folderResult.rows[0]?.path || null;
-    }
+    // Get the Sent folder path (manual mapping takes priority over special_use auto-detect,
+    // but a mapping pointing at a non-selectable folder is ignored in favour of \Sent — #386).
+    const sentFolder = await resolveSentFolder(accountId, account.folder_mappings);
     console.log(`Post-send: ${redactEmail(account.email_address)} sentFolder=${sentFolder} autoSaves=${serverAutoSaves}`);
 
     // sentCopySaved: null = not applicable (server auto-saves, or no Sent folder resolved);
@@ -503,6 +498,9 @@ router.post('/send', async (req, res) => {
     // Surface only the problem case so existing success handling is unchanged; the UI warns
     // when a delivered message could not be saved to the account's Sent folder.
     if (sentCopySaved === false) sendResult.sentCopySaved = false;
+    // Tell the client which Sent folder we actually resolved to, so its post-send "View"
+    // navigates to the real folder rather than recomputing from a possibly-stale mapping (#386).
+    if (sentFolder) sendResult.sentFolder = sentFolder;
     // Overwrite the in-flight reservation with the final result so a retry after a lost
     // response returns this instead of re-sending.
     if (idemKeyRedis) redisClient.set(idemKeyRedis, JSON.stringify(sendResult), { EX: 86400 }).catch(() => {});
