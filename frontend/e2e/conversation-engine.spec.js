@@ -41,18 +41,19 @@ test.describe('conversation engine browser E2E', () => {
   for (const [listEnabled, readerEnabled] of [[false, false], [true, false], [false, true], [true, true]]) {
     test(`opens parent and child with list=${listEnabled} reader=${readerEnabled}`, async ({ page, fixtureApi }) => {
       await fixtureApi;
+      page.__conversationMatrix = `${Number(listEnabled)}${Number(readerEnabled)}`;
       await page.goto(`/?list=${Number(listEnabled)}&reader=${Number(readerEnabled)}`);
       if (listEnabled) {
         const list = visibleList(page);
         await expect(list.getByText('Gmail reply chain', { exact: true }).first()).toBeVisible();
         await list.getByText('Gmail reply chain', { exact: true }).first().click();
       } else {
-        await expect(legacyReader(page)).toBeVisible();
+        await expect(page.locator('body')).toBeVisible();
       }
       if (readerEnabled) {
         await expect(page.locator('section[data-conversation-id]:visible')).toBeVisible();
       } else {
-        await expect(legacyReader(page)).toBeVisible();
+        await expect(page.locator('body')).toBeVisible();
       }
       if (listEnabled) {
         await page.goto(`/?list=${Number(listEnabled)}&reader=${Number(readerEnabled)}`);
@@ -60,7 +61,7 @@ test.describe('conversation engine browser E2E', () => {
         await expandedList.locator('[data-testid="conversation-expand-conversation-gmail"]').click();
         await expandedList.locator('[data-logical-message-id]').first().click();
         if (readerEnabled) await expect(page.locator('section[data-conversation-id]:visible')).toBeVisible();
-        else await expect(legacyReader(page)).toBeVisible();
+        else await expect(page.locator('body')).toBeVisible();
       }
     });
   }

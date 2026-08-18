@@ -1564,6 +1564,8 @@
     "messagesLabel": "Wiadomości w rozmowie",
     "noSubject": "(brak tematu)",
     "reply": "Odpowiedz",
-    "split": "Podziel rozmowę"
+    "split": "Podziel rozmowę",
+    "replyAll": "Odpowiedz wszystkim",
+    "forward": "Przekaż dalej"
   }
 }

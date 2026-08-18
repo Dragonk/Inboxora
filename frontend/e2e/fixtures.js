@@ -34,6 +34,19 @@ const fixture = {
   ],
 };
 
+for (const row of fixture.conversations) {
+  row.logical_messages = Array.from({ length: row.logical_message_count }, (_, index) => ({
+    id: `${row.conversation_id}-logical-${index + 1}`,
+    subject: row.canonical_subject,
+    direction: index === row.logical_message_count - 1 && row.latest_message_is_mine ? 'outgoing' : 'incoming',
+    snippet: `Fixture body ${index + 1}`,
+    fromName: 'Fixture Sender',
+    fromEmail: 'sender@example.test',
+    isLatest: index === row.logical_message_count - 1,
+    latestCopyId: `${row.conversation_id}-copy-${index + 1}`,
+  }));
+}
+
 function details(id) {
   const row = fixture.conversations.find(item => item.conversation_id === id) || fixture.conversations[0];
   return {
@@ -66,11 +79,11 @@ function details(id) {
 export const test = base.extend({
   fixtureApi: async ({ page }, use) => {
     await page.route('**/api/auth/me', route => route.fulfill({ json: { user: fixture.user } }));
-    await page.route('**/api/auth/preferences', async route => {
+    await page.route('**/api/auth/preferences**', async route => {
       if (route.request().method() === 'PATCH') return route.fulfill({ json: { ok: true } });
-      const url = new URL(page.url());
-      const listEnabled = url.searchParams.has('list') ? url.searchParams.get('list') !== '0' : true;
-      const readerEnabled = url.searchParams.has('reader') ? url.searchParams.get('reader') !== '0' : true;
+      const matrix = page.__conversationMatrix || '11';
+      const listEnabled = matrix[0] !== '0';
+      const readerEnabled = matrix[1] !== '0';
       return route.fulfill({ json: {
         language: 'pl',
         theme: 'light',
@@ -90,7 +103,10 @@ export const test = base.extend({
       if (id && id !== 'conversations') return route.fulfill({ json: details(id) });
       return route.fulfill({ json: { conversations: fixture.conversations, nextCursor: null } });
     });
-    await page.route('**/api/mail/messages/*/conversation', route => route.fulfill({ json: { conversation_id: 'conversation-gmail', logical_message_id: 'conversation-gmail-logical-1' } }));
+    await page.route('**/api/mail/messages*', route => {
+      if (route.request().url().includes('/conversation')) return route.fulfill({ json: { conversation_id: 'conversation-gmail', logical_message_id: 'conversation-gmail-logical-1' } });
+      return route.fulfill({ json: { messages: [{ id: 'legacy-message-1', subject: 'Legacy fixture', is_read: true, account_id: 'account-gmail', folder: 'INBOX', date: new Date().toISOString(), from_email: 'sender@example.test', body_text: 'Fixture body legacy' }], total: 1 } });
+    });
     await page.route('**/api/mail/conversations/*/overrides', route => route.fulfill({ json: { ok: true, overrides: [] } }));
     await use(fixture);
   },
