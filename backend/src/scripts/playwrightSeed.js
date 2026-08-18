@@ -10,10 +10,16 @@ try {
   const existing = await client.query('SELECT id FROM users WHERE username = $1 FOR UPDATE', [username]);
   let userId = existing.rows[0]?.id;
   if (!userId) {
-    const result = await client.query('INSERT INTO users (username, password_hash, is_admin) VALUES ($1, $2, true) RETURNING id', [username, passwordHash]);
+    const result = await client.query(`INSERT INTO users (username, password_hash, is_admin, preferences)
+      VALUES ($1, $2, true, '{"conversation_list_view_enabled": true, "conversation_reader_view_enabled": true}'::jsonb)
+      RETURNING id`, [username, passwordHash]);
     userId = result.rows[0].id;
   } else {
-    await client.query('UPDATE users SET password_hash = $1, is_admin = true WHERE id = $2', [passwordHash, userId]);
+    await client.query(`UPDATE users
+      SET password_hash = $1, is_admin = true,
+          preferences = COALESCE(preferences, '{}'::jsonb)
+            || '{"conversation_list_view_enabled": true, "conversation_reader_view_enabled": true}'::jsonb
+      WHERE id = $2`, [passwordHash, userId]);
   }
   await client.query('DELETE FROM messages WHERE account_id IN (SELECT id FROM email_accounts WHERE user_id = $1)', [userId]);
   await client.query('DELETE FROM conversations WHERE user_id = $1', [userId]);
