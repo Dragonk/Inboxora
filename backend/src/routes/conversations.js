@@ -74,6 +74,17 @@ router.get('/conversations', async (req, res) => {
          'hasAttachments', COALESCE(latest_copy.has_attachments, false), 'latestCopyId', latest_copy.id,
          'isLatest', lm.id = latest.id
        ) ORDER BY lm.message_date ASC NULLS LAST, lm.id) AS logical_messages
+       FROM logical_messages lm
+       LEFT JOIN LATERAL (
+         SELECT m.id, m.snippet, m.from_name, m.from_email, m.account_id,
+                m.has_attachments, NOT m.is_read AS unread
+           FROM messages m
+          WHERE m.logical_message_id = lm.id
+            AND m.is_deleted = false
+            ${accountId ? 'AND m.account_id = $2' : ''}
+          ORDER BY m.is_read ASC, m.date DESC NULLS LAST, m.id DESC
+          LIMIT 1
+       ) latest_copy ON true
        WHERE lm.conversation_id = c.id
          AND EXISTS (SELECT 1 FROM messages visible_lm WHERE visible_lm.logical_message_id = lm.id AND visible_lm.is_deleted = false ${accountId ? 'AND visible_lm.account_id = $2' : ''})
      ) preview ON true
