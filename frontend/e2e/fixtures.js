@@ -12,9 +12,8 @@ const fixture = {
       conversation_id: 'conversation-gmail',
       canonical_subject: 'Gmail reply chain',
       logical_message_count: 3,
-      visible_copy_count: 3,
+      visible_copy_count: 4,
       latest_message_is_mine: true,
-      latestCopyId: 'conversation-fastmail-copy-2',
       latestCopyId: 'conversation-gmail-copy-3',
     },
     {
@@ -51,7 +50,15 @@ function details(id) {
         fromEmail: index % 2 ? 'sender@outlook.test' : 'sender@gmail.test',
         bodyText: `Fixture body ${index + 1}`,
         bodyHtml: `<p>Fixture body ${index + 1}</p><blockquote>Quoted previous message</blockquote>`,
-      }],
+      }, ...(index === 0 ? [{
+        id: `${id}-copy-${index + 1}-duplicate`,
+        accountId: 'account-fastmail',
+        messageId: `<${id}-${index + 1}-fastmail@fixture.test>`,
+        subject: row.canonical_subject,
+        fromEmail: 'sender@fastmail.test',
+        bodyText: `Fixture body ${index + 1} duplicate`,
+        bodyHtml: `<p>Fixture body ${index + 1} duplicate</p>`,
+      }] : [])],
     })),
   };
 }
@@ -71,13 +78,15 @@ export const test = base.extend({
     });
     await page.route('**/api/accounts', route => route.fulfill({ json: fixture.accounts }));
     await page.route('**/api/mail/unread-counts', route => route.fulfill({ json: { total: 0, byAccount: {} } }));
+    await page.route('**/api/mail/conversations/*/logical-messages/*/body', route => route.fulfill({ json: { body_text: 'Fixture body 1', body_html: '<p>Fixture body 1</p><img src=\"https://tracker.example.test/pixel.gif\"><a href=\"https://example.test\">Safe link</a>' } }));
     await page.route('**/api/mail/conversations**', route => {
       const url = new URL(route.request().url());
-      const id = url.pathname.split('/').at(-1);
+      const parts = url.pathname.split('/').filter(Boolean);
+      const id = parts.at(-1);
+      if (parts.includes('logical-messages')) return route.fallback();
       if (id && id !== 'conversations') return route.fulfill({ json: details(id) });
       return route.fulfill({ json: { conversations: fixture.conversations, nextCursor: null } });
     });
-    await page.route('**/api/mail/conversations/*/logical-messages/*/body', route => route.fulfill({ json: { body_text: 'Fixture body lazy', body_html: '<p>Fixture body lazy</p><img src=\"https://tracker.example.test/pixel.gif\"><a href=\"https://example.test\">Safe link</a>' } }));
     await page.route('**/api/mail/messages/*/conversation', route => route.fulfill({ json: { conversation_id: 'conversation-gmail', logical_message_id: 'conversation-gmail-logical-1' } }));
     await page.route('**/api/mail/conversations/*/overrides', route => route.fulfill({ json: { ok: true, overrides: [] } }));
     await use(fixture);

@@ -8,8 +8,8 @@ test.describe('real MailFlow conversation browser E2E', () => {
     await expect(page.getByRole('button', { name: /Rozwiń|Zwiń|Expand|Collapse/i }).first()).toBeVisible();
     await page.getByText('Gmail reply chain', { exact: true }).first().click();
     await expect(page.locator('[data-conversation-id]')).toBeVisible();
-    await expect(page.getByText('Fixture body 1', { exact: true }).first()).toBeVisible();
     await expect(page.locator('[data-logical-message-id]').count()).resolves.toBeGreaterThan(0);
+    await expect(page.getByText('Fixture body 1', { exact: true }).first()).toBeVisible();
     await page.getByRole('button', { name: /expand|rozwiń/i }).first().click().catch(() => {});
   });
 });
