@@ -1564,6 +1564,8 @@
     "reply": "回复",
     "loadMore": "加载更多",
     "split": "拆分对话",
-    "lock": "锁定对话"
+    "lock": "锁定对话",
+    "replyAll": "回复全部",
+    "forward": "转发"
   }
 }

@@ -1564,6 +1564,8 @@
     "reply": "Antworten",
     "loadMore": "Mehr laden",
     "split": "Unterhaltung teilen",
-    "lock": "Unterhaltung sperren"
+    "lock": "Unterhaltung sperren",
+    "replyAll": "Allen antworten",
+    "forward": "Weiterleiten"
   }
 }

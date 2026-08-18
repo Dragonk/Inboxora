@@ -1564,6 +1564,8 @@
     "reply": "Rispondi",
     "loadMore": "Carica altro",
     "split": "Dividi conversazione",
-    "lock": "Blocca conversazione"
+    "lock": "Blocca conversazione",
+    "replyAll": "Rispondi a tutti",
+    "forward": "Inoltra"
   }
 }

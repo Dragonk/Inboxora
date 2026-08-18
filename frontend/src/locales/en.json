@@ -1564,6 +1564,8 @@
     "noSubject": "(no subject)",
     "messageCount": "{{count}} messages",
     "split": "Split conversation",
-    "lock": "Lock conversation"
+    "lock": "Lock conversation",
+    "replyAll": "Reply All",
+    "forward": "Forward"
   }
 }

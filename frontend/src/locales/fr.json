@@ -1564,6 +1564,8 @@
     "noSubject": "(sans objet)",
     "messageCount": "{{count}} messages dans la discussion",
     "split": "Séparer la discussion",
-    "lock": "Verrouiller la discussion"
+    "lock": "Verrouiller la discussion",
+    "replyAll": "Répondre à tous",
+    "forward": "Transférer"
   }
 }
