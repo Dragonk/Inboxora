@@ -26,7 +26,7 @@ test.describe('conversation engine browser E2E', () => {
     const pane = page.locator('section[data-conversation-id]:visible').first();
     await expect(pane).toBeVisible();
     await expect(pane.locator('[data-logical-message-id]').first()).toBeVisible();
-    await expect(pane.getByText('Fixture body lazy', { exact: true }).first()).toBeVisible();
+    await expect(pane.getByText('Fixture body 1', { exact: true }).first()).toBeVisible();
   });
 
   test('supports reply and Reply All controls after lazy body load', async ({ page }) => {
