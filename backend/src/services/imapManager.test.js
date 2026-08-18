@@ -12,7 +12,7 @@ vi.mock('../utils/redact.js', () => ({ redactEmail: vi.fn() }));
 vi.mock('./hostValidation.js', () => ({ resolveForConnection: vi.fn() }));
 vi.mock('./connectionPolicy.js', () => ({ getConnectionPolicy: vi.fn() }));
 
-import { ImapManager, providerProfile, makeClientCfg, relocateExemptGuard, insertCopiedSibling, deleteMessageCopyRow, emitSectionsChanged, ensureMailbox, createKeyedSemaphore, isConnectionRefusal, connectCooldownMs, effectiveSyncIntervalMs, folderSyncDue, planModseqSync, connectStaggerFor, walkStructure, parsePersistentCap, resolvePersistentCap, persistentEligible } from './imapManager.js';
+import { ImapManager, providerProfile, makeClientCfg, relocateExemptGuard, insertCopiedSibling, deleteMessageCopyRow, emitSectionsChanged, ensureMailbox, createKeyedSemaphore, isConnectionRefusal, connectCooldownMs, effectiveSyncIntervalMs, folderSyncDue, planModseqSync, connectStaggerFor, walkStructure, parsePersistentCap, resolvePersistentCap, persistentEligible, shouldRetryIPv4 } from './imapManager.js';
 import { pluginRegistry } from '../plugins/registry.js';
 import { EventEmitter } from 'node:events';
 import { ImapFlow } from 'imapflow';
@@ -766,6 +766,29 @@ describe('persistentEligible', () => {
   });
   it('fails safe to eligible for an account not in the host list', () => {
     expect(persistentEligible(host, 'zz', 2)).toBe(true);
+  });
+});
+
+describe('shouldRetryIPv4', () => {
+  const dual = ['93.184.216.34', '2606:2800:220:1:248:1893:25c8:1946'];
+  it('retries IPv4-only on a timeout for a dual-stack host', () => {
+    expect(shouldRetryIPv4('IMAP connect timeout (30000ms)', dual)).toBe(true);
+    expect(shouldRetryIPv4('Reconnect timeout (40000ms)', dual)).toBe(true);
+  });
+  it('does not retry when the failure was not a timeout (auth/refusal/cert)', () => {
+    expect(shouldRetryIPv4('Invalid credentials', dual)).toBe(false);
+    expect(shouldRetryIPv4('Too many simultaneous connections', dual)).toBe(false);
+    expect(shouldRetryIPv4('self signed certificate', dual)).toBe(false);
+  });
+  it('does not retry when the host is single-family (nothing to fall back to)', () => {
+    expect(shouldRetryIPv4('connect timeout', ['93.184.216.34'])).toBe(false);            // v4-only
+    expect(shouldRetryIPv4('connect timeout', ['2606:2800:220:1::1'])).toBe(false);       // v6-only
+    expect(shouldRetryIPv4('connect timeout', [])).toBe(false);
+    expect(shouldRetryIPv4('connect timeout', undefined)).toBe(false);
+  });
+  it('handles empty/nullish error messages', () => {
+    expect(shouldRetryIPv4('', dual)).toBe(false);
+    expect(shouldRetryIPv4(null, dual)).toBe(false);
   });
 });
 

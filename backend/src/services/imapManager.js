@@ -11,7 +11,7 @@ import { decrypt } from './encryption.js';
 import { sendPushToUser } from './pushNotifications.js';
 import { redactEmail } from '../utils/redact.js';
 import { adjustFolderCounts } from '../utils/mailUtils.js';
-import { resolveForConnection } from './hostValidation.js';
+import { resolveForConnection, createPinnedLookup } from './hostValidation.js';
 import { getConnectionPolicy } from './connectionPolicy.js';
 import { applyInboxRules, applyBlockList } from './inboxRules.js';
 import { generateVCard } from '../utils/vcard.js';
@@ -39,6 +39,52 @@ function raceTimeout(promise, ms, label) {
     promise,
     new Promise((_, reject) => setTimeout(() => reject(new Error(`${label} timeout (${ms}ms)`)), ms)),
   ]);
+}
+
+// Connect a fresh ImapFlow client, with an IPv4 fallback for broken IPv6 (#382). autoSelectFamily
+// (set in makeClientCfg) already races the TCP connect and recovers when a family's TCP handshake
+// is dead or hangs — but it commits to whichever family wins the TCP race, so an IPv6 path that
+// COMPLETES the TCP handshake and then STALLS the TLS handshake (broken PMTU / filtered ICMPv6)
+// hangs to the timeout with no recovery. When the first attempt times out on a genuinely dual-stack
+// host, retry once forcing IPv4-only, which sidesteps the stalled IPv6 handshake. Only a timeout
+// triggers the retry — refusals / auth / cert errors are not a family problem, so they propagate
+// unchanged. Returns a connected client the caller owns (it attaches its own 'close'/idle listeners).
+async function connectImapClient(account, resolved, cfgOpts, timeoutMs, label) {
+  const attempt = async (res, tag) => {
+    const client = new ImapFlow(makeClientCfg(account, res, cfgOpts));
+    // #360: an 'error' emitted during the handshake with no listener is unhandled and crashes the
+    // process. Attach one that outlives connect; a caller adding its own later just logs alongside.
+    client.on('error', (err) => console.error(`IMAP error for ${logAccount(account)}:`, err.message));
+    try {
+      await raceTimeout(client.connect(), timeoutMs, tag);
+    } catch (err) {
+      // close() (not logout()): forcefully destroys the socket and aborts the still-pending
+      // connect left running by the race timeout — a graceful logout could itself hang on a
+      // wedged/half-open connection (the exact failure we're recovering from).
+      try { client.close(); } catch { /* already closed */ }
+      throw err;
+    }
+    return client;
+  };
+  try {
+    return await attempt(resolved, label);
+  } catch (err) {
+    if (!shouldRetryIPv4(err?.message, resolved.addresses)) throw err;
+    const v4 = resolved.addresses.filter(a => !a.includes(':'));
+    console.warn(`IMAP connect stalled for ${logAccount(account)} (${label}); retrying IPv4-only`);
+    const v4Resolved = { ...resolved, addresses: v4, host: v4[0], lookup: createPinnedLookup(v4) };
+    return await attempt(v4Resolved, `${label} IPv4-retry`);
+  }
+}
+
+// Decide whether a failed connect should be retried IPv4-only: only when it was a TIMEOUT (a stall
+// a family switch can bypass — not an auth / refusal / cert error, which IPv4 won't help) AND the
+// host is genuinely dual-stack (both families resolved, so a wedged IPv6 handshake is the plausible
+// cause and there is a v4 address to fall back to). Pure and unit-testable. (#382)
+export function shouldRetryIPv4(errMessage, addresses) {
+  const addrs = addresses || [];
+  const v4 = addrs.filter(a => !a.includes(':')); // IPv6 literals always contain a colon
+  return /timeout/i.test(String(errMessage || '')) && v4.length > 0 && v4.length !== addrs.length;
 }
 
 // A per-key counting semaphore: at most `limit` holders per key run concurrently; the rest
@@ -1039,20 +1085,9 @@ async function acquirePooledClient(account) {
   if (pool.clients.length < POOL_SIZE) {
     const freshAccount = await ensureFreshToken(account);
     const { resolved, policy } = await resolveAccountHost(freshAccount);
-    const client = new ImapFlow(makeClientCfg(freshAccount, resolved, { policy }));
-    // Attach 'error' BEFORE connect (#360): an ImapFlow 'error' emitted during the
-    // handshake (e.g. socket timeout) with no listener is an unhandled EventEmitter
-    // error, which crashes the whole process. The handler only logs, so a genuine
-    // connect() failure still rejects and propagates through the caller's try/catch.
-    client.on('error', (err) => {
-      console.error(`IMAP pool error for account ${id}:`, err.message);
-    });
-    await Promise.race([
-      client.connect(),
-      new Promise((_, reject) =>
-        setTimeout(() => reject(new Error('IMAP connection timeout (30s)')), 30000)
-      ),
-    ]);
+    // Connect with the shared IPv4-fallback helper (#382); it attaches the #360 handshake-error
+    // listener and recovers from a stalled IPv6 handshake by retrying IPv4-only.
+    const client = await connectImapClient(freshAccount, resolved, { policy }, 30000, 'IMAP pool connect');
     // Remove from pool immediately when the server closes the socket, then
     // wake any waiters so they can claim another idle connection if one exists.
     client.on('close', () => {
@@ -1076,16 +1111,7 @@ async function acquirePooledClient(account) {
       try {
         const freshAccount = await ensureFreshToken(account);
         const { resolved, policy } = await resolveAccountHost(freshAccount);
-        const tmp = new ImapFlow(makeClientCfg(freshAccount, resolved, { policy }));
-        tmp.on('error', (err) => {
-          console.error(`IMAP temp client error for account ${account.id}:`, err.message);
-        });
-        await Promise.race([
-          tmp.connect(),
-          new Promise((_, rej) =>
-            setTimeout(() => rej(new Error('IMAP connection timeout (30s)')), 30000)
-          ),
-        ]);
+        const tmp = await connectImapClient(freshAccount, resolved, { policy }, 30000, 'IMAP temp connect');
         resolve(tmp);
       } catch (err) {
         reject(err);
@@ -1150,15 +1176,8 @@ async function withFreshClient(account, fn) {
 async function withFreshLogin(account, fn) {
   const fresh = await ensureFreshToken(account);
   const { resolved, policy } = await resolveAccountHost(fresh);
-  const client = new ImapFlow(makeClientCfg(fresh, resolved, { policy }));
-  client.on('error', () => {}); // avoid unhandled 'error' on abrupt close
+  const client = await connectImapClient(fresh, resolved, { policy }, 30000, 'IMAP fresh-login connect');
   try {
-    await Promise.race([
-      client.connect(),
-      new Promise((_, reject) =>
-        setTimeout(() => reject(new Error('IMAP connection timeout (30s)')), 30000)
-      ),
-    ]);
     return await fn(client);
   } finally {
     // close() (not logout()): destroys the socket and aborts a still-pending connect()
@@ -1753,26 +1772,14 @@ export class ImapManager {
     const { resolved, policy } = await resolveAccountHost(account);
     let client;
     try {
-      client = new ImapFlow(makeClientCfg(account, resolved, { enableIdle: providerProfile(account).usesIdle !== false, policy, idleKeepaliveMs: providerProfile(account).idleKeepaliveMs }));
-      // Prevent unhandled 'error' events from crashing the Node.js process.
-      // ImapFlow emits 'error' on socket timeouts and other transport-level failures;
-      // without this listener Node throws on unhandled EventEmitter errors. It MUST be
-      // attached before connect() — an 'error' emitted during the handshake window is
-      // otherwise unhandled and takes the whole process down (#360). It only logs, so a
-      // real connect() failure still rejects and is handled by the try/catch below.
-      client.on('error', (err) => {
-        console.error(`IMAP error for ${logAccount(account)}:`, err.message);
-      });
-      // Race the connect against a 30-second timeout.
-      // client.connect() has no built-in connection timeout — on slow or unresponsive
-      // IMAP servers (e.g. purelymail.com during cold starts) it can hang indefinitely,
-      // silently blocking all further retries because connectingAccounts still holds the lock.
-      await Promise.race([
-        client.connect(),
-        new Promise((_, reject) =>
-          setTimeout(() => reject(new Error('IMAP connection timeout (30s)')), 30000)
-        ),
-      ]);
+      // Connect via the shared helper: it attaches the #360 handshake-error listener, races the
+      // connect against a 30s timeout (client.connect() has none — a slow/unresponsive server like
+      // purelymail on a cold start would otherwise hang forever, wedging retries while
+      // connectingAccounts holds the lock), and recovers from a stalled IPv6 handshake by retrying
+      // IPv4-only (#382).
+      client = await connectImapClient(account, resolved,
+        { enableIdle: providerProfile(account).usesIdle !== false, policy, idleKeepaliveMs: providerProfile(account).idleKeepaliveMs },
+        30000, 'IMAP connect');
 
       // Remove from active connections the moment the server closes the socket.
       // Without this, a cleanly-closed connection lingers in this.connections and
@@ -1955,12 +1962,7 @@ export class ImapManager {
       slotHeld = true;
       const fresh = await raceTimeout(ensureFreshToken(account), 15000, 'Poll-only token refresh');
       const { resolved, policy } = await raceTimeout(resolveAccountHost(fresh), 15000, 'Poll-only host resolve');
-      client = new ImapFlow(makeClientCfg(fresh, resolved, { enableIdle: false, policy }));
-      client.on('error', () => {}); // logout() below aborts a timed-out socket; swallow the resulting error
-      await Promise.race([
-        client.connect(),
-        new Promise((_, rej) => setTimeout(() => rej(new Error('Poll-only connect timeout (30s)')), 30000)),
-      ]);
+      client = await connectImapClient(fresh, resolved, { enableIdle: false, policy }, 30000, 'Poll-only connect');
 
       const folderMs = this.userFolderSyncIntervalMs.has(account.user_id)
         ? this.userFolderSyncIntervalMs.get(account.user_id)
@@ -2021,9 +2023,7 @@ export class ImapManager {
     try {
       const fresh = await raceTimeout(ensureFreshToken(account), 15000, 'Fresh sync token refresh');
       const { resolved, policy } = await raceTimeout(resolveAccountHost(fresh), 15000, 'Fresh sync host resolve');
-      client = new ImapFlow(makeClientCfg(fresh, resolved, { policy }));
-      client.on('error', () => {}); // close() below intentionally aborts timed-out sockets
-      await raceTimeout(client.connect(), 30000, 'Fresh sync connect');
+      client = await connectImapClient(fresh, resolved, { policy }, 30000, 'Fresh sync connect');
       // syncMessages' own CONDSTORE modseq check is the "did anything change?" gate: it returns
       // cheaply when HIGHESTMODSEQ is unchanged, and runs the delta fetch on ANY change. We used
       // to pre-gate on a UID-watermark search here, but that only detected NEW mail — a flag
@@ -2081,37 +2081,28 @@ export class ImapManager {
         // Kept outside the race so a timeout can force-close a half-open client.
         let pendingClient = null;
         try {
-          // One overall timeout guards the ENTIRE reconnect. The DB query, token refresh
-          // and host resolution below are otherwise un-timeout-guarded; a hang in any of
-          // them would never reach the finally, leaving connectingAccounts set — which
-          // silently freezes both future sync ticks (the skip guard above) and the health
-          // check (it skips accounts mid-connect) for this account until the await
-          // eventually resolves. 40s covers a slow connect (~30s) plus the setup steps.
-          const reconnected = await Promise.race([
-            (async () => {
-              const accountResult = await query('SELECT * FROM email_accounts WHERE id = $1', [account.id]);
-              // Bail if the account was deleted OR disabled since this reconnect was queued.
-              // The staleness check schedules a reconnect via setTimeout that disconnectAccount
-              // cannot cancel, so a user disabling a stuck account must not be silently revived.
-              if (!accountResult.rows.length || !accountResult.rows[0].enabled) return null;
-              const freshAccount = await ensureFreshToken(accountResult.rows[0]);
-              const { resolved, policy } = await resolveAccountHost(freshAccount);
-              pendingClient = new ImapFlow(makeClientCfg(freshAccount, resolved, { enableIdle: providerProfile(freshAccount).usesIdle !== false, policy, idleKeepaliveMs: providerProfile(freshAccount).idleKeepaliveMs }));
-              // Attach 'error' BEFORE connect (#360): a handshake-time 'error' with no
-              // listener is unhandled and crashes the process. Only logs; connect() still
-              // rejects into the outer catch. freshAccount === syncAccount here, so this is
-              // the same log line the post-connect listener used to emit.
-              pendingClient.on('error', (err) => {
-                console.error(`IMAP error for ${logAccount(freshAccount)}:`, err.message);
-              });
-              await pendingClient.connect();
-              return { client: pendingClient, account: freshAccount };
-            })(),
-            new Promise((_, reject) =>
-              setTimeout(() => reject(new Error('Reconnect timeout (40s)')), 40000)
-            ),
-          ]);
-          if (!reconnected) return; // account deleted mid-reconnect
+          // The setup steps (DB query, token refresh, host resolution) are otherwise
+          // un-timeout-guarded; a hang in any would never reach the finally, leaving
+          // connectingAccounts set — which silently freezes future sync ticks (the skip guard
+          // above) and the health check (it skips accounts mid-connect) for this account. Bound
+          // them together, then connect via the shared helper which owns the connect timeout and
+          // the IPv4 fallback (#382) — a single all-encompassing race would otherwise cut the
+          // fallback attempt short.
+          const setup = await raceTimeout((async () => {
+            const accountResult = await query('SELECT * FROM email_accounts WHERE id = $1', [account.id]);
+            // Bail if the account was deleted OR disabled since this reconnect was queued.
+            // The staleness check schedules a reconnect via setTimeout that disconnectAccount
+            // cannot cancel, so a user disabling a stuck account must not be silently revived.
+            if (!accountResult.rows.length || !accountResult.rows[0].enabled) return null;
+            const freshAccount = await ensureFreshToken(accountResult.rows[0]);
+            const { resolved, policy } = await resolveAccountHost(freshAccount);
+            return { freshAccount, resolved, policy };
+          })(), 20000, 'Reconnect setup');
+          if (!setup) return; // account deleted/disabled mid-reconnect
+          pendingClient = await connectImapClient(setup.freshAccount, setup.resolved,
+            { enableIdle: providerProfile(setup.freshAccount).usesIdle !== false, policy: setup.policy, idleKeepaliveMs: providerProfile(setup.freshAccount).idleKeepaliveMs },
+            30000, 'Reconnect');
+          const reconnected = { client: pendingClient, account: setup.freshAccount };
           activeClient = reconnected.client;
           syncAccount = reconnected.account;
           activeClient.on('close', () => {
@@ -3078,16 +3069,8 @@ export class ImapManager {
       if (!row || !row.enabled) throw new Error('Account deleted or disabled');
       const fresh = await ensureFreshToken(row);
       const { resolved, policy } = await resolveAccountHost(fresh);
-      const newClient = new ImapFlow(makeClientCfg(fresh, resolved, { policy }));
-      newClient.on('error', (err) => {
-        console.error(`Backfill IMAP error for ${logAccount(account)}:`, err.message);
-      });
-      await Promise.race([
-        newClient.connect(),
-        new Promise((_, reject) =>
-          setTimeout(() => reject(new Error('IMAP connection timeout (30s)')), 30000)
-        ),
-      ]); // if this throws, bfClient stays null
+      // if this throws, bfClient stays null (helper closes its own failed socket, #382 IPv4 fallback)
+      const newClient = await connectImapClient(fresh, resolved, { policy }, 30000, 'Backfill connect');
       bfClient = newClient;
       batchesOnConn = 0;
     };
@@ -3543,12 +3526,7 @@ export class ImapManager {
         if (!row) return;
         const fresh = await ensureFreshToken(row);
         const { resolved, policy } = await resolveAccountHost(fresh);
-        client = new ImapFlow(makeClientCfg(fresh, resolved, { policy }));
-        client.on('error', () => {});
-        await Promise.race([
-          client.connect(),
-          new Promise((_, reject) => setTimeout(() => reject(new Error('IMAP timeout (30s)')), 30000)),
-        ]);
+        client = await connectImapClient(fresh, resolved, { policy }, 30000, 'Flag-sync connect');
 
         const uidToId = new Map(msgs.map(m => [m.uid, m.id]));
         const updates = [];
@@ -3701,13 +3679,7 @@ export class ImapManager {
         if (!row) throw new Error('Account deleted');
         const fresh = await ensureFreshToken(row);
         const { resolved, policy } = await resolveAccountHost(fresh);
-        const c = new ImapFlow(makeClientCfg(fresh, resolved, { policy }));
-        c.on('error', err => console.error(`Snippet indexer IMAP error ${logAccount(account)}:`, err.message));
-        await Promise.race([
-          c.connect(),
-          new Promise((_, rej) => setTimeout(() => rej(new Error('Connection timeout')), 30000)),
-        ]);
-        siClient = c;
+        siClient = await connectImapClient(fresh, resolved, { policy }, 30000, 'Snippet indexer connect');
       };
 
       await openClient();
