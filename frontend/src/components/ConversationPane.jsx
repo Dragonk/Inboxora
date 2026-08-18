@@ -22,9 +22,10 @@ export default function ConversationPane({ conversationId, targetLogicalMessageI
       const messages = data.logicalMessages || [];
       const newest = messages.at(-1)?.id;
       const unread = messages.filter(message => message.copies?.some(copy => !copy.isRead)).map(message => message.id);
-      setExpanded(new Set([newest, ...unread, targetLogicalMessageId].filter(Boolean)));
+      const initialIds = new Set([newest, ...unread, targetLogicalMessageId].filter(Boolean));
+      setExpanded(initialIds);
       setState({ loading: false, error: null, data });
-      for (const message of messages) if (new Set([newest, ...unread, targetLogicalMessageId].filter(Boolean)).has(message.id)) loadBody(message.id).catch(() => {});
+      for (const message of messages) if (initialIds.has(message.id)) loadBody(message.id).catch(() => {});
     }).catch(error => { if (!cancelled) setState({ loading: false, error: error.message || t('conversation.loadFailed'), data: null }); });
     return () => { cancelled = true; };
   }, [conversationId, targetLogicalMessageId, t]); // eslint-disable-line react-hooks/exhaustive-deps
