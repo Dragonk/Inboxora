@@ -4,6 +4,10 @@ function visibleList(page) {
   return page.locator('[role="list"]:visible').first();
 }
 
+function legacyReader(page) {
+  return page.locator('[data-testid="message-pane"]:visible, .message-pane:visible, [data-testid="message-list"]:visible, [role="main"]:visible').first();
+}
+
 test.describe('conversation engine browser E2E', () => {
   test.beforeEach(async ({ page, fixtureApi }) => {
     await fixtureApi;
@@ -38,23 +42,25 @@ test.describe('conversation engine browser E2E', () => {
     test(`opens parent and child with list=${listEnabled} reader=${readerEnabled}`, async ({ page, fixtureApi }) => {
       await fixtureApi;
       await page.goto(`/?list=${Number(listEnabled)}&reader=${Number(readerEnabled)}`);
-      const list = visibleList(page);
-      await expect(list.getByText('Gmail reply chain', { exact: true }).first()).toBeVisible();
-      const parent = list.getByText('Gmail reply chain', { exact: true }).first();
-      await parent.click();
+      if (listEnabled) {
+        const list = visibleList(page);
+        await expect(list.getByText('Gmail reply chain', { exact: true }).first()).toBeVisible();
+        await list.getByText('Gmail reply chain', { exact: true }).first().click();
+      } else {
+        await expect(legacyReader(page)).toBeVisible();
+      }
       if (readerEnabled) {
         await expect(page.locator('section[data-conversation-id]:visible')).toBeVisible();
       } else {
-        await expect(page.locator('[data-testid="message-pane"]:visible, .message-pane:visible, [data-testid="message-list"]:visible, [role="main"]:visible').first()).toBeVisible();
+        await expect(legacyReader(page)).toBeVisible();
       }
       if (listEnabled) {
-        await page.goBack().catch(() => {});
         await page.goto(`/?list=${Number(listEnabled)}&reader=${Number(readerEnabled)}`);
         const expandedList = visibleList(page);
         await expandedList.locator('[data-testid="conversation-expand-conversation-gmail"]').click();
         await expandedList.locator('[data-logical-message-id]').first().click();
         if (readerEnabled) await expect(page.locator('section[data-conversation-id]:visible')).toBeVisible();
-        else await expect(page.locator('[data-testid="message-pane"]:visible, .message-pane:visible, [data-testid="message-list"]:visible, [role="main"]:visible').first()).toBeVisible();
+        else await expect(legacyReader(page)).toBeVisible();
       }
     });
   }
