@@ -82,7 +82,7 @@ router.get('/conversations', async (req, res) => {
        WHERE lm.conversation_id = c.id
      ) preview ON true
      WHERE c.user_id = $1 ${accountFilter} ${cursorFilter}
-     GROUP BY c.id, top_latest.id
+     GROUP BY c.id, top_latest.id, preview.logical_messages
      ORDER BY COALESCE(c.last_message_at, c.created_at) DESC, c.id DESC
      LIMIT $${limitParam}
   `, values);
