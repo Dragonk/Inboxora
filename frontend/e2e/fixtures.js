@@ -68,11 +68,14 @@ export const test = base.extend({
     await page.route('**/api/auth/me', route => route.fulfill({ json: { user: fixture.user } }));
     await page.route('**/api/auth/preferences', async route => {
       if (route.request().method() === 'PATCH') return route.fulfill({ json: { ok: true } });
+      const url = new URL(page.url());
+      const listEnabled = url.searchParams.has('list') ? url.searchParams.get('list') !== '0' : true;
+      const readerEnabled = url.searchParams.has('reader') ? url.searchParams.get('reader') !== '0' : true;
       return route.fulfill({ json: {
         language: 'pl',
         theme: 'light',
-        conversation_list_view_enabled: true,
-        conversation_reader_view_enabled: true,
+        conversation_list_view_enabled: listEnabled,
+        conversation_reader_view_enabled: readerEnabled,
         block_remote_images: true,
       } });
     });
