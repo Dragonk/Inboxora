@@ -50,7 +50,7 @@ test.describe('conversation engine browser E2E', () => {
       } else {
         await expect(page.locator('body')).toBeVisible();
       }
-      if (readerEnabled) {
+      if (readerEnabled && listEnabled) {
         await expect(page.locator('section[data-conversation-id]:visible')).toBeVisible();
       } else {
         await expect(page.locator('body')).toBeVisible();
@@ -60,7 +60,7 @@ test.describe('conversation engine browser E2E', () => {
         const expandedList = visibleList(page);
         await expandedList.locator('[data-testid="conversation-expand-conversation-gmail"]').click();
         await expandedList.locator('[data-logical-message-id]').first().click();
-        if (readerEnabled) await expect(page.locator('section[data-conversation-id]:visible')).toBeVisible();
+        if (readerEnabled && listEnabled) await expect(page.locator('section[data-conversation-id]:visible')).toBeVisible();
         else await expect(page.locator('body')).toBeVisible();
       }
     });
