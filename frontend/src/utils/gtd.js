@@ -506,6 +506,30 @@ export function appendMessagesByIdentity(existing, incoming) {
   return additions.length ? [...messages, ...additions] : messages;
 }
 
+// Collapse a message list so no two rows share a stable identity (Message-ID when present).
+// The SAME email can exist as separate DB rows in more than one place the list draws from — the
+// same message delivered to two accounts in a unified inbox, or a received copy alongside its
+// Sent twin — and every raw list load (setMessages) would otherwise render both, even though the
+// app already treats them as ONE message (see isSelectedRow, which highlights them together).
+// This is the render-time guard the identity-aware merges (appendMessagesByIdentity) don't cover.
+// Order-preserving; on a collision the INBOX copy wins so the list shows the received message.
+// Null-safe: rows without a Message-ID key on their (unique) id, so distinct ones never merge. Pure.
+export function dedupeByIdentity(list) {
+  const idxByKey = new Map(); // identity -> index in result
+  const result = [];
+  for (const m of list || []) {
+    if (!m) continue;
+    const key = messageIdentity(m);
+    if (!idxByKey.has(key)) {
+      idxByKey.set(key, result.length);
+      result.push(m);
+    } else if (result[idxByKey.get(key)].folder !== 'INBOX' && m.folder === 'INBOX') {
+      result[idxByKey.get(key)] = m; // prefer the INBOX copy of the same logical message
+    }
+  }
+  return result;
+}
+
 // Filter `incoming` to the messages whose stable identity is not already present in `existing`.
 // Used by restore/undo so a message the network refresh already brought back — possibly under a
 // regenerated id, matched via Message-ID — is not re-added as a duplicate. Pure.
