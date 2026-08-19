@@ -471,7 +471,8 @@
       "recent": "Ostatnie",
       "favorites": "Ulubione",
       "search": "Szukaj folderów…"
-    }
+    },
+    "copyLink": "Kopiuj link"
   },
   "commandPalette": {
     "placeholder": "Wyszukaj działanie…",
