@@ -434,6 +434,10 @@ router.post('/send', async (req, res) => {
       cc: mapRecipientList(normalizedCc),
       snippet: buildSentSnippet(body, bodyIsHtml),
       date: new Date(),
+      // Carried so the Sent row threads into its conversation via the References chain
+      // rather than orphaning at its own Message-ID (#378).
+      inReplyTo: mailOptions.inReplyTo || null,
+      references: mailOptions.references || null,
     } : null;
 
     if (sentFolder) {

@@ -2741,7 +2741,16 @@ export class ImapManager {
                   body_text = COALESCE(messages.body_text, EXCLUDED.body_text),
                   attachments = COALESCE(messages.attachments::text, EXCLUDED.attachments::text)::jsonb,
                   thread_references = COALESCE(messages.thread_references, EXCLUDED.thread_references),
-                  thread_id = COALESCE(messages.thread_id, EXCLUDED.thread_id),
+                  -- #378: heal a row that was self-rooted (thread_id = its own Message-ID, e.g. a
+                  -- sent copy orphaned by an older upsert) by adopting the real conversation root
+                  -- the sync just computed. Genuine thread roots keep their value (EXCLUDED equals it).
+                  thread_id = CASE
+                    WHEN messages.thread_id = messages.message_id
+                         AND EXCLUDED.thread_id IS NOT NULL
+                         AND EXCLUDED.thread_id <> messages.message_id
+                    THEN EXCLUDED.thread_id
+                    ELSE COALESCE(messages.thread_id, EXCLUDED.thread_id)
+                  END,
                   is_bulk = COALESCE(messages.is_bulk, EXCLUDED.is_bulk),
                   category = COALESCE(messages.category, EXCLUDED.category),
                   list_unsubscribe = COALESCE(messages.list_unsubscribe, EXCLUDED.list_unsubscribe),
@@ -3384,7 +3393,14 @@ export class ImapManager {
                       body_text = COALESCE(messages.body_text, EXCLUDED.body_text),
                       attachments = COALESCE(messages.attachments::text, EXCLUDED.attachments::text)::jsonb,
                       thread_references = COALESCE(messages.thread_references, EXCLUDED.thread_references),
-                      thread_id = COALESCE(messages.thread_id, EXCLUDED.thread_id),
+                      -- #378: heal a self-rooted (orphaned) row by adopting the real conversation root.
+                      thread_id = CASE
+                        WHEN messages.thread_id = messages.message_id
+                             AND EXCLUDED.thread_id IS NOT NULL
+                             AND EXCLUDED.thread_id <> messages.message_id
+                        THEN EXCLUDED.thread_id
+                        ELSE COALESCE(messages.thread_id, EXCLUDED.thread_id)
+                      END,
                       is_bulk = COALESCE(messages.is_bulk, EXCLUDED.is_bulk),
                       category = COALESCE(messages.category, EXCLUDED.category),
                       list_unsubscribe = COALESCE(messages.list_unsubscribe, EXCLUDED.list_unsubscribe),
@@ -3867,10 +3883,18 @@ export class ImapManager {
     cc = [],
     snippet = '',
     date = new Date(),
+    inReplyTo = null,
+    references = null,
   }) {
     if (!uid || !folder) return;
     const msgId = sanitizeStr(messageId);
-    const threadId = msgId || null;
+    // Thread the Sent copy into its conversation the same way a real sync does — via the
+    // RFC 5322 References/In-Reply-To chain — instead of rooting it at its own Message-ID.
+    // Self-rooting orphaned every sent message into its own thread, showing as a duplicate
+    // "shadow" separate from the conversation (#378).
+    const threadId = msgId
+      ? await computeThreadId(account.id, msgId, sanitizeStr(inReplyTo), sanitizeStr(references), sanitizeStr(subject))
+      : null;
     await query(`
       INSERT INTO messages (
         account_id, uid, folder, message_id, subject,
@@ -3893,7 +3917,14 @@ export class ImapManager {
         date = EXCLUDED.date,
         snippet = CASE WHEN EXCLUDED.snippet <> '' THEN EXCLUDED.snippet ELSE messages.snippet END,
         is_read = true,
-        thread_id = COALESCE(messages.thread_id, EXCLUDED.thread_id)
+        -- #378: adopt the freshly computed conversation root if the stored row was self-rooted.
+        thread_id = CASE
+          WHEN messages.thread_id = messages.message_id
+               AND EXCLUDED.thread_id IS NOT NULL
+               AND EXCLUDED.thread_id <> messages.message_id
+          THEN EXCLUDED.thread_id
+          ELSE COALESCE(messages.thread_id, EXCLUDED.thread_id)
+        END
     `, [
       account.id, uid, folder, msgId,
       sanitizeStr(subject || '(no subject)'),
