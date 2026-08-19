@@ -439,6 +439,7 @@
     "markAsHam": "Segnala come Non Spam",
     "copySubject": "Copia oggetto",
     "copySender": "Copia indirizzo mittente",
+    "copyLink": "Copia link",
     "viewHeaders": "Visualizza intestazioni complete",
     "delete": "Elimina",
     "headers": {

@@ -272,6 +272,18 @@ export default function ContextMenu({ x, y, message, onClose, onAction, defaultM
           icon: <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75"><path d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z"/><polyline points="22,6 12,13 2,6"/></svg>,
           action: () => { navigator.clipboard.writeText(message.from_email || ''); onAction('copy'); },
         },
+        {
+          // Durable permalink to this email: keyed on the stable Message-ID header (falls back to
+          // the volatile row UUID only when absent) so it survives the message moving folders /
+          // being re-synced. Resolved by /?m= on load — see MailApp deep-link handling (#270, #375).
+          label: t('contextMenu.copyLink'),
+          icon: <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75"><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/></svg>,
+          action: () => {
+            const ref = message.message_id || message.id;
+            if (ref) navigator.clipboard.writeText(`${window.location.origin}/?m=${encodeURIComponent(ref)}`);
+            onAction('copy');
+          },
+        },
       ]
     },
     {

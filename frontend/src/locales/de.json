@@ -434,6 +434,7 @@
     },
     "copySubject": "Betreff kopieren",
     "copySender": "Absenderadresse kopieren",
+    "copyLink": "Link kopieren",
     "viewHeaders": "Vollständige Kopfzeilen anzeigen",
     "delete": "Löschen",
     "headers": {

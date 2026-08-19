@@ -439,6 +439,7 @@
     "markAsHam": "标记为非垃圾邮件",
     "copySubject": "复制主题",
     "copySender": "复制发件人地址",
+    "copyLink": "复制链接",
     "viewHeaders": "查看完整邮件头",
     "delete": "删除",
     "headers": {

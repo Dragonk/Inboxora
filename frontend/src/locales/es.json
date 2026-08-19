@@ -439,6 +439,7 @@
     "markAsHam": "Marcar como no Spam",
     "copySubject": "Copiar asunto",
     "copySender": "Copiar dirección del remitente",
+    "copyLink": "Copiar enlace",
     "viewHeaders": "Ver encabezados completos",
     "delete": "Eliminar",
     "headers": {
