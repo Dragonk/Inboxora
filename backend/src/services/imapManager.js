@@ -1381,7 +1381,7 @@ export class ImapManager {
         for (const accountId of this.connections.keys()) {
           if (this.snippetIndexerRunning.has(accountId)) continue;
           const backlog = await query(
-            "SELECT 1 FROM messages WHERE account_id = $1 AND (snippet IS NULL OR snippet = '') LIMIT 1",
+            "SELECT 1 FROM messages WHERE account_id = $1 AND (snippet IS NULL OR snippet = '') AND snippet_attempted_at IS NULL LIMIT 1",
             [accountId]
           );
           if (!backlog.rows.length) continue;
@@ -3706,7 +3706,7 @@ export class ImapManager {
     try {
       // Check if there's anything to index before opening a connection
       const countResult = await query(
-        "SELECT count(*) FROM messages WHERE account_id = $1 AND (snippet IS NULL OR snippet = '')",
+        "SELECT count(*) FROM messages WHERE account_id = $1 AND (snippet IS NULL OR snippet = '') AND snippet_attempted_at IS NULL",
         [account.id]
       );
       const totalMissing = parseInt(countResult.rows[0].count);
@@ -3735,7 +3735,7 @@ export class ImapManager {
       // Get distinct folders that have unindexed messages
       const foldersResult = await query(
         `SELECT folder, count(*) as cnt FROM messages
-         WHERE account_id = $1 AND (snippet IS NULL OR snippet = '')
+         WHERE account_id = $1 AND (snippet IS NULL OR snippet = '') AND snippet_attempted_at IS NULL
          GROUP BY folder ORDER BY cnt DESC`,
         [account.id]
       );
@@ -3757,7 +3757,7 @@ export class ImapManager {
 
           if (batchCount >= MAX_BATCHES_PER_RUN) {
             const remaining = await query(
-              "SELECT count(*) FROM messages WHERE account_id = $1 AND (snippet IS NULL OR snippet = '')",
+              "SELECT count(*) FROM messages WHERE account_id = $1 AND (snippet IS NULL OR snippet = '') AND snippet_attempted_at IS NULL",
               [account.id]
             );
             console.log(`Snippet indexer paused for ${logAccount(account)} after ${batchCount} batches — ${remaining.rows[0].count} remaining, will resume on next startup`);
@@ -3766,7 +3766,7 @@ export class ImapManager {
 
           const batchResult = await query(
             `SELECT uid FROM messages
-             WHERE account_id = $1 AND folder = $2 AND (snippet IS NULL OR snippet = '')
+             WHERE account_id = $1 AND folder = $2 AND (snippet IS NULL OR snippet = '') AND snippet_attempted_at IS NULL
              ORDER BY date DESC LIMIT $3`,
             [account.id, folder, batchSize]
           );
@@ -3778,7 +3778,7 @@ export class ImapManager {
             try {
               for await (const msg of siClient.fetch(uids.join(','), {
                 uid: true, envelope: true, bodyStructure: true,
-                bodyParts: ['1', '1.1', '1.2'],
+                bodyParts: BODY_PREFETCH_PARTS,
               }, { uid: true })) {
                 try {
                   const parsed = await parseMessage(msg);
@@ -3795,6 +3795,16 @@ export class ImapManager {
             } finally {
               lock.release();
             }
+            // Mark every message in this batch that still has no snippet as attempted, so a
+            // fetched-but-empty (or server-missing) message is never re-selected — this is what
+            // guarantees the backlog drains by one batch per iteration instead of looping on the
+            // same un-snippetable rows forever (#379).
+            await query(
+              `UPDATE messages SET snippet_attempted_at = NOW()
+               WHERE account_id = $1 AND folder = $2 AND uid = ANY($3::bigint[])
+                 AND (snippet IS NULL OR snippet = '') AND snippet_attempted_at IS NULL`,
+              [account.id, folder, uids]
+            );
             batchCount++;
             consecutiveErrors = 0;
           } catch (err) {
