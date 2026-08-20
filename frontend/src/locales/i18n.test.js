@@ -103,6 +103,7 @@ import assert from 'node:assert/strict';
 import { readFileSync, readdirSync } from 'node:fs';
 import { join, dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import i18next from 'i18next';
 
 const dir = dirname(fileURLToPath(import.meta.url));
 
@@ -140,7 +141,7 @@ const SAME_VALUE_ALLOWED = {
   // "Version" — same spelling in de, en, fr
   'admin.about.version': [['de', 'en', 'fr']],
   // "{{n}} min" — the "min" abbreviation is shared in en, es, fr, it
-  'admin.lock.autoLockMin': [['en', 'es', 'fr', 'it']],
+  'admin.lock.autoLockMin': [['en', 'es', 'fr', 'it', 'pl']],
 
   // "Website" — international term, same in de and en
   'admin.about.website': [['de', 'en']],
@@ -157,13 +158,15 @@ const SAME_VALUE_ALLOWED = {
   // email placeholder — example.com address looks the same in en, ru, zhCN
   'admin.accounts.emailPh':    [['en', 'ru', 'zhCN']],
   'admin.aliases.emailPh':     [['de', 'en', 'ru', 'zhCN']],
-  'admin.privacy.addDomainPh': [['de', 'en', 'ru', 'zhCN']],
+  'admin.privacy.addDomainPh': [['de', 'en', 'pl', 'ru', 'zhCN']],
   'admin.privacy.addSenderPh': [['en', 'ru', 'zhCN']],
+  'admin.aliases.replyToLabel': [['en', 'pl']],
+
   'admin.rules.actionForwardPlaceholder': [['es', 'it']],
-  'admin.sso.domainsPh':       [['de', 'en', 'ru', 'zhCN']],
+  'admin.sso.domainsPh':       [['de', 'en', 'pl', 'ru', 'zhCN']],
   'admin.users.invitePh':      [['de', 'en', 'ru', 'zhCN']],
-  'compose.bccPh':             [['de', 'en', 'ru', 'zhCN']],
-  'compose.ccPh':              [['de', 'en', 'ru', 'zhCN']],
+  'compose.bccPh':             [['de', 'en', 'pl', 'ru', 'zhCN']],
+  'compose.ccPh':              [['de', 'en', 'pl', 'ru', 'zhCN']],
   'compose.toPh':              [['en', 'ru', 'zhCN']],
 
   // "Port" — universal technical term, same in de, en, fr
@@ -183,7 +186,7 @@ const SAME_VALUE_ALLOWED = {
   'admin.appearance.typographyDisplay': [['en', 'it']],
 
   // "Mono" — typography abbreviation, same in de, en, es, fr, it
-  'admin.appearance.typographyMono': [['de', 'en', 'es', 'fr', 'it']],
+  'admin.appearance.typographyMono': [['de', 'en', 'es', 'fr', 'it', 'pl']],
 
   // "Archive" — same spelling in en and fr
   'admin.folderMappings.archive': [['en', 'fr']],
@@ -235,7 +238,11 @@ const SAME_VALUE_ALLOWED = {
   'admin.sso.title': [['de', 'en', 'it']],
 
   // "SSO" — acronym, same in de, en, es, fr, it, ru
-  'admin.tabs.sso': [['de', 'en', 'es', 'fr', 'it', 'ru']],
+  'admin.tabs.sso': [['de', 'en', 'es', 'fr', 'it', 'pl', 'ru']],
+
+  // "Telefon" / "Projekt" — established Polish/German technical loanwords
+  'contacts.fields.phone': [['de', 'pl']],
+  'todoist.project':       [['de', 'pl']],
 
   // "Password" — international term, same in en and it
   'admin.systemEmail.password':      [['en', 'it']],
@@ -316,7 +323,8 @@ const SAME_VALUE_ALLOWED = {
   // "Todoist" — brand name, same in all locales
   'admin.integrations.todoist.title': 'any',
   // "Beta" — same spelling in de, en, es, it; fr uses "Bêta", ru uses "Бета", zh uses "测试版"
-  'todoist.betaLabel': [['de', 'en', 'es', 'it']],
+  'todoist.betaLabel': [['de', 'en', 'es', 'it', 'pl']],
+
   // "Description" — same spelling in en and fr
   'todoist.description': [['en', 'fr']],
   // "Labels" — international loanword, same in de and en
@@ -328,6 +336,28 @@ const SAME_VALUE_ALLOWED = {
   // "Media" — "Medium" translates identically in es and it (Romance languages)
   'todoist.priorityMedium': [['es', 'it']],
 };
+
+// Locale-specific plural forms are allowed per locale. A locale may add forms
+// required by its Intl.PluralRules categories without forcing every other locale
+// to carry unused keys. Existing locale files may also define their own forms.
+const LOCALE_SPECIFIC_KEYS_BY_LOCALE = {
+  pl: new Set([
+    'message.attachment_few', 'message.attachment_many',
+    'messageList.bulkDeleted.title_few', 'messageList.bulkDeleted.title_many',
+    'messageList.bulkDeleted.failBody_few', 'messageList.bulkDeleted.failBody_many',
+    'messageList.bulkMoved.title_few', 'messageList.bulkMoved.title_many',
+    'messageList.bulkMoved.failBody_few', 'messageList.bulkMoved.failBody_many',
+    'messageList.bulkArchived.title_few', 'messageList.bulkArchived.title_many',
+    'messageList.bulkArchived.failBody_few', 'messageList.bulkArchived.failBody_many',
+    'sidebar.hiddenFolders_few', 'sidebar.hiddenFolders_many',
+    'admin.messageList.markReadDelaySeconds_one',
+    'admin.messageList.markReadDelaySeconds_few',
+    'admin.messageList.markReadDelaySeconds_many',
+  ]),
+};
+const LOCALE_SPECIFIC_KEYS = new Set(
+  Object.values(LOCALE_SPECIFIC_KEYS_BY_LOCALE).flatMap(keys => [...keys]),
+);
 
 // Keys referenced dynamically (via a variable passed to t()) that cannot be
 // found by a plain text search of the source. Add here to suppress false
@@ -541,7 +571,7 @@ function isAllowedPair(key, lang1, lang2) {
 
 const locales = loadLocales();
 const langs = Object.keys(locales).sort();
-const allKeys = [...new Set(langs.flatMap(l => Object.keys(locales[l])))].sort();
+const allKeys = [...new Set(langs.flatMap(l => Object.keys(locales[l])))].filter(k => !LOCALE_SPECIFIC_KEYS.has(k)).sort();
 
 describe('i18n locale files', () => {
 
@@ -565,6 +595,13 @@ describe('i18n locale files', () => {
     it('no unused keys', () => {
       const source = loadSourceText();
       const unused = allKeys.filter(k => !DYNAMIC_KEYS.has(k) && !source.includes(baseKey(k)));
+      for (const [owner, keys] of Object.entries(LOCALE_SPECIFIC_KEYS_BY_LOCALE)) {
+        for (const key of keys) {
+          assert.equal(typeof locales[owner]?.[key], 'string', `${owner} is missing locale-specific key ${key}`);
+          assert.notEqual(locales[owner][key], '', `${owner} locale-specific key ${key} is empty`);
+          assert.equal(source.includes(baseKey(key)), true, `locale-specific key ${key} is not referenced via its base key`);
+        }
+      }
       assert.equal(unused.length, 0,
         `Unused keys (remove from all locale files or add to DYNAMIC_KEYS if referenced dynamically):\n${unused.map(k => `  - ${k}`).join('\n')}`);
     });
@@ -635,4 +672,34 @@ describe('i18n locale files', () => {
     });
   });
 
+});
+
+describe('Polish plural resolution', () => {
+  it('selects one/few/many forms for representative Polish counts', async () => {
+    const instance = i18next.createInstance();
+    await instance.init({
+      lng: 'pl',
+      fallbackLng: false,
+      resources: {
+        pl: { translation: JSON.parse(readFileSync(join(dir, 'pl.json'), 'utf8')) },
+      },
+      interpolation: { escapeValue: false },
+    });
+
+    const expected = new Map([
+      [1, '1 załącznik'],
+      [2, '2 załączniki'],
+      [5, '5 załączników'],
+      [21, '21 załączników'],
+      [22, '22 załączniki'],
+      [25, '25 załączników'],
+      [101, '101 załączników'],
+      [102, '102 załączniki'],
+      [111, '111 załączników'],
+    ]);
+
+    for (const [count, value] of expected) {
+      assert.equal(instance.t('message.attachment', { count }), value, `count=${count}`);
+    }
+  });
 });
