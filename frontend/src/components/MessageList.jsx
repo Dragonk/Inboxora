@@ -4100,9 +4100,12 @@ function ThreadRow({ message, isExpanded, threadMsgs, isLoadingThread, selectedM
   // sub-message on message_id, not just the raw id, or the inbox thread row won't light up.
   const selectedHere = isSelectedRow(message, selectedMessageId, selectedMid)
     || !!threadMsgs?.some(m => isSelectedRow(m, selectedMessageId, selectedMid));
+  // The lingering "last viewed" glow is desktop-only (parity with the flat MessageRow, which
+  // gates it with `lastViewed && !isMobile`). On mobile there is no persistent reading pane, so
+  // a row staying highlighted after you swipe back from a message reads as a stuck selection.
   const isLastViewed = selectedHere
-    || lastViewedMessageId === message.id
-    || (lastViewedMessageId && threadMsgs?.some(m => m.id === lastViewedMessageId));
+    || (!isMobile && (lastViewedMessageId === message.id
+    || (lastViewedMessageId && threadMsgs?.some(m => m.id === lastViewedMessageId))));
   const bgDefault = isMobile ? 'var(--bg-primary)' : 'transparent';
   const rowBg = isChecked
     ? 'var(--accent-dim)'
@@ -4232,13 +4235,13 @@ function ThreadRow({ message, isExpanded, threadMsgs, isLoadingThread, selectedM
                   aria-label={`${isExpanded ? t('message.aiCollapse') : t('messageList.showAll')} (${messageCount})`}
                   onClick={(e) => { e.stopPropagation(); onThreadToggle(); }}
                   style={{
-                  display: 'inline-flex', alignItems: 'center', gap: 3,
-                  fontSize: 10, fontWeight: 600, color: 'var(--text-tertiary)',
-                  background: 'var(--bg-tertiary)', border: '1px solid var(--border-subtle)',
-                  borderRadius: 10, padding: '1px 6px', flexShrink: 0, cursor: 'pointer',
+                  display: 'inline-flex', alignItems: 'center', gap: isMobile ? 4 : 3,
+                  fontSize: isMobile ? 12 : 10, fontWeight: 600, color: 'var(--accent)',
+                  background: 'var(--bg-tertiary)', border: '1px solid var(--accent)',
+                  borderRadius: 10, padding: isMobile ? '3px 9px' : '1px 6px', flexShrink: 0, cursor: 'pointer',
                 }}
                 >
-                  <svg width="8" height="8" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
+                  <svg width={isMobile ? 11 : 8} height={isMobile ? 11 : 8} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
                     {isExpanded
                       ? <polyline points="18 15 12 9 6 15" />
                       : <polyline points="6 9 12 15 18 9" />}
