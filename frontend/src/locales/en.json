@@ -1266,6 +1266,8 @@
       "adminGroupValue": "Admin group value",
       "adminGroupValuePh": "mailflow-admins",
       "adminGroupValueDesc": "The group name that grants admin access. Users in this group become admins on every SSO login; users not in this group lose admin access.",
+      "loginMatchClaim": "Match existing accounts by",
+      "loginMatchClaimDesc": "OIDC claim matched against each MailFlow account’s username when an SSO login is first linked to an existing account (provisioning mode “login existing only”). Defaults to email. Use preferred_username, upn, etc. for identity providers where usernames are not email addresses — only if your provider guarantees the claim is unique and not user-editable.",
       "save": "Save",
       "editButton": "Edit",
       "deleteButton": "Delete",

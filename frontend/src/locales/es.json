@@ -1269,6 +1269,8 @@
       "adminGroupValue": "Valor del grupo de administrador",
       "adminGroupValuePh": "mailflow-admins",
       "adminGroupValueDesc": "El nombre del grupo que otorga acceso de administrador. Los usuarios de este grupo se convierten en administradores en cada inicio de sesión SSO; los usuarios que no están en este grupo pierden el acceso de administrador.",
+      "loginMatchClaim": "Asociar cuentas existentes por",
+      "loginMatchClaimDesc": "Reclamación (claim) de OIDC que se compara con el nombre de usuario de cada cuenta de MailFlow al vincular por primera vez un inicio de sesión SSO con una cuenta existente (modo de aprovisionamiento «solo iniciar sesión en cuentas existentes»). El valor predeterminado es email. Usa preferred_username, upn, etc. para proveedores de identidad cuyos nombres de usuario no son direcciones de correo, solo si tu proveedor garantiza que esa reclamación es única y no editable por el usuario.",
       "passwordLoginDisableMsg": "Los usuarios solo podrán iniciar sesión mediante SSO. Si tu proveedor SSO deja de estar disponible, se necesitará acceso directo a la base de datos para volver a habilitar el inicio de sesión con contraseña.",
       "passwordLoginDisableTitle": "¿Desactivar inicio de sesión con contraseña?",
       "passwordLoginDisabled": "El inicio de sesión con contraseña está desactivado",

@@ -3103,6 +3103,7 @@ const emptyProvider = {
   scopes: 'openid email profile', provisioning_mode: 'login_existing_only',
   allowed_domains: '', enabled: true, require_email_verified: true, allow_insecure: false,
   admin_group_claim: '', admin_group_value: '', rp_initiated_logout: false,
+  login_match_claim: 'email',
 };
 
 function SSOTab() {
@@ -3172,7 +3173,7 @@ function SSOTab() {
     setError('');
   };
   const openEdit = (p) => {
-    setForm({ ...p, client_secret: '••••••••', allowed_domains: p.allowed_domains || '', require_email_verified: p.require_email_verified !== false, allow_insecure: p.allow_insecure === true, admin_group_claim: p.admin_group_claim || '', admin_group_value: p.admin_group_value || '', rp_initiated_logout: p.rp_initiated_logout === true });
+    setForm({ ...p, client_secret: '••••••••', allowed_domains: p.allowed_domains || '', require_email_verified: p.require_email_verified !== false, allow_insecure: p.allow_insecure === true, admin_group_claim: p.admin_group_claim || '', admin_group_value: p.admin_group_value || '', rp_initiated_logout: p.rp_initiated_logout === true, login_match_claim: p.login_match_claim || 'email' });
     setTemplateNote('');
     setEditing(p);
     setError('');
@@ -3203,6 +3204,7 @@ function SSOTab() {
         admin_group_claim: form.admin_group_claim.trim() || null,
         admin_group_value: form.admin_group_value.trim() || null,
         rp_initiated_logout: !!form.rp_initiated_logout,
+        login_match_claim: (form.login_match_claim || '').trim() || 'email',
         ...(form.client_secret && form.client_secret !== '••••••••' ? { client_secret: form.client_secret } : {}),
       };
       if (editing === 'new') {
@@ -3517,6 +3519,22 @@ function SSOTab() {
                 <option key={m.value} value={m.value}>{m.label}</option>
               ))}
             </select>
+          </Field>
+
+          <Field label={t('admin.sso.loginMatchClaim')}>
+            <input
+              value={form.login_match_claim}
+              onChange={e => setForm(f => ({ ...f, login_match_claim: e.target.value }))}
+              placeholder="email"
+              list="oidc-login-match-claims"
+              style={inputStyle}
+            />
+            <datalist id="oidc-login-match-claims">
+              <option value="email" />
+              <option value="preferred_username" />
+              <option value="upn" />
+            </datalist>
+            <div style={{ fontSize: 11, color: 'var(--text-tertiary)', marginTop: 4 }}>{t('admin.sso.loginMatchClaimDesc')}</div>
           </Field>
 
           <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 12 }}>

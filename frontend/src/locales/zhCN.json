@@ -1269,6 +1269,8 @@
       "adminGroupValue": "管理员组值",
       "adminGroupValuePh": "mailflow-admins",
       "adminGroupValueDesc": "授予管理员访问权限的组名。该组中的用户在每次 SSO 登录时成为管理员；不在该组中的用户将失去管理员权限。",
+      "loginMatchClaim": "匹配现有账户所用声明",
+      "loginMatchClaimDesc": "首次将 SSO 登录关联到现有账户时（预配模式“仅登录现有账户”），用于与每个 MailFlow 账户用户名进行匹配的 OIDC 声明（claim）。默认为 email。对于用户名不是电子邮件地址的身份提供商，可设置为 preferred_username、upn 等——但仅当您的提供商保证该声明唯一且用户不可自行修改时。",
       "passwordLoginDisableMsg": "用户将只能通过 SSO 登录。如果 SSO 提供商不可用，则需要直接访问数据库才能重新启用密码登录。",
       "passwordLoginDisableTitle": "是否禁用密码登录？",
       "passwordLoginDisabled": "密码登录已禁用",
