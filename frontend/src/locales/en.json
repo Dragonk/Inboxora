@@ -191,6 +191,7 @@
     "selectToRead": "Select a message to read",
     "noSubject": "(no subject)",
     "to": "To:",
+    "via": "via",
     "attachment_one": "{{count}} attachment",
     "attachment_other": "{{count}} attachments",
     "loadingError": "Unable to load message body",

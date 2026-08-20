@@ -191,6 +191,7 @@
     "selectToRead": "Wybierz wiadomość do przeczytania",
     "noSubject": "(brak tematu)",
     "to": "Do:",
+    "via": "przez",
     "attachment_one": "{{count}} załącznik",
     "attachment_few": "{{count}} załączniki",
     "attachment_many": "{{count}} załączników",

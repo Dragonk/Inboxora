@@ -191,6 +191,7 @@
     "selectToRead": "Sélectionnez un message à lire",
     "noSubject": "(sans objet)",
     "to": "À :",
+    "via": "via",
     "attachment_one": "{{count}} pièce jointe",
     "attachment_other": "{{count}} pièces jointes",
     "loadingError": "Impossible de charger le corps du message",

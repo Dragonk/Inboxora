@@ -140,6 +140,8 @@ const SAME_VALUE_ALLOWED = {
   // ── Specific language groups ───────────────────────────────────────────────
   // "Version" — same spelling in de, en, fr
   'admin.about.version': [['de', 'en', 'fr']],
+  // "via" (on-behalf-of sender, #366) — identical preposition in en and fr
+  'message.via': [['en', 'fr']],
   // "{{n}} min" — the "min" abbreviation is shared in en, es, fr, it
   'admin.lock.autoLockMin': [['en', 'es', 'fr', 'it', 'pl']],
 

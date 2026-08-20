@@ -191,6 +191,7 @@
     "selectToRead": "请选择一封邮件以阅读",
     "noSubject": "（无主题）",
     "to": "收件人：",
+    "via": "经由",
     "attachment_one": "{{count}} 个附件",
     "attachment_other": "{{count}} 个附件",
     "loadingError": "无法加载邮件正文",

@@ -191,6 +191,7 @@
     "selectToRead": "Выберите сообщение для чтения",
     "noSubject": "(без темы)",
     "to": "Кому:",
+    "via": "через",
     "attachment_one": "{{count}} вложение",
     "attachment_other": "{{count}} вложений",
     "loadingError": "Не удалось загрузить тело сообщения",
