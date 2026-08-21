@@ -1288,6 +1288,71 @@ router.post('/messages/bulk-delete', async (req, res) => {
   }
 });
 
+// ── Mailbox cleanup (bloat analysis + per-sender preview) ──────────────────────
+// Both routes are READ-ONLY and strictly scoped to the caller's own account. Nothing here
+// deletes: the actual cleanup is performed by the client feeding the returned ids to the
+// existing /messages/bulk-delete (move-to-Trash) endpoint in <=500 batches.
+
+// Analyze an INBOX for "bloat": how much is bulk mail, the top bulk senders (Tier 1 cleanup
+// targets, exact from_email addresses), and promo-keyword buckets (Tier 2 guidance).
+router.get('/mailbox-usage', async (req, res) => {
+  const { accountId } = req.query;
+  if (!accountId || !UUID_RE.test(accountId)) return res.status(400).json({ error: 'valid accountId required' });
+  const acct = await query('SELECT id FROM email_accounts WHERE id = $1 AND user_id = $2', [accountId, req.session.userId]);
+  if (!acct.rows.length) return res.status(404).json({ error: 'Account not found' });
+
+  const summary = await query(
+    `SELECT count(*)::int AS inbox_total, count(*) FILTER (WHERE is_bulk)::int AS bulk_total
+     FROM messages WHERE account_id = $1 AND folder = 'INBOX'`,
+    [accountId]
+  );
+  const senders = await query(
+    `SELECT from_email, max(from_name) AS from_name, count(*)::int AS count
+     FROM messages
+     WHERE account_id = $1 AND folder = 'INBOX' AND is_bulk
+       AND from_email IS NOT NULL AND from_email <> ''
+     GROUP BY from_email ORDER BY count DESC, from_email LIMIT 25`,
+    [accountId]
+  );
+
+  // Tier 2 promo keyword buckets (fixed set), counted over INBOX in one pass. Informational only.
+  const KEYWORDS = ['% off', 'deal', 'sale', 'newsletter', 'coupon', 'webinar', 'last chance'];
+  const filters = KEYWORDS
+    .map((_, i) => `count(*) FILTER (WHERE subject ILIKE $${i + 2} OR coalesce(snippet,'') ILIKE $${i + 2})::int AS k${i}`)
+    .join(', ');
+  const kw = await query(
+    `SELECT ${filters} FROM messages WHERE account_id = $1 AND folder = 'INBOX'`,
+    [accountId, ...KEYWORDS.map(k => `%${k}%`)]
+  );
+
+  res.json({
+    accountId,
+    inboxTotal: summary.rows[0].inbox_total,
+    bulkTotal: summary.rows[0].bulk_total,
+    tier1Senders: senders.rows.map(r => ({ fromEmail: r.from_email, fromName: r.from_name || '', count: r.count })),
+    tier2Keywords: KEYWORDS.map((k, i) => ({ keyword: k, count: kw.rows[0][`k${i}`] })),
+  });
+});
+
+// Return the INBOX message ids for ONE specific sender, so the client can move exactly those to
+// Trash via /messages/bulk-delete. Read-only; strictly scoped to the caller's account, INBOX, and
+// an EXACT (case-insensitive) from_email match — never a wildcard, never another folder. Idempotent:
+// once those messages are trashed, a re-run returns an empty set.
+router.get('/cleanup-preview', async (req, res) => {
+  const { accountId, fromEmail } = req.query;
+  if (!accountId || !UUID_RE.test(accountId)) return res.status(400).json({ error: 'valid accountId required' });
+  if (!fromEmail || typeof fromEmail !== 'string' || !fromEmail.trim()) return res.status(400).json({ error: 'fromEmail required' });
+  const acct = await query('SELECT id FROM email_accounts WHERE id = $1 AND user_id = $2', [accountId, req.session.userId]);
+  if (!acct.rows.length) return res.status(404).json({ error: 'Account not found' });
+
+  const rows = await query(
+    `SELECT id FROM messages
+     WHERE account_id = $1 AND folder = 'INBOX' AND lower(from_email) = lower($2)`,
+    [accountId, fromEmail.trim()]
+  );
+  res.json({ accountId, fromEmail: fromEmail.trim(), count: rows.rows.length, ids: rows.rows.map(r => r.id) });
+});
+
 // Bulk move to folder
 router.post('/messages/bulk-move', async (req, res) => {
   const { ids, folder } = req.body;
@@ -1980,12 +2045,15 @@ async function moveForSpamLabel(messageId, userId, destinationFolder, label) {
   adjustFolderCounts(account.id, message.folder, -1, -wasUnread);
   adjustFolderCounts(account.id, destinationFolder, 1, wasUnread);
 
-  // Training log: capture the decision for future model training.
+  // Training log: capture the decision for future model training. Record the UID that now
+  // lives in the destination folder: on a UIDPLUS move the row was re-keyed to newUid above,
+  // so message.uid (the pre-move source UID) would no longer match the messages row. Non-UIDPLUS
+  // servers keep the source UID at the destination, so newUid is null there and we fall back to it.
   await query(
     `INSERT INTO spam_training_log
        (user_id, account_id, message_id_header, message_uid, folder, label, source)
      VALUES ($1, $2, $3, $4, $5, $6, 'manual')`,
-    [userId, account.id, message.message_id, message.uid, destinationFolder, label]
+    [userId, account.id, message.message_id, newUid ?? message.uid, destinationFolder, label]
   );
 
   // If folder_mappings.spam is not yet configured, learn from the discovered folder.

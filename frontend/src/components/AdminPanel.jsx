@@ -2342,6 +2342,12 @@ function IntegrationsTab() {
         })
         .catch(console.error)
         .finally(() => setLoading(false));
+      // Admins configure Microsoft OAuth via the DB form OR via env vars; the env-only case has no
+      // DB row, so also read the env-aware capability status (#359), otherwise the connect button
+      // stays wrongly disabled for admins while non-admins on the same instance can connect.
+      api.getIntegrationsStatus()
+        .then(data => setMsStatus(data.microsoft || null))
+        .catch(console.error);
     } else {
       // Non-admins can only read the capability status, not the config itself.
       api.getIntegrationsStatus()
@@ -2491,7 +2497,9 @@ function IntegrationsTab() {
     }
   };
 
-  const msConfigured = isAdmin ? configs.microsoft?.clientId : msStatus?.configured;
+  // Configured if the admin has a saved DB config OR the server has env-var config (#359);
+  // non-admins only ever have the env-aware capability status.
+  const msConfigured = (isAdmin ? configs.microsoft?.clientId : null) || msStatus?.configured;
 
   const subTabStyle = (key) => ({
     padding: '7px 14px',
@@ -6419,8 +6427,129 @@ function RulesAndBlockListTab({ initialSubTab }) {
   );
 }
 
+// Mailbox Cleanup: analyze an INBOX for bulk-mail bloat and move a chosen sender's mail to Trash.
+// All analysis is read-only; the destructive step reuses the existing, proven bulkDelete (move to
+// Trash, recoverable) in <=500-id batches. Scope is enforced server-side (own account, INBOX, exact
+// sender), and the operation is idempotent: re-running a cleared sender finds nothing.
+function MailboxCleanupTab() {
+  const { t } = useTranslation();
+  const { accounts } = useStore();
+  const [accountId, setAccountId] = useState(accounts[0]?.id || '');
+  const [data, setData] = useState(null);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState('');
+  const [busySender, setBusySender] = useState('');
+  const [progress, setProgress] = useState(null);
+
+  const load = useCallback(async (id) => {
+    if (!id) return;
+    setLoading(true); setError('');
+    try { setData(await api.mailboxUsage(id)); }
+    catch (e) { setError(e.message); setData(null); }
+    finally { setLoading(false); }
+  }, []);
+
+  useEffect(() => { if (accountId) load(accountId); }, [accountId, load]);
+
+  const cleanupSender = async (s) => {
+    const label = s.fromName ? `${s.fromName} <${s.fromEmail}>` : s.fromEmail;
+    if (!window.confirm(t('admin.cleanup.confirm', { count: s.count, sender: label }))) return;
+    setBusySender(s.fromEmail); setError(''); setProgress({ done: 0, total: s.count });
+    try {
+      const { ids } = await api.cleanupPreview(accountId, s.fromEmail);
+      let done = 0;
+      for (let i = 0; i < ids.length; i += 500) {
+        const batch = ids.slice(i, i + 500);
+        await api.bulkDelete(batch);
+        done += batch.length;
+        setProgress({ done, total: ids.length });
+      }
+      await load(accountId); // idempotent refresh
+    } catch (e) { setError(e.message); }
+    finally { setBusySender(''); setProgress(null); }
+  };
+
+  const bloatPct = data && data.inboxTotal ? Math.round((data.bulkTotal / data.inboxTotal) * 100) : 0;
+  const card = { background: 'var(--bg-secondary)', border: '1px solid var(--border-subtle)', borderRadius: 10, padding: 14, marginBottom: 16 };
+  const muted = { fontSize: 12, color: 'var(--text-tertiary)' };
+
+  return (
+    <div>
+      <h2 style={{ fontSize: 18, fontWeight: 600, margin: '0 0 6px' }}>{t('admin.cleanup.title')}</h2>
+      <p style={{ ...muted, marginTop: 0, marginBottom: 16, lineHeight: 1.5 }}>{t('admin.cleanup.intro')}</p>
+
+      {accounts.length > 1 && (
+        <Field label={t('admin.cleanup.account')}>
+          <select value={accountId} onChange={e => setAccountId(e.target.value)} style={{ ...inputStyle, appearance: 'none' }}>
+            {accounts.map(a => <option key={a.id} value={a.id}>{a.email_address}</option>)}
+          </select>
+        </Field>
+      )}
+
+      {loading && <div style={muted}>{t('common.loading')}</div>}
+      {error && <div style={{ color: 'var(--red, #ef4444)', fontSize: 13, marginBottom: 12 }}>{error}</div>}
+
+      {data && !loading && (
+        <>
+          <div style={card}>
+            <div style={{ fontSize: 14, fontWeight: 600, color: 'var(--text-primary)' }}>
+              {t('admin.cleanup.summary', { bulk: data.bulkTotal.toLocaleString(), total: data.inboxTotal.toLocaleString(), pct: bloatPct })}
+            </div>
+          </div>
+
+          <h3 style={{ fontSize: 14, fontWeight: 600, margin: '0 0 4px' }}>{t('admin.cleanup.tier1Title')}</h3>
+          <p style={{ ...muted, marginTop: 0, marginBottom: 12, lineHeight: 1.5 }}>{t('admin.cleanup.tier1Desc')}</p>
+          {data.tier1Senders.length === 0 ? (
+            <div style={muted}>{t('admin.cleanup.noneFound')}</div>
+          ) : (
+            <div style={{ marginBottom: 20 }}>
+              {data.tier1Senders.map(s => (
+                <div key={s.fromEmail} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '9px 4px', borderBottom: '1px solid var(--border-subtle)' }}>
+                  <div style={{ flex: 1, minWidth: 0 }}>
+                    <div style={{ fontSize: 13, color: 'var(--text-primary)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{s.fromName || s.fromEmail}</div>
+                    {s.fromName && <div style={{ ...muted, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{s.fromEmail}</div>}
+                  </div>
+                  <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--text-secondary)', flexShrink: 0 }}>{s.count.toLocaleString()}</div>
+                  <button
+                    type="button"
+                    disabled={!!busySender}
+                    onClick={() => cleanupSender(s)}
+                    style={{
+                      flexShrink: 0, padding: '6px 12px', borderRadius: 7, fontSize: 12, fontWeight: 500,
+                      border: '1px solid var(--border)', cursor: busySender ? 'not-allowed' : 'pointer',
+                      background: busySender === s.fromEmail ? 'var(--bg-tertiary)' : 'var(--amber, #d97706)',
+                      color: busySender === s.fromEmail ? 'var(--text-secondary)' : 'white', opacity: busySender && busySender !== s.fromEmail ? 0.5 : 1,
+                    }}
+                  >
+                    {busySender === s.fromEmail
+                      ? (progress ? `${progress.done.toLocaleString()}/${progress.total.toLocaleString()}` : '...')
+                      : t('admin.cleanup.moveToTrash')}
+                  </button>
+                </div>
+              ))}
+            </div>
+          )}
+
+          <h3 style={{ fontSize: 14, fontWeight: 600, margin: '0 0 4px' }}>{t('admin.cleanup.tier2Title')}</h3>
+          <p style={{ ...muted, marginTop: 0, marginBottom: 10, lineHeight: 1.5 }}>{t('admin.cleanup.tier2Desc')}</p>
+          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, marginBottom: 20 }}>
+            {data.tier2Keywords.filter(k => k.count > 0).map(k => (
+              <span key={k.keyword} style={{ fontSize: 12, padding: '4px 10px', borderRadius: 20, background: 'var(--bg-tertiary)', border: '1px solid var(--border-subtle)', color: 'var(--text-secondary)' }}>
+                {k.keyword} <span style={{ color: 'var(--text-tertiary)' }}>({k.count.toLocaleString()})</span>
+              </span>
+            ))}
+          </div>
+
+          <h3 style={{ fontSize: 14, fontWeight: 600, margin: '0 0 4px' }}>{t('admin.cleanup.tier3Title')}</h3>
+          <p style={{ ...muted, marginTop: 0, lineHeight: 1.5 }}>{t('admin.cleanup.tier3Desc')}</p>
+        </>
+      )}
+    </div>
+  );
+}
+
 const TAB_GROUPS = [
-  { id: 'account-mail', labelKey: 'admin.tabs.groupAccountMail', tabIds: ['accounts', 'notifications', 'rules', 'categories'] },
+  { id: 'account-mail', labelKey: 'admin.tabs.groupAccountMail', tabIds: ['accounts', 'notifications', 'rules', 'categories', 'cleanup'] },
   { id: 'display', labelKey: 'admin.tabs.groupDisplay', tabIds: ['appearance', 'shortcuts'] },
   { id: 'security-integrations', labelKey: 'admin.tabs.groupSecurityIntegrations', tabIds: ['security', 'integrations', 'ai', 'ai-actions', 'plugins'] },
   { id: 'admin', labelKey: 'admin.tabs.groupAdmin', tabIds: ['users', 'sso'] },
@@ -6443,6 +6572,10 @@ const TABS = [
   {
     id: 'categories', labelKey: 'admin.tabs.categories', beta: true,
     icon: <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75"><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/></svg>,
+  },
+  {
+    id: 'cleanup', labelKey: 'admin.tabs.cleanup',
+    icon: <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round"><path d="M19 3l-6 6"/><path d="M14 4l6 6"/><path d="M11 8l-7 7c-1 1-1 3 0 4s3 1 4 0l7-7"/><path d="M6 20l-3-3"/></svg>,
   },
   // Display
   {
@@ -8092,6 +8225,7 @@ export default function AdminPanel() {
       {adminTab === 'accounts' && <AccountsTab />}
       {adminTab === 'rules' && <RulesAndBlockListTab initialSubTab={pendingSubTab} />}
       {adminTab === 'categories' && <CategoriesSection initialSubTab={pendingSubTab} />}
+      {adminTab === 'cleanup' && <MailboxCleanupTab />}
       {adminTab === 'appearance' && <AppearanceTab initialSubTab={pendingSubTab} />}
       {adminTab === 'integrations' && <IntegrationsTab />}
       {adminTab === 'users' && <UsersTab />}
