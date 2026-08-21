@@ -10,7 +10,7 @@ import { logger } from './logger.js';
 import { decrypt } from './encryption.js';
 import { sendPushToUser } from './pushNotifications.js';
 import { redactEmail } from '../utils/redact.js';
-import { adjustFolderCounts } from '../utils/mailUtils.js';
+import { adjustFolderCounts, resolveSpamFolder } from '../utils/mailUtils.js';
 import { resolveForConnection, createPinnedLookup } from './hostValidation.js';
 import { getConnectionPolicy } from './connectionPolicy.js';
 import { applyInboxRules, applyBlockList } from './inboxRules.js';
@@ -2212,6 +2212,12 @@ export class ImapManager {
         } catch (err) {
           console.warn(`Periodic folder sync failed for ${logAccount(syncAccount)}:`, err.message);
         }
+        // Server-side spam filtering deposits mail straight into Junk (bypassing INBOX), so the
+        // INBOX-only live sync never pulls it. Poll the spam folder on this same slow cadence, in
+        // the background on its own pooled connection (per-host-capped via _bgConnSem) so it
+        // neither blocks the tick nor disturbs the INBOX IDLE connection. Fire-and-forget;
+        // _syncSpamFolder handles its own errors.
+        setImmediate(() => this._syncSpamFolder(syncAccount).catch(() => {}));
       }
 
       // Some providers (e.g. Google) don't push flag changes via IDLE — poll on the
@@ -4077,6 +4083,44 @@ export class ImapManager {
       this.broadcast({ type: 'sync_complete', accountId: account.id }, account.user_id);
     } catch (err) {
       console.error(`On-demand sync error ${logAccount(account)}/${folder}:`, err.message);
+    } finally {
+      this.onDemandSyncing.delete(key);
+    }
+  }
+
+  // Periodically pull new mail into the special-use spam/Junk folder. Server-side spam filtering
+  // delivers straight into Junk, bypassing INBOX — so the INBOX-only live sync never sees it and the
+  // folder (and its unread badge) would only update when the user manually opens it. Runs on the slow
+  // folder-sync cadence (~30 min, from the sync tick), on a fresh POOLED connection so the INBOX IDLE
+  // connection is undisturbed, and gated by the per-host background-connection semaphore (_bgConnSem,
+  // shared with backfill/snippet indexing) so many accounts on one provider can't all open a spam-poll
+  // connection at once. Reuses the onDemandSyncing guard so it never collides with a user opening the
+  // same folder. Broadcasts folders_synced (badge refresh only) rather than sync_complete, so it never
+  // reloads the user's open message list; syncMessages' own new_messages event is inert here because
+  // the frontend gates alerts/sounds and the list refresh to INBOX / the visible folder. Best-effort;
+  // all failures are non-fatal.
+  async _syncSpamFolder(account) {
+    let spamPath;
+    try {
+      spamPath = await resolveSpamFolder(account.id, account.folder_mappings);
+    } catch { return; }
+    if (!spamPath) return;
+    const key = `${account.id}:${spamPath}`;
+    if (this.onDemandSyncing.has(key)) return;
+    this.onDemandSyncing.add(key);
+    const host = (account.imap_host || '').toLowerCase();
+    try {
+      await this._bgConnSem.acquire(host);
+      try {
+        await withFreshClient(account, async (client) => {
+          await this.syncMessages(account, client, spamPath, 50, false, true);
+        });
+        this.broadcast({ type: 'folders_synced', accountId: account.id }, account.user_id);
+      } finally {
+        this._bgConnSem.release(host);
+      }
+    } catch (err) {
+      console.warn(`Periodic spam sync failed for ${logAccount(account)}/${spamPath}:`, err.message);
     } finally {
       this.onDemandSyncing.delete(key);
     }

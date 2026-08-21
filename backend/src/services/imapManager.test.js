@@ -1215,6 +1215,31 @@ describe('syncMessages — unread_count recompute ordering (folder badge fix)', 
   });
 });
 
+describe('_syncSpamFolder — periodic spam poll guards', () => {
+  const account = { id: 'a1', user_id: 'u1', folder_mappings: null, imap_host: 'imap.example.com' };
+
+  it('no-ops when the account has no resolvable spam folder', async () => {
+    query.mockReset();
+    query.mockResolvedValue({ rows: [] }); // resolveSpamFolder finds nothing
+    const ctx = { onDemandSyncing: new Set(), broadcast: vi.fn(), syncMessages: vi.fn() };
+    await ImapManager.prototype._syncSpamFolder.call(ctx, account);
+    expect(ctx.syncMessages).not.toHaveBeenCalled();
+    expect(ctx.broadcast).not.toHaveBeenCalled();
+  });
+
+  it('skips when an on-demand sync of that spam folder is already running (no collision)', async () => {
+    query.mockReset();
+    // resolveSpamFolder's special-use lookup (identified by its name-regex clause) yields "Junk".
+    query.mockImplementation((sql) =>
+      sql.includes('lower(name) ~') ? Promise.resolve({ rows: [{ path: 'Junk' }] }) : Promise.resolve({ rows: [] }));
+    const ctx = { onDemandSyncing: new Set(['a1:Junk']), broadcast: vi.fn(), syncMessages: vi.fn() };
+    await ImapManager.prototype._syncSpamFolder.call(ctx, account);
+    expect(ctx.syncMessages).not.toHaveBeenCalled();
+    expect(ctx.broadcast).not.toHaveBeenCalled();
+    expect(ctx.onDemandSyncing.has('a1:Junk')).toBe(true); // guard left intact for the running sync
+  });
+});
+
 describe('walkStructure attachment classification', () => {
   const walk = (node) => {
     const results = { textParts: [], attachments: [] };
