@@ -1164,6 +1164,57 @@ describe('syncMessages — empty local cache vs nonempty server (wiring)', () =>
   });
 });
 
+describe('syncMessages — unread_count recompute ordering (folder badge fix)', () => {
+  it('recomputes folders.unread_count from rows AFTER inserting new messages', async () => {
+    // The provisional unread_count written before the fetch left on-demand folders (e.g. Junk)
+    // showing a stale badge until their next sync. syncMessages must recompute from actual rows
+    // AFTER the INSERT so the cached count reflects the just-synced messages.
+    const hasActive = vi.spyOn(pluginRegistry, 'hasActiveAsync').mockResolvedValue(false);
+    const runHook = vi.spyOn(pluginRegistry, 'runHook').mockResolvedValue([]);
+    try {
+      const account = {
+        id: 'acct-junk', user_id: 'user-1', email_address: 'me@example.com',
+        gtd_enabled: false, categorization_enabled: false, imap_host: 'imap.example.com',
+      };
+      const client = {
+        getMailboxLock: vi.fn().mockResolvedValue({ release: vi.fn() }),
+        mailbox: { exists: 1, uidValidity: 100, highestModseq: 500n },
+        fetch: vi.fn(async function* () { yield { uid: 501 }; }),
+      };
+      query.mockReset();
+      query.mockImplementation((sql) => {
+        if (sql.includes('SELECT uid_validity, highest_modseq FROM folders')) return Promise.resolve({ rows: [{ uid_validity: 100, highest_modseq: '500' }] });
+        if (sql.includes('COUNT(*) FILTER (WHERE is_read = false)') && !sql.includes('UPDATE folders')) return Promise.resolve({ rows: [{ n: 0 }] });
+        if (sql.includes('COALESCE(MAX(uid), 0)')) return Promise.resolve({ rows: [{ max_uid: 0 }] });
+        if (sql.includes('INSERT INTO messages')) return Promise.resolve({ rows: [{ id: 'new-1', is_new: true }] });
+        return Promise.resolve({ rows: [] });
+      });
+      parseMessage.mockReset();
+      // Already-\Seen so the message doesn't enter the new-mail notification path (which needs a
+      // broadcast stub); it is still INSERTed, which is all the ordering assertion needs.
+      parseMessage.mockResolvedValue({
+        uid: 501, messageId: '<n1@x>', subject: 'Spam', fromName: 'Sketchy', fromEmail: 's@x.com',
+        to: [], cc: [], replyTo: [], inReplyTo: null, references: null, date: new Date('2026-08-20T10:00:00Z'),
+        snippet: 'hi', isRead: true, isStarred: false, hasAttachments: false, flags: ['\\Seen'], isBulk: false, parsedHeaders: {},
+      });
+
+      await ImapManager.prototype.syncMessages.call({ pluginFacade: {} }, account, client, 'Junk', 100, false, true);
+
+      const calls = query.mock.calls.map(c => c[0]);
+      const insertIdx = calls.findIndex(sql => sql.includes('INSERT INTO messages'));
+      const recomputeIdx = calls.findIndex(sql =>
+        sql.includes('UPDATE folders') && sql.includes('unread_count = (SELECT COUNT(*) FILTER (WHERE m.is_read = false)'));
+      expect(insertIdx).toBeGreaterThanOrEqual(0);
+      expect(recomputeIdx).toBeGreaterThanOrEqual(0);
+      expect(recomputeIdx).toBeGreaterThan(insertIdx);            // recompute strictly after insert
+      expect(query.mock.calls[recomputeIdx][1]).toEqual(['acct-junk', 'Junk']); // scoped to this folder
+    } finally {
+      hasActive.mockRestore();
+      runHook.mockRestore();
+    }
+  });
+});
+
 describe('walkStructure attachment classification', () => {
   const walk = (node) => {
     const results = { textParts: [], attachments: [] };

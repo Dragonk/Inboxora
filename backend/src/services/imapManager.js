@@ -3078,6 +3078,19 @@ export class ImapManager {
             mgr: this.pluginFacade, account, newInboxIds, deletedIds: ingestDeletedIds,
           });
         }
+        // Reconcile the cached unread badge from actual rows now that this pass's inserts, flag
+        // updates, and any INBOX rule/block-list moves have all landed. The provisional
+        // unread_count written before the fetch (the folders upsert above) predates them, so
+        // without this an on-demand folder (e.g. Junk/Spam, which has no follow-up tick) keeps
+        // showing the pre-sync count until it is opened again. Mirrors the recompute that backfill
+        // and reconcileDeletes already run; total_count keeps the server EXISTS value set above.
+        await query(
+          `UPDATE folders
+           SET unread_count = (SELECT COUNT(*) FILTER (WHERE m.is_read = false)
+                               FROM messages m WHERE m.account_id = $1 AND m.folder = $2)
+           WHERE account_id = $1 AND path = $2`,
+          [account.id, folder]
+        );
         await query('UPDATE email_accounts SET last_sync = NOW() WHERE id = $1', [account.id]);
         return { insertedCount, broadcastedNewMessages };
       } finally {
