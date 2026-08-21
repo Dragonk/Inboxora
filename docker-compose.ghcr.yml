@@ -52,9 +52,10 @@ services:
       SESSION_SECRET: ${SESSION_SECRET}
       APP_URL: ${APP_URL:-}
       FRONTEND_URL: ${APP_URL:-}
-      DB_HOST: postgres
-      DB_NAME: mailflow
-      DB_USER: mailflow
+      DB_HOST: ${DB_HOST:-postgres}
+      DB_PORT: ${DB_PORT:-5432}
+      DB_NAME: ${DB_NAME:-mailflow}
+      DB_USER: ${DB_USER:-mailflow}
       DB_PASSWORD: ${DB_PASSWORD}
       REDIS_URL: redis://redis:6379
       ENCRYPTION_KEY: ${ENCRYPTION_KEY:-}
@@ -76,8 +77,8 @@ services:
     container_name: mailflow-postgres
     restart: unless-stopped
     environment:
-      POSTGRES_DB: mailflow
-      POSTGRES_USER: mailflow
+      POSTGRES_DB: ${DB_NAME:-mailflow}
+      POSTGRES_USER: ${DB_USER:-mailflow}
       POSTGRES_PASSWORD: ${DB_PASSWORD}
     volumes:
       - postgres_data:/var/lib/postgresql/data
