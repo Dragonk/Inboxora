@@ -602,6 +602,7 @@
     "errorProcess": "Impossibile elaborare l'immagine."
   },
   "admin": {
+    "resizePanel": "Trascina per ridimensionare",
     "cleanup": {
       "title": "Pulizia della casella",
       "intro": "Trova la posta di massa che ingombra la tua casella e spostala nel Cestino. La posta eliminata va nel Cestino e può essere recuperata finché non lo svuoti.",

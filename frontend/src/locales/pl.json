@@ -618,6 +618,7 @@
     "errorProcess": "Nie udało się przetworzyć obrazu."
   },
   "admin": {
+    "resizePanel": "Przeciągnij, aby zmienić rozmiar",
     "cleanup": {
       "title": "Porządki w skrzynce",
       "intro": "Znajdź masową pocztę zapychającą skrzynkę odbiorczą i przenieś ją do Kosza. Usunięta poczta trafia do Kosza i można ją odzyskać, dopóki go nie opróżnisz.",

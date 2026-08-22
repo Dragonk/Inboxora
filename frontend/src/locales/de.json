@@ -602,6 +602,7 @@
     "errorProcess": "Bild konnte nicht verarbeitet werden."
   },
   "admin": {
+    "resizePanel": "Zum Ändern der Größe ziehen",
     "cleanup": {
       "title": "Postfach aufräumen",
       "intro": "Finden Sie Massen-E-Mails, die Ihren Posteingang füllen, und verschieben Sie sie in den Papierkorb. Gelöschte E-Mails landen im Papierkorb und lassen sich wiederherstellen, bis Sie ihn leeren.",

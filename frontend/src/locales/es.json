@@ -602,6 +602,7 @@
     "errorProcess": "No se pudo procesar la imagen."
   },
   "admin": {
+    "resizePanel": "Arrastra para cambiar el tamaño",
     "cleanup": {
       "title": "Limpieza del buzón",
       "intro": "Encuentra el correo masivo que satura tu bandeja de entrada y muévelo a la Papelera. El correo eliminado va a la Papelera y puede recuperarse hasta que la vacíes.",

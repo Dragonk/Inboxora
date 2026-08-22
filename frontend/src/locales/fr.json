@@ -602,6 +602,7 @@
     "errorProcess": "Impossible de traiter l'image."
   },
   "admin": {
+    "resizePanel": "Glisser pour redimensionner",
     "cleanup": {
       "title": "Nettoyage de la boîte",
       "intro": "Repérez les courriers de masse qui encombrent votre boîte de réception et déplacez-les vers la Corbeille. Les messages supprimés vont dans la Corbeille et restent récupérables jusqu’à ce que vous la vidiez.",

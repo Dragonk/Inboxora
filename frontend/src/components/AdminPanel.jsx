@@ -4061,7 +4061,7 @@ function AiActionsTab() {
   };
 
   return (
-    <div style={{ maxWidth: 640 }}>
+    <div style={{ maxWidth: 820 }}>
       <p style={{ fontSize: 13, color: 'var(--text-secondary)', marginBottom: 16, lineHeight: 1.5 }}>
         {t('admin.aiActions.description')}
       </p>
@@ -5634,7 +5634,7 @@ function AboutTab() {
   });
 
   return (
-    <div style={{ maxWidth: 420 }}>
+    <div style={{ maxWidth: 540 }}>
       <div style={{ fontSize: 20, fontWeight: 700, color: 'var(--text-primary)', marginBottom: 4 }}>
         MailFlow
       </div>
@@ -5962,7 +5962,7 @@ function RulesTab() {
   if (formMode) {
     const fd = formData;
     return (
-      <div style={{ maxWidth: 560 }}>
+      <div style={{ maxWidth: 720 }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 20 }}>
           <button onClick={closeForm} style={{ background: 'none', border: 'none', color: 'var(--text-secondary)', cursor: 'pointer', padding: '2px 6px', fontSize: 18, lineHeight: 1 }}>
             ←
@@ -6746,7 +6746,7 @@ function ShortcutsTab() {
   };
 
   return (
-    <div style={{ maxWidth: 640 }}>
+    <div style={{ maxWidth: 820 }}>
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 20 }}>
         <div>
           <div style={{ fontSize: 15, fontWeight: 600, color: 'var(--text-primary)' }}>{t('admin.shortcuts.title')}</div>
@@ -7384,7 +7384,7 @@ function SecurityTab() {
   };
 
   return (
-    <div style={{ maxWidth: 520 }}>
+    <div style={{ maxWidth: 660 }}>
       <h2 style={{ margin: '0 0 4px', fontSize: 17, fontWeight: 600, color: 'var(--text-primary)' }}>{t('admin.security.title')}</h2>
       <p style={{ margin: '0 0 28px', fontSize: 13, color: 'var(--text-tertiary)' }}>
         {t('admin.security.description')}
@@ -8164,6 +8164,33 @@ export default function AdminPanel() {
   const [searchQuery, setSearchQuery] = useState('');
   const [pendingSubTab, setPendingSubTab] = useState(null);
 
+  // Desktop admin window is user-resizable; the chosen width persists per browser (#389). It is a
+  // centered modal, so a right-edge drag grows it from the center — the width delta is 2x the cursor
+  // delta so the dragged edge tracks the pointer. Clamped to a readable min and the viewport width.
+  const ADMIN_MIN_W = 560;
+  const [panelWidth, setPanelWidth] = useState(() => {
+    try { const v = Number(localStorage.getItem('mailflow.adminPanelWidth')); return Number.isFinite(v) && v >= ADMIN_MIN_W ? v : 680; }
+    catch { return 680; }
+  });
+  const startPanelResize = (e) => {
+    e.preventDefault();
+    const startX = e.clientX;
+    const startW = panelWidth;
+    const maxW = Math.min(1400, window.innerWidth - 48);
+    const onMove = (ev) => {
+      setPanelWidth(Math.round(Math.max(ADMIN_MIN_W, Math.min(maxW, startW + (ev.clientX - startX) * 2))));
+    };
+    const onUp = () => {
+      document.removeEventListener('mousemove', onMove);
+      document.removeEventListener('mouseup', onUp);
+      document.body.style.userSelect = '';
+      setPanelWidth(w => { try { localStorage.setItem('mailflow.adminPanelWidth', String(w)); } catch { /* non-fatal */ } return w; });
+    };
+    document.body.style.userSelect = 'none';
+    document.addEventListener('mousemove', onMove);
+    document.addEventListener('mouseup', onUp);
+  };
+
   const searchIndex = useMemo(() => makeSearchIndex(t), [t]);
 
   const navigateTo = (tab, subtab) => {
@@ -8338,11 +8365,26 @@ export default function AdminPanel() {
     >
       <div className="admin-panel admin-window" style={{
         background: 'var(--bg-secondary)', border: '1px solid var(--border)',
-        borderRadius: 16, width: '100%', maxWidth: 680,
+        borderRadius: 16, width: panelWidth, maxWidth: 'calc(100vw - 48px)',
         height: '82vh', maxHeight: 700, display: 'flex', overflow: 'hidden',
+        position: 'relative',
         boxShadow: 'var(--shadow-modal)',
         animation: 'modal-enter var(--motion-normal) var(--ease-emphasized) both',
       }}>
+        {/* Drag the right edge to resize the window (desktop); width persists per browser (#389). */}
+        <div
+          onMouseDown={startPanelResize}
+          role="separator"
+          aria-orientation="vertical"
+          aria-label={t('admin.resizePanel')}
+          title={t('admin.resizePanel')}
+          style={{
+            position: 'absolute', top: 0, right: 0, bottom: 0, width: 8, zIndex: 10,
+            cursor: 'ew-resize', display: 'flex', alignItems: 'center', justifyContent: 'center',
+          }}
+        >
+          <div style={{ width: 3, height: 30, borderRadius: 2, background: 'var(--border)' }} />
+        </div>
         {/* Left sidebar */}
         <div style={{
           width: 180, borderRight: '1px solid var(--border-subtle)',
