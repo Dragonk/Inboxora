@@ -8164,23 +8164,33 @@ export default function AdminPanel() {
     try { const v = Number(localStorage.getItem('mailflow.adminPanelWidth')); return Number.isFinite(v) && v >= ADMIN_MIN_W ? v : 680; }
     catch { return 680; }
   });
+  const [panelResizing, setPanelResizing] = useState(false);
+  const [panelHandleHover, setPanelHandleHover] = useState(false);
   const startPanelResize = (e) => {
     e.preventDefault();
-    const startX = e.clientX;
+    // Support both mouse and touch (pointer coords come from the event or its first touch).
+    const pointX = (ev) => (ev.touches && ev.touches[0] ? ev.touches[0].clientX : ev.clientX);
+    const startX = pointX(e);
     const startW = panelWidth;
     const maxW = Math.min(1400, window.innerWidth - 48);
+    setPanelResizing(true);
     const onMove = (ev) => {
-      setPanelWidth(Math.round(Math.max(ADMIN_MIN_W, Math.min(maxW, startW + (ev.clientX - startX) * 2))));
+      setPanelWidth(Math.round(Math.max(ADMIN_MIN_W, Math.min(maxW, startW + (pointX(ev) - startX) * 2))));
     };
     const onUp = () => {
       document.removeEventListener('mousemove', onMove);
       document.removeEventListener('mouseup', onUp);
+      document.removeEventListener('touchmove', onMove);
+      document.removeEventListener('touchend', onUp);
       document.body.style.userSelect = '';
+      setPanelResizing(false);
       setPanelWidth(w => { try { localStorage.setItem('mailflow.adminPanelWidth', String(w)); } catch { /* non-fatal */ } return w; });
     };
     document.body.style.userSelect = 'none';
     document.addEventListener('mousemove', onMove);
     document.addEventListener('mouseup', onUp);
+    document.addEventListener('touchmove', onMove, { passive: false });
+    document.addEventListener('touchend', onUp);
   };
 
   const searchIndex = useMemo(() => makeSearchIndex(t), [t]);
@@ -8363,19 +8373,32 @@ export default function AdminPanel() {
         boxShadow: 'var(--shadow-modal)',
         animation: 'modal-enter var(--motion-normal) var(--ease-emphasized) both',
       }}>
-        {/* Drag the right edge to resize the window (desktop); width persists per browser (#389). */}
+        {/* Drag the right edge to resize the window (desktop); width persists per browser (#389).
+            The hit zone is deliberately wide (16px) and the grip is always faintly visible so the
+            affordance is discoverable, brightening to the accent on hover/drag. */}
         <div
           onMouseDown={startPanelResize}
+          onTouchStart={startPanelResize}
+          onMouseEnter={() => setPanelHandleHover(true)}
+          onMouseLeave={() => setPanelHandleHover(false)}
           role="separator"
           aria-orientation="vertical"
           aria-label={t('admin.resizePanel')}
           title={t('admin.resizePanel')}
           style={{
-            position: 'absolute', top: 0, right: 0, bottom: 0, width: 8, zIndex: 10,
-            cursor: 'ew-resize', display: 'flex', alignItems: 'center', justifyContent: 'center',
+            position: 'absolute', top: 0, right: 0, bottom: 0, width: 16, zIndex: 10,
+            cursor: 'ew-resize', display: 'flex', alignItems: 'center', justifyContent: 'flex-end',
+            touchAction: 'none',
           }}
         >
-          <div style={{ width: 3, height: 30, borderRadius: 2, background: 'var(--border)' }} />
+          <div style={{
+            width: (panelResizing || panelHandleHover) ? 4 : 3,
+            height: (panelResizing || panelHandleHover) ? 48 : 34,
+            marginRight: 2, borderRadius: 3,
+            background: (panelResizing || panelHandleHover) ? 'var(--accent)' : 'var(--text-tertiary)',
+            opacity: (panelResizing || panelHandleHover) ? 1 : 0.5,
+            transition: 'height var(--motion-fast) var(--ease-standard), background var(--motion-fast) var(--ease-standard), opacity var(--motion-fast) var(--ease-standard)',
+          }} />
         </div>
         {/* Left sidebar */}
         <div style={{
