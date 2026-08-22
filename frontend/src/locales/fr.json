@@ -1495,7 +1495,6 @@
     "carddavBadge": "Synchronisé depuis CardDAV"
   },
   "todoist": {
-    "betaLabel": "Bêta",
     "title": "Créer une tâche Todoist",
     "taskTitle": "Titre de la tâche",
     "taskTitlePh": "Que faut-il faire ?",
