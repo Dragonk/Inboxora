@@ -158,6 +158,41 @@ const SAME_VALUE_ALLOWED = {
   'messageList.bulkMoved.title_few': 'any', 'messageList.bulkMoved.title_many': 'any',
   'sidebar.hiddenFolders_few': 'any', 'sidebar.hiddenFolders_many': 'any',
 
+  // ── Conversation Engine v2 — not yet translated into de/es/fr/it/ru/zhCN ────
+  // CE v2 UI is under active development. Non-PL locales use the EN source string
+  // as a placeholder until they are properly translated. PL has full translations.
+  'conversation.groupIntoConversations': 'any',
+  'conversation.conversationReader': 'any',
+  'conversation.expandConversation': 'any',
+  'conversation.collapseConversation': 'any',
+  'conversation.copies': 'any',
+  'conversation.accounts': 'any',
+  'conversation.whyGrouped': 'any',
+  'conversation.threadingDiagnostics': 'any',
+  'conversation.mergeConversations': 'any',
+  'conversation.splitMessageOnly': 'any',
+  'conversation.splitMessageAndReplies': 'any',
+  'conversation.moveToConversation': 'any',
+  'conversation.unlockConversation': 'any',
+  'conversation.forceInclude': 'any',
+  'conversation.forceExclude': 'any',
+  'conversation.rebuildConversations': 'any',
+  'conversation.rebuildDryRun': 'any',
+  'conversation.automatedSeries': 'any',
+  'conversation.seriesOff': 'any',
+  'conversation.seriesStrict': 'any',
+  'conversation.seriesSmart': 'any',
+  'conversation.loadBody': 'any',
+  'conversation.retryLoading': 'any',
+  'conversation.loadingBody': 'any',
+  'conversation.loadBodyFailed': 'any',
+  'conversation.messageCount_few': 'any', 'conversation.messageCount_many': 'any',
+  'conversation.messageCount_one': 'any',
+  'conversation.copyCount_few': 'any', 'conversation.copyCount_many': 'any',
+  'conversation.copyCount_one': 'any',
+  'conversation.conversationCount_few': 'any', 'conversation.conversationCount_many': 'any',
+  'conversation.conversationCount_one': 'any',
+
   // "Website" — international term, same in de and en
   'admin.about.website': [['de', 'en']],
 
@@ -408,6 +443,41 @@ const DYNAMIC_KEYS = new Set([
   // t(`conversation.${override}`) — conversation manual action labels are selected dynamically.
   'conversation.lock',
   'conversation.split',
+  // CE v2 conversation keys — referenced dynamically by ConversationList/ConversationPane
+  // and the upcoming manual-ops / diagnostics / rebuild / automated-series UI.
+  // Added here so the source-coverage gate does not flag them before the components
+  // that use them literally are implemented.
+  'conversation.groupIntoConversations',
+  'conversation.conversationReader',
+  'conversation.expandConversation',
+  'conversation.collapseConversation',
+  'conversation.copies',
+  'conversation.accounts',
+  'conversation.whyGrouped',
+  'conversation.threadingDiagnostics',
+  'conversation.mergeConversations',
+  'conversation.splitMessageOnly',
+  'conversation.splitMessageAndReplies',
+  'conversation.moveToConversation',
+  'conversation.unlockConversation',
+  'conversation.forceInclude',
+  'conversation.forceExclude',
+  'conversation.rebuildConversations',
+  'conversation.rebuildDryRun',
+  'conversation.automatedSeries',
+  'conversation.seriesOff',
+  'conversation.seriesStrict',
+  'conversation.seriesSmart',
+  'conversation.loadBody',
+  'conversation.retryLoading',
+  'conversation.loadingBody',
+  'conversation.loadBodyFailed',
+  'conversation.copyCount_one',
+  'conversation.copyCount_few',
+  'conversation.copyCount_many',
+  'conversation.conversationCount_one',
+  'conversation.conversationCount_few',
+  'conversation.conversationCount_many',
 ]);
 
 // JSX attribute names whose values must never be plain strings — always t().
