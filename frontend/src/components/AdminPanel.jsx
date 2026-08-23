@@ -8347,7 +8347,10 @@ export default function AdminPanel() {
 
           {/* Scrollable tab list — keeps the Close button pinned even when the tab list is taller
               than the modal (e.g. once several plugins/beta tabs are present). */}
-          <div style={{ flex: 1, minHeight: 0, overflowY: 'auto' }}>
+          {/* overflowX hidden: overflowY:auto would otherwise promote overflow-x to auto too, so a
+              long label in any locale (e.g. German "Tastaturkürzel") would show a horizontal
+              scrollbar. Labels wrap instead of overflowing (see the tab buttons below). */}
+          <div style={{ flex: 1, minHeight: 0, overflowY: 'auto', overflowX: 'hidden' }}>
           {TAB_GROUPS.map((group, gi) => {
             const groupTabs = visibleTabs.filter(tab => group.tabIds.includes(tab.id));
             if (groupTabs.length === 0) return null;
@@ -8355,7 +8358,7 @@ export default function AdminPanel() {
               <div key={group.id} style={{ marginBottom: gi < TAB_GROUPS.length - 1 ? 4 : 0 }}>
                 <div style={{
                   fontSize: 10, fontWeight: 700, color: 'var(--text-secondary)',
-                  letterSpacing: '0.07em', textTransform: 'uppercase',
+                  letterSpacing: '0.07em', textTransform: 'uppercase', overflowWrap: 'anywhere',
                   padding: gi === 0 ? '2px 10px 3px' : '10px 10px 3px',
                   borderTop: gi === 0 ? 'none' : '1px solid var(--border-subtle)',
                   marginTop: gi === 0 ? 0 : 4,
@@ -8380,11 +8383,11 @@ export default function AdminPanel() {
                       onMouseEnter={e => { if (!isActive) e.currentTarget.style.background = 'var(--bg-tertiary)'; }}
                       onMouseLeave={e => { if (!isActive) e.currentTarget.style.background = 'transparent'; }}
                     >
-                      <span style={{ color: isActive ? 'var(--accent)' : 'var(--text-tertiary)' }}>
+                      <span style={{ color: isActive ? 'var(--accent)' : 'var(--text-tertiary)', flexShrink: 0 }}>
                         {tab.icon}
                       </span>
-                      {t(tab.labelKey)}
-                      {tab.beta && <span style={{ fontSize: 9, fontWeight: 700, letterSpacing: '0.06em', padding: '1px 4px', borderRadius: 3, background: 'color-mix(in srgb, var(--accent) 15%, transparent)', color: 'var(--accent)', marginLeft: 'auto' }}>BETA</span>}
+                      <span style={{ flex: 1, minWidth: 0, overflowWrap: 'anywhere' }}>{t(tab.labelKey)}</span>
+                      {tab.beta && <span style={{ fontSize: 9, fontWeight: 700, letterSpacing: '0.06em', padding: '1px 4px', borderRadius: 3, background: 'color-mix(in srgb, var(--accent) 15%, transparent)', color: 'var(--accent)', flexShrink: 0 }}>BETA</span>}
                     </button>
                   );
                 })}
@@ -8410,11 +8413,11 @@ export default function AdminPanel() {
                 onMouseEnter={e => { if (!isActive) e.currentTarget.style.background = 'var(--bg-tertiary)'; }}
                 onMouseLeave={e => { if (!isActive) e.currentTarget.style.background = 'transparent'; }}
               >
-                <span style={{ color: isActive ? 'var(--accent)' : 'var(--text-tertiary)' }}>
+                <span style={{ color: isActive ? 'var(--accent)' : 'var(--text-tertiary)', flexShrink: 0 }}>
                   {tab.icon}
                 </span>
-                {t(tab.labelKey)}
-                {tab.beta && <span style={{ fontSize: 9, fontWeight: 700, letterSpacing: '0.06em', padding: '1px 4px', borderRadius: 3, background: 'color-mix(in srgb, var(--accent) 15%, transparent)', color: 'var(--accent)', marginLeft: 'auto' }}>BETA</span>}
+                <span style={{ flex: 1, minWidth: 0, overflowWrap: 'anywhere' }}>{t(tab.labelKey)}</span>
+                {tab.beta && <span style={{ fontSize: 9, fontWeight: 700, letterSpacing: '0.06em', padding: '1px 4px', borderRadius: 3, background: 'color-mix(in srgb, var(--accent) 15%, transparent)', color: 'var(--accent)', flexShrink: 0 }}>BETA</span>}
               </button>
             );
           })}
