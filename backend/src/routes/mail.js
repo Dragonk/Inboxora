@@ -1306,12 +1306,17 @@ router.get('/mailbox-usage', async (req, res) => {
      FROM messages WHERE account_id = $1 AND folder = 'INBOX'`,
     [accountId]
   );
+  // Group senders case-insensitively so a sender that uses mixed-case addresses
+  // (Promo@x vs promo@x) is one row whose count matches the delete — cleanup-preview
+  // matches lower(from_email), so a case-sensitive count here would understate what
+  // clicking the row actually trashes. min(from_email) is a real observed casing for
+  // display; the delete lower-matches it and so still captures every case variant.
   const senders = await query(
-    `SELECT from_email, max(from_name) AS from_name, count(*)::int AS count
+    `SELECT min(from_email) AS from_email, max(from_name) AS from_name, count(*)::int AS count
      FROM messages
      WHERE account_id = $1 AND folder = 'INBOX' AND is_bulk
        AND from_email IS NOT NULL AND from_email <> ''
-     GROUP BY from_email ORDER BY count DESC, from_email LIMIT 25`,
+     GROUP BY lower(from_email) ORDER BY count DESC, lower(min(from_email)) LIMIT 25`,
     [accountId]
   );
 
@@ -1336,8 +1341,10 @@ router.get('/mailbox-usage', async (req, res) => {
 
 // Return the INBOX message ids for ONE specific sender, so the client can move exactly those to
 // Trash via /messages/bulk-delete. Read-only; strictly scoped to the caller's account, INBOX, and
-// an EXACT (case-insensitive) from_email match — never a wildcard, never another folder. Idempotent:
-// once those messages are trashed, a re-run returns an empty set.
+// an EXACT (case-insensitive) from_email match — never a wildcard, never another folder. Scoped to
+// is_bulk so it trashes exactly the bulk messages the sender list counted (mailbox-usage counts
+// bulk-only): a non-bulk message from that sender (a receipt, a personal note) is never surprise-
+// trashed. Idempotent: once those messages are trashed, a re-run returns an empty set.
 router.get('/cleanup-preview', async (req, res) => {
   const { accountId, fromEmail } = req.query;
   if (!accountId || !UUID_RE.test(accountId)) return res.status(400).json({ error: 'valid accountId required' });
@@ -1347,7 +1354,7 @@ router.get('/cleanup-preview', async (req, res) => {
 
   const rows = await query(
     `SELECT id FROM messages
-     WHERE account_id = $1 AND folder = 'INBOX' AND lower(from_email) = lower($2)`,
+     WHERE account_id = $1 AND folder = 'INBOX' AND is_bulk AND lower(from_email) = lower($2)`,
     [accountId, fromEmail.trim()]
   );
   res.json({ accountId, fromEmail: fromEmail.trim(), count: rows.rows.length, ids: rows.rows.map(r => r.id) });
