@@ -180,7 +180,6 @@ const SAME_VALUE_ALLOWED = {
   'admin.rules.actionForwardPlaceholder': [['es', 'it']],
   'admin.users.invitePh':      [['de', 'en', 'ru', 'zhCN']],
   'admin.sso.domainsPh':       [['de', 'en', 'pl', 'ru', 'zhCN']],
-  'admin.users.invitePh':      [['de', 'en', 'ru', 'zhCN']],
   'compose.bccPh':             [['de', 'en', 'pl', 'ru', 'zhCN']],
   'compose.ccPh':              [['de', 'en', 'pl', 'ru', 'zhCN']],
   'compose.toPh':              [['en', 'ru', 'zhCN']],
@@ -191,11 +190,6 @@ const SAME_VALUE_ALLOWED = {
   'admin.systemEmail.port':   [['de', 'en', 'fr']],
 
   // Polish beta intentionally shares technical labels/placeholders with upstream locales.
-  'admin.aliases.replyToLabel': [['en', 'pl']],
-  'admin.privacy.addDomainPh': [['de', 'en', 'pl', 'ru', 'zhCN']],
-  'admin.sso.domainsPh': [['de', 'en', 'pl', 'ru', 'zhCN']],
-  'compose.bccPh': [['de', 'en', 'pl', 'ru', 'zhCN']],
-  'compose.ccPh': [['de', 'en', 'pl', 'ru', 'zhCN']],
   'contacts.fields.phone': [['de', 'pl']],
   'todoist.project': [['de', 'pl']],
   'admin.accounts.signatureSection': [['en', 'fr'], ['es', 'it']],
@@ -264,8 +258,6 @@ const SAME_VALUE_ALLOWED = {
   'admin.tabs.sso': [['de', 'en', 'es', 'fr', 'it', 'pl', 'ru']],
 
   // "Telefon" / "Projekt" — established Polish/German technical loanwords
-  'contacts.fields.phone': [['de', 'pl']],
-  'todoist.project':       [['de', 'pl']],
 
   // "Password" — international term, same in en and it
   'admin.systemEmail.password':      [['en', 'it']],
