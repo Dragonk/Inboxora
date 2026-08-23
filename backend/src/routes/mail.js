@@ -82,6 +82,14 @@ const RELOCATE_COPY_COLS = [
   'spam_analyzed_at', 'spam_details', 'spam_user_override', 'category', 'list_unsubscribe',
   'list_unsubscribe_post', 'unsubscribed_at', 'delivery_addresses', 'plugin_annotations',
   'sender_name', 'sender_email',
+  // Conversation Engine v2 columns — preserved on relocate so identity (LogicalMessage,
+  // conversation, canonical Message-ID, provider IDs, threading evidence) survives
+  // archive/move/trash/folder rename/resync. Without these, a relocate silently severs
+  // the physical copy from its conversation, corrupting the 1:N copy model.
+  'logical_message_id', 'conversation_id', 'canonical_message_id',
+  'provider_message_id', 'provider_thread_id', 'provider_namespace',
+  'threading_reason', 'threading_confidence', 'threading_algorithm_version',
+  'conversation_raw_headers', 'conversation_thread_index', 'conversation_thread_topic',
 ];
 // INSERT target list and the matching SELECT projection. account_id + the carried columns come
 // from the deleted row; uid is the UIDPLUS-mapped new uid; folder is the destination ($4).
