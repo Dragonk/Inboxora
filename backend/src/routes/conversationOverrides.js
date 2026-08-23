@@ -1,9 +1,13 @@
 import { Router } from 'express';
 import { requireAuth } from '../middleware/auth.js';
 import { applyConversationOverride, listConversationOverrides } from '../services/conversationOverrides.js';
+import { uuidParam } from '../utils/uuid.js';
 
 const router = Router();
 router.use(requireAuth);
+
+// Reuse the upstream uuidParam guard so malformed conversation/override IDs return 400.
+router.param('id', uuidParam('id'));
 
 router.post('/conversations/:id/overrides', async (req, res) => {
   const result = await applyConversationOverride({

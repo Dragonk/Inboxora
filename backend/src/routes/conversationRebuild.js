@@ -3,9 +3,13 @@ import { query } from '../services/db.js';
 import { requireAuth } from '../middleware/auth.js';
 import { getConversationRebuildJob, startConversationRebuildJob, recordConversationRebuildAudit } from '../services/conversationRebuildJobs.js';
 import { consumeConversationRebuildRateLimit } from '../services/conversationRebuildRateLimit.js';
+import { uuidParam } from '../utils/uuid.js';
 
 const router = Router();
 router.use(requireAuth);
+
+// Reuse the upstream uuidParam guard so malformed rebuild job IDs return 400.
+router.param('jobId', uuidParam('jobId'));
 
 router.post('/conversations/rebuild', async (req, res) => {
   const userId = req.session.userId;

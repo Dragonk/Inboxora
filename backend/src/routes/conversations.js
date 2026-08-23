@@ -3,9 +3,16 @@ import { query } from '../services/db.js';
 import { requireAuth } from '../middleware/auth.js';
 import { resolveConversationAlias } from '../services/conversationOverridePolicy.js';
 import { pool } from '../services/db.js';
+import { uuidParam } from '../utils/uuid.js';
 
 const router = Router();
 router.use(requireAuth);
+
+// Reuse the upstream uuidParam guard so malformed conversation/logical-message IDs
+// return 400, not a Postgres 500 from a failed uuid cast.
+router.param('id', uuidParam('id'));
+router.param('conversationId', uuidParam('conversationId'));
+router.param('logicalMessageId', uuidParam('logicalMessageId'));
 
 function parseLimit(value) {
   return Math.min(Math.max(Number(value) || 50, 1), 100);
