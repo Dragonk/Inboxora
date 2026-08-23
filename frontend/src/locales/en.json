@@ -602,7 +602,6 @@
     "errorProcess": "Could not process image."
   },
   "admin": {
-    "resizePanel": "Drag to resize",
     "cleanup": {
       "title": "Mailbox Cleanup",
       "intro": "Find bulk mail cluttering your inbox and move it to Trash. Deleted mail goes to your Trash folder and can be recovered until you empty it.",
