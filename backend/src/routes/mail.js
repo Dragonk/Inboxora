@@ -57,6 +57,37 @@ async function runInBatches(items, concurrency, fn) {
   return results;
 }
 
+// Columns copied verbatim when a message row is relocated to a new folder/UID via the
+// DELETE + reinsert CTE used by the bulk trash / move / archive paths on UIDPLUS servers.
+// The destination uid comes from the UIDPLUS map (u.new_uid) and the destination folder is
+// always bound as $4; everything else is carried over from the deleted row (d.*).
+//
+// Excluded on purpose:
+//   - id, synced_at        -> use their column defaults (a fresh UUID and timestamp), which
+//                             preserves the historical "row gets a new id on move" behavior.
+//   - normalized_subject,
+//     search_vector,
+//     thread_key           -> GENERATED ALWAYS columns; Postgres computes them, and inserting
+//                             an explicit value (even NULL) errors.
+//
+// IMPORTANT: when a migration adds a data column to `messages`, add it to RELOCATE_COPY_COLS
+// or a relocate will silently reset it to its default. This list previously went stale and
+// dropped delivery_addresses (0037), plugin_annotations (0044) and sender_name/sender_email
+// (0050). A unit test (mail.relocate.test.js) guards the four that regression touched.
+const RELOCATE_COPY_COLS = [
+  'message_id', 'subject', 'from_name', 'from_email', 'to_addresses', 'cc_addresses',
+  'reply_to', 'in_reply_to', 'date', 'snippet', 'is_read', 'is_starred', 'has_attachments',
+  'flags', 'body_html', 'body_text', 'attachments', 'thread_references', 'thread_id', 'is_bulk',
+  'read_changed_at', 'star_changed_at', 'spam_score_sa', 'spam_score_ml', 'spam_verdict',
+  'spam_analyzed_at', 'spam_details', 'spam_user_override', 'category', 'list_unsubscribe',
+  'list_unsubscribe_post', 'unsubscribed_at', 'delivery_addresses', 'plugin_annotations',
+  'sender_name', 'sender_email',
+];
+// INSERT target list and the matching SELECT projection. account_id + the carried columns come
+// from the deleted row; uid is the UIDPLUS-mapped new uid; folder is the destination ($4).
+export const RELOCATE_INSERT_COLS = ['account_id', 'uid', 'folder', ...RELOCATE_COPY_COLS].join(', ');
+export const RELOCATE_SELECT_COLS = ['d.account_id', 'u.new_uid', '$4', ...RELOCATE_COPY_COLS.map(c => `d.${c}`)].join(', ');
+
 
 // Returns true if a snippet contains content that should never appear in plain-text
 // preview, indicating it was generated from unclean HTML and needs regeneration:
@@ -1195,25 +1226,8 @@ router.post('/messages/bulk-delete', async (req, res) => {
           uid_map(src_id, new_uid) AS (
             SELECT * FROM unnest($2::uuid[], $3::bigint[])
           )
-          INSERT INTO messages (
-            account_id, uid, folder, message_id, subject,
-            from_name, from_email, to_addresses, cc_addresses,
-            reply_to, in_reply_to, date, snippet, is_read, is_starred,
-            has_attachments, flags, body_html, body_text, attachments,
-            thread_references, thread_id, is_bulk,
-            read_changed_at, star_changed_at, spam_score_sa, spam_score_ml,
-            spam_verdict, spam_analyzed_at, spam_details, spam_user_override,
-            category, list_unsubscribe, list_unsubscribe_post, unsubscribed_at
-          )
-          SELECT
-            d.account_id, u.new_uid, $4, d.message_id, d.subject,
-            d.from_name, d.from_email, d.to_addresses, d.cc_addresses,
-            d.reply_to, d.in_reply_to, d.date, d.snippet, d.is_read, d.is_starred,
-            d.has_attachments, d.flags, d.body_html, d.body_text, d.attachments,
-            d.thread_references, d.thread_id, d.is_bulk,
-            d.read_changed_at, d.star_changed_at, d.spam_score_sa, d.spam_score_ml,
-            d.spam_verdict, d.spam_analyzed_at, d.spam_details, d.spam_user_override,
-            d.category, d.list_unsubscribe, d.list_unsubscribe_post, d.unsubscribed_at
+          INSERT INTO messages (${RELOCATE_INSERT_COLS})
+          SELECT ${RELOCATE_SELECT_COLS}
           FROM deleted d
           JOIN uid_map u ON d.id = u.src_id
           ON CONFLICT (account_id, uid, folder) DO NOTHING
@@ -1456,25 +1470,8 @@ router.post('/messages/bulk-move', async (req, res) => {
         uid_map(src_id, new_uid) AS (
           SELECT * FROM unnest($2::uuid[], $3::bigint[])
         )
-        INSERT INTO messages (
-          account_id, uid, folder, message_id, subject,
-          from_name, from_email, to_addresses, cc_addresses,
-          reply_to, in_reply_to, date, snippet, is_read, is_starred,
-          has_attachments, flags, body_html, body_text, attachments,
-          thread_references, thread_id, is_bulk,
-          read_changed_at, star_changed_at, spam_score_sa, spam_score_ml,
-          spam_verdict, spam_analyzed_at, spam_details, spam_user_override,
-          category, list_unsubscribe, list_unsubscribe_post, unsubscribed_at
-        )
-        SELECT
-          d.account_id, u.new_uid, $4, d.message_id, d.subject,
-          d.from_name, d.from_email, d.to_addresses, d.cc_addresses,
-          d.reply_to, d.in_reply_to, d.date, d.snippet, d.is_read, d.is_starred,
-          d.has_attachments, d.flags, d.body_html, d.body_text, d.attachments,
-          d.thread_references, d.thread_id, d.is_bulk,
-          d.read_changed_at, d.star_changed_at, d.spam_score_sa, d.spam_score_ml,
-          d.spam_verdict, d.spam_analyzed_at, d.spam_details, d.spam_user_override,
-          d.category, d.list_unsubscribe, d.list_unsubscribe_post, d.unsubscribed_at
+        INSERT INTO messages (${RELOCATE_INSERT_COLS})
+        SELECT ${RELOCATE_SELECT_COLS}
         FROM deleted d
         JOIN uid_map u ON d.id = u.src_id
         ON CONFLICT (account_id, uid, folder) DO NOTHING
@@ -1614,25 +1611,8 @@ router.post('/messages/bulk-archive', async (req, res) => {
         uid_map(src_id, new_uid) AS (
           SELECT * FROM unnest($2::uuid[], $3::bigint[])
         )
-        INSERT INTO messages (
-          account_id, uid, folder, message_id, subject,
-          from_name, from_email, to_addresses, cc_addresses,
-          reply_to, in_reply_to, date, snippet, is_read, is_starred,
-          has_attachments, flags, body_html, body_text, attachments,
-          thread_references, thread_id, is_bulk,
-          read_changed_at, star_changed_at, spam_score_sa, spam_score_ml,
-          spam_verdict, spam_analyzed_at, spam_details, spam_user_override,
-          category, list_unsubscribe, list_unsubscribe_post, unsubscribed_at
-        )
-        SELECT
-          d.account_id, u.new_uid, $4, d.message_id, d.subject,
-          d.from_name, d.from_email, d.to_addresses, d.cc_addresses,
-          d.reply_to, d.in_reply_to, d.date, d.snippet, d.is_read, d.is_starred,
-          d.has_attachments, d.flags, d.body_html, d.body_text, d.attachments,
-          d.thread_references, d.thread_id, d.is_bulk,
-          d.read_changed_at, d.star_changed_at, d.spam_score_sa, d.spam_score_ml,
-          d.spam_verdict, d.spam_analyzed_at, d.spam_details, d.spam_user_override,
-          d.category, d.list_unsubscribe, d.list_unsubscribe_post, d.unsubscribed_at
+        INSERT INTO messages (${RELOCATE_INSERT_COLS})
+        SELECT ${RELOCATE_SELECT_COLS}
         FROM deleted d
         JOIN uid_map u ON d.id = u.src_id
         ON CONFLICT (account_id, uid, folder) DO NOTHING
