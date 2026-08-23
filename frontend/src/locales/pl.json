@@ -1532,8 +1532,7 @@
     "create": "Utwórz zadanie",
     "creating": "Tworzenie…",
     "taskCreated": "Utworzono zadanie w Todoist",
-    "openTask": "Otwórz w Todoist",
-    "betaLabel": "Beta"
+    "openTask": "Otwórz w Todoist"
   },
   "rightSidebar": {
     "hide": "Ukryj prawy pasek boczny",
