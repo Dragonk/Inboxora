@@ -57,44 +57,7 @@ async function runInBatches(items, concurrency, fn) {
   return results;
 }
 
-// Columns copied verbatim when a message row is relocated to a new folder/UID via the
-// DELETE + reinsert CTE used by the bulk trash / move / archive paths on UIDPLUS servers.
-// The destination uid comes from the UIDPLUS map (u.new_uid) and the destination folder is
-// always bound as $4; everything else is carried over from the deleted row (d.*).
-//
-// Excluded on purpose:
-//   - id, synced_at        -> use their column defaults (a fresh UUID and timestamp), which
-//                             preserves the historical "row gets a new id on move" behavior.
-//   - normalized_subject,
-//     search_vector,
-//     thread_key           -> GENERATED ALWAYS columns; Postgres computes them, and inserting
-//                             an explicit value (even NULL) errors.
-//
-// IMPORTANT: when a migration adds a data column to `messages`, add it to RELOCATE_COPY_COLS
-// or a relocate will silently reset it to its default. This list previously went stale and
-// dropped delivery_addresses (0037), plugin_annotations (0044) and sender_name/sender_email
-// (0050). A unit test (mail.relocate.test.js) guards the four that regression touched.
-const RELOCATE_COPY_COLS = [
-  'message_id', 'subject', 'from_name', 'from_email', 'to_addresses', 'cc_addresses',
-  'reply_to', 'in_reply_to', 'date', 'snippet', 'is_read', 'is_starred', 'has_attachments',
-  'flags', 'body_html', 'body_text', 'attachments', 'thread_references', 'thread_id', 'is_bulk',
-  'read_changed_at', 'star_changed_at', 'spam_score_sa', 'spam_score_ml', 'spam_verdict',
-  'spam_analyzed_at', 'spam_details', 'spam_user_override', 'category', 'list_unsubscribe',
-  'list_unsubscribe_post', 'unsubscribed_at', 'delivery_addresses', 'plugin_annotations',
-  'sender_name', 'sender_email',
-  // Conversation Engine v2 columns — preserved on relocate so identity (LogicalMessage,
-  // conversation, canonical Message-ID, provider IDs, threading evidence) survives
-  // archive/move/trash/folder rename/resync. Without these, a relocate silently severs
-  // the physical copy from its conversation, corrupting the 1:N copy model.
-  'logical_message_id', 'conversation_id', 'canonical_message_id',
-  'provider_message_id', 'provider_thread_id', 'provider_namespace',
-  'threading_reason', 'threading_confidence', 'threading_algorithm_version',
-  'conversation_raw_headers', 'conversation_thread_index', 'conversation_thread_topic',
-];
-// INSERT target list and the matching SELECT projection. account_id + the carried columns come
-// from the deleted row; uid is the UIDPLUS-mapped new uid; folder is the destination ($4).
-export const RELOCATE_INSERT_COLS = ['account_id', 'uid', 'folder', ...RELOCATE_COPY_COLS].join(', ');
-export const RELOCATE_SELECT_COLS = ['d.account_id', 'u.new_uid', '$4', ...RELOCATE_COPY_COLS.map(c => `d.${c}`)].join(', ');
+import { RELOCATE_INSERT_COLS, RELOCATE_SELECT_COLS } from '../utils/relocateColumns.js';
 
 
 // Returns true if a snippet contains content that should never appear in plain-text

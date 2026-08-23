@@ -5,7 +5,7 @@ vi.mock('../services/db.js', () => ({ query: vi.fn() }));
 vi.mock('../middleware/auth.js', () => ({ requireAuth: (_req, _res, next) => next() }));
 vi.mock('../index.js', () => ({ imapManager: {} }));
 
-import { RELOCATE_INSERT_COLS, RELOCATE_SELECT_COLS } from './mail.js';
+import { RELOCATE_INSERT_COLS, RELOCATE_SELECT_COLS } from '../utils/relocateColumns.js';
 
 // Guards the DELETE + reinsert CTE column lists shared by bulk trash / move / archive. The
 // original bug: an explicit column list went stale and silently dropped columns added by later
@@ -32,10 +32,11 @@ describe('relocate reinsert column lists', () => {
   // of these severs the copy from its conversation, corrupting the 1:N copy model.
   it('carries all Conversation Engine v2 identity and threading metadata columns', () => {
     for (const col of [
-      'logical_message_id', 'conversation_id', 'canonical_message_id',
+      'logical_message_id', 'conversation_id', 'conversation_user_id', 'canonical_message_id',
       'provider_message_id', 'provider_thread_id', 'provider_namespace',
       'threading_reason', 'threading_confidence', 'threading_algorithm_version',
       'conversation_raw_headers', 'conversation_thread_index', 'conversation_thread_topic',
+      'automated_series_mode',
     ]) {
       expect(insertCols).toContain(col);
       expect(selectCols).toContain(`d.${col}`);

@@ -11,6 +11,7 @@ import { decrypt } from './encryption.js';
 import { sendPushToUser } from './pushNotifications.js';
 import { redactEmail } from '../utils/redact.js';
 import { adjustFolderCounts, resolveSpamFolder } from '../utils/mailUtils.js';
+import { RELOCATE_COPY_COLS } from '../utils/relocateColumns.js';
 import { resolveForConnection, createPinnedLookup } from './hostValidation.js';
 import { getConnectionPolicy } from './connectionPolicy.js';
 import { applyInboxRules, applyBlockList } from './inboxRules.js';
@@ -798,26 +799,15 @@ export function relocateExemptGuard(exemptFolders, paramIndex) {
 // unread. Extracted (like relocateExemptGuard) so the DB behavior is unit-testable
 // without a live IMAP pool.
 export async function insertCopiedSibling(accountId, uid, fromFolder, toFolder, newUid) {
+  // Reuse the shared RELOCATE_COPY_COLS projection from mail.js so a sibling copy
+  // (IMAP COPY, e.g. Gmail All-Mail) inherits every CE v2 identity/threading column.
+  // A hand-maintained list here drifted before (delivery_addresses, sender_* were lost,
+  // and CE columns were never added), silently severing the copy from its Conversation.
+  const copyCols = RELOCATE_COPY_COLS.join(', ');
+  const selectCols = RELOCATE_COPY_COLS.map(c => c).join(', ');
   const res = await query(`
-    INSERT INTO messages (
-      account_id, uid, folder, message_id, subject,
-      from_name, from_email, to_addresses, cc_addresses,
-      reply_to, in_reply_to, date, snippet, is_read, is_starred,
-      has_attachments, flags, body_html, body_text, attachments,
-      thread_references, thread_id, is_bulk,
-      read_changed_at, star_changed_at, spam_score_sa, spam_score_ml,
-      spam_verdict, spam_analyzed_at, spam_details, spam_user_override,
-      category, list_unsubscribe, list_unsubscribe_post, unsubscribed_at, delivery_addresses, sender_name, sender_email
-    )
-    SELECT
-      account_id, $4, $5, message_id, subject,
-      from_name, from_email, to_addresses, cc_addresses,
-      reply_to, in_reply_to, date, snippet, is_read, is_starred,
-      has_attachments, flags, body_html, body_text, attachments,
-      thread_references, thread_id, is_bulk,
-      read_changed_at, star_changed_at, spam_score_sa, spam_score_ml,
-      spam_verdict, spam_analyzed_at, spam_details, spam_user_override,
-      category, list_unsubscribe, list_unsubscribe_post, unsubscribed_at, delivery_addresses, sender_name, sender_email
+    INSERT INTO messages (account_id, uid, folder, ${copyCols})
+    SELECT account_id, $4, $5, ${selectCols}
     FROM messages
     WHERE account_id = $1 AND folder = $2 AND uid = $3
     ON CONFLICT (account_id, uid, folder) DO NOTHING
