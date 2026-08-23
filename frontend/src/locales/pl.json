@@ -425,6 +425,8 @@
     "renameFailed": "Zmiana nazwy nie powiodła się",
     "deleteFailed": "Usuwanie nie powiodło się",
     "emptyFailed": "Opróżnianie nie powiodło się",
+    "emptying": "Opróżnianie „{{name}}”…",
+    "emptied": "Folder opróżniony",
     "backToAccounts": "Powrót do kont",
     "updateAvailable": "Dostępna aktualizacja: v{{version}}"
   },

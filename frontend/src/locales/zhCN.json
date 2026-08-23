@@ -409,6 +409,8 @@
     "renameFailed": "重命名失败",
     "deleteFailed": "删除失败",
     "emptyFailed": "清空失败",
+    "emptying": "正在清空「{{name}}」…",
+    "emptied": "文件夹已清空",
     "backToAccounts": "返回账户列表",
     "updateAvailable": "有可用更新：v{{version}}"
   },

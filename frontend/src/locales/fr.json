@@ -409,6 +409,8 @@
     "renameFailed": "Échec du renommage",
     "deleteFailed": "Échec de la suppression",
     "emptyFailed": "Échec du vidage",
+    "emptying": "Vidage de « {{name}} »…",
+    "emptied": "Dossier vidé",
     "backToAccounts": "Retour aux comptes",
     "updateAvailable": "Mise à jour disponible : v{{version}}"
   },

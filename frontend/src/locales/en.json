@@ -409,6 +409,8 @@
     "renameFailed": "Rename failed",
     "deleteFailed": "Delete failed",
     "emptyFailed": "Empty failed",
+    "emptying": "Emptying \"{{name}}\"…",
+    "emptied": "Folder emptied",
     "backToAccounts": "Back to accounts",
     "updateAvailable": "Update available: v{{version}}"
   },

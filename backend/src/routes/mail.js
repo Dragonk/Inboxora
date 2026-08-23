@@ -985,27 +985,45 @@ router.post('/folders/rename', async (req, res) => {
   }
 });
 
-// Empty folder (delete all messages)
+// Guards against two overlapping empties of the same (account, folder) — a double-click or a
+// second device would otherwise start two background deletes over the same folder.
+const emptyInFlight = new Set();
+
+// Empty folder (delete all messages). Emptying a large folder is a slow IMAP operation (chunked
+// delete + expunge over the provider), so it runs in the BACKGROUND: the request returns 202
+// immediately and the outcome is reported over WebSocket (folder_emptied). This keeps the UI from
+// hanging on big folders. On failure the DB rows are left in place so the next sync reconciles.
 router.post('/folders/empty', async (req, res) => {
   const { accountId, path } = req.body;
   if (!accountId || !path) return res.status(400).json({ error: 'accountId and path required' });
   if (!isValidFolderName(path)) return res.status(400).json({ error: 'Invalid folder path' });
   const check = await query('SELECT * FROM email_accounts WHERE id = $1 AND user_id = $2', [accountId, req.session.userId]);
   if (!check.rows.length) return res.status(404).json({ error: 'Account not found' });
+  const account = check.rows[0];
 
-  try {
-    await imapManager.emptyFolder(check.rows[0], path);
-  } catch (err) {
-    console.error(`IMAP emptyFolder failed for ${path}:`, err.message);
-    return res.status(500).json({ error: 'Failed to empty folder on server' });
-  }
-  await query('DELETE FROM messages WHERE account_id = $1 AND folder = $2', [accountId, path]);
-  await query(
-    'UPDATE folders SET total_count = 0, unread_count = 0 WHERE account_id = $1 AND path = $2',
-    [accountId, path]
-  );
-  imapManager.broadcast({ type: 'sync_complete', accountId }, check.rows[0].user_id);
-  res.json({ ok: true });
+  const inflightKey = `${accountId}:${path}`;
+  if (emptyInFlight.has(inflightKey)) return res.status(409).json({ error: 'This folder is already being emptied' });
+  emptyInFlight.add(inflightKey);
+
+  res.status(202).json({ ok: true, started: true });
+
+  (async () => {
+    try {
+      await imapManager.emptyFolder(account, path);
+      await query('DELETE FROM messages WHERE account_id = $1 AND folder = $2', [accountId, path]);
+      await query(
+        'UPDATE folders SET total_count = 0, unread_count = 0 WHERE account_id = $1 AND path = $2',
+        [accountId, path]
+      );
+      imapManager.broadcast({ type: 'folder_emptied', accountId, folder: path, ok: true }, account.user_id);
+      imapManager.broadcast({ type: 'sync_complete', accountId }, account.user_id);
+    } catch (err) {
+      console.error(`Async emptyFolder failed for ${path}:`, err.message);
+      imapManager.broadcast({ type: 'folder_emptied', accountId, folder: path, ok: false }, account.user_id);
+    } finally {
+      emptyInFlight.delete(inflightKey);
+    }
+  })();
 });
 
 // Bulk mark read/unread
