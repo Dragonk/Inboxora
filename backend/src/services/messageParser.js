@@ -576,6 +576,15 @@ export async function parseMessage(msg) {
     || (fromAddr.mailbox && fromAddr.host ? `${fromAddr.mailbox}@${fromAddr.host}` : '');
   const fromName = fromAddr.name || fromAddr.mailbox || fromEmail.split('@')[0] || '';
 
+  // RFC 5322 Sender / IMAP ENVELOPE sender (entry[3]): the mailbox that actually submitted the
+  // message. Servers default ENVELOPE sender to From when the Sender header is absent, so only
+  // treat it as meaningful when its address differs from From — the genuine "on behalf of" / "via"
+  // case (mailing lists, send-as platforms, some spoofing). See #366.
+  const senderAddr = envelope.sender?.[0] || {};
+  const senderEmail = senderAddr.address
+    || (senderAddr.mailbox && senderAddr.host ? `${senderAddr.mailbox}@${senderAddr.host}` : '');
+  const hasDistinctSender = !!senderEmail && senderEmail.toLowerCase() !== fromEmail.toLowerCase();
+
   const mapAddrs = (addrs) => (addrs || []).map(a => ({
     name: a.name || '',
     email: a.address || (a.mailbox && a.host ? `${a.mailbox}@${a.host}` : ''),
@@ -646,6 +655,8 @@ export async function parseMessage(msg) {
     subject: resolveSubject(envelope.subject, parsedHeaders),
     fromName,
     fromEmail,
+    senderName: hasDistinctSender ? (senderAddr.name || '') : null,
+    senderEmail: hasDistinctSender ? senderEmail : null,
     to: mapAddrs(envelope.to),
     cc: mapAddrs(envelope.cc),
     replyTo: mapAddrs(envelope.replyTo),

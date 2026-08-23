@@ -10,7 +10,7 @@ describe('migration integrity', () => {
   });
 
   it('contains tenant composite constraints in the repair migration', () => {
-    const sql = readFileSync(join(process.cwd(), 'migrations/0051_conversation_tenant_constraints.sql'), 'utf8');
+    const sql = readFileSync(join(process.cwd(), 'migrations/0055_conversation_tenant_constraints.sql'), 'utf8');
     expect(sql).toContain('fk_logical_conversation_owner');
     expect(sql).toContain('fk_provider_mapping_conversation_owner');
     expect(sql).toContain('fk_message_conversation_owner');

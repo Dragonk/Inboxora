@@ -25,6 +25,7 @@ import {
   isSelectedRow,
   messageIdentity,
   appendMessagesByIdentity,
+  dedupeByIdentity,
   missingByIdentity,
   DEFAULT_GTD_FOLDERS,
   resolveAccountGtdFolders,
@@ -529,6 +530,53 @@ describe('appendMessagesByIdentity', () => {
     const existing = [{ id: 'a', message_id: '<m1>' }];
     assert.equal(appendMessagesByIdentity(existing, []), existing);
     assert.equal(appendMessagesByIdentity(existing, null), existing);
+  });
+});
+
+describe('dedupeByIdentity', () => {
+  it('collapses two rows that share a Message-ID into one (the #378 cross-account/Sent case)', () => {
+    // Same email present as user2's received INBOX copy and user1's Sent copy.
+    const list = [
+      { id: 'a', message_id: '<m1>', folder: 'INBOX', account_id: 'u2' },
+      { id: 'b', message_id: '<m1>', folder: 'Sent', account_id: 'u1' },
+    ];
+    const result = dedupeByIdentity(list);
+    assert.equal(result.length, 1);
+  });
+
+  it('keeps the INBOX copy when the same message appears in INBOX and another folder', () => {
+    const list = [
+      { id: 'b', message_id: '<m1>', folder: 'Sent' },
+      { id: 'a', message_id: '<m1>', folder: 'INBOX' },
+    ];
+    const result = dedupeByIdentity(list);
+    assert.equal(result.length, 1);
+    assert.equal(result[0].id, 'a');       // INBOX copy wins regardless of order
+    assert.equal(result[0].folder, 'INBOX');
+  });
+
+  it('preserves order and keeps the first occurrence when no INBOX copy exists', () => {
+    const list = [
+      { id: 'x', message_id: '<m2>', folder: 'Archive' },
+      { id: 'a', message_id: '<m1>', folder: 'Sent' },
+      { id: 'b', message_id: '<m1>', folder: 'Archive' },
+    ];
+    const result = dedupeByIdentity(list);
+    assert.deepEqual(result.map(m => m.id), ['x', 'a']);
+  });
+
+  it('never collapses distinct messages that both lack a Message-ID', () => {
+    const list = [
+      { id: 'a', message_id: null, folder: 'INBOX' },
+      { id: 'b', message_id: null, folder: 'INBOX' },
+    ];
+    assert.deepEqual(dedupeByIdentity(list).map(m => m.id), ['a', 'b']);
+  });
+
+  it('handles empty / nullish input and skips falsy rows', () => {
+    assert.deepEqual(dedupeByIdentity([]), []);
+    assert.deepEqual(dedupeByIdentity(null), []);
+    assert.deepEqual(dedupeByIdentity([null, { id: 'a', message_id: '<m1>' }]).map(m => m.id), ['a']);
   });
 });
 

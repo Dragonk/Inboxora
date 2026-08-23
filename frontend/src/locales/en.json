@@ -191,6 +191,7 @@
     "selectToRead": "Select a message to read",
     "noSubject": "(no subject)",
     "to": "To:",
+    "via": "via",
     "attachment_one": "{{count}} attachment",
     "attachment_other": "{{count}} attachments",
     "loadingError": "Unable to load message body",
@@ -422,6 +423,8 @@
     "renameFailed": "Rename failed",
     "deleteFailed": "Delete failed",
     "emptyFailed": "Empty failed",
+    "emptying": "Emptying \"{{name}}\"…",
+    "emptied": "Folder emptied",
     "backToAccounts": "Back to accounts",
     "updateAvailable": "Update available: v{{version}}",
     "hiddenFolders_few": "{{count}} hidden folders",
@@ -455,6 +458,7 @@
     "markAsHam": "Mark as Not Spam",
     "copySubject": "Copy subject",
     "copySender": "Copy sender's address",
+    "copyLink": "Copy link",
     "viewHeaders": "View full headers",
     "delete": "Delete",
     "headers": {
@@ -616,9 +620,25 @@
     "errorProcess": "Could not process image."
   },
   "admin": {
+    "cleanup": {
+      "title": "Mailbox Cleanup",
+      "intro": "Find bulk mail cluttering your inbox and move it to Trash. Deleted mail goes to your Trash folder and can be recovered until you empty it.",
+      "account": "Account",
+      "summary": "{{bulk}} of {{total}} inbox messages are bulk mail ({{pct}}%).",
+      "tier1Title": "Top bulk senders",
+      "tier1Desc": "These are the highest-volume newsletter and marketing senders in your inbox. Moving one sends all of that sender's inbox mail to Trash.",
+      "noneFound": "No bulk senders found.",
+      "moveToTrash": "Move to Trash",
+      "confirm": "Move all {{count}} inbox messages from {{sender}} to Trash? They can be recovered from Trash until you empty it.",
+      "tier2Title": "Common promotional terms",
+      "tier2Desc": "Search these terms to review and delete the rest yourself. They span many senders, so skim the results before deleting.",
+      "tier3Title": "Cleaning up the rest",
+      "tier3Desc": "For everything else, search by sender or keyword, select all, and delete. Deletes always move to Trash first, so you can review before emptying it."
+    },
     "title": "Settings",
     "close": "Close",
     "tabs": {
+      "cleanup": "Cleanup",
       "accounts": "Accounts",
       "rules": "Rules",
       "appearance": "Appearance",
@@ -1284,6 +1304,8 @@
       "adminGroupValue": "Admin group value",
       "adminGroupValuePh": "mailflow-admins",
       "adminGroupValueDesc": "The group name that grants admin access. Users in this group become admins on every SSO login; users not in this group lose admin access.",
+      "loginMatchClaim": "Match existing accounts by",
+      "loginMatchClaimDesc": "OIDC claim matched against each MailFlow account’s username when an SSO login is first linked to an existing account (provisioning mode “login existing only”). Defaults to email. Use preferred_username, upn, etc. for identity providers where usernames are not email addresses — only if your provider guarantees the claim is unique and not user-editable.",
       "save": "Save",
       "editButton": "Edit",
       "deleteButton": "Delete",
@@ -1493,7 +1515,6 @@
     "carddavBadge": "Synced from CardDAV"
   },
   "todoist": {
-    "betaLabel": "Beta",
     "title": "Create Todoist Task",
     "taskTitle": "Task title",
     "taskTitlePh": "What needs to be done?",

@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { resolveTrashFolder, resolveArchiveFolder, isAllMailFolder, resolveSpamFolder, getDeleteStrategy, fanOutReadToSiblings, fanOutStarToSiblings, fanOutBulkReadToSiblings } from './mailUtils.js';
+import { mappedFolderUsable, resolveTrashFolder, resolveArchiveFolder, resolveSentFolder, isAllMailFolder, resolveSpamFolder, getDeleteStrategy, fanOutReadToSiblings, fanOutStarToSiblings, fanOutBulkReadToSiblings } from './mailUtils.js';
 
 vi.mock('../services/db.js', () => ({
   query: vi.fn(),
@@ -11,11 +11,45 @@ beforeEach(() => {
   query.mockClear();
 });
 
+describe('mappedFolderUsable', () => {
+  it('returns null for a falsy path without querying the DB', async () => {
+    expect(await mappedFolderUsable(1, null)).toBeNull();
+    expect(await mappedFolderUsable(1, undefined)).toBeNull();
+    expect(await mappedFolderUsable(1, '')).toBeNull();
+    expect(query).not.toHaveBeenCalled();
+  });
+
+  it('returns the path when a selectable (no_select = false) folder row exists', async () => {
+    query.mockResolvedValue({ rows: [{ '?column?': 1 }] });
+    const result = await mappedFolderUsable(1, 'INBOX.Sent');
+    expect(result).toBe('INBOX.Sent');
+    expect(query).toHaveBeenCalledOnce();
+    expect(query.mock.calls[0][0]).toContain('no_select = false');
+    expect(query.mock.calls[0][1]).toEqual([1, 'INBOX.Sent']);
+  });
+
+  it('returns null when the folder is missing or non-selectable (no matching row)', async () => {
+    query.mockResolvedValue({ rows: [] });
+    expect(await mappedFolderUsable(1, '[Gmail]')).toBeNull();
+  });
+});
+
 describe('resolveTrashFolder', () => {
-  it('returns folder_mappings.trash immediately without querying the DB', async () => {
+  it('returns folder_mappings.trash when it points at a selectable folder', async () => {
+    query.mockResolvedValue({ rows: [{ '?column?': 1 }] }); // mappedFolderUsable finds it
     const result = await resolveTrashFolder(1, { trash: 'INBOX.Trash' });
     expect(result).toBe('INBOX.Trash');
-    expect(query).not.toHaveBeenCalled();
+    expect(query).toHaveBeenCalledOnce();
+    expect(query.mock.calls[0][0]).toContain('no_select = false');
+  });
+
+  it('ignores a mapping at a non-selectable folder and falls back to detection', async () => {
+    query
+      .mockResolvedValueOnce({ rows: [] })                         // mappedFolderUsable: not selectable
+      .mockResolvedValueOnce({ rows: [{ path: 'INBOX.Trash' }] }); // \Trash detection
+    const result = await resolveTrashFolder(1, { trash: '[Gmail]' });
+    expect(result).toBe('INBOX.Trash');
+    expect(query).toHaveBeenCalledTimes(2);
   });
 
   it('falls back to special_use=\\Trash folder when no mapping is set', async () => {
@@ -39,10 +73,12 @@ describe('resolveTrashFolder', () => {
 });
 
 describe('resolveArchiveFolder', () => {
-  it('returns folder_mappings.archive immediately without querying the DB', async () => {
+  it('returns folder_mappings.archive when it points at a selectable folder', async () => {
+    query.mockResolvedValue({ rows: [{ '?column?': 1 }] });
     const result = await resolveArchiveFolder(1, { archive: 'INBOX.Archive' });
     expect(result).toBe('INBOX.Archive');
-    expect(query).not.toHaveBeenCalled();
+    expect(query).toHaveBeenCalledOnce();
+    expect(query.mock.calls[0][0]).toContain('no_select = false');
   });
 
   it('falls back to special_use=\\Archive folder when no mapping is set', async () => {
@@ -101,10 +137,12 @@ describe('isAllMailFolder', () => {
 });
 
 describe('resolveSpamFolder', () => {
-  it('returns folder_mappings.spam immediately without querying the DB', async () => {
+  it('returns folder_mappings.spam when it points at a selectable folder', async () => {
+    query.mockResolvedValue({ rows: [{ '?column?': 1 }] });
     const result = await resolveSpamFolder(1, { spam: '[Gmail]/Spam' });
     expect(result).toBe('[Gmail]/Spam');
-    expect(query).not.toHaveBeenCalled();
+    expect(query).toHaveBeenCalledOnce();
+    expect(query.mock.calls[0][0]).toContain('no_select = false');
   });
 
   it('falls back to special_use=\\Junk folder when no mapping is set', async () => {
@@ -146,6 +184,39 @@ describe('resolveSpamFolder', () => {
   });
 });
 
+describe('resolveSentFolder', () => {
+  it('returns folder_mappings.sent when it points at a selectable folder', async () => {
+    query.mockResolvedValue({ rows: [{ '?column?': 1 }] });
+    const result = await resolveSentFolder(1, { sent: '[Gmail]/Odeslaná pošta' });
+    expect(result).toBe('[Gmail]/Odeslaná pošta');
+    expect(query).toHaveBeenCalledOnce();
+    expect(query.mock.calls[0][0]).toContain('no_select = false');
+  });
+
+  it('ignores a mapping at the non-selectable [Gmail] parent and falls back to \\Sent (#386)', async () => {
+    query
+      .mockResolvedValueOnce({ rows: [] })                                     // [Gmail] not selectable
+      .mockResolvedValueOnce({ rows: [{ path: '[Gmail]/Odeslaná pošta' }] });  // \Sent detection
+    const result = await resolveSentFolder(1, { sent: '[Gmail]' });
+    expect(result).toBe('[Gmail]/Odeslaná pošta');
+    expect(query).toHaveBeenCalledTimes(2);
+    expect(query.mock.calls[1][0]).toContain("special_use = '\\Sent'");
+  });
+
+  it('falls back to \\Sent detection when no mapping is set (no validation query)', async () => {
+    query.mockResolvedValue({ rows: [{ path: 'Sent' }] });
+    const result = await resolveSentFolder(1, null);
+    expect(result).toBe('Sent');
+    expect(query).toHaveBeenCalledOnce();
+    expect(query.mock.calls[0][0]).toContain("special_use = '\\Sent'");
+  });
+
+  it('returns null when no Sent folder can be resolved', async () => {
+    query.mockResolvedValue({ rows: [] });
+    expect(await resolveSentFolder(1, {})).toBeNull();
+  });
+});
+
 describe('getDeleteStrategy', () => {
   it('returns no_trash when no Trash folder is configured', () => {
     expect(getDeleteStrategy('INBOX', null)).toEqual({ action: 'no_trash' });
@@ -160,10 +231,10 @@ describe('getDeleteStrategy', () => {
     expect(getDeleteStrategy('INBOX', 'INBOX/Trash')).toEqual({ action: 'move', destination: 'INBOX/Trash' });
   });
 
-  it('returns move when Trash mapping is stale (path comes from folder_mappings without DB check)', () => {
-    // resolveTrashFolder returns the mapped path immediately, even if the folder no longer
-    // exists on the server. getDeleteStrategy correctly returns 'move'; the IMAP call will
-    // fail and the route's try/catch will surface the error to the caller.
+  it('returns move for whatever trash path it is given (it does no DB validation itself)', () => {
+    // getDeleteStrategy trusts the already-resolved path. resolveTrashFolder now validates the
+    // mapping (see mappedFolderUsable), but if a stale-yet-selectable path still reaches here,
+    // getDeleteStrategy returns 'move' and the IMAP call surfaces any failure to the caller.
     expect(getDeleteStrategy('INBOX', 'INBOX/OldTrash')).toEqual({ action: 'move', destination: 'INBOX/OldTrash' });
   });
 });

@@ -191,6 +191,7 @@
     "selectToRead": "请选择一封邮件以阅读",
     "noSubject": "（无主题）",
     "to": "收件人：",
+    "via": "经由",
     "attachment_one": "{{count}} 个附件",
     "attachment_other": "{{count}} 个附件",
     "loadingError": "无法加载邮件正文",
@@ -422,6 +423,8 @@
     "renameFailed": "重命名失败",
     "deleteFailed": "删除失败",
     "emptyFailed": "清空失败",
+    "emptying": "正在清空「{{name}}」…",
+    "emptied": "文件夹已清空",
     "backToAccounts": "返回账户列表",
     "updateAvailable": "有可用更新：v{{version}}",
     "hiddenFolders_few": "{{count}} hidden folders",
@@ -455,6 +458,7 @@
     "markAsHam": "标记为非垃圾邮件",
     "copySubject": "复制主题",
     "copySender": "复制发件人地址",
+    "copyLink": "复制链接",
     "viewHeaders": "查看完整邮件头",
     "delete": "删除",
     "headers": {
@@ -616,9 +620,25 @@
     "errorProcess": "无法处理该图片。"
   },
   "admin": {
+    "cleanup": {
+      "title": "邮箱清理",
+      "intro": "找出堆满收件箱的批量邮件并移到回收站。删除的邮件会进入回收站，在清空之前都可以恢复。",
+      "account": "账户",
+      "summary": "收件箱 {{total}} 封邮件中有 {{bulk}} 封是批量邮件（{{pct}}%）。",
+      "tier1Title": "主要批量发件人",
+      "tier1Desc": "这些是您收件箱中数量最多的订阅和营销发件人。移动其中一个会将该发件人在收件箱中的所有邮件移到回收站。",
+      "noneFound": "未发现批量发件人。",
+      "moveToTrash": "移到回收站",
+      "confirm": "将来自 {{sender}} 的全部 {{count}} 封收件箱邮件移到回收站吗？在清空回收站之前都可以恢复。",
+      "tier2Title": "常见促销词",
+      "tier2Desc": "搜索这些词以自行查看并删除其余邮件。它们涉及多个发件人，删除前请先浏览结果。",
+      "tier3Title": "清理其余邮件",
+      "tier3Desc": "其余邮件可按发件人或关键词搜索，全选后删除。删除总是先移到回收站，因此可在清空前检查。"
+    },
     "title": "设置",
     "close": "关闭",
     "tabs": {
+      "cleanup": "清理",
       "accounts": "账户",
       "rules": "规则",
       "appearance": "外观",
@@ -1287,6 +1307,8 @@
       "adminGroupValue": "管理员组值",
       "adminGroupValuePh": "mailflow-admins",
       "adminGroupValueDesc": "授予管理员访问权限的组名。该组中的用户在每次 SSO 登录时成为管理员；不在该组中的用户将失去管理员权限。",
+      "loginMatchClaim": "匹配现有账户所用声明",
+      "loginMatchClaimDesc": "首次将 SSO 登录关联到现有账户时（预配模式“仅登录现有账户”），用于与每个 MailFlow 账户用户名进行匹配的 OIDC 声明（claim）。默认为 email。对于用户名不是电子邮件地址的身份提供商，可设置为 preferred_username、upn 等——但仅当您的提供商保证该声明唯一且用户不可自行修改时。",
       "passwordLoginDisableMsg": "用户将只能通过 SSO 登录。如果 SSO 提供商不可用，则需要直接访问数据库才能重新启用密码登录。",
       "passwordLoginDisableTitle": "是否禁用密码登录？",
       "passwordLoginDisabled": "密码登录已禁用",
@@ -1493,7 +1515,6 @@
     "carddavBadge": "从 CardDAV 同步"
   },
   "todoist": {
-    "betaLabel": "测试版",
     "title": "创建 Todoist 任务",
     "taskTitle": "任务标题",
     "taskTitlePh": "需要做什么？",

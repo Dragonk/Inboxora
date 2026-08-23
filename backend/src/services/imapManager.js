@@ -10,8 +10,8 @@ import { logger } from './logger.js';
 import { decrypt } from './encryption.js';
 import { sendPushToUser } from './pushNotifications.js';
 import { redactEmail } from '../utils/redact.js';
-import { adjustFolderCounts } from '../utils/mailUtils.js';
-import { resolveForConnection } from './hostValidation.js';
+import { adjustFolderCounts, resolveSpamFolder } from '../utils/mailUtils.js';
+import { resolveForConnection, createPinnedLookup } from './hostValidation.js';
 import { getConnectionPolicy } from './connectionPolicy.js';
 import { applyInboxRules, applyBlockList } from './inboxRules.js';
 import { generateVCard } from '../utils/vcard.js';
@@ -64,6 +64,80 @@ function raceTimeout(promise, ms, label) {
     promise,
     new Promise((_, reject) => setTimeout(() => reject(new Error(`${label} timeout (${ms}ms)`)), ms)),
   ]);
+}
+
+// Max concurrent connection ESTABLISHMENTS per provider host (#384). Every IMAP connect (persistent,
+// reconnect, pool, backfill, poll-only, snippet) goes through connectImapClient, which holds one of
+// these slots only for the duration of the handshake and frees it the instant connect resolves. So
+// this smooths the startup/backfill burst — persistent connects + pool pre-warms + backfills all
+// firing at once — that otherwise stampedes a provider like Gmail into "Connection not available"
+// refusals, WITHOUT capping how many connections stay open (a long-lived IDLE connection frees its
+// slot as soon as it's established). Keyed by host, so one provider's burst never starves another.
+const CONNECT_CONCURRENCY_PER_HOST = 3;
+const hostConnectSem = createKeyedSemaphore(CONNECT_CONCURRENCY_PER_HOST);
+
+// Connect a fresh ImapFlow client, with an IPv4 fallback for broken IPv6 (#382). autoSelectFamily
+// (set in makeClientCfg) already races the TCP connect and recovers when a family's TCP handshake
+// is dead or hangs — but it commits to whichever family wins the TCP race, so an IPv6 path that
+// COMPLETES the TCP handshake and then STALLS the TLS handshake (broken PMTU / filtered ICMPv6)
+// hangs to the timeout with no recovery. When the first attempt times out on a genuinely dual-stack
+// host, retry once forcing IPv4-only, which sidesteps the stalled IPv6 handshake. Only a timeout
+// triggers the retry — refusals / auth / cert errors are not a family problem, so they propagate
+// unchanged. Returns a connected client the caller owns (it attaches its own 'close'/idle listeners).
+async function connectImapClient(account, resolved, cfgOpts, timeoutMs, label) {
+  const host = (account.imap_host || '').toLowerCase();
+  let sawRefusal = false; // a provider refusal ('Connection not available' etc.) fired mid-attempt
+  const attempt = async (res, tag) => {
+    const client = new ImapFlow(makeClientCfg(account, res, cfgOpts));
+    // #360: an 'error' emitted during the handshake with no listener is unhandled and crashes the
+    // process. Attach one that outlives connect; a caller adding its own later just logs alongside.
+    client.on('error', (err) => {
+      if (isConnectionRefusal(err?.message)) sawRefusal = true;
+      console.error(`IMAP error for ${logAccount(account)}:`, err.message);
+    });
+    // Admission control (#384): cap concurrent connection establishment per host so a startup /
+    // backfill burst can't stampede the provider into refusals. Held only for the handshake and
+    // released the instant connect resolves, so it bounds the open RATE, not open connections.
+    await hostConnectSem.acquire(host);
+    try {
+      await raceTimeout(client.connect(), timeoutMs, tag);
+    } catch (err) {
+      // close() (not logout()): forcefully destroys the socket and aborts the still-pending
+      // connect left running by the race timeout — a graceful logout could itself hang on a
+      // wedged/half-open connection (the exact failure we're recovering from).
+      try { client.close(); } catch { /* already closed */ }
+      throw err;
+    } finally {
+      hostConnectSem.release(host);
+    }
+    return client;
+  };
+  try {
+    return await attempt(resolved, label);
+  } catch (err) {
+    // Skip the IPv4 fallback when the provider REFUSED (a connection-limit / throttle, not an IPv6
+    // stall): a second attempt just piles on pressure and doubles the delay — let the refusal
+    // propagate so the caller's cooldown backs off (#384). Otherwise retry IPv4-only for a wedged
+    // IPv6 TLS handshake (#382).
+    if (!shouldRetryIPv4(err?.message, resolved.addresses, sawRefusal)) throw err;
+    const v4 = resolved.addresses.filter(a => !a.includes(':'));
+    console.warn(`IMAP connect stalled for ${logAccount(account)} (${label}); retrying IPv4-only`);
+    const v4Resolved = { ...resolved, addresses: v4, host: v4[0], lookup: createPinnedLookup(v4) };
+    return await attempt(v4Resolved, `${label} IPv4-retry`);
+  }
+}
+
+// Decide whether a failed connect should be retried IPv4-only: only when it was a TIMEOUT (a stall
+// a family switch can bypass — not an auth / cert error, which IPv4 won't help) AND the host is
+// genuinely dual-stack (both families resolved, so a wedged IPv6 handshake is the plausible cause
+// and there is a v4 address to fall back to) AND the provider did not REFUSE during the attempt.
+// A refusal ('Connection not available' / throttle) means the host is at its limit — a second
+// attempt just piles on pressure and doubles the delay, so back off instead (#384). Pure. (#382)
+export function shouldRetryIPv4(errMessage, addresses, sawRefusal = false) {
+  if (sawRefusal) return false;
+  const addrs = addresses || [];
+  const v4 = addrs.filter(a => !a.includes(':')); // IPv6 literals always contain a colon
+  return /timeout/i.test(String(errMessage || '')) && v4.length > 0 && v4.length !== addrs.length;
 }
 
 // A per-key counting semaphore: at most `limit` holders per key run concurrently; the rest
@@ -733,7 +807,7 @@ export async function insertCopiedSibling(accountId, uid, fromFolder, toFolder, 
       thread_references, thread_id, is_bulk,
       read_changed_at, star_changed_at, spam_score_sa, spam_score_ml,
       spam_verdict, spam_analyzed_at, spam_details, spam_user_override,
-      category, list_unsubscribe, list_unsubscribe_post, unsubscribed_at, delivery_addresses
+      category, list_unsubscribe, list_unsubscribe_post, unsubscribed_at, delivery_addresses, sender_name, sender_email
     )
     SELECT
       account_id, $4, $5, message_id, subject,
@@ -743,7 +817,7 @@ export async function insertCopiedSibling(accountId, uid, fromFolder, toFolder, 
       thread_references, thread_id, is_bulk,
       read_changed_at, star_changed_at, spam_score_sa, spam_score_ml,
       spam_verdict, spam_analyzed_at, spam_details, spam_user_override,
-      category, list_unsubscribe, list_unsubscribe_post, unsubscribed_at, delivery_addresses
+      category, list_unsubscribe, list_unsubscribe_post, unsubscribed_at, delivery_addresses, sender_name, sender_email
     FROM messages
     WHERE account_id = $1 AND folder = $2 AND uid = $3
     ON CONFLICT (account_id, uid, folder) DO NOTHING
@@ -1010,20 +1084,9 @@ async function acquirePooledClient(account) {
   if (pool.clients.length < POOL_SIZE) {
     const freshAccount = await ensureFreshToken(account);
     const { resolved, policy } = await resolveAccountHost(freshAccount);
-    const client = new ImapFlow(makeClientCfg(freshAccount, resolved, { policy }));
-    // Attach 'error' BEFORE connect (#360): an ImapFlow 'error' emitted during the
-    // handshake (e.g. socket timeout) with no listener is an unhandled EventEmitter
-    // error, which crashes the whole process. The handler only logs, so a genuine
-    // connect() failure still rejects and propagates through the caller's try/catch.
-    client.on('error', (err) => {
-      console.error(`IMAP pool error for account ${id}:`, err.message);
-    });
-    await Promise.race([
-      client.connect(),
-      new Promise((_, reject) =>
-        setTimeout(() => reject(new Error('IMAP connection timeout (30s)')), 30000)
-      ),
-    ]);
+    // Connect with the shared IPv4-fallback helper (#382); it attaches the #360 handshake-error
+    // listener and recovers from a stalled IPv6 handshake by retrying IPv4-only.
+    const client = await connectImapClient(freshAccount, resolved, { policy }, 30000, 'IMAP pool connect');
     // Remove from pool immediately when the server closes the socket, then
     // wake any waiters so they can claim another idle connection if one exists.
     client.on('close', () => {
@@ -1047,16 +1110,7 @@ async function acquirePooledClient(account) {
       try {
         const freshAccount = await ensureFreshToken(account);
         const { resolved, policy } = await resolveAccountHost(freshAccount);
-        const tmp = new ImapFlow(makeClientCfg(freshAccount, resolved, { policy }));
-        tmp.on('error', (err) => {
-          console.error(`IMAP temp client error for account ${account.id}:`, err.message);
-        });
-        await Promise.race([
-          tmp.connect(),
-          new Promise((_, rej) =>
-            setTimeout(() => rej(new Error('IMAP connection timeout (30s)')), 30000)
-          ),
-        ]);
+        const tmp = await connectImapClient(freshAccount, resolved, { policy }, 30000, 'IMAP temp connect');
         resolve(tmp);
       } catch (err) {
         reject(err);
@@ -1121,15 +1175,8 @@ async function withFreshClient(account, fn) {
 async function withFreshLogin(account, fn) {
   const fresh = await ensureFreshToken(account);
   const { resolved, policy } = await resolveAccountHost(fresh);
-  const client = new ImapFlow(makeClientCfg(fresh, resolved, { policy }));
-  client.on('error', () => {}); // avoid unhandled 'error' on abrupt close
+  const client = await connectImapClient(fresh, resolved, { policy }, 30000, 'IMAP fresh-login connect');
   try {
-    await Promise.race([
-      client.connect(),
-      new Promise((_, reject) =>
-        setTimeout(() => reject(new Error('IMAP connection timeout (30s)')), 30000)
-      ),
-    ]);
     return await fn(client);
   } finally {
     // close() (not logout()): destroys the socket and aborts a still-pending connect()
@@ -1305,7 +1352,7 @@ export class ImapManager {
         for (const accountId of this.connections.keys()) {
           if (this.snippetIndexerRunning.has(accountId)) continue;
           const backlog = await query(
-            "SELECT 1 FROM messages WHERE account_id = $1 AND (snippet IS NULL OR snippet = '') LIMIT 1",
+            "SELECT 1 FROM messages WHERE account_id = $1 AND (snippet IS NULL OR snippet = '') AND snippet_attempted_at IS NULL LIMIT 1",
             [accountId]
           );
           if (!backlog.rows.length) continue;
@@ -1724,26 +1771,14 @@ export class ImapManager {
     const { resolved, policy } = await resolveAccountHost(account);
     let client;
     try {
-      client = new ImapFlow(makeClientCfg(account, resolved, { enableIdle: providerProfile(account).usesIdle !== false, policy, idleKeepaliveMs: providerProfile(account).idleKeepaliveMs }));
-      // Prevent unhandled 'error' events from crashing the Node.js process.
-      // ImapFlow emits 'error' on socket timeouts and other transport-level failures;
-      // without this listener Node throws on unhandled EventEmitter errors. It MUST be
-      // attached before connect() — an 'error' emitted during the handshake window is
-      // otherwise unhandled and takes the whole process down (#360). It only logs, so a
-      // real connect() failure still rejects and is handled by the try/catch below.
-      client.on('error', (err) => {
-        console.error(`IMAP error for ${logAccount(account)}:`, err.message);
-      });
-      // Race the connect against a 30-second timeout.
-      // client.connect() has no built-in connection timeout — on slow or unresponsive
-      // IMAP servers (e.g. purelymail.com during cold starts) it can hang indefinitely,
-      // silently blocking all further retries because connectingAccounts still holds the lock.
-      await Promise.race([
-        client.connect(),
-        new Promise((_, reject) =>
-          setTimeout(() => reject(new Error('IMAP connection timeout (30s)')), 30000)
-        ),
-      ]);
+      // Connect via the shared helper: it attaches the #360 handshake-error listener, races the
+      // connect against a 30s timeout (client.connect() has none — a slow/unresponsive server like
+      // purelymail on a cold start would otherwise hang forever, wedging retries while
+      // connectingAccounts holds the lock), and recovers from a stalled IPv6 handshake by retrying
+      // IPv4-only (#382).
+      client = await connectImapClient(account, resolved,
+        { enableIdle: providerProfile(account).usesIdle !== false, policy, idleKeepaliveMs: providerProfile(account).idleKeepaliveMs },
+        30000, 'IMAP connect');
 
       // Remove from active connections the moment the server closes the socket.
       // Without this, a cleanly-closed connection lingers in this.connections and
@@ -1926,12 +1961,7 @@ export class ImapManager {
       slotHeld = true;
       const fresh = await raceTimeout(ensureFreshToken(account), 15000, 'Poll-only token refresh');
       const { resolved, policy } = await raceTimeout(resolveAccountHost(fresh), 15000, 'Poll-only host resolve');
-      client = new ImapFlow(makeClientCfg(fresh, resolved, { enableIdle: false, policy }));
-      client.on('error', () => {}); // logout() below aborts a timed-out socket; swallow the resulting error
-      await Promise.race([
-        client.connect(),
-        new Promise((_, rej) => setTimeout(() => rej(new Error('Poll-only connect timeout (30s)')), 30000)),
-      ]);
+      client = await connectImapClient(fresh, resolved, { enableIdle: false, policy }, 30000, 'Poll-only connect');
 
       const folderMs = this.userFolderSyncIntervalMs.has(account.user_id)
         ? this.userFolderSyncIntervalMs.get(account.user_id)
@@ -1992,9 +2022,7 @@ export class ImapManager {
     try {
       const fresh = await raceTimeout(ensureFreshToken(account), 15000, 'Fresh sync token refresh');
       const { resolved, policy } = await raceTimeout(resolveAccountHost(fresh), 15000, 'Fresh sync host resolve');
-      client = new ImapFlow(makeClientCfg(fresh, resolved, { policy }));
-      client.on('error', () => {}); // close() below intentionally aborts timed-out sockets
-      await raceTimeout(client.connect(), 30000, 'Fresh sync connect');
+      client = await connectImapClient(fresh, resolved, { policy }, 30000, 'Fresh sync connect');
       // syncMessages' own CONDSTORE modseq check is the "did anything change?" gate: it returns
       // cheaply when HIGHESTMODSEQ is unchanged, and runs the delta fetch on ANY change. We used
       // to pre-gate on a UID-watermark search here, but that only detected NEW mail — a flag
@@ -2052,37 +2080,28 @@ export class ImapManager {
         // Kept outside the race so a timeout can force-close a half-open client.
         let pendingClient = null;
         try {
-          // One overall timeout guards the ENTIRE reconnect. The DB query, token refresh
-          // and host resolution below are otherwise un-timeout-guarded; a hang in any of
-          // them would never reach the finally, leaving connectingAccounts set — which
-          // silently freezes both future sync ticks (the skip guard above) and the health
-          // check (it skips accounts mid-connect) for this account until the await
-          // eventually resolves. 40s covers a slow connect (~30s) plus the setup steps.
-          const reconnected = await Promise.race([
-            (async () => {
-              const accountResult = await query('SELECT * FROM email_accounts WHERE id = $1', [account.id]);
-              // Bail if the account was deleted OR disabled since this reconnect was queued.
-              // The staleness check schedules a reconnect via setTimeout that disconnectAccount
-              // cannot cancel, so a user disabling a stuck account must not be silently revived.
-              if (!accountResult.rows.length || !accountResult.rows[0].enabled) return null;
-              const freshAccount = await ensureFreshToken(accountResult.rows[0]);
-              const { resolved, policy } = await resolveAccountHost(freshAccount);
-              pendingClient = new ImapFlow(makeClientCfg(freshAccount, resolved, { enableIdle: providerProfile(freshAccount).usesIdle !== false, policy, idleKeepaliveMs: providerProfile(freshAccount).idleKeepaliveMs }));
-              // Attach 'error' BEFORE connect (#360): a handshake-time 'error' with no
-              // listener is unhandled and crashes the process. Only logs; connect() still
-              // rejects into the outer catch. freshAccount === syncAccount here, so this is
-              // the same log line the post-connect listener used to emit.
-              pendingClient.on('error', (err) => {
-                console.error(`IMAP error for ${logAccount(freshAccount)}:`, err.message);
-              });
-              await pendingClient.connect();
-              return { client: pendingClient, account: freshAccount };
-            })(),
-            new Promise((_, reject) =>
-              setTimeout(() => reject(new Error('Reconnect timeout (40s)')), 40000)
-            ),
-          ]);
-          if (!reconnected) return; // account deleted mid-reconnect
+          // The setup steps (DB query, token refresh, host resolution) are otherwise
+          // un-timeout-guarded; a hang in any would never reach the finally, leaving
+          // connectingAccounts set — which silently freezes future sync ticks (the skip guard
+          // above) and the health check (it skips accounts mid-connect) for this account. Bound
+          // them together, then connect via the shared helper which owns the connect timeout and
+          // the IPv4 fallback (#382) — a single all-encompassing race would otherwise cut the
+          // fallback attempt short.
+          const setup = await raceTimeout((async () => {
+            const accountResult = await query('SELECT * FROM email_accounts WHERE id = $1', [account.id]);
+            // Bail if the account was deleted OR disabled since this reconnect was queued.
+            // The staleness check schedules a reconnect via setTimeout that disconnectAccount
+            // cannot cancel, so a user disabling a stuck account must not be silently revived.
+            if (!accountResult.rows.length || !accountResult.rows[0].enabled) return null;
+            const freshAccount = await ensureFreshToken(accountResult.rows[0]);
+            const { resolved, policy } = await resolveAccountHost(freshAccount);
+            return { freshAccount, resolved, policy };
+          })(), 20000, 'Reconnect setup');
+          if (!setup) return; // account deleted/disabled mid-reconnect
+          pendingClient = await connectImapClient(setup.freshAccount, setup.resolved,
+            { enableIdle: providerProfile(setup.freshAccount).usesIdle !== false, policy: setup.policy, idleKeepaliveMs: providerProfile(setup.freshAccount).idleKeepaliveMs },
+            30000, 'Reconnect');
+          const reconnected = { client: pendingClient, account: setup.freshAccount };
           activeClient = reconnected.client;
           syncAccount = reconnected.account;
           activeClient.on('close', () => {
@@ -2164,6 +2183,12 @@ export class ImapManager {
         } catch (err) {
           console.warn(`Periodic folder sync failed for ${logAccount(syncAccount)}:`, err.message);
         }
+        // Server-side spam filtering deposits mail straight into Junk (bypassing INBOX), so the
+        // INBOX-only live sync never pulls it. Poll the spam folder on this same slow cadence, in
+        // the background on its own pooled connection (per-host-capped via _bgConnSem) so it
+        // neither blocks the tick nor disturbs the INBOX IDLE connection. Fire-and-forget;
+        // _syncSpamFolder handles its own errors.
+        setImmediate(() => this._syncSpamFolder(syncAccount).catch(() => {}));
       }
 
       // Some providers (e.g. Google) don't push flag changes via IDLE — poll on the
@@ -2433,12 +2458,16 @@ export class ImapManager {
     try {
       const mailboxes = await client.list();
       for (const mb of mailboxes) {
+        // \Noselect (e.g. Gmail's "[Gmail]" parent) and \NonExistent mailboxes cannot be
+        // SELECTed. Persist that so role resolvers never route to them and the folder-mapping
+        // UI can hide them — see migration 0047 and mailUtils.mappedFolderUsable.
+        const noSelect = !!(mb.flags && (mb.flags.has('\\Noselect') || mb.flags.has('\\NonExistent')));
         await query(`
-          INSERT INTO folders (account_id, path, name, delimiter, special_use)
-          VALUES ($1, $2, $3, $4, $5)
+          INSERT INTO folders (account_id, path, name, delimiter, special_use, no_select)
+          VALUES ($1, $2, $3, $4, $5, $6)
           ON CONFLICT (account_id, path) DO UPDATE
-          SET name = $3, special_use = $5, updated_at = NOW()
-        `, [account.id, mb.path, mb.name, mb.delimiter, mb.specialUse || null]);
+          SET name = $3, special_use = $5, no_select = $6, updated_at = NOW()
+        `, [account.id, mb.path, mb.name, mb.delimiter, mb.specialUse || null, noSelect]);
       }
       // Many IMAP servers omit INBOX from LIST responses (it is implicit per RFC 3501).
       // Without a row in folders, subfolders like INBOX/Work have no parent in the map
@@ -2450,6 +2479,21 @@ export class ImapManager {
           VALUES ($1, 'INBOX', 'INBOX', $2, NULL)
           ON CONFLICT (account_id, path) DO NOTHING
         `, [account.id, delimiter]);
+      }
+      // Prune rows for folders that no longer exist on the server (renamed or
+      // deleted by another client, or left behind by a pre-fix subtree rename).
+      // Without this, ghost folders duplicate the sidebar tree and every sync
+      // tick keeps trying — and failing — to open their stale paths. Message
+      // rows are left alone: in-app folder deletion already removes them
+      // explicitly, and orphans stop syncing once their folder row is gone.
+      // Guarded on a non-empty LIST so a pathological empty response can't
+      // wipe the account's folder tree.
+      if (mailboxes.length > 0) {
+        await query(
+          `DELETE FROM folders
+           WHERE account_id = $1 AND path != 'INBOX' AND NOT (path = ANY($2))`,
+          [account.id, mailboxes.map(mb => mb.path)]
+        );
       }
     } catch (err) {
       console.error(`Folder sync error for ${logAccount(account)}:`, err.message);
@@ -2646,8 +2690,9 @@ export class ImapManager {
                 date, snippet, is_read, is_starred, has_attachments, flags,
                 body_html, body_text, attachments,
                 thread_references, thread_id, is_bulk, category,
-                list_unsubscribe, list_unsubscribe_post, delivery_addresses
-              ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24,$25,$26,$27)
+                list_unsubscribe, list_unsubscribe_post, delivery_addresses,
+                sender_name, sender_email
+              ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24,$25,$26,$27,$28,$29)
               ON CONFLICT (account_id, uid, folder) DO UPDATE
               SET subject = CASE
                     WHEN EXCLUDED.subject IS NOT NULL
@@ -2689,12 +2734,23 @@ export class ImapManager {
                   body_text = COALESCE(messages.body_text, EXCLUDED.body_text),
                   attachments = COALESCE(messages.attachments::text, EXCLUDED.attachments::text)::jsonb,
                   thread_references = COALESCE(messages.thread_references, EXCLUDED.thread_references),
-                  thread_id = COALESCE(messages.thread_id, EXCLUDED.thread_id),
+                  -- #378: heal a row that was self-rooted (thread_id = its own Message-ID, e.g. a
+                  -- sent copy orphaned by an older upsert) by adopting the real conversation root
+                  -- the sync just computed. Genuine thread roots keep their value (EXCLUDED equals it).
+                  thread_id = CASE
+                    WHEN messages.thread_id = messages.message_id
+                         AND EXCLUDED.thread_id IS NOT NULL
+                         AND EXCLUDED.thread_id <> messages.message_id
+                    THEN EXCLUDED.thread_id
+                    ELSE COALESCE(messages.thread_id, EXCLUDED.thread_id)
+                  END,
                   is_bulk = COALESCE(messages.is_bulk, EXCLUDED.is_bulk),
                   category = COALESCE(messages.category, EXCLUDED.category),
                   list_unsubscribe = COALESCE(messages.list_unsubscribe, EXCLUDED.list_unsubscribe),
                   list_unsubscribe_post = COALESCE(messages.list_unsubscribe_post, EXCLUDED.list_unsubscribe_post),
-                  delivery_addresses = COALESCE(messages.delivery_addresses, EXCLUDED.delivery_addresses)
+                  delivery_addresses = COALESCE(messages.delivery_addresses, EXCLUDED.delivery_addresses),
+                  sender_name = COALESCE(EXCLUDED.sender_name, messages.sender_name),
+                  sender_email = COALESCE(EXCLUDED.sender_email, messages.sender_email)
               RETURNING id, (xmax = 0) as is_new
             `, [
               account.id, parsed.uid, folder,
@@ -2710,6 +2766,7 @@ export class ImapManager {
               sanitizeStr(decodeMimeWords(parsed.parsedHeaders?.['list-unsubscribe'] ?? null)),
               sanitizeStr(decodeMimeWords(parsed.parsedHeaders?.['list-unsubscribe-post'] ?? null)),
               JSON.stringify(parsed.deliveryAddresses || []),
+              sanitizeStr(parsed.senderName), sanitizeStr(parsed.senderEmail),
             ]);
             await persistConversationCopyForRow(result.rows[0].id, account, msg);
             if (result.rows[0]?.is_new) {
@@ -2999,6 +3056,19 @@ export class ImapManager {
             mgr: this.pluginFacade, account, newInboxIds, deletedIds: ingestDeletedIds,
           });
         }
+        // Reconcile the cached unread badge from actual rows now that this pass's inserts, flag
+        // updates, and any INBOX rule/block-list moves have all landed. The provisional
+        // unread_count written before the fetch (the folders upsert above) predates them, so
+        // without this an on-demand folder (e.g. Junk/Spam, which has no follow-up tick) keeps
+        // showing the pre-sync count until it is opened again. Mirrors the recompute that backfill
+        // and reconcileDeletes already run; total_count keeps the server EXISTS value set above.
+        await query(
+          `UPDATE folders
+           SET unread_count = (SELECT COUNT(*) FILTER (WHERE m.is_read = false)
+                               FROM messages m WHERE m.account_id = $1 AND m.folder = $2)
+           WHERE account_id = $1 AND path = $2`,
+          [account.id, folder]
+        );
         await query('UPDATE email_accounts SET last_sync = NOW() WHERE id = $1', [account.id]);
         return { insertedCount, broadcastedNewMessages };
       } finally {
@@ -3050,16 +3120,8 @@ export class ImapManager {
       if (!row || !row.enabled) throw new Error('Account deleted or disabled');
       const fresh = await ensureFreshToken(row);
       const { resolved, policy } = await resolveAccountHost(fresh);
-      const newClient = new ImapFlow(makeClientCfg(fresh, resolved, { policy }));
-      newClient.on('error', (err) => {
-        console.error(`Backfill IMAP error for ${logAccount(account)}:`, err.message);
-      });
-      await Promise.race([
-        newClient.connect(),
-        new Promise((_, reject) =>
-          setTimeout(() => reject(new Error('IMAP connection timeout (30s)')), 30000)
-        ),
-      ]); // if this throws, bfClient stays null
+      // if this throws, bfClient stays null (helper closes its own failed socket, #382 IPv4 fallback)
+      const newClient = await connectImapClient(fresh, resolved, { policy }, 30000, 'Backfill connect');
       bfClient = newClient;
       batchesOnConn = 0;
     };
@@ -3298,8 +3360,9 @@ export class ImapManager {
                     date, snippet, is_read, is_starred, has_attachments, flags,
                     body_html, body_text, attachments,
                     thread_references, thread_id, is_bulk, category,
-                    list_unsubscribe, list_unsubscribe_post, delivery_addresses
-                  ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24,$25,$26,$27)
+                    list_unsubscribe, list_unsubscribe_post, delivery_addresses,
+                    sender_name, sender_email
+                  ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24,$25,$26,$27,$28,$29)
                   ON CONFLICT (account_id, uid, folder) DO UPDATE
                   SET subject = CASE
                         WHEN EXCLUDED.subject IS NOT NULL
@@ -3341,12 +3404,21 @@ export class ImapManager {
                       body_text = COALESCE(messages.body_text, EXCLUDED.body_text),
                       attachments = COALESCE(messages.attachments::text, EXCLUDED.attachments::text)::jsonb,
                       thread_references = COALESCE(messages.thread_references, EXCLUDED.thread_references),
-                      thread_id = COALESCE(messages.thread_id, EXCLUDED.thread_id),
+                      -- #378: heal a self-rooted (orphaned) row by adopting the real conversation root.
+                      thread_id = CASE
+                        WHEN messages.thread_id = messages.message_id
+                             AND EXCLUDED.thread_id IS NOT NULL
+                             AND EXCLUDED.thread_id <> messages.message_id
+                        THEN EXCLUDED.thread_id
+                        ELSE COALESCE(messages.thread_id, EXCLUDED.thread_id)
+                      END,
                       is_bulk = COALESCE(messages.is_bulk, EXCLUDED.is_bulk),
                       category = COALESCE(messages.category, EXCLUDED.category),
                       list_unsubscribe = COALESCE(messages.list_unsubscribe, EXCLUDED.list_unsubscribe),
                       list_unsubscribe_post = COALESCE(messages.list_unsubscribe_post, EXCLUDED.list_unsubscribe_post),
-                      delivery_addresses = COALESCE(messages.delivery_addresses, EXCLUDED.delivery_addresses)
+                      delivery_addresses = COALESCE(messages.delivery_addresses, EXCLUDED.delivery_addresses),
+                      sender_name = COALESCE(EXCLUDED.sender_name, messages.sender_name),
+                      sender_email = COALESCE(EXCLUDED.sender_email, messages.sender_email)
                 `, [
                   account.id, parsed.uid, folder,
                   bfMsgId, sanitizeStr(parsed.subject),
@@ -3361,6 +3433,7 @@ export class ImapManager {
                   sanitizeStr(decodeMimeWords(parsed.parsedHeaders?.['list-unsubscribe'] ?? null)),
                   sanitizeStr(decodeMimeWords(parsed.parsedHeaders?.['list-unsubscribe-post'] ?? null)),
                   JSON.stringify(parsed.deliveryAddresses || []),
+                  sanitizeStr(parsed.senderName), sanitizeStr(parsed.senderEmail),
                 ]);
                 backfilledRows++;
                 const inserted = await query(`SELECT id FROM messages WHERE account_id = $1 AND uid = $2 AND folder = $3`, [account.id, parsed.uid, folder]);
@@ -3517,12 +3590,7 @@ export class ImapManager {
         if (!row) return;
         const fresh = await ensureFreshToken(row);
         const { resolved, policy } = await resolveAccountHost(fresh);
-        client = new ImapFlow(makeClientCfg(fresh, resolved, { policy }));
-        client.on('error', () => {});
-        await Promise.race([
-          client.connect(),
-          new Promise((_, reject) => setTimeout(() => reject(new Error('IMAP timeout (30s)')), 30000)),
-        ]);
+        client = await connectImapClient(fresh, resolved, { policy }, 30000, 'Flag-sync connect');
 
         const uidToId = new Map(msgs.map(m => [m.uid, m.id]));
         const updates = [];
@@ -3654,7 +3722,7 @@ export class ImapManager {
     try {
       // Check if there's anything to index before opening a connection
       const countResult = await query(
-        "SELECT count(*) FROM messages WHERE account_id = $1 AND (snippet IS NULL OR snippet = '')",
+        "SELECT count(*) FROM messages WHERE account_id = $1 AND (snippet IS NULL OR snippet = '') AND snippet_attempted_at IS NULL",
         [account.id]
       );
       const totalMissing = parseInt(countResult.rows[0].count);
@@ -3675,13 +3743,7 @@ export class ImapManager {
         if (!row) throw new Error('Account deleted');
         const fresh = await ensureFreshToken(row);
         const { resolved, policy } = await resolveAccountHost(fresh);
-        const c = new ImapFlow(makeClientCfg(fresh, resolved, { policy }));
-        c.on('error', err => console.error(`Snippet indexer IMAP error ${logAccount(account)}:`, err.message));
-        await Promise.race([
-          c.connect(),
-          new Promise((_, rej) => setTimeout(() => rej(new Error('Connection timeout')), 30000)),
-        ]);
-        siClient = c;
+        siClient = await connectImapClient(fresh, resolved, { policy }, 30000, 'Snippet indexer connect');
       };
 
       await openClient();
@@ -3689,7 +3751,7 @@ export class ImapManager {
       // Get distinct folders that have unindexed messages
       const foldersResult = await query(
         `SELECT folder, count(*) as cnt FROM messages
-         WHERE account_id = $1 AND (snippet IS NULL OR snippet = '')
+         WHERE account_id = $1 AND (snippet IS NULL OR snippet = '') AND snippet_attempted_at IS NULL
          GROUP BY folder ORDER BY cnt DESC`,
         [account.id]
       );
@@ -3711,7 +3773,7 @@ export class ImapManager {
 
           if (batchCount >= MAX_BATCHES_PER_RUN) {
             const remaining = await query(
-              "SELECT count(*) FROM messages WHERE account_id = $1 AND (snippet IS NULL OR snippet = '')",
+              "SELECT count(*) FROM messages WHERE account_id = $1 AND (snippet IS NULL OR snippet = '') AND snippet_attempted_at IS NULL",
               [account.id]
             );
             console.log(`Snippet indexer paused for ${logAccount(account)} after ${batchCount} batches — ${remaining.rows[0].count} remaining, will resume on next startup`);
@@ -3720,7 +3782,7 @@ export class ImapManager {
 
           const batchResult = await query(
             `SELECT uid FROM messages
-             WHERE account_id = $1 AND folder = $2 AND (snippet IS NULL OR snippet = '')
+             WHERE account_id = $1 AND folder = $2 AND (snippet IS NULL OR snippet = '') AND snippet_attempted_at IS NULL
              ORDER BY date DESC LIMIT $3`,
             [account.id, folder, batchSize]
           );
@@ -3732,7 +3794,7 @@ export class ImapManager {
             try {
               for await (const msg of siClient.fetch(uids.join(','), {
                 uid: true, envelope: true, bodyStructure: true,
-                bodyParts: ['1', '1.1', '1.2'],
+                bodyParts: BODY_PREFETCH_PARTS,
               }, { uid: true })) {
                 try {
                   const parsed = await parseMessage(msg);
@@ -3749,6 +3811,16 @@ export class ImapManager {
             } finally {
               lock.release();
             }
+            // Mark every message in this batch that still has no snippet as attempted, so a
+            // fetched-but-empty (or server-missing) message is never re-selected — this is what
+            // guarantees the backlog drains by one batch per iteration instead of looping on the
+            // same un-snippetable rows forever (#379).
+            await query(
+              `UPDATE messages SET snippet_attempted_at = NOW()
+               WHERE account_id = $1 AND folder = $2 AND uid = ANY($3::bigint[])
+                 AND (snippet IS NULL OR snippet = '') AND snippet_attempted_at IS NULL`,
+              [account.id, folder, uids]
+            );
             batchCount++;
             consecutiveErrors = 0;
           } catch (err) {
@@ -3837,10 +3909,18 @@ export class ImapManager {
     cc = [],
     snippet = '',
     date = new Date(),
+    inReplyTo = null,
+    references = null,
   }) {
     if (!uid || !folder) return;
     const msgId = sanitizeStr(messageId);
-    const threadId = msgId || null;
+    // Thread the Sent copy into its conversation the same way a real sync does — via the
+    // RFC 5322 References/In-Reply-To chain — instead of rooting it at its own Message-ID.
+    // Self-rooting orphaned every sent message into its own thread, showing as a duplicate
+    // "shadow" separate from the conversation (#378).
+    const threadId = msgId
+      ? await computeThreadId(account.id, msgId, sanitizeStr(inReplyTo), sanitizeStr(references), sanitizeStr(subject))
+      : null;
     await query(`
       INSERT INTO messages (
         account_id, uid, folder, message_id, subject,
@@ -3863,7 +3943,14 @@ export class ImapManager {
         date = EXCLUDED.date,
         snippet = CASE WHEN EXCLUDED.snippet <> '' THEN EXCLUDED.snippet ELSE messages.snippet END,
         is_read = true,
-        thread_id = COALESCE(messages.thread_id, EXCLUDED.thread_id)
+        -- #378: adopt the freshly computed conversation root if the stored row was self-rooted.
+        thread_id = CASE
+          WHEN messages.thread_id = messages.message_id
+               AND EXCLUDED.thread_id IS NOT NULL
+               AND EXCLUDED.thread_id <> messages.message_id
+          THEN EXCLUDED.thread_id
+          ELSE COALESCE(messages.thread_id, EXCLUDED.thread_id)
+        END
     `, [
       account.id, uid, folder, msgId,
       sanitizeStr(subject || '(no subject)'),
@@ -3974,6 +4061,44 @@ export class ImapManager {
       this.broadcast({ type: 'sync_complete', accountId: account.id }, account.user_id);
     } catch (err) {
       console.error(`On-demand sync error ${logAccount(account)}/${folder}:`, err.message);
+    } finally {
+      this.onDemandSyncing.delete(key);
+    }
+  }
+
+  // Periodically pull new mail into the special-use spam/Junk folder. Server-side spam filtering
+  // delivers straight into Junk, bypassing INBOX — so the INBOX-only live sync never sees it and the
+  // folder (and its unread badge) would only update when the user manually opens it. Runs on the slow
+  // folder-sync cadence (~30 min, from the sync tick), on a fresh POOLED connection so the INBOX IDLE
+  // connection is undisturbed, and gated by the per-host background-connection semaphore (_bgConnSem,
+  // shared with backfill/snippet indexing) so many accounts on one provider can't all open a spam-poll
+  // connection at once. Reuses the onDemandSyncing guard so it never collides with a user opening the
+  // same folder. Broadcasts folders_synced (badge refresh only) rather than sync_complete, so it never
+  // reloads the user's open message list; syncMessages' own new_messages event is inert here because
+  // the frontend gates alerts/sounds and the list refresh to INBOX / the visible folder. Best-effort;
+  // all failures are non-fatal.
+  async _syncSpamFolder(account) {
+    let spamPath;
+    try {
+      spamPath = await resolveSpamFolder(account.id, account.folder_mappings);
+    } catch { return; }
+    if (!spamPath) return;
+    const key = `${account.id}:${spamPath}`;
+    if (this.onDemandSyncing.has(key)) return;
+    this.onDemandSyncing.add(key);
+    const host = (account.imap_host || '').toLowerCase();
+    try {
+      await this._bgConnSem.acquire(host);
+      try {
+        await withFreshClient(account, async (client) => {
+          await this.syncMessages(account, client, spamPath, 50, false, true);
+        });
+        this.broadcast({ type: 'folders_synced', accountId: account.id }, account.user_id);
+      } finally {
+        this._bgConnSem.release(host);
+      }
+    } catch (err) {
+      console.warn(`Periodic spam sync failed for ${logAccount(account)}/${spamPath}:`, err.message);
     } finally {
       this.onDemandSyncing.delete(key);
     }
@@ -4471,8 +4596,7 @@ export class ImapManager {
       const lock = await client.getMailboxLock(folder);
       try {
         if (!client.mailbox || client.mailbox.exists === 0) return;
-        const deleted = await client.messageDelete('1:*', { uid: false });
-        if (deleted === false) throw new Error('messageDelete returned false — server did not confirm deletion');
+        await this._deleteAllInFolder(client, folder);
       } catch (err) {
         const msg = (err.message || '').toLowerCase();
         // Non-fatal if folder is already empty or server reports no messages
@@ -4483,16 +4607,74 @@ export class ImapManager {
     });
   }
 
+  // Apply a whole-folder IMAP write to every matching message in the currently-locked
+  // folder, in UID-addressed chunks with a one-shot retry per chunk. A single command over
+  // the whole folder (messageDelete('1:*') / messageFlagsAdd('1:*', ...)) gets throttled or
+  // times out on some providers on a large folder (observed failing on a 4k+ message Trash,
+  // then succeeding on a manual retry), so batch it and confirm each chunk. UID addressing
+  // keeps a concurrent EXPUNGE from shifting a sequence range under us. `searchQuery` selects
+  // the messages; `apply(client, range)` runs the IMAP command for a UID range and returns
+  // imapflow's truthy/false result. Returns the count processed; throws (with progress) if a
+  // chunk cannot be confirmed.
+  async _chunkedFolderOp(client, folder, searchQuery, apply, { label = 'operation', chunkSize = 500, retryBackoffMs = 500 } = {}) {
+    const uids = await client.search(searchQuery, { uid: true });
+    if (!uids || uids.length === 0) return 0;
+    let done = 0;
+    for (let i = 0; i < uids.length; i += chunkSize) {
+      const chunk = uids.slice(i, i + chunkSize);
+      const range = chunk.join(',');
+      let ok = false;
+      for (let attempt = 0; attempt < 2; attempt++) {
+        try {
+          ok = await apply(client, range);
+        } catch (err) {
+          if (attempt === 1) throw err; // exhausted the retry — surface the real error
+          ok = false;
+        }
+        if (ok) break;
+        if (attempt === 0 && retryBackoffMs > 0) await new Promise(r => setTimeout(r, retryBackoffMs));
+      }
+      if (!ok) {
+        throw new Error(`${label} could not be confirmed for ${folder} after ${done}/${uids.length} messages`);
+      }
+      done += chunk.length;
+    }
+    return done;
+  }
+
+  // Delete every message in the locked folder, chunked (see _chunkedFolderOp). The caller
+  // leaves the DB rows in place on throw so the next sync reconciles.
+  async _deleteAllInFolder(client, folder, opts = {}) {
+    return this._chunkedFolderOp(
+      client, folder, { all: true },
+      (c, range) => c.messageDelete(range, { uid: true }),
+      { label: 'messageDelete', ...opts },
+    );
+  }
+
+  // Add \Seen to every unread message in the locked folder, chunked (see _chunkedFolderOp).
+  // Searching UNSEEN only touches what needs changing (idempotent, and a no-op on an
+  // already-read folder).
+  async _markSeenInFolder(client, folder, opts = {}) {
+    return this._chunkedFolderOp(
+      client, folder, { seen: false },
+      (c, range) => c.messageFlagsAdd(range, ['\\Seen'], { uid: true }),
+      { label: 'messageFlagsAdd', ...opts },
+    );
+  }
+
   async markAllReadImap(account, folder) {
     return withFreshClient(account, async (client) => {
       const lock = await client.getMailboxLock(folder);
       try {
         if (!client.mailbox || client.mailbox.exists === 0) return;
-        const result = await client.messageFlagsAdd('1:*', ['\\Seen'], { uid: false });
-        if (result === false) console.warn(`markAllReadImap: messageFlagsAdd returned false for ${folder} — server may not have applied flags`);
+        // Chunked so a single STORE +FLAGS \Seen over a large folder can't get throttled
+        // into a whole-operation failure (which would leave the DB read but the server
+        // unread, and the next flag-sync would flip those rows back to unread).
+        await this._markSeenInFolder(client, folder);
       } catch (err) {
         console.warn(`markAllRead IMAP warning for ${folder}:`, err.message);
-        // Non-fatal — DB is already updated
+        // Non-fatal — DB is already updated; the next sync reconciles any residual unread.
       } finally {
         lock.release();
       }

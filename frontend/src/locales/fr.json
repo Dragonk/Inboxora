@@ -191,6 +191,7 @@
     "selectToRead": "Sélectionnez un message à lire",
     "noSubject": "(sans objet)",
     "to": "À :",
+    "via": "via",
     "attachment_one": "{{count}} pièce jointe",
     "attachment_other": "{{count}} pièces jointes",
     "loadingError": "Impossible de charger le corps du message",
@@ -422,6 +423,8 @@
     "renameFailed": "Échec du renommage",
     "deleteFailed": "Échec de la suppression",
     "emptyFailed": "Échec du vidage",
+    "emptying": "Vidage de « {{name}} »…",
+    "emptied": "Dossier vidé",
     "backToAccounts": "Retour aux comptes",
     "updateAvailable": "Mise à jour disponible : v{{version}}",
     "hiddenFolders_few": "{{count}} hidden folders",
@@ -455,6 +458,7 @@
     "markAsHam": "Marquer comme non Spam",
     "copySubject": "Copier l'objet",
     "copySender": "Copier l'adresse de l'expéditeur",
+    "copyLink": "Copier le lien",
     "viewHeaders": "Voir les en-têtes complets",
     "delete": "Supprimer",
     "headers": {
@@ -616,9 +620,25 @@
     "errorProcess": "Impossible de traiter l'image."
   },
   "admin": {
+    "cleanup": {
+      "title": "Nettoyage de la boîte",
+      "intro": "Repérez les courriers de masse qui encombrent votre boîte de réception et déplacez-les vers la Corbeille. Les messages supprimés vont dans la Corbeille et restent récupérables jusqu’à ce que vous la vidiez.",
+      "account": "Compte",
+      "summary": "{{bulk}} des {{total}} messages de la boîte sont du courrier de masse ({{pct}}%).",
+      "tier1Title": "Principaux expéditeurs de masse",
+      "tier1Desc": "Ce sont les expéditeurs de newsletters et de marketing les plus volumineux de votre boîte. En déplacer un envoie tout son courrier de la boîte vers la Corbeille.",
+      "noneFound": "Aucun expéditeur de masse trouvé.",
+      "moveToTrash": "Mettre à la Corbeille",
+      "confirm": "Mettre à la Corbeille les {{count}} messages de {{sender}} ? Ils restent récupérables depuis la Corbeille jusqu’à ce que vous la vidiez.",
+      "tier2Title": "Termes promotionnels courants",
+      "tier2Desc": "Recherchez ces termes pour examiner et supprimer le reste vous-même. Ils concernent de nombreux expéditeurs, alors parcourez les résultats avant de supprimer.",
+      "tier3Title": "Nettoyer le reste",
+      "tier3Desc": "Pour le reste, recherchez par expéditeur ou mot-clé, tout sélectionner, puis supprimez. Les suppressions passent d’abord par la Corbeille, vous pouvez donc vérifier avant de la vider."
+    },
     "title": "Paramètres",
     "close": "Fermer",
     "tabs": {
+      "cleanup": "Nettoyage",
       "accounts": "Comptes",
       "rules": "Règles",
       "appearance": "Apparence",
@@ -1287,6 +1307,8 @@
       "adminGroupValue": "Valeur du groupe administrateur",
       "adminGroupValuePh": "mailflow-admins",
       "adminGroupValueDesc": "Le nom du groupe accordant l'accès administrateur. Les utilisateurs de ce groupe deviennent admins à chaque connexion SSO ; les utilisateurs absents de ce groupe perdent l'accès admin.",
+      "loginMatchClaim": "Associer les comptes existants par",
+      "loginMatchClaimDesc": "Revendication (claim) OIDC comparée au nom d’utilisateur de chaque compte MailFlow lors de la première association d’une connexion SSO à un compte existant (mode d’approvisionnement « connexion aux comptes existants uniquement »). Valeur par défaut : email. Utilisez preferred_username, upn, etc. pour les fournisseurs d’identité dont les noms d’utilisateur ne sont pas des adresses e-mail — uniquement si votre fournisseur garantit que cette revendication est unique et non modifiable par l’utilisateur.",
       "passwordLoginDisableMsg": "Les utilisateurs ne pourront se connecter que via SSO. Si votre fournisseur SSO devient indisponible, un accès direct à la base de données sera nécessaire pour réactiver la connexion par mot de passe.",
       "passwordLoginDisableTitle": "Désactiver la connexion par mot de passe ?",
       "passwordLoginDisabled": "La connexion par mot de passe est désactivée",
@@ -1493,7 +1515,6 @@
     "carddavBadge": "Synchronisé depuis CardDAV"
   },
   "todoist": {
-    "betaLabel": "Bêta",
     "title": "Créer une tâche Todoist",
     "taskTitle": "Titre de la tâche",
     "taskTitlePh": "Que faut-il faire ?",

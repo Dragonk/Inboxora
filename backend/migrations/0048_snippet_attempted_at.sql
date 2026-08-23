@@ -1,0 +1,12 @@
+-- Stop the snippet indexer from churning forever on un-snippetable messages (#379).
+--
+-- The indexer selects rows WHERE snippet IS NULL OR snippet = '' and only writes a snippet
+-- when the fetched body yields one. A message that legitimately produces no snippet (body in
+-- an unfetched MIME part, HTML-only, attachment/calendar-only, genuinely empty) was never
+-- marked, so it was re-selected every batch — the backlog counts froze and the indexer looped
+-- indefinitely without draining.
+--
+-- Record when a message was attempted so a fetched-but-empty message is skipped on future
+-- passes. NULL = not yet attempted; the indexer stamps NOW() after each successful batch fetch
+-- for any row still lacking a snippet, guaranteeing forward progress of one batch per iteration.
+ALTER TABLE messages ADD COLUMN IF NOT EXISTS snippet_attempted_at TIMESTAMPTZ;

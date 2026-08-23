@@ -191,6 +191,7 @@
     "selectToRead": "Nachricht auswählen zum Lesen",
     "noSubject": "(kein Betreff)",
     "to": "An:",
+    "via": "über",
     "attachment_one": "{{count}} Anhang",
     "attachment_other": "{{count}} Anhänge",
     "loadingError": "Nachrichteninhalt konnte nicht geladen werden",
@@ -422,6 +423,8 @@
     "renameFailed": "Umbenennen fehlgeschlagen",
     "deleteFailed": "Löschen fehlgeschlagen",
     "emptyFailed": "Leeren fehlgeschlagen",
+    "emptying": "„{{name}}” wird geleert…",
+    "emptied": "Ordner geleert",
     "backToAccounts": "Zurück zu Konten",
     "updateAvailable": "Update verfügbar: v{{version}}",
     "hiddenFolders_few": "{{count}} hidden folders",
@@ -450,6 +453,7 @@
     },
     "copySubject": "Betreff kopieren",
     "copySender": "Absenderadresse kopieren",
+    "copyLink": "Link kopieren",
     "viewHeaders": "Vollständige Kopfzeilen anzeigen",
     "delete": "Löschen",
     "headers": {
@@ -616,9 +620,25 @@
     "errorProcess": "Bild konnte nicht verarbeitet werden."
   },
   "admin": {
+    "cleanup": {
+      "title": "Postfach aufräumen",
+      "intro": "Finden Sie Massen-E-Mails, die Ihren Posteingang füllen, und verschieben Sie sie in den Papierkorb. Gelöschte E-Mails landen im Papierkorb und lassen sich wiederherstellen, bis Sie ihn leeren.",
+      "account": "Konto",
+      "summary": "{{bulk}} von {{total}} Posteingangs-Nachrichten sind Massen-E-Mails ({{pct}}%).",
+      "tier1Title": "Größte Massenabsender",
+      "tier1Desc": "Das sind die volumenstärksten Newsletter- und Marketing-Absender in Ihrem Posteingang. Einen zu verschieben legt alle Posteingangs-E-Mails dieses Absenders in den Papierkorb.",
+      "noneFound": "Keine Massenabsender gefunden.",
+      "moveToTrash": "In den Papierkorb",
+      "confirm": "Alle {{count}} Posteingangs-Nachrichten von {{sender}} in den Papierkorb verschieben? Sie lassen sich aus dem Papierkorb wiederherstellen, bis Sie ihn leeren.",
+      "tier2Title": "Häufige Werbebegriffe",
+      "tier2Desc": "Suchen Sie nach diesen Begriffen, um den Rest selbst zu prüfen und zu löschen. Sie betreffen viele Absender, überfliegen Sie die Ergebnisse also vor dem Löschen.",
+      "tier3Title": "Den Rest aufräumen",
+      "tier3Desc": "Für alles Übrige nach Absender oder Stichwort suchen, alle auswählen und löschen. Löschungen wandern zuerst in den Papierkorb, Sie können also prüfen, bevor Sie ihn leeren."
+    },
     "title": "Einstellungen",
     "close": "Schließen",
     "tabs": {
+      "cleanup": "Aufräumen",
       "accounts": "Konten",
       "appearance": "Darstellung",
       "notifications": "Benachrichtigungen",
@@ -1225,7 +1245,9 @@
       "adminGroupClaimDesc": "Name des JWT-Claims, der die Gruppen des Benutzers enthält (z. B. groups). Leer lassen, um gruppenbasierte Admin-Zuweisung zu deaktivieren.",
       "adminGroupValue": "Admin-Gruppenwert",
       "adminGroupValuePh": "mailflow-admins",
-      "adminGroupValueDesc": "Der Gruppenname, der Admin-Zugriff gewährt. Benutzer in dieser Gruppe werden bei jeder SSO-Anmeldung zu Admins; Benutzer, die nicht in dieser Gruppe sind, verlieren den Admin-Zugriff."
+      "adminGroupValueDesc": "Der Gruppenname, der Admin-Zugriff gewährt. Benutzer in dieser Gruppe werden bei jeder SSO-Anmeldung zu Admins; Benutzer, die nicht in dieser Gruppe sind, verlieren den Admin-Zugriff.",
+      "loginMatchClaim": "Bestehende Konten zuordnen über",
+      "loginMatchClaimDesc": "OIDC-Claim, der mit dem Benutzernamen jedes MailFlow-Kontos abgeglichen wird, wenn eine SSO-Anmeldung erstmals mit einem bestehenden Konto verknüpft wird (Bereitstellungsmodus „Nur bei bestehenden Konten anmelden“). Standard ist email. Verwenden Sie preferred_username, upn usw. für Identitätsanbieter, deren Benutzernamen keine E-Mail-Adressen sind – nur wenn Ihr Anbieter garantiert, dass der Claim eindeutig und nicht vom Benutzer änderbar ist."
     },
     "integrations": {
       "title": "Integrationen",
@@ -1493,7 +1515,6 @@
     "carddavBadge": "Von CardDAV synchronisiert"
   },
   "todoist": {
-    "betaLabel": "Beta",
     "title": "Todoist-Aufgabe erstellen",
     "taskTitle": "Aufgabentitel",
     "taskTitlePh": "Was muss erledigt werden?",

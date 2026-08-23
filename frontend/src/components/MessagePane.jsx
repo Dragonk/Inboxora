@@ -2416,6 +2416,12 @@ ${bodyContent}
                       {message.from_email}
                     </div>
                   )}
+                  {body?.senderEmail && (
+                    <div style={{ fontSize: 12, color: 'var(--text-tertiary)', marginTop: 2, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                      <span>{t('message.via')} </span>
+                      <span style={{ color: 'var(--text-secondary)' }}>{body.senderName ? `${body.senderName} <${body.senderEmail}>` : body.senderEmail}</span>
+                    </div>
+                  )}
                   <div style={{ fontSize: 12, color: 'var(--text-tertiary)', marginTop: 2, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                     <span>{t('message.to')} </span>
                     <span style={{ color: 'var(--text-secondary)' }}>
@@ -2449,6 +2455,12 @@ ${bodyContent}
                       </span>
                     )}
                   </div>
+                  {body?.senderEmail && (
+                    <div style={{ fontSize: 12, color: 'var(--text-tertiary)', marginTop: 3 }}>
+                      <span>{t('message.via')} </span>
+                      <span style={{ color: 'var(--text-secondary)' }}>{body.senderName ? `${body.senderName} <${body.senderEmail}>` : body.senderEmail}</span>
+                    </div>
+                  )}
                   <div style={{ fontSize: 12, color: 'var(--text-tertiary)', marginTop: 3 }}>
                     <span>{t('message.to')} </span>
                     <span style={{ color: 'var(--text-secondary)' }}>

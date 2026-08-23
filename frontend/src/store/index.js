@@ -11,6 +11,7 @@ import {
   setGtdThreadReadInSections,
   snapshotGtdThreadRemoval,
   appendMessagesByIdentity,
+  dedupeByIdentity,
   missingByIdentity,
 } from '../utils/gtd.js';
 import { applyGtdRemovalGuard } from '../utils/pendingGtdRemovals.js';
@@ -20,6 +21,7 @@ import {
   mergeFolderOrder,
   readFolderOrder,
 } from './folderOrder.js';
+import { removeThreadCacheEntry } from '../utils/threadedArchive.js';
 import i18n from '../i18n.js';
 
 // Accumulate rapid preference changes and flush at most once per second.
@@ -33,6 +35,15 @@ function schedulePrefSave(prefs) {
     _pendingPrefs = {};
     api.savePreferences(toSave).catch(() => {});
   }, 1000);
+}
+// Drop any queued preference flush. Called on logout / account switch: a pending debounce
+// belongs to the previous user's session, so letting it fire would either save into the new
+// user's account or hit a dead session (401). The prefs are already applied locally; only the
+// deferred network write is discarded.
+function cancelPendingPrefSave() {
+  clearTimeout(_prefFlushTimer);
+  _prefFlushTimer = null;
+  _pendingPrefs = {};
 }
 
 // GTD sections fetch coordination. A monotonic seq guards against stale
@@ -54,14 +65,19 @@ function readGtdCollapsedSections() {
 export const useStore = create((set, get) => ({
   // Auth
   user: null,
-  setUser: (user) => set(state => ({
-    user,
-    ...(state.user?.id !== user?.id ? {
-      senderFaviconsLoaded: false,
-      senderFavicons: false,
-      senderFaviconsSaving: false,
-    } : {}),
-  })),
+  setUser: (user) => {
+    // On a real identity change (login, logout, account switch) drop any queued preference
+    // flush so the previous user's debounce can't save into the new/absent session.
+    if (get().user?.id !== user?.id) cancelPendingPrefSave();
+    set(state => ({
+      user,
+      ...(state.user?.id !== user?.id ? {
+        senderFaviconsLoaded: false,
+        senderFavicons: false,
+        senderFaviconsSaving: false,
+      } : {}),
+    }));
+  },
   updateUser: (updates) => set(state => ({ user: state.user ? { ...state.user, ...updates } : state.user })),
 
   // Plugin activation — the per-user set of activated plugin ids (users.preferences.enabledPlugins).
@@ -167,7 +183,11 @@ export const useStore = create((set, get) => ({
 
   // Messages
   messages: [],
-  setMessages: (messages) => set({ messages }),
+  // Dedupe by stable identity on every raw list load: the same email can arrive as two rows
+  // (same message delivered to two unified accounts, or a received copy + its Sent twin) and
+  // must render once, matching isSelectedRow's identity model (#378). appendMessages/restore
+  // dedupe on their own paths; this covers the initial/refresh/page loads that replace wholesale.
+  setMessages: (messages) => set({ messages: dedupeByIdentity(messages) }),
   appendMessages: (newMessages) => set(state => {
     // Merge by stable identity (Message-ID when present, else id): a same-id row is dropped so the
     // existing copy keeps any optimistic local-only fields a refresh lost (unread_count, etc.),
@@ -559,6 +579,9 @@ export const useStore = create((set, get) => ({
   threadMessages: {},
   setThreadMessages: (threadId, msgs) => set(state => ({
     threadMessages: { ...state.threadMessages, [threadId]: msgs },
+  })),
+  clearThreadMessages: (threadId) => set(state => ({
+    threadMessages: removeThreadCacheEntry(state.threadMessages, threadId),
   })),
   loadingThread: null,
   setLoadingThread: (id) => set({ loadingThread: id }),

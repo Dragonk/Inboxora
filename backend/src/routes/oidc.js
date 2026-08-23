@@ -120,6 +120,38 @@ function resolveAdminFromClaim(payload, provider) {
   return false;
 }
 
+// Resolve the value used to match an SSO login to an existing MailFlow account during the
+// initial link (login_existing_only). The claim name is admin-configured (default 'email',
+// the historical behavior) and read from the *verified* id_token; the result is always matched
+// against users.username. An admin who selects a non-email claim (e.g. 'preferred_username' or
+// Entra's 'upn') is trusting their IdP to make that claim unique and not user-editable — which
+// is why 'email' stays the default and anything else is explicit opt-in. Returns a lowercased,
+// trimmed string, or null when the claim is absent/blank/non-string (which the caller treats as
+// "no matching account"). See issue #289. Never matches secondary email_accounts addresses —
+// proving control of a mailbox a user added must not log you in as that user.
+const DANGEROUS_CLAIM_KEYS = new Set(['__proto__', 'constructor', 'prototype']);
+export function resolveLoginMatchValue(provider, payload, email) {
+  const claim = (provider?.login_match_claim || 'email').trim() || 'email';
+  // Never index the payload by an object-prototype key. `payload["__proto__"]` from JSON.parse is
+  // a string own-property that would pass the typeof guard below; the others resolve to functions.
+  // Belt-and-suspenders with admin.js validation, and it also protects any pre-existing bad row.
+  if (claim !== 'email' && DANGEROUS_CLAIM_KEYS.has(claim)) return null;
+  const raw = claim === 'email' ? email : payload?.[claim];
+  return typeof raw === 'string' && raw.trim() ? raw.trim().toLowerCase() : null;
+}
+
+// Seed users.display_name from the OIDC 'name' (profile) claim on first association, but only
+// when it is currently empty — never overwrite a value the user or admin set. Bounded to the
+// column width (VARCHAR(100)). Best-effort nicety; requested in #289.
+async function maybeBackfillDisplayName(client, userId, payload) {
+  const name = typeof payload?.name === 'string' ? payload.name.trim() : '';
+  if (!name) return;
+  await client.query(
+    "UPDATE users SET display_name = $1 WHERE id = $2 AND (display_name IS NULL OR display_name = '')",
+    [name.slice(0, 100), userId]
+  );
+}
+
 // Record how the user signed in so logout can offer RP-initiated (end-session) logout.
 // The raw id_token is kept for use as id_token_hint; the provider id lets logout look up
 // its issuer and the rp_initiated_logout toggle. Both are cleared when the session is
@@ -466,20 +498,26 @@ oidcBrowserRouter.get('/:slug/callback', async (req, res) => {
     }
 
     if (mode === 'login_existing_only') {
-      // Match by email to an existing account and link automatically
+      // A verified email is still required as a baseline assurance (opt-out via
+      // require_email_verified), even when matching on a different claim.
       if (!email || (!emailVerified && provider.require_email_verified !== false)) {
         return oidcError(res, 'login', 'No account found. Contact your administrator.');
       }
-      // Match ONLY on the canonical identity (username). We deliberately do NOT
-      // fall back to matching any owned email_accounts.email_address: proving control
-      // of an address that a user added as a secondary mailbox must not log you in as
-      // that user (identity-confusion / account-takeover risk with shared mailboxes).
+      // Match ONLY on the canonical identity (users.username), via the admin-configured
+      // login_match_claim (default 'email'). We deliberately do NOT fall back to matching any
+      // owned email_accounts.email_address: proving control of an address that a user added as a
+      // secondary mailbox must not log you in as that user (identity-confusion / account-takeover
+      // risk with shared mailboxes).
+      const matchValue = resolveLoginMatchValue(provider, payload, email);
+      if (!matchValue) {
+        return oidcError(res, 'login', 'No account found matching this identity. Contact your administrator.');
+      }
       const { rows: [user] } = await client.query(
         'SELECT id, username, is_admin FROM users WHERE username = $1',
-        [email.toLowerCase()]
+        [matchValue]
       );
       if (!user) {
-        return oidcError(res, 'login', 'No account found matching this email. Contact your administrator.');
+        return oidcError(res, 'login', 'No account found matching this identity. Contact your administrator.');
       }
 
       // Evaluate admin status from group claim on first SSO link (if configured)
@@ -495,6 +533,7 @@ oidcBrowserRouter.get('/:slug/callback', async (req, res) => {
          ON CONFLICT (issuer, subject) DO UPDATE SET last_used_at = NOW()`,
         [user.id, provider.id, issuer, subject, email, emailVerified]
       );
+      await maybeBackfillDisplayName(client, user.id, payload);
       await new Promise((resolve, reject) => req.session.regenerate(err => err ? reject(err) : resolve()));
       req.session.userId = user.id;
       req.session.username = user.username;
@@ -557,6 +596,7 @@ oidcBrowserRouter.get('/:slug/callback', async (req, res) => {
            ON CONFLICT (issuer, subject) DO UPDATE SET last_used_at = NOW()`,
           [user.id, provider.id, issuer, subject, email, emailVerified]
         );
+        await maybeBackfillDisplayName(client, user.id, payload);
         await client.query('COMMIT');
         await new Promise((resolve, reject) => req.session.regenerate(err => err ? reject(err) : resolve()));
         req.session.userId = user.id;
