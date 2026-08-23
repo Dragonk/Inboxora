@@ -6433,13 +6433,20 @@ function MailboxCleanupTab() {
   const [busySender, setBusySender] = useState('');
   const [progress, setProgress] = useState(null);
 
+  // Re-fetch the summary/sender data without touching the error banner or the loading
+  // spinner, so a caller that just wants fresh counts (after a cleanup, including a partial
+  // failure) can refresh without clobbering an error it already set.
+  const fetchUsage = useCallback(async (id) => {
+    setData(await api.mailboxUsage(id));
+  }, []);
+
   const load = useCallback(async (id) => {
     if (!id) return;
     setLoading(true); setError('');
-    try { setData(await api.mailboxUsage(id)); }
+    try { await fetchUsage(id); }
     catch (e) { setError(e.message); setData(null); }
     finally { setLoading(false); }
-  }, []);
+  }, [fetchUsage]);
 
   useEffect(() => { if (accountId) load(accountId); }, [accountId, load]);
 
@@ -6456,9 +6463,13 @@ function MailboxCleanupTab() {
         done += batch.length;
         setProgress({ done, total: ids.length });
       }
-      await load(accountId); // idempotent refresh
     } catch (e) { setError(e.message); }
-    finally { setBusySender(''); setProgress(null); }
+    finally {
+      // Always refresh counts so the summary reflects what actually got trashed, even on a
+      // partial failure; preserve any error already set (don't route through load()).
+      try { await fetchUsage(accountId); } catch { /* keep the primary error and last-good data */ }
+      setBusySender(''); setProgress(null);
+    }
   };
 
   const bloatPct = data && data.inboxTotal ? Math.round((data.bulkTotal / data.inboxTotal) * 100) : 0;
