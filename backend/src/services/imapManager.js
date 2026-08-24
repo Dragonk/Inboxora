@@ -40,6 +40,9 @@ async function persistConversationCopyForRow(rowId, account, rawMessage) {
     await upsertConversationCopy({ ...result.rows[0], ...envelope }, {
       identities: envelope.identities,
       provider: envelope.provider,
+      // Explicit authenticated tenant context; never infer ownership from the
+      // persisted/message payload in the conversation persistence layer.
+      userId: account.user_id,
     });
   } catch (err) {
     console.error('Conversation persistence error:', err.message);
