@@ -1,6 +1,6 @@
 // Real PostgreSQL regression tests for Conversation Engine v2.
 // Requires a live PostgreSQL database with all CE v2 migrations applied.
-// Run with: DB_HOST=localhost DB_NAME=mailflow_ce_test DB_USER=mailflow DB_PASSWORD=mailflow npx vitest run src/services/conversationPgRegression.test.js
+// Run with: DB_HOST=localhost DB_NAME=mailflow_ce_test DB_USER=mailflow DB_PASSWORD=mailflow npx vitest run src/services/conversationPgRegression.integration.js
 
 import { describe, it, expect, beforeAll, afterAll, afterEach } from 'vitest';
 import { query, pool } from './db.js';

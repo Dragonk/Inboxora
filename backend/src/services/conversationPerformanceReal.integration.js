@@ -1,6 +1,6 @@
 // CE v2 Performance test — 10k/50k/100k physical copies on real PostgreSQL
 // Tests ConversationList query, detail metadata, body lookup, rebuild.
-// Run: node --test src/services/conversationPerformanceReal.test.js
+// Run: node --test src/services/conversationPerformanceReal.integration.js
 import { describe, it, before, after } from 'node:test';
 import assert from 'node:assert/strict';
 import pg from 'pg';

@@ -202,7 +202,7 @@ jobs:
           DB_PASSWORD: mailflow_test
           ENCRYPTION_KEY: "0000000000000000000000000000000000000000000000000000000000000000"
         run: |
-          node --test src/services/conversationConcurrencyReal.test.js 2>&1 | tee ../artifacts/concurrency-real.log
+          node --test src/services/conversationConcurrencyReal.integration.js 2>&1 | tee ../artifacts/concurrency-real.log
 
       - name: Real PostgreSQL copy-scope suite
         working-directory: backend
@@ -214,7 +214,7 @@ jobs:
           DB_PASSWORD: mailflow_test
           ENCRYPTION_KEY: "0000000000000000000000000000000000000000000000000000000000000000"
         run: |
-          node --test src/services/conversationCopyScopesReal.test.js 2>&1 | tee ../artifacts/copy-scopes-real.log
+          node --test src/services/conversationCopyScopesReal.integration.js 2>&1 | tee ../artifacts/copy-scopes-real.log
 
       - name: Security gate
         working-directory: backend

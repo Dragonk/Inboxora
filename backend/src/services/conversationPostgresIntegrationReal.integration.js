@@ -3,7 +3,7 @@
 // Inbox, Sent, Archive, and a duplicate in All Mail.
 //
 // Requires: real PostgreSQL with migrations 0001-0057 applied.
-// Run: node --test src/services/conversationPostgresIntegrationReal.test.js
+// Run: node --test src/services/conversationPostgresIntegrationReal.integration.js
 import { describe, it, before, after, beforeEach } from 'node:test';
 import assert from 'node:assert/strict';
 import pg from 'pg';

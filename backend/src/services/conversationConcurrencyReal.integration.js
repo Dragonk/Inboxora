@@ -1,7 +1,7 @@
 // Real PostgreSQL concurrency suite for Conversation Engine v2.
 // No mocked promises: each production operation uses its own pool transaction/client.
 // Run with the migrated test database:
-//   DB_HOST=... DB_NAME=... DB_USER=... DB_PASSWORD=... node --test src/services/conversationConcurrencyReal.test.js
+//   DB_HOST=... DB_NAME=... DB_USER=... DB_PASSWORD=... node --test src/services/conversationConcurrencyReal.integration.js
 import { describe, it, before, after, beforeEach } from 'node:test';
 import assert from 'node:assert/strict';
 import pg from 'pg';
