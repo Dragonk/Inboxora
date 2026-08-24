@@ -53,11 +53,33 @@ async function findParentLogical(client, hydrated) {
     if (direct.rows.length === 1) return { ...direct.rows[0], relationType: 'in-reply-to' };
     if (direct.rows.length > 1) return { ambiguous: true, relationType: 'ambiguous-in-reply-to', canonical_message_id: replyId };
   }
+  // P1-07: Batch References lookup — one query for all referenced IDs
+  // instead of N sequential queries. Preserve EXACT semantics:
+  //   iterate refs newest→oldest (reverse of References header order)
+  //   for each ID: 0 → continue, 1 → parent, >1 → ambiguous for THIS ID
+  // Direct In-Reply-To (checked above) still has higher priority.
   const refs = normalizeMessageIdList(hydrated.rawReferences);
-  for (const referencedId of [...refs].reverse()) {
-    const result = await client.query(`SELECT id, conversation_id, canonical_message_id, subject FROM logical_messages WHERE user_id = $1 AND canonical_message_id = $2 ORDER BY created_at ASC FOR UPDATE`, [hydrated.userId, referencedId]);
-    if (result.rows.length === 1) return { ...result.rows[0], relationType: 'references' };
-    if (result.rows.length > 1) return { ambiguous: true, relationType: 'ambiguous-references', canonical_message_id: referencedId };
+  if (refs.length > 0) {
+    const reversed = [...refs].reverse(); // newest→oldest
+    const batch = await client.query(
+      `SELECT id, conversation_id, canonical_message_id, subject FROM logical_messages
+        WHERE user_id = $1 AND canonical_message_id = ANY($2::text[])
+        ORDER BY created_at ASC FOR UPDATE`,
+      [hydrated.userId, reversed],
+    );
+    // Build a Map<canonical_message_id, candidate[]>
+    const byId = new Map();
+    for (const row of batch.rows) {
+      if (!byId.has(row.canonical_message_id)) byId.set(row.canonical_message_id, []);
+      byId.get(row.canonical_message_id).push(row);
+    }
+    // Iterate newest→oldest, preserving exact semantics
+    for (const referencedId of reversed) {
+      const candidates = byId.get(referencedId);
+      if (!candidates || candidates.length === 0) continue; // 0 → continue
+      if (candidates.length === 1) return { ...candidates[0], relationType: 'references' };
+      return { ambiguous: true, relationType: 'ambiguous-references', canonical_message_id: referencedId };
+    }
   }
   return null;
 }

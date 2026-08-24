@@ -121,9 +121,12 @@ export async function rebuildConversationCopies({ userId, accountId = null, limi
     }
 
     if (!dryRun) {
+      // P1-06: Use the same internal upsert path as dry-run, on the same
+      // transaction client, so writes and checkpoint are atomic for the batch.
+      // Crash here cannot leave committed messages + stale checkpoint.
       for (const row of rows.rows) {
         const before = await snapshotMessage(client, row);
-        await upsertConversationCopy(row, {
+        await _upsertConversationCopyWithClient(client, row, {
           identities: await resolveOwnIdentityAddresses(client, row.account_id, row),
           provider: providerIdentityForCopy(row),
         });
