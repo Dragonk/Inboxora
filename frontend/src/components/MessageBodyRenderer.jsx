@@ -1,5 +1,9 @@
+import { useEffect, useRef, useMemo } from 'react';
 import DOMPurify from 'dompurify';
 
+// Shared email HTML sanitization policy — used by both MessagePane and
+// ConversationPane via sanitizeMessageHtml() so they have an identical
+// security model.
 export const EMAIL_SANITIZE_POLICY = {
   ADD_ATTR: ['target'],
   FORBID_TAGS: ['script', 'iframe', 'object', 'embed', 'form', 'video', 'audio', 'source', 'track'],
@@ -7,21 +11,11 @@ export const EMAIL_SANITIZE_POLICY = {
 };
 
 // Preserve cid: references so they survive DOMPurify (which would strip them
-// as unknown-protocol attributes). The renderer maps them to a safe API URL
-// after sanitization.
+// as unknown-protocol attributes). The backend resolves the CID to the matching
+// attachment content — the frontend does NOT map them to an API endpoint
+// (the backend already does this during ingest/snippet generation).
 function preserveCid(html) {
   return html.replace(/(src|href)=("|')cid:/gi, '$1=$2cid:');
-}
-
-// Replace cid: references with a safe local API endpoint. The backend resolves
-// the CID to the matching attachment content served from the message's physical
-// copy. This prevents cid: from remaining a dead browser URL.
-function mapCidToApi(html, { copyId, accountId } = {}) {
-  if (!copyId) return html;
-  return html.replace(/(src|href)=("|')cid:([^"']+)\2/gi, (match, attr, quote, cid) => {
-    const api = `/api/mail/attachments/cid?cid=${encodeURIComponent(cid)}&copyId=${encodeURIComponent(copyId)}&accountId=${encodeURIComponent(accountId || '')}`;
-    return `${attr}=${quote}${api}${quote}`;
-  });
 }
 
 export function sanitizeMessageHtml(html = '', { remoteImages = false } = {}) {
@@ -43,9 +37,95 @@ export function sanitizeMessageHtml(html = '', { remoteImages = false } = {}) {
     .replace(/url\s*\(\s*["']?\/\/[^)]+\)/gi, 'none');
 }
 
-export default function MessageBodyRenderer({ html = '', text = '', remoteImages = false, copyId = null, accountId = null }) {
+// Build the full HTML document for the sandboxed iframe srcDoc.
+// Injects a CSP meta tag, overflow:hidden, and a <base target="_blank">
+// so all links open in a new tab (with rel=noopener noreferrer).
+function buildSrcDoc(html, { remoteImages = false } = {}) {
+  const csp = remoteImages
+    ? "default-src 'none'; img-src 'self' data: cid: https: http:; style-src 'unsafe-inline'; media-src 'self' data:"
+    : "default-src 'none'; img-src 'self' data: cid:; style-src 'unsafe-inline'; media-src 'self' data:";
+  return `<!DOCTYPE html><html><head><meta charset="utf-8">
+<meta http-equiv="Content-Security-Policy" content="${csp}">
+<base target="_blank" rel="noopener noreferrer">
+<style>
+  html { overflow: hidden; }
+  body { overflow: hidden; margin: 0; padding: 8px; word-wrap: break-word; overflow-wrap: break-word; }
+  img { max-width: 100%; height: auto; }
+  table { max-width: 100%; }
+  a { color: inherit; }
+  blockquote { margin-left: 1em; border-left: 3px solid var(--border, #ddd); padding-left: 1em; color: inherit; opacity: 0.8; }
+</style>
+</head><body>${html}</body></html>`;
+}
+
+/**
+ * SafeMessageFrame — shared production HTML body renderer using a sandboxed iframe.
+ *
+ * Both MessagePane and ConversationPane use this component so they have an
+ * IDENTICAL security model:
+ *   - sandboxed iframe (allow-same-origin only — NO allow-scripts)
+ *   - CSP via meta tag (default-src 'none', no remote resources unless explicitly enabled)
+ *   - DOMPurify sanitization with EMAIL_SANITIZE_POLICY
+ *   - <base target="_blank" rel="noopener noreferrer">
+ *   - remote-image blocking (default), with opt-in for allow-listed senders
+ *   - CID references preserved (backend resolves to attachment content)
+ *   - auto-height sizing to content
+ *
+ * The iframe has NO allow-scripts, so even if an attacker injects <script>,
+ * event handlers, javascript: URIs, or SVG tricks, they cannot execute.
+ * CSS external URLs are blocked by CSP + regex sanitization.
+ * iframe/object/embed/form are stripped by DOMPurify FORBID_TAGS.
+ */
+export default function MessageBodyRenderer({ html = '', text = '', remoteImages = false, onHeightChange = null }) {
+  const iframeRef = useRef(null);
+
+  const srcDoc = useMemo(() => {
+    if (!html) return null;
+    const sanitized = sanitizeMessageHtml(html, { remoteImages });
+    return buildSrcDoc(sanitized, { remoteImages });
+  }, [html, remoteImages]);
+
+  // Auto-height: measure the iframe content and set the iframe height
+  // so no internal scrollbar appears (same approach as MessagePane).
+  useEffect(() => {
+    const iframe = iframeRef.current;
+    if (!iframe || !srcDoc) return;
+
+    const onLoaded = () => {
+      try {
+        const doc = iframe.contentDocument;
+        if (!doc) return;
+        const contentHeight = doc.documentElement?.scrollHeight || doc.body?.scrollHeight || 300;
+        iframe.style.height = contentHeight + 'px';
+        if (onHeightChange) onHeightChange(contentHeight);
+      } catch {
+        // Cross-origin or not yet loaded — leave default height.
+      }
+    };
+
+    iframe.addEventListener('load', onLoaded, { once: true });
+    if (iframe.contentDocument?.readyState === 'complete') {
+      onLoaded();
+    }
+    return () => iframe.removeEventListener('load', onLoaded);
+  }, [srcDoc, onHeightChange]);
+
   if (!html) return <p style={{ whiteSpace: 'pre-wrap' }}>{text}</p>;
-  const sanitized = sanitizeMessageHtml(html, { remoteImages });
-  const finalHtml = mapCidToApi(sanitized, { copyId, accountId });
-  return <div dangerouslySetInnerHTML={{ __html: finalHtml }} />;
+
+  return (
+    <iframe
+      ref={iframeRef}
+      srcDoc={srcDoc}
+      sandbox="allow-same-origin"
+      style={{
+        width: '100%',
+        height: '300px',
+        border: 'none',
+        display: 'block',
+        background: 'transparent',
+      }}
+      // Prevent the iframe from being a drag/drop target for external content.
+      onDragStart={(e) => e.preventDefault()}
+    />
+  );
 }

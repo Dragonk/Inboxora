@@ -397,8 +397,6 @@ export default function ConversationPane({ conversationId, targetLogicalMessageI
                     <MessageBodyRenderer
                       html={body.body_html}
                       text={body.body_text}
-                      copyId={body.physical_copy_id}
-                      accountId={body.account_id}
                       remoteImages={imagesEnabled || false}
                     />
                   </QuoteFold>
