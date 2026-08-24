@@ -20,8 +20,9 @@ import { sanitizeMessageHtml, buildSrcDoc } from './messageBodySecurity.js';
  * CSS external URLs are blocked by CSP + regex sanitization.
  * iframe/object/embed/form are stripped by DOMPurify FORBID_TAGS.
  */
-export default function MessageBodyRenderer({ html = '', text = '', remoteImages = false, onHeightChange = null }) {
-  const iframeRef = useRef(null);
+export default function MessageBodyRenderer({ html = '', text = '', remoteImages = false, onHeightChange = null, iframeRef: externalIframeRef = null, onLoad = null, title = 'Message body', style: frameStyle = null }) {
+  const internalIframeRef = useRef(null);
+  const iframeRef = externalIframeRef || internalIframeRef;
 
   const srcDoc = useMemo(() => {
     if (!html) return null;
@@ -42,7 +43,9 @@ export default function MessageBodyRenderer({ html = '', text = '', remoteImages
         const contentHeight = doc.documentElement?.scrollHeight || doc.body?.scrollHeight || 300;
         iframe.style.height = contentHeight + 'px';
         if (onHeightChange) onHeightChange(contentHeight);
+        onLoad?.();
       } catch {
+        onLoad?.();
         // Cross-origin or not yet loaded — leave default height.
       }
     };
@@ -52,7 +55,7 @@ export default function MessageBodyRenderer({ html = '', text = '', remoteImages
       onLoaded();
     }
     return () => iframe.removeEventListener('load', onLoaded);
-  }, [srcDoc, onHeightChange]);
+  }, [srcDoc, onHeightChange, onLoad, iframeRef]);
 
   if (!html) return <p style={{ whiteSpace: 'pre-wrap' }}>{text}</p>;
 
@@ -60,6 +63,7 @@ export default function MessageBodyRenderer({ html = '', text = '', remoteImages
     <iframe
       ref={iframeRef}
       srcDoc={srcDoc}
+      title={title}
       sandbox="allow-same-origin"
       loading="lazy"
       style={{
@@ -68,6 +72,7 @@ export default function MessageBodyRenderer({ html = '', text = '', remoteImages
         border: 'none',
         display: 'block',
         background: 'transparent',
+        ...frameStyle,
       }}
       // Prevent the iframe from being a drag/drop target for external content.
       onDragStart={(e) => e.preventDefault()}
