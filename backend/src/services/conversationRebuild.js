@@ -67,7 +67,7 @@ async function dryRunBatch(client, rows, userId) {
     try {
       await _upsertConversationCopyWithClient(client, row, {
         identities: await resolveOwnIdentityAddresses(client, row.account_id, row),
-        provider: providerIdentityForCopy(row),
+        provider: providerIdentityForCopy(row, row),
         userId,
       });
       await client.query('RELEASE SAVEPOINT ce_dry_row');
@@ -109,7 +109,7 @@ export async function rebuildConversationCopies({ userId, accountId = null, limi
     const scoped = cursorPredicate(baseValues, effectiveCheckpoint);
     const limitParam = scoped.values.length + 1;
     const rows = await client.query(`
-      SELECT m.*, a.user_id, a.email_address
+      SELECT m.*, a.user_id, a.email_address, a.imap_host, a.protocol
         FROM messages m
         JOIN email_accounts a ON a.id = m.account_id AND a.user_id = $1
        WHERE m.is_deleted = false ${accountFilter} ${scoped.sql}
@@ -150,7 +150,7 @@ export async function rebuildConversationCopies({ userId, accountId = null, limi
           const before = await snapshotMessage(client, row);
           await _upsertConversationCopyWithClient(client, row, {
             identities: await resolveOwnIdentityAddresses(client, row.account_id, row),
-            provider: providerIdentityForCopy(row),
+            provider: providerIdentityForCopy(row, row),
             userId,
           });
           const after = await snapshotMessage(client, row);

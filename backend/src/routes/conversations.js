@@ -54,6 +54,7 @@ router.get('/conversations', async (req, res) => {
     SELECT c.id AS conversation_id, c.kind, c.canonical_subject,
            c.first_message_at, c.last_message_at, c.logical_message_count,
            c.copy_count, c.unread_count, c.threading_confidence,
+           COALESCE(BOOL_OR(m.is_starred), false) AS is_starred,
            COUNT(DISTINCT m.id)::int AS visible_copy_count,
            COALESCE(c.last_message_at, c.created_at) AS sort_date,
            BOOL_OR(COALESCE(m.has_attachments, false)) AS has_attachments,
@@ -159,9 +160,10 @@ router.get('/conversations/:conversationId/logical-messages/:logicalMessageId/bo
         JOIN messages m ON m.logical_message_id = lm.id AND m.conversation_id = $3 AND m.is_deleted = false
         JOIN email_accounts a ON a.id = m.account_id AND a.user_id = $2
        WHERE lm.id = $1 AND lm.user_id = $2 AND lm.conversation_id = $3
+       AND ($4::uuid IS NULL OR m.id = $4::uuid)
        ORDER BY (m.body_html IS NOT NULL OR m.body_text IS NOT NULL) DESC, m.is_read ASC, m.date DESC NULLS LAST, m.id DESC
        LIMIT 1
-    `, [req.params.logicalMessageId, req.session.userId, canonicalId]);
+    `, [req.params.logicalMessageId, req.session.userId, canonicalId, req.query.copyId || null]);
     if (!result.rows.length) return res.status(404).json({ error: 'Logical message body not found' });
     res.json(result.rows[0]);
   } finally { client.release(); }

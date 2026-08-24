@@ -23,7 +23,7 @@ export async function retryConversationIngestFailures({ userId = null, limit = 2
       // This mirrors the pattern used by conversationRebuild.js.
       const result = await withTransaction(async client => {
         const row = await client.query(
-          `SELECT m.*, a.user_id, a.email_address
+          `SELECT m.*, a.user_id, a.email_address, a.imap_host, a.protocol
              FROM messages m
              JOIN email_accounts a ON a.id = m.account_id
             WHERE m.id = $1 AND a.user_id = $2
@@ -35,7 +35,7 @@ export async function retryConversationIngestFailures({ userId = null, limit = 2
         const identities = await resolveOwnIdentityAddresses(client, account.account_id, account);
         return _upsertConversationCopyWithClient(client, row.rows[0], {
           identities,
-          provider: providerIdentityForCopy(row.rows[0]),
+          provider: providerIdentityForCopy(row.rows[0], row.rows[0]),
           userId: failure.user_id,
         });
       }, { serializable: true });

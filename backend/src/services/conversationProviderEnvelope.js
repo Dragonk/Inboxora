@@ -12,8 +12,14 @@ function outlookConversationRoot(value) {
   } catch { return null; }
 }
 
-export function providerIdentityForCopy(copy) {
-  const provider = copy.provider_namespace?.split(':')[0] || null;
+export function providerIdentityForCopy(copy, accountContext = copy) {
+  const persistedProvider = copy.provider_namespace?.split(':')[0] || null;
+  const host = String(accountContext?.imap_host || accountContext?.imapHost || '').toLowerCase();
+  const provider = persistedProvider || (
+    /gmail/.test(host) ? 'gmail' :
+    /outlook|office365|exchange|hotmail|live\.com/.test(host) ? 'outlook' :
+    null
+  );
   // P0 fix: only Gmail X-GM-THRID (persisted as provider_thread_id) is strong evidence.
   // Outlook Thread-Index (persisted as conversation_thread_index) is NOT strong — it's a
   // client-generated base64 blob, not server-validated, and its raw value changes as the

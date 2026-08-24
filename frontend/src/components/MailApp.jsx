@@ -329,6 +329,10 @@ export default function MailApp() {
       history.pushState({ mailflow: 'guard' }, '', '/');
     }
     const handler = (event) => {
+      if (conversationReaderViewEnabled && conversationId) {
+        setConversationId(null);
+        setTargetLogicalMessageId(null);
+      }
       if (selectedMessageIdRef.current) setSelectedMessage(null);
       // Backing out of a message lands on the existing guard entry. Re-pushing
       // during that popstate can make iOS PWA history gestures temporarily stop
@@ -339,7 +343,7 @@ export default function MailApp() {
     };
     window.addEventListener('popstate', handler);
     return () => window.removeEventListener('popstate', handler);
-  }, [isMobile, setSelectedMessage]);
+  }, [conversationId, conversationReaderViewEnabled, isMobile, setSelectedMessage]);
 
   const wsRef = useWebSocket();
 
@@ -567,6 +571,11 @@ export default function MailApp() {
         return true;
       }
 
+      if (conversationReaderViewEnabled && conversationId) {
+        setConversationId(null);
+        setTargetLogicalMessageId(null);
+        return true;
+      }
       if (selectedMessageIdRef.current) {
         setSelectedMessage(null);
         return true;
@@ -578,7 +587,7 @@ export default function MailApp() {
     return () => {
       if (window.__mailflowHandleAndroidBack) delete window.__mailflowHandleAndroidBack;
     };
-  }, [setMobileSidebarOpen, setSelectedMessage, setShowAdmin]);
+  }, [conversationId, conversationReaderViewEnabled, setMobileSidebarOpen, setSelectedMessage, setShowAdmin]);
 
   useEffect(() => {
     if (isMobile) return;

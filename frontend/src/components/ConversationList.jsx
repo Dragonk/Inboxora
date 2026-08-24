@@ -514,6 +514,7 @@ export default function ConversationList({ params = {}, onOpenMessage }) {
       e.preventDefault();
       setKeyboardFocusedIndex(prev => Math.max(prev - 1, 0));
     } else if (e.key === 'Enter' && keyboardFocusedIndex >= 0) {
+      if (e.currentTarget !== listRef.current) return;
       e.preventDefault();
       const row = rows[keyboardFocusedIndex];
       if (row) toggleExpand(row.conversation_id);
@@ -523,6 +524,7 @@ export default function ConversationList({ params = {}, onOpenMessage }) {
       } else {
         setExpanded(null);
         setMenuOpen(null);
+        setModal(null);
       }
     } else if (e.key === 'a' && (e.ctrlKey || e.metaKey) && !selectionModeActive) {
       // Ctrl/Cmd+A → select all (page)
@@ -656,7 +658,7 @@ export default function ConversationList({ params = {}, onOpenMessage }) {
         const isSelected = selectedIds.has(row.conversation_id);
         // P1-13: logical_message_count from the API
         const logicalCount = row.logical_message_count || messages.length || 0;
-        const isStarred = row.starred || false;
+        const isStarred = Boolean(row.starred || row.is_starred || (row.logical_messages || []).some(message => message.starred || message.isStarred));
         const isHovered = hoveredRow === row.conversation_id;
 
         return (

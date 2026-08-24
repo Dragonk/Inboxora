@@ -127,6 +127,7 @@ export default function ConversationPane({ conversationId, targetLogicalMessageI
   const [opsBusy, setOpsBusy] = useState(false);
   const [opsError, setOpsError] = useState(null);
   const inFlight = useRef(new Map());
+  const logicalMessagesRef = useRef([]);
   const containerRef = useRef(null);
 
   const loadBody = useCallback(async (logicalId, force = false) => {
@@ -135,7 +136,8 @@ export default function ConversationPane({ conversationId, targetLogicalMessageI
     inFlight.current.set(logicalId, controller);
     setBodyStatus(prev => ({ ...prev, [logicalId]: { loading: true, error: null } }));
     try {
-      const body = await conversationApi.body(conversationId, logicalId, controller.signal);
+      const copyId = logicalMessagesRef.current.find(message => message.id === logicalId)?.copies?.slice().sort((a, b) => String(b.date || '').localeCompare(String(a.date || '')))[0]?.id || null;
+      const body = await conversationApi.body(conversationId, logicalId, controller.signal, copyId);
       bodiesRef.current[logicalId] = body;
       setBodies(prev => ({ ...prev, [logicalId]: body }));
       setBodyStatus(prev => ({ ...prev, [logicalId]: { loading: false, error: null } }));
@@ -160,6 +162,7 @@ export default function ConversationPane({ conversationId, targetLogicalMessageI
     conversationApi.detail(conversationId).then(data => {
       if (cancelled) return;
       const messages = data.logicalMessages || [];
+      logicalMessagesRef.current = messages;
       const newestId = messages.at(-1)?.id;
       const unreadIds = messages
         .filter(m => m.copies?.some(c => !c.isRead))
@@ -190,6 +193,8 @@ export default function ConversationPane({ conversationId, targetLogicalMessageI
     }
   }, [targetLogicalMessageId, state.data, state.loading]);
 
+  const messages = useMemo(() => state.data?.logicalMessages || [], [state.data?.logicalMessages]);
+
   // P1-10: Run a destructive action with scope-aware confirmation
   const runScopedAction = useCallback(async (actionFn, scope, actionName = 'Delete') => {
     setOpsError(null);
@@ -210,25 +215,23 @@ export default function ConversationPane({ conversationId, targetLogicalMessageI
   }, [t]);
 
   const handlePaneArchive = useCallback(() => {
-    runScopedAction(() => conversationApi.archive(conversationId, { scope: actionScope }), actionScope, 'Archive');
-  }, [runScopedAction, conversationId, actionScope]);
+    runScopedAction(() => conversationApi.archive(conversationId, { scope: actionScope, copyId: messages[0]?.copies?.[0]?.id || null, logicalMessageId: messages[0]?.id || null }), actionScope, 'Archive');
+  }, [runScopedAction, conversationId, actionScope, messages]);
 
   const handlePaneDelete = useCallback(() => {
-    runScopedAction(() => conversationApi.delete(conversationId, { scope: actionScope }), actionScope, 'Delete');
-  }, [runScopedAction, conversationId, actionScope]);
-
-  const messages = useMemo(() => state.data?.logicalMessages || [], [state.data?.logicalMessages]);
+    runScopedAction(() => conversationApi.delete(conversationId, { scope: actionScope, copyId: messages[0]?.copies?.[0]?.id || null, logicalMessageId: messages[0]?.id || null }), actionScope, 'Delete');
+  }, [runScopedAction, conversationId, actionScope, messages]);
 
   const handlePaneToggleRead = useCallback(() => {
     const isUnread = messages.some(m => m.copies?.some(c => !c.isRead));
-    conversationApi.setRead(conversationId, !isUnread, { scope: actionScope }).catch(err => {
+    conversationApi.setRead(conversationId, !isUnread, { scope: actionScope, copyId: messages[0]?.copies?.[0]?.id || null, logicalMessageId: messages[0]?.id || null }).catch(err => {
       setOpsError(err.message || t('conversation.loadFailed'));
     });
   }, [conversationId, actionScope, messages, t]);
 
   const handlePaneToggleStar = useCallback(() => {
     const isStarred = messages.some(m => m.copies?.some(c => c.isStarred));
-    conversationApi.setStarred(conversationId, !isStarred, { scope: actionScope }).catch(err => {
+    conversationApi.setStarred(conversationId, !isStarred, { scope: actionScope, copyId: messages[0]?.copies?.[0]?.id || null, logicalMessageId: messages[0]?.id || null }).catch(err => {
       setOpsError(err.message || t('conversation.loadFailed'));
     });
   }, [conversationId, actionScope, messages, t]);

@@ -25,8 +25,10 @@ export const conversationApi = {
 
   detail: (conversationId) => apiFetch(`/conversations/${conversationId}`),
 
-  body: (conversationId, logicalMessageId, signal) =>
-    apiFetch(`/conversations/${conversationId}/logical-messages/${logicalMessageId}/body`, { signal }),
+  body: (conversationId, logicalMessageId, signal, copyId = null) => {
+    const qs = copyId ? `?copyId=${encodeURIComponent(copyId)}` : '';
+    return apiFetch(`/conversations/${conversationId}/logical-messages/${logicalMessageId}/body${qs}`, { signal });
+  },
 
   resolveMessage: (messageId) => apiFetch(`/messages/${messageId}/conversation`),
 
