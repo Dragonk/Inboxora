@@ -663,6 +663,7 @@ export default function ConversationList({ params = {}, onOpenMessage }) {
               }}
               tabIndex={0}
               role="button"
+              data-testid={`conversation-expand-${row.conversation_id}`}
               aria-expanded={isOpen}
               aria-label={`${isOpen ? t('conversation.collapseConversation') : t('conversation.expandConversation')}: ${row.canonical_subject || t('conversation.noSubject')}`}
             >
