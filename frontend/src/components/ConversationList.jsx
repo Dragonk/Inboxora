@@ -1,4 +1,4 @@
-import { useEffect, useState, useCallback } from 'react';
+import { useEffect, useState, useCallback, useRef } from 'react';
 import { useTranslation } from 'react-i18next';
 import { conversationApi } from '../utils/conversationApi.js';
 
@@ -131,6 +131,8 @@ export default function ConversationList({ params = {}, onOpenMessage }) {
   const [modal, setModal] = useState(null);
   const [opsError, setOpsError] = useState(null);
   const [opsBusy, setOpsBusy] = useState(false);
+  const [focusedIndex, setFocusedIndex] = useState(-1);
+  const listRef = useRef(null);
 
   const paramsKey = JSON.stringify(params);
 
@@ -249,6 +251,33 @@ export default function ConversationList({ params = {}, onOpenMessage }) {
     runOp(() => conversationApi.forceExclude(row.conversation_id, lmId));
   }, [runOp]);
 
+  // Keyboard navigation: j/k to move focus, Enter to expand, Escape to close
+  const handleKeyDown = useCallback((e) => {
+    if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA') return;
+    if (e.key === 'j' || e.key === 'ArrowDown') {
+      e.preventDefault();
+      setFocusedIndex(prev => Math.min(prev + 1, rows.length - 1));
+    } else if (e.key === 'k' || e.key === 'ArrowUp') {
+      e.preventDefault();
+      setFocusedIndex(prev => Math.max(prev - 1, 0));
+    } else if (e.key === 'Enter' && focusedIndex >= 0) {
+      e.preventDefault();
+      const row = rows[focusedIndex];
+      if (row) toggleExpand(row.conversation_id);
+    } else if (e.key === 'Escape') {
+      setExpanded(null);
+      setMenuOpen(null);
+    }
+  }, [rows, focusedIndex, toggleExpand]);
+
+  // Scroll focused row into view
+  useEffect(() => {
+    if (focusedIndex >= 0 && listRef.current) {
+      const items = listRef.current.querySelectorAll('[role="listitem"]');
+      items[focusedIndex]?.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
+    }
+  }, [focusedIndex]);
+
   if (error) {
     return <div role="alert" style={{ padding: 16, color: 'var(--text-danger)' }}>{error}</div>;
   }
@@ -273,8 +302,15 @@ export default function ConversationList({ params = {}, onOpenMessage }) {
   }
 
   return (
-    <div role="list" aria-label={t('conversation.listLabel')} style={{ overflow: 'auto', height: '100%' }}>
-      {rows.map(row => {
+    <div
+      ref={listRef}
+      role="list"
+      aria-label={t('conversation.listLabel')}
+      tabIndex={0}
+      onKeyDown={handleKeyDown}
+      style={{ overflow: 'auto', height: '100%', outline: 'none' }}
+    >
+      {rows.map((row, rowIndex) => {
         const isOpen = expanded === row.conversation_id;
         const unreadCount = row.unread_count || 0;
         const participants = getParticipants(row);
@@ -282,6 +318,10 @@ export default function ConversationList({ params = {}, onOpenMessage }) {
         const latestDate = row.sort_date || row.last_message_at;
         const accounts = (row.logical_messages || [])
           .map(m => m.accountId).filter((v, i, a) => v && a.indexOf(v) === i);
+        const messages = row.logical_messages || [];
+        const latestMessage = messages[messages.length - 1];
+        const latestSnippet = latestMessage?.snippet || '';
+        const isFocused = focusedIndex === rowIndex;
 
         return (
           <div
@@ -289,8 +329,9 @@ export default function ConversationList({ params = {}, onOpenMessage }) {
             role="listitem"
             style={{
               borderBottom: '1px solid var(--border)',
-              background: isOpen ? 'var(--bg-secondary)' : 'transparent',
+              background: isOpen ? 'var(--bg-secondary)' : (isFocused ? 'var(--bg-tertiary)' : 'transparent'),
             }}
+            onMouseEnter={() => setFocusedIndex(rowIndex)}
           >
             {/* Collapsed conversation row */}
             <div
@@ -356,6 +397,19 @@ export default function ConversationList({ params = {}, onOpenMessage }) {
                     marginTop: 1,
                   }}>
                     {participants}
+                  </div>
+                )}
+                {latestSnippet && (
+                  <div style={{
+                    fontSize: 12,
+                    color: 'var(--text-tertiary)',
+                    whiteSpace: 'nowrap',
+                    overflow: 'hidden',
+                    textOverflow: 'ellipsis',
+                    marginTop: 1,
+                    opacity: 0.8,
+                  }}>
+                    {latestSnippet}
                   </div>
                 )}
               </div>
