@@ -160,16 +160,31 @@ export async function applyConversationAction({
 export async function applyBulkConversationAction({ userId, conversationIds, scope, action, ...options }) {
   const ids = normalizeIds(conversationIds);
   if (!ids.length) throw Object.assign(new Error('conversationIds required'), { statusCode: 400 });
-  const results = [];
-  for (const conversationId of ids) {
-    results.push(await applyConversationAction({ userId, conversationId, scope, action, ...options }));
+  assertScope(scope);
+  if (!['archive', 'move', 'delete', 'read', 'star'].includes(action)) {
+    throw Object.assign(new Error(`Unsupported conversation action: ${action}`), { statusCode: 400 });
   }
-  return {
-    ok: true,
-    action,
-    scope,
-    conversationIds: ids,
-    affectedIds: results.flatMap(result => result.affectedIds),
-    affectedCount: results.reduce((sum, result) => sum + result.affectedCount, 0),
-  };
+  return withTransaction(async client => {
+    const results = [];
+    // Resolve/lock in deterministic UUID order so concurrent bulk actions do not
+    // deadlock on overlapping conversations. All mutations share one transaction.
+    for (const conversationId of [...ids].sort()) {
+      const resolved = await resolvePhysicalIds(client, {
+        userId, conversationId, scope, copyId: options.copyId, logicalMessageId: options.logicalMessageId,
+      });
+      const physicalIds = resolved.rows.map(row => row.id);
+      let result;
+      if (action === 'read') result = await client.query('UPDATE messages SET is_read = $1, read_changed_at = NOW() WHERE id = ANY($2::uuid[]) RETURNING id', [!!options.isRead, physicalIds]);
+      else if (action === 'star') result = await client.query('UPDATE messages SET is_starred = $1, star_changed_at = NOW() WHERE id = ANY($2::uuid[]) RETURNING id', [!!options.isStarred, physicalIds]);
+      else if (action === 'delete') result = await client.query('UPDATE messages SET is_deleted = true WHERE id = ANY($1::uuid[]) RETURNING id', [physicalIds]);
+      else if (action === 'archive') result = await client.query("UPDATE messages SET folder = 'Archive' WHERE id = ANY($1::uuid[]) RETURNING id", [physicalIds]);
+      else {
+        if (!options.targetFolder) throw Object.assign(new Error('targetFolder required'), { statusCode: 400 });
+        result = await client.query('UPDATE messages SET folder = $1 WHERE id = ANY($2::uuid[]) RETURNING id', [options.targetFolder, physicalIds]);
+      }
+      await client.query(`UPDATE conversations c SET logical_message_count = COALESCE((SELECT COUNT(DISTINCT m.logical_message_id) FROM messages m WHERE m.conversation_id = c.id AND NOT m.is_deleted),0), copy_count = COALESCE((SELECT COUNT(*) FROM messages m WHERE m.conversation_id = c.id AND NOT m.is_deleted),0), unread_count = COALESCE((SELECT COUNT(*) FROM messages m WHERE m.conversation_id = c.id AND NOT m.is_deleted AND NOT m.is_read),0), last_message_at = (SELECT MAX(m.date) FROM messages m WHERE m.conversation_id = c.id AND NOT m.is_deleted), updated_at = NOW() WHERE c.id = $1 AND c.user_id = $2`, [resolved.canonicalConversationId, userId]);
+      results.push({ conversationId: resolved.canonicalConversationId, selectedCopyId: resolved.selected.id, affectedIds: result.rows.map(row => row.id), affectedCount: result.rowCount });
+    }
+    return { ok: true, action, scope, conversationIds: ids, affectedIds: results.flatMap(result => result.affectedIds), affectedCount: results.reduce((sum, result) => sum + result.affectedCount, 0) };
+  }, { serializable: true });
 }
