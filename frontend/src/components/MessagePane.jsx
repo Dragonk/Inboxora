@@ -11,7 +11,8 @@ import { pendingMarkReadMap, completedMarkReadMap, setPending } from '../utils/p
 import { BUILTIN_SUMMARIZE } from '../aiActions.js';
 import { getResults, saveResult, removeResult } from '../aiResults.js';
 import { renderMarkdown } from '../utils/renderMarkdown.js';
-import { pickReplyAlias } from '../utils/replyAlias.js';
+import { pickReplyAlias, collectOwnAddresses } from '../utils/replyAlias.js';
+import { buildReplyHeaders } from '../utils/composeFromMessage.js';
 import { sanitizeMessageHtml, emailCsp, EMAIL_BASE_TAG } from './MessageBodyRenderer.jsx';
 const USE_DIV_RENDER = import.meta.env.VITE_EMAIL_DIV_RENDER === 'true';
 const MESSAGE_OPENING_EVENT = 'mailflow:message-opening';
@@ -989,7 +990,6 @@ export default function MessagePane({ windowMessageId = null, onWindowClose = nu
     const sender = replyTarget.email ? [replyTarget] : [];
 
     const myAccount = accounts.find(a => a.id === message.account_id);
-    const myEmail = myAccount?.email_address || '';
 
     const replyAliasId = pickReplyAlias({
       aliases: myAccount?.aliases || [],
@@ -999,10 +999,7 @@ export default function MessagePane({ windowMessageId = null, onWindowClose = nu
       fromEmail: message.from_email,
     });
 
-    const myAddresses = new Set([
-      myEmail.toLowerCase(),
-      ...(myAccount?.aliases || []).map(al => al.email.toLowerCase()),
-    ]);
+    const myAddresses = collectOwnAddresses({ account: myAccount, message });
     const allRecipients = (() => {
       try {
         const toArr = Array.isArray(message.to_addresses)
@@ -1017,8 +1014,9 @@ export default function MessagePane({ windowMessageId = null, onWindowClose = nu
       } catch { return []; }
     })();
 
-    const referencesChain = [message.in_reply_to, message.message_id]
-      .filter(Boolean).join(' ').trim() || null;
+    // P1-15: use the shared buildReplyHeaders helper so MessagePane and ConversationPane
+    // produce identical References/In-Reply-To headers (ordered, normalized, deduped).
+    const { inReplyTo, references: referencesChain } = buildReplyHeaders(message);
 
     const rawSubject = (message.subject || '').trim();
     const reSubject = rawSubject.startsWith('Re:') ? rawSubject : rawSubject ? `Re: ${rawSubject}` : 'Re:';
@@ -1031,7 +1029,7 @@ export default function MessagePane({ windowMessageId = null, onWindowClose = nu
       body: '',
       quotedBody: quotedText,
       quotedBodyHtml,
-      inReplyTo: message.message_id,
+      inReplyTo,
       references: referencesChain,
       accountId: message.account_id,
       aliasId: replyAliasId,
