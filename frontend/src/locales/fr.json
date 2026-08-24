@@ -1588,6 +1588,7 @@
     "reply": "Répondre",
     "replyAll": "Répondre à tous",
     "split": "Séparer la discussion",
-    "unknownSender": "Unknown sender"
+    "unknownSender": "Unknown sender",
+    "you": "Vous"
   }
 }

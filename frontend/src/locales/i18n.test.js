@@ -412,6 +412,7 @@ const DYNAMIC_KEYS = new Set([
   // t(`conversation.${override}`) — conversation manual action labels are selected dynamically.
   'conversation.lock',
   'conversation.split',
+  'conversation.you',
 ]);
 
 // JSX attribute names whose values must never be plain strings — always t().

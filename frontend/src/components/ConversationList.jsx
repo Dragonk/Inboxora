@@ -264,7 +264,7 @@ export default function ConversationList({ params = {}, onOpenMessage }) {
                 {(row.logical_messages || []).map(message => {
                   const isOutgoing = message.direction === 'outgoing' || message.direction === 'self';
                   const sender = isOutgoing
-                    ? t('message.you')
+                    ? t('conversation.you')
                     : (message.fromName || message.fromEmail || t('conversation.unknownSender'));
                   const msgUnread = message.unread;
 

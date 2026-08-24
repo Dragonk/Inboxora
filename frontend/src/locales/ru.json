@@ -1588,6 +1588,7 @@
     "reply": "Ответить",
     "replyAll": "Ответить всем",
     "split": "Разделить переписку",
-    "unknownSender": "Unknown sender"
+    "unknownSender": "Unknown sender",
+    "you": "Вы"
   }
 }

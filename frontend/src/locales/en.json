@@ -1588,6 +1588,7 @@
     "reply": "Reply",
     "replyAll": "Reply All",
     "split": "Split conversation",
-    "unknownSender": "Unknown sender"
+    "unknownSender": "Unknown sender",
+    "you": "You"
   }
 }

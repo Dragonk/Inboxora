@@ -1588,6 +1588,7 @@
     "reply": "Odpowiedz",
     "replyAll": "Odpowiedz wszystkim",
     "split": "Podziel rozmowę",
-    "unknownSender": "Nieznany nadawca"
+    "unknownSender": "Nieznany nadawca",
+    "you": "Ty"
   }
 }

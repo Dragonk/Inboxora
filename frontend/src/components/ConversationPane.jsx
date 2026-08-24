@@ -250,7 +250,7 @@ export default function ConversationPane({ conversationId, targetLogicalMessageI
                     fontSize: 13,
                     color: isOutgoing ? 'var(--accent)' : 'var(--text-primary)',
                   }}>
-                    {isOutgoing ? t('message.you') : (copy?.fromName || copy?.fromEmail || t('conversation.unknownSender'))}
+                    {isOutgoing ? t('conversation.you') : (copy?.fromName || copy?.fromEmail || t('conversation.unknownSender'))}
                   </strong>
                   {hasMultipleCopies && <CopyBadge copy={copy} />}
                   {copy?.isRead === false && (
