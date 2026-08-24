@@ -237,7 +237,7 @@ describeOrSkip('CE v2 PostgreSQL regression tests', () => {
       // (empty message_id → canonicalMessageId null → but the real trigger is a constraint
       // violation we inject by temporarily making the body too large for the fingerprint
       // hash — actually we simulate failure by corrupting the row after insert).
-      const badId = await insertMessage({ messageId: '<atomic-003@example.test>', subject: 'Re: Atomic 1', fromEmail: 'bob@example.test', folder: 'INBOX', isRead: false, uid: 3, date: new Date('2026-01-15T12:00:00Z'), inReplyTo: '<atomic-001@example.test>', references: '<atomic-001@example.test>' });
+      await insertMessage({ messageId: '<atomic-003@example.test>', subject: 'Re: Atomic 1', fromEmail: 'bob@example.test', folder: 'INBOX', isRead: false, uid: 3, date: new Date('2026-01-15T12:00:00Z'), inReplyTo: '<atomic-001@example.test>', references: '<atomic-001@example.test>' });
 
       // Inject failure: set the third message's message_id to NULL, which makes
       // hydrateLogicalMessage produce canonicalMessageId=null and rawMessageId=null.
@@ -290,12 +290,10 @@ describeOrSkip('CE v2 PostgreSQL regression tests', () => {
       `);
 
       // Run rebuild — should process messages 1 and 2, then fail on message 3
-      let threw = false;
-      try {
-        await rebuildConversationCopies({ userId: TEST_USER_ID, accountId: TEST_ACCOUNT_ID, limit: 500, dryRun: false, force: true });
-      } catch (e) {
-        threw = true;
-      }
+      // The trigger raises an exception on UPDATE of message 3, which causes the
+      // serializable transaction to roll back the entire batch.
+      await expect(rebuildConversationCopies({ userId: TEST_USER_ID, accountId: TEST_ACCOUNT_ID, limit: 500, dryRun: false, force: true }))
+        .rejects.toThrow();
 
       // The entire batch should have been rolled back — no partial CE mutations
       const ceRows = await query('SELECT conversation_id, logical_message_id FROM messages WHERE account_id = $1 AND conversation_id IS NOT NULL', [TEST_ACCOUNT_ID]);
