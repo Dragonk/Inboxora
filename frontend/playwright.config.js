@@ -6,7 +6,12 @@ const isRealApp = process.env.PLAYWRIGHT_REAL_APP === '1';
 const isMatrix = process.env.PLAYWRIGHT_MATRIX === '1';
 
 export default defineConfig({
-  testIgnore: ['**/chromium-smoke.js'],
+  // Playwright must discover only browser specs. Node's frontend unit tests under
+  // src/**/*.test.js are run by `npm test`; including them here caused CI to execute
+  // Node ESM tests in the browser runner and emit JSON import failures.
+  testDir: './e2e',
+  testMatch: '**/*.spec.js',
+  testIgnore: ['**/chromium-smoke.js', '**/fixtures.js', '**/real-app-fixtures.js'],
   timeout: 30_000,
   expect: { timeout: 5_000 },
   fullyParallel: false,
