@@ -57,7 +57,7 @@ export async function refreshConversationAggregates(client, userId, conversation
       last_message_at = (SELECT MAX(message_date) FROM logical_messages WHERE conversation_id = c.id),
       logical_message_count = (SELECT COUNT(*) FROM logical_messages WHERE conversation_id = c.id),
       copy_count = (SELECT COUNT(*) FROM messages WHERE conversation_id = c.id AND is_deleted = false),
-      unread_count = (SELECT COUNT(*) FROM messages WHERE conversation_id = c.id AND is_deleted = false AND is_read = false),
+      unread_count = (SELECT COUNT(*) FROM logical_messages lm WHERE lm.conversation_id = c.id AND EXISTS (SELECT 1 FROM messages m WHERE m.logical_message_id = lm.id AND m.conversation_id = c.id AND m.is_deleted = false AND m.is_read = false)),
       updated_at = NOW()
     WHERE c.id = $1 AND c.user_id = $2
   `, [conversationId, userId]);

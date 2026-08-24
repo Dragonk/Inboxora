@@ -41,8 +41,7 @@ router.get('/conversations', async (req, res) => {
   // least one visible physical copy in the requested folder. The expanded children
   // still show the FULL conversation (all folders), but the list is scoped.
   const folderFilter = folder ? `AND EXISTS (SELECT 1 FROM messages mf WHERE mf.conversation_id = c.id AND mf.is_deleted = false ${accountId ? 'AND mf.account_id = $2' : ''} AND mf.folder = $${values.length + 1})` : '';
-  let folderParamIndex = null;
-  if (folder) { folderParamIndex = values.length + 1; values.push(folder); }
+  if (folder) { values.push(folder); }
   let cursorFilter = '';
   if (cursorValue) {
     values.push(cursorValue.date, cursorValue.id);
@@ -98,7 +97,7 @@ router.get('/conversations', async (req, res) => {
           LIMIT 1
        ) latest_copy ON true
        WHERE lm.conversation_id = c.id
-         AND EXISTS (SELECT 1 FROM messages visible_lm WHERE visible_lm.logical_message_id = lm.id AND visible_lm.is_deleted = false ${accountId ? 'AND visible_lm.account_id = $2' : ''} ${folder ? `AND visible_lm.folder = $${folderParamIndex}` : ''})
+         AND EXISTS (SELECT 1 FROM messages visible_lm WHERE visible_lm.logical_message_id = lm.id AND visible_lm.is_deleted = false ${accountId ? 'AND visible_lm.account_id = $2' : ''})
      ) preview ON true
      WHERE c.user_id = $1
        AND NOT EXISTS (SELECT 1 FROM conversation_aliases ca WHERE ca.user_id = $1 AND ca.alias_conversation_id = c.id)
@@ -153,12 +152,12 @@ router.get('/conversations/:conversationId/logical-messages/:logicalMessageId/bo
   try {
     const canonicalId = await resolveConversationAlias(client, { userId: req.session.userId, conversationId: req.params.conversationId });
     const result = await client.query(`
-      SELECT lm.id, m.body_text, m.body_html, m.attachments
+      SELECT lm.id, m.body_text, m.body_html, m.attachments, m.id AS physical_copy_id, m.account_id, m.folder
         FROM logical_messages lm
         JOIN messages m ON m.logical_message_id = lm.id AND m.conversation_id = $3 AND m.is_deleted = false
         JOIN email_accounts a ON a.id = m.account_id AND a.user_id = $2
        WHERE lm.id = $1 AND lm.user_id = $2 AND lm.conversation_id = $3
-       ORDER BY m.is_read ASC, m.date DESC NULLS LAST, m.id DESC
+       ORDER BY (m.body_html IS NOT NULL OR m.body_text IS NOT NULL) DESC, m.is_read ASC, m.date DESC NULLS LAST, m.id DESC
        LIMIT 1
     `, [req.params.logicalMessageId, req.session.userId, canonicalId]);
     if (!result.rows.length) return res.status(404).json({ error: 'Logical message body not found' });
