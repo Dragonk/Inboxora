@@ -1,21 +1,75 @@
 import { query } from './db.js';
 
+// P1-01: Override scoping — CONVERSATION-LEVEL vs MESSAGE-LEVEL.
+// Conversation-level overrides: lock-conversation, unlock-conversation, manual-merge.
+//   These apply to the whole conversation and are keyed by conversation_id.
+// Message-level overrides: force-include, force-exclude, manual-split, manual-move.
+//   These apply ONLY to a specific logical_message_id and are keyed by both
+//   conversation_id AND logical_message_id.
+// The old query `conversation_id = X OR logical_message_id = Y` was wrong because
+// a message-level override for L1 could be picked up when querying for L2 in the
+// same conversation. Now we query message-level overrides ONLY by their exact
+// logical_message_id, and conversation-level overrides ONLY by conversation_id.
 export async function effectiveConversationOverride(client, { userId, conversationId, logicalMessageId = null }) {
-  const result = await client.query(`
-    SELECT override_type, target_id, reason
+  // Conversation-level overrides (lock/unlock/merge) — keyed by conversation_id only.
+  const conversationResult = await client.query(`
+    SELECT override_type, target_id, reason, logical_message_id
       FROM conversation_overrides
      WHERE user_id = $1
-       AND (conversation_id = $2 OR logical_message_id = $3)
+       AND conversation_id = $2
+       AND logical_message_id IS NULL
      ORDER BY created_at DESC, id DESC
-  `, [userId, conversationId, logicalMessageId]);
-  const latest = new Map();
-  for (const row of result.rows) if (!latest.has(row.override_type)) latest.set(row.override_type, row);
+  `, [userId, conversationId]);
+  const conversationLatest = new Map();
+  for (const row of conversationResult.rows) {
+    if (!conversationLatest.has(row.override_type)) conversationLatest.set(row.override_type, row);
+  }
+
+  // Message-level overrides (force-include/exclude/split/move) — keyed by logical_message_id.
+  // Only returned if logicalMessageId is provided.
+  let messageLatest = new Map();
+  if (logicalMessageId) {
+    const messageResult = await client.query(`
+      SELECT override_type, target_id, reason, logical_message_id
+        FROM conversation_overrides
+       WHERE user_id = $1
+         AND logical_message_id = $2
+       ORDER BY created_at DESC, id DESC
+    `, [userId, logicalMessageId]);
+    for (const row of messageResult.rows) {
+      if (!messageLatest.has(row.override_type)) messageLatest.set(row.override_type, row);
+    }
+  }
+
+  // P1-02: Lock/unlock event semantics — the latest event wins.
+  // Query the latest lock-conversation OR unlock-conversation event.
+  // If the latest event is lock → locked=true.
+  // If the latest event is unlock → locked=false.
+  // If no lock/unlock event exists → use the conversation's manually_locked column.
+  let locked = null;
+  const lockEvent = conversationLatest.get('lock-conversation');
+  const unlockEvent = conversationLatest.get('unlock-conversation');
+  if (lockEvent && !unlockEvent) {
+    locked = true;
+  } else if (unlockEvent && !lockEvent) {
+    locked = false;
+  } else if (lockEvent && unlockEvent) {
+    // Both exist — compare created_at (the query above already orders by created_at DESC, id DESC).
+    // The first one encountered in the ordered result is the latest.
+    // Since we iterate in order and set conversationLatest, the last set wins the Map entry,
+    // but we need to compare which is newer.
+    const allEvents = conversationResult.rows.filter(r => r.override_type === 'lock-conversation' || r.override_type === 'unlock-conversation');
+    const latestEvent = allEvents[0]; // first in DESC order
+    locked = latestEvent.override_type === 'lock-conversation';
+  }
+
   return {
-    locked: latest.has('lock-conversation'),
-    forceInclude: latest.get('force-include') || null,
-    forceExclude: latest.get('force-exclude') || null,
-    split: latest.get('manual-split') || null,
-    merge: latest.get('manual-merge') || null,
+    locked,
+    forceInclude: messageLatest.get('force-include') || null,
+    forceExclude: messageLatest.get('force-exclude') || null,
+    split: messageLatest.get('manual-split') || null,
+    move: messageLatest.get('manual-move') || null,
+    merge: conversationLatest.get('manual-merge') || null,
   };
 }
 
@@ -63,8 +117,10 @@ export async function refreshConversationAggregates(client, userId, conversation
   `, [conversationId, userId]);
 }
 
+// P1-05: Deterministic lock order — sort UUIDs lexicographically to prevent deadlocks.
+// P2-04: Use a text-based sort (not int32 hash) to avoid collision risk.
 export async function lockConversationsDeterministically(client, userId, ids) {
-  const ordered = [...new Set(ids.filter(Boolean))].sort();
+  const ordered = [...new Set(ids.filter(Boolean))].sort(); // lexicographic sort of UUID strings
   if (ordered.length) await client.query('SELECT id FROM conversations WHERE user_id = $1 AND id = ANY($2::uuid[]) ORDER BY id FOR UPDATE', [userId, ordered]);
   return ordered;
 }

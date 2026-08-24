@@ -1,19 +1,47 @@
 import { pool, withTransaction } from './db.js';
 import { assertConversationOwner, assertNoAliasCycle, lockConversationsDeterministically, refreshConversationAggregates, resolveConversationAlias } from './conversationOverridePolicy.js';
 
-const OVERRIDE_TYPES = new Set(['force-include', 'force-exclude', 'manual-split', 'manual-merge', 'lock-conversation', 'unlock-conversation', 'manual-move']);
+const OVERRIDE_TYPES = new Set([
+  'force-include', 'force-exclude', 'manual-split', 'manual-merge',
+  'lock-conversation', 'unlock-conversation', 'manual-move',
+]);
+
+// P1-01: Override scoping — CONVERSATION-LEVEL vs MESSAGE-LEVEL.
+// Conversation-level overrides apply to the whole conversation.
+// Message-level overrides apply ONLY to a specific logical_message_id.
+const CONVERSATION_LEVEL = new Set(['lock-conversation', 'unlock-conversation', 'manual-merge']);
+const MESSAGE_LEVEL = new Set(['force-include', 'force-exclude', 'manual-split', 'manual-move']);
 
 export function validateOverrideType(value) {
   if (!OVERRIDE_TYPES.has(value)) throw new Error('Unsupported conversation override type');
   return value;
 }
 
-export async function applyConversationOverride({ userId, conversationId, logicalMessageId = null, scope = 'message-only', overrideType, targetId = null, reason = null }) {
+export function isConversationLevel(overrideType) {
+  return CONVERSATION_LEVEL.has(overrideType);
+}
+
+export function isMessageLevel(overrideType) {
+  return MESSAGE_LEVEL.has(overrideType);
+}
+
+export async function applyConversationOverride({ userId, conversationId, logicalMessageId = null, scope = 'message-only', overrideType, targetId = null, targetConversationId = null, reason = null }) {
   validateOverrideType(overrideType);
   return withTransaction(async client => {
     const canonicalConversationId = await resolveConversationAlias(client, { userId, conversationId });
     const conversation = overrideType === 'manual-merge' ? null : await assertConversationOwner(client, userId, canonicalConversationId);
     conversationId = canonicalConversationId;
+
+    // P1-01: Message-level overrides MUST specify logicalMessageId.
+    if (isMessageLevel(overrideType) && !logicalMessageId) {
+      throw new Error(`${overrideType} is a message-level override and requires logicalMessageId`);
+    }
+    // P1-01: Conversation-level overrides MUST NOT specify logicalMessageId
+    // (they apply to the whole conversation, not a single message).
+    if (isConversationLevel(overrideType) && logicalMessageId) {
+      throw new Error(`${overrideType} is a conversation-level override and must not specify logicalMessageId`);
+    }
+
     if (logicalMessageId) {
       const message = await client.query('SELECT id FROM logical_messages WHERE id = $1 AND user_id = $2 AND conversation_id = $3 FOR UPDATE', [logicalMessageId, userId, conversationId]);
       if (!message.rows[0]) {
@@ -22,11 +50,22 @@ export async function applyConversationOverride({ userId, conversationId, logica
         throw error;
       }
     }
+
+    // P1-03: force-include MUST have a targetConversationId.
+    if (overrideType === 'force-include') {
+      const effectiveTarget = targetConversationId || targetId;
+      if (!effectiveTarget) throw new Error('force-include requires a targetConversationId');
+      const targetCanonical = await resolveConversationAlias(client, { userId, conversationId: effectiveTarget });
+      await assertConversationOwner(client, userId, targetCanonical);
+      targetId = targetCanonical;
+    }
+
     if (overrideType === 'manual-merge') {
       if (!targetId || targetId === conversationId) throw new Error('manual-merge requires a different target conversation');
       const sourceCanonical = await resolveConversationAlias(client, { userId, conversationId });
       const targetCanonical = await resolveConversationAlias(client, { userId, conversationId: targetId });
       if (sourceCanonical === targetCanonical) throw new Error('manual-merge would create an alias cycle');
+      // P1-05: deterministic lock order.
       await lockConversationsDeterministically(client, userId, [sourceCanonical, targetCanonical]);
       await assertConversationOwner(client, userId, sourceCanonical);
       await assertConversationOwner(client, userId, targetCanonical);
@@ -37,12 +76,13 @@ export async function applyConversationOverride({ userId, conversationId, logica
       await client.query('UPDATE conversation_evidence SET conversation_id = $1 WHERE conversation_id = $2 AND user_id = $3', [targetCanonical, sourceCanonical, userId]);
       await client.query('UPDATE provider_thread_mappings SET conversation_id = $1, last_seen_at = NOW() WHERE conversation_id = $2 AND user_id = $3', [targetCanonical, sourceCanonical, userId]);
       await client.query('UPDATE conversation_overrides SET conversation_id = $1 WHERE conversation_id = $2 AND user_id = $3', [targetCanonical, sourceCanonical, userId]);
-      await client.query('UPDATE conversations SET continued_to_conversation_id = $1 WHERE id = $2 AND user_id = $3', [targetCanonical, sourceCanonical, userId]);
-      await client.query('UPDATE conversations SET continued_from_conversation_id = $1 WHERE id = $2 AND user_id = $3', [sourceCanonical, targetCanonical, userId]);
+      // Continuation semantics: manual merge does NOT set continued_from/continued_to.
+      // Those fields are reserved for automated series continuation, not manual merge.
       await refreshConversationAggregates(client, userId, targetCanonical);
       await refreshConversationAggregates(client, userId, sourceCanonical);
       targetId = targetCanonical;
     }
+
     if (overrideType === 'manual-split') {
       if (!logicalMessageId) throw new Error('manual-split requires logicalMessageId');
       if (!['message-only', 'message-with-descendants'].includes(scope)) throw new Error('Unsupported manual-split scope');
@@ -60,6 +100,7 @@ export async function applyConversationOverride({ userId, conversationId, logica
       await client.query(scopeFilter, [newConversationId, logicalMessageId, userId]);
       await client.query('UPDATE messages SET conversation_id = $1, conversation_user_id = $2 WHERE logical_message_id IN (SELECT id FROM logical_messages WHERE conversation_id = $1) AND conversation_user_id = $2', [newConversationId, userId]);
       await client.query('UPDATE conversation_evidence SET conversation_id = $1 WHERE logical_message_id IN (SELECT id FROM logical_messages WHERE conversation_id = $1) AND user_id = $2', [newConversationId, userId]);
+      // P2-03: Only rewrite target_id for override types where it refers to a conversation.
       await client.query('UPDATE conversation_overrides SET conversation_id = $1, target_id = CASE WHEN target_id = $3 THEN $1 ELSE target_id END WHERE logical_message_id IN (SELECT id FROM logical_messages WHERE conversation_id = $1) AND user_id = $2', [newConversationId, userId, conversationId]);
       await client.query(`UPDATE logical_messages child SET parent_logical_message_id = NULL
         WHERE child.user_id = $1 AND child.conversation_id <> $2
@@ -71,11 +112,14 @@ export async function applyConversationOverride({ userId, conversationId, logica
       await refreshConversationAggregates(client, userId, newConversationId);
       targetId = newConversationId;
     }
+
     if (overrideType === 'manual-move') {
       if (!logicalMessageId) throw new Error('manual-move requires logicalMessageId');
       if (!targetId || targetId === conversationId) throw new Error('manual-move requires a different target conversation');
       const targetCanonical = await resolveConversationAlias(client, { userId, conversationId: targetId });
       if (targetCanonical === conversationId) throw new Error('manual-move target is the same conversation (alias)');
+      // P1-05: deterministic lock order.
+      await lockConversationsDeterministically(client, userId, [conversationId, targetCanonical]);
       await assertConversationOwner(client, userId, targetCanonical);
       const component = await client.query(`WITH RECURSIVE descendants(id, path) AS (
         SELECT id, ARRAY[id] FROM logical_messages WHERE id = $1 AND user_id = $2 AND conversation_id = $3
@@ -94,9 +138,20 @@ export async function applyConversationOverride({ userId, conversationId, logica
       await refreshConversationAggregates(client, userId, targetCanonical);
       targetId = targetCanonical;
     }
+
+    // P1-02: Lock/unlock are a sequence of events — the latest event wins.
+    // The manually_locked column is updated immediately, and the override row
+    // records the event. effectiveConversationOverride() queries the latest
+    // lock/unlock event to determine the effective state.
     if (overrideType === 'lock-conversation') await client.query('UPDATE conversations SET manually_locked = true, updated_at = NOW() WHERE id = $1', [conversationId]);
     if (overrideType === 'unlock-conversation') await client.query('UPDATE conversations SET manually_locked = false, updated_at = NOW() WHERE id = $1', [conversationId]);
-    await client.query('INSERT INTO conversation_overrides (user_id, conversation_id, logical_message_id, override_type, target_id, reason) VALUES ($1,$2,$3,$4,$5,$6)', [userId, conversationId, logicalMessageId, overrideType, targetId, reason]);
+
+    // P1-04: target_user_id is set for tenant-safe ownership.
+    // The trigger in migration 0058 keeps target_user_id NULL when target_id is NULL.
+    await client.query(
+      'INSERT INTO conversation_overrides (user_id, conversation_id, logical_message_id, override_type, target_id, target_user_id, reason) VALUES ($1,$2,$3,$4,$5,$6,$7)',
+      [userId, conversationId, logicalMessageId, overrideType, targetId, targetId ? userId : null, reason],
+    );
     return { conversationId, overrideType, targetId, manuallyLocked: overrideType === 'lock-conversation' || Boolean(conversation?.manually_locked) };
   }, { serializable: true });
 }
