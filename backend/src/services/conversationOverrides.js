@@ -1,7 +1,7 @@
 import { pool, withTransaction } from './db.js';
 import { assertConversationOwner, assertNoAliasCycle, lockConversationsDeterministically, refreshConversationAggregates, resolveConversationAlias } from './conversationOverridePolicy.js';
 
-const OVERRIDE_TYPES = new Set(['force-include', 'force-exclude', 'manual-split', 'manual-merge', 'lock-conversation']);
+const OVERRIDE_TYPES = new Set(['force-include', 'force-exclude', 'manual-split', 'manual-merge', 'lock-conversation', 'unlock-conversation', 'manual-move']);
 
 export function validateOverrideType(value) {
   if (!OVERRIDE_TYPES.has(value)) throw new Error('Unsupported conversation override type');
@@ -71,7 +71,31 @@ export async function applyConversationOverride({ userId, conversationId, logica
       await refreshConversationAggregates(client, userId, newConversationId);
       targetId = newConversationId;
     }
+    if (overrideType === 'manual-move') {
+      if (!logicalMessageId) throw new Error('manual-move requires logicalMessageId');
+      if (!targetId || targetId === conversationId) throw new Error('manual-move requires a different target conversation');
+      const targetCanonical = await resolveConversationAlias(client, { userId, conversationId: targetId });
+      if (targetCanonical === conversationId) throw new Error('manual-move target is the same conversation (alias)');
+      await assertConversationOwner(client, userId, targetCanonical);
+      const component = await client.query(`WITH RECURSIVE descendants(id, path) AS (
+        SELECT id, ARRAY[id] FROM logical_messages WHERE id = $1 AND user_id = $2 AND conversation_id = $3
+        UNION ALL
+        SELECT lm.id, d.path || lm.id FROM logical_messages lm JOIN descendants d ON lm.parent_logical_message_id = d.id
+         WHERE lm.user_id = $2 AND NOT lm.id = ANY(d.path)
+      ) SELECT lm.id FROM logical_messages lm JOIN descendants d ON d.id = lm.id`, [logicalMessageId, userId, conversationId]);
+      const movedIds = component.rows.map(r => r.id);
+      await client.query('UPDATE logical_messages SET conversation_id = $1, parent_logical_message_id = CASE WHEN id = $2 THEN NULL ELSE parent_logical_message_id END WHERE id = ANY($3::uuid[]) AND user_id = $4', [targetCanonical, logicalMessageId, movedIds, userId]);
+      await client.query('UPDATE messages SET conversation_id = $1, conversation_user_id = $2 WHERE logical_message_id = ANY($3::uuid[]) AND conversation_user_id = $2', [targetCanonical, userId, movedIds]);
+      await client.query('UPDATE conversation_evidence SET conversation_id = $1 WHERE logical_message_id = ANY($2::uuid[]) AND user_id = $3', [targetCanonical, movedIds, userId]);
+      await client.query(`UPDATE logical_messages child SET parent_logical_message_id = NULL WHERE child.user_id = $1 AND child.conversation_id <> $2 AND child.parent_logical_message_id IN (SELECT id FROM logical_messages WHERE conversation_id = $2)`, [userId, targetCanonical]);
+      const crossEdge = await client.query(`SELECT 1 FROM logical_messages child JOIN logical_messages parent ON parent.id = child.parent_logical_message_id WHERE child.user_id = $1 AND child.conversation_id IS DISTINCT FROM parent.conversation_id LIMIT 1`, [userId]);
+      if (crossEdge.rows.length) throw new Error('manual-move left a cross-conversation parent edge');
+      await refreshConversationAggregates(client, userId, conversationId);
+      await refreshConversationAggregates(client, userId, targetCanonical);
+      targetId = targetCanonical;
+    }
     if (overrideType === 'lock-conversation') await client.query('UPDATE conversations SET manually_locked = true, updated_at = NOW() WHERE id = $1', [conversationId]);
+    if (overrideType === 'unlock-conversation') await client.query('UPDATE conversations SET manually_locked = false, updated_at = NOW() WHERE id = $1', [conversationId]);
     await client.query('INSERT INTO conversation_overrides (user_id, conversation_id, logical_message_id, override_type, target_id, reason) VALUES ($1,$2,$3,$4,$5,$6)', [userId, conversationId, logicalMessageId, overrideType, targetId, reason]);
     return { conversationId, overrideType, targetId, manuallyLocked: overrideType === 'lock-conversation' || Boolean(conversation?.manually_locked) };
   }, { serializable: true });

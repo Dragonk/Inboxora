@@ -1,11 +1,12 @@
 import { describe, expect, it, vi, beforeEach } from 'vitest';
 
-const { pool, upsertConversationCopy } = vi.hoisted(() => ({
+const { pool, upsertConversationCopy, _upsertConversationCopyWithClient } = vi.hoisted(() => ({
   pool: { connect: vi.fn() },
   upsertConversationCopy: vi.fn(),
+  _upsertConversationCopyWithClient: vi.fn(),
 }));
 vi.mock('./db.js', () => ({ pool }));
-vi.mock('./conversationPersistence.js', () => ({ upsertConversationCopy }));
+vi.mock('./conversationPersistence.js', () => ({ upsertConversationCopy, _upsertConversationCopyWithClient }));
 vi.mock('./conversationIngestEnvelope.js', () => ({
   resolveOwnIdentityAddresses: vi.fn().mockResolvedValue([]),
 }));
@@ -59,7 +60,7 @@ describe('conversation rebuild', () => {
     // wouldChange=1 because snapshot before ≠ snapshot after (conversation_id changed)
     expect(result.wouldChange).toBe(1);
     expect(result.complete).toBe(true);
-    expect(upsertConversationCopy).toHaveBeenCalled();
+    expect(_upsertConversationCopyWithClient).toHaveBeenCalled();
   });
 
   it('reports wouldChange=0 when the CE state does not change after upsert', async () => {
@@ -98,5 +99,6 @@ describe('conversation rebuild', () => {
     pool.connect.mockResolvedValueOnce(client);
     await expect(rebuildConversationCopies({ userId: 'u1', limit: 1, dryRun: false, force: true })).resolves.toMatchObject({ scanned: 0, updated: 0, complete: true, dryRun: false });
     expect(upsertConversationCopy).not.toHaveBeenCalled();
+    expect(_upsertConversationCopyWithClient).not.toHaveBeenCalled();
   });
 });

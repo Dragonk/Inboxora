@@ -1,5 +1,5 @@
 import { Router } from 'express';
-import { query, pool, withTransaction } from '../services/db.js';
+import { query, pool } from '../services/db.js';
 import { requireAuth } from '../middleware/auth.js';
 import { resolveConversationAlias } from '../services/conversationOverridePolicy.js';
 import { uuidParam } from '../utils/uuid.js';
@@ -185,156 +185,94 @@ export default router;
 
 import { applyConversationOverride } from '../services/conversationOverrides.js';
 
-// Merge: merge source conversation into target. Both must belong to the user.
+// Merge: merge source conversation into target. Delegates to the service layer
+// which handles alias resolution, cycle guard, deterministic locks, provider
+// mappings, evidence reconciliation, overrides reconciliation, aggregate
+// refresh, and cross-conversation edge protection.
 router.post('/conversations/:id/merge', async (req, res) => {
   const { targetConversationId } = req.body || {};
   if (!targetConversationId) return res.status(400).json({ error: 'targetConversationId required' });
-  if (req.params.id === targetConversationId) return res.status(400).json({ error: 'Cannot merge conversation with itself' });
-
-  // Verify both conversations belong to the user
-  const ownership = await query(
-    'SELECT id FROM conversations WHERE id IN ($1, $2) AND user_id = $3',
-    [req.params.id, targetConversationId, req.session.userId]
-  );
-  if (ownership.rows.length !== 2) return res.status(404).json({ error: 'One or both conversations not found' });
-
   try {
-    await withTransaction(async (client) => {
-      // Move all logical messages from source to target
-      await client.query(
-        'UPDATE logical_messages SET conversation_id = $1 WHERE conversation_id = $2 AND user_id = $3',
-        [targetConversationId, req.params.id, req.session.userId]
-      );
-      // Update all physical copies
-      await client.query(
-        'UPDATE messages SET conversation_id = $1, conversation_user_id = $2 WHERE conversation_id = $3',
-        [targetConversationId, req.session.userId, req.params.id]
-      );
-      // Lock both conversations to prevent auto-rethreading from undoing the merge
-      await client.query('UPDATE conversations SET is_locked = true WHERE id IN ($1, $2) AND user_id = $3',
-        [req.params.id, targetConversationId, req.session.userId]);
+    const result = await applyConversationOverride({
+      userId: req.session.userId,
+      conversationId: req.params.id,
+      overrideType: 'manual-merge',
+      targetId: targetConversationId,
     });
-    res.json({ merged: true, targetConversationId });
+    res.json({ merged: true, ...result });
   } catch (err) {
-    res.status(500).json({ error: 'Merge failed', detail: err.message });
+    const status = err.statusCode || 400;
+    res.status(status).json({ error: 'Merge failed', detail: err.message });
   }
 });
 
-// Split: split a logical message (and optionally its replies) into a new conversation
+// Split: split a logical message (and optionally its replies) into a new conversation.
+// Delegates to the service layer which handles kind='manual_conversation',
+// cross-conversation edge cleanup, and aggregate refresh.
 router.post('/conversations/:id/logical-messages/:logicalMessageId/split', async (req, res) => {
   const { includeReplies = false } = req.body || {};
-  const userId = req.session.userId;
-  const convId = req.params.id;
-  const lmId = req.params.logicalMessageId;
-
-  // Verify ownership
-  const ownership = await query(
-    'SELECT id FROM conversations WHERE id = $1 AND user_id = $2', [convId, userId]
-  );
-  if (!ownership.rows.length) return res.status(404).json({ error: 'Conversation not found' });
-
-  const lm = await query(
-    'SELECT id, subject, canonical_subject, user_id FROM logical_messages WHERE id = $1 AND conversation_id = $2 AND user_id = $3',
-    [lmId, convId, userId]
-  );
-  if (!lm.rows.length) return res.status(404).json({ error: 'Logical message not found' });
-
   try {
-    const newConvId = await withTransaction(async (client) => {
-      // Create new conversation
-      const newConv = await client.query(
-        'INSERT INTO conversations (user_id, kind, canonical_subject) VALUES ($1, $2, $3) RETURNING id',
-        [userId, 'split', lm.rows[0].canonical_subject || lm.rows[0].subject]
-      );
-      const newConvId = newConv.rows[0].id;
-
-      // Move the logical message(s)
-      if (includeReplies) {
-        // Move this message and all its descendants
-        await client.query(
-          `WITH RECURSIVE descendants AS (
-            SELECT id FROM logical_messages WHERE id = $1
-            UNION
-            SELECT lm.id FROM logical_messages lm
-            JOIN descendants d ON lm.parent_logical_message_id = d.id
-            WHERE lm.conversation_id = $2 AND lm.user_id = $3
-          )
-          UPDATE logical_messages SET conversation_id = $4
-          WHERE id IN (SELECT id FROM descendants)`,
-          [lmId, convId, userId, newConvId]
-        );
-      } else {
-        // Move only this message; detach children so they remain in the old conversation
-        await client.query(
-          'UPDATE logical_messages SET conversation_id = $1, parent_logical_message_id = NULL WHERE id = $2 AND conversation_id = $3 AND user_id = $4',
-          [newConvId, lmId, convId, userId]
-        );
-      }
-
-      // Update physical copies to point to the new conversation
-      await client.query(
-        'UPDATE messages SET conversation_id = $1, conversation_user_id = $2 WHERE logical_message_id IN (SELECT id FROM logical_messages WHERE conversation_id = $1)',
-        [newConvId, userId]
-      );
-
-      // Lock the new conversation to prevent auto-rethreading
-      await client.query('UPDATE conversations SET is_locked = true WHERE id = $1', [newConvId]);
-      return newConvId;
+    const result = await applyConversationOverride({
+      userId: req.session.userId,
+      conversationId: req.params.id,
+      logicalMessageId: req.params.logicalMessageId,
+      scope: includeReplies ? 'message-with-descendants' : 'message-only',
+      overrideType: 'manual-split',
     });
-    res.status(201).json({ split: true, newConversationId: newConvId });
+    res.status(201).json({ split: true, newConversationId: result.targetId, ...result });
   } catch (err) {
-    res.status(500).json({ error: 'Split failed', detail: err.message });
+    const status = err.statusCode || 400;
+    res.status(status).json({ error: 'Split failed', detail: err.message });
   }
 });
 
-// Move a logical message to a different conversation
+// Move a logical message to a different conversation. Delegates to the service
+// layer which handles cross-conversation edge cleanup and aggregate refresh.
 router.post('/conversations/:id/logical-messages/:logicalMessageId/move', async (req, res) => {
   const { targetConversationId } = req.body || {};
   if (!targetConversationId) return res.status(400).json({ error: 'targetConversationId required' });
-  const userId = req.session.userId;
-
-  const ownership = await query(
-    'SELECT id FROM conversations WHERE id IN ($1, $2) AND user_id = $3',
-    [req.params.id, targetConversationId, userId]
-  );
-  if (ownership.rows.length !== 2) return res.status(404).json({ error: 'One or both conversations not found' });
-
   try {
-    await withTransaction(async (client) => {
-      await client.query(
-        'UPDATE logical_messages SET conversation_id = $1 WHERE id = $2 AND conversation_id = $3 AND user_id = $4',
-        [targetConversationId, req.params.logicalMessageId, req.params.id, userId]
-      );
-      await client.query(
-        'UPDATE messages SET conversation_id = $1, conversation_user_id = $2 WHERE logical_message_id = $3 AND conversation_id = $4',
-        [targetConversationId, userId, req.params.logicalMessageId, req.params.id]
-      );
-      await client.query('UPDATE conversations SET is_locked = true WHERE id IN ($1, $2) AND user_id = $3',
-        [req.params.id, targetConversationId, userId]);
+    const result = await applyConversationOverride({
+      userId: req.session.userId,
+      conversationId: req.params.id,
+      logicalMessageId: req.params.logicalMessageId,
+      overrideType: 'manual-move',
+      targetId: targetConversationId,
     });
-    res.json({ moved: true, targetConversationId });
+    res.json({ moved: true, ...result });
   } catch (err) {
-    res.status(500).json({ error: 'Move failed', detail: err.message });
+    const status = err.statusCode || 400;
+    res.status(status).json({ error: 'Move failed', detail: err.message });
   }
 });
 
-// Lock/unlock conversation
+// Lock/unlock conversation — delegates to service which uses manually_locked.
 router.post('/conversations/:id/lock', async (req, res) => {
-  const result = await query(
-    'UPDATE conversations SET is_locked = true WHERE id = $1 AND user_id = $2 RETURNING id',
-    [req.params.id, req.session.userId]
-  );
-  if (!result.rows.length) return res.status(404).json({ error: 'Conversation not found' });
-  res.json({ locked: true });
+  try {
+    const result = await applyConversationOverride({
+      userId: req.session.userId,
+      conversationId: req.params.id,
+      overrideType: 'lock-conversation',
+    });
+    res.json({ locked: true, ...result });
+  } catch (err) {
+    const status = err.statusCode || 400;
+    res.status(status).json({ error: 'Lock failed', detail: err.message });
+  }
 });
 
 router.post('/conversations/:id/unlock', async (req, res) => {
-  const result = await query(
-    'UPDATE conversations SET is_locked = false WHERE id = $1 AND user_id = $2 RETURNING id',
-    [req.params.id, req.session.userId]
-  );
-  if (!result.rows.length) return res.status(404).json({ error: 'Conversation not found' });
-  res.json({ locked: false });
+  try {
+    const result = await applyConversationOverride({
+      userId: req.session.userId,
+      conversationId: req.params.id,
+      overrideType: 'unlock-conversation',
+    });
+    res.json({ locked: false, ...result });
+  } catch (err) {
+    const status = err.statusCode || 400;
+    res.status(status).json({ error: 'Unlock failed', detail: err.message });
+  }
 });
 
 // Force include/exclude a logical message in/from a conversation
@@ -366,7 +304,7 @@ router.get('/conversations/:id/diagnostics', async (req, res) => {
   try {
     const canonicalId = await resolveConversationAlias(client, { userId: req.session.userId, conversationId: req.params.id });
     const conv = await client.query(
-      'SELECT id, kind, canonical_subject, threading_confidence, is_locked, logical_message_count, unread_count, copy_count FROM conversations WHERE id = $1 AND user_id = $2',
+      'SELECT id, kind, canonical_subject, threading_confidence, manually_locked, logical_message_count, unread_count, copy_count FROM conversations WHERE id = $1 AND user_id = $2',
       [canonicalId, req.session.userId]
     );
     if (!conv.rows.length) return res.status(404).json({ error: 'Conversation not found' });

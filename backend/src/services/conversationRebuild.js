@@ -1,7 +1,7 @@
 import { resolveOwnIdentityAddresses } from './conversationIngestEnvelope.js';
 import { providerIdentityForCopy } from './conversationProviderEnvelope.js';
 import { pool } from './db.js';
-import { upsertConversationCopy } from './conversationPersistence.js';
+import { upsertConversationCopy, _upsertConversationCopyWithClient } from './conversationPersistence.js';
 
 const ALL_ACCOUNTS_SCOPE = '00000000-0000-0000-0000-000000000000';
 
@@ -62,7 +62,7 @@ async function dryRunBatch(client, rows) {
   for (const row of rows) {
     const before = await snapshotMessage(client, row);
     try {
-      await upsertConversationCopy(row, {
+      await _upsertConversationCopyWithClient(client, row, {
         identities: await resolveOwnIdentityAddresses(client, row.account_id, row),
         provider: providerIdentityForCopy(row),
       });

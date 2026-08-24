@@ -87,6 +87,11 @@ async function findProviderConversation(client, hydrated, provider) {
 
 export async function upsertConversationCopy(copy, { identities = [], provider = null } = {}) {
   return withTransaction(async client => {
+    return _upsertConversationCopyWithClient(client, copy, { identities, provider });
+  }, { serializable: true });
+}
+
+export async function _upsertConversationCopyWithClient(client, copy, { identities = [], provider = null } = {}) {
       const verified = await client.query(`SELECT m.*, a.user_id, a.automated_series_mode FROM messages m JOIN email_accounts a ON a.id = m.account_id WHERE m.id = $1 AND a.user_id IS NOT NULL FOR UPDATE`, [copy.id]);
     if (verified.rows.length !== 1) throw new Error('Conversation copy not found or owner mismatch');
     const source = { ...verified.rows[0], user_id: verified.rows[0].user_id };
@@ -171,5 +176,4 @@ export async function upsertConversationCopy(copy, { identities = [], provider =
     for (const [type, weight, details] of evidence) await client.query(`INSERT INTO conversation_evidence (user_id, conversation_id, logical_message_id, evidence_type, evidence_value_hash, weight, details) VALUES ($1,$2,$3,$4,$5,$6,$7::jsonb) ON CONFLICT (conversation_id, logical_message_id, evidence_type, evidence_value_hash) DO NOTHING`, [hydrated.userId, conversationId, logical.id, type, createHash('sha256').update(JSON.stringify(details)).digest('hex'), weight, JSON.stringify(details)]);
     await client.query(`UPDATE conversations c SET first_message_at = (SELECT MIN(message_date) FROM logical_messages WHERE conversation_id = c.id), last_message_at = (SELECT MAX(message_date) FROM logical_messages WHERE conversation_id = c.id), subject_snapshot = COALESCE((SELECT subject FROM logical_messages WHERE conversation_id = c.id ORDER BY message_date ASC NULLS LAST, id LIMIT 1), c.subject_snapshot), canonical_subject = COALESCE((SELECT canonical_subject FROM logical_messages WHERE conversation_id = c.id ORDER BY message_date ASC NULLS LAST, id LIMIT 1), c.canonical_subject), logical_message_count = (SELECT COUNT(*) FROM logical_messages WHERE conversation_id = c.id), copy_count = (SELECT COUNT(*) FROM messages WHERE conversation_id = c.id AND is_deleted = false), unread_count = (SELECT COUNT(*) FROM messages WHERE conversation_id = c.id AND is_deleted = false AND is_read = false), updated_at = NOW() WHERE c.id = $1`, [conversationId]);
     return { logicalMessageId: logical.id, conversationId, kind: decision.kind, canonicalSubject: hydrated.canonicalSubject };
-  }, { serializable: true });
 }
