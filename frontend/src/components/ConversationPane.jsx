@@ -26,12 +26,20 @@ function QuoteFold({ children }) {
 
   useEffect(() => {
     if (!containerRef.current) return;
-    // Detect quoted content: blockquote, .gmail_quote, .moz-quote-container, On ... wrote:
     const el = containerRef.current;
+    // Detect quoted content: blockquote, .gmail_quote, .moz-quote-container, .yahoo_quoted,
+    // and common text patterns ("On ... wrote:", "Dnia ... napisał:", "-----Original Message-----")
     const quotes = el.querySelectorAll('blockquote, .gmail_quote, .moz-quote-container, .yahoo_quoted');
     const hasBlockquote = quotes.length > 0;
-    setHasQuote(hasBlockquote);
-  }, [children]);
+    // Also check for plain-text quote markers in text content
+    const textContent = el.textContent || '';
+    const hasTextQuote = /^\s*(On .+ wrote:|Dnia .+ napisał|-----Original Message-----|-----Wiadomość oryginalna-----)/m.test(textContent);
+    setHasQuote(hasBlockquote || hasTextQuote);
+    // Hide only the quote elements, NOT the entire message content
+    if (hasBlockquote && !expanded) {
+      for (const q of quotes) q.style.display = 'none';
+    }
+  }, [children, expanded]);
 
   if (!hasQuote) {
     return <div ref={containerRef}>{children}</div>;
@@ -56,12 +64,11 @@ function QuoteFold({ children }) {
             marginBottom: 4,
           }}
         >
-          {t('conversation.expandConversation')} ▾
+          [...] {t('conversation.expandConversation')} ▾
         </button>
       )}
-      <div style={{ display: expanded ? 'block' : 'none' }}>
-        {children}
-      </div>
+      {/* Show the full message content always; only quote elements are toggled */}
+      {children}
     </div>
   );
 }
@@ -307,7 +314,7 @@ export default function ConversationPane({ conversationId, targetLogicalMessageI
                 )}
                 {body && (
                   <QuoteFold>
-                    <MessageBodyRenderer html={body.body_html} text={body.body_text} />
+                    <MessageBodyRenderer html={body.body_html} text={body.body_text} copyId={body.physical_copy_id} accountId={body.account_id} />
                   </QuoteFold>
                 )}
 
