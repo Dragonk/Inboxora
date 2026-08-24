@@ -33,11 +33,17 @@ function encodeCursor(row) {
 
 router.get('/conversations', async (req, res) => {
   const userId = req.session.userId;
-  const { accountId, limit = 50, cursor } = req.query;
+  const { accountId, folder, limit = 50, cursor } = req.query;
   const cursorValue = decodeCursor(cursor);
   if (cursor && !cursorValue) return res.status(400).json({ error: 'Invalid conversation cursor' });
   const values = accountId ? [userId, accountId] : [userId];
-  const accountFilter = accountId ? 'AND m.account_id = $2' : '';
+  const accountFilter = accountId ? `AND m.account_id = $2` : '';
+  // Folder-scoped filtering: a conversation appears in the list only if it has at
+  // least one visible physical copy in the requested folder. The expanded children
+  // still show the FULL conversation (all folders), but the list is scoped.
+  const folderFilter = folder ? `AND EXISTS (SELECT 1 FROM messages mf WHERE mf.conversation_id = c.id AND mf.is_deleted = false ${accountId ? 'AND mf.account_id = $2' : ''} AND mf.folder = $${values.length + 1})` : '';
+  let folderParamIndex = null;
+  if (folder) { folderParamIndex = values.length + 1; values.push(folder); }
   let cursorFilter = '';
   if (cursorValue) {
     values.push(cursorValue.date, cursorValue.id);
@@ -93,11 +99,10 @@ router.get('/conversations', async (req, res) => {
           LIMIT 1
        ) latest_copy ON true
        WHERE lm.conversation_id = c.id
-         AND EXISTS (SELECT 1 FROM messages visible_lm WHERE visible_lm.logical_message_id = lm.id AND visible_lm.is_deleted = false ${accountId ? 'AND visible_lm.account_id = $2' : ''})
-     ) preview ON true
+         AND EXISTS (SELECT 1 FROM messages visible_lm WHERE visible_lm.logical_message_id = lm.id AND visible_lm.is_deleted = false ${accountId ? 'AND visible_lm.account_id = $2' : ''} ${folder ? `AND visible_lm.folder = $${folderParamIndex}` : ''})
      WHERE c.user_id = $1
        AND NOT EXISTS (SELECT 1 FROM conversation_aliases ca WHERE ca.user_id = $1 AND ca.alias_conversation_id = c.id)
-       ${accountFilter} ${cursorFilter}
+       ${accountFilter} ${folderFilter} ${cursorFilter}
      GROUP BY c.id, top_latest.id, preview.logical_messages
      ORDER BY COALESCE(c.last_message_at, c.created_at) DESC, c.id DESC
      LIMIT $${limitParam}

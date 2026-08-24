@@ -74,6 +74,7 @@ export default function MailApp() {
     accounts, rightSidebarWidth, setRightSidebarWidth, isRightSidebarResizing, setIsRightSidebarResizing,
     rightSidebarHidden, toggleRightSidebarHidden,
     conversationListViewEnabled, conversationReaderViewEnabled,
+    selectedFolder,
   } = useStore();
   const syncInterval = useStore(s => s.syncInterval);
   const autoLockMinutes = useStore(s => s.autoLockMinutes);
@@ -792,7 +793,7 @@ export default function MailApp() {
           </div>
           {/* Keep all three mounted so scroll/state survive navigation. */}
           <div style={{ flex: 1, display: !showContacts && !selectedMessageId && !(conversationReaderViewEnabled && conversationId) ? 'flex' : 'none', overflow: 'hidden', height: '100%' }}>
-            {conversationListViewEnabled ? <ConversationList params={{}} onOpenMessage={openConversationTarget} /> : <MessageList />}
+            {conversationListViewEnabled ? <ConversationList params={{ accountId: selectedAccountId || undefined, folder: selectedFolder || undefined }} onOpenMessage={openConversationTarget} /> : <MessageList />}
           </div>
           <div style={{ flex: 1, display: !showContacts && (selectedMessageId || (conversationReaderViewEnabled && conversationId)) ? 'flex' : 'none', overflow: 'hidden', height: '100%' }}>
             {conversationReaderViewEnabled && conversationId ? <ConversationPane conversationId={conversationId} targetLogicalMessageId={targetLogicalMessageId} onReply={replyFromConversation} /> : <MessagePane />}
@@ -824,7 +825,7 @@ export default function MailApp() {
               <Suspense fallback={lazyFallback}><ContactsPage /></Suspense>
             </div>
             <div style={{ display: showContacts ? 'none' : 'flex', flex: 1, minWidth: 0, overflow: 'hidden', height: '100%', flexDirection: currentLayout.direction }}>
-              {conversationListViewEnabled ? <ConversationList params={{}} onOpenMessage={openConversationTarget} /> : <MessageList />}
+              {conversationListViewEnabled ? <ConversationList params={{ accountId: selectedAccountId || undefined, folder: selectedFolder || undefined }} onOpenMessage={openConversationTarget} /> : <MessageList />}
               {currentLayout.direction === 'row' && (
                 <div
                   onMouseDown={handleListResizeMouseDown}
