@@ -50,7 +50,7 @@ UPDATE conversation_overrides
 -- CHECK: target_id and target_user_id must both be NULL or both non-NULL.
 ALTER TABLE conversation_overrides
   ADD CONSTRAINT chk_override_target_owner_present
-  CHECK (target_id IS NULL = target_user_id IS NULL);
+  CHECK ((target_id IS NULL) = (target_user_id IS NULL));
 
 -- Composite FK: (target_id, target_user_id) → conversations(id, user_id).
 -- DEFERRABLE INITIALLY DEFERRED so manual-move/merge can reorder within a
