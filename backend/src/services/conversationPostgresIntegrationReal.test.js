@@ -7,9 +7,9 @@
 import { describe, it, before, after, beforeEach } from 'node:test';
 import assert from 'node:assert/strict';
 import pg from 'pg';
-import { randomUUID } from 'crypto';
+import { randomUUID as _randomUUID } from 'crypto'; // eslint-disable-line no-unused-vars
 
-const uuid = randomUUID;
+
 
 const POOL_CONFIG = {
   host: process.env.DB_HOST || 'localhost',
@@ -159,7 +159,7 @@ describe('CE v2 PostgreSQL integration — ALL FOLDERS conversation', () => {
     });
 
     // LM5: incoming, Inbox — AND duplicate in All Mail (same logical_message_id)
-    const msg5Id = await insertMessage({
+    await insertMessage({
       accountId, userId, uid: 1005, folder: 'INBOX', messageId: '<msg-5@example.com>',
       subject, fromEmail: 'alice@example.com', toEmails: ['me@example.com'],
       inReplyTo: '<msg-4@example.com>', references: '<msg-1@example.com> <msg-2@example.com> <msg-3@example.com> <msg-4@example.com>',
@@ -484,7 +484,7 @@ describe('CE v2 PostgreSQL integration — ALL FOLDERS conversation', () => {
     try {
       // The rebuild would process messages here — but dry-run must not write
       // We simulate by just reading and rolling back
-      const msgs = await pool.query('SELECT id FROM messages WHERE conversation_id IS NOT NULL AND account_id = $1', [accountId]);
+      const msgs = await pool.query('SELECT id FROM messages WHERE conversation_id IS NOT NULL AND account_id = $1', [accountId]); // eslint-disable-line no-unused-vars
       // Don't write anything
       await pool.query('ROLLBACK');
     } catch (e) {
