@@ -98,10 +98,20 @@ export async function applyConversationOverride({ userId, conversationId, logica
        WHERE lm.id IN (SELECT id FROM descendants)` :
       'UPDATE logical_messages SET conversation_id = $1, parent_logical_message_id = NULL WHERE id = $2 AND user_id = $3';
       await client.query(scopeFilter, [newConversationId, logicalMessageId, userId]);
-      await client.query('UPDATE messages SET conversation_id = $1, conversation_user_id = $2 WHERE logical_message_id IN (SELECT id FROM logical_messages WHERE conversation_id = $1) AND conversation_user_id = $2', [newConversationId, userId]);
-      await client.query('UPDATE conversation_evidence SET conversation_id = $1 WHERE logical_message_id IN (SELECT id FROM logical_messages WHERE conversation_id = $1) AND user_id = $2', [newConversationId, userId]);
+      // Restrict updates to the exact logical-message set moved by this split.
+      // Selecting by destination conversation_id would also move unrelated rows.
+      const movedLogicalIdsSql = scope === 'message-with-descendants'
+        ? `WITH RECURSIVE descendants(id, path) AS (
+            SELECT id, ARRAY[id] FROM logical_messages WHERE id = $3 AND user_id = $2
+            UNION ALL
+            SELECT lm.id, d.path || lm.id FROM logical_messages lm JOIN descendants d ON lm.parent_logical_message_id = d.id
+             WHERE lm.user_id = $2 AND NOT lm.id = ANY(d.path)
+          ) SELECT id FROM descendants`
+        : 'SELECT id FROM logical_messages WHERE id = $3 AND user_id = $2';
+      await client.query(`UPDATE messages SET conversation_id = $1, conversation_user_id = $2 WHERE logical_message_id IN (${movedLogicalIdsSql}) AND conversation_user_id = $2`, [newConversationId, userId, logicalMessageId]);
+      await client.query(`UPDATE conversation_evidence SET conversation_id = $1 WHERE logical_message_id IN (${movedLogicalIdsSql}) AND user_id = $2`, [newConversationId, userId, logicalMessageId]);
       // P2-03: Only rewrite target_id for override types where it refers to a conversation.
-      await client.query('UPDATE conversation_overrides SET conversation_id = $1, target_id = CASE WHEN target_id = $3 THEN $1 ELSE target_id END WHERE logical_message_id IN (SELECT id FROM logical_messages WHERE conversation_id = $1) AND user_id = $2', [newConversationId, userId, conversationId]);
+      await client.query(`UPDATE conversation_overrides SET conversation_id = $1, target_id = CASE WHEN target_id = $4 THEN $1 ELSE target_id END WHERE logical_message_id IN (${movedLogicalIdsSql}) AND user_id = $2`, [newConversationId, userId, logicalMessageId, conversationId]);
       await client.query(`UPDATE logical_messages child SET parent_logical_message_id = NULL
         WHERE child.user_id = $1 AND child.conversation_id <> $2
           AND child.parent_logical_message_id IN (SELECT id FROM logical_messages WHERE conversation_id = $2)`, [userId, newConversationId]);
