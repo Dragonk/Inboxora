@@ -82,7 +82,10 @@ jobs:
         env:
           PLAYWRIGHT_BROWSERS_PATH: ${{ runner.temp }}/ms-playwright
           PLAYWRIGHT_BASE_URL: http://127.0.0.1:4173
-        run: npm run test:e2e
+        # This workflow is the mocked browser gate. Real backend/database E2E
+        # lives in conversation-v2-real-app-playwright.yml; including real-app.spec.js
+        # here makes it resolve the Docker-only hostname `backend` without a service.
+        run: npx playwright test e2e/conversation-engine.spec.js --project=chromium-desktop --project=chromium-mobile
 
       - name: Write Playwright environment report
         if: always()
