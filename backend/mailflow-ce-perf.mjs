@@ -65,6 +65,9 @@ try {
   results.push(await explain('rebuild_batch', `SELECT m.id,m.date FROM messages m JOIN email_accounts a ON a.id=m.account_id AND a.user_id=$1 WHERE m.is_deleted=false AND m.account_id=$2 ORDER BY (m.date IS NULL),m.date,m.id LIMIT 500`, [userId, accountId]));
   console.log(JSON.stringify({ scale, physical_copies: scale, conversations, logical_messages: scale, seed_ms: seedMs, results }, null, 2));
 } finally {
-  if (userId) await q('DELETE FROM users WHERE id=$1', [userId]).catch(() => {});
+  // The performance database is disposable. TRUNCATE is deterministic and orders
+  // cleanup by relation rather than making PostgreSQL walk 100k row-level CASCADE
+  // dependencies after each scale; this keeps the 50k→100k CI job bounded.
+  await q('TRUNCATE messages, logical_messages, conversations, email_accounts, users RESTART IDENTITY CASCADE').catch(() => {});
   await pool.end();
 }
