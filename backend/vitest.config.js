@@ -9,8 +9,8 @@ export default defineConfig({
       '**/dist/**',
       '**/*.itest.js',
       '**/*PostgresIntegrationReal*',
-      '**/*PerformanceReal*
-      '**/*RebuildIdempotencyReal*'',
+      '**/*PerformanceReal*',
+      '**/*RebuildIdempotencyReal*',
     ],
   },
 });
