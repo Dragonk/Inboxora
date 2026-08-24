@@ -14,7 +14,7 @@ describe('provider and automated-series fixtures', () => {
   });
 
   it('keeps strict and smart automated series opt-in and safe', () => {
-    const automated = { ...base, headers: { 'auto-submitted': 'auto-generated' } };
+    const automated = { ...base, headers: { 'auto-submitted': 'auto-generated', 'authentication-results': 'example.test; dkim=pass; spf=pass; dmarc=pass' } };
     const anchored = { ...automated, referencesAnchor: '<security-anchor@example.test>', received_at: '2026-01-01T00:00:00Z' };
     expect(strictSeriesDecision({ message: { ...anchored, date: '2026-01-02T00:00:00Z', received_at: '2026-01-02T00:00:00Z' }, previous: anchored })?.kind).toBe('automated_reference_series');
     expect(smartSeriesDecision({ message: { ...automated, date: '2026-01-02T00:00:00Z' }, previous: automated, enabled: false })).toBeNull();
