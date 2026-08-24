@@ -67,8 +67,10 @@ jobs:
         working-directory: frontend
         run: npm ci
 
-      - name: Prepare artifacts
-        run: mkdir -p artifacts
+      - name: Install Playwright Chromium
+        working-directory: frontend
+        run: npx playwright install --with-deps chromium
+
 
       - name: Repository state and exact SHA assertion
         run: |
@@ -216,6 +218,20 @@ jobs:
         run: |
           node --test src/services/conversationCopyScopesReal.integration.js 2>&1 | tee ../artifacts/copy-scopes-real.log
 
+      - name: Real PostgreSQL extended integration suites
+        working-directory: backend
+        env:
+          DB_HOST: 127.0.0.1
+          DB_PORT: 5432
+          DB_NAME: mailflow_test
+          DB_USER: mailflow_test
+          DB_PASSWORD: mailflow_test
+          ENCRYPTION_KEY: "0000000000000000000000000000000000000000000000000000000000000000"
+        run: |
+          node --test src/services/conversationPostgresIntegrationReal.integration.js 2>&1 | tee ../artifacts/postgres-real-extended.log
+          node --test src/services/conversationRebuildIdempotencyReal.integration.js 2>&1 | tee ../artifacts/rebuild-idempotency-real.log
+          npx vitest run src/services/conversationPgRegression.integration.js 2>&1 | tee ../artifacts/pg-regression.log
+
       - name: Security gate
         working-directory: backend
         run: npm test -- --run src/services/conversationSecurity.test.js
@@ -240,17 +256,16 @@ jobs:
           node mailflow-ce-perf.mjs mailflow_test 50000 | tee ../artifacts/performance-50k.json
           node mailflow-ce-perf.mjs mailflow_test 100000 | tee ../artifacts/performance-100k.json
 
-      - name: E2E 2x2 feature matrix gate
-        working-directory: frontend
-        run: npm test -- --test-name-pattern='conversation E2E matrix'
-
-      - name: EN/FR/PL locale gate
-        working-directory: frontend
-        run: npm test -- --test-name-pattern='i18n locale files'
-
       - name: All official locale gate
         working-directory: frontend
         run: npm test -- --test-name-pattern='i18n locale files'
+
+      - name: Playwright conversation E2E matrix gate
+        working-directory: frontend
+        env:
+          PLAYWRIGHT_MATRIX: '1'
+          PLAYWRIGHT_WEB_SERVER_COMMAND: 'npm run dev -- --host 127.0.0.1 --port 4173'
+        run: npx playwright test e2e/conversation-engine.spec.js --project=chromium-desktop --project=chromium-mobile
 
       - name: Gate summary
         run: |

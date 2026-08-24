@@ -7,7 +7,7 @@
 import { describe, it, before, after, beforeEach } from 'node:test';
 import assert from 'node:assert/strict';
 import pg from 'pg';
-import { randomUUID as _randomUUID } from 'crypto'; // eslint-disable-line no-unused-vars
+import { randomUUID as _randomUUID } from 'crypto';
 
 
 
@@ -60,7 +60,7 @@ async function setupTestUser() {
 }
 
 async function insertMessage({ accountId, userId, uid, folder, messageId, subject, fromEmail, toEmails, inReplyTo, references, date, conversationId, logicalMessageId, canonicalMessageId, direction }) {
-  const id = crypto.randomUUID();
+  const id = _randomUUID();
   const result = await pool.query(
     `INSERT INTO messages (
       id, account_id, uid, folder, message_id, subject,
@@ -91,7 +91,7 @@ async function insertMessage({ accountId, userId, uid, folder, messageId, subjec
 }
 
 async function createConversation(userId, subject) {
-  const convId = crypto.randomUUID();
+  const convId = _randomUUID();
   await pool.query(
     "INSERT INTO conversations (id, user_id, canonical_subject, kind, manually_locked) VALUES ($1, $2, $3, 'human_reply_chain', false)",
     [convId, userId, subject.toLowerCase()]
@@ -100,7 +100,7 @@ async function createConversation(userId, subject) {
 }
 
 async function createLogicalMessage(conversationId, userId, canonicalMessageId) {
-  const lmId = crypto.randomUUID();
+  const lmId = _randomUUID();
   await pool.query(
     "INSERT INTO logical_messages (id, conversation_id, user_id, canonical_message_id) VALUES ($1, $2, $3, $4)",
     [lmId, conversationId, userId, canonicalMessageId]
@@ -261,8 +261,8 @@ describe('CE v2 PostgreSQL integration — ALL FOLDERS conversation', () => {
 
     // Insert 100 messages with Subject: Test, different senders, dates, accounts, no RFC evidence
     for (let i = 0; i < 100; i++) {
-      const convId = crypto.randomUUID();
-      const lmId = crypto.randomUUID();
+      const convId = _randomUUID();
+      const lmId = _randomUUID();
       await pool.query(
         "INSERT INTO conversations (id, user_id, canonical_subject, kind, manually_locked) VALUES ($1, $2, 'test', 'human_reply_chain', false)",
         [convId, userId]
@@ -301,13 +301,13 @@ describe('CE v2 PostgreSQL integration — ALL FOLDERS conversation', () => {
     assert.equal(sharedConv.rows.length, 0, 'No two Test messages should share a conversation (no RFC evidence)');
 
     // Now add 3 messages that ARE related via RFC References (same Subject: Test, but with threading headers)
-    const relatedConvId = crypto.randomUUID();
+    const relatedConvId = _randomUUID();
     await pool.query(
       "INSERT INTO conversations (id, user_id, canonical_subject, kind, manually_locked) VALUES ($1, $2, 'test', 'human_reply_chain', false)",
       [relatedConvId, userId]
     );
     for (let i = 0; i < 3; i++) {
-      const lmId = crypto.randomUUID();
+      const lmId = _randomUUID();
       await pool.query(
         "INSERT INTO logical_messages (id, conversation_id, user_id, canonical_message_id) VALUES ($1, $2, $3, $4)",
         [lmId, relatedConvId, userId, `<related-${i}@example.com>`]
@@ -348,8 +348,8 @@ describe('CE v2 PostgreSQL integration — ALL FOLDERS conversation', () => {
     const convIds = [];
     const lmIds = [];
     for (let i = 0; i < 4; i++) {
-      const convId = crypto.randomUUID();
-      const lmId = crypto.randomUUID();
+      const convId = _randomUUID();
+      const lmId = _randomUUID();
       convIds.push(convId);
       lmIds.push(lmId);
       await pool.query(
@@ -451,8 +451,8 @@ describe('CE v2 PostgreSQL integration — ALL FOLDERS conversation', () => {
 
     // Seed a few conversations
     for (let i = 0; i < 5; i++) {
-      const convId = crypto.randomUUID();
-      const lmId = crypto.randomUUID();
+      const convId = _randomUUID();
+      const lmId = _randomUUID();
       await pool.query(
         "INSERT INTO conversations (id, user_id, canonical_subject, kind, manually_locked) VALUES ($1, $2, 'rebuild-test', 'human_reply_chain', false)",
         [convId, userId]

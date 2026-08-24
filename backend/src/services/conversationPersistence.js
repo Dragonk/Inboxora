@@ -168,10 +168,12 @@ export async function _upsertConversationCopyWithClient(client, copy, { identiti
     let logical = existing.logical;
     const collision = existing.collision;
     if (!logical) {
-      const insert = await client.query(`INSERT INTO logical_messages (user_id, canonical_message_id, raw_message_id, message_id_collision_key, raw_headers, raw_in_reply_to, raw_references, parsed_in_reply_to, parsed_references, subject, canonical_subject, direction, message_date, body_fingerprint, header_fingerprint, threading_reason, threading_confidence) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17) ON CONFLICT (user_id, canonical_message_id, message_id_collision_key) WHERE canonical_message_id IS NOT NULL DO NOTHING RETURNING id, conversation_id`, [hydrated.userId, hydrated.canonicalMessageId, hydrated.rawMessageId, hydrated.collisionKey, hydrated.rawHeaders, hydrated.rawInReplyTo, hydrated.rawReferences, JSON.stringify(normalizeMessageIdList(hydrated.rawInReplyTo)), JSON.stringify(normalizeMessageIdList(hydrated.rawReferences)), source.subject || null, hydrated.canonicalSubject, hydrated.direction, hydrated.messageDate, hydrated.bodyFingerprint, hydrated.headerFingerprint, decision.reason, decision.confidence]);
+      const insert = await client.query(`INSERT INTO logical_messages (user_id, canonical_message_id, raw_message_id, message_id_collision_key, raw_headers, raw_in_reply_to, raw_references, parsed_in_reply_to, parsed_references, subject, canonical_subject, direction, message_date, body_fingerprint, header_fingerprint, threading_reason, threading_confidence) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17) ON CONFLICT DO NOTHING RETURNING id, conversation_id`, [hydrated.userId, hydrated.canonicalMessageId, hydrated.rawMessageId, hydrated.collisionKey, hydrated.rawHeaders, hydrated.rawInReplyTo, hydrated.rawReferences, JSON.stringify(normalizeMessageIdList(hydrated.rawInReplyTo)), JSON.stringify(normalizeMessageIdList(hydrated.rawReferences)), source.subject || null, hydrated.canonicalSubject, hydrated.direction, hydrated.messageDate, hydrated.bodyFingerprint, hydrated.headerFingerprint, decision.reason, decision.confidence]);
       logical = insert.rows[0] || null;
-      if (!logical && hydrated.canonicalMessageId) {
-        const winner = await client.query(`SELECT id, conversation_id FROM logical_messages WHERE user_id = $1 AND canonical_message_id = $2 AND message_id_collision_key = $3 FOR UPDATE`, [hydrated.userId, hydrated.canonicalMessageId, hydrated.collisionKey]);
+      if (!logical) {
+        const winner = hydrated.canonicalMessageId
+          ? await client.query(`SELECT id, conversation_id FROM logical_messages WHERE user_id = $1 AND canonical_message_id = $2 AND message_id_collision_key = $3 FOR UPDATE`, [hydrated.userId, hydrated.canonicalMessageId, hydrated.collisionKey])
+          : await client.query(`SELECT id, conversation_id FROM logical_messages WHERE user_id = $1 AND canonical_message_id IS NULL AND body_fingerprint = $2 AND header_fingerprint = $3 ORDER BY created_at ASC LIMIT 1 FOR UPDATE`, [hydrated.userId, hydrated.bodyFingerprint, hydrated.headerFingerprint]);
         logical = winner.rows[0] || null;
       }
       if (!logical) throw new Error('Logical message insert raced without a recoverable winner');
@@ -265,8 +267,8 @@ export async function _upsertConversationCopyWithClient(client, copy, { identiti
         const msgMap = msgLatestByLogical.get(node.id) || new Map();
         const hasForceExclude = convMap.has('force-exclude') || msgMap.has('force-exclude');
         const hasForceInclude = convMap.has('force-include') || msgMap.has('force-include');
-        const hasSplit = convMap.has('split') || msgMap.has('split');
-        const hasLock = convMap.has('lock') || msgMap.has('lock');
+        const hasSplit = convMap.has('manual-split') || msgMap.has('manual-split');
+        const hasLock = convMap.has('lock-conversation') || convMap.has('unlock-conversation');
         if (node.manually_locked || hasForceExclude || hasForceInclude || hasSplit || hasLock) blockedMove = true;
       }
       if (!blockedMove && component.rows.length && [...oldConversationIds].some(id => id !== conversationId)) {

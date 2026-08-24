@@ -22,7 +22,7 @@ async function ensureFixtures() {
 }
 
 async function cleanupAll() {
-  await query('DELETE FROM messages WHERE account_id IN ($1, $2)', [TEST_ACCOUNT_ID, ALT_ACCOUNT_ID]);
+  await query('DELETE FROM messages WHERE account_id = ANY($1::uuid[])', [[TEST_ACCOUNT_ID, ALT_ACCOUNT_ID]]);
   await query('DELETE FROM logical_messages WHERE user_id = $1', [TEST_USER_ID]);
   await query('DELETE FROM conversations WHERE user_id = $1', [TEST_USER_ID]);
   await query('DELETE FROM conversation_overrides WHERE user_id = $1', [TEST_USER_ID]);
@@ -34,7 +34,7 @@ async function cleanupAll() {
 async function cleanMessages() {
   await query('DROP TRIGGER IF EXISTS _ce_atomicity_trigger ON messages');
   await query('DROP FUNCTION IF EXISTS _ce_atomicity_fail()');
-  await query('DELETE FROM messages WHERE account_id IN ($1, $2)', [TEST_ACCOUNT_ID, ALT_ACCOUNT_ID]);
+  await query('DELETE FROM messages WHERE account_id = ANY($1::uuid[])', [[TEST_ACCOUNT_ID, ALT_ACCOUNT_ID]]);
   await query('DELETE FROM logical_messages WHERE user_id = $1', [TEST_USER_ID]);
   await query('DELETE FROM conversations WHERE user_id = $1', [TEST_USER_ID]);
   await query('DELETE FROM conversation_overrides WHERE user_id = $1', [TEST_USER_ID]);

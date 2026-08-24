@@ -7,7 +7,7 @@ vi.mock('./conversationOverridePolicy.js', () => ({
   resolveConversationAlias: vi.fn(async (_client, { conversationId }) => conversationId),
 }));
 
-import { COPY_SCOPES, applyConversationAction } from './conversationActions.js';
+import { COPY_SCOPES, applyConversationAction, applyBulkConversationAction } from './conversationActions.js';
 import { withTransaction } from './db.js';
 
 function fakeClient() {
@@ -47,6 +47,25 @@ describe('conversation copy-aware actions', () => {
     });
     expect(result).toMatchObject({ ok: true, action: 'read', scope: 'THIS_COPY', affectedCount: 1, selectedCopyId: 'copy-1' });
     expect(client.calls.some(call => call.sql.includes('UPDATE messages SET is_read'))).toBe(true);
+  });
+
+  it('requires row selectors for selector-dependent bulk scopes', async () => {
+    await expect(applyBulkConversationAction({
+      userId: 'user-1', conversationIds: ['conversation-1'], scope: 'COPIES_ON_THIS_ACCOUNT', action: 'delete',
+    })).rejects.toMatchObject({ statusCode: 400 });
+  });
+
+  it('accepts per-row copy selectors for bulk scopes', async () => {
+    const client = fakeClient();
+    withTransaction.mockImplementationOnce(async fn => fn(client));
+    const result = await applyBulkConversationAction({
+      userId: 'user-1',
+      items: [{ conversationId: 'conversation-1', copyId: 'copy-1', logicalMessageId: 'logical-1' }],
+      scope: 'ALL_COPIES_OF_LOGICAL_MESSAGE',
+      action: 'read',
+      isRead: true,
+    });
+    expect(result).toMatchObject({ ok: true, scope: 'ALL_COPIES_OF_LOGICAL_MESSAGE', affectedCount: 1 });
   });
 
   it('rejects an implicit/unknown scope before any transaction work', async () => {

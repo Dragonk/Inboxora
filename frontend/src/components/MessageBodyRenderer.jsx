@@ -57,7 +57,7 @@ export default function MessageBodyRenderer({ html = '', text = '', remoteImages
         const raw = anchor.getAttribute('href') || '';
         let url;
         try { url = new URL(raw, window.location.href); } catch { event.preventDefault(); return; }
-        if (url.protocol === 'http:' || url.protocol === 'https:' || url.protocol === 'mailto:') {
+        if (url.protocol === 'https:' || url.protocol === 'mailto:') {
           event.preventDefault();
           window.open(url.href, '_blank', 'noopener,noreferrer');
         } else event.preventDefault();

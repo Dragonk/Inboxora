@@ -5,7 +5,7 @@ import { randomUUID } from 'node:crypto';
 const { Pool } = pg;
 const dbName = process.argv[2] || 'mailflow_ce_perf';
 const scale = Number(process.argv[3] || 50000);
-if (![50000, 100000].includes(scale)) throw new Error('scale must be 50000 or 100000');
+if (![10000, 50000, 100000].includes(scale)) throw new Error('scale must be 10000, 50000 or 100000');
 const pool = new Pool({
   host: process.env.DB_HOST || 'localhost',
   port: Number(process.env.DB_PORT || 5432),
@@ -63,7 +63,12 @@ try {
   results.push(await explain('body_lookup', `SELECT m.body_html,m.body_text,m.attachments FROM messages m WHERE m.logical_message_id=$1 ORDER BY m.date DESC LIMIT 1`, [firstLm]));
   results.push(await explain('references_lookup', `SELECT m.id,m.conversation_id,m.logical_message_id FROM messages m WHERE m.account_id=$1 AND (m.message_id=ANY($2::text[]) OR m.in_reply_to=ANY($2::text[]))`, [accountId, ['<perf-1@example.test>']]));
   results.push(await explain('rebuild_batch', `SELECT m.id,m.date FROM messages m JOIN email_accounts a ON a.id=m.account_id AND a.user_id=$1 WHERE m.is_deleted=false AND m.account_id=$2 ORDER BY (m.date IS NULL),m.date,m.id LIMIT 500`, [userId, accountId]));
-  console.log(JSON.stringify({ scale, physical_copies: scale, conversations, logical_messages: scale, seed_ms: seedMs, results }, null, 2));
+  const maxExecutionMs = Number(process.env.CE_PERF_MAX_EXECUTION_MS || (scale === 10000 ? 5000 : scale === 50000 ? 15000 : 30000));
+  const overBudget = results.filter(result => result.execution_ms > maxExecutionMs);
+  if (overBudget.length) {
+    throw new Error(`Conversation performance budget exceeded at scale ${scale}: ${overBudget.map(result => `${result.name}=${result.execution_ms}ms`).join(', ')} > ${maxExecutionMs}ms`);
+  }
+  console.log(JSON.stringify({ scale, physical_copies: scale, conversations, logical_messages: scale, seed_ms: seedMs, max_execution_ms: maxExecutionMs, results }, null, 2));
 } finally {
   // The performance database is disposable. TRUNCATE is deterministic and orders
   // cleanup by relation rather than making PostgreSQL walk 100k row-level CASCADE

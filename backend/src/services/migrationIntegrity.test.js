@@ -16,6 +16,13 @@ describe('migration integrity', () => {
     expect(sql).toContain('fk_message_conversation_owner');
   });
 
+  it('adds no-message-id race protection and tenant-safe parent edges', () => {
+    const sql = readFileSync(join(process.cwd(), 'migrations/0061_conversation_identity_race_and_parent_tenant.sql'), 'utf8');
+    expect(sql).toContain('uq_logical_messages_user_no_message_id_fingerprint');
+    expect(sql).toContain('fk_logical_parent_owner');
+    expect(sql).toContain('REFERENCES logical_messages(id, user_id)');
+  });
+
   it('records migration checksums in the runner', () => {
     const source = readFileSync(join(process.cwd(), 'src/services/migrations.js'), 'utf8');
     expect(source).toContain('sha256');

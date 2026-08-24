@@ -371,8 +371,8 @@ export default function ConversationPane({ conversationId, targetLogicalMessageI
         const imagesEnabled = remoteImagesEnabled[message.id];
         const attachments = (() => {
           const bodyAttachments = Array.isArray(body?.attachments) ? body.attachments : [];
-      const copyAttachments = Array.isArray(copy?.attachments) ? copy.attachments : [];
-      const atts = bodyAttachments.length ? bodyAttachments : copyAttachments;
+          const copyAttachments = Array.isArray(copy?.attachments) ? copy.attachments : [];
+          const atts = bodyAttachments.length ? bodyAttachments : copyAttachments;
           if (typeof atts === 'string') { try { return JSON.parse(atts); } catch { return []; } }
           return Array.isArray(atts) ? atts : [];
         })();

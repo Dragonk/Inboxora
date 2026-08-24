@@ -43,11 +43,11 @@ export const conversationApi = {
       body: JSON.stringify({ scope, copyId, logicalMessageId }),
     }),
 
-  move: (conversationId, targetFolder, { scope = 'THIS_COPY' } = {}) => {
+  move: (conversationId, targetFolder, { scope = 'THIS_COPY', copyId = null, logicalMessageId = null, items = null } = {}) => {
     const ids = Array.isArray(conversationId) ? conversationId : null;
     return apiFetch(ids ? '/conversations/bulk-move' : `/conversations/${conversationId}/move`, {
       method: 'POST',
-      body: JSON.stringify(ids ? { conversationIds: ids, targetFolder, scope } : { targetFolder, scope }),
+      body: JSON.stringify(ids ? { conversationIds: ids, items, targetFolder, scope } : { targetFolder, scope, copyId, logicalMessageId }),
     });
   },
 
@@ -70,22 +70,22 @@ export const conversationApi = {
     }),
 
   // Bulk variants — operate on multiple conversations at once.
-  bulkArchive: (conversationIds, { scope = 'THIS_COPY' } = {}) =>
+  bulkArchive: (conversationIds, { scope = 'THIS_COPY', items = null } = {}) =>
     apiFetch(`/conversations/bulk-archive`, {
       method: 'POST',
-      body: JSON.stringify({ conversationIds, scope }),
+      body: JSON.stringify({ conversationIds, items, scope }),
     }),
 
-  bulkDelete: (conversationIds, { scope = 'THIS_COPY' } = {}) =>
+  bulkDelete: (conversationIds, { scope = 'THIS_COPY', items = null } = {}) =>
     apiFetch(`/conversations/bulk-delete`, {
       method: 'POST',
-      body: JSON.stringify({ conversationIds, scope }),
+      body: JSON.stringify({ conversationIds, items, scope }),
     }),
 
-  bulkSetRead: (conversationIds, isRead, { scope = 'THIS_COPY' } = {}) =>
+  bulkSetRead: (conversationIds, isRead, { scope = 'THIS_COPY', items = null } = {}) =>
     apiFetch(`/conversations/bulk-read`, {
       method: 'POST',
-      body: JSON.stringify({ conversationIds, isRead, scope }),
+      body: JSON.stringify({ conversationIds, items, isRead, scope }),
     }),
 
   // Manual operations

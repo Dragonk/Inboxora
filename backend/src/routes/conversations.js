@@ -220,19 +220,19 @@ router.post('/conversations/:id/read', (req, res) => runAction(req, res, 'read',
 router.post('/conversations/:id/star', (req, res) => runAction(req, res, 'star', { isStarred: req.body?.isStarred }));
 
 router.post('/conversations/bulk-archive', async (req, res) => {
-  try { res.json(await applyBulkConversationAction({ userId: req.session.userId, conversationIds: req.body?.conversationIds, scope: req.body?.scope || 'THIS_COPY', action: 'archive' })); }
+  try { res.json(await applyBulkConversationAction({ userId: req.session.userId, conversationIds: req.body?.conversationIds, items: req.body?.items, scope: req.body?.scope || 'THIS_COPY', action: 'archive' })); }
   catch (err) { res.status(err.statusCode || 400).json({ error: err.message }); }
 });
 router.post('/conversations/bulk-delete', async (req, res) => {
-  try { res.json(await applyBulkConversationAction({ userId: req.session.userId, conversationIds: req.body?.conversationIds, scope: req.body?.scope || 'THIS_COPY', action: 'delete' })); }
+  try { res.json(await applyBulkConversationAction({ userId: req.session.userId, conversationIds: req.body?.conversationIds, items: req.body?.items, scope: req.body?.scope || 'THIS_COPY', action: 'delete' })); }
   catch (err) { res.status(err.statusCode || 400).json({ error: err.message }); }
 });
 router.post('/conversations/bulk-read', async (req, res) => {
-  try { res.json(await applyBulkConversationAction({ userId: req.session.userId, conversationIds: req.body?.conversationIds, scope: req.body?.scope || 'THIS_COPY', action: 'read', isRead: req.body?.isRead })); }
+  try { res.json(await applyBulkConversationAction({ userId: req.session.userId, conversationIds: req.body?.conversationIds, items: req.body?.items, scope: req.body?.scope || 'THIS_COPY', action: 'read', isRead: req.body?.isRead })); }
   catch (err) { res.status(err.statusCode || 400).json({ error: err.message }); }
 });
 router.post('/conversations/bulk-move', async (req, res) => {
-  try { res.json(await applyBulkConversationAction({ userId: req.session.userId, conversationIds: req.body?.conversationIds, scope: req.body?.scope || 'THIS_COPY', action: 'move', targetFolder: req.body?.targetFolder })); }
+  try { res.json(await applyBulkConversationAction({ userId: req.session.userId, conversationIds: req.body?.conversationIds, items: req.body?.items, scope: req.body?.scope || 'THIS_COPY', action: 'move', targetFolder: req.body?.targetFolder })); }
   catch (err) { res.status(err.statusCode || 400).json({ error: err.message }); }
 });
 

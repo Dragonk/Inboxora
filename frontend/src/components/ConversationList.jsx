@@ -3,6 +3,7 @@ import { useTranslation } from 'react-i18next';
 import { conversationApi } from '../utils/conversationApi.js';
 import { useSelection, ACTION_SCOPES, DESTRUCTIVE_SCOPES, SCOPE_I18N_KEYS } from '../hooks/useSelection.js';
 import { ActionBtn } from './RowHoverActions.jsx';
+import { isInteractiveSwipeTarget } from '../hooks/useSwipeRow.js';
 
 function OwnReplyMarker({ visible }) {
   const { t } = useTranslation();
@@ -330,11 +331,14 @@ export default function ConversationList({ params = {}, onOpenMessage }) {
   // A list row can represent a folder/account-filtered physical copy. Always
   // carry the displayed copy identity for THIS_COPY and other copy scopes;
   // the backend must never guess a different globally-latest copy.
-  const rowActionOptions = useCallback((row) => ({
-    scope: actionScope,
-    copyId: row.latestCopyId || null,
-    logicalMessageId: row.logical_message_id || null,
-  }), [actionScope]);
+  const rowActionOptions = useCallback((row) => {
+    const selectedLogical = (row.logical_messages || []).find(message => message.latestCopyId === row.latestCopyId);
+    return {
+      scope: actionScope,
+      copyId: row.latestCopyId || null,
+      logicalMessageId: row.logical_message_id || selectedLogical?.id || null,
+    };
+  }, [actionScope]);
 
   const handleQuickArchive = useCallback((row) => {
     runDestructiveAction('Archive', () => conversationApi.archive(row.conversation_id, rowActionOptions(row)), actionScope);
@@ -354,42 +358,40 @@ export default function ConversationList({ params = {}, onOpenMessage }) {
     runOp(() => conversationApi.setStarred(row.conversation_id, !isStarred, rowActionOptions(row)));
   }, [runOp, rowActionOptions]);
 
-  // ── P1-11: Bulk action handlers ───────────────────────────────
-  // Bulk endpoints only accept conversation IDs, so THIS_COPY would otherwise
-  // resolve the backend's global latest copy instead of the copy represented by
-  // each (possibly folder/account-filtered) list row. Preserve row identity by
-  // using the copy-aware single-row endpoint for that scope.
+  // Selector-dependent scopes must use copy-aware single-row calls. The bulk API
+  // intentionally accepts only conversation IDs and therefore cannot represent the
+  // selected folder/account copy or logical message for each row. WHOLE_CONVERSATION
+  // is the only scope whose meaning is independent of the selected physical row.
   const selectedRows = rows.filter(row => selectedIds.has(row.conversation_id));
-  const runBulkAction = useCallback((bulkFn, singleFn) => {
+  const runBulkAction = useCallback((bulkFn) => {
     const ids = selectedRows.map(row => row.conversation_id);
-    if (actionScope !== 'THIS_COPY') return bulkFn(ids, { scope: actionScope });
-    return selectedRows.reduce(
-      (promise, row) => promise.then(() => singleFn(row.conversation_id, {
-        scope: actionScope,
+    const items = selectedRows.map(row => {
+      const selectedLogical = (row.logical_messages || []).find(message => message.latestCopyId === row.latestCopyId);
+      return {
+        conversationId: row.conversation_id,
         copyId: row.latestCopyId || null,
-      })),
-      Promise.resolve(),
-    );
+        logicalMessageId: row.logical_message_id || selectedLogical?.id || null,
+      };
+    });
+    if (actionScope === 'WHOLE_CONVERSATION') return bulkFn(ids, { scope: actionScope, items });
+    return bulkFn(ids, { scope: actionScope, items });
   }, [selectedRows, actionScope]);
 
   const handleBulkArchive = useCallback(() => {
     runDestructiveAction('Archive', () => runBulkAction(
       (ids, options) => conversationApi.bulkArchive(ids, options),
-      (id, options) => conversationApi.archive(id, options),
     ), actionScope);
   }, [runBulkAction, runDestructiveAction, actionScope]);
 
   const handleBulkDelete = useCallback(() => {
     runDestructiveAction('Delete', () => runBulkAction(
       (ids, options) => conversationApi.bulkDelete(ids, options),
-      (id, options) => conversationApi.delete(id, options),
     ), actionScope);
   }, [runBulkAction, runDestructiveAction, actionScope]);
 
   const handleBulkToggleRead = useCallback((makeRead) => {
     runOp(() => runBulkAction(
       (ids, options) => conversationApi.bulkSetRead(ids, makeRead, options),
-      (id, options) => conversationApi.setRead(id, makeRead, options),
     ));
   }, [runBulkAction, runOp]);
 
@@ -398,7 +400,6 @@ export default function ConversationList({ params = {}, onOpenMessage }) {
     if (!targetFolder) return;
     runOp(() => runBulkAction(
       (ids, options) => conversationApi.move(ids, targetFolder.trim(), options),
-      (id, options) => conversationApi.move(id, targetFolder.trim(), options),
     ));
   }, [runBulkAction, runOp, t]);
 
@@ -438,7 +439,8 @@ export default function ConversationList({ params = {}, onOpenMessage }) {
   }, [selectionModeActive, enterSelectionMode, handleRowToggleSelect, handleRangeSelect, rows, toggleExpand]);
 
   // ── P1-11: Mobile long-press to enter selection mode ───────────
-  const handleTouchStart = useCallback((row) => {
+  const handleTouchStart = useCallback((event, row) => {
+    if (isInteractiveSwipeTarget(event.target)) return;
     longPressTriggered.current = false;
     longPressTimer.current = setTimeout(() => {
       longPressTriggered.current = true;
@@ -680,7 +682,7 @@ export default function ConversationList({ params = {}, onOpenMessage }) {
             }}
             onMouseEnter={() => { setHoveredRow(row.conversation_id); }}
             onMouseLeave={() => setHoveredRow(null)}
-            onTouchStart={() => handleTouchStart(row)}
+            onTouchStart={(event) => handleTouchStart(event, row)}
             onTouchEnd={handleTouchEnd}
             onTouchMove={handleTouchEnd}
           >
@@ -698,7 +700,7 @@ export default function ConversationList({ params = {}, onOpenMessage }) {
               onKeyDown={e => {
                 if (e.key === 'Enter' || e.key === ' ') {
                   e.preventDefault();
-                  if (selectionModeActive) handleRowToggleSelect(row);
+                  if (selectionModeActive) handleRowToggleSelect(row.conversation_id, rows);
                   else toggleExpand(row.conversation_id);
                 }
               }}
