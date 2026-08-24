@@ -75,7 +75,7 @@ router.get('/conversations', async (req, res) => {
      LEFT JOIN LATERAL (
        SELECT m.id
          FROM messages m
-        WHERE m.conversation_id = c.id AND m.is_deleted = false ${accountFilter}
+        WHERE m.conversation_id = c.id AND m.is_deleted = false ${accountFilter}${folder ? ` AND m.folder = $${accountId ? 3 : 2}` : ''}
         ORDER BY m.date DESC NULLS LAST, m.id DESC
         LIMIT 1
      ) top_latest ON true
