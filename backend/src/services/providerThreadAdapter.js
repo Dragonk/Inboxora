@@ -10,10 +10,17 @@ export function providerNamespace({ provider, accountId, host }) {
   return [provider || 'generic', accountId || 'unknown-account', host || 'unknown-host'].join(':');
 }
 
+export function classifyProviderHost(host = '') {
+  const value = String(host).toLowerCase();
+  if (value.includes('gmail')) return 'gmail';
+  if (/outlook|office365|microsoft|exchange|hotmail|live\.com/.test(value)) return 'outlook';
+  return 'generic';
+}
+
 export function parseProviderMetadata(msg, account) {
   const attributes = msg?.attributes || msg || {};
   const host = String(account?.imap_host || '').toLowerCase();
-  const provider = host.includes('gmail') ? 'gmail' : host.includes('outlook') || host.includes('office365') || host.includes('microsoft') ? 'outlook' : 'generic';
+  const provider = classifyProviderHost(host);
   // ImapFlow intentionally normalizes OBJECTID and X-GM-MSGID into `emailId`.
   // Keep that value provider-neutral; only the legacy xGm* aliases are explicitly
   // identified as Gmail extensions. This prevents OBJECTID from being mislabeled
@@ -43,9 +50,10 @@ export function parseProviderMetadata(msg, account) {
 
 export function providerFetchQuery(account, base = {}) {
   const host = (account?.imap_host || '').toLowerCase();
+  const provider = classifyProviderHost(host);
   const caps = account?.capabilities || account?.imap_capabilities || [];
   const capabilityText = Array.isArray(caps) ? caps.join(' ').toUpperCase() : String(caps).toUpperCase();
-  const supportsThreadId = host.includes('gmail') || /(?:OBJECTID|THREADID|X-GM-EXT-1)/.test(capabilityText);
+  const supportsThreadId = provider === 'gmail' || /(?:OBJECTID|THREADID|X-GM-EXT-1)/.test(capabilityText);
   return supportsThreadId ? { ...base, headers: true, threadId: true } : { ...base };
 }
 

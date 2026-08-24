@@ -319,7 +319,11 @@ router.post('/send', async (req, res) => {
 
     if (inReplyTo) {
       mailOptions.inReplyTo = sanitizeHeaderValue(inReplyTo);
-      // Use the full prior references chain if available; fall back to just inReplyTo.
+    }
+    // References is valid and useful even when In-Reply-To is absent. Preserve
+    // the complete ordered chain independently so RFC-only References replies
+    // remain attached to the existing Conversation after Sent ingest.
+    if (references || inReplyTo) {
       mailOptions.references = sanitizeHeaderValue(references || inReplyTo);
     }
     const allAttachments = [

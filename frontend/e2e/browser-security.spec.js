@@ -22,7 +22,7 @@ async function openFixtureConversation(page) {
       .replace('https://evil.example.test/b.gif', 'data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///ywAAAAAAQABAAACAUwAOw==')
       .replace("url('https://evil.example.test/css.gif')", 'none');
     return route.fulfill({
-      json: { body_text: 'Security fixture body', body_html: wantsRemote ? allowedBody : hostileHtml },
+      json: { body_text: 'Security fixture body', body_html: wantsRemote ? allowedBody : hostileHtml, hasBlockedRemoteImages: !wantsRemote },
     });
   });
   await page.goto('/?list=1&reader=1');

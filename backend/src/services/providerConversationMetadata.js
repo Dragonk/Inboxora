@@ -1,5 +1,5 @@
 import { normalizeMessageIdList } from './threading/normalizeMessageId.js';
-import { parseProviderMetadata, providerNamespace } from './providerThreadAdapter.js';
+import { normalizeProviderReferences, parseProviderMetadata, providerNamespace } from './providerThreadAdapter.js';
 
 function outlookConversationRoot(value) {
   if (!value) return null;
@@ -36,7 +36,7 @@ export function providerMetadataForMessage(parsed, account) {
     providerThreadId: metadata.providerThreadId || (metadata.provider === 'outlook' ? outlookConversationRoot(threadIndex) : null),
     isStrong: metadata.provider === 'gmail' && metadata.providerThreadId != null,
     source: metadata.providerThreadId ? (metadata.source || 'provider-thread-id') : outlookConversationRoot(threadIndex) ? 'outlook-conversation-index-root' : metadata.source,
-    references: parsed?.references ? metadata.references : [],
+    references: normalizeProviderReferences(parsed?.references || metadata.references || []),
     inReplyTo: normalizeMessageIdList(parsed?.inReplyTo).at(-1) || null,
   };
 }

@@ -370,7 +370,9 @@ export default function ConversationPane({ conversationId, targetLogicalMessageI
         const headersVisible = showHeaders[message.id];
         const imagesEnabled = remoteImagesEnabled[message.id];
         const attachments = (() => {
-          const atts = body?.attachments || copy?.attachments;
+          const bodyAttachments = Array.isArray(body?.attachments) ? body.attachments : [];
+      const copyAttachments = Array.isArray(copy?.attachments) ? copy.attachments : [];
+      const atts = bodyAttachments.length ? bodyAttachments : copyAttachments;
           if (typeof atts === 'string') { try { return JSON.parse(atts); } catch { return []; } }
           return Array.isArray(atts) ? atts : [];
         })();
@@ -512,7 +514,7 @@ export default function ConversationPane({ conversationId, targetLogicalMessageI
                 )}
 
                 {/* Remote images notice + toggle */}
-                {body && !imagesEnabled && (
+                {body?.hasBlockedRemoteImages && !imagesEnabled && (
                   <div style={{
                     display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8,
                     padding: '4px 8px', borderRadius: 4, background: 'var(--bg-tertiary)',

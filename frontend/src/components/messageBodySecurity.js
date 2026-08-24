@@ -35,7 +35,7 @@ export function sanitizeMessageHtml(html = '', { remoteImages = false } = {}) {
 
 export function emailCsp({ remoteImages = false } = {}) {
   return remoteImages
-    ? "default-src 'none'; img-src 'self' data: cid: https: http:; style-src 'unsafe-inline'; media-src 'self' data:"
+    ? "default-src 'none'; img-src 'self' data: cid: https:; style-src 'unsafe-inline'; media-src 'self' data:"
     : "default-src 'none'; img-src 'self' data: cid:; style-src 'unsafe-inline'; media-src 'self' data:";
 }
 

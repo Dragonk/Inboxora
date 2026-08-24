@@ -36,25 +36,61 @@ export default function MessageBodyRenderer({ html = '', text = '', remoteImages
     const iframe = iframeRef.current;
     if (!iframe || !srcDoc) return;
 
-    const onLoaded = () => {
+    const measure = () => {
       try {
         const doc = iframe.contentDocument;
         if (!doc) return;
-        const contentHeight = doc.documentElement?.scrollHeight || doc.body?.scrollHeight || 300;
+        const contentHeight = Math.max(300, doc.documentElement?.scrollHeight || 0, doc.body?.scrollHeight || 0);
         iframe.style.height = contentHeight + 'px';
-        if (onHeightChange) onHeightChange(contentHeight);
-        onLoad?.();
+        onHeightChange?.(contentHeight);
       } catch {
-        onLoad?.();
         // Cross-origin or not yet loaded — leave default height.
       }
     };
-
-    iframe.addEventListener('load', onLoaded, { once: true });
-    if (iframe.contentDocument?.readyState === 'complete') {
-      onLoaded();
-    }
-    return () => iframe.removeEventListener('load', onLoaded);
+    const install = () => {
+      const doc = iframe.contentDocument;
+      if (!doc) return;
+      const images = [...doc.images];
+      const onDocumentClick = (event) => {
+        const anchor = event.target?.closest?.('a');
+        if (!anchor) return;
+        const raw = anchor.getAttribute('href') || '';
+        let url;
+        try { url = new URL(raw, window.location.href); } catch { event.preventDefault(); return; }
+        if (url.protocol === 'http:' || url.protocol === 'https:' || url.protocol === 'mailto:') {
+          event.preventDefault();
+          window.open(url.href, '_blank', 'noopener,noreferrer');
+        } else event.preventDefault();
+      };
+      doc.addEventListener('click', onDocumentClick);
+      for (const image of images) {
+        image.addEventListener('load', measure);
+        image.addEventListener('error', measure);
+      }
+      let observer = null;
+      if (typeof ResizeObserver !== 'undefined' && doc.body) {
+        observer = new ResizeObserver(measure);
+        observer.observe(doc.body);
+      }
+      measure();
+      onLoad?.();
+      return () => {
+        doc.removeEventListener('click', onDocumentClick);
+        for (const image of images) {
+          image.removeEventListener('load', measure);
+          image.removeEventListener('error', measure);
+        }
+        observer?.disconnect();
+      };
+    };
+    let cleanup = null;
+    const onLoaded = () => { cleanup?.(); cleanup = install() || null; };
+    iframe.addEventListener('load', onLoaded);
+    if (iframe.contentDocument?.readyState === 'complete') onLoaded();
+    return () => {
+      cleanup?.();
+      iframe.removeEventListener('load', onLoaded);
+    };
   }, [srcDoc, onHeightChange, onLoad, iframeRef]);
 
   if (!html) return <p style={{ whiteSpace: 'pre-wrap' }}>{text}</p>;
@@ -75,7 +111,7 @@ export default function MessageBodyRenderer({ html = '', text = '', remoteImages
         ...frameStyle,
       }}
       // Prevent the iframe from being a drag/drop target for external content.
-      onDragStart={(e) => e.preventDefault()}
-    />
+      // Prevent the iframe from being a drag/drop target for external content.
+      onDragStart={(e) => e.preventDefault()}    />
   );
 }
