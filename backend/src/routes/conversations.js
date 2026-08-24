@@ -1,7 +1,7 @@
 import { Router } from 'express';
 import { query, pool } from '../services/db.js';
 import { requireAuth } from '../middleware/auth.js';
-import { resolveConversationAlias } from '../services/conversationOverridePolicy.js';
+import { sanitizeEmail, blockRemoteImages, hasRemoteImages } from '../services/emailSanitizer.js';
 import { uuidParam } from '../utils/uuid.js';
 import { applyConversationAction, applyBulkConversationAction } from '../services/conversationActions.js';
 
@@ -165,10 +165,12 @@ router.get('/conversations/:conversationId/logical-messages/:logicalMessageId/bo
        LIMIT 1
     `, [req.params.logicalMessageId, req.session.userId, canonicalId, req.query.copyId || null]);
     if (!result.rows.length) return res.status(404).json({ error: 'Logical message body not found' });
-    // Match the legacy message-body endpoint's remote-image contract. The stored
-    // body remains the same; the flag is explicit so the frontend can distinguish
-    // a privacy-blocked fetch from an opt-in fetch and apply one shared renderer policy.
-    res.json({ ...result.rows[0], remoteImages: req.query.remoteImages === '1' });
+    const remoteImages = req.query.remoteImages === '1';
+    const rawHtml = result.rows[0].body_html;
+    const html = rawHtml && !remoteImages && hasRemoteImages(rawHtml)
+      ? blockRemoteImages(sanitizeEmail(rawHtml))
+      : (rawHtml ? sanitizeEmail(rawHtml) : rawHtml);
+    res.json({ ...result.rows[0], body_html: html, remoteImages, hasBlockedRemoteImages: Boolean(rawHtml && html !== rawHtml) });
   } finally { client.release(); }
 });
 
