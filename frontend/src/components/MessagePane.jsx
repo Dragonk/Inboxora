@@ -12,7 +12,7 @@ import { BUILTIN_SUMMARIZE } from '../aiActions.js';
 import { getResults, saveResult, removeResult } from '../aiResults.js';
 import { renderMarkdown } from '../utils/renderMarkdown.js';
 import { pickReplyAlias } from '../utils/replyAlias.js';
-import { sanitizeMessageHtml } from './MessageBodyRenderer.jsx';
+import { sanitizeMessageHtml, emailCsp, EMAIL_BASE_TAG } from './MessageBodyRenderer.jsx';
 const USE_DIV_RENDER = import.meta.env.VITE_EMAIL_DIV_RENDER === 'true';
 const MESSAGE_OPENING_EVENT = 'mailflow:message-opening';
 
@@ -2813,8 +2813,8 @@ ${bodyContent}
                 srcDoc={`<!DOCTYPE html><html><head><meta charset="utf-8">
                 <meta name="viewport" content="width=device-width,initial-scale=1">
                 <meta name="color-scheme" content="only light">
-                <meta http-equiv="Content-Security-Policy" content="script-src 'none'; object-src 'none'; frame-src 'none'; form-action 'none'; style-src 'unsafe-inline';">
-                <base target="_blank">
+                <meta http-equiv="Content-Security-Policy" content="${emailCsp({ remoteImages: !blockRemoteImages })}">
+                ${EMAIL_BASE_TAG}
               </head><body><div id="mf-scale-wrapper">${
                 renderableHtml.replace(/<a(\s)/gi, '<a rel="noopener noreferrer"$1')
               }</div><style>
@@ -2848,7 +2848,7 @@ ${bodyContent}
                 </style></body></html>`}
                 scrolling="no"
                 style={{ width: '1px', minWidth: '100%', border: 'none', display: 'block', height: '300px' }}
-                sandbox="allow-same-origin allow-popups allow-popups-to-escape-sandbox"
+                sandbox="allow-same-origin"
                 title={t('message.emailFrameTitle')}
               />
             )}

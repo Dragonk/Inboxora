@@ -203,7 +203,12 @@ export default function ConversationList({ params = {}, onOpenMessage }) {
   const [modal, setModal] = useState(null);
   const [opsError, setOpsError] = useState(null);
   const [opsBusy, setOpsBusy] = useState(false);
-  const [focusedIndex, setFocusedIndex] = useState(-1);
+  // P1-08/09: keyboard focus is independent from mouse hover.
+  // j/k/ArrowUp/ArrowDown change keyboardFocusedIndex only.
+  // Mouse hover changes hoveredRow only.
+  // Neither affects the other — the keyboard navigation origin is never
+  // changed by mouse movement.
+  const [keyboardFocusedIndex, setKeyboardFocusedIndex] = useState(-1);
   // P1-10: default scope for destructive actions — explicit, never whole conversation
   const [actionScope, setActionScope] = useState('THIS_COPY');
   // P1-11: multi-select state via shared hook
@@ -212,11 +217,12 @@ export default function ConversationList({ params = {}, onOpenMessage }) {
     clearSelection, enterSelectionMode, handleRowToggleSelect, handleRangeSelect,
     selectAll,
   } = useSelection(row => row.conversation_id);
-  // P1-12: hover actions — track hovered row
+  // P1-12: hover actions — track hovered row (mouse only, does NOT change keyboard focus)
   const [hoveredRow, setHoveredRow] = useState(null);
   // P1-11: long-press timer for mobile
   const longPressTimer = useRef(null);
   const listRef = useRef(null);
+  // P1-11: context menu positioning ref (for viewport flip/clamp)
 
   const paramsKey = JSON.stringify(params);
 
@@ -452,13 +458,13 @@ export default function ConversationList({ params = {}, onOpenMessage }) {
     if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA') return;
     if (e.key === 'j' || e.key === 'ArrowDown') {
       e.preventDefault();
-      setFocusedIndex(prev => Math.min(prev + 1, rows.length - 1));
+      setKeyboardFocusedIndex(prev => Math.min(prev + 1, rows.length - 1));
     } else if (e.key === 'k' || e.key === 'ArrowUp') {
       e.preventDefault();
-      setFocusedIndex(prev => Math.max(prev - 1, 0));
-    } else if (e.key === 'Enter' && focusedIndex >= 0) {
+      setKeyboardFocusedIndex(prev => Math.max(prev - 1, 0));
+    } else if (e.key === 'Enter' && keyboardFocusedIndex >= 0) {
       e.preventDefault();
-      const row = rows[focusedIndex];
+      const row = rows[keyboardFocusedIndex];
       if (row) toggleExpand(row.conversation_id);
     } else if (e.key === 'Escape') {
       if (selectionModeActive) {
@@ -473,15 +479,15 @@ export default function ConversationList({ params = {}, onOpenMessage }) {
       selectAll(rows);
       setSelectionModeActive(true);
     }
-  }, [rows, focusedIndex, toggleExpand, selectionModeActive, clearSelection, selectAll, setSelectionModeActive]);
+  }, [rows, keyboardFocusedIndex, toggleExpand, selectionModeActive, clearSelection, selectAll, setSelectionModeActive]);
 
   // Scroll focused row into view
   useEffect(() => {
-    if (focusedIndex >= 0 && listRef.current) {
+    if (keyboardFocusedIndex >= 0 && listRef.current) {
       const items = listRef.current.querySelectorAll('[role="listitem"]');
-      items[focusedIndex]?.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
+      items[keyboardFocusedIndex]?.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
     }
-  }, [focusedIndex]);
+  }, [keyboardFocusedIndex]);
 
   if (error) {
     return <div role="alert" style={{ padding: 16, color: 'var(--text-danger)' }}>{error}</div>;
@@ -594,7 +600,7 @@ export default function ConversationList({ params = {}, onOpenMessage }) {
         const messages = row.logical_messages || [];
         const latestMessage = messages[messages.length - 1];
         const latestSnippet = latestMessage?.snippet || '';
-        const isFocused = focusedIndex === rowIndex;
+        const isFocused = keyboardFocusedIndex === rowIndex;
         const isSelected = selectedIds.has(row.conversation_id);
         // P1-13: logical_message_count from the API
         const logicalCount = row.logical_message_count || messages.length || 0;
@@ -612,7 +618,7 @@ export default function ConversationList({ params = {}, onOpenMessage }) {
                 : (isOpen ? 'var(--bg-secondary)' : (isFocused ? 'var(--bg-tertiary)' : 'transparent')),
               position: 'relative',
             }}
-            onMouseEnter={() => { setFocusedIndex(rowIndex); setHoveredRow(row.conversation_id); }}
+            onMouseEnter={() => { setHoveredRow(row.conversation_id); }}
             onMouseLeave={() => setHoveredRow(null)}
             onTouchStart={() => handleTouchStart(row)}
             onTouchEnd={handleTouchEnd}

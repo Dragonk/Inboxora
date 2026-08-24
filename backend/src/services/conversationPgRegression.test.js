@@ -224,4 +224,53 @@ describeOrSkip('CE v2 PostgreSQL regression tests', () => {
       expect(checksum2).toBe(checksum3);
     }, 60000);
   });
+
+  // ── F. Performance with EXPLAIN ANALYZE ─────────────────────────────────────
+  describe('F. Performance — real EXPLAIN on hot queries', () => {
+    it('conversation list query uses index, not seq scan, at 10k+ scale', async () => {
+      // Seed 10k physical copies across 100 conversations
+      const batchSize = 500;
+      for (let batch = 0; batch < 20; batch++) {
+        const values = [];
+        for (let i = 0; i < batchSize; i++) {
+          const idx = batch * batchSize + i;
+          values.push(`($1, ${idx + 1000}, 'INBOX', '<perf-${idx}@test>', 'Perf ${idx}', 'sender@test', '[]'::jsonb, NOW() - (${$batch} || ' hours')::interval)`);
+        }
+        await query(`INSERT INTO messages (account_id, uid, folder, message_id, subject, from_email, to_addresses, date) VALUES ${values.map(v => v.replace('$1', '$1')).join(',')}`, [TEST_ACCOUNT_ID]);
+      }
+      await rebuildConversationCopies({ userId: TEST_USER_ID, accountId: TEST_ACCOUNT_ID, limit: 500, dryRun: false, force: true });
+
+      // EXPLAIN ANALYZE the conversation list query
+      const plan = await query(`
+        EXPLAIN (ANALYZE, BUFFERS, FORMAT JSON)
+        SELECT c.id, c.subject_snapshot, c.logical_message_count, c.unread_count
+          FROM conversations c
+         WHERE c.user_id = $1
+         ORDER BY c.last_message_at DESC NULLS LAST
+         LIMIT 50
+      `, [TEST_USER_ID]);
+      const planData = plan.rows[0]['QUERY PLAN'];
+      const planStr = JSON.stringify(planData);
+      // Must NOT use Seq Scan on conversations for this hot path
+      expect(planStr).not.toContain('Seq Scan on conversations');
+      // Must use an index
+      expect(planStr).toContain('Index Scan');
+    }, 120000);
+
+    it('message lookup by logical_message_id uses index, not seq scan', async () => {
+      const plan = await query(`
+        EXPLAIN (ANALYZE, BUFFERS, FORMAT JSON)
+        SELECT m.id, m.subject, m.is_read, m.is_starred
+          FROM messages m
+         WHERE m.conversation_id = (SELECT id FROM conversations WHERE user_id = $1 LIMIT 1)
+           AND m.is_deleted = false
+         ORDER BY m.date DESC
+         LIMIT 50
+      `, [TEST_USER_ID]);
+      const planData = plan.rows[0]['QUERY PLAN'];
+      const planStr = JSON.stringify(planData);
+      // Must NOT use Seq Scan on messages for this hot path
+      expect(planStr).not.toContain('Seq Scan on messages');
+    }, 60000);
+  });
 });

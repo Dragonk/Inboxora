@@ -37,16 +37,28 @@ export function sanitizeMessageHtml(html = '', { remoteImages = false } = {}) {
     .replace(/url\s*\(\s*["']?\/\/[^)]+\)/gi, 'none');
 }
 
+// P1-13/14: Shared CSP + <base> security primitives — used by both
+// MessageBodyRenderer (ConversationPane) and MessagePane's inline iframe
+// so both have an IDENTICAL security model: default-src 'none', explicit
+// img-src (self/data/cid only before Load Images), and <base> with
+// rel="noopener noreferrer".
+export function emailCsp({ remoteImages = false } = {}) {
+  return remoteImages
+    ? "default-src 'none'; img-src 'self' data: cid: https: http:; style-src 'unsafe-inline'; media-src 'self' data:"
+    : "default-src 'none'; img-src 'self' data: cid:; style-src 'unsafe-inline'; media-src 'self' data:";
+}
+
+// The <base> tag ensures all links open in a new tab with noopener+noreferrer.
+export const EMAIL_BASE_TAG = '<base target="_blank" rel="noopener noreferrer">';
+
 // Build the full HTML document for the sandboxed iframe srcDoc.
 // Injects a CSP meta tag, overflow:hidden, and a <base target="_blank">
 // so all links open in a new tab (with rel=noopener noreferrer).
-function buildSrcDoc(html, { remoteImages = false } = {}) {
-  const csp = remoteImages
-    ? "default-src 'none'; img-src 'self' data: cid: https: http:; style-src 'unsafe-inline'; media-src 'self' data:"
-    : "default-src 'none'; img-src 'self' data: cid:; style-src 'unsafe-inline'; media-src 'self' data:";
+export function buildSrcDoc(html, { remoteImages = false } = {}) {
+  const csp = emailCsp({ remoteImages });
   return `<!DOCTYPE html><html><head><meta charset="utf-8">
 <meta http-equiv="Content-Security-Policy" content="${csp}">
-<base target="_blank" rel="noopener noreferrer">
+${EMAIL_BASE_TAG}
 <style>
   html { overflow: hidden; }
   body { overflow: hidden; margin: 0; padding: 8px; word-wrap: break-word; overflow-wrap: break-word; }
