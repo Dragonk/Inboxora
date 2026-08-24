@@ -192,7 +192,7 @@ export async function _upsertConversationCopyWithClient(client, copy, { identiti
         UNION ALL
         SELECT lm.id, component.path || lm.id FROM logical_messages lm JOIN component ON lm.parent_logical_message_id = component.id
          WHERE lm.user_id = $2 AND NOT lm.id = ANY(component.path)
-      ) SELECT lm.id, lm.conversation_id, c.manually_locked FROM logical_messages lm JOIN component ON component.id = lm.id LEFT JOIN conversations c ON c.id = lm.conversation_id FOR UPDATE`, [reference.child_logical_message_id, hydrated.userId]);
+      ) SELECT lm.id, lm.conversation_id, c.manually_locked FROM logical_messages lm JOIN component ON component.id = lm.id LEFT JOIN conversations c ON c.id = lm.conversation_id`, [reference.child_logical_message_id, hydrated.userId]);
       let blockedMove = false;
       const oldConversationIds = new Set();
       for (const node of component.rows) {

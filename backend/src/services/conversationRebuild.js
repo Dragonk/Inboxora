@@ -14,6 +14,8 @@ function cursorPredicate(values, checkpoint) {
   const lastIsNull = checkpoint.last_sort_is_null ?? checkpoint.isNull ?? false;
   const lastDate = checkpoint.last_message_date ?? checkpoint.date ?? null;
   const lastId = checkpoint.last_message_id ?? checkpoint.id;
+  // Cast parameter types explicitly so PostgreSQL can infer them even when
+  // the value is NULL (otherwise 'could not determine data type of parameter $N').
   const next = [...values, lastIsNull, lastDate, lastId];
   const base = next.length - 2;
   const predicate = lastIsNull
