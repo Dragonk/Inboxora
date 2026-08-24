@@ -546,24 +546,27 @@ export default function ConversationPane({ conversationId, targetLogicalMessageI
                       const filename = att.filename || att.name || att.part || 'attachment';
                       const part = att.part || att.partId || i;
                       const downloadUrl = body?.physical_copy_id
-                        ? `/api/mail/messages/${body.physical_copy_id}/attachments/${part}`
+                        ? `/api/mail/messages/${encodeURIComponent(body.physical_copy_id)}/attachments/${encodeURIComponent(String(part))}`
                         : null;
-                      return (
+                      const attachmentProps = {
+                        key: i,
+                        style: {
+                          display: 'inline-flex', alignItems: 'center', gap: 4,
+                          padding: '2px 8px', border: '1px solid var(--border)',
+                          borderRadius: 4, marginRight: 4, marginBottom: 4,
+                          textDecoration: 'none', color: 'var(--accent)',
+                          cursor: downloadUrl ? 'pointer' : 'default',
+                        },
+                      };
+                      const attachmentLabel = <>📎 {filename}{att.size && <span style={{ fontSize: 10, color: 'var(--text-tertiary)' }}> ({Math.round(att.size / 1024)}KB)</span>}</>;
+                      return downloadUrl ? (
                         <a
-                          key={i}
-                          href={downloadUrl || '#'}
+                          {...attachmentProps}
+                          href={downloadUrl}
                           download={filename}
-                          style={{
-                            display: 'inline-flex', alignItems: 'center', gap: 4,
-                            padding: '2px 8px', border: '1px solid var(--border)',
-                            borderRadius: 4, marginRight: 4, marginBottom: 4,
-                            textDecoration: 'none', color: 'var(--accent)',
-                            cursor: downloadUrl ? 'pointer' : 'default',
-                          }}
-                        >
-                          📎 {filename}
-                          {att.size && <span style={{ fontSize: 10, color: 'var(--text-tertiary)' }}> ({Math.round(att.size / 1024)}KB)</span>}
-                        </a>
+                        >{attachmentLabel}</a>
+                      ) : (
+                        <span {...attachmentProps}>{attachmentLabel}</span>
                       );
                     })}
                   </div>

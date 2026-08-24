@@ -105,7 +105,7 @@ export default function MailApp() {
 
   const replyFromConversation = useCallback(copy => {
     if (!copy) return;
-    const physical = { ...copy, id: copy.id, account_id: copy.accountId, message_id: copy.messageId || copy.canonicalMessageId, subject: copy.subject, from_email: copy.fromEmail, from_name: copy.fromName, to_addresses: copy.to || [], cc_addresses: copy.cc || [], reply_to: copy.replyTo || [], in_reply_to: copy.inReplyTo || null, thread_references: copy.references || null, date: copy.date };
+    const physical = { ...copy, id: copy.id, account_id: copy.accountId, message_id: copy.messageId || copy.canonicalMessageId, subject: copy.subject, from_email: copy.fromEmail, from_name: copy.fromName, to_addresses: copy.to || [], cc_addresses: copy.cc || [], reply_to: copy.replyTo || [], in_reply_to: copy.inReplyTo || null, thread_references: copy.references || null, delivery_addresses: copy.deliveryAddresses || [], date: copy.date };
     const account = accounts.find(item => item.id === physical.account_id);
     if (copy.forward) return openForwardFromMessage(physical, { openCompose, getMessageBody: api.getMessageBody });
     return openReplyFromMessage(physical, { accounts: account ? [account] : accounts, openCompose, getMessageBody: api.getMessageBody, replyAll: Boolean(copy.replyAll) });

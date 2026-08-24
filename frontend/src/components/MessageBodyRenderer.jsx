@@ -6,7 +6,11 @@ import DOMPurify from 'dompurify';
 // security model.
 export const EMAIL_SANITIZE_POLICY = {
   ADD_ATTR: ['target'],
-  FORBID_TAGS: ['script', 'iframe', 'object', 'embed', 'form', 'video', 'audio', 'source', 'track'],
+  // Email CSS is untrusted and must not be injected into the sandbox document:
+  // CSS can trigger remote fetches via url()/@import and has historically been a
+  // source of layout/CSS exfiltration surprises. The renderer supplies its own
+  // constrained stylesheet below.
+  FORBID_TAGS: ['script', 'iframe', 'object', 'embed', 'form', 'video', 'audio', 'source', 'track', 'style'],
   FORBID_ATTR: ['onerror', 'onload', 'onclick', 'onmouseover', 'srcset', 'style'],
 };
 
@@ -129,6 +133,7 @@ export default function MessageBodyRenderer({ html = '', text = '', remoteImages
       ref={iframeRef}
       srcDoc={srcDoc}
       sandbox="allow-same-origin"
+      loading="lazy"
       style={{
         width: '100%',
         height: '300px',

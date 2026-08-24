@@ -126,7 +126,8 @@ router.get('/conversations/:id', async (req, res) => {
                'snippet', m.snippet, 'replyTo', m.reply_to, 'inReplyTo', m.in_reply_to, 'references', m.thread_references, 'attachments', m.attachments,
                'isRead', m.is_read, 'isStarred', m.is_starred,
                'providerMessageId', m.provider_message_id, 'providerThreadId', m.provider_thread_id,
-               'providerNamespace', m.provider_namespace
+               'providerNamespace', m.provider_namespace,
+               'deliveryAddresses', m.delivery_addresses
              ) ORDER BY m.date ASC NULLS LAST, m.id) FILTER (WHERE m.id IS NOT NULL), '[]'::jsonb) AS copies
         FROM conversations c
         LEFT JOIN logical_messages lm ON lm.conversation_id = c.id
