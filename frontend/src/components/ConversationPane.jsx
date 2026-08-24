@@ -130,14 +130,14 @@ export default function ConversationPane({ conversationId, targetLogicalMessageI
   const logicalMessagesRef = useRef([]);
   const containerRef = useRef(null);
 
-  const loadBody = useCallback(async (logicalId, force = false) => {
+  const loadBody = useCallback(async (logicalId, force = false, remoteImages = false) => {
     if (!force && (bodiesRef.current[logicalId] || inFlight.current.has(logicalId))) return;
     const controller = new AbortController();
     inFlight.current.set(logicalId, controller);
     setBodyStatus(prev => ({ ...prev, [logicalId]: { loading: true, error: null } }));
     try {
       const copyId = logicalMessagesRef.current.find(message => message.id === logicalId)?.copies?.slice().sort((a, b) => String(b.date || '').localeCompare(String(a.date || '')) || Number(Boolean(a.isRead)) - Number(Boolean(b.isRead)))[0]?.id || null;
-      const body = await conversationApi.body(conversationId, logicalId, controller.signal, copyId);
+      const body = await conversationApi.body(conversationId, logicalId, controller.signal, copyId, remoteImages);
       bodiesRef.current[logicalId] = body;
       setBodies(prev => ({ ...prev, [logicalId]: body }));
       setBodyStatus(prev => ({ ...prev, [logicalId]: { loading: false, error: null } }));
@@ -521,7 +521,12 @@ export default function ConversationPane({ conversationId, targetLogicalMessageI
                     <span>{t('conversation.imagesBlocked')}</span>
                     <button
                       type="button"
-                      onClick={() => setRemoteImagesEnabled(prev => ({ ...prev, [message.id]: true }))}
+                      onClick={() => {
+                        setRemoteImagesEnabled(prev => ({ ...prev, [message.id]: true }));
+                        delete bodiesRef.current[message.id];
+                        setBodies(prev => { const next = { ...prev }; delete next[message.id]; return next; });
+                        loadBody(message.id, true, true).catch(() => {});
+                      }}
                       style={{
                         border: '1px solid var(--border)', borderRadius: 4, padding: '2px 8px',
                         background: 'transparent', cursor: 'pointer', fontSize: 12,

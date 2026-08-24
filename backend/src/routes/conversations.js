@@ -165,7 +165,10 @@ router.get('/conversations/:conversationId/logical-messages/:logicalMessageId/bo
        LIMIT 1
     `, [req.params.logicalMessageId, req.session.userId, canonicalId, req.query.copyId || null]);
     if (!result.rows.length) return res.status(404).json({ error: 'Logical message body not found' });
-    res.json(result.rows[0]);
+    // Match the legacy message-body endpoint's remote-image contract. The stored
+    // body remains the same; the flag is explicit so the frontend can distinguish
+    // a privacy-blocked fetch from an opt-in fetch and apply one shared renderer policy.
+    res.json({ ...result.rows[0], remoteImages: req.query.remoteImages === '1' });
   } finally { client.release(); }
 });
 

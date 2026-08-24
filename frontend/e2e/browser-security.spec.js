@@ -14,9 +14,17 @@ const hostileHtml = `
 `;
 
 async function openFixtureConversation(page) {
-  await page.route('**/api/mail/conversations/*/logical-messages/*/body**', route => route.fulfill({
-    json: { body_text: 'Security fixture body', body_html: hostileHtml },
-  }));
+  await page.route('**/api/mail/conversations/*/logical-messages/*/body**', route => {
+    const wantsRemote = new URL(route.request().url()).searchParams.get('remoteImages') === '1';
+    const allowedBody = hostileHtml
+      .replace('https://evil.example.test/http.gif', 'data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///ywAAAAAAQABAAACAUwAOw==')
+      .replace('//evil.example.test/protocol.gif', 'data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///ywAAAAAAQABAAACAUwAOw==')
+      .replace('https://evil.example.test/b.gif', 'data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///ywAAAAAAQABAAACAUwAOw==')
+      .replace("url('https://evil.example.test/css.gif')", 'none');
+    return route.fulfill({
+      json: { body_text: 'Security fixture body', body_html: wantsRemote ? allowedBody : hostileHtml },
+    });
+  });
   await page.goto('/?list=1&reader=1');
   const list = page.locator('[role="list"]:visible').first();
   await expect(list.getByRole('button', { name: /Rozwiń rozmowę: Gmail reply chain|Expand conversation: Gmail reply chain/i })).toBeVisible();

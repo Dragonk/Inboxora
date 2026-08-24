@@ -25,9 +25,12 @@ export const conversationApi = {
 
   detail: (conversationId) => apiFetch(`/conversations/${conversationId}`),
 
-  body: (conversationId, logicalMessageId, signal, copyId = null) => {
-    const qs = copyId ? `?copyId=${encodeURIComponent(copyId)}` : '';
-    return apiFetch(`/conversations/${conversationId}/logical-messages/${logicalMessageId}/body${qs}`, { signal });
+  body: (conversationId, logicalMessageId, signal, copyId = null, remoteImages = false) => {
+    const qs = new URLSearchParams();
+    if (copyId) qs.set('copyId', copyId);
+    if (remoteImages) qs.set('remoteImages', '1');
+    const query = qs.toString() ? `?${qs.toString()}` : '';
+    return apiFetch(`/conversations/${conversationId}/logical-messages/${logicalMessageId}/body${query}`, { signal });
   },
 
   resolveMessage: (messageId) => apiFetch(`/messages/${messageId}/conversation`),
