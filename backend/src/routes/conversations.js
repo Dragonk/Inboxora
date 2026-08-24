@@ -3,6 +3,7 @@ import { query, pool } from '../services/db.js';
 import { requireAuth } from '../middleware/auth.js';
 import { resolveConversationAlias } from '../services/conversationOverridePolicy.js';
 import { uuidParam } from '../utils/uuid.js';
+import { applyConversationAction, applyBulkConversationAction } from '../services/conversationActions.js';
 
 const router = Router();
 router.use(requireAuth);
@@ -175,6 +176,50 @@ router.get('/messages/:id/conversation', async (req, res) => {
   `, [req.params.id, req.session.userId]);
   if (!result.rows.length || !result.rows[0].conversation_id) return res.status(404).json({ error: 'Conversation not found' });
   res.json(result.rows[0]);
+});
+
+// ── Copy-aware actions ─────────────────────────────────────────────────────────
+// These routes are deliberately separate from legacy /messages/bulk-* routes.
+// Every CE action requires an explicit scope and is tenant-scoped by session user.
+
+async function runAction(req, res, action, extra = {}) {
+  try {
+    const result = await applyConversationAction({
+      userId: req.session.userId,
+      conversationId: req.params.id,
+      scope: req.body?.scope || 'THIS_COPY',
+      copyId: req.body?.copyId || null,
+      logicalMessageId: req.body?.logicalMessageId || null,
+      action,
+      ...extra,
+    });
+    res.json(result);
+  } catch (err) {
+    res.status(err.statusCode || 400).json({ error: err.message });
+  }
+}
+
+router.post('/conversations/:id/archive', (req, res) => runAction(req, res, 'archive'));
+router.post('/conversations/:id/delete', (req, res) => runAction(req, res, 'delete'));
+router.post('/conversations/:id/move', (req, res) => runAction(req, res, 'move', { targetFolder: req.body?.targetFolder }));
+router.post('/conversations/:id/read', (req, res) => runAction(req, res, 'read', { isRead: req.body?.isRead }));
+router.post('/conversations/:id/star', (req, res) => runAction(req, res, 'star', { isStarred: req.body?.isStarred }));
+
+router.post('/conversations/bulk-archive', async (req, res) => {
+  try { res.json(await applyBulkConversationAction({ userId: req.session.userId, conversationIds: req.body?.conversationIds, scope: req.body?.scope || 'THIS_COPY', action: 'archive' })); }
+  catch (err) { res.status(err.statusCode || 400).json({ error: err.message }); }
+});
+router.post('/conversations/bulk-delete', async (req, res) => {
+  try { res.json(await applyBulkConversationAction({ userId: req.session.userId, conversationIds: req.body?.conversationIds, scope: req.body?.scope || 'THIS_COPY', action: 'delete' })); }
+  catch (err) { res.status(err.statusCode || 400).json({ error: err.message }); }
+});
+router.post('/conversations/bulk-read', async (req, res) => {
+  try { res.json(await applyBulkConversationAction({ userId: req.session.userId, conversationIds: req.body?.conversationIds, scope: req.body?.scope || 'THIS_COPY', action: 'read', isRead: req.body?.isRead })); }
+  catch (err) { res.status(err.statusCode || 400).json({ error: err.message }); }
+});
+router.post('/conversations/bulk-move', async (req, res) => {
+  try { res.json(await applyBulkConversationAction({ userId: req.session.userId, conversationIds: req.body?.conversationIds, scope: req.body?.scope || 'THIS_COPY', action: 'move', targetFolder: req.body?.targetFolder })); }
+  catch (err) { res.status(err.statusCode || 400).json({ error: err.message }); }
 });
 
 export default router;

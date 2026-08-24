@@ -38,11 +38,13 @@ export const conversationApi = {
       body: JSON.stringify({ scope }),
     }),
 
-  move: (conversationId, targetFolder, { scope = 'THIS_COPY' } = {}) =>
-    apiFetch(`/conversations/${conversationId}/move`, {
+  move: (conversationId, targetFolder, { scope = 'THIS_COPY' } = {}) => {
+    const ids = Array.isArray(conversationId) ? conversationId : null;
+    return apiFetch(ids ? '/conversations/bulk-move' : `/conversations/${conversationId}/move`, {
       method: 'POST',
-      body: JSON.stringify({ targetFolder, scope }),
-    }),
+      body: JSON.stringify(ids ? { conversationIds: ids, targetFolder, scope } : { targetFolder, scope }),
+    });
+  },
 
   delete: (conversationId, { scope = 'THIS_COPY' } = {}) =>
     apiFetch(`/conversations/${conversationId}/delete`, {
