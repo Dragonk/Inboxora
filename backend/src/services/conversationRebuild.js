@@ -82,10 +82,13 @@ export async function rebuildConversationCopies({ userId, accountId = null, limi
   if (!userId) throw new Error('userId is required');
   const safeLimit = Math.min(Math.max(Number(limit) || 100, 1), 500);
   const scope = scopeId(accountId);
+  // P2-04: Use two-int32 advisory lock key to avoid int32 hash collision.
+  // hashtext returns int32 (collision risk); using (hashtext, hashtextextended)
+  // as two separate int32s gives a 64-bit key with negligible collision risk.
   const lockKey = `conversation-rebuild:${userId}:${scope}`;
   const client = await pool.connect();
   try {
-    await client.query('SELECT pg_advisory_lock(hashtext($1))', [lockKey]);
+    await client.query('SELECT pg_advisory_lock(hashtext($1), hashtext($1 || \'\x\'))', [lockKey]);
     const result = await client.query(`SELECT * FROM conversation_rebuild_checkpoints WHERE user_id = $1 AND scope_account_id = $2`, [userId, scope]);
     const checkpoint = result.rows[0] || null;
     if (!dryRun && checkpoint?.status === 'complete' && !force && !cursor) return { scanned: 0, updated: 0, wouldChange: 0, complete: true, next: null, dryRun: false };
@@ -156,7 +159,7 @@ export async function rebuildConversationCopies({ userId, accountId = null, limi
 
     return { scanned: rows.rows.length, updated, wouldChange: dryRun ? wouldChange : updated, changed: updated, complete, next: complete ? null : { date: last?.date || null, id: last?.id, isNull: last?.date === null }, dryRun, batches: 1, totalScanned: rows.rows.length, totalUpdated: updated };
   } finally {
-    await client.query('SELECT pg_advisory_unlock(hashtext($1))', [lockKey]).catch(() => {});
+    await client.query('SELECT pg_advisory_unlock(hashtext($1), hashtext($1 || \'\x\'))', [lockKey]).catch(() => {});
     client.release();
   }
 }

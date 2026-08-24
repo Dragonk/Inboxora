@@ -36,7 +36,15 @@ export async function withTransaction(fn, { serializable = false, retries = 2 } 
       await client.query('COMMIT');
       return result;
     } catch (err) {
-      await client.query('ROLLBACK');
+      // P2-02: Don't let a failed ROLLBACK mask the original error.
+      try {
+        await client.query('ROLLBACK');
+      } catch (rollbackErr) {
+        // ROLLBACK failed — the client is in an indeterminate state.
+        // Log the rollback error but throw the original error so the caller
+        // sees what actually went wrong, not the secondary ROLLBACK failure.
+        console.warn('ROLLBACK failed (original error preserved):', rollbackErr.message);
+      }
       if (serializable && err.code === '40001' && attempt < retries) continue;
       throw err;
     } finally {
