@@ -501,6 +501,14 @@ export const useStore = create((set, get) => ({
   // Conversation Engine v2 feature flags
   conversationListViewEnabled: false,
   conversationReaderViewEnabled: false,
+  setConversationListViewEnabled: (val) => {
+    set({ conversationListViewEnabled: val });
+    schedulePrefSave({ conversation_list_view_enabled: val });
+  },
+  setConversationReaderViewEnabled: (val) => {
+    set({ conversationReaderViewEnabled: val });
+    schedulePrefSave({ conversation_reader_view_enabled: val });
+  },
 
   // Threaded view
   threadedView: localStorage.getItem('mailflow_threaded_view') === 'true',

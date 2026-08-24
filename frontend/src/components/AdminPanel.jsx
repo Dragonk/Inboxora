@@ -1517,7 +1517,7 @@ function SwipeActionIcon({ action, size = 17 }) {
 function LayoutsTab() {
   const { t } = useTranslation();
   const isMobile = useMobile();
-  const { layout, setLayout, pageSize, setPageSize, scrollMode, setScrollMode, swipeActions, setSwipeAction, syncInterval, setSyncInterval, folderSyncInterval, setFolderSyncInterval, threadedView, setThreadedView, plaintextEmail, setPlaintextEmail, hoverQuickActions, setHoverQuickActions, showMobileAvatars, setShowMobileAvatars, gravatarAvatars, setGravatarAvatars, replyDefault, setReplyDefault, markReadBehavior, setMarkReadBehavior, markReadDelay, setMarkReadDelay, senderFavicons, senderFaviconsSaving, setSenderFavicons, showMessagePreviews, setShowMessagePreviews } = useStore();
+  const { layout, setLayout, pageSize, setPageSize, scrollMode, setScrollMode, swipeActions, setSwipeAction, syncInterval, setSyncInterval, folderSyncInterval, setFolderSyncInterval, threadedView, setThreadedView, plaintextEmail, setPlaintextEmail, hoverQuickActions, setHoverQuickActions, showMobileAvatars, setShowMobileAvatars, gravatarAvatars, setGravatarAvatars, replyDefault, setReplyDefault, markReadBehavior, setMarkReadBehavior, markReadDelay, setMarkReadDelay, senderFavicons, senderFaviconsSaving, setSenderFavicons, showMessagePreviews, setShowMessagePreviews, conversationListViewEnabled, setConversationListViewEnabled, conversationReaderViewEnabled, setConversationReaderViewEnabled } = useStore();
   const [senderFaviconsError, setSenderFaviconsError] = useState('');
 
   // "Set MailFlow as your default email app": registerProtocolHandler is the
@@ -1999,6 +1999,52 @@ function LayoutsTab() {
               </button>
             );
           })}
+        </div>
+      </div>
+
+      {/* Conversation Engine v2 — independent 2×2 matrix */}
+      <div style={{ marginTop: 20, paddingTop: 16, borderTop: '1px solid var(--border-subtle)' }}>
+        <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--text-primary)', marginBottom: 4 }}>
+          {t('conversation.groupIntoConversations')}
+        </div>
+        <div style={{ fontSize: 11, color: 'var(--text-tertiary)', marginBottom: 10 }}>
+          {t('conversation.conversationReader')}
+        </div>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+          <button
+            type="button"
+            onClick={() => setConversationListViewEnabled(!conversationListViewEnabled)}
+            style={{
+              display: 'flex', alignItems: 'center', gap: 8, padding: '8px 12px',
+              textAlign: 'left', cursor: 'pointer',
+              background: conversationListViewEnabled ? 'var(--bg-hover)' : 'var(--bg-tertiary)',
+              border: `2px solid ${conversationListViewEnabled ? 'var(--accent)' : 'var(--border-subtle)'}`,
+              borderRadius: 8, transition: 'all 0.15s',
+            }}
+          >
+            <span style={{ fontSize: 14 }}>{conversationListViewEnabled ? '✓' : '○'}</span>
+            <div>
+              <div style={{ fontSize: 12, fontWeight: 500, color: 'var(--text-primary)' }}>{t('conversation.groupIntoConversations')}</div>
+              <div style={{ fontSize: 11, color: 'var(--text-tertiary)' }}>{t('admin.messageList.threadingOnDesc')}</div>
+            </div>
+          </button>
+          <button
+            type="button"
+            onClick={() => setConversationReaderViewEnabled(!conversationReaderViewEnabled)}
+            style={{
+              display: 'flex', alignItems: 'center', gap: 8, padding: '8px 12px',
+              textAlign: 'left', cursor: 'pointer',
+              background: conversationReaderViewEnabled ? 'var(--bg-hover)' : 'var(--bg-tertiary)',
+              border: `2px solid ${conversationReaderViewEnabled ? 'var(--accent)' : 'var(--border-subtle)'}`,
+              borderRadius: 8, transition: 'all 0.15s',
+            }}
+          >
+            <span style={{ fontSize: 14 }}>{conversationReaderViewEnabled ? '✓' : '○'}</span>
+            <div>
+              <div style={{ fontSize: 12, fontWeight: 500, color: 'var(--text-primary)' }}>{t('conversation.conversationReader')}</div>
+              <div style={{ fontSize: 11, color: 'var(--text-tertiary)' }}>{t('conversation.conversationReader')}</div>
+            </div>
+          </button>
         </div>
       </div>
 
