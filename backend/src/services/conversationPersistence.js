@@ -85,20 +85,21 @@ async function findParentLogical(client, hydrated) {
 }
 
 async function findPreviousSeriesMessage(client, hydrated) {
-  // P1-03: include c.logical_message_count so the 100-message cap check works.
-  // Additional: filter by anchor/signatures, not just canonical_subject — a latest
-  // same-subject unrelated candidate must not block an older correct candidate.
-  // We look for the most recent logical message with the same canonical subject AND
-  // the same sender signature (from_email), which is the actual series anchor.
+  // P1-08: Bounded candidate search — fetch the last N (10) potential candidates
+  // with the same canonical subject in the time window, then let the series
+  // decision function evaluate them sequentially (newest→oldest) and pick the
+  // first VALID one. This prevents a single invalid latest candidate from
+  // blocking an older valid candidate.
   const result = await client.query(`
-    SELECT lm.*, c.logical_message_count, m.from_email, m.to_addresses, m.body_text, m.date
+    SELECT lm.*, c.logical_message_count, m.from_email, m.to_addresses, m.body_text, m.date, m.conversation_raw_headers
       FROM logical_messages lm
       JOIN conversations c ON c.id = lm.conversation_id AND c.user_id = lm.user_id
       JOIN messages m ON m.logical_message_id = lm.id
      WHERE lm.user_id = $1 AND lm.canonical_subject = $2
-     ORDER BY lm.message_date DESC NULLS LAST LIMIT 1
+       AND lm.message_date > NOW() - INTERVAL '7 days'
+     ORDER BY lm.message_date DESC NULLS LAST LIMIT 10
   `, [hydrated.userId, hydrated.canonicalSubject]);
-  return result.rows[0] || null;
+  return result.rows.length ? result.rows : null;
 }
 
 async function findProviderConversation(client, hydrated, provider) {
@@ -122,8 +123,25 @@ export async function _upsertConversationCopyWithClient(client, copy, { identiti
     const parent = await findParentLogical(client, hydrated);
     const decision = threadingDecision({ message: source, parent: parent?.ambiguous ? null : parent, provider, identities });
     const seriesMode = source.automated_series_mode || 'off';
-    const previousSeries = await findPreviousSeriesMessage(client, hydrated);
-    const series = seriesMode === 'strict' ? strictSeriesDecision({ message: { ...source, canonical_subject: hydrated.canonicalSubject, referencesAnchor: referencesAnchor(source) }, previous: previousSeries ? { ...previousSeries, canonical_subject: previousSeries.canonical_subject || hydrated.canonicalSubject, referencesAnchor: referencesAnchor(previousSeries) } : null, mode: 'strict' }) : seriesMode === 'smart' ? smartSeriesDecision({ message: { ...source, canonical_subject: hydrated.canonicalSubject }, previous: previousSeries, enabled: true }) : null;
+    // P1-08: findPreviousSeriesMessage now returns an array of bounded candidates.
+    // Iterate newest→oldest and pick the first VALID one for the series decision.
+    const previousSeriesCandidates = await findPreviousSeriesMessage(client, hydrated);
+    let series = null;
+    let matchedPrevious = null;
+    if (previousSeriesCandidates) {
+      for (const candidate of previousSeriesCandidates) {
+        const candidateDecision = seriesMode === 'strict'
+          ? strictSeriesDecision({ message: { ...source, canonical_subject: hydrated.canonicalSubject, referencesAnchor: referencesAnchor(source), from_email: source.from_email }, previous: { ...candidate, canonical_subject: candidate.canonical_subject || hydrated.canonicalSubject, referencesAnchor: referencesAnchor(candidate), logical_message_count: candidate.logical_message_count }, mode: 'strict' })
+          : seriesMode === 'smart'
+            ? smartSeriesDecision({ message: { ...source, canonical_subject: hydrated.canonicalSubject, from_email: source.from_email, body_text: source.body_text }, previous: { ...candidate, canonical_subject: candidate.canonical_subject || hydrated.canonicalSubject, body_text: candidate.body_text }, enabled: true })
+            : null;
+        if (candidateDecision) {
+          series = candidateDecision;
+          matchedPrevious = candidate;
+          break;
+        }
+      }
+    }
     if (series && !parent?.ambiguous) { decision.kind = series.kind || decision.kind; decision.reason = series.kind || decision.reason; decision.confidence = series.confidence || decision.confidence; }
     if (parent?.ambiguous) decision.reason = parent.relationType;
     const existing = await findExistingLogical(client, hydrated);
@@ -132,7 +150,7 @@ export async function _upsertConversationCopyWithClient(client, copy, { identiti
     if (!logical) logical = (await client.query(`INSERT INTO logical_messages (user_id, canonical_message_id, raw_message_id, message_id_collision_key, raw_headers, raw_in_reply_to, raw_references, parsed_in_reply_to, parsed_references, subject, canonical_subject, direction, message_date, body_fingerprint, header_fingerprint, threading_reason, threading_confidence) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17) RETURNING id, conversation_id`, [hydrated.userId, hydrated.canonicalMessageId, hydrated.rawMessageId, hydrated.collisionKey, hydrated.rawHeaders, hydrated.rawInReplyTo, hydrated.rawReferences, JSON.stringify(normalizeMessageIdList(hydrated.rawInReplyTo)), JSON.stringify(normalizeMessageIdList(hydrated.rawReferences)), source.subject || null, hydrated.canonicalSubject, hydrated.direction, hydrated.messageDate, hydrated.bodyFingerprint, hydrated.headerFingerprint, decision.reason, decision.confidence])).rows[0];
     else await client.query('UPDATE logical_messages SET raw_headers = COALESCE(raw_headers, $2), updated_at = NOW(), threading_reason = $3, threading_confidence = $4 WHERE id = $1', [logical.id, hydrated.rawHeaders, decision.reason, decision.confidence]);
     let conversationId = logical.conversation_id || await findProviderConversation(client, hydrated, provider) || (decision.reason === 'subject-change-split' ? null : parent?.conversation_id);
-    if (series?.kind === 'automated_reference_series' || series?.kind === 'automated_smart_series') conversationId = previousSeries?.conversation_id || conversationId;
+    if (series?.kind === 'automated_reference_series' || series?.kind === 'automated_smart_series') conversationId = matchedPrevious?.conversation_id || conversationId;
     const override = await effectiveConversationOverride(client, { userId: hydrated.userId, conversationId, logicalMessageId: logical.id });
     if (override.merge?.target_id) requestedConversationId = await resolveConversationAlias(client, { userId: hydrated.userId, conversationId: override.merge.target_id });
     if (override.split?.target_id) requestedConversationId = await resolveConversationAlias(client, { userId: hydrated.userId, conversationId: override.split.target_id });
@@ -193,7 +211,7 @@ export async function _upsertConversationCopyWithClient(client, copy, { identiti
     }
     if (parent?.ambiguous) await client.query(`INSERT INTO conversation_evidence (user_id, conversation_id, logical_message_id, evidence_type, evidence_value_hash, weight, details) VALUES ($1,$2,$3,'ambiguous-parent',$4,0,$5::jsonb) ON CONFLICT DO NOTHING`, [hydrated.userId, conversationId, logical.id, createHash('sha256').update(String(parent.canonical_message_id)).digest('hex'), JSON.stringify({ canonical_message_id: parent.canonical_message_id, relation_type: parent.relationType })]);
     if (relatedParentConversationId) await client.query(`INSERT INTO conversation_evidence (user_id, conversation_id, logical_message_id, evidence_type, evidence_value_hash, weight, details) VALUES ($1,$2,$3,'subject-change-split',$4,1,$5::jsonb) ON CONFLICT DO NOTHING`, [hydrated.userId, relatedParentConversationId, logical.id, createHash('sha256').update(String(logical.id)).digest('hex'), JSON.stringify({ relatedConversation_id: conversationId, parent_logical_message_id: parent.id })]);
-    const evidence = [[decision.reason, decision.confidence, { relationType: parent?.relationType || null, provider: provider?.provider || null }], ...(series ? [[series.kind, series.confidence, { mode: seriesMode, previousLogicalMessageId: previousSeries?.id || null }]] : []), ...(parent ? [['rfc-parent', 0.99, { parentLogicalMessageId: parent.id }]] : []), ...(provider?.providerThreadId ? [['provider-thread-id', 1, { provider: provider.provider }]] : [])];
+    const evidence = [[decision.reason, decision.confidence, { relationType: parent?.relationType || null, provider: provider?.provider || null }], ...(series ? [[series.kind, series.confidence, { mode: seriesMode, previousLogicalMessageId: matchedPrevious?.id || null }]] : []), ...(parent ? [['rfc-parent', 0.99, { parentLogicalMessageId: parent.id }]] : []), ...(provider?.providerThreadId ? [['provider-thread-id', 1, { provider: provider.provider }]] : [])];
     if (collision) evidence.push(['message-id-collision', 0, { canonicalMessageId: hydrated.canonicalMessageId, collisionKey: hydrated.collisionKey }]);
     for (const [type, weight, details] of evidence) await client.query(`INSERT INTO conversation_evidence (user_id, conversation_id, logical_message_id, evidence_type, evidence_value_hash, weight, details) VALUES ($1,$2,$3,$4,$5,$6,$7::jsonb) ON CONFLICT (conversation_id, logical_message_id, evidence_type, evidence_value_hash) DO NOTHING`, [hydrated.userId, conversationId, logical.id, type, createHash('sha256').update(JSON.stringify(details)).digest('hex'), weight, JSON.stringify(details)]);
     await client.query(`UPDATE conversations c SET first_message_at = (SELECT MIN(message_date) FROM logical_messages WHERE conversation_id = c.id), last_message_at = (SELECT MAX(message_date) FROM logical_messages WHERE conversation_id = c.id), subject_snapshot = COALESCE((SELECT subject FROM logical_messages WHERE conversation_id = c.id ORDER BY message_date ASC NULLS LAST, id LIMIT 1), c.subject_snapshot), canonical_subject = COALESCE((SELECT canonical_subject FROM logical_messages WHERE conversation_id = c.id ORDER BY message_date ASC NULLS LAST, id LIMIT 1), c.canonical_subject), logical_message_count = (SELECT COUNT(*) FROM logical_messages WHERE conversation_id = c.id), copy_count = (SELECT COUNT(*) FROM messages WHERE conversation_id = c.id AND is_deleted = false), unread_count = (SELECT COUNT(*) FROM logical_messages lm WHERE lm.conversation_id = c.id AND EXISTS (SELECT 1 FROM messages m WHERE m.logical_message_id = lm.id AND m.conversation_id = c.id AND m.is_deleted = false AND m.is_read = false)), updated_at = NOW() WHERE c.id = $1`, [conversationId]);

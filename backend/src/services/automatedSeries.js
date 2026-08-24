@@ -9,8 +9,26 @@ export function automationSignals(message = {}) {
   const autoSubmitted = String(headers['auto-submitted'] || '').toLowerCase();
   const precedence = String(headers.precedence || '').toLowerCase();
   const sender = String(message.from_email || '').toLowerCase();
+
+  // P1-14: Authenticated sender evidence — DKIM/SPF/DMARC results from
+  // parsed headers. These are NOT self-declared; they are verified by the
+  // receiving MTA and recorded in Authentication-Results or ARC headers.
+  // Self-declared headers (Auto-Submitted, Precedence, no-reply) are hints
+  // but NOT cryptographically authenticated evidence.
+  const authResults = String(headers['authentication-results'] || headers['arc-authentication-results'] || '').toLowerCase();
+  const dkimPass = /dkim=pass/.test(authResults);
+  const spfPass = /spf=pass/.test(authResults);
+  const dmarcPass = /dmarc=pass/.test(authResults);
+  const hasAuthEvidence = dkimPass || spfPass || dmarcPass;
+
   return {
+    // `automated` is a hint — used for candidate filtering, NOT for STRICT
+    // merge approval. STRICT requires authenticatedSenderEvidence below.
     automated: autoSubmitted === 'auto-generated' || autoSubmitted === 'auto-replied' || precedence === 'bulk' || precedence === 'list' || /(?:^|[+.-])no-?reply@/.test(sender),
+    // P1-14: Authenticated sender evidence — required for STRICT merge.
+    // Without DKIM/SPF/DMARC pass, STRICT does not approve the merge.
+    authenticatedSenderEvidence: hasAuthEvidence,
+    dkimPass, spfPass, dmarcPass,
     senderSignature: [sender, headers['return-path'] || '', headers['dkim-signature'] || '', headers['list-id'] || ''].join('|').toLowerCase(),
     recipientSignature: JSON.stringify((message.to_addresses || []).map(a => a.email || a).sort()),
   };
@@ -59,7 +77,11 @@ export function strictSeriesDecision({ message, previous, mode = 'strict' }) {
   const signals = automationSignals(message);
   const priorSignals = automationSignals(previous);
   const subject = String(message.canonical_subject || '').toLowerCase();
-  if (!signals.automated || !priorSignals.automated || !subject || GENERIC_SUBJECTS.has(subject)) return null;
+  if (!subject || GENERIC_SUBJECTS.has(subject)) return null;
+  // P1-14: STRICT MUST require authenticated sender evidence (DKIM/SPF/DMARC).
+  // Self-declared Auto-Submitted/Precedence/no-reply are NOT sufficient.
+  // Both message AND previous must have auth evidence.
+  if (!signals.authenticatedSenderEvidence || !priorSignals.authenticatedSenderEvidence) return null;
   if (signals.senderSignature !== priorSignals.senderSignature || signals.recipientSignature !== priorSignals.recipientSignature) return null;
   if (subject !== String(previous.canonical_subject || '').toLowerCase()) return null;
   if (now - prior > 7 * 24 * 60 * 60 * 1000 || now < prior) return null;
