@@ -18,6 +18,26 @@ function formatFullDate(dateStr) {
   });
 }
 
+// Format address objects/strings — NEVER [object Object]
+function formatAddress(addr) {
+  if (!addr) return '';
+  if (typeof addr === 'string') return addr;
+  if (addr.name && addr.email) return `${addr.name} <${addr.email}>`;
+  if (addr.email) return addr.email;
+  if (addr.address) return addr.address;
+  if (addr.name) return addr.name;
+  return String(addr);
+}
+
+function formatAddressList(addrs) {
+  if (!addrs) return '';
+  if (typeof addrs === 'string') {
+    try { addrs = JSON.parse(addrs); } catch { return addrs; }
+  }
+  if (!Array.isArray(addrs)) return formatAddress(addrs);
+  return addrs.map(formatAddress).join(', ');
+}
+
 function QuoteFold({ children }) {
   const { t } = useTranslation();
   const [expanded, setExpanded] = useState(false);
@@ -27,17 +47,15 @@ function QuoteFold({ children }) {
   useEffect(() => {
     if (!containerRef.current) return;
     const el = containerRef.current;
-    // Detect quoted content: blockquote, .gmail_quote, .moz-quote-container, .yahoo_quoted,
-    // and common text patterns ("On ... wrote:", "Dnia ... napisał:", "-----Original Message-----")
     const quotes = el.querySelectorAll('blockquote, .gmail_quote, .moz-quote-container, .yahoo_quoted');
     const hasBlockquote = quotes.length > 0;
-    // Also check for plain-text quote markers in text content
     const textContent = el.textContent || '';
     const hasTextQuote = /^\s*(On .+ wrote:|Dnia .+ napisał|-----Original Message-----|-----Wiadomość oryginalna-----)/m.test(textContent);
     setHasQuote(hasBlockquote || hasTextQuote);
-    // Hide only the quote elements, NOT the entire message content
     if (hasBlockquote && !expanded) {
       for (const q of quotes) q.style.display = 'none';
+    } else {
+      for (const q of quotes) q.style.display = '';
     }
   }, [children, expanded]);
 
@@ -67,7 +85,6 @@ function QuoteFold({ children }) {
           [...] {t('conversation.expandConversation')} ▾
         </button>
       )}
-      {/* Show the full message content always; only quote elements are toggled */}
       {children}
     </div>
   );
@@ -97,7 +114,9 @@ export default function ConversationPane({ conversationId, targetLogicalMessageI
   const [expanded, setExpanded] = useState(new Set());
   const [bodies, setBodies] = useState({});
   const [bodyStatus, setBodyStatus] = useState({});
-  const [showCopies, setShowCopies] = useState({}); // per logicalMessageId
+  const [showCopies, setShowCopies] = useState({});
+  const [showHeaders, setShowHeaders] = useState({});
+  const [remoteImagesEnabled, setRemoteImagesEnabled] = useState({});
   const inFlight = useRef(new Map());
   const containerRef = useRef(null);
 
@@ -124,10 +143,12 @@ export default function ConversationPane({ conversationId, targetLogicalMessageI
     setState({ loading: true, error: null, data: null });
     setBodies({});
     setBodyStatus({});
+    setExpanded(new Set());
+    setShowHeaders({});
+    setRemoteImagesEnabled({});
     conversationApi.detail(conversationId).then(data => {
       if (cancelled) return;
       const messages = data.logicalMessages || [];
-      // Auto-expand: newest, unread, deep-linked target
       const newestId = messages.at(-1)?.id;
       const unreadIds = messages
         .filter(m => m.copies?.some(c => !c.isRead))
@@ -135,7 +156,6 @@ export default function ConversationPane({ conversationId, targetLogicalMessageI
       const initialIds = new Set([newestId, ...unreadIds, targetLogicalMessageId].filter(Boolean));
       setExpanded(initialIds);
       setState({ loading: false, error: null, data });
-      // Auto-load body for expanded messages
       for (const msg of messages) {
         if (initialIds.has(msg.id)) loadBody(msg.id).catch(() => {});
       }
@@ -159,6 +179,15 @@ export default function ConversationPane({ conversationId, targetLogicalMessageI
     }
   }, [targetLogicalMessageId, state.data, state.loading]);
 
+  const toggleExpand = useCallback((messageId) => {
+    setExpanded(prev => {
+      const next = new Set(prev);
+      if (next.has(messageId)) next.delete(messageId);
+      else next.add(messageId);
+      return next;
+    });
+  }, []);
+
   if (state.loading) {
     return <div role="status" style={{ padding: 24, textAlign: 'center', color: 'var(--text-tertiary)' }}>{t('conversation.loading')}</div>;
   }
@@ -168,6 +197,7 @@ export default function ConversationPane({ conversationId, targetLogicalMessageI
 
   const messages = state.data?.logicalMessages || [];
   const summary = state.data?.summary || {};
+  const totalCopies = messages.reduce((sum, m) => sum + (m.copies?.length || 0), 0);
 
   return (
     <section
@@ -183,7 +213,7 @@ export default function ConversationPane({ conversationId, targetLogicalMessageI
         </h2>
         <div style={{ fontSize: 12, color: 'var(--text-tertiary)', marginTop: 4 }}>
           {t('conversation.messageCount', { count: messages.length })}{' · '}
-          {t('conversation.copyCount', { count: messages.reduce((sum, m) => sum + (m.copies?.length || 0), 0) })}
+          {t('conversation.copyCount', { count: totalCopies })}
         </div>
       </header>
 
@@ -196,6 +226,13 @@ export default function ConversationPane({ conversationId, targetLogicalMessageI
         const isOutgoing = message.direction === 'outgoing' || message.direction === 'self';
         const hasMultipleCopies = (message.copies?.length || 0) > 1;
         const copiesVisible = showCopies[message.id];
+        const headersVisible = showHeaders[message.id];
+        const imagesEnabled = remoteImagesEnabled[message.id];
+        const attachments = (() => {
+          const atts = body?.attachments || copy?.attachments;
+          if (typeof atts === 'string') { try { return JSON.parse(atts); } catch { return []; } }
+          return Array.isArray(atts) ? atts : [];
+        })();
 
         return (
           <article
@@ -213,12 +250,7 @@ export default function ConversationPane({ conversationId, targetLogicalMessageI
               aria-expanded={isOpen}
               aria-controls={bodyId}
               onClick={() => {
-                setExpanded(prev => {
-                  const next = new Set(prev);
-                  if (next.has(message.id)) next.delete(message.id);
-                  else next.add(message.id);
-                  return next;
-                });
+                toggleExpand(message.id);
                 if (!body && !isOpen) loadBody(message.id).catch(() => {});
               }}
               style={{
@@ -235,16 +267,9 @@ export default function ConversationPane({ conversationId, targetLogicalMessageI
               }}
             >
               <span style={{
-                width: 32,
-                height: 32,
-                borderRadius: '50%',
-                flexShrink: 0,
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'center',
-                fontSize: 13,
-                fontWeight: 600,
-                marginRight: 8,
+                width: 32, height: 32, borderRadius: '50%', flexShrink: 0,
+                display: 'flex', alignItems: 'center', justifyContent: 'center',
+                fontSize: 13, fontWeight: 600, marginRight: 8,
                 background: isOutgoing ? 'var(--accent)' : 'var(--bg-tertiary)',
                 color: isOutgoing ? 'var(--bg-primary)' : 'var(--text-secondary)',
               }}>
@@ -264,7 +289,7 @@ export default function ConversationPane({ conversationId, targetLogicalMessageI
                     <span style={{
                       width: 8, height: 8, borderRadius: '50%',
                       background: 'var(--accent)', flexShrink: 0,
-                    }} aria-label="unread" />
+                    }} aria-label={t('conversation.unread')} />
                   )}
                   <span style={{
                     flex: 1, fontSize: 12, color: 'var(--text-tertiary)',
@@ -275,12 +300,8 @@ export default function ConversationPane({ conversationId, targetLogicalMessageI
                 </div>
                 {!isOpen && (
                   <div style={{
-                    fontSize: 12,
-                    color: 'var(--text-tertiary)',
-                    marginTop: 2,
-                    overflow: 'hidden',
-                    textOverflow: 'ellipsis',
-                    whiteSpace: 'nowrap',
+                    fontSize: 12, color: 'var(--text-tertiary)', marginTop: 2,
+                    overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
                   }}>
                     {copy?.snippet || message.subject || t('conversation.noSubject')}
                   </div>
@@ -291,11 +312,34 @@ export default function ConversationPane({ conversationId, targetLogicalMessageI
             {/* Expanded message body */}
             {isOpen && (
               <div id={bodyId} role="region" aria-label={t('conversation.bodyLabel')} style={{ paddingLeft: 40, paddingRight: 8 }}>
-                {/* Full headers when expanded */}
+
+                {/* Brief headers (always visible when expanded) */}
                 <div style={{ fontSize: 12, color: 'var(--text-tertiary)', marginBottom: 8, paddingBottom: 8, borderBottom: '1px solid var(--border)' }}>
-                  {copy?.to && <div><strong>To:</strong> {Array.isArray(copy.to) ? copy.to.join(', ') : copy.to}</div>}
-                  {copy?.cc?.length > 0 && <div><strong>Cc:</strong> {Array.isArray(copy.cc) ? copy.cc.join(', ') : copy.cc}</div>}
-                  {copy?.fromEmail && <div><strong>From:</strong> {copy.fromName ? `${copy.fromName} <${copy.fromEmail}>` : copy.fromEmail}</div>}
+                  <div><strong>{t('conversation.from')}:</strong> {formatAddress(copy?.from || { name: copy?.fromName, email: copy?.fromEmail })}</div>
+                  <div><strong>{t('conversation.to')}:</strong> {formatAddressList(copy?.to)}</div>
+                  {copy?.cc && <div><strong>{t('conversation.cc')}:</strong> {formatAddressList(copy?.cc)}</div>}
+                  {copy?.bcc && <div><strong>{t('conversation.bcc')}:</strong> {formatAddressList(copy?.bcc)}</div>}
+                  <div><strong>{t('conversation.date')}:</strong> {formatFullDate(message.messageDate)}</div>
+                  {copy?.folder && <div><strong>{t('conversation.folder')}:</strong> {copy.folder}</div>}
+
+                  {/* Full headers toggle */}
+                  <button
+                    type="button"
+                    onClick={() => setShowHeaders(prev => ({ ...prev, [message.id]: !prev[message.id] }))}
+                    style={{
+                      border: 'none', background: 'transparent', cursor: 'pointer',
+                      color: 'var(--accent)', fontSize: 11, padding: '4px 0', marginTop: 4,
+                    }}
+                  >
+                    {headersVisible ? t('conversation.hideFullHeaders') : t('conversation.showFullHeaders')}
+                  </button>
+                  {headersVisible && body && (
+                    <div style={{ marginTop: 4, padding: 8, background: 'var(--bg-secondary)', borderRadius: 4, fontSize: 11, fontFamily: 'var(--font-mono, monospace)', whiteSpace: 'pre-wrap', maxHeight: 300, overflow: 'auto' }}>
+                      <div><strong>{t('conversation.physicalCopy')}:</strong> {body.physical_copy_id}</div>
+                      <div><strong>{t('conversation.account')}:</strong> {body.account_id}</div>
+                      <div><strong>{t('conversation.folder')}:</strong> {body.folder}</div>
+                    </div>
+                  )}
                 </div>
 
                 {/* Body loading/error/content */}
@@ -312,32 +356,86 @@ export default function ConversationPane({ conversationId, targetLogicalMessageI
                     </button>
                   </div>
                 )}
+                {!body && !bodyStatus[message.id]?.loading && !bodyStatus[message.id]?.error && (
+                  <button
+                    type="button"
+                    onClick={() => loadBody(message.id).catch(() => {})}
+                    style={{
+                      border: '1px solid var(--border)', borderRadius: 4, padding: '6px 12px',
+                      background: 'var(--bg-tertiary)', cursor: 'pointer', fontSize: 13,
+                      color: 'var(--text-secondary)',
+                    }}
+                  >
+                    {t('conversation.loadBody')}
+                  </button>
+                )}
+
+                {/* Remote images notice + toggle */}
+                {body && !imagesEnabled && (
+                  <div style={{
+                    display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8,
+                    padding: '4px 8px', borderRadius: 4, background: 'var(--bg-tertiary)',
+                    fontSize: 12, color: 'var(--text-tertiary)',
+                  }}>
+                    <span>{t('conversation.imagesBlocked')}</span>
+                    <button
+                      type="button"
+                      onClick={() => setRemoteImagesEnabled(prev => ({ ...prev, [message.id]: true }))}
+                      style={{
+                        border: '1px solid var(--border)', borderRadius: 4, padding: '2px 8px',
+                        background: 'transparent', cursor: 'pointer', fontSize: 12,
+                        color: 'var(--accent)',
+                      }}
+                    >
+                      {t('conversation.loadImages')}
+                    </button>
+                  </div>
+                )}
+
                 {body && (
                   <QuoteFold>
-                    <MessageBodyRenderer html={body.body_html} text={body.body_text} copyId={body.physical_copy_id} accountId={body.account_id} />
+                    <MessageBodyRenderer
+                      html={body.body_html}
+                      text={body.body_text}
+                      copyId={body.physical_copy_id}
+                      accountId={body.account_id}
+                      remoteImages={imagesEnabled || false}
+                    />
                   </QuoteFold>
                 )}
 
-                {/* Attachments */}
-                {copy?.attachments?.length > 0 && (
+                {/* Attachments — DOWNLOADABLE */}
+                {attachments.length > 0 && (
                   <div style={{ marginTop: 8, fontSize: 12 }}>
-                    {copy.attachments.map((att, i) => (
-                      <span key={i} style={{
-                        display: 'inline-block',
-                        padding: '2px 8px',
-                        border: '1px solid var(--border)',
-                        borderRadius: 4,
-                        marginRight: 4,
-                        marginBottom: 4,
-                      }}>
-                        📎 {att.filename || att.name || 'attachment'}
-                      </span>
-                    ))}
+                    {attachments.map((att, i) => {
+                      const filename = att.filename || att.name || att.part || 'attachment';
+                      const part = att.part || att.partId || i;
+                      const downloadUrl = body?.physical_copy_id
+                        ? `/api/mail/messages/${body.physical_copy_id}/attachments/${part}`
+                        : null;
+                      return (
+                        <a
+                          key={i}
+                          href={downloadUrl || '#'}
+                          download={filename}
+                          style={{
+                            display: 'inline-flex', alignItems: 'center', gap: 4,
+                            padding: '2px 8px', border: '1px solid var(--border)',
+                            borderRadius: 4, marginRight: 4, marginBottom: 4,
+                            textDecoration: 'none', color: 'var(--accent)',
+                            cursor: downloadUrl ? 'pointer' : 'default',
+                          }}
+                        >
+                          📎 {filename}
+                          {att.size && <span style={{ fontSize: 10, color: 'var(--text-tertiary)' }}> ({Math.round(att.size / 1024)}KB)</span>}
+                        </a>
+                      );
+                    })}
                   </div>
                 )}
 
                 {/* Action buttons */}
-                <div style={{ display: 'flex', gap: 8, marginTop: 8, paddingBottom: 4 }}>
+                <div style={{ display: 'flex', gap: 8, marginTop: 8, paddingBottom: 4, flexWrap: 'wrap' }}>
                   <button type="button" onClick={() => onReply?.({ ...copy, copies: message.copies, logicalMessageId: message.id })}>
                     {t('conversation.reply')}
                   </button>
@@ -364,6 +462,7 @@ export default function ConversationPane({ conversationId, targetLogicalMessageI
                     {message.copies.map((c, i) => (
                       <div key={i} style={{ padding: '2px 0' }}>
                         <CopyBadge copy={c} /> {c.accountId?.slice(0, 8)} — {c.folder}
+                        {c.isRead === false && <span style={{ marginLeft: 4, color: 'var(--accent)' }}>●</span>}
                       </div>
                     ))}
                   </div>
