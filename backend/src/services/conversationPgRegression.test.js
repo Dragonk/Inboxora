@@ -234,7 +234,7 @@ describeOrSkip('CE v2 PostgreSQL regression tests', () => {
         const values = [];
         for (let i = 0; i < batchSize; i++) {
           const idx = batch * batchSize + i;
-          values.push(`($1, ${idx + 1000}, 'INBOX', '<perf-${idx}@test>', 'Perf ${idx}', 'sender@test', '[]'::jsonb, NOW() - (${$batch} || ' hours')::interval)`);
+          values.push(`($1, ${idx + 1000}, 'INBOX', '<perf-${idx}@test>', 'Perf ${idx}', 'sender@test', '[]'::jsonb, NOW() - ('${batch}' || ' hours')::interval)`);
         }
         await query(`INSERT INTO messages (account_id, uid, folder, message_id, subject, from_email, to_addresses, date) VALUES ${values.map(v => v.replace('$1', '$1')).join(',')}`, [TEST_ACCOUNT_ID]);
       }
