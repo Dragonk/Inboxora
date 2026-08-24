@@ -517,6 +517,7 @@ export default function ConversationList({ params = {}, onOpenMessage }) {
       ref={listRef}
       role="list"
       aria-label={t('conversation.listLabel')}
+      aria-activedescendant={keyboardFocusedIndex >= 0 && rows[keyboardFocusedIndex] ? `conv-row-${rows[keyboardFocusedIndex].conversation_id}` : undefined}
       tabIndex={0}
       onKeyDown={handleKeyDown}
       style={{ overflow: 'auto', height: '100%', outline: 'none' }}
@@ -610,7 +611,9 @@ export default function ConversationList({ params = {}, onOpenMessage }) {
         return (
           <div
             key={row.conversation_id}
+            id={`conv-row-${row.conversation_id}`}
             role="listitem"
+            aria-label={`${row.canonical_subject || t('conversation.noSubject')}, ${t('conversation.messageCount', { count: row.logical_message_count || messages.length || 1 })}`}
             style={{
               borderBottom: '1px solid var(--border)',
               background: isSelected
