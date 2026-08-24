@@ -6,7 +6,15 @@ const { Pool } = pg;
 const dbName = process.argv[2] || 'mailflow_ce_perf';
 const scale = Number(process.argv[3] || 50000);
 if (![50000, 100000].includes(scale)) throw new Error('scale must be 50000 or 100000');
-const pool = new Pool({ host: 'localhost', port: 5432, database: dbName, user: 'user', password: 'mailflow_dev', max: 10, connectionTimeoutMillis: 10000 });
+const pool = new Pool({
+  host: process.env.DB_HOST || 'localhost',
+  port: Number(process.env.DB_PORT || 5432),
+  database: dbName,
+  user: process.env.DB_USER || 'user',
+  password: process.env.DB_PASSWORD || 'mailflow_dev',
+  max: 10,
+  connectionTimeoutMillis: 10000,
+});
 const q = (sql, params = []) => pool.query(sql, params);
 const t = () => performance.now();
 const suffix = `${scale}-${Date.now()}-${randomUUID().slice(0, 8)}`;
