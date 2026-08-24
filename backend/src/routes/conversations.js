@@ -1,8 +1,7 @@
 import { Router } from 'express';
-import { query } from '../services/db.js';
+import { query, pool, withTransaction } from '../services/db.js';
 import { requireAuth } from '../middleware/auth.js';
 import { resolveConversationAlias } from '../services/conversationOverridePolicy.js';
-import { pool } from '../services/db.js';
 import { uuidParam } from '../utils/uuid.js';
 
 const router = Router();
@@ -100,6 +99,7 @@ router.get('/conversations', async (req, res) => {
        ) latest_copy ON true
        WHERE lm.conversation_id = c.id
          AND EXISTS (SELECT 1 FROM messages visible_lm WHERE visible_lm.logical_message_id = lm.id AND visible_lm.is_deleted = false ${accountId ? 'AND visible_lm.account_id = $2' : ''} ${folder ? `AND visible_lm.folder = $${folderParamIndex}` : ''})
+     ) preview ON true
      WHERE c.user_id = $1
        AND NOT EXISTS (SELECT 1 FROM conversation_aliases ca WHERE ca.user_id = $1 AND ca.alias_conversation_id = c.id)
        ${accountFilter} ${folderFilter} ${cursorFilter}
@@ -199,24 +199,23 @@ router.post('/conversations/:id/merge', async (req, res) => {
   if (ownership.rows.length !== 2) return res.status(404).json({ error: 'One or both conversations not found' });
 
   try {
-    await query('BEGIN');
-    // Move all logical messages from source to target
-    await query(
-      'UPDATE logical_messages SET conversation_id = $1 WHERE conversation_id = $2 AND user_id = $3',
-      [targetConversationId, req.params.id, req.session.userId]
-    );
-    // Update all physical copies
-    await query(
-      'UPDATE messages SET conversation_id = $1, conversation_user_id = $2 WHERE conversation_id = $3',
-      [targetConversationId, req.session.userId, req.params.id]
-    );
-    // Lock both conversations to prevent auto-rethreading from undoing the merge
-    await query('UPDATE conversations SET is_locked = true WHERE id IN ($1, $2) AND user_id = $3',
-      [req.params.id, targetConversationId, req.session.userId]);
-    await query('COMMIT');
+    await withTransaction(async (client) => {
+      // Move all logical messages from source to target
+      await client.query(
+        'UPDATE logical_messages SET conversation_id = $1 WHERE conversation_id = $2 AND user_id = $3',
+        [targetConversationId, req.params.id, req.session.userId]
+      );
+      // Update all physical copies
+      await client.query(
+        'UPDATE messages SET conversation_id = $1, conversation_user_id = $2 WHERE conversation_id = $3',
+        [targetConversationId, req.session.userId, req.params.id]
+      );
+      // Lock both conversations to prevent auto-rethreading from undoing the merge
+      await client.query('UPDATE conversations SET is_locked = true WHERE id IN ($1, $2) AND user_id = $3',
+        [req.params.id, targetConversationId, req.session.userId]);
+    });
     res.json({ merged: true, targetConversationId });
   } catch (err) {
-    await query('ROLLBACK');
     res.status(500).json({ error: 'Merge failed', detail: err.message });
   }
 });
@@ -241,49 +240,49 @@ router.post('/conversations/:id/logical-messages/:logicalMessageId/split', async
   if (!lm.rows.length) return res.status(404).json({ error: 'Logical message not found' });
 
   try {
-    await query('BEGIN');
-    // Create new conversation
-    const newConv = await query(
-      'INSERT INTO conversations (user_id, kind, canonical_subject) VALUES ($1, $2, $3) RETURNING id',
-      [userId, 'split', lm.rows[0].canonical_subject || lm.rows[0].subject]
-    );
-    const newConvId = newConv.rows[0].id;
-
-    // Move the logical message(s)
-    if (includeReplies) {
-      // Move this message and all its descendants
-      await query(
-        `WITH RECURSIVE descendants AS (
-          SELECT id FROM logical_messages WHERE id = $1
-          UNION
-          SELECT lm.id FROM logical_messages lm
-          JOIN descendants d ON lm.parent_logical_message_id = d.id
-          WHERE lm.conversation_id = $2 AND lm.user_id = $3
-        )
-        UPDATE logical_messages SET conversation_id = $4
-        WHERE id IN (SELECT id FROM descendants)`,
-        [lmId, convId, userId, newConvId]
+    const newConvId = await withTransaction(async (client) => {
+      // Create new conversation
+      const newConv = await client.query(
+        'INSERT INTO conversations (user_id, kind, canonical_subject) VALUES ($1, $2, $3) RETURNING id',
+        [userId, 'split', lm.rows[0].canonical_subject || lm.rows[0].subject]
       );
-    } else {
-      // Move only this message; detach children so they remain in the old conversation
-      await query(
-        'UPDATE logical_messages SET conversation_id = $1, parent_logical_message_id = NULL WHERE id = $2 AND conversation_id = $3 AND user_id = $4',
-        [newConvId, lmId, convId, userId]
+      const newConvId = newConv.rows[0].id;
+
+      // Move the logical message(s)
+      if (includeReplies) {
+        // Move this message and all its descendants
+        await client.query(
+          `WITH RECURSIVE descendants AS (
+            SELECT id FROM logical_messages WHERE id = $1
+            UNION
+            SELECT lm.id FROM logical_messages lm
+            JOIN descendants d ON lm.parent_logical_message_id = d.id
+            WHERE lm.conversation_id = $2 AND lm.user_id = $3
+          )
+          UPDATE logical_messages SET conversation_id = $4
+          WHERE id IN (SELECT id FROM descendants)`,
+          [lmId, convId, userId, newConvId]
+        );
+      } else {
+        // Move only this message; detach children so they remain in the old conversation
+        await client.query(
+          'UPDATE logical_messages SET conversation_id = $1, parent_logical_message_id = NULL WHERE id = $2 AND conversation_id = $3 AND user_id = $4',
+          [newConvId, lmId, convId, userId]
+        );
+      }
+
+      // Update physical copies to point to the new conversation
+      await client.query(
+        'UPDATE messages SET conversation_id = $1, conversation_user_id = $2 WHERE logical_message_id IN (SELECT id FROM logical_messages WHERE conversation_id = $1)',
+        [newConvId, userId]
       );
-    }
 
-    // Update physical copies to point to the new conversation
-    await query(
-      'UPDATE messages SET conversation_id = $1, conversation_user_id = $2 WHERE logical_message_id IN (SELECT id FROM logical_messages WHERE conversation_id = $1)',
-      [newConvId, userId]
-    );
-
-    // Lock the new conversation to prevent auto-rethreading
-    await query('UPDATE conversations SET is_locked = true WHERE id = $1', [newConvId]);
-    await query('COMMIT');
+      // Lock the new conversation to prevent auto-rethreading
+      await client.query('UPDATE conversations SET is_locked = true WHERE id = $1', [newConvId]);
+      return newConvId;
+    });
     res.status(201).json({ split: true, newConversationId: newConvId });
   } catch (err) {
-    await query('ROLLBACK');
     res.status(500).json({ error: 'Split failed', detail: err.message });
   }
 });
@@ -301,21 +300,20 @@ router.post('/conversations/:id/logical-messages/:logicalMessageId/move', async 
   if (ownership.rows.length !== 2) return res.status(404).json({ error: 'One or both conversations not found' });
 
   try {
-    await query('BEGIN');
-    await query(
-      'UPDATE logical_messages SET conversation_id = $1 WHERE id = $2 AND conversation_id = $3 AND user_id = $4',
-      [targetConversationId, req.params.logicalMessageId, req.params.id, userId]
-    );
-    await query(
-      'UPDATE messages SET conversation_id = $1, conversation_user_id = $2 WHERE logical_message_id = $3 AND conversation_id = $4',
-      [targetConversationId, userId, req.params.logicalMessageId, req.params.id]
-    );
-    await query('UPDATE conversations SET is_locked = true WHERE id IN ($1, $2)',
-      [req.params.id, targetConversationId]);
-    await query('COMMIT');
+    await withTransaction(async (client) => {
+      await client.query(
+        'UPDATE logical_messages SET conversation_id = $1 WHERE id = $2 AND conversation_id = $3 AND user_id = $4',
+        [targetConversationId, req.params.logicalMessageId, req.params.id, userId]
+      );
+      await client.query(
+        'UPDATE messages SET conversation_id = $1, conversation_user_id = $2 WHERE logical_message_id = $3 AND conversation_id = $4',
+        [targetConversationId, userId, req.params.logicalMessageId, req.params.id]
+      );
+      await client.query('UPDATE conversations SET is_locked = true WHERE id IN ($1, $2) AND user_id = $3',
+        [req.params.id, targetConversationId, userId]);
+    });
     res.json({ moved: true, targetConversationId });
   } catch (err) {
-    await query('ROLLBACK');
     res.status(500).json({ error: 'Move failed', detail: err.message });
   }
 });
