@@ -59,9 +59,21 @@ export async function resolveOwnIdentityAddresses(db, accountId, message = null)
 
   // Delivery headers (Delivered-To, X-Original-To, Envelope-To) — these may
   // contain catch-all or forwarded addresses not in the DB aliases.
-  const deliveryHeaders = message?.headers || message?.parsedHeaders || {};
+  const deliveryHeaders = message?.parsedHeaders || message?.headers || {};
+  const headerValue = (name) => {
+    if (deliveryHeaders && typeof deliveryHeaders.get === 'function') {
+      const direct = deliveryHeaders.get(name) ?? deliveryHeaders.get(name.toLowerCase());
+      if (direct != null) return direct;
+      for (const [key, value] of deliveryHeaders.entries()) {
+        if (String(key).toLowerCase() === name) return value;
+      }
+      return null;
+    }
+    const key = Object.keys(deliveryHeaders || {}).find(candidate => candidate.toLowerCase() === name);
+    return key ? deliveryHeaders[key] : null;
+  };
   for (const key of ['delivered-to', 'x-original-to', 'envelope-to']) {
-    const value = deliveryHeaders[key] || deliveryHeaders[key.toLowerCase()];
+    const value = headerValue(key);
     if (value) {
       for (const part of String(value).split(',')) {
         const email = normalizeAddress(part);

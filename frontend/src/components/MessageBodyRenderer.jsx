@@ -11,7 +11,7 @@ export const EMAIL_SANITIZE_POLICY = {
   // source of layout/CSS exfiltration surprises. The renderer supplies its own
   // constrained stylesheet below.
   FORBID_TAGS: ['script', 'iframe', 'object', 'embed', 'form', 'video', 'audio', 'source', 'track', 'style'],
-  FORBID_ATTR: ['onerror', 'onload', 'onclick', 'onmouseover', 'srcset', 'style'],
+  FORBID_ATTR: ['onerror', 'onload', 'onclick', 'onmouseover', 'style'],
 };
 
 // Preserve cid: references so they survive DOMPurify (which would strip them

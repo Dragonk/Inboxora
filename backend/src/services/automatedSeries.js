@@ -29,7 +29,10 @@ export function automationSignals(message = {}) {
     // Without DKIM/SPF/DMARC pass, STRICT does not approve the merge.
     authenticatedSenderEvidence: hasAuthEvidence,
     dkimPass, spfPass, dmarcPass,
-    senderSignature: [sender, headers['return-path'] || '', headers['dkim-signature'] || '', headers['list-id'] || ''].join('|').toLowerCase(),
+    // DKIM-Signature is per-message (its signature/timestamp changes for every
+    // delivery), so it is evidence that auth passed but must not be part of the
+    // stable sender identity used to compare two series messages.
+    senderSignature: [sender, headers['return-path'] || '', headers['list-id'] || ''].join('|').toLowerCase(),
     recipientSignature: JSON.stringify((message.to_addresses || []).map(a => a.email || a).sort()),
   };
 }

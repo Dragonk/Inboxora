@@ -1009,7 +1009,7 @@ export default function MessagePane({ windowMessageId = null, onWindowClose = nu
           ? message.cc_addresses
           : JSON.parse(message.cc_addresses || '[]');
         return [...toArr, ...ccArr].filter(
-          t => t.email && !myAddresses.has(t.email.toLowerCase()) && t.email !== replyTarget.email
+          t => t.email && !myAddresses.has(t.email.toLowerCase()) && t.email.toLowerCase() !== (replyTarget.email || '').toLowerCase()
         );
       } catch { return []; }
     })();

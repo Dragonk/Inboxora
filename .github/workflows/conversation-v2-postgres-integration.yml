@@ -207,7 +207,12 @@ jobs:
           DB_NAME: mailflow_test
           DB_USER: mailflow_test
           DB_PASSWORD: mailflow_test
-        run: npm test -- --run src/services/conversationPerformance.test.js
+        run: |
+          npm test -- --run src/services/conversationPerformance.test.js
+          # This is the real PostgreSQL scale gate; the Vitest contract above
+          # only measures an in-process canonicalizer and does not exercise SQL.
+          node mailflow-ce-perf.mjs mailflow_test 50000 | tee ../artifacts/performance-50k.json
+          node mailflow-ce-perf.mjs mailflow_test 100000 | tee ../artifacts/performance-100k.json
 
       - name: E2E 2x2 feature matrix gate
         working-directory: frontend

@@ -97,6 +97,14 @@ describe('openReplyFromMessage reply-all recipients', () => {
     assert.deepEqual(h.payload().allRecipients, [{ email: 'keep@example.com' }, { email: 'cckeep@example.com' }]);
   });
 
+  it('excludes the reply target case-insensitively', async () => {
+    const h = harness();
+    await openReplyFromMessage({ ...message, to_addresses: [{ email: 'SENDER@example.com' }, { email: 'keep@example.com' }], cc_addresses: [] }, {
+      accounts: [account], openCompose: h.openCompose, getMessageBody: h.getMessageBody, replyAll: true,
+    });
+    assert.deepEqual(h.payload().cc, [{ email: 'keep@example.com' }]);
+  });
+
   it('leaves cc empty for a plain reply but still computes allRecipients', async () => {
     const h = harness();
     await openReplyFromMessage(message, {

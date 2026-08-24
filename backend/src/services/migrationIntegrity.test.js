@@ -21,4 +21,10 @@ describe('migration integrity', () => {
     expect(source).toContain('sha256');
     expect(source).toContain('Migration checksum mismatch');
   });
+
+  it('adds a partial logical-message lookup index for non-deleted physical copies', () => {
+    const sql = readFileSync(join(process.cwd(), 'migrations/0060_conversation_logical_message_lookup_index.sql'), 'utf8');
+    expect(sql).toContain('ON messages(logical_message_id, date DESC NULLS LAST, id DESC)');
+    expect(sql).toContain('WHERE is_deleted = false AND logical_message_id IS NOT NULL');
+  });
 });

@@ -12,8 +12,11 @@ export const test = base.extend({
     await page.getByLabel(/Username|Nazwa użytkownika/i).fill(username);
     await page.getByLabel(/Password|Hasło/i).fill(password);
     await page.getByRole('button', { name: /Sign in|Zaloguj/i }).click();
-    await page.waitForURL(url => url.pathname === '/' || url.pathname === '/login', { waitUntil: 'domcontentloaded' });
-    await expect.poll(() => page.url()).toContain('/');
+    // A failed login can legitimately leave the browser on /login while the
+    // POST still returns a response. Do not let that produce a false-positive
+    // real-app run: only the authenticated root is a valid landing page.
+    await page.waitForURL(url => url.pathname === '/', { waitUntil: 'domcontentloaded' });
+    await expect(page).toHaveURL(/\/$/);
     await expect.poll(() => responses.some(item => item.url.includes('/api/auth/login') && item.status === 200)).toBe(true);
     await use(page);
   },

@@ -351,27 +351,52 @@ export default function ConversationList({ params = {}, onOpenMessage }) {
   }, [runOp, rowActionOptions]);
 
   // ── P1-11: Bulk action handlers ───────────────────────────────
+  // Bulk endpoints only accept conversation IDs, so THIS_COPY would otherwise
+  // resolve the backend's global latest copy instead of the copy represented by
+  // each (possibly folder/account-filtered) list row. Preserve row identity by
+  // using the copy-aware single-row endpoint for that scope.
+  const selectedRows = rows.filter(row => selectedIds.has(row.conversation_id));
+  const runBulkAction = useCallback((bulkFn, singleFn) => {
+    const ids = selectedRows.map(row => row.conversation_id);
+    if (actionScope !== 'THIS_COPY') return bulkFn(ids, { scope: actionScope });
+    return selectedRows.reduce(
+      (promise, row) => promise.then(() => singleFn(row.conversation_id, {
+        scope: actionScope,
+        copyId: row.latestCopyId || null,
+      })),
+      Promise.resolve(),
+    );
+  }, [selectedRows, actionScope]);
+
   const handleBulkArchive = useCallback(() => {
-    const ids = [...selectedIds];
-    runDestructiveAction('Archive', () => conversationApi.bulkArchive(ids, { scope: actionScope }), actionScope);
-  }, [selectedIds, runDestructiveAction, actionScope]);
+    runDestructiveAction('Archive', () => runBulkAction(
+      (ids, options) => conversationApi.bulkArchive(ids, options),
+      (id, options) => conversationApi.archive(id, options),
+    ), actionScope);
+  }, [runBulkAction, runDestructiveAction, actionScope]);
 
   const handleBulkDelete = useCallback(() => {
-    const ids = [...selectedIds];
-    runDestructiveAction('Delete', () => conversationApi.bulkDelete(ids, { scope: actionScope }), actionScope);
-  }, [selectedIds, runDestructiveAction, actionScope]);
+    runDestructiveAction('Delete', () => runBulkAction(
+      (ids, options) => conversationApi.bulkDelete(ids, options),
+      (id, options) => conversationApi.delete(id, options),
+    ), actionScope);
+  }, [runBulkAction, runDestructiveAction, actionScope]);
 
   const handleBulkToggleRead = useCallback((makeRead) => {
-    const ids = [...selectedIds];
-    runOp(() => conversationApi.bulkSetRead(ids, makeRead, { scope: actionScope }));
-  }, [selectedIds, runOp, actionScope]);
+    runOp(() => runBulkAction(
+      (ids, options) => conversationApi.bulkSetRead(ids, makeRead, options),
+      (id, options) => conversationApi.setRead(id, makeRead, options),
+    ));
+  }, [runBulkAction, runOp]);
 
   const handleBulkMove = useCallback(() => {
-    const ids = [...selectedIds];
     const targetFolder = window.prompt(t('conversation.moveToConversationPrompt'));
     if (!targetFolder) return;
-    runOp(() => conversationApi.move(ids, targetFolder.trim(), { scope: actionScope }));
-  }, [selectedIds, runOp, actionScope, t]);
+    runOp(() => runBulkAction(
+      (ids, options) => conversationApi.move(ids, targetFolder.trim(), options),
+      (id, options) => conversationApi.move(id, targetFolder.trim(), options),
+    ));
+  }, [runBulkAction, runOp, t]);
 
   // ── P1-11: Selection click handling (Ctrl/Cmd+click, Shift+range) ─
   const handleRowClick = useCallback((e, row) => {

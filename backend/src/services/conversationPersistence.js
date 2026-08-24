@@ -104,7 +104,12 @@ async function findPreviousSeriesMessage(client, hydrated) {
 }
 
 async function findProviderConversation(client, hydrated, provider) {
-  if (!provider?.providerThreadId || !hydrated.accountId) return null;
+  // Only provider identities explicitly classified as strong (or the stable
+  // Outlook Thread-Index root) may select a conversation. Generic IMAP
+  // THREADID/OBJECTID values are provider metadata, not portable threading
+  // evidence; treating them as mappings can merge unrelated messages.
+  const usable = provider?.isStrong || provider?.source === 'outlook-conversation-index-root';
+  if (!usable || !provider?.providerThreadId || !hydrated.accountId) return null;
   const result = await client.query(`SELECT conversation_id FROM provider_thread_mappings WHERE user_id = $1 AND account_id = $2 AND provider = $3 AND provider_thread_id = $4 FOR UPDATE`, [hydrated.userId, hydrated.accountId, provider.provider, provider.providerThreadId]);
   return result.rows[0]?.conversation_id || null;
 }
@@ -198,7 +203,7 @@ export async function _upsertConversationCopyWithClient(client, copy, { identiti
     await client.query(`UPDATE logical_messages SET conversation_id = $1, parent_logical_message_id = CASE WHEN $4::text = 'subject-change-split' THEN NULL ELSE COALESCE(parent_logical_message_id, $2) END, updated_at = NOW() WHERE id = $3`, [conversationId, parent?.id || null, logical.id, decision.reason]);
     const attached = await client.query(`UPDATE messages SET logical_message_id = $1, conversation_id = $2, conversation_user_id = $3, canonical_message_id = $4, provider_message_id = COALESCE($5, provider_message_id), provider_thread_id = COALESCE($6, provider_thread_id), provider_namespace = COALESCE($7, provider_namespace), threading_reason = $8, threading_confidence = $9, threading_algorithm_version = 'conversation-v2', row_version = row_version + 1 WHERE id = $10 RETURNING id`, [logical.id, conversationId, hydrated.userId, hydrated.canonicalMessageId, provider?.providerMessageId || null, provider?.providerThreadId || null, provider?.namespace || provider?.provider || null, decision.reason, decision.confidence, source.id]);
     if (attached.rowCount !== 1) throw new Error('Conversation copy attachment failed');
-    if (provider?.providerThreadId) await client.query(`INSERT INTO provider_thread_mappings (user_id, account_id, provider, provider_thread_id, conversation_id, last_seen_at, diagnostics) VALUES ($1,$2,$3,$4,$5,NOW(),$6::jsonb) ON CONFLICT (user_id, account_id, provider, provider_thread_id) DO UPDATE SET conversation_id = EXCLUDED.conversation_id, last_seen_at = NOW(), diagnostics = EXCLUDED.diagnostics`, [hydrated.userId, hydrated.accountId, provider.provider, provider.providerThreadId, conversationId, JSON.stringify(provider.diagnostics || {})]);
+    if ((provider?.isStrong || provider?.source === 'outlook-conversation-index-root') && provider?.providerThreadId) await client.query(`INSERT INTO provider_thread_mappings (user_id, account_id, provider, provider_thread_id, conversation_id, last_seen_at, diagnostics) VALUES ($1,$2,$3,$4,$5,NOW(),$6::jsonb) ON CONFLICT (user_id, account_id, provider, provider_thread_id) DO UPDATE SET conversation_id = EXCLUDED.conversation_id, last_seen_at = NOW(), diagnostics = EXCLUDED.diagnostics`, [hydrated.userId, hydrated.accountId, provider.provider, provider.providerThreadId, conversationId, JSON.stringify(provider.diagnostics || {})]);
     const unresolved = [...new Set([...normalizeMessageIdList(hydrated.rawInReplyTo), ...normalizeMessageIdList(hydrated.rawReferences)])].filter(id => id !== hydrated.canonicalMessageId);
     if (unresolved.length) {
       const known = await client.query(`SELECT id, canonical_message_id FROM logical_messages WHERE user_id = $1 AND canonical_message_id = ANY($2::text[])`, [hydrated.userId, unresolved]);

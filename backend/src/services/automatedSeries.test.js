@@ -15,6 +15,12 @@ describe('automated series', () => {
     expect(result.parentLogicalMessageId).toBeNull();
   });
 
+  it('does not let per-message DKIM signatures break stable sender matching', () => {
+    const first = { ...base, headers: { ...base.headers, 'dkim-signature': 'v=1; b=first' } };
+    const second = { ...base, received_at: '2026-01-02T00:00:00Z', headers: { ...base.headers, 'dkim-signature': 'v=1; b=second' } };
+    expect(strictSeriesDecision({ message: second, previous: first })?.kind).toBe('automated_reference_series');
+  });
+
   it('does not strict-merge generic subjects or different anchors', () => {
     expect(strictSeriesDecision({ message: { ...base, canonical_subject: 'test' }, previous: base })).toBeNull();
     expect(strictSeriesDecision({ message: { ...base, referencesAnchor: '<other>' }, previous: base })).toBeNull();

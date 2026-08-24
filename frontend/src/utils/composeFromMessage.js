@@ -79,7 +79,7 @@ export async function openReplyFromMessage(message, { accounts, openCompose, get
       const toArr = parseAddressListField(message.to_addresses);
       const ccArr = parseAddressListField(message.cc_addresses);
       return [...toArr, ...ccArr].filter(
-        t => t.email && !myAddresses.has(t.email.toLowerCase()) && t.email !== replyTarget.email
+        t => t.email && !myAddresses.has(t.email.toLowerCase()) && t.email.toLowerCase() !== (replyTarget.email || '').toLowerCase()
       );
     } catch { return []; }
   })();

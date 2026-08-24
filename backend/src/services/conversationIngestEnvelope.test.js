@@ -12,6 +12,14 @@ describe('conversation ingest envelope', () => {
     expect(JSON.stringify(fields)).not.toMatch(/password|token|secret/i);
   });
 
+  it('includes delivery identities from case-insensitive Map headers', async () => {
+    const { resolveOwnIdentityAddresses } = await import('./conversationIngestEnvelope.js');
+    const db = { query: async () => ({ rows: [{ email_address: 'me@example', aliases: [] }] }) };
+    await expect(resolveOwnIdentityAddresses(db, 'a1', {
+      headers: new Map([['Delivered-To', 'catchall@example.com']]),
+    })).resolves.toContain('catchall@example.com');
+  });
+
   it('persists Outlook MIME threading headers from the parsed ingest shape', () => {
     const fields = conversationPersistedFields({
       parsedHeaders: { 'thread-index': 'abc', 'thread-topic': 'Topic' },
