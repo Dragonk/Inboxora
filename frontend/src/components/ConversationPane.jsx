@@ -212,6 +212,8 @@ export default function ConversationPane({ conversationId, targetLogicalMessageI
     runScopedAction(() => conversationApi.delete(conversationId, { scope: actionScope }), actionScope);
   }, [runScopedAction, conversationId, actionScope]);
 
+  const messages = useMemo(() => state.data?.logicalMessages || [], [state.data?.logicalMessages]);
+
   const handlePaneToggleRead = useCallback(() => {
     const isUnread = messages.some(m => m.copies?.some(c => !c.isRead));
     conversationApi.setRead(conversationId, !isUnread, { scope: actionScope }).catch(err => {
@@ -220,10 +222,11 @@ export default function ConversationPane({ conversationId, targetLogicalMessageI
   }, [conversationId, actionScope, messages, t]);
 
   const handlePaneToggleStar = useCallback(() => {
-    conversationApi.setStarred(conversationId, true, { scope: actionScope }).catch(err => {
+    const isStarred = messages.some(m => m.copies?.some(c => c.isStarred));
+    conversationApi.setStarred(conversationId, !isStarred, { scope: actionScope }).catch(err => {
       setOpsError(err.message || t('conversation.loadFailed'));
     });
-  }, [conversationId, actionScope, t]);
+  }, [conversationId, actionScope, messages, t]);
 
   const toggleExpand = useCallback((messageId) => {
     setExpanded(prev => {
@@ -233,8 +236,6 @@ export default function ConversationPane({ conversationId, targetLogicalMessageI
       return next;
     });
   }, []);
-
-  const messages = useMemo(() => state.data?.logicalMessages || [], [state.data?.logicalMessages]);
 
   if (state.loading) {
     return <div role="status" style={{ padding: 24, textAlign: 'center', color: 'var(--text-tertiary)' }}>{t('conversation.loading')}</div>;

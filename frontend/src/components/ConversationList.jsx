@@ -346,7 +346,7 @@ export default function ConversationList({ params = {}, onOpenMessage }) {
     const ids = [...selectedIds];
     const targetFolder = window.prompt(t('conversation.moveToConversationPrompt'));
     if (!targetFolder) return;
-    runOp(() => conversationApi.move(ids[0], targetFolder.trim(), { scope: actionScope }));
+    runOp(() => conversationApi.move(ids, targetFolder.trim(), { scope: actionScope }));
   }, [selectedIds, runOp, actionScope, t]);
 
   // ── P1-11: Selection click handling (Ctrl/Cmd+click, Shift+range) ─

@@ -34,7 +34,7 @@ export function providerMetadataForMessage(parsed, account) {
     threadIndex: threadIndex == null ? null : String(threadIndex),
     threadTopic: threadTopic == null ? null : String(threadTopic),
     providerThreadId: metadata.providerThreadId || (metadata.provider === 'outlook' ? outlookConversationRoot(threadIndex) : null),
-    isStrong: metadata.providerThreadId != null || (metadata.provider === 'outlook' && Boolean(outlookConversationRoot(threadIndex))),
+    isStrong: metadata.provider === 'gmail' && metadata.providerThreadId != null,
     source: metadata.providerThreadId ? (metadata.source || 'provider-thread-id') : outlookConversationRoot(threadIndex) ? 'outlook-conversation-index-root' : metadata.source,
     references: parsed?.references ? metadata.references : [],
     inReplyTo: normalizeMessageIdList(parsed?.inReplyTo).at(-1) || null,

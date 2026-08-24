@@ -45,7 +45,7 @@ export async function withTransaction(fn, { serializable = false, retries = 2 } 
         // sees what actually went wrong, not the secondary ROLLBACK failure.
         console.warn('ROLLBACK failed (original error preserved):', rollbackErr.message);
       }
-      if (serializable && err.code === '40001' && attempt < retries) continue;
+      if (serializable && (err.code === '40001' || err.code === '40P01') && attempt < retries) continue;
       throw err;
     } finally {
       client.release();

@@ -126,38 +126,49 @@ export async function rebuildConversationCopies({ userId, accountId = null, limi
     }
 
     if (!dryRun) {
-      // P1-06: Use the same internal upsert path as dry-run, on the same
-      // transaction client, so writes and checkpoint are atomic for the batch.
-      // Crash here cannot leave committed messages + stale checkpoint.
-      for (const row of rows.rows) {
-        const before = await snapshotMessage(client, row);
-        await _upsertConversationCopyWithClient(client, row, {
-          identities: await resolveOwnIdentityAddresses(client, row.account_id, row),
-          provider: providerIdentityForCopy(row),
-        });
-        const after = await snapshotMessage(client, row);
-        if (ceSnapshotChanged(before, after)) updated++;
+      // P0 fix: wrap the entire write batch + checkpoint in an explicit serializable
+      // transaction so a crash mid-batch cannot leave partially committed messages
+      // with a stale checkpoint. The advisory lock prevents concurrent rebuilds;
+      // the transaction ensures atomicity of the batch + checkpoint.
+      await client.query('BEGIN ISOLATION LEVEL SERIALIZABLE');
+      try {
+        for (const row of rows.rows) {
+          const before = await snapshotMessage(client, row);
+          await _upsertConversationCopyWithClient(client, row, {
+            identities: await resolveOwnIdentityAddresses(client, row.account_id, row),
+            provider: providerIdentityForCopy(row),
+          });
+          const after = await snapshotMessage(client, row);
+          if (ceSnapshotChanged(before, after)) updated++;
+        }
+
+        const last = rows.rows.at(-1);
+        const complete = rows.rows.length < safeLimit;
+        await client.query(`
+          INSERT INTO conversation_rebuild_checkpoints
+            (user_id, scope_account_id, last_sort_is_null, last_message_date, last_message_id, status, dry_run, scanned_count, updated_count, diagnostics)
+          VALUES ($1,$2,$3,$4,$5,$6,false,$7,$8,$9::jsonb)
+          ON CONFLICT (user_id, scope_account_id) DO UPDATE SET
+            last_sort_is_null = EXCLUDED.last_sort_is_null,
+            last_message_date = EXCLUDED.last_message_date,
+            last_message_id = EXCLUDED.last_message_id,
+            status = EXCLUDED.status,
+            scanned_count = conversation_rebuild_checkpoints.scanned_count + EXCLUDED.scanned_count,
+            updated_count = conversation_rebuild_checkpoints.updated_count + EXCLUDED.updated_count,
+            diagnostics = EXCLUDED.diagnostics,
+            updated_at = NOW()
+        `, [userId, scope, last ? last.date === null : effectiveCheckpoint?.last_sort_is_null ?? null, last?.date || null, last?.id || null, complete ? 'complete' : 'paused', rows.rows.length, updated, JSON.stringify({ limit: safeLimit, complete, force })]);
+        await client.query('COMMIT');
+      } catch (err) {
+        await client.query('ROLLBACK').catch(() => {});
+        throw err;
       }
+    } else {
+      // dryRun path: no writes, no checkpoint
     }
 
     const last = rows.rows.at(-1);
     const complete = rows.rows.length < safeLimit;
-    if (!dryRun) {
-      await client.query(`
-        INSERT INTO conversation_rebuild_checkpoints
-          (user_id, scope_account_id, last_sort_is_null, last_message_date, last_message_id, status, dry_run, scanned_count, updated_count, diagnostics)
-        VALUES ($1,$2,$3,$4,$5,$6,false,$7,$8,$9::jsonb)
-        ON CONFLICT (user_id, scope_account_id) DO UPDATE SET
-          last_sort_is_null = EXCLUDED.last_sort_is_null,
-          last_message_date = EXCLUDED.last_message_date,
-          last_message_id = EXCLUDED.last_message_id,
-          status = EXCLUDED.status,
-          scanned_count = conversation_rebuild_checkpoints.scanned_count + EXCLUDED.scanned_count,
-          updated_count = conversation_rebuild_checkpoints.updated_count + EXCLUDED.updated_count,
-          diagnostics = EXCLUDED.diagnostics,
-          updated_at = NOW()
-      `, [userId, scope, last ? last.date === null : effectiveCheckpoint?.last_sort_is_null ?? null, last?.date || null, last?.id || null, complete ? 'complete' : 'paused', rows.rows.length, updated, JSON.stringify({ limit: safeLimit, complete, force })]);
-    }
 
     return { scanned: rows.rows.length, updated, wouldChange: dryRun ? wouldChange : updated, changed: updated, complete, next: complete ? null : { date: last?.date || null, id: last?.id, isNull: last?.date === null }, dryRun, batches: 1, totalScanned: rows.rows.length, totalUpdated: updated };
   } finally {

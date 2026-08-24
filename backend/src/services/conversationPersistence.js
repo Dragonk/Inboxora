@@ -115,7 +115,7 @@ export async function upsertConversationCopy(copy, { identities = [], provider =
 }
 
 export async function _upsertConversationCopyWithClient(client, copy, { identities = [], provider = null } = {}) {
-      const verified = await client.query(`SELECT m.*, a.user_id, a.automated_series_mode FROM messages m JOIN email_accounts a ON a.id = m.account_id WHERE m.id = $1 AND a.user_id IS NOT NULL FOR UPDATE`, [copy.id]);
+      const verified = await client.query(`SELECT m.*, a.user_id, a.automated_series_mode FROM messages m JOIN email_accounts a ON a.id = m.account_id WHERE m.id = $1 AND a.user_id = $2 FOR UPDATE`, [copy.id, copy.user_id || copy.userId]);
     if (verified.rows.length !== 1) throw new Error('Conversation copy not found or owner mismatch');
     const source = { ...verified.rows[0], user_id: verified.rows[0].user_id };
     const hydrated = await hydrateLogicalMessage(source, { identities });
@@ -157,7 +157,7 @@ export async function _upsertConversationCopyWithClient(client, copy, { identiti
     const previousConversationId = conversationId;
     if (override.forceExclude) conversationId = null;
     if (override.forceExclude) {
-      await client.query('UPDATE messages SET conversation_id = NULL, conversation_user_id = NULL, threading_reason = $1, threading_confidence = 0 WHERE logical_message_id = $2 AND conversation_user_id = $3', ['manual-force-exclude', logical.id, hydrated.userId]);
+      await client.query('UPDATE messages SET conversation_id = NULL, threading_reason = $1, threading_confidence = 0 WHERE logical_message_id = $2 AND conversation_user_id = $3', ['manual-force-exclude', logical.id, hydrated.userId]);
       await client.query('UPDATE logical_messages SET conversation_id = NULL, parent_logical_message_id = NULL, updated_at = NOW() WHERE id = $1 AND user_id = $2', [logical.id, hydrated.userId]);
       if (previousConversationId) await client.query('DELETE FROM conversation_evidence WHERE logical_message_id = $1 AND conversation_id = $2 AND user_id = $3', [logical.id, previousConversationId, hydrated.userId]);
       await client.query('UPDATE unresolved_message_references SET resolved_logical_message_id = NULL, resolved_at = NULL WHERE resolved_logical_message_id = $1 AND user_id = $2', [logical.id, hydrated.userId]);
