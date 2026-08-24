@@ -327,9 +327,18 @@ export default function MessagePane({ windowMessageId = null, onWindowClose = nu
   const scrollContainerRef = useRef(null);
   const iframeRef = useRef(null);
   const roRef = useRef(null);
+  // Session-scoped set of message IDs where the user has clicked "Load images once".
+  // This is intentionally declared before renderableHtml so the div renderer can use
+  // the same effective policy as the API fetch and iframe renderer.
+  const imagesRequestedRef = useRef(new Set());
   // useMemo so prepared is available in the same render as body.html — no extra frame,
   // no flash of empty content between skeleton-gone and email-shown.
-  const renderableHtml = useMemo(() => body?.html ? sanitizeMessageHtml(body.html, { remoteImages: !blockRemoteImages }) : '', [body?.html, blockRemoteImages]);
+  const allowRemoteImages = !blockRemoteImages || imagesRequestedRef.current.has(selectedMessageId);
+  // retryKey is intentionally a dependency: ref mutations from Load images/whitelist
+  // must force this sanitizer projection to recompute even though the ref itself is
+  // not a reactive value.
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  const renderableHtml = useMemo(() => body?.html ? sanitizeMessageHtml(body.html, { remoteImages: allowRemoteImages }) : '', [body?.html, allowRemoteImages, retryKey]);
   const prepared = useMemo(() => {
     if (!USE_DIV_RENDER || !renderableHtml) return null;
     return prepareEmailHtml(renderableHtml, windowMode ? `w${message?.id ?? 'preview'}` : String(message?.id ?? 'preview'));
@@ -339,8 +348,6 @@ export default function MessagePane({ windowMessageId = null, onWindowClose = nu
   const innerRef = useRef(null);
   const bodyCache = useRef({}); // messageId -> body, so revisiting is instant (capped at 50)
   const bodyCacheOrder = useRef([]); // insertion-order keys for LRU eviction
-  // Session-scoped set of message IDs where the user has clicked "Load images once"
-  const imagesRequestedRef = useRef(new Set());
   // Ref holding the latest pane action handlers so shortcut subscriptions ([] deps) never go stale
   const paneActionsRef = useRef({});
   const emailScaleRef = useRef(1); // scale applied to wide emails that resist CSS reflow
@@ -1101,7 +1108,7 @@ export default function MessagePane({ windowMessageId = null, onWindowClose = nu
     const ccStr = parseList(message.cc_addresses).map(fmtAddr).join(', ');
 
     const bodyContent = body?.html
-      ? sanitizeMessageHtml(body.html, { remoteImages: !blockRemoteImages })
+      ? sanitizeMessageHtml(body.html, { remoteImages: allowRemoteImages })
       : body?.text
         ? `<pre style="white-space:pre-wrap;font-family:sans-serif;font-size:14px">${esc(body.text)}</pre>`
         : '';
@@ -1736,6 +1743,10 @@ ${bodyContent}
     setSavingAllow(true);
     try {
       await addToImageWhitelist({ type: 'address', value: senderEmail });
+      // The whitelist change permits the current message immediately. Keep the
+      // session opt-in marker in sync so the div renderer's sanitizer policy agrees
+      // with the API response even while the global block setting remains enabled.
+      if (selectedMessageId) imagesRequestedRef.current.add(selectedMessageId);
       // Evict all blocked cache entries so they re-fetch with images unblocked
       for (const id of Object.keys(bodyCache.current)) {
         if (bodyCache.current[id]?.hasBlockedRemoteImages) delete bodyCache.current[id];
@@ -1808,6 +1819,9 @@ ${bodyContent}
     setSavingAllow(true);
     try {
       await addToImageWhitelist({ type: 'domain', value: senderDomain });
+      // The whitelist change permits the current message immediately; keep the
+      // renderer policy aligned with the newly fetched unblocked body.
+      if (selectedMessageId) imagesRequestedRef.current.add(selectedMessageId);
       // Evict all blocked cache entries so they re-fetch with images unblocked
       for (const id of Object.keys(bodyCache.current)) {
         if (bodyCache.current[id]?.hasBlockedRemoteImages) delete bodyCache.current[id];
@@ -2813,7 +2827,7 @@ ${bodyContent}
               <MessageBodyRenderer
                 html={body.html}
                 text={body.text || ''}
-                remoteImages={!blockRemoteImages}
+                remoteImages={allowRemoteImages}
                 iframeRef={iframeRef}
                 title={t('message.emailFrameTitle')}
                 style={{ width: '1px', minWidth: '100%', height: '300px' }}

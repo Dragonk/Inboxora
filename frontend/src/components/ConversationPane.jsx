@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, useCallback, useMemo } from 'react';
+import { useEffect, useRef, useState, useCallback, useMemo, cloneElement } from 'react';
 import { useTranslation } from 'react-i18next';
 import { conversationApi } from '../utils/conversationApi.js';
 import { ACTION_SCOPES, DESTRUCTIVE_SCOPES, SCOPE_I18N_KEYS } from '../hooks/useSelection.js';
@@ -45,48 +45,26 @@ function QuoteFold({ children }) {
   const [hasQuote, setHasQuote] = useState(false);
   const containerRef = useRef(null);
 
-  useEffect(() => {
-    if (!containerRef.current) return;
-    const el = containerRef.current;
-    const quotes = el.querySelectorAll('blockquote, .gmail_quote, .moz-quote-container, .yahoo_quoted');
-    const hasBlockquote = quotes.length > 0;
-    const textContent = el.textContent || '';
-    const hasTextQuote = /^\s*(On .+ wrote:|Dnia .+ napisał|-----Original Message-----|-----Wiadomość oryginalna-----)/m.test(textContent);
-    setHasQuote(hasBlockquote || hasTextQuote);
-    if (hasBlockquote && !expanded) {
-      for (const q of quotes) q.style.display = 'none';
-    } else {
-      for (const q of quotes) q.style.display = '';
-    }
-  }, [children, expanded]);
-
-  if (!hasQuote) {
-    return <div ref={containerRef}>{children}</div>;
-  }
-
   return (
     <div ref={containerRef}>
-      {!expanded && (
+      {!expanded && hasQuote && (
         <button
           type="button"
           onClick={() => setExpanded(true)}
           style={{
-            display: 'block',
-            width: '100%',
-            padding: '4px 8px',
-            border: '1px solid var(--border)',
-            borderRadius: 4,
-            background: 'var(--bg-tertiary)',
-            color: 'var(--text-secondary)',
-            cursor: 'pointer',
-            fontSize: 12,
-            marginBottom: 4,
+            display: 'block', width: '100%', padding: '4px 8px',
+            border: '1px solid var(--border)', borderRadius: 4,
+            background: 'var(--bg-tertiary)', color: 'var(--text-secondary)',
+            cursor: 'pointer', fontSize: 12, marginBottom: 4,
           }}
         >
           [...] {t('conversation.expandConversation')} ▾
         </button>
       )}
-      {children}
+      {cloneElement(children, {
+        collapseQuotes: !expanded,
+        onQuoteDetected: setHasQuote,
+      })}
     </div>
   );
 }

@@ -20,7 +20,7 @@ import { sanitizeMessageHtml, buildSrcDoc } from './messageBodySecurity.js';
  * CSS external URLs are blocked by CSP + regex sanitization.
  * iframe/object/embed/form are stripped by DOMPurify FORBID_TAGS.
  */
-export default function MessageBodyRenderer({ html = '', text = '', remoteImages = false, onHeightChange = null, iframeRef: externalIframeRef = null, onLoad = null, title = 'Message body', style: frameStyle = null }) {
+export default function MessageBodyRenderer({ html = '', text = '', remoteImages = false, collapseQuotes = false, onQuoteDetected = null, onHeightChange = null, iframeRef: externalIframeRef = null, onLoad = null, title = 'Message body', style: frameStyle = null }) {
   const internalIframeRef = useRef(null);
   const iframeRef = externalIframeRef || internalIframeRef;
 
@@ -50,6 +50,77 @@ export default function MessageBodyRenderer({ html = '', text = '', remoteImages
     const install = () => {
       const doc = iframe.contentDocument;
       if (!doc) return;
+      const expanded = new Map();
+      const quoteTextRe = /^\s*(On .+ wrote:|Dnia .+ napisał|-----Original Message-----|-----Wiadomość oryginalna-----)[\s\S]*$/m;
+      const detectAndApplyQuotes = () => {
+        const quoteNodes = doc.querySelectorAll('blockquote, .gmail_quote, .moz-quote-container, .yahoo_quoted');
+        const text = doc.body?.textContent || '';
+        const hasTextQuote = quoteTextRe.test(text);
+        const hasQuote = quoteNodes.length > 0 || hasTextQuote;
+        onQuoteDetected?.(hasQuote);
+        for (const quote of quoteNodes) quote.style.display = collapseQuotes ? 'none' : '';
+        if (hasTextQuote && !doc.querySelector('[data-mailflow-text-quote]')) {
+          const match = text.match(quoteTextRe);
+          const walker = doc.createTreeWalker(doc.body, NodeFilter.SHOW_TEXT);
+          let node;
+          while ((node = walker.nextNode())) {
+            const index = node.nodeValue?.indexOf(match?.[1] || '');
+            if (index >= 0) {
+              const range = doc.createRange();
+              range.setStart(node, index);
+              range.setEnd(doc.body, doc.body.childNodes.length);
+              const wrapper = doc.createElement('span');
+              wrapper.dataset.mailflowTextQuote = 'true';
+              wrapper.appendChild(range.extractContents());
+              range.insertNode(wrapper);
+              break;
+            }
+          }
+        }
+        const textQuote = doc.querySelector('[data-mailflow-text-quote]');
+        if (textQuote) textQuote.style.display = collapseQuotes ? 'none' : '';
+      };
+      const expandScrollContainers = () => {
+        const elements = [...doc.querySelectorAll('*')].reverse();
+        for (const el of elements) {
+          const style = doc.defaultView?.getComputedStyle(el);
+          if (!style) continue;
+          const isScroll = (style.overflowY === 'auto' || style.overflowY === 'scroll')
+            && el.scrollHeight > el.clientHeight + 2;
+          if (!isScroll) continue;
+          if (!expanded.has(el)) {
+            expanded.set(el, {
+              overflowY: el.style.getPropertyValue('overflow-y'),
+              overflowYPriority: el.style.getPropertyPriority('overflow-y'),
+              height: el.style.getPropertyValue('height'),
+              heightPriority: el.style.getPropertyPriority('height'),
+              maxHeight: el.style.getPropertyValue('max-height'),
+              maxHeightPriority: el.style.getPropertyPriority('max-height'),
+            });
+          }
+          el.style.setProperty('overflow-y', 'hidden', 'important');
+          el.style.setProperty('max-height', 'none', 'important');
+          el.style.setProperty('height', `${el.scrollHeight}px`, 'important');
+        }
+      };
+      const restoreScrollContainers = () => {
+        for (const [el, previous] of expanded) {
+          for (const [name, value, priority] of [
+            ['overflow-y', previous.overflowY, previous.overflowYPriority],
+            ['height', previous.height, previous.heightPriority],
+            ['max-height', previous.maxHeight, previous.maxHeightPriority],
+          ]) {
+            if (value) el.style.setProperty(name, value, priority);
+            else el.style.removeProperty(name);
+          }
+        }
+        expanded.clear();
+      };
+      const measureExpanded = () => {
+        detectAndApplyQuotes();
+        expandScrollContainers();
+        measure();
+      };
       const images = [...doc.images];
       const onDocumentClick = (event) => {
         const anchor = event.target?.closest?.('a');
@@ -64,23 +135,24 @@ export default function MessageBodyRenderer({ html = '', text = '', remoteImages
       };
       doc.addEventListener('click', onDocumentClick);
       for (const image of images) {
-        image.addEventListener('load', measure);
-        image.addEventListener('error', measure);
+        image.addEventListener('load', measureExpanded);
+        image.addEventListener('error', measureExpanded);
       }
       let observer = null;
       if (typeof ResizeObserver !== 'undefined' && doc.body) {
-        observer = new ResizeObserver(measure);
+        observer = new ResizeObserver(measureExpanded);
         observer.observe(doc.body);
       }
-      measure();
+      measureExpanded();
       onLoad?.();
       return () => {
         doc.removeEventListener('click', onDocumentClick);
         for (const image of images) {
-          image.removeEventListener('load', measure);
-          image.removeEventListener('error', measure);
+          image.removeEventListener('load', measureExpanded);
+          image.removeEventListener('error', measureExpanded);
         }
         observer?.disconnect();
+        restoreScrollContainers();
       };
     };
     let cleanup = null;
@@ -91,7 +163,7 @@ export default function MessageBodyRenderer({ html = '', text = '', remoteImages
       cleanup?.();
       iframe.removeEventListener('load', onLoaded);
     };
-  }, [srcDoc, onHeightChange, onLoad, iframeRef]);
+  }, [srcDoc, remoteImages, collapseQuotes, onQuoteDetected, onHeightChange, onLoad, iframeRef]);
 
   if (!html) return <p style={{ whiteSpace: 'pre-wrap' }}>{text}</p>;
 
