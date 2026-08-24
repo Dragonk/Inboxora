@@ -32,10 +32,10 @@ export const conversationApi = {
 
   // Copy-aware destructive actions — `scope` is explicit (never defaults to whole conversation).
   // Scopes: THIS_COPY | ALL_COPIES_OF_LOGICAL_MESSAGE | COPIES_ON_THIS_ACCOUNT | WHOLE_CONVERSATION
-  archive: (conversationId, { scope = 'THIS_COPY' } = {}) =>
+  archive: (conversationId, { scope = 'THIS_COPY', copyId = null, logicalMessageId = null } = {}) =>
     apiFetch(`/conversations/${conversationId}/archive`, {
       method: 'POST',
-      body: JSON.stringify({ scope }),
+      body: JSON.stringify({ scope, copyId, logicalMessageId }),
     }),
 
   move: (conversationId, targetFolder, { scope = 'THIS_COPY' } = {}) => {
@@ -46,22 +46,22 @@ export const conversationApi = {
     });
   },
 
-  delete: (conversationId, { scope = 'THIS_COPY' } = {}) =>
+  delete: (conversationId, { scope = 'THIS_COPY', copyId = null, logicalMessageId = null } = {}) =>
     apiFetch(`/conversations/${conversationId}/delete`, {
       method: 'POST',
-      body: JSON.stringify({ scope }),
+      body: JSON.stringify({ scope, copyId, logicalMessageId }),
     }),
 
-  setRead: (conversationId, isRead, { scope = 'THIS_COPY' } = {}) =>
+  setRead: (conversationId, isRead, { scope = 'THIS_COPY', copyId = null, logicalMessageId = null } = {}) =>
     apiFetch(`/conversations/${conversationId}/read`, {
       method: 'POST',
-      body: JSON.stringify({ isRead, scope }),
+      body: JSON.stringify({ isRead, scope, copyId, logicalMessageId }),
     }),
 
-  setStarred: (conversationId, isStarred, { scope = 'THIS_COPY' } = {}) =>
+  setStarred: (conversationId, isStarred, { scope = 'THIS_COPY', copyId = null, logicalMessageId = null } = {}) =>
     apiFetch(`/conversations/${conversationId}/star`, {
       method: 'POST',
-      body: JSON.stringify({ isStarred, scope }),
+      body: JSON.stringify({ isStarred, scope, copyId, logicalMessageId }),
     }),
 
   // Bulk variants — operate on multiple conversations at once.

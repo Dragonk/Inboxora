@@ -63,15 +63,19 @@ async function dryRunBatch(client, rows, userId) {
   let wouldChange = 0;
   for (const row of rows) {
     const before = await snapshotMessage(client, row);
+    await client.query('SAVEPOINT ce_dry_row');
     try {
       await _upsertConversationCopyWithClient(client, row, {
         identities: await resolveOwnIdentityAddresses(client, row.account_id, row),
         provider: providerIdentityForCopy(row),
         userId,
       });
+      await client.query('RELEASE SAVEPOINT ce_dry_row');
     } catch {
-      // If upsert throws (e.g. constraint violation in dry-run), the row
-      // WOULD change — the write path would need to handle it. Count as change.
+      // A row-level failure must not abort the enclosing dry-run transaction.
+      // Roll back only this row, count it as would-change, and continue.
+      await client.query('ROLLBACK TO SAVEPOINT ce_dry_row');
+      await client.query('RELEASE SAVEPOINT ce_dry_row');
       wouldChange++;
       continue;
     }

@@ -75,7 +75,11 @@ async function ceChecksum(accountId) {
 describeOrSkip('CE v2 PostgreSQL regression tests', () => {
   beforeAll(async () => { await ensureFixtures(); }, 30000);
   afterAll(async () => { await cleanupAll(); await pool.end(); });
-  afterEach(async () => { await cleanMessages(); }, 15000);
+  // Large PostgreSQL fixtures (100 Subject: Test rows plus CE aggregates) can take
+  // longer than the unit-test default to cascade-delete on constrained CI runners.
+  // Keep the cleanup bounded but do not let a valid regression test fail merely because
+  // cleanup exceeded 15s after a 60s data test.
+  afterEach(async () => { await cleanMessages(); }, 120000);
 
   // ── A. Golden all-folder test ──────────────────────────────────────────────
   describe('A. Golden all-folder: 5 LogicalMessages, same conversation', () => {

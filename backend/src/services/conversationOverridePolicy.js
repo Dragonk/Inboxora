@@ -13,7 +13,7 @@ import { query } from './db.js';
 export async function effectiveConversationOverride(client, { userId, conversationId, logicalMessageId = null }) {
   // Conversation-level overrides (lock/unlock/merge) — keyed by conversation_id only.
   const conversationResult = await client.query(`
-    SELECT override_type, target_id, reason, logical_message_id
+    SELECT id, override_type, target_id, reason, logical_message_id, created_at
       FROM conversation_overrides
      WHERE user_id = $1
        AND conversation_id = $2
@@ -30,7 +30,7 @@ export async function effectiveConversationOverride(client, { userId, conversati
   let messageLatest = new Map();
   if (logicalMessageId) {
     const messageResult = await client.query(`
-      SELECT override_type, target_id, reason, logical_message_id
+      SELECT id, override_type, target_id, reason, logical_message_id, created_at
         FROM conversation_overrides
        WHERE user_id = $1
          AND logical_message_id = $2
@@ -63,10 +63,18 @@ export async function effectiveConversationOverride(client, { userId, conversati
     locked = latestEvent.override_type === 'lock-conversation';
   }
 
+  // A later force-include supersedes an earlier force-exclude (and vice versa).
+  // Keep one authoritative manual membership event instead of treating the
+  // existence of either historical event as permanent state.
+  const membershipEvents = [...messageLatest.values()]
+    .filter(row => row.override_type === 'force-include' || row.override_type === 'force-exclude')
+    .sort((a, b) => String(b.created_at || '').localeCompare(String(a.created_at || '')) || String(b.id || '').localeCompare(String(a.id || '')));
+  const latestMembership = membershipEvents[0] || null;
+
   return {
     locked,
-    forceInclude: messageLatest.get('force-include') || null,
-    forceExclude: messageLatest.get('force-exclude') || null,
+    forceInclude: latestMembership?.override_type === 'force-include' ? latestMembership : null,
+    forceExclude: latestMembership?.override_type === 'force-exclude' ? latestMembership : null,
     split: messageLatest.get('manual-split') || null,
     move: messageLatest.get('manual-move') || null,
     merge: conversationLatest.get('manual-merge') || null,

@@ -328,6 +328,7 @@ router.post('/conversations/:id/logical-messages/:logicalMessageId/force-include
     logicalMessageId: req.params.logicalMessageId,
     scope: 'message-only',
     overrideType: 'force-include',
+    targetConversationId: req.body?.targetConversationId || req.body?.targetId || req.params.id,
   });
   res.status(201).json(result);
 });

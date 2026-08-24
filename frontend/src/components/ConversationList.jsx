@@ -323,23 +323,32 @@ export default function ConversationList({ params = {}, onOpenMessage }) {
   }, [confirmDestructive, closeModal, runOp, selectedIds.size, t]);
 
   // ── P1-12: Hover/quick action handlers ────────────────────────
+  // A list row can represent a folder/account-filtered physical copy. Always
+  // carry the displayed copy identity for THIS_COPY and other copy scopes;
+  // the backend must never guess a different globally-latest copy.
+  const rowActionOptions = useCallback((row) => ({
+    scope: actionScope,
+    copyId: row.latestCopyId || null,
+    logicalMessageId: row.logical_message_id || null,
+  }), [actionScope]);
+
   const handleQuickArchive = useCallback((row) => {
-    runDestructiveAction('Archive', () => conversationApi.archive(row.conversation_id, { scope: actionScope }), actionScope);
-  }, [runDestructiveAction, actionScope]);
+    runDestructiveAction('Archive', () => conversationApi.archive(row.conversation_id, rowActionOptions(row)), actionScope);
+  }, [runDestructiveAction, actionScope, rowActionOptions]);
 
   const handleQuickDelete = useCallback((row) => {
-    runDestructiveAction('Delete', () => conversationApi.delete(row.conversation_id, { scope: actionScope }), actionScope);
-  }, [runDestructiveAction, actionScope]);
+    runDestructiveAction('Delete', () => conversationApi.delete(row.conversation_id, rowActionOptions(row)), actionScope);
+  }, [runDestructiveAction, actionScope, rowActionOptions]);
 
   const handleQuickToggleRead = useCallback((row) => {
     const isUnread = (row.unread_count || 0) > 0;
-    runOp(() => conversationApi.setRead(row.conversation_id, !isUnread, { scope: actionScope }));
-  }, [runOp, actionScope]);
+    runOp(() => conversationApi.setRead(row.conversation_id, !isUnread, rowActionOptions(row)));
+  }, [runOp, rowActionOptions]);
 
   const handleQuickToggleStar = useCallback((row) => {
-    const isStarred = row.starred || false;
-    runOp(() => conversationApi.setStarred(row.conversation_id, !isStarred, { scope: actionScope }));
-  }, [runOp, actionScope]);
+    const isStarred = Boolean(row.starred || row.is_starred || (row.logical_messages || []).some(message => message.starred));
+    runOp(() => conversationApi.setStarred(row.conversation_id, !isStarred, rowActionOptions(row)));
+  }, [runOp, rowActionOptions]);
 
   // ── P1-11: Bulk action handlers ───────────────────────────────
   const handleBulkArchive = useCallback(() => {
