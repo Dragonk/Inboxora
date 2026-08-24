@@ -9,9 +9,17 @@ function legacyReader(page) {
 }
 
 test.describe('conversation engine browser E2E', () => {
+  async function gotoAfterPreferences(page, url) {
+    const preferences = page.waitForResponse(response =>
+      response.url().includes('/api/auth/preferences') && response.request().method() === 'GET' && response.status() === 200
+    );
+    await page.goto(url);
+    await preferences;
+  }
+
   test.beforeEach(async ({ page, fixtureApi }) => {
     await fixtureApi;
-    await page.goto('/?list=1&reader=1');
+    await gotoAfterPreferences(page, '/?list=1&reader=1');
     await expect(visibleList(page)).toBeVisible();
   });
 
@@ -19,19 +27,20 @@ test.describe('conversation engine browser E2E', () => {
     const list = visibleList(page);
     await expect(list.getByText('Gmail reply chain', { exact: true }).first()).toBeVisible();
     await expect(list.getByLabel(/Najnowsza własna odpowiedź|Latest own reply/i).first()).toBeVisible();
-    const expand = list.locator('[data-testid="conversation-expand-conversation-gmail"]');
+    const expand = list.getByRole('button', { name: /Rozwiń rozmowę: Gmail reply chain|Expand conversation: Gmail reply chain/i });
     await expand.click();
-    await expect(expand).toHaveAttribute('aria-expanded', 'true');
+    await expect(list.getByRole('button', { name: /Zwiń rozmowę: Gmail reply chain|Collapse conversation: Gmail reply chain/i })).toHaveAttribute('aria-expanded', 'true');
     await list.locator('[data-logical-message-id]').first().click();
     const pane = page.locator('section[data-conversation-id]:visible').first();
     await expect(pane).toBeVisible();
     await expect(pane.locator('[data-logical-message-id]').first()).toBeVisible();
-    await expect(pane.getByText('Fixture body lazy', { exact: true }).first()).toBeVisible();
+    await expect(pane.locator('iframe').first().contentFrame().getByText('Fixture body lazy', { exact: true })).toBeVisible();
   });
 
   test('supports reply and Reply All controls after lazy body load', async ({ page }) => {
     const list = visibleList(page);
-    await list.getByText('Gmail reply chain', { exact: true }).first().click();
+    await list.getByRole('button', { name: /Rozwiń rozmowę: Gmail reply chain|Expand conversation: Gmail reply chain/i }).click();
+    await list.locator('[data-logical-message-id]').first().click();
     const pane = page.locator('section[data-conversation-id]:visible').first();
     await pane.locator('article').first().locator('button').first().click({ force: true });
     await expect(pane.getByRole('button', { name: /Odpowiedz$|Reply$/i }).first()).toBeVisible();
@@ -42,11 +51,12 @@ test.describe('conversation engine browser E2E', () => {
     test(`opens parent and child with list=${listEnabled} reader=${readerEnabled}`, async ({ page, fixtureApi }) => {
       await fixtureApi;
       page.__conversationMatrix = `${Number(listEnabled)}${Number(readerEnabled)}`;
-      await page.goto(`/?list=${Number(listEnabled)}&reader=${Number(readerEnabled)}`);
+      await gotoAfterPreferences(page, `/?list=${Number(listEnabled)}&reader=${Number(readerEnabled)}`);
       if (listEnabled) {
         const list = visibleList(page);
         await expect(list.getByText('Gmail reply chain', { exact: true }).first()).toBeVisible();
-        await list.getByText('Gmail reply chain', { exact: true }).first().click();
+        await list.getByRole('button', { name: /Rozwiń rozmowę: Gmail reply chain|Expand conversation: Gmail reply chain/i }).click();
+        await list.locator('[data-logical-message-id]').first().click();
       } else {
         await expect(page.locator('body')).toBeVisible();
       }
@@ -56,9 +66,11 @@ test.describe('conversation engine browser E2E', () => {
         await expect(page.locator('body')).toBeVisible();
       }
       if (listEnabled) {
-        await page.goto(`/?list=${Number(listEnabled)}&reader=${Number(readerEnabled)}`);
+        await gotoAfterPreferences(page, `/?list=${Number(listEnabled)}&reader=${Number(readerEnabled)}`);
+        await expect(visibleList(page)).toBeVisible();
+        await expect(page.locator('[data-ce-reader-state="enabled"]')).toHaveCount(readerEnabled ? 1 : 0);
         const expandedList = visibleList(page);
-        await expandedList.locator('[data-testid="conversation-expand-conversation-gmail"]').click();
+        await expandedList.getByRole('button', { name: /Rozwiń rozmowę: Gmail reply chain|Expand conversation: Gmail reply chain/i }).click();
         await expandedList.locator('[data-logical-message-id]').first().click();
         if (readerEnabled && listEnabled) await expect(page.locator('section[data-conversation-id]:visible')).toBeVisible();
         else await expect(page.locator('body')).toBeVisible();

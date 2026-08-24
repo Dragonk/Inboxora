@@ -92,9 +92,17 @@ export const test = base.extend({
         block_remote_images: true,
       } });
     });
+    // Keep optional boot calls from reaching the real backend. A 401 from one of
+    // these non-auth endpoints dispatches session_expired in api.js and would log
+    // the mocked user out before ConversationList/Pane finish mounting.
     await page.route('**/api/accounts', route => route.fulfill({ json: fixture.accounts }));
+    await page.route('**/api/ai/status', route => route.fulfill({ json: { enabled: false } }));
+    await page.route('**/api/todoist/status', route => route.fulfill({ json: { connected: false } }));
+    await page.route('**/api/update', route => route.fulfill({ json: { current: '3.2.4', latest: '3.2.4', updateAvailable: false } }));
+    await page.route('**/api/contacts**', route => route.fulfill({ json: { contacts: [], total: 0 } }));
+    await page.route('**/api/auth/registration-status', route => route.fulfill({ json: { open: true, internalAuthDisabled: false } }));
+    await page.route('**/api/auth/oidc/providers', route => route.fulfill({ json: { providers: [] } }));
     await page.route('**/api/mail/unread-counts', route => route.fulfill({ json: { total: 0, byAccount: {} } }));
-    await page.route('**/api/mail/conversations/*/logical-messages/*/body', route => route.fulfill({ json: { body_text: 'Fixture body lazy', body_html: '<p>Fixture body lazy</p><img src=\"https://tracker.example.test/pixel.gif\"><a href=\"https://example.test\">Safe link</a>' } }));
     await page.route('**/api/mail/conversations**', route => {
       const url = new URL(route.request().url());
       const parts = url.pathname.split('/').filter(Boolean);
@@ -103,6 +111,9 @@ export const test = base.extend({
       if (id && id !== 'conversations') return route.fulfill({ json: details(id) });
       return route.fulfill({ json: { conversations: fixture.conversations, nextCursor: null } });
     });
+    // Body endpoint is registered after the broad conversations handler so its
+    // specific route wins under Playwright's newest-route-first matching order.
+    await page.route('**/api/mail/conversations/*/logical-messages/*/body', route => route.fulfill({ json: { body_text: 'Fixture body lazy', body_html: '<p>Fixture body lazy</p><img src=\"https://tracker.example.test/pixel.gif\"><a href=\"https://example.test\">Safe link</a>' } }));
     await page.route('**/api/mail/messages*', route => {
       if (route.request().url().includes('/conversation')) return route.fulfill({ json: { conversation_id: 'conversation-gmail', logical_message_id: 'conversation-gmail-logical-1' } });
       return route.fulfill({ json: { messages: [{ id: 'legacy-message-1', subject: 'Legacy fixture', is_read: true, account_id: 'account-gmail', folder: 'INBOX', date: new Date().toISOString(), from_email: 'sender@example.test', body_text: 'Fixture body legacy' }], total: 1 } });

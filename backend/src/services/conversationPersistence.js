@@ -112,7 +112,10 @@ async function findProviderConversation(client, hydrated, provider) {
 export async function upsertConversationCopy(copy, { identities = [], provider = null, userId = null } = {}) {
   // P0-02: userId MUST be passed explicitly by the caller (from session context).
   // Do NOT trust copy.user_id — it is caller-controlled and could be spoofed.
-  const effectiveUserId = userId || copy.user_id || copy.userId;
+  // Tenant ownership must come from the authenticated/session context. A copy row
+  // is caller-controlled input at this boundary, so never fall back to user_id
+  // carried by the payload (that would permit cross-tenant attachment).
+  const effectiveUserId = userId;
   if (!effectiveUserId) throw new Error('userId is required for conversation persistence');
   return withTransaction(async client => {
     return _upsertConversationCopyWithClient(client, copy, { identities, provider, userId: effectiveUserId });
@@ -123,7 +126,9 @@ export async function _upsertConversationCopyWithClient(client, copy, { identiti
       // P0-02: Verify ownership using userId from the calling context (session),
       // NOT from copy.user_id which is caller-controlled. The query enforces
       // a.user_id = $2 where $2 is the context userId — a tenant isolation gate.
-      const effectiveUserId = userId || copy.user_id || copy.userId;
+      // This internal helper is also used by retry/rebuild paths; require their
+      // transaction/session context explicitly rather than trusting copy.user_id.
+      const effectiveUserId = userId;
       if (!effectiveUserId) throw new Error('userId is required for conversation persistence');
       const verified = await client.query(`SELECT m.*, a.user_id, a.automated_series_mode FROM messages m JOIN email_accounts a ON a.id = m.account_id WHERE m.id = $1 AND a.user_id = $2 FOR UPDATE`, [copy.id, effectiveUserId]);
     if (verified.rows.length !== 1) throw new Error('Conversation copy not found or owner mismatch');

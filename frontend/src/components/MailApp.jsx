@@ -792,7 +792,7 @@ export default function MailApp() {
             <Sidebar />
           </div>
           {/* Keep all three mounted so scroll/state survive navigation. */}
-          <div style={{ flex: 1, display: !showContacts && !selectedMessageId && !(conversationReaderViewEnabled && conversationId) ? 'flex' : 'none', overflow: 'hidden', height: '100%' }}>
+          <div data-ce-reader-enabled={conversationReaderViewEnabled ? 'true' : 'false'} data-ce-reader-state={conversationReaderViewEnabled ? 'enabled' : 'disabled'} style={{ flex: 1, display: !showContacts && !selectedMessageId && !(conversationReaderViewEnabled && conversationId) ? 'flex' : 'none', overflow: 'hidden', height: '100%' }}>
             {conversationListViewEnabled ? <ConversationList params={{ accountId: selectedAccountId || undefined, folder: selectedFolder || undefined }} onOpenMessage={openConversationTarget} /> : <MessageList />}
           </div>
           <div style={{ flex: 1, display: !showContacts && (selectedMessageId || (conversationReaderViewEnabled && conversationId)) ? 'flex' : 'none', overflow: 'hidden', height: '100%' }}>
@@ -825,7 +825,9 @@ export default function MailApp() {
               <Suspense fallback={lazyFallback}><ContactsPage /></Suspense>
             </div>
             <div style={{ display: showContacts ? 'none' : 'flex', flex: 1, minWidth: 0, overflow: 'hidden', height: '100%', flexDirection: currentLayout.direction }}>
-              {conversationListViewEnabled ? <ConversationList params={{ accountId: selectedAccountId || undefined, folder: selectedFolder || undefined }} onOpenMessage={openConversationTarget} /> : <MessageList />}
+              <div data-ce-reader-enabled={conversationReaderViewEnabled ? 'true' : 'false'} data-ce-reader-state={conversationReaderViewEnabled ? 'enabled' : 'disabled'} style={{ display: 'contents' }}>
+                {conversationListViewEnabled ? <ConversationList params={{ accountId: selectedAccountId || undefined, folder: selectedFolder || undefined }} onOpenMessage={openConversationTarget} /> : <MessageList />}
+              </div>
               {currentLayout.direction === 'row' && (
                 <div
                   onMouseDown={handleListResizeMouseDown}

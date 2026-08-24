@@ -115,6 +115,9 @@ export default function ConversationPane({ conversationId, targetLogicalMessageI
   const [expanded, setExpanded] = useState(new Set());
   const [bodies, setBodies] = useState({});
   const [bodyStatus, setBodyStatus] = useState({});
+  const bodiesRef = useRef({});
+  const tRef = useRef(t);
+  tRef.current = t;
   const [showCopies, setShowCopies] = useState({});
   const [showHeaders, setShowHeaders] = useState({});
   const [remoteImagesEnabled, setRemoteImagesEnabled] = useState({});
@@ -127,26 +130,28 @@ export default function ConversationPane({ conversationId, targetLogicalMessageI
   const containerRef = useRef(null);
 
   const loadBody = useCallback(async (logicalId, force = false) => {
-    if (!force && (bodies[logicalId] || inFlight.current.has(logicalId))) return;
+    if (!force && (bodiesRef.current[logicalId] || inFlight.current.has(logicalId))) return;
     const controller = new AbortController();
     inFlight.current.set(logicalId, controller);
     setBodyStatus(prev => ({ ...prev, [logicalId]: { loading: true, error: null } }));
     try {
       const body = await conversationApi.body(conversationId, logicalId, controller.signal);
+      bodiesRef.current[logicalId] = body;
       setBodies(prev => ({ ...prev, [logicalId]: body }));
       setBodyStatus(prev => ({ ...prev, [logicalId]: { loading: false, error: null } }));
     } catch (error) {
       if (error.name !== 'AbortError') {
-        setBodyStatus(prev => ({ ...prev, [logicalId]: { loading: false, error: error.message || t('conversation.loadBodyFailed') } }));
+        setBodyStatus(prev => ({ ...prev, [logicalId]: { loading: false, error: error.message || tRef.current('conversation.loadBodyFailed') } }));
       }
     } finally {
       inFlight.current.delete(logicalId);
     }
-  }, [conversationId, bodies, t]);
+  }, [conversationId]);
 
   useEffect(() => {
     let cancelled = false;
     setState({ loading: true, error: null, data: null });
+    bodiesRef.current = {};
     setBodies({});
     setBodyStatus({});
     setExpanded(new Set());
@@ -166,10 +171,10 @@ export default function ConversationPane({ conversationId, targetLogicalMessageI
         if (initialIds.has(msg.id)) loadBody(msg.id).catch(() => {});
       }
     }).catch(error => {
-      if (!cancelled) setState({ loading: false, error: error.message || t('conversation.loadFailed'), data: null });
+      if (!cancelled) setState({ loading: false, error: error.message || tRef.current('conversation.loadFailed'), data: null });
     });
     return () => { cancelled = true; };
-  }, [conversationId, targetLogicalMessageId, t, loadBody]);
+  }, [conversationId, targetLogicalMessageId, loadBody]);
 
   // Abort all in-flight requests when conversation changes
   useEffect(() => () => {
