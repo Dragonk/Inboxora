@@ -192,6 +192,30 @@ jobs:
           Path('../artifacts/rebuild-second-run.json').write_text(json.dumps(result['second'], indent=2) + '\n')
           PY
 
+      - name: Real PostgreSQL concurrency suite
+        working-directory: backend
+        env:
+          DB_HOST: 127.0.0.1
+          DB_PORT: 5432
+          DB_NAME: mailflow_test
+          DB_USER: mailflow_test
+          DB_PASSWORD: mailflow_test
+          ENCRYPTION_KEY: "0000000000000000000000000000000000000000000000000000000000000000"
+        run: |
+          node --test src/services/conversationConcurrencyReal.test.js 2>&1 | tee ../artifacts/concurrency-real.log
+
+      - name: Real PostgreSQL copy-scope suite
+        working-directory: backend
+        env:
+          DB_HOST: 127.0.0.1
+          DB_PORT: 5432
+          DB_NAME: mailflow_test
+          DB_USER: mailflow_test
+          DB_PASSWORD: mailflow_test
+          ENCRYPTION_KEY: "0000000000000000000000000000000000000000000000000000000000000000"
+        run: |
+          node --test src/services/conversationCopyScopesReal.test.js 2>&1 | tee ../artifacts/copy-scopes-real.log
+
       - name: Security gate
         working-directory: backend
         run: npm test -- --run src/services/conversationSecurity.test.js
@@ -221,6 +245,10 @@ jobs:
         run: npm test -- --test-name-pattern='conversation E2E matrix'
 
       - name: EN/FR/PL locale gate
+        working-directory: frontend
+        run: npm test -- --test-name-pattern='i18n locale files'
+
+      - name: All official locale gate
         working-directory: frontend
         run: npm test -- --test-name-pattern='i18n locale files'
 

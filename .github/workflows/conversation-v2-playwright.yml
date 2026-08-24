@@ -89,6 +89,13 @@ jobs:
         # here makes it resolve the Docker-only hostname `backend` without a service.
         run: npx playwright test e2e/conversation-engine.spec.js --project=chromium-desktop --project=chromium-mobile
 
+      - name: Run browser network security gate
+        working-directory: frontend
+        env:
+          PLAYWRIGHT_BROWSERS_PATH: ${{ runner.temp }}/ms-playwright
+          PLAYWRIGHT_BASE_URL: http://127.0.0.1:4173
+        run: npx playwright test e2e/browser-security.spec.js --project=chromium-desktop
+
       - name: Write Playwright environment report
         if: always()
         working-directory: frontend

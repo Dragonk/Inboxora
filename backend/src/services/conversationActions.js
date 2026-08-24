@@ -74,8 +74,13 @@ async function resolvePhysicalIds(client, { userId, conversationId, scope, copyI
       where = 'm.logical_message_id = $2';
     }
   } else if (scope === 'COPIES_ON_THIS_ACCOUNT') {
-    values.push(selectedRow.account_id, canonicalConversationId);
-    where = 'm.account_id = $2 AND m.conversation_id = $3';
+    // Scope is account-local copies of the SELECTED logical message, not every
+    // LogicalMessage in the conversation. This keeps the UI/API meaning aligned
+    // with the explicit scope label and prevents unrelated replies from moving.
+    values.push(selectedRow.account_id, selectedRow.logical_message_id || selectedRow.id);
+    where = selectedRow.logical_message_id
+      ? 'm.account_id = $2 AND m.logical_message_id = $3'
+      : 'm.account_id = $2 AND m.id = $3';
   } else {
     values.push(canonicalConversationId);
     where = 'm.conversation_id = $2';
