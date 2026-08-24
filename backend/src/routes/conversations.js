@@ -39,11 +39,15 @@ router.get('/conversations', async (req, res) => {
   if (cursor && !cursorValue) return res.status(400).json({ error: 'Invalid conversation cursor' });
   const values = accountId ? [userId, accountId] : [userId];
   const accountFilter = accountId ? `AND m.account_id = $2` : '';
-  // Folder-scoped filtering: a conversation appears in the list only if it has at
-  // least one visible physical copy in the requested folder. The expanded children
-  // still show the FULL conversation (all folders), but the list is scoped.
-  const folderFilter = folder ? `AND EXISTS (SELECT 1 FROM messages mf WHERE mf.conversation_id = c.id AND mf.is_deleted = false ${accountId ? 'AND mf.account_id = $2' : ''} AND mf.folder = $${values.length + 1})` : '';
+  // Folder/account scope applies to every list aggregate, not only conversation
+  // existence. Otherwise a starred or unread copy hidden in another account/folder
+  // leaks into the visible row state and can drive the wrong quick action.
+  const folderParam = values.length + 1;
+  const folderFilter = folder ? `AND EXISTS (SELECT 1 FROM messages mf WHERE mf.conversation_id = c.id AND mf.is_deleted = false ${accountId ? 'AND mf.account_id = $2' : ''} AND mf.folder = $${folderParam})` : '';
   if (folder) { values.push(folder); }
+  const scopedMessageFilter = `${accountId ? 'AND m.account_id = $2' : ''}${folder ? ` AND m.folder = $${folderParam}` : ''}`;
+  const scopedLogicalFilter = `${accountId ? 'AND visible_lm.account_id = $2' : ''}${folder ? ` AND visible_lm.folder = $${folderParam}` : ''}`;
+  const scopedPreviewFilter = `${accountId ? 'AND m.account_id = $2' : ''}${folder ? ` AND m.folder = $${folderParam}` : ''}`;
   let cursorFilter = '';
   if (cursorValue) {
     values.push(cursorValue.date, cursorValue.id);
@@ -54,7 +58,9 @@ router.get('/conversations', async (req, res) => {
   const result = await query(`
     SELECT c.id AS conversation_id, c.kind, c.canonical_subject,
            c.first_message_at, c.last_message_at, c.logical_message_count,
-           c.copy_count, c.unread_count, c.threading_confidence,
+           c.copy_count,
+           COUNT(DISTINCT m.logical_message_id) FILTER (WHERE m.is_read = false)::int AS unread_count,
+           c.threading_confidence,
            COALESCE(BOOL_OR(m.is_starred), false) AS is_starred,
            COUNT(DISTINCT m.id)::int AS visible_copy_count,
            COALESCE(c.last_message_at, c.created_at) AS sort_date,
@@ -63,20 +69,20 @@ router.get('/conversations', async (req, res) => {
            COALESCE(preview.logical_messages, '[]'::jsonb) AS logical_messages,
            top_latest.id AS latest_copy_id
       FROM conversations c
-      JOIN messages m ON m.conversation_id = c.id AND m.is_deleted = false
+      JOIN messages m ON m.conversation_id = c.id AND m.is_deleted = false ${scopedMessageFilter}
       JOIN email_accounts a ON a.id = m.account_id AND a.user_id = $1
       LEFT JOIN LATERAL (
         SELECT lm.direction, lm.id
           FROM logical_messages lm
          WHERE lm.conversation_id = c.id
-           AND EXISTS (SELECT 1 FROM messages visible_lm WHERE visible_lm.logical_message_id = lm.id AND visible_lm.is_deleted = false ${accountId ? 'AND visible_lm.account_id = $2' : ''})
+           AND EXISTS (SELECT 1 FROM messages visible_lm WHERE visible_lm.logical_message_id = lm.id AND visible_lm.is_deleted = false ${scopedLogicalFilter})
          ORDER BY lm.message_date DESC NULLS LAST, lm.id DESC
          LIMIT 1
       ) latest ON true
      LEFT JOIN LATERAL (
        SELECT m.id
          FROM messages m
-        WHERE m.conversation_id = c.id AND m.is_deleted = false ${accountFilter}${folder ? ` AND m.folder = $${accountId ? 3 : 2}` : ''}
+        WHERE m.conversation_id = c.id AND m.is_deleted = false ${scopedMessageFilter}
         ORDER BY m.date DESC NULLS LAST, m.id DESC
         LIMIT 1
      ) top_latest ON true
@@ -95,12 +101,12 @@ router.get('/conversations', async (req, res) => {
            FROM messages m
           WHERE m.logical_message_id = lm.id
             AND m.is_deleted = false
-            ${accountId ? 'AND m.account_id = $2' : ''}
+            ${scopedPreviewFilter}
           ORDER BY m.is_read ASC, m.date DESC NULLS LAST, m.id DESC
           LIMIT 1
        ) latest_copy ON true
        WHERE lm.conversation_id = c.id
-         AND EXISTS (SELECT 1 FROM messages visible_lm WHERE visible_lm.logical_message_id = lm.id AND visible_lm.is_deleted = false ${accountId ? 'AND visible_lm.account_id = $2' : ''})
+         AND EXISTS (SELECT 1 FROM messages visible_lm WHERE visible_lm.logical_message_id = lm.id AND visible_lm.is_deleted = false ${scopedLogicalFilter})
      ) preview ON true
      WHERE c.user_id = $1
        AND NOT EXISTS (SELECT 1 FROM conversation_aliases ca WHERE ca.user_id = $1 AND ca.alias_conversation_id = c.id)
