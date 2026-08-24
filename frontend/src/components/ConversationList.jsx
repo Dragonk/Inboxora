@@ -66,6 +66,29 @@ function AccountBadge({ accounts = [] }) {
   );
 }
 
+function MenuItem({ onClick, children }) {
+  return (
+    <button
+      type="button"
+      role="menuitem"
+      onClick={onClick}
+      style={{
+        display: 'block',
+        width: '100%',
+        textAlign: 'left',
+        padding: '6px 12px',
+        border: 'none',
+        background: 'transparent',
+        cursor: 'pointer',
+        fontSize: 13,
+        color: 'var(--text-primary)',
+      }}
+    >
+      {children}
+    </button>
+  );
+}
+
 function formatListDate(dateStr) {
   if (!dateStr) return '';
   const d = new Date(dateStr);
@@ -103,6 +126,11 @@ export default function ConversationList({ params = {}, onOpenMessage }) {
   const [nextCursor, setNextCursor] = useState(null);
   const [loadingMore, setLoadingMore] = useState(false);
   const [error, setError] = useState(null);
+  const [loading, setLoading] = useState(true);
+  const [menuOpen, setMenuOpen] = useState(null);
+  const [modal, setModal] = useState(null);
+  const [opsError, setOpsError] = useState(null);
+  const [opsBusy, setOpsBusy] = useState(false);
 
   const paramsKey = JSON.stringify(params);
 
@@ -110,6 +138,7 @@ export default function ConversationList({ params = {}, onOpenMessage }) {
     let cancelled = false;
     setError(null);
     setExpanded(null);
+    setLoading(true);
     conversationApi.list(params).then(data => {
       if (!cancelled) {
         setRows(data.conversations || []);
@@ -117,6 +146,8 @@ export default function ConversationList({ params = {}, onOpenMessage }) {
       }
     }).catch(err => {
       if (!cancelled) setError(err.message || t('conversation.loadFailed'));
+    }).finally(() => {
+      if (!cancelled) setLoading(false);
     });
     return () => { cancelled = true; };
   }, [paramsKey, t]); // eslint-disable-line react-hooks/exhaustive-deps
@@ -139,6 +170,85 @@ export default function ConversationList({ params = {}, onOpenMessage }) {
     setExpanded(prev => (prev === conversationId ? null : conversationId));
   }, []);
 
+  const closeModal = useCallback(() => {
+    setModal(null);
+    setOpsError(null);
+  }, []);
+
+  const runOp = useCallback(async (fn, successModal) => {
+    setOpsBusy(true);
+    setOpsError(null);
+    try {
+      const result = await fn();
+      if (successModal) {
+        setModal({ type: 'info', title: successModal, body: JSON.stringify(result, null, 2) });
+      }
+      // Refresh list after successful mutation
+      const data = await conversationApi.list(params);
+      setRows(data.conversations || []);
+      setNextCursor(data.nextCursor || null);
+    } catch (err) {
+      setOpsError(err.message || t('conversation.loadFailed'));
+    } finally {
+      setOpsBusy(false);
+    }
+  }, [params, t]);
+
+  const handleDiagnostics = useCallback((row) => {
+    setMenuOpen(null);
+    runOp(
+      () => conversationApi.diagnostics(row.conversation_id),
+      t('conversation.diagnosticsTitle'),
+    );
+  }, [runOp, t]);
+
+  const handleMerge = useCallback((row) => {
+    setMenuOpen(null);
+    const targetId = window.prompt(t('conversation.mergeTargetPrompt'));
+    if (!targetId) return;
+    runOp(() => conversationApi.merge(row.conversation_id, targetId.trim()));
+  }, [runOp, t]);
+
+  const handleSplit = useCallback((row, includeReplies) => {
+    setMenuOpen(null);
+    const lmId = (row.logical_messages || [])[0]?.id;
+    if (!lmId) return;
+    runOp(() => conversationApi.split(row.conversation_id, lmId, { includeReplies }));
+  }, [runOp]);
+
+  const handleMove = useCallback((row) => {
+    setMenuOpen(null);
+    const lmId = (row.logical_messages || [])[0]?.id;
+    if (!lmId) return;
+    const targetId = window.prompt(t('conversation.moveToConversationPrompt'));
+    if (!targetId) return;
+    runOp(() => conversationApi.moveLogicalMessage(row.conversation_id, lmId, targetId.trim()));
+  }, [runOp, t]);
+
+  const handleLock = useCallback((row) => {
+    setMenuOpen(null);
+    runOp(() => conversationApi.lock(row.conversation_id));
+  }, [runOp]);
+
+  const handleUnlock = useCallback((row) => {
+    setMenuOpen(null);
+    runOp(() => conversationApi.unlock(row.conversation_id));
+  }, [runOp]);
+
+  const handleForceInclude = useCallback((row) => {
+    setMenuOpen(null);
+    const lmId = (row.logical_messages || [])[0]?.id;
+    if (!lmId) return;
+    runOp(() => conversationApi.forceInclude(row.conversation_id, lmId));
+  }, [runOp]);
+
+  const handleForceExclude = useCallback((row) => {
+    setMenuOpen(null);
+    const lmId = (row.logical_messages || [])[0]?.id;
+    if (!lmId) return;
+    runOp(() => conversationApi.forceExclude(row.conversation_id, lmId));
+  }, [runOp]);
+
   if (error) {
     return <div role="alert" style={{ padding: 16, color: 'var(--text-danger)' }}>{error}</div>;
   }
@@ -146,7 +256,18 @@ export default function ConversationList({ params = {}, onOpenMessage }) {
   if (!rows.length) {
     return (
       <div role="status" style={{ padding: 24, textAlign: 'center', color: 'var(--text-tertiary)' }}>
-        {t('conversation.loading')}
+        {loading
+          ? t('conversation.loading')
+          : (
+            <>
+              <div style={{ fontSize: 15, fontWeight: 600, marginBottom: 4 }}>
+                {t('conversation.noConversations')}
+              </div>
+              <div style={{ fontSize: 13 }}>
+                {t('conversation.noConversationsDesc')}
+              </div>
+            </>
+          )}
       </div>
     );
   }
@@ -251,8 +372,64 @@ export default function ConversationList({ params = {}, onOpenMessage }) {
                 }}>
                   {formatListDate(latestDate)}
                 </span>
+                <button
+                  type="button"
+                  aria-label={t('conversation.manualActions')}
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    setMenuOpen(prev => (prev === row.conversation_id ? null : row.conversation_id));
+                  }}
+                  style={{
+                    flexShrink: 0,
+                    border: 'none',
+                    background: 'transparent',
+                    cursor: 'pointer',
+                    padding: '2px 4px',
+                    fontSize: 16,
+                    color: 'var(--text-tertiary)',
+                    lineHeight: 1,
+                  }}
+                >
+                  ⋮
+                </button>
               </div>
             </div>
+
+            {/* Context menu dropdown */}
+            {menuOpen === row.conversation_id && (
+              <>
+                <div
+                  onClick={() => setMenuOpen(null)}
+                  style={{ position: 'fixed', inset: 0, zIndex: 999 }}
+                />
+                <div
+                  role="menu"
+                  aria-label={t('conversation.manualActions')}
+                  style={{
+                    position: 'absolute',
+                    right: 8,
+                    zIndex: 1000,
+                    background: 'var(--bg-primary)',
+                    border: '1px solid var(--border)',
+                    borderRadius: 6,
+                    boxShadow: '0 4px 12px rgba(0,0,0,0.15)',
+                    minWidth: 220,
+                    padding: '4px 0',
+                  }}
+                >
+                  <MenuItem onClick={() => handleDiagnostics(row)}>{t('conversation.whyGrouped')}</MenuItem>
+                  <MenuItem onClick={() => handleMerge(row)}>{t('conversation.mergeConversations')}</MenuItem>
+                  <MenuItem onClick={() => handleSplit(row, false)}>{t('conversation.splitMessageOnly')}</MenuItem>
+                  <MenuItem onClick={() => handleSplit(row, true)}>{t('conversation.splitMessageAndReplies')}</MenuItem>
+                  <MenuItem onClick={() => handleMove(row)}>{t('conversation.moveToConversation')}</MenuItem>
+                  {row.manually_locked
+                    ? <MenuItem onClick={() => handleUnlock(row)}>{t('conversation.unlockConversation')}</MenuItem>
+                    : <MenuItem onClick={() => handleLock(row)}>{t('conversation.lock')}</MenuItem>}
+                  <MenuItem onClick={() => handleForceInclude(row)}>{t('conversation.forceInclude')}</MenuItem>
+                  <MenuItem onClick={() => handleForceExclude(row)}>{t('conversation.forceExclude')}</MenuItem>
+                </div>
+              </>
+            )}
 
             {/* Expanded logical messages (full conversation, not folder-scoped) */}
             {isOpen && (
@@ -351,6 +528,83 @@ export default function ConversationList({ params = {}, onOpenMessage }) {
         >
           {loadingMore ? t('conversation.loading') : t('conversation.loadMore')}
         </button>
+      )}
+
+      {/* Ops error toast */}
+      {opsError && (
+        <div role="alert" style={{
+          position: 'sticky',
+          bottom: 0,
+          padding: '8px 16px',
+          background: 'var(--text-danger)',
+          color: 'var(--bg-primary)',
+          fontSize: 13,
+          display: 'flex',
+          justifyContent: 'space-between',
+          alignItems: 'center',
+        }}>
+          <span>{opsError}</span>
+          <button type="button" onClick={() => setOpsError(null)} aria-label={t('conversation.close')} style={{
+            border: 'none', background: 'transparent', color: 'inherit', cursor: 'pointer', fontSize: 16,
+          }}>
+            ×
+          </button>
+        </div>
+      )}
+
+      {/* Diagnostics / info modal */}
+      {modal && (
+        <div
+          role="dialog"
+          aria-label={modal.title}
+          onClick={closeModal}
+          style={{
+            position: 'fixed',
+            inset: 0,
+            background: 'rgba(0,0,0,0.4)',
+            zIndex: 2000,
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+          }}
+        >
+          <div
+            onClick={(e) => e.stopPropagation()}
+            style={{
+              background: 'var(--bg-primary)',
+              borderRadius: 8,
+              padding: 20,
+              maxWidth: 600,
+              width: '90%',
+              maxHeight: '80vh',
+              overflow: 'auto',
+              boxShadow: '0 8px 24px rgba(0,0,0,0.2)',
+            }}
+          >
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
+              <h3 style={{ margin: 0, fontSize: 16 }}>{modal.title}</h3>
+              <button type="button" onClick={closeModal} aria-label={t('conversation.close')} style={{
+                border: 'none', background: 'transparent', cursor: 'pointer', fontSize: 20, color: 'var(--text-secondary)',
+              }}>
+                ×
+              </button>
+            </div>
+            <pre style={{
+              whiteSpace: 'pre-wrap',
+              fontSize: 12,
+              fontFamily: 'var(--font-mono, monospace)',
+              color: 'var(--text-primary)',
+              margin: 0,
+            }}>
+              {modal.body}
+            </pre>
+            {opsBusy && (
+              <div style={{ marginTop: 12, fontSize: 13, color: 'var(--text-tertiary)' }}>
+                {t('conversation.loading')}
+              </div>
+            )}
+          </div>
+        </div>
       )}
     </div>
   );
