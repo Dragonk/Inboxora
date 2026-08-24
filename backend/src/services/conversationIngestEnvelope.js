@@ -59,18 +59,21 @@ export async function resolveOwnIdentityAddresses(db, accountId, message = null)
 
   // Delivery headers (Delivered-To, X-Original-To, Envelope-To) — these may
   // contain catch-all or forwarded addresses not in the DB aliases.
-  const deliveryHeaders = message?.parsedHeaders || message?.headers || {};
+  const deliveryHeaders = [message?.parsedHeaders, message?.headers].filter(Boolean);
   const headerValue = (name) => {
-    if (deliveryHeaders && typeof deliveryHeaders.get === 'function') {
-      const direct = deliveryHeaders.get(name) ?? deliveryHeaders.get(name.toLowerCase());
-      if (direct != null) return direct;
-      for (const [key, value] of deliveryHeaders.entries()) {
-        if (String(key).toLowerCase() === name) return value;
+    for (const headers of deliveryHeaders) {
+      if (typeof headers.get === 'function') {
+        const direct = headers.get(name) ?? headers.get(name.toLowerCase());
+        if (direct != null) return direct;
+        for (const [key, value] of headers.entries()) {
+          if (String(key).toLowerCase() === name) return value;
+        }
+      } else if (typeof headers === 'object') {
+        const key = Object.keys(headers).find(candidate => candidate.toLowerCase() === name);
+        if (key) return headers[key];
       }
-      return null;
     }
-    const key = Object.keys(deliveryHeaders || {}).find(candidate => candidate.toLowerCase() === name);
-    return key ? deliveryHeaders[key] : null;
+    return null;
   };
   for (const key of ['delivered-to', 'x-original-to', 'envelope-to']) {
     const value = headerValue(key);

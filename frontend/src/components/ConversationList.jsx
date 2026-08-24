@@ -237,6 +237,8 @@ export default function ConversationList({ params = {}, onOpenMessage }) {
 
   useEffect(() => {
     let cancelled = false;
+    clearSelection();
+    setKeyboardFocusedIndex(-1);
     setError(null);
     setExpanded(null);
     setLoading(true);
@@ -277,10 +279,12 @@ export default function ConversationList({ params = {}, onOpenMessage }) {
   }, []);
 
   const refreshList = useCallback(async () => {
+    clearSelection();
+    setKeyboardFocusedIndex(-1);
     const data = await conversationApi.list(params);
     setRows(data.conversations || []);
     setNextCursor(data.nextCursor || null);
-  }, [params]);
+  }, [clearSelection, params]);
 
   const runOp = useCallback(async (fn, successModal) => {
     setOpsBusy(true);
@@ -694,7 +698,8 @@ export default function ConversationList({ params = {}, onOpenMessage }) {
               onKeyDown={e => {
                 if (e.key === 'Enter' || e.key === ' ') {
                   e.preventDefault();
-                  toggleExpand(row.conversation_id);
+                  if (selectionModeActive) handleRowToggleSelect(row);
+                  else toggleExpand(row.conversation_id);
                 }
               }}
               tabIndex={0}

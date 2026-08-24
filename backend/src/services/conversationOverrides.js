@@ -43,9 +43,18 @@ export async function applyConversationOverride({ userId, conversationId, logica
     }
 
     if (logicalMessageId) {
-      const message = await client.query('SELECT id FROM logical_messages WHERE id = $1 AND user_id = $2 AND conversation_id = $3 FOR UPDATE', [logicalMessageId, userId, conversationId]);
+      // A force-excluded logical message intentionally has conversation_id = NULL.
+      // It must remain tenant-scoped, but cannot be required to belong to the
+      // request's current conversation or force-include would be irreversible.
+      const membershipPredicate = overrideType === 'force-include'
+        ? 'conversation_id IS NULL'
+        : 'conversation_id = $3';
+      const params = overrideType === 'force-include'
+        ? [logicalMessageId, userId]
+        : [logicalMessageId, userId, conversationId];
+      const message = await client.query(`SELECT id FROM logical_messages WHERE id = $1 AND user_id = $2 AND ${membershipPredicate} FOR UPDATE`, params);
       if (!message.rows[0]) {
-        const error = new Error('Logical message not found in conversation');
+        const error = new Error('Logical message not found in eligible conversation');
         error.statusCode = 404;
         throw error;
       }

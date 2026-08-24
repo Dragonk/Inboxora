@@ -1008,9 +1008,13 @@ export default function MessagePane({ windowMessageId = null, onWindowClose = nu
         const ccArr = Array.isArray(message.cc_addresses)
           ? message.cc_addresses
           : JSON.parse(message.cc_addresses || '[]');
-        return [...toArr, ...ccArr].filter(
-          t => t.email && !myAddresses.has(t.email.toLowerCase()) && t.email.toLowerCase() !== (replyTarget.email || '').toLowerCase()
-        );
+        const seen = new Set();
+        return [...toArr, ...ccArr].filter(t => {
+          const email = t.email?.toLowerCase();
+          if (!email || myAddresses.has(email) || email === (replyTarget.email || '').toLowerCase() || seen.has(email)) return false;
+          seen.add(email);
+          return true;
+        });
       } catch { return []; }
     })();
 

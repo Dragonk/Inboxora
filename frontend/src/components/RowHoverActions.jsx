@@ -66,6 +66,8 @@ export function ActionBtn({ children, onClick, title }) {
   const [hov, setHov] = useState(false);
   return (
     <button
+      type="button"
+      aria-label={title}
       onClick={onClick}
       title={title}
       onMouseEnter={() => setHov(true)}
