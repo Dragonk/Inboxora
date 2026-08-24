@@ -25,6 +25,59 @@ function cursorPredicate(values, checkpoint) {
   };
 }
 
+/**
+ * Snapshot the CE-relevant columns of a message row so we can compare the
+ * proposed state (after upsertConversationCopy) against the current state.
+ * Returns a plain object that JSON-compares deterministically.
+ */
+const CE_SNAPSHOT_COLS = 'conversation_id, logical_message_id, canonical_message_id, provider_message_id, provider_thread_id, threading_reason, threading_confidence, threading_algorithm_version';
+
+async function snapshotMessage(client, messageRow) {
+  const r = await client.query(
+    `SELECT ${CE_SNAPSHOT_COLS} FROM messages WHERE id = $1`,
+    [messageRow.id],
+  );
+  return r.rows[0] || null;
+}
+
+function ceSnapshotChanged(before, after) {
+  if (!before && !after) return false;
+  if (!before || !after) return true;
+  return JSON.stringify(before) !== JSON.stringify(after);
+}
+
+/**
+ * Faithful dry-run: run the EXACT same decision + persistence path as a write,
+ * but inside a transaction that is ALWAYS rolled back. Zero persistent writes,
+ * zero side effects, but the wouldChange count reflects real conversation/logical/
+ * provider/parent state changes — not just "missing IDs".
+ *
+ * This fixes P1-01: the old dry-run counted only !conversation_id ||
+ * !logical_message_id || threading_algorithm_version !== 'conversation-v2',
+ * which gave wouldChange=0 for records that were historically over-merged but
+ * still carry complete CE IDs.
+ */
+async function dryRunBatch(client, rows) {
+  let wouldChange = 0;
+  for (const row of rows) {
+    const before = await snapshotMessage(client, row);
+    try {
+      await upsertConversationCopy(row, {
+        identities: await resolveOwnIdentityAddresses(client, row.account_id, row),
+        provider: providerIdentityForCopy(row),
+      });
+    } catch {
+      // If upsert throws (e.g. constraint violation in dry-run), the row
+      // WOULD change — the write path would need to handle it. Count as change.
+      wouldChange++;
+      continue;
+    }
+    const after = await snapshotMessage(client, row);
+    if (ceSnapshotChanged(before, after)) wouldChange++;
+  }
+  return wouldChange;
+}
+
 export async function rebuildConversationCopies({ userId, accountId = null, limit = 100, dryRun = true, force = false, cursor = null } = {}) {
   if (!userId) throw new Error('userId is required');
   const safeLimit = Math.min(Math.max(Number(limit) || 100, 1), 500);
@@ -52,20 +105,30 @@ export async function rebuildConversationCopies({ userId, accountId = null, limi
 
     let updated = 0;
     let wouldChange = 0;
+
     if (dryRun) {
-      // Dry-run never calls the mutating persistence path. Count rows whose
-      // conversation projection is incomplete or from an older algorithm.
-      wouldChange = rows.rows.filter(row => !row.conversation_id || !row.logical_message_id || row.threading_algorithm_version !== 'conversation-v2').length;
+      // Faithful dry-run: run upsertConversationCopy in a savepoint that is
+      // ALWAYS rolled back. The wouldChange count reflects real CE state
+      // changes (conversation_id, logical_message_id, provider IDs,
+      // threading_reason, threading_confidence, threading_algorithm_version)
+      // computed by the EXACT same decision path as a write.
+      await client.query('BEGIN');
+      try {
+        wouldChange = await dryRunBatch(client, rows.rows);
+      } finally {
+        await client.query('ROLLBACK');
+      }
     }
+
     if (!dryRun) {
       for (const row of rows.rows) {
-        const before = await client.query('SELECT conversation_id, logical_message_id, canonical_message_id, provider_thread_id, threading_reason, threading_confidence FROM messages WHERE id = $1', [row.id]);
+        const before = await snapshotMessage(client, row);
         await upsertConversationCopy(row, {
           identities: await resolveOwnIdentityAddresses(client, row.account_id, row),
           provider: providerIdentityForCopy(row),
         });
-        const after = await client.query('SELECT conversation_id, logical_message_id, canonical_message_id, provider_thread_id, threading_reason, threading_confidence FROM messages WHERE id = $1', [row.id]);
-        if (JSON.stringify(before.rows[0] || null) !== JSON.stringify(after.rows[0] || null)) updated++;
+        const after = await snapshotMessage(client, row);
+        if (ceSnapshotChanged(before, after)) updated++;
       }
     }
 

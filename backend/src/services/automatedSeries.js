@@ -17,11 +17,39 @@ export function automationSignals(message = {}) {
 }
 
 const OTP_TEMPLATE_RE = /(?:otp|one[- ]time|verification|security|code|kod|weryfik|passcode|hasło)/i;
-const SMART_DENYLIST_RE = /(?:invoice|faktura|order|zamów|ticket|case|ref(?:erence)?|tracking|shipment|parcel|numer|id\b)/i;
+const IDENTIFIER_KEYWORDS = /(?:order|zamów|ticket|case|ref(?:erence)?|tracking|shipment|parcel|invoice|faktura|numer|id)\b/i;
 
+/**
+ * Conservative body template fingerprint for smart-series OTP matching.
+ *
+ * P1-04: the previous implementation globally replaced ALL 4+ digit
+ * sequences with '{number}', which destroyed ticket/order/invoice/tracking
+ * IDs. Two messages with different order numbers would incorrectly match.
+ *
+ * The new approach: only normalize variable OTP/verification codes —
+ * short standalone numeric sequences (4-8 digits) that are NOT attached to
+ * an identifier keyword. Sequences preceded by identifier keywords
+ * (order, ticket, invoice, tracking, etc.) are PRESERVED so that
+ * Order #123456 and Order #987654 produce different fingerprints.
+ */
 export function bodyTemplateFingerprint(body = '') {
-  const normalized = String(body).replace(/\b[0-9]{4,}\b/g, '{number}').replace(/\s+/g, ' ').trim();
-  return createHash('sha256').update(normalized).digest('hex');
+  const text = String(body);
+  // Split into tokens and selectively mask only standalone numbers that
+  // are NOT preceded by an identifier keyword.
+  const tokens = text.split(/(\s+|[,;:(){}[\]<>])/);
+  let prevSignificant = '';
+  const masked = tokens.map(token => {
+    // If this token is a 4-8 digit number and the previous significant
+    // token is NOT an identifier keyword, mask it as {otp}.
+    if (/^[0-9]{4,8}$/.test(token) && !IDENTIFIER_KEYWORDS.test(prevSignificant)) {
+      return '{otp}';
+    }
+    if (token.trim() && !/^[\s,;:(){}[\]<>]+$/.test(token)) {
+      prevSignificant = token;
+    }
+    return token;
+  }).join('');
+  return createHash('sha256').update(masked.replace(/\s+/g, ' ').trim()).digest('hex');
 }
 
 export function strictSeriesDecision({ message, previous, mode = 'strict' }) {
@@ -49,7 +77,11 @@ export function smartSeriesDecision({ message, previous, enabled = false }) {
   if (!signals.automated || !priorSignals.automated || signals.senderSignature !== priorSignals.senderSignature || signals.recipientSignature !== priorSignals.recipientSignature) return null;
   const subject = String(message.canonical_subject || '');
   const body = String(message.body_text || '');
-  if (!OTP_TEMPLATE_RE.test(subject + ' ' + body) || SMART_DENYLIST_RE.test(subject)) return null;
+  // P1-04: no longer denylist by subject keyword — the conservative fingerprint
+  // preserves identifier-attached numbers, so Order #123456 vs Order #987654
+  // produce different fingerprints and will NOT match. OTP-like short codes
+  // are still normalized so variable verification codes DO match.
+  if (!OTP_TEMPLATE_RE.test(subject + ' ' + body)) return null;
   if (now - prior > WINDOW_MS || now < prior || bodyTemplateFingerprint(message.body_text) !== bodyTemplateFingerprint(previous.body_text)) return null;
   if (Number(previous.logical_message_count || 0) >= MAX_SEGMENT) return { continuation: true };
   return { kind: 'automated_smart_series', confidence: 0.9, parentLogicalMessageId: null };

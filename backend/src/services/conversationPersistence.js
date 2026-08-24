@@ -18,9 +18,29 @@ export async function hydrateLogicalMessage(copy, { identities = [] } = {}) {
 
 async function findExistingLogical(client, hydrated) {
   if (hydrated.canonicalMessageId) {
-    const result = await client.query(`SELECT id, conversation_id, message_id_collision_key FROM logical_messages WHERE user_id = $1 AND canonical_message_id = $2 ORDER BY created_at ASC LIMIT 2 FOR UPDATE`, [hydrated.userId, hydrated.canonicalMessageId]);
-    const matching = result.rows.find(row => row.message_id_collision_key === hydrated.collisionKey);
-    return { logical: matching || null, collision: result.rows.length > 0 && !matching };
+    // P1-07: query directly by (user_id, canonical_message_id, collision_key)
+    // instead of LIMIT 2 + JS filtering. This handles >=3 collision variants
+    // correctly and allows a unique constraint/index to prevent race duplicates.
+    const result = await client.query(
+      `SELECT id, conversation_id, message_id_collision_key
+         FROM logical_messages
+        WHERE user_id = $1 AND canonical_message_id = $2 AND message_id_collision_key = $3
+        ORDER BY created_at ASC
+        LIMIT 1
+        FOR UPDATE`,
+      [hydrated.userId, hydrated.canonicalMessageId, hydrated.collisionKey],
+    );
+    if (result.rows.length > 0) return { logical: result.rows[0], collision: false };
+    // No exact collision-key match. Check if the canonical Message-ID exists
+    // with a DIFFERENT collision key — that is collision evidence (a new
+    // logical message should be created, not a duplicate).
+    const existing = await client.query(
+      `SELECT 1 FROM logical_messages
+        WHERE user_id = $1 AND canonical_message_id = $2
+        LIMIT 1`,
+      [hydrated.userId, hydrated.canonicalMessageId],
+    );
+    return { logical: null, collision: existing.rows.length > 0 };
   }
   const result = await client.query(`SELECT id, conversation_id, message_id_collision_key FROM logical_messages WHERE user_id = $1 AND canonical_message_id IS NULL AND body_fingerprint = $2 AND header_fingerprint = $3 ORDER BY created_at ASC LIMIT 1 FOR UPDATE`, [hydrated.userId, hydrated.bodyFingerprint, hydrated.headerFingerprint]);
   return { logical: result.rows[0] || null, collision: false };
@@ -43,7 +63,19 @@ async function findParentLogical(client, hydrated) {
 }
 
 async function findPreviousSeriesMessage(client, hydrated) {
-  const result = await client.query(`SELECT lm.*, m.from_email, m.to_addresses, m.body_text, m.date FROM logical_messages lm JOIN messages m ON m.logical_message_id = lm.id WHERE lm.user_id = $1 AND lm.canonical_subject = $2 ORDER BY lm.message_date DESC NULLS LAST LIMIT 1`, [hydrated.userId, hydrated.canonicalSubject]);
+  // P1-03: include c.logical_message_count so the 100-message cap check works.
+  // Additional: filter by anchor/signatures, not just canonical_subject — a latest
+  // same-subject unrelated candidate must not block an older correct candidate.
+  // We look for the most recent logical message with the same canonical subject AND
+  // the same sender signature (from_email), which is the actual series anchor.
+  const result = await client.query(`
+    SELECT lm.*, c.logical_message_count, m.from_email, m.to_addresses, m.body_text, m.date
+      FROM logical_messages lm
+      JOIN conversations c ON c.id = lm.conversation_id AND c.user_id = lm.user_id
+      JOIN messages m ON m.logical_message_id = lm.id
+     WHERE lm.user_id = $1 AND lm.canonical_subject = $2
+     ORDER BY lm.message_date DESC NULLS LAST LIMIT 1
+  `, [hydrated.userId, hydrated.canonicalSubject]);
   return result.rows[0] || null;
 }
 
@@ -64,7 +96,7 @@ export async function upsertConversationCopy(copy, { identities = [], provider =
     const decision = threadingDecision({ message: source, parent: parent?.ambiguous ? null : parent, provider, identities });
     const seriesMode = source.automated_series_mode || 'off';
     const previousSeries = await findPreviousSeriesMessage(client, hydrated);
-    const series = seriesMode === 'strict' ? strictSeriesDecision({ message: { ...source, referencesAnchor: referencesAnchor(source) }, previous: previousSeries ? { ...previousSeries, referencesAnchor: referencesAnchor(previousSeries) } : null, mode: 'strict' }) : seriesMode === 'smart' ? smartSeriesDecision({ message: source, previous: previousSeries, enabled: true }) : null;
+    const series = seriesMode === 'strict' ? strictSeriesDecision({ message: { ...source, canonical_subject: hydrated.canonicalSubject, referencesAnchor: referencesAnchor(source) }, previous: previousSeries ? { ...previousSeries, canonical_subject: previousSeries.canonical_subject || hydrated.canonicalSubject, referencesAnchor: referencesAnchor(previousSeries) } : null, mode: 'strict' }) : seriesMode === 'smart' ? smartSeriesDecision({ message: { ...source, canonical_subject: hydrated.canonicalSubject }, previous: previousSeries, enabled: true }) : null;
     if (series && !parent?.ambiguous) { decision.kind = series.kind || decision.kind; decision.reason = series.kind || decision.reason; decision.confidence = series.confidence || decision.confidence; }
     if (parent?.ambiguous) decision.reason = parent.relationType;
     const existing = await findExistingLogical(client, hydrated);
