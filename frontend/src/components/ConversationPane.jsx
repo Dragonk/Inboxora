@@ -194,6 +194,7 @@ export default function ConversationPane({ conversationId, targetLogicalMessageI
   }, [targetLogicalMessageId, state.data, state.loading]);
 
   const messages = useMemo(() => state.data?.logicalMessages || [], [state.data?.logicalMessages]);
+  const actionTarget = messages.at(-1) || null;
 
   // P1-10: Run a destructive action with scope-aware confirmation
   const runScopedAction = useCallback(async (actionFn, scope, actionName = 'Delete') => {
@@ -215,26 +216,26 @@ export default function ConversationPane({ conversationId, targetLogicalMessageI
   }, [t]);
 
   const handlePaneArchive = useCallback(() => {
-    runScopedAction(() => conversationApi.archive(conversationId, { scope: actionScope, copyId: messages[0]?.copies?.[0]?.id || null, logicalMessageId: messages[0]?.id || null }), actionScope, 'Archive');
-  }, [runScopedAction, conversationId, actionScope, messages]);
+    runScopedAction(() => conversationApi.archive(conversationId, { scope: actionScope, copyId: actionTarget?.copies?.[0]?.id || null, logicalMessageId: actionTarget?.id || null }), actionScope, 'Archive');
+  }, [runScopedAction, conversationId, actionScope, actionTarget]);
 
   const handlePaneDelete = useCallback(() => {
-    runScopedAction(() => conversationApi.delete(conversationId, { scope: actionScope, copyId: messages[0]?.copies?.[0]?.id || null, logicalMessageId: messages[0]?.id || null }), actionScope, 'Delete');
-  }, [runScopedAction, conversationId, actionScope, messages]);
+    runScopedAction(() => conversationApi.delete(conversationId, { scope: actionScope, copyId: actionTarget?.copies?.[0]?.id || null, logicalMessageId: actionTarget?.id || null }), actionScope, 'Delete');
+  }, [runScopedAction, conversationId, actionScope, actionTarget]);
 
   const handlePaneToggleRead = useCallback(() => {
     const isUnread = messages.some(m => m.copies?.some(c => !c.isRead));
-    conversationApi.setRead(conversationId, !isUnread, { scope: actionScope, copyId: messages[0]?.copies?.[0]?.id || null, logicalMessageId: messages[0]?.id || null }).catch(err => {
+    conversationApi.setRead(conversationId, !isUnread, { scope: actionScope, copyId: actionTarget?.copies?.[0]?.id || null, logicalMessageId: actionTarget?.id || null }).catch(err => {
       setOpsError(err.message || t('conversation.loadFailed'));
     });
-  }, [conversationId, actionScope, messages, t]);
+  }, [conversationId, actionScope, messages, actionTarget, t]);
 
   const handlePaneToggleStar = useCallback(() => {
     const isStarred = messages.some(m => m.copies?.some(c => c.isStarred));
-    conversationApi.setStarred(conversationId, !isStarred, { scope: actionScope, copyId: messages[0]?.copies?.[0]?.id || null, logicalMessageId: messages[0]?.id || null }).catch(err => {
+    conversationApi.setStarred(conversationId, !isStarred, { scope: actionScope, copyId: actionTarget?.copies?.[0]?.id || null, logicalMessageId: actionTarget?.id || null }).catch(err => {
       setOpsError(err.message || t('conversation.loadFailed'));
     });
-  }, [conversationId, actionScope, messages, t]);
+  }, [conversationId, actionScope, messages, actionTarget, t]);
 
   const toggleExpand = useCallback((messageId) => {
     setExpanded(prev => {
