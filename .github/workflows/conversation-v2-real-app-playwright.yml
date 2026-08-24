@@ -7,11 +7,13 @@ on:
       - feat/threading-v2-integration-live
       - feat/threading-v2-final-completion
       - integration/threading-v2-r3-pl-beta
+      - main
   pull_request:
     branches:
       - feat/threading-v2-integration-live
       - feat/threading-v2-final-completion
       - integration/threading-v2-r3-pl-beta
+      - main
 
 permissions:
   contents: read

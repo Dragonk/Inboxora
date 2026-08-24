@@ -136,7 +136,7 @@ export default function ConversationPane({ conversationId, targetLogicalMessageI
     inFlight.current.set(logicalId, controller);
     setBodyStatus(prev => ({ ...prev, [logicalId]: { loading: true, error: null } }));
     try {
-      const copyId = logicalMessagesRef.current.find(message => message.id === logicalId)?.copies?.slice().sort((a, b) => String(b.date || '').localeCompare(String(a.date || '')))[0]?.id || null;
+      const copyId = logicalMessagesRef.current.find(message => message.id === logicalId)?.copies?.slice().sort((a, b) => String(b.date || '').localeCompare(String(a.date || '')) || Number(Boolean(a.isRead)) - Number(Boolean(b.isRead)))[0]?.id || null;
       const body = await conversationApi.body(conversationId, logicalId, controller.signal, copyId);
       bodiesRef.current[logicalId] = body;
       setBodies(prev => ({ ...prev, [logicalId]: body }));

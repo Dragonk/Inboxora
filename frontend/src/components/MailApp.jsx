@@ -86,6 +86,7 @@ export default function MailApp() {
       // A physical message selection belongs to the legacy reader. Clear it before
       // opening a conversation so the selection effect cannot reopen the previous
       // conversation after this navigation completes.
+      if (isMobile && !conversationId) history.pushState({ mailflow: 'conversation' }, '', '/');
       setSelectedMessage(null);
       setConversationId(row.conversation_id);
       setTargetLogicalMessageId(row.logical_message_id || row.logical_id || null);
@@ -95,13 +96,14 @@ export default function MailApp() {
     if (!physicalId) return;
     return api.resolveMessage(physicalId).then(resolved => {
       if (conversationReaderViewEnabled) {
+        if (isMobile && !conversationId) history.pushState({ mailflow: 'conversation' }, '', '/');
         setConversationId(resolved.conversation_id || row.conversation_id || null);
         setTargetLogicalMessageId(resolved.logical_message_id || row.logical_message_id || null);
       } else {
         return api.getMessage(physicalId).then(message => setSelectedMessage(message.id || physicalId));
       }
     });
-  }, [conversationReaderViewEnabled, setSelectedMessage]);
+  }, [conversationId, conversationReaderViewEnabled, isMobile, setSelectedMessage]);
 
   const replyFromConversation = useCallback(copy => {
     if (!copy) return;
