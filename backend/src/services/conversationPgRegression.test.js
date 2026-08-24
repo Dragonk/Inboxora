@@ -32,6 +32,8 @@ async function cleanupAll() {
 }
 
 async function cleanMessages() {
+  await query('DROP TRIGGER IF EXISTS _ce_atomicity_trigger ON messages');
+  await query('DROP FUNCTION IF EXISTS _ce_atomicity_fail()');
   await query('DELETE FROM messages WHERE account_id IN ($1, $2)', [TEST_ACCOUNT_ID, ALT_ACCOUNT_ID]);
   await query('DELETE FROM logical_messages WHERE user_id = $1', [TEST_USER_ID]);
   await query('DELETE FROM conversations WHERE user_id = $1', [TEST_USER_ID]);
@@ -222,6 +224,95 @@ describeOrSkip('CE v2 PostgreSQL regression tests', () => {
 
       expect(pass3.updated).toBe(0);
       expect(checksum2).toBe(checksum3);
+    }, 60000);
+  });
+
+  // ── E2. Rebuild write atomicity — mid-batch failure rolls back entire batch ────
+  describe('E2. Rebuild write atomicity', () => {
+    it('mid-batch failure rolls back entire batch and checkpoint is not advanced', async () => {
+      // Seed 3 messages that would produce real CE mutations
+      await insertMessage({ messageId: '<atomic-001@example.test>', subject: 'Atomic 1', fromEmail: 'alice@example.test', folder: 'INBOX', isRead: false, uid: 1, date: new Date('2026-01-15T10:00:00Z') });
+      await insertMessage({ messageId: '<atomic-002@example.test>', subject: 'Re: Atomic 1', fromEmail: 'me@example.test', toAddresses: [{ email: 'alice@example.test' }], folder: 'Sent', isRead: true, uid: 2, date: new Date('2026-01-15T11:00:00Z'), inReplyTo: '<atomic-001@example.test>', references: '<atomic-001@example.test>' });
+      // Third message has a deliberately broken payload that will cause upsert to throw
+      // (empty message_id → canonicalMessageId null → but the real trigger is a constraint
+      // violation we inject by temporarily making the body too large for the fingerprint
+      // hash — actually we simulate failure by corrupting the row after insert).
+      const badId = await insertMessage({ messageId: '<atomic-003@example.test>', subject: 'Re: Atomic 1', fromEmail: 'bob@example.test', folder: 'INBOX', isRead: false, uid: 3, date: new Date('2026-01-15T12:00:00Z'), inReplyTo: '<atomic-001@example.test>', references: '<atomic-001@example.test>' });
+
+      // Inject failure: set the third message's message_id to NULL, which makes
+      // hydrateLogicalMessage produce canonicalMessageId=null and rawMessageId=null.
+      // The INSERT into logical_messages will have canonical_message_id=null, which
+      // is allowed, but the subsequent conversation_user_id assignment will fail
+      // because the composite FK requires a valid conversation_id + conversation_user_id.
+      // Actually, the real failure: with message_id=null, the upsert's ownership
+      // verification query (SELECT m.* ... WHERE m.id = $1 AND a.user_id = $2) still
+      // works, but the INSERT into logical_messages with canonical_message_id=null
+      // is fine. We need a different injection point.
+      //
+      // Most reliable: delete the third message AFTER rebuild reads the batch
+      // but BEFORE the upsert loop processes it. We do this by using a small batch
+      // size and deleting the row in a parallel query. But rebuild reads all rows
+      // in one query, then loops. So we use a different approach: set the 3rd
+      // message's date to NULL AND message_id to NULL, which causes the
+      // header_fingerprint to collide with message 1, creating a unique constraint
+      // violation on the collision key.
+      //
+      // Actually, the simplest reliable injection: set conversation_user_id
+      // on the 3rd message to a non-existent user. The upsert's ownership check
+      // (SELECT ... JOIN email_accounts a ON a.id = m.account_id AND a.user_id = $2)
+      // still passes (it checks a.user_id, not m.conversation_user_id). But the
+      // composite FK fk_message_account_conversation_owner on messages will fire
+      // when the upsert tries to SET conversation_id + conversation_user_id.
+      //
+      // Wait — the row starts with conversation_user_id=NULL. The upsert will
+      // SET it to the userId. So we need a different approach.
+      //
+      // Final approach: use a trigger to make the 3rd row's UPDATE fail.
+      // Create a temporary BEFORE UPDATE trigger that raises an exception for
+      // the specific row. This is the most reliable way to inject a mid-batch
+      // failure in PostgreSQL.
+      await query(`
+        CREATE OR REPLACE FUNCTION _ce_atomicity_fail() RETURNS trigger AS $$
+        BEGIN
+          IF NEW.message_id = '<atomic-003@example.test>' THEN
+            RAISE EXCEPTION 'SIMULATED MID-BATCH FAILURE';
+          END IF;
+          RETURN NEW;
+        END;
+        $$ LANGUAGE plpgsql;
+      `);
+      await query(`
+        CREATE TRIGGER _ce_atomicity_trigger
+        BEFORE UPDATE ON messages
+        FOR EACH ROW
+        WHEN (NEW.message_id = '<atomic-003@example.test>')
+        EXECUTE FUNCTION _ce_atomicity_fail();
+      `);
+
+      // Run rebuild — should process messages 1 and 2, then fail on message 3
+      let threw = false;
+      try {
+        await rebuildConversationCopies({ userId: TEST_USER_ID, accountId: TEST_ACCOUNT_ID, limit: 500, dryRun: false, force: true });
+      } catch (e) {
+        threw = true;
+      }
+
+      // The entire batch should have been rolled back — no partial CE mutations
+      const ceRows = await query('SELECT conversation_id, logical_message_id FROM messages WHERE account_id = $1 AND conversation_id IS NOT NULL', [TEST_ACCOUNT_ID]);
+      expect(ceRows.rows.length).toBe(0);
+
+      // Checkpoint should NOT have been advanced (the batch was rolled back)
+      const cp = await query('SELECT status FROM conversation_rebuild_checkpoints WHERE user_id = $1 AND scope_account_id = $2', [TEST_USER_ID, TEST_ACCOUNT_ID]);
+      // Either no checkpoint exists, or it's not 'complete'
+      if (cp.rows.length > 0) {
+        expect(cp.rows[0].status).not.toBe('complete');
+      }
+
+      // Now fix the broken message and retry — should succeed
+      await query('DROP TRIGGER IF EXISTS _ce_atomicity_trigger ON messages');
+      await query('DROP FUNCTION IF EXISTS _ce_atomicity_fail()');
+      const result = await rebuildConversationCopies({ userId: TEST_USER_ID, accountId: TEST_ACCOUNT_ID, limit: 500, dryRun: false, force: true });
+      expect(result.updated).toBeGreaterThan(0);
     }, 60000);
   });
 
