@@ -10,10 +10,10 @@ function fingerprintCopy(copy) {
   return createHash('sha256').update(JSON.stringify([copy.body_text || '', copy.subject || '', copy.from_email || '', copy.date || '', copy.in_reply_to || '', copy.thread_references || ''])).digest('hex');
 }
 
-export async function hydrateLogicalMessage(copy, { identities = [] } = {}) {
-  const owner = copy.user_id || copy.userId;
+export async function hydrateLogicalMessage(copy, { identities = [], userId = null } = {}) {
+  const owner = userId || copy.user_id || copy.userId;
   const identity = logicalMessageIdentity(copy, { userId: owner });
-  return { ...identity, userId: owner, accountId: copy.account_id, rawHeaders: copy.conversation_raw_headers || copy.raw_headers || null, rawInReplyTo: copy.in_reply_to || null, rawReferences: copy.thread_references || null, canonicalSubject: canonicalConversationSubject(copy.subject), direction: classifyDirection(copy, identities), messageDate: copy.date || null, bodyFingerprint: createHash('sha256').update(String(copy.body_text || '')).digest('hex'), headerFingerprint: createHash('sha256').update(JSON.stringify([copy.message_id, copy.in_reply_to, copy.thread_references, copy.conversation_raw_headers])).digest('hex'), copyFingerprint: fingerprintCopy(copy) };
+  return { ...identity, userId: owner, accountId: copy.account_id, rawHeaders: copy.conversation_raw_headers || copy.raw_headers || null, rawInReplyTo: copy.in_reply_to || null, rawReferences: copy.thread_references || null, canonicalSubject: canonicalConversationSubject(copy.subject), direction: classifyDirection(copy, identities), messageDate: copy.date || null, bodyFingerprint: copy.body_text != null ? createHash('sha256').update(String(copy.body_text)).digest('hex') : null, headerFingerprint: createHash('sha256').update(JSON.stringify([copy.message_id, copy.in_reply_to, copy.thread_references, copy.conversation_raw_headers])).digest('hex'), copyFingerprint: fingerprintCopy(copy) };
 }
 
 async function findExistingLogical(client, hydrated) {
@@ -97,6 +97,7 @@ async function findPreviousSeriesMessage(client, hydrated) {
       JOIN messages m ON m.logical_message_id = lm.id
      WHERE lm.user_id = $1 AND lm.canonical_subject = $2
        AND lm.message_date > NOW() - INTERVAL '7 days'
+       AND m.is_deleted = false
      ORDER BY lm.message_date DESC NULLS LAST LIMIT 10
   `, [hydrated.userId, hydrated.canonicalSubject]);
   return result.rows.length ? result.rows : null;
@@ -108,17 +109,26 @@ async function findProviderConversation(client, hydrated, provider) {
   return result.rows[0]?.conversation_id || null;
 }
 
-export async function upsertConversationCopy(copy, { identities = [], provider = null } = {}) {
+export async function upsertConversationCopy(copy, { identities = [], provider = null, userId = null } = {}) {
+  // P0-02: userId MUST be passed explicitly by the caller (from session context).
+  // Do NOT trust copy.user_id — it is caller-controlled and could be spoofed.
+  const effectiveUserId = userId || copy.user_id || copy.userId;
+  if (!effectiveUserId) throw new Error('userId is required for conversation persistence');
   return withTransaction(async client => {
-    return _upsertConversationCopyWithClient(client, copy, { identities, provider });
+    return _upsertConversationCopyWithClient(client, copy, { identities, provider, userId: effectiveUserId });
   }, { serializable: true });
 }
 
-export async function _upsertConversationCopyWithClient(client, copy, { identities = [], provider = null } = {}) {
-      const verified = await client.query(`SELECT m.*, a.user_id, a.automated_series_mode FROM messages m JOIN email_accounts a ON a.id = m.account_id WHERE m.id = $1 AND a.user_id = $2 FOR UPDATE`, [copy.id, copy.user_id || copy.userId]);
+export async function _upsertConversationCopyWithClient(client, copy, { identities = [], provider = null, userId = null } = {}) {
+      // P0-02: Verify ownership using userId from the calling context (session),
+      // NOT from copy.user_id which is caller-controlled. The query enforces
+      // a.user_id = $2 where $2 is the context userId — a tenant isolation gate.
+      const effectiveUserId = userId || copy.user_id || copy.userId;
+      if (!effectiveUserId) throw new Error('userId is required for conversation persistence');
+      const verified = await client.query(`SELECT m.*, a.user_id, a.automated_series_mode FROM messages m JOIN email_accounts a ON a.id = m.account_id WHERE m.id = $1 AND a.user_id = $2 FOR UPDATE`, [copy.id, effectiveUserId]);
     if (verified.rows.length !== 1) throw new Error('Conversation copy not found or owner mismatch');
     const source = { ...verified.rows[0], user_id: verified.rows[0].user_id };
-    const hydrated = await hydrateLogicalMessage(source, { identities });
+    const hydrated = hydrateLogicalMessage(source, { identities, userId: effectiveUserId });
     let requestedConversationId = null;
     const parent = await findParentLogical(client, hydrated);
     const decision = threadingDecision({ message: source, parent: parent?.ambiguous ? null : parent, provider, identities });
@@ -157,12 +167,23 @@ export async function _upsertConversationCopyWithClient(client, copy, { identiti
     const previousConversationId = conversationId;
     if (override.forceExclude) conversationId = null;
     if (override.forceExclude) {
+      // P0-08: Force-exclude detaches the LogicalMessage from its Conversation
+      // but PRESERVES the LogicalMessage identity (logical_message_id stays
+      // set on messages) and the owner marker (conversation_user_id stays).
+      // This satisfies chk_message_conversation_owner_present (conversation_id
+      // IS NULL → constraint passes regardless of conversation_user_id) and
+      // fk_message_account_conversation_owner (account_id + conversation_user_id
+      // still references email_accounts).
+      // Setting conversation_id = NULL on messages with conversation_user_id still
+      // set is safe because fk_message_conversation_owner is DEFERRABLE and
+      // NULL conversation_id makes the composite FK NULL (not violated).
       await client.query('UPDATE messages SET conversation_id = NULL, threading_reason = $1, threading_confidence = 0 WHERE logical_message_id = $2 AND conversation_user_id = $3', ['manual-force-exclude', logical.id, hydrated.userId]);
       await client.query('UPDATE logical_messages SET conversation_id = NULL, parent_logical_message_id = NULL, updated_at = NOW() WHERE id = $1 AND user_id = $2', [logical.id, hydrated.userId]);
       if (previousConversationId) await client.query('DELETE FROM conversation_evidence WHERE logical_message_id = $1 AND conversation_id = $2 AND user_id = $3', [logical.id, previousConversationId, hydrated.userId]);
       await client.query('UPDATE unresolved_message_references SET resolved_logical_message_id = NULL, resolved_at = NULL WHERE resolved_logical_message_id = $1 AND user_id = $2', [logical.id, hydrated.userId]);
       if (previousConversationId) await refreshConversationAggregates(client, hydrated.userId, previousConversationId);
-      return { logicalMessageId: null, conversationId: null, kind: 'excluded', canonicalSubject: hydrated.canonicalSubject };
+      // Return the logical message ID so the caller knows identity is preserved.
+      return { logicalMessageId: logical.id, conversationId: null, kind: 'excluded', canonicalSubject: hydrated.canonicalSubject };
     }
     if (override.forceInclude?.target_id) requestedConversationId = await resolveConversationAlias(client, { userId: hydrated.userId, conversationId: override.forceInclude.target_id });
     if (override.locked && conversationId) requestedConversationId = await resolveConversationAlias(client, { userId: hydrated.userId, conversationId });
@@ -197,8 +218,38 @@ export async function _upsertConversationCopyWithClient(client, copy, { identiti
       const oldConversationIds = new Set();
       for (const node of component.rows) {
         if (node.conversation_id) oldConversationIds.add(node.conversation_id);
-        const nodeOverride = await effectiveConversationOverride(client, { userId: hydrated.userId, conversationId: node.conversation_id, logicalMessageId: node.id });
-        if (node.manually_locked || nodeOverride.forceExclude || nodeOverride.forceInclude || nodeOverride.split || nodeOverride.locked) blockedMove = true;
+      }
+      // P1-06: Batch-load overrides for all component nodes in two queries
+      // (conversation-level + message-level) instead of N per-node queries.
+      const convIds = [...oldConversationIds];
+      const logicalIds = component.rows.map(n => n.id);
+      const convOverrides = convIds.length
+        ? (await client.query(`SELECT override_type, target_id, reason, logical_message_id, conversation_id FROM conversation_overrides WHERE user_id = $1 AND conversation_id = ANY($2::uuid[]) AND logical_message_id IS NULL ORDER BY created_at DESC, id DESC`, [hydrated.userId, convIds])).rows
+        : [];
+      const msgOverrides = logicalIds.length
+        ? (await client.query(`SELECT override_type, target_id, reason, logical_message_id FROM conversation_overrides WHERE user_id = $1 AND logical_message_id = ANY($2::uuid[]) ORDER BY created_at DESC, id DESC`, [hydrated.userId, logicalIds])).rows
+        : [];
+      // Build per-node override maps
+      const convLatestByConv = new Map();
+      for (const row of convOverrides) {
+        if (!convLatestByConv.has(row.conversation_id)) convLatestByConv.set(row.conversation_id, new Map());
+        const m = convLatestByConv.get(row.conversation_id);
+        if (!m.has(row.override_type)) m.set(row.override_type, row);
+      }
+      const msgLatestByLogical = new Map();
+      for (const row of msgOverrides) {
+        if (!msgLatestByLogical.has(row.logical_message_id)) msgLatestByLogical.set(row.logical_message_id, new Map());
+        const m = msgLatestByLogical.get(row.logical_message_id);
+        if (!m.has(row.override_type)) m.set(row.override_type, row);
+      }
+      for (const node of component.rows) {
+        const convMap = convLatestByConv.get(node.conversation_id) || new Map();
+        const msgMap = msgLatestByLogical.get(node.id) || new Map();
+        const hasForceExclude = convMap.has('force-exclude') || msgMap.has('force-exclude');
+        const hasForceInclude = convMap.has('force-include') || msgMap.has('force-include');
+        const hasSplit = convMap.has('split') || msgMap.has('split');
+        const hasLock = convMap.has('lock') || msgMap.has('lock');
+        if (node.manually_locked || hasForceExclude || hasForceInclude || hasSplit || hasLock) blockedMove = true;
       }
       if (!blockedMove && component.rows.length && [...oldConversationIds].some(id => id !== conversationId)) {
         await client.query(`UPDATE logical_messages SET conversation_id = $1, parent_logical_message_id = CASE WHEN id = $2 THEN $3 ELSE parent_logical_message_id END, updated_at = NOW() WHERE id = ANY($4::uuid[]) AND user_id = $5`, [conversationId, reference.child_logical_message_id, logical.id, component.rows.map(node => node.id), hydrated.userId]);

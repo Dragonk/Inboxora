@@ -59,7 +59,7 @@ function ceSnapshotChanged(before, after) {
  * which gave wouldChange=0 for records that were historically over-merged but
  * still carry complete CE IDs.
  */
-async function dryRunBatch(client, rows) {
+async function dryRunBatch(client, rows, userId) {
   let wouldChange = 0;
   for (const row of rows) {
     const before = await snapshotMessage(client, row);
@@ -67,6 +67,7 @@ async function dryRunBatch(client, rows) {
       await _upsertConversationCopyWithClient(client, row, {
         identities: await resolveOwnIdentityAddresses(client, row.account_id, row),
         provider: providerIdentityForCopy(row),
+        userId,
       });
     } catch {
       // If upsert throws (e.g. constraint violation in dry-run), the row
@@ -87,7 +88,11 @@ export async function rebuildConversationCopies({ userId, accountId = null, limi
   // P2-04: Use two-int32 advisory lock key to avoid int32 hash collision.
   // hashtext returns int32 (collision risk); using (hashtext, hashtextextended)
   // as two separate int32s gives a 64-bit key with negligible collision risk.
-  const lockKey = `conversation-rebuild:${userId}:${scope}`;
+  // P1-01: Use a per-user GLOBAL rebuild lock so ALL-user and account-specific
+  // rebuilds cannot run in parallel on overlapping data. The lock key is
+  // `conversation-rebuild:${userId}` (no scope suffix) — any rebuild for the
+  // same user, regardless of scope, serializes on this lock.
+  const lockKey = `conversation-rebuild:${userId}`;
   const client = await pool.connect();
   try {
     await client.query('SELECT pg_advisory_lock(hashtext($1), hashtext($2))', [lockKey, lockKey + ':2']);
@@ -117,11 +122,16 @@ export async function rebuildConversationCopies({ userId, accountId = null, limi
       // changes (conversation_id, logical_message_id, provider IDs,
       // threading_reason, threading_confidence, threading_algorithm_version)
       // computed by the EXACT same decision path as a write.
+      // P1-19: Dry-run must ALWAYS roll back, even if upsert throws.
+      // Use a wrapper that guarantees ROLLBACK in finally, so the client
+      // is never returned to the pool with an open transaction.
       await client.query('BEGIN');
       try {
-        wouldChange = await dryRunBatch(client, rows.rows);
+        wouldChange = await dryRunBatch(client, rows.rows, userId);
       } finally {
-        await client.query('ROLLBACK');
+        // Always ROLLBACK — swallow any rollback error so it doesn't mask
+        // the original exception from dryRunBatch.
+        try { await client.query('ROLLBACK'); } catch { /* connection may be dirty */ }
       }
     }
 
@@ -137,6 +147,7 @@ export async function rebuildConversationCopies({ userId, accountId = null, limi
           await _upsertConversationCopyWithClient(client, row, {
             identities: await resolveOwnIdentityAddresses(client, row.account_id, row),
             provider: providerIdentityForCopy(row),
+            userId,
           });
           const after = await snapshotMessage(client, row);
           if (ceSnapshotChanged(before, after)) updated++;

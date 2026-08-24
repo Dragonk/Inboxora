@@ -1699,6 +1699,10 @@
     "unread": "Nieprzeczytane",
     "logicalCount_one": "{{count}} wiad.",
     "logicalCount_few": "{{count}} wiad.",
-    "logicalCount_many": "{{count}} wiad."
+    "logicalCount_many": "{{count}} wiad.",
+    "confirmMoveTitle": "Przenieś rozmowę",
+    "confirmMoveBody": "Przenieść {{count}} wiadomość(-i) do innego folderu?",
+    "showQuotedText": "Pokaż cytowaną treść",
+    "hideQuotedText": "Ukryj cytowaną treść"
   }
 }

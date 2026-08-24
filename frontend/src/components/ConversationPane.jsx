@@ -186,10 +186,10 @@ export default function ConversationPane({ conversationId, targetLogicalMessageI
   }, [targetLogicalMessageId, state.data, state.loading]);
 
   // P1-10: Run a destructive action with scope-aware confirmation
-  const runScopedAction = useCallback(async (actionFn, scope) => {
+  const runScopedAction = useCallback(async (actionFn, scope, actionName = 'Delete') => {
     setOpsError(null);
     if (DESTRUCTIVE_SCOPES.has(scope)) {
-      setConfirmModal({ onConfirm: async () => {
+      setConfirmModal({ action: actionName, onConfirm: async () => {
         setConfirmModal(null);
         setOpsBusy(true);
         try { await actionFn(); }
@@ -205,11 +205,11 @@ export default function ConversationPane({ conversationId, targetLogicalMessageI
   }, [t]);
 
   const handlePaneArchive = useCallback(() => {
-    runScopedAction(() => conversationApi.archive(conversationId, { scope: actionScope }), actionScope);
+    runScopedAction(() => conversationApi.archive(conversationId, { scope: actionScope }), actionScope, 'Archive');
   }, [runScopedAction, conversationId, actionScope]);
 
   const handlePaneDelete = useCallback(() => {
-    runScopedAction(() => conversationApi.delete(conversationId, { scope: actionScope }), actionScope);
+    runScopedAction(() => conversationApi.delete(conversationId, { scope: actionScope }), actionScope, 'Delete');
   }, [runScopedAction, conversationId, actionScope]);
 
   const messages = useMemo(() => state.data?.logicalMessages || [], [state.data?.logicalMessages]);
@@ -319,9 +319,9 @@ export default function ConversationPane({ conversationId, targetLogicalMessageI
             background: 'var(--bg-primary)', borderRadius: 8, padding: 20,
             maxWidth: 400, width: '90%', boxShadow: '0 8px 24px rgba(0,0,0,0.2)',
           }}>
-            <h3 style={{ margin: 0, fontSize: 16, marginBottom: 8 }}>{t('conversation.confirmDeleteTitle')}</h3>
+            <h3 style={{ margin: 0, fontSize: 16, marginBottom: 8 }}>{t(`conversation.confirm${confirmModal.action || 'Delete'}Title`)}</h3>
             <p style={{ fontSize: 13, color: 'var(--text-secondary)', margin: '0 0 16px' }}>
-              {t('conversation.confirmDeleteBody', { count: messages.length })}
+              {t(`conversation.confirm${confirmModal.action || 'Delete'}Body`, { count: messages.length })}
             </p>
             <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
               <button type="button" onClick={() => setConfirmModal(null)} style={paneBtnStyle}>

@@ -192,6 +192,8 @@ const SAME_VALUE_ALLOWED = {
   'conversation.copyCount_one': 'any',
   'conversation.conversationCount_few': 'any', 'conversation.conversationCount_many': 'any',
   'conversation.conversationCount_one': 'any',
+  'conversation.confirmMoveTitle': 'any', 'conversation.confirmMoveBody': 'any',
+  'conversation.showQuotedText': 'any', 'conversation.hideQuotedText': 'any',
   'conversation.account': 'any',
   'conversation.apply': 'any',
   'conversation.archive': 'any',
@@ -636,6 +638,10 @@ const DYNAMIC_KEYS = new Set([
   'conversation.to',
   'conversation.unlocked',
   'conversation.unread',
+  'conversation.confirmMoveTitle',
+  'conversation.confirmMoveBody',
+  'conversation.hideQuotedText',
+  'conversation.showQuotedText',
 ]);
 
 // JSX attribute names whose values must never be plain strings — always t().
