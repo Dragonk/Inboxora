@@ -42,8 +42,12 @@ function serviceError(res, error, fallback = 'Request failed') {
   const status = Number.isInteger(error?.status) && error.status >= 400 && error.status < 600
     ? error.status
     : 500;
-  const message = status >= 500 ? fallback : error.message;
-  return res.status(status).json({ error: message });
+  // Client errors (4xx) and provider errors explicitly marked safe to expose
+  // carry their real message; other 5xx fall back to a generic message. Always
+  // log server-side on 5xx so the reason is recoverable even when it's hidden.
+  const expose = status < 500 || error?.expose === true;
+  if (status >= 500) console.error(`${fallback}:`, error?.message || error);
+  return res.status(status).json({ error: expose ? error.message : fallback });
 }
 
 function owner(req) {
