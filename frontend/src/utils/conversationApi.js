@@ -30,6 +30,57 @@ export const conversationApi = {
 
   resolveMessage: (messageId) => apiFetch(`/messages/${messageId}/conversation`),
 
+  // Copy-aware destructive actions — `scope` is explicit (never defaults to whole conversation).
+  // Scopes: THIS_COPY | ALL_COPIES_OF_LOGICAL_MESSAGE | COPIES_ON_THIS_ACCOUNT | WHOLE_CONVERSATION
+  archive: (conversationId, { scope = 'THIS_COPY' } = {}) =>
+    apiFetch(`/conversations/${conversationId}/archive`, {
+      method: 'POST',
+      body: JSON.stringify({ scope }),
+    }),
+
+  move: (conversationId, targetFolder, { scope = 'THIS_COPY' } = {}) =>
+    apiFetch(`/conversations/${conversationId}/move`, {
+      method: 'POST',
+      body: JSON.stringify({ targetFolder, scope }),
+    }),
+
+  delete: (conversationId, { scope = 'THIS_COPY' } = {}) =>
+    apiFetch(`/conversations/${conversationId}/delete`, {
+      method: 'POST',
+      body: JSON.stringify({ scope }),
+    }),
+
+  setRead: (conversationId, isRead, { scope = 'THIS_COPY' } = {}) =>
+    apiFetch(`/conversations/${conversationId}/read`, {
+      method: 'POST',
+      body: JSON.stringify({ isRead, scope }),
+    }),
+
+  setStarred: (conversationId, isStarred, { scope = 'THIS_COPY' } = {}) =>
+    apiFetch(`/conversations/${conversationId}/star`, {
+      method: 'POST',
+      body: JSON.stringify({ isStarred, scope }),
+    }),
+
+  // Bulk variants — operate on multiple conversations at once.
+  bulkArchive: (conversationIds, { scope = 'THIS_COPY' } = {}) =>
+    apiFetch(`/conversations/bulk-archive`, {
+      method: 'POST',
+      body: JSON.stringify({ conversationIds, scope }),
+    }),
+
+  bulkDelete: (conversationIds, { scope = 'THIS_COPY' } = {}) =>
+    apiFetch(`/conversations/bulk-delete`, {
+      method: 'POST',
+      body: JSON.stringify({ conversationIds, scope }),
+    }),
+
+  bulkSetRead: (conversationIds, isRead, { scope = 'THIS_COPY' } = {}) =>
+    apiFetch(`/conversations/bulk-read`, {
+      method: 'POST',
+      body: JSON.stringify({ conversationIds, isRead, scope }),
+    }),
+
   // Manual operations
   merge: (sourceId, targetId) =>
     apiFetch(`/conversations/${sourceId}/merge`, {

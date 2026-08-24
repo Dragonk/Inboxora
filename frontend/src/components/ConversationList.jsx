@@ -1,6 +1,8 @@
 import { useEffect, useState, useCallback, useRef } from 'react';
 import { useTranslation } from 'react-i18next';
 import { conversationApi } from '../utils/conversationApi.js';
+import { useSelection, ACTION_SCOPES, DESTRUCTIVE_SCOPES, SCOPE_I18N_KEYS } from '../hooks/useSelection.js';
+import { ActionBtn } from './RowHoverActions.jsx';
 
 function OwnReplyMarker({ visible }) {
   const { t } = useTranslation();
@@ -66,6 +68,25 @@ function AccountBadge({ accounts = [] }) {
   );
 }
 
+function LogicalCountBadge({ count }) {
+  if (!count || count <= 1) return null;
+  return (
+    <span
+      style={{
+        marginLeft: 6,
+        fontSize: 10,
+        fontWeight: 600,
+        padding: '1px 5px',
+        borderRadius: 4,
+        background: 'var(--bg-tertiary)',
+        color: 'var(--text-secondary)',
+      }}
+    >
+      {count}
+    </span>
+  );
+}
+
 function MenuItem({ onClick, children }) {
   return (
     <button
@@ -105,18 +126,69 @@ function formatListDate(dateStr) {
   return d.toLocaleDateString([], { year: 'numeric', month: 'short', day: 'numeric' });
 }
 
-function getParticipants(row) {
+/**
+ * P1-09: Build the participant list for the collapsed parent row.
+ * Includes the outgoing participant (the user) as "Ja"/"You" via t('conversation.you').
+ * Dedupes participants.
+ * Example: Alice → user, user → Alice should show "Alice, Ja" not just "Alice".
+ *
+ * @param {Object} row    conversation row from the API
+ * @param {Function} t   i18next t() for the "You" label
+ * @returns {string}     comma-separated participant names (max 3)
+ */
+function getParticipants(row, t) {
   const messages = row.logical_messages || [];
   if (!messages.length) return '';
   const names = new Set();
+  let hasOutgoing = false;
   for (const msg of messages) {
     const isOutgoing = msg.direction === 'outgoing' || msg.direction === 'self';
-    const name = isOutgoing
-      ? null
-      : (msg.fromName || msg.fromEmail);
-    if (name) names.add(name);
+    if (isOutgoing) {
+      hasOutgoing = true;
+    } else {
+      const name = msg.fromName || msg.fromEmail;
+      if (name) names.add(name);
+    }
+  }
+  // Include the user (outgoing participant) as "Ja"/"You"
+  if (hasOutgoing) {
+    names.add(t('conversation.you'));
   }
   return Array.from(names).slice(0, 3).join(', ');
+}
+
+// ── Scope selector (P1-10) ─────────────────────────────────────
+function ScopeSelector({ value, onChange, destructive }) {
+  const { t } = useTranslation();
+  return (
+    <label style={{ display: 'flex', flexDirection: 'column', gap: 4, fontSize: 13 }}>
+      <span style={{ fontWeight: 600 }}>{t('conversation.scopeTitle')}</span>
+      <select
+        value={value}
+        onChange={e => onChange(e.target.value)}
+        aria-label={t('conversation.scopeTitle')}
+        style={{
+          padding: '4px 8px',
+          borderRadius: 4,
+          border: '1px solid var(--border)',
+          background: 'var(--bg-primary)',
+          color: 'var(--text-primary)',
+          fontSize: 13,
+        }}
+      >
+        {ACTION_SCOPES.map(scope => (
+          <option key={scope} value={scope}>
+            {t(SCOPE_I18N_KEYS[scope])}
+          </option>
+        ))}
+      </select>
+      {destructive && DESTRUCTIVE_SCOPES.has(value) && (
+        <span style={{ fontSize: 11, color: 'var(--text-danger)' }}>
+          {t('conversation.scopeWarning')}
+        </span>
+      )}
+    </label>
+  );
 }
 
 export default function ConversationList({ params = {}, onOpenMessage }) {
@@ -132,6 +204,18 @@ export default function ConversationList({ params = {}, onOpenMessage }) {
   const [opsError, setOpsError] = useState(null);
   const [opsBusy, setOpsBusy] = useState(false);
   const [focusedIndex, setFocusedIndex] = useState(-1);
+  // P1-10: default scope for destructive actions — explicit, never whole conversation
+  const [actionScope, setActionScope] = useState('THIS_COPY');
+  // P1-11: multi-select state via shared hook
+  const {
+    selectedIds, selectionModeActive, setSelectionModeActive,
+    clearSelection, enterSelectionMode, handleRowToggleSelect, handleRangeSelect,
+    selectAll,
+  } = useSelection(row => row.conversation_id);
+  // P1-12: hover actions — track hovered row
+  const [hoveredRow, setHoveredRow] = useState(null);
+  // P1-11: long-press timer for mobile
+  const longPressTimer = useRef(null);
   const listRef = useRef(null);
 
   const paramsKey = JSON.stringify(params);
@@ -177,6 +261,12 @@ export default function ConversationList({ params = {}, onOpenMessage }) {
     setOpsError(null);
   }, []);
 
+  const refreshList = useCallback(async () => {
+    const data = await conversationApi.list(params);
+    setRows(data.conversations || []);
+    setNextCursor(data.nextCursor || null);
+  }, [params]);
+
   const runOp = useCallback(async (fn, successModal) => {
     setOpsBusy(true);
     setOpsError(null);
@@ -185,16 +275,122 @@ export default function ConversationList({ params = {}, onOpenMessage }) {
       if (successModal) {
         setModal({ type: 'info', title: successModal, body: JSON.stringify(result, null, 2) });
       }
-      // Refresh list after successful mutation
-      const data = await conversationApi.list(params);
-      setRows(data.conversations || []);
-      setNextCursor(data.nextCursor || null);
+      await refreshList();
     } catch (err) {
       setOpsError(err.message || t('conversation.loadFailed'));
     } finally {
       setOpsBusy(false);
     }
-  }, [params, t]);
+  }, [refreshList, t]);
+
+  // P1-10: confirmation dialog for destructive scopes
+  const confirmDestructive = useCallback((title, body, onConfirm) => {
+    setModal({
+      type: 'confirm',
+      title,
+      body,
+      onConfirm,
+    });
+  }, []);
+
+  const runDestructiveAction = useCallback(async (actionName, fn, scope) => {
+    const isDestructiveScope = DESTRUCTIVE_SCOPES.has(scope);
+    if (isDestructiveScope) {
+      const title = t(`conversation.confirm${actionName}Title`, { count: selectedIds.size || 1 });
+      const body = t(`conversation.confirm${actionName}Body`, { count: selectedIds.size || 1 });
+      confirmDestructive(title, body, async () => {
+        closeModal();
+        await runOp(fn);
+      });
+    } else {
+      await runOp(fn);
+    }
+  }, [confirmDestructive, closeModal, runOp, selectedIds.size, t]);
+
+  // ── P1-12: Hover/quick action handlers ────────────────────────
+  const handleQuickArchive = useCallback((row) => {
+    runDestructiveAction('Archive', () => conversationApi.archive(row.conversation_id, { scope: actionScope }), actionScope);
+  }, [runDestructiveAction, actionScope]);
+
+  const handleQuickDelete = useCallback((row) => {
+    runDestructiveAction('Delete', () => conversationApi.delete(row.conversation_id, { scope: actionScope }), actionScope);
+  }, [runDestructiveAction, actionScope]);
+
+  const handleQuickToggleRead = useCallback((row) => {
+    const isUnread = (row.unread_count || 0) > 0;
+    runOp(() => conversationApi.setRead(row.conversation_id, !isUnread, { scope: actionScope }));
+  }, [runOp, actionScope]);
+
+  const handleQuickToggleStar = useCallback((row) => {
+    const isStarred = row.starred || false;
+    runOp(() => conversationApi.setStarred(row.conversation_id, !isStarred, { scope: actionScope }));
+  }, [runOp, actionScope]);
+
+  // ── P1-11: Bulk action handlers ───────────────────────────────
+  const handleBulkArchive = useCallback(() => {
+    const ids = [...selectedIds];
+    runDestructiveAction('Archive', () => conversationApi.bulkArchive(ids, { scope: actionScope }), actionScope);
+  }, [selectedIds, runDestructiveAction, actionScope]);
+
+  const handleBulkDelete = useCallback(() => {
+    const ids = [...selectedIds];
+    runDestructiveAction('Delete', () => conversationApi.bulkDelete(ids, { scope: actionScope }), actionScope);
+  }, [selectedIds, runDestructiveAction, actionScope]);
+
+  const handleBulkToggleRead = useCallback((makeRead) => {
+    const ids = [...selectedIds];
+    runOp(() => conversationApi.bulkSetRead(ids, makeRead, { scope: actionScope }));
+  }, [selectedIds, runOp, actionScope]);
+
+  const handleBulkMove = useCallback(() => {
+    const ids = [...selectedIds];
+    const targetFolder = window.prompt(t('conversation.moveToConversationPrompt'));
+    if (!targetFolder) return;
+    runOp(() => conversationApi.move(ids[0], targetFolder.trim(), { scope: actionScope }));
+  }, [selectedIds, runOp, actionScope, t]);
+
+  // ── P1-11: Selection click handling (Ctrl/Cmd+click, Shift+range) ─
+  const handleRowClick = useCallback((e, row) => {
+    // Checkbox or Ctrl/Cmd+click → toggle selection
+    if (e.target.closest('[data-selection-checkbox]') || e.ctrlKey || e.metaKey) {
+      e.stopPropagation();
+      e.preventDefault();
+      if (!selectionModeActive) {
+        enterSelectionMode(row.conversation_id);
+      } else {
+        handleRowToggleSelect(row.conversation_id, rows);
+      }
+      return;
+    }
+    // Shift+click → range select
+    if (e.shiftKey && selectionModeActive) {
+      e.stopPropagation();
+      e.preventDefault();
+      handleRangeSelect(row.conversation_id, rows);
+      return;
+    }
+    // Normal click: if in selection mode, toggle; else expand
+    if (selectionModeActive) {
+      e.stopPropagation();
+      handleRowToggleSelect(row.conversation_id, rows);
+      return;
+    }
+    toggleExpand(row.conversation_id);
+  }, [selectionModeActive, enterSelectionMode, handleRowToggleSelect, handleRangeSelect, rows, toggleExpand]);
+
+  // ── P1-11: Mobile long-press to enter selection mode ───────────
+  const handleTouchStart = useCallback((row) => {
+    longPressTimer.current = setTimeout(() => {
+      enterSelectionMode(row.conversation_id);
+    }, 500);
+  }, [enterSelectionMode]);
+
+  const handleTouchEnd = useCallback(() => {
+    if (longPressTimer.current) {
+      clearTimeout(longPressTimer.current);
+      longPressTimer.current = null;
+    }
+  }, []);
 
   const handleDiagnostics = useCallback((row) => {
     setMenuOpen(null);
@@ -265,10 +461,19 @@ export default function ConversationList({ params = {}, onOpenMessage }) {
       const row = rows[focusedIndex];
       if (row) toggleExpand(row.conversation_id);
     } else if (e.key === 'Escape') {
-      setExpanded(null);
-      setMenuOpen(null);
+      if (selectionModeActive) {
+        clearSelection();
+      } else {
+        setExpanded(null);
+        setMenuOpen(null);
+      }
+    } else if (e.key === 'a' && (e.ctrlKey || e.metaKey) && !selectionModeActive) {
+      // Ctrl/Cmd+A → select all (page)
+      e.preventDefault();
+      selectAll(rows);
+      setSelectionModeActive(true);
     }
-  }, [rows, focusedIndex, toggleExpand]);
+  }, [rows, focusedIndex, toggleExpand, selectionModeActive, clearSelection, selectAll, setSelectionModeActive]);
 
   // Scroll focused row into view
   useEffect(() => {
@@ -310,10 +515,78 @@ export default function ConversationList({ params = {}, onOpenMessage }) {
       onKeyDown={handleKeyDown}
       style={{ overflow: 'auto', height: '100%', outline: 'none' }}
     >
+      {/* P1-10: Scope selector — always visible at top */}
+      <div style={{ padding: '6px 8px', borderBottom: '1px solid var(--border)', display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
+        <ScopeSelector value={actionScope} onChange={setActionScope} destructive />
+        {/* P1-11: Select-all / clear controls */}
+        <div style={{ display: 'flex', gap: 8, alignItems: 'center', marginLeft: 'auto' }}>
+          {!selectionModeActive ? (
+            <button type="button" onClick={() => { selectAll(rows); setSelectionModeActive(true); }} style={smallBtnStyle}>
+              {t('conversation.selectAll')}
+            </button>
+          ) : (
+            <>
+              <button type="button" onClick={() => { selectAll(rows); }} style={smallBtnStyle}>
+                {t('conversation.selectPage')}
+              </button>
+              <button type="button" onClick={clearSelection} style={smallBtnStyle}>
+                {t('conversation.deselectAll')}
+              </button>
+            </>
+          )}
+        </div>
+      </div>
+
+      {/* P1-11: Bulk action toolbar when in selection mode */}
+      {selectionModeActive && selectedIds.size > 0 && (
+        <div
+          role="toolbar"
+          aria-label={t('conversation.bulkActions')}
+          style={{
+            padding: '6px 8px',
+            borderBottom: '1px solid var(--border)',
+            background: 'var(--bg-secondary)',
+            display: 'flex',
+            gap: 6,
+            alignItems: 'center',
+            flexWrap: 'wrap',
+            position: 'sticky',
+            top: 0,
+            zIndex: 10,
+          }}
+        >
+          <span style={{ fontSize: 13, fontWeight: 600, marginRight: 8 }}>
+            {t('conversation.selectedCount', { count: selectedIds.size })}
+          </span>
+          <button type="button" onClick={() => handleBulkToggleRead(true)} style={smallBtnStyle}>
+            {t('conversation.markRead')}
+          </button>
+          <button type="button" onClick={() => handleBulkToggleRead(false)} style={smallBtnStyle}>
+            {t('conversation.markUnread')}
+          </button>
+          <button type="button" onClick={handleBulkArchive} style={smallBtnStyle}>
+            {t('conversation.archive')}
+          </button>
+          <button type="button" onClick={handleBulkMove} style={smallBtnStyle}>
+            {t('conversation.move')}
+          </button>
+          <button
+            type="button"
+            onClick={handleBulkDelete}
+            style={{ ...smallBtnStyle, color: 'var(--text-danger)' }}
+          >
+            {t('conversation.delete')}
+          </button>
+          <button type="button" onClick={clearSelection} style={{ ...smallBtnStyle, marginLeft: 'auto' }}>
+            {t('conversation.exitSelection')}
+          </button>
+        </div>
+      )}
+
       {rows.map((row, rowIndex) => {
         const isOpen = expanded === row.conversation_id;
         const unreadCount = row.unread_count || 0;
-        const participants = getParticipants(row);
+        const participants = getParticipants(row, t);
         const hasAttachments = row.has_attachments || false;
         const latestDate = row.sort_date || row.last_message_at;
         const accounts = (row.logical_messages || [])
@@ -322,6 +595,11 @@ export default function ConversationList({ params = {}, onOpenMessage }) {
         const latestMessage = messages[messages.length - 1];
         const latestSnippet = latestMessage?.snippet || '';
         const isFocused = focusedIndex === rowIndex;
+        const isSelected = selectedIds.has(row.conversation_id);
+        // P1-13: logical_message_count from the API
+        const logicalCount = row.logical_message_count || messages.length || 0;
+        const isStarred = row.starred || false;
+        const isHovered = hoveredRow === row.conversation_id;
 
         return (
           <div
@@ -329,9 +607,16 @@ export default function ConversationList({ params = {}, onOpenMessage }) {
             role="listitem"
             style={{
               borderBottom: '1px solid var(--border)',
-              background: isOpen ? 'var(--bg-secondary)' : (isFocused ? 'var(--bg-tertiary)' : 'transparent'),
+              background: isSelected
+                ? 'var(--bg-tertiary)'
+                : (isOpen ? 'var(--bg-secondary)' : (isFocused ? 'var(--bg-tertiary)' : 'transparent')),
+              position: 'relative',
             }}
-            onMouseEnter={() => setFocusedIndex(rowIndex)}
+            onMouseEnter={() => { setFocusedIndex(rowIndex); setHoveredRow(row.conversation_id); }}
+            onMouseLeave={() => setHoveredRow(null)}
+            onTouchStart={() => handleTouchStart(row)}
+            onTouchEnd={handleTouchEnd}
+            onTouchMove={handleTouchEnd}
           >
             {/* Collapsed conversation row */}
             <div
@@ -343,7 +628,7 @@ export default function ConversationList({ params = {}, onOpenMessage }) {
                 cursor: 'pointer',
                 fontWeight: unreadCount > 0 ? 600 : 400,
               }}
-              onClick={() => toggleExpand(row.conversation_id)}
+              onClick={(e) => handleRowClick(e, row, rowIndex)}
               onKeyDown={e => {
                 if (e.key === 'Enter' || e.key === ' ') {
                   e.preventDefault();
@@ -355,6 +640,19 @@ export default function ConversationList({ params = {}, onOpenMessage }) {
               aria-expanded={isOpen}
               aria-label={`${isOpen ? t('conversation.collapseConversation') : t('conversation.expandConversation')}: ${row.canonical_subject || t('conversation.noSubject')}`}
             >
+              {/* P1-11: Selection checkbox (visible in selection mode) */}
+              {selectionModeActive && (
+                <input
+                  type="checkbox"
+                  data-selection-checkbox
+                  checked={isSelected}
+                  onChange={() => handleRowToggleSelect(row.conversation_id, rows)}
+                  onClick={e => e.stopPropagation()}
+                  style={{ flexShrink: 0, marginRight: 6, cursor: 'pointer' }}
+                  aria-label={t('conversation.selectConversationAria')}
+                />
+              )}
+
               <span
                 style={{
                   width: 24,
@@ -377,6 +675,9 @@ export default function ConversationList({ params = {}, onOpenMessage }) {
                   overflow: 'hidden',
                   textOverflow: 'ellipsis',
                 }}>
+                  {isStarred && (
+                    <span aria-label={t('conversation.star')} title={t('conversation.star')} style={{ color: 'var(--amber, #f59e0b)', fontSize: 12 }}>★</span>
+                  )}
                   <span style={{
                     overflow: 'hidden',
                     textOverflow: 'ellipsis',
@@ -415,6 +716,8 @@ export default function ConversationList({ params = {}, onOpenMessage }) {
               </div>
 
               <div style={{ flexShrink: 0, display: 'flex', alignItems: 'center', marginLeft: 8 }}>
+                {/* P1-13: logical_message_count badge (not physical copy count) */}
+                <LogicalCountBadge count={logicalCount} />
                 <AccountBadge accounts={accounts} />
                 <UnreadBadge count={unreadCount} />
                 <span style={{
@@ -449,6 +752,51 @@ export default function ConversationList({ params = {}, onOpenMessage }) {
               </div>
             </div>
 
+            {/* P1-12: Hover quick actions (desktop only, reuse upstream ActionBtn) */}
+            {!selectionModeActive && isHovered && !isOpen && (
+              <div style={{
+                position: 'absolute',
+                right: 40,
+                top: '50%',
+                transform: 'translateY(-50%)',
+                display: 'flex',
+                alignItems: 'center',
+                gap: 2,
+                background: 'var(--bg-primary)',
+                borderRadius: 5,
+                padding: '1px 2px',
+                boxShadow: '0 1px 4px rgba(0,0,0,0.1)',
+                zIndex: 5,
+              }}>
+                <ActionBtn
+                  title={unreadCount > 0 ? t('conversation.markUnread') : t('conversation.markRead')}
+                  onClick={e => { e.stopPropagation(); handleQuickToggleRead(row); }}
+                >
+                  {unreadCount > 0 ? '✉' : '▢'}
+                </ActionBtn>
+                <ActionBtn
+                  title={isStarred ? t('conversation.unstar') : t('conversation.star')}
+                  onClick={e => { e.stopPropagation(); handleQuickToggleStar(row); }}
+                >
+                  <span style={{ color: isStarred ? 'var(--amber, #f59e0b)' : 'currentColor', fontSize: 13 }}>
+                    {isStarred ? '★' : '☆'}
+                  </span>
+                </ActionBtn>
+                <ActionBtn
+                  title={t('conversation.archive')}
+                  onClick={e => { e.stopPropagation(); handleQuickArchive(row); }}
+                >
+                  📦
+                </ActionBtn>
+                <ActionBtn
+                  title={t('conversation.delete')}
+                  onClick={e => { e.stopPropagation(); handleQuickDelete(row); }}
+                >
+                  🗑
+                </ActionBtn>
+              </div>
+            )}
+
             {/* Context menu dropdown */}
             {menuOpen === row.conversation_id && (
               <>
@@ -481,6 +829,11 @@ export default function ConversationList({ params = {}, onOpenMessage }) {
                     : <MenuItem onClick={() => handleLock(row)}>{t('conversation.lock')}</MenuItem>}
                   <MenuItem onClick={() => handleForceInclude(row)}>{t('conversation.forceInclude')}</MenuItem>
                   <MenuItem onClick={() => handleForceExclude(row)}>{t('conversation.forceExclude')}</MenuItem>
+                  <div style={{ borderTop: '1px solid var(--border)', margin: '4px 0' }} />
+                  <MenuItem onClick={() => handleQuickToggleRead(row)}>{t('conversation.markRead')}</MenuItem>
+                  <MenuItem onClick={() => handleQuickToggleStar(row)}>{t('conversation.star')}</MenuItem>
+                  <MenuItem onClick={() => handleQuickArchive(row)}>{t('conversation.archive')}</MenuItem>
+                  <MenuItem onClick={() => handleQuickDelete(row)}>{t('conversation.delete')}</MenuItem>
                 </div>
               </>
             )}
@@ -606,20 +959,52 @@ export default function ConversationList({ params = {}, onOpenMessage }) {
         </div>
       )}
 
-      {/* Diagnostics / info modal */}
-      {modal && (
+      {/* P1-10: Confirmation dialog for destructive scopes */}
+      {modal?.type === 'confirm' && (
         <div
           role="dialog"
           aria-label={modal.title}
           onClick={closeModal}
           style={{
-            position: 'fixed',
-            inset: 0,
-            background: 'rgba(0,0,0,0.4)',
-            zIndex: 2000,
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'center',
+            position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.4)',
+            zIndex: 2000, display: 'flex', alignItems: 'center', justifyContent: 'center',
+          }}
+        >
+          <div
+            onClick={e => e.stopPropagation()}
+            style={{
+              background: 'var(--bg-primary)', borderRadius: 8, padding: 20,
+              maxWidth: 400, width: '90%', boxShadow: '0 8px 24px rgba(0,0,0,0.2)',
+            }}
+          >
+            <h3 style={{ margin: 0, fontSize: 16, marginBottom: 8 }}>{modal.title}</h3>
+            <p style={{ fontSize: 13, color: 'var(--text-secondary)', margin: '0 0 16px' }}>{modal.body}</p>
+            <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
+              <button type="button" onClick={closeModal} style={smallBtnStyle}>
+                {t('conversation.cancel')}
+              </button>
+              <button
+                type="button"
+                onClick={modal.onConfirm}
+                disabled={opsBusy}
+                style={{ ...smallBtnStyle, background: 'var(--text-danger)', color: 'var(--bg-primary)' }}
+              >
+                {opsBusy ? t('conversation.loading') : t('conversation.confirm')}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Diagnostics / info modal */}
+      {modal?.type === 'info' && (
+        <div
+          role="dialog"
+          aria-label={modal.title}
+          onClick={closeModal}
+          style={{
+            position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.4)',
+            zIndex: 2000, display: 'flex', alignItems: 'center', justifyContent: 'center',
           }}
         >
           <div
@@ -663,3 +1048,13 @@ export default function ConversationList({ params = {}, onOpenMessage }) {
     </div>
   );
 }
+
+const smallBtnStyle = {
+  border: '1px solid var(--border)',
+  borderRadius: 4,
+  padding: '4px 10px',
+  background: 'var(--bg-primary)',
+  color: 'var(--text-primary)',
+  cursor: 'pointer',
+  fontSize: 13,
+};

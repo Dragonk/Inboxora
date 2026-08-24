@@ -1,6 +1,7 @@
-import { useEffect, useRef, useState, useCallback } from 'react';
+import { useEffect, useRef, useState, useCallback, useMemo } from 'react';
 import { useTranslation } from 'react-i18next';
 import { conversationApi } from '../utils/conversationApi.js';
+import { ACTION_SCOPES, DESTRUCTIVE_SCOPES, SCOPE_I18N_KEYS } from '../hooks/useSelection.js';
 import MessageBodyRenderer from './MessageBodyRenderer.jsx';
 
 function newestCopy(message) {
@@ -117,6 +118,11 @@ export default function ConversationPane({ conversationId, targetLogicalMessageI
   const [showCopies, setShowCopies] = useState({});
   const [showHeaders, setShowHeaders] = useState({});
   const [remoteImagesEnabled, setRemoteImagesEnabled] = useState({});
+  // P1-10: scope for destructive actions — explicit, never whole conversation
+  const [actionScope, setActionScope] = useState('THIS_COPY');
+  const [confirmModal, setConfirmModal] = useState(null);
+  const [opsBusy, setOpsBusy] = useState(false);
+  const [opsError, setOpsError] = useState(null);
   const inFlight = useRef(new Map());
   const containerRef = useRef(null);
 
@@ -179,6 +185,46 @@ export default function ConversationPane({ conversationId, targetLogicalMessageI
     }
   }, [targetLogicalMessageId, state.data, state.loading]);
 
+  // P1-10: Run a destructive action with scope-aware confirmation
+  const runScopedAction = useCallback(async (actionFn, scope) => {
+    setOpsError(null);
+    if (DESTRUCTIVE_SCOPES.has(scope)) {
+      setConfirmModal({ onConfirm: async () => {
+        setConfirmModal(null);
+        setOpsBusy(true);
+        try { await actionFn(); }
+        catch (err) { setOpsError(err.message || t('conversation.loadFailed')); }
+        finally { setOpsBusy(false); }
+      } });
+      return;
+    }
+    setOpsBusy(true);
+    try { await actionFn(); }
+    catch (err) { setOpsError(err.message || t('conversation.loadFailed')); }
+    finally { setOpsBusy(false); }
+  }, [t]);
+
+  const handlePaneArchive = useCallback(() => {
+    runScopedAction(() => conversationApi.archive(conversationId, { scope: actionScope }), actionScope);
+  }, [runScopedAction, conversationId, actionScope]);
+
+  const handlePaneDelete = useCallback(() => {
+    runScopedAction(() => conversationApi.delete(conversationId, { scope: actionScope }), actionScope);
+  }, [runScopedAction, conversationId, actionScope]);
+
+  const handlePaneToggleRead = useCallback(() => {
+    const isUnread = messages.some(m => m.copies?.some(c => !c.isRead));
+    conversationApi.setRead(conversationId, !isUnread, { scope: actionScope }).catch(err => {
+      setOpsError(err.message || t('conversation.loadFailed'));
+    });
+  }, [conversationId, actionScope, messages, t]);
+
+  const handlePaneToggleStar = useCallback(() => {
+    conversationApi.setStarred(conversationId, true, { scope: actionScope }).catch(err => {
+      setOpsError(err.message || t('conversation.loadFailed'));
+    });
+  }, [conversationId, actionScope, t]);
+
   const toggleExpand = useCallback((messageId) => {
     setExpanded(prev => {
       const next = new Set(prev);
@@ -188,6 +234,8 @@ export default function ConversationPane({ conversationId, targetLogicalMessageI
     });
   }, []);
 
+  const messages = useMemo(() => state.data?.logicalMessages || [], [state.data?.logicalMessages]);
+
   if (state.loading) {
     return <div role="status" style={{ padding: 24, textAlign: 'center', color: 'var(--text-tertiary)' }}>{t('conversation.loading')}</div>;
   }
@@ -195,7 +243,6 @@ export default function ConversationPane({ conversationId, targetLogicalMessageI
     return <div role="alert" style={{ padding: 16, color: 'var(--text-danger)' }}>{state.error}</div>;
   }
 
-  const messages = state.data?.logicalMessages || [];
   const summary = state.data?.summary || {};
   const totalCopies = messages.reduce((sum, m) => sum + (m.copies?.length || 0), 0);
 
@@ -215,7 +262,91 @@ export default function ConversationPane({ conversationId, targetLogicalMessageI
           {t('conversation.messageCount', { count: messages.length })}{' · '}
           {t('conversation.copyCount', { count: totalCopies })}
         </div>
+        {/* P1-10: Scope selector for destructive actions */}
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginTop: 8, flexWrap: 'wrap' }}>
+          <label style={{ display: 'flex', alignItems: 'center', gap: 4, fontSize: 12 }}>
+            <span style={{ fontWeight: 600 }}>{t('conversation.scopeTitle')}</span>
+            <select
+              value={actionScope}
+              onChange={e => setActionScope(e.target.value)}
+              aria-label={t('conversation.scopeTitle')}
+              style={{
+                padding: '2px 6px', borderRadius: 4, border: '1px solid var(--border)',
+                background: 'var(--bg-primary)', color: 'var(--text-primary)', fontSize: 12,
+              }}
+            >
+              {ACTION_SCOPES.map(scope => (
+                <option key={scope} value={scope}>{t(SCOPE_I18N_KEYS[scope])}</option>
+              ))}
+            </select>
+          </label>
+          {/* P1-12: quick action buttons in the pane header */}
+          <div style={{ display: 'flex', gap: 4, marginLeft: 'auto' }}>
+            <button type="button" onClick={handlePaneToggleRead} style={paneBtnStyle} disabled={opsBusy}>
+              {t('conversation.markRead')}
+            </button>
+            <button type="button" onClick={handlePaneToggleStar} style={paneBtnStyle} disabled={opsBusy}>
+              {t('conversation.star')}
+            </button>
+            <button type="button" onClick={handlePaneArchive} style={paneBtnStyle} disabled={opsBusy}>
+              {t('conversation.archive')}
+            </button>
+            <button type="button" onClick={handlePaneDelete} style={{ ...paneBtnStyle, color: 'var(--text-danger)' }} disabled={opsBusy}>
+              {t('conversation.delete')}
+            </button>
+          </div>
+        </div>
+        {DESTRUCTIVE_SCOPES.has(actionScope) && (
+          <div style={{ fontSize: 11, color: 'var(--text-danger)', marginTop: 4 }}>
+            {t('conversation.scopeWarning')}
+          </div>
+        )}
       </header>
+
+      {/* P1-10: confirmation modal for destructive scopes */}
+      {confirmModal && (
+        <div
+          role="dialog"
+          aria-label={t('conversation.confirm')}
+          onClick={() => setConfirmModal(null)}
+          style={{
+            position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.4)',
+            zIndex: 2000, display: 'flex', alignItems: 'center', justifyContent: 'center',
+          }}
+        >
+          <div onClick={e => e.stopPropagation()} style={{
+            background: 'var(--bg-primary)', borderRadius: 8, padding: 20,
+            maxWidth: 400, width: '90%', boxShadow: '0 8px 24px rgba(0,0,0,0.2)',
+          }}>
+            <h3 style={{ margin: 0, fontSize: 16, marginBottom: 8 }}>{t('conversation.confirmDeleteTitle')}</h3>
+            <p style={{ fontSize: 13, color: 'var(--text-secondary)', margin: '0 0 16px' }}>
+              {t('conversation.confirmDeleteBody', { count: messages.length })}
+            </p>
+            <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
+              <button type="button" onClick={() => setConfirmModal(null)} style={paneBtnStyle}>
+                {t('conversation.cancel')}
+              </button>
+              <button type="button" onClick={confirmModal.onConfirm} disabled={opsBusy} style={{ ...paneBtnStyle, background: 'var(--text-danger)', color: 'var(--bg-primary)' }}>
+                {opsBusy ? t('conversation.loading') : t('conversation.confirm')}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Ops error toast */}
+      {opsError && (
+        <div role="alert" style={{
+          padding: '8px 12px', background: 'var(--text-danger)', color: 'var(--bg-primary)',
+          fontSize: 13, display: 'flex', justifyContent: 'space-between', alignItems: 'center',
+          borderRadius: 4, marginTop: 8,
+        }}>
+          <span>{opsError}</span>
+          <button type="button" onClick={() => setOpsError(null)} aria-label={t('conversation.close')} style={{
+            border: 'none', background: 'transparent', color: 'inherit', cursor: 'pointer', fontSize: 16,
+          }}>×</button>
+        </div>
+      )}
 
       {/* Message cards */}
       {messages.map(message => {
@@ -473,3 +604,13 @@ export default function ConversationPane({ conversationId, targetLogicalMessageI
     </section>
   );
 }
+
+const paneBtnStyle = {
+  border: '1px solid var(--border)',
+  borderRadius: 4,
+  padding: '4px 10px',
+  background: 'var(--bg-primary)',
+  color: 'var(--text-primary)',
+  cursor: 'pointer',
+  fontSize: 12,
+};
