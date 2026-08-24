@@ -168,7 +168,7 @@ async function processMicrosoftTokens(userId, tokens, { tenantId, clientId, publ
       [`oauth-account:${userId}:${email.toLowerCase()}`]);
 
     const existing = await client.query(
-      'SELECT id FROM email_accounts WHERE user_id = $1 AND email_address = $2',
+      'SELECT id FROM email_accounts WHERE user_id = $1 AND lower(email_address) = lower($2)',
       [userId, email]
     );
 
