@@ -18,6 +18,9 @@ export const test = base.extend({
     await page.waitForURL(url => url.pathname === '/', { waitUntil: 'domcontentloaded' });
     await expect(page).toHaveURL(/\/$/);
     await expect.poll(() => responses.some(item => item.url.includes('/api/auth/login') && item.status === 200)).toBe(true);
+    // Make the CE view explicit; this removes dependence on preference hydration timing
+    // when the real app is opened immediately after login on a fresh CI browser context.
+    await page.goto('/?list=1&reader=1');
     await use(page);
   },
 });
