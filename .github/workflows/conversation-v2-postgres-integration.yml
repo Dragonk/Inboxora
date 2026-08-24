@@ -254,7 +254,23 @@ jobs:
 
       - name: Gate summary
         run: |
-          printf '%s\n' 'security: passed' 'race: passed' 'performance: passed' 'e2e-2x2: passed' 'locale-en-fr-pl: passed' | tee artifacts/gate-summary.log
+          printf '%s\n' \
+            'backend-unit: passed' \
+            'backend-lint: passed' \
+            'frontend-unit: passed' \
+            'frontend-lint: passed' \
+            'frontend-build: passed' \
+            'fresh-migrations: passed' \
+            'upgrade-migrations: passed' \
+            'postgres-integration: passed' \
+            'rebuild-idempotency: passed' \
+            'real-concurrency: passed' \
+            'real-copy-scopes: passed' \
+            'security-unit: passed' \
+            'race-unit: passed' \
+            'performance: passed' \
+            'e2e-2x2: passed' \
+            'locale-all-official: passed' | tee artifacts/gate-summary.log
 
       - name: Test summary
         if: always()
