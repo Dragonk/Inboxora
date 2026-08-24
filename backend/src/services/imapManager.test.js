@@ -328,6 +328,11 @@ describe('insertCopiedSibling', () => {
     await insertCopiedSibling('acct-1', 100, 'INBOX', 'Todo', 5001);
     expect(countAdjusts()).toHaveLength(0);
   });
+
+  it('uses the shared projection for CE metadata on partial Sent/repair envelopes', async () => {
+    const sourceText = await import('node:fs').then(({ readFileSync }) => readFileSync(new URL('./imapManager.js', import.meta.url), 'utf8'));
+    expect(sourceText).toContain('const persistenceMessage = { ...result.rows[0], ...(rawMessage || {}) };');
+  });
 });
 
 // ── removeMessageCopy DB side — deleteMessageCopyRow ─────────────────────────

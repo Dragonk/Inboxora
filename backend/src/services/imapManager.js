@@ -34,8 +34,14 @@ async function persistConversationCopyForRow(rowId, account, rawMessage) {
         JOIN email_accounts a ON a.id = m.account_id
        WHERE m.id = $1 AND a.id = $2`, [rowId, account.id]);
     if (result.rows.length !== 1) return;
-    const envelope = conversationPersistedFields(rawMessage, account);
-    envelope.identities = await resolveOwnIdentityAddresses({ query }, account.id, rawMessage);
+    // Sent/upsert and retry paths may provide only a partial raw envelope. The
+    // persisted row is authoritative for delivery/provider/Sender metadata, so
+    // merge it before deriving provider identity and own-address resolution.
+    // This keeps live ingest, Sent ingest, retry, and rebuild on the same input
+    // contract instead of silently dropping delivery_addresses or provider IDs.
+    const persistenceMessage = { ...result.rows[0], ...(rawMessage || {}) };
+    const envelope = conversationPersistedFields(persistenceMessage, account);
+    envelope.identities = await resolveOwnIdentityAddresses({ query }, account.id, persistenceMessage);
     await query(`UPDATE messages SET conversation_raw_headers = COALESCE($1, conversation_raw_headers), conversation_thread_index = COALESCE($2, conversation_thread_index), conversation_thread_topic = COALESCE($3, conversation_thread_topic) WHERE id = $4`, [envelope.conversation_raw_headers, envelope.conversation_thread_index, envelope.conversation_thread_topic, rowId]);
     await upsertConversationCopy({ ...result.rows[0], ...envelope }, {
       identities: envelope.identities,
@@ -4028,7 +4034,7 @@ export class ImapManager {
     return withFreshClient(account, async (client) => {
       const lock = await client.getMailboxLock(folder);
       try {
-        const uids = await client.search({ header: ['Message-ID', mid] }, { uid: true });
+        const uids = await client.search({ header: { 'Message-ID': mid } }, { uid: true });
         if (!uids?.length) return null;
         return uids[uids.length - 1];
       } finally {

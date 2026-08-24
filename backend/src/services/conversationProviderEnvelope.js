@@ -30,13 +30,11 @@ export function providerIdentityForCopy(copy, accountContext = copy) {
   // (all replies in the same Outlook thread share the same 22-byte root). Extract it
   // as providerThreadId for Outlook so initial ingest, retry, and rebuild all produce
   // the SAME providerThreadId — satisfying P0-03/04 consistency requirement.
-  const hasGmailThreadId = Boolean(copy.provider_thread_id);
-  const outlookRoot = provider === 'outlook' && !hasGmailThreadId
+  const hasGmailThreadId = provider === 'gmail' && Boolean(copy.provider_thread_id);
+  const outlookRoot = provider === 'outlook'
     ? outlookConversationRoot(copy.conversation_thread_index)
     : null;
-  const effectiveProviderThreadId = hasGmailThreadId
-    ? copy.provider_thread_id
-    : outlookRoot;
+  const effectiveProviderThreadId = hasGmailThreadId ? copy.provider_thread_id : outlookRoot;
   return {
     provider,
     providerMessageId: copy.provider_message_id || null,
