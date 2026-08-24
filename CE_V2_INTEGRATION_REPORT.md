@@ -118,7 +118,55 @@
 | Mobile | ⏳ pending (needs browser) |
 | Plugin boundary lint | ⏳ pending |
 
-## Commits on branch (post-merge)
+## Post-upstream review round 2 — reader reconciliation
+
+Review target before this round: `1bb6c797e96b0c652839867ba8029e6ebcdb2319`.
+The branch had since advanced; the reader findings were reproduced against the current code.
+
+### Fixed
+
+- **P1 remote-image opt-in**: MessagePane now derives one effective policy,
+  `!blockRemoteImages || imagesRequestedRef.current.has(selectedMessageId)`, and uses it
+  consistently for div sanitization, iframe rendering, print rendering, and per-message
+  Load images / Allow sender / Allow domain actions. A successful unblocked API refetch is
+  no longer sanitized back to blocked HTML by the div renderer.
+- **P2 nested scroll containers**: shared `MessageBodyRenderer` now expands nested
+  `overflow:auto/scroll` email containers, tracks image/resize changes, and restores
+  original inline styles on cleanup.
+- **P2 text-only quote folding**: quote detection/folding is now handled in the shared
+  sandboxed renderer and includes text-only markers (`On ... wrote:`, `Dnia ... napisał`,
+  `-----Original Message-----`, `-----Wiadomość oryginalna-----`). ConversationPane uses
+  the same renderer policy rather than a separate DOM-folding implementation.
+
+### Round-2 verification
+
+- Backend: **92 files, 1249 tests, 0 fail**
+- Frontend: **1777 tests, 0 fail**
+- i18n: **1390 tests, 0 fail**
+- Backend lint: clean
+- Frontend lint: clean
+- Plugin boundary lint: clean
+- Frontend build: successful (2.83s)
+- Conversation E2E desktop: **6/6 passed**
+- Conversation E2E mobile: **6/6 passed**
+- Browser security E2E desktop + mobile: **4/4 passed**
+- `git diff --check`: clean
+
+The two previously observed preference/navigation matrix failures did not reproduce:
+all four matrix tuples passed on both desktop and mobile in this round.
+
+### Remaining reader findings
+
+- No demonstrated P0 remains.
+- No reproduced P1 remains from this review round.
+- PostgreSQL integration, real-app Playwright, migration upgrade/fresh-schema, rebuild
+  idempotency, race, security, and performance gates still require the corresponding
+  external services/CI environment.
+- Non-PL CE translations remain EN placeholders and are explicitly tracked by the i18n
+  parity allow-list; PL coverage is complete for the current CE key set.
+
+**Round-2 implementation commit**: `4080fff23a99c9f0812abc0df690ea925d0bd20e`
+
 
 ```
 12002f4 fix(i18n): remove duplicate keys from merged i18n.test.js
@@ -135,31 +183,21 @@ c1e53df (upstream/main) chore: bump version to 3.2.4
 
 ## Known P0
 
-None at this stage. The integrated candidate is stable:
-- All unit tests pass (backend 1229 + frontend 1656 + i18n 1356 = 4241 tests, 0 fail)
-- Lint clean (both backend and frontend)
-- Build succeeds
-- 0002 byte-identical with upstream
-- Upstream fully absorbed (0 behind)
-- Migrations renumbered correctly (0051-0057)
-- RELOCATE_COPY_COLS extended with CE columns
+None demonstrated in this round.
 
 ## Known P1
 
-1. **CE v2 i18n keys incomplete**: Only 17 `conversation.*` keys exist. Section 7 requires ~40+ keys (merge, split, diagnostics, why is this grouped, force include/exclude, rebuild, automated series modes, etc.). These will be added as UI features are completed.
-2. **PostgreSQL integration tests not yet run**: Fresh migrations, upgrade migrations, rebuild idempotency x2, security, race, performance — all require real PostgreSQL. These are the next critical gates.
-3. **Playwright E2E not yet run**: Mocked + real app E2E, 2×2 preference matrix, mobile — all require browser environment.
-4. **CE v2 features not yet re-verified against upstream changes**: The merge absorbed 43 upstream commits that touched imapManager.js, messageParser.js, MessagePane.jsx, MessageList.jsx, store/index.js — CE v2 hooks in these files need verification that they still work correctly with the new upstream code.
-5. **Subject-only fallback in computeThreadId**: Upstream's computeThreadId still has the subject fallback (90d window). CE v2 must ensure this is NOT used in the active CE path. This requires verification that CE v2's decision engine is wired as the primary path and computeThreadId is only the legacy fallback.
+1. **Real PostgreSQL/CI gates remain pending**: fresh and populated-schema migrations, CE PostgreSQL integration, rebuild idempotency x2, real security/race/performance tests require the external PostgreSQL/CI environment.
+2. **Real-app Playwright remains pending**: mocked Conversation E2E is green on desktop/mobile, but real-app E2E still requires the deployed test backend.
+3. **Active CE subject-only proof remains pending**: upstream `computeThreadId` retains the legacy normalized-subject fallback. The CE-active path must be proven with the 100-message adversarial corpus.
+4. **Non-PL CE translations**: current CE keys in de/es/fr/it/ru/zhCN are EN placeholders allowed explicitly by the parity gate; PL coverage is complete.
 
 ## Known P2
 
-1. **Worktree cleanup**: Multiple old worktrees and branches exist from previous work (PR1-PR8, r3-01 through r3-08, integration branches). These should be cleaned up before final PR.
-2. **Old CE migration references**: `migrationIntegrity.test.js` was updated to reference 0055 (was 0051). Need to verify no other tests/scripts reference old migration numbers.
-3. **ConversationPane.jsx / ConversationList.jsx**: These CE v2 components need verification that they work with the merged MessagePane.jsx / MessageList.jsx changes.
-4. **Adversarial corpus for "Test" subject**: Section 3 requires a large adversarial corpus of messages with subject "Test" to verify no subject-only grouping. This test fixture needs to be created/verified.
-5. **Copy-aware action scopes**: Section 18 requires explicit scopes (selected-copy, all-copies-of-logical-message, all-copies-in-account, whole-conversation). CE API needs these scopes implemented and tested.
-6. **Automated series modes**: off/strict/smart — need verification that these are correctly implemented and default is "off".
+1. Worktree cleanup remains pending.
+2. The 100-message cross-year/account/folder/sender `Subject: Test` adversarial corpus remains to be run against real PostgreSQL.
+3. Copy-aware destructive scopes and manual operation behavior need real PostgreSQL/E2E verification.
+4. Automated series modes (off/strict/smart) need real ingest/rebuild verification.
 
 ## Next steps (not started — awaiting review)
 
