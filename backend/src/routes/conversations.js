@@ -1,6 +1,7 @@
 import { Router } from 'express';
 import { query, pool } from '../services/db.js';
 import { requireAuth } from '../middleware/auth.js';
+import { resolveConversationAlias } from '../services/conversationOverridePolicy.js';
 import { sanitizeEmail, blockRemoteImages, hasRemoteImages } from '../services/emailSanitizer.js';
 import { uuidParam } from '../utils/uuid.js';
 import { applyConversationAction, applyBulkConversationAction } from '../services/conversationActions.js';
