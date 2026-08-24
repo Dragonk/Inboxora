@@ -79,6 +79,7 @@ export default function MailApp() {
   const syncInterval = useStore(s => s.syncInterval);
   const autoLockMinutes = useStore(s => s.autoLockMinutes);
   const lockScreen = useStore(s => s.lockScreen);
+  const isMobile = useMobile();
   const [conversationId, setConversationId] = useState(null);
   const [targetLogicalMessageId, setTargetLogicalMessageId] = useState(null);
   const openConversationTarget = useCallback((row) => {
@@ -169,7 +170,6 @@ export default function MailApp() {
 
   const [showShortcutHelp, setShowShortcutHelp] = useState(false);
   const [paletteOpen, setPaletteOpen] = useState(false);
-  const isMobile = useMobile();
   const sidebarDragRef = useRef(null);
   const sidebarResizeRef = useRef(null);
   const listResizeRef = useRef(null);
