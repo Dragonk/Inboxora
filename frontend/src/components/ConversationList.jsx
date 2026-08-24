@@ -20,14 +20,19 @@ function OwnReplyMarker({ visible }) {
 }
 
 function AttachmentIcon({ visible }) {
+  const { t } = useTranslation();
   if (!visible) return null;
-  return <span aria-label="📎" title="📎" style={{ marginLeft: 4 }}>📎</span>;
+  const label = t('conversation.attachment');
+  return <span role="img" aria-label={label} title={label} style={{ marginLeft: 4 }}>📎</span>;
 }
 
 function UnreadBadge({ count }) {
+  const { t } = useTranslation();
   if (!count) return null;
   return (
     <span
+      role="status"
+      aria-label={t('conversation.unreadCount', { count })}
       style={{
         marginLeft: 6,
         fontSize: 11,
@@ -69,9 +74,12 @@ function AccountBadge({ accounts = [] }) {
 }
 
 function LogicalCountBadge({ count }) {
+  const { t } = useTranslation();
   if (!count || count <= 1) return null;
   return (
     <span
+      role="status"
+      aria-label={t('conversation.logicalCount', { count })}
       style={{
         marginLeft: 6,
         fontSize: 10,
@@ -221,6 +229,7 @@ export default function ConversationList({ params = {}, onOpenMessage }) {
   const [hoveredRow, setHoveredRow] = useState(null);
   // P1-11: long-press timer for mobile
   const longPressTimer = useRef(null);
+  const longPressTriggered = useRef(false);
   const listRef = useRef(null);
   // P1-11: context menu positioning ref (for viewport flip/clamp)
 
@@ -357,6 +366,12 @@ export default function ConversationList({ params = {}, onOpenMessage }) {
 
   // ── P1-11: Selection click handling (Ctrl/Cmd+click, Shift+range) ─
   const handleRowClick = useCallback((e, row) => {
+    if (longPressTriggered.current) {
+      longPressTriggered.current = false;
+      e.stopPropagation();
+      e.preventDefault();
+      return;
+    }
     // Checkbox or Ctrl/Cmd+click → toggle selection
     if (e.target.closest('[data-selection-checkbox]') || e.ctrlKey || e.metaKey) {
       e.stopPropagation();
@@ -386,7 +401,9 @@ export default function ConversationList({ params = {}, onOpenMessage }) {
 
   // ── P1-11: Mobile long-press to enter selection mode ───────────
   const handleTouchStart = useCallback((row) => {
+    longPressTriggered.current = false;
     longPressTimer.current = setTimeout(() => {
+      longPressTriggered.current = true;
       enterSelectionMode(row.conversation_id);
     }, 500);
   }, [enterSelectionMode]);
@@ -811,7 +828,8 @@ export default function ConversationList({ params = {}, onOpenMessage }) {
               <>
                 <div
                   onClick={() => setMenuOpen(null)}
-                  style={{ position: 'fixed', inset: 0, zIndex: 999 }}
+                  aria-label={t('conversation.close')}
+                  style={{ position: 'fixed', inset: 0, zIndex: 999, border: 'none', background: 'transparent', padding: 0, cursor: 'default' }}
                 />
                 <div
                   role="menu"

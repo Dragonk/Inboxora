@@ -161,6 +161,9 @@ const SAME_VALUE_ALLOWED = {
   // ── Conversation Engine v2 — not yet translated into de/es/fr/it/ru/zhCN ────
   // CE v2 UI is under active development. Non-PL locales use the EN source string
   // as a placeholder until they are properly translated. PL has full translations.
+  'conversation.attachment': 'any',
+  'conversation.unreadCount': 'any',
+  'conversation.logicalCount': 'any',
   'conversation.groupIntoConversations': 'any',
   'conversation.conversationReader': 'any',
   'conversation.expandConversation': 'any',
