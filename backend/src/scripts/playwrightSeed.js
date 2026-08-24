@@ -39,7 +39,7 @@ try {
     );
     accounts.push(result.rows[0].id);
   }
-  const [gmailId, outlookId, fastmailId] = accounts;
+  const [gmailId, outlookId] = accounts;
 
   // ── Helpers ────────────────────────────────────────────────────────────────
   const aliceEmail = 'alice@example.test';

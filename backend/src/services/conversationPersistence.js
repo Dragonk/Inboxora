@@ -261,6 +261,18 @@ export async function _upsertConversationCopyWithClient(client, copy, { identiti
         await client.query('UPDATE messages SET conversation_id = $1, conversation_user_id = $2 WHERE logical_message_id = ANY($3::uuid[]) AND conversation_user_id = $2', [conversationId, hydrated.userId, component.rows.map(node => node.id)]);
         const touched = new Set([...oldConversationIds, conversationId]);
         for (const touchedId of touched) await refreshConversationAggregates(client, hydrated.userId, touchedId);
+        // Delayed-parent reconciliation can empty a provisional conversation that
+        // was created while the parent was absent. Remove only truly orphaned,
+        // unaliased and override-free containers; never delete a user-visible
+        // conversation carrying manual state.
+        await client.query(`
+          DELETE FROM conversations c
+           WHERE c.user_id = $1
+             AND c.id = ANY($2::uuid[])
+             AND NOT EXISTS (SELECT 1 FROM logical_messages lm WHERE lm.conversation_id = c.id)
+             AND NOT EXISTS (SELECT 1 FROM conversation_aliases ca WHERE ca.alias_conversation_id = c.id OR ca.canonical_conversation_id = c.id)
+             AND NOT EXISTS (SELECT 1 FROM conversation_overrides co WHERE co.conversation_id = c.id)
+        `, [hydrated.userId, [...oldConversationIds]]);
         const crossEdge = await client.query(`SELECT 1 FROM logical_messages child JOIN logical_messages parent ON parent.id = child.parent_logical_message_id WHERE child.user_id = $1 AND child.conversation_id IS DISTINCT FROM parent.conversation_id LIMIT 1`, [hydrated.userId]);
         if (crossEdge.rows.length) throw new Error('delayed parent reconcile left a cross-conversation parent edge');
       }
