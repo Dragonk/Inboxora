@@ -9,7 +9,7 @@ import { useMobile } from '../hooks/useMobile.js';
 import { clearDeleteGuard, clearPendingDelete, setCompletedDelete, setPendingDelete } from '../utils/pendingDeletes.js';
 import { pendingMarkReadMap, completedMarkReadMap, setPending } from '../utils/pendingReads.js';
 import DOMPurify from 'dompurify';
-import { BUILTIN_SUMMARIZE } from '../aiActions.js';
+import { BUILTIN_SUMMARIZE, summarizePromptForLocale } from '../aiActions.js';
 import { getResults, saveResult, removeResult } from '../aiResults.js';
 import { renderMarkdown } from '../utils/renderMarkdown.js';
 import { pickReplyAlias } from '../utils/replyAlias.js';
@@ -91,7 +91,7 @@ function fileIcon(type) {
 }
 
 export default function MessagePane({ windowMessageId = null, onWindowClose = null } = {}) {
-  const { t } = useTranslation();
+  const { t, i18n } = useTranslation();
   const {
     messages, searchResults, searchQuery, selectedMessageId: globalSelectedId, setSelectedMessage,
     updateMessage, removeMessage, decrementUnread, incrementUnread, openCompose, accounts, addNotification,
@@ -1185,10 +1185,13 @@ ${bodyContent}
     aiAbortRefs.current[key] = ctrl;
     const msgId = selectedMessageId;
     setAiResults(r => ({ ...r, [key]: { status: 'loading', text: '', label } }));
+    // The built-in Summarize prompt is uneditable, so steer its output to the
+    // user's UI language (#255). Custom actions keep their author's prompt as-is.
+    const promptText = action.builtin ? summarizePromptForLocale(i18n.language) : action.prompt;
     try {
       const fullText = await api.ai.chat([{
         role: 'user',
-        content: `${action.prompt}\n\n${textContent.slice(0, 6000)}`,
+        content: `${promptText}\n\n${textContent.slice(0, 6000)}`,
       }], {
         signal: ctrl.signal,
         onDelta: (text) => {
