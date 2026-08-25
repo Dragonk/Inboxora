@@ -73,7 +73,7 @@ export default function MailApp() {
     showContacts, setTodoistConnected,
     accounts, rightSidebarWidth, setRightSidebarWidth, isRightSidebarResizing, setIsRightSidebarResizing,
     rightSidebarHidden, toggleRightSidebarHidden,
-    conversationListViewEnabled, conversationReaderViewEnabled,
+    threadedView, conversationReaderViewEnabled,
     selectedFolder,
   } = useStore();
   const syncInterval = useStore(s => s.syncInterval);
@@ -824,9 +824,9 @@ export default function MailApp() {
           </div>
           {/* Keep all three mounted so scroll/state survive navigation. */}
           <div data-ce-reader-enabled={conversationReaderViewEnabled ? 'true' : 'false'} data-ce-reader-state={conversationReaderViewEnabled ? 'enabled' : 'disabled'} style={{ flex: 1, display: !showContacts && !selectedMessageId && !(conversationReaderViewEnabled && conversationId) ? 'flex' : 'none', overflow: 'hidden', height: '100%' }}>
-            {conversationListViewEnabled ? <ConversationList params={{ accountId: selectedAccountId || undefined, folder: selectedFolder || undefined }} onOpenMessage={openConversationTarget} /> : <MessageList />}
+            {threadedView ? <ConversationList params={{ accountId: selectedAccountId || undefined, folder: selectedFolder || undefined }} onOpenMessage={openConversationTarget} /> : <MessageList />}
           </div>
-          <div style={{ flex: 1, display: !showContacts && (selectedMessageId || (conversationReaderViewEnabled && conversationId)) ? 'flex' : 'none', overflow: 'hidden', height: '100%' }}>
+          <div style={{ flex: 1, display: !showContacts && (selectedMessageId || (conversationReaderViewEnabled && conversationId)) ? 'flex' : 'none', overflow: 'hidden', height: '100%', minWidth: 0 }}>
             {conversationReaderViewEnabled && conversationId ? <ConversationPane conversationId={conversationId} targetLogicalMessageId={targetLogicalMessageId} onReply={replyFromConversation} /> : <MessagePane />}
           </div>
         </>
@@ -856,8 +856,11 @@ export default function MailApp() {
               <Suspense fallback={lazyFallback}><ContactsPage /></Suspense>
             </div>
             <div style={{ display: showContacts ? 'none' : 'flex', flex: 1, minWidth: 0, overflow: 'hidden', height: '100%', flexDirection: currentLayout.direction }}>
-              <div data-ce-reader-enabled={conversationReaderViewEnabled ? 'true' : 'false'} data-ce-reader-state={conversationReaderViewEnabled ? 'enabled' : 'disabled'} style={{ display: 'contents' }}>
-                {conversationListViewEnabled ? <ConversationList params={{ accountId: selectedAccountId || undefined, folder: selectedFolder || undefined }} onOpenMessage={openConversationTarget} /> : <MessageList />}
+              <div data-ce-reader-enabled={conversationReaderViewEnabled ? 'true' : 'false'} data-ce-reader-state={conversationReaderViewEnabled ? 'enabled' : 'disabled'} style={{
+                display: 'flex', flex: currentLayout.direction === 'row' ? '0 0 var(--list-width)' : '1 1 50%',
+                width: currentLayout.direction === 'row' ? 'var(--list-width)' : '100%', minWidth: 0, overflow: 'hidden', height: '100%',
+              }}>
+                {threadedView ? <ConversationList params={{ accountId: selectedAccountId || undefined, folder: selectedFolder || undefined }} onOpenMessage={openConversationTarget} /> : <MessageList />}
               </div>
               {currentLayout.direction === 'row' && (
                 <div
@@ -871,7 +874,9 @@ export default function MailApp() {
                   onMouseLeave={e => { e.currentTarget.style.background = 'var(--border-subtle)'; }}
                 />
               )}
-              {conversationReaderViewEnabled && conversationId ? <ConversationPane conversationId={conversationId} targetLogicalMessageId={targetLogicalMessageId} onReply={replyFromConversation} /> : <MessagePane />}
+              <div style={{ flex: 1, minWidth: 0, overflow: 'hidden', height: '100%', display: 'flex' }}>
+                {conversationReaderViewEnabled && conversationId ? <ConversationPane conversationId={conversationId} targetLogicalMessageId={targetLogicalMessageId} onReply={replyFromConversation} /> : <MessagePane />}
+              </div>
               {/* Generic right-sidebar column, populated from the content seam above. */}
               {currentLayout.direction === 'row' && rightSidebarContent != null && (
                 <>

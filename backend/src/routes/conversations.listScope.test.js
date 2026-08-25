@@ -17,9 +17,14 @@ describe('conversation list scope contract', () => {
     expect(routeSource).toContain('WHERE m.conversation_id = c.id AND m.is_deleted = false ${scopedMessageFilter}');
   });
 
-  it('applies folder scope to logical-message visibility and previews', () => {
-    expect(routeSource).toContain('visible_lm.folder = $${folderParam}');
-    expect(routeSource).toContain('m.folder = $${folderParam}');
+  it('scopes parent existence and aggregates by folder but keeps expanded children conversation-wide', () => {
     expect(routeSource).toContain('const folderFilter = folder ?');
+    expect(routeSource).toContain('const scopedMessageFilter');
+    expect(routeSource).toContain("const scopedLogicalFilter = `${accountId ? 'AND visible_lm.account_id = $2' : ''}`;");
+    expect(routeSource).toContain("const scopedPreviewFilter = `${accountId ? 'AND m.account_id = $2' : ''}`;");
+    expect(routeSource).not.toMatch(/const scopedLogicalFilter[\s\S]*?folderParam/);
+    expect(routeSource).not.toMatch(/const scopedPreviewFilter[\s\S]*?folderParam/);
+    expect(routeSource).toContain('const scopedPreviewOrder = folder ?');
+    expect(routeSource).toContain('ORDER BY ${scopedPreviewOrder} m.is_read ASC');
   });
 });

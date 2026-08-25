@@ -1593,7 +1593,6 @@
     "split": "Separar conversación",
     "unknownSender": "Remitente desconocido",
     "you": "Tú",
-    "groupIntoConversations": "Agrupar mensajes en conversaciones",
     "conversationReader": "Lector de conversaciones",
     "expandConversation": "Expandir conversación",
     "collapseConversation": "Contraer conversación",
@@ -1706,6 +1705,8 @@
     "confirmMoveTitle": "Mover conversación",
     "confirmMoveBody": "¿Mover {{count}} mensaje(s) a otra carpeta?",
     "showQuotedText": "Mostrar texto citado",
-    "hideQuotedText": "Ocultar texto citado"
+    "hideQuotedText": "Ocultar texto citado",
+    "readerOffDesc": "Abrir solo el mensaje seleccionado",
+    "readerOnDesc": "Mostrar toda la conversación en el panel de mensajes"
   }
 }

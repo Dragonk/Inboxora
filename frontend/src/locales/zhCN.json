@@ -1593,7 +1593,6 @@
     "split": "拆分对话",
     "unknownSender": "未知发件人",
     "you": "你",
-    "groupIntoConversations": "将邮件归入对话",
     "conversationReader": "对话阅读器",
     "expandConversation": "展开对话",
     "collapseConversation": "收起对话",
@@ -1706,6 +1705,8 @@
     "confirmMoveTitle": "移动对话",
     "confirmMoveBody": "将 {{count}} 封邮件移至其他文件夹？",
     "showQuotedText": "显示引用内容",
-    "hideQuotedText": "隐藏引用内容"
+    "hideQuotedText": "隐藏引用内容",
+    "readerOffDesc": "仅打开选中的邮件",
+    "readerOnDesc": "在邮件面板中显示整个对话"
   }
 }

@@ -1593,7 +1593,6 @@
     "split": "Unterhaltung teilen",
     "unknownSender": "Unbekannter Absender",
     "you": "Du",
-    "groupIntoConversations": "Nachrichten in Unterhaltungen gruppieren",
     "conversationReader": "Unterhaltungsleser",
     "expandConversation": "Unterhaltung aufklappen",
     "collapseConversation": "Unterhaltung zuklappen",
@@ -1706,6 +1705,8 @@
     "confirmMoveTitle": "Unterhaltung verschieben",
     "confirmMoveBody": "{{count}} Nachricht(en) in einen anderen Ordner verschieben?",
     "showQuotedText": "Zitierten Text anzeigen",
-    "hideQuotedText": "Zitierten Text ausblenden"
+    "hideQuotedText": "Zitierten Text ausblenden",
+    "readerOffDesc": "Nur die ausgewählte Nachricht öffnen",
+    "readerOnDesc": "Die gesamte Unterhaltung im Nachrichtenbereich anzeigen"
   }
 }

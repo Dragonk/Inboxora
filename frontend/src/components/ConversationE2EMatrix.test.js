@@ -13,7 +13,9 @@ describe('Conversation E2E 2x2 contract', () => {
     ];
     assert.equal(matrix.length, 4);
     assert.doesNotMatch(source, /conversationMode\s*=/);
-    assert.match(source, /conversationListViewEnabled \? <ConversationList/);
+    assert.match(source, /threadedView \? <ConversationList/);
+    assert.doesNotMatch(source, /conversationListViewEnabled/);
+    assert.match(source, /threadedView, conversationReaderViewEnabled/);
     assert.match(source, /conversationReaderViewEnabled && conversationId \? <ConversationPane/);
     assert.match(source, /targetLogicalMessageId/);
   });

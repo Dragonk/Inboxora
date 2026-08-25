@@ -438,14 +438,21 @@ export default function ConversationList({ params = {}, onOpenMessage }) {
       handleRangeSelect(row.conversation_id, rows);
       return;
     }
-    // Normal click: if in selection mode, toggle; else expand
+    // Normal click opens the native reader/message pane. Expansion is controlled
+    // by the chevron so grouped-list + reader-off still selects a real physical
+    // message for the existing MessagePane instead of leaving the pane blank.
     if (selectionModeActive) {
       e.stopPropagation();
       handleRowToggleSelect(row.conversation_id, rows);
       return;
     }
-    toggleExpand(row.conversation_id);
-  }, [selectionModeActive, enterSelectionMode, handleRowToggleSelect, handleRangeSelect, rows, toggleExpand]);
+    const logical = (row.logical_messages || []).at(-1) || (row.logical_messages || [])[0];
+    onOpenMessage?.({
+      ...row,
+      latestCopyId: row.latestCopyId || row.latest_copy_id || logical?.latestCopyId || null,
+      logical_message_id: logical?.id || row.logical_message_id || null,
+    });
+  }, [selectionModeActive, enterSelectionMode, handleRowToggleSelect, handleRangeSelect, rows, onOpenMessage]);
 
   const handleDiagnostics = useCallback((row) => {
     setMenuOpen(null);
@@ -720,17 +727,18 @@ export default function ConversationList({ params = {}, onOpenMessage }) {
                 />
               )}
 
-              <span
+              <button
+                type="button"
+                aria-label={isOpen ? t('conversation.collapseConversation') : t('conversation.expandConversation')}
+                onClick={e => { e.stopPropagation(); toggleExpand(row.conversation_id); }}
                 style={{
-                  width: 24,
-                  textAlign: 'center',
-                  flexShrink: 0,
-                  fontSize: 12,
-                  color: 'var(--text-tertiary)',
+                  width: 24, textAlign: 'center', flexShrink: 0, fontSize: 12,
+                  color: 'var(--text-tertiary)', background: 'transparent', border: 'none',
+                  cursor: 'pointer', padding: 0,
                 }}
               >
                 {isOpen ? '▾' : '▸'}
-              </span>
+              </button>
 
               <div style={{ flex: 1, minWidth: 0, overflow: 'hidden' }}>
                 <div style={{

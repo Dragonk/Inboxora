@@ -1593,7 +1593,6 @@
     "split": "Podziel rozmowę",
     "unknownSender": "Nieznany nadawca",
     "you": "Ty",
-    "groupIntoConversations": "Grupuj wiadomości w rozmowy",
     "conversationReader": "Czytnik rozmowy",
     "expandConversation": "Rozwiń rozmowę",
     "collapseConversation": "Zwiń rozmowę",
@@ -1706,6 +1705,8 @@
     "confirmMoveTitle": "Przenieś rozmowę",
     "confirmMoveBody": "Przenieść {{count}} wiadomość(-i) do innego folderu?",
     "showQuotedText": "Pokaż cytowaną treść",
-    "hideQuotedText": "Ukryj cytowaną treść"
+    "hideQuotedText": "Ukryj cytowaną treść",
+    "readerOffDesc": "Otwieraj tylko wybraną wiadomość",
+    "readerOnDesc": "Pokazuj całą rozmowę w panelu wiadomości"
   }
 }

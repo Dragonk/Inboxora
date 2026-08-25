@@ -498,13 +498,10 @@ export const useStore = create((set, get) => ({
     schedulePrefSave({ language: lng });
   },
 
-  // Conversation Engine v2 feature flags
-  conversationListViewEnabled: false,
+  // Conversation Engine v2: list grouping is controlled exclusively by the native
+  // threadedView preference. The old CE-specific list flag is read only as a
+  // compatibility fallback for users who saved it before the canonical mapping.
   conversationReaderViewEnabled: false,
-  setConversationListViewEnabled: (val) => {
-    set({ conversationListViewEnabled: val });
-    schedulePrefSave({ conversation_list_view_enabled: val });
-  },
   setConversationReaderViewEnabled: (val) => {
     set({ conversationReaderViewEnabled: val });
     schedulePrefSave({ conversation_reader_view_enabled: val });
@@ -1081,6 +1078,11 @@ export const useStore = create((set, get) => ({
       if (typeof prefs.threadedView === 'boolean') {
         localStorage.setItem('mailflow_threaded_view', String(prefs.threadedView));
         set({ threadedView: prefs.threadedView });
+      } else if (typeof prefs.conversation_list_view_enabled === 'boolean') {
+        // Compatibility with the short-lived CE-only preference. Native threadedView
+        // remains the canonical source of truth whenever it exists.
+        localStorage.setItem('mailflow_threaded_view', String(prefs.conversation_list_view_enabled));
+        set({ threadedView: prefs.conversation_list_view_enabled });
       }
       if (typeof prefs.plaintextEmail === 'boolean') {
         localStorage.setItem('mailflow_plaintext_email', String(prefs.plaintextEmail));
@@ -1149,7 +1151,6 @@ export const useStore = create((set, get) => ({
         localStorage.setItem('mailflow_right_sidebar_hidden', String(prefs.rightSidebarHidden));
         set({ rightSidebarHidden: prefs.rightSidebarHidden });
       }
-      if (typeof prefs.conversation_list_view_enabled === 'boolean') set({ conversationListViewEnabled: prefs.conversation_list_view_enabled });
       if (typeof prefs.conversation_reader_view_enabled === 'boolean') set({ conversationReaderViewEnabled: prefs.conversation_reader_view_enabled });
       if (prefs.customCss) {
         applyCustomCss(prefs.customCss);

@@ -1593,7 +1593,6 @@
     "split": "Разделить переписку",
     "unknownSender": "Неизвестный отправитель",
     "you": "Вы",
-    "groupIntoConversations": "Объединять сообщения в переписки",
     "conversationReader": "Просмотр переписки",
     "expandConversation": "Развернуть переписку",
     "collapseConversation": "Свернуть переписку",
@@ -1706,6 +1705,8 @@
     "confirmMoveTitle": "Переместить переписку",
     "confirmMoveBody": "Переместить сообщений: {{count}} в другую папку?",
     "showQuotedText": "Показать цитируемый текст",
-    "hideQuotedText": "Скрыть цитируемый текст"
+    "hideQuotedText": "Скрыть цитируемый текст",
+    "readerOffDesc": "Открывать только выбранное сообщение",
+    "readerOnDesc": "Показывать всю переписку на панели сообщений"
   }
 }

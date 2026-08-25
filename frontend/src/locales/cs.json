@@ -1593,7 +1593,6 @@
     "split": "Split conversation",
     "unknownSender": "Unknown sender",
     "you": "You",
-    "groupIntoConversations": "Group messages into conversations",
     "conversationReader": "Conversation reader",
     "expandConversation": "Expand conversation",
     "collapseConversation": "Collapse conversation",
@@ -1706,6 +1705,8 @@
     "confirmMoveTitle": "Move conversation",
     "confirmMoveBody": "Move {{count}} message(s) to another folder?",
     "showQuotedText": "Show quoted text",
-    "hideQuotedText": "Hide quoted text"
+    "hideQuotedText": "Hide quoted text",
+    "readerOffDesc": "Otevřít pouze vybranou zprávu",
+    "readerOnDesc": "Zobrazit celou konverzaci v panelu zpráv"
   }
 }

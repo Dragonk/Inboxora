@@ -1593,7 +1593,6 @@
     "split": "Séparer la discussion",
     "unknownSender": "Expéditeur inconnu",
     "you": "Vous",
-    "groupIntoConversations": "Regrouper les messages en conversations",
     "conversationReader": "Lecteur de conversation",
     "expandConversation": "Développer la conversation",
     "collapseConversation": "Réduire la conversation",
@@ -1706,6 +1705,8 @@
     "confirmMoveTitle": "Déplacer la conversation",
     "confirmMoveBody": "Déplacer {{count}} message(s) vers un autre dossier ?",
     "showQuotedText": "Afficher le texte cité",
-    "hideQuotedText": "Masquer le texte cité"
+    "hideQuotedText": "Masquer le texte cité",
+    "readerOffDesc": "Ouvrir uniquement le message sélectionné",
+    "readerOnDesc": "Afficher toute la conversation dans le panneau de message"
   }
 }

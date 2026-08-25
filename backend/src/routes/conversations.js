@@ -46,8 +46,9 @@ router.get('/conversations', async (req, res) => {
   const folderFilter = folder ? `AND EXISTS (SELECT 1 FROM messages mf WHERE mf.conversation_id = c.id AND mf.is_deleted = false ${accountId ? 'AND mf.account_id = $2' : ''} AND mf.folder = $${folderParam})` : '';
   if (folder) { values.push(folder); }
   const scopedMessageFilter = `${accountId ? 'AND m.account_id = $2' : ''}${folder ? ` AND m.folder = $${folderParam}` : ''}`;
-  const scopedLogicalFilter = `${accountId ? 'AND visible_lm.account_id = $2' : ''}${folder ? ` AND visible_lm.folder = $${folderParam}` : ''}`;
-  const scopedPreviewFilter = `${accountId ? 'AND m.account_id = $2' : ''}${folder ? ` AND m.folder = $${folderParam}` : ''}`;
+  const scopedLogicalFilter = `${accountId ? 'AND visible_lm.account_id = $2' : ''}`;
+  const scopedPreviewFilter = `${accountId ? 'AND m.account_id = $2' : ''}`;
+  const scopedPreviewOrder = folder ? `CASE WHEN m.folder = $${folderParam} THEN 0 ELSE 1 END,` : '';
   let cursorFilter = '';
   if (cursorValue) {
     values.push(cursorValue.date, cursorValue.id);
@@ -103,7 +104,7 @@ router.get('/conversations', async (req, res) => {
           WHERE m.logical_message_id = lm.id
             AND m.is_deleted = false
             ${scopedPreviewFilter}
-          ORDER BY m.is_read ASC, m.date DESC NULLS LAST, m.id DESC
+          ORDER BY ${scopedPreviewOrder} m.is_read ASC, m.date DESC NULLS LAST, m.id DESC
           LIMIT 1
        ) latest_copy ON true
        WHERE lm.conversation_id = c.id
