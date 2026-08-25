@@ -7,6 +7,7 @@ import { createPluginMailFacade } from '../plugins/mailEngineFacade.js';
 import { refreshMicrosoftToken } from '../routes/oauth.js';
 import { sanitizeEmail } from './emailSanitizer.js';
 import { logger } from './logger.js';
+import { recordBroadcast, recordWarning } from './diagnosticsRing.js';
 import { decrypt } from './encryption.js';
 import { sendPushToUser } from './pushNotifications.js';
 import { redactEmail } from '../utils/redact.js';
@@ -103,6 +104,7 @@ async function connectImapClient(account, resolved, cfgOpts, timeoutMs, label) {
     // process. Attach one that outlives connect; a caller adding its own later just logs alongside.
     client.on('error', (err) => {
       if (isConnectionRefusal(err?.message)) sawRefusal = true;
+      recordWarning('imap_error', account?.id);
       console.error(`IMAP error for ${logAccount(account)}:`, err.message);
     });
     // Admission control (#384): cap concurrent connection establishment per host so a startup /
@@ -1537,6 +1539,7 @@ export class ImapManager {
             if (wasSyncing) setTimeout(reconnect, 3000);
             else reconnect();
           } catch (err) {
+            recordWarning('staleness_error', accountId);
             console.warn(`Staleness check error for ${accountId}:`, err.message);
           }
         }
@@ -5206,6 +5209,7 @@ export class ImapManager {
   }
 
   broadcast(data, userId = null) {
+    recordBroadcast(data?.type);
     const msg = JSON.stringify(data);
     this.wss.clients.forEach(ws => {
       if (ws.readyState === 1 && (!userId || ws.userId === userId)) {
