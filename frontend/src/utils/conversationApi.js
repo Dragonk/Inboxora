@@ -41,7 +41,8 @@ export const conversationApi = {
     });
   },
 
-  resolveMessage: (messageId) => apiFetch(`/messages/${messageId}/conversation`),
+  // `ref` may be a selected physical UUID or a durable RFC Message-ID.
+  resolveMessage: (ref) => apiFetch(`/messages/${encodeURIComponent(ref)}/conversation`),
 
   // Copy-aware destructive actions — `scope` is explicit (never defaults to whole conversation).
   // Scopes: THIS_COPY | ALL_COPIES_OF_LOGICAL_MESSAGE | COPIES_ON_THIS_ACCOUNT | WHOLE_CONVERSATION

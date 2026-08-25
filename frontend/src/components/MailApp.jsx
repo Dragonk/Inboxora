@@ -83,6 +83,7 @@ export default function MailApp() {
   const isMobile = useMobile();
   const [conversationId, setConversationId] = useState(null);
   const [targetLogicalMessageId, setTargetLogicalMessageId] = useState(null);
+  const [conversationResolutionError, setConversationResolutionError] = useState(null);
 
   const replyFromConversation = useCallback(copy => {
     if (!copy) return;
@@ -119,13 +120,22 @@ export default function MailApp() {
     // independently of which list path produced the click (flat, ThreadRow parent or child).
     setConversationId(null);
     setTargetLogicalMessageId(null);
+    setConversationResolutionError(null);
     conversationApi.resolveMessage(selectedMessageId)
       .then(resolved => {
         if (!cancelled && resolved?.conversation_id) {
           setConversationId(resolved.conversation_id);
           setTargetLogicalMessageId(resolved.logical_message_id || null);
         }
-      }).catch(() => {});
+      }).catch(error => {
+        if (!cancelled) {
+          // Never retain a previous conversation for a newly selected copy. This is
+          // diagnostic only: the single-message pane remains a safe fallback when
+          // a message has not yet been ingested by the CE model.
+          setConversationResolutionError(error.message || 'Conversation resolution failed');
+          console.warn('Conversation reader resolution failed', error.message);
+        }
+      });
     return () => { cancelled = true; };
   }, [conversationReaderViewEnabled, selectedMessageId]);
 
@@ -807,7 +817,7 @@ export default function MailApp() {
             <Sidebar />
           </div>
           {/* Keep all three mounted so scroll/state survive navigation. */}
-          <div data-ce-reader-enabled={conversationReaderViewEnabled ? 'true' : 'false'} data-ce-reader-state={conversationReaderViewEnabled ? 'enabled' : 'disabled'} data-ce-conversation-id={conversationId || ''} data-ce-selected-message-id={selectedMessageId || ''} style={{ flex: 1, display: !showContacts && !selectedMessageId && !(conversationReaderViewEnabled && conversationId) ? 'flex' : 'none', overflow: 'hidden', height: '100%' }}>
+          <div data-ce-reader-enabled={conversationReaderViewEnabled ? 'true' : 'false'} data-ce-reader-state={conversationReaderViewEnabled ? 'enabled' : 'disabled'} data-ce-conversation-id={conversationId || ''} data-ce-selected-message-id={selectedMessageId || ''} data-ce-resolution-error={conversationResolutionError ? 'true' : 'false'} style={{ flex: 1, display: !showContacts && !selectedMessageId && !(conversationReaderViewEnabled && conversationId) ? 'flex' : 'none', overflow: 'hidden', height: '100%' }}>
             <MessageList />
           </div>
           <div data-ce-reader-pane="true" style={{ flex: 1, display: !showContacts && (selectedMessageId || (conversationReaderViewEnabled && conversationId)) ? 'flex' : 'none', overflow: 'hidden', height: '100%', minWidth: 0 }}>
@@ -840,7 +850,7 @@ export default function MailApp() {
               <Suspense fallback={lazyFallback}><ContactsPage /></Suspense>
             </div>
             <div style={{ display: showContacts ? 'none' : 'flex', flex: 1, minWidth: 0, overflow: 'hidden', height: '100%', flexDirection: currentLayout.direction }}>
-              <div data-ce-reader-enabled={conversationReaderViewEnabled ? 'true' : 'false'} data-ce-reader-state={conversationReaderViewEnabled ? 'enabled' : 'disabled'} data-ce-conversation-id={conversationId || ''} data-ce-selected-message-id={selectedMessageId || ''} style={{
+              <div data-ce-reader-enabled={conversationReaderViewEnabled ? 'true' : 'false'} data-ce-reader-state={conversationReaderViewEnabled ? 'enabled' : 'disabled'} data-ce-conversation-id={conversationId || ''} data-ce-selected-message-id={selectedMessageId || ''} data-ce-resolution-error={conversationResolutionError ? 'true' : 'false'} style={{
                 display: 'flex', flex: currentLayout.direction === 'row' ? '0 0 var(--list-width)' : '1 1 50%',
                 width: currentLayout.direction === 'row' ? 'var(--list-width)' : '100%', minWidth: 0, overflow: 'hidden', height: '100%',
               }}>

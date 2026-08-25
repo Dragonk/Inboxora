@@ -3,8 +3,9 @@ import { query, pool } from '../services/db.js';
 import { requireAuth } from '../middleware/auth.js';
 import { resolveConversationAlias } from '../services/conversationOverridePolicy.js';
 import { sanitizeEmail, blockRemoteImages, hasRemoteImages, shouldBlockRemoteImages } from '../services/emailSanitizer.js';
-import { uuidParam } from '../utils/uuid.js';
+import { isUuid, uuidParam } from '../utils/uuid.js';
 import { applyConversationAction, applyBulkConversationAction } from '../services/conversationActions.js';
+import { normalizeMessageId } from '../services/threading/normalizeMessageId.js';
 
 const router = Router();
 router.use(requireAuth);
@@ -216,15 +217,46 @@ router.get('/conversations/:conversationId/logical-messages/:logicalMessageId/bo
   } finally { client.release(); }
 });
 
-router.get('/messages/:id/conversation', async (req, res) => {
-  const result = await query(`
-    SELECT m.conversation_id, m.logical_message_id
+// Resolve the canonical reader selection from either a physical-copy UUID or a
+// durable RFC Message-ID reference. `:ref` deliberately does not use the generic
+// `:id` UUID guard: deep links and integration selections use RFC Message-ID values.
+// A UUID remains copy-exact. A Message-ID is first normalized with the CE canonical
+// normalizer, then every tenant-owned live candidate is examined. Copy preference is
+// permitted only after the LogicalMessage/conversation identity is proven unique.
+router.get('/messages/:ref/conversation', async (req, res) => {
+  const ref = req.params.ref;
+  const byPhysicalCopy = isUuid(ref);
+  const canonicalMessageId = byPhysicalCopy ? null : normalizeMessageId(ref);
+  if (!byPhysicalCopy && !canonicalMessageId) {
+    return res.status(400).json({ error: 'Invalid message reference' });
+  }
+
+  const result = await query(byPhysicalCopy ? `
+    SELECT m.id, m.account_id, m.folder, m.date, m.conversation_id, m.logical_message_id
       FROM messages m
       JOIN email_accounts a ON a.id = m.account_id
      WHERE m.id = $1 AND a.user_id = $2 AND m.is_deleted = false
-  `, [req.params.id, req.session.userId]);
-  if (!result.rows.length || !result.rows[0].conversation_id) return res.status(404).json({ error: 'Conversation not found' });
-  res.json(result.rows[0]);
+  ` : `
+    SELECT m.id, m.account_id, m.folder, m.date, m.conversation_id, m.logical_message_id
+      FROM messages m
+      JOIN email_accounts a ON a.id = m.account_id
+     WHERE m.canonical_message_id = $1 AND a.user_id = $2 AND m.is_deleted = false
+     ORDER BY (m.folder = 'INBOX') DESC, m.date DESC NULLS LAST, m.id DESC
+  `, [byPhysicalCopy ? ref : canonicalMessageId, req.session.userId]);
+
+  if (!result.rows.length) return res.status(404).json({ error: 'Conversation not found' });
+  if (byPhysicalCopy) {
+    if (!result.rows[0].conversation_id) return res.status(404).json({ error: 'Conversation not found' });
+    return res.json(result.rows[0]);
+  }
+
+  const identities = new Set(result.rows.map(row => `${row.logical_message_id || ''}:${row.conversation_id || ''}`));
+  if (identities.size !== 1 || !result.rows[0].logical_message_id || !result.rows[0].conversation_id) {
+    return res.status(409).json({ error: 'Conversation reference is ambiguous', code: 'CONVERSATION_REFERENCE_AMBIGUOUS' });
+  }
+  // The SQL order selects the preferred physical representation only after the
+  // preceding identity check established that every live candidate is the same message.
+  return res.json(result.rows[0]);
 });
 
 // ── Copy-aware actions ─────────────────────────────────────────────────────────

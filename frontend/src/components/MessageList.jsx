@@ -3661,6 +3661,7 @@ export default function MessageList() {
                 onToggleSelect={handleRowToggleSelect}
                 onRangeSelect={handleRangeSelect}
                 onLongPress={isMobile ? (id) => { setSelectionModeActive(true); toggleSelect(id); } : undefined}
+                ownAddresses={new Set(accounts.map(account => String(account.email_address || '').toLowerCase()).filter(Boolean))}
               />
             );
           })
@@ -4117,11 +4118,15 @@ function EmptyState({ folderSyncing, searchQuery, unreadOnly, selectedFolder, ac
   );
 }
 
-function ThreadRow({ message, isExpanded, threadMsgs, isLoadingThread, selectedMessageId, selectedMid, lastViewedMessageId, showAccount, isNarrow, onThreadClick, onThreadToggle, showMobileAvatars, showMessagePreviews, onSelect, onOpenWindow, onMarkRead, onStar, onDelete, hoverQuickActions, onContextMenu, onMove, isMobile, swipeLeftAction, swipeRightAction, onSwipeLeft, onSwipeRight, isChecked, selectionMode, onToggleSelect, onRangeSelect, onLongPress }) {
+function ThreadRow({ message, isExpanded, threadMsgs, isLoadingThread, selectedMessageId, selectedMid, lastViewedMessageId, showAccount, isNarrow, onThreadClick, onThreadToggle, showMobileAvatars, showMessagePreviews, onSelect, onOpenWindow, onMarkRead, onStar, onDelete, hoverQuickActions, onContextMenu, onMove, isMobile, swipeLeftAction, swipeRightAction, onSwipeLeft, onSwipeRight, isChecked, selectionMode, onToggleSelect, onRangeSelect, onLongPress, ownAddresses }) {
   const { t } = useTranslation();
   const [hovered, setHovered] = useState(false);
   const messageCount = message.message_count || 1;
   const unreadCount  = parseInt(message.unread_count) || 0;
+  // Grouped rows stay the native ThreadRow. Direction is deliberately only a
+  // small semantic token, inferred from the account's known own addresses.
+  const isOutgoing = ownAddresses?.has(String(message.from_email || '').toLowerCase());
+  const direction = isOutgoing ? '→' : '←';
 
   const { contentRef, swipeBgLeftRef, swipeBgRightRef, tappedRef } = useSwipeRow({
     isMobile, message, onSwipeLeft, onSwipeRight, onLongPress,
@@ -4266,7 +4271,7 @@ function ThreadRow({ message, isExpanded, threadMsgs, isLoadingThread, selectedM
                 color: unreadCount > 0 ? 'var(--text-primary)' : 'var(--text-secondary)',
                 overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', flex: 1,
               }}>
-                {message.from_name || message.from_email || t('common.unknown', 'Unknown')}
+                <span aria-hidden="true" title={isOutgoing ? t('conversation.you') : t('conversation.unknownSender')} style={{ color: 'var(--text-tertiary)', marginRight: 4 }}>{direction}</span>{isOutgoing ? t('conversation.you') : (message.from_name || message.from_email || t('common.unknown', 'Unknown'))}
               </span>
               {messageCount > 1 && (
                 <button

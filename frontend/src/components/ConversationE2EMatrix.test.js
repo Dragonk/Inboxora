@@ -10,12 +10,16 @@ describe('native conversation 2x2 contract', () => {
     assert.match(app, /conversationReaderViewEnabled\s*&&\s*conversationId\s*\?\s*['"]conversation['"]\s*:\s*['"]single['"]/);
     assert.match(list, /function ThreadRow/);
     assert.doesNotMatch(list, /GroupedConversationList/);
+    assert.match(list, /const direction = isOutgoing \? '→' : '←'/);
+    assert.match(list, /ownAddresses=\{new Set\(accounts\.map/);
   });
   it('resolves every selected physical copy through the CE identity endpoint (OFF/ON blocker)', () => {
     const app = read('MailApp.jsx');
     assert.match(app, /conversationApi\.resolveMessage\(selectedMessageId\)/);
     assert.match(app, /setConversationId\(resolved\.conversation_id\)/);
     assert.match(app, /setTargetLogicalMessageId\(resolved\.logical_message_id/);
+    assert.match(app, /data-ce-resolution-error/);
+    assert.match(app, /Conversation reader resolution failed/);
   });
   it('uses compact native-pane message cards and per-message reply targets', () => {
     const reader = read('ConversationReader.jsx'); const item = read('ConversationMessage.jsx');
