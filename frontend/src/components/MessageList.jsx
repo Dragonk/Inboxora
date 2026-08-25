@@ -4158,6 +4158,7 @@ function ThreadRow({ message, isExpanded, threadMsgs, isLoadingThread, selectedM
       {/* Thread header row */}
       <div
         ref={isMobile ? contentRef : undefined}
+        className={isMobile ? 'no-callout' : undefined}
         onMouseEnter={() => !isMobile && setHovered(true)}
         onMouseLeave={() => !isMobile && setHovered(false)}
         onClick={selectionMode ? (e) => {
@@ -4303,6 +4304,9 @@ function ThreadRow({ message, isExpanded, threadMsgs, isLoadingThread, selectedM
                 </button>
               )}
               <span style={{ fontSize: 11, color: 'var(--text-tertiary)' }}>{formatDate(message.date)}</span>
+              {isMobile && !selectionMode && onContextMenu && (
+                <RowMenuButton label={t('message.more')} onOpen={e => onContextMenu(e, message)} />
+              )}
             </div>
           </div>
           {/* Row 2: subject */}
@@ -4476,6 +4480,7 @@ function MessageRow({ message, selected, lastViewed, isChecked, selectionMode, s
       {/* Foreground row content */}
       <div
         ref={isMobile ? contentRef : undefined}
+        className={isMobile ? 'no-callout' : undefined}
         draggable={!isMobile}
         onDragStart={!isMobile ? (e) => onDragStart(e, message) : undefined}
         onClick={handleClick}
@@ -4617,6 +4622,9 @@ function MessageRow({ message, selected, lastViewed, isChecked, selectionMode, s
             <span style={{ fontSize: 11, color: 'var(--text-tertiary)' }}>
               {formatDate(message.date)}
             </span>
+            {isMobile && !selectionMode && onContextMenu && (
+              <RowMenuButton label={t('message.more')} onOpen={e => onContextMenu(e, message)} />
+            )}
           </div>
         </div>
 
@@ -4686,6 +4694,28 @@ function BulkBtn({ children, onClick, title, disabled, danger }) {
       }}
     >
       {children}
+    </button>
+  );
+}
+
+// Mobile-only per-message overflow ("⋯") button. Touch devices have no
+// right-click, so this is how a list row reaches the full labeled context menu
+// (Snooze, Reply, Move, Star, Select, etc.). Desktop keeps native right-click.
+function RowMenuButton({ onOpen, label }) {
+  return (
+    <button
+      onClick={e => { e.stopPropagation(); onOpen(e); }}
+      aria-label={label}
+      style={{
+        background: 'none', border: 'none', cursor: 'pointer',
+        display: 'flex', alignItems: 'center', justifyContent: 'center',
+        padding: 4, margin: '-6px -6px -6px -2px',
+        color: 'var(--text-tertiary)',
+      }}
+    >
+      <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor">
+        <circle cx="5" cy="12" r="2"/><circle cx="12" cy="12" r="2"/><circle cx="19" cy="12" r="2"/>
+      </svg>
     </button>
   );
 }
