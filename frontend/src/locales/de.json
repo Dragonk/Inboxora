@@ -606,18 +606,23 @@
   "admin": {
     "cleanup": {
       "title": "Postfach aufräumen",
-      "intro": "Finden Sie Massen-E-Mails, die Ihren Posteingang füllen, und verschieben Sie sie in den Papierkorb. Gelöschte E-Mails landen im Papierkorb und lassen sich wiederherstellen, bis Sie ihn leeren.",
+      "intro": "Finde Massen-Mails, die deinen Posteingang überfüllen, und räume auf. Wähle, ob du sie archivierst (bleiben erhalten und durchsuchbar) oder in den Papierkorb verschiebst (wiederherstellbar, bis du ihn leerst).",
       "account": "Konto",
       "summary": "{{bulk}} von {{total}} Posteingangs-Nachrichten sind Massen-E-Mails ({{pct}}%).",
       "tier1Title": "Größte Massenabsender",
-      "tier1Desc": "Das sind die volumenstärksten Newsletter- und Marketing-Absender in Ihrem Posteingang. Einen zu verschieben legt alle Posteingangs-E-Mails dieses Absenders in den Papierkorb.",
+      "tier1Desc": "Das sind die Newsletter- und Marketing-Absender mit dem höchsten Volumen in deinem Posteingang. Wird einer bearbeitet, wird die gesamte Posteingangs-Mail dieses Absenders mit der gewählten Aktion verarbeitet.",
       "noneFound": "Keine Massenabsender gefunden.",
       "moveToTrash": "In den Papierkorb",
       "confirm": "Alle {{count}} Posteingangs-Nachrichten von {{sender}} in den Papierkorb verschieben? Sie lassen sich aus dem Papierkorb wiederherstellen, bis Sie ihn leeren.",
       "tier2Title": "Häufige Werbebegriffe",
       "tier2Desc": "Suchen Sie nach diesen Begriffen, um den Rest selbst zu prüfen und zu löschen. Sie betreffen viele Absender, überfliegen Sie die Ergebnisse also vor dem Löschen.",
       "tier3Title": "Den Rest aufräumen",
-      "tier3Desc": "Für alles Übrige nach Absender oder Stichwort suchen, alle auswählen und löschen. Löschungen wandern zuerst in den Papierkorb, Sie können also prüfen, bevor Sie ihn leeren."
+      "tier3Desc": "Für alles Übrige nach Absender oder Stichwort suchen, alle auswählen und löschen. Löschungen wandern zuerst in den Papierkorb, Sie können also prüfen, bevor Sie ihn leeren.",
+      "action": "Aufräum-Aktion",
+      "actionArchive": "Archivieren (empfohlen)",
+      "archive": "Archivieren",
+      "confirmArchive": "Alle {{count}} Posteingangs-Nachrichten von {{sender}} archivieren? Sie bleiben in deinem Archiv-Ordner und weiterhin durchsuchbar.",
+      "noArchiveFolder": "Dieses Konto hat keinen Archiv-Ordner, daher ist nur In den Papierkorb verschieben verfügbar."
     },
     "title": "Einstellungen",
     "close": "Schließen",

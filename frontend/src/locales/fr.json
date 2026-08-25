@@ -606,18 +606,23 @@
   "admin": {
     "cleanup": {
       "title": "Nettoyage de la boîte",
-      "intro": "Repérez les courriers de masse qui encombrent votre boîte de réception et déplacez-les vers la Corbeille. Les messages supprimés vont dans la Corbeille et restent récupérables jusqu’à ce que vous la vidiez.",
+      "intro": "Repérez les courriers en masse qui encombrent votre boîte de réception et faites le vide. Choisissez de les archiver (conservés et consultables) ou de les déplacer vers la corbeille (récupérables jusqu'à ce que vous la vidiez).",
       "account": "Compte",
       "summary": "{{bulk}} des {{total}} messages de la boîte sont du courrier de masse ({{pct}}%).",
       "tier1Title": "Principaux expéditeurs de masse",
-      "tier1Desc": "Ce sont les expéditeurs de newsletters et de marketing les plus volumineux de votre boîte. En déplacer un envoie tout son courrier de la boîte vers la Corbeille.",
+      "tier1Desc": "Voici les expéditeurs de newsletters et de marketing les plus volumineux de votre boîte de réception. Agir sur l'un traite tout le courrier de cet expéditeur dans la boîte de réception avec l'action choisie.",
       "noneFound": "Aucun expéditeur de masse trouvé.",
       "moveToTrash": "Mettre à la Corbeille",
       "confirm": "Mettre à la Corbeille les {{count}} messages de {{sender}} ? Ils restent récupérables depuis la Corbeille jusqu’à ce que vous la vidiez.",
       "tier2Title": "Termes promotionnels courants",
       "tier2Desc": "Recherchez ces termes pour examiner et supprimer le reste vous-même. Ils concernent de nombreux expéditeurs, alors parcourez les résultats avant de supprimer.",
       "tier3Title": "Nettoyer le reste",
-      "tier3Desc": "Pour le reste, recherchez par expéditeur ou mot-clé, tout sélectionner, puis supprimez. Les suppressions passent d’abord par la Corbeille, vous pouvez donc vérifier avant de la vider."
+      "tier3Desc": "Pour le reste, recherchez par expéditeur ou mot-clé, tout sélectionner, puis supprimez. Les suppressions passent d’abord par la Corbeille, vous pouvez donc vérifier avant de la vider.",
+      "action": "Action de nettoyage",
+      "actionArchive": "Archiver (recommandé)",
+      "archive": "Archiver",
+      "confirmArchive": "Archiver les {{count}} messages de {{sender}} dans la boîte de réception ? Ils resteront dans votre dossier Archive et resteront consultables.",
+      "noArchiveFolder": "Ce compte n'a pas de dossier d'archive ; seule l'option Déplacer vers la corbeille est disponible."
     },
     "title": "Paramètres",
     "close": "Fermer",

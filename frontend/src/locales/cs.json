@@ -732,18 +732,23 @@
   "admin": {
     "cleanup": {
       "title": "Úklid schránky",
-      "intro": "Najděte hromadnou poštu, která zahlcuje Doručenou poštu, a přesuňte ji do koše. Smazaná pošta se přesune do složky Koš a lze ji obnovit, dokud koš nevyprázdníte.",
+      "intro": "Najděte hromadnou poštu zahlcující doručenou poštu a ukliďte ji. Zvolte, zda ji archivovat (zůstane zachovaná a prohledatelná) nebo přesunout do koše (obnovitelná, dokud jej nevysypete).",
       "account": "Účet",
       "summary": "{{bulk}} z {{total}} zpráv v Doručené poště tvoří hromadná pošta ({{pct}} %).",
       "tier1Title": "Nejčastější odesílatelé hromadné pošty",
-      "tier1Desc": "Toto jsou odesílatelé newsletterů a marketingových zpráv s nejvyšším počtem zpráv ve vaší Doručené poště. Přesunutím jednoho odesílatele se všechny jeho zprávy z Doručené pošty přesunou do koše.",
+      "tier1Desc": "Toto jsou odesílatelé newsletterů a marketingu s největším objemem ve vaší doručené poště. Akce nad jedním zpracuje veškerou poštu tohoto odesílatele v doručené poště zvolenou akcí.",
       "noneFound": "Nebyli nalezeni žádní odesílatelé hromadné pošty.",
       "moveToTrash": "Přesunout do koše",
       "confirm": "Přesunout všechny zprávy ({{count}}) od odesílatele {{sender}} z Doručené pošty do koše? Dokud koš nevyprázdníte, můžete je obnovit.",
       "tier2Title": "Běžné propagační výrazy",
       "tier2Desc": "Vyhledejte tyto výrazy, projděte výsledky a zbytek smažte ručně. Výsledky zahrnují více odesílatelů, proto je před smazáním zkontrolujte.",
       "tier3Title": "Úklid zbývajících zpráv",
-      "tier3Desc": "U ostatních zpráv vyhledávejte podle odesílatele nebo klíčového slova, označte je a smažte. Smazané zprávy se vždy nejprve přesunou do koše, takže je před jeho vyprázdněním můžete zkontrolovat."
+      "tier3Desc": "U ostatních zpráv vyhledávejte podle odesílatele nebo klíčového slova, označte je a smažte. Smazané zprávy se vždy nejprve přesunou do koše, takže je před jeho vyprázdněním můžete zkontrolovat.",
+      "action": "Akce úklidu",
+      "actionArchive": "Archivovat (doporučeno)",
+      "archive": "Archivovat",
+      "confirmArchive": "Archivovat všech {{count}} zpráv od {{sender}} ve schránce doručené pošty? Zůstanou ve složce Archiv a bude možné je vyhledávat.",
+      "noArchiveFolder": "Tento účet nemá složku archivu, takže je k dispozici pouze Přesunout do koše."
     },
     "title": "Nastavení",
     "close": "Zavřít",

@@ -622,18 +622,23 @@
   "admin": {
     "cleanup": {
       "title": "Porządki w skrzynce",
-      "intro": "Znajdź masową pocztę zapychającą skrzynkę odbiorczą i przenieś ją do Kosza. Usunięta poczta trafia do Kosza i można ją odzyskać, dopóki go nie opróżnisz.",
+      "intro": "Znajdź masową pocztę zaśmiecającą skrzynkę odbiorczą i uporządkuj ją. Wybierz, czy ją zarchiwizować (zachowana i przeszukiwalna), czy przenieść do kosza (można ją odzyskać, dopóki go nie opróżnisz).",
       "account": "Konto",
       "summary": "{{bulk}} z {{total}} wiadomości w skrzynce to poczta masowa ({{pct}}%).",
       "tier1Title": "Najwięksi nadawcy masowi",
-      "tier1Desc": "To nadawcy newsletterów i marketingu o największej liczbie wiadomości w Twojej skrzynce. Przeniesienie jednego wysyła całą jego pocztę ze skrzynki do Kosza.",
+      "tier1Desc": "To nadawcy newsletterów i marketingu o największej liczbie wiadomości w Twojej skrzynce odbiorczej. Działanie na jednym przetwarza całą pocztę tego nadawcy w skrzynce odbiorczej wybraną akcją.",
       "noneFound": "Nie znaleziono nadawców masowych.",
       "moveToTrash": "Przenieś do Kosza",
       "confirm": "Przenieść wszystkie {{count}} wiadomości od {{sender}} do Kosza? Można je odzyskać z Kosza, dopóki go nie opróżnisz.",
       "tier2Title": "Typowe hasła promocyjne",
       "tier2Desc": "Wyszukaj te hasła, aby samodzielnie przejrzeć i usunąć resztę. Dotyczą wielu nadawców, więc przejrzyj wyniki przed usunięciem.",
       "tier3Title": "Sprzątanie reszty",
-      "tier3Desc": "W przypadku pozostałych wyszukaj według nadawcy lub słowa kluczowego, zaznacz wszystko i usuń. Usunięcia najpierw trafiają do Kosza, więc możesz sprawdzić przed jego opróżnieniem."
+      "tier3Desc": "W przypadku pozostałych wyszukaj według nadawcy lub słowa kluczowego, zaznacz wszystko i usuń. Usunięcia najpierw trafiają do Kosza, więc możesz sprawdzić przed jego opróżnieniem.",
+      "action": "Akcja porządkowania",
+      "actionArchive": "Archiwizuj (zalecane)",
+      "archive": "Archiwizuj",
+      "confirmArchive": "Zarchiwizować wszystkie {{count}} wiadomości od {{sender}} w skrzynce odbiorczej? Pozostaną w folderze Archiwum i nadal będą dostępne w wyszukiwaniu.",
+      "noArchiveFolder": "To konto nie ma folderu archiwum, więc dostępne jest tylko Przenieś do kosza."
     },
     "title": "Ustawienia",
     "close": "Zamknij",
