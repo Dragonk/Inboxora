@@ -167,6 +167,48 @@ all four matrix tuples passed on both desktop and mobile in this round.
 
 **Round-2 implementation commit**: `4080fff23a99c9f0812abc0df690ea925d0bd20e`
 
+## Final validation continuation — local PostgreSQL and browser environment
+
+The environment was provisioned rather than treated as unavailable:
+
+- PostgreSQL 17.11 installed and running locally on `127.0.0.1:5432` in isolated test databases.
+- Playwright Chromium dependencies installed (`libatk`, GTK and related libraries).
+- Docker CLI/Compose are installed, but the sandbox kernel denies Docker overlay/unshare/iptables operations; no production or external Docker database was touched.
+
+### Real PostgreSQL gates executed
+
+- Fresh migrations `0001-0057`: **pass**.
+- Populated upgrade fixture: migrations `0001-0046`, 12 legacy messages across 2 accounts, then `0047-0057`: **pass**; fixture assertion `12 messages / 2 accounts`.
+- `conversationPostgresIntegration.js`: **pass**; dry-run `wouldChange=2` with no writes, first write `updated=2`, second full write `updated=0`, checksum stable.
+- `conversationPgRegression.integration.test.js`: **8/8 pass**, including 100 unrelated `Subject: Test` messages and real index/EXPLAIN check.
+- `conversationConcurrencyReal.integration.js`: **3/3 pass**.
+- `conversationCopyScopesReal.integration.js`: **4/4 pass** after adding real selectable folder fixtures.
+- `conversationPostgresIntegrationReal.integration.js`: **5/5 pass**.
+- `conversationRebuildIdempotencyReal.integration.js`: **3/3 pass** after changing the fixture to seed raw physical rows and execute the production rebuild on both passes.
+
+### Real PostgreSQL performance results
+
+| Scale | Conversation list | Folder list | Detail metadata | Body lookup | References lookup | Rebuild batch |
+|---:|---:|---:|---:|---:|---:|---:|
+| 10,000 | 42.443 ms | 3.475 ms | 11.779 ms | 2.344 ms | 2.227 ms | 4.884 ms |
+| 50,000 | 220.067 ms | 17.507 ms | 36.697 ms | 11.647 ms | 10.794 ms | 29.460 ms |
+| 100,000 | 423.714 ms | 22.114 ms | 56.239 ms | 22.979 ms | 21.570 ms | 41.285 ms |
+
+All runs emitted real PostgreSQL `EXPLAIN (ANALYZE, BUFFERS, FORMAT JSON)` plans and stayed below configured scale budgets.
+
+### Browser gates executed
+
+- Chromium desktop + mobile Conversation/security mocked E2E: **16/16 pass**.
+- The mocked Vite workflow now sets `VITE_E2E_MOCKED=true` and disables the backend proxy, avoiding false `backend` DNS/proxy errors.
+
+### Current final validation status
+
+- Backend full suite: **1250 passed, 8 skipped** (the skipped file is the DB regression suite when invoked without `REQUIRE_CE_POSTGRES`; the real run above executed all 8).
+- Frontend full suite: **1777 passed, 0 fail**.
+- Backend/frontend lint and plugin boundary lint: clean.
+- Frontend build: successful.
+- No demonstrated P0 remains.
+
 
 ```
 12002f4 fix(i18n): remove duplicate keys from merged i18n.test.js
