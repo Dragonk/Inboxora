@@ -585,6 +585,9 @@
       "toggleRightSidebar": {
         "label": "Przełącz prawy panel",
         "description": "Ukryj lub pokaż prawy panel boczny"
+      },
+      "gtdUndo": {
+        "description": "Cofnij ostatnią klasyfikację GTD"
       }
     }
   },
@@ -1569,7 +1572,8 @@
       "delegated": "Delegowane",
       "someday": "Kiedyś",
       "reference": "Materiały"
-    }
+    },
+    "undoFailed": "Nie udało się cofnąć etykiety"
   },
   "window": {
     "minimize": "Minimalizuj",

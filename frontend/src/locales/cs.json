@@ -555,7 +555,8 @@
       "delegated": "Delegováno",
       "someday": "Někdy",
       "reference": "Reference"
-    }
+    },
+    "undoFailed": "Štítek se nepodařilo vrátit zpět"
   },
   "rightSidebar": {
     "hide": "Skrýt pravý postranní panel",
@@ -652,6 +653,9 @@
       "toggleRightSidebar": {
         "label": "Pravý postranní panel",
         "description": "Skrýt nebo zobrazit pravý postranní panel"
+      },
+      "gtdUndo": {
+        "description": "Vrátit zpět poslední klasifikaci GTD"
       }
     }
   },
