@@ -1,6 +1,8 @@
-import { useEffect, useLayoutEffect, useState, useRef, useCallback, useMemo } from 'react';
+import { useEffect, useLayoutEffect, useState, useRef, useCallback, useMemo, lazy, Suspense } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useStore } from '../store/index.js';
+// CE v2 conversation reader — lazy so single-message users never load it.
+const ConversationReader = lazy(() => import('./ConversationReader.jsx'));
 import { api } from '../utils/api.js';
 import { format } from 'date-fns';
 import { shortcutBus } from '../utils/shortcutBus.js';
@@ -91,7 +93,7 @@ function fileIcon(type) {
   );
 }
 
-export default function MessagePane({ windowMessageId = null, onWindowClose = null } = {}) {
+export default function MessagePane({ windowMessageId = null, onWindowClose = null, mode = 'single', conversationId = null, targetLogicalMessageId = null, onReply = null } = {}) {
   const { t } = useTranslation();
   const {
     messages, searchResults, searchQuery, selectedMessageId: globalSelectedId, setSelectedMessage,
@@ -1868,6 +1870,40 @@ ${bodyContent}
   })();
 
   const attachments = body?.attachments || [];
+
+  // CE v2: when mode='conversation', render the conversation reader inside the
+  // native MessagePane container — sharing root pane, width, resize, scroll,
+  // global toolbar, and the mobile back bar. Single-message rendering below is skipped.
+  if (mode === 'conversation' && conversationId) {
+    return (
+      <div
+        ref={paneRef}
+        style={{
+          flex: 1, display: 'flex', flexDirection: 'column',
+          overflow: 'hidden', background: 'var(--bg-primary)',
+          animation: isMobile ? 'mobileSlideIn 0.22s ease' : 'none',
+        }}
+      >
+        {isMobile && <style>{`@keyframes mobileSlideIn { from { transform: translateX(100%) } to { transform: translateX(0) } }`}</style>}
+        {isMobile && (
+          <div style={{
+            display: 'flex', alignItems: 'center', gap: 8,
+            paddingTop: 'calc(var(--sat) + 10px)',
+            paddingBottom: 10, paddingLeft: 14, paddingRight: 14,
+            borderBottom: '1px solid var(--border-subtle)',
+            background: 'var(--bg-secondary)', flexShrink: 0,
+          }}>
+            <button onClick={() => history.back()} style={{ background: 'transparent', border: 'none', cursor: 'pointer', padding: 4, display: 'flex', alignItems: 'center' }} aria-label={t('mailApp.back')}>
+              <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><polyline points="15 18 9 12 15 6"/></svg>
+            </button>
+          </div>
+        )}
+        <Suspense fallback={<div style={{ padding: 24, textAlign: 'center', color: 'var(--text-tertiary)' }}>{t('conversation.loading')}</div>}>
+          <ConversationReader conversationId={conversationId} targetLogicalMessageId={targetLogicalMessageId} onReply={onReply} />
+        </Suspense>
+      </div>
+    );
+  }
 
   return (
     <div

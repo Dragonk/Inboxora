@@ -1,7 +1,9 @@
-import { useEffect, useLayoutEffect, useRef, useCallback, useState } from 'react';
+import { useEffect, useLayoutEffect, useRef, useCallback, useState, lazy, Suspense } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useStore, selectSelectedMessageMid } from '../store/index.js';
 import { api } from '../utils/api.js';
+// CE v2 grouped conversation list — lazy so flat-only users never load it.
+const GroupedConversationList = lazy(() => import('./GroupedConversationList.jsx'));
 import { LAYOUTS } from '../layouts.js';
 import { senderColor } from '../themes.js';
 import { useMobile } from '../hooks/useMobile.js';
@@ -99,7 +101,7 @@ function SwipeBackground({ side, actionView, innerRef }) {
   );
 }
 
-export default function MessageList() {
+export default function MessageList({ mode = 'flat', conversationParams = {}, onOpenConversation } = {}) {
   const { t } = useTranslation();
   const uiScale = useUiScale();
   const {
@@ -112,7 +114,7 @@ export default function MessageList() {
     searchQuery, setSearchQuery, setIsSearching,
     searchResults, setSearchResults, openCompose, accountsReady, accounts,
     messagesRefreshToken, layout, setLayout, pageSize, setPageSize, scrollMode,
-    setMobileSidebarOpen, unreadCounts, showContacts, setShowContacts,
+    setMobileSidebarOpen, unreadCounts, showContacts, setShowContacts, sidebarCollapsed,
     threadedView, expandedThreadId, setExpandedThreadId,
     threadMessages, setThreadMessages, clearThreadMessages, loadingThread, setLoadingThread,
     hoverQuickActions, showMobileAvatars, showMessagePreviews,
@@ -2447,6 +2449,39 @@ export default function MessageList() {
   const selectedAccountIds = [...new Set(selectedMsgs.map(m => m.account_id))];
   const canMove = selectedAccountIds.length === 1;
   const bulkMarkAsRead = selectedMsgs.some(m => !m.is_read);
+
+  // CE v2: when mode='grouped', render the conversation list inside the same
+  // native MessageList container — sharing geometry, layout, scroll, mobile
+  // header, and the toolbar slot. The flat list rendering below is skipped.
+  if (mode === 'grouped') {
+    return (
+      <div style={{
+        width: isMobile ? '100%' : (isColumn ? '100%' : 'var(--list-width)'),
+        minWidth: isMobile ? undefined : (isColumn ? undefined : 180),
+        flex: isMobile ? 1 : (isColumn ? '0 0 42%' : undefined),
+        minHeight: isColumn && !isMobile ? 0 : undefined,
+        borderRight: (isMobile || isColumn) ? 'none' : '1px solid var(--border-subtle)',
+        borderBottom: (!isMobile && isColumn) ? '1px solid var(--border-subtle)' : 'none',
+        display: 'flex', flexDirection: 'column',
+        height: (isMobile || isColumn) ? undefined : '100%',
+        background: 'var(--bg-primary)',
+      }}>
+        {isMobile && (
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '8px 12px', borderBottom: '1px solid var(--border-subtle)' }}>
+            {sidebarCollapsed && (
+              <button type="button" onClick={() => setMobileSidebarOpen(true)} style={{ background: 'transparent', border: 'none', cursor: 'pointer', padding: 4, display: 'flex', alignItems: 'center' }} aria-label={t('mailApp.menu')}>
+                <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><line x1="3" y1="6" x2="21" y2="6"/><line x1="3" y1="12" x2="21" y2="12"/><line x1="3" y1="18" x2="21" y2="18"/></svg>
+              </button>
+            )}
+            <span style={{ fontSize: 15, fontWeight: 600, color: 'var(--text-primary)' }}>{t('conversation.listLabel')}</span>
+          </div>
+        )}
+        <Suspense fallback={<div style={{ padding: 24, textAlign: 'center', color: 'var(--text-tertiary)' }}>{t('conversation.loading')}</div>}>
+          <GroupedConversationList params={conversationParams} onOpenMessage={onOpenConversation} />
+        </Suspense>
+      </div>
+    );
+  }
 
   return (
     <div style={{
