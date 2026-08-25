@@ -1131,7 +1131,11 @@
     "groupIntoConversationsOn": "On",
     "readerOff": "Disabled",
     "readerOn": "Enabled",
-    "groupIntoConversations": "Группировать сообщения в беседы"
+    "groupIntoConversations": "Группировать сообщения в беседы",
+    "incomingMessage": "Входящее сообщение",
+    "outgoingMessage": "Исходящее сообщение",
+    "expandMessage": "Развернуть сообщение от {{sender}}: {{subject}}",
+    "collapseMessage": "Свернуть сообщение от {{sender}}: {{subject}}"
   },
   "diagnostics": {
     "section": "Диагностика",

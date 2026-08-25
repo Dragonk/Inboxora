@@ -71,6 +71,7 @@ async function dryRunBatch(client, rows, userId) {
       identities: await resolveOwnIdentityAddresses(client, row.account_id, row),
       provider: providerIdentityForCopy(row, row),
       userId,
+      repairExisting: true,
     });
     const after = await snapshotMessage(client, row);
     if (ceSnapshotChanged(before, after)) wouldChange++;
@@ -148,6 +149,7 @@ export async function rebuildConversationCopies({ userId, accountId = null, limi
               identities: await resolveOwnIdentityAddresses(client, row.account_id, row),
               provider: providerIdentityForCopy(row, row),
               userId,
+              repairExisting: true,
             });
             const after = await snapshotMessage(client, row);
             if (ceSnapshotChanged(before, after)) updated++;

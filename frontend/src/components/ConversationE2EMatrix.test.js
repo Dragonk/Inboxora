@@ -10,8 +10,9 @@ describe('native conversation 2x2 contract', () => {
     assert.match(app, /conversationReaderViewEnabled\s*&&\s*conversationId\s*\?\s*['"]conversation['"]\s*:\s*['"]single['"]/);
     assert.match(list, /function ThreadRow/);
     assert.doesNotMatch(list, /GroupedConversationList/);
-    assert.match(list, /const direction = isOutgoing \? '→' : '←'/);
-    assert.match(list, /ownAddresses=\{new Set\(accounts\.map/);
+    assert.match(list, /directionFromAddress\(msg\.from_email, ownAddresses\)/);
+    assert.match(list, /MessageDirection direction=\{childDirection\}/);
+    assert.match(list, /ownAddresses=\{new Set\(accounts\.flatMap/);
   });
   it('resolves every selected physical copy through the CE identity endpoint (OFF/ON blocker)', () => {
     const app = read('MailApp.jsx');
@@ -23,13 +24,15 @@ describe('native conversation 2x2 contract', () => {
   });
   it('uses compact native-pane message cards and per-message reply targets', () => {
     const reader = read('ConversationReader.jsx'); const item = read('ConversationMessage.jsx');
-    assert.match(reader, /new Set\(\[targetLogicalMessageId \|\| newest\]\.filter\(Boolean\)\)/);
+    assert.match(reader, /messages\.some\(message => message\.id === targetLogicalMessageId\)/);
+    assert.match(reader, /previous\.has\(id\) \? new Set\(\) : new Set\(\[id\]\)/);
     assert.match(item, /MessageActionBar/);
     const presentation = read('MessagePresentation.jsx');
     assert.match(presentation, /data-conversation-message-actions/);
     assert.match(item, /logicalMessageId: message\.id/);
     assert.match(item, /MessageBodyRenderer/);
     assert.match(item, /data-conversation-message-state/);
+    assert.match(presentation, /if \(!normalized\) return null/);
     assert.doesNotMatch(item, /boxShadow|borderRadius: 10|marginBottom: 24/);
   });
 });

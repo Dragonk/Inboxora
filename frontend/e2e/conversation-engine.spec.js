@@ -19,7 +19,10 @@ test.describe('native conversation engine matrix', () => {
     await expect(reader.locator('#logical-message-conversation-gmail-logical-2')).toHaveAttribute('data-conversation-message-state', 'expanded');
     await reader.locator('#logical-message-conversation-gmail-logical-3 button[aria-expanded="false"]').click();
     await expect(reader.locator('#logical-message-conversation-gmail-logical-3')).toHaveAttribute('data-conversation-message-state', 'expanded');
-    await expect(reader.locator('#logical-message-conversation-gmail-logical-3')).toContainText('Fixture body lazy');
+    await expect(reader.locator('#logical-message-conversation-gmail-logical-2')).toHaveAttribute('data-conversation-message-state', 'collapsed');
+    await expect(reader.locator('[data-conversation-message-state="expanded"]')).toHaveCount(1);
+    await expect(reader.locator('#logical-message-conversation-gmail-logical-3 iframe')).toBeVisible();
+    await expect(reader.locator('#logical-message-conversation-gmail-logical-3 iframe').contentFrame().locator('body')).toContainText('Fixture body lazy');
     await reader.locator('#logical-message-conversation-gmail-logical-3 button[aria-expanded="true"]').click();
     await expect(reader.locator('#logical-message-conversation-gmail-logical-3')).toHaveAttribute('data-conversation-message-state', 'collapsed');
     await page.screenshot({ path: 'artifacts/off-on.png', fullPage: true });
@@ -27,11 +30,18 @@ test.describe('native conversation engine matrix', () => {
 
   test('ON/OFF retains the native threaded list and selects its parent message', async ({ page, fixtureApi }) => {
     await open(page, fixtureApi, true, false);
-    const parent = page.locator('[data-msgid="conversation-gmail-copy-3"]:visible');
+    const parent = page.locator('[data-msgid="conversation-gmail-copy-4"]:visible');
     await expect(parent).toBeVisible();
+    await parent.getByRole('button', { name: /\(4\)/ }).click();
+    const children = parent.locator('xpath=..').locator('[data-message-direction]');
+    await expect(children).toHaveCount(4);
+    await expect(children.nth(0)).toHaveAttribute('data-message-direction', 'incoming');
+    await expect(children.nth(1)).toHaveAttribute('data-message-direction', 'outgoing');
+    await expect(children.nth(2)).toHaveAttribute('data-message-direction', 'incoming');
+    await expect(parent).not.toHaveAttribute('data-thread-parent-direction', /.+/);
+    await page.screenshot({ path: 'artifacts/on-off-expanded.png', fullPage: true });
     await parent.click();
     await expect(page.locator('[data-testid="message-pane-toolbar"]:visible')).toBeVisible();
-    await page.screenshot({ path: 'artifacts/on-off-collapsed.png', fullPage: true });
   });
 
   test('ON/ON opens compact cards and replies against the expanded message', async ({ page, fixtureApi }) => {
@@ -39,12 +49,19 @@ test.describe('native conversation engine matrix', () => {
     await page.locator('[data-msgid="conversation-gmail-copy-4"]:visible').click();
     const reader = page.locator('section[data-conversation-id="conversation-gmail"]:visible');
     await expect(reader).toBeVisible();
+    await expect(reader.locator('[data-conversation-message-state="collapsed"]')).toHaveCount(3);
+    await expect(reader.locator('[data-conversation-message-state="expanded"]')).toHaveCount(1);
+    await page.screenshot({ path: 'artifacts/on-on-initial.png', fullPage: true });
     const latest = reader.locator('[data-logical-message-id="conversation-gmail-logical-4"]');
     await expect(latest.locator('[data-conversation-message-actions="true"]')).toBeVisible();
     await expect(latest.locator('[data-message-direction="outgoing"]')).toBeVisible();
-    await latest.getByRole('button', { name: /Odpowiedz$|Reply$/i }).click();
+    await reader.locator('#logical-message-conversation-gmail-logical-2 button[aria-expanded="false"]').evaluate(button => button.click());
+    await expect(reader.locator('#logical-message-conversation-gmail-logical-2')).toHaveAttribute('data-conversation-message-state', 'expanded');
+    await expect(latest).toHaveAttribute('data-conversation-message-state', 'collapsed');
+    await expect(reader.locator('[data-conversation-message-state="expanded"]')).toHaveCount(1);
+    await page.screenshot({ path: 'artifacts/on-on-after-switch-expanded.png', fullPage: true });
+    await reader.locator('#logical-message-conversation-gmail-logical-2').getByRole('button', { name: /Odpowiedz$|Reply$/i }).click();
     await expect(page.locator('[data-conversation-message-actions="true"]')).toHaveCount(1);
-    await page.screenshot({ path: 'artifacts/on-on.png', fullPage: true });
   });
   test('ON/ON expanded native child rows expose per-message incoming/outgoing direction', async ({ page, fixtureApi }) => {
     await open(page, fixtureApi, true, true);

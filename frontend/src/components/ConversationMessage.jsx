@@ -20,14 +20,17 @@ export default function ConversationMessage({ message, expanded, onToggle, body,
   const outgoing = direction === 'outgoing';
   const attachments = Array.isArray(body?.attachments) ? body.attachments : (Array.isArray(copy.attachments) ? copy.attachments : []);
   const sender = outgoing ? t('conversation.you') : (copy.fromName || copy.fromEmail || t('conversation.unknownSender'));
+  const directionLabel = direction === 'outgoing' ? t('conversation.outgoingMessage') : direction === 'incoming' ? t('conversation.incomingMessage') : undefined;
   const toggle = () => { onToggle(message.id); if (!expanded && !body && !status?.loading) onLoadBody(message.id); };
   const reply = (replyAll = false, forward = false) => onReply?.({ ...copy, logicalMessageId: message.id, selectedCopyId: copy.id, replyAll, forward, attachments });
   const subject = message.subject || copy.subject || copy.snippet || t('message.noSubject');
 
+  const toggleLabel = t(expanded ? 'conversation.collapseMessage' : 'conversation.expandMessage', { sender, subject });
+
   return <article id={`logical-message-${message.id}`} data-logical-message-id={message.id} data-conversation-message-state={expanded ? 'expanded' : 'collapsed'} style={{ borderBottom: '1px solid var(--border-subtle)', background: expanded ? 'var(--bg-primary)' : 'transparent' }}>
-    {!expanded ? <button type="button" aria-expanded="false" onClick={toggle} style={{ display: 'flex', alignItems: 'center', width: '100%', minHeight: 52, padding: '8px 16px', border: 0, background: 'transparent', color: 'var(--text-primary)', cursor: 'pointer', textAlign: 'left', gap: 10 }}>
+    {!expanded ? <button type="button" aria-expanded="false" aria-label={toggleLabel} onClick={toggle} style={{ display: 'flex', alignItems: 'center', width: '100%', minHeight: 52, padding: '8px 16px', border: 0, background: 'transparent', color: 'var(--text-primary)', cursor: 'pointer', textAlign: 'left', gap: 10 }}>
       <MessageAvatar email={copy.fromEmail} name={sender} size={30} />
-      <MessageDirection direction={direction} label={outgoing ? t('conversation.you') : t('conversation.unknownSender')} />
+      <MessageDirection direction={direction} label={directionLabel} />
       <strong style={{ fontSize: 13, maxWidth: '28%', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{sender}</strong>
       <span style={{ flex: 1, minWidth: 0, fontSize: 12, color: 'var(--text-secondary)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{subject}</span>
       {attachments.length > 0 && <span aria-label={t('message.attachment', { count: attachments.length })}>📎</span>}
@@ -36,15 +39,15 @@ export default function ConversationMessage({ message, expanded, onToggle, body,
       <div style={{ padding: '8px 20px 0' }}>
         <MessageActionBar targetId={message.id} onReply={e => { e.stopPropagation(); reply(); }} onReplyAll={e => { e.stopPropagation(); reply(true); }} onForward={e => { e.stopPropagation(); reply(false, true); }} />
       </div>
-      <button type="button" aria-expanded="true" onClick={toggle} style={{ display: 'flex', width: '100%', padding: '2px 20px 12px', border: 0, background: 'transparent', color: 'var(--text-primary)', cursor: 'pointer', textAlign: 'left', gap: 12 }}>
+      <button type="button" aria-expanded="true" aria-label={toggleLabel} onClick={toggle} style={{ display: 'flex', width: '100%', padding: '2px 20px 12px', border: 0, background: 'transparent', color: 'var(--text-primary)', cursor: 'pointer', textAlign: 'left', gap: 12 }}>
         <MessageAvatar email={copy.fromEmail} name={sender} size={40} />
         <span style={{ flex: 1, minWidth: 0 }}>
           <span style={{ display: 'block', fontSize: 17, fontWeight: 600, lineHeight: 1.3, marginBottom: 8 }}>{subject}</span>
-          <span style={{ display: 'flex', alignItems: 'baseline', gap: 6 }}><MessageDirection direction={direction} label={outgoing ? t('conversation.you') : t('conversation.unknownSender')} /><strong style={{ fontSize: 14 }}>{sender}</strong>{copy.fromName && copy.fromEmail && <span style={{ fontSize: 12, color: 'var(--text-tertiary)' }}>&lt;{copy.fromEmail}&gt;</span>}<time style={{ marginLeft: 'auto', fontSize: 11, color: 'var(--text-tertiary)', whiteSpace: 'nowrap' }}>{date(message.messageDate || copy.date)}</time></span>
+          <span style={{ display: 'flex', alignItems: 'baseline', gap: 6 }}><MessageDirection direction={direction} label={directionLabel} /><strong style={{ fontSize: 14 }}>{sender}</strong>{copy.fromName && copy.fromEmail && <span style={{ fontSize: 12, color: 'var(--text-tertiary)' }}>&lt;{copy.fromEmail}&gt;</span>}<time style={{ marginLeft: 'auto', fontSize: 11, color: 'var(--text-tertiary)', whiteSpace: 'nowrap' }}>{date(message.messageDate || copy.date)}</time></span>
           <span style={{ display: 'block', fontSize: 12, color: 'var(--text-tertiary)', marginTop: 3 }}>{t('message.to')} {address(copy.to)}</span>
         </span>
       </button>
-      <div style={{ padding: '4px 20px 22px 72px' }}>
+      <div style={{ padding: '4px clamp(16px, 4vw, 32px) 22px' }}>
         {status?.loading && <div role="status" style={{ padding: 16, color: 'var(--text-tertiary)' }}>{t('conversation.loadingBody')}</div>}
         {status?.error && <div role="alert" style={{ padding: 16, color: 'var(--text-danger)' }}>{status.error}</div>}
         {body && <MessageBodyRenderer html={body.body_html} text={body.body_text} remoteImages={Boolean(body.remoteImages)} collapseQuotes />}

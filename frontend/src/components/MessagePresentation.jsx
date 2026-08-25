@@ -3,11 +3,20 @@ import { senderColor } from '../themes.js';
 import SenderAvatarImage from './SenderAvatarImage.jsx';
 
 export function messageDirection(direction) {
-  return direction === 'outgoing' || direction === 'self' ? 'outgoing' : 'incoming';
+  if (direction === 'outgoing' || direction === 'self') return 'outgoing';
+  if (direction === 'incoming') return 'incoming';
+  return null;
+}
+
+export function directionFromAddress(fromEmail, ownAddresses) {
+  const from = String(fromEmail || '').trim().toLowerCase();
+  if (!from || !ownAddresses?.size) return null;
+  return ownAddresses.has(from) ? 'outgoing' : 'incoming';
 }
 
 export function MessageDirection({ direction, label }) {
   const normalized = messageDirection(direction);
+  if (!normalized) return null;
   return <span
     data-message-direction={normalized}
     aria-label={label}

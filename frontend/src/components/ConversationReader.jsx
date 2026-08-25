@@ -13,6 +13,7 @@ export default function ConversationReader({ conversationId, targetLogicalMessag
   const [bodies, setBodies] = useState({});
   const [bodyStatus, setBodyStatus] = useState({});
   const aborters = useRef(new Map());
+  const readerRef = useRef(null);
 
   useEffect(() => {
     let active = true;
@@ -21,9 +22,12 @@ export default function ConversationReader({ conversationId, targetLogicalMessag
       if (!active) return;
       const messages = result.logicalMessages || [];
       const newest = messages.at(-1)?.id;
-      // Keep the reader compact: one relevant message is expanded initially. A selected
-      // physical child wins; otherwise the newest logical message is opened.
-      setExpanded(new Set([targetLogicalMessageId || newest].filter(Boolean)));
+      // Keep the reader compact: exactly one valid logical message is expanded.
+      // A stale/deleted physical target must not leave the reader fully collapsed.
+      const selected = messages.some(message => message.id === targetLogicalMessageId)
+        ? targetLogicalMessageId
+        : newest;
+      setExpanded(new Set([selected].filter(Boolean)));
       setData(result);
     }).catch(reason => active && setError(reason.message || t('conversation.loadFailed')));
     const controllers = aborters.current;
@@ -43,11 +47,16 @@ export default function ConversationReader({ conversationId, targetLogicalMessag
       .catch(reason => { if (reason.name !== 'AbortError') setBodyStatus(previous => ({ ...previous, [logicalId]: { loading: false, error: reason.message || t('conversation.loadBodyFailed') } })); });
   }, [bodies, bodyStatus, conversationId, messages, t]);
   useEffect(() => { for (const id of expanded) loadBody(id); }, [expanded, loadBody]);
-  useEffect(() => { if (targetLogicalMessageId) document.getElementById(`logical-message-${targetLogicalMessageId}`)?.scrollIntoView({ block: 'center' }); }, [targetLogicalMessageId, data]);
-  const toggle = useCallback(id => setExpanded(previous => { const next = new Set(previous); next.has(id) ? next.delete(id) : next.add(id); return next; }), []);
+  useEffect(() => {
+    if (!targetLogicalMessageId || !messages.some(message => message.id === targetLogicalMessageId)) return;
+    const target = [...readerRef.current?.querySelectorAll('[data-logical-message-id]') || []]
+      .find(element => element.dataset.logicalMessageId === targetLogicalMessageId);
+    target?.scrollIntoView({ block: 'center' });
+  }, [targetLogicalMessageId, messages]);
+  const toggle = useCallback(id => setExpanded(previous => previous.has(id) ? new Set() : new Set([id])), []);
   if (!data && !error) return <div role="status" style={{ padding: 24, textAlign: 'center', color: 'var(--text-tertiary)' }}>{t('conversation.loading')}</div>;
   if (error) return <div role="alert" style={{ padding: 16, color: 'var(--text-danger)' }}>{error}</div>;
-  return <section aria-label={t('conversation.label')} data-conversation-id={conversationId} style={{ flex: 1, overflowY: 'auto', overflowX: 'hidden', padding: '0 16px', minWidth: 0 }}>
+  return <section ref={readerRef} aria-label={t('conversation.label')} data-conversation-id={conversationId} style={{ flex: 1, overflowY: 'auto', overflowX: 'hidden', padding: 0, minWidth: 0 }}>
     {messages.map(message => <ConversationMessage key={message.id} message={message} expanded={expanded.has(message.id)} onToggle={toggle} body={bodies[message.id]} status={bodyStatus[message.id]} onLoadBody={loadBody} onRemoteImages={id => loadBody(id, true, true)} onReply={onReply} />)}
   </section>;
 }

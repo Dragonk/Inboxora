@@ -16,7 +16,110 @@ export async function hydrateLogicalMessage(copy, { identities = [], userId = nu
   return { ...identity, userId: owner, accountId: copy.account_id, rawHeaders: copy.conversation_raw_headers || copy.raw_headers || null, rawInReplyTo: copy.in_reply_to || null, rawReferences: copy.thread_references || null, canonicalSubject: canonicalConversationSubject(copy.subject), direction: classifyDirection(copy, identities), messageDate: copy.date || null, bodyFingerprint: copy.body_text != null ? createHash('sha256').update(String(copy.body_text)).digest('hex') : null, headerFingerprint: createHash('sha256').update(JSON.stringify([copy.message_id, copy.in_reply_to, copy.thread_references, copy.conversation_raw_headers])).digest('hex'), copyFingerprint: fingerprintCopy(copy) };
 }
 
-async function findExistingLogical(client, hydrated) {
+async function matchingLegacyLogicalRows(client, hydrated) {
+  if (!hydrated.canonicalMessageId) return [];
+  const result = await client.query(`
+    SELECT lm.id, lm.conversation_id, lm.message_id_collision_key, lm.created_at,
+           sample.message_id, sample.date, sample.subject, sample.from_email,
+           lm.parent_logical_message_id, sample.in_reply_to, sample.thread_references
+      FROM logical_messages lm
+      LEFT JOIN LATERAL (
+        SELECT m.message_id, m.date, m.subject, m.from_email, m.in_reply_to, m.thread_references
+          FROM messages m
+         WHERE m.logical_message_id = lm.id AND m.is_deleted = false
+         ORDER BY m.date ASC NULLS LAST, m.id
+         LIMIT 1
+      ) sample ON TRUE
+     WHERE lm.user_id = $1 AND lm.canonical_message_id = $2
+     ORDER BY lm.created_at ASC, lm.id
+     FOR UPDATE OF lm
+  `, [hydrated.userId, hydrated.canonicalMessageId]);
+  return result.rows.filter(row => row.message_id && logicalMessageIdentity(row, { userId: hydrated.userId }).collisionKey === hydrated.collisionKey);
+}
+
+async function consolidateLegacyLogicalRows(client, hydrated, rows, preferredId = null) {
+  const uniqueRows = [...new Map(rows.map(row => [row.id, row])).values()];
+  if (!uniqueRows.length) return null;
+  const ids = uniqueRows.map(row => row.id);
+  const conversationIds = [...new Set(uniqueRows.map(row => row.conversation_id).filter(Boolean))];
+  const preferred = uniqueRows.find(row => row.id === preferredId) || uniqueRows[0];
+  // Never erase explicit user intent while repairing generated legacy state.
+  const protectedState = await client.query(`
+    SELECT (
+      EXISTS (
+        SELECT 1 FROM conversation_overrides
+         WHERE user_id = $1
+           AND (logical_message_id = ANY($2::uuid[]) OR conversation_id = ANY($3::uuid[]))
+      ) OR EXISTS (
+        SELECT 1 FROM conversations
+         WHERE user_id = $1 AND id = ANY($3::uuid[]) AND manually_locked = true
+      )
+    ) AS protected
+  `, [hydrated.userId, ids, conversationIds]);
+  if (protectedState.rows[0]?.protected) return preferred;
+
+  const winner = preferred;
+  const losers = uniqueRows.filter(row => row.id !== winner.id);
+  const loserIds = losers.map(row => row.id);
+  if (loserIds.length) {
+    // Repair graph references before deleting duplicate identities. Child reference
+    // rows are copied with conflict handling because two legacy duplicates can carry
+    // the same unresolved RFC edge.
+    await client.query(`
+      INSERT INTO unresolved_message_references
+        (user_id, child_logical_message_id, referenced_message_id, relation_type,
+         reference_position, resolved_logical_message_id, resolved_at, created_at)
+      SELECT user_id, $1, referenced_message_id, relation_type, reference_position,
+             CASE WHEN resolved_logical_message_id = ANY($2::uuid[]) THEN $1 ELSE resolved_logical_message_id END,
+             resolved_at, created_at
+        FROM unresolved_message_references
+       WHERE user_id = $3 AND child_logical_message_id = ANY($2::uuid[])
+      ON CONFLICT DO NOTHING
+    `, [winner.id, loserIds, hydrated.userId]);
+    await client.query('DELETE FROM unresolved_message_references WHERE user_id = $1 AND child_logical_message_id = ANY($2::uuid[])', [hydrated.userId, loserIds]);
+    await client.query('UPDATE unresolved_message_references SET resolved_logical_message_id = $1 WHERE user_id = $2 AND resolved_logical_message_id = ANY($3::uuid[])', [winner.id, hydrated.userId, loserIds]);
+
+    await client.query(`
+      INSERT INTO conversation_evidence
+        (user_id, conversation_id, logical_message_id, evidence_type,
+         evidence_value_hash, weight, algorithm_version, details, created_at)
+      SELECT user_id, COALESCE($1, conversation_id), $2, evidence_type,
+             evidence_value_hash, weight, algorithm_version, details, created_at
+        FROM conversation_evidence
+       WHERE user_id = $3 AND logical_message_id = ANY($4::uuid[])
+      ON CONFLICT (conversation_id, logical_message_id, evidence_type, evidence_value_hash) DO NOTHING
+    `, [winner.conversation_id, winner.id, hydrated.userId, loserIds]);
+    await client.query('DELETE FROM conversation_evidence WHERE user_id = $1 AND logical_message_id = ANY($2::uuid[])', [hydrated.userId, loserIds]);
+
+    await client.query(`
+      UPDATE logical_messages
+         SET parent_logical_message_id = $1, updated_at = NOW()
+       WHERE user_id = $2 AND parent_logical_message_id = ANY($3::uuid[]) AND id <> $1
+    `, [winner.id, hydrated.userId, loserIds]);
+    if (loserIds.includes(winner.parent_logical_message_id)) {
+      await client.query('UPDATE logical_messages SET parent_logical_message_id = NULL, updated_at = NOW() WHERE id = $1 AND user_id = $2', [winner.id, hydrated.userId]);
+    }
+    await client.query(`
+      UPDATE messages m
+         SET logical_message_id = $1, conversation_id = $2, conversation_user_id = $3
+       WHERE m.logical_message_id = ANY($4::uuid[])
+         AND EXISTS (SELECT 1 FROM email_accounts a WHERE a.id = m.account_id AND a.user_id = $3)
+    `, [winner.id, winner.conversation_id, hydrated.userId, loserIds]);
+    await client.query('DELETE FROM logical_messages WHERE id = ANY($1::uuid[]) AND user_id = $2', [loserIds, hydrated.userId]);
+  }
+  await client.query('UPDATE logical_messages SET message_id_collision_key = $1, updated_at = NOW() WHERE id = $2 AND user_id = $3', [hydrated.collisionKey, winner.id, hydrated.userId]);
+  for (const conversationId of conversationIds) await refreshConversationAggregates(client, hydrated.userId, conversationId);
+  if (conversationIds.length) await client.query(`
+    DELETE FROM conversations c
+     WHERE c.user_id = $1 AND c.id = ANY($2::uuid[])
+       AND NOT EXISTS (SELECT 1 FROM logical_messages lm WHERE lm.conversation_id = c.id)
+       AND NOT EXISTS (SELECT 1 FROM conversation_aliases ca WHERE ca.alias_conversation_id = c.id OR ca.canonical_conversation_id = c.id)
+       AND NOT EXISTS (SELECT 1 FROM conversation_overrides co WHERE co.conversation_id = c.id)
+  `, [hydrated.userId, conversationIds]);
+  return { ...winner, message_id_collision_key: hydrated.collisionKey };
+}
+
+async function findExistingLogical(client, hydrated, { repairExisting = false } = {}) {
   if (hydrated.canonicalMessageId) {
     // P1-07: query directly by (user_id, canonical_message_id, collision_key)
     // instead of LIMIT 2 + JS filtering. This handles >=3 collision variants
@@ -30,7 +133,17 @@ async function findExistingLogical(client, hydrated) {
         FOR UPDATE`,
       [hydrated.userId, hydrated.canonicalMessageId, hydrated.collisionKey],
     );
-    if (result.rows.length > 0) return { logical: result.rows[0], collision: false };
+    if (result.rows.length > 0) {
+      if (!repairExisting) return { logical: result.rows[0], collision: false };
+      const legacyMatches = await matchingLegacyLogicalRows(client, hydrated);
+      const matching = [result.rows[0], ...legacyMatches.filter(row => row.id !== result.rows[0].id)];
+      return { logical: await consolidateLegacyLogicalRows(client, hydrated, matching, result.rows[0].id), collision: false };
+    }
+    // Identity-v1 rows used body-dependent keys. Recompute candidate identities
+    // from their physical envelope and reuse/consolidate true matches before
+    // treating another key as a genuine Message-ID collision.
+    const legacyMatches = repairExisting ? await matchingLegacyLogicalRows(client, hydrated) : [];
+    if (legacyMatches.length) return { logical: await consolidateLegacyLogicalRows(client, hydrated, legacyMatches), collision: false };
     // No exact collision-key match. Check if the canonical Message-ID exists
     // with a DIFFERENT collision key — that is collision evidence (a new
     // logical message should be created, not a duplicate).
@@ -127,7 +240,7 @@ export async function upsertConversationCopy(copy, { identities = [], provider =
   }, { serializable: true });
 }
 
-export async function _upsertConversationCopyWithClient(client, copy, { identities = [], provider = null, userId = null } = {}) {
+export async function _upsertConversationCopyWithClient(client, copy, { identities = [], provider = null, userId = null, repairExisting = false } = {}) {
       // P0-02: Verify ownership using userId from the calling context (session),
       // NOT from copy.user_id which is caller-controlled. The query enforces
       // a.user_id = $2 where $2 is the context userId — a tenant isolation gate.
@@ -164,7 +277,7 @@ export async function _upsertConversationCopyWithClient(client, copy, { identiti
     }
     if (series && !parent?.ambiguous) { decision.kind = series.kind || decision.kind; decision.reason = series.kind || decision.reason; decision.confidence = series.confidence || decision.confidence; }
     if (parent?.ambiguous) decision.reason = parent.relationType;
-    const existing = await findExistingLogical(client, hydrated);
+    const existing = await findExistingLogical(client, hydrated, { repairExisting });
     let logical = existing.logical;
     const collision = existing.collision;
     if (!logical) {
@@ -179,12 +292,36 @@ export async function _upsertConversationCopyWithClient(client, copy, { identiti
       if (!logical) throw new Error('Logical message insert raced without a recoverable winner');
     }
     else await client.query('UPDATE logical_messages SET raw_headers = COALESCE(raw_headers, $2), updated_at = NOW(), threading_reason = $3, threading_confidence = $4 WHERE id = $1', [logical.id, hydrated.rawHeaders, decision.reason, decision.confidence]);
-    let conversationId = logical.conversation_id || await findProviderConversation(client, hydrated, provider) || (decision.reason === 'subject-change-split' ? null : parent?.conversation_id);
+    const providerConversationId = await findProviderConversation(client, hydrated, provider);
+    // Strong evidence discovered during replay/rebuild must be able to repair a
+    // provisional legacy assignment. An unambiguous RFC parent is authoritative;
+    // provider identity is next, and the existing logical assignment is only the
+    // fallback. Manual overrides/locks are applied immediately below and can still
+    // preserve or redirect explicit user intent.
+    let conversationId = repairExisting
+      ? parent?.conversation_id || providerConversationId || logical.conversation_id
+      : logical.conversation_id || providerConversationId || parent?.conversation_id;
     if (series?.kind === 'automated_reference_series' || series?.kind === 'automated_smart_series') conversationId = matchedPrevious?.conversation_id || conversationId;
-    const override = await effectiveConversationOverride(client, { userId: hydrated.userId, conversationId, logicalMessageId: logical.id });
+    // During repair, evaluate conversation-level intent against the message's current
+    // placement before RFC/provider evidence proposes a different destination. Otherwise
+    // a lock on the existing conversation would be invisible after conversationId was
+    // tentatively replaced with the parent conversation.
+    const overrideConversationId = repairExisting && logical.conversation_id
+      ? logical.conversation_id
+      : conversationId;
+    const override = await effectiveConversationOverride(client, { userId: hydrated.userId, conversationId: overrideConversationId, logicalMessageId: logical.id });
     if (override.merge?.target_id) requestedConversationId = await resolveConversationAlias(client, { userId: hydrated.userId, conversationId: override.merge.target_id });
-    if (override.split?.target_id) requestedConversationId = await resolveConversationAlias(client, { userId: hydrated.userId, conversationId: override.split.target_id });
-    const previousConversationId = conversationId;
+    // manual-split records the deliberate destination as its current conversation;
+    // older rows do not necessarily carry target_id. Preserve that placement on replay.
+    if (override.split) requestedConversationId = override.split.target_id
+      ? await resolveConversationAlias(client, { userId: hydrated.userId, conversationId: override.split.target_id })
+      : logical.conversation_id;
+    // A locked conversation preserves its existing placement even when replay
+    // discovers a different RFC parent. Message-level split/move/include overrides
+    // remain authoritative through requestedConversationId below.
+    if (override.locked && logical.conversation_id) conversationId = logical.conversation_id;
+    if (override.move?.target_id) requestedConversationId = await resolveConversationAlias(client, { userId: hydrated.userId, conversationId: override.move.target_id });
+    const previousConversationId = logical.conversation_id;
     if (override.forceExclude) conversationId = null;
     if (override.forceExclude) {
       // P0-08: Force-exclude detaches the LogicalMessage from its Conversation
@@ -208,11 +345,25 @@ export async function _upsertConversationCopyWithClient(client, copy, { identiti
     if (override.forceInclude?.target_id) requestedConversationId = await resolveConversationAlias(client, { userId: hydrated.userId, conversationId: override.forceInclude.target_id });
     if (override.locked && conversationId) requestedConversationId = await resolveConversationAlias(client, { userId: hydrated.userId, conversationId });
     if (requestedConversationId) conversationId = requestedConversationId;
-    const relatedParentConversationId = decision.reason === 'subject-change-split' ? parent?.conversation_id : null;
     if (!conversationId) conversationId = (await client.query(`INSERT INTO conversations (user_id, kind, subject_snapshot, canonical_subject, first_message_at, last_message_at, logical_message_count, copy_count, unread_count, threading_confidence) VALUES ($1,$2,$3,$4,$5,$5,0,0,0,$6) RETURNING id`, [hydrated.userId, decision.kind, source.subject || null, hydrated.canonicalSubject, hydrated.messageDate, decision.confidence])).rows[0].id;
-    await client.query(`UPDATE logical_messages SET conversation_id = $1, parent_logical_message_id = CASE WHEN $4::text = 'subject-change-split' THEN NULL ELSE COALESCE(parent_logical_message_id, $2) END, updated_at = NOW() WHERE id = $3`, [conversationId, parent?.id || null, logical.id, decision.reason]);
+    const conversationChanged = previousConversationId !== conversationId;
+    await client.query(`UPDATE logical_messages SET conversation_id = $1, parent_logical_message_id = CASE WHEN $4::boolean THEN $2 ELSE COALESCE(parent_logical_message_id, $2) END, updated_at = NOW() WHERE id = $3`, [conversationId, parent?.id || null, logical.id, repairExisting]);
     const attached = await client.query(`UPDATE messages SET logical_message_id = $1, conversation_id = $2, conversation_user_id = $3, canonical_message_id = $4, provider_message_id = COALESCE($5, provider_message_id), provider_thread_id = COALESCE($6, provider_thread_id), provider_namespace = COALESCE($7, provider_namespace), threading_reason = $8, threading_confidence = $9, threading_algorithm_version = 'conversation-v2', row_version = row_version + 1 WHERE id = $10 RETURNING id`, [logical.id, conversationId, hydrated.userId, hydrated.canonicalMessageId, provider?.providerMessageId || null, provider?.providerThreadId || null, provider?.namespace || provider?.provider || null, decision.reason, decision.confidence, source.id]);
     if (attached.rowCount !== 1) throw new Error('Conversation copy attachment failed');
+    if (conversationChanged) {
+      // A LogicalMessage represents all physical copies of one RFC message. When
+      // replay repairs its conversation, move every copy atomically rather than
+      // leaving sibling account/folder copies attached to the stale container.
+      await client.query('UPDATE messages SET conversation_id = $1, conversation_user_id = $2 WHERE logical_message_id = $3 AND conversation_user_id = $2', [conversationId, hydrated.userId, logical.id]);
+      if (previousConversationId) await refreshConversationAggregates(client, hydrated.userId, previousConversationId);
+      if (previousConversationId) await client.query(`
+        DELETE FROM conversations c
+         WHERE c.user_id = $1 AND c.id = $2
+           AND NOT EXISTS (SELECT 1 FROM logical_messages lm WHERE lm.conversation_id = c.id)
+           AND NOT EXISTS (SELECT 1 FROM conversation_aliases ca WHERE ca.alias_conversation_id = c.id OR ca.canonical_conversation_id = c.id)
+           AND NOT EXISTS (SELECT 1 FROM conversation_overrides co WHERE co.conversation_id = c.id)
+      `, [hydrated.userId, previousConversationId]);
+    }
     if ((provider?.isStrong || provider?.source === 'outlook-conversation-index-root') && provider?.providerThreadId) await client.query(`INSERT INTO provider_thread_mappings (user_id, account_id, provider, provider_thread_id, conversation_id, last_seen_at, diagnostics) VALUES ($1,$2,$3,$4,$5,NOW(),$6::jsonb) ON CONFLICT (user_id, account_id, provider, provider_thread_id) DO UPDATE SET conversation_id = EXCLUDED.conversation_id, last_seen_at = NOW(), diagnostics = EXCLUDED.diagnostics`, [hydrated.userId, hydrated.accountId, provider.provider, provider.providerThreadId, conversationId, JSON.stringify(provider.diagnostics || {})]);
     const unresolved = [...new Set([...normalizeMessageIdList(hydrated.rawInReplyTo), ...normalizeMessageIdList(hydrated.rawReferences)])].filter(id => id !== hydrated.canonicalMessageId);
     if (unresolved.length) {
@@ -293,7 +444,6 @@ export async function _upsertConversationCopyWithClient(client, copy, { identiti
       }
     }
     if (parent?.ambiguous) await client.query(`INSERT INTO conversation_evidence (user_id, conversation_id, logical_message_id, evidence_type, evidence_value_hash, weight, details) VALUES ($1,$2,$3,'ambiguous-parent',$4,0,$5::jsonb) ON CONFLICT DO NOTHING`, [hydrated.userId, conversationId, logical.id, createHash('sha256').update(String(parent.canonical_message_id)).digest('hex'), JSON.stringify({ canonical_message_id: parent.canonical_message_id, relation_type: parent.relationType })]);
-    if (relatedParentConversationId) await client.query(`INSERT INTO conversation_evidence (user_id, conversation_id, logical_message_id, evidence_type, evidence_value_hash, weight, details) VALUES ($1,$2,$3,'subject-change-split',$4,1,$5::jsonb) ON CONFLICT DO NOTHING`, [hydrated.userId, relatedParentConversationId, logical.id, createHash('sha256').update(String(logical.id)).digest('hex'), JSON.stringify({ relatedConversation_id: conversationId, parent_logical_message_id: parent.id })]);
     const evidence = [[decision.reason, decision.confidence, { relationType: parent?.relationType || null, provider: provider?.provider || null }], ...(series ? [[series.kind, series.confidence, { mode: seriesMode, previousLogicalMessageId: matchedPrevious?.id || null }]] : []), ...(parent ? [['rfc-parent', 0.99, { parentLogicalMessageId: parent.id }]] : []), ...((provider?.isStrong || provider?.source === 'outlook-conversation-index-root') && provider?.providerThreadId ? [['provider-thread-id', 1, { provider: provider.provider }]] : [])];
     if (collision) evidence.push(['message-id-collision', 0, { canonicalMessageId: hydrated.canonicalMessageId, collisionKey: hydrated.collisionKey }]);
     for (const [type, weight, details] of evidence) await client.query(`INSERT INTO conversation_evidence (user_id, conversation_id, logical_message_id, evidence_type, evidence_value_hash, weight, details) VALUES ($1,$2,$3,$4,$5,$6,$7::jsonb) ON CONFLICT (conversation_id, logical_message_id, evidence_type, evidence_value_hash) DO NOTHING`, [hydrated.userId, conversationId, logical.id, type, createHash('sha256').update(JSON.stringify(details)).digest('hex'), weight, JSON.stringify(details)]);

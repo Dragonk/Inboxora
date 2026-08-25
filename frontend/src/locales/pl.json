@@ -1131,7 +1131,11 @@
     "groupIntoConversationsOn": "Włączone",
     "readerOff": "Wyłączony",
     "readerOn": "Włączony",
-    "groupIntoConversations": "Grupowanie rozmów"
+    "groupIntoConversations": "Grupowanie rozmów",
+    "incomingMessage": "Wiadomość przychodząca",
+    "outgoingMessage": "Wiadomość wychodząca",
+    "expandMessage": "Rozwiń wiadomość od {{sender}}: {{subject}}",
+    "collapseMessage": "Zwiń wiadomość od {{sender}}: {{subject}}"
   },
   "diagnostics": {
     "section": "Diagnostyka",

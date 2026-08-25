@@ -162,10 +162,130 @@ describeOrSkip('CE v2 PostgreSQL regression tests', () => {
       expect(logical.rows).toHaveLength(3);
       expect(new Set(logical.rows.map(row => row.conversation_id)).size).toBe(1);
       const conversationId = logical.rows[0].conversation_id;
-      expect(logical.rows.map(row => row.direction)).toEqual(messages.map(item => item.direction));
+      expect(logical.rows.map(row => row.direction)).toEqual(['self', 'self', 'incoming']);
       const copies = await query('SELECT COUNT(*)::int AS count, COUNT(DISTINCT account_id)::int AS accounts FROM messages WHERE conversation_id = $1', [conversationId]);
       expect(copies.rows[0]).toEqual({ count: 6, accounts: 2 });
       for (const physicalId of physicalIds) await assertResolvedConversation(physicalId, conversationId);
+    }, 60000);
+
+    it('keeps a changed-subject RFC reply in the parent conversation', async () => {
+      await insertMessage({ accountId: TEST_ACCOUNT_ID, uid: 680, folder: 'INBOX', messageId: '<subject-root@test>', subject: 'Original topic', fromEmail: 'outside@example.test', toAddresses: [{ email: 'me@example.test' }], date: new Date('2026-08-25T11:50:00Z'), isRead: true });
+      await insertMessage({ accountId: ALT_ACCOUNT_ID, uid: 681, folder: 'Sent', messageId: '<subject-child@test>', subject: 'Completely renamed topic', fromEmail: 'me2@example.test', toAddresses: [{ email: 'outside@example.test' }], inReplyTo: '<subject-root@test>', references: '<subject-root@test>', date: new Date('2026-08-25T11:51:00Z'), isRead: true });
+      await rebuildConversationCopies({ userId: TEST_USER_ID, accountId: null, limit: 500, dryRun: false, force: true });
+      const rows = await query(`SELECT conversation_id, parent_logical_message_id, threading_reason FROM logical_messages WHERE user_id = $1 ORDER BY message_date ASC`, [TEST_USER_ID]);
+      expect(rows.rows).toHaveLength(2);
+      expect(new Set(rows.rows.map(row => row.conversation_id)).size).toBe(1);
+      expect(rows.rows[1].parent_logical_message_id).toBeTruthy();
+      expect(rows.rows[1].threading_reason).toBe('rfc-in-reply-to');
+    }, 60000);
+
+    it('repairs populated split state and body-key duplicate identities without deleting CE state first', async () => {
+      const rootCopy = await insertMessage({ accountId: TEST_ACCOUNT_ID, uid: 690, folder: 'INBOX', messageId: '<pop-root@test>', subject: 'Populated repair', fromEmail: 'outside@example.test', toAddresses: [{ email: 'me@example.test' }], date: new Date('2026-08-25T11:55:00Z'), bodyText: 'root', isRead: true });
+      const childCopyA = await insertMessage({ accountId: TEST_ACCOUNT_ID, uid: 691, folder: 'Sent', messageId: '<pop-child@test>', subject: 'Renamed populated repair', fromEmail: 'me@example.test', toAddresses: [{ email: 'outside@example.test' }], inReplyTo: '<pop-root@test>', references: '<pop-root@test>', date: new Date('2026-08-25T11:56:00Z'), bodyText: 'sent body', isRead: true });
+      const childCopyB = await insertMessage({ accountId: ALT_ACCOUNT_ID, uid: 692, folder: 'INBOX', messageId: '<pop-child@test>', subject: 'Renamed populated repair', fromEmail: 'me@example.test', toAddresses: [{ email: 'outside@example.test' }], inReplyTo: '<pop-root@test>', references: '<pop-root@test>', date: new Date('2026-08-25T11:56:00Z'), bodyText: 'provider wrapper', isRead: true });
+      const rootConversation = randomUUID();
+      const staleConversation = randomUUID();
+      const rootLogical = randomUUID();
+      const duplicateA = randomUUID();
+      const duplicateB = randomUUID();
+      await query(`INSERT INTO conversations (id,user_id,kind,subject_snapshot,canonical_subject) VALUES ($1,$3,'human_reply_chain','Populated repair','populated repair'),($2,$3,'human_reply_chain','Renamed populated repair','renamed populated repair')`, [rootConversation, staleConversation, TEST_USER_ID]);
+      await query(`INSERT INTO logical_messages (id,user_id,conversation_id,canonical_message_id,raw_message_id,message_id_collision_key,subject,canonical_subject,direction,message_date) VALUES
+        ($1,$6,$4,'<pop-root@test>','<pop-root@test>','legacy-root','Populated repair','populated repair','incoming','2026-08-25T11:55:00Z'),
+        ($2,$6,$5,'<pop-child@test>','<pop-child@test>','legacy-body-a','Renamed populated repair','renamed populated repair','outgoing','2026-08-25T11:56:00Z'),
+        ($3,$6,$5,'<pop-child@test>','<pop-child@test>','legacy-body-b','Renamed populated repair','renamed populated repair','outgoing','2026-08-25T11:56:00Z')`, [rootLogical, duplicateA, duplicateB, rootConversation, staleConversation, TEST_USER_ID]);
+      await query(`UPDATE messages SET logical_message_id=$1, conversation_id=$2, conversation_user_id=$3 WHERE id=$4`, [rootLogical, rootConversation, TEST_USER_ID, rootCopy]);
+      await query(`UPDATE messages SET logical_message_id=$1, conversation_id=$2, conversation_user_id=$3 WHERE id=$4`, [duplicateA, staleConversation, TEST_USER_ID, childCopyA]);
+      await query(`UPDATE messages SET logical_message_id=$1, conversation_id=$2, conversation_user_id=$3 WHERE id=$4`, [duplicateB, staleConversation, TEST_USER_ID, childCopyB]);
+
+      await rebuildConversationCopies({ userId: TEST_USER_ID, accountId: null, limit: 500, dryRun: false, force: true });
+      const logical = await query(`SELECT id, canonical_message_id, conversation_id, parent_logical_message_id FROM logical_messages WHERE user_id=$1 ORDER BY message_date ASC,id`, [TEST_USER_ID]);
+      expect(logical.rows).toHaveLength(2);
+      expect(new Set(logical.rows.map(row => row.conversation_id)).size).toBe(1);
+      const root = logical.rows.find(row => row.canonical_message_id === '<pop-root@test>');
+      const child = logical.rows.find(row => row.canonical_message_id === '<pop-child@test>');
+      expect(child.parent_logical_message_id).toBe(root.id);
+      const copies = await query(`SELECT COUNT(DISTINCT logical_message_id)::int AS logicals, COUNT(DISTINCT conversation_id)::int AS conversations FROM messages WHERE id=ANY($1::uuid[])`, [[rootCopy, childCopyA, childCopyB]]);
+      expect(copies.rows[0]).toEqual({ logicals: 2, conversations: 1 });
+      const stale = await query('SELECT COUNT(*)::int AS count FROM conversations WHERE user_id=$1 AND id=$2', [TEST_USER_ID, staleConversation]);
+      expect(stale.rows[0].count).toBe(0);
+
+      await rebuildConversationCopies({ userId: TEST_USER_ID, accountId: null, limit: 500, dryRun: false, force: true });
+      const afterSecond = await query(`SELECT COUNT(*)::int AS logicals, COUNT(DISTINCT conversation_id)::int AS conversations FROM logical_messages WHERE user_id=$1`, [TEST_USER_ID]);
+      expect(afterSecond.rows[0]).toEqual({ logicals: 2, conversations: 1 });
+      const orphaned = await query(`SELECT COUNT(*)::int AS count FROM conversations c WHERE c.user_id=$1 AND NOT EXISTS (SELECT 1 FROM logical_messages lm WHERE lm.conversation_id=c.id)`, [TEST_USER_ID]);
+      expect(orphaned.rows[0].count).toBe(0);
+    }, 60000);
+
+    it('preserves manually locked and manually split repair placements', async () => {
+      const rootCopy = await insertMessage({ accountId: TEST_ACCOUNT_ID, uid: 695, folder: 'INBOX', messageId: '<override-root@test>', subject: 'Override root', fromEmail: 'outside@example.test', date: new Date('2026-08-25T11:57:00Z'), isRead: true });
+      const lockedCopy = await insertMessage({ accountId: TEST_ACCOUNT_ID, uid: 696, folder: 'Sent', messageId: '<override-locked@test>', subject: 'Renamed locked', fromEmail: 'me@example.test', inReplyTo: '<override-root@test>', references: '<override-root@test>', date: new Date('2026-08-25T11:58:00Z'), isRead: true });
+      const splitCopy = await insertMessage({ accountId: ALT_ACCOUNT_ID, uid: 697, folder: 'Sent', messageId: '<override-split@test>', subject: 'Renamed split', fromEmail: 'me2@example.test', inReplyTo: '<override-root@test>', references: '<override-root@test>', date: new Date('2026-08-25T11:59:00Z'), isRead: true });
+      const rootConversation = randomUUID(); const lockedConversation = randomUUID(); const splitConversation = randomUUID();
+      const rootLogical = randomUUID(); const lockedLogical = randomUUID(); const splitLogical = randomUUID();
+      await query(`INSERT INTO conversations (id,user_id,kind,canonical_subject,manually_locked) VALUES
+        ($1,$4,'human_reply_chain','override root',false),($2,$4,'manual_conversation','renamed locked',true),($3,$4,'manual_conversation','renamed split',false)`, [rootConversation, lockedConversation, splitConversation, TEST_USER_ID]);
+      await query(`INSERT INTO logical_messages (id,user_id,conversation_id,canonical_message_id,raw_message_id,message_id_collision_key,subject,canonical_subject,direction,message_date) VALUES
+        ($1,$7,$4,'<override-root@test>','<override-root@test>','legacy-root','Override root','override root','incoming','2026-08-25T11:57:00Z'),
+        ($2,$7,$5,'<override-locked@test>','<override-locked@test>','legacy-locked','Renamed locked','renamed locked','outgoing','2026-08-25T11:58:00Z'),
+        ($3,$7,$6,'<override-split@test>','<override-split@test>','legacy-split','Renamed split','renamed split','outgoing','2026-08-25T11:59:00Z')`, [rootLogical, lockedLogical, splitLogical, rootConversation, lockedConversation, splitConversation, TEST_USER_ID]);
+      await query('UPDATE messages SET logical_message_id=$1,conversation_id=$2,conversation_user_id=$3 WHERE id=$4', [rootLogical, rootConversation, TEST_USER_ID, rootCopy]);
+      await query('UPDATE messages SET logical_message_id=$1,conversation_id=$2,conversation_user_id=$3 WHERE id=$4', [lockedLogical, lockedConversation, TEST_USER_ID, lockedCopy]);
+      await query('UPDATE messages SET logical_message_id=$1,conversation_id=$2,conversation_user_id=$3 WHERE id=$4', [splitLogical, splitConversation, TEST_USER_ID, splitCopy]);
+      await query(`INSERT INTO conversation_overrides (user_id,conversation_id,logical_message_id,override_type,reason)
+        VALUES ($1,$2,NULL,'lock-conversation','test lock'),($1,$3,$4,'manual-split','test split')`, [TEST_USER_ID, lockedConversation, splitConversation, splitLogical]);
+
+      await rebuildConversationCopies({ userId: TEST_USER_ID, accountId: null, limit: 500, dryRun: false, force: true });
+      const placements = await query('SELECT id,conversation_id FROM logical_messages WHERE id=ANY($1::uuid[]) ORDER BY id', [[lockedLogical, splitLogical]]);
+      expect(placements.rows.find(row => row.id === lockedLogical).conversation_id).toBe(lockedConversation);
+      expect(placements.rows.find(row => row.id === splitLogical).conversation_id).toBe(splitConversation);
+      const copies = await query('SELECT id,conversation_id FROM messages WHERE id=ANY($1::uuid[])', [[lockedCopy, splitCopy]]);
+      expect(copies.rows.find(row => row.id === lockedCopy).conversation_id).toBe(lockedConversation);
+      expect(copies.rows.find(row => row.id === splitCopy).conversation_id).toBe(splitConversation);
+    }, 60000);
+
+    it('preserves force include/exclude, manual move, and manual merge during repair', async () => {
+      const rootCopy = await insertMessage({ accountId: TEST_ACCOUNT_ID, uid: 710, folder: 'INBOX', messageId: '<override-all-root@test>', subject: 'Override all root', fromEmail: 'outside@example.test', date: new Date('2026-08-25T12:10:00Z'), isRead: true });
+      const specs = [
+        ['exclude', 711, '<override-exclude@test>', TEST_ACCOUNT_ID],
+        ['include', 712, '<override-include@test>', ALT_ACCOUNT_ID],
+        ['move', 713, '<override-move@test>', TEST_ACCOUNT_ID],
+        ['merge', 714, '<override-merge@test>', ALT_ACCOUNT_ID],
+      ];
+      const copies = {};
+      for (const [name, uid, messageId, accountId] of specs) copies[name] = await insertMessage({ accountId, uid, folder: 'Sent', messageId, subject: `Override ${name}`, fromEmail: accountId === TEST_ACCOUNT_ID ? 'me@example.test' : 'me2@example.test', inReplyTo: '<override-all-root@test>', references: '<override-all-root@test>', date: new Date(`2026-08-25T12:1${uid - 710}:00Z`), isRead: true });
+      const rootConversation = randomUUID(); const includeTarget = randomUUID(); const moveTarget = randomUUID(); const mergeSource = randomUUID(); const mergeTarget = randomUUID();
+      const rootLogical = randomUUID(); const excludeLogical = randomUUID(); const includeLogical = randomUUID(); const moveLogical = randomUUID(); const mergeLogical = randomUUID();
+      await query(`INSERT INTO conversations (id,user_id,kind,canonical_subject) VALUES
+        ($1,$6,'human_reply_chain','override all root'),($2,$6,'manual_conversation','include target'),
+        ($3,$6,'manual_conversation','move target'),($4,$6,'manual_conversation','merge source'),($5,$6,'manual_conversation','merge target')`, [rootConversation, includeTarget, moveTarget, mergeSource, mergeTarget, TEST_USER_ID]);
+      await query(`INSERT INTO logical_messages (id,user_id,conversation_id,canonical_message_id,raw_message_id,message_id_collision_key,subject,canonical_subject,direction,message_date) VALUES
+        ($1,$10,$6,'<override-all-root@test>','<override-all-root@test>','legacy-root','Override all root','override all root','incoming','2026-08-25T12:10:00Z'),
+        ($2,$10,NULL,'<override-exclude@test>','<override-exclude@test>','legacy-exclude','Override exclude','override exclude','outgoing','2026-08-25T12:11:00Z'),
+        ($3,$10,$9,'<override-include@test>','<override-include@test>','legacy-include','Override include','override include','outgoing','2026-08-25T12:12:00Z'),
+        ($4,$10,$7,'<override-move@test>','<override-move@test>','legacy-move','Override move','override move','outgoing','2026-08-25T12:13:00Z'),
+        ($5,$10,$8,'<override-merge@test>','<override-merge@test>','legacy-merge','Override merge','override merge','outgoing','2026-08-25T12:14:00Z')`, [rootLogical, excludeLogical, includeLogical, moveLogical, mergeLogical, rootConversation, moveTarget, mergeSource, includeTarget, TEST_USER_ID]);
+      await query('UPDATE messages SET logical_message_id=$1,conversation_id=$2,conversation_user_id=$3 WHERE id=$4', [rootLogical, rootConversation, TEST_USER_ID, rootCopy]);
+      await query('UPDATE messages SET logical_message_id=$1,conversation_id=NULL,conversation_user_id=$2 WHERE id=$3', [excludeLogical, TEST_USER_ID, copies.exclude]);
+      await query('UPDATE messages SET logical_message_id=$1,conversation_id=$2,conversation_user_id=$3 WHERE id=$4', [includeLogical, includeTarget, TEST_USER_ID, copies.include]);
+      await query('UPDATE messages SET logical_message_id=$1,conversation_id=$2,conversation_user_id=$3 WHERE id=$4', [moveLogical, moveTarget, TEST_USER_ID, copies.move]);
+      await query('UPDATE messages SET logical_message_id=$1,conversation_id=$2,conversation_user_id=$3 WHERE id=$4', [mergeLogical, mergeSource, TEST_USER_ID, copies.merge]);
+      await query(`INSERT INTO conversation_overrides (user_id,conversation_id,logical_message_id,override_type,target_id,target_user_id,reason) VALUES
+        ($1,$2,$3,'force-exclude',NULL,NULL,'test exclude'),
+        ($1,$2,$4,'force-include',$5,$1,'test include'),
+        ($1,$6,$7,'manual-move',$6,$1,'test move'),
+        ($1,$8,NULL,'manual-merge',$9,$1,'test merge')`, [TEST_USER_ID, rootConversation, excludeLogical, includeLogical, includeTarget, moveTarget, moveLogical, mergeSource, mergeTarget]);
+
+      await rebuildConversationCopies({ userId: TEST_USER_ID, accountId: null, limit: 500, dryRun: false, force: true });
+      const placements = await query('SELECT id,conversation_id FROM logical_messages WHERE id=ANY($1::uuid[])', [[excludeLogical, includeLogical, moveLogical, mergeLogical]]);
+      expect(placements.rows.find(row => row.id === excludeLogical).conversation_id).toBeNull();
+      expect(placements.rows.find(row => row.id === includeLogical).conversation_id).toBe(includeTarget);
+      expect(placements.rows.find(row => row.id === moveLogical).conversation_id).toBe(moveTarget);
+      expect(placements.rows.find(row => row.id === mergeLogical).conversation_id).toBe(mergeTarget);
+      const physical = await query('SELECT id,conversation_id FROM messages WHERE id=ANY($1::uuid[])', [Object.values(copies)]);
+      expect(physical.rows.find(row => row.id === copies.exclude).conversation_id).toBeNull();
+      expect(physical.rows.find(row => row.id === copies.include).conversation_id).toBe(includeTarget);
+      expect(physical.rows.find(row => row.id === copies.move).conversation_id).toBe(moveTarget);
+      expect(physical.rows.find(row => row.id === copies.merge).conversation_id).toBe(mergeTarget);
     }, 60000);
 
     it('repairs legacy cross-account physical rows with no CE identity through the production rebuild', async () => {

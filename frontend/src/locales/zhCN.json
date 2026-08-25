@@ -1131,7 +1131,11 @@
     "groupIntoConversationsOn": "On",
     "readerOff": "Disabled",
     "readerOn": "Enabled",
-    "groupIntoConversations": "将邮件归入对话"
+    "groupIntoConversations": "将邮件归入对话",
+    "incomingMessage": "收到的邮件",
+    "outgoingMessage": "发出的邮件",
+    "expandMessage": "展开来自 {{sender}} 的邮件：{{subject}}",
+    "collapseMessage": "折叠来自 {{sender}} 的邮件：{{subject}}"
   },
   "diagnostics": {
     "section": "诊断",

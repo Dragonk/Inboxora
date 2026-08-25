@@ -1,5 +1,6 @@
 import { createHash } from 'crypto';
 import { decodeMimeWords } from './messageParser.js';
+import { normalizeMessageId } from './threading/normalizeMessageId.js';
 
 const REPLY_PREFIX_RE = /^(?:(?:re|odp|aw|sv|vs|antw|ant|ref|rif|ynt|tr)\s*:\s*)+/i;
 const FORWARD_PREFIX_RE = /^(?:fwd|fw|przek)\s*:\s*/i;
@@ -33,15 +34,9 @@ export function fingerprint(value) {
   return createHash('sha256').update(String(value || '')).digest('hex');
 }
 
-function normalizeIdentityEvidence(value) {
-  if (!value) return '';
-  const values = Array.isArray(value) ? value : String(value).match(/<[^>]+>/g) || [String(value)];
-  return values.map(item => String(item).trim().toLowerCase()).join(' ');
-}
-
 export function logicalMessageIdentity(message, { userId } = {}) {
   const rawId = message.message_id || message.messageId || null;
-  const canonical = rawId ? String(rawId).trim().replace(/^<|>$/g, '') : null;
+  const canonicalMessageId = normalizeMessageId(rawId);
   // Physical copies of one RFC message can legitimately have different stored bodies
   // (provider-added wrappers, remote-image sanitization, All Mail vs Sent copies).  Body
   // content therefore cannot participate in the collision discriminator.  Keep the key
@@ -49,13 +44,11 @@ export function logicalMessageIdentity(message, { userId } = {}) {
   // managed accounts collapse into one LogicalMessage, while genuinely colliding IDs with
   // different sender/date/subject/reply evidence remain distinct.
   const stable = [
-    userId || '', canonical || '', message.date || '',
+    userId || '', canonicalMessageId || '', message.date || '',
     canonicalConversationSubject(message.subject || ''),
     addressOf(message.from_email || message.from || message.sender) || '',
-    normalizeIdentityEvidence(message.in_reply_to),
-    normalizeIdentityEvidence(message.thread_references || message.references),
   ].join('\u001f');
-  return { userId: userId || null, canonicalMessageId: canonical ? `<${canonical}>` : null, rawMessageId: rawId, collisionKey: fingerprint(stable) };
+  return { userId: userId || null, canonicalMessageId, rawMessageId: rawId, collisionKey: fingerprint(stable) };
 }
 
 export function threadingDecision({ message, parent, provider, identities = [] }) {
@@ -63,9 +56,18 @@ export function threadingDecision({ message, parent, provider, identities = [] }
   const subject = canonicalConversationSubject(message.subject);
   if (provider?.isStrong && provider.providerThreadId) return { kind: 'provider_thread', reason: provider.source, confidence: 1, direction, subject };
   if (parent) {
-    const parentSubject = canonicalConversationSubject(parent.subject);
-    if (parentSubject === subject) return { kind: 'human_reply_chain', reason: 'rfc-in-reply-to', confidence: 0.99, direction, subject };
-    return { kind: 'manual_conversation', reason: 'subject-change-split', confidence: 1, direction, subject, relatedParentMessageId: parent.message_id };
+    // An unambiguous RFC In-Reply-To/References edge is authoritative. Subjects
+    // frequently change inside a real reply chain (ticket systems, edited reply
+    // subjects, localized prefixes), so subject is diagnostic metadata only and
+    // must never veto a strong parent edge.
+    return {
+      kind: 'human_reply_chain',
+      reason: 'rfc-in-reply-to',
+      confidence: 0.99,
+      direction,
+      subject,
+      subjectChanged: canonicalConversationSubject(parent.subject) !== subject,
+    };
   }
   return { kind: 'human_reply_chain', reason: 'new-root', confidence: 0.5, direction, subject };
 }

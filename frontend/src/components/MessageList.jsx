@@ -18,6 +18,7 @@ import { formatDate } from '../utils/formatDate.js';
 import { advanceSelectionAfterRemoval } from '../utils/listSelection.js';
 import { openReplyFromMessage, openForwardFromMessage } from '../utils/composeFromMessage.js';
 import SenderAvatarImage from './SenderAvatarImage.jsx';
+import { directionFromAddress, MessageDirection } from './MessagePresentation.jsx';
 import { shortcutBus } from '../utils/shortcutBus.js';
 import { createLatestRequest } from '../utils/latestRequest.js';
 import { pendingMarkReadMap, completedMarkReadMap, setPending } from '../utils/pendingReads.js';
@@ -3661,7 +3662,7 @@ export default function MessageList() {
                 onToggleSelect={handleRowToggleSelect}
                 onRangeSelect={handleRangeSelect}
                 onLongPress={isMobile ? (id) => { setSelectionModeActive(true); toggleSelect(id); } : undefined}
-                ownAddresses={new Set(accounts.map(account => String(account.email_address || '').toLowerCase()).filter(Boolean))}
+                ownAddresses={new Set(accounts.flatMap(account => [account.email_address, ...(account.aliases || []).map(alias => alias?.email || alias)]).map(address => String(address || '').toLowerCase()).filter(Boolean))}
               />
             );
           })
@@ -4125,9 +4126,9 @@ function ThreadRow({ message, isExpanded, threadMsgs, isLoadingThread, selectedM
   const unreadCount  = parseInt(message.unread_count) || 0;
   // A parent summarizes the conversation. Only a single-message parent can carry
   // one truthful direction; expanded physical children classify themselves below.
-  const isOutgoing = ownAddresses?.has(String(message.from_email || '').toLowerCase());
-  const direction = isOutgoing ? '→' : '←';
-  const showParentDirection = messageCount === 1;
+  const parentDirection = directionFromAddress(message.from_email, ownAddresses);
+  const isOutgoing = parentDirection === 'outgoing';
+  const showParentDirection = messageCount === 1 && parentDirection;
 
   const { contentRef, swipeBgLeftRef, swipeBgRightRef, tappedRef } = useSwipeRow({
     isMobile, message, onSwipeLeft, onSwipeRight, onLongPress,
@@ -4159,7 +4160,7 @@ function ThreadRow({ message, isExpanded, threadMsgs, isLoadingThread, selectedM
   const rightActionView = getSwipeActionView(swipeLeftAction, message, t, unreadCount);
 
   return (
-    <div data-msgid={message.id} style={{ borderBottom: '1px solid var(--border-subtle)' }}>
+    <div data-msgid={message.id} data-thread-parent-direction={showParentDirection || undefined} style={{ borderBottom: '1px solid var(--border-subtle)' }}>
       {/* Swipe container wraps only the header row */}
       <div style={{ position: 'relative', overflow: 'hidden' }}>
 
@@ -4272,7 +4273,7 @@ function ThreadRow({ message, isExpanded, threadMsgs, isLoadingThread, selectedM
                 color: unreadCount > 0 ? 'var(--text-primary)' : 'var(--text-secondary)',
                 overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', flex: 1,
               }}>
-                {showParentDirection && <span data-message-direction={isOutgoing ? 'outgoing' : 'incoming'} aria-hidden="true" title={isOutgoing ? t('conversation.you') : t('conversation.unknownSender')} style={{ color: isOutgoing ? 'var(--accent)' : 'var(--blue, #3b82f6)', marginRight: 4, fontWeight: 700 }}>{direction}</span>}{isOutgoing ? t('conversation.you') : (message.from_name || message.from_email || t('common.unknown', 'Unknown'))}
+                {showParentDirection && <span style={{ marginRight: 4 }}><MessageDirection direction={parentDirection} label={isOutgoing ? t('conversation.outgoingMessage') : t('conversation.incomingMessage')} /></span>}{isOutgoing ? t('conversation.you') : (message.from_name || message.from_email || t('common.unknown', 'Unknown'))}
               </span>
               {messageCount > 1 && (
                 <button
@@ -4396,9 +4397,10 @@ function ThreadRow({ message, isExpanded, threadMsgs, isLoadingThread, selectedM
                     overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', flex: 1,
                   }}>
                     {(() => {
-                      const childOutgoing = ownAddresses?.has(String(msg.from_email || '').toLowerCase());
+                      const childDirection = directionFromAddress(msg.from_email, ownAddresses);
+                      const childOutgoing = childDirection === 'outgoing';
                       return <>
-                        <span data-message-direction={childOutgoing ? 'outgoing' : 'incoming'} aria-label={childOutgoing ? t('conversation.you') : t('conversation.unknownSender')} style={{ color: childOutgoing ? 'var(--accent)' : 'var(--blue, #3b82f6)', marginRight: 5, fontWeight: 700 }}>{childOutgoing ? '→' : '←'}</span>
+                        {childDirection && <span style={{ marginRight: 5 }}><MessageDirection direction={childDirection} label={childOutgoing ? t('conversation.outgoingMessage') : t('conversation.incomingMessage')} /></span>}
                         {childOutgoing ? t('conversation.you') : (msg.from_name || msg.from_email || t('common.unknown', 'Unknown'))}
                       </>;
                     })()}

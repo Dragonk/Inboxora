@@ -1131,7 +1131,11 @@
     "groupIntoConversationsOn": "On",
     "readerOff": "Disabled",
     "readerOn": "Enabled",
-    "groupIntoConversations": "Seskupit zprávy do konverzací"
+    "groupIntoConversations": "Seskupit zprávy do konverzací",
+    "incomingMessage": "Příchozí zpráva",
+    "outgoingMessage": "Odchozí zpráva",
+    "expandMessage": "Rozbalit zprávu od {{sender}}: {{subject}}",
+    "collapseMessage": "Sbalit zprávu od {{sender}}: {{subject}}"
   },
   "diagnostics": {
     "section": "Diagnostika",

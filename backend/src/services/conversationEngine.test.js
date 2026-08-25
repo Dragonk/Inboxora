@@ -38,6 +38,13 @@ describe('Conversation Engine v2 primitives', () => {
       .toBe(logicalMessageIdentity({ ...common, body_text: 'Sent wrapper with provider footer' }, { userId: 'user-1' }).collisionKey);
     expect(logicalMessageIdentity({ ...common, from_email: 'collision@example.test' }, { userId: 'user-1' }).collisionKey)
       .not.toBe(logicalMessageIdentity(common, { userId: 'user-1' }).collisionKey);
+    expect(logicalMessageIdentity({ ...common, thread_references: '<earlier@test>' }, { userId: 'user-1' }).collisionKey)
+      .toBe(logicalMessageIdentity({ ...common, thread_references: null }, { userId: 'user-1' }).collisionKey);
+  });
+
+  it('uses the shared opaque Message-ID normalizer for canonical identity', () => {
+    expect(logicalMessageIdentity({ message_id: ' <ABC@EXAMPLE> ' }, { userId: 'user-1' }).canonicalMessageId).toBe('<ABC@EXAMPLE>');
+    expect(logicalMessageIdentity({ message_id: '<broken id>' }, { userId: 'user-1' }).canonicalMessageId).toBeNull();
   });
 
   it('keeps unrelated identical subjects as independent new roots without evidence', () => {
@@ -55,13 +62,14 @@ describe('Conversation Engine v2 primitives', () => {
     expect(new Set(decisions.map(decision => decision.reason))).toEqual(new Set(['new-root']));
   });
 
-  it('splits a material subject change despite a strong RFC parent', () => {
+  it('keeps an unambiguous RFC parent authoritative across a subject change', () => {
     const result = threadingDecision({
       message: { message_id: '<child>', subject: 'New Topic' },
       parent: { message_id: '<parent>', subject: 'Old Topic' },
       userId: 'u1',
     });
-    expect(result.reason).toBe('subject-change-split');
-    expect(result.relatedParentMessageId).toBe('<parent>');
+    expect(result.reason).toBe('rfc-in-reply-to');
+    expect(result.kind).toBe('human_reply_chain');
+    expect(result.subjectChanged).toBe(true);
   });
 });

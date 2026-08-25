@@ -1131,7 +1131,11 @@
     "groupIntoConversationsOn": "On",
     "readerOff": "Disabled",
     "readerOn": "Enabled",
-    "groupIntoConversations": "Raggruppa i messaggi nelle conversazioni"
+    "groupIntoConversations": "Raggruppa i messaggi nelle conversazioni",
+    "incomingMessage": "Messaggio in arrivo",
+    "outgoingMessage": "Messaggio in uscita",
+    "expandMessage": "Espandi il messaggio di {{sender}}: {{subject}}",
+    "collapseMessage": "Comprimi il messaggio di {{sender}}: {{subject}}"
   },
   "diagnostics": {
     "section": "Diagnostica",
