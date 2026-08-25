@@ -156,3 +156,28 @@ describe('GET /api/mail/messages/:ref/conversation', () => {
     expect(query).not.toHaveBeenCalled();
   });
 });
+
+describe('GET /api/mail/conversations/:id detail scope', () => {
+  it('loads every logical message in the user-owned conversation without selected-account filtering', async () => {
+    const canonical = '22222222-2222-4222-8222-222222222222';
+    const client = { query: vi.fn(), release: vi.fn() };
+    const { pool } = await import('../services/db.js');
+    const originalConnect = pool.connect;
+    pool.connect = vi.fn().mockResolvedValue(client);
+    client.query
+      .mockResolvedValueOnce({ rows: [] })
+      .mockResolvedValueOnce({ rows: [{ id: canonical, user_id: 'user-a', logical_id: 'logical-a', canonical_message_id: '<m1@test>', subject: 'Cross', direction: 'incoming', message_date: '2026-08-25T10:00:00Z', threading_reason: 'new-root', threading_confidence: 1, copies: [{ id: COPY_ID, accountId: 'account-a' }] }] });
+
+    let detailServer;
+    await new Promise(resolve => { detailServer = buildApp().listen(0, resolve); });
+    const response = await fetch(`http://127.0.0.1:${detailServer.address().port}/api/mail/conversations/${canonical}`, { headers: { 'x-test-user': 'user-a' } });
+    expect(response.status).toBe(200);
+    const [sql, params] = client.query.mock.calls[1];
+    expect(sql).toContain('WHERE c.id = $1 AND c.user_id = $2');
+    expect(sql).not.toContain('m.account_id =');
+    expect(sql).not.toContain('lm.account_id');
+    expect(params).toEqual([canonical, 'user-a']);
+    await new Promise(resolve => detailServer.close(resolve));
+    pool.connect = originalConnect;
+  });
+});

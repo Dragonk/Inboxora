@@ -35,11 +35,10 @@ if (USE_DIV_RENDER) {
   ({ prepareEmailHtml }                    = await import('../utils/scopeEmailCss.js'));
   ({ injectEmailStyles, removeEmailStyles } = await import('../utils/emailStyleRegistry.js'));
 }
-import { senderColor } from '../themes.js';
 import MessageHeaderModal from './MessageHeaderModal.jsx';
 import FolderIcon from './FolderIcon.jsx';
 import TodoistTaskModal from './TodoistTaskModal.jsx';
-import SenderAvatarImage from './SenderAvatarImage.jsx';
+import { MessageAvatar } from './MessagePresentation.jsx';
 import ContextMenu from './ContextMenu.jsx';
 
 function parseAddressField(raw) {
@@ -2462,19 +2461,12 @@ ${bodyContent}
 
           <div style={{ display: 'flex', alignItems: 'flex-start', gap: 12, padding: '12px 16px' }}>
             {/* Avatar */}
-            <div style={{
-              width: 40, height: 40, borderRadius: '50%', flexShrink: 0,
-              background: senderColor(message.from_email || message.from_name),
-              display: 'flex', alignItems: 'center', justifyContent: 'center',
-              fontSize: 16, fontWeight: 700, color: 'white',
-              position: 'relative', overflow: 'hidden',
-            }}>
-              {(message.from_name || message.from_email || '?')[0].toUpperCase()}
-              <SenderAvatarImage
-                email={message.from_email}
-                hasContactPhoto={message.has_contact_photo}
-              />
-            </div>
+            <MessageAvatar
+              email={message.from_email}
+              name={message.from_name}
+              size={40}
+              hasContactPhoto={message.has_contact_photo}
+            />
 
             {/* Sender info */}
             <div style={{ flex: 1, minWidth: 0 }}>

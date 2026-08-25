@@ -33,10 +33,28 @@ export function fingerprint(value) {
   return createHash('sha256').update(String(value || '')).digest('hex');
 }
 
+function normalizeIdentityEvidence(value) {
+  if (!value) return '';
+  const values = Array.isArray(value) ? value : String(value).match(/<[^>]+>/g) || [String(value)];
+  return values.map(item => String(item).trim().toLowerCase()).join(' ');
+}
+
 export function logicalMessageIdentity(message, { userId } = {}) {
   const rawId = message.message_id || message.messageId || null;
   const canonical = rawId ? String(rawId).trim().replace(/^<|>$/g, '') : null;
-  const stable = [userId || '', canonical || '', message.date || '', message.subject || '', message.from_email || '', message.body_fingerprint || message.body_text || '', message.header_fingerprint || message.thread_references || '', message.in_reply_to || ''].join('\u001f');
+  // Physical copies of one RFC message can legitimately have different stored bodies
+  // (provider-added wrappers, remote-image sanitization, All Mail vs Sent copies).  Body
+  // content therefore cannot participate in the collision discriminator.  Keep the key
+  // account-independent and based on stable RFC envelope evidence so copies held by two
+  // managed accounts collapse into one LogicalMessage, while genuinely colliding IDs with
+  // different sender/date/subject/reply evidence remain distinct.
+  const stable = [
+    userId || '', canonical || '', message.date || '',
+    canonicalConversationSubject(message.subject || ''),
+    addressOf(message.from_email || message.from || message.sender) || '',
+    normalizeIdentityEvidence(message.in_reply_to),
+    normalizeIdentityEvidence(message.thread_references || message.references),
+  ].join('\u001f');
   return { userId: userId || null, canonicalMessageId: canonical ? `<${canonical}>` : null, rawMessageId: rawId, collisionKey: fingerprint(stable) };
 }
 

@@ -34,17 +34,31 @@ function normalizeAddress(raw) {
 }
 
 export async function resolveOwnIdentityAddresses(db, accountId, message = null) {
-  const result = await db.query(`SELECT a.email_address,
-      COALESCE(json_agg(DISTINCT jsonb_build_object('email', aa.email)) FILTER (WHERE aa.id IS NOT NULL), '[]'::json) AS aliases
-    FROM email_accounts a LEFT JOIN account_aliases aa ON aa.account_id = a.id
-   WHERE a.id = $1 GROUP BY a.id`, [accountId]);
-  const account = result?.rows?.[0] || {};
-  const identities = ownIdentityAddresses(account);
+  // Direction is a user-level property. A message sent from managed account B and
+  // observed in account A must still be classified as outgoing. Resolve every managed
+  // address/alias owned by the account's user, not only aliases of the current account.
+  const result = await db.query(`
+    SELECT owner.user_id,
+           COALESCE(json_agg(DISTINCT jsonb_build_object('email', owned.email_address))
+             FILTER (WHERE owned.email_address IS NOT NULL), '[]'::json) AS identities
+      FROM email_accounts owner
+      JOIN email_accounts owned ON owned.user_id = owner.user_id
+     WHERE owner.id = $1
+     GROUP BY owner.user_id
+  `, [accountId]);
+  const owned = result?.rows?.[0] || {};
+  const identities = (Array.isArray(owned.identities) ? owned.identities : [])
+    .map(item => item?.email || item)
+    .filter(Boolean);
+  const aliases = await db.query(`
+    SELECT aa.email
+      FROM email_accounts owner
+      JOIN email_accounts managed ON managed.user_id = owner.user_id
+      JOIN account_aliases aa ON aa.account_id = managed.id
+     WHERE owner.id = $1
+  `, [accountId]);
+  identities.push(...(aliases?.rows || []).map(row => row.email).filter(Boolean));
 
-  // P1-05: include persisted message.delivery_addresses (migration 0037 column).
-  // These are the actual delivery identities for this specific message — catch-all
-  // addresses, shared mailbox deliveries, etc. — and must be part of own-identity
-  // resolution so direction/reply-all classify them correctly.
   if (message?.delivery_addresses) {
     const delivery = Array.isArray(message.delivery_addresses)
       ? message.delivery_addresses
@@ -57,8 +71,6 @@ export async function resolveOwnIdentityAddresses(db, accountId, message = null)
     }
   }
 
-  // Delivery headers (Delivered-To, X-Original-To, Envelope-To) — these may
-  // contain catch-all or forwarded addresses not in the DB aliases.
   const deliveryHeaders = [message?.parsedHeaders, message?.headers].filter(Boolean);
   const headerValue = (name) => {
     for (const headers of deliveryHeaders) {

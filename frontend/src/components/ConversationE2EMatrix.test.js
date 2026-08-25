@@ -23,9 +23,13 @@ describe('native conversation 2x2 contract', () => {
   });
   it('uses compact native-pane message cards and per-message reply targets', () => {
     const reader = read('ConversationReader.jsx'); const item = read('ConversationMessage.jsx');
-    assert.match(reader, /new Set\(\[newest, targetLogicalMessageId, \.\.\.unread\]/);
-    assert.match(item, /data-conversation-message-actions/);
+    assert.match(reader, /new Set\(\[targetLogicalMessageId \|\| newest\]\.filter\(Boolean\)\)/);
+    assert.match(item, /MessageActionBar/);
+    const presentation = read('MessagePresentation.jsx');
+    assert.match(presentation, /data-conversation-message-actions/);
     assert.match(item, /logicalMessageId: message\.id/);
     assert.match(item, /MessageBodyRenderer/);
+    assert.match(item, /data-conversation-message-state/);
+    assert.doesNotMatch(item, /boxShadow|borderRadius: 10|marginBottom: 24/);
   });
 });

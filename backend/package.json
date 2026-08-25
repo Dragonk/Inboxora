@@ -12,7 +12,8 @@
     "test:watch": "vitest",
     "lint": "eslint src --max-warnings 0",
     "lint:plugins": "eslint -c eslint.plugins-boundary.js src/plugins",
-    "audit:redos": "npm i --no-save --silent eslint-plugin-redos && eslint -c eslint.redos.config.mjs src"
+    "audit:redos": "npm i --no-save --silent eslint-plugin-redos && eslint -c eslint.redos.config.mjs src",
+    "diagnose:conversation": "node src/scripts/conversationDiagnostic.js"
   },
   "dependencies": {
     "archiver": "^7.0.1",

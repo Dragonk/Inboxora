@@ -1,10 +1,6 @@
-// Native-pane conversation item.  This deliberately shares the same visual tokens,
-// body renderer and attachment affordances as MessagePane; the reader only supplies
-// logical-message data and expansion state.
 import { useTranslation } from 'react-i18next';
 import MessageBodyRenderer from './MessageBodyRenderer.jsx';
-import { senderColor } from '../themes.js';
-import SenderAvatarImage from './SenderAvatarImage.jsx';
+import { MessageActionBar, MessageAvatar, MessageDirection, actionStyle, messageDirection } from './MessagePresentation.jsx';
 
 function preferredCopy(message) {
   return [...(message.copies || [])].sort((a, b) => String(b.date || '').localeCompare(String(a.date || '')))[0] || {};
@@ -20,42 +16,41 @@ function date(value) { return value ? new Date(value).toLocaleString([], { year:
 export default function ConversationMessage({ message, expanded, onToggle, body, status, onLoadBody, onRemoteImages, onReply }) {
   const { t } = useTranslation();
   const copy = preferredCopy(message);
-  const outgoing = message.direction === 'outgoing' || message.direction === 'self';
+  const direction = messageDirection(message.direction);
+  const outgoing = direction === 'outgoing';
   const attachments = Array.isArray(body?.attachments) ? body.attachments : (Array.isArray(copy.attachments) ? copy.attachments : []);
   const sender = outgoing ? t('conversation.you') : (copy.fromName || copy.fromEmail || t('conversation.unknownSender'));
   const toggle = () => { onToggle(message.id); if (!expanded && !body && !status?.loading) onLoadBody(message.id); };
   const reply = (replyAll = false, forward = false) => onReply?.({ ...copy, logicalMessageId: message.id, selectedCopyId: copy.id, replyAll, forward, attachments });
-  // A stack item intentionally has no independent card system. It shares the pane's
-  // avatar, header/body tokens and renderer, with only a hairline separating messages.
-  return (
-    <article id={`logical-message-${message.id}`} data-logical-message-id={message.id} style={{
-      borderBottom: '1px solid var(--border-subtle)', background: expanded ? 'var(--bg-primary)' : 'transparent',
-    }}>
-      <button type="button" aria-expanded={expanded} onClick={toggle} style={{ display: 'flex', width: '100%', padding: expanded ? '16px 28px 12px' : '10px 28px', border: 0, background: 'transparent', color: 'var(--text-primary)', cursor: 'pointer', textAlign: 'left', gap: 10 }}>
-        <span style={{ width: expanded ? 34 : 28, height: expanded ? 34 : 28, borderRadius: '50%', flexShrink: 0, background: senderColor(copy.fromEmail || sender), color: 'white', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: expanded ? 14 : 12, fontWeight: 700, overflow: 'hidden', position: 'relative' }}>
-          {sender[0]?.toUpperCase()}<SenderAvatarImage email={copy.fromEmail} />
-        </span>
+  const subject = message.subject || copy.subject || copy.snippet || t('message.noSubject');
+
+  return <article id={`logical-message-${message.id}`} data-logical-message-id={message.id} data-conversation-message-state={expanded ? 'expanded' : 'collapsed'} style={{ borderBottom: '1px solid var(--border-subtle)', background: expanded ? 'var(--bg-primary)' : 'transparent' }}>
+    {!expanded ? <button type="button" aria-expanded="false" onClick={toggle} style={{ display: 'flex', alignItems: 'center', width: '100%', minHeight: 52, padding: '8px 16px', border: 0, background: 'transparent', color: 'var(--text-primary)', cursor: 'pointer', textAlign: 'left', gap: 10 }}>
+      <MessageAvatar email={copy.fromEmail} name={sender} size={30} />
+      <MessageDirection direction={direction} label={outgoing ? t('conversation.you') : t('conversation.unknownSender')} />
+      <strong style={{ fontSize: 13, maxWidth: '28%', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{sender}</strong>
+      <span style={{ flex: 1, minWidth: 0, fontSize: 12, color: 'var(--text-secondary)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{subject}</span>
+      {attachments.length > 0 && <span aria-label={t('message.attachment', { count: attachments.length })}>📎</span>}
+      <time style={{ fontSize: 11, color: 'var(--text-tertiary)', whiteSpace: 'nowrap' }}>{date(message.messageDate || copy.date)}</time>
+    </button> : <>
+      <div style={{ padding: '8px 20px 0' }}>
+        <MessageActionBar targetId={message.id} onReply={e => { e.stopPropagation(); reply(); }} onReplyAll={e => { e.stopPropagation(); reply(true); }} onForward={e => { e.stopPropagation(); reply(false, true); }} />
+      </div>
+      <button type="button" aria-expanded="true" onClick={toggle} style={{ display: 'flex', width: '100%', padding: '2px 20px 12px', border: 0, background: 'transparent', color: 'var(--text-primary)', cursor: 'pointer', textAlign: 'left', gap: 12 }}>
+        <MessageAvatar email={copy.fromEmail} name={sender} size={40} />
         <span style={{ flex: 1, minWidth: 0 }}>
-          <span style={{ display: 'flex', gap: 8, alignItems: 'baseline' }}>
-            <strong style={{ fontSize: 13, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}><span aria-hidden="true" style={{ color: 'var(--text-tertiary)', marginRight: 5 }}>{outgoing ? '→' : '←'}</span>{sender}</strong>
-            <time style={{ marginLeft: 'auto', fontSize: 12, fontWeight: 400, color: 'var(--text-tertiary)', whiteSpace: 'nowrap' }}>{date(message.messageDate || copy.date)}</time>
-          </span>
-          {expanded ? <><span style={{ display: 'block', fontSize: 12, color: 'var(--text-tertiary)', marginTop: 3 }}>{t('message.to')} {address(copy.to)}</span><span style={{ display: 'block', marginTop: 7, fontSize: 17, fontWeight: 600, lineHeight: 1.3 }}>{message.subject || copy.subject || t('message.noSubject')}</span></> : <span style={{ display: 'block', marginTop: 2, fontSize: 12, color: 'var(--text-tertiary)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{message.subject || copy.subject || copy.snippet || t('message.noSubject')}</span>}
+          <span style={{ display: 'block', fontSize: 17, fontWeight: 600, lineHeight: 1.3, marginBottom: 8 }}>{subject}</span>
+          <span style={{ display: 'flex', alignItems: 'baseline', gap: 6 }}><MessageDirection direction={direction} label={outgoing ? t('conversation.you') : t('conversation.unknownSender')} /><strong style={{ fontSize: 14 }}>{sender}</strong>{copy.fromName && copy.fromEmail && <span style={{ fontSize: 12, color: 'var(--text-tertiary)' }}>&lt;{copy.fromEmail}&gt;</span>}<time style={{ marginLeft: 'auto', fontSize: 11, color: 'var(--text-tertiary)', whiteSpace: 'nowrap' }}>{date(message.messageDate || copy.date)}</time></span>
+          <span style={{ display: 'block', fontSize: 12, color: 'var(--text-tertiary)', marginTop: 3 }}>{t('message.to')} {address(copy.to)}</span>
         </span>
       </button>
-      {expanded && <div style={{ padding: '0 28px 22px 72px' }}>
-        <div data-conversation-message-actions="true" style={{ padding: '0 0 10px', display: 'flex', gap: 6 }}>
-          <button type="button" onClick={e => { e.stopPropagation(); reply(); }} style={actionStyle}>{t('message.reply')}</button>
-          <button type="button" onClick={e => { e.stopPropagation(); reply(true); }} style={actionStyle}>{t('message.replyAll')}</button>
-          <button type="button" onClick={e => { e.stopPropagation(); reply(false, true); }} style={actionStyle}>{t('message.forward')}</button>
-        </div>
+      <div style={{ padding: '4px 20px 22px 72px' }}>
         {status?.loading && <div role="status" style={{ padding: 16, color: 'var(--text-tertiary)' }}>{t('conversation.loadingBody')}</div>}
         {status?.error && <div role="alert" style={{ padding: 16, color: 'var(--text-danger)' }}>{status.error}</div>}
         {body && <MessageBodyRenderer html={body.body_html} text={body.body_text} remoteImages={Boolean(body.remoteImages)} collapseQuotes />}
         {body?.hasBlockedRemoteImages && <button type="button" onClick={() => onRemoteImages(message.id)} style={{ ...actionStyle, marginTop: 10 }}>{t('conversation.loadImages')}</button>}
-        {attachments.length > 0 && <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, marginTop: 14 }}>{attachments.map((attachment, index) => <a key={attachment.part || index} href={body?.physical_copy_id ? `/api/mail/messages/${encodeURIComponent(body.physical_copy_id)}/attachments/${encodeURIComponent(String(attachment.part || index))}` : undefined} download={attachment.filename} style={{ ...actionStyle, textDecoration: 'none' }}>📎 {attachment.filename || attachment.name || 'attachment'}</a>)}</div>}
-      </div>}
-    </article>
-  );
+        {attachments.length > 0 && <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, marginTop: 14 }}>{attachments.map((attachment, index) => <a key={attachment.part || index} href={body?.physical_copy_id ? `/api/mail/messages/${encodeURIComponent(body.physical_copy_id)}/attachments/${encodeURIComponent(String(attachment.part || index))}` : undefined} download={attachment.filename} style={{ ...actionStyle, border: '1px solid var(--border)', textDecoration: 'none' }}>📎 {attachment.filename || attachment.name || 'attachment'}</a>)}</div>}
+      </div>
+    </>}
+  </article>;
 }
-const actionStyle = { border: '1px solid var(--border)', borderRadius: 6, padding: '5px 9px', background: 'transparent', color: 'var(--text-secondary)', cursor: 'pointer', fontSize: 12 };

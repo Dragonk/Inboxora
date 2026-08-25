@@ -125,6 +125,62 @@ describeOrSkip('CE v2 PostgreSQL regression tests', () => {
     }, 30000);
   });
 
+  // ── A2. Cross-managed-account RFC chain ────────────────────────────────
+  describe('A2. Cross-managed-account RFC chain', () => {
+    async function assertResolvedConversation(copyId, expectedConversationId) {
+      const resolved = await query(`
+        SELECT m.logical_message_id, m.conversation_id
+          FROM messages m JOIN email_accounts a ON a.id = m.account_id
+         WHERE m.id = $1 AND a.user_id = $2 AND m.is_deleted = false
+      `, [copyId, TEST_USER_ID]);
+      expect(resolved.rows[0].conversation_id).toBe(expectedConversationId);
+      const detail = await query(`
+        SELECT lm.canonical_message_id
+          FROM logical_messages lm
+         WHERE lm.user_id = $1 AND lm.conversation_id = $2
+         ORDER BY lm.message_date ASC, lm.id
+      `, [TEST_USER_ID, expectedConversationId]);
+      expect(detail.rows.map(row => row.canonical_message_id)).toEqual(['<m1@test>', '<m2@test>', '<m3@test>']);
+    }
+
+    it('links A→B, B→A, A→B into one user-scoped conversation and resolves every physical copy to all three messages', async () => {
+      const messages = [
+        { messageId: '<m1@test>', fromEmail: 'me@example.test', to: 'me2@example.test', inReplyTo: null, references: null, direction: 'outgoing' },
+        { messageId: '<m2@test>', fromEmail: 'me2@example.test', to: 'me@example.test', inReplyTo: '<m1@test>', references: '<m1@test>', direction: 'outgoing' },
+        { messageId: '<m3@test>', fromEmail: 'outside@example.test', to: 'me@example.test', inReplyTo: '<m2@test>', references: '<m1@test> <m2@test>', direction: 'incoming' },
+      ];
+      const physicalIds = [];
+      for (let index = 0; index < messages.length; index++) {
+        const item = messages[index];
+        for (const [copyIndex, accountId, folder] of [[0, TEST_ACCOUNT_ID, index % 2 ? 'INBOX' : 'Sent'], [1, ALT_ACCOUNT_ID, index % 2 ? 'Sent' : 'INBOX']]) {
+          physicalIds.push(await insertMessage({ accountId, uid: 600 + index * 10 + copyIndex, folder, messageId: item.messageId, subject: index ? 'Re: Cross account' : 'Cross account', fromEmail: item.fromEmail, toAddresses: [{ email: item.to }], inReplyTo: item.inReplyTo, references: item.references, date: new Date(`2026-08-25T11:4${index}:00Z`), bodyText: copyIndex ? `provider wrapper ${index}` : `body ${index}`, isRead: true }));
+        }
+      }
+
+      await rebuildConversationCopies({ userId: TEST_USER_ID, accountId: null, limit: 500, dryRun: false, force: true });
+      const logical = await query('SELECT id, conversation_id, direction FROM logical_messages WHERE user_id = $1 ORDER BY message_date ASC', [TEST_USER_ID]);
+      expect(logical.rows).toHaveLength(3);
+      expect(new Set(logical.rows.map(row => row.conversation_id)).size).toBe(1);
+      const conversationId = logical.rows[0].conversation_id;
+      expect(logical.rows.map(row => row.direction)).toEqual(messages.map(item => item.direction));
+      const copies = await query('SELECT COUNT(*)::int AS count, COUNT(DISTINCT account_id)::int AS accounts FROM messages WHERE conversation_id = $1', [conversationId]);
+      expect(copies.rows[0]).toEqual({ count: 6, accounts: 2 });
+      for (const physicalId of physicalIds) await assertResolvedConversation(physicalId, conversationId);
+    }, 60000);
+
+    it('repairs legacy cross-account physical rows with no CE identity through the production rebuild', async () => {
+      const ids = [];
+      ids.push(await insertMessage({ accountId: TEST_ACCOUNT_ID, uid: 701, folder: 'Sent', messageId: '<legacy-m1@test>', subject: 'Legacy chain', fromEmail: 'me@example.test', toAddresses: [{ email: 'me2@example.test' }], date: new Date('2026-08-25T12:00:00Z'), isRead: true }));
+      ids.push(await insertMessage({ accountId: ALT_ACCOUNT_ID, uid: 702, folder: 'Sent', messageId: '<legacy-m2@test>', subject: 'Re: Legacy chain', fromEmail: 'me2@example.test', toAddresses: [{ email: 'me@example.test' }], inReplyTo: '<legacy-m1@test>', references: '<legacy-m1@test>', date: new Date('2026-08-25T12:01:00Z'), isRead: true }));
+      ids.push(await insertMessage({ accountId: TEST_ACCOUNT_ID, uid: 703, folder: 'Sent', messageId: '<legacy-m3@test>', subject: 'Re: Legacy chain', fromEmail: 'me@example.test', toAddresses: [{ email: 'me2@example.test' }], inReplyTo: '<legacy-m2@test>', references: '<legacy-m1@test> <legacy-m2@test>', date: new Date('2026-08-25T12:02:00Z'), isRead: true }));
+      const before = await query('SELECT COUNT(*)::int AS count FROM messages WHERE id = ANY($1::uuid[]) AND logical_message_id IS NULL AND conversation_id IS NULL', [ids]);
+      expect(before.rows[0].count).toBe(3);
+      await rebuildConversationCopies({ userId: TEST_USER_ID, accountId: null, limit: 500, dryRun: false, force: true });
+      const after = await query('SELECT COUNT(DISTINCT logical_message_id)::int AS logicals, COUNT(DISTINCT conversation_id)::int AS conversations FROM messages WHERE id = ANY($1::uuid[])', [ids]);
+      expect(after.rows[0]).toEqual({ logicals: 3, conversations: 1 });
+    }, 60000);
+  });
+
   // ── B. Subject Test ×100 ──────────────────────────────────────────────────
   describe('B. Subject Test ×100: zero false merges', () => {
     it('does not group 100 unrelated "Subject: Test" messages into conversations', async () => {

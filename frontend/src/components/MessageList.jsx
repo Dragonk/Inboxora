@@ -4123,10 +4123,11 @@ function ThreadRow({ message, isExpanded, threadMsgs, isLoadingThread, selectedM
   const [hovered, setHovered] = useState(false);
   const messageCount = message.message_count || 1;
   const unreadCount  = parseInt(message.unread_count) || 0;
-  // Grouped rows stay the native ThreadRow. Direction is deliberately only a
-  // small semantic token, inferred from the account's known own addresses.
+  // A parent summarizes the conversation. Only a single-message parent can carry
+  // one truthful direction; expanded physical children classify themselves below.
   const isOutgoing = ownAddresses?.has(String(message.from_email || '').toLowerCase());
   const direction = isOutgoing ? '→' : '←';
+  const showParentDirection = messageCount === 1;
 
   const { contentRef, swipeBgLeftRef, swipeBgRightRef, tappedRef } = useSwipeRow({
     isMobile, message, onSwipeLeft, onSwipeRight, onLongPress,
@@ -4271,7 +4272,7 @@ function ThreadRow({ message, isExpanded, threadMsgs, isLoadingThread, selectedM
                 color: unreadCount > 0 ? 'var(--text-primary)' : 'var(--text-secondary)',
                 overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', flex: 1,
               }}>
-                <span aria-hidden="true" title={isOutgoing ? t('conversation.you') : t('conversation.unknownSender')} style={{ color: 'var(--text-tertiary)', marginRight: 4 }}>{direction}</span>{isOutgoing ? t('conversation.you') : (message.from_name || message.from_email || t('common.unknown', 'Unknown'))}
+                {showParentDirection && <span data-message-direction={isOutgoing ? 'outgoing' : 'incoming'} aria-hidden="true" title={isOutgoing ? t('conversation.you') : t('conversation.unknownSender')} style={{ color: isOutgoing ? 'var(--accent)' : 'var(--blue, #3b82f6)', marginRight: 4, fontWeight: 700 }}>{direction}</span>}{isOutgoing ? t('conversation.you') : (message.from_name || message.from_email || t('common.unknown', 'Unknown'))}
               </span>
               {messageCount > 1 && (
                 <button
@@ -4394,7 +4395,13 @@ function ThreadRow({ message, isExpanded, threadMsgs, isLoadingThread, selectedM
                     color: msg.is_read ? 'var(--text-secondary)' : 'var(--text-primary)',
                     overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', flex: 1,
                   }}>
-                    {msg.from_name || msg.from_email || t('common.unknown', 'Unknown')}
+                    {(() => {
+                      const childOutgoing = ownAddresses?.has(String(msg.from_email || '').toLowerCase());
+                      return <>
+                        <span data-message-direction={childOutgoing ? 'outgoing' : 'incoming'} aria-label={childOutgoing ? t('conversation.you') : t('conversation.unknownSender')} style={{ color: childOutgoing ? 'var(--accent)' : 'var(--blue, #3b82f6)', marginRight: 5, fontWeight: 700 }}>{childOutgoing ? '→' : '←'}</span>
+                        {childOutgoing ? t('conversation.you') : (msg.from_name || msg.from_email || t('common.unknown', 'Unknown'))}
+                      </>;
+                    })()}
                   </span>
                   <span style={{ fontSize: 11, color: 'var(--text-tertiary)', flexShrink: 0, marginLeft: 8 }}>
                     {formatDate(msg.date)}

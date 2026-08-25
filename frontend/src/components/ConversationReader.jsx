@@ -21,8 +21,9 @@ export default function ConversationReader({ conversationId, targetLogicalMessag
       if (!active) return;
       const messages = result.logicalMessages || [];
       const newest = messages.at(-1)?.id;
-      const unread = messages.filter(message => message.copies?.some(copy => !copy.isRead)).map(message => message.id);
-      setExpanded(new Set([newest, targetLogicalMessageId, ...unread].filter(Boolean)));
+      // Keep the reader compact: one relevant message is expanded initially. A selected
+      // physical child wins; otherwise the newest logical message is opened.
+      setExpanded(new Set([targetLogicalMessageId || newest].filter(Boolean)));
       setData(result);
     }).catch(reason => active && setError(reason.message || t('conversation.loadFailed')));
     const controllers = aborters.current;
@@ -46,7 +47,7 @@ export default function ConversationReader({ conversationId, targetLogicalMessag
   const toggle = useCallback(id => setExpanded(previous => { const next = new Set(previous); next.has(id) ? next.delete(id) : next.add(id); return next; }), []);
   if (!data && !error) return <div role="status" style={{ padding: 24, textAlign: 'center', color: 'var(--text-tertiary)' }}>{t('conversation.loading')}</div>;
   if (error) return <div role="alert" style={{ padding: 16, color: 'var(--text-danger)' }}>{error}</div>;
-  return <section aria-label={t('conversation.label')} data-conversation-id={conversationId} style={{ flex: 1, overflowY: 'auto', overflowX: 'hidden', padding: '24px 28px', minWidth: 0 }}>
+  return <section aria-label={t('conversation.label')} data-conversation-id={conversationId} style={{ flex: 1, overflowY: 'auto', overflowX: 'hidden', padding: '0 16px', minWidth: 0 }}>
     {messages.map(message => <ConversationMessage key={message.id} message={message} expanded={expanded.has(message.id)} onToggle={toggle} body={bodies[message.id]} status={bodyStatus[message.id]} onLoadBody={loadBody} onRemoteImages={id => loadBody(id, true, true)} onReply={onReply} />)}
   </section>;
 }
