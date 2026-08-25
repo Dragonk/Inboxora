@@ -1,6 +1,7 @@
 name: Conversation Engine v2 PostgreSQL Integration
 
 on:
+  workflow_dispatch:
   push:
     branches:
       - feat/threading-v2-integration-live
