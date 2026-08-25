@@ -230,7 +230,7 @@ jobs:
         run: |
           node --test src/services/conversationPostgresIntegrationReal.integration.js 2>&1 | tee ../artifacts/postgres-real-extended.log
           node --test src/services/conversationRebuildIdempotencyReal.integration.js 2>&1 | tee ../artifacts/rebuild-idempotency-real.log
-          npx vitest run src/services/conversationPgRegression.integration.js 2>&1 | tee ../artifacts/pg-regression.log
+          npx vitest run src/services/conversationPgRegression.integration.test.js 2>&1 | tee ../artifacts/pg-regression.log
 
       - name: Security gate
         working-directory: backend
