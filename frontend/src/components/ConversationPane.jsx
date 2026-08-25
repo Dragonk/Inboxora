@@ -247,7 +247,7 @@ export default function ConversationPane({ conversationId, targetLogicalMessageI
       ref={containerRef}
       aria-label={t('conversation.label')}
       data-conversation-id={conversationId}
-      style={{ overflow: 'auto', height: '100%', padding: '0 12px' }}
+      style={{ overflow: 'auto', height: '100%', width: '100%', minWidth: 0, maxWidth: 'none', padding: '0 12px' }}
     >
       {/* Conversation header */}
       <header style={{ padding: '12px 0', borderBottom: '1px solid var(--border)' }}>
@@ -407,6 +407,7 @@ export default function ConversationPane({ conversationId, targetLogicalMessageI
 
               <div style={{ flex: 1, minWidth: 0 }}>
                 <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                  <span style={{ fontSize: 11, color: 'var(--text-tertiary)' }} aria-hidden="true">{isOutgoing ? '→' : '←'}</span>
                   <strong style={{
                     fontSize: 13,
                     color: isOutgoing ? 'var(--accent)' : 'var(--text-primary)',
@@ -442,6 +443,27 @@ export default function ConversationPane({ conversationId, targetLogicalMessageI
             {isOpen && (
               <div id={bodyId} role="region" aria-label={t('conversation.bodyLabel')} style={{ paddingLeft: 40, paddingRight: 8 }}>
 
+                {/* Per-message action row — compact, above headers/body */}
+                <div style={{ display: 'flex', gap: 4, marginBottom: 8, flexWrap: 'wrap' }}>
+                  <button type="button" onClick={() => onReply?.({ ...copy, copies: message.copies, logicalMessageId: message.id, selectedCopyId: copy?.id, attachments: copy?.attachments || body?.attachments || [] })} style={paneBtnStyle}>
+                    {t('conversation.reply')}
+                  </button>
+                  <button type="button" onClick={() => onReply?.({ ...copy, copies: message.copies, logicalMessageId: message.id, selectedCopyId: copy?.id, attachments: copy?.attachments || body?.attachments || [], replyAll: true })} style={paneBtnStyle}>
+                    {t('conversation.replyAll')}
+                  </button>
+                  <button type="button" onClick={() => onReply?.({ ...copy, copies: message.copies, logicalMessageId: message.id, selectedCopyId: copy?.id, attachments: copy?.attachments || body?.attachments || [], forward: true })} style={paneBtnStyle}>
+                    {t('conversation.forward')}
+                  </button>
+                  {hasMultipleCopies && (
+                    <button
+                      type="button"
+                      onClick={() => setShowCopies(prev => ({ ...prev, [message.id]: !prev[message.id] }))}
+                      style={{ ...paneBtnStyle, marginLeft: 'auto' }}
+                    >
+                      {t('conversation.copies')} ({message.copies.length})
+                    </button>
+                  )}
+                </div>
                 {/* Brief headers (always visible when expanded) */}
                 <div style={{ fontSize: 12, color: 'var(--text-tertiary)', marginBottom: 8, paddingBottom: 8, borderBottom: '1px solid var(--border)' }}>
                   <div><strong>{t('conversation.from')}:</strong> {formatAddress(copy?.from || { name: copy?.fromName, email: copy?.fromEmail })}</div>
@@ -568,28 +590,6 @@ export default function ConversationPane({ conversationId, targetLogicalMessageI
                     })}
                   </div>
                 )}
-
-                {/* Action buttons */}
-                <div style={{ display: 'flex', gap: 8, marginTop: 8, paddingBottom: 4, flexWrap: 'wrap' }}>
-                  <button type="button" onClick={() => onReply?.({ ...copy, copies: message.copies, logicalMessageId: message.id, selectedCopyId: copy?.id, attachments: copy?.attachments || body?.attachments || [] })}>
-                    {t('conversation.reply')}
-                  </button>
-                  <button type="button" onClick={() => onReply?.({ ...copy, copies: message.copies, logicalMessageId: message.id, selectedCopyId: copy?.id, attachments: copy?.attachments || body?.attachments || [], replyAll: true })}>
-                    {t('conversation.replyAll')}
-                  </button>
-                  <button type="button" onClick={() => onReply?.({ ...copy, copies: message.copies, logicalMessageId: message.id, selectedCopyId: copy?.id, attachments: copy?.attachments || body?.attachments || [], forward: true })}>
-                    {t('conversation.forward')}
-                  </button>
-                  {hasMultipleCopies && (
-                    <button
-                      type="button"
-                      onClick={() => setShowCopies(prev => ({ ...prev, [message.id]: !prev[message.id] }))}
-                      style={{ marginLeft: 'auto' }}
-                    >
-                      {t('conversation.copies')} ({message.copies.length})
-                    </button>
-                  )}
-                </div>
 
                 {/* Copy details */}
                 {copiesVisible && (

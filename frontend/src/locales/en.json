@@ -1707,6 +1707,9 @@
     "showQuotedText": "Show quoted text",
     "hideQuotedText": "Hide quoted text",
     "readerOffDesc": "Open only the selected message",
-    "readerOnDesc": "Show the entire conversation in the message pane"
+    "readerOnDesc": "Show the entire conversation in the message pane",
+    "groupIntoConversationsOn": "On",
+    "readerOff": "Disabled",
+    "readerOn": "Enabled"
   }
 }

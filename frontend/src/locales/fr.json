@@ -1707,6 +1707,9 @@
     "showQuotedText": "Afficher le texte cité",
     "hideQuotedText": "Masquer le texte cité",
     "readerOffDesc": "Ouvrir uniquement le message sélectionné",
-    "readerOnDesc": "Afficher toute la conversation dans le panneau de message"
+    "readerOnDesc": "Afficher toute la conversation dans le panneau de message",
+    "groupIntoConversationsOn": "On",
+    "readerOff": "Disabled",
+    "readerOn": "Enabled"
   }
 }

@@ -1970,15 +1970,15 @@ function LayoutsTab() {
         </div>
       </div>
 
-      {/* Threading mode */}
+      {/* Threading mode — Grupowanie rozmów */}
       <div style={{ marginTop: 28, paddingTop: 22, borderTop: '1px solid var(--border-subtle)' }}>
         <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--text-primary)', marginBottom: 4 }}>
-          {t('admin.messageList.threadingMode')}
+          {t('conversation.groupIntoConversations')}
         </div>
         <div style={{ display: 'flex', gap: 8 }}>
           {[
-            { id: false, label: t('admin.messageList.threadingOff'), desc: t('admin.messageList.threadingOffDesc') },
-            { id: true,  label: t('admin.messageList.threadingOn'),  desc: t('admin.messageList.threadingOnDesc') },
+            { id: false, label: t('conversation.seriesOff'), desc: t('admin.messageList.threadingOffDesc') },
+            { id: true,  label: t('conversation.groupIntoConversationsOn'), desc: t('admin.messageList.threadingOnDesc') },
           ].map(({ id, label, desc }) => {
             const active = threadedView === id;
             return (
@@ -2002,19 +2002,16 @@ function LayoutsTab() {
         </div>
       </div>
 
-      {/* Conversation Engine v2 reader — list grouping uses the native threading preference above. */}
+      {/* Conversation reader — Czytnik rozmowy, same card layout as grouping above */}
       <div style={{ marginTop: 20, paddingTop: 16, borderTop: '1px solid var(--border-subtle)' }}>
         <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--text-primary)', marginBottom: 4 }}>
           {t('conversation.conversationReader')}
         </div>
-        <div style={{ fontSize: 11, color: 'var(--text-tertiary)', marginBottom: 10 }}>
-          {conversationReaderViewEnabled ? t('conversation.readerOnDesc') : t('conversation.readerOffDesc')}
-        </div>
         <div style={{ display: 'flex', gap: 8 }}>
           {[
-            { id: false, label: t('admin.messageList.threadingOff') },
-            { id: true, label: t('admin.messageList.threadingOn') },
-          ].map(({ id, label }) => {
+            { id: false, label: t('conversation.readerOff'), desc: t('conversation.readerOffDesc') },
+            { id: true,  label: t('conversation.readerOn'), desc: t('conversation.readerOnDesc') },
+          ].map(({ id, label, desc }) => {
             const active = conversationReaderViewEnabled === id;
             return (
               <button
@@ -2026,10 +2023,12 @@ function LayoutsTab() {
                   background: active ? 'var(--bg-hover)' : 'var(--bg-tertiary)',
                   border: `2px solid ${active ? 'var(--accent)' : 'var(--border-subtle)'}`,
                   borderRadius: 8, cursor: 'pointer', transition: 'all 0.15s', outline: 'none',
-                  color: 'var(--text-primary)',
                 }}
+                onMouseEnter={e => { if (!active) e.currentTarget.style.borderColor = 'var(--border)'; }}
+                onMouseLeave={e => { if (!active) e.currentTarget.style.borderColor = 'var(--border-subtle)'; }}
               >
-                <div style={{ fontSize: 12, fontWeight: 500 }}>{label}</div>
+                <div style={{ fontSize: 12, fontWeight: 500, color: 'var(--text-primary)', marginBottom: 2 }}>{label}</div>
+                <div style={{ fontSize: 11, color: 'var(--text-tertiary)' }}>{desc}</div>
               </button>
             );
           })}

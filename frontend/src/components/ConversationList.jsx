@@ -958,6 +958,15 @@ export default function ConversationList({ params = {}, onOpenMessage }) {
                     >
                       <span style={{
                         flexShrink: 0,
+                        width: 12,
+                        textAlign: 'center',
+                        color: 'var(--text-tertiary)',
+                        fontSize: 11,
+                      }} aria-hidden="true">
+                        {isOutgoing ? '→' : '←'}
+                      </span>
+                      <span style={{
+                        flexShrink: 0,
                         width: 100,
                         overflow: 'hidden',
                         textOverflow: 'ellipsis',

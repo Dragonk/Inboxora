@@ -1707,6 +1707,9 @@
     "showQuotedText": "Show quoted text",
     "hideQuotedText": "Hide quoted text",
     "readerOffDesc": "Otevřít pouze vybranou zprávu",
-    "readerOnDesc": "Zobrazit celou konverzaci v panelu zpráv"
+    "readerOnDesc": "Zobrazit celou konverzaci v panelu zpráv",
+    "groupIntoConversationsOn": "On",
+    "readerOff": "Disabled",
+    "readerOn": "Enabled"
   }
 }

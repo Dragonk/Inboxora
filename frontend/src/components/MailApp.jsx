@@ -84,25 +84,29 @@ export default function MailApp() {
   const [targetLogicalMessageId, setTargetLogicalMessageId] = useState(null);
   const openConversationTarget = useCallback((row) => {
     if (conversationReaderViewEnabled && row?.conversation_id) {
-      // A physical message selection belongs to the legacy reader. Clear it before
-      // opening a conversation so the selection effect cannot reopen the previous
-      // conversation after this navigation completes.
+      // Reader ON: open the conversation in the ConversationPane.
       if (isMobile && !conversationId) history.pushState({ mailflow: 'conversation' }, '', '/');
       setSelectedMessage(null);
       setConversationId(row.conversation_id);
       setTargetLogicalMessageId(row.logical_message_id || row.logical_id || null);
       return;
     }
-    const physicalId = row?.latestCopyId || row?.id || row?.message_id;
+    // Reader OFF: select the newest logical message's preferred physical copy so
+    // the native MessagePane shows it — never leave the pane in the empty state.
+    const physicalId = row?.latestCopyId || row?.latest_copy_id || row?.id || row?.message_id;
     if (!physicalId) return;
     return api.resolveMessage(physicalId).then(resolved => {
-      if (conversationReaderViewEnabled) {
+      if (conversationReaderViewEnabled && resolved?.conversation_id) {
         if (isMobile && !conversationId) history.pushState({ mailflow: 'conversation' }, '', '/');
-        setConversationId(resolved.conversation_id || row.conversation_id || null);
+        setConversationId(resolved.conversation_id);
         setTargetLogicalMessageId(resolved.logical_message_id || row.logical_message_id || null);
       } else {
         return api.getMessage(physicalId).then(message => setSelectedMessage(message.id || physicalId));
       }
+    }).catch(() => {
+      // resolveMessage can fail if the copy was already moved/deleted — still try a direct getMessage
+      // so the pane doesn't stay blank.
+      return api.getMessage(physicalId).then(message => setSelectedMessage(message.id || physicalId)).catch(() => {});
     });
   }, [conversationId, conversationReaderViewEnabled, isMobile, setSelectedMessage]);
 

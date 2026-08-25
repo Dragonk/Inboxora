@@ -1707,6 +1707,9 @@
     "showQuotedText": "Zitierten Text anzeigen",
     "hideQuotedText": "Zitierten Text ausblenden",
     "readerOffDesc": "Nur die ausgewählte Nachricht öffnen",
-    "readerOnDesc": "Die gesamte Unterhaltung im Nachrichtenbereich anzeigen"
+    "readerOnDesc": "Die gesamte Unterhaltung im Nachrichtenbereich anzeigen",
+    "groupIntoConversationsOn": "On",
+    "readerOff": "Disabled",
+    "readerOn": "Enabled"
   }
 }
