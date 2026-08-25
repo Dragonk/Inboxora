@@ -26,6 +26,8 @@ export function useSelection(getItemId = item => item.id) {
 
   const selectAll = useCallback((items) => {
     setSelectedIds(new Set(items.map(getItemId)));
+    lastSelectIdxRef.current = items.length ? items.length - 1 : -1;
+    setSelectionModeActive(items.length > 0);
   }, [getItemId]);
 
   const clearSelection = useCallback(() => {
@@ -34,14 +36,15 @@ export function useSelection(getItemId = item => item.id) {
     lastSelectIdxRef.current = -1;
   }, []);
 
-  const enterSelectionMode = useCallback((id) => {
+  const enterSelectionMode = useCallback((id, items = null) => {
     setSelectionModeActive(true);
+    if (Array.isArray(items)) lastSelectIdxRef.current = items.findIndex(item => getItemId(item) === id);
     setSelectedIds(prev => {
       const next = new Set(prev);
       next.has(id) ? next.delete(id) : next.add(id);
       return next;
     });
-  }, []);
+  }, [getItemId]);
 
   // Non-shift row checkbox toggle — tracks anchor for range select.
   // `items` is the ordered list for index resolution.

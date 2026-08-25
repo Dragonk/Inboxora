@@ -2,7 +2,7 @@ import { Router } from 'express';
 import { query, pool } from '../services/db.js';
 import { requireAuth } from '../middleware/auth.js';
 import { resolveConversationAlias } from '../services/conversationOverridePolicy.js';
-import { sanitizeEmail, blockRemoteImages, hasRemoteImages } from '../services/emailSanitizer.js';
+import { sanitizeEmail, blockRemoteImages, hasRemoteImages, shouldBlockRemoteImages } from '../services/emailSanitizer.js';
 import { uuidParam } from '../utils/uuid.js';
 import { applyConversationAction, applyBulkConversationAction } from '../services/conversationActions.js';
 
@@ -57,13 +57,14 @@ router.get('/conversations', async (req, res) => {
   const limitParam = values.length;
   const result = await query(`
     SELECT c.id AS conversation_id, c.kind, c.canonical_subject,
-           c.first_message_at, c.last_message_at, c.logical_message_count,
-           c.copy_count,
+           MIN(m.date) AS first_message_at, MAX(m.date) AS last_message_at,
+           COUNT(DISTINCT m.logical_message_id)::int AS logical_message_count,
+           COUNT(m.id)::int AS copy_count,
            COUNT(DISTINCT m.logical_message_id) FILTER (WHERE m.is_read = false)::int AS unread_count,
            c.threading_confidence,
            COALESCE(BOOL_OR(m.is_starred), false) AS is_starred,
            COUNT(DISTINCT m.id)::int AS visible_copy_count,
-           COALESCE(c.last_message_at, c.created_at) AS sort_date,
+           COALESCE(MAX(m.date), c.created_at) AS sort_date,
            BOOL_OR(COALESCE(m.has_attachments, false)) AS has_attachments,
            BOOL_OR(latest.direction IN ('outgoing', 'self')) FILTER (WHERE latest.id IS NOT NULL) AS latest_message_is_mine,
            COALESCE(preview.logical_messages, '[]'::jsonb) AS logical_messages,
@@ -112,7 +113,7 @@ router.get('/conversations', async (req, res) => {
        AND NOT EXISTS (SELECT 1 FROM conversation_aliases ca WHERE ca.user_id = $1 AND ca.alias_conversation_id = c.id)
        ${accountFilter} ${folderFilter} ${cursorFilter}
      GROUP BY c.id, top_latest.id, preview.logical_messages
-     ORDER BY COALESCE(c.last_message_at, c.created_at) DESC, c.id DESC
+     ORDER BY COALESCE(MAX(m.date), c.created_at) DESC, c.id DESC
      LIMIT $${limitParam}
   `, values);
   for (const row of result.rows) row.latestCopyId = row.latest_copy_id;
@@ -162,17 +163,21 @@ router.get('/conversations/:conversationId/logical-messages/:logicalMessageId/bo
   try {
     const canonicalId = await resolveConversationAlias(client, { userId: req.session.userId, conversationId: req.params.conversationId });
     const result = await client.query(`
-      SELECT lm.id, m.body_text, m.body_html, m.attachments, m.id AS physical_copy_id, m.account_id, m.folder
+      SELECT lm.id, m.body_text, m.body_html, m.attachments, m.id AS physical_copy_id, m.account_id, m.folder, u.preferences, m.from_email
         FROM logical_messages lm
         JOIN messages m ON m.logical_message_id = lm.id AND m.conversation_id = $3 AND m.is_deleted = false
         JOIN email_accounts a ON a.id = m.account_id AND a.user_id = $2
+        JOIN users u ON u.id = a.user_id
        WHERE lm.id = $1 AND lm.user_id = $2 AND lm.conversation_id = $3
        AND ($4::uuid IS NULL OR m.id = $4::uuid)
        ORDER BY (m.body_html IS NOT NULL OR m.body_text IS NOT NULL) DESC, m.is_read ASC, m.date DESC NULLS LAST, m.id DESC
        LIMIT 1
     `, [req.params.logicalMessageId, req.session.userId, canonicalId, req.query.copyId || null]);
     if (!result.rows.length) return res.status(404).json({ error: 'Logical message body not found' });
-    const remoteImages = req.query.remoteImages === '1';
+    const requestedRemoteImages = req.query.remoteImages === '1';
+    const explicitOptIn = req.get('X-MailFlow-Image-Opt-In') === '1';
+    const policyBlocksImages = shouldBlockRemoteImages(result.rows[0].preferences, result.rows[0]);
+    const remoteImages = requestedRemoteImages && explicitOptIn && !policyBlocksImages;
     const rawHtml = result.rows[0].body_html;
     const html = rawHtml && !remoteImages && hasRemoteImages(rawHtml)
       ? blockRemoteImages(sanitizeEmail(rawHtml))

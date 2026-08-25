@@ -3,7 +3,7 @@ import { useTranslation } from 'react-i18next';
 import { conversationApi } from '../utils/conversationApi.js';
 import { useSelection, ACTION_SCOPES, DESTRUCTIVE_SCOPES, SCOPE_I18N_KEYS } from '../hooks/useSelection.js';
 import { ActionBtn } from './RowHoverActions.jsx';
-import { isInteractiveSwipeTarget } from '../hooks/useSwipeRow.js';
+import { useSwipeRow } from '../hooks/useSwipeRow.js';
 
 function OwnReplyMarker({ visible }) {
   const { t } = useTranslation();
@@ -94,6 +94,15 @@ function LogicalCountBadge({ count }) {
       {count}
     </span>
   );
+}
+
+function ConversationSwipeLayer({ row, isMobile, onTap, onLongPress, onSwipeLeft, onSwipeRight, children }) {
+  const { contentRef, swipeBgLeftRef, swipeBgRightRef } = useSwipeRow({ isMobile, message: row, onTap, onLongPress, onSwipeLeft, onSwipeRight });
+  return <div style={{ position: 'relative', overflow: 'hidden' }}>
+    <div ref={swipeBgLeftRef} style={{ position: 'absolute', inset: 0, display: 'none', alignItems: 'center', paddingLeft: 20, background: 'var(--accent)', color: 'white' }}>←</div>
+    <div ref={swipeBgRightRef} style={{ position: 'absolute', inset: 0, display: 'none', justifyContent: 'flex-end', alignItems: 'center', paddingRight: 20, background: 'var(--bg-tertiary)', color: 'var(--text-primary)' }}>→</div>
+    <div ref={contentRef}>{children}</div>
+  </div>;
 }
 
 function MenuItem({ onClick, children }) {
@@ -220,6 +229,7 @@ export default function ConversationList({ params = {}, onOpenMessage }) {
   const [keyboardFocusedIndex, setKeyboardFocusedIndex] = useState(-1);
   // P1-10: default scope for destructive actions — explicit, never whole conversation
   const [actionScope, setActionScope] = useState('THIS_COPY');
+  const isMobile = typeof window !== 'undefined' && window.matchMedia?.('(max-width: 700px)').matches;
   // P1-11: multi-select state via shared hook
   const {
     selectedIds, selectionModeActive, setSelectionModeActive,
@@ -229,7 +239,6 @@ export default function ConversationList({ params = {}, onOpenMessage }) {
   // P1-12: hover actions — track hovered row (mouse only, does NOT change keyboard focus)
   const [hoveredRow, setHoveredRow] = useState(null);
   // P1-11: long-press timer for mobile
-  const longPressTimer = useRef(null);
   const longPressTriggered = useRef(false);
   const listRef = useRef(null);
   // P1-11: context menu positioning ref (for viewport flip/clamp)
@@ -437,23 +446,6 @@ export default function ConversationList({ params = {}, onOpenMessage }) {
     }
     toggleExpand(row.conversation_id);
   }, [selectionModeActive, enterSelectionMode, handleRowToggleSelect, handleRangeSelect, rows, toggleExpand]);
-
-  // ── P1-11: Mobile long-press to enter selection mode ───────────
-  const handleTouchStart = useCallback((event, row) => {
-    if (isInteractiveSwipeTarget(event.target)) return;
-    longPressTriggered.current = false;
-    longPressTimer.current = setTimeout(() => {
-      longPressTriggered.current = true;
-      enterSelectionMode(row.conversation_id);
-    }, 500);
-  }, [enterSelectionMode]);
-
-  const handleTouchEnd = useCallback(() => {
-    if (longPressTimer.current) {
-      clearTimeout(longPressTimer.current);
-      longPressTimer.current = null;
-    }
-  }, []);
 
   const handleDiagnostics = useCallback((row) => {
     setMenuOpen(null);
@@ -682,10 +674,15 @@ export default function ConversationList({ params = {}, onOpenMessage }) {
             }}
             onMouseEnter={() => { setHoveredRow(row.conversation_id); }}
             onMouseLeave={() => setHoveredRow(null)}
-            onTouchStart={(event) => handleTouchStart(event, row)}
-            onTouchEnd={handleTouchEnd}
-            onTouchMove={handleTouchEnd}
           >
+            <ConversationSwipeLayer
+              row={row}
+              isMobile={isMobile}
+              onTap={() => handleRowClick({ target: { closest: () => null }, stopPropagation() {}, preventDefault() {} }, row)}
+              onLongPress={() => { longPressTriggered.current = true; enterSelectionMode(row.conversation_id, rows); }}
+              onSwipeLeft={() => handleQuickArchive(row)}
+              onSwipeRight={() => handleQuickToggleRead(row)}
+            >
             {/* Collapsed conversation row */}
             <div
               style={{
@@ -908,6 +905,8 @@ export default function ConversationList({ params = {}, onOpenMessage }) {
                 </div>
               </>
             )}
+
+            </ConversationSwipeLayer>
 
             {/* Expanded logical messages (full conversation, not folder-scoped) */}
             {isOpen && (

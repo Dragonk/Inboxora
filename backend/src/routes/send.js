@@ -342,7 +342,11 @@ router.post('/send', async (req, res) => {
     // OAuth providers (Gmail, Microsoft) save sent mail to IMAP automatically via their
     // servers — skip APPEND and sync after a delay.  All other accounts use direct IMAP
     // APPEND so sent mail reliably appears regardless of what the SMTP server does.
-    const serverAutoSaves = !!account.oauth_provider;
+    // Gmail may server-save Sent even when authenticated with an app password;
+    // OAuth configuration alone is not a reliable capability signal. Gmail's
+    // provider policy therefore avoids a second local APPEND and relies on the
+    // bounded metadata/search re-observation path below.
+    const serverAutoSaves = !!account.oauth_provider || /gmail/i.test(account.imap_host || account.smtp_host || '');
 
     // For servers that don't auto-save, generate the raw MIME now so we can APPEND it.
     // Use CRLF newlines ('windows'): RFC 5322 / IMAP APPEND require CRLF. A bare-LF message is

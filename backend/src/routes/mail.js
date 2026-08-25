@@ -5,7 +5,7 @@ const archiver = require('archiver');
 import { query } from '../services/db.js';
 import { requireAuth } from '../middleware/auth.js';
 import { imapManager } from '../index.js';
-import { sanitizeEmail, stripEmailHead, hasRemoteImages, blockRemoteImages, rewriteEbayImageserUrls, rewriteAnchorHrefs } from '../services/emailSanitizer.js';
+import { sanitizeEmail, stripEmailHead, hasRemoteImages, blockRemoteImages, rewriteEbayImageserUrls, rewriteAnchorHrefs, shouldBlockRemoteImages } from '../services/emailSanitizer.js';
 import { snippetFromBody, decodeMimeWords, parseRawHeaders, buildHeadersFromMessage } from '../services/messageParser.js';
 import { resolveTrashFolder, resolveAllTrashPaths, resolveAllDraftsPaths, resolveArchiveFolder, isAllMailFolder, resolveSpamFolder, resolveAllSpamPaths, getDeleteStrategy, adjustFolderCounts, fanOutReadToSiblings, fanOutStarToSiblings, fanOutBulkReadToSiblings } from '../utils/mailUtils.js';
 import { pluginRegistry } from '../plugins/registry.js';
@@ -216,20 +216,6 @@ router.get('/resolve-message', async (req, res) => {
   }
 });
 
-// Returns true if remote images should be blocked for this message given the user's preferences.
-// Default behaviour (no preference set) is to block.
-function shouldBlockImages(prefs, message) {
-  if (prefs?.blockRemoteImages === false) return false;
-  const senderEmail = (message.from_email || '').toLowerCase();
-  const atIdx = senderEmail.indexOf('@');
-  const senderDomain = atIdx >= 0 ? senderEmail.slice(atIdx + 1) : '';
-  const whitelist = prefs?.imageWhitelist || {};
-  const allowedAddresses = Array.isArray(whitelist.addresses) ? whitelist.addresses.filter(a => typeof a === 'string').map(a => a.toLowerCase()) : [];
-  const allowedDomains   = Array.isArray(whitelist.domains)   ? whitelist.domains.filter(d => typeof d === 'string').map(d => d.toLowerCase())   : [];
-  if (senderEmail && allowedAddresses.includes(senderEmail)) return false;
-  if (senderDomain && allowedDomains.some(d => senderDomain === d || senderDomain.endsWith('.' + d))) return false;
-  return true;
-}
 
 // Get all messages belonging to a thread (for threaded view expansion)
 router.get('/thread/:threadId', async (req, res) => {
@@ -397,7 +383,7 @@ router.get('/messages/:id/body', async (req, res) => {
     const skipBlocking = req.query.remoteImages === '1';
     let responseHtml = html;
     let hasBlockedRemoteImages = false;
-    if (!skipBlocking && html && shouldBlockImages(message.preferences, message) && hasRemoteImages(html)) {
+    if (!skipBlocking && html && shouldBlockRemoteImages(message.preferences, message) && hasRemoteImages(html)) {
       responseHtml = blockRemoteImages(html);
       hasBlockedRemoteImages = true;
     }
@@ -436,7 +422,7 @@ router.get('/messages/:id/body', async (req, res) => {
     const skipBlocking = req.query.remoteImages === '1';
     let responseHtml = safeHtml;
     let hasBlockedRemoteImages = false;
-    if (!skipBlocking && safeHtml && shouldBlockImages(message.preferences, message) && hasRemoteImages(safeHtml)) {
+    if (!skipBlocking && safeHtml && shouldBlockRemoteImages(message.preferences, message) && hasRemoteImages(safeHtml)) {
       responseHtml = blockRemoteImages(safeHtml);
       hasBlockedRemoteImages = true;
     }
@@ -616,7 +602,7 @@ router.get('/messages/:id/attachments/:part', async (req, res) => {
   const attachments = typeof message.attachments === 'string'
     ? JSON.parse(message.attachments || '[]')
     : (message.attachments || []);
-  const att = attachments.find(a => a.part === partNum);
+  const att = attachments.find(a => String(a.part) === String(partNum));
   if (!att) return res.status(404).json({ error: 'Attachment not found' });
 
   // Reject oversized attachments before opening an IMAP connection.

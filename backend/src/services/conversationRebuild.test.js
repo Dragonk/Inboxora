@@ -40,13 +40,9 @@ describe('conversation rebuild', () => {
         .mockResolvedValueOnce({ rows: [messageRow] })
         // BEGIN for dry-run
         .mockResolvedValueOnce({ rows: [] })
-        // row savepoint
-        .mockResolvedValueOnce({ rows: [] })
         // snapshot before (has old CE values)
         .mockResolvedValueOnce({ rows: [{ conversation_id: 'old-conv', logical_message_id: 'old-lm', canonical_message_id: '<m2@x>', provider_message_id: null, provider_thread_id: null, threading_reason: 'old', threading_confidence: 0.5, threading_algorithm_version: 'conversation-v2' }] })
         // upsertConversationCopy is mocked — does not touch the client
-        // release savepoint
-        .mockResolvedValueOnce({ rows: [] })
         // snapshot after (upsert would change conversation_id)
         .mockResolvedValueOnce({ rows: [{ conversation_id: 'new-conv', logical_message_id: 'new-lm', canonical_message_id: '<m2@x>', provider_message_id: null, provider_thread_id: null, threading_reason: 'rfc-in-reply-to', threading_confidence: 0.99, threading_algorithm_version: 'conversation-v2' }] })
         // ROLLBACK
@@ -81,8 +77,6 @@ describe('conversation rebuild', () => {
         .mockResolvedValueOnce({ rows: [messageRow] }) // message query
         .mockResolvedValueOnce({ rows: [] }) // BEGIN
         .mockResolvedValueOnce({ rows: [snapshot] }) // snapshot before
-        .mockResolvedValueOnce({ rows: [] }) // row savepoint
-        .mockResolvedValueOnce({ rows: [] }) // release savepoint
         .mockResolvedValueOnce({ rows: [snapshot] }) // snapshot after (unchanged)
         .mockResolvedValueOnce({ rows: [] }) // ROLLBACK
         .mockResolvedValue({ rows: [] }), // advisory unlock

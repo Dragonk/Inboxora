@@ -30,7 +30,10 @@ export const conversationApi = {
     if (copyId) qs.set('copyId', copyId);
     if (remoteImages) qs.set('remoteImages', '1');
     const query = qs.toString() ? `?${qs.toString()}` : '';
-    return apiFetch(`/conversations/${conversationId}/logical-messages/${logicalMessageId}/body${query}`, { signal });
+    return apiFetch(`/conversations/${conversationId}/logical-messages/${logicalMessageId}/body${query}`, {
+      signal,
+      headers: remoteImages ? { 'X-MailFlow-Image-Opt-In': '1' } : undefined,
+    });
   },
 
   resolveMessage: (messageId) => apiFetch(`/messages/${messageId}/conversation`),

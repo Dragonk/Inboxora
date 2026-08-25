@@ -105,26 +105,34 @@ export default function ConversationPane({ conversationId, targetLogicalMessageI
   const [opsBusy, setOpsBusy] = useState(false);
   const [opsError, setOpsError] = useState(null);
   const inFlight = useRef(new Map());
+  const requestGeneration = useRef(new Map());
   const logicalMessagesRef = useRef([]);
   const containerRef = useRef(null);
 
   const loadBody = useCallback(async (logicalId, force = false, remoteImages = false) => {
     if (!force && (bodiesRef.current[logicalId] || inFlight.current.has(logicalId))) return;
+    const previous = inFlight.current.get(logicalId);
+    previous?.abort();
     const controller = new AbortController();
+    const generation = (requestGeneration.current.get(logicalId) || 0) + 1;
+    requestGeneration.current.set(logicalId, generation);
     inFlight.current.set(logicalId, controller);
     setBodyStatus(prev => ({ ...prev, [logicalId]: { loading: true, error: null } }));
     try {
-      const copyId = logicalMessagesRef.current.find(message => message.id === logicalId)?.copies?.slice().sort((a, b) => String(b.date || '').localeCompare(String(a.date || '')) || Number(Boolean(a.isRead)) - Number(Boolean(b.isRead)))[0]?.id || null;
+      const logical = logicalMessagesRef.current.find(message => message.id === logicalId);
+      const selectedCopyId = logical?.selectedCopyId || null;
+      const copyId = selectedCopyId || logical?.copies?.slice().sort((a, b) => String(b.date || '').localeCompare(String(a.date || '')) || Number(Boolean(a.isRead)) - Number(Boolean(b.isRead)))[0]?.id || null;
       const body = await conversationApi.body(conversationId, logicalId, controller.signal, copyId, remoteImages);
+      if (requestGeneration.current.get(logicalId) !== generation) return;
       bodiesRef.current[logicalId] = body;
       setBodies(prev => ({ ...prev, [logicalId]: body }));
       setBodyStatus(prev => ({ ...prev, [logicalId]: { loading: false, error: null } }));
     } catch (error) {
-      if (error.name !== 'AbortError') {
+      if (error.name !== 'AbortError' && requestGeneration.current.get(logicalId) === generation) {
         setBodyStatus(prev => ({ ...prev, [logicalId]: { loading: false, error: error.message || tRef.current('conversation.loadBodyFailed') } }));
       }
     } finally {
-      inFlight.current.delete(logicalId);
+      if (inFlight.current.get(logicalId) === controller) inFlight.current.delete(logicalId);
     }
   }, [conversationId]);
 
@@ -563,13 +571,13 @@ export default function ConversationPane({ conversationId, targetLogicalMessageI
 
                 {/* Action buttons */}
                 <div style={{ display: 'flex', gap: 8, marginTop: 8, paddingBottom: 4, flexWrap: 'wrap' }}>
-                  <button type="button" onClick={() => onReply?.({ ...copy, copies: message.copies, logicalMessageId: message.id })}>
+                  <button type="button" onClick={() => onReply?.({ ...copy, copies: message.copies, logicalMessageId: message.id, selectedCopyId: copy?.id, attachments: copy?.attachments || body?.attachments || [] })}>
                     {t('conversation.reply')}
                   </button>
-                  <button type="button" onClick={() => onReply?.({ ...copy, copies: message.copies, logicalMessageId: message.id, replyAll: true })}>
+                  <button type="button" onClick={() => onReply?.({ ...copy, copies: message.copies, logicalMessageId: message.id, selectedCopyId: copy?.id, attachments: copy?.attachments || body?.attachments || [], replyAll: true })}>
                     {t('conversation.replyAll')}
                   </button>
-                  <button type="button" onClick={() => onReply?.({ ...copy, copies: message.copies, logicalMessageId: message.id, forward: true })}>
+                  <button type="button" onClick={() => onReply?.({ ...copy, copies: message.copies, logicalMessageId: message.id, selectedCopyId: copy?.id, attachments: copy?.attachments || body?.attachments || [], forward: true })}>
                     {t('conversation.forward')}
                   </button>
                   {hasMultipleCopies && (

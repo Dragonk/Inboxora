@@ -1,6 +1,40 @@
 import { withTransaction } from './db.js';
 import { resolveConversationAlias } from './conversationOverridePolicy.js';
 
+async function resolveArchiveDestination(client, accountId, folderMappings) {
+  const mapped = folderMappings?.archive;
+  if (mapped) {
+    const row = await client.query('SELECT path, special_use FROM folders WHERE account_id = $1 AND path = $2 AND no_select = false LIMIT 1', [accountId, mapped]);
+    if (row.rows[0]) return row.rows[0];
+  }
+  const row = await client.query(`SELECT path, special_use FROM folders WHERE account_id = $1 AND no_select = false
+    AND (special_use IN ('\\Archive','\\All') OR lower(name) LIKE '%archive%')
+    ORDER BY CASE WHEN special_use = '\\Archive' THEN 0 WHEN lower(name) LIKE '%archive%' THEN 1 ELSE 2 END LIMIT 1`, [accountId]);
+  return row.rows[0] || null;
+}
+
+async function archiveRows(client, rows, userId) {
+  const byAccount = new Map();
+  for (const row of rows) {
+    if (!byAccount.has(row.account_id)) byAccount.set(row.account_id, []);
+    byAccount.get(row.account_id).push(row.id);
+  }
+  const changed = [];
+  for (const [accountId, accountIds] of byAccount) {
+    const account = await client.query(
+      'SELECT folder_mappings FROM email_accounts WHERE id = $1 AND user_id = $2',
+      [accountId, userId],
+    );
+    const destination = await resolveArchiveDestination(client, accountId, account.rows[0]?.folder_mappings || {});
+    if (!destination) throw Object.assign(new Error('No archive folder configured for account'), { statusCode: 409 });
+    const moved = destination.special_use === '\\All'
+      ? await client.query('UPDATE messages SET is_deleted = true WHERE id = ANY($1::uuid[]) RETURNING id, folder', [accountIds])
+      : await client.query('UPDATE messages SET folder = $1, uid = uid WHERE id = ANY($2::uuid[]) RETURNING id, folder', [destination.path, accountIds]);
+    changed.push(...moved.rows);
+  }
+  return { rows: changed, rowCount: changed.length };
+}
+
 export const COPY_SCOPES = new Set([
   'THIS_COPY',
   'ALL_COPIES_OF_LOGICAL_MESSAGE',
@@ -132,7 +166,7 @@ export async function applyConversationAction({
     } else if (action === 'delete') {
       result = await client.query(`UPDATE messages SET is_deleted = true WHERE id = ANY($1::uuid[]) RETURNING id`, [ids]);
     } else if (action === 'archive') {
-      result = await client.query(`UPDATE messages SET folder = 'Archive' WHERE id = ANY($1::uuid[]) RETURNING id, folder`, [ids]);
+      result = await archiveRows(client, resolved.rows, userId);
     } else {
       result = await client.query('UPDATE messages SET folder = $1 WHERE id = ANY($2::uuid[]) RETURNING id, folder', [targetFolder, ids]);
     }
@@ -194,7 +228,7 @@ export async function applyBulkConversationAction({ userId, conversationIds, ite
       if (action === 'read') result = await client.query('UPDATE messages SET is_read = $1, read_changed_at = NOW() WHERE id = ANY($2::uuid[]) RETURNING id', [!!options.isRead, physicalIds]);
       else if (action === 'star') result = await client.query('UPDATE messages SET is_starred = $1, star_changed_at = NOW() WHERE id = ANY($2::uuid[]) RETURNING id', [!!options.isStarred, physicalIds]);
       else if (action === 'delete') result = await client.query('UPDATE messages SET is_deleted = true WHERE id = ANY($1::uuid[]) RETURNING id', [physicalIds]);
-      else if (action === 'archive') result = await client.query("UPDATE messages SET folder = 'Archive' WHERE id = ANY($1::uuid[]) RETURNING id", [physicalIds]);
+      else if (action === 'archive') result = await archiveRows(client, resolved.rows, userId);
       else {
         if (!options.targetFolder) throw Object.assign(new Error('targetFolder required'), { statusCode: 400 });
         result = await client.query('UPDATE messages SET folder = $1 WHERE id = ANY($2::uuid[]) RETURNING id', [options.targetFolder, physicalIds]);

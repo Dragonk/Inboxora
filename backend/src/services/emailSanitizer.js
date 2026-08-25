@@ -1,5 +1,18 @@
 import sanitizeHtml from 'sanitize-html';
 
+// Apply the same stored preference/whitelist policy to every body endpoint.
+export function shouldBlockRemoteImages(preferences, message = {}) {
+  if (preferences?.blockRemoteImages === false) return false;
+  const senderEmail = String(message.from_email || '').toLowerCase();
+  const domain = senderEmail.includes('@') ? senderEmail.split('@').at(-1) : '';
+  const whitelist = preferences?.imageWhitelist || {};
+  const addresses = Array.isArray(whitelist.addresses) ? whitelist.addresses.map(String).map(v => v.toLowerCase()) : [];
+  const domains = Array.isArray(whitelist.domains) ? whitelist.domains.map(String).map(v => v.toLowerCase()) : [];
+  if (senderEmail && addresses.includes(senderEmail)) return false;
+  if (domain && domains.some(v => domain === v || domain.endsWith(`.${v}`))) return false;
+  return true;
+}
+
 // Strip the <head> element from email HTML, preserving any <style> blocks inside it.
 //
 // Why: sanitize-html's 'discard' mode removes disallowed tags (e.g. <title>) but

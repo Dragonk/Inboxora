@@ -48,13 +48,17 @@ export function parseProviderMetadata(msg, account) {
   };
 }
 
-export function providerFetchQuery(account, base = {}) {
+export function providerFetchQuery(account, base = {}, liveCapabilities = null) {
   const host = (account?.imap_host || '').toLowerCase();
   const provider = classifyProviderHost(host);
-  const caps = account?.capabilities || account?.imap_capabilities || [];
+  const caps = liveCapabilities || account?.capabilities || account?.imap_capabilities || [];
   const capabilityText = Array.isArray(caps) ? caps.join(' ').toUpperCase() : String(caps).toUpperCase();
   const supportsThreadId = provider === 'gmail' || /(?:OBJECTID|THREADID|X-GM-EXT-1)/.test(capabilityText);
   return supportsThreadId ? { ...base, headers: true, threadId: true } : { ...base };
+}
+
+export function providerCapabilitiesFromClient(client) {
+  return client?.capabilities ? [...client.capabilities] : [];
 }
 
 export function normalizeProviderReferences(value) {

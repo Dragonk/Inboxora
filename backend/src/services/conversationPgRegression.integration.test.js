@@ -8,6 +8,9 @@ import { rebuildConversationCopies } from './conversationRebuild.js';
 import { randomUUID } from 'crypto';
 
 const hasPg = process.env.DB_HOST && process.env.DB_NAME;
+if (process.env.REQUIRE_CE_POSTGRES === '1' && !hasPg) {
+  throw new Error('REQUIRE_CE_POSTGRES=1 but DB_HOST/DB_NAME are not configured');
+}
 const describeOrSkip = hasPg ? describe : describe.skip;
 
 const TEST_USER_ID = '00000000-0000-0000-0000-000000000201';

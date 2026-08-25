@@ -20,7 +20,7 @@ import { randomUUID } from 'crypto';
 import { upsertConversationCopy } from './conversationPersistence.js';
 import { recordConversationIngestFailure } from './conversationIngestFailures.js';
 import { conversationPersistedFields, resolveOwnIdentityAddresses } from './conversationIngestEnvelope.js';
-import { providerFetchQuery } from './providerThreadAdapter.js';
+import { providerFetchQuery, providerCapabilitiesFromClient } from './providerThreadAdapter.js';
 
 
 // Shorthand for log lines — keeps domain visible while masking the local part.
@@ -2592,7 +2592,7 @@ export class ImapManager {
           size: true,
           internalDate: true,
           headers: true,
-        });
+        }, providerCapabilitiesFromClient(client));
         if (provider.fetchBody && !noBodyParts) {
           fetchQuery.bodyParts = BODY_PREFETCH_PARTS;
         }
@@ -3304,7 +3304,7 @@ export class ImapManager {
               bodyStructure: true, size: true,
               internalDate: true,
               headers: true,
-            });
+            }, providerCapabilitiesFromClient(bfClient));
             if (bodyParts.length > 0) bfQuery.bodyParts = bodyParts;
 
             for await (const msg of bfClient.fetch(uidSet, bfQuery, { uid: true })) {
@@ -4036,7 +4036,13 @@ export class ImapManager {
       try {
         const uids = await client.search({ header: { 'Message-ID': mid } }, { uid: true });
         if (!uids?.length) return null;
-        return uids[uids.length - 1];
+        if (uids.length === 1) return uids[0];
+        // Multiple RFC Message-ID matches are ambiguous (provider auto-save plus
+        // local APPEND, or a genuine collision). Do not choose an arbitrary UID.
+        // Re-observation will retry after sync; the CE identity layer handles the
+        // copies once their complete envelopes are available.
+        console.warn(`Ambiguous Sent Message-ID match: ${uids.length} UIDs for ${mid}`);
+        return null;
       } finally {
         lock.release();
       }

@@ -25,18 +25,31 @@ after(async () => {
 });
 
 async function ceChecksum(pool, userId) {
-  // Compute a deterministic checksum of all CE data for this user
+  // Deterministic checksum of all CE state that a rebuild can mutate. Include
+  // parent/evidence/provider/override/alias/checkpoint rows, not only the three
+  // primary tables, so idempotency cannot hide reconciliation drift.
   const r = await pool.query(`
     SELECT md5(string_agg(row_data, ',' ORDER BY row_data)) FROM (
-      SELECT 'conv:' || c.id::text || ':' || c.canonical_subject || ':' || c.kind || ':' || c.manually_locked::text AS row_data
+      SELECT 'conv:' || c.id::text || ':' || COALESCE(c.canonical_subject,'') || ':' || c.kind || ':' || c.manually_locked::text || ':' || c.logical_message_count::text || ':' || c.copy_count::text || ':' || c.unread_count::text AS row_data
       FROM conversations c WHERE c.user_id = $1
       UNION ALL
-      SELECT 'lm:' || lm.id::text || ':' || lm.conversation_id::text || ':' || lm.canonical_message_id AS row_data
+      SELECT 'lm:' || lm.id::text || ':' || COALESCE(lm.conversation_id::text,'') || ':' || COALESCE(lm.parent_logical_message_id::text,'') || ':' || COALESCE(lm.canonical_message_id,'') || ':' || COALESCE(lm.raw_in_reply_to,'') || ':' || COALESCE(lm.raw_references,'') || ':' || COALESCE(lm.body_fingerprint,'') || ':' || COALESCE(lm.header_fingerprint,'') AS row_data
       FROM logical_messages lm WHERE lm.user_id = $1
       UNION ALL
-      SELECT 'msg:' || m.id::text || ':' || m.conversation_id::text || ':' || m.logical_message_id::text || ':' ||
-             m.canonical_message_id || ':' || m.threading_reason || ':' || m.threading_confidence::text AS row_data
-      FROM messages m WHERE m.conversation_user_id = $1 AND m.conversation_id IS NOT NULL
+      SELECT 'msg:' || m.id::text || ':' || COALESCE(m.conversation_id::text,'') || ':' || COALESCE(m.logical_message_id::text,'') || ':' || COALESCE(m.conversation_user_id::text,'') || ':' || COALESCE(m.canonical_message_id,'') || ':' || COALESCE(m.provider_message_id,'') || ':' || COALESCE(m.provider_thread_id,'') || ':' || COALESCE(m.provider_namespace,'') || ':' || COALESCE(m.threading_reason,'') || ':' || COALESCE(m.threading_confidence::text,'') AS row_data
+      FROM messages m WHERE m.conversation_user_id = $1
+      UNION ALL
+      SELECT 'map:' || account_id::text || ':' || provider || ':' || provider_thread_id || ':' || conversation_id::text
+      FROM provider_thread_mappings WHERE user_id = $1
+      UNION ALL
+      SELECT 'evidence:' || e.id::text || ':' || e.conversation_id::text || ':' || COALESCE(e.logical_message_id::text,'') || ':' || e.evidence_type || ':' || COALESCE(e.evidence_value_hash,'')
+      FROM conversation_evidence e WHERE e.user_id = $1
+      UNION ALL
+      SELECT 'alias:' || alias_conversation_id::text || ':' || canonical_conversation_id::text || ':' || reason
+      FROM conversation_aliases WHERE user_id = $1
+      UNION ALL
+      SELECT 'override:' || id::text || ':' || conversation_id::text || ':' || override_type || ':' || COALESCE(target_id::text,'')
+      FROM conversation_overrides WHERE user_id = $1
     ) t
   `, [userId]);
   return r.rows[0].md5;
@@ -95,65 +108,29 @@ describe('CE v2 Rebuild idempotency — real PostgreSQL', () => {
   });
 
   it('dry-run makes ZERO persistent writes (checksums identical)', async () => {
+    const { rebuildConversationCopies } = await import('./conversationRebuild.js');
     const before = await ceChecksum(pool, userId);
-    assert.ok(before, 'Checksum should not be null');
-
-    // Simulate dry-run: read everything in a transaction and ROLLBACK
-    await pool.query('BEGIN');
-    try {
-      // The rebuild planner would process messages here — but dry-run must not write
-      const allMsgs = await pool.query(
-        'SELECT id, conversation_id, logical_message_id FROM messages WHERE conversation_user_id = $1 AND conversation_id IS NOT NULL',
-        [userId]
-      );
-      // Don't write anything — just read
-      assert.ok(allMsgs.rows.length > 0, 'Should have messages to process');
-      await pool.query('ROLLBACK');
-    } catch (e) {
-      await pool.query('ROLLBACK');
-      throw e;
-    }
-
+    const result = await rebuildConversationCopies({ userId, accountId, limit: 500, dryRun: true, force: true });
     const after = await ceChecksum(pool, userId);
-    assert.equal(after, before, 'Dry-run must not change any CE data (checksums must match)');
+    assert.equal(result.dryRun, true);
+    assert.equal(after, before, 'Production dry-run must not change any CE data');
   });
 
   it('second rebuild from beginning: changed=0, wouldChange=0, same checksum', async () => {
-    // First "rebuild" — the data is already in place from beforeEach
+    const { rebuildConversationCopies } = await import('./conversationRebuild.js');
     const checksumBefore = await ceChecksum(pool, userId);
-
-    // Simulate rebuild write pass #1: process all messages, reassign conversations
-    // In a real rebuild this would re-evaluate threading and potentially move messages.
-    // Here we simulate a no-op rebuild (data is already correct).
-    const pass1Result = await pool.query(`
-      SELECT
-        COUNT(*) FILTER (WHERE m.conversation_id IS NOT NULL AND m.logical_message_id IS NOT NULL) AS already_correct,
-        COUNT(*) FILTER (WHERE m.conversation_id IS NULL OR m.logical_message_id IS NULL) AS would_change
-      FROM messages m
-      WHERE m.account_id = $1
-    `, [accountId]);
-
-    assert.equal(Number(pass1Result.rows[0].would_change), 0, 'Pass #1: no messages need changing (already correct)');
-    assert.equal(Number(pass1Result.rows[0].already_correct), 30, 'Pass #1: all 30 messages already correct');
-
+    const pass1 = await rebuildConversationCopies({ userId, accountId, limit: 500, dryRun: false, force: true });
     const checksumAfter1 = await ceChecksum(pool, userId);
-    assert.equal(checksumAfter1, checksumBefore, 'Pass #1: checksum unchanged (no-op rebuild)');
+    assert.equal(pass1.updated, 0, 'Pass #1 should be idempotent for already-correct production state');
+    assert.equal(pass1.wouldChange, 0);
+    assert.equal(checksumAfter1, checksumBefore);
 
-    // Second rebuild FROM BEGINNING (not from checkpoint)
-    const pass2Result = await pool.query(`
-      SELECT
-        COUNT(*) FILTER (WHERE m.conversation_id IS NOT NULL AND m.logical_message_id IS NOT NULL) AS already_correct,
-        COUNT(*) FILTER (WHERE m.conversation_id IS NULL OR m.logical_message_id IS NULL) AS would_change
-      FROM messages m
-      WHERE m.account_id = $1
-    `, [accountId]);
-
-    assert.equal(Number(pass2Result.rows[0].would_change), 0, 'Pass #2: wouldChange=0 (idempotent)');
-    assert.equal(Number(pass2Result.rows[0].already_correct), 30, 'Pass #2: all 30 messages still correct');
-
+    await pool.query('DELETE FROM conversation_rebuild_checkpoints WHERE user_id = $1 AND scope_account_id = $2', [userId, accountId]);
+    const pass2 = await rebuildConversationCopies({ userId, accountId, limit: 500, dryRun: false, force: true });
     const checksumAfter2 = await ceChecksum(pool, userId);
-    assert.equal(checksumAfter2, checksumBefore, 'Pass #2: checksum identical to pre-rebuild (stable)');
-    assert.equal(checksumAfter2, checksumAfter1, 'Pass #2: checksum identical to pass #1 (idempotent)');
+    assert.equal(pass2.updated, 0, 'Pass #2 from beginning must not change state');
+    assert.equal(pass2.wouldChange, 0);
+    assert.equal(checksumAfter2, checksumAfter1);
   });
 
   it('legacy "Test" overmerge is repaired: 5 unrelated Test messages stay separate after rebuild', async () => {

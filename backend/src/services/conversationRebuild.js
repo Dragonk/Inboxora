@@ -63,22 +63,15 @@ async function dryRunBatch(client, rows, userId) {
   let wouldChange = 0;
   for (const row of rows) {
     const before = await snapshotMessage(client, row);
-    await client.query('SAVEPOINT ce_dry_row');
-    try {
-      await _upsertConversationCopyWithClient(client, row, {
-        identities: await resolveOwnIdentityAddresses(client, row.account_id, row),
-        provider: providerIdentityForCopy(row, row),
-        userId,
-      });
-      await client.query('RELEASE SAVEPOINT ce_dry_row');
-    } catch {
-      // A row-level failure must not abort the enclosing dry-run transaction.
-      // Roll back only this row, count it as would-change, and continue.
-      await client.query('ROLLBACK TO SAVEPOINT ce_dry_row');
-      await client.query('RELEASE SAVEPOINT ce_dry_row');
-      wouldChange++;
-      continue;
-    }
+    // Do not isolate rows with savepoints: later rows must observe the CE state
+    // produced by earlier rows exactly as they do in a write rebuild. The enclosing
+    // transaction is rolled back by the caller after the complete batch. A failure
+    // aborts the batch instead of being misreported as an ordinary would-change.
+    await _upsertConversationCopyWithClient(client, row, {
+      identities: await resolveOwnIdentityAddresses(client, row.account_id, row),
+      provider: providerIdentityForCopy(row, row),
+      userId,
+    });
     const after = await snapshotMessage(client, row);
     if (ceSnapshotChanged(before, after)) wouldChange++;
   }
@@ -140,43 +133,53 @@ export async function rebuildConversationCopies({ userId, accountId = null, limi
     }
 
     if (!dryRun) {
-      // P0 fix: wrap the entire write batch + checkpoint in an explicit serializable
-      // transaction so a crash mid-batch cannot leave partially committed messages
-      // with a stale checkpoint. The advisory lock prevents concurrent rebuilds;
-      // the transaction ensures atomicity of the batch + checkpoint.
-      await client.query('BEGIN ISOLATION LEVEL SERIALIZABLE');
-      try {
-        for (const row of rows.rows) {
-          const before = await snapshotMessage(client, row);
-          await _upsertConversationCopyWithClient(client, row, {
-            identities: await resolveOwnIdentityAddresses(client, row.account_id, row),
-            provider: providerIdentityForCopy(row, row),
-            userId,
-          });
-          const after = await snapshotMessage(client, row);
-          if (ceSnapshotChanged(before, after)) updated++;
-        }
+      // The whole write batch + checkpoint is one serializable transaction. Retry
+      // PostgreSQL serialization/deadlock failures because rebuild legitimately
+      // races with live ingest and manual actions; never retry a partial batch.
+      const maxWriteRetries = 3;
+      let attempt = 0;
+      while (true) {
+        updated = 0;
+        await client.query('BEGIN ISOLATION LEVEL SERIALIZABLE');
+        try {
+          for (const row of rows.rows) {
+            const before = await snapshotMessage(client, row);
+            await _upsertConversationCopyWithClient(client, row, {
+              identities: await resolveOwnIdentityAddresses(client, row.account_id, row),
+              provider: providerIdentityForCopy(row, row),
+              userId,
+            });
+            const after = await snapshotMessage(client, row);
+            if (ceSnapshotChanged(before, after)) updated++;
+          }
 
-        const last = rows.rows.at(-1);
-        const complete = rows.rows.length < safeLimit;
-        await client.query(`
-          INSERT INTO conversation_rebuild_checkpoints
-            (user_id, scope_account_id, last_sort_is_null, last_message_date, last_message_id, status, dry_run, scanned_count, updated_count, diagnostics)
-          VALUES ($1,$2,$3,$4,$5,$6,false,$7,$8,$9::jsonb)
-          ON CONFLICT (user_id, scope_account_id) DO UPDATE SET
-            last_sort_is_null = EXCLUDED.last_sort_is_null,
-            last_message_date = EXCLUDED.last_message_date,
-            last_message_id = EXCLUDED.last_message_id,
-            status = EXCLUDED.status,
-            scanned_count = conversation_rebuild_checkpoints.scanned_count + EXCLUDED.scanned_count,
-            updated_count = conversation_rebuild_checkpoints.updated_count + EXCLUDED.updated_count,
-            diagnostics = EXCLUDED.diagnostics,
-            updated_at = NOW()
-        `, [userId, scope, last ? last.date === null : effectiveCheckpoint?.last_sort_is_null ?? null, last?.date || null, last?.id || null, complete ? 'complete' : 'paused', rows.rows.length, updated, JSON.stringify({ limit: safeLimit, complete, force })]);
-        await client.query('COMMIT');
-      } catch (err) {
-        await client.query('ROLLBACK').catch(() => {});
-        throw err;
+          const last = rows.rows.at(-1);
+          const complete = rows.rows.length < safeLimit;
+          await client.query(`
+            INSERT INTO conversation_rebuild_checkpoints
+              (user_id, scope_account_id, last_sort_is_null, last_message_date, last_message_id, status, dry_run, scanned_count, updated_count, diagnostics)
+            VALUES ($1,$2,$3,$4,$5,$6,false,$7,$8,$9::jsonb)
+            ON CONFLICT (user_id, scope_account_id) DO UPDATE SET
+              last_sort_is_null = EXCLUDED.last_sort_is_null,
+              last_message_date = EXCLUDED.last_message_date,
+              last_message_id = EXCLUDED.last_message_id,
+              status = EXCLUDED.status,
+              scanned_count = conversation_rebuild_checkpoints.scanned_count + EXCLUDED.scanned_count,
+              updated_count = conversation_rebuild_checkpoints.updated_count + EXCLUDED.updated_count,
+              diagnostics = EXCLUDED.diagnostics,
+              updated_at = NOW()
+          `, [userId, scope, last ? last.date === null : effectiveCheckpoint?.last_sort_is_null ?? null, last?.date || null, last?.id || null, complete ? 'complete' : 'paused', rows.rows.length, updated, JSON.stringify({ limit: safeLimit, complete, force })]);
+          await client.query('COMMIT');
+          break;
+        } catch (err) {
+          await client.query('ROLLBACK').catch(() => {});
+          if ((err?.code === '40001' || err?.code === '40P01') && attempt < maxWriteRetries) {
+            attempt++;
+            await new Promise(resolve => setTimeout(resolve, 25 * 2 ** (attempt - 1)));
+            continue;
+          }
+          throw err;
+        }
       }
     } else {
       // dryRun path: no writes, no checkpoint
