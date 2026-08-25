@@ -1,6 +1,0 @@
-PostgreSQL integration: 8/8 passed (conversationPgRegression)
-Real PG integration: 5/5 passed (ALL FOLDERS)
-Rebuild idempotency: 3/3 passed (x2 + Test overmerge)
-Database: mailflow_ce_test @ localhost:5432
-Migrations: 0001-0057 applied fresh
-Timestamp: 2026-08-25T11:43:09+00:00
