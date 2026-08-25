@@ -1161,6 +1161,7 @@
     "removeFrom": "Aus {{state}} entfernen",
     "classified": "Label angewendet",
     "classifyFailed": "Label konnte nicht angewendet werden",
+    "undoFailed": "Label konnte nicht rückgängig gemacht werden",
     "removed": "Label entfernt",
     "removeFailed": "Label konnte nicht entfernt werden",
     "done": "Als erledigt markieren",
@@ -1548,6 +1549,9 @@
       "gtdDelegated": {
         "label": "Als Delegiert markieren",
         "description": "Die ausgewählte Nachricht als Delegiert einordnen"
+      },
+      "gtdUndo": {
+        "description": "Letzte GTD-Einordnung rückgängig machen"
       },
       "toggleRightSidebar": {
         "label": "Rechte Seitenleiste umschalten",

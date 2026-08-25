@@ -1161,6 +1161,7 @@
     "removeFrom": "Usuń ze stanu {{state}}",
     "classified": "Zastosowano etykietę",
     "classifyFailed": "Nie udało się zastosować etykiety",
+    "undoFailed": "Nie udało się cofnąć etykiety",
     "removed": "Usunięto etykietę",
     "removeFailed": "Nie udało się usunąć etykiety",
     "done": "Oznacz jako wykonane",
@@ -1548,6 +1549,9 @@
       "gtdDelegated": {
         "label": "Oznacz jako Delegowane",
         "description": "Sklasyfikuj zaznaczoną wiadomość jako delegowane"
+      },
+      "gtdUndo": {
+        "description": "Cofnij ostatnią klasyfikację GTD"
       },
       "toggleRightSidebar": {
         "label": "Przełącz prawy panel",

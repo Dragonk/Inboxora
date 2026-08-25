@@ -1161,6 +1161,7 @@
     "removeFrom": "Rimuovi da {{state}}",
     "classified": "Etichetta applicata",
     "classifyFailed": "Impossibile applicare l'etichetta",
+    "undoFailed": "Impossibile annullare l'etichetta",
     "removed": "Etichetta rimossa",
     "removeFailed": "Impossibile rimuovere l'etichetta",
     "done": "Segna come completato",
@@ -1548,6 +1549,9 @@
       "gtdDelegated": {
         "label": "Segna Delegato",
         "description": "Classifica il messaggio selezionato come Delegato"
+      },
+      "gtdUndo": {
+        "description": "Annulla l'ultima classificazione GTD"
       },
       "toggleRightSidebar": {
         "label": "Mostra o nascondi la barra laterale destra",

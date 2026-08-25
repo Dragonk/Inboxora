@@ -1161,6 +1161,7 @@
     "removeFrom": "Odebrat ze stavu {{state}}",
     "classified": "Štítek použit",
     "classifyFailed": "Štítek se nepodařilo použít",
+    "undoFailed": "Štítek se nepodařilo vrátit zpět",
     "removed": "Štítek odebrán",
     "removeFailed": "Štítek se nepodařilo odebrat",
     "done": "Označit jako hotové",
@@ -1548,6 +1549,9 @@
       "gtdDelegated": {
         "label": "Označit Delegováno",
         "description": "Zařadit vybranou zprávu jako Delegováno"
+      },
+      "gtdUndo": {
+        "description": "Vrátit zpět poslední klasifikaci GTD"
       },
       "toggleRightSidebar": {
         "label": "Pravý postranní panel",

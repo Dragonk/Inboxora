@@ -1161,6 +1161,7 @@
     "removeFrom": "Remove from {{state}}",
     "classified": "Label applied",
     "classifyFailed": "Couldn't apply label",
+    "undoFailed": "Couldn't undo label",
     "removed": "Label removed",
     "removeFailed": "Couldn't remove label",
     "done": "Mark done",
@@ -1548,6 +1549,9 @@
       "gtdDelegated": {
         "label": "Mark Delegated",
         "description": "Classify the selected message as Delegated"
+      },
+      "gtdUndo": {
+        "description": "Undo the latest GTD classification"
       },
       "toggleRightSidebar": {
         "label": "Toggle right sidebar",
