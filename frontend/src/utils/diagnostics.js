@@ -5,6 +5,7 @@
 // the result and shares it manually.
 
 import { api } from './api.js';
+import { getDiagEvents } from './diagEvents.js';
 
 const REPORT_SCHEMA_VERSION = 1;
 
@@ -12,6 +13,13 @@ export function randomHex(bytes = 16) {
   const a = new Uint8Array(bytes);
   (globalThis.crypto || {}).getRandomValues?.(a);
   return Array.from(a, b => b.toString(16).padStart(2, '0')).join('');
+}
+
+// Matches the backend hashRef exactly: sha256(`${salt}:${id}`) truncated to 8 hex
+// chars, so event accountRefs correlate with the accounts[] refs in the same report.
+export async function hashRefAsync(id, salt) {
+  const buf = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(`${salt}:${id}`));
+  return Array.from(new Uint8Array(buf), b => b.toString(16).padStart(2, '0')).join('').slice(0, 8);
 }
 
 // Reduce a full User-Agent string to just browser family + major and OS family,
@@ -87,6 +95,16 @@ export async function generateReport({ locale, theme, uiScale }) {
   const salt = randomHex(16);
   const server = await api.diagnosticsReport(salt);
 
+  // Client-side event trace, with account ids hashed using the same salt so they
+  // correlate with the server-provided account refs.
+  const rawEvents = getDiagEvents();
+  const ids = [...new Set(rawEvents.map(e => e.accountId).filter(Boolean))];
+  const refMap = new Map();
+  for (const id of ids) refMap.set(id, await hashRefAsync(id, salt));
+  const events = rawEvents.map(({ accountId, ...rest }) => (
+    accountId ? { ...rest, accountRef: refMap.get(accountId) } : rest
+  ));
+
   const merged = {
     meta: {
       schemaVersion: REPORT_SCHEMA_VERSION,
@@ -103,6 +121,9 @@ export async function generateReport({ locale, theme, uiScale }) {
     accounts: server?.accounts ?? [],
     folders: server?.folders ?? [],
     counts: server?.counts ?? {},
+    events,
+    warnings: server?.warnings ?? [],
+    connection: server?.connection ?? {},
     config: server?.config ?? {},
   };
 

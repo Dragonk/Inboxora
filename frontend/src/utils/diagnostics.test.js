@@ -1,6 +1,17 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
-import { coarsenUserAgent, scrubReport, collectEnvironment } from './diagnostics.js';
+import { coarsenUserAgent, scrubReport, collectEnvironment, hashRefAsync } from './diagnostics.js';
+
+describe('hashRefAsync', () => {
+  it('matches the backend hashRef format: 8 hex, deterministic per salt', async () => {
+    const a = await hashRefAsync('acct-1', 'salt');
+    const b = await hashRefAsync('acct-1', 'salt');
+    const c = await hashRefAsync('acct-1', 'other-salt');
+    assert.match(a, /^[0-9a-f]{8}$/);
+    assert.equal(a, b);
+    assert.notEqual(a, c);
+  });
+});
 
 describe('coarsenUserAgent', () => {
   it('reduces a UA to browser+major and OS family only', () => {

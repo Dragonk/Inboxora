@@ -1,3 +1,5 @@
+import { recordWsConnect, recordWsDisconnect } from './diagnosticsRing.js';
+
 // Derive the expected origin from APP_URL once at startup.
 // If APP_URL is not set, origin validation is skipped — log a warning so operators know.
 const ALLOWED_ORIGIN = (() => {
@@ -46,6 +48,8 @@ export function setupWebSocket(wss, sessionMiddleware, imapManager) {
         return;
       }
       ws.userId = userId;
+      recordWsConnect();
+      ws._diagCounted = true;
       console.log(`WebSocket connected for user ${userId}`);
       ws.send(JSON.stringify({ type: 'connected' }));
       // Re-establish IMAP connections if the server restarted (skips already-connected accounts)
@@ -60,6 +64,7 @@ export function setupWebSocket(wss, sessionMiddleware, imapManager) {
     });
 
     ws.on('close', () => {
+      if (ws._diagCounted) recordWsDisconnect();
       console.log(`WebSocket disconnected`);
     });
   });

@@ -4,6 +4,14 @@ vi.mock('./db.js', () => ({ query: vi.fn() }));
 vi.mock('./redis.js', () => ({ redisClient: { ping: vi.fn().mockResolvedValue('PONG') } }));
 vi.mock('./aiProvider.js', () => ({ loadAiConfig: vi.fn().mockResolvedValue({ enabled: true, provider: 'api-key' }) }));
 vi.mock('../plugins/activation.js', () => ({ getActivatedPlugins: vi.fn().mockResolvedValue(new Set(['gtd'])) }));
+vi.mock('./diagnosticsRing.js', () => ({
+  getWarningsRaw: vi.fn(() => [
+    { code: 'imap_error', accountId: 'acct-1', count: 3, lastT: Date.now() - 5000 },
+    { code: 'staleness_error', accountId: null, count: 1, lastT: Date.now() - 1000 },
+    { code: 'imap_error', accountId: 'other-user-acct', count: 9, lastT: Date.now() },
+  ]),
+  getConnectionStats: vi.fn(() => ({ wsConnects: 4, wsDisconnects: 3, currentSockets: 1, broadcastCounts: { new_messages: 6 } })),
+}));
 
 import { hashRef, folderLabel, categorizeSyncError, deriveProvider, scrubReport, buildServerReport } from './diagnosticsReport.js';
 import { query } from './db.js';
@@ -123,5 +131,15 @@ describe('buildServerReport', () => {
     expect(report.config.plugins).toEqual({ gtd: 'enabled' });
     expect(report.config.aiEnabled).toBe(true);
     expect(report.server.redisOk).toBe(true);
+
+    // warnings: only this user's account warning + the global one; other-user filtered out
+    const imapWarnings = report.warnings.filter(w => w.code === 'imap_error');
+    expect(imapWarnings.length).toBe(1);
+    expect(imapWarnings[0].accountRef).toMatch(/^[0-9a-f]{8}$/);
+    expect(report.warnings.some(w => w.code === 'staleness_error' && !w.accountRef)).toBe(true);
+    expect(json).not.toContain('other-user-acct');
+    // connection stats present
+    expect(report.connection.broadcastCounts.new_messages).toBe(6);
+    expect(report.connection.wsConnects).toBe(4);
   });
 });

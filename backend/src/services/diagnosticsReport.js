@@ -14,6 +14,7 @@ import { query } from './db.js';
 import { redisClient } from './redis.js';
 import { loadAiConfig } from './aiProvider.js';
 import { getActivatedPlugins } from '../plugins/activation.js';
+import { getWarningsRaw, getConnectionStats } from './diagnosticsRing.js';
 
 const packageMeta = JSON.parse(readFileSync(new URL('../../package.json', import.meta.url), 'utf-8'));
 const BACKEND_VERSION = (process.env.APP_VERSION || packageMeta.version || '0.0.0').replace(/^v[.]?/, '');
@@ -170,12 +171,26 @@ export async function buildServerReport(userId, salt) {
   let redisOk = true;
   try { await redisClient.ping(); } catch { redisOk = false; }
 
+  // Recent categorized warnings, scoped to this user's accounts (account-less
+  // server warnings are global). Account ids are hashed with the report salt.
+  const userAccountIds = new Set(accRes.rows.map(a => a.id));
+  const warnings = getWarningsRaw()
+    .filter(w => !w.accountId || userAccountIds.has(w.accountId))
+    .map(w => ({
+      code: w.code,
+      ...(w.accountId ? { accountRef: hashRef(w.accountId, salt) } : {}),
+      count: w.count,
+      lastSeenAgeSeconds: Math.round((Date.now() - w.lastT) / 1000),
+    }));
+
   return {
     versions: { backend: BACKEND_VERSION, gitSha: process.env.BUILD_SHA || 'dev' },
     server: { uptimeSeconds: Math.round(process.uptime()), dbOk, redisOk },
     accounts,
     folders,
     counts: { unreadTotal, unreadByAccountRef },
+    warnings,
+    connection: getConnectionStats(),
     config: { aiEnabled, aiProvider, plugins },
   };
 }
