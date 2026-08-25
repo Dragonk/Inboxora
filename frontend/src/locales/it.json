@@ -1550,5 +1550,18 @@
   "window": {
     "minimize": "Riduci a icona",
     "close": "Chiudi"
+  },
+  "diagnostics": {
+    "section": "Diagnostica",
+    "blurb": "Un report depurato che puoi condividere per aiutare nella risoluzione dei problemi. Non contiene indirizzi email, nomi, contenuto dei messaggi o dati segreti.",
+    "generateReport": "Genera report diagnostico",
+    "title": "Report diagnostico",
+    "includes": "Include: versioni dell'app, il tuo ambiente, conteggi per account e per cartella, categorie di errori di sincronizzazione e stato del server. Gli ID account e i nomi delle cartelle personalizzate sono sostituiti da hash monouso.",
+    "excludes": "Esclude: indirizzi email, nomi, oggetti, contenuto dei messaggi, password e chiavi o token API.",
+    "download": "Scarica JSON",
+    "copied": "Report copiato",
+    "copyFailed": "Copia non riuscita",
+    "generating": "Generazione del report…",
+    "error": "Impossibile generare il report."
   }
 }

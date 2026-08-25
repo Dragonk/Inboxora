@@ -1550,5 +1550,18 @@
   "window": {
     "minimize": "Réduire",
     "close": "Fermer"
+  },
+  "diagnostics": {
+    "section": "Diagnostic",
+    "blurb": "Un rapport nettoyé que vous pouvez partager pour aider au dépannage. Il ne contient aucune adresse e-mail, nom, contenu de message ni donnée secrète.",
+    "generateReport": "Générer un rapport de diagnostic",
+    "title": "Rapport de diagnostic",
+    "includes": "Inclut : versions de l'application, votre environnement, nombres par compte et par dossier, catégories d'erreurs de synchronisation et état du serveur. Les identifiants de compte et les noms de dossiers personnalisés sont remplacés par des empreintes à usage unique.",
+    "excludes": "Exclut : adresses e-mail, noms, objets, contenu des messages, mots de passe et clés ou jetons d'API.",
+    "download": "Télécharger le JSON",
+    "copied": "Rapport copié",
+    "copyFailed": "Échec de la copie",
+    "generating": "Génération du rapport…",
+    "error": "Impossible de générer le rapport."
   }
 }

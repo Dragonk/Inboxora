@@ -573,26 +573,86 @@
       "gtd": "GTD"
     },
     "actions": {
-      "compose": { "label": "Napsat", "description": "Otevřít okno nové zprávy" },
-      "focusSearch": { "label": "Hledat", "description": "Přejít do vyhledávacího pole" },
-      "showHelp": { "label": "Zobrazit zkratky", "description": "Zobrazit přehled klávesových zkratek" },
-      "nextMessage": { "label": "Další zpráva", "description": "Přejít na další zprávu" },
-      "prevMessage": { "label": "Předchozí zpráva", "description": "Přejít na předchozí zprávu" },
-      "openMessage": { "label": "Otevřít první zprávu", "description": "Otevřít první zprávu, pokud není žádná vybrána" },
-      "goInbox": { "label": "Přejít do Doručené pošty", "description": "Přejít do sjednocené Doručené pošty" },
-      "reply": { "label": "Odpovědět", "description": "Odpovědět na aktuální zprávu" },
-      "replyAll": { "label": "Odpovědět všem", "description": "Odpovědět všem u aktuální zprávy" },
-      "forward": { "label": "Přeposlat", "description": "Přeposlat aktuální zprávu" },
-      "archive": { "label": "Archivovat", "description": "Archivovat zprávu nebo výběr" },
-      "delete": { "label": "Smazat", "description": "Smazat zprávu nebo výběr" },
-      "toggleStar": { "label": "Hvězdička", "description": "Přidat nebo odebrat hvězdičku u aktuální zprávy" },
-      "toggleRead": { "label": "Přečteno/nepřečteno", "description": "Označit aktuální zprávu jako přečtenou nebo nepřečtenou" },
-      "selectMessage": { "label": "Vybrat zprávu", "description": "Vybrat nebo zrušit výběr aktuální zprávy" },
-      "printMessage": { "label": "Vytisknout", "description": "Vytisknout aktuální zprávu" },
-      "gtdTodo": { "label": "Označit K vyřízení", "description": "Zařadit vybranou zprávu jako K vyřízení" },
-      "gtdWatch": { "label": "Označit Sledovat", "description": "Zařadit vybranou zprávu jako Sledovat" },
-      "gtdDelegated": { "label": "Označit Delegováno", "description": "Zařadit vybranou zprávu jako Delegováno" },
-      "toggleRightSidebar": { "label": "Pravý postranní panel", "description": "Skrýt nebo zobrazit pravý postranní panel" }
+      "compose": {
+        "label": "Napsat",
+        "description": "Otevřít okno nové zprávy"
+      },
+      "focusSearch": {
+        "label": "Hledat",
+        "description": "Přejít do vyhledávacího pole"
+      },
+      "showHelp": {
+        "label": "Zobrazit zkratky",
+        "description": "Zobrazit přehled klávesových zkratek"
+      },
+      "nextMessage": {
+        "label": "Další zpráva",
+        "description": "Přejít na další zprávu"
+      },
+      "prevMessage": {
+        "label": "Předchozí zpráva",
+        "description": "Přejít na předchozí zprávu"
+      },
+      "openMessage": {
+        "label": "Otevřít první zprávu",
+        "description": "Otevřít první zprávu, pokud není žádná vybrána"
+      },
+      "goInbox": {
+        "label": "Přejít do Doručené pošty",
+        "description": "Přejít do sjednocené Doručené pošty"
+      },
+      "reply": {
+        "label": "Odpovědět",
+        "description": "Odpovědět na aktuální zprávu"
+      },
+      "replyAll": {
+        "label": "Odpovědět všem",
+        "description": "Odpovědět všem u aktuální zprávy"
+      },
+      "forward": {
+        "label": "Přeposlat",
+        "description": "Přeposlat aktuální zprávu"
+      },
+      "archive": {
+        "label": "Archivovat",
+        "description": "Archivovat zprávu nebo výběr"
+      },
+      "delete": {
+        "label": "Smazat",
+        "description": "Smazat zprávu nebo výběr"
+      },
+      "toggleStar": {
+        "label": "Hvězdička",
+        "description": "Přidat nebo odebrat hvězdičku u aktuální zprávy"
+      },
+      "toggleRead": {
+        "label": "Přečteno/nepřečteno",
+        "description": "Označit aktuální zprávu jako přečtenou nebo nepřečtenou"
+      },
+      "selectMessage": {
+        "label": "Vybrat zprávu",
+        "description": "Vybrat nebo zrušit výběr aktuální zprávy"
+      },
+      "printMessage": {
+        "label": "Vytisknout",
+        "description": "Vytisknout aktuální zprávu"
+      },
+      "gtdTodo": {
+        "label": "Označit K vyřízení",
+        "description": "Zařadit vybranou zprávu jako K vyřízení"
+      },
+      "gtdWatch": {
+        "label": "Označit Sledovat",
+        "description": "Zařadit vybranou zprávu jako Sledovat"
+      },
+      "gtdDelegated": {
+        "label": "Označit Delegováno",
+        "description": "Zařadit vybranou zprávu jako Delegováno"
+      },
+      "toggleRightSidebar": {
+        "label": "Pravý postranní panel",
+        "description": "Skrýt nebo zobrazit pravý postranní panel"
+      }
     }
   },
   "signatureEditor": {
@@ -1509,5 +1569,18 @@
       "add": "Přidat akci",
       "count": "Počet akcí: {{n}} z {{max}}"
     }
+  },
+  "diagnostics": {
+    "section": "Diagnostika",
+    "blurb": "Anonymizovaná zpráva, kterou můžete sdílet a pomoct tak s řešením potíží. Neobsahuje žádné e-mailové adresy, jména, obsah zpráv ani citlivé údaje.",
+    "generateReport": "Vytvořit diagnostickou zprávu",
+    "title": "Diagnostická zpráva",
+    "includes": "Obsahuje: verze aplikace, vaše prostředí, počty u jednotlivých účtů a složek, kategorie chyb synchronizace a stav serveru. Identifikátory účtů a názvy vlastních složek jsou nahrazeny jednorázovými hashi.",
+    "excludes": "Neobsahuje: e-mailové adresy, jména, předměty, obsah zpráv, hesla ani klíče či tokeny API.",
+    "download": "Stáhnout JSON",
+    "copied": "Zpráva zkopírována",
+    "copyFailed": "Kopírování selhalo",
+    "generating": "Generuji zprávu…",
+    "error": "Zprávu se nepodařilo vytvořit."
   }
 }

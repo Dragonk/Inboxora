@@ -1550,5 +1550,18 @@
   "window": {
     "minimize": "Minimieren",
     "close": "Schließen"
+  },
+  "diagnostics": {
+    "section": "Diagnose",
+    "blurb": "Ein bereinigter Bericht, den du zur Fehlersuche teilen kannst. Er enthält keine E-Mail-Adressen, Namen, Nachrichteninhalte oder geheimen Daten.",
+    "generateReport": "Diagnosebericht erstellen",
+    "title": "Diagnosebericht",
+    "includes": "Enthält: App-Versionen, deine Umgebung, Anzahl pro Konto und Ordner, Kategorien von Synchronisierungsfehlern und Serverstatus. Konto-IDs und benutzerdefinierte Ordnernamen werden durch einmalige Hashes ersetzt.",
+    "excludes": "Ausgeschlossen: E-Mail-Adressen, Namen, Betreffzeilen, Nachrichteninhalte, Passwörter sowie API-Schlüssel oder -Tokens.",
+    "download": "JSON herunterladen",
+    "copied": "Bericht kopiert",
+    "copyFailed": "Kopieren fehlgeschlagen",
+    "generating": "Bericht wird erstellt…",
+    "error": "Bericht konnte nicht erstellt werden."
   }
 }

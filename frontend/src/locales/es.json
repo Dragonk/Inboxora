@@ -1550,5 +1550,18 @@
   "window": {
     "minimize": "Minimizar",
     "close": "Cerrar"
+  },
+  "diagnostics": {
+    "section": "Diagnóstico",
+    "blurb": "Un informe depurado que puedes compartir para ayudar a diagnosticar. No contiene direcciones de correo, nombres, contenido de mensajes ni datos secretos.",
+    "generateReport": "Generar informe de diagnóstico",
+    "title": "Informe de diagnóstico",
+    "includes": "Incluye: versiones de la aplicación, tu entorno, recuentos por cuenta y carpeta, categorías de errores de sincronización y estado del servidor. Los ID de cuenta y los nombres de carpetas personalizadas se reemplazan por hashes de un solo uso.",
+    "excludes": "Excluye: direcciones de correo, nombres, asuntos, contenido de mensajes, contraseñas y claves o tokens de API.",
+    "download": "Descargar JSON",
+    "copied": "Informe copiado",
+    "copyFailed": "Error al copiar",
+    "generating": "Generando informe…",
+    "error": "No se pudo generar el informe."
   }
 }

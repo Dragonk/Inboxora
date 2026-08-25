@@ -1550,5 +1550,18 @@
   "window": {
     "minimize": "Minimize",
     "close": "Close"
+  },
+  "diagnostics": {
+    "section": "Diagnostics",
+    "blurb": "A sanitized report you can share to help troubleshoot. It contains no email addresses, names, message content, or secrets.",
+    "generateReport": "Generate diagnostics report",
+    "title": "Diagnostics report",
+    "includes": "Includes: app versions, your environment, per-account and folder counts, sync error categories, and server health. Account IDs and custom folder names are replaced by one-time hashes.",
+    "excludes": "Excludes: email addresses, names, subjects, message content, passwords, and API keys or tokens.",
+    "download": "Download JSON",
+    "copied": "Report copied",
+    "copyFailed": "Copy failed",
+    "generating": "Generating report…",
+    "error": "Could not generate the report."
   }
 }

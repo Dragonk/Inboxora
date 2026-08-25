@@ -259,6 +259,9 @@ export const api = {
   getMessageHeaders: (id) => request('GET', `/mail/messages/${id}/headers`),
   snoozeMessage: (id, until) => request('POST', `/mail/messages/${id}/snooze`, { until }),
 
+  // Sanitized diagnostics report (server-owned sections; scoped to the user).
+  diagnosticsReport: (salt) => request('POST', '/diagnostics/report', { salt }),
+
   // Integrations
   getIntegrations: () => request('GET', '/integrations'),
   getIntegrationsStatus: () => request('GET', '/integrations/status'),

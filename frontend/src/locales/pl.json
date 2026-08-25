@@ -1569,5 +1569,18 @@
   "window": {
     "minimize": "Minimalizuj",
     "close": "Zamknij"
+  },
+  "diagnostics": {
+    "section": "Diagnostyka",
+    "blurb": "Zanonimizowany raport, którym możesz się podzielić, aby pomóc w rozwiązywaniu problemów. Nie zawiera adresów e-mail, nazwisk, treści wiadomości ani danych poufnych.",
+    "generateReport": "Wygeneruj raport diagnostyczny",
+    "title": "Raport diagnostyczny",
+    "includes": "Zawiera: wersje aplikacji, Twoje środowisko, liczby wiadomości na konto i folder, kategorie błędów synchronizacji oraz stan serwera. Identyfikatory kont i nazwy folderów niestandardowych są zastępowane jednorazowymi skrótami.",
+    "excludes": "Nie zawiera: adresów e-mail, nazwisk, tematów, treści wiadomości, haseł ani kluczy lub tokenów API.",
+    "download": "Pobierz JSON",
+    "copied": "Skopiowano raport",
+    "copyFailed": "Kopiowanie nie powiodło się",
+    "generating": "Generowanie raportu…",
+    "error": "Nie udało się wygenerować raportu."
   }
 }
