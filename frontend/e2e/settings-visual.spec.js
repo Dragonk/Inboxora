@@ -26,7 +26,7 @@ test('settings show exactly two CE controls with OFF/ON cards', async ({ page, f
   await page.getByText(/^Wygląd$|^Appearance$/i).click();
   await page.getByRole('button', { name: /^Układ$|^Layout$/i }).click();
 
-  await expect(page.getByText(/^Grupuj wiadomości w rozmowy$|^Group messages into conversations$/i)).toBeVisible();
+  await expect(page.getByText(/^Grupowanie rozmów$|^Group messages into conversations$/i)).toBeVisible();
   await expect(page.getByText(/^Czytnik rozmowy$|^Conversation reader$/i)).toBeVisible();
   await expect(page.getByRole('button', { name: /Wyłączone.*Każda wiadomość jest wyświetlana osobno|Disabled.*Open only the selected message/i })).toBeVisible();
   await expect(page.getByRole('button', { name: /Włączone.*Odpowiedzi grupowane w rozmowy|Enabled.*Replies grouped into conversations/i })).toBeVisible();
@@ -34,9 +34,9 @@ test('settings show exactly two CE controls with OFF/ON cards', async ({ page, f
   await expect(page.getByRole('button', { name: /Włączony.*Pokazuj całą rozmowę w panelu wiadomości|Enabled.*Show the entire conversation in the message pane/i })).toBeVisible();
 
   // There must be exactly two CE section headings and no third grouping control.
-  await expect(page.getByText(/^Grupuj wiadomości w rozmowy$|^Group messages into conversations$/i)).toHaveCount(1);
+  await expect(page.getByText(/^Grupowanie rozmów$|^Group messages into conversations$/i)).toHaveCount(1);
   await expect(page.getByText(/^Czytnik rozmowy$|^Conversation reader$/i)).toHaveCount(1);
-  const groupingHeading = page.getByText(/^Grupuj wiadomości w rozmowy$|^Group messages into conversations$/i);
+  const groupingHeading = page.getByText(/^Grupowanie rozmów$|^Group messages into conversations$/i);
   await groupingHeading.scrollIntoViewIfNeeded();
   await page.screenshot({ path: 'artifacts/settings-ce-controls.png', fullPage: false });
   await page.screenshot({ path: 'artifacts/settings.png', fullPage: true });

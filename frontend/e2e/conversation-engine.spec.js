@@ -1,79 +1,41 @@
 import { test, expect } from './fixtures.js';
 
-function visibleList(page) {
-  return page.locator('[role="list"]:visible').first();
+async function open(page, fixtureApi, grouped, reader) {
+  await fixtureApi;
+  page.__conversationMatrix = `${Number(grouped)}${Number(reader)}`;
+  await page.goto(`/?list=${Number(grouped)}&reader=${Number(reader)}`);
+  await expect(page.locator('[data-ce-reader-enabled]:visible').first()).toBeVisible();
 }
 
-function legacyReader(page) {
-  return page.locator('[data-testid="message-pane"]:visible, .message-pane:visible, [data-testid="message-list"]:visible, [role="main"]:visible').first();
-}
-
-test.describe('conversation engine browser E2E', () => {
-  async function gotoAfterPreferences(page, url) {
-    // Preferences may be served from the store on subsequent navigations, so a
-    // mandatory waitForResponse can deadlock the matrix after the first page load.
-    // Wait briefly when a network request is made, but never make navigation depend
-    // on a second GET that the app is allowed to cache.
-    const preferences = page.waitForResponse(response =>
-      response.url().includes('/api/auth/preferences') && response.request().method() === 'GET' && response.status() === 200,
-      { timeout: 3_000 }
-    ).catch(() => null);
-    await page.goto(url);
-    await preferences;
-  }
-
-  test.beforeEach(async ({ page, fixtureApi }) => {
-    await fixtureApi;
-    await gotoAfterPreferences(page, '/?list=1&reader=1');
-    await expect(visibleList(page)).toBeVisible();
+test.describe('native conversation engine matrix', () => {
+  test('OFF/ON resolves a flat selected physical message into its conversation (release blocker)', async ({ page, fixtureApi }) => {
+    await open(page, fixtureApi, false, true);
+    await page.locator('[data-msgid="conversation-gmail-copy-2"]:visible').click();
+    const reader = page.locator('section[data-conversation-id="conversation-gmail"]:visible');
+    await expect(reader).toBeVisible();
+    await expect(reader.locator('#logical-message-conversation-gmail-logical-1')).toBeVisible();
+    await expect(reader.locator('[aria-expanded="true"]')).toHaveCount(2);
+    await page.screenshot({ path: 'artifacts/off-on.png', fullPage: true });
   });
 
-  test('renders Gmail-like cards, latest-own marker, expands children and opens target', async ({ page }) => {
-    const list = visibleList(page);
-    await expect(list.getByText('Gmail reply chain', { exact: true }).first()).toBeVisible();
-    await expect(list.getByLabel(/Najnowsza własna odpowiedź|Latest own reply/i).first()).toBeVisible();
-    const expand = list.getByTestId('conversation-toggle-conversation-gmail');
-    await expand.click();
-    await expect(list.getByTestId('conversation-toggle-conversation-gmail')).toHaveAttribute('aria-expanded', 'true');
-    await list.locator('[data-logical-message-id]').first().click();
-    const pane = page.locator('section[data-conversation-id]:visible').first();
-    await expect(pane).toBeVisible();
-    await expect(pane.locator('[data-logical-message-id]').first()).toBeVisible();
-    await expect(pane.locator('iframe').first().contentFrame().getByText('Fixture body lazy', { exact: true })).toBeVisible();
+  test('ON/OFF retains the native threaded list and selects its parent message', async ({ page, fixtureApi }) => {
+    await open(page, fixtureApi, true, false);
+    const parent = page.locator('[data-msgid="conversation-gmail-copy-3"]:visible');
+    await expect(parent).toBeVisible();
+    await parent.click();
+    await expect(page.locator('[data-testid="message-pane-toolbar"]:visible')).toBeVisible();
+    await page.screenshot({ path: 'artifacts/on-off-collapsed.png', fullPage: true });
   });
 
-  test('supports reply and Reply All controls after lazy body load', async ({ page }) => {
-    const list = visibleList(page);
-    await list.getByTestId('conversation-toggle-conversation-gmail').click();
-    await list.locator('[data-logical-message-id]').first().click();
-    const pane = page.locator('section[data-conversation-id]:visible').first();
-    await pane.locator('article').first().locator('button').first().click({ force: true });
-    await expect(pane.getByRole('button', { name: /Odpowiedz$|Reply$/i }).first()).toBeVisible();
-    await expect(pane.getByRole('button', { name: /Odpowiedz wszystkim|Reply All/i }).first()).toBeVisible();
+  test('ON/ON opens compact cards and replies against the expanded message', async ({ page, fixtureApi }) => {
+    await open(page, fixtureApi, true, true);
+    await page.locator('[data-msgid="conversation-gmail-copy-3"]:visible').click();
+    const reader = page.locator('section[data-conversation-id="conversation-gmail"]:visible');
+    await expect(reader).toBeVisible();
+    const latest = reader.locator('[data-logical-message-id="conversation-gmail-logical-3"]');
+    await expect(latest.locator('[data-conversation-message-actions="true"]')).toBeVisible();
+    await latest.getByRole('button', { name: /Odpowiedz$|Reply$/i }).click();
+    await expect(page.locator('[data-conversation-message-actions="true"]')).toHaveCount(1);
+    await page.screenshot({ path: 'artifacts/on-on.png', fullPage: true });
   });
-
-  for (const [listEnabled, readerEnabled] of [[false, false], [true, false], [false, true], [true, true]]) {
-    test(`opens parent and child with list=${listEnabled} reader=${readerEnabled}`, async ({ page, fixtureApi }) => {
-      await fixtureApi;
-      page.__conversationMatrix = `${Number(listEnabled)}${Number(readerEnabled)}`;
-      await gotoAfterPreferences(page, `/?list=${Number(listEnabled)}&reader=${Number(readerEnabled)}`);
-      if (listEnabled) {
-        const list = visibleList(page);
-        await expect(list.getByText('Gmail reply chain', { exact: true }).first()).toBeVisible();
-        await list.getByTestId('conversation-toggle-conversation-gmail').click();
-        await list.locator('[data-logical-message-id]').first().click();
-      } else {
-        await expect(page.locator('body')).toBeVisible();
-      }
-      if (readerEnabled && listEnabled) {
-        await expect(page.locator('section[data-conversation-id]:visible')).toBeVisible();
-      } else {
-        await expect(page.locator('body')).toBeVisible();
-      }
-      // The initial navigation above is the matrix assertion. Avoid a second
-      // navigation in the same test: App intentionally persists preferences and
-      // may satisfy the second load from its store without another preferences GET.
-      // Each matrix tuple has its own isolated Playwright test/page.
-    });
-  }
 });

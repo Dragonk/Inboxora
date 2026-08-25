@@ -2,6 +2,7 @@ import { lazy, Suspense, useCallback, useEffect, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next';
 import { useStore } from '../store/index.js';
 import { api } from '../utils/api.js';
+import { conversationApi } from '../utils/conversationApi.js';
 import { useWebSocket } from '../hooks/useWebSocket.js';
 import { useMobile } from '../hooks/useMobile.js';
 import { LAYOUTS } from '../layouts.js';
@@ -73,8 +74,7 @@ export default function MailApp() {
     showContacts, setTodoistConnected,
     accounts, rightSidebarWidth, setRightSidebarWidth, isRightSidebarResizing, setIsRightSidebarResizing,
     rightSidebarHidden, toggleRightSidebarHidden,
-    threadedView, conversationReaderViewEnabled,
-    selectedFolder,
+    conversationReaderViewEnabled,
   } = useStore();
 
   const syncInterval = useStore(s => s.syncInterval);
@@ -83,33 +83,6 @@ export default function MailApp() {
   const isMobile = useMobile();
   const [conversationId, setConversationId] = useState(null);
   const [targetLogicalMessageId, setTargetLogicalMessageId] = useState(null);
-  const openConversationTarget = useCallback((row) => {
-    if (conversationReaderViewEnabled && row?.conversation_id) {
-      // Reader ON: open the conversation in MessagePane mode='conversation'.
-      if (isMobile && !conversationId) history.pushState({ mailflow: 'conversation' }, '', '/');
-      setSelectedMessage(null);
-      setConversationId(row.conversation_id);
-      setTargetLogicalMessageId(row.logical_message_id || row.logical_id || null);
-      return;
-    }
-    // Reader OFF: select the newest logical message's preferred physical copy so
-    // the native MessagePane shows it — never leave the pane in the empty state.
-    const physicalId = row?.latestCopyId || row?.latest_copy_id || row?.id || row?.message_id;
-    if (!physicalId) return;
-    return api.resolveMessage(physicalId).then(resolved => {
-      if (conversationReaderViewEnabled && resolved?.conversation_id) {
-        if (isMobile && !conversationId) history.pushState({ mailflow: 'conversation' }, '', '/');
-        setConversationId(resolved.conversation_id);
-        setTargetLogicalMessageId(resolved.logical_message_id || row.logical_message_id || null);
-      } else {
-        return api.getMessage(physicalId).then(message => setSelectedMessage(message.id || physicalId));
-      }
-    }).catch(() => {
-      // resolveMessage can fail if the copy was already moved/deleted — still try a direct getMessage
-      // so the pane doesn't stay blank.
-      return api.getMessage(physicalId).then(message => setSelectedMessage(message.id || physicalId)).catch(() => {});
-    });
-  }, [conversationId, conversationReaderViewEnabled, isMobile, setSelectedMessage]);
 
   const replyFromConversation = useCallback(copy => {
     if (!copy) return;
@@ -142,12 +115,17 @@ export default function MailApp() {
   useEffect(() => {
     if (!conversationReaderViewEnabled || !selectedMessageId) return undefined;
     let cancelled = false;
-    api.resolveMessage(selectedMessageId).then(resolved => {
-      if (!cancelled && resolved?.conversation_id) {
-        setConversationId(resolved.conversation_id);
-        setTargetLogicalMessageId(resolved.logical_message_id || null);
-      }
-    }).catch(() => {});
+    // The selected physical copy is the canonical selection. Resolve its CE identity
+    // independently of which list path produced the click (flat, ThreadRow parent or child).
+    setConversationId(null);
+    setTargetLogicalMessageId(null);
+    conversationApi.resolveMessage(selectedMessageId)
+      .then(resolved => {
+        if (!cancelled && resolved?.conversation_id) {
+          setConversationId(resolved.conversation_id);
+          setTargetLogicalMessageId(resolved.logical_message_id || null);
+        }
+      }).catch(() => {});
     return () => { cancelled = true; };
   }, [conversationReaderViewEnabled, selectedMessageId]);
 
@@ -830,7 +808,7 @@ export default function MailApp() {
           </div>
           {/* Keep all three mounted so scroll/state survive navigation. */}
           <div data-ce-reader-enabled={conversationReaderViewEnabled ? 'true' : 'false'} data-ce-reader-state={conversationReaderViewEnabled ? 'enabled' : 'disabled'} data-ce-conversation-id={conversationId || ''} data-ce-selected-message-id={selectedMessageId || ''} style={{ flex: 1, display: !showContacts && !selectedMessageId && !(conversationReaderViewEnabled && conversationId) ? 'flex' : 'none', overflow: 'hidden', height: '100%' }}>
-            <MessageList mode={threadedView ? 'grouped' : 'flat'} conversationParams={{ accountId: selectedAccountId || undefined, folder: selectedFolder || undefined }} onOpenConversation={openConversationTarget} />
+            <MessageList />
           </div>
           <div data-ce-reader-pane="true" style={{ flex: 1, display: !showContacts && (selectedMessageId || (conversationReaderViewEnabled && conversationId)) ? 'flex' : 'none', overflow: 'hidden', height: '100%', minWidth: 0 }}>
             <MessagePane mode={conversationReaderViewEnabled && conversationId ? 'conversation' : 'single'} conversationId={conversationId} targetLogicalMessageId={targetLogicalMessageId} onReply={replyFromConversation} />
@@ -866,7 +844,7 @@ export default function MailApp() {
                 display: 'flex', flex: currentLayout.direction === 'row' ? '0 0 var(--list-width)' : '1 1 50%',
                 width: currentLayout.direction === 'row' ? 'var(--list-width)' : '100%', minWidth: 0, overflow: 'hidden', height: '100%',
               }}>
-                <MessageList mode={threadedView ? 'grouped' : 'flat'} conversationParams={{ accountId: selectedAccountId || undefined, folder: selectedFolder || undefined }} onOpenConversation={openConversationTarget} />
+                <MessageList />
               </div>
               {currentLayout.direction === 'row' && (
                 <div
