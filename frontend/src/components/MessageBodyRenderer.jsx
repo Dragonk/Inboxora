@@ -5,7 +5,7 @@ import { sanitizeMessageHtml, buildSrcDoc } from './messageBodySecurity.js';
 /**
  * SafeMessageFrame — shared production HTML body renderer using a sandboxed iframe.
  *
- * Both MessagePane and ConversationPane use this component so they have an
+ * Both single-message and conversation reader modes use this component so they have an
  * IDENTICAL security model:
  *   - sandboxed iframe (allow-same-origin only — NO allow-scripts)
  *   - CSP via meta tag (default-src 'none', no remote resources unless explicitly enabled)

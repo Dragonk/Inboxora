@@ -1710,6 +1710,7 @@
     "readerOnDesc": "Die gesamte Unterhaltung im Nachrichtenbereich anzeigen",
     "groupIntoConversationsOn": "On",
     "readerOff": "Disabled",
-    "readerOn": "Enabled"
+    "readerOn": "Enabled",
+    "groupIntoConversations": "Nachrichten zu Unterhaltungen gruppieren"
   }
 }

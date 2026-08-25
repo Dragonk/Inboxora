@@ -4,7 +4,7 @@ import { useState, useCallback, useRef } from 'react';
  * useSelection — shared multi-select primitives extracted from MessageList.
  *
  * Used by both the flat MessageList and the Conversation Engine v2
- * ConversationList so that selection state management (toggle, range select,
+ * grouped conversation rows so that selection state management (toggle, range select,
  * select-all, clear, Ctrl/Cmd+click, Shift+range) is defined once.
  *
  * @param {Function} getItemId  (item) => id  — defaults to item => item.id

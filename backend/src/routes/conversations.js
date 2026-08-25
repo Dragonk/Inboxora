@@ -34,20 +34,44 @@ function encodeCursor(row) {
 
 router.get('/conversations', async (req, res) => {
   const userId = req.session.userId;
-  const { accountId, folder, limit = 50, cursor } = req.query;
+  const {
+    accountId,
+    folder: requestedFolder,
+    limit = 50,
+    cursor,
+    search,
+    unreadOnly,
+    category,
+    searchAllFolders,
+    unifiedInbox,
+  } = req.query;
+  // Match the native list's search-all-folders behavior: when explicitly enabled,
+  // search is not constrained to the currently selected folder.
+  const folder = searchAllFolders === '1' ? undefined : requestedFolder;
   const cursorValue = decodeCursor(cursor);
   if (cursor && !cursorValue) return res.status(400).json({ error: 'Invalid conversation cursor' });
   const values = accountId ? [userId, accountId] : [userId];
-  const accountFilter = accountId ? `AND m.account_id = $2` : '';
   // Folder/account scope applies to every list aggregate, not only conversation
-  // existence. Otherwise a starred or unread copy hidden in another account/folder
-  // leaks into the visible row state and can drive the wrong quick action.
+  // existence. Filter parameters are allocated once and reused by all projections.
   const folderParam = values.length + 1;
-  const folderFilter = folder ? `AND EXISTS (SELECT 1 FROM messages mf WHERE mf.conversation_id = c.id AND mf.is_deleted = false ${accountId ? 'AND mf.account_id = $2' : ''} AND mf.folder = $${folderParam})` : '';
-  if (folder) { values.push(folder); }
-  const scopedMessageFilter = `${accountId ? 'AND m.account_id = $2' : ''}${folder ? ` AND m.folder = $${folderParam}` : ''}`;
-  const scopedLogicalFilter = `${accountId ? 'AND visible_lm.account_id = $2' : ''}`;
-  const scopedPreviewFilter = `${accountId ? 'AND m.account_id = $2' : ''}`;
+  if (folder) values.push(folder);
+  const categoryParam = category && category !== 'all' ? values.push(category) : null;
+  const searchParam = search && String(search).trim() ? values.push(`%${String(search).trim()}%`) : null;
+  const scopedFilters = (alias, includeFolder = true) => {
+    const filters = [];
+    if (accountId) filters.push(`${alias}.account_id = $2`);
+    if (unifiedInbox === '1' && !accountId) {
+      filters.push(`EXISTS (SELECT 1 FROM email_accounts scoped_account WHERE scoped_account.id = ${alias}.account_id AND scoped_account.user_id = $1 AND scoped_account.include_in_unified_inbox = true)`);
+    }
+    if (includeFolder && folder) filters.push(`${alias}.folder = $${folderParam}`);
+    if (unreadOnly === '1' || unreadOnly === 'true') filters.push(`${alias}.is_read = false`);
+    if (categoryParam) filters.push(`COALESCE(${alias}.category, 'primary') = $${categoryParam}`);
+    if (searchParam) filters.push(`(${alias}.subject ILIKE $${searchParam} OR ${alias}.snippet ILIKE $${searchParam} OR ${alias}.from_email ILIKE $${searchParam})`);
+    return filters.length ? ` AND ${filters.join(' AND ')}` : '';
+  };
+  const scopedMessageFilter = scopedFilters('m');
+  const scopedLogicalFilter = scopedFilters('visible_lm', false);
+  const scopedPreviewFilter = scopedFilters('m');
   const scopedPreviewOrder = folder ? `CASE WHEN m.folder = $${folderParam} THEN 0 ELSE 1 END,` : '';
   let cursorFilter = '';
   if (cursorValue) {
@@ -73,6 +97,7 @@ router.get('/conversations', async (req, res) => {
       FROM conversations c
       JOIN messages m ON m.conversation_id = c.id AND m.is_deleted = false ${scopedMessageFilter}
       JOIN email_accounts a ON a.id = m.account_id AND a.user_id = $1
+        ${unifiedInbox === '1' && !accountId ? 'AND a.include_in_unified_inbox = true' : ''}
       LEFT JOIN LATERAL (
         SELECT lm.direction, lm.id
           FROM logical_messages lm
@@ -112,7 +137,7 @@ router.get('/conversations', async (req, res) => {
      ) preview ON true
      WHERE c.user_id = $1
        AND NOT EXISTS (SELECT 1 FROM conversation_aliases ca WHERE ca.user_id = $1 AND ca.alias_conversation_id = c.id)
-       ${accountFilter} ${folderFilter} ${cursorFilter}
+       ${cursorFilter}
      GROUP BY c.id, top_latest.id, preview.logical_messages
      ORDER BY COALESCE(MAX(m.date), c.created_at) DESC, c.id DESC
      LIMIT $${limitParam}

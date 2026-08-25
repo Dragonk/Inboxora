@@ -1710,6 +1710,7 @@
     "readerOnDesc": "在邮件面板中显示整个对话",
     "groupIntoConversationsOn": "On",
     "readerOff": "Disabled",
-    "readerOn": "Enabled"
+    "readerOn": "Enabled",
+    "groupIntoConversations": "将邮件归入对话"
   }
 }

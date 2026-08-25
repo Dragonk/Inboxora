@@ -18,8 +18,13 @@ export const conversationApi = {
     const qs = new URLSearchParams();
     if (params.accountId) qs.set('accountId', params.accountId);
     if (params.folder) qs.set('folder', params.folder);
-    if (params.limit) qs.set('limit', String(params.limit));
+    if (params.search) qs.set('search', params.search);
+    if (params.unreadOnly) qs.set('unreadOnly', '1');
+    if (params.category && params.category !== 'all') qs.set('category', params.category);
+    if (params.pageSize || params.limit) qs.set('limit', String(params.pageSize || params.limit));
     if (params.cursor) qs.set('cursor', params.cursor);
+    if (params.unifiedInbox) qs.set('unifiedInbox', '1');
+    if (params.searchAllFolders) qs.set('searchAllFolders', '1');
     return apiFetch(`/conversations?${qs.toString()}`);
   },
 

@@ -9,6 +9,20 @@ export const SUMMARIZE_PROMPT =
 // Fixed key so persisted summaries survive across sessions/devices.
 export const BUILTIN_SUMMARIZE = { id: 'summarize', prompt: SUMMARIZE_PROMPT, builtin: true };
 
+// The built-in Summarize prompt is uneditable, so (unlike custom actions, whose
+// authors can specify a language) it needs to follow the user's UI language
+// instead of defaulting to English (#255). Keyed by the i18n locale codes MailFlow
+// ships; English and any unknown locale keep the base prompt unchanged.
+const SUMMARIZE_LANGUAGE_NAMES = {
+  es: 'Spanish', fr: 'French', de: 'German', it: 'Italian',
+  pl: 'Polish', ru: 'Russian', zhCN: 'Simplified Chinese', cs: 'Czech',
+};
+
+export function summarizePromptForLocale(locale) {
+  const name = SUMMARIZE_LANGUAGE_NAMES[locale];
+  return name ? `${SUMMARIZE_PROMPT} Respond in ${name}.` : SUMMARIZE_PROMPT;
+}
+
 // Seeded once on first run (store.loadPreferences). Stable ids so that once a
 // user edits or deletes one, the change sticks and we never re-seed over it.
 export const DEFAULT_AI_ACTIONS = [

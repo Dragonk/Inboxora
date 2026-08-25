@@ -1,159 +1,33 @@
+/**
+ * GroupedConversationList — CE v2 conversation list rows.
+ *
+ * Renders ONLY the CE-specific conversation grouping logic (parent rows with
+ * expand/collapse, child logical-message rows, manual ops, diagnostics,
+ * scope selector, bulk actions).  All shared list primitives (date format,
+ * badges, swipe, selection hook, context menu item) are imported from shared
+ * modules so there is ONE implementation of each.
+ *
+ * The native list shell (toolbar, search, filters, pagination controls,
+ * scroll container geometry) is owned by MessageList, which renders this
+ * component in mode='grouped'.
+ */
 import { useEffect, useState, useCallback, useRef } from 'react';
 import { useTranslation } from 'react-i18next';
 import { conversationApi } from '../utils/conversationApi.js';
 import { useSelection, ACTION_SCOPES, DESTRUCTIVE_SCOPES, SCOPE_I18N_KEYS } from '../hooks/useSelection.js';
 import { ActionBtn } from './RowHoverActions.jsx';
 import { useSwipeRow } from '../hooks/useSwipeRow.js';
+import {
+  formatListDate,
+  UnreadBadge,
+  AttachmentIcon,
+  StarIndicator,
+  OwnReplyMarker,
+  AccountBadge,
+  LogicalCountBadge,
+} from './listPrimitives.jsx';
 
-function OwnReplyMarker({ visible }) {
-  const { t } = useTranslation();
-  if (!visible) return null;
-  return (
-    <span
-      role="img"
-      aria-label={t('conversation.latestOwnReply')}
-      title={t('conversation.latestOwnReply')}
-      style={{ marginLeft: 4, color: 'var(--accent)' }}
-    >
-      ↩
-    </span>
-  );
-}
-
-function AttachmentIcon({ visible }) {
-  const { t } = useTranslation();
-  if (!visible) return null;
-  const label = t('conversation.attachment');
-  return <span role="img" aria-label={label} title={label} style={{ marginLeft: 4 }}>📎</span>;
-}
-
-function UnreadBadge({ count }) {
-  const { t } = useTranslation();
-  if (!count) return null;
-  return (
-    <span
-      role="status"
-      aria-label={t('conversation.unreadCount', { count })}
-      style={{
-        marginLeft: 6,
-        fontSize: 11,
-        fontWeight: 700,
-        padding: '1px 7px',
-        borderRadius: 10,
-        background: 'var(--accent)',
-        color: 'var(--bg-primary)',
-        minWidth: 18,
-        textAlign: 'center',
-        display: 'inline-block',
-      }}
-    >
-      {count}
-    </span>
-  );
-}
-
-function AccountBadge({ accounts = [] }) {
-  const { t } = useTranslation();
-  if (!accounts.length || accounts.length <= 1) return null;
-  return (
-    <span
-      aria-label={t('conversation.accounts')}
-      title={accounts.join(', ')}
-      style={{
-        marginLeft: 6,
-        fontSize: 10,
-        fontWeight: 600,
-        padding: '1px 5px',
-        borderRadius: 4,
-        background: 'var(--bg-tertiary)',
-        color: 'var(--text-secondary)',
-      }}
-    >
-      {accounts.length}
-    </span>
-  );
-}
-
-function LogicalCountBadge({ count }) {
-  const { t } = useTranslation();
-  if (!count || count <= 1) return null;
-  return (
-    <span
-      role="status"
-      aria-label={t('conversation.logicalCount', { count })}
-      style={{
-        marginLeft: 6,
-        fontSize: 10,
-        fontWeight: 600,
-        padding: '1px 5px',
-        borderRadius: 4,
-        background: 'var(--bg-tertiary)',
-        color: 'var(--text-secondary)',
-      }}
-    >
-      {count}
-    </span>
-  );
-}
-
-function ConversationSwipeLayer({ row, isMobile, onTap, onLongPress, onSwipeLeft, onSwipeRight, children }) {
-  const { contentRef, swipeBgLeftRef, swipeBgRightRef } = useSwipeRow({ isMobile, message: row, onTap, onLongPress, onSwipeLeft, onSwipeRight });
-  return <div style={{ position: 'relative', overflow: 'hidden' }}>
-    <div ref={swipeBgLeftRef} style={{ position: 'absolute', inset: 0, display: 'none', alignItems: 'center', paddingLeft: 20, background: 'var(--accent)', color: 'white' }}>←</div>
-    <div ref={swipeBgRightRef} style={{ position: 'absolute', inset: 0, display: 'none', justifyContent: 'flex-end', alignItems: 'center', paddingRight: 20, background: 'var(--bg-tertiary)', color: 'var(--text-primary)' }}>→</div>
-    <div ref={contentRef}>{children}</div>
-  </div>;
-}
-
-function MenuItem({ onClick, children }) {
-  return (
-    <button
-      type="button"
-      role="menuitem"
-      onClick={onClick}
-      style={{
-        display: 'block',
-        width: '100%',
-        textAlign: 'left',
-        padding: '6px 12px',
-        border: 'none',
-        background: 'transparent',
-        cursor: 'pointer',
-        fontSize: 13,
-        color: 'var(--text-primary)',
-      }}
-    >
-      {children}
-    </button>
-  );
-}
-
-function formatListDate(dateStr) {
-  if (!dateStr) return '';
-  const d = new Date(dateStr);
-  const now = new Date();
-  const diffMs = now - d;
-  const diffDays = Math.floor(diffMs / (1000 * 60 * 60 * 24));
-  if (diffDays === 0) {
-    return d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
-  } else if (diffDays < 7) {
-    return d.toLocaleDateString([], { weekday: 'short' });
-  } else if (d.getFullYear() === now.getFullYear()) {
-    return d.toLocaleDateString([], { month: 'short', day: 'numeric' });
-  }
-  return d.toLocaleDateString([], { year: 'numeric', month: 'short', day: 'numeric' });
-}
-
-/**
- * P1-09: Build the participant list for the collapsed parent row.
- * Includes the outgoing participant (the user) as "Ja"/"You" via t('conversation.you').
- * Dedupes participants.
- * Example: Alice → user, user → Alice should show "Alice, Ja" not just "Alice".
- *
- * @param {Object} row    conversation row from the API
- * @param {Function} t   i18next t() for the "You" label
- * @returns {string}     comma-separated participant names (max 3)
- */
+/** Build the participant list for the collapsed parent row. CE-specific. */
 function getParticipants(row, t) {
   const messages = row.logical_messages || [];
   if (!messages.length) return '';
@@ -168,14 +42,11 @@ function getParticipants(row, t) {
       if (name) names.add(name);
     }
   }
-  // Include the user (outgoing participant) as "Ja"/"You"
-  if (hasOutgoing) {
-    names.add(t('conversation.you'));
-  }
+  if (hasOutgoing) names.add(t('conversation.you'));
   return Array.from(names).slice(0, 3).join(', ');
 }
 
-// ── Scope selector (P1-10) ─────────────────────────────────────
+/** CE-specific scope selector for copy-aware destructive actions. */
 function ScopeSelector({ value, onChange, destructive }) {
   const { t } = useTranslation();
   return (
@@ -209,6 +80,40 @@ function ScopeSelector({ value, onChange, destructive }) {
   );
 }
 
+/** Shared context-menu item button (matches MessageList style). */
+function MenuItem({ onClick, children }) {
+  return (
+    <button
+      type="button"
+      role="menuitem"
+      onClick={onClick}
+      style={{
+        display: 'block',
+        width: '100%',
+        textAlign: 'left',
+        padding: '6px 12px',
+        border: 'none',
+        background: 'transparent',
+        cursor: 'pointer',
+        fontSize: 13,
+        color: 'var(--text-primary)',
+      }}
+    >
+      {children}
+    </button>
+  );
+}
+
+const smallBtnStyle = {
+  border: '1px solid var(--border)',
+  borderRadius: 4,
+  padding: '4px 10px',
+  background: 'var(--bg-primary)',
+  color: 'var(--text-primary)',
+  cursor: 'pointer',
+  fontSize: 13,
+};
+
 export default function GroupedConversationList({ params = {}, onOpenMessage }) {
   const { t } = useTranslation();
   const [rows, setRows] = useState([]);
@@ -221,27 +126,17 @@ export default function GroupedConversationList({ params = {}, onOpenMessage }) 
   const [modal, setModal] = useState(null);
   const [opsError, setOpsError] = useState(null);
   const [opsBusy, setOpsBusy] = useState(false);
-  // P1-08/09: keyboard focus is independent from mouse hover.
-  // j/k/ArrowUp/ArrowDown change keyboardFocusedIndex only.
-  // Mouse hover changes hoveredRow only.
-  // Neither affects the other — the keyboard navigation origin is never
-  // changed by mouse movement.
   const [keyboardFocusedIndex, setKeyboardFocusedIndex] = useState(-1);
-  // P1-10: default scope for destructive actions — explicit, never whole conversation
   const [actionScope, setActionScope] = useState('THIS_COPY');
   const isMobile = typeof window !== 'undefined' && window.matchMedia?.('(max-width: 700px)').matches;
-  // P1-11: multi-select state via shared hook
   const {
     selectedIds, selectionModeActive, setSelectionModeActive,
     clearSelection, enterSelectionMode, handleRowToggleSelect, handleRangeSelect,
     selectAll,
   } = useSelection(row => row.conversation_id);
-  // P1-12: hover actions — track hovered row (mouse only, does NOT change keyboard focus)
   const [hoveredRow, setHoveredRow] = useState(null);
-  // P1-11: long-press timer for mobile
   const longPressTriggered = useRef(false);
   const listRef = useRef(null);
-  // P1-11: context menu positioning ref (for viewport flip/clamp)
 
   const paramsKey = JSON.stringify(params);
 
@@ -312,14 +207,8 @@ export default function GroupedConversationList({ params = {}, onOpenMessage }) 
     }
   }, [refreshList, t]);
 
-  // P1-10: confirmation dialog for destructive scopes
   const confirmDestructive = useCallback((title, body, onConfirm) => {
-    setModal({
-      type: 'confirm',
-      title,
-      body,
-      onConfirm,
-    });
+    setModal({ type: 'confirm', title, body, onConfirm });
   }, []);
 
   const runDestructiveAction = useCallback(async (actionName, fn, scope) => {
@@ -336,10 +225,6 @@ export default function GroupedConversationList({ params = {}, onOpenMessage }) 
     }
   }, [confirmDestructive, closeModal, runOp, selectedIds.size, t]);
 
-  // ── P1-12: Hover/quick action handlers ────────────────────────
-  // A list row can represent a folder/account-filtered physical copy. Always
-  // carry the displayed copy identity for THIS_COPY and other copy scopes;
-  // the backend must never guess a different globally-latest copy.
   const rowActionOptions = useCallback((row) => {
     const selectedLogical = (row.logical_messages || []).find(message => message.latestCopyId === row.latestCopyId);
     return {
@@ -367,10 +252,6 @@ export default function GroupedConversationList({ params = {}, onOpenMessage }) 
     runOp(() => conversationApi.setStarred(row.conversation_id, !isStarred, rowActionOptions(row)));
   }, [runOp, rowActionOptions]);
 
-  // Selector-dependent scopes must use copy-aware single-row calls. The bulk API
-  // intentionally accepts only conversation IDs and therefore cannot represent the
-  // selected folder/account copy or logical message for each row. WHOLE_CONVERSATION
-  // is the only scope whose meaning is independent of the selected physical row.
   const selectedRows = rows.filter(row => selectedIds.has(row.conversation_id));
   const runBulkAction = useCallback((bulkFn) => {
     const ids = selectedRows.map(row => row.conversation_id);
@@ -382,7 +263,6 @@ export default function GroupedConversationList({ params = {}, onOpenMessage }) 
         logicalMessageId: row.logical_message_id || selectedLogical?.id || null,
       };
     });
-    if (actionScope === 'WHOLE_CONVERSATION') return bulkFn(ids, { scope: actionScope, items });
     return bulkFn(ids, { scope: actionScope, items });
   }, [selectedRows, actionScope]);
 
@@ -412,7 +292,6 @@ export default function GroupedConversationList({ params = {}, onOpenMessage }) 
     ));
   }, [runBulkAction, runOp, t]);
 
-  // ── P1-11: Selection click handling (Ctrl/Cmd+click, Shift+range) ─
   const handleRowClick = useCallback((e, row) => {
     if (longPressTriggered.current) {
       longPressTriggered.current = false;
@@ -420,7 +299,6 @@ export default function GroupedConversationList({ params = {}, onOpenMessage }) 
       e.preventDefault();
       return;
     }
-    // Checkbox or Ctrl/Cmd+click → toggle selection
     if (e.target.closest('[data-selection-checkbox]') || e.ctrlKey || e.metaKey) {
       e.stopPropagation();
       e.preventDefault();
@@ -431,16 +309,12 @@ export default function GroupedConversationList({ params = {}, onOpenMessage }) 
       }
       return;
     }
-    // Shift+click → range select
     if (e.shiftKey && selectionModeActive) {
       e.stopPropagation();
       e.preventDefault();
       handleRangeSelect(row.conversation_id, rows);
       return;
     }
-    // Normal click opens the native reader/message pane. Expansion is controlled
-    // by the chevron so grouped-list + reader-off still selects a real physical
-    // message for the existing MessagePane instead of leaving the pane blank.
     if (selectionModeActive) {
       e.stopPropagation();
       handleRowToggleSelect(row.conversation_id, rows);
@@ -454,12 +328,10 @@ export default function GroupedConversationList({ params = {}, onOpenMessage }) 
     });
   }, [selectionModeActive, enterSelectionMode, handleRowToggleSelect, handleRangeSelect, rows, onOpenMessage]);
 
+  // ── CE-specific manual operations ──────────────────────────────
   const handleDiagnostics = useCallback((row) => {
     setMenuOpen(null);
-    runOp(
-      () => conversationApi.diagnostics(row.conversation_id),
-      t('conversation.diagnosticsTitle'),
-    );
+    runOp(() => conversationApi.diagnostics(row.conversation_id), t('conversation.diagnosticsTitle'));
   }, [runOp, t]);
 
   const handleMerge = useCallback((row) => {
@@ -509,7 +381,7 @@ export default function GroupedConversationList({ params = {}, onOpenMessage }) 
     runOp(() => conversationApi.forceExclude(row.conversation_id, lmId));
   }, [runOp]);
 
-  // Keyboard navigation: j/k to move focus, Enter to expand, Escape to close
+  // ── Keyboard navigation (shared pattern with MessageList) ──────
   const handleKeyDown = useCallback((e) => {
     if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA') return;
     if (e.key === 'j' || e.key === 'ArrowDown') {
@@ -532,14 +404,12 @@ export default function GroupedConversationList({ params = {}, onOpenMessage }) 
         setModal(null);
       }
     } else if (e.key === 'a' && (e.ctrlKey || e.metaKey) && !selectionModeActive) {
-      // Ctrl/Cmd+A → select all (page)
       e.preventDefault();
       selectAll(rows);
       setSelectionModeActive(true);
     }
   }, [rows, keyboardFocusedIndex, toggleExpand, selectionModeActive, clearSelection, selectAll, setSelectionModeActive]);
 
-  // Scroll focused row into view
   useEffect(() => {
     if (keyboardFocusedIndex >= 0 && listRef.current) {
       const items = listRef.current.querySelectorAll('[role="listitem"]');
@@ -578,12 +448,11 @@ export default function GroupedConversationList({ params = {}, onOpenMessage }) 
       aria-activedescendant={keyboardFocusedIndex >= 0 && rows[keyboardFocusedIndex] ? `conv-row-${rows[keyboardFocusedIndex].conversation_id}` : undefined}
       tabIndex={0}
       onKeyDown={handleKeyDown}
-      style={{ overflow: 'auto', height: '100%', outline: 'none' }}
+      style={{ outline: 'none' }}
     >
-      {/* P1-10: Scope selector — always visible at top */}
+      {/* CE-specific: Scope selector + select-all controls */}
       <div style={{ padding: '6px 8px', borderBottom: '1px solid var(--border)', display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
         <ScopeSelector value={actionScope} onChange={setActionScope} destructive />
-        {/* P1-11: Select-all / clear controls */}
         <div style={{ display: 'flex', gap: 8, alignItems: 'center', marginLeft: 'auto' }}>
           {!selectionModeActive ? (
             <button type="button" onClick={() => { selectAll(rows); setSelectionModeActive(true); }} style={smallBtnStyle}>
@@ -602,7 +471,7 @@ export default function GroupedConversationList({ params = {}, onOpenMessage }) 
         </div>
       </div>
 
-      {/* P1-11: Bulk action toolbar when in selection mode */}
+      {/* CE-specific: Bulk action toolbar */}
       {selectionModeActive && selectedIds.size > 0 && (
         <div
           role="toolbar"
@@ -635,11 +504,7 @@ export default function GroupedConversationList({ params = {}, onOpenMessage }) 
           <button type="button" onClick={handleBulkMove} style={smallBtnStyle}>
             {t('conversation.move')}
           </button>
-          <button
-            type="button"
-            onClick={handleBulkDelete}
-            style={{ ...smallBtnStyle, color: 'var(--text-danger)' }}
-          >
+          <button type="button" onClick={handleBulkDelete} style={{ ...smallBtnStyle, color: 'var(--text-danger)' }}>
             {t('conversation.delete')}
           </button>
           <button type="button" onClick={clearSelection} style={{ ...smallBtnStyle, marginLeft: 'auto' }}>
@@ -661,7 +526,6 @@ export default function GroupedConversationList({ params = {}, onOpenMessage }) 
         const latestSnippet = latestMessage?.snippet || '';
         const isFocused = keyboardFocusedIndex === rowIndex;
         const isSelected = selectedIds.has(row.conversation_id);
-        // P1-13: logical_message_count from the API
         const logicalCount = row.logical_message_count || messages.length || 0;
         const isStarred = Boolean(row.starred || row.is_starred || (row.logical_messages || []).some(message => message.starred || message.isStarred));
         const isHovered = hoveredRow === row.conversation_id;
@@ -682,7 +546,8 @@ export default function GroupedConversationList({ params = {}, onOpenMessage }) 
             onMouseEnter={() => { setHoveredRow(row.conversation_id); }}
             onMouseLeave={() => setHoveredRow(null)}
           >
-            <ConversationSwipeLayer
+            {/* Swipe layer — uses shared useSwipeRow hook directly */}
+            <SwipeWrapper
               row={row}
               isMobile={isMobile}
               onTap={() => handleRowClick({ target: { closest: () => null }, stopPropagation() {}, preventDefault() {} }, row)}
@@ -690,239 +555,169 @@ export default function GroupedConversationList({ params = {}, onOpenMessage }) 
               onSwipeLeft={() => handleQuickArchive(row)}
               onSwipeRight={() => handleQuickToggleRead(row)}
             >
-            {/* Collapsed conversation row */}
-            <div
-              style={{
-                display: 'flex',
-                alignItems: 'center',
-                minHeight: 48,
-                padding: '0 8px',
-                cursor: 'pointer',
-                fontWeight: unreadCount > 0 ? 600 : 400,
-              }}
-              onClick={(e) => handleRowClick(e, row, rowIndex)}
-              onKeyDown={e => {
-                if (e.key === 'Enter' || e.key === ' ') {
-                  e.preventDefault();
-                  if (selectionModeActive) handleRowToggleSelect(row.conversation_id, rows);
-                  else toggleExpand(row.conversation_id);
-                }
-              }}
-              tabIndex={0}
-              role="button"
-              data-testid={`conversation-expand-${row.conversation_id}`}
-              aria-expanded={isOpen}
-              aria-label={`${isOpen ? t('conversation.collapseConversation') : t('conversation.expandConversation')}: ${row.canonical_subject || t('conversation.noSubject')}`}
-            >
-              {/* P1-11: Selection checkbox (visible in selection mode) */}
-              {selectionModeActive && (
-                <input
-                  type="checkbox"
-                  data-selection-checkbox
-                  checked={isSelected}
-                  onChange={() => handleRowToggleSelect(row.conversation_id, rows)}
-                  onClick={e => e.stopPropagation()}
-                  style={{ flexShrink: 0, marginRight: 6, cursor: 'pointer' }}
-                  aria-label={t('conversation.selectConversationAria')}
-                />
-              )}
-
-              <button
-                type="button"
-                aria-label={isOpen ? t('conversation.collapseConversation') : t('conversation.expandConversation')}
-                onClick={e => { e.stopPropagation(); toggleExpand(row.conversation_id); }}
+              {/* Collapsed conversation parent row */}
+              <div
                 style={{
-                  width: 24, textAlign: 'center', flexShrink: 0, fontSize: 12,
-                  color: 'var(--text-tertiary)', background: 'transparent', border: 'none',
-                  cursor: 'pointer', padding: 0,
-                }}
-              >
-                {isOpen ? '▾' : '▸'}
-              </button>
-
-              <div style={{ flex: 1, minWidth: 0, overflow: 'hidden' }}>
-                <div style={{
                   display: 'flex',
                   alignItems: 'center',
-                  gap: 6,
-                  fontSize: 14,
-                  whiteSpace: 'nowrap',
-                  overflow: 'hidden',
-                  textOverflow: 'ellipsis',
-                }}>
-                  {isStarred && (
-                    <span aria-label={t('conversation.star')} title={t('conversation.star')} style={{ color: 'var(--amber, #f59e0b)', fontSize: 12 }}>★</span>
-                  )}
-                  <span style={{
-                    overflow: 'hidden',
-                    textOverflow: 'ellipsis',
-                    flex: 1,
-                  }}>
-                    {row.canonical_subject || t('conversation.noSubject')}
-                  </span>
-                  <AttachmentIcon visible={hasAttachments} />
-                  <OwnReplyMarker visible={row.latest_message_is_mine} />
-                </div>
-                {participants && (
-                  <div style={{
-                    fontSize: 12,
-                    color: 'var(--text-tertiary)',
-                    whiteSpace: 'nowrap',
-                    overflow: 'hidden',
-                    textOverflow: 'ellipsis',
-                    marginTop: 1,
-                  }}>
-                    {participants}
-                  </div>
+                  minHeight: 48,
+                  padding: '0 8px',
+                  cursor: 'pointer',
+                  fontWeight: unreadCount > 0 ? 600 : 400,
+                }}
+                onClick={(e) => handleRowClick(e, row, rowIndex)}
+                onKeyDown={e => {
+                  if (e.key === 'Enter' || e.key === ' ') {
+                    e.preventDefault();
+                    if (selectionModeActive) handleRowToggleSelect(row.conversation_id, rows);
+                    else toggleExpand(row.conversation_id);
+                  }
+                }}
+                tabIndex={0}
+                role="button"
+                data-testid={`conversation-expand-${row.conversation_id}`}
+                aria-expanded={isOpen}
+                aria-label={`${row.canonical_subject || t('conversation.noSubject')}, ${t('conversation.messageCount', { count: row.logical_message_count || messages.length || 1 })}`}
+              >
+                {selectionModeActive && (
+                  <input
+                    type="checkbox"
+                    data-selection-checkbox
+                    checked={isSelected}
+                    onChange={() => handleRowToggleSelect(row.conversation_id, rows)}
+                    onClick={e => e.stopPropagation()}
+                    style={{ flexShrink: 0, marginRight: 6, cursor: 'pointer' }}
+                    aria-label={t('conversation.selectConversationAria')}
+                  />
                 )}
-                {latestSnippet && (
-                  <div style={{
-                    fontSize: 12,
-                    color: 'var(--text-tertiary)',
-                    whiteSpace: 'nowrap',
-                    overflow: 'hidden',
-                    textOverflow: 'ellipsis',
-                    marginTop: 1,
-                    opacity: 0.8,
-                  }}>
-                    {latestSnippet}
-                  </div>
-                )}
-              </div>
 
-              <div style={{ flexShrink: 0, display: 'flex', alignItems: 'center', marginLeft: 8 }}>
-                {/* P1-13: logical_message_count badge (not physical copy count) */}
-                <LogicalCountBadge count={logicalCount} />
-                <AccountBadge accounts={accounts} />
-                <UnreadBadge count={unreadCount} />
-                <span style={{
-                  fontSize: 12,
-                  color: 'var(--text-tertiary)',
-                  marginLeft: 8,
-                  minWidth: 50,
-                  textAlign: 'right',
-                }}>
-                  {formatListDate(latestDate)}
-                </span>
                 <button
                   type="button"
-                  aria-label={t('conversation.manualActions')}
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    setMenuOpen(prev => (prev === row.conversation_id ? null : row.conversation_id));
-                  }}
+                  data-testid={`conversation-toggle-${row.conversation_id}`}
+                  aria-expanded={isOpen}
+                  aria-label={`${isOpen ? t('conversation.collapseConversation') : t('conversation.expandConversation')}: ${row.canonical_subject || t('conversation.noSubject')}`}
+                  onClick={e => { e.stopPropagation(); toggleExpand(row.conversation_id); }}
                   style={{
-                    flexShrink: 0,
-                    border: 'none',
-                    background: 'transparent',
-                    cursor: 'pointer',
-                    padding: '2px 4px',
-                    fontSize: 16,
-                    color: 'var(--text-tertiary)',
-                    lineHeight: 1,
+                    width: 24, textAlign: 'center', flexShrink: 0, fontSize: 12,
+                    color: 'var(--text-tertiary)', background: 'transparent', border: 'none',
+                    cursor: 'pointer', padding: 0,
                   }}
                 >
-                  ⋮
+                  {isOpen ? '▾' : '▸'}
                 </button>
-              </div>
-            </div>
 
-            {/* P1-12: Hover quick actions (desktop only, reuse upstream ActionBtn) */}
-            {!selectionModeActive && isHovered && !isOpen && (
-              <div style={{
-                position: 'absolute',
-                right: 40,
-                top: '50%',
-                transform: 'translateY(-50%)',
-                display: 'flex',
-                alignItems: 'center',
-                gap: 2,
-                background: 'var(--bg-primary)',
-                borderRadius: 5,
-                padding: '1px 2px',
-                boxShadow: '0 1px 4px rgba(0,0,0,0.1)',
-                zIndex: 5,
-              }}>
-                <ActionBtn
-                  title={unreadCount > 0 ? t('conversation.markUnread') : t('conversation.markRead')}
-                  onClick={e => { e.stopPropagation(); handleQuickToggleRead(row); }}
-                >
-                  {unreadCount > 0 ? '✉' : '▢'}
-                </ActionBtn>
-                <ActionBtn
-                  title={isStarred ? t('conversation.unstar') : t('conversation.star')}
-                  onClick={e => { e.stopPropagation(); handleQuickToggleStar(row); }}
-                >
-                  <span style={{ color: isStarred ? 'var(--amber, #f59e0b)' : 'currentColor', fontSize: 13 }}>
-                    {isStarred ? '★' : '☆'}
-                  </span>
-                </ActionBtn>
-                <ActionBtn
-                  title={t('conversation.archive')}
-                  onClick={e => { e.stopPropagation(); handleQuickArchive(row); }}
-                >
-                  📦
-                </ActionBtn>
-                <ActionBtn
-                  title={t('conversation.delete')}
-                  onClick={e => { e.stopPropagation(); handleQuickDelete(row); }}
-                >
-                  🗑
-                </ActionBtn>
-              </div>
-            )}
-
-            {/* Context menu dropdown */}
-            {menuOpen === row.conversation_id && (
-              <>
-                <div
-                  onClick={() => setMenuOpen(null)}
-                  aria-label={t('conversation.close')}
-                  style={{ position: 'fixed', inset: 0, zIndex: 999, border: 'none', background: 'transparent', padding: 0, cursor: 'default' }}
-                />
-                <div
-                  role="menu"
-                  aria-label={t('conversation.manualActions')}
-                  style={{
-                    position: 'absolute',
-                    right: 8,
-                    zIndex: 1000,
-                    background: 'var(--bg-primary)',
-                    border: '1px solid var(--border)',
-                    borderRadius: 6,
-                    boxShadow: '0 4px 12px rgba(0,0,0,0.15)',
-                    minWidth: 220,
-                    padding: '4px 0',
-                  }}
-                >
-                  <MenuItem onClick={() => handleDiagnostics(row)}>{t('conversation.whyGrouped')}</MenuItem>
-                  <MenuItem onClick={() => handleMerge(row)}>{t('conversation.mergeConversations')}</MenuItem>
-                  <MenuItem onClick={() => handleSplit(row, false)}>{t('conversation.splitMessageOnly')}</MenuItem>
-                  <MenuItem onClick={() => handleSplit(row, true)}>{t('conversation.splitMessageAndReplies')}</MenuItem>
-                  <MenuItem onClick={() => handleMove(row)}>{t('conversation.moveToConversation')}</MenuItem>
-                  {row.manually_locked
-                    ? <MenuItem onClick={() => handleUnlock(row)}>{t('conversation.unlockConversation')}</MenuItem>
-                    : <MenuItem onClick={() => handleLock(row)}>{t('conversation.lock')}</MenuItem>}
-                  <MenuItem onClick={() => handleForceInclude(row)}>{t('conversation.forceInclude')}</MenuItem>
-                  <MenuItem onClick={() => handleForceExclude(row)}>{t('conversation.forceExclude')}</MenuItem>
-                  <div style={{ borderTop: '1px solid var(--border)', margin: '4px 0' }} />
-                  <MenuItem onClick={() => handleQuickToggleRead(row)}>{t('conversation.markRead')}</MenuItem>
-                  <MenuItem onClick={() => handleQuickToggleStar(row)}>{t('conversation.star')}</MenuItem>
-                  <MenuItem onClick={() => handleQuickArchive(row)}>{t('conversation.archive')}</MenuItem>
-                  <MenuItem onClick={() => handleQuickDelete(row)}>{t('conversation.delete')}</MenuItem>
+                <div style={{ flex: 1, minWidth: 0, overflow: 'hidden' }}>
+                  <div style={{
+                    display: 'flex', alignItems: 'center', gap: 6,
+                    fontSize: 14, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis',
+                  }}>
+                    <StarIndicator starred={isStarred} />
+                    <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', flex: 1 }}>
+                      {row.canonical_subject || t('conversation.noSubject')}
+                    </span>
+                    <AttachmentIcon visible={hasAttachments} />
+                    <OwnReplyMarker visible={row.latest_message_is_mine} />
+                  </div>
+                  {participants && (
+                    <div style={{
+                      fontSize: 12, color: 'var(--text-tertiary)',
+                      whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', marginTop: 1,
+                    }}>
+                      {participants}
+                    </div>
+                  )}
+                  {latestSnippet && (
+                    <div style={{
+                      fontSize: 12, color: 'var(--text-tertiary)',
+                      whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', marginTop: 1, opacity: 0.8,
+                    }}>
+                      {latestSnippet}
+                    </div>
+                  )}
                 </div>
-              </>
-            )}
 
-            </ConversationSwipeLayer>
+                <div style={{ flexShrink: 0, display: 'flex', alignItems: 'center', marginLeft: 8 }}>
+                  <LogicalCountBadge count={logicalCount} />
+                  <AccountBadge accounts={accounts} />
+                  <UnreadBadge count={unreadCount} />
+                  <span style={{ fontSize: 12, color: 'var(--text-tertiary)', marginLeft: 8, minWidth: 50, textAlign: 'right' }}>
+                    {formatListDate(latestDate)}
+                  </span>
+                  <button
+                    type="button"
+                    aria-label={t('conversation.manualActions')}
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      setMenuOpen(prev => (prev === row.conversation_id ? null : row.conversation_id));
+                    }}
+                    style={{
+                      flexShrink: 0, border: 'none', background: 'transparent', cursor: 'pointer',
+                      padding: '2px 4px', fontSize: 16, color: 'var(--text-tertiary)', lineHeight: 1,
+                    }}
+                  >⋮</button>
+                </div>
+              </div>
 
-            {/* Expanded logical messages (full conversation, not folder-scoped) */}
+              {/* Hover quick actions (desktop, shared ActionBtn) */}
+              {!selectionModeActive && isHovered && !isOpen && (
+                <div style={{
+                  position: 'absolute', right: 40, top: '50%', transform: 'translateY(-50%)',
+                  display: 'flex', alignItems: 'center', gap: 2,
+                  background: 'var(--bg-primary)', borderRadius: 5, padding: '1px 2px',
+                  boxShadow: '0 1px 4px rgba(0,0,0,0.1)', zIndex: 5,
+                }}>
+                  <ActionBtn title={unreadCount > 0 ? t('conversation.markUnread') : t('conversation.markRead')}
+                    onClick={e => { e.stopPropagation(); handleQuickToggleRead(row); }}>
+                    {unreadCount > 0 ? '✉' : '▢'}
+                  </ActionBtn>
+                  <ActionBtn title={isStarred ? t('conversation.unstar') : t('conversation.star')}
+                    onClick={e => { e.stopPropagation(); handleQuickToggleStar(row); }}>
+                    <span style={{ color: isStarred ? 'var(--amber, #f59e0b)' : 'currentColor', fontSize: 13 }}>
+                      {isStarred ? '★' : '☆'}
+                    </span>
+                  </ActionBtn>
+                  <ActionBtn title={t('conversation.archive')}
+                    onClick={e => { e.stopPropagation(); handleQuickArchive(row); }}>📦</ActionBtn>
+                  <ActionBtn title={t('conversation.delete')}
+                    onClick={e => { e.stopPropagation(); handleQuickDelete(row); }}>🗑</ActionBtn>
+                </div>
+              )}
+
+              {/* CE-specific: Manual ops context menu */}
+              {menuOpen === row.conversation_id && (
+                <>
+                  <div onClick={() => setMenuOpen(null)} aria-label={t('conversation.close')}
+                    style={{ position: 'fixed', inset: 0, zIndex: 999, border: 'none', background: 'transparent', padding: 0, cursor: 'default' }} />
+                  <div role="menu" aria-label={t('conversation.manualActions')}
+                    style={{
+                      position: 'absolute', right: 8, zIndex: 1000,
+                      background: 'var(--bg-primary)', border: '1px solid var(--border)',
+                      borderRadius: 6, boxShadow: '0 4px 12px rgba(0,0,0,0.15)',
+                      minWidth: 220, padding: '4px 0',
+                    }}>
+                    <MenuItem onClick={() => handleDiagnostics(row)}>{t('conversation.whyGrouped')}</MenuItem>
+                    <MenuItem onClick={() => handleMerge(row)}>{t('conversation.mergeConversations')}</MenuItem>
+                    <MenuItem onClick={() => handleSplit(row, false)}>{t('conversation.splitMessageOnly')}</MenuItem>
+                    <MenuItem onClick={() => handleSplit(row, true)}>{t('conversation.splitMessageAndReplies')}</MenuItem>
+                    <MenuItem onClick={() => handleMove(row)}>{t('conversation.moveToConversation')}</MenuItem>
+                    {row.manually_locked
+                      ? <MenuItem onClick={() => handleUnlock(row)}>{t('conversation.unlockConversation')}</MenuItem>
+                      : <MenuItem onClick={() => handleLock(row)}>{t('conversation.lock')}</MenuItem>}
+                    <MenuItem onClick={() => handleForceInclude(row)}>{t('conversation.forceInclude')}</MenuItem>
+                    <MenuItem onClick={() => handleForceExclude(row)}>{t('conversation.forceExclude')}</MenuItem>
+                    <div style={{ borderTop: '1px solid var(--border)', margin: '4px 0' }} />
+                    <MenuItem onClick={() => handleQuickToggleRead(row)}>{t('conversation.markRead')}</MenuItem>
+                    <MenuItem onClick={() => handleQuickToggleStar(row)}>{t('conversation.star')}</MenuItem>
+                    <MenuItem onClick={() => handleQuickArchive(row)}>{t('conversation.archive')}</MenuItem>
+                    <MenuItem onClick={() => handleQuickDelete(row)}>{t('conversation.delete')}</MenuItem>
+                  </div>
+                </>
+              )}
+            </SwipeWrapper>
+
+            {/* Expanded child logical-message rows (CE-specific hierarchy) */}
             {isOpen && (
-              <div
-                role="group"
-                aria-label={t('conversation.messagesLabel')}
-                style={{ paddingLeft: 32, paddingRight: 8 }}
-              >
+              <div role="group" aria-label={t('conversation.messagesLabel')} style={{ paddingLeft: 32, paddingRight: 8 }}>
                 {(row.logical_messages || []).map(message => {
                   const isOutgoing = message.direction === 'outgoing' || message.direction === 'self';
                   const sender = isOutgoing
@@ -942,57 +737,27 @@ export default function GroupedConversationList({ params = {}, onOpenMessage }) 
                         latestCopyId: message.latestCopyId,
                       })}
                       style={{
-                        display: 'flex',
-                        alignItems: 'center',
-                        minHeight: 40,
-                        width: '100%',
-                        textAlign: 'left',
-                        padding: '4px 8px',
-                        border: 'none',
-                        background: 'transparent',
-                        cursor: 'pointer',
-                        fontWeight: msgUnread ? 600 : 400,
-                        color: 'var(--text-primary)',
-                        fontSize: 13,
+                        display: 'flex', alignItems: 'center', minHeight: 40, width: '100%',
+                        textAlign: 'left', padding: '4px 8px', border: 'none',
+                        background: 'transparent', cursor: 'pointer',
+                        fontWeight: msgUnread ? 600 : 400, color: 'var(--text-primary)', fontSize: 13,
                       }}
                     >
-                      <span style={{
-                        flexShrink: 0,
-                        width: 12,
-                        textAlign: 'center',
-                        color: 'var(--text-tertiary)',
-                        fontSize: 11,
-                      }} aria-hidden="true">
+                      <span style={{ flexShrink: 0, width: 12, textAlign: 'center', color: 'var(--text-tertiary)', fontSize: 11 }} aria-hidden="true">
                         {isOutgoing ? '→' : '←'}
                       </span>
                       <span style={{
-                        flexShrink: 0,
-                        width: 100,
-                        overflow: 'hidden',
-                        textOverflow: 'ellipsis',
-                        whiteSpace: 'nowrap',
-                        color: isOutgoing ? 'var(--accent)' : 'var(--text-primary)',
-                        fontWeight: isOutgoing ? 600 : 400,
+                        flexShrink: 0, width: 100, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
+                        color: isOutgoing ? 'var(--accent)' : 'var(--text-primary)', fontWeight: isOutgoing ? 600 : 400,
                       }}>
                         {sender}
                       </span>
-                      <span style={{
-                        flex: 1,
-                        overflow: 'hidden',
-                        textOverflow: 'ellipsis',
-                        whiteSpace: 'nowrap',
-                        marginLeft: 8,
-                      }}>
+                      <span style={{ flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', marginLeft: 8 }}>
                         {message.snippet || message.subject || t('conversation.noSubject')}
                       </span>
                       {message.hasAttachments && <AttachmentIcon visible />}
                       {message.isLatest && row.latest_message_is_mine && <OwnReplyMarker visible />}
-                      <span style={{
-                        flexShrink: 0,
-                        fontSize: 11,
-                        color: 'var(--text-tertiary)',
-                        marginLeft: 8,
-                      }}>
+                      <span style={{ flexShrink: 0, fontSize: 11, color: 'var(--text-tertiary)', marginLeft: 8 }}>
                         {formatListDate(message.messageDate)}
                       </span>
                     </button>
@@ -1005,21 +770,12 @@ export default function GroupedConversationList({ params = {}, onOpenMessage }) 
       })}
 
       {nextCursor && (
-        <button
-          type="button"
-          onClick={loadMore}
-          disabled={loadingMore}
+        <button type="button" onClick={loadMore} disabled={loadingMore}
           style={{
-            display: 'block',
-            width: '100%',
-            padding: 12,
-            border: 'none',
-            background: 'transparent',
-            color: 'var(--accent)',
-            cursor: loadingMore ? 'wait' : 'pointer',
-            fontSize: 13,
-          }}
-        >
+            display: 'block', width: '100%', padding: 12, border: 'none',
+            background: 'transparent', color: 'var(--accent)',
+            cursor: loadingMore ? 'wait' : 'pointer', fontSize: 13,
+          }}>
           {loadingMore ? t('conversation.loading') : t('conversation.loadMore')}
         </button>
       )}
@@ -1027,121 +783,75 @@ export default function GroupedConversationList({ params = {}, onOpenMessage }) 
       {/* Ops error toast */}
       {opsError && (
         <div role="alert" style={{
-          position: 'sticky',
-          bottom: 0,
-          padding: '8px 16px',
-          background: 'var(--text-danger)',
-          color: 'var(--bg-primary)',
-          fontSize: 13,
-          display: 'flex',
-          justifyContent: 'space-between',
-          alignItems: 'center',
+          position: 'sticky', bottom: 0, padding: '8px 16px',
+          background: 'var(--text-danger)', color: 'var(--bg-primary)', fontSize: 13,
+          display: 'flex', justifyContent: 'space-between', alignItems: 'center',
         }}>
           <span>{opsError}</span>
-          <button type="button" onClick={() => setOpsError(null)} aria-label={t('conversation.close')} style={{
-            border: 'none', background: 'transparent', color: 'inherit', cursor: 'pointer', fontSize: 16,
-          }}>
-            ×
-          </button>
+          <button type="button" onClick={() => setOpsError(null)} aria-label={t('conversation.close')}
+            style={{ border: 'none', background: 'transparent', color: 'inherit', cursor: 'pointer', fontSize: 16 }}>×</button>
         </div>
       )}
 
-      {/* P1-10: Confirmation dialog for destructive scopes */}
+      {/* CE-specific: Destructive confirmation + diagnostics modals */}
       {modal?.type === 'confirm' && (
-        <div
-          role="dialog"
-          aria-label={modal.title}
-          onClick={closeModal}
-          style={{
-            position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.4)',
-            zIndex: 2000, display: 'flex', alignItems: 'center', justifyContent: 'center',
-          }}
-        >
-          <div
-            onClick={e => e.stopPropagation()}
-            style={{
-              background: 'var(--bg-primary)', borderRadius: 8, padding: 20,
-              maxWidth: 400, width: '90%', boxShadow: '0 8px 24px rgba(0,0,0,0.2)',
-            }}
-          >
-            <h3 style={{ margin: 0, fontSize: 16, marginBottom: 8 }}>{modal.title}</h3>
-            <p style={{ fontSize: 13, color: 'var(--text-secondary)', margin: '0 0 16px' }}>{modal.body}</p>
-            <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
-              <button type="button" onClick={closeModal} style={smallBtnStyle}>
-                {t('conversation.cancel')}
-              </button>
-              <button
-                type="button"
-                onClick={modal.onConfirm}
-                disabled={opsBusy}
-                style={{ ...smallBtnStyle, background: 'var(--text-danger)', color: 'var(--bg-primary)' }}
-              >
-                {opsBusy ? t('conversation.loading') : t('conversation.confirm')}
-              </button>
-            </div>
-          </div>
-        </div>
+        <DestructiveModal modal={modal} closeModal={closeModal} opsBusy={opsBusy} t={t} />
       )}
-
-      {/* Diagnostics / info modal */}
       {modal?.type === 'info' && (
-        <div
-          role="dialog"
-          aria-label={modal.title}
-          onClick={closeModal}
-          style={{
-            position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.4)',
-            zIndex: 2000, display: 'flex', alignItems: 'center', justifyContent: 'center',
-          }}
-        >
-          <div
-            onClick={(e) => e.stopPropagation()}
-            style={{
-              background: 'var(--bg-primary)',
-              borderRadius: 8,
-              padding: 20,
-              maxWidth: 600,
-              width: '90%',
-              maxHeight: '80vh',
-              overflow: 'auto',
-              boxShadow: '0 8px 24px rgba(0,0,0,0.2)',
-            }}
-          >
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
-              <h3 style={{ margin: 0, fontSize: 16 }}>{modal.title}</h3>
-              <button type="button" onClick={closeModal} aria-label={t('conversation.close')} style={{
-                border: 'none', background: 'transparent', cursor: 'pointer', fontSize: 20, color: 'var(--text-secondary)',
-              }}>
-                ×
-              </button>
-            </div>
-            <pre style={{
-              whiteSpace: 'pre-wrap',
-              fontSize: 12,
-              fontFamily: 'var(--font-mono, monospace)',
-              color: 'var(--text-primary)',
-              margin: 0,
-            }}>
-              {modal.body}
-            </pre>
-            {opsBusy && (
-              <div style={{ marginTop: 12, fontSize: 13, color: 'var(--text-tertiary)' }}>
-                {t('conversation.loading')}
-              </div>
-            )}
-          </div>
-        </div>
+        <InfoModal modal={modal} closeModal={closeModal} opsBusy={opsBusy} t={t} />
       )}
     </div>
   );
 }
 
-const smallBtnStyle = {
-  border: '1px solid var(--border)',
-  borderRadius: 4,
-  padding: '4px 10px',
-  background: 'var(--bg-primary)',
-  color: 'var(--text-primary)',
-  cursor: 'pointer',
-  fontSize: 13,
-};
+/** Thin wrapper around useSwipeRow — shared hook, not a duplicate implementation. */
+function SwipeWrapper({ row, isMobile, onTap, onLongPress, onSwipeLeft, onSwipeRight, children }) {
+  const { contentRef, swipeBgLeftRef, swipeBgRightRef } = useSwipeRow({ isMobile, message: row, onTap, onLongPress, onSwipeLeft, onSwipeRight });
+  return (
+    <div style={{ position: 'relative', overflow: 'hidden' }}>
+      <div ref={swipeBgLeftRef} style={{ position: 'absolute', inset: 0, display: 'none', alignItems: 'center', paddingLeft: 20, background: 'var(--accent)', color: 'white' }}>←</div>
+      <div ref={swipeBgRightRef} style={{ position: 'absolute', inset: 0, display: 'none', justifyContent: 'flex-end', alignItems: 'center', paddingRight: 20, background: 'var(--bg-tertiary)', color: 'var(--text-primary)' }}>→</div>
+      <div ref={contentRef}>{children}</div>
+    </div>
+  );
+}
+
+function DestructiveModal({ modal, closeModal, opsBusy, t }) {
+  return (
+    <div role="dialog" aria-label={modal.title} onClick={closeModal}
+      style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.4)', zIndex: 2000, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+      <div onClick={e => e.stopPropagation()}
+        style={{ background: 'var(--bg-primary)', borderRadius: 8, padding: 20, maxWidth: 400, width: '90%', boxShadow: '0 8px 24px rgba(0,0,0,0.2)' }}>
+        <h3 style={{ margin: 0, fontSize: 16, marginBottom: 8 }}>{modal.title}</h3>
+        <p style={{ fontSize: 13, color: 'var(--text-secondary)', margin: '0 0 16px' }}>{modal.body}</p>
+        <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
+          <button type="button" onClick={closeModal} style={smallBtnStyle}>{t('conversation.cancel')}</button>
+          <button type="button" onClick={modal.onConfirm} disabled={opsBusy}
+            style={{ ...smallBtnStyle, background: 'var(--text-danger)', color: 'var(--bg-primary)' }}>
+            {opsBusy ? t('conversation.loading') : t('conversation.confirm')}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function InfoModal({ modal, closeModal, opsBusy, t }) {
+  return (
+    <div role="dialog" aria-label={modal.title} onClick={closeModal}
+      style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.4)', zIndex: 2000, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+      <div onClick={e => e.stopPropagation()}
+        style={{ background: 'var(--bg-primary)', borderRadius: 8, padding: 20, maxWidth: 600, width: '90%', maxHeight: '80vh', overflow: 'auto', boxShadow: '0 8px 24px rgba(0,0,0,0.2)' }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
+          <h3 style={{ margin: 0, fontSize: 16 }}>{modal.title}</h3>
+          <button type="button" onClick={closeModal} aria-label={t('conversation.close')}
+            style={{ border: 'none', background: 'transparent', cursor: 'pointer', fontSize: 20, color: 'var(--text-secondary)' }}>×</button>
+        </div>
+        <pre style={{ whiteSpace: 'pre-wrap', fontSize: 12, fontFamily: 'var(--font-mono, monospace)', color: 'var(--text-primary)', margin: 0 }}>
+          {modal.body}
+        </pre>
+        {opsBusy && <div style={{ marginTop: 12, fontSize: 13, color: 'var(--text-tertiary)' }}>{t('conversation.loading')}</div>}
+      </div>
+    </div>
+  );
+}

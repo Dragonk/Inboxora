@@ -1710,6 +1710,7 @@
     "readerOnDesc": "Показывать всю переписку на панели сообщений",
     "groupIntoConversationsOn": "On",
     "readerOff": "Disabled",
-    "readerOn": "Enabled"
+    "readerOn": "Enabled",
+    "groupIntoConversations": "Группировать сообщения в беседы"
   }
 }

@@ -114,10 +114,22 @@ export const test = base.extend({
     // Body endpoint is registered after the broad conversations handler so its
     // specific route wins under Playwright's newest-route-first matching order.
     await page.route('**/api/mail/conversations/*/logical-messages/*/body**', route => route.fulfill({ json: { body_text: 'Fixture body lazy', body_html: '<p>Fixture body lazy</p><img src=\"https://tracker.example.test/pixel.gif\"><a href=\"https://example.test\">Safe link</a>' } }));
-    await page.route('**/api/mail/messages*', route => {
-      if (route.request().url().includes('/conversation')) return route.fulfill({ json: { conversation_id: 'conversation-gmail', logical_message_id: 'conversation-gmail-logical-1' } });
-      return route.fulfill({ json: { messages: [{ id: 'legacy-message-1', subject: 'Legacy fixture', is_read: true, account_id: 'account-gmail', folder: 'INBOX', date: new Date().toISOString(), from_email: 'sender@example.test', body_text: 'Fixture body legacy' }], total: 1 } });
+    await page.route('**/api/mail/messages/*', route => {
+      const url = new URL(route.request().url());
+      if (url.pathname.endsWith('/conversation')) return route.fulfill({ json: { conversation_id: 'conversation-gmail', logical_message_id: 'conversation-gmail-logical-1' } });
+      return route.fulfill({ json: { id: url.pathname.split('/').at(-1), subject: 'Legacy fixture', is_read: true, account_id: 'account-gmail', folder: 'INBOX', date: new Date().toISOString(), from_email: 'sender@example.test', body_text: 'Fixture body legacy' } });
     });
+    await page.route('**/api/mail/messages*', route => {
+      const url = new URL(route.request().url());
+      if (url.pathname.endsWith('/conversation')) return route.fulfill({ json: { conversation_id: 'conversation-gmail', logical_message_id: 'conversation-gmail-logical-1' } });
+      if (/\/api\/mail\/messages\/[^/]+$/.test(url.pathname)) return route.fulfill({ json: { id: 'legacy-message-1', subject: 'Legacy fixture', is_read: true, account_id: 'account-gmail', folder: 'INBOX', date: new Date().toISOString(), from_email: 'sender@example.test', body_text: 'Fixture body legacy' } });
+      return route.fulfill({ json: { messages: [
+        { id: 'conversation-gmail-copy-1', subject: 'Gmail reply chain', is_read: true, account_id: 'account-gmail', folder: 'INBOX', date: new Date().toISOString(), from_email: 'sender@gmail.test', message_id: '<fixture-1>', body_text: 'Fixture body 1' },
+        { id: 'conversation-gmail-copy-2', subject: 'Gmail reply chain', is_read: true, account_id: 'account-gmail', folder: 'INBOX', date: new Date().toISOString(), from_email: 'sender@gmail.test', message_id: '<fixture-2>', body_text: 'Fixture body 2' },
+        { id: 'conversation-gmail-copy-3', subject: 'Gmail reply chain', is_read: true, account_id: 'account-gmail', folder: 'INBOX', date: new Date().toISOString(), from_email: 'sender@gmail.test', message_id: '<fixture-3>', body_text: 'Fixture body 3' },
+      ], total: 3 } });
+    });
+    await page.route('**/api/mail/messages/*/body**', route => route.fulfill({ json: { body_text: 'Fixture body legacy', body_html: '<p>Fixture body legacy</p>' } }));
     await page.route('**/api/mail/conversations/*/overrides', route => route.fulfill({ json: { ok: true, overrides: [] } }));
     await use(fixture);
   },

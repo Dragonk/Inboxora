@@ -1710,6 +1710,7 @@
     "readerOnDesc": "Show the entire conversation in the message pane",
     "groupIntoConversationsOn": "On",
     "readerOff": "Disabled",
-    "readerOn": "Enabled"
+    "readerOn": "Enabled",
+    "groupIntoConversations": "Group messages into conversations"
   }
 }

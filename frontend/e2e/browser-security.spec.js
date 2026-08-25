@@ -27,8 +27,8 @@ async function openFixtureConversation(page) {
   });
   await page.goto('/?list=1&reader=1');
   const list = page.locator('[role="list"]:visible').first();
-  await expect(list.getByRole('button', { name: /Rozwiń rozmowę: Gmail reply chain|Expand conversation: Gmail reply chain/i })).toBeVisible();
-  await list.getByRole('button', { name: /Rozwiń rozmowę: Gmail reply chain|Expand conversation: Gmail reply chain/i }).click();
+  await expect(list.getByTestId('conversation-toggle-conversation-gmail')).toBeVisible();
+  await list.getByTestId('conversation-toggle-conversation-gmail').click();
   await list.locator('[data-logical-message-id]').first().click();
   const pane = page.locator('section[data-conversation-id]:visible').first();
   await expect(pane).toBeVisible();

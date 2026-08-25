@@ -14,7 +14,7 @@ function messageIds(value) {
  * P1-15: Single source of truth for the In-Reply-To / References headers of a
  * reply to `message`.
  *
- * Both MessagePane.jsx and ConversationPane.jsx (via `openReplyFromMessage`) MUST
+ * Both single-message and conversation-reader reply paths MUST
  * build these headers through this helper so the two reply paths produce byte-
  * identical output:
  *   - In-Reply-To = the parent Message-ID,

@@ -1710,6 +1710,7 @@
     "readerOnDesc": "Mostra l’intera conversazione nel pannello dei messaggi",
     "groupIntoConversationsOn": "On",
     "readerOff": "Disabled",
-    "readerOn": "Enabled"
+    "readerOn": "Enabled",
+    "groupIntoConversations": "Raggruppa i messaggi nelle conversazioni"
   }
 }

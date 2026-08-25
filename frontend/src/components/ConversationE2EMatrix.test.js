@@ -8,7 +8,7 @@ describe('Conversation E2E 2x2 contract', () => {
 
     // 2×2 matrix: list (grouped/flat) × reader (conversation/single)
     // All four combinations must be expressible via mode= props, not via
-    // separate ConversationList/ConversationPane components.
+    // separate parallel conversation list/pane subsystem.
     const matrix = [
       { list: false, reader: false, listMode: 'flat',        readerMode: 'single' },
       { list: true,  reader: false, listMode: 'grouped',      readerMode: 'single' },
@@ -17,7 +17,7 @@ describe('Conversation E2E 2x2 contract', () => {
     ];
     assert.equal(matrix.length, 4);
 
-    // MailApp MUST NOT import or render ConversationList/ConversationPane
+    // MailApp MUST NOT import or render a parallel conversation subsystem
     assert.doesNotMatch(source, /import\s+ConversationList/);
     assert.doesNotMatch(source, /import\s+ConversationPane/);
     assert.doesNotMatch(source, /<ConversationList/);

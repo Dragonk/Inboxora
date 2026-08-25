@@ -32,9 +32,9 @@ test.describe('conversation engine browser E2E', () => {
     const list = visibleList(page);
     await expect(list.getByText('Gmail reply chain', { exact: true }).first()).toBeVisible();
     await expect(list.getByLabel(/Najnowsza własna odpowiedź|Latest own reply/i).first()).toBeVisible();
-    const expand = list.getByRole('button', { name: /Rozwiń rozmowę: Gmail reply chain|Expand conversation: Gmail reply chain/i });
+    const expand = list.getByTestId('conversation-toggle-conversation-gmail');
     await expand.click();
-    await expect(list.getByRole('button', { name: /Zwiń rozmowę: Gmail reply chain|Collapse conversation: Gmail reply chain/i })).toHaveAttribute('aria-expanded', 'true');
+    await expect(list.getByTestId('conversation-toggle-conversation-gmail')).toHaveAttribute('aria-expanded', 'true');
     await list.locator('[data-logical-message-id]').first().click();
     const pane = page.locator('section[data-conversation-id]:visible').first();
     await expect(pane).toBeVisible();
@@ -44,7 +44,7 @@ test.describe('conversation engine browser E2E', () => {
 
   test('supports reply and Reply All controls after lazy body load', async ({ page }) => {
     const list = visibleList(page);
-    await list.getByRole('button', { name: /Rozwiń rozmowę: Gmail reply chain|Expand conversation: Gmail reply chain/i }).click();
+    await list.getByTestId('conversation-toggle-conversation-gmail').click();
     await list.locator('[data-logical-message-id]').first().click();
     const pane = page.locator('section[data-conversation-id]:visible').first();
     await pane.locator('article').first().locator('button').first().click({ force: true });
@@ -60,7 +60,7 @@ test.describe('conversation engine browser E2E', () => {
       if (listEnabled) {
         const list = visibleList(page);
         await expect(list.getByText('Gmail reply chain', { exact: true }).first()).toBeVisible();
-        await list.getByRole('button', { name: /Rozwiń rozmowę: Gmail reply chain|Expand conversation: Gmail reply chain/i }).click();
+        await list.getByTestId('conversation-toggle-conversation-gmail').click();
         await list.locator('[data-logical-message-id]').first().click();
       } else {
         await expect(page.locator('body')).toBeVisible();

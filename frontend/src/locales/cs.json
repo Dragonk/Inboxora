@@ -1710,6 +1710,7 @@
     "readerOnDesc": "Zobrazit celou konverzaci v panelu zpráv",
     "groupIntoConversationsOn": "On",
     "readerOff": "Disabled",
-    "readerOn": "Enabled"
+    "readerOn": "Enabled",
+    "groupIntoConversations": "Seskupit zprávy do konverzací"
   }
 }

@@ -10,7 +10,7 @@ import { getEffectiveShortcuts, parseModKey, modCompactLabel } from '../utils/de
 import { useMobile } from '../hooks/useMobile.js';
 import { clearDeleteGuard, clearPendingDelete, setCompletedDelete, setPendingDelete } from '../utils/pendingDeletes.js';
 import { pendingMarkReadMap, completedMarkReadMap, setPending } from '../utils/pendingReads.js';
-import { BUILTIN_SUMMARIZE } from '../aiActions.js';
+import { BUILTIN_SUMMARIZE, summarizePromptForLocale } from '../aiActions.js';
 import { getResults, saveResult, removeResult } from '../aiResults.js';
 import { renderMarkdown } from '../utils/renderMarkdown.js';
 import { pickReplyAlias, collectOwnAddresses } from '../utils/replyAlias.js';
@@ -94,7 +94,7 @@ function fileIcon(type) {
 }
 
 export default function MessagePane({ windowMessageId = null, onWindowClose = null, mode = 'single', conversationId = null, targetLogicalMessageId = null, onReply = null } = {}) {
-  const { t } = useTranslation();
+  const { t, i18n } = useTranslation();
   const {
     messages, searchResults, searchQuery, selectedMessageId: globalSelectedId, setSelectedMessage,
     updateMessage, removeMessage, decrementUnread, incrementUnread, openCompose, accounts, addNotification,
@@ -1043,7 +1043,7 @@ export default function MessagePane({ windowMessageId = null, onWindowClose = nu
       } catch { return []; }
     })();
 
-    // P1-15: use the shared buildReplyHeaders helper so MessagePane and ConversationPane
+    // Use the shared buildReplyHeaders helper so single and conversation replies
     // produce identical References/In-Reply-To headers (ordered, normalized, deduped).
     const { inReplyTo, references: referencesChain } = buildReplyHeaders(message);
 
@@ -1197,10 +1197,13 @@ ${bodyContent}
     aiAbortRefs.current[key] = ctrl;
     const msgId = selectedMessageId;
     setAiResults(r => ({ ...r, [key]: { status: 'loading', text: '', label } }));
+    // The built-in Summarize prompt is uneditable, so steer its output to the
+    // user's UI language (#255). Custom actions keep their author's prompt as-is.
+    const promptText = action.builtin ? summarizePromptForLocale(i18n.language) : action.prompt;
     try {
       const fullText = await api.ai.chat([{
         role: 'user',
-        content: `${action.prompt}\n\n${textContent.slice(0, 6000)}`,
+        content: `${promptText}\n\n${textContent.slice(0, 6000)}`,
       }], {
         signal: ctrl.signal,
         onDelta: (text) => {
@@ -1502,7 +1505,7 @@ ${bodyContent}
         .filter(f => !recentForMove.some(r => r.path === f.path))
     : [];
 
-  if (!message) {
+  if (!message && mode !== 'conversation') {
     // A detached window with no message is mid-close (see auto-close effect above) —
     // render nothing rather than the list's "select a message" placeholder.
     if (windowMode) return null;
@@ -1855,17 +1858,17 @@ ${bodyContent}
 
   const toList = (() => {
     try {
-      return Array.isArray(message.to_addresses)
+      return Array.isArray(message?.to_addresses)
         ? message.to_addresses
-        : JSON.parse(message.to_addresses || '[]');
+        : JSON.parse(message?.to_addresses || '[]');
     } catch { return []; }
   })();
 
   const ccList = (() => {
     try {
-      return Array.isArray(message.cc_addresses)
+      return Array.isArray(message?.cc_addresses)
         ? message.cc_addresses
-        : JSON.parse(message.cc_addresses || '[]');
+        : JSON.parse(message?.cc_addresses || '[]');
     } catch { return []; }
   })();
 
@@ -1981,9 +1984,10 @@ ${bodyContent}
       )}
 
       {/* Toolbar — always pinned at top, never scrolls */}
-      <div style={{
+      <div data-testid="message-pane-toolbar" style={{
         padding: '8px 16px', borderBottom: '1px solid var(--border-subtle)',
         display: 'flex', alignItems: 'center', gap: 6, flexShrink: 0,
+        flexWrap: 'wrap', minWidth: 0, overflow: 'visible',
         boxShadow: paneScrolled ? '0 1px 10px rgba(0,0,0,0.2)' : 'none',
         transition: 'box-shadow 0.2s ease',
       }}>
