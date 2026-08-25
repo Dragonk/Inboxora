@@ -2,6 +2,12 @@ name: Conversation Engine v2 PostgreSQL Integration
 
 on:
   workflow_dispatch:
+    inputs:
+      expected_sha:
+        description: "Exact commit SHA to test (required for review evidence)"
+        required: false
+        type: string
+        default: ""
   push:
     branches:
       - feat/threading-v2-integration-live
@@ -49,7 +55,7 @@ jobs:
       - name: Checkout tested SHA
         uses: actions/checkout@v6
         with:
-          ref: ${{ github.sha }}
+          ref: ${{ inputs.expected_sha || github.sha }}
 
       - name: Set up Node.js
         uses: actions/setup-node@v6
@@ -74,8 +80,10 @@ jobs:
 
 
       - name: Repository state and exact SHA assertion
+        env:
+          EXPECTED_SHA: ${{ inputs.expected_sha }}
         run: |
-          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+          test "$(git rev-parse HEAD)" = "${EXPECTED_SHA:-$GITHUB_SHA}"
           {
             echo "tested_sha=$(git rev-parse HEAD)"
             echo "github_sha=$GITHUB_SHA"
@@ -308,11 +316,14 @@ jobs:
 
       - name: Test summary
         if: always()
+        env:
+          EXPECTED_SHA: ${{ inputs.expected_sha }}
         run: |
           python3 - <<'PY' > artifacts/test-summary.json
           import json, os
           print(json.dumps({
             "tested_sha": os.environ["GITHUB_SHA"],
+            "expected_sha": os.environ.get("EXPECTED_SHA") or None,
             "run_id": os.environ["GITHUB_RUN_ID"],
             "run_url": f"https://github.com/{os.environ['GITHUB_REPOSITORY']}/actions/runs/{os.environ['GITHUB_RUN_ID']}",
             "workflow": os.environ.get("GITHUB_WORKFLOW"),

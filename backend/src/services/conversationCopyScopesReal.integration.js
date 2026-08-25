@@ -19,6 +19,13 @@ async function setup() {
   userId = (await q(`INSERT INTO users (username,password_hash,is_admin) VALUES ($1,'x',false) RETURNING id`, [username])).rows[0].id;
   accountA = (await q(`INSERT INTO email_accounts (user_id,name,email_address,protocol,enabled) VALUES ($1,'Scope A','${username}.a@example.test','imap',true) RETURNING id`, [userId])).rows[0].id;
   accountB = (await q(`INSERT INTO email_accounts (user_id,name,email_address,protocol,enabled) VALUES ($1,'Scope B','${username}.b@example.test','imap',true) RETURNING id`, [userId])).rows[0].id;
+  for (const accountId of [accountA, accountB]) {
+    await q(`INSERT INTO folders (account_id,path,name,special_use,no_select) VALUES
+      ($1,'INBOX','INBOX','\\\\Inbox',false),
+      ($1,'Archive','Archive','\\\\Archive',false),
+      ($1,'All Mail','All Mail','\\\\All',false),
+      ($1,'Sent','Sent','\\\\Sent',false)`, [accountId]);
+  }
 }
 async function fixture() {
   const conversationId = randomUUID();

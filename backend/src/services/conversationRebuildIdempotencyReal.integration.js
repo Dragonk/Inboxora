@@ -70,19 +70,12 @@ describe('CE v2 Rebuild idempotency — real PostgreSQL', () => {
     userId = (await pool.query("INSERT INTO users (username, password_hash, is_admin) VALUES ('rebuild-user', 'x', false) RETURNING id")).rows[0].id;
     accountId = (await pool.query("INSERT INTO email_accounts (user_id, name, email_address, protocol, enabled) VALUES ($1, 'Rebuild', 'rebuild@example.com', 'imap', true) RETURNING id", [userId])).rows[0].id;
 
-    // Seed 10 conversations with 3 logical messages each = 30 messages
+    // Seed 10 raw conversations with 3 physical messages each = 30 messages.
+    // Deliberately do not create CE rows/links: pass #1 must exercise the production
+    // rebuild planner and persistence path, while pass #2 proves idempotency from the
+    // beginning after the checkpoint is removed.
     for (let c = 0; c < 10; c++) {
-      const convId = randomUUID();
-      await pool.query(
-        "INSERT INTO conversations (id, user_id, canonical_subject, kind, manually_locked) VALUES ($1, $2, 'rebuild-test-' || $3, 'human_reply_chain', false)",
-        [convId, userId, c]
-      );
       for (let m = 0; m < 3; m++) {
-        const lmId = randomUUID();
-        await pool.query(
-          "INSERT INTO logical_messages (id, conversation_id, user_id, canonical_message_id) VALUES ($1, $2, $3, $4)",
-          [lmId, convId, userId, `<rebuild-${c}-${m}@example.com>`]
-        );
         const msgId = randomUUID();
         await pool.query(`
           INSERT INTO messages (
@@ -90,19 +83,15 @@ describe('CE v2 Rebuild idempotency — real PostgreSQL', () => {
             from_name, from_email, to_addresses, cc_addresses,
             date, snippet, is_read, is_starred,
             has_attachments, flags, body_html, body_text, attachments,
-            thread_id, is_bulk,
-            logical_message_id, conversation_id, conversation_user_id, canonical_message_id,
-            threading_reason, threading_confidence, threading_algorithm_version
+            thread_id, is_bulk, in_reply_to, thread_references
           ) VALUES (
             $1::uuid, $2::uuid, $3::int, 'INBOX'::text, $4::text, 'REBUILD-test-' || $5::text,
             'Alice', 'alice@example.com', '[]', '[]',
             NOW() - ($6 || ' hours')::interval, 'snippet', false, false,
             false, '[]', '<p>body</p>', 'body', '[]',
-            $4::text, false,
-            $7, $8, $9, $4::text,
-            'rfc-references', 1.0, 'v2'
+            $4::text, false, NULL, NULL
           )
-        `, [msgId, accountId, c * 10 + m, `<rebuild-${c}-${m}@example.com>`, c, m, lmId, convId, userId]);
+        `, [msgId, accountId, c * 10 + m, `<rebuild-${c}-${m}@example.com>`, c, m]);
       }
     }
   });
@@ -121,14 +110,14 @@ describe('CE v2 Rebuild idempotency — real PostgreSQL', () => {
     const checksumBefore = await ceChecksum(pool, userId);
     const pass1 = await rebuildConversationCopies({ userId, accountId, limit: 500, dryRun: false, force: true });
     const checksumAfter1 = await ceChecksum(pool, userId);
-    assert.equal(pass1.updated, 0, 'Pass #1 should be idempotent for already-correct production state');
-    assert.equal(pass1.wouldChange, 0);
-    assert.equal(checksumAfter1, checksumBefore);
+    assert.ok(pass1.updated > 0, 'Pass #1 must execute real CE writes for raw physical messages');
+    assert.equal(pass1.wouldChange, pass1.updated);
+    assert.notEqual(checksumAfter1, checksumBefore, 'Pass #1 must change raw state');
 
     await pool.query('DELETE FROM conversation_rebuild_checkpoints WHERE user_id = $1 AND scope_account_id = $2', [userId, accountId]);
     const pass2 = await rebuildConversationCopies({ userId, accountId, limit: 500, dryRun: false, force: true });
     const checksumAfter2 = await ceChecksum(pool, userId);
-    assert.equal(pass2.updated, 0, 'Pass #2 from beginning must not change state');
+    assert.equal(pass2.updated, 0, 'Pass #2 from beginning must be idempotent');
     assert.equal(pass2.wouldChange, 0);
     assert.equal(checksumAfter2, checksumAfter1);
   });
@@ -177,11 +166,13 @@ describe('CE v2 Rebuild idempotency — real PostgreSQL', () => {
     );
     assert.equal(Number(testConvs.rows[0].count), 5, 'Should have 5 separate conversations for 5 unrelated Test messages');
 
-    // Simulate rebuild: verify no merge happens
+    const { rebuildConversationCopies } = await import('./conversationRebuild.js');
+    const rebuild = await rebuildConversationCopies({ userId, accountId, limit: 500, dryRun: false, force: true });
+    assert.ok(rebuild.updated >= 5, 'Rebuild must process the adversarial Subject: Test rows');
     const postRebuild = await pool.query(
       "SELECT COUNT(DISTINCT conversation_id) FROM messages WHERE subject = 'Test' AND account_id = $1",
       [accountId]
     );
-    assert.equal(Number(postRebuild.rows[0].count), 5, 'After rebuild: 5 separate conversations (no overmerge)');
+    assert.equal(Number(postRebuild.rows[0].count), 5, 'After rebuild: 5 separate conversations (no subject-only overmerge)');
   });
 });

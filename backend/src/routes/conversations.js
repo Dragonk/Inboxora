@@ -177,6 +177,10 @@ router.get('/conversations/:conversationId/logical-messages/:logicalMessageId/bo
     const requestedRemoteImages = req.query.remoteImages === '1';
     const explicitOptIn = req.get('X-MailFlow-Image-Opt-In') === '1';
     const policyBlocksImages = shouldBlockRemoteImages(result.rows[0].preferences, result.rows[0]);
+    // The stored preference/whitelist is the default policy. A one-time frontend
+    // opt-in can only loosen it when the request carries the explicit header; this
+    // mirrors the legacy body route without allowing a bare query parameter to bypass
+    // privacy settings.
     const remoteImages = requestedRemoteImages && explicitOptIn && !policyBlocksImages;
     const rawHtml = result.rows[0].body_html;
     const html = rawHtml && !remoteImages && hasRemoteImages(rawHtml)
@@ -210,6 +214,7 @@ async function runAction(req, res, action, extra = {}) {
       copyId: req.body?.copyId || null,
       logicalMessageId: req.body?.logicalMessageId || null,
       action,
+      imapManager: req.app.get('imapManager'),
       ...extra,
     });
     res.json(result);
@@ -225,19 +230,19 @@ router.post('/conversations/:id/read', (req, res) => runAction(req, res, 'read',
 router.post('/conversations/:id/star', (req, res) => runAction(req, res, 'star', { isStarred: req.body?.isStarred }));
 
 router.post('/conversations/bulk-archive', async (req, res) => {
-  try { res.json(await applyBulkConversationAction({ userId: req.session.userId, conversationIds: req.body?.conversationIds, items: req.body?.items, scope: req.body?.scope || 'THIS_COPY', action: 'archive' })); }
+  try { res.json(await applyBulkConversationAction({ userId: req.session.userId, conversationIds: req.body?.conversationIds, items: req.body?.items, scope: req.body?.scope || 'THIS_COPY', action: 'archive', imapManager: req.app.get('imapManager') })); }
   catch (err) { res.status(err.statusCode || 400).json({ error: err.message }); }
 });
 router.post('/conversations/bulk-delete', async (req, res) => {
-  try { res.json(await applyBulkConversationAction({ userId: req.session.userId, conversationIds: req.body?.conversationIds, items: req.body?.items, scope: req.body?.scope || 'THIS_COPY', action: 'delete' })); }
+  try { res.json(await applyBulkConversationAction({ userId: req.session.userId, conversationIds: req.body?.conversationIds, items: req.body?.items, scope: req.body?.scope || 'THIS_COPY', action: 'delete', imapManager: req.app.get('imapManager') })); }
   catch (err) { res.status(err.statusCode || 400).json({ error: err.message }); }
 });
 router.post('/conversations/bulk-read', async (req, res) => {
-  try { res.json(await applyBulkConversationAction({ userId: req.session.userId, conversationIds: req.body?.conversationIds, items: req.body?.items, scope: req.body?.scope || 'THIS_COPY', action: 'read', isRead: req.body?.isRead })); }
+  try { res.json(await applyBulkConversationAction({ userId: req.session.userId, conversationIds: req.body?.conversationIds, items: req.body?.items, scope: req.body?.scope || 'THIS_COPY', action: 'read', isRead: req.body?.isRead, imapManager: req.app.get('imapManager') })); }
   catch (err) { res.status(err.statusCode || 400).json({ error: err.message }); }
 });
 router.post('/conversations/bulk-move', async (req, res) => {
-  try { res.json(await applyBulkConversationAction({ userId: req.session.userId, conversationIds: req.body?.conversationIds, items: req.body?.items, scope: req.body?.scope || 'THIS_COPY', action: 'move', targetFolder: req.body?.targetFolder })); }
+  try { res.json(await applyBulkConversationAction({ userId: req.session.userId, conversationIds: req.body?.conversationIds, items: req.body?.items, scope: req.body?.scope || 'THIS_COPY', action: 'move', targetFolder: req.body?.targetFolder, imapManager: req.app.get('imapManager') })); }
   catch (err) { res.status(err.statusCode || 400).json({ error: err.message }); }
 });
 

@@ -14,6 +14,12 @@ on:
       - integration/threading-v2-r3-pl-beta
       - main
   workflow_dispatch:
+    inputs:
+      expected_sha:
+        description: "Exact commit SHA to test (required for review evidence)"
+        required: false
+        type: string
+        default: ""
 
 permissions:
   contents: read
@@ -49,10 +55,12 @@ jobs:
       - name: Checkout exact tested SHA
         uses: actions/checkout@v6
         with:
-          ref: ${{ github.sha }}
+          ref: ${{ inputs.expected_sha || github.sha }}
 
       - name: Assert exact SHA
-        run: test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+        env:
+          EXPECTED_SHA: ${{ inputs.expected_sha }}
+        run: test "$(git rev-parse HEAD)" = "${EXPECTED_SHA:-$GITHUB_SHA}"
 
       - name: Set up Node.js
         uses: actions/setup-node@v6

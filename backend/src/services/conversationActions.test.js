@@ -6,6 +6,9 @@ vi.mock('./db.js', () => ({
 vi.mock('./conversationOverridePolicy.js', () => ({
   resolveConversationAlias: vi.fn(async (_client, { conversationId }) => conversationId),
 }));
+vi.mock('../utils/mailUtils.js', () => ({
+  adjustFolderCounts: vi.fn(),
+}));
 
 import { COPY_SCOPES, applyConversationAction, applyBulkConversationAction } from './conversationActions.js';
 import { withTransaction } from './db.js';
@@ -66,6 +69,29 @@ describe('conversation copy-aware actions', () => {
       isRead: true,
     });
     expect(result).toMatchObject({ ok: true, scope: 'ALL_COPIES_OF_LOGICAL_MESSAGE', affectedCount: 1 });
+  });
+
+  it('uses the provider move path and refuses a missing destination folder', async () => {
+    const client = fakeClient();
+    client.query = vi.fn()
+      .mockResolvedValueOnce({ rows: [{ id: 'copy-1', account_id: 'account-1', logical_message_id: 'logical-1', conversation_id: 'conversation-1', folder: 'INBOX', uid: 7 }] })
+      .mockResolvedValueOnce({ rows: [{ id: 'copy-1', account_id: 'account-1', logical_message_id: 'logical-1', conversation_id: 'conversation-1', folder: 'INBOX', uid: 7 }] })
+      .mockResolvedValueOnce({ rows: [{ path: 'Archive', special_use: '\\Archive' }] })
+      .mockResolvedValueOnce({ rows: [{ id: 'account-1', user_id: 'user-1' }] })
+      .mockResolvedValueOnce({ rows: [{ id: 'copy-1', folder: 'Archive' }], rowCount: 1 })
+      .mockResolvedValueOnce({ rows: [], rowCount: 0 })
+      .mockResolvedValueOnce({ rows: [], rowCount: 0 });
+    const imapManager = {
+      bulkMoveMessages: vi.fn().mockResolvedValue({ succeeded: [7], failed: [], uidMap: new Map([[7, 99]]) }),
+      syncFolderOnDemand: vi.fn(),
+    };
+    withTransaction.mockImplementationOnce(async fn => fn(client));
+    const result = await applyConversationAction({
+      userId: 'user-1', conversationId: 'conversation-1', copyId: 'copy-1',
+      scope: 'THIS_COPY', action: 'move', targetFolder: 'Archive', imapManager,
+    });
+    expect(result.affectedCount).toBe(1);
+    expect(imapManager.bulkMoveMessages).toHaveBeenCalledWith(expect.objectContaining({ id: 'account-1' }), [7], 'INBOX', 'Archive');
   });
 
   it('rejects an implicit/unknown scope before any transaction work', async () => {

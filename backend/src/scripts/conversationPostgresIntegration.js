@@ -7,17 +7,33 @@ const rootId = '00000000-0000-0000-0000-000000000103';
 const replyId = '00000000-0000-0000-0000-000000000104';
 
 async function checksum() {
+  // Deterministic checksum of every CE relation that rebuild/persistence can mutate.
+  // This is deliberately broader than the old messages/logical/conversations-only
+  // checksum so provider mappings, evidence, aliases, overrides and parent edges
+  // cannot drift while the headline checksum remains unchanged.
   const result = await query(`
-    SELECT md5(string_agg(payload, '|' ORDER BY payload)) AS checksum
+    SELECT md5(COALESCE(string_agg(payload, '|' ORDER BY payload), '')) AS checksum
     FROM (
-      SELECT id::text || ':' || COALESCE(conversation_id::text, '') || ':' || COALESCE(logical_message_id::text, '') || ':' || COALESCE(threading_reason, '') AS payload
+      SELECT 'msg:' || id::text || ':' || COALESCE(conversation_id::text, '') || ':' || COALESCE(logical_message_id::text, '') || ':' || COALESCE(conversation_user_id::text, '') || ':' || COALESCE(canonical_message_id, '') || ':' || COALESCE(provider_message_id, '') || ':' || COALESCE(provider_thread_id, '') || ':' || COALESCE(provider_namespace, '') || ':' || COALESCE(threading_reason, '') || ':' || COALESCE(threading_confidence::text, '') AS payload
       FROM messages WHERE account_id = $1
       UNION ALL
-      SELECT id::text || ':' || COALESCE(conversation_id::text, '') || ':' || COALESCE(canonical_message_id, '') || ':' || COALESCE(threading_reason, '') AS payload
+      SELECT 'lm:' || id::text || ':' || COALESCE(conversation_id::text, '') || ':' || COALESCE(parent_logical_message_id::text, '') || ':' || COALESCE(canonical_message_id, '') || ':' || COALESCE(raw_in_reply_to, '') || ':' || COALESCE(raw_references, '') || ':' || COALESCE(threading_reason, '') || ':' || COALESCE(threading_confidence::text, '') AS payload
       FROM logical_messages WHERE user_id = $2
       UNION ALL
-      SELECT id::text || ':' || logical_message_count::text || ':' || copy_count::text || ':' || unread_count::text AS payload
+      SELECT 'conv:' || id::text || ':' || COALESCE(canonical_subject, '') || ':' || logical_message_count::text || ':' || copy_count::text || ':' || unread_count::text AS payload
       FROM conversations WHERE user_id = $2
+      UNION ALL
+      SELECT 'map:' || account_id::text || ':' || provider || ':' || provider_thread_id || ':' || conversation_id::text AS payload
+      FROM provider_thread_mappings WHERE user_id = $2
+      UNION ALL
+      SELECT 'evidence:' || id::text || ':' || conversation_id::text || ':' || COALESCE(logical_message_id::text, '') || ':' || evidence_type || ':' || COALESCE(evidence_value_hash, '') AS payload
+      FROM conversation_evidence WHERE user_id = $2
+      UNION ALL
+      SELECT 'alias:' || alias_conversation_id::text || ':' || canonical_conversation_id::text || ':' || reason AS payload
+      FROM conversation_aliases WHERE user_id = $2
+      UNION ALL
+      SELECT 'override:' || id::text || ':' || conversation_id::text || ':' || override_type || ':' || COALESCE(target_id::text, '') AS payload
+      FROM conversation_overrides WHERE user_id = $2
     ) valueset
   `, [accountId, userId]);
   return result.rows[0].checksum;

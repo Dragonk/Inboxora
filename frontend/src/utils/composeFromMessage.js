@@ -93,7 +93,7 @@ export async function openReplyFromMessage(message, { accounts, openCompose, get
   const { inReplyTo, references: referencesChain } = buildReplyHeaders(message);
   const rawSubject = (message.subject || '').trim();
 
-  const replyBody = await getMessageBody(message.id).catch(() => null);
+  const replyBody = await getMessageBody(message.id, false, message.selectedCopyId || message.id).catch(() => null);
   const replyDate = message.date ? new Date(message.date).toLocaleString() : '';
   const replySafeName = (message.from_name || '').replace(/[\r\n]+/g, ' ');
   const replyFromStr = replySafeName
@@ -125,7 +125,7 @@ export async function openReplyFromMessage(message, { accounts, openCompose, get
 }
 
 export async function openForwardFromMessage(message, { openCompose, getMessageBody }) {
-  const fwdBody = await getMessageBody(message.id).catch(() => null);
+  const fwdBody = await getMessageBody(message.id, false, message.selectedCopyId || message.id).catch(() => null);
   const fwdDate = message.date ? new Date(message.date).toLocaleString() : '';
   const fwdSafeName = (message.from_name || '').replace(/[\r\n]+/g, ' ');
   const fwdFromStr = fwdSafeName

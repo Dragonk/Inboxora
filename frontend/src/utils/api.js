@@ -102,11 +102,15 @@ export async function streamAiChat(messages, { signal, onDelta } = {}) {
   }
 }
 
-function getMessageBody(id, remoteImages = false) {
-  const key = `${id}:${remoteImages ? 'remote' : 'blocked'}`;
+function getMessageBody(id, remoteImages = false, copyId = null) {
+  const key = `${id}:${copyId || 'default'}:${remoteImages ? 'remote' : 'blocked'}`;
   const existing = messageBodyRequests.get(key);
   if (existing) return existing;
-  const promise = request('GET', `/mail/messages/${id}/body${remoteImages ? '?remoteImages=1' : ''}`)
+  const query = new URLSearchParams();
+  if (remoteImages) query.set('remoteImages', '1');
+  if (copyId) query.set('copyId', copyId);
+  const suffix = query.toString() ? `?${query.toString()}` : '';
+  const promise = request('GET', `/mail/messages/${id}/body${suffix}`)
     .finally(() => messageBodyRequests.delete(key));
   messageBodyRequests.set(key, promise);
   return promise;
