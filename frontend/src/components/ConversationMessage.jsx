@@ -234,7 +234,7 @@ export default function ConversationMessage({ conversationId, message, selectedC
           fontSize: 17, fontWeight: 600, lineHeight: 1.3,
           fontFamily: 'var(--font-display)',
         }}>
-          {subject}
+          <span data-conversation-message-subject="true" data-unread={String(!(copy.isRead ?? copy.is_read))} style={{ fontWeight: (copy.isRead ?? copy.is_read) ? 400 : 700 }}>{subject}</span>
         </span>
 
         <span style={{ display: 'flex', alignItems: 'flex-start', gap: 12, padding: '12px 16px' }}>

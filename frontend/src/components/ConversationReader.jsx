@@ -5,6 +5,8 @@ import { api } from '../utils/api.js';
 import ConversationMessage from './ConversationMessage.jsx';
 import { initialConversationExpansion, initialConversationTarget, toggleConversationExpansion } from './conversationExpansion.js';
 import { nativeThreadToReaderMessages, mergeThreadWithConversation } from '../utils/conversationThreadAdapter.js';
+import { queueReadStateMutation, isLatestReadStateMutation } from '../utils/readStateMutation.js';
+import { useStore } from '../store/index.js';
 
 // Data-only CE adapter. It owns logical/physical identity and expansion policy;
 // MessagePane owns the pane geometry and ConversationMessage uses MessagePane visuals.
@@ -27,10 +29,12 @@ export default function ConversationReader({ conversationId, targetLogicalMessag
   const statusRef = useRef({});
   const aborters = useRef(new Map());
   const readerRef = useRef(null);
+  const autoReadStarted = useRef(new Set());
+  const updateMessage = useStore(state => state.updateMessage);
 
   useEffect(() => {
     let active = true;
-    bodiesRef.current = {}; statusRef.current = {};
+    bodiesRef.current = {}; statusRef.current = {}; autoReadStarted.current = new Set();
     setData(null); setError(null); setBodiesByCopy({}); setBodyStatusByCopy({}); setExpanded(new Set());
     // P1-B: Load the native thread (primary) and CE detail (enrichment) in parallel.
     // Native thread membership is the proven UI threading source; CE metadata enriches
@@ -76,6 +80,46 @@ export default function ConversationReader({ conversationId, targetLogicalMessag
       || [...sameAccountCopies].sort((a, b) => String(b.date || '').localeCompare(String(a.date || '')))[0]
       || null;
   }, [messages, selectedAccountId, selectedCopyId]);
+
+  const setLocalReadState = useCallback((copyId, read) => {
+    setData(previous => !previous ? previous : {
+      ...previous,
+      logicalMessages: previous.logicalMessages.map(message => {
+        const copies = (message.copies || []).map(copy => String(copy.id) === String(copyId)
+          ? { ...copy, is_read: read, isRead: read } : copy);
+        const ownCopy = copies.find(copy => String(copy.id) === String(copyId));
+        return ownCopy ? { ...message, copies, unread: !read } : message;
+      }),
+    });
+    updateMessage(copyId, { is_read: read, isRead: read });
+  }, [updateMessage]);
+
+  // Auto-read is deliberately native-copy scoped.  A Set prevents render/reload loops;
+  // per-ID serialized mutations prevent an old automatic read from beating later intent.
+  useEffect(() => {
+    for (const message of messages) {
+      const copy = selectedCopyFor(message.id);
+      if (!copy?.id || (copy.isRead ?? copy.is_read)) continue;
+      const key = String(copy.id);
+      if (autoReadStarted.current.has(key)) continue;
+      autoReadStarted.current.add(key);
+      const before = Boolean(copy.isRead ?? copy.is_read);
+      setLocalReadState(copy.id, true);
+      const mutation = queueReadStateMutation(copy.id, true, read => api.bulkRead([copy.id], read));
+      mutation.promise.catch(() => {
+        if (isLatestReadStateMutation(copy.id, mutation.version)) setLocalReadState(copy.id, before);
+      });
+    }
+  }, [messages, selectedCopyFor, setLocalReadState]);
+
+  useEffect(() => {
+    const sync = event => {
+      const { id, read } = event.detail || {};
+      if (id != null) setLocalReadState(id, read);
+    };
+    window.addEventListener('mailflow:read-state', sync);
+    return () => window.removeEventListener('mailflow:read-state', sync);
+  }, [setLocalReadState]);
 
   const loadBody = useCallback((logicalId, force = false, remoteImages = false) => {
     const copy = selectedCopyFor(logicalId);

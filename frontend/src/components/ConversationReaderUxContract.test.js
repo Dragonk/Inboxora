@@ -13,6 +13,16 @@ describe('conversation reader final UX contract', () => {
     assert.match(message, /\{body && <div className="msg-card conversation-message-body-panel"/);
   });
 
+  it('uses native-copy read state per card and auto-reads only settled native membership', () => {
+    const reader = read('ConversationReader.jsx');
+    const message = read('ConversationMessage.jsx');
+    assert.match(message, /data-conversation-message-subject="true"/);
+    assert.match(message, /data-unread=\{String\(!\(copy\.isRead \?\? copy\.is_read\)\)\}/);
+    assert.match(reader, /autoReadStarted/);
+    assert.match(reader, /queueReadStateMutation\(copy\.id, true/);
+    assert.match(reader, /api\.bulkRead\(\[copy\.id\], read\)/);
+  });
+
   it('keeps forwarded-message protection in the shared folding pipeline', () => {
     const folding = read('messageQuoteFolding.js');
     assert.match(folding, /startsWithForwardMarker/);

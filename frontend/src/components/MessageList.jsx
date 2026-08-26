@@ -22,6 +22,7 @@ import { accountOwnAddresses, directionFromAddress, MessageDirection } from './M
 import { shortcutBus } from '../utils/shortcutBus.js';
 import { createLatestRequest } from '../utils/latestRequest.js';
 import { pendingMarkReadMap, completedMarkReadMap, setPending } from '../utils/pendingReads.js';
+import { queueReadStateMutation, isLatestReadStateMutation } from '../utils/readStateMutation.js';
 import { applyDeleteGuard, clearDeleteGuard, clearPendingDelete, setCompletedDelete, setPendingDelete, threadDeleteGuardKey } from '../utils/pendingDeletes.js';
 import {
   archiveInChunks,
@@ -824,6 +825,9 @@ export default function MessageList() {
       return;
     }
 
+    // A native thread response is normalized, but retain one canonical action target
+    // per physical ID if an older provider response contains a duplicate.
+    actionMessages = [...new Map(actionMessages.map(msg => [String(msg.id), msg])).values()];
     // Compute exact delta from sub-message states (before mutating the cache).
     const actualDelta = read
       ? actionMessages.filter(msg => !msg.is_read).length
@@ -859,8 +863,15 @@ export default function MessageList() {
       });
     }
 
+    let mutations = [];
     try {
-      await api.bulkRead(actionMessages.map(msg => msg.id), read);
+      // Serialize every native-copy mutation. This makes auto-read and two quick
+      // explicit swipes deterministic even when provider responses arrive reversed.
+      mutations = actionMessages.map(msg => ({ msg, mutation: queueReadStateMutation(
+        msg.id, read, targetRead => api.bulkRead([msg.id], targetRead),
+      ) }));
+      await Promise.all(mutations.map(({ mutation }) => mutation.promise));
+      actionMessages.forEach(msg => window.dispatchEvent(new CustomEvent('mailflow:read-state', { detail: { id: msg.id, read } })));
       if (read) {
         actionMessages.forEach(msg => {
           pendingMarkReadMap.delete(msg.id);
@@ -869,6 +880,9 @@ export default function MessageList() {
         });
       }
     } catch (err) {
+      // Do not let a stale request roll back a newer explicit user intent.
+      const stale = mutations.some(({ msg, mutation }) => !isLatestReadStateMutation(msg.id, mutation.version));
+      if (stale) return;
       console.error('markRead failed:', err);
       if (isThreadRow) {
         updateMessage(message.id, { is_read: !read, unread_count: read ? actualDelta : 0 });
@@ -4390,8 +4404,17 @@ function ThreadRow({ message, isExpanded, threadMsgs, isLoadingThread, selectedM
               }} />
             </div>
           ) : (threadMsgs || []).map((msg, idx) => (
-            <div
+            <ThreadChildRow
               key={msg.id}
+              msg={msg}
+              idx={idx}
+              isMobile={isMobile}
+              swipeLeftAction={swipeLeftAction}
+              swipeRightAction={swipeRightAction}
+              onSwipeLeft={onSwipeLeft}
+              onSwipeRight={onSwipeRight}
+            >
+            <div
               data-thread-row-child={msg.id}
               onClick={e => { e.stopPropagation(); if (!selectionMode) onSelect(msg); }}
               onDoubleClick={onOpenWindow ? (e => { e.stopPropagation(); onOpenWindow(msg); }) : undefined}
@@ -4443,11 +4466,31 @@ function ThreadRow({ message, isExpanded, threadMsgs, isLoadingThread, selectedM
                 </div>)}
               </div>
             </div>
+            </ThreadChildRow>
           ))}
         </div>
       )}
     </div>
   );
+}
+
+function ThreadChildRow({ msg, idx, isMobile, swipeLeftAction, swipeRightAction, onSwipeLeft, onSwipeRight, children }) {
+  const { t } = useTranslation();
+  const { contentRef, swipeBgLeftRef, swipeBgRightRef, tappedRef } = useSwipeRow({
+    isMobile, message: msg, onSwipeLeft, onSwipeRight,
+    // Child click already owns selection. Do not synthesize a tap here: it would
+    // compete with that handler and could select twice after a gesture.
+    onTap: undefined,
+  });
+  const leftActionView = getSwipeActionView(swipeRightAction, msg, t);
+  const rightActionView = getSwipeActionView(swipeLeftAction, msg, t);
+  return <div style={{ position: 'relative', overflow: 'hidden', borderTop: idx > 0 ? '1px solid var(--border-subtle)' : 'none' }}>
+    {isMobile && <SwipeBackground side="left" actionView={leftActionView} innerRef={swipeBgLeftRef} />}
+    {isMobile && <SwipeBackground side="right" actionView={rightActionView} innerRef={swipeBgRightRef} />}
+    <div ref={isMobile ? contentRef : undefined} className={isMobile ? 'no-callout' : undefined} style={{ willChange: isMobile ? 'transform' : undefined }} onClickCapture={event => { if (tappedRef.current) { tappedRef.current = false; event.stopPropagation(); } }} onClick={event => { if (tappedRef.current) { tappedRef.current = false; event.stopPropagation(); } }}>
+      {children}
+    </div>
+  </div>;
 }
 
 function MessageRow({ message, selected, lastViewed, isChecked, selectionMode, showAccount, isNarrow, onSelect, onOpenWindow, onToggleSelect, onRangeSelect, onAvatarClick, showMobileAvatars, showMessagePreviews, onMarkRead, onStar, onDelete, hoverQuickActions, onContextMenu, onMove, onDragStart, isMobile, swipeLeftAction, swipeRightAction, onSwipeLeft, onSwipeRight, onLongPress }) {

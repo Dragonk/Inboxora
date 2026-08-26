@@ -139,6 +139,9 @@ export function useSwipeRow({ isMobile, message, onSwipeLeft, onSwipeRight, onLo
         return;
       }
       const x = s.x;
+      // A completed swipe must not be followed by the browser's synthetic click;
+      // that click would select/open the row after its action already ran.
+      suppressNextClick();
       resetSwipeState();
       springBack();
       if (x < -SWIPE_THRESHOLD) {
