@@ -4,10 +4,17 @@ import { conversationApi } from '../utils/conversationApi.js';
 import { api } from '../utils/api.js';
 import ConversationMessage from './ConversationMessage.jsx';
 import { initialConversationExpansion, initialConversationTarget, toggleConversationExpansion } from './conversationExpansion.js';
+import { nativeThreadToReaderMessages, mergeThreadWithConversation } from '../utils/conversationThreadAdapter.js';
 
 // Data-only CE adapter. It owns logical/physical identity and expansion policy;
 // MessagePane owns the pane geometry and ConversationMessage uses MessagePane visuals.
-export default function ConversationReader({ conversationId, targetLogicalMessageId = null, selectedCopyId = null, selectedAccountId = null, accounts = [], onReply }) {
+//
+// P1-B: When nativeThreadId is available, the reader loads the complete account-local
+// native thread (/mail/thread/:threadId) as the PRIMARY source of thread membership.
+// CE detail enriches this data (logical identity, manual overrides) but incomplete CE
+// state MUST NOT silently reduce 3 native thread messages to 1 reader card. Each unique
+// real message gets one reader card; CE metadata is attached when it exists.
+export default function ConversationReader({ conversationId, targetLogicalMessageId = null, selectedCopyId = null, selectedAccountId = null, accounts = [], onReply, nativeThreadId = null, nativeFolder = null }) {
   const { t } = useTranslation();
   const [data, setData] = useState(null);
   const [error, setError] = useState(null);
@@ -25,17 +32,33 @@ export default function ConversationReader({ conversationId, targetLogicalMessag
     let active = true;
     bodiesRef.current = {}; statusRef.current = {};
     setData(null); setError(null); setBodiesByCopy({}); setBodyStatusByCopy({}); setExpanded(new Set());
-    conversationApi.detail(conversationId).then(result => {
+    // P1-B: Load the native thread (primary) and CE detail (enrichment) in parallel.
+    // Native thread membership is the proven UI threading source; CE metadata enriches
+    // but incomplete CE state must not reduce the reader below the native thread size.
+    const cePromise = conversationId
+      ? conversationApi.detail(conversationId).catch(() => null)
+      : Promise.resolve(null);
+    const nativePromise = nativeThreadId && selectedAccountId
+      ? api.getThread(nativeThreadId, nativeFolder || 'INBOX', false, selectedAccountId)
+          .then(result => result?.messages || [])
+          .catch(() => [])
+      : Promise.resolve([]);
+    Promise.all([cePromise, nativePromise]).then(([ceResult, nativeMessages]) => {
       if (!active) return;
-      const messages = result.logicalMessages || [];
-      // Only the resolver-selected message starts open. If that identity is stale,
-      // fall back to the newest logical message while preserving independent toggles.
+      const ceLogicalMessages = ceResult?.logicalMessages || [];
+      const nativeReaderMessages = nativeThreadToReaderMessages(nativeMessages, selectedAccountId);
+      // Native children are primary; CE enriches. If native is empty (no thread_key or
+      // flat single message), fall back to CE-only so the reader still works.
+      const messages = nativeReaderMessages.length
+        ? mergeThreadWithConversation(ceLogicalMessages, nativeReaderMessages)
+        : ceLogicalMessages;
+      const result = { ...ceResult, logicalMessages: messages };
       setExpanded(initialConversationExpansion(messages, targetLogicalMessageId));
       setData(result);
     }).catch(reason => active && setError(reason.message || t('conversation.loadFailed')));
     const controllers = aborters.current;
     return () => { active = false; for (const controller of controllers.values()) controller.abort(); controllers.clear(); };
-  }, [conversationId, targetLogicalMessageId, t]);
+  }, [conversationId, targetLogicalMessageId, nativeThreadId, nativeFolder, selectedAccountId, t]);
 
   const messages = useMemo(() => data?.logicalMessages || [], [data]);
   const refresh = useCallback(() => conversationApi.detail(conversationId).then(setData), [conversationId]);

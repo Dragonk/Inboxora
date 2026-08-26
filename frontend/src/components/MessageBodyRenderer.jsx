@@ -91,6 +91,10 @@ export default function MessageBodyRenderer({ html = '', text = '', remoteImages
         expanded.clear();
       };
       const measureExpanded = () => {
+        // Restore scroll containers to their natural state FIRST so that after a
+        // quote collapse the iframe SHRINKS. Without this, the height overrides
+        // applied during expand persist and the card retains ~2900px of empty space.
+        restoreScrollContainers();
         expandScrollContainers();
         measure();
       };

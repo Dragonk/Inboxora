@@ -43,14 +43,68 @@ function protectedForwardRoots(doc) {
     .filter(element => startsWithForwardMarker(element.textContent));
 }
 
-function candidateElements(doc, protectedForwards) {
+function candidateGroups(doc, protectedForwards) {
   const protectedSet = new Set(protectedForwards);
   // A forwarded envelope remains visible, but quote candidates nested inside it are
   // still eligible. Filtering forward roots before top-level de-duplication is what
   // preserves Gmail's hierarchical behaviour for forwards containing old replies.
-  return uniqueTopLevel(quoteElements(doc)
+  const explicit = quoteElements(doc)
     .filter(element => !protectedSet.has(element))
-    .filter(element => !startsWithForwardMarker(element.textContent)));
+    .filter(element => !startsWithForwardMarker(element.textContent));
+  const explicitTop = uniqueTopLevel(explicit);
+  const explicitGroups = explicitTop.map(element => [element]);
+  // Structural fold: detect reply markers ("On ... wrote:", "Dnia ... napisał(a):") in
+  // block elements that have NO provider quote wrapper (.gmail_quote, blockquote, etc.).
+  // Gmail, Apple Mail, Thunderbird and many clients emit plain <p>/<div> with the marker
+  // as the first visible line, followed by the entire historical subtree. Without this,
+  // MailFlow displays the complete reply chain.
+  // One expander per historical region: the marker's top-level ancestor and ALL following
+  // top-level siblings collapse into a single group (returned as one array).
+  // Skip structural roots already covered by explicit wrappers to avoid double toggles.
+  const structuralGroup = structuralQuoteRoots(doc, protectedSet, explicitTop);
+  const groups = [...explicitGroups];
+  if (structuralGroup.length) groups.push(structuralGroup);
+  return groups;
+}
+
+function structuralQuoteRoots(doc, protectedSet, explicitElements = []) {
+  const roots = [];
+  const seen = new Set();
+  const topLevel = [...(doc.body?.children || [])];
+  for (let index = 0; index < topLevel.length; index += 1) {
+    const element = topLevel[index];
+    if (protectedSet.has(element) || seen.has(element)) continue;
+    // Skip if this top-level element is already covered by an explicit wrapper (e.g.
+    // .gmail_quote) — those get their own toggle via explicitGroups.
+    if (explicitElements.some(explicit => explicit === element || explicit.contains(element) || element.contains(explicit))) continue;
+    // A top-level element is a quote root if it (or a descendant block) starts with a
+    // reply marker. This catches both <p>On ... wrote:</p> at top level and <div>...
+    // <p>On ... wrote:</p> ...</div> where the <div> is the top-level container.
+    if (elementStartsWithReplyMarker(element)) {
+      roots.push(element);
+      seen.add(element);
+      // Collapse the entire remaining historical region: this element AND all following
+      // top-level siblings. One expander for one historical region.
+      for (let tail = index + 1; tail < topLevel.length; tail += 1) {
+        const sibling = topLevel[tail];
+        if (!seen.has(sibling)) { roots.push(sibling); seen.add(sibling); }
+      }
+      break;
+    }
+  }
+  return roots;
+}
+
+function elementStartsWithReplyMarker(element) {
+  // Check the element's own visible text first (for <p>On ... wrote:</p> at top level).
+  if (startsWithReplyMarker(element.textContent || '')) return true;
+  // Then check descendant block elements (for <div><p>On ... wrote:</p>...</div>).
+  // Only inspect block elements — inline <span> fragments are part of the current message.
+  const blocks = element.querySelectorAll('p, div, span, blockquote, pre, table');
+  for (const block of blocks) {
+    if (startsWithReplyMarker(block.textContent || '')) return true;
+  }
+  return false;
 }
 
 function createToggle(doc, id, showLabel, hideLabel, onChange) {
@@ -75,11 +129,17 @@ function createToggle(doc, id, showLabel, hideLabel, onChange) {
   return button;
 }
 
-function installElementGroup(doc, element, index, options) {
+function installGroup(doc, elements, index, options) {
+  if (!elements.length) return;
   const id = `mailflow-quote-${index}`;
-  element.dataset.mailflowQuoteGroup = id;
-  element.classList.add('mailflow-quote-collapsed');
-  element.parentNode?.insertBefore(createToggle(doc, id, options.showLabel, options.hideLabel, options.onChange), element);
+  // One toggle before the first element; all elements share the same group ID so
+  // they collapse/expand together. This produces a single "Show quoted text" button
+  // for the entire historical region (one expander per region).
+  elements.forEach(element => {
+    element.dataset.mailflowQuoteGroup = id;
+    element.classList.add('mailflow-quote-collapsed');
+  });
+  elements[0].parentNode?.insertBefore(createToggle(doc, id, options.showLabel, options.hideLabel, options.onChange), elements[0]);
 }
 
 export function plainTextBoundary(text) {
@@ -129,7 +189,7 @@ export function installMessageQuoteFolding(doc, {
 
   const protectedForwards = protectedForwardRoots(doc);
   protectedForwards.forEach(root => { root.dataset.mailflowForwardRoot = 'true'; });
-  const candidates = candidateElements(doc, protectedForwards);
-  candidates.forEach((element, index) => installElementGroup(doc, element, index, { showLabel, hideLabel, onChange }));
-  return { count: candidates.length, protectedForwardCount: protectedForwards.length };
+  const groups = candidateGroups(doc, protectedForwards);
+  groups.forEach((elements, index) => installGroup(doc, elements, index, { showLabel, hideLabel, onChange }));
+  return { count: groups.length, protectedForwardCount: protectedForwards.length };
 }

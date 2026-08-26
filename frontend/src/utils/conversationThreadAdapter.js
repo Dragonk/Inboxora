@@ -85,3 +85,90 @@ export function conversationRowToThreadRow(row) {
 export function conversationListToThreadRows(data) {
   return (data?.conversations || []).map(conversationRowToThreadRow);
 }
+
+/**
+ * Map native /mail/thread/:threadId children to the logical-message-with-copies shape
+ * that ConversationMessage consumes. Each unique physical message becomes one reader
+ * card. This is the fallback/primary source when CE graph is incomplete so the reader
+ * never silently drops messages that the native thread list shows.
+ *
+ * Native thread children are already deduplicated by message_id by the backend
+ * (DISTINCT ON), so one row here = one unique real message.
+ */
+export function nativeThreadToReaderMessages(threadMessages, accountId) {
+  return (threadMessages || []).map((msg, index) => ({
+    id: msg.message_id || msg.id,
+    subject: msg.subject,
+    canonicalMessageId: msg.message_id,
+    canonical_message_id: msg.message_id,
+    messageDate: msg.date,
+    message_date: msg.date,
+    snippet: msg.snippet,
+    unread: !msg.is_read,
+    // Single copy: the native thread message is already the preferred physical copy.
+    copies: [{
+      id: msg.id,
+      accountId: msg.account_id || accountId,
+      account_id: msg.account_id || accountId,
+      messageId: msg.message_id,
+      message_id: msg.message_id,
+      threadId: msg.thread_id,
+      thread_id: msg.thread_id,
+      threadKey: msg.thread_key,
+      folder: msg.folder,
+      subject: msg.subject,
+      fromName: msg.from_name,
+      from_name: msg.from_name,
+      fromEmail: msg.from_email,
+      from_email: msg.from_email,
+      to: msg.to_addresses,
+      to_addresses: msg.to_addresses,
+      cc: msg.cc_addresses,
+      cc_addresses: msg.cc_addresses,
+      date: msg.date,
+      snippet: msg.snippet,
+      isRead: msg.is_read,
+      is_read: msg.is_read,
+      isStarred: msg.is_starred,
+      is_starred: msg.is_starred,
+      hasAttachments: msg.has_attachments,
+      has_attachments: msg.has_attachments,
+      attachments: [],
+      deliveryAddresses: msg.delivery_addresses,
+      delivery_addresses: msg.delivery_addresses,
+      listUnsubscribe: msg.list_unsubscribe,
+      list_unsubscribe: msg.list_unsubscribe,
+      unsubscribedAt: msg.unsubscribed_at,
+      unsubscribed_at: msg.unsubscribed_at,
+    }],
+    _nativeIndex: index,
+  }));
+}
+
+/**
+ * Merge CE logical messages with native thread children. Native children are primary —
+ * each unique real message gets a reader card. If CE has a matching logical identity
+ * (by message_id), attach it for metadata enrichment. If CE does not yet contain a
+ * member, the physical message still appears in the reader (never silently dropped).
+ */
+export function mergeThreadWithConversation(ceMessages, nativeMessages) {
+  if (!nativeMessages?.length) return ceMessages || [];
+  if (!ceMessages?.length) return nativeMessages;
+  const ceByMessageId = new Map();
+  for (const logical of ceMessages) {
+    const mid = logical.canonicalMessageId || logical.canonical_message_id || logical.id;
+    if (mid) ceByMessageId.set(mid, logical);
+  }
+  return nativeMessages.map(native => {
+    const ce = ceByMessageId.get(native.id);
+    if (!ce) return native;
+    // Enrich native with CE logical identity but keep native copy (authoritative physical).
+    return {
+      ...native,
+      ...ce,
+      // Preserve native copies so the reader uses the real physical copy.
+      copies: native.copies.length ? native.copies : ce.copies,
+      id: ce.id || native.id,
+    };
+  });
+}

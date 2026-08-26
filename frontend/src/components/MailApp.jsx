@@ -85,6 +85,11 @@ export default function MailApp() {
   const [targetLogicalMessageId, setTargetLogicalMessageId] = useState(null);
   const [selectedConversationCopy, setSelectedConversationCopy] = useState(null);
   const [conversationResolutionError, setConversationResolutionError] = useState(null);
+  // P1-B: Native thread identity for the reader fallback. When the selected physical
+  // message has a thread_key, the reader loads /mail/thread/:threadId so incomplete CE
+  // state never silently drops messages the native list shows.
+  const [nativeThreadId, setNativeThreadId] = useState(null);
+  const [nativeFolder, setNativeFolder] = useState(null);
 
   const replyFromConversation = useCallback(copy => {
     if (!copy) return;
@@ -124,8 +129,19 @@ export default function MailApp() {
     setTargetLogicalMessageId(null);
     setSelectedConversationCopy(null);
     setConversationResolutionError(null);
+    setNativeThreadId(null);
+    setNativeFolder(null);
     const selected = useStore.getState().messages.find(item => item.id === selectedMessageId)
       || Object.values(useStore.getState().threadMessages || {}).flat().find(item => item.id === selectedMessageId);
+    // P1-B: Capture the native thread_key from the selected message. The reader uses
+    // /mail/thread/:threadId as the primary thread membership source so CE incompleteness
+    // never reduces the reader below the native thread size.
+    const threadKey = selected?.thread_key || selected?.thread_id || null;
+    const threadAccount = selected?.account_id || null;
+    if (threadKey && threadAccount) {
+      setNativeThreadId(threadKey);
+      setNativeFolder(selected?.folder || 'INBOX');
+    }
     conversationApi.resolveMessage(selectedMessageId, selected?.account_id || null)
       .then(resolved => {
         if (!cancelled && resolved?.conversation_id) {
@@ -832,7 +848,7 @@ export default function MailApp() {
             <MessageList />
           </div>
           <div data-ce-reader-pane="true" style={{ flex: 1, display: !showContacts && (selectedMessageId || (conversationReaderViewEnabled && conversationId)) ? 'flex' : 'none', overflow: 'hidden', height: '100%', minWidth: 0 }}>
-            <MessagePane mode={conversationReaderViewEnabled && conversationId ? 'conversation' : 'single'} conversationId={conversationId} targetLogicalMessageId={targetLogicalMessageId} selectedConversationCopy={selectedConversationCopy} onReply={replyFromConversation} />
+            <MessagePane mode={conversationReaderViewEnabled && conversationId ? 'conversation' : 'single'} conversationId={conversationId} targetLogicalMessageId={targetLogicalMessageId} selectedConversationCopy={selectedConversationCopy} nativeThreadId={nativeThreadId} nativeFolder={nativeFolder} onReply={replyFromConversation} />
           </div>
         </>
       ) : (
@@ -880,7 +896,7 @@ export default function MailApp() {
                 />
               )}
               <div data-ce-reader-pane="true" style={{ flex: 1, minWidth: 0, overflow: 'hidden', height: '100%', display: 'flex' }}>
-                <MessagePane mode={conversationReaderViewEnabled && conversationId ? 'conversation' : 'single'} conversationId={conversationId} targetLogicalMessageId={targetLogicalMessageId} selectedConversationCopy={selectedConversationCopy} onReply={replyFromConversation} />
+                <MessagePane mode={conversationReaderViewEnabled && conversationId ? 'conversation' : 'single'} conversationId={conversationId} targetLogicalMessageId={targetLogicalMessageId} selectedConversationCopy={selectedConversationCopy} nativeThreadId={nativeThreadId} nativeFolder={nativeFolder} onReply={replyFromConversation} />
               </div>
               {/* Generic right-sidebar column, populated from the content seam above. */}
               {currentLayout.direction === 'row' && rightSidebarContent != null && (

@@ -4126,12 +4126,14 @@ function ThreadRow({ message, isExpanded, threadMsgs, isLoadingThread, selectedM
   const [hovered, setHovered] = useState(false);
   const messageCount = message.message_count || 1;
   const unreadCount  = parseInt(message.unread_count) || 0;
-  // A parent summarizes the conversation. Only a single-message parent can carry
-  // one truthful direction; expanded physical children classify themselves below.
+  // The parent row shows the direction of the MOST RECENT unique child in the
+  // account-local thread (not the first message, and not a thread-wide label).
+  // latest_from_email is emitted by the backend (FIRST_VALUE ORDER BY date DESC);
+  // fall back to the row's own from_email for older rows that predate the column.
   const parentAccount = accounts.find(account => account.id === message.account_id);
-  const parentDirection = directionFromAddress(message.from_email, accountOwnAddresses(parentAccount, message));
+  const parentDirection = directionFromAddress(message.latest_from_email || message.from_email, accountOwnAddresses(parentAccount, message));
   const isOutgoing = parentDirection === 'outgoing';
-  const showParentDirection = messageCount === 1 && parentDirection;
+  const showParentDirection = Boolean(parentDirection);
 
   const { contentRef, swipeBgLeftRef, swipeBgRightRef, tappedRef } = useSwipeRow({
     isMobile, message, onSwipeLeft, onSwipeRight, onLongPress,

@@ -143,7 +143,7 @@ describe('listMessages — threaded mode', () => {
     expect(result.messages).toHaveLength(1);
   });
 
-  it('scopes thread_totals to INBOX when viewing a specific account INBOX', async () => {
+  it('counts thread messages across ALL folders when viewing a specific account INBOX (badge === expansion)', async () => {
     query
       .mockResolvedValueOnce({ rows: [{ id: 'acc-1' }] })
       .mockResolvedValueOnce({ rows: [{ total_count: 10, unread_count: 0 }] })
@@ -152,8 +152,12 @@ describe('listMessages — threaded mode', () => {
 
     await listMessages({ userId: 'user-1', accountId: 'acc-1', folder: 'INBOX', threaded: 'true' });
 
+    // P1-C: thread_totals must count across ALL folders (Inbox + Sent + Archive) so the
+    // badge equals the number of unique children /mail/thread/:threadId expansion renders.
+    // Scoping to INBOX produced badge=2 while expansion showed 3 (Inbox+Sent+Inbox).
     const cteSql = query.mock.calls[2][0];
-    expect(cteSql).toContain('AND folder = $2');
+    expect(cteSql).not.toContain('AND folder = $2');
+    expect(cteSql).not.toContain("AND folder = 'INBOX'");
   });
 
   it('counts thread messages across all folders when viewing a non-INBOX folder', async () => {
@@ -171,7 +175,7 @@ describe('listMessages — threaded mode', () => {
     expect(cteSql).not.toContain("AND folder = 'INBOX'");
   });
 
-  it('scopes thread_totals to INBOX for unified inbox threaded view', async () => {
+  it('counts thread messages across ALL folders for unified inbox threaded view (badge === expansion)', async () => {
     query
       .mockResolvedValueOnce({ rows: [{ id: 'acc-1' }, { id: 'acc-2' }] })
       .mockResolvedValueOnce({ rows: [{ n: 20 }] })
@@ -180,8 +184,10 @@ describe('listMessages — threaded mode', () => {
 
     await listMessages({ userId: 'user-1', threaded: 'true' });
 
+    // P1-C: unified inbox thread_totals must also count across all folders so the
+    // badge matches expansion. The old INBOX-only scope produced badge mismatches.
     const cteSql = query.mock.calls[2][0];
-    expect(cteSql).toContain("AND folder = 'INBOX'");
+    expect(cteSql).not.toContain("AND folder = 'INBOX'");
   });
 
   it('keeps equal legacy thread keys separate per account in unified threaded view', async () => {

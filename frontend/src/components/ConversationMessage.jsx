@@ -162,7 +162,10 @@ export default function ConversationMessage({ conversationId, message, selectedC
     data-logical-message-id={message.id}
     data-conversation-message-state={expanded ? 'expanded' : 'collapsed'}
     style={{
-      padding: '24px 28px 0',
+      // Mobile: match native MessagePane single-message padding (12px 0 0) so the
+      // reader fills the pane width without desktop-style 28px side margins.
+      // Desktop: keep the approved card mock-up spacing.
+      padding: isMobile ? '12px 0 0' : '24px 28px 0',
       background: 'var(--bg-primary)',
     }}
   >

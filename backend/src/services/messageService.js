@@ -80,12 +80,12 @@ export async function listMessages({ userId, accountId, folder = 'INBOX', limit 
     const threadIdentityExpr = isSpecificAccount
       ? 'm.thread_key'
       : `(m.account_id::text || ':' || m.thread_key)`;
-    // For INBOX-specific views the thread badge must match the expansion, so scope
-    // thread_totals to that folder. For other folders (All Mail, Sent, etc.) count
-    // across all folders so the badge reflects the true thread size.
-    const threadFolderFilter = isSpecificAccount
-      ? (folder === 'INBOX' ? `AND folder = $2` : '')
-      : `AND folder = 'INBOX'`;
+    // The thread badge must equal the number of unique children the expansion renders.
+    // /mail/thread/:threadId loads ALL folders (Inbox + Sent + Archive + duplicates) and
+    // deduplicates by message_id, so thread_totals must count across all folders too.
+    // Scoping the badge to the current folder produced badge=2 while expansion showed 3
+    // (Inbox+Sent+Inbox) — a silent mismatch between the list and the reader.
+    const threadFolderFilter = '';
 
     const threadResult = await query(`
       WITH paged_threads AS (
@@ -125,12 +125,13 @@ export async function listMessages({ userId, accountId, folder = 'INBOX', limit 
       ),
       thread_totals AS (
         SELECT ${threadIdentityExpr} AS thread_id,
+               -- Dedupe by message_id exactly like /mail/thread/:threadId (DISTINCT ON).
+        -- NULL message_id collapses to one child in both count and expansion, so no
+        -- IS NOT NULL filter — keeping it would exclude valid children from the badge.
                COUNT(DISTINCT m.message_id)::int AS message_count
         FROM messages m
         WHERE m.account_id = ANY($${p})
           AND m.is_deleted = false
-          AND m.message_id IS NOT NULL
-          ${threadFolderFilter}
           AND ${threadIdentityExpr} IN (SELECT thread_id FROM paged_threads)
         GROUP BY ${threadIdentityExpr}
       ),
@@ -142,6 +143,12 @@ export async function listMessages({ userId, accountId, folder = 'INBOX', limit 
                FIRST_VALUE(d.from_name)          OVER (PARTITION BY d.thread_id ORDER BY d.date ASC) AS thread_from_name,
                FIRST_VALUE(d.from_email)         OVER (PARTITION BY d.thread_id ORDER BY d.date ASC) AS thread_from_email,
                FIRST_VALUE(d.has_contact_photo)  OVER (PARTITION BY d.thread_id ORDER BY d.date ASC) AS thread_has_contact_photo,
+               -- Latest message direction: the parent row shows the direction of the
+               -- most recent unique child, not the thread's first message. ORDER BY date DESC
+               -- picks the newest; the tie-breaker (id) keeps it deterministic when two
+               -- children share the same timestamp.
+               FIRST_VALUE(d.from_email) OVER (PARTITION BY d.thread_id ORDER BY d.date DESC, d.id DESC) AS latest_from_email,
+               FIRST_VALUE(d.from_name)  OVER (PARTITION BY d.thread_id ORDER BY d.date DESC, d.id DESC) AS latest_from_name,
                ROW_NUMBER() OVER (PARTITION BY d.thread_id ORDER BY d.date DESC) AS rn
         FROM deduped d
         LEFT JOIN thread_totals tt ON tt.thread_id = d.thread_id
@@ -153,7 +160,8 @@ export async function listMessages({ userId, accountId, folder = 'INBOX', limit 
              account_name, account_email, account_color,
              category, list_unsubscribe, list_unsubscribe_post, delivery_addresses,
              message_count, unread_count,
-             thread_has_contact_photo AS has_contact_photo
+             thread_has_contact_photo AS has_contact_photo,
+             latest_from_email, latest_from_name
       FROM ranked
       WHERE rn = 1
       ORDER BY date DESC
