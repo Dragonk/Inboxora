@@ -226,6 +226,19 @@ describe('listMessages — threaded mode', () => {
 });
 
 describe('listMessages — message shape', () => {
+  it('preserves native thread identity in the flat message DTO', async () => {
+    query
+      .mockResolvedValueOnce({ rows: [{ id: 'acc-1' }] })
+      .mockResolvedValueOnce({ rows: [{ total_count: 1, unread_count: 0 }] })
+      .mockResolvedValueOnce({ rows: [] });
+
+    await listMessages({ userId: 'user-1', accountId: 'acc-1' });
+
+    const sql = query.mock.calls[2][0];
+    expect(sql).toContain('m.thread_id, m.thread_key');
+    expect(sql).toContain('m.account_id');
+  });
+
   it('selects delivery_addresses in the flat query', async () => {
     query
       .mockResolvedValueOnce({ rows: [{ id: 'acc-1' }] })

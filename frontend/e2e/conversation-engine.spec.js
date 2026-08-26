@@ -61,7 +61,7 @@ test.describe('native conversation engine matrix', () => {
     expect(await page.evaluate(() => performance.getEntriesByType('resource').map(entry => entry.name))).toEqual(
       expect.arrayContaining([expect.stringMatching(/\/api\/mail\/messages\?[^#]*threaded=true/)]),
     );
-    await parent.getByRole('button', { name: /\(5\)/ }).click();
+    await parent.locator("button[aria-label*='(5)']").click();
     const directions = parent.locator('xpath=..').locator('[data-message-direction]');
     // P1-D: first direction is the parent arrow for the newest unique child; the
     // remaining five are the exact expanded native children.
@@ -139,7 +139,7 @@ test.describe('native conversation engine matrix', () => {
   test('ON/ON expanded native child rows expose per-message incoming/outgoing direction', async ({ page, fixtureApi }) => {
     await open(page, fixtureApi, true, true);
     const parent = page.locator('[data-msgid="conversation-gmail-copy-5"]:visible');
-    await parent.getByRole('button', { name: /\(5\)/ }).click();
+    await parent.locator("button[aria-label*='(5)']").click();
     const directions = parent.locator('xpath=..').locator('[data-message-direction]');
     // Parent latest direction + five native child directions.
     await expect(directions).toHaveCount(6);
@@ -181,8 +181,8 @@ test.describe('native conversation engine matrix', () => {
     page.__ceMode = 'stale';
     await open(page, fixtureApi, true, true);
     const parent = page.locator('[data-msgid="conversation-gmail-copy-5"]:visible');
-    await expect(parent.getByRole('button', { name: /\(5\)/ })).toBeVisible();
-    await parent.getByRole('button', { name: /\(5\)/ }).click();
+    await expect(parent.locator("button[aria-label*='(5)']")).toBeVisible();
+    await parent.locator("button[aria-label*='(5)']").click();
     const children = parent.locator('xpath=..').locator('[data-message-direction]');
     await expect(children).toHaveCount(6); // parent latest direction + five children
     await parent.click();
@@ -346,4 +346,74 @@ test.describe('native conversation engine matrix', () => {
     expect(bg).not.toBe('rgb(255, 255, 255)');
   });
 
+});
+
+test.describe('thread context and ThreadRow interaction regressions', () => {
+  const physicalCardIds = async reader => reader.locator('article[data-physical-copy-id]').evaluateAll(cards => cards.map(card => card.dataset.physicalCopyId));
+
+  test('keeps native reader membership identical for the same flat and grouped physical selection', async ({ page, fixtureApi }) => {
+    await open(page, fixtureApi, false, true);
+    await page.locator('[data-msgid="conversation-gmail-copy-2"]:visible').click();
+    const flatReader = page.locator('section[data-conversation-id="conversation-gmail"]:visible');
+    await expect(flatReader).toHaveAttribute('data-reader-source', 'native-thread');
+    await expect(flatReader).toHaveAttribute('data-selected-account-id', 'account-gmail');
+    const flatIds = await physicalCardIds(flatReader);
+    expect(flatIds).toEqual([
+      'conversation-gmail-copy-1', 'conversation-gmail-copy-2', 'conversation-gmail-copy-3',
+      'conversation-gmail-copy-4', 'conversation-gmail-copy-5',
+    ]);
+
+    await open(page, fixtureApi, true, true);
+    await page.locator('[data-msgid="conversation-gmail-copy-5"]:visible').locator('[data-thread-row-parent="true"]').click();
+    await page.locator('[data-thread-row-child="conversation-gmail-copy-2"]:visible').click();
+    const groupedReader = page.locator('section[data-conversation-id="conversation-gmail"]:visible');
+    await expect(groupedReader).toHaveAttribute('data-reader-source', 'native-thread');
+    await expect(groupedReader).toHaveAttribute('data-selected-account-id', 'account-gmail');
+    expect(await physicalCardIds(groupedReader)).toEqual(flatIds);
+  });
+
+  test('native membership excludes a stale CE card in flat and grouped reader modes', async ({ page, fixtureApi }) => {
+    page.__ceMode = 'stale';
+    await open(page, fixtureApi, false, true);
+    await page.locator('[data-msgid="conversation-gmail-copy-2"]:visible').click();
+    const flatReader = page.locator('section[data-conversation-id="conversation-gmail"]:visible');
+    await expect(flatReader).toHaveAttribute('data-reader-source', 'native-thread');
+    await expect(flatReader.locator('article')).toHaveCount(5);
+    await expect(flatReader.locator('#logical-message-conversation-gmail-logical-stale')).toHaveCount(0);
+
+    await open(page, fixtureApi, true, true);
+    const parent = page.locator('[data-msgid="conversation-gmail-copy-5"]:visible');
+    await parent.locator('[data-thread-row-subject="true"]').click();
+    const groupedReader = page.locator('section[data-conversation-id="conversation-gmail"]:visible');
+    await expect(groupedReader).toHaveAttribute('data-reader-source', 'native-thread');
+    await expect(groupedReader.locator('article')).toHaveCount(5);
+    await expect(groupedReader.locator('#logical-message-conversation-gmail-logical-stale')).toHaveCount(0);
+  });
+
+  test('whole parent surface toggles children, opens newest, and excludes child/action clicks', async ({ page, fixtureApi }) => {
+    await open(page, fixtureApi, true, true);
+    const parent = page.locator('[data-msgid="conversation-gmail-copy-5"]:visible');
+    const parentSurface = parent.locator('[data-thread-row-parent="true"]');
+    await parent.locator('[data-thread-row-subject="true"]').click();
+    await expect(parentSurface).toHaveAttribute('aria-expanded', 'true');
+    await expect(page.locator('[data-ce-selected-message-id="conversation-gmail-copy-5"]:visible')).toBeVisible();
+
+    await parent.locator('[data-thread-row-child="conversation-gmail-copy-2"]').click();
+    await expect(parentSurface).toHaveAttribute('aria-expanded', 'true');
+    await expect(page.locator('[data-ce-selected-message-id="conversation-gmail-copy-2"]:visible')).toBeVisible();
+
+    await parent.locator('[data-thread-row-star="true"]').click();
+    await expect(parentSurface).toHaveAttribute('aria-expanded', 'true');
+
+    await parent.locator('[data-thread-row-subject="true"]').click();
+    await expect(parentSurface).toHaveAttribute('aria-expanded', 'false');
+    await expect(page.locator('[data-ce-selected-message-id="conversation-gmail-copy-2"]:visible')).toBeVisible();
+
+    await parentSurface.press('Enter');
+    await expect(parentSurface).toHaveAttribute('aria-expanded', 'true');
+    await expect(page.locator('[data-ce-selected-message-id="conversation-gmail-copy-5"]:visible')).toBeVisible();
+
+    await parentSurface.press('Space');
+    await expect(parentSurface).toHaveAttribute('aria-expanded', 'false');
+  });
 });
