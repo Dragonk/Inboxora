@@ -190,6 +190,23 @@ describe('listMessages — threaded mode', () => {
     expect(cteSql).not.toContain("AND folder = 'INBOX'");
   });
 
+  it('uses a physical fallback for NULL/empty Message-ID so badge count matches expansion children', async () => {
+    query
+      .mockResolvedValueOnce({ rows: [{ id: 'acc-1' }] })
+      .mockResolvedValueOnce({ rows: [{ total_count: 3, unread_count: 0 }] })
+      .mockResolvedValueOnce({ rows: [] })
+      .mockResolvedValueOnce({ rows: [{ total: 1 }] });
+
+    await listMessages({ userId: 'user-1', accountId: 'acc-1', folder: 'INBOX', threaded: 'true' });
+
+    const cteSql = query.mock.calls[2][0];
+    // M1=<a>, M2=NULL, M3=<c> must produce badge=3: valid IDs dedupe by
+    // normalized Message-ID; missing/whitespace IDs retain a deterministic physical row.
+    expect(cteSql).toContain("COALESCE(NULLIF(btrim(m.message_id), ''), '__physical__:' || m.id::text)");
+    expect(cteSql).toContain('COUNT(DISTINCT COALESCE(NULLIF(btrim(m.message_id), \'\'), \'__physical__:\' || m.id::text))::int AS message_count');
+    expect(cteSql).not.toContain('m.message_id IS NOT NULL');
+  });
+
   it('keeps equal legacy thread keys separate per account in unified threaded view', async () => {
     query
       .mockResolvedValueOnce({ rows: [{ id: 'acc-1' }, { id: 'acc-2' }] })

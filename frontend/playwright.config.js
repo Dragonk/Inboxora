@@ -36,6 +36,8 @@ export default defineConfig({
   },
   projects: [
     { name: 'chromium-desktop', use: { ...devices['Desktop Chrome'] } },
+    // Required mobile reader widths: narrow 390×844 and native Pixel 7 412×915.
+    { name: 'chromium-mobile-390', use: { ...devices['Pixel 7'], viewport: { width: 390, height: 844 } } },
     { name: 'chromium-mobile', use: { ...devices['Pixel 7'] } },
     { name: 'chromium-mobile-landscape', use: { ...devices['Pixel 7'], viewport: { width: 915, height: 412 } } },
   ],

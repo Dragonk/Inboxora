@@ -62,12 +62,15 @@ test.describe('native conversation engine matrix', () => {
       expect.arrayContaining([expect.stringMatching(/\/api\/mail\/messages\?[^#]*threaded=true/)]),
     );
     await parent.getByRole('button', { name: /\(5\)/ }).click();
-    const children = parent.locator('xpath=..').locator('[data-message-direction]');
-    await expect(children).toHaveCount(5);
-    await expect(children.nth(0)).toHaveAttribute('data-message-direction', 'incoming');
-    await expect(children.nth(1)).toHaveAttribute('data-message-direction', 'outgoing');
-    await expect(children.nth(2)).toHaveAttribute('data-message-direction', 'incoming');
-    await expect(parent).not.toHaveAttribute('data-thread-parent-direction', /.+/);
+    const directions = parent.locator('xpath=..').locator('[data-message-direction]');
+    // P1-D: first direction is the parent arrow for the newest unique child; the
+    // remaining five are the exact expanded native children.
+    await expect(directions).toHaveCount(6);
+    await expect(parent).toHaveAttribute('data-thread-parent-direction', 'incoming');
+    await expect(directions.nth(0)).toHaveAttribute('data-message-direction', 'incoming');
+    await expect(directions.nth(1)).toHaveAttribute('data-message-direction', 'incoming');
+    await expect(directions.nth(2)).toHaveAttribute('data-message-direction', 'outgoing');
+    await expect(directions.nth(3)).toHaveAttribute('data-message-direction', 'incoming');
     await page.screenshot({ path: 'artifacts/on-off-expanded.png', fullPage: true });
     await parent.click();
     await expect(page.locator('[data-testid="message-pane-toolbar"]:visible')).toBeVisible();
@@ -138,10 +141,12 @@ test.describe('native conversation engine matrix', () => {
     const parent = page.locator('[data-msgid="conversation-gmail-copy-5"]:visible');
     await parent.getByRole('button', { name: /\(5\)/ }).click();
     const directions = parent.locator('xpath=..').locator('[data-message-direction]');
-    await expect(directions).toHaveCount(5);
-    await expect(directions.nth(0)).toHaveAttribute('data-message-direction', 'incoming');
-    await expect(directions.nth(3)).toHaveAttribute('data-message-direction', 'outgoing');
-    await expect(directions.nth(4)).toHaveAttribute('data-message-direction', 'incoming');
+    // Parent latest direction + five native child directions.
+    await expect(directions).toHaveCount(6);
+    await expect(parent).toHaveAttribute('data-thread-parent-direction', 'incoming');
+    await expect(directions.nth(1)).toHaveAttribute('data-message-direction', 'incoming');
+    await expect(directions.nth(4)).toHaveAttribute('data-message-direction', 'outgoing');
+    await expect(directions.nth(5)).toHaveAttribute('data-message-direction', 'incoming');
   });
 
   test('ON/ON exposes a terminal no-copy state without actions or body retries', async ({ page, fixtureApi }) => {
@@ -160,6 +165,56 @@ test.describe('native conversation engine matrix', () => {
     await expect(expanded.locator('[data-conversation-message-actions="true"]')).toHaveCount(0);
     await expect(expanded.locator('[data-conversation-message-attachments="true"]')).toHaveCount(0);
     expect(bodyRequests).toBe(0);
+  });
+
+  test('reader keeps all native children when CE detail is incomplete', async ({ page, fixtureApi }) => {
+    page.__ceIncomplete = true;
+    await open(page, fixtureApi, false, true);
+    await page.locator('[data-msgid="conversation-gmail-copy-2"]:visible').click();
+    const reader = page.locator('section[data-conversation-id="conversation-gmail"]:visible');
+    await expect(reader.locator('article')).toHaveCount(5);
+    await expect(reader.locator('[data-conversation-message-state="collapsed"]')).toHaveCount(4);
+    await expect(reader.locator('[data-conversation-message-state="expanded"]')).toHaveCount(1);
+  });
+
+  test('mobile reader cards use native MessagePane width without desktop side padding', async ({ page, fixtureApi }, testInfo) => {
+    test.skip(!testInfo.project.name.startsWith('chromium-mobile'), 'mobile viewport contract');
+    await open(page, fixtureApi, false, false);
+    await page.locator('[data-msgid="conversation-gmail-copy-2"]:visible').click();
+    const nativeWidth = await page.locator('[data-testid="message-pane-toolbar"]:visible').evaluate(element => element.parentElement.getBoundingClientRect().width);
+    await page.goBack();
+    await open(page, fixtureApi, false, true);
+    await page.locator('[data-msgid="conversation-gmail-copy-2"]:visible').click();
+    const reader = page.locator('section[data-conversation-id="conversation-gmail"]:visible');
+    const card = reader.locator('article').first();
+    const [readerWidth, cardWidth, viewportWidth] = await Promise.all([
+      reader.evaluate(element => element.getBoundingClientRect().width),
+      card.evaluate(element => element.getBoundingClientRect().width),
+      page.evaluate(() => window.innerWidth),
+    ]);
+    // Reader/root/card consume the same pane width; mobile card has no 28px desktop sides.
+    expect(readerWidth).toBeGreaterThanOrEqual(nativeWidth - 1);
+    expect(cardWidth).toBeGreaterThanOrEqual(viewportWidth - 2);
+    expect(viewportWidth).toBeGreaterThanOrEqual(390);
+  });
+
+  test('plain HTML reply marker folds one historical region and iframe shrinks after collapse', async ({ page, fixtureApi }) => {
+    page.__plainQuoteFoldingCopy = 'conversation-gmail-copy-2';
+    await open(page, fixtureApi, false, true);
+    await page.locator('[data-msgid="conversation-gmail-copy-2"]:visible').click();
+    const frame = page.locator('#logical-message-conversation-gmail-logical-2 iframe').contentFrame();
+    const iframe = page.locator('#logical-message-conversation-gmail-logical-2 iframe');
+    await expect(frame.locator('[data-testid="current-content"]')).toBeVisible();
+    await expect(frame.locator('[data-testid="plain-reply-marker"]')).toBeHidden();
+    await expect(frame.locator('.mailflow-quote-toggle')).toHaveCount(1);
+    const h1 = await iframe.evaluate(element => element.getBoundingClientRect().height);
+    await frame.locator('.mailflow-quote-toggle').click();
+    await expect(frame.locator('[data-testid="plain-reply-marker"]')).toBeVisible();
+    const h2 = await iframe.evaluate(element => element.getBoundingClientRect().height);
+    expect(h2).toBeGreaterThan(h1);
+    await frame.locator('.mailflow-quote-toggle').click();
+    await expect(frame.locator('[data-testid="plain-reply-marker"]')).toBeHidden();
+    await expect.poll(() => iframe.evaluate(element => element.getBoundingClientRect().height)).toBeLessThan(h2);
   });
 
   test('remote images share blocked/allowed behavior and preserve CID/data sources', async ({ page, fixtureApi }) => {

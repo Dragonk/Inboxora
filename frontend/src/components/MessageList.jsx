@@ -4165,7 +4165,7 @@ function ThreadRow({ message, isExpanded, threadMsgs, isLoadingThread, selectedM
   const rightActionView = getSwipeActionView(swipeLeftAction, message, t, unreadCount);
 
   return (
-    <div data-msgid={message.id} data-thread-parent-direction={showParentDirection || undefined} style={{ borderBottom: '1px solid var(--border-subtle)' }}>
+    <div data-msgid={message.id} data-thread-parent-direction={parentDirection || undefined} style={{ borderBottom: '1px solid var(--border-subtle)' }}>
       {/* Swipe container wraps only the header row */}
       <div style={{ position: 'relative', overflow: 'hidden' }}>
 

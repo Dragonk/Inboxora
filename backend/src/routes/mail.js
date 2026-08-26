@@ -243,11 +243,14 @@ router.get('/thread/:threadId', async (req, res) => {
 
     // Show all non-deleted messages in the thread regardless of folder. This includes
     // Sent replies (which have distinct message_ids) alongside received messages.
-    // DISTINCT ON (m.message_id) deduplicates the same message appearing in multiple
-    // folders (e.g. Gmail's All Mail), preferring the INBOX copy.
+    // The normalized identity is shared semantically with messageService.thread_totals:
+    // valid RFC Message-ID (trimmed) deduplicates folder copies; NULL/empty values use
+    // the physical row ID so otherwise unidentifiable messages remain visible. Include
+    // account_id in DISTINCT ON so a unified request can never dedupe across accounts.
     const result = await query(`
       WITH deduped AS (
-        SELECT DISTINCT ON (m.message_id)
+        SELECT DISTINCT ON (m.account_id,
+                            COALESCE(NULLIF(btrim(m.message_id), ''), '__physical__:' || m.id::text))
                m.id, m.uid, m.folder, m.message_id, m.thread_id, m.thread_key, m.subject,
                m.from_name, m.from_email, m.to_addresses, m.cc_addresses,
                m.reply_to, m.in_reply_to,
@@ -260,7 +263,8 @@ router.get('/thread/:threadId', async (req, res) => {
         WHERE m.is_deleted = false
           AND m.account_id = ANY($1)
           AND m.thread_key = $2
-        ORDER BY m.message_id,
+        ORDER BY m.account_id,
+                 COALESCE(NULLIF(btrim(m.message_id), ''), '__physical__:' || m.id::text),
                  CASE WHEN m.folder = 'INBOX' THEN 0 ELSE 1 END,
                  m.date ASC
       )

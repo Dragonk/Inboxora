@@ -71,14 +71,16 @@ function accountAddress(accountId) {
   return fixture.accounts.find(account => account.id === accountId)?.email_address;
 }
 
-function details(id) {
+function details(id, incomplete = false) {
   const row = fixture.conversations.find(item => item.conversation_id === id) || fixture.conversations[0];
   const accountId = conversationAccountId(row.conversation_id);
   const ownAddress = accountAddress(accountId);
   const provider = accountId.replace('account-', '');
   return {
     summary: { ...row, conversation_id: row.conversation_id, canonical_subject: row.canonical_subject, account_id: accountId },
-    logicalMessages: Array.from({ length: row.logical_message_count }, (_, index) => {
+    // Diagnostic fixture: CE can be historically incomplete while the proven native
+    // thread still has all physical members. Reader must retain native membership.
+    logicalMessages: Array.from({ length: incomplete ? 1 : row.logical_message_count }, (_, index) => {
       const number = index + 1;
       const goldenGmailDirection = ['incoming', 'outgoing', 'incoming', 'outgoing', 'incoming'];
       const outgoing = row.conversation_id === 'conversation-gmail'
@@ -167,7 +169,7 @@ export const test = base.extend({
       const parts = url.pathname.split('/').filter(Boolean);
       const id = parts.at(-1);
       if (parts.includes('logical-messages') || ['archive', 'move', 'delete', 'read', 'star'].includes(id)) return route.fallback();
-      if (id && id !== 'conversations') return route.fulfill({ json: details(id) });
+      if (id && id !== 'conversations') return route.fulfill({ json: details(id, Boolean(page.__ceIncomplete)) });
       return route.fulfill({ json: { conversations: fixture.conversations, nextCursor: null, total: fixture.conversations.length } });
     });
     await page.route('**/api/mail/messages/*', route => {
@@ -220,6 +222,16 @@ export const test = base.extend({
       const delay = page.__bodyResponseDelays?.[copyId] || 0;
       if (delay) await new Promise(resolve => setTimeout(resolve, delay));
       if (page.__bodyFailures?.has(copyId)) return route.fulfill({ status: 503, json: { error: 'Fixture body failed' } });
+      if (page.__plainQuoteFoldingCopy === copyId) {
+        const longHistory = Array.from({ length: 80 }, (_, index) => `<p data-testid="historical-line">Older historical line ${index + 1}</p>`).join('');
+        return route.fulfill({ json: {
+          attachments: [],
+          text: 'Fixture structural quote folding',
+          html: `<p data-testid="current-content">kolejna odpowiedź</p><div><p data-testid="plain-reply-marker">On 25.08.2026, 11:42:57, Kamil Maciąg wrote:</p><p>Odpowiedź na testowy e-mail</p><div><p>On 25.08.2026, 11:42:08, Kamil Maciąg wrote:</p><p>Testowy e-mail</p>${longHistory}</div></div>`,
+          hasBlockedRemoteImages: false,
+          remoteImages: true,
+        } });
+      }
       if (page.__quoteFoldingCopy === copyId) {
         const nestedForwardHtml = [
           '<p data-testid="current-content">Thanks for the update — here is the forwarded thread.</p>',

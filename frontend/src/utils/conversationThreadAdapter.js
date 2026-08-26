@@ -146,29 +146,64 @@ export function nativeThreadToReaderMessages(threadMessages, accountId) {
 }
 
 /**
- * Merge CE logical messages with native thread children. Native children are primary —
- * each unique real message gets a reader card. If CE has a matching logical identity
- * (by message_id), attach it for metadata enrichment. If CE does not yet contain a
- * member, the physical message still appears in the reader (never silently dropped).
+ * Merge CE logical messages with native thread children. CE logical identity is primary
+ * when available (stable logical IDs, manual overrides). Native children supply the
+ * authoritative physical copies and ensure messages CE has not yet ingested still appear.
+ *
+ * Matching: CE logical messages are indexed by the message_id of their copies AND by
+ * their own canonicalMessageId/id. Native children are matched by their message_id.
+ * If a CE logical message matches, the reader card uses the CE logical ID (so existing
+ * UI contracts, resolver targets, and tests stay stable) but the native physical copy
+ * is authoritative. Unmatched native children get a synthetic logical ID and remain
+ * visible — never silently dropped.
  */
 export function mergeThreadWithConversation(ceMessages, nativeMessages) {
   if (!nativeMessages?.length) return ceMessages || [];
   if (!ceMessages?.length) return nativeMessages;
+  // Index CE logical messages by every message_id AND physical copy id found on their
+  // copies, plus their own canonicalMessageId/id as fallbacks. Physical copy id is the
+  // most reliable join key when CE and native use different message_id formats.
   const ceByMessageId = new Map();
   for (const logical of ceMessages) {
-    const mid = logical.canonicalMessageId || logical.canonical_message_id || logical.id;
-    if (mid) ceByMessageId.set(mid, logical);
+    const mids = new Set();
+    const canonical = logical.canonicalMessageId || logical.canonical_message_id || logical.id;
+    if (canonical) mids.add(canonical);
+    for (const copy of (logical.copies || [])) {
+      const cmid = copy.messageId || copy.message_id;
+      if (cmid) mids.add(cmid);
+      if (copy.id) mids.add(copy.id);
+    }
+    for (const mid of mids) ceByMessageId.set(mid, logical);
   }
-  return nativeMessages.map(native => {
-    const ce = ceByMessageId.get(native.id);
-    if (!ce) return native;
-    // Enrich native with CE logical identity but keep native copy (authoritative physical).
-    return {
-      ...native,
-      ...ce,
-      // Preserve native copies so the reader uses the real physical copy.
-      copies: native.copies.length ? native.copies : ce.copies,
-      id: ce.id || native.id,
-    };
+  const usedCe = new Set();
+  const result = nativeMessages.map(native => {
+    // Match by native message_id (preferred) OR native physical copy id (fallback).
+    const ce = ceByMessageId.get(native.id) || ceByMessageId.get(native.copies?.[0]?.id);
+    if (ce) {
+      usedCe.add(ce.id);
+      // Keep native physical identity authoritative, while retaining CE-only display
+      // metadata (e.g. snippet) when the legacy native thread endpoint does not send it.
+      const copies = native.copies.map(nativeCopy => {
+        const ceCopy = (ce.copies || []).find(copy => String(copy.id) === String(nativeCopy.id)) || {};
+        const definedNative = Object.fromEntries(Object.entries(nativeCopy)
+          .filter(([, value]) => value != null && value !== ''));
+        return { ...ceCopy, ...definedNative };
+      });
+      // Use CE logical ID (stable identity for tests, resolver, expansion state).
+      return {
+        ...native,
+        ...ce,
+        copies,
+        id: ce.id || native.id,
+      };
+    }
+    // No CE match — synthetic logical ID so the message still appears in the reader.
+    return native;
   });
+  // Append CE logical messages that have no native match (e.g. CE ingested a message
+  // the native thread endpoint no longer returns because it was deleted/moved).
+  for (const ce of ceMessages) {
+    if (!usedCe.has(ce.id)) result.push(ce);
+  }
+  return result;
 }

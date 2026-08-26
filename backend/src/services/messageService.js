@@ -97,7 +97,8 @@ export async function listMessages({ userId, accountId, folder = 'INBOX', limit 
         LIMIT $${p + 1} OFFSET $${p + 2}
       ),
       deduped AS MATERIALIZED (
-        SELECT DISTINCT ON (m.account_id, m.thread_key, m.message_id)
+        SELECT DISTINCT ON (m.account_id, m.thread_key,
+                            COALESCE(NULLIF(btrim(m.message_id), ''), '__physical__:' || m.id::text))
                m.id, m.uid, m.folder, m.message_id,
                ${threadIdentityExpr} AS thread_id,
                m.thread_key,
@@ -119,16 +120,16 @@ export async function listMessages({ userId, accountId, folder = 'INBOX', limit 
           AND ${threadIdentityExpr} IN (SELECT thread_id FROM paged_threads)
         ORDER BY m.account_id,
                  m.thread_key,
-                 m.message_id,
+                 COALESCE(NULLIF(btrim(m.message_id), ''), '__physical__:' || m.id::text),
                  CASE WHEN m.folder = 'INBOX' THEN 0 ELSE 1 END,
                  m.date ASC
       ),
       thread_totals AS (
         SELECT ${threadIdentityExpr} AS thread_id,
-               -- Dedupe by message_id exactly like /mail/thread/:threadId (DISTINCT ON).
-        -- NULL message_id collapses to one child in both count and expansion, so no
-        -- IS NOT NULL filter — keeping it would exclude valid children from the badge.
-               COUNT(DISTINCT m.message_id)::int AS message_count
+               -- Same normalized identity as /mail/thread/:threadId expansion:
+               -- valid RFC Message-ID (trimmed) dedupes folder copies; NULL/empty IDs
+               -- fall back to their physical message ID so they remain visible/countable.
+               COUNT(DISTINCT COALESCE(NULLIF(btrim(m.message_id), ''), '__physical__:' || m.id::text))::int AS message_count
         FROM messages m
         WHERE m.account_id = ANY($${p})
           AND m.is_deleted = false

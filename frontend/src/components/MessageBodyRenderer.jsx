@@ -41,8 +41,13 @@ export default function MessageBodyRenderer({ html = '', text = '', remoteImages
     const measure = () => {
       try {
         const doc = iframe.contentDocument;
-        if (!doc) return;
-        const contentHeight = Math.max(300, doc.documentElement?.scrollHeight || 0, doc.body?.scrollHeight || 0);
+        if (!doc?.body) return;
+        // Do not include documentElement.scrollHeight: once the iframe has grown, that
+        // value is at least the old iframe viewport height and prevents a later quote
+        // collapse from shrinking the frame. Resetting to a natural viewport before
+        // reading body.scrollHeight makes H3 reflect the currently visible DOM.
+        iframe.style.height = '0px';
+        const contentHeight = Math.max(300, doc.body.scrollHeight || 0);
         iframe.style.height = contentHeight + 'px';
         onHeightChange?.(contentHeight);
       } catch {
