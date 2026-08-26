@@ -177,6 +177,46 @@ test.describe('native conversation engine matrix', () => {
     await expect(reader.locator('[data-conversation-message-state="expanded"]')).toHaveCount(1);
   });
 
+  test('native membership excludes stale and ambiguous CE-only records', async ({ page, fixtureApi }) => {
+    page.__ceMode = 'stale';
+    await open(page, fixtureApi, true, true);
+    const parent = page.locator('[data-msgid="conversation-gmail-copy-5"]:visible');
+    await expect(parent.getByRole('button', { name: /\(5\)/ })).toBeVisible();
+    await parent.getByRole('button', { name: /\(5\)/ }).click();
+    const children = parent.locator('xpath=..').locator('[data-message-direction]');
+    await expect(children).toHaveCount(6); // parent latest direction + five children
+    await parent.click();
+    const reader = page.locator('section[data-conversation-id="conversation-gmail"]:visible');
+    await expect(reader).toHaveAttribute('data-reader-source', 'native-thread');
+    await expect(reader.locator('article')).toHaveCount(5);
+    await expect(reader.locator('[data-physical-copy-id]')).toHaveCount(5);
+    await expect(reader.locator('#logical-message-conversation-gmail-logical-stale')).toHaveCount(0);
+    await expect(reader).not.toContainText('PLAC Broniewskiego');
+  });
+
+  test('native membership keeps an unmatched native copy and never adds duplicate CE identity', async ({ page, fixtureApi }) => {
+    page.__ceMode = 'missing-n2';
+    await open(page, fixtureApi, false, true);
+    await page.locator('[data-msgid="conversation-gmail-copy-2"]:visible').click();
+    const reader = page.locator('section[data-conversation-id="conversation-gmail"]:visible');
+    await expect(reader.locator('article')).toHaveCount(5);
+    const unmatched = reader.locator('[data-physical-copy-id="conversation-gmail-copy-2"]');
+    await expect(unmatched).toHaveCount(1);
+    await expect(unmatched).not.toHaveAttribute('data-logical-message-id', /.+/);
+  });
+
+  test('ambiguous duplicate CE candidates still render exactly one native card', async ({ page, fixtureApi }) => {
+    page.__ceMode = 'duplicate-n2';
+    await open(page, fixtureApi, false, true);
+    await page.locator('[data-msgid="conversation-gmail-copy-2"]:visible').click();
+    const reader = page.locator('section[data-conversation-id="conversation-gmail"]:visible');
+    await expect(reader.locator('article')).toHaveCount(5);
+    const ambiguous = reader.locator('[data-physical-copy-id="conversation-gmail-copy-2"]');
+    await expect(ambiguous).toHaveCount(1);
+    await expect(ambiguous).not.toHaveAttribute('data-logical-message-id', /.+/);
+    await expect(reader.locator('#logical-message-conversation-gmail-logical-2-duplicate')).toHaveCount(0);
+  });
+
   test('mobile reader cards use native MessagePane width without desktop side padding', async ({ page, fixtureApi }, testInfo) => {
     test.skip(!testInfo.project.name.startsWith('chromium-mobile'), 'mobile viewport contract');
     await open(page, fixtureApi, false, false);
@@ -196,6 +236,25 @@ test.describe('native conversation engine matrix', () => {
     expect(readerWidth).toBeGreaterThanOrEqual(nativeWidth - 1);
     expect(cardWidth).toBeGreaterThanOrEqual(viewportWidth - 2);
     expect(viewportWidth).toBeGreaterThanOrEqual(390);
+  });
+
+  test('mobile newsletter HTML fits the iframe viewport without right-edge clipping', async ({ page, fixtureApi }, testInfo) => {
+    test.skip(!testInfo.project.name.startsWith('chromium-mobile'), 'mobile viewport contract');
+    page.__newsletterCopy = 'conversation-gmail-copy-2';
+    await open(page, fixtureApi, false, true);
+    await page.locator('[data-msgid="conversation-gmail-copy-2"]:visible').click();
+    const iframe = page.locator('#logical-message-conversation-gmail-logical-2 iframe');
+    const frame = iframe.contentFrame();
+    await expect(frame.locator('[data-testid="newsletter-final-words"]')).toBeVisible();
+    await expect(frame.locator('[data-testid="newsletter-banner"]')).toBeVisible();
+    const metrics = await frame.locator('html').evaluate(element => ({
+      scrollWidth: element.scrollWidth, clientWidth: element.clientWidth,
+      bannerWidth: element.ownerDocument.querySelector('[data-testid="newsletter-banner"]').getBoundingClientRect().width,
+    }));
+    expect(metrics.scrollWidth).toBeLessThanOrEqual(metrics.clientWidth + 2);
+    expect(metrics.bannerWidth).toBeLessThanOrEqual(metrics.clientWidth);
+    // iframe tracks the available MessagePane width (not an arbitrary viewport constant).
+    expect(await iframe.evaluate(element => element.getBoundingClientRect().width)).toBeGreaterThan(0);
   });
 
   test('plain HTML reply marker folds one historical region and iframe shrinks after collapse', async ({ page, fixtureApi }) => {

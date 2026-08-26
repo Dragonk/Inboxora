@@ -159,7 +159,8 @@ export default function ConversationMessage({ conversationId, message, selectedC
 
   return <article
     id={`logical-message-${message.id}`}
-    data-logical-message-id={message.id}
+    data-physical-copy-id={copy.id || undefined}
+    data-logical-message-id={message._ceMatched === false ? undefined : message.id}
     data-conversation-message-state={expanded ? 'expanded' : 'collapsed'}
     style={{
       // Mobile: match native MessagePane single-message padding (12px 0 0) so the

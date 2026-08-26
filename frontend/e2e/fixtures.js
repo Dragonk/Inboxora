@@ -71,7 +71,7 @@ function accountAddress(accountId) {
   return fixture.accounts.find(account => account.id === accountId)?.email_address;
 }
 
-function details(id, incomplete = false) {
+function details(id, incomplete = false, ceMode = null) {
   const row = fixture.conversations.find(item => item.conversation_id === id) || fixture.conversations[0];
   const accountId = conversationAccountId(row.conversation_id);
   const ownAddress = accountAddress(accountId);
@@ -119,7 +119,13 @@ function details(id, incomplete = false) {
         direction: outgoing ? 'incoming' : 'outgoing', // stale logical direction must be ignored
         copies,
       };
-    }),
+    }).filter((_, index) => ceMode !== 'missing-n2' || index !== 1).concat(ceMode === 'stale' ? [{
+      id: 'conversation-gmail-logical-stale', subject: 'Re: Pd: PLAC Broniewskiego',
+      copies: [{ id: 'stale-ce-copy', accountId, messageId: '<stale@fixture.test>', fromEmail: '', date: '2026-08-25T13:33:00.000Z' }],
+    }] : ceMode === 'duplicate-n2' ? [{
+      id: 'conversation-gmail-logical-2-duplicate', subject: 'stale duplicate',
+      copies: [{ id: 'conversation-gmail-copy-2', accountId, messageId: '<fixture-2>', fromEmail: 'me@gmail.test' }],
+    }] : []),
   };
 }
 
@@ -169,7 +175,7 @@ export const test = base.extend({
       const parts = url.pathname.split('/').filter(Boolean);
       const id = parts.at(-1);
       if (parts.includes('logical-messages') || ['archive', 'move', 'delete', 'read', 'star'].includes(id)) return route.fallback();
-      if (id && id !== 'conversations') return route.fulfill({ json: details(id, Boolean(page.__ceIncomplete)) });
+      if (id && id !== 'conversations') return route.fulfill({ json: details(id, Boolean(page.__ceIncomplete), page.__ceMode || null) });
       return route.fulfill({ json: { conversations: fixture.conversations, nextCursor: null, total: fixture.conversations.length } });
     });
     await page.route('**/api/mail/messages/*', route => {
@@ -222,6 +228,12 @@ export const test = base.extend({
       const delay = page.__bodyResponseDelays?.[copyId] || 0;
       if (delay) await new Promise(resolve => setTimeout(resolve, delay));
       if (page.__bodyFailures?.has(copyId)) return route.fulfill({ status: 503, json: { error: 'Fixture body failed' } });
+      if (page.__newsletterCopy === copyId) {
+        return route.fulfill({ json: {
+          attachments: [], text: 'Medium newsletter fixture', hasBlockedRemoteImages: false, remoteImages: true,
+          html: '<table data-testid="newsletter-table" width="720"><tr><td><img data-testid="newsletter-banner" width="720" height="180" src="data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///ywAAAAAAQABAAACAUwAOw=="><h1>Medium weekly ideas</h1><p>Practical ideas for better work and life, written for your reading list.</p><ul><li>First useful article</li><li>Second useful article</li></ul><p data-testid="newsletter-final-words">Final words remain visible on mobile viewport.</p><a href="https://example.test/this-is-a-very-long-newsletter-link-without-any-natural-break-points-to-test-wrapping">https://example.test/this-is-a-very-long-newsletter-link-without-any-natural-break-points-to-test-wrapping</a></td></tr></table>',
+        } });
+      }
       if (page.__plainQuoteFoldingCopy === copyId) {
         const longHistory = Array.from({ length: 80 }, (_, index) => `<p data-testid="historical-line">Older historical line ${index + 1}</p>`).join('');
         return route.fulfill({ json: {

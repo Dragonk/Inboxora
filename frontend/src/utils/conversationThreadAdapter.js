@@ -142,68 +142,46 @@ export function nativeThreadToReaderMessages(threadMessages, accountId) {
       unsubscribed_at: msg.unsubscribed_at,
     }],
     _nativeIndex: index,
+    _ceMatched: false,
   }));
 }
 
 /**
- * Merge CE logical messages with native thread children. CE logical identity is primary
- * when available (stable logical IDs, manual overrides). Native children supply the
- * authoritative physical copies and ensure messages CE has not yet ingested still appear.
- *
- * Matching: CE logical messages are indexed by the message_id of their copies AND by
- * their own canonicalMessageId/id. Native children are matched by their message_id.
- * If a CE logical message matches, the reader card uses the CE logical ID (so existing
- * UI contracts, resolver targets, and tests stay stable) but the native physical copy
- * is authoritative. Unmatched native children get a synthetic logical ID and remain
- * visible — never silently dropped.
+ * Native-thread membership is authoritative. This is a LEFT JOIN from normalized
+ * native children to CE metadata — never a union. CE-only/stale logical records are
+ * intentionally invisible here and remain available only for diagnostics/rebuild.
  */
 export function mergeThreadWithConversation(ceMessages, nativeMessages) {
   if (!nativeMessages?.length) return ceMessages || [];
   if (!ceMessages?.length) return nativeMessages;
-  // Index CE logical messages by every message_id AND physical copy id found on their
-  // copies, plus their own canonicalMessageId/id as fallbacks. Physical copy id is the
-  // most reliable join key when CE and native use different message_id formats.
-  const ceByMessageId = new Map();
-  for (const logical of ceMessages) {
-    const mids = new Set();
-    const canonical = logical.canonicalMessageId || logical.canonical_message_id || logical.id;
-    if (canonical) mids.add(canonical);
-    for (const copy of (logical.copies || [])) {
-      const cmid = copy.messageId || copy.message_id;
-      if (cmid) mids.add(cmid);
-      if (copy.id) mids.add(copy.id);
-    }
-    for (const mid of mids) ceByMessageId.set(mid, logical);
-  }
-  const usedCe = new Set();
-  const result = nativeMessages.map(native => {
-    // Match by native message_id (preferred) OR native physical copy id (fallback).
-    const ce = ceByMessageId.get(native.id) || ceByMessageId.get(native.copies?.[0]?.id);
-    if (ce) {
-      usedCe.add(ce.id);
-      // Keep native physical identity authoritative, while retaining CE-only display
-      // metadata (e.g. snippet) when the legacy native thread endpoint does not send it.
-      const copies = native.copies.map(nativeCopy => {
-        const ceCopy = (ce.copies || []).find(copy => String(copy.id) === String(nativeCopy.id)) || {};
-        const definedNative = Object.fromEntries(Object.entries(nativeCopy)
-          .filter(([, value]) => value != null && value !== ''));
-        return { ...ceCopy, ...definedNative };
-      });
-      // Use CE logical ID (stable identity for tests, resolver, expansion state).
-      return {
-        ...native,
-        ...ce,
-        copies,
-        id: ce.id || native.id,
-      };
-    }
-    // No CE match — synthetic logical ID so the message still appears in the reader.
-    return native;
+  const normalizedMessageId = value => String(value || '').trim().toLowerCase();
+  const candidatesFor = (native, physicalCopyId, nativeAccountId) => (ceMessages || []).filter(logical => {
+    return (logical.copies || []).some(copy => {
+      if (String(copy.accountId ?? copy.account_id) !== String(nativeAccountId)) return false;
+      if (String(copy.id) === String(physicalCopyId)) return true;
+      const nativeMid = normalizedMessageId(native.canonicalMessageId || native.canonical_message_id);
+      const ceMid = normalizedMessageId(copy.messageId || copy.message_id);
+      return Boolean(nativeMid && ceMid && nativeMid === ceMid);
+    });
   });
-  // Append CE logical messages that have no native match (e.g. CE ingested a message
-  // the native thread endpoint no longer returns because it was deleted/moved).
-  for (const ce of ceMessages) {
-    if (!usedCe.has(ce.id)) result.push(ce);
-  }
-  return result;
+  return nativeMessages.map(native => {
+    const nativeCopy = native.copies?.[0];
+    const physicalCopyId = nativeCopy?.id;
+    const nativeAccountId = nativeCopy?.accountId ?? nativeCopy?.account_id;
+    // Exact physical copy is strongest. Otherwise permit only a same-account normalized
+    // RFC Message-ID match; ambiguous CE candidates receive no enrichment.
+    const physicalCandidates = (ceMessages || []).filter(logical => (logical.copies || []).some(copy =>
+      String(copy.accountId ?? copy.account_id) === String(nativeAccountId)
+      && String(copy.id) === String(physicalCopyId)));
+    const candidates = physicalCandidates.length ? physicalCandidates : candidatesFor(native, physicalCopyId, nativeAccountId);
+    if (candidates.length !== 1) return native;
+    const ce = candidates[0];
+    const copies = native.copies.map(nativePhysicalCopy => {
+      const ceCopy = (ce.copies || []).find(copy => String(copy.id) === String(nativePhysicalCopy.id)) || {};
+      const definedNative = Object.fromEntries(Object.entries(nativePhysicalCopy)
+        .filter(([, value]) => value != null && value !== ''));
+      return { ...ceCopy, ...definedNative };
+    });
+    return { ...native, ...ce, copies, id: ce.id || native.id, _ceMatched: true };
+  });
 }

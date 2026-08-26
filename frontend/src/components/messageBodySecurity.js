@@ -73,15 +73,21 @@ export const EMAIL_BASE_TAG = '<base target="_blank" rel="noopener noreferrer">'
 export function buildSrcDoc(html, { remoteImages = false } = {}) {
   const csp = emailCsp({ remoteImages });
   return `<!DOCTYPE html><html><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
 <meta http-equiv="Content-Security-Policy" content="${csp}">
 ${EMAIL_BASE_TAG}
 <style>
-  html { overflow: hidden; }
-  body { overflow: hidden; margin: 0; padding: 8px; word-wrap: break-word; overflow-wrap: break-word; }
-  img { max-width: 100%; height: auto; }
-  table { max-width: 100%; }
-  a { color: inherit; }
-  blockquote { margin-left: 1em; border-left: 3px solid var(--border, #ddd); padding-left: 1em; color: inherit; opacity: 0.8; }
+  /* Shared MessagePane/ConversationReader mobile fit contract. Never hide overflow:
+     an oversized legacy newsletter must reflow or remain horizontally accessible. */
+  html { margin: 0; padding: 0; max-width: 100%; overflow-x: auto; box-sizing: border-box; }
+  body { margin: 0; padding: 8px; max-width: 100%; box-sizing: border-box; word-wrap: break-word; overflow-wrap: anywhere; }
+  *, *::before, *::after { box-sizing: border-box; }
+  img, svg, video, canvas { max-width: 100%; height: auto; }
+  table { max-width: 100%; width: auto; }
+  td, th { max-width: 100%; overflow-wrap: anywhere; }
+  pre, code { max-width: 100%; white-space: pre-wrap; overflow-wrap: anywhere; word-break: break-word; }
+  a { color: inherit; overflow-wrap: anywhere; word-break: break-word; }
+  blockquote { max-width: 100%; margin-left: 1em; border-left: 3px solid var(--border, #ddd); padding-left: 1em; color: inherit; opacity: 0.8; }
   pre[data-mailflow-plain-text] { white-space: pre-wrap; margin: 0; font: inherit; }
   .mailflow-quote-collapsed { display: none !important; }
   .mailflow-quote-toggle { display: inline-flex; align-items: center; justify-content: center; min-width: 34px; margin: 8px 0; padding: 2px 9px; border: 1px solid #c7c7c7; border-radius: 999px; background: #f3f3f3; color: #555; font: 12px/1.5 system-ui, sans-serif; cursor: pointer; }
