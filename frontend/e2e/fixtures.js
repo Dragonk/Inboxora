@@ -77,6 +77,9 @@ function details(id) {
         snippet: `Fixture summary ${row.conversation_id} ${number}`,
         bodyText: `${provider} fixture body ${number}`,
         bodyHtml: `<p>${provider} fixture body ${number}</p>`,
+        isRead: true,
+        isStarred: false,
+        folder: outgoing ? 'Sent' : 'INBOX',
         listUnsubscribe: number === 1 ? 'https://unsubscribe.example.test' : null,
         attachments: number === 1 ? [{ part: 'fixture-part', filename: `${provider}-fixture.txt` }] : [],
       };

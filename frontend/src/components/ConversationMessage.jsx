@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { useTranslation } from 'react-i18next';
-import MessageBodyRenderer from './MessageBodyRenderer.jsx';
+import MessageBodyRenderer, { sanitizeMessageHtml } from './MessageBodyRenderer.jsx';
 import { MessageAvatar, MessageDirection, actionStyle } from './MessagePresentation.jsx';
 import MessageToolbar from './MessageToolbar.jsx';
 import MessageHeaderModal from './MessageHeaderModal.jsx';
@@ -85,6 +85,8 @@ export default function ConversationMessage({ conversationId, message, selectedC
     ...copy,
     logicalMessageId: message.id,
     selectedCopyId: copy.id,
+    accountId: selectedAccountId,
+    conversationId,
     replyAll,
     forward,
     attachments,
@@ -128,11 +130,13 @@ export default function ConversationMessage({ conversationId, message, selectedC
     const win = window.open('', '_blank');
     if (!win) return;
     const escaped = value => String(value || '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
-    const content = body?.body_html || `<pre>${escaped(body?.body_text)}</pre>`;
+    const content = body?.body_html ? sanitizeMessageHtml(body.body_html) : `<pre>${escaped(body?.body_text)}</pre>`;
     win.document.write(`<!doctype html><html><head><meta charset="utf-8"><meta http-equiv="Content-Security-Policy" content="script-src 'none'; object-src 'none'; base-uri 'none'"><title>${escaped(subject)}</title></head><body><h1>${escaped(subject)}</h1><p>${escaped(sender)} · ${escaped(date(message.messageDate || copy.date))}</p>${content}</body></html>`);
     win.document.close();
     win.print();
   };
+  const inSpamFolder = /(^|\/)(spam|junk)(\/|$)/i.test(String(copy.folder || ''));
+  const availableAiActions = body ? [{ id: 'summarize', label: t('message.summarize'), prompt: 'Summarize this email.' }, ...(aiActions || [])] : [];
   const runAiAction = action => {
     const text = body?.body_text || String(body?.body_html || '').replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim();
     if (!text || !action?.prompt) return;
@@ -174,12 +178,12 @@ export default function ConversationMessage({ conversationId, message, selectedC
         onForward={() => reply(false, true)}
         onArchive={() => runAction(() => conversationApi.archive(conversationId, actionOptions))}
         onMove={folder => runAction(() => conversationApi.move(conversationId, folder, actionOptions))}
-        onSpam={() => runAction(() => api.markSpam(copy.id))}
-        onHam={String(copy.folder || '').toLowerCase().includes('spam') || String(copy.folder || '').toLowerCase().includes('junk') ? () => runAction(() => api.markHam(copy.id)) : undefined}
+        onSpam={!inSpamFolder ? () => runAction(() => api.markSpam(copy.id)) : undefined}
+        onHam={inSpamFolder ? () => runAction(() => api.markHam(copy.id)) : undefined}
         onSetRead={isRead => runAction(() => conversationApi.setRead(conversationId, isRead, actionOptions))}
         onViewHeaders={() => setShowHeaders(true)}
         onPrint={body ? handlePrint : undefined}
-        aiActions={body ? (aiActions || []) : []}
+        aiActions={availableAiActions}
         onAiAction={runAiAction}
         onManageAiActions={() => { setAdminTab('ai-actions'); setShowAdmin(true); }}
         onStar={() => runAction(() => conversationApi.setStarred(conversationId, !(copy.isStarred ?? copy.is_starred), actionOptions))}
