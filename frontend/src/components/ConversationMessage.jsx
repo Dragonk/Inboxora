@@ -1,7 +1,8 @@
 import { useState } from 'react';
 import { useTranslation } from 'react-i18next';
-import MessageBodyRenderer, { sanitizeMessageHtml } from './MessageBodyRenderer.jsx';
-import { MessageAvatar, MessageDirection, actionStyle } from './MessagePresentation.jsx';
+import { sanitizeMessageHtml } from './MessageBodyRenderer.jsx';
+import MessageDetailContent from './MessageDetailContent.jsx';
+import { MessageAvatar, MessageDirection } from './MessagePresentation.jsx';
 import MessageToolbar from './MessageToolbar.jsx';
 import MessageHeaderModal from './MessageHeaderModal.jsx';
 import { useMobile } from '../hooks/useMobile.js';
@@ -27,34 +28,6 @@ function date(value) {
   }) : '';
 }
 
-function AttachmentList({ attachments, physicalCopyId, canAccessCopy }) {
-  const { t } = useTranslation();
-  if (!attachments.length) return null;
-  return <div data-conversation-message-attachments="true" style={{ marginTop: 16 }}>
-    <div style={{ fontSize: 12, color: 'var(--text-tertiary)', fontWeight: 500, marginBottom: 8 }}>
-      {t('message.attachment', { count: attachments.length })}
-    </div>
-    <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
-      {attachments.map((attachment, index) => <a
-        key={attachment.part || index}
-        href={canAccessCopy && physicalCopyId ? `/api/mail/messages/${encodeURIComponent(physicalCopyId)}/attachments/${encodeURIComponent(String(attachment.part || index))}` : undefined}
-        download={canAccessCopy ? attachment.filename : undefined}
-        aria-disabled={!canAccessCopy || undefined}
-        onClick={canAccessCopy ? undefined : event => event.preventDefault()}
-        style={{
-          ...actionStyle,
-          display: 'inline-flex', alignItems: 'center', gap: 7,
-          border: '1px solid var(--border)', textDecoration: 'none',
-          background: 'var(--bg-secondary)',
-        }}
-      >
-        <span aria-hidden="true">📎</span>
-        <span>{attachment.filename || attachment.name || t('conversation.attachment')}</span>
-      </a>)}
-    </div>
-  </div>;
-}
-
 export default function ConversationMessage({ conversationId, message, selectedCopyId, selectedAccountId, accounts, expanded, onToggle, body, status, onLoadBody, onRemoteImages, onReply, onActionComplete }) {
   const { t } = useTranslation();
   const isMobile = useMobile();
@@ -68,7 +41,6 @@ export default function ConversationMessage({ conversationId, message, selectedC
   const attachments = Array.isArray(body?.attachments) ? body.attachments : (Array.isArray(copy.attachments) ? copy.attachments : []);
   const bodyHtml = body?.html ?? body?.body_html ?? null;
   const bodyText = body?.text ?? body?.body_text ?? null;
-  const hasBlockedRemoteImages = Boolean(body?.hasBlockedRemoteImages ?? body?.has_blocked_remote_images);
   const senderEmail = String(copy.fromEmail || copy.from_email || '').toLowerCase();
   const senderDomain = senderEmail.includes('@') ? senderEmail.split('@').pop() : '';
   const senderAllowsImages = (imageWhitelist?.addresses || []).some(value => String(value).toLowerCase() === senderEmail)
@@ -108,10 +80,16 @@ export default function ConversationMessage({ conversationId, message, selectedC
     if (!copy.id || unsubscribeStatus === 'loading') return;
     setUnsubscribeStatus('loading');
     try {
-      await api.unsubscribeMessage(copy.id);
+      const result = await api.unsubscribeMessage(copy.id);
+      const succeeded = result.type === 'one-click' || result.type === 'url' || result.type === 'mailto';
+      if (!succeeded) { setUnsubscribeStatus('error'); return false; }
+      if (result.type === 'url' && result.url) window.open(result.url, '_blank', 'noopener,noreferrer');
+      else if (result.type === 'mailto' && result.mailto) window.open(result.mailto, '_blank', 'noopener,noreferrer');
       setUnsubscribeStatus('done');
+      return true;
     } catch {
       setUnsubscribeStatus('error');
+      return false;
     }
   };
 
@@ -279,46 +257,32 @@ export default function ConversationMessage({ conversationId, message, selectedC
 
     {actionError && <div role="alert" style={{ padding: '8px 12px', color: 'var(--red)' }}>{actionError}</div>}
     {expanded && <div data-conversation-message-expanded-content="true" style={{ padding: '0 0 12px' }}>
-      {copy.listUnsubscribe && !copy.unsubscribedAt && unsubscribeStatus !== 'done' && <div className="msg-notice" style={{
-        marginBottom: 10, padding: '9px 14px',
-        background: 'var(--bg-secondary)', border: '1px solid var(--border)',
-        borderLeft: '3px solid var(--text-tertiary)', borderRadius: 8,
-        display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap',
-        fontSize: 12, color: 'var(--text-secondary)',
-      }}>
-        <span style={{ flex: 1 }}>{t('message.unsubscribe.info')}</span>
-        <button type="button" onClick={handleUnsubscribe} disabled={unsubscribeStatus === 'loading'} style={{
-          background: 'none', border: '1px solid var(--border)', borderRadius: 5,
-          padding: '3px 9px', cursor: unsubscribeStatus === 'loading' ? 'default' : 'pointer',
-          color: unsubscribeStatus === 'error' ? 'var(--red, #e53e3e)' : 'var(--text-primary)',
-          fontSize: 11, fontWeight: 500, opacity: unsubscribeStatus === 'loading' ? 0.5 : 1,
-        }}>
-          {unsubscribeStatus === 'loading' ? t('common.loading') : unsubscribeStatus === 'error' ? t('message.unsubscribe.error') : t('message.unsubscribe.button')}
-        </button>
-      </div>}
-
-      {status?.loading && <div role="status" style={{ padding: 16, color: 'var(--text-tertiary)' }}>{t('conversation.loadingBody')}</div>}
-      {status?.error && <div role="alert" style={{ padding: 16, color: 'var(--text-danger)', display: 'flex', alignItems: 'center', gap: 10 }}>
-        <span style={{ flex: 1 }}>{status.error}</span>
-        <button type="button" onClick={() => onLoadBody(message.id, true)} style={actionStyle}>{t('common.retry')}</button>
-      </div>}
-      {status?.unavailable && <div role="status" style={{ padding: 16, color: 'var(--text-tertiary)' }}>{t('conversation.noBody')}</div>}
-      {body && <div className="msg-card conversation-message-body-panel" style={{
-        position: 'relative', padding: '14px 16px 12px',
-        background: 'var(--message-body-bg)', borderRadius: 10,
-        border: '1px solid var(--border-subtle)', overflow: 'hidden', contain: 'layout',
-      }}>
-        <MessageBodyRenderer
-          html={bodyHtml}
-          text={bodyText}
-          remoteImages={remoteImages}
-          showQuotedTextLabel={t('conversation.showQuotedText')}
-          hideQuotedTextLabel={t('conversation.hideQuotedText')}
-        />
-        {hasBlockedRemoteImages && <button type="button" onClick={() => onRemoteImages(message.id)} style={{ ...actionStyle, marginTop: 10 }}>{t('conversation.loadImages')}</button>}
-        <AttachmentList attachments={attachments} physicalCopyId={copy.id} canAccessCopy={hasAccountCopy} />
-      </div>}
+      <MessageDetailContent
+        physicalCopyId={copy.id}
+        message={{ ...copy, id: copy.id, account_id: selectedAccountId, subject, from_email: copy.fromEmail || copy.from_email, from_name: copy.fromName || copy.from_name, list_unsubscribe: copy.listUnsubscribe ?? copy.list_unsubscribe, unsubscribed_at: copy.unsubscribedAt ?? copy.unsubscribed_at }}
+        body={body}
+        status={status}
+        remoteImages={remoteImages}
+        onLoadBody={(_, force) => onLoadBody(message.id, force)}
+        onRemoteImages={() => onRemoteImages(message.id)}
+        onUnsubscribe={handleUnsubscribe}
+        onDownload={async (physicalCopyId, part, filename) => {
+          const response = await fetch(`/api/mail/messages/${encodeURIComponent(physicalCopyId)}/attachments/${encodeURIComponent(part)}`);
+          if (!response.ok) throw new Error('Download failed');
+          const blob = await response.blob(); const url = URL.createObjectURL(blob); const anchor = document.createElement('a'); anchor.href = url; anchor.download = filename || 'attachment'; anchor.click(); URL.revokeObjectURL(url);
+        }}
+        onContextAction={(action, data, physicalCopyId) => {
+          if (action === 'reply') return reply(); if (action === 'replyAll') return reply(true); if (action === 'forward') return reply(false, true);
+          if (action === 'archive') return runAction(() => conversationApi.archive(conversationId, { ...actionOptions, copyId: physicalCopyId }));
+          if (action === 'delete') return runAction(() => conversationApi.delete(conversationId, { ...actionOptions, copyId: physicalCopyId }));
+          if (action === 'markSpam') return runAction(() => api.markSpam(physicalCopyId)); if (action === 'markHam') return runAction(() => api.markHam(physicalCopyId));
+          if (action === 'moveTo' && data) return runAction(() => conversationApi.move(conversationId, data, { ...actionOptions, copyId: physicalCopyId }));
+        }}
+        canAccessCopy={hasAccountCopy}
+        mobile={isMobile}
+      />
     </div>}
+
     {showHeaders && <MessageHeaderModal messageId={copy.id} subject={subject} onClose={() => setShowHeaders(false)} />}
   </article>;
 }

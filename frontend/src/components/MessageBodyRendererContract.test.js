@@ -9,15 +9,16 @@ describe('shared message body renderer contract', () => {
     const renderer = read('MessageBodyRenderer.jsx');
     const pane = read('MessagePane.jsx');
     const conversation = read('ConversationMessage.jsx');
+    const detail = read('MessageDetailContent.jsx');
     assert.match(renderer, /quoteFolding = true/);
     assert.match(renderer, /installMessageQuoteFolding/);
     assert.match(renderer, /showQuotedTextLabel/);
     assert.match(renderer, /hideQuotedTextLabel/);
-    assert.match(pane, /showQuotedTextLabel=\{t\('conversation\.showQuotedText'\)\}/);
-    assert.match(pane, /hideQuotedTextLabel=\{t\('conversation\.hideQuotedText'\)\}/);
-    assert.match(pane, /<MessageBodyRenderer[\s\S]*?text=\{body\.text\}/);
-    assert.match(conversation, /showQuotedTextLabel=\{t\('conversation\.showQuotedText'\)\}/);
-    assert.match(conversation, /hideQuotedTextLabel=\{t\('conversation\.hideQuotedText'\)\}/);
+    assert.match(pane, /<MessageDetailContent/);
+    assert.match(conversation, /<MessageDetailContent/);
+    assert.match(detail, /showQuotedTextLabel=\{t\('conversation\.showQuotedText'\)\}/);
+    assert.match(detail, /hideQuotedTextLabel=\{t\('conversation\.hideQuotedText'\)\}/);
+    assert.match(detail, /<MessageBodyRenderer[\s\S]*?text=\{text\}/);
     assert.doesNotMatch(conversation, /collapseQuotes/);
   });
 
