@@ -64,3 +64,27 @@ describe('shared message body renderer contract', () => {
     assert.doesNotMatch(reader, /setBodies\(previous => \(\{ \.\.\.previous, \[logicalId\]/);
   });
 });
+
+describe('safe email CSS contract', () => {
+  it('keeps newsletter layout styles and responsive safe style blocks', async () => {
+    const { sanitizeInlineStyle, sanitizeEmailCss, buildSrcDoc } = await import('./messageBodySecurity.js');
+    const inline = sanitizeInlineStyle('background-color:#f8f8f8;max-width:520px;padding:20px;border-radius:16px;font-family:Montserrat,Arial;font-size:24px;font-weight:700;line-height:1.4;color:#123456;display:none;opacity:0;overflow:hidden;background-image:url(https://cdn.example.test/thumb.jpg);background-size:cover;background-position:center');
+    for (const property of ['background-color','max-width','padding','border-radius','font-family','font-size','font-weight','line-height','color','display','opacity','overflow','background-image','background-size','background-position']) assert.match(inline, new RegExp(property));
+    const css = sanitizeEmailCss('.container { width: 600px; table-layout: fixed; background: #fff; } @media (max-width: 600px) { .container { width: 100%; } }');
+    assert.match(css, /width: 600px/); assert.match(css, /@media/); assert.match(css, /width: 100%/);
+    const doc = buildSrcDoc('<table width="600"><tr><td>newsletter</td></tr></table>');
+    assert.doesNotMatch(doc, /table \{[^}]*width: auto/);
+    assert.doesNotMatch(doc, /a \{ color: inherit/);
+  });
+
+  it('rejects executable CSS but leaves safe remote backgrounds reversible under CSP', async () => {
+    const { sanitizeInlineStyle, sanitizeEmailCss, buildSrcDoc } = await import('./messageBodySecurity.js');
+    assert.equal(sanitizeInlineStyle('background-image:url(javascript:alert(1));color:red'), 'color:red');
+    const css = sanitizeEmailCss('@import url(https://evil.test/x.css); .x{width:expression(alert(1));color:blue;behavior:url(x);background-image:url(vbscript:evil)}');
+    assert.doesNotMatch(css, /@import|expression|behavior|vbscript/i); assert.match(css, /color:blue/);
+    const blocked = buildSrcDoc('<div style="background-image:url(https://cdn.example.test/image.jpg)"></div>', { remoteImages: false });
+    const enabled = buildSrcDoc('<div style="background-image:url(https://cdn.example.test/image.jpg)"></div>', { remoteImages: true });
+    assert.doesNotMatch(blocked.match(/Content-Security-Policy" content="([^"]+)/)?.[1] || '', /https:/);
+    assert.match(enabled.match(/Content-Security-Policy" content="([^"]+)/)?.[1] || '', /img-src[^;]*https:/);
+  });
+});

@@ -1,4 +1,5 @@
 import DOMPurifyModule from 'dompurify';
+import postcss from 'postcss';
 
 function purifier() {
   if (typeof DOMPurifyModule?.sanitize === 'function') return DOMPurifyModule;
@@ -6,12 +7,21 @@ function purifier() {
   throw new Error('DOMPurify requires a browser document');
 }
 
+
+const SAFE_PROPERTIES = new Set(['background','background-color','background-image','background-position','background-repeat','background-size','border','border-top','border-right','border-bottom','border-left','border-radius','border-collapse','border-spacing','color','display','float','clear','font','font-family','font-size','font-style','font-weight','letter-spacing','line-height','height','min-height','max-height','width','min-width','max-width','margin','margin-top','margin-right','margin-bottom','margin-left','padding','padding-top','padding-right','padding-bottom','padding-left','text-align','text-decoration','text-transform','text-indent','vertical-align','white-space','word-break','overflow','overflow-x','overflow-y','opacity','table-layout','visibility','mso-line-height-rule','-webkit-text-size-adjust','direction','unicode-bidi']);
+const BAD_CSS = /(?:expression\s*\(|behavior\s*:|-moz-binding\s*:|javascript\s*:|vbscript\s*:|@import\b)/i;
+const URL_RE = /url\(\s*(['"]?)(.*?)\1\s*\)/gi;
+function safeCssUrl(value) { let bad = false; const next = value.replace(URL_RE, (_all, _q, raw) => { const url = String(raw || '').trim(); if (/^(https?:|\/\/|cid:|data:image\/)/i.test(url)) return `url("${url.replace(/"/g, '%22')}")`; bad = true; return 'none'; }); return bad ? null : next; }
+export function sanitizeInlineStyle(style = '') { const kept = []; for (const declaration of String(style).split(';')) { const i = declaration.indexOf(':'); if (i < 1) continue; const property = declaration.slice(0, i).trim().toLowerCase(); let value = declaration.slice(i + 1).trim(); if (!SAFE_PROPERTIES.has(property) || !value || BAD_CSS.test(value)) continue; value = safeCssUrl(value); if (value != null) kept.push(`${property}:${value}`); } return kept.join(';'); }
+export function sanitizeEmailCss(css = '') { let root; try { root = postcss.parse(String(css)); } catch { return ''; } root.walkAtRules(rule => { if (!['media','supports'].includes(rule.name.toLowerCase()) || BAD_CSS.test(rule.params)) rule.remove(); }); root.walkDecls(declaration => { const property = declaration.prop.toLowerCase(); const value = safeCssUrl(declaration.value); if (!SAFE_PROPERTIES.has(property) || BAD_CSS.test(declaration.value) || value == null) declaration.remove(); else declaration.value = value; }); return root.toString(); }
+
 // Shared email HTML security policy. This is a leaf module so browser tests and
 // both React renderers exercise the exact same sanitizer/CSP/srcDoc implementation.
 export const EMAIL_SANITIZE_POLICY = {
   ADD_ATTR: ['target'],
-  FORBID_TAGS: ['script', 'iframe', 'object', 'embed', 'form', 'video', 'audio', 'source', 'track', 'style'],
-  FORBID_ATTR: ['onerror', 'onload', 'onclick', 'onmouseover', 'style'],
+  ADD_TAGS: ['style'],
+  FORBID_TAGS: ['script', 'iframe', 'object', 'embed', 'form', 'video', 'audio', 'source', 'track'],
+  FORBID_ATTR: ['onerror', 'onload', 'onclick', 'onmouseover'],
 };
 
 function preserveCid(html) {
@@ -27,6 +37,14 @@ export function sanitizeMessageHtml(html = '', { remoteImages = false } = {}) {
   });
   const template = document.createElement('template');
   template.innerHTML = sanitized;
+  for (const element of template.content.querySelectorAll('[style]')) {
+    const safe = sanitizeInlineStyle(element.getAttribute('style'));
+    if (safe) element.setAttribute('style', safe); else element.removeAttribute('style');
+  }
+  for (const style of template.content.querySelectorAll('style')) {
+    const safe = sanitizeEmailCss(style.textContent);
+    if (safe) style.textContent = safe; else style.remove();
+  }
   for (const image of template.content.querySelectorAll('img')) {
     const currentSrc = image.getAttribute('src') || '';
     const preservedSrc = image.getAttribute('data-mailflow-remote-src') || '';
@@ -43,13 +61,7 @@ export function sanitizeMessageHtml(html = '', { remoteImages = false } = {}) {
       image.removeAttribute('srcset');
     }
   }
-  let output = template.innerHTML;
-  if (!remoteImages) {
-    output = output
-      .replace(/url\s*\(\s*["']?https?:[^)]+\)/gi, 'none')
-      .replace(/url\s*\(\s*["']?\/\/[^)]+\)/gi, 'none');
-  }
-  return output;
+  return template.innerHTML;
 }
 
 
@@ -81,12 +93,9 @@ ${EMAIL_BASE_TAG}
      an oversized legacy newsletter must reflow or remain horizontally accessible. */
   html { margin: 0; padding: 0; max-width: 100%; overflow-x: auto; box-sizing: border-box; }
   body { margin: 0; padding: 8px; max-width: 100%; box-sizing: border-box; word-wrap: break-word; overflow-wrap: anywhere; }
-  *, *::before, *::after { box-sizing: border-box; }
   img, svg, video, canvas { max-width: 100%; height: auto; }
-  table { max-width: 100%; width: auto; }
-  td, th { max-width: 100%; overflow-wrap: anywhere; }
   pre, code { max-width: 100%; white-space: pre-wrap; overflow-wrap: anywhere; word-break: break-word; }
-  a { color: inherit; overflow-wrap: anywhere; word-break: break-word; }
+  a { overflow-wrap: anywhere; word-break: break-word; }
   blockquote { max-width: 100%; margin-left: 1em; border-left: 3px solid var(--border, #ddd); padding-left: 1em; color: inherit; opacity: 0.8; }
   pre[data-mailflow-plain-text] { white-space: pre-wrap; margin: 0; font: inherit; }
   .mailflow-quote-collapsed { display: none !important; }
