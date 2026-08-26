@@ -52,32 +52,18 @@ SELECT DISTINCT lm.id AS old_id, lm.user_id, m.account_id
   JOIN messages m ON m.logical_message_id = lm.id
   JOIN email_accounts a ON a.id = m.account_id AND a.user_id = lm.user_id;
 
--- Logical rows without a physical copy inherit every account represented by
--- their historic conversation. A formerly user-wide detached/manual row is
--- therefore cloned account-locally instead of being assigned to an arbitrary
--- MIN(account_id). Only a graph with no account-bearing sibling falls back to
--- the owner's oldest account.
+-- Logical rows without a physical copy inherit their conversation's sole known
+-- account when possible, otherwise the owner's oldest account. This preserves
+-- detached/manual state without inventing cross-account links.
 INSERT INTO ce_lm_pairs (old_id, user_id, account_id)
-SELECT lm.id, lm.user_id, scope.account_id
+SELECT lm.id, lm.user_id,
+       COALESCE((SELECT MIN(p.account_id::text)::uuid FROM ce_lm_pairs p
+                  JOIN logical_messages sibling ON sibling.id = p.old_id
+                 WHERE sibling.conversation_id = lm.conversation_id),
+                (SELECT MIN(a.id::text)::uuid FROM email_accounts a WHERE a.user_id = lm.user_id))
   FROM logical_messages lm
-  JOIN LATERAL (
-    SELECT DISTINCT p.account_id
-      FROM ce_lm_pairs p
-      JOIN logical_messages sibling ON sibling.id = p.old_id
-     WHERE sibling.conversation_id = lm.conversation_id
-    UNION ALL
-    SELECT MIN(a.id::text)::uuid
-      FROM email_accounts a
-     WHERE a.user_id = lm.user_id
-       AND NOT EXISTS (
-         SELECT 1
-           FROM ce_lm_pairs p
-           JOIN logical_messages sibling ON sibling.id = p.old_id
-          WHERE sibling.conversation_id = lm.conversation_id
-       )
-    HAVING MIN(a.id::text) IS NOT NULL
-  ) scope ON TRUE
- WHERE NOT EXISTS (SELECT 1 FROM ce_lm_pairs p WHERE p.old_id = lm.id);
+ WHERE NOT EXISTS (SELECT 1 FROM ce_lm_pairs p WHERE p.old_id = lm.id)
+   AND EXISTS (SELECT 1 FROM email_accounts a WHERE a.user_id = lm.user_id);
 
 CREATE TEMP TABLE ce_conv_pairs ON COMMIT DROP AS
 SELECT DISTINCT c.id AS old_id, c.user_id, p.account_id
@@ -213,37 +199,16 @@ UPDATE messages m
        conversation_user_id = mapped.user_id
   FROM (
     SELECT source.id, a.user_id, lm_map.new_id AS logical_message_id,
-           CASE WHEN lm_map.new_id IS NOT NULL THEN logical_conv_map.new_id
-                ELSE direct_conv_map.new_id END AS conversation_id
+           conv_map.new_id AS conversation_id
       FROM messages source
       JOIN email_accounts a ON a.id = source.account_id
       LEFT JOIN ce_lm_map lm_map
         ON lm_map.old_id = source.logical_message_id AND lm_map.account_id = a.id
-      LEFT JOIN ce_old_logical_messages old_lm ON old_lm.id = lm_map.old_id
-      LEFT JOIN ce_conv_map logical_conv_map
-        ON logical_conv_map.old_id = old_lm.conversation_id
-       AND logical_conv_map.account_id = a.id
-      LEFT JOIN ce_conv_map direct_conv_map
-        ON direct_conv_map.old_id = source.conversation_id
-       AND direct_conv_map.account_id = a.id
+      LEFT JOIN ce_conv_map conv_map
+        ON conv_map.old_id = source.conversation_id AND conv_map.account_id = a.id
      WHERE source.logical_message_id IS NOT NULL OR source.conversation_id IS NOT NULL
   ) mapped
  WHERE mapped.id = m.id;
-
--- A physical copy attached to a LogicalMessage must use that LogicalMessage's
--- account-local conversation. Reject any legacy mismatch that could otherwise
--- satisfy the separate account-composite foreign keys.
-DO $$
-BEGIN
-  IF EXISTS (
-    SELECT 1
-      FROM messages m
-      JOIN logical_messages lm ON lm.id = m.logical_message_id
-     WHERE m.conversation_id IS DISTINCT FROM lm.conversation_id
-  ) THEN
-    RAISE EXCEPTION '0062 remap left message/logical conversation mismatches';
-  END IF;
-END $$;
 
 -- Restore continuation links only inside the same account.
 UPDATE conversations c
@@ -373,7 +338,7 @@ ALTER TABLE conversation_overrides ADD CONSTRAINT fk_override_logical_account FO
 -- PostgreSQL MATCH SIMPLE would skip account validation when target_id is NULL;
 -- when a target exists, the account is the override row's own account.
 ALTER TABLE conversation_overrides ADD CONSTRAINT chk_override_target_account_present CHECK (target_id IS NULL OR account_id IS NOT NULL);
-ALTER TABLE conversation_overrides ADD CONSTRAINT fk_override_target_account FOREIGN KEY (target_id, target_user_id, account_id) REFERENCES conversations(id, user_id, account_id) ON DELETE SET NULL (target_id, target_user_id) DEFERRABLE INITIALLY DEFERRED;
+ALTER TABLE conversation_overrides ADD CONSTRAINT fk_override_target_account FOREIGN KEY (target_id, target_user_id, account_id) REFERENCES conversations(id, user_id, account_id) DEFERRABLE INITIALLY DEFERRED;
 ALTER TABLE messages ADD CONSTRAINT fk_message_logical_account FOREIGN KEY (logical_message_id, conversation_user_id, account_id) REFERENCES logical_messages(id, user_id, account_id) DEFERRABLE INITIALLY DEFERRED;
 ALTER TABLE messages ADD CONSTRAINT fk_message_conversation_account FOREIGN KEY (conversation_id, conversation_user_id, account_id) REFERENCES conversations(id, user_id, account_id) DEFERRABLE INITIALLY DEFERRED;
 

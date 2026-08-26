@@ -35,10 +35,8 @@ export default function ConversationReader({ conversationId, targetLogicalMessag
   }, [conversationId, targetLogicalMessageId, t]);
 
   const messages = useMemo(() => data?.logicalMessages || [], [data]);
-  const refresh = useCallback(() => conversationApi.detail(conversationId).then(setData), [conversationId]);
   const loadBody = useCallback((logicalId, force = false, remoteImages = false) => {
-    const currentStatus = bodyStatus[logicalId];
-    if (!force && (bodies[logicalId] || currentStatus?.loading || currentStatus?.error || currentStatus?.unavailable)) return Promise.resolve();
+    if (!force && (bodies[logicalId] || bodyStatus[logicalId]?.loading)) return Promise.resolve();
     aborters.current.get(logicalId)?.abort();
     const controller = new AbortController(); aborters.current.set(logicalId, controller);
     const logical = messages.find(item => item.id === logicalId);
@@ -70,6 +68,6 @@ export default function ConversationReader({ conversationId, targetLogicalMessag
   if (!data && !error) return <div role="status" style={{ padding: 24, textAlign: 'center', color: 'var(--text-tertiary)' }}>{t('conversation.loading')}</div>;
   if (error) return <div role="alert" style={{ padding: 16, color: 'var(--text-danger)' }}>{error}</div>;
   return <section ref={readerRef} aria-label={t('conversation.label')} data-conversation-id={conversationId} data-selected-copy-id={selectedCopyId || ''} data-selected-account-id={selectedAccountId || ''} style={{ flex: 1, overflowY: 'auto', overflowX: 'hidden', padding: 0, minWidth: 0 }}>
-    {messages.map(message => <ConversationMessage key={message.id} conversationId={conversationId} message={message} selectedCopyId={selectedCopyId} selectedAccountId={selectedAccountId} accounts={accounts} expanded={expanded.has(message.id)} onToggle={toggle} body={bodies[message.id]} status={bodyStatus[message.id]} onLoadBody={loadBody} onRemoteImages={id => loadBody(id, true, true)} onReply={onReply} onActionComplete={refresh} />)}
+    {messages.map(message => <ConversationMessage key={message.id} message={message} selectedCopyId={selectedCopyId} selectedAccountId={selectedAccountId} accounts={accounts} expanded={expanded.has(message.id)} onToggle={toggle} body={bodies[message.id]} status={bodyStatus[message.id]} onLoadBody={loadBody} onRemoteImages={id => loadBody(id, true, true)} onReply={onReply} />)}
   </section>;
 }
