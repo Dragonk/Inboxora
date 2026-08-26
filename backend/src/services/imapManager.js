@@ -7,7 +7,7 @@ import { createPluginMailFacade } from '../plugins/mailEngineFacade.js';
 import { refreshMicrosoftToken } from '../routes/oauth.js';
 import { sanitizeEmail } from './emailSanitizer.js';
 import { logger } from './logger.js';
-import { recordBroadcast, recordWarning } from './diagnosticsRing.js';
+import { recordBroadcast, recordWarning, recordSyncSignal } from './diagnosticsRing.js';
 import { decrypt } from './encryption.js';
 import { sendPushToUser } from './pushNotifications.js';
 import { redactEmail } from '../utils/redact.js';
@@ -1548,6 +1548,7 @@ export class ImapManager {
             }
 
             console.warn(`Staleness check: ${logAccount(account)} server has ${missed} INBOX message(s) above synced UID ${maxUid} — persistent connection ${wasSyncing ? 'hung mid-sync' : 'missed mail'}, forcing reconnect`);
+            recordSyncSignal('staleness_missed_mail', { accountId, magnitude: missed });
             this.connections.delete(accountId);
             // close() (not logout()): logout() sends a LOGOUT command that itself hangs on a
             // half-open socket, so it would NOT promptly unhang a stuck sync. close() destroys
@@ -2572,6 +2573,7 @@ export class ImapManager {
           storedModseq = foldRow.rows[0]?.highest_modseq ?? null;
           if (storedValidity !== null && storedValidity !== currentValidity) {
             uidValidityChanged = true;
+            recordSyncSignal('uidvalidity_change', { accountId: account.id });
             console.warn(`UIDVALIDITY changed for ${logAccount(account)}/${folder}: ${storedValidity} → ${currentValidity}. Purging stale messages and re-backfilling.`);
             const purged = await query('DELETE FROM messages WHERE account_id = $1 AND folder = $2', [account.id, folder]);
             // The stored modseq belongs to the OLD UIDVALIDITY epoch and is no longer

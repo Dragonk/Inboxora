@@ -11,6 +11,10 @@ vi.mock('./diagnosticsRing.js', () => ({
     { code: 'imap_error', accountId: 'other-user-acct', count: 9, lastT: Date.now() },
   ]),
   getConnectionStats: vi.fn(() => ({ wsConnects: 4, wsDisconnects: 3, currentSockets: 1, broadcastCounts: { new_messages: 6 } })),
+  getSyncSignalsRaw: vi.fn(() => [
+    { sig: 'ghost_rows_served', accountId: 'acct-1', count: 4, lastT: Date.now() - 2000, sumMag: 7, maxMag: 3 },
+    { sig: 'uidvalidity_change', accountId: 'other-user-acct', count: 2, lastT: Date.now(), sumMag: 0, maxMag: 0 },
+  ]),
 }));
 
 import { hashRef, folderLabel, categorizeSyncError, deriveProvider, scrubReport, buildServerReport } from './diagnosticsReport.js';
@@ -138,6 +142,14 @@ describe('buildServerReport', () => {
     expect(imapWarnings[0].accountRef).toMatch(/^[0-9a-f]{8}$/);
     expect(report.warnings.some(w => w.code === 'staleness_error' && !w.accountRef)).toBe(true);
     expect(json).not.toContain('other-user-acct');
+    // sync signals: this user's ghost-rows signal kept (hashed, with magnitude); the
+    // other user's uidvalidity_change filtered out.
+    expect(report.syncSignals.length).toBe(1);
+    expect(report.syncSignals[0].signal).toBe('ghost_rows_served');
+    expect(report.syncSignals[0].accountRef).toMatch(/^[0-9a-f]{8}$/);
+    expect(report.syncSignals[0].count).toBe(4);
+    expect(report.syncSignals[0].totalMagnitude).toBe(7);
+    expect(report.syncSignals.some(s => s.signal === 'uidvalidity_change')).toBe(false);
     // connection stats present
     expect(report.connection.broadcastCounts.new_messages).toBe(6);
     expect(report.connection.wsConnects).toBe(4);

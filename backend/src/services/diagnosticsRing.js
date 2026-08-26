@@ -23,6 +23,33 @@ export function recordBroadcast(type) {
   broadcastCounts[type] = (broadcastCounts[type] || 0) + 1;
 }
 
+// Sync-consistency signals (Phase 1 reliability instrumentation): cumulative
+// per-(signature, account) counters with an optional magnitude, recorded at the
+// sync/reconcile/mutation points where local state can diverge from the provider
+// (ghost rows served, UIDVALIDITY resets, unread-count clamps, staleness-missed mail).
+// Behavior-neutral observability; the report layer scopes to the user's accounts and
+// hashes the id. Reset on process restart.
+const syncSignals = Object.create(null); // "sig|accountId" -> { sig, accountId, count, lastT, sumMag, maxMag }
+
+export function recordSyncSignal(sig, { accountId = null, magnitude = null } = {}) {
+  if (!sig) return;
+  const key = `${sig}|${accountId || ''}`;
+  const e = syncSignals[key] || (syncSignals[key] = {
+    sig, accountId: accountId || null, count: 0, lastT: 0, sumMag: 0, maxMag: 0,
+  });
+  e.count += 1;
+  e.lastT = Date.now();
+  if (magnitude != null && Number.isFinite(magnitude)) {
+    const m = Math.abs(magnitude);
+    e.sumMag += m;
+    if (m > e.maxMag) e.maxMag = m;
+  }
+}
+
+export function getSyncSignalsRaw() {
+  return Object.values(syncSignals).sort((a, b) => b.lastT - a.lastT);
+}
+
 export function recordWsConnect() {
   wsConnects += 1;
   currentSockets += 1;
@@ -55,6 +82,7 @@ export function getConnectionStats() {
 export function _resetDiagnosticsRing() {
   warnings.length = 0;
   for (const k of Object.keys(broadcastCounts)) delete broadcastCounts[k];
+  for (const k of Object.keys(syncSignals)) delete syncSignals[k];
   wsConnects = 0;
   wsDisconnects = 0;
   currentSockets = 0;

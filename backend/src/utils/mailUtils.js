@@ -1,4 +1,5 @@
 import { query } from '../services/db.js';
+import { recordSyncSignal } from '../services/diagnosticsRing.js';
 
 // A stored folder mapping is only trustworthy if the mailbox still exists AND is selectable.
 // IMAP exposes non-selectable placeholders — most notably Gmail's "[Gmail]" parent, which
@@ -158,13 +159,28 @@ export async function resolveSentFolder(accountId, folderMappings) {
 // errors are logged but never block the caller; sync will correct any discrepancy.
 export function adjustFolderCounts(accountId, path, totalDelta, unreadDelta) {
   if (totalDelta === 0 && unreadDelta === 0) return;
+  // Snapshot the pre-update counters (prev) so RETURNING can tell whether the GREATEST(0, …)
+  // clamp actually fired. A clamp means the cached counter was already below the applied
+  // delta — i.e. the incremental count had drifted under the true value, which is exactly the
+  // phantom-badge mechanism. The clamped writes are unchanged; this only observes them.
   query(
-    `UPDATE folders
-        SET total_count  = GREATEST(0, total_count  + $1),
-            unread_count = GREATEST(0, unread_count + $2)
-      WHERE account_id = $3 AND path = $4`,
+    `WITH prev AS (
+       SELECT total_count AS ot, unread_count AS ou
+         FROM folders WHERE account_id = $3 AND path = $4
+     )
+     UPDATE folders f
+        SET total_count  = GREATEST(0, f.total_count  + $1),
+            unread_count = GREATEST(0, f.unread_count + $2)
+       FROM prev
+      WHERE f.account_id = $3 AND f.path = $4
+      RETURNING (prev.ou + $2 < 0) AS unread_clamped, (prev.ot + $1 < 0) AS total_clamped`,
     [totalDelta, unreadDelta, accountId, path]
-  ).catch(err => console.error('Folder count adjust failed:', err.message));
+  ).then(r => {
+    const row = r.rows[0];
+    if (row && (row.unread_clamped || row.total_clamped)) {
+      recordSyncSignal('badge_count_clamp', { accountId });
+    }
+  }).catch(err => console.error('Folder count adjust failed:', err.message));
 }
 
 // Fan a read-state change out to a message's sibling label rows. Under GTD a single

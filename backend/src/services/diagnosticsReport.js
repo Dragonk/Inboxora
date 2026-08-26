@@ -14,7 +14,8 @@ import { query } from './db.js';
 import { redisClient } from './redis.js';
 import { loadAiConfig } from './aiProvider.js';
 import { getActivatedPlugins } from '../plugins/activation.js';
-import { getWarningsRaw, getConnectionStats } from './diagnosticsRing.js';
+import { getWarningsRaw, getConnectionStats, getSyncSignalsRaw } from './diagnosticsRing.js';
+import { getPerformanceSnapshot } from './performanceMetrics.js';
 
 const packageMeta = JSON.parse(readFileSync(new URL('../../package.json', import.meta.url), 'utf-8'));
 const BACKEND_VERSION = (process.env.APP_VERSION || packageMeta.version || '0.0.0').replace(/^v[.]?/, '');
@@ -183,6 +184,19 @@ export async function buildServerReport(userId, salt) {
       lastSeenAgeSeconds: Math.round((Date.now() - w.lastT) / 1000),
     }));
 
+  // Sync-consistency signals (Phase 1 reliability instrumentation), scoped to this
+  // user's accounts and hashed. Magnitudes are counts (e.g. ghost rows in a response,
+  // messages missed above the synced UID), never message content.
+  const syncSignals = getSyncSignalsRaw()
+    .filter(s => !s.accountId || userAccountIds.has(s.accountId))
+    .map(s => ({
+      signal: s.sig,
+      ...(s.accountId ? { accountRef: hashRef(s.accountId, salt) } : {}),
+      count: s.count,
+      ...(s.sumMag ? { totalMagnitude: s.sumMag, maxMagnitude: s.maxMag } : {}),
+      lastSeenAgeSeconds: Math.round((Date.now() - s.lastT) / 1000),
+    }));
+
   return {
     versions: { backend: BACKEND_VERSION, gitSha: process.env.BUILD_SHA || 'dev' },
     server: { uptimeSeconds: Math.round(process.uptime()), dbOk, redisOk },
@@ -190,7 +204,9 @@ export async function buildServerReport(userId, salt) {
     folders,
     counts: { unreadTotal, unreadByAccountRef },
     warnings,
+    syncSignals,
     connection: getConnectionStats(),
+    performance: getPerformanceSnapshot(),
     config: { aiEnabled, aiProvider, plugins },
   };
 }

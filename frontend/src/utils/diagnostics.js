@@ -123,7 +123,9 @@ export async function generateReport({ locale, theme, uiScale }) {
     counts: server?.counts ?? {},
     events,
     warnings: server?.warnings ?? [],
+    syncSignals: server?.syncSignals ?? [],
     connection: server?.connection ?? {},
+    performance: server?.performance ?? {},
     config: server?.config ?? {},
   };
 

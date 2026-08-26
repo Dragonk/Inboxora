@@ -1,5 +1,6 @@
 import pg from 'pg';
 import { encrypt, isEncrypted } from './encryption.js';
+import { recordDb } from './performanceMetrics.js';
 
 const { Pool } = pg;
 
@@ -21,7 +22,15 @@ export const pool = new Pool({
 });
 
 export async function query(text, params) {
-  return pool.query(text, params);
+  // Time the query for the performance baseline (behavior-neutral). This is the
+  // single top-level DB chokepoint; transaction clients (withTransaction) are not
+  // timed here. process.hrtime avoids clock-skew and is ~nanosecond overhead.
+  const start = process.hrtime.bigint();
+  try {
+    return await pool.query(text, params);
+  } finally {
+    recordDb(Number(process.hrtime.bigint() - start) / 1e6);
+  }
 }
 
 // Run fn(client) inside a serializable transaction. Commits on success, rolls

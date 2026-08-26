@@ -10,6 +10,7 @@ import { snippetFromBody, decodeMimeWords, parseRawHeaders, buildHeadersFromMess
 import { resolveTrashFolder, resolveAllTrashPaths, resolveAllDraftsPaths, resolveArchiveFolder, isAllMailFolder, resolveSpamFolder, resolveAllSpamPaths, getDeleteStrategy, adjustFolderCounts, fanOutReadToSiblings, fanOutStarToSiblings, fanOutBulkReadToSiblings } from '../utils/mailUtils.js';
 import { pluginRegistry } from '../plugins/registry.js';
 import { listMessages } from '../services/messageService.js';
+import { recordSyncSignal } from '../services/diagnosticsRing.js';
 import { resolveAccountScope } from '../services/unifiedInbox.js';
 import { validateHost } from '../services/hostValidation.js';
 import { safeFetch } from '../services/safeFetch.js';
@@ -156,6 +157,15 @@ router.get('/messages', async (req, res) => {
   if (resolvedAccountId && messages.length) {
     imapManager.prefetchFolderBodies(resolvedAccountId, messages.map(r => r.id))
       .catch(err => console.warn('Folder body prefetch error:', err.message));
+  }
+
+  // Phase 1 reliability instrumentation: count "ghost" rows served — a UID is known but
+  // its envelope hasn't been fetched, so the row renders as Unknown / (no subject). This is
+  // the visible #407 symptom; measuring it turns "sometimes there are ghost rows" into a rate.
+  if (resolvedAccountId && messages.length) {
+    const ghosts = messages.filter(m =>
+      !m.message_id && (!m.subject || m.subject === '(no subject)') && !m.snippet).length;
+    if (ghosts > 0) recordSyncSignal('ghost_rows_served', { accountId: resolvedAccountId, magnitude: ghosts });
   }
 
   res.json({ messages, total, ...(isThreaded ? { threaded: true } : {}) });
