@@ -33,6 +33,16 @@ export function sanitizeMessageHtml(html = '', { remoteImages = false } = {}) {
     .replace(/url\s*\(\s*["']?\/\/[^)]+\)/gi, 'none');
 }
 
+
+export function escapeMessageText(text = '') {
+  return String(text)
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
+}
+
 export function emailCsp({ remoteImages = false } = {}) {
   return remoteImages
     ? "default-src 'none'; img-src 'self' data: cid: https:; style-src 'unsafe-inline'; media-src 'self' data:"
@@ -53,6 +63,11 @@ ${EMAIL_BASE_TAG}
   table { max-width: 100%; }
   a { color: inherit; }
   blockquote { margin-left: 1em; border-left: 3px solid var(--border, #ddd); padding-left: 1em; color: inherit; opacity: 0.8; }
+  pre[data-mailflow-plain-text] { white-space: pre-wrap; margin: 0; font: inherit; }
+  .mailflow-quote-collapsed { display: none !important; }
+  .mailflow-quote-toggle { display: inline-flex; align-items: center; justify-content: center; min-width: 34px; margin: 8px 0; padding: 2px 9px; border: 1px solid #c7c7c7; border-radius: 999px; background: #f3f3f3; color: #555; font: 12px/1.5 system-ui, sans-serif; cursor: pointer; }
+  .mailflow-quote-toggle:hover { background: #e8e8e8; }
+  .mailflow-quote-toggle:focus-visible { outline: 2px solid #4c8bf5; outline-offset: 2px; }
 </style>
 </head><body>${html}</body></html>`;
 }

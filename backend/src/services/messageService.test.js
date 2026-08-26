@@ -183,6 +183,23 @@ describe('listMessages — threaded mode', () => {
     const cteSql = query.mock.calls[2][0];
     expect(cteSql).toContain("AND folder = 'INBOX'");
   });
+
+  it('keeps equal legacy thread keys separate per account in unified threaded view', async () => {
+    query
+      .mockResolvedValueOnce({ rows: [{ id: 'acc-1' }, { id: 'acc-2' }] })
+      .mockResolvedValueOnce({ rows: [{ n: 2 }] })
+      .mockResolvedValueOnce({ rows: [] })
+      .mockResolvedValueOnce({ rows: [{ total: 2 }] });
+
+    await listMessages({ userId: 'user-1', threaded: 'true' });
+
+    const cteSql = query.mock.calls[2][0];
+    const countSql = query.mock.calls[3][0];
+    expect(cteSql).toContain("m.account_id::text || ':' || m.thread_key");
+    expect(cteSql).toContain('m.thread_key,');
+    expect(cteSql).toContain('PARTITION BY d.thread_id');
+    expect(countSql).toContain("COUNT(DISTINCT (m.account_id::text || ':' || m.thread_key))");
+  });
 });
 
 describe('listMessages — message shape', () => {

@@ -105,6 +105,7 @@ export default function MailApp() {
       thread_references: copy.references || null,
       references: copy.references || null,
       thread_id: copy.threadId || null,
+      thread_key: copy.threadKey || copy.threadId || null,
       attachments: copy.attachments || [],
       delivery_addresses: copy.deliveryAddresses || [],
       date: copy.date,

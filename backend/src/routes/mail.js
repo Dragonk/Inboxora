@@ -223,13 +223,22 @@ router.get('/thread/:threadId', async (req, res) => {
   if (!threadId) return res.status(400).json({ error: 'threadId required' });
 
   try {
+    const requestedAccountId = req.query.accountId || null;
     const accountsResult = await query(
       'SELECT id, include_in_unified_inbox FROM email_accounts WHERE user_id = $1 AND enabled = true',
       [req.session.userId]
     );
-    const accountIds = req.query.unified === 'true'
-      ? resolveAccountScope(accountsResult.rows).accountIds
-      : accountsResult.rows.map(row => row.id);
+    const accessibleAccounts = accountsResult.rows;
+    let accountIds;
+    if (requestedAccountId) {
+      const ownsRequestedAccount = accessibleAccounts.some(row => String(row.id) === String(requestedAccountId));
+      if (!ownsRequestedAccount) return res.status(404).json({ error: 'Account not found' });
+      accountIds = [requestedAccountId];
+    } else if (req.query.unified === 'true') {
+      accountIds = resolveAccountScope(accessibleAccounts).accountIds;
+    } else {
+      accountIds = accessibleAccounts.map(row => row.id);
+    }
     if (!accountIds.length) return res.json({ messages: [] });
 
     // Show all non-deleted messages in the thread regardless of folder. This includes
@@ -239,7 +248,7 @@ router.get('/thread/:threadId', async (req, res) => {
     const result = await query(`
       WITH deduped AS (
         SELECT DISTINCT ON (m.message_id)
-               m.id, m.uid, m.folder, m.message_id, m.thread_id, m.subject,
+               m.id, m.uid, m.folder, m.message_id, m.thread_id, m.thread_key, m.subject,
                m.from_name, m.from_email, m.to_addresses, m.cc_addresses,
                m.reply_to, m.in_reply_to,
                m.date, m.snippet, m.is_read, m.is_starred,

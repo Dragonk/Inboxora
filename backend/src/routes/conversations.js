@@ -199,7 +199,7 @@ router.get('/conversations/:id', async (req, res) => {
                'listUnsubscribe', m.list_unsubscribe, 'listUnsubscribePost', m.list_unsubscribe_post, 'unsubscribedAt', m.unsubscribed_at,
                'isRead', m.is_read, 'isStarred', m.is_starred,
                'providerMessageId', m.provider_message_id, 'providerThreadId', m.provider_thread_id,
-               'providerNamespace', m.provider_namespace,
+               'providerNamespace', m.provider_namespace, 'threadKey', m.thread_key,
                'deliveryAddresses', m.delivery_addresses
              ) ORDER BY m.date ASC NULLS LAST, m.id) FILTER (WHERE m.id IS NOT NULL), '[]'::jsonb) AS copies
         FROM conversations c

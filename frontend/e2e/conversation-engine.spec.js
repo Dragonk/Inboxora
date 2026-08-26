@@ -7,9 +7,7 @@ async function open(page, fixtureApi, grouped, reader, { invalidTarget = false }
   const listLoaded = page.waitForResponse(response => {
     if (response.request().method() !== 'GET' || !response.ok()) return false;
     const pathname = new URL(response.url()).pathname;
-    return grouped
-      ? pathname === '/api/mail/conversations'
-      : pathname === '/api/mail/messages';
+    return pathname === '/api/mail/messages';
   });
   await page.goto(`/?list=${Number(grouped)}&reader=${Number(reader)}`, { waitUntil: 'domcontentloaded' });
   await listLoaded;
@@ -33,16 +31,16 @@ test.describe('native conversation engine matrix', () => {
     await expect(reader.locator('[data-conversation-message-state="collapsed"]')).toHaveCount(4);
     await expect(reader.locator('[data-conversation-message-state="expanded"]')).toHaveCount(1);
     await expect(reader.locator('#logical-message-conversation-gmail-logical-2')).toHaveAttribute('data-conversation-message-state', 'expanded');
-    await reader.locator('#logical-message-conversation-gmail-logical-3 button[aria-expanded="false"]').click();
+    await reader.locator('#logical-message-conversation-gmail-logical-3 [data-conversation-message-toggle="true"][aria-expanded="false"]').click();
     await expect(reader.locator('#logical-message-conversation-gmail-logical-3')).toHaveAttribute('data-conversation-message-state', 'expanded');
     await expect(reader.locator('#logical-message-conversation-gmail-logical-2')).toHaveAttribute('data-conversation-message-state', 'expanded');
     await expect(reader.locator('[data-conversation-message-state="expanded"]')).toHaveCount(2);
     await expect(reader.locator('#logical-message-conversation-gmail-logical-3 iframe')).toBeVisible();
     await expect(reader.locator('#logical-message-conversation-gmail-logical-3 iframe').contentFrame().locator('body')).toContainText('Fixture body lazy conversation-gmail-copy-3');
-    await reader.locator('#logical-message-conversation-gmail-logical-2 button[aria-expanded="true"]').click();
+    await reader.locator('#logical-message-conversation-gmail-logical-2 [data-conversation-message-toggle="true"][aria-expanded="true"]').click();
     await expect(reader.locator('#logical-message-conversation-gmail-logical-2')).toHaveAttribute('data-conversation-message-state', 'collapsed');
     await expect(reader.locator('#logical-message-conversation-gmail-logical-3')).toHaveAttribute('data-conversation-message-state', 'expanded');
-    await reader.locator('#logical-message-conversation-gmail-logical-3 button[aria-expanded="true"]').click();
+    await reader.locator('#logical-message-conversation-gmail-logical-3 [data-conversation-message-toggle="true"][aria-expanded="true"]').click();
     await expect(reader.locator('#logical-message-conversation-gmail-logical-3')).toHaveAttribute('data-conversation-message-state', 'collapsed');
     await expect(reader.locator('[data-conversation-message-state="expanded"]')).toHaveCount(0);
     await page.screenshot({ path: 'artifacts/off-on.png', fullPage: true });
@@ -60,7 +58,7 @@ test.describe('native conversation engine matrix', () => {
     await open(page, fixtureApi, true, false);
     const parent = page.locator('[data-msgid="conversation-gmail-copy-5"]:visible');
     await expect(parent).toBeVisible();
-    expect(await page.evaluate(() => performance.getEntriesByType('resource').map(entry => entry.name))).not.toEqual(
+    expect(await page.evaluate(() => performance.getEntriesByType('resource').map(entry => entry.name))).toEqual(
       expect.arrayContaining([expect.stringMatching(/\/api\/mail\/messages\?[^#]*threaded=true/)]),
     );
     await parent.getByRole('button', { name: /\(5\)/ }).click();
@@ -97,7 +95,7 @@ test.describe('native conversation engine matrix', () => {
     // Resolver selected copy 5 on Gmail. The newest physical message is incoming,
     // while stale logical direction disagrees; physical account identity wins.
     await expect(latest.locator('[data-message-direction="incoming"]')).toBeVisible();
-    await reader.locator('#logical-message-conversation-gmail-logical-2 button[aria-expanded="false"]').evaluate(button => button.click());
+    await reader.locator('#logical-message-conversation-gmail-logical-2 [data-conversation-message-toggle="true"][aria-expanded="false"]').evaluate(button => button.click());
     await expect(reader.locator('#logical-message-conversation-gmail-logical-2')).toHaveAttribute('data-conversation-message-state', 'expanded');
     await expect(latest).toHaveAttribute('data-conversation-message-state', 'expanded');
     await expect(reader.locator('[data-conversation-message-state="expanded"]')).toHaveCount(2);

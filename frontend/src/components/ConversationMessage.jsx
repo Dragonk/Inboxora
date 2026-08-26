@@ -14,7 +14,11 @@ function address(value) {
   if (!value) return '';
   if (typeof value === 'string') { try { value = JSON.parse(value); } catch { return value; } }
   const values = Array.isArray(value) ? value : [value];
-  return values.map(item => typeof item === 'string' ? item : (item.name ? `${item.name} <${item.email}>` : item.email)).filter(Boolean).join(', ');
+  return values.map(item => {
+    if (typeof item === 'string') return item;
+    const email = item.email || item.address || '';
+    return item.name && email ? `${item.name} <${email}>` : (email || item.name || '');
+  }).filter(Boolean).join(', ');
 }
 
 function date(value) {
@@ -62,6 +66,10 @@ export default function ConversationMessage({ conversationId, message, selectedC
   const direction = physicalCopyDirection(copy, account);
   const outgoing = direction === 'outgoing';
   const attachments = Array.isArray(body?.attachments) ? body.attachments : (Array.isArray(copy.attachments) ? copy.attachments : []);
+  const bodyHtml = body?.html ?? body?.body_html ?? null;
+  const bodyText = body?.text ?? body?.body_text ?? null;
+  const hasBlockedRemoteImages = Boolean(body?.hasBlockedRemoteImages ?? body?.has_blocked_remote_images);
+  const remoteImages = Boolean(body?.remoteImages ?? body?.remote_images);
   const sender = outgoing ? t('conversation.you') : (copy.fromName || copy.fromEmail || t('conversation.unknownSender'));
   const directionLabel = direction === 'outgoing' ? t('conversation.outgoingMessage') : direction === 'incoming' ? t('conversation.incomingMessage') : undefined;
   const subject = message.subject || copy.subject || t('message.noSubject');
@@ -130,7 +138,7 @@ export default function ConversationMessage({ conversationId, message, selectedC
     const win = window.open('', '_blank');
     if (!win) return;
     const escaped = value => String(value || '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
-    const content = body?.body_html ? sanitizeMessageHtml(body.body_html) : `<pre>${escaped(body?.body_text)}</pre>`;
+    const content = bodyHtml ? sanitizeMessageHtml(bodyHtml) : `<pre>${escaped(bodyText)}</pre>`;
     win.document.write(`<!doctype html><html><head><meta charset="utf-8"><meta http-equiv="Content-Security-Policy" content="script-src 'none'; object-src 'none'; base-uri 'none'"><title>${escaped(subject)}</title></head><body><h1>${escaped(subject)}</h1><p>${escaped(sender)} · ${escaped(date(message.messageDate || copy.date))}</p>${content}</body></html>`);
     win.document.close();
     win.print();
@@ -138,7 +146,7 @@ export default function ConversationMessage({ conversationId, message, selectedC
   const inSpamFolder = /(^|\/)(spam|junk)(\/|$)/i.test(String(copy.folder || ''));
   const availableAiActions = body ? [{ id: 'summarize', label: t('message.summarize'), prompt: 'Summarize this email.' }, ...(aiActions || [])] : [];
   const runAiAction = action => {
-    const text = body?.body_text || String(body?.body_html || '').replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim();
+    const text = bodyText || String(bodyHtml || '').replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim();
     if (!text || !action?.prompt) return;
     api.ai.chat([{ role: 'user', content: `${action.prompt}\n\n${text.slice(0, 6000)}` }]).catch(error => setActionError(error.message));
   };
@@ -190,16 +198,26 @@ export default function ConversationMessage({ conversationId, message, selectedC
         onDelete={() => runAction(() => conversationApi.delete(conversationId, actionOptions))}
       />}
 
-      <button
-        type="button"
+      <div
+        role="button"
+        tabIndex={0}
         aria-expanded={expanded}
         aria-label={toggleLabel}
-        onClick={toggle}
+        onClick={() => {
+          if (window.getSelection?.().toString()) return;
+          toggle();
+        }}
+        onKeyDown={event => {
+          if (event.key === 'Enter' || event.key === ' ') {
+            event.preventDefault();
+            toggle();
+          }
+        }}
         data-conversation-message-toggle="true"
         style={{
           display: 'block', width: '100%', padding: 0,
           border: 0, background: 'transparent', color: 'var(--text-primary)',
-          cursor: 'pointer', textAlign: 'left',
+          cursor: 'pointer', textAlign: 'left', userSelect: 'text',
         }}
       >
         <span style={{
@@ -216,13 +234,17 @@ export default function ConversationMessage({ conversationId, message, selectedC
           <span style={{ flex: 1, minWidth: 0 }}>
             <span style={{ display: 'flex', alignItems: 'baseline', gap: 8, flexWrap: 'wrap' }}>
               <MessageDirection direction={direction} label={directionLabel} />
-              <strong style={{ fontSize: 14, color: 'var(--text-primary)' }}>{sender}</strong>
-              {copy.fromName && copy.fromEmail && !outgoing && <span style={{ fontSize: 12, color: 'var(--text-tertiary)' }}>&lt;{copy.fromEmail}&gt;</span>}
+              <strong style={{ fontSize: 14, color: 'var(--text-primary)', userSelect: 'text' }}>{sender}</strong>
+              {copy.fromEmail && (outgoing || copy.fromName) && <span title={copy.fromEmail} style={{ fontSize: 12, color: 'var(--text-tertiary)', userSelect: 'text' }}>{outgoing ? copy.fromEmail : `<${copy.fromEmail}>`}</span>}
             </span>
             <span style={{ display: 'block', fontSize: 12, color: 'var(--text-tertiary)', marginTop: 3 }}>
               <span>{t('message.to')} </span>
-              <span style={{ color: 'var(--text-secondary)' }}>{recipient || accountLabel}</span>
+              <span title={recipient || accountLabel} style={{ color: 'var(--text-secondary)', userSelect: 'text' }}>{recipient || accountLabel}</span>
             </span>
+            {address(copy.cc) && <span style={{ display: 'block', fontSize: 12, color: 'var(--text-tertiary)', marginTop: 3 }}>
+              <span>{t('message.cc', { defaultValue: 'Cc' })} </span>
+              <span title={address(copy.cc)} style={{ color: 'var(--text-secondary)', userSelect: 'text' }}>{address(copy.cc)}</span>
+            </span>}
             {!expanded && summary && <span data-conversation-message-snippet="true" style={{
               display: 'block', fontSize: 12, color: 'var(--text-tertiary)', marginTop: 3,
               overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
@@ -244,7 +266,7 @@ export default function ConversationMessage({ conversationId, message, selectedC
             </span>}
           </span>
         </span>
-      </button>
+      </div>
     </div>
 
     {actionError && <div role="alert" style={{ padding: '8px 12px', color: 'var(--red)' }}>{actionError}</div>}
@@ -270,13 +292,19 @@ export default function ConversationMessage({ conversationId, message, selectedC
       {status?.loading && <div role="status" style={{ padding: 16, color: 'var(--text-tertiary)' }}>{t('conversation.loadingBody')}</div>}
       {status?.error && <div role="alert" style={{ padding: 16, color: 'var(--text-danger)' }}>{status.error}</div>}
       {status?.unavailable && <div role="status" style={{ padding: 16, color: 'var(--text-tertiary)' }}>{t('conversation.noBody')}</div>}
-      {body && <div className="msg-card" style={{
+      {body && <div className="msg-card conversation-message-body-panel" style={{
         position: 'relative', padding: '14px 16px 12px',
-        background: 'var(--bg-primary)', borderRadius: 10,
+        background: 'var(--message-body-bg, var(--bg-secondary))', borderRadius: 10,
         border: '1px solid var(--border-subtle)', overflow: 'hidden', contain: 'layout',
       }}>
-        <MessageBodyRenderer html={body.body_html} text={body.body_text} remoteImages={Boolean(body.remoteImages)} collapseQuotes />
-        {body.hasBlockedRemoteImages && <button type="button" onClick={() => onRemoteImages(message.id)} style={{ ...actionStyle, marginTop: 10 }}>{t('conversation.loadImages')}</button>}
+        <MessageBodyRenderer
+          html={bodyHtml}
+          text={bodyText}
+          remoteImages={remoteImages}
+          showQuotedTextLabel={t('conversation.showQuotedText')}
+          hideQuotedTextLabel={t('conversation.hideQuotedText')}
+        />
+        {hasBlockedRemoteImages && <button type="button" onClick={() => onRemoteImages(message.id)} style={{ ...actionStyle, marginTop: 10 }}>{t('conversation.loadImages')}</button>}
         <AttachmentList attachments={attachments} physicalCopyId={copy.id} canAccessCopy={hasAccountCopy} />
       </div>}
     </div>}

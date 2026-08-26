@@ -2,8 +2,6 @@ import { useEffect, useLayoutEffect, useRef, useCallback, useState } from 'react
 import { useTranslation } from 'react-i18next';
 import { useStore, selectSelectedMessageMid } from '../store/index.js';
 import { api } from '../utils/api.js';
-import { conversationApi } from '../utils/conversationApi.js';
-import { conversationDetailToThreadMessages, conversationListToThreadRows } from '../utils/conversationThreadAdapter.js';
 import { LAYOUTS } from '../layouts.js';
 import { senderColor } from '../themes.js';
 import { useMobile } from '../hooks/useMobile.js';
@@ -390,27 +388,16 @@ export default function MessageList() {
           params.folder = selectedFolder;
         }
         if (unreadOnly) params.unreadOnly = 'true';
+        if (threadedView) params.threaded = 'true';
         if (selectedFolder === 'INBOX' && (categorizationEnabled || selectedAccount?.categorization_enabled)) params.category = activeCategory;
-        const loadList = threadedView
-          ? () => conversationApi.list({
-              accountId: selectedAccountId || undefined,
-              folder: selectedAccountId ? selectedFolder : 'INBOX',
-              unreadOnly, category: params.category, limit: pageSize,
-              unifiedInbox: !selectedAccountId,
-            })
-          : () => api.getMessages(params);
         await refreshRequestRef.current.run(
-          loadList,
-          (rawData) => {
+          () => api.getMessages(params),
+          (data) => {
             if (cancelled) return;
-            const data = threadedView
-              ? { messages: conversationListToThreadRows(rawData), total: rawData.total ?? rawData.conversations?.length ?? 0 }
-              : rawData;
             setMessagesTotal(data.total);
             setMessages(applyReadGuard(data.messages));
             setMessagesOffset(data.messages.length);
-            if (threadedView) useStore.setState({ conversationListCursor: rawData.nextCursor || null });
-            setHasMoreMessages(threadedView ? Boolean(rawData.nextCursor) : data.messages.length < data.total);
+            setHasMoreMessages(data.messages.length < data.total);
 
             // If a specific non-INBOX folder opened empty, trigger an on-demand IMAP sync.
             // The backend will broadcast sync_complete → mailflow:refresh once done.
@@ -448,22 +435,12 @@ export default function MessageList() {
         params.folder = selectedFolder;
       }
       if (unreadOnly) params.unreadOnly = 'true';
+      if (useStore.getState().threadedView) params.threaded = 'true';
       if (selectedFolder === 'INBOX' && (categorizationEnabled || selectedAccount?.categorization_enabled)) params.category = activeCategory;
-      const grouped = useStore.getState().threadedView;
-      const rawData = grouped
-        ? await conversationApi.list({
-            accountId: selectedAccountId || undefined,
-            folder: selectedAccountId ? selectedFolder : 'INBOX',
-            unreadOnly, category: params.category, limit: pageSize,
-            cursor: useStore.getState().conversationListCursor || undefined,
-            unifiedInbox: !selectedAccountId,
-          })
-        : await api.getMessages(params);
-      const data = grouped ? { messages: conversationListToThreadRows(rawData), total: rawData.total ?? 0 } : rawData;
+      const data = await api.getMessages(params);
       appendMessages(applyReadGuard(data.messages));
       setMessagesOffset(currentOffset + data.messages.length);
-      if (grouped) useStore.setState({ conversationListCursor: rawData.nextCursor || null });
-      setHasMoreMessages(grouped ? Boolean(rawData.nextCursor) : currentOffset + data.messages.length < data.total);
+      setHasMoreMessages(currentOffset + data.messages.length < data.total);
     } catch (err) {
       console.error('Failed to load more messages:', err);
     } finally {
@@ -490,21 +467,11 @@ export default function MessageList() {
         }
         if (selectedAccountId) { params.accountId = selectedAccountId; params.folder = selectedFolder; }
         if (unreadOnly) params.unreadOnly = 'true';
+        if (state.threadedView) params.threaded = 'true';
         if (selectedFolder === 'INBOX' && (categorizationEnabled || selectedAccount?.categorization_enabled)) params.category = activeCategory;
-        const loadList = state.threadedView
-          ? () => conversationApi.list({
-              accountId: selectedAccountId || undefined,
-              folder: selectedAccountId ? selectedFolder : 'INBOX',
-              unreadOnly, category: params.category, limit: params.limit,
-              unifiedInbox: !selectedAccountId,
-            })
-          : () => api.getMessages(params);
         await refreshRequestRef.current.run(
-          loadList,
-          (rawData) => {
-            const data = state.threadedView
-              ? { messages: conversationListToThreadRows(rawData), total: rawData.total ?? rawData.conversations?.length ?? 0 }
-              : rawData;
+          () => api.getMessages(params),
+          (data) => {
             setMessagesTotal(data.total);
             // If the unread filter is on and the currently open message was just marked
             // read, the server won't return it — preserve it so the user can keep reading.
@@ -519,7 +486,7 @@ export default function MessageList() {
               setHasMoreMessages(false);
             } else {
               setMessagesOffset(data.messages.length);
-              setHasMoreMessages(state.threadedView ? Boolean(rawData.nextCursor) : data.messages.length < data.total);
+              setHasMoreMessages(data.messages.length < data.total);
             }
           },
         );
@@ -657,21 +624,11 @@ export default function MessageList() {
       const params = { limit: pageSize, offset: (pageNum - 1) * pageSize };
       if (selectedAccountId) { params.accountId = selectedAccountId; params.folder = selectedFolder; }
       if (unreadOnly) params.unreadOnly = 'true';
+      if (threadedView) params.threaded = 'true';
       if (selectedFolder === 'INBOX' && (categorizationEnabled || selectedAccount?.categorization_enabled)) params.category = activeCategory;
-      const loadList = threadedView
-        ? () => conversationApi.list({
-            accountId: selectedAccountId || undefined,
-            folder: selectedAccountId ? selectedFolder : 'INBOX',
-            unreadOnly, category: params.category, limit: pageSize,
-            unifiedInbox: !selectedAccountId,
-          })
-        : () => api.getMessages(params);
       await refreshRequestRef.current.run(
-        loadList,
-        (rawData) => {
-          const data = threadedView
-            ? { messages: conversationListToThreadRows(rawData), total: rawData.total ?? rawData.conversations?.length ?? 0 }
-            : rawData;
+        () => api.getMessages(params),
+        (data) => {
           setMessagesTotal(data.total);
           setMessages(applyReadGuard(data.messages));
           setMessagesOffset((pageNum - 1) * pageSize + data.messages.length);
@@ -787,13 +744,14 @@ export default function MessageList() {
 
   const resolveMessagesForThreadAction = useCallback(async (message, { forceRefresh = false } = {}) => {
     const tid = message.thread_id || message.id;
+    const threadKey = message.thread_key || message.thread_id || message.id;
     if (!isThreadListRow(message)) return [message];
     if (!forceRefresh && Array.isArray(threadMessages[tid]) && threadMessages[tid].length > 0) {
       return threadMessages[tid];
     }
-    const data = await conversationApi.detail(message.conversation_id || tid);
-    const resolved = conversationDetailToThreadMessages(data, selectedAccountId ? selectedFolder : 'INBOX');
-    return resolved.length ? resolved : [message];
+    const effectiveFolder = selectedAccountId ? selectedFolder : 'INBOX';
+    const data = await api.getThread(threadKey, effectiveFolder, false, message.account_id || selectedAccountId || null);
+    return data.messages?.length ? data.messages : [message];
   }, [isThreadListRow, threadMessages, selectedAccountId, selectedFolder]);
 
   const invalidateThreadCache = useCallback((threadId) => {
@@ -826,7 +784,7 @@ export default function MessageList() {
 
     // Immediate optimistic update — do not wait for thread resolution.
     // For unexpanded thread rows this avoids a visible delay caused by the
-    // conversation detail call inside resolveMessagesForThreadAction.
+    // api.getThread call inside resolveMessagesForThreadAction.
     if (isThreadRow) {
       updateMessage(message.id, { is_read: read, unread_count: read ? 0 : estimatedDelta });
       // setCachedThreadRead intentionally deferred until after resolution so
@@ -848,7 +806,7 @@ export default function MessageList() {
     }
 
     // Resolve the individual sub-messages needed for the bulk API call.
-    // For unexpanded thread rows this fetches CE detail, but the UI has
+    // For unexpanded thread rows this fires api.getThread, but the UI has
     // already updated above so the user sees no delay.
     let actionMessages;
     try {
@@ -2443,6 +2401,7 @@ export default function MessageList() {
 
   const handleThreadToggle = async (message) => {
     const tid = message.thread_id || message.id;
+    const threadKey = message.thread_key || message.thread_id || message.id;
     if (!message.thread_id || (message.message_count || 1) <= 1) {
       return;
     }
@@ -2455,8 +2414,9 @@ export default function MessageList() {
       const loadVersion = currentThreadLoadVersion(threadLoadVersionsRef.current, tid);
       setLoadingThread(tid);
       try {
-        const data = await conversationApi.detail(message.conversation_id || tid);
-        const msgs = conversationDetailToThreadMessages(data, selectedAccountId ? selectedFolder : 'INBOX');
+        const effectiveFolder = selectedAccountId ? selectedFolder : 'INBOX';
+        const data = await api.getThread(threadKey, effectiveFolder, false, message.account_id || selectedAccountId || null);
+        const msgs = data.messages || [];
         if (isCurrentThreadLoad(threadLoadVersionsRef.current, tid, loadVersion)) {
           setThreadMessages(tid, msgs);
         }

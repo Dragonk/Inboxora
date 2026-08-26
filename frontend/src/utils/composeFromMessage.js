@@ -121,6 +121,9 @@ export async function openReplyFromMessage(message, { accounts, openCompose, get
     isReplyAll: replyAll,
     originalFrom: sender,
     allRecipients,
+    threadId: message.thread_key || message.thread_id || null,
+    threadCacheId: message.thread_id || message.thread_key || null,
+    conversationId: message.conversationId || message.conversation_id || null,
   });
 }
 

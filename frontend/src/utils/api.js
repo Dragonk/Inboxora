@@ -233,10 +233,11 @@ export const api = {
     return request('GET', `/mail/resolve-message?${qs}`);
   },
   getMessageBody,
-  getThread: (threadId, folder, unified = false) => {
+  getThread: (threadId, folder, unified = false, accountId = null) => {
     const qs = new URLSearchParams();
     if (folder) qs.set('folder', folder);
     if (unified) qs.set('unified', 'true');
+    if (accountId) qs.set('accountId', accountId);
     const query = qs.size ? `?${qs}` : '';
     return request('GET', `/mail/thread/${encodeURIComponent(threadId)}${query}`);
   },

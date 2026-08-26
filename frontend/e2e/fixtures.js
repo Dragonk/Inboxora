@@ -202,8 +202,9 @@ export const test = base.extend({
         { id: 'conversation-gmail-copy-4', subject: 'Gmail reply chain', is_read: true, account_id: 'account-gmail', folder: 'Sent', date: new Date().toISOString(), from_email: 'me@gmail.test', message_id: '<fixture-4>', body_text: 'Fixture body 4', thread_id: 'conversation-gmail', message_count: 5 },
         { id: 'conversation-gmail-copy-5', subject: 'Gmail reply chain', is_read: true, account_id: 'account-gmail', folder: 'INBOX', date: new Date().toISOString(), from_email: 'sender@gmail.test', message_id: '<fixture-5>', body_text: 'Fixture body 5', thread_id: 'conversation-gmail', message_count: 5 },
       ];
-      if (url.pathname.includes('/api/mail/thread/')) return route.fulfill({ json: { messages } });
-      return route.fulfill({ json: { messages, total: messages.length } });
+      const threaded = url.searchParams.get('threaded') === 'true';
+      const listMessages = threaded ? [{ ...messages.at(-1), thread_key: 'conversation-gmail' }] : messages;
+      return route.fulfill({ json: { messages: listMessages, total: listMessages.length, ...(threaded ? { threaded: true } : {}) } });
     });
     await page.route('**/api/mail/thread/*', route => route.fulfill({ json: { messages: [
       { id: 'conversation-gmail-copy-1', subject: 'Gmail reply chain', is_read: true, account_id: 'account-gmail', folder: 'INBOX', date: new Date().toISOString(), from_email: 'sender@gmail.test', message_id: '<fixture-1>', body_text: 'Fixture body 1', thread_id: 'conversation-gmail' },
@@ -212,7 +213,15 @@ export const test = base.extend({
       { id: 'conversation-gmail-copy-4', subject: 'Gmail reply chain', is_read: true, account_id: 'account-gmail', folder: 'Sent', date: new Date().toISOString(), from_email: 'me@gmail.test', message_id: '<fixture-4>', body_text: 'Fixture body 4', thread_id: 'conversation-gmail' },
       { id: 'conversation-gmail-copy-5', subject: 'Gmail reply chain', is_read: true, account_id: 'account-gmail', folder: 'INBOX', date: new Date().toISOString(), from_email: 'sender@gmail.test', message_id: '<fixture-5>', body_text: 'Fixture body 5', thread_id: 'conversation-gmail' },
     ] } }));
-    await page.route('**/api/mail/messages/*/body**', route => route.fulfill({ json: { body_text: 'Fixture body legacy', body_html: '<p>Fixture body legacy</p>' } }));
+    await page.route('**/api/mail/messages/*/body**', route => {
+      const url = new URL(route.request().url());
+      const copyId = url.pathname.split('/').at(-2);
+      return route.fulfill({ json: {
+        attachments: [{ part: 'fixture-part', filename: 'gmail-fixture.txt' }],
+        text: `Fixture body lazy ${copyId}`,
+        html: `<p>Fixture body lazy ${copyId}</p><img src="https://tracker.example.test/pixel.gif"><a href="https://example.test">Safe link</a>`,
+      } });
+    });
     await page.route('**/api/mail/conversations/*/overrides', route => route.fulfill({ json: { ok: true, overrides: [] } }));
     await use(fixture);
   },

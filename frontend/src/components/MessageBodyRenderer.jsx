@@ -1,6 +1,7 @@
 import { useEffect, useRef, useMemo } from 'react';
 export { EMAIL_SANITIZE_POLICY, sanitizeMessageHtml, emailCsp, EMAIL_BASE_TAG, buildSrcDoc } from './messageBodySecurity.js';
-import { sanitizeMessageHtml, buildSrcDoc } from './messageBodySecurity.js';
+import { sanitizeMessageHtml, buildSrcDoc, escapeMessageText } from './messageBodySecurity.js';
+import { installMessageQuoteFolding } from './messageQuoteFolding.js';
 
 /**
  * SafeMessageFrame — shared production HTML body renderer using a sandboxed iframe.
@@ -20,15 +21,16 @@ import { sanitizeMessageHtml, buildSrcDoc } from './messageBodySecurity.js';
  * CSS external URLs are blocked by CSP + regex sanitization.
  * iframe/object/embed/form are stripped by DOMPurify FORBID_TAGS.
  */
-export default function MessageBodyRenderer({ html = '', text = '', remoteImages = false, collapseQuotes = false, onQuoteDetected = null, onHeightChange = null, iframeRef: externalIframeRef = null, onLoad = null, title = 'Message body', style: frameStyle = null }) {
+export default function MessageBodyRenderer({ html = '', text = '', remoteImages = false, quoteFolding = true, onQuoteDetected = null, onHeightChange = null, iframeRef: externalIframeRef = null, onLoad = null, title = 'Message body', showQuotedTextLabel = 'Show quoted text', hideQuotedTextLabel = 'Hide quoted text', style: frameStyle = null }) {
   const internalIframeRef = useRef(null);
   const iframeRef = externalIframeRef || internalIframeRef;
 
   const srcDoc = useMemo(() => {
-    if (!html) return null;
-    const sanitized = sanitizeMessageHtml(html, { remoteImages });
-    return buildSrcDoc(sanitized, { remoteImages });
-  }, [html, remoteImages]);
+    const content = html
+      ? sanitizeMessageHtml(html, { remoteImages })
+      : `<pre data-mailflow-plain-text="true">${escapeMessageText(text)}</pre>`;
+    return buildSrcDoc(content, { remoteImages });
+  }, [html, text, remoteImages]);
 
   // Auto-height: measure the iframe content and set the iframe height
   // so no internal scrollbar appears (same approach as MessagePane).
@@ -51,35 +53,7 @@ export default function MessageBodyRenderer({ html = '', text = '', remoteImages
       const doc = iframe.contentDocument;
       if (!doc) return;
       const expanded = new Map();
-      const quoteTextRe = /^\s*(On .+ wrote:|Dnia .+ napisał|-----Original Message-----|-----Wiadomość oryginalna-----)[\s\S]*$/m;
-      const detectAndApplyQuotes = () => {
-        const quoteNodes = doc.querySelectorAll('blockquote, .gmail_quote, .moz-quote-container, .yahoo_quoted');
-        const text = doc.body?.textContent || '';
-        const hasTextQuote = quoteTextRe.test(text);
-        const hasQuote = quoteNodes.length > 0 || hasTextQuote;
-        onQuoteDetected?.(hasQuote);
-        for (const quote of quoteNodes) quote.style.display = collapseQuotes ? 'none' : '';
-        if (hasTextQuote && !doc.querySelector('[data-mailflow-text-quote]')) {
-          const match = text.match(quoteTextRe);
-          const walker = doc.createTreeWalker(doc.body, NodeFilter.SHOW_TEXT);
-          let node;
-          while ((node = walker.nextNode())) {
-            const index = node.nodeValue?.indexOf(match?.[1] || '');
-            if (index >= 0) {
-              const range = doc.createRange();
-              range.setStart(node, index);
-              range.setEnd(doc.body, doc.body.childNodes.length);
-              const wrapper = doc.createElement('span');
-              wrapper.dataset.mailflowTextQuote = 'true';
-              wrapper.appendChild(range.extractContents());
-              range.insertNode(wrapper);
-              break;
-            }
-          }
-        }
-        const textQuote = doc.querySelector('[data-mailflow-text-quote]');
-        if (textQuote) textQuote.style.display = collapseQuotes ? 'none' : '';
-      };
+      let quoteResult = { count: 0 };
       const expandScrollContainers = () => {
         const elements = [...doc.querySelectorAll('*')].reverse();
         for (const el of elements) {
@@ -117,10 +91,17 @@ export default function MessageBodyRenderer({ html = '', text = '', remoteImages
         expanded.clear();
       };
       const measureExpanded = () => {
-        detectAndApplyQuotes();
         expandScrollContainers();
         measure();
       };
+      if (quoteFolding) {
+        quoteResult = installMessageQuoteFolding(doc, {
+          showLabel: showQuotedTextLabel,
+          hideLabel: hideQuotedTextLabel,
+          onChange: measureExpanded,
+        });
+      }
+      onQuoteDetected?.(quoteResult.count > 0);
       const images = [...doc.images];
       const onDocumentClick = (event) => {
         const anchor = event.target?.closest?.('a');
@@ -163,9 +144,8 @@ export default function MessageBodyRenderer({ html = '', text = '', remoteImages
       cleanup?.();
       iframe.removeEventListener('load', onLoaded);
     };
-  }, [srcDoc, remoteImages, collapseQuotes, onQuoteDetected, onHeightChange, onLoad, iframeRef]);
+  }, [srcDoc, remoteImages, quoteFolding, showQuotedTextLabel, hideQuotedTextLabel, onQuoteDetected, onHeightChange, onLoad, iframeRef]);
 
-  if (!html) return <p style={{ whiteSpace: 'pre-wrap' }}>{text}</p>;
 
   return (
     <iframe
@@ -183,7 +163,7 @@ export default function MessageBodyRenderer({ html = '', text = '', remoteImages
         ...frameStyle,
       }}
       // Prevent the iframe from being a drag/drop target for external content.
-      // Prevent the iframe from being a drag/drop target for external content.
-      onDragStart={(e) => e.preventDefault()}    />
+      onDragStart={(e) => e.preventDefault()}
+    />
   );
 }

@@ -47,13 +47,7 @@ function parseAddressField(raw) {
   } catch { return ''; }
 }
 
-function linkifyText(text) {
-  const escaped = text.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
-  return escaped.replace(
-    /https?:\/\/[^\s<>"']+/g,
-    url => `<a href="${url}" target="_blank" rel="noopener noreferrer" style="color:inherit">${url}</a>`
-  );
-}
+
 
 function formatBytes(bytes) {
   if (!bytes) return '';
@@ -1049,7 +1043,8 @@ export default function MessagePane({ windowMessageId = null, onWindowClose = nu
       isReplyAll: replyAll,
       originalFrom: sender,
       allRecipients,
-      threadId: message.thread_id,
+      threadId: message.thread_key || message.thread_id,
+      threadCacheId: message.thread_id || message.thread_key,
     });
   };
 
@@ -2411,6 +2406,8 @@ ${bodyContent}
                 remoteImages={allowRemoteImages}
                 iframeRef={iframeRef}
                 title={t('message.emailFrameTitle')}
+                showQuotedTextLabel={t('conversation.showQuotedText')}
+                hideQuotedTextLabel={t('conversation.hideQuotedText')}
                 style={{ width: '1px', minWidth: '100%', height: '300px' }}
               />
             )}
@@ -2418,64 +2415,23 @@ ${bodyContent}
         </div>
       )}
 
-      {/* Plain-text email — no internal scroll, outer container handles it */}
       {!loadingBody && !bodyError && body?.text && !body?.html && (
-        <div style={{
-          padding: isMobile ? '0 0px 16px' : '0 28px 24px',
-        }}>
-          {message.list_unsubscribe && !message.unsubscribed_at && unsubscribeStatus !== 'done' && (
-            <div className="msg-notice" style={{
-              marginBottom: 10, padding: '9px 14px',
-              background: 'var(--bg-secondary)', border: '1px solid var(--border)',
-              borderLeft: '3px solid var(--text-tertiary)', borderRadius: 8,
-              display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap',
-              fontSize: 12, color: 'var(--text-secondary)',
-            }}>
-              <span style={{ flex: 1 }}>{t('message.unsubscribe.info')}</span>
-              <button onClick={handleUnsubscribe} disabled={unsubscribeStatus === 'loading'}
-                style={{
-                  background: 'none', border: '1px solid var(--border)', borderRadius: 5,
-                  padding: '3px 9px', cursor: unsubscribeStatus === 'loading' ? 'default' : 'pointer',
-                  color: unsubscribeStatus === 'error' ? 'var(--red, #e53e3e)' : 'var(--text-primary)',
-                  fontSize: 11, fontWeight: 500, opacity: unsubscribeStatus === 'loading' ? 0.5 : 1,
-                }}>
-                {unsubscribeStatus === 'loading' ? t('common.loading') :
-                 unsubscribeStatus === 'error' ? t('message.unsubscribe.error') :
-                 t('message.unsubscribe.button')}
-              </button>
-            </div>
-          )}
-          {!message.category && (categorizationEnabled || accounts.find(a => a.id === message.account_id)?.categorization_enabled) && aiStatus?.enabled && (
-            <div className="msg-notice" style={{
-              marginBottom: 10, padding: '9px 14px',
-              background: 'var(--bg-secondary)', border: '1px solid var(--border)',
-              borderLeft: '3px solid var(--text-tertiary)', borderRadius: 8,
-              display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap',
-              fontSize: 12, color: 'var(--text-secondary)',
-            }}>
-              <span style={{ flex: 1 }}>{t('message.aiClassify.info')}</span>
-              <button onClick={handleAiClassify} disabled={aiClassifying}
-                style={{
-                  background: 'none', border: '1px solid var(--border)', borderRadius: 5,
-                  padding: '3px 9px', cursor: aiClassifying ? 'default' : 'pointer',
-                  color: 'var(--text-primary)', fontSize: 11, fontWeight: 500,
-                  opacity: aiClassifying ? 0.5 : 1,
-                }}>
-                {aiClassifying ? t('common.loading') : t('message.aiClassify.button')}
-              </button>
-            </div>
-          )}
+        <div style={{ padding: isMobile ? '0 0px 16px' : '0 28px 24px' }}>
           <div className="msg-card" style={{
-            margin: 0, padding: '14px 16px 12px',
-            whiteSpace: 'pre-wrap', wordBreak: 'break-word',
-            fontSize: 14, color: '#1a1a1a', lineHeight: 1.7,
-            fontFamily: 'DM Sans, sans-serif', background: 'white',
+            margin: 0, padding: '14px 16px 12px', background: 'white',
             borderRadius: isMobile ? 0 : 10,
             border: isMobile ? 'none' : '1px solid var(--border-subtle)',
-            overflow: 'hidden',
-          }}
-            dangerouslySetInnerHTML={{ __html: linkifyText(body.text) }}
-          />
+            overflow: 'hidden', contain: 'layout',
+          }}>
+            <MessageBodyRenderer
+              text={body.text}
+              iframeRef={iframeRef}
+              title={t('message.emailFrameTitle')}
+              showQuotedTextLabel={t('conversation.showQuotedText')}
+              hideQuotedTextLabel={t('conversation.hideQuotedText')}
+              style={{ width: '1px', minWidth: '100%', height: '300px' }}
+            />
+          </div>
         </div>
       )}
       </div>{/* end single scroll container */}

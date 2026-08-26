@@ -75,6 +75,11 @@ export async function listMessages({ userId, accountId, folder = 'INBOX', limit 
   if (threaded === 'true' || threaded === true) {
     const filterValues = [...values];
     const threadAccountParam = isSpecificAccount ? [resolvedAccountId] : scopedAccountIds;
+    // Legacy thread_key values are only account-local. In unified inboxes, expose a
+    // composite row/cache identity while retaining the raw thread_key for expansion.
+    const threadIdentityExpr = isSpecificAccount
+      ? 'm.thread_key'
+      : `(m.account_id::text || ':' || m.thread_key)`;
     // For INBOX-specific views the thread badge must match the expansion, so scope
     // thread_totals to that folder. For other folders (All Mail, Sent, etc.) count
     // across all folders so the badge reflects the true thread size.
@@ -84,17 +89,18 @@ export async function listMessages({ userId, accountId, folder = 'INBOX', limit 
 
     const threadResult = await query(`
       WITH paged_threads AS (
-        SELECT m.thread_key AS thread_id
+        SELECT ${threadIdentityExpr} AS thread_id
         FROM messages m
         WHERE ${where}
-        GROUP BY m.thread_key
+        GROUP BY ${threadIdentityExpr}
         ORDER BY MAX(m.date) DESC
         LIMIT $${p + 1} OFFSET $${p + 2}
       ),
       deduped AS MATERIALIZED (
         SELECT DISTINCT ON (m.account_id, m.thread_key, m.message_id)
                m.id, m.uid, m.folder, m.message_id,
-               m.thread_key AS thread_id,
+               ${threadIdentityExpr} AS thread_id,
+               m.thread_key,
                m.subject, m.from_name, m.from_email,
                m.to_addresses, m.cc_addresses, m.reply_to, m.in_reply_to,
                m.date, m.snippet, m.is_read, m.is_starred,
@@ -110,7 +116,7 @@ export async function listMessages({ userId, accountId, folder = 'INBOX', limit 
                               AND co.primary_email = lower(m.from_email)
                               AND co.photo_data IS NOT NULL
         WHERE ${where}
-          AND m.thread_key IN (SELECT thread_id FROM paged_threads)
+          AND ${threadIdentityExpr} IN (SELECT thread_id FROM paged_threads)
         ORDER BY m.account_id,
                  m.thread_key,
                  m.message_id,
@@ -118,15 +124,15 @@ export async function listMessages({ userId, accountId, folder = 'INBOX', limit 
                  m.date ASC
       ),
       thread_totals AS (
-        SELECT m.thread_key AS thread_id,
+        SELECT ${threadIdentityExpr} AS thread_id,
                COUNT(DISTINCT m.message_id)::int AS message_count
         FROM messages m
         WHERE m.account_id = ANY($${p})
           AND m.is_deleted = false
           AND m.message_id IS NOT NULL
           ${threadFolderFilter}
-          AND m.thread_key IN (SELECT thread_id FROM paged_threads)
-        GROUP BY m.thread_key
+          AND ${threadIdentityExpr} IN (SELECT thread_id FROM paged_threads)
+        GROUP BY ${threadIdentityExpr}
       ),
       ranked AS (
         SELECT d.*,
@@ -140,7 +146,7 @@ export async function listMessages({ userId, accountId, folder = 'INBOX', limit 
         FROM deduped d
         LEFT JOIN thread_totals tt ON tt.thread_id = d.thread_id
       )
-      SELECT id, uid, folder, message_id, thread_id, thread_subject AS subject,
+      SELECT id, uid, folder, message_id, thread_id, thread_key, thread_subject AS subject,
              thread_from_name AS from_name, thread_from_email AS from_email,
              to_addresses, cc_addresses, reply_to, in_reply_to,
              date, snippet, is_starred, is_read, has_attachments, account_id,
@@ -154,7 +160,7 @@ export async function listMessages({ userId, accountId, folder = 'INBOX', limit 
     `, [...filterValues, threadAccountParam, safeLimit, safeOffset]);
 
     const threadCountResult = await query(`
-      SELECT COUNT(DISTINCT m.thread_key)::int AS total
+      SELECT COUNT(DISTINCT ${threadIdentityExpr})::int AS total
       FROM messages m
       WHERE ${where}
     `, filterValues);
