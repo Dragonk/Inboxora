@@ -21,7 +21,7 @@ import { installMessageQuoteFolding } from './messageQuoteFolding.js';
  * CSS external URLs are blocked by CSP + regex sanitization.
  * iframe/object/embed/form are stripped by DOMPurify FORBID_TAGS.
  */
-export default function MessageBodyRenderer({ html = '', text = '', remoteImages = false, quoteFolding = true, onQuoteDetected = null, onHeightChange = null, iframeRef: externalIframeRef = null, onLoad = null, title = 'Message body', showQuotedTextLabel = 'Show quoted text', hideQuotedTextLabel = 'Hide quoted text', style: frameStyle = null }) {
+export default function MessageBodyRenderer({ html = '', text = '', remoteImages = false, quoteFolding = true, onQuoteDetected = null, onHeightChange = null, iframeRef: externalIframeRef = null, onLoad = null, title = 'Message body', showQuotedTextLabel = 'Show quoted text', hideQuotedTextLabel = 'Hide quoted text', style: frameStyle = null, onContextMenu = null }) {
   const internalIframeRef = useRef(null);
   const iframeRef = externalIframeRef || internalIframeRef;
 
@@ -123,7 +123,17 @@ export default function MessageBodyRenderer({ html = '', text = '', remoteImages
           window.open(url.href, '_blank', 'noopener,noreferrer');
         } else event.preventDefault();
       };
+      const onDocumentContextMenu = event => {
+        if (!onContextMenu) return;
+        const target = event.target;
+        const selection = doc.getSelection?.().toString() || '';
+        if (target?.closest?.('a[href], img, input, textarea, select, button, [role="button"], [contenteditable="true"], [contenteditable=""]')) return;
+        event.preventDefault();
+        const rect = iframe.getBoundingClientRect();
+        onContextMenu({ x: rect.left + event.clientX, y: rect.top + event.clientY, selectedText: selection });
+      };
       doc.addEventListener('click', onDocumentClick);
+      doc.addEventListener('contextmenu', onDocumentContextMenu);
       for (const image of images) {
         image.addEventListener('load', measureExpanded);
         image.addEventListener('error', measureExpanded);
@@ -137,6 +147,7 @@ export default function MessageBodyRenderer({ html = '', text = '', remoteImages
       onLoad?.();
       return () => {
         doc.removeEventListener('click', onDocumentClick);
+        doc.removeEventListener('contextmenu', onDocumentContextMenu);
         for (const image of images) {
           image.removeEventListener('load', measureExpanded);
           image.removeEventListener('error', measureExpanded);
@@ -153,7 +164,7 @@ export default function MessageBodyRenderer({ html = '', text = '', remoteImages
       cleanup?.();
       iframe.removeEventListener('load', onLoaded);
     };
-  }, [srcDoc, remoteImages, quoteFolding, showQuotedTextLabel, hideQuotedTextLabel, onQuoteDetected, onHeightChange, onLoad, iframeRef]);
+  }, [srcDoc, remoteImages, quoteFolding, showQuotedTextLabel, hideQuotedTextLabel, onQuoteDetected, onHeightChange, onLoad, onContextMenu, iframeRef]);
 
 
   return (

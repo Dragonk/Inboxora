@@ -1,3 +1,4 @@
+/* eslint-disable no-unused-vars */
 import { useEffect, useLayoutEffect, useState, useRef, useCallback, useMemo, lazy, Suspense } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useStore } from '../store/index.js';
@@ -16,6 +17,7 @@ import { renderMarkdown } from '../utils/renderMarkdown.js';
 import { pickReplyAlias, collectOwnAddresses } from '../utils/replyAlias.js';
 import { buildReplyHeaders } from '../utils/composeFromMessage.js';
 import MessageBodyRenderer, { sanitizeMessageHtml } from './MessageBodyRenderer.jsx';
+import MessageDetailContent from './MessageDetailContent.jsx';
 const USE_DIV_RENDER = import.meta.env.VITE_EMAIL_DIV_RENDER === 'true';
 const MESSAGE_OPENING_EVENT = 'mailflow:message-opening';
 
@@ -1740,9 +1742,11 @@ ${bodyContent}
           });
         },
       });
+      return true;
     } catch {
       setUnsubscribeStatus('error');
       addNotification({ type: 'error', title: t('message.unsubscribe.error') });
+      return false;
     }
   };
 
@@ -2103,350 +2107,26 @@ ${bodyContent}
 
         </div>
 
-        {/* Attachments */}
-        {attachments.length > 0 && (
-          <div style={{ marginBottom: 20 }}>
-            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8 }}>
-              <div style={{ fontSize: 12, color: 'var(--text-tertiary)', fontWeight: 500 }}>
-                {t('message.attachment', { count: attachments.length })}
-              </div>
-              {attachments.length > 1 && (
-                <a
-                  href={`/api/mail/messages/${message.id}/attachments.zip`}
-                  download
-                  style={{
-                    fontSize: 12, color: 'var(--accent)', textDecoration: 'none',
-                    display: 'flex', alignItems: 'center', gap: 4,
-                  }}
-                >
-                  <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                    <path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/>
-                    <polyline points="7 10 12 15 17 10"/>
-                    <line x1="12" y1="15" x2="12" y2="3"/>
-                  </svg>
-                  {t('message.downloadAll')}
-                </a>
-              )}
-            </div>
-            <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
-              {attachments.map((att, i) => (
-                <button
-                  key={i}
-                  onClick={() => handleDownload(message.id, att.part, att.filename)}
-                  disabled={downloadingPart === att.part}
-                  style={{
-                    display: 'flex', alignItems: 'center', gap: 8,
-                    padding: '8px 12px', borderRadius: 8,
-                    background: 'var(--bg-secondary)',
-                    border: '1px solid var(--border)',
-                    cursor: downloadingPart === att.part ? 'wait' : 'pointer',
-                    color: 'var(--text-primary)',
-                    transition: 'background 0.1s',
-                    maxWidth: 240,
-                  }}
-                  onMouseEnter={e => e.currentTarget.style.background = 'var(--bg-tertiary)'}
-                  onMouseLeave={e => e.currentTarget.style.background = 'var(--bg-secondary)'}
-                >
-                  <span style={{ display: 'flex', flexShrink: 0, color: 'var(--text-secondary)' }}>{fileIcon(att.type)}</span>
-                  <div style={{ minWidth: 0, textAlign: 'left' }}>
-                    <div style={{
-                      fontSize: 12, fontWeight: 500,
-                      overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
-                    }}>
-                      {att.filename}
-                    </div>
-                    <div style={{ fontSize: 11, color: 'var(--text-tertiary)' }}>
-                      {downloadingPart === att.part ? t('message.downloading') : formatBytes(att.size)}
-                    </div>
-                  </div>
-                  <svg width="13" height="13" viewBox="0 0 24 24" fill="none"
-                    stroke="var(--text-tertiary)" strokeWidth="2" style={{ flexShrink: 0 }}>
-                    <path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/>
-                    <polyline points="7 10 12 15 17 10"/>
-                    <line x1="12" y1="15" x2="12" y2="3"/>
-                  </svg>
-                </button>
-              ))}
-            </div>
-          </div>
-        )}
-
-        {/* AI action results — pinned boxes above the message (#204) */}
-        {Object.keys(aiResults).length > 0 && (
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 10, marginBottom: 16 }}>
-            {Object.entries(aiResults).map(([key, result]) => {
-              const action = key === BUILTIN_SUMMARIZE.id
-                ? BUILTIN_SUMMARIZE
-                : (aiActions || []).find(a => a.id === key);
-              return (
-                <AiResultBox
-                  key={key}
-                  result={result}
-                  canRegen={!!action}
-                  onRegen={() => action && runAiAction(action, { force: true })}
-                  onDismiss={() => dismissAiResult(key)}
-                />
-              );
-            })}
-          </div>
-        )}
-
-        {/* Loading — skeleton body lines */}
-        {loadingBody && (
-          <div style={{ padding: '20px 0', display: 'flex', flexDirection: 'column', gap: 8 }}>
-            <div className="skeleton-line" style={{ height: 13, width: '62%', borderRadius: 4 }} />
-            <div className="skeleton-line" style={{ height: 13, width: '88%', borderRadius: 4 }} />
-            <div className="skeleton-line" style={{ height: 13, width: '75%', borderRadius: 4 }} />
-            <div className="skeleton-line" style={{ height: 13, width: '50%', borderRadius: 4, marginBottom: 8 }} />
-            <div className="skeleton-line" style={{ height: 13, width: '82%', borderRadius: 4 }} />
-            <div className="skeleton-line" style={{ height: 13, width: '68%', borderRadius: 4 }} />
-            <div className="skeleton-line" style={{ height: 13, width: '90%', borderRadius: 4 }} />
-            <div className="skeleton-line" style={{ height: 13, width: '58%', borderRadius: 4 }} />
-          </div>
-        )}
-
-        {/* Error */}
-        {!loadingBody && bodyError && (
-          <div style={{
-            display: 'flex', flexDirection: 'column', alignItems: 'flex-start',
-            gap: 12, padding: '20px 0',
-          }}>
-            <div style={{
-              background: 'var(--bg-secondary)', border: '1px solid var(--border)',
-              borderRadius: 10, padding: '16px 20px', maxWidth: 480,
-            }}>
-              <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--text-primary)', marginBottom: 6 }}>
-                {t('message.loadingError')}
-              </div>
-              <div style={{ fontSize: 13, color: 'var(--text-secondary)', lineHeight: 1.5 }}>
-                {bodyError}
-              </div>
-            </div>
-            <button
-              onClick={() => { delete bodyCache.current[selectedMessageId]; setRetryKey(k => k + 1); }}
-              style={{
-                background: 'var(--bg-secondary)', border: '1px solid var(--border)',
-                borderRadius: 6, padding: '6px 14px', cursor: 'pointer',
-                color: 'var(--text-secondary)', fontSize: 13,
-              }}
-              onMouseEnter={e => { e.currentTarget.style.background = 'var(--bg-tertiary)'; e.currentTarget.style.color = 'var(--text-primary)'; }}
-              onMouseLeave={e => { e.currentTarget.style.background = 'var(--bg-secondary)'; e.currentTarget.style.color = 'var(--text-secondary)'; }}
-            >
-              {t('common.retry')}
-            </button>
-          </div>
-        )}
-
-        {/* No content */}
-        {!loadingBody && !bodyError && body && !body.html && !body.text && (
-          <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-start', gap: 12, padding: '20px 0' }}>
-            <div style={{ fontSize: 14, color: 'var(--text-tertiary)' }}>
-              {t('message.noContent')}
-            </div>
-            <button
-              onClick={() => { delete bodyCache.current[selectedMessageId]; setRetryKey(k => k + 1); }}
-              style={{
-                background: 'var(--bg-secondary)', border: '1px solid var(--border)',
-                borderRadius: 6, padding: '6px 14px', cursor: 'pointer',
-                color: 'var(--text-secondary)', fontSize: 13,
-              }}
-              onMouseEnter={e => { e.currentTarget.style.background = 'var(--bg-tertiary)'; e.currentTarget.style.color = 'var(--text-primary)'; }}
-              onMouseLeave={e => { e.currentTarget.style.background = 'var(--bg-secondary)'; e.currentTarget.style.color = 'var(--text-secondary)'; }}
-            >
-              {t('common.retry')}
-            </button>
-          </div>
-        )}
-      </div>
-
-      {/* HTML email — iframe sized to full content height; outer container scrolls */}
-      {!loadingBody && !bodyError && body?.html && (
+        {/* Shared physical-copy detail preserves the native attachment → notices → body order. */}
         <div style={{ padding: isMobile ? '0 0 16px' : '0 28px 24px' }}>
-          {/* Unsubscribe banner — shown for newsletter messages that have a List-Unsubscribe header */}
-          {message.list_unsubscribe && !message.unsubscribed_at && unsubscribeStatus !== 'done' && (
-            <div className="msg-notice" style={{
-              marginBottom: 10, padding: '9px 14px',
-              background: 'var(--bg-secondary)',
-              border: '1px solid var(--border)',
-              borderLeft: '3px solid var(--text-tertiary)',
-              borderRadius: 8,
-              display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap',
-              fontSize: 12, color: 'var(--text-secondary)',
-            }}>
-              <span style={{ flex: 1 }}>{t('message.unsubscribe.info')}</span>
-              <button
-                onClick={handleUnsubscribe}
-                disabled={unsubscribeStatus === 'loading'}
-                style={{
-                  background: 'none', border: '1px solid var(--border)',
-                  borderRadius: 5, padding: '3px 9px',
-                  cursor: unsubscribeStatus === 'loading' ? 'default' : 'pointer',
-                  color: unsubscribeStatus === 'error' ? 'var(--red, #e53e3e)' : 'var(--text-primary)',
-                  fontSize: 11, fontWeight: 500,
-                  opacity: unsubscribeStatus === 'loading' ? 0.5 : 1,
-                }}
-              >
-                {unsubscribeStatus === 'loading' ? t('common.loading') :
-                 unsubscribeStatus === 'error' ? t('message.unsubscribe.error') :
-                 t('message.unsubscribe.button')}
-              </button>
-            </div>
-          )}
-
-          {/* AI classify banner — shown for messages with no category signal when AI is available */}
-          {!message.category && (categorizationEnabled || accounts.find(a => a.id === message.account_id)?.categorization_enabled) && aiStatus?.enabled && (
-            <div className="msg-notice" style={{
-              marginBottom: 10, padding: '9px 14px',
-              background: 'var(--bg-secondary)',
-              border: '1px solid var(--border)',
-              borderLeft: '3px solid var(--text-tertiary)',
-              borderRadius: 8,
-              display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap',
-              fontSize: 12, color: 'var(--text-secondary)',
-            }}>
-              <span style={{ flex: 1 }}>{t('message.aiClassify.info')}</span>
-              <button
-                onClick={handleAiClassify}
-                disabled={aiClassifying}
-                style={{
-                  background: 'none', border: '1px solid var(--border)',
-                  borderRadius: 5, padding: '3px 9px',
-                  cursor: aiClassifying ? 'default' : 'pointer',
-                  color: 'var(--text-primary)',
-                  fontSize: 11, fontWeight: 500,
-                  opacity: aiClassifying ? 0.5 : 1,
-                }}
-              >
-                {aiClassifying ? t('common.loading') : t('message.aiClassify.button')}
-              </button>
-            </div>
-          )}
-
-          {body.hasBlockedRemoteImages && (
-            <div className="msg-notice" style={{
-              marginBottom: 10, padding: '9px 14px',
-              background: 'var(--bg-secondary)',
-              border: '1px solid var(--border)',
-              borderLeft: '3px solid var(--accent)',
-              borderRadius: 8,
-              display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap',
-              fontSize: 12, color: 'var(--text-secondary)',
-            }}>
-              <svg width="13" height="13" viewBox="0 0 24 24" fill="none"
-                stroke="var(--accent)" strokeWidth="2" style={{ flexShrink: 0 }}>
-                <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/>
-              </svg>
-              <span>{t('message.remoteImagesBlocked')}</span>
-              <div style={{ display: 'flex', gap: 6, marginLeft: 'auto', flexWrap: 'wrap' }}>
-                {[
-                  { label: t('message.loadImages'), handler: handleLoadImages, disabled: false },
-                  message.from_email && {
-                    label: t('message.allowSender', { email: message.from_email }),
-                    handler: handleAllowSender, disabled: savingAllow,
-                  },
-                  (message.from_email?.includes('@')) && {
-                    label: t('message.allowDomain', { domain: message.from_email.split('@')[1] }),
-                    handler: handleAllowDomain, disabled: savingAllow,
-                  },
-                ].filter(Boolean).map(({ label, handler, disabled }) => (
-                  <button key={label} onClick={handler} disabled={disabled}
-                    style={{
-                      background: 'none', border: '1px solid var(--border)',
-                      borderRadius: 5, padding: '3px 9px', cursor: disabled ? 'default' : 'pointer',
-                      color: 'var(--accent)', fontSize: 11, fontWeight: 500,
-                      opacity: disabled ? 0.5 : 1,
-                    }}
-                    onMouseEnter={e => { if (!disabled) e.currentTarget.style.background = 'var(--bg-tertiary)'; }}
-                    onMouseLeave={e => { e.currentTarget.style.background = 'none'; }}
-                  >{label}</button>
-                ))}
-              </div>
-            </div>
-          )}
-          <div className="msg-card" style={{
-            position: 'relative',
-            padding: '14px 16px 12px',
-            background: 'white',
-            borderRadius: isMobile ? 0 : 10,
-            border: isMobile ? 'none' : '1px solid var(--border-subtle)',
-            overflow: 'hidden',
-            // contain:layout establishes a containing block for any position:fixed
-            // descendants (including the inner email div if email CSS repositions it).
-            contain: 'layout',
-          }}>
-            {USE_DIV_RENDER ? (
-              // Three-layer structure keeps concerns separate:
-              // Outer  — click interception, height/overflow for scale-to-fit,
-              //          position:relative + parent contain:layout contain hostile CSS.
-              // Scale  — receives the CSS transform for scale-to-fit; carries no
-              //          email CSS class so transform:none!important on .email-*
-              //          never cancels the scale.
-              // Inner  — scoped email CSS root (.email-* class + data attribute);
-              //          transform:none!important here neutralises hostile body CSS
-              //          without touching the scale wrapper above it.
-              <div
-                ref={outerRef}
-                style={{ position: 'relative', width: '100%' }}
-                onClick={handleEmailClick}
-                onContextMenu={handlePaneContextMenu}
-              >
-                <div ref={scaleRef}>
-                  <div
-                    ref={innerRef}
-                    data-mailflow-email={prepared?.prefix}
-                    className={prepared?.prefix ?? ''}
-                    dangerouslySetInnerHTML={prepared ? { __html: prepared.html } : undefined}
-                  />
-                </div>
-              </div>
-            ) : (
-              <MessageBodyRenderer
-                html={body.html}
-                text={body.text || ''}
-                remoteImages={allowRemoteImages}
-                iframeRef={iframeRef}
-                title={t('message.emailFrameTitle')}
-                showQuotedTextLabel={t('conversation.showQuotedText')}
-                hideQuotedTextLabel={t('conversation.hideQuotedText')}
-                style={{ width: '1px', minWidth: '100%', height: '300px' }}
-              />
-            )}
-          </div>
+          <MessageDetailContent
+            physicalCopyId={message.id}
+            message={message}
+            body={body}
+            status={{ loading: loadingBody, error: bodyError }}
+            remoteImages={allowRemoteImages}
+            onLoadBody={() => { delete bodyCache.current[selectedMessageId]; setRetryKey(k => k + 1); }}
+            onRemoteImages={handleLoadImages}
+            onAllowSender={handleAllowSender}
+            onAllowDomain={handleAllowDomain}
+            onUnsubscribe={handleUnsubscribe}
+            onDownload={handleDownload}
+            onContextAction={handlePaneContextAction}
+            mobile={isMobile}
+          />
         </div>
-      )}
-
-      {!loadingBody && !bodyError && body?.text && !body?.html && (
-        <div style={{ padding: isMobile ? '0 0px 16px' : '0 28px 24px' }}>
-          <div className="msg-card" style={{
-            margin: 0, padding: '14px 16px 12px', background: 'white',
-            borderRadius: isMobile ? 0 : 10,
-            border: isMobile ? 'none' : '1px solid var(--border-subtle)',
-            overflow: 'hidden', contain: 'layout',
-          }}>
-            <MessageBodyRenderer
-              text={body.text}
-              iframeRef={iframeRef}
-              title={t('message.emailFrameTitle')}
-              showQuotedTextLabel={t('conversation.showQuotedText')}
-              hideQuotedTextLabel={t('conversation.hideQuotedText')}
-              style={{ width: '1px', minWidth: '100%', height: '300px' }}
-            />
-          </div>
-        </div>
-      )}
+      </div>
       </div>{/* end single scroll container */}
-
-      {contextMenu && (
-        <ContextMenu
-          x={contextMenu.x}
-          y={contextMenu.y}
-          message={contextMenu.message}
-          variant="messagePane"
-          selectedText={getPaneSelectionText()}
-          onClose={() => setContextMenu(null)}
-          onAction={handlePaneContextAction}
-        />
-      )}
 
       {findDialogOpen && (
         <div
