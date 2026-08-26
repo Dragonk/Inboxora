@@ -29,17 +29,21 @@ describe('Conversation Engine v2 primitives', () => {
     }, ['me@example.com', 'catchall@example.com'])).toBe('outgoing');
   });
 
-  it('deduplicates cross-account physical copies by stable RFC envelope, not body wrappers', () => {
+  it('deduplicates folder copies inside one account but separates managed accounts', () => {
     const common = {
       message_id: '<m1@test>', subject: 'Testowy mail', from_email: 'a@example.test',
       date: '2026-08-25T11:42:00.000Z', in_reply_to: null, thread_references: null,
     };
-    expect(logicalMessageIdentity({ ...common, body_text: 'Inbox wrapper' }, { userId: 'user-1' }).collisionKey)
-      .toBe(logicalMessageIdentity({ ...common, body_text: 'Sent wrapper with provider footer' }, { userId: 'user-1' }).collisionKey);
-    expect(logicalMessageIdentity({ ...common, from_email: 'collision@example.test' }, { userId: 'user-1' }).collisionKey)
-      .not.toBe(logicalMessageIdentity(common, { userId: 'user-1' }).collisionKey);
-    expect(logicalMessageIdentity({ ...common, thread_references: '<earlier@test>' }, { userId: 'user-1' }).collisionKey)
-      .toBe(logicalMessageIdentity({ ...common, thread_references: null }, { userId: 'user-1' }).collisionKey);
+    expect(logicalMessageIdentity({ ...common, body_text: 'Inbox wrapper' }, { userId: 'user-1', accountId: 'account-a' }).collisionKey)
+      .toBe(logicalMessageIdentity({ ...common, body_text: 'Sent wrapper with provider footer' }, { userId: 'user-1', accountId: 'account-a' }).collisionKey);
+    expect(logicalMessageIdentity({ ...common, from_email: 'collision@example.test' }, { userId: 'user-1', accountId: 'account-a' }).collisionKey)
+      .not.toBe(logicalMessageIdentity(common, { userId: 'user-1', accountId: 'account-a' }).collisionKey);
+    expect(logicalMessageIdentity({ ...common, thread_references: '<earlier@test>' }, { userId: 'user-1', accountId: 'account-a' }).collisionKey)
+      .toBe(logicalMessageIdentity({ ...common, thread_references: null }, { userId: 'user-1', accountId: 'account-a' }).collisionKey);
+    // Account locality is the persistence namespace; the stable collision discriminator
+    // intentionally remains the same so existing identities can be reused after migration.
+    expect(logicalMessageIdentity(common, { userId: 'user-1', accountId: 'account-a' }).collisionKey)
+      .toBe(logicalMessageIdentity(common, { userId: 'user-1', accountId: 'account-b' }).collisionKey);
   });
 
   it('uses the shared opaque Message-ID normalizer for canonical identity', () => {

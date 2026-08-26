@@ -10,16 +10,16 @@ import { query } from './db.js';
 // a message-level override for L1 could be picked up when querying for L2 in the
 // same conversation. Now we query message-level overrides ONLY by their exact
 // logical_message_id, and conversation-level overrides ONLY by conversation_id.
-export async function effectiveConversationOverride(client, { userId, conversationId, logicalMessageId = null }) {
+export async function effectiveConversationOverride(client, { userId, accountId, conversationId, logicalMessageId = null }) {
   // Conversation-level overrides (lock/unlock/merge) — keyed by conversation_id only.
   const conversationResult = await client.query(`
     SELECT id, override_type, target_id, reason, logical_message_id, created_at
       FROM conversation_overrides
-     WHERE user_id = $1
+     WHERE user_id = $1 AND account_id = $3
        AND conversation_id = $2
        AND logical_message_id IS NULL
      ORDER BY created_at DESC, id DESC
-  `, [userId, conversationId]);
+  `, [userId, conversationId, accountId]);
   const conversationLatest = new Map();
   for (const row of conversationResult.rows) {
     if (!conversationLatest.has(row.override_type)) conversationLatest.set(row.override_type, row);
@@ -32,10 +32,10 @@ export async function effectiveConversationOverride(client, { userId, conversati
     const messageResult = await client.query(`
       SELECT id, override_type, target_id, reason, logical_message_id, created_at
         FROM conversation_overrides
-       WHERE user_id = $1
+       WHERE user_id = $1 AND account_id = $3
          AND logical_message_id = $2
-       ORDER BY created_at DESC, id DESC
-    `, [userId, logicalMessageId]);
+         ORDER BY created_at DESC, id DESC
+    `, [userId, logicalMessageId, accountId]);
     for (const row of messageResult.rows) {
       if (!messageLatest.has(row.override_type)) messageLatest.set(row.override_type, row);
     }
@@ -81,20 +81,20 @@ export async function effectiveConversationOverride(client, { userId, conversati
   };
 }
 
-export async function resolveConversationAlias(client, { userId, conversationId }) {
+export async function resolveConversationAlias(client, { userId, accountId = null, conversationId }) {
   let current = conversationId;
   const seen = new Set();
   for (let i = 0; i < 20; i++) {
     if (seen.has(current)) throw new Error('Conversation alias cycle detected');
     seen.add(current);
-    const result = await client.query('SELECT canonical_conversation_id FROM conversation_aliases WHERE user_id = $1 AND alias_conversation_id = $2', [userId, current]);
+    const result = await client.query('SELECT canonical_conversation_id FROM conversation_aliases WHERE user_id = $1 AND alias_conversation_id = $2 AND ($3::uuid IS NULL OR account_id = $3)', [userId, current, accountId]);
     if (!result.rows[0] || result.rows[0].canonical_conversation_id === current) return current;
     current = result.rows[0].canonical_conversation_id;
   }
   throw new Error('Conversation alias chain too deep');
 }
 
-export async function assertNoAliasCycle(client, { userId, sourceConversationId, targetConversationId }) {
+export async function assertNoAliasCycle(client, { userId, accountId, sourceConversationId, targetConversationId }) {
   let current = targetConversationId;
   const seen = new Set();
   for (let i = 0; i < 20; i++) {
@@ -102,8 +102,8 @@ export async function assertNoAliasCycle(client, { userId, sourceConversationId,
     if (seen.has(current)) throw new Error('Conversation alias cycle detected');
     seen.add(current);
     const result = await client.query(
-      'SELECT canonical_conversation_id FROM conversation_aliases WHERE user_id = $1 AND alias_conversation_id = $2 FOR UPDATE',
-      [userId, current],
+      'SELECT canonical_conversation_id FROM conversation_aliases WHERE user_id = $1 AND account_id = $3 AND alias_conversation_id = $2 FOR UPDATE',
+      [userId, current, accountId],
     );
     const next = result.rows[0]?.canonical_conversation_id;
     if (!next || next === current) return;
@@ -133,8 +133,8 @@ export async function lockConversationsDeterministically(client, userId, ids) {
   return ordered;
 }
 
-export async function assertConversationOwner(client, userId, conversationId) {
-  const result = await client.query('SELECT id, user_id, manually_locked FROM conversations WHERE id = $1 AND user_id = $2 FOR UPDATE', [conversationId, userId]);
+export async function assertConversationOwner(client, userId, conversationId, accountId = null) {
+  const result = await client.query('SELECT id, user_id, manually_locked FROM conversations WHERE id = $1 AND user_id = $2 AND ($3::uuid IS NULL OR account_id = $3) FOR UPDATE', [conversationId, userId, accountId]);
   if (!result.rows[0]) { const error = new Error('Conversation not found'); error.statusCode = 404; throw error; }
   return result.rows[0];
 }

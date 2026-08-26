@@ -40,9 +40,9 @@ export function logicalMessageIdentity(message, { userId } = {}) {
   // Physical copies of one RFC message can legitimately have different stored bodies
   // (provider-added wrappers, remote-image sanitization, All Mail vs Sent copies).  Body
   // content therefore cannot participate in the collision discriminator.  Keep the key
-  // account-independent and based on stable RFC envelope evidence so copies held by two
-  // managed accounts collapse into one LogicalMessage, while genuinely colliding IDs with
-  // different sender/date/subject/reply evidence remain distinct.
+  // The discriminator stays stable across upgrades and folder/provider wrappers. Account
+  // locality is enforced by account_id in every lookup and unique index, not by changing
+  // the historical collision-key hash.
   const stable = [
     userId || '', canonicalMessageId || '', message.date || '',
     canonicalConversationSubject(message.subject || ''),

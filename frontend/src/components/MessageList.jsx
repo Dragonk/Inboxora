@@ -18,7 +18,7 @@ import { formatDate } from '../utils/formatDate.js';
 import { advanceSelectionAfterRemoval } from '../utils/listSelection.js';
 import { openReplyFromMessage, openForwardFromMessage } from '../utils/composeFromMessage.js';
 import SenderAvatarImage from './SenderAvatarImage.jsx';
-import { directionFromAddress, MessageDirection } from './MessagePresentation.jsx';
+import { accountOwnAddresses, directionFromAddress, MessageDirection } from './MessagePresentation.jsx';
 import { shortcutBus } from '../utils/shortcutBus.js';
 import { createLatestRequest } from '../utils/latestRequest.js';
 import { pendingMarkReadMap, completedMarkReadMap, setPending } from '../utils/pendingReads.js';
@@ -3662,7 +3662,7 @@ export default function MessageList() {
                 onToggleSelect={handleRowToggleSelect}
                 onRangeSelect={handleRangeSelect}
                 onLongPress={isMobile ? (id) => { setSelectionModeActive(true); toggleSelect(id); } : undefined}
-                ownAddresses={new Set(accounts.flatMap(account => [account.email_address, ...(account.aliases || []).map(alias => alias?.email || alias)]).map(address => String(address || '').toLowerCase()).filter(Boolean))}
+                accounts={accounts}
               />
             );
           })
@@ -4119,14 +4119,15 @@ function EmptyState({ folderSyncing, searchQuery, unreadOnly, selectedFolder, ac
   );
 }
 
-function ThreadRow({ message, isExpanded, threadMsgs, isLoadingThread, selectedMessageId, selectedMid, lastViewedMessageId, showAccount, isNarrow, onThreadClick, onThreadToggle, showMobileAvatars, showMessagePreviews, onSelect, onOpenWindow, onMarkRead, onStar, onDelete, hoverQuickActions, onContextMenu, onMove, isMobile, swipeLeftAction, swipeRightAction, onSwipeLeft, onSwipeRight, isChecked, selectionMode, onToggleSelect, onRangeSelect, onLongPress, ownAddresses }) {
+function ThreadRow({ message, isExpanded, threadMsgs, isLoadingThread, selectedMessageId, selectedMid, lastViewedMessageId, showAccount, isNarrow, onThreadClick, onThreadToggle, showMobileAvatars, showMessagePreviews, onSelect, onOpenWindow, onMarkRead, onStar, onDelete, hoverQuickActions, onContextMenu, onMove, isMobile, swipeLeftAction, swipeRightAction, onSwipeLeft, onSwipeRight, isChecked, selectionMode, onToggleSelect, onRangeSelect, onLongPress, accounts }) {
   const { t } = useTranslation();
   const [hovered, setHovered] = useState(false);
   const messageCount = message.message_count || 1;
   const unreadCount  = parseInt(message.unread_count) || 0;
   // A parent summarizes the conversation. Only a single-message parent can carry
   // one truthful direction; expanded physical children classify themselves below.
-  const parentDirection = directionFromAddress(message.from_email, ownAddresses);
+  const parentAccount = accounts.find(account => account.id === message.account_id);
+  const parentDirection = directionFromAddress(message.from_email, accountOwnAddresses(parentAccount, message));
   const isOutgoing = parentDirection === 'outgoing';
   const showParentDirection = messageCount === 1 && parentDirection;
 
@@ -4397,7 +4398,8 @@ function ThreadRow({ message, isExpanded, threadMsgs, isLoadingThread, selectedM
                     overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', flex: 1,
                   }}>
                     {(() => {
-                      const childDirection = directionFromAddress(msg.from_email, ownAddresses);
+                      const childAccount = accounts.find(account => account.id === msg.account_id);
+                      const childDirection = directionFromAddress(msg.from_email, accountOwnAddresses(childAccount, msg));
                       const childOutgoing = childDirection === 'outgoing';
                       return <>
                         {childDirection && <span style={{ marginRight: 5 }}><MessageDirection direction={childDirection} label={childOutgoing ? t('conversation.outgoingMessage') : t('conversation.incomingMessage')} /></span>}

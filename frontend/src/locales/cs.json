@@ -1135,7 +1135,8 @@
     "incomingMessage": "Příchozí zpráva",
     "outgoingMessage": "Odchozí zpráva",
     "expandMessage": "Rozbalit zprávu od {{sender}}: {{subject}}",
-    "collapseMessage": "Sbalit zprávu od {{sender}}: {{subject}}"
+    "collapseMessage": "Sbalit zprávu od {{sender}}: {{subject}}",
+    "summary": "Náhled:"
   },
   "diagnostics": {
     "section": "Diagnostika",

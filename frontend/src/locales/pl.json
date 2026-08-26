@@ -1135,7 +1135,8 @@
     "incomingMessage": "Wiadomość przychodząca",
     "outgoingMessage": "Wiadomość wychodząca",
     "expandMessage": "Rozwiń wiadomość od {{sender}}: {{subject}}",
-    "collapseMessage": "Zwiń wiadomość od {{sender}}: {{subject}}"
+    "collapseMessage": "Zwiń wiadomość od {{sender}}: {{subject}}",
+    "summary": "Skrót:"
   },
   "diagnostics": {
     "section": "Diagnostyka",

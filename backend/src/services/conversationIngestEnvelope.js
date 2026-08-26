@@ -34,31 +34,24 @@ function normalizeAddress(raw) {
 }
 
 export async function resolveOwnIdentityAddresses(db, accountId, message = null) {
-  // Direction is a user-level property. A message sent from managed account B and
-  // observed in account A must still be classified as outgoing. Resolve every managed
-  // address/alias owned by the account's user, not only aliases of the current account.
+  // Direction is account-local. Another managed account owned by the same user is
+  // an external correspondent from this account's perspective.
   const result = await db.query(`
-    SELECT owner.user_id,
-           COALESCE(json_agg(DISTINCT jsonb_build_object('email', owned.email_address))
-             FILTER (WHERE owned.email_address IS NOT NULL), '[]'::json) AS identities
-      FROM email_accounts owner
-      JOIN email_accounts owned ON owned.user_id = owner.user_id
-     WHERE owner.id = $1
-     GROUP BY owner.user_id
+    SELECT a.user_id, a.email_address,
+           COALESCE(json_agg(DISTINCT jsonb_build_object('email', aa.email))
+             FILTER (WHERE aa.email IS NOT NULL), '[]'::json) AS aliases
+      FROM email_accounts a
+      LEFT JOIN account_aliases aa ON aa.account_id = a.id
+     WHERE a.id = $1
+     GROUP BY a.user_id, a.email_address
   `, [accountId]);
-  const owned = result?.rows?.[0] || {};
-  const identities = (Array.isArray(owned.identities) ? owned.identities : [])
-    .map(item => item?.email || item)
-    .filter(Boolean);
-  const aliases = await db.query(`
-    SELECT aa.email
-      FROM email_accounts owner
-      JOIN email_accounts managed ON managed.user_id = owner.user_id
-      JOIN account_aliases aa ON aa.account_id = managed.id
-     WHERE owner.id = $1
-  `, [accountId]);
-  identities.push(...(aliases?.rows || []).map(row => row.email).filter(Boolean));
+  const account = result?.rows?.[0] || {};
+  const identities = [account.email_address,
+    ...(Array.isArray(account.aliases) ? account.aliases : []).map(item => item?.email || item),
+  ].filter(Boolean);
 
+  // Delivery headers identify aliases/catch-all addresses that delivered this copy
+  // to the current account; they do not import identities from other managed accounts.
   if (message?.delivery_addresses) {
     const delivery = Array.isArray(message.delivery_addresses)
       ? message.delivery_addresses
@@ -77,9 +70,7 @@ export async function resolveOwnIdentityAddresses(db, accountId, message = null)
       if (typeof headers.get === 'function') {
         const direct = headers.get(name) ?? headers.get(name.toLowerCase());
         if (direct != null) return direct;
-        for (const [key, value] of headers.entries()) {
-          if (String(key).toLowerCase() === name) return value;
-        }
+        for (const [key, value] of headers.entries()) if (String(key).toLowerCase() === name) return value;
       } else if (typeof headers === 'object') {
         const key = Object.keys(headers).find(candidate => candidate.toLowerCase() === name);
         if (key) return headers[key];
@@ -89,11 +80,9 @@ export async function resolveOwnIdentityAddresses(db, accountId, message = null)
   };
   for (const key of ['delivered-to', 'x-original-to', 'envelope-to']) {
     const value = headerValue(key);
-    if (value) {
-      for (const part of String(value).split(',')) {
-        const email = normalizeAddress(part);
-        if (email) identities.push(email);
-      }
+    if (value) for (const part of String(value).split(',')) {
+      const email = normalizeAddress(part);
+      if (email) identities.push(email);
     }
   }
   return [...new Set(identities.map(String).map(value => value.toLowerCase().trim()).filter(Boolean))];

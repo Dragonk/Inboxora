@@ -1135,7 +1135,8 @@
     "incomingMessage": "收到的邮件",
     "outgoingMessage": "发出的邮件",
     "expandMessage": "展开来自 {{sender}} 的邮件：{{subject}}",
-    "collapseMessage": "折叠来自 {{sender}} 的邮件：{{subject}}"
+    "collapseMessage": "折叠来自 {{sender}} 的邮件：{{subject}}",
+    "summary": "摘要："
   },
   "diagnostics": {
     "section": "诊断",

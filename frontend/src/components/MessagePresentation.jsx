@@ -1,3 +1,4 @@
+export { accountOwnAddresses, directionFromAddress, physicalCopyDirection } from '../utils/conversationDirection.js';
 import { useTranslation } from 'react-i18next';
 import { senderColor } from '../themes.js';
 import SenderAvatarImage from './SenderAvatarImage.jsx';
@@ -6,12 +7,6 @@ export function messageDirection(direction) {
   if (direction === 'outgoing' || direction === 'self') return 'outgoing';
   if (direction === 'incoming') return 'incoming';
   return null;
-}
-
-export function directionFromAddress(fromEmail, ownAddresses) {
-  const from = String(fromEmail || '').trim().toLowerCase();
-  if (!from || !ownAddresses?.size) return null;
-  return ownAddresses.has(from) ? 'outgoing' : 'incoming';
 }
 
 export function MessageDirection({ direction, label }) {
@@ -43,7 +38,14 @@ export function MessageActionBar({ onReply, onReplyAll, onForward, targetId }) {
     [t('message.replyAll'), onReplyAll, 'reply-all'],
     [t('message.forward'), onForward, 'forward'],
   ];
-  return <div data-conversation-message-actions="true" data-action-target-id={targetId} style={{ display: 'flex', alignItems: 'center', gap: 4, padding: '8px 0' }}>
+  return <div
+    data-conversation-message-actions="true"
+    data-action-target-id={targetId}
+    style={{
+      display: 'flex', alignItems: 'center', gap: 4, padding: '8px 16px',
+      borderBottom: '1px solid var(--border-subtle)', flexWrap: 'wrap',
+    }}
+  >
     {actions.map(([label, handler, action]) => <button key={action} type="button" data-message-action={action} data-action-target-id={targetId} onClick={handler} style={actionStyle}>{label}</button>)}
   </div>;
 }

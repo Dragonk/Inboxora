@@ -5,7 +5,7 @@ import ConversationMessage from './ConversationMessage.jsx';
 
 // Data-only CE adapter. It owns logical/physical identity and expansion policy;
 // MessagePane owns the pane geometry and ConversationMessage uses MessagePane visuals.
-export default function ConversationReader({ conversationId, targetLogicalMessageId = null, onReply }) {
+export default function ConversationReader({ conversationId, targetLogicalMessageId = null, selectedCopyId = null, selectedAccountId = null, accounts = [], onReply }) {
   const { t } = useTranslation();
   const [data, setData] = useState(null);
   const [error, setError] = useState(null);
@@ -22,8 +22,8 @@ export default function ConversationReader({ conversationId, targetLogicalMessag
       if (!active) return;
       const messages = result.logicalMessages || [];
       const newest = messages.at(-1)?.id;
-      // Keep the reader compact: exactly one valid logical message is expanded.
-      // A stale/deleted physical target must not leave the reader fully collapsed.
+      // Expand the selected/latest message initially. Each message keeps independent
+      // expand/collapse state afterwards, so multiple messages may stay open.
       const selected = messages.some(message => message.id === targetLogicalMessageId)
         ? targetLogicalMessageId
         : newest;
@@ -40,12 +40,18 @@ export default function ConversationReader({ conversationId, targetLogicalMessag
     aborters.current.get(logicalId)?.abort();
     const controller = new AbortController(); aborters.current.set(logicalId, controller);
     const logical = messages.find(item => item.id === logicalId);
-    const copy = [...(logical?.copies || [])].sort((a, b) => String(b.date || '').localeCompare(String(a.date || '')))[0];
+    const sameAccountCopies = (logical?.copies || []).filter(copy => copy.accountId === selectedAccountId);
+    const copy = sameAccountCopies.find(item => item.id === selectedCopyId)
+      || [...sameAccountCopies].sort((a, b) => String(b.date || '').localeCompare(String(a.date || '')))[0];
+    if (!copy) {
+      setBodyStatus(previous => ({ ...previous, [logicalId]: { loading: false, unavailable: true } }));
+      return Promise.resolve();
+    }
     setBodyStatus(previous => ({ ...previous, [logicalId]: { loading: true } }));
     return conversationApi.body(conversationId, logicalId, controller.signal, copy?.id, remoteImages)
       .then(body => { if (!controller.signal.aborted) { setBodies(previous => ({ ...previous, [logicalId]: body })); setBodyStatus(previous => ({ ...previous, [logicalId]: { loading: false } })); } })
       .catch(reason => { if (reason.name !== 'AbortError') setBodyStatus(previous => ({ ...previous, [logicalId]: { loading: false, error: reason.message || t('conversation.loadBodyFailed') } })); });
-  }, [bodies, bodyStatus, conversationId, messages, t]);
+  }, [bodies, bodyStatus, conversationId, messages, selectedAccountId, selectedCopyId, t]);
   useEffect(() => { for (const id of expanded) loadBody(id); }, [expanded, loadBody]);
   useEffect(() => {
     if (!targetLogicalMessageId || !messages.some(message => message.id === targetLogicalMessageId)) return;
@@ -53,10 +59,15 @@ export default function ConversationReader({ conversationId, targetLogicalMessag
       .find(element => element.dataset.logicalMessageId === targetLogicalMessageId);
     target?.scrollIntoView({ block: 'center' });
   }, [targetLogicalMessageId, messages]);
-  const toggle = useCallback(id => setExpanded(previous => previous.has(id) ? new Set() : new Set([id])), []);
+  const toggle = useCallback(id => setExpanded(previous => {
+    const next = new Set(previous);
+    if (next.has(id)) next.delete(id);
+    else next.add(id);
+    return next;
+  }), []);
   if (!data && !error) return <div role="status" style={{ padding: 24, textAlign: 'center', color: 'var(--text-tertiary)' }}>{t('conversation.loading')}</div>;
   if (error) return <div role="alert" style={{ padding: 16, color: 'var(--text-danger)' }}>{error}</div>;
-  return <section ref={readerRef} aria-label={t('conversation.label')} data-conversation-id={conversationId} style={{ flex: 1, overflowY: 'auto', overflowX: 'hidden', padding: 0, minWidth: 0 }}>
-    {messages.map(message => <ConversationMessage key={message.id} message={message} expanded={expanded.has(message.id)} onToggle={toggle} body={bodies[message.id]} status={bodyStatus[message.id]} onLoadBody={loadBody} onRemoteImages={id => loadBody(id, true, true)} onReply={onReply} />)}
+  return <section ref={readerRef} aria-label={t('conversation.label')} data-conversation-id={conversationId} data-selected-copy-id={selectedCopyId || ''} data-selected-account-id={selectedAccountId || ''} style={{ flex: 1, overflowY: 'auto', overflowX: 'hidden', padding: 0, minWidth: 0 }}>
+    {messages.map(message => <ConversationMessage key={message.id} message={message} selectedCopyId={selectedCopyId} selectedAccountId={selectedAccountId} accounts={accounts} expanded={expanded.has(message.id)} onToggle={toggle} body={bodies[message.id]} status={bodyStatus[message.id]} onLoadBody={loadBody} onRemoteImages={id => loadBody(id, true, true)} onReply={onReply} />)}
   </section>;
 }

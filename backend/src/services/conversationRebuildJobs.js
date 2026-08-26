@@ -18,17 +18,27 @@ export function startConversationRebuildJob({ userId, accountId = null, limit = 
       let cursorResult = null;
       let totalScanned = 0;
       let totalUpdated = 0;
+      let totalWouldChange = 0;
       let batches = 0;
-      let cursor = null;
-      do {
-        cursorResult = await rebuildConversationCopies({ userId, accountId, limit, dryRun, cursor, force: force && batches === 0 });
-        totalScanned += cursorResult.scanned || 0;
-        totalUpdated += cursorResult.updated || 0;
-        const totalWouldChange = (job.result?.would_change || 0) + (cursorResult.wouldChange || 0);
-        batches += 1;
-        cursor = cursorResult.next;
-        job.result = { ...cursorResult, scanned: totalScanned, updated: totalUpdated, would_change: totalWouldChange, changed: totalUpdated, batches };
-      } while (!cursorResult.complete && job.status !== 'cancelled');
+      // Account is the CE identity boundary. An all-account request orchestrates
+      // independent account rebuilds instead of replaying one cross-account stream.
+      const scopes = accountId
+        ? [accountId]
+        : (await query('SELECT id FROM email_accounts WHERE user_id = $1 ORDER BY id', [userId])).rows.map(row => row.id);
+      for (const scopeAccountId of scopes) {
+        let cursor = null;
+        do {
+          cursorResult = await rebuildConversationCopies({ userId, accountId: scopeAccountId, limit, dryRun, cursor, force: force && cursor === null });
+          totalScanned += cursorResult.scanned || 0;
+          totalUpdated += cursorResult.updated || 0;
+          totalWouldChange += cursorResult.wouldChange || 0;
+          batches += 1;
+          cursor = cursorResult.next;
+          job.result = { ...cursorResult, scanned: totalScanned, updated: totalUpdated, would_change: totalWouldChange, changed: totalUpdated, batches, accounts: scopes.length };
+        } while (!cursorResult.complete && job.status !== 'cancelled');
+        if (job.status === 'cancelled') break;
+      }
+      if (!cursorResult) job.result = { scanned: 0, updated: 0, would_change: 0, changed: 0, batches: 0, accounts: 0, complete: true, dryRun };
       if (job.status === 'cancelled') return;
       job.status = 'complete';
       await recordConversationRebuildAudit({ userId, jobId, action: 'completed', details: { accountId, dryRun, result: job.result } });

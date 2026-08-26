@@ -19,12 +19,16 @@ test.describe('native conversation engine matrix', () => {
     await expect(reader.locator('#logical-message-conversation-gmail-logical-2')).toHaveAttribute('data-conversation-message-state', 'expanded');
     await reader.locator('#logical-message-conversation-gmail-logical-3 button[aria-expanded="false"]').click();
     await expect(reader.locator('#logical-message-conversation-gmail-logical-3')).toHaveAttribute('data-conversation-message-state', 'expanded');
-    await expect(reader.locator('#logical-message-conversation-gmail-logical-2')).toHaveAttribute('data-conversation-message-state', 'collapsed');
-    await expect(reader.locator('[data-conversation-message-state="expanded"]')).toHaveCount(1);
+    await expect(reader.locator('#logical-message-conversation-gmail-logical-2')).toHaveAttribute('data-conversation-message-state', 'expanded');
+    await expect(reader.locator('[data-conversation-message-state="expanded"]')).toHaveCount(2);
     await expect(reader.locator('#logical-message-conversation-gmail-logical-3 iframe')).toBeVisible();
-    await expect(reader.locator('#logical-message-conversation-gmail-logical-3 iframe').contentFrame().locator('body')).toContainText('Fixture body lazy');
+    await expect(reader.locator('#logical-message-conversation-gmail-logical-3 iframe').contentFrame().locator('body')).toContainText('Fixture body lazy conversation-gmail-copy-3');
+    await reader.locator('#logical-message-conversation-gmail-logical-2 button[aria-expanded="true"]').click();
+    await expect(reader.locator('#logical-message-conversation-gmail-logical-2')).toHaveAttribute('data-conversation-message-state', 'collapsed');
+    await expect(reader.locator('#logical-message-conversation-gmail-logical-3')).toHaveAttribute('data-conversation-message-state', 'expanded');
     await reader.locator('#logical-message-conversation-gmail-logical-3 button[aria-expanded="true"]').click();
     await expect(reader.locator('#logical-message-conversation-gmail-logical-3')).toHaveAttribute('data-conversation-message-state', 'collapsed');
+    await expect(reader.locator('[data-conversation-message-state="expanded"]')).toHaveCount(0);
     await page.screenshot({ path: 'artifacts/off-on.png', fullPage: true });
   });
 
@@ -49,19 +53,26 @@ test.describe('native conversation engine matrix', () => {
     await page.locator('[data-msgid="conversation-gmail-copy-4"]:visible').click();
     const reader = page.locator('section[data-conversation-id="conversation-gmail"]:visible');
     await expect(reader).toBeVisible();
+    await expect(reader).toHaveAttribute('data-selected-copy-id', 'conversation-gmail-copy-4');
+    await expect(reader).toHaveAttribute('data-selected-account-id', 'account-outlook');
     await expect(reader.locator('[data-conversation-message-state="collapsed"]')).toHaveCount(3);
     await expect(reader.locator('[data-conversation-message-state="expanded"]')).toHaveCount(1);
     await page.screenshot({ path: 'artifacts/on-on-initial.png', fullPage: true });
     const latest = reader.locator('[data-logical-message-id="conversation-gmail-logical-4"]');
     await expect(latest.locator('[data-conversation-message-actions="true"]')).toBeVisible();
+    // Resolver selected copy 4 on Outlook. Its physical sender is me@outlook.test,
+    // while stale logical direction and the same logical message's Gmail copy disagree.
     await expect(latest.locator('[data-message-direction="outgoing"]')).toBeVisible();
     await reader.locator('#logical-message-conversation-gmail-logical-2 button[aria-expanded="false"]').evaluate(button => button.click());
     await expect(reader.locator('#logical-message-conversation-gmail-logical-2')).toHaveAttribute('data-conversation-message-state', 'expanded');
-    await expect(latest).toHaveAttribute('data-conversation-message-state', 'collapsed');
-    await expect(reader.locator('[data-conversation-message-state="expanded"]')).toHaveCount(1);
+    await expect(latest).toHaveAttribute('data-conversation-message-state', 'expanded');
+    await expect(reader.locator('[data-conversation-message-state="expanded"]')).toHaveCount(2);
+    await expect(reader.locator('[data-conversation-message-actions="true"]')).toHaveCount(2);
     await page.screenshot({ path: 'artifacts/on-on-after-switch-expanded.png', fullPage: true });
     await reader.locator('#logical-message-conversation-gmail-logical-2').getByRole('button', { name: /Odpowiedz$|Reply$/i }).click();
-    await expect(page.locator('[data-conversation-message-actions="true"]')).toHaveCount(1);
+    await expect(reader.locator('[data-conversation-message-actions="true"]')).toHaveCount(2);
+    await expect(reader.locator('#logical-message-conversation-gmail-logical-2')).toHaveAttribute('data-conversation-message-state', 'expanded');
+    await expect(latest).toHaveAttribute('data-conversation-message-state', 'expanded');
   });
   test('ON/ON expanded native child rows expose per-message incoming/outgoing direction', async ({ page, fixtureApi }) => {
     await open(page, fixtureApi, true, true);

@@ -96,7 +96,7 @@ router.get('/conversations', async (req, res) => {
            COALESCE(preview.logical_messages, '[]'::jsonb) AS logical_messages,
            top_latest.id AS latest_copy_id
       FROM conversations c
-      JOIN messages m ON m.conversation_id = c.id AND m.is_deleted = false ${scopedMessageFilter}
+      JOIN messages m ON m.conversation_id = c.id AND m.account_id = c.account_id AND m.is_deleted = false ${scopedMessageFilter}
       JOIN email_accounts a ON a.id = m.account_id AND a.user_id = $1
         ${unifiedInbox === '1' && !accountId ? 'AND a.include_in_unified_inbox = true' : ''}
       LEFT JOIN LATERAL (
@@ -137,6 +137,7 @@ router.get('/conversations', async (req, res) => {
          AND EXISTS (SELECT 1 FROM messages visible_lm WHERE visible_lm.logical_message_id = lm.id AND visible_lm.is_deleted = false ${scopedLogicalFilter})
      ) preview ON true
      WHERE c.user_id = $1
+       AND (${accountId ? 'c.account_id = $2' : 'true'})
        AND NOT EXISTS (SELECT 1 FROM conversation_aliases ca WHERE ca.user_id = $1 AND ca.alias_conversation_id = c.id)
        ${cursorFilter}
      GROUP BY c.id, top_latest.id, preview.logical_messages
@@ -151,7 +152,10 @@ router.get('/conversations', async (req, res) => {
 router.get('/conversations/:id', async (req, res) => {
   const client = await pool.connect();
   try {
-    const canonicalId = await resolveConversationAlias(client, { userId: req.session.userId, conversationId: req.params.id });
+    const owned = await client.query('SELECT account_id FROM conversations WHERE id = $1 AND user_id = $2', [req.params.id, req.session.userId]);
+    if (!owned.rows.length) return res.status(404).json({ error: 'Conversation not found' });
+    const accountId = owned.rows[0].account_id;
+    const canonicalId = await resolveConversationAlias(client, { userId: req.session.userId, accountId, conversationId: req.params.id });
     const result = await client.query(`
       SELECT c.*, lm.id AS logical_id, lm.canonical_message_id, lm.subject,
              lm.direction, lm.message_date, lm.threading_reason, lm.threading_confidence,
@@ -161,18 +165,19 @@ router.get('/conversations/:id', async (req, res) => {
                'subject', m.subject, 'fromName', m.from_name, 'fromEmail', m.from_email,
                'to', m.to_addresses, 'cc', m.cc_addresses, 'date', m.date,
                'snippet', m.snippet, 'replyTo', m.reply_to, 'inReplyTo', m.in_reply_to, 'references', m.thread_references, 'attachments', m.attachments,
+               'listUnsubscribe', m.list_unsubscribe, 'listUnsubscribePost', m.list_unsubscribe_post, 'unsubscribedAt', m.unsubscribed_at,
                'isRead', m.is_read, 'isStarred', m.is_starred,
                'providerMessageId', m.provider_message_id, 'providerThreadId', m.provider_thread_id,
                'providerNamespace', m.provider_namespace,
                'deliveryAddresses', m.delivery_addresses
              ) ORDER BY m.date ASC NULLS LAST, m.id) FILTER (WHERE m.id IS NOT NULL), '[]'::jsonb) AS copies
         FROM conversations c
-        LEFT JOIN logical_messages lm ON lm.conversation_id = c.id
+        LEFT JOIN logical_messages lm ON lm.conversation_id = c.id AND lm.account_id = c.account_id
         LEFT JOIN messages m ON m.logical_message_id = lm.id AND m.conversation_id = c.id AND m.is_deleted = false
-       WHERE c.id = $1 AND c.user_id = $2
+       WHERE c.id = $1 AND c.user_id = $2 AND c.account_id = $3
        GROUP BY c.id, lm.id
        ORDER BY lm.message_date ASC NULLS LAST, lm.id
-    `, [canonicalId, req.session.userId]);
+    `, [canonicalId, req.session.userId, accountId]);
     if (!result.rows.length) return res.status(404).json({ error: 'Conversation not found' });
     const logicalRows = result.rows.filter(row => row.logical_id).map(row => ({
       id: row.logical_id, canonicalMessageId: row.canonical_message_id, subject: row.subject,
@@ -188,18 +193,21 @@ router.get('/conversations/:id', async (req, res) => {
 router.get('/conversations/:conversationId/logical-messages/:logicalMessageId/body', async (req, res) => {
   const client = await pool.connect();
   try {
-    const canonicalId = await resolveConversationAlias(client, { userId: req.session.userId, conversationId: req.params.conversationId });
+    const owned = await client.query('SELECT account_id FROM conversations WHERE id = $1 AND user_id = $2', [req.params.conversationId, req.session.userId]);
+    if (!owned.rows.length) return res.status(404).json({ error: 'Logical message body not found' });
+    const accountId = owned.rows[0].account_id;
+    const canonicalId = await resolveConversationAlias(client, { userId: req.session.userId, accountId, conversationId: req.params.conversationId });
     const result = await client.query(`
       SELECT lm.id, m.body_text, m.body_html, m.attachments, m.id AS physical_copy_id, m.account_id, m.folder, u.preferences, m.from_email
         FROM logical_messages lm
         JOIN messages m ON m.logical_message_id = lm.id AND m.conversation_id = $3 AND m.is_deleted = false
         JOIN email_accounts a ON a.id = m.account_id AND a.user_id = $2
         JOIN users u ON u.id = a.user_id
-       WHERE lm.id = $1 AND lm.user_id = $2 AND lm.conversation_id = $3
+       WHERE lm.id = $1 AND lm.user_id = $2 AND lm.account_id = $5 AND lm.conversation_id = $3
        AND ($4::uuid IS NULL OR m.id = $4::uuid)
        ORDER BY (m.body_html IS NOT NULL OR m.body_text IS NOT NULL) DESC, m.is_read ASC, m.date DESC NULLS LAST, m.id DESC
        LIMIT 1
-    `, [req.params.logicalMessageId, req.session.userId, canonicalId, req.query.copyId || null]);
+    `, [req.params.logicalMessageId, req.session.userId, canonicalId, req.query.copyId || null, accountId]);
     if (!result.rows.length) return res.status(404).json({ error: 'Logical message body not found' });
     const requestedRemoteImages = req.query.remoteImages === '1';
     const explicitOptIn = req.get('X-MailFlow-Image-Opt-In') === '1';
@@ -221,14 +229,19 @@ router.get('/conversations/:conversationId/logical-messages/:logicalMessageId/bo
 // durable RFC Message-ID reference. `:ref` deliberately does not use the generic
 // `:id` UUID guard: deep links and integration selections use RFC Message-ID values.
 // A UUID remains copy-exact. A Message-ID is first normalized with the CE canonical
-// normalizer, then every tenant-owned live candidate is examined. Copy preference is
-// permitted only after the LogicalMessage/conversation identity is proven unique.
+// normalizer, then candidates are restricted to the requested managed account before
+// ambiguity is evaluated. Copy preference is permitted only after the account-local
+// LogicalMessage/conversation identity is proven unique.
 router.get('/messages/:ref/conversation', async (req, res) => {
   const ref = req.params.ref;
   const byPhysicalCopy = isUuid(ref);
   const canonicalMessageId = byPhysicalCopy ? null : normalizeMessageId(ref);
+  const requestedAccountId = req.query.accountId || null;
   if (!byPhysicalCopy && !canonicalMessageId) {
     return res.status(400).json({ error: 'Invalid message reference' });
+  }
+  if (!byPhysicalCopy && !isUuid(requestedAccountId)) {
+    return res.status(400).json({ error: 'accountId is required for RFC Message-ID resolution', code: 'ACCOUNT_REQUIRED' });
   }
 
   const result = await query(byPhysicalCopy ? `
@@ -240,9 +253,9 @@ router.get('/messages/:ref/conversation', async (req, res) => {
     SELECT m.id, m.account_id, m.folder, m.date, m.conversation_id, m.logical_message_id
       FROM messages m
       JOIN email_accounts a ON a.id = m.account_id
-     WHERE m.canonical_message_id = $1 AND a.user_id = $2 AND m.is_deleted = false
+     WHERE m.canonical_message_id = $1 AND a.user_id = $2 AND m.account_id = $3::uuid AND m.is_deleted = false
      ORDER BY (m.folder = 'INBOX') DESC, m.date DESC NULLS LAST, m.id DESC
-  `, [byPhysicalCopy ? ref : canonicalMessageId, req.session.userId]);
+  `, byPhysicalCopy ? [ref, req.session.userId] : [canonicalMessageId, req.session.userId, requestedAccountId]);
 
   if (!result.rows.length) return res.status(404).json({ error: 'Conversation not found' });
   if (byPhysicalCopy) {
@@ -250,8 +263,13 @@ router.get('/messages/:ref/conversation', async (req, res) => {
     return res.json(result.rows[0]);
   }
 
+  // SQL has already removed every cross-account candidate. Only distinct identities
+  // inside the requested account participate in ambiguity evaluation.
   const identities = new Set(result.rows.map(row => `${row.logical_message_id || ''}:${row.conversation_id || ''}`));
-  if (identities.size !== 1 || !result.rows[0].logical_message_id || !result.rows[0].conversation_id) {
+  const ambiguous = identities.size !== 1
+    || !result.rows[0].logical_message_id
+    || !result.rows[0].conversation_id;
+  if (ambiguous) {
     return res.status(409).json({ error: 'Conversation reference is ambiguous', code: 'CONVERSATION_REFERENCE_AMBIGUOUS' });
   }
   // The SQL order selects the preferred physical representation only after the
@@ -430,10 +448,13 @@ router.post('/conversations/:id/logical-messages/:logicalMessageId/force-exclude
 router.get('/conversations/:id/diagnostics', async (req, res) => {
   const client = await pool.connect();
   try {
-    const canonicalId = await resolveConversationAlias(client, { userId: req.session.userId, conversationId: req.params.id });
+    const owned = await client.query('SELECT account_id FROM conversations WHERE id = $1 AND user_id = $2', [req.params.id, req.session.userId]);
+    if (!owned.rows.length) return res.status(404).json({ error: 'Conversation not found' });
+    const accountId = owned.rows[0].account_id;
+    const canonicalId = await resolveConversationAlias(client, { userId: req.session.userId, accountId, conversationId: req.params.id });
     const conv = await client.query(
-      'SELECT id, kind, canonical_subject, threading_confidence, manually_locked, logical_message_count, unread_count, copy_count FROM conversations WHERE id = $1 AND user_id = $2',
-      [canonicalId, req.session.userId]
+      'SELECT id, kind, canonical_subject, threading_confidence, manually_locked, logical_message_count, unread_count, copy_count FROM conversations WHERE id = $1 AND user_id = $2 AND account_id = $3',
+      [canonicalId, req.session.userId, accountId]
     );
     if (!conv.rows.length) return res.status(404).json({ error: 'Conversation not found' });
 

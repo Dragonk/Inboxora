@@ -38,7 +38,7 @@ for (const row of fixture.conversations) {
   row.logical_messages = Array.from({ length: row.logical_message_count }, (_, index) => ({
     id: `${row.conversation_id}-logical-${index + 1}`,
     subject: row.canonical_subject,
-    direction: index === row.logical_message_count - 1 && row.latest_message_is_mine ? 'outgoing' : 'incoming',
+    direction: 'outgoing', // deliberately ignored by the reader; physical account identity is authoritative
     snippet: `Fixture body ${index + 1}`,
     fromName: 'Fixture Sender',
     fromEmail: 'sender@example.test',
@@ -49,32 +49,40 @@ for (const row of fixture.conversations) {
 
 function details(id) {
   const row = fixture.conversations.find(item => item.conversation_id === id) || fixture.conversations[0];
+  const selectedAccountId = id === 'conversation-gmail' ? 'account-gmail' : row.latestCopyId?.includes('outlook') ? 'account-outlook' : 'account-gmail';
   return {
     summary: { ...row, conversation_id: id, canonical_subject: row.canonical_subject },
-    logicalMessages: Array.from({ length: row.logical_message_count }, (_, index) => ({
-      id: `${id}-logical-${index + 1}`,
-      subject: row.canonical_subject,
-      direction: index === row.logical_message_count - 1 && row.latest_message_is_mine ? 'outgoing' : 'incoming',
-      copies: [{
-        id: `${id}-copy-${index + 1}`,
-        accountId: index % 2 ? 'account-outlook' : 'account-gmail',
-        messageId: `<${id}-${index + 1}@fixture.test>`,
+    logicalMessages: Array.from({ length: row.logical_message_count }, (_, index) => {
+      const outgoing = index === row.logical_message_count - 1 && row.latest_message_is_mine;
+      const number = index + 1;
+      const gmailCopy = {
+        id: `${id}-copy-${number}${number === 4 ? '-gmail' : ''}`,
+        accountId: 'account-gmail',
+        messageId: `<${id}-${number}-gmail@fixture.test>`,
         subject: row.canonical_subject,
-        fromEmail: index % 2 ? 'sender@outlook.test' : 'sender@gmail.test',
-        bodyText: `Fixture body ${index + 1}`,
-        bodyHtml: `<p>Fixture body ${index + 1}</p><blockquote>Quoted previous message</blockquote>`,
-      }, ...(index === 0 ? [{
-        id: `${id}-copy-${index + 1}-duplicate`,
-        accountId: 'account-fastmail',
-        messageId: `<${id}-${index + 1}-fastmail@fixture.test>`,
+        fromEmail: outgoing ? 'me@gmail.test' : 'sender@gmail.test',
+        bodyText: `Gmail fixture body ${number}`,
+        bodyHtml: `<p>Gmail fixture body ${number}</p>`,
+      };
+      const outlookCopy = {
+        id: `${id}-copy-${number}${number === 4 ? '' : '-outlook'}`,
+        accountId: 'account-outlook',
+        messageId: `<${id}-${number}-outlook@fixture.test>`,
         subject: row.canonical_subject,
-        fromEmail: 'sender@fastmail.test',
-        bodyText: `Fixture body ${index + 1} duplicate`,
-        bodyHtml: `<p>Fixture body ${index + 1} duplicate</p>`,
-      }] : [])],
-    })),
+        fromEmail: outgoing ? 'me@outlook.test' : 'sender@outlook.test',
+        bodyText: `Outlook fixture body ${number}`,
+        bodyHtml: `<p>Outlook fixture body ${number}</p>`,
+      };
+      return {
+        id: `${id}-logical-${number}`,
+        subject: row.canonical_subject,
+        direction: outgoing ? 'incoming' : 'outgoing', // stale logical direction must be ignored
+        copies: selectedAccountId === 'account-outlook' ? [outlookCopy, gmailCopy] : [gmailCopy, outlookCopy],
+      };
+    }),
   };
 }
+
 
 export const test = base.extend({
   fixtureApi: async ({ page }, use) => {
@@ -118,17 +126,26 @@ export const test = base.extend({
       const url = new URL(route.request().url());
       return route.fulfill({ json: { id: url.pathname.split('/').at(-1), subject: 'Legacy fixture', is_read: true, account_id: 'account-gmail', folder: 'INBOX', date: new Date().toISOString(), from_email: 'sender@example.test', body_text: 'Fixture body legacy' } });
     });
-    await page.route(url => /\/api\/mail\/conversations\/[^/]+\/logical-messages\/[^/]+\/body(?:\?.*)?$/.test(url.pathname + url.search), route => route.fulfill({ json: { body_text: 'Fixture body lazy', body_html: '<p>Fixture body lazy</p><img src=\"https://tracker.example.test/pixel.gif\"><a href=\"https://example.test\">Safe link</a>' } }));
-    await page.route('**/api/mail/messages/*/conversation', route => {
+    await page.route(url => /\/api\/mail\/conversations\/[^/]+\/logical-messages\/[^/]+\/body(?:\?.*)?$/.test(url.pathname + url.search), route => {
+      const url = new URL(route.request().url());
+      const copyId = url.searchParams.get('copyId');
+      return route.fulfill({ json: { physical_copy_id: copyId, body_text: `Fixture body lazy ${copyId}`, body_html: `<p>Fixture body lazy ${copyId}</p><img src=\"https://tracker.example.test/pixel.gif\"><a href=\"https://example.test\">Safe link</a>` } });
+    });
+    await page.route('**/api/mail/messages/*/conversation**', route => {
       const url = new URL(route.request().url());
       const copyId = url.pathname.split('/').at(-2);
       const match = copyId.match(/copy-(\d+)$/);
       const logicalIndex = match ? Math.min(Number(match[1]), 4) : 1;
-      return route.fulfill({ json: { conversation_id: 'conversation-gmail', logical_message_id: `conversation-gmail-logical-${logicalIndex}` } });
+      return route.fulfill({ json: { id: copyId, account_id: copyId.endsWith('-4') ? 'account-outlook' : 'account-gmail', conversation_id: 'conversation-gmail', logical_message_id: `conversation-gmail-logical-${logicalIndex}` } });
     });
     await page.route('**/api/mail/messages*', route => {
       const url = new URL(route.request().url());
-      if (url.pathname.endsWith('/conversation')) return route.fulfill({ json: { conversation_id: 'conversation-gmail', logical_message_id: 'conversation-gmail-logical-1' } });
+      if (url.pathname.endsWith('/conversation')) {
+        const copyId = url.pathname.split('/').at(-2);
+        const match = copyId.match(/copy-(\d+)$/);
+        const logicalIndex = match ? Math.min(Number(match[1]), 4) : 1;
+        return route.fulfill({ json: { id: copyId, account_id: copyId.endsWith('-4') ? 'account-outlook' : 'account-gmail', conversation_id: 'conversation-gmail', logical_message_id: `conversation-gmail-logical-${logicalIndex}` } });
+      }
       if (/\/api\/mail\/messages\/[^/]+$/.test(url.pathname)) return route.fulfill({ json: { id: 'legacy-message-1', subject: 'Legacy fixture', is_read: true, account_id: 'account-gmail', folder: 'INBOX', date: new Date().toISOString(), from_email: 'sender@example.test', body_text: 'Fixture body legacy' } });
       const messages = [
         { id: 'conversation-gmail-copy-1', subject: 'Gmail reply chain', is_read: true, account_id: 'account-gmail', folder: 'INBOX', date: new Date().toISOString(), from_email: 'sender@gmail.test', message_id: '<fixture-1>', body_text: 'Fixture body 1', thread_id: 'conversation-gmail', message_count: 4 },

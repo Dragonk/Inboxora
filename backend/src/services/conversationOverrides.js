@@ -28,8 +28,11 @@ export function isMessageLevel(overrideType) {
 export async function applyConversationOverride({ userId, conversationId, logicalMessageId = null, scope = 'message-only', overrideType, targetId = null, targetConversationId = null, reason = null }) {
   validateOverrideType(overrideType);
   return withTransaction(async client => {
-    const canonicalConversationId = await resolveConversationAlias(client, { userId, conversationId });
-    const conversation = overrideType === 'manual-merge' ? null : await assertConversationOwner(client, userId, canonicalConversationId);
+    const accountRow = await client.query('SELECT account_id FROM conversations WHERE id = $1 AND user_id = $2 FOR UPDATE', [conversationId, userId]);
+    if (!accountRow.rows[0]) { const error = new Error('Conversation not found'); error.statusCode = 404; throw error; }
+    const accountId = accountRow.rows[0].account_id;
+    const canonicalConversationId = await resolveConversationAlias(client, { userId, accountId, conversationId });
+    const conversation = overrideType === 'manual-merge' ? null : await assertConversationOwner(client, userId, canonicalConversationId, accountId);
     conversationId = canonicalConversationId;
 
     // P1-01: Message-level overrides MUST specify logicalMessageId.
@@ -50,9 +53,9 @@ export async function applyConversationOverride({ userId, conversationId, logica
         ? 'conversation_id IS NULL'
         : 'conversation_id = $3';
       const params = overrideType === 'force-include'
-        ? [logicalMessageId, userId]
-        : [logicalMessageId, userId, conversationId];
-      const message = await client.query(`SELECT id FROM logical_messages WHERE id = $1 AND user_id = $2 AND ${membershipPredicate} FOR UPDATE`, params);
+        ? [logicalMessageId, userId, null, accountId]
+        : [logicalMessageId, userId, conversationId, accountId];
+      const message = await client.query(`SELECT id FROM logical_messages WHERE id = $1 AND user_id = $2 AND account_id = $4 AND ${membershipPredicate} FOR UPDATE`, params);
       if (!message.rows[0]) {
         const error = new Error('Logical message not found in eligible conversation');
         error.statusCode = 404;
@@ -64,27 +67,27 @@ export async function applyConversationOverride({ userId, conversationId, logica
     if (overrideType === 'force-include') {
       const effectiveTarget = targetConversationId || targetId;
       if (!effectiveTarget) throw new Error('force-include requires a targetConversationId');
-      const targetCanonical = await resolveConversationAlias(client, { userId, conversationId: effectiveTarget });
-      await assertConversationOwner(client, userId, targetCanonical);
+      const targetCanonical = await resolveConversationAlias(client, { userId, accountId, conversationId: effectiveTarget });
+      await assertConversationOwner(client, userId, targetCanonical, accountId);
       targetId = targetCanonical;
     }
 
     if (overrideType === 'manual-merge') {
       if (!targetId || targetId === conversationId) throw new Error('manual-merge requires a different target conversation');
-      const sourceCanonical = await resolveConversationAlias(client, { userId, conversationId });
-      const targetCanonical = await resolveConversationAlias(client, { userId, conversationId: targetId });
+      const sourceCanonical = await resolveConversationAlias(client, { userId, accountId, conversationId });
+      const targetCanonical = await resolveConversationAlias(client, { userId, accountId, conversationId: targetId });
       if (sourceCanonical === targetCanonical) throw new Error('manual-merge would create an alias cycle');
       // P1-05: deterministic lock order.
       await lockConversationsDeterministically(client, userId, [sourceCanonical, targetCanonical]);
-      await assertConversationOwner(client, userId, sourceCanonical);
-      await assertConversationOwner(client, userId, targetCanonical);
-      await assertNoAliasCycle(client, { userId, sourceConversationId: sourceCanonical, targetConversationId: targetCanonical });
-      await client.query('INSERT INTO conversation_aliases (user_id, alias_conversation_id, canonical_conversation_id, reason) VALUES ($1,$2,$3,$4) ON CONFLICT (user_id, alias_conversation_id) DO UPDATE SET canonical_conversation_id = EXCLUDED.canonical_conversation_id, reason = EXCLUDED.reason', [userId, sourceCanonical, targetCanonical, reason || 'manual-merge']);
-      await client.query('UPDATE messages SET conversation_id = $1, conversation_user_id = $2 WHERE conversation_id = $3 AND conversation_user_id = $2', [targetCanonical, userId, sourceCanonical]);
-      await client.query('UPDATE logical_messages SET conversation_id = $1 WHERE conversation_id = $2 AND user_id = $3', [targetCanonical, sourceCanonical, userId]);
-      await client.query('UPDATE conversation_evidence SET conversation_id = $1 WHERE conversation_id = $2 AND user_id = $3', [targetCanonical, sourceCanonical, userId]);
-      await client.query('UPDATE provider_thread_mappings SET conversation_id = $1, last_seen_at = NOW() WHERE conversation_id = $2 AND user_id = $3', [targetCanonical, sourceCanonical, userId]);
-      await client.query('UPDATE conversation_overrides SET conversation_id = $1 WHERE conversation_id = $2 AND user_id = $3', [targetCanonical, sourceCanonical, userId]);
+      await assertConversationOwner(client, userId, sourceCanonical, accountId);
+      await assertConversationOwner(client, userId, targetCanonical, accountId);
+      await assertNoAliasCycle(client, { userId, accountId, sourceConversationId: sourceCanonical, targetConversationId: targetCanonical });
+      await client.query('INSERT INTO conversation_aliases (user_id, account_id, alias_conversation_id, canonical_conversation_id, reason) VALUES ($1,$2,$3,$4,$5) ON CONFLICT (user_id, account_id, alias_conversation_id) DO UPDATE SET canonical_conversation_id = EXCLUDED.canonical_conversation_id, reason = EXCLUDED.reason', [userId, accountId, sourceCanonical, targetCanonical, reason || 'manual-merge']);
+      await client.query('UPDATE messages SET conversation_id = $1, conversation_user_id = $2 WHERE conversation_id = $3 AND conversation_user_id = $2 AND account_id = $4', [targetCanonical, userId, sourceCanonical, accountId]);
+      await client.query('UPDATE logical_messages SET conversation_id = $1 WHERE conversation_id = $2 AND user_id = $3 AND account_id = $4', [targetCanonical, sourceCanonical, userId, accountId]);
+      await client.query('UPDATE conversation_evidence SET conversation_id = $1 WHERE conversation_id = $2 AND user_id = $3 AND account_id = $4', [targetCanonical, sourceCanonical, userId, accountId]);
+      await client.query('UPDATE provider_thread_mappings SET conversation_id = $1, last_seen_at = NOW() WHERE conversation_id = $2 AND user_id = $3 AND account_id = $4', [targetCanonical, sourceCanonical, userId, accountId]);
+      await client.query('UPDATE conversation_overrides SET conversation_id = $1 WHERE conversation_id = $2 AND user_id = $3 AND account_id = $4', [targetCanonical, sourceCanonical, userId, accountId]);
       // Continuation semantics: manual merge does NOT set continued_from/continued_to.
       // Those fields are reserved for automated series continuation, not manual merge.
       await refreshConversationAggregates(client, userId, targetCanonical);
@@ -95,37 +98,37 @@ export async function applyConversationOverride({ userId, conversationId, logica
     if (overrideType === 'manual-split') {
       if (!logicalMessageId) throw new Error('manual-split requires logicalMessageId');
       if (!['message-only', 'message-with-descendants'].includes(scope)) throw new Error('Unsupported manual-split scope');
-      const created = await client.query(`INSERT INTO conversations (user_id, kind, subject_snapshot, canonical_subject, first_message_at, last_message_at, segment_number) SELECT user_id, 'manual_conversation', subject_snapshot, canonical_subject, first_message_at, last_message_at, segment_number + 1 FROM conversations WHERE id = $1 RETURNING id`, [conversationId]);
+      const created = await client.query(`INSERT INTO conversations (user_id, account_id, kind, subject_snapshot, canonical_subject, first_message_at, last_message_at, segment_number) SELECT user_id, account_id, 'manual_conversation', subject_snapshot, canonical_subject, first_message_at, last_message_at, segment_number + 1 FROM conversations WHERE id = $1 RETURNING id`, [conversationId]);
       const newConversationId = created.rows[0].id;
       const scopeFilter = scope === 'message-with-descendants' ? `WITH RECURSIVE descendants(id, path) AS (
-        SELECT id, ARRAY[id] FROM logical_messages WHERE id = $2 AND user_id = $3
+        SELECT id, ARRAY[id] FROM logical_messages WHERE id = $2 AND user_id = $3 AND account_id = $4
         UNION ALL
         SELECT lm.id, d.path || lm.id FROM logical_messages lm JOIN descendants d ON lm.parent_logical_message_id = d.id
          WHERE lm.user_id = $3 AND NOT lm.id = ANY(d.path)
       ) UPDATE logical_messages lm SET conversation_id = $1,
         parent_logical_message_id = CASE WHEN lm.id = $2 THEN NULL ELSE lm.parent_logical_message_id END
        WHERE lm.id IN (SELECT id FROM descendants)` :
-      'UPDATE logical_messages SET conversation_id = $1, parent_logical_message_id = NULL WHERE id = $2 AND user_id = $3';
-      await client.query(scopeFilter, [newConversationId, logicalMessageId, userId]);
+      'UPDATE logical_messages SET conversation_id = $1, parent_logical_message_id = NULL WHERE id = $2 AND user_id = $3 AND account_id = $4';
+      await client.query(scopeFilter, [newConversationId, logicalMessageId, userId, accountId]);
       // Restrict updates to the exact logical-message set moved by this split.
       // Selecting by destination conversation_id would also move unrelated rows.
       const movedLogicalIdsSql = scope === 'message-with-descendants'
         ? `WITH RECURSIVE descendants(id, path) AS (
-            SELECT id, ARRAY[id] FROM logical_messages WHERE id = $3 AND user_id = $2
+            SELECT id, ARRAY[id] FROM logical_messages WHERE id = $3 AND user_id = $2 AND account_id = $4
             UNION ALL
             SELECT lm.id, d.path || lm.id FROM logical_messages lm JOIN descendants d ON lm.parent_logical_message_id = d.id
-             WHERE lm.user_id = $2 AND NOT lm.id = ANY(d.path)
+             WHERE lm.user_id = $2 AND lm.account_id = $4 AND NOT lm.id = ANY(d.path)
           ) SELECT id FROM descendants`
-        : 'SELECT id FROM logical_messages WHERE id = $3 AND user_id = $2';
-      await client.query(`UPDATE messages SET conversation_id = $1, conversation_user_id = $2 WHERE logical_message_id IN (${movedLogicalIdsSql}) AND conversation_user_id = $2`, [newConversationId, userId, logicalMessageId]);
-      await client.query(`UPDATE conversation_evidence SET conversation_id = $1 WHERE logical_message_id IN (${movedLogicalIdsSql}) AND user_id = $2`, [newConversationId, userId, logicalMessageId]);
+        : 'SELECT id FROM logical_messages WHERE id = $3 AND user_id = $2 AND account_id = $4';
+      await client.query(`UPDATE messages SET conversation_id = $1, conversation_user_id = $2 WHERE logical_message_id IN (${movedLogicalIdsSql}) AND conversation_user_id = $2 AND account_id = $4`, [newConversationId, userId, logicalMessageId, accountId]);
+      await client.query(`UPDATE conversation_evidence SET conversation_id = $1 WHERE logical_message_id IN (${movedLogicalIdsSql}) AND user_id = $2 AND account_id = $4`, [newConversationId, userId, logicalMessageId, accountId]);
       // P2-03: Only rewrite target_id for override types where it refers to a conversation.
-      await client.query(`UPDATE conversation_overrides SET conversation_id = $1, target_id = CASE WHEN target_id = $4 THEN $1 ELSE target_id END WHERE logical_message_id IN (${movedLogicalIdsSql}) AND user_id = $2`, [newConversationId, userId, logicalMessageId, conversationId]);
+      await client.query(`UPDATE conversation_overrides SET conversation_id = $1, target_id = CASE WHEN target_id = $4 THEN $1 ELSE target_id END WHERE logical_message_id IN (${movedLogicalIdsSql.replaceAll('$4', '$5')}) AND user_id = $2 AND account_id = $5`, [newConversationId, userId, logicalMessageId, conversationId, accountId]);
       await client.query(`UPDATE logical_messages child SET parent_logical_message_id = NULL
-        WHERE child.user_id = $1 AND child.conversation_id <> $2
-          AND child.parent_logical_message_id IN (SELECT id FROM logical_messages WHERE conversation_id = $2)`, [userId, newConversationId]);
+        WHERE child.user_id = $1 AND child.account_id = $3 AND child.conversation_id <> $2
+          AND child.parent_logical_message_id IN (SELECT id FROM logical_messages WHERE conversation_id = $2 AND account_id = $3)`, [userId, newConversationId, accountId]);
       const crossEdge = await client.query(`SELECT 1 FROM logical_messages child JOIN logical_messages parent ON parent.id = child.parent_logical_message_id
-        WHERE child.user_id = $1 AND (child.conversation_id IS DISTINCT FROM parent.conversation_id) LIMIT 1`, [userId]);
+        WHERE child.user_id = $1 AND child.account_id = $2 AND (child.conversation_id IS DISTINCT FROM parent.conversation_id) LIMIT 1`, [userId, accountId]);
       if (crossEdge.rows.length) throw new Error('conversation split left a cross-conversation parent edge');
       await refreshConversationAggregates(client, userId, conversationId);
       await refreshConversationAggregates(client, userId, newConversationId);
@@ -135,23 +138,23 @@ export async function applyConversationOverride({ userId, conversationId, logica
     if (overrideType === 'manual-move') {
       if (!logicalMessageId) throw new Error('manual-move requires logicalMessageId');
       if (!targetId || targetId === conversationId) throw new Error('manual-move requires a different target conversation');
-      const targetCanonical = await resolveConversationAlias(client, { userId, conversationId: targetId });
+      const targetCanonical = await resolveConversationAlias(client, { userId, accountId, conversationId: targetId });
       if (targetCanonical === conversationId) throw new Error('manual-move target is the same conversation (alias)');
       // P1-05: deterministic lock order.
       await lockConversationsDeterministically(client, userId, [conversationId, targetCanonical]);
-      await assertConversationOwner(client, userId, targetCanonical);
+      await assertConversationOwner(client, userId, targetCanonical, accountId);
       const component = await client.query(`WITH RECURSIVE descendants(id, path) AS (
-        SELECT id, ARRAY[id] FROM logical_messages WHERE id = $1 AND user_id = $2 AND conversation_id = $3
+        SELECT id, ARRAY[id] FROM logical_messages WHERE id = $1 AND user_id = $2 AND conversation_id = $3 AND account_id = $4
         UNION ALL
         SELECT lm.id, d.path || lm.id FROM logical_messages lm JOIN descendants d ON lm.parent_logical_message_id = d.id
-         WHERE lm.user_id = $2 AND NOT lm.id = ANY(d.path)
-      ) SELECT lm.id FROM logical_messages lm JOIN descendants d ON d.id = lm.id`, [logicalMessageId, userId, conversationId]);
+         WHERE lm.user_id = $2 AND lm.account_id = $4 AND NOT lm.id = ANY(d.path)
+      ) SELECT lm.id FROM logical_messages lm JOIN descendants d ON d.id = lm.id`, [logicalMessageId, userId, conversationId, accountId]);
       const movedIds = component.rows.map(r => r.id);
-      await client.query('UPDATE logical_messages SET conversation_id = $1, parent_logical_message_id = CASE WHEN id = $2 THEN NULL ELSE parent_logical_message_id END WHERE id = ANY($3::uuid[]) AND user_id = $4', [targetCanonical, logicalMessageId, movedIds, userId]);
-      await client.query('UPDATE messages SET conversation_id = $1, conversation_user_id = $2 WHERE logical_message_id = ANY($3::uuid[]) AND conversation_user_id = $2', [targetCanonical, userId, movedIds]);
-      await client.query('UPDATE conversation_evidence SET conversation_id = $1 WHERE logical_message_id = ANY($2::uuid[]) AND user_id = $3', [targetCanonical, movedIds, userId]);
-      await client.query(`UPDATE logical_messages child SET parent_logical_message_id = NULL WHERE child.user_id = $1 AND child.conversation_id <> $2 AND child.parent_logical_message_id IN (SELECT id FROM logical_messages WHERE conversation_id = $2)`, [userId, targetCanonical]);
-      const crossEdge = await client.query(`SELECT 1 FROM logical_messages child JOIN logical_messages parent ON parent.id = child.parent_logical_message_id WHERE child.user_id = $1 AND child.conversation_id IS DISTINCT FROM parent.conversation_id LIMIT 1`, [userId]);
+      await client.query('UPDATE logical_messages SET conversation_id = $1, parent_logical_message_id = CASE WHEN id = $2 THEN NULL ELSE parent_logical_message_id END WHERE id = ANY($3::uuid[]) AND user_id = $4 AND account_id = $5', [targetCanonical, logicalMessageId, movedIds, userId, accountId]);
+      await client.query('UPDATE messages SET conversation_id = $1, conversation_user_id = $2 WHERE logical_message_id = ANY($3::uuid[]) AND conversation_user_id = $2 AND account_id = $4', [targetCanonical, userId, movedIds, accountId]);
+      await client.query('UPDATE conversation_evidence SET conversation_id = $1 WHERE logical_message_id = ANY($2::uuid[]) AND user_id = $3 AND account_id = $4', [targetCanonical, movedIds, userId, accountId]);
+      await client.query(`UPDATE logical_messages child SET parent_logical_message_id = NULL WHERE child.user_id = $1 AND child.account_id = $3 AND child.conversation_id <> $2 AND child.parent_logical_message_id IN (SELECT id FROM logical_messages WHERE conversation_id = $2 AND account_id = $3)`, [userId, targetCanonical, accountId]);
+      const crossEdge = await client.query(`SELECT 1 FROM logical_messages child JOIN logical_messages parent ON parent.id = child.parent_logical_message_id WHERE child.user_id = $1 AND child.account_id = $2 AND child.conversation_id IS DISTINCT FROM parent.conversation_id LIMIT 1`, [userId, accountId]);
       if (crossEdge.rows.length) throw new Error('manual-move left a cross-conversation parent edge');
       await refreshConversationAggregates(client, userId, conversationId);
       await refreshConversationAggregates(client, userId, targetCanonical);
@@ -168,8 +171,8 @@ export async function applyConversationOverride({ userId, conversationId, logica
     // P1-04: target_user_id is set for tenant-safe ownership.
     // The trigger in migration 0058 keeps target_user_id NULL when target_id is NULL.
     await client.query(
-      'INSERT INTO conversation_overrides (user_id, conversation_id, logical_message_id, override_type, target_id, target_user_id, reason) VALUES ($1,$2,$3,$4,$5,$6,$7)',
-      [userId, conversationId, logicalMessageId, overrideType, targetId, targetId ? userId : null, reason],
+      'INSERT INTO conversation_overrides (user_id, account_id, conversation_id, logical_message_id, override_type, target_id, target_user_id, reason) VALUES ($1,$2,$3,$4,$5,$6,$7,$8)',
+      [userId, accountId, conversationId, logicalMessageId, overrideType, targetId, targetId ? userId : null, reason],
     );
     return { conversationId, overrideType, targetId, manuallyLocked: overrideType === 'lock-conversation' || Boolean(conversation?.manually_locked) };
   }, { serializable: true });
@@ -178,10 +181,13 @@ export async function applyConversationOverride({ userId, conversationId, logica
 export async function listConversationOverrides({ userId, conversationId }) {
   const client = await pool.connect();
   try {
-    const canonicalId = await resolveConversationAlias(client, { userId, conversationId });
+    const account = await client.query('SELECT account_id FROM conversations WHERE id = $1 AND user_id = $2', [conversationId, userId]);
+    if (!account.rows[0]) return [];
+    const accountId = account.rows[0].account_id;
+    const canonicalId = await resolveConversationAlias(client, { userId, accountId, conversationId });
     const result = await client.query(
-      'SELECT * FROM conversation_overrides WHERE user_id = $1 AND conversation_id = $2 ORDER BY created_at DESC',
-      [userId, canonicalId],
+      'SELECT * FROM conversation_overrides WHERE user_id = $1 AND account_id = $3 AND conversation_id = $2 ORDER BY created_at DESC',
+      [userId, canonicalId, accountId],
     );
     return result.rows;
   } finally {

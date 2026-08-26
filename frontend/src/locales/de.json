@@ -1135,7 +1135,8 @@
     "incomingMessage": "Eingehende Nachricht",
     "outgoingMessage": "Ausgehende Nachricht",
     "expandMessage": "Nachricht von {{sender}} aufklappen: {{subject}}",
-    "collapseMessage": "Nachricht von {{sender}} zuklappen: {{subject}}"
+    "collapseMessage": "Nachricht von {{sender}} zuklappen: {{subject}}",
+    "summary": "Vorschau:"
   },
   "diagnostics": {
     "section": "Diagnose",

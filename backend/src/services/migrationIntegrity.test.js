@@ -23,6 +23,16 @@ describe('migration integrity', () => {
     expect(sql).toContain('REFERENCES logical_messages(id, user_id)');
   });
 
+
+  it('adds account-bound conversation identity and graph constraints in migration 0062', () => {
+    const sql = readFileSync(join(process.cwd(), 'migrations/0062_conversation_account_identity.sql'), 'utf8');
+    expect(sql).toContain('ALTER TABLE logical_messages ADD COLUMN IF NOT EXISTS account_id UUID');
+    expect(sql).toContain('ce_lm_map');
+    expect(sql).toContain('fk_logical_parent_account');
+    expect(sql).toContain('uq_logical_messages_account_canonical_collision');
+    expect(sql).toContain('fk_message_conversation_account');
+  });
+
   it('records migration checksums in the runner', () => {
     const source = readFileSync(join(process.cwd(), 'src/services/migrations.js'), 'utf8');
     expect(source).toContain('sha256');

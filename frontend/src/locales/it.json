@@ -1135,7 +1135,8 @@
     "incomingMessage": "Messaggio in arrivo",
     "outgoingMessage": "Messaggio in uscita",
     "expandMessage": "Espandi il messaggio di {{sender}}: {{subject}}",
-    "collapseMessage": "Comprimi il messaggio di {{sender}}: {{subject}}"
+    "collapseMessage": "Comprimi il messaggio di {{sender}}: {{subject}}",
+    "summary": "Anteprima:"
   },
   "diagnostics": {
     "section": "Diagnostica",

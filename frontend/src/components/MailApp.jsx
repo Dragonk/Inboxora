@@ -83,6 +83,7 @@ export default function MailApp() {
   const isMobile = useMobile();
   const [conversationId, setConversationId] = useState(null);
   const [targetLogicalMessageId, setTargetLogicalMessageId] = useState(null);
+  const [selectedConversationCopy, setSelectedConversationCopy] = useState(null);
   const [conversationResolutionError, setConversationResolutionError] = useState(null);
 
   const replyFromConversation = useCallback(copy => {
@@ -120,12 +121,21 @@ export default function MailApp() {
     // independently of which list path produced the click (flat, ThreadRow parent or child).
     setConversationId(null);
     setTargetLogicalMessageId(null);
+    setSelectedConversationCopy(null);
     setConversationResolutionError(null);
-    conversationApi.resolveMessage(selectedMessageId)
+    const selected = useStore.getState().messages.find(item => item.id === selectedMessageId)
+      || Object.values(useStore.getState().threadMessages || {}).flat().find(item => item.id === selectedMessageId);
+    conversationApi.resolveMessage(selectedMessageId, selected?.account_id || null)
       .then(resolved => {
         if (!cancelled && resolved?.conversation_id) {
+          setSelectedConversationCopy({
+            id: resolved.physical_copy_id || resolved.id || selectedMessageId,
+            accountId: resolved.account_id || resolved.accountId || null,
+          });
+          setTargetLogicalMessageId(resolved.logical_message_id || resolved.logicalMessageId || null);
+          // Publish the conversation last so the reader never mounts without the
+          // resolver's exact physical-copy/account context.
           setConversationId(resolved.conversation_id);
-          setTargetLogicalMessageId(resolved.logical_message_id || null);
         }
       }).catch(error => {
         if (!cancelled) {
@@ -821,7 +831,7 @@ export default function MailApp() {
             <MessageList />
           </div>
           <div data-ce-reader-pane="true" style={{ flex: 1, display: !showContacts && (selectedMessageId || (conversationReaderViewEnabled && conversationId)) ? 'flex' : 'none', overflow: 'hidden', height: '100%', minWidth: 0 }}>
-            <MessagePane mode={conversationReaderViewEnabled && conversationId ? 'conversation' : 'single'} conversationId={conversationId} targetLogicalMessageId={targetLogicalMessageId} onReply={replyFromConversation} />
+            <MessagePane mode={conversationReaderViewEnabled && conversationId ? 'conversation' : 'single'} conversationId={conversationId} targetLogicalMessageId={targetLogicalMessageId} selectedConversationCopy={selectedConversationCopy} onReply={replyFromConversation} />
           </div>
         </>
       ) : (
@@ -869,7 +879,7 @@ export default function MailApp() {
                 />
               )}
               <div data-ce-reader-pane="true" style={{ flex: 1, minWidth: 0, overflow: 'hidden', height: '100%', display: 'flex' }}>
-                <MessagePane mode={conversationReaderViewEnabled && conversationId ? 'conversation' : 'single'} conversationId={conversationId} targetLogicalMessageId={targetLogicalMessageId} onReply={replyFromConversation} />
+                <MessagePane mode={conversationReaderViewEnabled && conversationId ? 'conversation' : 'single'} conversationId={conversationId} targetLogicalMessageId={targetLogicalMessageId} selectedConversationCopy={selectedConversationCopy} onReply={replyFromConversation} />
               </div>
               {/* Generic right-sidebar column, populated from the content seam above. */}
               {currentLayout.direction === 'row' && rightSidebarContent != null && (

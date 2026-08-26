@@ -1135,7 +1135,8 @@
     "incomingMessage": "Входящее сообщение",
     "outgoingMessage": "Исходящее сообщение",
     "expandMessage": "Развернуть сообщение от {{sender}}: {{subject}}",
-    "collapseMessage": "Свернуть сообщение от {{sender}}: {{subject}}"
+    "collapseMessage": "Свернуть сообщение от {{sender}}: {{subject}}",
+    "summary": "Кратко:"
   },
   "diagnostics": {
     "section": "Диагностика",

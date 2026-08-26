@@ -42,7 +42,12 @@ export const conversationApi = {
   },
 
   // `ref` may be a selected physical UUID or a durable RFC Message-ID.
-  resolveMessage: (ref) => apiFetch(`/messages/${encodeURIComponent(ref)}/conversation`),
+  resolveMessage: (ref, accountId = null) => {
+    const qs = new URLSearchParams();
+    if (accountId) qs.set('accountId', accountId);
+    const query = qs.toString() ? `?${qs.toString()}` : '';
+    return apiFetch(`/messages/${encodeURIComponent(ref)}/conversation${query}`);
+  },
 
   // Copy-aware destructive actions — `scope` is explicit (never defaults to whole conversation).
   // Scopes: THIS_COPY | ALL_COPIES_OF_LOGICAL_MESSAGE | COPIES_ON_THIS_ACCOUNT | WHOLE_CONVERSATION
