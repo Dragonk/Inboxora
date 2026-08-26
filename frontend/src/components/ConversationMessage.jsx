@@ -1,9 +1,14 @@
 import { useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import MessageBodyRenderer from './MessageBodyRenderer.jsx';
-import { MessageActionBar, MessageAvatar, MessageDirection, actionStyle } from './MessagePresentation.jsx';
+import { MessageAvatar, MessageDirection, actionStyle } from './MessagePresentation.jsx';
+import MessageToolbar from './MessageToolbar.jsx';
+import MessageHeaderModal from './MessageHeaderModal.jsx';
+import { useMobile } from '../hooks/useMobile.js';
+import { useStore } from '../store/index.js';
 import { physicalCopyDirection, preferredAccountCopy } from '../utils/conversationDirection.js';
 import { api } from '../utils/api.js';
+import { conversationApi } from '../utils/conversationApi.js';
 
 function address(value) {
   if (!value) return '';
@@ -18,7 +23,7 @@ function date(value) {
   }) : '';
 }
 
-function AttachmentList({ attachments, physicalCopyId }) {
+function AttachmentList({ attachments, physicalCopyId, canAccessCopy }) {
   const { t } = useTranslation();
   if (!attachments.length) return null;
   return <div data-conversation-message-attachments="true" style={{ marginTop: 16 }}>
@@ -28,8 +33,10 @@ function AttachmentList({ attachments, physicalCopyId }) {
     <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
       {attachments.map((attachment, index) => <a
         key={attachment.part || index}
-        href={physicalCopyId ? `/api/mail/messages/${encodeURIComponent(physicalCopyId)}/attachments/${encodeURIComponent(String(attachment.part || index))}` : undefined}
-        download={attachment.filename}
+        href={canAccessCopy && physicalCopyId ? `/api/mail/messages/${encodeURIComponent(physicalCopyId)}/attachments/${encodeURIComponent(String(attachment.part || index))}` : undefined}
+        download={canAccessCopy ? attachment.filename : undefined}
+        aria-disabled={!canAccessCopy || undefined}
+        onClick={canAccessCopy ? undefined : event => event.preventDefault()}
         style={{
           ...actionStyle,
           display: 'inline-flex', alignItems: 'center', gap: 7,
@@ -44,10 +51,14 @@ function AttachmentList({ attachments, physicalCopyId }) {
   </div>;
 }
 
-export default function ConversationMessage({ message, selectedCopyId, selectedAccountId, accounts, expanded, onToggle, body, status, onLoadBody, onRemoteImages, onReply }) {
+export default function ConversationMessage({ conversationId, message, selectedCopyId, selectedAccountId, accounts, expanded, onToggle, body, status, onLoadBody, onRemoteImages, onReply, onActionComplete }) {
   const { t } = useTranslation();
+  const isMobile = useMobile();
+  const { replyDefault, aiActions, setShowAdmin, setAdminTab } = useStore();
   const copy = preferredAccountCopy(message, selectedAccountId, selectedCopyId) || {};
-  const account = accounts.find(item => String(item.id) === String(copy.accountId || selectedAccountId));
+  const account = accounts.find(item => String(item.id) === String(selectedAccountId));
+  const hasAccountCopy = Boolean(copy.id && account && selectedAccountId
+    && String(copy.accountId ?? copy.account_id) === String(selectedAccountId));
   const direction = physicalCopyDirection(copy, account);
   const outgoing = direction === 'outgoing';
   const attachments = Array.isArray(body?.attachments) ? body.attachments : (Array.isArray(copy.attachments) ? copy.attachments : []);
@@ -59,12 +70,18 @@ export default function ConversationMessage({ message, selectedCopyId, selectedA
   const accountColor = account?.color || 'var(--accent)';
   const accountLabel = account?.name || account?.email_address || account?.email || '';
   const [unsubscribeStatus, setUnsubscribeStatus] = useState(null);
+  const [folders, setFolders] = useState([]);
+  const [foldersLoading, setFoldersLoading] = useState(false);
+  const [showHeaders, setShowHeaders] = useState(false);
+  const [actionError, setActionError] = useState(null);
 
   const toggle = () => {
     onToggle(message.id);
     if (!expanded && !body && !status?.loading) onLoadBody(message.id);
   };
-  const reply = (replyAll = false, forward = false) => onReply?.({
+  const reply = (replyAll = false, forward = false) => {
+    if (!hasAccountCopy) return;
+    onReply?.({
     ...copy,
     logicalMessageId: message.id,
     selectedCopyId: copy.id,
@@ -72,6 +89,7 @@ export default function ConversationMessage({ message, selectedCopyId, selectedA
     forward,
     attachments,
   });
+  };
   const handleUnsubscribe = async () => {
     if (!copy.id || unsubscribeStatus === 'loading') return;
     setUnsubscribeStatus('loading');
@@ -82,6 +100,45 @@ export default function ConversationMessage({ message, selectedCopyId, selectedA
       setUnsubscribeStatus('error');
     }
   };
+
+  const actionOptions = { scope: 'THIS_COPY', copyId: copy.id, logicalMessageId: message.id };
+  const runAction = async callback => {
+    if (!hasAccountCopy) return;
+    setActionError(null);
+    try {
+      await callback();
+      await onActionComplete?.();
+    } catch (error) {
+      setActionError(error.message || t('common.error'));
+    }
+  };
+  const loadFolders = async () => {
+    if (!hasAccountCopy || foldersLoading || folders.length) return;
+    setFoldersLoading(true);
+    try {
+      const result = await api.getFolders(selectedAccountId);
+      setFolders(Array.isArray(result) ? result : (result.folders || []));
+    } catch (error) {
+      setActionError(error.message || t('common.error'));
+    } finally {
+      setFoldersLoading(false);
+    }
+  };
+  const handlePrint = () => {
+    const win = window.open('', '_blank');
+    if (!win) return;
+    const escaped = value => String(value || '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+    const content = body?.body_html || `<pre>${escaped(body?.body_text)}</pre>`;
+    win.document.write(`<!doctype html><html><head><meta charset="utf-8"><meta http-equiv="Content-Security-Policy" content="script-src 'none'; object-src 'none'; base-uri 'none'"><title>${escaped(subject)}</title></head><body><h1>${escaped(subject)}</h1><p>${escaped(sender)} · ${escaped(date(message.messageDate || copy.date))}</p>${content}</body></html>`);
+    win.document.close();
+    win.print();
+  };
+  const runAiAction = action => {
+    const text = body?.body_text || String(body?.body_html || '').replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim();
+    if (!text || !action?.prompt) return;
+    api.ai.chat([{ role: 'user', content: `${action.prompt}\n\n${text.slice(0, 6000)}` }]).catch(error => setActionError(error.message));
+  };
+
   const toggleLabel = t(expanded ? 'conversation.collapseMessage' : 'conversation.expandMessage', { sender, subject });
 
   return <article
@@ -102,11 +159,31 @@ export default function ConversationMessage({ message, selectedCopyId, selectedA
       overflow: 'hidden',
       boxShadow: 'var(--shadow-soft), inset 0 1px 0 rgba(255,255,255,0.04)',
     }}>
-      {expanded && <MessageActionBar
+      {expanded && hasAccountCopy && <MessageToolbar
+        isMobile={isMobile}
+        defaultReplyAll={replyDefault === 'replyAll'}
         targetId={message.id}
-        onReply={event => { event.stopPropagation(); reply(); }}
-        onReplyAll={event => { event.stopPropagation(); reply(true); }}
-        onForward={event => { event.stopPropagation(); reply(false, true); }}
+        isRead={Boolean(copy.isRead ?? copy.is_read)}
+        isStarred={Boolean(copy.isStarred ?? copy.is_starred)}
+        currentFolder={copy.folder}
+        folders={folders}
+        foldersLoading={foldersLoading}
+        onLoadFolders={loadFolders}
+        onReply={() => reply()}
+        onReplyAll={() => reply(true)}
+        onForward={() => reply(false, true)}
+        onArchive={() => runAction(() => conversationApi.archive(conversationId, actionOptions))}
+        onMove={folder => runAction(() => conversationApi.move(conversationId, folder, actionOptions))}
+        onSpam={() => runAction(() => api.markSpam(copy.id))}
+        onHam={String(copy.folder || '').toLowerCase().includes('spam') || String(copy.folder || '').toLowerCase().includes('junk') ? () => runAction(() => api.markHam(copy.id)) : undefined}
+        onSetRead={isRead => runAction(() => conversationApi.setRead(conversationId, isRead, actionOptions))}
+        onViewHeaders={() => setShowHeaders(true)}
+        onPrint={body ? handlePrint : undefined}
+        aiActions={body ? (aiActions || []) : []}
+        onAiAction={runAiAction}
+        onManageAiActions={() => { setAdminTab('ai-actions'); setShowAdmin(true); }}
+        onStar={() => runAction(() => conversationApi.setStarred(conversationId, !(copy.isStarred ?? copy.is_starred), actionOptions))}
+        onDelete={() => runAction(() => conversationApi.delete(conversationId, actionOptions))}
       />}
 
       <button
@@ -166,6 +243,7 @@ export default function ConversationMessage({ message, selectedCopyId, selectedA
       </button>
     </div>
 
+    {actionError && <div role="alert" style={{ padding: '8px 12px', color: 'var(--red)' }}>{actionError}</div>}
     {expanded && <div data-conversation-message-expanded-content="true" style={{ padding: '0 0 12px' }}>
       {copy.listUnsubscribe && !copy.unsubscribedAt && unsubscribeStatus !== 'done' && <div className="msg-notice" style={{
         marginBottom: 10, padding: '9px 14px',
@@ -195,8 +273,9 @@ export default function ConversationMessage({ message, selectedCopyId, selectedA
       }}>
         <MessageBodyRenderer html={body.body_html} text={body.body_text} remoteImages={Boolean(body.remoteImages)} collapseQuotes />
         {body.hasBlockedRemoteImages && <button type="button" onClick={() => onRemoteImages(message.id)} style={{ ...actionStyle, marginTop: 10 }}>{t('conversation.loadImages')}</button>}
-        <AttachmentList attachments={attachments} physicalCopyId={body.physical_copy_id || copy.id} />
+        <AttachmentList attachments={attachments} physicalCopyId={copy.id} canAccessCopy={hasAccountCopy} />
       </div>}
     </div>}
+    {showHeaders && <MessageHeaderModal messageId={copy.id} subject={subject} onClose={() => setShowHeaders(false)} />}
   </article>;
 }

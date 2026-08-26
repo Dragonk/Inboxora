@@ -83,6 +83,56 @@ async function dryRunBatch(client, rows, userId) {
   return wouldChange;
 }
 
+async function dryRunAllPagesForAccount({ userId, accountId, limit, force }) {
+  const safeLimit = Math.min(Math.max(Number(limit) || 100, 1), 500);
+  const lockKey = `conversation-rebuild:${userId}`;
+  const client = await pool.connect();
+  let scanned = 0;
+  let wouldChange = 0;
+  let batches = 0;
+  try {
+    await client.query('SELECT pg_advisory_lock(hashtext($1), hashtext($2))', [lockKey, lockKey + ':2']);
+    const checkpointResult = await client.query(
+      'SELECT * FROM conversation_rebuild_checkpoints WHERE user_id = $1 AND scope_account_id = $2',
+      [userId, scopeId(accountId)],
+    );
+    let accountCursor = force ? null : (checkpointResult.rows[0] || null);
+
+    await client.query('BEGIN');
+    try {
+      while (true) {
+        const scoped = cursorPredicate([userId, accountId], accountCursor);
+        const limitParam = scoped.values.length + 1;
+        const rows = await client.query(`
+          SELECT m.*, a.user_id, a.email_address, a.imap_host, a.protocol
+            FROM messages m
+            JOIN email_accounts a ON a.id = m.account_id AND a.user_id = $1
+           WHERE m.is_deleted = false AND m.account_id = $2 ${scoped.sql}
+           ORDER BY (m.date IS NULL), m.date ASC, m.id ASC
+           LIMIT $${limitParam}
+        `, [...scoped.values, safeLimit]);
+
+        scanned += rows.rows.length;
+        wouldChange += await dryRunBatch(client, rows.rows, userId);
+        batches++;
+
+        if (rows.rows.length < safeLimit) break;
+        const last = rows.rows.at(-1);
+        accountCursor = { date: last?.date || null, id: last?.id, isNull: last?.date === null };
+      }
+    } finally {
+      // One rollback per account is essential: page N+1 must observe the transient
+      // CE graph built by pages 1..N, while the complete account remains write-free.
+      try { await client.query('ROLLBACK'); } catch { /* connection may be dirty */ }
+    }
+
+    return { scanned, wouldChange, batches };
+  } finally {
+    await client.query('SELECT pg_advisory_unlock(hashtext($1), hashtext($2))', [lockKey, lockKey + ':2']).catch(() => {});
+    client.release();
+  }
+}
+
 export async function rebuildConversationCopies({ userId, accountId = null, limit = 100, dryRun = true, force = false, cursor = null } = {}) {
   if (!userId) throw new Error('userId is required');
   // Account is the CE identity boundary. Keep the nullable public API as an
@@ -92,9 +142,17 @@ export async function rebuildConversationCopies({ userId, accountId = null, limi
     const accounts = await query('SELECT id FROM email_accounts WHERE user_id = $1 ORDER BY id', [userId]);
     const aggregate = { scanned: 0, updated: 0, wouldChange: 0, changed: 0, complete: true, next: null, dryRun, batches: 0, accounts: accounts.rows.length };
     for (const account of accounts.rows) {
+      if (dryRun) {
+        const result = await dryRunAllPagesForAccount({ userId, accountId: account.id, limit, force });
+        aggregate.scanned += result.scanned;
+        aggregate.wouldChange += result.wouldChange;
+        aggregate.batches += result.batches;
+        continue;
+      }
+
       let accountCursor = null;
       do {
-        const result = await rebuildConversationCopies({ userId, accountId: account.id, limit, dryRun, force: force && accountCursor === null, cursor: accountCursor });
+        const result = await rebuildConversationCopies({ userId, accountId: account.id, limit, dryRun: false, force: force && accountCursor === null, cursor: accountCursor });
         aggregate.scanned += result.scanned || 0;
         aggregate.updated += result.updated || 0;
         aggregate.wouldChange += result.wouldChange || 0;

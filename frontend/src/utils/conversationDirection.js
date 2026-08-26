@@ -25,8 +25,9 @@ export function physicalCopyDirection(copy, account) {
 }
 
 export function preferredAccountCopy(message, selectedAccountId, selectedCopyId = null) {
-  const copies = (message?.copies || []).filter(copy => copy.accountId === selectedAccountId);
-  return copies.find(copy => copy.id === selectedCopyId)
+  if (selectedAccountId == null) return null;
+  const copies = (message?.copies || []).filter(copy => String(copy.accountId ?? copy.account_id) === String(selectedAccountId));
+  return copies.find(copy => String(copy.id) === String(selectedCopyId))
     || [...copies].sort((a, b) => String(b.date || '').localeCompare(String(a.date || '')))[0]
     || null;
 }

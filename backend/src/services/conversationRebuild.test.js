@@ -88,6 +88,70 @@ describe('conversation rebuild', () => {
     expect(result.wouldChange).toBe(0);
   });
 
+  it('keeps all pages of an all-account dry-run in one transaction and rolls back once', async () => {
+    query.mockResolvedValueOnce({ rows: [{ id: 'a1' }] });
+    const page1 = { id: '00000000-0000-0000-0000-000000000001', date: '2026-01-01T00:00:00Z', account_id: 'a1' };
+    const page2 = { id: '00000000-0000-0000-0000-000000000002', date: '2026-01-02T00:00:00Z', account_id: 'a1' };
+    const messagePages = [[page1], [page2], []];
+    let transactionOpen = false;
+    let transientStateBuilt = false;
+    let rollbackCount = 0;
+    _upsertConversationCopyWithClient
+      .mockImplementationOnce(async () => { transientStateBuilt = true; })
+      .mockImplementationOnce(async () => { expect(transientStateBuilt).toBe(true); });
+    const client = {
+      query: vi.fn(async sql => {
+        if (sql === 'BEGIN') { expect(transactionOpen).toBe(false); transactionOpen = true; return { rows: [] }; }
+        if (sql === 'ROLLBACK') { expect(transactionOpen).toBe(true); transactionOpen = false; rollbackCount++; return { rows: [] }; }
+        if (sql.includes('FROM conversation_rebuild_checkpoints')) return { rows: [] };
+        if (sql.includes('FROM messages m')) {
+          expect(transactionOpen).toBe(true);
+          if (messagePages.length === 2) expect(transientStateBuilt).toBe(true);
+          return { rows: messagePages.shift() };
+        }
+        if (sql.includes('SELECT conversation_id, logical_message_id')) { expect(transactionOpen).toBe(true); return { rows: [{ conversation_id: null, logical_message_id: null }] }; }
+        return { rows: [] };
+      }),
+      release: vi.fn(),
+    };
+    pool.connect.mockResolvedValueOnce(client);
+
+    const result = await rebuildConversationCopies({ userId: 'u1', limit: 1, dryRun: true, force: true });
+
+    expect(result).toMatchObject({ scanned: 2, wouldChange: 0, batches: 3, accounts: 1, complete: true });
+    expect(_upsertConversationCopyWithClient).toHaveBeenCalledTimes(2);
+    expect(rollbackCount).toBe(1);
+    expect(transactionOpen).toBe(false);
+    expect(client.release).toHaveBeenCalledOnce();
+  });
+
+  it('uses a separate complete transaction and rollback for each account in an all-account dry-run', async () => {
+    query.mockResolvedValueOnce({ rows: [{ id: 'a1' }, { id: 'a2' }] });
+    const clients = ['a1', 'a2'].map((accountId, index) => {
+      const row = { id: `00000000-0000-0000-0000-00000000000${index + 1}`, date: '2026-01-01T00:00:00Z', account_id: accountId };
+      let page = 0;
+      return {
+        query: vi.fn(async sql => {
+          if (sql.includes('FROM conversation_rebuild_checkpoints')) return { rows: [] };
+          if (sql.includes('FROM messages m')) return { rows: page++ === 0 ? [row] : [] };
+          if (sql.includes('SELECT conversation_id, logical_message_id')) return { rows: [{ conversation_id: null, logical_message_id: null }] };
+          return { rows: [] };
+        }),
+        release: vi.fn(),
+      };
+    });
+    pool.connect.mockResolvedValueOnce(clients[0]).mockResolvedValueOnce(clients[1]);
+
+    const result = await rebuildConversationCopies({ userId: 'u1', limit: 1, dryRun: true, force: true });
+
+    expect(result).toMatchObject({ scanned: 2, batches: 4, accounts: 2 });
+    for (const client of clients) {
+      expect(client.query.mock.calls.filter(([sql]) => sql === 'BEGIN')).toHaveLength(1);
+      expect(client.query.mock.calls.filter(([sql]) => sql === 'ROLLBACK')).toHaveLength(1);
+      expect(client.release).toHaveBeenCalledOnce();
+    }
+  });
+
   it('allows an explicit forced repair after a completed checkpoint', async () => {
     const client = {
       query: vi.fn()

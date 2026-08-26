@@ -151,6 +151,34 @@ describeOrSkip('CE v2 PostgreSQL regression tests', () => {
       }
     }, 60000);
 
+    it('keeps canonical interleaved M1/M2 copies local to accounts A and B', async () => {
+      const m1 = '<interleaved-m1@example.test>';
+      const m2 = '<interleaved-m2@example.test>';
+      await insertMessage({ accountId: TEST_ACCOUNT_ID, uid: 610, folder: 'Sent', messageId: m1, subject: 'Interleaved thread', fromEmail: 'me@example.test', toAddresses: [{ email: 'me2@example.test' }], date: new Date('2026-08-25T11:45:00Z'), isRead: true });
+      await insertMessage({ accountId: ALT_ACCOUNT_ID, uid: 611, folder: 'INBOX', messageId: m1, subject: 'Interleaved thread', fromEmail: 'me@example.test', toAddresses: [{ email: 'me2@example.test' }], date: new Date('2026-08-25T11:45:00Z'), isRead: true });
+      await insertMessage({ accountId: ALT_ACCOUNT_ID, uid: 612, folder: 'Sent', messageId: m2, subject: 'Re: Interleaved thread', fromEmail: 'me2@example.test', toAddresses: [{ email: 'me@example.test' }], inReplyTo: m1, references: m1, date: new Date('2026-08-25T11:46:00Z'), isRead: true });
+      await insertMessage({ accountId: TEST_ACCOUNT_ID, uid: 613, folder: 'INBOX', messageId: m2, subject: 'Re: Interleaved thread', fromEmail: 'me2@example.test', toAddresses: [{ email: 'me@example.test' }], inReplyTo: m1, references: m1, date: new Date('2026-08-25T11:46:00Z'), isRead: true });
+
+      await rebuildConversationCopies({ userId: TEST_USER_ID, accountId: null, limit: 1, dryRun: false, force: true });
+      const rows = await query(`
+        SELECT account_id, message_id, logical_message_id, conversation_id
+          FROM messages
+         WHERE account_id = ANY($1::uuid[])
+           AND message_id = ANY($2::text[])
+         ORDER BY account_id, message_id
+      `, [[TEST_ACCOUNT_ID, ALT_ACCOUNT_ID], [m1, m2]]);
+
+      expect(rows.rows).toHaveLength(4);
+      for (const messageId of [m1, m2]) {
+        const identities = rows.rows.filter(row => row.message_id === messageId).map(row => row.logical_message_id);
+        expect(new Set(identities).size).toBe(2);
+      }
+      const byAccount = new Map([TEST_ACCOUNT_ID, ALT_ACCOUNT_ID].map(accountId => [accountId, rows.rows.filter(row => row.account_id === accountId)]));
+      expect(new Set(byAccount.get(TEST_ACCOUNT_ID).map(row => row.conversation_id)).size).toBe(1);
+      expect(new Set(byAccount.get(ALT_ACCOUNT_ID).map(row => row.conversation_id)).size).toBe(1);
+      expect(byAccount.get(TEST_ACCOUNT_ID)[0].conversation_id).not.toBe(byAccount.get(ALT_ACCOUNT_ID)[0].conversation_id);
+    }, 60000);
+
     it('keeps an RFC parent chain together inside one account without linking the matching ID in another account', async () => {
       await insertMessage({ accountId: ALT_ACCOUNT_ID, uid: 620, folder: 'INBOX', messageId: '<root@test>', subject: 'Other account root', fromEmail: 'outside@example.test', date: new Date('2026-08-25T11:49:00Z'), isRead: true });
       await insertMessage({ accountId: TEST_ACCOUNT_ID, uid: 621, folder: 'INBOX', messageId: '<root@test>', subject: 'Local root', fromEmail: 'outside@example.test', date: new Date('2026-08-25T11:50:00Z'), isRead: true });
