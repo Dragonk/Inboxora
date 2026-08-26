@@ -4844,6 +4844,13 @@ export class ImapManager {
       });
 
       if (serverUidMap) {
+        // Stale-identity measurement (#407 "brutal" case): any requested UID the server did
+        // NOT move is a row our local DB believed lived at that UID but the server no longer
+        // had there — a destructive op acting on stale identity (rapid re-archive, a concurrent
+        // move, or a UIDVALIDITY shift). This is the exact race #407 describes, currently masked
+        // (reported as succeeded). Behavior-neutral: the return value is unchanged, only measured.
+        const staleUids = uids.filter(u => !serverUidMap.has(Number(u)));
+        if (staleUids.length) recordSyncSignal('stale_mutation_uid', { accountId: account.id, magnitude: staleUids.length });
         return { uidMap: serverUidMap, succeeded: uids, failed: [] };
       }
 
