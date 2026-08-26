@@ -23,9 +23,10 @@ describe('conversation reader final UX contract', () => {
     const css = read('../index.css');
     const message = read('ConversationMessage.jsx');
     assert.match(css, /--message-body-bg: var\(--bg-secondary\)/);
-    assert.match(css, /\[data-mailflow-theme="light"\][\s\S]*?--message-body-bg: #ffffff/);
-    assert.doesNotMatch(css, /\[data-mailflow-theme="dark"\][\s\S]*?--message-body-bg: #ffffff/);
-    assert.match(message, /background: 'var\(--message-body-bg, var\(--bg-secondary\)\)'/);
+    assert.match(css, /:root\[data-mailflow-theme="light"\][\s\S]*?--message-body-bg: #ffffff/);
+    assert.match(css, /:root\[data-mailflow-theme="dark"\][\s\S]*?--message-body-bg: var\(--bg-secondary\)/);
+    assert.doesNotMatch(css, /:root\[data-mailflow-theme="dark"\][\s\S]*?--message-body-bg: #ffffff/);
+    assert.match(message, /background: 'var\(--message-body-bg\)'/);
     assert.doesNotMatch(message, /background: '#ffffff'/);
   });
 });

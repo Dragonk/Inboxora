@@ -84,8 +84,12 @@ body, #root {
 
 /* Message bodies follow the active surface by default; the native light theme
    deliberately uses a pure-white reading panel to match the conversation mock-up. */
-[data-mailflow-theme="light"] {
+:root[data-mailflow-theme="light"] {
   --message-body-bg: #ffffff;
+}
+
+:root[data-mailflow-theme="dark"] {
+  --message-body-bg: var(--bg-secondary);
 }
 
 /* Custom scrollbar */

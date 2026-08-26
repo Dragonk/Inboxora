@@ -283,7 +283,9 @@ describe('blockRemoteImages', () => {
   it('replaces remote img src with an SVG placeholder', () => {
     const out = blockRemoteImages('<img src="https://example.com/tracker.png">');
     expect(out).toContain('src="data:image/svg+xml,');
-    expect(out).not.toContain('example.com');
+    expect(out).toContain('data-mailflow-remote-src="https://example.com/tracker.png"');
+    expect(out).toContain('data-mailflow-remote-blocked="true"');
+    expect(out).not.toMatch(/(?:^|\s)src="https:\/\/example\.com\/tracker\.png"/);
   });
 
   it('removes srcset containing remote URLs', () => {

@@ -58,7 +58,7 @@ function AttachmentList({ attachments, physicalCopyId, canAccessCopy }) {
 export default function ConversationMessage({ conversationId, message, selectedCopyId, selectedAccountId, accounts, expanded, onToggle, body, status, onLoadBody, onRemoteImages, onReply, onActionComplete }) {
   const { t } = useTranslation();
   const isMobile = useMobile();
-  const { replyDefault, aiActions, setShowAdmin, setAdminTab } = useStore();
+  const { replyDefault, aiActions, setShowAdmin, setAdminTab, blockRemoteImages, imageWhitelist } = useStore();
   const copy = preferredAccountCopy(message, selectedAccountId, selectedCopyId) || {};
   const account = accounts.find(item => String(item.id) === String(selectedAccountId));
   const hasAccountCopy = Boolean(copy.id && account && selectedAccountId
@@ -69,7 +69,11 @@ export default function ConversationMessage({ conversationId, message, selectedC
   const bodyHtml = body?.html ?? body?.body_html ?? null;
   const bodyText = body?.text ?? body?.body_text ?? null;
   const hasBlockedRemoteImages = Boolean(body?.hasBlockedRemoteImages ?? body?.has_blocked_remote_images);
-  const remoteImages = Boolean(body?.remoteImages ?? body?.remote_images);
+  const senderEmail = String(copy.fromEmail || copy.from_email || '').toLowerCase();
+  const senderDomain = senderEmail.includes('@') ? senderEmail.split('@').pop() : '';
+  const senderAllowsImages = (imageWhitelist?.addresses || []).some(value => String(value).toLowerCase() === senderEmail)
+    || (imageWhitelist?.domains || []).some(value => String(value).toLowerCase() === senderDomain);
+  const remoteImages = Boolean(body?.remoteImages ?? body?.remote_images) || !blockRemoteImages || senderAllowsImages;
   const sender = outgoing ? t('conversation.you') : (copy.fromName || copy.fromEmail || t('conversation.unknownSender'));
   const directionLabel = direction === 'outgoing' ? t('conversation.outgoingMessage') : direction === 'incoming' ? t('conversation.incomingMessage') : undefined;
   const subject = message.subject || copy.subject || t('message.noSubject');
@@ -168,7 +172,7 @@ export default function ConversationMessage({ conversationId, message, selectedC
       borderRadius: 10,
       border: '1px solid var(--border-subtle)',
       borderLeft: `3px solid ${accountColor}`,
-      overflow: 'hidden',
+      overflow: 'visible', position: 'relative', zIndex: expanded ? 2 : 1,
       boxShadow: 'var(--shadow-soft), inset 0 1px 0 rgba(255,255,255,0.04)',
     }}>
       {expanded && hasAccountCopy && <MessageToolbar
@@ -290,11 +294,14 @@ export default function ConversationMessage({ conversationId, message, selectedC
       </div>}
 
       {status?.loading && <div role="status" style={{ padding: 16, color: 'var(--text-tertiary)' }}>{t('conversation.loadingBody')}</div>}
-      {status?.error && <div role="alert" style={{ padding: 16, color: 'var(--text-danger)' }}>{status.error}</div>}
+      {status?.error && <div role="alert" style={{ padding: 16, color: 'var(--text-danger)', display: 'flex', alignItems: 'center', gap: 10 }}>
+        <span style={{ flex: 1 }}>{status.error}</span>
+        <button type="button" onClick={() => onLoadBody(message.id, true)} style={actionStyle}>{t('common.retry')}</button>
+      </div>}
       {status?.unavailable && <div role="status" style={{ padding: 16, color: 'var(--text-tertiary)' }}>{t('conversation.noBody')}</div>}
       {body && <div className="msg-card conversation-message-body-panel" style={{
         position: 'relative', padding: '14px 16px 12px',
-        background: 'var(--message-body-bg, var(--bg-secondary))', borderRadius: 10,
+        background: 'var(--message-body-bg)', borderRadius: 10,
         border: '1px solid var(--border-subtle)', overflow: 'hidden', contain: 'layout',
       }}>
         <MessageBodyRenderer

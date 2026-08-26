@@ -428,7 +428,11 @@ export function blockRemoteImages(html) {
       const svg = encodeURIComponent(
         `<svg xmlns="http://www.w3.org/2000/svg" width="${w}" height="${h}"><rect width="100%" height="100%" fill="#e8e8e8"/></svg>`
       );
-      return `${pre} src="data:image/svg+xml,${svg}"`;
+      const remoteSrc = match.match(/\ssrc=(["'])(https?:\/\/[^\s"']*)\1/i)?.[2] || '';
+      const encodedRemoteSrc = remoteSrc
+        .replace(/&/g, '&amp;')
+        .replace(/"/g, '&quot;');
+      return `${pre} data-mailflow-remote-src="${encodedRemoteSrc}" data-mailflow-remote-blocked="true" src="data:image/svg+xml,${svg}"`;
     }
   );
 

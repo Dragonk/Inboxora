@@ -22,6 +22,8 @@ describe('message quote folding classification', () => {
     const quotedTail = 'Current answer\n\n> old line one\n> old line two';
     assert.equal(plainTextBoundary(quotedTail), quotedTail.indexOf('> old'));
     assert.equal(plainTextBoundary('FYI\n\n---------- Forwarded message ---------\nFrom: sender@example.com'), -1);
+    const nestedForward = 'FYI\n\n---------- Forwarded message ---------\nFrom: sender@example.com\n\nImmediate forwarded body\n\nDnia 25 sierpnia 2026 Jan napisał(a):\n> older reply';
+    assert.equal(plainTextBoundary(nestedForward), nestedForward.indexOf('Dnia 25'));
   });
 
   it('does not fold a single incidental greater-than line or interleaved replies', () => {

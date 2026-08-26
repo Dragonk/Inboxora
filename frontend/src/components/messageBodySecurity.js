@@ -22,15 +22,34 @@ export function sanitizeMessageHtml(html = '', { remoteImages = false } = {}) {
   const purify = purifier();
   const sanitized = purify.sanitize(preserveCid(String(html)), {
     ...EMAIL_SANITIZE_POLICY,
+    ADD_ATTR: [...EMAIL_SANITIZE_POLICY.ADD_ATTR, 'data-mailflow-remote-src', 'data-mailflow-remote-blocked'],
     ALLOW_UNKNOWN_PROTOCOLS: false,
   });
-  if (remoteImages) return sanitized;
-  return sanitized
-    .replace(/\ssrc=(["'])https?:[^"']*\1/gi, '')
-    .replace(/\ssrc=(["'])\/\/[^"']*\1/gi, '')
-    .replace(/\ssrcset=(["'])[^"']*\1/gi, '')
-    .replace(/url\s*\(\s*["']?https?:[^)]+\)/gi, 'none')
-    .replace(/url\s*\(\s*["']?\/\/[^)]+\)/gi, 'none');
+  const template = document.createElement('template');
+  template.innerHTML = sanitized;
+  for (const image of template.content.querySelectorAll('img')) {
+    const currentSrc = image.getAttribute('src') || '';
+    const preservedSrc = image.getAttribute('data-mailflow-remote-src') || '';
+    const remoteSrc = /^(?:https?:)?\/\//i.test(currentSrc) ? currentSrc : preservedSrc;
+    if (!remoteSrc) continue;
+    const normalizedSrc = remoteSrc.startsWith('//') ? `https:${remoteSrc}` : remoteSrc;
+    if (remoteImages) {
+      image.setAttribute('src', normalizedSrc);
+      image.removeAttribute('data-mailflow-remote-blocked');
+    } else {
+      image.setAttribute('data-mailflow-remote-src', normalizedSrc);
+      image.setAttribute('data-mailflow-remote-blocked', 'true');
+      if (/^(?:https?:)?\/\//i.test(currentSrc)) image.removeAttribute('src');
+      image.removeAttribute('srcset');
+    }
+  }
+  let output = template.innerHTML;
+  if (!remoteImages) {
+    output = output
+      .replace(/url\s*\(\s*["']?https?:[^)]+\)/gi, 'none')
+      .replace(/url\s*\(\s*["']?\/\/[^)]+\)/gi, 'none');
+  }
+  return output;
 }
 
 

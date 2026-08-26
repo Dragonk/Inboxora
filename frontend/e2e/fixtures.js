@@ -132,7 +132,7 @@ export const test = base.extend({
       const readerEnabled = matrix[1] !== '0';
       return route.fulfill({ json: {
         language: 'pl',
-        theme: 'light',
+        theme: page.__themeOverride || 'light',
         threadedView: listEnabled,
         conversation_list_view_enabled: listEnabled,
         conversation_reader_view_enabled: readerEnabled,
@@ -213,13 +213,41 @@ export const test = base.extend({
       { id: 'conversation-gmail-copy-4', subject: 'Gmail reply chain', is_read: true, account_id: 'account-gmail', folder: 'Sent', date: new Date().toISOString(), from_email: 'me@gmail.test', message_id: '<fixture-4>', body_text: 'Fixture body 4', thread_id: 'conversation-gmail' },
       { id: 'conversation-gmail-copy-5', subject: 'Gmail reply chain', is_read: true, account_id: 'account-gmail', folder: 'INBOX', date: new Date().toISOString(), from_email: 'sender@gmail.test', message_id: '<fixture-5>', body_text: 'Fixture body 5', thread_id: 'conversation-gmail' },
     ] } }));
-    await page.route('**/api/mail/messages/*/body**', route => {
+    await page.route('**/api/mail/messages/*/body**', async route => {
       const url = new URL(route.request().url());
       const copyId = url.pathname.split('/').at(-2);
+      const remoteImages = url.searchParams.get('remoteImages') === '1';
+      const delay = page.__bodyResponseDelays?.[copyId] || 0;
+      if (delay) await new Promise(resolve => setTimeout(resolve, delay));
+      if (page.__bodyFailures?.has(copyId)) return route.fulfill({ status: 503, json: { error: 'Fixture body failed' } });
+      if (page.__quoteFoldingCopy === copyId) {
+        const nestedForwardHtml = [
+          '<p data-testid="current-content">Thanks for the update — here is the forwarded thread.</p>',
+          '<div class="gmail_quote_container" data-testid="forward-envelope">',
+          '<div class="gmail_attr">---------- Forwarded message ---------<br>From: sender@example.com &lt;sender@example.com&gt;<br>Date: Tue, 25 Aug 2026<br>Subject: Project update</div>',
+          '<div data-testid="forwarded-body"><p data-testid="forwarded-content">Here is the first forwarded message content.</p>',
+          '<blockquote class="gmail_quote" data-testid="nested-reply">',
+          '<div class="gmail_attr">On Mon, 24 Aug 2026 Jan Kowalski &lt;jan@example.com&gt; wrote:</div>',
+          '<p data-testid="old-reply">Older reply history inside the forwarded content.</p>',
+          '</blockquote>',
+          '</div>',
+          '</div>',
+        ].join('');
+        return route.fulfill({ json: {
+          attachments: [],
+          text: 'Fixture quote folding',
+          html: nestedForwardHtml,
+          hasBlockedRemoteImages: false,
+          remoteImages: true,
+        } });
+      }
+      const remote = '<img data-testid="remote-signature" width="96" height="96" loading="lazy" decoding="async" data-mailflow-remote-src="https://example.test/signature.png" data-mailflow-remote-blocked="true" src="data:image/svg+xml,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20width%3D%2296%22%20height%3D%2296%22%3E%3C%2Fsvg%3E">';
       return route.fulfill({ json: {
         attachments: [{ part: 'fixture-part', filename: 'gmail-fixture.txt' }],
         text: `Fixture body lazy ${copyId}`,
-        html: `<p>Fixture body lazy ${copyId}</p><img src="https://tracker.example.test/pixel.gif"><a href="https://example.test">Safe link</a>`,
+        html: `<p>Fixture body lazy ${copyId}</p>${remote}<img data-testid="cid-image" src="cid:fixture"><img data-testid="data-image" src="data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///ywAAAAAAQABAAACAUwAOw=="><a href="https://example.test">Safe link</a>`,
+        hasBlockedRemoteImages: !remoteImages,
+        remoteImages,
       } });
     });
     await page.route('**/api/mail/conversations/*/overrides', route => route.fulfill({ json: { ok: true, overrides: [] } }));

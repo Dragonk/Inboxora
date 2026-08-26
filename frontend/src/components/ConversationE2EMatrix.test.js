@@ -37,11 +37,11 @@ describe('native conversation 2x2 contract', () => {
     const reader = read('ConversationReader.jsx'); const item = read('ConversationMessage.jsx');
     assert.match(reader, /setExpanded\(initialConversationExpansion\(messages, targetLogicalMessageId\)\)/);
     assert.match(reader, /initialConversationTarget\(messages, targetLogicalMessageId\)/);
-    assert.match(reader, /filter\(copy => copy\.accountId === selectedAccountId\)/);
-    assert.match(reader, /api\.getMessageBody\(copy\.id, remoteImages\)/);
+    assert.match(reader, /filter\(copy => String\(copy\.accountId \?\? copy\.account_id\) === String\(selectedAccountId\)\)/);
+    assert.match(reader, /api\.getMessageBody\(physicalCopyId, remoteImages\)/);
     assert.match(reader, /mailflow:conversation-refresh/);
-    assert.match(reader, /sameAccountCopies\.find\(item => item\.id === selectedCopyId\)/);
-    assert.match(reader, /currentStatus\?\.error \|\| currentStatus\?\.unavailable/);
+    assert.match(reader, /sameAccountCopies\.find\(item => String\(item\.id\) === String\(selectedCopyId\)\)/);
+    assert.match(reader, /currentStatus\?\.error/);
     assert.match(reader, /scrollIntoView\(\{ block: 'start' \}\)/);
     assert.doesNotMatch(reader, /message\.direction/);
     assert.match(reader, /toggleConversationExpansion\(previous, id\)/);
@@ -64,7 +64,7 @@ describe('native conversation 2x2 contract', () => {
     assert.match(item, /data-conversation-message-toggle/);
     assert.match(item, /role="button"/);
     assert.match(item, /window\.getSelection/);
-    assert.match(item, /background: 'var\(--message-body-bg, var\(--bg-secondary\)\)'/);
+    assert.match(item, /background: 'var\(--message-body-bg\)'/);
     assert.match(item, /item\.email \|\| item\.address/);
     assert.match(item, /copy\.fromEmail && \(outgoing \|\| copy\.fromName\)/);
     assert.match(item, /body\?\.html \?\? body\?\.body_html/);

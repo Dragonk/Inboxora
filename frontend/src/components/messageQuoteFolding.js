@@ -18,16 +18,12 @@ export function startsWithReplyMarker(value = '') {
   return normalizedLines(value).slice(0, 4).some(line => REPLY_MARKER_RE.test(line));
 }
 
-function isInside(root, element) {
-  return root === element || root.contains(element);
-}
-
 function uniqueTopLevel(elements) {
   const ordered = [...new Set(elements)].filter(Boolean);
   return ordered.filter(element => !ordered.some(other => other !== element && other.contains(element)));
 }
 
-function candidateElements(doc, protectedForwards) {
+function quoteElements(doc) {
   const explicit = [...doc.querySelectorAll([
     '.gmail_quote',
     '.gmail_quote_container',
@@ -37,19 +33,24 @@ function candidateElements(doc, protectedForwards) {
     '#divRplyFwdMsg',
     '.OutlookMessageHeader',
   ].join(','))];
-
   const markedBlockquotes = [...doc.querySelectorAll('blockquote')]
     .filter(element => startsWithReplyMarker(element.textContent));
-
-  return uniqueTopLevel([...explicit, ...markedBlockquotes])
-    .filter(element => !protectedForwards.some(root => isInside(root, element)))
-    .filter(element => !startsWithForwardMarker(element.textContent));
+  return [...new Set([...explicit, ...markedBlockquotes])];
 }
 
 function protectedForwardRoots(doc) {
-  const knownRoots = [...doc.querySelectorAll('.gmail_quote, .gmail_quote_container, .moz-forward-container, blockquote, div')]
+  return [...doc.querySelectorAll('.gmail_quote, .gmail_quote_container, .moz-forward-container, blockquote, div')]
     .filter(element => startsWithForwardMarker(element.textContent));
-  return uniqueTopLevel(knownRoots);
+}
+
+function candidateElements(doc, protectedForwards) {
+  const protectedSet = new Set(protectedForwards);
+  // A forwarded envelope remains visible, but quote candidates nested inside it are
+  // still eligible. Filtering forward roots before top-level de-duplication is what
+  // preserves Gmail's hierarchical behaviour for forwards containing old replies.
+  return uniqueTopLevel(quoteElements(doc)
+    .filter(element => !protectedSet.has(element))
+    .filter(element => !startsWithForwardMarker(element.textContent)));
 }
 
 function createToggle(doc, id, showLabel, hideLabel, onChange) {
@@ -86,7 +87,6 @@ export function plainTextBoundary(text) {
   let offset = 0;
   for (let index = 0; index < lines.length; index += 1) {
     const line = lines[index].replace(/\u00a0/g, ' ').trim();
-    if (FORWARD_MARKER_RE.test(line)) return -1;
     if (REPLY_MARKER_RE.test(line)) return offset;
     if (/^>/.test(line)) {
       const quotedTail = lines.slice(index).filter(candidate => candidate.trim()).every(candidate => /^\s*>/.test(candidate));

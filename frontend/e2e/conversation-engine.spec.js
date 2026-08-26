@@ -162,4 +162,74 @@ test.describe('native conversation engine matrix', () => {
     expect(bodyRequests).toBe(0);
   });
 
+  test('remote images share blocked/allowed behavior and preserve CID/data sources', async ({ page, fixtureApi }) => {
+    let remoteRequests = 0;
+    await page.route('https://example.test/signature.png', route => {
+      remoteRequests += 1;
+      return route.fulfill({ contentType: 'image/svg+xml', body: '<svg xmlns="http://www.w3.org/2000/svg" width="96" height="96"/>' });
+    });
+    await open(page, fixtureApi, false, true);
+    await page.locator('[data-msgid="conversation-gmail-copy-2"]:visible').click();
+    const card = page.locator('#logical-message-conversation-gmail-logical-2');
+    const frame = card.locator('iframe').contentFrame();
+    const remote = frame.locator('[data-testid="remote-signature"]');
+    await expect(remote).toHaveAttribute('data-mailflow-remote-blocked', 'true');
+    await expect(remote).toHaveAttribute('data-mailflow-remote-src', 'https://example.test/signature.png');
+    await expect(frame.locator('[data-testid="cid-image"]')).toHaveAttribute('src', 'cid:fixture');
+    await expect(frame.locator('[data-testid="data-image"]')).toHaveAttribute('src', /^data:image\/gif/);
+    expect(remoteRequests).toBe(0);
+    await card.getByRole('button', { name: /wczytaj obrazy|load images/i }).click();
+    await expect(card.locator('iframe').contentFrame().locator('[data-testid="remote-signature"]')).toHaveAttribute('src', 'https://example.test/signature.png');
+    await expect.poll(() => remoteRequests).toBe(1);
+  });
+
+  test('physical-copy body state survives out-of-order responses and collapse/re-expand', async ({ page, fixtureApi }) => {
+    page.__bodyResponseDelays = { 'conversation-gmail-copy-1': 350, 'conversation-gmail-copy-2': 50 };
+    await open(page, fixtureApi, false, true);
+    await page.locator('[data-msgid="conversation-gmail-copy-2"]:visible').click();
+    const reader = page.locator('section[data-conversation-id="conversation-gmail"]:visible');
+    const first = reader.locator('#logical-message-conversation-gmail-logical-1');
+    const second = reader.locator('#logical-message-conversation-gmail-logical-2');
+    await first.locator('[data-conversation-message-toggle="true"]').click();
+    await expect(second.locator('iframe').contentFrame().locator('body')).toContainText('conversation-gmail-copy-2');
+    await expect(first.locator('iframe').contentFrame().locator('body')).toContainText('conversation-gmail-copy-1');
+    await first.locator('[data-conversation-message-toggle="true"]').click();
+    await first.locator('[data-conversation-message-toggle="true"]').click();
+    await expect(first.locator('iframe').contentFrame().locator('body')).toContainText('conversation-gmail-copy-1');
+    await expect(second.locator('iframe').contentFrame().locator('body')).toContainText('conversation-gmail-copy-2');
+  });
+
+  test('hierarchical quote folding keeps forward envelope and immediate body visible but collapses nested reply history', async ({ page, fixtureApi }) => {
+    page.__quoteFoldingCopy = 'conversation-gmail-copy-2';
+    await open(page, fixtureApi, false, true);
+    await page.locator('[data-msgid="conversation-gmail-copy-2"]:visible').click();
+    const card = page.locator('#logical-message-conversation-gmail-logical-2');
+    await expect(card.locator('iframe')).toBeVisible();
+    const frame = card.locator('iframe').contentFrame();
+    // Current authored content is visible.
+    await expect(frame.locator('[data-testid="current-content"]')).toBeVisible();
+    // Forward envelope/header is visible (not collapsed).
+    await expect(frame.locator('[data-testid="forward-envelope"]')).toBeVisible();
+    await expect(frame.locator('text=---------- Forwarded message ---------')).toBeVisible();
+    // Immediate forwarded body content is visible.
+    await expect(frame.locator('[data-testid="forwarded-content"]')).toBeVisible();
+    // Nested reply history inside the forwarded body is collapsed behind a toggle.
+    await expect(frame.locator('[data-testid="nested-reply"]')).toBeHidden();
+    await expect(frame.locator('[data-testid="old-reply"]')).toBeHidden();
+    // Expanding the nested quote reveals the old reply.
+    await frame.locator('.mailflow-quote-toggle').first().click();
+    await expect(frame.locator('[data-testid="old-reply"]')).toBeVisible();
+  });
+
+  test('dark theme body surface uses the native dark content surface, not white', async ({ page, fixtureApi }) => {
+    page.__themeOverride = 'dark';
+    await open(page, fixtureApi, true, true);
+    await page.locator('[data-msgid="conversation-gmail-copy-5"]:visible').click();
+    const card = page.locator('#logical-message-conversation-gmail-logical-5');
+    const panel = card.locator('.conversation-message-body-panel');
+    const bg = await panel.evaluate(element => getComputedStyle(element).backgroundColor);
+    // Dark surface must not be white.
+    expect(bg).not.toBe('rgb(255, 255, 255)');
+  });
+
 });
