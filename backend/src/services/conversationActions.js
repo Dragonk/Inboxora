@@ -158,20 +158,27 @@ function normalizeIds(value) {
  */
 async function resolvePhysicalIds(client, { userId, conversationId, scope, copyId, logicalMessageId }) {
   assertScope(scope);
-  const canonicalConversationId = await resolveConversationAlias(client, { userId, conversationId });
-  const params = [userId, canonicalConversationId];
+  const owned = await client.query('SELECT account_id FROM conversations WHERE id = $1 AND user_id = $2 FOR UPDATE', [conversationId, userId]);
+  if (!owned.rows[0]) {
+    const error = new Error('Conversation not found or not owned by user');
+    error.statusCode = 404;
+    throw error;
+  }
+  const accountId = owned.rows[0].account_id;
+  const canonicalConversationId = await resolveConversationAlias(client, { userId, accountId, conversationId });
+  const params = [userId, canonicalConversationId, accountId];
   let selector;
   if (copyId) {
     params.push(copyId);
-    selector = `m.id = $3`;
+    selector = `m.id = $4`;
   } else if (logicalMessageId) {
     params.push(logicalMessageId);
-    selector = `m.logical_message_id = $3`;
+    selector = `m.logical_message_id = $4`;
   } else {
     selector = `m.id = (
       SELECT latest.id FROM messages latest
        JOIN email_accounts latest_account ON latest_account.id = latest.account_id
-      WHERE latest.conversation_id = $2 AND latest_account.user_id = $1 AND latest.is_deleted = false
+      WHERE latest.conversation_id = $2 AND latest.account_id = $3 AND latest_account.user_id = $1 AND latest.is_deleted = false
       ORDER BY latest.date DESC NULLS LAST, latest.id DESC LIMIT 1
     )`;
   }
@@ -180,7 +187,7 @@ async function resolvePhysicalIds(client, { userId, conversationId, scope, copyI
     `SELECT m.id, m.account_id, m.logical_message_id, m.conversation_id
        FROM messages m
        JOIN email_accounts a ON a.id = m.account_id AND a.user_id = $1
-      WHERE m.conversation_id = $2 AND m.is_deleted = false AND ${selector}
+      WHERE m.conversation_id = $2 AND m.account_id = $3 AND m.is_deleted = false AND ${selector}
       FOR UPDATE`,
     params,
   );
@@ -192,29 +199,29 @@ async function resolvePhysicalIds(client, { userId, conversationId, scope, copyI
 
   const selectedRow = selected.rows[0];
   let where;
-  let values = [userId];
+  let values = [userId, accountId];
   if (scope === 'THIS_COPY') {
     values.push(selectedRow.id);
-    where = 'm.id = $2';
+    where = 'm.account_id = $2 AND m.id = $3';
   } else if (scope === 'ALL_COPIES_OF_LOGICAL_MESSAGE') {
     if (!selectedRow.logical_message_id) {
       values.push(selectedRow.id);
-      where = 'm.id = $2';
+      where = 'm.account_id = $2 AND m.id = $3';
     } else {
       values.push(selectedRow.logical_message_id);
-      where = 'm.logical_message_id = $2';
+      where = 'm.account_id = $2 AND m.logical_message_id = $3';
     }
   } else if (scope === 'COPIES_ON_THIS_ACCOUNT') {
     // Scope is account-local copies of the SELECTED logical message, not every
     // LogicalMessage in the conversation. This keeps the UI/API meaning aligned
     // with the explicit scope label and prevents unrelated replies from moving.
-    values.push(selectedRow.account_id, selectedRow.logical_message_id || selectedRow.id);
+    values.push(selectedRow.logical_message_id || selectedRow.id);
     where = selectedRow.logical_message_id
       ? 'm.account_id = $2 AND m.logical_message_id = $3'
       : 'm.account_id = $2 AND m.id = $3';
   } else {
     values.push(canonicalConversationId);
-    where = 'm.conversation_id = $2';
+    where = 'm.account_id = $2 AND m.conversation_id = $3';
   }
 
   const affected = await client.query(

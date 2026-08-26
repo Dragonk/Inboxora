@@ -236,12 +236,13 @@ router.get('/messages/:ref/conversation', async (req, res) => {
   const ref = req.params.ref;
   const byPhysicalCopy = isUuid(ref);
   const canonicalMessageId = byPhysicalCopy ? null : normalizeMessageId(ref);
-  const requestedAccountId = req.query.accountId || null;
+  const rawAccountId = typeof req.query.accountId === 'string' ? req.query.accountId.trim() : '';
+  const requestedAccountId = rawAccountId || null;
   if (!byPhysicalCopy && !canonicalMessageId) {
     return res.status(400).json({ error: 'Invalid message reference' });
   }
-  if (!byPhysicalCopy && !isUuid(requestedAccountId)) {
-    return res.status(400).json({ error: 'accountId is required for RFC Message-ID resolution', code: 'ACCOUNT_REQUIRED' });
+  if (rawAccountId && !isUuid(rawAccountId)) {
+    return res.status(400).json({ error: 'Invalid accountId' });
   }
 
   const result = await query(byPhysicalCopy ? `
@@ -253,7 +254,9 @@ router.get('/messages/:ref/conversation', async (req, res) => {
     SELECT m.id, m.account_id, m.folder, m.date, m.conversation_id, m.logical_message_id
       FROM messages m
       JOIN email_accounts a ON a.id = m.account_id
-     WHERE m.canonical_message_id = $1 AND a.user_id = $2 AND m.account_id = $3::uuid AND m.is_deleted = false
+     WHERE m.canonical_message_id = $1 AND a.user_id = $2
+       AND ($3::uuid IS NULL OR m.account_id = $3)
+       AND m.is_deleted = false
      ORDER BY (m.folder = 'INBOX') DESC, m.date DESC NULLS LAST, m.id DESC
   `, byPhysicalCopy ? [ref, req.session.userId] : [canonicalMessageId, req.session.userId, requestedAccountId]);
 
@@ -263,9 +266,10 @@ router.get('/messages/:ref/conversation', async (req, res) => {
     return res.json(result.rows[0]);
   }
 
-  // SQL has already removed every cross-account candidate. Only distinct identities
-  // inside the requested account participate in ambiguity evaluation.
-  const identities = new Set(result.rows.map(row => `${row.logical_message_id || ''}:${row.conversation_id || ''}`));
+  // When account context is supplied, SQL removes every cross-account candidate
+  // before ambiguity evaluation. Without it, account remains part of the identity,
+  // so a Message-ID shared by two managed accounts is intentionally ambiguous.
+  const identities = new Set(result.rows.map(row => `${row.account_id || ''}:${row.logical_message_id || ''}:${row.conversation_id || ''}`));
   const ambiguous = identities.size !== 1
     || !result.rows[0].logical_message_id
     || !result.rows[0].conversation_id;

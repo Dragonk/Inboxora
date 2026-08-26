@@ -19,6 +19,7 @@ function fakeClient() {
     calls,
     async query(sql, params) {
       calls.push({ sql, params });
+      if (sql.includes('SELECT account_id FROM conversations')) return { rows: [{ account_id: 'account-1' }] };
       if (sql.includes('SELECT m.id, m.account_id, m.logical_message_id, m.conversation_id')) {
         return { rows: [{ id: 'copy-1', account_id: 'account-1', logical_message_id: 'logical-1', conversation_id: 'conversation-1', folder: 'INBOX' }] };
       }
@@ -74,6 +75,7 @@ describe('conversation copy-aware actions', () => {
   it('uses the provider move path and refuses a missing destination folder', async () => {
     const client = fakeClient();
     client.query = vi.fn()
+      .mockResolvedValueOnce({ rows: [{ account_id: 'account-1' }] })
       .mockResolvedValueOnce({ rows: [{ id: 'copy-1', account_id: 'account-1', logical_message_id: 'logical-1', conversation_id: 'conversation-1', folder: 'INBOX', uid: 7 }] })
       .mockResolvedValueOnce({ rows: [{ id: 'copy-1', account_id: 'account-1', logical_message_id: 'logical-1', conversation_id: 'conversation-1', folder: 'INBOX', uid: 7 }] })
       .mockResolvedValueOnce({ rows: [{ path: 'Archive', special_use: '\\Archive' }] })

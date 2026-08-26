@@ -1,11 +1,12 @@
 import { describe, expect, it, vi, beforeEach } from 'vitest';
 
-const { pool, upsertConversationCopy, _upsertConversationCopyWithClient } = vi.hoisted(() => ({
+const { pool, query, upsertConversationCopy, _upsertConversationCopyWithClient } = vi.hoisted(() => ({
   pool: { connect: vi.fn() },
+  query: vi.fn(),
   upsertConversationCopy: vi.fn(),
   _upsertConversationCopyWithClient: vi.fn(),
 }));
-vi.mock('./db.js', () => ({ pool }));
+vi.mock('./db.js', () => ({ pool, query }));
 vi.mock('./conversationPersistence.js', () => ({ upsertConversationCopy, _upsertConversationCopyWithClient }));
 vi.mock('./conversationIngestEnvelope.js', () => ({
   resolveOwnIdentityAddresses: vi.fn().mockResolvedValue([]),
@@ -53,7 +54,7 @@ describe('conversation rebuild', () => {
     };
     pool.connect.mockResolvedValueOnce(client);
     const result = await rebuildConversationCopies({
-      userId: 'u1', limit: 2, dryRun: true,
+      userId: 'u1', accountId: 'a1', limit: 2, dryRun: true,
       cursor: { date: '2026-01-01T00:00:00Z', id: 'm1', isNull: false },
     });
     expect(result.scanned).toBe(1);
@@ -83,7 +84,7 @@ describe('conversation rebuild', () => {
       release: vi.fn(),
     };
     pool.connect.mockResolvedValueOnce(client);
-    const result = await rebuildConversationCopies({ userId: 'u1', limit: 2, dryRun: true });
+    const result = await rebuildConversationCopies({ userId: 'u1', accountId: 'a1', limit: 2, dryRun: true });
     expect(result.wouldChange).toBe(0);
   });
 
@@ -97,7 +98,7 @@ describe('conversation rebuild', () => {
       release: vi.fn(),
     };
     pool.connect.mockResolvedValueOnce(client);
-    await expect(rebuildConversationCopies({ userId: 'u1', limit: 1, dryRun: false, force: true })).resolves.toMatchObject({ scanned: 0, updated: 0, complete: true, dryRun: false });
+    await expect(rebuildConversationCopies({ userId: 'u1', accountId: 'a1', limit: 1, dryRun: false, force: true })).resolves.toMatchObject({ scanned: 0, updated: 0, complete: true, dryRun: false });
     expect(upsertConversationCopy).not.toHaveBeenCalled();
     expect(_upsertConversationCopyWithClient).not.toHaveBeenCalled();
   });

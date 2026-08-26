@@ -173,6 +173,19 @@ jobs:
           await pool.end();
           JS
 
+      - name: Populated 0061 to 0062 account-identity migration gate
+        working-directory: backend
+        env:
+          DB_HOST: 127.0.0.1
+          DB_PORT: 5432
+          DB_NAME: mailflow_test
+          DB_USER: mailflow_test
+          DB_PASSWORD: mailflow_test
+          ENCRYPTION_KEY: "0000000000000000000000000000000000000000000000000000000000000000"
+          MIGRATION_GATE_SCHEMA: public
+        run: |
+          node src/scripts/conversationMigration0062Upgrade.js 2>&1 | tee ../artifacts/migration-0062-upgrade.log
+
       - name: PostgreSQL integration suite
         working-directory: backend
         env:

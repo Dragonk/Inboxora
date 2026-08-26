@@ -28,7 +28,10 @@ describe('native conversation 2x2 contract', () => {
   });
   it('uses compact native-pane message cards and per-message reply targets', () => {
     const reader = read('ConversationReader.jsx'); const item = read('ConversationMessage.jsx');
+    assert.match(reader, /const newest = messages\.at\(-1\)\?\.id/);
     assert.match(reader, /messages\.some\(message => message\.id === targetLogicalMessageId\)/);
+    assert.match(reader, /:\s*newest/);
+    assert.match(reader, /setExpanded\(new Set\(\[selected\]\.filter\(Boolean\)\)\)/);
     assert.match(reader, /filter\(copy => copy\.accountId === selectedAccountId\)/);
     assert.match(reader, /sameAccountCopies\.find\(item => item\.id === selectedCopyId\)/);
     assert.doesNotMatch(reader, /message\.direction/);
@@ -49,6 +52,7 @@ describe('native conversation 2x2 contract', () => {
     assert.match(item, /data-conversation-message-toggle/);
     assert.match(item, /!expanded && summary/);
     assert.match(item, /expanded && <MessageActionBar/);
+    assert.match(item, /\{expanded && <MessageActionBar[\s\S]*?\/>\}[\s\S]*?<button[\s\S]*?data-conversation-message-toggle="true"/);
     assert.match(item, /expanded && <div data-conversation-message-expanded-content/);
     assert.match(item, /copy\.listUnsubscribe/);
     assert.match(item, /<AttachmentList attachments=\{attachments\}/);

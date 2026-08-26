@@ -1,6 +1,6 @@
 import { resolveOwnIdentityAddresses } from './conversationIngestEnvelope.js';
 import { providerIdentityForCopy } from './conversationProviderEnvelope.js';
-import { pool } from './db.js';
+import { pool, query } from './db.js';
 import { _upsertConversationCopyWithClient } from './conversationPersistence.js';
 
 const ALL_ACCOUNTS_SCOPE = '00000000-0000-0000-0000-000000000000';
@@ -16,13 +16,17 @@ function cursorPredicate(values, checkpoint) {
   const lastId = checkpoint.last_message_id ?? checkpoint.id;
   // Cast parameter types explicitly so PostgreSQL can infer them even when
   // the value is NULL (otherwise 'could not determine data type of parameter $N').
-  const next = [...values, lastIsNull, lastDate, lastId];
-  const base = next.length - 2;
-  const predicate = lastIsNull
-    ? `(m.date IS NULL AND m.id > $${next.length}::uuid)`
-    : `((m.date IS NOT NULL AND (m.date > $${base + 1}::timestamptz OR (m.date = $${base + 1}::timestamptz AND m.id > $${next.length}::uuid))) OR m.date IS NULL)`;
+  // Add only parameters referenced by the selected SQL branch. PostgreSQL cannot
+  // infer the type of an unused placeholder (the old shared array left $3 unused
+  // for account-scoped cursors and failed with 42P18).
+  if (lastIsNull) {
+    const next = [...values, lastId];
+    return { sql: `AND (m.date IS NULL AND m.id > $${next.length}::uuid)`, values: next };
+  }
+  const next = [...values, lastDate, lastId];
+  const dateParam = next.length - 1;
   return {
-    sql: `AND ${predicate}`,
+    sql: `AND ((m.date IS NOT NULL AND (m.date > $${dateParam}::timestamptz OR (m.date = $${dateParam}::timestamptz AND m.id > $${next.length}::uuid))) OR m.date IS NULL)`,
     values: next,
   };
 }
@@ -81,6 +85,29 @@ async function dryRunBatch(client, rows, userId) {
 
 export async function rebuildConversationCopies({ userId, accountId = null, limit = 100, dryRun = true, force = false, cursor = null } = {}) {
   if (!userId) throw new Error('userId is required');
+  // Account is the CE identity boundary. Keep the nullable public API as an
+  // orchestration convenience, but never process a user-wide message stream.
+  if (!accountId) {
+    if (cursor) throw new Error('An all-account rebuild cannot use one shared cursor');
+    const accounts = await query('SELECT id FROM email_accounts WHERE user_id = $1 ORDER BY id', [userId]);
+    const aggregate = { scanned: 0, updated: 0, wouldChange: 0, changed: 0, complete: true, next: null, dryRun, batches: 0, accounts: accounts.rows.length };
+    for (const account of accounts.rows) {
+      let accountCursor = null;
+      do {
+        const result = await rebuildConversationCopies({ userId, accountId: account.id, limit, dryRun, force: force && accountCursor === null, cursor: accountCursor });
+        aggregate.scanned += result.scanned || 0;
+        aggregate.updated += result.updated || 0;
+        aggregate.wouldChange += result.wouldChange || 0;
+        aggregate.changed += result.changed || 0;
+        aggregate.batches += result.batches || 1;
+        accountCursor = result.next;
+        if (!result.complete && !accountCursor) throw new Error('Incomplete account rebuild returned no cursor');
+      } while (accountCursor);
+    }
+    aggregate.totalScanned = aggregate.scanned;
+    aggregate.totalUpdated = aggregate.updated;
+    return aggregate;
+  }
   const safeLimit = Math.min(Math.max(Number(limit) || 100, 1), 500);
   const scope = scopeId(accountId);
   // P2-04: Use two-int32 advisory lock key to avoid int32 hash collision.

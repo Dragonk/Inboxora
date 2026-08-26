@@ -136,7 +136,7 @@ export const test = base.extend({
       const copyId = url.pathname.split('/').at(-2);
       const match = copyId.match(/copy-(\d+)$/);
       const logicalIndex = match ? Math.min(Number(match[1]), 4) : 1;
-      return route.fulfill({ json: { id: copyId, account_id: copyId.endsWith('-4') ? 'account-outlook' : 'account-gmail', conversation_id: 'conversation-gmail', logical_message_id: `conversation-gmail-logical-${logicalIndex}` } });
+      return route.fulfill({ json: { id: copyId, account_id: copyId.endsWith('-4') ? 'account-outlook' : 'account-gmail', conversation_id: 'conversation-gmail', logical_message_id: page.__invalidConversationTarget ? 'stale-logical-message' : `conversation-gmail-logical-${logicalIndex}` } });
     });
     await page.route('**/api/mail/messages*', route => {
       const url = new URL(route.request().url());
@@ -144,7 +144,7 @@ export const test = base.extend({
         const copyId = url.pathname.split('/').at(-2);
         const match = copyId.match(/copy-(\d+)$/);
         const logicalIndex = match ? Math.min(Number(match[1]), 4) : 1;
-        return route.fulfill({ json: { id: copyId, account_id: copyId.endsWith('-4') ? 'account-outlook' : 'account-gmail', conversation_id: 'conversation-gmail', logical_message_id: `conversation-gmail-logical-${logicalIndex}` } });
+        return route.fulfill({ json: { id: copyId, account_id: copyId.endsWith('-4') ? 'account-outlook' : 'account-gmail', conversation_id: 'conversation-gmail', logical_message_id: page.__invalidConversationTarget ? 'stale-logical-message' : `conversation-gmail-logical-${logicalIndex}` } });
       }
       if (/\/api\/mail\/messages\/[^/]+$/.test(url.pathname)) return route.fulfill({ json: { id: 'legacy-message-1', subject: 'Legacy fixture', is_read: true, account_id: 'account-gmail', folder: 'INBOX', date: new Date().toISOString(), from_email: 'sender@example.test', body_text: 'Fixture body legacy' } });
       const messages = [

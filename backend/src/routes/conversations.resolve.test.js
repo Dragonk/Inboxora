@@ -14,13 +14,15 @@ import { query } from '../services/db.js';
 
 const COPY_ID = '11111111-1111-4111-8111-111111111111';
 const MESSAGE_ID = '<a+b@example.test>';
+const ACCOUNT_A = '11111111-1111-4111-8111-111111111119';
+const ACCOUNT_B = '22222222-2222-4222-8222-222222222229';
 
 function candidate({
   id = COPY_ID,
   logicalMessageId = 'logical-a',
   conversationId = 'conversation-a',
   folder = 'INBOX',
-  accountId = 'account-a',
+  accountId = ACCOUNT_A,
   date = '2026-08-25T10:00:00.000Z',
 } = {}) {
   return {
@@ -76,67 +78,92 @@ describe('GET /api/mail/messages/:ref/conversation', () => {
 
   it('allows folder copies in one account when they all have one logical/conversation identity', async () => {
     query.mockResolvedValueOnce({ rows: [
-      candidate({ id: 'all-mail', accountId: 'managed-account-a', folder: 'All Mail', date: '2026-08-25T12:00:00.000Z' }),
-      candidate({ id: 'sent-copy', accountId: 'managed-account-a', folder: 'Sent', date: '2026-08-25T13:00:00.000Z' }),
-      candidate({ id: 'inbox-copy', accountId: 'managed-account-a', folder: 'INBOX', date: '2026-08-25T11:00:00.000Z' }),
+      candidate({ id: 'all-mail', accountId: ACCOUNT_A, folder: 'All Mail', date: '2026-08-25T12:00:00.000Z' }),
+      candidate({ id: 'sent-copy', accountId: ACCOUNT_A, folder: 'Sent', date: '2026-08-25T13:00:00.000Z' }),
+      candidate({ id: 'inbox-copy', accountId: ACCOUNT_A, folder: 'INBOX', date: '2026-08-25T11:00:00.000Z' }),
     ] });
 
-    const response = await resolve(MESSAGE_ID, 'user-a', '11111111-1111-4111-8111-111111111119');
+    const response = await resolve(MESSAGE_ID, 'user-a', ACCOUNT_A);
 
     expect(response.status).toBe(200);
     expect(await response.json()).toMatchObject({ logical_message_id: 'logical-a', conversation_id: 'conversation-a' });
     const [sql, params] = query.mock.calls[0];
     expect(sql).toContain('m.canonical_message_id = $1');
     expect(sql).toContain('a.user_id = $2');
-    expect(sql).toContain('m.account_id = $3::uuid');
-    expect(sql).not.toContain('OR m.account_id');
+    expect(sql).toContain('($3::uuid IS NULL OR m.account_id = $3)');
     expect(sql).toContain('m.is_deleted = false');
     expect(sql).not.toContain('LIMIT 1');
-    expect(params).toEqual([MESSAGE_ID, 'user-a', '11111111-1111-4111-8111-111111111119']);
+    expect(params).toEqual([MESSAGE_ID, 'user-a', ACCOUNT_A]);
   });
 
 
-  it('requires account context for RFC Message-ID resolution instead of evaluating candidates globally', async () => {
+  it('resolves an unscoped Message-ID when all live candidates have one account-local identity', async () => {
+    query.mockResolvedValueOnce({ rows: [
+      candidate({ id: 'all-mail', folder: 'All Mail' }),
+      candidate({ id: 'inbox-copy', folder: 'INBOX' }),
+    ] });
+
     const response = await resolve(MESSAGE_ID);
 
+    expect(response.status).toBe(200);
+    expect(await response.json()).toMatchObject({ account_id: ACCOUNT_A, conversation_id: 'conversation-a' });
+    expect(query.mock.calls[0][1]).toEqual([MESSAGE_ID, 'user-a', null]);
+  });
+
+  it('returns 409 when an unscoped Message-ID exists in two managed accounts even if legacy IDs match', async () => {
+    query.mockResolvedValueOnce({ rows: [
+      candidate({ id: 'account-a-copy', accountId: ACCOUNT_A }),
+      candidate({ id: 'account-b-copy', accountId: ACCOUNT_B }),
+    ] });
+
+    const response = await resolve(MESSAGE_ID);
+
+    expect(response.status).toBe(409);
+    expect(await response.json()).toEqual({ error: 'Conversation reference is ambiguous', code: 'CONVERSATION_REFERENCE_AMBIGUOUS' });
+    expect(query.mock.calls[0][1]).toEqual([MESSAGE_ID, 'user-a', null]);
+  });
+
+  it('rejects a malformed supplied accountId before querying', async () => {
+    const response = await resolve(MESSAGE_ID, 'user-a', 'not-a-uuid');
+
     expect(response.status).toBe(400);
-    expect(await response.json()).toMatchObject({ code: 'ACCOUNT_REQUIRED' });
+    expect(await response.json()).toEqual({ error: 'Invalid accountId' });
     expect(query).not.toHaveBeenCalled();
   });
 
   it('resolves the same Message-ID to account A after SQL filters out account B before ambiguity evaluation', async () => {
     query.mockImplementationOnce(async (_sql, [, , accountId]) => ({
-      rows: accountId === '11111111-1111-4111-8111-111111111119'
+      rows: accountId === ACCOUNT_A
         ? [candidate({ id: 'account-a-copy', accountId, logicalMessageId: 'logical-a', conversationId: 'conversation-a' })]
         : [],
     }));
 
-    const response = await resolve(MESSAGE_ID, 'user-a', '11111111-1111-4111-8111-111111111119');
+    const response = await resolve(MESSAGE_ID, 'user-a', ACCOUNT_A);
 
     expect(response.status).toBe(200);
-    expect(await response.json()).toMatchObject({ account_id: '11111111-1111-4111-8111-111111111119', conversation_id: 'conversation-a' });
+    expect(await response.json()).toMatchObject({ account_id: ACCOUNT_A, conversation_id: 'conversation-a' });
   });
 
   it('resolves the same Message-ID to account B independently of account A', async () => {
     query.mockImplementationOnce(async (_sql, [, , accountId]) => ({
-      rows: accountId === '22222222-2222-4222-8222-222222222229'
+      rows: accountId === ACCOUNT_B
         ? [candidate({ id: 'account-b-copy', accountId, logicalMessageId: 'logical-b', conversationId: 'conversation-b' })]
         : [],
     }));
 
-    const response = await resolve(MESSAGE_ID, 'user-a', '22222222-2222-4222-8222-222222222229');
+    const response = await resolve(MESSAGE_ID, 'user-a', ACCOUNT_B);
 
     expect(response.status).toBe(200);
-    expect(await response.json()).toMatchObject({ account_id: '22222222-2222-4222-8222-222222222229', conversation_id: 'conversation-b' });
+    expect(await response.json()).toMatchObject({ account_id: ACCOUNT_B, conversation_id: 'conversation-b' });
   });
 
   it('returns 409 for two live identities with the same Message-ID inside the requested account', async () => {
     query.mockResolvedValueOnce({ rows: [
-      candidate({ id: 'inbox-newest', logicalMessageId: 'logical-a', conversationId: 'conversation-a', folder: 'INBOX', date: '2026-08-25T20:00:00.000Z' }),
-      candidate({ id: 'older-other', logicalMessageId: 'logical-b', conversationId: 'conversation-b', folder: 'Archive', date: '2026-08-20T10:00:00.000Z' }),
+      candidate({ id: 'inbox-newest', accountId: ACCOUNT_A, logicalMessageId: 'logical-a', conversationId: 'conversation-a', folder: 'INBOX', date: '2026-08-25T20:00:00.000Z' }),
+      candidate({ id: 'older-other', accountId: ACCOUNT_A, logicalMessageId: 'logical-b', conversationId: 'conversation-b', folder: 'Archive', date: '2026-08-20T10:00:00.000Z' }),
     ] });
 
-    const response = await resolve(MESSAGE_ID, 'user-a', '11111111-1111-4111-8111-111111111119');
+    const response = await resolve(MESSAGE_ID, 'user-a', ACCOUNT_A);
 
     expect(response.status).toBe(409);
     expect(await response.json()).toEqual({ error: 'Conversation reference is ambiguous', code: 'CONVERSATION_REFERENCE_AMBIGUOUS' });
@@ -149,7 +176,7 @@ describe('GET /api/mail/messages/:ref/conversation', () => {
         : [candidate({ logicalMessageId: 'logical-b', conversationId: 'conversation-b' })],
     }));
 
-    const accountId = '11111111-1111-4111-8111-111111111119';
+    const accountId = ACCOUNT_A;
     const response = await resolve(MESSAGE_ID, 'user-a', accountId);
 
     expect(response.status).toBe(200);
@@ -160,7 +187,7 @@ describe('GET /api/mail/messages/:ref/conversation', () => {
   it('ignores a deleted conflicting copy in the database candidate query', async () => {
     query.mockResolvedValueOnce({ rows: [candidate({ logicalMessageId: 'logical-a', conversationId: 'conversation-a' })] });
 
-    const response = await resolve(MESSAGE_ID, 'user-a', '11111111-1111-4111-8111-111111111119');
+    const response = await resolve(MESSAGE_ID, 'user-a', ACCOUNT_A);
 
     expect(response.status).toBe(200);
     const [sql] = query.mock.calls[0];
@@ -170,7 +197,7 @@ describe('GET /api/mail/messages/:ref/conversation', () => {
   it('accepts an encoded Message-ID containing <, >, @, and + via the canonical CE normalization', async () => {
     query.mockResolvedValueOnce({ rows: [candidate()] });
 
-    const response = await resolve(MESSAGE_ID, 'user-a', '11111111-1111-4111-8111-111111111119');
+    const response = await resolve(MESSAGE_ID, 'user-a', ACCOUNT_A);
 
     expect(response.status).toBe(200);
     expect(query.mock.calls[0][1][0]).toBe(MESSAGE_ID);
@@ -179,7 +206,7 @@ describe('GET /api/mail/messages/:ref/conversation', () => {
   it('returns 404 when no tenant-scoped live candidate exists', async () => {
     query.mockResolvedValueOnce({ rows: [] });
 
-    const response = await resolve(MESSAGE_ID, 'user-a', '11111111-1111-4111-8111-111111111119');
+    const response = await resolve(MESSAGE_ID, 'user-a', ACCOUNT_A);
 
     expect(response.status).toBe(404);
     expect(await response.json()).toEqual({ error: 'Conversation not found' });

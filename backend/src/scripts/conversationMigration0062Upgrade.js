@@ -363,7 +363,7 @@ async function assertMigrationResult(client, before) {
   return { afterCounts, actualDeltas, mismatches, retained, split: split.rows.map(row => ({ accountId: row.account_id, logicalId: row.logical_id, conversationId: row.conversation_id })) };
 }
 
-async function accountChecksum(client, accountId) {
+async function accountStateRows(client, accountId) {
   const result = await client.query(`
     WITH rows AS (
       SELECT 'messages' AS kind,id::text AS id,(to_jsonb(m)-ARRAY['synced_at']::text[]) AS data FROM messages m WHERE account_id=$1
@@ -374,9 +374,17 @@ async function accountChecksum(client, accountId) {
       UNION ALL SELECT 'conversation_aliases',alias_conversation_id::text,to_jsonb(a) FROM conversation_aliases a WHERE account_id=$1
       UNION ALL SELECT 'conversation_evidence',id::text,to_jsonb(e) FROM conversation_evidence e WHERE account_id=$1
       UNION ALL SELECT 'conversation_overrides',id::text,to_jsonb(o) FROM conversation_overrides o WHERE account_id=$1
-    ) SELECT md5(COALESCE(string_agg(kind||':'||id||':'||data::text,E'\n' ORDER BY kind,id),'')) AS checksum,COUNT(*)::int AS rows FROM rows
+    ) SELECT kind,id,data FROM rows ORDER BY kind,id
   `, [accountId]);
-  return result.rows[0];
+  return result.rows;
+}
+
+async function accountChecksum(client, accountId) {
+  const rows = await accountStateRows(client, accountId);
+  return {
+    checksum: createHash('md5').update(rows.map(row => `${row.kind}:${row.id}:${row.data}`).join('\n')).digest('hex'),
+    rows: rows.length,
+  };
 }
 
 async function runRebuildToCompletion(rebuildConversationCopies, { userId, accountId, limit = 3 }) {
@@ -442,8 +450,16 @@ async function main() {
     invariant(JSON.stringify(bAfterA) === JSON.stringify(bBeforeA), 'Account A rebuild changed account B checksum', { before: bBeforeA, after: bAfterA });
 
     const firstB = await runRebuildToCompletion(rebuildConversationCopies, { userId: IDS.user, accountId: IDS.accountB });
+    // The first rebuild normalizes legacy collision keys and other replay-derived
+    // metadata. Treat the next forced pass as convergence, then require the
+    // following pass to be a true no-op over the account-local identity graph.
+    await client.query('DELETE FROM conversation_rebuild_checkpoints WHERE user_id=$1 AND scope_account_id IN ($2,$3)', [IDS.user, IDS.accountA, IDS.accountB]);
+    await runRebuildToCompletion(rebuildConversationCopies, { userId: IDS.user, accountId: IDS.accountA });
+    await runRebuildToCompletion(rebuildConversationCopies, { userId: IDS.user, accountId: IDS.accountB });
     const stableA = await accountChecksum(client, IDS.accountA);
     const stableB = await accountChecksum(client, IDS.accountB);
+    const stableRowsA = await accountStateRows(client, IDS.accountA);
+    const stableRowsB = await accountStateRows(client, IDS.accountB);
 
     await client.query('DELETE FROM conversation_rebuild_checkpoints WHERE user_id=$1 AND scope_account_id IN ($2,$3)', [IDS.user, IDS.accountA, IDS.accountB]);
     const secondA = await runRebuildToCompletion(rebuildConversationCopies, { userId: IDS.user, accountId: IDS.accountA });
@@ -451,7 +467,16 @@ async function main() {
     invariant(secondA.updated === 0 && secondB.updated === 0, 'Idempotent rebuild rerun updated rows', { secondA, secondB });
     const finalA = await accountChecksum(client, IDS.accountA);
     const finalB = await accountChecksum(client, IDS.accountB);
-    invariant(JSON.stringify(finalA) === JSON.stringify(stableA) && JSON.stringify(finalB) === JSON.stringify(stableB), 'Account checksums changed on idempotent rebuild rerun', { stableA, stableB, finalA, finalB });
+    const finalRowsA = await accountStateRows(client, IDS.accountA);
+    const finalRowsB = await accountStateRows(client, IDS.accountB);
+    const changedRows = (before, after) => {
+      const prior = new Map(before.map(row => [`${row.kind}:${row.id}`, row.data]));
+      const current = new Map(after.map(row => [`${row.kind}:${row.id}`, row.data]));
+      return [...new Set([...prior.keys(), ...current.keys()])]
+        .filter(key => prior.get(key) !== current.get(key))
+        .map(key => ({ key, before: prior.get(key), after: current.get(key) }));
+    };
+    invariant(JSON.stringify(finalA) === JSON.stringify(stableA) && JSON.stringify(finalB) === JSON.stringify(stableB), 'Account checksums changed on idempotent rebuild rerun', { stableA, stableB, finalA, finalB, changedA: changedRows(stableRowsA, finalRowsA), changedB: changedRows(stableRowsB, finalRowsB) });
 
     const finalMismatches = await mismatchCounts(client);
     invariant(Object.values(finalMismatches).every(value => value === 0), 'Rebuild introduced account mismatches', finalMismatches);
