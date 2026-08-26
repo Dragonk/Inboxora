@@ -14,6 +14,11 @@ describe('native conversation 2x2 contract', () => {
     assert.match(list, /MessageDirection direction=\{childDirection\}/);
     assert.match(list, /accounts=\{accounts\}/);
     assert.doesNotMatch(list, /accounts\.flatMap/);
+    assert.match(list, /conversationApi\.list/);
+    assert.match(list, /conversationApi\.detail\(message\.conversation_id \|\| tid\)/);
+    assert.match(list, /conversationListToThreadRows/);
+    assert.match(list, /conversationDetailToThreadMessages/);
+    assert.doesNotMatch(list, /api\.getThread\(/);
   });
   it('resolves every selected physical copy through the CE identity endpoint (OFF/ON blocker)', () => {
     const app = read('MailApp.jsx');

@@ -46,34 +46,37 @@ router.get('/conversations', async (req, res) => {
     searchAllFolders,
     unifiedInbox,
   } = req.query;
-  // Match the native list's search-all-folders behavior: when explicitly enabled,
-  // search is not constrained to the currently selected folder.
+  // List filters are entry-point predicates only. Once a conversation qualifies,
+  // every aggregate and preview is built from its full account-local CE graph.
   const folder = searchAllFolders === '1' ? undefined : requestedFolder;
   const cursorValue = decodeCursor(cursor);
   if (cursor && !cursorValue) return res.status(400).json({ error: 'Invalid conversation cursor' });
-  const values = accountId ? [userId, accountId] : [userId];
-  // Folder/account scope applies to every list aggregate, not only conversation
-  // existence. Filter parameters are allocated once and reused by all projections.
-  const folderParam = values.length + 1;
-  if (folder) values.push(folder);
-  const categoryParam = category && category !== 'all' ? values.push(category) : null;
-  const searchParam = search && String(search).trim() ? values.push(`%${String(search).trim()}%`) : null;
-  const scopedFilters = (alias, includeFolder = true) => {
-    const filters = [];
-    if (accountId) filters.push(`${alias}.account_id = $2`);
-    if (unifiedInbox === '1' && !accountId) {
-      filters.push(`EXISTS (SELECT 1 FROM email_accounts scoped_account WHERE scoped_account.id = ${alias}.account_id AND scoped_account.user_id = $1 AND scoped_account.include_in_unified_inbox = true)`);
-    }
-    if (includeFolder && folder) filters.push(`${alias}.folder = $${folderParam}`);
-    if (unreadOnly === '1' || unreadOnly === 'true') filters.push(`${alias}.is_read = false`);
-    if (categoryParam) filters.push(`COALESCE(${alias}.category, 'primary') = $${categoryParam}`);
-    if (searchParam) filters.push(`(${alias}.subject ILIKE $${searchParam} OR ${alias}.snippet ILIKE $${searchParam} OR ${alias}.from_email ILIKE $${searchParam})`);
-    return filters.length ? ` AND ${filters.join(' AND ')}` : '';
-  };
-  const scopedMessageFilter = scopedFilters('m');
-  const scopedLogicalFilter = scopedFilters('visible_lm', false);
-  const scopedPreviewFilter = scopedFilters('m');
-  const scopedPreviewOrder = folder ? `CASE WHEN m.folder = $${folderParam} THEN 0 ELSE 1 END,` : '';
+  const values = [userId];
+  if (accountId) values.push(accountId);
+  const entryFilters = [
+    'm_entry.conversation_id = c.id',
+    'm_entry.account_id = c.account_id',
+    'm_entry.is_deleted = false',
+  ];
+  if (accountId) entryFilters.push('m_entry.account_id = $2');
+  if (unifiedInbox === '1' && !accountId) {
+    entryFilters.push('EXISTS (SELECT 1 FROM email_accounts scoped_account WHERE scoped_account.id = m_entry.account_id AND scoped_account.user_id = $1 AND scoped_account.include_in_unified_inbox = true)');
+  }
+  let folderParam = null;
+  if (folder) {
+    values.push(folder);
+    folderParam = values.length;
+    entryFilters.push(`m_entry.folder = $${folderParam}`);
+  }
+  if (unreadOnly === '1' || unreadOnly === 'true') entryFilters.push('m_entry.is_read = false');
+  if (category && category !== 'all') {
+    values.push(category);
+    entryFilters.push(`COALESCE(m_entry.category, 'primary') = $${values.length}`);
+  }
+  if (search && String(search).trim()) {
+    values.push(`%${String(search).trim()}%`);
+    entryFilters.push(`(m_entry.subject ILIKE $${values.length} OR m_entry.snippet ILIKE $${values.length} OR m_entry.from_email ILIKE $${values.length})`);
+  }
   let cursorFilter = '';
   if (cursorValue) {
     values.push(cursorValue.date, cursorValue.id);
@@ -81,8 +84,13 @@ router.get('/conversations', async (req, res) => {
   }
   values.push(parseLimit(limit));
   const limitParam = values.length;
+  const preferredCopyOrder = folderParam
+    ? `CASE WHEN m_copy.folder = $${folderParam} THEN 0 WHEN m_copy.folder = 'INBOX' THEN 1 WHEN LOWER(m_copy.folder) = 'sent' THEN 2 ELSE 3 END,`
+    : `CASE WHEN m_copy.folder = 'INBOX' THEN 0 WHEN LOWER(m_copy.folder) = 'sent' THEN 1 ELSE 2 END,`;
+
   const result = await query(`
-    SELECT c.id AS conversation_id, c.kind, c.canonical_subject,
+    SELECT c.id AS conversation_id, c.account_id, c.kind, c.canonical_subject,
+           COUNT(*) OVER()::int AS total_count,
            MIN(m.date) AS first_message_at, MAX(m.date) AS last_message_at,
            COUNT(DISTINCT m.logical_message_id)::int AS logical_message_count,
            COUNT(m.id)::int AS copy_count,
@@ -92,61 +100,84 @@ router.get('/conversations', async (req, res) => {
            COUNT(DISTINCT m.id)::int AS visible_copy_count,
            COALESCE(MAX(m.date), c.created_at) AS sort_date,
            BOOL_OR(COALESCE(m.has_attachments, false)) AS has_attachments,
-           BOOL_OR(latest.direction IN ('outgoing', 'self')) FILTER (WHERE latest.id IS NOT NULL) AS latest_message_is_mine,
+           top_latest.direction IN ('outgoing', 'self') AS latest_message_is_mine,
            COALESCE(preview.logical_messages, '[]'::jsonb) AS logical_messages,
-           top_latest.id AS latest_copy_id
+           top_latest.id AS latest_copy_id,
+           top_latest.folder AS folder, top_latest.date AS date,
+           top_latest.subject AS subject, top_latest.snippet AS snippet,
+           top_latest.from_name AS from_name, top_latest.from_email AS from_email,
+           top_latest.is_read AS is_read, top_latest.is_starred AS latest_copy_is_starred,
+           top_latest.has_attachments AS latest_copy_has_attachments
       FROM conversations c
-      JOIN messages m ON m.conversation_id = c.id AND m.account_id = c.account_id AND m.is_deleted = false ${scopedMessageFilter}
-      JOIN email_accounts a ON a.id = m.account_id AND a.user_id = $1
-        ${unifiedInbox === '1' && !accountId ? 'AND a.include_in_unified_inbox = true' : ''}
+      JOIN email_accounts a ON a.id = c.account_id AND a.user_id = $1
+      JOIN messages m ON m.conversation_id = c.id AND m.account_id = c.account_id AND m.is_deleted = false
       LEFT JOIN LATERAL (
-        SELECT lm.direction, lm.id
+        SELECT m_copy.id, m_copy.folder, m_copy.date, m_copy.subject, m_copy.snippet,
+               m_copy.from_name, m_copy.from_email, m_copy.is_read, m_copy.is_starred,
+               m_copy.has_attachments, lm.direction
           FROM logical_messages lm
-         WHERE lm.conversation_id = c.id
-           AND EXISTS (SELECT 1 FROM messages visible_lm WHERE visible_lm.logical_message_id = lm.id AND visible_lm.is_deleted = false ${scopedLogicalFilter})
-         ORDER BY lm.message_date DESC NULLS LAST, lm.id DESC
+          JOIN messages m_copy ON m_copy.logical_message_id = lm.id
+            AND m_copy.conversation_id = c.id AND m_copy.account_id = c.account_id
+            AND m_copy.is_deleted = false
+         WHERE lm.conversation_id = c.id AND lm.account_id = c.account_id
+         ORDER BY lm.message_date DESC NULLS LAST, m_copy.date DESC NULLS LAST, m_copy.id DESC
          LIMIT 1
-      ) latest ON true
-     LEFT JOIN LATERAL (
-       SELECT m.id
-         FROM messages m
-        WHERE m.conversation_id = c.id AND m.is_deleted = false ${scopedMessageFilter}
-        ORDER BY m.date DESC NULLS LAST, m.id DESC
-        LIMIT 1
-     ) top_latest ON true
-     LEFT JOIN LATERAL (
-       SELECT jsonb_agg(jsonb_build_object(
-         'id', lm.id, 'subject', lm.subject, 'canonicalSubject', lm.canonical_subject,
-         'direction', lm.direction, 'messageDate', lm.message_date, 'snippet', latest_copy.snippet, 'fromName', latest_copy.from_name, 'fromEmail', latest_copy.from_email,
-         'unread', COALESCE(latest_copy.unread, false), 'accountId', latest_copy.account_id,
-         'hasAttachments', COALESCE(latest_copy.has_attachments, false), 'latestCopyId', latest_copy.id,
-         'isLatest', lm.id = latest.id
-       ) ORDER BY lm.message_date ASC NULLS LAST, lm.id) AS logical_messages
-       FROM logical_messages lm
-       LEFT JOIN LATERAL (
-         SELECT m.id, m.snippet, m.from_name, m.from_email, m.account_id,
-                m.has_attachments, NOT m.is_read AS unread
-           FROM messages m
-          WHERE m.logical_message_id = lm.id
-            AND m.is_deleted = false
-            ${scopedPreviewFilter}
-          ORDER BY ${scopedPreviewOrder} m.is_read ASC, m.date DESC NULLS LAST, m.id DESC
-          LIMIT 1
-       ) latest_copy ON true
-       WHERE lm.conversation_id = c.id
-         AND EXISTS (SELECT 1 FROM messages visible_lm WHERE visible_lm.logical_message_id = lm.id AND visible_lm.is_deleted = false ${scopedLogicalFilter})
-     ) preview ON true
+      ) top_latest ON true
+      LEFT JOIN LATERAL (
+        SELECT jsonb_agg(jsonb_build_object(
+          'id', logical_preview.id, 'subject', logical_preview.subject,
+          'canonicalSubject', logical_preview.canonical_subject,
+          'direction', logical_preview.direction, 'messageDate', logical_preview.message_date,
+          'snippet', logical_preview.snippet, 'fromName', logical_preview.from_name,
+          'fromEmail', logical_preview.from_email, 'unread', logical_preview.unread,
+          'accountId', logical_preview.account_id,
+          'hasAttachments', logical_preview.has_attachments,
+          'latestCopyId', logical_preview.copy_id, 'folder', logical_preview.folder,
+          'isLatest', logical_preview.id = top_latest_logical.id
+        ) ORDER BY logical_preview.message_date ASC NULLS LAST, logical_preview.id) AS logical_messages
+        FROM (
+          SELECT lm.id, lm.subject, lm.canonical_subject, lm.direction, lm.message_date,
+                 preferred_copy.id AS copy_id, preferred_copy.folder, preferred_copy.snippet,
+                 preferred_copy.from_name, preferred_copy.from_email, preferred_copy.account_id,
+                 COALESCE(preferred_copy.has_attachments, false) AS has_attachments,
+                 COALESCE(NOT preferred_copy.is_read, false) AS unread
+            FROM logical_messages lm
+            LEFT JOIN LATERAL (
+              SELECT m_copy.id, m_copy.folder, m_copy.snippet, m_copy.from_name,
+                     m_copy.from_email, m_copy.account_id, m_copy.has_attachments, m_copy.is_read
+                FROM messages m_copy
+               WHERE m_copy.logical_message_id = lm.id
+                 AND m_copy.conversation_id = c.id
+                 AND m_copy.account_id = c.account_id
+                 AND m_copy.is_deleted = false
+               ORDER BY ${preferredCopyOrder} m_copy.date DESC NULLS LAST, m_copy.id DESC
+               LIMIT 1
+            ) preferred_copy ON true
+           WHERE lm.conversation_id = c.id AND lm.account_id = c.account_id
+        ) logical_preview
+        LEFT JOIN LATERAL (
+          SELECT lm_latest.id
+            FROM logical_messages lm_latest
+           WHERE lm_latest.conversation_id = c.id AND lm_latest.account_id = c.account_id
+           ORDER BY lm_latest.message_date DESC NULLS LAST, lm_latest.id DESC
+           LIMIT 1
+        ) top_latest_logical ON true
+      ) preview ON true
      WHERE c.user_id = $1
        AND (${accountId ? 'c.account_id = $2' : 'true'})
-       AND NOT EXISTS (SELECT 1 FROM conversation_aliases ca WHERE ca.user_id = $1 AND ca.alias_conversation_id = c.id)
+       AND EXISTS (SELECT 1 FROM messages m_entry WHERE ${entryFilters.join(' AND ')})
+       AND NOT EXISTS (SELECT 1 FROM conversation_aliases ca WHERE ca.user_id = $1 AND ca.account_id = c.account_id AND ca.alias_conversation_id = c.id)
        ${cursorFilter}
-     GROUP BY c.id, top_latest.id, preview.logical_messages
+     GROUP BY c.id, top_latest.id, top_latest.folder, top_latest.date, top_latest.subject,
+              top_latest.snippet, top_latest.from_name, top_latest.from_email,
+              top_latest.is_read, top_latest.is_starred, top_latest.has_attachments,
+              top_latest.direction, preview.logical_messages
      ORDER BY COALESCE(MAX(m.date), c.created_at) DESC, c.id DESC
      LIMIT $${limitParam}
   `, values);
   for (const row of result.rows) row.latestCopyId = row.latest_copy_id;
   const nextCursor = result.rows.length === parseLimit(limit) ? encodeCursor(result.rows.at(-1)) : null;
-  res.json({ conversations: result.rows, nextCursor });
+  res.json({ conversations: result.rows, nextCursor, total: result.rows[0]?.total_count || 0 });
 });
 
 router.get('/conversations/:id', async (req, res) => {

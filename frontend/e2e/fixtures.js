@@ -11,10 +11,10 @@ const fixture = {
     {
       conversation_id: 'conversation-gmail',
       canonical_subject: 'Gmail reply chain',
-      logical_message_count: 4,
-      visible_copy_count: 4,
-      latest_message_is_mine: true,
-      latestCopyId: 'conversation-gmail-copy-4',
+      logical_message_count: 5,
+      visible_copy_count: 6,
+      latest_message_is_mine: false,
+      latestCopyId: 'conversation-gmail-copy-5',
     },
     {
       conversation_id: 'conversation-outlook',
@@ -35,16 +35,30 @@ const fixture = {
 };
 
 for (const row of fixture.conversations) {
+  row.account_id = conversationAccountId(row.conversation_id);
+  row.latest_copy_id = row.latestCopyId || `${row.conversation_id}-copy-${row.logical_message_count}`;
+  row.copy_count = row.visible_copy_count;
+  row.unread_count = 0;
+  row.is_starred = false;
   row.logical_messages = Array.from({ length: row.logical_message_count }, (_, index) => ({
     id: `${row.conversation_id}-logical-${index + 1}`,
     subject: row.canonical_subject,
     direction: 'outgoing', // deliberately ignored by the reader; physical account identity is authoritative
     snippet: `Fixture body ${index + 1}`,
     fromName: 'Fixture Sender',
-    fromEmail: 'sender@example.test',
+    fromEmail: row.conversation_id === 'conversation-gmail' && [1, 3].includes(index) ? 'me@gmail.test' : 'sender@gmail.test',
+    messageDate: new Date(2026, 0, index + 1).toISOString(),
+    folder: row.conversation_id === 'conversation-gmail' ? ['INBOX', 'Sent', 'Archive', 'Sent', 'INBOX'][index] : 'INBOX',
     isLatest: index === row.logical_message_count - 1,
     latestCopyId: `${row.conversation_id}-copy-${index + 1}`,
   }));
+  const latest = row.logical_messages.at(-1);
+  row.subject = row.canonical_subject;
+  row.from_name = latest.fromName;
+  row.from_email = latest.fromEmail;
+  row.snippet = latest.snippet;
+  row.date = latest.messageDate;
+  row.folder = latest.folder;
 }
 
 function conversationAccountId(id) {
@@ -65,8 +79,14 @@ function details(id) {
   return {
     summary: { ...row, conversation_id: row.conversation_id, canonical_subject: row.canonical_subject, account_id: accountId },
     logicalMessages: Array.from({ length: row.logical_message_count }, (_, index) => {
-      const outgoing = index === row.logical_message_count - 1 && row.latest_message_is_mine;
       const number = index + 1;
+      const goldenGmailDirection = ['incoming', 'outgoing', 'incoming', 'outgoing', 'incoming'];
+      const outgoing = row.conversation_id === 'conversation-gmail'
+        ? goldenGmailDirection[index] === 'outgoing'
+        : index === row.logical_message_count - 1 && row.latest_message_is_mine;
+      const folder = row.conversation_id === 'conversation-gmail'
+        ? ['INBOX', 'Sent', 'Archive', 'Sent', 'INBOX'][index]
+        : outgoing ? 'Sent' : 'INBOX';
       const copy = {
         id: `${row.conversation_id}-copy-${number}`,
         accountId,
@@ -79,15 +99,23 @@ function details(id) {
         bodyHtml: `<p>${provider} fixture body ${number}</p>`,
         isRead: true,
         isStarred: false,
-        folder: outgoing ? 'Sent' : 'INBOX',
+        folder,
         listUnsubscribe: number === 1 ? 'https://unsubscribe.example.test' : null,
         attachments: number === 1 ? [{ part: 'fixture-part', filename: `${provider}-fixture.txt` }] : [],
       };
+      const copies = [copy];
+      if (row.conversation_id === 'conversation-gmail' && number === 4) {
+        copies.push({
+          ...copy,
+          id: 'conversation-gmail-copy-4-all-mail',
+          folder: 'All Mail',
+        });
+      }
       return {
         id: `${row.conversation_id}-logical-${number}`,
         subject: row.canonical_subject,
         direction: outgoing ? 'incoming' : 'outgoing', // stale logical direction must be ignored
-        copies: [copy],
+        copies,
       };
     }),
   };
@@ -140,7 +168,7 @@ export const test = base.extend({
       const id = parts.at(-1);
       if (parts.includes('logical-messages') || ['archive', 'move', 'delete', 'read', 'star'].includes(id)) return route.fallback();
       if (id && id !== 'conversations') return route.fulfill({ json: details(id) });
-      return route.fulfill({ json: { conversations: fixture.conversations, nextCursor: null } });
+      return route.fulfill({ json: { conversations: fixture.conversations, nextCursor: null, total: fixture.conversations.length } });
     });
     await page.route('**/api/mail/messages/*', route => {
       const url = new URL(route.request().url());
@@ -155,7 +183,7 @@ export const test = base.extend({
       const url = new URL(route.request().url());
       const copyId = url.pathname.split('/').at(-2);
       const match = copyId.match(/copy-(\d+)$/);
-      const logicalIndex = match ? Math.min(Number(match[1]), 4) : 1;
+      const logicalIndex = match ? Math.min(Number(match[1]), 5) : 1;
       return route.fulfill({ json: { id: copyId, account_id: page.__unknownConversationAccount ? 'account-unknown' : 'account-gmail', conversation_id: 'conversation-gmail', logical_message_id: page.__invalidConversationTarget ? 'stale-logical-message' : `conversation-gmail-logical-${logicalIndex}` } });
     });
     await page.route('**/api/mail/messages*', route => {
@@ -163,25 +191,26 @@ export const test = base.extend({
       if (url.pathname.endsWith('/conversation')) {
         const copyId = url.pathname.split('/').at(-2);
         const match = copyId.match(/copy-(\d+)$/);
-        const logicalIndex = match ? Math.min(Number(match[1]), 4) : 1;
+        const logicalIndex = match ? Math.min(Number(match[1]), 5) : 1;
         return route.fulfill({ json: { id: copyId, account_id: page.__unknownConversationAccount ? 'account-unknown' : 'account-gmail', conversation_id: 'conversation-gmail', logical_message_id: page.__invalidConversationTarget ? 'stale-logical-message' : `conversation-gmail-logical-${logicalIndex}` } });
       }
       if (/\/api\/mail\/messages\/[^/]+$/.test(url.pathname)) return route.fulfill({ json: { id: 'legacy-message-1', subject: 'Legacy fixture', is_read: true, account_id: 'account-gmail', folder: 'INBOX', date: new Date().toISOString(), from_email: 'sender@example.test', body_text: 'Fixture body legacy' } });
       const messages = [
-        { id: 'conversation-gmail-copy-1', subject: 'Gmail reply chain', is_read: true, account_id: 'account-gmail', folder: 'INBOX', date: new Date().toISOString(), from_email: 'sender@gmail.test', message_id: '<fixture-1>', body_text: 'Fixture body 1', thread_id: 'conversation-gmail', message_count: 4 },
-        { id: 'conversation-gmail-copy-2', subject: 'Gmail reply chain', is_read: true, account_id: 'account-gmail', folder: 'INBOX', date: new Date().toISOString(), from_email: 'sender@gmail.test', message_id: '<fixture-2>', body_text: 'Fixture body 2', thread_id: 'conversation-gmail', message_count: 4 },
-        { id: 'conversation-gmail-copy-3', subject: 'Gmail reply chain', is_read: true, account_id: 'account-gmail', folder: 'INBOX', date: new Date().toISOString(), from_email: 'sender@gmail.test', message_id: '<fixture-3>', body_text: 'Fixture body 3', thread_id: 'conversation-gmail', message_count: 4 },
-        { id: 'conversation-gmail-copy-4', subject: 'Gmail reply chain', is_read: true, account_id: 'account-gmail', folder: 'Sent', date: new Date().toISOString(), from_email: 'me@gmail.test', message_id: '<fixture-4>', body_text: 'Fixture body 4', thread_id: 'conversation-gmail', message_count: 4 },
+        { id: 'conversation-gmail-copy-1', subject: 'Gmail reply chain', is_read: true, account_id: 'account-gmail', folder: 'INBOX', date: new Date().toISOString(), from_email: 'sender@gmail.test', message_id: '<fixture-1>', body_text: 'Fixture body 1', thread_id: 'conversation-gmail', message_count: 5 },
+        { id: 'conversation-gmail-copy-2', subject: 'Gmail reply chain', is_read: true, account_id: 'account-gmail', folder: 'Sent', date: new Date().toISOString(), from_email: 'me@gmail.test', message_id: '<fixture-2>', body_text: 'Fixture body 2', thread_id: 'conversation-gmail', message_count: 5 },
+        { id: 'conversation-gmail-copy-3', subject: 'Gmail reply chain', is_read: true, account_id: 'account-gmail', folder: 'Archive', date: new Date().toISOString(), from_email: 'sender@gmail.test', message_id: '<fixture-3>', body_text: 'Fixture body 3', thread_id: 'conversation-gmail', message_count: 5 },
+        { id: 'conversation-gmail-copy-4', subject: 'Gmail reply chain', is_read: true, account_id: 'account-gmail', folder: 'Sent', date: new Date().toISOString(), from_email: 'me@gmail.test', message_id: '<fixture-4>', body_text: 'Fixture body 4', thread_id: 'conversation-gmail', message_count: 5 },
+        { id: 'conversation-gmail-copy-5', subject: 'Gmail reply chain', is_read: true, account_id: 'account-gmail', folder: 'INBOX', date: new Date().toISOString(), from_email: 'sender@gmail.test', message_id: '<fixture-5>', body_text: 'Fixture body 5', thread_id: 'conversation-gmail', message_count: 5 },
       ];
       if (url.pathname.includes('/api/mail/thread/')) return route.fulfill({ json: { messages } });
-      const grouped = (page.__conversationMatrix || '11')[0] !== '0';
-      return route.fulfill({ json: { messages: grouped ? [messages[3]] : messages, total: grouped ? 1 : messages.length } });
+      return route.fulfill({ json: { messages, total: messages.length } });
     });
     await page.route('**/api/mail/thread/*', route => route.fulfill({ json: { messages: [
       { id: 'conversation-gmail-copy-1', subject: 'Gmail reply chain', is_read: true, account_id: 'account-gmail', folder: 'INBOX', date: new Date().toISOString(), from_email: 'sender@gmail.test', message_id: '<fixture-1>', body_text: 'Fixture body 1', thread_id: 'conversation-gmail' },
       { id: 'conversation-gmail-copy-2', subject: 'Gmail reply chain', is_read: true, account_id: 'account-gmail', folder: 'Sent', date: new Date().toISOString(), from_email: 'me@gmail.test', message_id: '<fixture-2>', body_text: 'Fixture body 2', thread_id: 'conversation-gmail' },
-      { id: 'conversation-gmail-copy-3', subject: 'Gmail reply chain', is_read: true, account_id: 'account-gmail', folder: 'INBOX', date: new Date().toISOString(), from_email: 'sender@gmail.test', message_id: '<fixture-3>', body_text: 'Fixture body 3', thread_id: 'conversation-gmail' },
+      { id: 'conversation-gmail-copy-3', subject: 'Gmail reply chain', is_read: true, account_id: 'account-gmail', folder: 'Archive', date: new Date().toISOString(), from_email: 'sender@gmail.test', message_id: '<fixture-3>', body_text: 'Fixture body 3', thread_id: 'conversation-gmail' },
       { id: 'conversation-gmail-copy-4', subject: 'Gmail reply chain', is_read: true, account_id: 'account-gmail', folder: 'Sent', date: new Date().toISOString(), from_email: 'me@gmail.test', message_id: '<fixture-4>', body_text: 'Fixture body 4', thread_id: 'conversation-gmail' },
+      { id: 'conversation-gmail-copy-5', subject: 'Gmail reply chain', is_read: true, account_id: 'account-gmail', folder: 'INBOX', date: new Date().toISOString(), from_email: 'sender@gmail.test', message_id: '<fixture-5>', body_text: 'Fixture body 5', thread_id: 'conversation-gmail' },
     ] } }));
     await page.route('**/api/mail/messages/*/body**', route => route.fulfill({ json: { body_text: 'Fixture body legacy', body_html: '<p>Fixture body legacy</p>' } }));
     await page.route('**/api/mail/conversations/*/overrides', route => route.fulfill({ json: { ok: true, overrides: [] } }));
