@@ -502,6 +502,7 @@ test.describe('reader target navigation follow-up', () => {
     const select = async (copy, mode, index) => {
       page.__conversationSize = 10;
       page.__targetBodyMode = mode;
+      page.__targetBodyCopy = String(index);
       await open(page, fixtureApi, false, true);
       await page.locator(`[data-msgid="${copy}"]:visible`).click();
       const reader = page.locator('section[data-conversation-id="conversation-gmail"]:visible');
@@ -523,15 +524,69 @@ test.describe('reader target navigation follow-up', () => {
     });
     expect(longGeometry.headerTop - longGeometry.readerTop).toBeLessThanOrEqual(12);
 
-    page.__conversationSize = 10;
-    page.__targetBodyMode = 'long';
-    await open(page, fixtureApi, false, true);
-    await page.locator('[data-msgid="conversation-gmail-copy-4"]:visible').click();
-    const middleReader = page.locator('section[data-conversation-id="conversation-gmail"]:visible');
-    const middleHeader = middleReader.locator('#logical-message-conversation-gmail-logical-4 [data-conversation-message-header]');
-    await expect(middleHeader).toBeVisible();
-    const middleGeometry = await middleHeader.evaluate(element => ({ headerTop: element.getBoundingClientRect().top, readerTop: element.closest('section').getBoundingClientRect().top }));
-    expect(middleGeometry.headerTop - middleGeometry.readerTop).toBeLessThanOrEqual(12);
+    const twoPhaseNavigation = async ({ target, start }) => {
+      page.__conversationSize = 10;
+      page.__targetBodyMode = 'long';
+      page.__targetBodyCopy = String(target);
+      await open(page, fixtureApi, false, true);
+      await page.locator('[data-msgid="conversation-gmail-copy-10"]:visible').click();
+      const reader = page.locator('section[data-conversation-id="conversation-gmail"]:visible');
+      await expect(reader.locator('#logical-message-conversation-gmail-logical-10 iframe')).toBeVisible();
+      await reader.evaluate((element, position) => { element.scrollTop = position === 'bottom'
+        ? element.scrollHeight - element.clientHeight : 0; }, start);
+      const previousScrollTop = await reader.evaluate(element => element.scrollTop);
+      await page.evaluate(() => {
+        window.__twoPhaseReaderWrites = [];
+        const descriptor = Object.getOwnPropertyDescriptor(Element.prototype, 'scrollTop');
+        Object.defineProperty(HTMLElement.prototype, 'scrollTop', {
+          configurable: true,
+          get() { return descriptor.get.call(this); },
+          set(value) {
+            if (this.matches('section[data-conversation-id]')) window.__twoPhaseReaderWrites.push(value);
+            return descriptor.set.call(this, value);
+          },
+        });
+      });
+      // Programmatic click deliberately preserves the requested starting viewport:
+      // Playwright's visibility auto-scroll would hide the reader's own preliminary
+      // navigation phase. The real header handler expands, mounts a 300px iframe,
+      // then reports its larger first measured body layout.
+      await reader.locator(`#logical-message-conversation-gmail-logical-${target} [data-conversation-message-header]`).evaluate(element => element.click());
+      const header = reader.locator(`#logical-message-conversation-gmail-logical-${target} [data-conversation-message-header]`);
+      await expect(header).toBeVisible();
+      await expect(reader.locator(`#logical-message-conversation-gmail-logical-${target} iframe`).contentFrame().locator('[data-testid="target-body"]')).toBeVisible();
+      await expect.poll(async () => header.evaluate(element => {
+        const container = element.closest('section');
+        return Math.abs(element.getBoundingClientRect().top - (container.getBoundingClientRect().top + 8));
+      })).toBeLessThanOrEqual(2);
+      const geometry = await header.evaluate(element => {
+        const container = element.closest('section');
+        return {
+          scrollTop: container.scrollTop,
+          maxScrollTop: container.scrollHeight - container.clientHeight,
+          error: element.getBoundingClientRect().top - (container.getBoundingClientRect().top + 8),
+        };
+      });
+      const writes = await page.evaluate(() => window.__twoPhaseReaderWrites);
+      // The first write is preliminary against the placeholder; the second is the
+      // post-body-layout live-rect correction. The preliminary phase must really
+      // scroll from the non-zero/opposite starting location.
+      expect(writes).toHaveLength(2);
+      expect(writes[0]).not.toBe(previousScrollTop);
+      return { previousScrollTop, geometry, writes };
+    };
+
+    // A: reader is around M8, then M3 is selected above it. Final delta scrolls up.
+    const early = await twoPhaseNavigation({ target: 3, start: 'bottom' });
+    expect(early.geometry.scrollTop).toBeLessThan(early.previousScrollTop);
+    // B/C: reader starts around M2; M7/M4 are below it and their body grows after
+    // preliminary alignment. Neither middle target may use the bottom clamp.
+    const later = await twoPhaseNavigation({ target: 7, start: 'top' });
+    expect(later.geometry.scrollTop).toBeGreaterThan(later.previousScrollTop);
+    expect(later.geometry.scrollTop).toBeLessThan(later.geometry.maxScrollTop);
+    const middle = await twoPhaseNavigation({ target: 4, start: 'top' });
+    expect(middle.geometry.scrollTop).toBeGreaterThan(middle.previousScrollTop);
+    expect(middle.geometry.scrollTop).toBeLessThan(middle.geometry.maxScrollTop);
   });
 
 });

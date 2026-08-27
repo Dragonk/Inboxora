@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
 import { alignReaderHeader, readerVisibleTop } from './readerScrollAlignment.js';
 
-function rect(top, bottom = top + 40) { return { top, bottom }; }
+function rect(top, bottom = top + 40) { return { top, bottom, height: bottom - top }; }
 
 function reader({ top = 100, scrollTop = 0, scrollHeight = 3000, clientHeight = 600, sticky = [] } = {}) {
   return {
@@ -43,6 +43,17 @@ describe('reader header alignment', () => {
     const longHeader = { getBoundingClientRect: () => rect(500, 540), closest: () => longCard };
     alignReaderHeader(long, longHeader, 8);
     assert.equal(long.scrollTop, 792);
+  });
+
+  it('never bottom-clamps a short middle card when live header geometry can reach the top', () => {
+    const viewport = reader({ top: 100, scrollTop: 900, scrollHeight: 5000, clientHeight: 800 });
+    const nextCard = {};
+    const middleCard = { getBoundingClientRect: () => rect(420, 700), nextElementSibling: nextCard };
+    const header = { getBoundingClientRect: () => rect(420, 460), closest: () => middleCard };
+    alignReaderHeader(viewport, header, 8);
+    // current + (live header top - visible top): 900 + (420 - 108)
+    assert.equal(viewport.scrollTop, 1212);
+    assert.ok(viewport.scrollTop < viewport.scrollHeight - viewport.clientHeight);
   });
 
   it('clamps safely at the start and end of the scroll range', () => {

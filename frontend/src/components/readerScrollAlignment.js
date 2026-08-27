@@ -26,13 +26,13 @@ export function alignReaderHeader(reader, header, gap = 8) {
   // as possible rather than leaving it below the fold behind trailing card padding.
   const card = header.closest?.('[data-conversation-message-state]');
   const cardRect = card?.getBoundingClientRect();
-  const cardBottomAfterHeaderAlignment = cardRect
-    ? cardRect.bottom - (headerTop - desiredTop)
-    : Infinity;
   const terminalCard = cardRect
     && card.nextElementSibling === null
     && cardRect.height <= reader.clientHeight;
-  const nextScrollTop = terminalCard || cardBottomAfterHeaderAlignment <= readerRect.bottom
+  // Bottom alignment is a terminal-card affordance only. Applying it to a
+  // middle card after its body becomes ready discards the live header delta and
+  // jumps to the thread bottom (the observed M3/M4 overscroll).
+  const nextScrollTop = terminalCard
     ? maxScrollTop
     : headerAlignedScrollTop;
   reader.scrollTop = nextScrollTop;

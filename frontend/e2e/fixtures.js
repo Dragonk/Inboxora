@@ -286,7 +286,7 @@ export const test = base.extend({
         } });
       }
       const targetNumber = String(copyId).match(/copy-(\d+)$/)?.[1];
-      if (page.__targetBodyMode && targetNumber === String(page.__conversationSize || 5)) {
+      if (page.__targetBodyMode && targetNumber === String(page.__targetBodyCopy || page.__conversationSize || 5)) {
         const long = page.__targetBodyMode === 'long';
         return route.fulfill({ json: {
           attachments: [], text: `Target ${long ? 'long' : 'short'} body`,
