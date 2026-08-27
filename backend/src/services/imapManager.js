@@ -1327,6 +1327,11 @@ export class ImapManager {
     this.backfillAllRunning = new Set(); // accountId — prevent concurrent full backfill sequences
     this._bgConnSem = createKeyedSemaphore(BACKGROUND_CONN_MAX_PER_HOST); // cap concurrent background IMAP conns (backfill + snippet indexer) per provider host
     this._connectCooldown = new Map(); // accountId -> { until: ms, failures: number } after connection refusals
+    // accountId -> the value last persisted to email_accounts.sync_error: a string (error is
+    // showing), null (known clear), or absent (unknown — e.g. just after a restart, where the
+    // DB may still hold a stale error, so the next call writes through unconditionally).
+    // Lets the success paths skip a redundant UPDATE on every sync tick.
+    this._syncErrorState = new Map();
     this.onDemandSyncing = new Set(); // `${accountId}:${folder}` — prevent duplicate on-demand syncs
     // Bounded engine facade handed to plugin hooks instead of `this` — plugins get only the reviewed
     // sync/label primitives (see mailEngineFacade), never the raw engine, its connections, or locks.
@@ -1852,7 +1857,7 @@ export class ImapManager {
       });
       this._attachIdleListeners(client, account);
       this.connections.set(account.id, client);
-      await query('UPDATE email_accounts SET sync_error = NULL WHERE id = $1', [account.id]);
+      await this._clearAccountError(account);
 
       // Decide whether to auto-backfill BEFORE the initial sync below runs. For providers
       // with autoBackfillExistingOnConnect:false (e.g. PurelyMail) the gate skips backfill
@@ -1927,8 +1932,7 @@ export class ImapManager {
       // stop hammering a provider that's at its limit. Other errors don't set a cooldown —
       // the health check retries them normally.
       if (isConnectionRefusal(detail)) this._noteConnectionRefusal(account);
-      await query('UPDATE email_accounts SET sync_error = $1 WHERE id = $2', [detail, account.id]);
-      this.broadcast({ type: 'account_error', accountId: account.id, error: detail }, account.user_id);
+      await this._recordAccountError(account, detail);
       return false;
     } finally {
       // Always release the in-progress lock so future attempts (e.g. manual reconnect) can proceed
@@ -1950,6 +1954,9 @@ export class ImapManager {
     this.syncThrottleSkips.delete(accountId);
     this.syncTickCount.delete(accountId);
     this.lastSyncOkAt.delete(accountId);
+    // Drop the cached sync_error state (NOT the refusal cooldown, which deliberately survives a
+    // disconnect) so a re-added account writes through instead of trusting a stale cache entry.
+    this._syncErrorState.delete(accountId);
     this._pendingFlagSync.delete(accountId);
     const flagTimer = this._flagDebounceTimers.get(accountId);
     if (flagTimer) { clearTimeout(flagTimer); this._flagDebounceTimers.delete(accountId); }
@@ -1987,7 +1994,7 @@ export class ImapManager {
   _startPollOnly(account) {
     this._pollOnlyAccounts.add(account.id);
     console.log(`Poll-only mode for ${logAccount(account)} — ${account.imap_host} at persistent-connection budget; polling INBOX on the interval instead of holding IDLE`);
-    query('UPDATE email_accounts SET sync_error = NULL WHERE id = $1', [account.id]).catch(() => {});
+    this._clearAccountError(account).catch(() => {});
     this.broadcast({ type: 'account_connected', accountId: account.id }, account.user_id);
     // Initial poll now, then on the interval. Stagger the first tick so many demoted accounts on one
     // host don't all open at the same instant (mirrors _startSyncInterval's jitter).
@@ -2041,13 +2048,19 @@ export class ImapManager {
       );
       this.lastSyncOkAt.set(account.id, Date.now());
       this._connectCooldown.delete(account.id);
+      await this._clearAccountError(account);
       if ((syncResult?.insertedCount || 0) > 0 && !syncResult?.broadcastedNewMessages) {
         this.broadcast({ type: 'sync_complete', accountId: account.id }, account.user_id);
       }
     } catch (err) {
       const detail = extractImapError(err);
-      if (isConnectionRefusal(detail)) this._noteConnectionRefusal(account);
+      const refused = isConnectionRefusal(detail);
+      if (refused) this._noteConnectionRefusal(account);
       console.warn(`Poll-only sync error for ${logAccount(account)}: ${detail}`);
+      // Surface only what we actually backed off on. Gated (unlike the connect paths, which
+      // record any failure) because this catch also fires on ordinary slow ticks, and one
+      // timed-out poll must not paint a working account red in the sidebar.
+      if (refused) await this._recordAccountError(account, detail);
     } finally {
       if (client) { try { await client.logout(); } catch { /* already closed */ } }
       if (slotHeld) this._bgConnSem.release(host);
@@ -2076,6 +2089,45 @@ export class ImapManager {
     this._connectCooldown.set(account.id, { until: Date.now() + ms, failures });
     console.warn(`Connection refused for ${logAccount(account)} — backing off ${Math.round(ms / 1000)}s (refusal #${failures})`);
     return ms;
+  }
+
+  // Persist an account failure so the UI can show it, and push it to the client live. Every path
+  // that gives up on an account routes through here — connect, reconnect, the persistent sync
+  // tick, and the poll-only tick — so a failure is visible whichever one hit it. Previously only
+  // connectAccount recorded, so which of two accounts on the same dead host showed an error came
+  // down to whether it happened to fail during a cold connect or a reconnect.
+  //
+  // De-duplicated against the last persisted value: a host that stays down re-enters this on
+  // every retry for as long as the outage lasts, and rewriting the same string each time is pure
+  // write amplification. Never throws — every caller is already inside an error path.
+  async _recordAccountError(account, detail) {
+    if (this._syncErrorState.get(account.id) === detail) return;
+    try {
+      await query('UPDATE email_accounts SET sync_error = $1 WHERE id = $2', [detail, account.id]);
+      this._syncErrorState.set(account.id, detail);
+      this.broadcast({ type: 'account_error', accountId: account.id, error: detail }, account.user_id);
+    } catch (err) {
+      // Leave _syncErrorState untouched so the next failure retries the write.
+      console.warn(`Could not record sync_error for ${logAccount(account)}: ${err.message}`);
+    }
+  }
+
+  // Clear a recorded failure on the success side of every path that can record one. Skipped when
+  // the account is already known-clear, so the sync tick doesn't issue a redundant UPDATE per
+  // account per tick (every 10s on freshInboxSync providers). Only broadcasts on a real
+  // error -> clear transition; the frontend maps 'account_connected' to clearing sync_error.
+  async _clearAccountError(account) {
+    const prev = this._syncErrorState.get(account.id);
+    if (prev === null) return;
+    try {
+      await query('UPDATE email_accounts SET sync_error = NULL WHERE id = $1', [account.id]);
+      this._syncErrorState.set(account.id, null);
+      if (typeof prev === 'string') {
+        this.broadcast({ type: 'account_connected', accountId: account.id }, account.user_id);
+      }
+    } catch (err) {
+      console.warn(`Could not clear sync_error for ${logAccount(account)}: ${err.message}`);
+    }
   }
 
   async _syncInboxWithFreshLogin(account) {
@@ -2177,13 +2229,18 @@ export class ImapManager {
           // Mirror connectAccount's success cleanup: clear the refusal backoff so the next
           // failure starts fresh, and clear the stale sync_error the UI is still showing.
           this._connectCooldown.delete(account.id);
-          await query('UPDATE email_accounts SET sync_error = NULL WHERE id = $1', [account.id]);
+          await this._clearAccountError(account);
           console.log(`Reconnected ${logAccount(syncAccount)}`);
         } catch (reconnErr) {
           const detail = extractImapError(reconnErr);
           // Back off on a connection-refusal so the interval stops hammering — mirrors connectAccount.
           if (isConnectionRefusal(detail)) this._noteConnectionRefusal(account);
           console.error(`Reconnect failed for ${logAccount(account)}:`, detail);
+          // A failed reconnect is the same class of failure as a failed first connect, so record
+          // it exactly as connectAccount does. This was the gap: an account whose host died
+          // mid-session only ever failed here, so it kept looking healthy in the sidebar while
+          // silently serving stale mail.
+          await this._recordAccountError(account, detail);
           // Force-close a client left mid-connect when the timeout fired so it doesn't
           // linger as an orphaned socket.
           if (pendingClient) pendingClient.logout().catch(() => {});
@@ -2221,6 +2278,7 @@ export class ImapManager {
       // Healthy again — clear any refusal backoff so the failure count resets and a later
       // refusal starts from the base delay rather than a still-escalated one. No-op when unset.
       this._connectCooldown.delete(account.id);
+      await this._clearAccountError(account);
       if ((syncResult?.insertedCount || 0) > 0 && !syncResult?.broadcastedNewMessages) {
         this.broadcast({ type: 'sync_complete', accountId: account.id }, account.user_id);
       }
@@ -2286,7 +2344,12 @@ export class ImapManager {
       // A refusal on the sync path (notably the fresh-login poll, which never reaches the
       // reconnect gate) must arm the same backoff the connect paths use — otherwise the poll
       // keeps hammering a provider that's refusing logins. Honored by the check above next tick.
-      if (isConnectionRefusal(detail)) this._noteConnectionRefusal(account);
+      if (isConnectionRefusal(detail)) {
+        this._noteConnectionRefusal(account);
+        // Surface what we backed off on, for the same reason as the poll-only tick: gated on the
+        // refusal so a one-off 'Sync wall-clock timeout' doesn't flag an otherwise healthy account.
+        await this._recordAccountError(account, detail);
+      }
       // Identity-guard: the staleness check may have deleted this connection out from
       // under a hung sync, and a fresh reconnect (health check / another tick) may already
       // occupy the map slot. Only tear down the client THIS tick owned — never a healthy

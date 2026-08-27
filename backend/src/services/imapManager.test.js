@@ -1605,3 +1605,97 @@ describe('classifyMoveBySearch (#407 empty-uidMap reconciliation)', () => {
     expect(r.mappable).toBe(false);
   });
 });
+
+// ── sync_error recording — every path that gives up records, every success clears ──────────
+
+describe('_recordAccountError / _clearAccountError', () => {
+  const acct = { id: 'a1', user_id: 'u1', email_address: 'x@example.com' };
+
+  const mgr = () => {
+    const m = new ImapManager(null);
+    clearInterval(m._healthCheckTimer);
+    clearInterval(m._snippetSchedulerTimer);
+    m.broadcast = vi.fn();
+    return m;
+  };
+
+  beforeEach(() => {
+    query.mockReset();
+    query.mockResolvedValue({ rows: [] });
+    vi.spyOn(console, 'warn').mockImplementation(() => {});
+  });
+
+  afterEach(() => vi.restoreAllMocks());
+
+  it('persists the error and broadcasts it', async () => {
+    const m = mgr();
+    await m._recordAccountError(acct, 'IMAP connect timeout (30000ms)');
+    expect(query).toHaveBeenCalledWith(
+      'UPDATE email_accounts SET sync_error = $1 WHERE id = $2',
+      ['IMAP connect timeout (30000ms)', 'a1'],
+    );
+    expect(m.broadcast).toHaveBeenCalledWith(
+      { type: 'account_error', accountId: 'a1', error: 'IMAP connect timeout (30000ms)' }, 'u1',
+    );
+  });
+
+  it('does not rewrite an unchanged error — a host down for hours writes once', async () => {
+    const m = mgr();
+    for (let i = 0; i < 5; i++) await m._recordAccountError(acct, 'read ETIMEDOUT');
+    expect(query).toHaveBeenCalledTimes(1);
+    expect(m.broadcast).toHaveBeenCalledTimes(1);
+  });
+
+  it('writes again when the error text changes', async () => {
+    const m = mgr();
+    await m._recordAccountError(acct, 'read ETIMEDOUT');
+    await m._recordAccountError(acct, 'Reconnect timeout (30000ms)');
+    expect(query).toHaveBeenCalledTimes(2);
+  });
+
+  it('clears a recorded error and tells the client', async () => {
+    const m = mgr();
+    await m._recordAccountError(acct, 'read ETIMEDOUT');
+    m.broadcast.mockClear();
+    await m._clearAccountError(acct);
+    expect(query).toHaveBeenLastCalledWith(
+      'UPDATE email_accounts SET sync_error = NULL WHERE id = $1', ['a1'],
+    );
+    expect(m.broadcast).toHaveBeenCalledWith({ type: 'account_connected', accountId: 'a1' }, 'u1');
+  });
+
+  it('writes through on the first clear after a restart, when the DB may hold a stale error', async () => {
+    const m = mgr();
+    await m._clearAccountError(acct);
+    expect(query).toHaveBeenCalledTimes(1);
+    // ...but stays silent: nothing was showing, so there is no transition to announce.
+    expect(m.broadcast).not.toHaveBeenCalled();
+  });
+
+  it('skips the redundant UPDATE once known-clear — the sync tick must not write every 10s', async () => {
+    const m = mgr();
+    await m._clearAccountError(acct);
+    query.mockClear();
+    for (let i = 0; i < 10; i++) await m._clearAccountError(acct);
+    expect(query).not.toHaveBeenCalled();
+  });
+
+  it('never throws when the DB write fails, and retries the write next time', async () => {
+    const m = mgr();
+    query.mockRejectedValueOnce(new Error('deadlock detected'));
+    await expect(m._recordAccountError(acct, 'read ETIMEDOUT')).resolves.toBeUndefined();
+    expect(m.broadcast).not.toHaveBeenCalled();
+    query.mockResolvedValue({ rows: [] });
+    await m._recordAccountError(acct, 'read ETIMEDOUT');
+    expect(query).toHaveBeenCalledTimes(2);
+  });
+
+  it('forgets cached state on disconnect so a re-added account writes through', async () => {
+    const m = mgr();
+    await m._clearAccountError(acct);
+    await m.disconnectAccount('a1');
+    query.mockClear();
+    await m._clearAccountError(acct);
+    expect(query).toHaveBeenCalledTimes(1);
+  });
+});
