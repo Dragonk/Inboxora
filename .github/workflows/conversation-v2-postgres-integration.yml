@@ -67,9 +67,10 @@ jobs:
         run: npm ci --prefix backend && npm ci --prefix frontend
 
       - name: Verify PostgreSQL and Redis readiness
+        working-directory: backend
         run: |
           PGPASSWORD="$DB_PASSWORD" psql -h "$DB_HOST" -U "$DB_USER" -d "$DB_NAME" -v ON_ERROR_STOP=1 -c 'SELECT 1'
-          redis-cli -h 127.0.0.1 ping | grep -qx PONG
+          node --input-type=module -e "import { createClient } from 'redis'; const client = createClient({ url: process.env.REDIS_URL }); client.on('error', error => { throw error; }); await client.connect(); if (await client.ping() !== 'PONG') process.exit(1); await client.quit();"
 
       - name: Fresh migration through final schema
         working-directory: backend

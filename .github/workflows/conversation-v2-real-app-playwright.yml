@@ -110,11 +110,12 @@ jobs:
           PLAYWRIGHT_BASE_URL: http://127.0.0.1:4173
           PLAYWRIGHT_USERNAME: playwright@example.test
           PLAYWRIGHT_PASSWORD: PlaywrightPassword123!
-        run: npx playwright test \
-          e2e/real-app.spec.js \
-          --project=chromium-desktop \
-          --project=chromium-mobile-390 \
-          --project=chromium-mobile
+        run: |
+          npx playwright test \
+            e2e/real-app.spec.js \
+            --project=chromium-desktop \
+            --project=chromium-mobile-390 \
+            --project=chromium-mobile
 
       - name: Chromium smoke and locale report
         working-directory: frontend

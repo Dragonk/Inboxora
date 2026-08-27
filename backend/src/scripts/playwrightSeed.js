@@ -45,21 +45,21 @@ try {
   const aliceEmail = 'alice@example.test';
   const myEmail = 'me@gmail.test';
 
-  async function createConversation(subject, logicalCount, copyCount) {
+  async function createConversation(accountId, subject, logicalCount, copyCount) {
     const conv = await client.query(
-      `INSERT INTO conversations (user_id, canonical_subject, subject_snapshot, first_message_at, last_message_at, logical_message_count, copy_count, unread_count, threading_confidence)
-       VALUES ($1, $2, $2, NOW() - interval '5 days', NOW(), $3, $4, 0, 1) RETURNING id`,
-      [userId, subject, logicalCount, copyCount]
+      `INSERT INTO conversations (user_id, account_id, canonical_subject, subject_snapshot, first_message_at, last_message_at, logical_message_count, copy_count, unread_count, threading_confidence)
+       VALUES ($1, $2, $3, $3, NOW() - interval '5 days', NOW(), $4, $5, 0, 1) RETURNING id`,
+      [userId, accountId, subject, logicalCount, copyCount]
     );
     return conv.rows[0].id;
   }
 
-  async function createLogical(conversationId, index, direction, subject) {
+  async function createLogical(accountId, conversationId, index, direction, subject) {
     const canonicalId = `<fixture-${conversationId.slice(0, 8)}-${index}@example.test>`;
     const logical = await client.query(
-      `INSERT INTO logical_messages (user_id, conversation_id, canonical_message_id, raw_message_id, subject, canonical_subject, direction, message_date, threading_reason, threading_confidence)
-       VALUES ($1::uuid, $2::uuid, $3::text, $3::text, $4::text, $5::text, $6::text, NOW() - ($7::text || ' days')::interval, 'playwright-fixture', 1) RETURNING id`,
-      [userId, conversationId, canonicalId, subject, subject, direction, 5 - index]
+      `INSERT INTO logical_messages (user_id, account_id, conversation_id, canonical_message_id, raw_message_id, subject, canonical_subject, direction, message_date, threading_reason, threading_confidence)
+       VALUES ($1::uuid, $2::uuid, $3::uuid, $4::text, $4::text, $5::text, $6::text, $7::text, NOW() - ($8::text || ' days')::interval, 'playwright-fixture', 1) RETURNING id`,
+      [userId, accountId, conversationId, canonicalId, subject, subject, direction, 5 - index]
     );
     return { id: logical.rows[0].id, canonicalId };
   }
@@ -76,16 +76,16 @@ try {
   }
 
   // ── Golden dataset: 5 logical messages, multiple copies ──────────────────
-  // LM1 Inbox incoming, LM2 Sent outgoing, LM3 Archive incoming, LM4 Sent outgoing, LM5 Inbox incoming + All-Mail duplicate
+  // Gmail-only fixture: LM1 Inbox incoming, LM2 Sent outgoing, LM3 Archive incoming, LM4 Sent outgoing, LM5 Inbox incoming + All-Mail duplicate
   const goldenSubject = 'Golden conversation thread';
-  const goldenId = await createConversation(goldenSubject, 5, 6); // 5 logical, 6 physical copies
+  const goldenId = await createConversation(gmailId, goldenSubject, 5, 6); // 5 logical, 6 physical copies
 
   const directions = ['incoming', 'outgoing', 'incoming', 'outgoing', 'incoming'];
   const bodies = Array.from({ length: 5 }, (_, i) => `Fixture body ${i + 1}`);
   const htmlBodies = bodies.map(b => `<p>${b}</p><blockquote>Quoted previous message</blockquote>`);
 
   for (let i = 0; i < 5; i++) {
-    const { id: logicalId, canonicalId } = await createLogical(goldenId, i, directions[i], goldenSubject);
+    const { id: logicalId, canonicalId } = await createLogical(gmailId, goldenId, i, directions[i], goldenSubject);
     const dayOffset = 5 - i;
 
     if (i === 0) {
@@ -98,8 +98,8 @@ try {
       // LM3: Archive (Gmail)
       await createCopy(gmailId, 1003, 'Archive', logicalId, goldenId, canonicalId, goldenSubject, bodies[i], htmlBodies[i], directions[i], dayOffset);
     } else if (i === 3) {
-      // LM4: Sent (Outlook)
-      await createCopy(outlookId, 2001, 'Sent', logicalId, goldenId, canonicalId, goldenSubject, bodies[i], htmlBodies[i], directions[i], dayOffset);
+      // LM4: Sent (Gmail)
+      await createCopy(gmailId, 1004, 'Sent', logicalId, goldenId, canonicalId, goldenSubject, bodies[i], htmlBodies[i], directions[i], dayOffset);
     } else if (i === 4) {
       // LM5: Inbox (Gmail) + All-Mail duplicate (Gmail)
       await createCopy(gmailId, 1005, 'INBOX', logicalId, goldenId, canonicalId, goldenSubject, bodies[i], htmlBodies[i], directions[i], dayOffset);
@@ -110,10 +110,11 @@ try {
   // ── Other conversations (for variety) ─────────────────────────────────────
   for (const [index, subject] of ['Gmail reply chain', 'Outlook conversation', 'Fastmail generic IMAP'].entries()) {
     const count = index === 0 ? 3 : 2;
-    const conversationId = await createConversation(subject, count, count);
+    const accountId = accounts[index % accounts.length];
+    const conversationId = await createConversation(accountId, subject, count, count);
     for (let n = 0; n < count; n++) {
-      const { id: logicalId, canonicalId } = await createLogical(conversationId, n, index === 0 && n === count - 1 ? 'outgoing' : 'incoming', subject);
-      await createCopy(accounts[(index + n) % accounts.length], 1000 + index * 10 + n, 'INBOX', logicalId, conversationId, canonicalId, subject, `Fixture body ${n + 1}`, `<p>Fixture body ${n + 1}</p><blockquote>Quoted previous message</blockquote>`, index === 0 && n === count - 1 ? 'outgoing' : 'incoming', count - n);
+      const { id: logicalId, canonicalId } = await createLogical(accountId, conversationId, n, index === 0 && n === count - 1 ? 'outgoing' : 'incoming', subject);
+      await createCopy(accountId, 1000 + index * 10 + n, 'INBOX', logicalId, conversationId, canonicalId, subject, `Fixture body ${n + 1}`, `<p>Fixture body ${n + 1}</p><blockquote>Quoted previous message</blockquote>`, index === 0 && n === count - 1 ? 'outgoing' : 'incoming', count - n);
     }
   }
 
