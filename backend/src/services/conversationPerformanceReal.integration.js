@@ -28,8 +28,14 @@ after(async () => {
 async function seedScale(userId, accountId, conversationCount, messagesPerConv) {
   // Clean
   await pool.query('TRUNCATE conversation_overrides, conversation_aliases, conversation_evidence, conversation_ingest_failures RESTART IDENTITY CASCADE');
-  await pool.query("DELETE FROM messages WHERE subject LIKE 'PERF-%'");
+  await pool.query(`
+    DELETE FROM messages
+     WHERE logical_message_id IN (SELECT id FROM logical_messages)
+        OR conversation_id IN (SELECT id FROM conversations)
+        OR subject LIKE 'PERF-%'
+  `);
   await pool.query('DELETE FROM logical_messages');
+  await pool.query('DELETE FROM provider_thread_mappings');
   await pool.query('DELETE FROM conversations');
 
   const totalMessages = conversationCount * messagesPerConv;
@@ -97,8 +103,14 @@ async function seedScale(userId, accountId, conversationCount, messagesPerConv) 
 describe('CE v2 Performance — real PostgreSQL', () => {
   it('10k physical copies: ConversationList query < 500ms', async () => {
     // Clean up any previous perf test data
-    await pool.query("DELETE FROM messages WHERE subject LIKE 'PERF-%'");
+    await pool.query(`
+      DELETE FROM messages
+       WHERE logical_message_id IN (SELECT id FROM logical_messages)
+          OR conversation_id IN (SELECT id FROM conversations)
+          OR subject LIKE 'PERF-%'
+    `);
     await pool.query('DELETE FROM logical_messages');
+    await pool.query('DELETE FROM provider_thread_mappings');
     await pool.query('DELETE FROM conversations');
     await pool.query("DELETE FROM email_accounts WHERE email_address = 'perf@example.com'");
     await pool.query("DELETE FROM users WHERE username = 'perf-user-10k'");
