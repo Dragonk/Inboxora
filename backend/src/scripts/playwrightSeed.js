@@ -39,7 +39,7 @@ try {
     );
     accounts.push(result.rows[0].id);
   }
-  const [gmailId, outlookId] = accounts;
+  const [gmailId] = accounts;
 
   // ── Helpers ────────────────────────────────────────────────────────────────
   const aliceEmail = 'alice@example.test';
@@ -114,7 +114,7 @@ try {
     const conversationId = await createConversation(accountId, subject, count, count);
     for (let n = 0; n < count; n++) {
       const { id: logicalId, canonicalId } = await createLogical(accountId, conversationId, n, index === 0 && n === count - 1 ? 'outgoing' : 'incoming', subject);
-      await createCopy(accountId, 1000 + index * 10 + n, 'INBOX', logicalId, conversationId, canonicalId, subject, `Fixture body ${n + 1}`, `<p>Fixture body ${n + 1}</p><blockquote>Quoted previous message</blockquote>`, index === 0 && n === count - 1 ? 'outgoing' : 'incoming', count - n);
+      await createCopy(accountId, 2000 + index * 10 + n, 'INBOX', logicalId, conversationId, canonicalId, subject, `Fixture body ${n + 1}`, `<p>Fixture body ${n + 1}</p><blockquote>Quoted previous message</blockquote>`, index === 0 && n === count - 1 ? 'outgoing' : 'incoming', count - n);
     }
   }
 
