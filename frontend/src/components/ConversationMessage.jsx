@@ -200,6 +200,7 @@ export default function ConversationMessage({ conversationId, message, selectedC
           }
         }}
         data-conversation-message-toggle="true"
+        data-conversation-message-header={copy.id || undefined}
         style={{
           display: 'block', width: '100%', padding: 0,
           border: 0, background: 'transparent', color: 'var(--text-primary)',

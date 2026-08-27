@@ -30,7 +30,13 @@ describe('conversation reader final UX contract', () => {
     const reader = read('ConversationReader.jsx');
     assert.match(reader, /useLayoutEffect/);
     assert.match(reader, /completedNavigationRef/);
-    assert.match(reader, /reader\.scrollTop \+= targetRect\.top - readerRect\.top - topPadding/);
+    const message = read('ConversationMessage.jsx');
+    const alignment = read('readerScrollAlignment.js');
+    assert.match(reader, /data-conversation-message-header/);
+    assert.match(message, /data-conversation-message-header=\{copy\.id/);
+    assert.match(reader, /alignReaderHeader\(reader, header\)/);
+    assert.match(alignment, /reader\.scrollTop = nextScrollTop/);
+    assert.match(alignment, /data-conversation-reader-sticky/);
     assert.match(reader, /setActiveTargetLogicalId\(id\)/);
     assert.doesNotMatch(reader, /scrollIntoView/);
   });

@@ -4,6 +4,7 @@ import { conversationApi } from '../utils/conversationApi.js';
 import { api } from '../utils/api.js';
 import ConversationMessage from './ConversationMessage.jsx';
 import { initialConversationExpansion, initialConversationTarget, toggleConversationExpansion } from './conversationExpansion.js';
+import { alignReaderHeader } from './readerScrollAlignment.js';
 import { nativeThreadToReaderMessages, mergeThreadWithConversation } from '../utils/conversationThreadAdapter.js';
 import { queueReadStateMutation, isLatestReadStateMutation } from '../utils/readStateMutation.js';
 import { useStore } from '../store/index.js';
@@ -177,8 +178,8 @@ export default function ConversationReader({ conversationId, targetLogicalMessag
   useEffect(() => { for (const id of expanded) loadBody(id); }, [expanded, loadBody]);
   const navigationTargetId = activeTargetLogicalId || initialTargetId;
   // Scroll once per navigation, inside the reader pane. Layout timing waits for the
-  // actual target card rather than using an arbitrary timeout; later iframe resizes do
-  // not resnap a reader the user has already scrolled.
+  // expanded target's actual header rather than using an arbitrary timeout; later iframe
+  // resizes do not resnap a reader the user has already scrolled.
   useLayoutEffect(() => {
     if (!navigationTargetId || !readerRef.current) return;
     const copy = selectedCopyFor(navigationTargetId);
@@ -186,17 +187,14 @@ export default function ConversationReader({ conversationId, targetLogicalMessag
     if (completedNavigationRef.current.has(navigationKey)) return;
     let frame = requestAnimationFrame(() => {
       const reader = readerRef.current;
-      const target = [...(reader?.querySelectorAll('[data-logical-message-id]') || [])]
-        .find(element => element.dataset.logicalMessageId === navigationTargetId);
-      if (!reader || !target) return;
-      const readerRect = reader.getBoundingClientRect();
-      const targetRect = target.getBoundingClientRect();
-      const topPadding = 16;
-      reader.scrollTop += targetRect.top - readerRect.top - topPadding;
+      const header = [...(reader?.querySelectorAll('[data-conversation-message-header]') || [])]
+        .find(element => element.dataset.conversationMessageHeader === String(copy?.id || ''));
+      if (!reader || !header || !expanded.has(navigationTargetId)) return;
+      alignReaderHeader(reader, header);
       completedNavigationRef.current.add(navigationKey);
     });
     return () => cancelAnimationFrame(frame);
-  }, [conversationId, nativeThreadId, navigationTargetId, messages, selectedCopyFor]);
+  }, [conversationId, nativeThreadId, navigationTargetId, messages, selectedCopyFor, expanded]);
 
   const activateMessage = useCallback(id => {
     setActiveTargetLogicalId(id);

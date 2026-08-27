@@ -450,22 +450,30 @@ test.describe('reader target navigation follow-up', () => {
     await expect(m3).toHaveAttribute('data-unread', 'false');
   });
 
-  test('scrolls the opened target into the reader upper reading region without resnapping', async ({ page, fixtureApi }) => {
+  test('aligns the selected physical header at the reader visible top and never resnaps', async ({ page, fixtureApi }) => {
     await open(page, fixtureApi, false, true);
-    await page.locator('[data-msgid="conversation-gmail-copy-5"]:visible').click();
+    await page.locator('[data-msgid="conversation-gmail-copy-4"]:visible').click();
     const reader = page.locator('section[data-conversation-id="conversation-gmail"]:visible');
-    const target = reader.locator('#logical-message-conversation-gmail-logical-5');
-    await expect(target).toBeVisible();
-    const initial = await target.evaluate((element) => {
-      const reader = element.closest('section'); const rr = reader.getBoundingClientRect(); const tr = element.getBoundingClientRect();
-      return { scrollTop: reader.scrollTop, relativeTop: tr.top - rr.top };
+    const target = reader.locator('#logical-message-conversation-gmail-logical-4');
+    const header = target.locator('[data-conversation-message-header="conversation-gmail-copy-4"]');
+    await expect(header).toBeVisible();
+    const initial = await header.evaluate(element => {
+      const reader = element.closest('section');
+      const readerRect = reader.getBoundingClientRect();
+      const stickyBottom = [...reader.querySelectorAll('[data-conversation-reader-sticky="true"]')]
+        .reduce((bottom, sticky) => Math.max(bottom, sticky.getBoundingClientRect().bottom), readerRect.top);
+      return { headerTop: element.getBoundingClientRect().top, visibleReaderTop: stickyBottom, scrollTop: reader.scrollTop };
     });
-    expect(initial.relativeTop).toBeGreaterThanOrEqual(0);
-    expect(initial.relativeTop).toBeLessThanOrEqual(120);
+    expect(initial.headerTop).toBeGreaterThanOrEqual(initial.visibleReaderTop);
+    expect(initial.headerTop).toBeLessThanOrEqual(initial.visibleReaderTop + 12);
+    // Simulate the user's independent scroll, then a body/iframe layout event and
+    // a read-state update. Neither is a new physical navigation and neither may snap.
     await reader.evaluate(element => { element.scrollTop = Math.max(0, element.scrollTop - 80); });
     const userScrollTop = await reader.evaluate(element => element.scrollTop);
-    await target.locator('[data-conversation-message-toggle="true"]').click();
-    await target.locator('[data-conversation-message-toggle="true"]').click();
+    await target.locator('iframe').evaluate(frame => frame.dispatchEvent(new Event('resize')));
+    await page.evaluate(() => window.dispatchEvent(new CustomEvent('mailflow:read-state', {
+      detail: { id: 'conversation-gmail-copy-4', read: true },
+    })));
     await expect.poll(() => reader.evaluate(element => element.scrollTop)).toBe(userScrollTop);
   });
 });
