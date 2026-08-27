@@ -211,10 +211,26 @@ export const test = base.extend({
         { id: 'conversation-gmail-copy-5', subject: 'Gmail reply chain', is_read: true, account_id: 'account-gmail', folder: 'INBOX', date: new Date().toISOString(), from_email: 'sender@gmail.test', message_id: '<fixture-5>', body_text: 'Fixture body 5', thread_id: 'conversation-gmail', thread_key: 'conversation-gmail', message_count: 5 },
       ];
       const threaded = url.searchParams.get('threaded') === 'true';
-      const listMessages = threaded ? [{ ...messages.at(-1), thread_key: 'conversation-gmail', is_starred: true }] : messages;
+      const largeMailbox = Number(page.__largeMailboxRows || 0);
+      const listMessages = largeMailbox
+        ? Array.from({ length: largeMailbox }, (_, index) => ({
+          id: `large-row-${index}`, subject: `Large row ${index}`, is_read: true,
+          account_id: 'account-gmail', folder: 'INBOX', date: new Date().toISOString(),
+          from_email: 'sender@gmail.test', message_id: `<large-${index}@fixture.test>`,
+          thread_id: `large-thread-${index}`, thread_key: `large-thread-${index}`, message_count: 2,
+        }))
+        : threaded ? [{ ...messages.at(-1), thread_key: 'conversation-gmail', is_starred: true }] : messages;
       return route.fulfill({ json: { messages: listMessages, total: listMessages.length, ...(threaded ? { threaded: true } : {}) } });
     });
     await page.route('**/api/mail/thread/*', route => {
+      const threadId = new URL(route.request().url()).pathname.split('/').at(-1);
+      if (threadId.startsWith('large-thread-')) {
+        const index = threadId.slice('large-thread-'.length);
+        return route.fulfill({ json: { messages: [
+          { id: `large-row-${index}`, account_id: 'account-gmail', message_id: `<large-${index}@fixture.test>` },
+          { id: `large-row-${index}-duplicate`, account_id: 'account-gmail', message_id: `<large-${index}@fixture.test>` },
+        ] } });
+      }
       const unread = new Set(page.__unreadCopies || []);
       return route.fulfill({ json: { messages: Array.from({ length: 5 }, (_, index) => {
         const number = index + 1;

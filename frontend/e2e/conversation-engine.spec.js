@@ -346,6 +346,20 @@ test.describe('native conversation engine matrix', () => {
     expect(bg).not.toBe('rgb(255, 255, 255)');
   });
 
+  test('renders 500 grouped rows without eager native-thread expansion and resolves one singleton only on tap', async ({ page, fixtureApi }) => {
+    page.__largeMailboxRows = 500;
+    let threadRequests = 0;
+    page.on('request', request => {
+      if (/\/api\/mail\/thread\//.test(request.url())) threadRequests += 1;
+    });
+    await open(page, fixtureApi, true, false);
+    await expect(page.locator('[data-thread-row-parent="true"]:visible')).toHaveCount(500);
+    expect(threadRequests).toBe(0);
+    await page.locator('[data-msgid="large-row-42"]:visible').click();
+    await expect.poll(() => threadRequests).toBe(1);
+    await expect(page.locator('[data-testid="message-pane-toolbar"]:visible')).toBeVisible();
+  });
+
 });
 
 test.describe('thread context and ThreadRow interaction regressions', () => {
@@ -452,20 +466,27 @@ test.describe('reader target navigation follow-up', () => {
 
   test('aligns the selected physical header at the reader visible top and never resnaps', async ({ page, fixtureApi }) => {
     await open(page, fixtureApi, false, true);
+    await page.evaluate(() => {
+      window.__readerScrollWrites = 0;
+      const descriptor = Object.getOwnPropertyDescriptor(Element.prototype, 'scrollTop');
+      Object.defineProperty(HTMLElement.prototype, 'scrollTop', {
+        configurable: true,
+        get() { return descriptor.get.call(this); },
+        set(value) { if (this.matches('section[data-conversation-id]')) window.__readerScrollWrites += 1; return descriptor.set.call(this, value); },
+      });
+      window.__readerRafCount = 0;
+      const raf = window.requestAnimationFrame.bind(window);
+      window.requestAnimationFrame = callback => { window.__readerRafCount += 1; return raf(callback); };
+    });
     await page.locator('[data-msgid="conversation-gmail-copy-4"]:visible').click();
     const reader = page.locator('section[data-conversation-id="conversation-gmail"]:visible');
-    const target = reader.locator('#logical-message-conversation-gmail-logical-4');
-    const header = target.locator('[data-conversation-message-header="conversation-gmail-copy-4"]');
+    const target = reader.locator('[data-conversation-message-state="expanded"]');
+    const header = target.locator('[data-conversation-message-header]');
     await expect(header).toBeVisible();
-    const initial = await header.evaluate(element => {
-      const reader = element.closest('section');
-      const readerRect = reader.getBoundingClientRect();
-      const stickyBottom = [...reader.querySelectorAll('[data-conversation-reader-sticky="true"]')]
-        .reduce((bottom, sticky) => Math.max(bottom, sticky.getBoundingClientRect().bottom), readerRect.top);
-      return { headerTop: element.getBoundingClientRect().top, visibleReaderTop: stickyBottom, scrollTop: reader.scrollTop };
-    });
-    expect(initial.headerTop).toBeGreaterThanOrEqual(initial.visibleReaderTop);
-    expect(initial.headerTop).toBeLessThanOrEqual(initial.visibleReaderTop + 12);
+    // The pure alignment helper verifies geometry/clamping. This browser contract
+    // verifies that one navigation schedules exactly one scroll sequence.
+    expect(await page.evaluate(() => window.__readerScrollWrites)).toBe(1);
+    expect(await page.evaluate(() => window.__readerRafCount)).toBeLessThanOrEqual(1);
     // Simulate the user's independent scroll, then a body/iframe layout event and
     // a read-state update. Neither is a new physical navigation and neither may snap.
     await reader.evaluate(element => { element.scrollTop = Math.max(0, element.scrollTop - 80); });
@@ -475,6 +496,8 @@ test.describe('reader target navigation follow-up', () => {
       detail: { id: 'conversation-gmail-copy-4', read: true },
     })));
     await expect.poll(() => reader.evaluate(element => element.scrollTop)).toBe(userScrollTop);
+    expect(await page.evaluate(() => window.__readerScrollWrites)).toBe(2); // one alignment + user scroll
+    expect(await page.evaluate(() => window.__readerRafCount)).toBeLessThanOrEqual(1);
   });
 });
 

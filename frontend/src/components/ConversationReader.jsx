@@ -181,17 +181,21 @@ export default function ConversationReader({ conversationId, targetLogicalMessag
   // expanded target's actual header rather than using an arbitrary timeout; later iframe
   // resizes do not resnap a reader the user has already scrolled.
   useLayoutEffect(() => {
-    if (!navigationTargetId || !readerRef.current) return;
+    if (!navigationTargetId || !readerRef.current || !expanded.has(navigationTargetId)) return;
     const copy = selectedCopyFor(navigationTargetId);
     const navigationKey = `${conversationId || nativeThreadId || ''}:${copy?.id || navigationTargetId}`;
     if (completedNavigationRef.current.has(navigationKey)) return;
-    let frame = requestAnimationFrame(() => {
-      const reader = readerRef.current;
-      const header = [...(reader?.querySelectorAll('[data-conversation-message-header]') || [])]
-        .find(element => element.dataset.conversationMessageHeader === String(copy?.id || ''));
-      if (!reader || !header || !expanded.has(navigationTargetId)) return;
-      alignReaderHeader(reader, header);
+    const reader = readerRef.current;
+    const header = [...reader.querySelectorAll('[data-conversation-message-header]')]
+      .find(element => element.dataset.conversationMessageHeader === String(copy?.id || ''));
+    // Do not consume the navigation until its exact physical header exists. The
+    // latest layout effect owns the single RAF; its cleanup cancels superseded work.
+    // Consume inside that RAF so a rerender that cancels it can still retry.
+    if (!header) return;
+    const frame = requestAnimationFrame(() => {
+      if (completedNavigationRef.current.has(navigationKey)) return;
       completedNavigationRef.current.add(navigationKey);
+      alignReaderHeader(reader, header);
     });
     return () => cancelAnimationFrame(frame);
   }, [conversationId, nativeThreadId, navigationTargetId, messages, selectedCopyFor, expanded]);

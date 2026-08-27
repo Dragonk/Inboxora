@@ -7,6 +7,7 @@ import { senderColor } from '../themes.js';
 import { useMobile } from '../hooks/useMobile.js';
 import { isAccountInUnifiedInbox } from '../utils/unifiedInbox.js';
 import { useSwipeRow } from '../hooks/useSwipeRow.js';
+import { isExpandableNativeThread, normalizedNativeThreadMembers, singletonNativeThreadTarget } from '../utils/nativeThreadMembership.js';
 import ContextMenu from './ContextMenu.jsx';
 import RowHoverActions from './RowHoverActions.jsx';
 import GtdTabList from './GtdTabList.jsx';
@@ -740,7 +741,7 @@ export default function MessageList() {
 
   const isThreadListRow = useCallback((message) => {
     const messageCount = Number.parseInt(message.message_count, 10);
-    return threadedView && !searchQuery.trim() && message.thread_id && messageCount > 1;
+    return threadedView && !searchQuery.trim() && !message._normalizedSingleton && message.thread_id && messageCount > 1;
   }, [threadedView, searchQuery]);
 
   const resolveMessagesForThreadAction = useCallback(async (message, { forceRefresh = false } = {}) => {
@@ -748,11 +749,12 @@ export default function MessageList() {
     const threadKey = message.thread_key || message.thread_id || message.id;
     if (!isThreadListRow(message)) return [message];
     if (!forceRefresh && Array.isArray(threadMessages[tid]) && threadMessages[tid].length > 0) {
-      return threadMessages[tid];
+      return normalizedNativeThreadMembers(threadMessages[tid]);
     }
     const effectiveFolder = selectedAccountId ? selectedFolder : 'INBOX';
     const data = await api.getThread(threadKey, effectiveFolder, false, message.account_id || selectedAccountId || null);
-    return data.messages?.length ? data.messages : [message];
+    const members = normalizedNativeThreadMembers(data.messages);
+    return members.length ? members : [message];
   }, [isThreadListRow, threadMessages, selectedAccountId, selectedFolder]);
 
   const invalidateThreadCache = useCallback((threadId) => {
@@ -2415,34 +2417,36 @@ export default function MessageList() {
     return byDate || String(right.id).localeCompare(String(left.id));
   })[0] || null;
 
-  const loadThreadChildren = async (message) => {
+  const loadThreadChildren = useCallback(async (message) => {
     const tid = message.thread_id || message.id;
     const cached = threadMessages[tid];
-    if (cached) return cached;
+    if (cached) return normalizedNativeThreadMembers(cached);
     const threadKey = message.thread_key || message.thread_id || message.id;
     const loadVersion = currentThreadLoadVersion(threadLoadVersionsRef.current, tid);
     setLoadingThread(tid);
     try {
       const effectiveFolder = selectedAccountId ? selectedFolder : 'INBOX';
       const data = await api.getThread(threadKey, effectiveFolder, false, message.account_id || selectedAccountId || null);
-      const msgs = data.messages || [];
-      if (isCurrentThreadLoad(threadLoadVersionsRef.current, tid, loadVersion)) setThreadMessages(tid, msgs);
-      return msgs;
+      const members = normalizedNativeThreadMembers(data.messages);
+      if (isCurrentThreadLoad(threadLoadVersionsRef.current, tid, loadVersion)) setThreadMessages(tid, members);
+      return members;
     } catch (err) {
       console.error('Failed to load thread:', err);
       return [];
     } finally {
       if (isCurrentThreadLoad(threadLoadVersionsRef.current, tid, loadVersion)) setLoadingThread(null);
     }
-  };
+  }, [threadMessages, selectedAccountId, selectedFolder, setLoadingThread, setThreadMessages]);
 
-  // Grouping controls only this list. A native parent always toggles its children.
-  // In the single-pane mobile layout that is deliberately list-only: no target is
-  // opened/read until the user explicitly taps one of those physical children.
+  // Aggregate list metadata can count duplicate provider copies. Resolve exact native
+  // membership only for a user action; rendering a mailbox must never fan out one
+  // /thread request per grouped row.
   const handleThreadClick = async (message) => {
     const tid = message.thread_id || message.id;
-    if (!message.thread_id || (message.message_count || 1) <= 1) {
-      if (!isMobile) handleSelect(message);
+    const members = message.thread_id ? await loadThreadChildren(message) : [message];
+    if (!isExpandableNativeThread(members)) {
+      const target = singletonNativeThreadTarget(message, members);
+      if (target) handleSelect(target);
       return;
     }
     if (expandedThreadId === tid) {
@@ -2450,11 +2454,18 @@ export default function MessageList() {
       return;
     }
     setExpandedThreadId(tid);
-    const children = await loadThreadChildren(message);
     if (!isMobile) {
-      const newest = newestThreadChild(children);
+      const newest = newestThreadChild(members);
       if (newest) handleSelect(newest);
     }
+  };
+
+  const handleThreadSwipeAction = async (action, message) => {
+    const members = message.thread_id ? await loadThreadChildren(message) : [message];
+    const target = isExpandableNativeThread(members)
+      ? message
+      : { ...singletonNativeThreadTarget(message, members), _normalizedSingleton: true };
+    if (target?.id) runSwipeAction(action, target);
   };
 
   const accountColor = selectedAccount?.color || 'currentColor';
@@ -3683,8 +3694,8 @@ export default function MessageList() {
                 isMobile={isMobile}
                 swipeLeftAction={swipeLeftAction}
                 swipeRightAction={swipeRightAction}
-                onSwipeLeft={selectionMode || swipeLeftAction === 'disabled' ? undefined : (msg) => runSwipeAction(swipeLeftAction, msg)}
-                onSwipeRight={selectionMode || swipeRightAction === 'disabled' ? undefined : (msg) => runSwipeAction(swipeRightAction, msg)}
+                onSwipeLeft={selectionMode || swipeLeftAction === 'disabled' ? undefined : (msg) => handleThreadSwipeAction(swipeLeftAction, msg)}
+                onSwipeRight={selectionMode || swipeRightAction === 'disabled' ? undefined : (msg) => handleThreadSwipeAction(swipeRightAction, msg)}
                 isChecked={selectedIds.has(message.id)}
                 selectionMode={selectionMode}
                 onToggleSelect={handleRowToggleSelect}
@@ -3728,8 +3739,8 @@ export default function MessageList() {
                 isMobile={isMobile}
                 swipeLeftAction={swipeLeftAction}
                 swipeRightAction={swipeRightAction}
-                onSwipeLeft={selectionMode || swipeLeftAction === 'disabled' ? undefined : (msg) => runSwipeAction(swipeLeftAction, msg)}
-                onSwipeRight={selectionMode || swipeRightAction === 'disabled' ? undefined : (msg) => runSwipeAction(swipeRightAction, msg)}
+                onSwipeLeft={selectionMode || swipeLeftAction === 'disabled' ? undefined : (msg) => handleThreadSwipeAction(swipeLeftAction, msg)}
+                onSwipeRight={selectionMode || swipeRightAction === 'disabled' ? undefined : (msg) => handleThreadSwipeAction(swipeRightAction, msg)}
                 onLongPress={isMobile ? (id) => { setSelectionModeActive(true); toggleSelect(id); } : undefined}
               />
             );
@@ -4150,7 +4161,14 @@ function EmptyState({ folderSyncing, searchQuery, unreadOnly, selectedFolder, ac
 function ThreadRow({ message, isExpanded, threadMsgs, isLoadingThread, selectedMessageId, selectedMid, lastViewedMessageId, showAccount, isNarrow, onThreadClick, showMobileAvatars, showMessagePreviews, onSelect, onOpenWindow, onMarkRead, onStar, onDelete, hoverQuickActions, onContextMenu, onMove, isMobile, swipeLeftAction, swipeRightAction, onSwipeLeft, onSwipeRight, isChecked, selectionMode, onToggleSelect, onRangeSelect, onLongPress, accounts }) {
   const { t } = useTranslation();
   const [hovered, setHovered] = useState(false);
-  const messageCount = message.message_count || 1;
+  // Cached membership is exact. Until interaction resolves it, retain aggregate
+  // metadata only as a visual hint; never fetch or normalize from row render.
+  const hasResolvedMembership = Array.isArray(threadMsgs);
+  const normalizedChildren = hasResolvedMembership ? normalizedNativeThreadMembers(threadMsgs) : [];
+  const isExpandableThread = hasResolvedMembership
+    ? normalizedChildren.length > 1
+    : Number(message.message_count || 1) > 1;
+  const messageCount = hasResolvedMembership ? normalizedChildren.length : (message.message_count || 1);
   const unreadCount  = parseInt(message.unread_count) || 0;
   // The parent row shows the direction of the MOST RECENT unique child in the
   // account-local thread (not the first message, and not a thread-wide label).
@@ -4207,7 +4225,7 @@ function ThreadRow({ message, isExpanded, threadMsgs, isLoadingThread, selectedM
         data-thread-row-parent="true"
         tabIndex={selectionMode ? -1 : 0}
         role="button"
-        aria-expanded={messageCount > 1 ? isExpanded : undefined}
+        aria-expanded={isExpandableThread ? isExpanded : undefined}
         onClick={selectionMode ? (e) => {
           if (e.shiftKey && onRangeSelect) { onRangeSelect(message.id); }
           else { onToggleSelect(message.id); }
@@ -4315,7 +4333,7 @@ function ThreadRow({ message, isExpanded, threadMsgs, isLoadingThread, selectedM
               }}>
                 {showParentDirection && <span style={{ marginRight: 4 }}><MessageDirection direction={parentDirection} label={isOutgoing ? t('conversation.outgoingMessage') : t('conversation.incomingMessage')} /></span>}{isOutgoing ? t('conversation.you') : (message.from_name || message.from_email || t('common.unknown', 'Unknown'))}
               </span>
-              {messageCount > 1 && (
+              {isExpandableThread && (
                 <button
                   type="button"
                   aria-expanded={isExpanded}
@@ -4397,7 +4415,7 @@ function ThreadRow({ message, isExpanded, threadMsgs, isLoadingThread, selectedM
       </div>{/* end swipe container */}
 
       {/* Expanded sub-rows */}
-      {isExpanded && (
+      {isExpanded && isExpandableThread && (
         <div style={{ background: 'var(--bg-secondary)', borderTop: '1px solid var(--border-subtle)' }}>
           {isLoadingThread ? (
             <div style={{ padding: '14px 16px', display: 'flex', justifyContent: 'center' }}>
