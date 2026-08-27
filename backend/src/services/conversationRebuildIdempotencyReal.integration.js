@@ -67,8 +67,8 @@ describe('CE v2 Rebuild idempotency — real PostgreSQL', () => {
           OR conversation_id IN (SELECT id FROM conversations)
           OR subject LIKE 'REBUILD-%'
     `);
-    await pool.query('DELETE FROM logical_messages');
     await pool.query('DELETE FROM provider_thread_mappings');
+    await pool.query('DELETE FROM logical_messages');
     await pool.query('DELETE FROM conversations');
     await pool.query("DELETE FROM email_accounts WHERE email_address = 'rebuild@example.com'");
     await pool.query("DELETE FROM users WHERE username = 'rebuild-user'");

@@ -34,8 +34,8 @@ async function seedScale(userId, accountId, conversationCount, messagesPerConv) 
         OR conversation_id IN (SELECT id FROM conversations)
         OR subject LIKE 'PERF-%'
   `);
-  await pool.query('DELETE FROM logical_messages');
   await pool.query('DELETE FROM provider_thread_mappings');
+  await pool.query('DELETE FROM logical_messages');
   await pool.query('DELETE FROM conversations');
 
   const totalMessages = conversationCount * messagesPerConv;
@@ -109,8 +109,8 @@ describe('CE v2 Performance — real PostgreSQL', () => {
           OR conversation_id IN (SELECT id FROM conversations)
           OR subject LIKE 'PERF-%'
     `);
-    await pool.query('DELETE FROM logical_messages');
     await pool.query('DELETE FROM provider_thread_mappings');
+    await pool.query('DELETE FROM logical_messages');
     await pool.query('DELETE FROM conversations');
     await pool.query("DELETE FROM email_accounts WHERE email_address = 'perf@example.com'");
     await pool.query("DELETE FROM users WHERE username = 'perf-user-10k'");
