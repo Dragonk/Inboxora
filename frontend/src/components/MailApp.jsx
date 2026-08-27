@@ -2,17 +2,21 @@ import { lazy, Suspense, useCallback, useEffect, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next';
 import { useStore } from '../store/index.js';
 import { api } from '../utils/api.js';
+import { conversationApi } from '../utils/conversationApi.js';
 import { useWebSocket } from '../hooks/useWebSocket.js';
 import { useMobile } from '../hooks/useMobile.js';
 import { LAYOUTS } from '../layouts.js';
 import { updateFaviconBadge } from '../themes.js';
 import { shortcutBus } from '../utils/shortcutBus.js';
 import { setPending, pendingMarkReadMap, completedMarkReadMap } from '../utils/pendingReads.js';
+import { openReplyFromMessage, openForwardFromMessage } from '../utils/composeFromMessage.js';
 import { buildKeyMap, buildModKeyMap, getEffectiveShortcuts, getGroupedActions, parseModKey, modLabel, SPECIAL_KEYS, SPECIAL_KEY_LABELS } from '../utils/defaultShortcuts.js';
 import Sidebar from './Sidebar.jsx';
 import MessageList from './MessageList.jsx';
 import MessagePane from './MessagePane.jsx';
 import NotificationToasts from './NotificationToasts.jsx';
+// CE v2 uses the native MessageList/MessagePane shells with grouped/conversation modes.
+// on the native MessageList/MessagePane — no separate import needed.
 import CommandPalette from './CommandPalette.jsx';
 import { usePluginSlot, PluginRuntime } from '../plugins/PluginSlot.jsx';
 
@@ -70,10 +74,105 @@ export default function MailApp() {
     showContacts, setTodoistConnected,
     accounts, rightSidebarWidth, setRightSidebarWidth, isRightSidebarResizing, setIsRightSidebarResizing,
     rightSidebarHidden, toggleRightSidebarHidden,
+    conversationReaderViewEnabled,
   } = useStore();
+
   const syncInterval = useStore(s => s.syncInterval);
   const autoLockMinutes = useStore(s => s.autoLockMinutes);
   const lockScreen = useStore(s => s.lockScreen);
+  const isMobile = useMobile();
+  const [conversationId, setConversationId] = useState(null);
+  const [targetLogicalMessageId, setTargetLogicalMessageId] = useState(null);
+  const [selectedConversationCopy, setSelectedConversationCopy] = useState(null);
+  const [conversationResolutionError, setConversationResolutionError] = useState(null);
+  // P1-B: Native thread identity for the reader fallback. When the selected physical
+  // message has a thread_key, the reader loads /mail/thread/:threadId so incomplete CE
+  // state never silently drops messages the native list shows.
+  const [nativeThreadId, setNativeThreadId] = useState(null);
+  const [nativeFolder, setNativeFolder] = useState(null);
+
+  const replyFromConversation = useCallback(copy => {
+    if (!copy) return;
+    const selectedCopyId = copy.selectedCopyId || copy.id || null;
+    const physical = {
+      ...copy,
+      id: selectedCopyId,
+      selectedCopyId,
+      account_id: copy.accountId,
+      message_id: copy.messageId || copy.canonicalMessageId,
+      subject: copy.subject,
+      from_email: copy.fromEmail,
+      from_name: copy.fromName,
+      to_addresses: copy.to || [],
+      cc_addresses: copy.cc || [],
+      reply_to: copy.replyTo || [],
+      in_reply_to: copy.inReplyTo || null,
+      thread_references: copy.references || null,
+      references: copy.references || null,
+      thread_id: copy.threadId || null,
+      thread_key: copy.threadKey || copy.threadId || null,
+      attachments: copy.attachments || [],
+      delivery_addresses: copy.deliveryAddresses || [],
+      date: copy.date,
+    };
+    const account = accounts.find(item => item.id === physical.account_id);
+    if (copy.forward) return openForwardFromMessage(physical, { openCompose, getMessageBody: api.getMessageBody });
+    return openReplyFromMessage(physical, { accounts: account ? [account] : accounts, openCompose, getMessageBody: api.getMessageBody, replyAll: Boolean(copy.replyAll) });
+  }, [accounts, openCompose]);
+
+  useEffect(() => {
+    if (!conversationReaderViewEnabled || !selectedMessageId) return undefined;
+    let cancelled = false;
+    // The selected physical copy is the canonical selection. Resolve its CE identity
+    // independently of which list path produced the click (flat, ThreadRow parent or child).
+    setConversationId(null);
+    setTargetLogicalMessageId(null);
+    setSelectedConversationCopy(null);
+    setConversationResolutionError(null);
+    const selected = useStore.getState().messages.find(item => item.id === selectedMessageId)
+      || Object.values(useStore.getState().threadMessages || {}).flat().find(item => item.id === selectedMessageId);
+    // Preserve the exact physical selection before CE resolution. Expanded native
+    // children are not in the flat list, and CE may lag native threading; neither
+    // may turn a Reader-on selection into the classic pane or replace its target.
+    setSelectedConversationCopy({
+      id: selected?.id || selectedMessageId,
+      accountId: selected?.account_id || null,
+    });
+    setTargetLogicalMessageId(selected?.message_id || selectedMessageId);
+    setNativeThreadId(null);
+    setNativeFolder(null);
+    // P1-B: Capture the native thread_key from the selected message. The reader uses
+    // /mail/thread/:threadId as the primary thread membership source so CE incompleteness
+    // never reduces the reader below the native thread size.
+    const threadKey = selected?.thread_key || selected?.thread_id || null;
+    const threadAccount = selected?.account_id || null;
+    if (threadKey && threadAccount) {
+      setNativeThreadId(threadKey);
+      setNativeFolder(selected?.folder || 'INBOX');
+    }
+    conversationApi.resolveMessage(selectedMessageId, selected?.account_id || null)
+      .then(resolved => {
+        if (!cancelled && resolved?.conversation_id) {
+          setSelectedConversationCopy({
+            id: resolved.physical_copy_id || resolved.id || selected?.id || selectedMessageId,
+            accountId: resolved.account_id || resolved.accountId || selected?.account_id || null,
+          });
+          setTargetLogicalMessageId(resolved.logical_message_id || resolved.logicalMessageId || null);
+          // Publish the conversation last so the reader never mounts without the
+          // resolver's exact physical-copy/account context.
+          setConversationId(resolved.conversation_id);
+        }
+      }).catch(error => {
+        if (!cancelled) {
+          // Never retain a previous conversation for a newly selected copy. This is
+          // diagnostic only: the single-message pane remains a safe fallback when
+          // a message has not yet been ingested by the CE model.
+          setConversationResolutionError(error.message || 'Conversation resolution failed');
+          console.warn('Conversation reader resolution failed', error.message);
+        }
+      });
+    return () => { cancelled = true; };
+  }, [conversationReaderViewEnabled, selectedMessageId]);
 
   // Auto-lock after inactivity (#235). MailApp only mounts while unlocked, so this
   // timer runs only when unlocked; hitting the timeout locks and unmounts this tree.
@@ -119,7 +218,6 @@ export default function MailApp() {
 
   const [showShortcutHelp, setShowShortcutHelp] = useState(false);
   const [paletteOpen, setPaletteOpen] = useState(false);
-  const isMobile = useMobile();
   const sidebarDragRef = useRef(null);
   const sidebarResizeRef = useRef(null);
   const listResizeRef = useRef(null);
@@ -281,6 +379,10 @@ export default function MailApp() {
       history.pushState({ mailflow: 'guard' }, '', '/');
     }
     const handler = (event) => {
+      if (conversationReaderViewEnabled && conversationId) {
+        setConversationId(null);
+        setTargetLogicalMessageId(null);
+      }
       if (selectedMessageIdRef.current) setSelectedMessage(null);
       // Backing out of a message lands on the existing guard entry. Re-pushing
       // during that popstate can make iOS PWA history gestures temporarily stop
@@ -291,7 +393,7 @@ export default function MailApp() {
     };
     window.addEventListener('popstate', handler);
     return () => window.removeEventListener('popstate', handler);
-  }, [isMobile, setSelectedMessage]);
+  }, [conversationId, conversationReaderViewEnabled, isMobile, setSelectedMessage]);
 
   const wsRef = useWebSocket();
 
@@ -519,6 +621,11 @@ export default function MailApp() {
         return true;
       }
 
+      if (conversationReaderViewEnabled && conversationId) {
+        setConversationId(null);
+        setTargetLogicalMessageId(null);
+        return true;
+      }
       if (selectedMessageIdRef.current) {
         setSelectedMessage(null);
         return true;
@@ -530,7 +637,7 @@ export default function MailApp() {
     return () => {
       if (window.__mailflowHandleAndroidBack) delete window.__mailflowHandleAndroidBack;
     };
-  }, [setMobileSidebarOpen, setSelectedMessage, setShowAdmin]);
+  }, [conversationId, conversationReaderViewEnabled, setMobileSidebarOpen, setSelectedMessage, setShowAdmin]);
 
   useEffect(() => {
     if (isMobile) return;
@@ -722,6 +829,7 @@ export default function MailApp() {
           )}
           {/* Slide-in sidebar drawer */}
           <div
+            data-testid="mobile-sidebar"
             style={{
               position: 'fixed', left: 0, top: 0, bottom: 0,
               zIndex: 901, display: 'flex',
@@ -744,14 +852,11 @@ export default function MailApp() {
             <Sidebar />
           </div>
           {/* Keep all three mounted so scroll/state survive navigation. */}
-          <div style={{ flex: 1, overflow: 'hidden', height: '100%', display: showContacts ? 'flex' : 'none' }}>
-            <Suspense fallback={lazyFallback}><ContactsPage /></Suspense>
-          </div>
-          <div style={{ flex: 1, display: !showContacts && !selectedMessageId ? 'flex' : 'none', overflow: 'hidden', height: '100%' }}>
+          <div data-ce-reader-enabled={conversationReaderViewEnabled ? 'true' : 'false'} data-ce-reader-state={conversationReaderViewEnabled ? 'enabled' : 'disabled'} data-ce-conversation-id={conversationId || ''} data-ce-selected-message-id={selectedMessageId || ''} data-ce-resolution-error={conversationResolutionError ? 'true' : 'false'} style={{ flex: 1, display: !showContacts && !selectedMessageId && !(conversationReaderViewEnabled && conversationId) ? 'flex' : 'none', overflow: 'hidden', height: '100%' }}>
             <MessageList />
           </div>
-          <div style={{ flex: 1, display: !showContacts && selectedMessageId ? 'flex' : 'none', overflow: 'hidden', height: '100%' }}>
-            <MessagePane />
+          <div data-ce-reader-pane="true" style={{ flex: 1, display: !showContacts && (selectedMessageId || (conversationReaderViewEnabled && conversationId)) ? 'flex' : 'none', overflow: 'hidden', height: '100%', minWidth: 0 }}>
+            <MessagePane mode={conversationReaderViewEnabled && (conversationId || nativeThreadId) ? 'conversation' : 'single'} conversationId={conversationId} targetLogicalMessageId={targetLogicalMessageId} selectedConversationCopy={selectedConversationCopy} nativeThreadId={nativeThreadId} nativeFolder={nativeFolder} onReply={replyFromConversation} />
           </div>
         </>
       ) : (
@@ -780,7 +885,12 @@ export default function MailApp() {
               <Suspense fallback={lazyFallback}><ContactsPage /></Suspense>
             </div>
             <div style={{ display: showContacts ? 'none' : 'flex', flex: 1, minWidth: 0, overflow: 'hidden', height: '100%', flexDirection: currentLayout.direction }}>
-              <MessageList />
+              <div data-ce-reader-enabled={conversationReaderViewEnabled ? 'true' : 'false'} data-ce-reader-state={conversationReaderViewEnabled ? 'enabled' : 'disabled'} data-ce-conversation-id={conversationId || ''} data-ce-selected-message-id={selectedMessageId || ''} data-ce-resolution-error={conversationResolutionError ? 'true' : 'false'} style={{
+                display: 'flex', flex: currentLayout.direction === 'row' ? '0 0 var(--list-width)' : '1 1 50%',
+                width: currentLayout.direction === 'row' ? 'var(--list-width)' : '100%', minWidth: 0, overflow: 'hidden', height: '100%',
+              }}>
+                <MessageList />
+              </div>
               {currentLayout.direction === 'row' && (
                 <div
                   onMouseDown={handleListResizeMouseDown}
@@ -793,7 +903,9 @@ export default function MailApp() {
                   onMouseLeave={e => { e.currentTarget.style.background = 'var(--border-subtle)'; }}
                 />
               )}
-              <MessagePane />
+              <div data-ce-reader-pane="true" style={{ flex: 1, minWidth: 0, overflow: 'hidden', height: '100%', display: 'flex' }}>
+                <MessagePane mode={conversationReaderViewEnabled && (conversationId || nativeThreadId) ? 'conversation' : 'single'} conversationId={conversationId} targetLogicalMessageId={targetLogicalMessageId} selectedConversationCopy={selectedConversationCopy} nativeThreadId={nativeThreadId} nativeFolder={nativeFolder} onReply={replyFromConversation} />
+              </div>
               {/* Generic right-sidebar column, populated from the content seam above. */}
               {currentLayout.direction === 'row' && rightSidebarContent != null && (
                 <>

@@ -1,738 +1,4 @@
 {
-  "common": {
-    "cancel": "Zrušit",
-    "save": "Uložit",
-    "delete": "Smazat",
-    "edit": "Upravit",
-    "add": "Přidat",
-    "remove": "Odebrat",
-    "copy": "Kopírovat",
-    "back": "Zpět",
-    "undo": "Vrátit zpět",
-    "view": "Zobrazit",
-    "retry": "Zkusit znovu",
-    "loading": "Načítání…",
-    "saving": "Ukládání…",
-    "deleting": "Mazání…",
-    "never": "Nikdy",
-    "noSubject": "(bez předmětu)",
-    "unknown": "Neznámé",
-    "error": "Chyba: {{message}}",
-    "dismiss": "Zavřít",
-    "loadMore": "Načíst další"
-  },
-  "login": {
-    "tagline": "Všechny schránky na jednom místě",
-    "signIn": "Přihlásit se",
-    "createAccount": "Vytvořit účet",
-    "username": "Uživatelské jméno",
-    "password": "Heslo",
-    "pleaseWait": "Čekejte prosím…",
-    "dontHaveAccount": "Nemáte účet? ",
-    "alreadyHaveAccount": "Už máte účet? ",
-    "register": "Zaregistrovat se",
-    "orContinueWith": "nebo pokračujte pomocí",
-    "signInWith": "Přihlásit se přes {{name}}",
-    "inviteEmail": "Pozvánka pro",
-    "inviteExpired": "Tento odkaz s pozvánkou je neplatný nebo vypršel.",
-    "ssoOnly": "Přihlásit se pomocí SSO",
-    "ssoOnlyDesc": "Přihlašování heslem je na tomto serveru vypnuté.",
-    "totp": {
-      "title": "Dvoufázové ověření",
-      "instructions": "Zadejte šestimístný kód z ověřovací aplikace.",
-      "placeholder": "000000",
-      "verify": "Ověřit",
-      "verifying": "Ověřování…",
-      "backToLogin": "← Zpět k přihlášení"
-    },
-    "rememberDevice": "Zapamatovat toto zařízení",
-    "emailOtp": {
-      "title": "Zkontrolujte svůj e-mail",
-      "desc": "Ověřovací kód byl odeslán na adresu {{email}}",
-      "codePh": "Šestimístný kód",
-      "resend": "Odeslat kód znovu",
-      "sending": "Odesílání…",
-      "verify": "Ověřit",
-      "verifying": "Ověřování…"
-    },
-    "mfaEnroll": {
-      "title": "Nastavení dvoufázového ověření",
-      "desc": "Vaše organizace vyžaduje dvoufázové ověření. Než budete pokračovat, nastavte si ověřovací aplikaci.",
-      "scan": "Naskenovat QR kód",
-      "scanInstructions": "Naskenujte tento QR kód ověřovací aplikací (např. Google Authenticator nebo Authy).",
-      "manualKey": "Nemůžete kód naskenovat? Zadejte tento klíč ručně:",
-      "next": "Další: ověřit kód →",
-      "verifyInstructions": "Nastavení potvrďte zadáním šestimístného kódu z ověřovací aplikace.",
-      "enable": "Zapnout 2FA a přihlásit se",
-      "enabling": "Zapínání…",
-      "back": "← Zpět"
-    },
-    "forgotPassword": {
-      "link": "Zapomněli jste heslo?",
-      "title": "Obnovení hesla",
-      "desc": "Zadejte e-mailovou adresu pro obnovení a my vám pošleme odkaz k nastavení nového hesla.",
-      "emailPh": "E-mailová adresa pro obnovení",
-      "submit": "Odeslat odkaz pro obnovení",
-      "sending": "Odesílání…",
-      "sentDesc": "Pokud účet s tímto e-mailem pro obnovení existuje, brzy obdržíte odkaz.",
-      "backToLogin": "← Zpět k přihlášení"
-    },
-    "resetPassword": {
-      "title": "Nastavení nového hesla",
-      "desc": "Níže zadejte své nové heslo.",
-      "newPassword": "Nové heslo",
-      "confirm": "Potvrzení hesla",
-      "submit": "Nastavit nové heslo",
-      "submitting": "Ukládání…",
-      "mismatch": "Hesla se neshodují",
-      "tooShort": "Heslo musí mít alespoň 8 znaků",
-      "doneDesc": "Heslo bylo změněno. Nyní se můžete přihlásit.",
-      "backToLogin": "← Zpět k přihlášení"
-    }
-  },
-  "lockScreen": {
-    "subtitle": "Odemkněte zadáním PINu",
-    "unlockButton": "Odemknout",
-    "unlocking": "Odemykání…",
-    "signOut": "Odhlásit se",
-    "signingOut": "Odhlašování…",
-    "pinPlaceholder": "Zadejte PIN",
-    "wrongPin": "Nesprávný PIN"
-  },
-  "profile": {
-    "title": "Upravit profil",
-    "editProfile": "Upravit profil",
-    "displayName": "Zobrazované jméno",
-    "displayNameHint": "Zobrazí se místo uživatelského jména. Chcete-li používat uživatelské jméno, ponechte pole prázdné.",
-    "uploadPhoto": "Nahrát fotografii",
-    "removePhoto": "Odebrat fotografii",
-    "errorNotImage": "Vyberte soubor s obrázkem.",
-    "errorProcess": "Obrázek se nepodařilo zpracovat."
-  },
-  "sidebar": {
-    "allInboxes": "Všechny doručené",
-    "compose": "Napsat",
-    "toggleSidebar": "Zobrazit nebo skrýt postranní panel",
-    "newFolder": "Nová složka",
-    "folderPh": "Název složky…",
-    "subfolderPh": "Název podsložky…",
-    "hiddenFolders_one": "{{count}} skrytá složka",
-    "hiddenFolders_few": "{{count}} skryté složky",
-    "hiddenFolders_many": "{{count}} skryté složky",
-    "hiddenFolders_other": "{{count}} skrytých složek",
-    "hideHidden": "Skrýt skryté složky",
-    "blockImages": "Blokovat obrázky",
-    "searchAllFolders": "Hledat ve všech složkách",
-    "settings": "Nastavení",
-    "lock": "Uzamknout",
-    "signOut": "Odhlásit se",
-    "connectionError": "Chyba připojení",
-    "folderMenu": {
-      "markAllRead": "Označit vše jako přečtené",
-      "syncFolder": "Synchronizovat složku",
-      "renameFavorite": "Přejmenovat oblíbenou položku",
-      "rename": "Přejmenovat",
-      "createSubfolder": "Vytvořit podsložku",
-      "hide": "Skrýt složku",
-      "unhide": "Zobrazit složku",
-      "empty": "Vyprázdnit složku",
-      "delete": "Smazat složku"
-    },
-    "accountMenu": {
-      "newFolder": "Nová složka",
-      "markAllRead": "Označit vše jako přečtené",
-      "syncNow": "Synchronizovat nyní",
-      "syncFoldersNow": "Synchronizovat složky nyní",
-      "settings": "Nastavení účtu",
-      "reconnect": "Znovu připojit",
-      "moveUp": "Posunout nahoru",
-      "moveDown": "Posunout dolů",
-      "moveFailed": "Pořadí účtů se nepodařilo změnit"
-    },
-    "confirmDelete": "Smazat složku „{{name}}“? Všechny zprávy v ní budou trvale odstraněny.",
-    "confirmEmpty": "Vyprázdnit složku „{{name}}“? Všechny zprávy v této složce budou trvale odstraněny.",
-    "createFailed": "Složku se nepodařilo vytvořit",
-    "renameFailed": "Přejmenování se nezdařilo",
-    "deleteFailed": "Smazání se nezdařilo",
-    "emptyFailed": "Vyprázdnění se nezdařilo",
-    "emptying": "Vyprazdňování složky „{{name}}“…",
-    "emptied": "Složka vyprázdněna",
-    "backToAccounts": "Zpět k účtům",
-    "updateAvailable": "Je dostupná aktualizace: v{{version}}"
-  },
-  "messageList": {
-    "search": "Hledat…",
-    "unread": "Nepřečtené",
-    "showAll": "Zobrazit vše",
-    "unreadOnly": "Pouze nepřečtené",
-    "syncAccount": "Synchronizovat tento účet",
-    "syncAll": "Synchronizovat všechny účty",
-    "sync": "Synchronizovat",
-    "compose": "Napsat",
-    "messagesPerPage": "Zpráv na stránku",
-    "selectAll": "Vybrat vše",
-    "deselectAll": "Zrušit výběr",
-    "markReadSelected": "Označit jako přečtené",
-    "markUnreadSelected": "Označit jako nepřečtené",
-    "archiveSelected": "Archivovat vybrané",
-    "swipeStar": "Označit hvězdičkou",
-    "swipeUnstar": "Odebrat hvězdičku",
-    "deleteSelected": "Smazat vybrané",
-    "moveToFolder": "Přesunout",
-    "moveToFolderDisabled": "Pro přesunutí vyberte zprávy z jednoho účtu",
-    "clearSelection": "Zrušit výběr",
-    "backToTop": "Zpět nahoru",
-    "prevPage": "Předchozí",
-    "nextPage": "Další",
-    "pageOf": "Strana {{current}} z {{total}}",
-    "loadMore": "Načíst další",
-    "noMoreMessages": "Žádné další zprávy",
-    "deleted": {
-      "title": "Zpráva smazána",
-      "body": "Odstraněno.",
-      "failTitle": "Smazání se nezdařilo",
-      "failBody": "Zprávu se nepodařilo smazat."
-    },
-    "bulkDeleted": {
-      "title_one": "Smazána {{count}} zpráva",
-      "title_few": "Smazány {{count}} zprávy",
-      "title_many": "Smazáno {{count}} zprávy",
-      "title_other": "Smazáno {{count}} zpráv",
-      "body": "Odstraněno.",
-      "failTitle": "Smazání se nezdařilo",
-      "failBody_one": "Nepodařilo se smazat {{count}} zprávu.",
-      "failBody_few": "Nepodařilo se smazat {{count}} zprávy.",
-      "failBody_many": "Nepodařilo se smazat {{count}} zprávy.",
-      "failBody_other": "Nepodařilo se smazat {{count}} zpráv."
-    },
-    "bulkMoved": {
-      "title_one": "Přesunuta {{count}} zpráva",
-      "title_few": "Přesunuty {{count}} zprávy",
-      "title_many": "Přesunuto {{count}} zprávy",
-      "title_other": "Přesunuto {{count}} zpráv",
-      "failTitle": "Přesunutí se nezdařilo",
-      "failBody_one": "Nepodařilo se přesunout {{count}} zprávu.",
-      "failBody_few": "Nepodařilo se přesunout {{count}} zprávy.",
-      "failBody_many": "Nepodařilo se přesunout {{count}} zprávy.",
-      "failBody_other": "Nepodařilo se přesunout {{count}} zpráv."
-    },
-    "bulkArchived": {
-      "title_one": "Archivována {{count}} zpráva",
-      "title_few": "Archivovány {{count}} zprávy",
-      "title_many": "Archivováno {{count}} zprávy",
-      "title_other": "Archivováno {{count}} zpráv",
-      "body": "Přesunuto do archivu.",
-      "failTitle": "Archivace se nezdařila",
-      "failBody_one": "Nepodařilo se archivovat {{count}} zprávu.",
-      "failBody_few": "Nepodařilo se archivovat {{count}} zprávy.",
-      "failBody_many": "Nepodařilo se archivovat {{count}} zprávy.",
-      "failBody_other": "Nepodařilo se archivovat {{count}} zpráv.",
-      "noFolderTitle": "Chybí složka archivu",
-      "noFolderBody": "Jeden nebo více účtů nemá nastavenou složku archivu. Nastavte ji v Nastavení → Účty → Mapování složek."
-    },
-    "noArchiveFolder": {
-      "title": "Chybí složka archivu",
-      "body": "Není nastavená složka archivu. Nastavte ji v Nastavení → Účty → Mapování složek."
-    },
-    "selectMessages": "Vybrat zprávy",
-    "selectedCount": "Vybráno: {{count}}",
-    "pullToSync": "Tažením synchronizujete",
-    "releaseToSync": "Uvolněním synchronizujete",
-    "noSearchResults": "Nebyly nalezeny žádné výsledky",
-    "noSearchResultsDesc": "Žádné výsledky pro {{query}}",
-    "clearSearch": "Vymazat hledání",
-    "searchHelp": {
-      "title": "Operátory vyhledávání",
-      "from": "Od odesílatele",
-      "subject": "V předmětu",
-      "to": "Komu / kopie",
-      "hasAttachment": "Obsahuje přílohu",
-      "isUnread": "Pouze nepřečtené",
-      "isStarred": "Pouze s hvězdičkou",
-      "after": "Po datu",
-      "before": "Před datem",
-      "inAll": "Hledat ve všech složkách",
-      "negate": "Vyloučit (přidejte předponu -)",
-      "tip": "Kombinujte operátory s klíčovými slovy · např."
-    },
-    "emptyInbox": "Všechno vyřízeno",
-    "emptyInboxDesc": "Nejsou tu žádné nepřečtené zprávy",
-    "composeAriaLabel": "Napsat novou zprávu",
-    "noAccounts": "Zatím žádné účty",
-    "noAccountsDesc": "Začněte přidáním e-mailového účtu",
-    "foldersHeading": "Složky",
-    "categories": {
-      "primary": "Hlavní",
-      "newsletter": "Newslettery",
-      "promotion": "Propagace",
-      "automated": "Automatické",
-      "social": "Sociální sítě"
-    }
-  },
-  "message": {
-    "find": {
-      "title": "Hledat",
-      "close": "Zavřít hledání",
-      "label": "Najít:",
-      "matchCase": "Rozlišovat velikost písmen",
-      "previous": "Předchozí",
-      "next": "Další",
-      "closeButton": "Zavřít"
-    },
-    "selectToRead": "Vyberte zprávu, kterou chcete přečíst",
-    "noSubject": "(bez předmětu)",
-    "to": "Komu:",
-    "via": "prostřednictvím",
-    "attachment_one": "{{count}} příloha",
-    "attachment_few": "{{count}} přílohy",
-    "attachment_many": "{{count}} přílohy",
-    "attachment_other": "{{count}} příloh",
-    "loadingError": "Obsah zprávy se nepodařilo načíst",
-    "noContent": "Nebyl nalezen žádný obsah zprávy.",
-    "remoteImagesBlocked": "Vzdálené obrázky byly zablokovány.",
-    "loadImages": "Načíst obrázky",
-    "allowSender": "Vždy povolit od {{email}}",
-    "allowDomain": "Vždy povolit z @{{domain}}",
-    "downloading": "Stahování…",
-    "downloadAll": "Stáhnout vše",
-    "reply": "Odpovědět",
-    "replyAll": "Odpovědět všem",
-    "replyOptions": "Možnosti odpovědi",
-    "forward": "Přeposlat",
-    "archive": "Archivovat",
-    "star": "Označit hvězdičkou",
-    "delete": "Smazat",
-    "print": "Vytisknout",
-    "more": "Další",
-    "summarize": "Shrnout",
-    "summary": "Shrnutí",
-    "summaryDismiss": "Zavřít shrnutí",
-    "aiActions": "Akce AI",
-    "manageAiActions": "Spravovat akce…",
-    "aiRegenerate": "Vygenerovat znovu",
-    "aiExpand": "Rozbalit",
-    "aiCollapse": "Sbalit",
-    "aiCopy": "Kopírovat",
-    "aiCopied": "Zkopírováno",
-    "previousMessage": "Předchozí zpráva",
-    "nextMessage": "Další zpráva",
-    "archived": {
-      "title": "Zpráva archivována",
-      "failTitle": "Archivace se nezdařila",
-      "failBody": "Zprávu se nepodařilo archivovat.",
-      "noFolderTitle": "Chybí složka archivu",
-      "noFolderBody": "Pro tento účet není nastavena složka archivu. Nastavte ji v Nastavení → Účty → Mapování složek."
-    },
-    "moved": {
-      "title": "Zpráva přesunuta",
-      "failTitle": "Přesunutí se nezdařilo",
-      "failBody": "Zprávu se nepodařilo přesunout."
-    },
-    "snoozed": {
-      "title": "Zpráva odložena",
-      "failTitle": "Odložení se nezdařilo",
-      "failBody": "Tuto zprávu se nepodařilo odložit."
-    },
-    "whitelistFail": {
-      "title": "Předvolbu se nepodařilo uložit",
-      "body": "Seznam povolených obrázků se nepodařilo aktualizovat."
-    },
-    "emailFrameTitle": "Obsah e-mailu",
-    "unsubscribe": {
-      "info": "Z odběru tohoto seznamu se můžete odhlásit.",
-      "button": "Odhlásit odběr",
-      "done": "Odběr byl úspěšně odhlášen.",
-      "error": "Odběr se nepodařilo odhlásit.",
-      "moveToTrash": "Přesunout do koše"
-    },
-    "aiClassify": {
-      "info": "Tento e-mail nemá kategorii. Chcete jej zařadit pomocí AI?",
-      "button": "Zařadit pomocí AI",
-      "done": "Zařazeno do kategorie {{category}}",
-      "error": "Zařazení pomocí AI se nezdařilo."
-    }
-  },
-  "compose": {
-    "newMessage": "Nová zpráva",
-    "reply": "Odpovědět",
-    "replyAll": "Odpovědět všem",
-    "forward": "Přeposlat",
-    "from": "Od",
-    "to": "Komu",
-    "cc": "Kopie",
-    "bcc": "Skrytá kopie",
-    "subject": "Předmět",
-    "subjectPh": "Přidat předmět",
-    "toPh": "prijemce@example.com",
-    "ccPh": "kopie@example.com",
-    "bccPh": "skryta-kopie@example.com",
-    "bodyPh": "Napište zprávu…",
-    "send": "Odeslat",
-    "sendTooltip": "Odeslat (Ctrl+Enter)",
-    "sending": "Odesílání…",
-    "discard": "Zahodit",
-    "saveDraft": "Uložit koncept",
-    "savingDraft": "Ukládání…",
-    "draftSaved": "Koncept uložen",
-    "closeDraft": {
-      "title": "Uložit tento koncept?",
-      "save": "Uložit koncept",
-      "discard": "Zahodit",
-      "keepEditing": "Pokračovat v úpravách"
-    },
-    "discardDraft": {
-      "title": "Zahodit koncept?",
-      "discard": "Zahodit",
-      "keepEditing": "Pokračovat v úpravách"
-    },
-    "draftHasAttachments": "Přílohy se s koncepty neukládají. Po opětovném otevření tohoto konceptu je budete muset přiložit znovu.",
-    "emptySubject": {
-      "title": "Odeslat bez předmětu?",
-      "sendAnyway": "Přesto odeslat",
-      "cancel": "Zrušit"
-    },
-    "forgottenAttachment": {
-      "title": "Nezapomněli jste přílohu?",
-      "body": "Ve zprávě zmiňujete přílohu, ale žádná není přiložena.",
-      "sendAnyway": "Přesto odeslat",
-      "cancel": "Zrušit"
-    },
-    "attachmentKeywords": "příloha|přílohu|příloze|přiložen|přiložena|přiložený|přikládám|v příloze|viz příloha",
-    "sent": {
-      "title": "Zpráva odeslána",
-      "noCopy": "Zpráva byla odeslána, ale neuložila se do složky Odeslané",
-      "action": "Zobrazit"
-    },
-    "toolbar": {
-      "removeTable": "Odebrat tabulku",
-      "textColor": "Barva textu",
-      "removeColor": "Odebrat barvu",
-      "insertImage": "Vložit obrázek",
-      "minimize": "Minimalizovat",
-      "maximize": "Maximalizovat",
-      "restore": "Obnovit",
-      "close": "Zavřít",
-      "attachFile": "Přiložit soubor",
-      "insertLink": "Vložit odkaz",
-      "apply": "Použít",
-      "insertTable": "Vložit tabulku",
-      "highlight": "Barva zvýraznění",
-      "removeHighlight": "Odebrat zvýraznění",
-      "fontDefault": "Výchozí",
-      "moreFormatting": "Další formátování",
-      "aiAssist": "Pomoc AI",
-      "aiWriteDraft": "Napsat návrh",
-      "aiImprove": "Vylepšit",
-      "aiShorten": "Zkrátit",
-      "aiFixGrammar": "Opravit gramatiku",
-      "aiPanelTitle": "Návrh AI",
-      "aiApply": "Použít",
-      "aiDismiss": "Zavřít",
-      "aiGenerating": "Generování…",
-      "aiError": "Chyba AI: {{message}}"
-    },
-    "priority": "Priorita",
-    "priorityHigh": "Vysoká priorita",
-    "priorityNormal": "Normální",
-    "priorityLow": "Nízká priorita",
-    "recipientMenu": {
-      "copy": "Kopírovat adresu",
-      "copyAll": "Kopírovat všechny adresy v tomto poli"
-    }
-  },
-  "notifications": {
-    "newMessage": "Nová zpráva"
-  },
-  "contacts": {
-    "title": "Kontakty",
-    "new": "Nový",
-    "newContact": "Nový kontakt",
-    "editContact": "Upravit kontakt",
-    "search": "Hledat v kontaktech…",
-    "empty": "Zatím žádné kontakty",
-    "noResults": "Nebyly nalezeny žádné kontakty",
-    "count": "Počet kontaktů: {{count}}",
-    "auto": "automaticky",
-    "autoHint": "Nalezeno v přijaté poště",
-    "selectHint": "Výběrem kontaktu zobrazíte podrobnosti",
-    "deleteConfirm": "Trvale smazat tento kontakt?",
-    "addEmail": "Přidat e-mail",
-    "addPhone": "Přidat telefon",
-    "fields": {
-      "displayName": "Zobrazované jméno",
-      "firstName": "Jméno",
-      "lastName": "Příjmení",
-      "email": "E-mail",
-      "phone": "Telefon",
-      "organization": "Organizace",
-      "notes": "Poznámky",
-      "emailsSent": "Odeslané e-maily",
-      "lastContacted": "Poslední kontakt"
-    },
-    "emailTypes": {
-      "other": "Jiný",
-      "work": "Pracovní",
-      "home": "Osobní"
-    },
-    "phoneTypes": {
-      "mobile": "Mobilní",
-      "work": "Pracovní",
-      "home": "Domů",
-      "other": "Jiný"
-    },
-    "carddavBadge": "Synchronizováno z CardDAV"
-  },
-  "contextMenu": {
-    "find": "Najít",
-    "open": "Otevřít",
-    "openInNewWindow": "Otevřít v novém okně",
-    "markRead": "Označit jako přečtené",
-    "markUnread": "Označit jako nepřečtené",
-    "star": "Označit zprávu hvězdičkou",
-    "unstar": "Odebrat hvězdičku",
-    "select": "Vybrat",
-    "reply": "Odpovědět",
-    "replyAll": "Odpovědět všem",
-    "forward": "Přeposlat",
-    "moveToFolder": "Přesunout",
-    "archive": "Archivovat",
-    "snooze": {
-      "label": "Odložit",
-      "threeHours": "Za 3 hodiny",
-      "tomorrowMorning": "Zítra ráno",
-      "nextWeek": "Příští týden",
-      "custom": "Vlastní…"
-    },
-    "categorize": "Zařadit jako…",
-    "createRule": "Vytvořit pravidlo ze zprávy",
-    "addToBlockList": "Přidat na seznam blokovaných",
-    "markAsSpam": "Označit jako spam",
-    "markAsHam": "Označit, že nejde o spam",
-    "copySubject": "Kopírovat předmět",
-    "copySender": "Kopírovat adresu odesílatele",
-    "copyLink": "Kopírovat odkaz",
-    "viewHeaders": "Zobrazit úplná záhlaví",
-    "delete": "Smazat",
-    "headers": {
-      "title": "Úplná záhlaví",
-      "copyRaw": "Kopírovat nezpracovaný text",
-      "copied": "✓ Zkopírováno",
-      "loading": "Načítání záhlaví…",
-      "noHeaders": "Nejsou dostupná žádná záhlaví"
-    },
-    "folders": {
-      "back": "Přesunout do složky",
-      "loading": "Načítání složek…",
-      "empty": "Nebyly nalezeny žádné složky",
-      "recent": "Nedávné",
-      "favorites": "Oblíbené",
-      "search": "Hledat složky…"
-    }
-  },
-  "gtd": {
-    "title": "GTD",
-    "inbox": "Doručené",
-    "waiting": "Čeká se",
-    "inboxZero": "Prázdná schránka ✓",
-    "allClear": "Vše vyřízeno",
-    "allClearHint": "Nic nečeká na vaše vyřízení.",
-    "showAll": "Zobrazit vše ({{count}})",
-    "showSome": "Zobrazit {{available}} z {{total}}",
-    "showLess": "Zobrazit méně",
-    "toggleSection": "Zobrazit nebo skrýt {{section}}",
-    "tabEmpty": "Zatím tu nic není",
-    "removeFrom": "Odebrat ze stavu {{state}}",
-    "classified": "Štítek použit",
-    "classifyFailed": "Štítek se nepodařilo použít",
-    "removed": "Štítek odebrán",
-    "removeFailed": "Štítek se nepodařilo odebrat",
-    "done": "Označit jako hotové",
-    "doneFailed": "Nepodařilo se označit jako hotové",
-    "doneArchiveFailed": "Označeno jako hotové, ale archivace se nezdařila — zpráva zůstává v Doručené poště",
-    "state": {
-      "todo": "K vyřízení",
-      "watch": "Sledovat",
-      "delegated": "Delegováno",
-      "someday": "Někdy",
-      "reference": "Reference"
-    },
-    "undoFailed": "Štítek se nepodařilo vrátit zpět"
-  },
-  "rightSidebar": {
-    "hide": "Skrýt pravý postranní panel",
-    "show": "Zobrazit pravý postranní panel"
-  },
-  "shortcuts": {
-    "title": "Klávesové zkratky",
-    "customizeHint": "Zkratky můžete upravit v Nastavení → Zkratky",
-    "closeHint": "Zavřete stisknutím ? nebo Esc",
-    "then": "potom",
-    "groups": {
-      "composeSearch": "Psaní a hledání",
-      "navigation": "Navigace",
-      "messageActions": "Akce se zprávami",
-      "gtd": "GTD"
-    },
-    "actions": {
-      "compose": {
-        "label": "Napsat",
-        "description": "Otevřít okno nové zprávy"
-      },
-      "focusSearch": {
-        "label": "Hledat",
-        "description": "Přejít do vyhledávacího pole"
-      },
-      "showHelp": {
-        "label": "Zobrazit zkratky",
-        "description": "Zobrazit přehled klávesových zkratek"
-      },
-      "nextMessage": {
-        "label": "Další zpráva",
-        "description": "Přejít na další zprávu"
-      },
-      "prevMessage": {
-        "label": "Předchozí zpráva",
-        "description": "Přejít na předchozí zprávu"
-      },
-      "openMessage": {
-        "label": "Otevřít první zprávu",
-        "description": "Otevřít první zprávu, pokud není žádná vybrána"
-      },
-      "goInbox": {
-        "label": "Přejít do Doručené pošty",
-        "description": "Přejít do sjednocené Doručené pošty"
-      },
-      "reply": {
-        "label": "Odpovědět",
-        "description": "Odpovědět na aktuální zprávu"
-      },
-      "replyAll": {
-        "label": "Odpovědět všem",
-        "description": "Odpovědět všem u aktuální zprávy"
-      },
-      "forward": {
-        "label": "Přeposlat",
-        "description": "Přeposlat aktuální zprávu"
-      },
-      "archive": {
-        "label": "Archivovat",
-        "description": "Archivovat zprávu nebo výběr"
-      },
-      "delete": {
-        "label": "Smazat",
-        "description": "Smazat zprávu nebo výběr"
-      },
-      "toggleStar": {
-        "label": "Hvězdička",
-        "description": "Přidat nebo odebrat hvězdičku u aktuální zprávy"
-      },
-      "toggleRead": {
-        "label": "Přečteno/nepřečteno",
-        "description": "Označit aktuální zprávu jako přečtenou nebo nepřečtenou"
-      },
-      "selectMessage": {
-        "label": "Vybrat zprávu",
-        "description": "Vybrat nebo zrušit výběr aktuální zprávy"
-      },
-      "printMessage": {
-        "label": "Vytisknout",
-        "description": "Vytisknout aktuální zprávu"
-      },
-      "gtdTodo": {
-        "label": "Označit K vyřízení",
-        "description": "Zařadit vybranou zprávu jako K vyřízení"
-      },
-      "gtdWatch": {
-        "label": "Označit Sledovat",
-        "description": "Zařadit vybranou zprávu jako Sledovat"
-      },
-      "gtdDelegated": {
-        "label": "Označit Delegováno",
-        "description": "Zařadit vybranou zprávu jako Delegováno"
-      },
-      "toggleRightSidebar": {
-        "label": "Pravý postranní panel",
-        "description": "Skrýt nebo zobrazit pravý postranní panel"
-      },
-      "gtdUndo": {
-        "description": "Vrátit zpět poslední klasifikaci GTD"
-      }
-    }
-  },
-  "signatureEditor": {
-    "bold": "Tučné (Ctrl+B)",
-    "italic": "Kurzíva (Ctrl+I)",
-    "underline": "Podtržení (Ctrl+U)",
-    "strikethrough": "Přeškrtnutí",
-    "textColor": "Barva textu",
-    "link": "Vložit odkaz",
-    "imageUrl": "Obrázek z URL",
-    "imageUpload": "Nahrát obrázek (max. 300 kB)",
-    "sourceMode": "Upravit zdrojový kód HTML",
-    "visualMode": "Vizuální editor",
-    "linkPrompt": "URL odkazu:",
-    "imageUrlPrompt": "URL obrázku:",
-    "imageTooLarge": {
-      "title": "Obrázek je příliš velký",
-      "body": "Musí být menší než 300 kB. Pro větší obrázky použijte externí URL."
-    }
-  },
-  "spam": {
-    "movedToSpam": "Přesunuto do spamu",
-    "movedToSpamBulk": "Přesunuto {{count}} zpráv do spamu",
-    "movedToInbox": "Přesunuto do Doručené pošty",
-    "movedToInboxBulk": "Přesunuto {{count}} zpráv do Doručené pošty",
-    "failTitle": "Nepodařilo se označit jako spam",
-    "failHamTitle": "Nepodařilo se označit, že nejde o spam",
-    "failBody": "Poštovní server přesunutí odmítl.",
-    "failHamBody": "Poštovní server přesunutí odmítl.",
-    "failBodyBulk": "Nepodařilo se přesunout {{count}} zpráv."
-  },
-  "todoist": {
-    "title": "Vytvořit úkol v Todoistu",
-    "taskTitle": "Název úkolu",
-    "taskTitlePh": "Co je potřeba udělat?",
-    "description": "Popis",
-    "descriptionPh": "Volitelné poznámky…",
-    "project": "Projekt",
-    "inbox": "Doručené",
-    "labels": "Štítky",
-    "priority": "Priorita",
-    "priorityUrgent": "Naléhavá",
-    "priorityHigh": "Vysoká",
-    "priorityMedium": "Střední",
-    "priorityNormal": "Bez priority",
-    "dueDate": "Termín",
-    "create": "Vytvořit úkol",
-    "creating": "Vytváření…",
-    "taskCreated": "Úkol byl vytvořen v Todoistu",
-    "openTask": "Otevřít v Todoistu"
-  },
-  "window": {
-    "minimize": "Minimalizovat",
-    "close": "Zavřít"
-  },
-  "blockList": {
-    "blocked": "Zablokováno",
-    "errorAdd": "Odesílatele se nepodařilo zablokovat"
-  },
-  "commandPalette": {
-    "placeholder": "Hledat akce…",
-    "noResults": "Nebyly nalezeny žádné akce",
-    "hint": {
-      "navigate": "procházet",
-      "select": "vybrat",
-      "close": "zavřít"
-    },
-    "actions": {
-      "compose": "Napsat novou zprávu",
-      "inbox": "Přejít do Doručené pošty",
-      "settings": "Otevřít Nastavení",
-      "themes": "Otevřít Motivy",
-      "switchTheme": "Přepnout na motiv {{theme}}",
-      "accountInbox": "{{name}} — Doručené"
-    }
-  },
   "admin": {
     "cleanup": {
       "title": "Úklid schránky",
@@ -1579,6 +845,299 @@
       "count": "Počet akcí: {{n}} z {{max}}"
     }
   },
+  "blockList": {
+    "blocked": "Zablokováno",
+    "errorAdd": "Odesílatele se nepodařilo zablokovat"
+  },
+  "commandPalette": {
+    "placeholder": "Hledat akce…",
+    "noResults": "Nebyly nalezeny žádné akce",
+    "hint": {
+      "navigate": "procházet",
+      "select": "vybrat",
+      "close": "zavřít"
+    },
+    "actions": {
+      "compose": "Napsat novou zprávu",
+      "inbox": "Přejít do Doručené pošty",
+      "settings": "Otevřít Nastavení",
+      "themes": "Otevřít Motivy",
+      "switchTheme": "Přepnout na motiv {{theme}}",
+      "accountInbox": "{{name}} — Doručené"
+    }
+  },
+  "common": {
+    "cancel": "Zrušit",
+    "save": "Uložit",
+    "delete": "Smazat",
+    "edit": "Upravit",
+    "add": "Přidat",
+    "remove": "Odebrat",
+    "copy": "Kopírovat",
+    "back": "Zpět",
+    "undo": "Vrátit zpět",
+    "view": "Zobrazit",
+    "retry": "Zkusit znovu",
+    "loading": "Načítání…",
+    "saving": "Ukládání…",
+    "deleting": "Mazání…",
+    "never": "Nikdy",
+    "noSubject": "(bez předmětu)",
+    "unknown": "Neznámé",
+    "error": "Chyba: {{message}}",
+    "dismiss": "Zavřít",
+    "loadMore": "Načíst další"
+  },
+  "compose": {
+    "newMessage": "Nová zpráva",
+    "reply": "Odpovědět",
+    "replyAll": "Odpovědět všem",
+    "forward": "Přeposlat",
+    "from": "Od",
+    "to": "Komu",
+    "cc": "Kopie",
+    "bcc": "Skrytá kopie",
+    "subject": "Předmět",
+    "subjectPh": "Přidat předmět",
+    "toPh": "prijemce@example.com",
+    "ccPh": "kopie@example.com",
+    "bccPh": "skryta-kopie@example.com",
+    "bodyPh": "Napište zprávu…",
+    "send": "Odeslat",
+    "sendTooltip": "Odeslat (Ctrl+Enter)",
+    "sending": "Odesílání…",
+    "discard": "Zahodit",
+    "saveDraft": "Uložit koncept",
+    "savingDraft": "Ukládání…",
+    "draftSaved": "Koncept uložen",
+    "closeDraft": {
+      "title": "Uložit tento koncept?",
+      "save": "Uložit koncept",
+      "discard": "Zahodit",
+      "keepEditing": "Pokračovat v úpravách"
+    },
+    "discardDraft": {
+      "title": "Zahodit koncept?",
+      "discard": "Zahodit",
+      "keepEditing": "Pokračovat v úpravách"
+    },
+    "draftHasAttachments": "Přílohy se s koncepty neukládají. Po opětovném otevření tohoto konceptu je budete muset přiložit znovu.",
+    "emptySubject": {
+      "title": "Odeslat bez předmětu?",
+      "sendAnyway": "Přesto odeslat",
+      "cancel": "Zrušit"
+    },
+    "forgottenAttachment": {
+      "title": "Nezapomněli jste přílohu?",
+      "body": "Ve zprávě zmiňujete přílohu, ale žádná není přiložena.",
+      "sendAnyway": "Přesto odeslat",
+      "cancel": "Zrušit"
+    },
+    "attachmentKeywords": "příloha|přílohu|příloze|přiložen|přiložena|přiložený|přikládám|v příloze|viz příloha",
+    "sent": {
+      "title": "Zpráva odeslána",
+      "noCopy": "Zpráva byla odeslána, ale neuložila se do složky Odeslané",
+      "action": "Zobrazit"
+    },
+    "toolbar": {
+      "removeTable": "Odebrat tabulku",
+      "textColor": "Barva textu",
+      "removeColor": "Odebrat barvu",
+      "insertImage": "Vložit obrázek",
+      "minimize": "Minimalizovat",
+      "maximize": "Maximalizovat",
+      "restore": "Obnovit",
+      "close": "Zavřít",
+      "attachFile": "Přiložit soubor",
+      "insertLink": "Vložit odkaz",
+      "apply": "Použít",
+      "insertTable": "Vložit tabulku",
+      "highlight": "Barva zvýraznění",
+      "removeHighlight": "Odebrat zvýraznění",
+      "fontDefault": "Výchozí",
+      "moreFormatting": "Další formátování",
+      "aiAssist": "Pomoc AI",
+      "aiWriteDraft": "Napsat návrh",
+      "aiImprove": "Vylepšit",
+      "aiShorten": "Zkrátit",
+      "aiFixGrammar": "Opravit gramatiku",
+      "aiPanelTitle": "Návrh AI",
+      "aiApply": "Použít",
+      "aiDismiss": "Zavřít",
+      "aiGenerating": "Generování…",
+      "aiError": "Chyba AI: {{message}}"
+    },
+    "priority": "Priorita",
+    "priorityHigh": "Vysoká priorita",
+    "priorityNormal": "Normální",
+    "priorityLow": "Nízká priorita",
+    "recipientMenu": {
+      "copy": "Kopírovat adresu",
+      "copyAll": "Kopírovat všechny adresy v tomto poli"
+    }
+  },
+  "contacts": {
+    "title": "Kontakty",
+    "new": "Nový",
+    "newContact": "Nový kontakt",
+    "editContact": "Upravit kontakt",
+    "search": "Hledat v kontaktech…",
+    "empty": "Zatím žádné kontakty",
+    "noResults": "Nebyly nalezeny žádné kontakty",
+    "count": "Počet kontaktů: {{count}}",
+    "auto": "automaticky",
+    "autoHint": "Nalezeno v přijaté poště",
+    "selectHint": "Výběrem kontaktu zobrazíte podrobnosti",
+    "deleteConfirm": "Trvale smazat tento kontakt?",
+    "addEmail": "Přidat e-mail",
+    "addPhone": "Přidat telefon",
+    "fields": {
+      "displayName": "Zobrazované jméno",
+      "firstName": "Jméno",
+      "lastName": "Příjmení",
+      "email": "E-mail",
+      "phone": "Telefon",
+      "organization": "Organizace",
+      "notes": "Poznámky",
+      "emailsSent": "Odeslané e-maily",
+      "lastContacted": "Poslední kontakt"
+    },
+    "emailTypes": {
+      "other": "Jiný",
+      "work": "Pracovní",
+      "home": "Osobní"
+    },
+    "phoneTypes": {
+      "mobile": "Mobilní",
+      "work": "Pracovní",
+      "home": "Domů",
+      "other": "Jiný"
+    },
+    "carddavBadge": "Synchronizováno z CardDAV"
+  },
+  "contextMenu": {
+    "find": "Najít",
+    "open": "Otevřít",
+    "openInNewWindow": "Otevřít v novém okně",
+    "markRead": "Označit jako přečtené",
+    "markUnread": "Označit jako nepřečtené",
+    "star": "Označit zprávu hvězdičkou",
+    "unstar": "Odebrat hvězdičku",
+    "select": "Vybrat",
+    "reply": "Odpovědět",
+    "replyAll": "Odpovědět všem",
+    "forward": "Přeposlat",
+    "moveToFolder": "Přesunout",
+    "archive": "Archivovat",
+    "snooze": {
+      "label": "Odložit",
+      "threeHours": "Za 3 hodiny",
+      "tomorrowMorning": "Zítra ráno",
+      "nextWeek": "Příští týden",
+      "custom": "Vlastní…"
+    },
+    "categorize": "Zařadit jako…",
+    "createRule": "Vytvořit pravidlo ze zprávy",
+    "addToBlockList": "Přidat na seznam blokovaných",
+    "markAsSpam": "Označit jako spam",
+    "markAsHam": "Označit, že nejde o spam",
+    "copySubject": "Kopírovat předmět",
+    "copySender": "Kopírovat adresu odesílatele",
+    "copyLink": "Kopírovat odkaz",
+    "viewHeaders": "Zobrazit úplná záhlaví",
+    "delete": "Smazat",
+    "headers": {
+      "title": "Úplná záhlaví",
+      "copyRaw": "Kopírovat nezpracovaný text",
+      "copied": "✓ Zkopírováno",
+      "loading": "Načítání záhlaví…",
+      "noHeaders": "Nejsou dostupná žádná záhlaví"
+    },
+    "folders": {
+      "back": "Přesunout do složky",
+      "loading": "Načítání složek…",
+      "empty": "Nebyly nalezeny žádné složky",
+      "recent": "Nedávné",
+      "favorites": "Oblíbené",
+      "search": "Hledat složky…"
+    }
+  },
+  "conversation": {
+    "label": "conversation",
+    "attachment": "Attachment",
+    "logicalCount": "{{count}} messages",
+    "loadFailed": "Failed to load conversation",
+    "loading": "Loading conversation…",
+    "unknownSender": "Unknown sender",
+    "you": "You",
+    "conversationReader": "Conversation reader",
+    "accounts": "Accounts",
+    "threadingDiagnostics": "Threading diagnostics",
+    "rebuildConversations": "Rebuild conversations",
+    "rebuildDryRun": "Dry run",
+    "automatedSeries": "Automated series",
+    "seriesOff": "Off",
+    "seriesStrict": "Strict",
+    "seriesSmart": "Smart",
+    "loadBody": "Load message",
+    "loadingBody": "Loading content…",
+    "loadBodyFailed": "Failed to load content",
+    "conversationCount_one": "{{count}} conversation",
+    "conversationCount_few": "{{count}} conversations",
+    "conversationCount_many": "{{count}} conversations",
+    "keyboardHint": "j/k navigate · Enter expand · Space select",
+    "mergeInto": "Merge into…",
+    "locked": "Locked",
+    "unlocked": "Unlocked",
+    "diagnosticsKind": "Kind",
+    "diagnosticsConfidence": "Confidence",
+    "diagnosticsLogicalMessages": "Logical messages",
+    "diagnosticsOverrides": "Manual overrides",
+    "diagnosticsNoOverrides": "No manual overrides",
+    "diagnosticsThreadingReason": "Threading reason",
+    "diagnosticsCopyCount": "Copies",
+    "diagnosticsParent": "Parent message",
+    "diagnosticsNone": "—",
+    "scopeThisCopy": "This physical copy",
+    "scopeAllCopies": "All copies of this message",
+    "scopeThisAccount": "Copies on this account",
+    "scopeAccountCopies": "Copies on this account",
+    "scopeWholeConversation": "Whole conversation",
+    "confirmDeleteTitle": "Delete conversation",
+    "confirmDeleteBody": "Delete {{count}} message(s)? This cannot be undone.",
+    "confirmArchiveTitle": "Archive conversation",
+    "confirmArchiveBody": "Archive {{count}} message(s)?",
+    "apply": "Apply",
+    "loadImages": "Load images",
+    "copyUsed": "Copy used: {{folder}} ({{account}})",
+    "noBody": "No message body available",
+    "downloadAttachment": "Download",
+    "attachmentCount_one": "{{count}} attachment",
+    "attachmentCount_few": "{{count}} attachments",
+    "attachmentCount_many": "{{count}} attachments",
+    "subject": "Subject",
+    "scrollToMessage": "Scroll to message",
+    "copyDetails": "Copy details",
+    "read": "Read",
+    "logicalCount_one": "{{count}} msg",
+    "logicalCount_few": "{{count}} msgs",
+    "logicalCount_many": "{{count}} msgs",
+    "confirmMoveTitle": "Move conversation",
+    "confirmMoveBody": "Move {{count}} message(s) to another folder?",
+    "showQuotedText": "Show quoted text",
+    "hideQuotedText": "Hide quoted text",
+    "readerOffDesc": "Otevřít pouze vybranou zprávu",
+    "readerOnDesc": "Zobrazit celou konverzaci v panelu zpráv",
+    "groupIntoConversationsOn": "On",
+    "readerOff": "Disabled",
+    "readerOn": "Enabled",
+    "groupIntoConversations": "Seskupit zprávy do konverzací",
+    "incomingMessage": "Příchozí zpráva",
+    "outgoingMessage": "Odchozí zpráva",
+    "expandMessage": "Rozbalit zprávu od {{sender}}: {{subject}}",
+    "collapseMessage": "Sbalit zprávu od {{sender}}: {{subject}}",
+    "summary": "Náhled:"
+  },
   "diagnostics": {
     "section": "Diagnostika",
     "blurb": "Anonymizovaná zpráva, kterou můžete sdílet a pomoct tak s řešením potíží. Neobsahuje žádné e-mailové adresy, jména, obsah zpráv ani citlivé údaje.",
@@ -1591,5 +1150,522 @@
     "copyFailed": "Kopírování selhalo",
     "generating": "Generuji zprávu…",
     "error": "Zprávu se nepodařilo vytvořit."
+  },
+  "gtd": {
+    "title": "GTD",
+    "inbox": "Doručené",
+    "waiting": "Čeká se",
+    "inboxZero": "Prázdná schránka ✓",
+    "allClear": "Vše vyřízeno",
+    "allClearHint": "Nic nečeká na vaše vyřízení.",
+    "showAll": "Zobrazit vše ({{count}})",
+    "showSome": "Zobrazit {{available}} z {{total}}",
+    "showLess": "Zobrazit méně",
+    "toggleSection": "Zobrazit nebo skrýt {{section}}",
+    "tabEmpty": "Zatím tu nic není",
+    "removeFrom": "Odebrat ze stavu {{state}}",
+    "classified": "Štítek použit",
+    "classifyFailed": "Štítek se nepodařilo použít",
+    "undoFailed": "Štítek se nepodařilo vrátit zpět",
+    "removed": "Štítek odebrán",
+    "removeFailed": "Štítek se nepodařilo odebrat",
+    "done": "Označit jako hotové",
+    "doneFailed": "Nepodařilo se označit jako hotové",
+    "doneArchiveFailed": "Označeno jako hotové, ale archivace se nezdařila — zpráva zůstává v Doručené poště",
+    "state": {
+      "todo": "K vyřízení",
+      "watch": "Sledovat",
+      "delegated": "Delegováno",
+      "someday": "Někdy",
+      "reference": "Reference"
+    }
+  },
+  "lockScreen": {
+    "subtitle": "Odemkněte zadáním PINu",
+    "unlockButton": "Odemknout",
+    "unlocking": "Odemykání…",
+    "signOut": "Odhlásit se",
+    "signingOut": "Odhlašování…",
+    "pinPlaceholder": "Zadejte PIN",
+    "wrongPin": "Nesprávný PIN"
+  },
+  "login": {
+    "tagline": "Všechny schránky na jednom místě",
+    "signIn": "Přihlásit se",
+    "createAccount": "Vytvořit účet",
+    "username": "Uživatelské jméno",
+    "password": "Heslo",
+    "pleaseWait": "Čekejte prosím…",
+    "dontHaveAccount": "Nemáte účet? ",
+    "alreadyHaveAccount": "Už máte účet? ",
+    "register": "Zaregistrovat se",
+    "orContinueWith": "nebo pokračujte pomocí",
+    "signInWith": "Přihlásit se přes {{name}}",
+    "inviteEmail": "Pozvánka pro",
+    "inviteExpired": "Tento odkaz s pozvánkou je neplatný nebo vypršel.",
+    "ssoOnly": "Přihlásit se pomocí SSO",
+    "ssoOnlyDesc": "Přihlašování heslem je na tomto serveru vypnuté.",
+    "totp": {
+      "title": "Dvoufázové ověření",
+      "instructions": "Zadejte šestimístný kód z ověřovací aplikace.",
+      "placeholder": "000000",
+      "verify": "Ověřit",
+      "verifying": "Ověřování…",
+      "backToLogin": "← Zpět k přihlášení"
+    },
+    "rememberDevice": "Zapamatovat toto zařízení",
+    "emailOtp": {
+      "title": "Zkontrolujte svůj e-mail",
+      "desc": "Ověřovací kód byl odeslán na adresu {{email}}",
+      "codePh": "Šestimístný kód",
+      "resend": "Odeslat kód znovu",
+      "sending": "Odesílání…",
+      "verify": "Ověřit",
+      "verifying": "Ověřování…"
+    },
+    "mfaEnroll": {
+      "title": "Nastavení dvoufázového ověření",
+      "desc": "Vaše organizace vyžaduje dvoufázové ověření. Než budete pokračovat, nastavte si ověřovací aplikaci.",
+      "scan": "Naskenovat QR kód",
+      "scanInstructions": "Naskenujte tento QR kód ověřovací aplikací (např. Google Authenticator nebo Authy).",
+      "manualKey": "Nemůžete kód naskenovat? Zadejte tento klíč ručně:",
+      "next": "Další: ověřit kód →",
+      "verifyInstructions": "Nastavení potvrďte zadáním šestimístného kódu z ověřovací aplikace.",
+      "enable": "Zapnout 2FA a přihlásit se",
+      "enabling": "Zapínání…",
+      "back": "← Zpět"
+    },
+    "forgotPassword": {
+      "link": "Zapomněli jste heslo?",
+      "title": "Obnovení hesla",
+      "desc": "Zadejte e-mailovou adresu pro obnovení a my vám pošleme odkaz k nastavení nového hesla.",
+      "emailPh": "E-mailová adresa pro obnovení",
+      "submit": "Odeslat odkaz pro obnovení",
+      "sending": "Odesílání…",
+      "sentDesc": "Pokud účet s tímto e-mailem pro obnovení existuje, brzy obdržíte odkaz.",
+      "backToLogin": "← Zpět k přihlášení"
+    },
+    "resetPassword": {
+      "title": "Nastavení nového hesla",
+      "desc": "Níže zadejte své nové heslo.",
+      "newPassword": "Nové heslo",
+      "confirm": "Potvrzení hesla",
+      "submit": "Nastavit nové heslo",
+      "submitting": "Ukládání…",
+      "mismatch": "Hesla se neshodují",
+      "tooShort": "Heslo musí mít alespoň 8 znaků",
+      "doneDesc": "Heslo bylo změněno. Nyní se můžete přihlásit.",
+      "backToLogin": "← Zpět k přihlášení"
+    }
+  },
+  "message": {
+    "find": {
+      "title": "Hledat",
+      "close": "Zavřít hledání",
+      "label": "Najít:",
+      "matchCase": "Rozlišovat velikost písmen",
+      "previous": "Předchozí",
+      "next": "Další",
+      "closeButton": "Zavřít"
+    },
+    "selectToRead": "Vyberte zprávu, kterou chcete přečíst",
+    "noSubject": "(bez předmětu)",
+    "to": "Komu:",
+    "via": "prostřednictvím",
+    "attachment_one": "{{count}} příloha",
+    "attachment_few": "{{count}} přílohy",
+    "attachment_many": "{{count}} přílohy",
+    "attachment_other": "{{count}} příloh",
+    "loadingError": "Obsah zprávy se nepodařilo načíst",
+    "noContent": "Nebyl nalezen žádný obsah zprávy.",
+    "remoteImagesBlocked": "Vzdálené obrázky byly zablokovány.",
+    "loadImages": "Načíst obrázky",
+    "allowSender": "Vždy povolit od {{email}}",
+    "allowDomain": "Vždy povolit z @{{domain}}",
+    "downloading": "Stahování…",
+    "downloadAll": "Stáhnout vše",
+    "reply": "Odpovědět",
+    "replyAll": "Odpovědět všem",
+    "replyOptions": "Možnosti odpovědi",
+    "forward": "Přeposlat",
+    "archive": "Archivovat",
+    "star": "Označit hvězdičkou",
+    "delete": "Smazat",
+    "print": "Vytisknout",
+    "more": "Další",
+    "summarize": "Shrnout",
+    "summary": "Shrnutí",
+    "summaryDismiss": "Zavřít shrnutí",
+    "aiActions": "Akce AI",
+    "manageAiActions": "Spravovat akce…",
+    "aiRegenerate": "Vygenerovat znovu",
+    "aiExpand": "Rozbalit",
+    "aiCollapse": "Sbalit",
+    "aiCopy": "Kopírovat",
+    "aiCopied": "Zkopírováno",
+    "previousMessage": "Předchozí zpráva",
+    "nextMessage": "Další zpráva",
+    "archived": {
+      "title": "Zpráva archivována",
+      "failTitle": "Archivace se nezdařila",
+      "failBody": "Zprávu se nepodařilo archivovat.",
+      "noFolderTitle": "Chybí složka archivu",
+      "noFolderBody": "Pro tento účet není nastavena složka archivu. Nastavte ji v Nastavení → Účty → Mapování složek."
+    },
+    "moved": {
+      "title": "Zpráva přesunuta",
+      "failTitle": "Přesunutí se nezdařilo",
+      "failBody": "Zprávu se nepodařilo přesunout."
+    },
+    "snoozed": {
+      "title": "Zpráva odložena",
+      "failTitle": "Odložení se nezdařilo",
+      "failBody": "Tuto zprávu se nepodařilo odložit."
+    },
+    "whitelistFail": {
+      "title": "Předvolbu se nepodařilo uložit",
+      "body": "Seznam povolených obrázků se nepodařilo aktualizovat."
+    },
+    "emailFrameTitle": "Obsah e-mailu",
+    "unsubscribe": {
+      "info": "Z odběru tohoto seznamu se můžete odhlásit.",
+      "button": "Odhlásit odběr",
+      "done": "Odběr byl úspěšně odhlášen.",
+      "error": "Odběr se nepodařilo odhlásit.",
+      "moveToTrash": "Přesunout do koše"
+    },
+    "aiClassify": {
+      "info": "Tento e-mail nemá kategorii. Chcete jej zařadit pomocí AI?",
+      "button": "Zařadit pomocí AI",
+      "done": "Zařazeno do kategorie {{category}}",
+      "error": "Zařazení pomocí AI se nezdařilo."
+    }
+  },
+  "messageList": {
+    "search": "Hledat…",
+    "unread": "Nepřečtené",
+    "showAll": "Zobrazit vše",
+    "unreadOnly": "Pouze nepřečtené",
+    "syncAccount": "Synchronizovat tento účet",
+    "syncAll": "Synchronizovat všechny účty",
+    "sync": "Synchronizovat",
+    "compose": "Napsat",
+    "messagesPerPage": "Zpráv na stránku",
+    "selectAll": "Vybrat vše",
+    "deselectAll": "Zrušit výběr",
+    "markReadSelected": "Označit jako přečtené",
+    "markUnreadSelected": "Označit jako nepřečtené",
+    "archiveSelected": "Archivovat vybrané",
+    "swipeStar": "Označit hvězdičkou",
+    "swipeUnstar": "Odebrat hvězdičku",
+    "deleteSelected": "Smazat vybrané",
+    "moveToFolder": "Přesunout",
+    "moveToFolderDisabled": "Pro přesunutí vyberte zprávy z jednoho účtu",
+    "clearSelection": "Zrušit výběr",
+    "backToTop": "Zpět nahoru",
+    "prevPage": "Předchozí",
+    "nextPage": "Další",
+    "pageOf": "Strana {{current}} z {{total}}",
+    "loadMore": "Načíst další",
+    "noMoreMessages": "Žádné další zprávy",
+    "deleted": {
+      "title": "Zpráva smazána",
+      "body": "Odstraněno.",
+      "failTitle": "Smazání se nezdařilo",
+      "failBody": "Zprávu se nepodařilo smazat."
+    },
+    "bulkDeleted": {
+      "title_one": "Smazána {{count}} zpráva",
+      "title_few": "Smazány {{count}} zprávy",
+      "title_many": "Smazáno {{count}} zprávy",
+      "title_other": "Smazáno {{count}} zpráv",
+      "body": "Odstraněno.",
+      "failTitle": "Smazání se nezdařilo",
+      "failBody_one": "Nepodařilo se smazat {{count}} zprávu.",
+      "failBody_few": "Nepodařilo se smazat {{count}} zprávy.",
+      "failBody_many": "Nepodařilo se smazat {{count}} zprávy.",
+      "failBody_other": "Nepodařilo se smazat {{count}} zpráv."
+    },
+    "bulkMoved": {
+      "title_one": "Přesunuta {{count}} zpráva",
+      "title_few": "Přesunuty {{count}} zprávy",
+      "title_many": "Přesunuto {{count}} zprávy",
+      "title_other": "Přesunuto {{count}} zpráv",
+      "failTitle": "Přesunutí se nezdařilo",
+      "failBody_one": "Nepodařilo se přesunout {{count}} zprávu.",
+      "failBody_few": "Nepodařilo se přesunout {{count}} zprávy.",
+      "failBody_many": "Nepodařilo se přesunout {{count}} zprávy.",
+      "failBody_other": "Nepodařilo se přesunout {{count}} zpráv."
+    },
+    "bulkArchived": {
+      "title_one": "Archivována {{count}} zpráva",
+      "title_few": "Archivovány {{count}} zprávy",
+      "title_many": "Archivováno {{count}} zprávy",
+      "title_other": "Archivováno {{count}} zpráv",
+      "body": "Přesunuto do archivu.",
+      "failTitle": "Archivace se nezdařila",
+      "failBody_one": "Nepodařilo se archivovat {{count}} zprávu.",
+      "failBody_few": "Nepodařilo se archivovat {{count}} zprávy.",
+      "failBody_many": "Nepodařilo se archivovat {{count}} zprávy.",
+      "failBody_other": "Nepodařilo se archivovat {{count}} zpráv.",
+      "noFolderTitle": "Chybí složka archivu",
+      "noFolderBody": "Jeden nebo více účtů nemá nastavenou složku archivu. Nastavte ji v Nastavení → Účty → Mapování složek."
+    },
+    "noArchiveFolder": {
+      "title": "Chybí složka archivu",
+      "body": "Není nastavená složka archivu. Nastavte ji v Nastavení → Účty → Mapování složek."
+    },
+    "selectMessages": "Vybrat zprávy",
+    "selectedCount": "Vybráno: {{count}}",
+    "pullToSync": "Tažením synchronizujete",
+    "releaseToSync": "Uvolněním synchronizujete",
+    "noSearchResults": "Nebyly nalezeny žádné výsledky",
+    "noSearchResultsDesc": "Žádné výsledky pro {{query}}",
+    "clearSearch": "Vymazat hledání",
+    "searchHelp": {
+      "title": "Operátory vyhledávání",
+      "from": "Od odesílatele",
+      "subject": "V předmětu",
+      "to": "Komu / kopie",
+      "hasAttachment": "Obsahuje přílohu",
+      "isUnread": "Pouze nepřečtené",
+      "isStarred": "Pouze s hvězdičkou",
+      "after": "Po datu",
+      "before": "Před datem",
+      "inAll": "Hledat ve všech složkách",
+      "negate": "Vyloučit (přidejte předponu -)",
+      "tip": "Kombinujte operátory s klíčovými slovy · např."
+    },
+    "emptyInbox": "Všechno vyřízeno",
+    "emptyInboxDesc": "Nejsou tu žádné nepřečtené zprávy",
+    "composeAriaLabel": "Napsat novou zprávu",
+    "noAccounts": "Zatím žádné účty",
+    "noAccountsDesc": "Začněte přidáním e-mailového účtu",
+    "foldersHeading": "Složky",
+    "categories": {
+      "primary": "Hlavní",
+      "newsletter": "Newslettery",
+      "promotion": "Propagace",
+      "automated": "Automatické",
+      "social": "Sociální sítě"
+    }
+  },
+  "notifications": {
+    "newMessage": "Nová zpráva"
+  },
+  "profile": {
+    "title": "Upravit profil",
+    "editProfile": "Upravit profil",
+    "displayName": "Zobrazované jméno",
+    "displayNameHint": "Zobrazí se místo uživatelského jména. Chcete-li používat uživatelské jméno, ponechte pole prázdné.",
+    "uploadPhoto": "Nahrát fotografii",
+    "removePhoto": "Odebrat fotografii",
+    "errorNotImage": "Vyberte soubor s obrázkem.",
+    "errorProcess": "Obrázek se nepodařilo zpracovat."
+  },
+  "rightSidebar": {
+    "hide": "Skrýt pravý postranní panel",
+    "show": "Zobrazit pravý postranní panel"
+  },
+  "shortcuts": {
+    "title": "Klávesové zkratky",
+    "customizeHint": "Zkratky můžete upravit v Nastavení → Zkratky",
+    "closeHint": "Zavřete stisknutím ? nebo Esc",
+    "then": "potom",
+    "groups": {
+      "composeSearch": "Psaní a hledání",
+      "navigation": "Navigace",
+      "messageActions": "Akce se zprávami",
+      "gtd": "GTD"
+    },
+    "actions": {
+      "compose": {
+        "label": "Napsat",
+        "description": "Otevřít okno nové zprávy"
+      },
+      "focusSearch": {
+        "label": "Hledat",
+        "description": "Přejít do vyhledávacího pole"
+      },
+      "showHelp": {
+        "label": "Zobrazit zkratky",
+        "description": "Zobrazit přehled klávesových zkratek"
+      },
+      "nextMessage": {
+        "label": "Další zpráva",
+        "description": "Přejít na další zprávu"
+      },
+      "prevMessage": {
+        "label": "Předchozí zpráva",
+        "description": "Přejít na předchozí zprávu"
+      },
+      "openMessage": {
+        "label": "Otevřít první zprávu",
+        "description": "Otevřít první zprávu, pokud není žádná vybrána"
+      },
+      "goInbox": {
+        "label": "Přejít do Doručené pošty",
+        "description": "Přejít do sjednocené Doručené pošty"
+      },
+      "reply": {
+        "label": "Odpovědět",
+        "description": "Odpovědět na aktuální zprávu"
+      },
+      "replyAll": {
+        "label": "Odpovědět všem",
+        "description": "Odpovědět všem u aktuální zprávy"
+      },
+      "forward": {
+        "label": "Přeposlat",
+        "description": "Přeposlat aktuální zprávu"
+      },
+      "archive": {
+        "label": "Archivovat",
+        "description": "Archivovat zprávu nebo výběr"
+      },
+      "delete": {
+        "label": "Smazat",
+        "description": "Smazat zprávu nebo výběr"
+      },
+      "toggleStar": {
+        "label": "Hvězdička",
+        "description": "Přidat nebo odebrat hvězdičku u aktuální zprávy"
+      },
+      "toggleRead": {
+        "label": "Přečteno/nepřečteno",
+        "description": "Označit aktuální zprávu jako přečtenou nebo nepřečtenou"
+      },
+      "selectMessage": {
+        "label": "Vybrat zprávu",
+        "description": "Vybrat nebo zrušit výběr aktuální zprávy"
+      },
+      "printMessage": {
+        "label": "Vytisknout",
+        "description": "Vytisknout aktuální zprávu"
+      },
+      "gtdTodo": {
+        "label": "Označit K vyřízení",
+        "description": "Zařadit vybranou zprávu jako K vyřízení"
+      },
+      "gtdWatch": {
+        "label": "Označit Sledovat",
+        "description": "Zařadit vybranou zprávu jako Sledovat"
+      },
+      "gtdDelegated": {
+        "label": "Označit Delegováno",
+        "description": "Zařadit vybranou zprávu jako Delegováno"
+      },
+      "gtdUndo": {
+        "description": "Vrátit zpět poslední klasifikaci GTD"
+      },
+      "toggleRightSidebar": {
+        "label": "Pravý postranní panel",
+        "description": "Skrýt nebo zobrazit pravý postranní panel"
+      }
+    }
+  },
+  "sidebar": {
+    "allInboxes": "Všechny doručené",
+    "compose": "Napsat",
+    "toggleSidebar": "Zobrazit nebo skrýt postranní panel",
+    "newFolder": "Nová složka",
+    "folderPh": "Název složky…",
+    "subfolderPh": "Název podsložky…",
+    "hiddenFolders_one": "{{count}} skrytá složka",
+    "hiddenFolders_few": "{{count}} skryté složky",
+    "hiddenFolders_many": "{{count}} skryté složky",
+    "hiddenFolders_other": "{{count}} skrytých složek",
+    "hideHidden": "Skrýt skryté složky",
+    "blockImages": "Blokovat obrázky",
+    "searchAllFolders": "Hledat ve všech složkách",
+    "settings": "Nastavení",
+    "lock": "Uzamknout",
+    "signOut": "Odhlásit se",
+    "connectionError": "Chyba připojení",
+    "folderMenu": {
+      "markAllRead": "Označit vše jako přečtené",
+      "syncFolder": "Synchronizovat složku",
+      "renameFavorite": "Přejmenovat oblíbenou položku",
+      "rename": "Přejmenovat",
+      "createSubfolder": "Vytvořit podsložku",
+      "hide": "Skrýt složku",
+      "unhide": "Zobrazit složku",
+      "empty": "Vyprázdnit složku",
+      "delete": "Smazat složku"
+    },
+    "accountMenu": {
+      "newFolder": "Nová složka",
+      "markAllRead": "Označit vše jako přečtené",
+      "syncNow": "Synchronizovat nyní",
+      "syncFoldersNow": "Synchronizovat složky nyní",
+      "settings": "Nastavení účtu",
+      "reconnect": "Znovu připojit",
+      "moveUp": "Posunout nahoru",
+      "moveDown": "Posunout dolů",
+      "moveFailed": "Pořadí účtů se nepodařilo změnit"
+    },
+    "confirmDelete": "Smazat složku „{{name}}“? Všechny zprávy v ní budou trvale odstraněny.",
+    "confirmEmpty": "Vyprázdnit složku „{{name}}“? Všechny zprávy v této složce budou trvale odstraněny.",
+    "createFailed": "Složku se nepodařilo vytvořit",
+    "renameFailed": "Přejmenování se nezdařilo",
+    "deleteFailed": "Smazání se nezdařilo",
+    "emptyFailed": "Vyprázdnění se nezdařilo",
+    "emptying": "Vyprazdňování složky „{{name}}“…",
+    "emptied": "Složka vyprázdněna",
+    "backToAccounts": "Zpět k účtům",
+    "updateAvailable": "Je dostupná aktualizace: v{{version}}"
+  },
+  "signatureEditor": {
+    "bold": "Tučné (Ctrl+B)",
+    "italic": "Kurzíva (Ctrl+I)",
+    "underline": "Podtržení (Ctrl+U)",
+    "strikethrough": "Přeškrtnutí",
+    "textColor": "Barva textu",
+    "link": "Vložit odkaz",
+    "imageUrl": "Obrázek z URL",
+    "imageUpload": "Nahrát obrázek (max. 300 kB)",
+    "sourceMode": "Upravit zdrojový kód HTML",
+    "visualMode": "Vizuální editor",
+    "linkPrompt": "URL odkazu:",
+    "imageUrlPrompt": "URL obrázku:",
+    "imageTooLarge": {
+      "title": "Obrázek je příliš velký",
+      "body": "Musí být menší než 300 kB. Pro větší obrázky použijte externí URL."
+    }
+  },
+  "spam": {
+    "movedToSpam": "Přesunuto do spamu",
+    "movedToSpamBulk": "Přesunuto {{count}} zpráv do spamu",
+    "movedToInbox": "Přesunuto do Doručené pošty",
+    "movedToInboxBulk": "Přesunuto {{count}} zpráv do Doručené pošty",
+    "failTitle": "Nepodařilo se označit jako spam",
+    "failHamTitle": "Nepodařilo se označit, že nejde o spam",
+    "failBody": "Poštovní server přesunutí odmítl.",
+    "failHamBody": "Poštovní server přesunutí odmítl.",
+    "failBodyBulk": "Nepodařilo se přesunout {{count}} zpráv."
+  },
+  "todoist": {
+    "title": "Vytvořit úkol v Todoistu",
+    "taskTitle": "Název úkolu",
+    "taskTitlePh": "Co je potřeba udělat?",
+    "description": "Popis",
+    "descriptionPh": "Volitelné poznámky…",
+    "project": "Projekt",
+    "inbox": "Doručené",
+    "labels": "Štítky",
+    "priority": "Priorita",
+    "priorityUrgent": "Naléhavá",
+    "priorityHigh": "Vysoká",
+    "priorityMedium": "Střední",
+    "priorityNormal": "Bez priority",
+    "dueDate": "Termín",
+    "create": "Vytvořit úkol",
+    "creating": "Vytváření…",
+    "taskCreated": "Úkol byl vytvořen v Todoistu",
+    "openTask": "Otevřít v Todoistu"
+  },
+  "window": {
+    "minimize": "Minimalizovat",
+    "close": "Zavřít"
   }
 }

@@ -1,627 +1,4 @@
 {
-  "common": {
-    "cancel": "Anuluj",
-    "save": "Zapisz",
-    "delete": "Usuń",
-    "edit": "Edytuj",
-    "add": "Dodaj",
-    "remove": "Usuń",
-    "copy": "Kopiuj",
-    "back": "Wstecz",
-    "undo": "Cofnij",
-    "view": "Wyświetl",
-    "retry": "Spróbuj ponownie",
-    "loading": "Wczytywanie…",
-    "saving": "Zapisywanie…",
-    "deleting": "Usuwanie…",
-    "never": "Nigdy",
-    "noSubject": "(brak tematu)",
-    "unknown": "Nieznane",
-    "error": "Błąd: {{message}}",
-    "dismiss": "Odrzuć",
-    "loadMore": "Wczytaj więcej"
-  },
-  "login": {
-    "tagline": "Twoja ujednolicona skrzynka odbiorcza",
-    "signIn": "Zaloguj się",
-    "createAccount": "Utwórz konto",
-    "username": "Nazwa użytkownika",
-    "password": "Hasło",
-    "pleaseWait": "Proszę czekać…",
-    "dontHaveAccount": "Nie masz konta?",
-    "alreadyHaveAccount": "Masz już konto?",
-    "register": "Zarejestruj się",
-    "orContinueWith": "lub kontynuuj za pomocą",
-    "signInWith": "Zaloguj się za pomocą {{name}}",
-    "inviteEmail": "Zaproszenie dla",
-    "inviteExpired": "Ten link z zaproszeniem jest nieprawidłowy lub wygasł.",
-    "ssoOnly": "Zaloguj się przez SSO",
-    "ssoOnlyDesc": "Logowanie hasłem jest wyłączone na tym serwerze.",
-    "totp": {
-      "title": "Uwierzytelnianie dwuskładnikowe",
-      "instructions": "Wpisz 6-cyfrowy kod z aplikacji uwierzytelniającej.",
-      "placeholder": "000000",
-      "verify": "Zweryfikuj",
-      "verifying": "Weryfikowanie…",
-      "backToLogin": "← Powrót do logowania"
-    },
-    "rememberDevice": "Zapamiętaj to urządzenie",
-    "emailOtp": {
-      "title": "Sprawdź pocztę e-mail",
-      "desc": "Kod weryfikacyjny został wysłany na adres {{email}}",
-      "codePh": "6-cyfrowy kod",
-      "resend": "Wyślij kod ponownie",
-      "sending": "Wysyłanie…",
-      "verify": "Zweryfikuj",
-      "verifying": "Weryfikowanie…"
-    },
-    "mfaEnroll": {
-      "title": "Skonfiguruj uwierzytelnianie dwuskładnikowe",
-      "desc": "Twoja organizacja wymaga uwierzytelniania dwuskładnikowego. Skonfiguruj aplikację uwierzytelniającą, aby kontynuować.",
-      "scan": "Skanuj kod QR",
-      "scanInstructions": "Zeskanuj ten kod QR za pomocą aplikacji uwierzytelniającej (np. Google Authenticator, Authy).",
-      "manualKey": "Nie możesz zeskanować? Wpisz ten klucz ręcznie:",
-      "next": "Dalej: zweryfikuj kod →",
-      "verifyInstructions": "Wpisz 6-cyfrowy kod z aplikacji uwierzytelniającej, aby potwierdzić konfigurację.",
-      "enable": "Włącz 2FA i zaloguj się",
-      "enabling": "Włączanie…",
-      "back": "← Wstecz"
-    },
-    "forgotPassword": {
-      "link": "Nie pamiętasz hasła?",
-      "title": "Zresetuj hasło",
-      "desc": "Wpisz swój adres e-mail do odzyskiwania, a wyślemy Ci link do resetowania hasła.",
-      "emailPh": "Adres e-mail do odzyskiwania",
-      "submit": "Wyślij link resetujący",
-      "sending": "Wysyłanie…",
-      "sentDesc": "Jeśli istnieje konto z tym adresem e-mail do odzyskiwania, wkrótce otrzymasz link do resetowania hasła.",
-      "backToLogin": "← Powrót do logowania"
-    },
-    "resetPassword": {
-      "title": "Ustaw nowe hasło",
-      "desc": "Wpisz poniżej nowe hasło.",
-      "newPassword": "Nowe hasło",
-      "confirm": "Potwierdź hasło",
-      "submit": "Ustaw nowe hasło",
-      "submitting": "Zapisywanie…",
-      "mismatch": "Hasła nie są zgodne",
-      "tooShort": "Hasło musi mieć co najmniej 8 znaków",
-      "doneDesc": "Twoje hasło zostało zmienione. Możesz się teraz zalogować.",
-      "backToLogin": "← Powrót do logowania"
-    }
-  },
-  "compose": {
-    "newMessage": "Nowa wiadomość",
-    "reply": "Odpowiedz",
-    "replyAll": "Odpowiedz wszystkim",
-    "forward": "Przekaż dalej",
-    "from": "Od",
-    "to": "Do",
-    "cc": "DW",
-    "bcc": "UDW",
-    "subject": "Temat",
-    "subjectPh": "Dodaj temat",
-    "toPh": "odbiorca@example.com",
-    "ccPh": "cc@example.com",
-    "bccPh": "bcc@example.com",
-    "bodyPh": "Napisz wiadomość…",
-    "send": "Wyślij",
-    "sendTooltip": "Wyślij (Ctrl+Enter)",
-    "sending": "Wysyłanie…",
-    "discard": "Odrzuć",
-    "saveDraft": "Zapisz wersję roboczą",
-    "savingDraft": "Zapisywanie…",
-    "draftSaved": "Wersja robocza zapisana",
-    "closeDraft": {
-      "title": "Zapisać tę wersję roboczą?",
-      "save": "Zapisz wersję roboczą",
-      "discard": "Odrzuć",
-      "keepEditing": "Kontynuuj edycję"
-    },
-    "discardDraft": {
-      "title": "Odrzucić wersję roboczą?",
-      "discard": "Odrzuć",
-      "keepEditing": "Kontynuuj edycję"
-    },
-    "draftHasAttachments": "Załączniki nie są zapisywane wraz z wersjami roboczymi. Po ponownym otwarciu tej wersji trzeba będzie dodać je ponownie.",
-    "emptySubject": {
-      "title": "Wysłać bez tematu?",
-      "sendAnyway": "Wyślij mimo to",
-      "cancel": "Anuluj"
-    },
-    "forgottenAttachment": {
-      "title": "Nie zapomniałeś o załączniku?",
-      "body": "Wiadomość wspomina o załączniku, ale żaden plik nie został dołączony.",
-      "sendAnyway": "Wyślij mimo to",
-      "cancel": "Anuluj"
-    },
-    "attachmentKeywords": "załącz|załączony|załącznik|załączniki|patrz w załączeniu|w załączeniu|dołączono|proszę znaleźć",
-    "sent": {
-      "title": "Wiadomość wysłana",
-      "noCopy": "Wysłano, ale nie zapisano w folderze Wysłane",
-      "action": "Wyświetl"
-    },
-    "toolbar": {
-      "removeTable": "Usuń tabelę",
-      "textColor": "Kolor tekstu",
-      "removeColor": "Usuń kolor",
-      "insertImage": "Wstaw obraz",
-      "minimize": "Minimalizuj",
-      "maximize": "Maksymalizuj",
-      "restore": "Przywróć",
-      "close": "Zamknij",
-      "attachFile": "Dołącz plik",
-      "insertLink": "Wstaw link",
-      "apply": "Zastosuj",
-      "insertTable": "Wstaw tabelę",
-      "highlight": "Kolor wyróżnienia",
-      "removeHighlight": "Usuń wyróżnienie",
-      "fontDefault": "Domyślne",
-      "moreFormatting": "Więcej opcji formatowania",
-      "aiAssist": "Asystent AI",
-      "aiWriteDraft": "Napisz wersję roboczą",
-      "aiImprove": "Ulepsz",
-      "aiShorten": "Skróć",
-      "aiFixGrammar": "Popraw gramatykę",
-      "aiPanelTitle": "Sugestia AI",
-      "aiApply": "Zastosuj",
-      "aiDismiss": "Odrzuć",
-      "aiGenerating": "Generowanie…",
-      "aiError": "Błąd AI: {{message}}"
-    },
-    "priority": "Priorytet",
-    "priorityHigh": "Wysoki priorytet",
-    "priorityNormal": "Normalny",
-    "priorityLow": "Niski priorytet",
-    "recipientMenu": {
-      "copy": "Kopiuj adres",
-      "copyAll": "Kopiuj wszystkie adresy z tego pola"
-    }
-  },
-  "message": {
-    "find": {
-      "title": "Wyszukiwanie",
-      "close": "Zamknij wyszukiwanie",
-      "label": "Znajdź:",
-      "matchCase": "Uwzględniaj wielkość liter",
-      "previous": "Poprzednie",
-      "next": "Następne",
-      "closeButton": "Zamknij"
-    },
-    "selectToRead": "Wybierz wiadomość do przeczytania",
-    "noSubject": "(brak tematu)",
-    "to": "Do:",
-    "via": "przez",
-    "attachment_one": "{{count}} załącznik",
-    "attachment_few": "{{count}} załączniki",
-    "attachment_many": "{{count}} załączników",
-    "attachment_other": "{{count}} załączników",
-    "loadingError": "Nie można wczytać treści wiadomości",
-    "noContent": "Nie znaleziono treści wiadomości.",
-    "remoteImagesBlocked": "Zablokowano zdalne obrazy.",
-    "loadImages": "Wczytaj obrazy",
-    "allowSender": "Zawsze zezwalaj nadawcy {{email}}",
-    "allowDomain": "Zawsze zezwalaj domenie @{{domain}}",
-    "downloading": "Pobieranie…",
-    "downloadAll": "Pobierz wszystko",
-    "reply": "Odpowiedz",
-    "replyAll": "Odpowiedz wszystkim",
-    "replyOptions": "Opcje odpowiedzi",
-    "forward": "Przekaż dalej",
-    "archive": "Archiwizuj",
-    "star": "Oznacz gwiazdką",
-    "delete": "Usuń",
-    "print": "Drukuj",
-    "more": "Więcej",
-    "summarize": "Podsumuj",
-    "summary": "Podsumowanie",
-    "summaryDismiss": "Odrzuć podsumowanie",
-    "aiActions": "Działania AI",
-    "manageAiActions": "Zarządzaj działaniami…",
-    "aiRegenerate": "Wygeneruj ponownie",
-    "aiExpand": "Rozwiń",
-    "aiCollapse": "Zwiń",
-    "aiCopy": "Kopiuj",
-    "aiCopied": "Skopiowano",
-    "previousMessage": "Poprzednia wiadomość",
-    "nextMessage": "Następna wiadomość",
-    "archived": {
-      "title": "Wiadomość zarchiwizowana",
-      "failTitle": "Archiwizowanie nie powiodło się",
-      "failBody": "Nie udało się zarchiwizować wiadomości.",
-      "noFolderTitle": "Brak folderu archiwum",
-      "noFolderBody": "Nie skonfigurowano folderu archiwum dla tego konta. Ustaw go w Ustawienia → Konta → Mapowanie folderów."
-    },
-    "moved": {
-      "title": "Wiadomość przeniesiona",
-      "failTitle": "Przenoszenie nie powiodło się",
-      "failBody": "Nie udało się przenieść wiadomości."
-    },
-    "snoozed": {
-      "title": "Wiadomość odłożona",
-      "failTitle": "Odkładanie nie powiodło się",
-      "failBody": "Nie udało się odłożyć tej wiadomości."
-    },
-    "whitelistFail": {
-      "title": "Nie udało się zapisać ustawienia",
-      "body": "Nie udało się zaktualizować listy dozwolonych obrazów."
-    },
-    "emailFrameTitle": "Treść wiadomości e-mail",
-    "unsubscribe": {
-      "info": "Możesz wypisać się z tej listy mailingowej.",
-      "button": "Wypisz się",
-      "done": "Pomyślnie wypisano z listy mailingowej.",
-      "error": "Nie udało się wypisać z listy mailingowej.",
-      "moveToTrash": "Przenieś do kosza"
-    },
-    "aiClassify": {
-      "info": "Ta wiadomość e-mail nie ma kategorii. Czy sklasyfikować ją za pomocą AI?",
-      "button": "Klasyfikuj za pomocą AI",
-      "done": "Sklasyfikowano jako {{category}}",
-      "error": "Klasyfikowanie za pomocą AI nie powiodło się."
-    }
-  },
-  "messageList": {
-    "search": "Szukaj…",
-    "unread": "Nieprzeczytane",
-    "showAll": "Pokaż wszystkie",
-    "unreadOnly": "Tylko nieprzeczytane",
-    "syncAccount": "Synchronizuj konto",
-    "syncAll": "Synchronizuj wszystkie konta",
-    "sync": "Synchronizuj",
-    "compose": "Napisz",
-    "messagesPerPage": "Wiadomości na stronę",
-    "selectAll": "Zaznacz wszystkie",
-    "deselectAll": "Odznacz wszystkie",
-    "markReadSelected": "Oznacz jako przeczytane",
-    "markUnreadSelected": "Oznacz jako nieprzeczytane",
-    "archiveSelected": "Zarchiwizuj zaznaczone",
-    "swipeStar": "Oznacz gwiazdką",
-    "swipeUnstar": "Usuń gwiazdkę",
-    "deleteSelected": "Usuń zaznaczone",
-    "moveToFolder": "Przenieś",
-    "moveToFolderDisabled": "Zaznacz wiadomości z jednego konta, aby je przenieść",
-    "clearSelection": "Wyczyść zaznaczenie",
-    "backToTop": "Wróć na górę",
-    "prevPage": "Poprz.",
-    "nextPage": "Dalej",
-    "pageOf": "Strona {{current}} z {{total}}",
-    "loadMore": "Wczytaj więcej",
-    "noMoreMessages": "Brak kolejnych wiadomości",
-    "deleted": {
-      "title": "Wiadomość usunięta",
-      "body": "Usunięto.",
-      "failTitle": "Usuwanie nie powiodło się",
-      "failBody": "Nie udało się usunąć wiadomości."
-    },
-    "bulkDeleted": {
-      "title_one": "Usunięto {{count}} wiadomość",
-      "title_few": "Usunięto {{count}} wiadomości",
-      "title_many": "Usunięto {{count}} wiadomości",
-      "title_other": "Usunięto {{count}} wiadomości",
-      "body": "Usunięto wiadomości.",
-      "failTitle": "Usuwanie nie powiodło się",
-      "failBody_one": "Nie udało się usunąć {{count}} wiadomości.",
-      "failBody_few": "Nie udało się usunąć {{count}} wiadomości.",
-      "failBody_many": "Nie udało się usunąć {{count}} wiadomości.",
-      "failBody_other": "Nie udało się usunąć {{count}} wiadomości."
-    },
-    "bulkMoved": {
-      "title_one": "Przeniesiono {{count}} wiadomość",
-      "title_few": "Przeniesiono {{count}} wiadomości",
-      "title_many": "Przeniesiono {{count}} wiadomości",
-      "title_other": "Przeniesiono {{count}} wiadomości",
-      "failTitle": "Przenoszenie nie powiodło się",
-      "failBody_one": "Nie udało się przenieść {{count}} wiadomości.",
-      "failBody_few": "Nie udało się przenieść {{count}} wiadomości.",
-      "failBody_many": "Nie udało się przenieść {{count}} wiadomości.",
-      "failBody_other": "Nie udało się przenieść {{count}} wiadomości."
-    },
-    "bulkArchived": {
-      "title_one": "Zarchiwizowano {{count}} wiadomość",
-      "title_few": "Zarchiwizowano {{count}} wiadomości",
-      "title_many": "Zarchiwizowano {{count}} wiadomości",
-      "title_other": "Zarchiwizowano {{count}} wiadomości",
-      "body": "Przeniesiono do archiwum.",
-      "failTitle": "Archiwizowanie nie powiodło się",
-      "failBody_one": "Nie udało się zarchiwizować {{count}} wiadomości.",
-      "failBody_few": "Nie udało się zarchiwizować {{count}} wiadomości.",
-      "failBody_many": "Nie udało się zarchiwizować {{count}} wiadomości.",
-      "failBody_other": "Nie udało się zarchiwizować {{count}} wiadomości.",
-      "noFolderTitle": "Brak folderu archiwum",
-      "noFolderBody": "Co najmniej jedno konto nie ma skonfigurowanego folderu archiwum. Ustaw go w Ustawienia → Konta → Mapowanie folderów."
-    },
-    "noArchiveFolder": {
-      "title": "Brak folderu archiwum",
-      "body": "Nie skonfigurowano folderu archiwum. Ustaw go w Ustawienia → Konta → Mapowanie folderów."
-    },
-    "selectMessages": "Zaznacz wiadomości",
-    "selectedCount": "Wybrano: {{count}}",
-    "pullToSync": "Pociągnij, aby zsynchronizować",
-    "releaseToSync": "Puść, aby zsynchronizować",
-    "noSearchResults": "Nie znaleziono wyników",
-    "noSearchResultsDesc": "Brak wyników dla {{query}}",
-    "clearSearch": "Wyczyść wyszukiwanie",
-    "searchHelp": {
-      "title": "Operatory wyszukiwania",
-      "from": "Od nadawcy",
-      "subject": "W temacie",
-      "to": "Do / DW",
-      "hasAttachment": "Ma załącznik",
-      "isUnread": "Tylko nieprzeczytane",
-      "isStarred": "Tylko oznaczone gwiazdką",
-      "after": "Po dacie",
-      "before": "Przed datą",
-      "inAll": "Szukaj we wszystkich folderach",
-      "negate": "Wyklucz (użyj prefiksu -)",
-      "tip": "Połącz operatory ze słowami kluczowymi, np."
-    },
-    "emptyInbox": "Wszystko przeczytane",
-    "emptyInboxDesc": "Brak nieprzeczytanych wiadomości",
-    "composeAriaLabel": "Napisz nową wiadomość",
-    "noAccounts": "Brak kont",
-    "noAccountsDesc": "Dodaj konto pocztowe, aby rozpocząć",
-    "foldersHeading": "Foldery",
-    "categories": {
-      "primary": "Główne",
-      "newsletter": "Newslettery",
-      "promotion": "Promocje",
-      "automated": "Automatyczne",
-      "social": "Społecznościowe"
-    }
-  },
-  "lockScreen": {
-    "subtitle": "Wpisz swój PIN aby odblokować",
-    "unlockButton": "Odblokuj",
-    "unlocking": "Odblokowywanie…",
-    "signOut": "Wyloguj się",
-    "signingOut": "Wylogowywanie…",
-    "pinPlaceholder": "wpisz PIN",
-    "wrongPin": "Nieprawidłowy PIN"
-  },
-  "sidebar": {
-    "allInboxes": "Wszystkie skrzynki odbiorcze",
-    "compose": "Napisz",
-    "toggleSidebar": "Przełącz pasek boczny",
-    "newFolder": "Nowy folder",
-    "folderPh": "Nazwa folderu…",
-    "subfolderPh": "Nazwa podfolderu…",
-    "hiddenFolders_one": "{{count}} ukryty folder",
-    "hiddenFolders_few": "{{count}} ukryte foldery",
-    "hiddenFolders_many": "{{count}} ukrytych folderów",
-    "hiddenFolders_other": "{{count}} ukrytych folderów",
-    "hideHidden": "Ukryj ukryte foldery",
-    "blockImages": "Blokuj obrazy",
-    "searchAllFolders": "Szukaj we wszystkich folderach",
-    "settings": "Ustawienia",
-    "lock": "Zablokuj",
-    "signOut": "Wyloguj się",
-    "connectionError": "Błąd połączenia",
-    "folderMenu": {
-      "markAllRead": "Oznacz wszystkie jako przeczytane",
-      "syncFolder": "Synchronizuj folder",
-      "renameFavorite": "Zmień nazwę ulubionego folderu",
-      "rename": "Zmień nazwę",
-      "createSubfolder": "Utwórz podfolder",
-      "hide": "Ukryj folder",
-      "unhide": "Pokaż folder",
-      "empty": "Opróżnij folder",
-      "delete": "Usuń folder"
-    },
-    "accountMenu": {
-      "newFolder": "Nowy folder",
-      "markAllRead": "Oznacz wszystkie jako przeczytane",
-      "syncNow": "Synchronizuj teraz",
-      "syncFoldersNow": "Synchronizuj foldery teraz",
-      "settings": "Ustawienia konta",
-      "reconnect": "Połącz ponownie",
-      "moveUp": "Przenieś wyżej",
-      "moveDown": "Przenieś niżej",
-      "moveFailed": "Nie udało się zmienić kolejności kont"
-    },
-    "confirmDelete": "Usunąć folder „{{name}}”? Wszystkie wiadomości w nim zostaną trwale usunięte.",
-    "confirmEmpty": "Opróżnić „{{name}}”? Wszystkie wiadomości w tym folderze zostaną trwale usunięte.",
-    "createFailed": "Nie udało się utworzyć folderu",
-    "renameFailed": "Zmiana nazwy nie powiodła się",
-    "deleteFailed": "Usuwanie nie powiodło się",
-    "emptyFailed": "Opróżnianie nie powiodło się",
-    "emptying": "Opróżnianie „{{name}}”…",
-    "emptied": "Folder opróżniony",
-    "backToAccounts": "Powrót do kont",
-    "updateAvailable": "Dostępna aktualizacja: v{{version}}"
-  },
-  "contextMenu": {
-    "find": "Znajdź",
-    "open": "Otwórz",
-    "openInNewWindow": "Otwórz w nowym oknie",
-    "markRead": "Oznacz jako przeczytane",
-    "markUnread": "Oznacz jako nieprzeczytane",
-    "star": "Oznacz wiadomość gwiazdką",
-    "unstar": "Usuń gwiazdkę",
-    "select": "Zaznacz",
-    "reply": "Odpowiedz",
-    "replyAll": "Odpowiedz wszystkim",
-    "forward": "Przekaż dalej",
-    "moveToFolder": "Przenieś",
-    "archive": "Archiwizuj",
-    "snooze": {
-      "label": "Odłóż",
-      "threeHours": "Za 3 godziny",
-      "tomorrowMorning": "Jutro rano",
-      "nextWeek": "W przyszłym tygodniu",
-      "custom": "Niestandardowe..."
-    },
-    "categorize": "Kategoryzuj jako…",
-    "createRule": "Utwórz regułę na podstawie wiadomości",
-    "addToBlockList": "Dodaj do listy blokad",
-    "markAsSpam": "Oznacz jako spam",
-    "markAsHam": "Oznacz jako niebędące spamem",
-    "copySubject": "Kopiuj temat",
-    "copySender": "Kopiuj adres nadawcy",
-    "viewHeaders": "Wyświetl pełne nagłówki",
-    "delete": "Usuń",
-    "headers": {
-      "title": "Pełne nagłówki",
-      "copyRaw": "Kopiuj surowe dane",
-      "copied": "✓ Skopiowano",
-      "loading": "Wczytywanie nagłówków…",
-      "noHeaders": "Brak dostępnych nagłówków"
-    },
-    "folders": {
-      "back": "Przenieś do folderu",
-      "loading": "Wczytywanie folderów…",
-      "empty": "Nie znaleziono folderów",
-      "recent": "Ostatnie",
-      "favorites": "Ulubione",
-      "search": "Szukaj folderów…"
-    },
-    "copyLink": "Kopiuj link"
-  },
-  "commandPalette": {
-    "placeholder": "Wyszukaj działanie…",
-    "noResults": "Nie znaleziono działań",
-    "hint": {
-      "navigate": "Nawiguj",
-      "select": "Wybierz",
-      "close": "Zamknij"
-    },
-    "actions": {
-      "compose": "Napisz nową wiadomość",
-      "inbox": "Przejdź do skrzynki odbiorczej",
-      "settings": "Otwórz ustawienia",
-      "themes": "Otwórz motywy",
-      "switchTheme": "Przełącz na motyw {{theme}}",
-      "accountInbox": "{{name}} — Skrzynka odbiorcza"
-    }
-  },
-  "shortcuts": {
-    "title": "Skróty klawiaturowe",
-    "customizeHint": "Dostosuj skróty w Ustawieniach → Skróty",
-    "closeHint": "Naciśnij ? lub Esc, aby zamknąć",
-    "then": "wtedy",
-    "groups": {
-      "composeSearch": "Napisz i wyszukaj",
-      "navigation": "Nawigacja",
-      "messageActions": "Działania na wiadomościach",
-      "gtd": "GTD"
-    },
-    "actions": {
-      "compose": {
-        "label": "Napisz",
-        "description": "Otwórz nowe okno tworzenia wiadomości"
-      },
-      "focusSearch": {
-        "label": "Wyszukaj",
-        "description": "Przejdź do pola wyszukiwania"
-      },
-      "showHelp": {
-        "label": "Pokaż skróty",
-        "description": "Pokaż tę ściągawkę skrótów klawiaturowych"
-      },
-      "nextMessage": {
-        "label": "Następna wiadomość",
-        "description": "Przejdź do następnej wiadomości"
-      },
-      "prevMessage": {
-        "label": "Poprzednia wiadomość",
-        "description": "Przejdź do poprzedniej wiadomości"
-      },
-      "openMessage": {
-        "label": "Otwórz pierwszą wiadomość",
-        "description": "Otwórz pierwszą wiadomość, jeśli żadna nie jest zaznaczona"
-      },
-      "goInbox": {
-        "label": "Przejdź do skrzynki odbiorczej",
-        "description": "Przejdź do ujednoliconej skrzynki odbiorczej"
-      },
-      "reply": {
-        "label": "Odpowiedz",
-        "description": "Odpowiedz na bieżącą wiadomość"
-      },
-      "replyAll": {
-        "label": "Odpowiedz wszystkim",
-        "description": "Odpowiedz wszystkim na bieżącą wiadomość"
-      },
-      "forward": {
-        "label": "Przekaż dalej",
-        "description": "Prześlij bieżącą wiadomość dalej"
-      },
-      "archive": {
-        "label": "Archiwizuj",
-        "description": "Archiwizuj wiadomość / zaznaczenie"
-      },
-      "delete": {
-        "label": "Usuń",
-        "description": "Usuń wiadomość / zaznaczenie"
-      },
-      "toggleStar": {
-        "label": "Oznacz gwiazdką",
-        "description": "Przełącz gwiazdkę bieżącej wiadomości"
-      },
-      "toggleRead": {
-        "label": "Przełącz stan przeczytania",
-        "description": "Przełącz stan przeczytania bieżącej wiadomości"
-      },
-      "selectMessage": {
-        "label": "Zaznacz wiadomość",
-        "description": "Zaznacz lub odznacz bieżącą wiadomość"
-      },
-      "printMessage": {
-        "label": "Drukuj",
-        "description": "Drukuj bieżącą wiadomość"
-      },
-      "gtdTodo": {
-        "label": "Oznacz jako Do zrobienia",
-        "description": "Sklasyfikuj zaznaczoną wiadomość jako do zrobienia"
-      },
-      "gtdWatch": {
-        "label": "Oznacz jako Obserwuj",
-        "description": "Sklasyfikuj zaznaczoną wiadomość jako obserwuj"
-      },
-      "gtdDelegated": {
-        "label": "Oznacz jako Delegowane",
-        "description": "Sklasyfikuj zaznaczoną wiadomość jako delegowane"
-      },
-      "toggleRightSidebar": {
-        "label": "Przełącz prawy panel",
-        "description": "Ukryj lub pokaż prawy panel boczny"
-      },
-      "gtdUndo": {
-        "description": "Cofnij ostatnią klasyfikację GTD"
-      }
-    }
-  },
-  "notifications": {
-    "newMessage": "Nowa wiadomość"
-  },
-  "signatureEditor": {
-    "bold": "Pogrubienie (Ctrl+B)",
-    "italic": "Kursywa (Ctrl+I)",
-    "underline": "Podkreślenie (Ctrl+U)",
-    "strikethrough": "Przekreślenie",
-    "textColor": "Kolor tekstu",
-    "link": "Wstaw link",
-    "imageUrl": "Obraz z adresu URL",
-    "imageUpload": "Prześlij obraz (maks. 300 KB)",
-    "sourceMode": "Edytuj źródło HTML",
-    "visualMode": "Edytor wizualny",
-    "linkPrompt": "Adres URL linku:",
-    "imageUrlPrompt": "Adres URL obrazu:",
-    "imageTooLarge": {
-      "title": "Obraz jest za duży",
-      "body": "Musi mieć mniej niż 300 KB. Użyj zewnętrznego adresu URL dla większych obrazów."
-    }
-  },
-  "profile": {
-    "title": "Edytuj profil",
-    "editProfile": "Edytuj profil",
-    "displayName": "Nazwa wyświetlana",
-    "displayNameHint": "Wyświetlana zamiast nazwy użytkownika. Pozostaw puste, aby użyć nazwy użytkownika.",
-    "uploadPhoto": "Prześlij zdjęcie",
-    "removePhoto": "Usuń zdjęcie",
-    "errorNotImage": "Wybierz plik obrazu.",
-    "errorProcess": "Nie udało się przetworzyć obrazu."
-  },
   "admin": {
     "cleanup": {
       "title": "Porządki w skrzynce",
@@ -1472,16 +849,132 @@
     "blocked": "Zablokowane",
     "errorAdd": "Nie udało się zablokować nadawcy"
   },
-  "spam": {
-    "movedToSpam": "Przeniesiono do spamu",
-    "movedToSpamBulk": "Przeniesiono {{count}} wiadomości do spamu",
-    "movedToInbox": "Przeniesiono do skrzynki odbiorczej",
-    "movedToInboxBulk": "Przeniesiono {{count}} wiadomości do skrzynki odbiorczej",
-    "failTitle": "Nie udało się oznaczyć jako spam",
-    "failHamTitle": "Nie udało się oznaczyć wiadomości jako niebędącej spamem",
-    "failBody": "Serwer pocztowy odrzucił przeniesienie.",
-    "failHamBody": "Serwer pocztowy odrzucił przeniesienie.",
-    "failBodyBulk": "Nie udało się przenieść {{count}} wiadomości."
+  "commandPalette": {
+    "placeholder": "Wyszukaj działanie…",
+    "noResults": "Nie znaleziono działań",
+    "hint": {
+      "navigate": "Nawiguj",
+      "select": "Wybierz",
+      "close": "Zamknij"
+    },
+    "actions": {
+      "compose": "Napisz nową wiadomość",
+      "inbox": "Przejdź do skrzynki odbiorczej",
+      "settings": "Otwórz ustawienia",
+      "themes": "Otwórz motywy",
+      "switchTheme": "Przełącz na motyw {{theme}}",
+      "accountInbox": "{{name}} — Skrzynka odbiorcza"
+    }
+  },
+  "common": {
+    "cancel": "Anuluj",
+    "save": "Zapisz",
+    "delete": "Usuń",
+    "edit": "Edytuj",
+    "add": "Dodaj",
+    "remove": "Usuń",
+    "copy": "Kopiuj",
+    "back": "Wstecz",
+    "undo": "Cofnij",
+    "view": "Wyświetl",
+    "retry": "Spróbuj ponownie",
+    "loading": "Wczytywanie…",
+    "saving": "Zapisywanie…",
+    "deleting": "Usuwanie…",
+    "never": "Nigdy",
+    "noSubject": "(brak tematu)",
+    "unknown": "Nieznane",
+    "error": "Błąd: {{message}}",
+    "dismiss": "Odrzuć",
+    "loadMore": "Wczytaj więcej"
+  },
+  "compose": {
+    "newMessage": "Nowa wiadomość",
+    "reply": "Odpowiedz",
+    "replyAll": "Odpowiedz wszystkim",
+    "forward": "Przekaż dalej",
+    "from": "Od",
+    "to": "Do",
+    "cc": "DW",
+    "bcc": "UDW",
+    "subject": "Temat",
+    "subjectPh": "Dodaj temat",
+    "toPh": "odbiorca@example.com",
+    "ccPh": "cc@example.com",
+    "bccPh": "bcc@example.com",
+    "bodyPh": "Napisz wiadomość…",
+    "send": "Wyślij",
+    "sendTooltip": "Wyślij (Ctrl+Enter)",
+    "sending": "Wysyłanie…",
+    "discard": "Odrzuć",
+    "saveDraft": "Zapisz wersję roboczą",
+    "savingDraft": "Zapisywanie…",
+    "draftSaved": "Wersja robocza zapisana",
+    "closeDraft": {
+      "title": "Zapisać tę wersję roboczą?",
+      "save": "Zapisz wersję roboczą",
+      "discard": "Odrzuć",
+      "keepEditing": "Kontynuuj edycję"
+    },
+    "discardDraft": {
+      "title": "Odrzucić wersję roboczą?",
+      "discard": "Odrzuć",
+      "keepEditing": "Kontynuuj edycję"
+    },
+    "draftHasAttachments": "Załączniki nie są zapisywane wraz z wersjami roboczymi. Po ponownym otwarciu tej wersji trzeba będzie dodać je ponownie.",
+    "emptySubject": {
+      "title": "Wysłać bez tematu?",
+      "sendAnyway": "Wyślij mimo to",
+      "cancel": "Anuluj"
+    },
+    "forgottenAttachment": {
+      "title": "Nie zapomniałeś o załączniku?",
+      "body": "Wiadomość wspomina o załączniku, ale żaden plik nie został dołączony.",
+      "sendAnyway": "Wyślij mimo to",
+      "cancel": "Anuluj"
+    },
+    "attachmentKeywords": "załącz|załączony|załącznik|załączniki|patrz w załączeniu|w załączeniu|dołączono|proszę znaleźć",
+    "sent": {
+      "title": "Wiadomość wysłana",
+      "noCopy": "Wysłano, ale nie zapisano w folderze Wysłane",
+      "action": "Wyświetl"
+    },
+    "toolbar": {
+      "removeTable": "Usuń tabelę",
+      "textColor": "Kolor tekstu",
+      "removeColor": "Usuń kolor",
+      "insertImage": "Wstaw obraz",
+      "minimize": "Minimalizuj",
+      "maximize": "Maksymalizuj",
+      "restore": "Przywróć",
+      "close": "Zamknij",
+      "attachFile": "Dołącz plik",
+      "insertLink": "Wstaw link",
+      "apply": "Zastosuj",
+      "insertTable": "Wstaw tabelę",
+      "highlight": "Kolor wyróżnienia",
+      "removeHighlight": "Usuń wyróżnienie",
+      "fontDefault": "Domyślne",
+      "moreFormatting": "Więcej opcji formatowania",
+      "aiAssist": "Asystent AI",
+      "aiWriteDraft": "Napisz wersję roboczą",
+      "aiImprove": "Ulepsz",
+      "aiShorten": "Skróć",
+      "aiFixGrammar": "Popraw gramatykę",
+      "aiPanelTitle": "Sugestia AI",
+      "aiApply": "Zastosuj",
+      "aiDismiss": "Odrzuć",
+      "aiGenerating": "Generowanie…",
+      "aiError": "Błąd AI: {{message}}"
+    },
+    "priority": "Priorytet",
+    "priorityHigh": "Wysoki priorytet",
+    "priorityNormal": "Normalny",
+    "priorityLow": "Niski priorytet",
+    "recipientMenu": {
+      "copy": "Kopiuj adres",
+      "copyAll": "Kopiuj wszystkie adresy z tego pola"
+    }
   },
   "contacts": {
     "title": "Kontakty",
@@ -1522,6 +1015,635 @@
     },
     "carddavBadge": "Zsynchronizowano z CardDAV"
   },
+  "contextMenu": {
+    "find": "Znajdź",
+    "open": "Otwórz",
+    "openInNewWindow": "Otwórz w nowym oknie",
+    "markRead": "Oznacz jako przeczytane",
+    "markUnread": "Oznacz jako nieprzeczytane",
+    "star": "Oznacz wiadomość gwiazdką",
+    "unstar": "Usuń gwiazdkę",
+    "select": "Zaznacz",
+    "reply": "Odpowiedz",
+    "replyAll": "Odpowiedz wszystkim",
+    "forward": "Przekaż dalej",
+    "moveToFolder": "Przenieś",
+    "archive": "Archiwizuj",
+    "snooze": {
+      "label": "Odłóż",
+      "threeHours": "Za 3 godziny",
+      "tomorrowMorning": "Jutro rano",
+      "nextWeek": "W przyszłym tygodniu",
+      "custom": "Niestandardowe..."
+    },
+    "categorize": "Kategoryzuj jako…",
+    "createRule": "Utwórz regułę na podstawie wiadomości",
+    "addToBlockList": "Dodaj do listy blokad",
+    "markAsSpam": "Oznacz jako spam",
+    "markAsHam": "Oznacz jako niebędące spamem",
+    "copySubject": "Kopiuj temat",
+    "copySender": "Kopiuj adres nadawcy",
+    "viewHeaders": "Wyświetl pełne nagłówki",
+    "delete": "Usuń",
+    "headers": {
+      "title": "Pełne nagłówki",
+      "copyRaw": "Kopiuj surowe dane",
+      "copied": "✓ Skopiowano",
+      "loading": "Wczytywanie nagłówków…",
+      "noHeaders": "Brak dostępnych nagłówków"
+    },
+    "folders": {
+      "back": "Przenieś do folderu",
+      "loading": "Wczytywanie folderów…",
+      "empty": "Nie znaleziono folderów",
+      "recent": "Ostatnie",
+      "favorites": "Ulubione",
+      "search": "Szukaj folderów…"
+    },
+    "copyLink": "Kopiuj link"
+  },
+  "conversation": {
+    "label": "rozmowa",
+    "attachment": "Załącznik",
+    "logicalCount": "{{count}} wiadomości",
+    "loadFailed": "Nie udało się wczytać rozmowy",
+    "loading": "Wczytywanie rozmowy…",
+    "unknownSender": "Nieznany nadawca",
+    "you": "Ty",
+    "conversationReader": "Czytnik rozmowy",
+    "accounts": "Konta",
+    "threadingDiagnostics": "Diagnostyka grupowania",
+    "rebuildConversations": "Przebuduj rozmowy",
+    "rebuildDryRun": "Tryb próbny",
+    "automatedSeries": "Serie automatyczne",
+    "seriesOff": "Wyłączone",
+    "seriesStrict": "Ścisłe",
+    "seriesSmart": "Inteligentne",
+    "loadBody": "Wczytaj treść",
+    "loadingBody": "Wczytywanie treści…",
+    "loadBodyFailed": "Nie udało się wczytać treści",
+    "conversationCount_one": "{{count}} rozmowa",
+    "conversationCount_few": "{{count}} rozmowy",
+    "conversationCount_many": "{{count}} rozmów",
+    "keyboardHint": "j/k nawigacja · Enter rozwiń · Spacja zaznacz",
+    "mergeInto": "Połącz z…",
+    "locked": "Zablokowana",
+    "unlocked": "Odblokowana",
+    "diagnosticsKind": "Typ",
+    "diagnosticsConfidence": "Pewność",
+    "diagnosticsLogicalMessages": "Wiadomości logiczne",
+    "diagnosticsOverrides": "Ręczne nadpisania",
+    "diagnosticsNoOverrides": "Brak ręcznych nadpisań",
+    "diagnosticsThreadingReason": "Powód grupowania",
+    "diagnosticsCopyCount": "Kopie",
+    "diagnosticsParent": "Wiadomość nadrzędna",
+    "diagnosticsNone": "—",
+    "scopeThisCopy": "Ta kopia fizyczna",
+    "scopeAllCopies": "Wszystkie kopie tej wiadomości",
+    "scopeThisAccount": "Kopie na tym koncie",
+    "scopeAccountCopies": "Kopie na tym koncie",
+    "scopeWholeConversation": "Cała rozmowa",
+    "confirmDeleteTitle": "Usuń rozmowę",
+    "confirmDeleteBody": "Usunąć {{count}} wiadomości? Tej operacji nie można cofnąć.",
+    "confirmArchiveTitle": "Archiwizuj rozmowę",
+    "confirmArchiveBody": "Archiwizować {{count}} wiadomości?",
+    "apply": "Zastosuj",
+    "loadImages": "Wczytaj obrazy",
+    "copyUsed": "Użyta kopia: {{folder}} ({{account}})",
+    "noBody": "Brak treści wiadomości",
+    "downloadAttachment": "Pobierz",
+    "attachmentCount_one": "{{count}} załącznik",
+    "attachmentCount_few": "{{count}} załączniki",
+    "attachmentCount_many": "{{count}} załączników",
+    "subject": "Temat",
+    "scrollToMessage": "Przewiń do wiadomości",
+    "copyDetails": "Szczegóły kopii",
+    "read": "Przeczytane",
+    "logicalCount_one": "{{count}} wiad.",
+    "logicalCount_few": "{{count}} wiad.",
+    "logicalCount_many": "{{count}} wiad.",
+    "confirmMoveTitle": "Przenieś rozmowę",
+    "confirmMoveBody": "Przenieść {{count}} wiadomość(-i) do innego folderu?",
+    "showQuotedText": "Pokaż cytowaną treść",
+    "hideQuotedText": "Ukryj cytowaną treść",
+    "readerOffDesc": "Otwieraj tylko wybraną wiadomość",
+    "readerOnDesc": "Pokazuj całą rozmowę w panelu wiadomości",
+    "groupIntoConversationsOn": "Włączone",
+    "readerOff": "Wyłączony",
+    "readerOn": "Włączony",
+    "groupIntoConversations": "Grupowanie rozmów",
+    "incomingMessage": "Wiadomość przychodząca",
+    "outgoingMessage": "Wiadomość wychodząca",
+    "expandMessage": "Rozwiń wiadomość od {{sender}}: {{subject}}",
+    "collapseMessage": "Zwiń wiadomość od {{sender}}: {{subject}}",
+    "summary": "Skrót:"
+  },
+  "diagnostics": {
+    "section": "Diagnostyka",
+    "blurb": "Zanonimizowany raport, którym możesz się podzielić, aby pomóc w rozwiązywaniu problemów. Nie zawiera adresów e-mail, nazwisk, treści wiadomości ani danych poufnych.",
+    "generateReport": "Wygeneruj raport diagnostyczny",
+    "title": "Raport diagnostyczny",
+    "includes": "Zawiera: wersje aplikacji, Twoje środowisko, liczby wiadomości na konto i folder, kategorie błędów synchronizacji oraz stan serwera. Identyfikatory kont i nazwy folderów niestandardowych są zastępowane jednorazowymi skrótami.",
+    "excludes": "Nie zawiera: adresów e-mail, nazwisk, tematów, treści wiadomości, haseł ani kluczy lub tokenów API.",
+    "download": "Pobierz JSON",
+    "copied": "Skopiowano raport",
+    "copyFailed": "Kopiowanie nie powiodło się",
+    "generating": "Generowanie raportu…",
+    "error": "Nie udało się wygenerować raportu."
+  },
+  "gtd": {
+    "title": "GTD",
+    "inbox": "Odebrane",
+    "waiting": "Oczekujące",
+    "inboxZero": "Pusta skrzynka ✓",
+    "allClear": "Wszystko gotowe",
+    "allClearHint": "Nic na Ciebie nie czeka.",
+    "showAll": "Pokaż wszystkie ({{count}})",
+    "showSome": "Pokaż {{available}} z {{total}}",
+    "showLess": "Pokaż mniej",
+    "toggleSection": "Przełącz sekcję {{section}}",
+    "tabEmpty": "Nie ma tu jeszcze żadnych elementów",
+    "removeFrom": "Usuń ze stanu {{state}}",
+    "classified": "Zastosowano etykietę",
+    "classifyFailed": "Nie udało się zastosować etykiety",
+    "undoFailed": "Nie udało się cofnąć etykiety",
+    "removed": "Usunięto etykietę",
+    "removeFailed": "Nie udało się usunąć etykiety",
+    "done": "Oznacz jako wykonane",
+    "doneFailed": "Nie udało się oznaczyć jako gotowe",
+    "doneArchiveFailed": "Oznaczono jako gotowe, ale archiwizacja nie powiodła się — wiadomość nadal znajduje się w skrzynce odbiorczej",
+    "state": {
+      "todo": "Do zrobienia",
+      "watch": "Do obserwowania",
+      "delegated": "Delegowane",
+      "someday": "Kiedyś",
+      "reference": "Materiały"
+    }
+  },
+  "lockScreen": {
+    "subtitle": "Wpisz swój PIN aby odblokować",
+    "unlockButton": "Odblokuj",
+    "unlocking": "Odblokowywanie…",
+    "signOut": "Wyloguj się",
+    "signingOut": "Wylogowywanie…",
+    "pinPlaceholder": "wpisz PIN",
+    "wrongPin": "Nieprawidłowy PIN"
+  },
+  "login": {
+    "tagline": "Twoja ujednolicona skrzynka odbiorcza",
+    "signIn": "Zaloguj się",
+    "createAccount": "Utwórz konto",
+    "username": "Nazwa użytkownika",
+    "password": "Hasło",
+    "pleaseWait": "Proszę czekać…",
+    "dontHaveAccount": "Nie masz konta?",
+    "alreadyHaveAccount": "Masz już konto?",
+    "register": "Zarejestruj się",
+    "orContinueWith": "lub kontynuuj za pomocą",
+    "signInWith": "Zaloguj się za pomocą {{name}}",
+    "inviteEmail": "Zaproszenie dla",
+    "inviteExpired": "Ten link z zaproszeniem jest nieprawidłowy lub wygasł.",
+    "ssoOnly": "Zaloguj się przez SSO",
+    "ssoOnlyDesc": "Logowanie hasłem jest wyłączone na tym serwerze.",
+    "totp": {
+      "title": "Uwierzytelnianie dwuskładnikowe",
+      "instructions": "Wpisz 6-cyfrowy kod z aplikacji uwierzytelniającej.",
+      "placeholder": "000000",
+      "verify": "Zweryfikuj",
+      "verifying": "Weryfikowanie…",
+      "backToLogin": "← Powrót do logowania"
+    },
+    "rememberDevice": "Zapamiętaj to urządzenie",
+    "emailOtp": {
+      "title": "Sprawdź pocztę e-mail",
+      "desc": "Kod weryfikacyjny został wysłany na adres {{email}}",
+      "codePh": "6-cyfrowy kod",
+      "resend": "Wyślij kod ponownie",
+      "sending": "Wysyłanie…",
+      "verify": "Zweryfikuj",
+      "verifying": "Weryfikowanie…"
+    },
+    "mfaEnroll": {
+      "title": "Skonfiguruj uwierzytelnianie dwuskładnikowe",
+      "desc": "Twoja organizacja wymaga uwierzytelniania dwuskładnikowego. Skonfiguruj aplikację uwierzytelniającą, aby kontynuować.",
+      "scan": "Skanuj kod QR",
+      "scanInstructions": "Zeskanuj ten kod QR za pomocą aplikacji uwierzytelniającej (np. Google Authenticator, Authy).",
+      "manualKey": "Nie możesz zeskanować? Wpisz ten klucz ręcznie:",
+      "next": "Dalej: zweryfikuj kod →",
+      "verifyInstructions": "Wpisz 6-cyfrowy kod z aplikacji uwierzytelniającej, aby potwierdzić konfigurację.",
+      "enable": "Włącz 2FA i zaloguj się",
+      "enabling": "Włączanie…",
+      "back": "← Wstecz"
+    },
+    "forgotPassword": {
+      "link": "Nie pamiętasz hasła?",
+      "title": "Zresetuj hasło",
+      "desc": "Wpisz swój adres e-mail do odzyskiwania, a wyślemy Ci link do resetowania hasła.",
+      "emailPh": "Adres e-mail do odzyskiwania",
+      "submit": "Wyślij link resetujący",
+      "sending": "Wysyłanie…",
+      "sentDesc": "Jeśli istnieje konto z tym adresem e-mail do odzyskiwania, wkrótce otrzymasz link do resetowania hasła.",
+      "backToLogin": "← Powrót do logowania"
+    },
+    "resetPassword": {
+      "title": "Ustaw nowe hasło",
+      "desc": "Wpisz poniżej nowe hasło.",
+      "newPassword": "Nowe hasło",
+      "confirm": "Potwierdź hasło",
+      "submit": "Ustaw nowe hasło",
+      "submitting": "Zapisywanie…",
+      "mismatch": "Hasła nie są zgodne",
+      "tooShort": "Hasło musi mieć co najmniej 8 znaków",
+      "doneDesc": "Twoje hasło zostało zmienione. Możesz się teraz zalogować.",
+      "backToLogin": "← Powrót do logowania"
+    }
+  },
+  "message": {
+    "find": {
+      "title": "Wyszukiwanie",
+      "close": "Zamknij wyszukiwanie",
+      "label": "Znajdź:",
+      "matchCase": "Uwzględniaj wielkość liter",
+      "previous": "Poprzednie",
+      "next": "Następne",
+      "closeButton": "Zamknij"
+    },
+    "selectToRead": "Wybierz wiadomość do przeczytania",
+    "noSubject": "(brak tematu)",
+    "to": "Do:",
+    "via": "przez",
+    "attachment_one": "{{count}} załącznik",
+    "attachment_few": "{{count}} załączniki",
+    "attachment_many": "{{count}} załączników",
+    "attachment_other": "{{count}} załączników",
+    "loadingError": "Nie można wczytać treści wiadomości",
+    "noContent": "Nie znaleziono treści wiadomości.",
+    "remoteImagesBlocked": "Zablokowano zdalne obrazy.",
+    "loadImages": "Wczytaj obrazy",
+    "allowSender": "Zawsze zezwalaj nadawcy {{email}}",
+    "allowDomain": "Zawsze zezwalaj domenie @{{domain}}",
+    "downloading": "Pobieranie…",
+    "downloadAll": "Pobierz wszystko",
+    "reply": "Odpowiedz",
+    "replyAll": "Odpowiedz wszystkim",
+    "replyOptions": "Opcje odpowiedzi",
+    "forward": "Przekaż dalej",
+    "archive": "Archiwizuj",
+    "star": "Oznacz gwiazdką",
+    "delete": "Usuń",
+    "print": "Drukuj",
+    "more": "Więcej",
+    "summarize": "Podsumuj",
+    "summary": "Podsumowanie",
+    "summaryDismiss": "Odrzuć podsumowanie",
+    "aiActions": "Działania AI",
+    "manageAiActions": "Zarządzaj działaniami…",
+    "aiRegenerate": "Wygeneruj ponownie",
+    "aiExpand": "Rozwiń",
+    "aiCollapse": "Zwiń",
+    "aiCopy": "Kopiuj",
+    "aiCopied": "Skopiowano",
+    "previousMessage": "Poprzednia wiadomość",
+    "nextMessage": "Następna wiadomość",
+    "archived": {
+      "title": "Wiadomość zarchiwizowana",
+      "failTitle": "Archiwizowanie nie powiodło się",
+      "failBody": "Nie udało się zarchiwizować wiadomości.",
+      "noFolderTitle": "Brak folderu archiwum",
+      "noFolderBody": "Nie skonfigurowano folderu archiwum dla tego konta. Ustaw go w Ustawienia → Konta → Mapowanie folderów."
+    },
+    "moved": {
+      "title": "Wiadomość przeniesiona",
+      "failTitle": "Przenoszenie nie powiodło się",
+      "failBody": "Nie udało się przenieść wiadomości."
+    },
+    "snoozed": {
+      "title": "Wiadomość odłożona",
+      "failTitle": "Odkładanie nie powiodło się",
+      "failBody": "Nie udało się odłożyć tej wiadomości."
+    },
+    "whitelistFail": {
+      "title": "Nie udało się zapisać ustawienia",
+      "body": "Nie udało się zaktualizować listy dozwolonych obrazów."
+    },
+    "emailFrameTitle": "Treść wiadomości e-mail",
+    "unsubscribe": {
+      "info": "Możesz wypisać się z tej listy mailingowej.",
+      "button": "Wypisz się",
+      "done": "Pomyślnie wypisano z listy mailingowej.",
+      "error": "Nie udało się wypisać z listy mailingowej.",
+      "moveToTrash": "Przenieś do kosza"
+    },
+    "aiClassify": {
+      "info": "Ta wiadomość e-mail nie ma kategorii. Czy sklasyfikować ją za pomocą AI?",
+      "button": "Klasyfikuj za pomocą AI",
+      "done": "Sklasyfikowano jako {{category}}",
+      "error": "Klasyfikowanie za pomocą AI nie powiodło się."
+    }
+  },
+  "messageList": {
+    "search": "Szukaj…",
+    "unread": "Nieprzeczytane",
+    "showAll": "Pokaż wszystkie",
+    "unreadOnly": "Tylko nieprzeczytane",
+    "syncAccount": "Synchronizuj konto",
+    "syncAll": "Synchronizuj wszystkie konta",
+    "sync": "Synchronizuj",
+    "compose": "Napisz",
+    "messagesPerPage": "Wiadomości na stronę",
+    "selectAll": "Zaznacz wszystkie",
+    "deselectAll": "Odznacz wszystkie",
+    "markReadSelected": "Oznacz jako przeczytane",
+    "markUnreadSelected": "Oznacz jako nieprzeczytane",
+    "archiveSelected": "Zarchiwizuj zaznaczone",
+    "swipeStar": "Oznacz gwiazdką",
+    "swipeUnstar": "Usuń gwiazdkę",
+    "deleteSelected": "Usuń zaznaczone",
+    "moveToFolder": "Przenieś",
+    "moveToFolderDisabled": "Zaznacz wiadomości z jednego konta, aby je przenieść",
+    "clearSelection": "Wyczyść zaznaczenie",
+    "backToTop": "Wróć na górę",
+    "prevPage": "Poprz.",
+    "nextPage": "Dalej",
+    "pageOf": "Strona {{current}} z {{total}}",
+    "loadMore": "Wczytaj więcej",
+    "noMoreMessages": "Brak kolejnych wiadomości",
+    "deleted": {
+      "title": "Wiadomość usunięta",
+      "body": "Usunięto.",
+      "failTitle": "Usuwanie nie powiodło się",
+      "failBody": "Nie udało się usunąć wiadomości."
+    },
+    "bulkDeleted": {
+      "title_one": "Usunięto {{count}} wiadomość",
+      "title_few": "Usunięto {{count}} wiadomości",
+      "title_many": "Usunięto {{count}} wiadomości",
+      "title_other": "Usunięto {{count}} wiadomości",
+      "body": "Usunięto wiadomości.",
+      "failTitle": "Usuwanie nie powiodło się",
+      "failBody_one": "Nie udało się usunąć {{count}} wiadomości.",
+      "failBody_few": "Nie udało się usunąć {{count}} wiadomości.",
+      "failBody_many": "Nie udało się usunąć {{count}} wiadomości.",
+      "failBody_other": "Nie udało się usunąć {{count}} wiadomości."
+    },
+    "bulkMoved": {
+      "title_one": "Przeniesiono {{count}} wiadomość",
+      "title_few": "Przeniesiono {{count}} wiadomości",
+      "title_many": "Przeniesiono {{count}} wiadomości",
+      "title_other": "Przeniesiono {{count}} wiadomości",
+      "failTitle": "Przenoszenie nie powiodło się",
+      "failBody_one": "Nie udało się przenieść {{count}} wiadomości.",
+      "failBody_few": "Nie udało się przenieść {{count}} wiadomości.",
+      "failBody_many": "Nie udało się przenieść {{count}} wiadomości.",
+      "failBody_other": "Nie udało się przenieść {{count}} wiadomości."
+    },
+    "bulkArchived": {
+      "title_one": "Zarchiwizowano {{count}} wiadomość",
+      "title_few": "Zarchiwizowano {{count}} wiadomości",
+      "title_many": "Zarchiwizowano {{count}} wiadomości",
+      "title_other": "Zarchiwizowano {{count}} wiadomości",
+      "body": "Przeniesiono do archiwum.",
+      "failTitle": "Archiwizowanie nie powiodło się",
+      "failBody_one": "Nie udało się zarchiwizować {{count}} wiadomości.",
+      "failBody_few": "Nie udało się zarchiwizować {{count}} wiadomości.",
+      "failBody_many": "Nie udało się zarchiwizować {{count}} wiadomości.",
+      "failBody_other": "Nie udało się zarchiwizować {{count}} wiadomości.",
+      "noFolderTitle": "Brak folderu archiwum",
+      "noFolderBody": "Co najmniej jedno konto nie ma skonfigurowanego folderu archiwum. Ustaw go w Ustawienia → Konta → Mapowanie folderów."
+    },
+    "noArchiveFolder": {
+      "title": "Brak folderu archiwum",
+      "body": "Nie skonfigurowano folderu archiwum. Ustaw go w Ustawienia → Konta → Mapowanie folderów."
+    },
+    "selectMessages": "Zaznacz wiadomości",
+    "selectedCount": "Wybrano: {{count}}",
+    "pullToSync": "Pociągnij, aby zsynchronizować",
+    "releaseToSync": "Puść, aby zsynchronizować",
+    "noSearchResults": "Nie znaleziono wyników",
+    "noSearchResultsDesc": "Brak wyników dla {{query}}",
+    "clearSearch": "Wyczyść wyszukiwanie",
+    "searchHelp": {
+      "title": "Operatory wyszukiwania",
+      "from": "Od nadawcy",
+      "subject": "W temacie",
+      "to": "Do / DW",
+      "hasAttachment": "Ma załącznik",
+      "isUnread": "Tylko nieprzeczytane",
+      "isStarred": "Tylko oznaczone gwiazdką",
+      "after": "Po dacie",
+      "before": "Przed datą",
+      "inAll": "Szukaj we wszystkich folderach",
+      "negate": "Wyklucz (użyj prefiksu -)",
+      "tip": "Połącz operatory ze słowami kluczowymi, np."
+    },
+    "emptyInbox": "Wszystko przeczytane",
+    "emptyInboxDesc": "Brak nieprzeczytanych wiadomości",
+    "composeAriaLabel": "Napisz nową wiadomość",
+    "noAccounts": "Brak kont",
+    "noAccountsDesc": "Dodaj konto pocztowe, aby rozpocząć",
+    "foldersHeading": "Foldery",
+    "categories": {
+      "primary": "Główne",
+      "newsletter": "Newslettery",
+      "promotion": "Promocje",
+      "automated": "Automatyczne",
+      "social": "Społecznościowe"
+    }
+  },
+  "notifications": {
+    "newMessage": "Nowa wiadomość"
+  },
+  "profile": {
+    "title": "Edytuj profil",
+    "editProfile": "Edytuj profil",
+    "displayName": "Nazwa wyświetlana",
+    "displayNameHint": "Wyświetlana zamiast nazwy użytkownika. Pozostaw puste, aby użyć nazwy użytkownika.",
+    "uploadPhoto": "Prześlij zdjęcie",
+    "removePhoto": "Usuń zdjęcie",
+    "errorNotImage": "Wybierz plik obrazu.",
+    "errorProcess": "Nie udało się przetworzyć obrazu."
+  },
+  "rightSidebar": {
+    "hide": "Ukryj prawy pasek boczny",
+    "show": "Pokaż prawy pasek boczny"
+  },
+  "shortcuts": {
+    "title": "Skróty klawiaturowe",
+    "customizeHint": "Dostosuj skróty w Ustawieniach → Skróty",
+    "closeHint": "Naciśnij ? lub Esc, aby zamknąć",
+    "then": "wtedy",
+    "groups": {
+      "composeSearch": "Napisz i wyszukaj",
+      "navigation": "Nawigacja",
+      "messageActions": "Działania na wiadomościach",
+      "gtd": "GTD"
+    },
+    "actions": {
+      "compose": {
+        "label": "Napisz",
+        "description": "Otwórz nowe okno tworzenia wiadomości"
+      },
+      "focusSearch": {
+        "label": "Wyszukaj",
+        "description": "Przejdź do pola wyszukiwania"
+      },
+      "showHelp": {
+        "label": "Pokaż skróty",
+        "description": "Pokaż tę ściągawkę skrótów klawiaturowych"
+      },
+      "nextMessage": {
+        "label": "Następna wiadomość",
+        "description": "Przejdź do następnej wiadomości"
+      },
+      "prevMessage": {
+        "label": "Poprzednia wiadomość",
+        "description": "Przejdź do poprzedniej wiadomości"
+      },
+      "openMessage": {
+        "label": "Otwórz pierwszą wiadomość",
+        "description": "Otwórz pierwszą wiadomość, jeśli żadna nie jest zaznaczona"
+      },
+      "goInbox": {
+        "label": "Przejdź do skrzynki odbiorczej",
+        "description": "Przejdź do ujednoliconej skrzynki odbiorczej"
+      },
+      "reply": {
+        "label": "Odpowiedz",
+        "description": "Odpowiedz na bieżącą wiadomość"
+      },
+      "replyAll": {
+        "label": "Odpowiedz wszystkim",
+        "description": "Odpowiedz wszystkim na bieżącą wiadomość"
+      },
+      "forward": {
+        "label": "Przekaż dalej",
+        "description": "Prześlij bieżącą wiadomość dalej"
+      },
+      "archive": {
+        "label": "Archiwizuj",
+        "description": "Archiwizuj wiadomość / zaznaczenie"
+      },
+      "delete": {
+        "label": "Usuń",
+        "description": "Usuń wiadomość / zaznaczenie"
+      },
+      "toggleStar": {
+        "label": "Oznacz gwiazdką",
+        "description": "Przełącz gwiazdkę bieżącej wiadomości"
+      },
+      "toggleRead": {
+        "label": "Przełącz stan przeczytania",
+        "description": "Przełącz stan przeczytania bieżącej wiadomości"
+      },
+      "selectMessage": {
+        "label": "Zaznacz wiadomość",
+        "description": "Zaznacz lub odznacz bieżącą wiadomość"
+      },
+      "printMessage": {
+        "label": "Drukuj",
+        "description": "Drukuj bieżącą wiadomość"
+      },
+      "gtdTodo": {
+        "label": "Oznacz jako Do zrobienia",
+        "description": "Sklasyfikuj zaznaczoną wiadomość jako do zrobienia"
+      },
+      "gtdWatch": {
+        "label": "Oznacz jako Obserwuj",
+        "description": "Sklasyfikuj zaznaczoną wiadomość jako obserwuj"
+      },
+      "gtdDelegated": {
+        "label": "Oznacz jako Delegowane",
+        "description": "Sklasyfikuj zaznaczoną wiadomość jako delegowane"
+      },
+      "gtdUndo": {
+        "description": "Cofnij ostatnią klasyfikację GTD"
+      },
+      "toggleRightSidebar": {
+        "label": "Przełącz prawy panel",
+        "description": "Ukryj lub pokaż prawy panel boczny"
+      }
+    }
+  },
+  "sidebar": {
+    "allInboxes": "Wszystkie skrzynki odbiorcze",
+    "compose": "Napisz",
+    "toggleSidebar": "Przełącz pasek boczny",
+    "newFolder": "Nowy folder",
+    "folderPh": "Nazwa folderu…",
+    "subfolderPh": "Nazwa podfolderu…",
+    "hiddenFolders_one": "{{count}} ukryty folder",
+    "hiddenFolders_few": "{{count}} ukryte foldery",
+    "hiddenFolders_many": "{{count}} ukrytych folderów",
+    "hiddenFolders_other": "{{count}} ukrytych folderów",
+    "hideHidden": "Ukryj ukryte foldery",
+    "blockImages": "Blokuj obrazy",
+    "searchAllFolders": "Szukaj we wszystkich folderach",
+    "settings": "Ustawienia",
+    "lock": "Zablokuj",
+    "signOut": "Wyloguj się",
+    "connectionError": "Błąd połączenia",
+    "folderMenu": {
+      "markAllRead": "Oznacz wszystkie jako przeczytane",
+      "syncFolder": "Synchronizuj folder",
+      "renameFavorite": "Zmień nazwę ulubionego folderu",
+      "rename": "Zmień nazwę",
+      "createSubfolder": "Utwórz podfolder",
+      "hide": "Ukryj folder",
+      "unhide": "Pokaż folder",
+      "empty": "Opróżnij folder",
+      "delete": "Usuń folder"
+    },
+    "accountMenu": {
+      "newFolder": "Nowy folder",
+      "markAllRead": "Oznacz wszystkie jako przeczytane",
+      "syncNow": "Synchronizuj teraz",
+      "syncFoldersNow": "Synchronizuj foldery teraz",
+      "settings": "Ustawienia konta",
+      "reconnect": "Połącz ponownie",
+      "moveUp": "Przenieś wyżej",
+      "moveDown": "Przenieś niżej",
+      "moveFailed": "Nie udało się zmienić kolejności kont"
+    },
+    "confirmDelete": "Usunąć folder „{{name}}”? Wszystkie wiadomości w nim zostaną trwale usunięte.",
+    "confirmEmpty": "Opróżnić „{{name}}”? Wszystkie wiadomości w tym folderze zostaną trwale usunięte.",
+    "createFailed": "Nie udało się utworzyć folderu",
+    "renameFailed": "Zmiana nazwy nie powiodła się",
+    "deleteFailed": "Usuwanie nie powiodło się",
+    "emptyFailed": "Opróżnianie nie powiodło się",
+    "emptying": "Opróżnianie „{{name}}”…",
+    "emptied": "Folder opróżniony",
+    "backToAccounts": "Powrót do kont",
+    "updateAvailable": "Dostępna aktualizacja: v{{version}}"
+  },
+  "signatureEditor": {
+    "bold": "Pogrubienie (Ctrl+B)",
+    "italic": "Kursywa (Ctrl+I)",
+    "underline": "Podkreślenie (Ctrl+U)",
+    "strikethrough": "Przekreślenie",
+    "textColor": "Kolor tekstu",
+    "link": "Wstaw link",
+    "imageUrl": "Obraz z adresu URL",
+    "imageUpload": "Prześlij obraz (maks. 300 KB)",
+    "sourceMode": "Edytuj źródło HTML",
+    "visualMode": "Edytor wizualny",
+    "linkPrompt": "Adres URL linku:",
+    "imageUrlPrompt": "Adres URL obrazu:",
+    "imageTooLarge": {
+      "title": "Obraz jest za duży",
+      "body": "Musi mieć mniej niż 300 KB. Użyj zewnętrznego adresu URL dla większych obrazów."
+    }
+  },
+  "spam": {
+    "movedToSpam": "Przeniesiono do spamu",
+    "movedToSpamBulk": "Przeniesiono {{count}} wiadomości do spamu",
+    "movedToInbox": "Przeniesiono do skrzynki odbiorczej",
+    "movedToInboxBulk": "Przeniesiono {{count}} wiadomości do skrzynki odbiorczej",
+    "failTitle": "Nie udało się oznaczyć jako spam",
+    "failHamTitle": "Nie udało się oznaczyć wiadomości jako niebędącej spamem",
+    "failBody": "Serwer pocztowy odrzucił przeniesienie.",
+    "failHamBody": "Serwer pocztowy odrzucił przeniesienie.",
+    "failBodyBulk": "Nie udało się przenieść {{count}} wiadomości."
+  },
   "todoist": {
     "title": "Utwórz zadanie Todoist",
     "taskTitle": "Tytuł zadania",
@@ -1542,54 +1664,8 @@
     "taskCreated": "Utworzono zadanie w Todoist",
     "openTask": "Otwórz w Todoist"
   },
-  "rightSidebar": {
-    "hide": "Ukryj prawy pasek boczny",
-    "show": "Pokaż prawy pasek boczny"
-  },
-  "gtd": {
-    "title": "GTD",
-    "inbox": "Odebrane",
-    "waiting": "Oczekujące",
-    "inboxZero": "Pusta skrzynka ✓",
-    "allClear": "Wszystko gotowe",
-    "allClearHint": "Nic na Ciebie nie czeka.",
-    "showAll": "Pokaż wszystkie ({{count}})",
-    "showSome": "Pokaż {{available}} z {{total}}",
-    "showLess": "Pokaż mniej",
-    "toggleSection": "Przełącz sekcję {{section}}",
-    "tabEmpty": "Nie ma tu jeszcze żadnych elementów",
-    "removeFrom": "Usuń ze stanu {{state}}",
-    "classified": "Zastosowano etykietę",
-    "classifyFailed": "Nie udało się zastosować etykiety",
-    "removed": "Usunięto etykietę",
-    "removeFailed": "Nie udało się usunąć etykiety",
-    "done": "Oznacz jako wykonane",
-    "doneFailed": "Nie udało się oznaczyć jako gotowe",
-    "doneArchiveFailed": "Oznaczono jako gotowe, ale archiwizacja nie powiodła się — wiadomość nadal znajduje się w skrzynce odbiorczej",
-    "state": {
-      "todo": "Do zrobienia",
-      "watch": "Do obserwowania",
-      "delegated": "Delegowane",
-      "someday": "Kiedyś",
-      "reference": "Materiały"
-    },
-    "undoFailed": "Nie udało się cofnąć etykiety"
-  },
   "window": {
     "minimize": "Minimalizuj",
     "close": "Zamknij"
-  },
-  "diagnostics": {
-    "section": "Diagnostyka",
-    "blurb": "Zanonimizowany raport, którym możesz się podzielić, aby pomóc w rozwiązywaniu problemów. Nie zawiera adresów e-mail, nazwisk, treści wiadomości ani danych poufnych.",
-    "generateReport": "Wygeneruj raport diagnostyczny",
-    "title": "Raport diagnostyczny",
-    "includes": "Zawiera: wersje aplikacji, Twoje środowisko, liczby wiadomości na konto i folder, kategorie błędów synchronizacji oraz stan serwera. Identyfikatory kont i nazwy folderów niestandardowych są zastępowane jednorazowymi skrótami.",
-    "excludes": "Nie zawiera: adresów e-mail, nazwisk, tematów, treści wiadomości, haseł ani kluczy lub tokenów API.",
-    "download": "Pobierz JSON",
-    "copied": "Skopiowano raport",
-    "copyFailed": "Kopiowanie nie powiodło się",
-    "generating": "Generowanie raportu…",
-    "error": "Nie udało się wygenerować raportu."
   }
 }

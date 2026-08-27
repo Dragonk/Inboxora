@@ -27,6 +27,7 @@
   --green: #4ade80;
   --red: #f87171;
   --amber: #fbbf24;
+  --message-body-bg: var(--bg-secondary);
   /* Elevation system */
   --shadow-soft: 0 2px 8px rgba(0,0,0,0.28);
   --shadow-popover: 0 4px 20px rgba(0,0,0,0.45), 0 0 0 1px rgba(255,255,255,0.04), inset 0 1px 0 rgba(255,255,255,0.05);
@@ -79,6 +80,16 @@ body, #root {
   :root {
     --app-height: 100dvh;
   }
+}
+
+/* Message bodies follow the active surface by default; the native light theme
+   deliberately uses a pure-white reading panel to match the conversation mock-up. */
+:root[data-mailflow-theme="light"] {
+  --message-body-bg: #ffffff;
+}
+
+:root[data-mailflow-theme="dark"] {
+  --message-body-bg: var(--bg-secondary);
 }
 
 /* Custom scrollbar */
