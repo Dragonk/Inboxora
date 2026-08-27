@@ -40,6 +40,12 @@ try {
     accounts.push(result.rows[0].id);
   }
   const [gmailId] = accounts;
+  for (const accountId of accounts) {
+    await client.query(
+      "INSERT INTO folders (account_id, path, name, total_count, unread_count) VALUES ($1, 'INBOX', 'INBOX', 0, 0)",
+      [accountId]
+    );
+  }
 
   // ── Helpers ────────────────────────────────────────────────────────────────
   const aliceEmail = 'alice@example.test';
