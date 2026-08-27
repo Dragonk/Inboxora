@@ -135,7 +135,7 @@ describe('CE v2 Rebuild idempotency — real PostgreSQL', () => {
       const convId = randomUUID();
       testConvIds.push(convId);
       await pool.query(
-        "INSERT INTO conversations (id, user_id, account_id, canonical_subject, kind, manually_locked) VALUES ($1, $2, 'test', 'human_reply_chain', false)",
+        "INSERT INTO conversations (id, user_id, account_id, canonical_subject, kind, manually_locked) VALUES ($1, $2, $3, 'human_reply_chain', false)",
         [convId, userId, accountId]
       );
       const lmId = randomUUID();
