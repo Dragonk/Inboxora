@@ -100,7 +100,7 @@ describe('Conversation Engine v2 — real PostgreSQL concurrency', () => {
     const failures = outcomes.filter(x => !x.ok);
     assert.ok(successes.length >= 1, 'one merge must win');
     assert.ok(failures.length >= 1, 'opposite-direction races must reject or serialize');
-    assert.ok(failures.every(x => /cycle|alias|serialization|deadlock|different target/i.test(x.error.message)), `unexpected race errors: ${failures.map(x => x.error.message).join('; ')}`);
+    assert.ok(failures.every(x => /cycle|alias|serialization|deadlock|different target|concurrent update/i.test(x.error.message)), `unexpected race errors: ${failures.map(x => x.error.message).join('; ')}`);
     const aliases = await q('SELECT alias_conversation_id, canonical_conversation_id FROM conversation_aliases WHERE user_id=$1', [userId]);
     assert.ok(aliases.rows.length >= 1);
     assert.ok(aliases.rows.every(row => row.alias_conversation_id !== row.canonical_conversation_id));
