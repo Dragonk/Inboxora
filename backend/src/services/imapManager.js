@@ -180,6 +180,15 @@ export function isConnectionRefusal(detail) {
   return /connection not available|too many|maximum number|number of connections|rate.?limit|temporarily|try again|connection limit|over quota|throttl|connect timeout/i.test(String(detail || ''));
 }
 
+// Stamp an account's last successful sync. Shared by both exits of syncMessages so they cannot
+// drift: a folder that turned out to be empty is still a SUCCESSFUL sync and must be stamped.
+// Without this a brand-new account that has never received mail keeps last_sync = NULL forever,
+// indistinguishable from one that has never synced at all — the diagnostics report shows
+// lastSyncAgeSeconds: null for both, and any staleness alerting built on it false-positives.
+export async function stampLastSync(accountId) {
+  await query('UPDATE email_accounts SET last_sync = NOW() WHERE id = $1', [accountId]);
+}
+
 // Exponential backoff for consecutive connection refusals: 30s, 60s, 120s, 240s, 480s, …
 // capped at CONNECT_COOLDOWN_MAX_MS.
 export function connectCooldownMs(failures) {
@@ -2642,7 +2651,14 @@ export class ImapManager {
       const lock = await client.getMailboxLock(folder);
       try {
         const mailbox = client.mailbox;
-        if (!mailbox || mailbox.exists === 0) return { insertedCount: 0, broadcastedNewMessages: false };
+        if (!mailbox || mailbox.exists === 0) {
+          // A mailbox the server reports as empty is a SUCCESSFUL sync, not a skipped one, so
+          // stamp it like any other. A missing mailbox object is a different thing entirely —
+          // an unknown state, not a confirmed-empty one — so it is deliberately left unstamped
+          // rather than recording a success that did not happen.
+          if (mailbox) await stampLastSync(account.id);
+          return { insertedCount: 0, broadcastedNewMessages: false };
+        }
 
         // UIDVALIDITY check — detects server-side mailbox rebuilds (migration, restore).
         // If UIDVALIDITY changed, all stored UIDs for this folder are invalid; purge them
@@ -3193,7 +3209,7 @@ export class ImapManager {
            WHERE account_id = $1 AND path = $2`,
           [account.id, folder]
         );
-        await query('UPDATE email_accounts SET last_sync = NOW() WHERE id = $1', [account.id]);
+        await stampLastSync(account.id);
         return { insertedCount, broadcastedNewMessages };
       } finally {
         lock.release();
