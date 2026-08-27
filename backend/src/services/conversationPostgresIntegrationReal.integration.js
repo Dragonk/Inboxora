@@ -46,6 +46,7 @@ beforeEach(async () => {
         OR subject = 'Test'
   `);
   await pool.query('DELETE FROM logical_messages');
+  await pool.query('DELETE FROM provider_thread_mappings');
   await pool.query('DELETE FROM conversations');
   // Delete test users/accounts
   await pool.query("DELETE FROM email_accounts WHERE email_address LIKE 'ce-test-%'");
