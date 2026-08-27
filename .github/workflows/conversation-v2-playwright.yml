@@ -1,22 +1,12 @@
 name: Conversation Engine v2 Playwright E2E
 
 on:
-  push:
-    branches:
-      - feat/threading-v2-integration-live
-      - feat/threading-v2-final-completion
-      - integration/threading-v2-r3-pl-beta
-      - main
   pull_request:
-    branches:
-      - feat/threading-v2-integration-live
-      - feat/threading-v2-final-completion
-      - integration/threading-v2-r3-pl-beta
-      - main
+    branches: [main]
   workflow_dispatch:
     inputs:
       expected_sha:
-        description: "Exact commit SHA to test (required for review evidence)"
+        description: "Exact commit SHA to test"
         required: false
         type: string
         default: ""
@@ -96,7 +86,11 @@ jobs:
         # This workflow is the mocked browser gate. Real backend/database E2E
         # lives in conversation-v2-real-app-playwright.yml; including real-app.spec.js
         # here makes it resolve the Docker-only hostname `backend` without a service.
-        run: npx playwright test e2e/conversation-engine.spec.js --project=chromium-desktop --project=chromium-mobile
+        run: npx playwright test \
+          e2e/conversation-engine.spec.js \
+          --project=chromium-desktop \
+          --project=chromium-mobile-390 \
+          --project=chromium-mobile
 
       - name: Run browser network security gate
         working-directory: frontend
@@ -104,7 +98,24 @@ jobs:
           PLAYWRIGHT_BROWSERS_PATH: ${{ runner.temp }}/ms-playwright
           PLAYWRIGHT_BASE_URL: http://127.0.0.1:4173
           VITE_E2E_MOCKED: 'true'
-        run: npx playwright test e2e/browser-security.spec.js --project=chromium-desktop
+        run: npx playwright test \
+          e2e/browser-security.spec.js \
+          --project=chromium-desktop \
+          --project=chromium-mobile-390 \
+          --project=chromium-mobile
+
+      - name: Run native shell and settings browser gates
+        working-directory: frontend
+        env:
+          PLAYWRIGHT_BROWSERS_PATH: ${{ runner.temp }}/ms-playwright
+          PLAYWRIGHT_BASE_URL: http://127.0.0.1:4173
+          VITE_E2E_MOCKED: 'true'
+        run: npx playwright test \
+          e2e/native-shell-matrix.spec.js \
+          e2e/settings-visual.spec.js \
+          --project=chromium-desktop \
+          --project=chromium-mobile-390 \
+          --project=chromium-mobile
 
       - name: Write Playwright environment report
         if: always()

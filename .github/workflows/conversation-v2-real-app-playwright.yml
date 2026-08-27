@@ -1,25 +1,15 @@
 name: Conversation Engine v2 Real App Playwright E2E
 
 on:
+  pull_request:
+    branches: [main]
   workflow_dispatch:
     inputs:
       expected_sha:
-        description: "Exact commit SHA to test (required for review evidence)"
+        description: "Exact commit SHA to test"
         required: false
         type: string
         default: ""
-  push:
-    branches:
-      - feat/threading-v2-integration-live
-      - feat/threading-v2-final-completion
-      - integration/threading-v2-r3-pl-beta
-      - main
-  pull_request:
-    branches:
-      - feat/threading-v2-integration-live
-      - feat/threading-v2-final-completion
-      - integration/threading-v2-r3-pl-beta
-      - main
 
 permissions:
   contents: read
@@ -120,7 +110,11 @@ jobs:
           PLAYWRIGHT_BASE_URL: http://127.0.0.1:4173
           PLAYWRIGHT_USERNAME: playwright@example.test
           PLAYWRIGHT_PASSWORD: PlaywrightPassword123!
-        run: npx playwright test e2e/real-app.spec.js --project=chromium-desktop --project=chromium-mobile
+        run: npx playwright test \
+          e2e/real-app.spec.js \
+          --project=chromium-desktop \
+          --project=chromium-mobile-390 \
+          --project=chromium-mobile
 
       - name: Chromium smoke and locale report
         working-directory: frontend
