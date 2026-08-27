@@ -76,7 +76,7 @@ try {
     const toAddr = direction === 'outgoing' ? aliceEmail : myEmail;
     await client.query(
       `INSERT INTO messages (account_id, uid, folder, message_id, subject, from_name, from_email, to_addresses, date, snippet, body_text, body_html, is_read, thread_id, logical_message_id, conversation_id, conversation_user_id, canonical_message_id, threading_reason, threading_confidence)
-       VALUES ($1::uuid, $2::int, $3::text, $4::text, $5::text, $6, $7, $8::jsonb, NOW() - ($9 || ' days')::interval, $5, $10, $11, true, $13, $12, $13, $14, $4, 'playwright-fixture', 1)`,
+       VALUES ($1::uuid, $2::int, $3::text, $4::text, $5::text, $6::text, $7::text, $8::jsonb, NOW() - ($9::text || ' days')::interval, $5::text, $10::text, $11::text, true, $12::text, $13::uuid, $13::uuid, $14::uuid, $4::text, 'playwright-fixture', 1)`,
       [accountId, uid, folder, canonicalId, subject, fromName, fromEmail, JSON.stringify([{ address: toAddr, name: direction === 'outgoing' ? 'Alice' : 'Ja' }]), String(dayOffset), bodyText, bodyHtml, logicalId, conversationId, userId]
     );
   }

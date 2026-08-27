@@ -37,7 +37,7 @@ async function fixture() {
     ($1,$2,$3,$4,'<scope-lm1@test>','scope fixture','scope fixture','incoming',NOW()-INTERVAL '3 minutes'),
     ($5,$2,$3,$4,'<scope-lm2@test>','scope fixture','scope fixture','outgoing',NOW()-INTERVAL '2 minutes'),
     ($6,$2,$3,$4,'<scope-lm3@test>','scope fixture','scope fixture','incoming',NOW()-INTERVAL '1 minute'),
-    ($7,$2,$8,$9,'<scope-lm1@test>','scope fixture','scope fixture','incoming',NOW()-INTERVAL '3 minutes')`, [lm1,userId,accountA,conversationId,lm2,lm3,accountBLm1,userId,accountB,accountBConversationId]);
+    ($7,$2,$8,$9,'<scope-lm1@test>','scope fixture','scope fixture','incoming',NOW()-INTERVAL '3 minutes')`, [lm1,userId,accountA,conversationId,lm2,lm3,accountBLm1,accountB,accountBConversationId]);
   const copies = [];
   const specs = [
     [accountA, 10001, 'INBOX', '<scope-lm1@test>', lm1, conversationId],
