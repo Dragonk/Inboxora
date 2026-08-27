@@ -61,8 +61,14 @@ describe('CE v2 Rebuild idempotency — real PostgreSQL', () => {
   beforeEach(async () => {
     // Clean
     await pool.query('TRUNCATE conversation_overrides, conversation_aliases, conversation_evidence, conversation_ingest_failures, conversation_rebuild_audit, conversation_rebuild_checkpoints RESTART IDENTITY CASCADE');
-    await pool.query("DELETE FROM messages WHERE subject LIKE 'REBUILD-%'");
+    await pool.query(`
+      DELETE FROM messages
+       WHERE logical_message_id IN (SELECT id FROM logical_messages)
+          OR conversation_id IN (SELECT id FROM conversations)
+          OR subject LIKE 'REBUILD-%'
+    `);
     await pool.query('DELETE FROM logical_messages');
+    await pool.query('DELETE FROM provider_thread_mappings');
     await pool.query('DELETE FROM conversations');
     await pool.query("DELETE FROM email_accounts WHERE email_address = 'rebuild@example.com'");
     await pool.query("DELETE FROM users WHERE username = 'rebuild-user'");
