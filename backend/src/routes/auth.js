@@ -769,7 +769,16 @@ export async function patchPreferences(req, res) {
           showAppBadge, showFaviconBadge, replyDefault, sidebarWidth,
           categorizationEnabled, markReadBehavior, markReadDelay, aiActions,
           autoLockMinutes, showMobileAvatars, gravatarAvatars, folderSyncInterval,
-          folderOrder, senderFavicons, showMessagePreviews } = req.body;
+          folderOrder, senderFavicons, showMessagePreviews,
+          conversation_list_view_enabled, conversation_reader_view_enabled } = req.body;
+  for (const [name, value] of [
+    ['conversation_list_view_enabled', conversation_list_view_enabled],
+    ['conversation_reader_view_enabled', conversation_reader_view_enabled],
+  ]) {
+    if (value !== undefined && typeof value !== 'boolean') {
+      return res.status(400).json({ error: `${name} must be a boolean` });
+    }
+  }
   // GTD content and generic right-sidebar layout preferences are independent flat
   // top-level keys with separate allow-lists. gtdEnabled is intentionally NOT a user
   // preference — it lives per-account in email_accounts.gtd_enabled.
@@ -852,6 +861,8 @@ export async function patchPreferences(req, res) {
       || CASE WHEN $39::jsonb IS NOT NULL THEN jsonb_build_object('folderOrder', $39::jsonb) ELSE '{}'::jsonb END
       || CASE WHEN $40::boolean IS NOT NULL THEN jsonb_build_object('senderFavicons', $40::boolean) ELSE '{}'::jsonb END
       || CASE WHEN $41::boolean IS NOT NULL THEN jsonb_build_object('showMessagePreviews', $41::boolean) ELSE '{}'::jsonb END
+      || CASE WHEN $42::boolean IS NOT NULL THEN jsonb_build_object('conversation_list_view_enabled', $42::boolean) ELSE '{}'::jsonb END
+      || CASE WHEN $43::boolean IS NOT NULL THEN jsonb_build_object('conversation_reader_view_enabled', $43::boolean) ELSE '{}'::jsonb END
     WHERE id = $1
   `, [req.session.userId, theme ?? null, font ?? null, layout ?? null, notificationSound ?? null,
       pageSize ?? null, scrollMode ?? null, syncInterval ?? null,
@@ -862,7 +873,7 @@ export async function patchPreferences(req, res) {
       categorizationEnabled ?? null, markReadBehaviorVal, markReadDelayVal, aiActionsJson,
       rightSidebarWidth, rightSidebarHidden, gtdCollapsedSectionsJson, gtdPetSlug, autoLockMinutesVal,
       showMobileAvatars ?? null, gravatarAvatars ?? null, folderSyncIntervalVal, folderOrderJson, senderFaviconsVal,
-      showMessagePreviews ?? null]);
+      showMessagePreviews ?? null, conversation_list_view_enabled ?? null, conversation_reader_view_enabled ?? null]);
 
   if (syncInterval != null) {
     const ms = parseInt(syncInterval) * 1000;

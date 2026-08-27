@@ -41,7 +41,7 @@ describe('openReplyFromMessage reply target', () => {
       assert.deepEqual(h.payload().to, [{ email: 'r@example.com' }]);
     }
   });
-});
+  });
 
 describe('openReplyFromMessage alias selection', () => {
   const account = {
@@ -95,6 +95,14 @@ describe('openReplyFromMessage reply-all recipients', () => {
     });
     assert.deepEqual(h.payload().cc, [{ email: 'keep@example.com' }, { email: 'cckeep@example.com' }]);
     assert.deepEqual(h.payload().allRecipients, [{ email: 'keep@example.com' }, { email: 'cckeep@example.com' }]);
+  });
+
+  it('excludes the reply target case-insensitively', async () => {
+    const h = harness();
+    await openReplyFromMessage({ ...message, to_addresses: [{ email: 'SENDER@example.com' }, { email: 'keep@example.com' }], cc_addresses: [] }, {
+      accounts: [account], openCompose: h.openCompose, getMessageBody: h.getMessageBody, replyAll: true,
+    });
+    assert.deepEqual(h.payload().cc, [{ email: 'keep@example.com' }]);
   });
 
   it('leaves cc empty for a plain reply but still computes allRecipients', async () => {
@@ -287,4 +295,14 @@ describe('quoted body templates', () => {
       `\n\n---------- Forwarded message ----------\nFrom: ann@example.com\nDate: ${when}\nSubject: Hello\n\nplain`,
     );
   });
+
+
+  it('reply references preserve and deduplicate a ten-level RFC chain', async () => {
+  const chain = Array.from({ length: 10 }, (_, i) => `<m${i}@example.test>`).join(' ');
+  let captured;
+  await openReplyFromMessage({ id: 'm10', message_id: '<m10@example.test>', in_reply_to: '<m9@example.test>', thread_references: chain, from_email: 'sender@example.test', subject: 'Topic', date: '2026-01-01' }, { accounts: [], openCompose: value => { captured = value; }, getMessageBody: () => Promise.resolve({ text: '' }) });
+  assert.equal(captured.inReplyTo, '<m10@example.test>');
+  assert.equal(captured.references.split(' ').length, 11);
+  });
+
 });

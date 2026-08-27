@@ -650,6 +650,7 @@ export async function parseMessage(msg) {
 
   return {
     uid: msg.uid,
+    attributes: { emailId: msg.emailId ?? null, threadId: msg.threadId ?? null },
     messageId: envelope.messageId || null,
     subject: resolveSubject(envelope.subject, parsedHeaders),
     fromName,

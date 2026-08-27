@@ -1,5 +1,18 @@
 import sanitizeHtml from 'sanitize-html';
 
+// Apply the same stored preference/whitelist policy to every body endpoint.
+export function shouldBlockRemoteImages(preferences, message = {}) {
+  if (preferences?.blockRemoteImages === false) return false;
+  const senderEmail = String(message.from_email || '').toLowerCase();
+  const domain = senderEmail.includes('@') ? senderEmail.split('@').at(-1) : '';
+  const whitelist = preferences?.imageWhitelist || {};
+  const addresses = Array.isArray(whitelist.addresses) ? whitelist.addresses.map(String).map(v => v.toLowerCase()) : [];
+  const domains = Array.isArray(whitelist.domains) ? whitelist.domains.map(String).map(v => v.toLowerCase()) : [];
+  if (senderEmail && addresses.includes(senderEmail)) return false;
+  if (domain && domains.some(v => domain === v || domain.endsWith(`.${v}`))) return false;
+  return true;
+}
+
 // Strip the <head> element from email HTML, preserving any <style> blocks inside it.
 //
 // Why: sanitize-html's 'discard' mode removes disallowed tags (e.g. <title>) but
@@ -415,7 +428,11 @@ export function blockRemoteImages(html) {
       const svg = encodeURIComponent(
         `<svg xmlns="http://www.w3.org/2000/svg" width="${w}" height="${h}"><rect width="100%" height="100%" fill="#e8e8e8"/></svg>`
       );
-      return `${pre} src="data:image/svg+xml,${svg}"`;
+      const remoteSrc = match.match(/\ssrc=(["'])(https?:\/\/[^\s"']*)\1/i)?.[2] || '';
+      const encodedRemoteSrc = remoteSrc
+        .replace(/&/g, '&amp;')
+        .replace(/"/g, '&quot;');
+      return `${pre} data-mailflow-remote-src="${encodedRemoteSrc}" data-mailflow-remote-blocked="true" src="data:image/svg+xml,${svg}"`;
     }
   );
 

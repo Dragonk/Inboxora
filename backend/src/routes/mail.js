@@ -5,7 +5,7 @@ const archiver = require('archiver');
 import { query } from '../services/db.js';
 import { requireAuth } from '../middleware/auth.js';
 import { imapManager } from '../index.js';
-import { sanitizeEmail, stripEmailHead, hasRemoteImages, blockRemoteImages, rewriteEbayImageserUrls, rewriteAnchorHrefs } from '../services/emailSanitizer.js';
+import { sanitizeEmail, stripEmailHead, hasRemoteImages, blockRemoteImages, rewriteEbayImageserUrls, rewriteAnchorHrefs, shouldBlockRemoteImages } from '../services/emailSanitizer.js';
 import { snippetFromBody, decodeMimeWords, parseRawHeaders, buildHeadersFromMessage } from '../services/messageParser.js';
 import { resolveTrashFolder, resolveAllTrashPaths, resolveAllDraftsPaths, resolveArchiveFolder, isAllMailFolder, resolveSpamFolder, resolveAllSpamPaths, getDeleteStrategy, adjustFolderCounts, fanOutReadToSiblings, fanOutStarToSiblings, fanOutBulkReadToSiblings } from '../utils/mailUtils.js';
 import { pluginRegistry } from '../plugins/registry.js';
@@ -58,36 +58,7 @@ async function runInBatches(items, concurrency, fn) {
   return results;
 }
 
-// Columns copied verbatim when a message row is relocated to a new folder/UID via the
-// DELETE + reinsert CTE used by the bulk trash / move / archive paths on UIDPLUS servers.
-// The destination uid comes from the UIDPLUS map (u.new_uid) and the destination folder is
-// always bound as $4; everything else is carried over from the deleted row (d.*).
-//
-// Excluded on purpose:
-//   - id, synced_at        -> use their column defaults (a fresh UUID and timestamp), which
-//                             preserves the historical "row gets a new id on move" behavior.
-//   - normalized_subject,
-//     search_vector,
-//     thread_key           -> GENERATED ALWAYS columns; Postgres computes them, and inserting
-//                             an explicit value (even NULL) errors.
-//
-// IMPORTANT: when a migration adds a data column to `messages`, add it to RELOCATE_COPY_COLS
-// or a relocate will silently reset it to its default. This list previously went stale and
-// dropped delivery_addresses (0037), plugin_annotations (0044) and sender_name/sender_email
-// (0050). A unit test (mail.relocate.test.js) guards the four that regression touched.
-const RELOCATE_COPY_COLS = [
-  'message_id', 'subject', 'from_name', 'from_email', 'to_addresses', 'cc_addresses',
-  'reply_to', 'in_reply_to', 'date', 'snippet', 'is_read', 'is_starred', 'has_attachments',
-  'flags', 'body_html', 'body_text', 'attachments', 'thread_references', 'thread_id', 'is_bulk',
-  'read_changed_at', 'star_changed_at', 'spam_score_sa', 'spam_score_ml', 'spam_verdict',
-  'spam_analyzed_at', 'spam_details', 'spam_user_override', 'category', 'list_unsubscribe',
-  'list_unsubscribe_post', 'unsubscribed_at', 'delivery_addresses', 'plugin_annotations',
-  'sender_name', 'sender_email',
-];
-// INSERT target list and the matching SELECT projection. account_id + the carried columns come
-// from the deleted row; uid is the UIDPLUS-mapped new uid; folder is the destination ($4).
-export const RELOCATE_INSERT_COLS = ['account_id', 'uid', 'folder', ...RELOCATE_COPY_COLS].join(', ');
-export const RELOCATE_SELECT_COLS = ['d.account_id', 'u.new_uid', '$4', ...RELOCATE_COPY_COLS.map(c => `d.${c}`)].join(', ');
+import { RELOCATE_INSERT_COLS, RELOCATE_SELECT_COLS } from '../utils/relocateColumns.js';
 
 
 // Returns true if a snippet contains content that should never appear in plain-text
@@ -255,20 +226,6 @@ router.get('/resolve-message', async (req, res) => {
   }
 });
 
-// Returns true if remote images should be blocked for this message given the user's preferences.
-// Default behaviour (no preference set) is to block.
-function shouldBlockImages(prefs, message) {
-  if (prefs?.blockRemoteImages === false) return false;
-  const senderEmail = (message.from_email || '').toLowerCase();
-  const atIdx = senderEmail.indexOf('@');
-  const senderDomain = atIdx >= 0 ? senderEmail.slice(atIdx + 1) : '';
-  const whitelist = prefs?.imageWhitelist || {};
-  const allowedAddresses = Array.isArray(whitelist.addresses) ? whitelist.addresses.filter(a => typeof a === 'string').map(a => a.toLowerCase()) : [];
-  const allowedDomains   = Array.isArray(whitelist.domains)   ? whitelist.domains.filter(d => typeof d === 'string').map(d => d.toLowerCase())   : [];
-  if (senderEmail && allowedAddresses.includes(senderEmail)) return false;
-  if (senderDomain && allowedDomains.some(d => senderDomain === d || senderDomain.endsWith('.' + d))) return false;
-  return true;
-}
 
 // Get all messages belonging to a thread (for threaded view expansion)
 router.get('/thread/:threadId', async (req, res) => {
@@ -276,23 +233,35 @@ router.get('/thread/:threadId', async (req, res) => {
   if (!threadId) return res.status(400).json({ error: 'threadId required' });
 
   try {
+    const requestedAccountId = req.query.accountId || null;
     const accountsResult = await query(
       'SELECT id, include_in_unified_inbox FROM email_accounts WHERE user_id = $1 AND enabled = true',
       [req.session.userId]
     );
-    const accountIds = req.query.unified === 'true'
-      ? resolveAccountScope(accountsResult.rows).accountIds
-      : accountsResult.rows.map(row => row.id);
+    const accessibleAccounts = accountsResult.rows;
+    let accountIds;
+    if (requestedAccountId) {
+      const ownsRequestedAccount = accessibleAccounts.some(row => String(row.id) === String(requestedAccountId));
+      if (!ownsRequestedAccount) return res.status(404).json({ error: 'Account not found' });
+      accountIds = [requestedAccountId];
+    } else if (req.query.unified === 'true') {
+      accountIds = resolveAccountScope(accessibleAccounts).accountIds;
+    } else {
+      accountIds = accessibleAccounts.map(row => row.id);
+    }
     if (!accountIds.length) return res.json({ messages: [] });
 
     // Show all non-deleted messages in the thread regardless of folder. This includes
     // Sent replies (which have distinct message_ids) alongside received messages.
-    // DISTINCT ON (m.message_id) deduplicates the same message appearing in multiple
-    // folders (e.g. Gmail's All Mail), preferring the INBOX copy.
+    // The normalized identity is shared semantically with messageService.thread_totals:
+    // valid RFC Message-ID (trimmed) deduplicates folder copies; NULL/empty values use
+    // the physical row ID so otherwise unidentifiable messages remain visible. Include
+    // account_id in DISTINCT ON so a unified request can never dedupe across accounts.
     const result = await query(`
       WITH deduped AS (
-        SELECT DISTINCT ON (m.message_id)
-               m.id, m.uid, m.folder, m.message_id, m.thread_id, m.subject,
+        SELECT DISTINCT ON (m.account_id,
+                            COALESCE(NULLIF(btrim(m.message_id), ''), '__physical__:' || m.id::text))
+               m.id, m.uid, m.folder, m.message_id, m.thread_id, m.thread_key, m.subject,
                m.from_name, m.from_email, m.to_addresses, m.cc_addresses,
                m.reply_to, m.in_reply_to,
                m.date, m.snippet, m.is_read, m.is_starred,
@@ -304,7 +273,8 @@ router.get('/thread/:threadId', async (req, res) => {
         WHERE m.is_deleted = false
           AND m.account_id = ANY($1)
           AND m.thread_key = $2
-        ORDER BY m.message_id,
+        ORDER BY m.account_id,
+                 COALESCE(NULLIF(btrim(m.message_id), ''), '__physical__:' || m.id::text),
                  CASE WHEN m.folder = 'INBOX' THEN 0 ELSE 1 END,
                  m.date ASC
       )
@@ -436,7 +406,7 @@ router.get('/messages/:id/body', async (req, res) => {
     const skipBlocking = req.query.remoteImages === '1';
     let responseHtml = html;
     let hasBlockedRemoteImages = false;
-    if (!skipBlocking && html && shouldBlockImages(message.preferences, message) && hasRemoteImages(html)) {
+    if (!skipBlocking && html && shouldBlockRemoteImages(message.preferences, message) && hasRemoteImages(html)) {
       responseHtml = blockRemoteImages(html);
       hasBlockedRemoteImages = true;
     }
@@ -475,7 +445,7 @@ router.get('/messages/:id/body', async (req, res) => {
     const skipBlocking = req.query.remoteImages === '1';
     let responseHtml = safeHtml;
     let hasBlockedRemoteImages = false;
-    if (!skipBlocking && safeHtml && shouldBlockImages(message.preferences, message) && hasRemoteImages(safeHtml)) {
+    if (!skipBlocking && safeHtml && shouldBlockRemoteImages(message.preferences, message) && hasRemoteImages(safeHtml)) {
       responseHtml = blockRemoteImages(safeHtml);
       hasBlockedRemoteImages = true;
     }
@@ -655,7 +625,7 @@ router.get('/messages/:id/attachments/:part', async (req, res) => {
   const attachments = typeof message.attachments === 'string'
     ? JSON.parse(message.attachments || '[]')
     : (message.attachments || []);
-  const att = attachments.find(a => a.part === partNum);
+  const att = attachments.find(a => String(a.part) === String(partNum));
   if (!att) return res.status(404).json({ error: 'Attachment not found' });
 
   // Reject oversized attachments before opening an IMAP connection.

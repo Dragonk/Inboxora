@@ -7,6 +7,7 @@ import { senderColor } from '../themes.js';
 import { useMobile } from '../hooks/useMobile.js';
 import { isAccountInUnifiedInbox } from '../utils/unifiedInbox.js';
 import { useSwipeRow } from '../hooks/useSwipeRow.js';
+import { isExpandableNativeThread, normalizedNativeThreadMembers, singletonNativeThreadTarget } from '../utils/nativeThreadMembership.js';
 import ContextMenu from './ContextMenu.jsx';
 import RowHoverActions from './RowHoverActions.jsx';
 import GtdTabList from './GtdTabList.jsx';
@@ -18,9 +19,11 @@ import { formatDate } from '../utils/formatDate.js';
 import { advanceSelectionAfterRemoval } from '../utils/listSelection.js';
 import { openReplyFromMessage, openForwardFromMessage } from '../utils/composeFromMessage.js';
 import SenderAvatarImage from './SenderAvatarImage.jsx';
+import { accountOwnAddresses, directionFromAddress, MessageDirection } from './MessagePresentation.jsx';
 import { shortcutBus } from '../utils/shortcutBus.js';
 import { createLatestRequest } from '../utils/latestRequest.js';
 import { pendingMarkReadMap, completedMarkReadMap, setPending } from '../utils/pendingReads.js';
+import { queueReadStateMutation, isLatestReadStateMutation } from '../utils/readStateMutation.js';
 import { applyDeleteGuard, clearDeleteGuard, clearPendingDelete, setCompletedDelete, setPendingDelete, threadDeleteGuardKey } from '../utils/pendingDeletes.js';
 import {
   archiveInChunks,
@@ -738,19 +741,21 @@ export default function MessageList() {
 
   const isThreadListRow = useCallback((message) => {
     const messageCount = Number.parseInt(message.message_count, 10);
-    return threadedView && !searchQuery.trim() && message.thread_id && messageCount > 1;
+    return threadedView && !searchQuery.trim() && !message._normalizedSingleton && message.thread_id && messageCount > 1;
   }, [threadedView, searchQuery]);
 
   const resolveMessagesForThreadAction = useCallback(async (message, { forceRefresh = false } = {}) => {
     const tid = message.thread_id || message.id;
+    const threadKey = message.thread_key || message.thread_id || message.id;
     if (!isThreadListRow(message)) return [message];
     if (!forceRefresh && Array.isArray(threadMessages[tid]) && threadMessages[tid].length > 0) {
-      return threadMessages[tid];
+      return normalizedNativeThreadMembers(threadMessages[tid]);
     }
     const effectiveFolder = selectedAccountId ? selectedFolder : 'INBOX';
-    const data = await api.getThread(tid, effectiveFolder, isUnified);
-    return data.messages?.length ? data.messages : [message];
-  }, [isThreadListRow, threadMessages, selectedAccountId, selectedFolder, isUnified]);
+    const data = await api.getThread(threadKey, effectiveFolder, false, message.account_id || selectedAccountId || null);
+    const members = normalizedNativeThreadMembers(data.messages);
+    return members.length ? members : [message];
+  }, [isThreadListRow, threadMessages, selectedAccountId, selectedFolder]);
 
   const invalidateThreadCache = useCallback((threadId) => {
     invalidateThreadLoad(threadLoadVersionsRef.current, threadId);
@@ -822,6 +827,9 @@ export default function MessageList() {
       return;
     }
 
+    // A native thread response is normalized, but retain one canonical action target
+    // per physical ID if an older provider response contains a duplicate.
+    actionMessages = [...new Map(actionMessages.map(msg => [String(msg.id), msg])).values()];
     // Compute exact delta from sub-message states (before mutating the cache).
     const actualDelta = read
       ? actionMessages.filter(msg => !msg.is_read).length
@@ -857,8 +865,15 @@ export default function MessageList() {
       });
     }
 
+    let mutations = [];
     try {
-      await api.bulkRead(actionMessages.map(msg => msg.id), read);
+      // Serialize every native-copy mutation. This makes auto-read and two quick
+      // explicit swipes deterministic even when provider responses arrive reversed.
+      mutations = actionMessages.map(msg => ({ msg, mutation: queueReadStateMutation(
+        msg.id, read, targetRead => api.bulkRead([msg.id], targetRead),
+      ) }));
+      await Promise.all(mutations.map(({ mutation }) => mutation.promise));
+      actionMessages.forEach(msg => window.dispatchEvent(new CustomEvent('mailflow:read-state', { detail: { id: msg.id, read } })));
       if (read) {
         actionMessages.forEach(msg => {
           pendingMarkReadMap.delete(msg.id);
@@ -867,6 +882,9 @@ export default function MessageList() {
         });
       }
     } catch (err) {
+      // Do not let a stale request roll back a newer explicit user intent.
+      const stale = mutations.some(({ msg, mutation }) => !isLatestReadStateMutation(msg.id, mutation.version));
+      if (stale) return;
       console.error('markRead failed:', err);
       if (isThreadRow) {
         updateMessage(message.id, { is_read: !read, unread_count: read ? actualDelta : 0 });
@@ -2391,15 +2409,44 @@ export default function MessageList() {
     markMessageReadOnOpen(message);
   };
 
-  // Row click selects and opens the newest message in the reading pane, but leaves the
-  // thread collapsed. Expansion is driven only by the count/chevron via handleThreadToggle.
-  const handleThreadClick = (message) => {
-    handleSelect(message);
-  };
+  // Native thread children are normalized by the backend. Keep the same deterministic
+  // newest ordering that supplies the parent direction: date DESC, then physical ID DESC.
+  // This is identity-only; no subject/sender/snippet inference is involved.
+  const newestThreadChild = (children) => [...(children || [])].sort((left, right) => {
+    const byDate = (Date.parse(right.date) || 0) - (Date.parse(left.date) || 0);
+    return byDate || String(right.id).localeCompare(String(left.id));
+  })[0] || null;
 
-  const handleThreadToggle = async (message) => {
+  const loadThreadChildren = useCallback(async (message) => {
     const tid = message.thread_id || message.id;
-    if (!message.thread_id || (message.message_count || 1) <= 1) {
+    const cached = threadMessages[tid];
+    if (cached) return normalizedNativeThreadMembers(cached);
+    const threadKey = message.thread_key || message.thread_id || message.id;
+    const loadVersion = currentThreadLoadVersion(threadLoadVersionsRef.current, tid);
+    setLoadingThread(tid);
+    try {
+      const effectiveFolder = selectedAccountId ? selectedFolder : 'INBOX';
+      const data = await api.getThread(threadKey, effectiveFolder, false, message.account_id || selectedAccountId || null);
+      const members = normalizedNativeThreadMembers(data.messages);
+      if (isCurrentThreadLoad(threadLoadVersionsRef.current, tid, loadVersion)) setThreadMessages(tid, members);
+      return members;
+    } catch (err) {
+      console.error('Failed to load thread:', err);
+      return [];
+    } finally {
+      if (isCurrentThreadLoad(threadLoadVersionsRef.current, tid, loadVersion)) setLoadingThread(null);
+    }
+  }, [threadMessages, selectedAccountId, selectedFolder, setLoadingThread, setThreadMessages]);
+
+  // Aggregate list metadata can count duplicate provider copies. Resolve exact native
+  // membership only for a user action; rendering a mailbox must never fan out one
+  // /thread request per grouped row.
+  const handleThreadClick = async (message) => {
+    const tid = message.thread_id || message.id;
+    const members = message.thread_id ? await loadThreadChildren(message) : [message];
+    if (!isExpandableNativeThread(members)) {
+      const target = singletonNativeThreadTarget(message, members);
+      if (target) handleSelect(target);
       return;
     }
     if (expandedThreadId === tid) {
@@ -2407,24 +2454,18 @@ export default function MessageList() {
       return;
     }
     setExpandedThreadId(tid);
-    if (!threadMessages[tid]) {
-      const loadVersion = currentThreadLoadVersion(threadLoadVersionsRef.current, tid);
-      setLoadingThread(tid);
-      try {
-        const effectiveFolder = selectedAccountId ? selectedFolder : 'INBOX';
-        const data = await api.getThread(tid, effectiveFolder, isUnified);
-        const msgs = data.messages || [];
-        if (isCurrentThreadLoad(threadLoadVersionsRef.current, tid, loadVersion)) {
-          setThreadMessages(tid, msgs);
-        }
-      } catch (err) {
-        console.error('Failed to load thread:', err);
-      } finally {
-        if (isCurrentThreadLoad(threadLoadVersionsRef.current, tid, loadVersion)) {
-          setLoadingThread(null);
-        }
-      }
+    if (!isMobile) {
+      const newest = newestThreadChild(members);
+      if (newest) handleSelect(newest);
     }
+  };
+
+  const handleThreadSwipeAction = async (action, message) => {
+    const members = message.thread_id ? await loadThreadChildren(message) : [message];
+    const target = isExpandableNativeThread(members)
+      ? message
+      : { ...singletonNativeThreadTarget(message, members), _normalizedSingleton: true };
+    if (target?.id) runSwipeAction(action, target);
   };
 
   const accountColor = selectedAccount?.color || 'currentColor';
@@ -2447,6 +2488,10 @@ export default function MessageList() {
   const selectedAccountIds = [...new Set(selectedMsgs.map(m => m.account_id))];
   const canMove = selectedAccountIds.length === 1;
   const bulkMarkAsRead = selectedMsgs.some(m => !m.is_read);
+
+
+  // Grouping always uses the native threaded MessageList and ThreadRow below.
+  // Conversation Engine changes server-side identity/data; it never replaces this shell.
 
   return (
     <div style={{
@@ -2474,6 +2519,7 @@ export default function MessageList() {
         }}>
           {/* Hamburger */}
           <button
+            data-testid="mobile-menu"
             onClick={() => setMobileSidebarOpen(true)}
             aria-label={t('messageList.menu', 'Menu')}
             style={{
@@ -3632,7 +3678,6 @@ export default function MessageList() {
                 showAccount={false} /* No per-account dot on unified rows: it added noise beside the unread indicator; the account is visible in the message pane header. */
                 isNarrow={isNarrow}
                 onThreadClick={() => handleThreadClick(message)}
-                onThreadToggle={() => handleThreadToggle(message)}
                 showMobileAvatars={showMobileAvatars}
                 showMessagePreviews={showMessagePreviews}
                 onSelect={handleSelect}
@@ -3649,13 +3694,14 @@ export default function MessageList() {
                 isMobile={isMobile}
                 swipeLeftAction={swipeLeftAction}
                 swipeRightAction={swipeRightAction}
-                onSwipeLeft={selectionMode || swipeLeftAction === 'disabled' ? undefined : (msg) => runSwipeAction(swipeLeftAction, msg)}
-                onSwipeRight={selectionMode || swipeRightAction === 'disabled' ? undefined : (msg) => runSwipeAction(swipeRightAction, msg)}
+                onSwipeLeft={selectionMode || swipeLeftAction === 'disabled' ? undefined : (msg) => handleThreadSwipeAction(swipeLeftAction, msg)}
+                onSwipeRight={selectionMode || swipeRightAction === 'disabled' ? undefined : (msg) => handleThreadSwipeAction(swipeRightAction, msg)}
                 isChecked={selectedIds.has(message.id)}
                 selectionMode={selectionMode}
                 onToggleSelect={handleRowToggleSelect}
                 onRangeSelect={handleRangeSelect}
                 onLongPress={isMobile ? (id) => { setSelectionModeActive(true); toggleSelect(id); } : undefined}
+                accounts={accounts}
               />
             );
           })
@@ -3693,8 +3739,8 @@ export default function MessageList() {
                 isMobile={isMobile}
                 swipeLeftAction={swipeLeftAction}
                 swipeRightAction={swipeRightAction}
-                onSwipeLeft={selectionMode || swipeLeftAction === 'disabled' ? undefined : (msg) => runSwipeAction(swipeLeftAction, msg)}
-                onSwipeRight={selectionMode || swipeRightAction === 'disabled' ? undefined : (msg) => runSwipeAction(swipeRightAction, msg)}
+                onSwipeLeft={selectionMode || swipeLeftAction === 'disabled' ? undefined : (msg) => handleThreadSwipeAction(swipeLeftAction, msg)}
+                onSwipeRight={selectionMode || swipeRightAction === 'disabled' ? undefined : (msg) => handleThreadSwipeAction(swipeRightAction, msg)}
                 onLongPress={isMobile ? (id) => { setSelectionModeActive(true); toggleSelect(id); } : undefined}
               />
             );
@@ -4112,11 +4158,26 @@ function EmptyState({ folderSyncing, searchQuery, unreadOnly, selectedFolder, ac
   );
 }
 
-function ThreadRow({ message, isExpanded, threadMsgs, isLoadingThread, selectedMessageId, selectedMid, lastViewedMessageId, showAccount, isNarrow, onThreadClick, onThreadToggle, showMobileAvatars, showMessagePreviews, onSelect, onOpenWindow, onMarkRead, onStar, onDelete, hoverQuickActions, onContextMenu, onMove, isMobile, swipeLeftAction, swipeRightAction, onSwipeLeft, onSwipeRight, isChecked, selectionMode, onToggleSelect, onRangeSelect, onLongPress }) {
+function ThreadRow({ message, isExpanded, threadMsgs, isLoadingThread, selectedMessageId, selectedMid, lastViewedMessageId, showAccount, isNarrow, onThreadClick, showMobileAvatars, showMessagePreviews, onSelect, onOpenWindow, onMarkRead, onStar, onDelete, hoverQuickActions, onContextMenu, onMove, isMobile, swipeLeftAction, swipeRightAction, onSwipeLeft, onSwipeRight, isChecked, selectionMode, onToggleSelect, onRangeSelect, onLongPress, accounts }) {
   const { t } = useTranslation();
   const [hovered, setHovered] = useState(false);
-  const messageCount = message.message_count || 1;
+  // Cached membership is exact. Until interaction resolves it, retain aggregate
+  // metadata only as a visual hint; never fetch or normalize from row render.
+  const hasResolvedMembership = Array.isArray(threadMsgs);
+  const normalizedChildren = hasResolvedMembership ? normalizedNativeThreadMembers(threadMsgs) : [];
+  const isExpandableThread = hasResolvedMembership
+    ? normalizedChildren.length > 1
+    : Number(message.message_count || 1) > 1;
+  const messageCount = hasResolvedMembership ? normalizedChildren.length : (message.message_count || 1);
   const unreadCount  = parseInt(message.unread_count) || 0;
+  // The parent row shows the direction of the MOST RECENT unique child in the
+  // account-local thread (not the first message, and not a thread-wide label).
+  // latest_from_email is emitted by the backend (FIRST_VALUE ORDER BY date DESC);
+  // fall back to the row's own from_email for older rows that predate the column.
+  const parentAccount = accounts.find(account => account.id === message.account_id);
+  const parentDirection = directionFromAddress(message.latest_from_email || message.from_email, accountOwnAddresses(parentAccount, message));
+  const isOutgoing = parentDirection === 'outgoing';
+  const showParentDirection = Boolean(parentDirection);
 
   const { contentRef, swipeBgLeftRef, swipeBgRightRef, tappedRef } = useSwipeRow({
     isMobile, message, onSwipeLeft, onSwipeRight, onLongPress,
@@ -4148,7 +4209,7 @@ function ThreadRow({ message, isExpanded, threadMsgs, isLoadingThread, selectedM
   const rightActionView = getSwipeActionView(swipeLeftAction, message, t, unreadCount);
 
   return (
-    <div data-msgid={message.id} style={{ borderBottom: '1px solid var(--border-subtle)' }}>
+    <div data-msgid={message.id} data-thread-parent-direction={parentDirection || undefined} style={{ borderBottom: '1px solid var(--border-subtle)' }}>
       {/* Swipe container wraps only the header row */}
       <div style={{ position: 'relative', overflow: 'hidden' }}>
 
@@ -4161,10 +4222,19 @@ function ThreadRow({ message, isExpanded, threadMsgs, isLoadingThread, selectedM
         className={isMobile ? 'no-callout' : undefined}
         onMouseEnter={() => !isMobile && setHovered(true)}
         onMouseLeave={() => !isMobile && setHovered(false)}
+        data-thread-row-parent="true"
+        tabIndex={selectionMode ? -1 : 0}
+        role="button"
+        aria-expanded={isExpandableThread ? isExpanded : undefined}
         onClick={selectionMode ? (e) => {
           if (e.shiftKey && onRangeSelect) { onRangeSelect(message.id); }
           else { onToggleSelect(message.id); }
         } : () => { if (tappedRef.current) { tappedRef.current = false; return; } onThreadClick(); }}
+        onKeyDown={selectionMode ? undefined : (e => {
+          if (e.key !== 'Enter' && e.key !== ' ') return;
+          e.preventDefault();
+          onThreadClick();
+        })}
         onContextMenu={!isMobile ? (e => onContextMenu(e, message)) : undefined}
         style={{
           display: 'flex', alignItems: 'flex-start', gap: 10,
@@ -4261,14 +4331,14 @@ function ThreadRow({ message, isExpanded, threadMsgs, isLoadingThread, selectedM
                 color: unreadCount > 0 ? 'var(--text-primary)' : 'var(--text-secondary)',
                 overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', flex: 1,
               }}>
-                {message.from_name || message.from_email || t('common.unknown', 'Unknown')}
+                {showParentDirection && <span style={{ marginRight: 4 }}><MessageDirection direction={parentDirection} label={isOutgoing ? t('conversation.outgoingMessage') : t('conversation.incomingMessage')} /></span>}{isOutgoing ? t('conversation.you') : (message.from_name || message.from_email || t('common.unknown', 'Unknown'))}
               </span>
-              {messageCount > 1 && (
+              {isExpandableThread && (
                 <button
                   type="button"
                   aria-expanded={isExpanded}
                   aria-label={`${isExpanded ? t('message.aiCollapse') : t('messageList.showAll')} (${messageCount})`}
-                  onClick={(e) => { e.stopPropagation(); onThreadToggle(); }}
+                  onClick={(e) => { e.stopPropagation(); onThreadClick(); }}
                   style={{
                   display: 'inline-flex', alignItems: 'center', gap: isMobile ? 4 : 3,
                   fontSize: isMobile ? 12 : 10, fontWeight: 600, color: 'var(--accent)',
@@ -4295,6 +4365,7 @@ function ThreadRow({ message, isExpanded, threadMsgs, isLoadingThread, selectedM
               )}
               {message.is_starred && (
                 <button
+                  data-thread-row-star="true"
                   onClick={e => { e.stopPropagation(); onStar(e, message); }}
                   style={{ background: 'none', border: 'none', padding: 0, cursor: 'pointer', display: 'flex', alignItems: 'center' }}
                 >
@@ -4310,7 +4381,7 @@ function ThreadRow({ message, isExpanded, threadMsgs, isLoadingThread, selectedM
             </div>
           </div>
           {/* Row 2: subject */}
-          <div style={{
+          <div data-thread-row-subject="true" style={{
             fontSize: 12, fontWeight: unreadCount > 0 ? 500 : 400,
             color: unreadCount > 0 ? 'var(--text-primary)' : 'var(--text-secondary)',
             overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', marginBottom: 2,
@@ -4344,7 +4415,7 @@ function ThreadRow({ message, isExpanded, threadMsgs, isLoadingThread, selectedM
       </div>{/* end swipe container */}
 
       {/* Expanded sub-rows */}
-      {isExpanded && (
+      {isExpanded && isExpandableThread && (
         <div style={{ background: 'var(--bg-secondary)', borderTop: '1px solid var(--border-subtle)' }}>
           {isLoadingThread ? (
             <div style={{ padding: '14px 16px', display: 'flex', justifyContent: 'center' }}>
@@ -4355,8 +4426,18 @@ function ThreadRow({ message, isExpanded, threadMsgs, isLoadingThread, selectedM
               }} />
             </div>
           ) : (threadMsgs || []).map((msg, idx) => (
-            <div
+            <ThreadChildRow
               key={msg.id}
+              msg={msg}
+              idx={idx}
+              isMobile={isMobile}
+              swipeLeftAction={swipeLeftAction}
+              swipeRightAction={swipeRightAction}
+              onSwipeLeft={onSwipeLeft}
+              onSwipeRight={onSwipeRight}
+            >
+            <div
+              data-thread-row-child={msg.id}
               onClick={e => { e.stopPropagation(); if (!selectionMode) onSelect(msg); }}
               onDoubleClick={onOpenWindow ? (e => { e.stopPropagation(); onOpenWindow(msg); }) : undefined}
               onContextMenu={!isMobile ? (e => { e.preventDefault(); onContextMenu(e, msg); }) : undefined}
@@ -4384,7 +4465,15 @@ function ThreadRow({ message, isExpanded, threadMsgs, isLoadingThread, selectedM
                     color: msg.is_read ? 'var(--text-secondary)' : 'var(--text-primary)',
                     overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', flex: 1,
                   }}>
-                    {msg.from_name || msg.from_email || t('common.unknown', 'Unknown')}
+                    {(() => {
+                      const childAccount = accounts.find(account => account.id === msg.account_id);
+                      const childDirection = directionFromAddress(msg.from_email, accountOwnAddresses(childAccount, msg));
+                      const childOutgoing = childDirection === 'outgoing';
+                      return <>
+                        {childDirection && <span style={{ marginRight: 5 }}><MessageDirection direction={childDirection} label={childOutgoing ? t('conversation.outgoingMessage') : t('conversation.incomingMessage')} /></span>}
+                        {childOutgoing ? t('conversation.you') : (msg.from_name || msg.from_email || t('common.unknown', 'Unknown'))}
+                      </>;
+                    })()}
                   </span>
                   <span style={{ fontSize: 11, color: 'var(--text-tertiary)', flexShrink: 0, marginLeft: 8 }}>
                     {formatDate(msg.date)}
@@ -4399,11 +4488,31 @@ function ThreadRow({ message, isExpanded, threadMsgs, isLoadingThread, selectedM
                 </div>)}
               </div>
             </div>
+            </ThreadChildRow>
           ))}
         </div>
       )}
     </div>
   );
+}
+
+function ThreadChildRow({ msg, idx, isMobile, swipeLeftAction, swipeRightAction, onSwipeLeft, onSwipeRight, children }) {
+  const { t } = useTranslation();
+  const { contentRef, swipeBgLeftRef, swipeBgRightRef, tappedRef } = useSwipeRow({
+    isMobile, message: msg, onSwipeLeft, onSwipeRight,
+    // Child click already owns selection. Do not synthesize a tap here: it would
+    // compete with that handler and could select twice after a gesture.
+    onTap: undefined,
+  });
+  const leftActionView = getSwipeActionView(swipeRightAction, msg, t);
+  const rightActionView = getSwipeActionView(swipeLeftAction, msg, t);
+  return <div style={{ position: 'relative', overflow: 'hidden', borderTop: idx > 0 ? '1px solid var(--border-subtle)' : 'none' }}>
+    {isMobile && <SwipeBackground side="left" actionView={leftActionView} innerRef={swipeBgLeftRef} />}
+    {isMobile && <SwipeBackground side="right" actionView={rightActionView} innerRef={swipeBgRightRef} />}
+    <div ref={isMobile ? contentRef : undefined} className={isMobile ? 'no-callout' : undefined} style={{ willChange: isMobile ? 'transform' : undefined }} onClickCapture={event => { if (tappedRef.current) { tappedRef.current = false; event.stopPropagation(); } }} onClick={event => { if (tappedRef.current) { tappedRef.current = false; event.stopPropagation(); } }}>
+      {children}
+    </div>
+  </div>;
 }
 
 function MessageRow({ message, selected, lastViewed, isChecked, selectionMode, showAccount, isNarrow, onSelect, onOpenWindow, onToggleSelect, onRangeSelect, onAvatarClick, showMobileAvatars, showMessagePreviews, onMarkRead, onStar, onDelete, hoverQuickActions, onContextMenu, onMove, onDragStart, isMobile, swipeLeftAction, swipeRightAction, onSwipeLeft, onSwipeRight, onLongPress }) {

@@ -12,15 +12,50 @@ import { decrypt } from './encryption.js';
 import { sendPushToUser } from './pushNotifications.js';
 import { redactEmail } from '../utils/redact.js';
 import { adjustFolderCounts, resolveSpamFolder } from '../utils/mailUtils.js';
+import { RELOCATE_COPY_COLS } from '../utils/relocateColumns.js';
 import { resolveForConnection, createPinnedLookup } from './hostValidation.js';
 import { getConnectionPolicy } from './connectionPolicy.js';
 import { applyInboxRules, applyBlockList } from './inboxRules.js';
 import { generateVCard } from '../utils/vcard.js';
 import { randomUUID } from 'crypto';
+import { upsertConversationCopy } from './conversationPersistence.js';
+import { recordConversationIngestFailure } from './conversationIngestFailures.js';
+import { conversationPersistedFields, resolveOwnIdentityAddresses } from './conversationIngestEnvelope.js';
+import { providerFetchQuery, providerCapabilitiesFromClient } from './providerThreadAdapter.js';
 
 
 // Shorthand for log lines — keeps domain visible while masking the local part.
 const logAccount = (account) => redactEmail(account?.email_address || '');
+
+async function persistConversationCopyForRow(rowId, account, rawMessage) {
+  try {
+    const result = await query(`
+      SELECT m.*, a.user_id
+        FROM messages m
+        JOIN email_accounts a ON a.id = m.account_id
+       WHERE m.id = $1 AND a.id = $2`, [rowId, account.id]);
+    if (result.rows.length !== 1) return;
+    // Sent/upsert and retry paths may provide only a partial raw envelope. The
+    // persisted row is authoritative for delivery/provider/Sender metadata, so
+    // merge it before deriving provider identity and own-address resolution.
+    // This keeps live ingest, Sent ingest, retry, and rebuild on the same input
+    // contract instead of silently dropping delivery_addresses or provider IDs.
+    const persistenceMessage = { ...result.rows[0], ...(rawMessage || {}) };
+    const envelope = conversationPersistedFields(persistenceMessage, account);
+    envelope.identities = await resolveOwnIdentityAddresses({ query }, account.id, persistenceMessage);
+    await query(`UPDATE messages SET conversation_raw_headers = COALESCE($1, conversation_raw_headers), conversation_thread_index = COALESCE($2, conversation_thread_index), conversation_thread_topic = COALESCE($3, conversation_thread_topic) WHERE id = $4`, [envelope.conversation_raw_headers, envelope.conversation_thread_index, envelope.conversation_thread_topic, rowId]);
+    await upsertConversationCopy({ ...result.rows[0], ...envelope }, {
+      identities: envelope.identities,
+      provider: envelope.provider,
+      // Explicit authenticated tenant context; never infer ownership from the
+      // persisted/message payload in the conversation persistence layer.
+      userId: account.user_id,
+    });
+  } catch (err) {
+    console.error('Conversation persistence error:', err.message);
+    await recordConversationIngestFailure({ userId: account.user_id, accountId: account.id, messageRowId: rowId, operation: 'imap-ingest', error: err, diagnostics: { rawMessageId: rawMessage?.envelope?.messageId || rawMessage?.messageId || null } }).catch(recordErr => console.error('Conversation failure recording error:', recordErr.message));
+  }
+}
 
 // Resolves the IMAP host for an account, applying server-level connection policy.
 // Returns { resolved, policy } so callers can pass policy to makeClientCfg.
@@ -775,26 +810,15 @@ export function relocateExemptGuard(exemptFolders, paramIndex) {
 // unread. Extracted (like relocateExemptGuard) so the DB behavior is unit-testable
 // without a live IMAP pool.
 export async function insertCopiedSibling(accountId, uid, fromFolder, toFolder, newUid) {
+  // Reuse the shared RELOCATE_COPY_COLS projection from mail.js so a sibling copy
+  // (IMAP COPY, e.g. Gmail All-Mail) inherits every CE v2 identity/threading column.
+  // A hand-maintained list here drifted before (delivery_addresses, sender_* were lost,
+  // and CE columns were never added), silently severing the copy from its Conversation.
+  const copyCols = RELOCATE_COPY_COLS.join(', ');
+  const selectCols = RELOCATE_COPY_COLS.map(c => c).join(', ');
   const res = await query(`
-    INSERT INTO messages (
-      account_id, uid, folder, message_id, subject,
-      from_name, from_email, to_addresses, cc_addresses,
-      reply_to, in_reply_to, date, snippet, is_read, is_starred,
-      has_attachments, flags, body_html, body_text, attachments,
-      thread_references, thread_id, is_bulk,
-      read_changed_at, star_changed_at, spam_score_sa, spam_score_ml,
-      spam_verdict, spam_analyzed_at, spam_details, spam_user_override,
-      category, list_unsubscribe, list_unsubscribe_post, unsubscribed_at, delivery_addresses, sender_name, sender_email
-    )
-    SELECT
-      account_id, $4, $5, message_id, subject,
-      from_name, from_email, to_addresses, cc_addresses,
-      reply_to, in_reply_to, date, snippet, is_read, is_starred,
-      has_attachments, flags, body_html, body_text, attachments,
-      thread_references, thread_id, is_bulk,
-      read_changed_at, star_changed_at, spam_score_sa, spam_score_ml,
-      spam_verdict, spam_analyzed_at, spam_details, spam_user_override,
-      category, list_unsubscribe, list_unsubscribe_post, unsubscribed_at, delivery_addresses, sender_name, sender_email
+    INSERT INTO messages (account_id, uid, folder, ${copyCols})
+    SELECT account_id, $4, $5, ${selectCols}
     FROM messages
     WHERE account_id = $1 AND folder = $2 AND uid = $3
     ON CONFLICT (account_id, uid, folder) DO NOTHING
@@ -949,76 +973,22 @@ function parseReferences(refHeader) {
   return refHeader.match(/<[^>]+>/g) || [];
 }
 
-// Strip common reply/forward prefixes (Re:, FW:, AW:, SV:, …) from a subject,
-// handling multiple nested levels, and return the lowercase core.
-const SUBJECT_PREFIX_RE = /^(?:re|fw|fwd|aw|sv|vs|tr|wg|ant|antw|ref|rif|ynt|odp|vb|atb)\s*:\s*/i;
-function normalizeSubject(subject) {
-  if (!subject) return '';
-  let s = subject.trim();
-  let prev;
-  do {
-    prev = s;
-    s = s.replace(SUBJECT_PREFIX_RE, '').trim();
-  } while (s !== prev);
-  return s.toLowerCase();
-}
-
-// Compute the thread_id for an incoming message.
-// Primary: RFC 5322 References / In-Reply-To header chain.
-// Fallback: subject normalization when headers are absent (e.g. Outlook RE: replies).
-async function computeThreadId(accountId, messageId, inReplyTo, references, subject) {
+// Compute the legacy thread_id for IMAP list compatibility. Conversation v2 owns
+// semantic grouping; never merge independent messages by normalized subject alone.
+async function computeThreadId(accountId, messageId, inReplyTo, references) {
   if (!messageId) return null;
-
   const refIds = parseReferences(references);
-  const candidates = [...refIds];
-  if (inReplyTo && !candidates.includes(inReplyTo)) candidates.push(inReplyTo);
-
-  if (candidates.length > 0) {
-    // Fetch all candidates in one query instead of N sequential lookups.
-    // Priority: RFC 5322 root (candidates[0]) > newest ancestor (candidates[last]).
-    const rows = await query(
-      `SELECT message_id, thread_id FROM messages
-       WHERE account_id = $1 AND message_id = ANY($2) AND thread_id IS NOT NULL`,
-      [accountId, candidates]
-    );
-
-    if (rows.rows.length > 0) {
-      const found = new Map(rows.rows.map(r => [r.message_id, r.thread_id]));
-      // Prefer the thread root (first Reference per RFC 5322).
-      if (found.has(candidates[0])) return found.get(candidates[0]);
-      // Otherwise use the most recent ancestor present in the DB (newest→oldest).
-      for (let i = candidates.length - 1; i >= 0; i--) {
-        if (found.has(candidates[i])) return found.get(candidates[i]);
-      }
-    }
-
-    // Ancestor referenced but not yet in DB — use the root as a provisional thread_id.
-    // When it arrives its thread_id will equal its own message_id, so threads converge.
-    // Don't fall through to subject fallback; the header chain takes priority.
-    return candidates[0] || messageId;
-  }
-
-  // No RFC 5322 threading headers — fall back to subject normalization.
-  // Looks for the earliest message in the same account with the same normalized subject
-  // within the past 90 days and joins that thread.
-  const normalized = normalizeSubject(subject);
-  if (normalized) {
-    const subjectRow = await query(
-      `SELECT thread_id FROM messages
-       WHERE account_id = $1
-         AND is_deleted = false
-         AND message_id IS DISTINCT FROM $2
-         AND thread_id IS NOT NULL
-         AND normalized_subject = $3
-         AND date > NOW() - INTERVAL '90 days'
-       ORDER BY date ASC
-       LIMIT 1`,
-      [accountId, messageId, normalized]
-    );
-    if (subjectRow.rows.length > 0) return subjectRow.rows[0].thread_id;
-  }
-
-  return messageId;
+  const reply = inReplyTo && !refIds.includes(inReplyTo) ? [inReplyTo] : [];
+  const candidates = [...refIds, ...reply];
+  if (!candidates.length) return messageId;
+  const rows = await query(
+    `SELECT message_id, thread_id FROM messages
+       WHERE account_id = $1 AND message_id = ANY($2::text[]) AND thread_id IS NOT NULL`,
+    [accountId, candidates]
+  );
+  const found = new Map(rows.rows.map(row => [row.message_id, row.thread_id]));
+  for (const candidate of candidates) if (found.has(candidate)) return found.get(candidate);
+  return candidates[0];
 }
 
 // Ensure OAuth token is fresh before connecting
@@ -2712,13 +2682,13 @@ export class ImapManager {
 
         // Omit body parts for providers that throttle BODY[] fetches, and when
         // noBodyParts is set. Envelope/flags/uid/bodyStructure always fetched.
-        const fetchQuery = {
+        let fetchQuery = providerFetchQuery(account, {
           uid: true, flags: true, envelope: true,
           bodyStructure: true,
           size: true,
           internalDate: true,
           headers: true,
-        };
+        }, providerCapabilitiesFromClient(client));
         if (provider.fetchBody && !noBodyParts) {
           fetchQuery.bodyParts = BODY_PREFETCH_PARTS;
         }
@@ -2784,7 +2754,7 @@ export class ImapManager {
             const msgId = sanitizeStr(parsed.messageId);
             const inReplyTo = sanitizeStr(parsed.inReplyTo);
             const refs = sanitizeStr(parsed.references);
-            const threadId = await computeThreadId(account.id, msgId, inReplyTo, refs, sanitizeStr(parsed.subject));
+            const threadId = await computeThreadId(account.id, msgId, inReplyTo, refs);
 
             // If a row with this message_id already exists for this account at a
             // different (folder, uid), it was moved. Relocate it in-place rather
@@ -2893,6 +2863,7 @@ export class ImapManager {
               JSON.stringify(parsed.deliveryAddresses || []),
               sanitizeStr(parsed.senderName), sanitizeStr(parsed.senderEmail),
             ]);
+            await persistConversationCopyForRow(result.rows[0].id, account, msg);
             if (result.rows[0]?.is_new) {
               insertedCount++;
               // Inbox-ingest candidate: any newly-inserted INBOX row, read OR unread (read state
@@ -3424,12 +3395,12 @@ export class ImapManager {
           try {
             // Third arg { uid: true } issues UID FETCH instead of sequence FETCH.
             // bodyParts omitted for Gmail (empty array) — metadata only, no throttling.
-            const bfQuery = {
+            const bfQuery = providerFetchQuery(account, {
               uid: true, flags: true, envelope: true,
               bodyStructure: true, size: true,
               internalDate: true,
               headers: true,
-            };
+            }, providerCapabilitiesFromClient(bfClient));
             if (bodyParts.length > 0) bfQuery.bodyParts = bodyParts;
 
             for await (const msg of bfClient.fetch(uidSet, bfQuery, { uid: true })) {
@@ -3458,7 +3429,7 @@ export class ImapManager {
                 const bfMsgId    = sanitizeStr(parsed.messageId);
                 const bfReplyTo  = sanitizeStr(parsed.inReplyTo);
                 const bfRefs     = sanitizeStr(parsed.references);
-                const bfThreadId = await computeThreadId(account.id, bfMsgId, bfReplyTo, bfRefs, sanitizeStr(parsed.subject));
+                const bfThreadId = await computeThreadId(account.id, bfMsgId, bfReplyTo, bfRefs);
 
                 if (bfMsgId) {
                   const { sql: relocateSql, params: relocateParams } =
@@ -3560,6 +3531,8 @@ export class ImapManager {
                   sanitizeStr(parsed.senderName), sanitizeStr(parsed.senderEmail),
                 ]);
                 backfilledRows++;
+                const inserted = await query(`SELECT id FROM messages WHERE account_id = $1 AND uid = $2 AND folder = $3`, [account.id, parsed.uid, folder]);
+                if (inserted.rows[0]) await persistConversationCopyForRow(inserted.rows[0].id, account, msg);
                 if (bfThreadId && bfThreadId !== bfMsgId) {
                   await query(
                     `UPDATE messages SET thread_id = $1
@@ -4047,8 +4020,8 @@ export class ImapManager {
       INSERT INTO messages (
         account_id, uid, folder, message_id, subject,
         from_name, from_email, to_addresses, cc_addresses,
-        date, snippet, is_read, is_starred, has_attachments, flags, thread_id
-      ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8::jsonb,$9::jsonb,$10,$11,true,false,false,'[]',$12)
+        in_reply_to, thread_references, date, snippet, is_read, is_starred, has_attachments, flags, thread_id
+      ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8::jsonb,$9::jsonb,$10,$11,$12,$13,true,false,false,'[]',$14)
       ON CONFLICT (account_id, uid, folder) DO UPDATE SET
         message_id = COALESCE(EXCLUDED.message_id, messages.message_id),
         subject = CASE
@@ -4062,6 +4035,8 @@ export class ImapManager {
         cc_addresses = CASE
           WHEN EXCLUDED.cc_addresses::text IS NOT NULL AND EXCLUDED.cc_addresses::text <> '[]'
           THEN EXCLUDED.cc_addresses ELSE messages.cc_addresses END,
+        in_reply_to = COALESCE(EXCLUDED.in_reply_to, messages.in_reply_to),
+        thread_references = COALESCE(EXCLUDED.thread_references, messages.thread_references),
         date = EXCLUDED.date,
         snippet = CASE WHEN EXCLUDED.snippet <> '' THEN EXCLUDED.snippet ELSE messages.snippet END,
         is_read = true,
@@ -4078,8 +4053,11 @@ export class ImapManager {
       sanitizeStr(subject || '(no subject)'),
       sanitizeStr(fromName || ''), sanitizeStr(fromEmail || ''),
       JSON.stringify(to), JSON.stringify(cc),
+      sanitizeStr(inReplyTo), sanitizeStr(references),
       safeDate(date), sanitizeStr(snippet || ''), threadId,
     ]);
+    const row = await query('SELECT id FROM messages WHERE account_id = $1 AND uid = $2 AND folder = $3', [account.id, uid, folder]);
+    if (row.rows[0]) await persistConversationCopyForRow(row.rows[0].id, account, { messageId: msgId, inReplyTo, references });
   }
 
   // Persist a local Drafts row immediately after appending a draft to IMAP, so the
@@ -4141,6 +4119,8 @@ export class ImapManager {
       bodyText != null ? sanitizeStr(bodyText) : null,
       msgId || null,
     ]);
+    const row = await query('SELECT id FROM messages WHERE account_id = $1 AND uid = $2 AND folder = $3', [account.id, uid, folder]);
+    if (row.rows[0]) await persistConversationCopyForRow(row.rows[0].id, account, { messageId, inReplyTo, references: null });
   }
 
   async findUidByMessageId(account, folder, messageId) {
@@ -4150,9 +4130,15 @@ export class ImapManager {
     return withFreshClient(account, async (client) => {
       const lock = await client.getMailboxLock(folder);
       try {
-        const uids = await client.search({ header: ['Message-ID', mid] }, { uid: true });
+        const uids = await client.search({ header: { 'Message-ID': mid } }, { uid: true });
         if (!uids?.length) return null;
-        return uids[uids.length - 1];
+        if (uids.length === 1) return uids[0];
+        // Multiple RFC Message-ID matches are ambiguous (provider auto-save plus
+        // local APPEND, or a genuine collision). Do not choose an arbitrary UID.
+        // Re-observation will retry after sync; the CE identity layer handles the
+        // copies once their complete envelopes are available.
+        console.warn(`Ambiguous Sent Message-ID match: ${uids.length} UIDs for ${mid}`);
+        return null;
       } finally {
         lock.release();
       }
@@ -5237,7 +5223,7 @@ export class ImapManager {
               await withFreshClient(account, async (client) => {
                 const lock = await client.getMailboxLock(row.original_folder);
                 try {
-                  const uids = await client.search({ header: ['Message-ID', row.message_id_header] }, { uid: true });
+                  const uids = await client.search({ header: { 'Message-ID': row.message_id_header } }, { uid: true });
                   if (uids.length > 0) {
                     const r = await client.messageFlagsRemove(String(uids[0]), ['\\Seen'], { uid: true });
                     if (r === false) console.warn(`Snooze wakeup: messageFlagsRemove returned false for ${row.original_folder}`);

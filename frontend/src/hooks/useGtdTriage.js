@@ -105,7 +105,8 @@ export function useGtdTriage() {
     const identity = thread.message_id || thread.id;
     markGtdThreadRead(identity, read);
     try {
-      await api.bulkRead(await collectThreadReadIds(thread, read, api.getThread), read);
+      const getAccountThread = threadKey => api.getThread(threadKey, null, false, thread.account_id || thread.accountId || null);
+      await api.bulkRead(await collectThreadReadIds(thread, read, getAccountThread), read);
       // Belt-and-braces under the WS read fan-out: reconcile the sidebar counts (the
       // debounce coalesces this with any gtd_sections_updated the mark triggers).
       scheduleGtdSectionsFetch();
@@ -121,7 +122,7 @@ export function useGtdTriage() {
     return openGtdThreadWithAutoRead(thread, {
       openThread: () => openDeepLinkMessage(thread.id, {
         getMessage: api.getMessage,
-        getThread: api.getThread,
+        getThread: threadKey => api.getThread(threadKey, null, false, thread.account_id || thread.accountId || null),
         setThreadMessages,
         setSelectedMessage,
         thread,

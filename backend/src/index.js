@@ -43,6 +43,10 @@ import { setupWebSocket } from './services/websocket.js';
 import { ImapManager } from './services/imapManager.js';
 import { getUpdateStatus } from './services/updateCheck.js';
 import { recordHttp } from './services/performanceMetrics.js';
+import conversationsRoutes from './routes/conversations.js';
+import conversationRebuildRoutes from './routes/conversationRebuild.js';
+import conversationOverridesRoutes from './routes/conversationOverrides.js';
+import { retryConversationIngestFailures } from './services/conversationIngestRetry.js';
 
 const packageMeta = JSON.parse(readFileSync(new URL('../package.json', import.meta.url), 'utf-8'));
 let buildMeta = {};
@@ -109,7 +113,7 @@ app.use(cors({
 }));
 
 // Performance baseline: time the full request lifecycle and record it under the
-// matched route *pattern* (never the concrete URL, so no ids/PII and bounded
+// matched route pattern (never the concrete URL, so no ids/PII and bounded
 // cardinality). Registered early so body-parse/session/routing are all included;
 // req.route is populated by the time 'finish' fires. Behavior-neutral.
 app.use((req, res, next) => {
@@ -188,6 +192,9 @@ app.use('/oauth', oauthRoutes);
 app.use('/api/integrations', integrationsRoutes);
 app.use('/api/accounts', accountRoutes);
 app.use('/api/mail', mailRoutes);
+app.use('/api/mail', conversationsRoutes);
+app.use('/api/mail', conversationRebuildRoutes);
+app.use('/api/mail', conversationOverridesRoutes);
 app.use('/api/mail', sendRoutes);
 app.use('/api/mail', draftRoutes);
 app.use('/api/search', searchRoutes);
@@ -276,28 +283,30 @@ imapManager.startSnoozeWatcher();
 
 // Schedule periodic CardDAV contact sync for any connected accounts.
 startCardavScheduler();
+// Retry conversation persistence failures without blocking IMAP synchronization.
+setInterval(() => retryConversationIngestFailures({ limit: 25 }).catch(err => console.warn('Conversation ingest retry failed:', err.message)), 5 * 60 * 1000);
 
-// Re-connect all enabled IMAP accounts on startup with bounded concurrency so a
-// large user base doesn't hammer IMAP servers and the DB connection pool at once.
-try {
-  const startupResult = await query(
-    "SELECT DISTINCT user_id FROM email_accounts WHERE enabled = true AND protocol = 'imap'"
-  );
-  if (startupResult.rows.length) {
-    console.log(`Reconnecting accounts for ${startupResult.rows.length} user(s) on startup`);
-    const MAX_CONCURRENT = 3;
-    const queue = [...startupResult.rows];
-    function connectNext() {
-      if (!queue.length) return;
-      const { user_id } = queue.shift();
-      imapManager.connectAllForUser(user_id)
-        .catch(err => console.error(`Startup connect failed for user ${user_id}:`, err.message))
-        .finally(connectNext);
+if (process.env.NODE_ENV !== 'test' && process.env.E2E_DISABLE_IMAP_CONNECT !== 'true') {
+  try {
+    const startupResult = await query(
+      "SELECT DISTINCT user_id FROM email_accounts WHERE enabled = true AND protocol = 'imap'"
+    );
+    if (startupResult.rows.length) {
+      console.log(`Reconnecting accounts for ${startupResult.rows.length} user(s) on startup`);
+      const MAX_CONCURRENT = 3;
+      const queue = [...startupResult.rows];
+      function connectNext() {
+        if (!queue.length) return;
+        const { user_id } = queue.shift();
+        imapManager.connectAllForUser(user_id)
+          .catch(err => console.error(`Startup connect failed for user ${user_id}:`, err.message))
+          .finally(connectNext);
+      }
+      for (let i = 0; i < Math.min(MAX_CONCURRENT, queue.length); i++) connectNext();
     }
-    for (let i = 0; i < Math.min(MAX_CONCURRENT, queue.length); i++) connectNext();
+  } catch (err) {
+    console.error('Startup account connection error:', err.message);
   }
-} catch (err) {
-  console.error('Startup account connection error:', err.message);
 }
 
 const PORT = process.env.PORT || 3000;

@@ -1658,6 +1658,7 @@ export default function Sidebar() {
 
           {/* Settings */}
           <div
+            data-testid="mobile-settings"
             onClick={() => { setAdminTab('accounts'); setShowAdmin(true); setMobileSidebarOpen(false); }}
             style={{
               display: 'flex', alignItems: 'center', gap: 10,
