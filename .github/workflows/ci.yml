@@ -14,6 +14,9 @@ jobs:
     steps:
       - uses: actions/checkout@v6
 
+      - name: Assert exact tested SHA
+        run: test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+
       - uses: actions/setup-node@v6
         with:
           node-version: "22"
@@ -50,6 +53,9 @@ jobs:
 
     steps:
       - uses: actions/checkout@v6
+
+      - name: Assert exact tested SHA
+        run: test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
 
       - uses: actions/setup-node@v6
         with:

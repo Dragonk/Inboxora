@@ -93,8 +93,6 @@ export async function listMessages({ userId, accountId, folder = 'INBOX', limit 
     // deduplicates by message_id, so thread_totals must count across all folders too.
     // Scoping the badge to the current folder produced badge=2 while expansion showed 3
     // (Inbox+Sent+Inbox) — a silent mismatch between the list and the reader.
-    const threadFolderFilter = '';
-
     const threadResult = await query(`
       WITH paged_threads AS (
         SELECT ${threadIdentityExpr} AS thread_id
