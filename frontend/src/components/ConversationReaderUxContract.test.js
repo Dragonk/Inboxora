@@ -14,14 +14,25 @@ describe('conversation reader final UX contract', () => {
     assert.match(detail, /data-message-detail-body/);
   });
 
-  it('uses native-copy read state per card and auto-reads only settled native membership', () => {
+  it('auto-reads only the selected target and preserves sibling card read state', () => {
     const reader = read('ConversationReader.jsx');
     const message = read('ConversationMessage.jsx');
     assert.match(message, /data-conversation-message-subject="true"/);
     assert.match(message, /data-unread=\{String\(!\(copy\.isRead \?\? copy\.is_read\)\)\}/);
-    assert.match(reader, /autoReadStarted/);
-    assert.match(reader, /queueReadStateMutation\(copy\.id, true/);
-    assert.match(reader, /api\.bulkRead\(\[copy\.id\], read\)/);
+    assert.match(reader, /const initialTargetId = initialConversationTarget/);
+    assert.match(reader, /messages\.find\(message => message\.id === initialTargetId\)/);
+    assert.match(reader, /setCopyReadState\(copy\.id, true\)/);
+    assert.match(reader, /queueReadStateMutation\(copyId, read/);
+    assert.doesNotMatch(reader, /for \(const message of messages\)/);
+  });
+
+  it('positions each navigation target once in the reader scroll container', () => {
+    const reader = read('ConversationReader.jsx');
+    assert.match(reader, /useLayoutEffect/);
+    assert.match(reader, /completedNavigationRef/);
+    assert.match(reader, /reader\.scrollTop \+= targetRect\.top - readerRect\.top - topPadding/);
+    assert.match(reader, /setActiveTargetLogicalId\(id\)/);
+    assert.doesNotMatch(reader, /scrollIntoView/);
   });
 
   it('keeps forwarded-message protection in the shared folding pipeline', () => {

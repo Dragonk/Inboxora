@@ -8,6 +8,11 @@ describe('isInteractiveSwipeTarget', () => {
     assert.equal(isInteractiveSwipeTarget(buttonChild), true);
   });
 
+  it('allows the row role button when it is the gesture surface', () => {
+    const row = {}; row.closest = () => row;
+    assert.equal(isInteractiveSwipeTarget(row, row), false);
+  });
+
   it('allows row taps that start on ordinary row content', () => {
     const rowText = { closest: () => null };
     assert.equal(isInteractiveSwipeTarget(rowText), false);

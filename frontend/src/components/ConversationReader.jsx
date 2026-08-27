@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { conversationApi } from '../utils/conversationApi.js';
 import { api } from '../utils/api.js';
@@ -30,11 +30,14 @@ export default function ConversationReader({ conversationId, targetLogicalMessag
   const aborters = useRef(new Map());
   const readerRef = useRef(null);
   const autoReadStarted = useRef(new Set());
+  const completedNavigationRef = useRef(new Set());
+  const [activeTargetLogicalId, setActiveTargetLogicalId] = useState(null);
   const updateMessage = useStore(state => state.updateMessage);
 
   useEffect(() => {
     let active = true;
-    bodiesRef.current = {}; statusRef.current = {}; autoReadStarted.current = new Set();
+    bodiesRef.current = {}; statusRef.current = {}; autoReadStarted.current = new Set(); completedNavigationRef.current = new Set();
+    setActiveTargetLogicalId(null);
     setData(null); setError(null); setBodiesByCopy({}); setBodyStatusByCopy({}); setExpanded(new Set());
     // P1-B: Load the native thread (primary) and CE detail (enrichment) in parallel.
     // Native thread membership is the proven UI threading source; CE metadata enriches
@@ -94,23 +97,31 @@ export default function ConversationReader({ conversationId, targetLogicalMessag
     updateMessage(copyId, { is_read: read, isRead: read });
   }, [updateMessage]);
 
-  // Auto-read is deliberately native-copy scoped.  A Set prevents render/reload loops;
-  // per-ID serialized mutations prevent an old automatic read from beating later intent.
+  // Every read write (automatic and explicit) shares this per-copy serialized lane.
+  // That keeps a late automatic read from overwriting a newer explicit unread intent.
+  const setCopyReadState = useCallback((copyId, read) => {
+    if (!copyId) return Promise.resolve();
+    const before = messages.some(message => (message.copies || []).some(copy => String(copy.id) === String(copyId) && Boolean(copy.isRead ?? copy.is_read)));
+    setLocalReadState(copyId, read);
+    const mutation = queueReadStateMutation(copyId, read, targetRead => api.bulkRead([copyId], targetRead));
+    return mutation.promise.catch(error => {
+      if (isLatestReadStateMutation(copyId, mutation.version)) setLocalReadState(copyId, before);
+      throw error;
+    });
+  }, [messages, setLocalReadState]);
+
+  const initialTargetId = initialConversationTarget(messages, targetLogicalMessageId);
+  // Opening a conversation is a navigation to one physical target, never a reason to
+  // bulk-mark the native thread. The set also prevents redundant reselect writes.
   useEffect(() => {
-    for (const message of messages) {
-      const copy = selectedCopyFor(message.id);
-      if (!copy?.id || (copy.isRead ?? copy.is_read)) continue;
-      const key = String(copy.id);
-      if (autoReadStarted.current.has(key)) continue;
-      autoReadStarted.current.add(key);
-      const before = Boolean(copy.isRead ?? copy.is_read);
-      setLocalReadState(copy.id, true);
-      const mutation = queueReadStateMutation(copy.id, true, read => api.bulkRead([copy.id], read));
-      mutation.promise.catch(() => {
-        if (isLatestReadStateMutation(copy.id, mutation.version)) setLocalReadState(copy.id, before);
-      });
-    }
-  }, [messages, selectedCopyFor, setLocalReadState]);
+    const target = messages.find(message => message.id === initialTargetId);
+    const copy = target && selectedCopyFor(target.id);
+    if (!copy?.id || (copy.isRead ?? copy.is_read)) return;
+    const key = String(copy.id);
+    if (autoReadStarted.current.has(key)) return;
+    autoReadStarted.current.add(key);
+    setCopyReadState(copy.id, true).catch(() => {});
+  }, [initialTargetId, messages, selectedCopyFor, setCopyReadState]);
 
   useEffect(() => {
     const sync = event => {
@@ -153,20 +164,52 @@ export default function ConversationReader({ conversationId, targetLogicalMessag
       });
   }, [selectedCopyFor, t]);
   useEffect(() => { for (const id of expanded) loadBody(id); }, [expanded, loadBody]);
-  useEffect(() => {
-    const targetId = initialConversationTarget(messages, targetLogicalMessageId);
-    if (!targetId) return;
-    const target = [...readerRef.current?.querySelectorAll('[data-logical-message-id]') || []]
-      .find(element => element.dataset.logicalMessageId === targetId);
-    target?.scrollIntoView({ block: 'start' });
-  }, [targetLogicalMessageId, messages]);
-  const toggle = useCallback(id => setExpanded(previous => toggleConversationExpansion(previous, id)), []);
+  const navigationTargetId = activeTargetLogicalId || initialTargetId;
+  // Scroll once per navigation, inside the reader pane. Layout timing waits for the
+  // actual target card rather than using an arbitrary timeout; later iframe resizes do
+  // not resnap a reader the user has already scrolled.
+  useLayoutEffect(() => {
+    if (!navigationTargetId || !readerRef.current) return;
+    const copy = selectedCopyFor(navigationTargetId);
+    const navigationKey = `${conversationId || nativeThreadId || ''}:${copy?.id || navigationTargetId}`;
+    if (completedNavigationRef.current.has(navigationKey)) return;
+    let frame = requestAnimationFrame(() => {
+      const reader = readerRef.current;
+      const target = [...(reader?.querySelectorAll('[data-logical-message-id]') || [])]
+        .find(element => element.dataset.logicalMessageId === navigationTargetId);
+      if (!reader || !target) return;
+      const readerRect = reader.getBoundingClientRect();
+      const targetRect = target.getBoundingClientRect();
+      const topPadding = 16;
+      reader.scrollTop += targetRect.top - readerRect.top - topPadding;
+      completedNavigationRef.current.add(navigationKey);
+    });
+    return () => cancelAnimationFrame(frame);
+  }, [conversationId, nativeThreadId, navigationTargetId, messages, selectedCopyFor]);
+
+  const activateMessage = useCallback(id => {
+    setActiveTargetLogicalId(id);
+    const copy = selectedCopyFor(id);
+    if (copy?.id && !(copy.isRead ?? copy.is_read)) {
+      const key = String(copy.id);
+      if (!autoReadStarted.current.has(key)) {
+        autoReadStarted.current.add(key);
+        setCopyReadState(copy.id, true).catch(() => {});
+      }
+    }
+  }, [selectedCopyFor, setCopyReadState]);
+  const toggle = useCallback(id => {
+    setExpanded(previous => {
+      if (!previous.has(id)) activateMessage(id);
+      return toggleConversationExpansion(previous, id);
+    });
+  }, [activateMessage]);
   if (!data && !error) return <div role="status" style={{ padding: 24, textAlign: 'center', color: 'var(--text-tertiary)' }}>{t('conversation.loading')}</div>;
   if (error) return <div role="alert" style={{ padding: 16, color: 'var(--text-danger)' }}>{error}</div>;
   return <section ref={readerRef} aria-label={t('conversation.label')} data-conversation-id={conversationId} data-reader-source={nativeThreadId ? 'native-thread' : 'conversation'} data-selected-copy-id={selectedCopyId || ''} data-selected-account-id={selectedAccountId || ''} style={{ flex: 1, overflowY: 'auto', overflowX: 'hidden', padding: 0, minWidth: 0 }}>
     {messages.map(message => {
       const physicalCopyId = selectedCopyFor(message.id)?.id;
-      return <ConversationMessage key={message.id} conversationId={conversationId} message={message} selectedCopyId={selectedCopyId} selectedAccountId={selectedAccountId} accounts={accounts} expanded={expanded.has(message.id)} onToggle={toggle} body={physicalCopyId ? bodiesByCopy[physicalCopyId] : null} status={physicalCopyId ? bodyStatusByCopy[physicalCopyId] : { unavailable: true }} onLoadBody={loadBody} onRemoteImages={id => loadBody(id, true, true)} onReply={onReply} onActionComplete={refresh} />;
+      return <ConversationMessage key={message.id} conversationId={conversationId} message={message} selectedCopyId={selectedCopyId} selectedAccountId={selectedAccountId} accounts={accounts} expanded={expanded.has(message.id)} onToggle={toggle} body={physicalCopyId ? bodiesByCopy[physicalCopyId] : null} status={physicalCopyId ? bodyStatusByCopy[physicalCopyId] : { unavailable: true }} onLoadBody={loadBody} onRemoteImages={id => loadBody(id, true, true)} onReply={onReply} onActionComplete={refresh} onSetRead={setCopyReadState} />;
     })}
   </section>;
 }

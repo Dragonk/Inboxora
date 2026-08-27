@@ -417,3 +417,76 @@ test.describe('thread context and ThreadRow interaction regressions', () => {
     await expect(parentSurface).toHaveAttribute('aria-expanded', 'false');
   });
 });
+
+test.describe('reader target navigation follow-up', () => {
+  test('marks only the opened target read, keeps unread siblings bold, and navigates to a newly selected child', async ({ page, fixtureApi }) => {
+    page.__unreadCopies = ['conversation-gmail-copy-3', 'conversation-gmail-copy-5'];
+    await open(page, fixtureApi, false, true);
+    await page.locator('[data-msgid="conversation-gmail-copy-5"]:visible').click();
+    const reader = page.locator('section[data-conversation-id="conversation-gmail"]:visible');
+    await expect.poll(() => page.__bulkReadActions || []).toEqual([{ ids: ['conversation-gmail-copy-5'], read: true }]);
+    const m3 = reader.locator('#logical-message-conversation-gmail-logical-3 [data-conversation-message-subject="true"]');
+    const m5 = reader.locator('#logical-message-conversation-gmail-logical-5 [data-conversation-message-subject="true"]');
+    await expect(m3).toHaveAttribute('data-unread', 'true');
+    await expect(m5).toHaveAttribute('data-unread', 'false');
+    await expect(m3).toHaveCSS('font-weight', '700');
+    await expect(m5).toHaveCSS('font-weight', '400');
+
+    await page.locator('[data-msgid="conversation-gmail-copy-3"]:visible').click();
+    await expect(reader).toHaveAttribute('data-selected-copy-id', 'conversation-gmail-copy-3');
+    await expect.poll(() => page.__bulkReadActions).toEqual([
+      { ids: ['conversation-gmail-copy-5'], read: true },
+      { ids: ['conversation-gmail-copy-3'], read: true },
+    ]);
+    await expect(m3).toHaveAttribute('data-unread', 'false');
+  });
+
+  test('scrolls the opened target into the reader upper reading region without resnapping', async ({ page, fixtureApi }) => {
+    await open(page, fixtureApi, false, true);
+    await page.locator('[data-msgid="conversation-gmail-copy-5"]:visible').click();
+    const reader = page.locator('section[data-conversation-id="conversation-gmail"]:visible');
+    const target = reader.locator('#logical-message-conversation-gmail-logical-5');
+    await expect(target).toBeVisible();
+    const initial = await target.evaluate((element) => {
+      const reader = element.closest('section'); const rr = reader.getBoundingClientRect(); const tr = element.getBoundingClientRect();
+      return { scrollTop: reader.scrollTop, relativeTop: tr.top - rr.top };
+    });
+    expect(initial.relativeTop).toBeGreaterThanOrEqual(0);
+    expect(initial.relativeTop).toBeLessThanOrEqual(120);
+    await reader.evaluate(element => { element.scrollTop = Math.max(0, element.scrollTop - 80); });
+    const userScrollTop = await reader.evaluate(element => element.scrollTop);
+    await target.locator('[data-conversation-message-toggle="true"]').click();
+    await target.locator('[data-conversation-message-toggle="true"]').click();
+    await expect.poll(() => reader.evaluate(element => element.scrollTop)).toBe(userScrollTop);
+  });
+});
+
+test.describe('mobile parent thread swipe follow-up', () => {
+  test('uses the real touch stream on parent and child rows without turning a swipe into a click', async ({ page, fixtureApi }, testInfo) => {
+    test.skip(!testInfo.project.name.startsWith('chromium-mobile'), 'touch viewport contract');
+    await open(page, fixtureApi, true, false);
+    const parent = page.locator('[data-msgid="conversation-gmail-copy-5"]:visible');
+    const gesture = async locator => locator.evaluate(element => {
+      const touch = (type, x, y) => element.dispatchEvent(new TouchEvent(type, {
+        bubbles: true, cancelable: true, touches: type === 'touchend' ? [] : [new Touch({ identifier: 1, target: element, clientX: x, clientY: y })],
+        changedTouches: [new Touch({ identifier: 1, target: element, clientX: x, clientY: y })],
+      }));
+      const rect = element.getBoundingClientRect(); const y = rect.top + 20;
+      touch('touchstart', rect.left + 220, y); touch('touchmove', rect.left + 100, y); touch('touchend', rect.left + 100, y);
+    });
+    await gesture(parent.locator('[data-thread-row-parent="true"]'));
+    await expect(parent.locator('[data-thread-row-child]')).toHaveCount(0);
+    await expect.poll(() => page.__bulkReadActions || []).toEqual([{ ids: ['conversation-gmail-copy-1'], read: false }, { ids: ['conversation-gmail-copy-2'], read: false }, { ids: ['conversation-gmail-copy-3'], read: false }, { ids: ['conversation-gmail-copy-4'], read: false }, { ids: ['conversation-gmail-copy-5'], read: false }]);
+
+    await parent.click();
+    await expect(parent.locator('[data-thread-row-child]')).toHaveCount(5);
+    page.__bulkReadActions = [];
+    await gesture(parent.locator('[data-thread-row-parent="true"]'));
+    await expect(parent.locator('[data-thread-row-child]')).toHaveCount(5);
+    await expect.poll(() => page.__bulkReadActions || []).toEqual([{ ids: ['conversation-gmail-copy-1'], read: false }, { ids: ['conversation-gmail-copy-2'], read: false }, { ids: ['conversation-gmail-copy-3'], read: false }, { ids: ['conversation-gmail-copy-4'], read: false }, { ids: ['conversation-gmail-copy-5'], read: false }]);
+
+    page.__bulkReadActions = [];
+    await gesture(parent.locator('[data-thread-row-child="conversation-gmail-copy-3"]'));
+    await expect.poll(() => page.__bulkReadActions || []).toEqual([{ ids: ['conversation-gmail-copy-3'], read: false }]);
+  });
+});

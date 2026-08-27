@@ -28,7 +28,7 @@ function date(value) {
   }) : '';
 }
 
-export default function ConversationMessage({ conversationId, message, selectedCopyId, selectedAccountId, accounts, expanded, onToggle, body, status, onLoadBody, onRemoteImages, onReply, onActionComplete }) {
+export default function ConversationMessage({ conversationId, message, selectedCopyId, selectedAccountId, accounts, expanded, onToggle, body, status, onLoadBody, onRemoteImages, onReply, onActionComplete, onSetRead }) {
   const { t } = useTranslation();
   const isMobile = useMobile();
   const { replyDefault, aiActions, setShowAdmin, setAdminTab, blockRemoteImages, imageWhitelist } = useStore();
@@ -174,7 +174,7 @@ export default function ConversationMessage({ conversationId, message, selectedC
         onMove={folder => runAction(() => conversationApi.move(conversationId, folder, actionOptions))}
         onSpam={!inSpamFolder ? () => runAction(() => api.markSpam(copy.id)) : undefined}
         onHam={inSpamFolder ? () => runAction(() => api.markHam(copy.id)) : undefined}
-        onSetRead={isRead => runAction(() => conversationApi.setRead(conversationId, isRead, actionOptions))}
+        onSetRead={isRead => runAction(() => onSetRead ? onSetRead(copy.id, isRead) : conversationApi.setRead(conversationId, isRead, actionOptions))}
         onViewHeaders={() => setShowHeaders(true)}
         onPrint={body ? handlePrint : undefined}
         aiActions={availableAiActions}

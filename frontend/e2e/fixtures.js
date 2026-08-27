@@ -71,7 +71,7 @@ function accountAddress(accountId) {
   return fixture.accounts.find(account => account.id === accountId)?.email_address;
 }
 
-function details(id, incomplete = false, ceMode = null) {
+function details(id, incomplete = false, ceMode = null, unreadCopyIds = []) {
   const row = fixture.conversations.find(item => item.conversation_id === id) || fixture.conversations[0];
   const accountId = conversationAccountId(row.conversation_id);
   const ownAddress = accountAddress(accountId);
@@ -99,7 +99,7 @@ function details(id, incomplete = false, ceMode = null) {
         snippet: `Fixture summary ${row.conversation_id} ${number}`,
         bodyText: `${provider} fixture body ${number}`,
         bodyHtml: `<p>${provider} fixture body ${number}</p>`,
-        isRead: true,
+        isRead: !unreadCopyIds.includes(`${row.conversation_id}-copy-${number}`),
         isStarred: false,
         folder,
         listUnsubscribe: number === 1 ? 'https://unsubscribe.example.test' : null,
@@ -175,7 +175,7 @@ export const test = base.extend({
       const parts = url.pathname.split('/').filter(Boolean);
       const id = parts.at(-1);
       if (parts.includes('logical-messages') || ['archive', 'move', 'delete', 'read', 'star'].includes(id)) return route.fallback();
-      if (id && id !== 'conversations') return route.fulfill({ json: details(id, Boolean(page.__ceIncomplete), page.__ceMode || null) });
+      if (id && id !== 'conversations') return route.fulfill({ json: details(id, Boolean(page.__ceIncomplete), page.__ceMode || null, page.__unreadCopies || []) });
       return route.fulfill({ json: { conversations: fixture.conversations, nextCursor: null, total: fixture.conversations.length } });
     });
     await page.route('**/api/mail/messages/*', route => {
@@ -214,13 +214,18 @@ export const test = base.extend({
       const listMessages = threaded ? [{ ...messages.at(-1), thread_key: 'conversation-gmail', is_starred: true }] : messages;
       return route.fulfill({ json: { messages: listMessages, total: listMessages.length, ...(threaded ? { threaded: true } : {}) } });
     });
-    await page.route('**/api/mail/thread/*', route => route.fulfill({ json: { messages: [
-      { id: 'conversation-gmail-copy-1', subject: 'Gmail reply chain', is_read: true, account_id: 'account-gmail', folder: 'INBOX', date: new Date().toISOString(), from_email: 'sender@gmail.test', message_id: '<fixture-1>', body_text: 'Fixture body 1', thread_id: 'conversation-gmail', thread_key: 'conversation-gmail' },
-      { id: 'conversation-gmail-copy-2', subject: 'Gmail reply chain', is_read: true, account_id: 'account-gmail', folder: 'Sent', date: new Date().toISOString(), from_email: 'me@gmail.test', message_id: '<fixture-2>', body_text: 'Fixture body 2', thread_id: 'conversation-gmail', thread_key: 'conversation-gmail' },
-      { id: 'conversation-gmail-copy-3', subject: 'Gmail reply chain', is_read: true, account_id: 'account-gmail', folder: 'Archive', date: new Date().toISOString(), from_email: 'sender@gmail.test', message_id: '<fixture-3>', body_text: 'Fixture body 3', thread_id: 'conversation-gmail', thread_key: 'conversation-gmail' },
-      { id: 'conversation-gmail-copy-4', subject: 'Gmail reply chain', is_read: true, account_id: 'account-gmail', folder: 'Sent', date: new Date().toISOString(), from_email: 'me@gmail.test', message_id: '<fixture-4>', body_text: 'Fixture body 4', thread_id: 'conversation-gmail', thread_key: 'conversation-gmail' },
-      { id: 'conversation-gmail-copy-5', subject: 'Gmail reply chain', is_read: true, account_id: 'account-gmail', folder: 'INBOX', date: new Date().toISOString(), from_email: 'sender@gmail.test', message_id: '<fixture-5>', body_text: 'Fixture body 5', thread_id: 'conversation-gmail', thread_key: 'conversation-gmail' },
-    ] } }));
+    await page.route('**/api/mail/thread/*', route => {
+      const unread = new Set(page.__unreadCopies || []);
+      return route.fulfill({ json: { messages: Array.from({ length: 5 }, (_, index) => {
+        const number = index + 1;
+        return { id: `conversation-gmail-copy-${number}`, subject: 'Gmail reply chain', is_read: !unread.has(`conversation-gmail-copy-${number}`), account_id: 'account-gmail', folder: ['INBOX', 'Sent', 'Archive', 'Sent', 'INBOX'][index], date: new Date(2026, 0, number).toISOString(), from_email: [1, 3].includes(index) ? 'me@gmail.test' : 'sender@gmail.test', message_id: `<fixture-${number}>`, body_text: `Fixture body ${number}`, thread_id: 'conversation-gmail', thread_key: 'conversation-gmail' };
+      }) } });
+    });
+    await page.route('**/api/mail/messages/bulk-read', async route => {
+      page.__bulkReadActions = page.__bulkReadActions || [];
+      page.__bulkReadActions.push(route.request().postDataJSON());
+      return route.fulfill({ json: { ok: true } });
+    });
     await page.route('**/api/mail/messages/*/body**', async route => {
       const url = new URL(route.request().url());
       const copyId = url.pathname.split('/').at(-2);

@@ -2,8 +2,11 @@ import { useRef, useEffect, useCallback } from 'react';
 
 const SWIPE_THRESHOLD = 72;
 
-export function isInteractiveSwipeTarget(target) {
-  return Boolean(target?.closest?.('button, input, select, textarea, a, [role="button"]'));
+export function isInteractiveSwipeTarget(target, swipeSurface = null) {
+  const interactive = target?.closest?.('button, input, select, textarea, a, [role="button"]');
+  // A ThreadRow is itself an accessible role=button. It is the swipe surface, not
+  // a nested action: allow its touch stream while preserving real child controls.
+  return Boolean(interactive && interactive !== swipeSurface);
 }
 
 export function useSwipeRow({ isMobile, message, onSwipeLeft, onSwipeRight, onLongPress, onTap }) {
@@ -73,7 +76,7 @@ export function useSwipeRow({ isMobile, message, onSwipeLeft, onSwipeRight, onLo
         springBackTimerRef.current = null;
       }
       longPressActivatedRef.current = false;
-      const interactive = isInteractiveSwipeTarget(e.target);
+      const interactive = isInteractiveSwipeTarget(e.target, el);
       swipeRef.current = { active: false, startX: t.clientX, startY: t.clientY, dir: null, x: 0, interactive };
       showBgs();
       if (!interactive && latestRef.current.onLongPress) {
