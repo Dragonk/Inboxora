@@ -34,7 +34,7 @@ try {
     ['Fastmail fixture', 'me@fastmail.test', 'imap.fastmail.com'],
   ]) {
     const result = await client.query(
-      'INSERT INTO email_accounts (user_id, name, email_address, auth_user, imap_host, enabled, protocol) VALUES ($1, $2, $3, $3, $4, false, \'imap\') RETURNING id',
+      'INSERT INTO email_accounts (user_id, name, email_address, auth_user, imap_host, enabled, protocol) VALUES ($1, $2, $3, $3, $4, true, \'imap\') RETURNING id',
       [userId, name, email, host]
     );
     accounts.push(result.rows[0].id);

@@ -119,6 +119,12 @@ jobs:
 
       - name: Populated legacy and account-identity migration gates
         working-directory: backend
+        env:
+          PGHOST: 127.0.0.1
+          PGPORT: 5432
+          PGDATABASE: mailflow_test
+          PGUSER: mailflow_test
+          PGPASSWORD: mailflow_test
         run: |
           node src/scripts/conversationMigrationUpgrade.js | tee ../artifacts-migration-legacy-upgrade.log
           node --input-type=module - <<'JS' | tee -a ../artifacts-migration-legacy-upgrade.log
