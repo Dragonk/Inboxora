@@ -41,6 +41,14 @@ export async function listMessages({ userId, accountId, folder = 'INBOX', limit 
     whereConditions.push(`(m.category IS NULL OR m.category = 'primary')`);
   }
 
+  // #407: hide UID-only placeholder rows whose envelope has not been fetched yet. During a
+  // rapid archive/reconcile overlap a UID can be listed before its envelope arrives, rendering
+  // as an "Unknown / (no subject)" ghost row. A genuine message always carries at least a
+  // Message-ID, a real subject, or a snippet, so this predicate only ever hides the hollow
+  // placeholder, never a real message. Applies to both the flat and threaded queries (shared
+  // `where`), so pagination and the threaded count stay consistent.
+  whereConditions.push(`NOT (m.message_id IS NULL AND (m.subject IS NULL OR m.subject = '(no subject)') AND COALESCE(m.snippet, '') = '')`);
+
   const where = whereConditions.join(' AND ');
 
   const safeLimit  = Math.min(Math.max(parseInt(limit)  || 50, 1), 500);

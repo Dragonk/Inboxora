@@ -12,7 +12,7 @@ vi.mock('../utils/redact.js', () => ({ redactEmail: vi.fn() }));
 vi.mock('./hostValidation.js', () => ({ resolveForConnection: vi.fn() }));
 vi.mock('./connectionPolicy.js', () => ({ getConnectionPolicy: vi.fn() }));
 
-import { ImapManager, providerProfile, makeClientCfg, relocateExemptGuard, insertCopiedSibling, deleteMessageCopyRow, emitSectionsChanged, ensureMailbox, createKeyedSemaphore, isConnectionRefusal, connectCooldownMs, effectiveSyncIntervalMs, folderSyncDue, planModseqSync, connectStaggerFor, walkStructure, parsePersistentCap, resolvePersistentCap, persistentEligible, shouldRetryIPv4 } from './imapManager.js';
+import { ImapManager, providerProfile, makeClientCfg, relocateExemptGuard, insertCopiedSibling, deleteMessageCopyRow, emitSectionsChanged, ensureMailbox, createKeyedSemaphore, isConnectionRefusal, connectCooldownMs, effectiveSyncIntervalMs, folderSyncDue, planModseqSync, connectStaggerFor, walkStructure, parsePersistentCap, resolvePersistentCap, persistentEligible, shouldRetryIPv4, classifyMoveBySearch } from './imapManager.js';
 import { pluginRegistry } from '../plugins/registry.js';
 import { EventEmitter } from 'node:events';
 import { ImapFlow } from 'imapflow';
@@ -1559,5 +1559,49 @@ describe('_markSeenInFolder — chunked mark-all-read', () => {
     };
     await expect(run(client)).rejects.toThrow(/messageFlagsAdd could not be confirmed/);
     expect(client.messageFlagsAdd).toHaveBeenCalledTimes(2);
+  });
+});
+
+describe('classifyMoveBySearch (#407 empty-uidMap reconciliation)', () => {
+  it('clean move: all left source, all arrived -> succeeded + mappable', () => {
+    const r = classifyMoveBySearch([4, 5, 6], /*remaining*/ [], /*destArrived*/ 3);
+    expect(r.succeeded).toEqual([4, 5, 6]);
+    expect(r.failed).toEqual([]);
+    expect(r.staleCount).toBe(0);
+    expect(r.mappable).toBe(true);
+  });
+
+  it('stale UID in batch: fewer arrived than left -> ALL failed, no wrong-deletion', () => {
+    // 2,3 were stale (moved away earlier), 4,5,6 really moved. All 5 are gone from source,
+    // but only 3 arrived in the destination -> conservatively report all failed.
+    const r = classifyMoveBySearch([2, 3, 4, 5, 6], /*remaining*/ [], /*destArrived*/ 3);
+    expect(r.succeeded).toEqual([]);
+    expect(r.failed).toEqual([2, 3, 4, 5, 6]);
+    expect(r.staleCount).toBe(2);
+    expect(r.mappable).toBe(false);
+  });
+
+  it('partial move failure: some still in source -> those are failed, the rest succeeded', () => {
+    // 5,6 still in source (not moved), 4 moved and arrived.
+    const r = classifyMoveBySearch([4, 5, 6], /*remaining*/ [5, 6], /*destArrived*/ 1);
+    expect(r.succeeded).toEqual([4]);
+    expect(r.failed).toEqual([5, 6]);
+    expect(r.staleCount).toBe(0);
+    expect(r.mappable).toBe(true);
+  });
+
+  it('nothing left the source -> all failed (move did not happen)', () => {
+    const r = classifyMoveBySearch([7, 8], /*remaining*/ [7, 8], /*destArrived*/ 0);
+    expect(r.succeeded).toEqual([]);
+    expect(r.failed).toEqual([7, 8]);
+    expect(r.staleCount).toBe(0);
+  });
+
+  it('destination not verifiable (null) -> trust source-absence, not mappable, stale unknown', () => {
+    const r = classifyMoveBySearch([4, 5, 6], /*remaining*/ [], /*destArrived*/ null);
+    expect(r.succeeded).toEqual([4, 5, 6]);
+    expect(r.failed).toEqual([]);
+    expect(r.staleCount).toBeNull();
+    expect(r.mappable).toBe(false);
   });
 });

@@ -209,3 +209,32 @@ describe('listMessages — message shape', () => {
     expect(query.mock.calls[2][0]).toContain('delivery_addresses');
   });
 });
+
+describe('listMessages — ghost row suppression (#407)', () => {
+  it('excludes hollow UID-only placeholder rows in the flat query', async () => {
+    query
+      .mockResolvedValueOnce({ rows: [{ id: 'acc-1' }] })
+      .mockResolvedValueOnce({ rows: [{ total_count: 1, unread_count: 0 }] })
+      .mockResolvedValueOnce({ rows: [] });
+
+    await listMessages({ userId: 'user-1', accountId: 'acc-1' });
+
+    const sql = query.mock.calls[2][0];
+    expect(sql).toContain('NOT (m.message_id IS NULL');
+    expect(sql).toContain("m.subject = '(no subject)'");
+  });
+
+  it('excludes hollow placeholder rows in the threaded query too (consistent pagination)', async () => {
+    query
+      .mockResolvedValueOnce({ rows: [{ id: 'acc-1' }] })
+      .mockResolvedValueOnce({ rows: [{ total_count: 1, unread_count: 0 }] })
+      .mockResolvedValueOnce({ rows: [] })
+      .mockResolvedValueOnce({ rows: [{ total: 0 }] });
+
+    await listMessages({ userId: 'user-1', accountId: 'acc-1', threaded: 'true' });
+
+    // CTE (call 2) and thread-count (call 3) both share `where`, so both exclude ghosts.
+    expect(query.mock.calls[2][0]).toContain('NOT (m.message_id IS NULL');
+    expect(query.mock.calls[3][0]).toContain('NOT (m.message_id IS NULL');
+  });
+});

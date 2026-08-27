@@ -1289,6 +1289,34 @@ async function resolveServerFolderCasing(client, knownPath) {
   }
 }
 
+// Decide the outcome of a bulk move whose UIDPLUS map was unavailable, from what a follow-up
+// UID SEARCH found. `remainingUids` are the requested UIDs still present in the source after the
+// move; `destArrived` is the count of new UIDs that landed in the destination (null when that
+// check could not run). Returns which UIDs to treat as succeeded/failed, the inferred number of
+// stale UIDs, and whether the destination UIDs can be mapped 1:1 by sorted order.
+//
+// The #407 case: some servers (e.g. Dovecot/PurelyMail) return NO uidMap when the batch contains
+// a stale UID, so afterwards every requested UID is absent from the source — the moved ones
+// because they moved, the stale one because it was never there — and source-absence alone cannot
+// tell them apart. When fewer messages arrived in the destination than left the source, a stale
+// UID is in the batch, so the WHOLE batch is reported failed (nothing is deleted or misfiled
+// locally; the next sync reconciles) rather than guessing which UID was stale and losing the rest.
+export function classifyMoveBySearch(uids, remainingUids, destArrived) {
+  const remaining = new Set(remainingUids.map(Number));
+  const gone = uids.filter(u => !remaining.has(Number(u)));
+  const stillPresent = uids.filter(u => remaining.has(Number(u)));
+  if (!gone.length) {
+    return { succeeded: [], failed: uids.slice(), staleCount: 0, mappable: false };
+  }
+  if (destArrived == null) {
+    return { succeeded: gone, failed: stillPresent, staleCount: null, mappable: false };
+  }
+  if (destArrived < gone.length) {
+    return { succeeded: [], failed: uids.slice(), staleCount: gone.length - destArrived, mappable: false };
+  }
+  return { succeeded: gone, failed: stillPresent, staleCount: 0, mappable: destArrived === gone.length };
+}
+
 export class ImapManager {
   constructor(wss) {
     this.wss = wss;
@@ -4844,115 +4872,98 @@ export class ImapManager {
       });
 
       if (serverUidMap) {
-        // Stale-identity measurement (#407 "brutal" case): any requested UID the server did
-        // NOT move is a row our local DB believed lived at that UID but the server no longer
-        // had there — a destructive op acting on stale identity (rapid re-archive, a concurrent
-        // move, or a UIDVALIDITY shift). This is the exact race #407 describes, currently masked
-        // (reported as succeeded). Behavior-neutral: the return value is unchanged, only measured.
-        const staleUids = uids.filter(u => !serverUidMap.has(Number(u)));
-        if (staleUids.length) recordSyncSignal('stale_mutation_uid', { accountId: account.id, magnitude: staleUids.length });
-        return { uidMap: serverUidMap, succeeded: uids, failed: [] };
+        // #407 fix: report only what the server actually moved. A requested UID the server did
+        // NOT move (absent from the UIDPLUS map) is a row our local DB believed lived at that UID
+        // but the server no longer had there — a destructive op meeting stale identity (rapid
+        // re-archive, a concurrent move, or a UIDVALIDITY shift). The old code reported every UID
+        // as succeeded, which made callers delete the local source row for a message that was
+        // never moved (a transient wrong-deletion) and silently defeated inboxRules' failure
+        // guards. Returning it in `failed` leaves the local row for the next sync to reconcile.
+        // `stale_mutation_uid` also measures how often this race actually fires.
+        const succeeded = uids.filter(u => serverUidMap.has(Number(u)));
+        const failed = uids.filter(u => !serverUidMap.has(Number(u)));
+        if (failed.length) recordSyncSignal('stale_mutation_uid', { accountId: account.id, magnitude: failed.length });
+        return { uidMap: serverUidMap, succeeded, failed };
       }
 
-      // Move succeeded but server returned no uidMap (no UIDPLUS).
-      // Try to recover new UIDs via UIDNEXT scan so the DB stays accurate.
-      const uidMap = await this._reconcileMovedUids(account, uids, toFolder, destUidNextBefore);
-      return { uidMap, succeeded: uids, failed: [] };
+      // Move succeeded but the server returned no UIDPLUS map. Some servers (e.g. Dovecot/
+      // PurelyMail) return an empty map precisely when the batch contains a stale UID — the #407
+      // case — so reconcile by UID SEARCH rather than blindly claiming success, which would delete
+      // local rows for messages that never moved and lose the destination UIDs of the ones that
+      // did. `stale_mutation_uid` records the inferred stale count.
+      const bySearch = await this._reconcileMoveBySearch(account, uids, fromFolder, toFolder, destUidNextBefore);
+      if (bySearch.staleCount) {
+        recordSyncSignal('stale_mutation_uid', { accountId: account.id, magnitude: bySearch.staleCount });
+        // The batch is reported all-failed, so the caller leaves local rows untouched. The
+        // genuinely-moved messages have already left the source (the server EXPUNGEd them, and the
+        // persistent IDLE connection reconciles the source shortly) but are not yet in the local
+        // destination. Pull the destination now so they reappear promptly instead of at the next
+        // periodic sync — the same on-demand resync the routes already do for non-UIDPLUS moves.
+        // Fire-and-forget; syncFolderOnDemand de-dups concurrent runs for the same folder.
+        if (toFolder !== fromFolder) {
+          this.syncFolderOnDemand(account, toFolder)
+            .catch(err => console.warn(`bulkMoveMessages: post-stale destination resync failed (${err.message})`));
+        }
+      }
+      return { uidMap: bySearch.uidMap, succeeded: bySearch.succeeded, failed: bySearch.failed };
 
     } catch (err) {
       console.warn(`bulkMoveMessages ${fromFolder} → ${toFolder}: batch failed (${err.message}), verifying via UID SEARCH`);
-      try {
-        const remaining = await withFreshClient(account, async (client) => {
-          const lock = await client.getMailboxLock(fromFolder);
-          try {
-            return await client.search({ uid: uids.join(',') }, { uid: true });
-          } finally {
-            lock.release();
-          }
-        });
-        const remainingSet = new Set(remaining.map(Number));
-        const succeeded = uids.filter(uid => !remainingSet.has(Number(uid)));
-        const failed    = uids.filter(uid =>  remainingSet.has(Number(uid)));
-
-        if (!succeeded.length) {
-          return { uidMap: new Map(), succeeded: [], failed: uids };
-        }
-
-        // Confirm that messages gone from source actually landed in destination
-        // before treating source-absence as proof of success.
-        if (destUidNextBefore !== null) {
-          try {
-            const destNewUids = await withFreshClient(account, async (client) => {
-              const lock = await client.getMailboxLock(toFolder);
-              try {
-                return await client.search({ uid: `${destUidNextBefore}:*` }, { uid: true });
-              } finally {
-                lock.release();
-              }
-            });
-            if (destNewUids.length < succeeded.length) {
-              console.warn(`bulkMoveMessages fallback: ${succeeded.length} UIDs gone from source but only ${destNewUids.length} new UIDs in destination — treating all as failed`);
-              return { uidMap: new Map(), succeeded: [], failed: uids };
-            }
-            // Destination count confirms the move; build uidMap if counts match exactly.
-            const uidMap = new Map();
-            if (destNewUids.length === succeeded.length) {
-              // IMAP MOVE assigns destination UIDs in ascending source-UID order, so BOTH
-              // sides must be sorted before zipping. `succeeded` is in arbitrary input
-              // order (not UID order), so zipping it against the sorted destination UIDs
-              // as-is would map each message to the wrong new UID.
-              const sortedSrc = succeeded.map(Number).sort((a, b) => a - b);
-              const sortedNew = [...destNewUids].sort((a, b) => a - b);
-              sortedSrc.forEach((uid, i) => uidMap.set(uid, sortedNew[i]));
-            }
-            console.log(`bulkMoveMessages: ${succeeded.length}/${uids.length} confirmed moved via UID SEARCH + dest verification`);
-            return { uidMap, succeeded, failed };
-          } catch (destErr) {
-            console.warn(`bulkMoveMessages: destination verification failed (${destErr.message}) — trusting source-absence`);
-          }
-        }
-
-        if (succeeded.length) {
-          console.log(`bulkMoveMessages: ${succeeded.length}/${uids.length} messages confirmed moved via UID SEARCH`);
-        }
-        return { uidMap: new Map(), succeeded, failed };
-      } catch (searchErr) {
-        console.error(`bulkMoveMessages: UID SEARCH verification failed: ${searchErr.message}`);
-        return { uidMap: new Map(), succeeded: [], failed: uids };
-      }
+      // A thrown move may have applied partway; reconcile by search to report what actually moved.
+      // Not counted as stale_mutation_uid — this is a move failure, not a stale-identity meeting.
+      const bySearch = await this._reconcileMoveBySearch(account, uids, fromFolder, toFolder, destUidNextBefore);
+      return { uidMap: bySearch.uidMap, succeeded: bySearch.succeeded, failed: bySearch.failed };
     }
   }
 
-  // After a successful move that returned no uidMap, scan the destination folder
-  // for UIDs >= destUidNextBefore and assign them to source UIDs in sorted order.
-  // Only commits the mapping when the count matches exactly (conservative).
-  async _reconcileMovedUids(account, sourceUids, toFolder, destUidNextBefore) {
-    if (destUidNextBefore === null) return new Map();
+  // Reconcile a move whose UIDPLUS map is unavailable — the server returned an empty map (some
+  // servers do this when the batch contains a stale UID, the #407 case), or the move threw partway.
+  // Determines succeeded/failed by which requested UIDs still remain in the source, and rebuilds a
+  // destination uidMap only when the counts line up exactly. The pure decision lives in
+  // classifyMoveBySearch; this method just does the two IMAP searches and the sorted-order mapping.
+  // Returns { uidMap, succeeded, failed, staleCount } (staleCount is the inferred stale-UID count,
+  // or null when it could not be determined).
+  async _reconcileMoveBySearch(account, uids, fromFolder, toFolder, destUidNextBefore) {
+    let remaining;
     try {
-      const newUids = await withFreshClient(account, async (client) => {
-        const lock = await client.getMailboxLock(toFolder);
-        try {
-          return await client.search({ uid: `${destUidNextBefore}:*` }, { uid: true });
-        } finally {
-          lock.release();
-        }
+      remaining = await withFreshClient(account, async (client) => {
+        const lock = await client.getMailboxLock(fromFolder);
+        try { return await client.search({ uid: uids.join(',') }, { uid: true }); }
+        finally { lock.release(); }
       });
-      if (newUids.length !== sourceUids.length) {
-        console.warn(`bulkMoveMessages reconcile: expected ${sourceUids.length} new UIDs in ${toFolder}, found ${newUids.length} — skipping UID update (will reconcile on next sync)`);
-        return new Map();
-      }
-      // IMAP MOVE assigns destination UIDs in ascending source-UID order, so sort BOTH
-      // sides before zipping — sourceUids is in arbitrary input order.
-      const sortedSrc = sourceUids.map(Number).sort((a, b) => a - b);
-      const sortedNew = [...newUids].sort((a, b) => a - b);
-      const uidMap = new Map();
-      sortedSrc.forEach((uid, i) => uidMap.set(uid, sortedNew[i]));
-      console.log(`bulkMoveMessages: reconciled ${uidMap.size} UIDs via destination UIDNEXT scan`);
-      return uidMap;
-    } catch (err) {
-      console.warn(`bulkMoveMessages: UID reconciliation failed (${err.message}) — UIDs will be updated on next sync`);
-      return new Map();
+    } catch (searchErr) {
+      console.error(`bulkMoveMessages: source UID SEARCH failed (${searchErr.message}) — leaving all ${uids.length} for next sync`);
+      return { uidMap: new Map(), succeeded: [], failed: uids, staleCount: null };
     }
+
+    let destArrived = null;
+    let destNew = [];
+    if (destUidNextBefore !== null) {
+      try {
+        destNew = await withFreshClient(account, async (client) => {
+          const lock = await client.getMailboxLock(toFolder);
+          try { return await client.search({ uid: `${destUidNextBefore}:*` }, { uid: true }); }
+          finally { lock.release(); }
+        });
+        destArrived = destNew.length;
+      } catch (destErr) {
+        console.warn(`bulkMoveMessages: destination verification failed (${destErr.message}) — trusting source-absence`);
+      }
+    }
+
+    const c = classifyMoveBySearch(uids, remaining, destArrived);
+    if (c.staleCount) {
+      console.warn(`bulkMoveMessages ${fromFolder} → ${toFolder}: ${c.staleCount} stale UID(s) in batch — reporting all ${uids.length} failed for the next sync to reconcile`);
+    }
+    // IMAP MOVE assigns destination UIDs in ascending source-UID order, so sort both sides before
+    // zipping. Only mappable when exactly as many arrived as left the source.
+    const uidMap = new Map();
+    if (c.mappable) {
+      const sortedSrc = c.succeeded.map(Number).sort((a, b) => a - b);
+      const sortedNew = [...destNew].sort((a, b) => a - b);
+      sortedSrc.forEach((uid, i) => uidMap.set(uid, sortedNew[i]));
+    }
+    return { uidMap, succeeded: c.succeeded, failed: c.failed, staleCount: c.staleCount };
   }
 
   // Permanently delete a batch of UIDs already in the given folder (two-step:
