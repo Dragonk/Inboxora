@@ -186,18 +186,18 @@ export default function ConversationReader({ conversationId, targetLogicalMessag
     const copy = selectedCopyFor(logicalId);
     return `${conversationId || nativeThreadId || ''}:${copy?.id || logicalId}`;
   }, [conversationId, nativeThreadId, selectedCopyFor]);
-  const alignNavigation = useCallback((navigationKey, reader, header, phase) => {
+  const alignNavigation = useCallback((navigationKey, reader, anchor, phase) => {
     const state = navigationStateRef.current.get(navigationKey);
     if (!state || state.userInteracted || (phase === 'final' && state.final)) return;
     automaticScrollRef.current = true;
-    alignReaderHeader(reader, header);
+    alignReaderHeader(reader, anchor);
     automaticScrollRef.current = false;
     if (phase === 'final') {
       state.final = true;
       completedNavigationRef.current.add(navigationKey);
     } else {
       state.preliminary = true;
-      if (state.bodyReady) state.finalFrame = requestAnimationFrame(() => alignNavigation(navigationKey, reader, header, 'final'));
+      if (state.bodyReady) state.finalFrame = requestAnimationFrame(() => alignNavigation(navigationKey, reader, anchor, 'final'));
     }
   }, []);
   const handleInitialTargetBodyLayout = useCallback(copyId => {
@@ -209,12 +209,12 @@ export default function ConversationReader({ conversationId, targetLogicalMessag
     state.bodyReady = true;
     if (!state.preliminary || state.finalFrame) return;
     const reader = readerRef.current;
-    const header = reader && [...reader.querySelectorAll('[data-conversation-message-header]')]
-      .find(element => element.dataset.conversationMessageHeader === String(copyId));
-    if (reader && header) state.finalFrame = requestAnimationFrame(() => {
+    const anchor = reader && [...reader.querySelectorAll('[data-conversation-message-scroll-anchor]')]
+      .find(element => element.dataset.conversationMessageScrollAnchor === String(copyId));
+    if (reader && anchor) state.finalFrame = requestAnimationFrame(() => {
       // The iframe's measured height becomes part of the reader range after its
       // parent card commits. One final frame samples that post-body geometry.
-      state.finalFrame = requestAnimationFrame(() => alignNavigation(navigationKey, reader, header, 'final'));
+      state.finalFrame = requestAnimationFrame(() => alignNavigation(navigationKey, reader, anchor, 'final'));
     });
   }, [alignNavigation, navigationKeyFor, navigationTargetId, selectedCopyFor]);
   useEffect(() => {
@@ -241,13 +241,13 @@ export default function ConversationReader({ conversationId, targetLogicalMessag
     const navigationKey = navigationKeyFor(navigationTargetId);
     if (completedNavigationRef.current.has(navigationKey)) return;
     const reader = readerRef.current;
-    const header = [...reader.querySelectorAll('[data-conversation-message-header]')]
-      .find(element => element.dataset.conversationMessageHeader === String(selectedCopyFor(navigationTargetId)?.id || ''));
-    if (!header) return;
+    const anchor = [...reader.querySelectorAll('[data-conversation-message-scroll-anchor]')]
+      .find(element => element.dataset.conversationMessageScrollAnchor === String(selectedCopyFor(navigationTargetId)?.id || ''));
+    if (!anchor) return;
     const state = navigationStateRef.current.get(navigationKey) || { preliminary: false, bodyReady: false, final: false, userInteracted: false, finalFrame: null };
     navigationStateRef.current.set(navigationKey, state);
     if (state.preliminary) return;
-    const frame = requestAnimationFrame(() => alignNavigation(navigationKey, reader, header, 'preliminary'));
+    const frame = requestAnimationFrame(() => alignNavigation(navigationKey, reader, anchor, 'preliminary'));
     return () => cancelAnimationFrame(frame);
   }, [alignNavigation, navigationKeyFor, navigationTargetId, expanded, messages, selectedCopyFor]);
 

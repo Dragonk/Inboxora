@@ -161,6 +161,7 @@ export default function ConversationMessage({ conversationId, message, selectedC
         isMobile={isMobile}
         defaultReplyAll={replyDefault === 'replyAll'}
         targetId={message.id}
+        scrollAnchorId={copy.id}
         isRead={Boolean(copy.isRead ?? copy.is_read)}
         isStarred={Boolean(copy.isStarred ?? copy.is_starred)}
         currentFolder={copy.folder}

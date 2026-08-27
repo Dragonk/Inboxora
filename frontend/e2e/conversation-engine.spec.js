@@ -464,7 +464,7 @@ test.describe('reader target navigation follow-up', () => {
     await expect(m3).toHaveAttribute('data-unread', 'false');
   });
 
-  test('aligns the selected physical header at the reader visible top and never resnaps', async ({ page, fixtureApi }) => {
+  test('aligns the selected message action toolbar at the reader visible top and never resnaps', async ({ page, fixtureApi }) => {
     await open(page, fixtureApi, false, true);
     await page.evaluate(() => {
       window.__readerScrollWrites = 0;
@@ -481,8 +481,29 @@ test.describe('reader target navigation follow-up', () => {
     await page.locator('[data-msgid="conversation-gmail-copy-4"]:visible').click();
     const reader = page.locator('section[data-conversation-id="conversation-gmail"]:visible');
     const target = reader.locator('[data-conversation-message-state="expanded"]');
+    const toolbar = target.locator('[data-conversation-message-actions="true"]');
     const header = target.locator('[data-conversation-message-header]');
+    await expect(toolbar).toBeVisible();
     await expect(header).toBeVisible();
+    const geometry = await target.evaluate(element => {
+      const reader = element.closest('section');
+      const anchor = element.querySelector('[data-conversation-message-scroll-anchor]');
+      const actions = element.querySelector('[data-conversation-message-actions="true"]');
+      const subject = element.querySelector('[data-conversation-message-header]');
+      const readerRect = reader.getBoundingClientRect();
+      const anchorRect = anchor.getBoundingClientRect();
+      const toolbarRect = actions.getBoundingClientRect();
+      const headerRect = subject.getBoundingClientRect();
+      return {
+        anchorError: anchorRect.top - (readerRect.top + 8),
+        toolbarTop: toolbarRect.top, toolbarBottom: toolbarRect.bottom,
+        headerTop: headerRect.top, readerTop: readerRect.top, readerBottom: readerRect.bottom,
+      };
+    });
+    expect(Math.abs(geometry.anchorError)).toBeLessThanOrEqual(3);
+    expect(geometry.toolbarTop).toBeGreaterThanOrEqual(geometry.readerTop);
+    expect(geometry.toolbarBottom).toBeLessThanOrEqual(geometry.readerBottom);
+    expect(geometry.headerTop).toBeGreaterThanOrEqual(geometry.toolbarBottom);
     // The pure alignment helper verifies geometry/clamping. This browser contract
     // verifies that one navigation schedules exactly one scroll sequence.
     expect(await page.evaluate(() => window.__readerScrollWrites)).toBeLessThanOrEqual(2);
@@ -507,10 +528,12 @@ test.describe('reader target navigation follow-up', () => {
       await page.locator(`[data-msgid="${copy}"]:visible`).click();
       const reader = page.locator('section[data-conversation-id="conversation-gmail"]:visible');
       const target = reader.locator(`#logical-message-conversation-gmail-logical-${index}`);
+      const anchor = target.locator('[data-conversation-message-scroll-anchor]');
       const header = target.locator('[data-conversation-message-header]');
+      await expect(anchor).toBeVisible();
       await expect(target.locator('iframe')).toBeVisible();
       await expect.poll(() => reader.evaluate(element => element.scrollHeight > element.clientHeight)).toBe(true);
-      return { reader, target, header };
+      return { reader, target, anchor, header };
     };
     const short = await select('conversation-gmail-copy-10', 'short', 10);
     const shortGeometry = await short.reader.evaluate(element => ({ scrollTop: element.scrollTop, max: element.scrollHeight - element.clientHeight }));
@@ -518,11 +541,11 @@ test.describe('reader target navigation follow-up', () => {
     await expect(short.target.locator('iframe').contentFrame().locator('[data-testid="target-body"]')).toBeVisible();
 
     const long = await select('conversation-gmail-copy-10', 'long', 10);
-    const longGeometry = await long.header.evaluate(element => {
+    const longGeometry = await long.anchor.evaluate(element => {
       const reader = element.closest('section');
-      return { headerTop: element.getBoundingClientRect().top, readerTop: reader.getBoundingClientRect().top };
+      return { anchorTop: element.getBoundingClientRect().top, readerTop: reader.getBoundingClientRect().top };
     });
-    expect(longGeometry.headerTop - longGeometry.readerTop).toBeLessThanOrEqual(12);
+    expect(longGeometry.anchorTop - longGeometry.readerTop).toBeLessThanOrEqual(12);
 
     const twoPhaseNavigation = async ({ target, start }) => {
       page.__conversationSize = 10;
@@ -552,14 +575,14 @@ test.describe('reader target navigation follow-up', () => {
       // navigation phase. The real header handler expands, mounts a 300px iframe,
       // then reports its larger first measured body layout.
       await reader.locator(`#logical-message-conversation-gmail-logical-${target} [data-conversation-message-header]`).evaluate(element => element.click());
-      const header = reader.locator(`#logical-message-conversation-gmail-logical-${target} [data-conversation-message-header]`);
-      await expect(header).toBeVisible();
+      const anchor = reader.locator(`#logical-message-conversation-gmail-logical-${target} [data-conversation-message-scroll-anchor]`);
+      await expect(anchor).toBeVisible();
       await expect(reader.locator(`#logical-message-conversation-gmail-logical-${target} iframe`).contentFrame().locator('[data-testid="target-body"]')).toBeVisible();
-      await expect.poll(async () => header.evaluate(element => {
+      await expect.poll(async () => anchor.evaluate(element => {
         const container = element.closest('section');
         return Math.abs(element.getBoundingClientRect().top - (container.getBoundingClientRect().top + 8));
       })).toBeLessThanOrEqual(2);
-      const geometry = await header.evaluate(element => {
+      const geometry = await anchor.evaluate(element => {
         const container = element.closest('section');
         return {
           scrollTop: container.scrollTop,
@@ -587,6 +610,16 @@ test.describe('reader target navigation follow-up', () => {
     const middle = await twoPhaseNavigation({ target: 4, start: 'top' });
     expect(middle.geometry.scrollTop).toBeGreaterThan(middle.previousScrollTop);
     expect(middle.geometry.scrollTop).toBeLessThan(middle.geometry.maxScrollTop);
+    const middleToolbarGeometry = await page.locator('#logical-message-conversation-gmail-logical-4').evaluate(element => {
+      const reader = element.closest('section');
+      const toolbar = element.querySelector('[data-conversation-message-actions="true"]')?.getBoundingClientRect();
+      const header = element.querySelector('[data-conversation-message-header]')?.getBoundingClientRect();
+      const viewport = reader.getBoundingClientRect();
+      return { toolbarTop: toolbar?.top, toolbarBottom: toolbar?.bottom, headerTop: header?.top, viewportTop: viewport.top, viewportBottom: viewport.bottom };
+    });
+    expect(middleToolbarGeometry.toolbarTop).toBeGreaterThanOrEqual(middleToolbarGeometry.viewportTop);
+    expect(middleToolbarGeometry.toolbarBottom).toBeLessThanOrEqual(middleToolbarGeometry.viewportBottom);
+    expect(middleToolbarGeometry.headerTop).toBeGreaterThanOrEqual(middleToolbarGeometry.toolbarBottom);
   });
 
 });

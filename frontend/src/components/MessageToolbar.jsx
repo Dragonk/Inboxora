@@ -47,7 +47,7 @@ function MenuItem({ icon, label, onClick, danger = false }) {
 }
 
 export default function MessageToolbar({
-  isMobile = false, defaultReplyAll = false, targetId, className, style,
+  isMobile = false, defaultReplyAll = false, targetId, scrollAnchorId, className, style,
   isRead = true, isStarred = false, currentFolder = null,
   folders = [], foldersLoading = false, onLoadFolders,
   onReply, onReplyAll, onForward, onArchive, onMove, onSpam, onHam,
@@ -68,7 +68,7 @@ export default function MessageToolbar({
   const menuStyle = { position: 'absolute', top: 'calc(100% + 4px)', background: 'var(--bg-elevated)', border: '1px solid var(--border)', borderRadius: 8, overflow: 'hidden', zIndex: 200, boxShadow: 'var(--shadow-popover, 0 4px 20px rgba(0,0,0,.4))' };
   const primaryReply = defaultReplyAll ? onReplyAll : onReply;
 
-  return <div className={className} data-testid="message-pane-toolbar" data-conversation-message-actions={targetId ? 'true' : undefined} data-action-target-id={targetId} style={{
+  return <div className={className} data-testid="message-pane-toolbar" data-conversation-message-actions={targetId ? 'true' : undefined} data-conversation-message-scroll-anchor={scrollAnchorId || undefined} data-action-target-id={targetId} style={{
     padding: '8px 16px', borderBottom: '1px solid var(--border-subtle)', display: 'flex', alignItems: 'center', gap: 6,
     flexShrink: 0, flexWrap: 'wrap', minWidth: 0, overflow: 'visible', ...style,
   }} onClick={event => event.stopPropagation()}>
