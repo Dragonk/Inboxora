@@ -41,12 +41,12 @@ async function seedScale(userId, accountId, conversationCount, messagesPerConv) 
   for (let i = 0; i < conversationCount; i++) {
     const id = randomUUID();
     convIds.push(id);
-    convValues.push(`('${id}', '${userId}', 'perf-test-${i}', 'human_reply_chain', false)`);
+    convValues.push(`('${id}', '${userId}', '${accountId}', 'perf-test-${i}', 'human_reply_chain', false)`);
   }
   // Insert in batches of 1000
   for (let i = 0; i < convValues.length; i += 1000) {
     const batch = convValues.slice(i, i + 1000).join(',');
-    await pool.query(`INSERT INTO conversations (id, user_id, canonical_subject, kind, manually_locked) VALUES ${batch}`);
+    await pool.query(`INSERT INTO conversations (id, user_id, account_id, canonical_subject, kind, manually_locked) VALUES ${batch}`);
   }
 
   // Bulk insert logical messages + physical copies
@@ -57,9 +57,9 @@ async function seedScale(userId, accountId, conversationCount, messagesPerConv) 
     for (let m = 0; m < messagesPerConv; m++) {
       const lmId = randomUUID();
       lmIds.push(lmId);
-      lmValues.push(`('${lmId}', '${convId}', '${userId}', '<perf-${c}-${m}@example.com>')`);
+      lmValues.push(`('${lmId}', '${convId}', '${userId}', '${accountId}', '<perf-${c}-${m}@example.com>')`);
     }
-    await pool.query(`INSERT INTO logical_messages (id, conversation_id, user_id, canonical_message_id) VALUES ${lmValues.join(',')}`);
+    await pool.query(`INSERT INTO logical_messages (id, conversation_id, user_id, account_id, canonical_message_id) VALUES ${lmValues.join(',')}`);
 
     // Insert physical copies for each LM
     const msgValues = [];

@@ -124,6 +124,13 @@ try {
     }
   }
 
+  await client.query(`
+    UPDATE folders f
+       SET total_count = (SELECT COUNT(*) FROM messages m WHERE m.account_id = f.account_id AND m.folder = f.path),
+           unread_count = (SELECT COUNT(*) FROM messages m WHERE m.account_id = f.account_id AND m.folder = f.path AND m.is_read = false)
+     WHERE f.account_id = ANY($1::uuid[])
+  `, [accounts]);
+
   // ── Validation ────────────────────────────────────────────────────────────
   const check = await client.query('SELECT COUNT(*)::int AS conversations FROM conversations WHERE user_id = $1', [userId]);
   if (check.rows[0].conversations !== 4) throw new Error(`Playwright seed validation failed: expected 4 conversations, got ${check.rows[0].conversations}`);

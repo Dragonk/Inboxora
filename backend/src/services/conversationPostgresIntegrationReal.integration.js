@@ -90,20 +90,20 @@ async function insertMessage({ accountId, userId, uid, folder, messageId, subjec
   return result.rows[0].id;
 }
 
-async function createConversation(userId, subject) {
+async function createConversation(userId, accountId, subject) {
   const convId = _randomUUID();
   await pool.query(
-    "INSERT INTO conversations (id, user_id, canonical_subject, kind, manually_locked) VALUES ($1, $2, $3, 'human_reply_chain', false)",
-    [convId, userId, subject.toLowerCase()]
+    "INSERT INTO conversations (id, user_id, account_id, canonical_subject, kind, manually_locked) VALUES ($1, $2, $3, $4, 'human_reply_chain', false)",
+    [convId, userId, accountId, subject.toLowerCase()]
   );
   return convId;
 }
 
-async function createLogicalMessage(conversationId, userId, canonicalMessageId) {
+async function createLogicalMessage(conversationId, userId, accountId, canonicalMessageId) {
   const lmId = _randomUUID();
   await pool.query(
-    "INSERT INTO logical_messages (id, conversation_id, user_id, canonical_message_id) VALUES ($1, $2, $3, $4)",
-    [lmId, conversationId, userId, canonicalMessageId]
+    "INSERT INTO logical_messages (id, conversation_id, user_id, account_id, canonical_message_id) VALUES ($1, $2, $3, $4, $5)",
+    [lmId, conversationId, userId, accountId, canonicalMessageId]
   );
   return lmId;
 }
@@ -114,14 +114,14 @@ describe('CE v2 PostgreSQL integration — ALL FOLDERS conversation', () => {
     const subject = 'CE-INTEGRATION-All-Folders-Test';
 
     // Create conversation
-    const convId = await createConversation(userId, subject);
+    const convId = await createConversation(userId, accountId, subject);
 
     // Create 5 LogicalMessages
-    const lm1 = await createLogicalMessage(convId, userId, '<msg-1@example.com>');
-    const lm2 = await createLogicalMessage(convId, userId, '<msg-2@example.com>');
-    const lm3 = await createLogicalMessage(convId, userId, '<msg-3@example.com>');
-    const lm4 = await createLogicalMessage(convId, userId, '<msg-4@example.com>');
-    const lm5 = await createLogicalMessage(convId, userId, '<msg-5@example.com>');
+    const lm1 = await createLogicalMessage(convId, userId, accountId, '<msg-1@example.com>');
+    const lm2 = await createLogicalMessage(convId, userId, accountId, '<msg-2@example.com>');
+    const lm3 = await createLogicalMessage(convId, userId, accountId, '<msg-3@example.com>');
+    const lm4 = await createLogicalMessage(convId, userId, accountId, '<msg-4@example.com>');
+    const lm5 = await createLogicalMessage(convId, userId, accountId, '<msg-5@example.com>');
 
     // LM1: incoming, Inbox
     await insertMessage({
@@ -264,12 +264,12 @@ describe('CE v2 PostgreSQL integration — ALL FOLDERS conversation', () => {
       const convId = _randomUUID();
       const lmId = _randomUUID();
       await pool.query(
-        "INSERT INTO conversations (id, user_id, canonical_subject, kind, manually_locked) VALUES ($1, $2, 'test', 'human_reply_chain', false)",
-        [convId, userId]
+        "INSERT INTO conversations (id, user_id, account_id, canonical_subject, kind, manually_locked) VALUES ($1, $2, $3, 'test', 'human_reply_chain', false)",
+        [convId, userId, accountId]
       );
       await pool.query(
-        "INSERT INTO logical_messages (id, conversation_id, user_id, canonical_message_id) VALUES ($1, $2, $3, $4)",
-        [lmId, convId, userId, `<test-${i}@sender-${i}.com>`]
+        "INSERT INTO logical_messages (id, conversation_id, user_id, account_id, canonical_message_id) VALUES ($1, $2, $3, $4, $5)",
+        [lmId, convId, userId, accountId, `<test-${i}@sender-${i}.com>`]
       );
       const year = 2020 + (i % 7); // spread across 2020-2026
       const month = (i % 12) + 1;
@@ -303,14 +303,14 @@ describe('CE v2 PostgreSQL integration — ALL FOLDERS conversation', () => {
     // Now add 3 messages that ARE related via RFC References (same Subject: Test, but with threading headers)
     const relatedConvId = _randomUUID();
     await pool.query(
-      "INSERT INTO conversations (id, user_id, canonical_subject, kind, manually_locked) VALUES ($1, $2, 'test', 'human_reply_chain', false)",
-      [relatedConvId, userId]
+      "INSERT INTO conversations (id, user_id, account_id, canonical_subject, kind, manually_locked) VALUES ($1, $2, $3, 'test', 'human_reply_chain', false)",
+      [relatedConvId, userId, accountId]
     );
     for (let i = 0; i < 3; i++) {
       const lmId = _randomUUID();
       await pool.query(
-        "INSERT INTO logical_messages (id, conversation_id, user_id, canonical_message_id) VALUES ($1, $2, $3, $4)",
-        [lmId, relatedConvId, userId, `<related-${i}@example.com>`]
+        "INSERT INTO logical_messages (id, conversation_id, user_id, account_id, canonical_message_id) VALUES ($1, $2, $3, $4, $5)",
+        [lmId, relatedConvId, userId, accountId, `<related-${i}@example.com>`]
       );
       await insertMessage({
         accountId, userId, uid: 3000 + i, folder: 'INBOX',
@@ -353,12 +353,12 @@ describe('CE v2 PostgreSQL integration — ALL FOLDERS conversation', () => {
       convIds.push(convId);
       lmIds.push(lmId);
       await pool.query(
-        "INSERT INTO conversations (id, user_id, canonical_subject, kind, manually_locked) VALUES ($1, $2, $3, 'human_reply_chain', false)",
-        [convId, userId, `collision-test-${i}`]
+        "INSERT INTO conversations (id, user_id, account_id, canonical_subject, kind, manually_locked) VALUES ($1, $2, $3, $4, 'human_reply_chain', false)",
+        [convId, userId, accountId, `collision-test-${i}`]
       );
       await pool.query(
-        "INSERT INTO logical_messages (id, conversation_id, user_id, canonical_message_id) VALUES ($1, $2, $3, $4)",
-        [lmId, convId, userId, collidingMsgId]
+        "INSERT INTO logical_messages (id, conversation_id, user_id, account_id, canonical_message_id) VALUES ($1, $2, $3, $4, $5)",
+        [lmId, convId, userId, accountId, collidingMsgId]
       );
     }
 
@@ -395,8 +395,8 @@ describe('CE v2 PostgreSQL integration — ALL FOLDERS conversation', () => {
   it('relocate preserves all CE v2 identity and threading metadata', async () => {
     const { userId, accountId } = await setupTestUser();
     const subject = 'CE-INTEGRATION-Relocate-Test';
-    const convId = await createConversation(userId, subject);
-    const lmId = await createLogicalMessage(convId, userId, '<relocate-msg@example.com>');
+    const convId = await createConversation(userId, accountId, subject);
+    const lmId = await createLogicalMessage(convId, userId, accountId, '<relocate-msg@example.com>');
 
     const msgId = await insertMessage({
       accountId, userId, uid: 5001, folder: 'INBOX', messageId: '<relocate-msg@example.com>',
@@ -454,12 +454,12 @@ describe('CE v2 PostgreSQL integration — ALL FOLDERS conversation', () => {
       const convId = _randomUUID();
       const lmId = _randomUUID();
       await pool.query(
-        "INSERT INTO conversations (id, user_id, canonical_subject, kind, manually_locked) VALUES ($1, $2, 'rebuild-test', 'human_reply_chain', false)",
-        [convId, userId]
+        "INSERT INTO conversations (id, user_id, account_id, canonical_subject, kind, manually_locked) VALUES ($1, $2, $3, 'rebuild-test', 'human_reply_chain', false)",
+        [convId, userId, accountId]
       );
       await pool.query(
-        "INSERT INTO logical_messages (id, conversation_id, user_id, canonical_message_id) VALUES ($1, $2, $3, $4)",
-        [lmId, convId, userId, `<rebuild-${i}@example.com>`]
+        "INSERT INTO logical_messages (id, conversation_id, user_id, account_id, canonical_message_id) VALUES ($1, $2, $3, $4, $5)",
+        [lmId, convId, userId, accountId, `<rebuild-${i}@example.com>`]
       );
       await insertMessage({
         accountId, userId, uid: 6000 + i, folder: 'INBOX', messageId: `<rebuild-${i}@example.com>`,

@@ -29,12 +29,12 @@ async function setup() {
 }
 async function fixture() {
   const conversationId = randomUUID();
-  await q(`INSERT INTO conversations (id,user_id,canonical_subject,subject_snapshot,kind,manually_locked) VALUES ($1,$2,'scope fixture','scope fixture','human_reply_chain',false)`, [conversationId,userId]);
+  await q(`INSERT INTO conversations (id,user_id,account_id,canonical_subject,subject_snapshot,kind,manually_locked) VALUES ($1,$2,$3,'scope fixture','scope fixture','human_reply_chain',false)`, [conversationId,userId,accountA]);
   const lm1 = randomUUID(); const lm2 = randomUUID(); const lm3 = randomUUID();
-  await q(`INSERT INTO logical_messages (id,user_id,conversation_id,canonical_message_id,subject,canonical_subject,direction,message_date) VALUES
-    ($1,$4,$5,'<scope-lm1@test>','scope fixture','scope fixture','incoming',NOW()-INTERVAL '3 minutes'),
-    ($2,$4,$5,'<scope-lm2@test>','scope fixture','scope fixture','outgoing',NOW()-INTERVAL '2 minutes'),
-    ($3,$4,$5,'<scope-lm3@test>','scope fixture','scope fixture','incoming',NOW()-INTERVAL '1 minute')`, [lm1,lm2,lm3,userId,conversationId]);
+  await q(`INSERT INTO logical_messages (id,user_id,account_id,conversation_id,canonical_message_id,subject,canonical_subject,direction,message_date) VALUES
+    ($1,$4,$5,$6,'<scope-lm1@test>','scope fixture','scope fixture','incoming',NOW()-INTERVAL '3 minutes'),
+    ($2,$4,$5,$6,'<scope-lm2@test>','scope fixture','scope fixture','outgoing',NOW()-INTERVAL '2 minutes'),
+    ($3,$4,$5,$6,'<scope-lm3@test>','scope fixture','scope fixture','incoming',NOW()-INTERVAL '1 minute')`, [lm1,lm2,lm3,userId,accountA,conversationId]);
   const copies = [];
   const specs = [
     [accountA, 10001, 'INBOX', '<scope-lm1@test>', lm1],

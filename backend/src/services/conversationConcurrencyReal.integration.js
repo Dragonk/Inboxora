@@ -26,8 +26,8 @@ async function q(sql, params = []) { return pool.query(sql, params); }
 
 async function createConversation(subject) {
   const id = randomUUID();
-  await q(`INSERT INTO conversations (id, user_id, canonical_subject, subject_snapshot, kind, manually_locked)
-           VALUES ($1, $2, $3, $3, 'human_reply_chain', false)`, [id, userId, subject]);
+  await q(`INSERT INTO conversations (id, user_id, account_id, canonical_subject, subject_snapshot, kind, manually_locked)
+           VALUES ($1, $2, $3, $4, $4, 'human_reply_chain', false)`, [id, userId, accountId, subject]);
   return id;
 }
 
@@ -83,7 +83,7 @@ describe('Conversation Engine v2 — real PostgreSQL concurrency', () => {
     const bMessage = await createMessage({ messageId: `<merge-b-${randomUUID()}@test>`, subject: 'merge-b', uid: 101 });
     const aLm = randomUUID();
     const bLm = randomUUID();
-    await q('INSERT INTO logical_messages (id,user_id,conversation_id,canonical_message_id) VALUES ($1,$2,$3,$4),($5,$2,$6,$7)', [aLm,userId,a,'<merge-a-lm@test>',bLm,b,'<merge-b-lm@test>']);
+    await q('INSERT INTO logical_messages (id,user_id,account_id,conversation_id,canonical_message_id) VALUES ($1,$2,$3,$4,$5),($6,$2,$3,$7,$8)', [aLm,userId,accountId,a,'<merge-a-lm@test>',bLm,b,'<merge-b-lm@test>']);
     await q('UPDATE messages SET logical_message_id=$1,conversation_id=$2,conversation_user_id=$3 WHERE id=$4', [aLm,a,userId,aMessage]);
     await q('UPDATE messages SET logical_message_id=$1,conversation_id=$2,conversation_user_id=$3 WHERE id=$4', [bLm,b,userId,bMessage]);
 

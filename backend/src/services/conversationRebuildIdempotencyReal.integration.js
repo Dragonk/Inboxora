@@ -129,13 +129,13 @@ describe('CE v2 Rebuild idempotency — real PostgreSQL', () => {
       const convId = randomUUID();
       testConvIds.push(convId);
       await pool.query(
-        "INSERT INTO conversations (id, user_id, canonical_subject, kind, manually_locked) VALUES ($1, $2, 'test', 'human_reply_chain', false)",
-        [convId, userId]
+        "INSERT INTO conversations (id, user_id, account_id, canonical_subject, kind, manually_locked) VALUES ($1, $2, 'test', 'human_reply_chain', false)",
+        [convId, userId, accountId]
       );
       const lmId = randomUUID();
       await pool.query(
-        "INSERT INTO logical_messages (id, conversation_id, user_id, canonical_message_id) VALUES ($1, $2, $3, $4)",
-        [lmId, convId, userId, `<test-unrelated-${i}@example.com>`]
+        "INSERT INTO logical_messages (id, conversation_id, user_id, account_id, canonical_message_id) VALUES ($1, $2, $3, $4, $5)",
+        [lmId, convId, userId, accountId, `<test-unrelated-${i}@example.com>`]
       );
       const msgId = randomUUID();
       await pool.query(`
