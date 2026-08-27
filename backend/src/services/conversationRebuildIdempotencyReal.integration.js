@@ -159,7 +159,7 @@ describe('CE v2 Rebuild idempotency — real PostgreSQL', () => {
           NOW() - ($6 || ' days')::interval, 'snippet', false, false,
           false, '[]', '<p>body</p>', 'body', '[]',
           $4::text, false,
-          $7, $8, $9, $4,
+          $7::uuid, $8::uuid, $9::uuid, $4::text,
           'no-evidence', 0.0, 'v2'
         )
       `, [msgId, accountId, 9000 + i, `<test-unrelated-${i}@example.com>`, i, i * 30, lmId, convId, userId]);
