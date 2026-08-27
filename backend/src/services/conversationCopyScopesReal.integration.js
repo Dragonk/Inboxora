@@ -86,7 +86,10 @@ describe('CE v2 real copy scopes', () => {
     const f = await fixture();
     const target = f.copies.find(c => c.logicalId === f.lm1);
     const result = await applyConversationAction({ userId, conversationId: f.conversationId, scope: 'ALL_COPIES_OF_LOGICAL_MESSAGE', copyId: target.id, action: 'delete' });
-    assert.equal(result.affectedCount, 3);
+    // Logical-message identity is account-local, so the action affects only
+    // the two Account A copies; Account B has a distinct LM with the same
+    // canonical Message-ID.
+    assert.equal(result.affectedCount, 2);
     const other = await q('SELECT COUNT(*)::int AS count FROM messages WHERE conversation_id=$1 AND logical_message_id<>$2 AND NOT is_deleted', [f.conversationId,f.lm1]);
     assert.equal(other.rows[0].count, 3);
   });
