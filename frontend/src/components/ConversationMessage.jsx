@@ -28,7 +28,7 @@ function date(value) {
   }) : '';
 }
 
-export default function ConversationMessage({ conversationId, message, selectedCopyId, selectedAccountId, accounts, expanded, onToggle, body, status, onLoadBody, onRemoteImages, onReply, onActionComplete, onSetRead }) {
+export default function ConversationMessage({ conversationId, message, selectedCopyId, selectedAccountId, accounts, expanded, onToggle, body, status, onLoadBody, onRemoteImages, onReply, onActionComplete, onSetRead, onInitialBodyLayout }) {
   const { t } = useTranslation();
   const isMobile = useMobile();
   const { replyDefault, aiActions, setShowAdmin, setAdminTab, blockRemoteImages, imageWhitelist } = useStore();
@@ -279,6 +279,7 @@ export default function ConversationMessage({ conversationId, message, selectedC
           if (action === 'markSpam') return runAction(() => api.markSpam(physicalCopyId)); if (action === 'markHam') return runAction(() => api.markHam(physicalCopyId));
           if (action === 'moveTo' && data) return runAction(() => conversationApi.move(conversationId, data, { ...actionOptions, copyId: physicalCopyId }));
         }}
+        onInitialBodyLayout={() => onInitialBodyLayout?.(copy.id)}
         canAccessCopy={hasAccountCopy}
         mobile={isMobile}
       />

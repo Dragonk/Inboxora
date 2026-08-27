@@ -32,12 +32,14 @@ export default function ConversationReader({ conversationId, targetLogicalMessag
   const readerRef = useRef(null);
   const autoReadStarted = useRef(new Set());
   const completedNavigationRef = useRef(new Set());
+  const navigationStateRef = useRef(new Map());
+  const automaticScrollRef = useRef(false);
   const [activeTargetLogicalId, setActiveTargetLogicalId] = useState(null);
   const updateMessage = useStore(state => state.updateMessage);
 
   useEffect(() => {
     let active = true;
-    bodiesRef.current = {}; statusRef.current = {}; autoReadStarted.current = new Set(); completedNavigationRef.current = new Set();
+    bodiesRef.current = {}; statusRef.current = {}; autoReadStarted.current = new Set(); completedNavigationRef.current = new Set(); navigationStateRef.current = new Map();
     setActiveTargetLogicalId(null);
     setData(null); setError(null); setBodiesByCopy({}); setBodyStatusByCopy({}); setExpanded(new Set());
     // P1-B: Load the native thread (primary) and CE detail (enrichment) in parallel.
@@ -177,28 +179,78 @@ export default function ConversationReader({ conversationId, targetLogicalMessag
   }, [selectedCopyFor, t]);
   useEffect(() => { for (const id of expanded) loadBody(id); }, [expanded, loadBody]);
   const navigationTargetId = activeTargetLogicalId || initialTargetId;
-  // Scroll once per navigation, inside the reader pane. Layout timing waits for the
-  // expanded target's actual header rather than using an arbitrary timeout; later iframe
-  // resizes do not resnap a reader the user has already scrolled.
+  // Align once when the target header mounts, then once more after that exact
+  // body's iframe has applied its first measured height. The second pass uses the
+  // final scroll range; later image/quote/resize changes deliberately do not resnap.
+  const navigationKeyFor = useCallback(logicalId => {
+    const copy = selectedCopyFor(logicalId);
+    return `${conversationId || nativeThreadId || ''}:${copy?.id || logicalId}`;
+  }, [conversationId, nativeThreadId, selectedCopyFor]);
+  const alignNavigation = useCallback((navigationKey, reader, header, phase) => {
+    const state = navigationStateRef.current.get(navigationKey);
+    if (!state || state.userInteracted || (phase === 'final' && state.final)) return;
+    automaticScrollRef.current = true;
+    alignReaderHeader(reader, header);
+    automaticScrollRef.current = false;
+    if (phase === 'final') {
+      state.final = true;
+      completedNavigationRef.current.add(navigationKey);
+    } else {
+      state.preliminary = true;
+      if (state.bodyReady) state.finalFrame = requestAnimationFrame(() => alignNavigation(navigationKey, reader, header, 'final'));
+    }
+  }, []);
+  const handleInitialTargetBodyLayout = useCallback(copyId => {
+    const logicalId = navigationTargetId;
+    if (!logicalId || String(selectedCopyFor(logicalId)?.id || '') !== String(copyId || '')) return;
+    const navigationKey = navigationKeyFor(logicalId);
+    const state = navigationStateRef.current.get(navigationKey);
+    if (!state || state.final || state.userInteracted) return;
+    state.bodyReady = true;
+    if (!state.preliminary || state.finalFrame) return;
+    const reader = readerRef.current;
+    const header = reader && [...reader.querySelectorAll('[data-conversation-message-header]')]
+      .find(element => element.dataset.conversationMessageHeader === String(copyId));
+    if (reader && header) state.finalFrame = requestAnimationFrame(() => {
+      // The iframe's measured height becomes part of the reader range after its
+      // parent card commits. One final frame samples that post-body geometry.
+      state.finalFrame = requestAnimationFrame(() => alignNavigation(navigationKey, reader, header, 'final'));
+    });
+  }, [alignNavigation, navigationKeyFor, navigationTargetId, selectedCopyFor]);
+  useEffect(() => {
+    const reader = readerRef.current;
+    if (!reader || !navigationTargetId) return;
+    const cancelFinal = () => {
+      if (automaticScrollRef.current) return;
+      const state = navigationStateRef.current.get(navigationKeyFor(navigationTargetId));
+      if (!state || state.final) return;
+      state.userInteracted = true;
+      if (state.finalFrame) cancelAnimationFrame(state.finalFrame);
+    };
+    reader.addEventListener('wheel', cancelFinal, { passive: true });
+    reader.addEventListener('touchstart', cancelFinal, { passive: true });
+    reader.addEventListener('pointerdown', cancelFinal, { passive: true });
+    return () => {
+      reader.removeEventListener('wheel', cancelFinal);
+      reader.removeEventListener('touchstart', cancelFinal);
+      reader.removeEventListener('pointerdown', cancelFinal);
+    };
+  }, [navigationKeyFor, navigationTargetId]);
   useLayoutEffect(() => {
     if (!navigationTargetId || !readerRef.current || !expanded.has(navigationTargetId)) return;
-    const copy = selectedCopyFor(navigationTargetId);
-    const navigationKey = `${conversationId || nativeThreadId || ''}:${copy?.id || navigationTargetId}`;
+    const navigationKey = navigationKeyFor(navigationTargetId);
     if (completedNavigationRef.current.has(navigationKey)) return;
     const reader = readerRef.current;
     const header = [...reader.querySelectorAll('[data-conversation-message-header]')]
-      .find(element => element.dataset.conversationMessageHeader === String(copy?.id || ''));
-    // Do not consume the navigation until its exact physical header exists. The
-    // latest layout effect owns the single RAF; its cleanup cancels superseded work.
-    // Consume inside that RAF so a rerender that cancels it can still retry.
+      .find(element => element.dataset.conversationMessageHeader === String(selectedCopyFor(navigationTargetId)?.id || ''));
     if (!header) return;
-    const frame = requestAnimationFrame(() => {
-      if (completedNavigationRef.current.has(navigationKey)) return;
-      completedNavigationRef.current.add(navigationKey);
-      alignReaderHeader(reader, header);
-    });
+    const state = navigationStateRef.current.get(navigationKey) || { preliminary: false, bodyReady: false, final: false, userInteracted: false, finalFrame: null };
+    navigationStateRef.current.set(navigationKey, state);
+    if (state.preliminary) return;
+    const frame = requestAnimationFrame(() => alignNavigation(navigationKey, reader, header, 'preliminary'));
     return () => cancelAnimationFrame(frame);
-  }, [conversationId, nativeThreadId, navigationTargetId, messages, selectedCopyFor, expanded]);
+  }, [alignNavigation, navigationKeyFor, navigationTargetId, expanded, messages, selectedCopyFor]);
+
 
   const activateMessage = useCallback(id => {
     setActiveTargetLogicalId(id);
@@ -222,7 +274,7 @@ export default function ConversationReader({ conversationId, targetLogicalMessag
   return <section ref={readerRef} aria-label={t('conversation.label')} data-conversation-id={conversationId} data-reader-source={nativeThreadId ? 'native-thread' : 'conversation'} data-selected-copy-id={selectedCopyId || ''} data-selected-account-id={selectedAccountId || ''} style={{ flex: 1, overflowY: 'auto', overflowX: 'hidden', padding: 0, minWidth: 0 }}>
     {messages.map(message => {
       const physicalCopyId = selectedCopyFor(message.id)?.id;
-      return <ConversationMessage key={message.id} conversationId={conversationId} message={message} selectedCopyId={selectedCopyId} selectedAccountId={selectedAccountId} accounts={accounts} expanded={expanded.has(message.id)} onToggle={toggle} body={physicalCopyId ? bodiesByCopy[physicalCopyId] : null} status={physicalCopyId ? bodyStatusByCopy[physicalCopyId] : { unavailable: true }} onLoadBody={loadBody} onRemoteImages={id => loadBody(id, true, true)} onReply={onReply} onActionComplete={refresh} onSetRead={setCopyReadState} />;
+      return <ConversationMessage key={message.id} conversationId={conversationId} message={message} selectedCopyId={selectedCopyId} selectedAccountId={selectedAccountId} accounts={accounts} expanded={expanded.has(message.id)} onToggle={toggle} body={physicalCopyId ? bodiesByCopy[physicalCopyId] : null} status={physicalCopyId ? bodyStatusByCopy[physicalCopyId] : { unavailable: true }} onLoadBody={loadBody} onRemoteImages={id => loadBody(id, true, true)} onReply={onReply} onActionComplete={refresh} onSetRead={setCopyReadState} onInitialBodyLayout={handleInitialTargetBodyLayout} />;
     })}
   </section>;
 }

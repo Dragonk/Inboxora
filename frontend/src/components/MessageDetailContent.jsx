@@ -36,6 +36,7 @@ export default function MessageDetailContent({
   onUnsubscribe,
   onDownload,
   onContextAction,
+  onInitialBodyLayout,
   canAccessCopy = true,
   mobile = false,
   className = '',
@@ -98,7 +99,7 @@ export default function MessageDetailContent({
     {status.unavailable && <div role="status" style={{ padding: 16, color: 'var(--text-tertiary)' }}>{t('conversation.noBody')}</div>}
     {!status.loading && !status.error && body && !html && !text && <div style={{ padding: 16, color: 'var(--text-tertiary)' }}>{t('message.noContent')}</div>}
     {!status.loading && !status.error && (html || text) && <div className="msg-card conversation-message-body-panel" data-message-detail-body="true" style={{ position: 'relative', padding: '14px 16px 12px', background: 'var(--message-body-bg)', borderRadius: mobile ? 0 : 10, border: mobile ? 'none' : '1px solid var(--border-subtle)', overflow: 'hidden', contain: 'layout' }}>
-      <MessageBodyRenderer html={html} text={text} remoteImages={remoteImages} iframeRef={iframeRef} title={t('message.emailFrameTitle')} showQuotedTextLabel={t('conversation.showQuotedText')} hideQuotedTextLabel={t('conversation.hideQuotedText')} onContextMenu={openContextMenu} style={{ width: '1px', minWidth: '100%', height: '300px' }} />
+      <MessageBodyRenderer html={html} text={text} remoteImages={remoteImages} iframeRef={iframeRef} title={t('message.emailFrameTitle')} showQuotedTextLabel={t('conversation.showQuotedText')} hideQuotedTextLabel={t('conversation.hideQuotedText')} onContextMenu={openContextMenu} onInitialLayoutReady={onInitialBodyLayout} style={{ width: '1px', minWidth: '100%', height: '300px' }} />
     </div>}
     {contextMenu && <ContextMenu x={contextMenu.x} y={contextMenu.y} message={message} variant="messagePane" selectedText={contextMenu.selectedText} onClose={() => setContextMenu(null)} onAction={(action, data) => { setContextMenu(null); onContextAction?.(action, data, physicalCopyId); }} />}
   </div>;

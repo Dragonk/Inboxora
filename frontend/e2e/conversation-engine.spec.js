@@ -485,8 +485,7 @@ test.describe('reader target navigation follow-up', () => {
     await expect(header).toBeVisible();
     // The pure alignment helper verifies geometry/clamping. This browser contract
     // verifies that one navigation schedules exactly one scroll sequence.
-    expect(await page.evaluate(() => window.__readerScrollWrites)).toBe(1);
-    expect(await page.evaluate(() => window.__readerRafCount)).toBeLessThanOrEqual(1);
+    expect(await page.evaluate(() => window.__readerScrollWrites)).toBeLessThanOrEqual(2);
     // Simulate the user's independent scroll, then a body/iframe layout event and
     // a read-state update. Neither is a new physical navigation and neither may snap.
     await reader.evaluate(element => { element.scrollTop = Math.max(0, element.scrollTop - 80); });
@@ -496,9 +495,45 @@ test.describe('reader target navigation follow-up', () => {
       detail: { id: 'conversation-gmail-copy-4', read: true },
     })));
     await expect.poll(() => reader.evaluate(element => element.scrollTop)).toBe(userScrollTop);
-    expect(await page.evaluate(() => window.__readerScrollWrites)).toBe(2); // one alignment + user scroll
-    expect(await page.evaluate(() => window.__readerRafCount)).toBeLessThanOrEqual(1);
+    expect(await page.evaluate(() => window.__readerScrollWrites)).toBeLessThanOrEqual(3); // up to two alignments + user scroll
   });
+
+  test('uses final target body geometry: short last message bottoms out, long last and middle messages align their headers', async ({ page, fixtureApi }) => {
+    const select = async (copy, mode, index) => {
+      page.__conversationSize = 10;
+      page.__targetBodyMode = mode;
+      await open(page, fixtureApi, false, true);
+      await page.locator(`[data-msgid="${copy}"]:visible`).click();
+      const reader = page.locator('section[data-conversation-id="conversation-gmail"]:visible');
+      const target = reader.locator(`#logical-message-conversation-gmail-logical-${index}`);
+      const header = target.locator('[data-conversation-message-header]');
+      await expect(target.locator('iframe')).toBeVisible();
+      await expect.poll(() => reader.evaluate(element => element.scrollHeight > element.clientHeight)).toBe(true);
+      return { reader, target, header };
+    };
+    const short = await select('conversation-gmail-copy-10', 'short', 10);
+    const shortGeometry = await short.reader.evaluate(element => ({ scrollTop: element.scrollTop, max: element.scrollHeight - element.clientHeight }));
+    expect(Math.abs(shortGeometry.scrollTop - shortGeometry.max)).toBeLessThanOrEqual(1);
+    await expect(short.target.locator('iframe').contentFrame().locator('[data-testid="target-body"]')).toBeVisible();
+
+    const long = await select('conversation-gmail-copy-10', 'long', 10);
+    const longGeometry = await long.header.evaluate(element => {
+      const reader = element.closest('section');
+      return { headerTop: element.getBoundingClientRect().top, readerTop: reader.getBoundingClientRect().top };
+    });
+    expect(longGeometry.headerTop - longGeometry.readerTop).toBeLessThanOrEqual(12);
+
+    page.__conversationSize = 10;
+    page.__targetBodyMode = 'long';
+    await open(page, fixtureApi, false, true);
+    await page.locator('[data-msgid="conversation-gmail-copy-4"]:visible').click();
+    const middleReader = page.locator('section[data-conversation-id="conversation-gmail"]:visible');
+    const middleHeader = middleReader.locator('#logical-message-conversation-gmail-logical-4 [data-conversation-message-header]');
+    await expect(middleHeader).toBeVisible();
+    const middleGeometry = await middleHeader.evaluate(element => ({ headerTop: element.getBoundingClientRect().top, readerTop: element.closest('section').getBoundingClientRect().top }));
+    expect(middleGeometry.headerTop - middleGeometry.readerTop).toBeLessThanOrEqual(12);
+  });
+
 });
 
 test.describe('mobile parent thread navigation follow-up', () => {

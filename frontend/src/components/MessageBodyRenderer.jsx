@@ -21,7 +21,7 @@ import { installMessageQuoteFolding } from './messageQuoteFolding.js';
  * CSS external URLs are blocked by CSP + regex sanitization.
  * iframe/object/embed/form are stripped by DOMPurify FORBID_TAGS.
  */
-export default function MessageBodyRenderer({ html = '', text = '', remoteImages = false, quoteFolding = true, onQuoteDetected = null, onHeightChange = null, iframeRef: externalIframeRef = null, onLoad = null, title = 'Message body', showQuotedTextLabel = 'Show quoted text', hideQuotedTextLabel = 'Hide quoted text', style: frameStyle = null, onContextMenu = null }) {
+export default function MessageBodyRenderer({ html = '', text = '', remoteImages = false, quoteFolding = true, onQuoteDetected = null, onHeightChange = null, onInitialLayoutReady = null, iframeRef: externalIframeRef = null, onLoad = null, title = 'Message body', showQuotedTextLabel = 'Show quoted text', hideQuotedTextLabel = 'Hide quoted text', style: frameStyle = null, onContextMenu = null }) {
   const internalIframeRef = useRef(null);
   const iframeRef = externalIframeRef || internalIframeRef;
 
@@ -38,6 +38,7 @@ export default function MessageBodyRenderer({ html = '', text = '', remoteImages
     const iframe = iframeRef.current;
     if (!iframe || !srcDoc) return;
 
+    let initialLayoutReported = false;
     const measure = () => {
       try {
         const doc = iframe.contentDocument;
@@ -50,6 +51,13 @@ export default function MessageBodyRenderer({ html = '', text = '', remoteImages
         const contentHeight = Math.max(300, doc.body.scrollHeight || 0);
         iframe.style.height = contentHeight + 'px';
         onHeightChange?.(contentHeight);
+        if (!initialLayoutReported) {
+          initialLayoutReported = true;
+          // The iframe height participates in its parent reader's scroll range on
+          // the following paint. Report readiness then, once, not on later observer
+          // measurements from images or quote interactions.
+          requestAnimationFrame(() => onInitialLayoutReady?.(contentHeight));
+        }
       } catch {
         // Cross-origin or not yet loaded — leave default height.
       }
@@ -164,7 +172,7 @@ export default function MessageBodyRenderer({ html = '', text = '', remoteImages
       cleanup?.();
       iframe.removeEventListener('load', onLoaded);
     };
-  }, [srcDoc, remoteImages, quoteFolding, showQuotedTextLabel, hideQuotedTextLabel, onQuoteDetected, onHeightChange, onLoad, onContextMenu, iframeRef]);
+  }, [srcDoc, remoteImages, quoteFolding, showQuotedTextLabel, hideQuotedTextLabel, onQuoteDetected, onHeightChange, onInitialLayoutReady, onLoad, onContextMenu, iframeRef]);
 
 
   return (

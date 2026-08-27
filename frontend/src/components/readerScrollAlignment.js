@@ -18,9 +18,23 @@ export function alignReaderHeader(reader, header, gap = 8) {
   const desiredTop = readerVisibleTop(reader) + gap;
   const headerTop = header.getBoundingClientRect().top;
   const maxScrollTop = Math.max(0, reader.scrollHeight - reader.clientHeight);
-  const nextScrollTop = Math.min(maxScrollTop, Math.max(0,
+  const headerAlignedScrollTop = Math.min(maxScrollTop, Math.max(0,
     reader.scrollTop + headerTop - desiredTop,
   ));
+  // A short terminal card can fit entirely in the viewport after header alignment.
+  // Prefer the actual bottom in that case: it exposes as much of the selected body
+  // as possible rather than leaving it below the fold behind trailing card padding.
+  const card = header.closest?.('[data-conversation-message-state]');
+  const cardRect = card?.getBoundingClientRect();
+  const cardBottomAfterHeaderAlignment = cardRect
+    ? cardRect.bottom - (headerTop - desiredTop)
+    : Infinity;
+  const terminalCard = cardRect
+    && card.nextElementSibling === null
+    && cardRect.height <= reader.clientHeight;
+  const nextScrollTop = terminalCard || cardBottomAfterHeaderAlignment <= readerRect.bottom
+    ? maxScrollTop
+    : headerAlignedScrollTop;
   reader.scrollTop = nextScrollTop;
   return { desiredTop, scrollTop: nextScrollTop, readerTop: readerRect.top };
 }
