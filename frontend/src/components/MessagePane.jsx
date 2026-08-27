@@ -1816,7 +1816,7 @@ ${bodyContent}
   // CE v2: when mode='conversation', render the conversation reader inside the
   // native MessagePane container — sharing root pane, width, resize, scroll,
   // global toolbar, and the mobile back bar. Single-message rendering below is skipped.
-  if (mode === 'conversation' && conversationId) {
+  if (mode === 'conversation') {
     return (
       <div
         ref={paneRef}

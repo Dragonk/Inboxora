@@ -2436,12 +2436,13 @@ export default function MessageList() {
     }
   };
 
-  // Grouping controls only this list. A normal native ThreadRow surface toggles its
-  // children; opening a collapsed row selects the newest normalized physical child.
+  // Grouping controls only this list. A native parent always toggles its children.
+  // In the single-pane mobile layout that is deliberately list-only: no target is
+  // opened/read until the user explicitly taps one of those physical children.
   const handleThreadClick = async (message) => {
     const tid = message.thread_id || message.id;
     if (!message.thread_id || (message.message_count || 1) <= 1) {
-      handleSelect(message);
+      if (!isMobile) handleSelect(message);
       return;
     }
     if (expandedThreadId === tid) {
@@ -2449,8 +2450,11 @@ export default function MessageList() {
       return;
     }
     setExpandedThreadId(tid);
-    const newest = newestThreadChild(await loadThreadChildren(message));
-    if (newest) handleSelect(newest);
+    const children = await loadThreadChildren(message);
+    if (!isMobile) {
+      const newest = newestThreadChild(children);
+      if (newest) handleSelect(newest);
+    }
   };
 
   const accountColor = selectedAccount?.color || 'currentColor';

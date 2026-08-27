@@ -129,10 +129,18 @@ export default function MailApp() {
     setTargetLogicalMessageId(null);
     setSelectedConversationCopy(null);
     setConversationResolutionError(null);
-    setNativeThreadId(null);
-    setNativeFolder(null);
     const selected = useStore.getState().messages.find(item => item.id === selectedMessageId)
       || Object.values(useStore.getState().threadMessages || {}).flat().find(item => item.id === selectedMessageId);
+    // Preserve the exact physical selection before CE resolution. Expanded native
+    // children are not in the flat list, and CE may lag native threading; neither
+    // may turn a Reader-on selection into the classic pane or replace its target.
+    setSelectedConversationCopy({
+      id: selected?.id || selectedMessageId,
+      accountId: selected?.account_id || null,
+    });
+    setTargetLogicalMessageId(selected?.message_id || selectedMessageId);
+    setNativeThreadId(null);
+    setNativeFolder(null);
     // P1-B: Capture the native thread_key from the selected message. The reader uses
     // /mail/thread/:threadId as the primary thread membership source so CE incompleteness
     // never reduces the reader below the native thread size.
@@ -146,8 +154,8 @@ export default function MailApp() {
       .then(resolved => {
         if (!cancelled && resolved?.conversation_id) {
           setSelectedConversationCopy({
-            id: resolved.physical_copy_id || resolved.id || selectedMessageId,
-            accountId: resolved.account_id || resolved.accountId || null,
+            id: resolved.physical_copy_id || resolved.id || selected?.id || selectedMessageId,
+            accountId: resolved.account_id || resolved.accountId || selected?.account_id || null,
           });
           setTargetLogicalMessageId(resolved.logical_message_id || resolved.logicalMessageId || null);
           // Publish the conversation last so the reader never mounts without the
@@ -848,7 +856,7 @@ export default function MailApp() {
             <MessageList />
           </div>
           <div data-ce-reader-pane="true" style={{ flex: 1, display: !showContacts && (selectedMessageId || (conversationReaderViewEnabled && conversationId)) ? 'flex' : 'none', overflow: 'hidden', height: '100%', minWidth: 0 }}>
-            <MessagePane mode={conversationReaderViewEnabled && conversationId ? 'conversation' : 'single'} conversationId={conversationId} targetLogicalMessageId={targetLogicalMessageId} selectedConversationCopy={selectedConversationCopy} nativeThreadId={nativeThreadId} nativeFolder={nativeFolder} onReply={replyFromConversation} />
+            <MessagePane mode={conversationReaderViewEnabled && (conversationId || nativeThreadId) ? 'conversation' : 'single'} conversationId={conversationId} targetLogicalMessageId={targetLogicalMessageId} selectedConversationCopy={selectedConversationCopy} nativeThreadId={nativeThreadId} nativeFolder={nativeFolder} onReply={replyFromConversation} />
           </div>
         </>
       ) : (
@@ -896,7 +904,7 @@ export default function MailApp() {
                 />
               )}
               <div data-ce-reader-pane="true" style={{ flex: 1, minWidth: 0, overflow: 'hidden', height: '100%', display: 'flex' }}>
-                <MessagePane mode={conversationReaderViewEnabled && conversationId ? 'conversation' : 'single'} conversationId={conversationId} targetLogicalMessageId={targetLogicalMessageId} selectedConversationCopy={selectedConversationCopy} nativeThreadId={nativeThreadId} nativeFolder={nativeFolder} onReply={replyFromConversation} />
+                <MessagePane mode={conversationReaderViewEnabled && (conversationId || nativeThreadId) ? 'conversation' : 'single'} conversationId={conversationId} targetLogicalMessageId={targetLogicalMessageId} selectedConversationCopy={selectedConversationCopy} nativeThreadId={nativeThreadId} nativeFolder={nativeFolder} onReply={replyFromConversation} />
               </div>
               {/* Generic right-sidebar column, populated from the content seam above. */}
               {currentLayout.direction === 'row' && rightSidebarContent != null && (

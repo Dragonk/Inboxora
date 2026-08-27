@@ -369,7 +369,16 @@ test.describe('thread context and ThreadRow interaction regressions', () => {
     const groupedReader = page.locator('section[data-conversation-id="conversation-gmail"]:visible');
     await expect(groupedReader).toHaveAttribute('data-reader-source', 'native-thread');
     await expect(groupedReader).toHaveAttribute('data-selected-account-id', 'account-gmail');
+    await expect(groupedReader).toHaveAttribute('data-selected-copy-id', 'conversation-gmail-copy-2');
     expect(await physicalCardIds(groupedReader)).toEqual(flatIds);
+    const groupedTarget = groupedReader.locator('#logical-message-conversation-gmail-logical-2');
+    await expect(groupedTarget).toHaveAttribute('data-conversation-message-state', 'expanded');
+    const targetPosition = await groupedTarget.evaluate(element => {
+      const reader = element.closest('section');
+      return element.getBoundingClientRect().top - reader.getBoundingClientRect().top;
+    });
+    expect(targetPosition).toBeGreaterThanOrEqual(0);
+    expect(targetPosition).toBeLessThanOrEqual(120);
   });
 
   test('native membership excludes a stale CE card in flat and grouped reader modes', async ({ page, fixtureApi }) => {
@@ -461,7 +470,32 @@ test.describe('reader target navigation follow-up', () => {
   });
 });
 
-test.describe('mobile parent thread swipe follow-up', () => {
+test.describe('mobile parent thread navigation follow-up', () => {
+  test('keeps parent taps list-only while an exact child opens the configured native reader', async ({ page, fixtureApi }, testInfo) => {
+    test.skip(!testInfo.project.name.startsWith('chromium-mobile'), 'touch viewport contract');
+    page.__unreadCopies = ['conversation-gmail-copy-3', 'conversation-gmail-copy-5'];
+    await open(page, fixtureApi, true, true);
+    const parent = page.locator('[data-msgid="conversation-gmail-copy-5"]:visible');
+    const parentSurface = parent.locator('[data-thread-row-parent="true"]');
+    await parentSurface.click();
+    await expect(parentSurface).toHaveAttribute('aria-expanded', 'true');
+    await expect(page.locator('section[data-conversation-id]:visible')).toHaveCount(0);
+    await expect.poll(() => page.__bulkReadActions || []).toEqual([]);
+    await parentSurface.click();
+    await expect(parentSurface).toHaveAttribute('aria-expanded', 'false');
+    await expect(page.locator('section[data-conversation-id]:visible')).toHaveCount(0);
+    await expect.poll(() => page.__bulkReadActions || []).toEqual([]);
+    await parentSurface.click();
+    await expect(parentSurface).toHaveAttribute('aria-expanded', 'true');
+    await parent.locator('[data-thread-row-child="conversation-gmail-copy-3"]').click();
+    const reader = page.locator('section[data-conversation-id="conversation-gmail"]:visible');
+    await expect(reader).toHaveAttribute('data-reader-source', 'native-thread');
+    await expect(reader).toHaveAttribute('data-selected-copy-id', 'conversation-gmail-copy-3');
+    await expect(reader.locator('article')).toHaveCount(5);
+    await expect(reader.locator('#logical-message-conversation-gmail-logical-3')).toHaveAttribute('data-conversation-message-state', 'expanded');
+    await expect.poll(() => page.__bulkReadActions || []).toEqual([{ ids: ['conversation-gmail-copy-3'], read: true }]);
+  });
+
   test('uses the real touch stream on parent and child rows without turning a swipe into a click', async ({ page, fixtureApi }, testInfo) => {
     test.skip(!testInfo.project.name.startsWith('chromium-mobile'), 'touch viewport contract');
     await open(page, fixtureApi, true, false);

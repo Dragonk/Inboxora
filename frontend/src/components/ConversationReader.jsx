@@ -60,12 +60,16 @@ export default function ConversationReader({ conversationId, targetLogicalMessag
         ? mergeThreadWithConversation(ceLogicalMessages, nativeReaderMessages)
         : ceLogicalMessages;
       const result = { ...ceResult, logicalMessages: messages };
-      setExpanded(initialConversationExpansion(messages, targetLogicalMessageId));
+      const selectedPhysicalTarget = messages.find(message => (message.copies || [])
+        .some(copy => String(copy.id) === String(selectedCopyId)))?.id;
+      const requestedTargetId = messages.some(message => message.id === targetLogicalMessageId)
+        ? targetLogicalMessageId : selectedPhysicalTarget;
+      setExpanded(initialConversationExpansion(messages, requestedTargetId));
       setData(result);
     }).catch(reason => active && setError(reason.message || t('conversation.loadFailed')));
     const controllers = aborters.current;
     return () => { active = false; for (const controller of controllers.values()) controller.abort(); controllers.clear(); };
-  }, [conversationId, targetLogicalMessageId, nativeThreadId, nativeFolder, selectedAccountId, t]);
+  }, [conversationId, targetLogicalMessageId, nativeThreadId, nativeFolder, selectedAccountId, selectedCopyId, t]);
 
   const messages = useMemo(() => data?.logicalMessages || [], [data]);
   const refresh = useCallback(() => conversationApi.detail(conversationId).then(setData), [conversationId]);
@@ -110,7 +114,14 @@ export default function ConversationReader({ conversationId, targetLogicalMessag
     });
   }, [messages, setLocalReadState]);
 
-  const initialTargetId = initialConversationTarget(messages, targetLogicalMessageId);
+  // CE resolves a logical target asynchronously, while native selection already
+  // has the exact physical ID. Use that physical identity as the interim target so
+  // a child click expands and scrolls its own native card without waiting for CE.
+  const selectedPhysicalTarget = messages.find(message => (message.copies || [])
+    .some(copy => String(copy.id) === String(selectedCopyId)))?.id;
+  const requestedTargetId = messages.some(message => message.id === targetLogicalMessageId)
+    ? targetLogicalMessageId : selectedPhysicalTarget;
+  const initialTargetId = initialConversationTarget(messages, requestedTargetId);
   // Opening a conversation is a navigation to one physical target, never a reason to
   // bulk-mark the native thread. The set also prevents redundant reselect writes.
   useEffect(() => {
