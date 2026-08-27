@@ -114,6 +114,22 @@ export async function buildServerReport(userId, salt) {
     [userId],
   );
 
+  // Unread must mirror what the user actually sees in the badge, which counts INBOX only
+  // (see GET /api/mail/unread-counts in routes/mail.js). Summing every folder's unread_count
+  // instead made a mailbox whose only unread sat in Spam/Junk report a non-zero total while
+  // the app showed zero — the report contradicting the UI it exists to explain. Per-folder
+  // unread is still reported in `folders` below, so Spam/Junk remain visible.
+  const unreadRes = await query(
+    `SELECT m.account_id, COUNT(*)::int AS count
+       FROM messages m
+       JOIN email_accounts a ON a.id = m.account_id
+      WHERE a.user_id = $1 AND a.enabled = true
+        AND m.folder = 'INBOX' AND m.is_read = false AND m.is_deleted = false
+      GROUP BY m.account_id`,
+    [userId],
+  );
+  const inboxUnreadByAcct = new Map(unreadRes.rows.map(r => [r.account_id, Number(r.count) || 0]));
+
   const foldersByAcct = new Map();
   for (const f of folRes.rows) {
     if (!foldersByAcct.has(f.account_id)) foldersByAcct.set(f.account_id, []);
@@ -129,7 +145,7 @@ export async function buildServerReport(userId, salt) {
   for (const a of accRes.rows) {
     const ref = hashRef(a.id, salt);
     const accFolders = foldersByAcct.get(a.id) || [];
-    const unread = accFolders.reduce((s, f) => s + (f.unread_count || 0), 0);
+    const unread = inboxUnreadByAcct.get(a.id) || 0;
     const inUnified = a.include_in_unified_inbox !== false;
     accounts.push({
       ref,
