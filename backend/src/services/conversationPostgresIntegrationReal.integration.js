@@ -35,8 +35,16 @@ after(async () => {
 beforeEach(async () => {
   // Clean CE tables between tests
   await pool.query('TRUNCATE conversation_overrides, conversation_aliases, conversation_evidence, conversation_ingest_failures, conversation_rebuild_audit, conversation_rebuild_checkpoints RESTART IDENTITY CASCADE');
-  // Delete messages, logical_messages, conversations in dependency order
-  await pool.query("DELETE FROM messages WHERE subject LIKE 'CE-INTEGRATION-%' OR subject = 'Test'");
+  // Delete fixture-owned physical copies before their account-scoped CE rows.
+  // A prior test may have changed a message subject, so subject-only cleanup
+  // is insufficient once the 0062 composite foreign keys are present.
+  await pool.query(`
+    DELETE FROM messages
+     WHERE logical_message_id IN (SELECT id FROM logical_messages)
+        OR conversation_id IN (SELECT id FROM conversations)
+        OR subject LIKE 'CE-INTEGRATION-%'
+        OR subject = 'Test'
+  `);
   await pool.query('DELETE FROM logical_messages');
   await pool.query('DELETE FROM conversations');
   // Delete test users/accounts
