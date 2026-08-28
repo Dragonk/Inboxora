@@ -1,4 +1,5 @@
 import { useState, useRef, useEffect, useCallback, forwardRef } from 'react';
+import { shouldAutosave } from '../utils/draftAutosave.js';
 import { useTranslation } from 'react-i18next';
 import DOMPurify from 'dompurify';
 import { useStore } from '../store/index.js';
@@ -827,7 +828,7 @@ export default function ComposeModal() {
     );
   };
 
-  const doSaveDraft = async ({ closeAfter = false } = {}) => {
+  const doSaveDraft = async ({ closeAfter = false, silent = false } = {}) => {
     const { accountId, aliasId } = resolveFrom(fromValue);
     if (!accountId) return;
     setSavingDraft(true);
@@ -881,7 +882,8 @@ export default function ComposeModal() {
         initialCcRef.current = normalizeTo([...ccChips, ...(pendingCc ? [pendingCc] : [])]);
         initialBccRef.current = normalizeTo([...bccChips, ...(pendingBcc ? [pendingBcc] : [])]);
         savedAttachmentCountRef.current = attachments.length + fwdAttachments.length;
-        addNotification({ title: t('compose.draftSaved'), body: subject || t('common.noSubject') });
+        // Autosave passes silent: a toast every interval would be noise, not information.
+        if (!silent) addNotification({ title: t('compose.draftSaved'), body: subject || t('common.noSubject') });
       }
     } catch (err) {
       console.error('Save draft failed:', err.message);
@@ -889,6 +891,73 @@ export default function ComposeModal() {
       setSavingDraft(false);
     }
   };
+
+  // ── Draft safety net (#413) ──────────────────────────────────────────────────────────
+  // Compose state is component-local and the modal is mounted conditionally, so a refresh
+  // drops everything typed. The close path is already guarded by isDirty() and the discard
+  // sheet; refresh and navigation simply were not covered.
+  //
+  // An interval is used rather than a state-keyed debounce because the rich-text editor has
+  // no onUpdate handler, so typing in the body never changes React state and could not drive
+  // one. Reading through a ref is still correct: isDirty() reads the body live off the editor
+  // instance and the rest from refs, so a closure captured at the last render sees current
+  // content. Recipients and subject are ordinary state, so they re-render and refresh the ref.
+  const autosaveRef = useRef(null);
+  // Synchronous in-flight flag. savingDraft is React state and only refreshes after commit,
+  // so on its own it leaves a window where a manual save and a timer tick could both append.
+  const autosaveInFlightRef = useRef(false);
+  // Updated after commit rather than during render, so a render React discards can never
+  // leave a stale snapshot behind for the timer to act on.
+  useEffect(() => {
+    autosaveRef.current = { isDirty, doSaveDraft, sending, savingDraft, fromValue, resolveFrom,
+      dialogOpen: showCloseDialog || showDiscardSheet || showAttachWarnForDraft };
+  });
+
+  useEffect(() => {
+    const id = setInterval(async () => {
+      // Whole tick is guarded: this runs every 30s forever, so anything that can throw here
+      // (a torn-down editor mid-unmount, say) would otherwise become a recurring unhandled
+      // rejection. A failed tick is skipped; the next one tries again.
+      try {
+        const s = autosaveRef.current;
+        if (!s) return;
+        const ok = shouldAutosave({
+          dirty: s.isDirty(),
+          hasAccount: Boolean(s.resolveFrom(s.fromValue).accountId),
+          sending: s.sending,
+          savingDraft: s.savingDraft,
+          inFlight: autosaveInFlightRef.current,
+          dialogOpen: s.dialogOpen,
+        });
+        if (!ok) return;
+        autosaveInFlightRef.current = true;
+        try {
+          // Deliberately doSaveDraft rather than handleSaveDraft: the latter raises the
+          // attachment dialog, which must never appear on a timer. Attachments are not
+          // carried by drafts either way, and preserving the text still beats losing
+          // everything. The unload guard below warns before the window itself goes.
+          await s.doSaveDraft({ silent: true });
+        } finally {
+          autosaveInFlightRef.current = false;
+        }
+      } catch (err) {
+        console.error('Draft autosave failed:', err?.message || err);
+      }
+    }, AUTOSAVE_INTERVAL_MS);
+    return () => clearInterval(id);
+  }, []);
+
+  // Ask the browser to confirm before a refresh or navigation discards unsaved changes.
+  // Modern browsers ignore custom text, so this only opts into the native prompt.
+  useEffect(() => {
+    const onBeforeUnload = (e) => {
+      if (!autosaveRef.current?.isDirty()) return;
+      e.preventDefault();
+      e.returnValue = '';
+    };
+    window.addEventListener('beforeunload', onBeforeUnload);
+    return () => window.removeEventListener('beforeunload', onBeforeUnload);
+  }, []);
 
   const handleSaveDraft = (closeAfter = false) => {
     if ((attachments.length > 0 || fwdAttachments.length > 0) && !showAttachWarnForDraft) {
@@ -2244,6 +2313,12 @@ const FontSize = Extension.create({
 });
 
 const DEFAULT_FONT_SIZE = '14px';
+
+// How often an unsaved compose is written back to the Drafts folder. Long enough that a
+// normal editing session costs only a handful of IMAP appends, short enough that a refresh
+// loses at most this much typing. doSaveDraft replaces the existing draft via existingUid,
+// so repeated saves update one message rather than filling Drafts with copies.
+const AUTOSAVE_INTERVAL_MS = 30000;
 
 const FONT_SIZES = [
   { label: '10', value: '10px' },
