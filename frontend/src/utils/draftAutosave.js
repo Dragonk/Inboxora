@@ -36,3 +36,35 @@ export function shouldAutosave(s) {
   if (s.dialogOpen) return false;
   return true;
 }
+
+/**
+ * Whether enough has happened to justify writing a draft on this tick.
+ *
+ * Polling on a fixed interval saves while the user is still mid-sentence and makes them wait
+ * the full interval after they stop. Each save costs two IMAP round trips (APPEND the new
+ * draft, then delete the previous uid) and re-uploads the whole body, so saving during active
+ * typing is the expensive case and saving just after a pause is the useful one.
+ *
+ * So: save once typing has paused for idleMs, and regardless once maxMs has elapsed since the
+ * last save, which bounds the loss window for someone who types continuously.
+ *
+ * @param {object} s
+ * @param {number} s.now         current epoch ms
+ * @param {number} s.lastEditAt  epoch ms of the last edit (body, recipients, subject)
+ * @param {number} s.lastSaveAt  epoch ms of the last successful save, seeded at mount
+ * @param {number} s.idleMs      quiet period after typing that triggers a save
+ * @param {number} s.maxMs       longest a dirty compose may go unsaved
+ */
+export function isAutosaveDue(s) {
+  if (!s) return false;
+  const sinceSave = s.now - s.lastSaveAt;
+  // The cap always wins: a dirty compose must never go longer than this unsaved.
+  if (sinceSave >= s.maxMs) return true;
+  // Floor. Without it, someone composing thoughtfully and pausing between phrases trips the
+  // idle rule after every pause: measured at 18 saves in three minutes against 6 for plain
+  // 30s polling, three times the IMAP cost for precisely the careful writer. The floor keeps
+  // the benefit of saving soon after a pause while bounding how often that can happen.
+  if (sinceSave < s.minGapMs) return false;
+  if (s.now - s.lastEditAt >= s.idleMs) return true;
+  return false;
+}

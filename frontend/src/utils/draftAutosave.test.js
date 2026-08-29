@@ -1,6 +1,6 @@
 import { test, describe } from 'node:test';
 import assert from 'node:assert/strict';
-import { shouldAutosave } from './draftAutosave.js';
+import { shouldAutosave, isAutosaveDue } from './draftAutosave.js';
 
 const ready = {
   dirty: true, hasAccount: true,
@@ -54,5 +54,45 @@ describe('shouldAutosave', () => {
       dirty: true, hasAccount: true,
       sending: true, savingDraft: true, inFlight: true, dialogOpen: true,
     }), false);
+  });
+});
+
+describe('isAutosaveDue', () => {
+  const base = { now: 100000, idleMs: 5000, maxMs: 30000, minGapMs: 15000 };
+
+  test('saves once typing has paused for the idle period', () => {
+    assert.equal(isAutosaveDue({ ...base, lastEditAt: 100000 - 5000, lastSaveAt: 100000 - 20000 }), true);
+  });
+
+  test('holds off while the user is still typing', () => {
+    // Edited 1s ago and saved 2s ago: neither threshold reached.
+    assert.equal(isAutosaveDue({ ...base, lastEditAt: 100000 - 1000, lastSaveAt: 100000 - 2000 }), false);
+  });
+
+  test('saves anyway once maxMs passes, even during continuous typing', () => {
+    // Still typing (edited 1s ago) but nothing saved for 30s.
+    assert.equal(isAutosaveDue({ ...base, lastEditAt: 100000 - 1000, lastSaveAt: 100000 - 30000 }), true);
+  });
+
+  test('does not fire repeatedly right after a save while typing continues', () => {
+    assert.equal(isAutosaveDue({ ...base, lastEditAt: 100000 - 500, lastSaveAt: 100000 - 100 }), false);
+  });
+
+  test('idle threshold is inclusive at the boundary', () => {
+    assert.equal(isAutosaveDue({ ...base, lastEditAt: 100000 - 4999, lastSaveAt: 100000 - 20000 }), false);
+    assert.equal(isAutosaveDue({ ...base, lastEditAt: 100000 - 5000, lastSaveAt: 100000 - 20000 }), true);
+  });
+
+  test('floor stops a pause-prone writer triggering a save after every pause', () => {
+    // Idle long enough, but only 10s since the last save: below the 15s floor.
+    assert.equal(isAutosaveDue({ ...base, lastEditAt: 100000 - 8000, lastSaveAt: 100000 - 10000 }), false);
+  });
+
+  test('the cap overrides the floor, so a dirty compose is never left too long', () => {
+    assert.equal(isAutosaveDue({ ...base, lastEditAt: 100000 - 1000, lastSaveAt: 100000 - 30000 }), true);
+  });
+
+  test('is safe when handed nothing', () => {
+    assert.equal(isAutosaveDue(null), false);
   });
 });

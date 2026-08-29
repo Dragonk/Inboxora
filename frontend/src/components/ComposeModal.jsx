@@ -1,5 +1,5 @@
 import { useState, useRef, useEffect, useCallback, forwardRef } from 'react';
-import { shouldAutosave } from '../utils/draftAutosave.js';
+import { shouldAutosave, isAutosaveDue } from '../utils/draftAutosave.js';
 import { useTranslation } from 'react-i18next';
 import DOMPurify from 'dompurify';
 import { useStore } from '../store/index.js';
@@ -323,6 +323,12 @@ export default function ComposeModal() {
   const signatureInitializedRef = useRef(false);
   const prevFromValueRef = useRef(fromValue);
 
+  // Edit/save timestamps driving the autosave rule. Refs, not state: they are written from the
+  // editor's onUpdate on every keystroke and must never cause a render. Both are seeded at mount
+  // so a freshly opened composer is not treated as idle-since-forever or unsaved-since-epoch.
+  const lastEditAtRef = useRef(Date.now());
+  const lastSaveAtRef = useRef(Date.now());
+
   const editor = useEditor({
     extensions: [
       StarterKit.configure({
@@ -342,6 +348,9 @@ export default function ComposeModal() {
       Placeholder.configure({ placeholder: t('compose.bodyPh') }),
     ],
     content: composeData?.body || '',
+    // Records edit time in a ref only. Deliberately does not touch state: this fires on every
+    // transaction, and re-rendering the composer per keystroke would be a real regression.
+    onUpdate: () => { lastEditAtRef.current = Date.now(); },
     autofocus: (isReply || isForward) && !plaintextEmail ? 'start' : false,
     immediatelyRender: false,
     editorProps: {
@@ -913,39 +922,74 @@ export default function ComposeModal() {
       dialogOpen: showCloseDialog || showDiscardSheet || showAttachWarnForDraft };
   });
 
+  // Every edit outside the rich-text editor (subject, recipients, attachments, the plaintext
+  // body) goes through state, so a render marks the edit time. Skips the mount render so an
+  // untouched composer is not immediately considered "just edited".
+  const mountedRef = useRef(false);
   useEffect(() => {
-    const id = setInterval(async () => {
-      // Whole tick is guarded: this runs every 30s forever, so anything that can throw here
-      // (a torn-down editor mid-unmount, say) would otherwise become a recurring unhandled
-      // rejection. A failed tick is skipped; the next one tries again.
+    if (!mountedRef.current) { mountedRef.current = true; return; }
+    lastEditAtRef.current = Date.now();
+  }, [subject, toChips, ccChips, bccChips, toInput, ccInput, bccInput, body, htmlSource,
+      attachments, fwdAttachments, plaintextEmail, htmlMode]);
+
+  // Single save path shared by the timer and the tab-hidden handler, so the guards can never
+  // drift apart between the two triggers.
+  const runAutosave = useCallback(async () => {
+    try {
+      const s = autosaveRef.current;
+      if (!s) return;
+      const ok = shouldAutosave({
+        dirty: s.isDirty(),
+        hasAccount: Boolean(s.resolveFrom(s.fromValue).accountId),
+        sending: s.sending,
+        savingDraft: s.savingDraft,
+        inFlight: autosaveInFlightRef.current,
+        dialogOpen: s.dialogOpen,
+      });
+      if (!ok) return;
+      autosaveInFlightRef.current = true;
       try {
-        const s = autosaveRef.current;
-        if (!s) return;
-        const ok = shouldAutosave({
-          dirty: s.isDirty(),
-          hasAccount: Boolean(s.resolveFrom(s.fromValue).accountId),
-          sending: s.sending,
-          savingDraft: s.savingDraft,
-          inFlight: autosaveInFlightRef.current,
-          dialogOpen: s.dialogOpen,
-        });
-        if (!ok) return;
-        autosaveInFlightRef.current = true;
-        try {
-          // Deliberately doSaveDraft rather than handleSaveDraft: the latter raises the
-          // attachment dialog, which must never appear on a timer. Attachments are not
-          // carried by drafts either way, and preserving the text still beats losing
-          // everything. The unload guard below warns before the window itself goes.
-          await s.doSaveDraft({ silent: true });
-        } finally {
-          autosaveInFlightRef.current = false;
-        }
-      } catch (err) {
-        console.error('Draft autosave failed:', err?.message || err);
+        // Deliberately doSaveDraft rather than handleSaveDraft: the latter raises the
+        // attachment dialog, which must never appear unprompted. Attachments are not carried
+        // by drafts either way, and preserving the text still beats losing everything.
+        await s.doSaveDraft({ silent: true });
+        lastSaveAtRef.current = Date.now();
+      } finally {
+        autosaveInFlightRef.current = false;
       }
-    }, AUTOSAVE_INTERVAL_MS);
-    return () => clearInterval(id);
+    } catch (err) {
+      // Runs on a timer and on tab-hide, so an unguarded throw would recur. Skip and retry.
+      console.error('Draft autosave failed:', err?.message || err);
+    }
   }, []);
+
+  useEffect(() => {
+    const id = setInterval(() => {
+      if (!isAutosaveDue({
+        now: Date.now(),
+        lastEditAt: lastEditAtRef.current,
+        lastSaveAt: lastSaveAtRef.current,
+        idleMs: AUTOSAVE_IDLE_MS,
+        minGapMs: AUTOSAVE_MIN_GAP_MS,
+        maxMs: AUTOSAVE_MAX_MS,
+      })) return;
+      runAutosave();
+    }, AUTOSAVE_TICK_MS);
+    return () => clearInterval(id);
+  }, [runAutosave]);
+
+  // Save when the tab is hidden. This is where the risk actually appears: people switch away
+  // and only then refresh or close, so it catches the common case at the moment it matters
+  // rather than on a clock. Not a substitute for the timer, since a hidden tab may be frozen
+  // before the request completes, and it deliberately ignores the idle rule.
+  useEffect(() => {
+    const onVisibility = () => {
+      if (document.visibilityState !== 'hidden') return;
+      runAutosave();
+    };
+    document.addEventListener('visibilitychange', onVisibility);
+    return () => document.removeEventListener('visibilitychange', onVisibility);
+  }, [runAutosave]);
 
   // Ask the browser to confirm before a refresh or navigation discards unsaved changes.
   // Modern browsers ignore custom text, so this only opts into the native prompt.
@@ -2318,7 +2362,14 @@ const DEFAULT_FONT_SIZE = '14px';
 // normal editing session costs only a handful of IMAP appends, short enough that a refresh
 // loses at most this much typing. doSaveDraft replaces the existing draft via existingUid,
 // so repeated saves update one message rather than filling Drafts with copies.
-const AUTOSAVE_INTERVAL_MS = 30000;
+// Autosave cadence. The timer only decides *whether* to save; isAutosaveDue owns the rule.
+// A save costs two IMAP round trips (APPEND the new draft, delete the previous uid) and
+// re-uploads the whole body, so saving during active typing is the expensive case. Saving
+// shortly after typing stops gives a far smaller loss window for fewer writes than polling.
+const AUTOSAVE_TICK_MS = 5000;   // how often the rule is evaluated
+const AUTOSAVE_IDLE_MS = 5000;   // save this long after the last edit
+const AUTOSAVE_MIN_GAP_MS = 15000; // floor: never save more often than this
+const AUTOSAVE_MAX_MS = 30000;   // never leave a dirty compose unsaved longer than this
 
 const FONT_SIZES = [
   { label: '10', value: '10px' },
