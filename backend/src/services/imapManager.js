@@ -544,10 +544,21 @@ function decodeBody(buf, encoding, charset) {
   return unwrapEmbeddedMimeText(decodeBytes(rawBytes, charset));
 }
 
-function looksLikeTextPayload(buf) {
+export function looksLikeTextPayload(buf) {
   if (!buf || buf.length === 0) return false;
+  if (Buffer.isBuffer(buf)) {
+    const isPng = buf.length >= 8 && buf.subarray(0, 8).equals(Buffer.from([0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A]));
+    const isJpeg = buf.length >= 3 && buf[0] === 0xFF && buf[1] === 0xD8 && buf[2] === 0xFF;
+    const isGif = buf.length >= 6 && (buf.subarray(0, 6).equals(Buffer.from('GIF87a')) || buf.subarray(0, 6).equals(Buffer.from('GIF89a')));
+    const isWebp = buf.length >= 12 && buf.subarray(0, 4).equals(Buffer.from('RIFF')) && buf.subarray(8, 12).equals(Buffer.from('WEBP'));
+    if (isPng || isJpeg || isGif || isWebp) return false;
+    const bytes = buf.subarray(0, 512);
+    const nonTextBytes = bytes.reduce((count, byte) => count + ((byte < 0x09 || (byte > 0x0D && byte < 0x20) || byte > 0x7E) ? 1 : 0), 0);
+    if (nonTextBytes > bytes.length / 8) return false;
+  }
   const sample = Buffer.isBuffer(buf) ? buf.subarray(0, 512).toString('ascii') : String(buf).slice(0, 512);
-  return /(?:<html|<!doctype|<style|Content-Type:|Content-Transfer-Encoding:|=D0|=D1|=3D|&lt;html|&lt;style)/i.test(sample);
+  const tags = 'a|article|aside|audio|b|blockquote|br|button|caption|code|dd|details|div|dl|dt|em|figure|footer|form|h[1-6]|header|hr|html|head|body|i|img|input|label|li|main|nav|ol|p|pre|section|small|span|strong|style|table|tbody|td|th|thead|tr|u|ul|video';
+  return new RegExp(`(?:<!doctype|<!--|<\\/?(?:${tags})\\b|=3c\\/?(?:${tags})(?:=3e|=20|=09)|&lt;\\/?(?:${tags})(?:&gt;|\\s)|(?:^|[\\r\\n])Content-(?:Type|Transfer-Encoding):)`, 'i').test(sample);
 }
 
 function decodeAttachmentBuffer(buf, encoding) {
@@ -4123,26 +4134,31 @@ export class ImapManager {
     if (row.rows[0]) await persistConversationCopyForRow(row.rows[0].id, account, { messageId, inReplyTo, references: null });
   }
 
-  async findUidByMessageId(account, folder, messageId) {
-    if (!messageId || !folder) return null;
+  async findSentMessageByMessageId(account, folder, messageId) {
+    if (!messageId || !folder) return { state: 'missing' };
     const mid = String(messageId).replace(/[<>]/g, '').trim();
-    if (!mid) return null;
+    if (!mid) return { state: 'missing' };
     return withFreshClient(account, async (client) => {
       const lock = await client.getMailboxLock(folder);
       try {
         const uids = await client.search({ header: { 'Message-ID': mid } }, { uid: true });
-        if (!uids?.length) return null;
-        if (uids.length === 1) return uids[0];
+        if (!uids?.length) return { state: 'missing' };
+        if (uids.length === 1) return { state: 'found', uid: uids[0] };
         // Multiple RFC Message-ID matches are ambiguous (provider auto-save plus
         // local APPEND, or a genuine collision). Do not choose an arbitrary UID.
-        // Re-observation will retry after sync; the CE identity layer handles the
-        // copies once their complete envelopes are available.
+        // Callers must not APPEND on ambiguity: at least one physical Sent copy
+        // exists already and another one would create a duplicate.
         console.warn(`Ambiguous Sent Message-ID match: ${uids.length} UIDs for ${mid}`);
-        return null;
+        return { state: 'ambiguous' };
       } finally {
         lock.release();
       }
     });
+  }
+
+  async findUidByMessageId(account, folder, messageId) {
+    const result = await this.findSentMessageByMessageId(account, folder, messageId);
+    return result.state === 'found' ? result.uid : null;
   }
 
   // Syncs the most recent messages in a specific folder on demand.

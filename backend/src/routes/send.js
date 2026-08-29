@@ -59,22 +59,68 @@ function buildSentSnippet(body, bodyIsHtml) {
   return bodyToPlain(body, bodyIsHtml).replace(/\s+/g, ' ').trim().substring(0, 200);
 }
 
-function scheduleSentMetadataUpsert(account, sentFolder, mailOptions, meta) {
-  if (!sentFolder || !mailOptions.messageId) return;
-  setImmediate(async () => {
-    for (const delay of [3000, 10000, 20000]) {
-      await new Promise(r => setTimeout(r, delay));
-      try {
-        const uid = await imapManager.findUidByMessageId(account, sentFolder, mailOptions.messageId);
-        if (uid) {
-          await imapManager.upsertSentMessageRecord(account, sentFolder, uid, meta);
-          return;
-        }
-      } catch (err) {
-        console.warn('Post-send sent metadata upsert failed:', err.message);
+// OAuth providers are expected to add a Sent copy themselves, but that is a
+// provider behaviour rather than an SMTP guarantee. Verify it by the stable
+// Message-ID, then append the exact CRLF MIME message once if it never appears.
+// The fallback is deliberately not retried: IMAP APPEND is not idempotent and a
+// timed-out first APPEND might still have reached the server.
+export async function ensureServerAutoSavedSentCopy({
+  account,
+  sentFolder,
+  messageId,
+  rawMessage,
+  sentMeta,
+  manager = imapManager,
+  delays = [3000, 10000, 20000],
+  sleep = (delay) => new Promise(resolve => setTimeout(resolve, delay)),
+}) {
+  if (!sentFolder || !messageId || !rawMessage) return { saved: false, appended: false };
+
+  let verificationFailed = false;
+  for (const delay of delays) {
+    await sleep(delay);
+    try {
+      const result = await manager.findSentMessageByMessageId(account, sentFolder, messageId);
+      if (result.state === 'found') {
+        if (sentMeta) await manager.upsertSentMessageRecord(account, sentFolder, result.uid, sentMeta);
+        return { saved: true, appended: false };
       }
+      if (result.state === 'ambiguous') verificationFailed = true;
+    } catch (err) {
+      verificationFailed = true;
+      console.warn('Post-send Sent-copy verification failed:', err.message);
     }
-  });
+  }
+
+  // An IMAP error means "unknown", not "absent". APPEND only after every
+  // lookup completed and confirmed absence, otherwise a late provider copy
+  // could be duplicated when connectivity recovers.
+  if (verificationFailed) return { saved: false, appended: false };
+
+  // Close the practical gap after the delayed observations: a provider can
+  // materialize its Sent copy just after the final timer fires. This cannot be
+  // made fully atomic across independent SMTP and IMAP servers, but it prevents
+  // the ordinary late-visibility race without ever appending on uncertainty.
+  try {
+    const finalResult = await manager.findSentMessageByMessageId(account, sentFolder, messageId);
+    if (finalResult.state === 'found') {
+      if (sentMeta) await manager.upsertSentMessageRecord(account, sentFolder, finalResult.uid, sentMeta);
+      return { saved: true, appended: false };
+    }
+    if (finalResult.state !== 'missing') return { saved: false, appended: false };
+  } catch (err) {
+    console.warn('Post-send final Sent-copy verification failed:', err.message);
+    return { saved: false, appended: false };
+  }
+
+  try {
+    const { uid } = await manager.appendToSent(account, sentFolder, rawMessage);
+    if (uid && sentMeta) await manager.upsertSentMessageRecord(account, sentFolder, uid, sentMeta);
+    return { saved: true, appended: true };
+  } catch (err) {
+    console.error(`Post-send Sent-copy fallback APPEND failed for ${redactEmail(account.email_address)}/${sentFolder}: ${err.message}`);
+    return { saved: false, appended: true };
+  }
 }
 
 // Reject any recipient address that contains newlines, null bytes, or looks
@@ -348,24 +394,22 @@ router.post('/send', async (req, res) => {
     // bounded metadata/search re-observation path below.
     const serverAutoSaves = !!account.oauth_provider || /gmail/i.test(account.imap_host || account.smtp_host || '');
 
-    // For servers that don't auto-save, generate the raw MIME now so we can APPEND it.
+    // Generate CRLF MIME now. Non-auto-saving servers use it immediately; the
+    // auto-save path retains it for a verified fallback when the provider fails
+    // to materialize a Sent copy.
     // Use CRLF newlines ('windows'): RFC 5322 / IMAP APPEND require CRLF. A bare-LF message is
     // stored verbatim by strict servers (e.g. PurelyMail/Dovecot), and downstream clients then
     // mis-parse the headers — the reporter saw Subject and the To display-name dropped (#365). This
-    // only affects non-OAuth accounts (OAuth servers auto-save and skip this path); the SMTP-
     // delivered copy uses a separate transport that is already CRLF, so only the Sent copy was wrong.
-    let rawMessage = null;
-    if (!serverAutoSaves) {
-      const streamTransport = nodemailer.createTransport({ streamTransport: true, newline: 'windows' });
-      const streamInfo = await streamTransport.sendMail(mailOptions);
-      const chunks = [];
-      await new Promise((resolve, reject) => {
-        streamInfo.message.on('data', c => chunks.push(Buffer.isBuffer(c) ? c : Buffer.from(c)));
-        streamInfo.message.on('end', resolve);
-        streamInfo.message.on('error', reject);
-      });
-      rawMessage = Buffer.concat(chunks);
-    }
+    const streamTransport = nodemailer.createTransport({ streamTransport: true, newline: 'windows' });
+    const streamInfo = await streamTransport.sendMail(mailOptions);
+    const chunks = [];
+    await new Promise((resolve, reject) => {
+      streamInfo.message.on('data', c => chunks.push(Buffer.isBuffer(c) ? c : Buffer.from(c)));
+      streamInfo.message.on('end', resolve);
+      streamInfo.message.on('error', reject);
+    });
+    const rawMessage = Buffer.concat(chunks);
 
     // Reserve the idempotency key atomically right before delivery so a concurrent
     // same-key submit cannot also send (the post-send cache alone can't stop concurrent
@@ -473,7 +517,7 @@ router.post('/send', async (req, res) => {
     } : null;
 
     if (sentFolder) {
-      if (rawMessage) {
+      if (!serverAutoSaves) {
         // Non-auto-saving account: APPEND the Sent copy ourselves — exactly ONCE. IMAP
         // APPEND is NOT idempotent (unlike a \Seen flag), so we must not retry: a retry
         // whose first attempt merely timed out (but still lands on the server) would store
@@ -512,21 +556,22 @@ router.post('/send', async (req, res) => {
           }, 8000);
         }
       } else {
-        // Server auto-saves via SMTP; seed metadata once the Sent copy is searchable.
-        if (sentMeta) scheduleSentMetadataUpsert(account, sentFolder, mailOptions, sentMeta);
-        // Server auto-saves via SMTP; just sync after a delay. Two attempts because the
-        // provider (e.g. Gmail) can be slow to expose the sent message; the 3s pass usually
-        // catches it, the 15s pass is the safety net. GTD transitions run after each: the 3s
-        // attempt may miss (Sent copy not yet visible → empty thread set → no-op) and the 15s
-        // attempt then catches it; if 3s already stripped, 15s is an idempotent no-op.
-        const syncAttempt = (label) => imapManager.syncFolderOnDemand(account, sentFolder)
-          .then(() => {
-            console.log(`Post-send ${label} sync done: ${redactEmail(account.email_address)}/${sentFolder}`);
-            return pluginRegistry.runHook('onSentMessage', { imapManager: imapManager.pluginFacade, account, messageId: mailOptions.messageId });
-          })
-          .catch(e => console.error(`Post-send ${label} sync failed: ${e.message}`));
-        setTimeout(() => syncAttempt('3s'), 3000);
-        setTimeout(() => syncAttempt('15s'), 15000);
+        // Verify provider autosave before falling back to exactly one APPEND. This keeps
+        // OAuth/Gmail accounts free of routine duplicates while preventing a delivered
+        // message from being absent in another IMAP client when provider autosave fails.
+        setImmediate(() => {
+          ensureServerAutoSavedSentCopy({
+            account,
+            sentFolder,
+            messageId: mailOptions.messageId,
+            rawMessage,
+            sentMeta,
+          }).then(result => {
+            if (!result.saved) return;
+            return imapManager.syncFolderOnDemand(account, sentFolder)
+              .then(() => pluginRegistry.runHook('onSentMessage', { imapManager: imapManager.pluginFacade, account, messageId: mailOptions.messageId }));
+          }).catch(err => console.error(`Post-send Sent-copy verification failed: ${err.message}`));
+        });
       }
     }
 
