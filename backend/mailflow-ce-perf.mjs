@@ -24,12 +24,12 @@ try {
   const accountId = (await q("INSERT INTO email_accounts(user_id,name,email_address,protocol,enabled) VALUES($1,'Perf',$2,'imap',true) RETURNING id", [userId, `perf-${suffix}@example.test`])).rows[0].id;
   const conversations = scale / 5;
   const seedStart = t();
-  await q(`INSERT INTO conversations(id,user_id,canonical_subject,subject_snapshot,kind,manually_locked,first_message_at,last_message_at,logical_message_count,copy_count,unread_count)
-    SELECT gen_random_uuid(), $1, 'perf-' || g::text, 'perf-' || g::text, 'human_reply_chain', false,
+  await q(`INSERT INTO conversations(id,user_id,account_id,canonical_subject,subject_snapshot,kind,manually_locked,first_message_at,last_message_at,logical_message_count,copy_count,unread_count)
+    SELECT gen_random_uuid(), $1, $2, 'perf-' || g::text, 'perf-' || g::text, 'human_reply_chain', false,
            NOW() - interval '1 day', NOW(), 5, 5, 0
-    FROM generate_series(1,$2::int) g`, [userId, conversations]);
-  await q(`INSERT INTO logical_messages(id,conversation_id,user_id,canonical_message_id,raw_message_id,subject,canonical_subject,direction,message_date,threading_reason,threading_confidence)
-    SELECT gen_random_uuid(), c.id, c.user_id,
+    FROM generate_series(1,$3::int) g`, [userId, accountId, conversations]);
+  await q(`INSERT INTO logical_messages(id,conversation_id,user_id,account_id,canonical_message_id,raw_message_id,subject,canonical_subject,direction,message_date,threading_reason,threading_confidence)
+    SELECT gen_random_uuid(), c.id, c.user_id, c.account_id,
            '<perf-' || row_number() over (ORDER BY c.id, g) || '@example.test>',
            '<perf-' || row_number() over (ORDER BY c.id, g) || '@example.test>',
            c.canonical_subject, c.canonical_subject,

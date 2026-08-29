@@ -11,21 +11,20 @@ test.describe('real MailFlow conversation browser E2E', () => {
     await expect(page.getByText('Gmail reply chain', { exact: true }).first()).toBeVisible();
     await expect(page.getByText('Outlook conversation', { exact: true }).first()).toBeVisible();
     await expect(page.getByText('Fastmail generic IMAP', { exact: true }).first()).toBeVisible();
-    const goldenRow = page
+    const goldenThread = page
       .locator('[data-msgid]')
-      .filter({ hasText: 'Golden conversation thread' })
-      .locator('[data-thread-row-parent="true"]');
+      .filter({ hasText: 'Golden conversation thread' });
+    const goldenRow = goldenThread.locator('[data-thread-row-parent="true"]');
     await expect(goldenRow).toBeVisible();
     await goldenRow.click();
-    // The list is intentionally folder-scoped (the real app starts in Inbox),
-    // so only the two Inbox logical messages are previewed there. Opening the
-    // conversation loads the complete cross-folder detail and must expose all
-    // five LogicalMessages in the reader.
-    await expect(page.locator('[data-logical-message-id]')).toHaveCount(2);
-    await page.locator('[data-logical-message-id]').first().click();
-    await expect(page.locator('[data-conversation-id]')).toBeVisible();
-    await expect(page.locator('[data-conversation-id] [data-logical-message-id]')).toHaveCount(5);
-    await expect(page.locator('[data-conversation-id] [data-logical-message-id]').count()).resolves.toBeGreaterThan(0);
-    await expect(page.locator('iframe').first().contentFrame().getByText(/Fixture body (?:1|2|3|4|5)/, { exact: false })).toBeVisible();
+    // Parent activation expands the native thread. On mobile it deliberately
+    // remains list-only, so select an exact child as the shared reader-opening
+    // interaction rather than assuming desktop navigation semantics.
+    await expect(goldenRow).toHaveAttribute('aria-expanded', 'true');
+    await goldenThread.locator('[data-thread-row-child]').first().click();
+    const reader = page.locator('section[data-conversation-id]:visible');
+    await expect(reader).toHaveCount(1);
+    await expect(reader.locator('[data-logical-message-id]')).toHaveCount(5);
+    await expect(reader.locator('iframe').first().contentFrame().getByText(/Fixture body (?:1|2|3|4|5)/, { exact: false })).toBeVisible();
   });
 });
