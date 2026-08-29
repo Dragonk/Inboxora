@@ -34,7 +34,10 @@ describe('conversation reader final UX contract', () => {
     assert.match(app, /setNativeThreadCacheId\(selected\?\.thread_id \|\| threadKey\)/);
     assert.match(pane, /nativeThreadCacheId=\{nativeThreadCacheId\}/);
     assert.match(reader, /const setThreadMessages = useStore\(state => state\.setThreadMessages\)/);
-    assert.match(reader, /if \(nativeThreadCacheId && nativeMessages\.length\) setThreadMessages\(nativeThreadCacheId, nativeMessages\)/);
+    assert.match(reader, /import \{ normalizedNativeThreadMembers \} from '..\/utils\/nativeThreadMembership\.js'/);
+    assert.match(reader, /const nativeMembers = normalizedNativeThreadMembers\(nativeMessages\)/);
+    assert.match(reader, /if \(nativeThreadCacheId && nativeMembers\.length\) \{[\s\S]*?setThreadMessages\(nativeThreadCacheId, nativeMembers\)/);
+    assert.match(reader, /nativeThreadToReaderMessages\(nativeMembers, selectedAccountId\)/);
   });
 
   it('positions each navigation target once in the reader scroll container', () => {

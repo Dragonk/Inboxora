@@ -6,6 +6,7 @@ import ConversationMessage from './ConversationMessage.jsx';
 import { initialConversationExpansion, initialConversationTarget, toggleConversationExpansion } from './conversationExpansion.js';
 import { alignReaderHeader } from './readerScrollAlignment.js';
 import { nativeThreadToReaderMessages, mergeThreadWithConversation } from '../utils/conversationThreadAdapter.js';
+import { normalizedNativeThreadMembers } from '../utils/nativeThreadMembership.js';
 import { queueReadStateMutation, isLatestReadStateMutation } from '../utils/readStateMutation.js';
 import { useStore } from '../store/index.js';
 
@@ -59,9 +60,12 @@ export default function ConversationReader({ conversationId, targetLogicalMessag
       // updateMessage derives the parent list row's aggregate read state from this
       // native cache. Without it, ConversationReader marks child copies read but
       // leaves its collapsed parent row unread until the next list refresh.
-      if (nativeThreadCacheId && nativeMessages.length) setThreadMessages(nativeThreadCacheId, nativeMessages);
+      const nativeMembers = normalizedNativeThreadMembers(nativeMessages);
+      if (nativeThreadCacheId && nativeMembers.length) {
+        setThreadMessages(nativeThreadCacheId, nativeMembers);
+      }
       const ceLogicalMessages = ceResult?.logicalMessages || [];
-      const nativeReaderMessages = nativeThreadToReaderMessages(nativeMessages, selectedAccountId);
+      const nativeReaderMessages = nativeThreadToReaderMessages(nativeMembers, selectedAccountId);
       // Native children are primary; CE enriches. If native is empty (no thread_key or
       // flat single message), fall back to CE-only so the reader still works.
       const messages = nativeReaderMessages.length
