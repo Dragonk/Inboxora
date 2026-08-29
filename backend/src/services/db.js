@@ -1,5 +1,6 @@
 import pg from 'pg';
 import { encrypt, isEncrypted } from './encryption.js';
+import { recordDb } from './performanceMetrics.js';
 
 const { Pool } = pg;
 
@@ -21,25 +22,45 @@ export const pool = new Pool({
 });
 
 export async function query(text, params) {
-  return pool.query(text, params);
+  // Time the query for the performance baseline (behavior-neutral). This is the
+  // single top-level DB chokepoint; transaction clients (withTransaction) are not
+  // timed here. process.hrtime avoids clock-skew and is ~nanosecond overhead.
+  const start = process.hrtime.bigint();
+  try {
+    return await pool.query(text, params);
+  } finally {
+    recordDb(Number(process.hrtime.bigint() - start) / 1e6);
+  }
 }
 
 // Run fn(client) inside a serializable transaction. Commits on success, rolls
 // back on throw. The client exposes a .query(text, params) method identical to
 // the top-level query() helper.
-export async function withTransaction(fn) {
-  const client = await pool.connect();
-  try {
-    await client.query('BEGIN');
-    const result = await fn(client);
-    await client.query('COMMIT');
-    return result;
-  } catch (err) {
-    await client.query('ROLLBACK');
-    throw err;
-  } finally {
-    client.release();
+export async function withTransaction(fn, { serializable = false, retries = 2 } = {}) {
+  for (let attempt = 0; attempt <= retries; attempt++) {
+    const client = await pool.connect();
+    try {
+      await client.query(serializable ? 'BEGIN ISOLATION LEVEL SERIALIZABLE' : 'BEGIN');
+      const result = await fn(client);
+      await client.query('COMMIT');
+      return result;
+    } catch (err) {
+      // P2-02: Don't let a failed ROLLBACK mask the original error.
+      try {
+        await client.query('ROLLBACK');
+      } catch (rollbackErr) {
+        // ROLLBACK failed — the client is in an indeterminate state.
+        // Log the rollback error but throw the original error so the caller
+        // sees what actually went wrong, not the secondary ROLLBACK failure.
+        console.warn('ROLLBACK failed (original error preserved):', rollbackErr.message);
+      }
+      if (serializable && (err.code === '40001' || err.code === '40P01') && attempt < retries) continue;
+      throw err;
+    } finally {
+      client.release();
+    }
   }
+  throw new Error('Transaction retry limit exceeded');
 }
 
 // One-time startup migration: encrypt any plaintext credentials still in the DB.

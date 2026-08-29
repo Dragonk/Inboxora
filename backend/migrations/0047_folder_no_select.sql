@@ -1,0 +1,13 @@
+-- Record whether a mailbox is non-selectable.
+--
+-- IMAP LIST returns non-selectable placeholders — most notably Gmail's "[Gmail]" parent,
+-- which carries the \Noselect attribute — that cannot be SELECTed and so can never hold
+-- or receive messages. Nothing distinguished them from real folders before, so:
+--   1. the folder-mapping dropdown offered them as selectable roles, and
+--   2. a role resolver that trusted such a mapping issued SELECT [Gmail] → "Command failed",
+--      silently breaking that role (e.g. sent messages never importing — see issue #386).
+--
+-- Persist the flag so resolvers can ignore a mapping pointing at a non-selectable folder and
+-- the UI can hide these from the dropdown. Existing rows default to false and are corrected on
+-- the next folder sync (syncFolders re-UPDATEs no_select for every listed mailbox on connect).
+ALTER TABLE folders ADD COLUMN IF NOT EXISTS no_select BOOLEAN NOT NULL DEFAULT false;

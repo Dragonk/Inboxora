@@ -1,7 +1,7 @@
 {
   "name": "mailflow-frontend",
   "productName": "MailFlow",
-  "version": "3.0.0",
+  "version": "3.3.0",
   "description": "A self-hosted, unified webmail client.",
   "homepage": "https://mailflow.sh",
   "author": {
@@ -37,7 +37,8 @@
     "app:version": "node packages/scripts/set-app-version.cjs",
     "native:prepare": "npm run build && node packages/scripts/prepare-native-shell.cjs",
     "android:sync": "npm run native:prepare && node packages/scripts/sync-android.cjs",
-    "android:dist": "npm run android:sync && node packages/scripts/build-android.cjs && node packages/scripts/collect-android-artifacts.cjs"
+    "android:dist": "npm run android:sync && node packages/scripts/build-android.cjs && node packages/scripts/collect-android-artifacts.cjs",
+    "test:e2e": "playwright test"
   },
   "build": {
     "appId": "sh.mailflow.app",
@@ -164,6 +165,7 @@
   "devDependencies": {
     "@capacitor/cli": "^8.3.4",
     "@eslint/js": "^10.0.1",
+    "@playwright/test": "^1.62.1",
     "@vitejs/plugin-react": "^6.0.2",
     "autoprefixer": "^10.4.18",
     "electron": "^42.1.0",

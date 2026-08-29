@@ -183,6 +183,18 @@ describe('admin authorization and configuration', () => {
     expect(response.status).toBe(502);
     expect(await response.json()).toEqual({ error: 'AI provider test failed' });
   });
+
+  it('surfaces the real reason when the provider error is marked safe to expose', async () => {
+    mocks.testAiProvider.mockRejectedValue(Object.assign(
+      new Error('AI provider returned an empty completion (finish_reason: length)'),
+      { status: 502, expose: true },
+    ));
+    const response = await request('/api/admin/ai/test', { method: 'POST' });
+    expect(response.status).toBe(502);
+    expect(await response.json()).toEqual({
+      error: 'AI provider returned an empty completion (finish_reason: length)',
+    });
+  });
 });
 
 describe('admin ChatGPT device lifecycle', () => {
@@ -361,6 +373,7 @@ describe('aiLanguageInstruction', () => {
     ['fr', 'French'],
     ['it', 'Italian'],
     ['zhCN', 'Simplified Chinese'],
+    ['pl', 'Polish'],
   ])('maps %s to %s', (language, name) => {
     expect(aiLanguageInstruction(language)).toBe(
       `Always respond in ${name}, unless the user explicitly asks for another language. For email drafting and rewriting, preserve the original email language when it differs from ${name}.`,

@@ -8,11 +8,12 @@ export const CSRF_HEADER = 'X-Requested-With';
 export const CSRF_VALUE = 'MailFlow';
 const messageBodyRequests = new Map();
 
-async function request(method, path, body, extraHeaders) {
+async function request(method, path, body, extraHeaders, extraOptions = {}) {
   const opts = {
     method,
     credentials: 'include',
     headers: { [CSRF_HEADER]: CSRF_VALUE, ...(extraHeaders || {}) },
+    ...extraOptions,
   };
   if (body) {
     opts.headers['Content-Type'] = 'application/json';
@@ -101,18 +102,22 @@ export async function streamAiChat(messages, { signal, onDelta } = {}) {
   }
 }
 
-function getMessageBody(id, remoteImages = false) {
-  const key = `${id}:${remoteImages ? 'remote' : 'blocked'}`;
+function getMessageBody(id, remoteImages = false, copyId = null) {
+  const key = `${id}:${copyId || 'default'}:${remoteImages ? 'remote' : 'blocked'}`;
   const existing = messageBodyRequests.get(key);
   if (existing) return existing;
-  const promise = request('GET', `/mail/messages/${id}/body${remoteImages ? '?remoteImages=1' : ''}`)
+  const query = new URLSearchParams();
+  if (remoteImages) query.set('remoteImages', '1');
+  if (copyId) query.set('copyId', copyId);
+  const suffix = query.toString() ? `?${query.toString()}` : '';
+  const promise = request('GET', `/mail/messages/${id}/body${suffix}`)
     .finally(() => messageBodyRequests.delete(key));
   messageBodyRequests.set(key, promise);
   return promise;
 }
 
 export const api = {
-  get: (path) => request('GET', path),
+  get: (path, extraOptions = {}) => request('GET', path, undefined, undefined, extraOptions),
   post: (path, body, extraHeaders) => request('POST', path, body, extraHeaders),
   put: (path, body) => request('PUT', path, body),
   patch: (path, body) => request('PATCH', path, body),
@@ -228,10 +233,11 @@ export const api = {
     return request('GET', `/mail/resolve-message?${qs}`);
   },
   getMessageBody,
-  getThread: (threadId, folder, unified = false) => {
+  getThread: (threadId, folder, unified = false, accountId = null) => {
     const qs = new URLSearchParams();
     if (folder) qs.set('folder', folder);
     if (unified) qs.set('unified', 'true');
+    if (accountId) qs.set('accountId', accountId);
     const query = qs.size ? `?${qs}` : '';
     return request('GET', `/mail/thread/${encodeURIComponent(threadId)}${query}`);
   },
@@ -244,6 +250,11 @@ export const api = {
   bulkArchive: (ids) => request('POST', '/mail/messages/bulk-archive', { ids }),
   getUnreadCounts: () => request('GET', '/mail/unread-counts'),
 
+  // Mailbox cleanup (read-only analysis; actual cleanup reuses bulkDelete above).
+  mailboxUsage: (accountId) => request('GET', `/mail/mailbox-usage?accountId=${encodeURIComponent(accountId)}`),
+  cleanupPreview: (accountId, fromEmail) =>
+    request('GET', `/mail/cleanup-preview?accountId=${encodeURIComponent(accountId)}&fromEmail=${encodeURIComponent(fromEmail)}`),
+
   // Antispam (v0.1) — manual user feedback.
   // markSpam moves the message to the account's spam/junk folder and
   // records the decision in spam_training_log. markHam moves it back to
@@ -253,6 +264,9 @@ export const api = {
 
   getMessageHeaders: (id) => request('GET', `/mail/messages/${id}/headers`),
   snoozeMessage: (id, until) => request('POST', `/mail/messages/${id}/snooze`, { until }),
+
+  // Sanitized diagnostics report (server-owned sections; scoped to the user).
+  diagnosticsReport: (salt) => request('POST', '/diagnostics/report', { salt }),
 
   // Integrations
   getIntegrations: () => request('GET', '/integrations'),
@@ -391,6 +405,7 @@ export const api = {
     return request('GET', `/gtd/sections${qs ? '?' + qs : ''}`);
   },
   gtdClassify: (messageId, state) => request('POST', '/gtd/classify', { messageId, state }),
+  gtdUndoClassify: (undoToken) => request('POST', '/gtd/classify/undo', undoToken),
   gtdUnclassify: (messageId, state) => request('DELETE', '/gtd/classify', { messageId, state }),
   // GTD "done": strip the row's label(s) for these states, mark read, archive the INBOX
   // copy. id is the rail head's row id (its label-folder copy); the server resolves the

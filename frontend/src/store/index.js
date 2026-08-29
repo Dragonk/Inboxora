@@ -10,6 +10,9 @@ import {
   restoreGtdThreadRemoval,
   setGtdThreadReadInSections,
   snapshotGtdThreadRemoval,
+  appendMessagesByIdentity,
+  dedupeByIdentity,
+  missingByIdentity,
 } from '../utils/gtd.js';
 import { applyGtdRemovalGuard } from '../utils/pendingGtdRemovals.js';
 import { clampRightSidebarWidth } from '../utils/rightSidebar.js';
@@ -18,6 +21,7 @@ import {
   mergeFolderOrder,
   readFolderOrder,
 } from './folderOrder.js';
+import { removeThreadCacheEntry } from '../utils/threadedArchive.js';
 import i18n from '../i18n.js';
 
 // Accumulate rapid preference changes and flush at most once per second.
@@ -31,6 +35,15 @@ function schedulePrefSave(prefs) {
     _pendingPrefs = {};
     api.savePreferences(toSave).catch(() => {});
   }, 1000);
+}
+// Drop any queued preference flush. Called on logout / account switch: a pending debounce
+// belongs to the previous user's session, so letting it fire would either save into the new
+// user's account or hit a dead session (401). The prefs are already applied locally; only the
+// deferred network write is discarded.
+function cancelPendingPrefSave() {
+  clearTimeout(_prefFlushTimer);
+  _prefFlushTimer = null;
+  _pendingPrefs = {};
 }
 
 // GTD sections fetch coordination. A monotonic seq guards against stale
@@ -52,14 +65,19 @@ function readGtdCollapsedSections() {
 export const useStore = create((set, get) => ({
   // Auth
   user: null,
-  setUser: (user) => set(state => ({
-    user,
-    ...(state.user?.id !== user?.id ? {
-      senderFaviconsLoaded: false,
-      senderFavicons: false,
-      senderFaviconsSaving: false,
-    } : {}),
-  })),
+  setUser: (user) => {
+    // On a real identity change (login, logout, account switch) drop any queued preference
+    // flush so the previous user's debounce can't save into the new/absent session.
+    if (get().user?.id !== user?.id) cancelPendingPrefSave();
+    set(state => ({
+      user,
+      ...(state.user?.id !== user?.id ? {
+        senderFaviconsLoaded: false,
+        senderFavicons: false,
+        senderFaviconsSaving: false,
+      } : {}),
+    }));
+  },
   updateUser: (updates) => set(state => ({ user: state.user ? { ...state.user, ...updates } : state.user })),
 
   // Plugin activation — the per-user set of activated plugin ids (users.preferences.enabledPlugins).
@@ -165,17 +183,18 @@ export const useStore = create((set, get) => ({
 
   // Messages
   messages: [],
-  setMessages: (messages) => set({ messages }),
+  // Dedupe by stable identity on every raw list load: the same email can arrive as two rows
+  // (same message delivered to two unified accounts, or a received copy + its Sent twin) and
+  // must render once, matching isSelectedRow's identity model (#378). appendMessages/restore
+  // dedupe on their own paths; this covers the initial/refresh/page loads that replace wholesale.
+  setMessages: (messages) => set({ messages: dedupeByIdentity(messages) }),
   appendMessages: (newMessages) => set(state => {
-    // Deduplicate by id: if the same message already exists in state, keep the
-    // existing copy (which may carry optimistic local-only fields the network
-    // refresh just lost, like unread_count). Without this, bulk operations
-    // (Mark as Spam, moveTo, scheduleDelete...) followed by Undo + a network
-    // refresh can briefly produce visible "clones" of the same message.
-    const existing = new Set(state.messages.map(m => m.id));
-    const additions = newMessages.filter(m => m && !existing.has(m.id));
-    if (additions.length === 0) return {};
-    return { messages: [...state.messages, ...additions] };
+    // Merge by stable identity (Message-ID when present, else id): a same-id row is dropped so the
+    // existing copy keeps any optimistic local-only fields a refresh lost (unread_count, etc.),
+    // while a reindexed message (same Message-ID, new id after a purge+reinsert) replaces its stale
+    // row in place instead of appearing as a duplicate. See appendMessagesByIdentity.
+    const messages = appendMessagesByIdentity(state.messages, newMessages);
+    return messages === state.messages ? {} : { messages };
   }),
   updateMessage: (id, updates) => set(state => {
     const apply = (m) => m.id === id ? { ...m, ...updates } : m;
@@ -219,15 +238,13 @@ export const useStore = create((set, get) => ({
   restoreMessages: (msgs) => set(state => {
     const list = Array.isArray(msgs) ? msgs : [msgs];
     const sort = arr => [...arr].sort((a, b) => new Date(b.date) - new Date(a.date));
-    // Deduplicate against both the main list and searchResults: if the message
-    // is already present (e.g. user clicked Undo after the messages had already
-    // been restored by a network refresh), skip it. The local copy carries the
-    // freshest optimistic state, so we prefer it over the server view.
-    const inMessages = new Set(state.messages.map(m => m.id));
-    const missing = list.filter(m => m && !inMessages.has(m.id));
+    // Deduplicate against both the main list and searchResults by stable identity (Message-ID when
+    // present, else id): if the message is already present — including re-added by a network
+    // refresh under a regenerated id (matched via Message-ID) — skip it. The local copy carries the
+    // freshest optimistic state, so we prefer it over the server view. See missingByIdentity.
+    const missing = missingByIdentity(state.messages, list);
     if (missing.length === 0 && !state.searchQuery.trim()) return {};
-    const inSearch = new Set(state.searchResults.map(m => m.id));
-    const missingFromSearch = list.filter(m => m && !inSearch.has(m.id));
+    const missingFromSearch = missingByIdentity(state.searchResults, list);
     return {
       messages: missing.length ? sort([...state.messages, ...missing]) : state.messages,
       searchResults: state.searchQuery.trim() && missingFromSearch.length
@@ -481,6 +498,15 @@ export const useStore = create((set, get) => ({
     schedulePrefSave({ language: lng });
   },
 
+  // Conversation Engine v2: list grouping is controlled exclusively by the native
+  // threadedView preference. The old CE-specific list flag is read only as a
+  // compatibility fallback for users who saved it before the canonical mapping.
+  conversationReaderViewEnabled: false,
+  setConversationReaderViewEnabled: (val) => {
+    set({ conversationReaderViewEnabled: val });
+    schedulePrefSave({ conversation_reader_view_enabled: val });
+  },
+
   // Threaded view
   threadedView: localStorage.getItem('mailflow_threaded_view') === 'true',
   setThreadedView: (val) => {
@@ -558,6 +584,9 @@ export const useStore = create((set, get) => ({
   threadMessages: {},
   setThreadMessages: (threadId, msgs) => set(state => ({
     threadMessages: { ...state.threadMessages, [threadId]: msgs },
+  })),
+  clearThreadMessages: (threadId) => set(state => ({
+    threadMessages: removeThreadCacheEntry(state.threadMessages, threadId),
   })),
   loadingThread: null,
   setLoadingThread: (id) => set({ loadingThread: id }),
@@ -1049,6 +1078,11 @@ export const useStore = create((set, get) => ({
       if (typeof prefs.threadedView === 'boolean') {
         localStorage.setItem('mailflow_threaded_view', String(prefs.threadedView));
         set({ threadedView: prefs.threadedView });
+      } else if (typeof prefs.conversation_list_view_enabled === 'boolean') {
+        // Compatibility with the short-lived CE-only preference. Native threadedView
+        // remains the canonical source of truth whenever it exists.
+        localStorage.setItem('mailflow_threaded_view', String(prefs.conversation_list_view_enabled));
+        set({ threadedView: prefs.conversation_list_view_enabled });
       }
       if (typeof prefs.plaintextEmail === 'boolean') {
         localStorage.setItem('mailflow_plaintext_email', String(prefs.plaintextEmail));
@@ -1117,6 +1151,7 @@ export const useStore = create((set, get) => ({
         localStorage.setItem('mailflow_right_sidebar_hidden', String(prefs.rightSidebarHidden));
         set({ rightSidebarHidden: prefs.rightSidebarHidden });
       }
+      if (typeof prefs.conversation_reader_view_enabled === 'boolean') set({ conversationReaderViewEnabled: prefs.conversation_reader_view_enabled });
       if (prefs.customCss) {
         applyCustomCss(prefs.customCss);
       }

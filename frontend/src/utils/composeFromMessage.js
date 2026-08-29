@@ -1,3 +1,48 @@
+import { collectOwnAddresses, parseAddressListField, pickReplyAlias } from './replyAlias.js';
+
+function messageIds(value) {
+  const text = Array.isArray(value) ? value.join(' ') : String(value || '');
+  const ids = [];
+  for (const match of text.matchAll(/<[^<>\r\n]+>/g)) {
+    const id = match[0].trim();
+    if (!ids.includes(id)) ids.push(id);
+  }
+  return ids;
+}
+
+/**
+ * P1-15: Single source of truth for the In-Reply-To / References headers of a
+ * reply to `message`.
+ *
+ * Both single-message and conversation-reader reply paths MUST
+ * build these headers through this helper so the two reply paths produce byte-
+ * identical output:
+ *   - In-Reply-To = the parent Message-ID,
+ *   - References  = existing References + existing In-Reply-To + parent
+ *                   Message-ID, in that order, angle-bracketed, normalized and
+ *                   de-duplicated (preserving first-seen order).
+ *
+ * Returns `{ inReplyTo, references }` where `references` is a space-joined
+ * string or `null` when no Message-ID is available at all.
+ */
+export function buildReplyHeaders(message) {
+  const inReplyTo = message?.message_id || null;
+  const chain = [
+    ...messageIds(message?.references || message?.thread_references),
+    ...messageIds(message?.in_reply_to),
+    ...messageIds(inReplyTo),
+  ];
+  // Dedup preserving first-seen order (messageIds already dedups within each
+  // field, but the same id can appear in both References and In-Reply-To).
+  const seen = new Set();
+  const ordered = [];
+  for (const id of chain) {
+    if (!seen.has(id)) { seen.add(id); ordered.push(id); }
+  }
+  const references = ordered.join(' ') || null;
+  return { inReplyTo, references };
+}
+
 function parseAddressField(raw) {
   try {
     const arr = Array.isArray(raw) ? raw : JSON.parse(raw || '[]');
@@ -15,51 +60,40 @@ export async function openReplyFromMessage(message, { accounts, openCompose, get
   const sender = replyTarget.email ? [replyTarget] : [];
 
   const myAccount = accounts.find(a => a.id === message.account_id);
-  const myEmail = myAccount?.email_address || '';
-  const myAddresses = new Set([
-    myEmail.toLowerCase(),
-    ...(myAccount?.aliases || []).map(al => al.email.toLowerCase()),
-  ]);
+  // P1-16: use the central own-identity resolver so Reply All self-exclusion
+  // covers primary + aliases + delivery_addresses (Delivered-To / X-Original-To /
+  // Envelope-To), matching backend `resolveOwnIdentityAddresses`. This prevents
+  // Cc'ing the user's own catch-all / shared alias copy back to themselves.
+  const myAddresses = collectOwnAddresses({ account: myAccount, message });
 
-  const replyAliasId = (() => {
-    const aliases = myAccount?.aliases || [];
-    if (!aliases.length) return null;
-    try {
-      const toArr = Array.isArray(message.to_addresses)
-        ? message.to_addresses
-        : JSON.parse(message.to_addresses || '[]');
-      const ccArr = Array.isArray(message.cc_addresses)
-        ? message.cc_addresses
-        : JSON.parse(message.cc_addresses || '[]');
-      const allEmails = [...toArr, ...ccArr].map(t => t.email?.toLowerCase()).filter(Boolean);
-      const fromEmail = (message.from_email || '').toLowerCase();
-      const match = aliases.find(al => {
-        const aliasEmail = al.email.toLowerCase();
-        return allEmails.includes(aliasEmail) || fromEmail === aliasEmail;
-      });
-      return match ? match.id : null;
-    } catch { return null; }
-  })();
+  const replyAliasId = pickReplyAlias({
+    aliases: myAccount?.aliases || [],
+    deliveryAddresses: message.delivery_addresses,
+    toAddresses: message.to_addresses,
+    ccAddresses: message.cc_addresses,
+    fromEmail: message.from_email,
+  });
 
   const allRecipients = (() => {
     try {
-      const toArr = Array.isArray(message.to_addresses)
-        ? message.to_addresses
-        : JSON.parse(message.to_addresses || '[]');
-      const ccArr = Array.isArray(message.cc_addresses)
-        ? message.cc_addresses
-        : JSON.parse(message.cc_addresses || '[]');
-      return [...toArr, ...ccArr].filter(
-        t => t.email && !myAddresses.has(t.email.toLowerCase()) && t.email !== replyTarget.email
-      );
+      const toArr = parseAddressListField(message.to_addresses);
+      const ccArr = parseAddressListField(message.cc_addresses);
+      const seen = new Set();
+      return [...toArr, ...ccArr].filter(t => {
+        const email = t.email?.toLowerCase();
+        if (!email || myAddresses.has(email) || email === (replyTarget.email || '').toLowerCase() || seen.has(email)) return false;
+        seen.add(email);
+        return true;
+      });
     } catch { return []; }
   })();
 
-  const referencesChain = [message.in_reply_to, message.message_id]
-    .filter(Boolean).join(' ').trim() || null;
+  // P1-15: build In-Reply-To / References via the single shared helper so this
+  // path and MessagePane.jsx produce byte-identical reply headers.
+  const { inReplyTo, references: referencesChain } = buildReplyHeaders(message);
   const rawSubject = (message.subject || '').trim();
 
-  const replyBody = await getMessageBody(message.id).catch(() => null);
+  const replyBody = await getMessageBody(message.id, false, message.selectedCopyId || message.id).catch(() => null);
   const replyDate = message.date ? new Date(message.date).toLocaleString() : '';
   const replySafeName = (message.from_name || '').replace(/[\r\n]+/g, ' ');
   const replyFromStr = replySafeName
@@ -79,7 +113,7 @@ export async function openReplyFromMessage(message, { accounts, openCompose, get
     body: '',
     quotedBody: quotedText,
     quotedBodyHtml,
-    inReplyTo: message.message_id,
+    inReplyTo,
     references: referencesChain,
     accountId: message.account_id,
     aliasId: replyAliasId,
@@ -87,11 +121,14 @@ export async function openReplyFromMessage(message, { accounts, openCompose, get
     isReplyAll: replyAll,
     originalFrom: sender,
     allRecipients,
+    threadId: message.thread_key || message.thread_id || null,
+    threadCacheId: message.thread_id || message.thread_key || null,
+    conversationId: message.conversationId || message.conversation_id || null,
   });
 }
 
 export async function openForwardFromMessage(message, { openCompose, getMessageBody }) {
-  const fwdBody = await getMessageBody(message.id).catch(() => null);
+  const fwdBody = await getMessageBody(message.id, false, message.selectedCopyId || message.id).catch(() => null);
   const fwdDate = message.date ? new Date(message.date).toLocaleString() : '';
   const fwdSafeName = (message.from_name || '').replace(/[\r\n]+/g, ' ');
   const fwdFromStr = fwdSafeName

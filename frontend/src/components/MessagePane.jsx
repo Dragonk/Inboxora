@@ -1,6 +1,9 @@
-import { useEffect, useLayoutEffect, useState, useRef, useCallback, useMemo } from 'react';
+/* eslint-disable no-unused-vars */
+import { useEffect, useLayoutEffect, useState, useRef, useCallback, useMemo, lazy, Suspense } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useStore } from '../store/index.js';
+// CE v2 conversation reader — lazy so single-message users never load it.
+const ConversationReader = lazy(() => import('./ConversationReader.jsx'));
 import { api } from '../utils/api.js';
 import { format } from 'date-fns';
 import { shortcutBus } from '../utils/shortcutBus.js';
@@ -8,11 +11,13 @@ import { getEffectiveShortcuts, parseModKey, modCompactLabel } from '../utils/de
 import { useMobile } from '../hooks/useMobile.js';
 import { clearDeleteGuard, clearPendingDelete, setCompletedDelete, setPendingDelete } from '../utils/pendingDeletes.js';
 import { pendingMarkReadMap, completedMarkReadMap, setPending } from '../utils/pendingReads.js';
-import DOMPurify from 'dompurify';
-import { BUILTIN_SUMMARIZE } from '../aiActions.js';
+import { BUILTIN_SUMMARIZE, summarizePromptForLocale } from '../aiActions.js';
 import { getResults, saveResult, removeResult } from '../aiResults.js';
 import { renderMarkdown } from '../utils/renderMarkdown.js';
-import { pickReplyAlias } from '../utils/replyAlias.js';
+import { pickReplyAlias, collectOwnAddresses } from '../utils/replyAlias.js';
+import { buildReplyHeaders } from '../utils/composeFromMessage.js';
+import MessageBodyRenderer, { sanitizeMessageHtml } from './MessageBodyRenderer.jsx';
+import MessageDetailContent from './MessageDetailContent.jsx';
 const USE_DIV_RENDER = import.meta.env.VITE_EMAIL_DIV_RENDER === 'true';
 const MESSAGE_OPENING_EVENT = 'mailflow:message-opening';
 
@@ -32,11 +37,9 @@ if (USE_DIV_RENDER) {
   ({ prepareEmailHtml }                    = await import('../utils/scopeEmailCss.js'));
   ({ injectEmailStyles, removeEmailStyles } = await import('../utils/emailStyleRegistry.js'));
 }
-import { senderColor } from '../themes.js';
 import MessageHeaderModal from './MessageHeaderModal.jsx';
-import FolderIcon from './FolderIcon.jsx';
-import TodoistTaskModal from './TodoistTaskModal.jsx';
-import SenderAvatarImage from './SenderAvatarImage.jsx';
+import { MessageAvatar } from './MessagePresentation.jsx';
+import MessageToolbar from './MessageToolbar.jsx';
 import ContextMenu from './ContextMenu.jsx';
 
 function parseAddressField(raw) {
@@ -46,13 +49,7 @@ function parseAddressField(raw) {
   } catch { return ''; }
 }
 
-function linkifyText(text) {
-  const escaped = text.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
-  return escaped.replace(
-    /https?:\/\/[^\s<>"']+/g,
-    url => `<a href="${url}" target="_blank" rel="noopener noreferrer" style="color:inherit">${url}</a>`
-  );
-}
+
 
 function formatBytes(bytes) {
   if (!bytes) return '';
@@ -90,13 +87,13 @@ function fileIcon(type) {
   );
 }
 
-export default function MessagePane({ windowMessageId = null, onWindowClose = null } = {}) {
-  const { t } = useTranslation();
+export default function MessagePane({ windowMessageId = null, onWindowClose = null, mode = 'single', conversationId = null, targetLogicalMessageId = null, selectedConversationCopy = null, onReply = null, nativeThreadId = null, nativeFolder = null, onNativeThreadUnavailable = null } = {}) {
+  const { t, i18n } = useTranslation();
   const {
     messages, searchResults, searchQuery, selectedMessageId: globalSelectedId, setSelectedMessage,
     updateMessage, removeMessage, decrementUnread, incrementUnread, openCompose, accounts, addNotification,
     imageWhitelist, addToImageWhitelist, blockRemoteImages, threadMessages,
-    replyDefault, shortcuts, recentFolders, favoriteFolders, todoistConnected,
+    replyDefault, shortcuts,
     categorizationEnabled, setCategoryCounts, adjustCategoryCount,
     aiActions, setShowAdmin, setAdminTab,
   } = useStore();
@@ -205,7 +202,6 @@ export default function MessagePane({ windowMessageId = null, onWindowClose = nu
     // Abort any actions still streaming for the previous message.
     Object.values(aiAbortRefs.current).forEach(c => c?.abort());
     aiAbortRefs.current = {};
-    setShowAiMenu(false);
     // Restore persisted results (#204) so they reappear instead of vanishing.
     const saved = getResults(selectedMessageId);
     const restored = {};
@@ -294,51 +290,50 @@ export default function MessagePane({ windowMessageId = null, onWindowClose = nu
   const [retryKey, setRetryKey] = useState(0);
   const [loadingBody, setLoadingBody] = useState(false);
   const [downloadingPart, setDownloadingPart] = useState(null);
-  const [showReplyMenu, setShowReplyMenu] = useState(false);
   const [savingAllow, setSavingAllow] = useState(false);
   const [paneScrolled, setPaneScrolled] = useState(false);
   const [showHeaderModal, setShowHeaderModal] = useState(false);
   const [resolvedSubject, setResolvedSubject] = useState(null);
-  const [showMovePicker, setShowMovePicker] = useState(false);
   const [movePickerFolders, setMovePickerFolders] = useState([]);
   const [movePickerLoading, setMovePickerLoading] = useState(false);
-  const [moveSearch, setMoveSearch] = useState('');
-  const [showMoreMenu, setShowMoreMenu] = useState(false);
   const [contextMenu, setContextMenu] = useState(null);
   const [findDialogOpen, setFindDialogOpen] = useState(false);
   const [findQuery, setFindQuery] = useState('');
   const [findMatchCase, setFindMatchCase] = useState(false);
   const [findMatchIndex, setFindMatchIndex] = useState(-1);
   const findInputRef = useRef(null);
-  const [showTodoistModal, setShowTodoistModal] = useState(false);
   const [aiStatus, setAiStatus] = useState(null);
   // Per-action results for the current message: { [actionKey]: { status, text, label } }.
   // status: 'loading' | 'done' | 'error'. Restored from localStorage on message change.
   const [aiResults, setAiResults] = useState({});
-  const [showAiMenu, setShowAiMenu] = useState(false);
   const [aiClassifying, setAiClassifying] = useState(false);
   const [unsubscribeStatus, setUnsubscribeStatus] = useState(null); // null | 'loading' | 'done' | 'error'
-  const moveBtnRef = useRef(null);
-  const moreMenuRef = useRef(null);
-  const aiMenuRef = useRef(null);
   // One AbortController per in-flight action, keyed by action key.
   const aiAbortRefs = useRef({});
   const scrollContainerRef = useRef(null);
   const iframeRef = useRef(null);
   const roRef = useRef(null);
+  // Session-scoped set of message IDs where the user has clicked "Load images once".
+  // This is intentionally declared before renderableHtml so the div renderer can use
+  // the same effective policy as the API fetch and iframe renderer.
+  const imagesRequestedRef = useRef(new Set());
   // useMemo so prepared is available in the same render as body.html — no extra frame,
   // no flash of empty content between skeleton-gone and email-shown.
+  const allowRemoteImages = !blockRemoteImages || imagesRequestedRef.current.has(selectedMessageId);
+  // retryKey is intentionally a dependency: ref mutations from Load images/whitelist
+  // must force this sanitizer projection to recompute even though the ref itself is
+  // not a reactive value.
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  const renderableHtml = useMemo(() => body?.html ? sanitizeMessageHtml(body.html, { remoteImages: allowRemoteImages }) : '', [body?.html, allowRemoteImages, retryKey]);
   const prepared = useMemo(() => {
-    if (!USE_DIV_RENDER || !body?.html) return null;
-    return prepareEmailHtml(body.html, windowMode ? `w${message?.id ?? 'preview'}` : String(message?.id ?? 'preview'));
-  }, [body?.html, message?.id, windowMode]);
+    if (!USE_DIV_RENDER || !renderableHtml) return null;
+    return prepareEmailHtml(renderableHtml, windowMode ? `w${message?.id ?? 'preview'}` : String(message?.id ?? 'preview'));
+  }, [renderableHtml, message?.id, windowMode]);
   const outerRef = useRef(null);
   const scaleRef = useRef(null);
   const innerRef = useRef(null);
   const bodyCache = useRef({}); // messageId -> body, so revisiting is instant (capped at 50)
   const bodyCacheOrder = useRef([]); // insertion-order keys for LRU eviction
-  // Session-scoped set of message IDs where the user has clicked "Load images once"
-  const imagesRequestedRef = useRef(new Set());
   // Ref holding the latest pane action handlers so shortcut subscriptions ([] deps) never go stale
   const paneActionsRef = useRef({});
   const emailScaleRef = useRef(1); // scale applied to wide emails that resist CSS reflow
@@ -371,10 +366,6 @@ export default function MessagePane({ windowMessageId = null, onWindowClose = nu
 
   const openPaneContextMenu = useCallback((x, y, options = {}) => {
     if (!message) return;
-    setShowReplyMenu(false);
-    setShowMovePicker(false);
-    setShowMoreMenu(false);
-    setShowAiMenu(false);
     setContextMenu({
       x,
       y,
@@ -541,6 +532,8 @@ export default function MessagePane({ windowMessageId = null, onWindowClose = nu
     let lastH = 0;
     let contextMenuDoc = null;
     let iframeContextMenuHandler = null;
+    let clickDoc = null;
+    let iframeClickHandler = null;
 
     const setHeight = () => {
       const doc = iframe.contentDocument;
@@ -664,7 +657,13 @@ export default function MessagePane({ windowMessageId = null, onWindowClose = nu
       // origin via allow-same-origin and open a new mailflow tab instead of
       // the intended destination.  We read the raw attribute to bypass
       // browser resolution and only forward absolute http(s)/mailto links.
-      doc.addEventListener('click', (ev) => {
+      // Tracked and removed like the contextmenu handler below — onLoaded can
+      // re-run on the same document when the effect's callback deps change,
+      // and an untracked listener stacks up, opening N duplicate tabs per click.
+      if (clickDoc && iframeClickHandler) {
+        clickDoc.removeEventListener('click', iframeClickHandler);
+      }
+      iframeClickHandler = (ev) => {
         const anchor = ev.target.closest('a[href]');
         if (!anchor) return;
         ev.preventDefault();
@@ -675,8 +674,13 @@ export default function MessagePane({ windowMessageId = null, onWindowClose = nu
         } else if (/^mailto:/i.test(raw)) {
           window.open(raw, '_blank', 'noopener,noreferrer');
         }
-      });
+      };
+      clickDoc = doc;
+      doc.addEventListener('click', iframeClickHandler);
 
+      if (contextMenuDoc && iframeContextMenuHandler) {
+        contextMenuDoc.removeEventListener('contextmenu', iframeContextMenuHandler);
+      }
       iframeContextMenuHandler = (ev) => {
         if (hasNativeContextTarget(ev, doc)) return;
         ev.preventDefault();
@@ -718,6 +722,9 @@ export default function MessagePane({ windowMessageId = null, onWindowClose = nu
       if (roRef.current) { roRef.current.disconnect(); roRef.current = null; }
       if (contextMenuDoc && iframeContextMenuHandler) {
         contextMenuDoc.removeEventListener('contextmenu', iframeContextMenuHandler);
+      }
+      if (clickDoc && iframeClickHandler) {
+        clickDoc.removeEventListener('click', iframeClickHandler);
       }
       iframe.removeEventListener('load', onLoaded);
       emailScaleRef.current = 1;
@@ -988,7 +995,6 @@ export default function MessagePane({ windowMessageId = null, onWindowClose = nu
     const sender = replyTarget.email ? [replyTarget] : [];
 
     const myAccount = accounts.find(a => a.id === message.account_id);
-    const myEmail = myAccount?.email_address || '';
 
     const replyAliasId = pickReplyAlias({
       aliases: myAccount?.aliases || [],
@@ -998,10 +1004,7 @@ export default function MessagePane({ windowMessageId = null, onWindowClose = nu
       fromEmail: message.from_email,
     });
 
-    const myAddresses = new Set([
-      myEmail.toLowerCase(),
-      ...(myAccount?.aliases || []).map(al => al.email.toLowerCase()),
-    ]);
+    const myAddresses = collectOwnAddresses({ account: myAccount, message });
     const allRecipients = (() => {
       try {
         const toArr = Array.isArray(message.to_addresses)
@@ -1010,19 +1013,23 @@ export default function MessagePane({ windowMessageId = null, onWindowClose = nu
         const ccArr = Array.isArray(message.cc_addresses)
           ? message.cc_addresses
           : JSON.parse(message.cc_addresses || '[]');
-        return [...toArr, ...ccArr].filter(
-          t => t.email && !myAddresses.has(t.email.toLowerCase()) && t.email !== replyTarget.email
-        );
+        const seen = new Set();
+        return [...toArr, ...ccArr].filter(t => {
+          const email = t.email?.toLowerCase();
+          if (!email || myAddresses.has(email) || email === (replyTarget.email || '').toLowerCase() || seen.has(email)) return false;
+          seen.add(email);
+          return true;
+        });
       } catch { return []; }
     })();
 
-    const referencesChain = [message.in_reply_to, message.message_id]
-      .filter(Boolean).join(' ').trim() || null;
+    // Use the shared buildReplyHeaders helper so single and conversation replies
+    // produce identical References/In-Reply-To headers (ordered, normalized, deduped).
+    const { inReplyTo, references: referencesChain } = buildReplyHeaders(message);
 
     const rawSubject = (message.subject || '').trim();
     const reSubject = rawSubject.startsWith('Re:') ? rawSubject : rawSubject ? `Re: ${rawSubject}` : 'Re:';
 
-    setShowReplyMenu(false);
     openCompose({
       to: sender,
       cc: replyAll ? allRecipients : [],
@@ -1030,7 +1037,7 @@ export default function MessagePane({ windowMessageId = null, onWindowClose = nu
       body: '',
       quotedBody: quotedText,
       quotedBodyHtml,
-      inReplyTo: message.message_id,
+      inReplyTo,
       references: referencesChain,
       accountId: message.account_id,
       aliasId: replyAliasId,
@@ -1038,7 +1045,8 @@ export default function MessagePane({ windowMessageId = null, onWindowClose = nu
       isReplyAll: replyAll,
       originalFrom: sender,
       allRecipients,
-      threadId: message.thread_id,
+      threadId: message.thread_key || message.thread_id,
+      threadCacheId: message.thread_id || message.thread_key,
     });
   };
 
@@ -1098,7 +1106,7 @@ export default function MessagePane({ windowMessageId = null, onWindowClose = nu
     const ccStr = parseList(message.cc_addresses).map(fmtAddr).join(', ');
 
     const bodyContent = body?.html
-      ? DOMPurify.sanitize(body.html, { ADD_ATTR: ['target'] })
+      ? sanitizeMessageHtml(body.html, { remoteImages: allowRemoteImages })
       : body?.text
         ? `<pre style="white-space:pre-wrap;font-family:sans-serif;font-size:14px">${esc(body.text)}</pre>`
         : '';
@@ -1146,7 +1154,6 @@ ${bodyContent}
   const runAiAction = async (action, { force = false } = {}) => {
     if (!action?.id) return;
     const key = action.id;
-    setShowAiMenu(false);
 
     // Show a cached result without re-calling the model (#204, cost-saving).
     if (!force) {
@@ -1169,10 +1176,13 @@ ${bodyContent}
     aiAbortRefs.current[key] = ctrl;
     const msgId = selectedMessageId;
     setAiResults(r => ({ ...r, [key]: { status: 'loading', text: '', label } }));
+    // The built-in Summarize prompt is uneditable, so steer its output to the
+    // user's UI language (#255). Custom actions keep their author's prompt as-is.
+    const promptText = action.builtin ? summarizePromptForLocale(i18n.language) : action.prompt;
     try {
       const fullText = await api.ai.chat([{
         role: 'user',
-        content: `${action.prompt}\n\n${textContent.slice(0, 6000)}`,
+        content: `${promptText}\n\n${textContent.slice(0, 6000)}`,
       }], {
         signal: ctrl.signal,
         onDelta: (text) => {
@@ -1194,25 +1204,6 @@ ${bodyContent}
     removeResult(selectedMessageId, key);
     setAiResults(r => { const next = { ...r }; delete next[key]; return next; });
   };
-
-  // A single row in the AI actions dropdown. Shows an accent dot when a result
-  // for that action already exists on the current message.
-  const renderAiItem = (key, label, onClick, opts = {}) => (
-    <div
-      key={key}
-      onClick={onClick}
-      style={{
-        display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8,
-        padding: '8px 10px', cursor: 'pointer', fontSize: 13, borderRadius: 6,
-        color: opts.muted ? 'var(--text-secondary)' : 'var(--text-primary)',
-      }}
-      onMouseEnter={e => e.currentTarget.style.background = 'var(--bg-hover)'}
-      onMouseLeave={e => e.currentTarget.style.background = 'transparent'}
-    >
-      <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{label}</span>
-      {aiResults[key]?.status === 'done' && <span style={{ fontSize: 9, color: 'var(--accent)', flexShrink: 0 }}>●</span>}
-    </div>
-  );
 
   // Keep pane action refs current every render
   paneActionsRef.current = {
@@ -1275,10 +1266,8 @@ ${bodyContent}
     }
   };
 
-  const handleOpenMovePicker = useCallback(async () => {
+  const handleLoadMoveFolders = useCallback(async () => {
     if (!message) return;
-    if (showMovePicker) { setShowMovePicker(false); return; }
-    setShowMovePicker(true);
     setMovePickerLoading(true);
     try {
       const data = await api.getFolders(message.account_id);
@@ -1289,7 +1278,7 @@ ${bodyContent}
     } finally {
       setMovePickerLoading(false);
     }
-  }, [showMovePicker, message?.account_id]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [message]);
 
   const handleMarkUnread = useCallback(() => {
     if (!message || !message.is_read) return;
@@ -1409,7 +1398,6 @@ ${bodyContent}
 
   const handleMoveToFolder = useCallback((folder) => {
     if (!message) return;
-    setShowMovePicker(false);
     const moved = message;
     removeMessage(moved.id);
     closeWindowIfWindowed();
@@ -1441,9 +1429,7 @@ ${bodyContent}
 
   // Close move picker when the selected message changes and handle click-outside
   useEffect(() => {
-    setShowMovePicker(false);
     setShowHeaderModal(false);
-    setShowMoreMenu(false);
     setContextMenu(null);
     setUnsubscribeStatus(null);
     setAiClassifying(false);
@@ -1456,25 +1442,7 @@ ${bodyContent}
   // The scrim sits above the iframe and closes the menu on any outside tap (mobile + desktop).
   // It also can't be defeated by an ancestor's stopPropagation the way a bubbling handler can.
 
-  useEffect(() => {
-    if (!showMovePicker) setMoveSearch('');
-  }, [showMovePicker]);
-
-  const recentForMove = message
-    ? recentFolders
-        .filter(r => r.accountId === message.account_id && r.path !== message.folder)
-        .map(r => movePickerFolders.find(f => f.path === r.path))
-        .filter(Boolean)
-    : [];
-  const favoritesForMove = message
-    ? favoriteFolders
-        .filter(fav => fav.accountId === message.account_id && fav.path !== message.folder)
-        .map(fav => movePickerFolders.find(f => f.path === fav.path))
-        .filter(Boolean)
-        .filter(f => !recentForMove.some(r => r.path === f.path))
-    : [];
-
-  if (!message) {
+  if (!message && mode !== 'conversation') {
     // A detached window with no message is mid-close (see auto-close effect above) —
     // render nothing rather than the list's "select a message" placeholder.
     if (windowMode) return null;
@@ -1733,6 +1701,10 @@ ${bodyContent}
     setSavingAllow(true);
     try {
       await addToImageWhitelist({ type: 'address', value: senderEmail });
+      // The whitelist change permits the current message immediately. Keep the
+      // session opt-in marker in sync so the div renderer's sanitizer policy agrees
+      // with the API response even while the global block setting remains enabled.
+      if (selectedMessageId) imagesRequestedRef.current.add(selectedMessageId);
       // Evict all blocked cache entries so they re-fetch with images unblocked
       for (const id of Object.keys(bodyCache.current)) {
         if (bodyCache.current[id]?.hasBlockedRemoteImages) delete bodyCache.current[id];
@@ -1770,9 +1742,11 @@ ${bodyContent}
           });
         },
       });
+      return true;
     } catch {
       setUnsubscribeStatus('error');
       addNotification({ type: 'error', title: t('message.unsubscribe.error') });
+      return false;
     }
   };
 
@@ -1805,6 +1779,9 @@ ${bodyContent}
     setSavingAllow(true);
     try {
       await addToImageWhitelist({ type: 'domain', value: senderDomain });
+      // The whitelist change permits the current message immediately; keep the
+      // renderer policy aligned with the newly fetched unblocked body.
+      if (selectedMessageId) imagesRequestedRef.current.add(selectedMessageId);
       // Evict all blocked cache entries so they re-fetch with images unblocked
       for (const id of Object.keys(bodyCache.current)) {
         if (bodyCache.current[id]?.hasBlockedRemoteImages) delete bodyCache.current[id];
@@ -1820,21 +1797,55 @@ ${bodyContent}
 
   const toList = (() => {
     try {
-      return Array.isArray(message.to_addresses)
+      return Array.isArray(message?.to_addresses)
         ? message.to_addresses
-        : JSON.parse(message.to_addresses || '[]');
+        : JSON.parse(message?.to_addresses || '[]');
     } catch { return []; }
   })();
 
   const ccList = (() => {
     try {
-      return Array.isArray(message.cc_addresses)
+      return Array.isArray(message?.cc_addresses)
         ? message.cc_addresses
-        : JSON.parse(message.cc_addresses || '[]');
+        : JSON.parse(message?.cc_addresses || '[]');
     } catch { return []; }
   })();
 
   const attachments = body?.attachments || [];
+
+  // CE v2: when mode='conversation', render the conversation reader inside the
+  // native MessagePane container — sharing root pane, width, resize, scroll,
+  // global toolbar, and the mobile back bar. Single-message rendering below is skipped.
+  if (mode === 'conversation') {
+    return (
+      <div
+        ref={paneRef}
+        style={{
+          flex: 1, display: 'flex', flexDirection: 'column',
+          overflow: 'hidden', background: 'var(--bg-primary)',
+          animation: isMobile ? 'mobileSlideIn 0.22s ease' : 'none',
+        }}
+      >
+        {isMobile && <style>{`@keyframes mobileSlideIn { from { transform: translateX(100%) } to { transform: translateX(0) } }`}</style>}
+        {isMobile && (
+          <div style={{
+            display: 'flex', alignItems: 'center', gap: 8,
+            paddingTop: 'calc(var(--sat) + 10px)',
+            paddingBottom: 10, paddingLeft: 14, paddingRight: 14,
+            borderBottom: '1px solid var(--border-subtle)',
+            background: 'var(--bg-secondary)', flexShrink: 0,
+          }}>
+            <button onClick={() => history.back()} style={{ background: 'transparent', border: 'none', cursor: 'pointer', padding: 4, display: 'flex', alignItems: 'center' }} aria-label={t('mailApp.back')}>
+              <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><polyline points="15 18 9 12 15 6"/></svg>
+            </button>
+          </div>
+        )}
+        <Suspense fallback={<div style={{ padding: 24, textAlign: 'center', color: 'var(--text-tertiary)' }}>{t('conversation.loading')}</div>}>
+          <ConversationReader conversationId={conversationId} targetLogicalMessageId={targetLogicalMessageId} selectedCopyId={selectedConversationCopy?.id} selectedAccountId={selectedConversationCopy?.accountId} accounts={accounts} onReply={onReply} nativeThreadId={nativeThreadId} nativeFolder={nativeFolder} onNativeThreadUnavailable={onNativeThreadUnavailable} />
+        </Suspense>
+      </div>
+    );
+  }
 
   return (
     <div
@@ -1911,443 +1922,36 @@ ${bodyContent}
         </div>
       )}
 
-      {/* Toolbar — always pinned at top, never scrolls */}
-      <div style={{
-        padding: '8px 16px', borderBottom: '1px solid var(--border-subtle)',
-        display: 'flex', alignItems: 'center', gap: 6, flexShrink: 0,
-        boxShadow: paneScrolled ? '0 1px 10px rgba(0,0,0,0.2)' : 'none',
-        transition: 'box-shadow 0.2s ease',
-      }}>
-        {/* Split Reply button */}
-        <div style={{ position: 'relative', display: 'flex' }}>
-          <PaneBtn onClick={() => handleReply(defaultReplyAll)} style={{ borderRadius: '6px 0 0 6px' }} title={isMobile ? (defaultReplyAll ? t('message.replyAll') : t('message.reply')) : `${defaultReplyAll ? t('message.replyAll') : t('message.reply')}${shortcutLabel(defaultReplyAll ? 'replyAll' : 'reply') ? ` (${shortcutLabel(defaultReplyAll ? 'replyAll' : 'reply')})` : ''}`}>
-            {defaultReplyAll ? (
-              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75">
-                <polyline points="7 17 2 12 7 7"/><polyline points="13 17 8 12 13 7"/><path d="M20 18v-2a4 4 0 00-4-4H2"/>
-              </svg>
-            ) : (
-              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75">
-                <polyline points="9 17 4 12 9 7"/><path d="M20 18v-2a4 4 0 00-4-4H4"/>
-              </svg>
-            )}
-          </PaneBtn>
-          <button
-            onClick={() => setShowReplyMenu(v => !v)}
-            title={t('message.replyOptions')}
-            style={{
-              background: 'transparent', border: '1px solid transparent',
-              borderLeft: '1px solid var(--border-subtle)',
-              borderRadius: '0 6px 6px 0', padding: '5px 6px',
-              color: 'var(--text-secondary)', cursor: 'pointer',
-              display: 'flex', alignItems: 'center',
-            }}
-            onMouseEnter={e => e.currentTarget.style.background = 'var(--bg-tertiary)'}
-            onMouseLeave={e => e.currentTarget.style.background = 'transparent'}
-          >
-            <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-              <polyline points="6 9 12 15 18 9"/>
-            </svg>
-          </button>
-          {showReplyMenu && (<>
-            <div onClick={() => setShowReplyMenu(false)} aria-hidden style={{ position: 'fixed', inset: 0, zIndex: 99 }} />
-            <div
-              style={{
-                position: 'absolute', top: '100%', left: 0, marginTop: 4,
-                background: 'var(--bg-elevated)', border: '1px solid var(--border)',
-                borderRadius: 8, overflow: 'hidden', zIndex: 100,
-                boxShadow: '0 4px 20px rgba(0,0,0,0.4)', minWidth: 150,
-              }}
-              onMouseLeave={() => setShowReplyMenu(false)}
-            >
-              {[
-                defaultReplyAll
-                  ? { label: t('message.reply'), replyAll: false }
-                  : { label: t('message.replyAll'), replyAll: true },
-              ].map(opt => (
-                <div
-                  key={opt.label}
-                  onClick={() => handleReply(opt.replyAll)}
-                  style={{
-                    padding: '9px 14px', cursor: 'pointer', fontSize: 13,
-                    color: 'var(--text-primary)',
-                  }}
-                  onMouseEnter={e => e.currentTarget.style.background = 'var(--bg-hover)'}
-                  onMouseLeave={e => e.currentTarget.style.background = 'transparent'}
-                >
-                  {opt.label}
-                </div>
-              ))}
-            </div>
-          </>)}
-        </div>
-
-        <PaneBtn onClick={handleForward} title={isMobile ? t('message.forward') : `${t('message.forward')}${shortcutLabel('forward') ? ` (${shortcutLabel('forward')})` : ''}`}>
-          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75">
-            <polyline points="15 17 20 12 15 7"/><path d="M4 18v-2a4 4 0 014-4h12"/>
-          </svg>
-        </PaneBtn>
-
-        <PaneBtn onClick={handleArchive} title={isMobile ? t('message.archive') : `${t('message.archive')}${shortcutLabel('archive') ? ` (${shortcutLabel('archive')})` : ''}`}>
-          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75">
-            <rect x="2" y="3" width="20" height="5" rx="1"/>
-            <path d="M4 8v11a1 1 0 001 1h14a1 1 0 001-1V8"/>
-            <polyline points="9 13 12 16 15 13"/>
-            <line x1="12" y1="11" x2="12" y2="16"/>
-          </svg>
-        </PaneBtn>
-
-        {/* Move to folder */}
-        <div style={{ position: 'relative' }} ref={moveBtnRef}>
-          <PaneBtn onClick={handleOpenMovePicker} title={t('contextMenu.moveToFolder')}>
-            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75">
-              <path d="M22 19a2 2 0 01-2 2H4a2 2 0 01-2-2V5a2 2 0 012-2h5l2 3h9a2 2 0 012 2z"/>
-            </svg>
-          </PaneBtn>
-          {/* Desktop dropdown */}
-          {showMovePicker && !isMobile && (<>
-            <div onClick={() => setShowMovePicker(false)} aria-hidden style={{ position: 'fixed', inset: 0, zIndex: 199 }} />
-            <div style={{
-              position: 'absolute', top: 'calc(100% + 4px)', left: 0,
-              background: 'var(--bg-elevated)', border: '1px solid var(--border)',
-              borderRadius: 8, boxShadow: 'var(--shadow-popover)',
-              minWidth: 200, maxWidth: 320,
-              zIndex: 200,
-            }}>
-              {movePickerLoading ? (
-                <div style={{ padding: '20px 16px', textAlign: 'center', color: 'var(--text-tertiary)', fontSize: 12 }}>
-                  {t('contextMenu.folders.loading')}
-                </div>
-              ) : movePickerFolders.length === 0 ? (
-                <div style={{ padding: '20px 16px', textAlign: 'center', color: 'var(--text-tertiary)', fontSize: 12 }}>
-                  {t('contextMenu.folders.empty')}
-                </div>
-              ) : (
-                <>
-                  <div style={{ padding: '6px 8px', borderBottom: '1px solid var(--border-subtle)' }}>
-                    <input
-                      autoFocus
-                      value={moveSearch}
-                      onChange={e => setMoveSearch(e.target.value)}
-                      placeholder={t('contextMenu.folders.search')}
-                      style={{
-                        width: '100%', boxSizing: 'border-box',
-                        padding: '5px 8px', fontSize: 12,
-                        background: 'var(--bg-tertiary)', border: '1px solid var(--border)',
-                        borderRadius: 5, color: 'var(--text-primary)',
-                        outline: 'none',
-                      }}
-                    />
-                  </div>
-                  <div style={{ maxHeight: 285, overflowY: 'auto' }}>
-                  {(() => {
-                    const q = moveSearch.trim().toLowerCase();
-                    if (q) {
-                      const filtered = movePickerFolders
-                        .filter(f => f.path !== message.folder && f.name.toLowerCase().includes(q));
-                      return filtered.length === 0 ? (
-                        <div style={{ padding: '12px 12px', textAlign: 'center', color: 'var(--text-tertiary)', fontSize: 12 }}>
-                          {t('contextMenu.folders.empty')}
-                        </div>
-                      ) : filtered.map(f => (
-                        <button
-                          key={f.path}
-                          onClick={() => handleMoveToFolder(f.path)}
-                          style={{ display: 'flex', alignItems: 'center', gap: 8, width: '100%', padding: '8px 12px', background: 'none', border: 'none', color: 'var(--text-primary)', fontSize: 13, cursor: 'pointer', textAlign: 'left', transition: 'background 0.1s' }}
-                          onMouseEnter={e => e.currentTarget.style.background = 'var(--bg-tertiary)'}
-                          onMouseLeave={e => e.currentTarget.style.background = 'none'}
-                        >
-                          <span style={{ color: 'var(--text-tertiary)', flexShrink: 0 }}><FolderIcon specialUse={f.special_use} /></span>
-                          <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{f.name}</span>
-                        </button>
-                      ));
-                    }
-                    return (
-                      <>
-                        {recentForMove.length > 0 && (
-                          <>
-                            <div style={{ padding: '5px 12px 3px', fontSize: 10, fontWeight: 600, color: 'var(--text-tertiary)', textTransform: 'uppercase', letterSpacing: '0.06em' }}>
-                              {t('contextMenu.folders.recent')}
-                            </div>
-                            {recentForMove.map(f => (
-                              <button
-                                key={`recent-${f.path}`}
-                                onClick={() => handleMoveToFolder(f.path)}
-                                style={{ display: 'flex', alignItems: 'center', gap: 8, width: '100%', padding: '8px 12px', background: 'none', border: 'none', color: 'var(--text-primary)', fontSize: 13, cursor: 'pointer', textAlign: 'left', transition: 'background 0.1s' }}
-                                onMouseEnter={e => e.currentTarget.style.background = 'var(--bg-tertiary)'}
-                                onMouseLeave={e => e.currentTarget.style.background = 'none'}
-                              >
-                                <span style={{ color: 'var(--text-tertiary)', flexShrink: 0 }}><FolderIcon specialUse={f.special_use} /></span>
-                                <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{f.name}</span>
-                              </button>
-                            ))}
-                            <div style={{ height: 1, background: 'var(--border-subtle)', margin: '3px 0' }} />
-                          </>
-                        )}
-                        {favoritesForMove.length > 0 && (
-                          <>
-                            <div style={{ padding: '5px 12px 3px', fontSize: 10, fontWeight: 600, color: 'var(--text-tertiary)', textTransform: 'uppercase', letterSpacing: '0.06em' }}>
-                              {t('contextMenu.folders.favorites')}
-                            </div>
-                            {favoritesForMove.map(f => (
-                              <button
-                                key={`fav-${f.path}`}
-                                onClick={() => handleMoveToFolder(f.path)}
-                                style={{ display: 'flex', alignItems: 'center', gap: 8, width: '100%', padding: '8px 12px', background: 'none', border: 'none', color: 'var(--text-primary)', fontSize: 13, cursor: 'pointer', textAlign: 'left', transition: 'background 0.1s' }}
-                                onMouseEnter={e => e.currentTarget.style.background = 'var(--bg-tertiary)'}
-                                onMouseLeave={e => e.currentTarget.style.background = 'none'}
-                              >
-                                <span style={{ color: 'var(--text-tertiary)', flexShrink: 0 }}><FolderIcon specialUse={f.special_use} /></span>
-                                <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{f.name}</span>
-                              </button>
-                            ))}
-                            <div style={{ height: 1, background: 'var(--border-subtle)', margin: '3px 0' }} />
-                          </>
-                        )}
-                        {movePickerFolders
-                          .filter(f => f.path !== message.folder)
-                          .map(f => (
-                            <button
-                              key={f.path}
-                              onClick={() => handleMoveToFolder(f.path)}
-                              style={{ display: 'flex', alignItems: 'center', gap: 8, width: '100%', padding: '8px 12px', background: 'none', border: 'none', color: 'var(--text-primary)', fontSize: 13, cursor: 'pointer', textAlign: 'left', transition: 'background 0.1s' }}
-                              onMouseEnter={e => e.currentTarget.style.background = 'var(--bg-tertiary)'}
-                              onMouseLeave={e => e.currentTarget.style.background = 'none'}
-                            >
-                              <span style={{ color: 'var(--text-tertiary)', flexShrink: 0 }}><FolderIcon specialUse={f.special_use} /></span>
-                              <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{f.name}</span>
-                            </button>
-                          ))
-                        }
-                      </>
-                    );
-                  })()}
-                  </div>
-                </>
-              )}
-            </div>
-          </>)}
-        </div>
-
-        <div style={{ flex: 1 }} />
-
-        {isMobile ? (
-          <div style={{ position: 'relative' }} ref={moreMenuRef}>
-            <PaneBtn onClick={() => setShowMoreMenu(v => !v)} title={t('message.more')}>
-              <svg width="15" height="15" viewBox="0 0 24 24" fill="currentColor" stroke="none">
-                <circle cx="5" cy="12" r="2"/><circle cx="12" cy="12" r="2"/><circle cx="19" cy="12" r="2"/>
-              </svg>
-            </PaneBtn>
-            {showMoreMenu && (<>
-              <div onClick={() => setShowMoreMenu(false)} aria-hidden style={{ position: 'fixed', inset: 0, zIndex: 99 }} />
-              <div style={{
-                position: 'absolute', top: '100%', right: 0, marginTop: 4,
-                background: 'var(--bg-elevated)', border: '1px solid var(--border)',
-                borderRadius: 8, overflow: 'hidden', zIndex: 100,
-                boxShadow: '0 4px 20px rgba(0,0,0,0.4)', minWidth: 190,
-              }}>
-                {message.is_read && (
-                  <div
-                    onClick={() => { setShowMoreMenu(false); handleMarkUnread(); }}
-                    style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '11px 14px', cursor: 'pointer', fontSize: 13, color: 'var(--text-primary)', borderBottom: '1px solid var(--border-subtle)' }}
-                    onMouseEnter={e => e.currentTarget.style.background = 'var(--bg-hover)'}
-                    onMouseLeave={e => e.currentTarget.style.background = 'transparent'}
-                  >
-                    <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round">
-                      <path d="M22,9v9c0,1.1-.9,2-2,2H4c-1.1,0-2-.9-2-2V9"/>
-                      <polyline points="22 9 12 16 2 9"/>
-                      <polyline points="22 9 12 2 22 9"/>
-                    </svg>
-                    {t('contextMenu.markUnread')}
-                  </div>
-                )}
-                {hasSpamFolder && !inSpamFolder && message && (
-                  <div
-                    onClick={() => { performSingleSpamLabel('spam'); setShowMoreMenu(false); }}
-                    style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '11px 14px', cursor: 'pointer', fontSize: 13, color: 'var(--text-primary)', borderBottom: '1px solid var(--border-subtle)' }}
-                    onMouseEnter={e => e.currentTarget.style.background = 'var(--bg-hover)'}
-                    onMouseLeave={e => e.currentTarget.style.background = 'transparent'}
-                  >
-                    <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75">
-                      <path d="M12 3L4 7v5c0 5 3.5 9.3 8 10.3C16.5 21.3 20 17 20 12V7L12 3z"/>
-                      <line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="16" x2="12.01" y2="16"/>
-                    </svg>
-                    {t('contextMenu.markAsSpam')}
-                  </div>
-                )}
-                {inSpamFolder && message && (
-                  <div
-                    onClick={() => { performSingleSpamLabel('ham'); setShowMoreMenu(false); }}
-                    style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '11px 14px', cursor: 'pointer', fontSize: 13, color: 'var(--text-primary)', borderBottom: '1px solid var(--border-subtle)' }}
-                    onMouseEnter={e => e.currentTarget.style.background = 'var(--bg-hover)'}
-                    onMouseLeave={e => e.currentTarget.style.background = 'transparent'}
-                  >
-                    <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75">
-                      <path d="M12 3L4 7v5c0 5 3.5 9.3 8 10.3C16.5 21.3 20 17 20 12V7L12 3z"/>
-                      <polyline points="9 12 11 14 15 10"/>
-                    </svg>
-                    {t('contextMenu.markAsHam')}
-                  </div>
-                )}
-                {todoistConnected && (
-                  <div
-                    onClick={() => { setShowTodoistModal(true); setShowMoreMenu(false); }}
-                    style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '11px 14px', cursor: 'pointer', fontSize: 13, color: 'var(--text-primary)', borderBottom: '1px solid var(--border-subtle)' }}
-                    onMouseEnter={e => e.currentTarget.style.background = 'var(--bg-hover)'}
-                    onMouseLeave={e => e.currentTarget.style.background = 'transparent'}
-                  >
-                    <svg width="15" height="15" viewBox="0 0 24 24" fill="currentColor">
-                      <path d="M21 0H3C1.35 0 0 1.35 0 3v3.858s3.854 2.24 4.098 2.38c.31.18.694.177 1.004 0 .26-.147 8.02-4.608 8.136-4.675.279-.161.58-.107.748-.01.164.097.606.348.84.48.232.134.221.502.013.622l-9.712 5.59c-.346.2-.69.204-1.048.002C3.478 10.907.998 9.463 0 8.882v2.02l4.098 2.38c.31.18.694.177 1.004 0 .26-.147 8.02-4.609 8.136-4.676.279-.16.58-.106.748-.008.164.096.606.347.84.48.232.133.221.5.013.62-.208.121-9.288 5.346-9.712 5.59-.346.2-.69.205-1.048.002C3.478 14.951.998 13.506 0 12.926v2.02l4.098 2.38c.31.18.694.177 1.004 0 .26-.147 8.02-4.609 8.136-4.676.279-.16.58-.106.748-.009.164.097.606.348.84.48.232.133.221.502.013.622l-9.712 5.59c-.346.199-.69.204-1.048.001C3.478 18.994.998 17.55 0 16.97V21c0 1.65 1.35 3 3 3h18c1.65 0 3-1.35 3-3V3c0-1.65-1.35-3-3-3z"/>
-                    </svg>
-                    {t('todoist.title')}
-                  </div>
-                )}
-                <div
-                  onClick={() => { setShowHeaderModal(true); setShowMoreMenu(false); }}
-                  style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '11px 14px', cursor: 'pointer', fontSize: 13, color: 'var(--text-primary)', borderBottom: '1px solid var(--border-subtle)' }}
-                  onMouseEnter={e => e.currentTarget.style.background = 'var(--bg-hover)'}
-                  onMouseLeave={e => e.currentTarget.style.background = 'transparent'}
-                >
-                  <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75">
-                    <line x1="8" y1="6" x2="21" y2="6"/><line x1="8" y1="12" x2="21" y2="12"/><line x1="8" y1="18" x2="21" y2="18"/>
-                    <line x1="3" y1="6" x2="3.01" y2="6"/><line x1="3" y1="12" x2="3.01" y2="12"/><line x1="3" y1="18" x2="3.01" y2="18"/>
-                  </svg>
-                  {t('contextMenu.viewHeaders')}
-                </div>
-                <div
-                  onClick={() => { handlePrint(); setShowMoreMenu(false); }}
-                  style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '11px 14px', cursor: 'pointer', fontSize: 13, color: 'var(--text-primary)', borderBottom: aiStatus?.enabled && aiStatus?.features?.summarize && body ? '1px solid var(--border-subtle)' : 'none' }}
-                  onMouseEnter={e => e.currentTarget.style.background = 'var(--bg-hover)'}
-                  onMouseLeave={e => e.currentTarget.style.background = 'transparent'}
-                >
-                  <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75">
-                    <polyline points="6 9 6 2 18 2 18 9"/>
-                    <path d="M6 18H4a2 2 0 01-2-2v-5a2 2 0 012-2h16a2 2 0 012 2v5a2 2 0 01-2 2h-2"/>
-                    <rect x="6" y="14" width="12" height="8"/>
-                  </svg>
-                  {t('message.print')}
-                </div>
-                {aiStatus?.enabled && aiStatus?.features?.summarize && body && (
-                  <div
-                    onClick={() => { setShowMoreMenu(false); runAiAction(BUILTIN_SUMMARIZE); }}
-                    style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '11px 14px', cursor: 'pointer', fontSize: 13, color: 'var(--text-primary)' }}
-                    onMouseEnter={e => e.currentTarget.style.background = 'var(--bg-hover)'}
-                    onMouseLeave={e => e.currentTarget.style.background = 'transparent'}
-                  >
-                    <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round">
-                      <path d="m12 3-1.912 5.813a2 2 0 0 1-1.275 1.275L3 12l5.813 1.912a2 2 0 0 1 1.275 1.275L12 21l1.912-5.813a2 2 0 0 1 1.275-1.275L21 12l-5.813-1.912a2 2 0 0 1-1.275-1.275L12 3Z"/>
-                      <path d="M5 3v4M19 17v4M3 5h4M17 19h4"/>
-                    </svg>
-                    {t('message.summarize')}
-                  </div>
-                )}
-                {aiStatus?.enabled && aiStatus?.features?.summarize && body && (aiActions || []).map(a => (
-                  <div
-                    key={a.id}
-                    onClick={() => { setShowMoreMenu(false); runAiAction(a); }}
-                    style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '11px 14px', cursor: 'pointer', fontSize: 13, color: 'var(--text-primary)' }}
-                    onMouseEnter={e => e.currentTarget.style.background = 'var(--bg-hover)'}
-                    onMouseLeave={e => e.currentTarget.style.background = 'transparent'}
-                  >
-                    <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round">
-                      <path d="m12 3-1.912 5.813a2 2 0 0 1-1.275 1.275L3 12l5.813 1.912a2 2 0 0 1 1.275 1.275L12 21l1.912-5.813a2 2 0 0 1 1.275-1.275L21 12l-5.813-1.912a2 2 0 0 1-1.275-1.275L12 3Z"/>
-                      <path d="M5 3v4M19 17v4M3 5h4M17 19h4"/>
-                    </svg>
-                    {a.label}
-                  </div>
-                ))}
-              </div>
-            </>)}
-          </div>
-        ) : (
-          <>
-            {hasSpamFolder && !inSpamFolder && message && (
-              <PaneBtn onClick={() => performSingleSpamLabel('spam')} title={t('contextMenu.markAsSpam')}>
-                <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75">
-                  <path d="M12 3L4 7v5c0 5 3.5 9.3 8 10.3C16.5 21.3 20 17 20 12V7L12 3z"/>
-                  <line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="16" x2="12.01" y2="16"/>
-                </svg>
-              </PaneBtn>
-            )}
-            {inSpamFolder && message && (
-              <PaneBtn onClick={() => performSingleSpamLabel('ham')} title={t('contextMenu.markAsHam')}>
-                <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75">
-                  <path d="M12 3L4 7v5c0 5 3.5 9.3 8 10.3C16.5 21.3 20 17 20 12V7L12 3z"/>
-                  <polyline points="9 12 11 14 15 10"/>
-                </svg>
-              </PaneBtn>
-            )}
-            {todoistConnected && (
-              <PaneBtn onClick={() => setShowTodoistModal(true)} title={t('todoist.title')}>
-                <svg width="15" height="15" viewBox="0 0 24 24" fill="currentColor">
-                  <path d="M21 0H3C1.35 0 0 1.35 0 3v3.858s3.854 2.24 4.098 2.38c.31.18.694.177 1.004 0 .26-.147 8.02-4.608 8.136-4.675.279-.161.58-.107.748-.01.164.097.606.348.84.48.232.134.221.502.013.622l-9.712 5.59c-.346.2-.69.204-1.048.002C3.478 10.907.998 9.463 0 8.882v2.02l4.098 2.38c.31.18.694.177 1.004 0 .26-.147 8.02-4.609 8.136-4.676.279-.16.58-.106.748-.008.164.096.606.347.84.48.232.133.221.5.013.62-.208.121-9.288 5.346-9.712 5.59-.346.2-.69.205-1.048.002C3.478 14.951.998 13.506 0 12.926v2.02l4.098 2.38c.31.18.694.177 1.004 0 .26-.147 8.02-4.609 8.136-4.676.279-.16.58-.106.748-.009.164.097.606.348.84.48.232.133.221.502.013.622l-9.712 5.59c-.346.199-.69.204-1.048.001C3.478 18.994.998 17.55 0 16.97V21c0 1.65 1.35 3 3 3h18c1.65 0 3-1.35 3-3V3c0-1.65-1.35-3-3-3z"/>
-                </svg>
-              </PaneBtn>
-            )}
-            {message.is_read && (
-              <PaneBtn onClick={handleMarkUnread} title={t('contextMenu.markUnread')}>
-                <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round">
-                  <path d="M22,9v9c0,1.1-.9,2-2,2H4c-1.1,0-2-.9-2-2V9"/>
-                  <polyline points="22 9 12 16 2 9"/>
-                  <polyline points="22 9 12 2 22 9"/>
-                </svg>
-              </PaneBtn>
-            )}
-            <PaneBtn onClick={() => setShowHeaderModal(true)} title={t('contextMenu.viewHeaders')}>
-              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75">
-                <line x1="8" y1="6" x2="21" y2="6"/><line x1="8" y1="12" x2="21" y2="12"/><line x1="8" y1="18" x2="21" y2="18"/>
-                <line x1="3" y1="6" x2="3.01" y2="6"/><line x1="3" y1="12" x2="3.01" y2="12"/><line x1="3" y1="18" x2="3.01" y2="18"/>
-              </svg>
-            </PaneBtn>
-            <PaneBtn onClick={handlePrint} title={`${t('message.print')}${shortcutLabel('printMessage') ? ` (${shortcutLabel('printMessage')})` : ''}`}>
-              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75">
-                <polyline points="6 9 6 2 18 2 18 9"/>
-                <path d="M6 18H4a2 2 0 01-2-2v-5a2 2 0 012-2h16a2 2 0 012 2v5a2 2 0 01-2 2h-2"/>
-                <rect x="6" y="14" width="12" height="8"/>
-              </svg>
-            </PaneBtn>
-            {aiStatus?.enabled && aiStatus?.features?.summarize && body && (
-              <div style={{ position: 'relative' }} ref={aiMenuRef}>
-                <PaneBtn onClick={() => setShowAiMenu(v => !v)} title={t('message.aiActions')}
-                  style={Object.keys(aiResults).length ? { color: 'var(--accent)' } : {}}>
-                  <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round">
-                    <path d="m12 3-1.912 5.813a2 2 0 0 1-1.275 1.275L3 12l5.813 1.912a2 2 0 0 1 1.275 1.275L12 21l1.912-5.813a2 2 0 0 1 1.275-1.275L21 12l-5.813-1.912a2 2 0 0 1-1.275-1.275L12 3Z"/>
-                    <path d="M5 3v4M19 17v4M3 5h4M17 19h4"/>
-                  </svg>
-                  <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><polyline points="6 9 12 15 18 9"/></svg>
-                </PaneBtn>
-                {showAiMenu && (<>
-                  <div onClick={() => setShowAiMenu(false)} aria-hidden style={{ position: 'fixed', inset: 0, zIndex: 49 }} />
-                  <div style={{
-                    position: 'absolute', top: '100%', right: 0, marginTop: 6, zIndex: 50, minWidth: 220,
-                    background: 'var(--bg-elevated, var(--bg-secondary))', border: '1px solid var(--border)',
-                    borderRadius: 8, boxShadow: '0 6px 20px rgba(0,0,0,0.25)', padding: 4,
-                  }}>
-                    {renderAiItem(BUILTIN_SUMMARIZE.id, t('message.summarize'), () => runAiAction(BUILTIN_SUMMARIZE))}
-                    {(aiActions || []).map(a => renderAiItem(a.id, a.label, () => runAiAction(a)))}
-                    <div style={{ height: 1, background: 'var(--border-subtle)', margin: '4px 0' }} />
-                    {renderAiItem('__manage', t('message.manageAiActions'), () => { setShowAiMenu(false); setAdminTab('ai-actions'); setShowAdmin(true); }, { muted: true })}
-                  </div>
-                </>)}
-              </div>
-            )}
-          </>
-        )}
-
-        <PaneBtn onClick={handleStarToggle} title={t('message.star')}>
-          <svg width="15" height="15" viewBox="0 0 24 24"
-            fill={message.is_starred ? 'var(--amber)' : 'none'}
-            stroke={message.is_starred ? 'var(--amber)' : 'currentColor'} strokeWidth="1.75">
-            <polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/>
-          </svg>
-        </PaneBtn>
-
-        <PaneBtn onClick={handleDelete} title={t('message.delete')} danger>
-          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75">
-            <polyline points="3 6 5 6 21 6"/>
-            <path d="M19 6v14a2 2 0 01-2 2H7a2 2 0 01-2-2V6m3 0V4a1 1 0 011-1h4a1 1 0 011 1v2"/>
-          </svg>
-        </PaneBtn>
-      </div>
+      {/* Native toolbar presentation shared with expanded conversation messages. */}
+      <MessageToolbar
+        isMobile={isMobile}
+        defaultReplyAll={defaultReplyAll}
+        isRead={Boolean(message.is_read)}
+        isStarred={Boolean(message.is_starred)}
+        currentFolder={message.folder}
+        folders={movePickerFolders}
+        foldersLoading={movePickerLoading}
+        onLoadFolders={handleLoadMoveFolders}
+        onReply={() => handleReply(false)}
+        onReplyAll={() => handleReply(true)}
+        onForward={handleForward}
+        onArchive={handleArchive}
+        onMove={handleMoveToFolder}
+        onSpam={hasSpamFolder && !inSpamFolder ? () => performSingleSpamLabel('spam') : undefined}
+        onHam={inSpamFolder ? () => performSingleSpamLabel('ham') : undefined}
+        onSetRead={nextRead => nextRead ? handlePaneContextAction('markRead') : handleMarkUnread()}
+        onViewHeaders={() => setShowHeaderModal(true)}
+        onPrint={handlePrint}
+        aiActions={aiStatus?.enabled && aiStatus?.features?.summarize && body
+          ? [{ ...BUILTIN_SUMMARIZE, label: t('message.summarize') }, ...(aiActions || [])]
+          : []}
+        onAiAction={runAiAction}
+        onManageAiActions={() => { setAdminTab('ai-actions'); setShowAdmin(true); }}
+        onStar={handleStarToggle}
+        onDelete={handleDelete}
+        shortcutLabel={shortcutLabel}
+        style={{ boxShadow: paneScrolled ? '0 1px 10px rgba(0,0,0,0.2)' : 'none', transition: 'box-shadow 0.2s ease' }}
+      />
 
       {/* Single scroll container — sender card + email body scroll together */}
       <div
@@ -2389,19 +1993,12 @@ ${bodyContent}
 
           <div style={{ display: 'flex', alignItems: 'flex-start', gap: 12, padding: '12px 16px' }}>
             {/* Avatar */}
-            <div style={{
-              width: 40, height: 40, borderRadius: '50%', flexShrink: 0,
-              background: senderColor(message.from_email || message.from_name),
-              display: 'flex', alignItems: 'center', justifyContent: 'center',
-              fontSize: 16, fontWeight: 700, color: 'white',
-              position: 'relative', overflow: 'hidden',
-            }}>
-              {(message.from_name || message.from_email || '?')[0].toUpperCase()}
-              <SenderAvatarImage
-                email={message.from_email}
-                hasContactPhoto={message.has_contact_photo}
-              />
-            </div>
+            <MessageAvatar
+              email={message.from_email}
+              name={message.from_name}
+              size={40}
+              hasContactPhoto={message.has_contact_photo}
+            />
 
             {/* Sender info */}
             <div style={{ flex: 1, minWidth: 0 }}>
@@ -2413,6 +2010,12 @@ ${bodyContent}
                   {message.from_name && (
                     <div style={{ fontSize: 12, color: 'var(--text-tertiary)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                       {message.from_email}
+                    </div>
+                  )}
+                  {body?.senderEmail && (
+                    <div style={{ fontSize: 12, color: 'var(--text-tertiary)', marginTop: 2, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                      <span>{t('message.via')} </span>
+                      <span style={{ color: 'var(--text-secondary)' }}>{body.senderName ? `${body.senderName} <${body.senderEmail}>` : body.senderEmail}</span>
                     </div>
                   )}
                   <div style={{ fontSize: 12, color: 'var(--text-tertiary)', marginTop: 2, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
@@ -2448,6 +2051,12 @@ ${bodyContent}
                       </span>
                     )}
                   </div>
+                  {body?.senderEmail && (
+                    <div style={{ fontSize: 12, color: 'var(--text-tertiary)', marginTop: 3 }}>
+                      <span>{t('message.via')} </span>
+                      <span style={{ color: 'var(--text-secondary)' }}>{body.senderName ? `${body.senderName} <${body.senderEmail}>` : body.senderEmail}</span>
+                    </div>
+                  )}
                   <div style={{ fontSize: 12, color: 'var(--text-tertiary)', marginTop: 3 }}>
                     <span>{t('message.to')} </span>
                     <span style={{ color: 'var(--text-secondary)' }}>
@@ -2498,552 +2107,26 @@ ${bodyContent}
 
         </div>
 
-        {/* Attachments */}
-        {attachments.length > 0 && (
-          <div style={{ marginBottom: 20 }}>
-            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8 }}>
-              <div style={{ fontSize: 12, color: 'var(--text-tertiary)', fontWeight: 500 }}>
-                {t('message.attachment', { count: attachments.length })}
-              </div>
-              {attachments.length > 1 && (
-                <a
-                  href={`/api/mail/messages/${message.id}/attachments.zip`}
-                  download
-                  style={{
-                    fontSize: 12, color: 'var(--accent)', textDecoration: 'none',
-                    display: 'flex', alignItems: 'center', gap: 4,
-                  }}
-                >
-                  <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                    <path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/>
-                    <polyline points="7 10 12 15 17 10"/>
-                    <line x1="12" y1="15" x2="12" y2="3"/>
-                  </svg>
-                  {t('message.downloadAll')}
-                </a>
-              )}
-            </div>
-            <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
-              {attachments.map((att, i) => (
-                <button
-                  key={i}
-                  onClick={() => handleDownload(message.id, att.part, att.filename)}
-                  disabled={downloadingPart === att.part}
-                  style={{
-                    display: 'flex', alignItems: 'center', gap: 8,
-                    padding: '8px 12px', borderRadius: 8,
-                    background: 'var(--bg-secondary)',
-                    border: '1px solid var(--border)',
-                    cursor: downloadingPart === att.part ? 'wait' : 'pointer',
-                    color: 'var(--text-primary)',
-                    transition: 'background 0.1s',
-                    maxWidth: 240,
-                  }}
-                  onMouseEnter={e => e.currentTarget.style.background = 'var(--bg-tertiary)'}
-                  onMouseLeave={e => e.currentTarget.style.background = 'var(--bg-secondary)'}
-                >
-                  <span style={{ display: 'flex', flexShrink: 0, color: 'var(--text-secondary)' }}>{fileIcon(att.type)}</span>
-                  <div style={{ minWidth: 0, textAlign: 'left' }}>
-                    <div style={{
-                      fontSize: 12, fontWeight: 500,
-                      overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
-                    }}>
-                      {att.filename}
-                    </div>
-                    <div style={{ fontSize: 11, color: 'var(--text-tertiary)' }}>
-                      {downloadingPart === att.part ? t('message.downloading') : formatBytes(att.size)}
-                    </div>
-                  </div>
-                  <svg width="13" height="13" viewBox="0 0 24 24" fill="none"
-                    stroke="var(--text-tertiary)" strokeWidth="2" style={{ flexShrink: 0 }}>
-                    <path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/>
-                    <polyline points="7 10 12 15 17 10"/>
-                    <line x1="12" y1="15" x2="12" y2="3"/>
-                  </svg>
-                </button>
-              ))}
-            </div>
-          </div>
-        )}
-
-        {/* AI action results — pinned boxes above the message (#204) */}
-        {Object.keys(aiResults).length > 0 && (
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 10, marginBottom: 16 }}>
-            {Object.entries(aiResults).map(([key, result]) => {
-              const action = key === BUILTIN_SUMMARIZE.id
-                ? BUILTIN_SUMMARIZE
-                : (aiActions || []).find(a => a.id === key);
-              return (
-                <AiResultBox
-                  key={key}
-                  result={result}
-                  canRegen={!!action}
-                  onRegen={() => action && runAiAction(action, { force: true })}
-                  onDismiss={() => dismissAiResult(key)}
-                />
-              );
-            })}
-          </div>
-        )}
-
-        {/* Loading — skeleton body lines */}
-        {loadingBody && (
-          <div style={{ padding: '20px 0', display: 'flex', flexDirection: 'column', gap: 8 }}>
-            <div className="skeleton-line" style={{ height: 13, width: '62%', borderRadius: 4 }} />
-            <div className="skeleton-line" style={{ height: 13, width: '88%', borderRadius: 4 }} />
-            <div className="skeleton-line" style={{ height: 13, width: '75%', borderRadius: 4 }} />
-            <div className="skeleton-line" style={{ height: 13, width: '50%', borderRadius: 4, marginBottom: 8 }} />
-            <div className="skeleton-line" style={{ height: 13, width: '82%', borderRadius: 4 }} />
-            <div className="skeleton-line" style={{ height: 13, width: '68%', borderRadius: 4 }} />
-            <div className="skeleton-line" style={{ height: 13, width: '90%', borderRadius: 4 }} />
-            <div className="skeleton-line" style={{ height: 13, width: '58%', borderRadius: 4 }} />
-          </div>
-        )}
-
-        {/* Error */}
-        {!loadingBody && bodyError && (
-          <div style={{
-            display: 'flex', flexDirection: 'column', alignItems: 'flex-start',
-            gap: 12, padding: '20px 0',
-          }}>
-            <div style={{
-              background: 'var(--bg-secondary)', border: '1px solid var(--border)',
-              borderRadius: 10, padding: '16px 20px', maxWidth: 480,
-            }}>
-              <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--text-primary)', marginBottom: 6 }}>
-                {t('message.loadingError')}
-              </div>
-              <div style={{ fontSize: 13, color: 'var(--text-secondary)', lineHeight: 1.5 }}>
-                {bodyError}
-              </div>
-            </div>
-            <button
-              onClick={() => { delete bodyCache.current[selectedMessageId]; setRetryKey(k => k + 1); }}
-              style={{
-                background: 'var(--bg-secondary)', border: '1px solid var(--border)',
-                borderRadius: 6, padding: '6px 14px', cursor: 'pointer',
-                color: 'var(--text-secondary)', fontSize: 13,
-              }}
-              onMouseEnter={e => { e.currentTarget.style.background = 'var(--bg-tertiary)'; e.currentTarget.style.color = 'var(--text-primary)'; }}
-              onMouseLeave={e => { e.currentTarget.style.background = 'var(--bg-secondary)'; e.currentTarget.style.color = 'var(--text-secondary)'; }}
-            >
-              {t('common.retry')}
-            </button>
-          </div>
-        )}
-
-        {/* No content */}
-        {!loadingBody && !bodyError && body && !body.html && !body.text && (
-          <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-start', gap: 12, padding: '20px 0' }}>
-            <div style={{ fontSize: 14, color: 'var(--text-tertiary)' }}>
-              {t('message.noContent')}
-            </div>
-            <button
-              onClick={() => { delete bodyCache.current[selectedMessageId]; setRetryKey(k => k + 1); }}
-              style={{
-                background: 'var(--bg-secondary)', border: '1px solid var(--border)',
-                borderRadius: 6, padding: '6px 14px', cursor: 'pointer',
-                color: 'var(--text-secondary)', fontSize: 13,
-              }}
-              onMouseEnter={e => { e.currentTarget.style.background = 'var(--bg-tertiary)'; e.currentTarget.style.color = 'var(--text-primary)'; }}
-              onMouseLeave={e => { e.currentTarget.style.background = 'var(--bg-secondary)'; e.currentTarget.style.color = 'var(--text-secondary)'; }}
-            >
-              {t('common.retry')}
-            </button>
-          </div>
-        )}
-      </div>
-
-      {/* HTML email — iframe sized to full content height; outer container scrolls */}
-      {!loadingBody && !bodyError && body?.html && (
+        {/* Shared physical-copy detail preserves the native attachment → notices → body order. */}
         <div style={{ padding: isMobile ? '0 0 16px' : '0 28px 24px' }}>
-          {/* Unsubscribe banner — shown for newsletter messages that have a List-Unsubscribe header */}
-          {message.list_unsubscribe && !message.unsubscribed_at && unsubscribeStatus !== 'done' && (
-            <div className="msg-notice" style={{
-              marginBottom: 10, padding: '9px 14px',
-              background: 'var(--bg-secondary)',
-              border: '1px solid var(--border)',
-              borderLeft: '3px solid var(--text-tertiary)',
-              borderRadius: 8,
-              display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap',
-              fontSize: 12, color: 'var(--text-secondary)',
-            }}>
-              <span style={{ flex: 1 }}>{t('message.unsubscribe.info')}</span>
-              <button
-                onClick={handleUnsubscribe}
-                disabled={unsubscribeStatus === 'loading'}
-                style={{
-                  background: 'none', border: '1px solid var(--border)',
-                  borderRadius: 5, padding: '3px 9px',
-                  cursor: unsubscribeStatus === 'loading' ? 'default' : 'pointer',
-                  color: unsubscribeStatus === 'error' ? 'var(--red, #e53e3e)' : 'var(--text-primary)',
-                  fontSize: 11, fontWeight: 500,
-                  opacity: unsubscribeStatus === 'loading' ? 0.5 : 1,
-                }}
-              >
-                {unsubscribeStatus === 'loading' ? t('common.loading') :
-                 unsubscribeStatus === 'error' ? t('message.unsubscribe.error') :
-                 t('message.unsubscribe.button')}
-              </button>
-            </div>
-          )}
-
-          {/* AI classify banner — shown for messages with no category signal when AI is available */}
-          {!message.category && (categorizationEnabled || accounts.find(a => a.id === message.account_id)?.categorization_enabled) && aiStatus?.enabled && (
-            <div className="msg-notice" style={{
-              marginBottom: 10, padding: '9px 14px',
-              background: 'var(--bg-secondary)',
-              border: '1px solid var(--border)',
-              borderLeft: '3px solid var(--text-tertiary)',
-              borderRadius: 8,
-              display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap',
-              fontSize: 12, color: 'var(--text-secondary)',
-            }}>
-              <span style={{ flex: 1 }}>{t('message.aiClassify.info')}</span>
-              <button
-                onClick={handleAiClassify}
-                disabled={aiClassifying}
-                style={{
-                  background: 'none', border: '1px solid var(--border)',
-                  borderRadius: 5, padding: '3px 9px',
-                  cursor: aiClassifying ? 'default' : 'pointer',
-                  color: 'var(--text-primary)',
-                  fontSize: 11, fontWeight: 500,
-                  opacity: aiClassifying ? 0.5 : 1,
-                }}
-              >
-                {aiClassifying ? t('common.loading') : t('message.aiClassify.button')}
-              </button>
-            </div>
-          )}
-
-          {body.hasBlockedRemoteImages && (
-            <div className="msg-notice" style={{
-              marginBottom: 10, padding: '9px 14px',
-              background: 'var(--bg-secondary)',
-              border: '1px solid var(--border)',
-              borderLeft: '3px solid var(--accent)',
-              borderRadius: 8,
-              display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap',
-              fontSize: 12, color: 'var(--text-secondary)',
-            }}>
-              <svg width="13" height="13" viewBox="0 0 24 24" fill="none"
-                stroke="var(--accent)" strokeWidth="2" style={{ flexShrink: 0 }}>
-                <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/>
-              </svg>
-              <span>{t('message.remoteImagesBlocked')}</span>
-              <div style={{ display: 'flex', gap: 6, marginLeft: 'auto', flexWrap: 'wrap' }}>
-                {[
-                  { label: t('message.loadImages'), handler: handleLoadImages, disabled: false },
-                  message.from_email && {
-                    label: t('message.allowSender', { email: message.from_email }),
-                    handler: handleAllowSender, disabled: savingAllow,
-                  },
-                  (message.from_email?.includes('@')) && {
-                    label: t('message.allowDomain', { domain: message.from_email.split('@')[1] }),
-                    handler: handleAllowDomain, disabled: savingAllow,
-                  },
-                ].filter(Boolean).map(({ label, handler, disabled }) => (
-                  <button key={label} onClick={handler} disabled={disabled}
-                    style={{
-                      background: 'none', border: '1px solid var(--border)',
-                      borderRadius: 5, padding: '3px 9px', cursor: disabled ? 'default' : 'pointer',
-                      color: 'var(--accent)', fontSize: 11, fontWeight: 500,
-                      opacity: disabled ? 0.5 : 1,
-                    }}
-                    onMouseEnter={e => { if (!disabled) e.currentTarget.style.background = 'var(--bg-tertiary)'; }}
-                    onMouseLeave={e => { e.currentTarget.style.background = 'none'; }}
-                  >{label}</button>
-                ))}
-              </div>
-            </div>
-          )}
-          <div className="msg-card" style={{
-            position: 'relative',
-            padding: '14px 16px 12px',
-            background: 'white',
-            borderRadius: isMobile ? 0 : 10,
-            border: isMobile ? 'none' : '1px solid var(--border-subtle)',
-            overflow: 'hidden',
-            // contain:layout establishes a containing block for any position:fixed
-            // descendants (including the inner email div if email CSS repositions it).
-            contain: 'layout',
-          }}>
-            {USE_DIV_RENDER ? (
-              // Three-layer structure keeps concerns separate:
-              // Outer  — click interception, height/overflow for scale-to-fit,
-              //          position:relative + parent contain:layout contain hostile CSS.
-              // Scale  — receives the CSS transform for scale-to-fit; carries no
-              //          email CSS class so transform:none!important on .email-*
-              //          never cancels the scale.
-              // Inner  — scoped email CSS root (.email-* class + data attribute);
-              //          transform:none!important here neutralises hostile body CSS
-              //          without touching the scale wrapper above it.
-              <div
-                ref={outerRef}
-                style={{ position: 'relative', width: '100%' }}
-                onClick={handleEmailClick}
-                onContextMenu={handlePaneContextMenu}
-              >
-                <div ref={scaleRef}>
-                  <div
-                    ref={innerRef}
-                    data-mailflow-email={prepared?.prefix}
-                    className={prepared?.prefix ?? ''}
-                    dangerouslySetInnerHTML={prepared ? { __html: prepared.html } : undefined}
-                  />
-                </div>
-              </div>
-            ) : (
-              <iframe
-                ref={iframeRef}
-                srcDoc={`<!DOCTYPE html><html><head><meta charset="utf-8">
-                <meta name="viewport" content="width=device-width,initial-scale=1">
-                <meta name="color-scheme" content="only light">
-                <meta http-equiv="Content-Security-Policy" content="script-src 'none'; object-src 'none'; frame-src 'none'; form-action 'none'; style-src 'unsafe-inline';">
-                <base target="_blank">
-              </head><body><div id="mf-scale-wrapper">${
-                body.html.replace(/<a(\s)/gi, '<a rel="noopener noreferrer"$1')
-              }</div><style>
-                  /* Injected AFTER email HTML so our rules win the source-order tiebreak
-                     for same-specificity !important declarations inside the email's own
-                     <style> blocks (which land in <body> after the email HTML). */
-                  html, body { height: auto !important; min-height: 0 !important; overflow: hidden !important; }
-                  body { margin: 0 !important; padding: 0 !important;
-                         background-color: #ffffff !important; color-scheme: light;
-                         font-family: -apple-system, Arial, sans-serif;
-                         font-size: 14px; line-height: 1.6; color: #1a1a1a;
-                         word-wrap: break-word; overflow-wrap: break-word; }
-                  img { max-width: 100% !important; height: auto !important; }
-                  /* Force top-level wrapper tables to fill the viewport. Selectors cover
-                     both the legacy body > table pattern and the mf-scale-wrapper layer. */
-                  body > table, body > center > table,
-                  body > div > table, body > center > div > table,
-                  #mf-scale-wrapper > table, #mf-scale-wrapper > center > table,
-                  #mf-scale-wrapper > div > table, #mf-scale-wrapper > center > div > table {
-                    width: 100% !important;
-                  }
-                  /* Reset min-width on cells only — not on table elements, because fluid
-                     grid systems (e.g. Oracle Eloqua "tolkien") set min-width on inline-table
-                     column elements as a layout fallback when their calc() width resolves to 0. */
-                  td, th { min-width: 0 !important; }
-                  td { word-break: break-word; }
-                  th { overflow-wrap: normal; word-break: normal; }
-                  a { color: #6366f1; }
-                  pre, code { overflow-x: auto; white-space: pre-wrap; word-break: break-all; }
-                  blockquote { border-left: 3px solid #ddd; margin: 0; padding-left: 12px; color: #555; }
-                </style></body></html>`}
-                scrolling="no"
-                style={{ width: '1px', minWidth: '100%', border: 'none', display: 'block', height: '300px' }}
-                sandbox="allow-same-origin allow-popups allow-popups-to-escape-sandbox"
-                title={t('message.emailFrameTitle')}
-              />
-            )}
-          </div>
-        </div>
-      )}
-
-      {/* Plain-text email — no internal scroll, outer container handles it */}
-      {!loadingBody && !bodyError && body?.text && !body?.html && (
-        <div style={{
-          padding: isMobile ? '0 0px 16px' : '0 28px 24px',
-        }}>
-          {message.list_unsubscribe && !message.unsubscribed_at && unsubscribeStatus !== 'done' && (
-            <div className="msg-notice" style={{
-              marginBottom: 10, padding: '9px 14px',
-              background: 'var(--bg-secondary)', border: '1px solid var(--border)',
-              borderLeft: '3px solid var(--text-tertiary)', borderRadius: 8,
-              display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap',
-              fontSize: 12, color: 'var(--text-secondary)',
-            }}>
-              <span style={{ flex: 1 }}>{t('message.unsubscribe.info')}</span>
-              <button onClick={handleUnsubscribe} disabled={unsubscribeStatus === 'loading'}
-                style={{
-                  background: 'none', border: '1px solid var(--border)', borderRadius: 5,
-                  padding: '3px 9px', cursor: unsubscribeStatus === 'loading' ? 'default' : 'pointer',
-                  color: unsubscribeStatus === 'error' ? 'var(--red, #e53e3e)' : 'var(--text-primary)',
-                  fontSize: 11, fontWeight: 500, opacity: unsubscribeStatus === 'loading' ? 0.5 : 1,
-                }}>
-                {unsubscribeStatus === 'loading' ? t('common.loading') :
-                 unsubscribeStatus === 'error' ? t('message.unsubscribe.error') :
-                 t('message.unsubscribe.button')}
-              </button>
-            </div>
-          )}
-          {!message.category && (categorizationEnabled || accounts.find(a => a.id === message.account_id)?.categorization_enabled) && aiStatus?.enabled && (
-            <div className="msg-notice" style={{
-              marginBottom: 10, padding: '9px 14px',
-              background: 'var(--bg-secondary)', border: '1px solid var(--border)',
-              borderLeft: '3px solid var(--text-tertiary)', borderRadius: 8,
-              display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap',
-              fontSize: 12, color: 'var(--text-secondary)',
-            }}>
-              <span style={{ flex: 1 }}>{t('message.aiClassify.info')}</span>
-              <button onClick={handleAiClassify} disabled={aiClassifying}
-                style={{
-                  background: 'none', border: '1px solid var(--border)', borderRadius: 5,
-                  padding: '3px 9px', cursor: aiClassifying ? 'default' : 'pointer',
-                  color: 'var(--text-primary)', fontSize: 11, fontWeight: 500,
-                  opacity: aiClassifying ? 0.5 : 1,
-                }}>
-                {aiClassifying ? t('common.loading') : t('message.aiClassify.button')}
-              </button>
-            </div>
-          )}
-          <div className="msg-card" style={{
-            margin: 0, padding: '14px 16px 12px',
-            whiteSpace: 'pre-wrap', wordBreak: 'break-word',
-            fontSize: 14, color: '#1a1a1a', lineHeight: 1.7,
-            fontFamily: 'DM Sans, sans-serif', background: 'white',
-            borderRadius: isMobile ? 0 : 10,
-            border: isMobile ? 'none' : '1px solid var(--border-subtle)',
-            overflow: 'hidden',
-          }}
-            dangerouslySetInnerHTML={{ __html: linkifyText(body.text) }}
+          <MessageDetailContent
+            physicalCopyId={message.id}
+            message={message}
+            body={body}
+            status={{ loading: loadingBody, error: bodyError }}
+            remoteImages={allowRemoteImages}
+            onLoadBody={() => { delete bodyCache.current[selectedMessageId]; setRetryKey(k => k + 1); }}
+            onRemoteImages={handleLoadImages}
+            onAllowSender={handleAllowSender}
+            onAllowDomain={handleAllowDomain}
+            onUnsubscribe={handleUnsubscribe}
+            onDownload={handleDownload}
+            onContextAction={handlePaneContextAction}
+            mobile={isMobile}
           />
         </div>
-      )}
+      </div>
       </div>{/* end single scroll container */}
-
-      {/* Mobile move-to-folder bottom sheet */}
-      {showMovePicker && isMobile && (
-        <>
-          <div
-            onClick={() => setShowMovePicker(false)}
-            style={{
-              position: 'fixed', inset: 0, zIndex: 3000,
-              background: 'var(--overlay-scrim)',
-              backdropFilter: 'blur(4px)', WebkitBackdropFilter: 'blur(4px)',
-            }}
-          />
-          <div style={{
-            position: 'fixed', left: 0, right: 0, bottom: 0,
-            zIndex: 3001,
-            background: 'var(--bg-secondary)',
-            borderRadius: '16px 16px 0 0',
-            boxShadow: '0 -4px 32px rgba(0,0,0,0.4), 0 0 0 1px rgba(255,255,255,0.04)',
-            paddingBottom: 'calc(env(safe-area-inset-bottom, 0px) + 8px)',
-            animation: 'sheet-enter 0.2s cubic-bezier(0.34,1.56,0.64,1)',
-          }}>
-            <div style={{ display: 'flex', justifyContent: 'center', padding: '12px 0 4px' }}>
-              <div style={{ width: 36, height: 4, borderRadius: 2, background: 'var(--border)' }} />
-            </div>
-            <div style={{ padding: '4px 20px 12px', fontSize: 15, fontWeight: 600, color: 'var(--text-primary)' }}>
-              {t('contextMenu.moveToFolder')}
-            </div>
-            <div style={{ padding: '0 20px 12px' }}>
-              <input
-                value={moveSearch}
-                onChange={e => setMoveSearch(e.target.value)}
-                placeholder={t('contextMenu.folders.search')}
-                style={{
-                  width: '100%', boxSizing: 'border-box',
-                  padding: '8px 12px', fontSize: 14,
-                  background: 'var(--bg-tertiary)', border: '1px solid var(--border)',
-                  borderRadius: 8, color: 'var(--text-primary)',
-                  outline: 'none',
-                }}
-              />
-            </div>
-            <div style={{ borderTop: '1px solid var(--border-subtle)', overflowY: 'auto', maxHeight: '60vh' }}>
-              {movePickerLoading ? (
-                <div style={{ padding: '24px', textAlign: 'center', color: 'var(--text-tertiary)', fontSize: 13 }}>
-                  {t('contextMenu.folders.loading')}
-                </div>
-              ) : movePickerFolders.length === 0 ? (
-                <div style={{ padding: '24px', textAlign: 'center', color: 'var(--text-tertiary)', fontSize: 13 }}>
-                  {t('contextMenu.folders.empty')}
-                </div>
-              ) : (() => {
-                const q = moveSearch.trim().toLowerCase();
-                if (q) {
-                  const filtered = movePickerFolders
-                    .filter(f => f.path !== message.folder && f.name.toLowerCase().includes(q));
-                  return filtered.length === 0 ? (
-                    <div style={{ padding: '24px', textAlign: 'center', color: 'var(--text-tertiary)', fontSize: 13 }}>
-                      {t('contextMenu.folders.empty')}
-                    </div>
-                  ) : filtered.map(f => (
-                    <button
-                      key={f.path}
-                      onClick={() => handleMoveToFolder(f.path)}
-                      style={{ display: 'flex', alignItems: 'center', gap: 14, width: '100%', minHeight: 48, padding: '0 20px', background: 'none', border: 'none', borderBottom: '1px solid var(--border-subtle)', color: 'var(--text-primary)', fontSize: 15, cursor: 'pointer', textAlign: 'left' }}
-                    >
-                      <span style={{ color: 'var(--text-tertiary)', flexShrink: 0 }}><FolderIcon specialUse={f.special_use} size={18} /></span>
-                      <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{f.name}</span>
-                    </button>
-                  ));
-                }
-                return (
-                  <>
-                    {recentForMove.length > 0 && (
-                      <>
-                        <div style={{ padding: '8px 20px 4px', fontSize: 11, fontWeight: 600, color: 'var(--text-tertiary)', textTransform: 'uppercase', letterSpacing: '0.06em' }}>
-                          {t('contextMenu.folders.recent')}
-                        </div>
-                        {recentForMove.map(f => (
-                          <button
-                            key={`recent-${f.path}`}
-                            onClick={() => handleMoveToFolder(f.path)}
-                            style={{ display: 'flex', alignItems: 'center', gap: 14, width: '100%', minHeight: 48, padding: '0 20px', background: 'none', border: 'none', borderBottom: '1px solid var(--border-subtle)', color: 'var(--text-primary)', fontSize: 15, cursor: 'pointer', textAlign: 'left' }}
-                          >
-                            <span style={{ color: 'var(--text-tertiary)', flexShrink: 0 }}><FolderIcon specialUse={f.special_use} size={18} /></span>
-                            <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{f.name}</span>
-                          </button>
-                        ))}
-                        <div style={{ height: 1, background: 'var(--border-subtle)', margin: '3px 0' }} />
-                      </>
-                    )}
-                    {favoritesForMove.length > 0 && (
-                      <>
-                        <div style={{ padding: '8px 20px 4px', fontSize: 11, fontWeight: 600, color: 'var(--text-tertiary)', textTransform: 'uppercase', letterSpacing: '0.06em' }}>
-                          {t('contextMenu.folders.favorites')}
-                        </div>
-                        {favoritesForMove.map(f => (
-                          <button
-                            key={`fav-${f.path}`}
-                            onClick={() => handleMoveToFolder(f.path)}
-                            style={{ display: 'flex', alignItems: 'center', gap: 14, width: '100%', minHeight: 48, padding: '0 20px', background: 'none', border: 'none', borderBottom: '1px solid var(--border-subtle)', color: 'var(--text-primary)', fontSize: 15, cursor: 'pointer', textAlign: 'left' }}
-                          >
-                            <span style={{ color: 'var(--text-tertiary)', flexShrink: 0 }}><FolderIcon specialUse={f.special_use} size={18} /></span>
-                            <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{f.name}</span>
-                          </button>
-                        ))}
-                        <div style={{ height: 1, background: 'var(--border-subtle)', margin: '3px 0' }} />
-                      </>
-                    )}
-                    {movePickerFolders
-                      .filter(f => f.path !== message.folder)
-                      .map(f => (
-                        <button
-                          key={f.path}
-                          onClick={() => handleMoveToFolder(f.path)}
-                          style={{ display: 'flex', alignItems: 'center', gap: 14, width: '100%', minHeight: 48, padding: '0 20px', background: 'none', border: 'none', borderBottom: '1px solid var(--border-subtle)', color: 'var(--text-primary)', fontSize: 15, cursor: 'pointer', textAlign: 'left' }}
-                        >
-                          <span style={{ color: 'var(--text-tertiary)', flexShrink: 0 }}><FolderIcon specialUse={f.special_use} size={18} /></span>
-                          <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{f.name}</span>
-                        </button>
-                      ))
-                    }
-                  </>
-                );
-              })()}
-            </div>
-          </div>
-        </>
-      )}
-
-      {contextMenu && (
-        <ContextMenu
-          x={contextMenu.x}
-          y={contextMenu.y}
-          message={contextMenu.message}
-          variant="messagePane"
-          selectedText={getPaneSelectionText()}
-          onClose={() => setContextMenu(null)}
-          onAction={handlePaneContextAction}
-        />
-      )}
 
       {findDialogOpen && (
         <div
@@ -3164,40 +2247,10 @@ ${bodyContent}
         />
       )}
 
-      {showTodoistModal && (
-        <TodoistTaskModal
-          message={message}
-          onClose={() => setShowTodoistModal(false)}
-        />
-      )}
     </div>
   );
 }
 
-function PaneBtn({ children, onClick, title, danger, style: extraStyle }) {
-  const [hov, setHov] = useState(false);
-  return (
-    <button
-      onClick={onClick}
-      title={title}
-      className="btn-press"
-      onMouseEnter={() => setHov(true)}
-      onMouseLeave={() => setHov(false)}
-      style={{
-        background: hov ? (danger ? 'rgba(248,113,113,0.1)' : 'var(--bg-tertiary)') : 'transparent',
-        border: '1px solid ' + (hov ? (danger ? 'rgba(248,113,113,0.3)' : 'var(--border)') : 'transparent'),
-        borderRadius: 6, padding: '6px 8px',
-        color: danger ? (hov ? 'var(--red)' : 'var(--text-tertiary)') : 'var(--text-secondary)',
-        cursor: 'pointer', fontSize: 13,
-        display: 'flex', alignItems: 'center', gap: 5,
-        transition: 'all 0.1s',
-        ...extraStyle,
-      }}
-    >
-      {children}
-    </button>
-  );
-}
 
 // A pinned AI result box shown above the message (#204). Collapsible to keep
 // multiple results from crowding the view; offers regenerate and dismiss.

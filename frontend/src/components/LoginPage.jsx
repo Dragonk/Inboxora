@@ -867,10 +867,11 @@ export default function LoginPage() {
 
           <form onSubmit={submit} style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
             <div>
-              <label style={{ display: 'block', fontSize: 13, color: 'var(--text-secondary)', marginBottom: 6 }}>
+              <label htmlFor="login-username" style={{ display: 'block', fontSize: 13, color: 'var(--text-secondary)', marginBottom: 6 }}>
                 {t('login.username')}
               </label>
               <input
+                id="login-username"
                 type="text"
                 value={username}
                 onChange={e => setUsername(e.target.value)}
@@ -887,10 +888,11 @@ export default function LoginPage() {
             </div>
 
             <div>
-              <label style={{ display: 'block', fontSize: 13, color: 'var(--text-secondary)', marginBottom: 6 }}>
+              <label htmlFor="login-password" style={{ display: 'block', fontSize: 13, color: 'var(--text-secondary)', marginBottom: 6 }}>
                 {t('login.password')}
               </label>
               <input
+                id="login-password"
                 type="password"
                 value={password}
                 onChange={e => setPassword(e.target.value)}

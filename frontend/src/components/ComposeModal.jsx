@@ -773,11 +773,17 @@ export default function ComposeModal() {
       // Send confirmed — clear the key so a subsequent send from a reused modal gets a fresh one.
       idempotencyKeyRef.current = null;
       const replyThreadId = isReply ? composeData?.threadId : null;
+      const replyThreadCacheId = isReply ? (composeData?.threadCacheId || replyThreadId) : null;
       closeCompose();
       if (draftUid != null && draftFolder != null && draftAccountId) {
         api.deleteDraft(draftAccountId, draftUid, draftFolder).catch(() => {});
       }
-      const sentFolder = accounts.find(a => a.id === accountId)?.folder_mappings?.sent || 'Sent';
+      // Prefer the Sent folder the backend actually resolved to; fall back to the account's
+      // mapping only if the response didn't carry one. Avoids navigating "View" to a stale
+      // mapping (e.g. a non-selectable "[Gmail]" parent) that the send path bypassed (#386).
+      const sentFolder = sendResult?.sentFolder
+        || accounts.find(a => a.id === accountId)?.folder_mappings?.sent
+        || 'Sent';
       // The message was delivered; sentCopySaved:false means it couldn't be saved to the
       // account's Sent folder — tell the user so they know their record is incomplete.
       const sentCopyFailed = sendResult?.sentCopySaved === false;
@@ -791,15 +797,23 @@ export default function ComposeModal() {
           actionLabel: t('compose.sent.action'),
         }),
       });
+      const refreshConversation = () => {
+        if (composeData?.conversationId) {
+          window.dispatchEvent(new CustomEvent('mailflow:conversation-refresh', { detail: { conversationId: composeData.conversationId } }));
+        }
+      };
+      refreshConversation();
       if (replyThreadId) {
         const refreshThread = async () => {
           try {
-            const data = await api.getThread(replyThreadId);
-            if (data.messages?.length) setThreadMessages(replyThreadId, data.messages);
+            const data = await api.getThread(replyThreadId, null, false, accountId);
+            if (data.messages?.length) setThreadMessages(replyThreadCacheId, data.messages);
           } catch { /* best-effort refresh */ }
         };
-        setTimeout(refreshThread, 3000);
-        setTimeout(refreshThread, 10000);
+        refreshThread();
+        setTimeout(() => { refreshThread(); refreshConversation(); }, 3000);
+        setTimeout(() => { refreshThread(); refreshConversation(); }, 10000);
+        setTimeout(() => { refreshThread(); refreshConversation(); }, 16000);
       }
     } catch (err) {
       setError(err.message);

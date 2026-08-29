@@ -239,6 +239,47 @@ describe('API-key provider regression', () => {
     expect(fetchFn.mock.calls[0][1].headers).not.toHaveProperty('Authorization');
   });
 
+  it('surfaces the finish reason when a real completion returns null content', async () => {
+    // Reasoning model: all output went to reasoning, content is null (#401).
+    const fetchFn = vi.fn().mockResolvedValue(jsonResponse({
+      choices: [{ finish_reason: 'length', message: { content: null, reasoning_content: 'thinking…' } }],
+    }));
+    const { provider } = factory({ initial: legacy, fetchFn });
+    const err = await provider.completeText([{ role: 'user', content: 'Hi' }], { maxTokens: 5 }).catch((e) => e);
+    expect(err).toBeInstanceOf(Error);
+    expect(err.status).toBe(502);
+    expect(err.expose).toBe(true);
+    expect(err.message).toMatch(/empty completion \(finish_reason: length\)/);
+  });
+
+  it('rejects a malformed completion with no choices', async () => {
+    const fetchFn = vi.fn().mockResolvedValue(jsonResponse({ notChoices: true }));
+    const { provider } = factory({ initial: legacy, fetchFn });
+    const err = await provider.completeText([{ role: 'user', content: 'Hi' }]).catch((e) => e);
+    expect(err.message).toMatch(/invalid completion/);
+    expect(err.expose).toBe(true);
+  });
+
+  it('exposes provider HTTP errors with their status and detail', async () => {
+    const fetchFn = vi.fn().mockResolvedValue(jsonResponse({ error: { message: 'bad model' } }, 400));
+    const { provider } = factory({ initial: legacy, fetchFn });
+    const err = await provider.completeText([{ role: 'user', content: 'Hi' }]).catch((e) => e);
+    expect(err.status).toBe(502);
+    expect(err.expose).toBe(true);
+    expect(err.message).toMatch(/AI provider error \(400\).*bad model/);
+  });
+
+  it('passes the connection test when a reasoning model returns empty content', async () => {
+    // The exact #401 case: null content + finish_reason "length" must not fail
+    // the connection test, and the test must use the small allowEmpty budget.
+    const fetchFn = vi.fn().mockResolvedValue(jsonResponse({
+      choices: [{ finish_reason: 'length', message: { content: null, reasoning_content: 'reasoning…' } }],
+    }));
+    const { provider } = factory({ initial: legacy, fetchFn });
+    await expect(provider.testAiProvider()).resolves.toEqual({ ok: true });
+    expect(JSON.parse(fetchFn.mock.calls[0][1].body).max_tokens).toBe(16);
+  });
+
   it('keeps the provider timeout active while reading the response body', async () => {
     vi.useFakeTimers();
     let requestSignal;

@@ -592,9 +592,11 @@ export default function Sidebar() {
       account: accountLabel,
       onConfirm: async () => {
         try {
+          // The server empties in the background now (202) and broadcasts folder_emptied when
+          // done, so the UI never blocks on a large folder. Show progress; the WebSocket handler
+          // refreshes the view and counts on completion (or reports failure).
           await api.emptyFolder(accountId, folderPath);
-          window.dispatchEvent(new CustomEvent('mailflow:refresh'));
-          api.getFolders(accountId).then(f => setFolders(accountId, f)).catch(() => {});
+          addNotification({ title: t('sidebar.emptying', { name }) });
         } catch (err) {
           addNotification({ title: t('sidebar.emptyFailed'), body: err.message });
         }
@@ -620,7 +622,7 @@ export default function Sidebar() {
       return;
     }
     try {
-      await api.createFolder(creatingFolder.accountId, createName.trim());
+      await api.createFolder(creatingFolder.accountId, createName.trim(), creatingFolder.parentPath);
       const updated = await api.getFolders(creatingFolder.accountId);
       setFolders(creatingFolder.accountId, updated);
       setCreatingFolder(null);
@@ -1360,7 +1362,7 @@ export default function Sidebar() {
                           handleMsgDrop(event, folder.path);
                         }}
                       >
-                        {canReorder && (
+                        {canReorder ? (
                           <span
                             draggable
                             onDragStart={event => handleFolderOrderDragStart(event, folder.path)}
@@ -1377,6 +1379,11 @@ export default function Sidebar() {
                               <circle cx="2" cy="12" r="1.5"/><circle cx="8" cy="12" r="1.5"/>
                             </svg>
                           </span>
+                        ) : !isMobile && (
+                          // Keep single-child rows aligned with siblings that have a
+                          // drag handle — without this spacer the missing handle
+                          // visually cancels the depth indent.
+                          <span style={{ width: 10, flexShrink: 0 }} />
                         )}
                         {/* Chevron toggle for parent folders; invisible spacer for leaf folders to align icons */}
                         {hasChildren ? (
@@ -1651,6 +1658,7 @@ export default function Sidebar() {
 
           {/* Settings */}
           <div
+            data-testid="mobile-settings"
             onClick={() => { setAdminTab('accounts'); setShowAdmin(true); setMobileSidebarOpen(false); }}
             style={{
               display: 'flex', alignItems: 'center', gap: 10,

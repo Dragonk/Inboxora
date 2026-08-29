@@ -32,3 +32,5 @@ Thumbs.db
 
 .superpowers/
 output/
+frontend/artifacts/
+artifacts/

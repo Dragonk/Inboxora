@@ -26,6 +26,7 @@ import { LAYOUTS, applyLayout } from '../layouts.js';
 import { NOTIFICATION_SOUNDS, playNotificationSound, playCustomSound, warmUpAudioContext } from '../utils/notificationSounds.js';
 import { usePushNotifications } from '../hooks/usePushNotifications.js';
 import SignatureEditor from './SignatureEditor.jsx';
+import DiagnosticsReportModal from './DiagnosticsReportModal.jsx';
 import { getEffectiveShortcuts, getGroupedActions, ACTION_DEFS, SPECIAL_KEY_LABELS, parseModKey, modLabel } from '../utils/defaultShortcuts.js';
 import { unifiedUnreadTotal } from '../utils/unifiedInbox.js';
 import { isValidForwardAddress } from '../utils/ruleActions.js';
@@ -907,7 +908,7 @@ function AccountsTab() {
                   <option value="" style={{ background: 'var(--bg-tertiary)' }}>
                     {autoFolder ? `${t('admin.folderMappings.autoDetect')} (${autoFolder.path})` : t('admin.folderMappings.autoDetectNone')}
                   </option>
-                  {availableFolders.map(f => (
+                  {availableFolders.filter(f => !f.no_select).map(f => (
                     <option key={f.path} value={f.path} style={{ background: 'var(--bg-tertiary)' }}>
                       {f.path}
                     </option>
@@ -1517,7 +1518,7 @@ function SwipeActionIcon({ action, size = 17 }) {
 function LayoutsTab() {
   const { t } = useTranslation();
   const isMobile = useMobile();
-  const { layout, setLayout, pageSize, setPageSize, scrollMode, setScrollMode, swipeActions, setSwipeAction, syncInterval, setSyncInterval, folderSyncInterval, setFolderSyncInterval, threadedView, setThreadedView, plaintextEmail, setPlaintextEmail, hoverQuickActions, setHoverQuickActions, showMobileAvatars, setShowMobileAvatars, gravatarAvatars, setGravatarAvatars, replyDefault, setReplyDefault, markReadBehavior, setMarkReadBehavior, markReadDelay, setMarkReadDelay, senderFavicons, senderFaviconsSaving, setSenderFavicons, showMessagePreviews, setShowMessagePreviews } = useStore();
+  const { layout, setLayout, pageSize, setPageSize, scrollMode, setScrollMode, swipeActions, setSwipeAction, syncInterval, setSyncInterval, folderSyncInterval, setFolderSyncInterval, threadedView, setThreadedView, plaintextEmail, setPlaintextEmail, hoverQuickActions, setHoverQuickActions, showMobileAvatars, setShowMobileAvatars, gravatarAvatars, setGravatarAvatars, replyDefault, setReplyDefault, markReadBehavior, setMarkReadBehavior, markReadDelay, setMarkReadDelay, senderFavicons, senderFaviconsSaving, setSenderFavicons, showMessagePreviews, setShowMessagePreviews, conversationReaderViewEnabled, setConversationReaderViewEnabled } = useStore();
   const [senderFaviconsError, setSenderFaviconsError] = useState('');
 
   // "Set MailFlow as your default email app": registerProtocolHandler is the
@@ -1970,21 +1971,54 @@ function LayoutsTab() {
         </div>
       </div>
 
-      {/* Threading mode */}
+      {/* Threading mode — Grupowanie rozmów */}
       <div style={{ marginTop: 28, paddingTop: 22, borderTop: '1px solid var(--border-subtle)' }}>
         <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--text-primary)', marginBottom: 4 }}>
-          {t('admin.messageList.threadingMode')}
+          {t('conversation.groupIntoConversations')}
         </div>
         <div style={{ display: 'flex', gap: 8 }}>
           {[
-            { id: false, label: t('admin.messageList.threadingOff'), desc: t('admin.messageList.threadingOffDesc') },
-            { id: true,  label: t('admin.messageList.threadingOn'),  desc: t('admin.messageList.threadingOnDesc') },
+            { id: false, label: t('conversation.seriesOff'), desc: t('admin.messageList.threadingOffDesc') },
+            { id: true,  label: t('conversation.groupIntoConversationsOn'), desc: t('admin.messageList.threadingOnDesc') },
           ].map(({ id, label, desc }) => {
             const active = threadedView === id;
             return (
               <button
                 key={String(id)}
                 onClick={() => setThreadedView(id)}
+                style={{
+                  flex: 1, padding: '10px 12px', textAlign: 'left',
+                  background: active ? 'var(--bg-hover)' : 'var(--bg-tertiary)',
+                  border: `2px solid ${active ? 'var(--accent)' : 'var(--border-subtle)'}`,
+                  borderRadius: 8, cursor: 'pointer', transition: 'all 0.15s', outline: 'none',
+                }}
+                onMouseEnter={e => { if (!active) e.currentTarget.style.borderColor = 'var(--border)'; }}
+                onMouseLeave={e => { if (!active) e.currentTarget.style.borderColor = 'var(--border-subtle)'; }}
+              >
+                <div style={{ fontSize: 12, fontWeight: 500, color: 'var(--text-primary)', marginBottom: 2 }}>{label}</div>
+                <div style={{ fontSize: 11, color: 'var(--text-tertiary)' }}>{desc}</div>
+              </button>
+            );
+          })}
+        </div>
+      </div>
+
+      {/* Conversation reader — Czytnik rozmowy, same card layout as grouping above */}
+      <div style={{ marginTop: 20, paddingTop: 16, borderTop: '1px solid var(--border-subtle)' }}>
+        <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--text-primary)', marginBottom: 4 }}>
+          {t('conversation.conversationReader')}
+        </div>
+        <div style={{ display: 'flex', gap: 8 }}>
+          {[
+            { id: false, label: t('conversation.readerOff'), desc: t('conversation.readerOffDesc') },
+            { id: true,  label: t('conversation.readerOn'), desc: t('conversation.readerOnDesc') },
+          ].map(({ id, label, desc }) => {
+            const active = conversationReaderViewEnabled === id;
+            return (
+              <button
+                key={String(id)}
+                type="button"
+                onClick={() => setConversationReaderViewEnabled(id)}
                 style={{
                   flex: 1, padding: '10px 12px', textAlign: 'left',
                   background: active ? 'var(--bg-hover)' : 'var(--bg-tertiary)',
@@ -2215,7 +2249,6 @@ function CardDavCard() {
         <div style={{ flex: 1 }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
             <span style={{ fontSize: 14, fontWeight: 600, color: 'var(--text-primary)' }}>{t('admin.integrations.carddav.title')}</span>
-            <span style={{ fontSize: 10, fontWeight: 700, padding: '2px 6px', borderRadius: 4, background: 'rgba(99,102,241,0.15)', color: 'var(--accent)', textTransform: 'uppercase', letterSpacing: '0.06em' }}>{t('todoist.betaLabel')}</span>
             <span style={{ fontSize: 11, padding: '2px 8px', borderRadius: 10, background: (!loading && connected) ? 'rgba(34,197,94,0.1)' : 'var(--bg-primary)', color: (!loading && connected) ? '#22c55e' : 'var(--text-tertiary)', border: `1px solid ${(!loading && connected) ? '#22c55e' : 'var(--border)'}` }}>
               {loading ? '...' : (connected ? t('admin.integrations.carddav.connected') : t('admin.integrations.carddav.notConnected'))}
             </span>
@@ -2342,6 +2375,12 @@ function IntegrationsTab() {
         })
         .catch(console.error)
         .finally(() => setLoading(false));
+      // Admins configure Microsoft OAuth via the DB form OR via env vars; the env-only case has no
+      // DB row, so also read the env-aware capability status (#359), otherwise the connect button
+      // stays wrongly disabled for admins while non-admins on the same instance can connect.
+      api.getIntegrationsStatus()
+        .then(data => setMsStatus(data.microsoft || null))
+        .catch(console.error);
     } else {
       // Non-admins can only read the capability status, not the config itself.
       api.getIntegrationsStatus()
@@ -2491,7 +2530,9 @@ function IntegrationsTab() {
     }
   };
 
-  const msConfigured = isAdmin ? configs.microsoft?.clientId : msStatus?.configured;
+  // Configured if the admin has a saved DB config OR the server has env-var config (#359);
+  // non-admins only ever have the env-aware capability status.
+  const msConfigured = (isAdmin ? configs.microsoft?.clientId : null) || msStatus?.configured;
 
   const subTabStyle = (key) => ({
     padding: '7px 14px',
@@ -2860,13 +2901,6 @@ function IntegrationsTab() {
                     {t('admin.integrations.todoist.title')}
                   </span>
                   <span style={{
-                    fontSize: 10, fontWeight: 700, padding: '2px 6px', borderRadius: 4,
-                    background: 'rgba(99,102,241,0.15)', color: 'var(--accent)',
-                    textTransform: 'uppercase', letterSpacing: '0.06em',
-                  }}>
-                    {t('todoist.betaLabel')}
-                  </span>
-                  <span style={{
                     fontSize: 11, padding: '2px 8px', borderRadius: 10,
                     background: (!tdLoading && tdConnected) ? 'rgba(34,197,94,0.1)' : 'var(--bg-primary)',
                     color: (!tdLoading && tdConnected) ? '#22c55e' : 'var(--text-tertiary)',
@@ -3103,6 +3137,7 @@ const emptyProvider = {
   scopes: 'openid email profile', provisioning_mode: 'login_existing_only',
   allowed_domains: '', enabled: true, require_email_verified: true, allow_insecure: false,
   admin_group_claim: '', admin_group_value: '', rp_initiated_logout: false,
+  login_match_claim: 'email',
 };
 
 function SSOTab() {
@@ -3172,7 +3207,7 @@ function SSOTab() {
     setError('');
   };
   const openEdit = (p) => {
-    setForm({ ...p, client_secret: '••••••••', allowed_domains: p.allowed_domains || '', require_email_verified: p.require_email_verified !== false, allow_insecure: p.allow_insecure === true, admin_group_claim: p.admin_group_claim || '', admin_group_value: p.admin_group_value || '', rp_initiated_logout: p.rp_initiated_logout === true });
+    setForm({ ...p, client_secret: '••••••••', allowed_domains: p.allowed_domains || '', require_email_verified: p.require_email_verified !== false, allow_insecure: p.allow_insecure === true, admin_group_claim: p.admin_group_claim || '', admin_group_value: p.admin_group_value || '', rp_initiated_logout: p.rp_initiated_logout === true, login_match_claim: p.login_match_claim || 'email' });
     setTemplateNote('');
     setEditing(p);
     setError('');
@@ -3203,6 +3238,7 @@ function SSOTab() {
         admin_group_claim: form.admin_group_claim.trim() || null,
         admin_group_value: form.admin_group_value.trim() || null,
         rp_initiated_logout: !!form.rp_initiated_logout,
+        login_match_claim: (form.login_match_claim || '').trim() || 'email',
         ...(form.client_secret && form.client_secret !== '••••••••' ? { client_secret: form.client_secret } : {}),
       };
       if (editing === 'new') {
@@ -3517,6 +3553,22 @@ function SSOTab() {
                 <option key={m.value} value={m.value}>{m.label}</option>
               ))}
             </select>
+          </Field>
+
+          <Field label={t('admin.sso.loginMatchClaim')}>
+            <input
+              value={form.login_match_claim}
+              onChange={e => setForm(f => ({ ...f, login_match_claim: e.target.value }))}
+              placeholder="email"
+              list="oidc-login-match-claims"
+              style={inputStyle}
+            />
+            <datalist id="oidc-login-match-claims">
+              <option value="email" />
+              <option value="preferred_username" />
+              <option value="upn" />
+            </datalist>
+            <div style={{ fontSize: 11, color: 'var(--text-tertiary)', marginTop: 4 }}>{t('admin.sso.loginMatchClaimDesc')}</div>
           </Field>
 
           <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 12 }}>
@@ -5453,6 +5505,8 @@ const LANGUAGES = [
   { code: 'it', nativeName: 'Italiano' },
   { code: 'ru', nativeName: 'Русский' },
   { code: 'zhCN', nativeName: '简体中文'},
+  { code: 'pl', nativeName: 'Polski' },
+  { code: 'cs', nativeName: 'Čeština' },
 ];
 
 function LanguageTab() {
@@ -5576,6 +5630,7 @@ function SecurityPrivacyTab({ initialSubTab }) {
 function AboutTab() {
   const { t } = useTranslation();
   const [info, setInfo] = useState(null);
+  const [showDiagnostics, setShowDiagnostics] = useState(false);
 
   useEffect(() => {
     fetch('/api/version')
@@ -5645,6 +5700,21 @@ function AboutTab() {
           </div>
         ))}
       </div>
+
+      <div style={{ fontSize: 11, fontWeight: 600, color: 'var(--text-secondary)', textTransform: 'uppercase', letterSpacing: '0.05em', margin: '18px 0 8px 4px' }}>
+        {t('diagnostics.section')}
+      </div>
+      <div style={{ fontSize: 12.5, color: 'var(--text-secondary)', margin: '0 4px 10px', lineHeight: 1.5 }}>
+        {t('diagnostics.blurb')}
+      </div>
+      <button
+        onClick={() => setShowDiagnostics(true)}
+        style={{ padding: '8px 16px', borderRadius: 8, border: '1px solid var(--border)', background: 'transparent', color: 'var(--text-primary)', fontSize: 13, cursor: 'pointer' }}
+      >
+        {t('diagnostics.generateReport')}
+      </button>
+
+      {showDiagnostics && <DiagnosticsReportModal onClose={() => setShowDiagnostics(false)} />}
     </div>
   );
 }
@@ -6400,8 +6470,188 @@ function RulesAndBlockListTab({ initialSubTab }) {
   );
 }
 
+// Mailbox Cleanup: analyze an INBOX for bulk-mail bloat and move a chosen sender's mail to Trash.
+// All analysis is read-only; the destructive step reuses the existing, proven bulkDelete (move to
+// Trash, recoverable) in <=500-id batches. Scope is enforced server-side (own account, INBOX, exact
+// sender), and the operation is idempotent: re-running a cleared sender finds nothing.
+function MailboxCleanupTab() {
+  const { t } = useTranslation();
+  const { accounts } = useStore();
+  const [accountId, setAccountId] = useState(accounts[0]?.id || '');
+  const [data, setData] = useState(null);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState('');
+  const [busySender, setBusySender] = useState('');
+  const [progress, setProgress] = useState(null);
+  // Cleanup action for the whole view (#403): Archive is the default and recommended
+  // choice; Trash stays available as an explicit alternative. One selector governs
+  // every sender row, not a per-row pair of buttons.
+  const [action, setAction] = useState('archive');
+  const archiveAvailable = data ? data.archiveAvailable !== false : true;
+  // If the selected account has no archive folder, Archive isn't a usable action —
+  // fall back to Trash so the row button never runs an action the server can't honor.
+  useEffect(() => { if (data && data.archiveAvailable === false) setAction('trash'); }, [data]);
+
+  // Re-fetch the summary/sender data without touching the error banner or the loading
+  // spinner, so a caller that just wants fresh counts (after a cleanup, including a partial
+  // failure) can refresh without clobbering an error it already set.
+  const fetchUsage = useCallback(async (id) => {
+    setData(await api.mailboxUsage(id));
+  }, []);
+
+  const load = useCallback(async (id) => {
+    if (!id) return;
+    setLoading(true); setError('');
+    try { await fetchUsage(id); }
+    catch (e) { setError(e.message); setData(null); }
+    finally { setLoading(false); }
+  }, [fetchUsage]);
+
+  useEffect(() => { if (accountId) load(accountId); }, [accountId, load]);
+
+  const cleanupSender = async (s) => {
+    const isArchive = action === 'archive';
+    const label = s.fromName ? `${s.fromName} <${s.fromEmail}>` : s.fromEmail;
+    const confirmKey = isArchive ? 'admin.cleanup.confirmArchive' : 'admin.cleanup.confirm';
+    if (!window.confirm(t(confirmKey, { count: s.count, sender: label }))) return;
+    setBusySender(s.fromEmail); setError(''); setProgress({ done: 0, total: s.count });
+    try {
+      const { ids } = await api.cleanupPreview(accountId, s.fromEmail);
+      const runBatch = isArchive ? api.bulkArchive : api.bulkDelete;
+      let done = 0;
+      for (let i = 0; i < ids.length; i += 500) {
+        const batch = ids.slice(i, i + 500);
+        await runBatch(batch);
+        done += batch.length;
+        setProgress({ done, total: ids.length });
+      }
+    } catch (e) { setError(e.message); }
+    finally {
+      // Always refresh counts so the summary reflects what actually got archived or trashed,
+      // even on a partial failure; preserve any error already set (don't route through load()).
+      try { await fetchUsage(accountId); } catch { /* keep the primary error and last-good data */ }
+      setBusySender(''); setProgress(null);
+    }
+  };
+
+  const bloatPct = data && data.inboxTotal ? Math.round((data.bulkTotal / data.inboxTotal) * 100) : 0;
+  const card = { background: 'var(--bg-secondary)', border: '1px solid var(--border-subtle)', borderRadius: 10, padding: 14, marginBottom: 16 };
+  const muted = { fontSize: 12, color: 'var(--text-tertiary)' };
+
+  return (
+    <div>
+      <h2 style={{ fontSize: 18, fontWeight: 600, margin: '0 0 6px' }}>{t('admin.cleanup.title')}</h2>
+      <p style={{ ...muted, marginTop: 0, marginBottom: 16, lineHeight: 1.5 }}>{t('admin.cleanup.intro')}</p>
+
+      {accounts.length > 1 && (
+        <Field label={t('admin.cleanup.account')}>
+          <select value={accountId} onChange={e => setAccountId(e.target.value)} style={{ ...inputStyle, appearance: 'none' }}>
+            {accounts.map(a => <option key={a.id} value={a.id}>{a.email_address}</option>)}
+          </select>
+        </Field>
+      )}
+
+      {loading && <div style={muted}>{t('common.loading')}</div>}
+      {error && <div style={{ color: 'var(--red, #ef4444)', fontSize: 13, marginBottom: 12 }}>{error}</div>}
+
+      {data && !loading && (
+        <>
+          <div style={card}>
+            <div style={{ fontSize: 14, fontWeight: 600, color: 'var(--text-primary)' }}>
+              {t('admin.cleanup.summary', { bulk: data.bulkTotal.toLocaleString(), total: data.inboxTotal.toLocaleString(), pct: bloatPct })}
+            </div>
+          </div>
+
+          <Field label={t('admin.cleanup.action')}>
+            <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+              {[
+                { key: 'archive', label: t('admin.cleanup.actionArchive'), disabled: !archiveAvailable },
+                { key: 'trash', label: t('admin.cleanup.moveToTrash'), disabled: false },
+              ].map(opt => {
+                const selected = action === opt.key;
+                return (
+                  <button
+                    key={opt.key}
+                    type="button"
+                    disabled={opt.disabled || !!busySender}
+                    onClick={() => setAction(opt.key)}
+                    style={{
+                      padding: '7px 14px', borderRadius: 7, fontSize: 13, fontWeight: 500,
+                      cursor: (opt.disabled || busySender) ? 'not-allowed' : 'pointer',
+                      border: `1px solid ${selected ? 'var(--accent)' : 'var(--border)'}`,
+                      background: selected ? 'var(--accent)' : 'var(--bg-secondary)',
+                      color: selected ? 'var(--accent-text, white)' : 'var(--text-secondary)',
+                      opacity: opt.disabled ? 0.5 : 1,
+                    }}
+                  >
+                    {opt.label}
+                  </button>
+                );
+              })}
+            </div>
+            {!archiveAvailable && (
+              <div style={{ ...muted, marginTop: 8 }}>{t('admin.cleanup.noArchiveFolder')}</div>
+            )}
+          </Field>
+
+          <h3 style={{ fontSize: 14, fontWeight: 600, margin: '0 0 4px' }}>{t('admin.cleanup.tier1Title')}</h3>
+          <p style={{ ...muted, marginTop: 0, marginBottom: 12, lineHeight: 1.5 }}>{t('admin.cleanup.tier1Desc')}</p>
+          {data.tier1Senders.length === 0 ? (
+            <div style={muted}>{t('admin.cleanup.noneFound')}</div>
+          ) : (
+            <div style={{ marginBottom: 20 }}>
+              {data.tier1Senders.map(s => (
+                <div key={s.fromEmail} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '9px 4px', borderBottom: '1px solid var(--border-subtle)' }}>
+                  <div style={{ flex: 1, minWidth: 0 }}>
+                    <div style={{ fontSize: 13, color: 'var(--text-primary)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{s.fromName || s.fromEmail}</div>
+                    {s.fromName && <div style={{ ...muted, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{s.fromEmail}</div>}
+                  </div>
+                  <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--text-secondary)', flexShrink: 0 }}>{s.count.toLocaleString()}</div>
+                  <button
+                    type="button"
+                    disabled={!!busySender}
+                    onClick={() => cleanupSender(s)}
+                    style={{
+                      flexShrink: 0, padding: '6px 12px', borderRadius: 7, fontSize: 12, fontWeight: 500,
+                      border: '1px solid var(--border)', cursor: busySender ? 'not-allowed' : 'pointer',
+                      background: busySender === s.fromEmail
+                        ? 'var(--bg-tertiary)'
+                        : (action === 'archive' ? 'var(--accent)' : 'var(--amber, #d97706)'),
+                      color: busySender === s.fromEmail
+                        ? 'var(--text-secondary)'
+                        : (action === 'archive' ? 'var(--accent-text, white)' : 'white'),
+                      opacity: busySender && busySender !== s.fromEmail ? 0.5 : 1,
+                    }}
+                  >
+                    {busySender === s.fromEmail
+                      ? (progress ? `${progress.done.toLocaleString()}/${progress.total.toLocaleString()}` : '...')
+                      : t(action === 'archive' ? 'admin.cleanup.archive' : 'admin.cleanup.moveToTrash')}
+                  </button>
+                </div>
+              ))}
+            </div>
+          )}
+
+          <h3 style={{ fontSize: 14, fontWeight: 600, margin: '0 0 4px' }}>{t('admin.cleanup.tier2Title')}</h3>
+          <p style={{ ...muted, marginTop: 0, marginBottom: 10, lineHeight: 1.5 }}>{t('admin.cleanup.tier2Desc')}</p>
+          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, marginBottom: 20 }}>
+            {data.tier2Keywords.filter(k => k.count > 0).map(k => (
+              <span key={k.keyword} style={{ fontSize: 12, padding: '4px 10px', borderRadius: 20, background: 'var(--bg-tertiary)', border: '1px solid var(--border-subtle)', color: 'var(--text-secondary)' }}>
+                {k.keyword} <span style={{ color: 'var(--text-tertiary)' }}>({k.count.toLocaleString()})</span>
+              </span>
+            ))}
+          </div>
+
+          <h3 style={{ fontSize: 14, fontWeight: 600, margin: '0 0 4px' }}>{t('admin.cleanup.tier3Title')}</h3>
+          <p style={{ ...muted, marginTop: 0, lineHeight: 1.5 }}>{t('admin.cleanup.tier3Desc')}</p>
+        </>
+      )}
+    </div>
+  );
+}
+
 const TAB_GROUPS = [
-  { id: 'account-mail', labelKey: 'admin.tabs.groupAccountMail', tabIds: ['accounts', 'notifications', 'rules', 'categories'] },
+  { id: 'account-mail', labelKey: 'admin.tabs.groupAccountMail', tabIds: ['accounts', 'notifications', 'rules', 'categories', 'cleanup'] },
   { id: 'display', labelKey: 'admin.tabs.groupDisplay', tabIds: ['appearance', 'shortcuts'] },
   { id: 'security-integrations', labelKey: 'admin.tabs.groupSecurityIntegrations', tabIds: ['security', 'integrations', 'ai', 'ai-actions', 'plugins'] },
   { id: 'admin', labelKey: 'admin.tabs.groupAdmin', tabIds: ['users', 'sso'] },
@@ -6422,8 +6672,12 @@ const TABS = [
     icon: <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75"><polygon points="22 3 2 3 10 12.46 10 19 14 21 14 12.46 22 3"/></svg>,
   },
   {
-    id: 'categories', labelKey: 'admin.tabs.categories', beta: true,
+    id: 'categories', labelKey: 'admin.tabs.categories',
     icon: <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75"><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/></svg>,
+  },
+  {
+    id: 'cleanup', labelKey: 'admin.tabs.cleanup', beta: true,
+    icon: <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round"><path d="M19 3l-6 6"/><path d="M14 4l6 6"/><path d="M11 8l-7 7c-1 1-1 3 0 4s3 1 4 0l7-7"/><path d="M6 20l-3-3"/></svg>,
   },
   // Display
   {
@@ -6445,12 +6699,12 @@ const TABS = [
     icon: <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75"><circle cx="12" cy="12" r="3"/><path d="M6.343 6.343a8 8 0 000 11.314M17.657 6.343a8 8 0 010 11.314M3 12h1m16 0h1M12 3v1m0 16v1"/></svg>,
   },
   {
-    id: 'ai', labelKey: 'admin.tabs.ai', beta: true,
+    id: 'ai', labelKey: 'admin.tabs.ai',
     adminOnly: true,
     icon: <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round"><path d="m12 3-1.912 5.813a2 2 0 0 1-1.275 1.275L3 12l5.813 1.912a2 2 0 0 1 1.275 1.275L12 21l1.912-5.813a2 2 0 0 1 1.275-1.275L21 12l-5.813-1.912a2 2 0 0 1-1.275-1.275L12 3Z"/><path d="M5 3v4M19 17v4M3 5h4M17 19h4"/></svg>,
   },
   {
-    id: 'ai-actions', labelKey: 'admin.tabs.aiActions', beta: true,
+    id: 'ai-actions', labelKey: 'admin.tabs.aiActions',
     icon: <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round"><path d="M15 4V2M15 16v-2M8 9h2M20 9h2M17.8 11.8 19 13M15 9h.01M17.8 6.2 19 5M3 21l9-9M12.2 6.2 11 5"/></svg>,
   },
   {
@@ -7929,7 +8183,7 @@ function makeSearchIndex(t) {
     { label: t('admin.messageList.defaultReplyAction'), keywords: ['reply', 'reply all', 'default reply'], tab: 'appearance', subtab: 'layout', breadcrumb: layoutCrumb },
     { label: t('admin.messageList.markReadBehavior'), keywords: ['mark read', 'mark as read', 'read delay', 'auto read', 'manual read', 'unread'], tab: 'appearance', subtab: 'layout', breadcrumb: layoutCrumb },
     // Appearance > Fonts & Language
-    { label: t('admin.appearance.language'), keywords: ['language', 'locale', 'french', 'english', 'spanish', 'german', 'deutsch', 'russian', 'chinese', 'italian', 'français', 'español'], tab: 'appearance', subtab: 'fonts', breadcrumb: fontsCrumb },
+    { label: t('admin.appearance.language'), keywords: ['language', 'locale', 'french', 'english', 'spanish', 'german', 'deutsch', 'russian', 'chinese', 'italian', 'czech', 'čeština', 'français', 'español'], tab: 'appearance', subtab: 'fonts', breadcrumb: fontsCrumb },
     { label: t('admin.appearance.fontSize'), keywords: ['font size', 'text size', 'zoom', 'scale', 'accessibility', 'larger text'], tab: 'appearance', subtab: 'fonts', breadcrumb: fontsCrumb },
     { label: t('admin.appearance.typography'), keywords: ['font', 'typography', 'typeface', 'serif', 'sans', 'monospace', 'reading font'], tab: 'appearance', subtab: 'fonts', breadcrumb: fontsCrumb },
     // Integrations
@@ -8073,6 +8327,7 @@ export default function AdminPanel() {
       {adminTab === 'accounts' && <AccountsTab />}
       {adminTab === 'rules' && <RulesAndBlockListTab initialSubTab={pendingSubTab} />}
       {adminTab === 'categories' && <CategoriesSection initialSubTab={pendingSubTab} />}
+      {adminTab === 'cleanup' && <MailboxCleanupTab />}
       {adminTab === 'appearance' && <AppearanceTab initialSubTab={pendingSubTab} />}
       {adminTab === 'integrations' && <IntegrationsTab />}
       {adminTab === 'users' && <UsersTab />}
@@ -8185,14 +8440,14 @@ export default function AdminPanel() {
     >
       <div className="admin-panel admin-window" style={{
         background: 'var(--bg-secondary)', border: '1px solid var(--border)',
-        borderRadius: 16, width: '100%', maxWidth: 680,
+        borderRadius: 16, width: '100%', maxWidth: 740,
         height: '82vh', maxHeight: 700, display: 'flex', overflow: 'hidden',
         boxShadow: 'var(--shadow-modal)',
         animation: 'modal-enter var(--motion-normal) var(--ease-emphasized) both',
       }}>
         {/* Left sidebar */}
         <div style={{
-          width: 180, borderRight: '1px solid var(--border-subtle)',
+          width: 216, borderRight: '1px solid var(--border-subtle)',
           background: 'var(--bg-primary)', padding: '20px 10px',
           display: 'flex', flexDirection: 'column', flexShrink: 0,
         }}>
@@ -8202,7 +8457,10 @@ export default function AdminPanel() {
 
           {/* Scrollable tab list — keeps the Close button pinned even when the tab list is taller
               than the modal (e.g. once several plugins/beta tabs are present). */}
-          <div style={{ flex: 1, minHeight: 0, overflowY: 'auto' }}>
+          {/* overflowX hidden: overflowY:auto would otherwise promote overflow-x to auto too, so a
+              long label in any locale (e.g. German "Tastaturkürzel") would show a horizontal
+              scrollbar. Labels wrap instead of overflowing (see the tab buttons below). */}
+          <div style={{ flex: 1, minHeight: 0, overflowY: 'auto', overflowX: 'hidden' }}>
           {TAB_GROUPS.map((group, gi) => {
             const groupTabs = visibleTabs.filter(tab => group.tabIds.includes(tab.id));
             if (groupTabs.length === 0) return null;
@@ -8210,7 +8468,7 @@ export default function AdminPanel() {
               <div key={group.id} style={{ marginBottom: gi < TAB_GROUPS.length - 1 ? 4 : 0 }}>
                 <div style={{
                   fontSize: 10, fontWeight: 700, color: 'var(--text-secondary)',
-                  letterSpacing: '0.07em', textTransform: 'uppercase',
+                  letterSpacing: '0.07em', textTransform: 'uppercase', overflowWrap: 'anywhere',
                   padding: gi === 0 ? '2px 10px 3px' : '10px 10px 3px',
                   borderTop: gi === 0 ? 'none' : '1px solid var(--border-subtle)',
                   marginTop: gi === 0 ? 0 : 4,
@@ -8235,11 +8493,11 @@ export default function AdminPanel() {
                       onMouseEnter={e => { if (!isActive) e.currentTarget.style.background = 'var(--bg-tertiary)'; }}
                       onMouseLeave={e => { if (!isActive) e.currentTarget.style.background = 'transparent'; }}
                     >
-                      <span style={{ color: isActive ? 'var(--accent)' : 'var(--text-tertiary)' }}>
+                      <span style={{ color: isActive ? 'var(--accent)' : 'var(--text-tertiary)', flexShrink: 0 }}>
                         {tab.icon}
                       </span>
-                      {t(tab.labelKey)}
-                      {tab.beta && <span style={{ fontSize: 9, fontWeight: 700, letterSpacing: '0.06em', padding: '1px 4px', borderRadius: 3, background: 'color-mix(in srgb, var(--accent) 15%, transparent)', color: 'var(--accent)', marginLeft: 'auto' }}>BETA</span>}
+                      <span style={{ flex: 1, minWidth: 0, overflowWrap: 'anywhere' }}>{t(tab.labelKey)}</span>
+                      {tab.beta && <span style={{ fontSize: 9, fontWeight: 700, letterSpacing: '0.06em', padding: '1px 4px', borderRadius: 3, background: 'color-mix(in srgb, var(--accent) 15%, transparent)', color: 'var(--accent)', flexShrink: 0 }}>BETA</span>}
                     </button>
                   );
                 })}
@@ -8265,11 +8523,11 @@ export default function AdminPanel() {
                 onMouseEnter={e => { if (!isActive) e.currentTarget.style.background = 'var(--bg-tertiary)'; }}
                 onMouseLeave={e => { if (!isActive) e.currentTarget.style.background = 'transparent'; }}
               >
-                <span style={{ color: isActive ? 'var(--accent)' : 'var(--text-tertiary)' }}>
+                <span style={{ color: isActive ? 'var(--accent)' : 'var(--text-tertiary)', flexShrink: 0 }}>
                   {tab.icon}
                 </span>
-                {t(tab.labelKey)}
-                {tab.beta && <span style={{ fontSize: 9, fontWeight: 700, letterSpacing: '0.06em', padding: '1px 4px', borderRadius: 3, background: 'color-mix(in srgb, var(--accent) 15%, transparent)', color: 'var(--accent)', marginLeft: 'auto' }}>BETA</span>}
+                <span style={{ flex: 1, minWidth: 0, overflowWrap: 'anywhere' }}>{t(tab.labelKey)}</span>
+                {tab.beta && <span style={{ fontSize: 9, fontWeight: 700, letterSpacing: '0.06em', padding: '1px 4px', borderRadius: 3, background: 'color-mix(in srgb, var(--accent) 15%, transparent)', color: 'var(--accent)', flexShrink: 0 }}>BETA</span>}
               </button>
             );
           })}

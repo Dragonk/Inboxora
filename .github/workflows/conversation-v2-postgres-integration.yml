@@ -1,0 +1,188 @@
+name: Conversation Engine PostgreSQL Validation
+
+on:
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: conversation-engine-postgres-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+defaults:
+  run:
+    shell: bash -euo pipefail {0}
+
+env:
+  DB_HOST: 127.0.0.1
+  DB_PORT: 5432
+  DB_NAME: mailflow_test
+  DB_USER: mailflow_test
+  DB_PASSWORD: mailflow_test
+  REDIS_URL: redis://127.0.0.1:6379
+  ENCRYPTION_KEY: "0000000000000000000000000000000000000000000000000000000000000000"
+
+jobs:
+  migrations-and-postgres:
+    name: Migrations and PostgreSQL integration
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: mailflow_test
+          POSTGRES_PASSWORD: mailflow_test
+          POSTGRES_DB: mailflow_test
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd "pg_isready -U mailflow_test -d mailflow_test"
+          --health-interval 5s --health-timeout 5s --health-retries 20
+      redis:
+        image: redis:7-alpine
+        ports: ["6379:6379"]
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 5s --health-timeout 5s --health-retries 20
+
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          fetch-depth: 1
+
+      - name: Assert exact tested SHA
+        run: test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+
+      - uses: actions/setup-node@v6
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: |
+            backend/package-lock.json
+            frontend/package-lock.json
+
+      - name: Install dependencies
+        run: npm ci --prefix backend && npm ci --prefix frontend
+
+      - name: Verify PostgreSQL and Redis readiness
+        working-directory: backend
+        run: |
+          PGPASSWORD="$DB_PASSWORD" psql -h "$DB_HOST" -U "$DB_USER" -d "$DB_NAME" -v ON_ERROR_STOP=1 -c 'SELECT 1'
+          node --input-type=module -e "import { createClient } from 'redis'; const client = createClient({ url: process.env.REDIS_URL }); client.on('error', error => { throw error; }); await client.connect(); if (await client.ping() !== 'PONG') process.exit(1); await client.quit();"
+
+      - name: Fresh migration through final schema
+        working-directory: backend
+        run: |
+          node --input-type=module - <<'JS' | tee ../artifacts-migration-fresh.log
+          import { runMigrations } from './src/services/migrations.js';
+          await runMigrations();
+          console.log('fresh migrations completed');
+          JS
+          PGPASSWORD="$DB_PASSWORD" psql -h "$DB_HOST" -U "$DB_USER" -d "$DB_NAME" -Atqc \
+            'SELECT count(*) FROM schema_migrations' | grep -qx 62
+          PGPASSWORD="$DB_PASSWORD" psql -h "$DB_HOST" -U "$DB_USER" -d "$DB_NAME" -Atqc \
+            'SELECT version FROM schema_migrations ORDER BY version DESC LIMIT 1' | grep -qx 0062_conversation_account_identity
+          PGPASSWORD="$DB_PASSWORD" psql -h "$DB_HOST" -U "$DB_USER" -d "$DB_NAME" -Atqc \
+            "SELECT count(*) FROM pg_constraint WHERE conname IN ('fk_message_logical_account','fk_message_conversation_account','fk_logical_conversation_account','fk_logical_parent_account','fk_provider_mapping_conversation_account')" | grep -qx 5
+          PGPASSWORD="$DB_PASSWORD" psql -h "$DB_HOST" -U "$DB_USER" -d "$DB_NAME" -Atqc \
+            "SELECT count(*) FROM pg_indexes WHERE schemaname='public' AND indexname IN ('uq_logical_messages_account_canonical_collision','uq_logical_messages_account_no_message_id_fingerprint','idx_conversations_user_account_latest','idx_logical_messages_user_account_message')" | grep -qx 4
+
+      - name: Real upstream 0050 schema then PR upgrade to 0062
+        env:
+          UPSTREAM_URL: https://github.com/maathimself/mailflow.git
+          UPSTREAM_DIR: ${{ runner.temp }}/mailflow-upstream-main
+        run: |
+          PGPASSWORD="$DB_PASSWORD" psql -h "$DB_HOST" -U "$DB_USER" -d "$DB_NAME" -v ON_ERROR_STOP=1 \
+            -c 'DROP SCHEMA public CASCADE; CREATE SCHEMA public;'
+          git fetch --no-tags "$UPSTREAM_URL" main
+          git worktree add --detach "$UPSTREAM_DIR" FETCH_HEAD
+          printf 'upstream_main=%s\n' "$(git -C "$UPSTREAM_DIR" rev-parse HEAD)" | tee upstream-main.txt
+          npm ci --prefix "$UPSTREAM_DIR/backend"
+          (
+            cd "$UPSTREAM_DIR/backend"
+            node --input-type=module -e "import { runMigrations } from './src/services/migrations.js'; await runMigrations();"
+          )
+          PGPASSWORD="$DB_PASSWORD" psql -h "$DB_HOST" -U "$DB_USER" -d "$DB_NAME" -Atqc \
+            'SELECT count(*) FROM schema_migrations' | grep -qx 50
+          PGPASSWORD="$DB_PASSWORD" psql -h "$DB_HOST" -U "$DB_USER" -d "$DB_NAME" -Atqc \
+            'SELECT version FROM schema_migrations ORDER BY version DESC LIMIT 1' | grep -qx 0050_message_sender
+          (
+            cd backend
+            node --input-type=module -e "import { runMigrations } from './src/services/migrations.js'; await runMigrations();"
+          )
+          PGPASSWORD="$DB_PASSWORD" psql -h "$DB_HOST" -U "$DB_USER" -d "$DB_NAME" -Atqc \
+            'SELECT count(*) FROM schema_migrations' | grep -qx 62
+          PGPASSWORD="$DB_PASSWORD" psql -h "$DB_HOST" -U "$DB_USER" -d "$DB_NAME" -Atqc \
+            'SELECT version FROM schema_migrations ORDER BY version DESC LIMIT 1' | grep -qx 0062_conversation_account_identity
+
+      - name: Populated legacy and account-identity migration gates
+        working-directory: backend
+        env:
+          PGHOST: 127.0.0.1
+          PGPORT: 5432
+          PGDATABASE: mailflow_test
+          PGUSER: mailflow_test
+          PGPASSWORD: mailflow_test
+        run: |
+          node src/scripts/conversationMigrationUpgrade.js | tee ../artifacts-migration-legacy-upgrade.log
+          node --input-type=module - <<'JS' | tee -a ../artifacts-migration-legacy-upgrade.log
+          import { runMigrations } from './src/services/migrations.js';
+          import { query, pool } from './src/services/db.js';
+          await runMigrations();
+          const result = await query(`SELECT COUNT(*)::int AS messages, COUNT(DISTINCT account_id)::int AS accounts FROM messages WHERE message_id LIKE '<legacy-test-%@fixture.test>'`);
+          if (result.rows[0].messages !== 12 || result.rows[0].accounts !== 2) throw new Error(JSON.stringify(result.rows[0]));
+          await pool.end();
+          JS
+          MIGRATION_GATE_SCHEMA=public node src/scripts/conversationMigration0062Upgrade.js | tee ../artifacts-migration-0062-upgrade.log
+          node --input-type=module -e "import { runMigrations } from './src/services/migrations.js'; await runMigrations();"
+
+      - name: PostgreSQL integration and required regression suites
+        working-directory: backend
+        env:
+          REQUIRE_CE_POSTGRES: '1'
+        run: |
+          node src/scripts/conversationPostgresIntegration.js | tee ../artifacts-postgres-rebuild.log
+          node --test src/services/conversationConcurrencyReal.integration.js | tee ../artifacts-concurrency-real.log
+          node --test src/services/conversationCopyScopesReal.integration.js | tee ../artifacts-copy-scopes-real.log
+          node --test src/services/conversationPostgresIntegrationReal.integration.js | tee ../artifacts-postgres-real.log
+          node --test src/services/conversationRebuildIdempotencyReal.integration.js | tee ../artifacts-rebuild-idempotency-real.log
+          npx vitest run src/services/conversationPgRegression.integration.test.js | tee ../artifacts-pg-regression.log
+
+      - name: Full backend suite and lint
+        working-directory: backend
+        env:
+          REQUIRE_CE_POSTGRES: '1'
+        run: |
+          npm test | tee ../artifacts-backend-test.log
+          npm run lint | tee ../artifacts-backend-lint.log
+          npm run lint:plugins | tee ../artifacts-plugin-lint.log
+
+      - name: Frontend suite, lint, and production build
+        working-directory: frontend
+        run: |
+          npm test | tee ../artifacts-frontend-test.log
+          npm run lint | tee ../artifacts-frontend-lint.log
+          npm run build | tee ../artifacts-frontend-build.log
+
+      - name: PostgreSQL EXPLAIN scale gate
+        working-directory: backend
+        env:
+          REQUIRE_DB_PERF_GATE: '1'
+        run: |
+          npm test -- --run src/services/conversationPerformance.test.js
+          node mailflow-ce-perf.mjs "$DB_NAME" 10000 | tee ../artifacts-performance-10k.json
+          node mailflow-ce-perf.mjs "$DB_NAME" 50000 | tee ../artifacts-performance-50k.json
+          node mailflow-ce-perf.mjs "$DB_NAME" 100000 | tee ../artifacts-performance-100k.json
+
+      - name: Upload PostgreSQL validation artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: conversation-engine-postgres-${{ github.run_id }}
+          if-no-files-found: warn
+          path: |
+            artifacts-*.log
+            artifacts-*.json
+            upstream-main.txt

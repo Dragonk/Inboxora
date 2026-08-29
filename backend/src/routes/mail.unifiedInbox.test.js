@@ -88,4 +88,32 @@ describe('GET /api/mail/unread-counts unified total', () => {
     expect(response.status).toBe(200);
     expect(query.mock.calls[1][1][0]).toEqual(['included']);
   });
+
+  it('scopes a non-unified thread expansion to the requested owned account', async () => {
+    query
+      .mockResolvedValueOnce({
+        rows: [
+          { id: 'account-a', include_in_unified_inbox: true },
+          { id: 'account-b', include_in_unified_inbox: true },
+        ],
+      })
+      .mockResolvedValueOnce({ rows: [] });
+
+    const response = await fetch(`${base}/api/mail/thread/shared-thread?accountId=account-a`);
+
+    expect(response.status).toBe(200);
+    expect(query.mock.calls[1][0]).toContain('m.thread_key');
+    expect(query.mock.calls[1][1]).toEqual([['account-a'], 'shared-thread']);
+  });
+
+  it('rejects thread expansion for an account not owned by the user', async () => {
+    query.mockResolvedValueOnce({
+      rows: [{ id: 'account-a', include_in_unified_inbox: true }],
+    });
+
+    const response = await fetch(`${base}/api/mail/thread/shared-thread?accountId=account-b`);
+
+    expect(response.status).toBe(404);
+    expect(query).toHaveBeenCalledTimes(1);
+  });
 });

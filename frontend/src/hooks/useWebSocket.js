@@ -8,6 +8,7 @@ import { pendingMarkReadMap } from '../utils/pendingReads.js';
 import { updateFaviconBadge } from '../themes.js';
 import { dispatchPluginWsMessage, dispatchPluginReconnect } from '../plugins/events.js';
 import { accountAffectsUnifiedInbox } from '../utils/unifiedInbox.js';
+import { recordDiagEvent } from '../utils/diagEvents.js';
 
 // Compute the correct favicon count given unread counts and the currently
 // selected account. Reads selectedAccountId from the store directly so this
@@ -30,6 +31,7 @@ function _faviconCount(counts) {
 // (current optimistic + pending size). If the server count is already lower,
 // the DB has applied those reads and subtracting again would double-count.
 function _applyServerCounts(counts) {
+  const _before = useStore.getState().unreadCounts.total;
   if (pendingMarkReadMap.size > 0) {
     const state = useStore.getState();
     const current = state.unreadCounts;
@@ -51,6 +53,7 @@ function _applyServerCounts(counts) {
   } else {
     useStore.setState({ unreadCounts: counts });
   }
+  recordDiagEvent({ category: 'unread', cause: 'server_counts', beforeTotal: _before, afterTotal: useStore.getState().unreadCounts.total });
 }
 
 async function _forwardNativeNewMailNotification(notification) {
@@ -121,6 +124,7 @@ export function useWebSocket() {
       ws._pingInterval = pingInterval;
       // On reconnect, catch up on any messages that arrived during the outage
       if (wasReconnect) {
+        recordDiagEvent({ category: 'ws', type: 'reconnect' });
         window.dispatchEvent(new CustomEvent('mailflow:refresh'));
         api.getUnreadCounts().then(counts => {
           useStore.setState({ unreadCounts: counts });
@@ -168,6 +172,10 @@ export function useWebSocket() {
         const alertMessages = data.alertMessages ?? messages;
         const alertCount = data.alertCount ?? count;
         const isInbox = !folder || folder === 'INBOX';
+
+        // Note: no raw folder name here — a custom folder name would be identifying,
+        // and the scrub net only catches emails/IPs/tokens. isInbox is the safe signal.
+        recordDiagEvent({ category: 'event', type: 'new_messages', accountId, isInbox, count, alertCount });
 
         if (messages && messages.length > 0) {
           // In-app notifications and sounds are inbox-only — non-inbox folder syncs
@@ -231,6 +239,7 @@ export function useWebSocket() {
           : counts.total;
         const newCounts = { total, byAccount };
         useStore.setState({ unreadCounts: newCounts });
+        recordDiagEvent({ category: 'unread', cause: 'exists_hint', accountId, delta, beforeTotal: counts.total, afterTotal: total });
         // Update favicon immediately — do not wait for React's render cycle.
         // With a pre-cached base this is synchronous (no image load round-trip).
         updateFaviconBadge(_faviconCount(newCounts));
@@ -316,6 +325,20 @@ export function useWebSocket() {
         // Re-fetch per-folder counts for the affected account so sidebar folder
         // badges stay in sync (unread_count, total_count). Only refresh accounts
         // whose folders are already loaded to avoid unnecessary requests.
+        if (data.accountId && useStore.getState().folders[data.accountId]) {
+          api.getFolders(data.accountId).then(f => setFolders(data.accountId, f)).catch(() => {});
+        }
+        break;
+      }
+
+      case 'folder_emptied': {
+        // Background empty finished (see mail.js /folders/empty). Toast the outcome and refresh
+        // the view and counts either way — on failure the messages are still on the server and
+        // should reappear.
+        addNotification({ title: data.ok ? t('sidebar.emptied') : t('sidebar.emptyFailed') });
+        window.dispatchEvent(new CustomEvent('mailflow:refresh'));
+        window.dispatchEvent(new CustomEvent('mailflow:sync_done'));
+        api.getUnreadCounts().then(_applyServerCounts).catch(() => {});
         if (data.accountId && useStore.getState().folders[data.accountId]) {
           api.getFolders(data.accountId).then(f => setFolders(data.accountId, f)).catch(() => {});
         }

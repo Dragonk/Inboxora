@@ -1,0 +1,54 @@
+import { defineConfig, devices } from '@playwright/test';
+
+const baseURL = process.env.PLAYWRIGHT_BASE_URL || 'http://127.0.0.1:4173';
+const isRealApp = process.env.PLAYWRIGHT_REAL_APP === '1';
+if (isRealApp && !process.env.PLAYWRIGHT_WEB_SERVER_COMMAND) {
+  throw new Error('PLAYWRIGHT_REAL_APP=1 requires PLAYWRIGHT_WEB_SERVER_COMMAND for a provisioned live backend.');
+}
+const webServerCommand = process.env.PLAYWRIGHT_WEB_SERVER_COMMAND || 'VITE_E2E_MOCKED=true npm run preview -- --host 127.0.0.1 --port 4173';
+const isMatrix = process.env.PLAYWRIGHT_MATRIX === '1';
+
+export default defineConfig({
+  // Playwright must discover only browser specs. Node's frontend unit tests under
+  // src/**/*.test.js are run by `npm test`; including them here caused CI to execute
+  // Node ESM tests in the browser runner and emit JSON import failures.
+  testDir: './e2e',
+  testMatch: '**/*.spec.js',
+  testIgnore: ['**/chromium-smoke.js', '**/fixtures.js', '**/real-app-fixtures.js'],
+  timeout: 30_000,
+  expect: { timeout: 5_000 },
+  fullyParallel: false,
+  forbidOnly: !!process.env.CI,
+  retries: process.env.CI ? 2 : 0,
+  workers: process.env.CI ? 1 : undefined,
+  reporter: [
+    ['list'],
+    ['html', { outputFolder: 'artifacts/playwright-report', open: 'never' }],
+  ],
+  outputDir: 'artifacts/playwright-test-results',
+  use: {
+    baseURL,
+    trace: 'retain-on-failure',
+    screenshot: 'only-on-failure',
+    video: 'retain-on-failure',
+    navigationTimeout: 15_000,
+    actionTimeout: 10_000,
+    locale: 'pl-PL',
+    colorScheme: 'light',
+    headless: true,
+  },
+  projects: [
+    { name: 'chromium-desktop', use: { ...devices['Desktop Chrome'] } },
+    // Required mobile reader widths: narrow 390×844 and native Pixel 7 412×915.
+    { name: 'chromium-mobile-390', use: { ...devices['Pixel 7'], viewport: { width: 390, height: 844 } } },
+    { name: 'chromium-mobile', use: { ...devices['Pixel 7'] } },
+    { name: 'chromium-mobile-landscape', use: { ...devices['Pixel 7'], viewport: { width: 915, height: 412 } } },
+  ],
+  webServer: {
+    command: webServerCommand,
+    cwd: process.cwd(),
+    url: baseURL,
+    reuseExistingServer: !process.env.CI,
+    timeout: 120_000,
+  },
+});

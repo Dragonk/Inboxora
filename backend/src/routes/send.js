@@ -8,6 +8,7 @@ import { sanitizeSignature, sanitizeComposeBody } from '../services/emailSanitiz
 import { embedInlineDataImages } from '../utils/inlineImages.js';
 import { redisClient } from '../services/redis.js';
 import { redactEmail } from '../utils/redact.js';
+import { resolveSentFolder } from '../utils/mailUtils.js';
 import { generateVCard } from '../utils/vcard.js';
 import { createAccountSmtpTransport } from '../services/smtpTransport.js';
 import { imapManager } from '../index.js';
@@ -58,22 +59,68 @@ function buildSentSnippet(body, bodyIsHtml) {
   return bodyToPlain(body, bodyIsHtml).replace(/\s+/g, ' ').trim().substring(0, 200);
 }
 
-function scheduleSentMetadataUpsert(account, sentFolder, mailOptions, meta) {
-  if (!sentFolder || !mailOptions.messageId) return;
-  setImmediate(async () => {
-    for (const delay of [3000, 10000, 20000]) {
-      await new Promise(r => setTimeout(r, delay));
-      try {
-        const uid = await imapManager.findUidByMessageId(account, sentFolder, mailOptions.messageId);
-        if (uid) {
-          await imapManager.upsertSentMessageRecord(account, sentFolder, uid, meta);
-          return;
-        }
-      } catch (err) {
-        console.warn('Post-send sent metadata upsert failed:', err.message);
+// OAuth providers are expected to add a Sent copy themselves, but that is a
+// provider behaviour rather than an SMTP guarantee. Verify it by the stable
+// Message-ID, then append the exact CRLF MIME message once if it never appears.
+// The fallback is deliberately not retried: IMAP APPEND is not idempotent and a
+// timed-out first APPEND might still have reached the server.
+export async function ensureServerAutoSavedSentCopy({
+  account,
+  sentFolder,
+  messageId,
+  rawMessage,
+  sentMeta,
+  manager = imapManager,
+  delays = [3000, 10000, 20000],
+  sleep = (delay) => new Promise(resolve => setTimeout(resolve, delay)),
+}) {
+  if (!sentFolder || !messageId || !rawMessage) return { saved: false, appended: false };
+
+  let verificationFailed = false;
+  for (const delay of delays) {
+    await sleep(delay);
+    try {
+      const result = await manager.findSentMessageByMessageId(account, sentFolder, messageId);
+      if (result.state === 'found') {
+        if (sentMeta) await manager.upsertSentMessageRecord(account, sentFolder, result.uid, sentMeta);
+        return { saved: true, appended: false };
       }
+      if (result.state === 'ambiguous') verificationFailed = true;
+    } catch (err) {
+      verificationFailed = true;
+      console.warn('Post-send Sent-copy verification failed:', err.message);
     }
-  });
+  }
+
+  // An IMAP error means "unknown", not "absent". APPEND only after every
+  // lookup completed and confirmed absence, otherwise a late provider copy
+  // could be duplicated when connectivity recovers.
+  if (verificationFailed) return { saved: false, appended: false };
+
+  // Close the practical gap after the delayed observations: a provider can
+  // materialize its Sent copy just after the final timer fires. This cannot be
+  // made fully atomic across independent SMTP and IMAP servers, but it prevents
+  // the ordinary late-visibility race without ever appending on uncertainty.
+  try {
+    const finalResult = await manager.findSentMessageByMessageId(account, sentFolder, messageId);
+    if (finalResult.state === 'found') {
+      if (sentMeta) await manager.upsertSentMessageRecord(account, sentFolder, finalResult.uid, sentMeta);
+      return { saved: true, appended: false };
+    }
+    if (finalResult.state !== 'missing') return { saved: false, appended: false };
+  } catch (err) {
+    console.warn('Post-send final Sent-copy verification failed:', err.message);
+    return { saved: false, appended: false };
+  }
+
+  try {
+    const { uid } = await manager.appendToSent(account, sentFolder, rawMessage);
+    if (uid && sentMeta) await manager.upsertSentMessageRecord(account, sentFolder, uid, sentMeta);
+    return { saved: true, appended: true };
+  } catch (err) {
+    console.error(`Post-send Sent-copy fallback APPEND failed for ${redactEmail(account.email_address)}/${sentFolder}: ${err.message}`);
+    return { saved: false, appended: true };
+  }
 }
 
 // Reject any recipient address that contains newlines, null bytes, or looks
@@ -159,6 +206,7 @@ router.post('/send', async (req, res) => {
 
   if (forwardedAttachments !== undefined) {
     if (!Array.isArray(forwardedAttachments)) return res.status(400).json({ error: 'forwardedAttachments must be an array' });
+    if (forwardedAttachments.length > 100) return res.status(400).json({ error: 'Too many forwarded attachments (max 100)' });
     for (const [i, fa] of forwardedAttachments.entries()) {
       if (typeof fa.messageId !== 'string' || !UUID_RE.test(fa.messageId)) return res.status(400).json({ error: `forwardedAttachments[${i}].messageId is invalid` });
       if (typeof fa.part !== 'string' || !fa.part.trim()) return res.status(400).json({ error: `forwardedAttachments[${i}].part is required` });
@@ -215,39 +263,62 @@ router.post('/send', async (req, res) => {
   let resolvedFwdAttachments = [];
   if (forwardedAttachments?.length) {
     try {
-      resolvedFwdAttachments = await Promise.all(forwardedAttachments.map(async (fa) => {
-        const msgResult = await query(
-          `SELECT m.uid, m.folder, m.attachments, m.account_id FROM messages m
-           JOIN email_accounts a ON m.account_id = a.id
-           WHERE m.id = $1 AND a.user_id = $2`,
-          [fa.messageId, req.session.userId]
-        );
-        if (!msgResult.rows.length) throw Object.assign(new Error('Forwarded message not found'), { status: 404 });
-        const msg = msgResult.rows[0];
+      // Resolve every referenced message in a SINGLE ownership-scoped query so a large
+      // forwardedAttachments array can't fan out into one DB round-trip per entry.
+      const distinctMsgIds = [...new Set(forwardedAttachments.map(fa => fa.messageId))];
+      const msgRows = await query(
+        `SELECT m.id, m.uid, m.folder, m.attachments, m.account_id FROM messages m
+         JOIN email_accounts a ON m.account_id = a.id
+         WHERE m.id = ANY($1::uuid[]) AND a.user_id = $2`,
+        [distinctMsgIds, req.session.userId]
+      );
+      const msgById = new Map(msgRows.rows.map(m => [m.id, m]));
 
+      // Build the fetch plan (one entry per requested attachment, order preserved) and sum the
+      // DECLARED sizes so an oversized batch is rejected BEFORE any IMAP fetch happens.
+      const uploadedBytes = (attachments || []).reduce(
+        (sum, a) => sum + (typeof a.content === 'string' ? Math.ceil(a.content.length * 0.75) : 0), 0
+      );
+      let declaredFwdBytes = 0;
+      const fetchPlan = forwardedAttachments.map((fa) => {
+        const msg = msgById.get(fa.messageId);
+        if (!msg) throw Object.assign(new Error('Forwarded message not found'), { status: 404 });
         const storedAtts = typeof msg.attachments === 'string'
           ? JSON.parse(msg.attachments || '[]')
           : (msg.attachments || []);
         const att = storedAtts.find(a => a.part === fa.part);
         if (!att) throw Object.assign(new Error('Attachment not found in message'), { status: 404 });
+        declaredFwdBytes += Number(att.size) || 0;
+        return { msg, att };
+      });
+      if (uploadedBytes + declaredFwdBytes > 26_214_400) {
+        return res.status(400).json({ error: 'Total attachment size exceeds 25 MB' });
+      }
 
-        const accResult = await query('SELECT * FROM email_accounts WHERE id = $1', [msg.account_id]);
-        if (!accResult.rows.length) throw Object.assign(new Error('Account not found'), { status: 404 });
+      // Load the owning accounts once, then fetch bodies with bounded concurrency so we never
+      // open a burst of fresh IMAP connections (fetchAttachment opens a connection per call).
+      const distinctAcctIds = [...new Set(fetchPlan.map(p => p.msg.account_id))];
+      const acctRows = await query('SELECT * FROM email_accounts WHERE id = ANY($1::uuid[])', [distinctAcctIds]);
+      const acctById = new Map(acctRows.rows.map(a => [a.id, a]));
 
-        const buffer = await imapManager.fetchAttachment(accResult.rows[0], msg.uid, msg.folder, fa.part);
-        if (!buffer) throw Object.assign(new Error(`Could not fetch attachment: ${att.filename}`), { status: 502 });
+      const FWD_FETCH_CONCURRENCY = 4;
+      for (let i = 0; i < fetchPlan.length; i += FWD_FETCH_CONCURRENCY) {
+        const batch = fetchPlan.slice(i, i + FWD_FETCH_CONCURRENCY);
+        const fetched = await Promise.all(batch.map(async ({ msg, att }) => {
+          const acct = acctById.get(msg.account_id);
+          if (!acct) throw Object.assign(new Error('Account not found'), { status: 404 });
+          const buffer = await imapManager.fetchAttachment(acct, msg.uid, msg.folder, att.part);
+          if (!buffer) throw Object.assign(new Error(`Could not fetch attachment: ${att.filename}`), { status: 502 });
+          return {
+            filename: sanitizeHeaderValue(att.filename || 'attachment'),
+            content: buffer,
+            contentType: att.type || 'application/octet-stream',
+          };
+        }));
+        resolvedFwdAttachments.push(...fetched);
+      }
 
-        return {
-          filename: sanitizeHeaderValue(att.filename || 'attachment'),
-          content: buffer,
-          contentType: att.type || 'application/octet-stream',
-        };
-      }));
-
-      // Combined size check: user uploads + forwarded content
-      const uploadedBytes = (attachments || []).reduce(
-        (sum, a) => sum + (typeof a.content === 'string' ? Math.ceil(a.content.length * 0.75) : 0), 0
-      );
+      // Exact backstop: declared sizes can under-report, so re-check against fetched bytes.
       const fwdBytes = resolvedFwdAttachments.reduce((sum, a) => sum + (a.content?.length || 0), 0);
       if (uploadedBytes + fwdBytes > 26_214_400) {
         return res.status(400).json({ error: 'Total attachment size exceeds 25 MB' });
@@ -294,7 +365,11 @@ router.post('/send', async (req, res) => {
 
     if (inReplyTo) {
       mailOptions.inReplyTo = sanitizeHeaderValue(inReplyTo);
-      // Use the full prior references chain if available; fall back to just inReplyTo.
+    }
+    // References is valid and useful even when In-Reply-To is absent. Preserve
+    // the complete ordered chain independently so RFC-only References replies
+    // remain attached to the existing Conversation after Sent ingest.
+    if (references || inReplyTo) {
       mailOptions.references = sanitizeHeaderValue(references || inReplyTo);
     }
     const allAttachments = [
@@ -313,26 +388,28 @@ router.post('/send', async (req, res) => {
     // OAuth providers (Gmail, Microsoft) save sent mail to IMAP automatically via their
     // servers — skip APPEND and sync after a delay.  All other accounts use direct IMAP
     // APPEND so sent mail reliably appears regardless of what the SMTP server does.
-    const serverAutoSaves = !!account.oauth_provider;
+    // Gmail may server-save Sent even when authenticated with an app password;
+    // OAuth configuration alone is not a reliable capability signal. Gmail's
+    // provider policy therefore avoids a second local APPEND and relies on the
+    // bounded metadata/search re-observation path below.
+    const serverAutoSaves = !!account.oauth_provider || /gmail/i.test(account.imap_host || account.smtp_host || '');
 
-    // For servers that don't auto-save, generate the raw MIME now so we can APPEND it.
+    // Generate CRLF MIME now. Non-auto-saving servers use it immediately; the
+    // auto-save path retains it for a verified fallback when the provider fails
+    // to materialize a Sent copy.
     // Use CRLF newlines ('windows'): RFC 5322 / IMAP APPEND require CRLF. A bare-LF message is
     // stored verbatim by strict servers (e.g. PurelyMail/Dovecot), and downstream clients then
     // mis-parse the headers — the reporter saw Subject and the To display-name dropped (#365). This
-    // only affects non-OAuth accounts (OAuth servers auto-save and skip this path); the SMTP-
     // delivered copy uses a separate transport that is already CRLF, so only the Sent copy was wrong.
-    let rawMessage = null;
-    if (!serverAutoSaves) {
-      const streamTransport = nodemailer.createTransport({ streamTransport: true, newline: 'windows' });
-      const streamInfo = await streamTransport.sendMail(mailOptions);
-      const chunks = [];
-      await new Promise((resolve, reject) => {
-        streamInfo.message.on('data', c => chunks.push(Buffer.isBuffer(c) ? c : Buffer.from(c)));
-        streamInfo.message.on('end', resolve);
-        streamInfo.message.on('error', reject);
-      });
-      rawMessage = Buffer.concat(chunks);
-    }
+    const streamTransport = nodemailer.createTransport({ streamTransport: true, newline: 'windows' });
+    const streamInfo = await streamTransport.sendMail(mailOptions);
+    const chunks = [];
+    await new Promise((resolve, reject) => {
+      streamInfo.message.on('data', c => chunks.push(Buffer.isBuffer(c) ? c : Buffer.from(c)));
+      streamInfo.message.on('end', resolve);
+      streamInfo.message.on('error', reject);
+    });
+    const rawMessage = Buffer.concat(chunks);
 
     // Reserve the idempotency key atomically right before delivery so a concurrent
     // same-key submit cannot also send (the post-send cache alone can't stop concurrent
@@ -415,15 +492,9 @@ router.post('/send', async (req, res) => {
       });
     }
 
-    // Get the Sent folder path (manual mapping takes priority over special_use auto-detect)
-    let sentFolder = account.folder_mappings?.sent || null;
-    if (!sentFolder) {
-      const folderResult = await query(
-        "SELECT path FROM folders WHERE account_id = $1 AND special_use = '\\Sent' LIMIT 1",
-        [accountId]
-      );
-      sentFolder = folderResult.rows[0]?.path || null;
-    }
+    // Get the Sent folder path (manual mapping takes priority over special_use auto-detect,
+    // but a mapping pointing at a non-selectable folder is ignored in favour of \Sent — #386).
+    const sentFolder = await resolveSentFolder(accountId, account.folder_mappings);
     console.log(`Post-send: ${redactEmail(account.email_address)} sentFolder=${sentFolder} autoSaves=${serverAutoSaves}`);
 
     // sentCopySaved: null = not applicable (server auto-saves, or no Sent folder resolved);
@@ -439,10 +510,14 @@ router.post('/send', async (req, res) => {
       cc: mapRecipientList(normalizedCc),
       snippet: buildSentSnippet(body, bodyIsHtml),
       date: new Date(),
+      // Carried so the Sent row threads into its conversation via the References chain
+      // rather than orphaning at its own Message-ID (#378).
+      inReplyTo: mailOptions.inReplyTo || null,
+      references: mailOptions.references || null,
     } : null;
 
     if (sentFolder) {
-      if (rawMessage) {
+      if (!serverAutoSaves) {
         // Non-auto-saving account: APPEND the Sent copy ourselves — exactly ONCE. IMAP
         // APPEND is NOT idempotent (unlike a \Seen flag), so we must not retry: a retry
         // whose first attempt merely timed out (but still lands on the server) would store
@@ -481,21 +556,22 @@ router.post('/send', async (req, res) => {
           }, 8000);
         }
       } else {
-        // Server auto-saves via SMTP; seed metadata once the Sent copy is searchable.
-        if (sentMeta) scheduleSentMetadataUpsert(account, sentFolder, mailOptions, sentMeta);
-        // Server auto-saves via SMTP; just sync after a delay. Two attempts because the
-        // provider (e.g. Gmail) can be slow to expose the sent message; the 3s pass usually
-        // catches it, the 15s pass is the safety net. GTD transitions run after each: the 3s
-        // attempt may miss (Sent copy not yet visible → empty thread set → no-op) and the 15s
-        // attempt then catches it; if 3s already stripped, 15s is an idempotent no-op.
-        const syncAttempt = (label) => imapManager.syncFolderOnDemand(account, sentFolder)
-          .then(() => {
-            console.log(`Post-send ${label} sync done: ${redactEmail(account.email_address)}/${sentFolder}`);
-            return pluginRegistry.runHook('onSentMessage', { imapManager: imapManager.pluginFacade, account, messageId: mailOptions.messageId });
-          })
-          .catch(e => console.error(`Post-send ${label} sync failed: ${e.message}`));
-        setTimeout(() => syncAttempt('3s'), 3000);
-        setTimeout(() => syncAttempt('15s'), 15000);
+        // Verify provider autosave before falling back to exactly one APPEND. This keeps
+        // OAuth/Gmail accounts free of routine duplicates while preventing a delivered
+        // message from being absent in another IMAP client when provider autosave fails.
+        setImmediate(() => {
+          ensureServerAutoSavedSentCopy({
+            account,
+            sentFolder,
+            messageId: mailOptions.messageId,
+            rawMessage,
+            sentMeta,
+          }).then(result => {
+            if (!result.saved) return;
+            return imapManager.syncFolderOnDemand(account, sentFolder)
+              .then(() => pluginRegistry.runHook('onSentMessage', { imapManager: imapManager.pluginFacade, account, messageId: mailOptions.messageId }));
+          }).catch(err => console.error(`Post-send Sent-copy verification failed: ${err.message}`));
+        });
       }
     }
 
@@ -503,6 +579,9 @@ router.post('/send', async (req, res) => {
     // Surface only the problem case so existing success handling is unchanged; the UI warns
     // when a delivered message could not be saved to the account's Sent folder.
     if (sentCopySaved === false) sendResult.sentCopySaved = false;
+    // Tell the client which Sent folder we actually resolved to, so its post-send "View"
+    // navigates to the real folder rather than recomputing from a possibly-stale mapping (#386).
+    if (sentFolder) sendResult.sentFolder = sentFolder;
     // Overwrite the in-flight reservation with the final result so a retry after a lost
     // response returns this instead of re-sending.
     if (idemKeyRedis) redisClient.set(idemKeyRedis, JSON.stringify(sendResult), { EX: 86400 }).catch(() => {});

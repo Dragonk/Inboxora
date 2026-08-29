@@ -19,10 +19,14 @@ const OUTPUT_LIMIT_CHARS = 2 * 1024 * 1024;
 const DEFAULT_TIMEOUT_MS = 60_000;
 
 export class AiProviderError extends Error {
-  constructor(message, { status = 503 } = {}) {
+  // `expose` marks an error whose message is safe to show the caller (already
+  // secret-redacted and sanitized) — provider-originated failures set it so the
+  // admin sees the real reason instead of a generic message, even on a 5xx.
+  constructor(message, { status = 503, expose = false } = {}) {
     super(message);
     this.name = 'AiProviderError';
     this.status = status;
+    this.expose = expose;
   }
 }
 
@@ -82,16 +86,16 @@ function providerError(status, text, secrets = []) {
   const parsed = parseJson(text);
   const raw = typeof parsed?.error === 'string' ? parsed.error : parsed?.error?.message;
   const detail = sanitizeText(redactSecrets(raw || text, secrets));
-  return new AiProviderError(`AI provider error (${status})${detail ? `: ${detail}` : ''}`, { status: 502 });
+  return new AiProviderError(`AI provider error (${status})${detail ? `: ${detail}` : ''}`, { status: 502, expose: true });
 }
 
 function providerRequestError(error, request, callerSignal) {
-  if (request.timedOut()) return new AiProviderError('AI provider request timed out', { status: 504 });
-  if (callerSignal?.aborted) return new AiProviderError('AI provider request was aborted', { status: 499 });
+  if (request.timedOut()) return new AiProviderError('AI provider request timed out', { status: 504, expose: true });
+  if (callerSignal?.aborted) return new AiProviderError('AI provider request was aborted', { status: 499, expose: true });
   if (error instanceof AiProviderError) return error;
   return new AiProviderError(
     `AI provider request failed: ${sanitizeText(error?.message) || 'network error'}`,
-    { status: 502 },
+    { status: 502, expose: true },
   );
 }
 
@@ -220,7 +224,7 @@ export function createAiProvider({
     return headers;
   }
 
-  async function completeApiKey(config, messages, { signal, maxTokens } = {}) {
+  async function completeApiKey(config, messages, { signal, maxTokens, allowEmpty = false } = {}) {
     const apiKey = apiKeyCredential(config);
     const body = {
       model: config.apiKeyConfig.model,
@@ -239,9 +243,24 @@ export function createAiProvider({
       const text = await readLimited(response, response.ok ? JSON_BODY_LIMIT_BYTES : ERROR_BODY_LIMIT_BYTES);
       if (!response.ok) throw providerError(response.status, text, [apiKey]);
       const parsed = parseJson(text);
-      const content = parsed?.choices?.[0]?.message?.content;
-      if (typeof content !== 'string') throw new AiProviderError('AI provider returned an invalid completion', { status: 502 });
-      return content;
+      const choice = parsed?.choices?.[0];
+      const content = choice?.message?.content;
+      if (typeof content === 'string') return content;
+      // A reasoning model — or any turn truncated by max_tokens — can return a
+      // null `content`: the output went entirely to reasoning, or the budget was
+      // spent before any text was emitted. That is a well-formed response, not a
+      // transport failure. Callers that only need to confirm the endpoint works
+      // (the connection test) accept it as empty; real completions surface the
+      // finish reason instead of a generic error.
+      if (choice && content == null) {
+        if (allowEmpty) return '';
+        const reason = typeof choice.finish_reason === 'string' ? choice.finish_reason : 'unknown';
+        throw new AiProviderError(
+          `AI provider returned an empty completion (finish_reason: ${reason})`,
+          { status: 502, expose: true },
+        );
+      }
+      throw new AiProviderError('AI provider returned an invalid completion', { status: 502, expose: true });
     } catch (error) {
       throw providerRequestError(error, request, signal);
     } finally {
@@ -343,7 +362,14 @@ export function createAiProvider({
   }
 
   async function testAiProvider() {
-    await completeText([{ role: 'user', content: 'Reply with only the word "ok".' }], { maxTokens: 5 });
+    // The connection test only needs to prove the endpoint is reachable, the key
+    // is accepted, and the model returns a well-formed completion. `allowEmpty`
+    // keeps it from failing on reasoning models that spend the small token budget
+    // on reasoning and return empty content (see completeApiKey).
+    await completeText(
+      [{ role: 'user', content: 'Reply with only the word "ok".' }],
+      { maxTokens: 16, allowEmpty: true },
+    );
     return { ok: true };
   }
 
