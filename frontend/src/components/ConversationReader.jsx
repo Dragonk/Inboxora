@@ -17,7 +17,7 @@ import { useStore } from '../store/index.js';
 // CE detail enriches this data (logical identity, manual overrides) but incomplete CE
 // state MUST NOT silently reduce 3 native thread messages to 1 reader card. Each unique
 // real message gets one reader card; CE metadata is attached when it exists.
-export default function ConversationReader({ conversationId, targetLogicalMessageId = null, selectedCopyId = null, selectedAccountId = null, accounts = [], onReply, nativeThreadId = null, nativeFolder = null }) {
+export default function ConversationReader({ conversationId, targetLogicalMessageId = null, selectedCopyId = null, selectedAccountId = null, accounts = [], onReply, nativeThreadId = null, nativeThreadCacheId = null, nativeFolder = null }) {
   const { t } = useTranslation();
   const [data, setData] = useState(null);
   const [error, setError] = useState(null);
@@ -36,6 +36,7 @@ export default function ConversationReader({ conversationId, targetLogicalMessag
   const automaticScrollRef = useRef(false);
   const [activeTargetLogicalId, setActiveTargetLogicalId] = useState(null);
   const updateMessage = useStore(state => state.updateMessage);
+  const setThreadMessages = useStore(state => state.setThreadMessages);
 
   useEffect(() => {
     let active = true;
@@ -55,6 +56,10 @@ export default function ConversationReader({ conversationId, targetLogicalMessag
       : Promise.resolve([]);
     Promise.all([cePromise, nativePromise]).then(([ceResult, nativeMessages]) => {
       if (!active) return;
+      // updateMessage derives the parent list row's aggregate read state from this
+      // native cache. Without it, ConversationReader marks child copies read but
+      // leaves its collapsed parent row unread until the next list refresh.
+      if (nativeThreadCacheId && nativeMessages.length) setThreadMessages(nativeThreadCacheId, nativeMessages);
       const ceLogicalMessages = ceResult?.logicalMessages || [];
       const nativeReaderMessages = nativeThreadToReaderMessages(nativeMessages, selectedAccountId);
       // Native children are primary; CE enriches. If native is empty (no thread_key or
@@ -72,7 +77,7 @@ export default function ConversationReader({ conversationId, targetLogicalMessag
     }).catch(reason => active && setError(reason.message || t('conversation.loadFailed')));
     const controllers = aborters.current;
     return () => { active = false; for (const controller of controllers.values()) controller.abort(); controllers.clear(); };
-  }, [conversationId, targetLogicalMessageId, nativeThreadId, nativeFolder, selectedAccountId, selectedCopyId, t]);
+  }, [conversationId, targetLogicalMessageId, nativeThreadId, nativeThreadCacheId, nativeFolder, selectedAccountId, selectedCopyId, setThreadMessages, t]);
 
   const messages = useMemo(() => data?.logicalMessages || [], [data]);
   const refresh = useCallback(() => conversationApi.detail(conversationId).then(setData), [conversationId]);

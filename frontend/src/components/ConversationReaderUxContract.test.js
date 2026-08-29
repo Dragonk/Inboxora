@@ -26,6 +26,17 @@ describe('conversation reader final UX contract', () => {
     assert.doesNotMatch(reader, /for \(const message of messages\)/);
   });
 
+  it('keeps the native thread cache synchronized so list-row read state updates immediately', () => {
+    const reader = read('ConversationReader.jsx');
+    const pane = read('MessagePane.jsx');
+    const app = read('MailApp.jsx');
+    assert.match(app, /const \[nativeThreadCacheId, setNativeThreadCacheId\] = useState\(null\)/);
+    assert.match(app, /setNativeThreadCacheId\(selected\?\.thread_id \|\| threadKey\)/);
+    assert.match(pane, /nativeThreadCacheId=\{nativeThreadCacheId\}/);
+    assert.match(reader, /const setThreadMessages = useStore\(state => state\.setThreadMessages\)/);
+    assert.match(reader, /if \(nativeThreadCacheId && nativeMessages\.length\) setThreadMessages\(nativeThreadCacheId, nativeMessages\)/);
+  });
+
   it('positions each navigation target once in the reader scroll container', () => {
     const reader = read('ConversationReader.jsx');
     assert.match(reader, /useLayoutEffect/);
