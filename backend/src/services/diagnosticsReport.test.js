@@ -101,6 +101,12 @@ describe('buildServerReport', () => {
           { account_id: 'acct-2', name: 'INBOX', special_use: null, total_count: 10, unread_count: 2 },
         ] });
       }
+      if (/FROM messages m/.test(sql)) {
+        return Promise.resolve({ rows: [
+          { account_id: 'acct-1', count: 3 },
+          { account_id: 'acct-2', count: 2 },
+        ] });
+      }
       return Promise.resolve({ rows: [{ '?column?': 1 }] }); // SELECT 1 health
     });
 
@@ -153,5 +159,38 @@ describe('buildServerReport', () => {
     // connection stats present
     expect(report.connection.broadcastCounts.new_messages).toBe(6);
     expect(report.connection.wsConnects).toBe(4);
+  });
+});
+
+describe('buildServerReport — unread counts INBOX only', () => {
+  beforeEach(() => query.mockReset());
+
+  it('ignores Spam/Junk unread, so the report agrees with the app badge', async () => {
+    query.mockImplementation((sql) => {
+      if (/FROM email_accounts WHERE user_id/.test(sql)) return Promise.resolve({ rows: [
+        { id: 'acct-1', protocol: 'imap', oauth_provider: null, imap_host: 'imap.gmail.com', enabled: true, include_in_unified_inbox: true, last_sync: new Date().toISOString(), sync_error: null },
+      ] });
+      if (/FROM folders f JOIN/.test(sql)) return Promise.resolve({ rows: [
+        { account_id: 'acct-1', name: 'INBOX', special_use: null, total_count: 697, unread_count: 0 },
+        { account_id: 'acct-1', name: 'Spam', special_use: '\\Junk', total_count: 16, unread_count: 16 },
+      ] });
+      if (/FROM messages m/.test(sql)) return Promise.resolve({ rows: [] });
+      return Promise.resolve({ rows: [{ '?column?': 1 }] });
+    });
+
+    const report = await buildServerReport('user-9', 'deadbeefdeadbeef');
+    expect(report.counts.unreadTotal).toBe(0);
+    expect(report.accounts[0].unread).toBe(0);
+    expect(report.folders.find(f => f.name === 'Spam').unread).toBe(16);
+  });
+
+  it('queries only INBOX unread rows for the requesting user', async () => {
+    query.mockResolvedValue({ rows: [] });
+    await buildServerReport('user-9', 'deadbeefdeadbeef');
+    const unreadCall = query.mock.calls.find(c => /FROM messages m/.test(c[0]));
+    expect(unreadCall).toBeTruthy();
+    expect(unreadCall[0]).toMatch(/a\.user_id = \$1/);
+    expect(unreadCall[0]).toMatch(/m\.folder = 'INBOX'/);
+    expect(unreadCall[1]).toEqual(['user-9']);
   });
 });

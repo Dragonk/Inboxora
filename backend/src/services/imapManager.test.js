@@ -1736,3 +1736,29 @@ describe('_recordAccountError / _clearAccountError', () => {
     expect(query).toHaveBeenCalledTimes(1);
   });
 });
+
+describe('syncMessages — empty mailbox still stamps last_sync', () => {
+  beforeEach(() => { query.mockReset(); query.mockResolvedValue({ rows: [] }); });
+
+  const emptyMailboxAccount = {
+    id: 'acct-empty', user_id: 'user-1', email_address: 'new@example.com', imap_host: 'imap.example.com',
+  };
+
+  it('stamps last_sync when the server reports an empty mailbox', async () => {
+    const client = {
+      getMailboxLock: vi.fn().mockResolvedValue({ release: vi.fn() }),
+      mailbox: { exists: 0 },
+    };
+    const result = await ImapManager.prototype.syncMessages.call({}, emptyMailboxAccount, client, 'INBOX', 50, false, true);
+    expect(result).toEqual({ insertedCount: 0, broadcastedNewMessages: false });
+    const stamps = query.mock.calls.filter(c => /UPDATE email_accounts SET last_sync/.test(c[0]));
+    expect(stamps).toHaveLength(1);
+    expect(stamps[0][1]).toEqual(['acct-empty']);
+  });
+
+  it('does not stamp when the mailbox object is missing', async () => {
+    const client = { getMailboxLock: vi.fn().mockResolvedValue({ release: vi.fn() }), mailbox: null };
+    await ImapManager.prototype.syncMessages.call({}, emptyMailboxAccount, client, 'INBOX', 50, false, true);
+    expect(query.mock.calls.filter(c => /UPDATE email_accounts SET last_sync/.test(c[0]))).toHaveLength(0);
+  });
+});

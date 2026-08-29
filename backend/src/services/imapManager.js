@@ -215,6 +215,12 @@ export function isConnectionRefusal(detail) {
   return /connection not available|too many|maximum number|number of connections|rate.?limit|temporarily|try again|connection limit|over quota|throttl|connect timeout/i.test(String(detail || ''));
 }
 
+// Keep confirmed-empty and non-empty sync exits consistent. A missing mailbox is
+// intentionally not stamped: it is an unknown state, not a successful sync.
+async function stampLastSync(accountId) {
+  await query('UPDATE email_accounts SET last_sync = NOW() WHERE id = $1', [accountId]);
+}
+
 // Exponential backoff for consecutive connection refusals: 30s, 60s, 120s, 240s, 480s, …
 // capped at CONNECT_COOLDOWN_MAX_MS.
 export function connectCooldownMs(failures) {
@@ -2623,7 +2629,10 @@ export class ImapManager {
       const lock = await client.getMailboxLock(folder);
       try {
         const mailbox = client.mailbox;
-        if (!mailbox || mailbox.exists === 0) return { insertedCount: 0, broadcastedNewMessages: false };
+        if (!mailbox || mailbox.exists === 0) {
+          if (mailbox) await stampLastSync(account.id);
+          return { insertedCount: 0, broadcastedNewMessages: false };
+        }
 
         // UIDVALIDITY check — detects server-side mailbox rebuilds (migration, restore).
         // If UIDVALIDITY changed, all stored UIDs for this folder are invalid; purge them
@@ -3175,7 +3184,7 @@ export class ImapManager {
            WHERE account_id = $1 AND path = $2`,
           [account.id, folder]
         );
-        await query('UPDATE email_accounts SET last_sync = NOW() WHERE id = $1', [account.id]);
+        await stampLastSync(account.id);
         return { insertedCount, broadcastedNewMessages };
       } finally {
         lock.release();
