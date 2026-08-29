@@ -11,8 +11,11 @@ test.describe('real MailFlow conversation browser E2E', () => {
     await expect(page.getByText('Gmail reply chain', { exact: true }).first()).toBeVisible();
     await expect(page.getByText('Outlook conversation', { exact: true }).first()).toBeVisible();
     await expect(page.getByText('Fastmail generic IMAP', { exact: true }).first()).toBeVisible();
-    await expect(page.getByRole('button', { name: /Rozwiń|Zwiń|Expand|Collapse/i }).first()).toBeVisible();
-    const goldenRow = page.getByRole('button', { name: /Rozwiń rozmowę: Golden conversation thread|Expand conversation: Golden conversation thread/i });
+    const goldenRow = page
+      .locator('[data-msgid]')
+      .filter({ hasText: 'Golden conversation thread' })
+      .locator('[data-thread-row-parent="true"]');
+    await expect(goldenRow).toBeVisible();
     await goldenRow.click();
     // The list is intentionally folder-scoped (the real app starts in Inbox),
     // so only the two Inbox logical messages are previewed there. Opening the
@@ -24,6 +27,5 @@ test.describe('real MailFlow conversation browser E2E', () => {
     await expect(page.locator('[data-conversation-id] [data-logical-message-id]')).toHaveCount(5);
     await expect(page.locator('[data-conversation-id] [data-logical-message-id]').count()).resolves.toBeGreaterThan(0);
     await expect(page.locator('iframe').first().contentFrame().getByText(/Fixture body (?:1|2|3|4|5)/, { exact: false })).toBeVisible();
-    await page.getByRole('button', { name: /expand|rozwiń/i }).first().click().catch(() => {});
   });
 });
