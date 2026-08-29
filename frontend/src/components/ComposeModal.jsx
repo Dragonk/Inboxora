@@ -1,4 +1,5 @@
 import { useState, useRef, useEffect, useCallback, forwardRef } from 'react';
+import { shouldAutosave, isAutosaveDue } from '../utils/draftAutosave.js';
 import { useTranslation } from 'react-i18next';
 import DOMPurify from 'dompurify';
 import { useStore } from '../store/index.js';
@@ -321,6 +322,9 @@ export default function ComposeModal() {
   // Prevents the signature from being reset by a store refresh (same fromValue, accounts updated).
   const signatureInitializedRef = useRef(false);
   const prevFromValueRef = useRef(fromValue);
+  // Refs avoid a component render on every editor transaction.
+  const lastEditAtRef = useRef(Date.now());
+  const lastSaveAtRef = useRef(Date.now());
 
   const editor = useEditor({
     extensions: [
@@ -341,6 +345,7 @@ export default function ComposeModal() {
       Placeholder.configure({ placeholder: t('compose.bodyPh') }),
     ],
     content: composeData?.body || '',
+    onUpdate: () => { lastEditAtRef.current = Date.now(); },
     autofocus: (isReply || isForward) && !plaintextEmail ? 'start' : false,
     immediatelyRender: false,
     editorProps: {
@@ -836,7 +841,7 @@ export default function ComposeModal() {
     );
   };
 
-  const doSaveDraft = async ({ closeAfter = false } = {}) => {
+  const doSaveDraft = async ({ closeAfter = false, silent = false } = {}) => {
     const { accountId, aliasId } = resolveFrom(fromValue);
     if (!accountId) return;
     setSavingDraft(true);
@@ -890,7 +895,7 @@ export default function ComposeModal() {
         initialCcRef.current = normalizeTo([...ccChips, ...(pendingCc ? [pendingCc] : [])]);
         initialBccRef.current = normalizeTo([...bccChips, ...(pendingBcc ? [pendingBcc] : [])]);
         savedAttachmentCountRef.current = attachments.length + fwdAttachments.length;
-        addNotification({ title: t('compose.draftSaved'), body: subject || t('common.noSubject') });
+        if (!silent) addNotification({ title: t('compose.draftSaved'), body: subject || t('common.noSubject') });
       }
     } catch (err) {
       console.error('Save draft failed:', err.message);
@@ -898,6 +903,69 @@ export default function ComposeModal() {
       setSavingDraft(false);
     }
   };
+
+  // Compose state is local to this modal. Autosave preserves edits across a
+  // refresh/tab switch without running attachment prompts or noisy notifications.
+  const autosaveRef = useRef(null);
+  const autosaveInFlightRef = useRef(false);
+  useEffect(() => {
+    autosaveRef.current = { isDirty, doSaveDraft, sending, savingDraft, fromValue, resolveFrom,
+      dialogOpen: showCloseDialog || showDiscardSheet || showAttachWarnForDraft };
+  });
+
+  const runAutosave = useCallback(async () => {
+    try {
+      const state = autosaveRef.current;
+      if (!state || !shouldAutosave({
+        dirty: state.isDirty(),
+        hasAccount: Boolean(state.resolveFrom(state.fromValue).accountId),
+        sending: state.sending,
+        savingDraft: state.savingDraft,
+        inFlight: autosaveInFlightRef.current,
+        dialogOpen: state.dialogOpen,
+      })) return;
+      autosaveInFlightRef.current = true;
+      try {
+        await state.doSaveDraft({ silent: true });
+        lastSaveAtRef.current = Date.now();
+      } finally {
+        autosaveInFlightRef.current = false;
+      }
+    } catch (err) {
+      console.error('Draft autosave failed:', err?.message || err);
+    }
+  }, []);
+
+  const mountedRef = useRef(false);
+  useEffect(() => {
+    if (!mountedRef.current) { mountedRef.current = true; return; }
+    lastEditAtRef.current = Date.now();
+  }, [subject, toChips, ccChips, bccChips, toInput, ccInput, bccInput, body, htmlSource,
+      attachments, fwdAttachments, plaintextEmail, htmlMode]);
+
+  useEffect(() => {
+    const id = setInterval(() => {
+      if (isAutosaveDue({ now: Date.now(), lastEditAt: lastEditAtRef.current, lastSaveAt: lastSaveAtRef.current,
+        idleMs: AUTOSAVE_IDLE_MS, minGapMs: AUTOSAVE_MIN_GAP_MS, maxMs: AUTOSAVE_MAX_MS })) runAutosave();
+    }, AUTOSAVE_TICK_MS);
+    return () => clearInterval(id);
+  }, [runAutosave]);
+
+  useEffect(() => {
+    const onVisibility = () => { if (document.visibilityState === 'hidden') runAutosave(); };
+    document.addEventListener('visibilitychange', onVisibility);
+    return () => document.removeEventListener('visibilitychange', onVisibility);
+  }, [runAutosave]);
+
+  useEffect(() => {
+    const onBeforeUnload = (event) => {
+      if (!autosaveRef.current?.isDirty()) return;
+      event.preventDefault();
+      event.returnValue = '';
+    };
+    window.addEventListener('beforeunload', onBeforeUnload);
+    return () => window.removeEventListener('beforeunload', onBeforeUnload);
+  }, []);
 
   const handleSaveDraft = (closeAfter = false) => {
     if ((attachments.length > 0 || fwdAttachments.length > 0) && !showAttachWarnForDraft) {
@@ -2253,6 +2321,10 @@ const FontSize = Extension.create({
 });
 
 const DEFAULT_FONT_SIZE = '14px';
+const AUTOSAVE_TICK_MS = 5000;
+const AUTOSAVE_IDLE_MS = 5000;
+const AUTOSAVE_MIN_GAP_MS = 15000;
+const AUTOSAVE_MAX_MS = 30000;
 
 const FONT_SIZES = [
   { label: '10', value: '10px' },
