@@ -12,7 +12,7 @@ vi.mock('../utils/redact.js', () => ({ redactEmail: vi.fn() }));
 vi.mock('./hostValidation.js', () => ({ resolveForConnection: vi.fn() }));
 vi.mock('./connectionPolicy.js', () => ({ getConnectionPolicy: vi.fn() }));
 
-import { ImapManager, providerProfile, makeClientCfg, relocateExemptGuard, insertCopiedSibling, deleteMessageCopyRow, emitSectionsChanged, ensureMailbox, createKeyedSemaphore, isConnectionRefusal, connectCooldownMs, effectiveSyncIntervalMs, folderSyncDue, planModseqSync, connectStaggerFor, walkStructure, parsePersistentCap, resolvePersistentCap, persistentEligible, shouldRetryIPv4, classifyMoveBySearch } from './imapManager.js';
+import { ImapManager, providerProfile, makeClientCfg, relocateExemptGuard, insertCopiedSibling, deleteMessageCopyRow, emitSectionsChanged, ensureMailbox, createKeyedSemaphore, isConnectionRefusal, connectCooldownMs, effectiveSyncIntervalMs, folderSyncDue, planModseqSync, connectStaggerFor, walkStructure, looksLikeTextPayload, parsePersistentCap, resolvePersistentCap, persistentEligible, shouldRetryIPv4, classifyMoveBySearch } from './imapManager.js';
 import { pluginRegistry } from '../plugins/registry.js';
 import { EventEmitter } from 'node:events';
 import { ImapFlow } from 'imapflow';
@@ -156,6 +156,38 @@ describe('providerProfile — robustness', () => {
 
   it('is case-insensitive for host matching', () => {
     expect(providerProfile(account('IMAP.GMAIL.COM')).pushesFlags).toBe(false);
+  });
+});
+
+describe('looksLikeTextPayload', () => {
+  it.each([
+    '<p>Dzie=C5=84 dobry</p>',
+    '=3Cp=20class=3D"greeting"=3EDzie=\r\n=C5=84=3C/p=3E',
+    '&lt;article&gt;treść wiadomości&lt;/article&gt;',
+  ])('rejects literal HTML, quoted-printable HTML, and entity-encoded HTML: %s', payload => {
+    expect(looksLikeTextPayload(Buffer.from(payload, 'ascii'))).toBe(true);
+  });
+
+  it('does not reject binary image data containing generic quoted-printable or header-like bytes', () => {
+    const pngLikeBinary = Buffer.concat([
+      Buffer.from([0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A]),
+      Buffer.from('\r\nContent-Type:image/png <img src="cid:logo">', 'ascii'),
+    ]);
+    expect(looksLikeTextPayload(pngLikeBinary)).toBe(false);
+  });
+
+  it('does not reject unknown binary data with incidental HTML-looking bytes', () => {
+    const binaryWithHtml = Buffer.concat([
+      Buffer.alloc(64, 0),
+      Buffer.from('<p>incidental metadata</p>', 'ascii'),
+      Buffer.alloc(64, 0xFF),
+    ]);
+    expect(looksLikeTextPayload(binaryWithHtml)).toBe(false);
+  });
+
+  it('still recognizes MIME headers only at a header line boundary', () => {
+    expect(looksLikeTextPayload(Buffer.from('Content-Type: text/html\r\n\r\n<body>hello</body>', 'ascii'))).toBe(true);
+    expect(looksLikeTextPayload(Buffer.from('binary payload Content-Transfer-Encoding: base64', 'ascii'))).toBe(false);
   });
 });
 
