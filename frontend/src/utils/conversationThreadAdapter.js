@@ -96,7 +96,10 @@ export function conversationListToThreadRows(data) {
  * (DISTINCT ON), so one row here = one unique real message.
  */
 export function nativeThreadToReaderMessages(threadMessages, accountId) {
-  return (threadMessages || []).map((msg, index) => ({
+  const validMessages = Array.isArray(threadMessages)
+    ? threadMessages.filter(msg => msg && typeof msg === 'object' && msg.id)
+    : [];
+  return validMessages.map((msg, index) => ({
     id: msg.message_id || msg.id,
     subject: msg.subject,
     canonicalMessageId: msg.message_id,

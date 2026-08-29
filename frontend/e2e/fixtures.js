@@ -187,6 +187,7 @@ export const test = base.extend({
     });
     await page.route('**/api/mail/messages/*/conversation**', route => {
       const url = new URL(route.request().url());
+      if (page.__conversationResolutionFails) return route.fulfill({ status: 503, json: { detail: 'Conversation resolver unavailable' } });
       const copyId = url.pathname.split('/').at(-2);
       const match = copyId.match(/copy-(\d+)$/);
       const logicalIndex = match ? Math.min(Number(match[1]), Number(page.__conversationSize || 5)) : 1;
@@ -195,6 +196,7 @@ export const test = base.extend({
     await page.route('**/api/mail/messages*', route => {
       const url = new URL(route.request().url());
       if (url.pathname.endsWith('/conversation')) {
+        if (page.__conversationResolutionFails) return route.fulfill({ status: 503, json: { detail: 'Conversation resolver unavailable' } });
         const copyId = url.pathname.split('/').at(-2);
         const match = copyId.match(/copy-(\d+)$/);
         const logicalIndex = match ? Math.min(Number(match[1]), Number(page.__conversationSize || 5)) : 1;
@@ -202,10 +204,11 @@ export const test = base.extend({
       }
       if (/\/api\/mail\/messages\/[^/]+$/.test(url.pathname)) return route.fulfill({ json: { id: 'legacy-message-1', subject: 'Legacy fixture', is_read: true, account_id: 'account-gmail', folder: 'INBOX', date: new Date().toISOString(), from_email: 'sender@example.test', body_text: 'Fixture body legacy' } });
       const conversationSize = Number(page.__conversationSize || 5);
+      const unread = new Set(page.__unreadCopies || []);
       const messages = Array.from({ length: conversationSize }, (_, index) => {
         const number = index + 1;
         const outgoing = [2, 4].includes(number);
-        return { id: `conversation-gmail-copy-${number}`, subject: 'Gmail reply chain', is_read: true, account_id: 'account-gmail', folder: outgoing ? 'Sent' : 'INBOX', date: new Date(2026, 0, number).toISOString(), from_email: outgoing ? 'me@gmail.test' : 'sender@gmail.test', message_id: `<fixture-${number}>`, body_text: `Fixture body ${number}`, thread_id: 'conversation-gmail', thread_key: 'conversation-gmail', message_count: conversationSize };
+        return { id: `conversation-gmail-copy-${number}`, subject: 'Gmail reply chain', is_read: !unread.has(`conversation-gmail-copy-${number}`), account_id: 'account-gmail', folder: outgoing ? 'Sent' : 'INBOX', date: new Date(2026, 0, number).toISOString(), from_email: outgoing ? 'me@gmail.test' : 'sender@gmail.test', message_id: `<fixture-${number}>`, body_text: `Fixture body ${number}`, thread_id: page.__noNativeThread ? null : 'conversation-gmail', thread_key: page.__noNativeThread ? null : 'conversation-gmail', message_count: conversationSize };
       });
       const threaded = url.searchParams.get('threaded') === 'true';
       const largeMailbox = Number(page.__largeMailboxRows || 0);
@@ -221,6 +224,9 @@ export const test = base.extend({
     });
     await page.route('**/api/mail/thread/*', route => {
       const threadId = new URL(route.request().url()).pathname.split('/').at(-1);
+      if (page.__nativeThreadLoadFails) return route.fulfill({ status: 503, json: { detail: 'Native thread unavailable' } });
+      if (page.__nativeThreadEmpty) return route.fulfill({ json: { messages: [] } });
+      if (page.__nativeThreadMalformed) return route.fulfill({ json: { messages: {} } });
       if (threadId.startsWith('large-thread-')) {
         const index = threadId.slice('large-thread-'.length);
         return route.fulfill({ json: { messages: [

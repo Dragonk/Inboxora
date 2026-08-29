@@ -74,6 +74,7 @@ describe('safe email CSS contract', () => {
     const css = sanitizeEmailCss('.container { width: 600px; table-layout: fixed; background: #fff; } @media (max-width: 600px) { .container { width: 100%; } }');
     assert.match(css, /width: 600px/); assert.match(css, /@media/); assert.match(css, /width: 100%/);
     const doc = buildSrcDoc('<table width="600"><tr><td>newsletter</td></tr></table>');
+    assert.match(doc, /@media \(max-width: 767px\) \{ table \{ width: 100% !important; max-width: 100% !important; \} \}/);
     assert.doesNotMatch(doc, /table \{[^}]*width: auto/);
     assert.doesNotMatch(doc, /a \{ color: inherit/);
   });

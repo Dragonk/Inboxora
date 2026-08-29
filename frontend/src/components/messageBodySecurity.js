@@ -93,6 +93,7 @@ ${EMAIL_BASE_TAG}
      an oversized legacy newsletter must reflow or remain horizontally accessible. */
   html { margin: 0; padding: 0; max-width: 100%; overflow-x: auto; box-sizing: border-box; }
   body { margin: 0; padding: 8px; max-width: 100%; box-sizing: border-box; word-wrap: break-word; overflow-wrap: anywhere; }
+  @media (max-width: 767px) { table { width: 100% !important; max-width: 100% !important; } }
   img, svg, video, canvas { max-width: 100%; height: auto; }
   pre, code { max-width: 100%; white-space: pre-wrap; overflow-wrap: anywhere; word-break: break-word; }
   a { overflow-wrap: anywhere; word-break: break-word; }

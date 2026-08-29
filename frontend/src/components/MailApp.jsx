@@ -90,6 +90,14 @@ export default function MailApp() {
   // state never silently drops messages the native list shows.
   const [nativeThreadId, setNativeThreadId] = useState(null);
   const [nativeFolder, setNativeFolder] = useState(null);
+  const [nativeThreadUnavailableFor, setNativeThreadUnavailableFor] = useState(null);
+  const fallbackMarkReadTimerRef = useRef(null);
+  const selectedMessageIdRef = useRef(selectedMessageId);
+  useEffect(() => { selectedMessageIdRef.current = selectedMessageId; }, [selectedMessageId]);
+  const handleNativeThreadUnavailable = useCallback(() => {
+    setNativeThreadId(null);
+    setNativeThreadUnavailableFor(selectedMessageIdRef.current);
+  }, []);
 
   const replyFromConversation = useCallback(copy => {
     if (!copy) return;
@@ -129,6 +137,7 @@ export default function MailApp() {
     setTargetLogicalMessageId(null);
     setSelectedConversationCopy(null);
     setConversationResolutionError(null);
+    if (nativeThreadUnavailableFor !== selectedMessageId) setNativeThreadUnavailableFor(null);
     const selected = useStore.getState().messages.find(item => item.id === selectedMessageId)
       || Object.values(useStore.getState().threadMessages || {}).flat().find(item => item.id === selectedMessageId);
     // Preserve the exact physical selection before CE resolution. Expanded native
@@ -146,7 +155,7 @@ export default function MailApp() {
     // never reduces the reader below the native thread size.
     const threadKey = selected?.thread_key || selected?.thread_id || null;
     const threadAccount = selected?.account_id || null;
-    if (threadKey && threadAccount) {
+    if (threadKey && threadAccount && nativeThreadUnavailableFor !== selectedMessageId) {
       setNativeThreadId(threadKey);
       setNativeFolder(selected?.folder || 'INBOX');
     }
@@ -169,10 +178,51 @@ export default function MailApp() {
           // a message has not yet been ingested by the CE model.
           setConversationResolutionError(error.message || 'Conversation resolution failed');
           console.warn('Conversation reader resolution failed', error.message);
+          // MessageList deliberately defers automatic read ownership to the reader
+          // while CE resolution is pending. If neither CE nor a native thread can
+          // supply that reader, preserve the normal single-pane read behavior.
+          if (threadKey && nativeThreadUnavailableFor !== selectedMessageId) return;
+          const markFallbackRead = () => {
+            const state = useStore.getState();
+            if (selectedMessageIdRef.current !== selectedMessageId || state.selectedMessageId !== selectedMessageId) return;
+            const current = state.messages.find(item => item.id === selectedMessageId)
+              || Object.values(state.threadMessages || {}).flat().find(item => item.id === selectedMessageId);
+            if (!current || current.is_read || state.markReadBehavior === 'manual') return;
+            const previousUnreadCount = current.unread_count;
+            state.updateMessage(current.id, { is_read: true, unread_count: 0 });
+            state.decrementUnread(current.account_id);
+            state.adjustCategoryCount(current.category, -1);
+            state.adjustFolderUnread(current.account_id, current.folder, -1);
+            setPending(current.id, current.account_id);
+            api.bulkRead([current.id], true)
+              .then(() => {
+                pendingMarkReadMap.delete(current.id);
+                completedMarkReadMap.set(current.id, current.account_id);
+                setTimeout(() => completedMarkReadMap.delete(current.id), 10000);
+              })
+              .catch(readError => {
+                console.error('Fallback markRead failed:', readError.message);
+                state.updateMessage(current.id, { is_read: false, unread_count: previousUnreadCount });
+                state.incrementUnread(current.account_id);
+                state.adjustCategoryCount(current.category, 1);
+                state.adjustFolderUnread(current.account_id, current.folder, 1);
+                pendingMarkReadMap.delete(current.id);
+              });
+          };
+          if (useStore.getState().markReadBehavior === 'delay') {
+            clearTimeout(fallbackMarkReadTimerRef.current);
+            fallbackMarkReadTimerRef.current = setTimeout(markFallbackRead, useStore.getState().markReadDelay * 1000);
+          } else {
+            markFallbackRead();
+          }
         }
       });
-    return () => { cancelled = true; };
-  }, [conversationReaderViewEnabled, selectedMessageId]);
+    return () => {
+      cancelled = true;
+      clearTimeout(fallbackMarkReadTimerRef.current);
+      fallbackMarkReadTimerRef.current = null;
+    };
+  }, [conversationReaderViewEnabled, nativeThreadUnavailableFor, selectedMessageId]);
 
   // Auto-lock after inactivity (#235). MailApp only mounts while unlocked, so this
   // timer runs only when unlocked; hitting the timeout locks and unmounts this tree.
@@ -357,8 +407,6 @@ export default function MailApp() {
   // native back gesture (iOS swipe, Android back button) pops an in-app state
   // instead of leaving MailFlow entirely.
   const prevMessageIdRef = useRef(selectedMessageId);
-  const selectedMessageIdRef = useRef(selectedMessageId);
-  useEffect(() => { selectedMessageIdRef.current = selectedMessageId; }, [selectedMessageId]);
 
   useEffect(() => {
     if (!isMobile) return;
@@ -856,7 +904,7 @@ export default function MailApp() {
             <MessageList />
           </div>
           <div data-ce-reader-pane="true" style={{ flex: 1, display: !showContacts && (selectedMessageId || (conversationReaderViewEnabled && conversationId)) ? 'flex' : 'none', overflow: 'hidden', height: '100%', minWidth: 0 }}>
-            <MessagePane mode={conversationReaderViewEnabled && (conversationId || nativeThreadId) ? 'conversation' : 'single'} conversationId={conversationId} targetLogicalMessageId={targetLogicalMessageId} selectedConversationCopy={selectedConversationCopy} nativeThreadId={nativeThreadId} nativeFolder={nativeFolder} onReply={replyFromConversation} />
+            <MessagePane mode={conversationReaderViewEnabled && (conversationId || nativeThreadId) ? 'conversation' : 'single'} conversationId={conversationId} targetLogicalMessageId={targetLogicalMessageId} selectedConversationCopy={selectedConversationCopy} nativeThreadId={nativeThreadId} nativeFolder={nativeFolder} onReply={replyFromConversation} onNativeThreadUnavailable={handleNativeThreadUnavailable} />
           </div>
         </>
       ) : (
@@ -904,7 +952,7 @@ export default function MailApp() {
                 />
               )}
               <div data-ce-reader-pane="true" style={{ flex: 1, minWidth: 0, overflow: 'hidden', height: '100%', display: 'flex' }}>
-                <MessagePane mode={conversationReaderViewEnabled && (conversationId || nativeThreadId) ? 'conversation' : 'single'} conversationId={conversationId} targetLogicalMessageId={targetLogicalMessageId} selectedConversationCopy={selectedConversationCopy} nativeThreadId={nativeThreadId} nativeFolder={nativeFolder} onReply={replyFromConversation} />
+                <MessagePane mode={conversationReaderViewEnabled && (conversationId || nativeThreadId) ? 'conversation' : 'single'} conversationId={conversationId} targetLogicalMessageId={targetLogicalMessageId} selectedConversationCopy={selectedConversationCopy} nativeThreadId={nativeThreadId} nativeFolder={nativeFolder} onReply={replyFromConversation} onNativeThreadUnavailable={handleNativeThreadUnavailable} />
               </div>
               {/* Generic right-sidebar column, populated from the content seam above. */}
               {currentLayout.direction === 'row' && rightSidebarContent != null && (

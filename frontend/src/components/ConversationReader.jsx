@@ -17,7 +17,7 @@ import { useStore } from '../store/index.js';
 // CE detail enriches this data (logical identity, manual overrides) but incomplete CE
 // state MUST NOT silently reduce 3 native thread messages to 1 reader card. Each unique
 // real message gets one reader card; CE metadata is attached when it exists.
-export default function ConversationReader({ conversationId, targetLogicalMessageId = null, selectedCopyId = null, selectedAccountId = null, accounts = [], onReply, nativeThreadId = null, nativeFolder = null }) {
+export default function ConversationReader({ conversationId, targetLogicalMessageId = null, selectedCopyId = null, selectedAccountId = null, accounts = [], onReply, nativeThreadId = null, nativeFolder = null, onNativeThreadUnavailable }) {
   const { t } = useTranslation();
   const [data, setData] = useState(null);
   const [error, setError] = useState(null);
@@ -50,13 +50,17 @@ export default function ConversationReader({ conversationId, targetLogicalMessag
       : Promise.resolve(null);
     const nativePromise = nativeThreadId && selectedAccountId
       ? api.getThread(nativeThreadId, nativeFolder || 'INBOX', false, selectedAccountId)
-          .then(result => result?.messages || [])
-          .catch(() => [])
-      : Promise.resolve([]);
-    Promise.all([cePromise, nativePromise]).then(([ceResult, nativeMessages]) => {
+          .then(result => ({ messages: result?.messages || [], failed: false }))
+          .catch(() => ({ messages: [], failed: true }))
+      : Promise.resolve({ messages: [], failed: false });
+    Promise.all([cePromise, nativePromise]).then(([ceResult, nativeResult]) => {
       if (!active) return;
       const ceLogicalMessages = ceResult?.logicalMessages || [];
-      const nativeReaderMessages = nativeThreadToReaderMessages(nativeMessages, selectedAccountId);
+      const nativeReaderMessages = nativeThreadToReaderMessages(nativeResult.messages, selectedAccountId);
+      if (!ceResult && nativeThreadId && !nativeReaderMessages.length) {
+        onNativeThreadUnavailable?.();
+        return;
+      }
       // Native children are primary; CE enriches. If native is empty (no thread_key or
       // flat single message), fall back to CE-only so the reader still works.
       const messages = nativeReaderMessages.length
@@ -72,7 +76,7 @@ export default function ConversationReader({ conversationId, targetLogicalMessag
     }).catch(reason => active && setError(reason.message || t('conversation.loadFailed')));
     const controllers = aborters.current;
     return () => { active = false; for (const controller of controllers.values()) controller.abort(); controllers.clear(); };
-  }, [conversationId, targetLogicalMessageId, nativeThreadId, nativeFolder, selectedAccountId, selectedCopyId, t]);
+  }, [conversationId, targetLogicalMessageId, nativeThreadId, nativeFolder, selectedAccountId, selectedCopyId, t, onNativeThreadUnavailable]);
 
   const messages = useMemo(() => data?.logicalMessages || [], [data]);
   const refresh = useCallback(() => conversationApi.detail(conversationId).then(setData), [conversationId]);

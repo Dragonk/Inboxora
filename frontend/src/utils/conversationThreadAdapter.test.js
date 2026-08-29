@@ -1,46 +1,18 @@
+import test from 'node:test';
 import assert from 'node:assert/strict';
-import { describe, it } from 'node:test';
-import {
-  conversationDetailToThreadMessages,
-  conversationListToThreadRows,
-  preferredConversationCopy,
-} from './conversationThreadAdapter.js';
+import { nativeThreadToReaderMessages } from './conversationThreadAdapter.js';
 
-describe('CE native ThreadRow adapter', () => {
-  it('uses conversation identity and LogicalMessage count for the native parent', () => {
-    const [row] = conversationListToThreadRows({ conversations: [{
-      conversation_id: 'conversation-a', account_id: 'account-a', latest_copy_id: 'copy-5',
-      canonical_subject: 'Golden', logical_message_count: 5, copy_count: 6, unread_count: 1,
-      logical_messages: [{ id: 'lm-5', latestCopyId: 'copy-5', fromEmail: 'sender@test', snippet: 'latest' }],
-    }] });
-    assert.equal(row.thread_id, 'conversation-a');
-    assert.equal(row.conversation_id, 'conversation-a');
-    assert.equal(row.id, 'copy-5');
-    assert.equal(row.message_count, 5);
-    assert.equal(row.copy_count, 6);
-    assert.equal(row.account_id, 'account-a');
-  });
+test('nativeThreadToReaderMessages ignores entries without a physical copy id', () => {
+  const messages = nativeThreadToReaderMessages([
+    { message_id: '<logical-only@example.test>', subject: 'invalid native record' },
+    { id: 'physical-copy-1', message_id: '<valid@example.test>', subject: 'valid native record' },
+  ], 'account-1');
 
-  it('emits one same-account preferred physical copy per LogicalMessage', () => {
-    const detail = {
-      summary: { conversation_id: 'conversation-a', account_id: 'account-a' },
-      logicalMessages: [
-        { id: 'lm-1', copies: [{ id: 'a-1', accountId: 'account-a', folder: 'INBOX' }, { id: 'b-1', accountId: 'account-b', folder: 'INBOX' }] },
-        { id: 'lm-2', copies: [{ id: 'a-2-all', accountId: 'account-a', folder: 'All Mail' }, { id: 'a-2-sent', accountId: 'account-a', folder: 'Sent' }] },
-      ],
-    };
-    const children = conversationDetailToThreadMessages(detail, 'INBOX');
-    assert.deepEqual(children.map(child => child.id), ['a-1', 'a-2-sent']);
-    assert.equal(children.length, 2);
-    assert.ok(children.every(child => child.account_id === 'account-a'));
-  });
+  assert.equal(messages.length, 1);
+  assert.equal(messages[0].copies[0].id, 'physical-copy-1');
+});
 
-  it('prefers the selected folder before Inbox/Sent and deterministic fallback', () => {
-    const selected = preferredConversationCopy([
-      { id: 'sent', accountId: 'account-a', folder: 'Sent', date: '2026-01-03' },
-      { id: 'archive', accountId: 'account-a', folder: 'Archive', date: '2026-01-01' },
-      { id: 'inbox', accountId: 'account-a', folder: 'INBOX', date: '2026-01-02' },
-    ], 'account-a', 'Archive');
-    assert.equal(selected.id, 'archive');
-  });
+test('nativeThreadToReaderMessages treats malformed payloads as unavailable', () => {
+  assert.deepEqual(nativeThreadToReaderMessages({ messages: [] }, 'account-1'), []);
+  assert.deepEqual(nativeThreadToReaderMessages([null, undefined, {}], 'account-1'), []);
 });

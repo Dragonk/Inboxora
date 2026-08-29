@@ -122,7 +122,7 @@ export default function MessageList() {
     swipeActions,
     folders, favoriteFolders, addFavoriteFolder, removeFavoriteFolder, setSelectedAccount,
     categorizationEnabled, categoryCounts, setCategoryCounts, adjustCategoryCount,
-    markReadBehavior, markReadDelay,
+    markReadBehavior, markReadDelay, conversationReaderViewEnabled,
     searchAllFolders,
     activeGtdTab, setActiveGtdTab, gtdSections, enabledPlugins,
     openMessageWindow,
@@ -2358,7 +2358,10 @@ export default function MessageList() {
     api.getMessageBody(message.id).catch(() => {});
     setSelectedMessage(message.id);
     listRef.current?.focus({ preventScroll: true });
-    markMessageReadOnOpen(message);
+    // ConversationReader owns automatic read state when enabled. Calling the
+    // legacy single-pane path here races the asynchronous CE resolution and sends
+    // the same physical-copy bulk-read twice.
+    if (!conversationReaderViewEnabled) markMessageReadOnOpen(message);
   };
 
   // Mark a message read when it is opened, honoring the manual/delay/instant setting.

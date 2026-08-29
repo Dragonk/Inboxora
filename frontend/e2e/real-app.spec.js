@@ -1,5 +1,10 @@
 import { test, expect } from './real-app-fixtures.js';
 
+// This spec requires an explicitly provisioned live backend, database and account
+// fixture. The default Playwright command intentionally starts only Vite plus the
+// browser-level API mocks used by the other specs, so it must not attempt a login.
+test.skip(process.env.PLAYWRIGHT_REAL_APP !== '1', 'requires PLAYWRIGHT_REAL_APP=1 and a provisioned MailFlow backend');
+
 test.describe('real MailFlow conversation browser E2E', () => {
   test('opens a live conversation and renders reader content', async ({ authenticatedPage: page }) => {
     await expect(page.getByText('Golden conversation thread', { exact: true }).first()).toBeVisible();
