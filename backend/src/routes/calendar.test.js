@@ -70,6 +70,26 @@ describe('local calendar API', () => {
     expect(query.mock.calls[1][1][3]).toContain('DTSTART:20260901T090000Z');
   });
 
+  it('folds long serialized iCalendar content lines without splitting UTF-8 characters', async () => {
+    query
+      .mockResolvedValueOnce({ rows: [{ id: 'calendar-1', source: 'local', read_only: false }] })
+      .mockResolvedValueOnce({ rows: [{ id: 'event-1' }] });
+
+    const response = await fetch(`${base}/api/calendar/events`, {
+      method: 'POST', headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({
+        calendarId: 'calendar-1', summary: `Release ${'ż'.repeat(40)}`,
+        startsAt: '2026-09-01T09:00:00.000Z', endsAt: '2026-09-01T10:00:00.000Z',
+      }),
+    });
+
+    expect(response.status).toBe(201);
+    const rawIcal = query.mock.calls[1][1][3];
+    expect(rawIcal).toContain('SUMMARY:Release ');
+    expect(rawIcal).toContain('\r\n ');
+    for (const line of rawIcal.split('\r\n')) expect(Buffer.byteLength(line, 'utf8')).toBeLessThanOrEqual(75);
+  });
+
   it('uses DATE values for all-day events', async () => {
     query
       .mockResolvedValueOnce({ rows: [{ id: 'calendar-1', source: 'local', read_only: false }] })

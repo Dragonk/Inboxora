@@ -128,6 +128,61 @@ describe('CalDAV calendar objects', () => {
     expect(await get.text()).toContain('BEGIN:VCALENDAR');
   });
 
+  it('accepts folded properties and DATE all-day values', async () => {
+    authenticateDavCredential.mockResolvedValue({ userId: 'user-1', credentialId: 'credential-1' });
+    query
+      .mockResolvedValueOnce({ rows: [{ id: 'calendar-1', source: 'local', read_only: false }] })
+      .mockResolvedValueOnce({ rows: [] })
+      .mockResolvedValueOnce({ rows: [{ uid: 'all-day', etag: 'etag-1' }] });
+
+    const response = await fetch(`${base}/caldav/user-1/calendar-1/all-day.ics`, {
+      method: 'PUT',
+      headers: { authorization: basic('sam@example.test', 'test-dav-password') },
+      body: 'BEGIN:VCALENDAR\r\nVERSION:2.0\r\nBEGIN:VEVENT\r\nUID:all-day\r\nDTSTART;VALUE=DATE:20260901\r\nDTEND;VALUE=DATE:20260903\r\nSUMMARY:Planning for the \r\n autumn release\r\nEND:VEVENT\r\nEND:VCALENDAR\r\n',
+    });
+
+    expect(response.status).toBe(201);
+    expect(query.mock.calls[2][1]).toEqual(expect.arrayContaining([
+      'calendar-1', 'user-1', 'all-day', expect.any(String), 'Planning for the autumn release',
+      new Date('2026-09-01T00:00:00.000Z'), new Date('2026-09-03T00:00:00.000Z'), true,
+    ]));
+  });
+
+  it('converts TZID events and supported durations to UTC', async () => {
+    authenticateDavCredential.mockResolvedValue({ userId: 'user-1', credentialId: 'credential-1' });
+    query
+      .mockResolvedValueOnce({ rows: [{ id: 'calendar-1', source: 'local', read_only: false }] })
+      .mockResolvedValueOnce({ rows: [] })
+      .mockResolvedValueOnce({ rows: [{ uid: 'berlin-event', etag: 'etag-1' }] });
+
+    const response = await fetch(`${base}/caldav/user-1/calendar-1/berlin-event.ics`, {
+      method: 'PUT',
+      headers: { authorization: basic('sam@example.test', 'test-dav-password') },
+      body: 'BEGIN:VCALENDAR\r\nVERSION:2.0\r\nBEGIN:VEVENT\r\nUID:berlin-event\r\nDTSTART;TZID=Europe/Berlin:20260901T090000\r\nDURATION:PT90M\r\nEND:VEVENT\r\nEND:VCALENDAR\r\n',
+    });
+
+    expect(response.status).toBe(201);
+    expect(query.mock.calls[2][1]).toEqual(expect.arrayContaining([
+      new Date('2026-09-01T07:00:00.000Z'), new Date('2026-09-01T08:30:00.000Z'), false,
+    ]));
+  });
+
+  it('rejects malformed end semantics and unsupported recurrence rules before storing', async () => {
+    authenticateDavCredential.mockResolvedValue({ userId: 'user-1', credentialId: 'credential-1' });
+    for (const body of [
+      'BEGIN:VCALENDAR\r\nBEGIN:VEVENT\r\nUID:both-end-values\r\nDTSTART:20260901T090000Z\r\nDTEND:20260901T100000Z\r\nDURATION:PT1H\r\nEND:VEVENT\r\nEND:VCALENDAR\r\n',
+      'BEGIN:VCALENDAR\r\nBEGIN:VEVENT\r\nUID:recurring\r\nDTSTART:20260901T090000Z\r\nDTEND:20260901T100000Z\r\nRRULE:FREQ=DAILY\r\nEND:VEVENT\r\nEND:VCALENDAR\r\n',
+    ]) {
+      query.mockReset();
+      query.mockResolvedValueOnce({ rows: [{ id: 'calendar-1', source: 'local', read_only: false }] });
+      const response = await fetch(`${base}/caldav/user-1/calendar-1/${body.includes('recurring') ? 'recurring' : 'both-end-values'}.ics`, {
+        method: 'PUT', headers: { authorization: basic('sam@example.test', 'test-dav-password') }, body,
+      });
+      expect(response.status).toBe(400);
+      expect(query).toHaveBeenCalledTimes(1);
+    }
+  });
+
   it('rejects an unknown sync token before enumerating calendar objects', async () => {
     authenticateDavCredential.mockResolvedValue({ userId: 'user-1', credentialId: 'credential-1' });
     query.mockResolvedValueOnce({ rows: [{ id: 'calendar-1', sync_token: 'current-token' }] });
@@ -198,8 +253,8 @@ describe('CalDAV calendar objects', () => {
     });
 
     expect(response.status).toBe(207);
-    expect(query.mock.calls[1][0]).toContain('starts_at < $3 AND ends_at > $2');
-    expect(query.mock.calls[1][1]).toEqual(['calendar-1', new Date('2026-09-01T00:00:00Z'), new Date('2026-09-02T00:00:00Z')]);
+    expect(query.mock.calls[1][0]).toContain('starts_at < $4 AND ends_at > $3');
+    expect(query.mock.calls[1][1]).toEqual(['calendar-1', '', new Date('2026-09-01T00:00:00Z'), new Date('2026-09-02T00:00:00Z')]);
   });
 
   it('rejects a stale conditional update without mutating the event', async () => {

@@ -43,28 +43,138 @@ function rawBody(req) {
   });
 }
 
-function icalValue(lines, property) {
-  const line = lines.find((item) => item.startsWith(`${property}:`) || item.startsWith(`${property};`));
-  return line ? line.slice(line.indexOf(':') + 1).trim() : null;
+function unfoldICalendarLines(raw) {
+  const lines = [];
+  for (const physicalLine of raw.split(/\r\n|\n|\r/)) {
+    if (/^[ \t]/.test(physicalLine) && lines.length) lines[lines.length - 1] += physicalLine.slice(1);
+    else if (physicalLine) lines.push(physicalLine);
+  }
+  return lines;
+}
+
+function propertyFromLine(line) {
+  const separator = line.indexOf(':');
+  if (separator < 1) return null;
+  const [name, ...parameterParts] = line.slice(0, separator).split(';');
+  const parameters = Object.fromEntries(parameterParts.map((part) => {
+    const parameterSeparator = part.indexOf('=');
+    if (parameterSeparator < 1) return [part.toUpperCase(), ''];
+    return [part.slice(0, parameterSeparator).toUpperCase(), part.slice(parameterSeparator + 1).replace(/^"|"$/g, '')];
+  }));
+  return { name: name.toUpperCase(), parameters, value: line.slice(separator + 1) };
+}
+
+function unescapeICalendarText(value) {
+  return value.replace(/\\([\\;,nN])/g, (_match, escaped) => (escaped.toLowerCase() === 'n' ? '\n' : escaped));
+}
+
+function utcDate(year, month, day, hour = 0, minute = 0, second = 0) {
+  const date = new Date(Date.UTC(year, month - 1, day, hour, minute, second));
+  return date.getUTCFullYear() === year && date.getUTCMonth() === month - 1 && date.getUTCDate() === day
+    && date.getUTCHours() === hour && date.getUTCMinutes() === minute && date.getUTCSeconds() === second ? date : null;
+}
+
+function timeZoneParts(date, timeZone) {
+  try {
+    const parts = new Intl.DateTimeFormat('en-CA', {
+      timeZone, year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', second: '2-digit', hourCycle: 'h23',
+    }).formatToParts(date);
+    return Object.fromEntries(parts.filter((part) => part.type !== 'literal').map((part) => [part.type, Number(part.value)]));
+  } catch {
+    return null;
+  }
+}
+
+function localDateInTimeZone(year, month, day, hour, minute, second, timeZone) {
+  const wallTime = utcDate(year, month, day, hour, minute, second);
+  if (!wallTime) return null;
+  let instant = wallTime;
+  for (let attempt = 0; attempt < 3; attempt++) {
+    const parts = timeZoneParts(instant, timeZone);
+    if (!parts) return null;
+    const offset = Date.UTC(parts.year, parts.month - 1, parts.day, parts.hour, parts.minute, parts.second) - instant.getTime();
+    instant = new Date(wallTime.getTime() - offset);
+  }
+  const resolved = timeZoneParts(instant, timeZone);
+  return resolved && resolved.year === year && resolved.month === month && resolved.day === day
+    && resolved.hour === hour && resolved.minute === minute && resolved.second === second ? instant : null;
 }
 
 function parseUtc(value) {
   if (!/^\d{8}T\d{6}Z$/.test(value || '')) return null;
-  return new Date(`${value.slice(0, 4)}-${value.slice(4, 6)}-${value.slice(6, 8)}T${value.slice(9, 11)}:${value.slice(11, 13)}:${value.slice(13, 15)}Z`);
+  return utcDate(Number(value.slice(0, 4)), Number(value.slice(4, 6)), Number(value.slice(6, 8)), Number(value.slice(9, 11)), Number(value.slice(11, 13)), Number(value.slice(13, 15)));
+}
+
+function parseICalendarDate(property) {
+  const { value, parameters } = property;
+  const dateOnly = parameters.VALUE?.toUpperCase() === 'DATE' || /^\d{8}$/.test(value);
+  if (dateOnly) {
+    if (!/^\d{8}$/.test(value)) return null;
+    const date = utcDate(Number(value.slice(0, 4)), Number(value.slice(4, 6)), Number(value.slice(6, 8)));
+    return date && { date, allDay: true, timeZone: null };
+  }
+  const match = value.match(/^(\d{4})(\d{2})(\d{2})T(\d{2})(\d{2})(\d{2})(Z?)$/);
+  if (!match || parameters.VALUE) return null;
+  const [, year, month, day, hour, minute, second, utc] = match;
+  const numeric = [year, month, day, hour, minute, second].map(Number);
+  if (utc) {
+    if (parameters.TZID) return null;
+    const date = utcDate(...numeric);
+    return date && { date, allDay: false, timeZone: null };
+  }
+  const timeZone = parameters.TZID;
+  if (!timeZone) return null;
+  const date = localDateInTimeZone(...numeric, timeZone);
+  return date && { date, allDay: false, timeZone };
+}
+
+function parseDuration(value) {
+  const match = value.match(/^P(?:(\d+)W|(?:(\d+)D)?(?:T(?:(\d+)H)?(?:(\d+)M)?(?:(\d+)S)?)?)$/);
+  if (!match) return null;
+  const milliseconds = ((Number(match[1] || 0) * 7 + Number(match[2] || 0)) * 24 * 60 * 60
+    + Number(match[3] || 0) * 60 * 60 + Number(match[4] || 0) * 60 + Number(match[5] || 0)) * 1000;
+  return milliseconds > 0 ? milliseconds : null;
 }
 
 function parseCalendarEvent(raw) {
   if (typeof raw !== 'string' || raw.length === 0 || raw.length > 1024 * 1024) return null;
-  const lines = raw.replace(/\r?\n[ \t]/g, '').split(/\r?\n/).map((line) => line.trim()).filter(Boolean);
+  const lines = unfoldICalendarLines(raw);
+  const starts = lines.filter((line) => line === 'BEGIN:VEVENT');
+  const ends = lines.filter((line) => line === 'END:VEVENT');
   const start = lines.indexOf('BEGIN:VEVENT');
   const end = lines.indexOf('END:VEVENT');
-  if (start === -1 || end <= start || lines.filter((line) => line === 'BEGIN:VEVENT').length !== 1) return null;
-  const event = lines.slice(start + 1, end);
-  const uid = icalValue(event, 'UID');
-  const startsAt = parseUtc(icalValue(event, 'DTSTART'));
-  const endsAt = parseUtc(icalValue(event, 'DTEND'));
-  if (!uid || !startsAt || !endsAt || endsAt < startsAt) return null;
-  return { uid, startsAt, endsAt, summary: icalValue(event, 'SUMMARY'), raw };
+  if (starts.length !== 1 || ends.length !== 1 || start < 0 || end <= start) return null;
+  const properties = lines.slice(start + 1, end).map(propertyFromLine);
+  if (properties.some((property) => !property) || properties.some((property) => ['RRULE', 'RDATE', 'EXDATE', 'RECURRENCE-ID'].includes(property.name))) return null;
+  const named = (name) => properties.filter((property) => property.name === name);
+  const [uid] = named('UID');
+  const [startProperty] = named('DTSTART');
+  const [endProperty] = named('DTEND');
+  const [durationProperty] = named('DURATION');
+  if (!uid || named('UID').length !== 1 || !startProperty || named('DTSTART').length !== 1
+    || named('DTEND').length > 1 || named('DURATION').length > 1 || (endProperty && durationProperty)) return null;
+  const startsAt = parseICalendarDate(startProperty);
+  if (!startsAt) return null;
+  let endsAt;
+  if (endProperty) {
+    endsAt = parseICalendarDate(endProperty);
+    if (!endsAt || endsAt.allDay !== startsAt.allDay) return null;
+  } else if (durationProperty) {
+    const duration = parseDuration(durationProperty.value);
+    if (!duration || (startsAt.allDay && duration % (24 * 60 * 60 * 1000))) return null;
+    endsAt = { date: new Date(startsAt.date.getTime() + duration), allDay: startsAt.allDay };
+  } else return null;
+  if (endsAt.date <= startsAt.date) return null;
+  const [summary] = named('SUMMARY');
+  return {
+    uid: uid.value,
+    startsAt: startsAt.date,
+    endsAt: endsAt.date,
+    allDay: startsAt.allDay,
+    timeZone: startsAt.timeZone,
+    summary: summary ? unescapeICalendarText(summary.value) : null,
+    raw,
+  };
 }
 
 function uidFromCalendarHref(href) {
@@ -239,8 +349,8 @@ router.report('/:userId/:calendarId/', async (req, res) => {
     if (timeRange && (!start || !end || end <= start)) return res.status(400).end();
     const current = start
       ? await query(
-        "SELECT uid, recurrence_id, etag, raw_ical FROM calendar_events WHERE calendar_id = $1 AND recurrence_id = $2 AND starts_at < $3 AND ends_at > $2 ORDER BY uid ASC",
-        [calendar.id, start, end],
+        "SELECT uid, recurrence_id, etag, raw_ical FROM calendar_events WHERE calendar_id = $1 AND recurrence_id = $2 AND starts_at < $4 AND ends_at > $3 ORDER BY uid ASC",
+        [calendar.id, '', start, end],
       )
       : await query(
         "SELECT uid, recurrence_id, etag, raw_ical FROM calendar_events WHERE calendar_id = $1 AND recurrence_id = $2 ORDER BY uid ASC",
@@ -293,13 +403,14 @@ router.put('/:userId/:calendarId/:filename', async (req, res) => {
   if (req.headers['if-none-match'] === '*' && current) return res.status(412).end();
   if (req.headers['if-match'] && (!current || !etagMatches(req.headers['if-match'], current.etag))) return res.status(412).end();
   const stored = await query(
-    `INSERT INTO calendar_events (calendar_id, user_id, uid, raw_ical, etag, summary, starts_at, ends_at, all_day)
-     VALUES ($1, $2, $3, $4, gen_random_uuid()::text, $5, $6, $7, false)
+    `INSERT INTO calendar_events (calendar_id, user_id, uid, raw_ical, etag, summary, starts_at, ends_at, all_day, timezone)
+     VALUES ($1, $2, $3, $4, gen_random_uuid()::text, $5, $6, $7, $8, $9)
      ON CONFLICT (calendar_id, uid, recurrence_id) DO UPDATE SET
        raw_ical = EXCLUDED.raw_ical, etag = gen_random_uuid()::text, summary = EXCLUDED.summary,
-       starts_at = EXCLUDED.starts_at, ends_at = EXCLUDED.ends_at, updated_at = NOW()
+       starts_at = EXCLUDED.starts_at, ends_at = EXCLUDED.ends_at, all_day = EXCLUDED.all_day,
+       timezone = EXCLUDED.timezone, updated_at = NOW()
      RETURNING uid, etag`,
-    [calendar.id, req.caldavUserId, event.uid, event.raw, event.summary, event.startsAt, event.endsAt],
+    [calendar.id, req.caldavUserId, event.uid, event.raw, event.summary, event.startsAt, event.endsAt, event.allDay, event.timeZone],
   );
   res.setHeader('ETag', `"${stored.rows[0].etag}"`).status(current ? 204 : 201).end();
 });

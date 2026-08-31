@@ -33,6 +33,21 @@ function formatICalendarDate(value, allDay) {
     : utc.replaceAll('-', '').replaceAll(':', '').replace('.000', '');
 }
 
+function foldICalendarLine(line) {
+  const chunks = [];
+  let chunk = '';
+  let limit = 75;
+  for (const character of line) {
+    if (Buffer.byteLength(chunk + character, 'utf8') > limit && chunk) {
+      chunks.push(chunk);
+      chunk = character;
+      limit = 74;
+    } else chunk += character;
+  }
+  chunks.push(chunk);
+  return chunks.join('\r\n ');
+}
+
 function localEventIcal({ uid, summary, description, location, url, organizer, startsAt, endsAt, allDay }) {
   const dateParameter = allDay ? ';VALUE=DATE' : '';
   const lines = ['BEGIN:VCALENDAR', 'VERSION:2.0', 'PRODID:-//Inboxora//DAV Hub//EN', 'BEGIN:VEVENT', `UID:${uid}`, `DTSTART${dateParameter}:${formatICalendarDate(startsAt, allDay)}`, `DTEND${dateParameter}:${formatICalendarDate(endsAt, allDay)}`];
@@ -42,7 +57,7 @@ function localEventIcal({ uid, summary, description, location, url, organizer, s
   if (url) lines.push(`URL:${escapeICalendarText(url)}`);
   if (organizer) lines.push(`ORGANIZER:${escapeICalendarText(organizer)}`);
   lines.push('END:VEVENT', 'END:VCALENDAR', '');
-  return lines.join('\r\n');
+  return lines.map(foldICalendarLine).join('\r\n');
 }
 
 async function writableCalendar(userId, calendarId) {
