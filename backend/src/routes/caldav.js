@@ -136,7 +136,7 @@ function parseDuration(value) {
   return milliseconds > 0 ? milliseconds : null;
 }
 
-function parseCalendarEvent(raw) {
+export function parseCalendarEvent(raw) {
   if (typeof raw !== 'string' || raw.length === 0 || raw.length > 1024 * 1024) return null;
   const lines = unfoldICalendarLines(raw);
   const starts = lines.filter((line) => line === 'BEGIN:VEVENT');

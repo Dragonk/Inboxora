@@ -27,6 +27,18 @@ afterAll(async () => {
 beforeEach(() => query.mockReset());
 
 describe('local calendar API', () => {
+
+  it('rejects a CalDAV source without dedicated remote credentials', async () => {
+    const response = await fetch(`${base}/api/calendar/sources`, {
+      method: 'POST', headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ kind: 'caldav', url: 'https://calendar.example/dav/', displayName: 'Work' }),
+    });
+
+    expect(response.status).toBe(400);
+    expect(await response.json()).toEqual({ error: 'CalDAV sources require username and password' });
+    expect(query).not.toHaveBeenCalled();
+  });
+
   it('lists only calendars owned by the signed-in user', async () => {
     query.mockResolvedValueOnce({ rows: [{ id: 'calendar-1', name: 'Personal', source: 'local', read_only: false }] });
 

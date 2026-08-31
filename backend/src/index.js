@@ -38,6 +38,7 @@ import carddavAccountRouter from './routes/carddavAccount.js';
 import davCredentialsRouter from './routes/davCredentials.js';
 import calendarRouter from './routes/calendar.js';
 import { startCardavScheduler } from './services/carddavSync.js';
+import { startExternalCalendarScheduler } from './services/externalCalendarSync.js';
 import { encryptExistingCredentials, query } from './services/db.js';
 import { runMigrations } from './services/migrations.js';
 import { parseVCard } from './utils/vcard.js';
@@ -292,6 +293,7 @@ imapManager.startSnoozeWatcher();
 
 // Schedule periodic CardDAV contact sync for any connected accounts.
 startCardavScheduler();
+startExternalCalendarScheduler().catch(err => console.warn('External calendar scheduler start failed:', err.message));
 // Retry conversation persistence failures without blocking IMAP synchronization.
 setInterval(() => retryConversationIngestFailures({ limit: 25 }).catch(err => console.warn('Conversation ingest retry failed:', err.message)), 5 * 60 * 1000);
 

@@ -2,6 +2,10 @@ import { Router } from 'express';
 import crypto from 'crypto';
 import { query } from '../services/db.js';
 import { requireAuth } from '../middleware/auth.js';
+import { encrypt } from '../services/encryption.js';
+import { validateHost } from '../services/hostValidation.js';
+import { getConnectionPolicy } from '../services/connectionPolicy.js';
+import { scheduleCalendarSource, stopCalendarSource, syncCalendarSource } from '../services/externalCalendarSync.js';
 
 const router = Router();
 const MAX_EVENT_RANGE_DAYS = 366;
@@ -169,6 +173,69 @@ router.delete('/events/:eventId', async (req, res) => {
   );
   if (!result.rows[0]) return res.status(404).json({ error: 'Event not found' });
 
+  res.status(204).end();
+});
+
+
+function publicSource(source) {
+  return {
+    id: source.id, kind: source.kind, url: source.url, username: source.username || null,
+    displayName: source.display_name, color: source.color, intervalMin: source.interval_min,
+    enabled: source.enabled, lastSyncAt: source.last_sync_at, lastError: source.last_error,
+  };
+}
+
+router.get('/sources', async (req, res) => {
+  const result = await query(
+    `SELECT id, kind, url, username, display_name, color, interval_min, enabled, last_sync_at, last_error
+     FROM calendar_import_sources WHERE user_id = $1 ORDER BY created_at ASC`, [req.session.userId],
+  );
+  res.json({ sources: result.rows.map(publicSource) });
+});
+
+router.post('/sources', async (req, res) => {
+  const { kind, url, username, password, displayName, color = null, intervalMin = 60 } = req.body || {};
+  if (!['caldav', 'ical_url'].includes(kind) || !url || !displayName) return res.status(400).json({ error: 'kind, url, and displayName are required' });
+  if (kind === 'caldav' && (!username || !password)) return res.status(400).json({ error: 'CalDAV sources require username and password' });
+  let parsed;
+  try { parsed = new URL(url); } catch { return res.status(400).json({ error: 'Invalid source URL' }); }
+  if (!['https:', 'http:'].includes(parsed.protocol)) return res.status(400).json({ error: 'Source URL must use http(s)' });
+  const policy = await getConnectionPolicy();
+  const hostError = await validateHost(parsed.hostname, { allowPrivate: policy.allowPrivateHosts });
+  if (hostError) return res.status(400).json({ error: hostError });
+  if (parsed.protocol === 'http:') {
+    if (!policy.allowPrivateHosts) return res.status(400).json({ error: 'Source URL must use HTTPS' });
+    const publicHostError = await validateHost(parsed.hostname, { allowPrivate: false });
+    if (!publicHostError) return res.status(400).json({ error: 'HTTPS is required for a public source' });
+  }
+  const interval = Math.max(15, Math.min(1440, Number.parseInt(intervalMin, 10) || 60));
+  try {
+    const result = await query(
+      `INSERT INTO calendar_import_sources (user_id, kind, url, username, password, display_name, color, interval_min)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8) RETURNING *`,
+      [req.session.userId, kind, url, username || null, password ? encrypt(password) : null, displayName, color, interval],
+    );
+    const source = result.rows[0];
+    scheduleCalendarSource(source);
+    syncCalendarSource(req.session.userId, source.id).catch(() => {});
+    res.status(201).json({ source: publicSource(source) });
+  } catch (error) {
+    if (error.code === '23505') return res.status(409).json({ error: 'A source with this URL already exists' });
+    throw error;
+  }
+});
+
+router.post('/sources/:sourceId/sync', async (req, res) => {
+  const result = await syncCalendarSource(req.session.userId, req.params.sourceId);
+  if (!result.ok && result.error === 'Calendar source not found') return res.status(404).json({ error: result.error });
+  res.json(result);
+});
+
+router.delete('/sources/:sourceId', async (req, res) => {
+  stopCalendarSource(req.params.sourceId);
+  const result = await query('DELETE FROM calendar_import_sources WHERE id = $1 AND user_id = $2 RETURNING id', [req.params.sourceId, req.session.userId]);
+  if (!result.rows[0]) return res.status(404).json({ error: 'Calendar source not found' });
+  await query('DELETE FROM calendars WHERE user_id = $1 AND external_url = $2', [req.session.userId, `source:${req.params.sourceId}`]);
   res.status(204).end();
 });
 
