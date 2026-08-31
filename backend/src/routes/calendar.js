@@ -17,6 +17,34 @@ function parseEventTimes(body) {
   return { startsAt, endsAt };
 }
 
+function escapeICalendarText(value) {
+  return String(value || '')
+    .replaceAll('\\', '\\\\')
+    .replaceAll('\r\n', '\n')
+    .replaceAll('\n', '\\n')
+    .replaceAll(';', '\\;')
+    .replaceAll(',', '\\,');
+}
+
+function formatICalendarDate(value, allDay) {
+  const utc = value.toISOString();
+  return allDay
+    ? utc.slice(0, 10).replaceAll('-', '')
+    : utc.replaceAll('-', '').replaceAll(':', '').replace('.000', '');
+}
+
+function localEventIcal({ uid, summary, description, location, url, organizer, startsAt, endsAt, allDay }) {
+  const dateParameter = allDay ? ';VALUE=DATE' : '';
+  const lines = ['BEGIN:VCALENDAR', 'VERSION:2.0', 'PRODID:-//Inboxora//DAV Hub//EN', 'BEGIN:VEVENT', `UID:${uid}`, `DTSTART${dateParameter}:${formatICalendarDate(startsAt, allDay)}`, `DTEND${dateParameter}:${formatICalendarDate(endsAt, allDay)}`];
+  if (summary) lines.push(`SUMMARY:${escapeICalendarText(summary)}`);
+  if (description) lines.push(`DESCRIPTION:${escapeICalendarText(description)}`);
+  if (location) lines.push(`LOCATION:${escapeICalendarText(location)}`);
+  if (url) lines.push(`URL:${escapeICalendarText(url)}`);
+  if (organizer) lines.push(`ORGANIZER:${escapeICalendarText(organizer)}`);
+  lines.push('END:VEVENT', 'END:VCALENDAR', '');
+  return lines.join('\r\n');
+}
+
 async function writableCalendar(userId, calendarId) {
   const result = await query(
     'SELECT id, source, read_only FROM calendars WHERE id = $1 AND user_id = $2',
@@ -68,14 +96,15 @@ router.post('/events', async (req, res) => {
   if (access.error) return res.status(access.status).json({ error: access.error });
 
   const uid = crypto.randomUUID();
+  const rawIcal = localEventIcal({ uid, summary, description, location, url, organizer, allDay: Boolean(allDay), ...times });
   const result = await query(
     `INSERT INTO calendar_events (
-       calendar_id, user_id, uid, summary, description, location, url, organizer,
+       calendar_id, user_id, uid, raw_ical, summary, description, location, url, organizer,
        starts_at, ends_at, all_day, timezone
-     ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12)
+     ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13)
      RETURNING id, calendar_id, uid, etag, summary, description, location, url, organizer,
                starts_at, ends_at, all_day, timezone, created_at, updated_at`,
-    [calendarId, req.session.userId, uid, summary || null, description, location, url, organizer, times.startsAt, times.endsAt, Boolean(allDay), timezone],
+    [calendarId, req.session.userId, uid, rawIcal, summary || null, description, location, url, organizer, times.startsAt, times.endsAt, Boolean(allDay), timezone],
   );
   await query('UPDATE calendars SET sync_token = gen_random_uuid()::text, updated_at = NOW() WHERE id = $1', [calendarId]);
   res.status(201).json({ event: result.rows[0] });

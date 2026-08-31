@@ -46,6 +46,46 @@ describe('local calendar API', () => {
     expect(query).not.toHaveBeenCalled();
   });
 
+  it('stores a valid iCalendar representation when creating a local event', async () => {
+    query
+      .mockResolvedValueOnce({ rows: [{ id: 'calendar-1', source: 'local', read_only: false }] })
+      .mockResolvedValueOnce({ rows: [{ id: 'event-1', calendar_id: 'calendar-1', uid: 'uid-1', summary: 'Planning' }] })
+      .mockResolvedValueOnce({ rows: [] });
+
+    const response = await fetch(`${base}/api/calendar/events`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({
+        calendarId: 'calendar-1', summary: 'Planning; review', description: 'Bring notes\nDiscuss scope',
+        location: 'Room, 2', startsAt: '2026-09-01T09:00:00.000Z', endsAt: '2026-09-01T10:00:00.000Z',
+      }),
+    });
+
+    expect(response.status).toBe(201);
+    expect(query.mock.calls[1][0]).toContain('raw_ical');
+    expect(query.mock.calls[1][1][3]).toMatch(/^BEGIN:VCALENDAR\r\nVERSION:2.0\r\n/);
+    expect(query.mock.calls[1][1][3]).toContain('SUMMARY:Planning\\; review');
+    expect(query.mock.calls[1][1][3]).toContain('DESCRIPTION:Bring notes\\nDiscuss scope');
+    expect(query.mock.calls[1][1][3]).toContain('LOCATION:Room\\, 2');
+    expect(query.mock.calls[1][1][3]).toContain('DTSTART:20260901T090000Z');
+  });
+
+  it('uses DATE values for all-day events', async () => {
+    query
+      .mockResolvedValueOnce({ rows: [{ id: 'calendar-1', source: 'local', read_only: false }] })
+      .mockResolvedValueOnce({ rows: [{ id: 'event-1' }] })
+      .mockResolvedValueOnce({ rows: [] });
+
+    const response = await fetch(`${base}/api/calendar/events`, {
+      method: 'POST', headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ calendarId: 'calendar-1', allDay: true, startsAt: '2026-09-01T00:00:00.000Z', endsAt: '2026-09-02T00:00:00.000Z' }),
+    });
+
+    expect(response.status).toBe(201);
+    expect(query.mock.calls[1][1][3]).toContain('DTSTART;VALUE=DATE:20260901');
+    expect(query.mock.calls[1][1][3]).toContain('DTEND;VALUE=DATE:20260902');
+  });
+
   it('rejects creation in a read-only imported calendar', async () => {
     query.mockResolvedValueOnce({ rows: [{ id: 'calendar-1', source: 'caldav', read_only: true }] });
 
