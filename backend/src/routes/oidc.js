@@ -9,6 +9,7 @@ import { decrypt, isEncrypted } from '../services/encryption.js';
 import { imapManager } from '../index.js';
 import { validateHost } from '../services/hostValidation.js';
 import { logAuthEvent } from '../services/authEvents.js';
+import { ensureUserDavResources } from '../services/userDavResources.js';
 
 // In-memory OIDC discovery cache keyed by issuerUrl
 const discoveryCache = new Map();
@@ -590,6 +591,7 @@ oidcBrowserRouter.get('/:slug/callback', async (req, res) => {
             );
           }
         }
+        await ensureUserDavResources(client, user.id);
         await client.query(
           `INSERT INTO user_identities (user_id, provider_id, issuer, subject, email, email_verified, last_used_at)
            VALUES ($1, $2, $3, $4, $5, $6, NOW())
