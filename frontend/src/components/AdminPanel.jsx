@@ -1521,7 +1521,7 @@ function LayoutsTab() {
   const { layout, setLayout, pageSize, setPageSize, scrollMode, setScrollMode, swipeActions, setSwipeAction, syncInterval, setSyncInterval, folderSyncInterval, setFolderSyncInterval, threadedView, setThreadedView, plaintextEmail, setPlaintextEmail, hoverQuickActions, setHoverQuickActions, showMobileAvatars, setShowMobileAvatars, gravatarAvatars, setGravatarAvatars, replyDefault, setReplyDefault, markReadBehavior, setMarkReadBehavior, markReadDelay, setMarkReadDelay, senderFavicons, senderFaviconsSaving, setSenderFavicons, showMessagePreviews, setShowMessagePreviews, conversationReaderViewEnabled, setConversationReaderViewEnabled } = useStore();
   const [senderFaviconsError, setSenderFaviconsError] = useState('');
 
-  // "Set MailFlow as your default email app": registerProtocolHandler is the
+  // "Set Inboxora as your default email app": registerProtocolHandler is the
   // cross-browser path (works in Firefox and non-installed Chromium) and must be
   // called from a user gesture, so it lives behind this button. Feature-detected in
   // the JSX; not available on iOS/Safari.
@@ -4515,7 +4515,7 @@ function SystemEmailSection() {
   const { t } = useTranslation();
   const [config, setConfig] = useState(null);
   const [loading, setLoading] = useState(true);
-  const [form, setForm] = useState({ host: '', port: '587', tls: 'STARTTLS', user: '', pass: '', fromName: 'MailFlow', fromEmail: '' });
+  const [form, setForm] = useState({ host: '', port: '587', tls: 'STARTTLS', user: '', pass: '', fromName: 'Inboxora', fromEmail: '' });
   const [saving, setSaving] = useState(false);
   const [testing, setTesting] = useState(false);
   const [msg, setMsg] = useState(null);
@@ -4525,7 +4525,7 @@ function SystemEmailSection() {
       .then(({ config: cfg }) => {
         if (cfg) {
           setConfig(cfg);
-          setForm({ host: cfg.host || '', port: String(cfg.port || 587), tls: cfg.tls || 'STARTTLS', user: cfg.user || '', pass: cfg.pass || '', fromName: cfg.fromName || 'MailFlow', fromEmail: cfg.fromEmail || '' });
+          setForm({ host: cfg.host || '', port: String(cfg.port || 587), tls: cfg.tls || 'STARTTLS', user: cfg.user || '', pass: cfg.pass || '', fromName: cfg.fromName || 'Inboxora', fromEmail: cfg.fromEmail || '' });
         }
       })
       .catch(console.error)
@@ -4557,7 +4557,7 @@ function SystemEmailSection() {
   const handleRemove = async () => {
     await api.admin.deleteSystemEmail();
     setConfig(null);
-    setForm({ host: '', port: '587', tls: 'STARTTLS', user: '', pass: '', fromName: 'MailFlow', fromEmail: '' });
+    setForm({ host: '', port: '587', tls: 'STARTTLS', user: '', pass: '', fromName: 'Inboxora', fromEmail: '' });
     setMsg({ type: 'ok', text: t('admin.systemEmail.removed') });
   };
 
@@ -4624,7 +4624,7 @@ function SystemEmailSection() {
         {field(t('admin.systemEmail.password'), 'pass', 'password', config ? t('admin.systemEmail.passPlaceholder') : '')}
 
         <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0 12px' }}>
-          <div>{field(t('admin.systemEmail.fromName'), 'fromName', 'text', 'MailFlow')}</div>
+          <div>{field(t('admin.systemEmail.fromName'), 'fromName', 'text', 'Inboxora')}</div>
           <div>{field(t('admin.systemEmail.fromEmail'), 'fromEmail', 'text', t('admin.systemEmail.fromEmailPh'))}</div>
         </div>
 

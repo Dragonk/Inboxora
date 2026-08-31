@@ -86,7 +86,7 @@ function authHeaders(contentType) {
   return {
     'Content-Type': contentType,
     originator: 'mailflow',
-    'User-Agent': 'Mailflow',
+    'User-Agent': 'Inboxora',
   };
 }
 
