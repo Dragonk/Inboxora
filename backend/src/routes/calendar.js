@@ -4,6 +4,8 @@ import { query } from '../services/db.js';
 import { requireAuth } from '../middleware/auth.js';
 
 const router = Router();
+const MAX_EVENT_RANGE_DAYS = 366;
+const MAX_EVENT_RANGE_MS = MAX_EVENT_RANGE_DAYS * 24 * 60 * 60 * 1000;
 router.use(requireAuth);
 
 function parseEventTimes(body) {
@@ -40,6 +42,9 @@ router.get('/events', async (req, res) => {
   const to = new Date(req.query.to);
   if (Number.isNaN(from.getTime()) || Number.isNaN(to.getTime()) || to < from) {
     return res.status(400).json({ error: 'A valid from/to range is required' });
+  }
+  if (to.getTime() - from.getTime() > MAX_EVENT_RANGE_MS) {
+    return res.status(400).json({ error: 'The requested event range is too large' });
   }
   const result = await query(
     `SELECT e.id, e.calendar_id, e.uid, e.recurrence_id, e.etag, e.summary, e.description,

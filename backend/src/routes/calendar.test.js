@@ -38,6 +38,14 @@ describe('local calendar API', () => {
     expect(query.mock.calls[0][1]).toEqual(['user-1']);
   });
 
+  it('rejects an excessively broad event range before querying the database', async () => {
+    const response = await fetch(`${base}/api/calendar/events?from=2026-01-01T00:00:00.000Z&to=2028-01-02T00:00:00.000Z`);
+
+    expect(response.status).toBe(400);
+    expect(await response.json()).toEqual({ error: 'The requested event range is too large' });
+    expect(query).not.toHaveBeenCalled();
+  });
+
   it('rejects creation in a read-only imported calendar', async () => {
     query.mockResolvedValueOnce({ rows: [{ id: 'calendar-1', source: 'caldav', read_only: true }] });
 
