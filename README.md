@@ -1,28 +1,26 @@
 <p align="center">
-  <img src="media/mailflow-logo.png" width="200" alt="MailFlow Logo">
+  <img src="media/inboxora-logo.png" width="200" alt="Inboxora logo">
 </p>
 
 <p align="center">
-  A self-hosted, unified webmail client. Connect multiple IMAP/SMTP accounts and manage them all in one clean interface.
+  <strong>Inboxora</strong> — a self-hosted, unified inbox for email, contacts and calendars.
 </p>
 
 <p align="center">
   <a href="#installation">Quick Start</a> ·
   <a href="#email-provider-setup">Setup Guide</a> ·
-  <a href="https://mailflow.sh/#supporters">Contributing</a> ·
-  <a href="https://mailflow.sh/#roadmap">Roadmap</a>
+  <a href="CONTRIBUTING.md">Contributing</a> ·
+  <a href="ROADMAP.md">Roadmap</a> ·
+  <a href="https://github.com/Dragonk/Inboxora/issues">Issues</a>
 </p>
 
 ## Licensing
 
-MailFlow is dual-licensed:
+- **[AGPL-3.0-only](LICENSE)** — Inboxora is free software. If you convey a modified copy or make a modified version available for users to interact with over a network, the AGPL requires an offer of the corresponding source code.
 
-- **[AGPL-3.0](LICENSE)** — free for personal use, self-hosting, and open-source projects. If you modify and distribute or host MailFlow, you must publish your changes under the same license.
-- **[Commercial License](LICENSE-COMMERCIAL)** — $500 per installation, one-time. For businesses or deployments where AGPL obligations cannot be met. [Purchase here](https://mailflow.sh/#pricing).
+The project does not offer a commercial licence. AGPL permits commercial use and sale; it protects users' right to receive the corresponding source for modified network services. Required copyright notices and upstream attribution remain intact.
 
-**Personal self-hosting is free and always will be.** This licensing model exists to protect the project from commercial exploitation while keeping MailFlow freely available to individuals and families.
-
-If you contribute code, please read the [Contributor License Agreement](CLA.md). By submitting a pull request you agree to its terms.
+Contributions are accepted under the same AGPL-3.0-only terms; see [CONTRIBUTING.md](CONTRIBUTING.md).
 
 
 ## Features
@@ -32,6 +30,7 @@ If you contribute code, please read the [Contributor License Agreement](CLA.md).
 - **Email categorization** — automatic inbox tabs (Primary, Newsletters, Social, Notifications, Other) sort incoming mail by type using header detection and sender heuristics; AI reclassify button for misclassifications
 - **Unsubscribe** — one-click unsubscribe button appears in the message pane for detected newsletters; sends the request or opens the unsubscribe URL automatically
 - **Conversation threads** — messages grouped into reply chains with inline sent replies
+- **Optional conversation controls** — list grouping and Conversation Reader V2 can each be enabled or disabled independently in Settings → Appearance → Layout
 - **Rich text compose** — WYSIWYG editor with font family, size, color, highlight, tables, emoji, links, attachments, image resize handles, and Excel table paste
 - **Attachments** — send and receive file attachments across all accounts
 - **Multiple layouts** — classic, compact, wide reader, vertical split, and more
@@ -56,10 +55,11 @@ If you contribute code, please read the [Contributor License Agreement](CLA.md).
 - **Password recovery** — recover your account via a recovery email address configured in profile settings
 - **User management** — admin panel, invite-only registration, invite emails
 - **Two-factor authentication** — TOTP (any authenticator app), email OTP fallback, persistent device trust; admin-configurable enforcement policy
-- **SSO / OIDC** — single sign-on via any OpenID Connect provider; group claims from the IdP can be mapped to the MailFlow admin role, with optional RP-initiated (end-session) logout to sign out of the provider too
+- **SSO / OIDC** — single sign-on via any OpenID Connect provider; group claims from the IdP can be mapped to the Inboxora admin role, with optional RP-initiated (end-session) logout to sign out of the provider too
 - **Microsoft 365 / OAuth2** — work accounts via Azure App Registration; personal Outlook.com via device code flow
 - **Todoist integration** — create tasks directly from emails; tasks include a deep link back to the original message
-- **CardDAV** — expose your MailFlow contacts as a CardDAV address book for sync with phone and desktop contact apps; contact photos sync and appear as sender avatars in the message list
+- **CardDAV contacts** — expose contacts to phone and desktop contact apps; contact photos sync and appear as sender avatars in the message list
+- **DAV Hub (in progress)** — revocable DAV application passwords plus first-party contacts and calendar resources for DAVx5-compatible CardDAV/CalDAV sync
 - **GTD workflow** — optional Getting-Things-Done rail: label threads Todo / Watch / Delegated / Someday / Reference (each backed by a real IMAP folder) with the t / w / d keys; opt in per account, see below
 
 ---
@@ -69,7 +69,7 @@ If you contribute code, please read the [Contributor License Agreement](CLA.md).
 An optional Getting-Things-Done workflow, off by default and enabled per account
 under Settings → Categories → GTD. When on, a rail beside the message list
 groups threads into five states, each backed by a real IMAP folder — so the labels
-are just server-side folders that sync to every mail client and survive MailFlow
+are just server-side folders that sync to every mail client and survive Inboxora
 itself:
 
 - **Todo** / **Someday** — things you need to act on; the label clears itself once you reply.
@@ -85,34 +85,13 @@ configurable per account, and accounts with GTD off behave exactly as before.
 
 ## Screenshots
 
-<table>
-  <tr>
-    <td align="center"><img src="media/mailflow-ss-default.png" alt="Default dark theme"><br><sub>Default dark theme</sub></td>
-    <td align="center"><img src="media/mailflow-ss-light.png" alt="Light theme"><br><sub>Light theme</sub></td>
-  </tr>
-  <tr>
-    <td align="center"><img src="media/mailflow-ss-catppuccin.png" alt="Catppuccin theme"><br><sub>Catppuccin theme</sub></td>
-    <td align="center"><img src="media/mailflow-ss-gruvbox.png" alt="Gruvbox theme"><br><sub>Gruvbox theme</sub></td>
-  </tr>
-  <tr>
-    <td align="center"><img src="media/mailflow-ss-compose.png" alt="Compose window"><br><sub>Compose window</sub></td>
-    <td align="center"><img src="media/mailflow-ss-collapsed-sidebar.png" alt="Collapsed sidebar"><br><sub>Collapsed sidebar</sub></td>
-  </tr>
-  <tr>
-    <td align="center"><img src="media/mailflow-ss-accounts.png" alt="Account management"><br><sub>Account management</sub></td>
-    <td align="center"><img src="media/mailflow-ss-accounts-expanded.png" alt="Folder navigation"><br><sub>Folder navigation</sub></td>
-  </tr>
-  <tr>
-    <td align="center"><img src="media/mailflow-ss-layout.png" alt="Layout options"><br><sub>Layout options</sub></td>
-    <td align="center"><img src="media/mailflow-ss-appearance.png" alt="Appearance settings"><br><sub>Appearance settings</sub></td>
-  </tr>
-</table>
+Screenshots are intentionally omitted until clean Inboxora captures of the Contacts and Calendar interface are ready.
 
 ---
 
 ## Installation
 
-There are three ways to run MailFlow. The pre-built image method is recommended for most users.
+There are three ways to run Inboxora. The pre-built image method is recommended for most users.
 
 ---
 
@@ -127,8 +106,8 @@ No cloning or building required. Docker pulls the pre-built images directly from
 ### 1. Download the compose file and default config
 
 ```bash
-curl -o docker-compose.yml https://raw.githubusercontent.com/maathimself/mailflow/main/docker-compose.ghcr.yml
-curl -o .env               https://raw.githubusercontent.com/maathimself/mailflow/main/.env.example
+curl -o docker-compose.yml https://raw.githubusercontent.com/Dragonk/Inboxora/main/docker-compose.ghcr.yml
+curl -o .env               https://raw.githubusercontent.com/Dragonk/Inboxora/main/.env.example
 ```
 
 ### 2. Configure environment
@@ -148,7 +127,7 @@ Edit `.env` — the required fields are:
 docker compose up -d
 ```
 
-MailFlow will be available on port 443 (HTTPS, self-signed certificate) and port 80 (HTTP).
+Inboxora will be available on port 443 (HTTPS, self-signed certificate) and port 80 (HTTP).
 
 **Ports are configurable in `.env`:**
 
@@ -160,7 +139,7 @@ MailFlow will be available on port 443 (HTTPS, self-signed certificate) and port
 **Optional — automatic HTTPS via Let's Encrypt:** set `DOMAIN` and `ACME_EMAIL` in `.env`, download the HTTPS overlay, then restart:
 
 ```bash
-curl -o docker-compose.https.yml https://raw.githubusercontent.com/maathimself/mailflow/main/docker-compose.https.yml
+curl -o docker-compose.https.yml https://raw.githubusercontent.com/Dragonk/Inboxora/main/docker-compose.https.yml
 docker compose -f docker-compose.yml -f docker-compose.https.yml --profile https up -d
 ```
 
@@ -186,7 +165,7 @@ docker compose pull
 docker compose up -d
 ```
 
-To pin to a specific version instead of `latest`, add `MAILFLOW_VERSION=2.7.0` to your `.env`.
+To pin to a specific version instead of `latest`, add `INBOXORA_VERSION=2.7.0` to your `.env`.
 
 ---
 
@@ -199,8 +178,8 @@ To pin to a specific version instead of `latest`, add `MAILFLOW_VERSION=2.7.0` t
 ### 1. Get the code
 
 ```bash
-git clone https://github.com/maathimself/mailflow.git mailflow
-cd mailflow
+git clone https://github.com/Dragonk/Inboxora.git inboxora
+cd inboxora
 ```
 
 ### 2. Configure environment
@@ -224,7 +203,7 @@ Edit `.env` — the required fields are:
 docker compose up -d --build
 ```
 
-First build takes 2–3 minutes. MailFlow will be available on port 443 (HTTPS, self-signed certificate) and port 80 (HTTP).
+First build takes 2–3 minutes. Inboxora will be available on port 443 (HTTPS, self-signed certificate) and port 80 (HTTP).
 
 **Optional — automatic HTTPS via Let's Encrypt:** set `DOMAIN` and `ACME_EMAIL` in `.env`, then start with the HTTPS overlay (requires Docker Compose 2.21+):
 
@@ -249,7 +228,7 @@ Select a preset (Gmail, iCloud) or Custom for any IMAP server.
 
 ## Option C — Native install (no Docker)
 
-Run MailFlow directly on any Linux, macOS, or BSD machine using Node.js, PostgreSQL, and Redis.
+Run Inboxora directly on any Linux, macOS, or BSD machine using Node.js, PostgreSQL, and Redis.
 No container runtime required. The steps below use Ubuntu/Debian; adapt package manager commands for other platforms.
 
 ### Prerequisites
@@ -279,16 +258,16 @@ brew services start redis
 
 ```bash
 sudo -u postgres psql <<'SQL'
-CREATE USER mailflow WITH PASSWORD 'replace-with-a-strong-password';
-CREATE DATABASE mailflow OWNER mailflow;
+CREATE USER inboxora WITH PASSWORD 'replace-with-a-strong-password';
+CREATE DATABASE inboxora OWNER inboxora;
 SQL
 ```
 
 ### 3. Get the code
 
 ```bash
-git clone https://github.com/maathimself/mailflow.git /opt/mailflow
-cd /opt/mailflow
+git clone https://github.com/Dragonk/Inboxora.git /opt/inboxora
+cd /opt/inboxora
 ```
 
 ### 4. Configure environment
@@ -305,8 +284,8 @@ Edit `.env`. In addition to the required secrets, set these for a native install
 | `SESSION_SECRET` | `openssl rand -hex 32` |
 | `DB_HOST` | `localhost` |
 | `DB_PORT` | `5432` — override for a Postgres server on a non-standard port |
-| `DB_NAME` | `mailflow` |
-| `DB_USER` | `mailflow` |
+| `DB_NAME` | `inboxora` |
+| `DB_USER` | `inboxora` |
 | `DB_PASSWORD` | password you set in step 2 |
 | `REDIS_URL` | `redis://localhost:6379` — or `redis+unix:///path/to/redis.sock` for a Unix socket |
 
@@ -316,16 +295,16 @@ For Docker installs, the bundled Postgres/Redis work out of the box. To point at
 ### 5. Build the frontend
 
 ```bash
-cd /opt/mailflow/frontend
+cd /opt/inboxora/frontend
 npm ci
 npm run build
-# Built files are written to /opt/mailflow/frontend/dist
+# Built files are written to /opt/inboxora/frontend/dist
 ```
 
 ### 6. Install backend dependencies
 
 ```bash
-cd /opt/mailflow/backend
+cd /opt/inboxora/backend
 npm ci --omit=dev
 ```
 
@@ -335,25 +314,25 @@ A ready-to-use nginx config is provided in `contrib/nginx.conf`. Copy it, update
 
 ```bash
 sudo mkdir -p /etc/nginx/sites-available /etc/nginx/sites-enabled
-sudo cp /opt/mailflow/contrib/nginx.conf /etc/nginx/sites-available/mailflow
+sudo cp /opt/inboxora/contrib/nginx.conf /etc/nginx/sites-available/inboxora
 ```
 
-Open `/etc/nginx/sites-available/mailflow` and replace `/path/to/mailflow/frontend/dist` with `/opt/mailflow/frontend/dist`.
+Open `/etc/nginx/sites-available/inboxora` and replace `/path/to/inboxora/frontend/dist` with `/opt/inboxora/frontend/dist`.
 
 The provided config listens on port 80 for use behind a TLS-terminating reverse proxy (Nginx/Caddy/Traefik). If you want nginx to terminate TLS directly, uncomment the HTTPS server block in the file and set your certificate paths. A quick self-signed cert:
 
 ```bash
-sudo mkdir -p /etc/ssl/mailflow
+sudo mkdir -p /etc/ssl/inboxora
 sudo openssl req -x509 -nodes -newkey rsa:4096 -days 3650 \
-  -keyout /etc/ssl/mailflow/key.pem \
-  -out    /etc/ssl/mailflow/cert.pem \
-  -subj "/CN=mailflow"
+  -keyout /etc/ssl/inboxora/key.pem \
+  -out    /etc/ssl/inboxora/cert.pem \
+  -subj "/CN=inboxora"
 ```
 
 Enable the site and reload nginx:
 
 ```bash
-sudo ln -sf /etc/nginx/sites-available/mailflow /etc/nginx/sites-enabled/mailflow
+sudo ln -sf /etc/nginx/sites-available/inboxora /etc/nginx/sites-enabled/inboxora
 sudo rm -f /etc/nginx/sites-enabled/default
 sudo nginx -t && sudo systemctl reload nginx
 ```
@@ -363,19 +342,19 @@ sudo nginx -t && sudo systemctl reload nginx
 **Option A — systemd (recommended for production):**
 
 ```bash
-sudo cp /opt/mailflow/contrib/mailflow.service /etc/systemd/system/mailflow.service
+sudo cp /opt/inboxora/contrib/inboxora.service /etc/systemd/system/inboxora.service
 # Edit the service file if your install path or user differs from the defaults
 sudo systemctl daemon-reload
-sudo systemctl enable --now mailflow
-sudo systemctl status mailflow
+sudo systemctl enable --now inboxora
+sudo systemctl status inboxora
 ```
 
 **Option B — PM2:**
 
 ```bash
 sudo npm install -g pm2
-cd /opt/mailflow/backend
-pm2 start src/index.js --name mailflow
+cd /opt/inboxora/backend
+pm2 start src/index.js --name inboxora
 pm2 save
 pm2 startup   # follow the printed command to register auto-start on boot
 ```
@@ -383,7 +362,7 @@ pm2 startup   # follow the printed command to register auto-start on boot
 **Option C — foreground (testing only):**
 
 ```bash
-cd /opt/mailflow/backend
+cd /opt/inboxora/backend
 node src/index.js
 ```
 
@@ -398,11 +377,11 @@ In the settings panel → Accounts → Add Account.
 ### Updating
 
 ```bash
-cd /opt/mailflow
+cd /opt/inboxora
 git pull
 cd frontend && npm ci && npm run build && cd ..
 cd backend && npm ci --omit=dev && cd ..
-sudo systemctl restart mailflow   # or: pm2 restart mailflow
+sudo systemctl restart inboxora   # or: pm2 restart inboxora
 ```
 
 ---
@@ -415,8 +394,8 @@ Gmail requires an **App Password** (not your normal password):
 
 1. Enable 2-step verification on your Google account
 2. Go to [myaccount.google.com/apppasswords](https://myaccount.google.com/apppasswords)
-3. Create a new App Password — name it "MailFlow"
-4. Use the 16-character password in the MailFlow account form
+3. Create a new App Password — name it "Inboxora"
+4. Use the 16-character password in the Inboxora account form
 
 | Setting | Value |
 |---|---|
@@ -429,7 +408,7 @@ Gmail requires an **App Password** (not your normal password):
 ### iCloud / Apple Mail
 
 1. Go to [appleid.apple.com](https://appleid.apple.com) → Sign-In and Security → App-Specific Passwords
-2. Generate a password — name it "MailFlow"
+2. Generate a password — name it "Inboxora"
 
 | Setting | Value |
 |---|---|
@@ -476,14 +455,14 @@ Then follow the steps for your account type:
    to **Yes**. No client secret or redirect URI is needed.
 2. In Integrations → Microsoft 365, enter the **Client ID** and **Tenant ID**
    (`common`), leave Client Secret and Redirect URI blank, then save.
-3. Start the device-code flow shown there. MailFlow displays a short code; visit
+3. Start the device-code flow shown there. Inboxora displays a short code; visit
    [microsoft.com/devicelogin](https://microsoft.com/devicelogin) and enter it to
    authorise.
 
 **Work / school accounts (Microsoft 365)** (confidential client):
 
 1. In the Azure app, open **Authentication → Add a platform → Web**, and set the
-   redirect URI to `https://<your-mailflow-host>/oauth/microsoft/callback` (the exact
+   redirect URI to `https://<your-inboxora-host>/oauth/microsoft/callback` (the exact
    value is shown on the Integrations screen).
 2. Under **Certificates & secrets → New client secret**, create a secret and copy its
    **Value** (not the Secret ID).
@@ -522,19 +501,19 @@ docker compose up -d --build
 git pull && \
   cd frontend && npm ci && npm run build && cd .. && \
   cd backend && npm ci --omit=dev && cd .. && \
-  sudo systemctl restart mailflow   # or: pm2 restart mailflow
+  sudo systemctl restart inboxora   # or: pm2 restart inboxora
 ```
 
 ## Backup and Restore
 
 ```bash
 # Backup database
-docker exec mailflow-postgres pg_dump -U mailflow mailflow \
-  > mailflow-$(date +%Y%m%d).sql
+docker exec inboxora-postgres pg_dump -U inboxora inboxora \
+  > inboxora-$(date +%Y%m%d).sql
 
 # Restore database
-cat mailflow-YYYYMMDD.sql | \
-  docker exec -i mailflow-postgres psql -U mailflow -d mailflow
+cat inboxora-YYYYMMDD.sql | \
+  docker exec -i inboxora-postgres psql -U inboxora -d inboxora
 ```
 
 ---
@@ -590,14 +569,14 @@ nginx  (frontend container — internal only)
 
 ## Desktop and Android apps
 
-MailFlow remains a self-hosted web app, but the repository includes native wrappers for users who prefer an installed desktop or mobile application:
+Inboxora remains a self-hosted web app, but the repository includes native wrappers for users who prefer an installed desktop or mobile application:
 
 - Windows, macOS, and Linux use Electron-based packages.
 - Android uses a Capacitor WebView wrapper.
-- On first launch, the native wrapper prompts for the MailFlow server URL, such as `https://mail.your-domain.com`, stores it locally, and connects to that server.
+- On first launch, the native wrapper prompts for the Inboxora server URL, such as `https://mail.your-domain.com`, stores it locally, and connects to that server.
 - Native package sources live under `frontend/packages`.
 
-> **Note:** Prebuilt, signed native apps are not published yet — they are in development and will be attached to a future MailFlow release. For now you can build them locally from source:
+> **Note:** Prebuilt, signed native apps are not published yet — they are in development and will be attached to a future Inboxora release. For now you can build them locally from source:
 
 ```bash
 cd frontend
@@ -605,27 +584,6 @@ npm ci
 npm run electron:dist   # desktop installers (.exe / .dmg / .deb / .rpm)
 npm run android:dist    # Android package (.apk / .aab)
 ```
-
-## Supporters
-
-MailFlow is free and open source. If it's useful to you, consider supporting development:
-
-[![Ko-fi](https://img.shields.io/badge/Ko--fi-Support_MailFlow-FF5E5B?logo=ko-fi&logoColor=white&style=for-the-badge)](https://ko-fi.com/mailflow)
-[![GitHub Sponsors](https://img.shields.io/badge/GitHub_Sponsors-Sponsor-ea4aaa?logo=github-sponsors&logoColor=white&style=for-the-badge)](https://github.com/sponsors/maathimself)
-
-### GitHub Sponsors
-
-<!-- SPONSORS-START -->
-_No sponsors yet — be the first!_
-<!-- SPONSORS-END -->
-
----
-
-## Star History
-
-[![Stargazers over time](.github/assets/star-history.svg)](https://github.com/maathimself/mailflow/stargazers)
-
----
 
 ## Upgrading
 
