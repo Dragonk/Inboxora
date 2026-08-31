@@ -798,7 +798,8 @@
       "groupDisplay": "Anzeige",
       "groupSecurityIntegrations": "Sicherheit und Integrationen",
       "groupAdmin": "Administration",
-      "plugins": "Plugins"
+      "plugins": "Plugins",
+      "davCredentials": "DAV-Zugang"
     },
     "title": "Einstellungen",
     "users": {
@@ -839,6 +840,27 @@
       "disable2faConfirmTitle": "2FA für „{{username}}” deaktivieren?",
       "disable2faConfirmBody": "Dies entfernt die Anforderung der Authenticator-App. Der Benutzer kann sie selbst wieder aktivieren.",
       "disable2faConfirmLabel": "2FA deaktivieren"
+    },
+    "davCredentials": {
+      "title": "DAV-Zugang",
+      "description": "Erstellen Sie eigene App-Passwörter für CardDAV und CalDAV.",
+      "label": "Gerätebezeichnung",
+      "labelPlaceholder": "z. B. DAVx5-Telefon",
+      "create": "Passwort erstellen",
+      "secretTitle": "Dieses Passwort jetzt kopieren",
+      "secretWarning": "Dieses App-Passwort wird aus Sicherheitsgründen nur einmal angezeigt.",
+      "copied": "Kopiert",
+      "davx5Title": "DAVx5 einrichten",
+      "davx5Description": "Fügen Sie diesen Server in DAVx5 hinzu und verwenden Sie Ihren Inboxora-Benutzernamen mit diesem App-Passwort. Die Erkennung funktioniert unter:",
+      "davx5Username": "Verwenden Sie Ihren Inboxora-Benutzernamen und das App-Passwort, nicht Ihr Anmeldepasswort.",
+      "activeTitle": "Aktive App-Passwörter",
+      "empty": "Noch keine App-Passwörter vorhanden.",
+      "metadata": "Erstellt: {{created}} · Zuletzt verwendet: {{used}}",
+      "revoke": "Widerrufen",
+      "loadError": "DAV-App-Passwörter konnten nicht geladen werden.",
+      "createError": "Das App-Passwort konnte nicht erstellt werden.",
+      "copyError": "Das App-Passwort konnte nicht kopiert werden.",
+      "revokeError": "Das App-Passwort konnte nicht widerrufen werden."
     }
   },
   "blockList": {

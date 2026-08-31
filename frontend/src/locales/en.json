@@ -798,7 +798,8 @@
       "groupDisplay": "Display",
       "groupSecurityIntegrations": "Security & Integrations",
       "groupAdmin": "Administration",
-      "plugins": "Plugins"
+      "plugins": "Plugins",
+      "davCredentials": "DAV access"
     },
     "title": "Settings",
     "users": {
@@ -839,6 +840,27 @@
       "disable2faConfirmTitle": "Disable 2FA for \"{{username}}\"?",
       "disable2faConfirmBody": "This will remove their authenticator app requirement. They can re-enable it themselves.",
       "disable2faConfirmLabel": "Disable 2FA"
+    },
+    "davCredentials": {
+      "title": "DAV access",
+      "description": "Create separate application passwords for CardDAV and CalDAV.",
+      "label": "Device label",
+      "labelPlaceholder": "e.g. DAVx5 phone",
+      "create": "Create password",
+      "secretTitle": "Copy this password now",
+      "secretWarning": "For security, this application password is shown only once.",
+      "copied": "Copied",
+      "davx5Title": "DAVx5 setup",
+      "davx5Description": "In DAVx5, add this server and use your Inboxora username with this application password. Discovery works at:",
+      "davx5Username": "Use your Inboxora username and the application password, not your sign-in password.",
+      "activeTitle": "Active application passwords",
+      "empty": "No application passwords yet.",
+      "metadata": "Created: {{created}} · Last used: {{used}}",
+      "revoke": "Revoke",
+      "loadError": "Could not load DAV application passwords.",
+      "createError": "Could not create the application password.",
+      "copyError": "Could not copy the application password.",
+      "revokeError": "Could not revoke the application password."
     }
   },
   "blockList": {

@@ -798,7 +798,8 @@
       "groupDisplay": "Schermo",
       "groupSecurityIntegrations": "Sicurezza e integrazioni",
       "groupAdmin": "Amministrazione",
-      "plugins": "Plugin"
+      "plugins": "Plugin",
+      "davCredentials": "Accesso DAV"
     },
     "title": "Impostazioni",
     "users": {
@@ -839,6 +840,27 @@
       "disable2faConfirmTitle": "Disabilitare la 2FA per \"{{username}}\"?",
       "disable2faConfirmBody": "Questa operazione rimuoverà il requisito dell'app di autenticazione. L'utente potrà riabilitarla da solo.",
       "disable2faConfirmLabel": "Disabilita 2FA"
+    },
+    "davCredentials": {
+      "title": "Accesso DAV",
+      "description": "Crea password dell’app separate per CardDAV e CalDAV.",
+      "label": "Etichetta del dispositivo",
+      "labelPlaceholder": "ad es. telefono DAVx5",
+      "create": "Crea password",
+      "secretTitle": "Copia questa password ora",
+      "secretWarning": "Per sicurezza, questa password dell’app viene mostrata una sola volta.",
+      "copied": "Copiata",
+      "davx5Title": "Configurazione DAVx5",
+      "davx5Description": "In DAVx5, aggiungi questo server e usa il tuo nome utente Inboxora con questa password dell’app. Il rilevamento funziona qui:",
+      "davx5Username": "Usa il tuo nome utente Inboxora e la password dell’app, non la password di accesso.",
+      "activeTitle": "Password delle app attive",
+      "empty": "Nessuna password dell’app ancora.",
+      "metadata": "Creata: {{created}} · Ultimo utilizzo: {{used}}",
+      "revoke": "Revoca",
+      "loadError": "Impossibile caricare le password dell’app DAV.",
+      "createError": "Impossibile creare la password dell’app.",
+      "copyError": "Impossibile copiare la password dell’app.",
+      "revokeError": "Impossibile revocare la password dell’app."
     }
   },
   "blockList": {

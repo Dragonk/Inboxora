@@ -798,7 +798,8 @@
       "groupDisplay": "Visualización",
       "groupSecurityIntegrations": "Seguridad e integraciones",
       "groupAdmin": "Administración",
-      "plugins": "Complementos"
+      "plugins": "Complementos",
+      "davCredentials": "Acceso DAV"
     },
     "title": "Ajustes",
     "users": {
@@ -839,6 +840,27 @@
       "disable2faConfirmTitle": "¿Desactivar 2FA para «{{username}}»?",
       "disable2faConfirmBody": "Esto eliminará el requisito de su aplicación de autenticación. Pueden volver a activarla ellos mismos.",
       "disable2faConfirmLabel": "Desactivar 2FA"
+    },
+    "davCredentials": {
+      "title": "Acceso DAV",
+      "description": "Cree contraseñas de aplicación independientes para CardDAV y CalDAV.",
+      "label": "Etiqueta del dispositivo",
+      "labelPlaceholder": "p. ej., teléfono con DAVx5",
+      "create": "Crear contraseña",
+      "secretTitle": "Copie esta contraseña ahora",
+      "secretWarning": "Por seguridad, esta contraseña de aplicación se muestra una sola vez.",
+      "copied": "Copiada",
+      "davx5Title": "Configuración de DAVx5",
+      "davx5Description": "En DAVx5, añada este servidor y use su nombre de usuario de Inboxora con esta contraseña de aplicación. El descubrimiento funciona en:",
+      "davx5Username": "Use su nombre de usuario de Inboxora y la contraseña de aplicación, no la contraseña de inicio de sesión.",
+      "activeTitle": "Contraseñas de aplicación activas",
+      "empty": "Aún no hay contraseñas de aplicación.",
+      "metadata": "Creada: {{created}} · Último uso: {{used}}",
+      "revoke": "Revocar",
+      "loadError": "No se pudieron cargar las contraseñas de aplicación DAV.",
+      "createError": "No se pudo crear la contraseña de aplicación.",
+      "copyError": "No se pudo copiar la contraseña de aplicación.",
+      "revokeError": "No se pudo revocar la contraseña de aplicación."
     }
   },
   "blockList": {

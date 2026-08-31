@@ -44,7 +44,8 @@
       "groupDisplay": "Wyświetlanie",
       "groupSecurityIntegrations": "Bezpieczeństwo i integracje",
       "groupAdmin": "Administracja",
-      "plugins": "Wtyczki"
+      "plugins": "Wtyczki",
+      "davCredentials": "Dostęp DAV"
     },
     "rules": {
       "title": "Reguły skrzynki odbiorczej",
@@ -839,6 +840,27 @@
       "empty": "Brak wtyczek w tej wersji.",
       "error": "Nie udało się zaktualizować wtyczki. Spróbuj ponownie.",
       "configureIn": "Skonfiguruj opcje w {{location}}"
+    },
+    "davCredentials": {
+      "title": "Dostęp DAV",
+      "description": "Twórz osobne hasła aplikacji dla CardDAV i CalDAV.",
+      "label": "Nazwa urządzenia",
+      "labelPlaceholder": "np. telefon z DAVx5",
+      "create": "Utwórz hasło",
+      "secretTitle": "Skopiuj to hasło teraz",
+      "secretWarning": "Ze względów bezpieczeństwa to hasło aplikacji jest wyświetlane tylko raz.",
+      "copied": "Skopiowano",
+      "davx5Title": "Konfiguracja DAVx5",
+      "davx5Description": "W DAVx5 dodaj ten serwer i użyj swojej nazwy użytkownika Inboxora z tym hasłem aplikacji. Automatyczne wykrywanie działa pod adresami:",
+      "davx5Username": "Użyj nazwy użytkownika Inboxora i hasła aplikacji, a nie hasła do logowania.",
+      "activeTitle": "Aktywne hasła aplikacji",
+      "empty": "Nie ma jeszcze haseł aplikacji.",
+      "metadata": "Utworzono: {{created}} · Ostatnio użyte: {{used}}",
+      "revoke": "Unieważnij",
+      "loadError": "Nie udało się wczytać haseł aplikacji DAV.",
+      "createError": "Nie udało się utworzyć hasła aplikacji.",
+      "copyError": "Nie udało się skopiować hasła aplikacji.",
+      "revokeError": "Nie udało się unieważnić hasła aplikacji."
     }
   },
   "blockList": {

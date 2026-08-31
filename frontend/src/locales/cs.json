@@ -44,7 +44,8 @@
       "groupDisplay": "Zobrazení",
       "groupSecurityIntegrations": "Zabezpečení a integrace",
       "groupAdmin": "Správa",
-      "plugins": "Pluginy"
+      "plugins": "Pluginy",
+      "davCredentials": "Přístup DAV"
     },
     "categories": {
       "title": "Kategorie e-mailů",
@@ -839,6 +840,27 @@
       "remove": "Odebrat",
       "add": "Přidat akci",
       "count": "Počet akcí: {{n}} z {{max}}"
+    },
+    "davCredentials": {
+      "title": "Přístup DAV",
+      "description": "Vytvářejte samostatná hesla aplikací pro CardDAV a CalDAV.",
+      "label": "Název zařízení",
+      "labelPlaceholder": "např. telefon s DAVx5",
+      "create": "Vytvořit heslo",
+      "secretTitle": "Zkopírujte si toto heslo nyní",
+      "secretWarning": "Z bezpečnostních důvodů se toto heslo aplikace zobrazí pouze jednou.",
+      "copied": "Zkopírováno",
+      "davx5Title": "Nastavení DAVx5",
+      "davx5Description": "V DAVx5 přidejte tento server a použijte své uživatelské jméno Inboxora s tímto heslem aplikace. Zjišťování funguje na:",
+      "davx5Username": "Použijte své uživatelské jméno Inboxora a heslo aplikace, nikoli přihlašovací heslo.",
+      "activeTitle": "Aktivní hesla aplikací",
+      "empty": "Zatím žádná hesla aplikací.",
+      "metadata": "Vytvořeno: {{created}} · Naposledy použito: {{used}}",
+      "revoke": "Odvolat",
+      "loadError": "Hesla aplikací DAV se nepodařilo načíst.",
+      "createError": "Heslo aplikace se nepodařilo vytvořit.",
+      "copyError": "Heslo aplikace se nepodařilo zkopírovat.",
+      "revokeError": "Heslo aplikace se nepodařilo odvolat."
     }
   },
   "blockList": {

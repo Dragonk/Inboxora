@@ -798,7 +798,8 @@
       "groupDisplay": "显示",
       "groupSecurityIntegrations": "安全与集成",
       "groupAdmin": "管理",
-      "plugins": "插件"
+      "plugins": "插件",
+      "davCredentials": "DAV 访问"
     },
     "title": "设置",
     "users": {
@@ -839,6 +840,27 @@
       "disable2faConfirmTitle": "为「{{username}}」停用双重验证？",
       "disable2faConfirmBody": "此操作将解除其身份验证器应用要求。该用户可自行重新启用。",
       "disable2faConfirmLabel": "停用双重验证"
+    },
+    "davCredentials": {
+      "title": "DAV 访问",
+      "description": "为 CardDAV 和 CalDAV 创建独立的应用密码。",
+      "label": "设备标签",
+      "labelPlaceholder": "例如 DAVx5 手机",
+      "create": "创建密码",
+      "secretTitle": "立即复制此密码",
+      "secretWarning": "出于安全考虑，此应用密码仅显示一次。",
+      "copied": "已复制",
+      "davx5Title": "DAVx5 设置",
+      "davx5Description": "在 DAVx5 中添加此服务器，并使用您的 Inboxora 用户名和此应用密码。自动发现地址：",
+      "davx5Username": "请使用您的 Inboxora 用户名和应用密码，而不是登录密码。",
+      "activeTitle": "有效的应用密码",
+      "empty": "尚无应用密码。",
+      "metadata": "创建时间：{{created}} · 上次使用：{{used}}",
+      "revoke": "撤销",
+      "loadError": "无法加载 DAV 应用密码。",
+      "createError": "无法创建应用密码。",
+      "copyError": "无法复制应用密码。",
+      "revokeError": "无法撤销应用密码。"
     }
   },
   "blockList": {

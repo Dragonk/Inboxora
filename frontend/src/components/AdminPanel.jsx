@@ -6664,7 +6664,7 @@ function MailboxCleanupTab() {
 const TAB_GROUPS = [
   { id: 'account-mail', labelKey: 'admin.tabs.groupAccountMail', tabIds: ['accounts', 'notifications', 'rules', 'categories', 'cleanup'] },
   { id: 'display', labelKey: 'admin.tabs.groupDisplay', tabIds: ['appearance', 'shortcuts'] },
-  { id: 'security-integrations', labelKey: 'admin.tabs.groupSecurityIntegrations', tabIds: ['security', 'integrations', 'ai', 'ai-actions', 'plugins'] },
+  { id: 'security-integrations', labelKey: 'admin.tabs.groupSecurityIntegrations', tabIds: ['security', 'dav-credentials', 'integrations', 'ai', 'ai-actions', 'plugins'] },
   { id: 'admin', labelKey: 'admin.tabs.groupAdmin', tabIds: ['users', 'sso'] },
 ];
 
@@ -6704,6 +6704,10 @@ const TABS = [
   {
     id: 'security', labelKey: 'admin.tabs.security',
     icon: <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>,
+  },
+  {
+    id: 'dav-credentials', labelKey: 'admin.tabs.davCredentials',
+    icon: <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75"><rect x="3" y="11" width="18" height="10" rx="2"/><path d="M7 11V7a5 5 0 0110 0v4"/><path d="M12 15v2"/></svg>,
   },
   {
     id: 'integrations', labelKey: 'admin.tabs.integrations',
@@ -8204,6 +8208,7 @@ function makeSearchIndex(t) {
     { label: t('admin.categories.title'), keywords: ['categories', 'categorize', 'newsletter', 'promotion', 'social', 'automated', 'inbox tabs', 'sort emails', 'classify'], tab: 'categories', breadcrumb: tabLabel('categories') },
     { label: t('admin.categories.gtdReveal'), keywords: ['gtd', 'todo', 'getting things done', 'watch', 'delegated', 'someday', 'reference', 'next action', 'waiting', 'inbox zero', 'pet'], tab: 'categories', subtab: 'gtd', breadcrumb: `${tabLabel('categories')} › ${t('admin.categories.gtdReveal')}` },
     // Security
+    { label: tabLabel('davCredentials'), keywords: ['dav', 'davx5', 'carddav', 'caldav', 'app password', 'sync password'], tab: 'dav-credentials', breadcrumb: tabLabel('davCredentials') },
     { label: t('admin.security.totpTitle'), keywords: ['2fa', 'totp', 'authenticator', 'two factor', 'otp', 'two-factor', 'mfa', 'security code'], tab: 'security', subtab: 'security', breadcrumb: secCrumb },
     { label: t('admin.security.ssoTitle'), keywords: ['sso', 'linked', 'identity', 'provider', 'link', 'unlink', 'oidc', 'connect identity'], tab: 'security', subtab: 'security', breadcrumb: secCrumb },
     { label: t('admin.security.loginProtectionTitle'), keywords: ['login', 'attempts', 'brute force', 'lockout', 'max attempts', 'rate limit'], tab: 'security', subtab: 'security', adminOnly: true, breadcrumb: secCrumb },
@@ -8254,6 +8259,17 @@ function SearchResultsView({ results, query, onNavigate, t }) {
       ))}
     </div>
   );
+}
+
+function DavCredentialsTab() {
+  const { t } = useTranslation(); const [credentials, setCredentials] = useState([]); const [label, setLabel] = useState(''); const [secret, setSecret] = useState(''); const [error, setError] = useState(''); const [loading, setLoading] = useState(true); const [busy, setBusy] = useState(false); const [copied, setCopied] = useState(false);
+  const load = useCallback(async () => { setLoading(true); try { const result = await api.davCredentials.list(); setCredentials(result.credentials || []); } catch (err) { setError(err.message || t('admin.davCredentials.loadError')); } finally { setLoading(false); } }, [t]);
+  useEffect(() => { load(); }, [load]);
+  const create = async () => { if (!label.trim()) return; setBusy(true); setError(''); setSecret(''); setCopied(false); try { const result = await api.davCredentials.create(label.trim()); setCredentials(current => [result.credential, ...current]); setLabel(''); setSecret(result.secret); } catch (err) { setError(err.message || t('admin.davCredentials.createError')); } finally { setBusy(false); } };
+  const copy = async () => { try { await navigator.clipboard.writeText(secret); setCopied(true); } catch { setError(t('admin.davCredentials.copyError')); } };
+  const revoke = async credential => { setBusy(true); setError(''); try { await api.davCredentials.revoke(credential.id); setCredentials(current => current.filter(item => item.id !== credential.id)); } catch (err) { setError(err.message || t('admin.davCredentials.revokeError')); } finally { setBusy(false); } };
+  const endpoint = window.location.origin;
+  return <div style={{ maxWidth: 680 }}><h2 style={{ marginTop: 0 }}>{t('admin.davCredentials.title')}</h2><p style={{ color: 'var(--text-secondary)' }}>{t('admin.davCredentials.description')}</p>{error && <div role="alert" style={{ color: 'var(--red)', marginBottom: 12 }}>{error}</div>}<div style={{ display: 'flex', gap: 8, marginBottom: 18 }}><input aria-label={t('admin.davCredentials.label')} value={label} maxLength={120} onChange={e => setLabel(e.target.value)} onKeyDown={e => e.key === 'Enter' && create()} placeholder={t('admin.davCredentials.labelPlaceholder')} style={inputStyle}/><button disabled={busy || !label.trim()} onClick={create} style={{ background: 'var(--accent)', color: 'var(--accent-text)', border: 0, borderRadius: 6, padding: '7px 12px', cursor: 'pointer', whiteSpace: 'nowrap' }}>{t('admin.davCredentials.create')}</button></div>{secret && <section style={{ border: '1px solid var(--accent)', borderRadius: 8, padding: 16, marginBottom: 18 }}><strong>{t('admin.davCredentials.secretTitle')}</strong><p>{t('admin.davCredentials.secretWarning')}</p><code style={{ display: 'block', overflowWrap: 'anywhere' }}>{secret}</code><button onClick={copy} style={{ marginTop: 10 }}>{copied ? t('admin.davCredentials.copied') : t('common.copy')}</button></section>}<section style={{ border: '1px solid var(--border)', borderRadius: 8, padding: 16, marginBottom: 18 }}><strong>{t('admin.davCredentials.davx5Title')}</strong><p>{t('admin.davCredentials.davx5Description')}</p><code>{endpoint}/.well-known/carddav</code><br/><code>{endpoint}/.well-known/caldav</code><p style={{ color: 'var(--text-tertiary)', marginBottom: 0 }}>{t('admin.davCredentials.davx5Username')}</p></section><h3>{t('admin.davCredentials.activeTitle')}</h3>{loading ? <p>{t('common.loading')}</p> : credentials.length === 0 ? <p>{t('admin.davCredentials.empty')}</p> : <div style={{ display: 'grid', gap: 8 }}>{credentials.map(credential => <div key={credential.id} style={{ display: 'flex', gap: 12, alignItems: 'center', border: '1px solid var(--border)', borderRadius: 8, padding: 12 }}><div style={{ flex: 1 }}><strong>{credential.label}</strong><div style={{ color: 'var(--text-tertiary)', fontSize: 12 }}>{t('admin.davCredentials.metadata', { created: new Date(credential.created_at).toLocaleString(), used: credential.last_used_at ? new Date(credential.last_used_at).toLocaleString() : t('common.never') })}</div></div><button disabled={busy} onClick={() => revoke(credential)} style={{ color: 'var(--red)' }}>{t('admin.davCredentials.revoke')}</button></div>)}</div>}</div>;
 }
 
 export default function AdminPanel() {
@@ -8344,6 +8360,7 @@ export default function AdminPanel() {
       {adminTab === 'users' && <UsersTab />}
       {adminTab === 'sso' && <SSOTab />}
       {adminTab === 'security' && <SecurityPrivacyTab initialSubTab={pendingSubTab} />}
+      {adminTab === 'dav-credentials' && <DavCredentialsTab />}
       {adminTab === 'notifications' && <NotificationsTab />}
       {adminTab === 'shortcuts' && !isMobile && <ShortcutsTab />}
       {adminTab === 'ai' && <AISection />}

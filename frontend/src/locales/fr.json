@@ -798,7 +798,8 @@
       "groupDisplay": "Affichage",
       "groupSecurityIntegrations": "Sécurité et intégrations",
       "groupAdmin": "Administration",
-      "plugins": "Extensions"
+      "plugins": "Extensions",
+      "davCredentials": "Accès DAV"
     },
     "title": "Paramètres",
     "users": {
@@ -839,6 +840,27 @@
       "disable2faConfirmTitle": "Désactiver la 2FA pour « {{username}} » ?",
       "disable2faConfirmBody": "Cela supprimera l'exigence de leur application d'authentification. Ils peuvent la réactiver eux-mêmes.",
       "disable2faConfirmLabel": "Désactiver la 2FA"
+    },
+    "davCredentials": {
+      "title": "Accès DAV",
+      "description": "Créez des mots de passe d’application distincts pour CardDAV et CalDAV.",
+      "label": "Libellé de l’appareil",
+      "labelPlaceholder": "p. ex. téléphone DAVx5",
+      "create": "Créer le mot de passe",
+      "secretTitle": "Copiez ce mot de passe maintenant",
+      "secretWarning": "Pour votre sécurité, ce mot de passe d’application ne s’affiche qu’une seule fois.",
+      "copied": "Copié",
+      "davx5Title": "Configuration de DAVx5",
+      "davx5Description": "Dans DAVx5, ajoutez ce serveur et utilisez votre nom d’utilisateur Inboxora avec ce mot de passe d’application. La découverte fonctionne à :",
+      "davx5Username": "Utilisez votre nom d’utilisateur Inboxora et le mot de passe d’application, et non votre mot de passe de connexion.",
+      "activeTitle": "Mots de passe d’application actifs",
+      "empty": "Aucun mot de passe d’application pour le moment.",
+      "metadata": "Créé : {{created}} · Dernière utilisation : {{used}}",
+      "revoke": "Révoquer",
+      "loadError": "Impossible de charger les mots de passe d’application DAV.",
+      "createError": "Impossible de créer le mot de passe d’application.",
+      "copyError": "Impossible de copier le mot de passe d’application.",
+      "revokeError": "Impossible de révoquer le mot de passe d’application."
     }
   },
   "blockList": {
