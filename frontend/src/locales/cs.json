@@ -1663,5 +1663,12 @@
   "window": {
     "minimize": "Minimalizovat",
     "close": "Zavřít"
+  },
+  "calendar": {
+    "title": "Kalendář",
+    "today": "Dnes",
+    "newEvent": "Nová událost",
+    "noWritable": "Není k dispozici žádný zapisovatelný místní kalendář. Importované kalendáře jsou jen pro čtení.",
+    "loading": "Načítání kalendáře…"
   }
 }

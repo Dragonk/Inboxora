@@ -1663,5 +1663,12 @@
   "window": {
     "minimize": "Réduire",
     "close": "Fermer"
+  },
+  "calendar": {
+    "title": "Calendrier",
+    "today": "Aujourd’hui",
+    "newEvent": "Nouvel événement",
+    "noWritable": "Aucun calendrier local modifiable n’est disponible. Les calendriers importés sont en lecture seule.",
+    "loading": "Chargement du calendrier…"
   }
 }

@@ -1663,5 +1663,12 @@
   "window": {
     "minimize": "Minimize",
     "close": "Close"
+  },
+  "calendar": {
+    "title": "Calendar",
+    "today": "Today",
+    "newEvent": "New event",
+    "noWritable": "No writable local calendar is available. Imported calendars are read-only.",
+    "loading": "Loading calendar…"
   }
 }

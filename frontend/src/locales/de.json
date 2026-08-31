@@ -1663,5 +1663,12 @@
   "window": {
     "minimize": "Minimieren",
     "close": "Schließen"
+  },
+  "calendar": {
+    "title": "Kalender",
+    "today": "Heute",
+    "newEvent": "Neues Ereignis",
+    "noWritable": "Kein beschreibbarer lokaler Kalender verfügbar. Importierte Kalender sind schreibgeschützt.",
+    "loading": "Kalender wird geladen…"
   }
 }

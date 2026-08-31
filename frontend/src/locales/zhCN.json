@@ -1663,5 +1663,12 @@
   "window": {
     "minimize": "最小化",
     "close": "关闭"
+  },
+  "calendar": {
+    "title": "日历",
+    "today": "今天",
+    "newEvent": "新建事件",
+    "noWritable": "没有可写的本地日历。导入的日历为只读。",
+    "loading": "正在加载日历…"
   }
 }

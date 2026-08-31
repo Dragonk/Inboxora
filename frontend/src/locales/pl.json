@@ -1663,5 +1663,12 @@
   "window": {
     "minimize": "Minimalizuj",
     "close": "Zamknij"
+  },
+  "calendar": {
+    "title": "Kalendarz",
+    "today": "Dzisiaj",
+    "newEvent": "Nowe wydarzenie",
+    "noWritable": "Brak zapisywalnego lokalnego kalendarza. Zaimportowane kalendarze są tylko do odczytu.",
+    "loading": "Wczytywanie kalendarza…"
   }
 }
