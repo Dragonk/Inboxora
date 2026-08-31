@@ -65,6 +65,23 @@ describe('CardDAV authentication', () => {
     expect(response.headers.get('www-authenticate')).toContain('Inboxora CardDAV');
   });
 
+  it('discovers the provisioned Personal Contacts address book for a DAV client', async () => {
+    authenticateDavCredential.mockResolvedValue({ userId: 'user-1', credentialId: 'credential-1' });
+    query.mockResolvedValueOnce({ rows: [{ id: 'personal-contacts' }] });
+
+    const response = await fetch(`${base}/carddav/user-1/`, {
+      method: 'PROPFIND',
+      headers: { authorization: basic('sam@example.test', 'mf_dav_123e4567-e89b-12d3-a456-426614174000.exampleSecret-123456') },
+    });
+
+    expect(response.status).toBe(207);
+    expect(await response.text()).toContain('/carddav/user-1/personal-contacts/');
+    expect(query).toHaveBeenCalledWith(
+      'SELECT id FROM address_books WHERE user_id = $1 ORDER BY created_at LIMIT 1',
+      ['user-1'],
+    );
+  });
+
   it('rejects writes to an imported address book', async () => {
     authenticateDavCredential.mockResolvedValue({ userId: 'user-1', credentialId: 'credential-1' });
     query.mockResolvedValueOnce({ rows: [{ id: 'book-1', source: 'carddav' }] });

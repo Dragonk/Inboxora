@@ -890,6 +890,18 @@ export default function Sidebar() {
           />
         )}
 
+        {/* Contacts is a primary desktop destination, not a secondary account action. */}
+        {!isMobile && (
+          <NavItem
+            testId="contacts-nav-primary"
+            icon={ICONS.contacts}
+            label={t('contacts.title')}
+            active={showContacts}
+            collapsed={sidebarCollapsed}
+            onClick={() => setShowContacts(true)}
+          />
+        )}
+
         {/* Favorites section */}
         {!sidebarCollapsed && favoriteFolders.length > 0 && (() => {
           const visibleFaves = favoriteFolders.filter(({ accountId }) => accounts.some(a => a.id === accountId));
@@ -1747,24 +1759,6 @@ export default function Sidebar() {
         </div>
       ) : (
         <>
-          <div style={{ padding: '4px 8px', display: 'flex', justifyContent: sidebarCollapsed ? 'center' : 'flex-start' }}>
-            <button
-              onClick={() => { setShowContacts(!showContacts); if (isMobile) setMobileSidebarOpen(false); }}
-              title={t('contacts.title')}
-              style={{
-                width: 28, height: 28, borderRadius: 7,
-                border: 'none', cursor: 'pointer',
-                display: 'flex', alignItems: 'center', justifyContent: 'center',
-                background: showContacts ? 'var(--bg-hover)' : 'transparent',
-                color: showContacts ? 'var(--accent)' : 'var(--text-tertiary)',
-                transition: 'background 0.1s, color 0.1s',
-              }}
-              onMouseEnter={e => { if (!showContacts) { e.currentTarget.style.background = 'var(--bg-tertiary)'; e.currentTarget.style.color = 'var(--text-secondary)'; } }}
-              onMouseLeave={e => { if (!showContacts) { e.currentTarget.style.background = 'transparent'; e.currentTarget.style.color = 'var(--text-tertiary)'; } }}
-            >
-              {ICONS.contacts}
-            </button>
-          </div>
           <div style={{ padding: '8px', borderTop: '1px solid var(--border-subtle)' }}>
           <div
             ref={userMenuBtnRef}
@@ -1990,10 +1984,11 @@ export default function Sidebar() {
   );
 }
 
-function NavItem({ icon, label, active, collapsed, badge, onClick }) {
+function NavItem({ testId, icon, label, active, collapsed, badge, onClick }) {
   return (
     <div
       className={active ? 'nav-item nav-item-active' : 'nav-item'}
+      data-testid={testId}
       onClick={onClick}
       onKeyDown={activateOnKey(onClick)}
       role="button"
