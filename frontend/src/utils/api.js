@@ -31,6 +31,8 @@ async function request(method, path, body, extraHeaders, extraOptions = {}) {
     const err = await res.json().catch(() => ({ error: 'Request failed' }));
     throw new Error(err.error || 'Request failed');
   }
+  // A successful DELETE may deliberately return no representation (HTTP 204).
+  if (res.status === 204) return null;
   return res.json();
 }
 
@@ -328,6 +330,22 @@ export const api = {
     update:     (data) => request('PATCH',  '/carddav', data),
     sync:       ()     => request('POST',   '/carddav/sync'),
     disconnect: ()     => request('DELETE', '/carddav'),
+  },
+
+  // DAV Hub — dedicated, revocable app passwords for CardDAV/CalDAV clients.
+  davCredentials: {
+    list:   () => request('GET', '/dav-credentials'),
+    create: (label) => request('POST', '/dav-credentials', { label }),
+    revoke: (id) => request('DELETE', `/dav-credentials/${id}`),
+  },
+
+  // Local calendar resources shared with the built-in CalDAV service.
+  calendar: {
+    listCalendars: () => request('GET', '/calendar/calendars'),
+    listEvents: (from, to) => request('GET', `/calendar/events?${new URLSearchParams({ from, to })}`),
+    createEvent: (data) => request('POST', '/calendar/events', data),
+    updateEvent: (id, data) => request('PATCH', `/calendar/events/${id}`, data),
+    deleteEvent: (id, calendarId) => request('DELETE', `/calendar/events/${encodeURIComponent(id)}?calendarId=${encodeURIComponent(calendarId)}`),
   },
 
   // Image whitelist
