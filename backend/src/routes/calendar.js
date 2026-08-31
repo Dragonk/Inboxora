@@ -119,18 +119,25 @@ router.patch('/events/:eventId', async (req, res) => {
   const access = await writableCalendar(req.session.userId, calendarId);
   if (access.error) return res.status(access.status).json({ error: access.error });
 
+  const existing = await query(
+    "SELECT uid FROM calendar_events WHERE id = $1 AND calendar_id = $2 AND user_id = $3",
+    [req.params.eventId, calendarId, req.session.userId],
+  );
+  if (!existing.rows[0]) return res.status(404).json({ error: "Event not found" });
+
+  const rawIcal = localEventIcal({ uid: existing.rows[0].uid, summary, description, location, url, organizer, allDay: Boolean(allDay), ...times });
   const result = await query(
     `UPDATE calendar_events SET
-       summary = $1, description = $2, location = $3, url = $4, organizer = $5,
-       starts_at = $6, ends_at = $7, all_day = $8, timezone = $9,
+       raw_ical = $1, summary = $2, description = $3, location = $4, url = $5, organizer = $6,
+       starts_at = $7, ends_at = $8, all_day = $9, timezone = $10,
        etag = gen_random_uuid()::text, updated_at = NOW()
-     WHERE id = $10 AND calendar_id = $11 AND user_id = $12
+     WHERE id = $11 AND calendar_id = $12 AND user_id = $13
      RETURNING id, calendar_id, uid, etag, summary, description, location, url, organizer,
                starts_at, ends_at, all_day, timezone, created_at, updated_at`,
-    [summary || null, description, location, url, organizer, times.startsAt, times.endsAt, Boolean(allDay), timezone,
+    [rawIcal, summary || null, description, location, url, organizer, times.startsAt, times.endsAt, Boolean(allDay), timezone,
       req.params.eventId, calendarId, req.session.userId],
   );
-  if (!result.rows[0]) return res.status(404).json({ error: 'Event not found' });
+  if (!result.rows[0]) return res.status(404).json({ error: "Event not found" });
 
   await query('UPDATE calendars SET sync_token = gen_random_uuid()::text, updated_at = NOW() WHERE id = $1', [calendarId]);
   res.json({ event: result.rows[0] });

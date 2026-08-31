@@ -106,7 +106,8 @@ describe('local calendar API', () => {
   it('updates only events in a writable calendar owned by the signed-in user', async () => {
     query
       .mockResolvedValueOnce({ rows: [{ id: 'calendar-1', source: 'local', read_only: false }] })
-      .mockResolvedValueOnce({ rows: [{ id: 'event-1', calendar_id: 'calendar-1', uid: 'uid-1', etag: 'etag-2', summary: 'Updated' }] })
+      .mockResolvedValueOnce({ rows: [{ uid: "uid-1" }] })
+      .mockResolvedValueOnce({ rows: [{ id: "event-1", calendar_id: "calendar-1", uid: "uid-1", etag: "etag-2", summary: "Updated" }] })
       .mockResolvedValueOnce({ rows: [] });
 
     const response = await fetch(`${base}/api/calendar/events/event-1`, {
@@ -122,9 +123,13 @@ describe('local calendar API', () => {
 
     expect(response.status).toBe(200);
     expect((await response.json()).event).toMatchObject({ id: 'event-1', summary: 'Updated' });
-    expect(query.mock.calls[1][0]).toContain('WHERE id = $10 AND calendar_id = $11 AND user_id = $12');
-    expect(query.mock.calls[1][1]).toContain('event-1');
-    expect(query.mock.calls[1][1]).toContain('user-1');
+    expect(query.mock.calls[2][0]).toContain("raw_ical = $1");
+    expect(query.mock.calls[2][1][0]).toMatch(/^BEGIN:VCALENDAR\r\nVERSION:2.0\r\n/);
+    expect(query.mock.calls[2][1][0]).toContain("UID:uid-1");
+    expect(query.mock.calls[2][1][0]).toContain("SUMMARY:Updated");
+    expect(query.mock.calls[2][1][0]).toContain("DTSTART:20260901T110000Z");
+    expect(query.mock.calls[2][1]).toContain("event-1");
+    expect(query.mock.calls[2][1]).toContain("user-1");
   });
 
   it('refuses an event update with an invalid range before querying the database', async () => {
