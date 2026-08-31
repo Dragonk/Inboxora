@@ -1,6 +1,8 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { api } from '../utils/api.js';
+import { useStore } from '../store/index.js';
+import { useMobile } from '../hooks/useMobile.js';
 import { eventPayload, eventsForDay, monthRange, toDateTimeLocal } from './calendarView.js';
 
 const dayNames = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
@@ -13,6 +15,8 @@ function calendarDays(anchor) {
 
 export default function CalendarPage() {
   const { t } = useTranslation();
+  const { showCalendar } = useStore();
+  const isMobile = useMobile();
   const [anchor, setAnchor] = useState(() => new Date());
   const [calendars, setCalendars] = useState([]); const [events, setEvents] = useState([]);
   const [error, setError] = useState(null); const [loading, setLoading] = useState(true); const [form, setForm] = useState(null); const [saving, setSaving] = useState(false);
@@ -24,6 +28,15 @@ export default function CalendarPage() {
     finally { setLoading(false); }
   }, [range]);
   useEffect(() => { load(); }, [load]);
+  useEffect(() => {
+    if (!isMobile || !showCalendar || !form) return undefined;
+    const handleBack = (event) => {
+      event.preventDefault();
+      setForm(null);
+    };
+    window.addEventListener('inboxora:back', handleBack);
+    return () => window.removeEventListener('inboxora:back', handleBack);
+  }, [form, isMobile, showCalendar]);
   const writable = calendars.filter(calendar => !calendar.read_only && calendar.source === 'local');
   const openCreate = (date = new Date()) => setForm({ ...emptyForm(writable[0]?.id || '', date), mode: 'create' });
   const openEdit = event => setForm({ mode: 'edit', id: event.id, ...event, calendarId: event.calendar_id, summary: event.summary || '', description: event.description || '', location: event.location || '', url: event.url || '', organizer: event.organizer || '', startsAt: toDateTimeLocal(event.starts_at), endsAt: toDateTimeLocal(event.ends_at) });

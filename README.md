@@ -6,6 +6,9 @@
   <strong>Inboxora</strong> — a self-hosted, unified inbox for email, contacts and calendars.
 </p>
 
+> **Special thanks to [maathimself](https://github.com/maathimself), creator of [MailFlow](https://github.com/maathimself/mailflow).**
+> Inboxora began as a fork of MailFlow because it follows different functional and product-design goals. It keeps the required upstream notices and is developed independently under AGPL-3.0-only.
+
 <p align="center">
   <a href="#installation">Quick Start</a> ·
   <a href="#email-provider-setup">Setup Guide</a> ·

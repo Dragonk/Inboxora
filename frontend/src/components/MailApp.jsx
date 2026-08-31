@@ -28,6 +28,17 @@ const ComposeModal = lazy(() => import('./ComposeModal.jsx'));
 const AdminPanel   = lazy(() => import('./AdminPanel.jsx'));
 const ElectronNotificationBridge = lazy(() => import('./ElectronNotificationBridge.jsx'));
 
+function dismissNestedMobileView() {
+  const event = new CustomEvent('inboxora:back', { cancelable: true });
+  window.dispatchEvent(event);
+  return event.defaultPrevented;
+}
+
+function isStandalonePwa() {
+  return window.navigator.standalone === true
+    || window.matchMedia?.('(display-mode: standalone)').matches === true;
+}
+
 // Read + atomically clear the deep-link the service worker persisted on a
 // notification tap (shared IndexedDB store 'mailflow-nav'). Fully guarded so any
 // storage error resolves to null instead of throwing.
@@ -72,7 +83,7 @@ export default function MailApp() {
     mobileSidebarOpen, setMobileSidebarOpen, addNotification,
     fontSize, showAppBadge, showFaviconBadge,
     sidebarWidth, setSidebarWidth, setIsSidebarResizing,
-    showContacts, showCalendar, setTodoistConnected,
+    showContacts, showCalendar, setShowContacts, setShowCalendar, setTodoistConnected,
     accounts, rightSidebarWidth, setRightSidebarWidth, isRightSidebarResizing, setIsRightSidebarResizing,
     rightSidebarHidden, toggleRightSidebarHidden,
     conversationReaderViewEnabled,
@@ -424,25 +435,43 @@ export default function MailApp() {
     // startup so there is always at least one history entry above the baseline.
     // The handler re-pushes it after every popstate so back swipes always land
     // inside the app rather than exiting the PWA and showing a blank Safari page.
-    if (window.navigator.standalone && history.state?.mailflow !== 'guard') {
+    if (isStandalonePwa() && history.state?.inboxora !== 'guard') {
       history.pushState({ inboxora: 'guard' }, '', '/');
     }
     const handler = (event) => {
-      if (conversationReaderViewEnabled && conversationId) {
+      const state = useStore.getState();
+      // Browser/PWA Back must dismiss app-owned layers before it is allowed to
+      // reach the browser history baseline. Native Android performs the same
+      // order through __inboxoraHandleAndroidBack below.
+      if (dismissNestedMobileView()) {
+        // A visible subview restored its own parent screen. Do not also close
+        // the destination below it.
+      } else if (state.composing) {
+        state.closeCompose();
+      } else if (state.showAdmin) {
+        setShowAdmin(false);
+      } else if (state.mobileSidebarOpen) {
+        setMobileSidebarOpen(false);
+      } else if (state.showContacts) {
+        setShowContacts(false);
+      } else if (state.showCalendar) {
+        setShowCalendar(false);
+      } else if (conversationReaderViewEnabled && conversationId) {
         setConversationId(null);
         setTargetLogicalMessageId(null);
+      } else if (selectedMessageIdRef.current) {
+        setSelectedMessage(null);
       }
-      if (selectedMessageIdRef.current) setSelectedMessage(null);
       // Backing out of a message lands on the existing guard entry. Re-pushing
       // during that popstate can make iOS PWA history gestures temporarily stop
       // delivering taps, so only re-arm when the user has backed past the guard.
-      if (window.navigator.standalone && event.state?.mailflow !== 'guard') {
+      if (isStandalonePwa() && event.state?.inboxora !== 'guard') {
         history.pushState({ inboxora: 'guard' }, '', '/');
       }
     };
     window.addEventListener('popstate', handler);
     return () => window.removeEventListener('popstate', handler);
-  }, [conversationId, conversationReaderViewEnabled, isMobile, setSelectedMessage]);
+  }, [conversationId, conversationReaderViewEnabled, isMobile, setMobileSidebarOpen, setSelectedMessage, setShowAdmin, setShowCalendar, setShowContacts]);
 
   const wsRef = useWebSocket();
 
@@ -637,14 +666,20 @@ export default function MailApp() {
   useEffect(() => { showAdminRef.current  = showAdmin;  }, [showAdmin]);
 
   const mobileSidebarOpenRef = useRef(mobileSidebarOpen);
+  const showContactsRef = useRef(showContacts);
+  const showCalendarRef = useRef(showCalendar);
   const showShortcutHelpRef = useRef(showShortcutHelp);
   const paletteOpenRef = useRef(paletteOpen);
   useEffect(() => { mobileSidebarOpenRef.current = mobileSidebarOpen; }, [mobileSidebarOpen]);
+  useEffect(() => { showContactsRef.current = showContacts; }, [showContacts]);
+  useEffect(() => { showCalendarRef.current = showCalendar; }, [showCalendar]);
   useEffect(() => { showShortcutHelpRef.current = showShortcutHelp; }, [showShortcutHelp]);
   useEffect(() => { paletteOpenRef.current = paletteOpen; }, [paletteOpen]);
 
   useEffect(() => {
-    window.__mailflowHandleAndroidBack = () => {
+    window.__inboxoraHandleAndroidBack = () => {
+      if (dismissNestedMobileView()) return true;
+
       if (composingRef.current) {
         useStore.getState().closeCompose();
         return true;
@@ -670,6 +705,16 @@ export default function MailApp() {
         return true;
       }
 
+      if (showContactsRef.current) {
+        setShowContacts(false);
+        return true;
+      }
+
+      if (showCalendarRef.current) {
+        setShowCalendar(false);
+        return true;
+      }
+
       if (conversationReaderViewEnabled && conversationId) {
         setConversationId(null);
         setTargetLogicalMessageId(null);
@@ -684,9 +729,9 @@ export default function MailApp() {
     };
 
     return () => {
-      if (window.__mailflowHandleAndroidBack) delete window.__mailflowHandleAndroidBack;
+      if (window.__inboxoraHandleAndroidBack) delete window.__inboxoraHandleAndroidBack;
     };
-  }, [conversationId, conversationReaderViewEnabled, setMobileSidebarOpen, setSelectedMessage, setShowAdmin]);
+  }, [conversationId, conversationReaderViewEnabled, setMobileSidebarOpen, setSelectedMessage, setShowAdmin, setShowCalendar, setShowContacts]);
 
   useEffect(() => {
     if (isMobile) return;

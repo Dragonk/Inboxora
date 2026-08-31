@@ -27,7 +27,7 @@ self.addEventListener('push', (event) => {
   const {
     title       = 'Inboxora',
     body        = 'New message',
-    icon        = '/icon-512.png',
+    icon        = '/inboxora-icon-512.png',
     url         = '/',
     unreadCount,          // intentionally no default — undefined means "don't touch badge"
   } = data;
@@ -60,7 +60,7 @@ self.addEventListener('push', (event) => {
           self.registration.showNotification(title, {
             body,
             icon,
-            badge: '/icon-512.png',
+            badge: '/inboxora-icon-512.png',
             data:  { url },
             // Replace any existing Inboxora notification so rapid arrivals
             // don't stack unboundedly in the notification center.

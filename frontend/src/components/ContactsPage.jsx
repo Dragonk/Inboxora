@@ -55,7 +55,7 @@ const PAGE_SIZE = 100;
 
 export default function ContactsPage() {
   const { t } = useTranslation();
-  const { setShowContacts } = useStore();
+  const { showContacts, setShowContacts } = useStore();
   const isMobile = useMobile();
 
   const [contacts, setContacts]     = useState([]);
@@ -176,7 +176,7 @@ export default function ContactsPage() {
     setError(null);
   };
 
-  const cancelEdit = () => {
+  const cancelEdit = useCallback(() => {
     if (showNew) {
       setShowNew(false);
       if (isMobile) setMobilePanel('list');
@@ -184,7 +184,25 @@ export default function ContactsPage() {
       setEditing(false);
     }
     setError(null);
-  };
+  }, [isMobile, showNew]);
+
+  useEffect(() => {
+    if (!isMobile || !showContacts) return undefined;
+    const handleBack = (event) => {
+      if (confirmDelete) {
+        event.preventDefault();
+        setConfirmDelete(false);
+      } else if (inForm) {
+        event.preventDefault();
+        cancelEdit();
+      } else if (mobilePanel === 'detail') {
+        event.preventDefault();
+        goBackToList();
+      }
+    };
+    window.addEventListener('inboxora:back', handleBack);
+    return () => window.removeEventListener('inboxora:back', handleBack);
+  }, [cancelEdit, confirmDelete, inForm, isMobile, mobilePanel, showContacts]);
 
   const saveContact = async () => {
     setSaving(true);

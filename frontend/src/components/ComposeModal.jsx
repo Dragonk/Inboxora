@@ -987,6 +987,45 @@ export default function ComposeModal() {
       closeCompose();
     }
   };
+  const handleCloseRef = useRef(handleClose);
+  handleCloseRef.current = handleClose;
+
+  useEffect(() => {
+    if (!isMobile) return undefined;
+    const handleBack = (event) => {
+      if (showDiscardSheet) {
+        event.preventDefault();
+        setShowDiscardSheet(false);
+      } else if (showCloseDialog) {
+        event.preventDefault();
+        setShowCloseDialog(false);
+      } else if (showAttachWarnForDraft) {
+        event.preventDefault();
+        setShowAttachWarnForDraft(false);
+      } else if (showForgottenAttachWarn) {
+        event.preventDefault();
+        setShowForgottenAttachWarn(false);
+      } else if (showEmptySubjectWarn) {
+        event.preventDefault();
+        setShowEmptySubjectWarn(false);
+      } else if (showPrioritySheet) {
+        event.preventDefault();
+        setShowPrioritySheet(false);
+      } else if (showReplyType) {
+        event.preventDefault();
+        setShowReplyType(false);
+      } else if (showCcBccMenu) {
+        event.preventDefault();
+        setShowCcBccMenu(false);
+        setCcBccMenuPos(null);
+      } else {
+        event.preventDefault();
+        handleCloseRef.current();
+      }
+    };
+    window.addEventListener('inboxora:back', handleBack);
+    return () => window.removeEventListener('inboxora:back', handleBack);
+  }, [isMobile, showAttachWarnForDraft, showCcBccMenu, showCloseDialog, showDiscardSheet, showEmptySubjectWarn, showForgottenAttachWarn, showPrioritySheet, showReplyType]);
 
   const renderSignatureEditor = () => plaintextEmail ? (
     <textarea
