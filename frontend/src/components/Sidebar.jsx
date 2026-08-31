@@ -893,9 +893,21 @@ export default function Sidebar() {
           />
         )}
 
-        {/* Calendar is desktop-first; mobile interaction follows in checkpoint 20. */}
         {!isMobile && (
-          <NavItem testId="calendar-nav-primary" icon={ICONS.calendar} label="Calendar" active={showCalendar} collapsed={sidebarCollapsed} onClick={() => setShowCalendar(true)} />
+          <NavItem testId="calendar-nav-primary" icon={ICONS.calendar} label={t('calendar.title')} active={showCalendar} collapsed={sidebarCollapsed} onClick={() => setShowCalendar(true)} />
+        )}
+        {isMobile && (
+          <NavItem
+            testId="calendar-nav-mobile"
+            icon={ICONS.calendar}
+            label={t('calendar.title')}
+            active={showCalendar}
+            collapsed={sidebarCollapsed}
+            onClick={() => {
+              setShowCalendar(true);
+              setMobileSidebarOpen(false);
+            }}
+          />
         )}
         {/* Contacts is a primary desktop destination, not a secondary account action. */}
         {!isMobile && (

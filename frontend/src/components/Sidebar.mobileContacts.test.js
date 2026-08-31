@@ -21,3 +21,24 @@ describe('mobile Contacts navigation contract', () => {
     assert.match(mobileLayout, /<Suspense fallback=\{lazyFallback\}><ContactsPage \/><\/Suspense>/);
   });
 });
+
+describe('mobile Calendar navigation contract', () => {
+  it('makes Calendar a drawer destination and closes the drawer when selected', async () => {
+    const sidebar = await readFile(new URL('./Sidebar.jsx', import.meta.url), 'utf8');
+
+    assert.match(sidebar, /testId="calendar-nav-mobile"/);
+    assert.match(sidebar, /onClick=\{\(\) => \{\s*setShowCalendar\(true\);\s*setMobileSidebarOpen\(false\);\s*\}\}/);
+  });
+
+  it('renders CalendarPage in the mobile content area and hides mail views while active', async () => {
+    const mailApp = await readFile(new URL('./MailApp.jsx', import.meta.url), 'utf8');
+    const mobileStart = mailApp.indexOf('{isMobile ? (');
+    const desktopStart = mailApp.indexOf(') : (', mobileStart);
+    const mobileLayout = mailApp.slice(mobileStart, desktopStart);
+
+    assert.match(mobileLayout, /data-testid="mobile-calendar-page"/);
+    assert.match(mobileLayout, /display: showCalendar \? 'flex' : 'none'/);
+    assert.match(mobileLayout, /<Suspense fallback=\{lazyFallback\}><CalendarPage \/><\/Suspense>/);
+    assert.match(mobileLayout, /!showContacts && !showCalendar && !selectedMessageId/);
+  });
+});

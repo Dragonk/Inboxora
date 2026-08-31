@@ -900,14 +900,17 @@ export default function MailApp() {
           >
             <Sidebar />
           </div>
-          {/* Keep Contacts and mail views mounted so their state survives navigation. */}
+          {/* Keep destination views mounted so their state survives drawer navigation. */}
           <div data-testid="mobile-contacts-page" style={{ display: showContacts ? 'flex' : 'none', flex: 1, minWidth: 0, overflow: 'hidden', height: '100%' }}>
             <Suspense fallback={lazyFallback}><ContactsPage /></Suspense>
           </div>
-          <div data-ce-reader-enabled={conversationReaderViewEnabled ? 'true' : 'false'} data-ce-reader-state={conversationReaderViewEnabled ? 'enabled' : 'disabled'} data-ce-conversation-id={conversationId || ''} data-ce-selected-message-id={selectedMessageId || ''} data-ce-resolution-error={conversationResolutionError ? 'true' : 'false'} style={{ flex: 1, display: !showContacts && !selectedMessageId && !(conversationReaderViewEnabled && conversationId) ? 'flex' : 'none', overflow: 'hidden', height: '100%' }}>
+          <div data-testid="mobile-calendar-page" style={{ display: showCalendar ? 'flex' : 'none', flex: 1, minWidth: 0, overflow: 'hidden', height: '100%' }}>
+            <Suspense fallback={lazyFallback}><CalendarPage /></Suspense>
+          </div>
+          <div data-ce-reader-enabled={conversationReaderViewEnabled ? 'true' : 'false'} data-ce-reader-state={conversationReaderViewEnabled ? 'enabled' : 'disabled'} data-ce-conversation-id={conversationId || ''} data-ce-selected-message-id={selectedMessageId || ''} data-ce-resolution-error={conversationResolutionError ? 'true' : 'false'} style={{ flex: 1, display: !showContacts && !showCalendar && !selectedMessageId && !(conversationReaderViewEnabled && conversationId) ? 'flex' : 'none', overflow: 'hidden', height: '100%' }}>
             <MessageList />
           </div>
-          <div data-ce-reader-pane="true" style={{ flex: 1, display: !showContacts && (selectedMessageId || (conversationReaderViewEnabled && conversationId)) ? 'flex' : 'none', overflow: 'hidden', height: '100%', minWidth: 0 }}>
+          <div data-ce-reader-pane="true" style={{ flex: 1, display: !showContacts && !showCalendar && (selectedMessageId || (conversationReaderViewEnabled && conversationId)) ? 'flex' : 'none', overflow: 'hidden', height: '100%', minWidth: 0 }}>
             <MessagePane mode={conversationReaderViewEnabled && (conversationId || nativeThreadId) ? 'conversation' : 'single'} conversationId={conversationId} targetLogicalMessageId={targetLogicalMessageId} selectedConversationCopy={selectedConversationCopy} nativeThreadId={nativeThreadId} nativeFolder={nativeFolder} onReply={replyFromConversation} onNativeThreadUnavailable={handleNativeThreadUnavailable} />
           </div>
         </>
