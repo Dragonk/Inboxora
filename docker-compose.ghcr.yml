@@ -83,7 +83,7 @@ services:
     volumes:
       - postgres_data:/var/lib/postgresql/data
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U inboxora -d inboxora"]
+      test: ["CMD-SHELL", "pg_isready -U ${DB_USER:-inboxora} -d ${DB_NAME:-inboxora}"]
       interval: 10s
       timeout: 5s
       retries: 5
