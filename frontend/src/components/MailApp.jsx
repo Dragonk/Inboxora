@@ -21,6 +21,7 @@ import CommandPalette from './CommandPalette.jsx';
 import { usePluginSlot, PluginRuntime } from '../plugins/PluginSlot.jsx';
 
 const ContactsPage = lazy(() => import('./ContactsPage.jsx'));
+const CalendarPage = lazy(() => import('./CalendarPage.jsx'));
 const WindowLayer  = lazy(() => import('./WindowLayer.jsx'));
 
 const ComposeModal = lazy(() => import('./ComposeModal.jsx'));
@@ -71,7 +72,7 @@ export default function MailApp() {
     mobileSidebarOpen, setMobileSidebarOpen, addNotification,
     fontSize, showAppBadge, showFaviconBadge,
     sidebarWidth, setSidebarWidth, setIsSidebarResizing,
-    showContacts, setTodoistConnected,
+    showContacts, showCalendar, setTodoistConnected,
     accounts, rightSidebarWidth, setRightSidebarWidth, isRightSidebarResizing, setIsRightSidebarResizing,
     rightSidebarHidden, toggleRightSidebarHidden,
     conversationReaderViewEnabled,
@@ -248,7 +249,7 @@ export default function MailApp() {
   }, [autoLockMinutes, lockScreen]);
 
   const scale = fontSize / 100;
-  const hasNativeBridge = Boolean(window.mailflowNative || window.Capacitor?.isNativePlatform?.());
+  const hasNativeBridge = Boolean(window.inboxoraNative || window.Capacitor?.isNativePlatform?.());
   const [vpSize, setVpSize] = useState({ w: window.innerWidth, h: window.innerHeight });
   useEffect(() => {
     const update = () => setVpSize({ w: window.innerWidth, h: window.innerHeight });
@@ -259,7 +260,7 @@ export default function MailApp() {
   useEffect(() => {
     const onVisible = () => {
       if (document.visibilityState === 'visible') {
-        window.dispatchEvent(new CustomEvent('mailflow:refresh'));
+        window.dispatchEvent(new CustomEvent('inboxora:refresh'));
       }
     };
     document.addEventListener('visibilitychange', onVisible);
@@ -405,7 +406,7 @@ export default function MailApp() {
 
   // Push a history entry when an email is opened on mobile so that the browser's
   // native back gesture (iOS swipe, Android back button) pops an in-app state
-  // instead of leaving MailFlow entirely.
+  // instead of leaving Inboxora entirely.
   const prevMessageIdRef = useRef(selectedMessageId);
 
   useEffect(() => {
@@ -413,7 +414,7 @@ export default function MailApp() {
     const prev = prevMessageIdRef.current;
     prevMessageIdRef.current = selectedMessageId;
     if (selectedMessageId && !prev) {
-      history.pushState({ mailflow: 'message' }, '', '/');
+      history.pushState({ inboxora: 'message' }, '', '/');
     }
   }, [isMobile, selectedMessageId]);
 
@@ -424,7 +425,7 @@ export default function MailApp() {
     // The handler re-pushes it after every popstate so back swipes always land
     // inside the app rather than exiting the PWA and showing a blank Safari page.
     if (window.navigator.standalone && history.state?.mailflow !== 'guard') {
-      history.pushState({ mailflow: 'guard' }, '', '/');
+      history.pushState({ inboxora: 'guard' }, '', '/');
     }
     const handler = (event) => {
       if (conversationReaderViewEnabled && conversationId) {
@@ -436,7 +437,7 @@ export default function MailApp() {
       // during that popstate can make iOS PWA history gestures temporarily stop
       // delivering taps, so only re-arm when the user has backed past the guard.
       if (window.navigator.standalone && event.state?.mailflow !== 'guard') {
-        history.pushState({ mailflow: 'guard' }, '', '/');
+        history.pushState({ inboxora: 'guard' }, '', '/');
       }
     };
     window.addEventListener('popstate', handler);
@@ -603,7 +604,7 @@ export default function MailApp() {
     const ms = Math.max(15, syncInterval || 60) * 1000;
     const id = setInterval(() => {
       if (document.visibilityState === 'visible' && wsRef.current?.readyState !== WebSocket.OPEN) {
-        window.dispatchEvent(new CustomEvent('mailflow:refresh'));
+        window.dispatchEvent(new CustomEvent('inboxora:refresh'));
       }
     }, ms);
     return () => clearInterval(id);
@@ -615,7 +616,7 @@ export default function MailApp() {
     const tabCount = selectedAccountId
       ? (unreadCounts.byAccount[selectedAccountId] ?? 0)
       : total;
-    document.title = 'MailFlow';
+    document.title = 'Inboxora';
     updateFaviconBadge(showFaviconBadge ? tabCount : 0);
     // App-icon badge always reflects total unread across all accounts so that
     // selecting a zero-unread account never clears the home screen badge.
@@ -623,7 +624,7 @@ export default function MailApp() {
       if (showAppBadge && total > 0) navigator.setAppBadge(total).catch(() => {});
       else navigator.clearAppBadge().catch(() => {});
     }
-    window.mailflowNative?.badges?.setUnreadCount?.(total).catch(() => {});
+    window.inboxoraNative?.badges?.setUnreadCount?.(total).catch(() => {});
   }, [unreadCounts, selectedAccountId, showAppBadge, showFaviconBadge]);
 
   // ── Global keyboard shortcut listener ──────────────────────────────────────
@@ -899,11 +900,17 @@ export default function MailApp() {
           >
             <Sidebar />
           </div>
-          {/* Keep all three mounted so scroll/state survive navigation. */}
-          <div data-ce-reader-enabled={conversationReaderViewEnabled ? 'true' : 'false'} data-ce-reader-state={conversationReaderViewEnabled ? 'enabled' : 'disabled'} data-ce-conversation-id={conversationId || ''} data-ce-selected-message-id={selectedMessageId || ''} data-ce-resolution-error={conversationResolutionError ? 'true' : 'false'} style={{ flex: 1, display: !showContacts && !selectedMessageId && !(conversationReaderViewEnabled && conversationId) ? 'flex' : 'none', overflow: 'hidden', height: '100%' }}>
+          {/* Keep destination views mounted so their state survives drawer navigation. */}
+          <div data-testid="mobile-contacts-page" style={{ display: showContacts ? 'flex' : 'none', flex: 1, minWidth: 0, overflow: 'hidden', height: '100%' }}>
+            <Suspense fallback={lazyFallback}><ContactsPage /></Suspense>
+          </div>
+          <div data-testid="mobile-calendar-page" style={{ display: showCalendar ? 'flex' : 'none', flex: 1, minWidth: 0, overflow: 'hidden', height: '100%' }}>
+            <Suspense fallback={lazyFallback}><CalendarPage /></Suspense>
+          </div>
+          <div data-ce-reader-enabled={conversationReaderViewEnabled ? 'true' : 'false'} data-ce-reader-state={conversationReaderViewEnabled ? 'enabled' : 'disabled'} data-ce-conversation-id={conversationId || ''} data-ce-selected-message-id={selectedMessageId || ''} data-ce-resolution-error={conversationResolutionError ? 'true' : 'false'} style={{ flex: 1, display: !showContacts && !showCalendar && !selectedMessageId && !(conversationReaderViewEnabled && conversationId) ? 'flex' : 'none', overflow: 'hidden', height: '100%' }}>
             <MessageList />
           </div>
-          <div data-ce-reader-pane="true" style={{ flex: 1, display: !showContacts && (selectedMessageId || (conversationReaderViewEnabled && conversationId)) ? 'flex' : 'none', overflow: 'hidden', height: '100%', minWidth: 0 }}>
+          <div data-ce-reader-pane="true" style={{ flex: 1, display: !showContacts && !showCalendar && (selectedMessageId || (conversationReaderViewEnabled && conversationId)) ? 'flex' : 'none', overflow: 'hidden', height: '100%', minWidth: 0 }}>
             <MessagePane mode={conversationReaderViewEnabled && (conversationId || nativeThreadId) ? 'conversation' : 'single'} conversationId={conversationId} targetLogicalMessageId={targetLogicalMessageId} selectedConversationCopy={selectedConversationCopy} nativeThreadId={nativeThreadId} nativeFolder={nativeFolder} onReply={replyFromConversation} onNativeThreadUnavailable={handleNativeThreadUnavailable} />
           </div>
         </>
@@ -932,7 +939,10 @@ export default function MailApp() {
             <div style={{ display: showContacts ? 'flex' : 'none', flex: 1, minWidth: 0, overflow: 'hidden', height: '100%' }}>
               <Suspense fallback={lazyFallback}><ContactsPage /></Suspense>
             </div>
-            <div style={{ display: showContacts ? 'none' : 'flex', flex: 1, minWidth: 0, overflow: 'hidden', height: '100%', flexDirection: currentLayout.direction }}>
+            <div data-testid="desktop-calendar-page" style={{ display: showCalendar ? 'flex' : 'none', flex: 1, minWidth: 0, overflow: 'hidden', height: '100%' }}>
+              <Suspense fallback={lazyFallback}><CalendarPage /></Suspense>
+            </div>
+            <div style={{ display: showContacts || showCalendar ? 'none' : 'flex', flex: 1, minWidth: 0, overflow: 'hidden', height: '100%', flexDirection: currentLayout.direction }}>
               <div data-ce-reader-enabled={conversationReaderViewEnabled ? 'true' : 'false'} data-ce-reader-state={conversationReaderViewEnabled ? 'enabled' : 'disabled'} data-ce-conversation-id={conversationId || ''} data-ce-selected-message-id={selectedMessageId || ''} data-ce-resolution-error={conversationResolutionError ? 'true' : 'false'} style={{
                 display: 'flex', flex: currentLayout.direction === 'row' ? '0 0 var(--list-width)' : '1 1 50%',
                 width: currentLayout.direction === 'row' ? 'var(--list-width)' : '100%', minWidth: 0, overflow: 'hidden', height: '100%',

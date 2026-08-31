@@ -3,7 +3,7 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>MailFlow Host Unavailable</title>
+    <title>Inboxora Host Unavailable</title>
     <style>
       :root {
         color-scheme: dark light;
@@ -73,9 +73,9 @@
   </head>
   <body>
     <main>
-      <img src="../electron/icons/512x512.png" alt="MailFlow" />
+      <img src="../electron/icons/512x512.png" alt="Inboxora" />
       <h1>Host is not available</h1>
-      <p>MailFlow could not reach the configured server. Check the host address or choose a different MailFlow server.</p>
+      <p>Inboxora could not reach the configured server. Check the host address or choose a different Inboxora server.</p>
       <button id="change-host-button" type="button">Change host</button>
     </main>
 
@@ -83,10 +83,10 @@
       const button = document.querySelector('#change-host-button');
 
       function installCapacitorNativeBridge() {
-        const plugin = window.Capacitor?.Plugins?.MailFlowNative;
-        if (!plugin || window.mailflowNative) return;
+        const plugin = window.Capacitor?.Plugins?.InboxoraNative;
+        if (!plugin || window.inboxoraNative) return;
 
-        window.mailflowNative = {
+        window.inboxoraNative = {
           resetHost: async () => plugin.resetHost(),
         };
       }
@@ -96,7 +96,7 @@
 
         try {
           installCapacitorNativeBridge();
-          await window.mailflowNative?.resetHost?.();
+          await window.inboxoraNative?.resetHost?.();
         } catch {
           button.disabled = false;
         }

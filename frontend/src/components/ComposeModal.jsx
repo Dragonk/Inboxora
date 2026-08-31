@@ -804,7 +804,7 @@ export default function ComposeModal() {
       });
       const refreshConversation = () => {
         if (composeData?.conversationId) {
-          window.dispatchEvent(new CustomEvent('mailflow:conversation-refresh', { detail: { conversationId: composeData.conversationId } }));
+          window.dispatchEvent(new CustomEvent('inboxora:conversation-refresh', { detail: { conversationId: composeData.conversationId } }));
         }
       };
       refreshConversation();

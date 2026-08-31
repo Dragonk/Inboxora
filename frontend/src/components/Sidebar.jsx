@@ -75,6 +75,9 @@ const ICONS = {
       <line x1="21" y1="12" x2="9" y2="12"/>
     </svg>
   ),
+  calendar: (
+    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75"><rect x="3" y="4" width="18" height="17" rx="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>
+  ),
   contacts: (
     <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75">
       <path d="M17 21v-2a4 4 0 00-4-4H5a4 4 0 00-4 4v2"/>
@@ -262,7 +265,7 @@ export default function Sidebar() {
     accountsReady,
     sidebarWidth,
     isSidebarResizing,
-    showContacts, setShowContacts,
+    showContacts, setShowContacts, showCalendar, setShowCalendar,
   } = useStore();
 
   const isMobile = useMobile();
@@ -515,7 +518,7 @@ export default function Sidebar() {
   const handleMarkAllRead = async (accountId, folder) => {
     try {
       await api.markAllRead(accountId, folder);
-      window.dispatchEvent(new CustomEvent('mailflow:refresh'));
+      window.dispatchEvent(new CustomEvent('inboxora:refresh'));
       api.getUnreadCounts().then(counts => {
         useStore.setState({ unreadCounts: counts });
       }).catch(() => {});
@@ -887,6 +890,47 @@ export default function Sidebar() {
             collapsed={sidebarCollapsed}
             badge={unreadCounts.total}
             onClick={() => setSelectedAccount(null, 'INBOX')}
+          />
+        )}
+
+        {!isMobile && (
+          <NavItem testId="calendar-nav-primary" icon={ICONS.calendar} label={t('calendar.title')} active={showCalendar} collapsed={sidebarCollapsed} onClick={() => setShowCalendar(true)} />
+        )}
+        {isMobile && (
+          <NavItem
+            testId="calendar-nav-mobile"
+            icon={ICONS.calendar}
+            label={t('calendar.title')}
+            active={showCalendar}
+            collapsed={sidebarCollapsed}
+            onClick={() => {
+              setShowCalendar(true);
+              setMobileSidebarOpen(false);
+            }}
+          />
+        )}
+        {/* Contacts is a primary desktop destination, not a secondary account action. */}
+        {!isMobile && (
+          <NavItem
+            testId="contacts-nav-primary"
+            icon={ICONS.contacts}
+            label={t('contacts.title')}
+            active={showContacts}
+            collapsed={sidebarCollapsed}
+            onClick={() => setShowContacts(true)}
+          />
+        )}
+        {isMobile && (
+          <NavItem
+            testId="contacts-nav-mobile"
+            icon={ICONS.contacts}
+            label={t('contacts.title')}
+            active={showContacts}
+            collapsed={sidebarCollapsed}
+            onClick={() => {
+              setShowContacts(true);
+              setMobileSidebarOpen(false);
+            }}
           />
         )}
 
@@ -1747,24 +1791,6 @@ export default function Sidebar() {
         </div>
       ) : (
         <>
-          <div style={{ padding: '4px 8px', display: 'flex', justifyContent: sidebarCollapsed ? 'center' : 'flex-start' }}>
-            <button
-              onClick={() => { setShowContacts(!showContacts); if (isMobile) setMobileSidebarOpen(false); }}
-              title={t('contacts.title')}
-              style={{
-                width: 28, height: 28, borderRadius: 7,
-                border: 'none', cursor: 'pointer',
-                display: 'flex', alignItems: 'center', justifyContent: 'center',
-                background: showContacts ? 'var(--bg-hover)' : 'transparent',
-                color: showContacts ? 'var(--accent)' : 'var(--text-tertiary)',
-                transition: 'background 0.1s, color 0.1s',
-              }}
-              onMouseEnter={e => { if (!showContacts) { e.currentTarget.style.background = 'var(--bg-tertiary)'; e.currentTarget.style.color = 'var(--text-secondary)'; } }}
-              onMouseLeave={e => { if (!showContacts) { e.currentTarget.style.background = 'transparent'; e.currentTarget.style.color = 'var(--text-tertiary)'; } }}
-            >
-              {ICONS.contacts}
-            </button>
-          </div>
           <div style={{ padding: '8px', borderTop: '1px solid var(--border-subtle)' }}>
           <div
             ref={userMenuBtnRef}
@@ -1990,10 +2016,11 @@ export default function Sidebar() {
   );
 }
 
-function NavItem({ icon, label, active, collapsed, badge, onClick }) {
+function NavItem({ testId, icon, label, active, collapsed, badge, onClick }) {
   return (
     <div
       className={active ? 'nav-item nav-item-active' : 'nav-item'}
+      data-testid={testId}
       onClick={onClick}
       onKeyDown={activateOnKey(onClick)}
       role="button"

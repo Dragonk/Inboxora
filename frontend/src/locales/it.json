@@ -6,11 +6,7 @@
       "backendBuild": "Versione del backend",
       "frontendBuild": "Versione del frontend",
       "license": "Licenza",
-      "website": "Sito web",
-      "sourceCode": "Codice sorgente",
-      "sponsor": "Supporta lo sviluppo",
-      "kofi": "Ko-fi",
-      "githubSponsors": "GitHub Sponsors"
+      "sourceCode": "Codice sorgente"
     },
     "accounts": {
       "title": "Account email",
@@ -134,7 +130,7 @@
     },
     "aliases": {
       "title": "Alias",
-      "description": "Gli alias ti permettono di inviare da un nome o indirizzo diverso usando le credenziali SMTP di questo account. Seleziona un alias nel campo Da durante la composizione. MailFlow risponderà automaticamente da un alias se un messaggio gli era indirizzato.",
+      "description": "Gli alias ti permettono di inviare da un nome o indirizzo diverso usando le credenziali SMTP di questo account. Seleziona un alias nel campo Da durante la composizione. Inboxora risponderà automaticamente da un alias se un messaggio gli era indirizzato.",
       "addButton": "Aggiungi alias",
       "empty": "Nessun alias ancora",
       "newTitle": "Nuovo alias",
@@ -236,7 +232,7 @@
     "close": "Chiudi",
     "folderMappings": {
       "title": "Mappatura cartelle",
-      "description": "Associa ogni ruolo email a una cartella specifica. Seleziona Rileva automaticamente per lasciare che MailFlow utilizzi la cartella indicata dal server per quel ruolo.",
+      "description": "Associa ogni ruolo email a una cartella specifica. Seleziona Rileva automaticamente per lasciare che Inboxora utilizzi la cartella indicata dal server per quel ruolo.",
       "loading": "Caricamento cartelle…",
       "autoDetect": "Rileva automaticamente",
       "autoDetectNone": "Rileva automaticamente (nessuna trovata)",
@@ -249,7 +245,7 @@
       "archive": "Archivio"
     },
     "gtd": {
-      "description": "Trasforma Mailflow in un sistema GTD. Attivalo per account, poi associa ogni stato alla cartella IMAP che contiene la sua etichetta.",
+      "description": "Trasforma Inboxora in un sistema GTD. Attivalo per account, poi associa ogni stato alla cartella IMAP che contiene la sua etichetta.",
       "noAccounts": "Aggiungi prima un account di posta per configurare GTD.",
       "enableDesc": "GTD è attivo. Le etichette si sincronizzano come cartelle e gli stati cambiano automaticamente.",
       "enableHint": "Attiva le etichette GTD e i cambi di stato automatici per questo account.",
@@ -317,7 +313,7 @@
         "deviceCodeTitle": "Connetti con codice dispositivo",
         "deviceCodeNote": "Nessun URI di reindirizzamento o segreto client richiesto. In Azure, vai su Autenticazione e imposta 'Consenti flussi di client pubblici' su Sì. Ideale per account personali Outlook.com / Hotmail.",
         "deviceCodeStart": "Avvia flusso codice dispositivo",
-        "deviceCodeInstructions": "Visita il link qui sotto su qualsiasi dispositivo e inserisci il codice per autorizzare MailFlow:",
+        "deviceCodeInstructions": "Visita il link qui sotto su qualsiasi dispositivo e inserisci il codice per autorizzare Inboxora:",
         "deviceCodeVisit": "Visita:",
         "deviceCodeEnter": "Inserisci il codice:",
         "deviceCodeWaiting": "In attesa di autorizzazione…",
@@ -363,7 +359,7 @@
         "lastSync": "Ultima sincronizzazione: {{when}}",
         "summary": "{{contacts}} contatti in {{books}} rubriche",
         "syncFailed": "Ultima sincronizzazione non riuscita: {{error}}",
-        "help": "Usa una password app di Nextcloud, non quella di accesso: gli utenti SSO devono crearne una in Impostazioni → Sicurezza. I contatti sono sincronizzati a senso unico e di sola lettura in MailFlow."
+        "help": "Usa una password app di Nextcloud, non quella di accesso: gli utenti SSO devono crearne una in Impostazioni → Sicurezza. I contatti sono sincronizzati a senso unico e di sola lettura in Inboxora."
       }
     },
     "lock": {
@@ -417,9 +413,9 @@
       "swipeDisabled": "Disabilitato",
       "swipeDisabledDesc": "Disattiva questa direzione di scorrimento",
       "syncFrequency": "Frequenza di sincronizzazione email",
-      "syncFrequencyDesc": "Ogni quanto MailFlow controlla le nuove email",
+      "syncFrequencyDesc": "Ogni quanto Inboxora controlla le nuove email",
       "folderSyncFrequency": "Frequenza di sincronizzazione delle cartelle",
-      "folderSyncFrequencyDesc": "Ogni quanto MailFlow aggiorna l'elenco delle cartelle di ogni account dal server (cartelle create in altre app)",
+      "folderSyncFrequencyDesc": "Ogni quanto Inboxora aggiorna l'elenco delle cartelle di ogni account dal server (cartelle create in altre app)",
       "threadingMode": "Raggruppamento conversazioni",
       "threadingOff": "Disattivato",
       "threadingOffDesc": "Ogni messaggio mostrato singolarmente",
@@ -463,8 +459,8 @@
       "markReadManual": "Manualmente",
       "markReadManualDesc": "Non segnare mai le email come lette automaticamente. Usa il pulsante segna come letto.",
       "defaultMailApp": "App email predefinita",
-      "defaultMailAppDesc": "Fai in modo che MailFlow apra i link mailto: in questo browser. Il browser ti chiederà conferma. Funziona in Firefox e Chrome/Edge; non disponibile su iOS.",
-      "defaultMailAppBtn": "Registra MailFlow",
+      "defaultMailAppDesc": "Fai in modo che Inboxora apra i link mailto: in questo browser. Il browser ti chiederà conferma. Funziona in Firefox e Chrome/Edge; non disponibile su iOS.",
+      "defaultMailAppBtn": "Registra Inboxora",
       "defaultMailAppOk": "Conferma la richiesta nel browser per completare.",
       "defaultMailAppError": "Il browser ha bloccato la richiesta.",
       "markReadDelayLabel": "Ritardo",
@@ -518,7 +514,7 @@
     },
     "push": {
       "title": "Notifiche push",
-      "description": "Ricevi notifiche native per la nuova posta anche quando MailFlow non è aperto.",
+      "description": "Ricevi notifiche native per la nuova posta anche quando Inboxora non è aperto.",
       "enable": "Abilita",
       "disable": "Disabilita",
       "statusOn": "Notifiche push abilitate",
@@ -526,7 +522,7 @@
       "statusDenied": "Permesso negato",
       "permissionDenied": "Il permesso di notifica è stato negato. Abilitalo nelle impostazioni del browser o del sistema.",
       "notSupported": "Le notifiche push non sono supportate in questo browser.",
-      "iosHint": "Per ricevere notifiche push su iOS, aggiungi prima MailFlow alla schermata Home: tocca il pulsante Condividi, quindi \"Aggiungi alla schermata Home\".",
+      "iosHint": "Per ricevere notifiche push su iOS, aggiungi prima Inboxora alla schermata Home: tocca il pulsante Condividi, quindi \"Aggiungi alla schermata Home\".",
       "notConfigured": "Le notifiche push non sono configurate su questo server. Aggiungi le chiavi VAPID al file .env per abilitarle.",
       "loading": "In corso…"
     },
@@ -714,7 +710,7 @@
       "domainsPh": "esempio.com, corp.esempio.com",
       "provisioning": "Modalità di provisioning",
       "provisioningDisabled": "Disabilitato — le identità collegate esistenti possono ancora accedere, ma non ne verranno create di nuove",
-      "provisioningExisting": "Abbina esistenti — collega a un account MailFlow con email corrispondente",
+      "provisioningExisting": "Abbina esistenti — collega a un account Inboxora con email corrispondente",
       "provisioningOpen": "Aperto — crea automaticamente un nuovo account al primo accesso SSO",
       "enabled": "Provider abilitato",
       "requireEmailVerified": "Richiedi email verificata",
@@ -734,15 +730,15 @@
       "allowInsecure": "Consenti connessioni locali / autofirmate",
       "allowInsecureDesc": "Aggira la validazione dell'host e i controlli del certificato TLS. Da usare solo per provider LAN-only (es. pocketid.internal). Non consigliato per distribuzioni esposte a Internet.",
       "rpLogout": "Logout SSO (RP-initiated)",
-      "rpLogoutDesc": "Alla disconnessione, termina anche la sessione presso questo provider reindirizzando al suo end-session endpoint, non solo il cookie di MailFlow. Richiede che il provider esponga un end_session_endpoint e che l’URL di accesso di MailFlow (…/login) sia registrato come post-logout redirect URI.",
+      "rpLogoutDesc": "Alla disconnessione, termina anche la sessione presso questo provider reindirizzando al suo end-session endpoint, non solo il cookie di Inboxora. Richiede che il provider esponga un end_session_endpoint e che l’URL di accesso di Inboxora (…/login) sia registrato come post-logout redirect URI.",
       "adminGroupClaim": "Claim gruppo amministratore",
       "adminGroupClaimPh": "groups",
       "adminGroupClaimDesc": "Nome del claim JWT contenente i gruppi dell'utente (es. groups). Lasciare vuoto per disabilitare l'assegnazione admin basata sui gruppi.",
       "adminGroupValue": "Valore gruppo amministratore",
-      "adminGroupValuePh": "mailflow-admins",
+      "adminGroupValuePh": "inboxora-admins",
       "adminGroupValueDesc": "Il nome del gruppo che concede l'accesso amministratore. Gli utenti in questo gruppo diventano admin ad ogni accesso SSO; gli utenti non in questo gruppo perdono l'accesso admin.",
       "loginMatchClaim": "Abbina gli account esistenti tramite",
-      "loginMatchClaimDesc": "Claim OIDC confrontato con il nome utente di ogni account MailFlow quando un accesso SSO viene collegato per la prima volta a un account esistente (modalità di provisioning «solo accesso ad account esistenti»). Il valore predefinito è email. Usa preferred_username, upn, ecc. per provider di identità i cui nomi utente non sono indirizzi e-mail, solo se il provider garantisce che il claim sia univoco e non modificabile dall’utente.",
+      "loginMatchClaimDesc": "Claim OIDC confrontato con il nome utente di ogni account Inboxora quando un accesso SSO viene collegato per la prima volta a un account esistente (modalità di provisioning «solo accesso ad account esistenti»). Il valore predefinito è email. Usa preferred_username, upn, ecc. per provider di identità i cui nomi utente non sono indirizzi e-mail, solo se il provider garantisce che il claim sia univoco e non modificabile dall’utente.",
       "passwordLoginDisableMsg": "Gli utenti potranno accedere solo tramite SSO. Se il provider SSO non è disponibile, sarà necessario l'accesso diretto al database per riabilitare l'accesso con password.",
       "passwordLoginDisableTitle": "Disabilitare l'accesso con password?",
       "passwordLoginDisabled": "L'accesso con password è disabilitato",
@@ -802,7 +798,8 @@
       "groupDisplay": "Schermo",
       "groupSecurityIntegrations": "Sicurezza e integrazioni",
       "groupAdmin": "Amministrazione",
-      "plugins": "Plugin"
+      "plugins": "Plugin",
+      "davCredentials": "Accesso DAV"
     },
     "title": "Impostazioni",
     "users": {
@@ -843,6 +840,27 @@
       "disable2faConfirmTitle": "Disabilitare la 2FA per \"{{username}}\"?",
       "disable2faConfirmBody": "Questa operazione rimuoverà il requisito dell'app di autenticazione. L'utente potrà riabilitarla da solo.",
       "disable2faConfirmLabel": "Disabilita 2FA"
+    },
+    "davCredentials": {
+      "title": "Accesso DAV",
+      "description": "Crea password dell’app separate per CardDAV e CalDAV.",
+      "label": "Etichetta del dispositivo",
+      "labelPlaceholder": "ad es. telefono DAVx5",
+      "create": "Crea password",
+      "secretTitle": "Copia questa password ora",
+      "secretWarning": "Per sicurezza, questa password dell’app viene mostrata una sola volta.",
+      "copied": "Copiata",
+      "davx5Title": "Configurazione DAVx5",
+      "davx5Description": "In DAVx5, aggiungi questo server e usa il tuo nome utente Inboxora con questa password dell’app. Il rilevamento funziona qui:",
+      "davx5Username": "Usa il tuo nome utente Inboxora e la password dell’app, non la password di accesso.",
+      "activeTitle": "Password delle app attive",
+      "empty": "Nessuna password dell’app ancora.",
+      "metadata": "Creata: {{created}} · Ultimo utilizzo: {{used}}",
+      "revoke": "Revoca",
+      "loadError": "Impossibile caricare le password dell’app DAV.",
+      "createError": "Impossibile creare la password dell’app.",
+      "copyError": "Impossibile copiare la password dell’app.",
+      "revokeError": "Impossibile revocare la password dell’app."
     }
   },
   "blockList": {
@@ -1667,5 +1685,12 @@
   "window": {
     "minimize": "Riduci a icona",
     "close": "Chiudi"
+  },
+  "calendar": {
+    "title": "Calendario",
+    "today": "Oggi",
+    "newEvent": "Nuovo evento",
+    "noWritable": "Nessun calendario locale modificabile disponibile. I calendari importati sono di sola lettura.",
+    "loading": "Caricamento calendario…"
   }
 }

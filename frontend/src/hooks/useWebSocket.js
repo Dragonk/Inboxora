@@ -58,7 +58,7 @@ function _applyServerCounts(counts) {
 
 async function _forwardNativeNewMailNotification(notification) {
   await installCapacitorNativeBridge();
-  window.mailflowNative?.notifications?.showNewMail?.({
+  window.inboxoraNative?.notifications?.showNewMail?.({
     title: notification.title,
     body: notification.body,
     count: notification.count,
@@ -125,7 +125,7 @@ export function useWebSocket() {
       // On reconnect, catch up on any messages that arrived during the outage
       if (wasReconnect) {
         recordDiagEvent({ category: 'ws', type: 'reconnect' });
-        window.dispatchEvent(new CustomEvent('mailflow:refresh'));
+        window.dispatchEvent(new CustomEvent('inboxora:refresh'));
         api.getUnreadCounts().then(counts => {
           useStore.setState({ unreadCounts: counts });
         }).catch(() => {});
@@ -164,7 +164,7 @@ export function useWebSocket() {
       case 'new_messages': {
         // Blip the sync icon — a real change just synced in, so show background activity
         // even though we no longer broadcast sync_complete on every (mostly-idle) tick.
-        window.dispatchEvent(new CustomEvent('mailflow:sync_done'));
+        window.dispatchEvent(new CustomEvent('inboxora:sync_done'));
         const { messages, count, accountId, folder } = data;
         // alertMessages/alertCount are provided by the server when inbox rules ran;
         // they exclude messages silenced by a mark_read rule. Fall back to the full
@@ -211,7 +211,7 @@ export function useWebSocket() {
           const folderVisible = store.selectedFolder === (folder || 'INBOX');
 
           if (isRelevant && folderVisible) {
-            window.dispatchEvent(new CustomEvent('mailflow:refresh'));
+            window.dispatchEvent(new CustomEvent('inboxora:refresh'));
           }
         }
 
@@ -277,20 +277,20 @@ export function useWebSocket() {
         // Debounce to avoid hammering the API on every batch
         clearTimeout(backfillRefreshTimer);
         backfillRefreshTimer = setTimeout(() => {
-          window.dispatchEvent(new CustomEvent('mailflow:refresh'));
+          window.dispatchEvent(new CustomEvent('inboxora:refresh'));
         }, 2000);
         break;
       }
 
       case 'backfill_complete': {
         clearTimeout(backfillRefreshTimer);
-        window.dispatchEvent(new CustomEvent('mailflow:refresh'));
+        window.dispatchEvent(new CustomEvent('inboxora:refresh'));
         break;
       }
 
       case 'backfill_all_complete': {
         clearTimeout(backfillRefreshTimer);
-        window.dispatchEvent(new CustomEvent('mailflow:refresh'));
+        window.dispatchEvent(new CustomEvent('inboxora:refresh'));
         setBackfillProgress(data.accountId, null);
         break;
       }
@@ -309,16 +309,16 @@ export function useWebSocket() {
           (fuStore.selectedAccountId === null && accountAffectsUnifiedInbox(fuStore.accounts, fuAccountId)) ||
           fuStore.selectedAccountId === fuAccountId;
         if (fuRelevant) {
-          window.dispatchEvent(new CustomEvent('mailflow:refresh'));
-          window.dispatchEvent(new CustomEvent('mailflow:sync_done'));
+          window.dispatchEvent(new CustomEvent('inboxora:refresh'));
+          window.dispatchEvent(new CustomEvent('inboxora:sync_done'));
         }
         api.getUnreadCounts().then(_applyServerCounts).catch(() => {});
         break;
       }
 
       case 'sync_complete': {
-        window.dispatchEvent(new CustomEvent('mailflow:refresh'));
-        window.dispatchEvent(new CustomEvent('mailflow:sync_done'));
+        window.dispatchEvent(new CustomEvent('inboxora:refresh'));
+        window.dispatchEvent(new CustomEvent('inboxora:sync_done'));
         // Re-fetch unread counts so sidebar badges reflect messages marked read
         // in external clients (the message list refresh alone doesn't update counts).
         api.getUnreadCounts().then(_applyServerCounts).catch(() => {});
@@ -336,8 +336,8 @@ export function useWebSocket() {
         // the view and counts either way — on failure the messages are still on the server and
         // should reappear.
         addNotification({ title: data.ok ? t('sidebar.emptied') : t('sidebar.emptyFailed') });
-        window.dispatchEvent(new CustomEvent('mailflow:refresh'));
-        window.dispatchEvent(new CustomEvent('mailflow:sync_done'));
+        window.dispatchEvent(new CustomEvent('inboxora:refresh'));
+        window.dispatchEvent(new CustomEvent('inboxora:sync_done'));
         api.getUnreadCounts().then(_applyServerCounts).catch(() => {});
         if (data.accountId && useStore.getState().folders[data.accountId]) {
           api.getFolders(data.accountId).then(f => setFolders(data.accountId, f)).catch(() => {});
@@ -346,7 +346,7 @@ export function useWebSocket() {
       }
 
       case 'snooze_wakeup': {
-        window.dispatchEvent(new CustomEvent('mailflow:refresh'));
+        window.dispatchEvent(new CustomEvent('inboxora:refresh'));
         api.getUnreadCounts().then(counts => {
           useStore.setState({ unreadCounts: counts });
         }).catch(() => {});
@@ -357,8 +357,8 @@ export function useWebSocket() {
         // Lightweight flag update (read/starred changed on another client).
         // Refresh the message list and unread counts, and blip the sync icon so background
         // sync activity stays visible now that sync_complete no longer fires every tick.
-        window.dispatchEvent(new CustomEvent('mailflow:refresh'));
-        window.dispatchEvent(new CustomEvent('mailflow:sync_done'));
+        window.dispatchEvent(new CustomEvent('inboxora:refresh'));
+        window.dispatchEvent(new CustomEvent('inboxora:sync_done'));
         api.getUnreadCounts().then(_applyServerCounts).catch(() => {});
         break;
       }

@@ -14,11 +14,11 @@ def releaseKeyAlias = System.getenv("MAILFLOW_ANDROID_KEY_ALIAS")
 def releaseKeyPassword = System.getenv("MAILFLOW_ANDROID_KEY_PASSWORD")
 
 android {
-    namespace = "sh.mailflow.app"
+    namespace = "io.github.dragonk.inboxora"
     compileSdk = rootProject.ext.compileSdkVersion
 
     defaultConfig {
-        applicationId "sh.mailflow.app"
+        applicationId "io.github.dragonk.inboxora"
         minSdkVersion rootProject.ext.minSdkVersion
         targetSdkVersion rootProject.ext.targetSdkVersion
         versionCode 1

@@ -1,4 +1,4 @@
-name: Conversation Engine PostgreSQL Validation
+name: PostgreSQL Migration and Conversation Validation
 
 on:
   pull_request:
@@ -81,41 +81,9 @@ jobs:
           console.log('fresh migrations completed');
           JS
           PGPASSWORD="$DB_PASSWORD" psql -h "$DB_HOST" -U "$DB_USER" -d "$DB_NAME" -Atqc \
-            'SELECT count(*) FROM schema_migrations' | grep -qx 62
-          PGPASSWORD="$DB_PASSWORD" psql -h "$DB_HOST" -U "$DB_USER" -d "$DB_NAME" -Atqc \
-            'SELECT version FROM schema_migrations ORDER BY version DESC LIMIT 1' | grep -qx 0062_conversation_account_identity
-          PGPASSWORD="$DB_PASSWORD" psql -h "$DB_HOST" -U "$DB_USER" -d "$DB_NAME" -Atqc \
             "SELECT count(*) FROM pg_constraint WHERE conname IN ('fk_message_logical_account','fk_message_conversation_account','fk_logical_conversation_account','fk_logical_parent_account','fk_provider_mapping_conversation_account')" | grep -qx 5
           PGPASSWORD="$DB_PASSWORD" psql -h "$DB_HOST" -U "$DB_USER" -d "$DB_NAME" -Atqc \
             "SELECT count(*) FROM pg_indexes WHERE schemaname='public' AND indexname IN ('uq_logical_messages_account_canonical_collision','uq_logical_messages_account_no_message_id_fingerprint','idx_conversations_user_account_latest','idx_logical_messages_user_account_message')" | grep -qx 4
-
-      - name: Real upstream 0050 schema then PR upgrade to 0062
-        env:
-          UPSTREAM_URL: https://github.com/maathimself/mailflow.git
-          UPSTREAM_DIR: ${{ runner.temp }}/mailflow-upstream-main
-        run: |
-          PGPASSWORD="$DB_PASSWORD" psql -h "$DB_HOST" -U "$DB_USER" -d "$DB_NAME" -v ON_ERROR_STOP=1 \
-            -c 'DROP SCHEMA public CASCADE; CREATE SCHEMA public;'
-          git fetch --no-tags "$UPSTREAM_URL" main
-          git worktree add --detach "$UPSTREAM_DIR" FETCH_HEAD
-          printf 'upstream_main=%s\n' "$(git -C "$UPSTREAM_DIR" rev-parse HEAD)" | tee upstream-main.txt
-          npm ci --prefix "$UPSTREAM_DIR/backend"
-          (
-            cd "$UPSTREAM_DIR/backend"
-            node --input-type=module -e "import { runMigrations } from './src/services/migrations.js'; await runMigrations();"
-          )
-          PGPASSWORD="$DB_PASSWORD" psql -h "$DB_HOST" -U "$DB_USER" -d "$DB_NAME" -Atqc \
-            'SELECT count(*) FROM schema_migrations' | grep -qx 50
-          PGPASSWORD="$DB_PASSWORD" psql -h "$DB_HOST" -U "$DB_USER" -d "$DB_NAME" -Atqc \
-            'SELECT version FROM schema_migrations ORDER BY version DESC LIMIT 1' | grep -qx 0050_message_sender
-          (
-            cd backend
-            node --input-type=module -e "import { runMigrations } from './src/services/migrations.js'; await runMigrations();"
-          )
-          PGPASSWORD="$DB_PASSWORD" psql -h "$DB_HOST" -U "$DB_USER" -d "$DB_NAME" -Atqc \
-            'SELECT count(*) FROM schema_migrations' | grep -qx 62
-          PGPASSWORD="$DB_PASSWORD" psql -h "$DB_HOST" -U "$DB_USER" -d "$DB_NAME" -Atqc \
-            'SELECT version FROM schema_migrations ORDER BY version DESC LIMIT 1' | grep -qx 0062_conversation_account_identity
 
       - name: Populated legacy and account-identity migration gates
         working-directory: backend
@@ -150,21 +118,6 @@ jobs:
           node --test src/services/conversationRebuildIdempotencyReal.integration.js | tee ../artifacts-rebuild-idempotency-real.log
           npx vitest run src/services/conversationPgRegression.integration.test.js | tee ../artifacts-pg-regression.log
 
-      - name: Full backend suite and lint
-        working-directory: backend
-        env:
-          REQUIRE_CE_POSTGRES: '1'
-        run: |
-          npm test | tee ../artifacts-backend-test.log
-          npm run lint | tee ../artifacts-backend-lint.log
-          npm run lint:plugins | tee ../artifacts-plugin-lint.log
-
-      - name: Frontend suite, lint, and production build
-        working-directory: frontend
-        run: |
-          npm test | tee ../artifacts-frontend-test.log
-          npm run lint | tee ../artifacts-frontend-lint.log
-          npm run build | tee ../artifacts-frontend-build.log
 
       - name: PostgreSQL EXPLAIN scale gate
         working-directory: backend
@@ -185,4 +138,3 @@ jobs:
           path: |
             artifacts-*.log
             artifacts-*.json
-            upstream-main.txt

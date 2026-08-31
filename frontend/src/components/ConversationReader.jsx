@@ -84,8 +84,8 @@ export default function ConversationReader({ conversationId, targetLogicalMessag
     const handleConversationRefresh = event => {
       if (event.detail?.conversationId === conversationId) refresh().catch(() => {});
     };
-    window.addEventListener('mailflow:conversation-refresh', handleConversationRefresh);
-    return () => window.removeEventListener('mailflow:conversation-refresh', handleConversationRefresh);
+    window.addEventListener('inboxora:conversation-refresh', handleConversationRefresh);
+    return () => window.removeEventListener('inboxora:conversation-refresh', handleConversationRefresh);
   }, [conversationId, refresh]);
   const selectedCopyFor = useCallback(logicalId => {
     const logical = messages.find(item => item.id === logicalId);
@@ -146,8 +146,8 @@ export default function ConversationReader({ conversationId, targetLogicalMessag
       const { id, read } = event.detail || {};
       if (id != null) setLocalReadState(id, read);
     };
-    window.addEventListener('mailflow:read-state', sync);
-    return () => window.removeEventListener('mailflow:read-state', sync);
+    window.addEventListener('inboxora:read-state', sync);
+    return () => window.removeEventListener('inboxora:read-state', sync);
   }, [setLocalReadState]);
 
   const loadBody = useCallback((logicalId, force = false, remoteImages = false) => {

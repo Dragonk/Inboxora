@@ -33,6 +33,13 @@ describe('migration integrity', () => {
     expect(sql).toContain('fk_message_conversation_account');
   });
 
+  it('records durable calendar change tombstones for incremental CalDAV sync', () => {
+    const sql = readFileSync(join(process.cwd(), 'migrations/0065_calendar_sync_changes.sql'), 'utf8');
+    expect(sql).toContain('calendar_sync_changes');
+    expect(sql).toContain("TG_OP = 'DELETE'");
+    expect(sql).toContain('calendar_events_sync_change');
+  });
+
   it('records migration checksums in the runner', () => {
     const source = readFileSync(join(process.cwd(), 'src/services/migrations.js'), 'utf8');
     expect(source).toContain('sha256');

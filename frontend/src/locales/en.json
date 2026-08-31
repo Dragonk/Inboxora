@@ -6,11 +6,7 @@
       "backendBuild": "Backend build",
       "frontendBuild": "Frontend build",
       "license": "License",
-      "website": "Website",
-      "sourceCode": "Source code",
-      "sponsor": "Support development",
-      "kofi": "Ko-fi",
-      "githubSponsors": "GitHub Sponsors"
+      "sourceCode": "Source code"
     },
     "accounts": {
       "title": "Email accounts",
@@ -134,7 +130,7 @@
     },
     "aliases": {
       "title": "Aliases",
-      "description": "Aliases let you send from a different name or address using this account's SMTP credentials. Select an alias in the From field when composing. MailFlow will automatically reply from an alias if a message was addressed to it.",
+      "description": "Aliases let you send from a different name or address using this account's SMTP credentials. Select an alias in the From field when composing. Inboxora will automatically reply from an alias if a message was addressed to it.",
       "addButton": "Add alias",
       "empty": "No aliases yet",
       "newTitle": "New alias",
@@ -236,7 +232,7 @@
     "close": "Close",
     "folderMappings": {
       "title": "Folder mappings",
-      "description": "Map each mail role to a specific folder. Select Auto-detect to let MailFlow use the folder your server has tagged for that role.",
+      "description": "Map each mail role to a specific folder. Select Auto-detect to let Inboxora use the folder your server has tagged for that role.",
       "loading": "Loading folders…",
       "autoDetect": "Auto-detect",
       "autoDetectNone": "Auto-detect (none found)",
@@ -249,7 +245,7 @@
       "archive": "Archive"
     },
     "gtd": {
-      "description": "Turn Mailflow into a GTD system. Enable it per account, then map each state to the IMAP folder that holds its label.",
+      "description": "Turn Inboxora into a GTD system. Enable it per account, then map each state to the IMAP folder that holds its label.",
       "noAccounts": "Add an email account first to configure GTD.",
       "enableDesc": "GTD is on. Labels sync as folders and states transition automatically.",
       "enableHint": "Turn on GTD labels and automatic state transitions for this account.",
@@ -317,7 +313,7 @@
         "deviceCodeTitle": "Connect with device code",
         "deviceCodeNote": "No redirect URI or client secret needed. In Azure, go to Authentication and set 'Allow public client flows' to Yes. Best for personal Outlook.com / Hotmail accounts.",
         "deviceCodeStart": "Start device code flow",
-        "deviceCodeInstructions": "Visit the link below on any device and enter the code to authorize MailFlow:",
+        "deviceCodeInstructions": "Visit the link below on any device and enter the code to authorize Inboxora:",
         "deviceCodeVisit": "Visit:",
         "deviceCodeEnter": "Enter code:",
         "deviceCodeWaiting": "Waiting for authorization…",
@@ -363,7 +359,7 @@
         "lastSync": "Last sync: {{when}}",
         "summary": "{{contacts}} contacts in {{books}} address books",
         "syncFailed": "Last sync failed: {{error}}",
-        "help": "Use a Nextcloud app password, not your login password — SSO users must create one under Settings → Security. Contacts are synced one-way and are read-only in MailFlow."
+        "help": "Use a Nextcloud app password, not your login password — SSO users must create one under Settings → Security. Contacts are synced one-way and are read-only in Inboxora."
       }
     },
     "lock": {
@@ -417,9 +413,9 @@
       "swipeDisabled": "Disabled",
       "swipeDisabledDesc": "Turn this swipe direction off",
       "syncFrequency": "Email Sync Frequency",
-      "syncFrequencyDesc": "How often MailFlow checks for new emails",
+      "syncFrequencyDesc": "How often Inboxora checks for new emails",
       "folderSyncFrequency": "Folder Structure Sync Frequency",
-      "folderSyncFrequencyDesc": "How often MailFlow refreshes each account's folder list from the server (folders created in other apps)",
+      "folderSyncFrequencyDesc": "How often Inboxora refreshes each account's folder list from the server (folders created in other apps)",
       "threadingMode": "Conversation threading",
       "threadingOff": "Off",
       "threadingOffDesc": "Each message shown individually",
@@ -443,8 +439,8 @@
       "markReadManual": "Manually",
       "markReadManualDesc": "Never mark emails as read automatically. Use the mark as read button.",
       "defaultMailApp": "Default email app",
-      "defaultMailAppDesc": "Make MailFlow open mailto: links in this browser. Your browser will ask you to confirm. Works in Firefox and Chrome/Edge; not available on iOS.",
-      "defaultMailAppBtn": "Register MailFlow",
+      "defaultMailAppDesc": "Make Inboxora open mailto: links in this browser. Your browser will ask you to confirm. Works in Firefox and Chrome/Edge; not available on iOS.",
+      "defaultMailAppBtn": "Register Inboxora",
       "defaultMailAppOk": "Confirm the prompt in your browser to finish.",
       "defaultMailAppError": "Your browser blocked the request.",
       "markReadDelayLabel": "Delay",
@@ -518,7 +514,7 @@
     },
     "push": {
       "title": "Push Notifications",
-      "description": "Receive native notifications for new mail even when MailFlow isn't open.",
+      "description": "Receive native notifications for new mail even when Inboxora isn't open.",
       "enable": "Enable",
       "disable": "Disable",
       "statusOn": "Push notifications enabled",
@@ -526,7 +522,7 @@
       "statusDenied": "Permission denied",
       "permissionDenied": "Notification permission was denied. Please enable it in your browser or system settings.",
       "notSupported": "Push notifications are not supported in this browser.",
-      "iosHint": "To receive push notifications on iOS, add MailFlow to your Home Screen first: tap the Share button, then \"Add to Home Screen\".",
+      "iosHint": "To receive push notifications on iOS, add Inboxora to your Home Screen first: tap the Share button, then \"Add to Home Screen\".",
       "notConfigured": "Push notifications are not configured on this server. Add VAPID keys to the .env file to enable them.",
       "loading": "Working…"
     },
@@ -723,7 +719,7 @@
       "domainsPh": "example.com, corp.example.com",
       "provisioning": "Provisioning mode",
       "provisioningDisabled": "Disabled — existing linked identities can still log in, but no new links",
-      "provisioningExisting": "Match existing — link to a MailFlow account with a matching email",
+      "provisioningExisting": "Match existing — link to a Inboxora account with a matching email",
       "provisioningOpen": "Open — create a new account automatically on first SSO login",
       "enabled": "Provider enabled",
       "requireEmailVerified": "Require verified email",
@@ -731,15 +727,15 @@
       "allowInsecure": "Allow local / self-signed connections",
       "allowInsecureDesc": "Bypasses host validation and TLS certificate checks. Use only for LAN-only providers (e.g. pocketid.internal). Not recommended for internet-facing deployments.",
       "rpLogout": "SSO logout (RP-initiated)",
-      "rpLogoutDesc": "On sign-out, also end the session at this provider by redirecting to its end-session endpoint, not just clearing MailFlow’s cookie. Requires the provider to advertise an end_session_endpoint and to have your MailFlow login URL (…/login) registered as a post-logout redirect URI.",
+      "rpLogoutDesc": "On sign-out, also end the session at this provider by redirecting to its end-session endpoint, not just clearing Inboxora’s cookie. Requires the provider to advertise an end_session_endpoint and to have your Inboxora login URL (…/login) registered as a post-logout redirect URI.",
       "adminGroupClaim": "Admin group claim",
       "adminGroupClaimPh": "groups",
       "adminGroupClaimDesc": "JWT claim name that contains the user's groups (e.g. groups). Leave blank to disable group-based admin assignment.",
       "adminGroupValue": "Admin group value",
-      "adminGroupValuePh": "mailflow-admins",
+      "adminGroupValuePh": "inboxora-admins",
       "adminGroupValueDesc": "The group name that grants admin access. Users in this group become admins on every SSO login; users not in this group lose admin access.",
       "loginMatchClaim": "Match existing accounts by",
-      "loginMatchClaimDesc": "OIDC claim matched against each MailFlow account’s username when an SSO login is first linked to an existing account (provisioning mode “login existing only”). Defaults to email. Use preferred_username, upn, etc. for identity providers where usernames are not email addresses — only if your provider guarantees the claim is unique and not user-editable.",
+      "loginMatchClaimDesc": "OIDC claim matched against each Inboxora account’s username when an SSO login is first linked to an existing account (provisioning mode “login existing only”). Defaults to email. Use preferred_username, upn, etc. for identity providers where usernames are not email addresses — only if your provider guarantees the claim is unique and not user-editable.",
       "save": "Save",
       "editButton": "Edit",
       "deleteButton": "Delete",
@@ -802,7 +798,8 @@
       "groupDisplay": "Display",
       "groupSecurityIntegrations": "Security & Integrations",
       "groupAdmin": "Administration",
-      "plugins": "Plugins"
+      "plugins": "Plugins",
+      "davCredentials": "DAV access"
     },
     "title": "Settings",
     "users": {
@@ -843,6 +840,27 @@
       "disable2faConfirmTitle": "Disable 2FA for \"{{username}}\"?",
       "disable2faConfirmBody": "This will remove their authenticator app requirement. They can re-enable it themselves.",
       "disable2faConfirmLabel": "Disable 2FA"
+    },
+    "davCredentials": {
+      "title": "DAV access",
+      "description": "Create separate application passwords for CardDAV and CalDAV.",
+      "label": "Device label",
+      "labelPlaceholder": "e.g. DAVx5 phone",
+      "create": "Create password",
+      "secretTitle": "Copy this password now",
+      "secretWarning": "For security, this application password is shown only once.",
+      "copied": "Copied",
+      "davx5Title": "DAVx5 setup",
+      "davx5Description": "In DAVx5, add this server and use your Inboxora username with this application password. Discovery works at:",
+      "davx5Username": "Use your Inboxora username and the application password, not your sign-in password.",
+      "activeTitle": "Active application passwords",
+      "empty": "No application passwords yet.",
+      "metadata": "Created: {{created}} · Last used: {{used}}",
+      "revoke": "Revoke",
+      "loadError": "Could not load DAV application passwords.",
+      "createError": "Could not create the application password.",
+      "copyError": "Could not copy the application password.",
+      "revokeError": "Could not revoke the application password."
     }
   },
   "blockList": {
@@ -1667,5 +1685,12 @@
   "window": {
     "minimize": "Minimize",
     "close": "Close"
+  },
+  "calendar": {
+    "title": "Calendar",
+    "today": "Today",
+    "newEvent": "New event",
+    "noWritable": "No writable local calendar is available. Imported calendars are read-only.",
+    "loading": "Loading calendar…"
   }
 }

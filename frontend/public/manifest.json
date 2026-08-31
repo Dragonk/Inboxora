@@ -1,7 +1,7 @@
 {
-  "name": "MailFlow",
-  "short_name": "MailFlow",
-  "description": "Your unified inbox",
+  "name": "Inboxora",
+  "short_name": "Inboxora",
+  "description": "Your private inbox for email, contacts and calendars",
   "start_url": "/",
   "display": "standalone",
   "background_color": "#0f0f11",

@@ -6,11 +6,7 @@
       "backendBuild": "Backend-Build",
       "frontendBuild": "Frontend-Build",
       "license": "Lizenz",
-      "website": "Website",
-      "sourceCode": "Quellcode",
-      "sponsor": "Entwicklung unterstützen",
-      "kofi": "Ko-fi",
-      "githubSponsors": "GitHub Sponsors"
+      "sourceCode": "Quellcode"
     },
     "accounts": {
       "title": "E-Mail-Konten",
@@ -134,7 +130,7 @@
     },
     "aliases": {
       "title": "Aliasse",
-      "description": "Aliasse ermöglichen das Senden von einem anderen Namen oder einer anderen Adresse über die SMTP-Zugangsdaten dieses Kontos. Im Von-Feld beim Verfassen einen Alias auswählen. MailFlow antwortet automatisch über einen Alias, wenn eine Nachricht an diesen gerichtet war.",
+      "description": "Aliasse ermöglichen das Senden von einem anderen Namen oder einer anderen Adresse über die SMTP-Zugangsdaten dieses Kontos. Im Von-Feld beim Verfassen einen Alias auswählen. Inboxora antwortet automatisch über einen Alias, wenn eine Nachricht an diesen gerichtet war.",
       "addButton": "Alias hinzufügen",
       "empty": "Noch keine Aliasse",
       "newTitle": "Neuer Alias",
@@ -236,7 +232,7 @@
     "close": "Schließen",
     "folderMappings": {
       "title": "Ordnerzuordnungen",
-      "description": "Jeder Mail-Rolle einen bestimmten Ordner zuweisen. „Automatisch erkennen” auswählen, damit MailFlow den vom Server markierten Ordner verwendet.",
+      "description": "Jeder Mail-Rolle einen bestimmten Ordner zuweisen. „Automatisch erkennen” auswählen, damit Inboxora den vom Server markierten Ordner verwendet.",
       "loading": "Ordner werden geladen…",
       "autoDetect": "Automatisch erkennen",
       "autoDetectNone": "Automatisch erkennen (keiner gefunden)",
@@ -249,7 +245,7 @@
       "archive": "Archiv"
     },
     "gtd": {
-      "description": "Verwandeln Sie Mailflow in ein GTD-System. Aktivieren Sie es pro Konto und ordnen Sie jeden Zustand dem IMAP-Ordner zu, der sein Label enthält.",
+      "description": "Verwandeln Sie Inboxora in ein GTD-System. Aktivieren Sie es pro Konto und ordnen Sie jeden Zustand dem IMAP-Ordner zu, der sein Label enthält.",
       "noAccounts": "Fügen Sie zuerst ein E-Mail-Konto hinzu, um GTD einzurichten.",
       "enableDesc": "GTD ist aktiv. Labels werden als Ordner synchronisiert und Zustände wechseln automatisch.",
       "enableHint": "GTD-Labels und automatische Zustandswechsel für dieses Konto aktivieren.",
@@ -317,7 +313,7 @@
         "deviceCodeTitle": "Mit Gerätecode verbinden",
         "deviceCodeNote": "Keine Weiterleitungs-URI oder Client-Secret erforderlich. In Azure unter Authentifizierung 'Öffentliche Clientflows zulassen' auf Ja setzen. Ideal für persönliche Outlook.com / Hotmail-Konten.",
         "deviceCodeStart": "Gerätecode-Flow starten",
-        "deviceCodeInstructions": "Besuche den Link unten auf einem beliebigen Gerät und gib den Code ein, um MailFlow zu autorisieren:",
+        "deviceCodeInstructions": "Besuche den Link unten auf einem beliebigen Gerät und gib den Code ein, um Inboxora zu autorisieren:",
         "deviceCodeVisit": "Besuche:",
         "deviceCodeEnter": "Code eingeben:",
         "deviceCodeWaiting": "Warte auf Autorisierung…",
@@ -363,7 +359,7 @@
         "lastSync": "Letzte Sync: {{when}}",
         "summary": "{{contacts}} Kontakte in {{books}} Adressbüchern",
         "syncFailed": "Letzte Sync fehlgeschlagen: {{error}}",
-        "help": "Verwenden Sie ein Nextcloud-App-Passwort, nicht Ihr Login-Passwort – SSO-Nutzer erstellen es unter Einstellungen → Sicherheit. Kontakte werden einseitig synchronisiert und sind in MailFlow schreibgeschützt."
+        "help": "Verwenden Sie ein Nextcloud-App-Passwort, nicht Ihr Login-Passwort – SSO-Nutzer erstellen es unter Einstellungen → Sicherheit. Kontakte werden einseitig synchronisiert und sind in Inboxora schreibgeschützt."
       }
     },
     "lock": {
@@ -417,9 +413,9 @@
       "swipeDisabled": "Deaktiviert",
       "swipeDisabledDesc": "Diese Wischrichtung deaktivieren",
       "syncFrequency": "E-Mail-Synchronisierungshäufigkeit",
-      "syncFrequencyDesc": "Wie oft MailFlow auf neue E-Mails prüft",
+      "syncFrequencyDesc": "Wie oft Inboxora auf neue E-Mails prüft",
       "folderSyncFrequency": "Synchronisierungshäufigkeit der Ordnerstruktur",
-      "folderSyncFrequencyDesc": "Wie oft MailFlow die Ordnerliste jedes Kontos vom Server aktualisiert (in anderen Apps erstellte Ordner)",
+      "folderSyncFrequencyDesc": "Wie oft Inboxora die Ordnerliste jedes Kontos vom Server aktualisiert (in anderen Apps erstellte Ordner)",
       "threadingMode": "Gesprächs-Threading",
       "threadingOff": "Aus",
       "threadingOffDesc": "Jede Nachricht einzeln angezeigt",
@@ -463,8 +459,8 @@
       "markReadManual": "Manuell",
       "markReadManualDesc": "E-Mails niemals automatisch als gelesen markieren. Schaltfläche \"Als gelesen markieren\" verwenden.",
       "defaultMailApp": "Standard-E-Mail-App",
-      "defaultMailAppDesc": "MailFlow in diesem Browser mailto:-Links öffnen lassen. Der Browser fragt zur Bestätigung nach. Funktioniert in Firefox und Chrome/Edge; unter iOS nicht verfügbar.",
-      "defaultMailAppBtn": "MailFlow registrieren",
+      "defaultMailAppDesc": "Inboxora in diesem Browser mailto:-Links öffnen lassen. Der Browser fragt zur Bestätigung nach. Funktioniert in Firefox und Chrome/Edge; unter iOS nicht verfügbar.",
+      "defaultMailAppBtn": "Inboxora registrieren",
       "defaultMailAppOk": "Bestätigen Sie die Abfrage im Browser, um abzuschließen.",
       "defaultMailAppError": "Ihr Browser hat die Anfrage blockiert.",
       "markReadDelayLabel": "Verzögerung",
@@ -518,7 +514,7 @@
     },
     "push": {
       "title": "Push-Benachrichtigungen",
-      "description": "Native Benachrichtigungen für neue E-Mails erhalten, auch wenn MailFlow nicht geöffnet ist.",
+      "description": "Native Benachrichtigungen für neue E-Mails erhalten, auch wenn Inboxora nicht geöffnet ist.",
       "enable": "Aktivieren",
       "disable": "Deaktivieren",
       "statusOn": "Push-Benachrichtigungen aktiviert",
@@ -526,7 +522,7 @@
       "statusDenied": "Berechtigung verweigert",
       "permissionDenied": "Benachrichtigungsberechtigung wurde verweigert. Bitte in den Browser- oder Systemeinstellungen aktivieren.",
       "notSupported": "Push-Benachrichtigungen werden in diesem Browser nicht unterstützt.",
-      "iosHint": "Um Push-Benachrichtigungen auf iOS zu erhalten, MailFlow zuerst zum Home-Bildschirm hinzufügen: Teilen-Schaltfläche antippen, dann „Zum Home-Bildschirm”.",
+      "iosHint": "Um Push-Benachrichtigungen auf iOS zu erhalten, Inboxora zuerst zum Home-Bildschirm hinzufügen: Teilen-Schaltfläche antippen, dann „Zum Home-Bildschirm”.",
       "notConfigured": "Push-Benachrichtigungen sind auf diesem Server nicht konfiguriert. VAPID-Schlüssel zur .env-Datei hinzufügen, um sie zu aktivieren.",
       "loading": "Bitte warten…"
     },
@@ -723,7 +719,7 @@
       "domainsPh": "example.com, corp.example.com",
       "provisioning": "Provisionierungsmodus",
       "provisioningDisabled": "Deaktiviert — bestehende verknüpfte Identitäten können sich noch anmelden, aber keine neuen Verknüpfungen",
-      "provisioningExisting": "Bestehendem zuordnen — mit einem MailFlow-Konto mit übereinstimmender E-Mail verknüpfen",
+      "provisioningExisting": "Bestehendem zuordnen — mit einem Inboxora-Konto mit übereinstimmender E-Mail verknüpfen",
       "provisioningOpen": "Offen — beim ersten SSO-Login automatisch ein neues Konto erstellen",
       "enabled": "Anbieter aktiviert",
       "requireEmailVerified": "Bestätigte E-Mail erforderlich",
@@ -743,15 +739,15 @@
       "allowInsecure": "Lokale / selbstsignierte Verbindungen erlauben",
       "allowInsecureDesc": "Umgeht die Host-Validierung und TLS-Zertifikatsprüfungen. Nur für LAN-seitige Anbieter (z. B. pocketid.internal) verwenden. Nicht empfohlen für internetfähige Deployments.",
       "rpLogout": "SSO-Abmeldung (RP-initiated)",
-      "rpLogoutDesc": "Beim Abmelden wird die Sitzung auch bei diesem Anbieter beendet, indem zu dessen end-session endpoint weitergeleitet wird, nicht nur das MailFlow-Cookie. Erfordert, dass der Anbieter einen end_session_endpoint bereitstellt und dass die MailFlow-Anmelde-URL (…/login) als post-logout redirect URI registriert ist.",
+      "rpLogoutDesc": "Beim Abmelden wird die Sitzung auch bei diesem Anbieter beendet, indem zu dessen end-session endpoint weitergeleitet wird, nicht nur das Inboxora-Cookie. Erfordert, dass der Anbieter einen end_session_endpoint bereitstellt und dass die Inboxora-Anmelde-URL (…/login) als post-logout redirect URI registriert ist.",
       "adminGroupClaim": "Admin-Gruppenanspruch",
       "adminGroupClaimPh": "groups",
       "adminGroupClaimDesc": "Name des JWT-Claims, der die Gruppen des Benutzers enthält (z. B. groups). Leer lassen, um gruppenbasierte Admin-Zuweisung zu deaktivieren.",
       "adminGroupValue": "Admin-Gruppenwert",
-      "adminGroupValuePh": "mailflow-admins",
+      "adminGroupValuePh": "inboxora-admins",
       "adminGroupValueDesc": "Der Gruppenname, der Admin-Zugriff gewährt. Benutzer in dieser Gruppe werden bei jeder SSO-Anmeldung zu Admins; Benutzer, die nicht in dieser Gruppe sind, verlieren den Admin-Zugriff.",
       "loginMatchClaim": "Bestehende Konten zuordnen über",
-      "loginMatchClaimDesc": "OIDC-Claim, der mit dem Benutzernamen jedes MailFlow-Kontos abgeglichen wird, wenn eine SSO-Anmeldung erstmals mit einem bestehenden Konto verknüpft wird (Bereitstellungsmodus „Nur bei bestehenden Konten anmelden“). Standard ist email. Verwenden Sie preferred_username, upn usw. für Identitätsanbieter, deren Benutzernamen keine E-Mail-Adressen sind – nur wenn Ihr Anbieter garantiert, dass der Claim eindeutig und nicht vom Benutzer änderbar ist."
+      "loginMatchClaimDesc": "OIDC-Claim, der mit dem Benutzernamen jedes Inboxora-Kontos abgeglichen wird, wenn eine SSO-Anmeldung erstmals mit einem bestehenden Konto verknüpft wird (Bereitstellungsmodus „Nur bei bestehenden Konten anmelden“). Standard ist email. Verwenden Sie preferred_username, upn usw. für Identitätsanbieter, deren Benutzernamen keine E-Mail-Adressen sind – nur wenn Ihr Anbieter garantiert, dass der Claim eindeutig und nicht vom Benutzer änderbar ist."
     },
     "ssoError": {
       "title": "SSO-Fehler"
@@ -802,7 +798,8 @@
       "groupDisplay": "Anzeige",
       "groupSecurityIntegrations": "Sicherheit und Integrationen",
       "groupAdmin": "Administration",
-      "plugins": "Plugins"
+      "plugins": "Plugins",
+      "davCredentials": "DAV-Zugang"
     },
     "title": "Einstellungen",
     "users": {
@@ -843,6 +840,27 @@
       "disable2faConfirmTitle": "2FA für „{{username}}” deaktivieren?",
       "disable2faConfirmBody": "Dies entfernt die Anforderung der Authenticator-App. Der Benutzer kann sie selbst wieder aktivieren.",
       "disable2faConfirmLabel": "2FA deaktivieren"
+    },
+    "davCredentials": {
+      "title": "DAV-Zugang",
+      "description": "Erstellen Sie eigene App-Passwörter für CardDAV und CalDAV.",
+      "label": "Gerätebezeichnung",
+      "labelPlaceholder": "z. B. DAVx5-Telefon",
+      "create": "Passwort erstellen",
+      "secretTitle": "Dieses Passwort jetzt kopieren",
+      "secretWarning": "Dieses App-Passwort wird aus Sicherheitsgründen nur einmal angezeigt.",
+      "copied": "Kopiert",
+      "davx5Title": "DAVx5 einrichten",
+      "davx5Description": "Fügen Sie diesen Server in DAVx5 hinzu und verwenden Sie Ihren Inboxora-Benutzernamen mit diesem App-Passwort. Die Erkennung funktioniert unter:",
+      "davx5Username": "Verwenden Sie Ihren Inboxora-Benutzernamen und das App-Passwort, nicht Ihr Anmeldepasswort.",
+      "activeTitle": "Aktive App-Passwörter",
+      "empty": "Noch keine App-Passwörter vorhanden.",
+      "metadata": "Erstellt: {{created}} · Zuletzt verwendet: {{used}}",
+      "revoke": "Widerrufen",
+      "loadError": "DAV-App-Passwörter konnten nicht geladen werden.",
+      "createError": "Das App-Passwort konnte nicht erstellt werden.",
+      "copyError": "Das App-Passwort konnte nicht kopiert werden.",
+      "revokeError": "Das App-Passwort konnte nicht widerrufen werden."
     }
   },
   "blockList": {
@@ -1667,5 +1685,12 @@
   "window": {
     "minimize": "Minimieren",
     "close": "Schließen"
+  },
+  "calendar": {
+    "title": "Kalender",
+    "today": "Heute",
+    "newEvent": "Neues Ereignis",
+    "noWritable": "Kein beschreibbarer lokaler Kalender verfügbar. Importierte Kalender sind schreibgeschützt.",
+    "loading": "Kalender wird geladen…"
   }
 }

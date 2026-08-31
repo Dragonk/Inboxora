@@ -222,8 +222,8 @@ export default function MessageList() {
     const markOpening = () => {
       recentMessageOpenUntilRef.current = Date.now() + 1500;
     };
-    window.addEventListener('mailflow:message-opening', markOpening);
-    return () => window.removeEventListener('mailflow:message-opening', markOpening);
+    window.addEventListener('inboxora:message-opening', markOpening);
+    return () => window.removeEventListener('inboxora:message-opening', markOpening);
   }, []);
   const searchTimer = useRef(null);
 
@@ -402,7 +402,7 @@ export default function MessageList() {
             setHasMoreMessages(data.messages.length < data.total);
 
             // If a specific non-INBOX folder opened empty, trigger an on-demand IMAP sync.
-            // The backend will broadcast sync_complete → mailflow:refresh once done.
+            // The backend will broadcast sync_complete → inboxora:refresh once done.
             if (data.messages.length === 0 && selectedAccountId && selectedFolder !== 'INBOX') {
               setFolderSyncing(true);
               api.syncFolder(selectedAccountId, selectedFolder)
@@ -506,9 +506,9 @@ export default function MessageList() {
         }
       }
     };
-    window.addEventListener('mailflow:refresh', handler);
+    window.addEventListener('inboxora:refresh', handler);
     return () => {
-      window.removeEventListener('mailflow:refresh', handler);
+      window.removeEventListener('inboxora:refresh', handler);
       clearTimeout(deferredRefreshTimerRef.current);
     };
   }, [selectedAccountId, selectedFolder, unreadOnly, activeCategory, searchQuery, categorizationEnabled, selectedAccount?.categorization_enabled, applyReadGuard, setHasMoreMessages, setMessages, setMessagesOffset, setMessagesTotal]);
@@ -545,17 +545,17 @@ export default function MessageList() {
   // Re-run an active search (and refresh the folder view) after inbox rules run, since
   // rules can move messages out of the searched folder and a search snapshot would
   // otherwise keep showing them. Scoped to the explicit rules-ran event rather than the
-  // frequent mailflow:refresh (which is intentionally ignored while searching to keep
+  // frequent inboxora:refresh (which is intentionally ignored while searching to keep
   // results stable during background syncs). Fixes #223.
   useEffect(() => {
     const handler = () => {
       // Bumps the search effect if a query is active (it no-ops on an empty query);
       // the refresh event reloads the folder list when not searching.
       setSearchReloadToken(t => t + 1);
-      window.dispatchEvent(new Event('mailflow:refresh'));
+      window.dispatchEvent(new Event('inboxora:refresh'));
     };
-    window.addEventListener('mailflow:rules-ran', handler);
-    return () => window.removeEventListener('mailflow:rules-ran', handler);
+    window.addEventListener('inboxora:rules-ran', handler);
+    return () => window.removeEventListener('inboxora:rules-ran', handler);
   }, []);
 
   const loadMoreSearch = useCallback(async () => {
@@ -652,7 +652,7 @@ export default function MessageList() {
     try {
       await api.syncNow(selectedAccountId || undefined);
       // The server will send sync_complete via WebSocket when done, which triggers
-      // mailflow:refresh (list reload) and mailflow:sync_done (spinner off).
+      // inboxora:refresh (list reload) and inboxora:sync_done (spinner off).
       // Safety fallback: stop spinner after 15s in case WS event never arrives.
       setTimeout(() => setSyncing(false), 15000);
     } catch (err) {
@@ -727,7 +727,7 @@ export default function MessageList() {
   }, [isMobile]);
 
   // Animate the sync icon on WS sync_complete — the actual list refresh is handled
-  // by the mailflow:refresh listener above (also fired on sync_complete), so this
+  // by the inboxora:refresh listener above (also fired on sync_complete), so this
   // handler only needs to toggle the spinner. Having both handlers re-fetch the list
   // caused two concurrent setMessages() calls racing each other.
   useEffect(() => {
@@ -735,8 +735,8 @@ export default function MessageList() {
       setSyncing(true);
       setTimeout(() => setSyncing(false), 1200);
     };
-    window.addEventListener('mailflow:sync_done', handler);
-    return () => window.removeEventListener('mailflow:sync_done', handler);
+    window.addEventListener('inboxora:sync_done', handler);
+    return () => window.removeEventListener('inboxora:sync_done', handler);
   }, []);
 
   const isThreadListRow = useCallback((message) => {
@@ -873,7 +873,7 @@ export default function MessageList() {
         msg.id, read, targetRead => api.bulkRead([msg.id], targetRead),
       ) }));
       await Promise.all(mutations.map(({ mutation }) => mutation.promise));
-      actionMessages.forEach(msg => window.dispatchEvent(new CustomEvent('mailflow:read-state', { detail: { id: msg.id, read } })));
+      actionMessages.forEach(msg => window.dispatchEvent(new CustomEvent('inboxora:read-state', { detail: { id: msg.id, read } })));
       if (read) {
         actionMessages.forEach(msg => {
           pendingMarkReadMap.delete(msg.id);
@@ -1690,7 +1690,7 @@ export default function MessageList() {
               .map(({ row }) => row);
             if (failedVisibleRows.length > 0) restoreMessagesIfViewCurrent(viewKey, archiveViewKeyRef, failedVisibleRows);
             unreadCountsByAccount(failedTargets).forEach((count, accountId) => incrementUnread(accountId, count));
-            window.dispatchEvent(new Event('mailflow:refresh'));
+            window.dispatchEvent(new Event('inboxora:refresh'));
             if (!result.error && result.noArchiveFolder.length) {
               addNotification({ title: t('messageList.bulkArchived.noFolderTitle'), body: t('messageList.bulkArchived.noFolderBody') });
             } else {
@@ -1795,7 +1795,7 @@ export default function MessageList() {
       if (!archived.has(message.id)) {
         restoreMessagesIfViewCurrent(viewKey, archiveViewKeyRef, [message]);
       }
-      window.dispatchEvent(new Event('mailflow:refresh'));
+      window.dispatchEvent(new Event('inboxora:refresh'));
       const noArchiveFolder = !result.error && result.noArchiveFolder.length > 0;
       addNotification({
         title: t(noArchiveFolder ? 'messageList.noArchiveFolder.title' : 'messageList.bulkArchived.failTitle'),

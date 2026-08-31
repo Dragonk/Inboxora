@@ -8,7 +8,7 @@ function subscribe(channel, callback) {
   return () => ipcRenderer.removeListener(channel, listener);
 }
 
-ipcRenderer.on('mailflow:native-action', (_event, payload) => {
+ipcRenderer.on('inboxora:native-action', (_event, payload) => {
   if (nativeActionSubscribers.size === 0) {
     pendingNativeActions.push(payload);
     return;
@@ -27,29 +27,29 @@ function subscribeNativeAction(callback) {
   return () => nativeActionSubscribers.delete(callback);
 }
 
-contextBridge.exposeInMainWorld('mailflowNative', {
+contextBridge.exposeInMainWorld('inboxoraNative', {
   platform: process.platform,
-  getHost: () => ipcRenderer.invoke('mailflow:getHost'),
-  saveHost: (host) => ipcRenderer.invoke('mailflow:saveHost', host),
-  resetHost: () => ipcRenderer.invoke('mailflow:resetHost'),
+  getHost: () => ipcRenderer.invoke('inboxora:getHost'),
+  saveHost: (host) => ipcRenderer.invoke('inboxora:saveHost', host),
+  resetHost: () => ipcRenderer.invoke('inboxora:resetHost'),
   badges: {
-    setUnreadCount: (count) => ipcRenderer.invoke('mailflow:badge:set-unread-count', count),
+    setUnreadCount: (count) => ipcRenderer.invoke('inboxora:badge:set-unread-count', count),
   },
   updates: {
-    check: (verbose) => ipcRenderer.invoke('mailflow:updates:check', { verbose }),
-    installDownloaded: () => ipcRenderer.invoke('mailflow:updates:install-downloaded'),
-    installAuto: () => ipcRenderer.invoke('mailflow:updates:install-auto'),
-    copyInstallCommandAndQuit: (options) => ipcRenderer.invoke('mailflow:updates:copy-install-command-and-quit', options),
-    openDownload: () => ipcRenderer.invoke('mailflow:updates:open-download'),
-    onStatus: (callback) => subscribe('mailflow:updates:status', callback),
+    check: (verbose) => ipcRenderer.invoke('inboxora:updates:check', { verbose }),
+    installDownloaded: () => ipcRenderer.invoke('inboxora:updates:install-downloaded'),
+    installAuto: () => ipcRenderer.invoke('inboxora:updates:install-auto'),
+    copyInstallCommandAndQuit: (options) => ipcRenderer.invoke('inboxora:updates:copy-install-command-and-quit', options),
+    openDownload: () => ipcRenderer.invoke('inboxora:updates:open-download'),
+    onStatus: (callback) => subscribe('inboxora:updates:status', callback),
   },
   notifications: {
-    onPush: (callback) => subscribe('mailflow:notifications:push', callback),
-    showNewMail: (notification) => ipcRenderer.invoke('mailflow:notification:new-mail', notification),
+    onPush: (callback) => subscribe('inboxora:notifications:push', callback),
+    showNewMail: (notification) => ipcRenderer.invoke('inboxora:notification:new-mail', notification),
   },
   actions: {
-    getPending: () => ipcRenderer.invoke('mailflow:native-actions:pending'),
-    ack: (id) => ipcRenderer.invoke('mailflow:native-actions:ack', id),
+    getPending: () => ipcRenderer.invoke('inboxora:native-actions:pending'),
+    ack: (id) => ipcRenderer.invoke('inboxora:native-actions:ack', id),
     onAction: subscribeNativeAction,
   },
 });

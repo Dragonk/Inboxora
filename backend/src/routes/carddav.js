@@ -1,6 +1,6 @@
 // CardDAV server — supports Apple Contacts, Thunderbird, DAVx5 / Android.
 // Protocol: RFC 6352 (CardDAV), RFC 4918 (WebDAV).
-// Auth: HTTP Basic against the MailFlow users table via bcryptjs.
+// Auth: HTTP Basic with dedicated, revocable DAV application passwords.
 //
 // URL layout:
 //   /.well-known/carddav           → 301 to /carddav/
@@ -10,19 +10,14 @@
 //   /carddav/{userId}/{bookId}/{uid}.vcf → GET, PUT, DELETE
 
 import { Router } from 'express';
-import bcrypt from 'bcryptjs';
 import crypto from 'crypto';
 import { query } from '../services/db.js';
 import { parseVCard } from '../utils/vcard.js';
 import { authLimiterConfig } from '../services/authLimiter.js';
-import { consume as rlConsume } from '../services/rateLimiter.js';
-import { logAuthEvent } from '../services/authEvents.js';
+import { createDavAuthMiddleware } from '../services/davServerAuth.js';
 
 const router = Router();
 
-// Precomputed valid hash so a non-existent username takes the same time as a real
-// one (constant-time — closes the username-enumeration timing oracle).
-const DUMMY_PASSWORD_HASH = bcrypt.hashSync('mailflow-timing-equalizer', 12);
 
 // ── Rate limiting (shared config, separate buckets from login) ────────────────
 
@@ -57,63 +52,13 @@ function cardavRateLimit(req, res, next) {
 
 // ── HTTP Basic authentication middleware ──────────────────────────────────────
 
-async function cardavAuth(req, res, next) {
-  const auth = req.headers['authorization'] || '';
-  if (!auth.startsWith('Basic ')) {
-    res.setHeader('WWW-Authenticate', 'Basic realm="MailFlow CardDAV"');
-    return res.status(401).end();
-  }
-
-  const decoded = Buffer.from(auth.slice(6), 'base64').toString('utf8');
-  const colon   = decoded.indexOf(':');
-  if (colon < 0) {
-    res.setHeader('WWW-Authenticate', 'Basic realm="MailFlow CardDAV"');
-    return res.status(401).end();
-  }
-
-  const username = decoded.slice(0, colon);
-  const password = decoded.slice(colon + 1);
-
-  try {
-    const r = await query(
-      'SELECT id, password_hash, totp_enabled FROM users WHERE username = $1',
-      [username]
-    );
-    const user = r.rows[0];
-    // Count CardDAV auth failures against the same per-IP limiter as login and log
-    // them to the audit trail — brute-force/visibility parity with the login path.
-    const authFail = async () => {
-      const { limited } = await rlConsume(`auth:${req.ip}`, authLimiterConfig.maxRequests, authLimiterConfig.windowMs);
-      logAuthEvent('carddav_auth_fail', { username: username || null, ip: req.ip, success: false });
-      res.setHeader('WWW-Authenticate', 'Basic realm="MailFlow CardDAV"');
-      return res.status(limited ? 429 : 401).end();
-    };
-    if (!user || !user.password_hash) {
-      await bcrypt.compare(password, DUMMY_PASSWORD_HASH); // constant-time vs the real path
-      return authFail();
-    }
-    // Verify password before checking totp_enabled so the response is
-    // indistinguishable regardless of whether the account exists or has 2FA.
-    const ok = await bcrypt.compare(password, user.password_hash);
-    if (!ok) return authFail();
-    // CardDAV HTTP Basic cannot satisfy a TOTP second factor.
-    // Block access entirely for accounts with 2FA enabled until app-specific
-    // passwords are implemented. Return 403 (not 401) so clients don't retry.
-    if (user.totp_enabled) {
-      return res.status(403)
-        .set('Content-Type', 'text/plain')
-        .send('Two-factor authentication is enabled. CardDAV requires an app-specific password.');
-    }
-    req.cardavUserId = user.id;
-    next();
-  } catch (err) {
-    console.error('CardDAV auth error:', err);
-    res.status(500).end();
-  }
-}
-
 router.use(cardavRateLimit);
-router.use(cardavAuth);
+router.use(createDavAuthMiddleware({ realm: 'Inboxora CardDAV', eventType: 'carddav_auth_fail' }));
+router.use((req, _res, next) => {
+  req.cardavUserId = req.davUserId;
+  req.cardavCredentialId = req.davCredentialId;
+  next();
+});
 
 // ── XML helpers ───────────────────────────────────────────────────────────────
 
@@ -377,11 +322,13 @@ router.put('/:userId/:bookId/:filename', async (req, res) => {
 
   try {
     const bookResult = await query(
-      'SELECT id FROM address_books WHERE id = $1 AND user_id = $2',
+      'SELECT id, source FROM address_books WHERE id = $1 AND user_id = $2',
       [req.params.bookId, userId]
     );
     if (!bookResult.rows.length) return res.status(404).end();
-    const bookId = bookResult.rows[0].id;
+    const book = bookResult.rows[0];
+    if (book.source !== 'local') return res.status(403).end();
+    const bookId = book.id;
 
     const existing = await query(
       'SELECT id, etag FROM contacts WHERE address_book_id = $1 AND uid = $2',
@@ -454,6 +401,13 @@ router.delete('/:userId/:bookId/:filename', async (req, res) => {
   const uid = req.params.filename.replace(/\.vcf$/i, '');
 
   try {
+    const bookResult = await query(
+      'SELECT id, source FROM address_books WHERE id = $1 AND user_id = $2',
+      [req.params.bookId, userId]
+    );
+    if (!bookResult.rows.length) return res.status(404).end();
+    if (bookResult.rows[0].source !== 'local') return res.status(403).end();
+
     const result = await query(
       `DELETE FROM contacts
        USING address_books

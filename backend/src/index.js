@@ -33,8 +33,12 @@ import pluginsRoutes from './routes/plugins.js';
 import senderFaviconsRoutes from './routes/senderFavicons.js';
 import diagnosticsRoutes from './routes/diagnostics.js';
 import carddavRouter from './routes/carddav.js';
+import caldavRouter from './routes/caldav.js';
 import carddavAccountRouter from './routes/carddavAccount.js';
+import davCredentialsRouter from './routes/davCredentials.js';
+import calendarRouter from './routes/calendar.js';
 import { startCardavScheduler } from './services/carddavSync.js';
+import { startExternalCalendarScheduler } from './services/externalCalendarSync.js';
 import { encryptExistingCredentials, query } from './services/db.js';
 import { runMigrations } from './services/migrations.js';
 import { parseVCard } from './utils/vcard.js';
@@ -205,6 +209,8 @@ app.use('/api/block-list', blockListRoutes);
 app.use('/api/contacts', contactsRoutes);
 app.use('/api/todoist', todoistRoutes);
 app.use('/api/carddav', carddavAccountRouter);
+app.use('/api/dav-credentials', davCredentialsRouter);
+app.use('/api/calendar', calendarRouter);
 app.use('/api', aiRoutes);
 app.use('/api', categoriesRoutes);
 // Tier-1 plugin routers, mounted via the plugin registry (see src/plugins/). Registered
@@ -224,11 +230,15 @@ app.use('/api/diagnostics', diagnosticsRoutes);
 app.use('/carddav', carddavRouter);
 // RFC 6764 well-known redirect — handle all methods so PROPFIND probes also redirect
 app.all('/.well-known/carddav', (req, res) => res.redirect(308, '/carddav/'));
+// CalDAV server — shares dedicated DAV application-password authentication with CardDAV.
+app.use('/caldav', caldavRouter);
+// RFC 6764 well-known redirect — DAV clients commonly start discovery here.
+app.all('/.well-known/caldav', (req, res) => res.redirect(308, '/caldav/'));
 
 app.get('/api/health', (req, res) => res.json({ status: 'ok' }));
 app.get('/api/version', (_req, res) => res.json({ version: APP_VERSION, sha: process.env.BUILD_SHA || 'dev' }));
 // Server-side update check (#261). Cached in updateCheck.js so repeated hits never
-// re-query GitHub; the browser only talks to MailFlow. Never throws into the response.
+// re-query GitHub; the browser only talks to Inboxora. Never throws into the response.
 app.get('/api/update', async (_req, res) => {
   try { res.json(await getUpdateStatus(APP_VERSION)); }
   catch { res.json({ current: APP_VERSION, latest: null, updateAvailable: false, disabled: false }); }
@@ -283,6 +293,7 @@ imapManager.startSnoozeWatcher();
 
 // Schedule periodic CardDAV contact sync for any connected accounts.
 startCardavScheduler();
+startExternalCalendarScheduler().catch(err => console.warn('External calendar scheduler start failed:', err.message));
 // Retry conversation persistence failures without blocking IMAP synchronization.
 setInterval(() => retryConversationIngestFailures({ limit: 25 }).catch(err => console.warn('Conversation ingest retry failed:', err.message)), 5 * 60 * 1000);
 
@@ -311,7 +322,7 @@ if (process.env.NODE_ENV !== 'test' && process.env.E2E_DISABLE_IMAP_CONNECT !== 
 
 const PORT = process.env.PORT || 3000;
 httpServer.listen(PORT, () => {
-  console.log(`MailFlow backend running on port ${PORT}`);
+  console.log(`Inboxora backend running on port ${PORT}`);
 });
 
 process.on('SIGTERM', () => {

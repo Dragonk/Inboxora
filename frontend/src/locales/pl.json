@@ -44,7 +44,8 @@
       "groupDisplay": "Wyświetlanie",
       "groupSecurityIntegrations": "Bezpieczeństwo i integracje",
       "groupAdmin": "Administracja",
-      "plugins": "Wtyczki"
+      "plugins": "Wtyczki",
+      "davCredentials": "Dostęp DAV"
     },
     "rules": {
       "title": "Reguły skrzynki odbiorczej",
@@ -180,7 +181,7 @@
     },
     "folderMappings": {
       "title": "Mapowania folderów",
-      "description": "Przypisz każdą rolę pocztową do konkretnego folderu. Zaznacz „Wykryj automatycznie”, aby MailFlow używał folderu oznaczonego przez serwer jako przeznaczonego dla tej roli.",
+      "description": "Przypisz każdą rolę pocztową do konkretnego folderu. Zaznacz „Wykryj automatycznie”, aby Inboxora używał folderu oznaczonego przez serwer jako przeznaczonego dla tej roli.",
       "loading": "Wczytywanie folderów…",
       "autoDetect": "Wykryj automatycznie",
       "autoDetectNone": "Wykryj automatycznie (nie znaleziono)",
@@ -194,7 +195,7 @@
     },
     "aliases": {
       "title": "Aliasy",
-      "description": "Aliasy pozwalają wysyłać wiadomości z inną nazwą lub adresem, używając danych SMTP konta. Podczas tworzenia wiadomości wybierz alias w polu „Od”. MailFlow automatycznie odpowie z użyciem aliasu, jeśli wiadomość została na niego wysłana.",
+      "description": "Aliasy pozwalają wysyłać wiadomości z inną nazwą lub adresem, używając danych SMTP konta. Podczas tworzenia wiadomości wybierz alias w polu „Od”. Inboxora automatycznie odpowie z użyciem aliasu, jeśli wiadomość została na niego wysłana.",
       "addButton": "Dodaj alias",
       "empty": "Brak aliasów",
       "newTitle": "Nowy alias",
@@ -267,9 +268,9 @@
       "swipeDisabled": "Wyłączone",
       "swipeDisabledDesc": "Wyłącz przesuwanie w tym kierunku",
       "syncFrequency": "Częstotliwość synchronizacji poczty",
-      "syncFrequencyDesc": "Jak często MailFlow sprawdza najnowsze wiadomości",
+      "syncFrequencyDesc": "Jak często Inboxora sprawdza najnowsze wiadomości",
       "folderSyncFrequency": "Częstotliwość synchronizacji struktury folderów",
-      "folderSyncFrequencyDesc": "Jak często MailFlow odświeża listę folderów każdego konta na podstawie serwera (w tym folderów utworzonych w innych aplikacjach)",
+      "folderSyncFrequencyDesc": "Jak często Inboxora odświeża listę folderów każdego konta na podstawie serwera (w tym folderów utworzonych w innych aplikacjach)",
       "threadingMode": "Grupowanie rozmów",
       "threadingOff": "Wyłączone",
       "threadingOffDesc": "Każda wiadomość jest wyświetlana osobno",
@@ -293,8 +294,8 @@
       "markReadManual": "Ręcznie",
       "markReadManualDesc": "Nigdy nie oznaczaj automatycznie wiadomości jako przeczytanych. Użyj przycisku „Oznacz jako przeczytane”.",
       "defaultMailApp": "Domyślna aplikacja pocztowa",
-      "defaultMailAppDesc": "Spraw, aby MailFlow otwierał odnośniki mailto: w przeglądarce. Przeglądarka poprosi o potwierdzenie. Działa w Firefoxie i Chrome/Edge; niedostępne na iOS.",
-      "defaultMailAppBtn": "Zarejestruj MailFlow",
+      "defaultMailAppDesc": "Spraw, aby Inboxora otwierał odnośniki mailto: w przeglądarce. Przeglądarka poprosi o potwierdzenie. Działa w Firefoxie i Chrome/Edge; niedostępne na iOS.",
+      "defaultMailAppBtn": "Zarejestruj Inboxora",
       "defaultMailAppOk": "Potwierdź monit w przeglądarce, aby zakończyć.",
       "defaultMailAppError": "Przeglądarka zablokowała żądanie.",
       "markReadDelayLabel": "Opóźnienie",
@@ -345,7 +346,7 @@
     },
     "push": {
       "title": "Powiadomienia push",
-      "description": "Otrzymuj natywne powiadomienia o nowej poczcie, nawet gdy MailFlow nie jest otwarty.",
+      "description": "Otrzymuj natywne powiadomienia o nowej poczcie, nawet gdy Inboxora nie jest otwarty.",
       "enable": "Włącz",
       "disable": "Wyłącz",
       "statusOn": "Powiadomienia push włączone",
@@ -353,7 +354,7 @@
       "statusDenied": "Brak uprawnień",
       "permissionDenied": "Odmówiono zgody na powiadomienia. Włącz ją w przeglądarce lub ustawieniach systemu.",
       "notSupported": "Powiadomienia push nie są obsługiwane w tej przeglądarce.",
-      "iosHint": "Aby otrzymywać powiadomienia push w systemie iOS, najpierw dodaj MailFlow do ekranu początkowego: wybierz przycisk udostępniania, a następnie „Dodaj do ekranu początkowego”.",
+      "iosHint": "Aby otrzymywać powiadomienia push w systemie iOS, najpierw dodaj Inboxora do ekranu początkowego: wybierz przycisk udostępniania, a następnie „Dodaj do ekranu początkowego”.",
       "notConfigured": "Powiadomienia push nie są skonfigurowane na serwerze. Dodaj klucze VAPID do pliku .env, aby je włączyć.",
       "loading": "Przetwarzanie…"
     },
@@ -586,7 +587,7 @@
       "gtdRevealDesc": "Pokaż poniższe ustawienia GTD dla poszczególnych kont; każde konto ma własny przełącznik."
     },
     "gtd": {
-      "description": "Zamień MailFlow w system GTD. Włącz go dla każdego konta, a następnie przypisz każdy stan do folderu IMAP zawierającego jego etykietę.",
+      "description": "Zamień Inboxora w system GTD. Włącz go dla każdego konta, a następnie przypisz każdy stan do folderu IMAP zawierającego jego etykietę.",
       "noAccounts": "Najpierw dodaj konto e-mail, aby skonfigurować GTD.",
       "enableDesc": "GTD jest włączone. Etykiety są synchronizowane jako foldery, a zmiany stanów odbywają się automatycznie.",
       "enableHint": "Włącz etykiety GTD i automatyczne zmiany stanów dla tego konta.",
@@ -674,7 +675,7 @@
       "domainsPh": "example.com, corp.example.com",
       "provisioning": "Tryb udostępniania kont",
       "provisioningDisabled": "Wyłączone — istniejące powiązane tożsamości mogą nadal się logować, ale nowe powiązania nie będą tworzone",
-      "provisioningExisting": "Dopasowanie istniejącego konta — połącz konto MailFlow z pasującym adresem e-mail",
+      "provisioningExisting": "Dopasowanie istniejącego konta — połącz konto Inboxora z pasującym adresem e-mail",
       "provisioningOpen": "Otwórz — utwórz nowe konto automatycznie przy pierwszym logowaniu SSO",
       "enabled": "Dostawca włączony",
       "requireEmailVerified": "Wymagaj zweryfikowanego adresu e-mail",
@@ -682,15 +683,15 @@
       "allowInsecure": "Zezwalaj na połączenia lokalne / z własnym certyfikatem",
       "allowInsecureDesc": "Pomija weryfikację hosta i certyfikatu TLS. Używaj tylko dla dostawców dostępnych wyłącznie w sieci LAN (np. pocketid.internal). Nie jest to zalecane w przypadku wdrożeń dostępnych z Internetu.",
       "rpLogout": "SSO wylogowanie (RP-initiated)",
-      "rpLogoutDesc": "Włącz wylogowanie SSO, które kończy również sesję u dostawcy przez przekierowanie do jego punktu końcowego wylogowania, a nie tylko usuwa plik cookie MailFlow. Wymaga to, aby dostawca udostępniał end_session_endpoint i miał zarejestrowany adres logowania MailFlow (…/logowanie) jako URI przekierowania po wylogowaniu.",
+      "rpLogoutDesc": "Włącz wylogowanie SSO, które kończy również sesję u dostawcy przez przekierowanie do jego punktu końcowego wylogowania, a nie tylko usuwa plik cookie Inboxora. Wymaga to, aby dostawca udostępniał end_session_endpoint i miał zarejestrowany adres logowania Inboxora (…/logowanie) jako URI przekierowania po wylogowaniu.",
       "adminGroupClaim": "Deklaracja grupy administratorów",
       "adminGroupClaimPh": "grupy",
       "adminGroupClaimDesc": "Nazwa claimu JWT zawierającego grupy użytkownika (np. groups). Pozostaw puste, aby wyłączyć nadawanie uprawnień administratora na podstawie grupy.",
       "adminGroupValue": "Wartość grupy administratorów",
-      "adminGroupValuePh": "mailflow-admins",
+      "adminGroupValuePh": "inboxora-admins",
       "adminGroupValueDesc": "Nazwa grupy nadającej uprawnienia administratora. Użytkownicy w tej grupie zostają administratorami przy każdym logowaniu SSO; użytkownicy spoza niej tracą uprawnienia administratora.",
       "loginMatchClaim": "Dopasuj istniejące konta według",
-      "loginMatchClaimDesc": "Oświadczenie (claim) OIDC porównywane z nazwą użytkownika każdego konta MailFlow przy pierwszym powiązaniu logowania SSO z istniejącym kontem (tryb udostępniania „tylko logowanie do istniejących kont”). Wartość domyślna to email. Użyj preferred_username, upn itp. dla dostawców tożsamości, których nazwy użytkowników nie są adresami e-mail — tylko jeśli dostawca gwarantuje, że oświadczenie jest unikalne i nie może być edytowane przez użytkownika.",
+      "loginMatchClaimDesc": "Oświadczenie (claim) OIDC porównywane z nazwą użytkownika każdego konta Inboxora przy pierwszym powiązaniu logowania SSO z istniejącym kontem (tryb udostępniania „tylko logowanie do istniejących kont”). Wartość domyślna to email. Użyj preferred_username, upn itp. dla dostawców tożsamości, których nazwy użytkowników nie są adresami e-mail — tylko jeśli dostawca gwarantuje, że oświadczenie jest unikalne i nie może być edytowane przez użytkownika.",
       "save": "Zapisz",
       "editButton": "Edytuj",
       "deleteButton": "Usuń",
@@ -719,7 +720,7 @@
         "setupTitle": "Konfiguracja rejestracji aplikacji Azure",
         "step1": "Przejdź do portal.azure.com → Microsoft Entra ID → Rejestracje aplikacji → Nowa rejestracja. W sekcji obsługiwanych typów kont wybierz „Konta w dowolnym katalogu organizacyjnym i osobiste konta Microsoft”, aby zezwolić na logowanie z kont Outlook.com/Hotmail.",
         "step2": "Utwórz wpis tajny klienta i skopiuj go tutaj. Nie udostępniaj go publicznie.",
-        "step3": "Skonfiguruj adres przekierowania MailFlow jako aplikację internetową.",
+        "step3": "Skonfiguruj adres przekierowania Inboxora jako aplikację internetową.",
         "step4": "Uprawnienia API → Dodaj uprawnienie → Microsoft Graph → Delegowane → offline_access, openid, email, profile",
         "step5": "Zapisz konfigurację i połącz konto Microsoft.",
         "step6": "Po zakończeniu konfiguracji kliknij „Połącz”, aby rozpocząć autoryzację.",
@@ -741,7 +742,7 @@
         "deviceCodeTitle": "Połącz za pomocą kodu urządzenia",
         "deviceCodeNote": "Przekierowanie ani sekret klienta nie są wymagane. W Azure przejdź do Uwierzytelnianie i ustaw opcję „Zezwalaj na przepływy klientów publicznych” na „Tak”. Najlepsze rozwiązanie dla osobistych kont Outlook.com/Hotmail.",
         "deviceCodeStart": "Uruchom przepływ kodu urządzenia",
-        "deviceCodeInstructions": "Otwórz poniższy adres na dowolnym urządzeniu i wpisz kod, aby autoryzować MailFlow:",
+        "deviceCodeInstructions": "Otwórz poniższy adres na dowolnym urządzeniu i wpisz kod, aby autoryzować Inboxora:",
         "deviceCodeVisit": "Otwórz:",
         "deviceCodeEnter": "Wpisz kod:",
         "deviceCodeWaiting": "Oczekiwanie na autoryzację…",
@@ -787,7 +788,7 @@
         "lastSync": "Ostatnia synchronizacja: {{when}}",
         "summary": "{{contacts}} kontaktów w {{books}} książkach adresowych",
         "syncFailed": "Ostatnia synchronizacja nie powiodła się: {{error}}",
-        "help": "Użyj hasła aplikacji Nextcloud, nie hasła logowania — użytkownicy SSO muszą utworzyć je w Ustawienia → Bezpieczeństwo. Kontakty są synchronizowane jednokierunkowo i są tylko do odczytu w MailFlow."
+        "help": "Użyj hasła aplikacji Nextcloud, nie hasła logowania — użytkownicy SSO muszą utworzyć je w Ustawienia → Bezpieczeństwo. Kontakty są synchronizowane jednokierunkowo i są tylko do odczytu w Inboxora."
       }
     },
     "ssoLinked": {
@@ -803,11 +804,7 @@
       "backendBuild": "Kompilacja backendu",
       "frontendBuild": "Wersja frontendu",
       "license": "Licencja",
-      "website": "Witryna internetowa",
-      "sourceCode": "Kod źródłowy",
-      "sponsor": "Wesprzyj rozwój",
-      "kofi": "Ko-fi",
-      "githubSponsors": "GitHub Sponsors"
+      "sourceCode": "Kod źródłowy"
     },
     "search": {
       "placeholder": "Wyszukaj ustawienie…",
@@ -843,6 +840,27 @@
       "empty": "Brak wtyczek w tej wersji.",
       "error": "Nie udało się zaktualizować wtyczki. Spróbuj ponownie.",
       "configureIn": "Skonfiguruj opcje w {{location}}"
+    },
+    "davCredentials": {
+      "title": "Dostęp DAV",
+      "description": "Twórz osobne hasła aplikacji dla CardDAV i CalDAV.",
+      "label": "Nazwa urządzenia",
+      "labelPlaceholder": "np. telefon z DAVx5",
+      "create": "Utwórz hasło",
+      "secretTitle": "Skopiuj to hasło teraz",
+      "secretWarning": "Ze względów bezpieczeństwa to hasło aplikacji jest wyświetlane tylko raz.",
+      "copied": "Skopiowano",
+      "davx5Title": "Konfiguracja DAVx5",
+      "davx5Description": "W DAVx5 dodaj ten serwer i użyj swojej nazwy użytkownika Inboxora z tym hasłem aplikacji. Automatyczne wykrywanie działa pod adresami:",
+      "davx5Username": "Użyj nazwy użytkownika Inboxora i hasła aplikacji, a nie hasła do logowania.",
+      "activeTitle": "Aktywne hasła aplikacji",
+      "empty": "Nie ma jeszcze haseł aplikacji.",
+      "metadata": "Utworzono: {{created}} · Ostatnio użyte: {{used}}",
+      "revoke": "Unieważnij",
+      "loadError": "Nie udało się wczytać haseł aplikacji DAV.",
+      "createError": "Nie udało się utworzyć hasła aplikacji.",
+      "copyError": "Nie udało się skopiować hasła aplikacji.",
+      "revokeError": "Nie udało się unieważnić hasła aplikacji."
     }
   },
   "blockList": {
@@ -1667,5 +1685,12 @@
   "window": {
     "minimize": "Minimalizuj",
     "close": "Zamknij"
+  },
+  "calendar": {
+    "title": "Kalendarz",
+    "today": "Dzisiaj",
+    "newEvent": "Nowe wydarzenie",
+    "noWritable": "Brak zapisywalnego lokalnego kalendarza. Zaimportowane kalendarze są tylko do odczytu.",
+    "loading": "Wczytywanie kalendarza…"
   }
 }

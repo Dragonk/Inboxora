@@ -174,7 +174,7 @@ export const useStore = create((set, get) => ({
         messagesRefreshToken: state.messagesRefreshToken + 1,
         expandedThreadId: null,
         threadMessages: {},
-        showContacts: false,
+        showContacts: false, showCalendar: false,
         ...(navChanged && wasScopedSearch ? { searchQuery: '' } : {}),
       };
     });
@@ -476,7 +476,9 @@ export const useStore = create((set, get) => ({
 
   // Contacts view
   showContacts: false,
-  setShowContacts: (v) => set({ showContacts: v }),
+  setShowContacts: (showContacts) => set({ showContacts, ...(showContacts ? { showCalendar: false } : {}) }),
+  showCalendar: false,
+  setShowCalendar: (showCalendar) => set({ showCalendar, ...(showCalendar ? { showContacts: false } : {}) }),
   rulesPreFill: null, // { fromEmail, fromName, subject } — transient, set by context menu
   setRulesPreFill: (v) => set({ rulesPreFill: v }),
 

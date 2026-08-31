@@ -26,11 +26,11 @@ export default function App() {
   useEffect(() => {
     const onExpired = () => { setUser(null); setLocked(false); };
     const onLocked = () => setLocked(true);
-    window.addEventListener('mailflow:session_expired', onExpired);
-    window.addEventListener('mailflow:locked', onLocked);
+    window.addEventListener('inboxora:session_expired', onExpired);
+    window.addEventListener('inboxora:locked', onLocked);
     return () => {
-      window.removeEventListener('mailflow:session_expired', onExpired);
-      window.removeEventListener('mailflow:locked', onLocked);
+      window.removeEventListener('inboxora:session_expired', onExpired);
+      window.removeEventListener('inboxora:locked', onLocked);
     };
   }, [setUser, setLocked]);
 

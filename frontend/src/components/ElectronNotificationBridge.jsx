@@ -37,12 +37,12 @@ export default function ElectronNotificationBridge() {
   const totalUnread = useStore(state => state.unreadCounts.total);
   const lastActionRef = useRef({ action: null, time: 0 });
   const processedActionIdsRef = useRef(createBoundedActionIdTracker());
-  const [nativeBridgeReady, setNativeBridgeReady] = useState(() => Boolean(window.mailflowNative));
+  const [nativeBridgeReady, setNativeBridgeReady] = useState(() => Boolean(window.inboxoraNative));
 
   useEffect(() => {
     let cancelled = false;
     installCapacitorNativeBridge().then(() => {
-      if (!cancelled) setNativeBridgeReady(Boolean(window.mailflowNative));
+      if (!cancelled) setNativeBridgeReady(Boolean(window.inboxoraNative));
     });
     return () => {
       cancelled = true;
@@ -51,21 +51,21 @@ export default function ElectronNotificationBridge() {
 
   useEffect(() => {
     if (!nativeBridgeReady) return undefined;
-    window.__mailflowNativeBridgeReady = true;
+    window.__inboxoraNativeBridgeReady = true;
 
     return () => {
-      window.__mailflowNativeBridgeReady = false;
+      window.__inboxoraNativeBridgeReady = false;
     };
   }, [nativeBridgeReady]);
 
   useEffect(() => {
     if (!nativeBridgeReady) return;
-    window.mailflowNative?.badges?.setUnreadCount?.(totalUnread || 0);
+    window.inboxoraNative?.badges?.setUnreadCount?.(totalUnread || 0);
   }, [nativeBridgeReady, totalUnread]);
 
   useEffect(() => {
     if (!nativeBridgeReady) return undefined;
-    const unsubscribe = window.mailflowNative?.notifications?.onPush?.((notification) => {
+    const unsubscribe = window.inboxoraNative?.notifications?.onPush?.((notification) => {
       addNotification({
         type: notification.type === 'negative' ? 'error' : notification.type,
         title: notification.title,
@@ -80,10 +80,10 @@ export default function ElectronNotificationBridge() {
 
   useEffect(() => {
     if (!nativeBridgeReady) return undefined;
-    const unsubscribe = window.mailflowNative?.updates?.onStatus?.((status) => {
+    const unsubscribe = window.inboxoraNative?.updates?.onStatus?.((status) => {
       if (status?.type !== 'downloaded') return;
 
-      const platform = window.mailflowNative?.platform;
+      const platform = window.inboxoraNative?.platform;
       const filePath = status?.data?.filePath || status?.data?.updatePath || '';
       const installCommand = status?.data?.installCommand
         || (platform === 'linux' ? getLinuxInstallCommandFromPath(filePath) : null);
@@ -96,14 +96,14 @@ export default function ElectronNotificationBridge() {
         type: 'success',
         title: 'Update ready',
         body: manualInstall
-          ? `MailFlow downloaded and verified the update.${installCommand ? ` Install it from a terminal with:\n${installCommand}` : ''}`
-          : 'MailFlow downloaded the update.',
+          ? `Inboxora downloaded and verified the update.${installCommand ? ` Install it from a terminal with:\n${installCommand}` : ''}`
+          : 'Inboxora downloaded the update.',
         allowWrap: true,
         persistent: true,
         actionLabel: manualInstall ? 'Copy & Quit' : 'Install',
         onAction: async () => {
           if (manualInstall) {
-            const result = await window.mailflowNative?.updates?.copyInstallCommandAndQuit?.({
+            const result = await window.inboxoraNative?.updates?.copyInstallCommandAndQuit?.({
               installCommand,
               filePath,
             });
@@ -117,17 +117,17 @@ export default function ElectronNotificationBridge() {
             return;
           }
 
-          const result = await window.mailflowNative?.updates?.installDownloaded?.();
+          const result = await window.inboxoraNative?.updates?.installDownloaded?.();
           if (result?.reason === 'manual-install-required' && result.installCommand) {
             addNotification({
               type: 'success',
               title: 'Update ready',
-              body: `MailFlow downloaded and verified the update. Install it from a terminal with:\n${result.installCommand}`,
+              body: `Inboxora downloaded and verified the update. Install it from a terminal with:\n${result.installCommand}`,
               allowWrap: true,
               persistent: true,
               actionLabel: 'Copy & Quit',
               onAction: async () => {
-                await window.mailflowNative?.updates?.copyInstallCommandAndQuit?.({
+                await window.inboxoraNative?.updates?.copyInstallCommandAndQuit?.({
                   installCommand: result.installCommand,
                   filePath,
                 });
@@ -154,8 +154,8 @@ export default function ElectronNotificationBridge() {
 
   useEffect(() => {
     if (!nativeBridgeReady) return;
-    if (window.mailflowNative?.platform !== 'android') return;
-    window.mailflowNative?.updates?.check?.(false)?.catch?.(() => {});
+    if (window.inboxoraNative?.platform !== 'android') return;
+    window.inboxoraNative?.updates?.check?.(false)?.catch?.(() => {});
   }, [nativeBridgeReady]);
 
   useEffect(() => {
@@ -184,7 +184,7 @@ export default function ElectronNotificationBridge() {
         }));
       }
 
-      window.dispatchEvent(new CustomEvent('mailflow:refresh'));
+      window.dispatchEvent(new CustomEvent('inboxora:refresh'));
       window.setTimeout(() => setSelectedMessage(messageId), 0);
       return message;
     };
@@ -265,7 +265,7 @@ export default function ElectronNotificationBridge() {
 
           await api.deleteMessage(messageId);
           useStore.getState().removeMessage(messageId);
-          window.dispatchEvent(new CustomEvent('mailflow:refresh'));
+          window.dispatchEvent(new CustomEvent('inboxora:refresh'));
           return;
         }
 
@@ -283,7 +283,7 @@ export default function ElectronNotificationBridge() {
             addNotification({
               type: 'info',
               title: 'Sync started',
-              body: 'MailFlow is checking for new mail.',
+              body: 'Inboxora is checking for new mail.',
             });
             await api.syncNow();
           } catch (error) {
@@ -296,7 +296,7 @@ export default function ElectronNotificationBridge() {
         }
       } finally {
         if (id) {
-          window.mailflowNative?.actions?.ack?.(id);
+          window.inboxoraNative?.actions?.ack?.(id);
         }
       }
     };
@@ -307,9 +307,9 @@ export default function ElectronNotificationBridge() {
 
     const handleNativeMessage = (event) => {
       if (!isTrustedNativeMessage(event)) return;
-      if (event.data?.type === 'mailflow:native-action') {
+      if (event.data?.type === 'inboxora:native-action') {
         runNativeAction(event.data.payload);
-      } else if (event.data?.type === 'mailflow:native-actions-ready') {
+      } else if (event.data?.type === 'inboxora:native-actions-ready') {
         drainInjectedActions();
       }
     };
@@ -321,23 +321,23 @@ export default function ElectronNotificationBridge() {
       actions.forEach(runNativeAction);
     };
 
-    const unsubscribe = window.mailflowNative?.actions?.onAction?.((payload) => {
+    const unsubscribe = window.inboxoraNative?.actions?.onAction?.((payload) => {
       runNativeAction(payload);
     });
 
-    window.mailflowNative?.actions?.getPending?.()
+    window.inboxoraNative?.actions?.getPending?.()
       .then((actions = []) => {
         actions.forEach(runNativeAction);
       })
       .catch(() => {});
 
     drainInjectedActions();
-    window.addEventListener('mailflow:native-action', handleNativeAction);
-    window.addEventListener('mailflow:native-actions-ready', drainInjectedActions);
+    window.addEventListener('inboxora:native-action', handleNativeAction);
+    window.addEventListener('inboxora:native-actions-ready', drainInjectedActions);
     window.addEventListener('message', handleNativeMessage);
     return () => {
-      window.removeEventListener('mailflow:native-action', handleNativeAction);
-      window.removeEventListener('mailflow:native-actions-ready', drainInjectedActions);
+      window.removeEventListener('inboxora:native-action', handleNativeAction);
+      window.removeEventListener('inboxora:native-actions-ready', drainInjectedActions);
       window.removeEventListener('message', handleNativeMessage);
       if (typeof unsubscribe === 'function') unsubscribe();
     };
