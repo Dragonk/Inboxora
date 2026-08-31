@@ -901,6 +901,19 @@ export default function Sidebar() {
             onClick={() => setShowContacts(true)}
           />
         )}
+        {isMobile && (
+          <NavItem
+            testId="contacts-nav-mobile"
+            icon={ICONS.contacts}
+            label={t('contacts.title')}
+            active={showContacts}
+            collapsed={sidebarCollapsed}
+            onClick={() => {
+              setShowContacts(true);
+              setMobileSidebarOpen(false);
+            }}
+          />
+        )}
 
         {/* Favorites section */}
         {!sidebarCollapsed && favoriteFolders.length > 0 && (() => {

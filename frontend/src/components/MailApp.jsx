@@ -899,7 +899,10 @@ export default function MailApp() {
           >
             <Sidebar />
           </div>
-          {/* Keep all three mounted so scroll/state survive navigation. */}
+          {/* Keep Contacts and mail views mounted so their state survives navigation. */}
+          <div data-testid="mobile-contacts-page" style={{ display: showContacts ? 'flex' : 'none', flex: 1, minWidth: 0, overflow: 'hidden', height: '100%' }}>
+            <Suspense fallback={lazyFallback}><ContactsPage /></Suspense>
+          </div>
           <div data-ce-reader-enabled={conversationReaderViewEnabled ? 'true' : 'false'} data-ce-reader-state={conversationReaderViewEnabled ? 'enabled' : 'disabled'} data-ce-conversation-id={conversationId || ''} data-ce-selected-message-id={selectedMessageId || ''} data-ce-resolution-error={conversationResolutionError ? 'true' : 'false'} style={{ flex: 1, display: !showContacts && !selectedMessageId && !(conversationReaderViewEnabled && conversationId) ? 'flex' : 'none', overflow: 'hidden', height: '100%' }}>
             <MessageList />
           </div>
