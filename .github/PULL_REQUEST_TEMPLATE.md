@@ -12,11 +12,9 @@
 
 ---
 
-### Contributor License Agreement
+### Contribution licence
 
 By submitting this pull request I confirm that:
 
-- [ ] I have read and agree to the [Contributor License Agreement](../CLA.md).
-- [ ] My contribution is my own original work (or I have identified any
-      third-party material and confirmed it is compatible with the CLA).
-- [ ] I have the right to submit this contribution under the terms of the CLA.
+- [ ] My contribution is my own original work, or I have identified compatible third-party material.
+- [ ] I have the right to submit it under the project's [AGPL-3.0-only licence](../LICENSE).
