@@ -106,7 +106,6 @@ router.post('/events', async (req, res) => {
                starts_at, ends_at, all_day, timezone, created_at, updated_at`,
     [calendarId, req.session.userId, uid, rawIcal, summary || null, description, location, url, organizer, times.startsAt, times.endsAt, Boolean(allDay), timezone],
   );
-  await query('UPDATE calendars SET sync_token = gen_random_uuid()::text, updated_at = NOW() WHERE id = $1', [calendarId]);
   res.status(201).json({ event: result.rows[0] });
 });
 
@@ -139,7 +138,6 @@ router.patch('/events/:eventId', async (req, res) => {
   );
   if (!result.rows[0]) return res.status(404).json({ error: "Event not found" });
 
-  await query('UPDATE calendars SET sync_token = gen_random_uuid()::text, updated_at = NOW() WHERE id = $1', [calendarId]);
   res.json({ event: result.rows[0] });
 });
 
@@ -156,7 +154,6 @@ router.delete('/events/:eventId', async (req, res) => {
   );
   if (!result.rows[0]) return res.status(404).json({ error: 'Event not found' });
 
-  await query('UPDATE calendars SET sync_token = gen_random_uuid()::text, updated_at = NOW() WHERE id = $1', [calendarId]);
   res.status(204).end();
 });
 

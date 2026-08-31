@@ -67,6 +67,14 @@ function parseCalendarEvent(raw) {
   return { uid, startsAt, endsAt, summary: icalValue(event, 'SUMMARY'), raw };
 }
 
+function uidFromCalendarHref(href) {
+  try {
+    return decodeURIComponent(href.trim().replace(/^.*\//, '').replace(/\.ics$/i, '')) || null;
+  } catch {
+    return null;
+  }
+}
+
 function etagMatches(header, etag) {
   return header === '*' || header.split(',').some((value) => value.trim().replace(/^W\//, '').replaceAll('"', '') === etag);
 }
@@ -80,13 +88,13 @@ function multistatus(responses) {
   ].join('');
 }
 
-function response(href, properties) {
+function response(href, properties, status = '200 OK') {
   return [
     '<D:response>',
     `<D:href>${xmlEscape(href)}</D:href>`,
     '<D:propstat><D:prop>',
     ...properties,
-    '</D:prop><D:status>HTTP/1.1 200 OK</D:status></D:propstat>',
+    `</D:prop><D:status>HTTP/1.1 ${status}</D:status></D:propstat>`,
     '</D:response>',
   ].join('');
 }
@@ -174,29 +182,80 @@ router.propfind('/:userId/:calendarId/', async (req, res) => {
   ]));
 });
 
-router.report("/:userId/:calendarId/", async (req, res) => {
+router.report('/:userId/:calendarId/', async (req, res) => {
   if (req.params.userId !== req.caldavUserId) return res.status(403).end();
-  const calendarResult = await query("SELECT id, sync_token FROM calendars WHERE id = $1 AND user_id = $2", [req.params.calendarId, req.caldavUserId]);
+  const calendarResult = await query(
+    'SELECT id, sync_token, sync_version FROM calendars WHERE id = $1 AND user_id = $2',
+    [req.params.calendarId, req.caldavUserId],
+  );
   const calendar = calendarResult.rows[0];
   if (!calendar) return res.status(404).end();
+
   const body = await rawBody(req);
-  // Only non-recurring UTC VEVENTs are supported. Calendar-query and sync-collection
-  // return the complete current view; no recurrence expansion or TZ filtering is claimed.
-  const isSyncCollection = body.includes("sync-collection");
-  if (!body.includes("calendar-query") && !isSyncCollection) return res.status(400).end();
-  // A stale token must fail explicitly so DAV clients discard their local sync
-  // state instead of treating a full current listing as an incremental delta.
-  const requestedToken = body.match(/<(?:[A-Za-z][\w.-]*:)?sync-token(?:\s[^>]*)?>([^<]*)<\/(?:[A-Za-z][\w.-]*:)?sync-token>/)?.[1]?.trim();
-  if (isSyncCollection && requestedToken && requestedToken !== calendar.sync_token) {
-    return sendXml(res, 409, `<?xml version="1.0" encoding="UTF-8"?><D:error xmlns:D="${DAV_NS}"><D:valid-sync-token/></D:error>`);
-  }
-  const events = await query("SELECT uid, etag, raw_ical FROM calendar_events WHERE calendar_id = $1 AND recurrence_id = $2 ORDER BY uid ASC", [calendar.id, ""]);
+  const isSyncCollection = body.includes('sync-collection');
+  const isCalendarQuery = body.includes('calendar-query');
+  const isCalendarMultiget = body.includes('calendar-multiget');
+  if (!isSyncCollection && !isCalendarQuery && !isCalendarMultiget) return res.status(400).end();
+
   const basePath = `/caldav/${req.caldavUserId}/${calendar.id}/`;
-  const responses = events.rows.map((event) => response(`${basePath}${encodeURIComponent(event.uid)}.ics`, [
-    "<D:resourcetype/>", `<D:getetag>"${xmlEscape(event.etag)}"</D:getetag>`,
-    "<D:getcontenttype>text/calendar;charset=utf-8</D:getcontenttype>", `<C:calendar-data>${xmlEscape(event.raw_ical || "")}</C:calendar-data>`,
-  ]));
-  const xml = multistatus(responses).replace("</D:multistatus>", `<D:sync-token>${xmlEscape(calendar.sync_token)}</D:sync-token></D:multistatus>`);
+  let events;
+  if (isSyncCollection) {
+    const requestedToken = body.match(/<(?:[A-Za-z][\w.-]*:)?sync-token(?:\s[^>]*)?>([^<]*)<\/(?:[A-Za-z][\w.-]*:)?sync-token>/)?.[1]?.trim();
+    const match = requestedToken?.match(/^sync-(\d+)$/);
+    const requestedVersion = match ? Number(match[1]) : null;
+    if (requestedToken && (!Number.isSafeInteger(requestedVersion) || requestedVersion > calendar.sync_version)) {
+      return sendXml(res, 409, `<?xml version="1.0" encoding="UTF-8"?><D:error xmlns:D="${DAV_NS}"><D:valid-sync-token/></D:error>`);
+    }
+    if (requestedToken) {
+      const changes = await query(
+        `SELECT DISTINCT ON (uid, recurrence_id) uid, recurrence_id, etag, deleted, raw_ical
+         FROM calendar_sync_changes
+         WHERE calendar_id = $1 AND version > $2
+         ORDER BY uid, recurrence_id, version DESC`,
+        [calendar.id, requestedVersion],
+      );
+      events = changes.rows;
+    } else {
+      const current = await query(
+        "SELECT uid, recurrence_id, etag, false AS deleted, raw_ical FROM calendar_events WHERE calendar_id = $1 AND recurrence_id = $2 ORDER BY uid ASC",
+        [calendar.id, ''],
+      );
+      events = current.rows;
+    }
+  } else if (isCalendarMultiget) {
+    const requestedUids = [...body.matchAll(/<(?:[A-Za-z][\w.-]*:)?href(?:\s[^>]*)?>([^<]+)<\/(?:[A-Za-z][\w.-]*:)?href>/g)]
+      .map((match) => uidFromCalendarHref(match[1]))
+      .filter(Boolean);
+    if (!requestedUids.length) return res.status(400).end();
+    const current = await query(
+      "SELECT uid, recurrence_id, etag, raw_ical FROM calendar_events WHERE calendar_id = $1 AND recurrence_id = $2 AND uid = ANY($3) ORDER BY uid ASC",
+      [calendar.id, '', requestedUids],
+    );
+    events = current.rows;
+  } else {
+    const timeRange = body.match(/<(?:[A-Za-z][\w.-]*:)?time-range\b[^>]*\bstart=["'](\d{8}T\d{6}Z)["'][^>]*\bend=["'](\d{8}T\d{6}Z)["'][^>]*\/?\s*>/i);
+    const start = timeRange && parseUtc(timeRange[1]);
+    const end = timeRange && parseUtc(timeRange[2]);
+    if (timeRange && (!start || !end || end <= start)) return res.status(400).end();
+    const current = start
+      ? await query(
+        "SELECT uid, recurrence_id, etag, raw_ical FROM calendar_events WHERE calendar_id = $1 AND recurrence_id = $2 AND starts_at < $3 AND ends_at > $2 ORDER BY uid ASC",
+        [calendar.id, start, end],
+      )
+      : await query(
+        "SELECT uid, recurrence_id, etag, raw_ical FROM calendar_events WHERE calendar_id = $1 AND recurrence_id = $2 ORDER BY uid ASC",
+        [calendar.id, ''],
+      );
+    events = current.rows;
+  }
+
+  const responses = events.map((event) => response(`${basePath}${encodeURIComponent(event.uid)}.ics`, event.deleted
+    ? ['<D:resourcetype/>']
+    : [
+      '<D:resourcetype/>', `<D:getetag>"${xmlEscape(event.etag)}"</D:getetag>`,
+      '<D:getcontenttype>text/calendar;charset=utf-8</D:getcontenttype>', `<C:calendar-data>${xmlEscape(event.raw_ical || '')}</C:calendar-data>`,
+    ], event.deleted ? '404 Not Found' : '200 OK'));
+  const xml = multistatus(responses).replace('</D:multistatus>', `<D:sync-token>${xmlEscape(calendar.sync_token)}</D:sync-token></D:multistatus>`);
   sendXml(res, 207, xml);
 });
 
@@ -242,7 +301,6 @@ router.put('/:userId/:calendarId/:filename', async (req, res) => {
      RETURNING uid, etag`,
     [calendar.id, req.caldavUserId, event.uid, event.raw, event.summary, event.startsAt, event.endsAt],
   );
-  await query('UPDATE calendars SET sync_token = gen_random_uuid()::text, updated_at = NOW() WHERE id = $1', [calendar.id]);
   res.setHeader('ETag', `"${stored.rows[0].etag}"`).status(current ? 204 : 201).end();
 });
 
@@ -258,7 +316,6 @@ router.delete('/:userId/:calendarId/:filename', async (req, res) => {
   if (!current) return res.status(404).end();
   if (req.headers['if-match'] && !etagMatches(req.headers['if-match'], current.etag)) return res.status(412).end();
   await query('DELETE FROM calendar_events WHERE calendar_id = $1 AND uid = $2 AND recurrence_id = $3', [calendar.id, uid, '']);
-  await query('UPDATE calendars SET sync_token = gen_random_uuid()::text, updated_at = NOW() WHERE id = $1', [calendar.id]);
   res.status(204).end();
 });
 

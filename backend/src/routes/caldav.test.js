@@ -143,6 +143,65 @@ describe('CalDAV calendar objects', () => {
     expect(query).toHaveBeenCalledTimes(1);
   });
 
+  it('returns only changes since a sync token, including deletion tombstones', async () => {
+    authenticateDavCredential.mockResolvedValue({ userId: 'user-1', credentialId: 'credential-1' });
+    query
+      .mockResolvedValueOnce({ rows: [{ id: 'calendar-1', sync_token: 'sync-3', sync_version: 3 }] })
+      .mockResolvedValueOnce({ rows: [
+        { uid: 'updated', recurrence_id: '', etag: 'etag-2', deleted: false, raw_ical: 'BEGIN:VCALENDAR\r\nEND:VCALENDAR\r\n' },
+        { uid: 'deleted', recurrence_id: '', etag: null, deleted: true, raw_ical: null },
+      ] });
+
+    const response = await fetch(`${base}/caldav/user-1/calendar-1/`, {
+      method: 'REPORT',
+      headers: { authorization: basic('sam@example.test', 'test-dav-password'), 'content-type': 'application/xml' },
+      body: '<D:sync-collection xmlns:D="DAV:"><D:sync-token>sync-1</D:sync-token></D:sync-collection>',
+    });
+
+    const xml = await response.text();
+    expect(response.status).toBe(207);
+    expect(xml).toContain('/updated.ics');
+    expect(xml).toContain('/deleted.ics');
+    expect(xml).toContain('404 Not Found');
+    expect(xml).toContain('<D:sync-token>sync-3</D:sync-token>');
+    expect(query.mock.calls[1][0]).toContain('calendar_sync_changes');
+    expect(query.mock.calls[1][1]).toEqual(['calendar-1', 1]);
+  });
+
+  it('returns only explicitly requested resources for calendar-multiget', async () => {
+    authenticateDavCredential.mockResolvedValue({ userId: 'user-1', credentialId: 'credential-1' });
+    query
+      .mockResolvedValueOnce({ rows: [{ id: 'calendar-1', sync_token: 'sync-3', sync_version: 3 }] })
+      .mockResolvedValueOnce({ rows: [{ uid: 'event-1', etag: 'etag-1', raw_ical: 'BEGIN:VCALENDAR\r\nEND:VCALENDAR\r\n' }] });
+
+    const response = await fetch(`${base}/caldav/user-1/calendar-1/`, {
+      method: 'REPORT',
+      headers: { authorization: basic('sam@example.test', 'test-dav-password'), 'content-type': 'application/xml' },
+      body: '<C:calendar-multiget xmlns:C="urn:ietf:params:xml:ns:caldav" xmlns:D="DAV:"><D:href>/caldav/user-1/calendar-1/event%201.ics</D:href></C:calendar-multiget>',
+    });
+
+    expect(response.status).toBe(207);
+    expect(query.mock.calls[1][0]).toContain('uid = ANY($3)');
+    expect(query.mock.calls[1][1]).toEqual(['calendar-1', '', ['event 1']]);
+  });
+
+  it('filters calendar-query results to the requested time range', async () => {
+    authenticateDavCredential.mockResolvedValue({ userId: 'user-1', credentialId: 'credential-1' });
+    query
+      .mockResolvedValueOnce({ rows: [{ id: 'calendar-1', sync_token: 'sync-3', sync_version: 3 }] })
+      .mockResolvedValueOnce({ rows: [{ uid: 'event-1', etag: 'etag-1', raw_ical: 'BEGIN:VCALENDAR\r\nEND:VCALENDAR\r\n' }] });
+
+    const response = await fetch(`${base}/caldav/user-1/calendar-1/`, {
+      method: 'REPORT',
+      headers: { authorization: basic('sam@example.test', 'test-dav-password'), 'content-type': 'application/xml' },
+      body: '<C:calendar-query xmlns:C="urn:ietf:params:xml:ns:caldav"><C:filter><C:comp-filter name="VCALENDAR"><C:comp-filter name="VEVENT"><C:time-range start="20260901T000000Z" end="20260902T000000Z"/></C:comp-filter></C:comp-filter></C:filter></C:calendar-query>',
+    });
+
+    expect(response.status).toBe(207);
+    expect(query.mock.calls[1][0]).toContain('starts_at < $3 AND ends_at > $2');
+    expect(query.mock.calls[1][1]).toEqual(['calendar-1', new Date('2026-09-01T00:00:00Z'), new Date('2026-09-02T00:00:00Z')]);
+  });
+
   it('rejects a stale conditional update without mutating the event', async () => {
     authenticateDavCredential.mockResolvedValue({ userId: 'user-1', credentialId: 'credential-1' });
     query
