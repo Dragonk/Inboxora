@@ -23,10 +23,10 @@ async function request(method, path, body, extraHeaders, extraOptions = {}) {
   if (!res.ok) {
     if (res.status === 423) {
       // Server-enforced screen lock (#235) — surface the lock overlay from any call.
-      window.dispatchEvent(new CustomEvent('mailflow:locked'));
+      window.dispatchEvent(new CustomEvent('inboxora:locked'));
     }
     if (res.status === 401 && !path.startsWith('/auth/')) {
-      window.dispatchEvent(new CustomEvent('mailflow:session_expired'));
+      window.dispatchEvent(new CustomEvent('inboxora:session_expired'));
     }
     const err = await res.json().catch(() => ({ error: 'Request failed' }));
     throw new Error(err.error || 'Request failed');
@@ -140,7 +140,7 @@ export const api = {
     const data = await res.json().catch(() => ({}));
     if (res.ok) return data;
     if (data.signedOut) {
-      window.dispatchEvent(new CustomEvent('mailflow:session_expired'));
+      window.dispatchEvent(new CustomEvent('inboxora:session_expired'));
       const e = new Error('signed_out'); e.signedOut = true; throw e;
     }
     throw new Error(data.error || 'Incorrect PIN');

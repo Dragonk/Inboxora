@@ -1,4 +1,4 @@
-package sh.mailflow.app;
+package io.github.dragonk.inboxora;
 
 import java.net.URI;
 import java.nio.charset.StandardCharsets;

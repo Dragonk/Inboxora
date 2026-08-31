@@ -4,7 +4,7 @@ const path = require('path');
 const root = path.join(__dirname, '..', '..');
 const packageJson = JSON.parse(fs.readFileSync(path.join(root, 'package.json'), 'utf8'));
 const outputDir = path.join(root, 'packages', 'electron', 'metainfo');
-const outputPath = path.join(outputDir, 'sh.mailflow.app.metainfo.xml');
+const outputPath = path.join(outputDir, 'io.github.dragonk.inboxora.metainfo.xml');
 const packageTypeDir = path.join(root, 'packages', 'electron', 'package-type');
 
 function escapeXml(value) {
@@ -17,14 +17,14 @@ function escapeXml(value) {
 }
 
 const releaseDate = new Date().toISOString().slice(0, 10);
-const productName = packageJson.productName || 'MailFlow';
+const productName = packageJson.productName || 'Inboxora';
 const description = packageJson.description || 'A self-hosted, unified webmail client.';
-const homepage = packageJson.homepage || 'https://mailflow.sh';
+const homepage = packageJson.homepage || 'https://github.com/Dragonk/Inboxora';
 const license = packageJson.license || 'GPL-3.0';
 
 const metainfo = `<?xml version="1.0" encoding="UTF-8"?>
 <component type="desktop-application">
-  <id>sh.mailflow.app</id>
+  <id>io.github.dragonk.inboxora</id>
   <metadata_license>CC0-1.0</metadata_license>
   <project_license>${escapeXml(license)}</project_license>
   <name>${escapeXml(productName)}</name>
@@ -32,7 +32,7 @@ const metainfo = `<?xml version="1.0" encoding="UTF-8"?>
   <developer_name>${escapeXml(packageJson.author && packageJson.author.name ? packageJson.author.name : productName)}</developer_name>
   <url type="homepage">${escapeXml(homepage)}</url>
   <url type="bugtracker">${escapeXml(packageJson.bugs && packageJson.bugs.url ? packageJson.bugs.url : `${homepage}/docs`)}</url>
-  <launchable type="desktop-id">MailFlow.desktop</launchable>
+  <launchable type="desktop-id">Inboxora.desktop</launchable>
   <categories>
     <category>Network</category>
     <category>Email</category>

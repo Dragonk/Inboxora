@@ -248,7 +248,7 @@ export default function MailApp() {
   }, [autoLockMinutes, lockScreen]);
 
   const scale = fontSize / 100;
-  const hasNativeBridge = Boolean(window.mailflowNative || window.Capacitor?.isNativePlatform?.());
+  const hasNativeBridge = Boolean(window.inboxoraNative || window.Capacitor?.isNativePlatform?.());
   const [vpSize, setVpSize] = useState({ w: window.innerWidth, h: window.innerHeight });
   useEffect(() => {
     const update = () => setVpSize({ w: window.innerWidth, h: window.innerHeight });
@@ -259,7 +259,7 @@ export default function MailApp() {
   useEffect(() => {
     const onVisible = () => {
       if (document.visibilityState === 'visible') {
-        window.dispatchEvent(new CustomEvent('mailflow:refresh'));
+        window.dispatchEvent(new CustomEvent('inboxora:refresh'));
       }
     };
     document.addEventListener('visibilitychange', onVisible);
@@ -413,7 +413,7 @@ export default function MailApp() {
     const prev = prevMessageIdRef.current;
     prevMessageIdRef.current = selectedMessageId;
     if (selectedMessageId && !prev) {
-      history.pushState({ mailflow: 'message' }, '', '/');
+      history.pushState({ inboxora: 'message' }, '', '/');
     }
   }, [isMobile, selectedMessageId]);
 
@@ -424,7 +424,7 @@ export default function MailApp() {
     // The handler re-pushes it after every popstate so back swipes always land
     // inside the app rather than exiting the PWA and showing a blank Safari page.
     if (window.navigator.standalone && history.state?.mailflow !== 'guard') {
-      history.pushState({ mailflow: 'guard' }, '', '/');
+      history.pushState({ inboxora: 'guard' }, '', '/');
     }
     const handler = (event) => {
       if (conversationReaderViewEnabled && conversationId) {
@@ -436,7 +436,7 @@ export default function MailApp() {
       // during that popstate can make iOS PWA history gestures temporarily stop
       // delivering taps, so only re-arm when the user has backed past the guard.
       if (window.navigator.standalone && event.state?.mailflow !== 'guard') {
-        history.pushState({ mailflow: 'guard' }, '', '/');
+        history.pushState({ inboxora: 'guard' }, '', '/');
       }
     };
     window.addEventListener('popstate', handler);
@@ -603,7 +603,7 @@ export default function MailApp() {
     const ms = Math.max(15, syncInterval || 60) * 1000;
     const id = setInterval(() => {
       if (document.visibilityState === 'visible' && wsRef.current?.readyState !== WebSocket.OPEN) {
-        window.dispatchEvent(new CustomEvent('mailflow:refresh'));
+        window.dispatchEvent(new CustomEvent('inboxora:refresh'));
       }
     }, ms);
     return () => clearInterval(id);
@@ -623,7 +623,7 @@ export default function MailApp() {
       if (showAppBadge && total > 0) navigator.setAppBadge(total).catch(() => {});
       else navigator.clearAppBadge().catch(() => {});
     }
-    window.mailflowNative?.badges?.setUnreadCount?.(total).catch(() => {});
+    window.inboxoraNative?.badges?.setUnreadCount?.(total).catch(() => {});
   }, [unreadCounts, selectedAccountId, showAppBadge, showFaviconBadge]);
 
   // ── Global keyboard shortcut listener ──────────────────────────────────────

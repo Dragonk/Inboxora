@@ -19,7 +19,7 @@ import { buildReplyHeaders } from '../utils/composeFromMessage.js';
 import MessageBodyRenderer, { sanitizeMessageHtml } from './MessageBodyRenderer.jsx';
 import MessageDetailContent from './MessageDetailContent.jsx';
 const USE_DIV_RENDER = import.meta.env.VITE_EMAIL_DIV_RENDER === 'true';
-const MESSAGE_OPENING_EVENT = 'mailflow:message-opening';
+const MESSAGE_OPENING_EVENT = 'inboxora:message-opening';
 
 // Module-level regex so the spam-name heuristic isn't recompiled on every
 // render — same heuristic as ContextMenu.jsx, both files read this constant.

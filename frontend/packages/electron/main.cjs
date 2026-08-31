@@ -14,17 +14,14 @@ const {
   normalizeHost,
 } = require('./security.cjs');
 
-const CONFIG_FILE = 'mailflow-host.json';
-const UPDATE_STATUS_CHANNEL = 'mailflow:updates:status';
-const UPDATE_RELEASE_URL = 'https://api.github.com/repos/maathimself/mailflow/releases/latest';
+const CONFIG_FILE = 'inboxora-host.json';
+const UPDATE_STATUS_CHANNEL = 'inboxora:updates:status';
+const UPDATE_RELEASE_URL = 'https://api.github.com/repos/Dragonk/Inboxora/releases/latest';
 
-/* Old dev fork url
-const UPDATE_RELEASE_URL = 'https://api.github.com/repos/dcoffin88/mailflow/releases/latest';
-*/
 
-const UPDATE_ERROR_MESSAGE = 'Could not check for MailFlow updates. Please visit the website instead.';
-const NATIVE_ACTION_CHANNEL = 'mailflow:native-action';
-const NATIVE_ACTION_ARG = '--mailflow-action=';
+const UPDATE_ERROR_MESSAGE = 'Could not check for Inboxora updates. Please visit the website instead.';
+const NATIVE_ACTION_CHANNEL = 'inboxora:native-action';
+const NATIVE_ACTION_ARG = '--inboxora-action=';
 const NEW_MAIL_NOTIFICATION_MAX_LENGTH = 240;
 const MAILTO_PROTOCOL = 'mailto';
 const EXTERNAL_LINK_PROTOCOLS = new Set(['http:', 'https:', `${MAILTO_PROTOCOL}:`]);
@@ -34,9 +31,9 @@ const REWRITE_ERROR_PATTERNS = [
 ];
 const HOST_UNAVAILABLE_STATUS_CODES = new Set([404, 502, 503, 504]);
 const LINUX_BADGE_DESKTOP_IDS = [
-  'MailFlow.desktop',
+  'Inboxora.desktop',
   'mailflow.desktop',
-  'sh.mailflow.app.desktop',
+  'io.github.dragonk.inboxora.desktop',
   'mailflow-frontend.desktop',
 ];
 
@@ -59,12 +56,12 @@ function isAllowedExternalUrl(url) {
 const pendingNativeActions = new Map();
 const pendingProtocolUrls = [];
 
-app.setName('MailFlow');
+app.setName('Inboxora');
 if (process.platform === 'win32') {
-  app.setAppUserModelId('sh.mailflow.app');
+  app.setAppUserModelId('io.github.dragonk.inboxora');
 }
 if (process.platform === 'linux' && typeof app.setDesktopName === 'function') {
-  app.setDesktopName('MailFlow.desktop');
+  app.setDesktopName('Inboxora.desktop');
 }
 
 if (process.platform === 'linux' && process.env.APPIMAGE) {
@@ -102,15 +99,15 @@ function registerWindowsMailtoCapabilities() {
     const exePath = process.execPath;
     const command = `"${exePath}" "%1"`;
 
-    writeCurrentUserRegValue('HKCU\\Software\\RegisteredApplications', 'MailFlow', 'Software\\Clients\\Mail\\MailFlow\\Capabilities');
-    writeCurrentUserRegValue('HKCU\\Software\\Clients\\Mail\\MailFlow', '', 'MailFlow');
-    writeCurrentUserRegValue('HKCU\\Software\\Clients\\Mail\\MailFlow\\Capabilities', 'ApplicationName', 'MailFlow');
-    writeCurrentUserRegValue('HKCU\\Software\\Clients\\Mail\\MailFlow\\Capabilities', 'ApplicationDescription', 'A self-hosted, unified webmail client.');
-    writeCurrentUserRegValue('HKCU\\Software\\Clients\\Mail\\MailFlow\\Capabilities\\URLAssociations', 'mailto', 'MailFlow.mailto');
-    writeCurrentUserRegValue('HKCU\\Software\\Classes\\MailFlow.mailto', '', 'URL:MailFlow MailTo Protocol');
-    writeCurrentUserRegValue('HKCU\\Software\\Classes\\MailFlow.mailto', 'URL Protocol', '');
-    writeCurrentUserRegValue('HKCU\\Software\\Classes\\MailFlow.mailto\\DefaultIcon', '', `${exePath},0`);
-    writeCurrentUserRegValue('HKCU\\Software\\Classes\\MailFlow.mailto\\shell\\open\\command', '', command);
+    writeCurrentUserRegValue('HKCU\\Software\\RegisteredApplications', 'Inboxora', 'Software\\Clients\\Mail\\Inboxora\\Capabilities');
+    writeCurrentUserRegValue('HKCU\\Software\\Clients\\Mail\\Inboxora', '', 'Inboxora');
+    writeCurrentUserRegValue('HKCU\\Software\\Clients\\Mail\\Inboxora\\Capabilities', 'ApplicationName', 'Inboxora');
+    writeCurrentUserRegValue('HKCU\\Software\\Clients\\Mail\\Inboxora\\Capabilities', 'ApplicationDescription', 'A self-hosted, unified webmail client.');
+    writeCurrentUserRegValue('HKCU\\Software\\Clients\\Mail\\Inboxora\\Capabilities\\URLAssociations', 'mailto', 'Inboxora.mailto');
+    writeCurrentUserRegValue('HKCU\\Software\\Classes\\Inboxora.mailto', '', 'URL:Inboxora MailTo Protocol');
+    writeCurrentUserRegValue('HKCU\\Software\\Classes\\Inboxora.mailto', 'URL Protocol', '');
+    writeCurrentUserRegValue('HKCU\\Software\\Classes\\Inboxora.mailto\\DefaultIcon', '', `${exePath},0`);
+    writeCurrentUserRegValue('HKCU\\Software\\Classes\\Inboxora.mailto\\shell\\open\\command', '', command);
 
     return true;
   } catch (error) {
@@ -172,7 +169,7 @@ function requestJson(url) {
     const request = https.get(url, {
       headers: {
         Accept: 'application/vnd.github+json',
-        'User-Agent': `MailFlow/${app.getVersion()}`,
+        'User-Agent': `Inboxora/${app.getVersion()}`,
       },
     }, (response) => {
       if (response.statusCode >= 300 && response.statusCode < 400 && response.headers.location) {
@@ -283,7 +280,7 @@ function getInstalledLinuxPackageType() {
 function getLinuxPackageManagerVersion(packageType) {
   if (process.platform !== 'linux' || !['deb', 'rpm'].includes(packageType)) return null;
 
-  const packageNames = ['mailflow', 'MailFlow', 'mailflow-frontend'];
+  const packageNames = ['mailflow', 'Inboxora', 'mailflow-frontend'];
   for (const packageName of packageNames) {
     try {
       const args = packageType === 'rpm'
@@ -411,7 +408,7 @@ function showInAppNotification({ title = '', message = '', type = 'info', action
   const payload = JSON.stringify({ title, message, type, actionLabel, action, persistent });
   mainWindow.webContents.executeJavaScript(`
     (() => {
-      if (window.__mailflowNativeBridgeReady) return;
+      if (window.__inboxoraNativeBridgeReady) return;
 
       const notification = ${payload};
       const id = 'mailflow-electron-toasts';
@@ -510,9 +507,9 @@ function showInAppNotification({ title = '', message = '', type = 'info', action
         action.style.flex = '0 0 auto';
         action.addEventListener('click', () => {
           if (notification.action === 'install-update') {
-            window.mailflowNative?.updates?.installDownloaded?.();
+            window.inboxoraNative?.updates?.installDownloaded?.();
           } else if (notification.action === 'copy-update-command-and-quit') {
-            window.mailflowNative?.updates?.copyInstallCommandAndQuit?.();
+            window.inboxoraNative?.updates?.copyInstallCommandAndQuit?.();
           }
           dismiss();
         });
@@ -546,7 +543,7 @@ function showInAppNotification({ title = '', message = '', type = 'info', action
 function notifyUpdateStatus({ title, message, type = 'info' }) {
   if (!mainWindow || mainWindow.isDestroyed()) return;
   showInAppNotification({ title, message, type });
-  mainWindow.webContents.send('mailflow:notifications:push', { title, message, type });
+  mainWindow.webContents.send('inboxora:notifications:push', { title, message, type });
 }
 
 function cleanNotificationText(value, fallback = '') {
@@ -558,7 +555,7 @@ function cleanNotificationText(value, fallback = '') {
   return `${text.slice(0, NEW_MAIL_NOTIFICATION_MAX_LENGTH - 1)}…`;
 }
 
-function requestMailFlowApi(url, { method, body } = {}) {
+function requestInboxoraApi(url, { method, body } = {}) {
   return session.defaultSession.cookies.get({ url: readHost() })
     .then((cookies) => new Promise((resolve, reject) => {
       const parsedUrl = new URL(url);
@@ -593,13 +590,13 @@ function runBackgroundMailAction(action, messageId) {
 
   const encodedMessageId = encodeURIComponent(messageId);
   if (action === 'delete-message') {
-    return requestMailFlowApi(`${host}/api/mail/messages/${encodedMessageId}`, {
+    return requestInboxoraApi(`${host}/api/mail/messages/${encodedMessageId}`, {
       method: 'DELETE',
     });
   }
 
   if (action === 'star-message') {
-    return requestMailFlowApi(`${host}/api/mail/messages/${encodedMessageId}/star`, {
+    return requestInboxoraApi(`${host}/api/mail/messages/${encodedMessageId}/star`, {
       method: 'PATCH',
       body: { starred: true },
     });
@@ -674,7 +671,7 @@ function notifyCheckingUpdate(verbose) {
   sendUpdateStatus({ type: 'checking' });
   notifyUpdateStatus({
     title: 'Checking for update',
-    message: 'Checking for new MailFlow updates.',
+    message: 'Checking for new Inboxora updates.',
   });
 }
 
@@ -693,7 +690,7 @@ function notifyUpToDate(verbose) {
   sendUpdateStatus({ type: 'up-to-date' });
   notifyUpdateStatus({
     title: 'Up to date',
-    message: 'Your version of MailFlow is up to date.',
+    message: 'Your version of Inboxora is up to date.',
     type: 'positive',
   });
 }
@@ -714,7 +711,7 @@ function notifyUpdateAvailable(verbose = true) {
 
   notifyUpdateStatus({
     title: 'Update Available',
-    message: 'MailFlow is downloading the newest version for you.',
+    message: 'Inboxora is downloading the newest version for you.',
   });
 }
 
@@ -722,7 +719,7 @@ function notifyUpdateDownloaded() {
   const linuxInstallCommand = getLinuxUpdateInstallCommand(downloadedUpdate);
   const isLinuxManualInstall = Boolean(linuxInstallCommand);
   const linuxInstallMessage = linuxInstallCommand
-    ? `MailFlow downloaded and verified the update. Install it from a terminal with:\n${linuxInstallCommand}`
+    ? `Inboxora downloaded and verified the update. Install it from a terminal with:\n${linuxInstallCommand}`
     : null;
 
   sendUpdateStatus({
@@ -740,7 +737,7 @@ function notifyUpdateDownloaded() {
   });
   showInAppNotification({
     title: 'Update Ready',
-    message: linuxInstallMessage || 'MailFlow downloaded the update.',
+    message: linuxInstallMessage || 'Inboxora downloaded the update.',
     type: 'positive',
     actionLabel: isLinuxManualInstall ? 'Copy & Quit' : 'Install',
     action: isLinuxManualInstall ? 'copy-update-command-and-quit' : 'install-update',
@@ -870,7 +867,7 @@ function verifyPlatformSignature(filePath) {
     const installed = readWindowsSignature(process.execPath);
     const downloaded = readWindowsSignature(filePath);
     if (!hasMatchingWindowsPublisher(installed, downloaded)) {
-      throw new Error('The update is not signed by the installed MailFlow publisher.');
+      throw new Error('The update is not signed by the installed Inboxora publisher.');
     }
     return;
   }
@@ -889,7 +886,7 @@ function verifyPlatformSignature(filePath) {
     const installed = readMacSignatureDetails(process.execPath);
     const downloaded = readMacSignatureDetails(filePath);
     if (!hasMatchingMacTeam(installed, downloaded)) {
-      throw new Error('The update is not signed by the installed MailFlow team.');
+      throw new Error('The update is not signed by the installed Inboxora team.');
     }
   }
 }
@@ -976,7 +973,7 @@ async function checkForUpdates(verbose = false) {
     }
 
     if (!asset) {
-      notifyUpdateError('A MailFlow update is available, but no installer was found for this platform.');
+      notifyUpdateError('A Inboxora update is available, but no installer was found for this platform.');
       return { updateAvailable: true, downloadAvailable: false };
     }
 
@@ -1064,7 +1061,7 @@ function installDownloadedUpdate() {
 
         console.error('Could not launch downloaded update:', launchError);
         shell.showItemInFolder(downloadedUpdate);
-        notifyUpdateError('The update was downloaded, but MailFlow could not start the installer.');
+        notifyUpdateError('The update was downloaded, but Inboxora could not start the installer.');
         resolve({ installed: false, reason: 'launch-failed', error: launchError.message });
       }
     });
@@ -1219,7 +1216,7 @@ function nativeActionMenuItems() {
   ];
 }
 
-function changeMailFlowHost() {
+function changeInboxoraHost() {
   clearHost();
   showMainWindow();
   loadSetup();
@@ -1228,9 +1225,9 @@ function changeMailFlowHost() {
 function fileMenuItems() {
   return [
     {
-      label: 'Change MailFlow Host',
+      label: 'Change Inboxora Host',
       accelerator: 'CmdOrCtrl+,',
-      click: changeMailFlowHost,
+      click: changeInboxoraHost,
     },
   ];
 }
@@ -1291,16 +1288,16 @@ function helpMenuItems() {
   return [
     {
       label: 'Learn More',
-      click: () => shell.openExternal('https://mailflow.sh'),
+      click: () => shell.openExternal('https://github.com/Dragonk/Inboxora'),
     },
     { type: 'separator' },
     {
       label: 'Help',
-      click: () => shell.openExternal('https://mailflow.sh/docs'),
+      click: () => shell.openExternal('https://github.com/Dragonk/Inboxora/docs'),
     },
     {
       label: 'Report Issue',
-      click: () => shell.openExternal('https://github.com/maathimself/mailflow/issues'),
+      click: () => shell.openExternal('https://github.com/Dragonk/Inboxora/issues'),
     },
     { type: 'separator' },
     {
@@ -1322,7 +1319,7 @@ function buildDarwinMenuTemplate() {
         {
           label: 'Preferences',
           accelerator: 'Command+,',
-          click: changeMailFlowHost,
+          click: changeInboxoraHost,
         },
         { label: 'Services', role: 'services', submenu: [] },
         { type: 'separator' },
@@ -1518,7 +1515,7 @@ function refreshTrayMenu() {
     ...nativeActionMenuItems(),
     { type: 'separator' },
     {
-      label: isWindowVisible ? 'Hide MailFlow' : 'Show MailFlow',
+      label: isWindowVisible ? 'Hide Inboxora' : 'Show Inboxora',
       click: () => {
         if (isWindowVisible) {
           saveWindowBounds();
@@ -1530,7 +1527,7 @@ function refreshTrayMenu() {
     },
     { type: 'separator' },
     {
-      label: 'Change MailFlow Host',
+      label: 'Change Inboxora Host',
       click: () => {
         clearHost();
         showMainWindow();
@@ -1552,7 +1549,7 @@ function createTray() {
   if (trayIcon.isEmpty()) return;
 
   tray = new Tray(trayIcon);
-  tray.setToolTip('MailFlow');
+  tray.setToolTip('Inboxora');
   tray.on('click', () => {
     refreshTrayMenu();
     showMainWindow({ reload: true });
@@ -1575,7 +1572,7 @@ function setupTaskbarTasks() {
       iconPath: getWindowIconPath(),
       iconIndex: 0,
       title: 'New Mail',
-      description: 'Compose a new MailFlow message',
+      description: 'Compose a new Inboxora message',
     },
     {
       program: process.execPath,
@@ -1583,7 +1580,7 @@ function setupTaskbarTasks() {
       iconPath: getWindowIconPath(),
       iconIndex: 0,
       title: 'Sync',
-      description: 'Sync MailFlow mail',
+      description: 'Sync Inboxora mail',
     },
   ]);
 }
@@ -1593,7 +1590,7 @@ function createWindow() {
     ...getDefaultWindowBounds(),
     ...getSavedWindowBounds(),
     show: false,
-    title: 'MailFlow',
+    title: 'Inboxora',
     icon: getWindowIconPath(),
     webPreferences: {
       preload: path.join(__dirname, 'preload.cjs'),
@@ -1738,9 +1735,9 @@ function scheduleStartupUpdateCheck() {
   check();
 }
 
-ipcMain.handle('mailflow:getHost', () => readHost());
+ipcMain.handle('inboxora:getHost', () => readHost());
 
-ipcMain.handle('mailflow:saveHost', async (_event, host) => {
+ipcMain.handle('inboxora:saveHost', async (_event, host) => {
   const normalized = normalizeHost(host);
   if (new URL(normalized).protocol === 'http:') {
     const result = await dialog.showMessageBox(mainWindow, {
@@ -1749,12 +1746,12 @@ ipcMain.handle('mailflow:saveHost', async (_event, host) => {
       defaultId: 1,
       cancelId: 1,
       noLink: true,
-      title: 'Unencrypted MailFlow connection',
-      message: 'Traffic to this MailFlow server is not encrypted.',
+      title: 'Unencrypted Inboxora connection',
+      message: 'Traffic to this Inboxora server is not encrypted.',
       detail: 'Your session cookie and email data can be read or changed by anyone who can observe this network. Continue only on a private network you trust.',
     });
     if (result.response !== 0) {
-      throw new Error('The unencrypted MailFlow host was not saved.');
+      throw new Error('The unencrypted Inboxora host was not saved.');
     }
   }
 
@@ -1762,45 +1759,45 @@ ipcMain.handle('mailflow:saveHost', async (_event, host) => {
   return normalized;
 });
 
-ipcMain.handle('mailflow:resetHost', () => {
+ipcMain.handle('inboxora:resetHost', () => {
   clearHost();
   loadSetup();
 });
 
-ipcMain.handle('mailflow:badge:set-unread-count', (_event, count) => {
+ipcMain.handle('inboxora:badge:set-unread-count', (_event, count) => {
   const unreadCount = Math.max(0, Number.parseInt(count, 10) || 0);
   return setUnreadBadgeCount(unreadCount);
 });
 
-ipcMain.handle('mailflow:notification:new-mail', (_event, notification) => {
+ipcMain.handle('inboxora:notification:new-mail', (_event, notification) => {
   return showNewMailNotification(notification);
 });
 
-ipcMain.handle('mailflow:updates:check', async (_event, { verbose } = {}) => {
+ipcMain.handle('inboxora:updates:check', async (_event, { verbose } = {}) => {
   return checkForUpdates(verbose);
 });
 
-ipcMain.handle('mailflow:updates:install-downloaded', () => {
+ipcMain.handle('inboxora:updates:install-downloaded', () => {
   return installDownloadedUpdate();
 });
 
-ipcMain.handle('mailflow:updates:install-auto', () => {
+ipcMain.handle('inboxora:updates:install-auto', () => {
   return installDownloadedUpdate();
 });
 
-ipcMain.handle('mailflow:updates:copy-install-command-and-quit', (_event, options) => {
+ipcMain.handle('inboxora:updates:copy-install-command-and-quit', (_event, options) => {
   return copyLinuxUpdateCommandAndQuit(options);
 });
 
-ipcMain.handle('mailflow:updates:open-download', () => {
+ipcMain.handle('inboxora:updates:open-download', () => {
   openDownloadedUpdatePath();
 });
 
-ipcMain.handle('mailflow:native-actions:pending', () => {
+ipcMain.handle('inboxora:native-actions:pending', () => {
   return Array.from(pendingNativeActions.values());
 });
 
-ipcMain.handle('mailflow:native-actions:ack', (_event, id) => {
+ipcMain.handle('inboxora:native-actions:ack', (_event, id) => {
   pendingNativeActions.delete(id);
 });
 

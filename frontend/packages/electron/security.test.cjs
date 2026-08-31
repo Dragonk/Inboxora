@@ -32,7 +32,7 @@ test('rejects cleartext public, lookalike, and non-RFC 1918 hosts', () => {
     'http://192.169.0.1',
     'http://169.254.1.1',
   ]) {
-    assert.throws(() => security.normalizeHost(host), /https/i);
+    assert.throws(() => security.normalizeHost(host), /Public Inboxora hosts must use https/);
   }
 });
 

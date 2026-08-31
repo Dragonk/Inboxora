@@ -1,6 +1,6 @@
 {
-  "appId": "sh.mailflow.app",
-  "appName": "MailFlow",
+  "appId": "io.github.dragonk.inboxora",
+  "appName": "Inboxora",
   "webDir": "../dist",
   "android": {
     "path": "android"

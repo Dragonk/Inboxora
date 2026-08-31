@@ -8,9 +8,9 @@
         android:shortcutLongLabel="@string/shortcut_compose_long_label">
         <intent
             android:action="android.intent.action.VIEW"
-            android:data="mailflow://compose"
-            android:targetPackage="sh.mailflow.app"
-            android:targetClass="sh.mailflow.app.MainActivity" />
+            android:data="inboxora://compose"
+            android:targetPackage="io.github.dragonk.inboxora"
+            android:targetClass="io.github.dragonk.inboxora.MainActivity" />
     </shortcut>
 
     <shortcut
@@ -21,8 +21,8 @@
         android:shortcutLongLabel="@string/shortcut_sync_long_label">
         <intent
             android:action="android.intent.action.VIEW"
-            android:data="mailflow://sync"
-            android:targetPackage="sh.mailflow.app"
-            android:targetClass="sh.mailflow.app.MainActivity" />
+            android:data="inboxora://sync"
+            android:targetPackage="io.github.dragonk.inboxora"
+            android:targetClass="io.github.dragonk.inboxora.MainActivity" />
     </shortcut>
 </shortcuts>

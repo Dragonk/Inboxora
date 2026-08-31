@@ -1,4 +1,4 @@
-package sh.mailflow.app;
+package io.github.dragonk.inboxora;
 
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
@@ -71,15 +71,15 @@ public class NativeSecurityTest {
 
     @Test
     public void onlyInternalCustomActionsRequireIntentAuthentication() {
-        assertTrue(MailFlowNativePlugin.isPrivilegedNativeAction(
-            MailFlowNativePlugin.ACTION_OPEN_MESSAGE
+        assertTrue(InboxoraNativePlugin.isPrivilegedNativeAction(
+            InboxoraNativePlugin.ACTION_OPEN_MESSAGE
         ));
-        assertTrue(MailFlowNativePlugin.isPrivilegedNativeAction(
-            MailFlowNativePlugin.ACTION_INSTALL_UPDATE
+        assertTrue(InboxoraNativePlugin.isPrivilegedNativeAction(
+            InboxoraNativePlugin.ACTION_INSTALL_UPDATE
         ));
-        assertFalse(MailFlowNativePlugin.isPrivilegedNativeAction(
+        assertFalse(InboxoraNativePlugin.isPrivilegedNativeAction(
             "android.intent.action.VIEW"
         ));
-        assertFalse(MailFlowNativePlugin.isPrivilegedNativeAction(null));
+        assertFalse(InboxoraNativePlugin.isPrivilegedNativeAction(null));
     }
 }

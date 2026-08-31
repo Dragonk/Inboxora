@@ -5676,12 +5676,7 @@ function AboutTab() {
     [t('admin.about.license'),       'AGPL-3.0'],
   ];
   const generalRows = [
-    [t('admin.about.website'),    'https://mailflow.sh'],
-    [t('admin.about.sourceCode'), 'https://github.com/maathimself/mailflow'],
-  ];
-  const supportRows = [
-    [t('admin.about.kofi'),           'https://ko-fi.com/mailflow'],
-    [t('admin.about.githubSponsors'), 'https://github.com/sponsors/maathimself'],
+    [t('admin.about.sourceCode'), 'https://github.com/Dragonk/Inboxora'],
   ];
 
   const rowStyle = (last) => ({
@@ -5693,7 +5688,7 @@ function AboutTab() {
   return (
     <div style={{ maxWidth: 420 }}>
       <div style={{ fontSize: 20, fontWeight: 700, color: 'var(--text-primary)', marginBottom: 4 }}>
-        MailFlow
+        Inboxora
       </div>
       <div style={{ fontSize: 13, color: 'var(--text-secondary)', marginBottom: 24 }}>
         {t('admin.about.subtitle')}
@@ -5709,19 +5704,6 @@ function AboutTab() {
       <div style={{ borderRadius: 10, overflow: 'hidden', border: '1px solid var(--border-subtle)', marginBottom: 16 }}>
         {generalRows.map(([label, href], i) => (
           <div key={label} style={rowStyle(i === generalRows.length - 1)}>
-            <span style={{ fontSize: 13, color: 'var(--text-secondary)' }}>{label}</span>
-            <a href={href} target="_blank" rel="noopener noreferrer"
-              style={{ fontSize: 13, color: 'var(--accent)', textDecoration: 'none' }}
-            >{href.replace('https://', '')}</a>
-          </div>
-        ))}
-      </div>
-      <div style={{ fontSize: 11, fontWeight: 600, color: 'var(--text-secondary)', textTransform: 'uppercase', letterSpacing: '0.05em', margin: '0 0 8px 4px' }}>
-        {t('admin.about.sponsor')}
-      </div>
-      <div style={{ borderRadius: 10, overflow: 'hidden', border: '1px solid var(--border-subtle)' }}>
-        {supportRows.map(([label, href], i) => (
-          <div key={label} style={rowStyle(i === supportRows.length - 1)}>
             <span style={{ fontSize: 13, color: 'var(--text-secondary)' }}>{label}</span>
             <a href={href} target="_blank" rel="noopener noreferrer"
               style={{ fontSize: 13, color: 'var(--accent)', textDecoration: 'none' }}
@@ -5780,7 +5762,7 @@ function RulesTab() {
       // Rules may have moved messages between folders; tell the message list to re-run
       // any active search and refresh the folder view so affected messages leave stale
       // results (a search snapshot does not otherwise update on its own). Fixes #223.
-      window.dispatchEvent(new Event('mailflow:rules-ran'));
+      window.dispatchEvent(new Event('inboxora:rules-ran'));
     } catch {
       setRunError(t('admin.rules.runError'));
     } finally {

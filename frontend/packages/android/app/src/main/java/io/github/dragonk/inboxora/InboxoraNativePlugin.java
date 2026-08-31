@@ -1,4 +1,4 @@
-package sh.mailflow.app;
+package io.github.dragonk.inboxora;
 
 import android.Manifest;
 import android.app.AlertDialog;
@@ -49,24 +49,24 @@ import org.json.JSONException;
 import org.json.JSONObject;
 
 @CapacitorPlugin(
-    name = "MailFlowNative",
+    name = "InboxoraNative",
     permissions = {
         @Permission(alias = "notifications", strings = { Manifest.permission.POST_NOTIFICATIONS })
     }
 )
-public class MailFlowNativePlugin extends Plugin {
-    static final String ACTION_OPEN_MESSAGE = "sh.mailflow.app.OPEN_MESSAGE";
-    static final String ACTION_REPLY_MESSAGE = "sh.mailflow.app.REPLY_MESSAGE";
-    static final String ACTION_DELETE_MESSAGE = "sh.mailflow.app.DELETE_MESSAGE";
-    static final String ACTION_STAR_MESSAGE = "sh.mailflow.app.STAR_MESSAGE";
-    static final String ACTION_COMPOSE = "sh.mailflow.app.COMPOSE";
-    static final String ACTION_SYNC = "sh.mailflow.app.SYNC";
-    static final String ACTION_INSTALL_UPDATE = "sh.mailflow.app.INSTALL_UPDATE";
-    private static final String EXTRA_INTENT_SECRET = "sh.mailflow.app.INTENT_SECRET";
-    private static final String TAG = "MailFlowUpdater";
-    private static final String CHANNEL_NEW_MAIL = "mailflow_new_mail";
-    private static final String CHANNEL_UPDATES = "mailflow_updates";
-    private static final String PREFS_NAME = "mailflow-native";
+public class InboxoraNativePlugin extends Plugin {
+    static final String ACTION_OPEN_MESSAGE = "io.github.dragonk.inboxora.OPEN_MESSAGE";
+    static final String ACTION_REPLY_MESSAGE = "io.github.dragonk.inboxora.REPLY_MESSAGE";
+    static final String ACTION_DELETE_MESSAGE = "io.github.dragonk.inboxora.DELETE_MESSAGE";
+    static final String ACTION_STAR_MESSAGE = "io.github.dragonk.inboxora.STAR_MESSAGE";
+    static final String ACTION_COMPOSE = "io.github.dragonk.inboxora.COMPOSE";
+    static final String ACTION_SYNC = "io.github.dragonk.inboxora.SYNC";
+    static final String ACTION_INSTALL_UPDATE = "io.github.dragonk.inboxora.INSTALL_UPDATE";
+    private static final String EXTRA_INTENT_SECRET = "io.github.dragonk.inboxora.INTENT_SECRET";
+    private static final String TAG = "InboxoraUpdater";
+    private static final String CHANNEL_NEW_MAIL = "inboxora_new_mail";
+    private static final String CHANNEL_UPDATES = "inboxora_updates";
+    private static final String PREFS_NAME = "inboxora-native";
     private static final String PREF_HOST = "host";
     private static final String PREF_INTENT_SECRET = "intent_secret";
     private static final String PREF_UPDATE_APK_PATH = "update_apk_path";
@@ -74,17 +74,17 @@ public class MailFlowNativePlugin extends Plugin {
     private static final String PREF_UPDATE_RELEASE_NAME = "update_release_name";
     private static final String PREF_UPDATE_DIGEST = "update_digest";
     private static final String SETUP_URL = "file:///android_asset/public/index.html";
-    private static final String UPDATE_RELEASE_URL = "https://api.github.com/repos/maathimself/mailflow/releases/latest";
+    private static final String UPDATE_RELEASE_URL = "https://api.github.com/repos/Dragonk/Inboxora/releases/latest";
     
     /* Old dev fork url
-    private static final String UPDATE_RELEASE_URL = "https://api.github.com/repos/dcoffin88/mailflow/releases/latest";
+    private static final String UPDATE_RELEASE_URL = "https://api.github.com/repos/Dragonk/Inboxora/releases/latest";
     */
     
-    private static final String UPDATE_ERROR_MESSAGE = "Could not check for MailFlow updates. Please visit the website instead.";
+    private static final String UPDATE_ERROR_MESSAGE = "Could not check for Inboxora updates. Please visit the website instead.";
     private static final Pattern VERSION_PATTERN = Pattern.compile("\\d+(?:\\.\\d+){0,2}");
 
     private static final List<JSObject> pendingActions = new ArrayList<>();
-    private static MailFlowNativePlugin instance;
+    private static InboxoraNativePlugin instance;
     private ReleaseInfo updateInfo = null;
     private File downloadedUpdate = null;
     private boolean updateCheckStarted = false;
@@ -111,21 +111,21 @@ public class MailFlowNativePlugin extends Plugin {
         String normalizedHost = normalizeHost(host);
 
         if (normalizedHost == null) {
-            call.reject("Public MailFlow hosts must use https://. HTTP is allowed only for localhost and private IP addresses.");
+            call.reject("Public Inboxora hosts must use https://. HTTP is allowed only for localhost and private IP addresses.");
             return;
         }
 
         if (normalizedHost.startsWith("http://")) {
             if (getActivity() == null || getActivity().isFinishing()) {
-                call.reject("The unencrypted MailFlow host could not be confirmed.");
+                call.reject("The unencrypted Inboxora host could not be confirmed.");
                 return;
             }
             getActivity().runOnUiThread(() -> new AlertDialog.Builder(getActivity())
-                .setTitle("Unencrypted MailFlow connection")
-                .setMessage("Traffic to this MailFlow server is not encrypted. Your session cookie and email data can be read or changed by anyone who can observe this network. Continue only on a private network you trust.")
+                .setTitle("Unencrypted Inboxora connection")
+                .setMessage("Traffic to this Inboxora server is not encrypted. Your session cookie and email data can be read or changed by anyone who can observe this network. Continue only on a private network you trust.")
                 .setPositiveButton("Use unencrypted connection", (dialog, which) -> persistHost(call, normalizedHost))
-                .setNegativeButton("Cancel", (dialog, which) -> call.reject("The unencrypted MailFlow host was not saved."))
-                .setOnCancelListener((dialog) -> call.reject("The unencrypted MailFlow host was not saved."))
+                .setNegativeButton("Cancel", (dialog, which) -> call.reject("The unencrypted Inboxora host was not saved."))
+                .setOnCancelListener((dialog) -> call.reject("The unencrypted Inboxora host was not saved."))
                 .show());
             return;
         }
@@ -138,7 +138,7 @@ public class MailFlowNativePlugin extends Plugin {
         if (getActivity() instanceof MainActivity) {
             ((MainActivity) getActivity()).configureNativeMessageBridge(normalizedHost);
         }
-        MailFlowBackgroundSync.schedule(getContext());
+        InboxoraBackgroundSync.schedule(getContext());
 
         JSObject result = new JSObject();
         result.put("host", normalizedHost);
@@ -159,8 +159,8 @@ public class MailFlowNativePlugin extends Plugin {
     public void setUnreadCount(PluginCall call) {
         Integer count = call.getInt("count");
         if (count != null) {
-            MailFlowBackgroundWorker.updateUnreadBaseline(getContext(), count);
-            MailFlowBackgroundSync.schedule(getContext());
+            InboxoraBackgroundWorker.updateUnreadBaseline(getContext(), count);
+            InboxoraBackgroundSync.schedule(getContext());
         }
         call.resolve();
     }
@@ -206,7 +206,7 @@ public class MailFlowNativePlugin extends Plugin {
                 }
 
                 if (release.downloadUrl == null) {
-                    sendUpdateError("A MailFlow update is available, but no Android APK was found.");
+                    sendUpdateError("A Inboxora update is available, but no Android APK was found.");
                     if (call != null) {
                         JSObject result = new JSObject();
                         result.put("updateAvailable", true);
@@ -372,7 +372,7 @@ public class MailFlowNativePlugin extends Plugin {
         boolean backgroundAction = ACTION_DELETE_MESSAGE.equals(action) || ACTION_STAR_MESSAGE.equals(action);
         Intent intent = new Intent(
             context,
-            backgroundAction ? MailFlowNotificationActionReceiver.class : MainActivity.class
+            backgroundAction ? InboxoraNotificationActionReceiver.class : MainActivity.class
         );
         intent.setAction(action);
         authenticateIntent(context, intent);
@@ -464,16 +464,16 @@ public class MailFlowNativePlugin extends Plugin {
 
         String actionJson = new JSArray(actions).toString();
         String script = "(function(actions){"
-            + "window.__mailflowPendingNativeActions=(window.__mailflowPendingNativeActions||[]).concat(actions);"
+            + "window.__inboxoraPendingNativeActions=(window.__inboxoraPendingNativeActions||[]).concat(actions);"
             + "var delivered=false;"
             + "var deliver=function(force){"
             + "if(delivered)return true;"
-            + "if(!force&&window.__mailflowNativeBridgeReady!==true)return false;"
+            + "if(!force&&window.__inboxoraNativeBridgeReady!==true)return false;"
             + "delivered=true;"
             + "actions.forEach(function(payload){"
-            + "window.dispatchEvent(new CustomEvent('mailflow:native-action',{detail:payload}));"
+            + "window.dispatchEvent(new CustomEvent('inboxora:native-action',{detail:payload}));"
             + "});"
-            + "window.dispatchEvent(new CustomEvent('mailflow:native-actions-ready'));"
+            + "window.dispatchEvent(new CustomEvent('inboxora:native-actions-ready'));"
             + "return true;"
             + "};"
             + "if(!deliver(false)){"
@@ -500,25 +500,25 @@ public class MailFlowNativePlugin extends Plugin {
             + "return true;"
             + "};"
             + "}"
-            + "var androidBridge=window.MailFlowAndroid;"
-            + "var nativeRequests=window.__mailflowAndroidRequests=window.__mailflowAndroidRequests||{};"
+            + "var androidBridge=window.InboxoraAndroid;"
+            + "var nativeRequests=window.__inboxoraAndroidRequests=window.__inboxoraAndroidRequests||{};"
             + "if(androidBridge&&typeof androidBridge.postMessage==='function'){androidBridge.onmessage=function(event){try{var response=JSON.parse(event.data||'{}');var resolve=nativeRequests[response.id];if(!resolve)return;delete nativeRequests[response.id];resolve(response.result||null);}catch(e){}};}"
             + "var nativeCall=function(method,args,fallback){if(!androidBridge||typeof androidBridge.postMessage!=='function')return Promise.resolve(fallback||null);return new Promise(function(resolve){var id=String(Date.now())+Math.random();nativeRequests[id]=resolve;androidBridge.postMessage(JSON.stringify({id:id,method:method,args:args||{}}));});};"
-            + "var plugin=function(){return window.Capacitor&&window.Capacitor.Plugins&&window.Capacitor.Plugins.MailFlowNative;};"
+            + "var plugin=function(){return window.Capacitor&&window.Capacitor.Plugins&&window.Capacitor.Plugins.InboxoraNative;};"
             + "var call=function(method,args,fallback){var p=plugin();if(!p||typeof p[method]!=='function')return Promise.resolve(fallback||null);return p[method](args||{}).catch(function(){return fallback||null;});};"
-            + "window.mailflowNative=window.mailflowNative||{};"
-            + "window.mailflowNative.platform='android';"
-            + "window.mailflowNative.updates=window.mailflowNative.updates||{};"
-            + "window.mailflowNative.updates.check=function(verbose){return call('checkForUpdates',{verbose:!!verbose});};"
-            + "window.mailflowNative.updates.installDownloaded=function(){return nativeCall('installDownloadedUpdate',{},null).then(function(result){return result||call('installDownloadedUpdate',{}, {installed:false,reason:'unavailable'});});};"
-            + "window.mailflowNative.updates.installAuto=window.mailflowNative.updates.installDownloaded;"
-            + "window.mailflowNative.updates.openDownload=function(){return call('openDownloadedUpdate',{});};"
-            + "window.mailflowNative.updates.onStatus=function(callback){if(typeof callback!=='function')return function(){};var handler=function(event){callback(event.detail);};window.addEventListener('mailflow:update-status',handler);return function(){window.removeEventListener('mailflow:update-status',handler);};};"
-            + "window.mailflowNative.notifications=window.mailflowNative.notifications||{};"
-            + "window.mailflowNative.notifications.showNewMail=function(notification){return nativeCall('showNewMail',notification||{},null).then(function(result){return result||call('showNewMail',notification||{});});};"
-            + "window.mailflowNative.notifications.checkPermission=function(){return call('checkNotificationPermission',{},{}).then(function(result){return result&&result.permission||'default';});};"
-            + "window.mailflowNative.notifications.requestPermission=function(){return call('requestNotificationPermission',{},{}).then(function(result){return result&&result.permission||'default';});};"
-            + "window.mailflowNative.notifications.openSettings=function(){return call('openNotificationSettings',{});};"
+            + "window.inboxoraNative=window.inboxoraNative||{};"
+            + "window.inboxoraNative.platform='android';"
+            + "window.inboxoraNative.updates=window.inboxoraNative.updates||{};"
+            + "window.inboxoraNative.updates.check=function(verbose){return call('checkForUpdates',{verbose:!!verbose});};"
+            + "window.inboxoraNative.updates.installDownloaded=function(){return nativeCall('installDownloadedUpdate',{},null).then(function(result){return result||call('installDownloadedUpdate',{}, {installed:false,reason:'unavailable'});});};"
+            + "window.inboxoraNative.updates.installAuto=window.inboxoraNative.updates.installDownloaded;"
+            + "window.inboxoraNative.updates.openDownload=function(){return call('openDownloadedUpdate',{});};"
+            + "window.inboxoraNative.updates.onStatus=function(callback){if(typeof callback!=='function')return function(){};var handler=function(event){callback(event.detail);};window.addEventListener('inboxora:update-status',handler);return function(){window.removeEventListener('inboxora:update-status',handler);};};"
+            + "window.inboxoraNative.notifications=window.inboxoraNative.notifications||{};"
+            + "window.inboxoraNative.notifications.showNewMail=function(notification){return nativeCall('showNewMail',notification||{},null).then(function(result){return result||call('showNewMail',notification||{});});};"
+            + "window.inboxoraNative.notifications.checkPermission=function(){return call('checkNotificationPermission',{},{}).then(function(result){return result&&result.permission||'default';});};"
+            + "window.inboxoraNative.notifications.requestPermission=function(){return call('requestNotificationPermission',{},{}).then(function(result){return result&&result.permission||'default';});};"
+            + "window.inboxoraNative.notifications.openSettings=function(){return call('openNotificationSettings',{});};"
             + "}catch(e){}})();";
 
         webView.post(() -> webView.evaluateJavascript(script, null));
@@ -741,7 +741,7 @@ public class MailFlowNativePlugin extends Plugin {
         info.releaseDate = release.optString("published_at", "");
 
         if (apkAsset != null) {
-            info.assetName = apkAsset.optString("name", "MailFlow.apk");
+            info.assetName = apkAsset.optString("name", "Inboxora.apk");
             info.downloadUrl = apkAsset.optString("browser_download_url", null);
             info.digest = apkAsset.optString("digest", null);
         }
@@ -805,7 +805,7 @@ public class MailFlowNativePlugin extends Plugin {
                 postUpdateReadyNotification(release);
             } catch (Exception error) {
                 Log.e(TAG, "Update download failed", error);
-                sendUpdateError("The MailFlow update could not be downloaded.");
+                sendUpdateError("The Inboxora update could not be downloaded.");
             }
         }).start();
     }
@@ -819,7 +819,7 @@ public class MailFlowNativePlugin extends Plugin {
         connection.setConnectTimeout(15000);
         connection.setReadTimeout(30000);
         connection.setRequestProperty("Accept", "application/vnd.github+json");
-        connection.setRequestProperty("User-Agent", "MailFlow/" + getInstalledVersion());
+        connection.setRequestProperty("User-Agent", "Inboxora/" + getInstalledVersion());
         return connection;
     }
 
@@ -891,7 +891,7 @@ public class MailFlowNativePlugin extends Plugin {
             return result;
         } catch (Exception error) {
             Log.e(TAG, "Could not start package installer", error);
-            sendUpdateError("The update was downloaded, but MailFlow could not start the installer.");
+            sendUpdateError("The update was downloaded, but Inboxora could not start the installer.");
             result.put("installed", false);
             result.put("reason", "launch-failed");
             result.put("error", error.getMessage());
@@ -932,7 +932,7 @@ public class MailFlowNativePlugin extends Plugin {
 
             new AlertDialog.Builder(getActivity())
                 .setTitle("Update ready")
-                .setMessage("MailFlow " + version + " has been downloaded and is ready to install.")
+                .setMessage("Inboxora " + version + " has been downloaded and is ready to install.")
                 .setPositiveButton("Install", (dialog, which) -> startDownloadedUpdateInstall())
                 .setNegativeButton("Later", null)
                 .show();
@@ -1029,9 +1029,9 @@ public class MailFlowNativePlugin extends Plugin {
 
         NotificationCompat.Builder builder = new NotificationCompat.Builder(getContext(), CHANNEL_UPDATES)
             .setSmallIcon(R.mipmap.ic_launcher)
-            .setContentTitle("MailFlow update ready")
-            .setContentText("MailFlow " + release.version + " has been downloaded.")
-            .setStyle(new NotificationCompat.BigTextStyle().bigText("MailFlow " + release.version + " has been downloaded and is ready to install."))
+            .setContentTitle("Inboxora update ready")
+            .setContentText("Inboxora " + release.version + " has been downloaded.")
+            .setStyle(new NotificationCompat.BigTextStyle().bigText("Inboxora " + release.version + " has been downloaded and is ready to install."))
             .setContentIntent(openPendingIntent)
             .addAction(R.mipmap.ic_launcher, "Install", installPendingIntent)
             .setAutoCancel(false)
@@ -1050,7 +1050,7 @@ public class MailFlowNativePlugin extends Plugin {
 
         if (getBridge() == null || getBridge().getWebView() == null) return;
         String script = "(function(status){"
-            + "window.dispatchEvent(new CustomEvent('mailflow:update-status',{detail:status}));"
+            + "window.dispatchEvent(new CustomEvent('inboxora:update-status',{detail:status}));"
             + "})(" + status.toString() + ");";
         getBridge().getWebView().post(() -> getBridge().getWebView().evaluateJavascript(script, null));
     }
@@ -1119,7 +1119,7 @@ public class MailFlowNativePlugin extends Plugin {
     }
 
     private static String sanitizeApkName(String value) {
-        String name = value == null ? "MailFlow.apk" : value.replaceAll("[^A-Za-z0-9._ -]", "_");
+        String name = value == null ? "Inboxora.apk" : value.replaceAll("[^A-Za-z0-9._ -]", "_");
         if (!name.toLowerCase().endsWith(".apk")) name += ".apk";
         return name;
     }
@@ -1187,7 +1187,7 @@ public class MailFlowNativePlugin extends Plugin {
             "New mail",
             NotificationManager.IMPORTANCE_DEFAULT
         );
-        channel.setDescription("New mail notifications from MailFlow.");
+        channel.setDescription("New mail notifications from Inboxora.");
         NotificationManager manager = context.getSystemService(NotificationManager.class);
         if (manager != null) {
             manager.createNotificationChannel(channel);
@@ -1197,7 +1197,7 @@ public class MailFlowNativePlugin extends Plugin {
                 "Updates",
                 NotificationManager.IMPORTANCE_DEFAULT
             );
-            updatesChannel.setDescription("MailFlow app update notifications.");
+            updatesChannel.setDescription("Inboxora app update notifications.");
             manager.createNotificationChannel(updatesChannel);
         }
     }

@@ -515,7 +515,7 @@ export default function Sidebar() {
   const handleMarkAllRead = async (accountId, folder) => {
     try {
       await api.markAllRead(accountId, folder);
-      window.dispatchEvent(new CustomEvent('mailflow:refresh'));
+      window.dispatchEvent(new CustomEvent('inboxora:refresh'));
       api.getUnreadCounts().then(counts => {
         useStore.setState({ unreadCounts: counts });
       }).catch(() => {});

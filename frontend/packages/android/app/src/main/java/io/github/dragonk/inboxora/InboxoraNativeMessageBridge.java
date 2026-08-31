@@ -1,4 +1,4 @@
-package sh.mailflow.app;
+package io.github.dragonk.inboxora;
 
 import android.content.Context;
 import android.webkit.WebView;
@@ -8,10 +8,10 @@ import com.getcapacitor.JSObject;
 import java.util.Collections;
 import org.json.JSONObject;
 
-final class MailFlowNativeMessageBridge {
-    private static final String BRIDGE_NAME = "MailFlowAndroid";
+final class InboxoraNativeMessageBridge {
+    private static final String BRIDGE_NAME = "InboxoraAndroid";
 
-    private MailFlowNativeMessageBridge() {}
+    private InboxoraNativeMessageBridge() {}
 
     static void configure(WebView webView, Context context, String configuredHost) {
         if (webView == null || context == null) return;
@@ -37,7 +37,7 @@ final class MailFlowNativeMessageBridge {
                     response.put("id", request.optString("id", ""));
                     response.put(
                         "result",
-                        MailFlowNativePlugin.handleNativeBridgeRequest(
+                        InboxoraNativePlugin.handleNativeBridgeRequest(
                             context.getApplicationContext(),
                             request.optString("method", ""),
                             request.optJSONObject("args")

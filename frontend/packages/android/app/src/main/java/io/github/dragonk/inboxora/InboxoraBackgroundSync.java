@@ -1,4 +1,4 @@
-package sh.mailflow.app;
+package io.github.dragonk.inboxora;
 
 import android.content.Context;
 import androidx.work.Constraints;
@@ -10,28 +10,28 @@ import androidx.work.PeriodicWorkRequest;
 import androidx.work.WorkManager;
 import java.util.concurrent.TimeUnit;
 
-public final class MailFlowBackgroundSync {
-    private static final String PERIODIC_WORK = "mailflow-background-mail-check";
-    private static final String ONE_TIME_WORK = "mailflow-background-mail-check-once";
+public final class InboxoraBackgroundSync {
+    private static final String PERIODIC_WORK = "inboxora-background-mail-check";
+    private static final String ONE_TIME_WORK = "inboxora-background-mail-check-once";
 
-    private MailFlowBackgroundSync() {}
+    private InboxoraBackgroundSync() {}
 
     public static void schedule(Context context) {
-        if (context == null || MailFlowNativePlugin.getSavedHost(context) == null) return;
+        if (context == null || InboxoraNativePlugin.getSavedHost(context) == null) return;
 
         Constraints constraints = new Constraints.Builder()
             .setRequiredNetworkType(NetworkType.CONNECTED)
             .build();
 
         PeriodicWorkRequest periodicRequest = new PeriodicWorkRequest.Builder(
-            MailFlowBackgroundWorker.class,
+            InboxoraBackgroundWorker.class,
             15,
             TimeUnit.MINUTES
         )
             .setConstraints(constraints)
             .build();
 
-        OneTimeWorkRequest oneTimeRequest = new OneTimeWorkRequest.Builder(MailFlowBackgroundWorker.class)
+        OneTimeWorkRequest oneTimeRequest = new OneTimeWorkRequest.Builder(InboxoraBackgroundWorker.class)
             .setInitialDelay(45, TimeUnit.SECONDS)
             .setConstraints(constraints)
             .build();
