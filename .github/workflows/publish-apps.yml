@@ -117,7 +117,7 @@ jobs:
       - name: Upload Electron artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: mailflow-electron-${{ matrix.os }}
+          name: inboxora-electron-${{ matrix.os }}
           if-no-files-found: error
           path: |
             frontend/packages/release/*.deb
@@ -208,7 +208,7 @@ jobs:
       - name: Upload Android artifact
         uses: actions/upload-artifact@v4
         with:
-          name: mailflow-android
+          name: inboxora-android
           if-no-files-found: error
           path: |
             frontend/packages/release/*.aab

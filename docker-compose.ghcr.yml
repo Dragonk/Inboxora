@@ -1,13 +1,13 @@
-# MailFlow — pre-built image install
+# Inboxora — pre-built image install
 #
 # Quick start:
-#   curl -o docker-compose.yml https://raw.githubusercontent.com/maathimself/mailflow/main/docker-compose.ghcr.yml
-#   curl -o .env               https://raw.githubusercontent.com/maathimself/mailflow/main/.env.example
+#   curl -o docker-compose.yml https://raw.githubusercontent.com/Dragonk/Inboxora/main/docker-compose.ghcr.yml
+#   curl -o .env               https://raw.githubusercontent.com/Dragonk/Inboxora/main/.env.example
 #   # edit .env, then:
 #   docker compose up -d
 #
-# To pin a specific version instead of latest, set MAILFLOW_VERSION in your .env:
-#   MAILFLOW_VERSION=1.0.0
+# To pin a specific version instead of latest, set INBOXORA_VERSION in your .env:
+#   INBOXORA_VERSION=3.4.0
 
 services:
 
@@ -15,8 +15,8 @@ services:
   # Exposes HTTPS on APP_PORT and HTTP on APP_HTTP_PORT.
   # HTTP is intended for use behind a reverse proxy that terminates TLS.
   frontend:
-    image: ghcr.io/maathimself/mailflow-frontend:${MAILFLOW_VERSION:-latest}
-    container_name: mailflow-frontend
+    image: ghcr.io/dragonk/inboxora-frontend:${INBOXORA_VERSION:-latest}
+    container_name: inboxora-frontend
     restart: unless-stopped
     ports:
       - "${APP_PORT:-443}:443"
@@ -33,12 +33,12 @@ services:
       retries: 3
       start_period: 20s
     networks:
-      - mailflow
+      - inboxora
 
   # ── Backend API ──────────────────────────────────────────────────────────────
   backend:
-    image: ghcr.io/maathimself/mailflow-backend:${MAILFLOW_VERSION:-latest}
-    container_name: mailflow-backend
+    image: ghcr.io/dragonk/inboxora-backend:${INBOXORA_VERSION:-latest}
+    container_name: inboxora-backend
     restart: unless-stopped
     healthcheck:
       test: ["CMD-SHELL", "wget -qO- http://localhost:3000/api/health || exit 1"]
@@ -54,8 +54,8 @@ services:
       FRONTEND_URL: ${APP_URL:-}
       DB_HOST: ${DB_HOST:-postgres}
       DB_PORT: ${DB_PORT:-5432}
-      DB_NAME: ${DB_NAME:-mailflow}
-      DB_USER: ${DB_USER:-mailflow}
+      DB_NAME: ${DB_NAME:-inboxora}
+      DB_USER: ${DB_USER:-inboxora}
       DB_PASSWORD: ${DB_PASSWORD}
       REDIS_URL: redis://redis:6379
       ENCRYPTION_KEY: ${ENCRYPTION_KEY:-}
@@ -69,32 +69,32 @@ services:
       redis:
         condition: service_healthy
     networks:
-      - mailflow
+      - inboxora
 
   # ── PostgreSQL ───────────────────────────────────────────────────────────────
   postgres:
     image: postgres:16-alpine
-    container_name: mailflow-postgres
+    container_name: inboxora-postgres
     restart: unless-stopped
     environment:
-      POSTGRES_DB: ${DB_NAME:-mailflow}
-      POSTGRES_USER: ${DB_USER:-mailflow}
+      POSTGRES_DB: ${DB_NAME:-inboxora}
+      POSTGRES_USER: ${DB_USER:-inboxora}
       POSTGRES_PASSWORD: ${DB_PASSWORD}
     volumes:
       - postgres_data:/var/lib/postgresql/data
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U mailflow -d mailflow"]
+      test: ["CMD-SHELL", "pg_isready -U inboxora -d inboxora"]
       interval: 10s
       timeout: 5s
       retries: 5
       start_period: 20s
     networks:
-      - mailflow
+      - inboxora
 
   # ── Redis (sessions + caching) ───────────────────────────────────────────────
   redis:
     image: redis:7-alpine
-    container_name: mailflow-redis
+    container_name: inboxora-redis
     restart: unless-stopped
     command: redis-server --save 60 1 --loglevel warning
     volumes:
@@ -106,7 +106,7 @@ services:
       retries: 5
       start_period: 10s
     networks:
-      - mailflow
+      - inboxora
 
   # ── Caddy (automatic HTTPS via Let's Encrypt — optional) ────────────────────
   # Use docker-compose.https.yml to avoid the port conflict with the frontend:
@@ -115,7 +115,7 @@ services:
   caddy:
     profiles: ["https"]
     image: caddy:2-alpine
-    container_name: mailflow-caddy
+    container_name: inboxora-caddy
     restart: unless-stopped
     ports:
       - "80:80"
@@ -133,7 +133,7 @@ services:
     depends_on:
       - frontend
     networks:
-      - mailflow
+      - inboxora
 
 volumes:
   postgres_data:
@@ -142,7 +142,7 @@ volumes:
   caddy_config:
 
 networks:
-  mailflow:
+  inboxora:
     driver: bridge
 
 configs:

@@ -1,6 +1,6 @@
 {
-  "name": "mailflow-backend",
-  "version": "3.3.0",
+  "name": "inboxora-backend",
+  "version": "3.4.0",
   "type": "module",
   "engines": {
     "node": ">=22 <23"

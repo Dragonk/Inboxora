@@ -165,7 +165,7 @@ docker compose pull
 docker compose up -d
 ```
 
-To pin to a specific version instead of `latest`, add `INBOXORA_VERSION=2.7.0` to your `.env`.
+To pin to a specific version instead of `latest`, add `INBOXORA_VERSION=3.4.0` to your `.env`.
 
 ---
 
