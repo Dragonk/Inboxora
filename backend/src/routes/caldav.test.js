@@ -272,4 +272,66 @@ describe('CalDAV calendar objects', () => {
     expect(response.status).toBe(412);
     expect(query).toHaveBeenCalledTimes(2);
   });
+
+  it('rejects CalDAV mutation of an event whose invitation lifecycle is managed by Inboxora', async () => {
+    authenticateDavCredential.mockResolvedValue({ userId: 'user-1', credentialId: 'credential-1' });
+    query
+      .mockResolvedValueOnce({ rows: [{ id: 'calendar-1', source: 'local', read_only: false }] })
+      .mockResolvedValueOnce({ rows: [{ etag: 'current-etag', invite_account_id: 'account-1' }] });
+
+    const response = await fetch(`${base}/caldav/user-1/calendar-1/event-1.ics`, {
+      method: 'PUT', headers: { authorization: basic('sam@example.test', 'test-dav-password') },
+      body: 'BEGIN:VCALENDAR\r\nVERSION:2.0\r\nBEGIN:VEVENT\r\nUID:event-1\r\nDTSTART:20260901T090000Z\r\nDTEND:20260901T100000Z\r\nEND:VEVENT\r\nEND:VCALENDAR\r\n',
+    });
+
+    expect(response.status).toBe(409);
+    expect(query).toHaveBeenCalledTimes(2);
+  });
+
+  it('rejects CalDAV deletion of an event whose invitation lifecycle is managed by Inboxora', async () => {
+    authenticateDavCredential.mockResolvedValue({ userId: 'user-1', credentialId: 'credential-1' });
+    query
+      .mockResolvedValueOnce({ rows: [{ id: 'calendar-1', source: 'local', read_only: false }] })
+      .mockResolvedValueOnce({ rows: [{ etag: 'current-etag', invite_account_id: 'account-1' }] });
+
+    const response = await fetch(`${base}/caldav/user-1/calendar-1/event-1.ics`, {
+      method: 'DELETE', headers: { authorization: basic('sam@example.test', 'test-dav-password') },
+    });
+
+    expect(response.status).toBe(409);
+    expect(query).toHaveBeenCalledTimes(2);
+  });
+
+  it('keeps the CalDAV write guarded when an invitation is enabled after its initial read', async () => {
+    authenticateDavCredential.mockResolvedValue({ userId: 'user-1', credentialId: 'credential-1' });
+    query
+      .mockResolvedValueOnce({ rows: [{ id: 'calendar-1', source: 'local', read_only: false }] })
+      .mockResolvedValueOnce({ rows: [{ etag: 'current-etag', invite_account_id: null }] })
+      // A concurrent Inboxora update enabled invitations before the UPSERT locked the row.
+      .mockResolvedValueOnce({ rows: [] });
+
+    const response = await fetch(`${base}/caldav/user-1/calendar-1/event-1.ics`, {
+      method: 'PUT', headers: { authorization: basic('sam@example.test', 'test-dav-password') },
+      body: 'BEGIN:VCALENDAR\r\nVERSION:2.0\r\nBEGIN:VEVENT\r\nUID:event-1\r\nDTSTART:20260901T090000Z\r\nDTEND:20260901T100000Z\r\nEND:VEVENT\r\nEND:VCALENDAR\r\n',
+    });
+
+    expect(response.status).toBe(409);
+    expect(query.mock.calls[2][0]).toContain('WHERE calendar_events.invite_account_id IS NULL');
+  });
+
+  it('keeps the CalDAV deletion guarded when an invitation is enabled after its initial read', async () => {
+    authenticateDavCredential.mockResolvedValue({ userId: 'user-1', credentialId: 'credential-1' });
+    query
+      .mockResolvedValueOnce({ rows: [{ id: 'calendar-1', source: 'local', read_only: false }] })
+      .mockResolvedValueOnce({ rows: [{ etag: 'current-etag', invite_account_id: null }] })
+      // A concurrent Inboxora update enabled invitations before DELETE locked the row.
+      .mockResolvedValueOnce({ rows: [] });
+
+    const response = await fetch(`${base}/caldav/user-1/calendar-1/event-1.ics`, {
+      method: 'DELETE', headers: { authorization: basic('sam@example.test', 'test-dav-password') },
+    });
+
+    expect(response.status).toBe(409);
+    expect(query.mock.calls[2][0]).toContain('AND invite_account_id IS NULL');
+  });
 });

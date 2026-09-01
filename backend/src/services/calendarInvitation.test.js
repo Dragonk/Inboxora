@@ -77,5 +77,6 @@ describe('sendCalendarInvitation', () => {
     expect(content).toContain('METHOD:CANCEL');
     expect(content).toContain('SEQUENCE:2');
     expect(content).toContain('STATUS:CANCELLED');
+    expect(content.match(/^STATUS:CANCELLED$/gm)).toHaveLength(1);
   });
 });

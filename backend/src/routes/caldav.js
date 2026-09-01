@@ -396,10 +396,11 @@ router.put('/:userId/:calendarId/:filename', async (req, res) => {
   const filenameUid = req.params.filename.replace(/\.ics$/i, '');
   if (!event || event.uid !== filenameUid) return res.status(400).end();
   const currentResult = await query(
-    'SELECT etag FROM calendar_events WHERE calendar_id = $1 AND uid = $2 AND recurrence_id = $3',
+    'SELECT etag, invite_account_id FROM calendar_events WHERE calendar_id = $1 AND uid = $2 AND recurrence_id = $3',
     [calendar.id, event.uid, ''],
   );
   const current = currentResult.rows[0];
+  if (current?.invite_account_id) return res.status(409).end();
   if (req.headers['if-none-match'] === '*' && current) return res.status(412).end();
   if (req.headers['if-match'] && (!current || !etagMatches(req.headers['if-match'], current.etag))) return res.status(412).end();
   const stored = await query(
@@ -409,10 +410,12 @@ router.put('/:userId/:calendarId/:filename', async (req, res) => {
        raw_ical = EXCLUDED.raw_ical, etag = gen_random_uuid()::text, summary = EXCLUDED.summary,
        starts_at = EXCLUDED.starts_at, ends_at = EXCLUDED.ends_at, all_day = EXCLUDED.all_day,
        timezone = EXCLUDED.timezone, updated_at = NOW()
+     WHERE calendar_events.invite_account_id IS NULL
      RETURNING uid, etag`,
-    [calendar.id, req.caldavUserId, event.uid, event.raw, event.summary, event.startsAt, event.endsAt, event.allDay, event.timeZone],
-  );
-  res.setHeader('ETag', `"${stored.rows[0].etag}"`).status(current ? 204 : 201).end();
+     [calendar.id, req.caldavUserId, event.uid, event.raw, event.summary, event.startsAt, event.endsAt, event.allDay, event.timeZone],
+     );
+     if (!stored.rows[0]) return res.status(409).end();
+     res.setHeader('ETag', `"${stored.rows[0].etag}"`).status(current ? 204 : 201).end();
 });
 
 router.delete('/:userId/:calendarId/:filename', async (req, res) => {
@@ -422,11 +425,16 @@ router.delete('/:userId/:calendarId/:filename', async (req, res) => {
   if (!calendar) return res.status(404).end();
   if (calendar.source !== 'local' || calendar.read_only) return res.status(403).end();
   const uid = req.params.filename.replace(/\.ics$/i, '');
-  const currentResult = await query('SELECT etag FROM calendar_events WHERE calendar_id = $1 AND uid = $2 AND recurrence_id = $3', [calendar.id, uid, '']);
+  const currentResult = await query('SELECT etag, invite_account_id FROM calendar_events WHERE calendar_id = $1 AND uid = $2 AND recurrence_id = $3', [calendar.id, uid, '']);
   const current = currentResult.rows[0];
   if (!current) return res.status(404).end();
+  if (current.invite_account_id) return res.status(409).end();
   if (req.headers['if-match'] && !etagMatches(req.headers['if-match'], current.etag)) return res.status(412).end();
-  await query('DELETE FROM calendar_events WHERE calendar_id = $1 AND uid = $2 AND recurrence_id = $3', [calendar.id, uid, '']);
+  const deleted = await query(
+    'DELETE FROM calendar_events WHERE calendar_id = $1 AND uid = $2 AND recurrence_id = $3 AND invite_account_id IS NULL RETURNING id',
+    [calendar.id, uid, ''],
+  );
+  if (!deleted.rows[0]) return res.status(409).end();
   res.status(204).end();
 });
 

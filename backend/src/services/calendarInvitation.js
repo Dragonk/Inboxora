@@ -49,7 +49,6 @@ function invitationIcal({ uid, summary, description, location, organizerEmail, a
   if (summary) lines.push(`SUMMARY:${escapeICalendarText(summary)}`);
   if (description) lines.push(`DESCRIPTION:${escapeICalendarText(description)}`);
   if (location) lines.push(`LOCATION:${escapeICalendarText(location)}`);
-  if (method === 'CANCEL') lines.push('STATUS:CANCELLED');
   for (const attendee of attendees) lines.push(`ATTENDEE;ROLE=REQ-PARTICIPANT:mailto:${attendee}`);
   lines.push('END:VEVENT', 'END:VCALENDAR', '');
   return lines.map(foldICalendarLine).join('\r\n');

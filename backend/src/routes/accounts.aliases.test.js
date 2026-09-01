@@ -179,3 +179,18 @@ describe('account alias mutation failures do not invalidate the cache', () => {
     expectNoIdentityInvalidation();
   });
 });
+
+describe('account deletion with calendar invitations', () => {
+  it('returns a conflict when the account remains an invitation sender', async () => {
+    query.mockImplementation(async (sql) => {
+      if (sql.startsWith('SELECT id FROM email_accounts')) return { rows: [{ id: URL_ACCOUNT_ID }] };
+      if (sql.startsWith('DELETE FROM email_accounts')) throw Object.assign(new Error('foreign key violation'), { code: '23503' });
+      throw new Error(`Unexpected query: ${sql}`);
+    });
+
+    const response = await request('DELETE', URL_ACCOUNT_ID);
+
+    expect(response.status).toBe(409);
+    expect(await response.json()).toEqual({ error: 'This account is still used to send calendar invitations. Cancel or transfer those invitations before deleting it.' });
+  });
+});

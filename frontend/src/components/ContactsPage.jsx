@@ -186,6 +186,8 @@ export default function ContactsPage() {
     setError(null);
   }, [isMobile, showNew]);
 
+  const inForm = editing || showNew;
+
   useEffect(() => {
     if (!isMobile || !showContacts) return undefined;
     const handleBack = (event) => {
@@ -285,8 +287,6 @@ export default function ContactsPage() {
   const removePhone = (idx) => setForm(f => ({
     ...f, phones: f.phones.filter((_, i) => i !== idx),
   }));
-
-  const inForm = editing || showNew;
 
   // Shared list panel content (used by both mobile and desktop)
   const listPanel = (
