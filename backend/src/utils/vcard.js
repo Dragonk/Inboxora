@@ -233,3 +233,29 @@ export function generateVCard(contact) {
   // Fold and join
   return lines.map(foldLine).join('');
 }
+
+// Update only the properties owned by the local contact editor. The original
+// vCard remains the source of truth for DAV clients, so unsupported extensions
+// (including grouped Apple properties and X-* fields) survive local edits.
+export function mergeVCard(raw, contact) {
+  const original = unfold(raw || '');
+  if (!/^BEGIN:VCARD\s*$/im.test(original) || !/^END:VCARD\s*$/im.test(original)) {
+    return generateVCard(contact);
+  }
+  const managed = new Set(['FN', 'N', 'EMAIL', 'TEL', 'ORG', 'NOTE', 'BDAY', 'ANNIVERSARY']);
+  const propertyName = line => {
+    const colon = line.indexOf(':');
+    if (colon < 0) return '';
+    const name = line.slice(0, colon).split(';', 1)[0].toUpperCase();
+    return name.includes('.') ? name.slice(name.lastIndexOf('.') + 1) : name;
+  };
+  const existing = original.split(/\r?\n/).filter(Boolean);
+  const uid = contact.uid || parseVCard(original).uid;
+  const replacement = unfold(generateVCard({ ...contact, uid })).split(/\r?\n/)
+    .filter(line => line && !['BEGIN', 'VERSION', 'UID', 'END'].includes(propertyName(line)));
+  const preserved = existing.filter(line => {
+    const name = propertyName(line);
+    return name && !['BEGIN', 'END'].includes(name) && !managed.has(name);
+  });
+  return ['BEGIN:VCARD', ...preserved, ...replacement, 'END:VCARD'].map(foldLine).join('');
+}

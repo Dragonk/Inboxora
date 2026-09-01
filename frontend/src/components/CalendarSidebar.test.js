@@ -9,7 +9,7 @@ describe('CalendarSidebar contract', () => {
     const component = await source();
     assert.match(component, /data-testid="calendar-mini-month"/);
     assert.match(component, /data-testid="calendar-visibility-toggle"/);
-    assert.match(component, /data-testid="calendar-manage-sources"/);
+    assert.match(component, /data-testid="calendar-sidebar-manage-sources"/);
   });
 
   it('provides an explicit close action when rendered in the mobile dialog', async () => {

@@ -302,8 +302,7 @@
       "badgeDescription": "Určete, kde se bude zobrazovat počet nepřečtených zpráv.",
       "appBadge": "Odznak ikony aplikace",
       "appBadgeDesc": "Počet nepřečtených na ikoně hlavního panelu nebo Docku při instalaci jako PWA.",
-      "faviconBadge": "Odznak na kartě prohlížeče",
-      "faviconBadgeDesc": "Počet nepřečtených na ikoně karty prohlížeče.",
+
       "badgeOn": "Zapnuto",
       "badgeOff": "Vypnuto"
     },

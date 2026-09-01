@@ -484,8 +484,7 @@
       "badgeDescription": "Control where the unread count is displayed.",
       "appBadge": "App icon badge",
       "appBadgeDesc": "Unread count on the taskbar or dock icon when installed as a PWA.",
-      "faviconBadge": "Browser tab badge",
-      "faviconBadgeDesc": "Unread count on the browser tab icon.",
+
       "badgeOn": "Enabled",
       "badgeOff": "Disabled"
     },

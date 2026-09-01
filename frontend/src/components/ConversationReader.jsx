@@ -6,7 +6,9 @@ import ConversationMessage from './ConversationMessage.jsx';
 import { initialConversationExpansion, initialConversationTarget, toggleConversationExpansion } from './conversationExpansion.js';
 import { alignReaderHeader } from './readerScrollAlignment.js';
 import { nativeThreadToReaderMessages, mergeThreadWithConversation } from '../utils/conversationThreadAdapter.js';
+import { removePhysicalCopy } from '../utils/conversationMutations.js';
 import { queueReadStateMutation, isLatestReadStateMutation } from '../utils/readStateMutation.js';
+import { setCompletedDelete } from '../utils/pendingDeletes.js';
 import { useStore } from '../store/index.js';
 
 // Data-only CE adapter. It owns logical/physical identity and expansion policy;
@@ -80,6 +82,25 @@ export default function ConversationReader({ conversationId, targetLogicalMessag
 
   const messages = useMemo(() => data?.logicalMessages || [], [data]);
   const refresh = useCallback(() => conversationApi.detail(conversationId).then(setData), [conversationId]);
+  const handleActionComplete = useCallback(async mutation => {
+    const { action, copyId, logicalMessageId, isRead, isStarred } = mutation || {};
+    if (['delete', 'archive', 'move'].includes(action) && copyId) {
+      setData(previous => !previous ? previous : {
+        ...previous,
+        logicalMessages: removePhysicalCopy(previous.logicalMessages, logicalMessageId, copyId),
+      });
+      // A refresh may arrive before IMAP has reflected the mutation. Keep the
+      // just-removed physical copy out of that stale response during reconciliation.
+      // MessageList consumes this guard during its refresh; deliberately do not clear
+      // the global selection here because the reader can still contain another copy.
+      setCompletedDelete(copyId);
+    } else if (action === 'read' && copyId) {
+      updateMessage(copyId, { is_read: isRead, isRead });
+    } else if (action === 'star' && copyId) {
+      updateMessage(copyId, { is_starred: isStarred, isStarred });
+    }
+    window.dispatchEvent(new CustomEvent('inboxora:refresh'));
+  }, [updateMessage]);
   useEffect(() => {
     const handleConversationRefresh = event => {
       if (event.detail?.conversationId === conversationId) refresh().catch(() => {});
@@ -278,7 +299,7 @@ export default function ConversationReader({ conversationId, targetLogicalMessag
   return <section ref={readerRef} aria-label={t('conversation.label')} data-conversation-id={conversationId} data-reader-source={nativeThreadId ? 'native-thread' : 'conversation'} data-selected-copy-id={selectedCopyId || ''} data-selected-account-id={selectedAccountId || ''} style={{ flex: 1, overflowY: 'auto', overflowX: 'hidden', padding: 0, minWidth: 0 }}>
     {messages.map(message => {
       const physicalCopyId = selectedCopyFor(message.id)?.id;
-      return <ConversationMessage key={message.id} conversationId={conversationId} message={message} selectedCopyId={selectedCopyId} selectedAccountId={selectedAccountId} accounts={accounts} expanded={expanded.has(message.id)} onToggle={toggle} body={physicalCopyId ? bodiesByCopy[physicalCopyId] : null} status={physicalCopyId ? bodyStatusByCopy[physicalCopyId] : { unavailable: true }} onLoadBody={loadBody} onRemoteImages={id => loadBody(id, true, true)} onReply={onReply} onActionComplete={refresh} onSetRead={setCopyReadState} onInitialBodyLayout={handleInitialTargetBodyLayout} />;
+      return <ConversationMessage key={message.id} conversationId={conversationId} message={message} selectedCopyId={selectedCopyId} selectedAccountId={selectedAccountId} accounts={accounts} expanded={expanded.has(message.id)} onToggle={toggle} body={physicalCopyId ? bodiesByCopy[physicalCopyId] : null} status={physicalCopyId ? bodyStatusByCopy[physicalCopyId] : { unavailable: true }} onLoadBody={loadBody} onRemoteImages={id => loadBody(id, true, true)} onReply={onReply} onActionComplete={handleActionComplete} onSetRead={setCopyReadState} onInitialBodyLayout={handleInitialTargetBodyLayout} />;
     })}
   </section>;
 }

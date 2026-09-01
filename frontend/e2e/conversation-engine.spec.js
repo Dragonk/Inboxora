@@ -184,15 +184,13 @@ test.describe('native conversation engine matrix', () => {
     // Conversation mutations use the CE endpoint and are scoped to the selected
     // physical copy. Read state intentionally uses the shared per-copy bulk-read
     // lane instead, so assert that contract separately below.
-    for (const [action, expectedPath] of [['star', '/star'], ['delete', '/delete']]) {
-      const directAction = second.locator(`[data-message-action="${action}"]`);
-      await directAction.click();
-      await expect.poll(() => page.__conversationActions.at(-1)?.url).toContain(expectedPath);
-      await expect.poll(() => page.__conversationActions.at(-1)?.body).toMatchObject({
-        scope: 'THIS_COPY', copyId: 'conversation-gmail-copy-2', logicalMessageId: 'conversation-gmail-logical-2',
-      });
-      await expect(second).toHaveAttribute('data-conversation-message-state', 'expanded');
-    }
+    const starAction = second.locator('[data-message-action="star"]');
+    await starAction.click();
+    await expect.poll(() => page.__conversationActions.at(-1)?.url).toContain('/star');
+    await expect.poll(() => page.__conversationActions.at(-1)?.body).toMatchObject({
+      scope: 'THIS_COPY', copyId: 'conversation-gmail-copy-2', logicalMessageId: 'conversation-gmail-logical-2',
+    });
+    await expect(second).toHaveAttribute('data-conversation-message-state', 'expanded');
     const unreadAction = second.locator('[data-message-action="unread"]');
     if (await unreadAction.count() === 0) {
       // The mobile toolbar intentionally puts read/unread inside the More menu.
@@ -203,16 +201,22 @@ test.describe('native conversation engine matrix', () => {
     }
     await expect.poll(() => page.__bulkReadActions.at(-1)).toEqual({ ids: ['conversation-gmail-copy-2'], read: false });
     await expect(second).toHaveAttribute('data-conversation-message-state', 'expanded');
-    await second.locator('[data-message-action="archive"]').evaluate(button => button.click());
+    await second.locator('[data-message-action="reply"]').evaluate(button => button.click());
+    await expect(reader.locator('[data-conversation-message-actions="true"]')).toHaveCount(2);
     await expect(second).toHaveAttribute('data-conversation-message-state', 'expanded');
-    await expect(latest).toHaveAttribute('data-conversation-message-state', 'expanded');
+    await second.locator('[data-message-action="archive"]').evaluate(button => button.click());
     await expect.poll(() => page.__conversationActions.at(-1)).toMatchObject({
       method: 'POST',
       body: { scope: 'THIS_COPY', copyId: 'conversation-gmail-copy-2', logicalMessageId: 'conversation-gmail-logical-2' },
     });
-    await second.locator('[data-message-action="reply"]').evaluate(button => button.click());
-    await expect(reader.locator('[data-conversation-message-actions="true"]')).toHaveCount(2);
-    await expect(second).toHaveAttribute('data-conversation-message-state', 'expanded');
+    await expect(second).toHaveCount(0);
+    await latest.locator('[data-message-action="delete"]').click();
+    await expect.poll(() => page.__conversationActions.at(-1)?.url).toContain('/delete');
+    await expect.poll(() => page.__conversationActions.at(-1)?.body).toMatchObject({
+      scope: 'THIS_COPY', copyId: 'conversation-gmail-copy-5', logicalMessageId: 'conversation-gmail-logical-5',
+    });
+    await expect(latest).toHaveCount(0);
+    await expect(page.locator('[data-msgid="conversation-gmail-copy-5"]:visible')).toHaveCount(0);
   });
   test('ON/ON expanded native child rows expose per-message incoming/outgoing direction', async ({ page, fixtureApi }) => {
     await open(page, fixtureApi, true, true);
@@ -226,6 +230,7 @@ test.describe('native conversation engine matrix', () => {
     await expect(directions.nth(4)).toHaveAttribute('data-message-direction', 'outgoing');
     await expect(directions.nth(5)).toHaveAttribute('data-message-direction', 'incoming');
   });
+
 
   test('ON/ON exposes a terminal no-copy state without actions or body retries', async ({ page, fixtureApi }, testInfo) => {
     test.skip(!isDesktopProject(testInfo), 'desktop parent-row selection contract');

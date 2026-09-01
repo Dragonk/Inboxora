@@ -1,7 +1,7 @@
 import { Router } from 'express';
 import { query } from '../services/db.js';
 import { requireAuth } from '../middleware/auth.js';
-import { generateVCard } from '../utils/vcard.js';
+import { generateVCard, mergeVCard } from '../utils/vcard.js';
 import { safeFetch } from '../services/safeFetch.js';
 import crypto from 'crypto';
 
@@ -320,7 +320,7 @@ router.patch('/:id', async (req, res) => {
       ? c.primary_email
       : (newEmails[0]?.value ? newEmails[0].value.toLowerCase().trim() : null);
 
-    const vcard = generateVCard({
+    const contactVCard = {
       uid: c.uid,
       displayName: newDisplay,
       firstName: newFirst,
@@ -331,7 +331,8 @@ router.patch('/:id', async (req, res) => {
       notes: newNotes,
       birthday: newBirthday,
       anniversary: newAnniversary,
-    });
+    };
+    const vcard = c.vcard ? mergeVCard(c.vcard, contactVCard) : generateVCard(contactVCard);
     const etag = crypto.createHash('md5').update(vcard).digest('hex');
 
     const result = await query(`

@@ -57,7 +57,7 @@ const PAGE_SIZE = 100;
 
 export default function ContactsPage() {
   const { t } = useTranslation();
-  const { showContacts, setShowContacts } = useStore();
+  const { showContacts, setMobileSidebarOpen } = useStore();
   const isMobile = useMobile();
 
   const [contacts, setContacts]     = useState([]);
@@ -453,8 +453,24 @@ export default function ContactsPage() {
           borderBottom: '1px solid var(--border-subtle)',
           background: 'var(--bg-secondary)', flexShrink: 0,
         }}>
-          <button
-            onClick={mobilePanel === 'detail' ? goBackToList : () => setShowContacts(false)}
+          {mobilePanel === 'list' ? (
+            <button
+              data-testid="contacts-mobile-menu"
+              aria-label={t('messageList.menu', 'Menu')}
+              onClick={() => setMobileSidebarOpen(true)}
+              style={{
+                background: 'none', border: 'none', color: 'var(--text-secondary)',
+                cursor: 'pointer', padding: 0, borderRadius: 7,
+                display: 'flex', alignItems: 'center', justifyContent: 'center',
+                minWidth: 44, minHeight: 44,
+              }}
+            >
+              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75">
+                <line x1="3" y1="12" x2="21" y2="12"/><line x1="3" y1="6" x2="21" y2="6"/><line x1="3" y1="18" x2="21" y2="18"/>
+              </svg>
+            </button>
+          ) : <button
+            onClick={goBackToList}
             style={{
               background: 'none', border: 'none', color: 'var(--text-secondary)',
               cursor: 'pointer', padding: 0, borderRadius: 7,
@@ -465,7 +481,7 @@ export default function ContactsPage() {
             <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
               <polyline points="15 18 9 12 15 6"/>
             </svg>
-          </button>
+          </button>}
 
           <h2 style={{
             flex: 1, margin: 0, fontSize: 16, fontWeight: 600,

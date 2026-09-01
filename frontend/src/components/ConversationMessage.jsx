@@ -94,12 +94,17 @@ export default function ConversationMessage({ conversationId, message, selectedC
   };
 
   const actionOptions = { scope: 'THIS_COPY', copyId: copy.id, logicalMessageId: message.id };
-  const runAction = async callback => {
+  const runAction = async (callback, action, actionState = {}) => {
     if (!hasAccountCopy) return;
     setActionError(null);
     try {
       await callback();
-      await onActionComplete?.();
+      await onActionComplete?.({
+        action,
+        copyId: copy.id,
+        logicalMessageId: message.id,
+        ...actionState,
+      });
     } catch (error) {
       setActionError(error.message || t('common.error'));
     }
@@ -171,18 +176,21 @@ export default function ConversationMessage({ conversationId, message, selectedC
         onReply={() => reply()}
         onReplyAll={() => reply(true)}
         onForward={() => reply(false, true)}
-        onArchive={() => runAction(() => conversationApi.archive(conversationId, actionOptions))}
-        onMove={folder => runAction(() => conversationApi.move(conversationId, folder, actionOptions))}
-        onSpam={!inSpamFolder ? () => runAction(() => api.markSpam(copy.id)) : undefined}
-        onHam={inSpamFolder ? () => runAction(() => api.markHam(copy.id)) : undefined}
-        onSetRead={isRead => runAction(() => onSetRead ? onSetRead(copy.id, isRead) : conversationApi.setRead(conversationId, isRead, actionOptions))}
+        onArchive={() => runAction(() => conversationApi.archive(conversationId, actionOptions), 'archive')}
+        onMove={folder => runAction(() => conversationApi.move(conversationId, folder, actionOptions), 'move')}
+        onSpam={!inSpamFolder ? () => runAction(() => api.markSpam(copy.id), 'spam') : undefined}
+        onHam={inSpamFolder ? () => runAction(() => api.markHam(copy.id), 'ham') : undefined}
+        onSetRead={isRead => runAction(() => onSetRead ? onSetRead(copy.id, isRead) : conversationApi.setRead(conversationId, isRead, actionOptions), 'read', { isRead })}
         onViewHeaders={() => setShowHeaders(true)}
         onPrint={body ? handlePrint : undefined}
         aiActions={availableAiActions}
         onAiAction={runAiAction}
         onManageAiActions={() => { setAdminTab('ai-actions'); setShowAdmin(true); }}
-        onStar={() => runAction(() => conversationApi.setStarred(conversationId, !(copy.isStarred ?? copy.is_starred), actionOptions))}
-        onDelete={() => runAction(() => conversationApi.delete(conversationId, actionOptions))}
+        onStar={() => {
+          const isStarred = !(copy.isStarred ?? copy.is_starred);
+          return runAction(() => conversationApi.setStarred(conversationId, isStarred, actionOptions), 'star', { isStarred });
+        }}
+        onDelete={() => runAction(() => conversationApi.delete(conversationId, actionOptions), 'delete')}
       />}
 
       <div
@@ -275,10 +283,10 @@ export default function ConversationMessage({ conversationId, message, selectedC
         }}
         onContextAction={(action, data, physicalCopyId) => {
           if (action === 'reply') return reply(); if (action === 'replyAll') return reply(true); if (action === 'forward') return reply(false, true);
-          if (action === 'archive') return runAction(() => conversationApi.archive(conversationId, { ...actionOptions, copyId: physicalCopyId }));
-          if (action === 'delete') return runAction(() => conversationApi.delete(conversationId, { ...actionOptions, copyId: physicalCopyId }));
-          if (action === 'markSpam') return runAction(() => api.markSpam(physicalCopyId)); if (action === 'markHam') return runAction(() => api.markHam(physicalCopyId));
-          if (action === 'moveTo' && data) return runAction(() => conversationApi.move(conversationId, data, { ...actionOptions, copyId: physicalCopyId }));
+          if (action === 'archive') return runAction(() => conversationApi.archive(conversationId, { ...actionOptions, copyId: physicalCopyId }), 'archive', { copyId: physicalCopyId });
+          if (action === 'delete') return runAction(() => conversationApi.delete(conversationId, { ...actionOptions, copyId: physicalCopyId }), 'delete', { copyId: physicalCopyId });
+          if (action === 'markSpam') return runAction(() => api.markSpam(physicalCopyId), 'spam'); if (action === 'markHam') return runAction(() => api.markHam(physicalCopyId), 'ham');
+          if (action === 'moveTo' && data) return runAction(() => conversationApi.move(conversationId, data, { ...actionOptions, copyId: physicalCopyId }), 'move', { copyId: physicalCopyId });
         }}
         onInitialBodyLayout={() => onInitialBodyLayout?.(copy.id)}
         canAccessCopy={hasAccountCopy}

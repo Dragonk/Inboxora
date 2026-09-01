@@ -484,8 +484,7 @@
       "badgeDescription": "Controlla dove viene mostrato il conteggio dei messaggi non letti.",
       "appBadge": "Badge icona app",
       "appBadgeDesc": "Non letti sull'icona della barra delle applicazioni o del dock (PWA).",
-      "faviconBadge": "Badge scheda browser",
-      "faviconBadgeDesc": "Non letti sull'icona della scheda del browser.",
+
       "badgeOn": "Attivato",
       "badgeOff": "Disattivato"
     },

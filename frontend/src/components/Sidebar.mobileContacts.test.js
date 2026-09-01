@@ -20,6 +20,14 @@ describe('mobile Contacts navigation contract', () => {
     assert.match(mobileLayout, /display: showContacts \? 'flex' : 'none'/);
     assert.match(mobileLayout, /<Suspense fallback=\{lazyFallback\}><ContactsPage \/><\/Suspense>/);
   });
+
+  it('keeps the global drawer reachable from the Contacts list', async () => {
+    const contacts = await readFile(new URL('./ContactsPage.jsx', import.meta.url), 'utf8');
+
+    assert.match(contacts, /setMobileSidebarOpen/);
+    assert.match(contacts, /data-testid="contacts-mobile-menu"/);
+    assert.match(contacts, /onClick=\{\(\) => setMobileSidebarOpen\(true\)\}/);
+  });
 });
 
 describe('mobile Calendar navigation contract', () => {
@@ -45,10 +53,18 @@ describe('mobile Calendar navigation contract', () => {
   it('provides an accessible in-app Back control in the mobile calendar header', async () => {
     const calendar = await readFile(new URL('./CalendarPage.jsx', import.meta.url), 'utf8');
 
-    assert.match(calendar, /const \{ showCalendar, setShowCalendar, accounts,[\s\S]*\} = useStore\(\);/);
+    assert.match(calendar, /const \{ showCalendar, setShowCalendar,[\s\S]*accounts,[\s\S]*\} = useStore\(\);/);
     assert.match(calendar, /data-testid="calendar-mobile-back"/);
     assert.match(calendar, /onClick=\{\(\) => setShowCalendar\(false\)\}/);
     assert.match(calendar, /aria-label=\{t\('calendar\.back'\)\}/);
+  });
+
+  it('keeps the global drawer reachable from Calendar', async () => {
+    const calendar = await readFile(new URL('./CalendarPage.jsx', import.meta.url), 'utf8');
+
+    assert.match(calendar, /setMobileSidebarOpen/);
+    assert.match(calendar, /data-testid="calendar-mobile-menu"/);
+    assert.match(calendar, /onClick=\{\(\) => setMobileSidebarOpen\(true\)\}/);
   });
 
   it('moves the calendar header after content for bottom mobile navigation and labels its panel', async () => {

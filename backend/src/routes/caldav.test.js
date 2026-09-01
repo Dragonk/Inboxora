@@ -11,7 +11,7 @@ vi.mock('../services/rateLimiter.js', () => ({ consume: vi.fn(async () => ({ lim
 vi.mock('../services/authEvents.js', () => ({ logAuthEvent: vi.fn() }));
 
 import express from 'express';
-import caldavRouter from './caldav.js';
+import caldavRouter, { parseCalendarEvent } from './caldav.js';
 
 function basic(username, password) {
   return `Basic ${Buffer.from(`${username}:${password}`).toString('base64')}`;
@@ -95,6 +95,13 @@ describe('CalDAV discovery', () => {
 });
 
 describe('CalDAV calendar objects', () => {
+  it('accepts case-insensitive iCalendar component markers and properties', () => {
+    const event = parseCalendarEvent('begin:vcalendar\r\nbegin:vevent\r\nuid:case-insensitive\r\ndtstart:20260901T090000Z\r\ndtend:20260901T100000Z\r\nsummary:Planning\r\nend:vevent\r\nend:vcalendar\r\n');
+
+    expect(event).toMatchObject({ uid: 'case-insensitive', summary: 'Planning' });
+    expect(event.startsAt).toEqual(new Date('2026-09-01T09:00:00.000Z'));
+  });
+
   it('creates a local event with an ETag and returns it through GET', async () => {
     authenticateDavCredential.mockResolvedValue({ userId: 'user-1', credentialId: 'credential-1' });
     query

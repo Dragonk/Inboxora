@@ -441,7 +441,7 @@ export default function MessageList() {
       if (useStore.getState().threadedView) params.threaded = 'true';
       if (selectedFolder === 'INBOX' && (categorizationEnabled || selectedAccount?.categorization_enabled)) params.category = activeCategory;
       const data = await api.getMessages(params);
-      appendMessages(applyReadGuard(data.messages));
+      appendMessages(applyDeleteGuard(applyReadGuard(data.messages)));
       setMessagesOffset(currentOffset + data.messages.length);
       setHasMoreMessages(currentOffset + data.messages.length < data.total);
     } catch (err) {
@@ -478,7 +478,7 @@ export default function MessageList() {
             setMessagesTotal(data.total);
             // If the unread filter is on and the currently open message was just marked
             // read, the server won't return it — preserve it so the user can keep reading.
-            let msgs = applyReadGuard(data.messages);
+            let msgs = applyDeleteGuard(applyReadGuard(data.messages));
             const activeId = useStore.getState().selectedMessageId;
             if (unreadOnly && activeId && !msgs.some(m => m.id === activeId)) {
               const kept = useStore.getState().messages.find(m => m.id === activeId);

@@ -139,10 +139,11 @@ function parseDuration(value) {
 export function parseCalendarEvent(raw) {
   if (typeof raw !== 'string' || raw.length === 0 || raw.length > 1024 * 1024) return null;
   const lines = unfoldICalendarLines(raw);
-  const starts = lines.filter((line) => line === 'BEGIN:VEVENT');
-  const ends = lines.filter((line) => line === 'END:VEVENT');
-  const start = lines.indexOf('BEGIN:VEVENT');
-  const end = lines.indexOf('END:VEVENT');
+  const componentLines = lines.map((line) => line.toUpperCase());
+  const starts = componentLines.filter((line) => line === 'BEGIN:VEVENT');
+  const ends = componentLines.filter((line) => line === 'END:VEVENT');
+  const start = componentLines.indexOf('BEGIN:VEVENT');
+  const end = componentLines.indexOf('END:VEVENT');
   if (starts.length !== 1 || ends.length !== 1 || start < 0 || end <= start) return null;
   const properties = lines.slice(start + 1, end).map(propertyFromLine);
   if (properties.some((property) => !property) || properties.some((property) => ['RRULE', 'RDATE', 'EXDATE', 'RECURRENCE-ID'].includes(property.name))) return null;

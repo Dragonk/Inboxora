@@ -53,6 +53,23 @@ describe('conversation copy-aware actions', () => {
     expect(client.calls.some(call => call.sql.includes('UPDATE messages SET is_read'))).toBe(true);
   });
 
+  it('broadcasts a physical message flag update after a conversation read action', async () => {
+    const client = fakeClient();
+    const imapManager = { broadcast: vi.fn() };
+    withTransaction.mockImplementationOnce(async fn => fn(client));
+
+    await applyConversationAction({
+      userId: 'user-1', conversationId: 'conversation-1', copyId: 'copy-1',
+      scope: 'THIS_COPY', action: 'read', isRead: false, imapManager,
+    });
+
+    expect(imapManager.broadcast).toHaveBeenCalledWith({
+      type: 'message_flags',
+      accountId: 'account-1',
+      changes: [{ id: 'copy-1', is_read: false }],
+    }, 'user-1');
+  });
+
   it('requires row selectors for selector-dependent bulk scopes', async () => {
     await expect(applyBulkConversationAction({
       userId: 'user-1', conversationIds: ['conversation-1'], scope: 'COPIES_ON_THIS_ACCOUNT', action: 'delete',

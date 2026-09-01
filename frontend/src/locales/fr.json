@@ -484,8 +484,7 @@
       "badgeDescription": "Contrôlez où le nombre de messages non lus est affiché.",
       "appBadge": "Badge de l'icône de l'app",
       "appBadgeDesc": "Non lus sur l'icône de la barre des tâches ou du dock (PWA).",
-      "faviconBadge": "Badge de l'onglet du navigateur",
-      "faviconBadgeDesc": "Non lus sur l'icône de l'onglet du navigateur.",
+
       "badgeOn": "Activé",
       "badgeOff": "Désactivé"
     },

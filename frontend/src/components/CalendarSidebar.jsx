@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { api } from '../utils/api.js';
 
 function monthCells(anchor, weekStartsOn) {
@@ -12,7 +12,7 @@ function monthCells(anchor, weekStartsOn) {
   });
 }
 
-export default function CalendarSidebar({ anchor, calendars, visibleCalendarIds, weekStartsOn, onSelectDate, onToggleCalendar, onSourcesChanged, onClose, t }) {
+export default function CalendarSidebar({ anchor, calendars, visibleCalendarIds, weekStartsOn, onSelectDate, onToggleCalendar, onSourcesChanged, onClose, sourcePanelRequest = 0, t }) {
   const [showSources, setShowSources] = useState(false);
   const [sources, setSources] = useState([]);
   const [sourceError, setSourceError] = useState(null);
@@ -25,6 +25,13 @@ export default function CalendarSidebar({ anchor, calendars, visibleCalendarIds,
     catch (error) { setSourceError(error.message); }
   };
   const openSources = async () => { setShowSources(true); await loadSources(); };
+  useEffect(() => {
+    if (!sourcePanelRequest) return;
+    setShowSources(true);
+    api.calendar.listSources()
+      .then(result => { setSources(result.sources || []); setSourceError(null); })
+      .catch(error => setSourceError(error.message));
+  }, [sourcePanelRequest]);
   const addSource = async event => {
     event.preventDefault();
     try {
@@ -51,7 +58,7 @@ export default function CalendarSidebar({ anchor, calendars, visibleCalendarIds,
       <div style={dayGrid}>{cells.map(day => <button key={day.toISOString()} onClick={() => onSelectDate(day)} style={{ ...dayButton, ...(day.toDateString() === new Date().toDateString() ? today : {}), ...(day.getMonth() !== anchor.getMonth() ? muted : {}) }}>{day.getDate()}</button>)}</div>
     </div>
     <section style={section}>
-      <div style={sectionHeading}><strong>{t('calendar.calendars')}</strong><button data-testid="calendar-manage-sources" onClick={openSources} style={linkButton}>{t('calendar.manageSources')}</button></div>
+      <div style={sectionHeading}><strong>{t('calendar.calendars')}</strong><button data-testid="calendar-sidebar-manage-sources" onClick={openSources} style={linkButton}>{t('calendar.manageSources')}</button></div>
       {calendars.map(calendar => <label key={calendar.id} style={calendarToggle}><input data-testid="calendar-visibility-toggle" type="checkbox" checked={isVisible(calendar.id)} onChange={() => onToggleCalendar(calendar.id)} /><span style={{ ...colorDot, background: calendar.color || 'var(--accent)' }} />{calendar.name}{calendar.read_only && <small style={readOnly}>{t('calendar.readOnly')}</small>}</label>)}
     </section>
     {showSources && <div role="dialog" aria-modal="true" aria-label={t('calendar.manageSources')} style={overlay}><div style={dialog}>
@@ -64,7 +71,7 @@ export default function CalendarSidebar({ anchor, calendars, visibleCalendarIds,
         {form.kind === 'caldav' && <><label>{t('calendar.sourceUsername')}<input required value={form.username} onChange={event => setForm(current => ({ ...current, username: event.target.value }))} /></label><label>{t('calendar.sourcePassword')}<input required type="password" autoComplete="new-password" value={form.password} onChange={event => setForm(current => ({ ...current, password: event.target.value }))} /></label></>}
         <button type="submit" style={primaryButton}>{t('calendar.addSource')}</button>
       </form>
-      <div style={sourceList}>{sources.map(source => <div key={source.id} style={sourceRow}><span><strong>{source.displayName}</strong><small>{source.kind} · {source.lastError || t('calendar.sourceReady')}</small></span><span><button onClick={() => syncSource(source.id)} style={linkButton}>{t('calendar.syncSource')}</button><button onClick={() => removeSource(source.id)} style={dangerButton}>{t('calendar.delete')}</button></span></div>)}</div>
+      <div style={sourceList}>{sources.map(source => <div key={source.id} style={sourceRow}><span><strong>{source.displayName}</strong><small>{source.kind === 'caldav' ? t('calendar.caldav') : t('calendar.icsWebcal')} · {source.lastError || t('calendar.sourceReady')}</small></span><span><button onClick={() => syncSource(source.id)} style={linkButton}>{t('calendar.syncSource')}</button><button onClick={() => removeSource(source.id)} style={dangerButton}>{t('calendar.delete')}</button></span></div>)}</div>
     </div></div>}
   </aside>;
 }

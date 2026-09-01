@@ -41,6 +41,9 @@ test("Inboxora wordmark and versioned PWA assets replace legacy MailFlow brandin
     assert.doesNotMatch(content, />\s*Mail\s*</, "application chrome must not retain the MailFlow wordmark");
   }
   assert.doesNotMatch(logo, /MailFlow/, "shared logo component must be branded Inboxora");
+  assert.match(logo, /\/inboxora-ui-logo\.png/, "shared logo component must use the transparent Inboxora UI asset");
+  assert.doesNotMatch(logo, /inboxora-mark\.svg/, "shared logo component must not use the deprecated hexagon mark");
+  assert.doesNotMatch(logo, /inboxora-icon-512\.png/, "shared logo component must not use the black-background PWA icon");
   assert.match(index, /manifest\.json\?v=inboxora-1/, "the updated manifest must bypass legacy PWA metadata caches");
   assert.match(app, /sw\.js\?v=inboxora-1/, "the updated service worker must replace legacy registrations");
   assert.match(index, /rel="icon" type="image\/png" href="\/inboxora-icon-512\.png"/, "the browser favicon must use the square Inboxora PNG");
@@ -57,6 +60,7 @@ test("Inboxora wordmark and versioned PWA assets replace legacy MailFlow brandin
     assert.doesNotMatch(content, /["']\/icon-512\.png/, "PWA metadata must not retain the legacy icon URL");
   }
   await Promise.all([
+    access(new URL("../public/inboxora-ui-logo.png", import.meta.url)),
     access(new URL("../public/inboxora-icon-512.png", import.meta.url)),
     access(new URL("../packages/android/app/src/main/res/mipmap-xxxhdpi/ic_launcher.png", import.meta.url)),
   ]);

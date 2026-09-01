@@ -339,8 +339,7 @@
       "badgeDescription": "Wybierz, gdzie ma być wyświetlany licznik nieprzeczytanych wiadomości.",
       "appBadge": "Odznaka ikony aplikacji",
       "appBadgeDesc": "Licznik nieprzeczytanych wiadomości na ikonie paska zadań lub Docka, gdy aplikacja jest zainstalowana jako PWA.",
-      "faviconBadge": "Odznaka karty przeglądarki",
-      "faviconBadgeDesc": "Licznik nieprzeczytanych wiadomości na ikonie karty przeglądarki.",
+
       "badgeOn": "Włączone",
       "badgeOff": "Wyłączone"
     },
