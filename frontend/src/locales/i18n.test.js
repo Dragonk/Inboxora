@@ -767,6 +767,11 @@ const SAME_VALUE_ALLOWED = {
 
   // "Telefon" / "Projekt" — established Polish/German technical loanwords
   'contacts.fields.phone': [['cs', 'de', 'pl']],
+  // Established identical translations in the richer vCard contact form.
+  'contacts.fields.address': [['de', 'fr']],
+  'contacts.fields.categories': [['cs', 'pl']],
+  'contacts.fields.role': [['cs', 'en']],
+  'contacts.fields.url': [['de', 'en']],
   'todoist.project':       [['cs', 'de', 'pl']],
 
   // "Password" — international term, same in en and it

@@ -69,6 +69,8 @@ function contactFromVCard(vcard, href) {
     primaryEmail: primaryEmail ? primaryEmail.toLowerCase().trim() : null,
     emails: c.emails, phones: c.phones,
     organization: c.organization, notes: c.notes, birthday: c.birthday, anniversary: c.anniversary, photoData: c.photoData,
+    title: c.title, role: c.role, nickname: c.nickname, urls: c.urls,
+    instantMessages: c.instantMessages, categories: c.categories, addresses: c.addresses,
     vcard,
   };
 }
@@ -79,8 +81,9 @@ async function upsertCardavContact(bookId, userId, c) {
     INSERT INTO contacts (
       address_book_id, user_id, uid, vcard, etag,
       display_name, first_name, last_name, primary_email,
-      emails, phones, organization, notes, birthday, anniversary, photo_data, is_auto
-    ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10::jsonb,$11::jsonb,$12,$13,$14,$15,$16,false)
+      emails, phones, organization, notes, birthday, anniversary, photo_data,
+      title, role, nickname, urls, instant_messages, categories, addresses, is_auto
+    ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10::jsonb,$11::jsonb,$12,$13,$14,$15,$16,$17,$18,$19,$20::jsonb,$21::jsonb,$22::jsonb,$23::jsonb,false)
     ON CONFLICT (address_book_id, uid) DO UPDATE SET
       vcard = EXCLUDED.vcard, etag = EXCLUDED.etag,
       display_name = EXCLUDED.display_name, first_name = EXCLUDED.first_name,
@@ -88,12 +91,16 @@ async function upsertCardavContact(bookId, userId, c) {
       emails = EXCLUDED.emails, phones = EXCLUDED.phones,
       organization = EXCLUDED.organization, notes = EXCLUDED.notes,
       birthday = EXCLUDED.birthday, anniversary = EXCLUDED.anniversary,
+      title = EXCLUDED.title, role = EXCLUDED.role, nickname = EXCLUDED.nickname,
+      urls = EXCLUDED.urls, instant_messages = EXCLUDED.instant_messages,
+      categories = EXCLUDED.categories, addresses = EXCLUDED.addresses,
       photo_data = EXCLUDED.photo_data, updated_at = NOW()
   `, [
     bookId, userId, c.uid, c.vcard, etag,
     c.displayName, c.firstName, c.lastName, c.primaryEmail,
     JSON.stringify(c.emails), JSON.stringify(c.phones),
     c.organization, c.notes, c.birthday, c.anniversary, c.photoData,
+    c.title, c.role, c.nickname, JSON.stringify(c.urls), JSON.stringify(c.instantMessages), JSON.stringify(c.categories), JSON.stringify(c.addresses),
   ]);
 }
 
@@ -106,10 +113,13 @@ async function mergeIntoExisting(id, c) {
     UPDATE contacts SET
       display_name = $2, first_name = $3, last_name = $4,
       phones = $5::jsonb, organization = $6, notes = $7, birthday = $8, anniversary = $9,
-      photo_data = COALESCE($10, photo_data), vcard = $11, etag = $12, updated_at = NOW()
+      photo_data = COALESCE($10, photo_data), title = $11, role = $12, nickname = $13,
+      urls = $14::jsonb, instant_messages = $15::jsonb, categories = $16::jsonb, addresses = $17::jsonb,
+      vcard = $18, etag = $19, updated_at = NOW()
     WHERE id = $1
   `, [id, c.displayName, c.firstName, c.lastName, JSON.stringify(c.phones),
-      c.organization, c.notes, c.birthday, c.anniversary, c.photoData, c.vcard, etag]);
+      c.organization, c.notes, c.birthday, c.anniversary, c.photoData, c.title, c.role, c.nickname,
+      JSON.stringify(c.urls), JSON.stringify(c.instantMessages), JSON.stringify(c.categories), JSON.stringify(c.addresses), c.vcard, etag]);
 }
 
 async function syncBook(userId, book, dupMode, creds) {

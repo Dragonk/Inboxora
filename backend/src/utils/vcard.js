@@ -29,6 +29,34 @@ function unescapeValue(str) {
     .replace(/\\\\/g, '\\');
 }
 
+// Split structured or list values without treating escaped delimiters as
+// separators. Keep escapes in the fragments so unescapeValue() can decode them.
+function splitEscaped(value, delimiter) {
+  const parts = [];
+  let part = '';
+  let escaped = false;
+  for (const char of value) {
+    if (char === delimiter && !escaped) {
+      parts.push(part);
+      part = '';
+    } else {
+      part += char;
+    }
+    escaped = char === '\\' ? !escaped : false;
+  }
+  parts.push(part);
+  return parts;
+}
+
+function isHttpUrl(value) {
+  try {
+    const url = new URL(value);
+    return url.protocol === 'http:' || url.protocol === 'https:';
+  } catch {
+    return false;
+  }
+}
+
 function normalizeDate(value) {
   const date = unescapeValue(value).trim();
   if (/^\d{4}-\d{2}-\d{2}$/.test(date)) return date;
@@ -86,6 +114,13 @@ export function parseVCard(raw) {
     photoData: null,
     birthday: null,
     anniversary: null,
+    title: null,
+    role: null,
+    nickname: null,
+    urls: [],
+    instantMessages: [],
+    categories: [],
+    addresses: [],
   };
 
   for (const line of text.split(/\r?\n/)) {
@@ -150,6 +185,33 @@ export function parseVCard(raw) {
       case 'ANNIVERSARY':
         result.anniversary = normalizeDate(value);
         break;
+      case 'TITLE':
+        result.title = unescapeValue(value).trim() || null;
+        break;
+      case 'ROLE':
+        result.role = unescapeValue(value).trim() || null;
+        break;
+      case 'NICKNAME':
+        result.nickname = unescapeValue(value).trim() || null;
+        break;
+      case 'URL': {
+        const url = unescapeValue(value).trim();
+        if (isHttpUrl(url)) result.urls.push({ value: url, type: (params.match(/TYPE=([^;]+)/i)?.[1] || 'other').toLowerCase().replace(/["']/g, '') });
+        break;
+      }
+      case 'IMPP': {
+        const im = unescapeValue(value).trim();
+        if (im) result.instantMessages.push({ value: im, type: (params.match(/TYPE=([^;]+)/i)?.[1] || im.split(':', 1)[0] || 'other').toLowerCase().replace(/["']/g, '') });
+        break;
+      }
+      case 'CATEGORIES':
+        result.categories.push(...splitEscaped(value, ',').map(part => unescapeValue(part).trim()).filter(Boolean));
+        break;
+      case 'ADR': {
+        const parts = splitEscaped(value, ';').map(part => unescapeValue(part).trim());
+        result.addresses.push({ type: (params.match(/TYPE=([^;]+)/i)?.[1] || 'other').toLowerCase().replace(/["']/g, ''), pobox: parts[0] || '', extended: parts[1] || '', street: parts[2] || '', locality: parts[3] || '', region: parts[4] || '', postalCode: parts[5] || '', country: parts[6] || '' });
+        break;
+      }
       case 'PHOTO': {
         const v = value.trim();
         if (!v) break;
@@ -192,6 +254,13 @@ export function generateVCard(contact) {
     notes,
     birthday,
     anniversary,
+    title,
+    role,
+    nickname,
+    urls = [],
+    instantMessages = [],
+    categories = [],
+    addresses = [],
   } = contact;
 
   const lines = [];
@@ -227,6 +296,17 @@ export function generateVCard(contact) {
   }
   if (/^\d{4}-\d{2}-\d{2}$/.test(birthday || '')) lines.push(`BDAY:${birthday}`);
   if (/^\d{4}-\d{2}-\d{2}$/.test(anniversary || '')) lines.push(`ANNIVERSARY:${anniversary}`);
+  if (title) lines.push(`TITLE:${escapeValue(title)}`);
+  if (role) lines.push(`ROLE:${escapeValue(role)}`);
+  if (nickname) lines.push(`NICKNAME:${escapeValue(nickname)}`);
+  for (const url of urls) if (url?.value) lines.push(`URL;TYPE=${escapeParam((url.type || 'other').toUpperCase())}:${escapeValue(url.value)}`);
+  for (const instantMessage of instantMessages) if (instantMessage?.value) lines.push(`IMPP;TYPE=${escapeParam((instantMessage.type || 'other').toUpperCase())}:${escapeValue(instantMessage.value)}`);
+  if (categories.length) lines.push(`CATEGORIES:${categories.map(escapeValue).join(',')}`);
+  for (const address of addresses) {
+    const type = escapeParam((address?.type || 'other').toUpperCase());
+    const parts = ['pobox', 'extended', 'street', 'locality', 'region', 'postalCode', 'country'].map(key => escapeValue(address?.[key] || ''));
+    lines.push(`ADR;TYPE=${type}:${parts.join(';')}`);
+  }
 
   lines.push('END:VCARD');
 
@@ -243,6 +323,10 @@ export function mergeVCard(raw, contact) {
     return generateVCard(contact);
   }
   const managed = new Set(['FN', 'N', 'EMAIL', 'TEL', 'ORG', 'NOTE', 'BDAY', 'ANNIVERSARY']);
+  const richProperties = { title: 'TITLE', role: 'ROLE', nickname: 'NICKNAME', urls: 'URL', instantMessages: 'IMPP', categories: 'CATEGORIES', addresses: 'ADR' };
+  for (const [field, property] of Object.entries(richProperties)) {
+    if (Object.hasOwn(contact, field)) managed.add(property);
+  }
   const propertyName = line => {
     const colon = line.indexOf(':');
     if (colon < 0) return '';

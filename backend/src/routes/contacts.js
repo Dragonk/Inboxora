@@ -2,6 +2,7 @@ import { Router } from 'express';
 import { query } from '../services/db.js';
 import { requireAuth } from '../middleware/auth.js';
 import { generateVCard, mergeVCard } from '../utils/vcard.js';
+import { chooseDefined, normalizeRichContactFields } from '../utils/contactFields.js';
 import { safeFetch } from '../services/safeFetch.js';
 import crypto from 'crypto';
 
@@ -87,7 +88,9 @@ router.get('/', async (req, res) => {
       SELECT
         c.id, c.uid, c.display_name, c.first_name, c.last_name,
         c.primary_email, c.emails, c.phones, c.organization,
-        c.notes, c.birthday, c.anniversary, c.is_auto, c.send_count, c.last_sent,
+        c.notes, c.birthday, c.anniversary, c.title, c.role, c.nickname,
+        c.urls, c.addresses, c.instant_messages AS "instantMessages", c.categories,
+        c.is_auto, c.send_count, c.last_sent,
         c.etag, c.created_at, c.updated_at,
         (c.photo_data IS NOT NULL) AS has_contact_photo,
         (ab.source = 'carddav') AS read_only
@@ -211,7 +214,9 @@ router.get('/:id', async (req, res) => {
     const result = await query(
       `SELECT c.id, c.uid, c.display_name, c.first_name, c.last_name,
               c.primary_email, c.emails, c.phones, c.organization,
-              c.notes, c.birthday, c.anniversary, c.photo_data, c.is_auto, c.send_count, c.last_sent,
+              c.notes, c.birthday, c.anniversary, c.title, c.role, c.nickname,
+              c.urls, c.addresses, c.instant_messages AS "instantMessages", c.categories,
+              c.photo_data, c.is_auto, c.send_count, c.last_sent,
               c.etag, c.vcard, c.created_at, c.updated_at,
               (ab.source = 'carddav') AS read_only
        FROM contacts c
@@ -234,10 +239,13 @@ router.post('/', async (req, res) => {
     displayName, firstName, lastName,
     emails = [], phones = [],
     organization, notes, birthday, anniversary,
+    title, role, nickname, urls = [], instantMessages = [], categories = [], addresses = [],
   } = req.body || {};
 
   if (!Array.isArray(emails)) return res.status(400).json({ error: 'emails must be an array' });
   if (!Array.isArray(phones)) return res.status(400).json({ error: 'phones must be an array' });
+  const rich = normalizeRichContactFields({ title, role, nickname, urls, instantMessages, categories, addresses });
+  if (!rich) return res.status(400).json({ error: 'Rich contact fields are malformed' });
   const normalizedBirthday = normalizeContactDate(birthday); const normalizedAnniversary = normalizeContactDate(anniversary);
   if (normalizedBirthday === undefined || normalizedAnniversary === undefined) return res.status(400).json({ error: 'Contact dates must use YYYY-MM-DD' });
 
@@ -252,23 +260,26 @@ router.post('/', async (req, res) => {
   try {
     const addressBookId = await defaultAddressBook(userId);
     const uid = crypto.randomUUID();
-    const vcard = generateVCard({ uid, displayName, firstName, lastName, emails, phones, organization, notes, birthday: normalizedBirthday, anniversary: normalizedAnniversary });
+    const vcard = generateVCard({ uid, displayName, firstName, lastName, emails, phones, organization, notes, birthday: normalizedBirthday, anniversary: normalizedAnniversary, ...rich });
     const etag = crypto.createHash('md5').update(vcard).digest('hex');
 
     const result = await query(`
       INSERT INTO contacts (
         address_book_id, user_id, uid, vcard, etag,
         display_name, first_name, last_name, primary_email,
-        emails, phones, organization, notes, birthday, anniversary, is_auto
-      ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15, false)
+        emails, phones, organization, notes, birthday, anniversary,
+        title, role, nickname, urls, instant_messages, categories, addresses, is_auto
+      ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22, false)
       RETURNING id, uid, display_name, first_name, last_name,
                 primary_email, emails, phones, organization, notes, birthday, anniversary,
+                title, role, nickname, urls, addresses, instant_messages AS "instantMessages", categories,
                 is_auto, send_count, last_sent, etag, created_at, updated_at
     `, [
       addressBookId, userId, uid, vcard, etag,
       displayName || null, firstName || null, lastName || null, primaryEmail,
       JSON.stringify(emails), JSON.stringify(phones),
       organization || null, notes || null, normalizedBirthday, normalizedAnniversary,
+      rich.title, rich.role, rich.nickname, JSON.stringify(rich.urls), JSON.stringify(rich.instantMessages), JSON.stringify(rich.categories), JSON.stringify(rich.addresses),
     ]);
 
     await bumpSyncToken(addressBookId);
@@ -286,6 +297,7 @@ router.patch('/:id', async (req, res) => {
   const {
     displayName, firstName, lastName,
     emails, phones, organization, notes, birthday, anniversary,
+    title, role, nickname, urls, instantMessages, categories, addresses,
   } = req.body || {};
 
   if (emails !== undefined && !Array.isArray(emails)) return res.status(400).json({ error: 'emails must be an array' });
@@ -306,6 +318,21 @@ router.patch('/:id', async (req, res) => {
     if (c.book_source === 'carddav') {
       return res.status(403).json({ error: 'This contact is synced from CardDAV and is read-only' });
     }
+
+    const hasRichFields = [title, role, nickname, urls, instantMessages, categories, addresses].some(value => value !== undefined);
+    const rich = hasRichFields ? normalizeRichContactFields({
+      title: chooseDefined(title, c.title),
+      role: chooseDefined(role, c.role),
+      nickname: chooseDefined(nickname, c.nickname),
+      urls: chooseDefined(urls, c.urls),
+      instantMessages: chooseDefined(instantMessages, c.instant_messages),
+      categories: chooseDefined(categories, c.categories),
+      addresses: chooseDefined(addresses, c.addresses),
+    }) : {
+      title: c.title, role: c.role, nickname: c.nickname,
+      urls: c.urls, instantMessages: c.instant_messages, categories: c.categories, addresses: c.addresses,
+    };
+    if (!rich) return res.status(400).json({ error: 'Rich contact fields are malformed' });
 
     const newEmails    = emails    !== undefined ? emails    : c.emails;
     const newPhones    = phones    !== undefined ? phones    : c.phones;
@@ -331,6 +358,7 @@ router.patch('/:id', async (req, res) => {
       notes: newNotes,
       birthday: newBirthday,
       anniversary: newAnniversary,
+      ...rich,
     };
     const vcard = c.vcard ? mergeVCard(c.vcard, contactVCard) : generateVCard(contactVCard);
     const etag = crypto.createHash('md5').update(vcard).digest('hex');
@@ -340,17 +368,20 @@ router.patch('/:id', async (req, res) => {
         display_name = $1, first_name = $2, last_name = $3,
         primary_email = $4, emails = $5, phones = $6,
         organization = $7, notes = $8, birthday = $9, anniversary = $10,
-        vcard = $11, etag = $12, updated_at = NOW(),
+        title = $11, role = $12, nickname = $13, urls = $14, instant_messages = $15, categories = $16, addresses = $17,
+        vcard = $18, etag = $19, updated_at = NOW(),
         is_auto = false
-      WHERE id = $13 AND user_id = $14
+      WHERE id = $20 AND user_id = $21
       RETURNING id, uid, display_name, first_name, last_name,
                 primary_email, emails, phones, organization, notes, birthday, anniversary,
+                title, role, nickname, urls, addresses, instant_messages AS "instantMessages", categories,
                 is_auto, send_count, last_sent, etag, created_at, updated_at
     `, [
       newDisplay || null, newFirst || null, newLast || null,
       newPrimary,
       JSON.stringify(newEmails), JSON.stringify(newPhones),
       newOrg || null, newNotes || null, newBirthday, newAnniversary,
+      rich.title, rich.role, rich.nickname, JSON.stringify(rich.urls), JSON.stringify(rich.instantMessages), JSON.stringify(rich.categories), JSON.stringify(rich.addresses),
       vcard, etag,
       req.params.id, userId,
     ]);

@@ -3,6 +3,7 @@ import { readFile, readdir } from 'fs/promises';
 import { join, dirname } from 'path';
 import { fileURLToPath } from 'url';
 import { pool } from './db.js';
+import { backfillRichContactFields } from './contactRichBackfill.js';
 
 const MIGRATIONS_DIR = join(dirname(fileURLToPath(import.meta.url)), '../../migrations');
 
@@ -48,6 +49,8 @@ export async function runMigrations() {
         }
       }
     }
+    const richContactBackfillCount = await backfillRichContactFields(client);
+    if (richContactBackfillCount > 0) console.log(`Backfilled rich fields for ${richContactBackfillCount} contact(s)`);
   } finally {
     await client.query('SELECT pg_advisory_unlock(7418291834)').catch(() => {});
     client.release();
