@@ -23,7 +23,10 @@ test('desktop calendar grid fills the application content pane', async () => {
 
   assert.match(calendar, /<CalendarGrid[^>]*isMobile=\{isMobile\}/);
   assert.match(calendar, /flex: 1, minWidth: 0/);
-  assert.match(calendar, /minmax\(\$\{isMobile \? 112 : 0\}px, 1fr\)/);
+  assert.match(calendar, /minmax\(\$\{isMobile && !month \? 112 : 0\}px, 1fr\)/);
+  assert.match(calendar, /style=\{\{ \.\.\.page, \.\.\.\(isMobile \? mobilePage : \{\}\) \}\}/);
+  assert.match(calendar, /const page = \{[^\n]*overflow: 'auto'/);
+  assert.match(calendar, /const mobilePage = \{ overflowX: 'hidden' \}/);
 });
 
 test('external calendar management is directly discoverable from the calendar toolbar', async () => {
