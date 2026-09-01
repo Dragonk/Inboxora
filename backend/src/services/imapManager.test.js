@@ -12,7 +12,7 @@ vi.mock('../utils/redact.js', () => ({ redactEmail: vi.fn() }));
 vi.mock('./hostValidation.js', () => ({ resolveForConnection: vi.fn() }));
 vi.mock('./connectionPolicy.js', () => ({ getConnectionPolicy: vi.fn() }));
 
-import { ImapManager, providerProfile, makeClientCfg, relocateExemptGuard, insertCopiedSibling, deleteMessageCopyRow, emitSectionsChanged, ensureMailbox, createKeyedSemaphore, isConnectionRefusal, connectCooldownMs, effectiveSyncIntervalMs, folderSyncDue, planModseqSync, connectStaggerFor, walkStructure, looksLikeTextPayload, parsePersistentCap, resolvePersistentCap, persistentEligible, shouldRetryIPv4, classifyMoveBySearch } from './imapManager.js';
+import { ImapManager, providerProfile, makeClientCfg, relocateExemptGuard, insertCopiedSibling, deleteMessageCopyRow, emitSectionsChanged, ensureMailbox, createKeyedSemaphore, isConnectionRefusal, connectCooldownMs, effectiveSyncIntervalMs, folderSyncDue, planModseqSync, connectStaggerFor, walkStructure, shouldFallbackToTextPart, looksLikeTextPayload, parsePersistentCap, resolvePersistentCap, persistentEligible, shouldRetryIPv4, classifyMoveBySearch } from './imapManager.js';
 import { pluginRegistry } from '../plugins/registry.js';
 import { EventEmitter } from 'node:events';
 import { ImapFlow } from 'imapflow';
@@ -1323,7 +1323,7 @@ describe('_syncSpamFolder — periodic spam poll guards', () => {
 
 describe('walkStructure attachment classification', () => {
   const walk = (node) => {
-    const results = { textParts: [], attachments: [] };
+    const results = { textParts: [], attachments: [], calendarParts: [] };
     walkStructure(node, results);
     return results;
   };
@@ -1397,6 +1397,34 @@ describe('walkStructure attachment classification', () => {
     });
     expect(results.attachments).toHaveLength(1);
     expect(results.attachments[0].filename).toBe('invoice.pdf');
+  });
+
+  it('collects calendar MIME parts separately from body text and attachments', () => {
+    const results = walk({
+      type: 'multipart/mixed',
+      childNodes: [
+        { part: '1', type: 'text/plain', encoding: '7bit' },
+        {
+          part: '2', type: 'text/calendar', encoding: 'base64', disposition: 'attachment',
+          parameters: { charset: 'utf-8', method: 'REQUEST' }, dispositionParameters: { filename: 'invite.ics' },
+        },
+        { part: '3', type: 'application/ics', encoding: 'quoted-printable', disposition: 'inline' },
+      ],
+    });
+
+    expect(results.textParts.map(part => part.part)).toEqual(['1']);
+    expect(results.attachments).toHaveLength(0);
+    expect(results.calendarParts).toEqual([
+      { part: '2', type: 'text/calendar', encoding: 'base64', charset: 'utf-8' },
+      { part: '3', type: 'application/ics', encoding: 'quoted-printable', charset: 'utf-8' },
+    ]);
+    expect(shouldFallbackToTextPart(results)).toBe(false);
+  });
+
+  it('uses a plain-text fallback only when no calendar MIME part was discovered', () => {
+    expect(shouldFallbackToTextPart({ textParts: [], calendarParts: [] })).toBe(true);
+    expect(shouldFallbackToTextPart({ textParts: [], attachments: [] })).toBe(true);
+    expect(shouldFallbackToTextPart({ textParts: [], calendarParts: [{ part: '1' }] })).toBe(false);
   });
 });
 

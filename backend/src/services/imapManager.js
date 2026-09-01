@@ -407,7 +407,7 @@ function extractBodyFromMsg(msg) {
   if (!msg.bodyStructure) return { html: null, text: null, attachments: [] };
   const results = { textParts: [], attachments: [] };
   walkStructure(msg.bodyStructure, results);
-  if (results.textParts.length === 0) {
+  if (shouldFallbackToTextPart(results)) {
     const rootType = (msg.bodyStructure.type || '').toLowerCase();
     results.textParts.push({
       part: msg.bodyStructure.part || '1',
@@ -605,6 +605,15 @@ export function walkStructure(node, results) {
   const disposition = (node.disposition || '').toLowerCase();
   const rawFilename = node.dispositionParameters?.filename || node.parameters?.name || null;
   const filename = rawFilename ? rawFilename.replace(BIDI_OVERRIDE_RE, '').trim() || 'attachment' : null;
+  if (['text/calendar', 'application/ics', 'application/ical', 'application/calendar'].includes(type)) {
+    results.calendarParts = results.calendarParts || [];
+    results.calendarParts.push({
+      part: node.part || '1', type,
+      encoding: node.encoding || '',
+      charset: node.parameters?.charset || 'utf-8',
+    });
+    return;
+  }
   // A part explicitly marked Content-Disposition: attachment is an attachment
   // no matter its MIME type. Checking the text/* types first used to absorb
   // attached .html/.txt files into the message body: the paperclip showed
@@ -659,6 +668,10 @@ export function walkStructure(node, results) {
       disposition,
     });
   }
+}
+
+export function shouldFallbackToTextPart(results) {
+  return results.textParts.length === 0 && !results.calendarParts?.length;
 }
 
 // Extract a human-readable message from an imapflow error.
@@ -4384,7 +4397,7 @@ export class ImapManager {
         walkStructure(structure, results);
 
         // Handle single-part root node (no childNodes, type is the content type)
-        if (results.textParts.length === 0) {
+        if (shouldFallbackToTextPart(results)) {
           const rootType = (structure.type || '').toLowerCase();
           results.textParts.push({
             part: structure.part || '1',
