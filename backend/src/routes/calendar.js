@@ -1,11 +1,12 @@
 import { Router } from 'express';
 import crypto from 'crypto';
-import { query } from '../services/db.js';
+import { query, withTransaction } from '../services/db.js';
 import { requireAuth } from '../middleware/auth.js';
 import { encrypt } from '../services/encryption.js';
 import { validateHost } from '../services/hostValidation.js';
 import { getConnectionPolicy } from '../services/connectionPolicy.js';
 import { scheduleCalendarSource, stopCalendarSource, syncCalendarSource } from '../services/externalCalendarSync.js';
+import { sendCalendarInvitation } from '../services/calendarInvitation.js';
 
 const router = Router();
 const MAX_EVENT_RANGE_DAYS = 366;
@@ -15,7 +16,7 @@ router.use(requireAuth);
 function parseEventTimes(body) {
   const startsAt = new Date(body?.startsAt);
   const endsAt = new Date(body?.endsAt);
-  if (Number.isNaN(startsAt.getTime()) || Number.isNaN(endsAt.getTime()) || endsAt < startsAt) {
+  if (Number.isNaN(startsAt.getTime()) || Number.isNaN(endsAt.getTime()) || endsAt <= startsAt) {
     return null;
   }
   return { startsAt, endsAt };
@@ -25,6 +26,7 @@ function escapeICalendarText(value) {
   return String(value || '')
     .replaceAll('\\', '\\\\')
     .replaceAll('\r\n', '\n')
+    .replaceAll('\r', '\n')
     .replaceAll('\n', '\\n')
     .replaceAll(';', '\\;')
     .replaceAll(',', '\\,');
@@ -64,6 +66,13 @@ function localEventIcal({ uid, summary, description, location, url, organizer, s
   return lines.map(foldICalendarLine).join('\r\n');
 }
 
+function normalizeAttendees(value) {
+  if (!Array.isArray(value)) return null;
+  const attendees = value.map(email => typeof email === 'string' ? email.trim().toLowerCase() : '').filter(Boolean);
+  if (attendees.some(email => /[\r\n\0\s,;"<>]/.test(email) || !/^[^@]+@[^@]+\.[^@]+$/.test(email))) return null;
+  return [...new Set(attendees)];
+}
+
 async function writableCalendar(userId, calendarId) {
   const result = await query(
     'SELECT id, source, read_only FROM calendars WHERE id = $1 AND user_id = $2',
@@ -95,7 +104,7 @@ router.get('/events', async (req, res) => {
   }
   const result = await query(
     `SELECT e.id, e.calendar_id, e.uid, e.recurrence_id, e.etag, e.summary, e.description,
-            e.location, e.url, e.organizer, e.starts_at, e.ends_at, e.all_day, e.timezone,
+            e.location, e.url, e.organizer, e.starts_at, e.ends_at, e.all_day, e.timezone, e.attendees, e.invite_account_id, e.invitation_sequence,
             c.name AS calendar_name, c.color AS calendar_color, c.source, c.read_only
      FROM calendar_events e
      JOIN calendars c ON c.id = e.calendar_id
@@ -107,58 +116,118 @@ router.get('/events', async (req, res) => {
 });
 
 router.post('/events', async (req, res) => {
-  const { calendarId, summary, description = null, location = null, url = null, organizer = null, allDay = false, timezone = null } = req.body || {};
+  const { calendarId, summary, description = null, location = null, url = null, organizer = null, allDay = false, timezone = null, sendInvites = false, inviteAccountId, attendees } = req.body || {};
   const times = parseEventTimes(req.body);
   if (!calendarId || !times) return res.status(400).json({ error: 'calendarId and a valid event range are required' });
+  const normalizedAttendees = normalizeAttendees(attendees || []);
+  if (!normalizedAttendees) return res.status(400).json({ error: 'Attendees must be valid email addresses' });
+  if (sendInvites && (!inviteAccountId || !normalizedAttendees.length)) {
+    return res.status(400).json({ error: 'A sender account and at least one attendee are required for invitations' });
+  }
 
   const access = await writableCalendar(req.session.userId, calendarId);
   if (access.error) return res.status(access.status).json({ error: access.error });
+
+  let invitationAccount = null;
+  if (sendInvites) {
+    const sender = await query(
+      'SELECT * FROM email_accounts WHERE id = $1 AND user_id = $2 AND enabled = true AND smtp_host IS NOT NULL',
+      [inviteAccountId, req.session.userId],
+    );
+    invitationAccount = sender.rows[0] || null;
+    if (!invitationAccount) return res.status(400).json({ error: 'The selected sender account is unavailable' });
+  }
 
   const uid = crypto.randomUUID();
   const rawIcal = localEventIcal({ uid, summary, description, location, url, organizer, allDay: Boolean(allDay), ...times });
   const result = await query(
     `INSERT INTO calendar_events (
        calendar_id, user_id, uid, raw_ical, summary, description, location, url, organizer,
-       starts_at, ends_at, all_day, timezone
-     ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13)
+       starts_at, ends_at, all_day, timezone, attendees, invite_account_id
+     ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15)
      RETURNING id, calendar_id, uid, etag, summary, description, location, url, organizer,
-               starts_at, ends_at, all_day, timezone, created_at, updated_at`,
-    [calendarId, req.session.userId, uid, rawIcal, summary || null, description, location, url, organizer, times.startsAt, times.endsAt, Boolean(allDay), timezone],
+               starts_at, ends_at, all_day, timezone, attendees, invite_account_id, invitation_sequence, created_at, updated_at`,
+    [calendarId, req.session.userId, uid, rawIcal, summary || null, description, location, url, organizer, times.startsAt, times.endsAt, Boolean(allDay), timezone, sendInvites ? normalizedAttendees : [], invitationAccount?.id || null],
   );
-  res.status(201).json({ event: result.rows[0] });
+  let invitationError = null;
+  if (invitationAccount) {
+    try {
+      await sendCalendarInvitation({ account: invitationAccount, attendees: normalizedAttendees, summary, description, location, uid, allDay: Boolean(allDay), method: 'REQUEST', sequence: result.rows[0].invitation_sequence ?? 0, ...times });
+    } catch (error) {
+      invitationError = 'The event was saved, but the invitation could not be sent.';
+      console.error('Calendar invitation delivery failed:', error.message);
+    }
+  }
+  res.status(201).json({ event: result.rows[0], ...(invitationError ? { invitationError } : {}) });
 });
 
 
 router.patch('/events/:eventId', async (req, res) => {
-  const { calendarId, summary, description = null, location = null, url = null, organizer = null, allDay = false, timezone = null } = req.body || {};
+  const { calendarId, summary, description = null, location = null, url = null, organizer = null, allDay = false, timezone = null, sendInvites = false, inviteAccountId, attendees } = req.body || {};
   const times = parseEventTimes(req.body);
   if (!calendarId || !times) return res.status(400).json({ error: 'calendarId and a valid event range are required' });
+  const normalizedAttendees = normalizeAttendees(attendees || []);
+  if (!normalizedAttendees) return res.status(400).json({ error: 'Attendees must be valid email addresses' });
+  if (sendInvites && (!inviteAccountId || !normalizedAttendees.length)) return res.status(400).json({ error: 'A sender account and at least one attendee are required for invitations' });
 
   const access = await writableCalendar(req.session.userId, calendarId);
   if (access.error) return res.status(access.status).json({ error: access.error });
 
-  const existing = await query(
-    "SELECT uid FROM calendar_events WHERE id = $1 AND calendar_id = $2 AND user_id = $3",
-    [req.params.eventId, calendarId, req.session.userId],
-  );
-  if (!existing.rows[0]) return res.status(404).json({ error: "Event not found" });
+  let invitationAccount = null;
+  if (sendInvites) {
+    const sender = await query('SELECT * FROM email_accounts WHERE id = $1 AND user_id = $2 AND enabled = true AND smtp_host IS NOT NULL', [inviteAccountId, req.session.userId]);
+    invitationAccount = sender.rows[0] || null;
+    if (!invitationAccount) return res.status(400).json({ error: 'The selected sender account is unavailable' });
+  }
 
-  const rawIcal = localEventIcal({ uid: existing.rows[0].uid, summary, description, location, url, organizer, allDay: Boolean(allDay), ...times });
-  const result = await query(
-    `UPDATE calendar_events SET
-       raw_ical = $1, summary = $2, description = $3, location = $4, url = $5, organizer = $6,
-       starts_at = $7, ends_at = $8, all_day = $9, timezone = $10,
-       etag = gen_random_uuid()::text, updated_at = NOW()
-     WHERE id = $11 AND calendar_id = $12 AND user_id = $13
-     RETURNING id, calendar_id, uid, etag, summary, description, location, url, organizer,
-               starts_at, ends_at, all_day, timezone, created_at, updated_at`,
-    [rawIcal, summary || null, description, location, url, organizer, times.startsAt, times.endsAt, Boolean(allDay), timezone,
-      req.params.eventId, calendarId, req.session.userId],
-  );
-  if (!result.rows[0]) return res.status(404).json({ error: "Event not found" });
+  const outcome = await withTransaction(async client => {
+    const existing = await client.query(`SELECT uid, attendees, invite_account_id, invitation_sequence, summary, description, location, starts_at, ends_at, all_day FROM calendar_events WHERE id = $1 AND calendar_id = $2 AND user_id = $3 FOR UPDATE`, [req.params.eventId, calendarId, req.session.userId]);
+    const existingEvent = existing.rows[0];
+    if (!existingEvent) return { notFound: true };
 
-  res.json({ event: result.rows[0] });
+    const hadInvitation = Boolean(existingEvent.invite_account_id && Array.isArray(existingEvent.attendees) && existingEvent.attendees.length);
+    const senderChanged = hadInvitation && sendInvites && invitationAccount?.id !== existingEvent.invite_account_id;
+    const cancelledAttendees = hadInvitation ? (senderChanged || !sendInvites ? existingEvent.attendees : existingEvent.attendees.filter(email => !normalizedAttendees.includes(email))) : [];
+    const cancellationAccount = invitationAccount?.id === existingEvent.invite_account_id
+      ? invitationAccount
+      : cancelledAttendees.length
+        // A disabled account retains SMTP settings for cancellation; referenced
+        // sender accounts cannot be deleted because the FK is ON DELETE RESTRICT.
+        ? (await client.query('SELECT * FROM email_accounts WHERE id = $1 AND user_id = $2 AND smtp_host IS NOT NULL', [existingEvent.invite_account_id, req.session.userId])).rows[0] || null
+        : null;
+    if (cancelledAttendees.length) {
+      if (!cancellationAccount) return { cancelFailed: true };
+      try {
+        await sendCalendarInvitation({ account: cancellationAccount, attendees: cancelledAttendees, summary: existingEvent.summary, description: existingEvent.description, location: existingEvent.location, uid: existingEvent.uid, allDay: Boolean(existingEvent.all_day), method: 'CANCEL', sequence: Number(existingEvent.invitation_sequence || 0) + 1, startsAt: new Date(existingEvent.starts_at), endsAt: new Date(existingEvent.ends_at) });
+      } catch (error) {
+        console.error('Calendar invitation cancellation before update failed:', error.message);
+        return { cancelFailed: true };
+      }
+    }
+
+    const rawIcal = localEventIcal({ uid: existingEvent.uid, summary, description, location, url, organizer, allDay: Boolean(allDay), ...times });
+    const result = await client.query(`UPDATE calendar_events SET raw_ical = $1, summary = $2, description = $3, location = $4, url = $5, organizer = $6, starts_at = $7, ends_at = $8, all_day = $9, timezone = $10, attendees = $11, invite_account_id = $12, invitation_sequence = CASE WHEN (invite_account_id IS NOT NULL AND jsonb_array_length(attendees) > 0) OR invitation_sequence > 0 THEN invitation_sequence + 1 ELSE 0 END, etag = gen_random_uuid()::text, updated_at = NOW() WHERE id = $13 AND calendar_id = $14 AND user_id = $15 RETURNING id, calendar_id, uid, etag, summary, description, location, url, organizer, starts_at, ends_at, all_day, timezone, attendees, invite_account_id, invitation_sequence, created_at, updated_at`, [rawIcal, summary || null, description, location, url, organizer, times.startsAt, times.endsAt, Boolean(allDay), timezone, sendInvites ? normalizedAttendees : [], invitationAccount?.id || null, req.params.eventId, calendarId, req.session.userId]);
+    if (!result.rows[0]) return { notFound: true };
+
+    let invitationError = null;
+    if (invitationAccount) {
+      try {
+        // Keep the row lock until this REQUEST is emitted, so a later mutation
+        // cannot overtake it with a higher sequence number.
+        await sendCalendarInvitation({ account: invitationAccount, attendees: normalizedAttendees, summary, description, location, uid: existingEvent.uid, allDay: Boolean(allDay), method: 'REQUEST', sequence: result.rows[0].invitation_sequence, ...times });
+      } catch (error) {
+        invitationError = 'The event was saved, but the invitation could not be sent.';
+        console.error('Calendar invitation delivery failed:', error.message);
+      }
+    }
+    return { event: result.rows[0], ...(invitationError ? { invitationError } : {}) };
+  });
+  if (outcome.cancelFailed) return res.status(502).json({ error: 'The previous invitation could not be cancelled, so the event was not changed.' });
+  if (outcome.notFound || !outcome.event) return res.status(404).json({ error: 'Event not found' });
+
+  res.json(outcome);
 });
+
 
 router.delete('/events/:eventId', async (req, res) => {
   const calendarId = typeof req.query.calendarId === 'string' ? req.query.calendarId : null;
@@ -167,15 +236,32 @@ router.delete('/events/:eventId', async (req, res) => {
   const access = await writableCalendar(req.session.userId, calendarId);
   if (access.error) return res.status(access.status).json({ error: access.error });
 
-  const result = await query(
-    'DELETE FROM calendar_events WHERE id = $1 AND calendar_id = $2 AND user_id = $3 RETURNING id',
-    [req.params.eventId, calendarId, req.session.userId],
-  );
-  if (!result.rows[0]) return res.status(404).json({ error: 'Event not found' });
+  const outcome = await withTransaction(async client => {
+    const existing = await client.query(`SELECT uid, attendees, invite_account_id, invitation_sequence, summary, description, location, starts_at, ends_at, all_day FROM calendar_events WHERE id = $1 AND calendar_id = $2 AND user_id = $3 FOR UPDATE`, [req.params.eventId, calendarId, req.session.userId]);
+    const event = existing.rows[0];
+    if (!event) return { notFound: true };
+
+    if (event.invite_account_id && Array.isArray(event.attendees) && event.attendees.length) {
+      try {
+        // A disabled account retains SMTP settings for cancellation; referenced
+        // sender accounts cannot be deleted because the FK is ON DELETE RESTRICT.
+        const sender = await client.query('SELECT * FROM email_accounts WHERE id = $1 AND user_id = $2 AND smtp_host IS NOT NULL', [event.invite_account_id, req.session.userId]);
+        if (!sender.rows[0]) return { cancelFailed: true };
+        await sendCalendarInvitation({ account: sender.rows[0], attendees: event.attendees, summary: event.summary, description: event.description, location: event.location, uid: event.uid, allDay: Boolean(event.all_day), method: 'CANCEL', sequence: Number(event.invitation_sequence || 0) + 1, startsAt: new Date(event.starts_at), endsAt: new Date(event.ends_at) });
+      } catch (error) {
+        console.error('Calendar invitation cancellation before deletion failed:', error.message);
+        return { cancelFailed: true };
+      }
+    }
+
+    const result = await client.query('DELETE FROM calendar_events WHERE id = $1 AND calendar_id = $2 AND user_id = $3 RETURNING id', [req.params.eventId, calendarId, req.session.userId]);
+    return { deleted: Boolean(result.rows[0]) };
+  });
+  if (outcome.cancelFailed) return res.status(502).json({ error: 'The invitation could not be cancelled, so the event was not deleted.' });
+  if (outcome.notFound || !outcome.deleted) return res.status(404).json({ error: 'Event not found' });
 
   res.status(204).end();
 });
-
 
 function publicSource(source) {
   return {

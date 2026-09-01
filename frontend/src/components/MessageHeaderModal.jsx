@@ -11,7 +11,9 @@ export default function MessageHeaderModal({ messageId, subject, onClose, onSubj
   const [loading, setLoading] = useState(true);
   const [copied, setCopied] = useState(false);
   const onSubjectResolvedRef = useRef(onSubjectResolved);
+  const onCloseRef = useRef(onClose);
   onSubjectResolvedRef.current = onSubjectResolved;
+  onCloseRef.current = onClose;
 
   useEffect(() => {
     api.getMessageHeaders(messageId)
@@ -25,6 +27,15 @@ export default function MessageHeaderModal({ messageId, subject, onClose, onSubj
       .catch(err => setHeaders(`Error: ${err.message}`))
       .finally(() => setLoading(false));
   }, [messageId]);
+
+  useEffect(() => {
+    const handleBack = event => {
+      event.preventDefault();
+      onCloseRef.current();
+    };
+    window.addEventListener('inboxora:back', handleBack);
+    return () => window.removeEventListener('inboxora:back', handleBack);
+  }, []);
 
   const handleCopy = () => {
     navigator.clipboard.writeText(headers || '');

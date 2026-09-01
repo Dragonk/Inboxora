@@ -40,6 +40,11 @@ describe('migration integrity', () => {
     expect(sql).toContain('calendar_events_sync_change');
   });
 
+  it('keeps invitation senders referentially intact until their events are cancelled', () => {
+    const sql = readFileSync(join(process.cwd(), 'migrations/0067_calendar_event_invitations.sql'), 'utf8');
+    expect(sql).toContain('invite_account_id UUID REFERENCES email_accounts(id) ON DELETE RESTRICT');
+  });
+
   it('records migration checksums in the runner', () => {
     const source = readFileSync(join(process.cwd(), 'src/services/migrations.js'), 'utf8');
     expect(source).toContain('sha256');

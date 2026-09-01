@@ -1,7 +1,12 @@
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 
-const { query } = vi.hoisted(() => ({ query: vi.fn() }));
-vi.mock('../services/db.js', () => ({ query }));
+const { query, withTransaction, sendCalendarInvitation } = vi.hoisted(() => ({
+  query: vi.fn(),
+  withTransaction: vi.fn(async (fn) => fn({ query })),
+  sendCalendarInvitation: vi.fn(),
+}));
+vi.mock('../services/db.js', () => ({ query, withTransaction }));
+vi.mock('../services/calendarInvitation.js', () => ({ sendCalendarInvitation }));
 vi.mock('../middleware/auth.js', () => ({
   requireAuth: (req, _res, next) => { req.session = { userId: 'user-1' }; next(); },
 }));
@@ -24,7 +29,12 @@ afterAll(async () => {
   await new Promise((resolve) => server.close(resolve));
 });
 
-beforeEach(() => query.mockReset());
+beforeEach(() => {
+  query.mockReset();
+  withTransaction.mockClear();
+  withTransaction.mockImplementation(async (fn) => fn({ query }));
+  sendCalendarInvitation.mockReset();
+});
 
 describe('local calendar API', () => {
 
@@ -58,6 +68,43 @@ describe('local calendar API', () => {
     expect(query).not.toHaveBeenCalled();
   });
 
+  it('requires a sender account and attendee list before sending invitations', async () => {
+    const response = await fetch(`${base}/api/calendar/events`, {
+      method: 'POST', headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({
+        calendarId: 'calendar-1', sendInvites: true, attendees: ['guest@example.test'],
+        startsAt: '2026-09-01T09:00:00.000Z', endsAt: '2026-09-01T10:00:00.000Z',
+      }),
+    });
+
+    expect(response.status).toBe(400);
+    expect(await response.json()).toEqual({ error: 'A sender account and at least one attendee are required for invitations' });
+    expect(query).not.toHaveBeenCalled();
+  });
+
+  it('uses only the selected owned SMTP account to deliver a calendar invitation', async () => {
+    const sender = { id: 'account-1', email_address: 'owner@example.test', smtp_host: 'smtp.example.test', enabled: true };
+    query
+      .mockResolvedValueOnce({ rows: [{ id: 'calendar-1', source: 'local', read_only: false }] })
+      .mockResolvedValueOnce({ rows: [sender] })
+      .mockResolvedValueOnce({ rows: [{ id: 'event-1', calendar_id: 'calendar-1', uid: 'uid-1' }] });
+
+    const response = await fetch(`${base}/api/calendar/events`, {
+      method: 'POST', headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({
+        calendarId: 'calendar-1', summary: 'Planning', sendInvites: true, inviteAccountId: 'account-1', attendees: ['guest@example.test'],
+        startsAt: '2026-09-01T09:00:00.000Z', endsAt: '2026-09-01T10:00:00.000Z',
+      }),
+    });
+
+    expect(response.status).toBe(201);
+    expect(query.mock.calls[1][0]).toContain('id = $1 AND user_id = $2');
+    expect(query.mock.calls[1][1]).toEqual(['account-1', 'user-1']);
+    expect(query.mock.calls[2][0]).toContain('attendees, invite_account_id');
+    expect(query.mock.calls[2][1]).toContainEqual(['guest@example.test']);
+    expect(sendCalendarInvitation).toHaveBeenCalledWith(expect.objectContaining({ account: sender, attendees: ['guest@example.test'], summary: 'Planning' }));
+  });
+
   it('stores a valid iCalendar representation when creating a local event', async () => {
     query
       .mockResolvedValueOnce({ rows: [{ id: 'calendar-1', source: 'local', read_only: false }] })
@@ -80,6 +127,22 @@ describe('local calendar API', () => {
     expect(query.mock.calls[1][1][3]).toContain('DESCRIPTION:Bring notes\\nDiscuss scope');
     expect(query.mock.calls[1][1][3]).toContain('LOCATION:Room\\, 2');
     expect(query.mock.calls[1][1][3]).toContain('DTSTART:20260901T090000Z');
+  });
+
+  it('escapes lone carriage returns in local iCalendar text', async () => {
+    query
+      .mockResolvedValueOnce({ rows: [{ id: 'calendar-1', source: 'local', read_only: false }] })
+      .mockResolvedValueOnce({ rows: [{ id: 'event-1' }] });
+
+    const response = await fetch(`${base}/api/calendar/events`, {
+      method: 'POST', headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ calendarId: 'calendar-1', description: 'Details\rX-INJECTED: true', startsAt: '2026-09-01T09:00:00.000Z', endsAt: '2026-09-01T10:00:00.000Z' }),
+    });
+
+    expect(response.status).toBe(201);
+    const rawIcal = query.mock.calls[1][1][3];
+    expect(rawIcal).toContain('DESCRIPTION:Details\\nX-INJECTED: true');
+    expect(rawIcal).not.toContain('\rX-INJECTED: true');
   });
 
   it('folds long serialized iCalendar content lines without splitting UTF-8 characters', async () => {
@@ -164,6 +227,160 @@ describe('local calendar API', () => {
     expect(query.mock.calls[2][1]).toContain("user-1");
   });
 
+  it('updates invitation metadata and sends changes with the existing event UID', async () => {
+    const sender = { id: 'account-1', email_address: 'owner@example.test', smtp_host: 'smtp.example.test', enabled: true };
+    query
+      .mockResolvedValueOnce({ rows: [{ id: 'calendar-1', source: 'local', read_only: false }] })
+      .mockResolvedValueOnce({ rows: [sender] })
+      .mockResolvedValueOnce({ rows: [{ uid: 'uid-1', attendees: ['guest@example.test'], invite_account_id: 'account-1', invitation_sequence: 0 }] })
+      .mockResolvedValueOnce({ rows: [{ id: 'event-1', calendar_id: 'calendar-1', uid: 'uid-1', attendees: ['guest@example.test'], invite_account_id: 'account-1', invitation_sequence: 1 }] });
+
+    const response = await fetch(`${base}/api/calendar/events/event-1`, {
+      method: 'PATCH', headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({
+        calendarId: 'calendar-1', summary: 'Updated', sendInvites: true, inviteAccountId: 'account-1', attendees: ['guest@example.test'],
+        startsAt: '2026-09-01T11:00:00.000Z', endsAt: '2026-09-01T12:00:00.000Z',
+      }),
+    });
+
+    expect(response.status).toBe(200);
+    expect(query.mock.calls[3][0]).toContain('invitation_sequence = CASE');
+    expect(query.mock.calls[3][0]).toContain('invitation_sequence + 1');
+    expect(query.mock.calls[3][0]).toContain('WHERE id = $13 AND calendar_id = $14 AND user_id = $15');
+    expect(query.mock.calls[3][1]).toContainEqual(['guest@example.test']);
+    expect(sendCalendarInvitation).toHaveBeenCalledWith(expect.objectContaining({ account: sender, attendees: ['guest@example.test'], uid: 'uid-1', method: 'REQUEST', sequence: 1 }));
+    expect(withTransaction).toHaveBeenCalledTimes(1);
+    expect(query.mock.calls[2][0]).toContain('FOR UPDATE');
+  });
+
+  it('cancels a previously sent invitation when invitations are removed', async () => {
+    const sender = { id: 'account-1', email_address: 'owner@example.test', smtp_host: 'smtp.example.test', enabled: true };
+    const existingEvent = {
+      uid: 'uid-1', attendees: ['guest@example.test'], invite_account_id: 'account-1', invitation_sequence: 2,
+      summary: 'Planning', description: 'Original details', location: 'Room 1',
+      starts_at: '2026-09-01T09:00:00.000Z', ends_at: '2026-09-01T10:00:00.000Z', all_day: false,
+    };
+    query
+      .mockResolvedValueOnce({ rows: [{ id: 'calendar-1', source: 'local', read_only: false }] })
+      .mockResolvedValueOnce({ rows: [existingEvent] })
+      .mockResolvedValueOnce({ rows: [sender] })
+      .mockResolvedValueOnce({ rows: [{ id: 'event-1', calendar_id: 'calendar-1', uid: 'uid-1', attendees: [], invite_account_id: null, invitation_sequence: 3 }] });
+
+    const response = await fetch(`${base}/api/calendar/events/event-1`, {
+      method: 'PATCH', headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({
+        calendarId: 'calendar-1', summary: 'Planning', attendees: [], sendInvites: false,
+        startsAt: '2026-09-01T11:00:00.000Z', endsAt: '2026-09-01T12:00:00.000Z',
+      }),
+    });
+
+    expect(response.status).toBe(200);
+    expect(sendCalendarInvitation).toHaveBeenCalledWith(expect.objectContaining({
+      account: sender, attendees: ['guest@example.test'], uid: 'uid-1', method: 'CANCEL', sequence: 3,
+      startsAt: new Date('2026-09-01T09:00:00.000Z'), endsAt: new Date('2026-09-01T10:00:00.000Z'),
+    }));
+    expect(query.mock.calls[2][0]).not.toContain('enabled = true');
+  });
+
+  it('cancels attendees removed from an updated invitation', async () => {
+    const sender = { id: 'account-1', email_address: 'owner@example.test', smtp_host: 'smtp.example.test', enabled: true };
+    query
+      .mockResolvedValueOnce({ rows: [{ id: 'calendar-1', source: 'local', read_only: false }] })
+      .mockResolvedValueOnce({ rows: [sender] })
+      .mockResolvedValueOnce({ rows: [{
+        uid: 'uid-1', attendees: ['kept@example.test', 'removed@example.test'], invite_account_id: 'account-1', invitation_sequence: 2,
+        summary: 'Planning', starts_at: '2026-09-01T09:00:00.000Z', ends_at: '2026-09-01T10:00:00.000Z', all_day: false,
+      }] })
+      .mockResolvedValueOnce({ rows: [{ id: 'event-1', uid: 'uid-1', attendees: ['kept@example.test'], invite_account_id: 'account-1', invitation_sequence: 3 }] });
+
+    const response = await fetch(`${base}/api/calendar/events/event-1`, {
+      method: 'PATCH', headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({
+        calendarId: 'calendar-1', summary: 'Planning', sendInvites: true, inviteAccountId: 'account-1', attendees: ['kept@example.test'],
+        startsAt: '2026-09-01T11:00:00.000Z', endsAt: '2026-09-01T12:00:00.000Z',
+      }),
+    });
+
+    expect(response.status).toBe(200);
+    expect(sendCalendarInvitation).toHaveBeenNthCalledWith(1, expect.objectContaining({
+      account: sender, attendees: ['removed@example.test'], method: 'CANCEL', sequence: 3,
+    }));
+    expect(sendCalendarInvitation).toHaveBeenNthCalledWith(2, expect.objectContaining({
+      account: sender, attendees: ['kept@example.test'], method: 'REQUEST', sequence: 3,
+    }));
+  });
+
+  it('keeps the event unchanged when the previous invitation cannot be cancelled during an update', async () => {
+    const sender = { id: 'account-1', email_address: 'owner@example.test', smtp_host: 'smtp.example.test', enabled: true };
+    sendCalendarInvitation.mockRejectedValueOnce(new Error('SMTP unavailable'));
+    query
+      .mockResolvedValueOnce({ rows: [{ id: 'calendar-1', source: 'local', read_only: false }] })
+      .mockResolvedValueOnce({ rows: [{
+        uid: 'uid-1', attendees: ['guest@example.test'], invite_account_id: 'account-1', invitation_sequence: 2,
+        summary: 'Planning', starts_at: '2026-09-01T09:00:00.000Z', ends_at: '2026-09-01T10:00:00.000Z', all_day: false,
+      }] })
+      .mockResolvedValueOnce({ rows: [sender] });
+
+    const response = await fetch(`${base}/api/calendar/events/event-1`, {
+      method: 'PATCH', headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({
+        calendarId: 'calendar-1', summary: 'Changed', sendInvites: false, attendees: [],
+        startsAt: '2026-09-01T11:00:00.000Z', endsAt: '2026-09-01T12:00:00.000Z',
+      }),
+    });
+
+    expect(response.status).toBe(502);
+    expect(await response.json()).toEqual({ error: 'The previous invitation could not be cancelled, so the event was not changed.' });
+    expect(query).toHaveBeenCalledTimes(3);
+    expect(query.mock.calls.some(([sql]) => sql.includes('UPDATE calendar_events'))).toBe(false);
+  });
+
+  it('continues the iCalendar sequence when invitations are enabled again', async () => {
+    const sender = { id: 'account-1', email_address: 'owner@example.test', smtp_host: 'smtp.example.test', enabled: true };
+    query
+      .mockResolvedValueOnce({ rows: [{ id: 'calendar-1', source: 'local', read_only: false }] })
+      .mockResolvedValueOnce({ rows: [sender] })
+      .mockResolvedValueOnce({ rows: [{ uid: 'uid-1', attendees: [], invite_account_id: null, invitation_sequence: 3 }] })
+      .mockResolvedValueOnce({ rows: [{ id: 'event-1', uid: 'uid-1', attendees: ['guest@example.test'], invite_account_id: 'account-1', invitation_sequence: 4 }] });
+
+    const response = await fetch(`${base}/api/calendar/events/event-1`, {
+      method: 'PATCH', headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({
+        calendarId: 'calendar-1', summary: 'Planning', sendInvites: true, inviteAccountId: 'account-1', attendees: ['guest@example.test'],
+        startsAt: '2026-09-01T11:00:00.000Z', endsAt: '2026-09-01T12:00:00.000Z',
+      }),
+    });
+
+    expect(response.status).toBe(200);
+    expect(sendCalendarInvitation).toHaveBeenCalledWith(expect.objectContaining({ method: 'REQUEST', sequence: 4 }));
+  });
+
+  it('cancels the prior organizer invitation before changing sender accounts', async () => {
+    const oldSender = { id: 'account-old', email_address: 'old@example.test', smtp_host: 'smtp.example.test', enabled: true };
+    const newSender = { id: 'account-new', email_address: 'new@example.test', smtp_host: 'smtp.example.test', enabled: true };
+    query
+      .mockResolvedValueOnce({ rows: [{ id: 'calendar-1', source: 'local', read_only: false }] })
+      .mockResolvedValueOnce({ rows: [newSender] })
+      .mockResolvedValueOnce({ rows: [{
+        uid: 'uid-1', attendees: ['guest@example.test'], invite_account_id: 'account-old', invitation_sequence: 2,
+        summary: 'Planning', starts_at: '2026-09-01T09:00:00.000Z', ends_at: '2026-09-01T10:00:00.000Z', all_day: false,
+      }] })
+      .mockResolvedValueOnce({ rows: [oldSender] })
+      .mockResolvedValueOnce({ rows: [{ id: 'event-1', uid: 'uid-1', attendees: ['guest@example.test'], invite_account_id: 'account-new', invitation_sequence: 3 }] });
+
+    const response = await fetch(`${base}/api/calendar/events/event-1`, {
+      method: 'PATCH', headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({
+        calendarId: 'calendar-1', summary: 'Planning', sendInvites: true, inviteAccountId: 'account-new', attendees: ['guest@example.test'],
+        startsAt: '2026-09-01T11:00:00.000Z', endsAt: '2026-09-01T12:00:00.000Z',
+      }),
+    });
+
+    expect(response.status).toBe(200);
+    expect(sendCalendarInvitation).toHaveBeenNthCalledWith(1, expect.objectContaining({ account: oldSender, method: 'CANCEL', sequence: 3 }));
+    expect(sendCalendarInvitation).toHaveBeenNthCalledWith(2, expect.objectContaining({ account: newSender, method: 'REQUEST', sequence: 3 }));
+  });
+
   it('refuses an event update with an invalid range before querying the database', async () => {
     const response = await fetch(`${base}/api/calendar/events/event-1`, {
       method: 'PATCH',
@@ -175,17 +392,66 @@ describe('local calendar API', () => {
     expect(query).not.toHaveBeenCalled();
   });
 
+  it('rejects newline-injected attendees on update before querying the database', async () => {
+    const response = await fetch(`${base}/api/calendar/events/event-1`, { method: 'PATCH', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ calendarId: 'calendar-1', attendees: ['guest@example.test\r\nBcc: victim@example.test'], startsAt: '2026-09-01T11:00:00.000Z', endsAt: '2026-09-01T12:00:00.000Z' }) });
+    expect(response.status).toBe(400);
+    expect(await response.json()).toEqual({ error: 'Attendees must be valid email addresses' });
+    expect(query).not.toHaveBeenCalled();
+  });
+
   it('deletes only an event from a writable calendar owned by the signed-in user', async () => {
     query
       .mockResolvedValueOnce({ rows: [{ id: 'calendar-1', source: 'local', read_only: false }] })
       .mockResolvedValueOnce({ rows: [{ id: 'event-1' }] })
-      .mockResolvedValueOnce({ rows: [] });
+      .mockResolvedValueOnce({ rows: [{ id: 'event-1' }] });
 
     const response = await fetch(`${base}/api/calendar/events/event-1?calendarId=calendar-1`, { method: 'DELETE' });
 
     expect(response.status).toBe(204);
-    expect(query.mock.calls[1][0]).toContain('WHERE id = $1 AND calendar_id = $2 AND user_id = $3');
-    expect(query.mock.calls[1][1]).toEqual(['event-1', 'calendar-1', 'user-1']);
+    expect(query.mock.calls[2][0]).toContain('DELETE FROM calendar_events');
+    expect(query.mock.calls[2][1]).toEqual(['event-1', 'calendar-1', 'user-1']);
+  });
+
+  it('cancels an invitation when deleting its event', async () => {
+    const sender = { id: 'account-1', email_address: 'owner@example.test', smtp_host: 'smtp.example.test', enabled: true };
+    query
+      .mockResolvedValueOnce({ rows: [{ id: 'calendar-1', source: 'local', read_only: false }] })
+      .mockResolvedValueOnce({ rows: [{
+        id: 'event-1', uid: 'uid-1', attendees: ['guest@example.test'], invite_account_id: 'account-1', invitation_sequence: 2,
+        summary: 'Planning', starts_at: '2026-09-01T09:00:00.000Z', ends_at: '2026-09-01T10:00:00.000Z', all_day: false,
+      }] })
+      .mockResolvedValueOnce({ rows: [sender] })
+      .mockResolvedValueOnce({ rows: [{ id: 'event-1' }] });
+
+    const response = await fetch(`${base}/api/calendar/events/event-1?calendarId=calendar-1`, { method: 'DELETE' });
+
+    expect(response.status).toBe(204);
+    expect(query.mock.calls[1][0]).toContain('SELECT uid, attendees, invite_account_id');
+    expect(query.mock.calls[3][0]).toContain('DELETE FROM calendar_events');
+    expect(sendCalendarInvitation).toHaveBeenCalledWith(expect.objectContaining({
+      account: sender, attendees: ['guest@example.test'], uid: 'uid-1', method: 'CANCEL', sequence: 3,
+    }));
+    expect(query.mock.calls[2][0]).not.toContain('enabled = true');
+    expect(withTransaction).toHaveBeenCalledTimes(1);
+    expect(query.mock.calls[1][0]).toContain('FOR UPDATE');
+  });
+
+  it('keeps an invited event when its cancellation cannot be delivered', async () => {
+    const sender = { id: 'account-1', email_address: 'owner@example.test', smtp_host: 'smtp.example.test', enabled: true };
+    sendCalendarInvitation.mockRejectedValueOnce(new Error('SMTP unavailable'));
+    query
+      .mockResolvedValueOnce({ rows: [{ id: 'calendar-1', source: 'local', read_only: false }] })
+      .mockResolvedValueOnce({ rows: [{
+        id: 'event-1', uid: 'uid-1', attendees: ['guest@example.test'], invite_account_id: 'account-1', invitation_sequence: 2,
+        summary: 'Planning', starts_at: '2026-09-01T09:00:00.000Z', ends_at: '2026-09-01T10:00:00.000Z', all_day: false,
+      }] })
+      .mockResolvedValueOnce({ rows: [sender] });
+
+    const response = await fetch(`${base}/api/calendar/events/event-1?calendarId=calendar-1`, { method: 'DELETE' });
+
+    expect(response.status).toBe(502);
+    expect(await response.json()).toEqual({ error: 'The invitation could not be cancelled, so the event was not deleted.' });
+    expect(query).toHaveBeenCalledTimes(3);
   });
 
 });

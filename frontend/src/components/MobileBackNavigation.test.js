@@ -53,4 +53,12 @@ describe('mobile system Back navigation contract', () => {
     assert.match(compose, /addEventListener\('inboxora:back'/);
     assert.match(compose, /handleCloseRef\.current\(\)/);
   });
+
+  it('lets the message-header modal consume Back before its parent reader closes', async () => {
+    const headers = await source('./MessageHeaderModal.jsx');
+
+    assert.match(headers, /addEventListener\('inboxora:back'/);
+    assert.match(headers, /event\.preventDefault\(\)/);
+    assert.match(headers, /onClose\(\)/);
+  });
 });

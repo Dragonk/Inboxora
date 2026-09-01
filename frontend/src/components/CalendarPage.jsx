@@ -1,56 +1,123 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { api } from '../utils/api.js';
 import { useStore } from '../store/index.js';
 import { useMobile } from '../hooks/useMobile.js';
-import { eventPayload, eventsForDay, monthRange, toDateTimeLocal } from './calendarView.js';
+import { eventPayload, eventsForDay, monthRange, shiftCalendarAnchor, toDateTimeLocal, toggleAllDayTimes, weekRange } from './calendarView.js';
 
-const dayNames = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
-const emptyForm = (calendarId = '', date = new Date()) => ({ calendarId, summary: '', description: '', location: '', url: '', organizer: '', allDay: false, startsAt: toDateTimeLocal(date), endsAt: toDateTimeLocal(new Date(date.getTime() + 3600000)) });
+const emptyForm = (calendarId = '', date = new Date()) => ({ calendarId, summary: '', description: '', location: '', url: '', organizer: '', attendees: [], sendInvites: false, inviteAccountId: '', allDay: false, startsAt: toDateTimeLocal(date), endsAt: toDateTimeLocal(new Date(date.getTime() + 3600000)) });
 function iso(date) { return date.toISOString(); }
 function calendarDays(anchor) {
   const { start } = monthRange(anchor); const first = new Date(start); first.setDate(first.getDate() - first.getDay());
   return Array.from({ length: 42 }, (_, i) => { const day = new Date(first); day.setDate(day.getDate() + i); return day; });
 }
+function weekDays(anchor, workWeek) {
+  const { start } = weekRange(anchor);
+  return Array.from({ length: workWeek ? 5 : 7 }, (_, index) => { const day = new Date(start); day.setDate(day.getDate() + index); return day; });
+}
+function isToday(day) { const today = new Date(); return day.toDateString() === today.toDateString(); }
+function eventTime(event) { return new Date(event.starts_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }); }
 
 export default function CalendarPage() {
   const { t } = useTranslation();
-  const { showCalendar } = useStore();
+  const { showCalendar, accounts } = useStore();
   const isMobile = useMobile();
   const [anchor, setAnchor] = useState(() => new Date());
+  const loadGeneration = useRef(0);
+  const [view, setView] = useState('month');
   const [calendars, setCalendars] = useState([]); const [events, setEvents] = useState([]);
   const [error, setError] = useState(null); const [loading, setLoading] = useState(true); const [form, setForm] = useState(null); const [saving, setSaving] = useState(false);
-  const range = useMemo(() => monthRange(anchor), [anchor]);
+  const range = useMemo(() => view === 'month' ? monthRange(anchor) : weekRange(anchor), [anchor, view]);
   const load = useCallback(async () => {
+    const generation = ++loadGeneration.current;
     setLoading(true); setError(null);
-    try { const [calendarResult, eventResult] = await Promise.all([api.calendar.listCalendars(), api.calendar.listEvents(iso(range.start), iso(range.end))]); setCalendars(calendarResult.calendars || []); setEvents(eventResult.events || []); }
-    catch (err) { setError(err.message || 'Could not load calendar.'); }
-    finally { setLoading(false); }
-  }, [range]);
+    try { const [calendarResult, eventResult] = await Promise.all([api.calendar.listCalendars(), api.calendar.listEvents(iso(range.start), iso(range.end))]); if (generation === loadGeneration.current) { setCalendars(calendarResult.calendars || []); setEvents(eventResult.events || []); } }
+    catch (err) { if (generation === loadGeneration.current) setError(err.message || t('calendar.loadFailed')); }
+    finally { if (generation === loadGeneration.current) setLoading(false); }
+  }, [range, t]);
   useEffect(() => { load(); }, [load]);
   useEffect(() => {
     if (!isMobile || !showCalendar || !form) return undefined;
-    const handleBack = (event) => {
-      event.preventDefault();
-      setForm(null);
-    };
+    const handleBack = event => { event.preventDefault(); setForm(null); };
     window.addEventListener('inboxora:back', handleBack);
     return () => window.removeEventListener('inboxora:back', handleBack);
   }, [form, isMobile, showCalendar]);
   const writable = calendars.filter(calendar => !calendar.read_only && calendar.source === 'local');
+  const senderAccounts = accounts.filter(account => account.enabled && account.smtp_host);
   const openCreate = (date = new Date()) => setForm({ ...emptyForm(writable[0]?.id || '', date), mode: 'create' });
-  const openEdit = event => setForm({ mode: 'edit', id: event.id, ...event, calendarId: event.calendar_id, summary: event.summary || '', description: event.description || '', location: event.location || '', url: event.url || '', organizer: event.organizer || '', startsAt: toDateTimeLocal(event.starts_at), endsAt: toDateTimeLocal(event.ends_at) });
-  const save = async () => { const payload = eventPayload(form); if (!payload) { setError('Choose a local calendar and a valid end time after the start time.'); return; } setSaving(true); setError(null); try { if (form.mode === 'edit') await api.calendar.updateEvent(form.id, payload); else await api.calendar.createEvent(payload); setForm(null); await load(); } catch (err) { setError(err.message || 'Could not save event.'); } finally { setSaving(false); } };
-  const remove = async () => { if (!form?.id || !window.confirm('Delete this event?')) return; setSaving(true); try { await api.calendar.deleteEvent(form.id, form.calendarId); setForm(null); await load(); } catch (err) { setError(err.message || 'Could not delete event.'); } finally { setSaving(false); } };
-  const days = calendarDays(anchor); const title = anchor.toLocaleDateString(undefined, { month: 'long', year: 'numeric' });
-  return <div data-testid="calendar-page" style={{ flex: 1, minWidth: 0, height: '100%', overflow: 'auto', padding: 24, boxSizing: 'border-box' }}>
-    <header style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 20 }}><h1 style={{ margin: 0, fontSize: 20, flex: 1 }}>{t('calendar.title')}</h1><button onClick={() => setAnchor(new Date(anchor.getFullYear(), anchor.getMonth() - 1, 1))}>‹</button><strong>{title}</strong><button onClick={() => setAnchor(new Date(anchor.getFullYear(), anchor.getMonth() + 1, 1))}>›</button><button onClick={() => setAnchor(new Date())}>{t('calendar.today')}</button><button disabled={!writable.length} onClick={() => openCreate()} style={primaryButton}>{t('calendar.newEvent')}</button></header>
+  const openEdit = event => setForm({ mode: 'edit', id: event.id, ...event, calendarId: event.calendar_id, summary: event.summary || '', description: event.description || '', location: event.location || '', url: event.url || '', organizer: event.organizer || '', attendees: Array.isArray(event.attendees) ? event.attendees : [], sendInvites: Boolean(event.invite_account_id && event.attendees?.length), inviteAccountId: event.invite_account_id || '', allDay: Boolean(event.all_day), startsAt: event.all_day ? String(event.starts_at).slice(0, 10) : toDateTimeLocal(event.starts_at), endsAt: event.all_day ? String(event.ends_at).slice(0, 10) : toDateTimeLocal(event.ends_at) });
+  const save = async () => {
+    const payload = eventPayload(form);
+    if (!payload) { setError(t('calendar.invalidEvent')); return; }
+    setSaving(true); setError(null);
+    try {
+      const result = form.mode === 'edit' ? await api.calendar.updateEvent(form.id, payload) : await api.calendar.createEvent(payload);
+      setForm(null); await load();
+      if (result?.invitationError) setError(result.invitationError);
+    } catch (err) { setError(err.message || t('calendar.saveFailed')); } finally { setSaving(false); }
+  };
+  const remove = async () => { if (!form?.id || !window.confirm(t('calendar.confirmDelete'))) return; setSaving(true); try { await api.calendar.deleteEvent(form.id, form.calendarId); setForm(null); await load(); } catch (err) { setError(err.message || t('calendar.deleteFailed')); } finally { setSaving(false); } };
+  const days = view === 'month' ? calendarDays(anchor) : weekDays(anchor, view === 'workweek');
+  const title = view === 'month'
+    ? anchor.toLocaleDateString(undefined, { month: 'long', year: 'numeric' })
+    : `${days[0].toLocaleDateString(undefined, { month: 'short', day: 'numeric' })} – ${days.at(-1).toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' })}`;
+  const step = direction => setAnchor(current => shiftCalendarAnchor(current, view, direction));
+  return <div data-testid="calendar-page" style={page}>
+    <header style={header}>
+      <div style={heading}><h1 style={{ margin: 0, fontSize: 22 }}>{t('calendar.title')}</h1><span style={subheading}>{title}</span></div>
+      <div style={toolbar}>
+        <div style={segmented} aria-label={t('calendar.view')}>
+          {[['month', t('calendar.month')], ['week', t('calendar.week')], ['workweek', t('calendar.workWeek')]].map(([value, label]) => <button key={value} onClick={() => setView(value)} aria-pressed={view === value} style={{ ...segmentButton, ...(view === value ? segmentActive : {}) }}>{label}</button>)}
+        </div>
+        <button onClick={() => step(-1)} aria-label={t('calendar.previous')} style={iconButton}>‹</button><button onClick={() => setAnchor(new Date())} style={secondaryButton}>{t('calendar.today')}</button><button onClick={() => step(1)} aria-label={t('calendar.next')} style={iconButton}>›</button>
+        <button disabled={!writable.length} onClick={() => openCreate()} style={primaryButton}>{t('calendar.newEvent')}</button>
+      </div>
+    </header>
     {error && <div role="alert" style={errorStyle}>{error}</div>}
     {!writable.length && !loading && <div style={errorStyle}>{t('calendar.noWritable')}</div>}
-    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(7, minmax(110px, 1fr))', border: '1px solid var(--border)', minWidth: 770 }}>{dayNames.map(day => <div key={day} style={{ padding: 8, borderBottom: '1px solid var(--border)', color: 'var(--text-tertiary)', fontSize: 12 }}>{day}</div>)}{days.map(day => { const inMonth = day.getMonth() === anchor.getMonth(); const dayEvents = eventsForDay(events, day); return <div key={day.toDateString()} onDoubleClick={() => openCreate(day)} style={{ minHeight: 115, padding: 7, borderRight: '1px solid var(--border)', borderBottom: '1px solid var(--border)', opacity: inMonth ? 1 : .5 }}><div style={{ fontSize: 12, marginBottom: 5 }}>{day.getDate()}</div>{dayEvents.map(event => <button key={event.id} onClick={() => !event.read_only && event.source === 'local' ? openEdit(event) : null} title={event.read_only ? 'Imported event (read-only)' : 'Edit event'} style={{ display: 'block', width: '100%', textAlign: 'left', border: 0, borderRadius: 4, marginBottom: 3, padding: '3px 5px', background: event.calendar_color || 'var(--accent)', color: 'white', cursor: event.read_only || event.source !== 'local' ? 'default' : 'pointer', fontSize: 12, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{event.summary || '(Untitled event)'}</button>)}</div>; })}</div>
+    <CalendarGrid days={days} events={events} view={view} anchor={anchor} openCreate={openCreate} openEdit={openEdit} t={t} />
     {loading && <p>{t('calendar.loading')}</p>}
-    {form && <EventDialog form={form} calendars={writable} saving={saving} onChange={(key, value) => setForm(current => ({ ...current, [key]: value }))} onSave={save} onDelete={remove} onClose={() => setForm(null)} />}
+    {form && <EventDialog form={form} calendars={writable} accounts={senderAccounts} saving={saving} onChange={(key, value) => setForm(current => ({ ...current, [key]: value }))} onAllDayChange={allDay => setForm(current => toggleAllDayTimes(current, allDay))} onSave={save} onDelete={remove} onClose={() => setForm(null)} t={t} />}
   </div>;
 }
-function EventDialog({ form, calendars, saving, onChange, onSave, onDelete, onClose }) { return <div role="dialog" aria-modal="true" style={overlay}><div style={dialog}><h2>{form.mode === 'edit' ? 'Edit event' : 'New event'}</h2><label>Calendar<select value={form.calendarId} onChange={e => onChange('calendarId', e.target.value)}>{calendars.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}</select></label><label>Title<input autoFocus value={form.summary} onChange={e => onChange('summary', e.target.value)} /></label><label>Starts<input type="datetime-local" value={form.startsAt} onChange={e => onChange('startsAt', e.target.value)} /></label><label>Ends<input type="datetime-local" value={form.endsAt} onChange={e => onChange('endsAt', e.target.value)} /></label><label>Location<input value={form.location} onChange={e => onChange('location', e.target.value)} /></label><label>Description<textarea value={form.description} onChange={e => onChange('description', e.target.value)} /></label><div style={{ display: 'flex', gap: 8, marginTop: 18 }}><button disabled={saving} onClick={onSave} style={primaryButton}>{saving ? 'Saving…' : 'Save'}</button>{form.mode === 'edit' && <button disabled={saving} onClick={onDelete}>{'Delete'}</button>}<button disabled={saving} onClick={onClose}>{'Cancel'}</button></div></div></div>; }
-const primaryButton = { background: 'var(--accent)', color: 'var(--accent-text)', border: 0, borderRadius: 6, padding: '7px 12px', cursor: 'pointer' }; const errorStyle = { marginBottom: 12, padding: 10, borderRadius: 6, color: 'var(--red)', background: 'var(--red-dim, #fee2e2)' }; const overlay = { position: 'fixed', inset: 0, zIndex: 1000, background: 'var(--overlay-scrim)', display: 'grid', placeItems: 'center' }; const dialog = { width: 440, maxWidth: 'calc(100vw - 32px)', padding: 24, background: 'var(--bg-secondary)', borderRadius: 10, display: 'grid', gap: 10 };
+
+function CalendarGrid({ days, events, view, anchor, openCreate, openEdit, t }) {
+  const month = view === 'month';
+  return <div style={calendarSurface}>
+    <div style={{ ...dayGrid, gridTemplateColumns: `repeat(${month ? 7 : days.length}, minmax(${month ? 112 : 156}px, 1fr))` }}>
+      {days.slice(0, month ? 7 : days.length).map(day => <div key={`header-${day.toISOString()}`} style={{ ...dayHeader, ...(isToday(day) ? todayHeader : {}) }}>{day.toLocaleDateString(undefined, { weekday: 'short' })}<strong>{day.getDate()}</strong></div>)}
+      {days.map(day => {
+        const inMonth = day.getMonth() === anchor.getMonth(); const dayEvents = eventsForDay(events, day);
+        return <section key={day.toDateString()} onDoubleClick={() => openCreate(day)} style={{ ...dayCell, minHeight: month ? 132 : 580, opacity: month && !inMonth ? .46 : 1, ...(isToday(day) ? todayCell : {}) }}>
+          {month && <div style={dateChip}>{day.getDate()}</div>}
+          <div style={eventStack}>{dayEvents.map(event => <button key={event.id} onClick={() => !event.read_only && event.source === 'local' ? openEdit(event) : null} title={event.read_only ? t('calendar.readOnly') : t('calendar.edit')} style={{ ...eventCard, background: event.calendar_color || 'var(--accent)', cursor: event.read_only || event.source !== 'local' ? 'default' : 'pointer' }}><span>{month ? event.summary || t('calendar.untitled') : `${eventTime(event)}  ${event.summary || t('calendar.untitled')}`}</span>{!month && event.location && <small>{event.location}</small>}</button>)}</div>
+        </section>;
+      })}
+    </div>
+  </div>;
+}
+
+function EventDialog({ form, calendars, accounts, saving, onChange, onAllDayChange, onSave, onDelete, onClose, t }) {
+  const attendeeValue = form.attendees.join(', ');
+  const setAttendees = value => onChange('attendees', value.split(',').map(email => email.trim()).filter(Boolean));
+  return <div role="dialog" aria-modal="true" aria-label={form.mode === 'edit' ? t('calendar.editEvent') : t('calendar.newEvent')} style={overlay}><div style={dialog}>
+    <header style={dialogHeader}><h2 style={{ margin: 0 }}>{form.mode === 'edit' ? t('calendar.editEvent') : t('calendar.newEvent')}</h2><button aria-label={t('calendar.close')} onClick={onClose} style={iconButton}>×</button></header>
+    <label style={field}><span>{t('calendar.titleField')}</span><input autoFocus value={form.summary} onChange={e => onChange('summary', e.target.value)} /></label>
+    <label style={toggleLabel}><input type="checkbox" checked={form.allDay} onChange={e => onAllDayChange(e.target.checked)} />{t('calendar.allDay')}</label>
+    <div style={twoColumns}><label style={field}><span>{t('calendar.starts')}</span><input type={form.allDay ? 'date' : 'datetime-local'} value={form.startsAt} onChange={e => onChange('startsAt', e.target.value)} /></label><label style={field}><span>{t('calendar.ends')}</span><input type={form.allDay ? 'date' : 'datetime-local'} value={form.endsAt} onChange={e => onChange('endsAt', e.target.value)} /></label></div>
+    <label style={field}><span>{t('calendar.calendar')}</span><select value={form.calendarId} onChange={e => onChange('calendarId', e.target.value)}>{calendars.map(calendar => <option key={calendar.id} value={calendar.id}>{calendar.name}</option>)}</select></label>
+    <label style={field}><span>{t('calendar.location')}</span><input value={form.location} onChange={e => onChange('location', e.target.value)} /></label>
+    <label style={field}><span>{t('calendar.description')}</span><textarea rows="4" value={form.description} onChange={e => onChange('description', e.target.value)} /></label>
+    <div style={inviteBox}><label style={toggleLabel}><input type="checkbox" checked={form.sendInvites} onChange={e => onChange('sendInvites', e.target.checked)} />{t('calendar.sendInvites')}</label>{form.sendInvites && <><label style={field}><span>{t('calendar.attendees')}</span><input value={attendeeValue} onChange={e => setAttendees(e.target.value)} placeholder={t('calendar.attendeesPlaceholder')} /></label><label style={field}><span>{t('calendar.senderAccount')}</span><select value={form.inviteAccountId} onChange={e => onChange('inviteAccountId', e.target.value)}><option value="">{t('calendar.chooseSender')}</option>{accounts.map(account => <option key={account.id} value={account.id}>{account.name || account.email_address} · {account.email_address}</option>)}</select></label>{!accounts.length && <p style={hint}>{t('calendar.noSenderAccounts')}</p>}</>}</div>
+    <footer style={dialogFooter}><div>{form.mode === 'edit' && <button disabled={saving} onClick={onDelete} style={dangerButton}>{t('calendar.delete')}</button>}</div><div style={{ display: 'flex', gap: 8 }}><button disabled={saving} onClick={onClose} style={secondaryButton}>{t('calendar.cancel')}</button><button disabled={saving} onClick={onSave} style={primaryButton}>{saving ? t('calendar.saving') : t('calendar.save')}</button></div></footer>
+  </div></div>;
+}
+
+const page = { flex: 1, minWidth: 0, height: '100%', overflow: 'auto', padding: '24px clamp(14px, 3vw, 36px)', boxSizing: 'border-box', background: 'var(--bg-primary)' };
+const header = { display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 16, flexWrap: 'wrap', marginBottom: 20 };
+const heading = { display: 'flex', alignItems: 'baseline', gap: 12, minWidth: 230 }; const subheading = { color: 'var(--text-secondary)', fontWeight: 600 };
+const toolbar = { display: 'flex', gap: 7, alignItems: 'center', flexWrap: 'wrap' }; const segmented = { display: 'flex', padding: 3, borderRadius: 9, background: 'var(--bg-tertiary)' };
+const segmentButton = { border: 0, background: 'transparent', color: 'var(--text-secondary)', padding: '6px 9px', borderRadius: 6, cursor: 'pointer', fontSize: 12 }; const segmentActive = { background: 'var(--bg-secondary)', color: 'var(--text-primary)', boxShadow: '0 1px 3px rgba(0,0,0,.16)' };
+const primaryButton = { background: 'var(--accent)', color: 'var(--accent-text)', border: 0, borderRadius: 7, padding: '8px 12px', cursor: 'pointer', fontWeight: 650 }; const secondaryButton = { background: 'var(--bg-secondary)', color: 'var(--text-primary)', border: '1px solid var(--border)', borderRadius: 7, padding: '7px 10px', cursor: 'pointer' }; const iconButton = { ...secondaryButton, padding: '5px 10px', fontSize: 18, lineHeight: 1 };
+const errorStyle = { marginBottom: 12, padding: 10, borderRadius: 7, color: 'var(--red)', background: 'var(--red-dim, #fee2e2)' }; const calendarSurface = { overflowX: 'auto', border: '1px solid var(--border)', borderRadius: 12, background: 'var(--bg-secondary)', boxShadow: '0 6px 24px rgba(0,0,0,.08)' }; const dayGrid = { display: 'grid', minWidth: 780 }; const dayHeader = { position: 'sticky', top: 0, zIndex: 1, display: 'flex', justifyContent: 'space-between', padding: '9px 10px', borderBottom: '1px solid var(--border)', color: 'var(--text-secondary)', background: 'var(--bg-secondary)', fontSize: 12 }; const todayHeader = { color: 'var(--accent)' }; const dayCell = { padding: 7, borderRight: '1px solid var(--border)', borderBottom: '1px solid var(--border)', boxSizing: 'border-box' }; const todayCell = { background: 'color-mix(in srgb, var(--accent) 5%, transparent)' }; const dateChip = { fontSize: 12, color: 'var(--text-secondary)', marginBottom: 6 }; const eventStack = { display: 'grid', gap: 4 }; const eventCard = { display: 'grid', gap: 2, width: '100%', textAlign: 'left', border: 0, borderRadius: 6, padding: '5px 7px', color: 'white', fontSize: 12, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' };
+const overlay = { position: 'fixed', inset: 0, zIndex: 1000, padding: 16, background: 'var(--overlay-scrim)', display: 'grid', placeItems: 'center' }; const dialog = { width: 590, maxWidth: '100%', maxHeight: 'calc(100vh - 32px)', overflow: 'auto', padding: 22, background: 'var(--bg-secondary)', border: '1px solid var(--border)', borderRadius: 14, display: 'grid', gap: 15, boxShadow: '0 24px 64px rgba(0,0,0,.3)' }; const dialogHeader = { display: 'flex', justifyContent: 'space-between', alignItems: 'center' }; const field = { display: 'grid', gap: 6, color: 'var(--text-secondary)', fontSize: 13, fontWeight: 600 }; const twoColumns = { display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(210px, 1fr))', gap: 12 }; const inviteBox = { display: 'grid', gap: 11, padding: 14, border: '1px solid var(--border)', borderRadius: 10, background: 'var(--bg-primary)' }; const toggleLabel = { display: 'flex', alignItems: 'center', gap: 8, fontWeight: 700 }; const hint = { margin: 0, color: 'var(--text-secondary)', fontSize: 12 }; const dialogFooter = { display: 'flex', justifyContent: 'space-between', gap: 12, alignItems: 'center', marginTop: 5 }; const dangerButton = { border: '1px solid var(--red)', background: 'transparent', color: 'var(--red)', borderRadius: 7, padding: '7px 10px', cursor: 'pointer' };

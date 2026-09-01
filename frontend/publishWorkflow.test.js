@@ -14,11 +14,8 @@ test('GHCR publishing supports an explicitly scoped dev image without moving lat
     /type=raw,value=dev,enable=\$\{\{ github\.ref == 'refs\/heads\/dev' \}\}/,
     'the publishing workflow must publish the dev tag only from dev',
   );
-  assert.match(
-    workflow,
-    /type=raw,value=latest,enable=\$\{\{ startsWith\(github\.ref, 'refs\/tags\/v'\) \}\}/,
-    'a dev build must not move the release latest tag',
-  );
+  assert.match(workflow, /type=semver,pattern=latest/, 'only a valid semantic-version tag may move latest');
+  assert.doesNotMatch(workflow, /type=raw,value=latest/, 'a loose v* tag must never move latest');
 });
 
 test('CI validates integration pushes and pull requests into dev or main', async () => {
