@@ -16,8 +16,17 @@ const textOf = (value) => typeof value === 'string' ? value : value?.['#text'] |
 const basicAuth = (username, password) => `Basic ${Buffer.from(`${username}:${password}`).toString('base64')}`;
 
 function calendarPayloads(raw) {
-  const blocks = raw.match(/BEGIN:VEVENT[\s\S]*?END:VEVENT/g) || [];
-  return blocks.map((block) => `BEGIN:VCALENDAR\r\nVERSION:2.0\r\n${block}\r\nEND:VCALENDAR\r\n`);
+  if (typeof raw !== 'string' || !raw.trim()) {
+    throw new Error('Remote calendar did not contain any VEVENT components');
+  }
+  const lineBreak = '(?:\\r\\n|\\n|\\r)';
+  const eventBlocks = raw.match(new RegExp(`BEGIN:VEVENT${lineBreak}[\\s\\S]*?END:VEVENT`, 'gi')) || [];
+  // TZID values in VEVENT are meaningful only with their VTIMEZONE context.
+  // Keep that context alongside every independently stored event while leaving
+  // unrelated components (VTODO/VJOURNAL/VFREEBUSY) out of the event resource.
+  const timeZoneBlocks = raw.match(new RegExp(`BEGIN:VTIMEZONE${lineBreak}[\\s\\S]*?END:VTIMEZONE`, 'gi')) || [];
+  const context = timeZoneBlocks.length ? `${timeZoneBlocks.join('\r\n')}\r\n` : '';
+  return eventBlocks.map((block) => `BEGIN:VCALENDAR\r\nVERSION:2.0\r\n${context}${block}\r\nEND:VCALENDAR\r\n`);
 }
 function propsOf(response) {
   return toArray(response.propstat).reduce((result, propstat) => {
@@ -35,7 +44,10 @@ async function remoteFetch(source, options, policy) {
 }
 
 async function fetchEvents(source, policy) {
-  if (source.kind === 'ical_url') return calendarPayloads(await remoteFetch(source, { headers: { Accept: 'text/calendar' } }, policy));
+  if (source.kind === 'ical_url') {
+    const sourceDocument = await remoteFetch(source, { headers: { Accept: 'text/calendar' } }, policy);
+    return { payloads: calendarPayloads(sourceDocument), sourceDocument };
+  }
   const body = `<?xml version="1.0" encoding="utf-8"?><C:calendar-query xmlns="DAV:" xmlns:C="urn:ietf:params:xml:ns:caldav"><prop><getetag/><C:calendar-data/></prop><C:filter><C:comp-filter name="VCALENDAR"><C:comp-filter name="VEVENT"/></C:comp-filter></C:filter></C:calendar-query>`;
   const xml = parser.parse(await remoteFetch(source, { method: 'REPORT', headers: { 'Content-Type': 'application/xml; charset=utf-8', Depth: '1' }, body }, policy));
   const payloads = [];
@@ -43,7 +55,7 @@ async function fetchEvents(source, policy) {
     const data = textOf(propsOf(response)['calendar-data']);
     if (data) payloads.push(data);
   }
-  return payloads;
+  return { payloads, sourceDocument: null };
 }
 
 async function calendarFor(source) {
@@ -70,13 +82,22 @@ async function syncSource(source) {
   if (syncing.has(source.id)) return { ok: false, error: 'A sync is already in progress' };
   syncing.add(source.id);
   try {
-    const payloads = await fetchEvents(source, await getConnectionPolicy());
+    const { payloads, sourceDocument } = await fetchEvents(source, await getConnectionPolicy());
     const parsedEvents = payloads.map(parseCalendarEvent);
     // Do not mistake a malformed or unsupported response for an empty/partial
     // remote calendar: that could delete a previously healthy local projection.
     if (parsedEvents.some((event) => !event)) throw new Error('Remote calendar contains an unsupported event');
     const events = parsedEvents;
     const calendarId = await calendarFor(source);
+    if (sourceDocument) {
+      await query(
+        `INSERT INTO calendar_import_documents (source_id, raw_ical)
+         VALUES ($1, $2)
+         ON CONFLICT (source_id) DO UPDATE SET raw_ical = EXCLUDED.raw_ical, updated_at = NOW()
+         WHERE calendar_import_documents.raw_ical IS DISTINCT FROM EXCLUDED.raw_ical`,
+        [source.id, sourceDocument],
+      );
+    }
     const seen = [];
     for (const event of events) {
       seen.push(event.uid);

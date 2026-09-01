@@ -146,13 +146,17 @@ export function parseCalendarEvent(raw) {
   const end = componentLines.indexOf('END:VEVENT');
   if (starts.length !== 1 || ends.length !== 1 || start < 0 || end <= start) return null;
   const properties = lines.slice(start + 1, end).map(propertyFromLine);
-  if (properties.some((property) => !property) || properties.some((property) => ['RRULE', 'RDATE', 'EXDATE', 'RECURRENCE-ID'].includes(property.name))) return null;
+  // Recurrence, alarms, attendees and other standard properties remain in the
+  // raw object for round-trip interoperability. The normalized row is the
+  // base-event projection; recurrence expansion is performed by the calendar
+  // projection layer rather than by rejecting an otherwise valid VEVENT.
+  if (properties.some((property) => !property)) return null;
   const named = (name) => properties.filter((property) => property.name === name);
   const [uid] = named('UID');
   const [startProperty] = named('DTSTART');
   const [endProperty] = named('DTEND');
   const [durationProperty] = named('DURATION');
-  if (!uid || named('UID').length !== 1 || !startProperty || named('DTSTART').length !== 1
+  if (!uid || !uid.value.trim() || named('UID').length !== 1 || !startProperty || named('DTSTART').length !== 1
     || named('DTEND').length > 1 || named('DURATION').length > 1 || (endProperty && durationProperty)) return null;
   const startsAt = parseICalendarDate(startProperty);
   if (!startsAt) return null;

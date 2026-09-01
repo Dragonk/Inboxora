@@ -102,6 +102,23 @@ describe('CalDAV calendar objects', () => {
     expect(event.startsAt).toEqual(new Date('2026-09-01T09:00:00.000Z'));
   });
 
+  it('projects a recurring VEVENT while preserving standard scheduling fields in its raw iCalendar object', () => {
+    const raw = 'BEGIN:VCALENDAR\r\nVERSION:2.0\r\nBEGIN:VTIMEZONE\r\nTZID:Europe/Berlin\r\nEND:VTIMEZONE\r\nBEGIN:VEVENT\r\nUID:weekly-planning\r\nDTSTART;TZID=Europe/Berlin:20260901T090000\r\nDURATION:PT1H\r\nRRULE:FREQ=WEEKLY;COUNT=4\r\nSTATUS:CONFIRMED\r\nTRANSP:OPAQUE\r\nATTENDEE;CN=Sam;PARTSTAT=ACCEPTED:mailto:sam@example.test\r\nBEGIN:VALARM\r\nTRIGGER:-PT15M\r\nACTION:DISPLAY\r\nDESCRIPTION:Reminder\r\nEND:VALARM\r\nEND:VEVENT\r\nBEGIN:VTODO\r\nUID:todo-1\r\nSUMMARY:Ignored task projection\r\nEND:VTODO\r\nEND:VCALENDAR\r\n';
+
+    const event = parseCalendarEvent(raw);
+
+    expect(event).toMatchObject({ uid: 'weekly-planning', summary: null, allDay: false, timeZone: 'Europe/Berlin' });
+    expect(event.startsAt).toEqual(new Date('2026-09-01T07:00:00.000Z'));
+    expect(event.endsAt).toEqual(new Date('2026-09-01T08:00:00.000Z'));
+    expect(event.raw).toBe(raw);
+  });
+
+  it('rejects an empty UID before projecting a calendar event', () => {
+    const event = parseCalendarEvent('BEGIN:VCALENDAR\r\nBEGIN:VEVENT\r\nUID:\r\nDTSTART:20260901T090000Z\r\nDTEND:20260901T100000Z\r\nEND:VEVENT\r\nEND:VCALENDAR\r\n');
+
+    expect(event).toBeNull();
+  });
+
   it('creates a local event with an ETag and returns it through GET', async () => {
     authenticateDavCredential.mockResolvedValue({ userId: 'user-1', credentialId: 'credential-1' });
     query
@@ -174,15 +191,14 @@ describe('CalDAV calendar objects', () => {
     ]));
   });
 
-  it('rejects malformed end semantics and unsupported recurrence rules before storing', async () => {
+  it('rejects malformed end semantics before storing', async () => {
     authenticateDavCredential.mockResolvedValue({ userId: 'user-1', credentialId: 'credential-1' });
     for (const body of [
       'BEGIN:VCALENDAR\r\nBEGIN:VEVENT\r\nUID:both-end-values\r\nDTSTART:20260901T090000Z\r\nDTEND:20260901T100000Z\r\nDURATION:PT1H\r\nEND:VEVENT\r\nEND:VCALENDAR\r\n',
-      'BEGIN:VCALENDAR\r\nBEGIN:VEVENT\r\nUID:recurring\r\nDTSTART:20260901T090000Z\r\nDTEND:20260901T100000Z\r\nRRULE:FREQ=DAILY\r\nEND:VEVENT\r\nEND:VCALENDAR\r\n',
     ]) {
       query.mockReset();
       query.mockResolvedValueOnce({ rows: [{ id: 'calendar-1', source: 'local', read_only: false }] });
-      const response = await fetch(`${base}/caldav/user-1/calendar-1/${body.includes('recurring') ? 'recurring' : 'both-end-values'}.ics`, {
+      const response = await fetch(`${base}/caldav/user-1/calendar-1/both-end-values.ics`, {
         method: 'PUT', headers: { authorization: basic('sam@example.test', 'test-dav-password') }, body,
       });
       expect(response.status).toBe(400);
