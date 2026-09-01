@@ -51,6 +51,20 @@ describe('migration integrity', () => {
     expect(sql).toContain('contacts_user_anniversary_idx');
   });
 
+  it('stores one durable inbound calendar projection per physical message row', () => {
+    const sql = readFileSync(join(process.cwd(), 'migrations/0071_inbound_calendar_invitations.sql'), 'utf8');
+    expect(sql).toContain('message_id UUID PRIMARY KEY REFERENCES messages(id) ON DELETE CASCADE');
+    expect(sql).toContain("CHECK (method IN ('REQUEST', 'CANCEL'))");
+    expect(sql).toContain("(method = 'REQUEST' AND state = 'pending')");
+    expect(sql).toContain("(method = 'CANCEL' AND state = 'cancelled')");
+    expect(sql).toContain('sequence INTEGER NOT NULL DEFAULT 0 CHECK (sequence >= 0)');
+    expect(sql).toContain('raw_ical TEXT NOT NULL CHECK (octet_length(raw_ical) <= 1048576)');
+    expect(sql).toContain('parsed_at TIMESTAMPTZ NOT NULL DEFAULT NOW()');
+    expect(sql).toContain('updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()');
+    expect(sql).toContain('inbound_calendar_invitations_uid_idx');
+    expect(sql).toContain('ON inbound_calendar_invitations (uid, recurrence_id)');
+  });
+
   it('records migration checksums in the runner', () => {
     const source = readFileSync(join(process.cwd(), 'src/services/migrations.js'), 'utf8');
     expect(source).toContain('sha256');
