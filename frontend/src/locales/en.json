@@ -1017,6 +1017,8 @@
       "phone": "Phone",
       "organization": "Organization",
       "notes": "Notes",
+      "birthday": "Birthday",
+      "anniversary": "Anniversary",
       "emailsSent": "Emails sent",
       "lastContacted": "Last contacted"
     },
@@ -1688,6 +1690,7 @@
   },
   "calendar": {
     "title": "Calendar",
+    "back": "Back",
     "today": "Today",
     "newEvent": "New event",
     "noWritable": "No writable local calendar is available. Imported calendars are read-only.",
@@ -1724,6 +1727,25 @@
     "delete": "Delete",
     "cancel": "Cancel",
     "saving": "Saving…",
-    "save": "Save"
+    "save": "Save",
+    "panel": "Calendar panel",
+    "calendars": "Calendars",
+    "manageSources": "Manage sources",
+    "firstDayOfWeek": "First day of week",
+    "monday": "Monday",
+    "sunday": "Sunday",
+    "sourceType": "Source type",
+    "sourceName": "Name",
+    "sourceUrl": "URL",
+    "sourceUsername": "Username",
+    "sourcePassword": "App password",
+    "addSource": "Add source",
+    "syncSource": "Sync",
+    "sourceReady": "Ready",
+    "icsWebcal": "ICS / webcal",
+    "caldav": "CalDAV",
+    "mobileNavigation": "Mobile navigation",
+    "navigationTop": "Top",
+    "navigationBottom": "Bottom"
   }
 }

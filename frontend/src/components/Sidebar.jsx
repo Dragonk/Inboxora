@@ -248,7 +248,7 @@ function CtxMenuItem({ icon, label, onClick, danger, disabled }) {
 }
 
 // ─── Main Sidebar ─────────────────────────────────────────────────────────────
-export default function Sidebar() {
+export default function Sidebar({ onEditProfile = null }) {
   const { t } = useTranslation();
   const uiScale = useUiScale();
   const {
@@ -1674,7 +1674,7 @@ export default function Sidebar() {
 
           {/* Edit Profile */}
           <div
-            onClick={() => { setShowProfile(true); setMobileSidebarOpen(false); }}
+            onClick={() => { if (onEditProfile) onEditProfile(); else setShowProfile(true); setMobileSidebarOpen(false); }}
             style={{
               display: 'flex', alignItems: 'center', gap: 10,
               padding: '8px 14px', cursor: 'pointer',

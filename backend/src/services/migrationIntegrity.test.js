@@ -45,6 +45,12 @@ describe('migration integrity', () => {
     expect(sql).toContain('invite_account_id UUID REFERENCES email_accounts(id) ON DELETE RESTRICT');
   });
 
+  it('indexes both optional contact date fields used by the virtual calendar', () => {
+    const sql = readFileSync(join(process.cwd(), 'migrations/0068_contact_dates.sql'), 'utf8');
+    expect(sql).toContain('contacts_user_birthday_idx');
+    expect(sql).toContain('contacts_user_anniversary_idx');
+  });
+
   it('records migration checksums in the runner', () => {
     const source = readFileSync(join(process.cwd(), 'src/services/migrations.js'), 'utf8');
     expect(source).toContain('sha256');

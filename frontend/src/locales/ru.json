@@ -1017,6 +1017,8 @@
       "phone": "Телефон",
       "organization": "Организация",
       "notes": "Заметки",
+      "birthday": "День рождения",
+      "anniversary": "Годовщина",
       "emailsSent": "Отправлено писем",
       "lastContacted": "Последний контакт"
     },
@@ -1688,6 +1690,7 @@
   },
   "calendar": {
     "title": "Календарь",
+    "back": "Назад",
     "today": "Сегодня",
     "newEvent": "Новое событие",
     "noWritable": "Нет доступного локального календаря для записи. Импортированные календари доступны только для чтения.",
@@ -1724,6 +1727,7 @@
     "delete": "Удалить",
     "cancel": "Отмена",
     "saving": "Сохранение…",
-    "save": "Сохранить"
+    "save": "Сохранить",
+    "panel": "Панель календаря", "calendars": "Календари", "manageSources": "Управление источниками", "firstDayOfWeek": "Первый день недели", "monday": "Понедельник", "sunday": "Воскресенье", "sourceType": "Тип источника", "sourceName": "Название", "sourceUrl": "URL", "sourceUsername": "Имя пользователя", "sourcePassword": "Пароль приложения", "addSource": "Добавить источник", "syncSource": "Синхронизировать", "sourceReady": "Готово", "icsWebcal": "ICS / webcal", "caldav": "CalDAV", "mobileNavigation": "Мобильная навигация", "navigationTop": "Сверху", "navigationBottom": "Снизу"
   }
 }

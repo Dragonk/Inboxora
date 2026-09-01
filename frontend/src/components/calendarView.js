@@ -4,9 +4,10 @@ export function monthRange(anchor) {
   return { start, end };
 }
 
-export function weekRange(anchor) {
+export function weekRange(anchor, weekStartsOn = 1) {
   const start = new Date(anchor.getFullYear(), anchor.getMonth(), anchor.getDate());
-  const weekday = (start.getDay() + 6) % 7;
+  const normalizedWeekStartsOn = weekStartsOn === 0 ? 0 : 1;
+  const weekday = (start.getDay() - normalizedWeekStartsOn + 7) % 7;
   start.setDate(start.getDate() - weekday);
   const end = new Date(start);
   end.setDate(end.getDate() + 7);

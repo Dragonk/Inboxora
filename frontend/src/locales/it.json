@@ -1017,6 +1017,8 @@
       "phone": "Telefono",
       "organization": "Organizzazione",
       "notes": "Note",
+      "birthday": "Compleanno",
+      "anniversary": "Anniversario",
       "emailsSent": "Email inviate",
       "lastContacted": "Ultimo contatto"
     },
@@ -1688,6 +1690,7 @@
   },
   "calendar": {
     "title": "Calendario",
+    "back": "Indietro",
     "today": "Oggi",
     "newEvent": "Nuovo evento",
     "noWritable": "Nessun calendario locale modificabile disponibile. I calendari importati sono di sola lettura.",
@@ -1724,6 +1727,7 @@
     "delete": "Elimina",
     "cancel": "Annulla",
     "saving": "Salvataggio…",
-    "save": "Salva"
+    "save": "Salva",
+    "panel": "Pannello calendario", "calendars": "Calendari", "manageSources": "Gestisci fonti", "firstDayOfWeek": "Primo giorno della settimana", "monday": "Lunedì", "sunday": "Domenica", "sourceType": "Tipo di fonte", "sourceName": "Nome", "sourceUrl": "URL", "sourceUsername": "Nome utente", "sourcePassword": "Password dell’app", "addSource": "Aggiungi fonte", "syncSource": "Sincronizza", "sourceReady": "Pronto", "icsWebcal": "ICS / webcal", "caldav": "CalDAV", "mobileNavigation": "Navigazione mobile", "navigationTop": "In alto", "navigationBottom": "In basso"
   }
 }

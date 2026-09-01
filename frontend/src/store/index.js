@@ -479,6 +479,26 @@ export const useStore = create((set, get) => ({
   setShowContacts: (showContacts) => set({ showContacts, ...(showContacts ? { showCalendar: false } : {}) }),
   showCalendar: false,
   setShowCalendar: (showCalendar) => set({ showCalendar, ...(showCalendar ? { showContacts: false } : {}) }),
+  // Calendar presentation preferences are persisted per user. A missing visibility list means
+  // all known calendars are visible, so upgrades never hide an existing source unexpectedly.
+  calendarWeekStartsOn: 1,
+  setCalendarWeekStartsOn: (calendarWeekStartsOn) => {
+    const value = calendarWeekStartsOn === 0 ? 0 : 1;
+    set({ calendarWeekStartsOn: value });
+    schedulePrefSave({ calendarWeekStartsOn: value });
+  },
+  visibleCalendarIds: null,
+  setVisibleCalendarIds: (visibleCalendarIds) => {
+    const value = Array.isArray(visibleCalendarIds) ? [...new Set(visibleCalendarIds.filter(id => typeof id === 'string'))] : null;
+    set({ visibleCalendarIds: value });
+    schedulePrefSave({ visibleCalendarIds: value || [] });
+  },
+  mobileNavigationPosition: 'top',
+  setMobileNavigationPosition: (mobileNavigationPosition) => {
+    const value = mobileNavigationPosition === 'bottom' ? 'bottom' : 'top';
+    set({ mobileNavigationPosition: value });
+    schedulePrefSave({ mobileNavigationPosition: value });
+  },
   rulesPreFill: null, // { fromEmail, fromName, subject } — transient, set by context menu
   setRulesPreFill: (v) => set({ rulesPreFill: v }),
 
@@ -1076,6 +1096,15 @@ export const useStore = create((set, get) => ({
         localStorage.setItem('mailflow_language', prefs.language);
         set({ language: prefs.language });
         i18n.changeLanguage(prefs.language);
+      }
+      if (prefs.calendarWeekStartsOn === 0 || prefs.calendarWeekStartsOn === 1) {
+        set({ calendarWeekStartsOn: prefs.calendarWeekStartsOn });
+      }
+      if (Array.isArray(prefs.visibleCalendarIds)) {
+        set({ visibleCalendarIds: prefs.visibleCalendarIds.filter(id => typeof id === 'string') });
+      }
+      if (prefs.mobileNavigationPosition === 'top' || prefs.mobileNavigationPosition === 'bottom') {
+        set({ mobileNavigationPosition: prefs.mobileNavigationPosition });
       }
       if (typeof prefs.threadedView === 'boolean') {
         localStorage.setItem('mailflow_threaded_view', String(prefs.threadedView));

@@ -1017,6 +1017,8 @@
       "phone": "Telefon",
       "organization": "Organisation",
       "notes": "Notizen",
+      "birthday": "Geburtstag",
+      "anniversary": "Jahrestag",
       "emailsSent": "Gesendete Mails",
       "lastContacted": "Zuletzt kontaktiert"
     },
@@ -1688,6 +1690,7 @@
   },
   "calendar": {
     "title": "Kalender",
+    "back": "Zurück",
     "today": "Heute",
     "newEvent": "Neues Ereignis",
     "noWritable": "Kein beschreibbarer lokaler Kalender verfügbar. Importierte Kalender sind schreibgeschützt.",
@@ -1723,7 +1726,8 @@
     "noSenderAccounts": "Kein aktiviertes SMTP-Konto verfügbar.",
     "delete": "Löschen",
     "cancel": "Abbrechen",
-    "saving": "Wird gespeichert…",
-    "save": "Speichern"
+    "saving": "Speichern…",
+    "save": "Speichern",
+    "panel": "Kalenderbereich", "calendars": "Kalender", "manageSources": "Quellen verwalten", "firstDayOfWeek": "Erster Wochentag", "monday": "Montag", "sunday": "Sonntag", "sourceType": "Quelltyp", "sourceName": "Kalendername", "sourceUrl": "URL", "sourceUsername": "Benutzername", "sourcePassword": "App-Passwort", "addSource": "Quelle hinzufügen", "syncSource": "Synchronisieren", "sourceReady": "Bereit", "icsWebcal": "ICS / webcal", "caldav": "CalDAV", "mobileNavigation": "Mobile Navigation", "navigationTop": "Oben", "navigationBottom": "Unten"
   }
 }

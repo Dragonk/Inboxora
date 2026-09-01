@@ -8,6 +8,14 @@ import crypto from 'crypto';
 const router = Router();
 router.use(requireAuth);
 
+function normalizeContactDate(value) {
+  if (value == null || value === '') return null;
+  if (typeof value !== 'string' || !/^\d{4}-\d{2}-\d{2}$/.test(value)) return undefined;
+  const [year, month, day] = value.split('-').map(Number);
+  const date = new Date(Date.UTC(year, month - 1, day));
+  return date.getUTCFullYear() === year && date.getUTCMonth() === month - 1 && date.getUTCDate() === day ? value : undefined;
+}
+
 // In-memory cache for Gravatar lookups (hash -> { buf, type } hit or { miss:true }).
 // Bounded + TTL'd so we don't re-hit Gravatar for every list render and so the number of
 // third-party requests stays minimal (a privacy consideration — see the /gravatar route).
@@ -79,7 +87,7 @@ router.get('/', async (req, res) => {
       SELECT
         c.id, c.uid, c.display_name, c.first_name, c.last_name,
         c.primary_email, c.emails, c.phones, c.organization,
-        c.notes, c.is_auto, c.send_count, c.last_sent,
+        c.notes, c.birthday, c.anniversary, c.is_auto, c.send_count, c.last_sent,
         c.etag, c.created_at, c.updated_at,
         (c.photo_data IS NOT NULL) AS has_contact_photo,
         (ab.source = 'carddav') AS read_only
@@ -203,7 +211,7 @@ router.get('/:id', async (req, res) => {
     const result = await query(
       `SELECT c.id, c.uid, c.display_name, c.first_name, c.last_name,
               c.primary_email, c.emails, c.phones, c.organization,
-              c.notes, c.photo_data, c.is_auto, c.send_count, c.last_sent,
+              c.notes, c.birthday, c.anniversary, c.photo_data, c.is_auto, c.send_count, c.last_sent,
               c.etag, c.vcard, c.created_at, c.updated_at,
               (ab.source = 'carddav') AS read_only
        FROM contacts c
@@ -225,11 +233,13 @@ router.post('/', async (req, res) => {
   const {
     displayName, firstName, lastName,
     emails = [], phones = [],
-    organization, notes,
+    organization, notes, birthday, anniversary,
   } = req.body || {};
 
   if (!Array.isArray(emails)) return res.status(400).json({ error: 'emails must be an array' });
   if (!Array.isArray(phones)) return res.status(400).json({ error: 'phones must be an array' });
+  const normalizedBirthday = normalizeContactDate(birthday); const normalizedAnniversary = normalizeContactDate(anniversary);
+  if (normalizedBirthday === undefined || normalizedAnniversary === undefined) return res.status(400).json({ error: 'Contact dates must use YYYY-MM-DD' });
 
   const primaryEmail = emails[0]?.value
     ? emails[0].value.toLowerCase().trim()
@@ -242,23 +252,23 @@ router.post('/', async (req, res) => {
   try {
     const addressBookId = await defaultAddressBook(userId);
     const uid = crypto.randomUUID();
-    const vcard = generateVCard({ uid, displayName, firstName, lastName, emails, phones, organization, notes });
+    const vcard = generateVCard({ uid, displayName, firstName, lastName, emails, phones, organization, notes, birthday: normalizedBirthday, anniversary: normalizedAnniversary });
     const etag = crypto.createHash('md5').update(vcard).digest('hex');
 
     const result = await query(`
       INSERT INTO contacts (
         address_book_id, user_id, uid, vcard, etag,
         display_name, first_name, last_name, primary_email,
-        emails, phones, organization, notes, is_auto
-      ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13, false)
+        emails, phones, organization, notes, birthday, anniversary, is_auto
+      ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15, false)
       RETURNING id, uid, display_name, first_name, last_name,
-                primary_email, emails, phones, organization, notes,
+                primary_email, emails, phones, organization, notes, birthday, anniversary,
                 is_auto, send_count, last_sent, etag, created_at, updated_at
     `, [
       addressBookId, userId, uid, vcard, etag,
       displayName || null, firstName || null, lastName || null, primaryEmail,
       JSON.stringify(emails), JSON.stringify(phones),
-      organization || null, notes || null,
+      organization || null, notes || null, normalizedBirthday, normalizedAnniversary,
     ]);
 
     await bumpSyncToken(addressBookId);
@@ -275,11 +285,13 @@ router.patch('/:id', async (req, res) => {
   const userId = req.session.userId;
   const {
     displayName, firstName, lastName,
-    emails, phones, organization, notes,
+    emails, phones, organization, notes, birthday, anniversary,
   } = req.body || {};
 
   if (emails !== undefined && !Array.isArray(emails)) return res.status(400).json({ error: 'emails must be an array' });
   if (phones !== undefined && !Array.isArray(phones)) return res.status(400).json({ error: 'phones must be an array' });
+  const normalizedBirthday = normalizeContactDate(birthday); const normalizedAnniversary = normalizeContactDate(anniversary);
+  if (normalizedBirthday === undefined || normalizedAnniversary === undefined) return res.status(400).json({ error: 'Contact dates must use YYYY-MM-DD' });
 
   try {
     // Load current contact (with its book source to block edits to synced contacts)
@@ -302,6 +314,8 @@ router.patch('/:id', async (req, res) => {
     const newLast      = lastName     !== undefined ? lastName     : c.last_name;
     const newOrg       = organization !== undefined ? organization : c.organization;
     const newNotes     = notes        !== undefined ? notes        : c.notes;
+    const newBirthday = birthday !== undefined ? normalizedBirthday : c.birthday;
+    const newAnniversary = anniversary !== undefined ? normalizedAnniversary : c.anniversary;
     const newPrimary   = emails === undefined
       ? c.primary_email
       : (newEmails[0]?.value ? newEmails[0].value.toLowerCase().trim() : null);
@@ -315,6 +329,8 @@ router.patch('/:id', async (req, res) => {
       phones: newPhones,
       organization: newOrg,
       notes: newNotes,
+      birthday: newBirthday,
+      anniversary: newAnniversary,
     });
     const etag = crypto.createHash('md5').update(vcard).digest('hex');
 
@@ -322,18 +338,18 @@ router.patch('/:id', async (req, res) => {
       UPDATE contacts SET
         display_name = $1, first_name = $2, last_name = $3,
         primary_email = $4, emails = $5, phones = $6,
-        organization = $7, notes = $8,
-        vcard = $9, etag = $10, updated_at = NOW(),
+        organization = $7, notes = $8, birthday = $9, anniversary = $10,
+        vcard = $11, etag = $12, updated_at = NOW(),
         is_auto = false
-      WHERE id = $11 AND user_id = $12
+      WHERE id = $13 AND user_id = $14
       RETURNING id, uid, display_name, first_name, last_name,
-                primary_email, emails, phones, organization, notes,
+                primary_email, emails, phones, organization, notes, birthday, anniversary,
                 is_auto, send_count, last_sent, etag, created_at, updated_at
     `, [
       newDisplay || null, newFirst || null, newLast || null,
       newPrimary,
       JSON.stringify(newEmails), JSON.stringify(newPhones),
-      newOrg || null, newNotes || null,
+      newOrg || null, newNotes || null, newBirthday, newAnniversary,
       vcard, etag,
       req.params.id, userId,
     ]);

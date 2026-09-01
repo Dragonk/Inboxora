@@ -87,7 +87,7 @@ function fileIcon(type) {
   );
 }
 
-export default function MessagePane({ windowMessageId = null, onWindowClose = null, mode = 'single', conversationId = null, targetLogicalMessageId = null, selectedConversationCopy = null, onReply = null, nativeThreadId = null, nativeFolder = null, onNativeThreadUnavailable = null } = {}) {
+export default function MessagePane({ windowMessageId = null, onWindowClose = null, mode = 'single', conversationId = null, targetLogicalMessageId = null, selectedConversationCopy = null, onReply = null, nativeThreadId = null, nativeFolder = null, onNativeThreadUnavailable = null, onMobileBack = null } = {}) {
   const { t, i18n } = useTranslation();
   const {
     messages, searchResults, searchQuery, selectedMessageId: globalSelectedId, setSelectedMessage,
@@ -109,6 +109,10 @@ export default function MessagePane({ windowMessageId = null, onWindowClose = nu
   const closeWindowIfWindowed = useCallback(() => {
     if (windowMode) onWindowClose?.();
   }, [windowMode, onWindowClose]);
+  const goBackToMobileList = useCallback(() => {
+    if (onMobileBack) onMobileBack();
+    else setSelectedMessage(null);
+  }, [onMobileBack, setSelectedMessage]);
 
   const isMobile = useMobile();
   const defaultReplyAll = replyDefault === 'replyAll';
@@ -179,7 +183,7 @@ export default function MessagePane({ windowMessageId = null, onWindowClose = nu
   // The mobile swipe-back gesture writes transform/transition inline for the
   // dismiss animation. MessagePane stays mounted while hidden, so clear those
   // inline styles before painting the next selected email. Also cancel the
-  // swipe-back timer so it can't fire history.back() after a new email has
+  // swipe-back timer so it can't close a newly selected email after a new email has
   // already been selected (race: user selects email B within the 220ms window).
   useLayoutEffect(() => {
     if (!isMobile || !selectedMessageId) return;
@@ -188,7 +192,7 @@ export default function MessagePane({ windowMessageId = null, onWindowClose = nu
       swipeBackTimerRef.current = null;
     }
     resetPaneSwipeStyles();
-  }, [isMobile, selectedMessageId, resetPaneSwipeStyles]);
+  }, [goBackToMobileList, isMobile, selectedMessageId, resetPaneSwipeStyles]);
 
   // Reset scroll position and iframe height synchronously before the browser
   // paints the new message, so the user never sees stale blank space from the
@@ -906,7 +910,7 @@ export default function MessagePane({ windowMessageId = null, onWindowClose = nu
           swipeBackTimerRef.current = setTimeout(() => {
             swipeBackTimerRef.current = null;
             resetPaneSwipeStyles();
-            if (mountedRef.current) history.back();
+            if (mountedRef.current) goBackToMobileList();
           }, 220);
         } else {
           el.style.transition = 'transform 0.25s ease';
@@ -970,7 +974,7 @@ export default function MessagePane({ windowMessageId = null, onWindowClose = nu
       el.removeEventListener('touchmove', onMove);
       el.removeEventListener('touchend', onEnd);
     };
-  }, [isMobile, setSelectedMessage, resetPaneSwipeStyles]);
+  }, [goBackToMobileList, isMobile, setSelectedMessage, resetPaneSwipeStyles]);
 
   const handleReply = (replyAll = false) => {
     if (!message) return;
@@ -1835,7 +1839,7 @@ ${bodyContent}
             borderBottom: '1px solid var(--border-subtle)',
             background: 'var(--bg-secondary)', flexShrink: 0,
           }}>
-            <button onClick={() => history.back()} style={{ background: 'transparent', border: 'none', cursor: 'pointer', padding: 4, display: 'flex', alignItems: 'center' }} aria-label={t('mailApp.back')}>
+            <button onClick={goBackToMobileList} style={{ background: 'transparent', border: 'none', cursor: 'pointer', padding: 4, display: 'flex', alignItems: 'center' }} aria-label={t('mailApp.back')}>
               <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><polyline points="15 18 9 12 15 6"/></svg>
             </button>
           </div>
@@ -1870,7 +1874,7 @@ ${bodyContent}
           transition: 'box-shadow 0.2s ease',
         }}>
           <button
-            onClick={() => history.back()}
+            onClick={goBackToMobileList}
             style={{
               background: 'none', border: 'none', color: 'var(--accent)',
               cursor: 'pointer', display: 'flex', alignItems: 'center',

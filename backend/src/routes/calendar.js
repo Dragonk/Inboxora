@@ -22,6 +22,24 @@ function parseEventTimes(body) {
   return { startsAt, endsAt };
 }
 
+function contactDateEvents(contacts, from, to) {
+  const events = [];
+  for (const contact of contacts) {
+    for (const [field, label] of [['birthday', 'Birthday'], ['anniversary', 'Anniversary']]) {
+      const value = contact[field] instanceof Date ? contact[field].toISOString().slice(0, 10) : String(contact[field] || '').slice(0, 10);
+      if (!/^\d{4}-\d{2}-\d{2}$/.test(value)) continue;
+      const [, month, day] = value.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+      for (let year = from.getUTCFullYear(); year <= to.getUTCFullYear(); year++) {
+        const startsAt = new Date(Date.UTC(year, Number(month) - 1, Number(day)));
+        if (startsAt.getUTCMonth() !== Number(month) - 1 || startsAt < from || startsAt >= to) continue;
+        const endsAt = new Date(startsAt); endsAt.setUTCDate(endsAt.getUTCDate() + 1);
+        events.push({ id: `contacts-${field}-${contact.id}-${year}`, calendar_id: 'contacts-birthdays', uid: `contacts-${field}-${contact.id}-${year}`, summary: `${label}: ${contact.display_name || contact.primary_email || 'Contact'}`, starts_at: startsAt, ends_at: endsAt, all_day: true, calendar_name: 'Contact dates', calendar_color: '#e879f9', source: 'contacts', read_only: true });
+      }
+    }
+  }
+  return events;
+}
+
 function escapeICalendarText(value) {
   return String(value || '')
     .replaceAll('\\', '\\\\')
@@ -90,7 +108,10 @@ router.get('/calendars', async (req, res) => {
      FROM calendars WHERE user_id = $1 ORDER BY created_at ASC`,
     [req.session.userId],
   );
-  res.json({ calendars: result.rows });
+  res.json({ calendars: [...result.rows, {
+    id: 'contacts-birthdays', name: 'Contact dates', description: 'Birthdays and anniversaries from contacts',
+    color: '#e879f9', source: 'contacts', external_url: null, read_only: true,
+  }] });
 });
 
 router.get('/events', async (req, res) => {
@@ -112,7 +133,13 @@ router.get('/events', async (req, res) => {
      ORDER BY e.starts_at ASC`,
     [req.session.userId, from, to],
   );
-  res.json({ events: result.rows });
+  const contactResult = await query(
+    'SELECT id, display_name, primary_email, birthday, anniversary FROM contacts WHERE user_id = $1 AND (birthday IS NOT NULL OR anniversary IS NOT NULL)',
+    [req.session.userId],
+  );
+  const events = [...result.rows, ...contactDateEvents(contactResult?.rows || [], from, to)]
+    .sort((left, right) => new Date(left.starts_at) - new Date(right.starts_at));
+  res.json({ events });
 });
 
 router.post('/events', async (req, res) => {
@@ -285,6 +312,8 @@ router.post('/sources', async (req, res) => {
   if (kind === 'caldav' && (!username || !password)) return res.status(400).json({ error: 'CalDAV sources require username and password' });
   let parsed;
   try { parsed = new URL(url); } catch { return res.status(400).json({ error: 'Invalid source URL' }); }
+  if (parsed.protocol === 'webcal:') parsed = new URL(url.replace(/^[^:]+:/, 'https:'));
+  if (parsed.username || parsed.password) return res.status(400).json({ error: 'Source URL must not include credentials' });
   if (!['https:', 'http:'].includes(parsed.protocol)) return res.status(400).json({ error: 'Source URL must use http(s)' });
   const policy = await getConnectionPolicy();
   const hostError = await validateHost(parsed.hostname, { allowPrivate: policy.allowPrivateHosts });
@@ -299,7 +328,7 @@ router.post('/sources', async (req, res) => {
     const result = await query(
       `INSERT INTO calendar_import_sources (user_id, kind, url, username, password, display_name, color, interval_min)
        VALUES ($1,$2,$3,$4,$5,$6,$7,$8) RETURNING *`,
-      [req.session.userId, kind, url, username || null, password ? encrypt(password) : null, displayName, color, interval],
+      [req.session.userId, kind, parsed.toString(), username || null, password ? encrypt(password) : null, displayName, color, interval],
     );
     const source = result.rows[0];
     scheduleCalendarSource(source);

@@ -41,4 +41,50 @@ describe('mobile Calendar navigation contract', () => {
     assert.match(mobileLayout, /<Suspense fallback=\{lazyFallback\}><CalendarPage \/><\/Suspense>/);
     assert.match(mobileLayout, /!showContacts && !showCalendar && !selectedMessageId/);
   });
+
+  it('provides an accessible in-app Back control in the mobile calendar header', async () => {
+    const calendar = await readFile(new URL('./CalendarPage.jsx', import.meta.url), 'utf8');
+
+    assert.match(calendar, /const \{ showCalendar, setShowCalendar, accounts,[\s\S]*\} = useStore\(\);/);
+    assert.match(calendar, /data-testid="calendar-mobile-back"/);
+    assert.match(calendar, /onClick=\{\(\) => setShowCalendar\(false\)\}/);
+    assert.match(calendar, /aria-label=\{t\('calendar\.back'\)\}/);
+  });
+
+  it('moves the calendar header after content for bottom mobile navigation and labels its panel', async () => {
+    const calendar = await readFile(new URL('./CalendarPage.jsx', import.meta.url), 'utf8');
+
+    assert.match(calendar, /const page = \{ display: 'flex', flexDirection: 'column'/);
+    assert.match(calendar, /position: 'sticky', bottom: 0[\s\S]*order: 2/);
+    assert.match(calendar, /<dialog id="calendar-mobile-panel" aria-label=\{t\('calendar\.panel'\)\}/);
+    assert.match(calendar, /onClose=\{\(\) => document\.getElementById\('calendar-mobile-panel'\)\?\.close\(\)\}/);
+  });
+});
+
+describe('mobile mail header contract', () => {
+  it('keeps Contacts out of the top mail toolbar while retaining drawer navigation', async () => {
+    const messageList = await readFile(new URL('./MessageList.jsx', import.meta.url), 'utf8');
+    const sidebar = await readFile(new URL('./Sidebar.jsx', import.meta.url), 'utf8');
+
+    assert.doesNotMatch(messageList, /\/\* Contacts \*\/[\s\S]*?\{\/\* Select \/ Cancel/);
+    assert.match(sidebar, /testId="contacts-nav-mobile"/);
+  });
+});
+
+describe('mobile message reader Back contract', () => {
+  it('does not let a reader Back button mutate browser history directly', async () => {
+    const messagePane = await readFile(new URL('./MessagePane.jsx', import.meta.url), 'utf8');
+
+    assert.doesNotMatch(messagePane, /onClick=\{\(\) => history\.back\(\)\}/);
+  });
+});
+
+describe('mobile profile editing contract', () => {
+  it('renders ProfileModal outside the translated mobile drawer', async () => {
+    const mailApp = await readFile(new URL('./MailApp.jsx', import.meta.url), 'utf8');
+
+    assert.match(mailApp, /import ProfileModal from '\.\/ProfileModal\.jsx';/);
+    assert.match(mailApp, /<Sidebar onEditProfile=\{\(\) => setMobileProfileOpen\(true\)\} \/>/);
+    assert.match(mailApp, /\{mobileProfileOpen && <ProfileModal onClose=\{\(\) => setMobileProfileOpen\(false\)\} \/>\}/);
+  });
 });

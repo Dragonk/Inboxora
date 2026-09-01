@@ -29,6 +29,13 @@ function unescapeValue(str) {
     .replace(/\\\\/g, '\\');
 }
 
+function normalizeDate(value) {
+  const date = unescapeValue(value).trim();
+  if (/^\d{4}-\d{2}-\d{2}$/.test(date)) return date;
+  const compact = /^(\d{4})(\d{2})(\d{2})$/.exec(date);
+  return compact ? `${compact[1]}-${compact[2]}-${compact[3]}` : null;
+}
+
 // Fold a vCard line at 75 octets per RFC 6350 §3.2.
 function foldLine(line) {
   const bytes = Buffer.from(line, 'utf8');
@@ -77,6 +84,8 @@ export function parseVCard(raw) {
     organization: null,
     notes: null,
     photoData: null,
+    birthday: null,
+    anniversary: null,
   };
 
   for (const line of text.split(/\r?\n/)) {
@@ -135,6 +144,12 @@ export function parseVCard(raw) {
       case 'NOTE':
         result.notes = unescapeValue(value).trim() || null;
         break;
+      case 'BDAY':
+        result.birthday = normalizeDate(value);
+        break;
+      case 'ANNIVERSARY':
+        result.anniversary = normalizeDate(value);
+        break;
       case 'PHOTO': {
         const v = value.trim();
         if (!v) break;
@@ -175,6 +190,8 @@ export function generateVCard(contact) {
     phones = [],
     organization,
     notes,
+    birthday,
+    anniversary,
   } = contact;
 
   const lines = [];
@@ -208,6 +225,8 @@ export function generateVCard(contact) {
   if (notes) {
     lines.push(`NOTE:${escapeValue(notes)}`);
   }
+  if (/^\d{4}-\d{2}-\d{2}$/.test(birthday || '')) lines.push(`BDAY:${birthday}`);
+  if (/^\d{4}-\d{2}-\d{2}$/.test(anniversary || '')) lines.push(`ANNIVERSARY:${anniversary}`);
 
   lines.push('END:VCARD');
 

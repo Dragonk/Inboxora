@@ -13,6 +13,11 @@ describe('calendar desktop helpers', () => {
     assert.deepEqual([start.getDay(), start.getDate()], [1, 14]);
     assert.deepEqual([end.getDay(), end.getDate()], [1, 21]);
   });
+  it('honours Sunday as the selected first day of week', () => {
+    const { start, end } = weekRange(new Date(2026, 8, 16), 0);
+    assert.deepEqual([start.getDay(), start.getDate()], [0, 13]);
+    assert.deepEqual([end.getDay(), end.getDate()], [0, 20]);
+  });
   it('clamps month navigation to the target month instead of skipping February', () => {
     const forward = shiftCalendarAnchor(new Date(2026, 0, 31), 'month', 1);
     const backward = shiftCalendarAnchor(new Date(2026, 2, 31), 'month', -1);

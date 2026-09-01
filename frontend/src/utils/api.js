@@ -346,6 +346,10 @@ export const api = {
     createEvent: (data) => request('POST', '/calendar/events', data),
     updateEvent: (id, data) => request('PATCH', `/calendar/events/${id}`, data),
     deleteEvent: (id, calendarId) => request('DELETE', `/calendar/events/${encodeURIComponent(id)}?calendarId=${encodeURIComponent(calendarId)}`),
+    listSources: () => request('GET', '/calendar/sources'),
+    createSource: (data) => request('POST', '/calendar/sources', data),
+    syncSource: (id) => request('POST', `/calendar/sources/${encodeURIComponent(id)}/sync`),
+    deleteSource: (id) => request('DELETE', `/calendar/sources/${encodeURIComponent(id)}`),
   },
 
   // Image whitelist

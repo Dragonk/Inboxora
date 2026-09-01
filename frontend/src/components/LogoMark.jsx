@@ -1,11 +1,11 @@
 export default function LogoMark({ size = 32 }) {
   return (
     <img
-      src="/inboxora-icon-512.png"
+      src="/inboxora-mark.svg"
       width={size}
       height={size}
       alt="Inboxora"
-      style={{ flexShrink: 0, borderRadius: Math.round(size * 0.22) }}
+      style={{ flexShrink: 0, display: 'block' }}
     />
   );
 }

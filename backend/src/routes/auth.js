@@ -772,7 +772,8 @@ export async function patchPreferences(req, res) {
           categorizationEnabled, markReadBehavior, markReadDelay, aiActions,
           autoLockMinutes, showMobileAvatars, gravatarAvatars, folderSyncInterval,
           folderOrder, senderFavicons, showMessagePreviews,
-          conversation_list_view_enabled, conversation_reader_view_enabled } = req.body;
+          conversation_list_view_enabled, conversation_reader_view_enabled,
+          calendarWeekStartsOn, mobileNavigationPosition, visibleCalendarIds } = req.body;
   for (const [name, value] of [
     ['conversation_list_view_enabled', conversation_list_view_enabled],
     ['conversation_reader_view_enabled', conversation_reader_view_enabled],
@@ -819,7 +820,17 @@ export async function patchPreferences(req, res) {
   if (hasSenderFavicons && typeof senderFavicons !== 'boolean') {
     return res.status(400).json({ error: 'senderFavicons must be a boolean' });
   }
+  if (calendarWeekStartsOn !== undefined && calendarWeekStartsOn !== 0 && calendarWeekStartsOn !== 1) {
+    return res.status(400).json({ error: 'calendarWeekStartsOn must be 0 or 1' });
+  }
+  if (mobileNavigationPosition !== undefined && !['top', 'bottom'].includes(mobileNavigationPosition)) {
+    return res.status(400).json({ error: 'mobileNavigationPosition must be top or bottom' });
+  }
+  if (visibleCalendarIds !== undefined && (!Array.isArray(visibleCalendarIds) || visibleCalendarIds.length > 100 || visibleCalendarIds.some(id => typeof id !== 'string' || id.length > 128))) {
+    return res.status(400).json({ error: 'visibleCalendarIds must be an array of calendar identifiers' });
+  }
   const senderFaviconsVal = hasSenderFavicons ? senderFavicons : null;
+  const visibleCalendarIdsJson = visibleCalendarIds !== undefined ? JSON.stringify([...new Set(visibleCalendarIds)]) : null;
   await query(`
     UPDATE users
     SET preferences = preferences
@@ -865,6 +876,9 @@ export async function patchPreferences(req, res) {
       || CASE WHEN $41::boolean IS NOT NULL THEN jsonb_build_object('showMessagePreviews', $41::boolean) ELSE '{}'::jsonb END
       || CASE WHEN $42::boolean IS NOT NULL THEN jsonb_build_object('conversation_list_view_enabled', $42::boolean) ELSE '{}'::jsonb END
       || CASE WHEN $43::boolean IS NOT NULL THEN jsonb_build_object('conversation_reader_view_enabled', $43::boolean) ELSE '{}'::jsonb END
+      || CASE WHEN $44::int IS NOT NULL THEN jsonb_build_object('calendarWeekStartsOn', $44::int) ELSE '{}'::jsonb END
+      || CASE WHEN $45::text IS NOT NULL THEN jsonb_build_object('mobileNavigationPosition', $45::text) ELSE '{}'::jsonb END
+      || CASE WHEN $46::jsonb IS NOT NULL THEN jsonb_build_object('visibleCalendarIds', $46::jsonb) ELSE '{}'::jsonb END
     WHERE id = $1
   `, [req.session.userId, theme ?? null, font ?? null, layout ?? null, notificationSound ?? null,
       pageSize ?? null, scrollMode ?? null, syncInterval ?? null,
@@ -875,7 +889,8 @@ export async function patchPreferences(req, res) {
       categorizationEnabled ?? null, markReadBehaviorVal, markReadDelayVal, aiActionsJson,
       rightSidebarWidth, rightSidebarHidden, gtdCollapsedSectionsJson, gtdPetSlug, autoLockMinutesVal,
       showMobileAvatars ?? null, gravatarAvatars ?? null, folderSyncIntervalVal, folderOrderJson, senderFaviconsVal,
-      showMessagePreviews ?? null, conversation_list_view_enabled ?? null, conversation_reader_view_enabled ?? null]);
+      showMessagePreviews ?? null, conversation_list_view_enabled ?? null, conversation_reader_view_enabled ?? null,
+      calendarWeekStartsOn ?? null, mobileNavigationPosition ?? null, visibleCalendarIdsJson]);
 
   if (syncInterval != null) {
     const ms = parseInt(syncInterval) * 1000;

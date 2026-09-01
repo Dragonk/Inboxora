@@ -4,15 +4,16 @@ import { api } from '../utils/api.js';
 import { useStore } from '../store/index.js';
 import { useMobile } from '../hooks/useMobile.js';
 import { eventPayload, eventsForDay, monthRange, shiftCalendarAnchor, toDateTimeLocal, toggleAllDayTimes, weekRange } from './calendarView.js';
+import CalendarSidebar from './CalendarSidebar.jsx';
 
 const emptyForm = (calendarId = '', date = new Date()) => ({ calendarId, summary: '', description: '', location: '', url: '', organizer: '', attendees: [], sendInvites: false, inviteAccountId: '', allDay: false, startsAt: toDateTimeLocal(date), endsAt: toDateTimeLocal(new Date(date.getTime() + 3600000)) });
 function iso(date) { return date.toISOString(); }
-function calendarDays(anchor) {
-  const { start } = monthRange(anchor); const first = new Date(start); first.setDate(first.getDate() - first.getDay());
-  return Array.from({ length: 42 }, (_, i) => { const day = new Date(first); day.setDate(day.getDate() + i); return day; });
+function calendarDays(anchor, weekStartsOn = 1) {
+  const { start } = monthRange(anchor); const first = new Date(start); first.setDate(first.getDate() - ((first.getDay() - weekStartsOn + 7) % 7));
+  return Array.from({ length: 42 }, (_, i) => { const day = new Date(first); day.setDate(first.getDate() + i); return day; });
 }
-function weekDays(anchor, workWeek) {
-  const { start } = weekRange(anchor);
+function weekDays(anchor, workWeek, weekStartsOn = 1) {
+  const { start } = weekRange(anchor, weekStartsOn);
   return Array.from({ length: workWeek ? 5 : 7 }, (_, index) => { const day = new Date(start); day.setDate(day.getDate() + index); return day; });
 }
 function isToday(day) { const today = new Date(); return day.toDateString() === today.toDateString(); }
@@ -20,14 +21,14 @@ function eventTime(event) { return new Date(event.starts_at).toLocaleTimeString(
 
 export default function CalendarPage() {
   const { t } = useTranslation();
-  const { showCalendar, accounts } = useStore();
+  const { showCalendar, setShowCalendar, accounts, calendarWeekStartsOn, setCalendarWeekStartsOn, visibleCalendarIds, setVisibleCalendarIds, mobileNavigationPosition, setMobileNavigationPosition } = useStore();
   const isMobile = useMobile();
   const [anchor, setAnchor] = useState(() => new Date());
   const loadGeneration = useRef(0);
   const [view, setView] = useState('month');
   const [calendars, setCalendars] = useState([]); const [events, setEvents] = useState([]);
   const [error, setError] = useState(null); const [loading, setLoading] = useState(true); const [form, setForm] = useState(null); const [saving, setSaving] = useState(false);
-  const range = useMemo(() => view === 'month' ? monthRange(anchor) : weekRange(anchor), [anchor, view]);
+  const range = useMemo(() => view === 'month' ? monthRange(anchor) : weekRange(anchor, calendarWeekStartsOn), [anchor, calendarWeekStartsOn, view]);
   const load = useCallback(async () => {
     const generation = ++loadGeneration.current;
     setLoading(true); setError(null);
@@ -57,27 +58,43 @@ export default function CalendarPage() {
     } catch (err) { setError(err.message || t('calendar.saveFailed')); } finally { setSaving(false); }
   };
   const remove = async () => { if (!form?.id || !window.confirm(t('calendar.confirmDelete'))) return; setSaving(true); try { await api.calendar.deleteEvent(form.id, form.calendarId); setForm(null); await load(); } catch (err) { setError(err.message || t('calendar.deleteFailed')); } finally { setSaving(false); } };
-  const days = view === 'month' ? calendarDays(anchor) : weekDays(anchor, view === 'workweek');
+  const days = view === 'month' ? calendarDays(anchor, calendarWeekStartsOn) : weekDays(anchor, view === 'workweek', calendarWeekStartsOn);
+  const visibleEvents = visibleCalendarIds == null ? events : events.filter(event => visibleCalendarIds.includes(event.calendar_id));
+  const toggleCalendar = id => {
+    const current = visibleCalendarIds == null ? calendars.map(calendar => calendar.id) : visibleCalendarIds;
+    setVisibleCalendarIds(current.includes(id) ? current.filter(value => value !== id) : [...current, id]);
+  };
   const title = view === 'month'
     ? anchor.toLocaleDateString(undefined, { month: 'long', year: 'numeric' })
     : `${days[0].toLocaleDateString(undefined, { month: 'short', day: 'numeric' })} – ${days.at(-1).toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' })}`;
   const step = direction => setAnchor(current => shiftCalendarAnchor(current, view, direction));
   return <div data-testid="calendar-page" style={page}>
-    <header style={header}>
+    <header style={{ ...header, ...(isMobile ? mobileHeader(mobileNavigationPosition) : {}) }}>
+      {isMobile && <button data-testid="calendar-mobile-back" aria-label={t('calendar.back')} onClick={() => setShowCalendar(false)} style={mobileBackButton}>
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><polyline points="15 18 9 12 15 6"/></svg>
+      </button>}
       <div style={heading}><h1 style={{ margin: 0, fontSize: 22 }}>{t('calendar.title')}</h1><span style={subheading}>{title}</span></div>
       <div style={toolbar}>
         <div style={segmented} aria-label={t('calendar.view')}>
           {[['month', t('calendar.month')], ['week', t('calendar.week')], ['workweek', t('calendar.workWeek')]].map(([value, label]) => <button key={value} onClick={() => setView(value)} aria-pressed={view === value} style={{ ...segmentButton, ...(view === value ? segmentActive : {}) }}>{label}</button>)}
         </div>
         <button onClick={() => step(-1)} aria-label={t('calendar.previous')} style={iconButton}>‹</button><button onClick={() => setAnchor(new Date())} style={secondaryButton}>{t('calendar.today')}</button><button onClick={() => step(1)} aria-label={t('calendar.next')} style={iconButton}>›</button>
-        <button disabled={!writable.length} onClick={() => openCreate()} style={primaryButton}>{t('calendar.newEvent')}</button>
+        {isMobile && <button data-testid="calendar-mobile-panel" onClick={() => document.getElementById('calendar-mobile-panel')?.showModal()} style={secondaryButton}>{t('calendar.calendars')}</button>}
+        {!isMobile && <button disabled={!writable.length} onClick={() => openCreate()} style={primaryButton}>{t('calendar.newEvent')}</button>}
       </div>
     </header>
     {error && <div role="alert" style={errorStyle}>{error}</div>}
     {!writable.length && !loading && <div style={errorStyle}>{t('calendar.noWritable')}</div>}
-    <CalendarGrid days={days} events={events} view={view} anchor={anchor} openCreate={openCreate} openEdit={openEdit} t={t} />
+    <div style={calendarContent}>
+      {!isMobile && <CalendarSidebar anchor={anchor} calendars={calendars} visibleCalendarIds={visibleCalendarIds} weekStartsOn={calendarWeekStartsOn} onWeekStartsOnChange={setCalendarWeekStartsOn} mobileNavigationPosition={mobileNavigationPosition} onMobileNavigationPositionChange={setMobileNavigationPosition} onSelectDate={setAnchor} onToggleCalendar={toggleCalendar} onSourcesChanged={load} t={t} />}
+      <CalendarGrid days={days} events={visibleEvents} view={view} anchor={anchor} openCreate={openCreate} openEdit={openEdit} t={t} />
+    </div>
+    {isMobile && <dialog id="calendar-mobile-panel" aria-label={t('calendar.panel')} style={mobilePanelDialog}><CalendarSidebar anchor={anchor} calendars={calendars} visibleCalendarIds={visibleCalendarIds} weekStartsOn={calendarWeekStartsOn} onWeekStartsOnChange={setCalendarWeekStartsOn} mobileNavigationPosition={mobileNavigationPosition} onMobileNavigationPositionChange={setMobileNavigationPosition} onSelectDate={day => { setAnchor(day); document.getElementById('calendar-mobile-panel')?.close(); }} onToggleCalendar={toggleCalendar} onSourcesChanged={load} onClose={() => document.getElementById('calendar-mobile-panel')?.close()} t={t} /></dialog>}
+    {isMobile && <button data-testid="calendar-mobile-new-event" aria-label={t('calendar.newEvent')} disabled={!writable.length} onClick={() => openCreate()} style={{ ...mobileNewEventButton, ...(mobileNavigationPosition === 'bottom' ? { bottom: 'max(88px, calc(env(safe-area-inset-bottom) + 76px))' } : {}) }}>
+      <svg width="25" height="25" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M12 5v14M5 12h14"/></svg>
+    </button>}
     {loading && <p>{t('calendar.loading')}</p>}
-    {form && <EventDialog form={form} calendars={writable} accounts={senderAccounts} saving={saving} onChange={(key, value) => setForm(current => ({ ...current, [key]: value }))} onAllDayChange={allDay => setForm(current => toggleAllDayTimes(current, allDay))} onSave={save} onDelete={remove} onClose={() => setForm(null)} t={t} />}
+    {form && <EventDialog form={form} calendars={writable} accounts={senderAccounts} isMobile={isMobile} saving={saving} onChange={(key, value) => setForm(current => ({ ...current, [key]: value }))} onAllDayChange={allDay => setForm(current => toggleAllDayTimes(current, allDay))} onSave={save} onDelete={remove} onClose={() => setForm(null)} t={t} />}
   </div>;
 }
 
@@ -97,14 +114,14 @@ function CalendarGrid({ days, events, view, anchor, openCreate, openEdit, t }) {
   </div>;
 }
 
-function EventDialog({ form, calendars, accounts, saving, onChange, onAllDayChange, onSave, onDelete, onClose, t }) {
+function EventDialog({ form, calendars, accounts, isMobile, saving, onChange, onAllDayChange, onSave, onDelete, onClose, t }) {
   const attendeeValue = form.attendees.join(', ');
   const setAttendees = value => onChange('attendees', value.split(',').map(email => email.trim()).filter(Boolean));
-  return <div role="dialog" aria-modal="true" aria-label={form.mode === 'edit' ? t('calendar.editEvent') : t('calendar.newEvent')} style={overlay}><div style={dialog}>
+  return <div role="dialog" aria-modal="true" aria-label={form.mode === 'edit' ? t('calendar.editEvent') : t('calendar.newEvent')} style={overlay}><div data-testid="calendar-event-dialog" style={{ ...dialog, ...(isMobile ? mobileDialog : {}) }}>
     <header style={dialogHeader}><h2 style={{ margin: 0 }}>{form.mode === 'edit' ? t('calendar.editEvent') : t('calendar.newEvent')}</h2><button aria-label={t('calendar.close')} onClick={onClose} style={iconButton}>×</button></header>
     <label style={field}><span>{t('calendar.titleField')}</span><input autoFocus value={form.summary} onChange={e => onChange('summary', e.target.value)} /></label>
     <label style={toggleLabel}><input type="checkbox" checked={form.allDay} onChange={e => onAllDayChange(e.target.checked)} />{t('calendar.allDay')}</label>
-    <div style={twoColumns}><label style={field}><span>{t('calendar.starts')}</span><input type={form.allDay ? 'date' : 'datetime-local'} value={form.startsAt} onChange={e => onChange('startsAt', e.target.value)} /></label><label style={field}><span>{t('calendar.ends')}</span><input type={form.allDay ? 'date' : 'datetime-local'} value={form.endsAt} onChange={e => onChange('endsAt', e.target.value)} /></label></div>
+    <div style={isMobile ? mobileSingleColumn : twoColumns}><label style={field}><span>{t('calendar.starts')}</span><input type={form.allDay ? 'date' : 'datetime-local'} value={form.startsAt} onChange={e => onChange('startsAt', e.target.value)} /></label><label style={field}><span>{t('calendar.ends')}</span><input type={form.allDay ? 'date' : 'datetime-local'} value={form.endsAt} onChange={e => onChange('endsAt', e.target.value)} /></label></div>
     <label style={field}><span>{t('calendar.calendar')}</span><select value={form.calendarId} onChange={e => onChange('calendarId', e.target.value)}>{calendars.map(calendar => <option key={calendar.id} value={calendar.id}>{calendar.name}</option>)}</select></label>
     <label style={field}><span>{t('calendar.location')}</span><input value={form.location} onChange={e => onChange('location', e.target.value)} /></label>
     <label style={field}><span>{t('calendar.description')}</span><textarea rows="4" value={form.description} onChange={e => onChange('description', e.target.value)} /></label>
@@ -113,11 +130,15 @@ function EventDialog({ form, calendars, accounts, saving, onChange, onAllDayChan
   </div></div>;
 }
 
-const page = { flex: 1, minWidth: 0, height: '100%', overflow: 'auto', padding: '24px clamp(14px, 3vw, 36px)', boxSizing: 'border-box', background: 'var(--bg-primary)' };
+const page = { display: 'flex', flexDirection: 'column', flex: 1, minWidth: 0, height: '100%', overflow: 'auto', padding: '24px clamp(14px, 3vw, 36px)', boxSizing: 'border-box', background: 'var(--bg-primary)' };
 const header = { display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 16, flexWrap: 'wrap', marginBottom: 20 };
+const mobileHeader = position => position === 'bottom' ? { position: 'sticky', bottom: 0, zIndex: 12, order: 2, margin: '16px -14px 0', padding: '10px 12px calc(env(safe-area-inset-bottom) + 10px)', flexWrap: 'nowrap', background: 'var(--bg-primary)', borderTop: '1px solid var(--border-subtle)' } : { position: 'sticky', top: 0, zIndex: 2, margin: '0 -14px 16px', padding: 'calc(var(--sat) + 10px) 12px 10px', flexWrap: 'nowrap', background: 'var(--bg-primary)', borderBottom: '1px solid var(--border-subtle)' };
+const mobileBackButton = { background: 'none', border: 'none', color: 'var(--text-secondary)', cursor: 'pointer', padding: 0, borderRadius: 7, display: 'flex', alignItems: 'center', justifyContent: 'center', minWidth: 44, minHeight: 44, flexShrink: 0 };
+const mobileNewEventButton = { position: 'fixed', right: 20, bottom: 'max(20px, calc(env(safe-area-inset-bottom) + 12px))', zIndex: 10, width: 56, height: 56, border: 0, borderRadius: '50%', display: 'grid', placeItems: 'center', background: 'var(--accent)', color: 'var(--accent-text)', boxShadow: '0 8px 22px rgba(0,0,0,.28)', cursor: 'pointer' };
+const calendarContent = { display: 'flex', flex: 1, minHeight: 0, border: '1px solid var(--border)', borderRadius: 12, overflow: 'hidden' }; const mobilePanelDialog = { border: 0, padding: 0, margin: 'auto 0 0', maxWidth: 'min(360px, 92vw)', width: '100%', background: 'transparent' };
 const heading = { display: 'flex', alignItems: 'baseline', gap: 12, minWidth: 230 }; const subheading = { color: 'var(--text-secondary)', fontWeight: 600 };
 const toolbar = { display: 'flex', gap: 7, alignItems: 'center', flexWrap: 'wrap' }; const segmented = { display: 'flex', padding: 3, borderRadius: 9, background: 'var(--bg-tertiary)' };
 const segmentButton = { border: 0, background: 'transparent', color: 'var(--text-secondary)', padding: '6px 9px', borderRadius: 6, cursor: 'pointer', fontSize: 12 }; const segmentActive = { background: 'var(--bg-secondary)', color: 'var(--text-primary)', boxShadow: '0 1px 3px rgba(0,0,0,.16)' };
 const primaryButton = { background: 'var(--accent)', color: 'var(--accent-text)', border: 0, borderRadius: 7, padding: '8px 12px', cursor: 'pointer', fontWeight: 650 }; const secondaryButton = { background: 'var(--bg-secondary)', color: 'var(--text-primary)', border: '1px solid var(--border)', borderRadius: 7, padding: '7px 10px', cursor: 'pointer' }; const iconButton = { ...secondaryButton, padding: '5px 10px', fontSize: 18, lineHeight: 1 };
 const errorStyle = { marginBottom: 12, padding: 10, borderRadius: 7, color: 'var(--red)', background: 'var(--red-dim, #fee2e2)' }; const calendarSurface = { overflowX: 'auto', border: '1px solid var(--border)', borderRadius: 12, background: 'var(--bg-secondary)', boxShadow: '0 6px 24px rgba(0,0,0,.08)' }; const dayGrid = { display: 'grid', minWidth: 780 }; const dayHeader = { position: 'sticky', top: 0, zIndex: 1, display: 'flex', justifyContent: 'space-between', padding: '9px 10px', borderBottom: '1px solid var(--border)', color: 'var(--text-secondary)', background: 'var(--bg-secondary)', fontSize: 12 }; const todayHeader = { color: 'var(--accent)' }; const dayCell = { padding: 7, borderRight: '1px solid var(--border)', borderBottom: '1px solid var(--border)', boxSizing: 'border-box' }; const todayCell = { background: 'color-mix(in srgb, var(--accent) 5%, transparent)' }; const dateChip = { fontSize: 12, color: 'var(--text-secondary)', marginBottom: 6 }; const eventStack = { display: 'grid', gap: 4 }; const eventCard = { display: 'grid', gap: 2, width: '100%', textAlign: 'left', border: 0, borderRadius: 6, padding: '5px 7px', color: 'white', fontSize: 12, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' };
-const overlay = { position: 'fixed', inset: 0, zIndex: 1000, padding: 16, background: 'var(--overlay-scrim)', display: 'grid', placeItems: 'center' }; const dialog = { width: 590, maxWidth: '100%', maxHeight: 'calc(100vh - 32px)', overflow: 'auto', padding: 22, background: 'var(--bg-secondary)', border: '1px solid var(--border)', borderRadius: 14, display: 'grid', gap: 15, boxShadow: '0 24px 64px rgba(0,0,0,.3)' }; const dialogHeader = { display: 'flex', justifyContent: 'space-between', alignItems: 'center' }; const field = { display: 'grid', gap: 6, color: 'var(--text-secondary)', fontSize: 13, fontWeight: 600 }; const twoColumns = { display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(210px, 1fr))', gap: 12 }; const inviteBox = { display: 'grid', gap: 11, padding: 14, border: '1px solid var(--border)', borderRadius: 10, background: 'var(--bg-primary)' }; const toggleLabel = { display: 'flex', alignItems: 'center', gap: 8, fontWeight: 700 }; const hint = { margin: 0, color: 'var(--text-secondary)', fontSize: 12 }; const dialogFooter = { display: 'flex', justifyContent: 'space-between', gap: 12, alignItems: 'center', marginTop: 5 }; const dangerButton = { border: '1px solid var(--red)', background: 'transparent', color: 'var(--red)', borderRadius: 7, padding: '7px 10px', cursor: 'pointer' };
+const overlay = { position: 'fixed', inset: 0, zIndex: 1000, padding: 16, background: 'var(--overlay-scrim)', display: 'grid', placeItems: 'center' }; const dialog = { width: 590, maxWidth: '100%', maxHeight: 'calc(100vh - 32px)', overflow: 'auto', padding: 22, background: 'var(--bg-secondary)', border: '1px solid var(--border)', borderRadius: 14, display: 'grid', gap: 15, boxShadow: '0 24px 64px rgba(0,0,0,.3)' }; const mobileDialog = { width: 'calc(100vw - 32px)', maxWidth: 'calc(100vw - 32px)', maxHeight: 'calc(100dvh - 32px)', boxSizing: 'border-box', padding: 16 }; const dialogHeader = { display: 'flex', justifyContent: 'space-between', alignItems: 'center' }; const field = { display: 'grid', gap: 6, color: 'var(--text-secondary)', fontSize: 13, fontWeight: 600 }; const twoColumns = { display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(210px, 1fr))', gap: 12 }; const mobileSingleColumn = { display: 'grid', gridTemplateColumns: 'minmax(0, 1fr)', gap: 12 }; const inviteBox = { display: 'grid', gap: 11, padding: 14, border: '1px solid var(--border)', borderRadius: 10, background: 'var(--bg-primary)' }; const toggleLabel = { display: 'flex', alignItems: 'center', gap: 8, fontWeight: 700 }; const hint = { margin: 0, color: 'var(--text-secondary)', fontSize: 12 }; const dialogFooter = { display: 'flex', justifyContent: 'space-between', gap: 12, alignItems: 'center', marginTop: 5 }; const dangerButton = { border: '1px solid var(--red)', background: 'transparent', color: 'var(--red)', borderRadius: 7, padding: '7px 10px', cursor: 'pointer' };

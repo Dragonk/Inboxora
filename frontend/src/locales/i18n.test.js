@@ -475,6 +475,9 @@ const dir = dirname(fileURLToPath(import.meta.url));
 // Two locales sharing a value is only allowed if both appear in the same group.
 // Any unlisted pair will still fail.
 const SAME_VALUE_ALLOWED = {
+  'calendar.caldav': 'any',
+  'calendar.icsWebcal': 'any',
+  'calendar.sourceUrl': 'any',
   // CE v2 candidate-only locale keys retained from the candidate branch.
   'admin.messageList.markReadDelaySeconds_few': 'any',
   'admin.messageList.markReadDelaySeconds_many': 'any',
@@ -1167,6 +1170,15 @@ const langs = Object.keys(locales).sort();
 const allKeys = [...new Set(langs.flatMap(l => Object.keys(locales[l])))].filter(k => !LOCALE_SPECIFIC_KEYS.has(k)).sort();
 
 describe('i18n locale files', () => {
+
+  it('translates the mobile calendar navigation setting in every locale', () => {
+    for (const lang of langs) {
+      for (const key of ['calendar.mobileNavigation', 'calendar.navigationTop', 'calendar.navigationBottom']) {
+        assert.equal(typeof locales[lang][key], 'string', `${lang} is missing ${key}`);
+        assert.notEqual(locales[lang][key], '', `${lang} has empty ${key}`);
+      }
+    }
+  });
 
   it('places sender favicon setting copy under the admin message-list namespace', () => {
     const keys = [

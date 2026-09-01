@@ -96,3 +96,32 @@ describe('PATCH /auth/preferences senderFavicons', () => {
     expect(query).not.toHaveBeenCalled();
   });
 });
+
+describe('PATCH /auth/preferences calendar preferences', () => {
+  it('rejects an unsupported first day of week without querying', async () => {
+    const req = { session: { userId: 'user-1' }, body: { calendarWeekStartsOn: 4 } };
+    const res = { status: vi.fn().mockReturnThis(), json: vi.fn() };
+
+    await patchPreferences(req, res);
+
+    expect(res.status).toHaveBeenCalledWith(400);
+    expect(res.json).toHaveBeenCalledWith({ error: 'calendarWeekStartsOn must be 0 or 1' });
+    expect(query).not.toHaveBeenCalled();
+  });
+
+  it('persists validated calendar view preferences as JSONB', async () => {
+    const req = { session: { userId: 'user-1' }, body: { calendarWeekStartsOn: 0, mobileNavigationPosition: 'bottom', visibleCalendarIds: ['personal', 'contacts-birthdays'] } };
+    const res = { status: vi.fn().mockReturnThis(), json: vi.fn() };
+
+    await patchPreferences(req, res);
+
+    const [sql, params] = query.mock.calls[0];
+    expect(sql).toContain("jsonb_build_object('calendarWeekStartsOn'");
+    expect(sql).toContain("jsonb_build_object('mobileNavigationPosition'");
+    expect(sql).toContain("jsonb_build_object('visibleCalendarIds'");
+    expect(params).toContain(0);
+    expect(params).toContain('bottom');
+    expect(params).toContain(JSON.stringify(['personal', 'contacts-birthdays']));
+    expect(res.json).toHaveBeenCalledWith({ ok: true });
+  });
+});

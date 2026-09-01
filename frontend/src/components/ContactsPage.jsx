@@ -48,6 +48,8 @@ function emptyContact() {
     phones: [],
     organization: '',
     notes: '',
+    birthday: '',
+    anniversary: '',
   };
 }
 
@@ -171,6 +173,8 @@ export default function ContactsPage() {
       phones:       selected.phones        || [],
       organization: selected.organization  || '',
       notes:        selected.notes         || '',
+      birthday:     selected.birthday ? String(selected.birthday).slice(0, 10) : '',
+      anniversary:  selected.anniversary ? String(selected.anniversary).slice(0, 10) : '',
     });
     setEditing(true);
     setError(null);
@@ -222,6 +226,8 @@ export default function ContactsPage() {
         phones:       form.phones.filter(p => p.value.trim()),
         organization: form.organization || null,
         notes:        form.notes        || null,
+        birthday:     form.birthday || null,
+        anniversary:  form.anniversary || null,
       };
       let saved;
       if (showNew) {
@@ -634,7 +640,7 @@ function ContactDetail({ contact: c, confirmDelete, saving, error, onEdit, onDel
         </div>
       )}
 
-      {((c.emails?.length > 0) || (c.phones?.length > 0) || c.notes) && (
+      {((c.emails?.length > 0) || (c.phones?.length > 0) || c.notes || c.birthday || c.anniversary) && (
         <DetailSection>
           {(c.emails || []).map((e, i) => (
             <DetailRow key={i} label={t(`contacts.emailTypes.${e.type || 'other'}`, { defaultValue: t('contacts.emailTypes.other') })}>
@@ -647,6 +653,8 @@ function ContactDetail({ contact: c, confirmDelete, saving, error, onEdit, onDel
             </DetailRow>
           ))}
           {c.notes && <DetailRow label={t('contacts.fields.notes')}>{c.notes}</DetailRow>}
+          {c.birthday && <DetailRow label={t('contacts.fields.birthday')}>{new Date(`${String(c.birthday).slice(0, 10)}T00:00:00`).toLocaleDateString()}</DetailRow>}
+          {c.anniversary && <DetailRow label={t('contacts.fields.anniversary')}>{new Date(`${String(c.anniversary).slice(0, 10)}T00:00:00`).toLocaleDateString()}</DetailRow>}
         </DetailSection>
       )}
 
@@ -708,6 +716,11 @@ function ContactForm({
       <div style={{ marginBottom: 12 }}>
         <label style={labelStyle}>{t('contacts.fields.organization')}</label>
         <input style={inputStyle} value={form.organization} onChange={e => onField('organization', e.target.value)} />
+      </div>
+
+      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12, marginBottom: 12 }}>
+        <div><label style={labelStyle}>{t('contacts.fields.birthday')}</label><input type="date" style={inputStyle} value={form.birthday} onChange={e => onField('birthday', e.target.value)} /></div>
+        <div><label style={labelStyle}>{t('contacts.fields.anniversary')}</label><input type="date" style={inputStyle} value={form.anniversary} onChange={e => onField('anniversary', e.target.value)} /></div>
       </div>
 
       {/* Emails */}

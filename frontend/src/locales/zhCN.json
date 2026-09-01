@@ -1017,6 +1017,8 @@
       "phone": "电话",
       "organization": "组织",
       "notes": "备注",
+      "birthday": "生日",
+      "anniversary": "纪念日",
       "emailsSent": "已发邮件",
       "lastContacted": "最近联系"
     },
@@ -1688,6 +1690,7 @@
   },
   "calendar": {
     "title": "日历",
+    "back": "返回",
     "today": "今天",
     "newEvent": "新建事件",
     "noWritable": "没有可写的本地日历。导入的日历为只读。",
@@ -1723,7 +1726,8 @@
     "noSenderAccounts": "没有可用的已启用 SMTP 账户。",
     "delete": "删除",
     "cancel": "取消",
-    "saving": "正在保存…",
-    "save": "保存"
+    "saving": "保存中…",
+    "save": "保存",
+    "panel": "日历面板", "calendars": "日历", "manageSources": "管理来源", "firstDayOfWeek": "一周的第一天", "monday": "星期一", "sunday": "星期日", "sourceType": "来源类型", "sourceName": "名称", "sourceUrl": "URL", "sourceUsername": "用户名", "sourcePassword": "应用密码", "addSource": "添加来源", "syncSource": "同步", "sourceReady": "就绪", "icsWebcal": "ICS / webcal", "caldav": "CalDAV", "mobileNavigation": "移动导航", "navigationTop": "顶部", "navigationBottom": "底部"
   }
 }

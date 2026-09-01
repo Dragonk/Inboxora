@@ -115,7 +115,7 @@ export default function MessageList() {
     searchQuery, setSearchQuery, setIsSearching,
     searchResults, setSearchResults, openCompose, accountsReady, accounts,
     messagesRefreshToken, layout, setLayout, pageSize, setPageSize, scrollMode,
-    setMobileSidebarOpen, unreadCounts, showContacts, setShowContacts,
+    setMobileSidebarOpen, unreadCounts,
     threadedView, expandedThreadId, setExpandedThreadId,
     threadMessages, setThreadMessages, clearThreadMessages, loadingThread, setLoadingThread,
     hoverQuickActions, showMobileAvatars, showMessagePreviews,
@@ -126,6 +126,7 @@ export default function MessageList() {
     searchAllFolders,
     activeGtdTab, setActiveGtdTab, gtdSections, enabledPlugins,
     openMessageWindow,
+    mobileNavigationPosition,
   } = useStore();
   // GTD's UI surfaces (pills, rail, per-row "done") gate on the GTD plugin being activated for the
   // user, on top of each account's gtd_enabled — deactivating hides them entirely.
@@ -2511,11 +2512,10 @@ export default function MessageList() {
 
       {/* ── Mobile header ───────────────────────────────────────────────── */}
       {isMobile && (
-        <div style={{
+        <div data-testid="mobile-navigation" style={{
           display: 'flex', alignItems: 'center', gap: 4,
-          paddingTop: 'calc(var(--sat) + 10px)',
-          paddingBottom: 10, paddingLeft: 12, paddingRight: 12,
-          borderBottom: '1px solid var(--border-subtle)',
+          ...(mobileNavigationPosition === 'bottom' ? { order: 2, paddingTop: 10, paddingBottom: 'calc(env(safe-area-inset-bottom) + 10px)', borderTop: '1px solid var(--border-subtle)' } : { paddingTop: 'calc(var(--sat) + 10px)', paddingBottom: 10, borderBottom: '1px solid var(--border-subtle)' }),
+          paddingLeft: 12, paddingRight: 12,
           boxShadow: listScrolled ? '0 1px 10px rgba(0,0,0,0.2)' : 'none',
           transition: 'box-shadow 0.2s ease',
           background: 'var(--bg-secondary)', flexShrink: 0,
@@ -2607,25 +2607,6 @@ export default function MessageList() {
             </svg>
           </button>
 
-          {/* Contacts */}
-          <button
-            onClick={() => setShowContacts(!showContacts)}
-            aria-label={t('contacts.title')}
-            style={{
-              background: showContacts ? 'var(--bg-hover)' : 'none', border: 'none',
-              color: showContacts ? 'var(--accent)' : 'var(--text-tertiary)',
-              cursor: 'pointer', padding: 0, borderRadius: 7, display: 'flex',
-              alignItems: 'center', justifyContent: 'center',
-              minWidth: 44, minHeight: 44,
-            }}
-          >
-            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75">
-              <path d="M17 21v-2a4 4 0 00-4-4H5a4 4 0 00-4 4v2"/>
-              <circle cx="9" cy="7" r="4"/>
-              <path d="M23 21v-2a4 4 0 00-3-3.87"/>
-              <path d="M16 3.13a4 4 0 010 7.75"/>
-            </svg>
-          </button>
 
           {/* Select / Cancel — replaces compose button; FAB is the primary compose affordance */}
           {selectionMode ? (

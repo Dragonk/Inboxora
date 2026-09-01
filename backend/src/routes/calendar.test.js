@@ -1,12 +1,16 @@
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 
-const { query, withTransaction, sendCalendarInvitation } = vi.hoisted(() => ({
+const { query, withTransaction, sendCalendarInvitation, scheduleCalendarSource, stopCalendarSource, syncCalendarSource } = vi.hoisted(() => ({
   query: vi.fn(),
   withTransaction: vi.fn(async (fn) => fn({ query })),
   sendCalendarInvitation: vi.fn(),
+  scheduleCalendarSource: vi.fn(),
+  stopCalendarSource: vi.fn(),
+  syncCalendarSource: vi.fn(async () => ({ ok: true })),
 }));
 vi.mock('../services/db.js', () => ({ query, withTransaction }));
 vi.mock('../services/calendarInvitation.js', () => ({ sendCalendarInvitation }));
+vi.mock('../services/externalCalendarSync.js', () => ({ scheduleCalendarSource, stopCalendarSource, syncCalendarSource }));
 vi.mock('../middleware/auth.js', () => ({
   requireAuth: (req, _res, next) => { req.session = { userId: 'user-1' }; next(); },
 }));
@@ -49,15 +53,49 @@ describe('local calendar API', () => {
     expect(query).not.toHaveBeenCalled();
   });
 
+  it('rejects source URLs that embed credentials', async () => {
+    const response = await fetch(`${base}/api/calendar/sources`, {
+      method: 'POST', headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ kind: 'ical_url', url: 'https://user:password@calendar.example/events.ics', displayName: 'Work' }),
+    });
+
+    expect(response.status).toBe(400);
+    expect(await response.json()).toEqual({ error: 'Source URL must not include credentials' });
+    expect(query).not.toHaveBeenCalled();
+  });
+
+  it('normalizes a webcal source to HTTPS before storing it', async () => {
+    query.mockImplementation(async (sql) => sql.includes('INSERT INTO calendar_import_sources')
+      ? { rows: [{ id: 'source-1', kind: 'ical_url', url: 'https://calendar.example/events.ics', display_name: 'Work' }] }
+      : { rows: [] });
+    const response = await fetch(`${base}/api/calendar/sources`, {
+      method: 'POST', headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ kind: 'ical_url', url: 'webcal://calendar.example/events.ics', displayName: 'Work' }),
+    });
+
+    expect(response.status).toBe(201);
+    const insert = query.mock.calls.find(([sql]) => sql.includes('INSERT INTO calendar_import_sources'));
+    expect(insert[1][2]).toBe('https://calendar.example/events.ics');
+  });
+
   it('lists only calendars owned by the signed-in user', async () => {
     query.mockResolvedValueOnce({ rows: [{ id: 'calendar-1', name: 'Personal', source: 'local', read_only: false }] });
 
     const response = await fetch(`${base}/api/calendar/calendars`);
 
     expect(response.status).toBe(200);
-    expect(await response.json()).toEqual({ calendars: [{ id: 'calendar-1', name: 'Personal', source: 'local', read_only: false }] });
+    expect((await response.json()).calendars).toContainEqual({ id: 'calendar-1', name: 'Personal', source: 'local', read_only: false });
     expect(query.mock.calls[0][0]).toContain('WHERE user_id = $1');
     expect(query.mock.calls[0][1]).toEqual(['user-1']);
+  });
+
+  it('adds the read-only contact dates calendar without persisting a duplicate resource', async () => {
+    query.mockResolvedValueOnce({ rows: [{ id: 'calendar-1', name: 'Personal', source: 'local', read_only: false }] });
+
+    const response = await fetch(`${base}/api/calendar/calendars`);
+
+    expect(response.status).toBe(200);
+    expect((await response.json()).calendars).toContainEqual(expect.objectContaining({ id: 'contacts-birthdays', source: 'contacts', read_only: true }));
   });
 
   it('rejects an excessively broad event range before querying the database', async () => {

@@ -97,4 +97,29 @@ describe('CardDAV authentication', () => {
 
     expect(response.status).toBe(403);
   });
+
+  it('persists vCard birthday and anniversary fields on a local CardDAV write', async () => {
+    authenticateDavCredential.mockResolvedValue({ userId: 'user-1', credentialId: 'credential-1' });
+    query
+      .mockResolvedValueOnce({ rows: [{ id: 'book-1', source: 'local' }] })
+      .mockResolvedValueOnce({ rows: [] })
+      .mockResolvedValueOnce({ rows: [] })
+      .mockResolvedValueOnce({ rows: [] });
+
+    const response = await fetch(`${base}/carddav/user-1/book-1/contact-1.vcf`, {
+      method: 'PUT',
+      headers: {
+        authorization: basic('sam@example.test', 'mf_dav_123e4567-e89b-12d3-a456-426614174000.exampleSecret-123456'),
+        'content-type': 'text/vcard',
+      },
+      body: 'BEGIN:VCARD\r\nVERSION:3.0\r\nFN:Ada\r\nBDAY:1990-01-02\r\nANNIVERSARY:2020-09-14\r\nEND:VCARD\r\n',
+    });
+
+    expect(response.status).toBe(201);
+    const [sql, params] = query.mock.calls.find(([statement]) => statement.includes('INSERT INTO contacts'));
+    expect(sql).toContain('birthday');
+    expect(sql).toContain('anniversary');
+    expect(params).toContain('1990-01-02');
+    expect(params).toContain('2020-09-14');
+  });
 });

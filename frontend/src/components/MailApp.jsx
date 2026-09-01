@@ -15,6 +15,7 @@ import Sidebar from './Sidebar.jsx';
 import MessageList from './MessageList.jsx';
 import MessagePane from './MessagePane.jsx';
 import NotificationToasts from './NotificationToasts.jsx';
+import ProfileModal from './ProfileModal.jsx';
 // CE v2 uses the native MessageList/MessagePane shells with grouped/conversation modes.
 // on the native MessageList/MessagePane — no separate import needed.
 import CommandPalette from './CommandPalette.jsx';
@@ -94,6 +95,7 @@ export default function MailApp() {
   const lockScreen = useStore(s => s.lockScreen);
   const isMobile = useMobile();
   const [conversationId, setConversationId] = useState(null);
+  const [mobileProfileOpen, setMobileProfileOpen] = useState(false);
   const [targetLogicalMessageId, setTargetLogicalMessageId] = useState(null);
   const [selectedConversationCopy, setSelectedConversationCopy] = useState(null);
   const [conversationResolutionError, setConversationResolutionError] = useState(null);
@@ -943,7 +945,7 @@ export default function MailApp() {
               if (dx < -60 && Math.abs(dy) < Math.abs(dx)) setMobileSidebarOpen(false);
             }}
           >
-            <Sidebar />
+            <Sidebar onEditProfile={() => setMobileProfileOpen(true)} />
           </div>
           {/* Keep destination views mounted so their state survives drawer navigation. */}
           <div data-testid="mobile-contacts-page" style={{ display: showContacts ? 'flex' : 'none', flex: 1, minWidth: 0, overflow: 'hidden', height: '100%' }}>
@@ -956,9 +958,10 @@ export default function MailApp() {
             <MessageList />
           </div>
           <div data-ce-reader-pane="true" style={{ flex: 1, display: !showContacts && !showCalendar && (selectedMessageId || (conversationReaderViewEnabled && conversationId)) ? 'flex' : 'none', overflow: 'hidden', height: '100%', minWidth: 0 }}>
-            <MessagePane mode={conversationReaderViewEnabled && (conversationId || nativeThreadId) ? 'conversation' : 'single'} conversationId={conversationId} targetLogicalMessageId={targetLogicalMessageId} selectedConversationCopy={selectedConversationCopy} nativeThreadId={nativeThreadId} nativeFolder={nativeFolder} onReply={replyFromConversation} onNativeThreadUnavailable={handleNativeThreadUnavailable} />
+            <MessagePane mode={conversationReaderViewEnabled && (conversationId || nativeThreadId) ? 'conversation' : 'single'} conversationId={conversationId} targetLogicalMessageId={targetLogicalMessageId} selectedConversationCopy={selectedConversationCopy} nativeThreadId={nativeThreadId} nativeFolder={nativeFolder} onReply={replyFromConversation} onNativeThreadUnavailable={handleNativeThreadUnavailable} onMobileBack={() => { if (conversationReaderViewEnabled && conversationId) { setConversationId(null); setTargetLogicalMessageId(null); } else setSelectedMessage(null); }} />
           </div>
-        </>
+          {mobileProfileOpen && <ProfileModal onClose={() => setMobileProfileOpen(false)} />}
+          </>
       ) : (
         <>
           <Sidebar />
@@ -1007,7 +1010,7 @@ export default function MailApp() {
                 />
               )}
               <div data-ce-reader-pane="true" style={{ flex: 1, minWidth: 0, overflow: 'hidden', height: '100%', display: 'flex' }}>
-                <MessagePane mode={conversationReaderViewEnabled && (conversationId || nativeThreadId) ? 'conversation' : 'single'} conversationId={conversationId} targetLogicalMessageId={targetLogicalMessageId} selectedConversationCopy={selectedConversationCopy} nativeThreadId={nativeThreadId} nativeFolder={nativeFolder} onReply={replyFromConversation} onNativeThreadUnavailable={handleNativeThreadUnavailable} />
+                <MessagePane mode={conversationReaderViewEnabled && (conversationId || nativeThreadId) ? 'conversation' : 'single'} conversationId={conversationId} targetLogicalMessageId={targetLogicalMessageId} selectedConversationCopy={selectedConversationCopy} nativeThreadId={nativeThreadId} nativeFolder={nativeFolder} onReply={replyFromConversation} onNativeThreadUnavailable={handleNativeThreadUnavailable} onMobileBack={() => { if (conversationReaderViewEnabled && conversationId) { setConversationId(null); setTargetLogicalMessageId(null); } else setSelectedMessage(null); }} />
               </div>
               {/* Generic right-sidebar column, populated from the content seam above. */}
               {currentLayout.direction === 'row' && rightSidebarContent != null && (

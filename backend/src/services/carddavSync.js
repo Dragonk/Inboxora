@@ -68,7 +68,7 @@ function contactFromVCard(vcard, href) {
     firstName: c.firstName, lastName: c.lastName,
     primaryEmail: primaryEmail ? primaryEmail.toLowerCase().trim() : null,
     emails: c.emails, phones: c.phones,
-    organization: c.organization, notes: c.notes, photoData: c.photoData,
+    organization: c.organization, notes: c.notes, birthday: c.birthday, anniversary: c.anniversary, photoData: c.photoData,
     vcard,
   };
 }
@@ -79,20 +79,21 @@ async function upsertCardavContact(bookId, userId, c) {
     INSERT INTO contacts (
       address_book_id, user_id, uid, vcard, etag,
       display_name, first_name, last_name, primary_email,
-      emails, phones, organization, notes, photo_data, is_auto
-    ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10::jsonb,$11::jsonb,$12,$13,$14,false)
+      emails, phones, organization, notes, birthday, anniversary, photo_data, is_auto
+    ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10::jsonb,$11::jsonb,$12,$13,$14,$15,$16,false)
     ON CONFLICT (address_book_id, uid) DO UPDATE SET
       vcard = EXCLUDED.vcard, etag = EXCLUDED.etag,
       display_name = EXCLUDED.display_name, first_name = EXCLUDED.first_name,
       last_name = EXCLUDED.last_name, primary_email = EXCLUDED.primary_email,
       emails = EXCLUDED.emails, phones = EXCLUDED.phones,
       organization = EXCLUDED.organization, notes = EXCLUDED.notes,
+      birthday = EXCLUDED.birthday, anniversary = EXCLUDED.anniversary,
       photo_data = EXCLUDED.photo_data, updated_at = NOW()
   `, [
     bookId, userId, c.uid, c.vcard, etag,
     c.displayName, c.firstName, c.lastName, c.primaryEmail,
     JSON.stringify(c.emails), JSON.stringify(c.phones),
-    c.organization, c.notes, c.photoData,
+    c.organization, c.notes, c.birthday, c.anniversary, c.photoData,
   ]);
 }
 
@@ -104,11 +105,11 @@ async function mergeIntoExisting(id, c) {
   await query(`
     UPDATE contacts SET
       display_name = $2, first_name = $3, last_name = $4,
-      phones = $5::jsonb, organization = $6, notes = $7,
-      photo_data = COALESCE($8, photo_data), vcard = $9, etag = $10, updated_at = NOW()
+      phones = $5::jsonb, organization = $6, notes = $7, birthday = $8, anniversary = $9,
+      photo_data = COALESCE($10, photo_data), vcard = $11, etag = $12, updated_at = NOW()
     WHERE id = $1
   `, [id, c.displayName, c.firstName, c.lastName, JSON.stringify(c.phones),
-      c.organization, c.notes, c.photoData, c.vcard, etag]);
+      c.organization, c.notes, c.birthday, c.anniversary, c.photoData, c.vcard, etag]);
 }
 
 async function syncBook(userId, book, dupMode, creds) {
