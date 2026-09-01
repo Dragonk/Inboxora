@@ -22,6 +22,8 @@ import { upsertConversationCopy } from './conversationPersistence.js';
 import { recordConversationIngestFailure } from './conversationIngestFailures.js';
 import { conversationPersistedFields, resolveOwnIdentityAddresses } from './conversationIngestEnvelope.js';
 import { providerFetchQuery, providerCapabilitiesFromClient } from './providerThreadAdapter.js';
+import { parseInboundCalendarInvitation } from './inboundCalendarInvitation.js';
+import { persistInboundCalendarInvitation } from './inboundCalendarInvitationPersistence.js';
 
 
 // Shorthand for log lines — keeps domain visible while masking the local part.
@@ -424,6 +426,32 @@ function extractBodyFromMsg(msg) {
     else if (part.type === 'text/plain' && !text) text = decoded;
   }
   return { html, text, attachments: results.attachments };
+}
+
+export async function persistInboundCalendarInvitationFromMessage({ client, message, messageId }) {
+  if (!client || !messageId || !message?.uid || !message.bodyStructure) return false;
+  const results = { textParts: [], attachments: [], calendarParts: [] };
+  walkStructure(message.bodyStructure, results);
+  let invitation = null;
+  for (const part of results.calendarParts) {
+    let payload = message.bodyParts?.get(part.part);
+    if (!payload) {
+      try {
+        for await (const fetched of client.fetch(String(message.uid), { uid: true, bodyParts: [part.part] }, { uid: true })) {
+          payload = fetched.bodyParts?.get(part.part) || payload;
+        }
+      } catch {
+        continue;
+      }
+    }
+    const parsed = payload && parseInboundCalendarInvitation(decodeBody(payload, part.encoding, part.charset));
+    if (!parsed) continue;
+    if (invitation) return false;
+    invitation = parsed;
+  }
+  if (!invitation) return false;
+  await persistInboundCalendarInvitation({ query, messageId, invitation });
+  return true;
 }
 
 // Decode a MIME body part from its raw Buffer.
@@ -2897,6 +2925,8 @@ export class ImapManager {
               sanitizeStr(parsed.senderName), sanitizeStr(parsed.senderEmail),
             ]);
             await persistConversationCopyForRow(result.rows[0].id, account, msg);
+            await persistInboundCalendarInvitationFromMessage({ client, message: msg, messageId: result.rows[0].id })
+              .catch(error => console.warn('Inbound calendar invitation persistence failed: ' + error.message));
             if (result.rows[0]?.is_new) {
               insertedCount++;
               // Inbox-ingest candidate: any newly-inserted INBOX row, read OR unread (read state
@@ -3565,7 +3595,11 @@ export class ImapManager {
                 ]);
                 backfilledRows++;
                 const inserted = await query(`SELECT id FROM messages WHERE account_id = $1 AND uid = $2 AND folder = $3`, [account.id, parsed.uid, folder]);
-                if (inserted.rows[0]) await persistConversationCopyForRow(inserted.rows[0].id, account, msg);
+                if (inserted.rows[0]) {
+                  await persistConversationCopyForRow(inserted.rows[0].id, account, msg);
+                  await persistInboundCalendarInvitationFromMessage({ client: bfClient, message: msg, messageId: inserted.rows[0].id })
+                    .catch(error => console.warn('Inbound calendar invitation persistence failed: ' + error.message));
+                }
                 if (bfThreadId && bfThreadId !== bfMsgId) {
                   await query(
                     `UPDATE messages SET thread_id = $1

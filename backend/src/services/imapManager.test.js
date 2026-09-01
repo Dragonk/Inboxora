@@ -12,7 +12,7 @@ vi.mock('../utils/redact.js', () => ({ redactEmail: vi.fn() }));
 vi.mock('./hostValidation.js', () => ({ resolveForConnection: vi.fn() }));
 vi.mock('./connectionPolicy.js', () => ({ getConnectionPolicy: vi.fn() }));
 
-import { ImapManager, providerProfile, makeClientCfg, relocateExemptGuard, insertCopiedSibling, deleteMessageCopyRow, emitSectionsChanged, ensureMailbox, createKeyedSemaphore, isConnectionRefusal, connectCooldownMs, effectiveSyncIntervalMs, folderSyncDue, planModseqSync, connectStaggerFor, walkStructure, shouldFallbackToTextPart, looksLikeTextPayload, parsePersistentCap, resolvePersistentCap, persistentEligible, shouldRetryIPv4, classifyMoveBySearch } from './imapManager.js';
+import { ImapManager, providerProfile, makeClientCfg, relocateExemptGuard, insertCopiedSibling, deleteMessageCopyRow, emitSectionsChanged, ensureMailbox, createKeyedSemaphore, isConnectionRefusal, connectCooldownMs, effectiveSyncIntervalMs, folderSyncDue, planModseqSync, connectStaggerFor, walkStructure, shouldFallbackToTextPart, persistInboundCalendarInvitationFromMessage, looksLikeTextPayload, parsePersistentCap, resolvePersistentCap, persistentEligible, shouldRetryIPv4, classifyMoveBySearch } from './imapManager.js';
 import { pluginRegistry } from '../plugins/registry.js';
 import { EventEmitter } from 'node:events';
 import { ImapFlow } from 'imapflow';
@@ -1425,6 +1425,41 @@ describe('walkStructure attachment classification', () => {
     expect(shouldFallbackToTextPart({ textParts: [], calendarParts: [] })).toBe(true);
     expect(shouldFallbackToTextPart({ textParts: [], attachments: [] })).toBe(true);
     expect(shouldFallbackToTextPart({ textParts: [], calendarParts: [{ part: '1' }] })).toBe(false);
+  });
+});
+
+describe('persistInboundCalendarInvitationFromMessage', () => {
+  const rawInvitation = ['BEGIN:VCALENDAR', 'VERSION:2.0', 'METHOD:REQUEST', 'BEGIN:VEVENT', 'UID:meeting-123', 'SEQUENCE:0', 'DTSTAMP:20260901T070000Z', 'DTSTART:20260908T090000Z', 'DTEND:20260908T100000Z', 'ORGANIZER:mailto:taylor@example.test', 'ATTENDEE:mailto:sam@example.test', 'END:VEVENT', 'END:VCALENDAR', ''].join(String.fromCharCode(10));
+
+  beforeEach(() => query.mockReset());
+
+  it('fetches a discovered calendar MIME part and persists its validated projection for the physical message', async () => {
+    const client = { fetch: vi.fn(async function* () { yield { bodyParts: new Map([['2', Buffer.from(rawInvitation)]]) }; }) };
+    query.mockResolvedValue({ rowCount: 1, rows: [] });
+
+    const persisted = await persistInboundCalendarInvitationFromMessage({
+      client,
+      message: { uid: 42, bodyStructure: { type: 'multipart/mixed', childNodes: [{ part: '2', type: 'text/calendar', encoding: '7bit', parameters: { charset: 'utf-8' } }] } },
+      messageId: '4b7b090d-ec0f-4ef3-a94f-2fb6017dfbcd',
+    });
+
+    expect(persisted).toBe(true);
+    expect(client.fetch).toHaveBeenCalledWith('42', { uid: true, bodyParts: ['2'] }, { uid: true });
+    expect(query).toHaveBeenCalledWith(expect.stringContaining('INSERT INTO inbound_calendar_invitations'), expect.arrayContaining([
+      '4b7b090d-ec0f-4ef3-a94f-2fb6017dfbcd', 'REQUEST', 'meeting-123', rawInvitation,
+    ]));
+  });
+
+  it('fails closed when multiple MIME parts contain valid but competing invitations', async () => {
+    const client = { fetch: vi.fn(async function* (_uid, request) { const part = request.bodyParts[0]; const raw = part === '2' ? rawInvitation : rawInvitation.replace('UID:meeting-123', 'UID:meeting-456'); yield { bodyParts: new Map([[part, Buffer.from(raw)]]) }; }) };
+
+    await expect(persistInboundCalendarInvitationFromMessage({
+      client,
+      message: { uid: 42, bodyStructure: { type: 'multipart/mixed', childNodes: [{ part: '2', type: 'text/calendar', encoding: '7bit' }, { part: '3', type: 'application/ics', encoding: '7bit' }] } },
+      messageId: '4b7b090d-ec0f-4ef3-a94f-2fb6017dfbcd',
+    })).resolves.toBe(false);
+
+    expect(query).not.toHaveBeenCalled();
   });
 });
 
