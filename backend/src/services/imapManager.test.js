@@ -21,6 +21,7 @@ import { resolveForConnection } from './hostValidation.js';
 import { getConnectionPolicy } from './connectionPolicy.js';
 import { invalidateGtdConfigCache } from '../plugins/gtd/gtdConfig.js';
 import { parseMessage } from './messageParser.js';
+import { sendPushToUser } from './pushNotifications.js';
 
 const account = (imap_host, oauth_provider = null) => ({ imap_host, oauth_provider });
 
@@ -1198,6 +1199,49 @@ describe('syncMessages — empty local cache vs nonempty server (wiring)', () =>
       hasActive.mockRestore();
       runHook.mockRestore();
     }
+  });
+});
+
+describe('syncMessages — Web Push branding', () => {
+  beforeEach(() => {
+    query.mockReset();
+    parseMessage.mockReset();
+    sendPushToUser.mockReset().mockResolvedValue();
+  });
+
+  it('uses the canonical Inboxora icon in a new-mail Web Push payload', async () => {
+    const account = {
+      id: 'acct-push-branding', user_id: 'user-1', email_address: 'me@example.com',
+      gtd_enabled: false, categorization_enabled: false, imap_host: 'imap.example.com',
+    };
+    const client = {
+      getMailboxLock: vi.fn().mockResolvedValue({ release: vi.fn() }),
+      mailbox: { exists: 1, uidValidity: 100, highestModseq: 500n },
+      fetch: vi.fn(async function* () { yield { uid: 501 }; }),
+    };
+    query.mockImplementation((sql) => {
+      if (sql.includes('SELECT uid_validity, highest_modseq FROM folders')) return Promise.resolve({ rows: [{ uid_validity: 100, highest_modseq: '500' }] });
+      if (sql.includes('COUNT(*) FILTER (WHERE is_read = false)')) return Promise.resolve({ rows: [{ n: 0 }] });
+      if (sql.includes('COALESCE(MAX(uid), 0)')) return Promise.resolve({ rows: [{ max_uid: 0 }] });
+      if (sql.includes('INSERT INTO messages')) return Promise.resolve({ rows: [{ id: 'msg-push', is_new: true }] });
+      if (sql.includes('SELECT COUNT(*)::int AS total FROM messages')) return Promise.resolve({ rows: [{ total: 1 }] });
+      return Promise.resolve({ rows: [] });
+    });
+    parseMessage.mockResolvedValue({
+      uid: 501, messageId: '<push@x>', subject: 'New mail', fromName: 'Sender', fromEmail: 'sender@example.com',
+      to: [], cc: [], replyTo: [], inReplyTo: null, references: null, date: new Date('2026-09-01T10:00:00Z'),
+      snippet: 'hi', isRead: false, isStarred: false, hasAttachments: false, flags: [], isBulk: false, parsedHeaders: {},
+    });
+
+    await ImapManager.prototype.syncMessages.call({
+      broadcast: vi.fn(),
+      pluginFacade: {},
+      prefetchNewMessageBodies: vi.fn().mockResolvedValue(),
+      upsertAutoContacts: vi.fn().mockResolvedValue(),
+    }, account, client, 'INBOX', 50, false, true);
+    await vi.waitFor(() => expect(sendPushToUser).toHaveBeenCalled());
+
+    expect(sendPushToUser).toHaveBeenCalledWith('user-1', expect.objectContaining({ icon: '/inboxora-icon-512.png' }));
   });
 });
 

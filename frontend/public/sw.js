@@ -27,7 +27,6 @@ self.addEventListener('push', (event) => {
   const {
     title       = 'Inboxora',
     body        = 'New message',
-    icon        = '/inboxora-icon-512.png',
     url         = '/',
     unreadCount,          // intentionally no default — undefined means "don't touch badge"
   } = data;
@@ -59,7 +58,7 @@ self.addEventListener('push', (event) => {
         promises.push(
           self.registration.showNotification(title, {
             body,
-            icon,
+            icon: '/inboxora-icon-512.png',
             badge: '/inboxora-icon-512.png',
             data:  { url },
             // Replace any existing Inboxora notification so rapid arrivals

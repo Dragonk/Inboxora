@@ -1519,6 +1519,7 @@ function LayoutsTab() {
   const { t } = useTranslation();
   const isMobile = useMobile();
   const { layout, setLayout, pageSize, setPageSize, scrollMode, setScrollMode, swipeActions, setSwipeAction, syncInterval, setSyncInterval, folderSyncInterval, setFolderSyncInterval, threadedView, setThreadedView, plaintextEmail, setPlaintextEmail, hoverQuickActions, setHoverQuickActions, showMobileAvatars, setShowMobileAvatars, gravatarAvatars, setGravatarAvatars, replyDefault, setReplyDefault, markReadBehavior, setMarkReadBehavior, markReadDelay, setMarkReadDelay, senderFavicons, senderFaviconsSaving, setSenderFavicons, showMessagePreviews, setShowMessagePreviews, conversationReaderViewEnabled, setConversationReaderViewEnabled } = useStore();
+  const { calendarWeekStartsOn, setCalendarWeekStartsOn, mobileNavigationPosition, setMobileNavigationPosition } = useStore();
   const [senderFaviconsError, setSenderFaviconsError] = useState('');
 
   // "Set Inboxora as your default email app": registerProtocolHandler is the
@@ -1644,6 +1645,28 @@ function LayoutsTab() {
             </button>
           );
         })}
+      </div>
+
+      <div style={{ marginTop: 28, paddingTop: 22, borderTop: '1px solid var(--border-subtle)' }}>
+        <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--text-primary)', marginBottom: 16 }}>
+          {t('calendar.title')}
+        </div>
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: 14 }}>
+          <label style={{ display: 'grid', gap: 6, fontSize: 12, color: 'var(--text-secondary)' }}>
+            {t('calendar.firstDayOfWeek')}
+            <select data-testid="calendar-week-start-setting" value={calendarWeekStartsOn} onChange={event => setCalendarWeekStartsOn(Number(event.target.value))} style={inputStyle}>
+              <option value={1}>{t('calendar.monday')}</option>
+              <option value={0}>{t('calendar.sunday')}</option>
+            </select>
+          </label>
+          <label style={{ display: 'grid', gap: 6, fontSize: 12, color: 'var(--text-secondary)' }}>
+            {t('calendar.mobileNavigation')}
+            <select data-testid="mobile-navigation-position-setting" value={mobileNavigationPosition} onChange={event => setMobileNavigationPosition(event.target.value)} style={inputStyle}>
+              <option value="top">{t('calendar.navigationTop')}</option>
+              <option value="bottom">{t('calendar.navigationBottom')}</option>
+            </select>
+          </label>
+        </div>
       </div>
 
       {/* Message list behaviour */}
@@ -5243,7 +5266,7 @@ function PushNotificationsSection() {
 function NotificationsTab() {
   const { t } = useTranslation();
   const { notificationSound, setNotificationSound, customSoundDataUrl, setCustomSoundDataUrl,
-          showAppBadge, setShowAppBadge, showFaviconBadge, setShowFaviconBadge } = useStore();
+          showAppBadge, setShowAppBadge } = useStore();
   const fileInputRef = useRef(null);
   const [customFileName, setCustomFileName] = useState(
     () => localStorage.getItem('mailflow_custom_sound_name') || ''
@@ -5431,7 +5454,6 @@ function NotificationsTab() {
         <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
           {[
             { label: t('admin.notifications.appBadge'), desc: t('admin.notifications.appBadgeDesc'), value: showAppBadge, set: setShowAppBadge },
-            { label: t('admin.notifications.faviconBadge'), desc: t('admin.notifications.faviconBadgeDesc'), value: showFaviconBadge, set: setShowFaviconBadge },
           ].map(({ label, desc, value, set: setter }) => (
             <div key={label} style={{
               display: 'flex', alignItems: 'center', justifyContent: 'space-between',
@@ -8219,7 +8241,6 @@ function makeSearchIndex(t) {
     // Notifications
     { label: t('admin.search.notificationSound'), keywords: ['sound', 'notification sound', 'audio', 'alert', 'beep', 'chime'], tab: 'notifications', breadcrumb: tabLabel('notifications') },
     { label: t('admin.notifications.appBadge'), keywords: ['badge', 'app icon', 'pwa', 'unread count', 'icon badge'], tab: 'notifications', breadcrumb: tabLabel('notifications') },
-    { label: t('admin.notifications.faviconBadge'), keywords: ['favicon', 'tab badge', 'browser tab', 'tab icon', 'unread dot'], tab: 'notifications', breadcrumb: tabLabel('notifications') },
     { label: t('admin.push.title'), keywords: ['push', 'notification', 'browser notification', 'desktop notification', 'permission'], tab: 'notifications', breadcrumb: tabLabel('notifications') },
     // Shortcuts (desktop only)
     { label: tabLabel('shortcuts'), keywords: ['shortcut', 'keyboard', 'hotkey', 'keybind', 'key binding', 'compose shortcut', 'reply shortcut'], tab: 'shortcuts', mobileHidden: true, breadcrumb: tabLabel('shortcuts') },

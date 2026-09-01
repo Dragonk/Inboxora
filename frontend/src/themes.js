@@ -576,26 +576,6 @@ export const THEMES = {
   },
 };
 
-function buildFaviconSvg(accent, count = 0) {
-  let badge = '';
-  if (count > 0) {
-    const label = count > 99 ? '99+' : String(count);
-    const r  = label.length > 2 ? 10 : 11;
-    const cx = 32 - r;
-    const cy = r;
-    const fs = label.length > 2 ? 8 : label.length > 1 ? 12 : 14;
-    badge = `<circle cx="${cx}" cy="${cy}" r="${r}" fill="#ef4444" stroke="white" stroke-width="1.5"/>` +
-            `<text x="${cx}" y="${cy}" text-anchor="middle" dominant-baseline="central" ` +
-            `fill="white" font-family="system-ui,sans-serif" font-weight="800" font-size="${fs}">${label}</text>`;
-  }
-
-  return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32" width="32" height="32">
-  <path d="M5 9.5 16 3l11 6.5v13L16 29 5 22.5z" fill="none" stroke="${accent}" stroke-width="3" stroke-linejoin="round"/>
-  <path d="M8 12 16 17l8-5M8 21l8-5 8 5" fill="none" stroke="${accent}" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"/>
-  ${badge}
-</svg>`;
-}
-
 // ── Sender avatar color ───────────────────────────────────────────────────────
 
 const SENDER_PALETTE = [
@@ -680,21 +660,13 @@ export function subscribeAccent(fn) {
   return () => { _accentListeners.delete(fn); };
 }
 
-// Recompute everything derived from the accent (favicon, PWA theme-color, logo)
+// Recompute everything derived from the accent (PWA theme-color and UI logo)
 // from the *effective* accent. Called after both applyTheme and applyCustomCss so
 // the accent's source (preset theme or custom override) doesn't matter.
 function refreshAccentDerived() {
   const accent = getEffectiveAccent();
-  if (!accent.startsWith('#')) return; // favicon rasteriser + meta expect a hex colour
+  if (!accent.startsWith('#')) return; // PWA theme-color expects a hex colour
   document.querySelector('meta[name="theme-color"]')?.setAttribute('content', accent);
-  // Only invalidate the base favicon cache when the accent actually changed — the
-  // double applyTheme at startup (localStorage then server prefs) usually repeats it.
-  if (_baseAccent !== accent) {
-    _baseCanvas = null;
-    _baseAccent = null;
-  }
-  _applyFavicon(accent);
-  if (_badgeCount > 0) _warmBase(accent);
   _accentListeners.forEach(fn => {
     try { fn(accent); } catch { /* a listener error must not break theming */ }
   });
@@ -721,148 +693,8 @@ export function applyTheme(themeName) {
     Object.entries(theme.vars).map(([k, v]) => `  ${k}: ${v};`).join('\n')
   }\n}`;
 
-  // Recompute favicon + PWA theme-color + logo from the *effective* accent. If a
+  // Recompute PWA theme-color + logo from the *effective* accent. If a
   // custom-CSS override of --accent is present, getComputedStyle picks it up here;
   // applyCustomCss also re-runs this so an override applied afterwards is reflected.
   refreshAccentDerived();
-}
-
-// ── Favicon badge ─────────────────────────────────────────────────────────────
-
-const FAVICON_PX = 32;
-let _badgeCount  = 0;
-let _renderSeq   = 0;
-let _appliedSeq  = 0;
-
-// Cached rasterization of the base favicon (envelope icon, no badge).
-// Once populated, badge updates are drawn synchronously with Canvas 2D —
-// no SVG → Image → onload round-trip needed.
-let _baseCanvas = null;
-let _baseAccent = null;
-
-// Persistent <link rel="icon"> element. We update href in-place rather than
-// removing/adding the element each time. DOM remove+add causes Chrome to briefly
-// show no favicon between the two mutations, making updates appear sluggish.
-let _faviconLink = null;
-
-function _setFaviconLink(dataUri) {
-  if (!_faviconLink || !_faviconLink.isConnected) {
-    // Reuse the existing icon element from index.html on first call so Chrome
-    // processes a href change on a known element rather than discovering a new one.
-    _faviconLink = document.querySelector("link[rel='icon']") || (() => {
-      const el = document.createElement('link');
-      el.rel = 'icon';
-      document.head.appendChild(el);
-      return el;
-    })();
-    // Remove any competing icon links (e.g. a second link added by HMR or SSR)
-    // but leave apple-touch-icon and other non-standard rel values alone.
-    document.querySelectorAll("link[rel='icon']").forEach(l => {
-      if (l !== _faviconLink) l.remove();
-    });
-  }
-  _faviconLink.type = 'image/png';
-  _faviconLink.href = dataUri;
-}
-
-function _rasterise(svgStr, onCanvas) {
-  const blob = new Blob([svgStr], { type: 'image/svg+xml' });
-  const url  = URL.createObjectURL(blob);
-  const img  = new Image(FAVICON_PX, FAVICON_PX);
-  img.onload = () => {
-    URL.revokeObjectURL(url);
-    const canvas = document.createElement('canvas');
-    canvas.width  = FAVICON_PX;
-    canvas.height = FAVICON_PX;
-    canvas.getContext('2d').drawImage(img, 0, 0, FAVICON_PX, FAVICON_PX);
-    onCanvas(canvas);
-  };
-  img.onerror = () => URL.revokeObjectURL(url);
-  img.src = url;
-}
-
-function _warmBase(accent) {
-  if (_baseCanvas && _baseAccent === accent) return;
-  _rasterise(buildFaviconSvg(accent, 0), (canvas) => {
-    if (_baseCanvas && _baseAccent === accent) return; // lost the race
-    _baseCanvas = canvas;
-    _baseAccent = accent;
-  });
-}
-
-function _applyFavicon(accent) {
-  // Rasterise the SVG to a canvas and export as PNG. PNG data URIs go through
-  // the browser's image pipeline rather than the document pipeline, which avoids
-  // the Chromium quirk where SVG favicons are silently reverted to the cached
-  // on-disk file after tab focus changes.
-  const isBase = _badgeCount === 0; // capture before any async gap
-  const seq    = ++_renderSeq;
-  _rasterise(buildFaviconSvg(accent, _badgeCount), (canvas) => {
-    // Cache the no-badge render as the base so all future badge updates can
-    // skip the async round-trip and draw synchronously via Canvas 2D.
-    // Do this before the seq guard so the cache is always populated, even
-    // if a later render has already applied its result to the DOM.
-    if (isBase && !_baseCanvas) {
-      _baseCanvas = canvas;
-      _baseAccent = accent;
-    }
-
-    // Only skip this render if a *later* render already applied its result.
-    if (seq < _appliedSeq) return;
-    _appliedSeq = seq;
-    _setFaviconLink(canvas.toDataURL('image/png'));
-  });
-}
-
-export function updateFaviconBadge(count) {
-  _badgeCount = count;
-  const accent = getComputedStyle(document.documentElement).getPropertyValue('--accent').trim();
-  if (!accent || !accent.startsWith('#')) return;
-
-  // Fast synchronous path: base favicon is cached — composite badge directly.
-  if (_baseCanvas && _baseAccent === accent) {
-    // Advance the sequence counter so any in-flight slow-path renders that
-    // complete later are treated as stale and don't overwrite this result.
-    _appliedSeq = ++_renderSeq;
-
-    const canvas = document.createElement('canvas');
-    canvas.width  = FAVICON_PX;
-    canvas.height = FAVICON_PX;
-    const ctx = canvas.getContext('2d');
-    ctx.drawImage(_baseCanvas, 0, 0);
-
-    if (count > 0) {
-      const label = count > 99 ? '99+' : String(count);
-      const r  = label.length > 2 ? 10 : 11;
-      const cx = FAVICON_PX - r;
-      const cy = r;
-      const fs = label.length > 2 ? 8 : label.length > 1 ? 12 : 14;
-      // White border (filled circle, slightly larger than the badge)
-      ctx.beginPath();
-      ctx.arc(cx, cy, r + 1.5, 0, 2 * Math.PI);
-      ctx.fillStyle = 'white';
-      ctx.fill();
-      // Red badge
-      ctx.beginPath();
-      ctx.arc(cx, cy, r, 0, 2 * Math.PI);
-      ctx.fillStyle = '#ef4444';
-      ctx.fill();
-      // White label
-      ctx.fillStyle = 'white';
-      ctx.font = `800 ${fs}px system-ui,sans-serif`;
-      ctx.textAlign = 'center';
-      ctx.textBaseline = 'middle';
-      ctx.fillText(label, cx, cy + 0.5);
-    }
-
-    _setFaviconLink(canvas.toDataURL('image/png'));
-    return;
-  }
-
-  // Slow path: base not cached yet (first render or theme change) — use async
-  // SVG rasterization. Also warm the base cache separately so the next badge
-  // update can use the fast synchronous path, even if _badgeCount > 0 now
-  // (which would prevent _applyFavicon from auto-caching the base).
-  _applyFavicon(accent);
-  if (_badgeCount > 0) _warmBase(accent);
 }

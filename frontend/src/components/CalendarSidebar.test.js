@@ -17,4 +17,10 @@ describe('CalendarSidebar contract', () => {
     assert.match(component, /onClose/);
     assert.match(component, /data-testid="calendar-sidebar-close"/);
   });
+
+  it('keeps application-wide calendar preferences out of the calendar source panel', async () => {
+    const component = await source();
+    assert.doesNotMatch(component, /calendar\.firstDayOfWeek/);
+    assert.doesNotMatch(component, /calendar\.mobileNavigation/);
+  });
 });

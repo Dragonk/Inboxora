@@ -1,10 +1,22 @@
 // Conversation Engine v2 API client
+import { CSRF_HEADER, CSRF_VALUE } from './api.js';
+
 const API_BASE = '/api/mail';
+
+export function buildConversationRequestHeaders(extraHeaders = {}) {
+  const headers = new Headers({ 'Content-Type': 'application/json' });
+  for (const [name, value] of new Headers(extraHeaders)) {
+    if (name.toLowerCase() !== CSRF_HEADER.toLowerCase()) headers.set(name, value);
+  }
+  headers.set(CSRF_HEADER, CSRF_VALUE);
+  return headers;
+}
 
 async function apiFetch(path, options = {}) {
   const res = await fetch(`${API_BASE}${path}`, {
     ...options,
-    headers: { 'Content-Type': 'application/json', ...options.headers },
+    credentials: 'include',
+    headers: buildConversationRequestHeaders(options.headers),
   });
   if (!res.ok) {
     const body = await res.json().catch(() => ({}));

@@ -5,18 +5,10 @@ import { api } from '../utils/api.js';
 import { installCapacitorNativeBridge } from '../utils/capacitorNativeBridge.js';
 import { playNotificationSound } from '../utils/notificationSounds.js';
 import { pendingMarkReadMap } from '../utils/pendingReads.js';
-import { updateFaviconBadge } from '../themes.js';
 import { dispatchPluginWsMessage, dispatchPluginReconnect } from '../plugins/events.js';
 import { accountAffectsUnifiedInbox } from '../utils/unifiedInbox.js';
 import { recordDiagEvent } from '../utils/diagEvents.js';
 
-// Compute the correct favicon count given unread counts and the currently
-// selected account. Reads selectedAccountId from the store directly so this
-// can be called outside React's render cycle.
-function _faviconCount(counts) {
-  const { selectedAccountId } = useStore.getState();
-  return selectedAccountId ? (counts.byAccount[selectedAccountId] ?? 0) : counts.total;
-}
 
 // Apply a fresh server count, guarding against double-adjustment of in-flight
 // mark-read operations.
@@ -240,9 +232,6 @@ export function useWebSocket() {
         const newCounts = { total, byAccount };
         useStore.setState({ unreadCounts: newCounts });
         recordDiagEvent({ category: 'unread', cause: 'exists_hint', accountId, delta, beforeTotal: counts.total, afterTotal: total });
-        // Update favicon immediately — do not wait for React's render cycle.
-        // With a pre-cached base this is synchronous (no image load round-trip).
-        updateFaviconBadge(_faviconCount(newCounts));
         break;
       }
 

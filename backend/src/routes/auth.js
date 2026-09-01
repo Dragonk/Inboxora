@@ -768,7 +768,7 @@ export async function patchPreferences(req, res) {
           blockRemoteImages, imageWhitelist, shortcuts, hiddenFolders, language,
           threadedView, plaintextEmail, hoverQuickActions, swipeActions,
           expandedAccounts, collapsedFolders, favoriteFolders, recentFolders, fontSize,
-          showAppBadge, showFaviconBadge, replyDefault, sidebarWidth,
+          showAppBadge, replyDefault, sidebarWidth,
           categorizationEnabled, markReadBehavior, markReadDelay, aiActions,
           autoLockMinutes, showMobileAvatars, gravatarAvatars, folderSyncInterval,
           folderOrder, senderFavicons, showMessagePreviews,
@@ -856,36 +856,35 @@ export async function patchPreferences(req, res) {
       || CASE WHEN $21::jsonb IS NOT NULL THEN jsonb_build_object('recentFolders', $21::jsonb) ELSE '{}'::jsonb END
       || CASE WHEN $22::text IS NOT NULL THEN jsonb_build_object('fontSize', $22::text) ELSE '{}'::jsonb END
       || CASE WHEN $23::boolean IS NOT NULL THEN jsonb_build_object('showAppBadge', $23::boolean) ELSE '{}'::jsonb END
-      || CASE WHEN $24::boolean IS NOT NULL THEN jsonb_build_object('showFaviconBadge', $24::boolean) ELSE '{}'::jsonb END
-      || CASE WHEN $25::text IS NOT NULL THEN jsonb_build_object('replyDefault', $25::text) ELSE '{}'::jsonb END
-      || CASE WHEN $26::text IS NOT NULL THEN jsonb_build_object('sidebarWidth', $26::text) ELSE '{}'::jsonb END
-      || CASE WHEN $27::boolean IS NOT NULL THEN jsonb_build_object('categorizationEnabled', $27::boolean) ELSE '{}'::jsonb END
-      || CASE WHEN $28::text IS NOT NULL THEN jsonb_build_object('markReadBehavior', $28::text) ELSE '{}'::jsonb END
-      || CASE WHEN $29::text IS NOT NULL THEN jsonb_build_object('markReadDelay', $29::text) ELSE '{}'::jsonb END
-      || CASE WHEN $30::jsonb IS NOT NULL THEN jsonb_build_object('aiActions', $30::jsonb) ELSE '{}'::jsonb END
-      || CASE WHEN $31::int IS NOT NULL THEN jsonb_build_object('rightSidebarWidth', $31::int) ELSE '{}'::jsonb END
-      || CASE WHEN $32::boolean IS NOT NULL THEN jsonb_build_object('rightSidebarHidden', $32::boolean) ELSE '{}'::jsonb END
-      || CASE WHEN $33::jsonb IS NOT NULL THEN jsonb_build_object('gtdCollapsedSections', $33::jsonb) ELSE '{}'::jsonb END
-      || CASE WHEN $34::text IS NOT NULL THEN jsonb_build_object('gtdPetSlug', $34::text) ELSE '{}'::jsonb END
-      || CASE WHEN $35::text IS NOT NULL THEN jsonb_build_object('autoLockMinutes', $35::text) ELSE '{}'::jsonb END
-      || CASE WHEN $36::boolean IS NOT NULL THEN jsonb_build_object('showMobileAvatars', $36::boolean) ELSE '{}'::jsonb END
-      || CASE WHEN $37::boolean IS NOT NULL THEN jsonb_build_object('gravatarAvatars', $37::boolean) ELSE '{}'::jsonb END
-      || CASE WHEN $38::text IS NOT NULL THEN jsonb_build_object('folderSyncInterval', $38::text) ELSE '{}'::jsonb END
-      || CASE WHEN $39::jsonb IS NOT NULL THEN jsonb_build_object('folderOrder', $39::jsonb) ELSE '{}'::jsonb END
-      || CASE WHEN $40::boolean IS NOT NULL THEN jsonb_build_object('senderFavicons', $40::boolean) ELSE '{}'::jsonb END
-      || CASE WHEN $41::boolean IS NOT NULL THEN jsonb_build_object('showMessagePreviews', $41::boolean) ELSE '{}'::jsonb END
-      || CASE WHEN $42::boolean IS NOT NULL THEN jsonb_build_object('conversation_list_view_enabled', $42::boolean) ELSE '{}'::jsonb END
-      || CASE WHEN $43::boolean IS NOT NULL THEN jsonb_build_object('conversation_reader_view_enabled', $43::boolean) ELSE '{}'::jsonb END
-      || CASE WHEN $44::int IS NOT NULL THEN jsonb_build_object('calendarWeekStartsOn', $44::int) ELSE '{}'::jsonb END
-      || CASE WHEN $45::text IS NOT NULL THEN jsonb_build_object('mobileNavigationPosition', $45::text) ELSE '{}'::jsonb END
-      || CASE WHEN $46::jsonb IS NOT NULL THEN jsonb_build_object('visibleCalendarIds', $46::jsonb) ELSE '{}'::jsonb END
+      || CASE WHEN $24::text IS NOT NULL THEN jsonb_build_object('replyDefault', $24::text) ELSE '{}'::jsonb END
+      || CASE WHEN $25::text IS NOT NULL THEN jsonb_build_object('sidebarWidth', $25::text) ELSE '{}'::jsonb END
+      || CASE WHEN $26::boolean IS NOT NULL THEN jsonb_build_object('categorizationEnabled', $26::boolean) ELSE '{}'::jsonb END
+      || CASE WHEN $27::text IS NOT NULL THEN jsonb_build_object('markReadBehavior', $27::text) ELSE '{}'::jsonb END
+      || CASE WHEN $28::text IS NOT NULL THEN jsonb_build_object('markReadDelay', $28::text) ELSE '{}'::jsonb END
+      || CASE WHEN $29::jsonb IS NOT NULL THEN jsonb_build_object('aiActions', $29::jsonb) ELSE '{}'::jsonb END
+      || CASE WHEN $30::int IS NOT NULL THEN jsonb_build_object('rightSidebarWidth', $30::int) ELSE '{}'::jsonb END
+      || CASE WHEN $31::boolean IS NOT NULL THEN jsonb_build_object('rightSidebarHidden', $31::boolean) ELSE '{}'::jsonb END
+      || CASE WHEN $32::jsonb IS NOT NULL THEN jsonb_build_object('gtdCollapsedSections', $32::jsonb) ELSE '{}'::jsonb END
+      || CASE WHEN $33::text IS NOT NULL THEN jsonb_build_object('gtdPetSlug', $33::text) ELSE '{}'::jsonb END
+      || CASE WHEN $34::text IS NOT NULL THEN jsonb_build_object('autoLockMinutes', $34::text) ELSE '{}'::jsonb END
+      || CASE WHEN $35::boolean IS NOT NULL THEN jsonb_build_object('showMobileAvatars', $35::boolean) ELSE '{}'::jsonb END
+      || CASE WHEN $36::boolean IS NOT NULL THEN jsonb_build_object('gravatarAvatars', $36::boolean) ELSE '{}'::jsonb END
+      || CASE WHEN $37::text IS NOT NULL THEN jsonb_build_object('folderSyncInterval', $37::text) ELSE '{}'::jsonb END
+      || CASE WHEN $38::jsonb IS NOT NULL THEN jsonb_build_object('folderOrder', $38::jsonb) ELSE '{}'::jsonb END
+      || CASE WHEN $39::boolean IS NOT NULL THEN jsonb_build_object('senderFavicons', $39::boolean) ELSE '{}'::jsonb END
+      || CASE WHEN $40::boolean IS NOT NULL THEN jsonb_build_object('showMessagePreviews', $40::boolean) ELSE '{}'::jsonb END
+      || CASE WHEN $41::boolean IS NOT NULL THEN jsonb_build_object('conversation_list_view_enabled', $41::boolean) ELSE '{}'::jsonb END
+      || CASE WHEN $42::boolean IS NOT NULL THEN jsonb_build_object('conversation_reader_view_enabled', $42::boolean) ELSE '{}'::jsonb END
+      || CASE WHEN $43::int IS NOT NULL THEN jsonb_build_object('calendarWeekStartsOn', $43::int) ELSE '{}'::jsonb END
+      || CASE WHEN $44::text IS NOT NULL THEN jsonb_build_object('mobileNavigationPosition', $44::text) ELSE '{}'::jsonb END
+      || CASE WHEN $45::jsonb IS NOT NULL THEN jsonb_build_object('visibleCalendarIds', $45::jsonb) ELSE '{}'::jsonb END
     WHERE id = $1
   `, [req.session.userId, theme ?? null, font ?? null, layout ?? null, notificationSound ?? null,
       pageSize ?? null, scrollMode ?? null, syncInterval ?? null,
       blockRemoteImages ?? null, imageWhitelistJson, shortcutsJson, hiddenFoldersJson,
       language ?? null, threadedView ?? null, plaintextEmail ?? null, hoverQuickActions ?? null,
       swipeActionsJson, expandedAccountsJson, collapsedFoldersJson, favoriteFoldersJson, recentFoldersJson, fontSizeVal,
-      showAppBadge ?? null, showFaviconBadge ?? null, replyDefaultVal, sidebarWidthVal,
+      showAppBadge ?? null, replyDefaultVal, sidebarWidthVal,
       categorizationEnabled ?? null, markReadBehaviorVal, markReadDelayVal, aiActionsJson,
       rightSidebarWidth, rightSidebarHidden, gtdCollapsedSectionsJson, gtdPetSlug, autoLockMinutesVal,
       showMobileAvatars ?? null, gravatarAvatars ?? null, folderSyncIntervalVal, folderOrderJson, senderFaviconsVal,

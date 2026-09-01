@@ -12,7 +12,7 @@ function monthCells(anchor, weekStartsOn) {
   });
 }
 
-export default function CalendarSidebar({ anchor, calendars, visibleCalendarIds, weekStartsOn, onWeekStartsOnChange, mobileNavigationPosition, onMobileNavigationPositionChange, onSelectDate, onToggleCalendar, onSourcesChanged, onClose, t }) {
+export default function CalendarSidebar({ anchor, calendars, visibleCalendarIds, weekStartsOn, onSelectDate, onToggleCalendar, onSourcesChanged, onClose, t }) {
   const [showSources, setShowSources] = useState(false);
   const [sources, setSources] = useState([]);
   const [sourceError, setSourceError] = useState(null);
@@ -44,8 +44,7 @@ export default function CalendarSidebar({ anchor, calendars, visibleCalendarIds,
   };
   return <aside style={panel} aria-label={t('calendar.panel')}>
     {onClose && <div style={closeRow}><button data-testid="calendar-sidebar-close" aria-label={t('calendar.close')} onClick={onClose} style={linkButton}>{t('calendar.close')}</button></div>}
-    <label style={preferenceLabel}>{t('calendar.firstDayOfWeek')}<select value={weekStartsOn} onChange={event => onWeekStartsOnChange(Number(event.target.value))}><option value={1}>{t('calendar.monday')}</option><option value={0}>{t('calendar.sunday')}</option></select></label>
-    {onMobileNavigationPositionChange && <label style={preferenceLabel}>{t('calendar.mobileNavigation')}<select value={mobileNavigationPosition} onChange={event => onMobileNavigationPositionChange(event.target.value)}><option value="top">{t('calendar.navigationTop')}</option><option value="bottom">{t('calendar.navigationBottom')}</option></select></label>}
+
     <div data-testid="calendar-mini-month" style={miniMonth}>
       <strong>{anchor.toLocaleDateString(undefined, { month: 'long', year: 'numeric' })}</strong>
       <div style={weekdayGrid}>{weekdays.map((day, index) => <span key={index}>{day}</span>)}</div>
@@ -70,7 +69,7 @@ export default function CalendarSidebar({ anchor, calendars, visibleCalendarIds,
   </aside>;
 }
 
-const panel = { width: 250, flexShrink: 0, padding: 14, borderRight: '1px solid var(--border-subtle)', background: 'var(--bg-secondary)', overflow: 'auto' }; const closeRow = { display: 'flex', justifyContent: 'flex-end', marginBottom: 8 }; const preferenceLabel = { display: 'grid', gap: 5, color: 'var(--text-secondary)', fontSize: 12, marginBottom: 14 };
+const panel = { width: 250, flexShrink: 0, padding: 14, borderRight: '1px solid var(--border-subtle)', background: 'var(--bg-secondary)', overflow: 'auto' }; const closeRow = { display: 'flex', justifyContent: 'flex-end', marginBottom: 8 };
 const miniMonth = { display: 'grid', gap: 8, paddingBottom: 16, borderBottom: '1px solid var(--border-subtle)' };
 const weekdayGrid = { display: 'grid', gridTemplateColumns: 'repeat(7, 1fr)', textAlign: 'center', color: 'var(--text-tertiary)', fontSize: 11 };
 const dayGrid = { display: 'grid', gridTemplateColumns: 'repeat(7, 1fr)', gap: 2 };

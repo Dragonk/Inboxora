@@ -21,7 +21,7 @@ test("Inboxora branding is used by user-visible application surfaces", async () 
 });
 
 test("Inboxora wordmark and versioned PWA assets replace legacy MailFlow branding", async () => {
-  const [sidebar, login, logo, app, index, manifest, worker] = await Promise.all([
+  const [sidebar, login, logo, app, index, manifest, worker, themes, admin, store, socket, mailApp] = await Promise.all([
     source("frontend/src/components/Sidebar.jsx"),
     source("frontend/src/components/LoginPage.jsx"),
     source("frontend/src/components/LogoMark.jsx"),
@@ -29,6 +29,11 @@ test("Inboxora wordmark and versioned PWA assets replace legacy MailFlow brandin
     source("frontend/index.html"),
     source("frontend/public/manifest.json"),
     source("frontend/public/sw.js"),
+    source("frontend/src/themes.js"),
+    source("frontend/src/components/AdminPanel.jsx"),
+    source("frontend/src/store/index.js"),
+    source("frontend/src/hooks/useWebSocket.js"),
+    source("frontend/src/components/MailApp.jsx"),
   ]);
 
   for (const content of [sidebar, login]) {
@@ -38,6 +43,15 @@ test("Inboxora wordmark and versioned PWA assets replace legacy MailFlow brandin
   assert.doesNotMatch(logo, /MailFlow/, "shared logo component must be branded Inboxora");
   assert.match(index, /manifest\.json\?v=inboxora-1/, "the updated manifest must bypass legacy PWA metadata caches");
   assert.match(app, /sw\.js\?v=inboxora-1/, "the updated service worker must replace legacy registrations");
+  assert.match(index, /rel="icon" type="image\/png" href="\/inboxora-icon-512\.png"/, "the browser favicon must use the square Inboxora PNG");
+  assert.doesNotMatch(index, /inboxora-mark\.svg/, "the transparent UI logo must not replace the browser favicon");
+  assert.doesNotMatch(themes, /buildFaviconSvg|_setFaviconLink|_rasterise/, "runtime theming must not replace the black-background PNG favicon");
+  assert.match(worker, /icon:\s*'\/inboxora-icon-512\.png'/, "push notifications must use the fixed Inboxora icon");
+  assert.doesNotMatch(worker, /icon\s*=\s*'\/inboxora-icon-512\.png'/, "push payload data must not override the notification icon");
+  assert.doesNotMatch(manifest, /inboxora-icon-(?!512)/, "the manifest must use one canonical Inboxora icon asset");
+  for (const content of [admin, store, socket, themes, mailApp]) {
+    assert.doesNotMatch(content, /[Ff]aviconBadge|updateFaviconBadge/, "a fixed favicon must not expose an ineffective badge preference");
+  }
   for (const content of [index, manifest, worker]) {
     assert.match(content, /inboxora-icon-512\.png/, "PWA metadata must reference a cache-busting Inboxora icon");
     assert.doesNotMatch(content, /["']\/icon-512\.png/, "PWA metadata must not retain the legacy icon URL");

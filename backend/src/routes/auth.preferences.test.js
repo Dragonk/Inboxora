@@ -55,10 +55,10 @@ describe('PATCH /auth/preferences folderOrder', () => {
     const [sql, params] = query.mock.calls[0];
     expect(sql).toContain('SET preferences = preferences');
     expect(sql).toContain(
-      "jsonb_build_object('folderOrder', $39::jsonb)",
+      "jsonb_build_object('folderOrder', $38::jsonb)",
     );
     expect(params[0]).toBe('user-1');
-    expect(params[38]).toBe(JSON.stringify(folderOrder));
+    expect(params[37]).toBe(JSON.stringify(folderOrder));
     expect(res.json).toHaveBeenCalledWith({ ok: true });
   });
 });
@@ -75,10 +75,10 @@ describe('PATCH /auth/preferences senderFavicons', () => {
 
     const [sql, params] = query.mock.calls[0];
     expect(sql).toContain(
-      "jsonb_build_object('senderFavicons', $40::boolean)",
+      "jsonb_build_object('senderFavicons', $39::boolean)",
     );
     expect(params[0]).toBe('user-1');
-    expect(params[39]).toBe(true);
+    expect(params[38]).toBe(true);
     expect(res.json).toHaveBeenCalledWith({ ok: true });
   });
 
@@ -94,6 +94,23 @@ describe('PATCH /auth/preferences senderFavicons', () => {
     expect(res.status).toHaveBeenCalledWith(400);
     expect(res.json).toHaveBeenCalledWith({ error: 'senderFavicons must be a boolean' });
     expect(query).not.toHaveBeenCalled();
+  });
+});
+
+describe('PATCH /auth/preferences obsolete favicon badge', () => {
+  it('does not persist the removed favicon badge preference', async () => {
+    const req = { session: { userId: 'user-1' }, body: { showFaviconBadge: true } };
+    const res = {
+      status: vi.fn().mockReturnThis(),
+      json: vi.fn(),
+    };
+
+    await patchPreferences(req, res);
+
+    const [sql, params] = query.mock.calls[0];
+    expect(sql).not.toContain('showFaviconBadge');
+    expect(params).not.toContain(true);
+    expect(res.json).toHaveBeenCalledWith({ ok: true });
   });
 });
 

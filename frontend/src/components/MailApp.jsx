@@ -6,7 +6,6 @@ import { conversationApi } from '../utils/conversationApi.js';
 import { useWebSocket } from '../hooks/useWebSocket.js';
 import { useMobile } from '../hooks/useMobile.js';
 import { LAYOUTS } from '../layouts.js';
-import { updateFaviconBadge } from '../themes.js';
 import { shortcutBus } from '../utils/shortcutBus.js';
 import { setPending, pendingMarkReadMap, completedMarkReadMap } from '../utils/pendingReads.js';
 import { openReplyFromMessage, openForwardFromMessage } from '../utils/composeFromMessage.js';
@@ -82,7 +81,7 @@ export default function MailApp() {
     unreadCounts, selectedAccountId, openCompose, setSelectedAccount,
     shortcuts, selectedMessageId, setSelectedMessage,
     mobileSidebarOpen, setMobileSidebarOpen, addNotification,
-    fontSize, showAppBadge, showFaviconBadge,
+    fontSize, showAppBadge,
     sidebarWidth, setSidebarWidth, setIsSidebarResizing,
     showContacts, showCalendar, setShowContacts, setShowCalendar, setTodoistConnected,
     accounts, rightSidebarWidth, setRightSidebarWidth, isRightSidebarResizing, setIsRightSidebarResizing,
@@ -641,14 +640,10 @@ export default function MailApp() {
     return () => clearInterval(id);
   }, [syncInterval, wsRef]);
 
-  // Update browser tab title, favicon badge, and PWA home screen badge with unread count
+  // Update browser tab title and PWA home screen badge with unread count
   useEffect(() => {
     const total = unreadCounts.total;
-    const tabCount = selectedAccountId
-      ? (unreadCounts.byAccount[selectedAccountId] ?? 0)
-      : total;
     document.title = 'Inboxora';
-    updateFaviconBadge(showFaviconBadge ? tabCount : 0);
     // App-icon badge always reflects total unread across all accounts so that
     // selecting a zero-unread account never clears the home screen badge.
     if ('setAppBadge' in navigator) {
@@ -656,7 +651,7 @@ export default function MailApp() {
       else navigator.clearAppBadge().catch(() => {});
     }
     window.inboxoraNative?.badges?.setUnreadCount?.(total).catch(() => {});
-  }, [unreadCounts, selectedAccountId, showAppBadge, showFaviconBadge]);
+  }, [unreadCounts, showAppBadge]);
 
   // ── Global keyboard shortcut listener ──────────────────────────────────────
   // Uses refs for composing/showAdmin so the listener doesn't need to
