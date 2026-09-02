@@ -78,7 +78,7 @@ export default function CalendarPage() {
       </button>}
       <div style={{ ...heading, ...(isMobile ? mobileHeading : {}) }}><h1 style={{ margin: 0, fontSize: 22 }}>{t('calendar.title')}</h1><span style={subheading}>{title}</span></div>
       <div style={{ ...toolbar, ...(isMobile ? mobileToolbar : {}) }}>
-        <div style={segmented} aria-label={t('calendar.view')}>
+        <div role="group" style={segmented} aria-label={t('calendar.view')}>
           {[['month', t('calendar.month')], ['week', t('calendar.week')], ['workweek', t('calendar.workWeek')]].map(([value, label]) => <button key={value} data-testid={`calendar-view-${value}`} onClick={() => setView(value)} aria-pressed={view === value} style={{ ...segmentButton, ...(view === value ? segmentActive : {}) }}>{label}</button>)}
         </div>
         <button onClick={() => step(-1)} aria-label={t('calendar.previous')} style={iconButton}>‹</button><button onClick={() => setAnchor(new Date())} style={secondaryButton}>{t('calendar.today')}</button><button onClick={() => step(1)} aria-label={t('calendar.next')} style={iconButton}>›</button>
