@@ -26,7 +26,7 @@ test('desktop calendar grid fills the application content pane', async () => {
   assert.match(calendar, /minmax\(\$\{isMobile && !month \? 112 : 0\}px, 1fr\)/);
   assert.match(calendar, /style=\{\{ \.\.\.page, \.\.\.\(isMobile \? mobilePage : \{\}\) \}\}/);
   assert.match(calendar, /const page = \{[^\n]*overflow: 'auto'/);
-  assert.match(calendar, /const mobilePage = \{ overflowX: 'hidden' \}/);
+  assert.match(calendar, /const mobilePage = \{ overflowX: 'hidden', paddingBottom: 'calc\(var\(--mobile-nav-height\) \+ var\(--sab\) \+ 12px\)' \}/);
   assert.match(calendar, /\.\.\.\(isMobile \? mobileToolbar : \{\}\)/);
   assert.match(calendar, /const mobileToolbar = \{ flexBasis: '100%', width: '100%' \}/);
 });

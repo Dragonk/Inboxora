@@ -995,6 +995,7 @@
   },
   "contacts": {
     "title": "联系人",
+    "backToMail": "返回邮件",
     "backToList": "返回联系人列表",
     "new": "新建",
     "newContact": "新建联系人",
@@ -1708,6 +1709,8 @@
   },
   "calendar": {
     "title": "日历",
+    "previousMonth": "上个月",
+    "nextMonth": "下个月",
     "back": "返回",
     "today": "今天",
     "newEvent": "新建事件",

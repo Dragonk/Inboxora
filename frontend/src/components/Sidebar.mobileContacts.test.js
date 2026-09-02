@@ -18,7 +18,7 @@ describe('mobile Contacts navigation contract', () => {
     const mobileLayout = mailApp.slice(mobileStart, desktopStart);
 
     assert.match(mobileLayout, /display: showContacts \? 'flex' : 'none'/);
-    assert.match(mobileLayout, /<Suspense fallback=\{lazyFallback\}><ContactsPage \/><\/Suspense>/);
+    assert.match(mobileLayout, /<Suspense fallback=\{lazyFallback\}><ContactsPage isActive=\{showContacts\} \/><\/Suspense>/);
   });
 
   it('keeps the global drawer reachable from the Contacts list', async () => {
@@ -46,7 +46,7 @@ describe('mobile Calendar navigation contract', () => {
 
     assert.match(mobileLayout, /data-testid="mobile-calendar-page"/);
     assert.match(mobileLayout, /display: showCalendar \? 'flex' : 'none'/);
-    assert.match(mobileLayout, /<Suspense fallback=\{lazyFallback\}><CalendarPage \/><\/Suspense>/);
+    assert.match(mobileLayout, /<Suspense fallback=\{lazyFallback\}><CalendarPage isActive=\{showCalendar\} \/><\/Suspense>/);
     assert.match(mobileLayout, /!showContacts && !showCalendar && !selectedMessageId/);
   });
 
@@ -71,9 +71,9 @@ describe('mobile Calendar navigation contract', () => {
     const calendar = await readFile(new URL('./CalendarPage.jsx', import.meta.url), 'utf8');
 
     assert.match(calendar, /const page = \{ display: 'flex', flexDirection: 'column'/);
-    assert.match(calendar, /position: 'sticky', bottom: 0[\s\S]*order: 2/);
+    assert.match(calendar, /position: 'sticky', bottom: 'calc\(var\(--mobile-nav-height\) \+ var\(--sab\)\)'[\s\S]*order: 2/);
     assert.match(calendar, /<dialog id="calendar-mobile-panel" aria-label=\{t\('calendar\.panel'\)\}/);
-    assert.match(calendar, /onClose=\{\(\) => document\.getElementById\('calendar-mobile-panel'\)\?\.close\(\)\}/);
+    assert.match(calendar, /onClose=\{\(\) => setMobilePanelOpen\(false\)\}/);
   });
 });
 

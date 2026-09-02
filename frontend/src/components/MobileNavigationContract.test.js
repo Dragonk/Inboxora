@@ -2,34 +2,36 @@ import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import test from 'node:test';
 
-const source = path => readFile(new URL(path, import.meta.url), 'utf8');
+const mailAppPath = new URL('./MailApp.jsx', import.meta.url);
+const contactsPath = new URL('./ContactsPage.jsx', import.meta.url);
+const messageListPath = new URL('./MessageList.jsx', import.meta.url);
 
-test('mobile drawer keeps Mail, Contacts, and Calendar mutually exclusive and reachable', async () => {
-  const [sidebar, store, app] = await Promise.all([
-    source('./Sidebar.jsx'),
-    source('../store/index.js'),
-    source('./MailApp.jsx'),
-  ]);
+test('mobile navigation keeps Mail, Contacts, and Calendar reachable from every primary view', async () => {
+  const source = await readFile(mailAppPath, 'utf8');
 
-  assert.match(sidebar, /testId="contacts-nav-mobile"/);
-  assert.match(sidebar, /testId="calendar-nav-mobile"/);
-  assert.match(store, /setShowContacts: \(showContacts\) => set\(\{ showContacts, \.\.\.\(showContacts \? \{ showCalendar: false \} : \{\}\) \}\)/);
-  assert.match(store, /setShowCalendar: \(showCalendar\) => set\(\{ showCalendar, \.\.\.\(showCalendar \? \{ showContacts: false \} : \{\}\) \}\)/);
-  assert.match(app, /data-testid="mobile-contacts-page"/);
-  assert.match(app, /data-testid="mobile-calendar-page"/);
+  assert.match(source, /function MobileNavigation\(/);
+  assert.match(source, /data-testid="mobile-primary-nav"/);
+  assert.match(source, /setShowContacts\(false\);\s*setShowCalendar\(false\)/);
+  assert.match(source, /setShowContacts\(true\);\s*setShowCalendar\(false\)/);
+  assert.match(source, /setShowContacts\(false\);\s*setShowCalendar\(true\)/);
 });
 
-test('mobile mail and contacts actions clear a bottom navigation bar and terminal rows', async () => {
-  const [contacts, messages] = await Promise.all([
-    source('./ContactsPage.jsx'),
-    source('./MessageList.jsx'),
+test('mobile mail and contacts creation controls clear the persistent bottom navigation', async () => {
+  const [mailApp, contacts, messageList] = await Promise.all([
+    readFile(mailAppPath, 'utf8'),
+    readFile(contactsPath, 'utf8'),
+    readFile(messageListPath, 'utf8'),
   ]);
 
+  assert.match(mailApp, /--mobile-nav-height': '72px'/);
+  assert.match(messageList, /bottom: 'calc\(var\(--mobile-nav-height\) \+ var\(--sab\) \+ 20px\)'/);
   assert.match(contacts, /data-testid="contacts-mobile-fab"/);
-  assert.match(contacts, /data-testid="contacts-list-scroll"/);
-  assert.match(contacts, /mobileNavigationPosition === 'bottom'/);
-  assert.match(contacts, /paddingBottom: isMobile \? 88 : 0/);
-  assert.match(messages, /data-testid="message-list-scroll"/);
-  assert.match(messages, /mobileNavigationPosition === 'bottom'/);
-  assert.match(messages, /aria-hidden="true" style=\{\{ height: 84 \}\}/);
+  assert.match(contacts, /bottom: 'calc\(var\(--mobile-nav-height\) \+ var\(--sab\) \+ 20px\)'/);
+});
+
+test('mobile contact navigation invalidates stale detail requests', async () => {
+  const contacts = await readFile(contactsPath, 'utf8');
+
+  assert.match(contacts, /contactSelectionRequestRef\.current \+= 1/);
+  assert.match(contacts, /requestId !== contactSelectionRequestRef\.current/);
 });

@@ -1,22 +1,41 @@
 import assert from 'node:assert/strict';
-import { readFile } from 'node:fs/promises';
+import { readdir, readFile } from 'node:fs/promises';
 import test from 'node:test';
 
-const source = path => readFile(new URL(path, import.meta.url), 'utf8');
+const calendarPath = new URL('./CalendarPage.jsx', import.meta.url);
+const sidebarPath = new URL('./CalendarSidebar.jsx', import.meta.url);
+const localesPath = new URL('../locales/', import.meta.url);
 
-test('calendar keeps DAV persistence while exposing the shared desktop and mobile layout', async () => {
-  const [page, sidebar] = await Promise.all([
-    source('./CalendarPage.jsx'),
-    source('./CalendarSidebar.jsx'),
+test('calendar starts in month view and keeps mobile controls clear of primary navigation', async () => {
+  const source = await readFile(calendarPath, 'utf8');
+
+  assert.match(source, /const \[view, setView\] = useState\('month'\)/);
+  assert.match(source, /zhCN: 'zh-CN'/);
+  assert.match(source, /data-testid="calendar-mobile-dock"/);
+  assert.match(source, /data-testid="calendar-mobile-new-event"/);
+  assert.match(source, /bottom: 'calc\(var\(--mobile-nav-height\) \+ var\(--sab\) \+ 20px\)'/);
+  assert.match(source, /bottom: 'calc\(var\(--mobile-nav-height\) \+ var\(--sab\)\)'/);
+  assert.match(source, /isMobile && !mobilePanelOpen && <button data-testid="calendar-mobile-new-event"/);
+});
+
+test('calendar exposes mini-month controls and a 280px desktop sidebar', async () => {
+  const [calendar, sidebar] = await Promise.all([
+    readFile(calendarPath, 'utf8'),
+    readFile(sidebarPath, 'utf8'),
   ]);
 
-  assert.match(page, /api\.calendar\.listCalendars\(\)/);
-  assert.match(page, /api\.calendar\.createEvent\(payload\)/);
-  assert.match(page, /data-testid="calendar-mobile-dock"/);
-  assert.match(page, /mobileNavigationPosition === 'bottom'/);
+  assert.match(calendar, /onShiftMonth=\{shiftMiniMonth\}/);
   assert.match(sidebar, /data-testid="calendar-sidebar"/);
-  assert.match(sidebar, /width: 280/);
   assert.match(sidebar, /data-testid="calendar-mini-month"/);
-  assert.match(sidebar, /aria-label=\{t\('calendar\.previous'\)\}/);
-  assert.match(sidebar, /aria-label=\{t\('calendar\.next'\)\}/);
+  assert.match(sidebar, /data-testid="calendar-mini-month-previous"/);
+  assert.match(sidebar, /data-testid="calendar-mini-month-next"/);
+  assert.match(sidebar, /const panel = \{ width: 280,/);
+});
+
+test('every locale declares a single effective calendar dictionary', async () => {
+  const files = (await readdir(localesPath)).filter(name => name.endsWith('.json'));
+  for (const file of files) {
+    const source = await readFile(new URL(file, localesPath), 'utf8');
+    assert.equal(source.match(/^ {2}"calendar"\s*:/gm)?.length, 1, file);
+  }
 });

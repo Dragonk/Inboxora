@@ -995,6 +995,7 @@
   },
   "contacts": {
     "title": "Kontakty",
+    "backToMail": "Zpět do pošty",
     "backToList": "Zpět na seznam kontaktů",
     "new": "Nový",
     "newContact": "Nový kontakt",
@@ -1708,6 +1709,8 @@
   },
   "calendar": {
     "title": "Kalendář",
+    "previousMonth": "Předchozí měsíc",
+    "nextMonth": "Další měsíc",
     "back": "Zpět",
     "today": "Dnes",
     "newEvent": "Nová událost",

@@ -12,13 +12,13 @@ function monthCells(anchor, weekStartsOn) {
   });
 }
 
-export default function CalendarSidebar({ anchor, calendars, visibleCalendarIds, weekStartsOn, onSelectDate, onToggleCalendar, onSourcesChanged, onClose, sourcePanelRequest = 0, t }) {
+export default function CalendarSidebar({ anchor, calendars, visibleCalendarIds, weekStartsOn = 1, locale, onSelectDate, onShiftMonth, onToggleCalendar, onSourcesChanged, onClose, sourcePanelRequest = 0, t }) {
   const [showSources, setShowSources] = useState(false);
   const [sources, setSources] = useState([]);
   const [sourceError, setSourceError] = useState(null);
   const [form, setForm] = useState({ kind: 'ical_url', displayName: '', url: '', username: '', password: '', color: '#7c6af7', intervalMin: 60 });
   const cells = useMemo(() => monthCells(anchor, weekStartsOn), [anchor, weekStartsOn]);
-  const weekdays = useMemo(() => Array.from({ length: 7 }, (_, index) => new Date(2026, 0, 4 + ((index + weekStartsOn) % 7)).toLocaleDateString(undefined, { weekday: 'narrow' })), [weekStartsOn]);
+  const weekdays = useMemo(() => Array.from({ length: 7 }, (_, index) => new Date(2026, 0, 4 + ((index + weekStartsOn) % 7)).toLocaleDateString(locale, { weekday: 'short' })), [locale, weekStartsOn]);
   const isVisible = id => visibleCalendarIds == null || visibleCalendarIds.includes(id);
   const loadSources = async () => {
     try { const result = await api.calendar.listSources(); setSources(result.sources || []); setSourceError(null); }
@@ -49,17 +49,16 @@ export default function CalendarSidebar({ anchor, calendars, visibleCalendarIds,
     try { await api.calendar.syncSource(id); await loadSources(); await onSourcesChanged(); }
     catch (error) { setSourceError(error.message); }
   };
-  const shiftMonth = amount => onSelectDate(new Date(anchor.getFullYear(), anchor.getMonth() + amount, 1));
   return <aside data-testid="calendar-sidebar" style={panel} aria-label={t('calendar.panel')}>
     {onClose && <div style={closeRow}><button data-testid="calendar-sidebar-close" aria-label={t('calendar.close')} onClick={onClose} style={linkButton}>{t('calendar.close')}</button></div>}
 
     <div data-testid="calendar-mini-month" style={miniMonth}>
-      <div style={miniMonthHeader}>
-        <strong>{anchor.toLocaleDateString(undefined, { month: 'long', year: 'numeric' })}</strong>
-        <span style={miniMonthControls}>
-          <button aria-label={t('calendar.previous')} onClick={() => shiftMonth(-1)} style={linkButton}>‹</button>
-          <button aria-label={t('calendar.next')} onClick={() => shiftMonth(1)} style={linkButton}>›</button>
-        </span>
+      <div style={miniMonthHeading}>
+        <strong>{anchor.toLocaleDateString(locale, { month: 'long', year: 'numeric' })}</strong>
+        <div style={miniMonthNavigation}>
+          <button type="button" data-testid="calendar-mini-month-previous" aria-label={t('calendar.previousMonth')} onClick={() => onShiftMonth?.(-1)} style={miniMonthButton}>‹</button>
+          <button type="button" data-testid="calendar-mini-month-next" aria-label={t('calendar.nextMonth')} onClick={() => onShiftMonth?.(1)} style={miniMonthButton}>›</button>
+        </div>
       </div>
       <div style={weekdayGrid}>{weekdays.map((day, index) => <span data-testid="calendar-mini-weekday" key={index}>{day}</span>)}</div>
       <div style={dayGrid}>{cells.map(day => <button key={day.toISOString()} onClick={() => onSelectDate(day)} style={{ ...dayButton, ...(day.toDateString() === new Date().toDateString() ? today : {}), ...(day.getMonth() !== anchor.getMonth() ? muted : {}) }}>{day.getDate()}</button>)}</div>
@@ -85,8 +84,7 @@ export default function CalendarSidebar({ anchor, calendars, visibleCalendarIds,
 
 const panel = { width: 280, boxSizing: 'border-box', flexShrink: 0, padding: 14, borderRight: '1px solid var(--border-subtle)', background: 'var(--bg-secondary)', overflow: 'auto' }; const closeRow = { display: 'flex', justifyContent: 'flex-end', marginBottom: 8 };
 const miniMonth = { display: 'grid', gap: 8, paddingBottom: 16, borderBottom: '1px solid var(--border-subtle)' };
-const miniMonthHeader = { display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8 };
-const miniMonthControls = { display: 'flex', alignItems: 'center', gap: 2 };
+const miniMonthHeading = { display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8 }; const miniMonthNavigation = { display: 'flex', gap: 2 }; const miniMonthButton = { minWidth: 28, minHeight: 28, padding: 0, border: '1px solid var(--border-subtle)', borderRadius: 6, background: 'transparent', color: 'var(--accent)', cursor: 'pointer', fontSize: 18, fontWeight: 650, lineHeight: 1 };
 const weekdayGrid = { display: 'grid', gridTemplateColumns: 'repeat(7, 1fr)', textAlign: 'center', color: 'var(--text-tertiary)', fontSize: 11 };
 const dayGrid = { display: 'grid', gridTemplateColumns: 'repeat(7, 1fr)', gap: 2 };
 const dayButton = { border: 0, borderRadius: 6, minHeight: 28, background: 'transparent', color: 'var(--text-primary)', cursor: 'pointer' };

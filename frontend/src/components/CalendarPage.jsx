@@ -6,6 +6,13 @@ import { useMobile } from '../hooks/useMobile.js';
 import { eventPayload, eventsForDay, monthRange, shiftCalendarAnchor, toDateTimeLocal, toggleAllDayTimes, weekRange } from './calendarView.js';
 import CalendarSidebar from './CalendarSidebar.jsx';
 
+const DATE_LOCALE_OVERRIDES = { zhCN: 'zh-CN' };
+
+function resolveDateLocale(language) {
+  if (!language) return undefined;
+  return DATE_LOCALE_OVERRIDES[language] || language.replace('_', '-');
+}
+
 const emptyForm = (calendarId = '', date = new Date()) => ({ calendarId, summary: '', description: '', location: '', url: '', organizer: '', attendees: [], sendInvites: false, inviteAccountId: '', allDay: false, startsAt: toDateTimeLocal(date), endsAt: toDateTimeLocal(new Date(date.getTime() + 3600000)) });
 function iso(date) { return date.toISOString(); }
 function calendarDays(anchor, weekStartsOn = 1) {
@@ -19,17 +26,17 @@ function weekDays(anchor, workWeek, weekStartsOn = 1) {
 function isToday(day) { const today = new Date(); return day.toDateString() === today.toDateString(); }
 function eventTime(event) { return new Date(event.starts_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }); }
 
-export default function CalendarPage() {
-  const { t } = useTranslation();
+export default function CalendarPage({ isActive = true }) {
+  const { t, i18n } = useTranslation();
+  const locale = resolveDateLocale(i18n.resolvedLanguage || i18n.language);
   const { showCalendar, setShowCalendar, setMobileSidebarOpen, accounts, calendarWeekStartsOn, visibleCalendarIds, setVisibleCalendarIds, mobileNavigationPosition } = useStore();
   const isMobile = useMobile();
   const [anchor, setAnchor] = useState(() => new Date());
   const loadGeneration = useRef(0);
-  const mobileHeaderRef = useRef(null);
-  const [mobileHeaderClearance, setMobileHeaderClearance] = useState(0);
   const [view, setView] = useState('month');
   const [calendars, setCalendars] = useState([]); const [events, setEvents] = useState([]);
   const [error, setError] = useState(null); const [loading, setLoading] = useState(true); const [form, setForm] = useState(null); const [saving, setSaving] = useState(false); const [sourcePanelRequest, setSourcePanelRequest] = useState(0);
+  const [mobilePanelOpen, setMobilePanelOpen] = useState(false);
   const range = useMemo(() => view === 'month' ? monthRange(anchor) : weekRange(anchor, calendarWeekStartsOn), [anchor, calendarWeekStartsOn, view]);
   const load = useCallback(async () => {
     const generation = ++loadGeneration.current;
@@ -40,27 +47,17 @@ export default function CalendarPage() {
   }, [range, t]);
   useEffect(() => { load(); }, [load]);
   useEffect(() => {
+    if (!isMobile || !isActive) return;
+    setForm(null);
+    setMobilePanelOpen(false);
+    document.getElementById('calendar-mobile-panel')?.close();
+  }, [isActive, isMobile]);
+  useEffect(() => {
     if (!isMobile || !showCalendar || !form) return undefined;
     const handleBack = event => { event.preventDefault(); setForm(null); };
     window.addEventListener('inboxora:back', handleBack);
     return () => window.removeEventListener('inboxora:back', handleBack);
   }, [form, isMobile, showCalendar]);
-  useEffect(() => {
-    if (!isMobile || mobileNavigationPosition !== 'bottom' || !mobileHeaderRef.current) {
-      setMobileHeaderClearance(0);
-      return undefined;
-    }
-    const headerElement = mobileHeaderRef.current;
-    const updateClearance = () => setMobileHeaderClearance(window.innerHeight - headerElement.getBoundingClientRect().top);
-    updateClearance();
-    const observer = new ResizeObserver(updateClearance);
-    observer.observe(headerElement);
-    window.addEventListener('resize', updateClearance);
-    return () => {
-      observer.disconnect();
-      window.removeEventListener('resize', updateClearance);
-    };
-  }, [isMobile, mobileNavigationPosition]);
   const writable = calendars.filter(calendar => !calendar.read_only && calendar.source === 'local');
   const senderAccounts = accounts.filter(account => account.enabled && account.smtp_host);
   const openCreate = (date = new Date()) => setForm({ ...emptyForm(writable[0]?.id || '', date), mode: 'create' });
@@ -83,11 +80,12 @@ export default function CalendarPage() {
     setVisibleCalendarIds(current.includes(id) ? current.filter(value => value !== id) : [...current, id]);
   };
   const title = view === 'month'
-    ? anchor.toLocaleDateString(undefined, { month: 'long', year: 'numeric' })
-    : `${days[0].toLocaleDateString(undefined, { month: 'short', day: 'numeric' })} – ${days.at(-1).toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' })}`;
+    ? anchor.toLocaleDateString(locale, { month: 'long', year: 'numeric' })
+    : `${days[0].toLocaleDateString(locale, { month: 'short', day: 'numeric' })} – ${days.at(-1).toLocaleDateString(locale, { month: 'short', day: 'numeric', year: 'numeric' })}`;
   const step = direction => setAnchor(current => shiftCalendarAnchor(current, view, direction));
+  const shiftMiniMonth = direction => setAnchor(current => shiftCalendarAnchor(current, 'month', direction));
   return <div data-testid="calendar-page" style={{ ...page, ...(isMobile ? mobilePage : {}) }}>
-    <header ref={mobileHeaderRef} style={{ ...header, ...(isMobile ? mobileHeader(mobileNavigationPosition) : {}) }}>
+    <header style={{ ...header, ...(isMobile ? mobileHeader(mobileNavigationPosition) : {}) }}>
       {isMobile && <button data-testid="calendar-mobile-menu" aria-label={t('messageList.menu', 'Menu')} onClick={() => setMobileSidebarOpen(true)} style={mobileBackButton}>
         <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75"><line x1="3" y1="12" x2="21" y2="12"/><line x1="3" y1="6" x2="21" y2="6"/><line x1="3" y1="18" x2="21" y2="18"/></svg>
       </button>}
@@ -100,19 +98,19 @@ export default function CalendarPage() {
           {[['month', t('calendar.month')], ['week', t('calendar.week')], ['workweek', t('calendar.workWeek')]].map(([value, label]) => <button key={value} data-testid={`calendar-view-${value}`} onClick={() => setView(value)} aria-pressed={view === value} style={{ ...segmentButton, ...(view === value ? segmentActive : {}) }}>{label}</button>)}
         </div>
         <button onClick={() => step(-1)} aria-label={t('calendar.previous')} style={iconButton}>‹</button><button onClick={() => setAnchor(new Date())} style={secondaryButton}>{t('calendar.today')}</button><button onClick={() => step(1)} aria-label={t('calendar.next')} style={iconButton}>›</button>
-        {isMobile && <button data-testid="calendar-mobile-panel" onClick={() => document.getElementById('calendar-mobile-panel')?.showModal()} style={secondaryButton}>{t('calendar.calendars')}</button>}
-        <button data-testid="calendar-manage-sources" onClick={() => { setSourcePanelRequest(request => request + 1); if (isMobile) document.getElementById('calendar-mobile-panel')?.showModal(); }} style={secondaryButton}>{t('calendar.manageSources')}</button>
+        {isMobile && <button data-testid="calendar-mobile-panel" onClick={() => { document.getElementById('calendar-mobile-panel')?.show(); setMobilePanelOpen(true); }} style={secondaryButton}>{t('calendar.calendars')}</button>}
+        <button data-testid="calendar-manage-sources" onClick={() => { setSourcePanelRequest(request => request + 1); if (isMobile) { document.getElementById('calendar-mobile-panel')?.show(); setMobilePanelOpen(true); } }} style={secondaryButton}>{t('calendar.manageSources')}</button>
         {!isMobile && <button disabled={!writable.length} onClick={() => openCreate()} style={primaryButton}>{t('calendar.newEvent')}</button>}
       </div>
     </header>
     {error && <div role="alert" style={errorStyle}>{error}</div>}
     {!writable.length && !loading && <div style={errorStyle}>{t('calendar.noWritable')}</div>}
     <div style={calendarContent}>
-      {!isMobile && <CalendarSidebar anchor={anchor} calendars={calendars} visibleCalendarIds={visibleCalendarIds} weekStartsOn={calendarWeekStartsOn} onSelectDate={setAnchor} onToggleCalendar={toggleCalendar} onSourcesChanged={load} sourcePanelRequest={sourcePanelRequest} t={t} />}
-      <CalendarGrid days={days} events={visibleEvents} view={view} anchor={anchor} isMobile={isMobile} openCreate={openCreate} openEdit={openEdit} t={t} />
+      {!isMobile && <CalendarSidebar anchor={anchor} calendars={calendars} visibleCalendarIds={visibleCalendarIds} weekStartsOn={calendarWeekStartsOn} locale={locale} onSelectDate={setAnchor} onShiftMonth={shiftMiniMonth} onToggleCalendar={toggleCalendar} onSourcesChanged={load} sourcePanelRequest={sourcePanelRequest} t={t} />}
+      <CalendarGrid days={days} events={visibleEvents} view={view} anchor={anchor} isMobile={isMobile} locale={locale} openCreate={openCreate} openEdit={openEdit} t={t} />
     </div>
-    {isMobile && <dialog id="calendar-mobile-panel" aria-label={t('calendar.panel')} data-testid="calendar-mobile-dock" style={mobilePanelDialog}><CalendarSidebar anchor={anchor} calendars={calendars} visibleCalendarIds={visibleCalendarIds} weekStartsOn={calendarWeekStartsOn} onSelectDate={day => { setAnchor(day); document.getElementById('calendar-mobile-panel')?.close(); }} onToggleCalendar={toggleCalendar} onSourcesChanged={load} onClose={() => document.getElementById('calendar-mobile-panel')?.close()} sourcePanelRequest={sourcePanelRequest} t={t} /></dialog>}
-    {isMobile && <button data-testid="calendar-mobile-new-event" aria-label={t('calendar.newEvent')} disabled={!writable.length} onClick={() => openCreate()} style={{ ...mobileNewEventButton, ...(mobileNavigationPosition === 'bottom' ? { bottom: `calc(${mobileHeaderClearance}px + 20px)` } : {}) }}>
+    {isMobile && <dialog id="calendar-mobile-panel" aria-label={t('calendar.panel')} data-testid="calendar-mobile-dock" onClose={() => setMobilePanelOpen(false)} style={mobilePanelDialog}><CalendarSidebar anchor={anchor} calendars={calendars} visibleCalendarIds={visibleCalendarIds} weekStartsOn={calendarWeekStartsOn} locale={locale} onSelectDate={day => { setAnchor(day); document.getElementById('calendar-mobile-panel')?.close(); }} onShiftMonth={shiftMiniMonth} onToggleCalendar={toggleCalendar} onSourcesChanged={load} onClose={() => document.getElementById('calendar-mobile-panel')?.close()} sourcePanelRequest={sourcePanelRequest} t={t} /></dialog>}
+    {isMobile && !mobilePanelOpen && <button data-testid="calendar-mobile-new-event" aria-label={t('calendar.newEvent')} disabled={!writable.length} onClick={() => openCreate()} style={{ ...mobileNewEventButton, bottom: 'calc(var(--mobile-nav-height) + var(--sab) + 20px)' }}>
       <svg width="25" height="25" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M12 5v14M5 12h14"/></svg>
     </button>}
     {loading && <p>{t('calendar.loading')}</p>}
@@ -120,11 +118,11 @@ export default function CalendarPage() {
   </div>;
 }
 
-function CalendarGrid({ days, events, view, anchor, isMobile, openCreate, openEdit, t }) {
+function CalendarGrid({ days, events, view, anchor, isMobile, locale, openCreate, openEdit, t }) {
   const month = view === 'month';
   return <div data-testid="calendar-grid" style={{ ...calendarSurface, flex: 1, minWidth: 0 }}>
-    <div style={{ ...dayGrid, gridTemplateColumns: `repeat(${month ? 7 : days.length}, minmax(${isMobile && !month ? 112 : 0}px, 1fr))` }}>
-      {days.slice(0, month ? 7 : days.length).map(day => <div key={`header-${day.toISOString()}`} style={{ ...dayHeader, ...(isToday(day) ? todayHeader : {}) }}>{day.toLocaleDateString(undefined, { weekday: 'short' })}<strong>{day.getDate()}</strong></div>)}
+    <div data-testid={month ? 'calendar-month-grid' : undefined} style={{ ...dayGrid, gridTemplateColumns: `repeat(${month ? 7 : days.length}, minmax(${isMobile && !month ? 112 : 0}px, 1fr))` }}>
+      {days.slice(0, month ? 7 : days.length).map(day => <div key={`header-${day.toISOString()}`} style={{ ...dayHeader, ...(isToday(day) ? todayHeader : {}) }}><span data-testid="calendar-weekday">{day.toLocaleDateString(locale, { weekday: 'short' })}</span><strong>{day.getDate()}</strong></div>)}
       {days.map(day => {
         const inMonth = day.getMonth() === anchor.getMonth(); const dayEvents = eventsForDay(events, day);
         return <section key={day.toDateString()} onDoubleClick={() => openCreate(day)} style={{ ...dayCell, minHeight: month ? 132 : 580, opacity: month && !inMonth ? .46 : 1, ...(isToday(day) ? todayCell : {}) }}>
@@ -153,12 +151,12 @@ function EventDialog({ form, calendars, accounts, isMobile, saving, onChange, on
 }
 
 const page = { display: 'flex', flexDirection: 'column', flex: 1, minWidth: 0, height: '100%', overflow: 'auto', padding: '24px clamp(14px, 3vw, 36px)', boxSizing: 'border-box', background: 'var(--bg-primary)' };
-const mobilePage = { overflowX: 'hidden' };
+const mobilePage = { overflowX: 'hidden', paddingBottom: 'calc(var(--mobile-nav-height) + var(--sab) + 12px)' };
 const header = { display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 16, flexWrap: 'wrap', marginBottom: 20 };
-const mobileHeader = position => position === 'bottom' ? { position: 'sticky', bottom: 0, zIndex: 12, order: 2, margin: '16px -14px 0', padding: '10px 12px calc(env(safe-area-inset-bottom) + 10px)', flexWrap: 'wrap', background: 'var(--bg-primary)', borderTop: '1px solid var(--border-subtle)' } : { position: 'sticky', top: 0, zIndex: 2, margin: '0 -14px 16px', padding: 'calc(var(--sat) + 10px) 12px 10px', flexWrap: 'wrap', background: 'var(--bg-primary)', borderBottom: '1px solid var(--border-subtle)' };
+const mobileHeader = position => position === 'bottom' ? { position: 'sticky', bottom: 'calc(var(--mobile-nav-height) + var(--sab))', zIndex: 12, order: 2, margin: '16px -14px 0', padding: '10px 12px', flexWrap: 'wrap', background: 'var(--bg-primary)', borderTop: '1px solid var(--border-subtle)' } : { position: 'sticky', top: 0, zIndex: 2, margin: '0 -14px 16px', padding: 'calc(var(--sat) + 10px) 12px 10px', flexWrap: 'wrap', background: 'var(--bg-primary)', borderBottom: '1px solid var(--border-subtle)' };
 const mobileBackButton = { background: 'none', border: 'none', color: 'var(--text-secondary)', cursor: 'pointer', padding: 0, borderRadius: 7, display: 'flex', alignItems: 'center', justifyContent: 'center', minWidth: 44, minHeight: 44, flexShrink: 0 };
 const mobileNewEventButton = { position: 'fixed', right: 20, bottom: 'max(20px, calc(env(safe-area-inset-bottom) + 12px))', zIndex: 10, width: 56, height: 56, border: 0, borderRadius: '50%', display: 'grid', placeItems: 'center', background: 'var(--accent)', color: 'var(--accent-text)', boxShadow: '0 8px 22px rgba(0,0,0,.28)', cursor: 'pointer' };
-const calendarContent = { display: 'flex', flex: 1, minHeight: 0, border: '1px solid var(--border)', borderRadius: 12, overflow: 'hidden' }; const mobilePanelDialog = { border: 0, padding: 0, margin: 'auto 0 0', maxWidth: 'min(360px, 92vw)', width: '100%', background: 'transparent' };
+const calendarContent = { display: 'flex', flex: 1, minHeight: 0, border: '1px solid var(--border)', borderRadius: 12, overflow: 'hidden' }; const mobilePanelDialog = { position: 'fixed', left: 0, right: 0, top: 'auto', bottom: 'calc(var(--mobile-nav-height) + var(--sab))', zIndex: 1100, border: 0, padding: 0, margin: 0, maxHeight: 'calc(100svh - var(--mobile-nav-height) - var(--sab) - 16px)', overflowY: 'auto', maxWidth: 'min(360px, 92vw)', width: '100%', background: 'transparent' };
 const heading = { display: 'flex', alignItems: 'baseline', gap: 12, minWidth: 230 }; const mobileHeading = { flex: 1, minWidth: 0 }; const subheading = { color: 'var(--text-secondary)', fontWeight: 600 };
 const toolbar = { display: 'flex', gap: 7, alignItems: 'center', flexWrap: 'wrap' }; const mobileToolbar = { flexBasis: '100%', width: '100%' }; const segmented = { display: 'flex', padding: 3, borderRadius: 9, background: 'var(--bg-tertiary)' };
 const segmentButton = { border: 0, background: 'transparent', color: 'var(--text-secondary)', padding: '6px 9px', borderRadius: 6, cursor: 'pointer', fontSize: 12 }; const segmentActive = { background: 'var(--bg-secondary)', color: 'var(--text-primary)', boxShadow: '0 1px 3px rgba(0,0,0,.16)' };

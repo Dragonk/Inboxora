@@ -995,6 +995,7 @@
   },
   "contacts": {
     "title": "Contatti",
+    "backToMail": "Torna alla posta",
     "backToList": "Torna all'elenco contatti",
     "new": "Nuovo",
     "newContact": "Nuovo contatto",
@@ -1708,6 +1709,8 @@
   },
   "calendar": {
     "title": "Calendario",
+    "previousMonth": "Mese precedente",
+    "nextMonth": "Mese successivo",
     "back": "Indietro",
     "today": "Oggi",
     "newEvent": "Nuovo evento",

@@ -896,6 +896,7 @@ export default function MailApp() {
       display: 'flex',
       width: scale !== 1 ? `${(vpSize.w / scale).toFixed(2)}px` : '100%',
       height: scale !== 1 ? `${(vpSize.h / scale).toFixed(2)}px` : '100%',
+      '--mobile-nav-height': '72px',
       ...(scale !== 1 && {
         transform: `scale(${scale})`,
         transformOrigin: 'top left',
@@ -944,10 +945,10 @@ export default function MailApp() {
           </div>
           {/* Keep destination views mounted so their state survives drawer navigation. */}
           <div data-testid="mobile-contacts-page" style={{ display: showContacts ? 'flex' : 'none', flex: 1, minWidth: 0, overflow: 'hidden', height: '100%' }}>
-            <Suspense fallback={lazyFallback}><ContactsPage /></Suspense>
+            <Suspense fallback={lazyFallback}><ContactsPage isActive={showContacts} /></Suspense>
           </div>
           <div data-testid="mobile-calendar-page" style={{ display: showCalendar ? 'flex' : 'none', flex: 1, minWidth: 0, overflow: 'hidden', height: '100%' }}>
-            <Suspense fallback={lazyFallback}><CalendarPage /></Suspense>
+            <Suspense fallback={lazyFallback}><CalendarPage isActive={showCalendar} /></Suspense>
           </div>
           <div data-ce-reader-enabled={conversationReaderViewEnabled ? 'true' : 'false'} data-ce-reader-state={conversationReaderViewEnabled ? 'enabled' : 'disabled'} data-ce-conversation-id={conversationId || ''} data-ce-selected-message-id={selectedMessageId || ''} data-ce-resolution-error={conversationResolutionError ? 'true' : 'false'} style={{ flex: 1, display: !showContacts && !showCalendar && !selectedMessageId && !(conversationReaderViewEnabled && conversationId) ? 'flex' : 'none', overflow: 'hidden', height: '100%' }}>
             <MessageList />
@@ -956,6 +957,14 @@ export default function MailApp() {
             <MessagePane mode={conversationReaderViewEnabled && (conversationId || nativeThreadId) ? 'conversation' : 'single'} conversationId={conversationId} targetLogicalMessageId={targetLogicalMessageId} selectedConversationCopy={selectedConversationCopy} nativeThreadId={nativeThreadId} nativeFolder={nativeFolder} onReply={replyFromConversation} onNativeThreadUnavailable={handleNativeThreadUnavailable} onMobileBack={() => { if (conversationReaderViewEnabled && conversationId) { setConversationId(null); setTargetLogicalMessageId(null); } else setSelectedMessage(null); }} />
           </div>
           {mobileProfileOpen && <ProfileModal onClose={() => setMobileProfileOpen(false)} />}
+          <MobileNavigation
+            showContacts={showContacts}
+            showCalendar={showCalendar}
+            setShowContacts={setShowContacts}
+            setShowCalendar={setShowCalendar}
+            setSelectedMessage={setSelectedMessage}
+            t={t}
+          />
           </>
       ) : (
         <>
@@ -980,7 +989,7 @@ export default function MailApp() {
           }}>
             {/* Keep all three mounted so scroll/state survive navigation. */}
             <div style={{ display: showContacts ? 'flex' : 'none', flex: 1, minWidth: 0, overflow: 'hidden', height: '100%' }}>
-              <Suspense fallback={lazyFallback}><ContactsPage /></Suspense>
+              <Suspense fallback={lazyFallback}><ContactsPage isActive={showContacts} /></Suspense>
             </div>
             <div data-testid="desktop-calendar-page" style={{ display: showCalendar ? 'flex' : 'none', flex: 1, minWidth: 0, overflow: 'hidden', height: '100%' }}>
               <Suspense fallback={lazyFallback}><CalendarPage /></Suspense>
@@ -1088,6 +1097,39 @@ export default function MailApp() {
       )}
     </div>
     </div>
+  );
+}
+
+function MobileNavigation({ showContacts, showCalendar, setShowContacts, setShowCalendar, setSelectedMessage, t }) {
+  const navigateTo = (view) => {
+    setSelectedMessage(null);
+    if (view === 'mail') {
+      setShowContacts(false);
+      setShowCalendar(false);
+    } else if (view === 'contacts') {
+      setShowContacts(true);
+      setShowCalendar(false);
+    } else {
+      setShowContacts(false);
+      setShowCalendar(true);
+    }
+  };
+  const buttonStyle = (active) => ({
+    flex: 1, minHeight: 48, border: 'none', borderRadius: 10,
+    background: active ? 'var(--bg-hover)' : 'transparent', color: active ? 'var(--accent)' : 'var(--text-tertiary)',
+    cursor: 'pointer', fontSize: 11, fontWeight: active ? 600 : 500,
+  });
+
+  return (
+    <nav data-testid="mobile-primary-nav" aria-label={t('sidebar.allInboxes')} style={{
+      position: 'fixed', left: 0, right: 0, bottom: 0, height: 'calc(var(--mobile-nav-height) + var(--sab))',
+      padding: '8px 12px calc(var(--sab) + 8px)', boxSizing: 'border-box', zIndex: 1200,
+      display: 'flex', alignItems: 'center', gap: 6, background: 'var(--bg-secondary)', borderTop: '1px solid var(--border)', boxShadow: 'var(--shadow-soft)',
+    }}>
+      <button type="button" aria-current={!showContacts && !showCalendar ? 'page' : undefined} onClick={() => navigateTo('mail')} style={buttonStyle(!showContacts && !showCalendar)}>{t('sidebar.allInboxes')}</button>
+      <button type="button" aria-current={showContacts ? 'page' : undefined} onClick={() => navigateTo('contacts')} style={buttonStyle(showContacts)}>{t('contacts.title')}</button>
+      <button type="button" aria-current={showCalendar ? 'page' : undefined} onClick={() => navigateTo('calendar')} style={buttonStyle(showCalendar)}>{t('calendar.title')}</button>
+    </nav>
   );
 }
 

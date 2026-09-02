@@ -139,7 +139,6 @@ export const test = base.extend({
       return route.fulfill({ json: {
         language: page.__languageOverride || 'pl',
         theme: page.__themeOverride || 'light',
-        mobileNavigationPosition: page.__mobileNavigationPositionOverride || 'top',
         threadedView: listEnabled,
         conversation_list_view_enabled: listEnabled,
         conversation_reader_view_enabled: readerEnabled,

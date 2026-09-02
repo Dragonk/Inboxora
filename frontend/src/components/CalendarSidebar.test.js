@@ -8,6 +8,10 @@ describe('CalendarSidebar contract', () => {
   it('provides a mini-month, visible calendar toggles, and source management entry point', async () => {
     const component = await source();
     assert.match(component, /data-testid="calendar-mini-month"/);
+    assert.match(component, /data-testid="calendar-mini-month-previous"/);
+    assert.match(component, /data-testid="calendar-mini-month-next"/);
+    assert.match(component, /onShiftMonth\?\.\(-1\)/);
+    assert.match(component, /onShiftMonth\?\.\(1\)/);
     assert.match(component, /data-testid="calendar-visibility-toggle"/);
     assert.match(component, /data-testid="calendar-sidebar-manage-sources"/);
   });

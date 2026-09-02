@@ -63,9 +63,9 @@ function emptyContact() {
 
 const PAGE_SIZE = 100;
 
-export default function ContactsPage() {
+export default function ContactsPage({ isActive = true }) {
   const { t } = useTranslation();
-  const { showContacts, setMobileSidebarOpen, mobileNavigationPosition } = useStore();
+  const { showContacts, setShowContacts, setMobileSidebarOpen } = useStore();
   const isMobile = useMobile();
 
   const [contacts, setContacts]     = useState([]);
@@ -87,18 +87,23 @@ export default function ContactsPage() {
   const rowRefs                     = useRef(new Map());
   const selectedRowIdRef            = useRef(null);
   const mobileBackButtonRef         = useRef(null);
+  const contactSelectionRequestRef  = useRef(0);
 
-  // Primary views stay mounted. Re-entering Contacts on mobile should always
-  // start at the list, without moving focus away from the drawer destination.
+  // MailApp keeps primary views mounted. A mobile bottom-nav re-entry must not
+  // expose a retained contact detail or new-contact form.
   useEffect(() => {
-    if (!isMobile || !showContacts) return;
+    if (!isMobile) return;
+    contactSelectionRequestRef.current += 1;
+    if (!isActive) return;
+    // Only an explicit in-module back action may restore the activating row.
+    // Re-entering via primary navigation must leave focus on that navigation.
     selectedRowIdRef.current = null;
     setMobilePanel('list');
     setSelected(null);
     setShowNew(false);
     setEditing(false);
     setError(null);
-  }, [isMobile, showContacts]);
+  }, [isActive, isMobile]);
 
   useEffect(() => {
     if (!isMobile) return;
@@ -107,8 +112,11 @@ export default function ContactsPage() {
       return;
     }
     if (mobilePanel === 'list' && selectedRowIdRef.current) {
-      rowRefs.current.get(selectedRowIdRef.current)?.focus();
-      selectedRowIdRef.current = null;
+      const row = rowRefs.current.get(selectedRowIdRef.current);
+      if (row) {
+        row.focus();
+        selectedRowIdRef.current = null;
+      }
     }
   }, [contacts, isMobile, mobilePanel, selected]);
 
@@ -168,8 +176,10 @@ export default function ContactsPage() {
   const selectContact = async (c) => {
     setError(null);
     if (isMobile) selectedRowIdRef.current = c.id;
+    const requestId = ++contactSelectionRequestRef.current;
     try {
       const full = await api.getContact(c.id);
+      if (requestId !== contactSelectionRequestRef.current) return;
       setSelected(full);
       setEditing(false);
       setShowNew(false);
@@ -177,11 +187,13 @@ export default function ContactsPage() {
       setError(null);
       if (isMobile) setMobilePanel('detail');
     } catch (err) {
+      if (requestId !== contactSelectionRequestRef.current) return;
       setError(err.message);
     }
   };
 
   const startNew = () => {
+    contactSelectionRequestRef.current += 1;
     setSelected(null);
     setForm(emptyContact());
     setEditing(false);
@@ -192,6 +204,7 @@ export default function ContactsPage() {
   };
 
   const goBackToList = () => {
+    contactSelectionRequestRef.current += 1;
     setMobilePanel('list');
     setSelected(null);
     setShowNew(false);
@@ -361,7 +374,7 @@ export default function ContactsPage() {
         data-testid="contacts-list-scroll"
         style={{
           flex: 1, overflowY: 'auto', boxSizing: 'border-box',
-          paddingBottom: isMobile ? 88 : 0,
+          paddingBottom: isMobile ? 'calc(var(--mobile-nav-height) + var(--sab) + 88px)' : 0,
         }}
         onScroll={handleListScroll}
       >
@@ -389,9 +402,9 @@ export default function ContactsPage() {
             tabIndex={0}
             aria-label={contactName}
             onClick={() => selectContact(c)}
-            onKeyDown={event => {
-              if (event.key !== 'Enter' && event.key !== ' ') return;
-              event.preventDefault();
+            onKeyDown={e => {
+              if (e.key !== 'Enter' && e.key !== ' ') return;
+              e.preventDefault();
               selectContact(c);
             }}
             style={{
@@ -534,32 +547,15 @@ export default function ContactsPage() {
         {/* Mobile header — matches MessageList header style */}
         <div style={{
           display: 'flex', alignItems: 'center', gap: 4,
-          ...(mobileNavigationPosition === 'bottom'
-            ? { order: 2, paddingTop: 10, paddingBottom: 'calc(env(safe-area-inset-bottom) + 10px)', borderTop: '1px solid var(--border-subtle)' }
-            : { paddingTop: 'calc(var(--sat) + 10px)', paddingBottom: 10, borderBottom: '1px solid var(--border-subtle)' }),
-          paddingLeft: 12, paddingRight: 12,
+          paddingTop: 'calc(var(--sat) + 10px)',
+          paddingBottom: 10, paddingLeft: 12, paddingRight: 12,
+          borderBottom: '1px solid var(--border-subtle)',
           background: 'var(--bg-secondary)', flexShrink: 0,
         }}>
-          {mobilePanel === 'list' ? (
-            <button
-              data-testid="contacts-mobile-menu"
-              aria-label={t('messageList.menu', 'Menu')}
-              onClick={() => setMobileSidebarOpen(true)}
-              style={{
-                background: 'none', border: 'none', color: 'var(--text-secondary)',
-                cursor: 'pointer', padding: 0, borderRadius: 7,
-                display: 'flex', alignItems: 'center', justifyContent: 'center',
-                minWidth: 44, minHeight: 44,
-              }}
-            >
-              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75">
-                <line x1="3" y1="12" x2="21" y2="12"/><line x1="3" y1="6" x2="21" y2="6"/><line x1="3" y1="18" x2="21" y2="18"/>
-              </svg>
-            </button>
-          ) : <button
+          <button
             ref={mobileBackButtonRef}
-            onClick={goBackToList}
-            aria-label={t('contacts.backToList')}
+            onClick={mobilePanel === 'detail' ? goBackToList : () => setShowContacts(false)}
+            aria-label={mobilePanel === 'detail' ? t('contacts.backToList') : t('contacts.backToMail')}
             style={{
               background: 'none', border: 'none', color: 'var(--text-secondary)',
               cursor: 'pointer', padding: 0, borderRadius: 7,
@@ -570,7 +566,7 @@ export default function ContactsPage() {
             <svg aria-hidden="true" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
               <polyline points="15 18 9 12 15 6"/>
             </svg>
-          </button>}
+          </button>
 
           <h2 style={{
             flex: 1, margin: 0, fontSize: 16, fontWeight: 600,
@@ -580,7 +576,24 @@ export default function ContactsPage() {
             {mobileHeaderTitle}
           </h2>
 
-
+          {mobilePanel === 'list' && (
+            <button
+              type="button"
+              data-testid="contacts-mobile-menu"
+              onClick={() => setMobileSidebarOpen(true)}
+              aria-label={t('common.menu')}
+              style={{
+                background: 'none', border: 'none', color: 'var(--text-secondary)',
+                cursor: 'pointer', padding: 0, borderRadius: 7,
+                display: 'flex', alignItems: 'center', justifyContent: 'center',
+                minWidth: 44, minHeight: 44,
+              }}
+            >
+              <svg aria-hidden="true" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
+                <line x1="4" y1="7" x2="20" y2="7"/><line x1="4" y1="12" x2="20" y2="12"/><line x1="4" y1="17" x2="20" y2="17"/>
+              </svg>
+            </button>
+          )}
         </div>
 
         {/* Search bar — only on list view */}
@@ -607,18 +620,8 @@ export default function ContactsPage() {
             <div data-testid="contacts-mobile-list" style={{ flex: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden', animation: 'slide-in-left var(--motion-normal) var(--ease-emphasized) both' }}>
               {listPanel}
             </div>
-            <button
-              data-testid="contacts-mobile-fab"
-              onClick={startNew}
-              aria-label={t('contacts.new')}
-              style={{
-                position: 'fixed', right: 20,
-                bottom: mobileNavigationPosition === 'bottom' ? 'max(88px, calc(env(safe-area-inset-bottom) + 76px))' : 'max(20px, calc(env(safe-area-inset-bottom) + 12px))',
-                zIndex: 200, width: 48, height: 48, border: 'none', borderRadius: '50%',
-                background: 'var(--accent)', color: 'var(--accent-text)', boxShadow: 'var(--shadow-modal)', cursor: 'pointer',
-              }}
-            >
-              <svg aria-hidden="true" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+            <button data-testid="contacts-mobile-fab" onClick={startNew} aria-label={t('contacts.new')} style={{ position: 'fixed', right: 20, bottom: 'calc(var(--mobile-nav-height) + var(--sab) + 20px)', zIndex: 200, width: 48, height: 48, border: 'none', borderRadius: '50%', background: 'var(--accent)', color: 'var(--accent-text)', boxShadow: 'var(--shadow-modal)', cursor: 'pointer' }}>
+              <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
             </button>
           </>
         ) : (

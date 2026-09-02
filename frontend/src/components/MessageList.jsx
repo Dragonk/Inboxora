@@ -3853,7 +3853,7 @@ export default function MessageList() {
           );
         })()}
         </>)}
-        {isMobile && <div aria-hidden="true" style={{ height: 84 }} />}
+        {isMobile && <div aria-hidden="true" style={{ height: 'calc(var(--mobile-nav-height) + var(--sab) + 84px)' }} />}
         </div>
 
         {/* Scroll-to-top button — desktop only (mobile handled in FAB container below) */}
@@ -3895,7 +3895,7 @@ export default function MessageList() {
       {isMobile && (
         <div style={{
           position: 'fixed',
-          bottom: mobileNavigationPosition === 'bottom' ? 'max(88px, calc(env(safe-area-inset-bottom) + 76px))' : 'calc(var(--sab) + 20px)',
+          bottom: 'calc(var(--mobile-nav-height) + var(--sab) + 20px)',
           right: 20,
           zIndex: 200,
           display: 'flex',
