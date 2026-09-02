@@ -995,6 +995,7 @@
   },
   "contacts": {
     "title": "联系人",
+    "backToList": "返回联系人列表",
     "new": "新建",
     "newContact": "新建联系人",
     "editContact": "编辑联系人",

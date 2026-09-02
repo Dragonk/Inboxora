@@ -995,6 +995,7 @@
   },
   "contacts": {
     "title": "Kontakty",
+    "backToList": "Zpět na seznam kontaktů",
     "new": "Nový",
     "newContact": "Nový kontakt",
     "editContact": "Upravit kontakt",

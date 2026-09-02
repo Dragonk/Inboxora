@@ -65,7 +65,7 @@ const PAGE_SIZE = 100;
 
 export default function ContactsPage() {
   const { t } = useTranslation();
-  const { showContacts, setMobileSidebarOpen } = useStore();
+  const { showContacts, setMobileSidebarOpen, mobileNavigationPosition } = useStore();
   const isMobile = useMobile();
 
   const [contacts, setContacts]     = useState([]);
@@ -84,6 +84,33 @@ export default function ContactsPage() {
   // Mobile: 'list' shows the contact list, 'detail' shows contact/form panel
   const [mobilePanel, setMobilePanel] = useState('list');
   const searchTimer                 = useRef(null);
+  const rowRefs                     = useRef(new Map());
+  const selectedRowIdRef            = useRef(null);
+  const mobileBackButtonRef         = useRef(null);
+
+  // Primary views stay mounted. Re-entering Contacts on mobile should always
+  // start at the list, without moving focus away from the drawer destination.
+  useEffect(() => {
+    if (!isMobile || !showContacts) return;
+    selectedRowIdRef.current = null;
+    setMobilePanel('list');
+    setSelected(null);
+    setShowNew(false);
+    setEditing(false);
+    setError(null);
+  }, [isMobile, showContacts]);
+
+  useEffect(() => {
+    if (!isMobile) return;
+    if (mobilePanel === 'detail' && selected) {
+      mobileBackButtonRef.current?.focus();
+      return;
+    }
+    if (mobilePanel === 'list' && selectedRowIdRef.current) {
+      rowRefs.current.get(selectedRowIdRef.current)?.focus();
+      selectedRowIdRef.current = null;
+    }
+  }, [contacts, isMobile, mobilePanel, selected]);
 
   // Stable refs used inside scroll handler to avoid stale closures.
   const contactsRef    = useRef([]);
@@ -140,6 +167,7 @@ export default function ContactsPage() {
 
   const selectContact = async (c) => {
     setError(null);
+    if (isMobile) selectedRowIdRef.current = c.id;
     try {
       const full = await api.getContact(c.id);
       setSelected(full);
@@ -329,7 +357,14 @@ export default function ContactsPage() {
   const listPanel = (
     <>
       {/* List */}
-      <div style={{ flex: 1, overflowY: 'auto' }} onScroll={handleListScroll}>
+      <div
+        data-testid="contacts-list-scroll"
+        style={{
+          flex: 1, overflowY: 'auto', boxSizing: 'border-box',
+          paddingBottom: isMobile ? 88 : 0,
+        }}
+        onScroll={handleListScroll}
+      >
         {loading && !contacts.length && (
           <div style={{ padding: 20, textAlign: 'center', color: 'var(--text-tertiary)', fontSize: 13 }}>
             {t('common.loading')}
@@ -340,10 +375,25 @@ export default function ContactsPage() {
             {listError || (search ? t('contacts.noResults') : t('contacts.empty'))}
           </div>
         )}
-        {contacts.map(c => (
+        {contacts.map(c => {
+          const contactName = c.display_name || c.primary_email || '—';
+          return (
           <div
             key={c.id}
+            ref={element => {
+              if (element) rowRefs.current.set(c.id, element);
+              else rowRefs.current.delete(c.id);
+            }}
+            data-contact-id={c.id}
+            role="button"
+            tabIndex={0}
+            aria-label={contactName}
             onClick={() => selectContact(c)}
+            onKeyDown={event => {
+              if (event.key !== 'Enter' && event.key !== ' ') return;
+              event.preventDefault();
+              selectContact(c);
+            }}
             style={{
               display: 'flex', alignItems: 'center', gap: 10,
               padding: '9px 14px', cursor: 'pointer',
@@ -364,7 +414,7 @@ export default function ContactsPage() {
                 fontSize: 13, fontWeight: 500, color: 'var(--text-primary)',
                 whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis',
               }}>
-                {c.display_name || c.primary_email}
+                {contactName}
               </div>
               {c.display_name && c.primary_email && (
                 <div style={{
@@ -385,7 +435,8 @@ export default function ContactsPage() {
               </div>
             )}
           </div>
-        ))}
+          );
+        })}
         {loadingMore && (
           <div style={{ padding: '10px 14px', textAlign: 'center', fontSize: 12, color: 'var(--text-tertiary)' }}>
             {t('common.loading')}
@@ -479,13 +530,14 @@ export default function ContactsPage() {
       : t('contacts.title');
 
     return (
-      <div style={{ display: 'flex', flexDirection: 'column', height: '100%', overflow: 'hidden', background: 'var(--bg-secondary)' }}>
+      <div style={{ display: 'flex', flex: 1, width: '100%', minWidth: 0, flexDirection: 'column', height: '100%', overflow: 'hidden', background: 'var(--bg-secondary)' }}>
         {/* Mobile header — matches MessageList header style */}
         <div style={{
           display: 'flex', alignItems: 'center', gap: 4,
-          paddingTop: 'calc(var(--sat) + 10px)',
-          paddingBottom: 10, paddingLeft: 12, paddingRight: 12,
-          borderBottom: '1px solid var(--border-subtle)',
+          ...(mobileNavigationPosition === 'bottom'
+            ? { order: 2, paddingTop: 10, paddingBottom: 'calc(env(safe-area-inset-bottom) + 10px)', borderTop: '1px solid var(--border-subtle)' }
+            : { paddingTop: 'calc(var(--sat) + 10px)', paddingBottom: 10, borderBottom: '1px solid var(--border-subtle)' }),
+          paddingLeft: 12, paddingRight: 12,
           background: 'var(--bg-secondary)', flexShrink: 0,
         }}>
           {mobilePanel === 'list' ? (
@@ -505,7 +557,9 @@ export default function ContactsPage() {
               </svg>
             </button>
           ) : <button
+            ref={mobileBackButtonRef}
             onClick={goBackToList}
+            aria-label={t('contacts.backToList')}
             style={{
               background: 'none', border: 'none', color: 'var(--text-secondary)',
               cursor: 'pointer', padding: 0, borderRadius: 7,
@@ -513,7 +567,7 @@ export default function ContactsPage() {
               minWidth: 44, minHeight: 44,
             }}
           >
-            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+            <svg aria-hidden="true" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
               <polyline points="15 18 9 12 15 6"/>
             </svg>
           </button>}
@@ -526,21 +580,7 @@ export default function ContactsPage() {
             {mobileHeaderTitle}
           </h2>
 
-          {mobilePanel === 'list' && (
-            <button
-              onClick={startNew}
-              style={{
-                background: 'none', border: 'none', color: 'var(--accent)',
-                cursor: 'pointer', padding: 0,
-                display: 'flex', alignItems: 'center', justifyContent: 'center',
-                minWidth: 44, minHeight: 44,
-              }}
-            >
-              <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                <line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/>
-              </svg>
-            </button>
-          )}
+
         </div>
 
         {/* Search bar — only on list view */}
@@ -563,11 +603,26 @@ export default function ContactsPage() {
 
         {/* Content */}
         {mobilePanel === 'list' ? (
-          <div style={{ flex: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden', animation: 'slide-in-left var(--motion-normal) var(--ease-emphasized) both' }}>
-            {listPanel}
-          </div>
+          <>
+            <div data-testid="contacts-mobile-list" style={{ flex: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden', animation: 'slide-in-left var(--motion-normal) var(--ease-emphasized) both' }}>
+              {listPanel}
+            </div>
+            <button
+              data-testid="contacts-mobile-fab"
+              onClick={startNew}
+              aria-label={t('contacts.new')}
+              style={{
+                position: 'fixed', right: 20,
+                bottom: mobileNavigationPosition === 'bottom' ? 'max(88px, calc(env(safe-area-inset-bottom) + 76px))' : 'max(20px, calc(env(safe-area-inset-bottom) + 12px))',
+                zIndex: 200, width: 48, height: 48, border: 'none', borderRadius: '50%',
+                background: 'var(--accent)', color: 'var(--accent-text)', boxShadow: 'var(--shadow-modal)', cursor: 'pointer',
+              }}
+            >
+              <svg aria-hidden="true" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+            </button>
+          </>
         ) : (
-          <div style={{ flex: 1, overflow: 'hidden auto', padding: '20px 16px', animation: 'slide-in-right var(--motion-normal) var(--ease-emphasized) both' }}>
+          <div data-testid="contacts-mobile-detail" style={{ flex: 1, overflow: 'hidden auto', padding: '20px 16px', animation: 'slide-in-right var(--motion-normal) var(--ease-emphasized) both' }}>
             {detailPanel}
           </div>
         )}
@@ -580,7 +635,7 @@ export default function ContactsPage() {
     <div style={{ display: 'flex', flex: 1, minWidth: 0, height: '100%', overflow: 'hidden', background: 'var(--bg-primary)' }}>
 
       {/* Contact list panel */}
-      <div style={{
+      <div data-testid="contacts-desktop-list" style={{
         width: 280, flexShrink: 0, display: 'flex', flexDirection: 'column',
         borderRight: '1px solid var(--border)',
         background: 'var(--bg-secondary)',
@@ -622,7 +677,7 @@ export default function ContactsPage() {
 
       {/* Detail / form panel — keyed by contact id so scroll resets when switching contacts.
           When nothing is selected, center the empty-state placeholder in the full pane. */}
-      <div key={selected?.id ?? (showNew ? 'new' : 'empty')} style={{
+      <div data-testid="contacts-desktop-detail" key={selected?.id ?? (showNew ? 'new' : 'empty')} style={{
         flex: 1, overflow: 'hidden auto', minWidth: 0,
         padding: (!selected && !showNew) ? 0 : 32,
         ...((!selected && !showNew) && { display: 'flex', alignItems: 'center', justifyContent: 'center' }),

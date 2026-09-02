@@ -49,12 +49,19 @@ export default function CalendarSidebar({ anchor, calendars, visibleCalendarIds,
     try { await api.calendar.syncSource(id); await loadSources(); await onSourcesChanged(); }
     catch (error) { setSourceError(error.message); }
   };
-  return <aside style={panel} aria-label={t('calendar.panel')}>
+  const shiftMonth = amount => onSelectDate(new Date(anchor.getFullYear(), anchor.getMonth() + amount, 1));
+  return <aside data-testid="calendar-sidebar" style={panel} aria-label={t('calendar.panel')}>
     {onClose && <div style={closeRow}><button data-testid="calendar-sidebar-close" aria-label={t('calendar.close')} onClick={onClose} style={linkButton}>{t('calendar.close')}</button></div>}
 
     <div data-testid="calendar-mini-month" style={miniMonth}>
-      <strong>{anchor.toLocaleDateString(undefined, { month: 'long', year: 'numeric' })}</strong>
-      <div style={weekdayGrid}>{weekdays.map((day, index) => <span key={index}>{day}</span>)}</div>
+      <div style={miniMonthHeader}>
+        <strong>{anchor.toLocaleDateString(undefined, { month: 'long', year: 'numeric' })}</strong>
+        <span style={miniMonthControls}>
+          <button aria-label={t('calendar.previous')} onClick={() => shiftMonth(-1)} style={linkButton}>‹</button>
+          <button aria-label={t('calendar.next')} onClick={() => shiftMonth(1)} style={linkButton}>›</button>
+        </span>
+      </div>
+      <div style={weekdayGrid}>{weekdays.map((day, index) => <span data-testid="calendar-mini-weekday" key={index}>{day}</span>)}</div>
       <div style={dayGrid}>{cells.map(day => <button key={day.toISOString()} onClick={() => onSelectDate(day)} style={{ ...dayButton, ...(day.toDateString() === new Date().toDateString() ? today : {}), ...(day.getMonth() !== anchor.getMonth() ? muted : {}) }}>{day.getDate()}</button>)}</div>
     </div>
     <section style={section}>
@@ -76,8 +83,10 @@ export default function CalendarSidebar({ anchor, calendars, visibleCalendarIds,
   </aside>;
 }
 
-const panel = { width: 250, flexShrink: 0, padding: 14, borderRight: '1px solid var(--border-subtle)', background: 'var(--bg-secondary)', overflow: 'auto' }; const closeRow = { display: 'flex', justifyContent: 'flex-end', marginBottom: 8 };
+const panel = { width: 280, boxSizing: 'border-box', flexShrink: 0, padding: 14, borderRight: '1px solid var(--border-subtle)', background: 'var(--bg-secondary)', overflow: 'auto' }; const closeRow = { display: 'flex', justifyContent: 'flex-end', marginBottom: 8 };
 const miniMonth = { display: 'grid', gap: 8, paddingBottom: 16, borderBottom: '1px solid var(--border-subtle)' };
+const miniMonthHeader = { display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8 };
+const miniMonthControls = { display: 'flex', alignItems: 'center', gap: 2 };
 const weekdayGrid = { display: 'grid', gridTemplateColumns: 'repeat(7, 1fr)', textAlign: 'center', color: 'var(--text-tertiary)', fontSize: 11 };
 const dayGrid = { display: 'grid', gridTemplateColumns: 'repeat(7, 1fr)', gap: 2 };
 const dayButton = { border: 0, borderRadius: 6, minHeight: 28, background: 'transparent', color: 'var(--text-primary)', cursor: 'pointer' };

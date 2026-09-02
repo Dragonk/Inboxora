@@ -3226,6 +3226,7 @@ export default function MessageList() {
       {/* Message list */}
       <div style={{ flex: 1, overflow: 'hidden', position: 'relative' }}>
         <div
+          data-testid="message-list-scroll"
           ref={listRef}
           onScroll={handleScroll}
           onKeyDown={handleListKeyDown}
@@ -3852,6 +3853,7 @@ export default function MessageList() {
           );
         })()}
         </>)}
+        {isMobile && <div aria-hidden="true" style={{ height: 84 }} />}
         </div>
 
         {/* Scroll-to-top button — desktop only (mobile handled in FAB container below) */}
@@ -3893,7 +3895,7 @@ export default function MessageList() {
       {isMobile && (
         <div style={{
           position: 'fixed',
-          bottom: 'calc(var(--sab) + 20px)',
+          bottom: mobileNavigationPosition === 'bottom' ? 'max(88px, calc(env(safe-area-inset-bottom) + 76px))' : 'calc(var(--sab) + 20px)',
           right: 20,
           zIndex: 200,
           display: 'flex',

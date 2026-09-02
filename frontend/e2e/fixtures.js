@@ -137,8 +137,9 @@ export const test = base.extend({
       const listEnabled = matrix[0] !== '0';
       const readerEnabled = matrix[1] !== '0';
       return route.fulfill({ json: {
-        language: 'pl',
+        language: page.__languageOverride || 'pl',
         theme: page.__themeOverride || 'light',
+        mobileNavigationPosition: page.__mobileNavigationPositionOverride || 'top',
         threadedView: listEnabled,
         conversation_list_view_enabled: listEnabled,
         conversation_reader_view_enabled: readerEnabled,

@@ -995,6 +995,7 @@
   },
   "contacts": {
     "title": "Contactos",
+    "backToList": "Volver a la lista de contactos",
     "new": "Nuevo",
     "newContact": "Nuevo contacto",
     "editContact": "Editar contacto",
