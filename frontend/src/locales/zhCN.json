@@ -1749,6 +1749,6 @@
     "cancel": "取消",
     "saving": "保存中…",
     "save": "保存",
-    "panel": "日历面板", "calendars": "日历", "manageSources": "管理来源", "firstDayOfWeek": "一周的第一天", "monday": "星期一", "sunday": "星期日", "sourceType": "来源类型", "sourceName": "名称", "sourceUrl": "URL", "sourceUsername": "用户名", "sourcePassword": "应用密码", "addSource": "添加来源", "syncSource": "同步", "sourceReady": "就绪", "icsWebcal": "ICS / webcal", "caldav": "CalDAV", "mobileNavigation": "移动导航", "navigationTop": "顶部", "navigationBottom": "底部"
+    "panel": "日历面板", "calendars": "日历", "manageSources": "管理来源", "firstDayOfWeek": "一周的第一天", "monday": "星期一", "sunday": "星期日", "sourceType": "来源类型", "sourceName": "名称", "sourceUrl": "URL", "sourceUsername": "用户名", "sourcePassword": "应用密码", "addSource": "添加来源", "syncSource": "同步", "sourceReady": "就绪", "sourceSyncing": "同步中…", "sourceSyncTimeout": "源同步超时。", "icsWebcal": "ICS / webcal", "caldav": "CalDAV", "mobileNavigation": "移动导航", "navigationTop": "顶部", "navigationBottom": "底部"
   }
 }

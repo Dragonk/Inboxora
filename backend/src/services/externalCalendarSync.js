@@ -83,11 +83,16 @@ async function syncSource(source) {
   syncing.add(source.id);
   try {
     const { payloads, sourceDocument } = await fetchEvents(source, await getConnectionPolicy());
-    const parsedEvents = payloads.map(parseCalendarEvent);
-    // Do not mistake a malformed or unsupported response for an empty/partial
-    // remote calendar: that could delete a previously healthy local projection.
-    if (parsedEvents.some((event) => !event)) throw new Error('Remote calendar contains an unsupported event');
-    const events = parsedEvents;
+    const parsedEvents = payloads.map((raw, index) => ({ raw, index, event: parseCalendarEvent(raw) }));
+    const events = parsedEvents.filter(({ event }) => event).map(({ event }) => event);
+    const skipped = parsedEvents.filter(({ event }) => !event).map(({ raw, index }) => {
+      const uid = raw.match(/(?:^|\r\n|\n|\r)UID(?:;[^:]*)?:([^\r\n]*)/i)?.[1]?.trim() || `event-${index + 1}`;
+      return { uid, reason: 'unsupported or malformed VEVENT' };
+    });
+    // An empty or wholly unsupported response must never delete a healthy
+    // projection. In a mixed response, retain only the explicitly skipped
+    // UIDs; other rows are known to be absent from the feed and are stale.
+    if (!events.length) throw new Error('Remote calendar contains an unsupported event');
     const calendarId = await calendarFor(source);
     if (sourceDocument) {
       await query(
@@ -111,7 +116,13 @@ async function syncSource(source) {
         [calendarId, source.user_id, event.uid, event.raw, etag, event.summary, event.startsAt, event.endsAt, event.allDay, event.timeZone],
       );
     }
-    await query('DELETE FROM calendar_events WHERE calendar_id = $1 AND uid <> ALL($2::text[])', [calendarId, seen.length ? seen : ['']]);
+    const retainedUids = [...seen, ...skipped.map(({ uid }) => uid)];
+    await query('DELETE FROM calendar_events WHERE calendar_id = $1 AND uid <> ALL($2::text[])', [calendarId, retainedUids.length ? retainedUids : ['']]);
+    if (skipped.length) {
+      const warning = skipped.map(({ uid, reason }) => `${uid}: ${reason}`).join('; ');
+      await query('UPDATE calendar_import_sources SET last_sync_at = NOW(), last_error = $2 WHERE id = $1', [source.id, warning]);
+      return { ok: true, eventCount: events.length, skipped };
+    }
     await query('UPDATE calendar_import_sources SET last_sync_at = NOW(), last_error = NULL WHERE id = $1', [source.id]);
     return { ok: true, eventCount: events.length };
   } catch (error) {

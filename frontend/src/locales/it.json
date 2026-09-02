@@ -1749,6 +1749,6 @@
     "cancel": "Annulla",
     "saving": "Salvataggio…",
     "save": "Salva",
-    "panel": "Pannello calendario", "calendars": "Calendari", "manageSources": "Gestisci fonti", "firstDayOfWeek": "Primo giorno della settimana", "monday": "Lunedì", "sunday": "Domenica", "sourceType": "Tipo di fonte", "sourceName": "Nome", "sourceUrl": "URL", "sourceUsername": "Nome utente", "sourcePassword": "Password dell’app", "addSource": "Aggiungi fonte", "syncSource": "Sincronizza", "sourceReady": "Pronto", "icsWebcal": "ICS / webcal", "caldav": "CalDAV", "mobileNavigation": "Navigazione mobile", "navigationTop": "In alto", "navigationBottom": "In basso"
+    "panel": "Pannello calendario", "calendars": "Calendari", "manageSources": "Gestisci fonti", "firstDayOfWeek": "Primo giorno della settimana", "monday": "Lunedì", "sunday": "Domenica", "sourceType": "Tipo di fonte", "sourceName": "Nome", "sourceUrl": "URL", "sourceUsername": "Nome utente", "sourcePassword": "Password dell’app", "addSource": "Aggiungi fonte", "syncSource": "Sincronizza", "sourceReady": "Pronto", "sourceSyncing": "Sincronizzazione…", "sourceSyncTimeout": "La sincronizzazione della fonte è scaduta.", "icsWebcal": "ICS / webcal", "caldav": "CalDAV", "mobileNavigation": "Navigazione mobile", "navigationTop": "In alto", "navigationBottom": "In basso"
   }
 }

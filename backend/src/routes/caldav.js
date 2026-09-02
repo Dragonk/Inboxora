@@ -168,6 +168,8 @@ export function parseCalendarEvent(raw) {
     const duration = parseDuration(durationProperty.value);
     if (!duration || (startsAt.allDay && duration % (24 * 60 * 60 * 1000))) return null;
     endsAt = { date: new Date(startsAt.date.getTime() + duration), allDay: startsAt.allDay };
+  } else if (startsAt.allDay) {
+    endsAt = { date: new Date(startsAt.date.getTime() + 24 * 60 * 60 * 1000), allDay: true, timeZone: null };
   } else return null;
   if (endsAt.date <= startsAt.date) return null;
   const [summary] = named('SUMMARY');

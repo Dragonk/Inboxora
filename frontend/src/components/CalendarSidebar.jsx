@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { api } from '../utils/api.js';
 
 function monthCells(anchor, weekStartsOn) {
@@ -16,33 +16,96 @@ export default function CalendarSidebar({ anchor, calendars, visibleCalendarIds,
   const [showSources, setShowSources] = useState(false);
   const [sources, setSources] = useState([]);
   const [sourceError, setSourceError] = useState(null);
+  const mounted = useRef(false);
+  const pendingSourceIds = useRef(new Set());
+  const sourcePolls = useRef(new Map());
   const [form, setForm] = useState({ kind: 'ical_url', displayName: '', url: '', username: '', password: '', color: '#7c6af7', intervalMin: 60 });
   const cells = useMemo(() => monthCells(anchor, weekStartsOn), [anchor, weekStartsOn]);
   const weekdays = useMemo(() => Array.from({ length: 7 }, (_, index) => new Date(2026, 0, 4 + ((index + weekStartsOn) % 7)).toLocaleDateString(locale, { weekday: 'short' })), [locale, weekStartsOn]);
   const isVisible = id => visibleCalendarIds == null || visibleCalendarIds.includes(id);
+  const clearSourcePoll = id => {
+    const timer = sourcePolls.current.get(id);
+    if (timer) clearTimeout(timer);
+    sourcePolls.current.delete(id);
+    pendingSourceIds.current.delete(id);
+  };
+  useEffect(() => {
+    mounted.current = true;
+    const polls = sourcePolls.current;
+    const pending = pendingSourceIds.current;
+    return () => {
+      mounted.current = false;
+      polls.forEach(timer => clearTimeout(timer));
+      polls.clear();
+      pending.clear();
+    };
+  }, []);
   const loadSources = async () => {
-    try { const result = await api.calendar.listSources(); setSources(result.sources || []); setSourceError(null); }
-    catch (error) { setSourceError(error.message); }
+    try {
+      const result = await api.calendar.listSources();
+      if (!mounted.current) return result;
+      setSources(result.sources || []); setSourceError(null);
+      return result;
+    } catch (error) {
+      pendingSourceIds.current.forEach(clearSourcePoll);
+      if (mounted.current) setSourceError(error.message);
+      return null;
+    }
+  };
+  const waitForInitialSync = sourceId => {
+    if (!sourceId || !mounted.current) return;
+    clearSourcePoll(sourceId);
+    pendingSourceIds.current.add(sourceId);
+    let attempts = 0;
+    const maxAttempts = 70;
+    const poll = async () => {
+      if (!mounted.current || !pendingSourceIds.current.has(sourceId)) return;
+      const result = await loadSources();
+      if (!mounted.current || !pendingSourceIds.current.has(sourceId)) return;
+      const source = result?.sources?.find(item => item.id === sourceId);
+      if (source?.lastSyncAt || source?.lastError) {
+        clearSourcePoll(sourceId);
+        await onSourcesChanged();
+        return;
+      }
+      attempts += 1;
+      if (attempts >= maxAttempts) {
+        clearSourcePoll(sourceId);
+        setSourceError(t('calendar.sourceSyncTimeout', 'Source synchronization timed out.'));
+        return;
+      }
+      sourcePolls.current.set(sourceId, setTimeout(poll, 500));
+    };
+    poll();
   };
   const openSources = async () => { setShowSources(true); await loadSources(); };
   useEffect(() => {
     if (!sourcePanelRequest) return;
+    let active = true;
     setShowSources(true);
     api.calendar.listSources()
-      .then(result => { setSources(result.sources || []); setSourceError(null); })
-      .catch(error => setSourceError(error.message));
+      .then(result => {
+        if (!active || !mounted.current) return;
+        setSources(result.sources || []); setSourceError(null);
+      })
+      .catch(error => {
+        if (!active || !mounted.current) return;
+        setSourceError(error.message);
+      });
+    return () => { active = false; };
   }, [sourcePanelRequest]);
   const addSource = async event => {
     event.preventDefault();
     try {
-      await api.calendar.createSource({ ...form, password: form.kind === 'caldav' ? form.password : undefined, username: form.kind === 'caldav' ? form.username : undefined });
+      const result = await api.calendar.createSource({ ...form, password: form.kind === 'caldav' ? form.password : undefined, username: form.kind === 'caldav' ? form.username : undefined });
       setForm({ kind: 'ical_url', displayName: '', url: '', username: '', password: '', color: '#7c6af7', intervalMin: 60 });
       await loadSources();
       await onSourcesChanged();
+      waitForInitialSync(result?.source?.id);
     } catch (error) { setSourceError(error.message); }
   };
   const removeSource = async id => {
-    try { await api.calendar.deleteSource(id); await loadSources(); await onSourcesChanged(); }
+    try { await api.calendar.deleteSource(id); clearSourcePoll(id); await loadSources(); await onSourcesChanged(); }
     catch (error) { setSourceError(error.message); }
   };
   const syncSource = async id => {
@@ -77,7 +140,7 @@ export default function CalendarSidebar({ anchor, calendars, visibleCalendarIds,
         {form.kind === 'caldav' && <><label>{t('calendar.sourceUsername')}<input required value={form.username} onChange={event => setForm(current => ({ ...current, username: event.target.value }))} /></label><label>{t('calendar.sourcePassword')}<input required type="password" autoComplete="new-password" value={form.password} onChange={event => setForm(current => ({ ...current, password: event.target.value }))} /></label></>}
         <button type="submit" style={primaryButton}>{t('calendar.addSource')}</button>
       </form>
-      <div style={sourceList}>{sources.map(source => <div key={source.id} style={sourceRow}><span><strong>{source.displayName}</strong><small>{source.kind === 'caldav' ? t('calendar.caldav') : t('calendar.icsWebcal')} · {source.lastError || t('calendar.sourceReady')}</small></span><span><button onClick={() => syncSource(source.id)} style={linkButton}>{t('calendar.syncSource')}</button><button onClick={() => removeSource(source.id)} style={dangerButton}>{t('calendar.delete')}</button></span></div>)}</div>
+      <div style={sourceList}>{sources.map(source => <div key={source.id} style={sourceRow}><span><strong>{source.displayName}</strong><small>{source.kind === 'caldav' ? t('calendar.caldav') : t('calendar.icsWebcal')} · {pendingSourceIds.current.has(source.id) ? t('calendar.sourceSyncing') : source.lastError || t('calendar.sourceReady')}</small></span><span><button onClick={() => syncSource(source.id)} style={linkButton}>{t('calendar.syncSource')}</button><button onClick={() => removeSource(source.id)} style={dangerButton}>{t('calendar.delete')}</button></span></div>)}</div>
     </div></div>}
   </aside>;
 }

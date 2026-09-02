@@ -1749,6 +1749,6 @@
     "cancel": "Zrušit",
     "saving": "Ukládání…",
     "save": "Uložit",
-    "panel": "Panel kalendáře", "calendars": "Kalendáře", "manageSources": "Spravovat zdroje", "firstDayOfWeek": "První den týdne", "monday": "Pondělí", "sunday": "Neděle", "sourceType": "Typ zdroje", "sourceName": "Název", "sourceUrl": "URL", "sourceUsername": "Uživatelské jméno", "sourcePassword": "Heslo aplikace", "addSource": "Přidat zdroj", "syncSource": "Synchronizovat", "sourceReady": "Připraveno", "icsWebcal": "ICS / webcal", "caldav": "CalDAV", "mobileNavigation": "Mobilní navigace", "navigationTop": "Nahoře", "navigationBottom": "Dole"
+    "panel": "Panel kalendáře", "calendars": "Kalendáře", "manageSources": "Spravovat zdroje", "firstDayOfWeek": "První den týdne", "monday": "Pondělí", "sunday": "Neděle", "sourceType": "Typ zdroje", "sourceName": "Název", "sourceUrl": "URL", "sourceUsername": "Uživatelské jméno", "sourcePassword": "Heslo aplikace", "addSource": "Přidat zdroj", "syncSource": "Synchronizovat", "sourceReady": "Připraveno", "sourceSyncing": "Synchronizace…", "sourceSyncTimeout": "Synchronizace zdroje vypršela.", "icsWebcal": "ICS / webcal", "caldav": "CalDAV", "mobileNavigation": "Mobilní navigace", "navigationTop": "Nahoře", "navigationBottom": "Dole"
   }
 }

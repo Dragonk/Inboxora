@@ -1749,6 +1749,6 @@
     "cancel": "Annuler",
     "saving": "Enregistrement…",
     "save": "Enregistrer",
-    "panel": "Panneau du calendrier", "calendars": "Calendriers", "manageSources": "Gérer les sources", "firstDayOfWeek": "Premier jour de la semaine", "monday": "Lundi", "sunday": "Dimanche", "sourceType": "Type de source", "sourceName": "Nom", "sourceUrl": "URL", "sourceUsername": "Nom d’utilisateur", "sourcePassword": "Mot de passe d’application", "addSource": "Ajouter une source", "syncSource": "Synchroniser", "sourceReady": "Prêt", "icsWebcal": "ICS / webcal", "caldav": "CalDAV", "mobileNavigation": "Navigation mobile", "navigationTop": "En haut", "navigationBottom": "En bas"
+    "panel": "Panneau du calendrier", "calendars": "Calendriers", "manageSources": "Gérer les sources", "firstDayOfWeek": "Premier jour de la semaine", "monday": "Lundi", "sunday": "Dimanche", "sourceType": "Type de source", "sourceName": "Nom", "sourceUrl": "URL", "sourceUsername": "Nom d’utilisateur", "sourcePassword": "Mot de passe d’application", "addSource": "Ajouter une source", "syncSource": "Synchroniser", "sourceReady": "Prêt", "sourceSyncing": "Synchronisation…", "sourceSyncTimeout": "La synchronisation de la source a expiré.", "icsWebcal": "ICS / webcal", "caldav": "CalDAV", "mobileNavigation": "Navigation mobile", "navigationTop": "En haut", "navigationBottom": "En bas"
   }
 }

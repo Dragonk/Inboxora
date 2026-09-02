@@ -27,4 +27,27 @@ describe('CalendarSidebar contract', () => {
     assert.doesNotMatch(component, /calendar\.firstDayOfWeek/);
     assert.doesNotMatch(component, /calendar\.mobileNavigation/);
   });
+
+  it('waits for the asynchronous initial source sync with a bounded, cancellable poll', async () => {
+    const component = await source();
+    assert.match(component, /lastSyncAt|lastError/);
+    assert.match(component, /setTimeout/);
+    assert.match(component, /clearTimeout/);
+    assert.match(component, /unmount|mounted|cancel/i);
+    assert.match(component, /const maxAttempts = 70/);
+    assert.match(component, /attempts >= maxAttempts/);
+    assert.match(component, /pending\.clear\(\)/);
+  });
+
+  it('guards independent source-panel requests across cleanup and unmount', async () => {
+    const component = await source();
+    assert.match(component, /let active = true/);
+    assert.match(component, /!active \|\| !mounted\.current/);
+    assert.match(component, /return \(\) => \{ active = false; \}/);
+  });
+
+  it('cancels pending initial-sync polling after a successful source deletion', async () => {
+    const component = await source();
+    assert.match(component, /deleteSource\(id\); clearSourcePoll\(id\);/);
+  });
 });

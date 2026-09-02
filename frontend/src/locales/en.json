@@ -1763,6 +1763,8 @@
     "addSource": "Add source",
     "syncSource": "Sync",
     "sourceReady": "Ready",
+    "sourceSyncing": "Synchronizing…",
+    "sourceSyncTimeout": "Source synchronization timed out.",
     "icsWebcal": "ICS / webcal",
     "caldav": "CalDAV",
     "mobileNavigation": "Mobile navigation",

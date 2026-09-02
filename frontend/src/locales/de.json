@@ -1749,6 +1749,6 @@
     "cancel": "Abbrechen",
     "saving": "Speichern…",
     "save": "Speichern",
-    "panel": "Kalenderbereich", "calendars": "Kalender", "manageSources": "Quellen verwalten", "firstDayOfWeek": "Erster Wochentag", "monday": "Montag", "sunday": "Sonntag", "sourceType": "Quelltyp", "sourceName": "Kalendername", "sourceUrl": "URL", "sourceUsername": "Benutzername", "sourcePassword": "App-Passwort", "addSource": "Quelle hinzufügen", "syncSource": "Synchronisieren", "sourceReady": "Bereit", "icsWebcal": "ICS / webcal", "caldav": "CalDAV", "mobileNavigation": "Mobile Navigation", "navigationTop": "Oben", "navigationBottom": "Unten"
+    "panel": "Kalenderbereich", "calendars": "Kalender", "manageSources": "Quellen verwalten", "firstDayOfWeek": "Erster Wochentag", "monday": "Montag", "sunday": "Sonntag", "sourceType": "Quelltyp", "sourceName": "Kalendername", "sourceUrl": "URL", "sourceUsername": "Benutzername", "sourcePassword": "App-Passwort", "addSource": "Quelle hinzufügen", "syncSource": "Synchronisieren", "sourceReady": "Bereit", "sourceSyncing": "Synchronisierung…", "sourceSyncTimeout": "Zeitüberschreitung bei der Quellensynchronisierung.", "icsWebcal": "ICS / webcal", "caldav": "CalDAV", "mobileNavigation": "Mobile Navigation", "navigationTop": "Oben", "navigationBottom": "Unten"
   }
 }

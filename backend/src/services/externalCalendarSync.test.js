@@ -1,4 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { readFile } from 'node:fs/promises';
 
 const { query, safeFetch, getConnectionPolicy } = vi.hoisted(() => ({
   query: vi.fn(), safeFetch: vi.fn(), getConnectionPolicy: vi.fn(),
@@ -89,6 +90,16 @@ describe('external calendar imports', () => {
     expect(eventInsert?.[1][3]).toContain('UID:cr-only\r');
   });
 
+  it('imports an all-day DATE event without DTEND as a one-day event', async () => {
+    const fixture = await readFile(new URL('./fixtures/remote-calendar-all-day-no-end.ics', import.meta.url), 'utf8');
+    query.mockResolvedValueOnce({ rows: [source] }).mockResolvedValueOnce({ rows: [] }).mockResolvedValueOnce({ rows: [{ id: 'calendar-1' }] }).mockResolvedValueOnce({ rows: [] }).mockResolvedValueOnce({ rows: [] }).mockResolvedValueOnce({ rows: [] });
+    safeFetch.mockResolvedValue({ ok: true, text: vi.fn().mockResolvedValue(fixture) });
+    const result = await syncCalendarSource('user-1', 'source-1');
+    expect(result).toEqual({ ok: true, eventCount: 1 });
+    const eventInsert = query.mock.calls.find(([sql]) => sql.includes('INSERT INTO calendar_events'));
+    expect(eventInsert?.[1]).toEqual(expect.arrayContaining(['all-day-no-end', true, new Date('2026-09-01T00:00:00.000Z'), new Date('2026-09-02T00:00:00.000Z')]));
+  });
+
   it('keeps the prior projection when a non-empty ICS response has no supported events', async () => {
     query.mockResolvedValueOnce({ rows: [source] }).mockResolvedValueOnce({ rows: [] });
     safeFetch.mockResolvedValue({ ok: true, text: vi.fn().mockResolvedValue('BEGIN:VCALENDAR\r\nBEGIN:VEVENT\r\nUID:broken\r\nEND:VEVENT\r\nEND:VCALENDAR') });
@@ -109,6 +120,17 @@ describe('external calendar imports', () => {
 
     expect(result).toEqual({ ok: false, error: 'Remote calendar did not contain any VEVENT components' });
     expect(query.mock.calls.some(([sql]) => sql.includes('DELETE FROM calendar_events'))).toBe(false);
+  });
+
+  it('imports valid events while retaining skipped UIDs and reporting a warning', async () => {
+    const mixedIcal = [ical, 'BEGIN:VCALENDAR\r\nBEGIN:VEVENT\r\nUID:broken-event\r\nEND:VEVENT\r\nEND:VCALENDAR\r\n'].join('');
+    query.mockResolvedValueOnce({ rows: [source] }).mockResolvedValueOnce({ rows: [] }).mockResolvedValueOnce({ rows: [{ id: 'calendar-1' }] }).mockResolvedValueOnce({ rows: [] }).mockResolvedValueOnce({ rows: [] }).mockResolvedValueOnce({ rows: [] });
+    safeFetch.mockResolvedValue({ ok: true, text: vi.fn().mockResolvedValue(mixedIcal) });
+    const result = await syncCalendarSource('user-1', 'source-1');
+    expect(result).toEqual({ ok: true, eventCount: 1, skipped: [{ uid: 'broken-event', reason: 'unsupported or malformed VEVENT' }] });
+    const staleDelete = query.mock.calls.find(([sql]) => sql.includes('DELETE FROM calendar_events'));
+    expect(staleDelete?.[1]).toEqual(['calendar-1', ['event-1', 'broken-event']]);
+    expect(query.mock.calls.at(-1)[1]).toEqual(['source-1', 'broken-event: unsupported or malformed VEVENT']);
   });
 
   it('records a source-specific failure instead of throwing and does not import partial data', async () => {
