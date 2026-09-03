@@ -37,7 +37,20 @@ function holdConversationAction(page, action) {
     promise: new Promise(resolve => { release = resolve; }),
   };
   return () => {
-    delete page.__conversationActionGates[action];
+    if (Array.isArray(page.__conversationActionGates[action])) page.__conversationActionGates[action].shift();
+    else delete page.__conversationActionGates[action];
+    release();
+  };
+}
+
+function holdAction(page, property, key) {
+  let release;
+  const gate = { promise: new Promise(resolve => { release = resolve; }) };
+  page[property] = page[property] || {};
+  page[property][key] = page[property][key] || [];
+  page[property][key].push(gate);
+  return () => {
+    page[property][key] = page[property][key].filter(candidate => candidate !== gate);
     release();
   };
 }
@@ -62,9 +75,6 @@ async function waitForConversationAction(page, action) {
   ).toBe(true);
 }
 
-async function waitForUndoWindow(page, deadline) {
-  await expect.poll(() => page.evaluate(target => performance.now() >= target, deadline), { timeout: 10_000 }).toBe(true);
-}
 
 async function clickRowAction(page, row, testInfo, buttonPattern, menuPattern = buttonPattern) {
   if (testInfo.project.name === DESKTOP) {
@@ -84,11 +94,12 @@ for (const viewport of [DESKTOP, 'mobile']) {
     });
 
     test('read and star update immediately, roll back failures, and keep the newest read intent', async ({ page, fixtureApi }, testInfo) => {
-      page.__bulkReadDelays = { true: 300, false: 20 };
       await openList(page, fixtureApi, testInfo, [
         'conversation-gmail-copy-1', 'conversation-gmail-copy-3', 'conversation-gmail-copy-5',
       ]);
       page.__bulkReadActions = [];
+      page.__bulkReadStarts = [];
+      page.__starStarts = [];
       const row = page.locator('[data-msgid="conversation-gmail-copy-5"]:visible');
       const sender = row.locator('span').filter({ hasText: 'sender@gmail.test' }).first();
 
@@ -97,9 +108,10 @@ for (const viewport of [DESKTOP, 'mobile']) {
       await openContextMenu(page, row, testInfo);
       await chooseMenuItem(page, /oznacz jako przeczytan|mark as read/i);
       await expect.poll(() => sender.evaluate(element => getComputedStyle(element).fontWeight)).toBe('400');
-      expect(page.__bulkReadActions || []).toEqual([]);
+      await expect.poll(() => page.__threadLoadStarts.length).toBe(1);
       releaseRead();
-      await expect.poll(() => (page.__bulkReadActions || []).length).toBe(5);
+      await expect.poll(() => page.__bulkReadStarts.length).toBe(5);
+      await expect.poll(() => page.__bulkReadActions.length).toBe(5);
       expect(page.__bulkReadActions.map(action => action.ids)).toEqual([
         ['conversation-gmail-copy-1'], ['conversation-gmail-copy-2'], ['conversation-gmail-copy-3'],
         ['conversation-gmail-copy-4'], ['conversation-gmail-copy-5'],
@@ -119,8 +131,11 @@ for (const viewport of [DESKTOP, 'mobile']) {
 
       page.__starFailureIds = new Set(['conversation-gmail-copy-3']);
       page.__starActions = [];
+      const releaseStar = holdAction(page, '__starGates', 'true');
       await openContextMenu(page, row, testInfo);
       await chooseMenuItem(page, /gwiazd|star/i);
+      await expect.poll(() => page.__starStarts.length).toBe(5);
+      releaseStar();
       await expect.poll(() => page.__starActions.length).toBe(5);
       await expect(row.locator('[data-thread-row-star="true"]')).toHaveCount(0);
       expect(page.__starActions.filter(action => action.id === 'conversation-gmail-copy-3')).toHaveLength(1);
@@ -224,12 +239,12 @@ for (const viewport of [DESKTOP, 'mobile']) {
       test.setTimeout(30_000);
       await openList(page, fixtureApi, testInfo);
       const row = page.locator('[data-msgid="conversation-gmail-copy-5"]:visible');
+      page.__threadLoadStarts = [];
       const releaseDeleteThread = holdThreadResolution(page);
-      const deleteDeadline = await page.evaluate(() => performance.now() + 4_600);
       await openContextMenu(page, row, testInfo);
       await chooseMenuItem(page, /usuń|delete/i);
       await expect(row).toHaveCount(0);
-      await waitForUndoWindow(page, deleteDeadline);
+      await expect.poll(() => page.__threadLoadStarts.length).toBe(1);
       await page.getByRole('button', { name: /undo|cofnij/i }).last().click();
       releaseDeleteThread();
       await expect(row).toBeVisible();
@@ -238,8 +253,8 @@ for (const viewport of [DESKTOP, 'mobile']) {
       await page.reload({ waitUntil: 'domcontentloaded' });
       const moved = page.locator('[data-msgid="conversation-gmail-copy-5"]:visible');
       await expect(moved).toBeVisible();
+      page.__threadLoadStarts = [];
       const releaseMoveThread = holdThreadResolution(page);
-      const moveDeadline = await page.evaluate(() => performance.now() + 4_600);
       if (testInfo.project.name === DESKTOP) {
         await moved.hover();
         await moved.locator('button[aria-label*="Przenieś"], button[aria-label*="Move"]').first().click();
@@ -249,7 +264,7 @@ for (const viewport of [DESKTOP, 'mobile']) {
       }
       await chooseMenuItem(page, /archive|archiwum/i);
       await expect(moved).toHaveCount(0);
-      await waitForUndoWindow(page, moveDeadline);
+      await expect.poll(() => page.__threadLoadStarts.length).toBe(1);
       await page.getByRole('button', { name: /undo|cofnij/i }).last().click();
       releaseMoveThread();
       await expect(moved).toBeVisible();

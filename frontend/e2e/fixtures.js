@@ -228,6 +228,8 @@ export const test = base.extend({
     });
     await page.route('**/api/mail/thread/*', async route => {
       const threadId = new URL(route.request().url()).pathname.split('/').at(-1);
+      page.__threadLoadStarts = page.__threadLoadStarts || [];
+      page.__threadLoadStarts.push({ threadId, url: route.request().url() });
       const gate = page.__threadLoadGates?.shift() || page.__threadLoadGate;
       if (gate) await gate.promise;
       if (page.__nativeThreadLoadFails) return route.fulfill({ status: 503, json: { detail: 'Native thread unavailable' } });
@@ -252,7 +254,10 @@ export const test = base.extend({
       page.__bulkReadActions = page.__bulkReadActions || [];
       const body = route.request().postDataJSON();
       page.__bulkReadActions.push(body);
-      const gate = page.__bulkReadGates?.[String(body.read)];
+      page.__bulkReadStarts = page.__bulkReadStarts || [];
+      page.__bulkReadStarts.push(body);
+      const configured = page.__bulkReadGates?.[String(body.read)];
+      const gate = Array.isArray(configured) ? configured[0] : configured;
       if (gate) await gate.promise;
       if (page.__bulkReadFailure || (body.ids || []).some(id => page.__bulkReadFailureIds?.has(id))) {
         return route.fulfill({ status: 503, json: { error: 'Fixture bulk read failed' } });
@@ -264,7 +269,10 @@ export const test = base.extend({
       const id = url.pathname.split('/').at(-2);
       page.__starActions = page.__starActions || [];
       page.__starActions.push({ id, body: route.request().postDataJSON() });
-      const gate = page.__starGates?.[String(route.request().postDataJSON()?.starred)];
+      page.__starStarts = page.__starStarts || [];
+      page.__starStarts.push({ id, body: route.request().postDataJSON() });
+      const configured = page.__starGates?.[String(route.request().postDataJSON()?.starred)];
+      const gate = Array.isArray(configured) ? configured[0] : configured;
       if (gate) await gate.promise;
       if (page.__starFailureIds?.has(id)) {
         return route.fulfill({ status: 503, json: { error: 'Fixture star failed' } });
@@ -277,7 +285,10 @@ export const test = base.extend({
       const body = route.request().postDataJSON() || {};
       if (action === 'read') return route.fallback();
       page.__conversationActions.push({ action, url: route.request().url(), method: route.request().method(), body });
-      const gate = page.__conversationActionGates?.[action];
+      page.__conversationActionStarts = page.__conversationActionStarts || [];
+      page.__conversationActionStarts.push({ action, body });
+      const configured = page.__conversationActionGates?.[action];
+      const gate = Array.isArray(configured) ? configured[0] : configured;
       if (gate) await gate.promise;
       if (page.__conversationActionFailures?.has(action)) {
         return route.fulfill({ status: 503, json: { error: `Fixture ${action} failed` } });
