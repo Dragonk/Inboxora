@@ -182,13 +182,19 @@ export function scheduleCalendarSource(source) {
   timers.set(source.id, setInterval(() => runSync(source).catch(() => {}), source.interval_min * 60_000));
 }
 export async function stopCalendarSource(id) {
-  stopped.add(id);
   const timer = timers.get(id); if (timer) clearInterval(timer); timers.delete(id);
   const state = inFlight.get(id);
+  // Only real scheduled or active sources need a tombstone. In particular,
+  // DELETE of an unknown ID must not grow this process-global set forever.
+  if (!timer && !state) return;
+  stopped.add(id);
   if (!state) return;
   state.removed = true;
   state.controller.abort(new Error('Calendar source removed'));
   await state.promise;
+}
+export function releaseCalendarSource(id) {
+  stopped.delete(id);
 }
 export async function startExternalCalendarScheduler() {
   const result = await query('SELECT * FROM calendar_import_sources WHERE enabled = true');

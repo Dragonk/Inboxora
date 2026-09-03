@@ -144,6 +144,21 @@ describe('external calendar imports', () => {
     expect(query.mock.calls[1][1]).toEqual(['source-1', 'request failed for [redacted] ([redacted])']);
   });
 
+  it('does not retain a removal tombstone for a nonexistent source', async () => {
+    await stopCalendarSource('missing-source');
+    const replacement = { ...source, id: 'missing-source' };
+    query
+      .mockResolvedValueOnce({ rows: [replacement] })
+      .mockResolvedValueOnce({ rows: [] })
+      .mockResolvedValueOnce({ rows: [{ id: 'calendar-1' }] })
+      .mockResolvedValueOnce({ rows: [] })
+      .mockResolvedValueOnce({ rows: [] })
+      .mockResolvedValueOnce({ rows: [] });
+    safeFetch.mockResolvedValue({ ok: true, text: vi.fn().mockResolvedValue(ical) });
+
+    await expect(syncCalendarSource('user-1', replacement.id)).resolves.toEqual({ ok: true, eventCount: 1 });
+  });
+
   it('aborts an in-flight fetch when the source is stopped without persisting removal as an error', async () => {
     query.mockResolvedValueOnce({ rows: [source] }).mockResolvedValue({ rows: [] });
     safeFetch.mockImplementation((_url, { signal }) => new Promise((_resolve, reject) => {

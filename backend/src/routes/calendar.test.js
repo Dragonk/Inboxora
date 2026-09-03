@@ -1,9 +1,10 @@
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 
-const { query, withTransaction, sendCalendarInvitation, scheduleCalendarSource, stopCalendarSource, syncCalendarSource } = vi.hoisted(() => ({
+const { query, withTransaction, sendCalendarInvitation, releaseCalendarSource, scheduleCalendarSource, stopCalendarSource, syncCalendarSource } = vi.hoisted(() => ({
   query: vi.fn(),
   withTransaction: vi.fn(async (fn) => fn({ query })),
   sendCalendarInvitation: vi.fn(),
+  releaseCalendarSource: vi.fn(),
   scheduleCalendarSource: vi.fn(),
   stopCalendarSource: vi.fn(),
   syncCalendarSource: vi.fn(async () => ({ ok: true })),
@@ -14,7 +15,7 @@ vi.mock('../services/encryption.js', () => ({
   decrypt: (value) => value?.startsWith('enc:v1:') ? value.slice('enc:v1:'.length) : value,
 }));
 vi.mock('../services/calendarInvitation.js', () => ({ sendCalendarInvitation }));
-vi.mock('../services/externalCalendarSync.js', () => ({ scheduleCalendarSource, stopCalendarSource, syncCalendarSource }));
+vi.mock('../services/externalCalendarSync.js', () => ({ releaseCalendarSource, scheduleCalendarSource, stopCalendarSource, syncCalendarSource }));
 vi.mock('../middleware/auth.js', () => ({
   requireAuth: (req, _res, next) => { req.session = { userId: 'user-1' }; next(); },
 }));
@@ -147,6 +148,16 @@ describe('local calendar API', () => {
     expect(response.status).toBe(502);
     expect(await response.json()).toEqual({ error: 'network unavailable', source: expect.objectContaining({ id: 'source-1' }), sync: { ok: false, error: 'network unavailable' } });
     expect(scheduleCalendarSource).toHaveBeenCalled();
+  });
+
+  it('does not stop an unknown or unauthorized source', async () => {
+    query.mockResolvedValueOnce({ rows: [] });
+
+    const response = await fetch(`${base}/api/calendar/sources/missing-source`, { method: 'DELETE' });
+
+    expect(response.status).toBe(404);
+    expect(stopCalendarSource).not.toHaveBeenCalled();
+    expect(releaseCalendarSource).not.toHaveBeenCalled();
   });
 
   it('lists only calendars owned by the signed-in user', async () => {

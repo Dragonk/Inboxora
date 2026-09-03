@@ -5,7 +5,7 @@ import { requireAuth } from '../middleware/auth.js';
 import { decrypt, encrypt } from '../services/encryption.js';
 import { validateHost } from '../services/hostValidation.js';
 import { getConnectionPolicy } from '../services/connectionPolicy.js';
-import { scheduleCalendarSource, stopCalendarSource, syncCalendarSource } from '../services/externalCalendarSync.js';
+import { releaseCalendarSource, scheduleCalendarSource, stopCalendarSource, syncCalendarSource } from '../services/externalCalendarSync.js';
 import { sendCalendarInvitation } from '../services/calendarInvitation.js';
 
 const router = Router();
@@ -492,10 +492,16 @@ router.post('/sources/:sourceId/sync', async (req, res) => {
 });
 
 router.delete('/sources/:sourceId', async (req, res) => {
+  const existing = await query('SELECT id FROM calendar_import_sources WHERE id = $1 AND user_id = $2', [req.params.sourceId, req.session.userId]);
+  if (!existing.rows[0]) return res.status(404).json({ error: 'Calendar source not found' });
   await stopCalendarSource(req.params.sourceId);
   const result = await query('DELETE FROM calendar_import_sources WHERE id = $1 AND user_id = $2 RETURNING id', [req.params.sourceId, req.session.userId]);
-  if (!result.rows[0]) return res.status(404).json({ error: 'Calendar source not found' });
+  if (!result.rows[0]) {
+    releaseCalendarSource(req.params.sourceId);
+    return res.status(404).json({ error: 'Calendar source not found' });
+  }
   await query('DELETE FROM calendars WHERE user_id = $1 AND external_url = $2', [req.session.userId, `source:${req.params.sourceId}`]);
+  releaseCalendarSource(req.params.sourceId);
   res.status(204).end();
 });
 
