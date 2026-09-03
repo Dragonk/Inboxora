@@ -1519,7 +1519,7 @@ function LayoutsTab() {
   const { t } = useTranslation();
   const isMobile = useMobile();
   const { layout, setLayout, pageSize, setPageSize, scrollMode, setScrollMode, swipeActions, setSwipeAction, syncInterval, setSyncInterval, folderSyncInterval, setFolderSyncInterval, threadedView, setThreadedView, plaintextEmail, setPlaintextEmail, hoverQuickActions, setHoverQuickActions, showMobileAvatars, setShowMobileAvatars, gravatarAvatars, setGravatarAvatars, replyDefault, setReplyDefault, markReadBehavior, setMarkReadBehavior, markReadDelay, setMarkReadDelay, senderFavicons, senderFaviconsSaving, setSenderFavicons, showMessagePreviews, setShowMessagePreviews, conversationReaderViewEnabled, setConversationReaderViewEnabled } = useStore();
-  const { calendarWeekStartsOn, setCalendarWeekStartsOn, mobileNavigationPosition, setMobileNavigationPosition, calendarWorkDays, setCalendarWorkDays, calendarWorkHoursStart, setCalendarWorkHoursStart, calendarWorkHoursEnd, setCalendarWorkHoursEnd } = useStore();
+  const { calendarWeekStartsOn, setCalendarWeekStartsOn, mobileNavigationPosition, setMobileNavigationPosition, calendarWorkDays, setCalendarWorkDays, calendarWorkHoursStart, setCalendarWorkHoursStart, calendarWorkHoursEnd, setCalendarWorkHoursEnd, calendarWorkHoursError } = useStore();
   const [senderFaviconsError, setSenderFaviconsError] = useState('');
 
   // "Set Inboxora as your default email app": registerProtocolHandler is the
@@ -1680,12 +1680,13 @@ function LayoutsTab() {
           </div>
           <label style={{ display: 'grid', gap: 6, fontSize: 12, color: 'var(--text-secondary)' }}>
             {t('calendar.workHoursStart', 'Working hours start')}
-            <input data-testid="calendar-work-hours-start" type="time" value={calendarWorkHoursStart} onChange={event => setCalendarWorkHoursStart(event.target.value)} style={inputStyle} />
+            <input data-testid="calendar-work-hours-start" type="time" value={calendarWorkHoursStart} onChange={event => setCalendarWorkHoursStart(event.target.value)} aria-describedby={calendarWorkHoursError ? 'calendar-work-hours-error' : undefined} style={inputStyle} />
           </label>
           <label style={{ display: 'grid', gap: 6, fontSize: 12, color: 'var(--text-secondary)' }}>
             {t('calendar.workHoursEnd', 'Working hours end')}
-            <input data-testid="calendar-work-hours-end" type="time" value={calendarWorkHoursEnd} onChange={event => setCalendarWorkHoursEnd(event.target.value)} style={inputStyle} />
+            <input data-testid="calendar-work-hours-end" type="time" value={calendarWorkHoursEnd} onChange={event => setCalendarWorkHoursEnd(event.target.value)} aria-describedby={calendarWorkHoursError ? 'calendar-work-hours-error' : undefined} style={inputStyle} />
           </label>
+          {calendarWorkHoursError && <div id="calendar-work-hours-error" role="alert" style={{ gridColumn: '1 / -1', fontSize: 12, color: 'var(--red)' }}>{calendarWorkHoursError}</div>}
         </div>
       </div>
 

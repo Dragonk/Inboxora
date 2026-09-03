@@ -28,6 +28,8 @@ import i18n from '../i18n.js';
 // Accumulate rapid preference changes and flush at most once per second.
 let _prefFlushTimer = null;
 let _pendingPrefs = {};
+let _calendarWorkHoursFlushTimer = null;
+let _calendarWorkHoursSaveChain = Promise.resolve();
 function schedulePrefSave(prefs) {
   Object.assign(_pendingPrefs, prefs);
   clearTimeout(_prefFlushTimer);
@@ -35,6 +37,32 @@ function schedulePrefSave(prefs) {
     const toSave = _pendingPrefs;
     _pendingPrefs = {};
     api.savePreferences(toSave).catch(() => {});
+  }, 1000);
+}
+function calendarWorkTimeMinutes(value) {
+  const [hours, minutes] = value.split(':').map(Number);
+  return hours * 60 + minutes;
+}
+function isValidCalendarWorkRange(start, end) {
+  return calendarWorkTimeMinutes(start) < calendarWorkTimeMinutes(end);
+}
+function scheduleCalendarWorkHoursSave(prefs, next) {
+  clearTimeout(_calendarWorkHoursFlushTimer);
+  _calendarWorkHoursFlushTimer = setTimeout(() => {
+    const userId = useStore.getState().user?.id;
+    const save = _calendarWorkHoursSaveChain.then(() => api.savePreferences(prefs));
+    _calendarWorkHoursSaveChain = save.catch(() => {});
+    save
+      .then(() => useStore.setState(state => state.user?.id === userId ? { calendarWorkHoursPersisted: next } : {}))
+      .catch(() => useStore.setState(state => {
+        if (state.user?.id !== userId) return {};
+        if (state.calendarWorkHoursStart !== next.start || state.calendarWorkHoursEnd !== next.end) return {};
+        return {
+          calendarWorkHoursStart: state.calendarWorkHoursPersisted.start,
+          calendarWorkHoursEnd: state.calendarWorkHoursPersisted.end,
+          calendarWorkHoursError: 'Working hours could not be saved. The previous range was restored.',
+        };
+      }));
   }, 1000);
 }
 // Drop any queued preference flush. Called on logout / account switch: a pending debounce
@@ -45,6 +73,8 @@ function cancelPendingPrefSave() {
   clearTimeout(_prefFlushTimer);
   _prefFlushTimer = null;
   _pendingPrefs = {};
+  clearTimeout(_calendarWorkHoursFlushTimer);
+  _calendarWorkHoursFlushTimer = null;
 }
 
 // GTD sections fetch coordination. A monotonic seq guards against stale
@@ -507,16 +537,35 @@ export const useStore = create((set, get) => ({
     schedulePrefSave({ calendarWorkDays: value });
   },
   calendarWorkHoursStart: DEFAULT_CALENDAR_PREFERENCES.calendarWorkHoursStart,
+  calendarWorkHoursPersisted: {
+    start: DEFAULT_CALENDAR_PREFERENCES.calendarWorkHoursStart,
+    end: DEFAULT_CALENDAR_PREFERENCES.calendarWorkHoursEnd,
+  },
+  calendarWorkHoursError: '',
   setCalendarWorkHoursStart: (value) => {
-    const next = normalizeCalendarWorkTime(value, DEFAULT_CALENDAR_PREFERENCES.calendarWorkHoursStart);
-    set({ calendarWorkHoursStart: next });
-    schedulePrefSave({ calendarWorkHoursStart: next });
+    const start = normalizeCalendarWorkTime(value, DEFAULT_CALENDAR_PREFERENCES.calendarWorkHoursStart);
+    const current = get();
+    const legacyRange = !isValidCalendarWorkRange(current.calendarWorkHoursStart, current.calendarWorkHoursEnd);
+    const next = { start, end: legacyRange ? DEFAULT_CALENDAR_PREFERENCES.calendarWorkHoursEnd : current.calendarWorkHoursEnd };
+    if (!isValidCalendarWorkRange(next.start, next.end)) {
+      set({ calendarWorkHoursError: 'Working hours must end after they start.' });
+      return;
+    }
+    set({ calendarWorkHoursStart: next.start, calendarWorkHoursEnd: next.end, calendarWorkHoursError: '' });
+    scheduleCalendarWorkHoursSave(legacyRange ? { calendarWorkHoursStart: next.start } : { calendarWorkHoursStart: next.start, calendarWorkHoursEnd: next.end }, next);
   },
   calendarWorkHoursEnd: DEFAULT_CALENDAR_PREFERENCES.calendarWorkHoursEnd,
   setCalendarWorkHoursEnd: (value) => {
-    const next = normalizeCalendarWorkTime(value, DEFAULT_CALENDAR_PREFERENCES.calendarWorkHoursEnd);
-    set({ calendarWorkHoursEnd: next });
-    schedulePrefSave({ calendarWorkHoursEnd: next });
+    const end = normalizeCalendarWorkTime(value, DEFAULT_CALENDAR_PREFERENCES.calendarWorkHoursEnd);
+    const current = get();
+    const legacyRange = !isValidCalendarWorkRange(current.calendarWorkHoursStart, current.calendarWorkHoursEnd);
+    const next = { start: legacyRange ? DEFAULT_CALENDAR_PREFERENCES.calendarWorkHoursStart : current.calendarWorkHoursStart, end };
+    if (!isValidCalendarWorkRange(next.start, next.end)) {
+      set({ calendarWorkHoursError: 'Working hours must end after they start.' });
+      return;
+    }
+    set({ calendarWorkHoursStart: next.start, calendarWorkHoursEnd: next.end, calendarWorkHoursError: '' });
+    scheduleCalendarWorkHoursSave(legacyRange ? { calendarWorkHoursEnd: next.end } : { calendarWorkHoursStart: next.start, calendarWorkHoursEnd: next.end }, next);
   },
   rulesPreFill: null, // { fromEmail, fromName, subject } — transient, set by context menu
   setRulesPreFill: (v) => set({ rulesPreFill: v }),
@@ -1120,8 +1169,20 @@ export const useStore = create((set, get) => ({
         set({ mobileNavigationPosition: prefs.mobileNavigationPosition });
       }
       if (Array.isArray(prefs.calendarWorkDays)) set({ calendarWorkDays: normalizeCalendarWorkDays(prefs.calendarWorkDays) });
-      if (prefs.calendarWorkHoursStart) set({ calendarWorkHoursStart: normalizeCalendarWorkTime(prefs.calendarWorkHoursStart) });
-      if (prefs.calendarWorkHoursEnd) set({ calendarWorkHoursEnd: normalizeCalendarWorkTime(prefs.calendarWorkHoursEnd, DEFAULT_CALENDAR_PREFERENCES.calendarWorkHoursEnd) });
+      if (prefs.calendarWorkHoursStart || prefs.calendarWorkHoursEnd) {
+        const calendarWorkHoursStart = prefs.calendarWorkHoursStart
+          ? normalizeCalendarWorkTime(prefs.calendarWorkHoursStart)
+          : get().calendarWorkHoursStart;
+        const calendarWorkHoursEnd = prefs.calendarWorkHoursEnd
+          ? normalizeCalendarWorkTime(prefs.calendarWorkHoursEnd, DEFAULT_CALENDAR_PREFERENCES.calendarWorkHoursEnd)
+          : get().calendarWorkHoursEnd;
+        set({
+          calendarWorkHoursStart,
+          calendarWorkHoursEnd,
+          calendarWorkHoursPersisted: { start: calendarWorkHoursStart, end: calendarWorkHoursEnd },
+          calendarWorkHoursError: '',
+        });
+      }
       if (typeof prefs.threadedView === 'boolean') {
         localStorage.setItem('mailflow_threaded_view', String(prefs.threadedView));
         set({ threadedView: prefs.threadedView });
