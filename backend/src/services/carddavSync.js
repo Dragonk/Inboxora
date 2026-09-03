@@ -68,7 +68,7 @@ function contactFromVCard(vcard, href) {
     firstName: c.firstName, lastName: c.lastName,
     primaryEmail: primaryEmail ? primaryEmail.toLowerCase().trim() : null,
     emails: c.emails, phones: c.phones,
-    organization: c.organization, notes: c.notes, birthday: c.birthday, anniversary: c.anniversary, photoData: c.photoData,
+    organization: c.organization, notes: c.notes, birthday: c.birthday, anniversary: c.anniversary, contactDates: c.contactDates, photoData: c.photoData,
     title: c.title, role: c.role, nickname: c.nickname, urls: c.urls,
     instantMessages: c.instantMessages, categories: c.categories, addresses: c.addresses,
     invalidDateLabels: c.invalidDateLabels,
@@ -82,9 +82,9 @@ async function upsertCardavContact(bookId, userId, c) {
     INSERT INTO contacts (
       address_book_id, user_id, uid, vcard, etag,
       display_name, first_name, last_name, primary_email,
-      emails, phones, organization, notes, birthday, anniversary, photo_data,
+      emails, phones, organization, notes, birthday, anniversary, contact_dates, photo_data,
       title, role, nickname, urls, instant_messages, categories, addresses, is_auto
-    ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10::jsonb,$11::jsonb,$12,$13,$14,$15,$16,$17,$18,$19,$20::jsonb,$21::jsonb,$22::jsonb,$23::jsonb,false)
+    ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10::jsonb,$11::jsonb,$12,$13,$14,$15,$16::jsonb,$17,$18,$19,$20,$21::jsonb,$22::jsonb,$23::jsonb,$24::jsonb,false)
     ON CONFLICT (address_book_id, uid) DO UPDATE SET
       vcard = EXCLUDED.vcard, etag = EXCLUDED.etag,
       display_name = EXCLUDED.display_name, first_name = EXCLUDED.first_name,
@@ -92,6 +92,7 @@ async function upsertCardavContact(bookId, userId, c) {
       emails = EXCLUDED.emails, phones = EXCLUDED.phones,
       organization = EXCLUDED.organization, notes = EXCLUDED.notes,
       birthday = EXCLUDED.birthday, anniversary = EXCLUDED.anniversary,
+      contact_dates = EXCLUDED.contact_dates,
       title = EXCLUDED.title, role = EXCLUDED.role, nickname = EXCLUDED.nickname,
       urls = EXCLUDED.urls, instant_messages = EXCLUDED.instant_messages,
       categories = EXCLUDED.categories, addresses = EXCLUDED.addresses,
@@ -100,7 +101,7 @@ async function upsertCardavContact(bookId, userId, c) {
     bookId, userId, c.uid, c.vcard, etag,
     c.displayName, c.firstName, c.lastName, c.primaryEmail,
     JSON.stringify(c.emails), JSON.stringify(c.phones),
-    c.organization, c.notes, c.birthday, c.anniversary, c.photoData,
+    c.organization, c.notes, c.birthday, c.anniversary, JSON.stringify(c.contactDates), c.photoData,
     c.title, c.role, c.nickname, JSON.stringify(c.urls), JSON.stringify(c.instantMessages), JSON.stringify(c.categories), JSON.stringify(c.addresses),
   ]);
 }
