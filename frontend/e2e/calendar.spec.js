@@ -381,6 +381,44 @@ test('week and work-week time-grid events expose menus for timed and all-day eve
   await page.screenshot({ path: testInfo.outputPath('calendar-time-grid-menus.png'), fullPage: true });
 });
 
+test('mobile week and work-week timed events expose writable and read-only actions', async ({ page, fixtureApi }, testInfo) => {
+  test.skip(!['chromium-mobile-390', 'chromium-mobile'].includes(testInfo.project.name), 'mobile timed-event actions');
+  await fixtureApi;
+  await page.route('**/api/calendar/events**', route => {
+    const from = new Date(new URL(route.request().url()).searchParams.get('from'));
+    const day = new Date(from); day.setDate(day.getDate() + 2);
+    const date = day.toISOString().slice(0, 10);
+    return route.fulfill({ json: { events: [
+      { id: 'mobile-timed-local', calendar_id: 'calendar-personal', summary: 'Mobile timed local', starts_at: `${date}T10:00:00.000Z`, ends_at: `${date}T11:00:00.000Z`, source: 'local', read_only: false },
+      { id: 'mobile-timed-remote', calendar_id: 'calendar-personal', summary: 'Mobile timed remote', starts_at: `${date}T12:00:00.000Z`, ends_at: `${date}T13:00:00.000Z`, source: 'ical', read_only: true },
+    ] } });
+  });
+  await page.goto('/');
+  await page.getByTestId('mobile-primary-nav').getByRole('button', { name: 'Kalendarz' }).click();
+  const grid = page.getByTestId('calendar-grid');
+  for (const view of ['week', 'workweek']) {
+    await page.getByTestId(`calendar-view-${view}`).click();
+    const local = grid.getByRole('button', { name: /Mobile timed local/ });
+    const remote = grid.getByRole('button', { name: /Mobile timed remote/ });
+    const localActions = local.locator('..').getByTestId('calendar-event-actions');
+    const remoteActions = remote.locator('..').getByTestId('calendar-event-actions');
+    await expect(localActions).toBeVisible();
+    await expect(remoteActions).toBeVisible();
+    expect((await localActions.boundingBox()).width).toBeGreaterThanOrEqual(44);
+    expect((await localActions.boundingBox()).height).toBeGreaterThanOrEqual(44);
+    expect((await remoteActions.boundingBox()).width).toBeGreaterThanOrEqual(44);
+    expect((await remoteActions.boundingBox()).height).toBeGreaterThanOrEqual(44);
+    await localActions.click();
+    const menu = page.getByTestId('calendar-context-menu');
+    await expect(menu.getByRole('menuitem')).toHaveCount(2);
+    await page.keyboard.press('Escape');
+    await remoteActions.click();
+    await expect(page.getByTestId('calendar-context-read-only')).toBeVisible();
+    await expect(menu.getByRole('menuitem')).toHaveCount(0);
+    await page.keyboard.press('Escape');
+  }
+});
+
 test('mobile contacts fill the viewport and keep their FAB anchored above navigation', async ({ page, fixtureApi }) => {
   await fixtureApi;
   await page.route('**/api/contacts**', route => {
