@@ -94,6 +94,6 @@ test('mobile week timeline keeps hourly geometry inside the calendar surface', a
   await expect(grid.getByTestId('calendar-work-hours-boundary')).toHaveCount(7);
   const event = grid.getByRole('button', { name: /Mobile timed/ });
   await expect(event).toBeVisible();
-  await expect(event).toHaveCSS('position', 'absolute');
+  await expect(event.locator('..')).toHaveCSS('position', 'absolute');
   await page.screenshot({ path: 'artifacts/calendar-week-time-grid-mobile.png', fullPage: true });
 });
