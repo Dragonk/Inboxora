@@ -332,7 +332,7 @@ test('Contacts destructive controls expose responsive danger states', async ({ p
   expect(focusState.width).toBeGreaterThanOrEqual(2);
   await deleteButton.click();
 
-  const confirmButton = page.locator('.contacts-danger-btn').nth(1);
+  const confirmButton = page.getByTestId('contacts-delete-confirmation').locator('.contacts-danger-btn');
   await expect(confirmButton).toBeEnabled();
   await confirmButton.click();
   await expect(confirmButton).toBeDisabled();

@@ -731,7 +731,7 @@ function ContactDetail({ contact: c, confirmDelete, saving, error, onEdit, onDel
       {error && <ErrorBanner msg={error} />}
 
       {confirmDelete && (
-        <div style={{
+        <div data-testid="contacts-delete-confirmation" style={{
           padding: '14px 16px', borderRadius: 10,
           background: 'var(--red-dim, rgba(248,113,113,0.1))',
           border: '1px solid var(--red-border, rgba(248,113,113,0.3))',

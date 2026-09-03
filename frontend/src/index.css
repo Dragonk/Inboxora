@@ -123,9 +123,9 @@ body, #root {
 }
 
 .contacts-danger-btn:disabled {
-  background: var(--contacts-danger-disabled-bg, var(--bg-tertiary)) !important;
-  border-color: var(--contacts-danger-disabled-border, var(--border)) !important;
-  color: var(--contacts-danger-disabled-text, var(--text-tertiary)) !important;
+  background: var(--contacts-danger-disabled-bg, rgba(148, 163, 184, 0.16)) !important;
+  border-color: var(--contacts-danger-disabled-border, rgba(148, 163, 184, 0.4)) !important;
+  color: var(--contacts-danger-disabled-text, #94a3b8) !important;
 }
 
 /* Selection */
