@@ -3,6 +3,7 @@ CREATE TABLE IF NOT EXISTS calendar_invitation_outbox (
   user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
   event_id UUID NOT NULL REFERENCES calendar_events(id) ON DELETE CASCADE,
   idempotency_key TEXT NOT NULL,
+  request_fingerprint TEXT NOT NULL,
   payload JSONB NOT NULL,
   status TEXT NOT NULL DEFAULT 'sending' CHECK (status IN ('sending', 'sent')),
   attempts INTEGER NOT NULL DEFAULT 0 CHECK (attempts >= 0),

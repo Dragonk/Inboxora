@@ -515,4 +515,43 @@ describe('local calendar API', () => {
     expect(sendCalendarInvitation).not.toHaveBeenCalled();
   });
 
+  it('cancels removed attendees once and returns the same result for a duplicate idempotent update', async () => {
+    const sender = { id: 'account-1', email_address: 'owner@example.test', smtp_host: 'smtp.example.test', enabled: true };
+    const existing = { uid: 'uid-1', attendees: ['kept@example.test', 'removed@example.test'], invite_account_id: 'account-1', invitation_sequence: 2, summary: 'Planning', starts_at: '2026-09-01T09:00:00.000Z', ends_at: '2026-09-01T10:00:00.000Z', all_day: false };
+    const event = { id: 'event-1', calendar_id: 'calendar-1', uid: 'uid-1', attendees: ['kept@example.test'], invite_account_id: 'account-1', invitation_sequence: 3 };
+    let outbox;
+    query.mockImplementation(async (sql, params) => {
+      if (sql.includes('FROM calendars')) return { rows: [{ id: 'calendar-1', source: 'local', read_only: false }] };
+      if (sql.includes('FROM email_accounts')) return { rows: [sender] };
+      if (sql.includes('FROM calendar_invitation_outbox')) return { rows: outbox ? [outbox] : [] };
+      if (sql.includes('FROM calendar_events') && sql.includes('FOR UPDATE')) return { rows: [existing] };
+      if (sql.includes('FROM calendar_events')) return { rows: [event] };
+      if (sql.includes('UPDATE calendar_events')) return { rows: [event] };
+      if (sql.includes('INSERT INTO calendar_invitation_outbox')) { outbox = { id: 'outbox-1', event_id: 'event-1', request_fingerprint: params[3] }; return { rows: [{ id: 'outbox-1' }] }; }
+      if (sql.includes('UPDATE calendar_invitation_outbox')) return { rows: [] };
+      return { rows: [] };
+    });
+    const body = { calendarId: 'calendar-1', summary: 'Planning', sendInvites: true, inviteAccountId: 'account-1', attendees: ['kept@example.test'], startsAt: '2026-09-01T11:00:00.000Z', endsAt: '2026-09-01T12:00:00.000Z' };
+    const first = await fetch(`${base}/api/calendar/events/event-1`, { method: 'PATCH', headers: { 'content-type': 'application/json', 'X-Idempotency-Key': 'patch-1' }, body: JSON.stringify(body) });
+    const second = await fetch(`${base}/api/calendar/events/event-1`, { method: 'PATCH', headers: { 'content-type': 'application/json', 'X-Idempotency-Key': 'patch-1' }, body: JSON.stringify(body) });
+
+    expect(first.status).toBe(200);
+    expect(second.status).toBe(200);
+    expect(sendCalendarInvitation).toHaveBeenCalledTimes(2);
+    expect(sendCalendarInvitation).toHaveBeenNthCalledWith(1, expect.objectContaining({ method: 'CANCEL', account: sender, attendees: ['removed@example.test'], sequence: 3 }));
+    expect(sendCalendarInvitation).toHaveBeenNthCalledWith(2, expect.objectContaining({ method: 'REQUEST', account: sender, attendees: ['kept@example.test'], sequence: 3 }));
+    expect(query.mock.calls.filter(([sql]) => sql.includes('UPDATE calendar_events')).length).toBe(1);
+  });
+
+  it('rejects reuse of an idempotency key for a different update target', async () => {
+    const sender = { id: 'account-1', smtp_host: 'smtp.example.test', enabled: true };
+    query
+      .mockResolvedValueOnce({ rows: [{ id: 'calendar-1', source: 'local', read_only: false }] })
+      .mockResolvedValueOnce({ rows: [sender] })
+      .mockResolvedValueOnce({ rows: [{ id: 'outbox-1', event_id: 'event-other', request_fingerprint: 'different' }] });
+    const response = await fetch(`${base}/api/calendar/events/event-1`, { method: 'PATCH', headers: { 'content-type': 'application/json', 'X-Idempotency-Key': 'same-key' }, body: JSON.stringify({ calendarId: 'calendar-1', sendInvites: true, inviteAccountId: 'account-1', attendees: ['guest@example.test'], startsAt: '2026-09-01T11:00:00.000Z', endsAt: '2026-09-01T12:00:00.000Z' }) });
+    expect(response.status).toBe(409);
+    expect(sendCalendarInvitation).not.toHaveBeenCalled();
+  });
+
 });

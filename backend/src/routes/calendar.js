@@ -97,9 +97,20 @@ function invitationOperationKey(req) {
   return crypto.createHash('sha256').update(JSON.stringify(req.body || {})).digest('hex');
 }
 
-async function deliverInvitationOutbox(outboxId, account, invitation) {
+function invitationRequestFingerprint(req, fields) {
+  const { calendarId, normalizedAttendees, times, summary, description, location, url, organizer, allDay, timezone, invitationAccount } = fields;
+  return crypto.createHash('sha256').update(JSON.stringify({
+    eventId: req.params.eventId || null, calendarId, summary: summary || null, description, location, url, organizer,
+    allDay: Boolean(allDay), timezone, attendees: normalizedAttendees, inviteAccountId: invitationAccount?.id || null,
+    startsAt: times.startsAt.toISOString(), endsAt: times.endsAt.toISOString(),
+  })).digest('hex');
+}
+
+async function deliverInvitationOutbox(outboxId, actions) {
   try {
-    await sendCalendarInvitation({ account, ...invitation });
+    for (const { account, ...invitation } of actions) {
+      await sendCalendarInvitation({ account, ...invitation, startsAt: new Date(invitation.startsAt), endsAt: new Date(invitation.endsAt) });
+    }
     await query("UPDATE calendar_invitation_outbox SET status = 'sent', attempts = attempts + 1, delivered_at = NOW(), last_error = NULL WHERE id = $1 AND status = 'sending'", [outboxId]);
     return null;
   } catch (error) {
@@ -112,19 +123,37 @@ async function deliverInvitationOutbox(outboxId, account, invitation) {
 async function updateInvitedEvent(req, fields) {
   const { calendarId, invitationAccount, normalizedAttendees, times, summary, description, location, url, organizer, allDay, timezone } = fields;
   const key = invitationOperationKey(req);
+  const fingerprint = invitationRequestFingerprint(req, fields);
   return withTransaction(async client => {
-    const prior = await client.query('SELECT id, event_id FROM calendar_invitation_outbox WHERE user_id = $1 AND idempotency_key = $2 FOR UPDATE', [req.session.userId, key]);
+    const prior = await client.query('SELECT id, event_id, request_fingerprint FROM calendar_invitation_outbox WHERE user_id = $1 AND idempotency_key = $2 FOR UPDATE', [req.session.userId, key]);
     if (prior.rows[0]) {
-      const event = (await client.query('SELECT id, calendar_id, uid, etag, summary, description, location, url, organizer, starts_at, ends_at, all_day, timezone, attendees, invite_account_id, invitation_sequence, created_at, updated_at FROM calendar_events WHERE id = $1', [prior.rows[0].event_id])).rows[0];
+      if (prior.rows[0].request_fingerprint !== fingerprint) return { conflict: true };
+      const event = (await client.query('SELECT id, calendar_id, uid, etag, summary, description, location, url, organizer, starts_at, ends_at, all_day, timezone, attendees, invite_account_id, invitation_sequence, created_at, updated_at FROM calendar_events WHERE id = $1 AND calendar_id = $2 AND user_id = $3', [prior.rows[0].event_id, calendarId, req.session.userId])).rows[0];
+      if (!event || event.id !== req.params.eventId) return { conflict: true };
       return { event, duplicate: true };
     }
-    const existing = (await client.query('SELECT uid FROM calendar_events WHERE id = $1 AND calendar_id = $2 AND user_id = $3 FOR UPDATE', [req.params.eventId, calendarId, req.session.userId])).rows[0];
+    const existing = (await client.query('SELECT uid, attendees, invite_account_id, invitation_sequence, summary, description, location, starts_at, ends_at, all_day FROM calendar_events WHERE id = $1 AND calendar_id = $2 AND user_id = $3 FOR UPDATE', [req.params.eventId, calendarId, req.session.userId])).rows[0];
     if (!existing) return { notFound: true };
+    const hadInvitation = Boolean(existing.invite_account_id && Array.isArray(existing.attendees) && existing.attendees.length);
+    const senderChanged = hadInvitation && invitationAccount.id !== existing.invite_account_id;
+    const cancelledAttendees = hadInvitation
+      ? (senderChanged ? existing.attendees : existing.attendees.filter(email => !normalizedAttendees.includes(email)))
+      : [];
+    let cancellationAccount = null;
+    if (cancelledAttendees.length) {
+      cancellationAccount = invitationAccount.id === existing.invite_account_id
+        ? invitationAccount
+        : (await client.query('SELECT * FROM email_accounts WHERE id = $1 AND user_id = $2 AND smtp_host IS NOT NULL', [existing.invite_account_id, req.session.userId])).rows[0] || null;
+      if (!cancellationAccount) return { cancelFailed: true };
+    }
     const rawIcal = localEventIcal({ uid: existing.uid, summary, description, location, url, organizer, allDay: Boolean(allDay), ...times });
     const result = await client.query(`UPDATE calendar_events SET raw_ical = $1, summary = $2, description = $3, location = $4, url = $5, organizer = $6, starts_at = $7, ends_at = $8, all_day = $9, timezone = $10, attendees = $11, invite_account_id = $12, invitation_sequence = CASE WHEN (invite_account_id IS NOT NULL AND jsonb_array_length(attendees) > 0) OR invitation_sequence > 0 THEN invitation_sequence + 1 ELSE 0 END, etag = gen_random_uuid()::text, updated_at = NOW() WHERE id = $13 AND calendar_id = $14 AND user_id = $15 RETURNING id, calendar_id, uid, etag, summary, description, location, url, organizer, starts_at, ends_at, all_day, timezone, attendees, invite_account_id, invitation_sequence, created_at, updated_at`, [rawIcal, summary || null, description, location, url, organizer, times.startsAt, times.endsAt, Boolean(allDay), timezone, normalizedAttendees, invitationAccount.id, req.params.eventId, calendarId, req.session.userId]);
     const event = result.rows[0];
-    const outbox = await client.query('INSERT INTO calendar_invitation_outbox (user_id, event_id, idempotency_key, payload) VALUES ($1,$2,$3,$4::jsonb) RETURNING id', [req.session.userId, event.id, key, JSON.stringify({ attendees: normalizedAttendees, summary, description, location, uid: event.uid, allDay: Boolean(allDay), method: 'REQUEST', sequence: event.invitation_sequence, startsAt: times.startsAt.toISOString(), endsAt: times.endsAt.toISOString() })]);
-    return { event, outboxId: outbox.rows[0].id };
+    const actions = [];
+    if (cancelledAttendees.length) actions.push({ account: cancellationAccount, attendees: cancelledAttendees, summary: existing.summary, description: existing.description, location: existing.location, uid: existing.uid, allDay: Boolean(existing.all_day), method: 'CANCEL', sequence: Number(existing.invitation_sequence || 0) + 1, startsAt: new Date(existing.starts_at).toISOString(), endsAt: new Date(existing.ends_at).toISOString() });
+    actions.push({ account: invitationAccount, attendees: normalizedAttendees, summary, description, location, uid: event.uid, allDay: Boolean(allDay), method: 'REQUEST', sequence: event.invitation_sequence, startsAt: times.startsAt.toISOString(), endsAt: times.endsAt.toISOString() });
+    const outbox = await client.query('INSERT INTO calendar_invitation_outbox (user_id, event_id, idempotency_key, request_fingerprint, payload) VALUES ($1,$2,$3,$4,$5::jsonb) RETURNING id', [req.session.userId, event.id, key, fingerprint, JSON.stringify({ actions: actions.map(action => Object.fromEntries(Object.entries(action).filter(([name]) => name !== 'account'))) })]);
+    return { event, outboxId: outbox.rows[0].id, actions };
   });
 }
 
@@ -204,11 +233,13 @@ router.post('/events', async (req, res) => {
 
   if (sendInvites && typeof req.headers['x-idempotency-key'] === 'string' && req.headers['x-idempotency-key'].trim()) {
     const idempotencyKey = invitationOperationKey(req);
+    const fingerprint = invitationRequestFingerprint(req, { calendarId, normalizedAttendees, times, summary, description, location, url, organizer, allDay, timezone, invitationAccount });
     let outcome;
     try {
       outcome = await withTransaction(async client => {
-      const prior = await client.query('SELECT id FROM calendar_invitation_outbox WHERE user_id = $1 AND idempotency_key = $2 FOR UPDATE', [req.session.userId, idempotencyKey]);
+      const prior = await client.query('SELECT id, request_fingerprint FROM calendar_invitation_outbox WHERE user_id = $1 AND idempotency_key = $2 FOR UPDATE', [req.session.userId, idempotencyKey]);
       if (prior.rows[0]) {
+        if (prior.rows[0].request_fingerprint !== fingerprint) return { conflict: true };
         const event = (await client.query('SELECT id, calendar_id, uid, etag, summary, description, location, url, organizer, starts_at, ends_at, all_day, timezone, attendees, invite_account_id, invitation_sequence, created_at, updated_at FROM calendar_events WHERE id = (SELECT event_id FROM calendar_invitation_outbox WHERE id = $1)', [prior.rows[0].id])).rows[0];
         return { event, duplicate: true };
       }
@@ -222,8 +253,8 @@ router.post('/events', async (req, res) => {
       );
       const event = result.rows[0];
       const outbox = await client.query(
-        `INSERT INTO calendar_invitation_outbox (user_id, event_id, idempotency_key, payload) VALUES ($1,$2,$3,$4::jsonb) RETURNING id`,
-        [req.session.userId, event.id, idempotencyKey, JSON.stringify({ attendees: normalizedAttendees, summary, description, location, uid, allDay: Boolean(allDay), method: 'REQUEST', sequence: event.invitation_sequence ?? 0, startsAt: times.startsAt.toISOString(), endsAt: times.endsAt.toISOString() })],
+        `INSERT INTO calendar_invitation_outbox (user_id, event_id, idempotency_key, request_fingerprint, payload) VALUES ($1,$2,$3,$4,$5::jsonb) RETURNING id`,
+        [req.session.userId, event.id, idempotencyKey, invitationRequestFingerprint(req, { calendarId, normalizedAttendees, times, summary, description, location, url, organizer, allDay, timezone, invitationAccount }), JSON.stringify({ actions: [{ attendees: normalizedAttendees, summary, description, location, uid, allDay: Boolean(allDay), method: 'REQUEST', sequence: event.invitation_sequence ?? 0, startsAt: times.startsAt.toISOString(), endsAt: times.endsAt.toISOString() }] })],
       );
         return { event, outboxId: outbox.rows[0].id };
       });
@@ -231,8 +262,9 @@ router.post('/events', async (req, res) => {
       console.error('Calendar invitation transaction failed:', error.message);
       return res.status(500).json({ error: 'The event and invitation could not be saved; no partial changes were kept.' });
     }
+    if (outcome.conflict) return res.status(409).json({ error: 'The idempotency key was already used for a different calendar operation' });
     if (outcome.duplicate) return res.status(201).json({ event: outcome.event });
-    const invitationError = await deliverInvitationOutbox(outcome.outboxId, invitationAccount, { attendees: normalizedAttendees, summary, description, location, uid: outcome.event.uid, allDay: Boolean(allDay), method: 'REQUEST', sequence: outcome.event.invitation_sequence ?? 0, ...times });
+    const invitationError = await deliverInvitationOutbox(outcome.outboxId, [{ account: invitationAccount, attendees: normalizedAttendees, summary, description, location, uid: outcome.event.uid, allDay: Boolean(allDay), method: 'REQUEST', sequence: outcome.event.invitation_sequence ?? 0, startsAt: times.startsAt.toISOString(), endsAt: times.endsAt.toISOString() }]);
     return res.status(201).json({ event: outcome.event, ...(invitationError ? { invitationError } : {}) });
   }
 
@@ -287,8 +319,9 @@ router.patch('/events/:eventId', async (req, res) => {
       return res.status(500).json({ error: 'The event and invitation could not be saved; no partial changes were kept.' });
     }
     if (outcome.notFound) return res.status(404).json({ error: 'Event not found' });
+    if (outcome.conflict) return res.status(409).json({ error: 'The idempotency key was already used for a different calendar update' });
     if (outcome.duplicate) return res.json({ event: outcome.event });
-    const invitationError = await deliverInvitationOutbox(outcome.outboxId, invitationAccount, { attendees: normalizedAttendees, summary, description, location, uid: outcome.event.uid, allDay: Boolean(allDay), method: 'REQUEST', sequence: outcome.event.invitation_sequence, ...times });
+    const invitationError = await deliverInvitationOutbox(outcome.outboxId, outcome.actions);
     return res.json({ event: outcome.event, ...(invitationError ? { invitationError } : {}) });
   }
 
