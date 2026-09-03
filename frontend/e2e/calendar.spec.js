@@ -179,7 +179,7 @@ test('work-week entry re-anchors time-grid scrolling while same-view navigation 
   await page.getByTestId('calendar-view-workweek').click();
   await expect.poll(() => scroller.evaluate(element => element.scrollTop)).toBe(420);
   await scroller.evaluate(element => { element.scrollTop = 555; });
-  await page.getByRole('button', { name: 'Następny' }).click();
+  await page.getByRole('button', { name: 'Następny okres', exact: true }).click();
   await expect.poll(() => scroller.evaluate(element => element.scrollTop)).toBe(555);
 });
 
