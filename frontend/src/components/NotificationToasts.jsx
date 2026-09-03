@@ -89,7 +89,7 @@ function ActionBar({ notification, onDismiss, isMobile }) {
         bottom: 0, left: 0,
         height: 2,
         background: 'var(--accent)',
-        animation: `action-bar-progress ${UNDO_WINDOW_MS}ms linear forwards`,
+        animation: `action-bar-progress ${notification.undoDurationMs || UNDO_WINDOW_MS}ms linear forwards`,
       }} />
 
       <span style={{

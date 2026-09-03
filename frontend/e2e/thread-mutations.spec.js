@@ -318,5 +318,31 @@ for (const viewport of [DESKTOP, 'mobile']) {
       await expect(moved).toBeVisible();
       expect(page.__conversationActions.filter(action => action.action === 'move')).toEqual([]);
     });
+
+    test('undo invalidates archive after its deferred resolver starts', async ({ page, fixtureApi }, testInfo) => {
+      test.setTimeout(30_000);
+      await page.clock.install();
+      await openList(page, fixtureApi, testInfo, [
+        'conversation-gmail-copy-1', 'conversation-gmail-copy-3', 'conversation-gmail-copy-5',
+      ]);
+      const row = page.locator('[data-msgid="conversation-gmail-copy-5"]:visible');
+      const account = page.getByText('Gmail fixture', { exact: true }).locator('../../..');
+      page.__threadLoadStarts = [];
+      page.__conversationActions = [];
+      const releaseThread = holdThreadResolution(page);
+
+      await openContextMenu(page, row, testInfo);
+      await chooseMenuItem(page, /archiwizuj|archive/i);
+      await expect(row).toHaveCount(0);
+      await expect(account).not.toContainText('3');
+      await page.clock.runFor(4751);
+      await expect.poll(() => page.__threadLoadStarts.length).toBe(1);
+
+      await page.getByRole('button', { name: /undo|cofnij/i }).last().click({ force: true });
+      releaseThread();
+      await expect(row).toBeVisible();
+      await expect(account).toContainText('3');
+      await expect.poll(() => page.__conversationActions.filter(action => action.action === 'archive')).toEqual([]);
+    });
   });
 }

@@ -1802,6 +1802,7 @@ export default function MessageList() {
   const archiveVisibleMessage = useCallback(async (message, {
     alreadyRemoved = false,
     viewKey: actionViewKey = archiveViewKeyRef.current,
+    onResolution,
   } = {}) => {
     const threadRow = isThreadListRow(message);
     const threadId = message.thread_id || message.id;
@@ -1832,6 +1833,7 @@ export default function MessageList() {
     const archiveResolution = queuePerCopyMutation(message.id, 'destructive', () => (
       resolveMessagesForThreadAction(message, { forceRefresh: true })
     ));
+    onResolution?.(archiveResolution.version);
     try {
       const resolved = await archiveResolution.promise;
       if (!isLatestPerCopyMutation(message.id, archiveResolution.version)) return;
@@ -2199,13 +2201,22 @@ export default function MessageList() {
           ? aggregateUnread
           : (archived.is_read ? 0 : 1);
         if (optimisticUnread > 0) decrementUnread(archived.account_id, optimisticUnread);
+        let archiveResolutionVersion;
         const archiveAction = createUndoableCommit({
           delayMs: UNDO_COMMIT_DELAY_MS,
+          allowUndoWhileCommitting: true,
           commit: async () => {
             guards.forEach(clearDeleteGuard);
-            await archiveMessage(archived, { alreadyRemoved: true, viewKey });
+            await archiveMessage(archived, {
+              alreadyRemoved: true,
+              viewKey,
+              onResolution: (version) => { archiveResolutionVersion = version; },
+            });
           },
           undo: () => {
+            if (archiveResolutionVersion !== undefined) {
+              invalidatePerCopyMutation(archived.id, 'destructive', archiveResolutionVersion);
+            }
             guards.forEach(clearDeleteGuard);
             restoreMessagesIfViewCurrent(viewKey, archiveViewKeyRef, [archived]);
             if (optimisticUnread > 0) incrementUnread(archived.account_id, optimisticUnread);
@@ -2214,6 +2225,7 @@ export default function MessageList() {
         addNotification({
           title: t('message.archived.title'),
           body: archived.subject || t('common.noSubject'),
+          undoDurationMs: 5000,
           onUndo: archiveAction.undo,
         });
         break;
@@ -4071,7 +4083,7 @@ function UndoBar({ notification, onDismiss, showTopBorder }) {
       <div style={{
         position: 'absolute', bottom: 0, left: 0,
         height: 2, background: 'var(--accent)',
-        animation: `action-bar-progress ${UNDO_WINDOW_MS}ms linear forwards`,
+        animation: `action-bar-progress ${notification.undoDurationMs || UNDO_WINDOW_MS}ms linear forwards`,
       }} />
       <span style={{
         flex: 1, minWidth: 0,
