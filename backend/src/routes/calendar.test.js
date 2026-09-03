@@ -274,30 +274,55 @@ describe('local calendar API', () => {
     expect(query).not.toHaveBeenCalled();
   });
 
-  it('projects custom labelled contact dates and deduplicates legacy mirrors', async () => {
+  it('projects a labelled-only contact date and selects the JSON date column', async () => {
     query.mockResolvedValueOnce({ rows: [] }).mockResolvedValueOnce({ rows: [{
-      id: 'contact-1', display_name: 'Ada', primary_email: 'ada@example.test', birthday: '1990-01-02', anniversary: null,
-      contact_dates: [{ label: 'Birthday', value: '1990-01-02' }, { label: 'Wedding', value: '2020-09-14' }],
+      id: 'contact-1', display_name: 'Ada', primary_email: 'ada@example.test', birthday: null, anniversary: null,
+      contact_dates: [{ label: 'Wedding', value: '2020-09-14' }],
     }] });
-    const response = await fetch(`${base}/api/calendar/events?from=2026-01-01T00:00:00.000Z&to=2027-01-01T00:00:00.000Z`);
+
+    const response = await fetch(`${base}/api/calendar/events?from=2026-09-01T00:00:00.000Z&to=2026-10-01T00:00:00.000Z`);
+    const { events } = await response.json();
+
     expect(response.status).toBe(200);
-    const events = (await response.json()).events;
-    expect(events).toHaveLength(2);
-    expect(events.map(event => event.summary)).toEqual(expect.arrayContaining(['Birthday: Ada', 'Wedding: Ada']));
-    expect(new Set(events.map(event => event.id)).size).toBe(2);
+    expect(query.mock.calls[1][0]).toContain('contact_dates');
+    expect(events).toHaveLength(1);
+    expect(events[0]).toMatchObject({
+      calendar_id: 'contacts-birthdays', uid: expect.stringMatching(/^contacts-contact-1-/), summary: 'Wedding: Ada',
+      starts_at: '2026-09-14T00:00:00.000Z', ends_at: '2026-09-15T00:00:00.000Z', all_day: true,
+      source: 'contacts', read_only: true,
+    });
   });
 
-  it('keeps same-date labelled contact events distinct with stable ids', async () => {
-    const contacts = [{ id: 'contact-1', display_name: 'Ada', primary_email: null, birthday: null, anniversary: null,
-      contact_dates: [{ label: 'Wedding', value: '2020-09-14' }, { label: 'Graduation', value: '2020-09-14' }] }];
-    query.mockResolvedValueOnce({ rows: [] }).mockResolvedValueOnce({ rows: contacts });
-    const first = await (await fetch(`${base}/api/calendar/events?from=2026-01-01T00:00:00.000Z&to=2027-01-01T00:00:00.000Z`)).json();
-    query.mockResolvedValueOnce({ rows: [] }).mockResolvedValueOnce({ rows: contacts });
-    const second = await (await fetch(`${base}/api/calendar/events?from=2026-01-01T00:00:00.000Z&to=2027-01-01T00:00:00.000Z`)).json();
-    expect(first.events).toHaveLength(2);
-    expect(new Set(first.events.map(event => event.id)).size).toBe(2);
-    expect(first.events.map(event => event.id).sort()).toEqual(second.events.map(event => event.id).sort());
-    expect(first.events.map(event => event.summary)).toEqual(expect.arrayContaining(['Wedding: Ada', 'Graduation: Ada']));
+  it('deduplicates a legacy date mirrored in labelled contact dates', async () => {
+    query.mockResolvedValueOnce({ rows: [] }).mockResolvedValueOnce({ rows: [{
+      id: 'contact-1', display_name: 'Ada', birthday: '1990-01-02', anniversary: null,
+      contact_dates: [{ label: 'Birthday', value: '1990-01-02' }, { label: 'Wedding', value: '2020-09-14' }],
+    }] });
+
+    const response = await fetch(`${base}/api/calendar/events?from=2026-01-01T00:00:00.000Z&to=2027-01-01T00:00:00.000Z`);
+    const { events } = await response.json();
+
+    expect(response.status).toBe(200);
+    expect(events).toHaveLength(2);
+    expect(events.map(event => event.summary)).toEqual(expect.arrayContaining(['Birthday: Ada', 'Wedding: Ada']));
+  });
+
+  it('keeps normalized-label collisions distinct and ignores malformed contact dates', async () => {
+    query.mockResolvedValueOnce({ rows: [] }).mockResolvedValueOnce({ rows: [{
+      id: 'contact-1', display_name: 'Ada', birthday: null, anniversary: null,
+      contact_dates: [
+        { label: 'Family Other', value: '2020-09-14' }, { label: 'Family-Other', value: '2020-09-14' },
+        { label: 'Broken', value: 'not-a-date' }, { label: 'Impossible', value: '2020-02-30' },
+      ],
+    }] });
+
+    const response = await fetch(`${base}/api/calendar/events?from=2026-09-01T00:00:00.000Z&to=2026-10-01T00:00:00.000Z`);
+    const { events } = await response.json();
+
+    expect(response.status).toBe(200);
+    expect(events).toHaveLength(2);
+    expect(new Set(events.map(event => event.uid)).size).toBe(2);
+    expect(events.map(event => event.summary)).toEqual(expect.arrayContaining(['Family Other: Ada', 'Family-Other: Ada']));
   });
 
   it('requires a sender account and attendee list before sending invitations', async () => {

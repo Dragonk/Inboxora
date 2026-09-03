@@ -25,18 +25,30 @@ function parseEventTimes(body) {
 function contactDateEvents(contacts, from, to) {
   const events = [];
   for (const contact of contacts) {
-    for (const [field, label] of [['birthday', 'Birthday'], ['anniversary', 'Anniversary']]) {
-      const value = contact[field] instanceof Date ? contact[field].toISOString().slice(0, 10) : String(contact[field] || '').slice(0, 10);
+    const dates = [
+      ...(Array.isArray(contact.contact_dates) ? contact.contact_dates : []),
+      ...(contact.birthday ? [{ label: 'Birthday', value: contact.birthday }] : []),
+      ...(contact.anniversary ? [{ label: 'Anniversary', value: contact.anniversary }] : []),
+    ];
+    const seen = new Set();
+    for (const date of dates) {
+      if (!date || typeof date !== 'object') continue;
+      const label = typeof date.label === 'string' && date.label.trim() ? date.label.trim() : 'Other';
+      if (date.value instanceof Date && Number.isNaN(date.value.getTime())) continue;
+      const value = date.value instanceof Date ? date.value.toISOString().slice(0, 10) : typeof date.value === 'string' ? date.value.trim() : '';
       if (!/^\d{4}-\d{2}-\d{2}$/.test(value)) continue;
-      const [, month, day] = value.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+      const key = `${label.toLocaleLowerCase()}\u0000${value}`;
+      if (seen.has(key)) continue;
+      seen.add(key);
+      const [, , month, day] = value.match(/^(\d{4})-(\d{2})-(\d{2})$/);
       for (let year = from.getUTCFullYear(); year <= to.getUTCFullYear(); year++) {
         const startsAt = new Date(Date.UTC(year, Number(month) - 1, Number(day)));
         if (startsAt.getUTCMonth() !== Number(month) - 1 || startsAt.getUTCDate() !== Number(day) || startsAt < from || startsAt >= to) continue;
         const endsAt = new Date(startsAt); endsAt.setUTCDate(endsAt.getUTCDate() + 1);
+        const labelKey = crypto.createHash('sha256').update(label).digest('hex').slice(0, 16);
         const dateSlug = value.replaceAll('-', '');
-        const labelKey = crypto.createHash('sha256').update(label.toLocaleLowerCase()).digest('hex').slice(0, 16);
-        const slug = `${labelKey}-${dateSlug}`;
-        events.push({ id: `contacts-${contact.id}-${slug}-${year}`, calendar_id: 'contacts-birthdays', uid: `contacts-${contact.id}-${slug}-${year}`, summary: `${label}: ${contact.display_name || contact.primary_email || 'Contact'}`, starts_at: startsAt, ends_at: endsAt, all_day: true, calendar_name: 'Contact dates', calendar_color: '#e879f9', source: 'contacts', read_only: true });
+        const id = `contacts-${contact.id}-${labelKey}-${dateSlug}-${year}`;
+        events.push({ id, calendar_id: 'contacts-birthdays', uid: id, summary: `${label}: ${contact.display_name || contact.primary_email || 'Contact'}`, starts_at: startsAt, ends_at: endsAt, all_day: true, calendar_name: 'Contact dates', calendar_color: '#e879f9', source: 'contacts', read_only: true });
       }
     }
   }
@@ -282,7 +294,7 @@ router.get('/events', async (req, res) => {
     [req.session.userId, from, to],
   );
   const contactResult = await query(
-    'SELECT id, display_name, primary_email, birthday, anniversary FROM contacts WHERE user_id = $1 AND (birthday IS NOT NULL OR anniversary IS NOT NULL)',
+    'SELECT id, display_name, primary_email, birthday, anniversary, contact_dates FROM contacts WHERE user_id = $1 AND (birthday IS NOT NULL OR anniversary IS NOT NULL OR (jsonb_typeof(contact_dates) = \'array\' AND jsonb_array_length(contact_dates) > 0))',
     [req.session.userId],
   );
   const events = [...result.rows, ...contactDateEvents(contactResult?.rows || [], from, to)]
