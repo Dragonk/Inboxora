@@ -32,6 +32,19 @@ function holdThreadResolution(page) {
   };
 }
 
+function holdThreadResolutions(page, count = 2) {
+  const gates = Array.from({ length: count }, () => {
+    let release;
+    const promise = new Promise(resolve => { release = resolve; });
+    return { promise, release };
+  });
+  page.__threadLoadGates = gates;
+  return gates.map(gate => () => {
+    page.__threadLoadGates = page.__threadLoadGates.filter(candidate => candidate !== gate);
+    gate.release();
+  });
+}
+
 function holdConversationAction(page, action) {
   let release;
   page.__conversationActionGates = page.__conversationActionGates || {};
@@ -217,6 +230,69 @@ for (const viewport of [DESKTOP, 'mobile']) {
       expect(page.__starStarts.every(action => action.body?.starred === false)).toBe(true);
       await expect(row.locator('[data-thread-row-star="true"]')).toHaveCount(0);
       await expect(sender).toHaveCSS('font-weight', '400');
+    });
+
+    test('reversed cold star resolutions preserve star then unstar newest intent', async ({ page, fixtureApi }, testInfo) => {
+      page.__initialThreadStarred = false;
+      await openList(page, fixtureApi, testInfo, [], [], false, true);
+      const row = page.locator('[data-msgid="conversation-gmail-copy-5"]:visible');
+      page.__starStarts = [];
+      page.__starActions = [];
+      const release = holdThreadResolutions(page);
+      await openContextMenu(page, row, testInfo);
+      await chooseMenuItem(page, /gwiazd|star/i);
+      await expect(row.locator('[data-thread-row-star="true"]')).toBeVisible();
+      await openContextMenu(page, row, testInfo);
+      await chooseMenuItem(page, /gwiazd|star/i);
+      await expect(row.locator('[data-thread-row-star="true"]')).toHaveCount(0);
+      await expect.poll(() => page.__threadLoadStarts.length).toBe(2);
+      release[1]();
+      await expect.poll(() => page.__starStarts.length).toBe(5);
+      release[0]();
+      await expect.poll(() => page.__starActions.length).toBe(5);
+      expect(page.__starActions.map(action => action.body.starred)).toEqual([false, false, false, false, false]);
+      await expect(row.locator('[data-thread-row-star="true"]')).toHaveCount(0);
+    });
+
+    test('reversed cold star resolutions preserve unstar then star newest intent', async ({ page, fixtureApi }, testInfo) => {
+      await openList(page, fixtureApi, testInfo, [], [], false, true);
+      const row = page.locator('[data-msgid="conversation-gmail-copy-5"]:visible');
+      page.__starStarts = [];
+      page.__starActions = [];
+      const release = holdThreadResolutions(page);
+      await openContextMenu(page, row, testInfo);
+      await chooseMenuItem(page, /gwiazd|star/i);
+      await expect(row.locator('[data-thread-row-star="true"]')).toHaveCount(0);
+      await openContextMenu(page, row, testInfo);
+      await chooseMenuItem(page, /gwiazd|star/i);
+      await expect(row.locator('[data-thread-row-star="true"]')).toBeVisible();
+      await expect.poll(() => page.__threadLoadStarts.length).toBe(2);
+      release[1]();
+      await expect.poll(() => page.__starStarts.length).toBe(5);
+      expect(page.__starStarts.every(action => action.body.starred === true)).toBe(true);
+      release[0]();
+      await expect.poll(() => page.__starActions.length).toBe(5);
+      expect(page.__starActions.every(action => action.body.starred === true)).toBe(true);
+      await expect(row.locator('[data-thread-row-star="true"]')).toBeVisible();
+    });
+
+    test('stale cold star resolution failure leaves the newest intent visible', async ({ page, fixtureApi }, testInfo) => {
+      page.__initialThreadStarred = false;
+      page.__nativeThreadLoadFailuresRemaining = 1;
+      await openList(page, fixtureApi, testInfo, [], [], false, true);
+      const row = page.locator('[data-msgid="conversation-gmail-copy-5"]:visible');
+      page.__starStarts = [];
+      const release = holdThreadResolutions(page);
+      await openContextMenu(page, row, testInfo);
+      await chooseMenuItem(page, /gwiazd|star/i);
+      await openContextMenu(page, row, testInfo);
+      await chooseMenuItem(page, /gwiazd|star/i);
+      await expect(row.locator('[data-thread-row-star="true"]')).toHaveCount(0);
+      release[0]();
+      release[1]();
+      await expect.poll(() => page.__starStarts.length).toBe(5);
+      expect(page.__starStarts.every(action => action.body.starred === false)).toBe(true);
+      await expect(row.locator('[data-thread-row-star="true"]')).toHaveCount(0);
     });
 
     test('failed no-op copies do not drift read counters', async ({ page, fixtureApi }, testInfo) => {

@@ -233,7 +233,7 @@ export const test = base.extend({
           from_email: 'sender@gmail.test', message_id: `<large-${index}@fixture.test>`,
           thread_id: `large-thread-${index}`, thread_key: `large-thread-${index}`, message_count: 2,
         }))
-        : threaded ? [{ ...messages.at(-1), thread_key: 'conversation-gmail', is_starred: true, is_read: !unread.has('conversation-gmail-copy-5'), unread_count: unread.has('conversation-gmail-copy-5') ? unread.size : 0 }] : messages;
+        : threaded ? [{ ...messages.at(-1), thread_key: 'conversation-gmail', is_starred: page.__initialThreadStarred ?? true, is_read: !unread.has('conversation-gmail-copy-5'), unread_count: unread.has('conversation-gmail-copy-5') ? unread.size : 0 }] : messages;
       return route.fulfill({ json: { messages: listMessages, total: listMessages.length, ...(threaded ? { threaded: true } : {}) } });
     });
     await page.route('**/api/mail/thread/*', async route => {
@@ -242,6 +242,10 @@ export const test = base.extend({
       page.__threadLoadStarts.push({ threadId, url: route.request().url() });
       const gate = page.__threadLoadGates?.shift() || page.__threadLoadGate;
       if (gate) await gate.promise;
+      if (page.__nativeThreadLoadFailuresRemaining > 0) {
+        page.__nativeThreadLoadFailuresRemaining -= 1;
+        return route.fulfill({ status: 503, json: { detail: 'Native thread unavailable' } });
+      }
       if (page.__nativeThreadLoadFails) return route.fulfill({ status: 503, json: { detail: 'Native thread unavailable' } });
       if (page.__nativeThreadEmpty) return route.fulfill({ json: { messages: [] } });
       if (page.__nativeThreadMalformed) return route.fulfill({ json: { messages: {} } });

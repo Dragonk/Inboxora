@@ -978,6 +978,8 @@ export default function MessageList() {
   const setMessagesStarredState = useCallback(async (message, starred) => {
     const isThreadRow = isThreadListRow(message);
     const previousStarred = Boolean(message.is_starred);
+    const starIntentKey = `star:${message.id}`;
+    const starIntentVersion = beginMutation(starIntentKey);
     updateMessage(message.id, { is_starred: starred });
     if (isThreadRow) setCachedThreadStarred(message, starred);
     let actionMessages;
@@ -985,12 +987,14 @@ export default function MessageList() {
       actionMessages = await resolveMessagesForThreadAction(message);
     } catch (err) {
       console.error('Failed to load thread for star state change:', err.message);
+      if (!isLatestMutation(starIntentKey, starIntentVersion)) return;
       if (Boolean(useStore.getState().messages.find(msg => msg.id === message.id)?.is_starred) === starred) {
         updateMessage(message.id, { is_starred: previousStarred });
         if (isThreadRow) setCachedThreadStarred(message, previousStarred);
       }
       return;
     }
+    if (!isLatestMutation(starIntentKey, starIntentVersion)) return;
     actionMessages = [...new Map(actionMessages.map(msg => [String(msg.id), msg])).values()];
     const mutations = actionMessages.map(msg => ({
       msg,
@@ -1003,7 +1007,7 @@ export default function MessageList() {
         .map((result, index) => result.status === 'rejected' ? mutations[index].msg.id : null)
         .filter(Boolean);
       const latest = mutations.every(({ msg, mutation }) => isLatestStarStateMutation(msg.id, mutation.version));
-      if (failedIds.length > 0 && latest) {
+      if (failedIds.length > 0 && latest && isLatestMutation(starIntentKey, starIntentVersion)) {
         const failedSet = new Set(failedIds.map(String));
         setCachedThreadStarredForIds(message, failedIds, !starred);
         updateMessage(message.id, {
@@ -1013,7 +1017,7 @@ export default function MessageList() {
     } catch (err) {
       console.error('markStarred failed:', err.message);
       const latest = mutations.every(({ msg, mutation }) => isLatestStarStateMutation(msg.id, mutation.version));
-      if (latest) {
+      if (latest && isLatestMutation(starIntentKey, starIntentVersion)) {
         updateMessage(message.id, { is_starred: !starred });
         if (isThreadRow) setCachedThreadStarred(message, !starred);
       }
