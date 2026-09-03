@@ -469,8 +469,15 @@ router.post('/sources', async (req, res) => {
     );
     const source = result.rows[0];
     scheduleCalendarSource(source);
-    syncCalendarSource(req.session.userId, source.id).catch(() => {});
-    res.status(201).json({ source: publicSource(source) });
+    const sync = await syncCalendarSource(req.session.userId, source.id);
+    if (!sync.ok) {
+      // The sync records the failure asynchronously from the insert result;
+      // reflect that terminal state in the response so the client can render
+      // the persisted source as retryable immediately.
+      source.last_error = sync.error;
+      return res.status(502).json({ error: sync.error, source: publicSource(source), sync });
+    }
+    res.status(201).json({ source: publicSource(source), sync });
   } catch (error) {
     if (error.code === '23505') return res.status(409).json({ error: 'A source with this URL already exists' });
     if (error.code === '23514') return res.status(409).json({ error: 'Calendar source URL could not be stored securely' });
@@ -485,7 +492,7 @@ router.post('/sources/:sourceId/sync', async (req, res) => {
 });
 
 router.delete('/sources/:sourceId', async (req, res) => {
-  stopCalendarSource(req.params.sourceId);
+  await stopCalendarSource(req.params.sourceId);
   const result = await query('DELETE FROM calendar_import_sources WHERE id = $1 AND user_id = $2 RETURNING id', [req.params.sourceId, req.session.userId]);
   if (!result.rows[0]) return res.status(404).json({ error: 'Calendar source not found' });
   await query('DELETE FROM calendars WHERE user_id = $1 AND external_url = $2', [req.session.userId, `source:${req.params.sourceId}`]);

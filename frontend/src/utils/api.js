@@ -29,7 +29,11 @@ async function request(method, path, body, extraHeaders, extraOptions = {}) {
       window.dispatchEvent(new CustomEvent('inboxora:session_expired'));
     }
     const err = await res.json().catch(() => ({ error: 'Request failed' }));
-    throw new Error(err.error || 'Request failed');
+    const error = new Error(err.error || 'Request failed');
+    error.status = res.status;
+    if (err.source) error.source = err.source;
+    if (err.sync) error.sync = err.sync;
+    throw error;
   }
   // A successful DELETE may deliberately return no representation (HTTP 204).
   if (res.status === 204) return null;

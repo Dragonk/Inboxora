@@ -78,7 +78,10 @@ describe('local calendar API', () => {
     });
 
     expect(response.status).toBe(201);
-    expect(await response.json()).toEqual({ source: expect.not.objectContaining({ url: expect.anything(), username: expect.anything(), password: expect.anything(), url_fingerprint: expect.anything() }) });
+    expect(await response.json()).toEqual({
+      source: expect.not.objectContaining({ url: expect.anything(), username: expect.anything(), password: expect.anything(), url_fingerprint: expect.anything() }),
+      sync: { ok: true },
+    });
     const insert = query.mock.calls.find(([sql]) => sql.includes('INSERT INTO calendar_import_sources'));
     expect(insert[1][2]).toBe('enc:v1:https://calendar.example/events.ics');
     expect(insert[1][3]).toMatch(/^[a-f0-9]{64}$/);
@@ -113,6 +116,37 @@ describe('local calendar API', () => {
     expect(payload.sources).toEqual([{ id: 'source-1', kind: 'ical_url', displayName: 'Work', color: null, intervalMin: 60, enabled: true, lastSyncAt: null, lastError: 'failure [redacted]' }]);
     expect(JSON.stringify(payload)).not.toContain('ciphertext');
     expect(JSON.stringify(payload)).not.toContain('remote-user');
+  });
+
+  it('returns the actual first-sync result instead of an unconditional add success', async () => {
+    syncCalendarSource.mockResolvedValueOnce({ ok: true, eventCount: 2, skipped: [{ uid: 'bad', reason: 'unsupported or malformed VEVENT' }] });
+    query.mockImplementation(async (sql) => sql.includes('INSERT INTO calendar_import_sources')
+      ? { rows: [{ id: 'source-1', kind: 'ical_url', url: 'https://calendar.example/events.ics', display_name: 'Work' }] }
+      : { rows: [] });
+
+    const response = await fetch(`${base}/api/calendar/sources`, {
+      method: 'POST', headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ kind: 'ical_url', url: 'https://calendar.example/events.ics', displayName: 'Work' }),
+    });
+
+    expect(response.status).toBe(201);
+    expect(await response.json()).toEqual({ source: expect.objectContaining({ id: 'source-1' }), sync: { ok: true, eventCount: 2, skipped: [{ uid: 'bad', reason: 'unsupported or malformed VEVENT' }] } });
+  });
+
+  it('reports a persisted source first-sync failure with a differentiated status', async () => {
+    syncCalendarSource.mockResolvedValueOnce({ ok: false, error: 'network unavailable' });
+    query.mockImplementation(async (sql) => sql.includes('INSERT INTO calendar_import_sources')
+      ? { rows: [{ id: 'source-1', kind: 'ical_url', url: 'https://calendar.example/events.ics', display_name: 'Work' }] }
+      : { rows: [] });
+
+    const response = await fetch(`${base}/api/calendar/sources`, {
+      method: 'POST', headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ kind: 'ical_url', url: 'https://calendar.example/events.ics', displayName: 'Work' }),
+    });
+
+    expect(response.status).toBe(502);
+    expect(await response.json()).toEqual({ error: 'network unavailable', source: expect.objectContaining({ id: 'source-1' }), sync: { ok: false, error: 'network unavailable' } });
+    expect(scheduleCalendarSource).toHaveBeenCalled();
   });
 
   it('lists only calendars owned by the signed-in user', async () => {

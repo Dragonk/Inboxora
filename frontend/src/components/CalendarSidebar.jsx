@@ -19,6 +19,7 @@ export default function CalendarSidebar({ anchor, calendars, visibleCalendarIds,
   const mounted = useRef(false);
   const pendingSourceIds = useRef(new Set());
   const sourcePolls = useRef(new Map());
+  const sourceRequestGeneration = useRef(0);
   const [form, setForm] = useState({ kind: 'ical_url', displayName: '', url: '', username: '', password: '', color: '#7c6af7', intervalMin: 60 });
   const cells = useMemo(() => monthCells(anchor, weekStartsOn), [anchor, weekStartsOn]);
   const weekdays = useMemo(() => Array.from({ length: 7 }, (_, index) => new Date(2026, 0, 4 + ((index + weekStartsOn) % 7)).toLocaleDateString(locale, { weekday: 'short' })), [locale, weekStartsOn]);
@@ -41,12 +42,14 @@ export default function CalendarSidebar({ anchor, calendars, visibleCalendarIds,
     };
   }, []);
   const loadSources = async () => {
+    const generation = sourceRequestGeneration.current;
     try {
       const result = await api.calendar.listSources();
-      if (!mounted.current) return result;
+      if (!mounted.current || generation !== sourceRequestGeneration.current) return result;
       setSources(result.sources || []); setSourceError(null);
       return result;
     } catch (error) {
+      if (!mounted.current || generation !== sourceRequestGeneration.current) return null;
       pendingSourceIds.current.forEach(clearSourcePoll);
       if (mounted.current) setSourceError(error.message);
       return null;
@@ -101,10 +104,17 @@ export default function CalendarSidebar({ anchor, calendars, visibleCalendarIds,
       setForm({ kind: 'ical_url', displayName: '', url: '', username: '', password: '', color: '#7c6af7', intervalMin: 60 });
       await loadSources();
       await onSourcesChanged();
-      waitForInitialSync(result?.source?.id);
-    } catch (error) { setSourceError(error.message); }
+      if (result?.sync?.pending) waitForInitialSync(result.source?.id);
+    } catch (error) {
+      if (error.source) {
+        setSources(current => [...current.filter(source => source.id !== error.source.id), error.source]);
+        try { await onSourcesChanged(); } catch { /* keep the persisted source visible even if refresh fails */ }
+      }
+      setSourceError(error.message);
+    }
   };
   const removeSource = async id => {
+    sourceRequestGeneration.current += 1;
     try { await api.calendar.deleteSource(id); clearSourcePoll(id); await loadSources(); await onSourcesChanged(); }
     catch (error) { setSourceError(error.message); }
   };

@@ -55,4 +55,21 @@ describe('DAV Hub API client', () => {
     assert.equal(calls[2][1].body, JSON.stringify(event));
     assert.equal(calls[3][1].body, JSON.stringify(event));
   });
+
+  it('preserves persisted source context when initial source sync fails', async () => {
+    const source = { id: 'source-1', displayName: 'Work', kind: 'ical_url' };
+    globalThis.fetch = async () => ({
+      ok: false,
+      status: 502,
+      json: async () => ({ error: 'Remote calendar request failed (503)', source, sync: { ok: false } }),
+    });
+
+    await assert.rejects(api.calendar.createSource({ kind: 'ical_url' }), error => {
+      assert.equal(error.status, 502);
+      assert.equal(error.message, 'Remote calendar request failed (503)');
+      assert.deepEqual(error.source, source);
+      assert.deepEqual(error.sync, { ok: false });
+      return true;
+    });
+  });
 });
