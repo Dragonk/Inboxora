@@ -24,6 +24,7 @@ import { shortcutBus } from '../utils/shortcutBus.js';
 import { createLatestRequest } from '../utils/latestRequest.js';
 import { pendingMarkReadMap, completedMarkReadMap, setPending } from '../utils/pendingReads.js';
 import { queueReadStateMutation, isLatestReadStateMutation } from '../utils/readStateMutation.js';
+import { beginMutation, invalidateMutation, isLatestMutation } from '../utils/mutationIntent.js';
 import { queuePerCopyMutation, isLatestPerCopyMutation, invalidatePerCopyMutation } from '../utils/perCopyMutation.js';
 import { mergeThreadCacheField } from '../utils/threadCacheState.js';
 import { applyDeleteGuard, clearDeleteGuard, clearPendingDelete, setCompletedDelete, setPendingDelete, threadDeleteGuardKey } from '../utils/pendingDeletes.js';
@@ -199,6 +200,7 @@ export default function MessageList() {
   const listRef = useRef(null);
   const searchInputRef = useRef(null); // for focusSearch shortcut
   const pendingDeleteTimers = useRef(new Map()); // id/thread key -> pending delete metadata
+
   const recentMessageOpenUntilRef = useRef(0);
   const deferredRefreshTimerRef = useRef(null);
 
@@ -2229,17 +2231,21 @@ export default function MessageList() {
         const moved = message;
         const moveResolution = queuePerCopyMutation(moved.id, 'destructive', () => resolveMessagesForThreadAction(message));
         let moveMessages = [moved];
-        // A folder path is account-specific: a thread can span accounts (and
-        // always includes Sent copies), and the server skips messages whose
-        // account lacks the destination folder. Scope the move to the
-        // right-clicked message's account so nothing is silently dropped.
-        moveMessages = moveMessages.filter(msg => msg?.account_id === moved.account_id);
-        const moveIds = [...new Set(moveMessages.map(msg => msg.id).filter(Boolean))];
-        if (!moveIds.length) moveIds.push(moved.id);
+        const moveKey = `${moved.account_id || ''}:${moved.thread_id || moved.id}`;
+        const moveVersion = beginMutation(moveKey);
+        const viewKey = archiveViewKeyRef.current;
+        const activeFolder = selectedAccountId ? selectedFolder : 'INBOX';
+        const threadGuard = isThreadListRow(moved)
+          ? threadDeleteGuardKey(moved.thread_id || moved.id, activeFolder, moved.account_id)
+          : null;
+        const guards = [moved.id, threadGuard].filter(Boolean);
+        guards.forEach(setPendingDelete);
+        advanceSelectionAfterRemoval(moved.id);
         removeMessage(moved.id);
-        if (!moved.is_read) decrementUnread(moved.account_id);
-        // Remove the moved message from the selection so the action bar doesn't
-        // stay around claiming "X selected" for messages that are no longer here.
+        if (expandedThreadId === (moved.thread_id || moved.id)) setExpandedThreadId(null);
+        const unreadCount = Number.parseInt(moved.unread_count, 10);
+        const unreadDelta = Number.isFinite(unreadCount) ? unreadCount : (moved.is_read ? 0 : 1);
+        if (unreadDelta > 0) decrementUnread(moved.account_id, unreadDelta);
         if (selectedIds.has(moved.id)) {
           const next = new Set(selectedIds);
           next.delete(moved.id);
@@ -2247,8 +2253,23 @@ export default function MessageList() {
           if (next.size === 0) setSelectionModeActive(false);
         }
         let moveUndone = false;
+        const restoreMove = () => {
+          if (moveUndone || !isLatestMutation(moveKey, moveVersion)) return;
+          guards.forEach(clearDeleteGuard);
+          restoreMessagesIfViewCurrent(viewKey, archiveViewKeyRef, [moved]);
+          if (unreadDelta > 0) incrementUnread(moved.account_id, unreadDelta);
+        };
+        // A folder path is account-specific: a thread can span accounts (and
+        // always includes Sent copies), and the server skips messages whose
+        // account lacks the destination folder. Scope the move to the
+        // right-clicked message's account so nothing is silently dropped.
+        moveMessages = moveMessages.filter(msg => msg?.account_id === moved.account_id);
+        const moveIds = [...new Set(moveMessages.map(msg => msg.id).filter(Boolean))];
+        if (!moveIds.length) moveIds.push(moved.id);
+        if (!isLatestMutation(moveKey, moveVersion)) break;
+        moveIds.forEach(id => setPendingDelete(id));
         const moveTimer = setTimeout(async () => {
-          if (moveUndone) return;
+          if (moveUndone || !isLatestMutation(moveKey, moveVersion)) return;
           try {
             moveMessages = await moveResolution.promise;
             if (!isLatestPerCopyMutation(moved.id, moveResolution.version)) return;
@@ -2262,11 +2283,9 @@ export default function MessageList() {
             // letting the thread silently reappear on the next sync.
             const movedSet = new Set(result.moved ?? []);
             const failedCount = moveIds.filter(id => !movedSet.has(id)).length;
+            moveIds.forEach(id => (movedSet.has(id) ? setCompletedDelete(id) : clearDeleteGuard(id)));
             if (failedCount > 0) {
-              if (!movedSet.has(moved.id) && isLatestPerCopyMutation(moved.id, moveResolution.version)) {
-                useStore.getState().restoreMessages([moved]);
-                if (!moved.is_read) incrementUnread(moved.account_id);
-              }
+              if (!movedSet.has(moved.id)) restoreMove();
               addNotification({ type: 'error', title: t('message.moved.failTitle'), body: t('messageList.bulkMoved.failBody', { count: failedCount }) });
             } else {
               useStore.getState().recordRecentFolder({ accountId: moved.account_id, path: folder });
@@ -2274,8 +2293,8 @@ export default function MessageList() {
           } catch (err) {
             if (!isLatestPerCopyMutation(moved.id, moveResolution.version)) return;
             console.error('Move failed:', err.message);
-            useStore.getState().restoreMessages([moved]);
-            if (!moved.is_read) incrementUnread(moved.account_id);
+            moveIds.forEach(clearDeleteGuard);
+            restoreMove();
             addNotification({ title: t('message.moved.failTitle'), body: t('message.moved.failBody') });
           }
         }, 4500);
@@ -2287,8 +2306,10 @@ export default function MessageList() {
             moveUndone = true;
             invalidatePerCopyMutation(moved.id, moveResolution.version);
             clearTimeout(moveTimer);
-            useStore.getState().restoreMessages([moved]);
-            if (!moved.is_read) incrementUnread(moved.account_id);
+            invalidateMutation(moveKey);
+            guards.forEach(clearDeleteGuard);
+            restoreMessagesIfViewCurrent(viewKey, archiveViewKeyRef, [moved]);
+            if (unreadDelta > 0) incrementUnread(moved.account_id, unreadDelta);
           },
         });
         break;
