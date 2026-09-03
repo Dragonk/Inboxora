@@ -1519,7 +1519,7 @@ function LayoutsTab() {
   const { t } = useTranslation();
   const isMobile = useMobile();
   const { layout, setLayout, pageSize, setPageSize, scrollMode, setScrollMode, swipeActions, setSwipeAction, syncInterval, setSyncInterval, folderSyncInterval, setFolderSyncInterval, threadedView, setThreadedView, plaintextEmail, setPlaintextEmail, hoverQuickActions, setHoverQuickActions, showMobileAvatars, setShowMobileAvatars, gravatarAvatars, setGravatarAvatars, replyDefault, setReplyDefault, markReadBehavior, setMarkReadBehavior, markReadDelay, setMarkReadDelay, senderFavicons, senderFaviconsSaving, setSenderFavicons, showMessagePreviews, setShowMessagePreviews, conversationReaderViewEnabled, setConversationReaderViewEnabled } = useStore();
-  const { calendarWeekStartsOn, setCalendarWeekStartsOn, mobileNavigationPosition, setMobileNavigationPosition } = useStore();
+  const { calendarWeekStartsOn, setCalendarWeekStartsOn, mobileNavigationPosition, setMobileNavigationPosition, calendarWorkDays, setCalendarWorkDays, calendarWorkHoursStart, setCalendarWorkHoursStart, calendarWorkHoursEnd, setCalendarWorkHoursEnd } = useStore();
   const [senderFaviconsError, setSenderFaviconsError] = useState('');
 
   // "Set Inboxora as your default email app": registerProtocolHandler is the
@@ -1665,6 +1665,26 @@ function LayoutsTab() {
               <option value="top">{t('calendar.navigationTop')}</option>
               <option value="bottom">{t('calendar.navigationBottom')}</option>
             </select>
+          </label>
+          <div style={{ display: 'grid', gap: 8, fontSize: 12, color: 'var(--text-secondary)', gridColumn: '1 / -1' }}>
+            <span>{t('calendar.workDays', 'Work days')}</span>
+            <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
+              {[1, 2, 3, 4, 5, 6, 0].map(day => {
+                const checked = calendarWorkDays.includes(day);
+                return <label key={day} style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+                  <input type="checkbox" data-testid={`calendar-work-day-${day}`} checked={checked} onChange={() => setCalendarWorkDays(checked ? calendarWorkDays.filter(value => value !== day) : [...calendarWorkDays, day])} />
+                  {t(`calendar.day${day}`, ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'][day])}
+                </label>;
+              })}
+            </div>
+          </div>
+          <label style={{ display: 'grid', gap: 6, fontSize: 12, color: 'var(--text-secondary)' }}>
+            {t('calendar.workHoursStart', 'Working hours start')}
+            <input data-testid="calendar-work-hours-start" type="time" value={calendarWorkHoursStart} onChange={event => setCalendarWorkHoursStart(event.target.value)} style={inputStyle} />
+          </label>
+          <label style={{ display: 'grid', gap: 6, fontSize: 12, color: 'var(--text-secondary)' }}>
+            {t('calendar.workHoursEnd', 'Working hours end')}
+            <input data-testid="calendar-work-hours-end" type="time" value={calendarWorkHoursEnd} onChange={event => setCalendarWorkHoursEnd(event.target.value)} style={inputStyle} />
           </label>
         </div>
       </div>

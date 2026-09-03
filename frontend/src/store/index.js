@@ -22,6 +22,7 @@ import {
   readFolderOrder,
 } from './folderOrder.js';
 import { removeThreadCacheEntry } from '../utils/threadedArchive.js';
+import { DEFAULT_CALENDAR_PREFERENCES, normalizeCalendarWorkDays, normalizeCalendarWorkTime } from '../utils/calendarPreferences.js';
 import i18n from '../i18n.js';
 
 // Accumulate rapid preference changes and flush at most once per second.
@@ -498,6 +499,24 @@ export const useStore = create((set, get) => ({
     const value = mobileNavigationPosition === 'bottom' ? 'bottom' : 'top';
     set({ mobileNavigationPosition: value });
     schedulePrefSave({ mobileNavigationPosition: value });
+  },
+  calendarWorkDays: [...DEFAULT_CALENDAR_PREFERENCES.calendarWorkDays],
+  setCalendarWorkDays: (calendarWorkDays) => {
+    const value = normalizeCalendarWorkDays(calendarWorkDays);
+    set({ calendarWorkDays: value });
+    schedulePrefSave({ calendarWorkDays: value });
+  },
+  calendarWorkHoursStart: DEFAULT_CALENDAR_PREFERENCES.calendarWorkHoursStart,
+  setCalendarWorkHoursStart: (value) => {
+    const next = normalizeCalendarWorkTime(value, DEFAULT_CALENDAR_PREFERENCES.calendarWorkHoursStart);
+    set({ calendarWorkHoursStart: next });
+    schedulePrefSave({ calendarWorkHoursStart: next });
+  },
+  calendarWorkHoursEnd: DEFAULT_CALENDAR_PREFERENCES.calendarWorkHoursEnd,
+  setCalendarWorkHoursEnd: (value) => {
+    const next = normalizeCalendarWorkTime(value, DEFAULT_CALENDAR_PREFERENCES.calendarWorkHoursEnd);
+    set({ calendarWorkHoursEnd: next });
+    schedulePrefSave({ calendarWorkHoursEnd: next });
   },
   rulesPreFill: null, // { fromEmail, fromName, subject } — transient, set by context menu
   setRulesPreFill: (v) => set({ rulesPreFill: v }),
@@ -1100,6 +1119,9 @@ export const useStore = create((set, get) => ({
       if (prefs.mobileNavigationPosition === 'top' || prefs.mobileNavigationPosition === 'bottom') {
         set({ mobileNavigationPosition: prefs.mobileNavigationPosition });
       }
+      if (Array.isArray(prefs.calendarWorkDays)) set({ calendarWorkDays: normalizeCalendarWorkDays(prefs.calendarWorkDays) });
+      if (prefs.calendarWorkHoursStart) set({ calendarWorkHoursStart: normalizeCalendarWorkTime(prefs.calendarWorkHoursStart) });
+      if (prefs.calendarWorkHoursEnd) set({ calendarWorkHoursEnd: normalizeCalendarWorkTime(prefs.calendarWorkHoursEnd, DEFAULT_CALENDAR_PREFERENCES.calendarWorkHoursEnd) });
       if (typeof prefs.threadedView === 'boolean') {
         localStorage.setItem('mailflow_threaded_view', String(prefs.threadedView));
         set({ threadedView: prefs.threadedView });
