@@ -57,6 +57,10 @@ function restoreMessagesIfViewCurrent(viewKey, currentViewKeyRef, messages) {
   if (currentViewKeyRef.current === viewKey) useStore.getState().restoreMessages(messages);
 }
 
+function destructiveMutationKey(message) {
+  return `${message.account_id || ''}:${message.thread_id || message.id}`;
+}
+
 const SWIPE_ACTIONS = {
   archive: { color: 'var(--amber, #d97706)' },
   delete: { color: 'var(--red, #ef4444)' },
@@ -1035,6 +1039,8 @@ export default function MessageList() {
     const isThreadRow = isThreadListRow(message);
     const key = isThreadRow ? `thread:${tid}` : message.id;
     if (pendingDeleteTimers.current.has(key)) return;
+    const intentKey = destructiveMutationKey(message);
+    const intentVersion = beginMutation(intentKey);
 
     const visibleMessage = message;
     const unreadCount = Number.parseInt(message.unread_count, 10);
@@ -1060,13 +1066,14 @@ export default function MessageList() {
 
     const timer = setTimeout(async () => {
       try {
+        if (!isLatestMutation(intentKey, intentVersion)) return;
         deleteMessages = await resolution.promise;
         ids = [...new Set(deleteMessages.map(msg => msg.id).filter(Boolean))];
-        if (!isLatestPerCopyMutation(message.id, resolution.version)) return;
+        if (!isLatestMutation(intentKey, intentVersion) || !isLatestPerCopyMutation(message.id, resolution.version)) return;
         ids.forEach((id) => setPendingDelete(id));
         if (ids.length > 1) {
           const result = await api.bulkDelete(ids);
-          if (!isLatestPerCopyMutation(message.id, resolution.version)) return;
+          if (!isLatestMutation(intentKey, intentVersion) || !isLatestPerCopyMutation(message.id, resolution.version)) return;
           pendingDeleteTimers.current.delete(key);
           const deletedSet = new Set(result.deleted ?? []);
           ids.forEach(id => (deletedSet.has(id) ? setCompletedDelete(id) : clearDeleteGuard(id)));
@@ -1074,7 +1081,8 @@ export default function MessageList() {
           if (failedIds.length > 0) {
             const idToMsg = new Map(deleteMessages.map(m => [m.id, m]));
             const failedUnreadDelta = failedIds.filter(id => idToMsg.has(id) && !idToMsg.get(id).is_read).length;
-            if (isLatestPerCopyMutation(message.id, resolution.version)) {
+            if (isLatestMutation(intentKey, intentVersion)
+              && isLatestPerCopyMutation(message.id, resolution.version)) {
               useStore.getState().restoreMessages([visibleMessage]);
               if (failedUnreadDelta > 0) incrementUnread(message.account_id, failedUnreadDelta);
             }
@@ -1086,12 +1094,12 @@ export default function MessageList() {
           }
         } else {
           await api.deleteMessage(ids[0] || visibleMessage.id);
-          if (!isLatestPerCopyMutation(message.id, resolution.version)) return;
+          if (!isLatestMutation(intentKey, intentVersion) || !isLatestPerCopyMutation(message.id, resolution.version)) return;
           pendingDeleteTimers.current.delete(key);
           ids.forEach((id) => setCompletedDelete(id));
         }
       } catch {
-        if (!isLatestPerCopyMutation(message.id, resolution.version)) return;
+        if (!isLatestMutation(intentKey, intentVersion) || !isLatestPerCopyMutation(message.id, resolution.version)) return;
         ids.forEach((id) => clearDeleteGuard(id));
         useStore.getState().restoreMessages([visibleMessage]);
         if (optimisticUnreadDelta > 0) incrementUnread(message.account_id, optimisticUnreadDelta);
@@ -1111,6 +1119,7 @@ export default function MessageList() {
         const pending = pendingDeleteTimers.current.get(key);
         if (!pending) return;
         invalidatePerCopyMutation(message.id, pending.resolution.version);
+        invalidateMutation(intentKey);
         clearTimeout(pending.timer);
         pendingDeleteTimers.current.delete(key);
         ids.forEach((id) => clearPendingDelete(id));
@@ -1822,6 +1831,8 @@ export default function MessageList() {
     alreadyRemoved = false,
     viewKey: actionViewKey = archiveViewKeyRef.current,
     onResolution,
+    intentKey = destructiveMutationKey(message),
+    intentVersion = null,
   } = {}) => {
     const threadRow = isThreadListRow(message);
     const threadId = message.thread_id || message.id;
@@ -1854,8 +1865,10 @@ export default function MessageList() {
     ));
     onResolution?.(archiveResolution.version);
     try {
+      if (intentVersion !== null && !isLatestMutation(intentKey, intentVersion)) return;
       const resolved = await archiveResolution.promise;
-      if (!isLatestPerCopyMutation(message.id, archiveResolution.version)) return;
+      if ((intentVersion !== null && !isLatestMutation(intentKey, intentVersion))
+        || !isLatestPerCopyMutation(message.id, archiveResolution.version)) return;
       targets = archiveTargetsForFolder(message, resolved, activeFolder, threadRow, selectedAccountId);
 
       const resolvedUnreadByAccount = unreadCountsByAccount(targets);
@@ -1867,7 +1880,8 @@ export default function MessageList() {
       });
       unreadByAccount = resolvedUnreadByAccount;
     } catch (err) {
-      if (!isLatestPerCopyMutation(message.id, archiveResolution.version)) return;
+      if ((intentVersion !== null && !isLatestMutation(intentKey, intentVersion))
+        || !isLatestPerCopyMutation(message.id, archiveResolution.version)) return;
       initialGuards.forEach(clearDeleteGuard);
       restoreMessagesIfViewCurrent(viewKey, archiveViewKeyRef, [message]);
       unreadByAccount.forEach((count, accountId) => incrementUnread(accountId, count));
@@ -1880,7 +1894,8 @@ export default function MessageList() {
     ids.forEach(setPendingDelete);
     try {
       const result = await archiveInChunks(ids, api.bulkArchive);
-      if (!isLatestPerCopyMutation(message.id, archiveResolution.version)) return;
+      if ((intentVersion !== null && !isLatestMutation(intentKey, intentVersion))
+        || !isLatestPerCopyMutation(message.id, archiveResolution.version)) return;
       if (result.error) console.error('Archive chunk failed:', result.error);
       const archived = new Set(result.archived);
       ids.forEach(id => (archived.has(id) ? setCompletedDelete(id) : clearDeleteGuard(id)));
@@ -1905,6 +1920,7 @@ export default function MessageList() {
         body: t(noArchiveFolder ? 'messageList.noArchiveFolder.body' : 'messageList.bulkArchived.failBody', { count: failed.length }),
       });
     } catch (err) {
+      if (intentVersion !== null && !isLatestMutation(intentKey, intentVersion)) return;
       [...initialGuards, ...ids].forEach(clearDeleteGuard);
       restoreMessagesIfViewCurrent(viewKey, archiveViewKeyRef, [message]);
       unreadByAccount.forEach((count, accountId) => incrementUnread(accountId, count));
@@ -2186,6 +2202,8 @@ export default function MessageList() {
         const threadGuard = threadRow
           ? threadDeleteGuardKey(threadId, activeFolder, selectedAccountId)
           : null;
+        const intentKey = destructiveMutationKey(archived);
+        const intentVersion = beginMutation(intentKey);
         const guards = [archived.id, threadGuard].filter(Boolean);
         const viewKey = archiveViewKeyRef.current;
 
@@ -2208,6 +2226,8 @@ export default function MessageList() {
             await archiveMessage(archived, {
               alreadyRemoved: true,
               viewKey,
+              intentKey,
+              intentVersion,
               onResolution: (version) => { archiveResolutionVersion = version; },
             });
           },
@@ -2215,6 +2235,7 @@ export default function MessageList() {
             if (archiveResolutionVersion !== undefined) {
               invalidatePerCopyMutation(archived.id, 'destructive', archiveResolutionVersion);
             }
+            invalidateMutation(intentKey);
             guards.forEach(clearDeleteGuard);
             restoreMessagesIfViewCurrent(viewKey, archiveViewKeyRef, [archived]);
             if (optimisticUnread > 0) incrementUnread(archived.account_id, optimisticUnread);

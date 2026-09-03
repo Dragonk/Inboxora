@@ -481,5 +481,38 @@ for (const viewport of [DESKTOP, 'mobile']) {
       await expect(account).toContainText('3');
       await expect.poll(() => page.__conversationActions.filter(action => action.action === 'archive')).toEqual([]);
     });
+
+    test('destructive intents settle newer cold resolutions before stale older work', async ({ page, fixtureApi }, testInfo) => {
+      test.setTimeout(60_000);
+      await page.clock.install();
+      for (const operation of ['archive', 'move', 'delete']) {
+        await openList(page, fixtureApi, testInfo, ['conversation-gmail-copy-1']);
+        page.__threadLoadStarts = [];
+        page.__conversationActions = [];
+        const releases = holdThreadResolutions(page, 2);
+        const row = page.locator('[data-msgid="conversation-gmail-copy-5"]:visible');
+        await openContextMenu(page, row, testInfo);
+        await chooseMenuItem(page, operation === 'archive' ? /archive|archiwizuj/i : operation === 'delete' ? /delete|usuń/i : /move|przenieś/i);
+        if (operation === 'move') await chooseMenuItem(page, /archive|archiwum/i);
+        await expect(row).toHaveCount(0);
+        await page.clock.runFor(4751);
+        await expect.poll(() => page.__threadLoadStarts.length).toBe(1);
+        await page.getByRole('button', { name: /undo|cofnij/i }).last().click({ force: true });
+        await expect(row).toBeVisible();
+
+        await openContextMenu(page, row, testInfo);
+        await chooseMenuItem(page, operation === 'archive' ? /archive|archiwizuj/i : operation === 'delete' ? /delete|usuń/i : /move|przenieś/i);
+        if (operation === 'move') await chooseMenuItem(page, /archive|archiwum/i);
+        await expect(row).toHaveCount(0);
+        await page.clock.runFor(4751);
+        await expect.poll(() => page.__threadLoadStarts.length).toBe(2);
+        releases[1]();
+        await expect.poll(() => page.__conversationActions.length).toBe(1);
+        releases[0]();
+        await expect.poll(() => page.__conversationActions.filter(action => action.action === operation).length).toBe(1);
+        expect(page.__conversationActions.map(action => action.action)).toEqual([operation]);
+        await page.reload({ waitUntil: 'domcontentloaded' });
+      }
+    });
   });
 }
