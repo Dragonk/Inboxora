@@ -183,6 +183,7 @@ export default function MessageList() {
   const [fabVisible, setFabVisible] = useState(true);
   const threadLoadVersionsRef = useRef(new Map());
   const archiveVisibleMessageRef = useRef(null);
+  const setMessagesReadStateRef = useRef(null);
   const lastScrollTopRef = useRef(0);
   const [pullDistance, setPullDistance] = useState(0);
   const pullStartXRef = useRef(null);
@@ -1949,6 +1950,7 @@ export default function MessageList() {
   const handleContextActionRef = useRef(null); // assigned below, once handleContextAction is defined
   useEffect(() => { bulkDeleteRef.current    = handleBulkDelete;  }, [handleBulkDelete]);
   useEffect(() => { bulkArchiveRef.current   = handleBulkArchive; }, [handleBulkArchive]);
+  useEffect(() => { setMessagesReadStateRef.current = setMessagesReadState; }, [setMessagesReadState]);
   useEffect(() => { archiveVisibleMessageRef.current = archiveVisibleMessage; }, [archiveVisibleMessage]);
   useEffect(() => { scheduleDeleteRef.current = scheduleDelete;   }, [scheduleDelete]);
 
@@ -2055,33 +2057,11 @@ export default function MessageList() {
     };
 
     const onToggleRead = () => {
-      const { messages, selectedMessageId, updateMessage, decrementUnread, incrementUnread, adjustCategoryCount } = getState();
+      const { messages, selectedMessageId } = getState();
       if (!selectedMessageId) return;
       const msg = messages.find(m => m.id === selectedMessageId);
       if (!msg) return;
-      const newRead = !msg.is_read;
-      updateMessage(selectedMessageId, { is_read: newRead });
-      if (newRead) {
-        decrementUnread(msg.account_id);
-        adjustCategoryCount(msg.category, -1);
-        setPending(selectedMessageId, msg.account_id);
-        api.bulkRead([selectedMessageId], true)
-          .then(() => {
-            pendingMarkReadMap.delete(selectedMessageId);
-            completedMarkReadMap.set(selectedMessageId, msg.account_id);
-            setTimeout(() => completedMarkReadMap.delete(selectedMessageId), 10000);
-          })
-          .catch(err => {
-            console.error('markRead failed:', err);
-            pendingMarkReadMap.delete(selectedMessageId);
-          });
-      } else {
-        incrementUnread(msg.account_id);
-        adjustCategoryCount(msg.category, 1);
-        pendingMarkReadMap.delete(selectedMessageId);
-        completedMarkReadMap.delete(selectedMessageId);
-        api.bulkRead([selectedMessageId], false).catch(console.error);
-      }
+      setMessagesReadStateRef.current?.(msg, !msg.is_read);
     };
 
     const onFocusSearch = () => {

@@ -38,6 +38,16 @@ describe('native conversation 2x2 contract', () => {
     const pane = read('MessagePane.jsx');
     assert.match(pane, /if \(mode === 'conversation'\)/);
   });
+
+  it('routes the keyboard read toggle through the guarded thread mutation flow', () => {
+    const list = read('MessageList.jsx');
+    assert.match(list, /setMessagesReadStateRef\.current\?\.\(msg, !msg\.is_read\)/);
+    assert.doesNotMatch(
+      list,
+      /const onToggleRead = \(\) => \{[\s\S]*?api\.bulkRead\(\[selectedMessageId\]/,
+    );
+  });
+
   it('keeps compact native cards and delegates expanded physical-copy content to the shared renderer', () => {
     const reader = read('ConversationReader.jsx'); const item = read('ConversationMessage.jsx'); const detail = read('MessageDetailContent.jsx');
     assert.match(reader, /selectedPhysicalTarget/);
