@@ -1751,6 +1751,6 @@
     "cancel": "取消",
     "saving": "保存中…",
     "save": "保存",
-    "panel": "日历面板", "calendars": "日历", "manageSources": "管理来源", "firstDayOfWeek": "一周的第一天", "monday": "星期一", "sunday": "星期日", "sourceType": "来源类型", "sourceName": "名称", "sourceUrl": "URL", "sourceUsername": "用户名", "sourcePassword": "应用密码", "addSource": "添加来源", "syncSource": "同步", "sourceReady": "就绪", "sourceSyncing": "同步中…", "sourceSyncTimeout": "源同步超时。", "icsWebcal": "ICS / webcal", "caldav": "CalDAV", "mobileNavigation": "移动导航", "navigationTop": "顶部", "navigationBottom": "底部"
+    "panel": "日历面板", "calendars": "日历", "manageSources": "管理来源", "firstDayOfWeek": "一周的第一天", "monday": "星期一", "sunday": "星期日", "sourceType": "来源类型", "sourceName": "名称", "sourceUrl": "URL", "sourceUsername": "用户名", "sourcePassword": "应用密码", "addSource": "添加来源", "syncSource": "同步", "sourceReady": "就绪", "sourceSyncing": "同步中…", "sourceSyncTimeout": "源同步超时。", "icsWebcal": "ICS / webcal", "caldav": "CalDAV", "workDays": "工作日", "workHoursStart": "工作时间开始", "workHoursEnd": "工作时间结束", "day0": "星期日", "day1": "星期一", "day2": "星期二", "day3": "星期三", "day4": "星期四", "day5": "星期五", "day6": "星期六", "owned": "我的日历", "sourceCalendar": "来源", "calendarActions": "{{name}} 的操作", "rename": "重命名", "changeColor": "更改颜色", "deleteCalendar": "删除日历", "renamePrompt": "日历名称", "colorPrompt": "日历颜色 (#RRGGBB)", "invalidColor": "请输入六位十六进制颜色。", "confirmCalendarDelete": "删除日历 \"{{name}}\" 及其所有事件？此操作无法撤销。", "mobileNavigation": "移动导航", "navigationTop": "顶部", "navigationBottom": "底部"
   }
 }

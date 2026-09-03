@@ -476,7 +476,9 @@ const dir = dirname(fileURLToPath(import.meta.url));
 // Any unlisted pair will still fail.
 const SAME_VALUE_ALLOWED = {
   'calendar.caldav': 'any',
+  'calendar.day6': [['cs', 'pl']],
   'calendar.icsWebcal': 'any',
+  'calendar.sourceCalendar': [['en', 'fr']],
   'calendar.sourceUrl': 'any',
   // CE v2 candidate-only locale keys retained from the candidate branch.
   'admin.messageList.markReadDelaySeconds_few': 'any',
@@ -915,6 +917,10 @@ const LOCALE_SPECIFIC_KEYS = new Set(
 // found by a plain text search of the source. Add here to suppress false
 // "unused key" failures.
 const DYNAMIC_KEYS = new Set([
+  // Calendar weekday labels and work-hours copy are selected from preference values.
+  'calendar.day0', 'calendar.day1', 'calendar.day2', 'calendar.day3',
+  'calendar.day4', 'calendar.day5', 'calendar.day6', 'calendar.workDays',
+  'calendar.workHoursStart', 'calendar.workHoursEnd',
   // t(tab.labelKey) — labelKey is a string property set in the TABS array
   'admin.tabs.accounts',
   'admin.tabs.rules',
