@@ -8,6 +8,19 @@ function escapeParam(str) {
   return str.replace(/[\r\n;]/g, '');
 }
 
+function quoteParam(str) {
+  return `"${str}"`;
+}
+
+// vCard parameter values cannot contain controls, DQUOTE, or backslash escapes.
+// Keep punctuation valid inside a quoted parameter (notably ; and :) so values
+// are round-trippable rather than silently rewritten during serialization.
+export function normalizeContactDateLabel(value) {
+  if (typeof value !== 'string') return null;
+  const label = value.trim();
+  return label && !/[\p{Cc}"\\]/u.test(label) ? label : null;
+}
+
 // Escape special characters in a vCard property value.
 function escapeValue(str) {
   if (!str) return '';
@@ -59,9 +72,18 @@ function isHttpUrl(value) {
 
 function normalizeDate(value) {
   const date = unescapeValue(value).trim();
-  if (/^\d{4}-\d{2}-\d{2}$/.test(date)) return date;
+  const dashed = /^(\d{4})-(\d{2})-(\d{2})$/.exec(date);
   const compact = /^(\d{4})(\d{2})(\d{2})$/.exec(date);
-  return compact ? `${compact[1]}-${compact[2]}-${compact[3]}` : null;
+  const parts = dashed || compact;
+  if (!parts) return null;
+  const year = Number(parts[1]);
+  const month = Number(parts[2]);
+  const day = Number(parts[3]);
+  const daysInMonth = month === 2
+    ? (year % 4 === 0 && (year % 100 !== 0 || year % 400 === 0) ? 29 : 28)
+    : ([4, 6, 9, 11].includes(month) ? 30 : 31);
+  if (year < 1 || month < 1 || month > 12 || day < 1 || day > daysInMonth) return null;
+  return `${parts[1]}-${parts[2]}-${parts[3]}`;
 }
 
 // Fold a vCard line at 75 octets per RFC 6350 §3.2.
@@ -94,6 +116,46 @@ function unfold(raw) {
   return raw.replace(/\r\n[ \t]/g, '').replace(/\n[ \t]/g, '');
 }
 
+function findPropertySeparator(line) {
+  let quoted = false;
+  let escaped = false;
+  for (let index = 0; index < line.length; index++) {
+    const char = line[index];
+    if (char === '"' && !escaped) quoted = !quoted;
+    if (char === ':' && !quoted) return index;
+    escaped = char === '\\' && !escaped;
+    if (char !== '\\') escaped = false;
+  }
+  return -1;
+}
+
+function dateLabelFromParams(params, fallback) {
+  const match = /(?:^|;)(?:TYPE|LABEL)=/i.exec(params);
+  if (!match) return fallback;
+  const value = params.slice(match.index + match[0].length);
+  if (!value.startsWith('"')) return value.split(';', 1)[0];
+
+  for (let index = 1; index < value.length; index++) {
+    if (value[index] === '\\') return null;
+    if (value[index] === '"') {
+      return value.slice(index + 1).startsWith(';') || index === value.length - 1
+        ? value.slice(1, index)
+        : null;
+    }
+  }
+  return null;
+}
+
+function hasUnterminatedDateLabelParam(raw) {
+  const text = unfold(raw || '');
+  return text.split(/\r?\n/).some(line => {
+    const property = line.split(';', 1)[0].toUpperCase().split('.').at(-1);
+    if (!['BDAY', 'ANNIVERSARY', 'X-ABDATE'].includes(property)) return false;
+    const match = /(?:^|;)(?:TYPE|LABEL)="/i.exec(line);
+    return match && !line.slice(match.index + match[0].length).includes('"');
+  });
+}
+
 /**
  * Parse a vCard 3.0 string and return a plain object with the fields
  * MailFlow cares about. Unknown properties are silently ignored.
@@ -123,27 +185,51 @@ export function parseVCard(raw) {
     addresses: [],
     contactDates: [],
     invalidDates: [],
+    invalidDateLabels: [],
   };
+  if (hasUnterminatedDateLabelParam(raw)) result.invalidDateLabels.push('unterminated parameter');
 
   const addContactDate = (label, value) => {
     const normalized = normalizeDate(value);
-    const cleanLabel = unescapeValue(label || '').trim().replace(/^"|"$/g, '') || 'Other';
-    if (!normalized) return;
+    const cleanLabel = normalizeContactDateLabel(label);
+    if (!cleanLabel) {
+      result.invalidDateLabels.push(String(label || ''));
+      return;
+    }
+    if (!normalized) {
+      if (unescapeValue(value).trim()) result.invalidDates.push(unescapeValue(value).trim());
+      return;
+    }
     const key = `${cleanLabel.toLocaleLowerCase()}\u0000${normalized}`;
     if (!result.contactDates.some(date => `${date.label.toLocaleLowerCase()}\u0000${date.value}` === key)) {
       result.contactDates.push({ label: cleanLabel, value: normalized });
     }
   };
 
+  const groupedLabels = new Map();
+  for (const line of text.split(/\r?\n/)) {
+    const trimmed = line.trim();
+    const colonIdx = findPropertySeparator(trimmed);
+    if (colonIdx < 0) continue;
+    const property = trimmed.slice(0, colonIdx).split(';')[0];
+    const dotIdx = property.indexOf('.');
+    const propertyName = (dotIdx >= 0 ? property.slice(dotIdx + 1) : property).toUpperCase();
+    if (propertyName !== 'X-ABLABEL' || dotIdx < 0) continue;
+    groupedLabels.set(property.slice(0, dotIdx).toLocaleLowerCase(), unescapeValue(trimmed.slice(colonIdx + 1)).trim());
+  }
+
   for (const line of text.split(/\r?\n/)) {
     const trimmed = line.trim();
     if (!trimmed || trimmed === 'BEGIN:VCARD' || trimmed === 'END:VCARD') continue;
 
-    const colonIdx = trimmed.indexOf(':');
+    const colonIdx = findPropertySeparator(trimmed);
     if (colonIdx < 0) continue;
 
     const rawName = trimmed.slice(0, colonIdx);
     const value   = trimmed.slice(colonIdx + 1);
+    const property = rawName.split(';')[0];
+    const dotIdx = property.indexOf('.');
+    const group = dotIdx >= 0 ? property.slice(0, dotIdx).toLocaleLowerCase() : null;
 
     // Strip parameters (e.g. "EMAIL;TYPE=WORK:..." → name = "EMAIL"), then drop an
     // optional group prefix (e.g. "ITEM1.EMAIL" → "EMAIL") used by Apple/Nextcloud.
@@ -193,20 +279,23 @@ export function parseVCard(raw) {
         break;
       case 'BDAY': {
         result.birthday = result.birthday || normalizeDate(value);
-        addContactDate(params.match(/(?:TYPE|LABEL)=("[^"]+"|[^;]+)/i)?.[1] || 'Birthday', value);
+        addContactDate(dateLabelFromParams(params, 'Birthday'), value);
         break;
       }
       case 'ANNIVERSARY': {
         result.anniversary = result.anniversary || normalizeDate(value);
-        addContactDate(params.match(/(?:TYPE|LABEL)=("[^"]+"|[^;]+)/i)?.[1] || 'Anniversary', value);
+        addContactDate(dateLabelFromParams(params, 'Anniversary'), value);
         break;
       }
       case 'X-ABDATE':
-        addContactDate(params.match(/(?:TYPE|LABEL)=("[^"]+"|[^;]+)/i)?.[1] || 'Other', value);
+        addContactDate(groupedLabels.get(group) || dateLabelFromParams(params, 'Other'), value);
         break;
       case 'X-ANDROID-CUSTOM': {
         const parts = splitEscaped(value, ';').map(part => unescapeValue(part));
-        if (parts[0] === 'vnd.android.cursor.item/contact_event') addContactDate(parts[2], parts[3]);
+        if (parts[0] === 'vnd.android.cursor.item/contact_event') {
+          const dateFirst = normalizeDate(parts[1]);
+          addContactDate(dateFirst ? parts[3] : parts[2], dateFirst ? parts[1] : parts[3]);
+        }
         break;
       }
       case 'TITLE':
@@ -323,12 +412,13 @@ export function generateVCard(contact) {
     const seenDates = new Set();
     for (const date of contactDates) {
       const value = normalizeDate(date?.value);
-      const label = typeof date?.label === 'string' && date.label.trim() ? date.label.trim() : 'Other';
+      const label = normalizeContactDateLabel(date?.label);
+      if (!value || !label) continue;
       const key = `${label.toLocaleLowerCase()}\u0000${value}`;
-      if (!value || seenDates.has(key)) continue;
+      if (seenDates.has(key)) continue;
       seenDates.add(key);
       const property = label.toLocaleLowerCase() === 'birthday' ? 'BDAY' : label.toLocaleLowerCase() === 'anniversary' ? 'ANNIVERSARY' : 'X-ABDATE';
-      const encodedLabel = /[,:"]/.test(label) ? `"${escapeParam(label).replace(/"/g, '\\"')}"` : escapeParam(label);
+      const encodedLabel = /[,;:"]/.test(label) ? quoteParam(label) : escapeParam(label);
       lines.push(`${property};TYPE=${encodedLabel}:${value}`);
     }
   } else {
@@ -363,11 +453,11 @@ export function mergeVCard(raw, contact) {
   }
   const managed = new Set(['FN', 'N', 'EMAIL', 'TEL', 'ORG', 'NOTE', 'BDAY', 'ANNIVERSARY', 'X-ABDATE', 'X-ANDROID-CUSTOM']);
   const richProperties = { title: 'TITLE', role: 'ROLE', nickname: 'NICKNAME', urls: 'URL', instantMessages: 'IMPP', categories: 'CATEGORIES', addresses: 'ADR' };
-  for (const [field, property] of Object.entries(richProperties)) {
+  for (const [field, property] of Object.entries({ contactDates: 'X-ABDATE', ...richProperties })) {
     if (Object.hasOwn(contact, field)) managed.add(property);
   }
   const propertyName = line => {
-    const colon = line.indexOf(':');
+    const colon = findPropertySeparator(line);
     if (colon < 0) return '';
     const name = line.slice(0, colon).split(';', 1)[0].toUpperCase();
     return name.includes('.') ? name.slice(name.lastIndexOf('.') + 1) : name;

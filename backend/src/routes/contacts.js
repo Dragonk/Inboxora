@@ -1,7 +1,7 @@
 import { Router } from 'express';
 import { query } from '../services/db.js';
 import { requireAuth } from '../middleware/auth.js';
-import { generateVCard, mergeVCard } from '../utils/vcard.js';
+import { generateVCard, mergeVCard, normalizeContactDateLabel } from '../utils/vcard.js';
 import { chooseDefined, normalizeRichContactFields } from '../utils/contactFields.js';
 import { safeFetch } from '../services/safeFetch.js';
 import crypto from 'crypto';
@@ -23,9 +23,9 @@ function normalizeContactDates(value) {
   const seen = new Set();
   for (const entry of value) {
     if (!entry || typeof entry !== 'object' || typeof entry.label !== 'string') return undefined;
-    const label = entry.label.trim() || 'Other';
+    const label = normalizeContactDateLabel(entry.label);
     const date = normalizeContactDate(entry.value);
-    if (!date) return undefined;
+    if (!label || !date) return undefined;
     const key = `${label.toLocaleLowerCase()}\\u0000${date}`;
     if (!seen.has(key)) { seen.add(key); dates.push({ label, value: date }); }
   }
@@ -276,7 +276,7 @@ router.post('/', async (req, res) => {
   const normalizedBirthday = normalizeContactDate(birthday); const normalizedAnniversary = normalizeContactDate(anniversary);
   if (normalizedBirthday === undefined || normalizedAnniversary === undefined) return res.status(400).json({ error: 'Contact dates must use YYYY-MM-DD' });
   const normalizedContactDates = normalizeContactDates(contactDates ?? []);
-  if (normalizedContactDates === undefined) return res.status(400).json({ error: 'contactDates must be an array of labelled YYYY-MM-DD dates' });
+  if (normalizedContactDates === undefined) return res.status(400).json({ error: 'contactDates must be an array of safe labelled YYYY-MM-DD dates' });
   const storedContactDates = contactDatesWithLegacy(
     normalizedContactDates, normalizedBirthday, normalizedAnniversary, contactDates !== undefined
   );
@@ -336,7 +336,7 @@ router.patch('/:id', async (req, res) => {
   if (phones !== undefined && !Array.isArray(phones)) return res.status(400).json({ error: 'phones must be an array' });
   const normalizedBirthday = normalizeContactDate(birthday); const normalizedAnniversary = normalizeContactDate(anniversary);
   if (normalizedBirthday === undefined || normalizedAnniversary === undefined) return res.status(400).json({ error: 'Contact dates must use YYYY-MM-DD' });
-  if (contactDates !== undefined && normalizeContactDates(contactDates) === undefined) return res.status(400).json({ error: 'contactDates must be an array of labelled YYYY-MM-DD dates' });
+  if (contactDates !== undefined && normalizeContactDates(contactDates) === undefined) return res.status(400).json({ error: 'contactDates must be an array of safe labelled YYYY-MM-DD dates' });
 
   try {
     // Load current contact (with its book source to block edits to synced contacts)
@@ -376,7 +376,8 @@ router.patch('/:id', async (req, res) => {
     const newNotes     = notes        !== undefined ? notes        : c.notes;
     const newBirthday = birthday !== undefined ? normalizedBirthday : c.birthday;
     const newAnniversary = anniversary !== undefined ? normalizedAnniversary : c.anniversary;
-    const normalizedContactDates = contactDates === undefined ? c.contact_dates : normalizeContactDates(contactDates);
+    const normalizedContactDates = normalizeContactDates(contactDates === undefined ? (c.contact_dates || []) : contactDates);
+    if (normalizedContactDates === undefined) return res.status(400).json({ error: 'Stored contactDates contain unsafe labels' });
     const newContactDates = contactDatesWithLegacy(
       normalizedContactDates, newBirthday, newAnniversary, contactDates !== undefined
     );

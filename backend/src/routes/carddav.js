@@ -315,7 +315,7 @@ router.put('/:userId/:bookId/:filename', async (req, res) => {
   if (!body.trim()) return res.status(400).end();
 
   const parsed = parseVCard(body);
-  if (parsed.invalidDates.length) return res.status(400).end();
+  if (parsed.invalidDates.length || parsed.invalidDateLabels.length) return res.status(400).end();
   if (parsed.uid && parsed.uid !== uid) return res.status(409).json({ error: 'vCard UID must match the resource filename' });
   const vcard  = body; // store what the client sent verbatim
   const etag   = crypto.createHash('md5').update(vcard).digest('hex');
@@ -372,8 +372,8 @@ router.put('/:userId/:bookId/:filename', async (req, res) => {
         INSERT INTO contacts (
           address_book_id, user_id, uid, vcard, etag,
           display_name, first_name, last_name, primary_email,
-          emails, phones, organization, notes, birthday, anniversary, photo_data, is_auto
-        ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16, false)
+          emails, phones, organization, notes, birthday, anniversary, contact_dates, photo_data, is_auto
+        ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16::jsonb,$17, false)
       `, [
         bookId, userId, uid, vcard, etag,
         parsed.displayName, parsed.firstName, parsed.lastName,

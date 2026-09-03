@@ -122,3 +122,71 @@ describe('Contact REST PATCH legacy date synchronization', () => {
     expect(update[1][18]).not.toContain('1991-01-02');
   });
 });
+
+describe('Contact REST labelled date validation', () => {
+  it.each([
+    ['Family\r\nX-Evil: injected'],
+    ['Family"Other'],
+  ])('rejects unsafe labelled dates on POST before any write query: %s', async label => {
+    query.mockResolvedValueOnce({ rows: [{ id: 'user-1' }] });
+    const server = createApp().listen(0);
+    const response = await fetch(`http://127.0.0.1:${server.address().port}/api/contacts`, {
+      method: 'POST', headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ displayName: 'Ada', contactDates: [{ label, value: '2020-09-14' }] }),
+    });
+    await new Promise(resolve => server.close(resolve));
+
+    expect(response.status).toBe(400);
+    expect(await response.json()).toEqual({ error: 'contactDates must be an array of safe labelled YYYY-MM-DD dates' });
+    expect(query).toHaveBeenCalledTimes(1);
+    expect(query.mock.calls[0][0]).toContain('SELECT id FROM users');
+  });
+
+  it.each([
+    ['Family\r\nX-Evil: injected'],
+    ['Family"Other'],
+  ])('rejects unsafe labelled dates on PATCH before loading or writing: %s', async label => {
+    query.mockResolvedValueOnce({ rows: [{ id: 'user-1' }] });
+    const server = createApp().listen(0);
+    const response = await fetch(`http://127.0.0.1:${server.address().port}/api/contacts/contact-1`, {
+      method: 'PATCH', headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ contactDates: [{ label, value: '2020-09-14' }] }),
+    });
+    await new Promise(resolve => server.close(resolve));
+
+    expect(response.status).toBe(400);
+    expect(await response.json()).toEqual({ error: 'contactDates must be an array of safe labelled YYYY-MM-DD dates' });
+    expect(query).toHaveBeenCalledTimes(1);
+    expect(query.mock.calls[0][0]).toContain('SELECT id FROM users');
+  });
+
+  it('stores colon and semicolon labels exactly once and serializes them losslessly', async () => {
+    query
+      .mockResolvedValueOnce({ rows: [{ id: 'user-1' }] })
+      .mockResolvedValueOnce({ rows: [{ id: 'book-1' }] })
+      .mockResolvedValueOnce({ rows: [{ ...updatedContact, contactDates: [
+        { label: 'Family:Other', value: '2020-09-14' },
+        { label: 'Family;Other', value: '2021-05-06' },
+      ] }] })
+      .mockResolvedValueOnce({ rows: [] });
+    const server = createApp().listen(0);
+    const response = await fetch(`http://127.0.0.1:${server.address().port}/api/contacts`, {
+      method: 'POST', headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ displayName: 'Ada', contactDates: [
+        { label: 'Family:Other', value: '2020-09-14' },
+        { label: 'Family;Other', value: '2021-05-06' },
+        { label: 'Family:Other', value: '2020-09-14' },
+      ] }),
+    });
+    await new Promise(resolve => server.close(resolve));
+
+    expect(response.status).toBe(201);
+    const insert = query.mock.calls.find(([sql]) => sql.includes('INSERT INTO contacts'));
+    expect(JSON.parse(insert[1][15])).toEqual([
+      { label: 'Family:Other', value: '2020-09-14' },
+      { label: 'Family;Other', value: '2021-05-06' },
+    ]);
+    expect(insert[1][3]).toContain('X-ABDATE;TYPE="Family:Other":2020-09-14');
+    expect(insert[1][3]).toContain('X-ABDATE;TYPE="Family;Other":2021-05-06');
+  });
+});
