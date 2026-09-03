@@ -25,6 +25,7 @@ import { createLatestRequest } from '../utils/latestRequest.js';
 import { pendingMarkReadMap, completedMarkReadMap, setPending } from '../utils/pendingReads.js';
 import { queueReadStateMutation, isLatestReadStateMutation } from '../utils/readStateMutation.js';
 import { queuePerCopyMutation, isLatestPerCopyMutation, invalidatePerCopyMutation } from '../utils/perCopyMutation.js';
+import { mergeThreadCacheField } from '../utils/threadCacheState.js';
 import { applyDeleteGuard, clearDeleteGuard, clearPendingDelete, setCompletedDelete, setPendingDelete, threadDeleteGuardKey } from '../utils/pendingDeletes.js';
 import {
   archiveInChunks,
@@ -769,12 +770,7 @@ export default function MessageList() {
     const tid = message.thread_id || message.id;
     const cached = useStore.getState().threadMessages[tid];
     if (cached) {
-      const current = useStore.getState().messages.find(msg => String(msg.id) === String(message.id));
-      setThreadMessages(tid, cached.map(msg => ({
-        ...msg,
-        is_read: read,
-        ...(current && { is_starred: current.is_starred }),
-      })));
+      setThreadMessages(tid, mergeThreadCacheField(cached, 'is_read', read));
     }
   }, [setThreadMessages]);
 
@@ -782,12 +778,7 @@ export default function MessageList() {
     const tid = message.thread_id || message.id;
     const cached = useStore.getState().threadMessages[tid];
     if (cached) {
-      const current = useStore.getState().messages.find(msg => String(msg.id) === String(message.id));
-      setThreadMessages(tid, cached.map(msg => ({
-        ...msg,
-        is_starred: starred,
-        ...(current && { is_read: current.is_read }),
-      })));
+      setThreadMessages(tid, mergeThreadCacheField(cached, 'is_starred', starred));
     }
   }, [setThreadMessages]);
 
