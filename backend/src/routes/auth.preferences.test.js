@@ -142,6 +142,46 @@ describe('PATCH /auth/preferences calendar preferences', () => {
     expect(res.json).toHaveBeenCalledWith({ ok: true });
   });
 
+  it('rejects equal and reversed effective working-hour ranges without querying', async () => {
+    const res = { status: vi.fn().mockReturnThis(), json: vi.fn() };
+    await patchPreferences({ session: { userId: 'user-1' }, body: { calendarWorkHoursStart: '17:00', calendarWorkHoursEnd: '09:00' } }, res);
+    expect(res.status).toHaveBeenCalledWith(400);
+    expect(query).not.toHaveBeenCalled();
+
+    res.status.mockClear(); res.json.mockClear();
+    await patchPreferences({ session: { userId: 'user-1' }, body: { calendarWorkHoursStart: '09:00', calendarWorkHoursEnd: '09:00' } }, res);
+    expect(res.status).toHaveBeenCalledWith(400);
+    expect(query).not.toHaveBeenCalled();
+  });
+
+  it('uses the persisted counterpart for a partial work-hour update', async () => {
+    query.mockResolvedValueOnce({ rows: [{ preferences: { calendarWorkHoursStart: '08:00', calendarWorkHoursEnd: '17:00' } }] }).mockResolvedValueOnce({ rows: [] });
+    const res = { status: vi.fn().mockReturnThis(), json: vi.fn() };
+    await patchPreferences({ session: { userId: 'user-1' }, body: { calendarWorkHoursStart: '18:00' } }, res);
+    expect(res.status).toHaveBeenCalledWith(400);
+    expect(query).toHaveBeenCalledTimes(1);
+  });
+
+  it('persists a valid partial update with its persisted counterpart', async () => {
+    query.mockResolvedValueOnce({ rows: [{ preferences: { calendarWorkHoursStart: '08:00', calendarWorkHoursEnd: '17:00' } }] }).mockResolvedValueOnce({ rows: [] });
+    const res = { status: vi.fn().mockReturnThis(), json: vi.fn() };
+    await patchPreferences({ session: { userId: 'user-1' }, body: { calendarWorkHoursEnd: '18:00' } }, res);
+    const [, params] = query.mock.calls[1];
+    expect(params[46]).toBe('08:00');
+    expect(params[47]).toBe('18:00');
+    expect(res.json).toHaveBeenCalledWith({ ok: true });
+  });
+
+  it('repairs a legacy invalid pair during a normal one-control update', async () => {
+    query.mockResolvedValueOnce({ rows: [{ preferences: { calendarWorkHoursStart: '17:00', calendarWorkHoursEnd: '09:00' } }] }).mockResolvedValueOnce({ rows: [] });
+    const res = { status: vi.fn().mockReturnThis(), json: vi.fn() };
+    await patchPreferences({ session: { userId: 'user-1' }, body: { calendarWorkHoursEnd: '18:00' } }, res);
+    const [, params] = query.mock.calls[1];
+    expect(params[46]).toBe('09:00');
+    expect(params[47]).toBe('18:00');
+    expect(res.json).toHaveBeenCalledWith({ ok: true });
+  });
+
   it('rejects an unsupported first day of week without querying', async () => {
     const req = { session: { userId: 'user-1' }, body: { calendarWeekStartsOn: 4 } };
     const res = { status: vi.fn().mockReturnThis(), json: vi.fn() };

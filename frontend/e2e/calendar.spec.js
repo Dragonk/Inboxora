@@ -168,6 +168,21 @@ test('week and work-week render timed overlap geometry and work-hour boundaries'
   await page.screenshot({ path: 'artifacts/calendar-workweek-time-grid-desktop.png', fullPage: true });
 });
 
+test('work-week entry re-anchors time-grid scrolling while same-view navigation preserves it', async ({ page, fixtureApi }, testInfo) => {
+  test.skip(testInfo.project.name !== 'chromium-desktop', 'desktop time-grid scroll policy');
+  await fixtureApi;
+  await page.goto('/?list=0&reader=0');
+  await page.getByTestId('calendar-nav-primary').click();
+  await page.getByTestId('calendar-view-week').click();
+  const scroller = page.getByTestId('calendar-time-grid-scroll');
+  await scroller.evaluate(element => { element.scrollTop = 777; });
+  await page.getByTestId('calendar-view-workweek').click();
+  await expect.poll(() => scroller.evaluate(element => element.scrollTop)).toBe(420);
+  await scroller.evaluate(element => { element.scrollTop = 555; });
+  await page.getByRole('button', { name: 'Następny' }).click();
+  await expect.poll(() => scroller.evaluate(element => element.scrollTop)).toBe(555);
+});
+
 test('remote source panel surfaces listSources failures', async ({ page, fixtureApi }, testInfo) => {
   test.skip(testInfo.project.name !== 'chromium-desktop', 'desktop source management contract');
   await fixtureApi;

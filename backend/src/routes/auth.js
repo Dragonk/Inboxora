@@ -834,11 +834,36 @@ export async function patchPreferences(req, res) {
     return res.status(400).json({ error: 'calendarWorkDays must contain unique weekday numbers from 0 to 6' });
   }
   const validWorkTime = value => typeof value === 'string' && /^(?:[01]\d|2[0-3]):[0-5]\d$/.test(value);
+  const workTimeMinutes = value => {
+    const [hours, minutes] = value.split(':').map(Number);
+    return hours * 60 + minutes;
+  };
+  const validWorkRange = (start, end) => validWorkTime(start) && validWorkTime(end) && workTimeMinutes(start) < workTimeMinutes(end);
   if (calendarWorkHoursStart !== undefined && !validWorkTime(calendarWorkHoursStart)) {
     return res.status(400).json({ error: 'calendarWorkHoursStart must be a valid HH:mm time' });
   }
   if (calendarWorkHoursEnd !== undefined && !validWorkTime(calendarWorkHoursEnd)) {
     return res.status(400).json({ error: 'calendarWorkHoursEnd must be a valid HH:mm time' });
+  }
+  let persistedWorkHoursStart = calendarWorkHoursStart;
+  let persistedWorkHoursEnd = calendarWorkHoursEnd;
+  if (calendarWorkHoursStart !== undefined || calendarWorkHoursEnd !== undefined) {
+    if (calendarWorkHoursStart !== undefined && calendarWorkHoursEnd !== undefined) {
+      if (!validWorkRange(calendarWorkHoursStart, calendarWorkHoursEnd)) {
+        return res.status(400).json({ error: 'calendar work hours must be a strictly increasing same-day range' });
+      }
+    } else {
+      const currentPreferences = (await query('SELECT preferences FROM users WHERE id = $1', [req.session.userId])).rows[0]?.preferences || {};
+      const currentStart = currentPreferences.calendarWorkHoursStart;
+      const currentEnd = currentPreferences.calendarWorkHoursEnd;
+      const baseStart = validWorkRange(currentStart, currentEnd) ? currentStart : '09:00';
+      const baseEnd = validWorkRange(currentStart, currentEnd) ? currentEnd : '17:00';
+      persistedWorkHoursStart = calendarWorkHoursStart ?? baseStart;
+      persistedWorkHoursEnd = calendarWorkHoursEnd ?? baseEnd;
+      if (!validWorkRange(persistedWorkHoursStart, persistedWorkHoursEnd)) {
+        return res.status(400).json({ error: 'calendar work hours must be a strictly increasing same-day range' });
+      }
+    }
   }
   const senderFaviconsVal = hasSenderFavicons ? senderFavicons : null;
   const visibleCalendarIdsJson = visibleCalendarIds !== undefined ? JSON.stringify([...new Set(visibleCalendarIds)]) : null;
@@ -905,7 +930,7 @@ export async function patchPreferences(req, res) {
       showMessagePreviews ?? null, conversation_list_view_enabled ?? null, conversation_reader_view_enabled ?? null,
       calendarWeekStartsOn ?? null, mobileNavigationPosition ?? null, visibleCalendarIdsJson,
       calendarWorkDays !== undefined ? JSON.stringify(calendarWorkDays) : null,
-      calendarWorkHoursStart ?? null, calendarWorkHoursEnd ?? null]);
+      persistedWorkHoursStart ?? null, persistedWorkHoursEnd ?? null]);
 
   if (syncInterval != null) {
     const ms = parseInt(syncInterval) * 1000;

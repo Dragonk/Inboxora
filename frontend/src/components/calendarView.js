@@ -94,7 +94,7 @@ export function eventsForDay(events, day) {
       const end = String(event.ends_at ?? event.endsAt ?? '').slice(0, 10);
       return start <= dayKey && dayKey < end;
     }
-    return new Date(event.starts_at) < dayEnd && new Date(event.ends_at) > dayStart;
+    return parseEventDate(event.starts_at ?? event.startsAt) < dayEnd && parseEventDate(event.ends_at ?? event.endsAt) > dayStart;
   });
 }
 
@@ -104,8 +104,12 @@ function localDayStart(day) {
 
 function parseEventDate(value) {
   const text = String(value ?? '');
-  const match = text.match(/^(\d{4})-(\d{2})-(\d{2})T24:00(?::00(?:\.000)?)?(?:Z)?$/);
-  return match ? new Date(Number(match[1]), Number(match[2]) - 1, Number(match[3]) + 1) : new Date(value);
+  const match = text.match(/^(\d{4})-(\d{2})-(\d{2})T24:00(?::00(\.\d+)?)?(Z|[+-]\d{2}:\d{2})?$/);
+  if (!match) return new Date(value);
+  const [, year, month, day, fraction = '', timezone] = match;
+  if (!timezone) return new Date(Number(year), Number(month) - 1, Number(day) + 1);
+  const nextDay = new Date(Date.UTC(Number(year), Number(month) - 1, Number(day) + 1));
+  return new Date(`${nextDay.toISOString().slice(0, 10)}T00:00${fraction ? `:00${fraction}` : ''}${timezone}`);
 }
 
 export function eventGeometryForDay(event, day) {

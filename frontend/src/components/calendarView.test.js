@@ -55,7 +55,9 @@ describe('calendar desktop helpers', () => {
       globalThis.process.env.TZ = originalTimeZone;
     }
   });
-  it('includes events overlapping a day, including multi-day events', () => {
-    assert.equal(eventsForDay([{ starts_at: '2026-09-10T22:00:00.000Z', ends_at: '2026-09-11T02:00:00.000Z' }], new Date(2026, 8, 11)).length, 1);
+  it('includes local multi-day events in each overlapped day', () => {
+    const event = { starts_at: '2026-09-10T22:00:00', ends_at: '2026-09-11T02:00:00' };
+    assert.equal(eventsForDay([event], new Date(2026, 8, 10)).length, 1);
+    assert.equal(eventsForDay([event], new Date(2026, 8, 11)).length, 1);
   });
 });

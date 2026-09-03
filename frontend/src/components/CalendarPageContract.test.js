@@ -57,6 +57,13 @@ test('calendar events expose context-menu invocation and mobile action affordanc
   assert.match(source, /minWidth: 44/);
 });
 
+test('time grid re-anchors on a view change without resetting same-view manual scrolling', async () => {
+  const source = await readFile(calendarPath, 'utf8');
+  assert.match(source, /<TimeGrid[^>]*view=\{view\}/);
+  assert.match(source, /function TimeGrid\([^)]*view[^)]*\)/);
+  assert.match(source, /\}, \[calendarWorkHoursEnd, calendarWorkHoursStart, view\]\)/);
+});
+
 test('calendar renders one event dialog for an active form', async () => {
   const source = await readFile(calendarPath, 'utf8');
   assert.equal(source.match(/\{form && <EventDialog/g)?.length, 1);

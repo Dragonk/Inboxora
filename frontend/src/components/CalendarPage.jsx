@@ -139,7 +139,7 @@ export default function CalendarPage({ isActive = true }) {
 
 function CalendarGrid({ days, events, view, anchor, isMobile, locale, openCreate, openEdit, openContextMenu, t, calendarWorkHoursStart, calendarWorkHoursEnd }) {
   const month = view === 'month';
-  if (!month) return <TimeGrid days={days} events={events} isMobile={isMobile} locale={locale} openCreate={openCreate} openEdit={openEdit} openContextMenu={openContextMenu} t={t} calendarWorkHoursStart={calendarWorkHoursStart} calendarWorkHoursEnd={calendarWorkHoursEnd} />;
+  if (!month) return <TimeGrid days={days} events={events} view={view} isMobile={isMobile} locale={locale} openCreate={openCreate} openEdit={openEdit} openContextMenu={openContextMenu} t={t} calendarWorkHoursStart={calendarWorkHoursStart} calendarWorkHoursEnd={calendarWorkHoursEnd} />;
   return <div data-testid="calendar-grid" style={{ ...calendarSurface, flex: 1, minWidth: 0 }}>
     <div data-testid={month ? 'calendar-month-grid' : undefined} style={{ ...dayGrid, gridTemplateColumns: `repeat(${month ? 7 : days.length}, minmax(${isMobile && !month ? 112 : 0}px, 1fr))` }}>
       {days.slice(0, month ? 7 : days.length).map(day => <div key={`header-${day.toISOString()}`} style={{ ...dayHeader, ...(isToday(day) ? todayHeader : {}) }}><span data-testid="calendar-weekday">{day.toLocaleDateString(locale, { weekday: 'short' })}</span><strong>{day.getDate()}</strong></div>)}
@@ -171,11 +171,11 @@ function timeToMinutes(value) {
   return (Number.isFinite(hours) ? hours : 9) * 60 + (Number.isFinite(minutes) ? minutes : 0);
 }
 
-function TimeGrid({ days, events, isMobile, locale, openCreate, openEdit, openContextMenu, t, calendarWorkHoursStart, calendarWorkHoursEnd }) {
+function TimeGrid({ days, events, view, isMobile, locale, openCreate, openEdit, openContextMenu, t, calendarWorkHoursStart, calendarWorkHoursEnd }) {
   const scroller = useRef(null);
   useEffect(() => {
     if (scroller.current) scroller.current.scrollTop = Math.max(0, Math.min(timeToMinutes(calendarWorkHoursStart), timeToMinutes(calendarWorkHoursEnd)) - 120);
-  }, [calendarWorkHoursEnd, calendarWorkHoursStart]);
+  }, [calendarWorkHoursEnd, calendarWorkHoursStart, view]);
   const columns = `72px repeat(${days.length}, minmax(${isMobile ? 150 : 0}px, 1fr))`;
   const workHours = workHoursGeometry(calendarWorkHoursStart, calendarWorkHoursEnd);
   const allDayEvents = days.map(day => eventsForDay(events, day).filter(event => event.all_day || event.allDay));
