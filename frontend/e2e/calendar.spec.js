@@ -435,9 +435,17 @@ test('mobile calendar fits the full localized week and keeps every dock control 
 });
 
 for (const theme of [undefined, 'dark']) {
-test(`Contacts destructive controls expose responsive danger states${theme ? ` in ${theme} theme` : ''}`, async ({ page, fixtureApi }) => {
+test(`Contacts destructive controls expose responsive danger states${theme ? ` in ${theme} theme` : ' with custom CSS'}`, async ({ page, fixtureApi }) => {
   if (theme) page.__themeOverride = theme;
   await fixtureApi;
+  if (!theme) {
+    await page.route('**/api/auth/preferences**', route => route.fulfill({ json: {
+      language: 'pl', theme: 'light', threadedView: true,
+      conversation_list_view_enabled: true, conversation_reader_view_enabled: true,
+      block_remote_images: true,
+      customCss: ':root { --contacts-danger-disabled-bg: transparent; }',
+    } }));
+  }
   let releaseDelete;
   let deleteCount = 0;
   await page.route('**/api/contacts**', async route => {
@@ -497,10 +505,19 @@ test(`Contacts destructive controls expose responsive danger states${theme ? ` i
   await expect(confirmButton).toBeDisabled();
   const disabledState = await confirmButton.evaluate(button => {
     const style = getComputedStyle(button);
-    return { background: style.backgroundColor, border: style.borderColor, cursor: style.cursor, opacity: style.opacity };
+    return {
+      background: style.backgroundColor,
+      border: style.borderColor,
+      borderWidth: style.borderTopWidth,
+      color: style.color,
+      cursor: style.cursor,
+      opacity: style.opacity,
+    };
   });
   expect(disabledState.background).not.toBe('rgba(0, 0, 0, 0)');
   expect(disabledState.border).not.toBe('');
+  expect(disabledState.borderWidth).toBe('1px');
+  expect(disabledState.color).not.toBe('rgba(0, 0, 0, 0)');
   expect(disabledState.cursor).toBe('not-allowed');
   expect(Number(disabledState.opacity)).toBeLessThan(1);
   expect(await confirmButton.getAttribute('aria-label')).toBeNull();

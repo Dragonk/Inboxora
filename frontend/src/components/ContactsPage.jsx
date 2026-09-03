@@ -1007,10 +1007,10 @@ function ActionBtn({ children, onClick, danger, disabled }) {
       disabled={disabled}
       className={`btn-press${danger ? ' contacts-danger-btn' : ''}`}
       style={{
-        background: danger ? 'transparent' : 'var(--bg-tertiary)',
-        border: danger ? '1px solid var(--red-border, rgba(248,113,113,0.4))' : '1px solid var(--border)',
+        background: danger ? (disabled ? 'rgba(148, 163, 184, 0.16)' : 'transparent') : 'var(--bg-tertiary)',
+        border: danger ? `1px solid ${disabled ? 'rgba(148, 163, 184, 0.4)' : 'var(--red-border, rgba(248,113,113,0.4))'}` : '1px solid var(--border)',
         borderRadius: 7,
-        color: danger ? 'var(--red, #f87171)' : 'var(--text-primary)',
+        color: danger ? (disabled ? '#94a3b8' : 'var(--red, #f87171)') : 'var(--text-primary)',
         fontSize: 12, fontWeight: 500,
         padding: '6px 12px', cursor: disabled ? 'not-allowed' : 'pointer',
         opacity: disabled ? 0.6 : 1,
