@@ -277,7 +277,9 @@ test('mobile calendar fits the full localized week and keeps every dock control 
   expect(interactiveControls.every(Boolean)).toBe(true);
 });
 
-test('Contacts destructive controls expose responsive danger states', async ({ page, fixtureApi }) => {
+for (const theme of [undefined, 'dark']) {
+test(`Contacts destructive controls expose responsive danger states${theme ? ` in ${theme} theme` : ''}`, async ({ page, fixtureApi }) => {
+  if (theme) page.__themeOverride = theme;
   await fixtureApi;
   let releaseDelete;
   let deleteCount = 0;
@@ -338,16 +340,20 @@ test('Contacts destructive controls expose responsive danger states', async ({ p
   await expect(confirmButton).toBeDisabled();
   const disabledState = await confirmButton.evaluate(button => {
     const style = getComputedStyle(button);
-    return { background: style.backgroundColor, cursor: style.cursor, opacity: style.opacity };
+    return { background: style.backgroundColor, border: style.borderColor, cursor: style.cursor, opacity: style.opacity };
   });
   expect(disabledState.background).not.toBe('rgba(0, 0, 0, 0)');
+  expect(disabledState.border).not.toBe('');
   expect(disabledState.cursor).toBe('not-allowed');
   expect(Number(disabledState.opacity)).toBeLessThan(1);
   expect(await confirmButton.getAttribute('aria-label')).toBeNull();
   await expect.poll(() => deleteCount).toBe(1);
+  await confirmButton.click({ force: true });
+  expect(deleteCount).toBe(1);
   releaseDelete();
   await expect(page.locator('.contacts-danger-btn').filter({ hasText: 'Usuń' })).toHaveCount(0);
 });
+}
 
 for (const theme of ['win9x', 'winxp']) {
   test(`Contacts danger contract survives ${theme} theme`, async ({ page, fixtureApi }, testInfo) => {
