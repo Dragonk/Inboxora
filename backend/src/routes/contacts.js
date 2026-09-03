@@ -17,6 +17,33 @@ function normalizeContactDate(value) {
   return date.getUTCFullYear() === year && date.getUTCMonth() === month - 1 && date.getUTCDate() === day ? value : undefined;
 }
 
+function normalizeContactDates(value) {
+  if (!Array.isArray(value)) return undefined;
+  const dates = [];
+  const seen = new Set();
+  for (const entry of value) {
+    if (!entry || typeof entry !== 'object' || typeof entry.label !== 'string') return undefined;
+    const label = entry.label.trim() || 'Other';
+    const date = normalizeContactDate(entry.value);
+    if (!date) return undefined;
+    const key = `${label.toLocaleLowerCase()}\\u0000${date}`;
+    if (!seen.has(key)) { seen.add(key); dates.push({ label, value: date }); }
+  }
+  return dates;
+}
+
+function contactDatesWithLegacy(contactDates, birthday, anniversary, authoritative = false) {
+  const dates = (Array.isArray(contactDates) ? contactDates : [])
+    .filter(({ label }) => authoritative || !['birthday', 'anniversary'].includes(label.toLocaleLowerCase()))
+    .map(({ label, value }) => ({ label, value }));
+  if (authoritative) return dates;
+  const seen = new Set(dates.map(({ label, value }) => `${label.toLocaleLowerCase()}\\u0000${value}`));
+  for (const [label, value] of [['Birthday', birthday], ['Anniversary', anniversary]]) {
+    if (value && !seen.has(`${label.toLocaleLowerCase()}\\u0000${value}`)) dates.push({ label, value });
+  }
+  return dates;
+}
+
 // In-memory cache for Gravatar lookups (hash -> { buf, type } hit or { miss:true }).
 // Bounded + TTL'd so we don't re-hit Gravatar for every list render and so the number of
 // third-party requests stays minimal (a privacy consideration — see the /gravatar route).
@@ -88,7 +115,7 @@ router.get('/', async (req, res) => {
       SELECT
         c.id, c.uid, c.display_name, c.first_name, c.last_name,
         c.primary_email, c.emails, c.phones, c.organization,
-        c.notes, c.birthday, c.anniversary, c.title, c.role, c.nickname,
+        c.notes, c.birthday, c.anniversary, c.contact_dates AS "contactDates", c.title, c.role, c.nickname,
         c.urls, c.addresses, c.instant_messages AS "instantMessages", c.categories,
         c.is_auto, c.send_count, c.last_sent,
         c.etag, c.created_at, c.updated_at,
@@ -214,7 +241,7 @@ router.get('/:id', async (req, res) => {
     const result = await query(
       `SELECT c.id, c.uid, c.display_name, c.first_name, c.last_name,
               c.primary_email, c.emails, c.phones, c.organization,
-              c.notes, c.birthday, c.anniversary, c.title, c.role, c.nickname,
+              c.notes, c.birthday, c.anniversary, c.contact_dates AS "contactDates", c.title, c.role, c.nickname,
               c.urls, c.addresses, c.instant_messages AS "instantMessages", c.categories,
               c.photo_data, c.is_auto, c.send_count, c.last_sent,
               c.etag, c.vcard, c.created_at, c.updated_at,
@@ -238,7 +265,7 @@ router.post('/', async (req, res) => {
   const {
     displayName, firstName, lastName,
     emails = [], phones = [],
-    organization, notes, birthday, anniversary,
+    organization, notes, birthday, anniversary, contactDates,
     title, role, nickname, urls = [], instantMessages = [], categories = [], addresses = [],
   } = req.body || {};
 
@@ -248,6 +275,11 @@ router.post('/', async (req, res) => {
   if (!rich) return res.status(400).json({ error: 'Rich contact fields are malformed' });
   const normalizedBirthday = normalizeContactDate(birthday); const normalizedAnniversary = normalizeContactDate(anniversary);
   if (normalizedBirthday === undefined || normalizedAnniversary === undefined) return res.status(400).json({ error: 'Contact dates must use YYYY-MM-DD' });
+  const normalizedContactDates = normalizeContactDates(contactDates ?? []);
+  if (normalizedContactDates === undefined) return res.status(400).json({ error: 'contactDates must be an array of labelled YYYY-MM-DD dates' });
+  const storedContactDates = contactDatesWithLegacy(
+    normalizedContactDates, normalizedBirthday, normalizedAnniversary, contactDates !== undefined
+  );
 
   const primaryEmail = emails[0]?.value
     ? emails[0].value.toLowerCase().trim()
@@ -260,25 +292,25 @@ router.post('/', async (req, res) => {
   try {
     const addressBookId = await defaultAddressBook(userId);
     const uid = crypto.randomUUID();
-    const vcard = generateVCard({ uid, displayName, firstName, lastName, emails, phones, organization, notes, birthday: normalizedBirthday, anniversary: normalizedAnniversary, ...rich });
+    const vcard = generateVCard({ uid, displayName, firstName, lastName, emails, phones, organization, notes, birthday: normalizedBirthday, anniversary: normalizedAnniversary, contactDates: storedContactDates, ...rich });
     const etag = crypto.createHash('md5').update(vcard).digest('hex');
 
     const result = await query(`
       INSERT INTO contacts (
         address_book_id, user_id, uid, vcard, etag,
         display_name, first_name, last_name, primary_email,
-        emails, phones, organization, notes, birthday, anniversary,
+        emails, phones, organization, notes, birthday, anniversary, contact_dates,
         title, role, nickname, urls, instant_messages, categories, addresses, is_auto
-      ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22, false)
+      ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17::jsonb,$18,$19,$20,$21,$22,$23, false)
       RETURNING id, uid, display_name, first_name, last_name,
-                primary_email, emails, phones, organization, notes, birthday, anniversary,
+                primary_email, emails, phones, organization, notes, birthday, anniversary, contact_dates AS "contactDates",
                 title, role, nickname, urls, addresses, instant_messages AS "instantMessages", categories,
                 is_auto, send_count, last_sent, etag, created_at, updated_at
     `, [
       addressBookId, userId, uid, vcard, etag,
       displayName || null, firstName || null, lastName || null, primaryEmail,
       JSON.stringify(emails), JSON.stringify(phones),
-      organization || null, notes || null, normalizedBirthday, normalizedAnniversary,
+      organization || null, notes || null, normalizedBirthday, normalizedAnniversary, JSON.stringify(storedContactDates),
       rich.title, rich.role, rich.nickname, JSON.stringify(rich.urls), JSON.stringify(rich.instantMessages), JSON.stringify(rich.categories), JSON.stringify(rich.addresses),
     ]);
 
@@ -296,7 +328,7 @@ router.patch('/:id', async (req, res) => {
   const userId = req.session.userId;
   const {
     displayName, firstName, lastName,
-    emails, phones, organization, notes, birthday, anniversary,
+    emails, phones, organization, notes, birthday, anniversary, contactDates,
     title, role, nickname, urls, instantMessages, categories, addresses,
   } = req.body || {};
 
@@ -304,6 +336,7 @@ router.patch('/:id', async (req, res) => {
   if (phones !== undefined && !Array.isArray(phones)) return res.status(400).json({ error: 'phones must be an array' });
   const normalizedBirthday = normalizeContactDate(birthday); const normalizedAnniversary = normalizeContactDate(anniversary);
   if (normalizedBirthday === undefined || normalizedAnniversary === undefined) return res.status(400).json({ error: 'Contact dates must use YYYY-MM-DD' });
+  if (contactDates !== undefined && normalizeContactDates(contactDates) === undefined) return res.status(400).json({ error: 'contactDates must be an array of labelled YYYY-MM-DD dates' });
 
   try {
     // Load current contact (with its book source to block edits to synced contacts)
@@ -343,6 +376,10 @@ router.patch('/:id', async (req, res) => {
     const newNotes     = notes        !== undefined ? notes        : c.notes;
     const newBirthday = birthday !== undefined ? normalizedBirthday : c.birthday;
     const newAnniversary = anniversary !== undefined ? normalizedAnniversary : c.anniversary;
+    const normalizedContactDates = contactDates === undefined ? c.contact_dates : normalizeContactDates(contactDates);
+    const newContactDates = contactDatesWithLegacy(
+      normalizedContactDates, newBirthday, newAnniversary, contactDates !== undefined
+    );
     const newPrimary   = emails === undefined
       ? c.primary_email
       : (newEmails[0]?.value ? newEmails[0].value.toLowerCase().trim() : null);
@@ -358,6 +395,7 @@ router.patch('/:id', async (req, res) => {
       notes: newNotes,
       birthday: newBirthday,
       anniversary: newAnniversary,
+      contactDates: newContactDates,
       ...rich,
     };
     const vcard = c.vcard ? mergeVCard(c.vcard, contactVCard) : generateVCard(contactVCard);
@@ -367,20 +405,20 @@ router.patch('/:id', async (req, res) => {
       UPDATE contacts SET
         display_name = $1, first_name = $2, last_name = $3,
         primary_email = $4, emails = $5, phones = $6,
-        organization = $7, notes = $8, birthday = $9, anniversary = $10,
-        title = $11, role = $12, nickname = $13, urls = $14, instant_messages = $15, categories = $16, addresses = $17,
-        vcard = $18, etag = $19, updated_at = NOW(),
+        organization = $7, notes = $8, birthday = $9, anniversary = $10, contact_dates = $11::jsonb,
+        title = $12, role = $13, nickname = $14, urls = $15, instant_messages = $16, categories = $17, addresses = $18,
+        vcard = $19, etag = $20, updated_at = NOW(),
         is_auto = false
-      WHERE id = $20 AND user_id = $21
+      WHERE id = $21 AND user_id = $22
       RETURNING id, uid, display_name, first_name, last_name,
-                primary_email, emails, phones, organization, notes, birthday, anniversary,
+                primary_email, emails, phones, organization, notes, birthday, anniversary, contact_dates AS "contactDates",
                 title, role, nickname, urls, addresses, instant_messages AS "instantMessages", categories,
                 is_auto, send_count, last_sent, etag, created_at, updated_at
     `, [
       newDisplay || null, newFirst || null, newLast || null,
       newPrimary,
       JSON.stringify(newEmails), JSON.stringify(newPhones),
-      newOrg || null, newNotes || null, newBirthday, newAnniversary,
+      newOrg || null, newNotes || null, newBirthday, newAnniversary, JSON.stringify(newContactDates),
       rich.title, rich.role, rich.nickname, JSON.stringify(rich.urls), JSON.stringify(rich.instantMessages), JSON.stringify(rich.categories), JSON.stringify(rich.addresses),
       vcard, etag,
       req.params.id, userId,
