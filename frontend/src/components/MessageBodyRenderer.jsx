@@ -39,6 +39,7 @@ export default function MessageBodyRenderer({ html = '', text = '', remoteImages
     if (!iframe || !srcDoc) return;
 
     let initialLayoutReported = false;
+    let initialLayoutFrame = null;
     const measure = () => {
       try {
         const doc = iframe.contentDocument;
@@ -52,11 +53,16 @@ export default function MessageBodyRenderer({ html = '', text = '', remoteImages
         iframe.style.height = contentHeight + 'px';
         onHeightChange?.(contentHeight);
         if (!initialLayoutReported) {
-          initialLayoutReported = true;
           // The iframe height participates in its parent reader's scroll range on
-          // the following paint. Report readiness then, once, not on later observer
-          // measurements from images or quote interactions.
-          requestAnimationFrame(() => onInitialLayoutReady?.(contentHeight));
+          // the following paint. Wait an additional frame so the parent card's
+          // scrollHeight reflects that committed height before final alignment.
+          if (initialLayoutFrame) cancelAnimationFrame(initialLayoutFrame);
+          initialLayoutFrame = requestAnimationFrame(() => {
+            initialLayoutFrame = requestAnimationFrame(() => {
+              initialLayoutReported = true;
+              onInitialLayoutReady?.(contentHeight);
+            });
+          });
         }
       } catch {
         // Cross-origin or not yet loaded — leave default height.
@@ -170,6 +176,7 @@ export default function MessageBodyRenderer({ html = '', text = '', remoteImages
     if (iframe.contentDocument?.readyState === 'complete') onLoaded();
     return () => {
       cleanup?.();
+      if (initialLayoutFrame) cancelAnimationFrame(initialLayoutFrame);
       iframe.removeEventListener('load', onLoaded);
     };
   }, [srcDoc, remoteImages, quoteFolding, showQuotedTextLabel, hideQuotedTextLabel, onQuoteDetected, onHeightChange, onInitialLayoutReady, onLoad, onContextMenu, iframeRef]);
