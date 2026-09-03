@@ -640,15 +640,16 @@ test.describe('reader target navigation follow-up', () => {
       return { reader, target, anchor, header };
     };
     const short = await select('conversation-gmail-copy-10', 'short', 10);
+    await expect(short.target.locator('iframe').contentFrame().locator('[data-testid="target-body"]')).toBeVisible();
     // The initial iframe paint and the parent's final scroll-range commit are
     // separate layout passes. Wait for the settled terminal geometry instead of
     // sampling the transient placeholder range.
     await expect.poll(() => short.reader.evaluate(element => Math.abs(
       element.scrollTop - (element.scrollHeight - element.clientHeight),
     ))).toBeLessThanOrEqual(1);
-    await expect(short.target.locator('iframe').contentFrame().locator('[data-testid="target-body"]')).toBeVisible();
 
     const long = await select('conversation-gmail-copy-10', 'long', 10);
+    await expect(long.target.locator('iframe').contentFrame().locator('[data-testid="target-body"]')).toBeVisible();
     await expect.poll(() => long.anchor.evaluate(element => {
       const reader = element.closest('section');
       return element.getBoundingClientRect().top - reader.getBoundingClientRect().top;
