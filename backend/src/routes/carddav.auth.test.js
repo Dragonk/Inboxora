@@ -122,4 +122,54 @@ describe('CardDAV authentication', () => {
     expect(params).toContain('1990-01-02');
     expect(params).toContain('2020-09-14');
   });
+
+  it('rejects an impossible BDAY before querying the address book', async () => {
+    authenticateDavCredential.mockResolvedValue({ userId: 'user-1', credentialId: 'credential-1' });
+
+    const response = await fetch(`${base}/carddav/user-1/book-1/contact-1.vcf`, {
+      method: 'PUT',
+      headers: {
+        authorization: basic('sam@example.test', 'dav-password'),
+        'content-type': 'text/vcard',
+      },
+      body: 'BEGIN:VCARD\r\nVERSION:3.0\r\nFN:Ada\r\nBDAY:2020-02-30\r\nEND:VCARD\r\n',
+    });
+
+    expect(response.status).toBe(400);
+    expect(query).not.toHaveBeenCalled();
+  });
+
+  it('persists valid Android labelled dates on a local CardDAV write', async () => {
+    authenticateDavCredential.mockResolvedValue({ userId: 'user-1', credentialId: 'credential-1' });
+    query
+      .mockResolvedValueOnce({ rows: [{ id: 'book-1', source: 'local' }] })
+      .mockResolvedValueOnce({ rows: [] })
+      .mockResolvedValueOnce({ rows: [] });
+
+    const response = await fetch(`${base}/carddav/user-1/book-1/contact-1.vcf`, {
+      method: 'PUT',
+      headers: {
+        authorization: basic('sam@example.test', 'dav-password'),
+        'content-type': 'text/vcard',
+      },
+      body: 'BEGIN:VCARD\r\nVERSION:3.0\r\nFN:Ada\r\nX-ANDROID-CUSTOM:vnd.android.cursor.item/contact_event;2019-10-19;0;Rencontre;\r\nEND:VCARD\r\n',
+    });
+
+    expect(response.status).toBe(201);
+    const [sql, params] = query.mock.calls.find(([statement]) => statement.includes('INSERT INTO contacts'));
+    expect(sql).toContain('contact_dates');
+    expect(params).toContain(JSON.stringify([{ label: 'Rencontre', value: '2019-10-19' }]));
+  });
+
+  it('rejects a vCard UID that conflicts with the resource filename', async () => {
+    authenticateDavCredential.mockResolvedValue({ userId: 'user-1', credentialId: 'credential-1' });
+    const response = await fetch(`${base}/carddav/user-1/book-1/path-a.vcf`, {
+      method: 'PUT',
+      headers: { authorization: `Basic ${Buffer.from('sam@example.test:secret').toString('base64')}`, 'content-type': 'text/vcard' },
+      body: 'BEGIN:VCARD\r\nVERSION:3.0\r\nUID:path-b\r\nFN:Ada\r\nEND:VCARD\r\n',
+    });
+
+    expect(response.status).toBe(409);
+    expect(query).not.toHaveBeenCalled();
+  });
 });

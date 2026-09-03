@@ -315,6 +315,8 @@ router.put('/:userId/:bookId/:filename', async (req, res) => {
   if (!body.trim()) return res.status(400).end();
 
   const parsed = parseVCard(body);
+  if (parsed.invalidDates.length) return res.status(400).end();
+  if (parsed.uid && parsed.uid !== uid) return res.status(409).json({ error: 'vCard UID must match the resource filename' });
   const vcard  = body; // store what the client sent verbatim
   const etag   = crypto.createHash('md5').update(vcard).digest('hex');
 
@@ -348,15 +350,15 @@ router.put('/:userId/:bookId/:filename', async (req, res) => {
           vcard = $1, etag = $2,
           display_name = $3, first_name = $4, last_name = $5,
           primary_email = $6, emails = $7, phones = $8,
-          organization = $9, notes = $10, birthday = $11, anniversary = $12, photo_data = $13,
+          organization = $9, notes = $10, birthday = $11, anniversary = $12, contact_dates = $13::jsonb, photo_data = $14,
           is_auto = false, updated_at = NOW()
-        WHERE id = $14
+        WHERE id = $15
       `, [
         vcard, etag,
         parsed.displayName, parsed.firstName, parsed.lastName,
         primaryEmail,
         JSON.stringify(parsed.emails), JSON.stringify(parsed.phones),
-        parsed.organization, parsed.notes, parsed.birthday, parsed.anniversary, parsed.photoData,
+        parsed.organization, parsed.notes, parsed.birthday, parsed.anniversary, JSON.stringify(parsed.contactDates), parsed.photoData,
         existing.rows[0].id,
       ]);
       await query(
@@ -377,7 +379,7 @@ router.put('/:userId/:bookId/:filename', async (req, res) => {
         parsed.displayName, parsed.firstName, parsed.lastName,
         primaryEmail,
         JSON.stringify(parsed.emails), JSON.stringify(parsed.phones),
-        parsed.organization, parsed.notes, parsed.birthday, parsed.anniversary, parsed.photoData,
+        parsed.organization, parsed.notes, parsed.birthday, parsed.anniversary, JSON.stringify(parsed.contactDates), parsed.photoData,
       ]);
       await query(
         'UPDATE address_books SET sync_token = gen_random_uuid()::text, updated_at = NOW() WHERE id = $1',
