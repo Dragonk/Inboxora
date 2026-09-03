@@ -120,17 +120,29 @@ async function deliverInvitationOutbox(outboxId, actions) {
   }
 }
 
+function duplicateInvitationStatus(outbox) {
+  const status = outbox.status === 'sent' ? 'sent' : outbox.last_error ? 'failed' : 'pending';
+  return {
+    invitationStatus: { status, lastError: outbox.last_error || null },
+    ...(status === 'sent' ? {} : {
+      invitationError: status === 'failed'
+        ? `The event was saved, but the invitation could not be sent: ${outbox.last_error}`
+        : 'The invitation delivery is still pending; it was not sent again.',
+    }),
+  };
+}
+
 async function updateInvitedEvent(req, fields) {
   const { calendarId, invitationAccount, normalizedAttendees, times, summary, description, location, url, organizer, allDay, timezone } = fields;
   const key = invitationOperationKey(req);
   const fingerprint = invitationRequestFingerprint(req, fields);
   return withTransaction(async client => {
-    const prior = await client.query('SELECT id, event_id, request_fingerprint FROM calendar_invitation_outbox WHERE user_id = $1 AND idempotency_key = $2 FOR UPDATE', [req.session.userId, key]);
+    const prior = await client.query('SELECT id, event_id, request_fingerprint, status, last_error FROM calendar_invitation_outbox WHERE user_id = $1 AND idempotency_key = $2 FOR UPDATE', [req.session.userId, key]);
     if (prior.rows[0]) {
       if (prior.rows[0].request_fingerprint !== fingerprint) return { conflict: true };
       const event = (await client.query('SELECT id, calendar_id, uid, etag, summary, description, location, url, organizer, starts_at, ends_at, all_day, timezone, attendees, invite_account_id, invitation_sequence, created_at, updated_at FROM calendar_events WHERE id = $1 AND calendar_id = $2 AND user_id = $3', [prior.rows[0].event_id, calendarId, req.session.userId])).rows[0];
       if (!event || event.id !== req.params.eventId) return { conflict: true };
-      return { event, duplicate: true };
+      return { event, duplicate: true, ...duplicateInvitationStatus(prior.rows[0]) };
     }
     const existing = (await client.query('SELECT uid, attendees, invite_account_id, invitation_sequence, summary, description, location, starts_at, ends_at, all_day FROM calendar_events WHERE id = $1 AND calendar_id = $2 AND user_id = $3 FOR UPDATE', [req.params.eventId, calendarId, req.session.userId])).rows[0];
     if (!existing) return { notFound: true };
@@ -237,11 +249,11 @@ router.post('/events', async (req, res) => {
     let outcome;
     try {
       outcome = await withTransaction(async client => {
-      const prior = await client.query('SELECT id, request_fingerprint FROM calendar_invitation_outbox WHERE user_id = $1 AND idempotency_key = $2 FOR UPDATE', [req.session.userId, idempotencyKey]);
+      const prior = await client.query('SELECT id, request_fingerprint, status, last_error FROM calendar_invitation_outbox WHERE user_id = $1 AND idempotency_key = $2 FOR UPDATE', [req.session.userId, idempotencyKey]);
       if (prior.rows[0]) {
         if (prior.rows[0].request_fingerprint !== fingerprint) return { conflict: true };
         const event = (await client.query('SELECT id, calendar_id, uid, etag, summary, description, location, url, organizer, starts_at, ends_at, all_day, timezone, attendees, invite_account_id, invitation_sequence, created_at, updated_at FROM calendar_events WHERE id = (SELECT event_id FROM calendar_invitation_outbox WHERE id = $1)', [prior.rows[0].id])).rows[0];
-        return { event, duplicate: true };
+        return { event, duplicate: true, ...duplicateInvitationStatus(prior.rows[0]) };
       }
       const uid = crypto.randomUUID();
       const rawIcal = localEventIcal({ uid, summary, description, location, url, organizer, allDay: Boolean(allDay), ...times });
@@ -263,7 +275,7 @@ router.post('/events', async (req, res) => {
       return res.status(500).json({ error: 'The event and invitation could not be saved; no partial changes were kept.' });
     }
     if (outcome.conflict) return res.status(409).json({ error: 'The idempotency key was already used for a different calendar operation' });
-    if (outcome.duplicate) return res.status(201).json({ event: outcome.event });
+    if (outcome.duplicate) return res.status(201).json({ event: outcome.event, ...outcome.invitationStatus ? { invitationStatus: outcome.invitationStatus } : {}, ...outcome.invitationError ? { invitationError: outcome.invitationError } : {} });
     const invitationError = await deliverInvitationOutbox(outcome.outboxId, [{ account: invitationAccount, attendees: normalizedAttendees, summary, description, location, uid: outcome.event.uid, allDay: Boolean(allDay), method: 'REQUEST', sequence: outcome.event.invitation_sequence ?? 0, startsAt: times.startsAt.toISOString(), endsAt: times.endsAt.toISOString() }]);
     return res.status(201).json({ event: outcome.event, ...(invitationError ? { invitationError } : {}) });
   }
@@ -321,7 +333,7 @@ router.patch('/events/:eventId', async (req, res) => {
     if (outcome.notFound) return res.status(404).json({ error: 'Event not found' });
     if (outcome.conflict) return res.status(409).json({ error: 'The idempotency key was already used for a different calendar update' });
     if (outcome.cancelFailed) return res.status(502).json({ error: 'The previous invitation could not be cancelled, so the event was not changed.' });
-    if (outcome.duplicate) return res.json({ event: outcome.event });
+    if (outcome.duplicate) return res.json({ event: outcome.event, ...outcome.invitationStatus ? { invitationStatus: outcome.invitationStatus } : {}, ...outcome.invitationError ? { invitationError: outcome.invitationError } : {} });
     const invitationError = await deliverInvitationOutbox(outcome.outboxId, outcome.actions);
     return res.json({ event: outcome.event, ...(invitationError ? { invitationError } : {}) });
   }
