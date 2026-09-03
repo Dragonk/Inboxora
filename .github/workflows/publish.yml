@@ -1,11 +1,12 @@
 name: Publish to GHCR
 
 on:
-  push:
-    branches:
-      - dev
-    tags:
-      - 'v*.*.*'
+  workflow_dispatch:
+    inputs:
+      source_sha:
+        description: "Optional immutable commit SHA reachable from origin/dev (defaults to the selected dev revision)"
+        required: false
+        type: string
 
 permissions:
   contents: read
@@ -15,12 +16,28 @@ jobs:
   publish:
     runs-on: ubuntu-latest
 
+    concurrency:
+      group: inboxora-dev-image
+      cancel-in-progress: false
+
     steps:
       - name: Checkout
         uses: actions/checkout@v6
+        with:
+          ref: ${{ inputs.source_sha || github.sha }}
+          fetch-depth: 0
 
-      - name: Assert exact tested SHA
-        run: test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+      - name: Assert a dev-reachable immutable source revision
+        env:
+          REQUESTED_SHA: ${{ inputs.source_sha }}
+          SELECTED_SHA: ${{ github.sha }}
+        run: |
+          source_sha="${REQUESTED_SHA:-$SELECTED_SHA}"
+          [[ "$source_sha" =~ ^[0-9a-f]{40}$ ]]
+          test "$(git rev-parse HEAD)" = "$source_sha"
+          git fetch origin dev
+          git merge-base --is-ancestor "$source_sha" origin/dev
+          echo "SOURCE_SHA=$source_sha" >> "$GITHUB_ENV"
 
       - name: Set up QEMU
         uses: docker/setup-qemu-action@v3
@@ -43,10 +60,7 @@ jobs:
         with:
           images: ghcr.io/${{ github.repository_owner }}/inboxora-backend
           tags: |
-            type=semver,pattern={{version}}
-            type=semver,pattern={{major}}.{{minor}}
-            type=semver,pattern=latest
-            type=raw,value=dev,enable=${{ github.ref == 'refs/heads/dev' }}
+            type=raw,value=dev
 
       - name: Build and push backend
         uses: docker/build-push-action@v6
@@ -59,8 +73,8 @@ jobs:
           labels: ${{ steps.meta-backend.outputs.labels }}
           provenance: false
           build-args: |
-            BUILD_SHA=${{ github.sha }}
-            APP_VERSION=${{ github.ref_name }}
+            BUILD_SHA=${{ env.SOURCE_SHA }}
+            APP_VERSION=dev
           cache-from: type=gha
           cache-to: type=gha,mode=max
 
@@ -72,10 +86,7 @@ jobs:
         with:
           images: ghcr.io/${{ github.repository_owner }}/inboxora-frontend
           tags: |
-            type=semver,pattern={{version}}
-            type=semver,pattern={{major}}.{{minor}}
-            type=semver,pattern=latest
-            type=raw,value=dev,enable=${{ github.ref == 'refs/heads/dev' }}
+            type=raw,value=dev
 
       - name: Build and push frontend
         uses: docker/build-push-action@v6
@@ -88,6 +99,6 @@ jobs:
           labels: ${{ steps.meta-frontend.outputs.labels }}
           provenance: false
           build-args: |
-            VITE_BUILD_SHA=${{ github.sha }}
+            VITE_BUILD_SHA=${{ env.SOURCE_SHA }}
           cache-from: type=gha
           cache-to: type=gha,mode=max

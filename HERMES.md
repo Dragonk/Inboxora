@@ -5,7 +5,7 @@
 - Canonical repository: `https://github.com/Dragonk/Inboxora.git`.
 - Canonical integration branch: `dev`.
 - Do not work in legacy MailFlow checkouts or any release branch.
-- Treat `dev` as the only integration target. Do not push or open a PR unless Kamil explicitly asks.
+- Treat `dev` as the only integration target. Push every verified, integrated slice to `origin/dev`; do not open a PR unless Kamil explicitly asks.
 
 ## Kanban automation
 
@@ -15,6 +15,7 @@
 - A completed, independently verifiable slice must run targeted tests, receive a diff review, and be committed immediately with `Assisted-by: Hermes Agent`.
 - Do not accumulate uncommitted work across long agent runs. At the first independently testable slice, commit it on the task branch and report its SHA. If a testable slice cannot be reached promptly, stop expanding scope, preserve the exact diagnosis in the task, and block/re-scope the card rather than consuming further model budget on speculative work. Never discard an existing worktree or its changes without an explicit decision.
 - Integration into `dev` belongs to the orchestrator: rebase/cherry-pick against current `dev`, run integration tests and review, then run `scripts/verify-task-integration.sh <candidate-commit> dev`. A QA or review task must not claim a candidate is present on `dev` unless that command succeeds. Immediately push each verified, integrated slice to `origin/dev`; no separate push approval is required.
+- A mutable GHCR `:dev` image is a milestone artifact, not a per-commit artifact. When every Kanban task in one explicitly related scope is done, integrated, tested, reviewed, and pushed to `dev`, the orchestrator must manually dispatch `.github/workflows/publish.yml` on that exact `dev` SHA. It must wait for the workflow, verify both `inboxora-backend:dev` and `inboxora-frontend:dev` manifests carry that source revision, then report the run URL/SHA. Do not dispatch this workflow for intermediate slices.
 - Use dependencies only for real data/API/order constraints. Independent implementation, test, and review tasks should run in parallel within configured concurrency limits.
 
 ## Routing and quality
