@@ -13,6 +13,7 @@
 - Every implementation child must use an isolated Git worktree created from the current `origin/dev`, on its own `wt/<task-id>` branch. Never let concurrent workers write to the canonical checkout.
 - Before the first edit and before commit, verify: canonical remote, worktree path, branch descended from current `origin/dev`, and no unrelated changes.
 - A completed, independently verifiable slice must run targeted tests, receive a diff review, and be committed immediately with `Assisted-by: Hermes Agent`.
+- Do not accumulate uncommitted work across long agent runs. At the first independently testable slice, commit it on the task branch and report its SHA. If a testable slice cannot be reached promptly, stop expanding scope, preserve the exact diagnosis in the task, and block/re-scope the card rather than consuming further model budget on speculative work. Never discard an existing worktree or its changes without an explicit decision.
 - Integration into `dev` belongs to the orchestrator: rebase/cherry-pick against current `dev`, run integration tests and review, then run `scripts/verify-task-integration.sh <candidate-commit> dev`. A QA or review task must not claim a candidate is present on `dev` unless that command succeeds. Immediately push each verified, integrated slice to `origin/dev`; no separate push approval is required.
 - Use dependencies only for real data/API/order constraints. Independent implementation, test, and review tasks should run in parallel within configured concurrency limits.
 
