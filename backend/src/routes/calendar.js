@@ -2,7 +2,7 @@ import { Router } from 'express';
 import crypto from 'crypto';
 import { query, withTransaction } from '../services/db.js';
 import { requireAuth } from '../middleware/auth.js';
-import { encrypt } from '../services/encryption.js';
+import { decrypt, encrypt } from '../services/encryption.js';
 import { validateHost } from '../services/hostValidation.js';
 import { getConnectionPolicy } from '../services/connectionPolicy.js';
 import { scheduleCalendarSource, stopCalendarSource, syncCalendarSource } from '../services/externalCalendarSync.js';
@@ -422,8 +422,9 @@ router.delete('/events/:eventId', async (req, res) => {
 });
 
 function publicSource(source) {
-  const lastError = typeof source.last_error === 'string' && source.url
-    ? source.last_error.replaceAll(source.url, '[redacted]')
+  const secretValues = source.url ? [source.url, decrypt(source.url)] : [];
+  const lastError = typeof source.last_error === 'string'
+    ? secretValues.filter(Boolean).reduce((error, secret) => error.replaceAll(secret, '[redacted]'), source.last_error)
     : source.last_error;
   return {
     id: source.id, kind: source.kind,
@@ -472,6 +473,7 @@ router.post('/sources', async (req, res) => {
     res.status(201).json({ source: publicSource(source) });
   } catch (error) {
     if (error.code === '23505') return res.status(409).json({ error: 'A source with this URL already exists' });
+    if (error.code === '23514') return res.status(409).json({ error: 'Calendar source URL could not be stored securely' });
     throw error;
   }
 });

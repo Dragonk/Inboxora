@@ -79,6 +79,9 @@ describe('migration integrity', () => {
     expect(sql).toContain('DROP CONSTRAINT IF EXISTS calendar_import_sources_user_id_url_key');
     expect(sql).toContain('calendar_import_sources_user_url_fingerprint_key');
     expect(sql).toContain('ALTER COLUMN url_fingerprint SET NOT NULL');
+    expect(sql).toContain("ERRCODE = '23514'");
+    expect(sql).toContain('Calendar source URLs must be encrypted before storage');
+    expect(sql.indexOf('UPDATE calendar_import_sources')).toBeLessThan(sql.indexOf('CREATE OR REPLACE FUNCTION calendar_source_url_fingerprint'));
   });
 
   it('adds a partial logical-message lookup index for non-deleted physical copies', () => {

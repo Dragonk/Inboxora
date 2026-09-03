@@ -9,7 +9,10 @@ const { query, withTransaction, sendCalendarInvitation, scheduleCalendarSource, 
   syncCalendarSource: vi.fn(async () => ({ ok: true })),
 }));
 vi.mock('../services/db.js', () => ({ query, withTransaction }));
-vi.mock('../services/encryption.js', () => ({ encrypt: (value) => `enc:v1:${value}` }));
+vi.mock('../services/encryption.js', () => ({
+  encrypt: (value) => `enc:v1:${value}`,
+  decrypt: (value) => value?.startsWith('enc:v1:') ? value.slice('enc:v1:'.length) : value,
+}));
 vi.mock('../services/calendarInvitation.js', () => ({ sendCalendarInvitation }));
 vi.mock('../services/externalCalendarSync.js', () => ({ scheduleCalendarSource, stopCalendarSource, syncCalendarSource }));
 vi.mock('../middleware/auth.js', () => ({
@@ -79,6 +82,21 @@ describe('local calendar API', () => {
     const insert = query.mock.calls.find(([sql]) => sql.includes('INSERT INTO calendar_import_sources'));
     expect(insert[1][2]).toBe('enc:v1:https://calendar.example/events.ics');
     expect(insert[1][3]).toMatch(/^[a-f0-9]{64}$/);
+  });
+
+  it('does not expose database details when a legacy writer is rejected', async () => {
+    query.mockRejectedValueOnce(Object.assign(new Error('Calendar source URLs must be encrypted before storage'), {
+      code: '23514', detail: 'https://calendar.example/events.ics?token=REPRO_SECRET',
+    }));
+    const response = await fetch(`${base}/api/calendar/sources`, {
+      method: 'POST', headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ kind: 'ical_url', url: 'https://calendar.example/events.ics?token=REPRO_SECRET', displayName: 'Work' }),
+    });
+
+    expect(response.status).toBe(409);
+    const payload = await response.json();
+    expect(payload).toEqual({ error: 'Calendar source URL could not be stored securely' });
+    expect(JSON.stringify(payload)).not.toContain('REPRO_SECRET');
   });
 
   it('redacts all source secrets from the listing payload', async () => {
