@@ -874,9 +874,9 @@ function ContactForm({
               <option value="home">{t('contacts.emailTypes.home')}</option>
             </select>
             {form.emails.length > 1 && (
-              <button onClick={() => onRemoveEmail(i)} style={removeBtn}>
+              <ContactDangerButton onClick={() => onRemoveEmail(i)} aria-label={`${t('common.delete')} ${t('contacts.fields.email')} ${i + 1}`}>
                 <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
-              </button>
+              </ContactDangerButton>
             )}
           </div>
         ))}
@@ -905,9 +905,9 @@ function ContactForm({
               <option value="home">{t('contacts.phoneTypes.home')}</option>
               <option value="other">{t('contacts.phoneTypes.other')}</option>
             </select>
-            <button onClick={() => onRemovePhone(i)} style={removeBtn}>
+            <ContactDangerButton onClick={() => onRemovePhone(i)} aria-label={`${t('common.delete')} ${t('contacts.fields.phone')} ${i + 1}`}>
               <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
-            </button>
+            </ContactDangerButton>
           </div>
         ))}
         <button onClick={onAddPhone} style={addFieldBtn}>+ {t('contacts.addPhone')}</button>
@@ -923,8 +923,8 @@ function ContactForm({
         />
       </div>
 
-      <ContactTextCollection label={t('contacts.fields.url')} items={form.urls} inputType="url" placeholder="https://example.com" onSet={(index, value) => onSetCollection('urls', index, 'value', value)} onAdd={() => onAddCollection('urls', { value: '', type: 'other' })} onRemove={index => onRemoveCollection('urls', index)} inputStyle={inputStyle} addLabel={t('contacts.addUrl')} />
-      <ContactTextCollection label={t('contacts.fields.instantMessage')} items={form.instantMessages} placeholder="matrix:@name:example.com" onSet={(index, value) => onSetCollection('instantMessages', index, 'value', value)} onAdd={() => onAddCollection('instantMessages', { value: '', type: 'other' })} onRemove={index => onRemoveCollection('instantMessages', index)} inputStyle={inputStyle} addLabel={t('contacts.addInstantMessage')} />
+      <ContactTextCollection label={t('contacts.fields.url')} items={form.urls} inputType="url" placeholder="https://example.com" onSet={(index, value) => onSetCollection('urls', index, 'value', value)} onAdd={() => onAddCollection('urls', { value: '', type: 'other' })} onRemove={index => onRemoveCollection('urls', index)} inputStyle={inputStyle} addLabel={t('contacts.addUrl')} removeLabel={t('common.delete')} />
+      <ContactTextCollection label={t('contacts.fields.instantMessage')} items={form.instantMessages} placeholder="matrix:@name:example.com" onSet={(index, value) => onSetCollection('instantMessages', index, 'value', value)} onAdd={() => onAddCollection('instantMessages', { value: '', type: 'other' })} onRemove={index => onRemoveCollection('instantMessages', index)} inputStyle={inputStyle} addLabel={t('contacts.addInstantMessage')} removeLabel={t('common.delete')} />
       <div style={{ marginBottom: 12 }}>
         <label style={labelStyle}>{t('contacts.fields.categories')}</label>
         <input style={inputStyle} value={form.categories.join(', ')} onChange={event => onSetCategories(event.target.value)} placeholder={t('contacts.categoriesPlaceholder')} />
@@ -939,7 +939,7 @@ function ContactForm({
           <input style={inputStyle} value={address.region} placeholder={t('contacts.fields.region')} onChange={event => onSetCollection('addresses', index, 'region', event.target.value)} />
           <input style={inputStyle} value={address.postalCode} placeholder={t('contacts.fields.postalCode')} onChange={event => onSetCollection('addresses', index, 'postalCode', event.target.value)} />
           <input style={inputStyle} value={address.country} placeholder={t('contacts.fields.country')} onChange={event => onSetCollection('addresses', index, 'country', event.target.value)} />
-          <button onClick={() => onRemoveCollection('addresses', index)} style={removeBtn}>{t('common.delete')}</button>
+          <ContactDangerButton onClick={() => onRemoveCollection('addresses', index)} aria-label={`${t('common.delete')} ${t('contacts.fields.address')} ${index + 1}`}>{t('common.delete')}</ContactDangerButton>
         </div>)}
         <button onClick={() => onAddCollection('addresses', { type: 'other', pobox: '', extended: '', street: '', locality: '', region: '', postalCode: '', country: '' })} style={addFieldBtn}>+ {t('contacts.addAddress')}</button>
       </div>
@@ -963,12 +963,12 @@ function ContactForm({
   );
 }
 
-function ContactTextCollection({ label, items, inputType = 'text', placeholder, onSet, onAdd, onRemove, inputStyle, addLabel }) {
+function ContactTextCollection({ label, items, inputType = 'text', placeholder, onSet, onAdd, onRemove, inputStyle, addLabel, removeLabel }) {
   return <div style={{ marginBottom: 12 }}>
     <label style={{ fontSize: 12, color: 'var(--text-tertiary)', marginBottom: 4, display: 'block' }}>{label}</label>
     {items.map((item, index) => <div key={index} style={{ display: 'flex', gap: 6, marginBottom: 6 }}>
       <input type={inputType} style={{ ...inputStyle, flex: 1 }} value={item.value} placeholder={placeholder} onChange={event => onSet(index, event.target.value)} />
-      <button onClick={() => onRemove(index)} style={removeBtn}>{'×'}</button>
+      <ContactDangerButton onClick={() => onRemove(index)} aria-label={`${removeLabel} ${label} ${index + 1}`}>{'×'}</ContactDangerButton>
     </div>)}
     <button onClick={onAdd} style={addFieldBtn}>+ {addLabel}</button>
   </div>;
@@ -1002,9 +1002,10 @@ function DetailRow({ label, children }) {
 function ActionBtn({ children, onClick, danger, disabled }) {
   return (
     <button
+      type="button"
       onClick={onClick}
       disabled={disabled}
-      className="btn-press"
+      className={`btn-press${danger ? ' contacts-danger-btn' : ''}`}
       style={{
         background: danger ? 'transparent' : 'var(--bg-tertiary)',
         border: danger ? '1px solid var(--red-border, rgba(248,113,113,0.4))' : '1px solid var(--border)',
@@ -1014,6 +1015,25 @@ function ActionBtn({ children, onClick, danger, disabled }) {
         padding: '6px 12px', cursor: disabled ? 'not-allowed' : 'pointer',
         opacity: disabled ? 0.6 : 1,
         transition: 'background 0.1s',
+      }}
+    >
+      {children}
+    </button>
+  );
+}
+
+function ContactDangerButton({ children, onClick, disabled = false, ...props }) {
+  return (
+    <button
+      type="button"
+      {...props}
+      onClick={onClick}
+      disabled={disabled}
+      className="contacts-danger-btn"
+      style={{
+        borderRadius: 6, fontSize: 12, cursor: disabled ? 'not-allowed' : 'pointer',
+        padding: '0 8px', display: 'flex', alignItems: 'center', flexShrink: 0,
+        opacity: disabled ? 0.6 : 1,
       }}
     >
       {children}
@@ -1033,15 +1053,6 @@ function ErrorBanner({ msg }) {
     </div>
   );
 }
-
-const removeBtn = {
-  background: 'transparent',
-  border: '1px solid var(--border)',
-  borderRadius: 6, cursor: 'pointer',
-  color: 'var(--text-tertiary)',
-  padding: '0 8px', display: 'flex', alignItems: 'center',
-  flexShrink: 0,
-};
 
 const addFieldBtn = {
   background: 'transparent',

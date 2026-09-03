@@ -104,6 +104,30 @@ body, #root {
   outline-offset: 2px;
 }
 
+/* Contacts destructive controls keep their danger treatment in one scoped contract. */
+.contacts-danger-btn {
+  background: var(--contacts-danger-bg, transparent) !important;
+  border: 1px solid var(--contacts-danger-border, var(--red-border, rgba(248, 113, 113, 0.4))) !important;
+  color: var(--contacts-danger-text, var(--red, #f87171)) !important;
+  transition: background 0.1s, border-color 0.1s, color 0.1s;
+}
+
+.contacts-danger-btn:hover:not(:disabled) {
+  background: var(--contacts-danger-hover-bg, var(--red-dim, rgba(248, 113, 113, 0.14))) !important;
+  border-color: var(--contacts-danger-hover-border, var(--red, #f87171)) !important;
+}
+
+.contacts-danger-btn:focus-visible {
+  outline: 2px solid var(--contacts-danger-focus, var(--red, #f87171));
+  outline-offset: 2px;
+}
+
+.contacts-danger-btn:disabled {
+  background: var(--contacts-danger-disabled-bg, var(--bg-tertiary)) !important;
+  border-color: var(--contacts-danger-disabled-border, var(--border)) !important;
+  color: var(--contacts-danger-disabled-text, var(--text-tertiary)) !important;
+}
+
 /* Selection */
 ::selection { background: var(--selection-bg, var(--accent-dim)); color: var(--text-primary); }
 

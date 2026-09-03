@@ -277,6 +277,78 @@ test('mobile calendar fits the full localized week and keeps every dock control 
   expect(interactiveControls.every(Boolean)).toBe(true);
 });
 
+test('Contacts destructive controls expose responsive danger states', async ({ page, fixtureApi }) => {
+  await fixtureApi;
+  let releaseDelete;
+  let deleteCount = 0;
+  await page.route('**/api/contacts**', async route => {
+    const request = route.request();
+    const pathname = new URL(request.url()).pathname;
+    if (request.method() === 'DELETE') {
+      deleteCount += 1;
+      await new Promise(resolve => { releaseDelete = resolve; });
+      return route.fulfill({ json: { ok: true } });
+    }
+    if (pathname.endsWith('/contact-danger')) {
+      return route.fulfill({ json: {
+        id: 'contact-danger', display_name: 'Danger Contact', primary_email: 'danger@example.test',
+        emails: [{ value: 'danger@example.test', type: 'work' }],
+        phones: [{ value: '+1 555 0100', type: 'mobile' }],
+        urls: [{ value: 'https://example.test', type: 'other' }],
+      } });
+    }
+    return route.fulfill({ json: {
+      contacts: [{ id: 'contact-danger', display_name: 'Danger Contact', primary_email: 'danger@example.test' }], total: 1,
+    } });
+  });
+  await page.goto('/?list=0&reader=0');
+  const navigation = page.getByTestId('mobile-primary-nav');
+  if (page.viewportSize().width < 768) await navigation.getByRole('button', { name: 'Kontakty' }).click();
+  else await page.getByTestId('contacts-nav-primary').click();
+  await page.getByText('Danger Contact', { exact: true }).click();
+
+  await page.getByRole('button', { name: 'Edytuj' }).click();
+  await expect(page.locator('.contacts-danger-btn[aria-label]')).toHaveCount(2);
+  await expect(page.locator('.contacts-danger-btn[aria-label]').first()).toHaveAttribute('aria-label', /Usuń .+ 1/);
+  await page.getByRole('button', { name: 'Anuluj' }).press('Enter');
+
+  const deleteButton = page.getByRole('button', { name: 'Usuń' }).first();
+  await expect(deleteButton).toHaveClass(/contacts-danger-btn/);
+  await deleteButton.hover();
+  const hoverState = await deleteButton.evaluate(button => {
+    const style = getComputedStyle(button);
+    return { background: style.backgroundColor, border: style.borderColor };
+  });
+  expect(hoverState.background).not.toBe('rgba(0, 0, 0, 0)');
+  expect(hoverState.border).not.toBe('');
+  await deleteButton.focus();
+  await page.keyboard.press('Shift+Tab');
+  await page.keyboard.press('Tab');
+  const focusState = await deleteButton.evaluate(button => {
+    const style = getComputedStyle(button);
+    return { outline: style.outlineStyle, width: parseFloat(style.outlineWidth) };
+  });
+  expect(focusState.outline).toBe('solid');
+  expect(focusState.width).toBeGreaterThanOrEqual(2);
+  await deleteButton.click();
+
+  const confirmButton = page.locator('.contacts-danger-btn').nth(1);
+  await expect(confirmButton).toBeEnabled();
+  await confirmButton.click();
+  await expect(confirmButton).toBeDisabled();
+  const disabledState = await confirmButton.evaluate(button => {
+    const style = getComputedStyle(button);
+    return { background: style.backgroundColor, cursor: style.cursor, opacity: style.opacity };
+  });
+  expect(disabledState.background).not.toBe('rgba(0, 0, 0, 0)');
+  expect(disabledState.cursor).toBe('not-allowed');
+  expect(Number(disabledState.opacity)).toBeLessThan(1);
+  expect(await confirmButton.getAttribute('aria-label')).toBeNull();
+  await expect.poll(() => deleteCount).toBe(1);
+  releaseDelete();
+  await expect(page.locator('.contacts-danger-btn').filter({ hasText: 'Usuń' })).toHaveCount(0);
+});
+
 test('calendar weekday headings use the active English locale', async ({ page, fixtureApi }) => {
   page.__languageOverride = 'en';
   await fixtureApi;
