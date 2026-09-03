@@ -75,3 +75,25 @@ test('mobile week calendar keeps its deliberate horizontal scroll inside the gri
   expect(widths.documentScrollWidth).toBe(widths.documentClientWidth);
   expect(widths.gridScrollWidth).toBeGreaterThan(widths.gridClientWidth);
 });
+
+test('mobile week timeline keeps hourly geometry inside the calendar surface', async ({ page, fixtureApi }, testInfo) => {
+  test.skip(!['chromium-mobile-390', 'chromium-mobile'].includes(testInfo.project.name), 'mobile time-grid contract');
+  await fixtureApi;
+  await page.route('**/api/calendar/events**', route => {
+    const from = new Date(new URL(route.request().url()).searchParams.get('from'));
+    const day = new Date(from); day.setDate(day.getDate() + 1);
+    const date = day.toISOString().slice(0, 10);
+    return route.fulfill({ json: { events: [{ id: 'mobile-timed', calendar_id: 'calendar-personal', summary: 'Mobile timed', starts_at: `${date}T13:00:00`, ends_at: `${date}T14:00:00`, all_day: false, source: 'local' }] } });
+  });
+  await page.goto('/?list=0&reader=0');
+  await page.getByTestId('mobile-menu').click();
+  await page.getByTestId('calendar-nav-mobile').click();
+  await page.getByTestId('calendar-view-week').click();
+  const grid = page.getByTestId('calendar-grid');
+  await expect(grid.getByTestId('calendar-time-grid-scroll')).toBeVisible();
+  await expect(grid.getByTestId('calendar-work-hours-boundary')).toHaveCount(7);
+  const event = grid.getByRole('button', { name: /Mobile timed/ });
+  await expect(event).toBeVisible();
+  await expect(event).toHaveCSS('position', 'absolute');
+  await page.screenshot({ path: 'artifacts/calendar-week-time-grid-mobile.png', fullPage: true });
+});

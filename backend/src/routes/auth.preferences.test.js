@@ -115,6 +115,33 @@ describe('PATCH /auth/preferences obsolete favicon badge', () => {
 });
 
 describe('PATCH /auth/preferences calendar preferences', () => {
+  it('rejects invalid work-day and working-hour preferences without querying', async () => {
+    const res = { status: vi.fn().mockReturnThis(), json: vi.fn() };
+    await patchPreferences({ session: { userId: 'user-1' }, body: { calendarWorkDays: [1, 1] } }, res);
+    expect(res.status).toHaveBeenCalledWith(400);
+    expect(query).not.toHaveBeenCalled();
+
+    res.status.mockClear(); res.json.mockClear();
+    await patchPreferences({ session: { userId: 'user-1' }, body: { calendarWorkHoursStart: '9:00' } }, res);
+    expect(res.status).toHaveBeenCalledWith(400);
+    expect(query).not.toHaveBeenCalled();
+  });
+
+  it('serializes valid work-day and working-hour preferences into JSONB', async () => {
+    const res = { status: vi.fn().mockReturnThis(), json: vi.fn() };
+    await patchPreferences({ session: { userId: 'user-1' }, body: {
+      calendarWorkDays: [1, 2, 3, 4, 5], calendarWorkHoursStart: '08:30', calendarWorkHoursEnd: '17:30',
+    } }, res);
+    const [sql, params] = query.mock.calls[0];
+    expect(sql).toContain("jsonb_build_object('calendarWorkDays', $46::jsonb)");
+    expect(sql).toContain("jsonb_build_object('calendarWorkHoursStart', $47::text)");
+    expect(sql).toContain("jsonb_build_object('calendarWorkHoursEnd', $48::text)");
+    expect(params[45]).toBe(JSON.stringify([1, 2, 3, 4, 5]));
+    expect(params[46]).toBe('08:30');
+    expect(params[47]).toBe('17:30');
+    expect(res.json).toHaveBeenCalledWith({ ok: true });
+  });
+
   it('rejects an unsupported first day of week without querying', async () => {
     const req = { session: { userId: 'user-1' }, body: { calendarWeekStartsOn: 4 } };
     const res = { status: vi.fn().mockReturnThis(), json: vi.fn() };

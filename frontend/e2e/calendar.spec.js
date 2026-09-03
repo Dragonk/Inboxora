@@ -98,6 +98,36 @@ test('remote ICS source polls exactly 70 times before terminal timeout', async (
   expect(refreshCount).toBe(71);
 });
 
+test('week and work-week render timed overlap geometry and work-hour boundaries', async ({ page, fixtureApi }, testInfo) => {
+  test.skip(testInfo.project.name !== 'chromium-desktop', 'desktop time-grid contract');
+  await fixtureApi;
+  await page.route('**/api/calendar/events**', route => {
+    const from = new Date(new URL(route.request().url()).searchParams.get('from'));
+    const day = new Date(from); day.setDate(day.getDate() + 2);
+    const local = (hours, minutes = 0) => `${day.toISOString().slice(0, 10)}T${String(hours).padStart(2, '0')}:${String(minutes).padStart(2, '0')}:00`;
+    return route.fulfill({ json: { events: [
+      { id: 'timed-a', calendar_id: 'calendar-personal', summary: 'Timed A', starts_at: local(9), ends_at: local(11), all_day: false, source: 'local' },
+      { id: 'timed-b', calendar_id: 'calendar-personal', summary: 'Timed B', starts_at: local(10), ends_at: local(12), all_day: false, source: 'local' },
+      { id: 'all-day', calendar_id: 'calendar-personal', summary: 'All day', starts_at: `${day.toISOString().slice(0, 10)}T00:00:00.000Z`, ends_at: `${new Date(day.getTime() + 86400000).toISOString().slice(0, 10)}T00:00:00.000Z`, all_day: true, source: 'local' },
+    ] } });
+  });
+  await page.goto('/?list=0&reader=0');
+  await page.getByTestId('calendar-nav-primary').click();
+  await page.getByTestId('calendar-view-week').click();
+  const grid = page.getByTestId('calendar-grid');
+  await expect(grid.getByTestId('calendar-work-hours-boundary')).toHaveCount(7);
+  const first = grid.getByRole('button', { name: /Timed A/ }).first();
+  const second = grid.getByRole('button', { name: /Timed B/ }).first();
+  const [firstBox, secondBox] = await Promise.all([first.boundingBox(), second.boundingBox()]);
+  expect(firstBox.y).toBeLessThan(secondBox.y);
+  expect(firstBox.x + firstBox.width).toBeLessThanOrEqual(secondBox.x + secondBox.width);
+  await expect(grid.getByText('All day', { exact: true })).toBeVisible();
+  await page.screenshot({ path: 'artifacts/calendar-week-time-grid-desktop.png', fullPage: true });
+  await page.getByTestId('calendar-view-workweek').click();
+  await expect(grid.getByTestId('calendar-work-hours-boundary')).toHaveCount(5);
+  await page.screenshot({ path: 'artifacts/calendar-workweek-time-grid-desktop.png', fullPage: true });
+});
+
 test('remote source panel surfaces listSources failures', async ({ page, fixtureApi }, testInfo) => {
   test.skip(testInfo.project.name !== 'chromium-desktop', 'desktop source management contract');
   await fixtureApi;

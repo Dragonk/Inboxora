@@ -97,3 +97,51 @@ export function eventsForDay(events, day) {
     return new Date(event.starts_at) < dayEnd && new Date(event.ends_at) > dayStart;
   });
 }
+
+function localDayStart(day) {
+  return new Date(day.getFullYear(), day.getMonth(), day.getDate());
+}
+
+function parseEventDate(value) {
+  const text = String(value ?? '');
+  const match = text.match(/^(\d{4})-(\d{2})-(\d{2})T24:00(?::00(?:\.000)?)?(?:Z)?$/);
+  return match ? new Date(Number(match[1]), Number(match[2]) - 1, Number(match[3]) + 1) : new Date(value);
+}
+
+export function eventGeometryForDay(event, day) {
+  if (event.all_day || event.allDay) return null;
+  const dayStart = localDayStart(day);
+  const dayEnd = new Date(dayStart); dayEnd.setDate(dayEnd.getDate() + 1);
+  const starts = parseEventDate(event.starts_at ?? event.startsAt);
+  const ends = parseEventDate(event.ends_at ?? event.endsAt);
+  if (Number.isNaN(starts.getTime()) || Number.isNaN(ends.getTime()) || ends <= dayStart || starts >= dayEnd) return null;
+  const start = Math.max(0, Math.round((starts - dayStart) / 60000));
+  const end = Math.min(1440, Math.round((ends - dayStart) / 60000));
+  return { start, end: Math.max(start + 1, end) };
+}
+
+export function layoutTimedEvents(events, day) {
+  const items = events.map(event => ({ event, geometry: eventGeometryForDay(event, day) })).filter(item => item.geometry);
+  const placed = [];
+  for (const item of items) {
+    let column = 0;
+    while (placed.some(other => other.column === column && other.geometry.start < item.geometry.end && other.geometry.end > item.geometry.start)) column += 1;
+    placed.push({ ...item, column });
+  }
+  return placed.map(item => {
+    const overlaps = placed.filter(other => other.geometry.start < item.geometry.end && other.geometry.end > item.geometry.start);
+    const points = [...new Set(overlaps.flatMap(other => [Math.max(other.geometry.start, item.geometry.start), Math.min(other.geometry.end, item.geometry.end)]))].sort((a, b) => a - b);
+    const columns = Math.max(...points.slice(0, -1).map((point, index) => overlaps.filter(other => other.geometry.start <= point && other.geometry.end > point && other.geometry.start < points[index + 1]).length), 1);
+    return { ...item, columns };
+  });
+}
+
+export function workHoursGeometry(start = '09:00', end = '17:00') {
+  const toMinutes = value => {
+    const [hours, minutes] = String(value || '').split(':').map(Number);
+    return (Number.isFinite(hours) ? hours : 9) * 60 + (Number.isFinite(minutes) ? minutes : 0);
+  };
+  const startMinutes = Math.max(0, Math.min(1440, toMinutes(start)));
+  const endMinutes = Math.max(startMinutes, Math.min(1440, toMinutes(end)));
+  return { start: startMinutes, end: endMinutes };
+}

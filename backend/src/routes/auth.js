@@ -773,7 +773,8 @@ export async function patchPreferences(req, res) {
           autoLockMinutes, showMobileAvatars, gravatarAvatars, folderSyncInterval,
           folderOrder, senderFavicons, showMessagePreviews,
           conversation_list_view_enabled, conversation_reader_view_enabled,
-          calendarWeekStartsOn, mobileNavigationPosition, visibleCalendarIds } = req.body;
+          calendarWeekStartsOn, mobileNavigationPosition, visibleCalendarIds,
+          calendarWorkDays, calendarWorkHoursStart, calendarWorkHoursEnd } = req.body;
   for (const [name, value] of [
     ['conversation_list_view_enabled', conversation_list_view_enabled],
     ['conversation_reader_view_enabled', conversation_reader_view_enabled],
@@ -829,6 +830,16 @@ export async function patchPreferences(req, res) {
   if (visibleCalendarIds !== undefined && (!Array.isArray(visibleCalendarIds) || visibleCalendarIds.length > 100 || visibleCalendarIds.some(id => typeof id !== 'string' || id.length > 128))) {
     return res.status(400).json({ error: 'visibleCalendarIds must be an array of calendar identifiers' });
   }
+  if (calendarWorkDays !== undefined && (!Array.isArray(calendarWorkDays) || calendarWorkDays.length === 0 || calendarWorkDays.length > 7 || calendarWorkDays.some(day => !Number.isInteger(day) || day < 0 || day > 6) || new Set(calendarWorkDays).size !== calendarWorkDays.length)) {
+    return res.status(400).json({ error: 'calendarWorkDays must contain unique weekday numbers from 0 to 6' });
+  }
+  const validWorkTime = value => typeof value === 'string' && /^(?:[01]\d|2[0-3]):[0-5]\d$/.test(value);
+  if (calendarWorkHoursStart !== undefined && !validWorkTime(calendarWorkHoursStart)) {
+    return res.status(400).json({ error: 'calendarWorkHoursStart must be a valid HH:mm time' });
+  }
+  if (calendarWorkHoursEnd !== undefined && !validWorkTime(calendarWorkHoursEnd)) {
+    return res.status(400).json({ error: 'calendarWorkHoursEnd must be a valid HH:mm time' });
+  }
   const senderFaviconsVal = hasSenderFavicons ? senderFavicons : null;
   const visibleCalendarIdsJson = visibleCalendarIds !== undefined ? JSON.stringify([...new Set(visibleCalendarIds)]) : null;
   await query(`
@@ -878,6 +889,9 @@ export async function patchPreferences(req, res) {
       || CASE WHEN $43::int IS NOT NULL THEN jsonb_build_object('calendarWeekStartsOn', $43::int) ELSE '{}'::jsonb END
       || CASE WHEN $44::text IS NOT NULL THEN jsonb_build_object('mobileNavigationPosition', $44::text) ELSE '{}'::jsonb END
       || CASE WHEN $45::jsonb IS NOT NULL THEN jsonb_build_object('visibleCalendarIds', $45::jsonb) ELSE '{}'::jsonb END
+      || CASE WHEN $46::jsonb IS NOT NULL THEN jsonb_build_object('calendarWorkDays', $46::jsonb) ELSE '{}'::jsonb END
+      || CASE WHEN $47::text IS NOT NULL THEN jsonb_build_object('calendarWorkHoursStart', $47::text) ELSE '{}'::jsonb END
+      || CASE WHEN $48::text IS NOT NULL THEN jsonb_build_object('calendarWorkHoursEnd', $48::text) ELSE '{}'::jsonb END
     WHERE id = $1
   `, [req.session.userId, theme ?? null, font ?? null, layout ?? null, notificationSound ?? null,
       pageSize ?? null, scrollMode ?? null, syncInterval ?? null,
@@ -889,7 +903,9 @@ export async function patchPreferences(req, res) {
       rightSidebarWidth, rightSidebarHidden, gtdCollapsedSectionsJson, gtdPetSlug, autoLockMinutesVal,
       showMobileAvatars ?? null, gravatarAvatars ?? null, folderSyncIntervalVal, folderOrderJson, senderFaviconsVal,
       showMessagePreviews ?? null, conversation_list_view_enabled ?? null, conversation_reader_view_enabled ?? null,
-      calendarWeekStartsOn ?? null, mobileNavigationPosition ?? null, visibleCalendarIdsJson]);
+      calendarWeekStartsOn ?? null, mobileNavigationPosition ?? null, visibleCalendarIdsJson,
+      calendarWorkDays !== undefined ? JSON.stringify(calendarWorkDays) : null,
+      calendarWorkHoursStart ?? null, calendarWorkHoursEnd ?? null]);
 
   if (syncInterval != null) {
     const ms = parseInt(syncInterval) * 1000;
