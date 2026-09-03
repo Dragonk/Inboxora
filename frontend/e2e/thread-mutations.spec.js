@@ -3,9 +3,11 @@ import { test, expect } from './fixtures.js';
 const DESKTOP = 'chromium-desktop';
 const MOBILE = new Set(['chromium-mobile-390', 'chromium-mobile']);
 
-async function openList(page, fixtureApi, testInfo, unread = ['conversation-gmail-copy-1']) {
+async function openList(page, fixtureApi, testInfo, unread = ['conversation-gmail-copy-1'], starred = [], mixedReadState = false) {
   page.__conversationMatrix = '11';
   page.__unreadCopies = unread;
+  page.__starredCopies = new Set(starred);
+  page.__mixedReadState = mixedReadState;
   await fixtureApi;
   await page.goto('/?list=0&reader=1', { waitUntil: 'domcontentloaded' });
   await expect(page.locator('[data-msgid="conversation-gmail-copy-5"]:visible')).toBeVisible();
@@ -190,7 +192,7 @@ for (const viewport of [DESKTOP, 'mobile']) {
     });
 
     test('failed no-op copies do not drift read counters', async ({ page, fixtureApi }, testInfo) => {
-      await openList(page, fixtureApi, testInfo, ['conversation-gmail-copy-1', 'conversation-gmail-copy-5']);
+      await openList(page, fixtureApi, testInfo, ['conversation-gmail-copy-1', 'conversation-gmail-copy-5'], [], true);
       const row = page.locator('[data-msgid="conversation-gmail-copy-5"]:visible');
       const sender = row.locator('span').filter({ hasText: 'sender@gmail.test' }).first();
       const account = page.getByText('e2e@example.test').first().locator('..').locator('..').locator('..');
@@ -206,7 +208,7 @@ for (const viewport of [DESKTOP, 'mobile']) {
     });
 
     test('failed no-op unread copy does not roll back counters', async ({ page, fixtureApi }, testInfo) => {
-      await openList(page, fixtureApi, testInfo, ['conversation-gmail-copy-2']);
+      await openList(page, fixtureApi, testInfo, ['conversation-gmail-copy-2'], [], true);
       const row = page.locator('[data-msgid="conversation-gmail-copy-5"]:visible');
       const sender = row.locator('span').filter({ hasText: 'sender@gmail.test' }).first();
       const account = page.getByText('e2e@example.test').first().locator('..').locator('..').locator('..');

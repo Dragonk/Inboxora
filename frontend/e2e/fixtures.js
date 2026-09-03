@@ -179,8 +179,9 @@ export const test = base.extend({
       if (parts.includes('logical-messages') || ['archive', 'move', 'delete', 'read', 'star'].includes(id)) return route.fallback();
       if (id && id !== 'conversations') return route.fulfill({ json: details(id, Boolean(page.__ceIncomplete), page.__ceMode || null, page.__unreadCopies || [], Number(page.__conversationSize || 0) || null) });
       const unread = new Set(page.__unreadCopies || []);
+      const mixedReadState = Boolean(page.__mixedReadState);
       const conversations = fixture.conversations.map(row => row.conversation_id === 'conversation-gmail'
-        ? { ...row, is_read: !unread.has('conversation-gmail-copy-5'), unread_count: unread.has('conversation-gmail-copy-5') ? unread.size : 0 }
+        ? (mixedReadState ? { ...row, is_read: !unread.has('conversation-gmail-copy-5'), unread_count: unread.has('conversation-gmail-copy-5') ? unread.size : 0 } : row)
         : row);
       return route.fulfill({ json: { conversations, nextCursor: null, total: conversations.length } });
     });
@@ -213,6 +214,8 @@ export const test = base.extend({
       if (/\/api\/mail\/messages\/[^/]+$/.test(url.pathname)) return route.fulfill({ json: { id: 'legacy-message-1', subject: 'Legacy fixture', is_read: true, account_id: 'account-gmail', folder: 'INBOX', date: new Date().toISOString(), from_email: 'sender@example.test', body_text: 'Fixture body legacy' } });
       const conversationSize = Number(page.__conversationSize || 5);
       const unread = new Set(page.__unreadCopies || []);
+      const mixedReadState = Boolean(page.__mixedReadState);
+      const starred = new Set(page.__starredCopies || []);
       const messages = Array.from({ length: conversationSize }, (_, index) => {
         const number = index + 1;
         const outgoing = [2, 4].includes(number);
@@ -227,7 +230,7 @@ export const test = base.extend({
           from_email: 'sender@gmail.test', message_id: `<large-${index}@fixture.test>`,
           thread_id: `large-thread-${index}`, thread_key: `large-thread-${index}`, message_count: 2,
         }))
-        : threaded ? [{ ...messages.at(-1), thread_key: 'conversation-gmail', is_starred: true, is_read: !unread.has('conversation-gmail-copy-5'), unread_count: unread.has('conversation-gmail-copy-5') ? unread.size : 0 }] : messages;
+        : threaded ? [{ ...messages.at(-1), thread_key: 'conversation-gmail', is_starred: true, ...(mixedReadState ? { is_read: !unread.has('conversation-gmail-copy-5'), unread_count: unread.has('conversation-gmail-copy-5') ? unread.size : 0 } : {}) }] : messages;
       return route.fulfill({ json: { messages: listMessages, total: listMessages.length, ...(threaded ? { threaded: true } : {}) } });
     });
     await page.route('**/api/mail/thread/*', async route => {
