@@ -277,6 +277,8 @@ export const test = base.extend({
       const body = route.request().postDataJSON() || {};
       if (action === 'read') return route.fallback();
       page.__conversationActions.push({ action, url: route.request().url(), method: route.request().method(), body });
+      const gate = page.__conversationActionGates?.[action];
+      if (gate) await gate.promise;
       if (page.__conversationActionFailures?.has(action)) {
         return route.fulfill({ status: 503, json: { error: `Fixture ${action} failed` } });
       }

@@ -30,6 +30,18 @@ function holdThreadResolution(page) {
   };
 }
 
+function holdConversationAction(page, action) {
+  let release;
+  page.__conversationActionGates = page.__conversationActionGates || {};
+  page.__conversationActionGates[action] = {
+    promise: new Promise(resolve => { release = resolve; }),
+  };
+  return () => {
+    delete page.__conversationActionGates[action];
+    release();
+  };
+}
+
 async function openContextMenu(page, row, testInfo) {
   if (testInfo.project.name === DESKTOP) {
     await row.click({ button: 'right' });
@@ -115,18 +127,23 @@ for (const viewport of [DESKTOP, 'mobile']) {
       await openList(page, fixtureApi, testInfo);
       const row = page.locator('[data-msgid="conversation-gmail-copy-5"]:visible');
       page.__conversationActionFailures = new Set(['archive']);
+      const releaseArchiveApi = holdConversationAction(page, 'archive');
       const releaseArchive = holdThreadResolution(page);
       await openContextMenu(page, row, testInfo);
       await chooseMenuItem(page, /archiwizuj|archive/i);
       await expect(row).toHaveCount(0);
       releaseArchive();
       await waitForConversationAction(page, 'archive');
+      await expect(row).toHaveCount(0);
+      releaseArchiveApi();
       await expect(row).toBeVisible();
 
       await page.reload({ waitUntil: 'domcontentloaded' });
       const moved = page.locator('[data-msgid="conversation-gmail-copy-5"]:visible');
       await expect(moved).toBeVisible();
       page.__conversationActionFailures = new Set(['move']);
+      const releaseMoveApi = holdConversationAction(page, 'move');
+      const releaseMoveThread = holdThreadResolution(page);
       if (testInfo.project.name === DESKTOP) {
         await moved.hover();
         await moved.locator('button[aria-label*="Przenieś"], button[aria-label*="Move"]').first().click();
@@ -136,17 +153,25 @@ for (const viewport of [DESKTOP, 'mobile']) {
       }
       await chooseMenuItem(page, /archive|archiwum/i);
       await expect(moved).toHaveCount(0);
+      releaseMoveThread();
       await waitForConversationAction(page, 'move');
+      await expect(moved).toHaveCount(0);
+      releaseMoveApi();
       await expect(moved).toBeVisible();
 
       await page.reload({ waitUntil: 'domcontentloaded' });
       const deleted = page.locator('[data-msgid="conversation-gmail-copy-5"]:visible');
       await expect(deleted).toBeVisible();
       page.__conversationActionFailures = new Set(['delete']);
+      const releaseDeleteApi = holdConversationAction(page, 'delete');
+      const releaseDeleteThread = holdThreadResolution(page);
       await openContextMenu(page, deleted, testInfo);
       await chooseMenuItem(page, /usuń|delete/i);
       await expect(deleted).toHaveCount(0);
+      releaseDeleteThread();
       await waitForConversationAction(page, 'delete');
+      await expect(deleted).toHaveCount(0);
+      releaseDeleteApi();
       await expect(deleted).toBeVisible();
     });
 
