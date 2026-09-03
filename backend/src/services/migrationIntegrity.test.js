@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { createHash } from 'crypto';
-import { readFileSync } from 'fs';
+import { readFileSync, readdirSync } from 'fs';
 import { join } from 'path';
 
 describe('migration integrity', () => {
@@ -51,6 +51,13 @@ describe('migration integrity', () => {
     expect(sql).toContain('contacts_user_anniversary_idx');
   });
 
+  it('adds the labelled contact-date projection for CardDAV round-trips', () => {
+    const sql = readFileSync(join(process.cwd(), 'migrations/0074_contact_dates_multi.sql'), 'utf8');
+    expect(sql).toContain('contact_dates JSONB NOT NULL DEFAULT');
+    expect(sql).toContain("'Birthday'");
+    expect(sql).toContain("'Anniversary'");
+  });
+
   it('stores one durable inbound calendar projection per physical message row', () => {
     const sql = readFileSync(join(process.cwd(), 'migrations/0071_inbound_calendar_invitations.sql'), 'utf8');
     expect(sql).toContain('message_id UUID PRIMARY KEY REFERENCES messages(id) ON DELETE CASCADE');
@@ -82,6 +89,13 @@ describe('migration integrity', () => {
     expect(sql).toContain("ERRCODE = '23514'");
     expect(sql).toContain('Calendar source URLs must be encrypted before storage');
     expect(sql.indexOf('UPDATE calendar_import_sources')).toBeLessThan(sql.indexOf('CREATE OR REPLACE FUNCTION calendar_source_url_fingerprint'));
+  });
+
+  it('keeps contact-date migration identity unique after the existing 0072 migrations', () => {
+    const sourceMigrations = readdirSync(join(process.cwd(), 'migrations')).filter(name => name.startsWith('0072_'));
+    expect(sourceMigrations).toContain('0072_calendar_source_url_secrets.sql');
+    expect(sourceMigrations).not.toContain('0072_contact_dates_multi.sql');
+    expect(readFileSync(join(process.cwd(), 'migrations/0074_contact_dates_multi.sql'), 'utf8')).toContain('contact_dates JSONB NOT NULL DEFAULT');
   });
 
   it('adds a partial logical-message lookup index for non-deleted physical copies', () => {

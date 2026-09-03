@@ -274,6 +274,32 @@ describe('local calendar API', () => {
     expect(query).not.toHaveBeenCalled();
   });
 
+  it('projects custom labelled contact dates and deduplicates legacy mirrors', async () => {
+    query.mockResolvedValueOnce({ rows: [] }).mockResolvedValueOnce({ rows: [{
+      id: 'contact-1', display_name: 'Ada', primary_email: 'ada@example.test', birthday: '1990-01-02', anniversary: null,
+      contact_dates: [{ label: 'Birthday', value: '1990-01-02' }, { label: 'Wedding', value: '2020-09-14' }],
+    }] });
+    const response = await fetch(`${base}/api/calendar/events?from=2026-01-01T00:00:00.000Z&to=2027-01-01T00:00:00.000Z`);
+    expect(response.status).toBe(200);
+    const events = (await response.json()).events;
+    expect(events).toHaveLength(2);
+    expect(events.map(event => event.summary)).toEqual(expect.arrayContaining(['Birthday: Ada', 'Wedding: Ada']));
+    expect(new Set(events.map(event => event.id)).size).toBe(2);
+  });
+
+  it('keeps same-date labelled contact events distinct with stable ids', async () => {
+    const contacts = [{ id: 'contact-1', display_name: 'Ada', primary_email: null, birthday: null, anniversary: null,
+      contact_dates: [{ label: 'Wedding', value: '2020-09-14' }, { label: 'Graduation', value: '2020-09-14' }] }];
+    query.mockResolvedValueOnce({ rows: [] }).mockResolvedValueOnce({ rows: contacts });
+    const first = await (await fetch(`${base}/api/calendar/events?from=2026-01-01T00:00:00.000Z&to=2027-01-01T00:00:00.000Z`)).json();
+    query.mockResolvedValueOnce({ rows: [] }).mockResolvedValueOnce({ rows: contacts });
+    const second = await (await fetch(`${base}/api/calendar/events?from=2026-01-01T00:00:00.000Z&to=2027-01-01T00:00:00.000Z`)).json();
+    expect(first.events).toHaveLength(2);
+    expect(new Set(first.events.map(event => event.id)).size).toBe(2);
+    expect(first.events.map(event => event.id).sort()).toEqual(second.events.map(event => event.id).sort());
+    expect(first.events.map(event => event.summary)).toEqual(expect.arrayContaining(['Wedding: Ada', 'Graduation: Ada']));
+  });
+
   it('requires a sender account and attendee list before sending invitations', async () => {
     const response = await fetch(`${base}/api/calendar/events`, {
       method: 'POST', headers: { 'content-type': 'application/json' },

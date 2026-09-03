@@ -31,9 +31,12 @@ function contactDateEvents(contacts, from, to) {
       const [, month, day] = value.match(/^(\d{4})-(\d{2})-(\d{2})$/);
       for (let year = from.getUTCFullYear(); year <= to.getUTCFullYear(); year++) {
         const startsAt = new Date(Date.UTC(year, Number(month) - 1, Number(day)));
-        if (startsAt.getUTCMonth() !== Number(month) - 1 || startsAt < from || startsAt >= to) continue;
+        if (startsAt.getUTCMonth() !== Number(month) - 1 || startsAt.getUTCDate() !== Number(day) || startsAt < from || startsAt >= to) continue;
         const endsAt = new Date(startsAt); endsAt.setUTCDate(endsAt.getUTCDate() + 1);
-        events.push({ id: `contacts-${field}-${contact.id}-${year}`, calendar_id: 'contacts-birthdays', uid: `contacts-${field}-${contact.id}-${year}`, summary: `${label}: ${contact.display_name || contact.primary_email || 'Contact'}`, starts_at: startsAt, ends_at: endsAt, all_day: true, calendar_name: 'Contact dates', calendar_color: '#e879f9', source: 'contacts', read_only: true });
+        const dateSlug = value.replaceAll('-', '');
+        const labelKey = crypto.createHash('sha256').update(label.toLocaleLowerCase()).digest('hex').slice(0, 16);
+        const slug = `${labelKey}-${dateSlug}`;
+        events.push({ id: `contacts-${contact.id}-${slug}-${year}`, calendar_id: 'contacts-birthdays', uid: `contacts-${contact.id}-${slug}-${year}`, summary: `${label}: ${contact.display_name || contact.primary_email || 'Contact'}`, starts_at: startsAt, ends_at: endsAt, all_day: true, calendar_name: 'Contact dates', calendar_color: '#e879f9', source: 'contacts', read_only: true });
       }
     }
   }

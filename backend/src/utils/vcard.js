@@ -5,7 +5,7 @@
 // Strips CR, LF, and other characters that are structural in vCard lines.
 function escapeParam(str) {
   if (!str) return '';
-  return str.replace(/[\r\n;:,]/g, '');
+  return str.replace(/[\r\n;]/g, '');
 }
 
 // Escape special characters in a vCard property value.
@@ -121,6 +121,18 @@ export function parseVCard(raw) {
     instantMessages: [],
     categories: [],
     addresses: [],
+    contactDates: [],
+    invalidDates: [],
+  };
+
+  const addContactDate = (label, value) => {
+    const normalized = normalizeDate(value);
+    const cleanLabel = unescapeValue(label || '').trim().replace(/^"|"$/g, '') || 'Other';
+    if (!normalized) return;
+    const key = `${cleanLabel.toLocaleLowerCase()}\u0000${normalized}`;
+    if (!result.contactDates.some(date => `${date.label.toLocaleLowerCase()}\u0000${date.value}` === key)) {
+      result.contactDates.push({ label: cleanLabel, value: normalized });
+    }
   };
 
   for (const line of text.split(/\r?\n/)) {
@@ -130,12 +142,12 @@ export function parseVCard(raw) {
     const colonIdx = trimmed.indexOf(':');
     if (colonIdx < 0) continue;
 
-    const rawName = trimmed.slice(0, colonIdx).toUpperCase();
+    const rawName = trimmed.slice(0, colonIdx);
     const value   = trimmed.slice(colonIdx + 1);
 
     // Strip parameters (e.g. "EMAIL;TYPE=WORK:..." → name = "EMAIL"), then drop an
     // optional group prefix (e.g. "ITEM1.EMAIL" → "EMAIL") used by Apple/Nextcloud.
-    let name = rawName.split(';')[0];
+    let name = rawName.split(';')[0].toUpperCase();
     if (name.includes('.')) name = name.slice(name.lastIndexOf('.') + 1);
     const params = rawName.includes(';') ? rawName.slice(rawName.indexOf(';') + 1) : '';
 
@@ -179,12 +191,24 @@ export function parseVCard(raw) {
       case 'NOTE':
         result.notes = unescapeValue(value).trim() || null;
         break;
-      case 'BDAY':
-        result.birthday = normalizeDate(value);
+      case 'BDAY': {
+        result.birthday = result.birthday || normalizeDate(value);
+        addContactDate(params.match(/(?:TYPE|LABEL)=("[^"]+"|[^;]+)/i)?.[1] || 'Birthday', value);
         break;
-      case 'ANNIVERSARY':
-        result.anniversary = normalizeDate(value);
+      }
+      case 'ANNIVERSARY': {
+        result.anniversary = result.anniversary || normalizeDate(value);
+        addContactDate(params.match(/(?:TYPE|LABEL)=("[^"]+"|[^;]+)/i)?.[1] || 'Anniversary', value);
         break;
+      }
+      case 'X-ABDATE':
+        addContactDate(params.match(/(?:TYPE|LABEL)=("[^"]+"|[^;]+)/i)?.[1] || 'Other', value);
+        break;
+      case 'X-ANDROID-CUSTOM': {
+        const parts = splitEscaped(value, ';').map(part => unescapeValue(part));
+        if (parts[0] === 'vnd.android.cursor.item/contact_event') addContactDate(parts[2], parts[3]);
+        break;
+      }
       case 'TITLE':
         result.title = unescapeValue(value).trim() || null;
         break;
@@ -261,6 +285,7 @@ export function generateVCard(contact) {
     instantMessages = [],
     categories = [],
     addresses = [],
+    contactDates,
   } = contact;
 
   const lines = [];
@@ -294,8 +319,22 @@ export function generateVCard(contact) {
   if (notes) {
     lines.push(`NOTE:${escapeValue(notes)}`);
   }
-  if (/^\d{4}-\d{2}-\d{2}$/.test(birthday || '')) lines.push(`BDAY:${birthday}`);
-  if (/^\d{4}-\d{2}-\d{2}$/.test(anniversary || '')) lines.push(`ANNIVERSARY:${anniversary}`);
+  if (Array.isArray(contactDates)) {
+    const seenDates = new Set();
+    for (const date of contactDates) {
+      const value = normalizeDate(date?.value);
+      const label = typeof date?.label === 'string' && date.label.trim() ? date.label.trim() : 'Other';
+      const key = `${label.toLocaleLowerCase()}\u0000${value}`;
+      if (!value || seenDates.has(key)) continue;
+      seenDates.add(key);
+      const property = label.toLocaleLowerCase() === 'birthday' ? 'BDAY' : label.toLocaleLowerCase() === 'anniversary' ? 'ANNIVERSARY' : 'X-ABDATE';
+      const encodedLabel = /[,:"]/.test(label) ? `"${escapeParam(label).replace(/"/g, '\\"')}"` : escapeParam(label);
+      lines.push(`${property};TYPE=${encodedLabel}:${value}`);
+    }
+  } else {
+    if (/^\d{4}-\d{2}-\d{2}$/.test(birthday || '')) lines.push(`BDAY:${birthday}`);
+    if (/^\d{4}-\d{2}-\d{2}$/.test(anniversary || '')) lines.push(`ANNIVERSARY:${anniversary}`);
+  }
   if (title) lines.push(`TITLE:${escapeValue(title)}`);
   if (role) lines.push(`ROLE:${escapeValue(role)}`);
   if (nickname) lines.push(`NICKNAME:${escapeValue(nickname)}`);
@@ -322,7 +361,7 @@ export function mergeVCard(raw, contact) {
   if (!/^BEGIN:VCARD\s*$/im.test(original) || !/^END:VCARD\s*$/im.test(original)) {
     return generateVCard(contact);
   }
-  const managed = new Set(['FN', 'N', 'EMAIL', 'TEL', 'ORG', 'NOTE', 'BDAY', 'ANNIVERSARY']);
+  const managed = new Set(['FN', 'N', 'EMAIL', 'TEL', 'ORG', 'NOTE', 'BDAY', 'ANNIVERSARY', 'X-ABDATE', 'X-ANDROID-CUSTOM']);
   const richProperties = { title: 'TITLE', role: 'ROLE', nickname: 'NICKNAME', urls: 'URL', instantMessages: 'IMPP', categories: 'CATEGORIES', addresses: 'ADR' };
   for (const [field, property] of Object.entries(richProperties)) {
     if (Object.hasOwn(contact, field)) managed.add(property);
