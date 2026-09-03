@@ -2,6 +2,7 @@ import { useEffect, useRef, useMemo } from 'react';
 export { EMAIL_SANITIZE_POLICY, sanitizeMessageHtml, emailCsp, EMAIL_BASE_TAG, buildSrcDoc } from './messageBodySecurity.js';
 import { sanitizeMessageHtml, buildSrcDoc, escapeMessageText } from './messageBodySecurity.js';
 import { installMessageQuoteFolding } from './messageQuoteFolding.js';
+import { scheduleInitialLayoutReady } from './messageBodyLayout.js';
 
 /**
  * SafeMessageFrame — shared production HTML body renderer using a sandboxed iframe.
@@ -39,7 +40,7 @@ export default function MessageBodyRenderer({ html = '', text = '', remoteImages
     if (!iframe || !srcDoc) return;
 
     let initialLayoutReported = false;
-    let initialLayoutFrame = null;
+    let cancelInitialLayout = null;
     const measure = () => {
       try {
         const doc = iframe.contentDocument;
@@ -56,12 +57,11 @@ export default function MessageBodyRenderer({ html = '', text = '', remoteImages
           // The iframe height participates in its parent reader's scroll range on
           // the following paint. Wait an additional frame so the parent card's
           // scrollHeight reflects that committed height before final alignment.
-          if (initialLayoutFrame) cancelAnimationFrame(initialLayoutFrame);
-          initialLayoutFrame = requestAnimationFrame(() => {
-            initialLayoutFrame = requestAnimationFrame(() => {
-              initialLayoutReported = true;
-              onInitialLayoutReady?.(contentHeight);
-            });
+          cancelInitialLayout?.();
+          cancelInitialLayout = scheduleInitialLayoutReady(() => {
+            initialLayoutReported = true;
+            cancelInitialLayout = null;
+            onInitialLayoutReady?.(contentHeight);
           });
         }
       } catch {
@@ -176,7 +176,7 @@ export default function MessageBodyRenderer({ html = '', text = '', remoteImages
     if (iframe.contentDocument?.readyState === 'complete') onLoaded();
     return () => {
       cleanup?.();
-      if (initialLayoutFrame) cancelAnimationFrame(initialLayoutFrame);
+      cancelInitialLayout?.();
       iframe.removeEventListener('load', onLoaded);
     };
   }, [srcDoc, remoteImages, quoteFolding, showQuotedTextLabel, hideQuotedTextLabel, onQuoteDetected, onHeightChange, onInitialLayoutReady, onLoad, onContextMenu, iframeRef]);
