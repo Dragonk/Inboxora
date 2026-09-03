@@ -253,6 +253,32 @@ export const test = base.extend({
       page.__bulkReadActions.push(route.request().postDataJSON());
       return route.fulfill({ json: { ok: true } });
     });
+    await page.route('**/api/mail/messages/*/star', async route => {
+      const url = new URL(route.request().url());
+      const id = url.pathname.split('/').at(-2);
+      page.__starActions = page.__starActions || [];
+      page.__starActions.push({ id, body: route.request().postDataJSON() });
+      const gate = page.__starGates?.[String(route.request().postDataJSON()?.starred)];
+      if (gate) await gate.promise;
+      if (page.__starFailureIds?.has(id)) {
+        return route.fulfill({ status: 503, json: { error: 'Fixture star failed' } });
+      }
+      return route.fulfill({ json: { ok: true } });
+    });
+    await page.route('**/api/mail/messages/bulk-*', async route => {
+      const url = new URL(route.request().url());
+      const action = url.pathname.split('/').at(-1).replace('bulk-', '');
+      const body = route.request().postDataJSON() || {};
+      if (action === 'read') return route.fallback();
+      page.__conversationActions.push({ action, url: route.request().url(), method: route.request().method(), body });
+      const gate = page.__conversationActionGates?.[action];
+      if (gate) await gate.promise;
+      if (page.__conversationActionFailures?.has(action)) {
+        return route.fulfill({ status: 503, json: { error: `Fixture ${action} failed` } });
+      }
+      const ids = body.ids || [];
+      return route.fulfill({ json: { ok: true, ...(action === 'delete' ? { deleted: ids } : {}), ...(action === 'move' ? { moved: ids } : {}) } });
+    });
     await page.route('**/api/mail/messages/*/body**', async route => {
       const url = new URL(route.request().url());
       const copyId = url.pathname.split('/').at(-2);

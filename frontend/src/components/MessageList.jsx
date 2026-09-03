@@ -789,6 +789,14 @@ export default function MessageList() {
     }
   }, [threadMessages, setThreadMessages]);
 
+  const setCachedThreadStates = useCallback((message, field, states) => {
+    const tid = message.thread_id || message.id;
+    if (!threadMessages[tid]) return;
+    setThreadMessages(tid, threadMessages[tid].map(msg => (
+      states.has(String(msg.id)) ? { ...msg, [field]: states.get(String(msg.id)) } : msg
+    )));
+  }, [threadMessages, setThreadMessages]);
+
   const setMessagesReadState = useCallback(async (message, read) => {
     const isThreadRow = isThreadListRow(message);
     // Reserve the logical intent before any asynchronous thread resolution. A
@@ -889,15 +897,38 @@ export default function MessageList() {
       mutations = actionMessages.map(msg => ({ msg, mutation: queueReadStateMutation(
         msg.id, read, targetRead => api.bulkRead([msg.id], targetRead),
       ) }));
-      await Promise.all(mutations.map(({ mutation }) => mutation.promise));
-      if (!isLatestPerCopyMutation(message.id, resolution.version)) return;
-      actionMessages.forEach(msg => window.dispatchEvent(new CustomEvent('inboxora:read-state', { detail: { id: msg.id, read } })));
+      const results = await Promise.allSettled(mutations.map(({ mutation }) => mutation.promise));
+      if (!isLatestPerCopyMutation(message.id, resolution.version)
+        || mutations.some(({ msg, mutation }) => !isLatestReadStateMutation(msg.id, mutation.version))) return;
+      const failedIds = new Set(results.flatMap((result, index) => (
+        result.status === 'rejected' ? [String(mutations[index].msg.id)] : []
+      )));
+      if (failedIds.size > 0) {
+        setCachedThreadStates(message, 'is_read', new Map([...failedIds].map(id => [id, !read])));
+        const finalUnread = actionMessages.filter(msg => (
+          failedIds.has(String(msg.id)) ? !msg.is_read : !read
+        )).length;
+        if (isThreadRow) updateMessage(message.id, { is_read: finalUnread === 0, unread_count: finalUnread });
+        if (read) {
+          incrementUnread(message.account_id, failedIds.size);
+          adjustCategoryCount(message.category, failedIds.size);
+        } else {
+          decrementUnread(message.account_id, failedIds.size);
+          adjustCategoryCount(message.category, -failedIds.size);
+        }
+        failedIds.forEach(id => pendingMarkReadMap.delete(id));
+      }
+      actionMessages.forEach(msg => window.dispatchEvent(new CustomEvent('inboxora:read-state', {
+        detail: { id: msg.id, read: failedIds.has(String(msg.id)) ? !read : read },
+      })));
       if (read) {
-        actionMessages.forEach(msg => {
-          pendingMarkReadMap.delete(msg.id);
-          completedMarkReadMap.set(msg.id, msg.account_id);
-          setTimeout(() => completedMarkReadMap.delete(msg.id), 10000);
-        });
+        actionMessages
+          .filter(msg => !failedIds.has(String(msg.id)))
+          .forEach(msg => {
+            pendingMarkReadMap.delete(msg.id);
+            completedMarkReadMap.set(msg.id, msg.account_id);
+            setTimeout(() => completedMarkReadMap.delete(msg.id), 10000);
+          });
       }
     } catch (err) {
       // Do not let a stale request roll back a newer explicit user intent.
@@ -921,6 +952,7 @@ export default function MessageList() {
     }
   }, [
     resolveMessagesForThreadAction, isThreadListRow, updateMessage, setCachedThreadRead,
+    setCachedThreadStates,
     decrementUnread, incrementUnread, adjustCategoryCount,
   ]);
 
