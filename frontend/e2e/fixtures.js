@@ -159,7 +159,10 @@ export const test = base.extend({
     await page.route('**/api/calendar/events**', route => route.fulfill({ json: { events: [] } }));
     await page.route('**/api/auth/registration-status', route => route.fulfill({ json: { open: true, internalAuthDisabled: false } }));
     await page.route('**/api/auth/oidc/providers', route => route.fulfill({ json: { providers: [] } }));
-    await page.route('**/api/mail/unread-counts', route => route.fulfill({ json: { total: 0, byAccount: {} } }));
+    await page.route('**/api/mail/unread-counts', route => {
+      const total = new Set(page.__unreadCopies || []).size;
+      return route.fulfill({ json: { total, byAccount: total ? { 'account-gmail': total } : {} } });
+    });
     page.__conversationActions = [];
     await page.route(url => /\/api\/mail\/conversations\/[^/]+\/(archive|move|delete|read|star)$/.test(url.pathname), async route => {
       const request = route.request();
@@ -230,7 +233,7 @@ export const test = base.extend({
           from_email: 'sender@gmail.test', message_id: `<large-${index}@fixture.test>`,
           thread_id: `large-thread-${index}`, thread_key: `large-thread-${index}`, message_count: 2,
         }))
-        : threaded ? [{ ...messages.at(-1), thread_key: 'conversation-gmail', is_starred: true, ...(mixedReadState ? { is_read: !unread.has('conversation-gmail-copy-5'), unread_count: unread.has('conversation-gmail-copy-5') ? unread.size : 0 } : {}) }] : messages;
+        : threaded ? [{ ...messages.at(-1), thread_key: 'conversation-gmail', is_starred: true, is_read: !unread.has('conversation-gmail-copy-5'), unread_count: unread.has('conversation-gmail-copy-5') ? unread.size : 0 }] : messages;
       return route.fulfill({ json: { messages: listMessages, total: listMessages.length, ...(threaded ? { threaded: true } : {}) } });
     });
     await page.route('**/api/mail/thread/*', async route => {
