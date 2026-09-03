@@ -171,7 +171,7 @@ async function updateInvitedEvent(req, fields) {
 
 async function writableCalendar(userId, calendarId) {
   const result = await query(
-    'SELECT id, source, read_only FROM calendars WHERE id = $1 AND user_id = $2',
+    'SELECT id, source, read_only FROM calendars WHERE id = $1 AND user_id = $2 AND owner_user_id = $2',
     [calendarId, userId],
   );
   const calendar = result.rows[0];
@@ -182,14 +182,81 @@ async function writableCalendar(userId, calendarId) {
 
 router.get('/calendars', async (req, res) => {
   const result = await query(
-    `SELECT id, name, description, color, source, external_url, read_only, sync_token, created_at, updated_at
-     FROM calendars WHERE user_id = $1 ORDER BY created_at ASC`,
+    `SELECT id, name, description, color, source, external_url, read_only, display_visible, owner_user_id, sync_token, created_at, updated_at
+     FROM calendars WHERE user_id = $1 AND owner_user_id = $1 ORDER BY created_at ASC`,
     [req.session.userId],
   );
   res.json({ calendars: [...result.rows, {
     id: 'contacts-birthdays', name: 'Contact dates', description: 'Birthdays and anniversaries from contacts',
-    color: '#e879f9', source: 'contacts', external_url: null, read_only: true,
+    color: '#e879f9', source: 'contacts', external_url: null, read_only: true, display_visible: true,
   }] });
+});
+
+function calendarName(value) {
+  const name = typeof value === 'string' ? value.trim() : '';
+  return name && name.length <= 120 ? name : null;
+}
+
+function calendarColor(value) {
+  if (value == null || value === '') return null;
+  return typeof value === 'string' && /^#[0-9a-f]{6}$/i.test(value) ? value : undefined;
+}
+
+router.post('/calendars', async (req, res) => {
+  const name = calendarName(req.body?.name);
+  const color = calendarColor(req.body?.color);
+  const displayVisible = req.body?.displayVisible ?? true;
+  if (!name || color === undefined || typeof displayVisible !== 'boolean') {
+    return res.status(400).json({ error: 'name, a hex color, and displayVisible are required' });
+  }
+  try {
+    const result = await query(
+      `INSERT INTO calendars (user_id, owner_user_id, name, color, display_visible, source, read_only)
+       VALUES ($1, $1, $2, $3, $4, 'local', false)
+       RETURNING id, user_id, owner_user_id, name, description, color, source, external_url, read_only, display_visible, sync_token, created_at, updated_at`,
+      [req.session.userId, name, color, displayVisible],
+    );
+    return res.status(201).json({ calendar: result.rows[0] });
+  } catch (error) {
+    if (error.code === '23505') return res.status(409).json({ error: 'A calendar with that name already exists' });
+    throw error;
+  }
+});
+
+router.patch('/calendars/:calendarId', async (req, res) => {
+  const name = calendarName(req.body?.name);
+  const color = calendarColor(req.body?.color);
+  const displayVisible = req.body?.displayVisible;
+  if (!name || color === undefined || typeof displayVisible !== 'boolean') {
+    return res.status(400).json({ error: 'name, a hex color, and displayVisible are required' });
+  }
+  try {
+    const result = await query(
+      `UPDATE calendars
+       SET name = $1, color = $2, display_visible = $3, updated_at = NOW()
+       WHERE id = $4 AND owner_user_id = $5 AND user_id = $5 AND source = 'local' AND read_only = false
+       RETURNING id, user_id, owner_user_id, name, description, color, source, external_url, read_only, display_visible, sync_token, created_at, updated_at`,
+      [name, color, displayVisible, req.params.calendarId, req.session.userId],
+    );
+    if (!result.rows[0]) return res.status(404).json({ error: 'Calendar not found' });
+    return res.json({ calendar: result.rows[0] });
+  } catch (error) {
+    if (error.code === '23505') return res.status(409).json({ error: 'A calendar with that name already exists' });
+    throw error;
+  }
+});
+
+router.delete('/calendars/:calendarId', async (req, res) => {
+  const confirmName = calendarName(req.body?.confirmName);
+  if (!confirmName) return res.status(400).json({ error: 'confirmName is required' });
+  const result = await query(
+    `DELETE FROM calendars
+     WHERE id = $1 AND owner_user_id = $2 AND user_id = $2 AND name = $3 AND source = 'local' AND read_only = false
+     RETURNING id`,
+    [req.params.calendarId, req.session.userId, confirmName],
+  );
+  if (!result.rows[0]) return res.status(404).json({ error: 'Calendar not found' });
+  res.status(204).end();
 });
 
 router.get('/events', async (req, res) => {
@@ -207,7 +274,7 @@ router.get('/events', async (req, res) => {
             c.name AS calendar_name, c.color AS calendar_color, c.source, c.read_only
      FROM calendar_events e
      JOIN calendars c ON c.id = e.calendar_id
-     WHERE e.user_id = $1 AND e.starts_at < $3 AND e.ends_at > $2
+     WHERE e.user_id = $1 AND c.user_id = $1 AND c.owner_user_id = $1 AND e.starts_at < $3 AND e.ends_at > $2
      ORDER BY e.starts_at ASC`,
     [req.session.userId, from, to],
   );
@@ -488,7 +555,7 @@ router.delete('/sources/:sourceId', async (req, res) => {
   stopCalendarSource(req.params.sourceId);
   const result = await query('DELETE FROM calendar_import_sources WHERE id = $1 AND user_id = $2 RETURNING id', [req.params.sourceId, req.session.userId]);
   if (!result.rows[0]) return res.status(404).json({ error: 'Calendar source not found' });
-  await query('DELETE FROM calendars WHERE user_id = $1 AND external_url = $2', [req.session.userId, `source:${req.params.sourceId}`]);
+  await query('DELETE FROM calendars WHERE user_id = $1 AND owner_user_id = $1 AND external_url = $2', [req.session.userId, `source:${req.params.sourceId}`]);
   res.status(204).end();
 });
 

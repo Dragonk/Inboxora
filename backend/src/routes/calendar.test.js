@@ -135,6 +135,59 @@ describe('local calendar API', () => {
     expect((await response.json()).calendars).toContainEqual(expect.objectContaining({ id: 'contacts-birthdays', source: 'contacts', read_only: true }));
   });
 
+  it('creates an account-owned local calendar with display metadata', async () => {
+    query.mockResolvedValueOnce({ rows: [{ id: 'calendar-2', owner_user_id: 'user-1', name: 'Work', color: '#123456', display_visible: true, source: 'local', read_only: false }] });
+
+    const response = await fetch(`${base}/api/calendar/calendars`, {
+      method: 'POST', headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ name: 'Work', color: '#123456', displayVisible: true }),
+    });
+
+    expect(response.status).toBe(201);
+    expect((await response.json()).calendar).toMatchObject({ id: 'calendar-2', name: 'Work' });
+    expect(query.mock.calls[0][0]).toContain('owner_user_id');
+    expect(query.mock.calls[0][1]).toEqual(['user-1', 'Work', '#123456', true]);
+  });
+
+  it('updates only an owned local calendar', async () => {
+    query.mockResolvedValueOnce({ rows: [{ id: 'calendar-2', owner_user_id: 'user-1', name: 'Updated', color: '#abcdef', display_visible: false, source: 'local', read_only: false }] });
+
+    const response = await fetch(`${base}/api/calendar/calendars/calendar-2`, {
+      method: 'PATCH', headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ name: 'Updated', color: '#abcdef', displayVisible: false }),
+    });
+
+    expect(response.status).toBe(200);
+    expect((await response.json()).calendar).toMatchObject({ name: 'Updated', display_visible: false });
+    expect(query.mock.calls[0][0]).toContain('owner_user_id = $5');
+    expect(query.mock.calls[0][1]).toEqual(['Updated', '#abcdef', false, 'calendar-2', 'user-1']);
+  });
+
+  it('requires exact calendar-name confirmation before deleting an owned calendar', async () => {
+    query.mockResolvedValueOnce({ rows: [{ id: 'calendar-2' }] });
+
+    const response = await fetch(`${base}/api/calendar/calendars/calendar-2`, {
+      method: 'DELETE', headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ confirmName: 'Work' }),
+    });
+
+    expect(response.status).toBe(204);
+    expect(query.mock.calls[0][0]).toContain('DELETE FROM calendars');
+    expect(query.mock.calls[0][0]).toContain('owner_user_id = $2');
+    expect(query.mock.calls[0][1]).toEqual(['calendar-2', 'user-1', 'Work']);
+  });
+
+  it('does not delete a calendar when server-side confirmation does not match', async () => {
+    query.mockResolvedValueOnce({ rows: [] });
+    const response = await fetch(`${base}/api/calendar/calendars/calendar-2`, {
+      method: 'DELETE', headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ confirmName: 'Other' }),
+    });
+
+    expect(response.status).toBe(404);
+    expect(query.mock.calls[0][0]).toContain('name = $3');
+  });
+
   it('rejects an excessively broad event range before querying the database', async () => {
     const response = await fetch(`${base}/api/calendar/events?from=2026-01-01T00:00:00.000Z&to=2028-01-02T00:00:00.000Z`);
 
