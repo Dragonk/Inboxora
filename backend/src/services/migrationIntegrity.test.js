@@ -80,15 +80,22 @@ describe('migration integrity', () => {
 
   it('migrates calendar source URLs to user-scoped fingerprints before encryption', () => {
     const sql = readFileSync(join(process.cwd(), 'migrations/0072_calendar_source_url_secrets.sql'), 'utf8');
+    expect(createHash('sha256').update(sql).digest('hex')).toBe('b780dd8872d45ae32ea93a5ee34e67747de64bffb92f89b85616acc07e5bdce1');
     expect(sql).toContain('CREATE EXTENSION IF NOT EXISTS pgcrypto');
     expect(sql).toContain("digest(url, 'sha256')");
     expect(sql).toContain('calendar_source_url_fingerprint_trigger');
     expect(sql).toContain('DROP CONSTRAINT IF EXISTS calendar_import_sources_user_id_url_key');
     expect(sql).toContain('calendar_import_sources_user_url_fingerprint_key');
     expect(sql).toContain('ALTER COLUMN url_fingerprint SET NOT NULL');
+    expect(sql).toContain('Legacy writers may omit the new column');
+  });
+
+  it('installs a no-bypass plaintext URL guard in the forward repair migration', () => {
+    const sql = readFileSync(join(process.cwd(), 'migrations/0073_calendar_source_url_plaintext_guard.sql'), 'utf8');
     expect(sql).toContain("ERRCODE = '23514'");
     expect(sql).toContain('Calendar source URLs must be encrypted before storage');
-    expect(sql.indexOf('UPDATE calendar_import_sources')).toBeLessThan(sql.indexOf('CREATE OR REPLACE FUNCTION calendar_source_url_fingerprint'));
+    expect(sql).toContain('NEW.url NOT LIKE \'enc:v1:%\'');
+    expect(sql).toContain('CREATE TRIGGER calendar_source_url_fingerprint_trigger');
   });
 
   it('keeps contact-date migration identity unique after the existing 0072 migrations', () => {
