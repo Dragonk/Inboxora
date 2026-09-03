@@ -37,6 +37,7 @@ import caldavRouter from './routes/caldav.js';
 import carddavAccountRouter from './routes/carddavAccount.js';
 import davCredentialsRouter from './routes/davCredentials.js';
 import calendarRouter from './routes/calendar.js';
+import calendarFeedRouter from './routes/calendarFeed.js';
 import { startCardavScheduler } from './services/carddavSync.js';
 import { startExternalCalendarScheduler } from './services/externalCalendarSync.js';
 import { encryptExistingCredentials, query } from './services/db.js';
@@ -189,6 +190,9 @@ app.set('imapManager', imapManager);
 setMailEngine(imapManager);
 
 // Routes
+// Secret calendar feeds intentionally sit outside the authenticated API mount;
+// their anonymous GET is protected by the high-entropy bearer token.
+app.use('/', calendarFeedRouter);
 app.use('/api/auth', authRoutes);
 app.use('/api/auth/oidc', oidcApiRouter);
 app.use('/auth/oidc', oidcBrowserRouter);
