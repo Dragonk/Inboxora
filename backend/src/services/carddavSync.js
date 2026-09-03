@@ -71,7 +71,7 @@ function contactFromVCard(vcard, href) {
     organization: c.organization, notes: c.notes, birthday: c.birthday, anniversary: c.anniversary, contactDates: c.contactDates, photoData: c.photoData,
     title: c.title, role: c.role, nickname: c.nickname, urls: c.urls,
     instantMessages: c.instantMessages, categories: c.categories, addresses: c.addresses,
-    invalidDateLabels: c.invalidDateLabels,
+    invalidDates: c.invalidDates, invalidDateLabels: c.invalidDateLabels,
     vcard,
   };
 }
@@ -127,8 +127,8 @@ async function mergeIntoExisting(id, c) {
 async function syncBook(userId, book, dupMode, creds) {
   const rawCards = await fetchAddressBookCards({ ...book, ...creds });
   const cards = rawCards.map(rc => contactFromVCard(rc.vcard, rc.href));
-  if (cards.some(card => card.invalidDateLabels.length)) {
-    throw new Error('Remote CardDAV vCard contains an unsafe contact-date label');
+  if (cards.some(card => card.invalidDates.length || card.invalidDateLabels.length)) {
+    throw new Error('Remote CardDAV vCard contains an invalid contact date');
   }
   const bookId = await ensureCardavBook(userId, book);
 

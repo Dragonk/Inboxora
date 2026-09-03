@@ -15,6 +15,8 @@ const appleCard = 'BEGIN:VCARD\r\nVERSION:3.0\r\nUID:apple-1\r\nFN:Apple Contact
 const androidCard = 'BEGIN:VCARD\r\nVERSION:3.0\r\nUID:android-1\r\nFN:Android Contact\r\nX-ANDROID-CUSTOM:vnd.android.cursor.item/contact_event;2019-10-19;0;Rencontre;\r\nEND:VCARD\r\n';
 const appleMergeCard = appleCard.replace('FN:Apple Contact\r\n', 'FN:Apple Contact\r\nEMAIL:duplicate@example.com\r\nBDAY:1990-01-02\r\nANNIVERSARY:2020-09-14\r\n');
 const androidMergeCard = androidCard.replace('FN:Android Contact\r\n', 'FN:Android Contact\r\nEMAIL:duplicate@example.com\r\nBDAY:1991-02-03\r\nANNIVERSARY:2021-10-19\r\n');
+const invalidBirthdayCard = 'BEGIN:VCARD\r\nVERSION:3.0\r\nUID:invalid-birthday\r\nFN:Invalid Birthday\r\nBDAY:2020-02-30\r\nEND:VCARD\r\n';
+const invalidAndroidDateCard = 'BEGIN:VCARD\r\nVERSION:3.0\r\nUID:invalid-android-date\r\nFN:Invalid Android Date\r\nX-ANDROID-CUSTOM:vnd.android.cursor.item/contact_event;2024-04-31;0;Meeting;\r\nEND:VCARD\r\n';
 
 function configureSync() {
   query.mockImplementation(async sql => {
@@ -99,5 +101,21 @@ describe('remote CardDAV contact-date persistence', () => {
     await expect(syncUser('user-1')).resolves.toMatchObject({ ok: true, contactCount: 0 });
     const [, secondMergeParams] = query.mock.calls.find(([sql]) => sql.includes('UPDATE contacts SET'));
     expect(secondMergeParams[9]).toBe(mergeParams[9]);
+  });
+
+  it.each([
+    ['birthday', invalidBirthdayCard],
+    ['Android labelled date', invalidAndroidDateCard],
+  ])('rejects a remote vCard with an invalid %s before address-book or contact writes', async (_source, vcard) => {
+    fetchAddressBookCards.mockResolvedValue([{ href: '/invalid.vcf', vcard }]);
+
+    await expect(syncUser('user-1')).resolves.toMatchObject({
+      ok: false,
+      error: 'Remote CardDAV vCard contains an invalid contact date',
+    });
+
+    const postConfigQueries = query.mock.calls.slice(1);
+    expect(postConfigQueries).toHaveLength(1);
+    expect(postConfigQueries[0][0]).toContain('UPDATE user_integrations SET config');
   });
 });
