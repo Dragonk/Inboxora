@@ -1729,6 +1729,8 @@
     "deleteFailed": "Could not delete event.",
     "readOnly": "Imported event (read-only)",
     "edit": "Edit event",
+    "eventActions": "Event actions",
+    "closeMenu": "Close calendar menu",
     "untitled": "(Untitled event)",
     "editEvent": "Edit event",
     "close": "Close",

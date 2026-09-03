@@ -1729,6 +1729,8 @@
     "deleteFailed": "Impossibile eliminare l’evento.",
     "readOnly": "Evento importato (sola lettura)",
     "edit": "Modifica evento",
+    "eventActions": "Azioni evento",
+    "closeMenu": "Chiudi menu calendario",
     "untitled": "(Evento senza titolo)",
     "editEvent": "Modifica evento",
     "close": "Chiudi",

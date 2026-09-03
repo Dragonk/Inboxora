@@ -1729,6 +1729,8 @@
     "deleteFailed": "Událost se nepodařilo smazat.",
     "readOnly": "Importovaná událost (jen pro čtení)",
     "edit": "Upravit událost",
+    "eventActions": "Akce události",
+    "closeMenu": "Zavřít nabídku kalendáře",
     "untitled": "(Událost bez názvu)",
     "editEvent": "Upravit událost",
     "close": "Zavřít",

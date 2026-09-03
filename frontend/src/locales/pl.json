@@ -1729,6 +1729,8 @@
     "deleteFailed": "Nie udało się usunąć wydarzenia.",
     "readOnly": "Zaimportowane wydarzenie (tylko do odczytu)",
     "edit": "Edytuj wydarzenie",
+    "eventActions": "Akcje wydarzenia",
+    "closeMenu": "Zamknij menu kalendarza",
     "untitled": "(Wydarzenie bez tytułu)",
     "editEvent": "Edytuj wydarzenie",
     "close": "Zamknij",

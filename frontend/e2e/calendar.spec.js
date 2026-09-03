@@ -177,6 +177,46 @@ test('calendar and contacts remain reachable and their mobile FABs clear bottom 
   }
 });
 
+test('calendar event menus support desktop keyboard and mobile invocation while filtering read-only actions', async ({ page, fixtureApi }) => {
+  await fixtureApi;
+  const day = new Date().toISOString().slice(0, 10);
+  await page.route('**/api/calendar/events**', route => route.fulfill({ json: { events: [
+    { id: 'local-event', calendar_id: 'calendar-personal', summary: 'Local planning', starts_at: `${day}T10:00:00.000Z`, ends_at: `${day}T11:00:00.000Z`, source: 'local', read_only: false },
+    { id: 'remote-event', calendar_id: 'calendar-personal', summary: 'Imported meeting', starts_at: `${day}T12:00:00.000Z`, ends_at: `${day}T13:00:00.000Z`, source: 'ical', read_only: true },
+  ] } }));
+  await page.goto('/');
+  const calendar = page.viewportSize().width < 768
+    ? page.getByTestId('mobile-primary-nav').getByRole('button', { name: 'Kalendarz' })
+    : page.getByTestId('calendar-nav-primary');
+  await calendar.click();
+  const local = page.getByRole('button', { name: /Local planning/ });
+  const imported = page.getByRole('button', { name: /Imported meeting/ });
+  await expect(local).toBeVisible();
+  await expect(imported).toBeVisible();
+  if (page.viewportSize().width < 768) await page.getByTestId('calendar-event-actions').first().click();
+  else await local.click({ button: 'right' });
+  const menu = page.getByTestId('calendar-context-menu');
+  await expect(menu).toBeVisible();
+  await expect(menu.getByRole('menuitem', { name: 'Edytuj wydarzenie' })).toBeVisible();
+  await expect(menu.getByRole('menuitem', { name: 'Usuń' })).toBeVisible();
+  if (page.viewportSize().width >= 768) {
+    const box = await menu.boundingBox();
+    const viewport = page.viewportSize();
+    expect(box.x + box.width).toBeLessThanOrEqual(viewport.width);
+    expect(box.y + box.height).toBeLessThanOrEqual(viewport.height);
+  }
+  await page.keyboard.press('Escape');
+  await expect(menu).toBeHidden();
+  if (page.viewportSize().width >= 768) {
+    await imported.focus();
+    await page.keyboard.press('Shift+F10');
+  } else await page.getByTestId('calendar-event-actions').nth(1).click();
+  const readOnlyMenu = page.getByTestId('calendar-context-menu');
+  await expect(readOnlyMenu).toBeVisible();
+  await expect(readOnlyMenu.getByTestId('calendar-context-read-only')).toBeVisible();
+  await expect(readOnlyMenu.getByRole('menuitem')).toHaveCount(0);
+});
+
 test('mobile contacts fill the viewport and keep their FAB anchored above navigation', async ({ page, fixtureApi }) => {
   await fixtureApi;
   await page.route('**/api/contacts**', route => {

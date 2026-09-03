@@ -45,6 +45,15 @@ test('calendar page owns the full shell width and only mounts its active surface
   assert.doesNotMatch(mailApp, /Keep all three mounted/);
 });
 
+test('calendar events expose context-menu invocation and mobile action affordances', async () => {
+  const source = await readFile(calendarPath, 'utf8');
+  assert.match(source, /onContextMenu=\{event => \{ event\.preventDefault\(\)/);
+  assert.match(source, /keyboardEvent\.key !== 'ContextMenu'/);
+  assert.match(source, /keyboardEvent\.shiftKey && keyboardEvent\.key === 'F10'/);
+  assert.match(source, /data-testid="calendar-event-actions"/);
+  assert.match(source, /source === 'local'/);
+});
+
 test('every locale declares a single effective calendar dictionary', async () => {
   const files = (await readdir(localesPath)).filter(name => name.endsWith('.json'));
   for (const file of files) {

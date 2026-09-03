@@ -1729,6 +1729,8 @@
     "deleteFailed": "Ereignis konnte nicht gelöscht werden.",
     "readOnly": "Importiertes Ereignis (schreibgeschützt)",
     "edit": "Ereignis bearbeiten",
+    "eventActions": "Ereignisaktionen",
+    "closeMenu": "Kalendermenü schließen",
     "untitled": "(Ereignis ohne Titel)",
     "editEvent": "Ereignis bearbeiten",
     "close": "Schließen",

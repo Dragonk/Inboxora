@@ -1729,6 +1729,8 @@
     "deleteFailed": "无法删除事件。",
     "readOnly": "导入的事件（只读）",
     "edit": "编辑事件",
+    "eventActions": "事件操作",
+    "closeMenu": "关闭日历菜单",
     "untitled": "（无标题事件）",
     "editEvent": "编辑事件",
     "close": "关闭",
