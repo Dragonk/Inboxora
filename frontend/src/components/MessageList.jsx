@@ -27,6 +27,7 @@ import { queueReadStateMutation, isLatestReadStateMutation } from '../utils/read
 import { beginMutation, invalidateMutation, isLatestMutation } from '../utils/mutationIntent.js';
 import { queuePerCopyMutation, isLatestPerCopyMutation, invalidatePerCopyMutation } from '../utils/perCopyMutation.js';
 import { mergeThreadCacheField } from '../utils/threadCacheState.js';
+import { queueStarStateMutation, isLatestStarStateMutation } from '../utils/starStateMutation.js';
 import { applyDeleteGuard, clearDeleteGuard, clearPendingDelete, setCompletedDelete, setPendingDelete, threadDeleteGuardKey } from '../utils/pendingDeletes.js';
 import {
   archiveInChunks,
@@ -976,43 +977,37 @@ export default function MessageList() {
 
   const setMessagesStarredState = useCallback(async (message, starred) => {
     const isThreadRow = isThreadListRow(message);
-    const resolution = queuePerCopyMutation(message.id, 'star', () => resolveMessagesForThreadAction(message));
-    // Keep collapsed rows responsive while the native thread GET is pending.
+    const previousStarred = Boolean(message.is_starred);
     updateMessage(message.id, { is_starred: starred });
     if (isThreadRow) setCachedThreadStarred(message, starred);
     let actionMessages;
     try {
-      actionMessages = await resolution.promise;
+      actionMessages = await resolveMessagesForThreadAction(message);
     } catch (err) {
       console.error('Failed to load thread for star state change:', err.message);
-      if (isLatestPerCopyMutation(message.id, resolution.version)) {
-        updateMessage(message.id, { is_starred: !starred });
-        if (isThreadRow) setCachedThreadStarred(message, !starred);
+      if (Boolean(useStore.getState().messages.find(msg => msg.id === message.id)?.is_starred) === starred) {
+        updateMessage(message.id, { is_starred: previousStarred });
+        if (isThreadRow) setCachedThreadStarred(message, previousStarred);
       }
       return;
     }
-    if (!isLatestPerCopyMutation(message.id, resolution.version)) return;
+    actionMessages = [...new Map(actionMessages.map(msg => [String(msg.id), msg])).values()];
+    const mutations = actionMessages.map(msg => ({
+      msg,
+      mutation: queueStarStateMutation(msg.id, starred, targetStarred => api.markStarred(msg.id, targetStarred)),
+    }));
 
     try {
-      const results = await Promise.allSettled(actionMessages.map(msg => api.markStarred(msg.id, starred)));
-      const failedIds = results
-        .map((result, index) => result.status === 'rejected' ? actionMessages[index].id : null)
-        .filter(Boolean);
-      if (failedIds.length > 0 && isLatestPerCopyMutation(message.id, resolution.version)) {
-        const failedSet = new Set(failedIds.map(String));
-        setCachedThreadStarredForIds(message, failedIds, !starred);
-        updateMessage(message.id, {
-          is_starred: actionMessages.some(msg => failedSet.has(String(msg.id)) ? msg.is_starred : starred),
-        });
-      }
+      await Promise.all(mutations.map(({ mutation }) => mutation.promise));
     } catch (err) {
       console.error('markStarred failed:', err.message);
-      if (isLatestPerCopyMutation(message.id, resolution.version)) {
+      const latest = mutations.every(({ msg, mutation }) => isLatestStarStateMutation(msg.id, mutation.version));
+      if (latest) {
         updateMessage(message.id, { is_starred: !starred });
         if (isThreadRow) setCachedThreadStarred(message, !starred);
       }
     }
-  }, [resolveMessagesForThreadAction, isThreadListRow, updateMessage, setCachedThreadStarred, setCachedThreadStarredForIds]);
+  }, [resolveMessagesForThreadAction, isThreadListRow, updateMessage, setCachedThreadStarred]);
 
   const handleStar = (e, message) => {
     e.stopPropagation();
@@ -1028,8 +1023,7 @@ export default function MessageList() {
 
     const visibleMessage = message;
     const unreadCount = Number.parseInt(message.unread_count, 10);
-    const unreadDelta = Number.isFinite(unreadCount) ? unreadCount : (message.is_read ? 0 : 1);
-    const resolution = queuePerCopyMutation(message.id, 'destructive', () => resolveMessagesForThreadAction(message));
+    const optimisticUnreadDelta = Number.isFinite(unreadCount) ? unreadCount : (message.is_read ? 0 : 1);
     let deleteMessages = [message];
     let ids = [message.id].filter(Boolean);
 
@@ -1044,8 +1038,10 @@ export default function MessageList() {
 
     removeMessage(visibleMessage.id);
     if (expandedThreadId === tid) setExpandedThreadId(null);
-    ids.forEach((id) => setPendingDelete(id));
-    if (unreadDelta > 0) decrementUnread(message.account_id, unreadDelta);
+    if (optimisticUnreadDelta > 0) decrementUnread(message.account_id, optimisticUnreadDelta);
+
+    const resolution = queuePerCopyMutation(message.id, 'destructive', () => resolveMessagesForThreadAction(message));
+    pendingDeleteTimers.current.set(key, { message: visibleMessage, ids, resolving: true, resolution });
 
     const timer = setTimeout(async () => {
       try {
@@ -1083,7 +1079,7 @@ export default function MessageList() {
         if (!isLatestPerCopyMutation(message.id, resolution.version)) return;
         ids.forEach((id) => clearDeleteGuard(id));
         useStore.getState().restoreMessages([visibleMessage]);
-        if (unreadDelta > 0) incrementUnread(message.account_id, unreadDelta);
+        if (optimisticUnreadDelta > 0) incrementUnread(message.account_id, optimisticUnreadDelta);
         addNotification({
           type: 'error',
           title: ids.length > 1 ? t('messageList.bulkDeleted.failTitle') : t('messageList.deleted.failTitle'),
@@ -1104,7 +1100,7 @@ export default function MessageList() {
         pendingDeleteTimers.current.delete(key);
         ids.forEach((id) => clearPendingDelete(id));
         useStore.getState().restoreMessages([visibleMessage]);
-        if (unreadDelta > 0) incrementUnread(message.account_id, unreadDelta);
+        if (optimisticUnreadDelta > 0) incrementUnread(message.account_id, optimisticUnreadDelta);
       },
     });
   }, [

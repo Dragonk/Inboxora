@@ -11,6 +11,7 @@ import { getEffectiveShortcuts, parseModKey, modCompactLabel } from '../utils/de
 import { useMobile } from '../hooks/useMobile.js';
 import { clearDeleteGuard, clearPendingDelete, setCompletedDelete, setPendingDelete } from '../utils/pendingDeletes.js';
 import { pendingMarkReadMap, completedMarkReadMap, setPending } from '../utils/pendingReads.js';
+import { queueStarStateMutation, isLatestStarStateMutation } from '../utils/starStateMutation.js';
 import { BUILTIN_SUMMARIZE, summarizePromptForLocale } from '../aiActions.js';
 import { getResults, saveResult, removeResult } from '../aiResults.js';
 import { renderMarkdown } from '../utils/renderMarkdown.js';
@@ -1090,8 +1091,16 @@ export default function MessagePane({ windowMessageId = null, onWindowClose = nu
   const handleStarToggle = async () => {
     if (!message) return;
     const newVal = !message.is_starred;
-    await api.markStarred(message.id, newVal);
     updateMessage(message.id, { is_starred: newVal });
+    const mutation = queueStarStateMutation(message.id, newVal, target => api.markStarred(message.id, target));
+    try {
+      await mutation.promise;
+    } catch (err) {
+      if (isLatestStarStateMutation(message.id, mutation.version)) {
+        updateMessage(message.id, { is_starred: !newVal });
+      }
+      throw err;
+    }
   };
 
   const handlePrint = () => {
