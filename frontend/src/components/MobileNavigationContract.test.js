@@ -11,6 +11,8 @@ test('mobile navigation keeps Mail, Contacts, and Calendar reachable from every 
 
   assert.match(source, /function MobileNavigation\(/);
   assert.match(source, /data-testid="mobile-primary-nav"/);
+  assert.match(source, /data-testid="mobile-sidebar"[\s\S]*?zIndex: 1300/);
+  assert.match(source, /data-testid="mobile-primary-nav"[\s\S]*?zIndex: 1200/);
   assert.match(source, /setShowContacts\(false\);\s*setShowCalendar\(false\)/);
   assert.match(source, /setShowContacts\(true\);\s*setShowCalendar\(false\)/);
   assert.match(source, /setShowContacts\(false\);\s*setShowCalendar\(true\)/);

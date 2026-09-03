@@ -9,7 +9,7 @@ function escapeICalendarText(value) {
 }
 
 function formatICalendarDate(value) {
-  return value.toISOString().replaceAll('-', '').replaceAll(':', '').replace('.000', '');
+  return value.toISOString().replace(/\.\d{3}Z$/, 'Z').replaceAll('-', '').replaceAll(':', '');
 }
 
 function formatInvitationDate(value, allDay) {

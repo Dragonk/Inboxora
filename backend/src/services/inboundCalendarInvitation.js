@@ -136,6 +136,7 @@ export function parseInboundCalendarInvitation(raw) {
   const [summary] = named(eventProperties, 'SUMMARY');
   const [organizer] = named(eventProperties, 'ORGANIZER');
   const [recurrenceId] = named(eventProperties, 'RECURRENCE-ID');
+  const stampDate = stamp && parseDate(stamp);
   if (!uid || !uid.value.trim() || named(eventProperties, 'UID').length !== 1) return null;
   const sequenceValue = sequence ? Number(sequence.value) : 0;
   if ((sequence && !/^\d+$/.test(sequence.value)) || !Number.isSafeInteger(sequenceValue) || sequenceValue < 0 || named(eventProperties, 'SEQUENCE').length > 1) return null;
@@ -143,15 +144,26 @@ export function parseInboundCalendarInvitation(raw) {
   if (recurrenceId && (!recurrenceValue || named(eventProperties, 'RECURRENCE-ID').length !== 1)) return null;
 
   if (normalizedMethod === 'CANCEL') {
-    if (eventProperties.some(property => !['UID', 'SEQUENCE', 'RECURRENCE-ID'].includes(property.name))) return null;
+    const allowedProperties = new Set(['UID', 'DTSTAMP', 'DTSTART', 'DTEND', 'SEQUENCE', 'RECURRENCE-ID', 'ORGANIZER', 'ATTENDEE', 'STATUS', 'SUMMARY', 'DESCRIPTION', 'LOCATION']);
+    const singletonProperties = ['UID', 'DTSTAMP', 'DTSTART', 'DTEND', 'SEQUENCE', 'RECURRENCE-ID', 'ORGANIZER', 'STATUS', 'SUMMARY', 'DESCRIPTION', 'LOCATION'];
+    if (eventProperties.some(property => !allowedProperties.has(property.name))
+      || singletonProperties.some(name => named(eventProperties, name).length > 1)) return null;
+    if (!stamp || stampDate?.form !== 'utc' || !organizer || !organizer.value.trim() || !sequence) return null;
+    if (named(eventProperties, 'STATUS').length && named(eventProperties, 'STATUS')[0].value.trim().toUpperCase() !== 'CANCELLED') return null;
+    const attendees = named(eventProperties, 'ATTENDEE');
+    if (attendees.some(attendee => !attendee.value.trim())) return null;
+    const startsAt = start && parseDate(start);
+    const endsAt = end && parseDate(end);
+    if ((start && !startsAt) || (end && !endsAt)
+      || (startsAt && endsAt && (startsAt.form !== endsAt.form || startsAt.timeZone !== endsAt.timeZone || endsAt.date <= startsAt.date))) return null;
     return {
       method: normalizedMethod, state: 'cancelled', uid: uid.value, recurrenceId: recurrenceValue, sequence: sequenceValue,
-      summary: null, organizer: null, startsAt: null, endsAt: null,
-      allDay: null, timeZone: null, raw,
+      summary: summary ? unescapeText(summary.value) : null, organizer: organizer.value,
+      startsAt: startsAt?.date || null, endsAt: endsAt?.date || null,
+      allDay: startsAt?.allDay ?? null, timeZone: startsAt?.timeZone || null, raw,
     };
   }
 
-  const stampDate = stamp && parseDate(stamp);
   const attendees = named(eventProperties, 'ATTENDEE');
   if (!stamp || named(eventProperties, 'DTSTAMP').length !== 1 || stampDate?.form !== 'utc' || !organizer || named(eventProperties, 'ORGANIZER').length !== 1 || !organizer.value.trim()) return null;
   if (!start || named(eventProperties, 'DTSTART').length !== 1 || !end || named(eventProperties, 'DTEND').length !== 1 || !attendees.length || attendees.some(attendee => !attendee.value.trim())) return null;

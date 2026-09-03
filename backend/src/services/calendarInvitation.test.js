@@ -4,6 +4,7 @@ const { createAccountSmtpTransport } = vi.hoisted(() => ({ createAccountSmtpTran
 vi.mock('./smtpTransport.js', () => ({ createAccountSmtpTransport }));
 
 import { sendCalendarInvitation } from './calendarInvitation.js';
+import { parseInboundCalendarInvitation } from './inboundCalendarInvitation.js';
 
 describe('sendCalendarInvitation', () => {
   it('sends a METHOD:REQUEST iCalendar attachment from the selected account', async () => {
@@ -78,5 +79,20 @@ describe('sendCalendarInvitation', () => {
     expect(content).toContain('SEQUENCE:2');
     expect(content).toContain('STATUS:CANCELLED');
     expect(content.match(/^STATUS:CANCELLED$/gm)).toHaveLength(1);
+  });
+
+  it('round-trips generated cancellations through the inbound parser', async () => {
+    const sendMail = vi.fn().mockResolvedValue({});
+    createAccountSmtpTransport.mockResolvedValue({ account: { email_address: 'organizer@example.test' }, transport: { sendMail } });
+
+    await sendCalendarInvitation({
+      account: { id: 'account-1' }, attendees: ['guest@example.test'], summary: 'Cancelled planning', uid: 'event-round-trip',
+      startsAt: new Date('2026-09-01T09:00:00.000Z'), endsAt: new Date('2026-09-01T10:00:00.000Z'), method: 'CANCEL', sequence: 2,
+    });
+
+    expect(parseInboundCalendarInvitation(sendMail.mock.calls[0][0].attachments[0].content)).toMatchObject({
+      method: 'CANCEL', state: 'cancelled', uid: 'event-round-trip', sequence: 2,
+      organizer: 'mailto:organizer@example.test', summary: 'Cancelled planning',
+    });
   });
 });

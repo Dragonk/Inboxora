@@ -38,19 +38,22 @@ describe('inbound calendar invitations', () => {
     expect(parseInboundCalendarInvitation(event('DTSTART:20260908T090000Z', 'DTEND:20260908T100000Z').replace('SEQUENCE:0', 'SEQUENCE:0\r\nRECURRENCE-ID;TZID=Europe/Berlin:20260901T090000'))).toBeNull();
   });
 
-  it('accepts only actionable REQUESTs and allows minimal CANCEL identifiers', () => {
+  it('accepts actionable REQUESTs and RFC 5546 CANCEL properties', () => {
     const requestWithoutStamp = 'BEGIN:VCALENDAR\r\nVERSION:2.0\r\nMETHOD:REQUEST\r\nBEGIN:VEVENT\r\nUID:meeting-123\r\nDTSTART:20260908T090000Z\r\nDTEND:20260908T100000Z\r\nORGANIZER:mailto:taylor@example.test\r\nATTENDEE:mailto:sam@example.test\r\nEND:VEVENT\r\nEND:VCALENDAR';
-    const cancel = 'BEGIN:VCALENDAR\r\nVERSION:2.0\r\nMETHOD:CANCEL\r\nBEGIN:VEVENT\r\nUID:meeting-123\r\nSEQUENCE:3\r\nEND:VEVENT\r\nEND:VCALENDAR';
+    const cancel = 'BEGIN:VCALENDAR\r\nVERSION:2.0\r\nMETHOD:CANCEL\r\nBEGIN:VEVENT\r\nUID:meeting-123\r\nDTSTAMP:20260901T070000Z\r\nDTSTART:20260908T090000Z\r\nDTEND:20260908T100000Z\r\nSEQUENCE:3\r\nORGANIZER:mailto:taylor@example.test\r\nSTATUS:CANCELLED\r\nSUMMARY:Cancelled planning\r\nDESCRIPTION:No longer happening\r\nLOCATION:Room 42\r\nATTENDEE;ROLE=REQ-PARTICIPANT:mailto:sam@example.test\r\nEND:VEVENT\r\nEND:VCALENDAR';
     const reply = 'BEGIN:VCALENDAR\r\nVERSION:2.0\r\nMETHOD:REPLY\r\nBEGIN:VEVENT\r\nUID:meeting-123\r\nSEQUENCE:3\r\nDTSTAMP:20260901T070000Z\r\nATTENDEE;PARTSTAT=ACCEPTED:mailto:sam@example.test\r\nEND:VEVENT\r\nEND:VCALENDAR';
 
     expect(parseInboundCalendarInvitation(requestWithoutStamp)).toBeNull();
     expect(parseInboundCalendarInvitation(reply)).toBeNull();
     expect(parseInboundCalendarInvitation(cancel)).toMatchObject({
-      method: 'CANCEL', state: 'cancelled', uid: 'meeting-123', sequence: 3, startsAt: null, endsAt: null,
+      method: 'CANCEL', state: 'cancelled', uid: 'meeting-123', sequence: 3,
+      startsAt: new Date('2026-09-08T09:00:00.000Z'), endsAt: new Date('2026-09-08T10:00:00.000Z'),
+      summary: 'Cancelled planning', organizer: 'mailto:taylor@example.test', allDay: false, timeZone: null,
     });
-    expect(parseInboundCalendarInvitation(cancel.replace('SEQUENCE:3', 'SEQUENCE:3\r\nDTSTART:20260908T090000Z'))).toBeNull();
-    expect(parseInboundCalendarInvitation(cancel.replace('SEQUENCE:3', 'SEQUENCE:3\r\nORGANIZER:mailto:one@example.test\r\nORGANIZER:mailto:two@example.test'))).toBeNull();
+    expect(parseInboundCalendarInvitation(cancel.replace('DTSTAMP:20260901T070000Z', 'DTSTAMP:20260901T070000Z\r\nDTSTART:20260908T090000Z'))).toBeNull();
+    expect(parseInboundCalendarInvitation(cancel.replace('ORGANIZER:mailto:taylor@example.test', 'ORGANIZER:mailto:one@example.test\r\nORGANIZER:mailto:two@example.test'))).toBeNull();
     expect(parseInboundCalendarInvitation(cancel.replace('SEQUENCE:3', 'SEQUENCE:   '))).toBeNull();
+    expect(parseInboundCalendarInvitation(cancel.replace('STATUS:CANCELLED', 'STATUS:CONFIRMED'))).toBeNull();
   });
 
   it('rejects empty participants, non-UTC stamps, and malformed nested components', () => {
