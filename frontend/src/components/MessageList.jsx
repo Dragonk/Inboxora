@@ -913,13 +913,18 @@ export default function MessageList() {
         const finalUnread = actionMessages.filter(msg => (
           failedIds.has(String(msg.id)) ? !msg.is_read : !read
         )).length;
+        const failedTransitionCount = actionMessages.filter(msg => (
+          failedIds.has(String(msg.id)) && msg.is_read !== read
+        )).length;
         if (isThreadRow) updateMessage(message.id, { is_read: finalUnread === 0, unread_count: finalUnread });
-        if (read) {
-          incrementUnread(message.account_id, failedIds.size);
-          adjustCategoryCount(message.category, failedIds.size);
-        } else {
-          decrementUnread(message.account_id, failedIds.size);
-          adjustCategoryCount(message.category, -failedIds.size);
+        if (failedTransitionCount > 0) {
+          if (read) {
+            incrementUnread(message.account_id, failedTransitionCount);
+            adjustCategoryCount(message.category, failedTransitionCount);
+          } else {
+            decrementUnread(message.account_id, failedTransitionCount);
+            adjustCategoryCount(message.category, -failedTransitionCount);
+          }
         }
         failedIds.forEach(id => pendingMarkReadMap.delete(id));
       }

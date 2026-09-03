@@ -189,6 +189,37 @@ for (const viewport of [DESKTOP, 'mobile']) {
       await expect(sender).toHaveCSS('font-weight', '400');
     });
 
+    test('failed no-op copies do not drift read counters', async ({ page, fixtureApi }, testInfo) => {
+      await openList(page, fixtureApi, testInfo, ['conversation-gmail-copy-1', 'conversation-gmail-copy-5']);
+      const row = page.locator('[data-msgid="conversation-gmail-copy-5"]:visible');
+      const sender = row.locator('span').filter({ hasText: 'sender@gmail.test' }).first();
+      const account = page.getByText('e2e@example.test').first().locator('..').locator('..').locator('..');
+
+      page.__bulkReadActions = [];
+      page.__bulkReadFailureIds = new Set(['conversation-gmail-copy-2']);
+      await openContextMenu(page, row, testInfo);
+      await chooseMenuItem(page, /oznacz jako przeczytan|mark as read/i);
+      await expect.poll(() => page.__bulkReadActions.length).toBe(5);
+      await expect(sender).toHaveCSS('font-weight', '400');
+      await expect(row.locator('.unread-dot')).toHaveCount(0);
+      await expect(account).not.toContainText('1');
+    });
+
+    test('failed no-op unread copy does not roll back counters', async ({ page, fixtureApi }, testInfo) => {
+      await openList(page, fixtureApi, testInfo, ['conversation-gmail-copy-2']);
+      const row = page.locator('[data-msgid="conversation-gmail-copy-5"]:visible');
+      const sender = row.locator('span').filter({ hasText: 'sender@gmail.test' }).first();
+      const account = page.getByText('e2e@example.test').first().locator('..').locator('..').locator('..');
+      page.__bulkReadActions = [];
+      page.__bulkReadFailureIds = new Set(['conversation-gmail-copy-2']);
+      await openContextMenu(page, row, testInfo);
+      await chooseMenuItem(page, /oznacz jako nieprzeczytan|mark as unread/i);
+      await expect.poll(() => page.__bulkReadActions.length).toBe(5);
+      await expect(sender).toHaveCSS('font-weight', '600');
+      await expect(row.locator('.unread-dot')).toHaveCount(1);
+      if (!MOBILE.has(testInfo.project.name)) await expect(account).toContainText('5');
+    });
+
     test('archive, move, and delete remove immediately and restore their own row on API failure', async ({ page, fixtureApi }, testInfo) => {
       test.setTimeout(60_000);
       await openList(page, fixtureApi, testInfo);

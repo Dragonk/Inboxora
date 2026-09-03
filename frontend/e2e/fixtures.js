@@ -178,7 +178,11 @@ export const test = base.extend({
       const id = parts.at(-1);
       if (parts.includes('logical-messages') || ['archive', 'move', 'delete', 'read', 'star'].includes(id)) return route.fallback();
       if (id && id !== 'conversations') return route.fulfill({ json: details(id, Boolean(page.__ceIncomplete), page.__ceMode || null, page.__unreadCopies || [], Number(page.__conversationSize || 0) || null) });
-      return route.fulfill({ json: { conversations: fixture.conversations, nextCursor: null, total: fixture.conversations.length } });
+      const unread = new Set(page.__unreadCopies || []);
+      const conversations = fixture.conversations.map(row => row.conversation_id === 'conversation-gmail'
+        ? { ...row, is_read: !unread.has('conversation-gmail-copy-5'), unread_count: unread.has('conversation-gmail-copy-5') ? unread.size : 0 }
+        : row);
+      return route.fulfill({ json: { conversations, nextCursor: null, total: conversations.length } });
     });
     await page.route('**/api/mail/messages/*', route => {
       const url = new URL(route.request().url());
@@ -223,7 +227,7 @@ export const test = base.extend({
           from_email: 'sender@gmail.test', message_id: `<large-${index}@fixture.test>`,
           thread_id: `large-thread-${index}`, thread_key: `large-thread-${index}`, message_count: 2,
         }))
-        : threaded ? [{ ...messages.at(-1), thread_key: 'conversation-gmail', is_starred: true }] : messages;
+        : threaded ? [{ ...messages.at(-1), thread_key: 'conversation-gmail', is_starred: true, is_read: !unread.has('conversation-gmail-copy-5'), unread_count: unread.has('conversation-gmail-copy-5') ? unread.size : 0 }] : messages;
       return route.fulfill({ json: { messages: listMessages, total: listMessages.length, ...(threaded ? { threaded: true } : {}) } });
     });
     await page.route('**/api/mail/thread/*', async route => {
@@ -251,8 +255,8 @@ export const test = base.extend({
       }) } });
     });
     await page.route('**/api/mail/messages/bulk-read', async route => {
-      page.__bulkReadActions = page.__bulkReadActions || [];
       const body = route.request().postDataJSON();
+      page.__bulkReadActions = page.__bulkReadActions || [];
       page.__bulkReadActions.push(body);
       page.__bulkReadStarts = page.__bulkReadStarts || [];
       page.__bulkReadStarts.push(body);
