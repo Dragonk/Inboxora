@@ -320,6 +320,7 @@ router.patch('/events/:eventId', async (req, res) => {
     }
     if (outcome.notFound) return res.status(404).json({ error: 'Event not found' });
     if (outcome.conflict) return res.status(409).json({ error: 'The idempotency key was already used for a different calendar update' });
+    if (outcome.cancelFailed) return res.status(502).json({ error: 'The previous invitation could not be cancelled, so the event was not changed.' });
     if (outcome.duplicate) return res.json({ event: outcome.event });
     const invitationError = await deliverInvitationOutbox(outcome.outboxId, outcome.actions);
     return res.json({ event: outcome.event, ...(invitationError ? { invitationError } : {}) });

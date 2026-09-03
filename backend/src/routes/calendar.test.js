@@ -373,6 +373,34 @@ describe('local calendar API', () => {
     expect(query.mock.calls.some(([sql]) => sql.includes('UPDATE calendar_events'))).toBe(false);
   });
 
+  it('returns a cancellation failure for an idempotent update when the previous sender is unavailable', async () => {
+    const newSender = { id: 'account-new', email_address: 'new@example.test', smtp_host: 'smtp.example.test', enabled: true };
+    query
+      .mockResolvedValueOnce({ rows: [{ id: 'calendar-1', source: 'local', read_only: false }] })
+      .mockResolvedValueOnce({ rows: [newSender] })
+      .mockResolvedValueOnce({ rows: [] })
+      .mockResolvedValueOnce({ rows: [{
+        uid: 'uid-1', attendees: ['guest@example.test'], invite_account_id: 'account-old', invitation_sequence: 2,
+        summary: 'Planning', starts_at: '2026-09-01T09:00:00.000Z', ends_at: '2026-09-01T10:00:00.000Z', all_day: false,
+      }] })
+      .mockResolvedValueOnce({ rows: [] });
+
+    const response = await fetch(`${base}/api/calendar/events/event-1`, {
+      method: 'PATCH', headers: { 'content-type': 'application/json', 'x-idempotency-key': 'retry-1' },
+      body: JSON.stringify({
+        calendarId: 'calendar-1', summary: 'Planning', sendInvites: true, inviteAccountId: 'account-new', attendees: ['guest@example.test'],
+        startsAt: '2026-09-01T11:00:00.000Z', endsAt: '2026-09-01T12:00:00.000Z',
+      }),
+    });
+
+    expect(response.status).toBe(502);
+    expect(await response.json()).toEqual({ error: 'The previous invitation could not be cancelled, so the event was not changed.' });
+    expect(query).toHaveBeenCalledTimes(5);
+    expect(query.mock.calls.some(([sql]) => sql.includes('UPDATE calendar_events'))).toBe(false);
+    expect(query.mock.calls.some(([sql]) => /(?:INSERT INTO|UPDATE) calendar_invitation_outbox/.test(sql))).toBe(false);
+    expect(sendCalendarInvitation).not.toHaveBeenCalled();
+  });
+
   it('continues the iCalendar sequence when invitations are enabled again', async () => {
     const sender = { id: 'account-1', email_address: 'owner@example.test', smtp_host: 'smtp.example.test', enabled: true };
     query
