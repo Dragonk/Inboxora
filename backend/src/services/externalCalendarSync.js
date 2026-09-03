@@ -71,7 +71,7 @@ function throwIfRemoved(state) {
 
 async function calendarFor(source, state) {
   const externalUrl = `source:${source.id}`;
-  const found = await query('SELECT id FROM calendars WHERE user_id = $1 AND external_url = $2', [source.user_id, externalUrl]);
+  const found = await query('SELECT id FROM calendars WHERE user_id = $1 AND owner_user_id = $1 AND external_url = $2', [source.user_id, externalUrl]);
   throwIfRemoved(state);
   if (found.rows[0]) return found.rows[0].id;
   for (let attempt = 0; attempt < 20; attempt++) {
@@ -79,8 +79,8 @@ async function calendarFor(source, state) {
     const name = attempt ? `${source.display_name} (${attempt + 1})` : source.display_name;
     try {
       const inserted = await query(
-        `INSERT INTO calendars (user_id, name, color, source, external_url, read_only)
-         VALUES ($1, $2, $3, $4, $5, true) RETURNING id`,
+        `INSERT INTO calendars (user_id, owner_user_id, name, color, source, external_url, read_only)
+         VALUES ($1, $1, $2, $3, $4, $5, true) RETURNING id`,
         [source.user_id, name, source.color, source.kind, externalUrl],
       );
       return inserted.rows[0].id;
