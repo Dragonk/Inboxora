@@ -1013,18 +1013,12 @@ export default function MessageList() {
     const key = isThreadRow ? `thread:${tid}` : message.id;
     if (pendingDeleteTimers.current.has(key)) return;
 
-    let deleteMessages = [message];
-    try {
-      deleteMessages = await resolveMessagesForThreadAction(message);
-    } catch (err) {
-      console.error('Failed to load thread for delete:', err.message);
-      addNotification({ type: 'error', title: t('messageList.deleted.failTitle'), body: t('messageList.deleted.failBody') });
-      return;
-    }
-
-    const ids = [...new Set(deleteMessages.map(msg => msg.id).filter(Boolean))];
     const visibleMessage = message;
-    ids.forEach((id) => setPendingDelete(id));
+    const unreadCount = Number.parseInt(message.unread_count, 10);
+    const unreadDelta = Number.isFinite(unreadCount) ? unreadCount : (message.is_read ? 0 : 1);
+    const resolution = queuePerCopyMutation(message.id, () => resolveMessagesForThreadAction(message));
+    let deleteMessages = [message];
+    let ids = [message.id].filter(Boolean);
 
     // Advance selection to the next visible message before removing this one
     const { selectedMessageId, setSelectedMessage } = useStore.getState();
@@ -1037,16 +1031,16 @@ export default function MessageList() {
 
     removeMessage(visibleMessage.id);
     if (expandedThreadId === tid) setExpandedThreadId(null);
-
-    const unreadCount = Number.parseInt(message.unread_count, 10);
-    const unreadDelta = Number.isFinite(unreadCount)
-      ? unreadCount
-      : deleteMessages.filter(msg => !msg.is_read).length;
+    ids.forEach((id) => setPendingDelete(id));
     if (unreadDelta > 0) decrementUnread(message.account_id, unreadDelta);
 
     const timer = setTimeout(async () => {
       pendingDeleteTimers.current.delete(key);
       try {
+        deleteMessages = await resolution.promise;
+        ids = [...new Set(deleteMessages.map(msg => msg.id).filter(Boolean))];
+        if (!isLatestPerCopyMutation(message.id, resolution.version)) return;
+        ids.forEach((id) => setPendingDelete(id));
         if (ids.length > 1) {
           const result = await api.bulkDelete(ids);
           const deletedSet = new Set(result.deleted ?? []);
@@ -1055,8 +1049,10 @@ export default function MessageList() {
           if (failedIds.length > 0) {
             const idToMsg = new Map(deleteMessages.map(m => [m.id, m]));
             const failedUnreadDelta = failedIds.filter(id => idToMsg.has(id) && !idToMsg.get(id).is_read).length;
-            useStore.getState().restoreMessages([visibleMessage]);
-            if (failedUnreadDelta > 0) incrementUnread(message.account_id, failedUnreadDelta);
+            if (isLatestPerCopyMutation(message.id, resolution.version)) {
+              useStore.getState().restoreMessages([visibleMessage]);
+              if (failedUnreadDelta > 0) incrementUnread(message.account_id, failedUnreadDelta);
+            }
             addNotification({
               type: 'error',
               title: t('messageList.bulkDeleted.failTitle'),
@@ -1068,6 +1064,7 @@ export default function MessageList() {
           ids.forEach((id) => setCompletedDelete(id));
         }
       } catch {
+        if (!isLatestPerCopyMutation(message.id, resolution.version)) return;
         ids.forEach((id) => clearDeleteGuard(id));
         useStore.getState().restoreMessages([visibleMessage]);
         if (unreadDelta > 0) incrementUnread(message.account_id, unreadDelta);
@@ -1078,7 +1075,7 @@ export default function MessageList() {
         });
       }
     }, 4500);
-    pendingDeleteTimers.current.set(key, { timer, message: visibleMessage, ids });
+    pendingDeleteTimers.current.set(key, { timer, message: visibleMessage, ids, resolution });
     addNotification({
       title: ids.length > 1 ? t('messageList.bulkDeleted.title', { count: ids.length }) : t('messageList.deleted.title'),
       body: ids.length > 1 ? t('messageList.bulkDeleted.body') : t('messageList.deleted.body'),
@@ -1822,8 +1819,12 @@ export default function MessageList() {
     if (optimisticUnread > 0) unreadByAccount.set(message.account_id, optimisticUnread);
 
     let targets;
+    const archiveResolution = queuePerCopyMutation(message.id, () => (
+      resolveMessagesForThreadAction(message, { forceRefresh: true })
+    ));
     try {
-      const resolved = await resolveMessagesForThreadAction(message, { forceRefresh: true });
+      const resolved = await archiveResolution.promise;
+      if (!isLatestPerCopyMutation(message.id, archiveResolution.version)) return;
       targets = archiveTargetsForFolder(message, resolved, activeFolder, threadRow, selectedAccountId);
 
       const resolvedUnreadByAccount = unreadCountsByAccount(targets);
@@ -1835,6 +1836,7 @@ export default function MessageList() {
       });
       unreadByAccount = resolvedUnreadByAccount;
     } catch (err) {
+      if (!isLatestPerCopyMutation(message.id, archiveResolution.version)) return;
       initialGuards.forEach(clearDeleteGuard);
       restoreMessagesIfViewCurrent(viewKey, archiveViewKeyRef, [message]);
       unreadByAccount.forEach((count, accountId) => incrementUnread(accountId, count));
@@ -1847,6 +1849,7 @@ export default function MessageList() {
     ids.forEach(setPendingDelete);
     try {
       const result = await archiveInChunks(ids, api.bulkArchive);
+      if (!isLatestPerCopyMutation(message.id, archiveResolution.version)) return;
       if (result.error) console.error('Archive chunk failed:', result.error);
       const archived = new Set(result.archived);
       ids.forEach(id => (archived.has(id) ? setCompletedDelete(id) : clearDeleteGuard(id)));
@@ -2217,14 +2220,8 @@ export default function MessageList() {
           break;
         }
         const moved = message;
-        let moveMessages;
-        try {
-          moveMessages = await resolveMessagesForThreadAction(message);
-        } catch (err) {
-          console.error('Failed to load thread for move:', err.message);
-          addNotification({ title: t('message.moved.failTitle'), body: t('message.moved.failBody') });
-          break;
-        }
+        const moveResolution = queuePerCopyMutation(moved.id, () => resolveMessagesForThreadAction(message));
+        let moveMessages = [moved];
         // A folder path is account-specific: a thread can span accounts (and
         // always includes Sent copies), and the server skips messages whose
         // account lacks the destination folder. Scope the move to the
@@ -2246,6 +2243,11 @@ export default function MessageList() {
         const moveTimer = setTimeout(async () => {
           if (moveUndone) return;
           try {
+            moveMessages = await moveResolution.promise;
+            if (!isLatestPerCopyMutation(moved.id, moveResolution.version)) return;
+            moveMessages = moveMessages.filter(msg => msg?.account_id === moved.account_id);
+            moveIds.splice(0, moveIds.length, ...new Set(moveMessages.map(msg => msg.id).filter(Boolean)));
+            if (!moveIds.length) moveIds.push(moved.id);
             const result = await api.bulkMove(moveIds, folder);
             // The server reports per-message success (200 even when some IMAP
             // moves fail or are skipped) — surface partial failures instead of
@@ -2253,7 +2255,7 @@ export default function MessageList() {
             const movedSet = new Set(result.moved ?? []);
             const failedCount = moveIds.filter(id => !movedSet.has(id)).length;
             if (failedCount > 0) {
-              if (!movedSet.has(moved.id)) {
+              if (!movedSet.has(moved.id) && isLatestPerCopyMutation(moved.id, moveResolution.version)) {
                 useStore.getState().restoreMessages([moved]);
                 if (!moved.is_read) incrementUnread(moved.account_id);
               }
@@ -2262,6 +2264,7 @@ export default function MessageList() {
               useStore.getState().recordRecentFolder({ accountId: moved.account_id, path: folder });
             }
           } catch (err) {
+            if (!isLatestPerCopyMutation(moved.id, moveResolution.version)) return;
             console.error('Move failed:', err.message);
             useStore.getState().restoreMessages([moved]);
             if (!moved.is_read) incrementUnread(moved.account_id);
