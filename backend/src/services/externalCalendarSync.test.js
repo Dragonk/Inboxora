@@ -9,7 +9,7 @@ vi.mock('./safeFetch.js', () => ({ safeFetch }));
 vi.mock('./connectionPolicy.js', () => ({ getConnectionPolicy }));
 vi.mock('./encryption.js', () => ({ decrypt: (value) => value?.startsWith('enc:v1:') ? value.slice('enc:v1:'.length) : value }));
 
-import { syncCalendarSource } from './externalCalendarSync.js';
+import { stopCalendarSource, syncCalendarSource } from './externalCalendarSync.js';
 
 const source = {
   id: 'source-1', user_id: 'user-1', kind: 'ical_url', url: 'enc:v1:https://calendar.example/events.ics',
@@ -142,5 +142,37 @@ describe('external calendar imports', () => {
     expect(result).toEqual({ ok: false, error: 'request failed for [redacted] ([redacted])' });
     expect(query.mock.calls[1][0]).toContain('last_error');
     expect(query.mock.calls[1][1]).toEqual(['source-1', 'request failed for [redacted] ([redacted])']);
+  });
+
+  it('does not retain a removal tombstone for a nonexistent source', async () => {
+    await stopCalendarSource('missing-source');
+    const replacement = { ...source, id: 'missing-source' };
+    query
+      .mockResolvedValueOnce({ rows: [replacement] })
+      .mockResolvedValueOnce({ rows: [] })
+      .mockResolvedValueOnce({ rows: [{ id: 'calendar-1' }] })
+      .mockResolvedValueOnce({ rows: [] })
+      .mockResolvedValueOnce({ rows: [] })
+      .mockResolvedValueOnce({ rows: [] });
+    safeFetch.mockResolvedValue({ ok: true, text: vi.fn().mockResolvedValue(ical) });
+
+    await expect(syncCalendarSource('user-1', replacement.id)).resolves.toEqual({ ok: true, eventCount: 1 });
+  });
+
+  it('aborts an in-flight fetch when the source is stopped without persisting removal as an error', async () => {
+    query.mockResolvedValueOnce({ rows: [source] }).mockResolvedValue({ rows: [] });
+    safeFetch.mockImplementation((_url, { signal }) => new Promise((_resolve, reject) => {
+      signal.addEventListener('abort', () => reject(signal.reason), { once: true });
+    }));
+
+    const sync = syncCalendarSource('user-1', 'source-1');
+    await new Promise((resolve) => setImmediate(resolve));
+    await expect(Promise.race([
+      stopCalendarSource('source-1'),
+      new Promise((_, reject) => setTimeout(() => reject(new Error('stop timed out')), 100)),
+    ])).resolves.toBeUndefined();
+
+    await expect(sync).resolves.toEqual({ ok: false, error: 'Calendar source removed' });
+    expect(query.mock.calls.slice(2).some(([sql]) => /INSERT|UPDATE|DELETE/i.test(sql))).toBe(false);
   });
 });

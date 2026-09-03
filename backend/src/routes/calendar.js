@@ -5,7 +5,7 @@ import { requireAuth } from '../middleware/auth.js';
 import { decrypt, encrypt } from '../services/encryption.js';
 import { validateHost } from '../services/hostValidation.js';
 import { getConnectionPolicy } from '../services/connectionPolicy.js';
-import { scheduleCalendarSource, stopCalendarSource, syncCalendarSource } from '../services/externalCalendarSync.js';
+import { releaseCalendarSource, scheduleCalendarSource, stopCalendarSource, syncCalendarSource } from '../services/externalCalendarSync.js';
 import { sendCalendarInvitation } from '../services/calendarInvitation.js';
 
 const router = Router();
@@ -469,8 +469,15 @@ router.post('/sources', async (req, res) => {
     );
     const source = result.rows[0];
     scheduleCalendarSource(source);
-    syncCalendarSource(req.session.userId, source.id).catch(() => {});
-    res.status(201).json({ source: publicSource(source) });
+    const sync = await syncCalendarSource(req.session.userId, source.id);
+    if (!sync.ok) {
+      // The sync records the failure asynchronously from the insert result;
+      // reflect that terminal state in the response so the client can render
+      // the persisted source as retryable immediately.
+      source.last_error = sync.error;
+      return res.status(502).json({ error: sync.error, source: publicSource(source), sync });
+    }
+    res.status(201).json({ source: publicSource(source), sync });
   } catch (error) {
     if (error.code === '23505') return res.status(409).json({ error: 'A source with this URL already exists' });
     if (error.code === '23514') return res.status(409).json({ error: 'Calendar source URL could not be stored securely' });
@@ -485,11 +492,25 @@ router.post('/sources/:sourceId/sync', async (req, res) => {
 });
 
 router.delete('/sources/:sourceId', async (req, res) => {
-  stopCalendarSource(req.params.sourceId);
-  const result = await query('DELETE FROM calendar_import_sources WHERE id = $1 AND user_id = $2 RETURNING id', [req.params.sourceId, req.session.userId]);
-  if (!result.rows[0]) return res.status(404).json({ error: 'Calendar source not found' });
-  await query('DELETE FROM calendars WHERE user_id = $1 AND external_url = $2', [req.session.userId, `source:${req.params.sourceId}`]);
-  res.status(204).end();
+  const existing = await query('SELECT * FROM calendar_import_sources WHERE id = $1 AND user_id = $2', [req.params.sourceId, req.session.userId]);
+  if (!existing.rows[0]) return res.status(404).json({ error: 'Calendar source not found' });
+  let sourceDeleted = false;
+  try {
+    await stopCalendarSource(req.params.sourceId);
+    const result = await query('DELETE FROM calendar_import_sources WHERE id = $1 AND user_id = $2 RETURNING id', [req.params.sourceId, req.session.userId]);
+    if (!result.rows[0]) {
+      releaseCalendarSource(req.params.sourceId);
+      return res.status(404).json({ error: 'Calendar source not found' });
+    }
+    sourceDeleted = true;
+    await query('DELETE FROM calendars WHERE user_id = $1 AND external_url = $2', [req.session.userId, `source:${req.params.sourceId}`]);
+    releaseCalendarSource(req.params.sourceId);
+    res.status(204).end();
+  } catch (error) {
+    releaseCalendarSource(req.params.sourceId);
+    if (!sourceDeleted) scheduleCalendarSource(existing.rows[0]);
+    throw error;
+  }
 });
 
 export default router;

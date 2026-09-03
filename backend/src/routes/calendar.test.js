@@ -1,9 +1,11 @@
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
+import 'express-async-errors';
 
-const { query, withTransaction, sendCalendarInvitation, scheduleCalendarSource, stopCalendarSource, syncCalendarSource } = vi.hoisted(() => ({
+const { query, withTransaction, sendCalendarInvitation, releaseCalendarSource, scheduleCalendarSource, stopCalendarSource, syncCalendarSource } = vi.hoisted(() => ({
   query: vi.fn(),
   withTransaction: vi.fn(async (fn) => fn({ query })),
   sendCalendarInvitation: vi.fn(),
+  releaseCalendarSource: vi.fn(),
   scheduleCalendarSource: vi.fn(),
   stopCalendarSource: vi.fn(),
   syncCalendarSource: vi.fn(async () => ({ ok: true })),
@@ -14,7 +16,7 @@ vi.mock('../services/encryption.js', () => ({
   decrypt: (value) => value?.startsWith('enc:v1:') ? value.slice('enc:v1:'.length) : value,
 }));
 vi.mock('../services/calendarInvitation.js', () => ({ sendCalendarInvitation }));
-vi.mock('../services/externalCalendarSync.js', () => ({ scheduleCalendarSource, stopCalendarSource, syncCalendarSource }));
+vi.mock('../services/externalCalendarSync.js', () => ({ releaseCalendarSource, scheduleCalendarSource, stopCalendarSource, syncCalendarSource }));
 vi.mock('../middleware/auth.js', () => ({
   requireAuth: (req, _res, next) => { req.session = { userId: 'user-1' }; next(); },
 }));
@@ -29,6 +31,7 @@ beforeAll(async () => {
   const app = express();
   app.use(express.json());
   app.use('/api/calendar', calendarRouter);
+  app.use((error, _req, res, next) => { void next; return res.status(500).json({ error: error.message }); });
   await new Promise((resolve) => { server = app.listen(0, resolve); });
   base = `http://127.0.0.1:${server.address().port}`;
 });
@@ -42,6 +45,10 @@ beforeEach(() => {
   withTransaction.mockClear();
   withTransaction.mockImplementation(async (fn) => fn({ query }));
   sendCalendarInvitation.mockReset();
+  releaseCalendarSource.mockReset();
+  scheduleCalendarSource.mockReset();
+  stopCalendarSource.mockReset();
+  syncCalendarSource.mockReset().mockResolvedValue({ ok: true });
 });
 
 describe('local calendar API', () => {
@@ -78,7 +85,10 @@ describe('local calendar API', () => {
     });
 
     expect(response.status).toBe(201);
-    expect(await response.json()).toEqual({ source: expect.not.objectContaining({ url: expect.anything(), username: expect.anything(), password: expect.anything(), url_fingerprint: expect.anything() }) });
+    expect(await response.json()).toEqual({
+      source: expect.not.objectContaining({ url: expect.anything(), username: expect.anything(), password: expect.anything(), url_fingerprint: expect.anything() }),
+      sync: { ok: true },
+    });
     const insert = query.mock.calls.find(([sql]) => sql.includes('INSERT INTO calendar_import_sources'));
     expect(insert[1][2]).toBe('enc:v1:https://calendar.example/events.ics');
     expect(insert[1][3]).toMatch(/^[a-f0-9]{64}$/);
@@ -113,6 +123,74 @@ describe('local calendar API', () => {
     expect(payload.sources).toEqual([{ id: 'source-1', kind: 'ical_url', displayName: 'Work', color: null, intervalMin: 60, enabled: true, lastSyncAt: null, lastError: 'failure [redacted]' }]);
     expect(JSON.stringify(payload)).not.toContain('ciphertext');
     expect(JSON.stringify(payload)).not.toContain('remote-user');
+  });
+
+  it('returns the actual first-sync result instead of an unconditional add success', async () => {
+    syncCalendarSource.mockResolvedValueOnce({ ok: true, eventCount: 2, skipped: [{ uid: 'bad', reason: 'unsupported or malformed VEVENT' }] });
+    query.mockImplementation(async (sql) => sql.includes('INSERT INTO calendar_import_sources')
+      ? { rows: [{ id: 'source-1', kind: 'ical_url', url: 'https://calendar.example/events.ics', display_name: 'Work' }] }
+      : { rows: [] });
+
+    const response = await fetch(`${base}/api/calendar/sources`, {
+      method: 'POST', headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ kind: 'ical_url', url: 'https://calendar.example/events.ics', displayName: 'Work' }),
+    });
+
+    expect(response.status).toBe(201);
+    expect(await response.json()).toEqual({ source: expect.objectContaining({ id: 'source-1' }), sync: { ok: true, eventCount: 2, skipped: [{ uid: 'bad', reason: 'unsupported or malformed VEVENT' }] } });
+  });
+
+  it('reports a persisted source first-sync failure with a differentiated status', async () => {
+    syncCalendarSource.mockResolvedValueOnce({ ok: false, error: 'network unavailable' });
+    query.mockImplementation(async (sql) => sql.includes('INSERT INTO calendar_import_sources')
+      ? { rows: [{ id: 'source-1', kind: 'ical_url', url: 'https://calendar.example/events.ics', display_name: 'Work' }] }
+      : { rows: [] });
+
+    const response = await fetch(`${base}/api/calendar/sources`, {
+      method: 'POST', headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ kind: 'ical_url', url: 'https://calendar.example/events.ics', displayName: 'Work' }),
+    });
+
+    expect(response.status).toBe(502);
+    expect(await response.json()).toEqual({ error: 'network unavailable', source: expect.objectContaining({ id: 'source-1' }), sync: { ok: false, error: 'network unavailable' } });
+    expect(scheduleCalendarSource).toHaveBeenCalled();
+  });
+
+  it('does not stop an unknown or unauthorized source', async () => {
+    query.mockResolvedValueOnce({ rows: [] });
+
+    const response = await fetch(`${base}/api/calendar/sources/missing-source`, { method: 'DELETE' });
+
+    expect(response.status).toBe(404);
+    expect(stopCalendarSource).not.toHaveBeenCalled();
+    expect(releaseCalendarSource).not.toHaveBeenCalled();
+  });
+
+  it('restores scheduling and releases removal state when source deletion fails', async () => {
+    const source = { id: 'source-1', kind: 'ical_url', url: 'https://calendar.example/events.ics', display_name: 'Work', interval_min: 60 };
+    query
+      .mockResolvedValueOnce({ rows: [source] })
+      .mockRejectedValueOnce(new Error('source delete failed'));
+
+    const response = await fetch(`${base}/api/calendar/sources/source-1`, { method: 'DELETE' });
+
+    expect(response.status).toBe(500);
+    expect(scheduleCalendarSource).toHaveBeenCalledWith(source);
+    expect(releaseCalendarSource).toHaveBeenCalledWith('source-1');
+  });
+
+  it('releases removal state when projection deletion fails after source deletion', async () => {
+    const source = { id: 'source-1', kind: 'ical_url', url: 'https://calendar.example/events.ics', display_name: 'Work', interval_min: 60 };
+    query
+      .mockResolvedValueOnce({ rows: [source] })
+      .mockResolvedValueOnce({ rows: [{ id: 'source-1' }] })
+      .mockRejectedValueOnce(new Error('projection delete failed'));
+
+    const response = await fetch(`${base}/api/calendar/sources/source-1`, { method: 'DELETE' });
+
+    expect(response.status).toBe(500);
+    expect(scheduleCalendarSource).not.toHaveBeenCalled();
+    expect(releaseCalendarSource).toHaveBeenCalledWith('source-1');
   });
 
   it('lists only calendars owned by the signed-in user', async () => {

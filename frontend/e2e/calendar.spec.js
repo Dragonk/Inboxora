@@ -1,34 +1,80 @@
 import { test, expect } from './fixtures.js';
 
-test('remote ICS source shows a successful partial import warning', async ({ page, fixtureApi }, testInfo) => {
+test('remote ICS first sync failure can be retried without duplicating the imported event', async ({ page, fixtureApi }, testInfo) => {
   test.skip(testInfo.project.name !== 'chromium-desktop', 'desktop source management contract');
   await fixtureApi;
-  let sources = [];
-  let initialSyncFinished = false;
+  const source = { id: 'source-retry', kind: 'ical_url', displayName: 'RetryICS', url: 'https://calendar.example/retry.ics', lastError: null, lastSyncAt: null };
+  let syncAttempts = 0;
+  let eventPresent = false;
+  let created = false;
+  await page.route('**/api/calendar/events**', route => route.fulfill({ json: { events: eventPresent ? [{ id: 'remote-event-1', calendar_id: 'calendar-remote', summary: 'Remote standup', starts_at: '2026-09-03T09:00:00.000Z', ends_at: '2026-09-03T09:30:00.000Z' }] : [] } }));
   await page.route('**/api/calendar/sources**', async route => {
     const request = route.request();
     const path = new URL(request.url()).pathname;
     if (request.method() === 'POST' && path.endsWith('/sync')) {
-      return route.fulfill({ json: { ok: true, eventCount: 1, skippedEvents: [{ uid: 'invalid-start', reason: 'DTSTART is missing or invalid' }] } });
+      syncAttempts += 1;
+      eventPresent = true;
+      return route.fulfill({ json: { ok: true, imported: 1, updated: 0, rejected: 0 } });
     }
-    if (request.method() === 'POST') {
-      sources = [{ id: 'source-regression', kind: 'ical_url', displayName: 'PracaICS', url: 'https://calendar.example/regression.ics', lastError: null, lastSyncAt: null }];
-      setTimeout(() => { initialSyncFinished = true; }, 1200);
-      return route.fulfill({ status: 201, json: { source: sources[0] } });
-    }
-    return route.fulfill({ json: { sources: sources.map(source => ({ ...source, lastError: initialSyncFinished ? 'Skipped invalid-start: DTSTART is missing or invalid' : null, lastSyncAt: initialSyncFinished ? new Date().toISOString() : null })) } });
+    if (request.method() === 'POST') { created = true; return route.fulfill({ status: 502, json: { error: 'fixture fetch failed', source, sync: { ok: false, error: 'fixture fetch failed' } } }); }
+    const failed = created && syncAttempts === 0;
+    return route.fulfill({ json: { sources: [{ ...source, lastError: failed ? 'fixture fetch failed' : null, lastSyncAt: failed ? null : '2026-09-03T09:01:00.000Z' }] } });
   });
   await page.goto('/?list=0&reader=0');
   await page.getByTestId('calendar-nav-primary').click();
   await page.getByTestId('calendar-sidebar-manage-sources').click();
   const dialog = page.getByRole('dialog', { name: 'Zarządzaj źródłami' });
-  await dialog.getByLabel('Nazwa', { exact: true }).fill('PracaICS');
-  await dialog.getByLabel('Adres URL').fill('webcal://calendar.example/regression.ics');
+  await dialog.getByLabel('Nazwa', { exact: true }).fill(source.displayName);
+  await dialog.getByLabel('Adres URL').fill('webcal://calendar.example/retry.ics');
   await dialog.getByRole('button', { name: 'Dodaj źródło' }).click();
-  await expect(dialog.getByText('PracaICS')).toBeVisible();
-  await expect(dialog.getByText('Synchronizowanie…')).toBeVisible();
-  await expect(dialog.getByText('Skipped invalid-start: DTSTART is missing or invalid')).toBeVisible();
+  await expect(dialog.getByText('fixture fetch failed')).toBeVisible();
+  await dialog.getByRole('button', { name: 'Synchronizuj' }).click();
+  await expect(page.getByText('Remote standup', { exact: true })).toBeVisible();
+  await expect(dialog.getByText('Gotowe')).toBeVisible();
+  expect(syncAttempts).toBe(1);
+  await expect(page.getByText('Remote standup', { exact: true })).toHaveCount(1);
 });
+
+test('invalid remote ICS URL surfaces a meaningful error instead of creating a source', async ({ page, fixtureApi }, testInfo) => {
+  test.skip(testInfo.project.name !== 'chromium-desktop', 'desktop source management contract');
+  await fixtureApi;
+  await page.route('**/api/calendar/sources**', route => route.request().method() === 'POST'
+    ? route.fulfill({ status: 400, json: { error: 'Invalid calendar source URL' } })
+    : route.fulfill({ json: { sources: [] } }));
+  await page.goto('/?list=0&reader=0');
+  await page.getByTestId('calendar-nav-primary').click();
+  await page.getByTestId('calendar-sidebar-manage-sources').click();
+  const dialog = page.getByRole('dialog', { name: 'Zarządzaj źródłami' });
+  await dialog.getByLabel('Nazwa', { exact: true }).fill('InvalidICS');
+  await dialog.getByLabel('Adres URL').fill('https://calendar.example/not-an-ics');
+  await dialog.getByRole('button', { name: 'Dodaj źródło' }).click();
+  await expect(dialog.getByRole('alert')).toContainText('Invalid calendar source URL');
+  await expect(dialog.getByText('InvalidICS')).toHaveCount(0);
+});
+
+test('removing a remote ICS source refreshes events and prevents its stale event from returning', async ({ page, fixtureApi }, testInfo) => {
+  test.skip(testInfo.project.name !== 'chromium-desktop', 'desktop source management contract');
+  await fixtureApi;
+  const source = { id: 'source-remove', kind: 'ical_url', displayName: 'RemoveICS', url: 'https://calendar.example/remove.ics', lastError: null, lastSyncAt: '2026-09-03T09:00:00.000Z' };
+  let removed = false;
+  await page.route('**/api/calendar/events**', route => route.fulfill({ json: { events: removed ? [] : [{ id: 'stale-remote-event', calendar_id: 'calendar-remote', summary: 'Stale remote event', starts_at: '2026-09-03T10:00:00.000Z', ends_at: '2026-09-03T10:30:00.000Z' }] } }));
+  await page.route('**/api/calendar/sources**', route => {
+    const request = route.request();
+    if (request.method() === 'DELETE') { removed = true; return route.fulfill({ json: { ok: true } }); }
+    if (request.method() === 'POST') return route.fulfill({ status: 201, json: { source } });
+    return route.fulfill({ json: { sources: removed ? [] : [source] } });
+  });
+  await page.goto('/?list=0&reader=0');
+  await page.getByTestId('calendar-nav-primary').click();
+  await expect(page.getByText('Stale remote event', { exact: true })).toBeVisible();
+  await page.getByTestId('calendar-sidebar-manage-sources').click();
+  const dialog = page.getByRole('dialog', { name: 'Zarządzaj źródłami' });
+  await expect(dialog.getByText(source.displayName)).toBeVisible();
+  await dialog.getByRole('button', { name: 'Usuń' }).click();
+  await expect(dialog.getByText(source.displayName)).toHaveCount(0);
+  await expect(page.getByText('Stale remote event', { exact: true })).toHaveCount(0);
+});
+
 
 test('deleting a pending ICS source cancels its initial-sync polling', async ({ page, fixtureApi }, testInfo) => {
   test.skip(testInfo.project.name !== 'chromium-desktop', 'desktop source management contract');
@@ -43,7 +89,7 @@ test('deleting a pending ICS source cancels its initial-sync polling', async ({ 
     if (request.method() === 'POST' && path.endsWith('/sync')) return route.fulfill({ json: { ok: true } });
     if (request.method() === 'POST') {
       sources = [source];
-      return route.fulfill({ status: 201, json: { source } });
+      return route.fulfill({ status: 201, json: { source, sync: { pending: true } } });
     }
     if (request.method() === 'DELETE') {
       deleted = true;
@@ -70,16 +116,14 @@ test('deleting a pending ICS source cancels its initial-sync polling', async ({ 
   await expect(dialog.getByRole('alert')).toHaveCount(0);
 });
 
-test('remote ICS source polls exactly 70 times before terminal timeout', async ({ page, fixtureApi }, testInfo) => {
+test('remote ICS source does not poll after terminal successful creation', async ({ page, fixtureApi }, testInfo) => {
   test.skip(testInfo.project.name !== 'chromium-desktop', 'desktop source management contract');
-  test.setTimeout(45000);
   await fixtureApi;
-  let postCreateAt = 0;
   let refreshCount = 0;
-  const source = { id: 'source-timeout', kind: 'ical_url', displayName: 'NiedostepnyICS', url: 'https://calendar.example/timeout.ics', lastError: null, lastSyncAt: null };
+  const source = { id: 'source-timeout', kind: 'ical_url', displayName: 'NiedostepnyICS', url: 'https://calendar.example/timeout.ics', lastError: null, lastSyncAt: new Date().toISOString() };
   await page.route('**/api/calendar/sources**', async route => {
-    if (route.request().method() === 'POST') { postCreateAt = Date.now(); return route.fulfill({ status: 201, json: { source } }); }
-    if (postCreateAt) refreshCount += 1;
+    if (route.request().method() === 'POST') return route.fulfill({ status: 201, json: { source, sync: { ok: true, eventCount: 1 } } });
+    refreshCount += 1;
     return route.fulfill({ json: { sources: [source] } });
   });
   await page.goto('/?list=0&reader=0');
@@ -89,13 +133,9 @@ test('remote ICS source polls exactly 70 times before terminal timeout', async (
   await dialog.getByLabel('Nazwa', { exact: true }).fill('NiedostepnyICS');
   await dialog.getByLabel('Adres URL').fill('webcal://calendar.example/timeout.ics');
   await dialog.getByRole('button', { name: 'Dodaj źródło' }).click();
-  await expect(dialog.getByText('Synchronizowanie…')).toBeVisible();
-  await expect(dialog.getByRole('alert')).toContainText(/Synchronizacja źródła przekroczyła limit czasu\.|Source synchronization timed out\./, { timeout: 40000 });
-  await expect(dialog.getByText('Synchronizowanie…')).toHaveCount(0);
-  expect(Date.now() - postCreateAt).toBeGreaterThanOrEqual(34000);
-  expect(refreshCount).toBe(71);
+  await expect(dialog.getByText('NiedostepnyICS')).toBeVisible();
   await page.waitForTimeout(1000);
-  expect(refreshCount).toBe(71);
+  expect(refreshCount).toBe(2);
 });
 
 test('week and work-week render timed overlap geometry and work-hour boundaries', async ({ page, fixtureApi }, testInfo) => {
