@@ -250,7 +250,13 @@ export const test = base.extend({
     });
     await page.route('**/api/mail/messages/bulk-read', async route => {
       page.__bulkReadActions = page.__bulkReadActions || [];
-      page.__bulkReadActions.push(route.request().postDataJSON());
+      const body = route.request().postDataJSON();
+      page.__bulkReadActions.push(body);
+      const gate = page.__bulkReadGates?.[String(body.read)];
+      if (gate) await gate.promise;
+      if (page.__bulkReadFailure || (body.ids || []).some(id => page.__bulkReadFailureIds?.has(id))) {
+        return route.fulfill({ status: 503, json: { error: 'Fixture bulk read failed' } });
+      }
       return route.fulfill({ json: { ok: true } });
     });
     await page.route('**/api/mail/messages/*/star', async route => {
@@ -271,8 +277,6 @@ export const test = base.extend({
       const body = route.request().postDataJSON() || {};
       if (action === 'read') return route.fallback();
       page.__conversationActions.push({ action, url: route.request().url(), method: route.request().method(), body });
-      const gate = page.__conversationActionGates?.[action];
-      if (gate) await gate.promise;
       if (page.__conversationActionFailures?.has(action)) {
         return route.fulfill({ status: 503, json: { error: `Fixture ${action} failed` } });
       }
