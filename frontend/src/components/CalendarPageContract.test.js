@@ -80,6 +80,13 @@ test('calendar source management stays in the visibility panel and owned calenda
   assert.match(sidebar, /source === 'local' && !calendar\.read_only/);
 });
 
+test('calendar source dialog uses viewport-safe sizing and wrapping actions', async () => {
+  const sidebar = await readFile(sidebarPath, 'utf8');
+  assert.match(sidebar, /const dialog = \{[^\n]*boxSizing: 'border-box'/);
+  assert.match(sidebar, /const sourceRow = \{[^\n]*flexWrap: 'wrap'/);
+  assert.match(sidebar, /const sourceActions = \{[^\n]*flexWrap: 'wrap'/);
+});
+
 test('every locale declares a single effective calendar dictionary', async () => {
   const files = (await readdir(localesPath)).filter(name => name.endsWith('.json'));
   for (const file of files) {

@@ -55,6 +55,64 @@ test('mobile month calendar fits the application viewport without horizontal pag
   expect(widths.gridScrollWidth).toBeLessThanOrEqual(widths.gridClientWidth);
 });
 
+test('mobile manage-sources dialog keeps source controls inside the viewport', async ({ page, fixtureApi }, testInfo) => {
+  test.skip(!['chromium-mobile-390', 'chromium-mobile'].includes(testInfo.project.name), 'mobile source dialog layout contract');
+  await fixtureApi;
+  let sources = [{ id: 'mobile-source', kind: 'ical_url', displayName: 'Mobile source with an intentionally long unbroken-name.example.test', url: 'https://calendar.example/mobile.ics', lastError: null, lastSyncAt: '2026-09-03T09:00:00.000Z' }];
+  let syncCount = 0;
+  let deleteCount = 0;
+  let addCount = 0;
+  await page.route('**/api/calendar/sources**', route => {
+    const request = route.request();
+    if (request.method() === 'POST' && new URL(request.url()).pathname.endsWith('/sync')) {
+      syncCount += 1;
+      return route.fulfill({ json: { ok: true } });
+    }
+    if (request.method() === 'DELETE') {
+      deleteCount += 1;
+      sources = [];
+      return route.fulfill({ json: { ok: true } });
+    }
+    if (request.method() === 'POST') {
+      addCount += 1;
+      return route.fulfill({ status: 201, json: { source: { id: 'added-source' }, sync: { ok: true } } });
+    }
+    return route.fulfill({ json: { sources } });
+  });
+  await page.goto('/?list=0&reader=0');
+  await page.getByTestId('mobile-menu').click();
+  await page.getByTestId('calendar-nav-mobile').click();
+  await page.getByRole('button', { name: 'Kalendarze' }).click();
+  await page.getByTestId('calendar-sidebar-manage-sources').click();
+  const dialog = page.getByRole('dialog', { name: 'Zarządzaj źródłami' });
+  await expect(dialog).toBeVisible();
+  const box = await dialog.boundingBox();
+  const viewport = page.viewportSize();
+  expect(box.x).toBeGreaterThanOrEqual(0);
+  expect(box.x + box.width).toBeLessThanOrEqual(viewport.width);
+  for (const name of ['Zamknij', 'Dodaj źródło', 'Synchronizuj', 'Usuń']) {
+    const control = dialog.getByRole('button', { name, exact: true });
+    await expect(control).toBeVisible();
+    const controlBox = await control.boundingBox();
+    expect(controlBox.x).toBeGreaterThanOrEqual(0);
+    expect(controlBox.x + controlBox.width).toBeLessThanOrEqual(viewport.width);
+  }
+  const sourceRow = dialog.getByText('Mobile source with an intentionally long unbroken-name.example.test', { exact: true }).locator('..').locator('..');
+  await expect(sourceRow).toBeVisible();
+  expect(await sourceRow.evaluate(element => element.scrollWidth)).toBeLessThanOrEqual(await sourceRow.evaluate(element => element.clientWidth));
+  await dialog.getByLabel('Nazwa', { exact: true }).fill('Added mobile source');
+  await dialog.getByLabel('Adres URL').fill('https://calendar.example/added.ics');
+  await dialog.getByRole('button', { name: 'Dodaj źródło', exact: true }).click();
+  expect(addCount).toBe(1);
+  await dialog.getByRole('button', { name: 'Synchronizuj', exact: true }).click();
+  expect(syncCount).toBe(1);
+  await dialog.getByRole('button', { name: 'Usuń', exact: true }).click();
+  expect(deleteCount).toBe(1);
+  await expect(dialog.getByText('Mobile source with an intentionally long unbroken-name.example.test', { exact: true })).toHaveCount(0);
+  await dialog.getByRole('button', { name: 'Zamknij', exact: true }).click();
+  await expect(dialog).toBeHidden();
+});
+
 test('mobile week calendar keeps its deliberate horizontal scroll inside the grid', async ({ page, fixtureApi }, testInfo) => {
   test.skip(!['chromium-mobile-390', 'chromium-mobile'].includes(testInfo.project.name), 'mobile calendar layout contract');
   await fixtureApi;
