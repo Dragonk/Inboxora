@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useCallback, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { sanitizeMessageHtml } from './MessageBodyRenderer.jsx';
 import MessageDetailContent from './MessageDetailContent.jsx';
@@ -33,6 +33,9 @@ export default function ConversationMessage({ conversationId, message, selectedC
   const isMobile = useMobile();
   const { replyDefault, aiActions, setShowAdmin, setAdminTab, blockRemoteImages, imageWhitelist } = useStore();
   const copy = preferredAccountCopy(message, selectedAccountId, selectedCopyId) || {};
+  const initialBodyLayoutRef = useRef(onInitialBodyLayout);
+  initialBodyLayoutRef.current = onInitialBodyLayout;
+  const handleInitialBodyLayout = useCallback(() => initialBodyLayoutRef.current?.(copy.id), [copy.id]);
   const account = accounts.find(item => String(item.id) === String(selectedAccountId));
   const hasAccountCopy = Boolean(copy.id && account && selectedAccountId
     && String(copy.accountId ?? copy.account_id) === String(selectedAccountId));
@@ -288,7 +291,7 @@ export default function ConversationMessage({ conversationId, message, selectedC
           if (action === 'markSpam') return runAction(() => api.markSpam(physicalCopyId), 'spam'); if (action === 'markHam') return runAction(() => api.markHam(physicalCopyId), 'ham');
           if (action === 'moveTo' && data) return runAction(() => conversationApi.move(conversationId, data, { ...actionOptions, copyId: physicalCopyId }), 'move', { copyId: physicalCopyId });
         }}
-        onInitialBodyLayout={() => onInitialBodyLayout?.(copy.id)}
+        onInitialBodyLayout={handleInitialBodyLayout}
         canAccessCopy={hasAccountCopy}
         mobile={isMobile}
       />

@@ -278,6 +278,14 @@ export default function ConversationReader({ conversationId, targetLogicalMessag
 
 
   const activateMessage = useCallback(id => {
+    // A new explicit target supersedes any pending automatic alignment for the
+    // previously selected target. Without this handoff, a late body-layout frame
+    // can write the old scroll position into the new navigation's sample window.
+    for (const state of navigationStateRef.current.values()) {
+      state.userInteracted = true;
+      if (state.finalFrame) cancelAnimationFrame(state.finalFrame);
+      state.finalFrame = null;
+    }
     setActiveTargetLogicalId(id);
     const copy = selectedCopyFor(id);
     if (copy?.id && !(copy.isRead ?? copy.is_read)) {
