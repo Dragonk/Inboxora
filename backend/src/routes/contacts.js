@@ -44,6 +44,16 @@ function contactDatesWithLegacy(contactDates, birthday, anniversary, authoritati
   return dates;
 }
 
+function legacyDatesFromContactDates(contactDates) {
+  const values = { birthday: null, anniversary: null };
+  for (const { label, value } of contactDates) {
+    const field = label.toLocaleLowerCase();
+    if (field === 'birthday' && values.birthday === null) values.birthday = value;
+    if (field === 'anniversary' && values.anniversary === null) values.anniversary = value;
+  }
+  return values;
+}
+
 // In-memory cache for Gravatar lookups (hash -> { buf, type } hit or { miss:true }).
 // Bounded + TTL'd so we don't re-hit Gravatar for every list render and so the number of
 // third-party requests stays minimal (a privacy consideration — see the /gravatar route).
@@ -280,6 +290,9 @@ router.post('/', async (req, res) => {
   const storedContactDates = contactDatesWithLegacy(
     normalizedContactDates, normalizedBirthday, normalizedAnniversary, contactDates !== undefined
   );
+  const authoritativeLegacyDates = contactDates === undefined ? null : legacyDatesFromContactDates(storedContactDates);
+  const storedBirthday = authoritativeLegacyDates?.birthday ?? (contactDates === undefined ? normalizedBirthday : null);
+  const storedAnniversary = authoritativeLegacyDates?.anniversary ?? (contactDates === undefined ? normalizedAnniversary : null);
 
   const primaryEmail = emails[0]?.value
     ? emails[0].value.toLowerCase().trim()
@@ -292,7 +305,7 @@ router.post('/', async (req, res) => {
   try {
     const addressBookId = await defaultAddressBook(userId);
     const uid = crypto.randomUUID();
-    const vcard = generateVCard({ uid, displayName, firstName, lastName, emails, phones, organization, notes, birthday: normalizedBirthday, anniversary: normalizedAnniversary, contactDates: storedContactDates, ...rich });
+    const vcard = generateVCard({ uid, displayName, firstName, lastName, emails, phones, organization, notes, birthday: storedBirthday, anniversary: storedAnniversary, contactDates: storedContactDates, ...rich });
     const etag = crypto.createHash('md5').update(vcard).digest('hex');
 
     const result = await query(`
@@ -310,7 +323,7 @@ router.post('/', async (req, res) => {
       addressBookId, userId, uid, vcard, etag,
       displayName || null, firstName || null, lastName || null, primaryEmail,
       JSON.stringify(emails), JSON.stringify(phones),
-      organization || null, notes || null, normalizedBirthday, normalizedAnniversary, JSON.stringify(storedContactDates),
+      organization || null, notes || null, storedBirthday, storedAnniversary, JSON.stringify(storedContactDates),
       rich.title, rich.role, rich.nickname, JSON.stringify(rich.urls), JSON.stringify(rich.instantMessages), JSON.stringify(rich.categories), JSON.stringify(rich.addresses),
     ]);
 
@@ -381,6 +394,9 @@ router.patch('/:id', async (req, res) => {
     const newContactDates = contactDatesWithLegacy(
       normalizedContactDates, newBirthday, newAnniversary, contactDates !== undefined
     );
+    const authoritativeLegacyDates = contactDates === undefined ? null : legacyDatesFromContactDates(newContactDates);
+    const storedBirthday = authoritativeLegacyDates?.birthday ?? (contactDates === undefined ? newBirthday : null);
+    const storedAnniversary = authoritativeLegacyDates?.anniversary ?? (contactDates === undefined ? newAnniversary : null);
     const newPrimary   = emails === undefined
       ? c.primary_email
       : (newEmails[0]?.value ? newEmails[0].value.toLowerCase().trim() : null);
@@ -394,8 +410,8 @@ router.patch('/:id', async (req, res) => {
       phones: newPhones,
       organization: newOrg,
       notes: newNotes,
-      birthday: newBirthday,
-      anniversary: newAnniversary,
+      birthday: storedBirthday,
+      anniversary: storedAnniversary,
       contactDates: newContactDates,
       ...rich,
     };
@@ -419,7 +435,7 @@ router.patch('/:id', async (req, res) => {
       newDisplay || null, newFirst || null, newLast || null,
       newPrimary,
       JSON.stringify(newEmails), JSON.stringify(newPhones),
-      newOrg || null, newNotes || null, newBirthday, newAnniversary, JSON.stringify(newContactDates),
+      newOrg || null, newNotes || null, storedBirthday, storedAnniversary, JSON.stringify(newContactDates),
       rich.title, rich.role, rich.nickname, JSON.stringify(rich.urls), JSON.stringify(rich.instantMessages), JSON.stringify(rich.categories), JSON.stringify(rich.addresses),
       vcard, etag,
       req.params.id, userId,

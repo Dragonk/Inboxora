@@ -104,7 +104,7 @@ describe('Contact REST PATCH legacy date synchronization', () => {
 
   it('keeps explicitly supplied contactDates authoritative when legacy fields are also supplied', async () => {
     arrangeQuery([{ label: 'Birthday', value: '1990-01-02' }], {
-      ...updatedContact, birthday: '1991-01-02', contactDates: [{ label: 'Birthday', value: '1990-01-02' }],
+      ...updatedContact, birthday: '1990-01-02', contactDates: [{ label: 'Birthday', value: '1990-01-02' }],
     });
 
     const server = createApp().listen(0);
@@ -115,11 +115,33 @@ describe('Contact REST PATCH legacy date synchronization', () => {
     await new Promise(resolve => server.close(resolve));
 
     expect(response.status).toBe(200);
+    expect((await response.json()).birthday).toBe('1990-01-02');
     const update = query.mock.calls.find(([sql]) => sql.includes('UPDATE contacts SET'));
+    expect(update[1][8]).toBe('1990-01-02');
     expect(JSON.parse(update[1][10])).toEqual([{ label: 'Birthday', value: '1990-01-02' }]);
     expect(update[1][18].match(/BDAY/g)).toHaveLength(1);
     expect(update[1][18]).toContain('BDAY;TYPE=Birthday:1990-01-02');
     expect(update[1][18]).not.toContain('1991-01-02');
+  });
+
+  it('clears the legacy anniversary when authoritative contactDates omits it', async () => {
+    arrangeQuery([
+      { label: 'Anniversary', value: '2021-05-06' },
+      { label: 'Wedding', value: '2020-09-14' },
+    ], { ...updatedContact, anniversary: null, contactDates: [{ label: 'Wedding', value: '2020-09-14' }] });
+
+    const server = createApp().listen(0);
+    const response = await fetch(`http://127.0.0.1:${server.address().port}/api/contacts/contact-1`, {
+      method: 'PATCH', headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ anniversary: '2022-06-07', contactDates: [{ label: 'Wedding', value: '2020-09-14' }] }),
+    });
+    await new Promise(resolve => server.close(resolve));
+
+    expect(response.status).toBe(200);
+    const update = query.mock.calls.find(([sql]) => sql.includes('UPDATE contacts SET'));
+    expect(update[1][9]).toBeNull();
+    expect(JSON.parse(update[1][10])).toEqual([{ label: 'Wedding', value: '2020-09-14' }]);
+    expect(update[1][18]).not.toContain('ANNIVERSARY');
   });
 });
 
