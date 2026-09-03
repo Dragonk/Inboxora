@@ -639,7 +639,7 @@ export default function ContactsPage({ isActive = true }) {
 
       {/* Contact list panel */}
       <div data-testid="contacts-desktop-list" style={{
-        width: 280, flexShrink: 0, display: 'flex', flexDirection: 'column',
+        flex: '0 0 var(--list-width)', width: 'var(--list-width)', display: 'flex', flexDirection: 'column',
         borderRight: '1px solid var(--border)',
         background: 'var(--bg-secondary)',
         overflow: 'hidden',
@@ -693,7 +693,7 @@ export default function ContactsPage({ isActive = true }) {
 
 function ContactDetail({ contact: c, confirmDelete, saving, error, onEdit, onDeleteRequest, onDeleteConfirm, onDeleteCancel, t }) {
   return (
-    <div style={{ width: '100%', maxWidth: 560, position: 'relative', animation: 'pane-fade-in var(--motion-normal) var(--ease-emphasized) both' }}>
+    <div style={{ width: '100%', position: 'relative', animation: 'pane-fade-in var(--motion-normal) var(--ease-emphasized) both' }}>
       {/* Edit/Delete for editable contacts — out of flow, top-right (fixed width). */}
       {!c.read_only && (
         <div style={{ position: 'absolute', top: 0, right: 0, display: 'flex', gap: 8 }}>
@@ -810,7 +810,7 @@ function ContactForm({
   const labelStyle = { fontSize: 12, color: 'var(--text-tertiary)', marginBottom: 4, display: 'block' };
 
   return (
-    <div style={{ width: '100%', maxWidth: 560, animation: 'pane-fade-in var(--motion-normal) var(--ease-emphasized) both' }}>
+    <div style={{ width: '100%', animation: 'pane-fade-in var(--motion-normal) var(--ease-emphasized) both' }}>
       <h2 style={{ margin: '0 0 24px', fontSize: 18, fontWeight: 600, color: 'var(--text-primary)' }}>
         {isNew ? t('contacts.newContact') : t('contacts.editContact')}
       </h2>
