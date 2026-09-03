@@ -24,6 +24,7 @@ import { shortcutBus } from '../utils/shortcutBus.js';
 import { createLatestRequest } from '../utils/latestRequest.js';
 import { pendingMarkReadMap, completedMarkReadMap, setPending } from '../utils/pendingReads.js';
 import { queueReadStateMutation, isLatestReadStateMutation } from '../utils/readStateMutation.js';
+import { queuePerCopyMutation, isLatestPerCopyMutation } from '../utils/perCopyMutation.js';
 import { applyDeleteGuard, clearDeleteGuard, clearPendingDelete, setCompletedDelete, setPendingDelete, threadDeleteGuardKey } from '../utils/pendingDeletes.js';
 import {
   archiveInChunks,
@@ -778,8 +779,21 @@ export default function MessageList() {
     }
   }, [threadMessages, setThreadMessages]);
 
+  const setCachedThreadStarredForIds = useCallback((message, ids, starred) => {
+    const tid = message.thread_id || message.id;
+    const failed = new Set(ids.map(String));
+    if (threadMessages[tid]) {
+      setThreadMessages(tid, threadMessages[tid].map(msg => (
+        failed.has(String(msg.id)) ? { ...msg, is_starred: starred } : msg
+      )));
+    }
+  }, [threadMessages, setThreadMessages]);
+
   const setMessagesReadState = useCallback(async (message, read) => {
     const isThreadRow = isThreadListRow(message);
+    // Reserve the logical intent before any asynchronous thread resolution. A
+    // later click must invalidate this action even if this GET is still pending.
+    const resolution = queuePerCopyMutation(message.id, () => resolveMessagesForThreadAction(message));
     const unreadCount = Number.parseInt(message.unread_count, 10);
     // Use the row's own unread_count as the immediate estimate.
     // For thread rows this is the aggregate already present on the row;
@@ -814,9 +828,10 @@ export default function MessageList() {
     // already updated above so the user sees no delay.
     let actionMessages;
     try {
-      actionMessages = await resolveMessagesForThreadAction(message);
+      actionMessages = await resolution.promise;
     } catch (err) {
       console.error('Failed to load thread for read state change:', err.message);
+      if (!isLatestPerCopyMutation(message.id, resolution.version)) return;
       // Revert the optimistic update
       if (isThreadRow) {
         updateMessage(message.id, { is_read: !read, unread_count: !read ? 0 : estimatedDelta });
@@ -831,6 +846,7 @@ export default function MessageList() {
     // A native thread response is normalized, but retain one canonical action target
     // per physical ID if an older provider response contains a duplicate.
     actionMessages = [...new Map(actionMessages.map(msg => [String(msg.id), msg])).values()];
+    if (!isLatestPerCopyMutation(message.id, resolution.version)) return;
     // Compute exact delta from sub-message states (before mutating the cache).
     const actualDelta = read
       ? actionMessages.filter(msg => !msg.is_read).length
@@ -874,6 +890,7 @@ export default function MessageList() {
         msg.id, read, targetRead => api.bulkRead([msg.id], targetRead),
       ) }));
       await Promise.all(mutations.map(({ mutation }) => mutation.promise));
+      if (!isLatestPerCopyMutation(message.id, resolution.version)) return;
       actionMessages.forEach(msg => window.dispatchEvent(new CustomEvent('inboxora:read-state', { detail: { id: msg.id, read } })));
       if (read) {
         actionMessages.forEach(msg => {
@@ -884,7 +901,8 @@ export default function MessageList() {
       }
     } catch (err) {
       // Do not let a stale request roll back a newer explicit user intent.
-      const stale = mutations.some(({ msg, mutation }) => !isLatestReadStateMutation(msg.id, mutation.version));
+      const stale = !isLatestPerCopyMutation(message.id, resolution.version)
+        || mutations.some(({ msg, mutation }) => !isLatestReadStateMutation(msg.id, mutation.version));
       if (stale) return;
       console.error('markRead failed:', err);
       if (isThreadRow) {
@@ -912,26 +930,44 @@ export default function MessageList() {
   };
 
   const setMessagesStarredState = useCallback(async (message, starred) => {
-    let actionMessages;
-    try {
-      actionMessages = await resolveMessagesForThreadAction(message);
-    } catch (err) {
-      console.error('Failed to load thread for star state change:', err.message);
-      return;
-    }
-
     const isThreadRow = isThreadListRow(message);
+    const resolution = queuePerCopyMutation(message.id, () => resolveMessagesForThreadAction(message));
+    // Keep collapsed rows responsive while the native thread GET is pending.
     updateMessage(message.id, { is_starred: starred });
     if (isThreadRow) setCachedThreadStarred(message, starred);
+    let actionMessages;
+    try {
+      actionMessages = await resolution.promise;
+    } catch (err) {
+      console.error('Failed to load thread for star state change:', err.message);
+      if (isLatestPerCopyMutation(message.id, resolution.version)) {
+        updateMessage(message.id, { is_starred: !starred });
+        if (isThreadRow) setCachedThreadStarred(message, !starred);
+      }
+      return;
+    }
+    if (!isLatestPerCopyMutation(message.id, resolution.version)) return;
 
     try {
-      await Promise.all(actionMessages.map(msg => api.markStarred(msg.id, starred)));
+      const results = await Promise.allSettled(actionMessages.map(msg => api.markStarred(msg.id, starred)));
+      const failedIds = results
+        .map((result, index) => result.status === 'rejected' ? actionMessages[index].id : null)
+        .filter(Boolean);
+      if (failedIds.length > 0 && isLatestPerCopyMutation(message.id, resolution.version)) {
+        const failedSet = new Set(failedIds.map(String));
+        setCachedThreadStarredForIds(message, failedIds, !starred);
+        updateMessage(message.id, {
+          is_starred: actionMessages.some(msg => failedSet.has(String(msg.id)) ? msg.is_starred : starred),
+        });
+      }
     } catch (err) {
       console.error('markStarred failed:', err.message);
-      updateMessage(message.id, { is_starred: !starred });
-      if (isThreadRow) setCachedThreadStarred(message, !starred);
+      if (isLatestPerCopyMutation(message.id, resolution.version)) {
+        updateMessage(message.id, { is_starred: !starred });
+        if (isThreadRow) setCachedThreadStarred(message, !starred);
+      }
     }
-  }, [resolveMessagesForThreadAction, isThreadListRow, updateMessage, setCachedThreadStarred]);
+  }, [resolveMessagesForThreadAction, isThreadListRow, updateMessage, setCachedThreadStarred, setCachedThreadStarredForIds]);
 
   const handleStar = (e, message) => {
     e.stopPropagation();

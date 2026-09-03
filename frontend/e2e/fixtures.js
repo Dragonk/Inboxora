@@ -226,8 +226,10 @@ export const test = base.extend({
         : threaded ? [{ ...messages.at(-1), thread_key: 'conversation-gmail', is_starred: true }] : messages;
       return route.fulfill({ json: { messages: listMessages, total: listMessages.length, ...(threaded ? { threaded: true } : {}) } });
     });
-    await page.route('**/api/mail/thread/*', route => {
+    await page.route('**/api/mail/thread/*', async route => {
       const threadId = new URL(route.request().url()).pathname.split('/').at(-1);
+      const gate = page.__threadLoadGates?.shift() || page.__threadLoadGate;
+      if (gate) await gate.promise;
       if (page.__nativeThreadLoadFails) return route.fulfill({ status: 503, json: { detail: 'Native thread unavailable' } });
       if (page.__nativeThreadEmpty) return route.fulfill({ json: { messages: [] } });
       if (page.__nativeThreadMalformed) return route.fulfill({ json: { messages: {} } });
