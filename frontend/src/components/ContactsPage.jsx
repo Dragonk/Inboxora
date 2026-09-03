@@ -543,7 +543,7 @@ export default function ContactsPage({ isActive = true }) {
       : t('contacts.title');
 
     return (
-      <div style={{ display: 'flex', flex: 1, width: '100%', minWidth: 0, flexDirection: 'column', height: '100%', overflow: 'hidden', background: 'var(--bg-secondary)' }}>
+      <div className="contacts-page" style={{ display: 'flex', flex: 1, width: '100%', minWidth: 0, flexDirection: 'column', height: '100%', overflow: 'hidden', background: 'var(--bg-secondary)' }}>
         {/* Mobile header — matches MessageList header style */}
         <div style={{
           display: 'flex', alignItems: 'center', gap: 4,
@@ -635,7 +635,7 @@ export default function ContactsPage({ isActive = true }) {
 
   // ── Desktop layout ────────────────────────────────────────────────────────
   return (
-    <div style={{ display: 'flex', flex: 1, minWidth: 0, height: '100%', overflow: 'hidden', background: 'var(--bg-primary)' }}>
+    <div className="contacts-page" style={{ display: 'flex', flex: 1, minWidth: 0, height: '100%', overflow: 'hidden', background: 'var(--bg-primary)' }}>
 
       {/* Contact list panel */}
       <div data-testid="contacts-desktop-list" style={{

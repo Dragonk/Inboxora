@@ -530,6 +530,50 @@ body, #root {
   outline: 1px dotted #24417a !important;
   outline-offset: -4px !important;
 }
+
+/* Contacts danger controls keep their accessible contract above retro button chrome. */
+[data-mailflow-theme="win9x"] .contacts-page .contacts-danger-btn {
+  background: #800000 !important;
+  background-image: none !important;
+  border: 1px solid #400000 !important;
+  color: #ffffff !important;
+}
+[data-mailflow-theme="win9x"] .contacts-page .contacts-danger-btn:hover:not(:disabled) {
+  background: #c00000 !important;
+  border-color: #800000 !important;
+}
+[data-mailflow-theme="win9x"] .contacts-page .contacts-danger-btn:focus-visible {
+  outline: 2px solid #ffff00 !important;
+  outline-offset: 2px !important;
+}
+[data-mailflow-theme="win9x"] .contacts-page .contacts-danger-btn:disabled {
+  background: #808080 !important;
+  border-color: #404040 !important;
+  color: #dcdcdc !important;
+  box-shadow: none !important;
+}
+
+[data-mailflow-theme="winxp"] .contacts-page .contacts-danger-btn {
+  background: #f4b4b4 !important;
+  background-image: none !important;
+  border: 1px solid #a00000 !important;
+  color: #600000 !important;
+}
+[data-mailflow-theme="winxp"] .contacts-page .contacts-danger-btn:hover:not(:disabled) {
+  background: #e07070 !important;
+  border-color: #800000 !important;
+}
+[data-mailflow-theme="winxp"] .contacts-page .contacts-danger-btn:focus-visible {
+  outline: 2px solid #800000 !important;
+  outline-offset: 2px !important;
+}
+[data-mailflow-theme="winxp"] .contacts-page .contacts-danger-btn:disabled {
+  background: #d0d0d0 !important;
+  border-color: #808080 !important;
+  color: #606060 !important;
+  box-shadow: none !important;
+}
+
 [data-mailflow-theme="winxp"] input:not([type="checkbox"]):not([type="radio"]):not([type="range"]):not([type="color"]):not([type="file"]),
 [data-mailflow-theme="winxp"] textarea,
 [data-mailflow-theme="winxp"] select {

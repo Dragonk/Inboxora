@@ -349,6 +349,69 @@ test('Contacts destructive controls expose responsive danger states', async ({ p
   await expect(page.locator('.contacts-danger-btn').filter({ hasText: 'Usuń' })).toHaveCount(0);
 });
 
+for (const theme of ['win9x', 'winxp']) {
+  test(`Contacts danger contract survives ${theme} theme`, async ({ page, fixtureApi }, testInfo) => {
+    test.skip(testInfo.project.name !== 'chromium-desktop', 'retro theme danger contract is a desktop regression');
+    page.__themeOverride = theme;
+    await fixtureApi;
+    let releaseDelete;
+    let deleteCount = 0;
+    await page.route('**/api/contacts**', async route => {
+      const request = route.request();
+      const pathname = new URL(request.url()).pathname;
+      if (request.method() === 'DELETE') {
+        deleteCount += 1;
+        await new Promise(resolve => { releaseDelete = resolve; });
+        return route.fulfill({ json: { ok: true } });
+      }
+      if (pathname.endsWith('/contact-danger')) {
+        return route.fulfill({ json: {
+          id: 'contact-danger', display_name: 'Danger Contact', primary_email: 'danger@example.test',
+          emails: [{ value: 'danger@example.test', type: 'work' }],
+        } });
+      }
+      return route.fulfill({ json: {
+        contacts: [{ id: 'contact-danger', display_name: 'Danger Contact', primary_email: 'danger@example.test' }], total: 1,
+      } });
+    });
+    await page.goto('/?list=0&reader=0');
+    await page.getByTestId('contacts-nav-primary').click();
+    await page.getByText('Danger Contact', { exact: true }).click();
+    await page.getByRole('button', { name: 'Edytuj' }).click();
+    await page.getByRole('button', { name: 'Anuluj' }).press('Enter');
+
+    const deleteButton = page.getByRole('button', { name: 'Usuń' }).first();
+    await deleteButton.hover();
+    const hoverState = await deleteButton.evaluate(button => {
+      const style = getComputedStyle(button);
+      return { background: style.backgroundColor, borderWidth: style.borderTopWidth };
+    });
+    expect(hoverState.background).not.toBe('rgba(0, 0, 0, 0)');
+    expect(hoverState.borderWidth).toBe('1px');
+    await deleteButton.focus();
+    const focusState = await deleteButton.evaluate(button => {
+      const style = getComputedStyle(button);
+      return { outline: style.outlineStyle, width: parseFloat(style.outlineWidth) };
+    });
+    expect(focusState.outline).toBe('solid');
+    expect(focusState.width).toBeGreaterThanOrEqual(2);
+    await deleteButton.click();
+
+    const confirmButton = page.getByTestId('contacts-delete-confirmation').locator('.contacts-danger-btn');
+    await confirmButton.click();
+    await expect(confirmButton).toBeDisabled();
+    const disabledState = await confirmButton.evaluate(button => {
+      const style = getComputedStyle(button);
+      return { background: style.backgroundColor, borderWidth: style.borderTopWidth };
+    });
+    expect(disabledState.background).not.toBe('rgba(0, 0, 0, 0)');
+    expect(disabledState.borderWidth).toBe('1px');
+    expect(await confirmButton.getAttribute('disabled')).not.toBeNull();
+    await expect.poll(() => deleteCount).toBe(1);
+    releaseDelete();
+  });
+}
+
 test('calendar weekday headings use the active English locale', async ({ page, fixtureApi }) => {
   page.__languageOverride = 'en';
   await fixtureApi;
