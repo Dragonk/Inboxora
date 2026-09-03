@@ -257,7 +257,7 @@ export const test = base.extend({
       page.__bulkReadStarts = page.__bulkReadStarts || [];
       page.__bulkReadStarts.push(body);
       const configured = page.__bulkReadGates?.[String(body.read)];
-      const gate = Array.isArray(configured) ? configured[0] : configured;
+      const gate = Array.isArray(configured) ? configured.shift() : configured;
       if (gate) await gate.promise;
       if (page.__bulkReadFailure || (body.ids || []).some(id => page.__bulkReadFailureIds?.has(id))) {
         return route.fulfill({ status: 503, json: { error: 'Fixture bulk read failed' } });
@@ -272,7 +272,7 @@ export const test = base.extend({
       page.__starStarts = page.__starStarts || [];
       page.__starStarts.push({ id, body: route.request().postDataJSON() });
       const configured = page.__starGates?.[String(route.request().postDataJSON()?.starred)];
-      const gate = Array.isArray(configured) ? configured[0] : configured;
+      const gate = Array.isArray(configured) ? configured.shift() : configured;
       if (gate) await gate.promise;
       if (page.__starFailureIds?.has(id)) {
         return route.fulfill({ status: 503, json: { error: 'Fixture star failed' } });
@@ -288,7 +288,7 @@ export const test = base.extend({
       page.__conversationActionStarts = page.__conversationActionStarts || [];
       page.__conversationActionStarts.push({ action, body });
       const configured = page.__conversationActionGates?.[action];
-      const gate = Array.isArray(configured) ? configured[0] : configured;
+      const gate = Array.isArray(configured) ? configured.shift() : configured;
       if (gate) await gate.promise;
       if (page.__conversationActionFailures?.has(action)) {
         return route.fulfill({ status: 503, json: { error: `Fixture ${action} failed` } });

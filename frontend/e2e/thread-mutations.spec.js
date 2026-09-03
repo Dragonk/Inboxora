@@ -141,6 +141,54 @@ for (const viewport of [DESKTOP, 'mobile']) {
       expect(page.__starActions.filter(action => action.id === 'conversation-gmail-copy-3')).toHaveLength(1);
     });
 
+    test('overlapping read and star on a collapsed thread dispatch both action lanes', async ({ page, fixtureApi }, testInfo) => {
+      await openList(page, fixtureApi, testInfo, ['conversation-gmail-copy-5']);
+      page.__bulkReadStarts = [];
+      page.__starStarts = [];
+      page.__threadLoadStarts = [];
+      const row = page.locator('[data-msgid="conversation-gmail-copy-5"]:visible');
+      const sender = row.locator('span').filter({ hasText: 'sender@gmail.test' }).first();
+      const releaseThread = holdThreadResolution(page);
+
+      await openContextMenu(page, row, testInfo);
+      await chooseMenuItem(page, /oznacz jako przeczytan|mark as read/i);
+      await expect.poll(() => page.__threadLoadStarts.length).toBe(1);
+      await openContextMenu(page, row, testInfo);
+      await chooseMenuItem(page, /gwiazd|star/i);
+      await expect.poll(() => page.__threadLoadStarts.length).toBe(2);
+
+      releaseThread();
+      await expect.poll(() => page.__bulkReadStarts.length).toBe(5);
+      await expect.poll(() => page.__starStarts.length).toBe(5);
+      expect(page.__starStarts.every(action => action.body?.starred === false)).toBe(true);
+      await expect(row.locator('[data-thread-row-star="true"]')).toHaveCount(0);
+      await expect(sender).toHaveCSS('font-weight', '400');
+    });
+
+    test('overlapping star and read on a collapsed thread dispatch both action lanes', async ({ page, fixtureApi }, testInfo) => {
+      await openList(page, fixtureApi, testInfo, ['conversation-gmail-copy-5']);
+      page.__bulkReadStarts = [];
+      page.__starStarts = [];
+      page.__threadLoadStarts = [];
+      const row = page.locator('[data-msgid="conversation-gmail-copy-5"]:visible');
+      const sender = row.locator('span').filter({ hasText: 'sender@gmail.test' }).first();
+      const releaseThread = holdThreadResolution(page);
+
+      await openContextMenu(page, row, testInfo);
+      await chooseMenuItem(page, /gwiazd|star/i);
+      await expect.poll(() => page.__threadLoadStarts.length).toBe(1);
+      await openContextMenu(page, row, testInfo);
+      await chooseMenuItem(page, /oznacz jako przeczytan|mark as read/i);
+      await expect.poll(() => page.__threadLoadStarts.length).toBe(2);
+
+      releaseThread();
+      await expect.poll(() => page.__bulkReadStarts.length).toBe(5);
+      await expect.poll(() => page.__starStarts.length).toBe(5);
+      expect(page.__starStarts.every(action => action.body?.starred === false)).toBe(true);
+      await expect(row.locator('[data-thread-row-star="true"]')).toHaveCount(0);
+      await expect(sender).toHaveCSS('font-weight', '400');
+    });
+
     test('archive, move, and delete remove immediately and restore their own row on API failure', async ({ page, fixtureApi }, testInfo) => {
       test.setTimeout(60_000);
       await openList(page, fixtureApi, testInfo);

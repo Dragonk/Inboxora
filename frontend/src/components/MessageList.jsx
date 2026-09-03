@@ -767,41 +767,55 @@ export default function MessageList() {
 
   const setCachedThreadRead = useCallback((message, read) => {
     const tid = message.thread_id || message.id;
-    if (threadMessages[tid]) {
-      setThreadMessages(tid, threadMessages[tid].map(msg => ({ ...msg, is_read: read })));
+    const cached = useStore.getState().threadMessages[tid];
+    if (cached) {
+      const current = useStore.getState().messages.find(msg => String(msg.id) === String(message.id));
+      setThreadMessages(tid, cached.map(msg => ({
+        ...msg,
+        is_read: read,
+        ...(current && { is_starred: current.is_starred }),
+      })));
     }
-  }, [threadMessages, setThreadMessages]);
+  }, [setThreadMessages]);
 
   const setCachedThreadStarred = useCallback((message, starred) => {
     const tid = message.thread_id || message.id;
-    if (threadMessages[tid]) {
-      setThreadMessages(tid, threadMessages[tid].map(msg => ({ ...msg, is_starred: starred })));
+    const cached = useStore.getState().threadMessages[tid];
+    if (cached) {
+      const current = useStore.getState().messages.find(msg => String(msg.id) === String(message.id));
+      setThreadMessages(tid, cached.map(msg => ({
+        ...msg,
+        is_starred: starred,
+        ...(current && { is_read: current.is_read }),
+      })));
     }
-  }, [threadMessages, setThreadMessages]);
+  }, [setThreadMessages]);
 
   const setCachedThreadStarredForIds = useCallback((message, ids, starred) => {
     const tid = message.thread_id || message.id;
     const failed = new Set(ids.map(String));
-    if (threadMessages[tid]) {
-      setThreadMessages(tid, threadMessages[tid].map(msg => (
+    const cached = useStore.getState().threadMessages[tid];
+    if (cached) {
+      setThreadMessages(tid, cached.map(msg => (
         failed.has(String(msg.id)) ? { ...msg, is_starred: starred } : msg
       )));
     }
-  }, [threadMessages, setThreadMessages]);
+  }, [setThreadMessages]);
 
   const setCachedThreadStates = useCallback((message, field, states) => {
     const tid = message.thread_id || message.id;
-    if (!threadMessages[tid]) return;
-    setThreadMessages(tid, threadMessages[tid].map(msg => (
+    const cached = useStore.getState().threadMessages[tid];
+    if (!cached) return;
+    setThreadMessages(tid, cached.map(msg => (
       states.has(String(msg.id)) ? { ...msg, [field]: states.get(String(msg.id)) } : msg
     )));
-  }, [threadMessages, setThreadMessages]);
+  }, [setThreadMessages]);
 
   const setMessagesReadState = useCallback(async (message, read) => {
     const isThreadRow = isThreadListRow(message);
     // Reserve the logical intent before any asynchronous thread resolution. A
     // later click must invalidate this action even if this GET is still pending.
-    const resolution = queuePerCopyMutation(message.id, () => resolveMessagesForThreadAction(message));
+    const resolution = queuePerCopyMutation(message.id, 'read', () => resolveMessagesForThreadAction(message));
     const unreadCount = Number.parseInt(message.unread_count, 10);
     // Use the row's own unread_count as the immediate estimate.
     // For thread rows this is the aggregate already present on the row;
@@ -963,7 +977,7 @@ export default function MessageList() {
 
   const setMessagesStarredState = useCallback(async (message, starred) => {
     const isThreadRow = isThreadListRow(message);
-    const resolution = queuePerCopyMutation(message.id, () => resolveMessagesForThreadAction(message));
+    const resolution = queuePerCopyMutation(message.id, 'star', () => resolveMessagesForThreadAction(message));
     // Keep collapsed rows responsive while the native thread GET is pending.
     updateMessage(message.id, { is_starred: starred });
     if (isThreadRow) setCachedThreadStarred(message, starred);
@@ -1016,7 +1030,7 @@ export default function MessageList() {
     const visibleMessage = message;
     const unreadCount = Number.parseInt(message.unread_count, 10);
     const unreadDelta = Number.isFinite(unreadCount) ? unreadCount : (message.is_read ? 0 : 1);
-    const resolution = queuePerCopyMutation(message.id, () => resolveMessagesForThreadAction(message));
+    const resolution = queuePerCopyMutation(message.id, 'destructive', () => resolveMessagesForThreadAction(message));
     let deleteMessages = [message];
     let ids = [message.id].filter(Boolean);
 
@@ -1824,7 +1838,7 @@ export default function MessageList() {
     if (optimisticUnread > 0) unreadByAccount.set(message.account_id, optimisticUnread);
 
     let targets;
-    const archiveResolution = queuePerCopyMutation(message.id, () => (
+    const archiveResolution = queuePerCopyMutation(message.id, 'destructive', () => (
       resolveMessagesForThreadAction(message, { forceRefresh: true })
     ));
     try {
@@ -2225,7 +2239,7 @@ export default function MessageList() {
           break;
         }
         const moved = message;
-        const moveResolution = queuePerCopyMutation(moved.id, () => resolveMessagesForThreadAction(message));
+        const moveResolution = queuePerCopyMutation(moved.id, 'destructive', () => resolveMessagesForThreadAction(message));
         let moveMessages = [moved];
         // A folder path is account-specific: a thread can span accounts (and
         // always includes Sent copies), and the server skips messages whose

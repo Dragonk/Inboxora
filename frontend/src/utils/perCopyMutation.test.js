@@ -32,4 +32,22 @@ describe('per-copy mutation versions', () => {
     assert.equal(isLatestPerCopyMutation('copy-1', pending.version), false);
     assert.equal(isLatestPerCopyMutation('copy-2', other.version), true);
   });
+
+  it('keeps freshness isolated between semantic action lanes', () => {
+    const read = queuePerCopyMutation('copy-1', 'read', () => undefined);
+    const star = queuePerCopyMutation('copy-1', 'star', () => undefined);
+
+    assert.equal(isLatestPerCopyMutation('copy-1', 'read', read.version), true);
+    assert.equal(isLatestPerCopyMutation('copy-1', 'star', star.version), true);
+  });
+
+  it('invalidates only the latest intent in the same lane', () => {
+    const first = queuePerCopyMutation('copy-1', 'read', () => undefined);
+    const second = queuePerCopyMutation('copy-1', 'read', () => undefined);
+    const star = queuePerCopyMutation('copy-1', 'star', () => undefined);
+
+    assert.equal(isLatestPerCopyMutation('copy-1', 'read', first.version), false);
+    assert.equal(isLatestPerCopyMutation('copy-1', 'read', second.version), true);
+    assert.equal(isLatestPerCopyMutation('copy-1', 'star', star.version), true);
+  });
 });
