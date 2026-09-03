@@ -334,6 +334,53 @@ test('calendar event menus support desktop keyboard and mobile invocation while 
   else await expect(page.getByTestId('calendar-event-actions').nth(1)).toBeFocused();
 });
 
+test('week and work-week time-grid events expose menus for timed and all-day events', async ({ page, fixtureApi }, testInfo) => {
+  await fixtureApi;
+  let date;
+  await page.route('**/api/calendar/events**', route => {
+    const from = new Date(new URL(route.request().url()).searchParams.get('from'));
+    const localKey = value => [value.getFullYear(), String(value.getMonth() + 1).padStart(2, '0'), String(value.getDate()).padStart(2, '0')].join('-');
+    date = localKey(from);
+    return route.fulfill({ json: { events: [
+    { id: 'grid-timed-local', calendar_id: 'calendar-personal', summary: 'Grid timed local', starts_at: `${date}T10:00:00.000Z`, ends_at: `${date}T11:00:00.000Z`, source: 'local', read_only: false },
+    { id: 'grid-all-day-local', calendar_id: 'calendar-personal', summary: 'Grid all-day local', starts_at: '2026-01-01T00:00:00.000Z', ends_at: '2027-01-01T00:00:00.000Z', all_day: true, source: 'local', read_only: false },
+    { id: 'grid-timed-remote', calendar_id: 'calendar-personal', summary: 'Grid timed remote', starts_at: `${date}T12:00:00.000Z`, ends_at: `${date}T13:00:00.000Z`, source: 'ical', read_only: true },
+    { id: 'grid-all-day-remote', calendar_id: 'calendar-personal', summary: 'Grid all-day remote', starts_at: '2026-01-01T00:00:00.000Z', ends_at: '2027-01-01T00:00:00.000Z', all_day: true, source: 'ical', read_only: true },
+    ] } });
+  });
+  await page.goto('/');
+  const calendar = page.viewportSize().width < 768
+    ? page.getByTestId('mobile-primary-nav').getByRole('button', { name: 'Kalendarz' })
+    : page.getByTestId('calendar-nav-primary');
+  await calendar.click();
+  for (const view of ['week', 'workweek']) {
+    await page.getByTestId(`calendar-view-${view}`).click();
+    const grid = page.getByTestId('calendar-grid');
+    await expect(grid.getByRole('button', { name: /Grid timed local/ })).toBeVisible();
+    const allDayLocal = grid.getByRole('button', { name: /Grid all-day local/ }).first();
+    await expect(allDayLocal).toBeVisible();
+    if (page.viewportSize().width < 768) {
+      const action = allDayLocal.locator('..').getByTestId('calendar-event-actions');
+      expect((await action.boundingBox()).width).toBeGreaterThanOrEqual(44);
+      await action.click();
+    } else {
+      await grid.getByRole('button', { name: /Grid timed local/ }).click({ button: 'right' });
+    }
+    const menu = page.getByTestId('calendar-context-menu');
+    await expect(menu.getByRole('menuitem')).toHaveCount(2);
+    await page.keyboard.press('Escape');
+    if (page.viewportSize().width >= 768) {
+      await grid.getByRole('button', { name: /Grid all-day remote/ }).first().press('Shift+F10');
+    } else {
+      await grid.getByRole('button', { name: /Grid all-day remote/ }).first().locator('..').getByTestId('calendar-event-actions').click();
+    }
+    await expect(page.getByTestId('calendar-context-read-only')).toBeVisible();
+    await expect(page.getByTestId('calendar-context-menu').getByRole('menuitem')).toHaveCount(0);
+    await page.keyboard.press('Escape');
+  }
+  await page.screenshot({ path: testInfo.outputPath('calendar-time-grid-menus.png'), fullPage: true });
+});
+
 test('mobile contacts fill the viewport and keep their FAB anchored above navigation', async ({ page, fixtureApi }) => {
   await fixtureApi;
   await page.route('**/api/contacts**', route => {
