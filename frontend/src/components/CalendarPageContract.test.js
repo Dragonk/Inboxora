@@ -52,6 +52,9 @@ test('calendar events expose context-menu invocation and mobile action affordanc
   assert.match(source, /keyboardEvent\.shiftKey && keyboardEvent\.key === 'F10'/);
   assert.match(source, /data-testid="calendar-event-actions"/);
   assert.match(source, /source === 'local'/);
+  assert.match(source, /<TimeGrid[^>]*openContextMenu=\{openContextMenu\}/);
+  assert.match(source, /allDayEvents[\s\S]*onContextMenu/);
+  assert.match(source, /minWidth: 44/);
 });
 
 test('calendar renders one event dialog for an active form', async () => {
