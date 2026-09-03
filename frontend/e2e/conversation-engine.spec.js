@@ -640,16 +640,19 @@ test.describe('reader target navigation follow-up', () => {
       return { reader, target, anchor, header };
     };
     const short = await select('conversation-gmail-copy-10', 'short', 10);
-    const shortGeometry = await short.reader.evaluate(element => ({ scrollTop: element.scrollTop, max: element.scrollHeight - element.clientHeight }));
-    expect(Math.abs(shortGeometry.scrollTop - shortGeometry.max)).toBeLessThanOrEqual(1);
+    // The initial iframe paint and the parent's final scroll-range commit are
+    // separate layout passes. Wait for the settled terminal geometry instead of
+    // sampling the transient placeholder range.
+    await expect.poll(() => short.reader.evaluate(element => Math.abs(
+      element.scrollTop - (element.scrollHeight - element.clientHeight),
+    ))).toBeLessThanOrEqual(1);
     await expect(short.target.locator('iframe').contentFrame().locator('[data-testid="target-body"]')).toBeVisible();
 
     const long = await select('conversation-gmail-copy-10', 'long', 10);
-    const longGeometry = await long.anchor.evaluate(element => {
+    await expect.poll(() => long.anchor.evaluate(element => {
       const reader = element.closest('section');
-      return { anchorTop: element.getBoundingClientRect().top, readerTop: reader.getBoundingClientRect().top };
-    });
-    expect(longGeometry.anchorTop - longGeometry.readerTop).toBeLessThanOrEqual(12);
+      return element.getBoundingClientRect().top - reader.getBoundingClientRect().top;
+    })).toBeLessThanOrEqual(12);
 
     const twoPhaseNavigation = async ({ target, start }) => {
       page.__conversationSize = 10;
