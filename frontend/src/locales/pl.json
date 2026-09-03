@@ -1769,6 +1769,7 @@
     "sourceSyncTimeout": "Synchronizacja źródła przekroczyła limit czasu.",
     "icsWebcal": "ICS / webcal",
     "caldav": "CalDAV",
+    "owned": "Własny", "sourceCalendar": "Źródło", "calendarActions": "Akcje dla {{name}}", "rename": "Zmień nazwę", "changeColor": "Zmień kolor", "deleteCalendar": "Usuń kalendarz", "renamePrompt": "Nazwa kalendarza", "colorPrompt": "Kolor kalendarza (#RRGGBB)", "invalidColor": "Wpisz sześciocyfrowy kolor szesnastkowy.", "confirmCalendarDelete": "Usunąć kalendarz „{{name}}” i wszystkie wydarzenia? Tej operacji nie można cofnąć.",
     "mobileNavigation": "Nawigacja mobilna",
     "navigationTop": "U góry",
     "navigationBottom": "Na dole"

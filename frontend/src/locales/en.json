@@ -1779,6 +1779,7 @@
     "sourceSyncTimeout": "Source synchronization timed out.",
     "icsWebcal": "ICS / webcal",
     "caldav": "CalDAV",
+    "owned": "Owned", "sourceCalendar": "Source", "calendarActions": "Actions for {{name}}", "rename": "Rename", "changeColor": "Change color", "deleteCalendar": "Delete calendar", "renamePrompt": "Calendar name", "colorPrompt": "Calendar color (#RRGGBB)", "invalidColor": "Enter a six-digit hex color.", "confirmCalendarDelete": "Delete calendar \"{{name}}\" and all its events? This cannot be undone.",
     "mobileNavigation": "Mobile navigation",
     "navigationTop": "Top",
     "navigationBottom": "Bottom"

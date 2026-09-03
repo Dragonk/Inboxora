@@ -1,4 +1,5 @@
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
+import { createHash } from 'crypto';
 
 const { query } = vi.hoisted(() => ({ query: vi.fn() }));
 vi.mock('../services/db.js', () => ({ query }));
@@ -30,7 +31,7 @@ describe('secret calendar feeds', () => {
     expect(responses.every(response => response.status === 200)).toBe(true);
     const body = await responses[30].text();
     expect(responses[30].headers.get('content-type')).toContain('text/calendar');
-    expect(responses[30].headers.get('cache-control')).toContain('no-store');
+    expect(responses[30].headers.get('cache-control')).toBe('private, no-cache, must-revalidate');
     expect(responses[30].headers.get('x-content-type-options')).toBe('nosniff');
     expect(body).toContain('BEGIN:VCALENDAR\r\n');
     expect(body).toMatch(/DTSTAMP:\d{8}T\d{6}Z\r\n/);
@@ -92,5 +93,21 @@ describe('secret calendar feeds', () => {
     expect(response.status).toBe(204);
     expect(query.mock.calls[0][0]).toContain('owner_user_id = $2');
     expect(query.mock.calls[0][1]).toEqual(['feed-1', 'owner-1']);
+  });
+
+  it('returns 304 for exact, weak, and wildcard validators using the exact body hash', async () => {
+    const rows = [{ calendar_name: 'Personal', id: 'event-1', uid: 'uid-1', summary: 'Planning', starts_at: '2026-09-01T09:00:00.000Z', ends_at: '2026-09-01T10:00:00.000Z', all_day: false }];
+    query.mockResolvedValue({ rows });
+    const url = `${base}/calendar/feeds/${'a'.repeat(43)}.ics`; const first = await fetch(url); const body = await first.text(); const etag = first.headers.get('etag');
+    expect(etag).toBe(`"${createHash('sha256').update(body).digest('hex')}"`);
+    expect((await fetch(url, { headers: { 'if-none-match': etag } })).status).toBe(304);
+    expect((await fetch(url, { headers: { 'if-none-match': `W/${etag}` } })).status).toBe(304);
+    expect((await fetch(url, { headers: { 'if-none-match': '*' } })).status).toBe(304);
+  });
+
+  it('rotates only an owned feed and returns the replacement secret once', async () => {
+    query.mockResolvedValue({ rows: [{ id: 'feed-1', calendar_ids: ['cal-1'], created_at: '2026-09-01T00:00:00.000Z' }] });
+    const response = await fetch(`${base}/api/calendar/feeds/feed-1/rotate`, { method: 'POST' }); const json = await response.json();
+    expect(response.status).toBe(200); expect(json.secret).toMatch(/^[A-Za-z0-9_-]{43}$/); expect(query.mock.calls[0][0]).toContain('token_hash = $1'); expect(query.mock.calls[0][0]).toContain('owner_user_id = $3'); expect(query.mock.calls[0][1][0]).not.toBe(json.secret);
   });
 });

@@ -31,13 +31,13 @@ test('desktop calendar grid fills the application content pane', async () => {
   assert.match(calendar, /const mobileToolbar = \{ flexBasis: '100%', width: '100%' \}/);
 });
 
-test('external calendar management is directly discoverable from the calendar toolbar', async () => {
+test('external calendar management is directly discoverable from the calendar visibility panel', async () => {
   const [calendar, sidebar] = await Promise.all([
     source('./CalendarPage.jsx'),
     source('./CalendarSidebar.jsx'),
   ]);
 
-  assert.match(calendar, /data-testid="calendar-manage-sources"/);
-  assert.match(calendar, /sourcePanelRequest/);
+  assert.doesNotMatch(calendar, /data-testid="calendar-manage-sources"/);
+  assert.match(sidebar, /data-testid="calendar-sidebar-manage-sources"/);
   assert.match(sidebar, /sourcePanelRequest/);
 });

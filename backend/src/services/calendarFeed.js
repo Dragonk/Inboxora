@@ -41,7 +41,7 @@ export function serializeCalendarFeed(events, calendarName = 'Inboxora') {
   const lines = ['BEGIN:VCALENDAR', 'VERSION:2.0', 'PRODID:-//Inboxora//Calendar Feed//EN', `X-WR-CALNAME:${escapeText(calendarName)}`];
   for (const event of events) {
     const allDay = Boolean(event.all_day);
-    lines.push('BEGIN:VEVENT', `UID:${escapeText(event.uid || event.id)}`, `DTSTAMP:${dateValue(new Date(), false)}`, `DTSTART${allDay ? ';VALUE=DATE' : ''}:${dateValue(event.starts_at, allDay)}`, `DTEND${allDay ? ';VALUE=DATE' : ''}:${dateValue(event.ends_at, allDay)}`);
+    lines.push('BEGIN:VEVENT', `UID:${escapeText(event.uid || event.id)}`, `DTSTAMP:${dateValue(event.updated_at || event.created_at || event.starts_at, false)}`, `DTSTART${allDay ? ';VALUE=DATE' : ''}:${dateValue(event.starts_at, allDay)}`, `DTEND${allDay ? ';VALUE=DATE' : ''}:${dateValue(event.ends_at, allDay)}`);
     if (event.summary) lines.push(`SUMMARY:${escapeText(event.summary)}`);
     if (event.description) lines.push(`DESCRIPTION:${escapeText(event.description)}`);
     if (event.location) lines.push(`LOCATION:${escapeText(event.location)}`);

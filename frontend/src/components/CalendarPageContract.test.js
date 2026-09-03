@@ -69,6 +69,17 @@ test('calendar renders one event dialog for an active form', async () => {
   assert.equal(source.match(/\{form && <EventDialog/g)?.length, 1);
 });
 
+test('calendar source management stays in the visibility panel and owned calendars expose safe actions', async () => {
+  const [calendar, sidebar] = await Promise.all([readFile(calendarPath, 'utf8'), readFile(sidebarPath, 'utf8')]);
+  assert.doesNotMatch(calendar, /data-testid="calendar-manage-sources"/);
+  assert.match(sidebar, /data-testid="calendar-sidebar-manage-sources"/);
+  assert.match(sidebar, /role="menuitem"/);
+  assert.match(sidebar, /renameCalendar/);
+  assert.match(sidebar, /colorPrompt/);
+  assert.match(sidebar, /confirmCalendarDelete/);
+  assert.match(sidebar, /source === 'local' && !calendar\.read_only/);
+});
+
 test('every locale declares a single effective calendar dictionary', async () => {
   const files = (await readdir(localesPath)).filter(name => name.endsWith('.json'));
   for (const file of files) {

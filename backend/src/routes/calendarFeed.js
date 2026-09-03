@@ -1,4 +1,5 @@
 import { Router } from 'express';
+import crypto from 'crypto';
 import { query } from '../services/db.js';
 import { requireAuth } from '../middleware/auth.js';
 import { consume } from '../services/rateLimiter.js';
@@ -8,6 +9,16 @@ const router = Router();
 const PUBLIC_FAILURE_LIMIT = 30;
 const PUBLIC_FAILURE_WINDOW_MS = 60 * 1000;
 const invalidResponse = (res) => res.status(404).type('text').send('Not found');
+
+function compareFeedRows(left, right) {
+  for (const field of ['starts_at', 'calendar_id', 'id']) {
+    const leftValue = String(left[field] ?? '');
+    const rightValue = String(right[field] ?? '');
+    if (leftValue < rightValue) return -1;
+    if (leftValue > rightValue) return 1;
+  }
+  return 0;
+}
 
 async function failureResponse(req, res) {
   const limited = await consume(`calendar-feed:${req.ip}`, PUBLIC_FAILURE_LIMIT, PUBLIC_FAILURE_WINDOW_MS);
@@ -21,20 +32,24 @@ router.get(['/calendar/feeds/:token.ics', '/calendar/feeds/:token'], async (req,
   const hash = hashCalendarFeedToken(req.params.token);
   if (!hash) return failureResponse(req, res);
   const result = await query(
-    `SELECT f.calendar_ids, c.name AS calendar_name, e.id, e.uid, e.summary, e.description,
-            e.location, e.url, e.starts_at, e.ends_at, e.all_day
+    `SELECT f.calendar_ids, c.id AS calendar_id, c.name AS calendar_name, e.id, e.uid, e.summary, e.description,
+            e.location, e.url, e.starts_at, e.ends_at, e.all_day, e.created_at, e.updated_at
        FROM calendar_secret_feeds f
        JOIN calendars c ON c.id = ANY(f.calendar_ids) AND c.owner_user_id = f.owner_user_id
        LEFT JOIN calendar_events e ON e.calendar_id = c.id AND e.user_id = f.owner_user_id
       WHERE f.token_hash = $1 AND f.revoked_at IS NULL
-      ORDER BY e.starts_at ASC NULLS LAST`,
+      ORDER BY e.starts_at ASC NULLS LAST, c.id ASC, e.id ASC`,
     [hash],
   );
   if (!result.rows.length) return failureResponse(req, res);
-  const events = result.rows.filter(row => row.id);
-  const names = [...new Set(result.rows.map(row => row.calendar_name).filter(Boolean))];
-  res.set({ 'Content-Type': 'text/calendar; charset=utf-8', 'Cache-Control': 'no-store, private', Pragma: 'no-cache', 'X-Content-Type-Options': 'nosniff' });
-  return res.send(serializeCalendarFeed(events, names.join(', ') || 'Inboxora'));
+  const events = result.rows.filter(row => row.id).sort(compareFeedRows);
+  const names = [...new Set(result.rows.map(row => row.calendar_name).filter(Boolean))].sort();
+  const body = serializeCalendarFeed(events, names.join(', ') || 'Inboxora');
+  const etag = `"${crypto.createHash('sha256').update(body).digest('hex')}"`;
+  res.set({ 'Content-Type': 'text/calendar; charset=utf-8', 'Cache-Control': 'private, no-cache, must-revalidate', ETag: etag, 'X-Content-Type-Options': 'nosniff' });
+  const validators = String(req.headers['if-none-match'] || '').split(',').map(value => value.trim());
+  if (validators.includes('*') || validators.includes(etag) || validators.includes(`W/${etag}`)) return res.status(304).end();
+  return res.send(body);
 });
 
 router.use('/api/calendar/feeds', requireAuth);
@@ -58,6 +73,17 @@ router.delete('/api/calendar/feeds/:feedId', async (req, res) => {
   const result = await query('UPDATE calendar_secret_feeds SET revoked_at = COALESCE(revoked_at, NOW()) WHERE id = $1 AND owner_user_id = $2 RETURNING id', [req.params.feedId, req.session.userId]);
   if (!result.rows[0]) return res.status(404).json({ error: 'Feed not found' });
   return res.status(204).end();
+});
+
+router.post('/api/calendar/feeds/:feedId/rotate', async (req, res) => {
+  const { token, hash } = issueCalendarFeedToken();
+  const result = await query(
+    'UPDATE calendar_secret_feeds SET token_hash = $1, revoked_at = NULL WHERE id = $2 AND owner_user_id = $3 RETURNING id, calendar_ids, created_at',
+    [hash, req.params.feedId, req.session.userId],
+  );
+  if (!result.rows[0]) return res.status(404).json({ error: 'Feed not found' });
+  const feed = result.rows[0];
+  return res.json({ feed: { id: feed.id, calendarIds: feed.calendar_ids, createdAt: feed.created_at, url: `/calendar/feeds/${token}.ics` }, secret: token });
 });
 
 export default router;

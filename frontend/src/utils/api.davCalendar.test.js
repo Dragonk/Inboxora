@@ -39,6 +39,8 @@ describe('DAV Hub API client', () => {
     const event = { calendarId: 'calendar-1', summary: 'Planning' };
 
     await api.calendar.listCalendars();
+    await api.calendar.updateCalendar('calendar-1', { name: 'Personal', color: '#123456', displayVisible: true });
+    await api.calendar.deleteCalendar('calendar-1', 'Personal');
     await api.calendar.listEvents('2026-09-01T00:00:00.000Z', '2026-10-01T00:00:00.000Z');
     await api.calendar.createEvent(event);
     await api.calendar.updateEvent('event-1', event);
@@ -46,14 +48,28 @@ describe('DAV Hub API client', () => {
 
     assert.deepEqual(calls.map(([url, init]) => [url, init.method]), [
       ['/api/calendar/calendars', 'GET'],
+      ['/api/calendar/calendars/calendar-1', 'PATCH'],
+      ['/api/calendar/calendars/calendar-1', 'DELETE'],
       ['/api/calendar/events?from=2026-09-01T00%3A00%3A00.000Z&to=2026-10-01T00%3A00%3A00.000Z', 'GET'],
       ['/api/calendar/events', 'POST'],
       ['/api/calendar/events/event-1', 'PATCH'],
       ['/api/calendar/events/event-1?calendarId=calendar-1', 'DELETE'],
     ]);
     for (const [, init] of calls) assert.equal(init.headers[CSRF_HEADER], CSRF_VALUE);
-    assert.equal(calls[2][1].body, JSON.stringify(event));
-    assert.equal(calls[3][1].body, JSON.stringify(event));
+    assert.equal(calls[1][1].body, JSON.stringify({ name: 'Personal', color: '#123456', displayVisible: true }));
+    assert.equal(calls[2][1].body, JSON.stringify({ confirmName: 'Personal' }));
+    assert.equal(calls[4][1].body, JSON.stringify(event));
+    assert.equal(calls[5][1].body, JSON.stringify(event));
+  });
+
+  it('propagates invitation idempotency keys to event mutations', async () => {
+    const calls = [];
+    globalThis.fetch = async (url, init) => { calls.push([url, init]); return { ok: true, status: 200, json: async () => ({ invitationStatus: { status: 'sent' } }) }; };
+    const event = { calendarId: 'calendar-1', summary: 'Planning', sendInvites: true };
+    await api.calendar.createEvent(event, 'create-retry-key');
+    await api.calendar.updateEvent('event-1', event, 'update-retry-key');
+    assert.equal(calls[0][1].headers['X-Idempotency-Key'], 'create-retry-key');
+    assert.equal(calls[1][1].headers['X-Idempotency-Key'], 'update-retry-key');
   });
 
   it('preserves persisted source context when initial source sync fails', async () => {

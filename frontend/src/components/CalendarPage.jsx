@@ -38,7 +38,7 @@ export default function CalendarPage({ isActive = true }) {
   const loadGeneration = useRef(0);
   const [view, setView] = useState('month');
   const [calendars, setCalendars] = useState([]); const [events, setEvents] = useState([]);
-  const [error, setError] = useState(null); const [loading, setLoading] = useState(true); const [form, setForm] = useState(null); const [saving, setSaving] = useState(false); const [sourcePanelRequest, setSourcePanelRequest] = useState(0);
+  const [error, setError] = useState(null); const [loading, setLoading] = useState(true); const [form, setForm] = useState(null); const [saving, setSaving] = useState(false);
   const invitationOperation = useRef(null);
   if (!invitationOperation.current) invitationOperation.current = createInvitationOperationController();
   const [mobilePanelOpen, setMobilePanelOpen] = useState(false);
@@ -117,17 +117,17 @@ export default function CalendarPage({ isActive = true }) {
         </div>
         <button onClick={() => step(-1)} aria-label={t('calendar.previous')} style={iconButton}>‹</button><button onClick={() => setAnchor(new Date())} style={secondaryButton}>{t('calendar.today')}</button><button onClick={() => step(1)} aria-label={t('calendar.next')} style={iconButton}>›</button>
         {isMobile && <button data-testid="calendar-mobile-panel" onClick={() => { document.getElementById('calendar-mobile-panel')?.show(); setMobilePanelOpen(true); }} style={secondaryButton}>{t('calendar.calendars')}</button>}
-        <button data-testid="calendar-manage-sources" onClick={() => { setSourcePanelRequest(request => request + 1); if (isMobile) { document.getElementById('calendar-mobile-panel')?.show(); setMobilePanelOpen(true); } }} style={secondaryButton}>{t('calendar.manageSources')}</button>
+
         {!isMobile && <button disabled={!writable.length} onClick={() => openCreate()} style={primaryButton}>{t('calendar.newEvent')}</button>}
       </div>
     </header>
     {error && <div role="alert" style={errorStyle}>{error}</div>}
     {!writable.length && !loading && <div style={errorStyle}>{t('calendar.noWritable')}</div>}
     <div style={calendarContent}>
-      {!isMobile && <CalendarSidebar anchor={anchor} calendars={calendars} visibleCalendarIds={visibleCalendarIds} weekStartsOn={calendarWeekStartsOn} locale={locale} onSelectDate={setAnchor} onShiftMonth={shiftMiniMonth} onToggleCalendar={toggleCalendar} onSourcesChanged={load} sourcePanelRequest={sourcePanelRequest} t={t} />}
+      {!isMobile && <CalendarSidebar anchor={anchor} calendars={calendars} visibleCalendarIds={visibleCalendarIds} weekStartsOn={calendarWeekStartsOn} locale={locale} onSelectDate={setAnchor} onShiftMonth={shiftMiniMonth} onToggleCalendar={toggleCalendar} onSourcesChanged={load} onCalendarsChanged={load} t={t} />}
       <CalendarGrid days={days} events={visibleEvents} view={view} anchor={anchor} isMobile={isMobile} locale={locale} openCreate={openCreate} openEdit={openEdit} openContextMenu={(event, x, y, trigger) => setContextMenu({ event, x, y, triggerRef: { current: trigger } })} t={t} calendarWorkHoursStart={calendarWorkHoursStart} calendarWorkHoursEnd={calendarWorkHoursEnd} />
     </div>
-    {isMobile && <dialog id="calendar-mobile-panel" aria-label={t('calendar.panel')} data-testid="calendar-mobile-dock" onClose={() => setMobilePanelOpen(false)} style={mobilePanelDialog}><CalendarSidebar anchor={anchor} calendars={calendars} visibleCalendarIds={visibleCalendarIds} weekStartsOn={calendarWeekStartsOn} locale={locale} onSelectDate={day => { setAnchor(day); document.getElementById('calendar-mobile-panel')?.close(); }} onShiftMonth={shiftMiniMonth} onToggleCalendar={toggleCalendar} onSourcesChanged={load} onClose={() => document.getElementById('calendar-mobile-panel')?.close()} sourcePanelRequest={sourcePanelRequest} t={t} /></dialog>}
+    {isMobile && <dialog id="calendar-mobile-panel" aria-label={t('calendar.panel')} data-testid="calendar-mobile-dock" onClose={() => setMobilePanelOpen(false)} style={mobilePanelDialog}><CalendarSidebar anchor={anchor} calendars={calendars} visibleCalendarIds={visibleCalendarIds} weekStartsOn={calendarWeekStartsOn} locale={locale} onSelectDate={day => { setAnchor(day); document.getElementById('calendar-mobile-panel')?.close(); }} onShiftMonth={shiftMiniMonth} onToggleCalendar={toggleCalendar} onSourcesChanged={load} onCalendarsChanged={load} onClose={() => document.getElementById('calendar-mobile-panel')?.close()} t={t} /></dialog>}
     {isMobile && !mobilePanelOpen && <button data-testid="calendar-mobile-new-event" aria-label={t('calendar.newEvent')} disabled={!writable.length} onClick={() => openCreate()} style={{ ...mobileNewEventButton, bottom: 'calc(var(--mobile-nav-height) + var(--sab) + 20px)' }}>
       <svg width="25" height="25" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M12 5v14M5 12h14"/></svg>
     </button>}
