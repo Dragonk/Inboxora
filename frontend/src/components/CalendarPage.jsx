@@ -36,6 +36,7 @@ export default function CalendarPage({ isActive = true }) {
   const [view, setView] = useState('month');
   const [calendars, setCalendars] = useState([]); const [events, setEvents] = useState([]);
   const [error, setError] = useState(null); const [loading, setLoading] = useState(true); const [form, setForm] = useState(null); const [saving, setSaving] = useState(false); const [sourcePanelRequest, setSourcePanelRequest] = useState(0);
+  const invitationOperation = useRef(null);
   const [mobilePanelOpen, setMobilePanelOpen] = useState(false);
   const range = useMemo(() => view === 'month' ? monthRange(anchor) : weekRange(anchor, calendarWeekStartsOn), [anchor, calendarWeekStartsOn, view]);
   const load = useCallback(async () => {
@@ -67,7 +68,11 @@ export default function CalendarPage({ isActive = true }) {
     if (!payload) { setError(t('calendar.invalidEvent')); return; }
     setSaving(true); setError(null);
     try {
-      const result = form.mode === 'edit' ? await api.calendar.updateEvent(form.id, payload) : await api.calendar.createEvent(payload);
+      if (payload.sendInvites && !invitationOperation.current) invitationOperation.current = globalThis.crypto.randomUUID();
+      const result = form.mode === 'edit'
+        ? await api.calendar.updateEvent(form.id, payload, invitationOperation.current)
+        : await api.calendar.createEvent(payload, invitationOperation.current);
+      invitationOperation.current = null;
       setForm(null); await load();
       if (result?.invitationError) setError(result.invitationError);
     } catch (err) { setError(err.message || t('calendar.saveFailed')); } finally { setSaving(false); }

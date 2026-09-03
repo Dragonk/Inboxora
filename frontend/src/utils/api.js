@@ -343,8 +343,8 @@ export const api = {
   calendar: {
     listCalendars: () => request('GET', '/calendar/calendars'),
     listEvents: (from, to) => request('GET', `/calendar/events?${new URLSearchParams({ from, to })}`),
-    createEvent: (data) => request('POST', '/calendar/events', data),
-    updateEvent: (id, data) => request('PATCH', `/calendar/events/${id}`, data),
+    createEvent: (data, idempotencyKey) => request('POST', '/calendar/events', data, idempotencyKey ? { 'X-Idempotency-Key': idempotencyKey } : undefined),
+    updateEvent: (id, data, idempotencyKey) => request('PATCH', `/calendar/events/${id}`, data, idempotencyKey ? { 'X-Idempotency-Key': idempotencyKey } : undefined),
     deleteEvent: (id, calendarId) => request('DELETE', `/calendar/events/${encodeURIComponent(id)}?calendarId=${encodeURIComponent(calendarId)}`),
     listSources: () => request('GET', '/calendar/sources'),
     createSource: (data) => request('POST', '/calendar/sources', data),

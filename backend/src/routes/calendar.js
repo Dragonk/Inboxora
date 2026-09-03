@@ -91,6 +91,43 @@ function normalizeAttendees(value) {
   return [...new Set(attendees)];
 }
 
+function invitationOperationKey(req) {
+  const supplied = req.headers['x-idempotency-key'];
+  if (typeof supplied === 'string' && supplied.trim()) return supplied.trim().slice(0, 128);
+  return crypto.createHash('sha256').update(JSON.stringify(req.body || {})).digest('hex');
+}
+
+async function deliverInvitationOutbox(outboxId, account, invitation) {
+  try {
+    await sendCalendarInvitation({ account, ...invitation });
+    await query("UPDATE calendar_invitation_outbox SET status = 'sent', attempts = attempts + 1, delivered_at = NOW(), last_error = NULL WHERE id = $1 AND status = 'sending'", [outboxId]);
+    return null;
+  } catch (error) {
+    await query("UPDATE calendar_invitation_outbox SET attempts = attempts + 1, last_error = $2 WHERE id = $1 AND status = 'sending'", [outboxId, error.message]);
+    console.error('Calendar invitation delivery failed:', error.message);
+    return 'The event was saved, but the invitation could not be sent. Retry the same save to check its delivery status.';
+  }
+}
+
+async function updateInvitedEvent(req, fields) {
+  const { calendarId, invitationAccount, normalizedAttendees, times, summary, description, location, url, organizer, allDay, timezone } = fields;
+  const key = invitationOperationKey(req);
+  return withTransaction(async client => {
+    const prior = await client.query('SELECT id, event_id FROM calendar_invitation_outbox WHERE user_id = $1 AND idempotency_key = $2 FOR UPDATE', [req.session.userId, key]);
+    if (prior.rows[0]) {
+      const event = (await client.query('SELECT id, calendar_id, uid, etag, summary, description, location, url, organizer, starts_at, ends_at, all_day, timezone, attendees, invite_account_id, invitation_sequence, created_at, updated_at FROM calendar_events WHERE id = $1', [prior.rows[0].event_id])).rows[0];
+      return { event, duplicate: true };
+    }
+    const existing = (await client.query('SELECT uid FROM calendar_events WHERE id = $1 AND calendar_id = $2 AND user_id = $3 FOR UPDATE', [req.params.eventId, calendarId, req.session.userId])).rows[0];
+    if (!existing) return { notFound: true };
+    const rawIcal = localEventIcal({ uid: existing.uid, summary, description, location, url, organizer, allDay: Boolean(allDay), ...times });
+    const result = await client.query(`UPDATE calendar_events SET raw_ical = $1, summary = $2, description = $3, location = $4, url = $5, organizer = $6, starts_at = $7, ends_at = $8, all_day = $9, timezone = $10, attendees = $11, invite_account_id = $12, invitation_sequence = CASE WHEN (invite_account_id IS NOT NULL AND jsonb_array_length(attendees) > 0) OR invitation_sequence > 0 THEN invitation_sequence + 1 ELSE 0 END, etag = gen_random_uuid()::text, updated_at = NOW() WHERE id = $13 AND calendar_id = $14 AND user_id = $15 RETURNING id, calendar_id, uid, etag, summary, description, location, url, organizer, starts_at, ends_at, all_day, timezone, attendees, invite_account_id, invitation_sequence, created_at, updated_at`, [rawIcal, summary || null, description, location, url, organizer, times.startsAt, times.endsAt, Boolean(allDay), timezone, normalizedAttendees, invitationAccount.id, req.params.eventId, calendarId, req.session.userId]);
+    const event = result.rows[0];
+    const outbox = await client.query('INSERT INTO calendar_invitation_outbox (user_id, event_id, idempotency_key, payload) VALUES ($1,$2,$3,$4::jsonb) RETURNING id', [req.session.userId, event.id, key, JSON.stringify({ attendees: normalizedAttendees, summary, description, location, uid: event.uid, allDay: Boolean(allDay), method: 'REQUEST', sequence: event.invitation_sequence, startsAt: times.startsAt.toISOString(), endsAt: times.endsAt.toISOString() })]);
+    return { event, outboxId: outbox.rows[0].id };
+  });
+}
+
 async function writableCalendar(userId, calendarId) {
   const result = await query(
     'SELECT id, source, read_only FROM calendars WHERE id = $1 AND user_id = $2',
@@ -165,6 +202,40 @@ router.post('/events', async (req, res) => {
     if (!invitationAccount) return res.status(400).json({ error: 'The selected sender account is unavailable' });
   }
 
+  if (sendInvites && typeof req.headers['x-idempotency-key'] === 'string' && req.headers['x-idempotency-key'].trim()) {
+    const idempotencyKey = invitationOperationKey(req);
+    let outcome;
+    try {
+      outcome = await withTransaction(async client => {
+      const prior = await client.query('SELECT id FROM calendar_invitation_outbox WHERE user_id = $1 AND idempotency_key = $2 FOR UPDATE', [req.session.userId, idempotencyKey]);
+      if (prior.rows[0]) {
+        const event = (await client.query('SELECT id, calendar_id, uid, etag, summary, description, location, url, organizer, starts_at, ends_at, all_day, timezone, attendees, invite_account_id, invitation_sequence, created_at, updated_at FROM calendar_events WHERE id = (SELECT event_id FROM calendar_invitation_outbox WHERE id = $1)', [prior.rows[0].id])).rows[0];
+        return { event, duplicate: true };
+      }
+      const uid = crypto.randomUUID();
+      const rawIcal = localEventIcal({ uid, summary, description, location, url, organizer, allDay: Boolean(allDay), ...times });
+      const result = await client.query(
+        `INSERT INTO calendar_events (calendar_id, user_id, uid, raw_ical, summary, description, location, url, organizer, starts_at, ends_at, all_day, timezone, attendees, invite_account_id)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15)
+         RETURNING id, calendar_id, uid, etag, summary, description, location, url, organizer, starts_at, ends_at, all_day, timezone, attendees, invite_account_id, invitation_sequence, created_at, updated_at`,
+        [calendarId, req.session.userId, uid, rawIcal, summary || null, description, location, url, organizer, times.startsAt, times.endsAt, Boolean(allDay), timezone, normalizedAttendees, invitationAccount.id],
+      );
+      const event = result.rows[0];
+      const outbox = await client.query(
+        `INSERT INTO calendar_invitation_outbox (user_id, event_id, idempotency_key, payload) VALUES ($1,$2,$3,$4::jsonb) RETURNING id`,
+        [req.session.userId, event.id, idempotencyKey, JSON.stringify({ attendees: normalizedAttendees, summary, description, location, uid, allDay: Boolean(allDay), method: 'REQUEST', sequence: event.invitation_sequence ?? 0, startsAt: times.startsAt.toISOString(), endsAt: times.endsAt.toISOString() })],
+      );
+        return { event, outboxId: outbox.rows[0].id };
+      });
+    } catch (error) {
+      console.error('Calendar invitation transaction failed:', error.message);
+      return res.status(500).json({ error: 'The event and invitation could not be saved; no partial changes were kept.' });
+    }
+    if (outcome.duplicate) return res.status(201).json({ event: outcome.event });
+    const invitationError = await deliverInvitationOutbox(outcome.outboxId, invitationAccount, { attendees: normalizedAttendees, summary, description, location, uid: outcome.event.uid, allDay: Boolean(allDay), method: 'REQUEST', sequence: outcome.event.invitation_sequence ?? 0, ...times });
+    return res.status(201).json({ event: outcome.event, ...(invitationError ? { invitationError } : {}) });
+  }
+
   const uid = crypto.randomUUID();
   const rawIcal = localEventIcal({ uid, summary, description, location, url, organizer, allDay: Boolean(allDay), ...times });
   const result = await query(
@@ -205,6 +276,20 @@ router.patch('/events/:eventId', async (req, res) => {
     const sender = await query('SELECT * FROM email_accounts WHERE id = $1 AND user_id = $2 AND enabled = true AND smtp_host IS NOT NULL', [inviteAccountId, req.session.userId]);
     invitationAccount = sender.rows[0] || null;
     if (!invitationAccount) return res.status(400).json({ error: 'The selected sender account is unavailable' });
+  }
+
+  if (sendInvites && typeof req.headers['x-idempotency-key'] === 'string' && req.headers['x-idempotency-key'].trim()) {
+    let outcome;
+    try {
+      outcome = await updateInvitedEvent(req, { calendarId, invitationAccount, normalizedAttendees, times, summary, description, location, url, organizer, allDay, timezone });
+    } catch (error) {
+      console.error('Calendar invitation transaction failed:', error.message);
+      return res.status(500).json({ error: 'The event and invitation could not be saved; no partial changes were kept.' });
+    }
+    if (outcome.notFound) return res.status(404).json({ error: 'Event not found' });
+    if (outcome.duplicate) return res.json({ event: outcome.event });
+    const invitationError = await deliverInvitationOutbox(outcome.outboxId, invitationAccount, { attendees: normalizedAttendees, summary, description, location, uid: outcome.event.uid, allDay: Boolean(allDay), method: 'REQUEST', sequence: outcome.event.invitation_sequence, ...times });
+    return res.json({ event: outcome.event, ...(invitationError ? { invitationError } : {}) });
   }
 
   const outcome = await withTransaction(async client => {

@@ -492,4 +492,27 @@ describe('local calendar API', () => {
     expect(query).toHaveBeenCalledTimes(3);
   });
 
+  it('persists an invitation outbox row for an idempotent send', async () => {
+    const sender = { id: 'account-1', email_address: 'owner@example.test', smtp_host: 'smtp.example.test', enabled: true };
+    query
+      .mockResolvedValueOnce({ rows: [{ id: 'calendar-1', source: 'local', read_only: false }] })
+      .mockResolvedValueOnce({ rows: [sender] })
+      .mockResolvedValueOnce({ rows: [] })
+      .mockResolvedValueOnce({ rows: [{ id: 'event-1', calendar_id: 'calendar-1', uid: 'uid-1', invitation_sequence: 0 }] })
+      .mockResolvedValueOnce({ rows: [{ id: 'outbox-1' }] })
+      .mockResolvedValueOnce({ rows: [] });
+    const response = await fetch(`${base}/api/calendar/events`, { method: 'POST', headers: { 'content-type': 'application/json', 'X-Idempotency-Key': 'invite-1' }, body: JSON.stringify({ calendarId: 'calendar-1', summary: 'Planning', sendInvites: true, inviteAccountId: 'account-1', attendees: ['guest@example.test'], startsAt: '2026-09-01T09:00:00.000Z', endsAt: '2026-09-01T10:00:00.000Z' }) });
+    expect(response.status).toBe(201);
+    expect(sendCalendarInvitation).toHaveBeenCalledTimes(1);
+    expect(query.mock.calls.some(([sql]) => sql.includes('calendar_invitation_outbox'))).toBe(true);
+  });
+
+  it('rolls back the event when the invitation outbox insert fails', async () => {
+    const sender = { id: 'account-1', email_address: 'owner@example.test', smtp_host: 'smtp.example.test', enabled: true };
+    query.mockResolvedValueOnce({ rows: [{ id: 'calendar-1', source: 'local', read_only: false }] }).mockResolvedValueOnce({ rows: [sender] }).mockResolvedValueOnce({ rows: [] }).mockResolvedValueOnce({ rows: [{ id: 'event-1', uid: 'uid-1' }] }).mockRejectedValueOnce(new Error('outbox unavailable'));
+    const response = await fetch(`${base}/api/calendar/events`, { method: 'POST', headers: { 'content-type': 'application/json', 'X-Idempotency-Key': 'invite-rollback' }, body: JSON.stringify({ calendarId: 'calendar-1', sendInvites: true, inviteAccountId: 'account-1', attendees: ['guest@example.test'], startsAt: '2026-09-01T09:00:00.000Z', endsAt: '2026-09-01T10:00:00.000Z' }) });
+    expect(response.status).toBe(500);
+    expect(sendCalendarInvitation).not.toHaveBeenCalled();
+  });
+
 });
