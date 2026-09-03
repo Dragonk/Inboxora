@@ -1,9 +1,12 @@
-import { useEffect, useLayoutEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
 
 export default function CalendarContextMenu({ x, y, event, isMobile = false, onEdit, onDelete, onClose, triggerRef, t }) {
   const menuRef = useRef(null);
+  const onCloseRef = useRef(onClose);
   const [position, setPosition] = useState({ x, y });
   const writable = event.source === 'local' && !event.read_only;
+  const restoreFocus = useCallback(() => requestAnimationFrame(() => triggerRef?.current?.focus()), [triggerRef]);
+  onCloseRef.current = onClose;
 
   useLayoutEffect(() => {
     if (isMobile || !menuRef.current) return;
@@ -16,29 +19,47 @@ export default function CalendarContextMenu({ x, y, event, isMobile = false, onE
 
   useEffect(() => {
     const handleKeyDown = keyboardEvent => {
-      if (keyboardEvent.key !== 'Escape') return;
+      if (keyboardEvent.key === 'Escape') {
+        keyboardEvent.preventDefault();
+        onCloseRef.current();
+        restoreFocus();
+        return;
+      }
+      if (!writable || !menuRef.current) return;
+      const items = [...menuRef.current.querySelectorAll('[role="menuitem"]')];
+      const currentIndex = items.indexOf(document.activeElement);
+      let nextIndex;
+      if (keyboardEvent.key === 'ArrowDown') nextIndex = (currentIndex + 1 + items.length) % items.length;
+      if (keyboardEvent.key === 'ArrowUp') nextIndex = (currentIndex - 1 + items.length) % items.length;
+      if (keyboardEvent.key === 'Home') nextIndex = 0;
+      if (keyboardEvent.key === 'End') nextIndex = items.length - 1;
+      if (nextIndex === undefined) return;
       keyboardEvent.preventDefault();
-      onClose();
-      triggerRef?.current?.focus();
+      items[nextIndex]?.focus();
     };
     document.addEventListener('keydown', handleKeyDown);
     menuRef.current?.querySelector('button')?.focus();
     return () => document.removeEventListener('keydown', handleKeyDown);
-  }, [onClose, triggerRef]);
+  }, [triggerRef, writable, restoreFocus]);
 
-  const run = action => {
+  const run = (action, restore = true) => {
     action();
-    onClose();
+    onCloseRef.current();
+    if (restore) restoreFocus();
+  };
+  const closeFromOutside = () => {
+    onCloseRef.current();
+    restoreFocus();
   };
   return <>
-    <button type="button" aria-label={t('calendar.closeMenu', 'Close calendar menu')} onClick={() => { onClose(); triggerRef?.current?.focus(); }} style={scrim} />
+    <button type="button" aria-label={t('calendar.closeMenu', 'Close calendar menu')} onClick={closeFromOutside} style={scrim} />
     <div ref={menuRef} role="menu" aria-label={t('calendar.eventActions', 'Event actions')} data-testid="calendar-context-menu" style={{ ...menu, ...(isMobile ? mobileMenu : { left: position.x, top: position.y }) }}>
       <strong style={menuTitle}>{event.summary || t('calendar.untitled')}</strong>
       {writable && <>
-        <button type="button" role="menuitem" onClick={() => run(onEdit)}>{t('calendar.edit')}</button>
+        <button type="button" role="menuitem" onClick={() => run(onEdit, false)}>{t('calendar.edit')}</button>
         <button type="button" role="menuitem" data-testid="calendar-context-delete" onClick={() => run(onDelete)}>{t('calendar.delete')}</button>
       </>}
-      {!writable && <span data-testid="calendar-context-read-only" style={readOnly}>{t('calendar.readOnly')}</span>}
+      {!writable && <span role="status" data-testid="calendar-context-read-only" style={readOnly}>{t('calendar.readOnly')}</span>}
     </div>
   </>;
 }

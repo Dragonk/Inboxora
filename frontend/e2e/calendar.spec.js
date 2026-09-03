@@ -199,14 +199,57 @@ test('calendar event menus support desktop keyboard and mobile invocation while 
   await expect(menu).toBeVisible();
   await expect(menu.getByRole('menuitem', { name: 'Edytuj wydarzenie' })).toBeVisible();
   await expect(menu.getByRole('menuitem', { name: 'Usuń' })).toBeVisible();
+  await page.keyboard.press('Escape');
+  await expect(menu).toBeHidden();
+  if (page.viewportSize().width >= 768) await expect(local).toBeFocused();
+  else await expect(page.getByTestId('calendar-event-actions').first()).toBeFocused();
+  if (page.viewportSize().width < 768) await page.getByTestId('calendar-event-actions').first().click();
+  if (page.viewportSize().width >= 768) {
+    await local.focus();
+    await page.keyboard.press('Shift+F10');
+    await expect(menu).toBeVisible();
+  }
   if (page.viewportSize().width >= 768) {
     const box = await menu.boundingBox();
     const viewport = page.viewportSize();
     expect(box.x + box.width).toBeLessThanOrEqual(viewport.width);
     expect(box.y + box.height).toBeLessThanOrEqual(viewport.height);
+    await expect(menu.getByRole('menuitem').first()).toBeFocused();
+    await page.keyboard.press('ArrowDown');
+    await expect(menu.getByTestId('calendar-context-delete')).toBeFocused();
+    await page.keyboard.press('ArrowDown');
+    await expect(menu.getByRole('menuitem').first()).toBeFocused();
+    await page.keyboard.press('ArrowUp');
+    await expect(menu.getByTestId('calendar-context-delete')).toBeFocused();
+    await page.keyboard.press('Home');
+    await expect(menu.getByRole('menuitem').first()).toBeFocused();
+    await page.keyboard.press('End');
+    await expect(menu.getByTestId('calendar-context-delete')).toBeFocused();
+    await page.keyboard.press('ArrowUp');
+    await page.keyboard.press('Enter');
+    await expect(page.getByRole('dialog', { name: 'Edytuj wydarzenie' })).toBeVisible();
+    await page.getByRole('dialog', { name: 'Edytuj wydarzenie' }).getByRole('button', { name: 'Anuluj' }).click();
+    await local.focus();
+    await page.keyboard.press('Shift+F10');
+    await page.keyboard.press('End');
+    page.once('dialog', dialog => dialog.accept());
+    await page.keyboard.press('Space');
+    await expect(menu).toBeHidden();
+  } else {
+    await expect(menu.getByRole('menuitem').first()).toBeFocused();
+    await page.keyboard.press('ArrowDown');
+    await expect(menu.getByTestId('calendar-context-delete')).toBeFocused();
+    await page.keyboard.press('Home');
+    await expect(menu.getByRole('menuitem').first()).toBeFocused();
+    await page.keyboard.press('Enter');
+    await expect(page.getByRole('dialog', { name: 'Edytuj wydarzenie' })).toBeVisible();
+    await page.getByRole('dialog', { name: 'Edytuj wydarzenie' }).getByRole('button', { name: 'Anuluj' }).click();
+    await page.getByTestId('calendar-event-actions').first().click();
+    await page.keyboard.press('End');
+    page.once('dialog', dialog => dialog.accept());
+    await page.keyboard.press('Space');
+    await expect(menu).toBeHidden();
   }
-  await page.keyboard.press('Escape');
-  await expect(menu).toBeHidden();
   if (page.viewportSize().width >= 768) {
     await imported.focus();
     await page.keyboard.press('Shift+F10');
@@ -215,6 +258,10 @@ test('calendar event menus support desktop keyboard and mobile invocation while 
   await expect(readOnlyMenu).toBeVisible();
   await expect(readOnlyMenu.getByTestId('calendar-context-read-only')).toBeVisible();
   await expect(readOnlyMenu.getByRole('menuitem')).toHaveCount(0);
+  await page.getByRole('button', { name: 'Zamknij menu kalendarza' }).click();
+  await expect(readOnlyMenu).toBeHidden();
+  if (page.viewportSize().width >= 768) await expect(imported).toBeFocused();
+  else await expect(page.getByTestId('calendar-event-actions').nth(1)).toBeFocused();
 });
 
 test('mobile contacts fill the viewport and keep their FAB anchored above navigation', async ({ page, fixtureApi }) => {
