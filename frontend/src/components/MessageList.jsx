@@ -998,7 +998,18 @@ export default function MessageList() {
     }));
 
     try {
-      await Promise.all(mutations.map(({ mutation }) => mutation.promise));
+      const results = await Promise.allSettled(mutations.map(({ mutation }) => mutation.promise));
+      const failedIds = results
+        .map((result, index) => result.status === 'rejected' ? mutations[index].msg.id : null)
+        .filter(Boolean);
+      const latest = mutations.every(({ msg, mutation }) => isLatestStarStateMutation(msg.id, mutation.version));
+      if (failedIds.length > 0 && latest) {
+        const failedSet = new Set(failedIds.map(String));
+        setCachedThreadStarredForIds(message, failedIds, !starred);
+        updateMessage(message.id, {
+          is_starred: actionMessages.some(msg => failedSet.has(String(msg.id)) ? msg.is_starred : starred),
+        });
+      }
     } catch (err) {
       console.error('markStarred failed:', err.message);
       const latest = mutations.every(({ msg, mutation }) => isLatestStarStateMutation(msg.id, mutation.version));
@@ -1007,7 +1018,7 @@ export default function MessageList() {
         if (isThreadRow) setCachedThreadStarred(message, !starred);
       }
     }
-  }, [resolveMessagesForThreadAction, isThreadListRow, updateMessage, setCachedThreadStarred]);
+  }, [resolveMessagesForThreadAction, isThreadListRow, updateMessage, setCachedThreadStarred, setCachedThreadStarredForIds]);
 
   const handleStar = (e, message) => {
     e.stopPropagation();

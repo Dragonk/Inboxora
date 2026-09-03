@@ -3,13 +3,13 @@ import { test, expect } from './fixtures.js';
 const DESKTOP = 'chromium-desktop';
 const MOBILE = new Set(['chromium-mobile-390', 'chromium-mobile']);
 
-async function openList(page, fixtureApi, testInfo, unread = ['conversation-gmail-copy-1'], starred = [], mixedReadState = false) {
+async function openList(page, fixtureApi, testInfo, unread = ['conversation-gmail-copy-1'], starred = [], mixedReadState = false, grouped = false) {
   page.__conversationMatrix = '11';
   page.__unreadCopies = unread;
   page.__starredCopies = new Set(starred);
   page.__mixedReadState = mixedReadState;
   await fixtureApi;
-  await page.goto('/?list=0&reader=1', { waitUntil: 'domcontentloaded' });
+  await page.goto(`/?list=${Number(grouped)}&reader=1`, { waitUntil: 'domcontentloaded' });
   await expect(page.locator('[data-msgid="conversation-gmail-copy-5"]:visible')).toBeVisible();
 }
 
@@ -88,11 +88,39 @@ async function clickRowAction(page, row, testInfo, buttonPattern, menuPattern = 
   }
 }
 
+async function swipe(row, fromX, toX) {
+  await row.evaluate((container, [startX, endX]) => {
+    const element = container.querySelector('[role="button"]') || container;
+    const touch = clientX => new Touch({ identifier: 1, target: element, clientX, clientY: 120 });
+    element.dispatchEvent(new TouchEvent('touchstart', { bubbles: true, touches: [touch(startX)] }));
+    element.dispatchEvent(new TouchEvent('touchmove', { bubbles: true, cancelable: true, touches: [touch(endX)] }));
+    element.dispatchEvent(new TouchEvent('touchend', { bubbles: true, touches: [] }));
+  }, [fromX, toX]);
+}
+
 for (const viewport of [DESKTOP, 'mobile']) {
   test.describe(`thread mutations (${viewport})`, () => {
     test.beforeEach(async ({ page }, testInfo) => {
       if (viewport === DESKTOP) test.skip(testInfo.project.name !== DESKTOP, 'desktop mutation contract');
       else test.skip(!MOBILE.has(testInfo.project.name), 'portrait mobile mutation contract');
+    });
+
+    test('runs the production touch callback for configured read and star swipes', async ({ page, fixtureApi }, testInfo) => {
+      test.skip(!MOBILE.has(testInfo.project.name), 'touch callback contract');
+      await openList(page, fixtureApi, testInfo, ['conversation-gmail-copy-5'], [], false, true);
+      const row = page.locator('[data-msgid="conversation-gmail-copy-5"]:visible');
+      page.__bulkReadActions = [];
+      await swipe(row, 120, 230);
+      await expect.poll(() => page.__bulkReadActions.at(-1)).toEqual({ ids: ['conversation-gmail-copy-5'], read: true });
+
+      await page.addInitScript(() => localStorage.setItem('mailflow_swipe_actions', JSON.stringify({ left: 'archive', right: 'star' })));
+      await page.reload({ waitUntil: 'domcontentloaded' });
+      const starredRow = page.locator('[data-msgid="conversation-gmail-copy-5"]:visible');
+      page.__starActions = [];
+      await swipe(starredRow, 120, 230);
+      await expect.poll(() => page.__starActions.length).toBeGreaterThan(0);
+      await expect.poll(() => page.__starActions.at(-1).body.starred).toBe(false);
+      await expect(starredRow.locator('[data-thread-row-star="true"]')).toHaveCount(0);
     });
 
     test('read and star update immediately, roll back failures, and keep the newest read intent', async ({ page, fixtureApi }, testInfo) => {
