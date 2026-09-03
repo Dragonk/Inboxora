@@ -62,7 +62,7 @@ function ActionBar({ notification, onDismiss, isMobile }) {
   };
 
   useEffect(() => {
-    const timer = setTimeout(dismiss, UNDO_WINDOW_MS);
+    const timer = setTimeout(dismiss, notification.undoDurationMs || UNDO_WINDOW_MS);
     return () => clearTimeout(timer);
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
@@ -152,7 +152,7 @@ function Toast({ notification, onDismiss, isMobile }) {
   useEffect(() => {
     if (notification.persistent) return undefined;
 
-    const duration = notification.onUndo ? UNDO_WINDOW_MS : 5000;
+    const duration = notification.onUndo ? (notification.undoDurationMs || UNDO_WINDOW_MS) : 5000;
     const timer = setTimeout(dismiss, duration);
     return () => clearTimeout(timer);
   }, []); // eslint-disable-line react-hooks/exhaustive-deps

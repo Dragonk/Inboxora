@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import {
   queuePerCopyMutation,
   isLatestPerCopyMutation,
+  invalidatePerCopyMutation,
   resetPerCopyMutationsForTest,
 } from './perCopyMutation.js';
 
@@ -19,6 +20,16 @@ describe('per-copy mutation versions', () => {
     assert.equal(await other.promise, 'other');
     assert.equal(isLatestPerCopyMutation('copy-1', first.version), false);
     assert.equal(isLatestPerCopyMutation('copy-1', second.version), true);
+    assert.equal(isLatestPerCopyMutation('copy-2', other.version), true);
+  });
+
+  it('invalidates an in-flight intent without affecting another copy', () => {
+    const pending = queuePerCopyMutation('copy-1', () => undefined);
+    const other = queuePerCopyMutation('copy-2', () => undefined);
+
+    invalidatePerCopyMutation('copy-1', pending.version);
+
+    assert.equal(isLatestPerCopyMutation('copy-1', pending.version), false);
     assert.equal(isLatestPerCopyMutation('copy-2', other.version), true);
   });
 });

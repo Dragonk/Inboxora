@@ -24,7 +24,7 @@ import { shortcutBus } from '../utils/shortcutBus.js';
 import { createLatestRequest } from '../utils/latestRequest.js';
 import { pendingMarkReadMap, completedMarkReadMap, setPending } from '../utils/pendingReads.js';
 import { queueReadStateMutation, isLatestReadStateMutation } from '../utils/readStateMutation.js';
-import { queuePerCopyMutation, isLatestPerCopyMutation } from '../utils/perCopyMutation.js';
+import { queuePerCopyMutation, isLatestPerCopyMutation, invalidatePerCopyMutation } from '../utils/perCopyMutation.js';
 import { applyDeleteGuard, clearDeleteGuard, clearPendingDelete, setCompletedDelete, setPendingDelete, threadDeleteGuardKey } from '../utils/pendingDeletes.js';
 import {
   archiveInChunks,
@@ -1035,7 +1035,6 @@ export default function MessageList() {
     if (unreadDelta > 0) decrementUnread(message.account_id, unreadDelta);
 
     const timer = setTimeout(async () => {
-      pendingDeleteTimers.current.delete(key);
       try {
         deleteMessages = await resolution.promise;
         ids = [...new Set(deleteMessages.map(msg => msg.id).filter(Boolean))];
@@ -1043,6 +1042,8 @@ export default function MessageList() {
         ids.forEach((id) => setPendingDelete(id));
         if (ids.length > 1) {
           const result = await api.bulkDelete(ids);
+          if (!isLatestPerCopyMutation(message.id, resolution.version)) return;
+          pendingDeleteTimers.current.delete(key);
           const deletedSet = new Set(result.deleted ?? []);
           ids.forEach(id => (deletedSet.has(id) ? setCompletedDelete(id) : clearDeleteGuard(id)));
           const failedIds = ids.filter(id => !deletedSet.has(id));
@@ -1061,6 +1062,8 @@ export default function MessageList() {
           }
         } else {
           await api.deleteMessage(ids[0] || visibleMessage.id);
+          if (!isLatestPerCopyMutation(message.id, resolution.version)) return;
+          pendingDeleteTimers.current.delete(key);
           ids.forEach((id) => setCompletedDelete(id));
         }
       } catch {
@@ -1079,9 +1082,11 @@ export default function MessageList() {
     addNotification({
       title: ids.length > 1 ? t('messageList.bulkDeleted.title', { count: ids.length }) : t('messageList.deleted.title'),
       body: ids.length > 1 ? t('messageList.bulkDeleted.body') : t('messageList.deleted.body'),
+      undoDurationMs: 5000,
       onUndo: () => {
         const pending = pendingDeleteTimers.current.get(key);
         if (!pending) return;
+        invalidatePerCopyMutation(message.id, pending.resolution.version);
         clearTimeout(pending.timer);
         pendingDeleteTimers.current.delete(key);
         ids.forEach((id) => clearPendingDelete(id));
@@ -2249,6 +2254,7 @@ export default function MessageList() {
             moveIds.splice(0, moveIds.length, ...new Set(moveMessages.map(msg => msg.id).filter(Boolean)));
             if (!moveIds.length) moveIds.push(moved.id);
             const result = await api.bulkMove(moveIds, folder);
+            if (!isLatestPerCopyMutation(moved.id, moveResolution.version)) return;
             // The server reports per-message success (200 even when some IMAP
             // moves fail or are skipped) — surface partial failures instead of
             // letting the thread silently reappear on the next sync.
@@ -2274,8 +2280,10 @@ export default function MessageList() {
         addNotification({
           title: t('message.moved.title'),
           body: folder,
+          undoDurationMs: 5000,
           onUndo: () => {
             moveUndone = true;
+            invalidatePerCopyMutation(moved.id, moveResolution.version);
             clearTimeout(moveTimer);
             useStore.getState().restoreMessages([moved]);
             if (!moved.is_read) incrementUnread(moved.account_id);
@@ -4038,7 +4046,7 @@ function UndoBar({ notification, onDismiss, showTopBorder }) {
   };
 
   useEffect(() => {
-    const timer = setTimeout(dismiss, UNDO_WINDOW_MS);
+    const timer = setTimeout(dismiss, notification.undoDurationMs || UNDO_WINDOW_MS);
     return () => clearTimeout(timer);
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 

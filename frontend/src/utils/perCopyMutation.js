@@ -12,6 +12,12 @@ export function isLatestPerCopyMutation(id, version) {
   return versions.get(String(id)) === version;
 }
 
+// Invalidate a deferred continuation without creating a new request intent.
+export function invalidatePerCopyMutation(id, version) {
+  const key = String(id);
+  if (versions.get(key) === version) versions.set(key, version + 1);
+}
+
 export function resetPerCopyMutationsForTest() {
   versions.clear();
 }

@@ -62,6 +62,10 @@ async function waitForConversationAction(page, action) {
   ).toBe(true);
 }
 
+async function waitForUndoWindow(page, deadline) {
+  await expect.poll(() => page.evaluate(target => performance.now() >= target, deadline), { timeout: 10_000 }).toBe(true);
+}
+
 async function clickRowAction(page, row, testInfo, buttonPattern, menuPattern = buttonPattern) {
   if (testInfo.project.name === DESKTOP) {
     await row.hover();
@@ -214,6 +218,42 @@ for (const viewport of [DESKTOP, 'mobile']) {
       await waitForConversationAction(page, 'delete');
       const del = page.__conversationActions.find(action => action.action === 'delete');
       expect(del?.body?.ids).toEqual(expect.arrayContaining(expectedCopies));
+    });
+
+    test('undo invalidates delete and move after their deferred resolver starts', async ({ page, fixtureApi }, testInfo) => {
+      test.setTimeout(30_000);
+      await openList(page, fixtureApi, testInfo);
+      const row = page.locator('[data-msgid="conversation-gmail-copy-5"]:visible');
+      const releaseDeleteThread = holdThreadResolution(page);
+      const deleteDeadline = await page.evaluate(() => performance.now() + 4_600);
+      await openContextMenu(page, row, testInfo);
+      await chooseMenuItem(page, /usuń|delete/i);
+      await expect(row).toHaveCount(0);
+      await waitForUndoWindow(page, deleteDeadline);
+      await page.getByRole('button', { name: /undo|cofnij/i }).last().click();
+      releaseDeleteThread();
+      await expect(row).toBeVisible();
+      expect(page.__conversationActions.filter(action => action.action === 'delete')).toEqual([]);
+
+      await page.reload({ waitUntil: 'domcontentloaded' });
+      const moved = page.locator('[data-msgid="conversation-gmail-copy-5"]:visible');
+      await expect(moved).toBeVisible();
+      const releaseMoveThread = holdThreadResolution(page);
+      const moveDeadline = await page.evaluate(() => performance.now() + 4_600);
+      if (testInfo.project.name === DESKTOP) {
+        await moved.hover();
+        await moved.locator('button[aria-label*="Przenieś"], button[aria-label*="Move"]').first().click();
+      } else {
+        await openContextMenu(page, moved, testInfo);
+        await chooseMenuItem(page, /przenieś|move/i);
+      }
+      await chooseMenuItem(page, /archive|archiwum/i);
+      await expect(moved).toHaveCount(0);
+      await waitForUndoWindow(page, moveDeadline);
+      await page.getByRole('button', { name: /undo|cofnij/i }).last().click();
+      releaseMoveThread();
+      await expect(moved).toBeVisible();
+      expect(page.__conversationActions.filter(action => action.action === 'move')).toEqual([]);
     });
   });
 }
