@@ -492,17 +492,25 @@ router.post('/sources/:sourceId/sync', async (req, res) => {
 });
 
 router.delete('/sources/:sourceId', async (req, res) => {
-  const existing = await query('SELECT id FROM calendar_import_sources WHERE id = $1 AND user_id = $2', [req.params.sourceId, req.session.userId]);
+  const existing = await query('SELECT * FROM calendar_import_sources WHERE id = $1 AND user_id = $2', [req.params.sourceId, req.session.userId]);
   if (!existing.rows[0]) return res.status(404).json({ error: 'Calendar source not found' });
-  await stopCalendarSource(req.params.sourceId);
-  const result = await query('DELETE FROM calendar_import_sources WHERE id = $1 AND user_id = $2 RETURNING id', [req.params.sourceId, req.session.userId]);
-  if (!result.rows[0]) {
+  let sourceDeleted = false;
+  try {
+    await stopCalendarSource(req.params.sourceId);
+    const result = await query('DELETE FROM calendar_import_sources WHERE id = $1 AND user_id = $2 RETURNING id', [req.params.sourceId, req.session.userId]);
+    if (!result.rows[0]) {
+      releaseCalendarSource(req.params.sourceId);
+      return res.status(404).json({ error: 'Calendar source not found' });
+    }
+    sourceDeleted = true;
+    await query('DELETE FROM calendars WHERE user_id = $1 AND external_url = $2', [req.session.userId, `source:${req.params.sourceId}`]);
     releaseCalendarSource(req.params.sourceId);
-    return res.status(404).json({ error: 'Calendar source not found' });
+    res.status(204).end();
+  } catch (error) {
+    releaseCalendarSource(req.params.sourceId);
+    if (!sourceDeleted) scheduleCalendarSource(existing.rows[0]);
+    throw error;
   }
-  await query('DELETE FROM calendars WHERE user_id = $1 AND external_url = $2', [req.session.userId, `source:${req.params.sourceId}`]);
-  releaseCalendarSource(req.params.sourceId);
-  res.status(204).end();
 });
 
 export default router;

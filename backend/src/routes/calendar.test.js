@@ -1,4 +1,5 @@
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
+import 'express-async-errors';
 
 const { query, withTransaction, sendCalendarInvitation, releaseCalendarSource, scheduleCalendarSource, stopCalendarSource, syncCalendarSource } = vi.hoisted(() => ({
   query: vi.fn(),
@@ -30,6 +31,7 @@ beforeAll(async () => {
   const app = express();
   app.use(express.json());
   app.use('/api/calendar', calendarRouter);
+  app.use((error, _req, res, next) => { void next; return res.status(500).json({ error: error.message }); });
   await new Promise((resolve) => { server = app.listen(0, resolve); });
   base = `http://127.0.0.1:${server.address().port}`;
 });
@@ -43,6 +45,10 @@ beforeEach(() => {
   withTransaction.mockClear();
   withTransaction.mockImplementation(async (fn) => fn({ query }));
   sendCalendarInvitation.mockReset();
+  releaseCalendarSource.mockReset();
+  scheduleCalendarSource.mockReset();
+  stopCalendarSource.mockReset();
+  syncCalendarSource.mockReset().mockResolvedValue({ ok: true });
 });
 
 describe('local calendar API', () => {
@@ -158,6 +164,33 @@ describe('local calendar API', () => {
     expect(response.status).toBe(404);
     expect(stopCalendarSource).not.toHaveBeenCalled();
     expect(releaseCalendarSource).not.toHaveBeenCalled();
+  });
+
+  it('restores scheduling and releases removal state when source deletion fails', async () => {
+    const source = { id: 'source-1', kind: 'ical_url', url: 'https://calendar.example/events.ics', display_name: 'Work', interval_min: 60 };
+    query
+      .mockResolvedValueOnce({ rows: [source] })
+      .mockRejectedValueOnce(new Error('source delete failed'));
+
+    const response = await fetch(`${base}/api/calendar/sources/source-1`, { method: 'DELETE' });
+
+    expect(response.status).toBe(500);
+    expect(scheduleCalendarSource).toHaveBeenCalledWith(source);
+    expect(releaseCalendarSource).toHaveBeenCalledWith('source-1');
+  });
+
+  it('releases removal state when projection deletion fails after source deletion', async () => {
+    const source = { id: 'source-1', kind: 'ical_url', url: 'https://calendar.example/events.ics', display_name: 'Work', interval_min: 60 };
+    query
+      .mockResolvedValueOnce({ rows: [source] })
+      .mockResolvedValueOnce({ rows: [{ id: 'source-1' }] })
+      .mockRejectedValueOnce(new Error('projection delete failed'));
+
+    const response = await fetch(`${base}/api/calendar/sources/source-1`, { method: 'DELETE' });
+
+    expect(response.status).toBe(500);
+    expect(scheduleCalendarSource).not.toHaveBeenCalled();
+    expect(releaseCalendarSource).toHaveBeenCalledWith('source-1');
   });
 
   it('lists only calendars owned by the signed-in user', async () => {
