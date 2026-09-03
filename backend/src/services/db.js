@@ -118,4 +118,27 @@ export async function encryptExistingCredentials() {
     }
   }
   if (oidcCount > 0) console.log(`Encrypted client secrets for ${oidcCount} OIDC provider(s)`);
+
+  // Encrypt legacy calendar URLs after migrations have added their fingerprint.
+  // The URL predicate makes this race-safe: a concurrent update is never
+  // overwritten by a stale plaintext value read above.
+  const sourceResult = await pool.query(`
+    SELECT id, url, last_error FROM calendar_import_sources
+    WHERE url IS NOT NULL AND url NOT LIKE 'enc:v1:%'
+  `);
+  let sourceCount = 0;
+  for (const row of sourceResult.rows) {
+    if (!row.url || isEncrypted(row.url)) continue;
+    const encryptedUrl = encrypt(row.url);
+    const safeError = typeof row.last_error === 'string'
+      ? row.last_error.replaceAll(row.url, '[redacted]')
+      : row.last_error;
+    const updated = await pool.query(
+      `UPDATE calendar_import_sources SET url = $1, last_error = $2, updated_at = NOW()
+       WHERE id = $3 AND url = $4 AND url_fingerprint IS NOT NULL`,
+      [encryptedUrl, safeError, row.id, row.url],
+    );
+    if (updated.rowCount) sourceCount++;
+  }
+  if (sourceCount > 0) console.log(`Encrypted URLs for ${sourceCount} calendar source(s)`);
 }

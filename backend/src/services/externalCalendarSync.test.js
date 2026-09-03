@@ -7,12 +7,12 @@ const { query, safeFetch, getConnectionPolicy } = vi.hoisted(() => ({
 vi.mock('./db.js', () => ({ query }));
 vi.mock('./safeFetch.js', () => ({ safeFetch }));
 vi.mock('./connectionPolicy.js', () => ({ getConnectionPolicy }));
-vi.mock('./encryption.js', () => ({ decrypt: (value) => value }));
+vi.mock('./encryption.js', () => ({ decrypt: (value) => value?.startsWith('enc:v1:') ? value.slice('enc:v1:'.length) : value }));
 
 import { syncCalendarSource } from './externalCalendarSync.js';
 
 const source = {
-  id: 'source-1', user_id: 'user-1', kind: 'ical_url', url: 'https://calendar.example/events.ics',
+  id: 'source-1', user_id: 'user-1', kind: 'ical_url', url: 'enc:v1:https://calendar.example/events.ics',
   display_name: 'Holiday calendar', color: null, interval_min: 60, enabled: true,
 };
 const ical = 'BEGIN:VCALENDAR\r\nVERSION:2.0\r\nBEGIN:VEVENT\r\nUID:event-1\r\nDTSTART:20260901T090000Z\r\nDTEND:20260901T100000Z\r\nSUMMARY:Planning\r\nEND:VEVENT\r\nEND:VCALENDAR\r\n';
@@ -36,7 +36,7 @@ describe('external calendar imports', () => {
     const result = await syncCalendarSource('user-1', 'source-1');
 
     expect(result).toEqual({ ok: true, eventCount: 1 });
-    expect(safeFetch).toHaveBeenCalledWith(source.url, expect.objectContaining({ headers: { Accept: 'text/calendar' } }), { allowPrivate: false });
+    expect(safeFetch).toHaveBeenCalledWith('https://calendar.example/events.ics', expect.objectContaining({ headers: { Accept: 'text/calendar' } }), { allowPrivate: false });
     expect(query.mock.calls[2][1]).toEqual(['user-1', 'Holiday calendar', null, 'ical_url', 'source:source-1']);
     const eventInsert = query.mock.calls.find(([sql]) => sql.includes('INSERT INTO calendar_events'));
     const staleDelete = query.mock.calls.find(([sql]) => sql.includes('DELETE FROM calendar_events'));
@@ -135,12 +135,12 @@ describe('external calendar imports', () => {
 
   it('records a source-specific failure instead of throwing and does not import partial data', async () => {
     query.mockResolvedValueOnce({ rows: [source] }).mockResolvedValueOnce({ rows: [] });
-    safeFetch.mockRejectedValue(new Error('network unavailable'));
+    safeFetch.mockRejectedValue(new Error(`request failed for ${'https://calendar.example/events.ics'} (${source.url})`));
 
     const result = await syncCalendarSource('user-1', 'source-1');
 
-    expect(result).toEqual({ ok: false, error: 'network unavailable' });
+    expect(result).toEqual({ ok: false, error: 'request failed for [redacted] ([redacted])' });
     expect(query.mock.calls[1][0]).toContain('last_error');
-    expect(query.mock.calls[1][1]).toEqual(['source-1', 'network unavailable']);
+    expect(query.mock.calls[1][1]).toEqual(['source-1', 'request failed for [redacted] ([redacted])']);
   });
 });

@@ -9,6 +9,7 @@ const { query, withTransaction, sendCalendarInvitation, scheduleCalendarSource, 
   syncCalendarSource: vi.fn(async () => ({ ok: true })),
 }));
 vi.mock('../services/db.js', () => ({ query, withTransaction }));
+vi.mock('../services/encryption.js', () => ({ encrypt: (value) => `enc:v1:${value}` }));
 vi.mock('../services/calendarInvitation.js', () => ({ sendCalendarInvitation }));
 vi.mock('../services/externalCalendarSync.js', () => ({ scheduleCalendarSource, stopCalendarSource, syncCalendarSource }));
 vi.mock('../middleware/auth.js', () => ({
@@ -74,8 +75,26 @@ describe('local calendar API', () => {
     });
 
     expect(response.status).toBe(201);
+    expect(await response.json()).toEqual({ source: expect.not.objectContaining({ url: expect.anything(), username: expect.anything(), password: expect.anything(), url_fingerprint: expect.anything() }) });
     const insert = query.mock.calls.find(([sql]) => sql.includes('INSERT INTO calendar_import_sources'));
-    expect(insert[1][2]).toBe('https://calendar.example/events.ics');
+    expect(insert[1][2]).toBe('enc:v1:https://calendar.example/events.ics');
+    expect(insert[1][3]).toMatch(/^[a-f0-9]{64}$/);
+  });
+
+  it('redacts all source secrets from the listing payload', async () => {
+    query.mockResolvedValueOnce({ rows: [{
+      id: 'source-1', kind: 'ical_url', url: 'enc:v1:ciphertext', username: 'remote-user', password: 'enc:v1:password',
+      url_fingerprint: 'fingerprint', display_name: 'Work', color: null, interval_min: 60, enabled: true,
+      last_sync_at: null, last_error: 'failure enc:v1:ciphertext',
+    }] });
+
+    const response = await fetch(`${base}/api/calendar/sources`);
+
+    expect(response.status).toBe(200);
+    const payload = await response.json();
+    expect(payload.sources).toEqual([{ id: 'source-1', kind: 'ical_url', displayName: 'Work', color: null, intervalMin: 60, enabled: true, lastSyncAt: null, lastError: 'failure [redacted]' }]);
+    expect(JSON.stringify(payload)).not.toContain('ciphertext');
+    expect(JSON.stringify(payload)).not.toContain('remote-user');
   });
 
   it('lists only calendars owned by the signed-in user', async () => {

@@ -35,21 +35,24 @@ function propsOf(response) {
   }, {});
 }
 
-async function remoteFetch(source, options, policy) {
+async function remoteFetch(source, options, policy, secretSink) {
   const headers = { ...options.headers };
   if (source.kind === 'caldav') headers.Authorization = basicAuth(source.username, decrypt(source.password));
-  const response = await safeFetch(source.url, { ...options, headers, redirect: 'follow', signal: AbortSignal.timeout(30_000) }, { allowPrivate: policy.allowPrivateHosts });
+  const url = decrypt(source.url);
+  if (!url) throw new Error('Stored calendar source URL is unavailable');
+  secretSink?.push(url);
+  const response = await safeFetch(url, { ...options, headers, redirect: 'follow', signal: AbortSignal.timeout(30_000) }, { allowPrivate: policy.allowPrivateHosts });
   if (!response.ok && response.status !== 207) throw new Error(`Remote calendar request failed (${response.status})`);
   return response.text();
 }
 
-async function fetchEvents(source, policy) {
+async function fetchEvents(source, policy, secretSink) {
   if (source.kind === 'ical_url') {
-    const sourceDocument = await remoteFetch(source, { headers: { Accept: 'text/calendar' } }, policy);
+    const sourceDocument = await remoteFetch(source, { headers: { Accept: 'text/calendar' } }, policy, secretSink);
     return { payloads: calendarPayloads(sourceDocument), sourceDocument };
   }
   const body = `<?xml version="1.0" encoding="utf-8"?><C:calendar-query xmlns="DAV:" xmlns:C="urn:ietf:params:xml:ns:caldav"><prop><getetag/><C:calendar-data/></prop><C:filter><C:comp-filter name="VCALENDAR"><C:comp-filter name="VEVENT"/></C:comp-filter></C:filter></C:calendar-query>`;
-  const xml = parser.parse(await remoteFetch(source, { method: 'REPORT', headers: { 'Content-Type': 'application/xml; charset=utf-8', Depth: '1' }, body }, policy));
+  const xml = parser.parse(await remoteFetch(source, { method: 'REPORT', headers: { 'Content-Type': 'application/xml; charset=utf-8', Depth: '1' }, body }, policy, secretSink));
   const payloads = [];
   for (const response of toArray(xml?.multistatus?.response)) {
     const data = textOf(propsOf(response)['calendar-data']);
@@ -81,8 +84,9 @@ async function calendarFor(source) {
 async function syncSource(source) {
   if (syncing.has(source.id)) return { ok: false, error: 'A sync is already in progress' };
   syncing.add(source.id);
+  const outboundSecrets = [];
   try {
-    const { payloads, sourceDocument } = await fetchEvents(source, await getConnectionPolicy());
+    const { payloads, sourceDocument } = await fetchEvents(source, await getConnectionPolicy(), outboundSecrets);
     const parsedEvents = payloads.map((raw, index) => ({ raw, index, event: parseCalendarEvent(raw) }));
     const events = parsedEvents.filter(({ event }) => event).map(({ event }) => event);
     const skipped = parsedEvents.filter(({ event }) => !event).map(({ raw, index }) => {
@@ -126,8 +130,10 @@ async function syncSource(source) {
     await query('UPDATE calendar_import_sources SET last_sync_at = NOW(), last_error = NULL WHERE id = $1', [source.id]);
     return { ok: true, eventCount: events.length };
   } catch (error) {
-    await query('UPDATE calendar_import_sources SET last_sync_at = NOW(), last_error = $2 WHERE id = $1', [source.id, error.message]);
-    return { ok: false, error: error.message };
+    const secrets = [source.url, ...outboundSecrets].filter(value => typeof value === 'string' && value);
+    const safeError = secrets.reduce((message, secret) => message.replaceAll(secret, '[redacted]'), String(error.message || 'Calendar source sync failed'));
+    await query('UPDATE calendar_import_sources SET last_sync_at = NOW(), last_error = $2 WHERE id = $1', [source.id, safeError]);
+    return { ok: false, error: safeError };
   } finally { syncing.delete(source.id); }
 }
 

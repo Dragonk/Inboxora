@@ -422,10 +422,13 @@ router.delete('/events/:eventId', async (req, res) => {
 });
 
 function publicSource(source) {
+  const lastError = typeof source.last_error === 'string' && source.url
+    ? source.last_error.replaceAll(source.url, '[redacted]')
+    : source.last_error;
   return {
-    id: source.id, kind: source.kind, url: source.url, username: source.username || null,
+    id: source.id, kind: source.kind,
     displayName: source.display_name, color: source.color, intervalMin: source.interval_min,
-    enabled: source.enabled, lastSyncAt: source.last_sync_at, lastError: source.last_error,
+    enabled: source.enabled, lastSyncAt: source.last_sync_at, lastError,
   };
 }
 
@@ -456,10 +459,12 @@ router.post('/sources', async (req, res) => {
   }
   const interval = Math.max(15, Math.min(1440, Number.parseInt(intervalMin, 10) || 60));
   try {
+    const normalizedUrl = parsed.toString();
+    const urlFingerprint = crypto.createHash('sha256').update(normalizedUrl).digest('hex');
     const result = await query(
-      `INSERT INTO calendar_import_sources (user_id, kind, url, username, password, display_name, color, interval_min)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8) RETURNING *`,
-      [req.session.userId, kind, parsed.toString(), username || null, password ? encrypt(password) : null, displayName, color, interval],
+      `INSERT INTO calendar_import_sources (user_id, kind, url, url_fingerprint, username, password, display_name, color, interval_min)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9) RETURNING *`,
+      [req.session.userId, kind, encrypt(normalizedUrl), urlFingerprint, username || null, password ? encrypt(password) : null, displayName, color, interval],
     );
     const source = result.rows[0];
     scheduleCalendarSource(source);

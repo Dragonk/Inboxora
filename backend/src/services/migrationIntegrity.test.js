@@ -71,6 +71,16 @@ describe('migration integrity', () => {
     expect(source).toContain('Migration checksum mismatch');
   });
 
+  it('migrates calendar source URLs to user-scoped fingerprints before encryption', () => {
+    const sql = readFileSync(join(process.cwd(), 'migrations/0072_calendar_source_url_secrets.sql'), 'utf8');
+    expect(sql).toContain('CREATE EXTENSION IF NOT EXISTS pgcrypto');
+    expect(sql).toContain("digest(url, 'sha256')");
+    expect(sql).toContain('calendar_source_url_fingerprint_trigger');
+    expect(sql).toContain('DROP CONSTRAINT IF EXISTS calendar_import_sources_user_id_url_key');
+    expect(sql).toContain('calendar_import_sources_user_url_fingerprint_key');
+    expect(sql).toContain('ALTER COLUMN url_fingerprint SET NOT NULL');
+  });
+
   it('adds a partial logical-message lookup index for non-deleted physical copies', () => {
     const sql = readFileSync(join(process.cwd(), 'migrations/0060_conversation_logical_message_lookup_index.sql'), 'utf8');
     expect(sql).toContain('ON messages(logical_message_id, date DESC NULLS LAST, id DESC)');
