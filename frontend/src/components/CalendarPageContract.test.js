@@ -32,6 +32,19 @@ test('calendar exposes mini-month controls and a 280px desktop sidebar', async (
   assert.match(sidebar, /const panel = \{ width: 280,/);
 });
 
+test('calendar page owns the full shell width and only mounts its active surface', async () => {
+  const [calendar, mailApp] = await Promise.all([
+    readFile(calendarPath, 'utf8'),
+    readFile(new URL('./MailApp.jsx', import.meta.url), 'utf8'),
+  ]);
+
+  assert.match(calendar, /const page = \{[^\n]*width: '100%'[^\n]*maxWidth: 'none'/);
+  assert.match(calendar, /const calendarContent = \{[^\n]*width: '100%'/);
+  assert.match(mailApp, /showCalendar && <div data-testid="desktop-calendar-page"/);
+  assert.match(mailApp, /showCalendar && <div data-testid="mobile-calendar-page"/);
+  assert.doesNotMatch(mailApp, /Keep all three mounted/);
+});
+
 test('every locale declares a single effective calendar dictionary', async () => {
   const files = (await readdir(localesPath)).filter(name => name.endsWith('.json'));
   for (const file of files) {

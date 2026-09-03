@@ -17,7 +17,7 @@ describe('mobile Contacts navigation contract', () => {
     const desktopStart = mailApp.indexOf(') : (', mobileStart);
     const mobileLayout = mailApp.slice(mobileStart, desktopStart);
 
-    assert.match(mobileLayout, /display: showContacts \? 'flex' : 'none'/);
+    assert.match(mobileLayout, /showContacts && <div data-testid="mobile-contacts-page"/);
     assert.match(mobileLayout, /<Suspense fallback=\{lazyFallback\}><ContactsPage isActive=\{showContacts\} \/><\/Suspense>/);
   });
 
@@ -45,7 +45,7 @@ describe('mobile Calendar navigation contract', () => {
     const mobileLayout = mailApp.slice(mobileStart, desktopStart);
 
     assert.match(mobileLayout, /data-testid="mobile-calendar-page"/);
-    assert.match(mobileLayout, /display: showCalendar \? 'flex' : 'none'/);
+    assert.match(mobileLayout, /showCalendar && <div data-testid="mobile-calendar-page"/);
     assert.match(mobileLayout, /<Suspense fallback=\{lazyFallback\}><CalendarPage isActive=\{showCalendar\} \/><\/Suspense>/);
     assert.match(mobileLayout, /!showContacts && !showCalendar && !selectedMessageId/);
   });
