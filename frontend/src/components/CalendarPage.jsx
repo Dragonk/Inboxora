@@ -132,7 +132,6 @@ export default function CalendarPage({ isActive = true }) {
     </button>}
     {loading && <p>{t('calendar.loading')}</p>}
     {form && <EventDialog form={form} calendars={writable} accounts={senderAccounts} isMobile={isMobile} saving={saving} onChange={changeForm} onAllDayChange={allDay => { invitationOperation.current.reset(); setForm(current => toggleAllDayTimes(current, allDay)); }} onSave={save} onDelete={remove} onClose={() => { invitationOperation.current.reset(); setForm(null); }} t={t} />}
-    {form && <EventDialog form={form} calendars={writable} accounts={senderAccounts} isMobile={isMobile} saving={saving} onChange={changeForm} onAllDayChange={allDay => { invitationOperation.current.reset(); setForm(current => toggleAllDayTimes(current, allDay)); }} onSave={save} onDelete={remove} onClose={() => { invitationOperation.current.reset(); setForm(null); }} t={t} />}
     {contextMenu && <CalendarContextMenu {...contextMenu} isMobile={isMobile} onEdit={() => openEdit(contextMenu.event)} onDelete={() => deleteEvent(contextMenu.event)} onClose={() => setContextMenu(null)} t={t} />}
   </div>;
 }

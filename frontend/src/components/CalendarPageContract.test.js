@@ -54,6 +54,11 @@ test('calendar events expose context-menu invocation and mobile action affordanc
   assert.match(source, /source === 'local'/);
 });
 
+test('calendar renders one event dialog for an active form', async () => {
+  const source = await readFile(calendarPath, 'utf8');
+  assert.equal(source.match(/\{form && <EventDialog/g)?.length, 1);
+});
+
 test('every locale declares a single effective calendar dictionary', async () => {
   const files = (await readdir(localesPath)).filter(name => name.endsWith('.json'));
   for (const file of files) {
