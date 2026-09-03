@@ -115,12 +115,12 @@ async function mergeIntoExisting(id, c) {
     UPDATE contacts SET
       display_name = $2, first_name = $3, last_name = $4,
       phones = $5::jsonb, organization = $6, notes = $7, birthday = $8, anniversary = $9,
-      photo_data = COALESCE($10, photo_data), title = $11, role = $12, nickname = $13,
-      urls = $14::jsonb, instant_messages = $15::jsonb, categories = $16::jsonb, addresses = $17::jsonb,
-      vcard = $18, etag = $19, updated_at = NOW()
+      contact_dates = $10::jsonb, photo_data = COALESCE($11, photo_data), title = $12, role = $13, nickname = $14,
+      urls = $15::jsonb, instant_messages = $16::jsonb, categories = $17::jsonb, addresses = $18::jsonb,
+      vcard = $19, etag = $20, updated_at = NOW()
     WHERE id = $1
   `, [id, c.displayName, c.firstName, c.lastName, JSON.stringify(c.phones),
-      c.organization, c.notes, c.birthday, c.anniversary, c.photoData, c.title, c.role, c.nickname,
+      c.organization, c.notes, c.birthday, c.anniversary, JSON.stringify(c.contactDates), c.photoData, c.title, c.role, c.nickname,
       JSON.stringify(c.urls), JSON.stringify(c.instantMessages), JSON.stringify(c.categories), JSON.stringify(c.addresses), c.vcard, etag]);
 }
 

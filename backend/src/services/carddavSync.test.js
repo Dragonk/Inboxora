@@ -1,3 +1,4 @@
+import crypto from 'crypto';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 const { query, discoverAddressBooks, fetchAddressBookCards, getConnectionPolicy } = vi.hoisted(() => ({
@@ -12,6 +13,8 @@ import { syncUser } from './carddavSync.js';
 
 const appleCard = 'BEGIN:VCARD\r\nVERSION:3.0\r\nUID:apple-1\r\nFN:Apple Contact\r\nPHOTO;TYPE=JPEG:YWJj\r\nX-ABDATE;TYPE=Wedding:2020-09-14\r\nX-ABDATE;TYPE=Wedding:20200914\r\nEND:VCARD\r\n';
 const androidCard = 'BEGIN:VCARD\r\nVERSION:3.0\r\nUID:android-1\r\nFN:Android Contact\r\nX-ANDROID-CUSTOM:vnd.android.cursor.item/contact_event;2019-10-19;0;Rencontre;\r\nEND:VCARD\r\n';
+const appleMergeCard = appleCard.replace('FN:Apple Contact\r\n', 'FN:Apple Contact\r\nEMAIL:duplicate@example.com\r\nBDAY:1990-01-02\r\nANNIVERSARY:2020-09-14\r\n');
+const androidMergeCard = androidCard.replace('FN:Android Contact\r\n', 'FN:Android Contact\r\nEMAIL:duplicate@example.com\r\nBDAY:1991-02-03\r\nANNIVERSARY:2021-10-19\r\n');
 
 function configureSync() {
   query.mockImplementation(async sql => {
@@ -55,5 +58,46 @@ describe('remote CardDAV contact-date persistence', () => {
     await expect(syncUser('user-1')).resolves.toMatchObject({ ok: true, contactCount: 2 });
     const secondUpserts = query.mock.calls.filter(([sql]) => sql.includes('INSERT INTO contacts'));
     expect(secondUpserts.map(([, params]) => params[15])).toEqual(upserts.map(([, params]) => params[15]));
+  });
+
+  it.each([
+    ['Apple', '/apple.vcf', appleMergeCard, [
+      { label: 'Birthday', value: '1990-01-02' }, { label: 'Anniversary', value: '2020-09-14' }, { label: 'Wedding', value: '2020-09-14' },
+    ]],
+    ['Android', '/android.vcf', androidMergeCard, [
+      { label: 'Birthday', value: '1991-02-03' }, { label: 'Anniversary', value: '2021-10-19' }, { label: 'Rencontre', value: '2019-10-19' },
+    ]],
+  ])('merges %s labelled dates into an existing matching-email contact idempotently', async (_source, href, vcard, contactDates) => {
+    query.mockImplementation(async sql => {
+      if (sql.includes('SELECT config FROM user_integrations')) return { rows: [{ config: { serverUrl: 'https://dav.example', username: 'user', password: 'password', dupMode: 'merge' } }] };
+      if (sql.includes('SELECT id FROM address_books')) return { rows: [{ id: 'book-1' }] };
+      if (sql.includes('SELECT id, primary_email FROM contacts')) return { rows: [{ id: 'existing-contact-1', primary_email: 'duplicate@example.com' }] };
+      return { rows: [] };
+    });
+    fetchAddressBookCards.mockResolvedValue([{ href, vcard }]);
+
+    await expect(syncUser('user-1')).resolves.toMatchObject({ ok: true, contactCount: 0 });
+    const [mergeSql, mergeParams] = query.mock.calls.find(([sql]) => sql.includes('UPDATE contacts SET'));
+
+    expect(mergeSql).toContain('contact_dates = $10::jsonb');
+    expect(mergeSql).toContain('photo_data = COALESCE($11, photo_data)');
+    expect(mergeSql).toContain('urls = $15::jsonb, instant_messages = $16::jsonb, categories = $17::jsonb, addresses = $18::jsonb');
+    expect(mergeSql).not.toContain('primary_email =');
+    expect(mergeParams[0]).toBe('existing-contact-1');
+    expect(mergeParams[1]).toBe('Apple Contact'.replace('Apple', _source));
+    expect(mergeParams[2]).toBeNull();
+    expect(mergeParams[3]).toBeNull();
+    expect(mergeParams[7]).toBe(_source === 'Apple' ? '1990-01-02' : '1991-02-03');
+    expect(mergeParams[8]).toBe(_source === 'Apple' ? '2020-09-14' : '2021-10-19');
+    expect(JSON.parse(mergeParams[9])).toEqual(contactDates);
+    expect(mergeParams[10]).toBe(_source === 'Apple' ? 'data:image/jpeg;base64,YWJj' : null);
+    expect(mergeParams.slice(14, 18)).toEqual(['[]', '[]', '[]', '[]']);
+    expect(mergeParams[18]).toBe(vcard);
+    expect(mergeParams[19]).toBe(crypto.createHash('md5').update(vcard).digest('hex'));
+
+    query.mockClear();
+    await expect(syncUser('user-1')).resolves.toMatchObject({ ok: true, contactCount: 0 });
+    const [, secondMergeParams] = query.mock.calls.find(([sql]) => sql.includes('UPDATE contacts SET'));
+    expect(secondMergeParams[9]).toBe(mergeParams[9]);
   });
 });
