@@ -123,11 +123,11 @@ body, #root {
 }
 
 .contacts-danger-btn:disabled {
+  transition: none !important;
   background-color: rgba(148, 163, 184, 0.16) !important;
-  background: rgba(148, 163, 184, 0.16) !important;
-  background-image: none !important;
-  border-color: rgba(148, 163, 184, 0.4) !important;
-  color: #94a3b8 !important;
+  background-image: linear-gradient(var(--contacts-danger-disabled-bg, transparent), var(--contacts-danger-disabled-bg, transparent)) !important;
+  border-color: var(--contacts-danger-disabled-border, rgba(148, 163, 184, 0.4)) !important;
+  color: var(--contacts-danger-disabled-text, #94a3b8) !important;
 }
 
 /* Selection */
