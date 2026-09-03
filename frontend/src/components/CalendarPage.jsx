@@ -5,6 +5,7 @@ import { useStore } from '../store/index.js';
 import { useMobile } from '../hooks/useMobile.js';
 import { eventPayload, eventsForDay, monthRange, shiftCalendarAnchor, toDateTimeLocal, toggleAllDayTimes, weekRange } from './calendarView.js';
 import CalendarSidebar from './CalendarSidebar.jsx';
+import { createInvitationOperationController } from './calendarInvitationRetry.js';
 
 const DATE_LOCALE_OVERRIDES = { zhCN: 'zh-CN' };
 
@@ -37,6 +38,7 @@ export default function CalendarPage({ isActive = true }) {
   const [calendars, setCalendars] = useState([]); const [events, setEvents] = useState([]);
   const [error, setError] = useState(null); const [loading, setLoading] = useState(true); const [form, setForm] = useState(null); const [saving, setSaving] = useState(false); const [sourcePanelRequest, setSourcePanelRequest] = useState(0);
   const invitationOperation = useRef(null);
+  if (!invitationOperation.current) invitationOperation.current = createInvitationOperationController();
   const [mobilePanelOpen, setMobilePanelOpen] = useState(false);
   const range = useMemo(() => view === 'month' ? monthRange(anchor) : weekRange(anchor, calendarWeekStartsOn), [anchor, calendarWeekStartsOn, view]);
   const load = useCallback(async () => {
@@ -49,35 +51,42 @@ export default function CalendarPage({ isActive = true }) {
   useEffect(() => { load(); }, [load]);
   useEffect(() => {
     if (!isMobile || !isActive) return;
+    invitationOperation.current.reset();
     setForm(null);
     setMobilePanelOpen(false);
     document.getElementById('calendar-mobile-panel')?.close();
   }, [isActive, isMobile]);
   useEffect(() => {
     if (!isMobile || !showCalendar || !form) return undefined;
-    const handleBack = event => { event.preventDefault(); setForm(null); };
+    const handleBack = event => { event.preventDefault(); invitationOperation.current.reset(); setForm(null); };
     window.addEventListener('inboxora:back', handleBack);
     return () => window.removeEventListener('inboxora:back', handleBack);
   }, [form, isMobile, showCalendar]);
   const writable = calendars.filter(calendar => !calendar.read_only && calendar.source === 'local');
   const senderAccounts = accounts.filter(account => account.enabled && account.smtp_host);
-  const openCreate = (date = new Date()) => setForm({ ...emptyForm(writable[0]?.id || '', date), mode: 'create' });
-  const openEdit = event => setForm({ mode: 'edit', id: event.id, ...event, calendarId: event.calendar_id, summary: event.summary || '', description: event.description || '', location: event.location || '', url: event.url || '', organizer: event.organizer || '', attendees: Array.isArray(event.attendees) ? event.attendees : [], sendInvites: Boolean(event.invite_account_id && event.attendees?.length), inviteAccountId: event.invite_account_id || '', allDay: Boolean(event.all_day), startsAt: event.all_day ? String(event.starts_at).slice(0, 10) : toDateTimeLocal(event.starts_at), endsAt: event.all_day ? String(event.ends_at).slice(0, 10) : toDateTimeLocal(event.ends_at) });
+  const openCreate = (date = new Date()) => { invitationOperation.current.reset(); setForm({ ...emptyForm(writable[0]?.id || '', date), mode: 'create' }); };
+  const openEdit = event => { invitationOperation.current.reset(); setForm({ mode: 'edit', id: event.id, ...event, calendarId: event.calendar_id, summary: event.summary || '', description: event.description || '', location: event.location || '', url: event.url || '', organizer: event.organizer || '', attendees: Array.isArray(event.attendees) ? event.attendees : [], sendInvites: Boolean(event.invite_account_id && event.attendees?.length), inviteAccountId: event.invite_account_id || '', allDay: Boolean(event.all_day), startsAt: event.all_day ? String(event.starts_at).slice(0, 10) : toDateTimeLocal(event.starts_at), endsAt: event.all_day ? String(event.ends_at).slice(0, 10) : toDateTimeLocal(event.ends_at) }); };
   const save = async () => {
     const payload = eventPayload(form);
     if (!payload) { setError(t('calendar.invalidEvent')); return; }
     setSaving(true); setError(null);
     try {
-      if (payload.sendInvites && !invitationOperation.current) invitationOperation.current = globalThis.crypto.randomUUID();
-      const result = form.mode === 'edit'
-        ? await api.calendar.updateEvent(form.id, payload, invitationOperation.current)
-        : await api.calendar.createEvent(payload, invitationOperation.current);
-      invitationOperation.current = null;
-      setForm(null); await load();
-      if (result?.invitationError) setError(result.invitationError);
-    } catch (err) { setError(err.message || t('calendar.saveFailed')); } finally { setSaving(false); }
+      const { result, retryable } = await invitationOperation.current.save(form, payload, api.calendar);
+      if (retryable) {
+        const message = result?.invitationError || t('calendar.invitationPending', 'Invitation delivery is still pending; retry to check its status.');
+        setForm(current => ({ ...current, invitationError: message }));
+        setError(message);
+      } else {
+        setForm(null); await load();
+      }
+    } catch (err) {
+      const message = err.message || t('calendar.saveFailed');
+      if (payload.sendInvites) setForm(current => ({ ...current, invitationError: message }));
+      setError(message);
+    } finally { setSaving(false); }
   };
-  const remove = async () => { if (!form?.id || !window.confirm(t('calendar.confirmDelete'))) return; setSaving(true); try { await api.calendar.deleteEvent(form.id, form.calendarId); setForm(null); await load(); } catch (err) { setError(err.message || t('calendar.deleteFailed')); } finally { setSaving(false); } };
+  const remove = async () => { if (!form?.id || !window.confirm(t('calendar.confirmDelete'))) return; setSaving(true); try { await api.calendar.deleteEvent(form.id, form.calendarId); invitationOperation.current.reset(); setForm(null); await load(); } catch (err) { setError(err.message || t('calendar.deleteFailed')); } finally { setSaving(false); } };
+  const changeForm = (key, value) => { invitationOperation.current.reset(); setForm(current => ({ ...current, [key]: value, invitationError: null })); };
   const days = view === 'month' ? calendarDays(anchor, calendarWeekStartsOn) : weekDays(anchor, view === 'workweek', calendarWeekStartsOn);
   const visibleEvents = visibleCalendarIds == null ? events : events.filter(event => visibleCalendarIds.includes(event.calendar_id));
   const toggleCalendar = id => {
@@ -119,7 +128,7 @@ export default function CalendarPage({ isActive = true }) {
       <svg width="25" height="25" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M12 5v14M5 12h14"/></svg>
     </button>}
     {loading && <p>{t('calendar.loading')}</p>}
-    {form && <EventDialog form={form} calendars={writable} accounts={senderAccounts} isMobile={isMobile} saving={saving} onChange={(key, value) => setForm(current => ({ ...current, [key]: value }))} onAllDayChange={allDay => setForm(current => toggleAllDayTimes(current, allDay))} onSave={save} onDelete={remove} onClose={() => setForm(null)} t={t} />}
+    {form && <EventDialog form={form} calendars={writable} accounts={senderAccounts} isMobile={isMobile} saving={saving} onChange={changeForm} onAllDayChange={allDay => { invitationOperation.current.reset(); setForm(current => toggleAllDayTimes(current, allDay)); }} onSave={save} onDelete={remove} onClose={() => { invitationOperation.current.reset(); setForm(null); }} t={t} />}
   </div>;
 }
 
@@ -151,7 +160,7 @@ function EventDialog({ form, calendars, accounts, isMobile, saving, onChange, on
     <label style={field}><span>{t('calendar.location')}</span><input value={form.location} onChange={e => onChange('location', e.target.value)} /></label>
     <label style={field}><span>{t('calendar.description')}</span><textarea rows="4" value={form.description} onChange={e => onChange('description', e.target.value)} /></label>
     <div style={inviteBox}><label style={toggleLabel}><input type="checkbox" checked={form.sendInvites} onChange={e => onChange('sendInvites', e.target.checked)} />{t('calendar.sendInvites')}</label>{form.sendInvites && <><label style={field}><span>{t('calendar.attendees')}</span><input value={attendeeValue} onChange={e => setAttendees(e.target.value)} placeholder={t('calendar.attendeesPlaceholder')} /></label><label style={field}><span>{t('calendar.senderAccount')}</span><select value={form.inviteAccountId} onChange={e => onChange('inviteAccountId', e.target.value)}><option value="">{t('calendar.chooseSender')}</option>{accounts.map(account => <option key={account.id} value={account.id}>{account.name || account.email_address} · {account.email_address}</option>)}</select></label>{!accounts.length && <p style={hint}>{t('calendar.noSenderAccounts')}</p>}</>}</div>
-    <footer style={dialogFooter}><div>{form.mode === 'edit' && <button disabled={saving} onClick={onDelete} style={dangerButton}>{t('calendar.delete')}</button>}</div><div style={{ display: 'flex', gap: 8 }}><button disabled={saving} onClick={onClose} style={secondaryButton}>{t('calendar.cancel')}</button><button disabled={saving} onClick={onSave} style={primaryButton}>{saving ? t('calendar.saving') : t('calendar.save')}</button></div></footer>
+    <footer style={dialogFooter}><div>{form.mode === 'edit' && <button disabled={saving} onClick={onDelete} style={dangerButton}>{t('calendar.delete')}</button>}</div><div style={{ display: 'flex', gap: 8 }}><button disabled={saving} onClick={onClose} style={secondaryButton}>{t('calendar.cancel')}</button><button disabled={saving} onClick={onSave} style={primaryButton}>{saving ? t('calendar.saving') : form.invitationError ? t('calendar.retrySave', 'Retry save') : t('calendar.save')}</button></div></footer>
   </div></div>;
 }
 
