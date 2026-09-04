@@ -1,7 +1,10 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
-const { query } = vi.hoisted(() => ({ query: vi.fn() }));
-vi.mock('../services/db.js', () => ({ query }));
+const { query, withTransaction } = vi.hoisted(() => ({
+  query: vi.fn(),
+  withTransaction: vi.fn(async callback => callback({ query })),
+}));
+vi.mock('../services/db.js', () => ({ query, withTransaction }));
 
 import express from 'express';
 import session from 'express-session';
@@ -48,6 +51,7 @@ function arrangeQuery(contact, result = updatedContact) {
 
 beforeEach(() => {
   query.mockReset();
+  withTransaction.mockClear();
 });
 
 describe('Contact REST PATCH legacy date synchronization', () => {
@@ -210,5 +214,34 @@ describe('Contact REST labelled date validation', () => {
     ]);
     expect(insert[1][3]).toContain('X-ABDATE;TYPE="Family:Other":2020-09-14');
     expect(insert[1][3]).toContain('X-ABDATE;TYPE="Family;Other":2021-05-06');
+  });
+});
+
+describe('Google CSV import persistence', () => {
+  it('persists normalized rich fields and every non-empty source column', async () => {
+    query
+      .mockResolvedValueOnce({ rows: [{ id: 'user-1' }] })
+      .mockResolvedValueOnce({ rows: [{ id: 'book-1', source: 'local', visible: true }] })
+      .mockResolvedValueOnce({ rows: [] });
+    const csv = [
+      'First Name,Last Name,Nickname,Organization Name,Organization Title,Organization Department,Birthday,Event 1 - Label,Event 1 - Value,Address 1 - Label,Address 1 - Street,Address 1 - City,Website 1 - Label,Website 1 - Value,Labels,Custom Field 1 - Label,Custom Field 1 - Value',
+      'Ada,Lovelace,Ada,Analytical Society,Mathematician,Research,1815-12-10,Anniversary,1835-01-01,Home,St James Square,London,Portfolio,https://example.test,Friends ::: VIP,Legacy ID,42',
+    ].join('\n');
+    const server = createApp().listen(0);
+    const response = await fetch(`http://127.0.0.1:${server.address().port}/api/contacts/address-books/book-1/import/google-csv`, {
+      method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ csv }),
+    });
+    await new Promise(resolve => server.close(resolve));
+
+    expect(response.status).toBe(201);
+    expect(await response.json()).toEqual({ imported: 1 });
+    const insert = query.mock.calls.find(([sql]) => sql.includes('INSERT INTO contacts'));
+    expect(insert[0]).toContain('google_fields');
+    expect(JSON.parse(insert[1][15])).toEqual([
+      { label: 'Birthday', value: '1815-12-10' }, { label: 'Anniversary', value: '1835-01-01' },
+    ]);
+    expect(JSON.parse(insert[1][19])).toEqual([{ value: 'https://example.test', type: 'portfolio' }]);
+    expect(JSON.parse(insert[1][21])).toEqual([{ type: 'home', pobox: '', extended: '', street: 'St James Square', locality: 'London', region: '', postalCode: '', country: '' }]);
+    expect(JSON.parse(insert[1][22])).toMatchObject({ 'Custom Field 1 - Label': 'Legacy ID', 'Custom Field 1 - Value': '42' });
   });
 });

@@ -55,4 +55,34 @@ describe('contact transfer', () => {
       }),
     ]);
   });
+
+  it('maps every field in Google’s current CSV template and preserves source columns', () => {
+    const contacts = parseGoogleCsv([
+      'Name Prefix,First Name,Middle Name,Last Name,Name Suffix,Phonetic First Name,Phonetic Middle Name,Phonetic Last Name,Nickname,File As,E-mail 1 - Label,E-mail 1 - Value,Phone 1 - Label,Phone 1 - Value,Address 1 - Label,Address 1 - Country,Address 1 - Street,Address 1 - Extended Address,Address 1 - City,Address 1 - Region,Address 1 - Postal Code,Address 1 - PO Box,Organization Name,Organization Title,Organization Department,Birthday,Event 1 - Label,Event 1 - Value,Relation 1 - Label,Relation 1 - Value,Website 1 - Label,Website 1 - Value,Custom Field 1 - Label,Custom Field 1 - Value,Notes,Labels',
+      'Dr.,Ada,Augusta,Lovelace,III,Ay-da,Aw-gus-ta,Luv-lays,Ada,Analytical Engine,Work,ada@example.test,Mobile,+48123456789,Home,PL,St James Square,Flat 1,London,London,SW1Y 4LB,Box 7,Analytical Society,Mathematician,Research,1815-12-10,Anniversary,1835-01-01,Spouse,William King,Portfolio,https://example.test,Legacy ID,42,First programmer,Friends ::: VIP',
+    ].join('\n'));
+
+    expect(contacts).toEqual([expect.objectContaining({
+      displayName: 'Dr. Ada Augusta Lovelace III', firstName: 'Ada', lastName: 'Lovelace',
+      nickname: 'Ada', organization: 'Analytical Society', title: 'Mathematician', role: 'Research',
+      birthday: '1815-12-10',
+      contactDates: [{ label: 'Birthday', value: '1815-12-10' }, { label: 'Anniversary', value: '1835-01-01' }],
+      emails: [{ value: 'ada@example.test', type: 'work', primary: true }],
+      phones: [{ value: '+48123456789', type: 'mobile' }],
+      addresses: [{ type: 'home', pobox: 'Box 7', extended: 'Flat 1', street: 'St James Square', locality: 'London', region: 'London', postalCode: 'SW1Y 4LB', country: 'PL' }],
+      urls: [{ value: 'https://example.test', type: 'portfolio' }],
+      categories: ['Friends', 'VIP'],
+      sourceFields: expect.objectContaining({
+        'Phonetic First Name': 'Ay-da', 'File As': 'Analytical Engine', 'Organization Department': 'Research',
+        'Relation 1 - Label': 'Spouse', 'Relation 1 - Value': 'William King',
+        'Custom Field 1 - Label': 'Legacy ID', 'Custom Field 1 - Value': '42',
+      }),
+    })]);
+  });
+
+  it('retains unsafe event labels as source data without serializing them into a vCard', () => {
+    const [contact] = parseGoogleCsv('First Name,Event 1 - Label,Event 1 - Value\nAda,"Wedding\r\nX-Evil: injected",2020-09-14');
+    expect(contact.contactDates).toEqual([]);
+    expect(contact.sourceFields['Event 1 - Label']).toBe('Wedding\r\nX-Evil: injected');
+  });
 });

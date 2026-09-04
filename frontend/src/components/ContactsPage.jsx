@@ -805,7 +805,7 @@ function ContactDetail({ contact: c, confirmDelete, saving, error, onEdit, onDel
         </div>
       )}
 
-      {((c.emails?.length > 0) || (c.phones?.length > 0) || c.notes || c.birthday || c.anniversary || c.title || c.role || c.nickname || c.urls?.length || c.instantMessages?.length || c.categories?.length || c.addresses?.length) && (
+      {((c.emails?.length > 0) || (c.phones?.length > 0) || c.notes || c.birthday || c.anniversary || c.title || c.role || c.nickname || c.urls?.length || c.instantMessages?.length || c.categories?.length || c.addresses?.length || Object.keys(c.googleFields || {}).length) && (
         <DetailSection>
           {(c.emails || []).map((e, i) => (
             <DetailRow key={i} label={t(`contacts.emailTypes.${e.type || 'other'}`, { defaultValue: t('contacts.emailTypes.other') })}>
@@ -830,6 +830,7 @@ function ContactDetail({ contact: c, confirmDelete, saving, error, onEdit, onDel
           {(c.instantMessages || []).map((message, i) => <DetailRow key={`im-${i}`} label={t('contacts.fields.instantMessage')}>{message.value}</DetailRow>)}
           {c.categories?.length > 0 && <DetailRow label={t('contacts.fields.categories')}>{c.categories.join(', ')}</DetailRow>}
           {(c.addresses || []).map((address, i) => <DetailRow key={`address-${i}`} label={t('contacts.fields.address')}>{[address.pobox, address.extended, address.street, address.locality, address.region, address.postalCode, address.country].filter(Boolean).join(', ')}</DetailRow>)}
+          {Object.entries(c.googleFields || {}).map(([field, value]) => <DetailRow key={`google-${field}`} label={field}>{value}</DetailRow>)}
         </DetailSection>
       )}
 
