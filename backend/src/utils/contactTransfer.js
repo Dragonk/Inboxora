@@ -86,7 +86,7 @@ function parseCsv(text) {
 
 export function parseGoogleCsv(text) {
   const [header = [], ...rows] = parseCsv(String(text || ''));
-  const columns = new Map(header.map((name, index) => [name.trim(), index]));
+  const columns = new Map(header.map((name, index) => [name.trim().replace(/\s+[–—]\s+/g, ' - '), index]));
   const get = (row, ...names) => names.map(name => row[columns.get(name)]?.trim() || '').find(Boolean) || '';
   const indexedFields = field => [...columns.keys()]
     .map(name => new RegExp(`^${field} (\\d+) - `).exec(name)?.[1])
@@ -130,10 +130,14 @@ export function parseGoogleCsv(text) {
       value: get(row, `Website ${number} - Value`),
       type: normalizeType(get(row, `Website ${number} - Type`, `Website ${number} - Label`)),
     })).filter(({ value }) => /^https?:\/\//i.test(value));
+    const instantMessages = indexedFields('IM').map(number => ({
+      value: get(row, `IM ${number} - Value`),
+      type: normalizeType(get(row, `IM ${number} - Service`, `IM ${number} - Type`, `IM ${number} - Label`)),
+    })).filter(({ value }) => value);
     const birthday = validDate(get(row, 'Birthday'));
     const contactDates = indexedFields('Event').flatMap(number => {
       const value = validDate(get(row, `Event ${number} - Value`));
-      const label = normalizeContactDateLabel(get(row, `Event ${number} - Label`) || 'Other');
+      const label = normalizeContactDateLabel(get(row, `Event ${number} - Label`, `Event ${number} - Type`) || 'Other');
       return value && label ? [{ label, value }] : [];
     });
     if (birthday && !contactDates.some(date => date.label.toLowerCase() === 'birthday' && date.value === birthday)) contactDates.unshift({ label: 'Birthday', value: birthday });
@@ -150,6 +154,7 @@ export function parseGoogleCsv(text) {
       anniversary: contactDates.find(date => date.label.toLowerCase() === 'anniversary')?.value || null,
       contactDates,
       urls,
+      instantMessages,
       addresses,
       categories: labels(get(row, 'Labels', 'Group Membership')),
       notes: get(row, 'Notes') || null,

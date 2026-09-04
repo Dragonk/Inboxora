@@ -1013,6 +1013,7 @@
     "addUrl": "Website hinzufügen",
     "addInstantMessage": "Messenger hinzufügen",
     "addAddress": "Adresse hinzufügen",
+    "addDate": "Datum hinzufügen",
     "categoriesPlaceholder": "Freunde, Arbeit",
     "fields": {
       "displayName": "Anzeigename",
@@ -1038,6 +1039,9 @@
       "notes": "Notizen",
       "birthday": "Geburtstag",
       "anniversary": "Jahrestag",
+      "dates": "Daten",
+      "nameDay": "Namenstag",
+      "customDate": "Eigene Datumsbezeichnung",
       "emailsSent": "Gesendete Mails",
       "lastContacted": "Zuletzt kontaktiert"
     },

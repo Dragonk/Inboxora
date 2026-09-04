@@ -1013,6 +1013,7 @@
     "addUrl": "Dodaj stronę",
     "addInstantMessage": "Dodaj komunikator",
     "addAddress": "Dodaj adres",
+    "addDate": "Dodaj datę",
     "categoriesPlaceholder": "Znajomi, Praca",
     "fields": {
       "displayName": "Nazwa wyświetlana",
@@ -1038,6 +1039,9 @@
       "notes": "Notatki",
       "birthday": "Urodziny",
       "anniversary": "Rocznica",
+      "dates": "Daty",
+      "nameDay": "Imieniny",
+      "customDate": "Własny opis daty",
       "emailsSent": "Wysłane e-maile",
       "lastContacted": "Ostatni kontakt"
     },

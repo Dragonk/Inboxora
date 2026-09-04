@@ -14,3 +14,9 @@ test('mobile Contacts reserves space between the final row, FAB, and bottom navi
   assert.match(source, /paddingBottom: isMobile \? 'calc\(var\(--mobile-nav-height\) \+ var\(--sab\) \+ 88px\)'/);
   assert.match(source, /bottom: 'calc\(var\(--mobile-nav-height\) \+ var\(--sab\) \+ 20px\)'/);
 });
+
+test('contact detail renders imported events as contact dates without exposing raw Google CSV columns', () => {
+  assert.match(source, /const contactDates = c\.contactDates\?\.length/);
+  assert.match(source, /\{contactDates\.map\(\(date, i\)/);
+  assert.doesNotMatch(source, /Object\.entries\(c\.googleFields \|\| \{\}\)\.map/);
+});

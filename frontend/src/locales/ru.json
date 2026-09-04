@@ -1013,6 +1013,7 @@
     "addUrl": "Добавить сайт",
     "addInstantMessage": "Добавить мессенджер",
     "addAddress": "Добавить адрес",
+    "addDate": "Добавить дату",
     "categoriesPlaceholder": "Друзья, Работа",
     "fields": {
       "displayName": "Отображаемое имя",
@@ -1038,6 +1039,9 @@
       "notes": "Заметки",
       "birthday": "День рождения",
       "anniversary": "Годовщина",
+      "dates": "Даты",
+      "nameDay": "Именины",
+      "customDate": "Своя подпись даты",
       "emailsSent": "Отправлено писем",
       "lastContacted": "Последний контакт"
     },

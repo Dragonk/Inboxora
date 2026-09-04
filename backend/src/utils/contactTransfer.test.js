@@ -85,4 +85,14 @@ describe('contact transfer', () => {
     expect(contact.contactDates).toEqual([]);
     expect(contact.sourceFields['Event 1 - Label']).toBe('Wedding\r\nX-Evil: injected');
   });
+
+  it('imports current Event Type, IM service, and Unicode-dash Google headers', () => {
+    const [contact] = parseGoogleCsv([
+      'First Name,Event 1 – Type,Event 1 – Value,IM 1 – Service,IM 1 – Value',
+      'Ada,Name day,1815-12-10,Signal,ada.signal',
+    ].join('\n'));
+
+    expect(contact.contactDates).toEqual([{ label: 'Name day', value: '1815-12-10' }]);
+    expect(contact.instantMessages).toEqual([{ type: 'signal', value: 'ada.signal' }]);
+  });
 });

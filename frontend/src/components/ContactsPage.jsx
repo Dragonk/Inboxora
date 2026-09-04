@@ -49,8 +49,7 @@ function emptyContact() {
     phones: [],
     organization: '',
     notes: '',
-    birthday: '',
-    anniversary: '',
+    contactDates: [],
     title: '',
     role: '',
     nickname: '',
@@ -263,8 +262,12 @@ export default function ContactsPage({ isActive = true }) {
       phones:       selected.phones        || [],
       organization: selected.organization  || '',
       notes:        selected.notes         || '',
-      birthday:     selected.birthday ? String(selected.birthday).slice(0, 10) : '',
-      anniversary:  selected.anniversary ? String(selected.anniversary).slice(0, 10) : '',
+      contactDates: selected.contactDates?.length
+        ? selected.contactDates
+        : [
+            selected.birthday && { label: 'Birthday', value: String(selected.birthday).slice(0, 10) },
+            selected.anniversary && { label: 'Anniversary', value: String(selected.anniversary).slice(0, 10) },
+          ].filter(Boolean),
       title:        selected.title || '',
       role:         selected.role || '',
       nickname:     selected.nickname || '',
@@ -323,8 +326,7 @@ export default function ContactsPage({ isActive = true }) {
         phones:       form.phones.filter(p => p.value.trim()),
         organization: form.organization || null,
         notes:        form.notes        || null,
-        birthday:     form.birthday || null,
-        anniversary:  form.anniversary || null,
+        contactDates: form.contactDates.filter(date => date.value).map(({ label, value }) => ({ label, value })),
         title:        form.title || null,
         role:         form.role || null,
         nickname:     form.nickname || null,
@@ -748,6 +750,20 @@ export default function ContactsPage({ isActive = true }) {
 }
 
 function ContactDetail({ contact: c, confirmDelete, saving, error, onEdit, onDeleteRequest, onDeleteConfirm, onDeleteCancel, t }) {
+  const contactDates = c.contactDates?.length
+    ? c.contactDates
+    : [
+        c.birthday && { label: 'Birthday', value: String(c.birthday).slice(0, 10) },
+        c.anniversary && { label: 'Anniversary', value: String(c.anniversary).slice(0, 10) },
+      ].filter(Boolean);
+  const contactDateLabel = label => {
+    const normalized = String(label).toLowerCase();
+    if (normalized === 'birthday') return t('contacts.fields.birthday');
+    if (normalized === 'anniversary') return t('contacts.fields.anniversary');
+    if (normalized === 'name day') return t('contacts.fields.nameDay');
+    return label;
+  };
+
   return (
     <div style={{ width: '100%', position: 'relative', animation: 'pane-fade-in var(--motion-normal) var(--ease-emphasized) both' }}>
       {/* Edit/Delete for editable contacts — out of flow, top-right (fixed width). */}
@@ -805,7 +821,7 @@ function ContactDetail({ contact: c, confirmDelete, saving, error, onEdit, onDel
         </div>
       )}
 
-      {((c.emails?.length > 0) || (c.phones?.length > 0) || c.notes || c.birthday || c.anniversary || c.title || c.role || c.nickname || c.urls?.length || c.instantMessages?.length || c.categories?.length || c.addresses?.length || Object.keys(c.googleFields || {}).length) && (
+      {((c.emails?.length > 0) || (c.phones?.length > 0) || c.notes || contactDates.length || c.title || c.role || c.nickname || c.urls?.length || c.instantMessages?.length || c.categories?.length || c.addresses?.length) && (
         <DetailSection>
           {(c.emails || []).map((e, i) => (
             <DetailRow key={i} label={t(`contacts.emailTypes.${e.type || 'other'}`, { defaultValue: t('contacts.emailTypes.other') })}>
@@ -818,8 +834,7 @@ function ContactDetail({ contact: c, confirmDelete, saving, error, onEdit, onDel
             </DetailRow>
           ))}
           {c.notes && <DetailRow label={t('contacts.fields.notes')}>{c.notes}</DetailRow>}
-          {c.birthday && <DetailRow label={t('contacts.fields.birthday')}>{new Date(`${String(c.birthday).slice(0, 10)}T00:00:00`).toLocaleDateString()}</DetailRow>}
-          {c.anniversary && <DetailRow label={t('contacts.fields.anniversary')}>{new Date(`${String(c.anniversary).slice(0, 10)}T00:00:00`).toLocaleDateString()}</DetailRow>}
+          {contactDates.map((date, i) => <DetailRow key={`date-${i}`} label={contactDateLabel(date.label)}>{new Date(`${String(date.value).slice(0, 10)}T00:00:00`).toLocaleDateString()}</DetailRow>)}
           {c.title && <DetailRow label={t('contacts.fields.title')}>{c.title}</DetailRow>}
           {c.role && <DetailRow label={t('contacts.fields.role')}>{c.role}</DetailRow>}
           {c.nickname && <DetailRow label={t('contacts.fields.nickname')}>{c.nickname}</DetailRow>}
@@ -830,7 +845,6 @@ function ContactDetail({ contact: c, confirmDelete, saving, error, onEdit, onDel
           {(c.instantMessages || []).map((message, i) => <DetailRow key={`im-${i}`} label={t('contacts.fields.instantMessage')}>{message.value}</DetailRow>)}
           {c.categories?.length > 0 && <DetailRow label={t('contacts.fields.categories')}>{c.categories.join(', ')}</DetailRow>}
           {(c.addresses || []).map((address, i) => <DetailRow key={`address-${i}`} label={t('contacts.fields.address')}>{[address.pobox, address.extended, address.street, address.locality, address.region, address.postalCode, address.country].filter(Boolean).join(', ')}</DetailRow>)}
-          {Object.entries(c.googleFields || {}).map(([field, value]) => <DetailRow key={`google-${field}`} label={field}>{value}</DetailRow>)}
         </DetailSection>
       )}
 
@@ -904,9 +918,22 @@ function ContactForm({
         <input style={inputStyle} value={form.nickname} onChange={e => onField('nickname', e.target.value)} />
       </div>
 
-      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12, marginBottom: 12 }}>
-        <div><label style={labelStyle}>{t('contacts.fields.birthday')}</label><input type="date" style={inputStyle} value={form.birthday} onChange={e => onField('birthday', e.target.value)} /></div>
-        <div><label style={labelStyle}>{t('contacts.fields.anniversary')}</label><input type="date" style={inputStyle} value={form.anniversary} onChange={e => onField('anniversary', e.target.value)} /></div>
+      <div style={{ marginBottom: 12 }}>
+        <label style={labelStyle}>{t('contacts.fields.dates')}</label>
+        {form.contactDates.map((date, index) => {
+          const preset = ['Birthday', 'Name day'].includes(date.label) ? date.label : 'custom';
+          return <div key={index} style={{ display: 'grid', gridTemplateColumns: preset === 'custom' ? '120px 1fr 1fr auto' : '120px 1fr auto', gap: 6, marginBottom: 6 }}>
+            <select value={preset} onChange={event => onSetCollection('contactDates', index, 'label', event.target.value === 'custom' ? '' : event.target.value)} style={inputStyle}>
+              <option value="Birthday">{t('contacts.fields.birthday')}</option>
+              <option value="Name day">{t('contacts.fields.nameDay')}</option>
+              <option value="custom">{t('contacts.fields.customDate')}</option>
+            </select>
+            {preset === 'custom' && <input style={inputStyle} value={date.label} placeholder={t('contacts.fields.customDate')} onChange={event => onSetCollection('contactDates', index, 'label', event.target.value)} />}
+            <input type="date" style={inputStyle} value={date.value} onChange={event => onSetCollection('contactDates', index, 'value', event.target.value)} />
+            <ContactDangerButton onClick={() => onRemoveCollection('contactDates', index)} aria-label={`${t('common.delete')} ${t('contacts.fields.dates')} ${index + 1}`}>{t('common.delete')}</ContactDangerButton>
+          </div>;
+        })}
+        <button onClick={() => onAddCollection('contactDates', { label: 'Birthday', value: '' })} style={addFieldBtn}>+ {t('contacts.addDate')}</button>
       </div>
 
       {/* Emails */}

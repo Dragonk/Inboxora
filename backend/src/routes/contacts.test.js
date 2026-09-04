@@ -241,7 +241,8 @@ describe('Google CSV import persistence', () => {
       { label: 'Birthday', value: '1815-12-10' }, { label: 'Anniversary', value: '1835-01-01' },
     ]);
     expect(JSON.parse(insert[1][19])).toEqual([{ value: 'https://example.test', type: 'portfolio' }]);
-    expect(JSON.parse(insert[1][21])).toEqual([{ type: 'home', pobox: '', extended: '', street: 'St James Square', locality: 'London', region: '', postalCode: '', country: '' }]);
-    expect(JSON.parse(insert[1][22])).toMatchObject({ 'Custom Field 1 - Label': 'Legacy ID', 'Custom Field 1 - Value': '42' });
+    expect(JSON.parse(insert[1][20])).toEqual([]);
+    expect(JSON.parse(insert[1][22])).toEqual([{ type: 'home', pobox: '', extended: '', street: 'St James Square', locality: 'London', region: '', postalCode: '', country: '' }]);
+    expect(JSON.parse(insert[1][23])).toMatchObject({ 'Custom Field 1 - Label': 'Legacy ID', 'Custom Field 1 - Value': '42' });
   });
 });

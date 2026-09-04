@@ -1013,6 +1013,7 @@
     "addUrl": "Přidat web",
     "addInstantMessage": "Přidat komunikátor",
     "addAddress": "Přidat adresu",
+    "addDate": "Přidat datum",
     "categoriesPlaceholder": "Přátelé, Práce",
     "fields": {
       "displayName": "Zobrazované jméno",
@@ -1038,6 +1039,9 @@
       "notes": "Poznámky",
       "birthday": "Narozeniny",
       "anniversary": "Výročí",
+      "dates": "Data",
+      "nameDay": "Svátek",
+      "customDate": "Vlastní popis data",
       "emailsSent": "Odeslané e-maily",
       "lastContacted": "Poslední kontakt"
     },

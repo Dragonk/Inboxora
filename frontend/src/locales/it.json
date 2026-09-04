@@ -1013,6 +1013,7 @@
     "addUrl": "Aggiungi sito web",
     "addInstantMessage": "Aggiungi messaggistica",
     "addAddress": "Aggiungi indirizzo",
+    "addDate": "Aggiungi data",
     "categoriesPlaceholder": "Amici, Lavoro",
     "fields": {
       "displayName": "Nome visualizzato",
@@ -1038,6 +1039,9 @@
       "notes": "Note",
       "birthday": "Compleanno",
       "anniversary": "Anniversario",
+      "dates": "Date",
+      "nameDay": "Onomastico",
+      "customDate": "Etichetta data personalizzata",
       "emailsSent": "Email inviate",
       "lastContacted": "Ultimo contatto"
     },
