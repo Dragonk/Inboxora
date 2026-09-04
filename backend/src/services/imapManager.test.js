@@ -1241,7 +1241,7 @@ describe('syncMessages — Web Push branding', () => {
     }, account, client, 'INBOX', 50, false, true);
     await vi.waitFor(() => expect(sendPushToUser).toHaveBeenCalled());
 
-    expect(sendPushToUser).toHaveBeenCalledWith('user-1', expect.objectContaining({ icon: '/inboxora-icon-512.png' }));
+    expect(sendPushToUser).toHaveBeenCalledWith('user-1', expect.objectContaining({ icon: '/inboxora-icon-512.png?v=inboxora-2' }));
   });
 });
 

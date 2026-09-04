@@ -661,11 +661,15 @@ export function subscribeAccent(fn) {
 }
 
 function refreshBrandSurface() {
-  const value = getComputedStyle(document.documentElement).getPropertyValue('--bg-primary').trim();
-  const hex = /^#([a-f\d]{6})$/i.exec(value);
-  if (!hex) return;
+  const probe = document.createElement('span');
+  probe.style.color = 'var(--bg-primary)';
+  probe.style.display = 'none';
+  document.documentElement.appendChild(probe);
+  const rgb = getComputedStyle(probe).color;
+  probe.remove();
+  const channels = [...rgb.matchAll(/\d+(?:\.\d+)?/g)].map(match => Number(match[0]) / 255);
+  if (channels.length !== 3) return;
 
-  const channels = [0, 2, 4].map(offset => Number.parseInt(hex[1].slice(offset, offset + 2), 16) / 255);
   const luminance = channels.reduce((total, channel, index) => total + channel * [0.2126, 0.7152, 0.0722][index], 0);
   document.documentElement.setAttribute('data-inboxora-surface', luminance > 0.45 ? 'light' : 'dark');
 }
