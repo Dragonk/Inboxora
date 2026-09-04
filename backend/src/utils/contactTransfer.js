@@ -20,7 +20,7 @@ function contactName(contact) {
 
 function normalizeType(value, fallback = 'other') {
   const type = String(value || fallback).trim().toLowerCase();
-  return ({ cell: 'mobile', iphone: 'mobile', work: 'work', home: 'home', mobile: 'mobile' })[type] || fallback;
+  return ({ cell: 'mobile', iphone: 'mobile', work: 'work', home: 'home', mobile: 'mobile', 'komórka': 'mobile', 'komorkowy': 'mobile', 'służbowy': 'work', 'sluzbowy': 'work', dom: 'home' })[type] || fallback;
 }
 
 function csvType(value) {
@@ -85,17 +85,26 @@ function parseCsv(text) {
 export function parseGoogleCsv(text) {
   const [header = [], ...rows] = parseCsv(String(text || ''));
   const columns = new Map(header.map((name, index) => [name.trim(), index]));
-  const get = (row, name) => row[columns.get(name)]?.trim() || '';
+  const get = (row, ...names) => names.map(name => row[columns.get(name)]?.trim() || '').find(Boolean) || '';
+  const entries = (row, field) => {
+    const values = [];
+    for (let number = 1; columns.has(`${field} ${number} - Value`); number++) {
+      const value = get(row, `${field} ${number} - Value`);
+      if (value) values.push({ value, type: normalizeType(get(row, `${field} ${number} - Type`, `${field} ${number} - Label`)) });
+    }
+    return values;
+  };
   return rows.map(row => {
-    const email = get(row, 'E-mail 1 - Value');
-    const phone = get(row, 'Phone 1 - Value');
-    const displayName = get(row, 'Name') || [get(row, 'Given Name'), get(row, 'Family Name')].filter(Boolean).join(' ');
-    if (!displayName && !email) return null;
+    const emails = entries(row, 'E-mail').map((email, index) => ({ ...email, value: email.value.toLowerCase(), primary: index === 0 }));
+    const phones = entries(row, 'Phone');
+    const firstName = get(row, 'Given Name', 'First Name');
+    const lastName = get(row, 'Family Name', 'Last Name');
+    const displayName = get(row, 'Name') || [firstName, get(row, 'Middle Name'), lastName].filter(Boolean).join(' ');
+    if (!displayName && !emails.length && !phones.length) return null;
     return {
-      displayName, firstName: get(row, 'Given Name') || null, lastName: get(row, 'Family Name') || null,
-      emails: email ? [{ value: email.toLowerCase(), type: normalizeType(get(row, 'E-mail 1 - Type')), primary: true }] : [],
-      phones: phone ? [{ value: phone, type: normalizeType(get(row, 'Phone 1 - Type')) }] : [],
-      organization: get(row, 'Organization 1 - Name') || null, title: get(row, 'Organization 1 - Title') || null, notes: get(row, 'Notes') || null,
+      displayName, firstName: firstName || null, lastName: lastName || null,
+      emails, phones,
+      organization: get(row, 'Organization 1 - Name', 'Organization Name') || null, title: get(row, 'Organization 1 - Title', 'Organization Title') || null, notes: get(row, 'Notes') || null,
     };
   }).filter(Boolean);
 }

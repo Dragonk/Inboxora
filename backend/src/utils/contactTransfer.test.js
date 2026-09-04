@@ -36,4 +36,23 @@ describe('contact transfer', () => {
       phones: [{ value: '+48123456789', type: 'mobile' }],
     })]);
   });
+
+  it('imports phone-only contacts from the current Google Contacts CSV headers', () => {
+    const contacts = parseGoogleCsv([
+      'First Name,Middle Name,Last Name,Phone 1 - Label,Phone 1 - Value,Phone 2 - Label,Phone 2 - Value',
+      'Alicja,,Nowak,Mobile,500 600 700,Work,+48 500 600 701',
+      'Bob,,,Komórka,500 600 702,,',
+    ].join('\n'));
+
+    expect(contacts).toEqual([
+      expect.objectContaining({
+        displayName: 'Alicja Nowak', firstName: 'Alicja', lastName: 'Nowak', emails: [],
+        phones: [{ value: '500 600 700', type: 'mobile' }, { value: '+48 500 600 701', type: 'work' }],
+      }),
+      expect.objectContaining({
+        displayName: 'Bob', firstName: 'Bob', lastName: null, emails: [],
+        phones: [{ value: '500 600 702', type: 'mobile' }],
+      }),
+    ]);
+  });
 });
