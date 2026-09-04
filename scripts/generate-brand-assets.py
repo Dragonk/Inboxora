@@ -5,6 +5,7 @@ from PIL import Image, ImageDraw, ImageFilter
 
 ROOT = Path(__file__).resolve().parents[1]
 PUBLIC = ROOT / "frontend" / "public"
+MEDIA = ROOT / "media"
 SIZES = (72, 96, 128, 144, 152, 192, 384, 512)
 ANDROID_SIZES = {
     "mipmap-mdpi": 48,
@@ -103,6 +104,8 @@ def main():
     for size in SIZES:
         save_png(icon, PUBLIC / f"inboxora-icon-{size}.png", size)
         save_png(icon, PUBLIC / f"icon-{size}.png", size)
+    save_png(icon, MEDIA / "inboxora-logo.png", CANVAS)
+    save_png(icon, MEDIA / "inboxora-logo512.png", 512)
     save_png(ui_mark(False), PUBLIC / "inboxora-ui-logo.png", CANVAS)
     save_png(ui_mark(False), PUBLIC / "inboxora-ui-logo-light.png", CANVAS)
     save_png(ui_mark(True), PUBLIC / "inboxora-ui-logo-dark.png", CANVAS)

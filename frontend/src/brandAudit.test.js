@@ -21,7 +21,8 @@ test("Inboxora branding is used by user-visible application surfaces", async () 
 });
 
 test("Inboxora wordmark and versioned PWA assets replace legacy MailFlow branding", async () => {
-  const [sidebar, login, logo, app, index, manifest, worker, themes, admin, store, socket, mailApp] = await Promise.all([
+  const [readme, sidebar, login, logo, app, index, manifest, worker, themes, admin, store, socket, mailApp] = await Promise.all([
+    source("README.md"),
     source("frontend/src/components/Sidebar.jsx"),
     source("frontend/src/components/LoginPage.jsx"),
     source("frontend/src/components/LogoMark.jsx"),
@@ -40,6 +41,7 @@ test("Inboxora wordmark and versioned PWA assets replace legacy MailFlow brandin
     assert.match(content, /Inboxora/, "application chrome must show the Inboxora wordmark");
     assert.doesNotMatch(content, />\s*Mail\s*</, "application chrome must not retain the MailFlow wordmark");
   }
+  assert.match(readme, /media\/inboxora-logo\.png/, "the GitHub README must present the current Inboxora app icon");
   assert.doesNotMatch(logo, /MailFlow/, "shared logo component must be branded Inboxora");
   assert.match(logo, /inboxora-logo-mark__light/, "shared logo component must render the high-contrast mark for light interfaces");
   assert.match(logo, /inboxora-logo-mark__dark/, "shared logo component must render the high-contrast mark for dark interfaces");
@@ -67,6 +69,7 @@ test("Inboxora wordmark and versioned PWA assets replace legacy MailFlow brandin
     assert.doesNotMatch(content, /["']\/icon-512\.png/, "PWA metadata must not retain the legacy icon URL");
   }
   await Promise.all([
+    access(new URL("../../media/inboxora-logo.png", import.meta.url)),
     access(new URL("../public/inboxora-ui-logo-light.png", import.meta.url)),
     access(new URL("../public/inboxora-ui-logo-dark.png", import.meta.url)),
     access(new URL("../public/inboxora-icon-512.png", import.meta.url)),
