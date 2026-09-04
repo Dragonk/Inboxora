@@ -41,6 +41,7 @@ import {
   unreadCountsByAccount,
 } from '../utils/threadedArchive.js';
 import { createUndoableCommit, UNDO_COMMIT_DELAY_MS, UNDO_WINDOW_MS } from '../utils/undoableAction.js';
+import { bulkUnreadDelta, failedBulkRow, failedBulkTargets } from '../utils/threadedBulkRollback.js';
 
 // Folder icon for move picker
 function FolderIcon({ specialUse, size = 13 }) {
@@ -1572,8 +1573,12 @@ export default function MessageList() {
     // single-row delete path — without this only each thread's visible
     // (newest) message was deleted and the rest of the thread survived.
     let deleteIds = ids;
+    const targetsByRow = new Map(msgs.map(msg => [msg.id, new Map([[String(msg.id), msg]])]));
     try {
       const resolved = await Promise.all(msgs.map(m => resolveMessagesForThreadAction(m)));
+      resolved.forEach((thread, index) => {
+        thread.forEach(message => message?.id && targetsByRow.get(msgs[index].id)?.set(String(message.id), message));
+      });
       deleteIds = [...new Set([...ids, ...resolved.flat().map(m => m?.id).filter(Boolean)])];
     } catch (err) {
       console.error('Failed to load thread for bulk delete:', err.message);
@@ -1586,7 +1591,7 @@ export default function MessageList() {
       prefetchSearchAfterRemoval(searchOffsetBeforeRemoval);
     }
     msgs.forEach(msg => {
-      const delta = parseInt(msg.unread_count) || (msg.is_read ? 0 : 1);
+      const delta = bulkUnreadDelta(msg);
       if (delta > 0) decrementUnread(msg.account_id, delta);
     });
     setSelectedIds(new Set());
@@ -1610,10 +1615,13 @@ export default function MessageList() {
       const failedIds = deleteIds.filter(id => !deletedSet.has(id));
       if (failedIds.length > 0) {
         const failedSet = new Set(failedIds);
-        const failedMsgs = msgs.filter(msg => failedSet.has(msg.id));
+        const failedMsgs = msgs.map(msg => failedBulkRow(msg, targetsByRow.get(msg.id) || new Map(), failedSet))
+          .filter(msg => [...(targetsByRow.get(msg.id) || new Map()).keys()].some(id => failedSet.has(id)));
         useStore.getState().restoreMessages(failedMsgs);
         failedMsgs.forEach(msg => {
-          const delta = parseInt(msg.unread_count) || (msg.is_read ? 0 : 1);
+          setThreadMessages(msg.thread_id || msg.id, failedBulkTargets(targetsByRow.get(msg.id) || new Map(), failedSet));
+          useStore.getState().updateMessage(msg.id, msg);
+          const delta = bulkUnreadDelta(msg);
           if (delta > 0) incrementUnread(msg.account_id, delta);
         });
         addNotification({ type: 'error', title: t('messageList.bulkDeleted.failTitle'), body: t('messageList.bulkDeleted.failBody', { count: failedIds.length }) });
@@ -1633,12 +1641,12 @@ export default function MessageList() {
         deleteIds.forEach(id => clearPendingDelete(id));
         useStore.getState().restoreMessages(msgs);
         msgs.forEach(msg => {
-          const delta = parseInt(msg.unread_count) || (msg.is_read ? 0 : 1);
+          const delta = bulkUnreadDelta(msg);
           if (delta > 0) incrementUnread(msg.account_id, delta);
         });
       },
     });
-  }, [searchHasMore, removeMessage, prefetchSearchAfterRemoval, resolveMessagesForThreadAction, decrementUnread, incrementUnread, addNotification, t]);
+  }, [searchHasMore, removeMessage, prefetchSearchAfterRemoval, resolveMessagesForThreadAction, decrementUnread, incrementUnread, addNotification, setThreadMessages, t]);
 
   const handleBulkMove = useCallback(async (ids, msgs, folder) => {
     // Selected thread rows move the whole conversation. A folder path is
@@ -1646,17 +1654,23 @@ export default function MessageList() {
     // account — the server would just skip (and previously silently drop)
     // another account's copies from a folder that doesn't exist there.
     let moveIds = ids;
+    const targetsByRow = new Map(msgs.map(msg => [msg.id, new Map([[String(msg.id), msg]])]));
     try {
       const resolved = await Promise.all(msgs.map(async (m) => {
         const thread = await resolveMessagesForThreadAction(m);
-        return thread.filter(tm => tm?.account_id === m.account_id);
+        const targets = thread.filter(tm => tm?.account_id === m.account_id);
+        targets.forEach(message => message?.id && targetsByRow.get(m.id)?.set(String(message.id), message));
+        return targets;
       }));
       moveIds = [...new Set([...ids, ...resolved.flat().map(m => m?.id).filter(Boolean)])];
     } catch (err) {
       console.error('Failed to load thread for bulk move:', err.message);
     }
     ids.forEach(id => removeMessage(id));
-    msgs.forEach(msg => { if (!msg.is_read) decrementUnread(msg.account_id); });
+    msgs.forEach(msg => {
+      const delta = bulkUnreadDelta(msg);
+      if (delta > 0) decrementUnread(msg.account_id, delta);
+    });
     setSelectedIds(new Set());
     setSelectionModeActive(false);
     setShowFolderPicker(false);
@@ -1668,8 +1682,20 @@ export default function MessageList() {
         const movedSet = new Set(result.moved ?? []);
         const failedCount = moveIds.filter(id => !movedSet.has(id)).length;
         if (failedCount > 0) {
-          const failedMsgs = msgs.filter(msg => !movedSet.has(msg.id));
-          if (failedMsgs.length > 0) useStore.getState().restoreMessages(failedMsgs);
+          const failedIds = new Set(moveIds.filter(id => !movedSet.has(id)));
+          const failedMsgs = msgs.map(msg => failedBulkRow(msg, targetsByRow.get(msg.id) || new Map(), failedIds))
+            .filter(msg => [...(targetsByRow.get(msg.id) || new Map()).keys()].some(id => failedIds.has(id)));
+          if (failedMsgs.length > 0) {
+            useStore.getState().restoreMessages(failedMsgs);
+            failedMsgs.forEach(msg => {
+              setThreadMessages(msg.thread_id || msg.id, failedBulkTargets(targetsByRow.get(msg.id) || new Map(), failedIds));
+              useStore.getState().updateMessage(msg.id, msg);
+            });
+          }
+          failedMsgs.forEach(msg => {
+            const delta = bulkUnreadDelta(msg);
+            if (delta > 0) incrementUnread(msg.account_id, delta);
+          });
           addNotification({ title: t('messageList.bulkMoved.failTitle'), body: t('messageList.bulkMoved.failBody', { count: failedCount }) });
         } else if (msgs[0]?.account_id) {
           useStore.getState().recordRecentFolder({ accountId: msgs[0].account_id, path: folder });
@@ -1677,6 +1703,10 @@ export default function MessageList() {
       } catch (err) {
         console.error('Bulk move failed:', err);
         useStore.getState().restoreMessages(msgs);
+        msgs.forEach(msg => {
+          const delta = bulkUnreadDelta(msg);
+          if (delta > 0) incrementUnread(msg.account_id, delta);
+        });
         addNotification({ title: t('messageList.bulkMoved.failTitle'), body: t('messageList.bulkMoved.failBody', { count: moveIds.length }) });
       }
     }, 4500);
@@ -1687,10 +1717,13 @@ export default function MessageList() {
         undone = true;
         clearTimeout(timer);
         useStore.getState().restoreMessages(msgs);
-        msgs.forEach(msg => { if (!msg.is_read) incrementUnread(msg.account_id); });
+        msgs.forEach(msg => {
+          const delta = bulkUnreadDelta(msg);
+          if (delta > 0) incrementUnread(msg.account_id, delta);
+        });
       },
     });
-  }, [removeMessage, decrementUnread, incrementUnread, resolveMessagesForThreadAction, addNotification, t]);
+  }, [removeMessage, decrementUnread, incrementUnread, resolveMessagesForThreadAction, addNotification, setThreadMessages, t]);
 
   const handleRowMove = useCallback((e, msg) => {
     e.stopPropagation();
@@ -1990,28 +2023,12 @@ export default function MessageList() {
 
     const markRead = (msg) => {
       if (msg.is_read) return;
-      const { updateMessage, decrementUnread, incrementUnread, adjustCategoryCount, markReadBehavior, markReadDelay } = getState();
+      const { markReadBehavior, markReadDelay } = getState();
       if (markReadBehavior === 'manual') return;
       clearTimeout(autoMarkReadTimerRef.current);
       autoMarkReadTimerRef.current = null;
       const doMarkRead = () => {
-        updateMessage(msg.id, { is_read: true });
-        decrementUnread(msg.account_id);
-        adjustCategoryCount(msg.category, -1);
-        setPending(msg.id, msg.account_id);
-        api.bulkRead([msg.id], true)
-          .then(() => {
-            pendingMarkReadMap.delete(msg.id);
-            completedMarkReadMap.set(msg.id, msg.account_id);
-            setTimeout(() => completedMarkReadMap.delete(msg.id), 10000);
-          })
-          .catch(e => {
-            console.error('markRead failed:', e.message);
-            updateMessage(msg.id, { is_read: false });
-            incrementUnread(msg.account_id);
-            adjustCategoryCount(msg.category, 1);
-            pendingMarkReadMap.delete(msg.id);
-          });
+        Promise.resolve(setMessagesReadStateRef.current?.(msg, true)).catch(() => {});
       };
       if (markReadBehavior === 'delay') {
         autoMarkReadTimerRef.current = setTimeout(doMarkRead, (markReadDelay || 1) * 1000);

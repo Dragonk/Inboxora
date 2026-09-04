@@ -11,6 +11,7 @@ import { getEffectiveShortcuts, parseModKey, modCompactLabel } from '../utils/de
 import { useMobile } from '../hooks/useMobile.js';
 import { clearDeleteGuard, clearPendingDelete, setCompletedDelete, setPendingDelete } from '../utils/pendingDeletes.js';
 import { pendingMarkReadMap, completedMarkReadMap, setPending } from '../utils/pendingReads.js';
+import { queueReadStateMutation, isLatestReadStateMutation } from '../utils/readStateMutation.js';
 import { queueStarStateMutation, isLatestStarStateMutation } from '../utils/starStateMutation.js';
 import { BUILTIN_SUMMARIZE, summarizePromptForLocale } from '../aiActions.js';
 import { getResults, saveResult, removeResult } from '../aiResults.js';
@@ -142,13 +143,16 @@ export default function MessagePane({ windowMessageId = null, onWindowClose = nu
         decrementUnread(msg.account_id);
         adjustCategoryCount(msg.category, -1);
         setPending(msg.id, msg.account_id);
-        api.bulkRead([msg.id], true)
+        const mutation = queueReadStateMutation(msg.id, true, read => api.bulkRead([msg.id], read));
+        mutation.promise
           .then(() => {
+            if (!isLatestReadStateMutation(msg.id, mutation.version)) return;
             pendingMarkReadMap.delete(msg.id);
             completedMarkReadMap.set(msg.id, msg.account_id);
             setTimeout(() => completedMarkReadMap.delete(msg.id), 10000);
           })
           .catch(e => {
+            if (!isLatestReadStateMutation(msg.id, mutation.version)) return;
             console.error('markRead failed:', e.message);
             updateMessage(msg.id, { is_read: false });
             incrementUnread(msg.account_id);
@@ -941,13 +945,16 @@ export default function MessagePane({ windowMessageId = null, onWindowClose = nu
                 decUnread(target.account_id);
                 adjCat(target.category, -1);
                 setPending(target.id, target.account_id);
-                api.bulkRead([target.id], true)
+                const mutation = queueReadStateMutation(target.id, true, read => api.bulkRead([target.id], read));
+                mutation.promise
                   .then(() => {
+                    if (!isLatestReadStateMutation(target.id, mutation.version)) return;
                     pendingMarkReadMap.delete(target.id);
                     completedMarkReadMap.set(target.id, target.account_id);
                     setTimeout(() => completedMarkReadMap.delete(target.id), 10000);
                   })
                   .catch(e => {
+                    if (!isLatestReadStateMutation(target.id, mutation.version)) return;
                     console.error('markRead failed:', e.message);
                     updMsg(target.id, { is_read: false });
                     incUnread(target.account_id);
@@ -1300,7 +1307,9 @@ ${bodyContent}
     adjustCategoryCount(message.category, 1);
     completedMarkReadMap.delete(message.id);
     pendingMarkReadMap.delete(message.id);
-    api.bulkRead([message.id], false).catch(e => {
+    const mutation = queueReadStateMutation(message.id, false, read => api.bulkRead([message.id], read));
+    mutation.promise.catch(e => {
+      if (!isLatestReadStateMutation(message.id, mutation.version)) return;
       console.error('markUnread failed:', e.message);
       updateMessage(message.id, { is_read: true });
       decrementUnread(message.account_id);
@@ -1613,7 +1622,9 @@ ${bodyContent}
           decrementUnread(message.account_id);
           adjustCategoryCount(message.category, -1);
           setPending(message.id, message.account_id);
-          api.bulkRead([message.id], true).catch(e => {
+          const mutation = queueReadStateMutation(message.id, true, read => api.bulkRead([message.id], read));
+          mutation.promise.catch(e => {
+            if (!isLatestReadStateMutation(message.id, mutation.version)) return;
             console.error('markRead failed:', e.message);
             updateMessage(message.id, { is_read: false });
             incrementUnread(message.account_id);

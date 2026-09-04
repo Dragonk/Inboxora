@@ -18,6 +18,21 @@ describe('read-state mutation lane', () => {
     assert.deepEqual(calls, [true, false]);
   });
 
+  it('ignores a superseded automatic failure while committing the newer intent', async () => {
+    resetReadStateMutationsForTest();
+    const calls = [];
+    let rejectFirst;
+    const first = queueReadStateMutation('m3', true, read => new Promise((resolve, reject) => {
+      calls.push(read);
+      rejectFirst = reject;
+    }));
+    const second = queueReadStateMutation('m3', false, async read => { calls.push(read); });
+    await new Promise(resolve => setTimeout(resolve, 0));
+    rejectFirst(new Error('automatic read failed'));
+    await Promise.allSettled([first.promise, second.promise]);
+    assert.deepEqual(calls, [true, false]);
+  });
+
   it('serializes reversed explicit responses as the latest read state', async () => {
     resetReadStateMutationsForTest();
     const calls = [];
