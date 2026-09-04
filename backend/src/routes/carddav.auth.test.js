@@ -1,4 +1,5 @@
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
+import { createBrowserCors } from '../middleware/browserCors.js';
 
 const { authenticateDavCredential, query } = vi.hoisted(() => ({
   authenticateDavCredential: vi.fn(),
@@ -22,6 +23,7 @@ let base;
 
 beforeAll(async () => {
   const app = express();
+  app.use(createBrowserCors({ origin: 'https://email.kmms.ovh', credentials: true }));
   app.use('/carddav', carddavRouter);
   await new Promise((resolve) => { server = app.listen(0, resolve); });
   base = `http://127.0.0.1:${server.address().port}`;
@@ -47,6 +49,7 @@ describe('CardDAV authentication', () => {
     });
 
     expect(response.status).toBe(200);
+    expect(response.headers.get('dav')).toContain('addressbook');
     expect(authenticateDavCredential).toHaveBeenCalledWith(
       'sam@example.test',
       'mf_dav_123e4567-e89b-12d3-a456-426614174000.exampleSecret-123456',

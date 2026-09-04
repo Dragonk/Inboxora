@@ -1,4 +1,5 @@
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
+import { createBrowserCors } from '../middleware/browserCors.js';
 
 const { authenticateDavCredential, query } = vi.hoisted(() => ({
   authenticateDavCredential: vi.fn(),
@@ -22,6 +23,7 @@ let base;
 
 beforeAll(async () => {
   const app = express();
+  app.use(createBrowserCors({ origin: 'https://email.kmms.ovh', credentials: true }));
   app.use('/caldav', caldavRouter);
   await new Promise((resolve) => { server = app.listen(0, resolve); });
   base = `http://127.0.0.1:${server.address().port}`;

@@ -1,7 +1,6 @@
 import express from 'express';
 import 'express-async-errors'; // route a rejected async handler to the error middleware (Express 4 doesn't)
 import session from 'express-session';
-import cors from 'cors';
 import { createServer } from 'http';
 import { readFileSync } from 'fs';
 import { WebSocketServer } from 'ws';
@@ -52,6 +51,7 @@ import conversationsRoutes from './routes/conversations.js';
 import conversationRebuildRoutes from './routes/conversationRebuild.js';
 import conversationOverridesRoutes from './routes/conversationOverrides.js';
 import { retryConversationIngestFailures } from './services/conversationIngestRetry.js';
+import { createBrowserCors } from './middleware/browserCors.js';
 
 const packageMeta = JSON.parse(readFileSync(new URL('../package.json', import.meta.url), 'utf-8'));
 let buildMeta = {};
@@ -112,9 +112,9 @@ const sessionMiddleware = session({
   }
 });
 
-app.use(cors({
+app.use(createBrowserCors({
   origin: process.env.FRONTEND_URL || 'http://localhost:5173',
-  credentials: true
+  credentials: true,
 }));
 
 // Performance baseline: time the full request lifecycle and record it under the
