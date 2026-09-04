@@ -1052,7 +1052,8 @@
       "home": "Dom",
       "other": "Inne"
     },
-    "carddavBadge": "Zsynchronizowano z CardDAV"
+    "carddavBadge": "Zsynchronizowano z CardDAV",
+    "addressBooks": { "label": "Książka kontaktów", "allVisible": "Wszystkie widoczne", "create": "Nowa książka kontaktów", "newPrompt": "Nazwa nowej książki kontaktów", "hide": "Ukryj", "show": "Pokaż", "importGoogle": "Importuj plik CSV z Google", "exportGoogle": "Eksport CSV do Google", "exportOutlook": "Eksport CSV do Outlooka" }
   },
   "contextMenu": {
     "find": "Znajdź",

@@ -1052,7 +1052,8 @@
       "home": "Domicile",
       "other": "Autre"
     },
-    "carddavBadge": "Synchronisé depuis CardDAV"
+    "carddavBadge": "Synchronisé depuis CardDAV",
+    "addressBooks": { "label": "Carnet d'adresses", "allVisible": "Tous les visibles", "create": "Nouveau carnet", "newPrompt": "Nom du nouveau carnet", "hide": "Masquer", "show": "Afficher", "importGoogle": "Importer un fichier CSV Google", "exportGoogle": "Exporter au format CSV Google", "exportOutlook": "Exporter au format CSV Outlook" }
   },
   "contextMenu": {
     "find": "Rechercher",

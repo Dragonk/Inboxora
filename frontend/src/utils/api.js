@@ -313,12 +313,13 @@ export const api = {
   suggestContacts: (q) => request('GET', `/search/contacts?q=${encodeURIComponent(q)}`),
 
   // Contacts
-  getContacts:   ({ q, limit, offset, is_auto } = {}) => {
+  getContacts:   ({ q, limit, offset, is_auto, addressBookId } = {}) => {
     const p = new URLSearchParams();
     if (q) p.set('q', q);
     if (limit !== undefined) p.set('limit', limit);
     if (offset !== undefined) p.set('offset', offset);
     if (is_auto !== undefined) p.set('is_auto', is_auto);
+    if (addressBookId) p.set('addressBookId', addressBookId);
     const qs = p.toString();
     return request('GET', `/contacts${qs ? '?' + qs : ''}`);
   },
@@ -326,6 +327,14 @@ export const api = {
   createContact: (data)     => request('POST',   '/contacts', data),
   updateContact: (id, data) => request('PATCH',  `/contacts/${id}`, data),
   deleteContact: (id)       => request('DELETE', `/contacts/${id}`),
+  addressBooks: {
+    list: () => request('GET', '/contacts/address-books'),
+    create: (name) => request('POST', '/contacts/address-books', { name }),
+    update: (id, data) => request('PATCH', `/contacts/address-books/${encodeURIComponent(id)}`, data),
+    remove: (id) => request('DELETE', `/contacts/address-books/${encodeURIComponent(id)}`),
+    importGoogleCsv: (id, csv) => request('POST', `/contacts/address-books/${encodeURIComponent(id)}/import/google-csv`, { csv }),
+    exportUrl: (id, format) => `${BASE}/contacts/address-books/${encodeURIComponent(id)}/export?format=${encodeURIComponent(format)}`,
+  },
 
   // CardDAV contact sync (Nextcloud etc.)
   carddav: {

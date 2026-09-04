@@ -68,19 +68,24 @@ describe('CardDAV authentication', () => {
     expect(response.headers.get('www-authenticate')).toContain('Inboxora CardDAV');
   });
 
-  it('discovers the provisioned Personal Contacts address book for a DAV client', async () => {
+  it('discovers every provisioned address book for a DAV client', async () => {
     authenticateDavCredential.mockResolvedValue({ userId: 'user-1', credentialId: 'credential-1' });
-    query.mockResolvedValueOnce({ rows: [{ id: 'personal-contacts' }] });
+    query.mockResolvedValueOnce({ rows: [
+      { id: 'personal-contacts', name: 'Prywatne', sync_token: 'sync-private' },
+      { id: 'work-contacts', name: 'Służbowe', sync_token: 'sync-work' },
+    ] });
 
     const response = await fetch(`${base}/carddav/user-1/`, {
       method: 'PROPFIND',
-      headers: { authorization: basic('sam@example.test', 'mf_dav_123e4567-e89b-12d3-a456-426614174000.exampleSecret-123456') },
+      headers: { authorization: basic('sam@example.test', 'mf_dav_123e4567-e89b-12d3-a456-426614174000.exampleSecret-123456'), depth: '1' },
     });
 
     expect(response.status).toBe(207);
-    expect(await response.text()).toContain('/carddav/user-1/personal-contacts/');
+    const xml = await response.text();
+    expect(xml).toContain('/carddav/user-1/personal-contacts/');
+    expect(xml).toContain('/carddav/user-1/work-contacts/');
     expect(query).toHaveBeenCalledWith(
-      'SELECT id FROM address_books WHERE user_id = $1 ORDER BY created_at LIMIT 1',
+      'SELECT id, name, sync_token FROM address_books WHERE user_id = $1 ORDER BY created_at',
       ['user-1'],
     );
   });

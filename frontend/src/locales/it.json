@@ -1052,7 +1052,8 @@
       "home": "Casa",
       "other": "Altro"
     },
-    "carddavBadge": "Sincronizzato da CardDAV"
+    "carddavBadge": "Sincronizzato da CardDAV",
+    "addressBooks": { "label": "Rubrica", "allVisible": "Tutti i visibili", "create": "Nuova rubrica", "newPrompt": "Nome della nuova rubrica", "hide": "Nascondi", "show": "Mostra", "importGoogle": "Importa un CSV da Google", "exportGoogle": "Esporta CSV per Google", "exportOutlook": "Esporta CSV per Outlook" }
   },
   "contextMenu": {
     "find": "Trova",

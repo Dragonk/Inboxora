@@ -1052,7 +1052,8 @@
       "home": "Privat",
       "other": "Sonstige"
     },
-    "carddavBadge": "Von CardDAV synchronisiert"
+    "carddavBadge": "Von CardDAV synchronisiert",
+    "addressBooks": { "label": "Adressbuch", "allVisible": "Alle sichtbaren", "create": "Neues Adressbuch", "newPrompt": "Name des neuen Adressbuchs", "hide": "Ausblenden", "show": "Anzeigen", "importGoogle": "Google-CSV importieren", "exportGoogle": "CSV für Google exportieren", "exportOutlook": "CSV für Outlook exportieren" }
   },
   "contextMenu": {
     "find": "Suchen",

@@ -1052,7 +1052,8 @@
       "home": "家庭",
       "other": "其他"
     },
-    "carddavBadge": "从 CardDAV 同步"
+    "carddavBadge": "从 CardDAV 同步",
+    "addressBooks": { "label": "通讯录", "allVisible": "所有可见项", "create": "新建通讯录", "newPrompt": "新通讯录名称", "hide": "隐藏", "show": "显示", "importGoogle": "导入 Google CSV 文件", "exportGoogle": "导出 Google CSV 文件", "exportOutlook": "导出 Outlook CSV 文件" }
   },
   "contextMenu": {
     "find": "查找",

@@ -1052,7 +1052,8 @@
       "home": "Home",
       "other": "Other"
     },
-    "carddavBadge": "Synced from CardDAV"
+    "carddavBadge": "Synced from CardDAV",
+    "addressBooks": { "label": "Address book", "allVisible": "All visible", "create": "New address book", "newPrompt": "Name the new address book", "hide": "Hide", "show": "Show", "importGoogle": "Import Google CSV", "exportGoogle": "Google CSV", "exportOutlook": "Outlook CSV" }
   },
   "contextMenu": {
     "find": "Find",

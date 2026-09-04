@@ -161,26 +161,28 @@ router.propfind('/:userId/', async (req, res) => {
   if (req.params.userId !== userId) return res.status(403).end();
 
   const principalPath  = `/carddav/${userId}/`;
-
-  const r = await query(
-    'SELECT id FROM address_books WHERE user_id = $1 ORDER BY created_at LIMIT 1',
-    [userId]
-  );
-  const bookId   = r.rows[0]?.id;
-  const homePath = bookId ? `/carddav/${userId}/${bookId}/` : principalPath;
-
-  const xml = multistatus([
-    response(principalPath, [
-      propstat([
-        '<D:resourcetype><D:principal/><D:collection/></D:resourcetype>',
-        `<D:displayname>${xmlEscape(userId)}</D:displayname>`,
-        `<D:principal-URL><D:href>${xmlEscape(principalPath)}</D:href></D:principal-URL>`,
-        `<C:addressbook-home-set><D:href>${xmlEscape(homePath)}</D:href></C:addressbook-home-set>`,
-        `<D:current-user-principal><D:href>${xmlEscape(principalPath)}</D:href></D:current-user-principal>`,
-      ], '200 OK'),
-    ]),
+  const r = await query('SELECT id, name, sync_token FROM address_books WHERE user_id = $1 ORDER BY created_at', [userId]);
+  const principal = response(principalPath, [
+    propstat([
+      '<D:resourcetype><D:principal/><D:collection/></D:resourcetype>',
+      `<D:displayname>${xmlEscape(userId)}</D:displayname>`,
+      `<D:principal-URL><D:href>${xmlEscape(principalPath)}</D:href></D:principal-URL>`,
+      `<C:addressbook-home-set><D:href>${xmlEscape(principalPath)}</D:href></C:addressbook-home-set>`,
+      `<D:current-user-principal><D:href>${xmlEscape(principalPath)}</D:href></D:current-user-principal>`,
+    ], '200 OK'),
   ]);
-  sendXml(res, 207, xml);
+  const books = (req.headers.depth || '0') === '0' ? [] : r.rows.map(book => response(`/carddav/${userId}/${book.id}/`, [
+    propstat([
+      '<D:resourcetype><D:collection/><C:addressbook/></D:resourcetype>',
+      `<D:displayname>${xmlEscape(book.name)}</D:displayname>`,
+      `<D:sync-token>${xmlEscape(book.sync_token)}</D:sync-token>`,
+      `<CS:getctag>${xmlEscape(book.sync_token)}</CS:getctag>`,
+    ], '200 OK'),
+  ]));
+  sendXml(res, 207, multistatus([
+    principal,
+    ...books,
+  ]));
 });
 
 // ── PROPFIND /{userId}/{bookId}/ (address book) ───────────────────────────────

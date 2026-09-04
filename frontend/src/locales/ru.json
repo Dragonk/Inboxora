@@ -1052,7 +1052,8 @@
       "home": "Дом",
       "other": "Другой"
     },
-    "carddavBadge": "Синхронизировано из CardDAV"
+    "carddavBadge": "Синхронизировано из CardDAV",
+    "addressBooks": { "label": "Книга контактов", "allVisible": "Все видимые", "create": "Новая книга", "newPrompt": "Название новой книги контактов", "hide": "Скрыть", "show": "Показать", "importGoogle": "Импорт файла CSV из Google", "exportGoogle": "Экспорт CSV для Google", "exportOutlook": "Экспорт CSV для Outlook" }
   },
   "contextMenu": {
     "find": "Найти",

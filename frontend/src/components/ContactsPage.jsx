@@ -69,6 +69,8 @@ export default function ContactsPage({ isActive = true }) {
   const isMobile = useMobile();
 
   const [contacts, setContacts]     = useState([]);
+  const [addressBooks, setAddressBooks] = useState([]);
+  const [selectedAddressBookId, setSelectedAddressBookId] = useState('');
   const [total, setTotal]           = useState(0);
   const [loading, setLoading]       = useState(true);
   const [loadingMore, setLoadingMore] = useState(false);
@@ -87,6 +89,7 @@ export default function ContactsPage({ isActive = true }) {
   const rowRefs                     = useRef(new Map());
   const selectedRowIdRef            = useRef(null);
   const mobileBackButtonRef         = useRef(null);
+  const importInputRef              = useRef(null);
   const contactSelectionRequestRef  = useRef(0);
 
   // MailApp keeps primary views mounted. A mobile bottom-nav re-entry must not
@@ -129,12 +132,19 @@ export default function ContactsPage({ isActive = true }) {
   useEffect(() => { contactsRef.current = contacts; }, [contacts]);
   useEffect(() => { totalRef.current = total; }, [total]);
 
+  const loadAddressBooks = useCallback(async () => {
+    const result = await api.addressBooks.list();
+    // Older servers and test fixtures may not expose address books yet. Contacts
+    // must remain usable while the client and API roll out independently.
+    setAddressBooks(Array.isArray(result.addressBooks) ? result.addressBooks : []);
+  }, []);
+
   const load = useCallback(async (q = '') => {
     setLoading(true);
     setListError(null);
     searchRef.current = q;
     try {
-      const res = await api.getContacts({ q, limit: PAGE_SIZE, offset: 0 });
+      const res = await api.getContacts({ q, limit: PAGE_SIZE, offset: 0, addressBookId: selectedAddressBookId || undefined });
       setContacts(res.contacts);
       setTotal(res.total);
     } catch (err) {
@@ -142,15 +152,46 @@ export default function ContactsPage({ isActive = true }) {
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [selectedAddressBookId]);
 
   useEffect(() => { load(''); }, [load]);
+  useEffect(() => { loadAddressBooks().catch(err => setListError(err.message)); }, [loadAddressBooks]);
 
   const onSearchChange = (e) => {
     const val = e.target.value;
     setSearch(val);
     clearTimeout(searchTimer.current);
     searchTimer.current = setTimeout(() => load(val), 300);
+  };
+
+  const createAddressBook = async () => {
+    const name = window.prompt(t('contacts.addressBooks.newPrompt'));
+    if (!name?.trim()) return;
+    try {
+      const book = await api.addressBooks.create(name);
+      await loadAddressBooks();
+      setSelectedAddressBookId(book.id);
+    } catch (err) { setListError(err.message); }
+  };
+
+  const toggleAddressBookVisibility = async () => {
+    const book = addressBooks.find(item => item.id === selectedAddressBookId);
+    if (!book) return;
+    try {
+      await api.addressBooks.update(book.id, { visible: !book.visible });
+      await loadAddressBooks();
+    } catch (err) { setListError(err.message); }
+  };
+
+  const importGoogleCsv = async (event) => {
+    const file = event.target.files?.[0];
+    if (!file || !selectedAddressBookId) return;
+    try {
+      await api.addressBooks.importGoogleCsv(selectedAddressBookId, await file.text());
+      await load(search);
+      await loadAddressBooks();
+    } catch (err) { setListError(err.message); }
+    finally { event.target.value = ''; }
   };
 
   const handleListScroll = useCallback((e) => {
@@ -161,7 +202,7 @@ export default function ContactsPage({ isActive = true }) {
     setLoadingMore(true);
     const q = searchRef.current;
     const offset = contactsRef.current.length;
-    api.getContacts({ q, limit: PAGE_SIZE, offset })
+    api.getContacts({ q, limit: PAGE_SIZE, offset, addressBookId: selectedAddressBookId || undefined })
       .then(res => {
         setContacts(prev => [...prev, ...res.contacts]);
         setTotal(res.total);
@@ -171,7 +212,7 @@ export default function ContactsPage({ isActive = true }) {
         loadingMoreRef.current = false;
         setLoadingMore(false);
       });
-  }, []);
+  }, [selectedAddressBookId]);
 
   const selectContact = async (c) => {
     setError(null);
@@ -294,7 +335,7 @@ export default function ContactsPage({ isActive = true }) {
       };
       let saved;
       if (showNew) {
-        saved = await api.createContact(payload);
+        saved = await api.createContact({ ...payload, addressBookId: selectedAddressBookId || undefined });
       } else {
         saved = await api.updateContact(selected.id, payload);
       }
@@ -673,6 +714,21 @@ export default function ContactsPage({ isActive = true }) {
               fontSize: 13, outline: 'none',
             }}
           />
+          <div style={{ display: 'flex', gap: 6, marginTop: 8, alignItems: 'center' }}>
+            <select data-testid="contacts-address-book-select" aria-label={t('contacts.addressBooks.label')} value={selectedAddressBookId} onChange={e => setSelectedAddressBookId(e.target.value)} style={{ minWidth: 0, flex: 1, padding: '6px 8px', borderRadius: 6, border: '1px solid var(--border)', background: 'var(--bg-input)', color: 'var(--text-primary)' }}>
+              <option value="">{t('contacts.addressBooks.allVisible')}</option>
+              {addressBooks.map(book => <option key={book.id} value={book.id}>{book.visible ? '' : '○ '}{book.name}</option>)}
+            </select>
+            <button type="button" onClick={createAddressBook} aria-label={t('contacts.addressBooks.create')} style={{ padding: '6px 8px' }}>+</button>
+          </div>
+          {selectedAddressBookId && <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, marginTop: 6, fontSize: 11 }}>
+            <button type="button" onClick={toggleAddressBookVisibility}>{addressBooks.find(book => book.id === selectedAddressBookId)?.visible ? t('contacts.addressBooks.hide') : t('contacts.addressBooks.show')}</button>
+            <button type="button" onClick={() => importInputRef.current?.click()}>{t('contacts.addressBooks.importGoogle')}</button>
+            <a href={api.addressBooks.exportUrl(selectedAddressBookId, 'google-csv')}>{t('contacts.addressBooks.exportGoogle')}</a>
+            <a href={api.addressBooks.exportUrl(selectedAddressBookId, 'outlook-csv')}>{t('contacts.addressBooks.exportOutlook')}</a>
+            <a href={api.addressBooks.exportUrl(selectedAddressBookId, 'vcard')}>vCard</a>
+            <input ref={importInputRef} type="file" accept=".csv,text/csv" onChange={importGoogleCsv} style={{ display: 'none' }} />
+          </div>}
         </div>
 
         {listPanel}

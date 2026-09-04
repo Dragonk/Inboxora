@@ -1,9 +1,10 @@
 import { Router } from 'express';
-import { query } from '../services/db.js';
+import { query, withTransaction } from '../services/db.js';
 import { requireAuth } from '../middleware/auth.js';
 import { generateVCard, mergeVCard, normalizeContactDateLabel } from '../utils/vcard.js';
 import { chooseDefined, normalizeRichContactFields } from '../utils/contactFields.js';
 import { safeFetch } from '../services/safeFetch.js';
+import { contactsToGoogleCsv, contactsToOutlookCsv, contactsToVCard, parseGoogleCsv } from '../utils/contactTransfer.js';
 import crypto from 'crypto';
 
 const router = Router();
@@ -90,10 +91,69 @@ async function bumpSyncToken(addressBookId) {
   );
 }
 
+function localBookName(value) {
+  const name = typeof value === 'string' ? value.trim().replace(/\s+/g, ' ') : '';
+  return name.length >= 1 && name.length <= 120 ? name : null;
+}
+
+async function requireLocalAddressBook(userId, addressBookId) {
+  const result = await query('SELECT id, name, source, visible FROM address_books WHERE id = $1 AND user_id = $2', [addressBookId, userId]);
+  const book = result.rows[0];
+  if (!book) return { error: 'Address book not found', status: 404 };
+  if (book.source !== 'local') return { error: 'This address book is read-only', status: 403 };
+  return { book };
+}
+
+router.get('/address-books', async (req, res) => {
+  try {
+    const result = await query(`SELECT ab.id, ab.name, ab.source, ab.visible, COUNT(c.id)::int AS contact_count FROM address_books ab LEFT JOIN contacts c ON c.address_book_id = ab.id WHERE ab.user_id = $1 GROUP BY ab.id ORDER BY ab.created_at ASC`, [req.session.userId]);
+    res.json({ addressBooks: result.rows });
+  } catch (err) { console.error('Address book list error:', err); res.status(500).json({ error: 'Failed to fetch address books' }); }
+});
+
+router.post('/address-books', async (req, res) => {
+  const name = localBookName(req.body?.name);
+  if (!name) return res.status(400).json({ error: 'Address book name must be 1 to 120 characters' });
+  try {
+    const result = await query(`INSERT INTO address_books (user_id, name, source, visible) VALUES ($1, $2, 'local', true) RETURNING id, name, source, visible`, [req.session.userId, name]);
+    res.status(201).json(result.rows[0]);
+  } catch (err) {
+    if (err.code === '23505') return res.status(409).json({ error: 'An address book with that name already exists' });
+    console.error('Address book create error:', err); res.status(500).json({ error: 'Failed to create address book' });
+  }
+});
+
+router.patch('/address-books/:id', async (req, res) => {
+  const { name: rawName, visible } = req.body || {};
+  if (rawName !== undefined && !localBookName(rawName)) return res.status(400).json({ error: 'Address book name must be 1 to 120 characters' });
+  if (visible !== undefined && typeof visible !== 'boolean') return res.status(400).json({ error: 'visible must be a boolean' });
+  if (rawName === undefined && visible === undefined) return res.status(400).json({ error: 'No address book changes supplied' });
+  try {
+    const local = await requireLocalAddressBook(req.session.userId, req.params.id);
+    if (local.error) return res.status(local.status).json({ error: local.error });
+    const result = await query(`UPDATE address_books SET name = COALESCE($1, name), visible = COALESCE($2, visible), updated_at = NOW() WHERE id = $3 AND user_id = $4 RETURNING id, name, source, visible`, [rawName === undefined ? null : localBookName(rawName), visible === undefined ? null : visible, req.params.id, req.session.userId]);
+    res.json(result.rows[0]);
+  } catch (err) {
+    if (err.code === '23505') return res.status(409).json({ error: 'An address book with that name already exists' });
+    console.error('Address book update error:', err); res.status(500).json({ error: 'Failed to update address book' });
+  }
+});
+
+router.delete('/address-books/:id', async (req, res) => {
+  try {
+    const local = await requireLocalAddressBook(req.session.userId, req.params.id);
+    if (local.error) return res.status(local.status).json({ error: local.error });
+    const count = await query(`SELECT COUNT(*)::int AS count FROM address_books WHERE user_id = $1 AND source = 'local'`, [req.session.userId]);
+    if (count.rows[0].count <= 1) return res.status(409).json({ error: 'At least one local address book is required' });
+    await query('DELETE FROM address_books WHERE id = $1 AND user_id = $2', [req.params.id, req.session.userId]);
+    res.status(204).end();
+  } catch (err) { console.error('Address book delete error:', err); res.status(500).json({ error: 'Failed to delete address book' }); }
+});
+
 // GET /api/contacts
 // Query params: q (search), limit, offset, is_auto (true|false|'')
 router.get('/', async (req, res) => {
-  const { q, limit = 50, offset = 0, is_auto } = req.query;
+  const { q, limit = 50, offset = 0, is_auto, addressBookId } = req.query;
   const userId = req.session.userId;
   const cap = Math.min(parseInt(limit) || 50, 500);
   const off = Math.max(0, parseInt(offset) || 0);
@@ -120,6 +180,13 @@ router.get('/', async (req, res) => {
     conditions.push('c.is_auto = false');
   }
 
+  if (addressBookId) {
+    params.push(addressBookId);
+    conditions.push(`c.address_book_id = $${p++}`);
+  } else {
+    conditions.push('ab.visible = true');
+  }
+
   try {
     const result = await query(`
       SELECT
@@ -127,7 +194,7 @@ router.get('/', async (req, res) => {
         c.primary_email, c.emails, c.phones, c.organization,
         c.notes, c.birthday, c.anniversary, c.contact_dates AS "contactDates", c.title, c.role, c.nickname,
         c.urls, c.addresses, c.instant_messages AS "instantMessages", c.categories,
-        c.is_auto, c.send_count, c.last_sent,
+        c.address_book_id, ab.name AS address_book_name, c.is_auto, c.send_count, c.last_sent,
         c.etag, c.created_at, c.updated_at,
         (c.photo_data IS NOT NULL) AS has_contact_photo,
         (ab.source = 'carddav') AS read_only
@@ -142,7 +209,7 @@ router.get('/', async (req, res) => {
     `, [...params, cap, off]);
 
     const total = await query(
-      `SELECT COUNT(*) FROM contacts c WHERE ${conditions.join(' AND ')}`,
+      `SELECT COUNT(*) FROM contacts c JOIN address_books ab ON ab.id = c.address_book_id WHERE ${conditions.join(' AND ')}`,
       params
     );
 
@@ -244,6 +311,44 @@ router.get('/gravatar', async (req, res) => {
   }
 });
 
+router.get('/address-books/:id/export', async (req, res) => {
+  const format = req.query.format;
+  if (!['google-csv', 'outlook-csv', 'vcard'].includes(format)) return res.status(400).json({ error: 'Unsupported export format' });
+  try {
+    const book = await query('SELECT id, name FROM address_books WHERE id = $1 AND user_id = $2', [req.params.id, req.session.userId]);
+    if (!book.rows.length) return res.status(404).json({ error: 'Address book not found' });
+    const contacts = await query(`SELECT uid, display_name, first_name, last_name, emails, phones, organization, title, notes FROM contacts WHERE address_book_id = $1 ORDER BY lower(coalesce(display_name, primary_email, ''))`, [book.rows[0].id]);
+    const filename = `${book.rows[0].name.replace(/[^a-z0-9_-]+/gi, '-') || 'contacts'}`;
+    if (format === 'vcard') {
+      res.type('text/vcard').attachment(`${filename}.vcf`).send(contactsToVCard(contacts.rows));
+    } else {
+      const content = format === 'google-csv' ? contactsToGoogleCsv(contacts.rows) : contactsToOutlookCsv(contacts.rows);
+      res.type('text/csv').attachment(`${filename}-${format}.csv`).send(content);
+    }
+  } catch (err) { console.error('Address book export error:', err); res.status(500).json({ error: 'Failed to export address book' }); }
+});
+
+router.post('/address-books/:id/import/google-csv', async (req, res) => {
+  const csv = typeof req.body?.csv === 'string' ? req.body.csv : '';
+  if (!csv || csv.length > 900_000) return res.status(400).json({ error: 'Google CSV must be a non-empty file smaller than 900 KB' });
+  try {
+    const local = await requireLocalAddressBook(req.session.userId, req.params.id);
+    if (local.error) return res.status(local.status).json({ error: local.error });
+    const contacts = parseGoogleCsv(csv);
+    if (!contacts.length) return res.status(400).json({ error: 'No contacts found in Google CSV' });
+    await withTransaction(async client => {
+      for (const contact of contacts) {
+        const uid = crypto.randomUUID();
+        const vcard = generateVCard({ uid, ...contact });
+        const etag = crypto.createHash('md5').update(vcard).digest('hex');
+        await client.query(`INSERT INTO contacts (address_book_id, user_id, uid, vcard, etag, display_name, first_name, last_name, primary_email, emails, phones, organization, notes, title, is_auto) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,false) ON CONFLICT (address_book_id, primary_email) WHERE primary_email IS NOT NULL DO UPDATE SET vcard = EXCLUDED.vcard, etag = EXCLUDED.etag, display_name = EXCLUDED.display_name, first_name = EXCLUDED.first_name, last_name = EXCLUDED.last_name, emails = EXCLUDED.emails, phones = EXCLUDED.phones, organization = EXCLUDED.organization, notes = EXCLUDED.notes, title = EXCLUDED.title, is_auto = false, updated_at = NOW()`, [local.book.id, req.session.userId, uid, vcard, etag, contact.displayName || null, contact.firstName || null, contact.lastName || null, contact.emails[0]?.value || null, JSON.stringify(contact.emails), JSON.stringify(contact.phones), contact.organization || null, contact.notes || null, contact.title || null]);
+      }
+    });
+    await bumpSyncToken(local.book.id);
+    res.status(201).json({ imported: contacts.length });
+  } catch (err) { console.error('Google CSV import error:', err); res.status(500).json({ error: 'Failed to import Google CSV' }); }
+});
+
 // GET /api/contacts/:id
 router.get('/:id', async (req, res) => {
   const userId = req.session.userId;
@@ -276,7 +381,7 @@ router.post('/', async (req, res) => {
     displayName, firstName, lastName,
     emails = [], phones = [],
     organization, notes, birthday, anniversary, contactDates,
-    title, role, nickname, urls = [], instantMessages = [], categories = [], addresses = [],
+    title, role, nickname, urls = [], instantMessages = [], categories = [], addresses = [], addressBookId: requestedAddressBookId,
   } = req.body || {};
 
   if (!Array.isArray(emails)) return res.status(400).json({ error: 'emails must be an array' });
@@ -303,7 +408,11 @@ router.post('/', async (req, res) => {
   }
 
   try {
-    const addressBookId = await defaultAddressBook(userId);
+    const addressBookId = requestedAddressBookId || await defaultAddressBook(userId);
+    if (requestedAddressBookId) {
+      const local = await requireLocalAddressBook(userId, requestedAddressBookId);
+      if (local.error) return res.status(local.status).json({ error: local.error });
+    }
     const uid = crypto.randomUUID();
     const vcard = generateVCard({ uid, displayName, firstName, lastName, emails, phones, organization, notes, birthday: storedBirthday, anniversary: storedAnniversary, contactDates: storedContactDates, ...rich });
     const etag = crypto.createHash('md5').update(vcard).digest('hex');

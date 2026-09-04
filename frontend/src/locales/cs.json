@@ -1052,7 +1052,8 @@
       "home": "Domů",
       "other": "Jiný"
     },
-    "carddavBadge": "Synchronizováno z CardDAV"
+    "carddavBadge": "Synchronizováno z CardDAV",
+    "addressBooks": { "label": "Adresář kontaktů", "allVisible": "Všechny viditelné", "create": "Nový adresář", "newPrompt": "Název nového adresáře", "hide": "Skrýt", "show": "Zobrazit", "importGoogle": "Importovat CSV z Google", "exportGoogle": "Export CSV pro Google", "exportOutlook": "Export CSV pro Outlook" }
   },
   "contextMenu": {
     "find": "Najít",
