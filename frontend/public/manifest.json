@@ -11,7 +11,7 @@
     { "protocol": "mailto", "url": "/?mailto=%s" }
   ],
   "icons": [{
-    "src": "/inboxora-icon-512.png",
+    "src": "/inboxora-icon-512.png?v=inboxora-2",
     "sizes": "512x512",
     "type": "image/png",
     "purpose": "maskable any"

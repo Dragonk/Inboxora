@@ -17,7 +17,7 @@ export default function App() {
   // The SW itself does nothing until the user explicitly grants push permission.
   useEffect(() => {
     if ('serviceWorker' in navigator) {
-      navigator.serviceWorker.register('/sw.js?v=inboxora-1').catch((err) =>
+      navigator.serviceWorker.register('/sw.js?v=inboxora-2').catch((err) =>
         console.warn('Service worker registration failed:', err)
       );
     }

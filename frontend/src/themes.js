@@ -660,10 +660,21 @@ export function subscribeAccent(fn) {
   return () => { _accentListeners.delete(fn); };
 }
 
-// Recompute everything derived from the accent (PWA theme-color and UI logo)
-// from the *effective* accent. Called after both applyTheme and applyCustomCss so
-// the accent's source (preset theme or custom override) doesn't matter.
+function refreshBrandSurface() {
+  const value = getComputedStyle(document.documentElement).getPropertyValue('--bg-primary').trim();
+  const hex = /^#([a-f\d]{6})$/i.exec(value);
+  if (!hex) return;
+
+  const channels = [0, 2, 4].map(offset => Number.parseInt(hex[1].slice(offset, offset + 2), 16) / 255);
+  const luminance = channels.reduce((total, channel, index) => total + channel * [0.2126, 0.7152, 0.0722][index], 0);
+  document.documentElement.setAttribute('data-inboxora-surface', luminance > 0.45 ? 'light' : 'dark');
+}
+
+// Recompute everything derived from the effective appearance (PWA theme-color
+// and UI logo). Called after both applyTheme and applyCustomCss so custom
+// overrides are reflected too.
 function refreshAccentDerived() {
+  refreshBrandSurface();
   const accent = getEffectiveAccent();
   if (!accent.startsWith('#')) return; // PWA theme-color expects a hex colour
   document.querySelector('meta[name="theme-color"]')?.setAttribute('content', accent);

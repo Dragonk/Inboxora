@@ -58,8 +58,8 @@ self.addEventListener('push', (event) => {
         promises.push(
           self.registration.showNotification(title, {
             body,
-            icon: '/inboxora-icon-512.png',
-            badge: '/inboxora-icon-512.png',
+            icon: '/inboxora-icon-512.png?v=inboxora-2',
+            badge: '/inboxora-icon-512.png?v=inboxora-2',
             data:  { url },
             // Replace any existing Inboxora notification so rapid arrivals
             // don't stack unboundedly in the notification center.
