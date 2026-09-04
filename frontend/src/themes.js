@@ -667,7 +667,9 @@ function refreshBrandSurface() {
   document.documentElement.appendChild(probe);
   const rgb = getComputedStyle(probe).color;
   probe.remove();
-  const channels = [...rgb.matchAll(/\d+(?:\.\d+)?/g)].map(match => Number(match[0]) / 255);
+  const channels = [...rgb.matchAll(/\d+(?:\.\d+)?/g)]
+    .slice(0, 3)
+    .map(match => Number(match[0]) / 255);
   if (channels.length !== 3) return;
 
   const luminance = channels.reduce((total, channel, index) => total + channel * [0.2126, 0.7152, 0.0722][index], 0);

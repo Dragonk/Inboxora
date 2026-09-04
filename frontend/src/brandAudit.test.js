@@ -58,6 +58,7 @@ test("Inboxora wordmark and versioned PWA assets replace legacy MailFlow brandin
   assert.match(manifest, /"purpose": "any"/, "the detailed app icon must not claim the maskable safe zone");
   assert.match(themes, /data-inboxora-surface/, "the active application surface must select the matching logo contrast variant");
   assert.match(themes, /var\(--bg-primary\)/, "the logo contrast variant must resolve custom application surface colors");
+  assert.match(themes, /slice\(0, 3\)/, "the logo contrast variant must support rgba custom surface colors");
   for (const content of [admin, store, socket, themes, mailApp]) {
     assert.doesNotMatch(content, /[Ff]aviconBadge|updateFaviconBadge/, "a fixed favicon must not expose an ineffective badge preference");
   }
