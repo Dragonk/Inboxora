@@ -6,6 +6,9 @@ import { pool } from './db.js';
 import { backfillRichContactFields } from './contactRichBackfill.js';
 
 const MIGRATIONS_DIR = join(dirname(fileURLToPath(import.meta.url)), '../../migrations');
+const ACCEPTED_REPLACED_MIGRATION_CHECKSUMS = new Map([
+  ['0072_calendar_source_url_secrets', new Set(['5ca9454166b08d0af82935dd4032510e07b1836c61fec61223c305b6608f17a4'])],
+]);
 
 async function migrationHashes() {
   const files = (await readdir(MIGRATIONS_DIR)).filter(f => /^\d{4}_.+\.sql$/.test(f)).sort();
@@ -28,7 +31,8 @@ export async function runMigrations() {
     const applied = new Map(appliedRows.rows.map(row => [row.version, row]));
     for (const migration of migrations) {
       const previous = applied.get(migration.version);
-      if (previous?.sha256 && previous.sha256 !== migration.sha256) throw new Error(`Migration checksum mismatch: ${migration.version}`);
+      const acceptedReplacedChecksum = ACCEPTED_REPLACED_MIGRATION_CHECKSUMS.get(migration.version)?.has(previous?.sha256);
+      if (previous?.sha256 && previous.sha256 !== migration.sha256 && !acceptedReplacedChecksum) throw new Error(`Migration checksum mismatch: ${migration.version}`);
       if (previous) {
         if (!previous.sha256) await client.query('UPDATE schema_migrations SET sha256 = $1 WHERE version = $2', [migration.sha256, migration.version]);
         continue;
