@@ -1991,7 +1991,7 @@ ${bodyContent}
           marginBottom: isMobile ? 12 : 24,
           marginLeft: isMobile ? 0 : undefined,
           marginRight: isMobile ? 0 : undefined,
-          background: 'var(--bg-secondary)',
+          background: 'var(--bg-elevated)',
           borderRadius: isMobile ? 0 : 10,
           border: isMobile ? 'none' : '1px solid var(--border-subtle)',
           borderBottom: '1px solid var(--border-subtle)',
@@ -2003,7 +2003,7 @@ ${bodyContent}
           <div style={{
             padding: '14px 16px 12px',
             borderBottom: '1px solid var(--border-subtle)',
-            fontSize: 17, fontWeight: 600,
+            fontSize: 19, fontWeight: 600,
             color: 'var(--text-primary)', lineHeight: 1.3,
             fontFamily: 'var(--font-display)',
           }}>

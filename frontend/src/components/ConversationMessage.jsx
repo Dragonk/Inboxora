@@ -158,7 +158,7 @@ export default function ConversationMessage({ conversationId, message, selectedC
   >
     <div className="msg-card" style={{
       marginBottom: expanded ? 12 : 24,
-      background: 'var(--bg-secondary)',
+      background: 'var(--bg-elevated)',
       borderRadius: 10,
       border: '1px solid var(--border-subtle)',
       borderLeft: `3px solid ${accountColor}`,
@@ -222,7 +222,7 @@ export default function ConversationMessage({ conversationId, message, selectedC
         <span style={{
           display: 'block', padding: '14px 16px 12px',
           borderBottom: '1px solid var(--border-subtle)',
-          fontSize: 17, fontWeight: 600, lineHeight: 1.3,
+          fontSize: 19, fontWeight: 600, lineHeight: 1.3,
           fontFamily: 'var(--font-display)',
         }}>
           <span data-conversation-message-subject="true" data-unread={String(!(copy.isRead ?? copy.is_read))} style={{ fontWeight: (copy.isRead ?? copy.is_read) ? 400 : 700 }}>{subject}</span>
