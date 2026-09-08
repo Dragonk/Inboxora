@@ -999,6 +999,7 @@
   },
   "contacts": {
     "title": "Contacts",
+    "listSubtitle": "Carnets d'adresses CardDAV et locaux",
     "backToMail": "Retour au courrier",
     "backToList": "Retour à la liste des contacts",
     "new": "Nouveau",
@@ -1719,6 +1720,7 @@
   },
   "calendar": {
     "title": "Calendrier",
+    "moreEvents": "+{{n}} de plus",
     "previousMonth": "Mois précédent",
     "nextMonth": "Mois suivant",
     "back": "Retour",

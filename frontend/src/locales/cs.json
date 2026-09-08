@@ -999,6 +999,7 @@
   },
   "contacts": {
     "title": "Kontakty",
+    "listSubtitle": "Adresáře CardDAV a místní",
     "backToMail": "Zpět do pošty",
     "backToList": "Zpět na seznam kontaktů",
     "new": "Nový",
@@ -1719,6 +1720,7 @@
   },
   "calendar": {
     "title": "Kalendář",
+    "moreEvents": "+{{n}} další",
     "previousMonth": "Předchozí měsíc",
     "nextMonth": "Další měsíc",
     "back": "Zpět",

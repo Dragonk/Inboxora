@@ -453,41 +453,39 @@ export default function ContactsPage({ isActive = true }) {
             style={{
               display: 'flex', alignItems: 'center', gap: 10,
               padding: '9px 14px', cursor: 'pointer',
+              borderBottom: '1px solid var(--border-subtle)',
               background: selected?.id === c.id ? 'var(--bg-hover)' : 'transparent',
               transition: 'background 0.1s',
             }}
-            onMouseEnter={e => { if (selected?.id !== c.id) e.currentTarget.style.background = 'var(--bg-tertiary)'; }}
+            onMouseEnter={e => { if (selected?.id !== c.id) e.currentTarget.style.background = 'color-mix(in srgb, var(--bg-hover) 42%, transparent)'; }}
             onMouseLeave={e => { if (selected?.id !== c.id) e.currentTarget.style.background = 'transparent'; }}
           >
             <Avatar
               name={c.display_name}
               email={c.primary_email}
-              size={34}
+              size={36}
               hasContactPhoto={c.has_contact_photo}
             />
             <div style={{ flex: 1, minWidth: 0 }}>
               <div style={{
-                fontSize: 13, fontWeight: 500, color: 'var(--text-primary)',
+                fontSize: 13, fontWeight: 600, color: 'var(--text-primary)',
                 whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis',
               }}>
                 {contactName}
               </div>
               {c.display_name && c.primary_email && (
                 <div style={{
-                  fontSize: 11, color: 'var(--text-tertiary)',
+                  fontSize: 12, color: 'var(--text-secondary)',
                   whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis',
                 }}>
                   {c.primary_email}
                 </div>
               )}
             </div>
-            {c.is_auto && (
-              <div style={{
-                fontSize: 10, color: 'var(--text-tertiary)',
-                background: 'var(--bg-tertiary)', borderRadius: 4,
-                padding: '1px 5px', flexShrink: 0,
-              }}>
-                {t('contacts.auto')}
+            {(c.organization || c.is_auto) && (
+              <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginTop: 5 }}>
+                {c.organization && <span style={rowTypeChip}>{c.organization}</span>}
+                {c.is_auto && <span style={rowTypeChip}>{t('contacts.auto')}</span>}
               </div>
             )}
           </div>
@@ -501,7 +499,7 @@ export default function ContactsPage({ isActive = true }) {
       </div>
 
       {total > 0 && (
-        <div style={{ padding: '8px 14px', borderTop: '1px solid var(--border-subtle)', fontSize: 11, color: 'var(--text-tertiary)', flexShrink: 0 }}>
+        <div style={{ padding: '8px 14px', borderTop: '1px solid var(--border-subtle)', fontFamily: 'var(--font-mono, ui-monospace, monospace)', fontSize: 10.5, color: 'var(--text-tertiary)', flexShrink: 0 }}>
           {contacts.length < total
             ? `${contacts.length} / ${t('contacts.count', { count: total })}`
             : t('contacts.count', { count: total })
@@ -689,10 +687,10 @@ export default function ContactsPage({ isActive = true }) {
       }}>
         {/* Header */}
         <div style={{ padding: '14px 14px 10px', borderBottom: '1px solid var(--border-subtle)' }}>
-          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 10 }}>
-            <span style={{ fontSize: 14, fontWeight: 600, color: 'var(--text-primary)' }}>
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 6 }}>
+            <h1 style={{ margin: 0, fontFamily: 'var(--font-display)', fontSize: 20, fontWeight: 600, color: 'var(--text-primary)' }}>
               {t('contacts.title')}
-            </span>
+            </h1>
             <button
               onClick={startNew}
               style={{
@@ -704,20 +702,24 @@ export default function ContactsPage({ isActive = true }) {
               + {t('contacts.new')}
             </button>
           </div>
-          <input
+          <div style={{ fontSize: 11.5, color: 'var(--text-tertiary)', margin: '2px 0 10px' }}>{t('contacts.listSubtitle')}</div>
+          <div style={{ position: 'relative', marginBottom: 2 }}>
+            <svg style={{ position: 'absolute', left: 9, top: '50%', transform: 'translateY(-50%)', color: 'var(--text-tertiary)' }} width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" aria-hidden="true"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+            <input
             value={search}
             onChange={onSearchChange}
             placeholder={t('contacts.search')}
             style={{
-              width: '100%', boxSizing: 'border-box',
-              padding: '7px 10px', borderRadius: 7,
-              border: '1px solid var(--border)',
-              background: 'var(--bg-input)', color: 'var(--text-primary)',
-              fontSize: 13, outline: 'none',
+                width: '100%', boxSizing: 'border-box',
+                padding: '7px 10px 7px 30px', borderRadius: 7,
+                border: '1px solid var(--border-subtle)',
+                background: 'var(--bg-input)', color: 'var(--text-primary)',
+                fontSize: 13, outline: 'none',
             }}
           />
+          </div>
           <div style={{ display: 'flex', gap: 6, marginTop: 8, alignItems: 'center' }}>
-            <select data-testid="contacts-address-book-select" aria-label={t('contacts.addressBooks.label')} value={selectedAddressBookId} onChange={e => setSelectedAddressBookId(e.target.value)} style={{ minWidth: 0, flex: 1, padding: '6px 8px', borderRadius: 6, border: '1px solid var(--border)', background: 'var(--bg-input)', color: 'var(--text-primary)' }}>
+            <select data-testid="contacts-address-book-select" aria-label={t('contacts.addressBooks.label')} value={selectedAddressBookId} onChange={e => setSelectedAddressBookId(e.target.value)} style={{ minWidth: 0, flex: 1, padding: '5px 8px', borderRadius: 8, border: '1px solid var(--border-subtle)', background: 'var(--bg-tertiary)', color: 'var(--text-primary)', fontSize: 12 }}>
               <option value="">{t('contacts.addressBooks.allVisible')}</option>
               {addressBooks.map(book => <option key={book.id} value={book.id}>{book.visible ? '' : '○ '}{book.name}</option>)}
             </select>
@@ -741,7 +743,7 @@ export default function ContactsPage({ isActive = true }) {
       <div data-testid="contacts-desktop-detail" key={selected?.id ?? (showNew ? 'new' : 'empty')} style={{
         flex: 1, overflow: 'hidden auto', minWidth: 0,
         background: 'var(--bg-secondary)',
-        padding: (!selected && !showNew) ? 0 : 32,
+        padding: (!selected && !showNew) ? 0 : '26px 30px',
         ...((!selected && !showNew) && { display: 'flex', alignItems: 'center', justifyContent: 'center' }),
       }}>
         {detailPanel}
@@ -768,7 +770,7 @@ function ContactDetail({ contact: c, confirmDelete, saving, error, onEdit, onDel
   const primaryEmail = c.primary_email || c.emails?.[0]?.value || '';
 
   return (
-    <div style={{ width: '100%', position: 'relative', animation: 'pane-fade-in var(--motion-normal) var(--ease-emphasized) both' }}>
+    <div style={{ width: '100%', maxWidth: 600, position: 'relative', animation: 'pane-fade-in var(--motion-normal) var(--ease-emphasized) both' }}>
       {/* Edit/Delete for editable contacts — out of flow, top-right (fixed width). */}
       {!c.read_only && (
         <div style={{ position: 'absolute', top: 0, right: 0, display: 'flex', gap: 8 }}>
@@ -1130,6 +1132,7 @@ const contactStatChip = {
   color: 'var(--text-secondary)', whiteSpace: 'nowrap',
 };
 const detailNote = { margin: 0, fontSize: 12.5, color: 'var(--text-secondary)', lineHeight: 1.6 };
+const rowTypeChip = { fontFamily: 'var(--font-mono, ui-monospace, monospace)', fontSize: 10, color: 'var(--text-tertiary)', border: '1px solid var(--border-subtle)', borderRadius: 4, padding: '1px 5px', whiteSpace: 'nowrap' };
 
 // Feather-style field icons (15px, stroke 1.75, currentColor) for detail rows.
 const fieldIcon = {

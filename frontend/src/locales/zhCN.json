@@ -999,6 +999,7 @@
   },
   "contacts": {
     "title": "联系人",
+    "listSubtitle": "CardDAV 与本地通讯录",
     "backToMail": "返回邮件",
     "backToList": "返回联系人列表",
     "new": "新建",
@@ -1719,6 +1720,7 @@
   },
   "calendar": {
     "title": "日历",
+    "moreEvents": "另外 {{n}} 项",
     "previousMonth": "上个月",
     "nextMonth": "下个月",
     "back": "返回",
