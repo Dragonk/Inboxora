@@ -167,6 +167,10 @@
       "fontSize": "Dimensione del testo",
       "fontSizeDescription": "Ridimensiona il testo dell'interfaccia. Il valore predefinito è 100%.",
       "fontSizeReset": "Ripristina al 100%",
+      "density": "Densità dell'interfaccia",
+      "densityCompact": "Compatto",
+      "densityComfortable": "Comodo",
+      "densitySpacious": "Spazioso",
       "customCss": "CSS personalizzato",
       "customCssDescription": "Inserisce CSS aggiuntivo dopo il tema attivo. Usa proprietà CSS personalizzate (es. --accent, --bg-primary) per sovrascrivere i valori del tema o aggiungere regole proprie. Applicato a tutti gli utenti.",
       "customCssPlaceholder": ":root {\n  --accent: #e74c3c;\n}",
@@ -1057,6 +1061,7 @@
       "other": "Altro"
     },
     "carddavBadge": "Sincronizzato da CardDAV",
+    "composeTo": "Scrivi messaggio",
     "addressBooks": { "label": "Rubrica", "allVisible": "Tutti i visibili", "create": "Nuova rubrica", "newPrompt": "Nome della nuova rubrica", "hide": "Nascondi", "show": "Mostra", "importGoogle": "Importa un CSV da Google", "exportGoogle": "Esporta CSV per Google", "exportOutlook": "Esporta CSV per Outlook" }
   },
   "contextMenu": {

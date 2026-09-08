@@ -167,6 +167,10 @@
       "fontSize": "Schriftgröße",
       "fontSizeDescription": "Skaliert den Text der Oberfläche. 100 % ist der Standard.",
       "fontSizeReset": "Auf 100 % zurücksetzen",
+      "density": "Dichte der Oberfläche",
+      "densityCompact": "Kompakt",
+      "densityComfortable": "Komfortabel",
+      "densitySpacious": "Großzügig",
       "customCss": "Benutzerdefiniertes CSS",
       "customCssDescription": "Fügt CSS nach dem aktiven Theme ein. Verwenden Sie CSS-Custom-Properties (z. B. --accent, --bg-primary), um Theme-Werte zu überschreiben oder eigene Regeln hinzuzufügen. Gilt für alle Benutzer.",
       "customCssPlaceholder": ":root {\n  --accent: #e74c3c;\n}",
@@ -1057,6 +1061,7 @@
       "other": "Sonstige"
     },
     "carddavBadge": "Von CardDAV synchronisiert",
+    "composeTo": "Nachricht schreiben",
     "addressBooks": { "label": "Adressbuch", "allVisible": "Alle sichtbaren", "create": "Neues Adressbuch", "newPrompt": "Name des neuen Adressbuchs", "hide": "Ausblenden", "show": "Anzeigen", "importGoogle": "Google-CSV importieren", "exportGoogle": "CSV für Google exportieren", "exportOutlook": "CSV für Outlook exportieren" }
   },
   "contextMenu": {

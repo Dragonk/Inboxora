@@ -167,6 +167,10 @@
       "fontSize": "字体大小",
       "fontSizeDescription": "缩放界面文字。100% 为默认大小。",
       "fontSizeReset": "重置为 100%",
+      "density": "界面密度",
+      "densityCompact": "紧凑",
+      "densityComfortable": "舒适",
+      "densitySpacious": "宽松",
       "customCss": "自定义 CSS",
       "customCssDescription": "在当前主题之后注入额外的 CSS。使用 CSS 自定义属性（如 --accent、--bg-primary）覆盖主题值或添加自定义规则。对所有用户生效。",
       "customCssPlaceholder": ":root {\n  --accent: #e74c3c;\n}",
@@ -1057,6 +1061,7 @@
       "other": "其他"
     },
     "carddavBadge": "从 CardDAV 同步",
+    "composeTo": "写邮件",
     "addressBooks": { "label": "通讯录", "allVisible": "所有可见项", "create": "新建通讯录", "newPrompt": "新通讯录名称", "hide": "隐藏", "show": "显示", "importGoogle": "导入 Google CSV 文件", "exportGoogle": "导出 Google CSV 文件", "exportOutlook": "导出 Outlook CSV 文件" }
   },
   "contextMenu": {
