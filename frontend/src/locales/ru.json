@@ -999,6 +999,7 @@
   },
   "contacts": {
     "title": "Контакты",
+    "listSubtitle": "Адресные книги CardDAV и локальные",
     "backToMail": "Вернуться к почте",
     "backToList": "Вернуться к списку контактов",
     "new": "Новый",
@@ -1719,6 +1720,7 @@
   },
   "calendar": {
     "title": "Календарь",
+    "moreEvents": "Ещё: {{n}}",
     "previousMonth": "Предыдущий месяц",
     "nextMonth": "Следующий месяц",
     "back": "Назад",

@@ -327,6 +327,9 @@ body, #root {
    pseudo-class states (hover/active/disabled) live here, scoped to the page.
    .cal-btn = chrome buttons; .cal-ev = event chips (hover brightens like the
    mock-up, press scales per the shared active-state contract). */
+.calendar-page .cal-cell:hover { background: var(--bg-elevated); }
+.calendar-page .cal-row:hover { background: var(--bg-hover); }
+
 .calendar-page .cal-btn {
   transition: background var(--motion-fast) var(--ease-standard), transform var(--motion-fast) var(--ease-standard);
 }
