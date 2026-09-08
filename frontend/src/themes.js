@@ -1,4 +1,31 @@
 export const THEMES = {
+  // Ink leads the object on purpose: the appearance tab iterates THEMES in
+  // insertion order, so the new default theme is also the first suggestion.
+  ink: {
+    label: 'Ink',
+    description: 'Paper and fountain-pen indigo — the new default',
+    preview: ['#f6f5f1', '#edece6', '#35548a', '#212b36'],
+    vars: {
+      '--bg-primary': '#f6f5f1',
+      '--bg-secondary': '#edece6',
+      '--bg-tertiary': '#e5e4dc',
+      '--bg-elevated': '#fbfaf7',
+      '--bg-hover': '#e0dfd6',
+      '--border': '#d2d0c5',
+      '--border-subtle': '#e2e0d7',
+      '--text-primary': '#212b36',
+      '--text-secondary': '#4d586b',
+      '--text-tertiary': '#939aa3',
+      '--accent': '#35548a',
+      '--accent-text': '#ffffff',
+      '--accent-dim': '#e3e9f2',
+      '--accent-glow': 'rgba(53,84,138,0.14)',
+      '--green': '#35793a',
+      '--red': '#a32e2e',
+      '--amber': '#a87518',
+    }
+  },
+
   dark: {
     label: 'Dark',
     description: 'Default dark theme',
@@ -631,13 +658,14 @@ export function applyCustomCss(css) {
 // ── Theme application ─────────────────────────────────────────────────────────
 
 // The theme to use before any stored/server preference is known — i.e. on the
-// login screen and the very first visit. Honors the OS light/dark setting and
-// falls back to dark. matchMedia is guarded so a missing API never throws.
+// login screen and the very first visit. Ink is the new light default (not the
+// old 'light' theme); a dark OS preference still resolves to 'dark'. matchMedia
+// is guarded so a missing API never throws.
 export function getInitialTheme() {
   try {
-    if (window.matchMedia?.('(prefers-color-scheme: light)').matches) return 'light';
-  } catch { /* matchMedia unavailable — fall through to dark */ }
-  return 'dark';
+    if (window.matchMedia?.('(prefers-color-scheme: dark)').matches) return 'dark';
+  } catch { /* matchMedia unavailable — fall through to ink */ }
+  return 'ink';
 }
 
 // ── Effective accent (theme value, or a custom-CSS override of --accent) ───────

@@ -110,6 +110,55 @@ body, #root {
   --message-body-bg: var(--bg-secondary);
 }
 
+/* ── Light-surface elevation (per-theme, never global) ────────────────────────
+   The :root shadows above are tuned for dark surfaces. Every light theme
+   overrides them with a warm-neutral tint so elevation stays visible on paper
+   backgrounds. Ink uses the exact values from the design brief; Parchment keeps
+   its sepia cast from the V2/V3 mock-ups; the remaining light surfaces reuse the
+   brief's warm-neutral values. */
+:root[data-mailflow-theme="ink"] {
+  --shadow-soft: 0 2px 8px rgba(33, 43, 54, 0.10);
+  --shadow-popover: 0 4px 20px rgba(33, 43, 54, 0.14), 0 0 0 1px rgba(33, 43, 54, 0.05);
+  --shadow-modal: 0 8px 48px rgba(33, 43, 54, 0.20), 0 0 0 1px rgba(33, 43, 54, 0.06);
+  --overlay-scrim: rgba(23, 30, 40, 0.42);
+}
+
+:root[data-mailflow-theme="parchment"] {
+  --shadow-soft: 0 2px 8px rgba(74, 56, 28, 0.10);
+  --shadow-popover: 0 4px 20px rgba(74, 56, 28, 0.14), 0 0 0 1px rgba(42, 31, 16, 0.05);
+  --shadow-modal: 0 8px 48px rgba(74, 56, 28, 0.20), 0 0 0 1px rgba(42, 31, 16, 0.06);
+  --overlay-scrim: rgba(42, 31, 16, 0.40);
+}
+
+:root[data-mailflow-theme="light"] {
+  --shadow-soft: 0 2px 8px rgba(30, 30, 60, 0.08);
+  --shadow-popover: 0 4px 20px rgba(30, 30, 60, 0.12), 0 0 0 1px rgba(26, 26, 46, 0.04);
+  --shadow-modal: 0 8px 48px rgba(30, 30, 60, 0.18), 0 0 0 1px rgba(26, 26, 46, 0.05);
+  --overlay-scrim: rgba(26, 26, 46, 0.35);
+}
+
+:root[data-mailflow-theme="catppuccin_latte"],
+:root[data-mailflow-theme="winxp"],
+:root[data-mailflow-theme="win9x"] {
+  --shadow-soft: 0 2px 8px rgba(33, 43, 54, 0.10);
+  --shadow-popover: 0 4px 20px rgba(33, 43, 54, 0.14), 0 0 0 1px rgba(33, 43, 54, 0.05);
+  --shadow-modal: 0 8px 48px rgba(33, 43, 54, 0.20), 0 0 0 1px rgba(33, 43, 54, 0.06);
+  --overlay-scrim: rgba(23, 30, 40, 0.42);
+}
+
+/* Subtle paper grain for the two paper themes — a 22px dot raster at ~2% alpha,
+   matching the mock-up. Pointer-events none, so it never intercepts clicks. */
+:root[data-mailflow-theme="ink"] body::before,
+:root[data-mailflow-theme="parchment"] body::before {
+  content: '';
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+  z-index: 1;
+  background-image: radial-gradient(rgba(42, 31, 16, 0.022) 1px, transparent 1px);
+  background-size: 22px 22px;
+}
+
 /* Custom scrollbar */
 ::-webkit-scrollbar { width: 5px; height: 5px; }
 ::-webkit-scrollbar-track { background: transparent; }
