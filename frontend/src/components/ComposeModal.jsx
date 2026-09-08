@@ -1698,8 +1698,8 @@ export default function ComposeModal() {
         onClick={() => setMinimized(false)}
         style={{
           position: 'fixed', bottom: 0, right: 24,
-          background: 'var(--bg-elevated)', border: '1px solid var(--border)',
-          borderBottom: 'none', borderRadius: '8px 8px 0 0',
+          background: 'var(--bg-elevated)', border: '1px solid var(--border-subtle)',
+          borderBottom: 'none', borderRadius: '10px 10px 0 0',
           padding: '10px 16px', cursor: 'pointer',
           display: 'flex', alignItems: 'center', gap: 10,
           color: 'var(--text-primary)', fontSize: 13, fontWeight: 500,
@@ -1745,11 +1745,13 @@ export default function ComposeModal() {
         borderRadius: 10, boxShadow: 'var(--shadow-modal)',
         zIndex: 1000, display: 'flex', flexDirection: 'column',
       } : {
+        // Bottom-right sheet, per the compose mock-up: attached to the bottom
+        // edge (no bottom border/radius) on the elevated surface.
         position: 'fixed', bottom: 0, right: 24,
         width: customSize?.width || 540, maxWidth: 'calc(100vw - 48px)',
         ...(customSize?.height ? { height: customSize.height } : { maxHeight: '75vh' }),
-        background: 'var(--bg-secondary)', border: '1px solid var(--border)',
-        borderRadius: 10,
+        background: 'var(--bg-elevated)', border: '1px solid var(--border-subtle)',
+        borderBottom: 'none', borderRadius: '10px 10px 0 0',
         boxShadow: 'var(--shadow-modal)',
         zIndex: 1000, display: 'flex', flexDirection: 'column',
         animation: 'compose-enter var(--motion-normal) var(--ease-emphasized) backwards',
@@ -1867,7 +1869,7 @@ export default function ComposeModal() {
       <div style={{ flexShrink: 0 }}>
         {/* From */}
         <div style={{ display: 'flex', alignItems: 'center', borderBottom: '1px solid var(--border-subtle)', padding: '0 12px' }}>
-          <span style={{ fontSize: 12, color: 'var(--text-tertiary)', width: 52, flexShrink: 0 }}>{t('compose.from')}</span>
+          <span style={{ fontFamily: 'var(--font-mono, ui-monospace, monospace)', fontSize: 10, letterSpacing: '0.06em', textTransform: 'uppercase', color: 'var(--text-tertiary)', width: 52, flexShrink: 0 }}>{t('compose.from')}</span>
           <select
             value={fromValue}
             onChange={e => setFromValue(e.target.value)}
@@ -1901,7 +1903,7 @@ export default function ComposeModal() {
 
         {/* To */}
         <div style={{ display: 'flex', alignItems: 'flex-start', borderBottom: '1px solid var(--border-subtle)', padding: '0 12px' }}>
-          <span style={{ fontSize: 12, color: 'var(--text-tertiary)', width: 52, flexShrink: 0, paddingTop: 9 }}>{t('compose.to')}</span>
+          <span style={{ fontFamily: 'var(--font-mono, ui-monospace, monospace)', fontSize: 10, letterSpacing: '0.06em', textTransform: 'uppercase', color: 'var(--text-tertiary)', width: 52, flexShrink: 0, paddingTop: 9 }}>{t('compose.to')}</span>
           <ChipInput
             chips={toChips} onChipsChange={setToChips}
             value={toInput} onChange={setToInput}
@@ -1929,7 +1931,7 @@ export default function ComposeModal() {
         {/* Cc */}
         {showCc && (
           <div style={{ display: 'flex', alignItems: 'flex-start', borderBottom: '1px solid var(--border-subtle)', padding: '0 12px' }}>
-            <span style={{ fontSize: 12, color: 'var(--text-tertiary)', width: 52, flexShrink: 0, paddingTop: 9 }}>{t('compose.cc')}</span>
+            <span style={{ fontFamily: 'var(--font-mono, ui-monospace, monospace)', fontSize: 10, letterSpacing: '0.06em', textTransform: 'uppercase', color: 'var(--text-tertiary)', width: 52, flexShrink: 0, paddingTop: 9 }}>{t('compose.cc')}</span>
             <ChipInput
               chips={ccChips} onChipsChange={setCcChips}
               value={ccInput} onChange={setCcInput}
@@ -1943,7 +1945,7 @@ export default function ComposeModal() {
         {/* Bcc */}
         {showBcc && (
           <div style={{ display: 'flex', alignItems: 'flex-start', borderBottom: '1px solid var(--border-subtle)', padding: '0 12px' }}>
-            <span style={{ fontSize: 12, color: 'var(--text-tertiary)', width: 52, flexShrink: 0, paddingTop: 9 }}>{t('compose.bcc')}</span>
+            <span style={{ fontFamily: 'var(--font-mono, ui-monospace, monospace)', fontSize: 10, letterSpacing: '0.06em', textTransform: 'uppercase', color: 'var(--text-tertiary)', width: 52, flexShrink: 0, paddingTop: 9 }}>{t('compose.bcc')}</span>
             <ChipInput
               chips={bccChips} onChipsChange={setBccChips}
               value={bccInput} onChange={setBccInput}
@@ -1956,7 +1958,7 @@ export default function ComposeModal() {
 
         {/* Subject */}
         <div style={{ display: 'flex', alignItems: 'center', borderBottom: '1px solid var(--border-subtle)', padding: '0 12px' }}>
-          <span style={{ fontSize: 12, color: 'var(--text-tertiary)', width: 52, flexShrink: 0 }}>{t('compose.subject')}</span>
+          <span style={{ fontFamily: 'var(--font-mono, ui-monospace, monospace)', fontSize: 10, letterSpacing: '0.06em', textTransform: 'uppercase', color: 'var(--text-tertiary)', width: 52, flexShrink: 0 }}>{t('compose.subject')}</span>
           <input
             type="text" value={subject} onChange={e => setSubject(e.target.value)}
             placeholder={t('compose.subject')}
@@ -3197,15 +3199,16 @@ function ChipInput({ chips, onChipsChange, value, onChange, placeholder, autoFoc
           onTouchMove={cancelLongPress}
           style={{
             display: 'inline-flex', alignItems: 'center', gap: 3,
-            background: 'var(--accent-dim)', color: 'var(--accent)',
-            borderRadius: 6, padding: '2px 6px 2px 8px', fontSize: 12,
+            background: 'var(--bg-tertiary)', color: 'var(--text-secondary)',
+            border: '1px solid var(--border-subtle)',
+            borderRadius: 999, padding: '1px 4px 1px 9px', fontSize: 12,
             maxWidth: 220, cursor: 'default', userSelect: 'none',
           }}>
           <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', minWidth: 0 }}>{chip}</span>
           <button
             type="button"
             onClick={() => onChipsChange(chips.filter((_, j) => j !== i))}
-            style={{ background: 'none', border: 'none', padding: '0 0 0 2px', cursor: 'pointer', color: 'var(--accent)', display: 'flex', lineHeight: 1, flexShrink: 0 }}
+            style={{ background: 'none', border: 'none', padding: '1px', cursor: 'pointer', color: 'var(--text-tertiary)', display: 'flex', lineHeight: 1, flexShrink: 0, borderRadius: '50%' }}
           >
             <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
               <line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/>
