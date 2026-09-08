@@ -167,6 +167,10 @@
       "fontSize": "Taille de police",
       "fontSizeDescription": "Redimensionne le texte de l'interface. 100 % est la valeur par défaut.",
       "fontSizeReset": "Réinitialiser à 100 %",
+      "density": "Densité de l'interface",
+      "densityCompact": "Compacte",
+      "densityComfortable": "Confortable",
+      "densitySpacious": "Spacieux",
       "customCss": "CSS personnalisé",
       "customCssDescription": "Injecte du CSS supplémentaire après le thème actif. Utilisez des propriétés CSS personnalisées (ex. --accent, --bg-primary) pour remplacer les valeurs du thème ou ajouter vos propres règles. Appliqué à tous les utilisateurs.",
       "customCssPlaceholder": ":root {\n  --accent: #e74c3c;\n}",
@@ -1057,6 +1061,7 @@
       "other": "Autre"
     },
     "carddavBadge": "Synchronisé depuis CardDAV",
+    "composeTo": "Écrire un message",
     "addressBooks": { "label": "Carnet d'adresses", "allVisible": "Tous les visibles", "create": "Nouveau carnet", "newPrompt": "Nom du nouveau carnet", "hide": "Masquer", "show": "Afficher", "importGoogle": "Importer un fichier CSV Google", "exportGoogle": "Exporter au format CSV Google", "exportOutlook": "Exporter au format CSV Outlook" }
   },
   "contextMenu": {

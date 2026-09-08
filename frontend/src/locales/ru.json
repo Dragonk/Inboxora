@@ -167,6 +167,10 @@
       "fontSize": "Размер шрифта",
       "fontSizeDescription": "Масштабирует текст интерфейса. Значение по умолчанию — 100 %.",
       "fontSizeReset": "Сбросить до 100 %",
+      "density": "Плотность интерфейса",
+      "densityCompact": "Компактный",
+      "densityComfortable": "Обычный",
+      "densitySpacious": "Просторный",
       "customCss": "Пользовательский CSS",
       "customCssDescription": "Добавляет CSS после активной темы. Используйте CSS-переменные (например, --accent, --bg-primary) для переопределения значений темы или добавления собственных правил. Применяется ко всем пользователям.",
       "customCssPlaceholder": ":root {\n  --accent: #e74c3c;\n}",
@@ -1057,6 +1061,7 @@
       "other": "Другой"
     },
     "carddavBadge": "Синхронизировано из CardDAV",
+    "composeTo": "Написать сообщение",
     "addressBooks": { "label": "Книга контактов", "allVisible": "Все видимые", "create": "Новая книга", "newPrompt": "Название новой книги контактов", "hide": "Скрыть", "show": "Показать", "importGoogle": "Импорт файла CSV из Google", "exportGoogle": "Экспорт CSV для Google", "exportOutlook": "Экспорт CSV для Outlook" }
   },
   "contextMenu": {

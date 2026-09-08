@@ -4413,20 +4413,26 @@ function ThreadRow({ message, isExpanded, threadMsgs, isLoadingThread, selectedM
           )
         )}
 
-        {/* Avatar — morphs into a checkbox when in selection mode (desktop); display-only on mobile */}
+        {/* Avatar — morphs into a checkbox when in selection mode (desktop); display-only on mobile.
+            Display mode uses the tinted-avatar recipe from the mock-up: color+'22' fill,
+            1.5px color+'55' ring, colored initial. */}
         {showAvatar && (
           <div
             onClick={selectionMode ? e => { e.stopPropagation(); onToggleSelect(message.id); } : undefined}
             style={{
-              width: 30, height: 30, borderRadius: '50%', flexShrink: 0,
+              width: avatarAsCheckbox ? 30 : 36, height: avatarAsCheckbox ? 30 : 36, borderRadius: '50%', flexShrink: 0,
               position: 'relative', overflow: 'hidden',
               background: avatarAsCheckbox
                 ? (isChecked ? 'var(--accent)' : 'var(--bg-tertiary)')
-                : senderColor(message.from_email || message.from_name),
-              border: avatarAsCheckbox && !isChecked ? '2px solid var(--border)' : 'none',
+                : `${senderColor(message.from_email || message.from_name)}22`,
+              border: avatarAsCheckbox && !isChecked
+                ? '2px solid var(--border)'
+                : `1.5px solid ${senderColor(message.from_email || message.from_name)}55`,
               display: 'flex', alignItems: 'center', justifyContent: 'center',
-              fontSize: 13, fontWeight: 600,
-              color: avatarAsCheckbox ? (isChecked ? 'white' : 'var(--text-tertiary)') : 'white',
+              fontSize: avatarAsCheckbox ? 13 : 14, fontWeight: 600,
+              color: avatarAsCheckbox
+                ? (isChecked ? 'white' : 'var(--text-tertiary)')
+                : senderColor(message.from_email || message.from_name),
               marginTop: 1,
               cursor: selectionMode ? 'pointer' : 'default',
               transition: 'background 0.12s, border 0.12s',
@@ -4478,9 +4484,10 @@ function ThreadRow({ message, isExpanded, threadMsgs, isLoadingThread, selectedM
                   onClick={(e) => { e.stopPropagation(); onThreadClick(); }}
                   style={{
                   display: 'inline-flex', alignItems: 'center', gap: isMobile ? 4 : 3,
-                  fontSize: isMobile ? 12 : 10, fontWeight: 600, color: 'var(--accent)',
-                  background: 'var(--bg-tertiary)', border: '1px solid var(--accent)',
-                  borderRadius: 10, padding: isMobile ? '3px 9px' : '1px 6px', flexShrink: 0, cursor: 'pointer',
+                  fontFamily: 'var(--font-mono, ui-monospace, monospace)',
+                  fontSize: isMobile ? 12 : 10, fontWeight: 400, color: 'var(--text-tertiary)',
+                  background: 'transparent', border: '1px solid var(--border-subtle)',
+                  borderRadius: 4, padding: isMobile ? '3px 9px' : '1px 6px', flexShrink: 0, cursor: 'pointer',
                 }}
                 >
                   <svg width={isMobile ? 11 : 8} height={isMobile ? 11 : 8} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
@@ -4511,7 +4518,7 @@ function ThreadRow({ message, isExpanded, threadMsgs, isLoadingThread, selectedM
                   </svg>
                 </button>
               )}
-              <span style={{ fontSize: 11, color: 'var(--text-tertiary)' }}>{formatDate(message.date)}</span>
+              <span style={{ fontFamily: 'var(--font-mono, ui-monospace, monospace)', fontSize: 10.5, color: 'var(--text-tertiary)' }}>{formatDate(message.date)}</span>
               {isMobile && !selectionMode && onContextMenu && (
                 <RowMenuButton label={t('message.more')} onOpen={e => onContextMenu(e, message)} />
               )}
@@ -4519,7 +4526,7 @@ function ThreadRow({ message, isExpanded, threadMsgs, isLoadingThread, selectedM
           </div>
           {/* Row 2: subject */}
           <div data-thread-row-subject="true" style={{
-            fontSize: 12, fontWeight: unreadCount > 0 ? 500 : 400,
+            fontSize: 13, fontWeight: unreadCount > 0 ? 500 : 400,
             color: unreadCount > 0 ? 'var(--text-primary)' : 'var(--text-secondary)',
             overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', marginBottom: 2,
           }}>
@@ -4539,7 +4546,7 @@ function ThreadRow({ message, isExpanded, threadMsgs, isLoadingThread, selectedM
           <RowHoverActions
             message={message}
             isRead={unreadCount === 0}
-            background={rowBg}
+            background="var(--bg-elevated)"
             deleteTitleKey="message.delete"
             onMarkRead={onMarkRead}
             onStar={onStar}
@@ -4778,7 +4785,7 @@ function MessageRow({ message, selected, lastViewed, isChecked, selectionMode, s
       )}
       {/* Unread dot for wide layouts — always shown (avatar is separate, doesn't conflict) */}
       {hasInteractiveAvatar && !selectionMode && !message.is_read && (
-        <div style={{
+        <div className="unread-dot" style={{
           position: 'absolute', left: 3, top: '50%', transform: 'translateY(-50%)',
           width: 7, height: 7, borderRadius: '50%',
           background: 'var(--accent)',
@@ -4794,14 +4801,19 @@ function MessageRow({ message, selected, lastViewed, isChecked, selectionMode, s
             onMouseEnter={hasInteractiveAvatar ? () => setAvatarHovered(true) : undefined}
             onMouseLeave={hasInteractiveAvatar ? () => setAvatarHovered(false) : undefined}
             style={{
-              width: 30, height: 30, borderRadius: '50%', flexShrink: 0,
+              width: avatarAsCheckbox ? 30 : 36, height: avatarAsCheckbox ? 30 : 36, borderRadius: '50%', flexShrink: 0,
               position: 'relative', overflow: 'hidden',
               background: avatarAsCheckbox
                 ? (isChecked ? 'var(--accent)' : 'var(--bg-tertiary)')
-                : senderColor(message.from_email || message.from_name),
-              border: avatarAsCheckbox && !isChecked ? '2px solid var(--border)' : 'none',
+                : `${senderColor(message.from_email || message.from_name)}22`,
+              border: avatarAsCheckbox && !isChecked
+                ? '2px solid var(--border)'
+                : `1.5px solid ${senderColor(message.from_email || message.from_name)}55`,
               display: 'flex', alignItems: 'center', justifyContent: 'center',
-              fontSize: 13, fontWeight: 600, color: avatarAsCheckbox ? (isChecked ? 'white' : 'var(--text-tertiary)') : 'white',
+              fontSize: avatarAsCheckbox ? 13 : 14, fontWeight: 600,
+              color: avatarAsCheckbox
+                ? (isChecked ? 'white' : 'var(--text-tertiary)')
+                : senderColor(message.from_email || message.from_name),
               marginTop: 1,
               cursor: hasInteractiveAvatar ? 'pointer' : 'default',
               transition: 'background 0.12s, border 0.12s',
@@ -4865,7 +4877,7 @@ function MessageRow({ message, selected, lastViewed, isChecked, selectionMode, s
                 </svg>
               </button>
             )}
-            <span style={{ fontSize: 11, color: 'var(--text-tertiary)' }}>
+            <span style={{ fontFamily: 'var(--font-mono, ui-monospace, monospace)', fontSize: 10.5, color: 'var(--text-tertiary)' }}>
               {formatDate(message.date)}
             </span>
             {isMobile && !selectionMode && onContextMenu && (
@@ -4904,7 +4916,7 @@ function MessageRow({ message, selected, lastViewed, isChecked, selectionMode, s
         <RowHoverActions
           message={message}
           isRead={message.is_read}
-          background="var(--bg-tertiary)"
+          background="var(--bg-elevated)"
           deleteTitleKey="common.delete"
           onMarkRead={onMarkRead}
           onStar={onStar}

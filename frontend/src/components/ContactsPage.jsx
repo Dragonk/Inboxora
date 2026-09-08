@@ -740,6 +740,7 @@ export default function ContactsPage({ isActive = true }) {
           When nothing is selected, center the empty-state placeholder in the full pane. */}
       <div data-testid="contacts-desktop-detail" key={selected?.id ?? (showNew ? 'new' : 'empty')} style={{
         flex: 1, overflow: 'hidden auto', minWidth: 0,
+        background: 'var(--bg-secondary)',
         padding: (!selected && !showNew) ? 0 : 32,
         ...((!selected && !showNew) && { display: 'flex', alignItems: 'center', justifyContent: 'center' }),
       }}>
@@ -750,6 +751,7 @@ export default function ContactsPage({ isActive = true }) {
 }
 
 function ContactDetail({ contact: c, confirmDelete, saving, error, onEdit, onDeleteRequest, onDeleteConfirm, onDeleteCancel, t }) {
+  const openCompose = useStore(state => state.openCompose);
   const contactDates = c.contactDates?.length
     ? c.contactDates
     : [
@@ -763,6 +765,7 @@ function ContactDetail({ contact: c, confirmDelete, saving, error, onEdit, onDel
     if (normalized === 'name day') return t('contacts.fields.nameDay');
     return label;
   };
+  const primaryEmail = c.primary_email || c.emails?.[0]?.value || '';
 
   return (
     <div style={{ width: '100%', position: 'relative', animation: 'pane-fade-in var(--motion-normal) var(--ease-emphasized) both' }}>
@@ -773,26 +776,34 @@ function ContactDetail({ contact: c, confirmDelete, saving, error, onEdit, onDel
           <ActionBtn onClick={onDeleteRequest} danger>{t('common.delete')}</ActionBtn>
         </div>
       )}
-      <div style={{ display: 'flex', alignItems: 'flex-start', gap: 18, marginBottom: 28, paddingRight: c.read_only ? 0 : 128 }}>
+      <div style={{ display: 'flex', alignItems: 'flex-start', gap: 16, marginBottom: 18, paddingRight: c.read_only ? 0 : 128 }}>
         <Avatar
           name={c.display_name}
           email={c.primary_email}
-          size={60}
+          size={56}
           hasContactPhoto={Boolean(c.photo_data)}
         />
         <div style={{ flex: 1, minWidth: 0 }}>
           <h2 style={{ margin: 0, fontSize: 22, fontWeight: 600, color: 'var(--text-primary)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
             {c.display_name || c.primary_email}
+            {c.nickname && <span style={{ fontSize: 13, color: 'var(--text-tertiary)', fontWeight: 400 }}> ({c.nickname})</span>}
           </h2>
-          {c.organization && (
-            <div style={{ fontSize: 14, color: 'var(--text-secondary)', marginTop: 2 }}>{c.organization}</div>
+          {(c.title || c.organization) && (
+            <div style={{ fontSize: 13, color: 'var(--text-secondary)', marginTop: 2, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+              {[c.title, c.organization].filter(Boolean).join(', ')}
+            </div>
           )}
-          {/* CardDAV badge sits in flow below the name so it can never overlap it, whatever
-              the badge's translated width. */}
-          {c.read_only && (
-            <span style={{ display: 'inline-block', marginTop: 6, fontSize: 11, padding: '4px 10px', borderRadius: 100, background: 'var(--bg-tertiary)', color: 'var(--text-tertiary)', border: '1px solid var(--border)', whiteSpace: 'nowrap' }}>
-              {t('contacts.carddavBadge')}
-            </span>
+          {/* Context chips (CardDAV provenance, last contact) sit in flow below the name
+              so they can never overlap it, whatever their translated width. */}
+          {(c.read_only || c.last_sent) && (
+            <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, marginTop: 7 }}>
+              {c.read_only && (
+                <span style={contactStatChip}>{t('contacts.carddavBadge')}</span>
+              )}
+              {c.last_sent && (
+                <span style={contactStatChip}>{t('contacts.fields.lastContacted')}: {new Date(c.last_sent).toLocaleDateString()}</span>
+              )}
+            </div>
           )}
           {c.is_auto && (
             <div style={{ fontSize: 12, color: 'var(--text-tertiary)', marginTop: 4 }}>{t('contacts.autoHint')}</div>
@@ -822,44 +833,86 @@ function ContactDetail({ contact: c, confirmDelete, saving, error, onEdit, onDel
       )}
 
       {((c.emails?.length > 0) || (c.phones?.length > 0) || c.notes || contactDates.length || c.title || c.role || c.nickname || c.urls?.length || c.instantMessages?.length || c.categories?.length || c.addresses?.length) && (
-        <DetailSection>
-          {(c.emails || []).map((e, i) => (
-            <DetailRow key={i} label={t(`contacts.emailTypes.${e.type || 'other'}`, { defaultValue: t('contacts.emailTypes.other') })}>
-              <a href={`mailto:${e.value}`} style={{ color: 'var(--accent)', textDecoration: 'none' }}>{e.value}</a>
-            </DetailRow>
-          ))}
-          {(c.phones || []).map((p, i) => (
-            <DetailRow key={i} label={t(`contacts.phoneTypes.${p.type === 'cell' || p.type === 'iphone' ? 'mobile' : (p.type || 'other')}`, { defaultValue: t('contacts.phoneTypes.other') })}>
-              <a href={`tel:${p.value}`} style={{ color: 'var(--text-primary)', textDecoration: 'none' }}>{p.value}</a>
-            </DetailRow>
-          ))}
-          {c.notes && <DetailRow label={t('contacts.fields.notes')}>{c.notes}</DetailRow>}
-          {contactDates.map((date, i) => <DetailRow key={`date-${i}`} label={contactDateLabel(date.label)}>{new Date(`${String(date.value).slice(0, 10)}T00:00:00`).toLocaleDateString()}</DetailRow>)}
-          {c.title && <DetailRow label={t('contacts.fields.title')}>{c.title}</DetailRow>}
-          {c.role && <DetailRow label={t('contacts.fields.role')}>{c.role}</DetailRow>}
-          {c.nickname && <DetailRow label={t('contacts.fields.nickname')}>{c.nickname}</DetailRow>}
-          {(c.urls || []).map((url, i) => {
-            const href = safeHttpUrl(url.value);
-            return <DetailRow key={`url-${i}`} label={t('contacts.fields.url')}>{href ? <a href={href} rel="noreferrer" target="_blank" style={{ color: 'var(--accent)', textDecoration: 'none' }}>{url.value}</a> : url.value}</DetailRow>;
-          })}
-          {(c.instantMessages || []).map((message, i) => <DetailRow key={`im-${i}`} label={t('contacts.fields.instantMessage')}>{message.value}</DetailRow>)}
-          {c.categories?.length > 0 && <DetailRow label={t('contacts.fields.categories')}>{c.categories.join(', ')}</DetailRow>}
-          {(c.addresses || []).map((address, i) => <DetailRow key={`address-${i}`} label={t('contacts.fields.address')}>{[address.pobox, address.extended, address.street, address.locality, address.region, address.postalCode, address.country].filter(Boolean).join(', ')}</DetailRow>)}
-        </DetailSection>
+        <div>
+          {(c.emails?.length > 0) && (
+            <DetailSection label={t('contacts.fields.email')}>
+              {(c.emails || []).map((e, i) => (
+                <DetailRow key={i} icon={fieldIcon.mail} type={t(`contacts.emailTypes.${e.type || 'other'}`, { defaultValue: t('contacts.emailTypes.other') })}>
+                  <a href={`mailto:${e.value}`} style={{ color: 'var(--accent)', textDecoration: 'none' }}>{e.value}</a>
+                </DetailRow>
+              ))}
+            </DetailSection>
+          )}
+          {(c.phones?.length > 0) && (
+            <DetailSection label={t('contacts.fields.phone')}>
+              {(c.phones || []).map((p, i) => (
+                <DetailRow key={i} icon={fieldIcon.phone} type={t(`contacts.phoneTypes.${p.type === 'cell' || p.type === 'iphone' ? 'mobile' : (p.type || 'other')}`, { defaultValue: t('contacts.phoneTypes.other') })}>
+                  <a href={`tel:${p.value}`} style={{ color: 'var(--text-primary)', textDecoration: 'none' }}>{p.value}</a>
+                </DetailRow>
+              ))}
+            </DetailSection>
+          )}
+          {(c.urls?.length > 0) && (
+            <DetailSection label={t('contacts.fields.url')}>
+              {(c.urls || []).map((url, i) => {
+                const href = safeHttpUrl(url.value);
+                return <DetailRow key={`url-${i}`} icon={fieldIcon.globe} type={url.type ? String(url.type) : undefined}>{href ? <a href={href} rel="noreferrer" target="_blank" style={{ color: 'var(--accent)', textDecoration: 'none' }}>{url.value}</a> : url.value}</DetailRow>;
+              })}
+            </DetailSection>
+          )}
+          {(c.instantMessages?.length > 0) && (
+            <DetailSection label={t('contacts.fields.instantMessage')}>
+              {(c.instantMessages || []).map((message, i) => <DetailRow key={`im-${i}`} icon={fieldIcon.message} type={message.type ? String(message.type) : undefined}>{message.value}</DetailRow>)}
+            </DetailSection>
+          )}
+          {(c.addresses?.length > 0) && (
+            <DetailSection label={t('contacts.fields.address')}>
+              {(c.addresses || []).map((address, i) => <DetailRow key={`address-${i}`} icon={fieldIcon.mapPin} type={address.type ? String(address.type) : undefined}>{[address.pobox, address.extended, address.street, address.locality, address.region, address.postalCode, address.country].filter(Boolean).join(', ')}</DetailRow>)}
+            </DetailSection>
+          )}
+          {(contactDates.length > 0) && (
+            <DetailSection label={t('contacts.fields.dates')}>
+              {contactDates.map((date, i) => <DetailRow key={`date-${i}`} icon={fieldIcon.calendar} type={contactDateLabel(date.label)}>{new Date(`${String(date.value).slice(0, 10)}T00:00:00`).toLocaleDateString()}</DetailRow>)}
+            </DetailSection>
+          )}
+          {(c.categories?.length > 0) && (
+            <DetailSection label={t('contacts.fields.categories')}>
+              <div style={{ display: 'flex', flexWrap: 'wrap' }}>
+                {c.categories.map((category, i) => <span key={`cat-${i}`} style={{ ...contactStatChip, margin: '2px 6px 2px 0' }}>{category}</span>)}
+              </div>
+            </DetailSection>
+          )}
+          {c.notes && (
+            <DetailSection label={t('contacts.fields.notes')}>
+              <p style={detailNote}>{c.notes}</p>
+            </DetailSection>
+          )}
+          {(c.role || c.send_count > 0) && (
+            <DetailSection>
+              {c.role && <DetailRow icon={fieldIcon.briefcase} type={t('contacts.fields.role')}>{c.role}</DetailRow>}
+              {c.send_count > 0 && <DetailRow icon={fieldIcon.mail} type={t('contacts.fields.emailsSent')}>{c.send_count}</DetailRow>}
+            </DetailSection>
+          )}
+        </div>
       )}
 
-      {(c.send_count > 0 || c.last_sent) && (
-        <DetailSection>
-          {c.send_count > 0 && (
-            <DetailRow label={t('contacts.fields.emailsSent')}>{c.send_count}</DetailRow>
-          )}
-          {c.last_sent && (
-            <DetailRow label={t('contacts.fields.lastContacted')}>
-              {new Date(c.last_sent).toLocaleDateString()}
-            </DetailRow>
-          )}
-        </DetailSection>
-      )}
+      <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, marginTop: 18 }}>
+        <button
+          type="button"
+          onClick={() => { if (primaryEmail) openCompose({ to: primaryEmail }); }}
+          disabled={!primaryEmail}
+          className="btn-press"
+          style={{
+            display: 'inline-flex', alignItems: 'center', gap: 7,
+            background: 'var(--accent)', color: 'var(--accent-text)', border: 'none',
+            borderRadius: 6, padding: '8px 14px', fontSize: 12.5, fontWeight: 600,
+            cursor: primaryEmail ? 'pointer' : 'not-allowed', opacity: primaryEmail ? 1 : 0.6,
+          }}
+        >
+          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" aria-hidden="true"><path d="M11 4H4a2 2 0 00-2 2v14a2 2 0 002 2h14a2 2 0 002-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 013 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>
+          {t('contacts.composeTo')}
+        </button>
+      </div>
     </div>
   );
 }
@@ -1058,27 +1111,58 @@ function ContactTextCollection({ label, items, inputType = 'text', placeholder, 
   </div>;
 }
 
-function DetailSection({ children }) {
+// Detail sections follow the mock-up: hairline-separated groups with a mono
+// uppercase label, rows of icon + value + a mono type chip (§ contacts brief).
+const detailSectionLabel = {
+  fontFamily: 'var(--font-mono, ui-monospace, monospace)', fontSize: 10,
+  letterSpacing: '0.09em', textTransform: 'uppercase',
+  color: 'var(--text-tertiary)', margin: '0 0 7px',
+};
+const detailTypeChip = {
+  fontFamily: 'var(--font-mono, ui-monospace, monospace)', fontSize: 9.5,
+  color: 'var(--text-tertiary)', border: '1px solid var(--border-subtle)',
+  borderRadius: 4, padding: '0 5px', flexShrink: 0, whiteSpace: 'nowrap',
+};
+const contactStatChip = {
+  display: 'inline-flex', alignItems: 'center', gap: 5, fontSize: 11,
+  fontFamily: 'var(--font-mono, ui-monospace, monospace)', borderRadius: 999,
+  padding: '2px 9px', border: '1px solid var(--border-subtle)',
+  color: 'var(--text-secondary)', whiteSpace: 'nowrap',
+};
+const detailNote = { margin: 0, fontSize: 12.5, color: 'var(--text-secondary)', lineHeight: 1.6 };
+
+// Feather-style field icons (15px, stroke 1.75, currentColor) for detail rows.
+const fieldIcon = {
+  mail: <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" aria-hidden="true"><rect x="2" y="4" width="20" height="16" rx="2"/><path d="M22 7l-10 6L2 7"/></svg>,
+  phone: <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" aria-hidden="true"><path d="M22 16.92v3a2 2 0 01-2.18 2 19.79 19.79 0 01-8.63-3.07 19.5 19.5 0 01-6-6 19.79 19.79 0 01-3.07-8.67A2 2 0 014.11 2h3a2 2 0 012 1.72c.127.96.361 1.903.7 2.81a2 2 0 01-.45 2.11L8.09 9.91a16 16 0 006 6l1.27-1.27a2 2 0 012.11-.45c.907.339 1.85.573 2.81.7A2 2 0 0122 16.92z"/></svg>,
+  globe: <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" aria-hidden="true"><circle cx="12" cy="12" r="10"/><line x1="2" y1="12" x2="22" y2="12"/><path d="M12 2a15.3 15.3 0 014 10 15.3 15.3 0 01-4 10 15.3 15.3 0 01-4-10 15.3 15.3 0 014-10z"/></svg>,
+  message: <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" aria-hidden="true"><path d="M21 11.5a8.38 8.38 0 01-.9 3.8 8.5 8.5 0 01-7.6 4.7 8.38 8.38 0 01-3.8-.9L3 21l1.9-5.7a8.38 8.38 0 01-.9-3.8 8.5 8.5 0 014.7-7.6 8.38 8.38 0 013.8-.9h.5a8.48 8.48 0 018 8v.5z"/></svg>,
+  mapPin: <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" aria-hidden="true"><path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0118 0z"/><circle cx="12" cy="10" r="3"/></svg>,
+  calendar: <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" aria-hidden="true"><rect x="3" y="4" width="18" height="18" rx="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>,
+  briefcase: <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" aria-hidden="true"><rect x="2" y="7" width="20" height="14" rx="2"/><path d="M16 21V5a2 2 0 00-2-2h-4a2 2 0 00-2 2v16"/></svg>,
+};
+
+function DetailSection({ label, children }) {
   return (
-    <div style={{
-      background: 'var(--bg-secondary)',
-      borderRadius: 10, border: '1px solid var(--border-subtle)',
-      overflow: 'hidden', marginBottom: 16,
+    <section style={{
+      borderTop: '1px solid var(--border-subtle)',
+      padding: '12px 0', marginBottom: 2,
     }}>
+      {label && <div style={detailSectionLabel}>{label}</div>}
       {children}
-    </div>
+    </section>
   );
 }
 
-function DetailRow({ label, children }) {
+function DetailRow({ icon, type, children }) {
   return (
     <div style={{
-      display: 'flex', gap: 16, padding: '10px 16px',
-      borderBottom: '1px solid var(--border-subtle)',
+      display: 'flex', alignItems: 'center', gap: 10, padding: '5px 0',
       fontSize: 13,
     }}>
-      <div style={{ width: 110, flexShrink: 0, color: 'var(--text-tertiary)', textTransform: 'capitalize' }}>{label}</div>
-      <div style={{ flex: 1, color: 'var(--text-primary)', wordBreak: 'break-word' }}>{children}</div>
+      {icon && <span style={{ color: 'var(--text-tertiary)', flexShrink: 0, display: 'inline-flex' }} aria-hidden="true">{icon}</span>}
+      <span style={{ flex: 1, minWidth: 0, color: 'var(--text-primary)', wordBreak: 'break-word' }}>{children}</span>
+      {type && <span style={detailTypeChip}>{type}</span>}
     </div>
   );
 }

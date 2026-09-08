@@ -1,4 +1,31 @@
 export const THEMES = {
+  // Ink leads the object on purpose: the appearance tab iterates THEMES in
+  // insertion order, so the new default theme is also the first suggestion.
+  ink: {
+    label: 'Ink',
+    description: 'Paper and fountain-pen indigo — the new default',
+    preview: ['#f6f5f1', '#edece6', '#35548a', '#212b36'],
+    vars: {
+      '--bg-primary': '#f6f5f1',
+      '--bg-secondary': '#edece6',
+      '--bg-tertiary': '#e5e4dc',
+      '--bg-elevated': '#fbfaf7',
+      '--bg-hover': '#e0dfd6',
+      '--border': '#d2d0c5',
+      '--border-subtle': '#e2e0d7',
+      '--text-primary': '#212b36',
+      '--text-secondary': '#4d586b',
+      '--text-tertiary': '#939aa3',
+      '--accent': '#35548a',
+      '--accent-text': '#ffffff',
+      '--accent-dim': '#e3e9f2',
+      '--accent-glow': 'rgba(53,84,138,0.14)',
+      '--green': '#35793a',
+      '--red': '#a32e2e',
+      '--amber': '#a87518',
+    }
+  },
+
   dark: {
     label: 'Dark',
     description: 'Default dark theme',
@@ -631,13 +658,38 @@ export function applyCustomCss(css) {
 // ── Theme application ─────────────────────────────────────────────────────────
 
 // The theme to use before any stored/server preference is known — i.e. on the
-// login screen and the very first visit. Honors the OS light/dark setting and
-// falls back to dark. matchMedia is guarded so a missing API never throws.
+// login screen and the very first visit. Ink is the new light default (not the
+// old 'light' theme); a dark OS preference still resolves to 'dark'. matchMedia
+// is guarded so a missing API never throws.
 export function getInitialTheme() {
   try {
-    if (window.matchMedia?.('(prefers-color-scheme: light)').matches) return 'light';
-  } catch { /* matchMedia unavailable — fall through to dark */ }
-  return 'dark';
+    if (window.matchMedia?.('(prefers-color-scheme: dark)').matches) return 'dark';
+  } catch { /* matchMedia unavailable — fall through to ink */ }
+  return 'ink';
+}
+
+// ── Favicon: IO monogram ──────────────────────────────────────────────────────
+
+// The browser-tab favicon is the same IO monogram as the in-app logo mark,
+// redrawn as a standalone SVG data URI so the tile follows the effective
+// accent (theme switch or custom-CSS --accent override). The static PNG link
+// in index.html stays as the pre-JS fallback and is swapped at runtime.
+export function buildFaviconSvg(accent) {
+  const tile = accent || '#7c6af7';
+  const svg = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32">`
+    + `<defs>`
+    + `<linearGradient id="tonal" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="rgba(255,255,255,0.22)"/><stop offset="1" stop-color="rgba(0,0,0,0.28)"/></linearGradient>`
+    + `<linearGradient id="shg" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="rgba(255,255,255,0.14)"/><stop offset="1" stop-color="rgba(255,255,255,0)"/></linearGradient>`
+    + `</defs>`
+    + `<rect width="32" height="32" rx="7.5" fill="${tile}"/>`
+    + `<rect width="32" height="32" rx="7.5" fill="url(#tonal)"/>`
+    + `<rect width="32" height="16" rx="7.5" fill="url(#shg)"/>`
+    + `<rect x="5.5" y="9" width="6.4" height="2.9" rx="1.2" fill="#fff"/>`
+    + `<rect x="5.5" y="20.1" width="6.4" height="2.9" rx="1.2" fill="#fff"/>`
+    + `<rect x="7.4" y="9" width="2.6" height="14" fill="#fff"/>`
+    + `<circle cx="20.6" cy="16" r="5.6" fill="none" stroke="#fff" stroke-width="3"/>`
+    + `</svg>`;
+  return `data:image/svg+xml,${encodeURIComponent(svg)}`;
 }
 
 // ── Effective accent (theme value, or a custom-CSS override of --accent) ───────
@@ -684,6 +736,12 @@ function refreshAccentDerived() {
   const accent = getEffectiveAccent();
   if (!accent.startsWith('#')) return; // PWA theme-color expects a hex colour
   document.querySelector('meta[name="theme-color"]')?.setAttribute('content', accent);
+  // Swap the pre-JS PNG favicon for the accent-tinted IO monogram.
+  const favicon = document.querySelector('link[rel="icon"]');
+  if (favicon) {
+    favicon.setAttribute('type', 'image/svg+xml');
+    favicon.setAttribute('href', buildFaviconSvg(accent));
+  }
   _accentListeners.forEach(fn => {
     try { fn(accent); } catch { /* a listener error must not break theming */ }
   });

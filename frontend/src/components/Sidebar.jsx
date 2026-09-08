@@ -1223,9 +1223,10 @@ export default function Sidebar({ onEditProfile = null }) {
                     <div style={{ display: 'flex', alignItems: 'center', gap: 4, flexShrink: 0 }}>
                       {unread > 0 && (
                         <span style={{
-                          fontSize: 11, fontWeight: 600, color: 'white',
+                          fontFamily: 'var(--font-mono, ui-monospace, monospace)',
+                          fontSize: 10, fontWeight: 600, color: 'white',
                           background: account.color, padding: '1px 6px',
-                          borderRadius: 10, minWidth: 20, textAlign: 'center',
+                          borderRadius: 9, minWidth: 18, textAlign: 'center',
                         }}>
                           {unread > 999 ? '999+' : unread}
                         </span>
@@ -2023,7 +2024,7 @@ function NavItem({ testId, icon, label, active, collapsed, badge, onClick }) {
         display: 'flex', alignItems: 'center',
         gap: 8, padding: collapsed ? '9px' : '8px 10px',
         borderRadius: 7, cursor: 'pointer',
-        background: active ? 'var(--bg-hover)' : 'transparent',
+        background: active ? 'var(--accent-dim)' : 'transparent',
         color: active ? 'var(--text-primary)' : 'var(--text-secondary)',
         transition: 'background 0.1s, color 0.1s',
         justifyContent: collapsed ? 'center' : 'flex-start',
@@ -2036,15 +2037,16 @@ function NavItem({ testId, icon, label, active, collapsed, badge, onClick }) {
         if (!active) { e.currentTarget.style.background = 'transparent'; e.currentTarget.style.color = 'var(--text-secondary)'; }
       }}
     >
-      <span style={{ flexShrink: 0 }}>{icon}</span>
+      <span style={{ flexShrink: 0, display: 'inline-flex', color: active ? 'var(--accent)' : 'inherit' }}>{icon}</span>
       {!collapsed && (
         <>
           <span style={{ fontSize: 13, fontWeight: active ? 500 : 400, flex: 1 }}>{label}</span>
           {badge > 0 && (
             <span style={{
-              fontSize: 11, fontWeight: 600, color: 'var(--accent-text)',
-              background: 'var(--accent)', padding: '1px 7px',
-              borderRadius: 10, minWidth: 20, textAlign: 'center',
+              fontFamily: 'var(--font-mono, ui-monospace, monospace)',
+              fontSize: 10, fontWeight: 600, color: 'var(--accent-text)',
+              background: 'var(--accent)', padding: '1px 6px',
+              borderRadius: 9, minWidth: 18, textAlign: 'center',
             }}>
               {badge > 999 ? '999+' : badge}
             </span>

@@ -167,6 +167,10 @@
       "fontSize": "Font Size",
       "fontSizeDescription": "Scale the interface text. 100% is the default.",
       "fontSizeReset": "Reset to 100%",
+      "density": "Interface density",
+      "densityCompact": "Compact",
+      "densityComfortable": "Comfortable",
+      "densitySpacious": "Spacious",
       "customCss": "Custom CSS",
       "customCssDescription": "Inject additional CSS after the active theme. Use CSS custom properties (e.g. --accent, --bg-primary) to override theme values, or add your own rules. Applied to all users.",
       "customCssPlaceholder": ":root {\n  --accent: #e74c3c;\n}",
@@ -1057,6 +1061,7 @@
       "other": "Other"
     },
     "carddavBadge": "Synced from CardDAV",
+    "composeTo": "Compose message",
     "addressBooks": { "label": "Address book", "allVisible": "All visible", "create": "New address book", "newPrompt": "Name the new address book", "hide": "Hide", "show": "Show", "importGoogle": "Import Google CSV", "exportGoogle": "Google CSV", "exportOutlook": "Outlook CSV" }
   },
   "contextMenu": {

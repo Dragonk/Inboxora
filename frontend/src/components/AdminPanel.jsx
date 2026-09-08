@@ -1518,7 +1518,7 @@ function SwipeActionIcon({ action, size = 17 }) {
 function LayoutsTab() {
   const { t } = useTranslation();
   const isMobile = useMobile();
-  const { layout, setLayout, pageSize, setPageSize, scrollMode, setScrollMode, swipeActions, setSwipeAction, syncInterval, setSyncInterval, folderSyncInterval, setFolderSyncInterval, threadedView, setThreadedView, plaintextEmail, setPlaintextEmail, hoverQuickActions, setHoverQuickActions, showMobileAvatars, setShowMobileAvatars, gravatarAvatars, setGravatarAvatars, replyDefault, setReplyDefault, markReadBehavior, setMarkReadBehavior, markReadDelay, setMarkReadDelay, senderFavicons, senderFaviconsSaving, setSenderFavicons, showMessagePreviews, setShowMessagePreviews, conversationReaderViewEnabled, setConversationReaderViewEnabled } = useStore();
+  const { layout, setLayout, pageSize, setPageSize, scrollMode, setScrollMode, swipeActions, setSwipeAction, syncInterval, setSyncInterval, folderSyncInterval, setFolderSyncInterval, threadedView, setThreadedView, plaintextEmail, setPlaintextEmail, hoverQuickActions, setHoverQuickActions, showMobileAvatars, setShowMobileAvatars, gravatarAvatars, setGravatarAvatars, replyDefault, setReplyDefault, markReadBehavior, setMarkReadBehavior, markReadDelay, setMarkReadDelay, senderFavicons, senderFaviconsSaving, setSenderFavicons, showMessagePreviews, setShowMessagePreviews, conversationReaderViewEnabled, setConversationReaderViewEnabled, fontSize, setFontSize } = useStore();
   const { calendarWeekStartsOn, setCalendarWeekStartsOn, mobileNavigationPosition, setMobileNavigationPosition, calendarWorkDays, setCalendarWorkDays, calendarWorkHoursStart, setCalendarWorkHoursStart, calendarWorkHoursEnd, setCalendarWorkHoursEnd, calendarWorkHoursError } = useStore();
   const [senderFaviconsError, setSenderFaviconsError] = useState('');
 
@@ -1645,6 +1645,38 @@ function LayoutsTab() {
             </button>
           );
         })}
+      </div>
+
+      {/* Interface density — segmented control (per appearance mock-up). Drives the
+          existing global UI scale (the Fonts-tab percentage), so no new state. */}
+      <div style={{ marginTop: 20, paddingTop: 16, borderTop: '1px solid var(--border-subtle)' }}>
+        <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--text-primary)', marginBottom: 10 }}>
+          {t('admin.appearance.density')}
+        </div>
+        <div style={{ display: 'inline-flex', padding: 2, gap: 2, borderRadius: 8, background: 'var(--bg-tertiary)', border: '1px solid var(--border-subtle)' }} role="group" aria-label={t('admin.appearance.density')}>
+          {[
+            ['compact', 90, t('admin.appearance.densityCompact')],
+            ['comfortable', 100, t('admin.appearance.densityComfortable')],
+            ['spacious', 115, t('admin.appearance.densitySpacious')],
+          ].map(([key, value, label]) => (
+            <button
+              key={key}
+              type="button"
+              onClick={() => setFontSize(value)}
+              aria-pressed={fontSize === value}
+              style={{
+                border: 0, padding: '5px 12px', borderRadius: 6, fontSize: 12, cursor: 'pointer',
+                background: fontSize === value ? 'var(--bg-elevated)' : 'transparent',
+                color: fontSize === value ? 'var(--text-primary)' : 'var(--text-secondary)',
+                fontWeight: fontSize === value ? 600 : 400,
+                boxShadow: fontSize === value ? 'var(--shadow-soft)' : 'none',
+                transition: 'background var(--motion-fast) var(--ease-standard)',
+              }}
+            >
+              {label}
+            </button>
+          ))}
+        </div>
       </div>
 
       <div style={{ marginTop: 28, paddingTop: 22, borderTop: '1px solid var(--border-subtle)' }}>
@@ -2015,68 +2047,69 @@ function LayoutsTab() {
         </div>
       </div>
 
-      {/* Threading mode — Grupowanie rozmów */}
+      {/* Threading mode — Grupowanie rozmów (switch, per appearance mock-up) */}
       <div style={{ marginTop: 28, paddingTop: 22, borderTop: '1px solid var(--border-subtle)' }}>
-        <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--text-primary)', marginBottom: 4 }}>
-          {t('conversation.groupIntoConversations')}
-        </div>
-        <div style={{ display: 'flex', gap: 8 }}>
-          {[
-            { id: false, label: t('conversation.seriesOff'), desc: t('admin.messageList.threadingOffDesc') },
-            { id: true,  label: t('conversation.groupIntoConversationsOn'), desc: t('admin.messageList.threadingOnDesc') },
-          ].map(({ id, label, desc }) => {
-            const active = threadedView === id;
-            return (
-              <button
-                key={String(id)}
-                onClick={() => setThreadedView(id)}
-                style={{
-                  flex: 1, padding: '10px 12px', textAlign: 'left',
-                  background: active ? 'var(--bg-hover)' : 'var(--bg-tertiary)',
-                  border: `2px solid ${active ? 'var(--accent)' : 'var(--border-subtle)'}`,
-                  borderRadius: 8, cursor: 'pointer', transition: 'all 0.15s', outline: 'none',
-                }}
-                onMouseEnter={e => { if (!active) e.currentTarget.style.borderColor = 'var(--border)'; }}
-                onMouseLeave={e => { if (!active) e.currentTarget.style.borderColor = 'var(--border-subtle)'; }}
-              >
-                <div style={{ fontSize: 12, fontWeight: 500, color: 'var(--text-primary)', marginBottom: 2 }}>{label}</div>
-                <div style={{ fontSize: 11, color: 'var(--text-tertiary)' }}>{desc}</div>
-              </button>
-            );
-          })}
+        <div style={{ display: 'flex', alignItems: 'flex-start', gap: 14 }}>
+          <div style={{ flex: 1, minWidth: 0 }}>
+            <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--text-primary)', marginBottom: 4 }}>
+              {t('conversation.groupIntoConversations')}
+            </div>
+            <div style={{ fontSize: 11.5, color: 'var(--text-secondary)' }}>
+              {threadedView ? t('admin.messageList.threadingOnDesc') : t('admin.messageList.threadingOffDesc')}
+            </div>
+          </div>
+          <button
+            type="button"
+            role="switch"
+            aria-checked={threadedView}
+            aria-label={threadedView ? t('conversation.groupIntoConversationsOn') : t('conversation.seriesOff')}
+            onClick={() => setThreadedView(!threadedView)}
+            style={{
+              width: 36, height: 20, borderRadius: 10, border: 'none', cursor: 'pointer', padding: 0,
+              background: threadedView ? 'var(--accent)' : 'var(--border)',
+              position: 'relative', transition: 'background var(--motion-normal) var(--ease-standard)', flexShrink: 0, marginTop: 1,
+            }}
+          >
+            <span style={{
+              position: 'absolute', top: 2, left: 2, width: 16, height: 16, borderRadius: '50%',
+              background: '#fff', boxShadow: '0 1px 2px rgba(0,0,0,0.2)',
+              transition: 'transform var(--motion-normal) var(--ease-emphasized)',
+              transform: threadedView ? 'translateX(16px)' : 'translateX(0)',
+            }} />
+          </button>
         </div>
       </div>
 
-      {/* Conversation reader — Czytnik rozmowy, same card layout as grouping above */}
+      {/* Conversation reader — Czytnik rozmowy (switch, per appearance mock-up) */}
       <div style={{ marginTop: 20, paddingTop: 16, borderTop: '1px solid var(--border-subtle)' }}>
-        <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--text-primary)', marginBottom: 4 }}>
-          {t('conversation.conversationReader')}
-        </div>
-        <div style={{ display: 'flex', gap: 8 }}>
-          {[
-            { id: false, label: t('conversation.readerOff'), desc: t('conversation.readerOffDesc') },
-            { id: true,  label: t('conversation.readerOn'), desc: t('conversation.readerOnDesc') },
-          ].map(({ id, label, desc }) => {
-            const active = conversationReaderViewEnabled === id;
-            return (
-              <button
-                key={String(id)}
-                type="button"
-                onClick={() => setConversationReaderViewEnabled(id)}
-                style={{
-                  flex: 1, padding: '10px 12px', textAlign: 'left',
-                  background: active ? 'var(--bg-hover)' : 'var(--bg-tertiary)',
-                  border: `2px solid ${active ? 'var(--accent)' : 'var(--border-subtle)'}`,
-                  borderRadius: 8, cursor: 'pointer', transition: 'all 0.15s', outline: 'none',
-                }}
-                onMouseEnter={e => { if (!active) e.currentTarget.style.borderColor = 'var(--border)'; }}
-                onMouseLeave={e => { if (!active) e.currentTarget.style.borderColor = 'var(--border-subtle)'; }}
-              >
-                <div style={{ fontSize: 12, fontWeight: 500, color: 'var(--text-primary)', marginBottom: 2 }}>{label}</div>
-                <div style={{ fontSize: 11, color: 'var(--text-tertiary)' }}>{desc}</div>
-              </button>
-            );
-          })}
+        <div style={{ display: 'flex', alignItems: 'flex-start', gap: 14 }}>
+          <div style={{ flex: 1, minWidth: 0 }}>
+            <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--text-primary)', marginBottom: 4 }}>
+              {t('conversation.conversationReader')}
+            </div>
+            <div style={{ fontSize: 11.5, color: 'var(--text-secondary)' }}>
+              {conversationReaderViewEnabled ? t('conversation.readerOnDesc') : t('conversation.readerOffDesc')}
+            </div>
+          </div>
+          <button
+            type="button"
+            role="switch"
+            aria-checked={conversationReaderViewEnabled}
+            aria-label={conversationReaderViewEnabled ? t('conversation.readerOn') : t('conversation.readerOff')}
+            onClick={() => setConversationReaderViewEnabled(!conversationReaderViewEnabled)}
+            style={{
+              width: 36, height: 20, borderRadius: 10, border: 'none', cursor: 'pointer', padding: 0,
+              background: conversationReaderViewEnabled ? 'var(--accent)' : 'var(--border)',
+              position: 'relative', transition: 'background var(--motion-normal) var(--ease-standard)', flexShrink: 0, marginTop: 1,
+            }}
+          >
+            <span style={{
+              position: 'absolute', top: 2, left: 2, width: 16, height: 16, borderRadius: '50%',
+              background: '#fff', boxShadow: '0 1px 2px rgba(0,0,0,0.2)',
+              transition: 'transform var(--motion-normal) var(--ease-emphasized)',
+              transform: conversationReaderViewEnabled ? 'translateX(16px)' : 'translateX(0)',
+            }} />
+          </button>
         </div>
       </div>
 
@@ -3407,6 +3440,10 @@ function SSOTab() {
             background: 'var(--bg-tertiary)', border: '1px solid var(--border-subtle)',
           }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+              {/* Provider identity mark — the OIDC shield from the mock-up provider card. */}
+              <span style={{ color: 'var(--accent)', flexShrink: 0, display: 'inline-flex' }} aria-hidden="true">
+                <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75"><path d="M12 3L4 7v5c0 5 3.5 9.3 8 10.3C16.5 21.3 20 17 20 12V7L12 3z"/></svg>
+              </span>
               <div style={{ flex: 1, minWidth: 0 }}>
                 <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 2 }}>
                   <span style={{ fontSize: 13, fontWeight: 500, color: 'var(--text-primary)' }}>{p.name}</span>
