@@ -668,6 +668,30 @@ export function getInitialTheme() {
   return 'ink';
 }
 
+// ── Favicon: IO monogram ──────────────────────────────────────────────────────
+
+// The browser-tab favicon is the same IO monogram as the in-app logo mark,
+// redrawn as a standalone SVG data URI so the tile follows the effective
+// accent (theme switch or custom-CSS --accent override). The static PNG link
+// in index.html stays as the pre-JS fallback and is swapped at runtime.
+export function buildFaviconSvg(accent) {
+  const tile = accent || '#7c6af7';
+  const svg = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32">`
+    + `<defs>`
+    + `<linearGradient id="tonal" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="rgba(255,255,255,0.22)"/><stop offset="1" stop-color="rgba(0,0,0,0.28)"/></linearGradient>`
+    + `<linearGradient id="shg" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="rgba(255,255,255,0.14)"/><stop offset="1" stop-color="rgba(255,255,255,0)"/></linearGradient>`
+    + `</defs>`
+    + `<rect width="32" height="32" rx="7.5" fill="${tile}"/>`
+    + `<rect width="32" height="32" rx="7.5" fill="url(#tonal)"/>`
+    + `<rect width="32" height="16" rx="7.5" fill="url(#shg)"/>`
+    + `<rect x="5.5" y="9" width="6.4" height="2.9" rx="1.2" fill="#fff"/>`
+    + `<rect x="5.5" y="20.1" width="6.4" height="2.9" rx="1.2" fill="#fff"/>`
+    + `<rect x="7.4" y="9" width="2.6" height="14" fill="#fff"/>`
+    + `<circle cx="20.6" cy="16" r="5.6" fill="none" stroke="#fff" stroke-width="3"/>`
+    + `</svg>`;
+  return `data:image/svg+xml,${encodeURIComponent(svg)}`;
+}
+
 // ── Effective accent (theme value, or a custom-CSS override of --accent) ───────
 
 // The accent actually in effect. A custom-CSS override of --accent wins over the
@@ -712,6 +736,12 @@ function refreshAccentDerived() {
   const accent = getEffectiveAccent();
   if (!accent.startsWith('#')) return; // PWA theme-color expects a hex colour
   document.querySelector('meta[name="theme-color"]')?.setAttribute('content', accent);
+  // Swap the pre-JS PNG favicon for the accent-tinted IO monogram.
+  const favicon = document.querySelector('link[rel="icon"]');
+  if (favicon) {
+    favicon.setAttribute('type', 'image/svg+xml');
+    favicon.setAttribute('href', buildFaviconSvg(accent));
+  }
   _accentListeners.forEach(fn => {
     try { fn(accent); } catch { /* a listener error must not break theming */ }
   });

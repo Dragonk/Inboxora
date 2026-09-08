@@ -37,23 +37,14 @@
   --overlay-scrim: rgba(0,0,0,0.5);
 }
 
-/* The transparent app mark has dedicated contrast variants. The attribute is
-   calculated from the active app surface, not the operating-system preference. */
+/* The mark is an inline SVG monogram (IO) whose tile follows var(--accent), so it
+   adapts to any surface without swap rules. The legacy __light/__dark classes stay
+   as hook classes on the shine/tonal overlay layers (see brandAudit.test.js). */
 .inboxora-logo-mark {
   display: inline-block;
   flex: 0 0 auto;
   position: relative;
 }
-
-.inboxora-logo-mark img {
-  display: block;
-  inset: 0;
-  position: absolute;
-}
-
-.inboxora-logo-mark__dark { display: none !important; }
-:root[data-inboxora-surface="dark"] .inboxora-logo-mark__light { display: none !important; }
-:root[data-inboxora-surface="dark"] .inboxora-logo-mark__dark { display: block !important; }
 
 * {
   box-sizing: border-box;
