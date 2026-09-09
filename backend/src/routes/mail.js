@@ -106,6 +106,7 @@ function notifyMailMutation(rows, userId) {
 // Get messages (unified or per-account/folder)
 router.get('/messages', async (req, res) => {
   const { accountId, folder = 'INBOX', limit = 50, offset = 0, unreadOnly, threaded, category } = req.query;
+  const __t0 = Date.now();
 
   if (!isValidFolderName(folder)) return res.status(400).json({ error: 'Invalid folder name' });
 
@@ -125,6 +126,7 @@ router.get('/messages', async (req, res) => {
     category: safeCategory,
   });
 
+  console.info(`[perf] GET /api/mail/messages scope=${accountId || 'unified'} folder=${folder} ${Date.now() - __t0}ms total=${total}`);
   if (resolvedAccountId && messages.length) {
     imapManager.prefetchFolderBodies(resolvedAccountId, messages.map(r => r.id))
       .catch(err => console.warn('Folder body prefetch error:', err.message));
