@@ -404,10 +404,12 @@ export default function MessageList() {
         if (unreadOnly) params.unreadOnly = 'true';
         if (threadedView) params.threaded = 'true';
         if (selectedFolder === 'INBOX' && (categorizationEnabled || selectedAccount?.categorization_enabled)) params.category = activeCategory;
+        const __t0 = Date.now();
         await refreshRequestRef.current.run(
           () => api.getMessages(params),
           (data) => {
             if (cancelled) return;
+            console.info(`[perf] messages load ${Date.now() - __t0}ms unified=${!selectedAccountId} count=${data.messages.length} total=${data.total}`);
             setMessagesTotal(data.total);
             setMessages(applyReadGuard(data.messages));
             setMessagesOffset(data.messages.length);
@@ -2671,23 +2673,6 @@ export default function MessageList() {
           transition: 'box-shadow 0.2s ease',
           background: 'var(--bg-secondary)', flexShrink: 0,
         }}>
-          {/* Hamburger */}
-          <button
-            data-testid="mobile-menu"
-            onClick={() => setMobileSidebarOpen(true)}
-            aria-label={t('messageList.menu', 'Menu')}
-            style={{
-              background: 'none', border: 'none', color: 'var(--text-secondary)',
-              cursor: 'pointer', padding: 0, borderRadius: 7,
-              display: 'flex', alignItems: 'center', justifyContent: 'center',
-              minWidth: 44, minHeight: 44,
-            }}
-          >
-            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75">
-              <line x1="3" y1="12" x2="21" y2="12"/><line x1="3" y1="6" x2="21" y2="6"/><line x1="3" y1="18" x2="21" y2="18"/>
-            </svg>
-          </button>
-
           {/* Folder / account title + unread count */}
           <div style={{ flex: 1, minWidth: 0, display: 'flex', alignItems: 'center', gap: 8, overflow: 'hidden' }}>
             <h2 style={{

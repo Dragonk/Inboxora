@@ -64,7 +64,7 @@ const PAGE_SIZE = 100;
 
 export default function ContactsPage({ isActive = true }) {
   const { t } = useTranslation();
-  const { showContacts, setShowContacts, setMobileSidebarOpen } = useStore();
+  const { showContacts, setShowContacts } = useStore();
   const isMobile = useMobile();
 
   const [contacts, setContacts]     = useState([]);
@@ -617,24 +617,6 @@ export default function ContactsPage({ isActive = true }) {
             {mobileHeaderTitle}
           </h2>
 
-          {mobilePanel === 'list' && (
-            <button
-              type="button"
-              data-testid="contacts-mobile-menu"
-              onClick={() => setMobileSidebarOpen(true)}
-              aria-label={t('common.menu')}
-              style={{
-                background: 'none', border: 'none', color: 'var(--text-secondary)',
-                cursor: 'pointer', padding: 0, borderRadius: 7,
-                display: 'flex', alignItems: 'center', justifyContent: 'center',
-                minWidth: 44, minHeight: 44,
-              }}
-            >
-              <svg aria-hidden="true" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
-                <line x1="4" y1="7" x2="20" y2="7"/><line x1="4" y1="12" x2="20" y2="12"/><line x1="4" y1="17" x2="20" y2="17"/>
-              </svg>
-            </button>
-          )}
         </div>
 
         {/* Search bar — only on list view */}

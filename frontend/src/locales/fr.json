@@ -1615,6 +1615,7 @@
     }
   },
   "sidebar": {
+    "accounts": "Comptes",
     "allInboxes": "Toutes les boîtes",
     "compose": "Composer",
     "toggleSidebar": "Basculer la barre latérale",

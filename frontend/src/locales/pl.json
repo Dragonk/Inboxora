@@ -1615,6 +1615,7 @@
     }
   },
   "sidebar": {
+    "accounts": "Konta",
     "allInboxes": "Wszystkie skrzynki odbiorcze",
     "compose": "Napisz",
     "toggleSidebar": "Przełącz pasek boczny",

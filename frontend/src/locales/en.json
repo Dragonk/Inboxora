@@ -1615,6 +1615,7 @@
     }
   },
   "sidebar": {
+    "accounts": "Accounts",
     "allInboxes": "All Inboxes",
     "compose": "Compose",
     "toggleSidebar": "Toggle sidebar",

@@ -1615,6 +1615,7 @@
     }
   },
   "sidebar": {
+    "accounts": "Cuentas",
     "allInboxes": "Todas las bandejas",
     "compose": "Redactar",
     "toggleSidebar": "Alternar barra lateral",

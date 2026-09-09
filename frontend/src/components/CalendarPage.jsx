@@ -36,7 +36,7 @@ function nowMinutes() { const now = new Date(); return now.getHours() * 60 + now
 export default function CalendarPage({ isActive = true }) {
   const { t, i18n } = useTranslation();
   const locale = resolveDateLocale(i18n.resolvedLanguage || i18n.language);
-  const { showCalendar, setShowCalendar, setMobileSidebarOpen, accounts, calendarWeekStartsOn, calendarWorkDays, calendarWorkHoursStart, calendarWorkHoursEnd, visibleCalendarIds, setVisibleCalendarIds, mobileNavigationPosition } = useStore();
+  const { showCalendar, setShowCalendar, accounts, calendarWeekStartsOn, calendarWorkDays, calendarWorkHoursStart, calendarWorkHoursEnd, visibleCalendarIds, setVisibleCalendarIds, mobileNavigationPosition } = useStore();
   const isMobile = useMobile();
   const [anchor, setAnchor] = useState(() => new Date());
   const loadGeneration = useRef(0);
@@ -108,9 +108,6 @@ export default function CalendarPage({ isActive = true }) {
   const shiftMiniMonth = direction => setAnchor(current => shiftCalendarAnchor(current, 'month', direction));
   return <div data-testid="calendar-page" className="calendar-page" style={{ ...page, ...(isMobile ? mobilePage : {}) }}>
     <header style={{ ...header, ...(isMobile ? mobileHeader(mobileNavigationPosition) : calHead) }}>
-      {isMobile && <button data-testid="calendar-mobile-menu" aria-label={t('messageList.menu', 'Menu')} onClick={() => setMobileSidebarOpen(true)} style={mobileBackButton}>
-        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75"><line x1="3" y1="12" x2="21" y2="12"/><line x1="3" y1="6" x2="21" y2="6"/><line x1="3" y1="18" x2="21" y2="18"/></svg>
-      </button>}
       {isMobile && <button data-testid="calendar-mobile-back" aria-label={t('calendar.back')} onClick={() => setShowCalendar(false)} style={mobileBackButton}>
         <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><polyline points="15 18 9 12 15 6"/></svg>
       </button>}
@@ -120,7 +117,7 @@ export default function CalendarPage({ isActive = true }) {
           {[['month', t('calendar.month')], ['week', t('calendar.week')], ['workweek', t('calendar.workWeek')]].map(([value, label]) => <button key={value} className="cal-btn" data-testid={`calendar-view-${value}`} onClick={() => setView(value)} aria-pressed={view === value} style={{ ...segmentButton, ...(view === value ? segmentActive : {}) }}>{label}</button>)}
         </div>
         <button className="cal-btn" onClick={() => step(-1)} aria-label={t('calendar.previous')} style={iconButton}>‹</button><button className="cal-btn" onClick={() => setAnchor(new Date())} style={secondaryButton}>{t('calendar.today')}</button><button className="cal-btn" onClick={() => step(1)} aria-label={t('calendar.next')} style={iconButton}>›</button>
-        {isMobile && <button className="cal-btn" data-testid="calendar-mobile-panel" onClick={() => { document.getElementById('calendar-mobile-panel')?.show(); setMobilePanelOpen(true); }} style={secondaryButton}>{t('calendar.calendars')}</button>}
+        {isMobile && <button className="cal-btn" data-testid="calendar-mobile-panel" onClick={() => setMobilePanelOpen(true)} style={secondaryButton}>{t('calendar.calendars')}</button>}
 
         {!isMobile && <button className="cal-btn" disabled={!writable.length} onClick={() => openCreate()} style={primaryButton}>{t('calendar.newEvent')}</button>}
       </div>
@@ -131,7 +128,10 @@ export default function CalendarPage({ isActive = true }) {
       {!isMobile && <CalendarSidebar anchor={anchor} calendars={calendars} visibleCalendarIds={visibleCalendarIds} weekStartsOn={calendarWeekStartsOn} locale={locale} onSelectDate={setAnchor} onShiftMonth={shiftMiniMonth} onToggleCalendar={toggleCalendar} onSourcesChanged={load} onCalendarsChanged={load} t={t} />}
       <CalendarGrid days={days} events={visibleEvents} view={view} anchor={anchor} isMobile={isMobile} locale={locale} openCreate={openCreate} openEdit={openEdit} openContextMenu={(event, x, y, trigger) => setContextMenu({ event, x, y, triggerRef: { current: trigger } })} t={t} calendarWorkHoursStart={calendarWorkHoursStart} calendarWorkHoursEnd={calendarWorkHoursEnd} />
     </div>
-    {isMobile && <dialog id="calendar-mobile-panel" aria-label={t('calendar.panel')} data-testid="calendar-mobile-dock" onClose={() => setMobilePanelOpen(false)} style={mobilePanelDialog}><CalendarSidebar anchor={anchor} calendars={calendars} visibleCalendarIds={visibleCalendarIds} weekStartsOn={calendarWeekStartsOn} locale={locale} onSelectDate={day => { setAnchor(day); document.getElementById('calendar-mobile-panel')?.close(); }} onShiftMonth={shiftMiniMonth} onToggleCalendar={toggleCalendar} onSourcesChanged={load} onCalendarsChanged={load} onClose={() => document.getElementById('calendar-mobile-panel')?.close()} t={t} /></dialog>}
+    {isMobile && (<>
+    {mobilePanelOpen && <div aria-hidden="true" onClick={() => setMobilePanelOpen(false)} style={{ position: 'fixed', inset: 0, zIndex: 1299, background: 'var(--overlay-scrim)' }} />}
+    <div id="calendar-mobile-panel" aria-label={t('calendar.panel')} data-testid="calendar-mobile-dock" style={{ position: 'fixed', left: 0, top: 0, bottom: 0, zIndex: 1300, display: 'flex', transform: mobilePanelOpen ? 'translateX(0)' : 'translateX(-100%)', transition: 'transform 0.25s cubic-bezier(0.25,0.46,0.45,0.94)', boxShadow: mobilePanelOpen ? 'var(--shadow-drawer)' : 'none' }}><CalendarSidebar anchor={anchor} calendars={calendars} visibleCalendarIds={visibleCalendarIds} weekStartsOn={calendarWeekStartsOn} locale={locale} onSelectDate={day => { setAnchor(day); setMobilePanelOpen(false); }} onShiftMonth={shiftMiniMonth} onToggleCalendar={toggleCalendar} onSourcesChanged={load} onCalendarsChanged={load} onClose={() => setMobilePanelOpen(false)} t={t} /></div>
+    </>)}
     {isMobile && !mobilePanelOpen && <button data-testid="calendar-mobile-new-event" aria-label={t('calendar.newEvent')} disabled={!writable.length} onClick={() => openCreate()} style={{ ...mobileNewEventButton, bottom: 'calc(var(--mobile-nav-height) + var(--sab) + 20px)' }}>
       <svg width="25" height="25" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M12 5v14M5 12h14"/></svg>
     </button>}
@@ -235,7 +235,7 @@ const header = { display: 'flex', alignItems: 'center', justifyContent: 'space-b
 const mobileHeader = position => position === 'bottom' ? { position: 'sticky', bottom: 'calc(var(--mobile-nav-height) + var(--sab))', zIndex: 12, order: 2, margin: '16px -14px 0', padding: '10px 12px', flexWrap: 'wrap', background: 'var(--bg-primary)', borderTop: '1px solid var(--border-subtle)' } : { position: 'sticky', top: 0, zIndex: 2, margin: '0 -14px 16px', padding: 'calc(var(--sat) + 10px) 12px 10px', flexWrap: 'wrap', background: 'var(--bg-primary)', borderBottom: '1px solid var(--border-subtle)' };
 const mobileBackButton = { background: 'none', border: 'none', color: 'var(--text-secondary)', cursor: 'pointer', padding: 0, borderRadius: 7, display: 'flex', alignItems: 'center', justifyContent: 'center', minWidth: 44, minHeight: 44, flexShrink: 0 };
 const mobileNewEventButton = { position: 'fixed', right: 20, bottom: 'max(20px, calc(env(safe-area-inset-bottom) + 12px))', zIndex: 10, width: 56, height: 56, border: 0, borderRadius: '50%', display: 'grid', placeItems: 'center', background: 'var(--accent)', color: 'var(--accent-text)', boxShadow: '0 8px 22px rgba(0,0,0,.28)', cursor: 'pointer' };
-const calendarContent = { display: 'flex', flex: 1, width: '100%', minHeight: 0, border: '1px solid var(--border)', borderRadius: 12, overflow: 'hidden' }; const mobilePanelDialog = { position: 'fixed', left: 0, right: 0, top: 'auto', bottom: 'calc(var(--mobile-nav-height) + var(--sab))', zIndex: 1100, border: 0, padding: 0, margin: 0, maxHeight: 'calc(100svh - var(--mobile-nav-height) - var(--sab) - 16px)', overflowY: 'auto', maxWidth: 'min(360px, 92vw)', width: '100%', background: 'transparent' };
+const calendarContent = { display: 'flex', flex: 1, width: '100%', minHeight: 0, border: '1px solid var(--border)', borderRadius: 12, overflow: 'hidden' };
 const heading = { display: 'flex', alignItems: 'baseline', gap: 12, minWidth: 230 }; const mobileHeading = { flex: 1, minWidth: 0 };
 const toolbar = { display: 'flex', gap: 7, alignItems: 'center', flexWrap: 'wrap' }; const mobileToolbar = { flexBasis: '100%', width: '100%' }; const segmented = { display: 'flex', padding: 2, gap: 2, borderRadius: 8, background: 'var(--bg-tertiary)', border: '1px solid var(--border-subtle)' };
 const segmentButton = { border: 0, background: 'transparent', color: 'var(--text-secondary)', padding: '5px 11px', borderRadius: 6, cursor: 'pointer', fontSize: 12 }; const segmentActive = { background: 'var(--bg-elevated)', color: 'var(--text-primary)', fontWeight: 600, boxShadow: 'var(--shadow-soft)' };

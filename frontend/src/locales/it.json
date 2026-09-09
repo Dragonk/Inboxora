@@ -1615,6 +1615,7 @@
     }
   },
   "sidebar": {
+    "accounts": "Account",
     "allInboxes": "Tutte le caselle",
     "compose": "Scrivi",
     "toggleSidebar": "Attiva/disattiva barra laterale",

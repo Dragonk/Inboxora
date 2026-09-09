@@ -1615,6 +1615,7 @@
     }
   },
   "sidebar": {
+    "accounts": "账户",
     "allInboxes": "所有收件箱",
     "compose": "撰写",
     "toggleSidebar": "切换侧边栏",

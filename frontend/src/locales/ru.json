@@ -1615,6 +1615,7 @@
     }
   },
   "sidebar": {
+    "accounts": "Аккаунты",
     "allInboxes": "Все входящие",
     "compose": "Написать",
     "toggleSidebar": "Переключить боковую панель",

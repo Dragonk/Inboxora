@@ -1615,6 +1615,7 @@
     }
   },
   "sidebar": {
+    "accounts": "Účty",
     "allInboxes": "Všechny doručené",
     "compose": "Napsat",
     "toggleSidebar": "Zobrazit nebo skrýt postranní panel",

@@ -1615,6 +1615,7 @@
     }
   },
   "sidebar": {
+    "accounts": "Konten",
     "allInboxes": "Alle Posteingänge",
     "compose": "Verfassen",
     "toggleSidebar": "Seitenleiste umschalten",
