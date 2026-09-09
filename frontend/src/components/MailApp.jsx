@@ -896,7 +896,7 @@ export default function MailApp() {
       display: 'flex',
       width: scale !== 1 ? `${(vpSize.w / scale).toFixed(2)}px` : '100%',
       height: scale !== 1 ? `${(vpSize.h / scale).toFixed(2)}px` : '100%',
-      '--mobile-nav-height': '72px',
+      '--mobile-nav-height': '0px',
       ...(scale !== 1 && {
         transform: `scale(${scale})`,
         transformOrigin: 'top left',
@@ -906,7 +906,9 @@ export default function MailApp() {
       background: 'var(--bg-primary)',
     }}>
       {isMobile ? (
-        <>
+        <div style={{ display: 'flex', flexDirection: 'column', width: '100%', height: '100%', minHeight: 0 }}>
+          <MobileTopBar onMenu={() => setMobileSidebarOpen(true)} onCompose={() => openCompose({ accountId: selectedAccountId || undefined })} t={t} />
+          <div style={{ display: 'flex', flex: 1, minHeight: 0, width: '100%', position: 'relative' }}>
           {/* Backdrop — covers full screen including status bar area */}
           {mobileSidebarOpen && (
             <div
@@ -956,15 +958,8 @@ export default function MailApp() {
             <MessagePane mode={conversationReaderViewEnabled && (conversationId || nativeThreadId) ? 'conversation' : 'single'} conversationId={conversationId} targetLogicalMessageId={targetLogicalMessageId} selectedConversationCopy={selectedConversationCopy} nativeThreadId={nativeThreadId} nativeFolder={nativeFolder} onReply={replyFromConversation} onNativeThreadUnavailable={handleNativeThreadUnavailable} onMobileBack={() => { if (conversationReaderViewEnabled && conversationId) { setConversationId(null); setTargetLogicalMessageId(null); } else setSelectedMessage(null); }} />
           </div>
           {mobileProfileOpen && <ProfileModal onClose={() => setMobileProfileOpen(false)} />}
-          <MobileNavigation
-            showContacts={showContacts}
-            showCalendar={showCalendar}
-            setShowContacts={setShowContacts}
-            setShowCalendar={setShowCalendar}
-            setSelectedMessage={setSelectedMessage}
-            t={t}
-          />
-          </>
+          </div>
+        </div>
       ) : (
         <>
           <Sidebar />
@@ -1098,36 +1093,31 @@ export default function MailApp() {
   );
 }
 
-function MobileNavigation({ showContacts, showCalendar, setShowContacts, setShowCalendar, setSelectedMessage, t }) {
-  const navigateTo = (view) => {
-    setSelectedMessage(null);
-    if (view === 'mail') {
-      setShowContacts(false);
-      setShowCalendar(false);
-    } else if (view === 'contacts') {
-      setShowContacts(true);
-      setShowCalendar(false);
-    } else {
-      setShowContacts(false);
-      setShowCalendar(true);
-    }
-  };
-  const buttonStyle = (active) => ({
-    flex: 1, minHeight: 48, border: 'none', borderRadius: 10,
-    background: active ? 'var(--bg-hover)' : 'transparent', color: active ? 'var(--accent)' : 'var(--text-tertiary)',
-    cursor: 'pointer', fontSize: 11, fontWeight: active ? 600 : 500,
-  });
-
+function MobileTopBar({ onMenu, onCompose, t }) {
   return (
-    <nav data-testid="mobile-primary-nav" aria-label={t('sidebar.allInboxes')} style={{
-      position: 'fixed', left: 0, right: 0, bottom: 0, height: 'calc(var(--mobile-nav-height) + var(--sab))',
-      padding: '8px 12px calc(var(--sab) + 8px)', boxSizing: 'border-box', zIndex: 1200,
-      display: 'flex', alignItems: 'center', gap: 6, background: 'var(--bg-secondary)', borderTop: '1px solid var(--border)', boxShadow: 'var(--shadow-soft)',
+    <div data-testid="mobile-topbar" style={{
+      display: 'flex', alignItems: 'center', gap: 8, padding: '10px 12px',
+      borderBottom: '1px solid var(--border-subtle)', background: 'var(--bg-secondary)',
+      flexShrink: 0,
     }}>
-      <button type="button" aria-current={!showContacts && !showCalendar ? 'page' : undefined} onClick={() => navigateTo('mail')} style={buttonStyle(!showContacts && !showCalendar)}>{t('sidebar.allInboxes')}</button>
-      <button type="button" aria-current={showContacts ? 'page' : undefined} onClick={() => navigateTo('contacts')} style={buttonStyle(showContacts)}>{t('contacts.title')}</button>
-      <button type="button" aria-current={showCalendar ? 'page' : undefined} onClick={() => navigateTo('calendar')} style={buttonStyle(showCalendar)}>{t('calendar.title')}</button>
-    </nav>
+      <button type="button" data-testid="mobile-topbar-menu" onClick={onMenu} aria-label={t('messageList.menu', 'Menu')} style={{
+        background: 'none', border: 'none', color: 'var(--text-secondary)',
+        cursor: 'pointer', padding: 0, borderRadius: 7,
+        display: 'flex', alignItems: 'center', justifyContent: 'center',
+        minWidth: 44, minHeight: 44,
+      }}>
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" aria-hidden="true"><line x1="3" y1="6" x2="21" y2="6"/><line x1="3" y1="12" x2="21" y2="12"/><line x1="3" y1="18" x2="21" y2="18"/></svg>
+      </button>
+      <span style={{ fontFamily: 'var(--font-display)', fontSize: 16, fontWeight: 600, flex: 1, minWidth: 0 }}>Inboxora</span>
+      <button type="button" onClick={onCompose} aria-label={t('sidebar.compose')} style={{
+        background: 'none', border: 'none', color: 'var(--accent)',
+        cursor: 'pointer', padding: 0, borderRadius: 7,
+        display: 'flex', alignItems: 'center', justifyContent: 'center',
+        minWidth: 44, minHeight: 44,
+      }}>
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" aria-hidden="true"><path d="M11 4H4a2 2 0 00-2 2v14a2 2 0 002 2h14a2 2 0 002-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 013 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>
+      </button>
+    </div>
   );
 }
 

@@ -21,14 +21,15 @@ describe('mobile Contacts navigation contract', () => {
     assert.match(mobileLayout, /<Suspense fallback=\{lazyFallback\}><ContactsPage isActive=\{showContacts\} \/><\/Suspense>/);
   });
 
-  it('keeps the global drawer reachable from the Contacts list', async () => {
+  it('keeps the global drawer reachable from the shared mobile top bar', async () => {
+    const mailApp = await readFile(new URL('./MailApp.jsx', import.meta.url), 'utf8');
     const contacts = await readFile(new URL('./ContactsPage.jsx', import.meta.url), 'utf8');
 
-    assert.match(contacts, /setMobileSidebarOpen/);
-    assert.match(contacts, /data-testid="contacts-mobile-menu"/);
-    assert.match(contacts, /onClick=\{\(\) => setMobileSidebarOpen\(true\)\}/);
-  });
-});
+    assert.match(mailApp, /data-testid="mobile-topbar"/);
+    assert.match(mailApp, /onMenu={\(\) => setMobileSidebarOpen\(true\)}/);
+    assert.doesNotMatch(contacts, /data-testid="mobile-primary-nav"/);
+    assert.doesNotMatch(contacts, /data-testid="contacts-mobile-menu"/);
+  });});
 
 describe('mobile Calendar navigation contract', () => {
   it('makes Calendar a drawer destination and closes the drawer when selected', async () => {
@@ -59,20 +60,20 @@ describe('mobile Calendar navigation contract', () => {
     assert.match(calendar, /aria-label=\{t\('calendar\.back'\)\}/);
   });
 
-  it('keeps the global drawer reachable from Calendar', async () => {
+  it('keeps the calendar panel reachable as a mock-up drawer', async () => {
     const calendar = await readFile(new URL('./CalendarPage.jsx', import.meta.url), 'utf8');
 
-    assert.match(calendar, /setMobileSidebarOpen/);
-    assert.match(calendar, /data-testid="calendar-mobile-menu"/);
-    assert.match(calendar, /onClick=\{\(\) => setMobileSidebarOpen\(true\)\}/);
+    assert.match(calendar, /data-testid="calendar-mobile-dock"/);
+    assert.match(calendar, /transform: mobilePanelOpen \? 'translateX\(0\)'/);
+    assert.match(calendar, /data-testid="calendar-mobile-dock"/);
+    assert.match(calendar, /transform: mobilePanelOpen \? 'translateX\(0\)'/);
   });
-
-  it('moves the calendar header after content for bottom mobile navigation and labels its panel', async () => {
+  it('labels the calendar mobile panel and keeps the page column layout', async () => {
     const calendar = await readFile(new URL('./CalendarPage.jsx', import.meta.url), 'utf8');
 
     assert.match(calendar, /const page = \{ display: 'flex', flexDirection: 'column'/);
     assert.match(calendar, /position: 'sticky', bottom: 'calc\(var\(--mobile-nav-height\) \+ var\(--sab\)\)'[\s\S]*order: 2/);
-    assert.match(calendar, /<dialog id="calendar-mobile-panel" aria-label=\{t\('calendar\.panel'\)\}/);
+    assert.match(calendar, /id="calendar-mobile-panel"/);
     assert.match(calendar, /onClose=\{\(\) => setMobilePanelOpen\(false\)\}/);
   });
 });

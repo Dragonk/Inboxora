@@ -6,26 +6,26 @@ const mailAppPath = new URL('./MailApp.jsx', import.meta.url);
 const contactsPath = new URL('./ContactsPage.jsx', import.meta.url);
 const messageListPath = new URL('./MessageList.jsx', import.meta.url);
 
-test('mobile navigation keeps Mail, Contacts, and Calendar reachable from every primary view', async () => {
+test('mobile navigation lives in the top bar and the mock-up drawer, not a bottom bar', async () => {
   const source = await readFile(mailAppPath, 'utf8');
 
-  assert.match(source, /function MobileNavigation\(/);
-  assert.match(source, /data-testid="mobile-primary-nav"/);
+  assert.match(source, /function MobileTopBar\(/);
+  assert.match(source, /data-testid="mobile-topbar"/);
+  assert.match(source, /onMenu={\(\) => setMobileSidebarOpen\(true\)}/);
   assert.match(source, /data-testid="mobile-sidebar"[\s\S]*?zIndex: 1300/);
-  assert.match(source, /data-testid="mobile-primary-nav"[\s\S]*?zIndex: 1200/);
-  assert.match(source, /setShowContacts\(false\);\s*setShowCalendar\(false\)/);
-  assert.match(source, /setShowContacts\(true\);\s*setShowCalendar\(false\)/);
-  assert.match(source, /setShowContacts\(false\);\s*setShowCalendar\(true\)/);
+  assert.doesNotMatch(source, /function MobileNavigation\(/);
+  assert.doesNotMatch(source, /data-testid="mobile-primary-nav"/);
+  assert.match(source, /'--mobile-nav-height': '0px'/);
 });
 
-test('mobile mail and contacts creation controls clear the persistent bottom navigation', async () => {
+test('mobile creation controls no longer reserve bottom-bar space', async () => {
   const [mailApp, contacts, messageList] = await Promise.all([
     readFile(mailAppPath, 'utf8'),
     readFile(contactsPath, 'utf8'),
     readFile(messageListPath, 'utf8'),
   ]);
 
-  assert.match(mailApp, /--mobile-nav-height': '72px'/);
+  assert.match(mailApp, /'--mobile-nav-height': '0px'/);
   assert.match(messageList, /bottom: 'calc\(var\(--mobile-nav-height\) \+ var\(--sab\) \+ 20px\)'/);
   assert.match(contacts, /data-testid="contacts-mobile-fab"/);
   assert.match(contacts, /bottom: 'calc\(var\(--mobile-nav-height\) \+ var\(--sab\) \+ 20px\)'/);
