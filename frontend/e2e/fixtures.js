@@ -143,6 +143,7 @@ export const test = base.extend({
         conversation_list_view_enabled: listEnabled,
         conversation_reader_view_enabled: readerEnabled,
         block_remote_images: true,
+        ...page.__preferencesOverride,
       } });
     });
     // Keep optional boot calls from reaching the real backend. A 401 from one of

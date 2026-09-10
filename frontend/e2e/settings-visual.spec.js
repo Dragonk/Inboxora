@@ -1,37 +1,33 @@
 import { test, expect } from './fixtures.js';
 
-test('settings show exactly two CE controls with OFF/ON cards', async ({ page, fixtureApi }) => {
+test('settings expose two independent conversation switches', async ({ page, fixtureApi }) => {
+  page.__conversationMatrix = '00';
   await fixtureApi;
   await page.goto('/?list=0&reader=0');
 
-  // Use the real shell navigation. On mobile the sidebar is a drawer, so open
-  // it through the native menu button before selecting the profile/settings item.
-  const menuButton = page.getByTestId('mobile-menu');
-  if (await menuButton.count()) await menuButton.click();
-  const drawer = page.getByTestId('mobile-sidebar');
-  const isMobile = await page.getByTestId('mobile-menu').count();
-  const profile = isMobile ? drawer.getByText(/e2e@example\.test/i).first() : page.getByText(/e2e@example\.test/i).first();
-  if (isMobile) {
-    await profile.evaluate(el => el.parentElement?.click());
-  } else {
-    await profile.click();
-  }
-  const settingsItem = isMobile ? page.getByTestId('mobile-settings') : page.getByText(/^Ustawienia$|^Settings$/i).first();
-  if (isMobile) await expect(settingsItem).toBeVisible();
-  if (isMobile) {
-    await settingsItem.evaluate(el => el.click());
-  } else {
-    await settingsItem.click();
-  }
+  if (page.viewportSize().width < 768) await page.getByTestId('mobile-topbar-menu').click();
+  await page.getByTestId('sidebar-user-menu').click();
+  if (page.viewportSize().width < 768) await page.getByTestId('mobile-settings').click();
+  else await page.getByText(/^Ustawienia$|^Settings$/i).first().click();
   await page.getByText(/^Wygląd$|^Appearance$/i).click();
   await page.getByRole('button', { name: /^Układ$|^Layout$/i }).click();
 
   await expect(page.getByText(/^Grupowanie rozmów$|^Group messages into conversations$/i)).toBeVisible();
   await expect(page.getByText(/^Czytnik rozmowy$|^Conversation reader$/i)).toBeVisible();
-  await expect(page.getByRole('button', { name: /Wyłączone.*Każda wiadomość jest wyświetlana osobno|Disabled.*Open only the selected message/i })).toBeVisible();
-  await expect(page.getByRole('button', { name: /Włączone.*Odpowiedzi grupowane w rozmowy|Enabled.*Replies grouped into conversations/i })).toBeVisible();
-  await expect(page.getByRole('button', { name: /Wyłączony.*Otwieraj tylko wybraną wiadomość|Disabled.*Open only the selected message/i })).toBeVisible();
-  await expect(page.getByRole('button', { name: /Włączony.*Pokazuj całą rozmowę w panelu wiadomości|Enabled.*Show the entire conversation in the message pane/i })).toBeVisible();
+  const list = page.getByTestId('conversation-list-toggle');
+  const reader = page.getByTestId('conversation-reader-toggle');
+  await expect(list).toHaveAttribute('role', 'switch');
+  await expect(reader).toHaveAttribute('role', 'switch');
+  await expect(list).toHaveAttribute('aria-checked', 'false');
+  await expect(reader).toHaveAttribute('aria-checked', 'false');
+  await list.click();
+  await expect(list).toHaveAttribute('aria-checked', 'true');
+  await expect(reader).toHaveAttribute('aria-checked', 'false');
+  await reader.click();
+  await expect(reader).toHaveAttribute('aria-checked', 'true');
+  await list.click();
+  await expect(reader).toHaveAttribute('aria-checked', 'true');
+  await expect(list).toHaveAttribute('aria-checked', 'false');
 
   // There must be exactly two CE section headings and no third grouping control.
   await expect(page.getByText(/^Grupowanie rozmów$|^Group messages into conversations$/i)).toHaveCount(1);

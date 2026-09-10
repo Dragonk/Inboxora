@@ -5,13 +5,13 @@ test('mobile calendar Back returns to the mail view', async ({ page, fixtureApi 
   await fixtureApi;
   await page.goto('/?list=0&reader=0');
 
-  await page.getByTestId('mobile-menu').click();
+  await page.getByTestId('mobile-topbar-menu').click();
   await page.getByTestId('calendar-nav-mobile').click();
   await expect(page.getByTestId('mobile-calendar-page')).toBeVisible();
 
   await page.getByTestId('calendar-mobile-back').click();
   await expect(page.getByTestId('mobile-calendar-page')).not.toBeVisible();
-  await expect(page.getByTestId('mobile-menu')).toBeVisible();
+  await expect(page.getByTestId('mobile-topbar-menu')).toBeVisible();
 });
 
 test('mobile calendar uses a bottom-right New event action and keeps its dialog inside the viewport', async ({ page, fixtureApi }, testInfo) => {
@@ -19,7 +19,7 @@ test('mobile calendar uses a bottom-right New event action and keeps its dialog 
   await fixtureApi;
   await page.goto('/?list=0&reader=0');
 
-  await page.getByTestId('mobile-menu').click();
+  await page.getByTestId('mobile-topbar-menu').click();
   await page.getByTestId('calendar-nav-mobile').click();
   const newEvent = page.getByTestId('calendar-mobile-new-event');
   await expect(newEvent).toBeVisible();
@@ -40,7 +40,7 @@ test('mobile month calendar fits the application viewport without horizontal pag
   await fixtureApi;
   await page.goto('/?list=0&reader=0');
 
-  await page.getByTestId('mobile-menu').click();
+  await page.getByTestId('mobile-topbar-menu').click();
   await page.getByTestId('calendar-nav-mobile').click();
   const grid = page.getByTestId('calendar-grid');
   await expect(grid).toBeVisible();
@@ -80,7 +80,7 @@ test('mobile manage-sources dialog keeps source controls inside the viewport', a
     return route.fulfill({ json: { sources } });
   });
   await page.goto('/?list=0&reader=0');
-  await page.getByTestId('mobile-menu').click();
+  await page.getByTestId('mobile-topbar-menu').click();
   await page.getByTestId('calendar-nav-mobile').click();
   await page.getByRole('button', { name: 'Kalendarze' }).click();
   await page.getByTestId('calendar-sidebar-manage-sources').click();
@@ -118,7 +118,7 @@ test('mobile week calendar keeps its deliberate horizontal scroll inside the gri
   await fixtureApi;
   await page.goto('/?list=0&reader=0');
 
-  await page.getByTestId('mobile-menu').click();
+  await page.getByTestId('mobile-topbar-menu').click();
   await page.getByTestId('calendar-nav-mobile').click();
   await page.getByTestId('calendar-view-week').click();
   const grid = page.getByTestId('calendar-grid');
@@ -144,7 +144,7 @@ test('mobile week timeline keeps hourly geometry inside the calendar surface', a
     return route.fulfill({ json: { events: [{ id: 'mobile-timed', calendar_id: 'calendar-personal', summary: 'Mobile timed', starts_at: `${date}T13:00:00`, ends_at: `${date}T14:00:00`, all_day: false, source: 'local' }] } });
   });
   await page.goto('/?list=0&reader=0');
-  await page.getByTestId('mobile-menu').click();
+  await page.getByTestId('mobile-topbar-menu').click();
   await page.getByTestId('calendar-nav-mobile').click();
   await page.getByTestId('calendar-view-week').click();
   const grid = page.getByTestId('calendar-grid');

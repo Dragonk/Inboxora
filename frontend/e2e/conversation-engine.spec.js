@@ -134,6 +134,7 @@ test.describe('native conversation engine matrix', () => {
       expect.arrayContaining([expect.stringMatching(/\/api\/mail\/messages\?[^#]*threaded=true/)]),
     );
     await parent.locator("button[aria-label*='(5)']").click();
+    if (page.viewportSize().width >= 768 && page.viewportSize().width <= 1100) await page.locator('.tablet-reader-back button').click();
     const directions = parent.locator('xpath=..').locator('[data-message-direction]');
     // P1-D: first direction is the parent arrow for the newest unique child; the
     // remaining five are the exact expanded native children.
@@ -222,6 +223,7 @@ test.describe('native conversation engine matrix', () => {
     await open(page, fixtureApi, true, true);
     const parent = page.locator('[data-msgid="conversation-gmail-copy-5"]:visible');
     await parent.locator("button[aria-label*='(5)']").click();
+    if (page.viewportSize().width >= 768 && page.viewportSize().width <= 1100) await page.locator('.tablet-reader-back button').click();
     const directions = parent.locator('xpath=..').locator('[data-message-direction]');
     // Parent latest direction + five native child directions.
     await expect(directions).toHaveCount(6);
@@ -466,6 +468,7 @@ test.describe('thread context and ThreadRow interaction regressions', () => {
 
     await open(page, fixtureApi, true, true);
     await page.locator('[data-msgid="conversation-gmail-copy-5"]:visible').locator('[data-thread-row-parent="true"]').click();
+    if (page.viewportSize().width >= 768 && page.viewportSize().width <= 1100) await page.locator('.tablet-reader-back button').click();
     await page.locator('[data-thread-row-child="conversation-gmail-copy-2"]:visible').click();
     const groupedReader = page.locator('section[data-conversation-id="conversation-gmail"]:visible');
     await expect(groupedReader).toHaveAttribute('data-reader-source', 'native-thread');
