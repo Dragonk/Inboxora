@@ -1825,15 +1825,16 @@
     "changeColor": "Change color",
     "deleteCalendar": "Delete calendar",
     "renamePrompt": "Calendar name",
-    "colorPrompt": "Calendar color (#RRGGBB)",
-    "invalidColor": "Enter a six-digit hex color.",
     "confirmCalendarDelete": "Delete calendar \"{{name}}\" and all its events? This cannot be undone.",
     "contactDates": "Contact dates",
     "contactDatesDescription": "Birthdays and anniversaries from contacts",
     "unnamedContact": "Contact",
     "contactDateEvent": "{{label}}: {{name}}",
     "invitationPending": "Invitation delivery is still pending; retry to check its status.",
-    "retrySave": "Retry save"
+    "retrySave": "Retry save",
+    "syncSkipped": "Skipped events: {{count}}. Other events were synchronized.",
+    "syncFailed": "Calendar synchronization failed.",
+    "syncDetails": "Diagnostic details"
   },
   "mailFolders": {
     "inbox": "Inbox",

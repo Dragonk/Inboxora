@@ -1,3 +1,4 @@
+import MobileFloatingAction from './MobileFloatingAction.jsx';
 import { contactDateLabel } from '../utils/contactDateLabels.js';
 import { useBackLayer } from '../hooks/useBackNavigation.js';
 import { intlLocale } from '../utils/intlLocale.js';
@@ -628,6 +629,7 @@ export default function ContactsPage({ isActive = true }) {
 
     return (
       <div className="contacts-page contacts-compact" style={{ display: 'flex', flex: 1, width: '100%', minWidth: 0, flexDirection: 'column', height: '100%', overflow: 'hidden', background: 'var(--bg-secondary)' }}>
+        {showContacts && <MobileFloatingAction label={t('contacts.new')} onClick={startNew} disabled={inForm} />}
         {phone && <MobileModuleHeader title={t('contacts.title')} subtitle={selectedBook?.name || t('contacts.addressBooks.allVisible')}>
           <HeaderAction icon="books" label={t('contacts.addressBooks.label')} data-testid="contacts-address-books" onClick={() => setBooksOpen(true)} />
           <HeaderAction icon="add" label={t('contacts.new')} data-testid="contacts-header-new" onClick={startNew} disabled={inForm} />

@@ -810,7 +810,7 @@ export default function MailApp() {
     }}>
       {isMobile ? (
         <MobileHeaderHost.Provider value={mobileHeaderHost}><div style={{ display: 'flex', flexDirection: 'column', width: '100%', height: '100%', minHeight: 0 }}>
-          <MobileTopBar position={mobileNavigationPosition} moduleActive={showContacts || showCalendar} actionsRef={setMobileHeaderHost} onMenu={() => setMobileSidebarOpen(true)} onCompose={() => openCompose({ accountId: selectedAccountId || undefined })} t={t} />
+          <MobileTopBar position={mobileNavigationPosition} moduleActive={showContacts || showCalendar || !readerOpen} actionsRef={setMobileHeaderHost} onMenu={() => setMobileSidebarOpen(true)} onCompose={() => openCompose({ accountId: selectedAccountId || undefined })} t={t} />
           <div style={{ display: 'flex', flex: 1, minHeight: 0, width: '100%', position: 'relative' }}>
           {/* Backdrop — covers full screen including status bar area */}
           {mobileSidebarOpen && (

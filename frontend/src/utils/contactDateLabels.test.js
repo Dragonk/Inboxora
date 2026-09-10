@@ -16,6 +16,8 @@ for (const language of ['en', 'pl', 'de', 'fr', 'es', 'it', 'cs', 'ru', 'zhCN'])
       assert.ok(event.summary.includes(translation.contacts.fields[key]));
       assert.ok(event.summary.includes(base.contact_name));
     }
+    assert.equal(localizeContactCalendar({ id: 'contacts-birthdays', source: 'contacts', custom_name: true, name: 'Rodzina' }, t).name, 'Rodzina');
+    assert.equal(localizeContactEvent({ ...base, calendar_custom_name: true, calendar_name: 'Rodzina' }, t).calendar_name, 'Rodzina');
     assert.equal(contactDateLabel('Ślub: cywilny', t), 'Ślub: cywilny');
     assert.ok(localizeContactEvent({ ...base, contact_date_label: 'Ślub: cywilny' }, t).summary.includes('Ślub: cywilny'));
     assert.equal(localizeContactEvent({ source: 'local', summary: 'Birthday: meeting' }, t).summary, 'Birthday: meeting');

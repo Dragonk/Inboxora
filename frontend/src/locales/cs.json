@@ -1825,15 +1825,16 @@
     "changeColor": "Změnit barvu",
     "deleteCalendar": "Smazat kalendář",
     "renamePrompt": "Název kalendáře",
-    "colorPrompt": "Barva kalendáře (#RRGGBB)",
-    "invalidColor": "Zadejte šestimístnou hexadecimální barvu.",
     "confirmCalendarDelete": "Smazat kalendář \"{{name}}\" a všechny jeho události? Tuto akci nelze vrátit.",
     "contactDates": "Data kontaktů",
     "contactDatesDescription": "Narozeniny a výročí z kontaktů",
     "unnamedContact": "Kontakt",
     "contactDateEvent": "{{label}}: {{name}}",
     "invitationPending": "Doručení pozvánek stále čeká. Opakováním zkontrolujete stav.",
-    "retrySave": "Znovu uložit"
+    "retrySave": "Znovu uložit",
+    "syncSkipped": "Vynechané události: {{count}}. Ostatní byly synchronizovány.",
+    "syncFailed": "Synchronizace kalendáře se nezdařila.",
+    "syncDetails": "Diagnostické podrobnosti"
   },
   "mailFolders": {
     "inbox": "Doručená pošta",

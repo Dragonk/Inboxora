@@ -2,6 +2,7 @@
 // Auth: HTTP Basic with dedicated, revocable DAV application passwords only.
 
 import { Router } from 'express';
+import ICAL from 'ical.js';
 import { query } from '../services/db.js';
 import { authLimiterConfig } from '../services/authLimiter.js';
 import { createDavAuthMiddleware } from '../services/davServerAuth.js';
@@ -105,7 +106,7 @@ function parseUtc(value) {
   return utcDate(Number(value.slice(0, 4)), Number(value.slice(4, 6)), Number(value.slice(6, 8)), Number(value.slice(9, 11)), Number(value.slice(11, 13)), Number(value.slice(13, 15)));
 }
 
-function parseICalendarDate(property) {
+function parseICalendarDate(property, zoneFor) {
   const { value, parameters } = property;
   const dateOnly = parameters.VALUE?.toUpperCase() === 'DATE' || /^\d{8}$/.test(value);
   if (dateOnly) {
@@ -114,7 +115,7 @@ function parseICalendarDate(property) {
     return date && { date, allDay: true, timeZone: null };
   }
   const match = value.match(/^(\d{4})(\d{2})(\d{2})T(\d{2})(\d{2})(\d{2})(Z?)$/);
-  if (!match || parameters.VALUE) return null;
+  if (!match || (parameters.VALUE && parameters.VALUE.toUpperCase() !== 'DATE-TIME')) return null;
   const [, year, month, day, hour, minute, second, utc] = match;
   const numeric = [year, month, day, hour, minute, second].map(Number);
   if (utc) {
@@ -124,7 +125,15 @@ function parseICalendarDate(property) {
   }
   const timeZone = parameters.TZID;
   if (!timeZone) return null;
-  const date = localDateInTimeZone(...numeric, timeZone);
+  if (!utcDate(...numeric)) return null;
+  let date;
+  const zone = zoneFor?.(timeZone);
+  if (zone) {
+    try {
+      const [year, month, day, hour, minute, second] = numeric;
+      date = ICAL.Time.fromData({ year, month, day, hour, minute, second }, zone).toJSDate();
+    } catch { return null; }
+  } else date = localDateInTimeZone(...numeric, timeZone);
   return date && { date, allDay: false, timeZone };
 }
 
@@ -145,7 +154,23 @@ export function parseCalendarEvent(raw) {
   const start = componentLines.indexOf('BEGIN:VEVENT');
   const end = componentLines.indexOf('END:VEVENT');
   if (starts.length !== 1 || ends.length !== 1 || start < 0 || end <= start) return null;
-  const properties = lines.slice(start + 1, end).map(propertyFromLine);
+  // VALARM and other nested components may carry their own DTSTART/SUMMARY.
+  let depth = 0;
+  const properties = lines.slice(start + 1, end).filter(line => {
+    if (/^BEGIN:/i.test(line)) { depth++; return false; }
+    if (/^END:/i.test(line)) { depth--; return false; }
+    return depth === 0;
+  }).map(propertyFromLine);
+  let component;
+  const zoneFor = tzid => {
+    try {
+      component ??= new ICAL.Component(ICAL.parse(raw));
+      const definition = component.getAllSubcomponents('vtimezone').find(zone => zone.getFirstPropertyValue('tzid') === tzid);
+      // An empty context cannot define an offset; use Intl for known IANA IDs.
+      if (!definition?.getAllSubcomponents().some(child => ['standard', 'daylight'].includes(child.name))) return null;
+      return new ICAL.Timezone({ component: definition, tzid });
+    } catch { return null; }
+  };
   // Recurrence, alarms, attendees and other standard properties remain in the
   // raw object for round-trip interoperability. The normalized row is the
   // base-event projection; recurrence expansion is performed by the calendar
@@ -158,11 +183,11 @@ export function parseCalendarEvent(raw) {
   const [durationProperty] = named('DURATION');
   if (!uid || !uid.value.trim() || named('UID').length !== 1 || !startProperty || named('DTSTART').length !== 1
     || named('DTEND').length > 1 || named('DURATION').length > 1 || (endProperty && durationProperty)) return null;
-  const startsAt = parseICalendarDate(startProperty);
+  const startsAt = parseICalendarDate(startProperty, zoneFor);
   if (!startsAt) return null;
   let endsAt;
   if (endProperty) {
-    endsAt = parseICalendarDate(endProperty);
+    endsAt = parseICalendarDate(endProperty, zoneFor);
     if (!endsAt || endsAt.allDay !== startsAt.allDay) return null;
   } else if (durationProperty) {
     const duration = parseDuration(durationProperty.value);

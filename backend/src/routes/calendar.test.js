@@ -241,6 +241,33 @@ describe('local calendar API', () => {
     expect(query.mock.calls[0][1]).toEqual(['Updated', '#abcdef', false, 'calendar-2', 'user-1']);
   });
 
+  it('allows display edits on an owned imported calendar without allowing event writes', async () => {
+    query.mockResolvedValueOnce({ rows: [{ id: 'remote-calendar', name: 'Work', color: '#123456', source: 'ical_url', read_only: true }] });
+    const response = await fetch(`${base}/api/calendar/calendars/remote-calendar`, {
+      method: 'PATCH', headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ name: 'Work', color: '#123456', displayVisible: true }),
+    });
+    expect(response.status).toBe(200);
+    expect(query.mock.calls[0][0]).toContain('owner_user_id = $5 AND user_id = $5');
+    expect(query.mock.calls[0][0]).not.toContain("source = 'local'");
+    expect((await response.json()).calendar.read_only).toBe(true);
+  });
+  it('persists contact calendar appearance per user while retaining translated default names', async () => {
+    query.mockResolvedValueOnce({ rows: [] });
+    const response = await fetch(`${base}/api/calendar/calendars/contacts-birthdays`, {
+      method: 'PATCH', headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ name: 'Daty kontaktów', color: '#123456', displayVisible: true, customName: false }),
+    });
+    expect(response.status).toBe(200);
+    expect(query.mock.calls[0][1][0]).toBe('user-1');
+    expect(JSON.parse(query.mock.calls[0][1][1])).toMatchObject({ name: null, color: '#123456' });
+    expect((await response.json()).calendar).toMatchObject({ read_only: true, custom_name: false });
+  });
+  it('returns a custom contact calendar name and color after reload', async () => {
+    query.mockResolvedValueOnce({ rows: [] }).mockResolvedValueOnce({ rows: [{ appearance: { name: 'Rodzina', color: '#123456' } }] });
+    const response = await fetch(`${base}/api/calendar/calendars`);
+    expect((await response.json()).calendars[0]).toMatchObject({ name: 'Rodzina', custom_name: true, color: '#123456', read_only: true });
+  });
   it('requires exact calendar-name confirmation before deleting an owned calendar', async () => {
     query.mockResolvedValueOnce({ rows: [{ id: 'calendar-2' }] });
 

@@ -1825,15 +1825,16 @@
     "changeColor": "Cambia colore",
     "deleteCalendar": "Elimina calendario",
     "renamePrompt": "Nome del calendario",
-    "colorPrompt": "Colore del calendario (#RRGGBB)",
-    "invalidColor": "Inserisci un colore esadecimale di sei cifre.",
     "confirmCalendarDelete": "Eliminare il calendario \"{{name}}\" e tutti i suoi eventi? L’azione non può essere annullata.",
     "contactDates": "Date dei contatti",
     "contactDatesDescription": "Compleanni e anniversari dei contatti",
     "unnamedContact": "Contatto",
     "contactDateEvent": "{{label}}: {{name}}",
     "invitationPending": "La consegna degli inviti è ancora in sospeso. Riprova per verificarne lo stato.",
-    "retrySave": "Riprova a salvare"
+    "retrySave": "Riprova a salvare",
+    "syncSkipped": "Eventi ignorati: {{count}}. Gli altri sono stati sincronizzati.",
+    "syncFailed": "Sincronizzazione del calendario non riuscita.",
+    "syncDetails": "Dettagli diagnostici"
   },
   "mailFolders": {
     "inbox": "Posta in arrivo",

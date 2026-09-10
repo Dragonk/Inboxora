@@ -1,3 +1,4 @@
+import { calendarSyncWarning } from '../utils/calendarSyncWarning.js';
 import { useBackLayer } from '../hooks/useBackNavigation.js';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { api } from '../utils/api.js';
@@ -24,6 +25,9 @@ export default function CalendarSidebar({ anchor, calendars, visibleCalendarIds,
   const sourceRequestGeneration = useRef(0);
   const [form, setForm] = useState({ kind: 'ical_url', displayName: '', url: '', username: '', password: '', color: '#7c6af7', intervalMin: 60 });
   const [openCalendarMenu, setOpenCalendarMenu] = useState(null);
+  const [syncingSourceIds, setSyncingSourceIds] = useState(new Set());
+  const [calendarEdit, setCalendarEdit] = useState(null);
+  const [editError, setEditError] = useState(null);
   const [calendarSaving, setCalendarSaving] = useState(false);
   useBackLayer(openCalendarMenu, () => { if (!calendarSaving) setOpenCalendarMenu(null); }, 4510);
   const cells = useMemo(() => monthCells(anchor, weekStartsOn), [anchor, weekStartsOn]);
@@ -124,25 +128,23 @@ export default function CalendarSidebar({ anchor, calendars, visibleCalendarIds,
     catch (error) { setSourceError(error.message); }
   };
   const syncSource = async id => {
+    if (syncingSourceIds.has(id)) return;
+    setSyncingSourceIds(current => new Set(current).add(id));
     try { await api.calendar.syncSource(id); await loadSources(); await onSourcesChanged(); }
     catch (error) { setSourceError(error.message); }
+    finally { setSyncingSourceIds(current => { const next = new Set(current); next.delete(id); return next; }); }
   };
   const ownedCalendar = calendar => Boolean(calendar.source === 'local' && !calendar.read_only && calendar.owner_user_id);
-  const updateOwnedCalendar = async (calendar, changes) => {
-    setCalendarSaving(true); setSourceError(null);
+  const updateCalendarAppearance = async (calendar, changes) => {
+    setCalendarSaving(true); setEditError(null);
     try {
-      await api.calendar.updateCalendar(calendar.id, { name: changes.name || calendar.name, color: changes.color || calendar.color, displayVisible: calendar.display_visible !== false });
-      setOpenCalendarMenu(null); await onCalendarsChanged?.();
-    } catch (error) { setSourceError(error.message); } finally { setCalendarSaving(false); }
+      await api.calendar.updateCalendar(calendar.id, { name: changes.name || calendar.name, color: changes.color || calendar.color, displayVisible: calendar.display_visible !== false, customName: Boolean(calendar.custom_name || changes.name !== calendar.name) });
+      setOpenCalendarMenu(null); setCalendarEdit(null); await onCalendarsChanged?.();
+    } catch (error) { setEditError(error.message); } finally { setCalendarSaving(false); }
   };
-  const renameCalendar = calendar => {
-    const name = window.prompt(t('calendar.renamePrompt'), calendar.name);
-    if (name && name.trim() && name.trim() !== calendar.name) updateOwnedCalendar(calendar, { name: name.trim() });
-  };
-  const recolorCalendar = calendar => {
-    const color = window.prompt(t('calendar.colorPrompt'), calendar.color || '#7c6af7');
-    if (color && /^#[0-9a-f]{6}$/i.test(color)) updateOwnedCalendar(calendar, { color });
-    else if (color) setSourceError(t('calendar.invalidColor'));
+  const editCalendar = calendar => {
+    setOpenCalendarMenu(null); setEditError(null);
+    setCalendarEdit({ calendar, name: calendar.name, color: calendar.color || '#35558a' });
   };
   const deleteCalendar = async calendar => {
     if (!window.confirm(t('calendar.confirmCalendarDelete', { name: calendar.name }))) return;
@@ -168,8 +170,21 @@ export default function CalendarSidebar({ anchor, calendars, visibleCalendarIds,
     </div>
     <section style={section}>
       <div style={sectionHeading}><strong>{t('calendar.calendars')}</strong><button data-testid="calendar-sidebar-manage-sources" onClick={openSources} style={linkButton}>{t('calendar.manageSources')}</button></div>
-      {[...calendars].sort((a, b) => Number(a.source !== 'local') - Number(b.source !== 'local')).map((calendar, index, all) => <div key={calendar.id}>{(index === 0 || (all[index - 1].source === 'local') !== (calendar.source === 'local')) && <h2 style={{ ...sectionHeading, margin: '12px 0 4px' }}>{calendar.source === 'local' ? t('calendar.myCalendars') : t('calendar.sourceCalendar')}</h2>}<div key={calendar.id} className="cal-row" style={calendarRow}><label style={calendarToggle}><input data-testid="calendar-visibility-toggle" type="checkbox" checked={isVisible(calendar.id)} onChange={() => onToggleCalendar(calendar.id)} /><span style={{ ...colorDot, background: calendar.color || 'var(--accent)' }} />{calendar.name}{ownedCalendar(calendar) ? <small style={owned}>{t('calendar.owned')}</small> : <small style={readOnly}>{t('calendar.sourceCalendar')}</small>}</label>{ownedCalendar(calendar) && <div style={menuWrap}><button type="button" aria-label={t('calendar.calendarActions', { name: calendar.name })} aria-expanded={openCalendarMenu === calendar.id} onClick={() => setOpenCalendarMenu(openCalendarMenu === calendar.id ? null : calendar.id)} style={menuButton} disabled={calendarSaving}>⋮</button>{openCalendarMenu === calendar.id && <div role="menu" aria-label={t('calendar.calendarActions', { name: calendar.name })} style={contextMenu}><button role="menuitem" onClick={() => renameCalendar(calendar)}>{t('calendar.rename')}</button><button role="menuitem" onClick={() => recolorCalendar(calendar)}>{t('calendar.changeColor')}</button><button role="menuitem" onClick={() => deleteCalendar(calendar)} style={dangerButton}>{t('calendar.deleteCalendar')}</button></div>}</div>}</div></div>)}
+      {[...calendars].sort((a, b) => Number(a.source !== 'local') - Number(b.source !== 'local')).map((calendar, index, all) => <div key={calendar.id}>{(index === 0 || (all[index - 1].source === 'local') !== (calendar.source === 'local')) && <h2 style={{ ...sectionHeading, margin: '12px 0 4px' }}>{calendar.source === 'local' ? t('calendar.myCalendars') : t('calendar.sourceCalendar')}</h2>}<div key={calendar.id} className="cal-row" style={calendarRow}><label style={calendarToggle}><input data-testid="calendar-visibility-toggle" type="checkbox" checked={isVisible(calendar.id)} onChange={() => onToggleCalendar(calendar.id)} /><span style={{ ...colorDot, background: calendar.color || 'var(--accent)' }} />{calendar.name}{ownedCalendar(calendar) ? <small style={owned}>{t('calendar.owned')}</small> : <small style={readOnly}>{t('calendar.sourceCalendar')}</small>}</label>{<div style={menuWrap}><button type="button" aria-label={t('calendar.calendarActions', { name: calendar.name })} aria-expanded={openCalendarMenu === calendar.id} onClick={() => setOpenCalendarMenu(openCalendarMenu === calendar.id ? null : calendar.id)} style={menuButton} disabled={calendarSaving}>⋮</button>{openCalendarMenu === calendar.id && <div role="menu" aria-label={t('calendar.calendarActions', { name: calendar.name })} style={contextMenu}><button role="menuitem" onClick={() => editCalendar(calendar)}>{t('calendar.rename')}</button><button role="menuitem" onClick={() => editCalendar(calendar)}>{t('calendar.changeColor')}</button>{ownedCalendar(calendar) && <button role="menuitem" onClick={() => deleteCalendar(calendar)} style={dangerButton}>{t('calendar.deleteCalendar')}</button>}</div>}</div>}</div></div>)}
     </section>
+    {calendarEdit && <Dialog testId="calendar-appearance-dialog" title={t('calendar.calendarActions', { name: calendarEdit.calendar.name })} closeLabel={t('calendar.close')} busy={calendarSaving} onClose={() => setCalendarEdit(null)} footer={<>
+      <Button onClick={() => setCalendarEdit(null)} disabled={calendarSaving}>{t('calendar.cancel')}</Button>
+      <Button variant="primary" disabled={calendarSaving || !calendarEdit.name.trim() || !/^#[0-9a-f]{6}$/i.test(calendarEdit.color)} onClick={() => updateCalendarAppearance(calendarEdit.calendar, { name: calendarEdit.name.trim(), color: calendarEdit.color })}>{t(calendarSaving ? 'calendar.saving' : 'calendar.save')}</Button>
+    </>}>
+      <div className="ui-form">
+        {editError && <p role="alert" className="ui-alert">{editError}</p>}
+        <label>{t('calendar.renamePrompt')}<input maxLength={120} value={calendarEdit.name} onChange={event => setCalendarEdit(current => ({ ...current, name: event.target.value }))} /></label>
+        <label>{t('calendar.changeColor')}<input type="color" style={{ height: 44, padding: 4, boxSizing: 'border-box' }} value={calendarEdit.color} onChange={event => setCalendarEdit(current => ({ ...current, color: event.target.value }))} /></label>
+        <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
+          {['#35558a', '#35793a', '#e879f9', '#e05252', '#d79a28', '#7c6af7'].map(color => <button key={color} type="button" aria-label={`${t('calendar.changeColor')} ${color}`} aria-pressed={calendarEdit.color === color} onClick={() => setCalendarEdit(current => ({ ...current, color }))} style={{ width: 44, height: 44, borderRadius: 8, border: calendarEdit.color === color ? '3px solid var(--text-primary)' : '3px solid transparent', background: color }} />)}
+        </div>
+      </div>
+    </Dialog>}
     {showSources && <Dialog title={t('calendar.manageSources')} closeLabel={t('calendar.close')} onClose={() => setShowSources(false)}>
       {sourceError && <p role="alert" style={error}>{sourceError}</p>}
       <form onSubmit={addSource} className="ui-form" style={formStyle}>
@@ -179,9 +194,18 @@ export default function CalendarSidebar({ anchor, calendars, visibleCalendarIds,
         {form.kind === 'caldav' && <><label>{t('calendar.sourceUsername')}<input required value={form.username} onChange={event => setForm(current => ({ ...current, username: event.target.value }))} /></label><label>{t('calendar.sourcePassword')}<input required type="password" autoComplete="new-password" value={form.password} onChange={event => setForm(current => ({ ...current, password: event.target.value }))} /></label></>}
         <button type="submit" style={primaryButton}>{t('calendar.addSource')}</button>
       </form>
-      <div style={sourceList}>{sources.map(source => <div key={source.id} data-testid="calendar-source-row" style={sourceRow}><span style={sourceDetails}><strong>{source.displayName}</strong><small>{source.kind === 'caldav' ? t('calendar.caldav') : t('calendar.icsWebcal')} · {pendingSourceIds.current.has(source.id) ? t('calendar.sourceSyncing') : source.lastError || t('calendar.sourceReady')}</small></span><span style={sourceActions}><button onClick={() => syncSource(source.id)} style={linkButton}>{t('calendar.syncSource')}</button><button onClick={() => removeSource(source.id)} style={dangerButton}>{t('calendar.delete')}</button></span></div>)}</div>
+      <div style={sourceList}>{sources.map(source => <div key={source.id} data-testid="calendar-source-row" style={sourceRow}><span style={sourceDetails}><strong>{source.displayName}</strong><small style={{ display: 'block' }}>{source.kind === 'caldav' ? t('calendar.caldav') : t('calendar.icsWebcal')}</small><SourceStatus source={source} pending={pendingSourceIds.current.has(source.id) || syncingSourceIds.has(source.id)} t={t} /></span><span style={sourceActions}><button disabled={syncingSourceIds.has(source.id) || pendingSourceIds.current.has(source.id)} onClick={() => syncSource(source.id)} style={linkButton}>{t('calendar.syncSource')}</button><button onClick={() => removeSource(source.id)} style={dangerButton}>{t('calendar.delete')}</button></span></div>)}</div>
     </Dialog>}
   </aside>;
+}
+
+function SourceStatus({ source, pending, t }) {
+  const warning = calendarSyncWarning(source.lastError);
+  if (pending) return <small>{t('calendar.sourceSyncing')}</small>;
+  if (!warning) return <small>{t('calendar.sourceReady')}</small>;
+  return <div><small role="status">{warning.count ? t('calendar.syncSkipped', { count: warning.count }) : t('calendar.syncFailed')}</small>
+    <details style={{ marginTop: 6 }}><summary style={{ cursor: 'pointer', color: 'var(--text-secondary)' }}>{t('calendar.syncDetails')}</summary><pre style={{ whiteSpace: 'pre-wrap', overflowWrap: 'anywhere', maxHeight: 140, overflow: 'auto', fontSize: 11 }}>{warning.details}</pre></details>
+  </div>;
 }
 
 const panel = { boxSizing: 'border-box', flexShrink: 0, padding: 14, borderRight: '1px solid var(--border-subtle)', background: 'var(--bg-primary)', overflow: 'auto' }; const closeRow = { display: 'flex', justifyContent: 'flex-end', marginBottom: 8 };

@@ -1,0 +1,17 @@
+# Mobile Back and calendar follow-up
+
+The previous Back handler cleared the resolved conversation but left the physical message selected. It also created history entries for mail rather than every dismissible view. Mobile compose Back opened a desktop-only confirmation which was not rendered on phones.
+
+One shared layer registry now handles browser/PWA Back and the Android bridge. Each gesture dismisses the top visible layer, including nested calendar/contact dialogs, contact detail/edit, settings subforms, search, selection, context menus, profile and compose. A single history entry is armed while dismissible UI exists, consumed by UI closes and rearmed only when another layer remains. Mailbox-root Back retains normal browser/OS exit behavior. Reader closure clears physical and derived selection together. Unsaved compose Back uses the same mobile draft sheet as the header button; Back from that sheet resumes editing.
+
+Calendar date titles carry the contact name and date label separately from the backend. Standard labels (birthday, anniversary, name day) and the synthetic calendar name use all nine interface languages. Custom labels and explicit calendar names remain unchanged. Missing Back and invitation retry labels were corrected.
+
+Mail now contributes its folder/account title, unread filter, sync, selection and compose actions to the same single shell header as Calendar and Contacts. The duplicate mail navigation row is removed; search remains directly below the header.
+
+The common floating action is present only with top mobile navigation. Mail composes, Contacts creates a contact and Calendar creates an event. Header actions remain available with bottom navigation.
+
+Every owned calendar, including imported calendars and contact dates, exposes the same name/color dialog. Imported event resources remain read-only; display changes are local and survive synchronization. Contact calendar overrides are stored per user, with the default name remaining translatable when only its color changes.
+
+The ICS parser now uses embedded VTIMEZONE definitions (including Exchange/Windows-style timezone identifiers), accepts explicit VALUE=DATE-TIME and ignores nested alarm properties when reading the event's dates/title. Original ICS content is preserved. Tests cover synthetic Exchange summer/winter offsets and synchronization. The user's private work feed was not available in this environment, so its precise contents were not inspected. Unknown timezones without definitions and malformed events remain reported rather than assigning guessed times. Partial-import diagnostics are stored as a count and at most three examples; the interface shows a localized summary and expandable details, including older stored warnings. Repeated manual sync is disabled while the request is running.
+
+Validation covers the shared history state machine, all nine locales, 11 new mobile Back scenarios (PWA history and native bridge callback), contextual actions, all calendar appearance types, contact event labels and bounded diagnostics. Existing browser suites and visual references are included in the release checks. Browser automation invokes the Android JavaScript bridge; this is not a physical Android gesture/emulator run.

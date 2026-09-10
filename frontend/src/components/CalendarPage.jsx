@@ -1,3 +1,4 @@
+import MobileFloatingAction from './MobileFloatingAction.jsx';
 import { localizeContactCalendar, localizeContactEvent } from '../utils/contactDateLabels.js';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
@@ -133,6 +134,7 @@ export default function CalendarPage({ isActive = true }) {
     onSourcesChanged: load, onCalendarsChanged: load, onCreate: () => openCreate(), canCreate: writable.length > 0, t };
   const agendaProps = { events: visibleEvents, anchor, locale, onOpen: openEvent, t };
   return <div ref={surfaceRef} data-testid="calendar-page" className={`calendar-page calendar-v3${compact ? ' calendar-compact' : ''}${isMobile ? ' calendar-mobile' : ''}`}>
+    {isActive && <MobileFloatingAction label={t('calendar.newEvent')} onClick={() => openCreate()} disabled={!writable.length || Boolean(form)} />}
     {isMobile && <MobileModuleHeader title={t('calendar.title')} subtitle={title}>
       <HeaderAction icon="calendars" label={t('calendar.calendars')} data-testid="calendar-mobile-panel" onClick={() => setMobilePanelOpen(true)} />
       <HeaderAction icon="agenda" label={t('calendar.dayAgenda')} data-testid="calendar-open-day" onClick={() => setDayPanelOpen(true)} />

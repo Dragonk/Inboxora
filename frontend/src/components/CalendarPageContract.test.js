@@ -35,8 +35,8 @@ test('calendar source management stays in the visibility panel and owned calenda
   assert.doesNotMatch(calendar, /data-testid="calendar-manage-sources"/);
   assert.match(sidebar, /data-testid="calendar-sidebar-manage-sources"/);
   assert.match(sidebar, /role="menuitem"/);
-  assert.match(sidebar, /renameCalendar/);
-  assert.match(sidebar, /colorPrompt/);
+  assert.match(sidebar, /calendar-appearance-dialog/);
+  assert.match(sidebar, /type="color"/);
   assert.match(sidebar, /confirmCalendarDelete/);
   assert.match(sidebar, /source === 'local' && !calendar\.read_only/);
 });

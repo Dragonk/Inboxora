@@ -1825,15 +1825,16 @@
     "changeColor": "Изменить цвет",
     "deleteCalendar": "Удалить календарь",
     "renamePrompt": "Название календаря",
-    "colorPrompt": "Цвет календаря (#RRGGBB)",
-    "invalidColor": "Введите шестизначный цвет в формате hex.",
     "confirmCalendarDelete": "Удалить календарь \"{{name}}\" и все его события? Это действие нельзя отменить.",
     "contactDates": "Даты контактов",
     "contactDatesDescription": "Дни рождения и годовщины из контактов",
     "unnamedContact": "Контакт",
     "contactDateEvent": "{{label}}: {{name}}",
     "invitationPending": "Доставка приглашений ещё не завершена. Повторите попытку, чтобы проверить статус.",
-    "retrySave": "Повторить сохранение"
+    "retrySave": "Повторить сохранение",
+    "syncSkipped": "Пропущено событий: {{count}}. Остальные синхронизированы.",
+    "syncFailed": "Не удалось синхронизировать календарь.",
+    "syncDetails": "Подробности диагностики"
   },
   "mailFolders": {
     "inbox": "Входящие",

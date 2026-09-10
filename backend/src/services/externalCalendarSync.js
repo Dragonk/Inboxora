@@ -140,7 +140,7 @@ async function syncSource(source) {
     await query('DELETE FROM calendar_events WHERE calendar_id = $1 AND uid <> ALL($2::text[])', [calendarId, retainedUids.length ? retainedUids : ['']]);
     if (skipped.length) {
       throwIfRemoved(state);
-      const warning = skipped.map(({ uid, reason }) => `${uid}: ${reason}`).join('; ');
+      const warning = JSON.stringify({ code: 'unsupported_events', count: skipped.length, samples: skipped.slice(0, 3) });
       await query('UPDATE calendar_import_sources SET last_sync_at = NOW(), last_error = $2 WHERE id = $1', [source.id, warning]);
       return { ok: true, eventCount: events.length, skipped };
     }

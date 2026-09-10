@@ -11,7 +11,7 @@ export function contactDateLabel(label, t) {
 
 export function localizeContactCalendar(calendar, t) {
   if (calendar.source !== 'contacts' || calendar.id !== 'contacts-birthdays') return calendar;
-  return { ...calendar, name: t('calendar.contactDates'), description: t('calendar.contactDatesDescription') };
+  return { ...calendar, name: calendar.custom_name ? calendar.name : t('calendar.contactDates'), description: t('calendar.contactDatesDescription') };
 }
 
 export function localizeContactEvent(event, t) {
@@ -25,6 +25,6 @@ export function localizeContactEvent(event, t) {
   return {
     ...event,
     summary: t('calendar.contactDateEvent', { label: contactDateLabel(label, t), name: name || t('calendar.unnamedContact') }),
-    calendar_name: t('calendar.contactDates'),
+    calendar_name: event.calendar_custom_name ? event.calendar_name : t('calendar.contactDates'),
   };
 }

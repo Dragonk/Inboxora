@@ -1825,15 +1825,16 @@
     "changeColor": "Farbe ändern",
     "deleteCalendar": "Kalender löschen",
     "renamePrompt": "Kalendername",
-    "colorPrompt": "Kalenderfarbe (#RRGGBB)",
-    "invalidColor": "Geben Sie eine sechsstellige Hex-Farbe ein.",
     "confirmCalendarDelete": "Kalender \"{{name}}\" und alle Ereignisse löschen? Dies kann nicht rückgängig gemacht werden.",
     "contactDates": "Kontaktdaten im Kalender",
     "contactDatesDescription": "Geburtstage und Jahrestage aus Kontakten",
     "unnamedContact": "Kontakt",
     "contactDateEvent": "{{label}}: {{name}}",
     "invitationPending": "Die Zustellung der Einladungen steht noch aus. Versuchen Sie es erneut, um den Status zu prüfen.",
-    "retrySave": "Speichern erneut versuchen"
+    "retrySave": "Speichern erneut versuchen",
+    "syncSkipped": "Übersprungene Termine: {{count}}. Die übrigen wurden synchronisiert.",
+    "syncFailed": "Kalendersynchronisierung fehlgeschlagen.",
+    "syncDetails": "Diagnosedetails"
   },
   "mailFolders": {
     "inbox": "Posteingang",

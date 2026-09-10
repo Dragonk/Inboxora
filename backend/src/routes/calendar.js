@@ -195,15 +195,21 @@ async function writableCalendar(userId, calendarId) {
   return { calendar };
 }
 
+async function contactCalendarAppearance(userId) {
+  const result = await query("SELECT preferences->'calendarContactAppearance' AS appearance FROM users WHERE id = $1", [userId]);
+  return result?.rows?.[0]?.appearance || {};
+}
+
 router.get('/calendars', async (req, res) => {
   const result = await query(
     `SELECT id, name, description, color, source, external_url, read_only, display_visible, owner_user_id, sync_token, created_at, updated_at
      FROM calendars WHERE user_id = $1 AND owner_user_id = $1 ORDER BY created_at ASC`,
     [req.session.userId],
   );
+  const appearance = await contactCalendarAppearance(req.session.userId);
   res.json({ calendars: [...result.rows, {
-    id: 'contacts-birthdays', name: 'Contact dates', description: 'Birthdays and anniversaries from contacts',
-    color: '#e879f9', source: 'contacts', external_url: null, read_only: true, display_visible: true,
+    id: 'contacts-birthdays', name: appearance.name || 'Contact dates', custom_name: Boolean(appearance.name), description: 'Birthdays and anniversaries from contacts',
+    color: appearance.color || '#e879f9', source: 'contacts', external_url: null, read_only: true, display_visible: appearance.displayVisible !== false,
   }] });
 });
 
@@ -245,11 +251,19 @@ router.patch('/calendars/:calendarId', async (req, res) => {
   if (!name || color === undefined || typeof displayVisible !== 'boolean') {
     return res.status(400).json({ error: 'name, a hex color, and displayVisible are required' });
   }
+  if (req.params.calendarId === 'contacts-birthdays') {
+    const customName = req.body.customName === false ? null : name;
+    await query(
+      "UPDATE users SET preferences = COALESCE(preferences, '{}'::jsonb) || jsonb_build_object('calendarContactAppearance', $2::jsonb) WHERE id = $1",
+      [req.session.userId, JSON.stringify({ name: customName, color, displayVisible })],
+    );
+    return res.json({ calendar: { id: 'contacts-birthdays', name: customName || 'Contact dates', custom_name: Boolean(customName), color, display_visible: displayVisible, source: 'contacts', read_only: true } });
+  }
   try {
     const result = await query(
       `UPDATE calendars
        SET name = $1, color = $2, display_visible = $3, updated_at = NOW()
-       WHERE id = $4 AND owner_user_id = $5 AND user_id = $5 AND source = 'local' AND read_only = false
+       WHERE id = $4 AND owner_user_id = $5 AND user_id = $5
        RETURNING id, user_id, owner_user_id, name, description, color, source, external_url, read_only, display_visible, sync_token, created_at, updated_at`,
       [name, color, displayVisible, req.params.calendarId, req.session.userId],
     );
@@ -297,7 +311,11 @@ router.get('/events', async (req, res) => {
     'SELECT id, display_name, primary_email, birthday, anniversary, contact_dates FROM contacts WHERE user_id = $1 AND (birthday IS NOT NULL OR anniversary IS NOT NULL OR (jsonb_typeof(contact_dates) = \'array\' AND jsonb_array_length(contact_dates) > 0))',
     [req.session.userId],
   );
-  const events = [...result.rows, ...contactDateEvents(contactResult?.rows || [], from, to)]
+  const appearance = await contactCalendarAppearance(req.session.userId);
+  const contactEvents = contactDateEvents(contactResult?.rows || [], from, to).map(event => ({
+    ...event, calendar_name: appearance.name || event.calendar_name, calendar_custom_name: Boolean(appearance.name), calendar_color: appearance.color || event.calendar_color,
+  }));
+  const events = [...result.rows, ...contactEvents]
     .sort((left, right) => new Date(left.starts_at) - new Date(right.starts_at));
   res.json({ events });
 });

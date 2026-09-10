@@ -1,3 +1,4 @@
+import { outlookCalendar } from '../test/fixtures/outlookCalendar.js';
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import { createBrowserCors } from '../middleware/browserCors.js';
 
@@ -97,6 +98,22 @@ describe('CalDAV discovery', () => {
 });
 
 describe('CalDAV calendar objects', () => {
+  it('uses embedded Exchange timezone rules in summer and winter and accepts explicit DATE-TIME', () => {
+    for (const [month, hour] of [['09', '07'], ['01', '08']]) {
+      const event = parseCalendarEvent(outlookCalendar(month));
+      expect(event?.startsAt.toISOString()).toBe(`2026-${month}-10T${hour}:00:00.000Z`);
+      expect(event?.endsAt - event?.startsAt).toBe(3600000);
+      expect(event?.timeZone).toBe('Central European Standard Time');
+    }
+  });
+  it('does not read VALARM dates or titles as event properties', () => {
+    const event = parseCalendarEvent(outlookCalendar('09', 'BEGIN:VALARM\nDTSTART:20260910T050000Z\nSUMMARY:Alarm\nACTION:DISPLAY\nEND:VALARM\n'));
+    expect(event?.summary).toBe('Planning');
+    expect(event?.startsAt.toISOString()).toBe('2026-09-10T07:00:00.000Z');
+  });
+  it('does not guess offsets for an unknown zone without its definition', () => {
+    expect(parseCalendarEvent(outlookCalendar().replace(/BEGIN:VTIMEZONE[\s\S]*?END:VTIMEZONE/, ''))).toBeNull();
+  });
   it('accepts case-insensitive iCalendar component markers and properties', () => {
     const event = parseCalendarEvent('begin:vcalendar\r\nbegin:vevent\r\nuid:case-insensitive\r\ndtstart:20260901T090000Z\r\ndtend:20260901T100000Z\r\nsummary:Planning\r\nend:vevent\r\nend:vcalendar\r\n');
 

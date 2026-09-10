@@ -1,3 +1,5 @@
+import { MobileModuleHeader, HeaderAction } from './MobileModuleHeader.jsx';
+import MobileFloatingAction from './MobileFloatingAction.jsx';
 import { useBackLayer } from '../hooks/useBackNavigation.js';
 import i18n from '../i18n.js';
 import { folderLabel } from '../utils/folderLabels.js';
@@ -2706,121 +2708,12 @@ export default function MessageList() {
       background: 'var(--bg-primary)',
     }}>
 
-      {/* ── Mobile header ───────────────────────────────────────────────── */}
-      {isMobile && (
-        <div data-testid="mobile-navigation" style={{
-          display: 'flex', alignItems: 'center', gap: 4,
-          ...(mobileNavigationPosition === 'bottom' ? { order: 2, paddingTop: 10, paddingBottom: 'calc(env(safe-area-inset-bottom) + 10px)', borderTop: '1px solid var(--border-subtle)' } : { paddingTop: 'calc(var(--sat) + 10px)', paddingBottom: 10, borderBottom: '1px solid var(--border-subtle)' }),
-          paddingLeft: 12, paddingRight: 12,
-          boxShadow: listScrolled ? '0 1px 10px rgba(0,0,0,0.2)' : 'none',
-          transition: 'box-shadow 0.2s ease',
-          background: 'var(--bg-secondary)', flexShrink: 0,
-        }}>
-          {/* Folder / account title + unread count */}
-          <div style={{ flex: 1, minWidth: 0, display: 'flex', alignItems: 'center', gap: 8, overflow: 'hidden' }}>
-            <h2 style={{
-              margin: 0, fontSize: 16, fontWeight: 600,
-              color: 'var(--text-primary)', overflow: 'hidden',
-              textOverflow: 'ellipsis', whiteSpace: 'nowrap',
-              minWidth: 0, display: 'flex', alignItems: 'center',
-            }}>
-              {isUnified && !searchQuery.trim() ? (
-                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                  <polyline points="22 12 16 12 14 15 10 15 8 12 2 12"/>
-                  <path d="M5.45 5.11L2 12v6a2 2 0 002 2h16a2 2 0 002-2v-6l-3.45-6.89A2 2 0 0016.76 4H7.24a2 2 0 00-1.79 1.11z"/>
-                </svg>
-              ) : showInboxIcon ? (
-                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke={accountColor} strokeWidth="2">
-                  <polyline points="22 12 16 12 14 15 10 15 8 12 2 12"/>
-                  <path d="M5.45 5.11L2 12v6a2 2 0 002 2h16a2 2 0 002-2v-6l-3.45-6.89A2 2 0 0016.76 4H7.24a2 2 0 00-1.79 1.11z"/>
-                </svg>
-              ) : label}
-            </h2>
-            {headerUnread > 0 && !searchQuery.trim() && (
-              <span style={{
-                flexShrink: 0,
-                fontSize: 11, fontWeight: 600, color: 'var(--accent-text)',
-                background: 'var(--accent)', padding: '1px 7px',
-                borderRadius: 10, minWidth: 20, textAlign: 'center',
-              }}>
-                {headerUnread > 999 ? '999+' : headerUnread}
-              </span>
-            )}
-          </div>
-
-          {/* Unread filter */}
-          <button
-            onClick={() => setUnreadOnly(!unreadOnly)}
-            title={unreadOnly ? t('messageList.showAll') : t('messageList.unreadOnly')}
-            style={{
-              background: unreadOnly ? 'var(--accent-dim)' : 'none',
-              border: `1px solid ${unreadOnly ? 'var(--accent)' : 'transparent'}`,
-              borderRadius: 6, padding: '5px 7px',
-              color: unreadOnly ? 'var(--accent)' : 'var(--text-tertiary)',
-              cursor: 'pointer', fontSize: 11, fontWeight: 500,
-              minHeight: 44, display: 'flex', alignItems: 'center',
-            }}
-          >
-            {t('messageList.unread')}
-          </button>
-
-          {/* Sync */}
-          <button
-            onClick={handleSync}
-            disabled={syncing}
-            aria-label={t('messageList.sync')}
-            style={{
-              background: 'none', border: 'none',
-              color: syncing ? 'var(--accent)' : 'var(--text-tertiary)',
-              cursor: syncing ? 'not-allowed' : 'pointer',
-              padding: 0, borderRadius: 7, display: 'flex',
-              alignItems: 'center', justifyContent: 'center',
-              minWidth: 44, minHeight: 44,
-            }}
-          >
-            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"
-              style={{ animation: syncing ? 'spin 0.8s linear infinite' : 'none' }}>
-              <polyline points="23 4 23 10 17 10"/>
-              <polyline points="1 20 1 14 7 14"/>
-              <path d="M3.51 9a9 9 0 0114.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0020.49 15"/>
-            </svg>
-          </button>
-
-
-          {/* Select / Cancel — replaces compose button; FAB is the primary compose affordance */}
-          {selectionMode ? (
-            <button
-              onClick={clearSelection}
-              style={{
-                background: 'none', border: 'none',
-                color: 'var(--accent)', cursor: 'pointer',
-                fontSize: 14, fontWeight: 500,
-                padding: '0 4px', minWidth: 52, minHeight: 44,
-                display: 'flex', alignItems: 'center',
-              }}
-            >
-              {t('common.cancel')}
-            </button>
-          ) : (
-            <button
-              onClick={() => setSelectionModeActive(true)}
-              aria-label={t('messageList.selectMessages')}
-              style={{
-                background: 'none', border: 'none',
-                color: 'var(--text-secondary)', cursor: 'pointer',
-                padding: 0, borderRadius: 7,
-                display: 'flex', alignItems: 'center', justifyContent: 'center',
-                minWidth: 44, minHeight: 44,
-              }}
-            >
-              <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                <rect x="3" y="3" width="18" height="18" rx="2"/>
-                <polyline points="9 11 12 14 22 4"/>
-              </svg>
-            </button>
-          )}
-        </div>
-      )}
+      {isMobile && mailListActive && <MobileModuleHeader title={label} subtitle={[selectedAccount?.name, headerUnread > 0 ? `${headerUnread} · ${t('messageList.unread')}` : null].filter(Boolean).join(' · ')}>
+        <HeaderAction icon="unread" label={unreadOnly ? t('messageList.showAll') : t('messageList.unreadOnly')} aria-pressed={unreadOnly} onClick={() => setUnreadOnly(value => !value)} />
+        <HeaderAction icon="sync" label={t('messageList.sync')} disabled={syncing} aria-busy={syncing} onClick={handleSync} />
+        <HeaderAction icon={selectionMode ? 'close' : 'select'} label={selectionMode ? t('common.cancel') : t('messageList.selectMessages')} aria-pressed={selectionMode} onClick={() => selectionMode ? clearSelection() : setSelectionModeActive(true)} />
+        <HeaderAction icon="compose" label={t('sidebar.compose')} onClick={() => openCompose({ accountId: selectedAccountId || undefined })} />
+      </MobileModuleHeader>}
 
       {/* ── Desktop header ──────────────────────────────────────────────── */}
       {!isMobile && <div style={{
@@ -4070,11 +3963,11 @@ export default function MessageList() {
         />
       ))}
 
-      {/* Mobile FAB cluster — compose always present, scroll-to-top stacks above it */}
+      {/* Mobile actions — bottom navigation already provides the compose action */}
       {isMobile && (
         <div style={{
           position: 'fixed',
-          bottom: 'calc(var(--mobile-nav-height) + var(--sab) + 20px)',
+          bottom: mobileNavigationPosition === 'bottom' ? 'calc(var(--sab) + 72px)' : 'calc(var(--sab) + 20px)',
           right: 20,
           zIndex: 200,
           display: 'flex',
@@ -4102,29 +3995,7 @@ export default function MessageList() {
               </svg>
             </button>
           )}
-          <button
-            onClick={() => openCompose({ accountId: selectedAccountId || undefined })}
-            aria-label={t('messageList.composeAriaLabel')}
-            style={{
-              pointerEvents: fabVisible ? 'auto' : 'none',
-              width: 44, height: 44, borderRadius: '50%',
-              background: 'var(--accent)', border: 'none',
-              boxShadow: 'var(--shadow-popover)', cursor: 'pointer',
-              display: 'flex', alignItems: 'center', justifyContent: 'center',
-              color: 'var(--accent-text)',
-              opacity: fabVisible ? 1 : 0,
-              transform: fabVisible ? 'scale(1)' : 'scale(0.8)',
-              transition: 'opacity 0.2s ease, transform 0.2s ease',
-            }}
-            onMouseDown={e => { e.currentTarget.style.transform = 'scale(0.92)'; }}
-            onMouseUp={e => { e.currentTarget.style.transform = fabVisible ? 'scale(1)' : 'scale(0.8)'; }}
-            onMouseLeave={e => { e.currentTarget.style.transform = fabVisible ? 'scale(1)' : 'scale(0.8)'; }}
-          >
-            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-              <path d="M11 4H4a2 2 0 00-2 2v14a2 2 0 002 2h14a2 2 0 002-2v-7"/>
-              <path d="M18.5 2.5a2.121 2.121 0 013 3L12 15l-4 1 1-4 9.5-9.5z"/>
-            </svg>
-          </button>
+          <MobileFloatingAction inline visible={fabVisible} icon="compose" label={t('messageList.composeAriaLabel')} onClick={() => openCompose({ accountId: selectedAccountId || undefined })} />
         </div>
       )}
     </div>
