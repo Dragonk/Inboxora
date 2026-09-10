@@ -666,6 +666,11 @@ test.describe('reader target navigation follow-up', () => {
       await page.locator('[data-msgid="conversation-gmail-copy-10"]:visible').click();
       const reader = page.locator('section[data-conversation-id="conversation-gmail"]:visible');
       await expect(reader.locator('#logical-message-conversation-gmail-logical-10 iframe')).toBeVisible();
+      // Finish the initial short-last-message navigation before recording the
+      // next navigation. A visible iframe can still have its placeholder height.
+      await expect.poll(() => reader.evaluate(element => Math.abs(
+        element.scrollTop - (element.scrollHeight - element.clientHeight),
+      ))).toBeLessThanOrEqual(1);
       await reader.evaluate((element, position) => { element.scrollTop = position === 'bottom'
         ? element.scrollHeight - element.clientHeight : 0; }, start);
       const previousScrollTop = await reader.evaluate(element => element.scrollTop);

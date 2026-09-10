@@ -156,7 +156,7 @@ test('V3 visual references for mail, composer, settings and login', async ({ pag
   if (page.viewportSize().width < 768) await page.getByTestId('mobile-settings').click();
   else await page.getByText('Ustawienia', { exact: true }).first().click();
   await page.getByText('Wygląd', { exact: true }).click();
-  if (page.viewportSize().width < 768) await page.locator('.admin-tab-active').evaluate(tab => tab.scrollIntoView({ inline: 'center', block: 'nearest', behavior: 'instant' }));
+  await page.locator('.admin-tab-active').evaluate(tab => tab.scrollIntoView({ inline: 'center', block: 'center', behavior: 'instant' }));
   await screenshot('settings');
   await page.route('**/api/auth/me', route => route.fulfill({ status: 401, json: { error: 'Unauthorized' } }));
   await page.goto('/login');
