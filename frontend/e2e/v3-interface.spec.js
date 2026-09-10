@@ -1,3 +1,4 @@
+import { selectCalendarView, openContactBooks } from './navigation.js';
 import { test, expect } from './fixtures.js';
 import { setupV3, navigateModule, richContact } from './v3-fixtures.js';
 
@@ -24,7 +25,7 @@ test('V3 calendar selects a day, reveals overflow, filters both agendas and show
   await expect(preview.getByRole('button', { name: /Zapisz|Usuń/ })).toHaveCount(0);
   await preview.getByRole('button', { name: 'Zamknij', exact: true }).click();
   if (page.viewportSize().width <= 1100) await page.getByRole('dialog', { name: 'Agenda dnia', exact: true }).getByRole('button', { name: 'Zamknij', exact: true }).click();
-  await page.getByTestId('calendar-view-agenda').click();
+  await selectCalendarView(page, 'agenda');
   await expect(page.getByTestId('calendar-agenda-view').getByRole('button', { name: /Wyjazd zespołu/ })).toHaveCount(2);
   await expect(page.getByTestId('calendar-agenda-view')).not.toContainText('Plan października');
   if (page.viewportSize().width < 768) await page.getByTestId('calendar-mobile-panel').click();
@@ -61,7 +62,7 @@ test('V3 desktop panel geometry and independent pane scrolling follow the mockup
   expect(agenda.x + agenda.width).toBe(1440);
   const body = await page.locator('.calendar-body').boundingBox();
   expect(body.y + body.height).toBe(900);
-  await page.getByTestId('calendar-view-week').click();
+  await selectCalendarView(page, 'week');
   const scroll = await page.getByTestId('calendar-time-grid-scroll').boundingBox();
   expect(scroll.height).toBeCloseTo(body.height, 0);
 });
@@ -75,9 +76,9 @@ test('V3 visual references for the suite', async ({ page }, testInfo) => {
     await expect(page).toHaveScreenshot(`${name}.png`, { animations: 'disabled', maxDiffPixelRatio: 0.002 });
   };
   await screenshot('calendar-month');
-  await page.getByTestId('calendar-view-week').click();
+  await selectCalendarView(page, 'week');
   await screenshot('calendar-week');
-  await page.getByTestId('calendar-view-agenda').click();
+  await selectCalendarView(page, 'agenda');
   await screenshot('calendar-agenda');
   await navigateModule(page, 'contacts');
   await page.getByRole('button', { name: 'Anna Kowalska', exact: true }).click();
@@ -98,10 +99,11 @@ test('V3 retains calendar preferences, filters and useful geometry at increased 
   expect(toolbarBox.x).toBeGreaterThanOrEqual(0);
   expect(toolbarBox.x + toolbarBox.width).toBeLessThanOrEqual(page.viewportSize().width + 1);
   if (page.viewportSize().width < 768) {
-    const fab = await page.getByTestId('calendar-mobile-new-event').boundingBox();
-    expect(fab.y + fab.height).toBeLessThanOrEqual(toolbarBox.y);
+    const fab = await page.getByTestId('calendar-header-new').boundingBox();
+    expect(fab.y).toBeGreaterThan(toolbarBox.y + toolbarBox.height);
+    await expect(page.getByTestId('mobile-topbar')).toHaveAttribute('data-position', 'bottom');
   }
-  await page.getByTestId('calendar-view-workweek').click();
+  await selectCalendarView(page, 'workweek');
   await expect(page.getByTestId('calendar-work-hours-boundary')).toHaveCount(3);
   const scroll = page.getByTestId('calendar-time-grid-scroll');
   await expect.poll(() => scroll.evaluate(element => element.scrollTop)).toBe(330);
@@ -181,6 +183,7 @@ test('V3 address-book tabs preserve search and reject a late response from the p
   await page.goto('/'); await navigateModule(page, 'contacts');
   await page.getByRole('searchbox').fill('anna');
   await requested;
+  await openContactBooks(page);
   await page.getByRole('button', { name: 'Prywatna', exact: true }).click();
   await expect.poll(() => privateQuery).toBe('anna');
   await expect(page.getByRole('button', { name: 'Anna Kowalska', exact: true })).toHaveCount(0);
@@ -188,9 +191,11 @@ test('V3 address-book tabs preserve search and reject a late response from the p
   await delayedRoute.fulfill({ json: { contacts: [richContact], total: 1 } });
   await oldResponse;
   await expect(page.getByRole('button', { name: 'Anna Kowalska', exact: true })).toHaveCount(0);
+  await openContactBooks(page);
   await page.getByRole('button', { name: 'Firmowa', exact: true }).click();
   await expect(page.getByRole('searchbox')).toHaveValue('anna');
   await expect(page.getByRole('button', { name: 'Anna Kowalska', exact: true })).toBeVisible();
+  await openContactBooks(page);
   await page.locator('.contacts-book-menu summary').click();
   await expect(page.locator('.contacts-book-actions a')).toHaveCount(3);
   await expect(page.locator('.contacts-book-actions a').last()).toHaveAttribute('href', /vcard/);

@@ -1,3 +1,4 @@
+import { folderLabel } from '../utils/folderLabels.js';
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useStore } from '../store/index.js';
@@ -878,7 +879,7 @@ export default function Sidebar({ onEditProfile = null }) {
           <NavItem
             icon={ICONS.inbox}
             label={t('sidebar.allInboxes')}
-            active={isUnified && !showContacts}
+            active={isUnified && !showContacts && !showCalendar}
             collapsed={sidebarCollapsed}
             badge={unreadCounts.total}
             onClick={() => setSelectedAccount(null, 'INBOX')}
@@ -932,7 +933,7 @@ export default function Sidebar({ onEditProfile = null }) {
         {accounts.map(account => {
           const unread = unreadCounts.byAccount[account.id] || 0;
           const expanded = expandedAccounts[account.id];
-          const isSelected = selectedAccountId === account.id;
+          const isSelected = !showContacts && !showCalendar && selectedAccountId === account.id;
           const accountFolders = folders[account.id] || [];
 
           const selectInbox = () => setSelectedAccount(account.id, 'INBOX');
@@ -1143,7 +1144,7 @@ export default function Sidebar({ onEditProfile = null }) {
                   if (isHidden && !showingHidden) return null;
 
                   const isRenaming = renamingFolder?.accountId === account.id && renamingFolder?.path === folder.path;
-                  const isFolderSelected = selectedAccountId === account.id && selectedFolder === folder.path;
+                  const isFolderSelected = !showContacts && !showCalendar && selectedAccountId === account.id && selectedFolder === folder.path;
                   const visibleChildren = showingHidden ? children : children.filter(c => !accountHiddenPaths.includes(c.path));
                   const hasChildren = visibleChildren.length > 0;
                   const collapseKey = `${account.id}:${folder.path}`;
@@ -1262,7 +1263,7 @@ export default function Sidebar({ onEditProfile = null }) {
                             fontSize: 12, color: 'var(--text-secondary)',
                             flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
                           }}>
-                            {folder.name}
+                            {folderLabel(folder, t, account.folder_mappings)}
                           </span>
                         )}
 
@@ -1370,7 +1371,7 @@ export default function Sidebar({ onEditProfile = null }) {
                 if (!account) return null;
                 const accountFolders = folders[accountId] || [];
                 const folderObj = accountFolders.find(f => f.path === path);
-                const isActive = selectedAccountId === accountId && selectedFolder === path;
+                const isActive = !showContacts && !showCalendar && selectedAccountId === accountId && selectedFolder === path;
                 const unreadCount = folderObj?.unread_count || 0;
                 const isRenamingThis = renamingFav?.accountId === accountId && renamingFav?.path === path;
                 const isDragging = favDragIdx === idx;
@@ -1523,7 +1524,7 @@ export default function Sidebar({ onEditProfile = null }) {
                       />
                     ) : (
                       <span style={{ fontSize: 13, fontWeight: isActive ? 500 : 400, flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                        {label || folderObj?.name || path.split('/').pop() || path}
+                        {label || folderLabel(folderObj || { path }, t, account.folder_mappings)}
                       </span>
                     )}
                     <div style={{ display: 'flex', alignItems: 'center', gap: 5, flexShrink: 0 }}>
@@ -1958,7 +1959,7 @@ export default function Sidebar({ onEditProfile = null }) {
         <SidebarCtxMenu
           x={folderCtxMenu.x}
           y={folderCtxMenu.y}
-          title={folderCtxMenu.folderObj.name}
+          title={folderLabel(folderCtxMenu.folderObj, t, accounts.find(a => a.id === folderCtxMenu.accountId)?.folder_mappings)}
           subtitle={folderCtxMenu.folderObj.path}
           items={buildFolderMenuItems(folderCtxMenu.accountId, folderCtxMenu.folderObj)}
           onClose={() => setFolderCtxMenu(null)}
@@ -2019,6 +2020,7 @@ function NavItem({ testId, icon, label, active, collapsed, badge, onClick }) {
     <div
       className={active ? 'nav-item nav-item-active' : 'nav-item'}
       data-testid={testId}
+      aria-current={active ? 'page' : undefined}
       onClick={onClick}
       onKeyDown={activateOnKey(onClick)}
       role="button"

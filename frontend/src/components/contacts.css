@@ -28,3 +28,10 @@
   .contacts-books button { min-height: 40px; }
   .contacts-book-menu summary { width: 40px; height: 40px; }
 }
+.contacts-compact-heading { display: flex; align-items: center; gap: 4px; padding: 4px 12px; border-bottom: 1px solid var(--border-subtle); flex-shrink: 0; }
+.contacts-compact-heading h2 { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; margin: 0; font-size: 15px; }
+.contacts-books-dialog .contacts-book-controls { display: block; }
+.contacts-books-dialog .contacts-books { display: grid; padding: 4px; }
+.contacts-books-dialog .contacts-books button { text-align: left; white-space: normal; overflow-wrap: anywhere; min-height: 44px; }
+.contacts-books-dialog .contacts-book-menu { margin-top: 8px; }
+.contacts-books-dialog .contacts-book-actions { position: static; width: 100%; box-sizing: border-box; }

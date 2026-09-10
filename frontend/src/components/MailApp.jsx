@@ -7,6 +7,7 @@ import { useWebSocket } from '../hooks/useWebSocket.js';
 import { useMobile } from '../hooks/useMobile.js';
 import { useCompactLayout } from '../hooks/useCompactLayout.js';
 import { Button } from './ui.jsx';
+import { MobileHeaderHost } from './MobileModuleHeader.jsx';
 import { LAYOUTS } from '../layouts.js';
 import { shortcutBus } from '../utils/shortcutBus.js';
 import { setPending, pendingMarkReadMap, completedMarkReadMap } from '../utils/pendingReads.js';
@@ -77,12 +78,13 @@ const lazyFallback = (
 
 export default function MailApp() {
   const { t } = useTranslation();
+  const [mobileHeaderHost, setMobileHeaderHost] = useState(null);
   const {
     setAccounts, setUnreadCounts, showAdmin,
     setShowAdmin, setAdminTab, composing, sidebarCollapsed, layout,
     unreadCounts, selectedAccountId, openCompose, setSelectedAccount,
     shortcuts, selectedMessageId, setSelectedMessage,
-    mobileSidebarOpen, setMobileSidebarOpen, addNotification,
+    mobileSidebarOpen, setMobileSidebarOpen, mobileNavigationPosition, addNotification,
     fontSize, showAppBadge,
     sidebarWidth, setSidebarWidth, setIsSidebarResizing,
     showContacts, showCalendar, setShowContacts, setShowCalendar, setTodoistConnected,
@@ -914,8 +916,8 @@ export default function MailApp() {
       background: 'var(--bg-primary)',
     }}>
       {isMobile ? (
-        <div style={{ display: 'flex', flexDirection: 'column', width: '100%', height: '100%', minHeight: 0 }}>
-          <MobileTopBar onMenu={() => setMobileSidebarOpen(true)} onCompose={() => openCompose({ accountId: selectedAccountId || undefined })} t={t} />
+        <MobileHeaderHost.Provider value={mobileHeaderHost}><div style={{ display: 'flex', flexDirection: 'column', width: '100%', height: '100%', minHeight: 0 }}>
+          <MobileTopBar position={mobileNavigationPosition} moduleActive={showContacts || showCalendar} actionsRef={setMobileHeaderHost} onMenu={() => setMobileSidebarOpen(true)} onCompose={() => openCompose({ accountId: selectedAccountId || undefined })} t={t} />
           <div style={{ display: 'flex', flex: 1, minHeight: 0, width: '100%', position: 'relative' }}>
           {/* Backdrop — covers full screen including status bar area */}
           {mobileSidebarOpen && (
@@ -968,7 +970,7 @@ export default function MailApp() {
           </div>
           {mobileProfileOpen && <ProfileModal onClose={() => setMobileProfileOpen(false)} />}
           </div>
-        </div>
+        </div></MobileHeaderHost.Provider>
       ) : (
         <>
           <Sidebar />
@@ -1106,10 +1108,12 @@ export default function MailApp() {
   );
 }
 
-function MobileTopBar({ onMenu, onCompose, t }) {
+function MobileTopBar({ position, moduleActive, actionsRef, onMenu, onCompose, t }) {
   return (
-    <div data-testid="mobile-topbar" style={{
-      display: 'flex', alignItems: 'center', gap: 8, padding: '10px 12px',
+    <div data-testid="mobile-topbar" data-position={position} style={{
+      order: position === 'bottom' ? 2 : 0,
+      ...(position === 'bottom' && { borderTop: '1px solid var(--border-subtle)' }),
+      display: 'flex', alignItems: 'center', gap: 4, padding: position === 'bottom' ? '4px 8px calc(4px + var(--sab))' : '4px 8px',
       borderBottom: '1px solid var(--border-subtle)', background: 'var(--bg-secondary)',
       flexShrink: 0,
     }}>
@@ -1121,7 +1125,8 @@ function MobileTopBar({ onMenu, onCompose, t }) {
       }}>
         <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" aria-hidden="true"><line x1="3" y1="6" x2="21" y2="6"/><line x1="3" y1="12" x2="21" y2="12"/><line x1="3" y1="18" x2="21" y2="18"/></svg>
       </button>
-      <span style={{ fontFamily: 'var(--font-display)', fontSize: 16, fontWeight: 600, flex: 1, minWidth: 0 }}>Inboxora</span>
+      <div ref={actionsRef} className="mobile-header-content" style={{ display: moduleActive ? 'flex' : 'none' }} />
+      {!moduleActive && <><span style={{ fontFamily: 'var(--font-display)', fontSize: 16, fontWeight: 600, flex: 1, minWidth: 0 }}>Inboxora</span>
       <button type="button" onClick={onCompose} aria-label={t('sidebar.compose')} style={{
         background: 'none', border: 'none', color: 'var(--accent)',
         cursor: 'pointer', padding: 0, borderRadius: 7,
@@ -1129,7 +1134,7 @@ function MobileTopBar({ onMenu, onCompose, t }) {
         minWidth: 44, minHeight: 44,
       }}>
         <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" aria-hidden="true"><path d="M11 4H4a2 2 0 00-2 2v14a2 2 0 002 2h14a2 2 0 002-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 013 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>
-      </button>
+      </button></>}
     </div>
   );
 }

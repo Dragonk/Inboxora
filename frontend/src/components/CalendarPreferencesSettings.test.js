@@ -4,14 +4,15 @@ import { test } from 'node:test';
 
 const source = (path) => readFile(new URL(path, import.meta.url), 'utf8');
 
-test('calendar navigation preferences live in the application appearance settings', async () => {
+test('calendar preferences have their own tab and mobile navigation is global', async () => {
   const [adminPanel, calendar] = await Promise.all([
     source('./AdminPanel.jsx'),
     source('./CalendarPage.jsx'),
   ]);
 
-  assert.match(adminPanel, /data-testid="calendar-week-start-setting"/);
-  assert.match(adminPanel, /data-testid="mobile-navigation-position-setting"/);
+  assert.match(adminPanel, /testId="calendar-week-start-setting"/);
+  assert.match(adminPanel, /testId="mobile-navigation-position-setting"/);
+  assert.match(adminPanel, /adminTab === 'calendar' && <CalendarSettingsTab/);
   assert.match(adminPanel, /setCalendarWeekStartsOn/);
   assert.match(adminPanel, /setMobileNavigationPosition/);
   assert.doesNotMatch(calendar, /onWeekStartsOnChange/);

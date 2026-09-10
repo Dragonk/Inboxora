@@ -195,8 +195,15 @@ export const useStore = create((set, get) => ({
       // exactly like the in-box clear (X) button does.
       const navChanged = state.selectedAccountId !== accountId || state.selectedFolder !== folder;
       const wasScopedSearch = !!state.selectedAccountId && !state.searchAllFolders && !!state.searchQuery.trim();
+      // Returning from Calendar/Contacts is a presentation change, not a reload.
+      // The mounted mail list still receives background updates. Preserve its
+      // loaded pages, scroll position and native thread membership immediately.
+      if (!navChanged && (state.showCalendar || state.showContacts)) {
+        return { showContacts: false, showCalendar: false, selectedMessageId: null, mobileSidebarOpen: false };
+      }
       return {
         selectedAccountId: accountId,
+        mobileSidebarOpen: false,
         selectedFolder: folder,
         selectedMessageId: null,
         messages: [],
@@ -232,18 +239,15 @@ export const useStore = create((set, get) => ({
     const threadMessages = Object.fromEntries(
       Object.entries(state.threadMessages).map(([tid, msgs]) => [tid, msgs.map(apply)])
     );
-    // Resync the parent thread row's aggregate read state only when a sub-message was
-    // updated. Sub-messages live exclusively in threadMessages, not in the main list.
-    // Resyncing on direct thread-row updates would read stale sub-messages and revert
-    // keyboard mark-read and setMessagesReadState changes.
-    const inMainList = state.messages.some(m => m.id === id);
+    // An explicit unread_count is a whole-thread action. Otherwise a physical
+    // copy (including the representative row itself) changes only its own state.
+    const aggregateUpdate = Object.hasOwn(updates, 'unread_count');
     const messages = state.messages.map(m => {
       const updated = apply(m);
-      if (inMainList) return updated;
-      const tid = m.thread_id || m.id;
-      const subs = threadMessages[tid];
-      if (!subs) return updated;
-      const unread_count = subs.filter(s => !s.is_read).length;
+      if (!state.threadedView || !m.thread_id || aggregateUpdate || typeof updates.is_read !== 'boolean') return updated;
+      const subs = threadMessages[m.thread_id || m.id];
+      if (!subs?.some(copy => copy.id === id)) return updated;
+      const unread_count = subs.filter(copy => !copy.is_read).length;
       return { ...updated, unread_count, is_read: unread_count === 0 };
     });
     return { messages, searchResults: state.searchResults.map(apply), threadMessages };

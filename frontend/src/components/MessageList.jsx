@@ -1,8 +1,10 @@
+import i18n from '../i18n.js';
+import { folderLabel } from '../utils/folderLabels.js';
 import { useEffect, useLayoutEffect, useRef, useCallback, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useStore, selectSelectedMessageMid } from '../store/index.js';
 import { api } from '../utils/api.js';
-import { LAYOUTS } from '../layouts.js';
+import { LAYOUTS, localizedLayout } from '../layouts.js';
 import { senderColor } from '../themes.js';
 import { useMobile } from '../hooks/useMobile.js';
 import { isAccountInUnifiedInbox } from '../utils/unifiedInbox.js';
@@ -300,6 +302,7 @@ export default function MessageList() {
   }, [categorizationActive, selectedAccountId, selectedFolder, messagesRefreshToken, unifiedInboxAccountKey, setCategoryCounts]);
 
   const searchSeq = useRef(0);
+  const pendingLiveRefreshRef = useRef(false);
   const refreshRequestRef = useRef(null);
   if (refreshRequestRef.current === null) refreshRequestRef.current = createLatestRequest();
   // Bumped to force the search effect to re-run (e.g. after rules move messages) so an
@@ -464,6 +467,13 @@ export default function MessageList() {
     }
   }, [selectedAccountId, selectedFolder, unreadOnly, activeCategory, pageSize, loadingMessages, hasMoreMessages, categorizationEnabled, selectedAccount?.categorization_enabled, applyReadGuard, appendMessages, setHasMoreMessages, setLoadingMessages, setMessagesOffset]);
 
+  useEffect(() => {
+    if (!loadingMessages && pendingLiveRefreshRef.current) {
+      pendingLiveRefreshRef.current = false;
+      window.dispatchEvent(new CustomEvent('inboxora:refresh'));
+    }
+  }, [loadingMessages]);
+
   // Listen for background refresh events from WebSocket. If a message was just
   // opened, give its body request a brief head start before reloading the full list.
   useEffect(() => {
@@ -510,6 +520,7 @@ export default function MessageList() {
     };
 
     const handler = () => {
+      if (useStore.getState().loadingMessages) pendingLiveRefreshRef.current = true;
       if (!useStore.getState().loadingMessages && !searchQuery.trim()) {
         const delayMs = Math.max(0, recentMessageOpenUntilRef.current - Date.now());
         clearTimeout(deferredRefreshTimerRef.current);
@@ -1512,7 +1523,7 @@ export default function MessageList() {
       if (!Array.isArray(folderList)) continue;
       const account = accounts.find(a => a.id === accountId);
       for (const folder of folderList) {
-        const name = (folder.name || folder.path || '').toLowerCase();
+        const name = `${folderLabel(folder, t, account?.folder_mappings)} ${folder.path}`.toLowerCase();
         const path = (folder.path || '').toLowerCase();
         if (name.includes(q) || path.includes(q)) {
           results.push({ ...folder, accountId, accountName: account?.name || account?.email_address || '' });
@@ -2595,6 +2606,32 @@ export default function MessageList() {
     }
   }, [threadMessages, selectedAccountId, selectedFolder, setLoadingThread, setThreadMessages]);
 
+  // Only the expanded thread needs fresh membership after a server change. Keep
+  // its current children visible while loading, and discard responses after navigation
+  // or a newer mutation. Other threads load fresh when the user expands them.
+  useEffect(() => {
+    const refresh = async event => {
+      if (!event.detail?.refreshThreads) return;
+      const state = useStore.getState();
+      const tid = state.expandedThreadId;
+      const row = state.messages.find(message => (message.thread_id || message.id) === tid);
+      for (const key of Object.keys(state.threadMessages)) {
+        if (key !== tid && !key.startsWith('__dl_')) state.clearThreadMessages(key);
+      }
+      if (!row) return;
+      invalidateThreadLoad(threadLoadVersionsRef.current, tid);
+      const version = currentThreadLoadVersion(threadLoadVersionsRef.current, tid);
+      try {
+        const data = await api.getThread(row.thread_key || row.thread_id || row.id, selectedAccountId ? selectedFolder : 'INBOX', false, row.account_id || selectedAccountId || null);
+        const current = useStore.getState();
+        if (current.selectedAccountId !== selectedAccountId || current.selectedFolder !== selectedFolder || current.expandedThreadId !== tid) return;
+        if (isCurrentThreadLoad(threadLoadVersionsRef.current, tid, version)) setThreadMessages(tid, normalizedNativeThreadMembers(applyReadGuard(data.messages)));
+      } catch { /* Keep the visible thread on transient connection failures. */ }
+    };
+    window.addEventListener('inboxora:refresh', refresh);
+    return () => window.removeEventListener('inboxora:refresh', refresh);
+  }, [selectedAccountId, selectedFolder, setThreadMessages, applyReadGuard]);
+
   // Aggregate list metadata can count duplicate provider copies. Resolve exact native
   // membership only for a user action; rendering a mailbox must never fan out one
   // /thread request per grouped row.
@@ -2629,8 +2666,8 @@ export default function MessageList() {
   const showInboxIcon = !isUnified && selectedFolder === 'INBOX' && !searchQuery.trim();
 
   const label = searchQuery.trim()
-    ? `Search: "${searchQuery}"`
-    : isUnified ? t('sidebar.allInboxes') : selectedFolder;
+    ? t('messageList.searchTitle', { query: searchQuery })
+    : isUnified ? t('sidebar.allInboxes') : folderLabel((folders[selectedAccountId] || []).find(f => f.path === selectedFolder) || { path: selectedFolder }, t, selectedAccount?.folder_mappings);
 
   // Non-INBOX folders omitted: byAccount is account-total, not folder-specific, so it would mislead.
   const headerUnread = isUnified
@@ -2644,6 +2681,7 @@ export default function MessageList() {
   const allSelected = displayMessages.length > 0 && selectedIds.size === displayMessages.length;
   const selectedAccountIds = [...new Set(selectedMsgs.map(m => m.account_id))];
   const canMove = selectedAccountIds.length === 1;
+  const pickerFolderMappings = accounts.find(account => account.id === selectedAccountIds[0])?.folder_mappings;
   const bulkMarkAsRead = selectedMsgs.some(m => !m.is_read);
 
 
@@ -2883,7 +2921,7 @@ export default function MessageList() {
                     <div style={{ fontSize: 10, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.06em', color: 'var(--text-tertiary)', padding: '4px 12px 6px' }}>
                       {t('messageList.layout', 'Layout')}
                     </div>
-                    {Object.entries(LAYOUTS).map(([key, def]) => {
+                    {Object.entries(LAYOUTS).map(([key]) => {
                       const isActive = layout === key;
                       return (
                         <div
@@ -2899,7 +2937,7 @@ export default function MessageList() {
                           onMouseLeave={e => { if (!isActive) e.currentTarget.style.background = 'transparent'; }}
                         >
                           <span style={{ fontSize: 13, color: isActive ? 'var(--accent)' : 'var(--text-primary)', fontWeight: isActive ? 500 : 400, flex: 1 }}>
-                            {def.label}
+                            {localizedLayout(key, t).label}
                           </span>
                           {isActive && (
                             <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="var(--accent)" strokeWidth="2.5">
@@ -3046,7 +3084,7 @@ export default function MessageList() {
                   <div style={{ fontSize: 10, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.06em', color: 'var(--text-tertiary)', padding: '4px 12px 6px' }}>
                     {t('messageList.layout', 'Layout')}
                   </div>
-                  {Object.entries(LAYOUTS).map(([key, def]) => {
+                  {Object.entries(LAYOUTS).map(([key]) => {
                     const isActive = layout === key;
                     return (
                       <div
@@ -3062,7 +3100,7 @@ export default function MessageList() {
                         onMouseLeave={e => { if (!isActive) e.currentTarget.style.background = 'transparent'; }}
                       >
                         <span style={{ fontSize: 13, color: isActive ? 'var(--accent)' : 'var(--text-primary)', fontWeight: isActive ? 500 : 400, flex: 1 }}>
-                          {def.label}
+                          {localizedLayout(key, t).label}
                         </span>
                         {isActive && (
                           <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="var(--accent)" strokeWidth="2.5">
@@ -3444,7 +3482,7 @@ export default function MessageList() {
                   </svg>
                   <div style={{ flex: 1, minWidth: 0 }}>
                     <div style={{ fontSize: 13, color: 'var(--text-primary)', fontWeight: 500, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
-                      {folder.name || folder.path}
+                      {folderLabel(folder, t, accounts.find(a => a.id === folder.accountId)?.folder_mappings)}
                     </div>
                     {folder.accountName && (
                       <div style={{ fontSize: 11, color: 'var(--text-tertiary)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
@@ -3631,7 +3669,7 @@ export default function MessageList() {
                       {(() => {
                         const q = pickerSearch.trim().toLowerCase();
                         const displayed = pickerFolders
-                          .filter(f => f.path !== selectedFolder && (!q || f.name.toLowerCase().includes(q)));
+                          .filter(f => f.path !== selectedFolder && (!q || `${folderLabel(f, t, pickerFolderMappings)} ${f.path}`.toLowerCase().includes(q)));
                         return displayed.length === 0 ? (
                           <div style={{ padding: '12px 12px', textAlign: 'center', color: 'var(--text-tertiary)', fontSize: 12 }}>
                             {t('contextMenu.folders.empty')}
@@ -3662,7 +3700,7 @@ export default function MessageList() {
                                   <FolderIcon specialUse={f.special_use} />
                                 </span>
                                 <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                                  {f.name}
+                                  {folderLabel(f, t, pickerFolderMappings)}
                                 </span>
                               </button>
                             ))}
@@ -3728,7 +3766,7 @@ export default function MessageList() {
                       ) : (() => {
                         const q = pickerSearch.trim().toLowerCase();
                         const displayed = pickerFolders
-                          .filter(f => f.path !== selectedFolder && (!q || f.name.toLowerCase().includes(q)));
+                          .filter(f => f.path !== selectedFolder && (!q || `${folderLabel(f, t, pickerFolderMappings)} ${f.path}`.toLowerCase().includes(q)));
                         return displayed.length === 0 ? (
                           <div style={{ padding: '24px', textAlign: 'center', color: 'var(--text-tertiary)', fontSize: 13 }}>
                             {t('contextMenu.folders.empty')}
@@ -3751,7 +3789,7 @@ export default function MessageList() {
                               <FolderIcon specialUse={f.special_use} />
                             </span>
                             <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                              {f.name}
+                              {folderLabel(f, t, pickerFolderMappings)}
                             </span>
                           </button>
                         ));
@@ -4265,10 +4303,10 @@ function EmptyState({ folderSyncing, searchQuery, unreadOnly, selectedFolder, ac
         )}
       </div>
       <div style={{ fontSize: 15, fontWeight: 500, color: 'var(--text-primary)', marginBottom: 6 }}>
-        {isInbox ? 'Inbox is empty' : 'Nothing here'}
+        {isInbox ? t('messageList.emptyFolderInbox') : t('messageList.emptyFolder')}
       </div>
       <div style={{ fontSize: 13, color: 'var(--text-tertiary)', marginBottom: isInbox ? 20 : 0 }}>
-        {isInbox ? "You're all caught up" : 'This folder has no messages'}
+        {isInbox ? t('messageList.emptyFolderInboxDesc') : t('messageList.emptyFolderDesc')}
       </div>
       {isInbox && (
         <button onClick={onCompose} style={{
@@ -4345,6 +4383,7 @@ function ThreadRow({ message, isExpanded, threadMsgs, isLoadingThread, selectedM
         onMouseEnter={() => !isMobile && setHovered(true)}
         onMouseLeave={() => !isMobile && setHovered(false)}
         data-thread-row-parent="true"
+        data-unread={unreadCount > 0}
         tabIndex={selectionMode ? -1 : 0}
         role="button"
         aria-expanded={isExpandableThread ? isExpanded : undefined}
@@ -4503,7 +4542,7 @@ function ThreadRow({ message, isExpanded, threadMsgs, isLoadingThread, selectedM
                   </svg>
                 </button>
               )}
-              <span style={{ fontFamily: 'var(--font-mono, ui-monospace, monospace)', fontSize: 10.5, color: 'var(--text-tertiary)' }}>{formatDate(message.date)}</span>
+              <span style={{ fontFamily: 'var(--font-mono, ui-monospace, monospace)', fontSize: 10.5, color: 'var(--text-tertiary)' }}>{formatDate(message.date, i18n.resolvedLanguage || i18n.language)}</span>
               {isMobile && !selectionMode && onContextMenu && (
                 <RowMenuButton label={t('message.more')} onOpen={e => onContextMenu(e, message)} />
               )}
@@ -4567,6 +4606,7 @@ function ThreadRow({ message, isExpanded, threadMsgs, isLoadingThread, selectedM
             >
             <div
               data-thread-row-child={msg.id}
+              data-unread={!msg.is_read}
               onClick={e => { e.stopPropagation(); if (!selectionMode) onSelect(msg); }}
               onDoubleClick={onOpenWindow ? (e => { e.stopPropagation(); onOpenWindow(msg); }) : undefined}
               onContextMenu={!isMobile ? (e => { e.preventDefault(); onContextMenu(e, msg); }) : undefined}
@@ -4605,7 +4645,7 @@ function ThreadRow({ message, isExpanded, threadMsgs, isLoadingThread, selectedM
                     })()}
                   </span>
                   <span style={{ fontSize: 11, color: 'var(--text-tertiary)', flexShrink: 0, marginLeft: 8 }}>
-                    {formatDate(msg.date)}
+                    {formatDate(msg.date, i18n.resolvedLanguage || i18n.language)}
                   </span>
                 </div>
                 {showMessagePreviews && (
@@ -4863,7 +4903,7 @@ function MessageRow({ message, selected, lastViewed, isChecked, selectionMode, s
               </button>
             )}
             <span style={{ fontFamily: 'var(--font-mono, ui-monospace, monospace)', fontSize: 10.5, color: 'var(--text-tertiary)' }}>
-              {formatDate(message.date)}
+              {formatDate(message.date, i18n.resolvedLanguage || i18n.language)}
             </span>
             {isMobile && !selectionMode && onContextMenu && (
               <RowMenuButton label={t('message.more')} onOpen={e => onContextMenu(e, message)} />

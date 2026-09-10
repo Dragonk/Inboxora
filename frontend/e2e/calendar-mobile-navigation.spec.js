@@ -1,6 +1,7 @@
+import { selectCalendarView, returnToMail } from './navigation.js';
 import { test, expect } from './fixtures.js';
 
-test('mobile calendar Back returns to the mail view', async ({ page, fixtureApi }, testInfo) => {
+test('mobile calendar returns to mail through the shared menu', async ({ page, fixtureApi }, testInfo) => {
   test.skip(!['chromium-mobile-390', 'chromium-mobile'].includes(testInfo.project.name), 'mobile navigation contract');
   await fixtureApi;
   await page.goto('/?list=0&reader=0');
@@ -9,19 +10,19 @@ test('mobile calendar Back returns to the mail view', async ({ page, fixtureApi 
   await page.getByTestId('calendar-nav-mobile').click();
   await expect(page.getByTestId('mobile-calendar-page')).toBeVisible();
 
-  await page.getByTestId('calendar-mobile-back').click();
+  await returnToMail(page);
   await expect(page.getByTestId('mobile-calendar-page')).not.toBeVisible();
   await expect(page.getByTestId('mobile-topbar-menu')).toBeVisible();
 });
 
-test('mobile calendar uses a bottom-right New event action and keeps its dialog inside the viewport', async ({ page, fixtureApi }, testInfo) => {
+test('mobile calendar uses a contextual New event action and keeps its dialog inside the viewport', async ({ page, fixtureApi }, testInfo) => {
   test.skip(!['chromium-mobile-390', 'chromium-mobile'].includes(testInfo.project.name), 'mobile calendar layout contract');
   await fixtureApi;
   await page.goto('/?list=0&reader=0');
 
   await page.getByTestId('mobile-topbar-menu').click();
   await page.getByTestId('calendar-nav-mobile').click();
-  const newEvent = page.getByTestId('calendar-mobile-new-event');
+  const newEvent = page.getByTestId('calendar-header-new');
   await expect(newEvent).toBeVisible();
   const actionBox = await newEvent.boundingBox();
   expect(actionBox.x + actionBox.width).toBeLessThanOrEqual(page.viewportSize().width);
@@ -120,7 +121,7 @@ test('mobile week calendar keeps its deliberate horizontal scroll inside the gri
 
   await page.getByTestId('mobile-topbar-menu').click();
   await page.getByTestId('calendar-nav-mobile').click();
-  await page.getByTestId('calendar-view-week').click();
+  await selectCalendarView(page, 'week');
   const grid = page.getByTestId('calendar-grid');
   await expect(grid).toBeVisible();
 
@@ -146,7 +147,7 @@ test('mobile week timeline keeps hourly geometry inside the calendar surface', a
   await page.goto('/?list=0&reader=0');
   await page.getByTestId('mobile-topbar-menu').click();
   await page.getByTestId('calendar-nav-mobile').click();
-  await page.getByTestId('calendar-view-week').click();
+  await selectCalendarView(page, 'week');
   const grid = page.getByTestId('calendar-grid');
   await expect(grid.getByTestId('calendar-time-grid-scroll')).toBeVisible();
   await expect(grid.getByTestId('calendar-work-hours-boundary')).toHaveCount(7);

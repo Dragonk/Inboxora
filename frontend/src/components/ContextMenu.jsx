@@ -1,3 +1,4 @@
+import { folderLabel } from '../utils/folderLabels.js';
 import { useState, useEffect, useRef } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useStore } from '../store/index.js';
@@ -629,7 +630,7 @@ export default function ContextMenu({ x, y, message, onClose, onAction, defaultM
                 const searchQuery = folderSearch.trim().toLowerCase();
                 if (searchQuery) {
                   const filtered = (moveFolders || [])
-                    .filter(f => f.path !== message.folder && f.name.toLowerCase().includes(searchQuery));
+                    .filter(f => f.path !== message.folder && `${folderLabel(f, t, account?.folder_mappings)} ${f.path}`.toLowerCase().includes(searchQuery));
                   return filtered.length === 0 ? (
                     <div style={{ padding: '12px 14px', color: 'var(--text-tertiary)', fontSize: 12 }}>
                       {t('contextMenu.folders.empty')}
@@ -639,7 +640,7 @@ export default function ContextMenu({ x, y, message, onClose, onAction, defaultM
                       {filtered.map(folder => (
                         <FolderMenuItem
                           key={folder.path}
-                          folder={folder}
+                          folder={folder} mappings={account?.folder_mappings}
                           onClick={() => { onAction('moveTo', folder.path); onClose(); }}
                         />
                       ))}
@@ -665,7 +666,7 @@ export default function ContextMenu({ x, y, message, onClose, onAction, defaultM
                         {recentForAccount.map(folder => (
                           <FolderMenuItem
                             key={`recent-${folder.path}`}
-                            folder={folder}
+                            folder={folder} mappings={account?.folder_mappings}
                             onClick={() => { onAction('moveTo', folder.path); onClose(); }}
                           />
                         ))}
@@ -680,7 +681,7 @@ export default function ContextMenu({ x, y, message, onClose, onAction, defaultM
                         {favoritesForAccount.map(folder => (
                           <FolderMenuItem
                             key={`fav-${folder.path}`}
-                            folder={folder}
+                            folder={folder} mappings={account?.folder_mappings}
                             onClick={() => { onAction('moveTo', folder.path); onClose(); }}
                           />
                         ))}
@@ -692,7 +693,7 @@ export default function ContextMenu({ x, y, message, onClose, onAction, defaultM
                       .map(folder => (
                         <FolderMenuItem
                           key={folder.path}
-                          folder={folder}
+                          folder={folder} mappings={account?.folder_mappings}
                           onClick={() => { onAction('moveTo', folder.path); onClose(); }}
                         />
                       ))
@@ -771,7 +772,8 @@ function MenuItem({ icon, label, onClick, danger, hasSubmenu, disabled }) {
   );
 }
 
-function FolderMenuItem({ folder, onClick }) {
+function FolderMenuItem({ folder, mappings, onClick }) {
+  const { t } = useTranslation();
   const [hov, setHov] = useState(false);
   const su = (folder.special_use || '').toLowerCase();
   const icon = su.includes('sent')
@@ -800,7 +802,7 @@ function FolderMenuItem({ folder, onClick }) {
     >
       <span style={{ flexShrink: 0, color: 'var(--text-tertiary)', display: 'flex' }}>{icon}</span>
       <span style={{ flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-        {folder.name || folder.path}
+        {folderLabel(folder, t, mappings)}
       </span>
     </div>
   );

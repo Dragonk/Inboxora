@@ -166,6 +166,7 @@ export default function ConversationMessage({ conversationId, message, selectedC
       boxShadow: 'var(--shadow-soft), inset 0 1px 0 rgba(255,255,255,0.04)',
     }}>
       {expanded && hasAccountCopy && <MessageToolbar
+        folderMappings={account?.folder_mappings}
         isMobile={isMobile}
         defaultReplyAll={replyDefault === 'replyAll'}
         targetId={message.id}

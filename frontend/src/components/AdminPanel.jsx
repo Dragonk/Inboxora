@@ -1,3 +1,5 @@
+import { intlLocale } from '../utils/intlLocale.js';
+import { folderLabel } from '../utils/folderLabels.js';
 import { inputStyle as sharedInputStyle } from './ui.jsx';
 import { useCallback, useState, useEffect, useLayoutEffect, useRef, useMemo } from 'react';
 import { useTranslation } from 'react-i18next';
@@ -23,7 +25,7 @@ import {
 } from '../utils/aiConfig.js';
 import { THEMES, applyTheme, applyCustomCss } from '../themes.js';
 import { FONT_SETS, loadFontSet, isRetroFont } from '../fonts.js';
-import { LAYOUTS, applyLayout } from '../layouts.js';
+import { LAYOUTS, localizedLayout, applyLayout } from '../layouts.js';
 import { NOTIFICATION_SOUNDS, playNotificationSound, playCustomSound, warmUpAudioContext } from '../utils/notificationSounds.js';
 import { usePushNotifications } from '../hooks/usePushNotifications.js';
 import SignatureEditor from './SignatureEditor.jsx';
@@ -902,11 +904,11 @@ function AccountsTab() {
                   style={selectStyle}
                 >
                   <option value="" style={{ background: 'var(--bg-tertiary)' }}>
-                    {autoFolder ? `${t('admin.folderMappings.autoDetect')} (${autoFolder.path})` : t('admin.folderMappings.autoDetectNone')}
+                    {autoFolder ? `${t('admin.folderMappings.autoDetect')} (${folderLabel(autoFolder, t, folderMappings)})` : t('admin.folderMappings.autoDetectNone')}
                   </option>
                   {availableFolders.filter(f => !f.no_select).map(f => (
                     <option key={f.path} value={f.path} style={{ background: 'var(--bg-tertiary)' }}>
-                      {f.path}
+                      {folderLabel(f, t, folderMappings)} — {f.path}
                     </option>
                   ))}
                 </select>
@@ -1511,11 +1513,55 @@ function SwipeActionIcon({ action, size = 17 }) {
   return <svg {...common}><rect x="2" y="3" width="20" height="5" rx="1"/><path d="M4 8v11a1 1 0 001 1h14a1 1 0 001-1V8"/><polyline points="9 13 12 16 15 13"/><line x1="12" y1="11" x2="12" y2="16"/></svg>;
 }
 
-function LayoutsTab() {
+function CalendarSettingsTab() {
   const { t } = useTranslation();
+  const { calendarWeekStartsOn, setCalendarWeekStartsOn, calendarWorkDays, setCalendarWorkDays, calendarWorkHoursStart, setCalendarWorkHoursStart, calendarWorkHoursEnd, setCalendarWorkHoursEnd, calendarWorkHoursError } = useStore();
+  return <div data-testid="calendar-settings">
+      <div>
+        <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--text-primary)', marginBottom: 16 }}>
+          {t('calendar.title')}
+        </div>
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: 14 }}>
+          <SettingsChoices label={t('calendar.firstDayOfWeek')} testId="calendar-week-start-setting" value={calendarWeekStartsOn} onChange={setCalendarWeekStartsOn} options={[[1, t('calendar.monday')], [0, t('calendar.sunday')]]} />
+          <div style={{ display: 'grid', gap: 8, fontSize: 12, color: 'var(--text-secondary)', gridColumn: '1 / -1' }}>
+            <span>{t('calendar.workDays', 'Work days')}</span>
+            <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
+              {[1, 2, 3, 4, 5, 6, 0].map(day => {
+                const checked = calendarWorkDays.includes(day);
+                return <label key={day} className={`settings-day-choice${checked ? ' is-selected' : ''}`}>
+                  <input type="checkbox" data-testid={`calendar-work-day-${day}`} checked={checked} onChange={() => setCalendarWorkDays(checked ? calendarWorkDays.filter(value => value !== day) : [...calendarWorkDays, day])} />
+                  {t(`calendar.day${day}`, ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'][day])}
+                </label>;
+              })}
+            </div>
+          </div>
+          <label style={{ display: 'grid', gap: 6, fontSize: 12, color: 'var(--text-secondary)' }}>
+            {t('calendar.workHoursStart', 'Working hours start')}
+            <input data-testid="calendar-work-hours-start" type="time" value={calendarWorkHoursStart} onChange={event => setCalendarWorkHoursStart(event.target.value)} aria-describedby={calendarWorkHoursError ? 'calendar-work-hours-error' : undefined} style={inputStyle} />
+          </label>
+          <label style={{ display: 'grid', gap: 6, fontSize: 12, color: 'var(--text-secondary)' }}>
+            {t('calendar.workHoursEnd', 'Working hours end')}
+            <input data-testid="calendar-work-hours-end" type="time" value={calendarWorkHoursEnd} onChange={event => setCalendarWorkHoursEnd(event.target.value)} aria-describedby={calendarWorkHoursError ? 'calendar-work-hours-error' : undefined} style={inputStyle} />
+          </label>
+          {calendarWorkHoursError && <div id="calendar-work-hours-error" role="alert" style={{ gridColumn: '1 / -1', fontSize: 12, color: 'var(--red)' }}>{calendarWorkHoursError}</div>}
+        </div>
+      </div>
+
+  </div>;
+}
+
+function SettingsChoices({ label, testId, value, onChange, options }) {
+  return <div className="settings-choices" role="group" aria-label={label} data-testid={testId}>
+    <div className="settings-choice-label">{label}</div>
+    <div className="settings-choice-options">{options.map(([id, title]) => <button key={id} type="button" aria-pressed={value === id} onClick={() => onChange(id)}>{title}</button>)}</div>
+  </div>;
+}
+
+function LayoutsTab() {
+  const { t, i18n } = useTranslation();
   const isMobile = useMobile();
   const { layout, setLayout, pageSize, setPageSize, scrollMode, setScrollMode, swipeActions, setSwipeAction, syncInterval, setSyncInterval, folderSyncInterval, setFolderSyncInterval, threadedView, setThreadedView, plaintextEmail, setPlaintextEmail, hoverQuickActions, setHoverQuickActions, showMobileAvatars, setShowMobileAvatars, gravatarAvatars, setGravatarAvatars, replyDefault, setReplyDefault, markReadBehavior, setMarkReadBehavior, markReadDelay, setMarkReadDelay, senderFavicons, senderFaviconsSaving, setSenderFavicons, showMessagePreviews, setShowMessagePreviews, conversationReaderViewEnabled, setConversationReaderViewEnabled, fontSize, setFontSize } = useStore();
-  const { calendarWeekStartsOn, setCalendarWeekStartsOn, mobileNavigationPosition, setMobileNavigationPosition, calendarWorkDays, setCalendarWorkDays, calendarWorkHoursStart, setCalendarWorkHoursStart, calendarWorkHoursEnd, setCalendarWorkHoursEnd, calendarWorkHoursError } = useStore();
+  const { mobileNavigationPosition, setMobileNavigationPosition } = useStore();
   const [senderFaviconsError, setSenderFaviconsError] = useState('');
 
   // "Set Inboxora as your default email app": registerProtocolHandler is the
@@ -1620,7 +1666,7 @@ function LayoutsTab() {
                   display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8,
                 }}>
                   <div style={{ fontSize: 13, fontWeight: 500, color: 'var(--text-primary)' }}>
-                    {l.label}
+                    {localizedLayout(key, t).label}
                   </div>
                   {isActive && (
                     <div style={{
@@ -1635,7 +1681,7 @@ function LayoutsTab() {
                   )}
                 </div>
                 <div style={{ fontSize: 11, color: 'var(--text-tertiary)', marginTop: 4, lineHeight: 1.4 }}>
-                  {l.description}
+                  {localizedLayout(key, t).description}
                 </div>
               </div>
             </button>
@@ -1676,46 +1722,8 @@ function LayoutsTab() {
       </div>
 
       <div style={{ marginTop: 28, paddingTop: 22, borderTop: '1px solid var(--border-subtle)' }}>
-        <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--text-primary)', marginBottom: 16 }}>
-          {t('calendar.title')}
-        </div>
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: 14 }}>
-          <label style={{ display: 'grid', gap: 6, fontSize: 12, color: 'var(--text-secondary)' }}>
-            {t('calendar.firstDayOfWeek')}
-            <select data-testid="calendar-week-start-setting" value={calendarWeekStartsOn} onChange={event => setCalendarWeekStartsOn(Number(event.target.value))} style={inputStyle}>
-              <option value={1}>{t('calendar.monday')}</option>
-              <option value={0}>{t('calendar.sunday')}</option>
-            </select>
-          </label>
-          <label style={{ display: 'grid', gap: 6, fontSize: 12, color: 'var(--text-secondary)' }}>
-            {t('calendar.mobileNavigation')}
-            <select data-testid="mobile-navigation-position-setting" value={mobileNavigationPosition} onChange={event => setMobileNavigationPosition(event.target.value)} style={inputStyle}>
-              <option value="top">{t('calendar.navigationTop')}</option>
-              <option value="bottom">{t('calendar.navigationBottom')}</option>
-            </select>
-          </label>
-          <div style={{ display: 'grid', gap: 8, fontSize: 12, color: 'var(--text-secondary)', gridColumn: '1 / -1' }}>
-            <span>{t('calendar.workDays', 'Work days')}</span>
-            <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
-              {[1, 2, 3, 4, 5, 6, 0].map(day => {
-                const checked = calendarWorkDays.includes(day);
-                return <label key={day} style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
-                  <input type="checkbox" data-testid={`calendar-work-day-${day}`} checked={checked} onChange={() => setCalendarWorkDays(checked ? calendarWorkDays.filter(value => value !== day) : [...calendarWorkDays, day])} />
-                  {t(`calendar.day${day}`, ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'][day])}
-                </label>;
-              })}
-            </div>
-          </div>
-          <label style={{ display: 'grid', gap: 6, fontSize: 12, color: 'var(--text-secondary)' }}>
-            {t('calendar.workHoursStart', 'Working hours start')}
-            <input data-testid="calendar-work-hours-start" type="time" value={calendarWorkHoursStart} onChange={event => setCalendarWorkHoursStart(event.target.value)} aria-describedby={calendarWorkHoursError ? 'calendar-work-hours-error' : undefined} style={inputStyle} />
-          </label>
-          <label style={{ display: 'grid', gap: 6, fontSize: 12, color: 'var(--text-secondary)' }}>
-            {t('calendar.workHoursEnd', 'Working hours end')}
-            <input data-testid="calendar-work-hours-end" type="time" value={calendarWorkHoursEnd} onChange={event => setCalendarWorkHoursEnd(event.target.value)} aria-describedby={calendarWorkHoursError ? 'calendar-work-hours-error' : undefined} style={inputStyle} />
-          </label>
-          {calendarWorkHoursError && <div id="calendar-work-hours-error" role="alert" style={{ gridColumn: '1 / -1', fontSize: 12, color: 'var(--red)' }}>{calendarWorkHoursError}</div>}
-        </div>
+        <SettingsChoices label={t('admin.appearance.mobileNavigation')} testId="mobile-navigation-position-setting" value={mobileNavigationPosition} onChange={setMobileNavigationPosition} options={[["top", t('admin.appearance.navigationTop')], ["bottom", t('admin.appearance.navigationBottom')]]} />
+        <p style={{ fontSize: 12, color: 'var(--text-tertiary)' }}>{t('admin.appearance.mobileNavigationDescription')}</p>
       </div>
 
       {/* Message list behaviour */}
@@ -2016,9 +2024,9 @@ function LayoutsTab() {
         </div>
         <div style={{ display: 'flex', gap: 6 }}>
           {[
-            { value: 900,  label: '15 min' },
-            { value: 1800, label: '30 min' },
-            { value: 3600, label: '1 hour' },
+            { value: 900,  label: new Intl.NumberFormat(intlLocale(i18n.resolvedLanguage || i18n.language), { style: 'unit', unit: 'minute', unitDisplay: 'short' }).format(15) },
+            { value: 1800, label: new Intl.NumberFormat(intlLocale(i18n.resolvedLanguage || i18n.language), { style: 'unit', unit: 'minute', unitDisplay: 'short' }).format(30) },
+            { value: 3600, label: new Intl.NumberFormat(intlLocale(i18n.resolvedLanguage || i18n.language), { style: 'unit', unit: 'hour', unitDisplay: 'short' }).format(1) },
             { value: 0,    label: t('common.never') },
           ].map(({ value, label }) => {
             const active = folderSyncInterval === value;
@@ -6741,6 +6749,7 @@ function MailboxCleanupTab() {
 
 const TAB_GROUPS = [
   { id: 'account-mail', labelKey: 'admin.tabs.groupAccountMail', tabIds: ['accounts', 'notifications', 'rules', 'categories', 'cleanup'] },
+  { id: 'calendar', labelKey: 'calendar.title', tabIds: ['calendar'] },
   { id: 'display', labelKey: 'admin.tabs.groupDisplay', tabIds: ['appearance', 'shortcuts'] },
   { id: 'security-integrations', labelKey: 'admin.tabs.groupSecurityIntegrations', tabIds: ['security', 'dav-credentials', 'integrations', 'ai', 'ai-actions', 'plugins'] },
   { id: 'admin', labelKey: 'admin.tabs.groupAdmin', tabIds: ['users', 'sso'] },
@@ -6768,6 +6777,7 @@ const TABS = [
     id: 'cleanup', labelKey: 'admin.tabs.cleanup', beta: true,
     icon: <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round"><path d="M19 3l-6 6"/><path d="M14 4l6 6"/><path d="M11 8l-7 7c-1 1-1 3 0 4s3 1 4 0l7-7"/><path d="M6 20l-3-3"/></svg>,
   },
+  { id: 'calendar', labelKey: 'calendar.title', icon: <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75"><rect x="3" y="5" width="18" height="16" rx="2"/><path d="M16 3v4M8 3v4M3 11h18"/></svg> },
   // Display
   {
     id: 'appearance', labelKey: 'admin.tabs.appearance',
@@ -8259,6 +8269,8 @@ function makeSearchIndex(t) {
     // Appearance > Theme
     { label: tabLabel('theme'), keywords: ['theme', 'dark', 'light', 'color', 'colour', 'dark mode', 'light mode'], tab: 'appearance', subtab: 'theme', breadcrumb: `${tabLabel('appearance')} › ${tabLabel('theme')}` },
     // Appearance > Layout
+    ...['firstDayOfWeek', 'workDays', 'workHoursStart', 'workHoursEnd'].map(key => ({ label: t(`calendar.${key}`), keywords: ['calendar', 'kalendarz', 'week', 'work', 'hours'], tab: 'calendar', breadcrumb: t('calendar.title') })),
+    { label: t('admin.appearance.mobileNavigation'), keywords: ['mobile', 'navigation', 'nawigacja', 'top', 'bottom'], tab: 'appearance', subtab: 'layout', breadcrumb: layoutCrumb },
     { label: t('admin.appearance.layout'), keywords: ['layout', 'pane', 'split', 'preview', 'reading pane', 'side by side', 'stacked'], tab: 'appearance', subtab: 'layout', breadcrumb: layoutCrumb },
     { label: t('admin.messageList.scrollingMode'), keywords: ['scroll', 'infinite', 'paginated', 'pagination', 'pages'], tab: 'appearance', subtab: 'layout', breadcrumb: layoutCrumb },
     { label: t('admin.messageList.perPagePaginated'), keywords: ['per page', 'batch', 'messages per page', 'count', '25', '50', '100', '200', 'page size'], tab: 'appearance', subtab: 'layout', breadcrumb: layoutCrumb },
@@ -8432,6 +8444,7 @@ export default function AdminPanel() {
       {adminTab === 'rules' && <RulesAndBlockListTab initialSubTab={pendingSubTab} />}
       {adminTab === 'categories' && <CategoriesSection initialSubTab={pendingSubTab} />}
       {adminTab === 'cleanup' && <MailboxCleanupTab />}
+      {adminTab === 'calendar' && <CalendarSettingsTab />}
       {adminTab === 'appearance' && <AppearanceTab initialSubTab={pendingSubTab} />}
       {adminTab === 'integrations' && <IntegrationsTab />}
       {adminTab === 'users' && <UsersTab />}
@@ -8465,10 +8478,11 @@ export default function AdminPanel() {
         }}>
           <span style={{ fontFamily: 'var(--font-display)', fontSize: 16, fontWeight: 600, color: 'var(--text-primary)' }}>{t('admin.title')}</span>
           <button
+            type="button" aria-label={t('common.close')}
             onClick={() => setShowAdmin(false)}
             style={{
               background: 'none', border: 'none', cursor: 'pointer',
-              color: 'var(--text-tertiary)', padding: 6, display: 'flex',
+              color: 'var(--text-tertiary)', padding: 6, display: 'flex', minWidth: 44, minHeight: 44, alignItems: 'center', justifyContent: 'center',
             }}
           >
             <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
@@ -8640,6 +8654,7 @@ export default function AdminPanel() {
 
           <div style={{ height: 1, background: 'var(--border-subtle)', margin: '6px 0' }} />
           <button
+            type="button" aria-label={t('common.close')}
             onClick={() => setShowAdmin(false)}
             style={{
               display: 'flex', alignItems: 'center', gap: 9,

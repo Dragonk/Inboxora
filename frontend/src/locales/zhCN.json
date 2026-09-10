@@ -175,7 +175,11 @@
       "customCssDescription": "在当前主题之后注入额外的 CSS。使用 CSS 自定义属性（如 --accent、--bg-primary）覆盖主题值或添加自定义规则。对所有用户生效。",
       "customCssPlaceholder": ":root {\n  --accent: #e74c3c;\n}",
       "customCssSave": "保存",
-      "customCssSaved": "已保存"
+      "customCssSaved": "已保存",
+      "mobileNavigation": "移动导航",
+      "navigationTop": "顶部",
+      "navigationBottom": "底部",
+      "mobileNavigationDescription": "邮件、联系人和日历中菜单与操作按钮的位置。"
     },
     "blockList": {
       "description": "来自已屏蔽发件人的邮件将自动移至垃圾箱。",
@@ -488,7 +492,6 @@
       "badgeDescription": "控制未读数量的显示位置。",
       "appBadge": "应用图标徽标",
       "appBadgeDesc": "在任务栏或 Dock 图标上显示未读数（PWA）。",
-
       "badgeOn": "已启用",
       "badgeOff": "已禁用"
     },
@@ -907,7 +910,8 @@
     "unknown": "未知",
     "error": "错误：{{message}}",
     "dismiss": "忽略",
-    "loadMore": "加载更多"
+    "loadMore": "加载更多",
+    "close": "关闭"
   },
   "compose": {
     "newMessage": "新邮件",
@@ -1000,7 +1004,6 @@
   "contacts": {
     "title": "联系人",
     "listSubtitle": "CardDAV 与本地通讯录",
-    "backToMail": "返回邮件",
     "backToList": "返回联系人列表",
     "new": "新建",
     "newContact": "新建联系人",
@@ -1063,7 +1066,17 @@
     },
     "carddavBadge": "从 CardDAV 同步",
     "composeTo": "写邮件",
-    "addressBooks": { "label": "通讯录", "allVisible": "所有可见项", "create": "新建通讯录", "newPrompt": "新通讯录名称", "hide": "隐藏", "show": "显示", "importGoogle": "导入 Google CSV 文件", "exportGoogle": "导出 Google CSV 文件", "exportOutlook": "导出 Outlook CSV 文件" }
+    "addressBooks": {
+      "label": "通讯录",
+      "allVisible": "所有可见项",
+      "create": "新建通讯录",
+      "newPrompt": "新通讯录名称",
+      "hide": "隐藏",
+      "show": "显示",
+      "importGoogle": "导入 Google CSV 文件",
+      "exportGoogle": "导出 Google CSV 文件",
+      "exportOutlook": "导出 Outlook CSV 文件"
+    }
   },
   "contextMenu": {
     "find": "查找",
@@ -1498,7 +1511,13 @@
       "promotion": "促销",
       "automated": "自动邮件",
       "social": "社交"
-    }
+    },
+    "emptyFolderInbox": "收件箱为空",
+    "emptyFolder": "没有邮件",
+    "emptyFolderInboxDesc": "所有邮件已读",
+    "emptyFolderDesc": "此文件夹没有邮件",
+    "searchTitle": "搜索：“{{query}}”",
+    "changeLayout": "更改布局"
   },
   "notifications": {
     "newMessage": "新邮件"
@@ -1732,7 +1751,6 @@
     "moreEvents": "另外 {{n}} 项",
     "previousMonth": "上个月",
     "nextMonth": "下个月",
-    "back": "返回",
     "today": "今天",
     "newEvent": "新建事件",
     "noWritable": "没有可写的本地日历。导入的日历为只读。",
@@ -1772,6 +1790,76 @@
     "cancel": "取消",
     "saving": "保存中…",
     "save": "保存",
-    "panel": "日历面板", "calendars": "日历", "manageSources": "管理来源", "firstDayOfWeek": "一周的第一天", "monday": "星期一", "sunday": "星期日", "sourceType": "来源类型", "sourceName": "名称", "sourceUrl": "URL", "sourceUsername": "用户名", "sourcePassword": "应用密码", "addSource": "添加来源", "syncSource": "同步", "sourceReady": "就绪", "sourceSyncing": "同步中…", "sourceSyncTimeout": "源同步超时。", "icsWebcal": "ICS / webcal", "caldav": "CalDAV", "workDays": "工作日", "workHoursStart": "工作时间开始", "workHoursEnd": "工作时间结束", "day0": "星期日", "day1": "星期一", "day2": "星期二", "day3": "星期三", "day4": "星期四", "day5": "星期五", "day6": "星期六", "owned": "我的日历", "sourceCalendar": "来源", "calendarActions": "{{name}} 的操作", "rename": "重命名", "changeColor": "更改颜色", "deleteCalendar": "删除日历", "renamePrompt": "日历名称", "colorPrompt": "日历颜色 (#RRGGBB)", "invalidColor": "请输入六位十六进制颜色。", "confirmCalendarDelete": "删除日历 \"{{name}}\" 及其所有事件？此操作无法撤销。", "mobileNavigation": "移动导航", "navigationTop": "顶部", "navigationBottom": "底部"
+    "panel": "日历面板",
+    "calendars": "日历",
+    "manageSources": "管理来源",
+    "firstDayOfWeek": "一周的第一天",
+    "monday": "星期一",
+    "sunday": "星期日",
+    "sourceType": "来源类型",
+    "sourceName": "名称",
+    "sourceUrl": "URL",
+    "sourceUsername": "用户名",
+    "sourcePassword": "应用密码",
+    "addSource": "添加来源",
+    "syncSource": "同步",
+    "sourceReady": "就绪",
+    "sourceSyncing": "同步中…",
+    "sourceSyncTimeout": "源同步超时。",
+    "icsWebcal": "ICS / webcal",
+    "caldav": "CalDAV",
+    "workDays": "工作日",
+    "workHoursStart": "工作时间开始",
+    "workHoursEnd": "工作时间结束",
+    "day0": "星期日",
+    "day1": "星期一",
+    "day2": "星期二",
+    "day3": "星期三",
+    "day4": "星期四",
+    "day5": "星期五",
+    "day6": "星期六",
+    "owned": "我的日历",
+    "sourceCalendar": "来源",
+    "calendarActions": "{{name}} 的操作",
+    "rename": "重命名",
+    "changeColor": "更改颜色",
+    "deleteCalendar": "删除日历",
+    "renamePrompt": "日历名称",
+    "colorPrompt": "日历颜色 (#RRGGBB)",
+    "invalidColor": "请输入六位十六进制颜色。",
+    "confirmCalendarDelete": "删除日历 \"{{name}}\" 及其所有事件？此操作无法撤销。"
+  },
+  "mailFolders": {
+    "inbox": "收件箱",
+    "sent": "已发送",
+    "drafts": "草稿",
+    "trash": "回收站",
+    "spam": "垃圾邮件",
+    "archive": "归档",
+    "all": "所有邮件",
+    "starred": "星标邮件",
+    "important": "重要邮件"
+  },
+  "layouts": {
+    "focused": {
+      "label": "专注",
+      "description": "使用窄邮件列表，留出更多阅读空间。"
+    },
+    "compact": {
+      "label": "紧凑",
+      "description": "较小的行可以同时显示更多邮件。"
+    },
+    "comfortable": {
+      "label": "舒适",
+      "description": "宽松的行间距便于浏览邮件。"
+    },
+    "wide": {
+      "label": "宽列表",
+      "description": "更宽的列表可以显示更长的主题和预览。"
+    },
+    "vertical": {
+      "label": "上下分栏",
+      "description": "邮件列表位于阅读窗格上方。"
+    }
   }
 }

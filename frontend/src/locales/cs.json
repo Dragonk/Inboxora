@@ -107,7 +107,11 @@
       "customCssDescription": "Vložte doplňující CSS, které se použije po aktivním motivu. Hodnoty motivu můžete přepsat pomocí vlastních proměnných CSS (např. --accent, --bg-primary) nebo přidat vlastní pravidla. Použije se pro všechny uživatele.",
       "customCssPlaceholder": ":root {\n  --accent: #e74c3c;\n}",
       "customCssSave": "Uložit",
-      "customCssSaved": "Uloženo"
+      "customCssSaved": "Uloženo",
+      "mobileNavigation": "Mobilní navigace",
+      "navigationTop": "Nahoře",
+      "navigationBottom": "Dole",
+      "mobileNavigationDescription": "Umístění nabídky a akcí v poště, kontaktech a kalendáři."
     },
     "accounts": {
       "title": "E-mailové účty",
@@ -306,7 +310,6 @@
       "badgeDescription": "Určete, kde se bude zobrazovat počet nepřečtených zpráv.",
       "appBadge": "Odznak ikony aplikace",
       "appBadgeDesc": "Počet nepřečtených na ikoně hlavního panelu nebo Docku při instalaci jako PWA.",
-
       "badgeOn": "Zapnuto",
       "badgeOff": "Vypnuto"
     },
@@ -907,7 +910,8 @@
     "unknown": "Neznámé",
     "error": "Chyba: {{message}}",
     "dismiss": "Zavřít",
-    "loadMore": "Načíst další"
+    "loadMore": "Načíst další",
+    "close": "Zavřít"
   },
   "compose": {
     "newMessage": "Nová zpráva",
@@ -1000,7 +1004,6 @@
   "contacts": {
     "title": "Kontakty",
     "listSubtitle": "Adresáře CardDAV a místní",
-    "backToMail": "Zpět do pošty",
     "backToList": "Zpět na seznam kontaktů",
     "new": "Nový",
     "newContact": "Nový kontakt",
@@ -1063,7 +1066,17 @@
     },
     "carddavBadge": "Synchronizováno z CardDAV",
     "composeTo": "Napsat zprávu",
-    "addressBooks": { "label": "Adresář kontaktů", "allVisible": "Všechny viditelné", "create": "Nový adresář", "newPrompt": "Název nového adresáře", "hide": "Skrýt", "show": "Zobrazit", "importGoogle": "Importovat CSV z Google", "exportGoogle": "Export CSV pro Google", "exportOutlook": "Export CSV pro Outlook" }
+    "addressBooks": {
+      "label": "Adresář kontaktů",
+      "allVisible": "Všechny viditelné",
+      "create": "Nový adresář",
+      "newPrompt": "Název nového adresáře",
+      "hide": "Skrýt",
+      "show": "Zobrazit",
+      "importGoogle": "Importovat CSV z Google",
+      "exportGoogle": "Export CSV pro Google",
+      "exportOutlook": "Export CSV pro Outlook"
+    }
   },
   "contextMenu": {
     "find": "Najít",
@@ -1498,7 +1511,13 @@
       "promotion": "Propagace",
       "automated": "Automatické",
       "social": "Sociální sítě"
-    }
+    },
+    "emptyFolderInbox": "Doručená pošta je prázdná",
+    "emptyFolder": "Žádné zprávy",
+    "emptyFolderInboxDesc": "Vše přečteno",
+    "emptyFolderDesc": "V této složce nejsou žádné zprávy",
+    "searchTitle": "Hledat: „{{query}}“",
+    "changeLayout": "Změnit rozložení"
   },
   "notifications": {
     "newMessage": "Nová zpráva"
@@ -1732,7 +1751,6 @@
     "moreEvents": "+{{n}} další",
     "previousMonth": "Předchozí měsíc",
     "nextMonth": "Další měsíc",
-    "back": "Zpět",
     "today": "Dnes",
     "newEvent": "Nová událost",
     "noWritable": "Není k dispozici žádný zapisovatelný místní kalendář. Importované kalendáře jsou jen pro čtení.",
@@ -1772,6 +1790,76 @@
     "cancel": "Zrušit",
     "saving": "Ukládání…",
     "save": "Uložit",
-    "panel": "Panel kalendáře", "calendars": "Kalendáře", "manageSources": "Spravovat zdroje", "firstDayOfWeek": "První den týdne", "monday": "Pondělí", "sunday": "Neděle", "sourceType": "Typ zdroje", "sourceName": "Název", "sourceUrl": "URL", "sourceUsername": "Uživatelské jméno", "sourcePassword": "Heslo aplikace", "addSource": "Přidat zdroj", "syncSource": "Synchronizovat", "sourceReady": "Připraveno", "sourceSyncing": "Synchronizace…", "sourceSyncTimeout": "Synchronizace zdroje vypršela.", "icsWebcal": "ICS / webcal", "caldav": "CalDAV", "workDays": "Pracovní dny", "workHoursStart": "Začátek pracovní doby", "workHoursEnd": "Konec pracovní doby", "day0": "Neděle", "day1": "Pondělí", "day2": "Úterý", "day3": "Středa", "day4": "Čtvrtek", "day5": "Pátek", "day6": "Sobota", "owned": "Vlastní", "sourceCalendar": "Zdroj", "calendarActions": "Akce pro {{name}}", "rename": "Přejmenovat", "changeColor": "Změnit barvu", "deleteCalendar": "Smazat kalendář", "renamePrompt": "Název kalendáře", "colorPrompt": "Barva kalendáře (#RRGGBB)", "invalidColor": "Zadejte šestimístnou hexadecimální barvu.", "confirmCalendarDelete": "Smazat kalendář \"{{name}}\" a všechny jeho události? Tuto akci nelze vrátit.", "mobileNavigation": "Mobilní navigace", "navigationTop": "Nahoře", "navigationBottom": "Dole"
+    "panel": "Panel kalendáře",
+    "calendars": "Kalendáře",
+    "manageSources": "Spravovat zdroje",
+    "firstDayOfWeek": "První den týdne",
+    "monday": "Pondělí",
+    "sunday": "Neděle",
+    "sourceType": "Typ zdroje",
+    "sourceName": "Název",
+    "sourceUrl": "URL",
+    "sourceUsername": "Uživatelské jméno",
+    "sourcePassword": "Heslo aplikace",
+    "addSource": "Přidat zdroj",
+    "syncSource": "Synchronizovat",
+    "sourceReady": "Připraveno",
+    "sourceSyncing": "Synchronizace…",
+    "sourceSyncTimeout": "Synchronizace zdroje vypršela.",
+    "icsWebcal": "ICS / webcal",
+    "caldav": "CalDAV",
+    "workDays": "Pracovní dny",
+    "workHoursStart": "Začátek pracovní doby",
+    "workHoursEnd": "Konec pracovní doby",
+    "day0": "Neděle",
+    "day1": "Pondělí",
+    "day2": "Úterý",
+    "day3": "Středa",
+    "day4": "Čtvrtek",
+    "day5": "Pátek",
+    "day6": "Sobota",
+    "owned": "Vlastní",
+    "sourceCalendar": "Zdroj",
+    "calendarActions": "Akce pro {{name}}",
+    "rename": "Přejmenovat",
+    "changeColor": "Změnit barvu",
+    "deleteCalendar": "Smazat kalendář",
+    "renamePrompt": "Název kalendáře",
+    "colorPrompt": "Barva kalendáře (#RRGGBB)",
+    "invalidColor": "Zadejte šestimístnou hexadecimální barvu.",
+    "confirmCalendarDelete": "Smazat kalendář \"{{name}}\" a všechny jeho události? Tuto akci nelze vrátit."
+  },
+  "mailFolders": {
+    "inbox": "Doručená pošta",
+    "sent": "Odeslané",
+    "drafts": "Koncepty",
+    "trash": "Koš",
+    "spam": "Spam",
+    "archive": "Archiv",
+    "all": "Všechny zprávy",
+    "starred": "S hvězdičkou",
+    "important": "Důležité"
+  },
+  "layouts": {
+    "focused": {
+      "label": "Soustředění",
+      "description": "Více místa pro čtení a úzký seznam zpráv."
+    },
+    "compact": {
+      "label": "Kompaktní",
+      "description": "Menší řádky zobrazí více zpráv najednou."
+    },
+    "comfortable": {
+      "label": "Pohodlné",
+      "description": "Prostorné řádky usnadňují procházení zpráv."
+    },
+    "wide": {
+      "label": "Široké",
+      "description": "Širší seznam zobrazuje delší předměty a náhledy."
+    },
+    "vertical": {
+      "label": "Svislé rozdělení",
+      "description": "Seznam zpráv je nad panelem čtení."
+    }
   }
 }

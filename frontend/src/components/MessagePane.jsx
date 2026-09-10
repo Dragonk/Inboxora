@@ -1948,6 +1948,7 @@ ${bodyContent}
 
       {/* Native toolbar presentation shared with expanded conversation messages. */}
       <MessageToolbar
+        folderMappings={account?.folder_mappings}
         isMobile={isMobile}
         defaultReplyAll={defaultReplyAll}
         isRead={Boolean(message.is_read)}

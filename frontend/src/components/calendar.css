@@ -45,8 +45,7 @@
 .calendar-mobile .calendar-toolbar { flex-basis: 100%; }
 .calendar-mobile .calendar-segments { width: 100%; }
 .calendar-mobile .calendar-segments button { flex: 1; min-height: 40px; padding: 5px 7px; }
-.calendar-mobile .calendar-header-bottom { order: 2; border-bottom: 0; border-top: 1px solid var(--border-subtle); }
-.calendar-mobile .calendar-body { padding-bottom: 76px; }
+.calendar-mobile .calendar-body { padding-bottom: 0; }
 .calendar-mobile .calendar-agenda-entry { min-height: 52px; }
 .calendar-mobile .calendar-day-select { min-height: 28px; min-width: 28px; }
 
@@ -58,3 +57,8 @@
 
 .calendar-mobile .cal-cell .cal-ev { min-height: 24px; padding: 3px; font-size: 10px; }
 .calendar-mobile .cal-cell .cal-ev strong { display: none; }
+.calendar-mobile .calendar-header { padding: 4px 8px; }
+.calendar-mobile .calendar-toolbar { flex-wrap: nowrap; width: 100%; justify-content: space-between; }
+.calendar-mobile .calendar-date-controls { flex-wrap: nowrap; gap: 2px; }
+.calendar-mobile .calendar-date-controls > .ui-button { min-width: 44px; min-height: 44px; }
+.calendar-view-select { min-width: 0; max-width: 48%; min-height: 44px; border: 1px solid var(--border-subtle); border-radius: 6px; background: var(--bg-primary); color: var(--text-primary); padding: 0 8px; font: inherit; font-size: 12px; }

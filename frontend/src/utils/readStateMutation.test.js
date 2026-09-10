@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
-import { queueReadStateMutation, resetReadStateMutationsForTest } from './readStateMutation.js';
+import { queueReadStateMutation, resetReadStateMutationsForTest, pendingReadState } from './readStateMutation.js';
 
 describe('read-state mutation lane', () => {
   it('commits latest explicit intent after an older auto-read', async () => {
@@ -13,9 +13,11 @@ describe('read-state mutation lane', () => {
     const second = queueReadStateMutation('m2', false, async read => { calls.push(read); });
     await new Promise(resolve => setTimeout(resolve, 0));
     assert.deepEqual(calls, [true]);
+    assert.equal(pendingReadState('m2'), false);
     release();
     await Promise.all([first.promise, second.promise]);
     assert.deepEqual(calls, [true, false]);
+    assert.equal(pendingReadState('m2'), undefined);
   });
 
   it('ignores a superseded automatic failure while committing the newer intent', async () => {
@@ -31,6 +33,7 @@ describe('read-state mutation lane', () => {
     rejectFirst(new Error('automatic read failed'));
     await Promise.allSettled([first.promise, second.promise]);
     assert.deepEqual(calls, [true, false]);
+    assert.equal(pendingReadState('m2'), undefined);
   });
 
   it('serializes reversed explicit responses as the latest read state', async () => {

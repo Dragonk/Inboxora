@@ -1,3 +1,4 @@
+import { selectCalendarView } from './navigation.js';
 import { test, expect } from './real-app-fixtures.js';
 
 // This spec requires an explicitly provisioned live backend, database and account
@@ -81,7 +82,7 @@ test('V3 calendar creates, reloads and deletes an event against the live API', a
   try {
     await expect(editor).toBeHidden();
     await page.reload(); await navigate();
-    await page.getByTestId('calendar-view-agenda').click();
+    await selectCalendarView(page, 'agenda');
     await page.getByTestId('calendar-agenda-view').getByRole('button', { name: new RegExp(name) }).click();
     await expect(editor.getByRole('textbox').first()).toHaveValue(name);
     page.once('dialog', dialog => dialog.accept());

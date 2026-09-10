@@ -175,7 +175,11 @@
       "customCssDescription": "Inject additional CSS after the active theme. Use CSS custom properties (e.g. --accent, --bg-primary) to override theme values, or add your own rules. Applied to all users.",
       "customCssPlaceholder": ":root {\n  --accent: #e74c3c;\n}",
       "customCssSave": "Save",
-      "customCssSaved": "Saved"
+      "customCssSaved": "Saved",
+      "mobileNavigation": "Mobile navigation",
+      "navigationTop": "Top",
+      "navigationBottom": "Bottom",
+      "mobileNavigationDescription": "Position of the menu and actions in mail, contacts and calendar."
     },
     "blockList": {
       "description": "Emails from blocked senders are automatically moved to trash.",
@@ -488,7 +492,6 @@
       "badgeDescription": "Control where the unread count is displayed.",
       "appBadge": "App icon badge",
       "appBadgeDesc": "Unread count on the taskbar or dock icon when installed as a PWA.",
-
       "badgeOn": "Enabled",
       "badgeOff": "Disabled"
     },
@@ -907,7 +910,8 @@
     "unknown": "Unknown",
     "error": "Error: {{message}}",
     "dismiss": "Dismiss",
-    "loadMore": "Load more"
+    "loadMore": "Load more",
+    "close": "Close"
   },
   "compose": {
     "newMessage": "New Message",
@@ -1000,7 +1004,6 @@
   "contacts": {
     "title": "Contacts",
     "listSubtitle": "CardDAV and local address books",
-    "backToMail": "Back to mail",
     "backToList": "Back to contacts list",
     "new": "New",
     "newContact": "New Contact",
@@ -1063,7 +1066,17 @@
     },
     "carddavBadge": "Synced from CardDAV",
     "composeTo": "Compose message",
-    "addressBooks": { "label": "Address book", "allVisible": "All visible", "create": "New address book", "newPrompt": "Name the new address book", "hide": "Hide", "show": "Show", "importGoogle": "Import Google CSV", "exportGoogle": "Google CSV", "exportOutlook": "Outlook CSV" }
+    "addressBooks": {
+      "label": "Address book",
+      "allVisible": "All visible",
+      "create": "New address book",
+      "newPrompt": "Name the new address book",
+      "hide": "Hide",
+      "show": "Show",
+      "importGoogle": "Import Google CSV",
+      "exportGoogle": "Google CSV",
+      "exportOutlook": "Outlook CSV"
+    }
   },
   "contextMenu": {
     "find": "Find",
@@ -1498,7 +1511,13 @@
       "promotion": "Promotions",
       "automated": "Automated",
       "social": "Social"
-    }
+    },
+    "emptyFolderInbox": "Inbox is empty",
+    "emptyFolder": "Nothing here",
+    "emptyFolderInboxDesc": "You’re all caught up",
+    "emptyFolderDesc": "This folder has no messages",
+    "searchTitle": "Search: “{{query}}”",
+    "changeLayout": "Change layout"
   },
   "notifications": {
     "newMessage": "New message"
@@ -1732,7 +1751,6 @@
     "moreEvents": "+{{n}} more",
     "previousMonth": "Previous month",
     "nextMonth": "Next month",
-    "back": "Back",
     "today": "Today",
     "newEvent": "New event",
     "noWritable": "No writable local calendar is available. Imported calendars are read-only.",
@@ -1800,9 +1818,48 @@
     "sourceSyncTimeout": "Source synchronization timed out.",
     "icsWebcal": "ICS / webcal",
     "caldav": "CalDAV",
-    "owned": "Owned", "sourceCalendar": "Source", "calendarActions": "Actions for {{name}}", "rename": "Rename", "changeColor": "Change color", "deleteCalendar": "Delete calendar", "renamePrompt": "Calendar name", "colorPrompt": "Calendar color (#RRGGBB)", "invalidColor": "Enter a six-digit hex color.", "confirmCalendarDelete": "Delete calendar \"{{name}}\" and all its events? This cannot be undone.",
-    "mobileNavigation": "Mobile navigation",
-    "navigationTop": "Top",
-    "navigationBottom": "Bottom"
+    "owned": "Owned",
+    "sourceCalendar": "Source",
+    "calendarActions": "Actions for {{name}}",
+    "rename": "Rename",
+    "changeColor": "Change color",
+    "deleteCalendar": "Delete calendar",
+    "renamePrompt": "Calendar name",
+    "colorPrompt": "Calendar color (#RRGGBB)",
+    "invalidColor": "Enter a six-digit hex color.",
+    "confirmCalendarDelete": "Delete calendar \"{{name}}\" and all its events? This cannot be undone."
+  },
+  "mailFolders": {
+    "inbox": "Inbox",
+    "sent": "Sent",
+    "drafts": "Drafts",
+    "trash": "Trash",
+    "spam": "Spam",
+    "archive": "Archive",
+    "all": "All mail",
+    "starred": "Starred",
+    "important": "Important"
+  },
+  "layouts": {
+    "focused": {
+      "label": "Focused",
+      "description": "More space for reading, with a narrow message list."
+    },
+    "compact": {
+      "label": "Compact",
+      "description": "Smaller rows show more messages at once."
+    },
+    "comfortable": {
+      "label": "Comfortable",
+      "description": "Spacious rows make messages easier to scan."
+    },
+    "wide": {
+      "label": "Wide",
+      "description": "A wider list shows longer subjects and previews."
+    },
+    "vertical": {
+      "label": "Vertical split",
+      "description": "The message list sits above the reading pane."
+    }
   }
 }

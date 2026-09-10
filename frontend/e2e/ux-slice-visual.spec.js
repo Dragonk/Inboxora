@@ -24,7 +24,7 @@ test('mobile UX slice keeps mail, contacts, calendar and settings visually reach
   await page.getByTestId('calendar-nav-mobile').click();
   await expect(page.getByTestId('calendar-grid')).toBeVisible();
   const calendarPage = page.getByTestId('mobile-calendar-page');
-  await expect(calendarPage.getByRole('group', { name: /widok kalendarza/i })).toBeVisible();
+  await expect(calendarPage.getByRole('combobox', { name: /widok kalendarza/i })).toBeVisible();
   const headerControls = await calendarPage.locator('[data-testid="calendar-page"] header button:visible').evaluateAll(buttons => buttons.map(button => { const box = button.getBoundingClientRect(); return { left: box.left, right: box.right }; }));
   expect(headerControls.length).toBeGreaterThan(0);
   for (const control of headerControls) { expect(control.left).toBeGreaterThanOrEqual(0); expect(control.right).toBeLessThanOrEqual(width); }

@@ -175,7 +175,11 @@
       "customCssDescription": "Добавляет CSS после активной темы. Используйте CSS-переменные (например, --accent, --bg-primary) для переопределения значений темы или добавления собственных правил. Применяется ко всем пользователям.",
       "customCssPlaceholder": ":root {\n  --accent: #e74c3c;\n}",
       "customCssSave": "Сохранить",
-      "customCssSaved": "Сохранено"
+      "customCssSaved": "Сохранено",
+      "mobileNavigation": "Мобильная навигация",
+      "navigationTop": "Сверху",
+      "navigationBottom": "Снизу",
+      "mobileNavigationDescription": "Расположение меню и действий в почте, контактах и календаре."
     },
     "blockList": {
       "description": "Письма от заблокированных отправителей автоматически перемещаются в корзину.",
@@ -488,7 +492,6 @@
       "badgeDescription": "Управляйте отображением счётчика непрочитанных сообщений.",
       "appBadge": "Значок на иконке приложения",
       "appBadgeDesc": "Непрочитанные на иконке панели задач или дока (PWA).",
-
       "badgeOn": "Включено",
       "badgeOff": "Выключено"
     },
@@ -907,7 +910,8 @@
     "unknown": "Неизвестно",
     "error": "Ошибка: {{message}}",
     "dismiss": "Скрыть",
-    "loadMore": "Загрузить ещё"
+    "loadMore": "Загрузить ещё",
+    "close": "Закрыть"
   },
   "compose": {
     "newMessage": "Новое сообщение",
@@ -1000,7 +1004,6 @@
   "contacts": {
     "title": "Контакты",
     "listSubtitle": "Адресные книги CardDAV и локальные",
-    "backToMail": "Вернуться к почте",
     "backToList": "Вернуться к списку контактов",
     "new": "Новый",
     "newContact": "Новый контакт",
@@ -1063,7 +1066,17 @@
     },
     "carddavBadge": "Синхронизировано из CardDAV",
     "composeTo": "Написать сообщение",
-    "addressBooks": { "label": "Книга контактов", "allVisible": "Все видимые", "create": "Новая книга", "newPrompt": "Название новой книги контактов", "hide": "Скрыть", "show": "Показать", "importGoogle": "Импорт файла CSV из Google", "exportGoogle": "Экспорт CSV для Google", "exportOutlook": "Экспорт CSV для Outlook" }
+    "addressBooks": {
+      "label": "Книга контактов",
+      "allVisible": "Все видимые",
+      "create": "Новая книга",
+      "newPrompt": "Название новой книги контактов",
+      "hide": "Скрыть",
+      "show": "Показать",
+      "importGoogle": "Импорт файла CSV из Google",
+      "exportGoogle": "Экспорт CSV для Google",
+      "exportOutlook": "Экспорт CSV для Outlook"
+    }
   },
   "contextMenu": {
     "find": "Найти",
@@ -1498,7 +1511,13 @@
       "promotion": "Акции",
       "automated": "Автоматические",
       "social": "Соцсети"
-    }
+    },
+    "emptyFolderInbox": "Входящих сообщений нет",
+    "emptyFolder": "Нет сообщений",
+    "emptyFolderInboxDesc": "Всё прочитано",
+    "emptyFolderDesc": "В этой папке нет сообщений",
+    "searchTitle": "Поиск: «{{query}}»",
+    "changeLayout": "Изменить расположение"
   },
   "notifications": {
     "newMessage": "Новое сообщение"
@@ -1732,7 +1751,6 @@
     "moreEvents": "Ещё: {{n}}",
     "previousMonth": "Предыдущий месяц",
     "nextMonth": "Следующий месяц",
-    "back": "Назад",
     "today": "Сегодня",
     "newEvent": "Новое событие",
     "noWritable": "Нет доступного локального календаря для записи. Импортированные календари доступны только для чтения.",
@@ -1772,6 +1790,76 @@
     "cancel": "Отмена",
     "saving": "Сохранение…",
     "save": "Сохранить",
-    "panel": "Панель календаря", "calendars": "Календари", "manageSources": "Управление источниками", "firstDayOfWeek": "Первый день недели", "monday": "Понедельник", "sunday": "Воскресенье", "sourceType": "Тип источника", "sourceName": "Название", "sourceUrl": "URL", "sourceUsername": "Имя пользователя", "sourcePassword": "Пароль приложения", "addSource": "Добавить источник", "syncSource": "Синхронизировать", "sourceReady": "Готово", "sourceSyncing": "Синхронизация…", "sourceSyncTimeout": "Время синхронизации источника истекло.", "icsWebcal": "ICS / webcal", "caldav": "CalDAV", "workDays": "Рабочие дни", "workHoursStart": "Начало рабочего времени", "workHoursEnd": "Конец рабочего времени", "day0": "Воскресенье", "day1": "Понедельник", "day2": "Вторник", "day3": "Среда", "day4": "Четверг", "day5": "Пятница", "day6": "Суббота", "owned": "Собственный", "sourceCalendar": "Источник", "calendarActions": "Действия для {{name}}", "rename": "Переименовать", "changeColor": "Изменить цвет", "deleteCalendar": "Удалить календарь", "renamePrompt": "Название календаря", "colorPrompt": "Цвет календаря (#RRGGBB)", "invalidColor": "Введите шестизначный цвет в формате hex.", "confirmCalendarDelete": "Удалить календарь \"{{name}}\" и все его события? Это действие нельзя отменить.", "mobileNavigation": "Мобильная навигация", "navigationTop": "Сверху", "navigationBottom": "Снизу"
+    "panel": "Панель календаря",
+    "calendars": "Календари",
+    "manageSources": "Управление источниками",
+    "firstDayOfWeek": "Первый день недели",
+    "monday": "Понедельник",
+    "sunday": "Воскресенье",
+    "sourceType": "Тип источника",
+    "sourceName": "Название",
+    "sourceUrl": "URL",
+    "sourceUsername": "Имя пользователя",
+    "sourcePassword": "Пароль приложения",
+    "addSource": "Добавить источник",
+    "syncSource": "Синхронизировать",
+    "sourceReady": "Готово",
+    "sourceSyncing": "Синхронизация…",
+    "sourceSyncTimeout": "Время синхронизации источника истекло.",
+    "icsWebcal": "ICS / webcal",
+    "caldav": "CalDAV",
+    "workDays": "Рабочие дни",
+    "workHoursStart": "Начало рабочего времени",
+    "workHoursEnd": "Конец рабочего времени",
+    "day0": "Воскресенье",
+    "day1": "Понедельник",
+    "day2": "Вторник",
+    "day3": "Среда",
+    "day4": "Четверг",
+    "day5": "Пятница",
+    "day6": "Суббота",
+    "owned": "Собственный",
+    "sourceCalendar": "Источник",
+    "calendarActions": "Действия для {{name}}",
+    "rename": "Переименовать",
+    "changeColor": "Изменить цвет",
+    "deleteCalendar": "Удалить календарь",
+    "renamePrompt": "Название календаря",
+    "colorPrompt": "Цвет календаря (#RRGGBB)",
+    "invalidColor": "Введите шестизначный цвет в формате hex.",
+    "confirmCalendarDelete": "Удалить календарь \"{{name}}\" и все его события? Это действие нельзя отменить."
+  },
+  "mailFolders": {
+    "inbox": "Входящие",
+    "sent": "Отправленные",
+    "drafts": "Черновики",
+    "trash": "Корзина",
+    "spam": "Спам",
+    "archive": "Архив",
+    "all": "Вся почта",
+    "starred": "Помеченные",
+    "important": "Важные"
+  },
+  "layouts": {
+    "focused": {
+      "label": "Сосредоточенный",
+      "description": "Больше места для чтения и узкий список писем."
+    },
+    "compact": {
+      "label": "Компактный",
+      "description": "Небольшие строки позволяют видеть больше писем."
+    },
+    "comfortable": {
+      "label": "Удобный",
+      "description": "Просторные строки облегчают просмотр писем."
+    },
+    "wide": {
+      "label": "Широкий",
+      "description": "Широкий список показывает длинные темы и предпросмотры."
+    },
+    "vertical": {
+      "label": "Вертикальное разделение",
+      "description": "Список писем находится над областью чтения."
+    }
   }
 }

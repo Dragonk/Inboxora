@@ -191,7 +191,7 @@
       "drafts": "Wersje robocze",
       "trash": "Kosz",
       "spam": "Spam / Niechciane",
-      "archive": "Archiwizuj"
+      "archive": "Archiwum"
     },
     "aliases": {
       "title": "Aliasy",
@@ -240,7 +240,11 @@
       "customCssDescription": "Wstrzyknij dodatkowy CSS po aktywnym motywie. Użyj własnych właściwości CSS (np. --accent, --bg-primary), aby nadpisać wartości motywu, lub dodaj własne reguły. Zostaną zastosowane do wszystkich użytkowników.",
       "customCssPlaceholder": ":root {\n  --accent: #e74c3c;\n}",
       "customCssSave": "Zapisz",
-      "customCssSaved": "Zapisano"
+      "customCssSaved": "Zapisano",
+      "mobileNavigation": "Nawigacja mobilna",
+      "navigationTop": "U góry",
+      "navigationBottom": "Na dole",
+      "mobileNavigationDescription": "Położenie menu i działań w poczcie, kontaktach i kalendarzu."
     },
     "messageList": {
       "title": "Lista wiadomości",
@@ -343,7 +347,6 @@
       "badgeDescription": "Wybierz, gdzie ma być wyświetlany licznik nieprzeczytanych wiadomości.",
       "appBadge": "Odznaka ikony aplikacji",
       "appBadgeDesc": "Licznik nieprzeczytanych wiadomości na ikonie paska zadań lub Docka, gdy aplikacja jest zainstalowana jako PWA.",
-
       "badgeOn": "Włączone",
       "badgeOff": "Wyłączone"
     },
@@ -907,7 +910,8 @@
     "unknown": "Nieznane",
     "error": "Błąd: {{message}}",
     "dismiss": "Odrzuć",
-    "loadMore": "Wczytaj więcej"
+    "loadMore": "Wczytaj więcej",
+    "close": "Zamknij"
   },
   "compose": {
     "newMessage": "Nowa wiadomość",
@@ -1000,7 +1004,6 @@
   "contacts": {
     "title": "Kontakty",
     "listSubtitle": "Książki adresowe CardDAV i lokalne",
-    "backToMail": "Wróć do poczty",
     "backToList": "Wróć do listy kontaktów",
     "new": "Nowy",
     "newContact": "Nowy kontakt",
@@ -1063,7 +1066,17 @@
     },
     "carddavBadge": "Zsynchronizowano z CardDAV",
     "composeTo": "Napisz wiadomość",
-    "addressBooks": { "label": "Książka kontaktów", "allVisible": "Wszystkie widoczne", "create": "Nowa książka kontaktów", "newPrompt": "Nazwa nowej książki kontaktów", "hide": "Ukryj", "show": "Pokaż", "importGoogle": "Importuj plik CSV z Google", "exportGoogle": "Eksport CSV do Google", "exportOutlook": "Eksport CSV do Outlooka" }
+    "addressBooks": {
+      "label": "Książka kontaktów",
+      "allVisible": "Wszystkie widoczne",
+      "create": "Nowa książka kontaktów",
+      "newPrompt": "Nazwa nowej książki kontaktów",
+      "hide": "Ukryj",
+      "show": "Pokaż",
+      "importGoogle": "Importuj plik CSV z Google",
+      "exportGoogle": "Eksport CSV do Google",
+      "exportOutlook": "Eksport CSV do Outlooka"
+    }
   },
   "contextMenu": {
     "find": "Znajdź",
@@ -1498,7 +1511,13 @@
       "promotion": "Promocje",
       "automated": "Automatyczne",
       "social": "Społecznościowe"
-    }
+    },
+    "emptyFolderInbox": "Skrzynka jest pusta",
+    "emptyFolder": "Brak wiadomości",
+    "emptyFolderInboxDesc": "Wszystko przeczytane",
+    "emptyFolderDesc": "W tym folderze nie ma wiadomości",
+    "searchTitle": "Szukaj: „{{query}}”",
+    "changeLayout": "Zmień układ"
   },
   "notifications": {
     "newMessage": "Nowa wiadomość"
@@ -1732,7 +1751,6 @@
     "moreEvents": "+{{n}} więcej",
     "previousMonth": "Poprzedni miesiąc",
     "nextMonth": "Następny miesiąc",
-    "back": "Wstecz",
     "today": "Dziś",
     "newEvent": "Nowe wydarzenie",
     "noWritable": "Brak zapisywalnego lokalnego kalendarza. Zaimportowane kalendarze są tylko do odczytu.",
@@ -1790,10 +1808,58 @@
     "sourceSyncTimeout": "Synchronizacja źródła przekroczyła limit czasu.",
     "icsWebcal": "ICS / webcal",
     "caldav": "CalDAV",
-    "workDays": "Dni robocze", "workHoursStart": "Początek godzin pracy", "workHoursEnd": "Koniec godzin pracy", "day0": "Niedziela", "day1": "Poniedziałek", "day2": "Wtorek", "day3": "Środa", "day4": "Czwartek", "day5": "Piątek", "day6": "Sobota",
-    "owned": "Własny", "sourceCalendar": "Źródło", "calendarActions": "Akcje dla {{name}}", "rename": "Zmień nazwę", "changeColor": "Zmień kolor", "deleteCalendar": "Usuń kalendarz", "renamePrompt": "Nazwa kalendarza", "colorPrompt": "Kolor kalendarza (#RRGGBB)", "invalidColor": "Wpisz sześciocyfrowy kolor szesnastkowy.", "confirmCalendarDelete": "Usunąć kalendarz „{{name}}” i wszystkie wydarzenia? Tej operacji nie można cofnąć.",
-    "mobileNavigation": "Nawigacja mobilna",
-    "navigationTop": "U góry",
-    "navigationBottom": "Na dole"
+    "workDays": "Dni robocze",
+    "workHoursStart": "Początek godzin pracy",
+    "workHoursEnd": "Koniec godzin pracy",
+    "day0": "Niedziela",
+    "day1": "Poniedziałek",
+    "day2": "Wtorek",
+    "day3": "Środa",
+    "day4": "Czwartek",
+    "day5": "Piątek",
+    "day6": "Sobota",
+    "owned": "Własny",
+    "sourceCalendar": "Źródło",
+    "calendarActions": "Akcje dla {{name}}",
+    "rename": "Zmień nazwę",
+    "changeColor": "Zmień kolor",
+    "deleteCalendar": "Usuń kalendarz",
+    "renamePrompt": "Nazwa kalendarza",
+    "colorPrompt": "Kolor kalendarza (#RRGGBB)",
+    "invalidColor": "Wpisz sześciocyfrowy kolor szesnastkowy.",
+    "confirmCalendarDelete": "Usunąć kalendarz „{{name}}” i wszystkie wydarzenia? Tej operacji nie można cofnąć."
+  },
+  "mailFolders": {
+    "inbox": "Odebrane",
+    "sent": "Wysłane",
+    "drafts": "Robocze",
+    "trash": "Kosz",
+    "spam": "Spam",
+    "archive": "Archiwum",
+    "all": "Wszystkie wiadomości",
+    "starred": "Oznaczone gwiazdką",
+    "important": "Ważne"
+  },
+  "layouts": {
+    "focused": {
+      "label": "Skupienie",
+      "description": "Więcej miejsca na czytanie i wąska lista wiadomości."
+    },
+    "compact": {
+      "label": "Zwarty",
+      "description": "Mniejsze wiersze pozwalają wyświetlić więcej wiadomości."
+    },
+    "comfortable": {
+      "label": "Komfortowy",
+      "description": "Przestronne wiersze ułatwiają przeglądanie wiadomości."
+    },
+    "wide": {
+      "label": "Szeroki",
+      "description": "Szersza lista pokazuje dłuższe tematy i podglądy."
+    },
+    "vertical": {
+      "label": "Podział pionowy",
+      "description": "Lista wiadomości znajduje się nad panelem czytania."
+    }
   }
 }

@@ -1,10 +1,12 @@
+import { intlLocale } from '../utils/intlLocale.js';
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { useTranslation } from 'react-i18next';
 import { api } from '../utils/api.js';
 import { useStore } from '../store/index.js';
 import { useMobile } from '../hooks/useMobile.js';
 import { useCompactLayout } from '../hooks/useCompactLayout.js';
-import { Button, inputStyle as sharedInputStyle } from './ui.jsx';
+import { Button, Dialog, inputStyle as sharedInputStyle } from './ui.jsx';
+import { MobileModuleHeader, HeaderAction } from './MobileModuleHeader.jsx';
 import './contacts.css';
 import SenderAvatarImage from './SenderAvatarImage.jsx';
 import { safeHttpUrl } from '../utils/contactLinks.js';
@@ -67,8 +69,9 @@ const PAGE_SIZE = 100;
 
 export default function ContactsPage({ isActive = true }) {
   const { t } = useTranslation();
-  const { showContacts, setShowContacts } = useStore();
+  const { showContacts } = useStore();
   const phone = useMobile();
+  const [booksOpen, setBooksOpen] = useState(false);
   const isMobile = useCompactLayout();
 
   const [contacts, setContacts]     = useState([]);
@@ -431,8 +434,8 @@ export default function ContactsPage({ isActive = true }) {
   const selectedBook = addressBooks.find(book => book.id === selectedAddressBookId);
   const bookControls = <div className="contacts-book-controls">
     <div className="contacts-books" role="group" aria-label={t('contacts.addressBooks.label')}>
-      <button type="button" aria-pressed={!selectedAddressBookId} onClick={() => setSelectedAddressBookId('')}>{t('contacts.addressBooks.allVisible')}</button>
-      {addressBooks.map(book => <button type="button" key={book.id} aria-pressed={selectedAddressBookId === book.id} onClick={() => setSelectedAddressBookId(book.id)} title={book.name}>{book.visible ? '' : '○ '}{book.name}</button>)}
+      <button type="button" aria-pressed={!selectedAddressBookId} onClick={() => { setSelectedAddressBookId(''); setBooksOpen(false); }}>{t('contacts.addressBooks.allVisible')}</button>
+      {addressBooks.map(book => <button type="button" key={book.id} aria-pressed={selectedAddressBookId === book.id} onClick={() => { setSelectedAddressBookId(book.id); setBooksOpen(false); }} title={book.name}>{book.visible ? '' : '○ '}{book.name}</button>)}
     </div>
     <details className="contacts-book-menu">
       <summary aria-label={t('contacts.addressBooks.label')}>⋯</summary>
@@ -467,7 +470,7 @@ export default function ContactsPage({ isActive = true }) {
         data-testid="contacts-list-scroll"
         style={{
           flex: 1, overflowY: 'auto', boxSizing: 'border-box',
-          paddingBottom: isMobile ? 'calc(var(--mobile-nav-height) + var(--sab) + 88px)' : 0,
+          paddingBottom: isMobile ? 'calc(var(--sab) + 12px)' : 0,
         }}
         onScroll={handleListScroll}
       >
@@ -637,44 +640,21 @@ export default function ContactsPage({ isActive = true }) {
 
     return (
       <div className="contacts-page contacts-compact" style={{ display: 'flex', flex: 1, width: '100%', minWidth: 0, flexDirection: 'column', height: '100%', overflow: 'hidden', background: 'var(--bg-secondary)' }}>
-        {/* Mobile header — matches MessageList header style */}
-        <div style={{
-          display: 'flex', alignItems: 'center', gap: 4,
-          paddingTop: phone ? 'calc(var(--sat) + 10px)' : 10,
-          paddingBottom: 10, paddingLeft: 12, paddingRight: 12,
-          borderBottom: '1px solid var(--border-subtle)',
-          background: 'var(--bg-secondary)', flexShrink: 0,
-        }}>
-          <button
-            ref={mobileBackButtonRef}
-            onClick={mobilePanel === 'detail' ? goBackToList : () => setShowContacts(false)}
-            aria-label={mobilePanel === 'detail' ? t('contacts.backToList') : t('contacts.backToMail')}
-            style={{
-              background: 'none', border: 'none', color: 'var(--text-secondary)',
-              cursor: 'pointer', padding: 0, borderRadius: 7,
-              display: 'flex', alignItems: 'center', justifyContent: 'center',
-              minWidth: 44, minHeight: 44,
-            }}
-          >
-            <svg aria-hidden="true" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-              <polyline points="15 18 9 12 15 6"/>
-            </svg>
-          </button>
-
-          <h2 style={{
-            flex: 1, margin: 0, fontSize: 16, fontWeight: 600,
-            color: 'var(--text-primary)',
-            overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
-          }}>
-            {mobileHeaderTitle}
-          </h2>
-
-        </div>
-
-        {/* Search bar — only on list view */}
-        {mobilePanel === 'list' && (
-          <div className="contacts-list-header">{bookControls}{searchControl}</div>
-        )}
+        {phone && <MobileModuleHeader title={t('contacts.title')} subtitle={selectedBook?.name || t('contacts.addressBooks.allVisible')}>
+          <HeaderAction icon="books" label={t('contacts.addressBooks.label')} data-testid="contacts-address-books" onClick={() => setBooksOpen(true)} />
+          <HeaderAction icon="add" label={t('contacts.new')} data-testid="contacts-header-new" onClick={startNew} disabled={inForm} />
+        </MobileModuleHeader>}
+        {(!phone || mobilePanel === 'detail') && <div className="contacts-compact-heading">
+          {mobilePanel === 'detail' && <button type="button" ref={mobileBackButtonRef} className="mobile-header-action" onClick={inForm ? cancelEdit : goBackToList} aria-label={t('contacts.backToList')}>
+            <svg aria-hidden="true" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="m15 18-6-6 6-6"/></svg>
+          </button>}
+          <h2>{mobileHeaderTitle}</h2>
+          {!phone && <HeaderAction icon="add" label={t('contacts.new')} onClick={startNew} disabled={inForm} />}
+        </div>}
+        {mobilePanel === 'list' && <div className="contacts-list-header">{!phone && bookControls}{searchControl}</div>}
+        {phone && booksOpen && <Dialog title={t('contacts.addressBooks.label')} closeLabel={t('common.close')} onClose={() => setBooksOpen(false)} testId="contacts-books-dialog" className="contacts-books-dialog">
+          {bookControls}
+        </Dialog>}
 
         {/* Content */}
         {mobilePanel === 'list' ? (
@@ -682,9 +662,7 @@ export default function ContactsPage({ isActive = true }) {
             <div data-testid="contacts-mobile-list" style={{ flex: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden', animation: 'slide-in-left var(--motion-normal) var(--ease-emphasized) both' }}>
               {listPanel}
             </div>
-            <button data-testid="contacts-mobile-fab" onClick={startNew} aria-label={t('contacts.new')} style={{ position: 'fixed', right: 20, bottom: 'calc(var(--mobile-nav-height) + var(--sab) + 20px)', zIndex: 200, width: 48, height: 48, border: 'none', borderRadius: '50%', background: 'var(--accent)', color: 'var(--accent-text)', boxShadow: 'var(--shadow-modal)', cursor: 'pointer' }}>
-              <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
-            </button>
+
           </>
         ) : (
           <div data-testid="contacts-mobile-detail" style={{ flex: 1, overflow: 'hidden auto', padding: '20px 16px', animation: 'slide-in-right var(--motion-normal) var(--ease-emphasized) both' }}>
@@ -730,6 +708,8 @@ export default function ContactsPage({ isActive = true }) {
 }
 
 function ContactDetail({ contact: c, confirmDelete, saving, error, onEdit, onDeleteRequest, onDeleteConfirm, onDeleteCancel, t }) {
+  const { i18n } = useTranslation();
+  const detailType = type => type ? t(`contacts.emailTypes.${type}`, { defaultValue: String(type) }) : undefined;
   const openCompose = useStore(state => state.openCompose);
   const contactDates = c.contactDates?.length
     ? c.contactDates
@@ -780,7 +760,7 @@ function ContactDetail({ contact: c, confirmDelete, saving, error, onEdit, onDel
                 <span style={contactStatChip}>{t('contacts.carddavBadge')}</span>
               )}
               {c.last_sent && (
-                <span style={contactStatChip}>{t('contacts.fields.lastContacted')}: {new Date(c.last_sent).toLocaleDateString()}</span>
+                <span style={contactStatChip}>{t('contacts.fields.lastContacted')}: {new Date(c.last_sent).toLocaleDateString(intlLocale(i18n.resolvedLanguage || i18n.language))}</span>
               )}
             </div>
           )}
@@ -835,7 +815,7 @@ function ContactDetail({ contact: c, confirmDelete, saving, error, onEdit, onDel
             <DetailSection label={t('contacts.fields.url')}>
               {(c.urls || []).map((url, i) => {
                 const href = safeHttpUrl(url.value);
-                return <DetailRow key={`url-${i}`} icon={fieldIcon.globe} type={url.type ? String(url.type) : undefined}>{href ? <a href={href} rel="noreferrer" target="_blank" style={{ color: 'var(--accent)', textDecoration: 'none' }}>{url.value}</a> : url.value}</DetailRow>;
+                return <DetailRow key={`url-${i}`} icon={fieldIcon.globe} type={detailType(url.type)}>{href ? <a href={href} rel="noreferrer" target="_blank" style={{ color: 'var(--accent)', textDecoration: 'none' }}>{url.value}</a> : url.value}</DetailRow>;
               })}
             </DetailSection>
           )}
@@ -846,12 +826,12 @@ function ContactDetail({ contact: c, confirmDelete, saving, error, onEdit, onDel
           )}
           {(c.addresses?.length > 0) && (
             <DetailSection label={t('contacts.fields.address')}>
-              {(c.addresses || []).map((address, i) => <DetailRow key={`address-${i}`} icon={fieldIcon.mapPin} type={address.type ? String(address.type) : undefined}>{[address.pobox, address.extended, address.street, address.locality, address.region, address.postalCode, address.country].filter(Boolean).join(', ')}</DetailRow>)}
+              {(c.addresses || []).map((address, i) => <DetailRow key={`address-${i}`} icon={fieldIcon.mapPin} type={detailType(address.type)}>{[address.pobox, address.extended, address.street, address.locality, address.region, address.postalCode, address.country].filter(Boolean).join(', ')}</DetailRow>)}
             </DetailSection>
           )}
           {(contactDates.length > 0) && (
             <DetailSection label={t('contacts.fields.dates')}>
-              {contactDates.map((date, i) => <DetailRow key={`date-${i}`} icon={fieldIcon.calendar} type={contactDateLabel(date.label)}>{new Date(`${String(date.value).slice(0, 10)}T00:00:00`).toLocaleDateString()}</DetailRow>)}
+              {contactDates.map((date, i) => <DetailRow key={`date-${i}`} icon={fieldIcon.calendar} type={contactDateLabel(date.label)}>{new Date(`${String(date.value).slice(0, 10)}T00:00:00`).toLocaleDateString(intlLocale(i18n.resolvedLanguage || i18n.language))}</DetailRow>)}
             </DetailSection>
           )}
           {(c.categories?.length > 0) && (

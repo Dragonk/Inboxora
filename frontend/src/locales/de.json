@@ -175,7 +175,11 @@
       "customCssDescription": "Fügt CSS nach dem aktiven Theme ein. Verwenden Sie CSS-Custom-Properties (z. B. --accent, --bg-primary), um Theme-Werte zu überschreiben oder eigene Regeln hinzuzufügen. Gilt für alle Benutzer.",
       "customCssPlaceholder": ":root {\n  --accent: #e74c3c;\n}",
       "customCssSave": "Speichern",
-      "customCssSaved": "Gespeichert"
+      "customCssSaved": "Gespeichert",
+      "mobileNavigation": "Mobile Navigation",
+      "navigationTop": "Oben",
+      "navigationBottom": "Unten",
+      "mobileNavigationDescription": "Position des Menüs und der Aktionen in E-Mail, Kontakten und Kalender."
     },
     "blockList": {
       "description": "E-Mails von blockierten Absendern werden automatisch in den Papierkorb verschoben.",
@@ -488,7 +492,6 @@
       "badgeDescription": "Steuern, wo die Anzahl ungelesener Nachrichten angezeigt wird.",
       "appBadge": "App-Symbol-Badge",
       "appBadgeDesc": "Ungelesene auf dem Taskleisten- oder Dock-Symbol (PWA).",
-
       "badgeOn": "Aktiviert",
       "badgeOff": "Deaktiviert"
     },
@@ -907,7 +910,8 @@
     "unknown": "Unbekannt",
     "error": "Fehler: {{message}}",
     "dismiss": "Ausblenden",
-    "loadMore": "Mehr laden"
+    "loadMore": "Mehr laden",
+    "close": "Schließen"
   },
   "compose": {
     "newMessage": "Neue Nachricht",
@@ -1000,7 +1004,6 @@
   "contacts": {
     "title": "Kontakte",
     "listSubtitle": "CardDAV- und lokale Adressbücher",
-    "backToMail": "Zurück zu Mail",
     "backToList": "Zurück zur Kontaktliste",
     "new": "Neu",
     "newContact": "Neuer Kontakt",
@@ -1063,7 +1066,17 @@
     },
     "carddavBadge": "Von CardDAV synchronisiert",
     "composeTo": "Nachricht schreiben",
-    "addressBooks": { "label": "Adressbuch", "allVisible": "Alle sichtbaren", "create": "Neues Adressbuch", "newPrompt": "Name des neuen Adressbuchs", "hide": "Ausblenden", "show": "Anzeigen", "importGoogle": "Google-CSV importieren", "exportGoogle": "CSV für Google exportieren", "exportOutlook": "CSV für Outlook exportieren" }
+    "addressBooks": {
+      "label": "Adressbuch",
+      "allVisible": "Alle sichtbaren",
+      "create": "Neues Adressbuch",
+      "newPrompt": "Name des neuen Adressbuchs",
+      "hide": "Ausblenden",
+      "show": "Anzeigen",
+      "importGoogle": "Google-CSV importieren",
+      "exportGoogle": "CSV für Google exportieren",
+      "exportOutlook": "CSV für Outlook exportieren"
+    }
   },
   "contextMenu": {
     "find": "Suchen",
@@ -1498,7 +1511,13 @@
       "promotion": "Werbung",
       "automated": "Automatisch",
       "social": "Sozial"
-    }
+    },
+    "emptyFolderInbox": "Der Posteingang ist leer",
+    "emptyFolder": "Keine Nachrichten",
+    "emptyFolderInboxDesc": "Alles gelesen",
+    "emptyFolderDesc": "Dieser Ordner enthält keine Nachrichten",
+    "searchTitle": "Suche: „{{query}}“",
+    "changeLayout": "Layout ändern"
   },
   "notifications": {
     "newMessage": "Neue Nachricht"
@@ -1732,7 +1751,6 @@
     "moreEvents": "+{{n}} weitere",
     "previousMonth": "Vorheriger Monat",
     "nextMonth": "Nächster Monat",
-    "back": "Zurück",
     "today": "Heute",
     "newEvent": "Neues Ereignis",
     "noWritable": "Kein beschreibbarer lokaler Kalender verfügbar. Importierte Kalender sind schreibgeschützt.",
@@ -1772,6 +1790,76 @@
     "cancel": "Abbrechen",
     "saving": "Speichern…",
     "save": "Speichern",
-    "panel": "Kalenderbereich", "calendars": "Kalender", "manageSources": "Quellen verwalten", "firstDayOfWeek": "Erster Wochentag", "monday": "Montag", "sunday": "Sonntag", "sourceType": "Quelltyp", "sourceName": "Kalendername", "sourceUrl": "URL", "sourceUsername": "Benutzername", "sourcePassword": "App-Passwort", "addSource": "Quelle hinzufügen", "syncSource": "Synchronisieren", "sourceReady": "Bereit", "sourceSyncing": "Synchronisierung…", "sourceSyncTimeout": "Zeitüberschreitung bei der Quellensynchronisierung.", "icsWebcal": "ICS / webcal", "caldav": "CalDAV", "workDays": "Arbeitstage", "workHoursStart": "Beginn der Arbeitszeit", "workHoursEnd": "Ende der Arbeitszeit", "day0": "Sonntag", "day1": "Montag", "day2": "Dienstag", "day3": "Mittwoch", "day4": "Donnerstag", "day5": "Freitag", "day6": "Samstag", "owned": "Eigener Kalender", "sourceCalendar": "Quelle", "calendarActions": "Aktionen für {{name}}", "rename": "Umbenennen", "changeColor": "Farbe ändern", "deleteCalendar": "Kalender löschen", "renamePrompt": "Kalendername", "colorPrompt": "Kalenderfarbe (#RRGGBB)", "invalidColor": "Geben Sie eine sechsstellige Hex-Farbe ein.", "confirmCalendarDelete": "Kalender \"{{name}}\" und alle Ereignisse löschen? Dies kann nicht rückgängig gemacht werden.", "mobileNavigation": "Mobile Navigation", "navigationTop": "Oben", "navigationBottom": "Unten"
+    "panel": "Kalenderbereich",
+    "calendars": "Kalender",
+    "manageSources": "Quellen verwalten",
+    "firstDayOfWeek": "Erster Wochentag",
+    "monday": "Montag",
+    "sunday": "Sonntag",
+    "sourceType": "Quelltyp",
+    "sourceName": "Kalendername",
+    "sourceUrl": "URL",
+    "sourceUsername": "Benutzername",
+    "sourcePassword": "App-Passwort",
+    "addSource": "Quelle hinzufügen",
+    "syncSource": "Synchronisieren",
+    "sourceReady": "Bereit",
+    "sourceSyncing": "Synchronisierung…",
+    "sourceSyncTimeout": "Zeitüberschreitung bei der Quellensynchronisierung.",
+    "icsWebcal": "ICS / webcal",
+    "caldav": "CalDAV",
+    "workDays": "Arbeitstage",
+    "workHoursStart": "Beginn der Arbeitszeit",
+    "workHoursEnd": "Ende der Arbeitszeit",
+    "day0": "Sonntag",
+    "day1": "Montag",
+    "day2": "Dienstag",
+    "day3": "Mittwoch",
+    "day4": "Donnerstag",
+    "day5": "Freitag",
+    "day6": "Samstag",
+    "owned": "Eigener Kalender",
+    "sourceCalendar": "Quelle",
+    "calendarActions": "Aktionen für {{name}}",
+    "rename": "Umbenennen",
+    "changeColor": "Farbe ändern",
+    "deleteCalendar": "Kalender löschen",
+    "renamePrompt": "Kalendername",
+    "colorPrompt": "Kalenderfarbe (#RRGGBB)",
+    "invalidColor": "Geben Sie eine sechsstellige Hex-Farbe ein.",
+    "confirmCalendarDelete": "Kalender \"{{name}}\" und alle Ereignisse löschen? Dies kann nicht rückgängig gemacht werden."
+  },
+  "mailFolders": {
+    "inbox": "Posteingang",
+    "sent": "Gesendet",
+    "drafts": "Entwürfe",
+    "trash": "Papierkorb",
+    "spam": "Spam",
+    "archive": "Archiv",
+    "all": "Alle Nachrichten",
+    "starred": "Markiert",
+    "important": "Wichtig"
+  },
+  "layouts": {
+    "focused": {
+      "label": "Fokussiert",
+      "description": "Mehr Platz zum Lesen mit einer schmalen Nachrichtenliste."
+    },
+    "compact": {
+      "label": "Kompakt",
+      "description": "Kleinere Zeilen zeigen mehr Nachrichten auf einmal."
+    },
+    "comfortable": {
+      "label": "Komfortabel",
+      "description": "Großzügige Zeilen erleichtern das Durchsehen."
+    },
+    "wide": {
+      "label": "Breit",
+      "description": "Eine breitere Liste zeigt längere Betreffzeilen und Vorschauen."
+    },
+    "vertical": {
+      "label": "Vertikal geteilt",
+      "description": "Die Nachrichtenliste steht über dem Lesebereich."
+    }
   }
 }

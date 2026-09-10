@@ -1,3 +1,4 @@
+import { returnToMail } from './navigation.js';
 import { test, expect } from './fixtures.js';
 
 const MOBILE_PROJECTS = new Set(['chromium-mobile-390', 'chromium-mobile']);
@@ -78,7 +79,7 @@ async function exerciseParityFlow({ page, testInfo, fixtureApi }) {
     await page.getByTestId('mobile-topbar-menu').click();
     await page.getByTestId('contacts-nav-mobile').click();
     await expect(page.getByTestId('contacts-mobile-list')).toBeVisible();
-    await expectMobileControlsUsable(page, page.getByTestId('contacts-mobile-fab'));
+    await expectMobileControlsUsable(page, page.getByTestId('contacts-header-new'));
   } else {
     await page.getByTestId('contacts-nav-primary').click();
     await expect(page.getByTestId('contacts-desktop-list')).toBeVisible();
@@ -97,13 +98,13 @@ async function exerciseParityFlow({ page, testInfo, fixtureApi }) {
   await expect(page.getByTestId('calendar-page')).toBeVisible();
   if (!mobile) await expectDesktopGeometry(page, 'calendar');
   if (mobile) {
-    await expectMobileControlsUsable(page, page.getByTestId('calendar-mobile-new-event'));
+    await expectMobileControlsUsable(page, page.getByTestId('calendar-header-new'));
   }
   await expectSingleVisibleContentPanel(page, mobile);
   await captureState(page, testInfo, 'calendar');
 
   if (mobile) {
-    await page.getByTestId('calendar-mobile-back').click();
+    await returnToMail(page);
   } else {
     await page.goto('/', { waitUntil: 'domcontentloaded' });
     await expect(page.locator('[data-ce-reader-enabled]').first()).toBeVisible();

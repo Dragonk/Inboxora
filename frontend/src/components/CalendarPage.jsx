@@ -9,6 +9,7 @@ import { createInvitationOperationController } from './calendarInvitationRetry.j
 import CalendarContextMenu from './CalendarContextMenu.jsx';
 import CalendarAgenda from './CalendarAgenda.jsx';
 import { Button, Dialog } from './ui.jsx';
+import { MobileModuleHeader, HeaderAction } from './MobileModuleHeader.jsx';
 import { useCompactLayout } from '../hooks/useCompactLayout.js';
 import './calendar.css';
 
@@ -40,21 +41,17 @@ function nowMinutes() { const now = new Date(); return now.getHours() * 60 + now
 export default function CalendarPage({ isActive = true }) {
   const { t, i18n } = useTranslation();
   const locale = resolveDateLocale(i18n.resolvedLanguage || i18n.language);
-  const { showCalendar, setShowCalendar, accounts, calendarWeekStartsOn, calendarWorkDays, calendarWorkHoursStart, calendarWorkHoursEnd, visibleCalendarIds, setVisibleCalendarIds, mobileNavigationPosition } = useStore();
+  const { showCalendar, accounts, calendarWeekStartsOn, calendarWorkDays, calendarWorkHoursStart, calendarWorkHoursEnd, visibleCalendarIds, setVisibleCalendarIds } = useStore();
   const isMobile = useMobile();
   const compactViewport = useCompactLayout();
   const surfaceRef = useRef(null);
-  const headerRef = useRef(null);
   const [surfaceWidth, setSurfaceWidth] = useState(Infinity);
-  const [toolbarHeight, setToolbarHeight] = useState(0);
   const compact = compactViewport || surfaceWidth < 1100;
   useEffect(() => {
     const observer = new ResizeObserver(() => {
       setSurfaceWidth(surfaceRef.current?.clientWidth || Infinity);
-      setToolbarHeight(headerRef.current?.clientHeight || 0);
     });
     observer.observe(surfaceRef.current);
-    observer.observe(headerRef.current);
     return () => observer.disconnect();
   }, []);
   const [dayPanelOpen, setDayPanelOpen] = useState(false);
@@ -138,22 +135,27 @@ export default function CalendarPage({ isActive = true }) {
     onSelectDate: setAnchor, onShiftMonth: shiftMiniMonth, onToggleCalendar: toggleCalendar,
     onSourcesChanged: load, onCalendarsChanged: load, onCreate: () => openCreate(), canCreate: writable.length > 0, t };
   const agendaProps = { events: visibleEvents, anchor, locale, onOpen: openEvent, t };
-  return <div ref={surfaceRef} data-testid="calendar-page" className={`calendar-page calendar-v3${compact ? ' calendar-compact' : ''}${isMobile ? ' calendar-mobile' : ''}`} style={{ '--calendar-toolbar-height': `${toolbarHeight}px` }}>
+  return <div ref={surfaceRef} data-testid="calendar-page" className={`calendar-page calendar-v3${compact ? ' calendar-compact' : ''}${isMobile ? ' calendar-mobile' : ''}`}>
+    {isMobile && <MobileModuleHeader title={t('calendar.title')} subtitle={title}>
+      <HeaderAction icon="calendars" label={t('calendar.calendars')} data-testid="calendar-mobile-panel" onClick={() => setMobilePanelOpen(true)} />
+      <HeaderAction icon="agenda" label={t('calendar.dayAgenda')} data-testid="calendar-open-day" onClick={() => setDayPanelOpen(true)} />
+      <HeaderAction icon="add" label={t('calendar.newEvent')} data-testid="calendar-header-new" disabled={!writable.length || Boolean(form)} onClick={() => openCreate()} />
+    </MobileModuleHeader>}
     {!isMobile && <CalendarSidebar {...sidebarProps} />}
     <main className="calendar-main">
-      <header ref={headerRef} className={`calendar-header${isMobile && mobileNavigationPosition === 'bottom' ? ' calendar-header-bottom' : ''}`}>
-        {isMobile && <Button variant="ghost" data-testid="calendar-mobile-back" aria-label={t('calendar.back')} onClick={() => setShowCalendar(false)}>‹</Button>}
-        <h1>{title}</h1>
+      <header className="calendar-header">
+        {!isMobile && <h1>{title}</h1>}
         <div className="calendar-toolbar">
-          <div role="group" className="calendar-segments" aria-label={t('calendar.view')}>
+          {isMobile ? <select data-testid="calendar-view-select" aria-label={t('calendar.view')} value={view} onChange={event => setView(event.target.value)} className="calendar-view-select">
+            {['month', 'week', 'workweek', 'agenda'].map(value => <option key={value} value={value}>{t(value === 'workweek' ? 'calendar.workWeek' : `calendar.${value}`)}</option>)}
+          </select> : <div role="group" className="calendar-segments" aria-label={t('calendar.view')}>
             {[['month', t('calendar.month')], ['week', t('calendar.week')], ['workweek', t('calendar.workWeek')], ['agenda', t('calendar.agenda')]].map(([value, label]) => <button type="button" key={value} data-testid={`calendar-view-${value}`} onClick={() => setView(value)} aria-pressed={view === value}>{label}</button>)}
-          </div>
+          </div>}
           <div className="calendar-date-controls">
             <Button variant="ghost" onClick={() => step(-1)} aria-label={t('calendar.previous')}>‹</Button>
             <Button variant="ghost" onClick={() => step(1)} aria-label={t('calendar.next')}>›</Button>
             <Button onClick={() => setAnchor(new Date())}>{t('calendar.today')}</Button>
-            {isMobile && <Button data-testid="calendar-mobile-panel" onClick={() => setMobilePanelOpen(true)}>{t('calendar.calendars')}</Button>}
-            {compact && <Button data-testid="calendar-open-day" onClick={() => setDayPanelOpen(true)}>{t('calendar.dayAgenda')}</Button>}
+            {compact && !isMobile && <Button data-testid="calendar-open-day" onClick={() => setDayPanelOpen(true)}>{t('calendar.dayAgenda')}</Button>}
           </div>
         </div>
       </header>
@@ -169,9 +171,6 @@ export default function CalendarPage({ isActive = true }) {
     {isMobile && mobilePanelOpen && <Dialog title={t('calendar.panel')} closeLabel={t('calendar.close')} onClose={() => setMobilePanelOpen(false)} testId="calendar-mobile-dock" className="calendar-panel-dialog ui-drawer-left">
       <CalendarSidebar {...sidebarProps} onSelectDate={day => { setAnchor(day); setMobilePanelOpen(false); }} onClose={() => setMobilePanelOpen(false)} />
     </Dialog>}
-    {isMobile && !mobilePanelOpen && !dayPanelOpen && <button data-testid="calendar-mobile-new-event" aria-label={t('calendar.newEvent')} disabled={!writable.length} onClick={() => openCreate()} style={{ ...mobileNewEventButton, bottom: mobileNavigationPosition === 'bottom' ? 'calc(var(--calendar-toolbar-height) + var(--sab) + 20px)' : 'calc(var(--mobile-nav-height) + var(--sab) + 20px)' }}>
-      <svg width="25" height="25" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M12 5v14M5 12h14"/></svg>
-    </button>}
     {form && <EventDialog form={form} error={error} calendars={writable} accounts={senderAccounts} saving={saving} onChange={changeForm} onAllDayChange={allDay => { invitationOperation.current.reset(); setForm(current => toggleAllDayTimes(current, allDay)); }} onSave={save} onDelete={remove} onClose={() => { invitationOperation.current.reset(); setForm(null); setError(null); }} t={t} />}
     {preview && <Dialog title={preview.summary || t('calendar.untitled')} closeLabel={t('calendar.close')} onClose={() => setPreview(null)} testId="calendar-event-preview">
       <div className="ui-form"><span className="calendar-readonly">{t('calendar.readOnly')}</span>
@@ -277,7 +276,6 @@ function EventDialog({ form, error, calendars, accounts, saving, onChange, onAll
   </Dialog>;
 }
 
-const mobileNewEventButton = { position: 'fixed', right: 20, bottom: 'max(20px, calc(env(safe-area-inset-bottom) + 12px))', zIndex: 10, width: 56, height: 56, border: 0, borderRadius: '50%', display: 'grid', placeItems: 'center', background: 'var(--accent)', color: 'var(--accent-text)', boxShadow: '0 8px 22px rgba(0,0,0,.28)', cursor: 'pointer' };
 
  const calendarSurface = { overflow: 'auto', display: 'flex', flexDirection: 'column', minHeight: 0, background: 'var(--bg-secondary)' }; const dayGrid = { display: 'grid', flex: 1, minWidth: 0 }; const dayHeader = { position: 'sticky', top: 0, zIndex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6, minWidth: 0, padding: '7px 6px', borderBottom: '1px solid var(--border-subtle)', background: 'var(--bg-secondary)' }; const dayHeaderWeekday = { fontFamily: 'var(--font-mono, ui-monospace, monospace)', fontSize: 9.5, letterSpacing: '0.07em', textTransform: 'uppercase', color: 'var(--text-tertiary)' }; const dayHeaderDay = { fontFamily: 'var(--font-mono, ui-monospace, monospace)', fontSize: 14, fontWeight: 600, color: 'var(--text-primary)', lineHeight: 1 }; const todayDayChip = { background: 'var(--accent)', color: 'var(--accent-text)', width: 26, height: 26, borderRadius: '50%', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }; const monthCell = { minWidth: 0, padding: 6, background: 'var(--bg-primary)', display: 'flex', flexDirection: 'column', gap: 2, minHeight: 108, boxSizing: 'border-box', cursor: 'pointer' }; const outCell = { opacity: .5 }; const weekendCell = { background: 'color-mix(in srgb, var(--bg-secondary) 55%, var(--bg-primary))' }; const dateChip = { fontFamily: 'var(--font-mono, ui-monospace, monospace)', fontSize: 11, color: 'var(--text-secondary)', marginBottom: 6, width: 20, height: 20, borderRadius: '50%', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }; const dateChipToday = { background: 'var(--accent)', color: 'var(--accent-text)', fontWeight: 600 }; const eventStack = { display: 'grid', minWidth: 0, gap: 2 }; const eventRow = { display: 'flex', minWidth: 0, gap: 2 }; const eventCard = { display: 'block', minWidth: 0, gap: 2, flex: 1, width: '100%', textAlign: 'left', border: 0, borderRadius: 4, padding: '2px 6px', color: 'white', fontSize: 11, lineHeight: 1.5, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }; const eventCardTime = { fontFamily: 'var(--font-mono, ui-monospace, monospace)', fontSize: 9.5, fontWeight: 400, opacity: .85, marginRight: 4 }; const eventActionButton = { flexShrink: 0, width: 44, minWidth: 44, height: 44, minHeight: 44, border: 0, borderRadius: 6, background: 'var(--bg-tertiary)', color: 'var(--text-primary)', cursor: 'pointer', fontSize: 18, lineHeight: 1 };
 const timeAxisHeader = { borderRight: '1px solid var(--border-subtle)' }; const allDayLabel = { padding: '8px 6px', display: 'flex', alignItems: 'center', justifyContent: 'flex-end', background: 'var(--bg-tertiary)', color: 'var(--text-tertiary)', fontFamily: 'var(--font-mono, ui-monospace, monospace)', fontSize: 10, borderRight: '1px solid var(--border-subtle)' }; const allDayCell = { minHeight: 30, padding: 2, background: 'var(--bg-primary)', borderRight: '1px solid var(--border-subtle)', display: 'grid', gap: 2, alignContent: 'start' }; const timeAxis = { position: 'relative', height: 1440, borderRight: '1px solid var(--border-subtle)', background: 'var(--bg-tertiary)', color: 'var(--text-tertiary)', fontSize: 10 }; const timeAxisSpan = { position: 'absolute', right: 8, transform: 'translateY(-50%)', fontFamily: 'var(--font-mono, ui-monospace, monospace)', fontSize: 9.5, color: 'var(--text-tertiary)' }; const timeColumn = { position: 'relative', height: 1440, background: 'var(--bg-primary)', borderRight: '1px solid var(--border-subtle)', backgroundImage: 'repeating-linear-gradient(to bottom, transparent 0, transparent 59px, var(--border-subtle) 59px, var(--border-subtle) 60px)' }; const weekendColumn = { background: 'color-mix(in srgb, var(--bg-secondary) 55%, var(--bg-primary))' }; const timedEvent = { position: 'absolute', zIndex: 1, margin: 0, overflow: 'hidden', border: 0, borderRadius: 4, padding: '2px 6px', color: 'white', textAlign: 'left', fontSize: 11, lineHeight: 1.45, boxSizing: 'border-box' }; const timedEventTime = { fontFamily: 'var(--font-mono, ui-monospace, monospace)', fontSize: 9.5, fontWeight: 400, opacity: .85, marginRight: 2 }; const timedEventLoc = { display: 'block', fontSize: 10, opacity: .8, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' };

@@ -7,8 +7,8 @@ import { initialConversationExpansion, initialConversationTarget, toggleConversa
 import { alignReaderHeader } from './readerScrollAlignment.js';
 import { nativeThreadToReaderMessages, mergeThreadWithConversation } from '../utils/conversationThreadAdapter.js';
 import { removePhysicalCopy } from '../utils/conversationMutations.js';
-import { queueReadStateMutation, isLatestReadStateMutation } from '../utils/readStateMutation.js';
-import { setCompletedDelete } from '../utils/pendingDeletes.js';
+import { queueReadStateMutation, isLatestReadStateMutation, pendingReadState } from '../utils/readStateMutation.js';
+import { setCompletedDelete, applyDeleteGuard } from '../utils/pendingDeletes.js';
 import { useStore } from '../store/index.js';
 
 // Data-only CE adapter. It owns logical/physical identity and expansion policy;
@@ -38,6 +38,7 @@ export default function ConversationReader({ conversationId, targetLogicalMessag
   const automaticScrollRef = useRef(false);
   const [activeTargetLogicalId, setActiveTargetLogicalId] = useState(null);
   const updateMessage = useStore(state => state.updateMessage);
+  const refreshEpoch = useRef(0);
 
   useEffect(() => {
     let active = true;
@@ -77,11 +78,30 @@ export default function ConversationReader({ conversationId, targetLogicalMessag
       setData(result);
     }).catch(reason => active && setError(reason.message || t('conversation.loadFailed')));
     const controllers = aborters.current;
-    return () => { active = false; for (const controller of controllers.values()) controller.abort(); controllers.clear(); };
+    return () => { active = false; refreshEpoch.current += 1; for (const controller of controllers.values()) controller.abort(); controllers.clear(); };
   }, [conversationId, targetLogicalMessageId, nativeThreadId, nativeFolder, selectedAccountId, selectedCopyId, t, onNativeThreadUnavailable]);
 
   const messages = useMemo(() => data?.logicalMessages || [], [data]);
-  const refresh = useCallback(() => conversationApi.detail(conversationId).then(setData), [conversationId]);
+  const refresh = useCallback(async () => {
+    // Keep the reader, expansion and physical body cache mounted during live updates.
+    if (!data) return;
+    const epoch = ++refreshEpoch.current;
+    const [ce, native] = await Promise.all([
+      conversationId ? conversationApi.detail(conversationId).catch(() => null) : null,
+      nativeThreadId && selectedAccountId ? api.getThread(nativeThreadId, nativeFolder || 'INBOX', false, selectedAccountId).catch(() => null) : null,
+    ]);
+    if (epoch !== refreshEpoch.current) return;
+    if (nativeThreadId && selectedAccountId && !native) return;
+    if (!ce && !native) return;
+    const physical = applyDeleteGuard(native?.messages || []).map(copy => {
+      const read = pendingReadState(copy.id);
+      return read === undefined ? copy : { ...copy, is_read: read, isRead: read };
+    });
+    const nativeMessages = nativeThreadToReaderMessages(physical, selectedAccountId);
+    setData(previous => ({ ...previous, ...ce, logicalMessages: native
+      ? mergeThreadWithConversation(ce?.logicalMessages || [], nativeMessages)
+      : ce.logicalMessages || previous.logicalMessages }));
+  }, [conversationId, nativeThreadId, nativeFolder, selectedAccountId, data]);
   const handleActionComplete = useCallback(async mutation => {
     const { action, copyId, logicalMessageId, isRead, isStarred } = mutation || {};
     if (['delete', 'archive', 'move'].includes(action) && copyId) {
@@ -103,10 +123,14 @@ export default function ConversationReader({ conversationId, targetLogicalMessag
   }, [updateMessage]);
   useEffect(() => {
     const handleConversationRefresh = event => {
-      if (event.detail?.conversationId === conversationId) refresh().catch(() => {});
+      if (event.detail?.refreshThreads || (event.type === 'inboxora:conversation-refresh' && event.detail?.conversationId === conversationId)) refresh().catch(() => {});
     };
     window.addEventListener('inboxora:conversation-refresh', handleConversationRefresh);
-    return () => window.removeEventListener('inboxora:conversation-refresh', handleConversationRefresh);
+    window.addEventListener('inboxora:refresh', handleConversationRefresh);
+    return () => {
+      window.removeEventListener('inboxora:conversation-refresh', handleConversationRefresh);
+      window.removeEventListener('inboxora:refresh', handleConversationRefresh);
+    };
   }, [conversationId, refresh]);
   const selectedCopyFor = useCallback(logicalId => {
     const logical = messages.find(item => item.id === logicalId);
@@ -117,6 +141,7 @@ export default function ConversationReader({ conversationId, targetLogicalMessag
   }, [messages, selectedAccountId, selectedCopyId]);
 
   const setLocalReadState = useCallback((copyId, read) => {
+    refreshEpoch.current += 1;
     setData(previous => !previous ? previous : {
       ...previous,
       logicalMessages: previous.logicalMessages.map(message => {
@@ -136,7 +161,7 @@ export default function ConversationReader({ conversationId, targetLogicalMessag
     const before = messages.some(message => (message.copies || []).some(copy => String(copy.id) === String(copyId) && Boolean(copy.isRead ?? copy.is_read)));
     setLocalReadState(copyId, read);
     const mutation = queueReadStateMutation(copyId, read, targetRead => api.bulkRead([copyId], targetRead));
-    return mutation.promise.catch(error => {
+    return mutation.promise.then(() => { refreshEpoch.current += 1; }).catch(error => {
       if (isLatestReadStateMutation(copyId, mutation.version)) setLocalReadState(copyId, before);
       throw error;
     });

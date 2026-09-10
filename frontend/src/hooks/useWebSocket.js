@@ -117,7 +117,7 @@ export function useWebSocket() {
       // On reconnect, catch up on any messages that arrived during the outage
       if (wasReconnect) {
         recordDiagEvent({ category: 'ws', type: 'reconnect' });
-        window.dispatchEvent(new CustomEvent('inboxora:refresh'));
+        window.dispatchEvent(new CustomEvent('inboxora:refresh', { detail: { refreshThreads: true } }));
         api.getUnreadCounts().then(counts => {
           useStore.setState({ unreadCounts: counts });
         }).catch(() => {});
@@ -203,7 +203,7 @@ export function useWebSocket() {
           const folderVisible = store.selectedFolder === (folder || 'INBOX');
 
           if (isRelevant && folderVisible) {
-            window.dispatchEvent(new CustomEvent('inboxora:refresh'));
+            window.dispatchEvent(new CustomEvent('inboxora:refresh', { detail: { refreshThreads: true } }));
           }
         }
 
@@ -266,20 +266,20 @@ export function useWebSocket() {
         // Debounce to avoid hammering the API on every batch
         clearTimeout(backfillRefreshTimer);
         backfillRefreshTimer = setTimeout(() => {
-          window.dispatchEvent(new CustomEvent('inboxora:refresh'));
+          window.dispatchEvent(new CustomEvent('inboxora:refresh', { detail: { refreshThreads: true } }));
         }, 2000);
         break;
       }
 
       case 'backfill_complete': {
         clearTimeout(backfillRefreshTimer);
-        window.dispatchEvent(new CustomEvent('inboxora:refresh'));
+        window.dispatchEvent(new CustomEvent('inboxora:refresh', { detail: { refreshThreads: true } }));
         break;
       }
 
       case 'backfill_all_complete': {
         clearTimeout(backfillRefreshTimer);
-        window.dispatchEvent(new CustomEvent('inboxora:refresh'));
+        window.dispatchEvent(new CustomEvent('inboxora:refresh', { detail: { refreshThreads: true } }));
         setBackfillProgress(data.accountId, null);
         break;
       }
@@ -298,7 +298,7 @@ export function useWebSocket() {
           (fuStore.selectedAccountId === null && accountAffectsUnifiedInbox(fuStore.accounts, fuAccountId)) ||
           fuStore.selectedAccountId === fuAccountId;
         if (fuRelevant) {
-          window.dispatchEvent(new CustomEvent('inboxora:refresh'));
+          window.dispatchEvent(new CustomEvent('inboxora:refresh', { detail: { refreshThreads: true } }));
           window.dispatchEvent(new CustomEvent('inboxora:sync_done'));
         }
         api.getUnreadCounts().then(_applyServerCounts).catch(() => {});
@@ -306,7 +306,7 @@ export function useWebSocket() {
       }
 
       case 'sync_complete': {
-        window.dispatchEvent(new CustomEvent('inboxora:refresh'));
+        window.dispatchEvent(new CustomEvent('inboxora:refresh', { detail: { refreshThreads: true } }));
         window.dispatchEvent(new CustomEvent('inboxora:sync_done'));
         // Re-fetch unread counts so sidebar badges reflect messages marked read
         // in external clients (the message list refresh alone doesn't update counts).
@@ -325,7 +325,7 @@ export function useWebSocket() {
         // the view and counts either way — on failure the messages are still on the server and
         // should reappear.
         addNotification({ title: data.ok ? t('sidebar.emptied') : t('sidebar.emptyFailed') });
-        window.dispatchEvent(new CustomEvent('inboxora:refresh'));
+        window.dispatchEvent(new CustomEvent('inboxora:refresh', { detail: { refreshThreads: true } }));
         window.dispatchEvent(new CustomEvent('inboxora:sync_done'));
         api.getUnreadCounts().then(_applyServerCounts).catch(() => {});
         if (data.accountId && useStore.getState().folders[data.accountId]) {
@@ -335,7 +335,7 @@ export function useWebSocket() {
       }
 
       case 'snooze_wakeup': {
-        window.dispatchEvent(new CustomEvent('inboxora:refresh'));
+        window.dispatchEvent(new CustomEvent('inboxora:refresh', { detail: { refreshThreads: true } }));
         api.getUnreadCounts().then(counts => {
           useStore.setState({ unreadCounts: counts });
         }).catch(() => {});
@@ -346,7 +346,7 @@ export function useWebSocket() {
         // Lightweight flag update (read/starred changed on another client).
         // Refresh the message list and unread counts, and blip the sync icon so background
         // sync activity stays visible now that sync_complete no longer fires every tick.
-        window.dispatchEvent(new CustomEvent('inboxora:refresh'));
+        window.dispatchEvent(new CustomEvent('inboxora:refresh', { detail: { refreshThreads: true } }));
         window.dispatchEvent(new CustomEvent('inboxora:sync_done'));
         api.getUnreadCounts().then(_applyServerCounts).catch(() => {});
         break;
@@ -354,8 +354,8 @@ export function useWebSocket() {
 
       case 'message_flags': {
         // A read/star flag changed on ANOTHER of this user's devices. Apply it to the matching
-        // rows in place — no full folder refetch (that would flicker and refetch-storm while
-        // speeding through mail on another device). Sidebar counts follow via a debounced poll.
+        // rows in place immediately. Debounced background reconciliation also covers
+        // collapsed threads whose changed physical copies are not in the local cache.
         const { changes } = data;
         if (Array.isArray(changes) && changes.length) {
           const { updateMessage } = useStore.getState();
@@ -368,6 +368,8 @@ export function useWebSocket() {
           }
           clearTimeout(flagCountRefreshTimer);
           flagCountRefreshTimer = setTimeout(() => {
+            // A collapsed thread may contain changed copies absent from the local cache.
+            window.dispatchEvent(new CustomEvent('inboxora:refresh', { detail: { refreshThreads: true } }));
             api.getUnreadCounts().then(_applyServerCounts).catch(() => {});
           }, 400);
         }

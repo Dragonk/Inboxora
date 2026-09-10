@@ -51,13 +51,11 @@ describe('mobile Calendar navigation contract', () => {
     assert.match(mobileLayout, /!showContacts && !showCalendar && !selectedMessageId/);
   });
 
-  it('provides an accessible in-app Back control in the mobile calendar header', async () => {
+  it('uses the shared module header without a redundant Back control', async () => {
     const calendar = await readFile(new URL('./CalendarPage.jsx', import.meta.url), 'utf8');
 
-    assert.match(calendar, /const \{ showCalendar, setShowCalendar,[\s\S]*accounts,[\s\S]*\} = useStore\(\);/);
-    assert.match(calendar, /data-testid="calendar-mobile-back"/);
-    assert.match(calendar, /onClick=\{\(\) => setShowCalendar\(false\)\}/);
-    assert.match(calendar, /aria-label=\{t\('calendar\.back'\)\}/);
+    assert.doesNotMatch(calendar, /data-testid="calendar-mobile-back"/);
+    assert.match(calendar, /MobileModuleHeader/);
   });
 
 });

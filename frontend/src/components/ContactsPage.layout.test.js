@@ -10,9 +10,9 @@ test('desktop Contacts uses the shared Mail list width and fills its detail pane
   assert.doesNotMatch(source, /maxWidth: 560/);
 });
 
-test('mobile Contacts reserves space between the final row, FAB, and bottom navigation', () => {
-  assert.match(source, /paddingBottom: isMobile \? 'calc\(var\(--mobile-nav-height\) \+ var\(--sab\) \+ 88px\)'/);
-  assert.match(source, /bottom: 'calc\(var\(--mobile-nav-height\) \+ var\(--sab\) \+ 20px\)'/);
+test('mobile Contacts puts creation in the shared header without reserving floating-button space', () => {
+  assert.match(source, /data-testid="contacts-header-new"/);
+  assert.doesNotMatch(source, /contacts-mobile-fab/);
 });
 
 test('contact detail renders imported events as contact dates without exposing raw Google CSV columns', () => {

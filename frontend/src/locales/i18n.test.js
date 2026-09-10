@@ -475,6 +475,9 @@ const dir = dirname(fileURLToPath(import.meta.url));
 // Two locales sharing a value is only allowed if both appear in the same group.
 // Any unlisted pair will still fail.
 const SAME_VALUE_ALLOWED = {
+  'layouts.compact.label': [['en', 'fr']],
+  'mailFolders.archive': [['cs', 'de']],
+  'mailFolders.spam': [['cs', 'de', 'en', 'it', 'pl']],
   'calendar.agenda': 'any', // Common calendar term in these languages.
   'calendar.caldav': 'any',
   'calendar.day6': [['cs', 'pl']],
@@ -1185,7 +1188,7 @@ describe('i18n locale files', () => {
 
   it('translates the mobile calendar navigation setting in every locale', () => {
     for (const lang of langs) {
-      for (const key of ['calendar.mobileNavigation', 'calendar.navigationTop', 'calendar.navigationBottom']) {
+      for (const key of ['admin.appearance.mobileNavigation', 'admin.appearance.navigationTop', 'admin.appearance.navigationBottom']) {
         assert.equal(typeof locales[lang][key], 'string', `${lang} is missing ${key}`);
         assert.notEqual(locales[lang][key], '', `${lang} has empty ${key}`);
       }

@@ -27,8 +27,8 @@ test('mobile creation controls no longer reserve bottom-bar space', async () => 
 
   assert.match(mailApp, /'--mobile-nav-height': '0px'/);
   assert.match(messageList, /bottom: 'calc\(var\(--mobile-nav-height\) \+ var\(--sab\) \+ 20px\)'/);
-  assert.match(contacts, /data-testid="contacts-mobile-fab"/);
-  assert.match(contacts, /bottom: 'calc\(var\(--mobile-nav-height\) \+ var\(--sab\) \+ 20px\)'/);
+  assert.match(contacts, /data-testid="contacts-header-new"/);
+  assert.match(mailApp, /position={mobileNavigationPosition}/);
 });
 
 test('mobile contact navigation invalidates stale detail requests', async () => {

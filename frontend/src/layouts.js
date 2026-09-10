@@ -71,3 +71,16 @@ export function applyLayout(layoutKey, customListWidth) {
     root.style.setProperty('--list-width', (customListWidth ?? layout.listWidth) + 'px');
   }
 }
+
+// Labels are resolved at render time so changing the language updates open menus.
+export function localizedLayout(key, t) {
+  const labels = {
+    focused: () => [t('layouts.focused.label'), t('layouts.focused.description')],
+    compact: () => [t('layouts.compact.label'), t('layouts.compact.description')],
+    comfortable: () => [t('layouts.comfortable.label'), t('layouts.comfortable.description')],
+    wide: () => [t('layouts.wide.label'), t('layouts.wide.description')],
+    vertical: () => [t('layouts.vertical.label'), t('layouts.vertical.description')],
+  };
+  const [label, description] = (labels[key] || labels.comfortable)();
+  return { label, description };
+}

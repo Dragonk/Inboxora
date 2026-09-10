@@ -1,3 +1,4 @@
+import { selectCalendarView, returnToMail } from './navigation.js';
 import { test, expect } from './fixtures.js';
 import { navigateModule } from './v3-fixtures.js';
 
@@ -154,7 +155,7 @@ test('week and work-week render timed overlap geometry and work-hour boundaries'
   });
   await page.goto('/?list=0&reader=0');
   await page.getByTestId('calendar-nav-primary').click();
-  await page.getByTestId('calendar-view-week').click();
+  await selectCalendarView(page, 'week');
   const grid = page.getByTestId('calendar-grid');
   await expect(grid.getByTestId('calendar-work-hours-boundary')).toHaveCount(7);
   const first = grid.getByRole('button', { name: /Timed A/ }).first();
@@ -164,7 +165,7 @@ test('week and work-week render timed overlap geometry and work-hour boundaries'
   expect(firstBox.x + firstBox.width).toBeLessThanOrEqual(secondBox.x + secondBox.width);
   await expect(grid.getByText('All day', { exact: true })).toBeVisible();
   await page.screenshot({ path: 'artifacts/calendar-week-time-grid-desktop.png', fullPage: true });
-  await page.getByTestId('calendar-view-workweek').click();
+  await selectCalendarView(page, 'workweek');
   await expect(grid.getByTestId('calendar-work-hours-boundary')).toHaveCount(5);
   await page.screenshot({ path: 'artifacts/calendar-workweek-time-grid-desktop.png', fullPage: true });
 });
@@ -174,10 +175,10 @@ test('work-week entry re-anchors time-grid scrolling while same-view navigation 
   await fixtureApi;
   await page.goto('/?list=0&reader=0');
   await page.getByTestId('calendar-nav-primary').click();
-  await page.getByTestId('calendar-view-week').click();
+  await selectCalendarView(page, 'week');
   const scroller = page.getByTestId('calendar-time-grid-scroll');
   await scroller.evaluate(element => { element.scrollTop = 777; });
-  await page.getByTestId('calendar-view-workweek').click();
+  await selectCalendarView(page, 'workweek');
   await expect.poll(() => scroller.evaluate(element => element.scrollTop)).toBe(420);
   await scroller.evaluate(element => { element.scrollTop = 555; });
   await page.getByRole('button', { name: 'Następny okres', exact: true }).click();
@@ -216,25 +217,25 @@ for (const [outcome, response] of [
   });
 }
 
-test('calendar and contacts remain reachable and their mobile FABs clear bottom panels', async ({ page, fixtureApi }, testInfo) => {
+test('calendar and contacts remain reachable and their mobile actions share the compact header', async ({ page, fixtureApi }, testInfo) => {
   await fixtureApi;
   await page.goto('/');
 
   if (page.viewportSize().width < 768) {
     await navigateModule(page, 'contacts');
     await expect(page.getByTestId('contacts-mobile-list')).toBeVisible();
-    const contactsFab = await page.getByTestId('contacts-mobile-fab').boundingBox();
+    const contactsFab = await page.getByTestId('contacts-header-new').boundingBox();
     expect(contactsFab.y + contactsFab.height).toBeLessThanOrEqual(page.viewportSize().height - 20);
     await navigateModule(page, 'calendar');
-    await expect(page.getByTestId('calendar-mobile-new-event')).toBeVisible();
+    await expect(page.getByTestId('calendar-header-new')).toBeVisible();
     await page.getByRole('button', { name: 'Kalendarze', exact: true }).click();
     const dock = page.getByTestId('calendar-mobile-dock');
     await expect(dock).toBeVisible();
-    await expect(page.getByTestId('calendar-mobile-new-event')).toBeHidden();
+    await expect(page.getByTestId('calendar-mobile-new-event')).toHaveCount(0);
     const dockBox = await dock.boundingBox();
     expect(dockBox.y + dockBox.height).toBeLessThanOrEqual(page.viewportSize().height);
     await page.keyboard.press('Escape');
-    await page.getByTestId('calendar-mobile-back').click();
+    await returnToMail(page);
     await expect(page.getByTestId('message-list-scroll')).toBeVisible();
   } else {
     await page.setViewportSize({ width: 1280, height: 800 });
@@ -265,7 +266,7 @@ test('calendar event menus support desktop keyboard and mobile invocation while 
   ] } }));
   await page.goto('/');
   await navigateModule(page, 'calendar');
-  if (page.viewportSize().width < 768) await page.getByTestId('calendar-view-week').click();
+  if (page.viewportSize().width < 768) await selectCalendarView(page, 'week');
   const local = page.getByTestId('calendar-grid').getByRole('button', { name: /Local planning/ });
   const imported = page.getByTestId('calendar-grid').getByRole('button', { name: /Imported meeting/ });
   await expect(local).toBeVisible();
@@ -358,7 +359,7 @@ test('week and work-week time-grid events expose menus for timed and all-day eve
   await page.goto('/');
   await navigateModule(page, 'calendar');
   for (const view of ['week', 'workweek']) {
-    await page.getByTestId(`calendar-view-${view}`).click();
+    await selectCalendarView(page, view);
     const grid = page.getByTestId('calendar-grid');
     await expect(grid.getByRole('button', { name: /Grid timed local/ })).toBeVisible();
     const allDayLocal = grid.getByRole('button', { name: /Grid all-day local/ }).first();
@@ -401,7 +402,7 @@ test('mobile week and work-week timed events expose writable and read-only actio
   await navigateModule(page, 'calendar');
   const grid = page.getByTestId('calendar-grid');
   for (const view of ['week', 'workweek']) {
-    await page.getByTestId(`calendar-view-${view}`).click();
+    await selectCalendarView(page, view);
     const local = grid.getByRole('button', { name: /Mobile timed local/ });
     const remote = grid.getByRole('button', { name: /Mobile timed remote/ });
     const localActions = local.locator('..').getByTestId('calendar-event-actions');
@@ -423,7 +424,7 @@ test('mobile week and work-week timed events expose writable and read-only actio
   }
 });
 
-test('mobile contacts fill the viewport and keep their FAB anchored above navigation', async ({ page, fixtureApi }) => {
+test('mobile contacts fill the viewport and keep creation in the shared header', async ({ page, fixtureApi }) => {
   await fixtureApi;
   await page.route('**/api/contacts**', route => {
     const pathname = new URL(route.request().url()).pathname;
@@ -444,7 +445,7 @@ test('mobile contacts fill the viewport and keep their FAB anchored above naviga
     await navigateModule(page, 'contacts');
 
     const list = page.getByTestId('contacts-mobile-list');
-    const fab = page.getByTestId('contacts-mobile-fab');
+    const fab = page.getByTestId('contacts-header-new');
     await expect(list).toBeVisible();
     await expect(fab).toBeVisible();
     await page.waitForFunction(() => Array.from(document.getAnimations()).every(animation => animation.playState !== 'running'));
@@ -453,7 +454,8 @@ test('mobile contacts fill the viewport and keep their FAB anchored above naviga
     ]);
     expect(listBox.x).toBe(0);
     expect(listBox.width).toBe(viewport.width);
-    expect(fabBox.x + fabBox.width).toBe(viewport.width - 20);
+    expect(fabBox.x + fabBox.width).toBeLessThanOrEqual(viewport.width);
+    expect(fabBox.y + fabBox.height).toBeLessThanOrEqual(listBox.y);
     expect(viewport.height - (fabBox.y + fabBox.height)).toBeGreaterThanOrEqual(20);
 
     expect(await fab.evaluate(button => {
@@ -497,7 +499,7 @@ test('mobile calendar fits the full localized week and keeps every dock control 
   const dockBox = await dock.boundingBox();
   expect(dockBox.x).toBeGreaterThanOrEqual(0);
   expect(dockBox.y + dockBox.height).toBeLessThanOrEqual(page.viewportSize().height);
-  await expect(page.getByTestId('calendar-mobile-new-event')).toBeHidden();
+  await expect(page.getByTestId('calendar-mobile-new-event')).toHaveCount(0);
 
   const interactiveControls = await dock.getByRole('button').evaluateAll(buttons => buttons.filter(button => {
     const box = button.getBoundingClientRect();
@@ -704,11 +706,7 @@ test('mobile primary navigation re-enters Contacts and Calendar at their roots w
   const openContacts = () => navigateModule(page, 'contacts');
   const openCalendar = () => navigateModule(page, 'calendar');
   const openMail = async () => {
-    if (await page.getByTestId('calendar-mobile-back').isVisible()) await page.getByTestId('calendar-mobile-back').click();
-    else {
-      if (await page.getByRole('button', { name: 'Wróć do listy kontaktów' }).isVisible()) await page.getByRole('button', { name: 'Wróć do listy kontaktów' }).click();
-      await page.getByRole('button', { name: 'Wróć do poczty' }).click();
-    }
+    await returnToMail(page);
     await expect(page.getByTestId('message-list-scroll')).toBeVisible();
   };
 
@@ -723,7 +721,7 @@ test('mobile primary navigation re-enters Contacts and Calendar at their roots w
   expect(await page.evaluate(() => document.activeElement?.closest('[data-testid="contacts-mobile-detail"]') === null)).toBe(true);
 
   await openCalendar();
-  await page.getByTestId('calendar-mobile-new-event').click();
+  await page.getByTestId('calendar-header-new').click();
   const editorInput = page.getByTestId('calendar-event-dialog').getByRole('textbox').first();
   await expect(editorInput).toBeFocused();
   await page.keyboard.press('Escape');
@@ -754,11 +752,8 @@ test('mobile Contacts exposes contextual back-button names and preserves focus a
   await page.goto('/');
 
   await navigateModule(page, 'contacts');
-  const backToMail = page.getByRole('button', { name: 'Wróć do poczty' });
-  await expect(backToMail).toBeVisible();
-  await backToMail.focus();
-  await expect(backToMail).toBeFocused();
-  await page.keyboard.press('Enter');
+  await expect(page.getByRole('button', { name: 'Wróć do poczty' })).toHaveCount(0);
+  await returnToMail(page);
   await expect(page.getByTestId('message-list-scroll')).toBeVisible();
 
   await navigateModule(page, 'contacts');
@@ -866,12 +861,12 @@ test('mobile long Contacts and Mail lists keep their final rows above fixed navi
 
     const contactsGeometry = await page.evaluate(() => {
       const row = document.querySelector('[data-contact-id="contact-100"]')?.getBoundingClientRect();
-      const fab = document.querySelector('[data-testid="contacts-mobile-fab"]')?.getBoundingClientRect();
+      const fab = document.querySelector('[data-testid="contacts-header-new"]')?.getBoundingClientRect();
       const hit = row && document.elementFromPoint(row.x + row.width / 2, row.y + row.height / 2)?.closest('[data-contact-id]')?.getAttribute('data-contact-id');
       return { row: row && { top: row.top, bottom: row.bottom }, fab: fab && { top: fab.top }, hit };
     });
     expect(contactsGeometry.row.bottom).toBeLessThanOrEqual(viewport.height);
-    expect(contactsGeometry.row.bottom).toBeLessThanOrEqual(contactsGeometry.fab.top - 20);
+    expect(contactsGeometry.row.top).toBeGreaterThan(contactsGeometry.fab.top);
     expect(contactsGeometry.hit).toBe('contact-100');
 
     await lastContact.click();
@@ -886,7 +881,7 @@ test('mobile long Contacts and Mail lists keep their final rows above fixed navi
     await expect(page.getByTestId('contacts-mobile-detail')).toBeVisible();
 
     await page.getByRole('button', { name: 'Wróć do listy kontaktów' }).click();
-    await page.getByRole('button', { name: 'Wróć do poczty' }).click();
+    await returnToMail(page);
     const mailboxList = page.getByTestId('message-list-scroll');
     const lastMessage = page.locator('[data-msgid="large-row-99"]');
     await mailboxList.evaluate(element => { element.scrollTop = element.scrollHeight; element.dispatchEvent(new Event('scroll')); });
