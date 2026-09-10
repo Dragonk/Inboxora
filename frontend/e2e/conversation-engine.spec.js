@@ -602,6 +602,7 @@ test.describe('reader target navigation follow-up', () => {
     // Body layout schedules the reader's final alignment on animation frames. The
     // toolbar can be visible before that post-layout pass, so sampling immediately
     // creates a timing race rather than exercising the intended final geometry.
+    await expect.poll(() => page.evaluate(() => window.__readerScrollWrites)).toBe(2);
     await expect.poll(async () => Math.abs((await readGeometry()).anchorError)).toBeLessThanOrEqual(3);
     const geometry = await readGeometry();
     expect(Math.abs(geometry.anchorError)).toBeLessThanOrEqual(3);
@@ -698,6 +699,9 @@ test.describe('reader target navigation follow-up', () => {
         const container = element.closest('section');
         return Math.abs(element.getBoundingClientRect().top - (container.getBoundingClientRect().top + 8));
       })).toBeLessThanOrEqual(2);
+      // The preliminary position can already match the final header position.
+      // Still wait for the post-body animation frame before asserting two phases.
+      await expect.poll(() => page.evaluate(() => window.__twoPhaseReaderWrites.length)).toBe(2);
       const geometry = await anchor.evaluate(element => {
         const container = element.closest('section');
         return {
