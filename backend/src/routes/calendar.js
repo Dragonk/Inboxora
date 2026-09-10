@@ -1,3 +1,4 @@
+import { projectCalendarResource, mergeCalendarResource } from '../utils/calendarRecurrence.js';
 import ICAL from 'ical.js';
 import { parseInboundCalendarInvitation } from '../services/inboundCalendarInvitation.js';
 import { parseCalendarEvent } from '../utils/ical.js';
@@ -163,7 +164,7 @@ async function updateInvitedEvent(req, fields) {
       if (!event || event.id !== req.params.eventId) return { conflict: true };
       return { event, duplicate: true, ...duplicateInvitationStatus(prior.rows[0]) };
     }
-    const existing = (await client.query('SELECT uid, attendees, invite_account_id, invitation_sequence, summary, description, location, starts_at, ends_at, all_day FROM calendar_events WHERE id = $1 AND calendar_id = $2 AND user_id = $3 FOR UPDATE', [req.params.eventId, calendarId, req.session.userId])).rows[0];
+    const existing = (await client.query('SELECT uid, raw_ical, attendees, invite_account_id, invitation_sequence, summary, description, location, starts_at, ends_at, all_day FROM calendar_events WHERE id = $1 AND calendar_id = $2 AND user_id = $3 FOR UPDATE', [req.params.eventId, calendarId, req.session.userId])).rows[0];
     if (!existing) return { notFound: true };
     const hadInvitation = Boolean(existing.invite_account_id && Array.isArray(existing.attendees) && existing.attendees.length);
     const senderChanged = hadInvitation && invitationAccount.id !== existing.invite_account_id;
@@ -177,7 +178,7 @@ async function updateInvitedEvent(req, fields) {
         : (await client.query('SELECT * FROM email_accounts WHERE id = $1 AND user_id = $2 AND smtp_host IS NOT NULL', [existing.invite_account_id, req.session.userId])).rows[0] || null;
       if (!cancellationAccount) return { cancelFailed: true };
     }
-    const rawIcal = localEventIcal({ uid: existing.uid, summary, description, location, url, organizer, attendees: normalizedAttendees, allDay: Boolean(allDay), ...times });
+    const rawIcal = mergeCalendarResource(existing.raw_ical, localEventIcal({ uid: existing.uid, summary, description, location, url, organizer, attendees: normalizedAttendees, allDay: Boolean(allDay), ...times }));
     const result = await client.query(`UPDATE calendar_events SET raw_ical = $1, summary = $2, description = $3, location = $4, url = $5, organizer = $6, starts_at = $7, ends_at = $8, all_day = $9, timezone = $10, attendees = $11, invite_account_id = $12, invitation_sequence = CASE WHEN (invite_account_id IS NOT NULL AND jsonb_array_length(attendees) > 0) OR invitation_sequence > 0 THEN invitation_sequence + 1 ELSE 0 END, etag = gen_random_uuid()::text, updated_at = NOW() WHERE id = $13 AND calendar_id = $14 AND user_id = $15 RETURNING id, calendar_id, uid, etag, summary, description, location, url, organizer, starts_at, ends_at, all_day, timezone, attendees, invite_account_id, invitation_sequence, created_at, updated_at`, [rawIcal, summary || null, description, location, url, organizer, times.startsAt, times.endsAt, Boolean(allDay), timezone, normalizedAttendees, invitationAccount.id, req.params.eventId, calendarId, req.session.userId]);
     const event = result.rows[0];
     const actions = [];
@@ -366,7 +367,7 @@ router.get('/events', async (req, res) => {
             c.name AS calendar_name, c.color AS calendar_color, c.source, c.read_only
      FROM calendar_events e
      JOIN calendars c ON c.id = e.calendar_id
-     WHERE e.user_id = $1 AND c.user_id = $1 AND c.owner_user_id = $1 AND e.starts_at < $3 AND e.ends_at > $2
+     WHERE e.user_id = $1 AND c.user_id = $1 AND c.owner_user_id = $1 AND ((e.starts_at < $3 AND e.ends_at > $2) OR e.raw_ical ~* '(RRULE|RDATE|RECURRENCE-ID)[:;]')
      ORDER BY e.starts_at ASC`,
     [req.session.userId, from, to],
   );
@@ -378,15 +379,7 @@ router.get('/events', async (req, res) => {
   const contactEvents = contactDateEvents(contactResult?.rows || [], from, to).map(event => ({
     ...event, calendar_name: appearance.name || event.calendar_name, calendar_custom_name: Boolean(appearance.name), calendar_color: appearance.color || event.calendar_color,
   }));
-  // Older imports retain metadata in raw_ical even though their columns are empty.
-  const mappedEvents = result.rows.map(({ raw_ical, ...event }) => {
-    const parsed = raw_ical && parseCalendarEvent(raw_ical);
-    if (!parsed) return event;
-    return { ...event, description: event.description ?? parsed.description,
-      location: event.location ?? parsed.location, url: event.url ?? parsed.url,
-      organizer: event.organizer ?? parsed.organizer,
-      attendees: event.attendees?.length ? event.attendees : parsed.attendees };
-  });
+  const mappedEvents = result.rows.flatMap(event => projectCalendarResource(event, from, to));
   const events = [...mappedEvents, ...contactEvents]
     .sort((left, right) => new Date(left.starts_at) - new Date(right.starts_at));
   res.json({ events });
@@ -476,6 +469,30 @@ router.post('/events', async (req, res) => {
 });
 
 
+router.all('/events/:eventId/occurrence', async (req, res) => {
+  if (!['PATCH', 'DELETE'].includes(req.method)) return res.status(405).end();
+  const { calendarId, recurrenceId } = req.body || {};
+  if (!calendarId || typeof recurrenceId !== 'string' || !/^\d{4}-\d{2}-\d{2}(T\d{2}:\d{2}:\d{2}Z?)?$/.test(recurrenceId)) return res.status(400).json({ error: 'A valid occurrence and calendar are required' });
+  const access = await writableCalendar(req.session.userId, calendarId);
+  if (access.error) return res.status(access.status).json({ error: access.error });
+  const cancel = req.method === 'DELETE';
+  const times = cancel ? null : parseEventTimes(req.body);
+  const attendees = normalizeAttendees(req.body.attendees || []);
+  if (!cancel && (!times || !attendees)) return res.status(400).json({ error: 'Invalid event values' });
+  const outcome = await withTransaction(async client => {
+    const row = (await client.query('SELECT uid, raw_ical, invite_account_id FROM calendar_events WHERE id = $1 AND calendar_id = $2 AND user_id = $3 FOR UPDATE', [req.params.eventId, calendarId, req.session.userId])).rows[0];
+    if (!row) return { status: 404 };
+    const event = parseCalendarEvent(row.raw_ical);
+    if (!event) return { status: 409 };
+    const replacement = localEventIcal(cancel ? { ...event, allDay: event.allDay } : { ...req.body, attendees, ...times, uid: row.uid });
+    const raw = mergeCalendarResource(row.raw_ical, replacement, recurrenceId, cancel);
+    await client.query('UPDATE calendar_events SET raw_ical = $1, etag = gen_random_uuid()::text, updated_at = NOW() WHERE id = $2 AND calendar_id = $3 AND user_id = $4', [raw, req.params.eventId, calendarId, req.session.userId]);
+    return { status: 200 };
+  });
+  if (outcome.status !== 200) return res.status(outcome.status).json({ error: 'Calendar occurrence unavailable' });
+  res.json({ updated: true });
+});
+
 router.patch('/events/:eventId', async (req, res) => {
   const { calendarId, summary, description = null, location = null, url = null, organizer = null, allDay = false, timezone = null, sendInvites = false, inviteAccountId, attendees } = req.body || {};
   const times = parseEventTimes(req.body);
@@ -511,7 +528,7 @@ router.patch('/events/:eventId', async (req, res) => {
   }
 
   const outcome = await withTransaction(async client => {
-    const existing = await client.query(`SELECT uid, attendees, invite_account_id, invitation_sequence, summary, description, location, starts_at, ends_at, all_day FROM calendar_events WHERE id = $1 AND calendar_id = $2 AND user_id = $3 FOR UPDATE`, [req.params.eventId, calendarId, req.session.userId]);
+    const existing = await client.query(`SELECT uid, raw_ical, attendees, invite_account_id, invitation_sequence, summary, description, location, starts_at, ends_at, all_day FROM calendar_events WHERE id = $1 AND calendar_id = $2 AND user_id = $3 FOR UPDATE`, [req.params.eventId, calendarId, req.session.userId]);
     const existingEvent = existing.rows[0];
     if (!existingEvent) return { notFound: true };
 
@@ -535,7 +552,7 @@ router.patch('/events/:eventId', async (req, res) => {
       }
     }
 
-    const rawIcal = localEventIcal({ uid: existingEvent.uid, summary, description, location, url, organizer, attendees: normalizedAttendees, allDay: Boolean(allDay), ...times });
+    const rawIcal = mergeCalendarResource(existingEvent.raw_ical, localEventIcal({ uid: existingEvent.uid, summary, description, location, url, organizer, attendees: normalizedAttendees, allDay: Boolean(allDay), ...times }));
     const result = await client.query(`UPDATE calendar_events SET raw_ical = $1, summary = $2, description = $3, location = $4, url = $5, organizer = $6, starts_at = $7, ends_at = $8, all_day = $9, timezone = $10, attendees = $11, invite_account_id = $12, invitation_sequence = CASE WHEN (invite_account_id IS NOT NULL AND jsonb_array_length(attendees) > 0) OR invitation_sequence > 0 THEN invitation_sequence + 1 ELSE 0 END, etag = gen_random_uuid()::text, updated_at = NOW() WHERE id = $13 AND calendar_id = $14 AND user_id = $15 RETURNING id, calendar_id, uid, etag, summary, description, location, url, organizer, starts_at, ends_at, all_day, timezone, attendees, invite_account_id, invitation_sequence, created_at, updated_at`, [rawIcal, summary || null, description, location, url, organizer, times.startsAt, times.endsAt, Boolean(allDay), timezone, normalizedAttendees, invitationAccount?.id || null, req.params.eventId, calendarId, req.session.userId]);
     if (!result.rows[0]) return { notFound: true };
 
@@ -567,7 +584,7 @@ router.delete('/events/:eventId', async (req, res) => {
   if (access.error) return res.status(access.status).json({ error: access.error });
 
   const outcome = await withTransaction(async client => {
-    const existing = await client.query(`SELECT uid, attendees, invite_account_id, invitation_sequence, summary, description, location, starts_at, ends_at, all_day FROM calendar_events WHERE id = $1 AND calendar_id = $2 AND user_id = $3 FOR UPDATE`, [req.params.eventId, calendarId, req.session.userId]);
+    const existing = await client.query(`SELECT uid, raw_ical, attendees, invite_account_id, invitation_sequence, summary, description, location, starts_at, ends_at, all_day FROM calendar_events WHERE id = $1 AND calendar_id = $2 AND user_id = $3 FOR UPDATE`, [req.params.eventId, calendarId, req.session.userId]);
     const event = existing.rows[0];
     if (!event) return { notFound: true };
 

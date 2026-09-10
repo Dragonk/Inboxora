@@ -1,3 +1,4 @@
+import { Parser } from 'htmlparser2';
 import ICAL from 'ical.js';
 
 export function calendarZoneResolver(raw) {
@@ -127,6 +128,18 @@ export function parseCalendarEvent(raw) {
   const ends = componentLines.filter((line) => line === 'END:VEVENT');
   const start = componentLines.indexOf('BEGIN:VEVENT');
   const end = componentLines.indexOf('END:VEVENT');
+  if (starts.length > 1 && starts.length === ends.length) {
+    try {
+      const root = new ICAL.Component(ICAL.parse(raw));
+      const events = root.getAllSubcomponents('vevent');
+      const uid = events[0]?.getFirstPropertyValue('uid');
+      if (!uid || events.some(event => event.getFirstPropertyValue('uid') !== uid) || events.filter(event => !event.hasProperty('recurrence-id')).length > 1) return null;
+      const master = events.find(event => !event.hasProperty('recurrence-id')) || events[0];
+      for (const event of events) if (event !== master) root.removeSubcomponent(event);
+      const parsed = parseCalendarEvent(root.toString());
+      return parsed && { ...parsed, raw };
+    } catch { return null; }
+  }
   if (starts.length !== 1 || ends.length !== 1 || start < 0 || end <= start) return null;
   // VALARM and other nested components may carry their own DTSTART/SUMMARY.
   let depth = 0;
@@ -169,7 +182,7 @@ export function parseCalendarEvent(raw) {
     allDay: startsAt.allDay,
     timeZone: startsAt.timeZone,
     summary: summary ? unescapeICalendarText(summary.value) : null,
-    description: named('DESCRIPTION')[0] ? unescapeICalendarText(named('DESCRIPTION')[0].value) : null,
+    description: named('DESCRIPTION')[0] ? unescapeICalendarText(named('DESCRIPTION')[0].value) : (() => { try { return calendarDescription(new ICAL.Component(ICAL.parse(raw)).getFirstSubcomponent('vevent')); } catch { return null; } })(),
     location: named('LOCATION')[0] ? unescapeICalendarText(named('LOCATION')[0].value) : null,
     url: named('URL')[0]?.value || null,
     organizer: named('ORGANIZER')[0]?.value.replace(/^mailto:/i, '') || null,
@@ -178,3 +191,19 @@ export function parseCalendarEvent(raw) {
   };
 }
 
+
+export function calendarDescription(component) {
+  const plain = component.getFirstPropertyValue('description');
+  if (plain) return plain;
+  const html = component.getAllProperties('x-alt-desc').find(property => String(property.getParameter('fmttype')).toLowerCase() === 'text/html')?.getFirstValue();
+  if (!html) return plain || null;
+  let suppressed = 0;
+  let text = '';
+  const parser = new Parser({
+    onopentag(name) { if (['script', 'style'].includes(name)) suppressed++; if (name === 'br' && !suppressed) text += '\n'; },
+    ontext(value) { if (!suppressed) text += value; },
+    onclosetag(name) { if (['script', 'style'].includes(name)) suppressed = Math.max(0, suppressed - 1); if (['p', 'div', 'li'].includes(name) && !suppressed) text += '\n'; },
+  }, { decodeEntities: true });
+  parser.end(String(html));
+  return text.trim() || null;
+}

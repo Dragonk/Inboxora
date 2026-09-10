@@ -95,6 +95,7 @@ export function eventPayload(form) {
   const sendInvites = Boolean(form.sendInvites);
   if (sendInvites && (!form.inviteAccountId || !attendees.length)) return null;
   return {
+    ...(form.recurrenceId ? { recurrenceId: form.recurrenceId } : {}),
     calendarId: form.calendarId,
     summary: form.summary.trim(),
     description: form.description.trim() || null,
@@ -105,7 +106,7 @@ export function eventPayload(form) {
     timezone: Intl.DateTimeFormat().resolvedOptions().timeZone || null,
     startsAt,
     endsAt,
-    attendees: sendInvites ? attendees : [],
+    attendees,
     sendInvites,
     inviteAccountId: sendInvites ? form.inviteAccountId : null,
   };

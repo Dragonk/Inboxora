@@ -217,7 +217,7 @@ router.report('/:userId/:calendarId/', async (req, res) => {
     if (timeRange && (!start || !end || end <= start)) return res.status(400).end();
     const current = start
       ? await query(
-        "SELECT uid, recurrence_id, etag, raw_ical FROM calendar_events WHERE calendar_id = $1 AND recurrence_id = $2 AND starts_at < $4 AND ends_at > $3 ORDER BY uid ASC",
+        "SELECT uid, recurrence_id, etag, raw_ical FROM calendar_events WHERE calendar_id = $1 AND recurrence_id = $2 AND ((starts_at < $4 AND ends_at > $3) OR raw_ical ~* '(RRULE|RDATE|RECURRENCE-ID)[:;]') ORDER BY uid ASC",
         [calendar.id, '', start, end],
       )
       : await query(

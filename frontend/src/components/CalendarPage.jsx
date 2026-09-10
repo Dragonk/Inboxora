@@ -95,7 +95,7 @@ export default function CalendarPage({ isActive = true }) {
   const writable = calendars.filter(calendar => !calendar.read_only && calendar.source === 'local');
   const senderAccounts = accounts.filter(account => account.enabled && account.smtp_host);
   const openCreate = (date = anchor) => { if (!writable.length) return; invitationOperation.current.reset(); setForm({ ...emptyForm(writable[0]?.id || '', date), mode: 'create' }); };
-  const openEdit = event => { invitationOperation.current.reset(); setForm({ mode: 'edit', id: event.id, ...event, calendarId: event.calendar_id, summary: event.summary || '', description: event.description || '', location: event.location || '', url: event.url || '', organizer: event.organizer || '', attendees: Array.isArray(event.attendees) ? event.attendees : [], sendInvites: Boolean(event.invite_account_id && event.attendees?.length), inviteAccountId: event.invite_account_id || '', allDay: Boolean(event.all_day), startsAt: event.all_day ? String(event.starts_at).slice(0, 10) : toDateTimeLocal(event.starts_at), endsAt: event.all_day ? String(event.ends_at).slice(0, 10) : toDateTimeLocal(event.ends_at) }); };
+  const openEdit = event => { invitationOperation.current.reset(); setForm({ mode: 'edit', ...event, id: event.series_id || event.id, recurrenceId: event.recurring ? event.recurrence_id : undefined, calendarId: event.calendar_id, summary: event.summary || '', description: event.description || '', location: event.location || '', url: event.url || '', organizer: event.organizer || '', attendees: Array.isArray(event.attendees) ? event.attendees : [], sendInvites: Boolean(event.invite_account_id && event.attendees?.length), inviteAccountId: event.invite_account_id || '', allDay: Boolean(event.all_day), startsAt: event.all_day ? String(event.starts_at).slice(0, 10) : toDateTimeLocal(event.starts_at), endsAt: event.all_day ? String(event.ends_at).slice(0, 10) : toDateTimeLocal(event.ends_at) }); };
   const save = async () => {
     const payload = eventPayload(form);
     if (!payload) { setError(t('calendar.invalidEvent')); return; }
@@ -115,9 +115,9 @@ export default function CalendarPage({ isActive = true }) {
       setError(message);
     } finally { setSaving(false); }
   };
-  const remove = async () => { if (!form?.id || !window.confirm(t('calendar.confirmDelete'))) return; setSaving(true); try { await api.calendar.deleteEvent(form.id, form.calendarId); invitationOperation.current.reset(); setForm(null); await load(); } catch (err) { setError(err.message || t('calendar.deleteFailed')); } finally { setSaving(false); } };
+  const remove = async () => { if (!form?.id || !window.confirm(t('calendar.confirmDelete'))) return; setSaving(true); try { await api.calendar.deleteEvent(form.id, form.calendarId, form.recurrenceId); invitationOperation.current.reset(); setForm(null); await load(); } catch (err) { setError(err.message || t('calendar.deleteFailed')); } finally { setSaving(false); } };
   const changeForm = (key, value) => { invitationOperation.current.reset(); setForm(current => ({ ...current, [key]: value, invitationError: null })); };
-  const deleteEvent = async event => { if (!window.confirm(t('calendar.confirmDelete'))) return; try { await api.calendar.deleteEvent(event.id, event.calendar_id); invitationOperation.current.reset(); await load(); } catch (err) { setError(err.message || t('calendar.deleteFailed')); } };
+  const deleteEvent = async event => { if (!window.confirm(t('calendar.confirmDelete'))) return; try { await api.calendar.deleteEvent(event.series_id || event.id, event.calendar_id, event.recurring ? event.recurrence_id : undefined); invitationOperation.current.reset(); await load(); } catch (err) { setError(err.message || t('calendar.deleteFailed')); } };
   const [contextMenu, setContextMenu] = useState(null);
   const days = view === 'month' ? calendarDays(anchor, calendarWeekStartsOn) : weekDays(anchor, view === 'workweek', calendarWeekStartsOn, calendarWorkDays);
   const visibleEvents = visibleCalendarIds == null ? events : events.filter(event => visibleCalendarIds.includes(event.calendar_id));
@@ -268,6 +268,7 @@ function EventDialog({ form, error, calendars, accounts, saving, onChange, onAll
   </>}>
     <div className="ui-form">
       {error && <div role="alert" className="ui-alert">{error}</div>}
+      {form.recurrenceId && <p>{t('calendar.editOccurrence')}</p>}
       <label>{t('calendar.titleField')}<input autoFocus value={form.summary} onChange={e => onChange('summary', e.target.value)} /></label>
       <label className="ui-check"><input type="checkbox" checked={form.allDay} onChange={e => onAllDayChange(e.target.checked)} />{t('calendar.allDay')}</label>
       <div className="ui-form-columns"><label>{t('calendar.starts')}<input type={form.allDay ? 'date' : 'datetime-local'} value={form.startsAt} onChange={e => onChange('startsAt', e.target.value)} /></label><label>{t('calendar.ends')}<input type={form.allDay ? 'date' : 'datetime-local'} value={form.endsAt} onChange={e => onChange('endsAt', e.target.value)} /></label></div>

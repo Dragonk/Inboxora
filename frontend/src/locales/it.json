@@ -1840,7 +1840,8 @@
     "invitationAdded": "Aggiunto al calendario",
     "invitationCancelled": "Questo evento è stato annullato",
     "invitationLocalCopy": "Salva l’evento senza inviare una risposta all’organizzatore.",
-    "invitationLoadFailed": "Impossibile caricare o salvare l’invito."
+    "invitationLoadFailed": "Impossibile caricare o salvare l’invito.",
+    "editOccurrence": "Stai modificando solo questa occorrenza."
   },
   "mailFolders": {
     "inbox": "Posta in arrivo",

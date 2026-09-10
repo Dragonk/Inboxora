@@ -1840,7 +1840,8 @@
     "invitationAdded": "Zum Kalender hinzugefügt",
     "invitationCancelled": "Diese Veranstaltung wurde abgesagt",
     "invitationLocalCopy": "Speichert den Termin, ohne dem Organisator zu antworten.",
-    "invitationLoadFailed": "Die Einladung konnte nicht geladen oder gespeichert werden."
+    "invitationLoadFailed": "Die Einladung konnte nicht geladen oder gespeichert werden.",
+    "editOccurrence": "Sie bearbeiten nur diesen Termin der Serie."
   },
   "mailFolders": {
     "inbox": "Posteingang",

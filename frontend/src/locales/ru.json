@@ -1840,7 +1840,8 @@
     "invitationAdded": "Добавлено в календарь",
     "invitationCancelled": "Это событие отменено",
     "invitationLocalCopy": "Сохраняет событие без отправки ответа организатору.",
-    "invitationLoadFailed": "Не удалось загрузить или сохранить приглашение."
+    "invitationLoadFailed": "Не удалось загрузить или сохранить приглашение.",
+    "editOccurrence": "Вы изменяете только этот экземпляр события."
   },
   "mailFolders": {
     "inbox": "Входящие",

@@ -1,3 +1,4 @@
+import { calendarResources } from '../utils/calendarRecurrence.js';
 import { requireCompleteMultistatus, decodeDavCharRefs } from '../utils/davXml.js';
 // Pull-only external CalDAV/iCalendar import. Remote data is never modified and
 // failures are recorded per source so one unavailable server cannot block others.
@@ -29,7 +30,9 @@ function calendarPayloads(raw) {
   // unrelated components (VTODO/VJOURNAL/VFREEBUSY) out of the event resource.
   const timeZoneBlocks = raw.match(new RegExp(`BEGIN:VTIMEZONE${lineBreak}[\\s\\S]*?END:VTIMEZONE`, 'gi')) || [];
   const context = timeZoneBlocks.length ? `${timeZoneBlocks.join('\r\n')}\r\n` : '';
-  return eventBlocks.map((block) => `BEGIN:VCALENDAR\r\nVERSION:2.0\r\n${context}${block}\r\nEND:VCALENDAR\r\n`);
+  try { return calendarResources(raw); } catch {
+    return eventBlocks.map((block) => `BEGIN:VCALENDAR\r\nVERSION:2.0\r\n${context}${block}\r\nEND:VCALENDAR\r\n`);
+  }
 }
 function propsOf(response) {
   return toArray(response.propstat).reduce((result, propstat) => {

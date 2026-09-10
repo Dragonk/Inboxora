@@ -1840,7 +1840,8 @@
     "invitationAdded": "Dodano do kalendarza",
     "invitationCancelled": "Wydarzenie zostało odwołane",
     "invitationLocalCopy": "Zapisuje wydarzenie bez wysyłania odpowiedzi organizatorowi.",
-    "invitationLoadFailed": "Nie udało się odczytać lub zapisać zaproszenia."
+    "invitationLoadFailed": "Nie udało się odczytać lub zapisać zaproszenia.",
+    "editOccurrence": "Edytujesz tylko to wystąpienie wydarzenia."
   },
   "mailFolders": {
     "inbox": "Odebrane",

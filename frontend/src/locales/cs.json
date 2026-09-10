@@ -1840,7 +1840,8 @@
     "invitationAdded": "Přidáno do kalendáře",
     "invitationCancelled": "Tato událost byla zrušena",
     "invitationLocalCopy": "Uloží událost bez odeslání odpovědi organizátorovi.",
-    "invitationLoadFailed": "Pozvánku se nepodařilo načíst nebo uložit."
+    "invitationLoadFailed": "Pozvánku se nepodařilo načíst nebo uložit.",
+    "editOccurrence": "Upravujete pouze tento výskyt události."
   },
   "mailFolders": {
     "inbox": "Doručená pošta",

@@ -36,3 +36,22 @@ test('imported event preview exposes description, participants and safe meeting 
   await expect(preview.getByRole('link')).toHaveAttribute('href', 'https://example.test/join');
   await page.screenshot({ path: testInfo.outputPath('event-metadata.png') });
 });
+
+test('editing a recurring occurrence uses its series identity and preserves participants', async ({ page, fixtureApi }, testInfo) => {
+  test.skip(!['chromium-mobile-390', 'chromium-desktop'].includes(testInfo.project.name), 'occurrence editor');
+  await fixtureApi; await setupV3(page);
+  const edits = [];
+  await page.route('**/api/calendar/events**', route => {
+    if (route.request().method() === 'PATCH') { edits.push({ url: route.request().url(), body: route.request().postDataJSON() }); return route.fulfill({ json: { updated: true } }); }
+    return route.fulfill({ json: { events: [{ id: 'series@2026-09-10T09:00:00', series_id: 'series', recurring: true, recurrence_id: '2026-09-10T09:00:00', calendar_id: 'calendar-personal', source: 'local', read_only: false, summary: 'Cykliczne spotkanie', description: 'Agenda', attendees: ['jane@example.test'], starts_at: '2026-09-10T09:00:00Z', ends_at: '2026-09-10T10:00:00Z' }] } });
+  });
+  await page.goto('/'); await navigateModule(page, 'calendar');
+  await page.getByRole('button', { name: /Cykliczne spotkanie/ }).first().click();
+  const editor = page.getByTestId('calendar-event-dialog');
+  await expect(editor).toContainText('tylko to wystąpienie');
+  await editor.getByLabel('Tytuł', { exact: true }).fill('Przeniesione spotkanie');
+  await editor.getByRole('button', { name: 'Zapisz', exact: true }).click();
+  await expect(editor).toHaveCount(0);
+  expect(edits[0].url).toContain('/calendar/events/series/occurrence');
+  expect(edits[0].body).toMatchObject({ recurrenceId: '2026-09-10T09:00:00', attendees: ['jane@example.test'] });
+});

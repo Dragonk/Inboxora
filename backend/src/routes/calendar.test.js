@@ -739,7 +739,7 @@ describe('local calendar API', () => {
     const response = await fetch(`${base}/api/calendar/events/event-1?calendarId=calendar-1`, { method: 'DELETE' });
 
     expect(response.status).toBe(204);
-    expect(query.mock.calls[1][0]).toContain('SELECT uid, attendees, invite_account_id');
+    expect(query.mock.calls[1][0]).toContain('SELECT uid, raw_ical, attendees, invite_account_id');
     expect(query.mock.calls[3][0]).toContain('DELETE FROM calendar_events');
     expect(sendCalendarInvitation).toHaveBeenCalledWith(expect.objectContaining({
       account: sender, attendees: ['guest@example.test'], uid: 'uid-1', method: 'CANCEL', sequence: 3,
@@ -926,4 +926,18 @@ describe('adding mail invitations to a local calendar', () => {
    query.mockResolvedValueOnce({ rows: [{ id: 'remote', source: 'caldav', read_only: true }] });
    expect((await fetch(`${base}/api/calendar/invitations/message-1`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ calendarId: 'remote' }) })).status).toBe(403);
  });
+});
+
+it('updates one occurrence without replacing the base-event range or description', async () => {
+  const raw = outlookCalendar('09', 'RRULE:FREQ=WEEKLY;COUNT=4\r\nDESCRIPTION:Base agenda\r\n');
+  query.mockResolvedValueOnce({ rows: [{ id: 'calendar-1', source: 'local', read_only: false }] })
+    .mockResolvedValueOnce({ rows: [{ uid: 'synthetic-exchange-event', raw_ical: raw }] }).mockResolvedValueOnce({ rows: [] });
+  const response = await fetch(`${base}/api/calendar/events/event-1/occurrence`, { method: 'PATCH', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ calendarId: 'calendar-1', recurrenceId: '2026-09-17T09:00:00', summary: 'Changed instance', startsAt: '2026-09-17T10:00:00Z', endsAt: '2026-09-17T11:00:00Z', attendees: [] }) });
+  expect(response.status).toBe(200);
+  const updatedRaw = query.mock.calls[2][1][0];
+  expect(updatedRaw).toContain('RRULE:FREQ=WEEKLY;COUNT=4');
+  expect(updatedRaw).toContain('DESCRIPTION:Base agenda');
+  expect(updatedRaw).toContain('SUMMARY:Changed instance');
+  expect(updatedRaw).toContain('RECURRENCE-ID;TZID=Central European Standard Time:20260917T090000');
+  expect(query.mock.calls[2][0]).not.toContain('starts_at =');
 });

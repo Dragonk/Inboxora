@@ -24,5 +24,5 @@ DTEND;TZID="Central European Standard Time":2026${month}10T100000
 SUMMARY:Planning
 ${extra}END:VEVENT
 END:VCALENDAR
-`.replaceAll('\n', '\r\n');
+`.replace(/\r?\n/g, '\r\n');
 }

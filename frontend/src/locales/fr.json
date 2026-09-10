@@ -1840,7 +1840,8 @@
     "invitationAdded": "Ajouté au calendrier",
     "invitationCancelled": "Cet événement a été annulé",
     "invitationLocalCopy": "Enregistre l’événement sans envoyer de réponse à l’organisateur.",
-    "invitationLoadFailed": "Impossible de charger ou d’enregistrer l’invitation."
+    "invitationLoadFailed": "Impossible de charger ou d’enregistrer l’invitation.",
+    "editOccurrence": "Vous modifiez uniquement cette occurrence."
   },
   "mailFolders": {
     "inbox": "Boîte de réception",
