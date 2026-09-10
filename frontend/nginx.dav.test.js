@@ -11,11 +11,13 @@ function serverBlocks(source) {
 
 describe('DAV reverse proxy contract', () => {
   it('forwards CardDAV, CalDAV and RFC 6764 discovery paths in every public server block', () => {
+    assert.match(config, /server backend:3000 resolve;/);
+    assert.match(config, /resolver 127\.0\.0\.11 valid=10s/);
     for (const server of serverBlocks(config)) {
-      assert.match(server, /location \/carddav\/ \{[\s\S]*?proxy_pass\s+http:\/\/backend:3000;/);
-      assert.match(server, /location \/caldav\/ \{[\s\S]*?proxy_pass\s+http:\/\/backend:3000;/);
-      assert.match(server, /location = \/\.well-known\/carddav \{[\s\S]*?proxy_pass\s+http:\/\/backend:3000;/);
-      assert.match(server, /location = \/\.well-known\/caldav \{[\s\S]*?proxy_pass\s+http:\/\/backend:3000;/);
+      assert.match(server, /location \/carddav\/ \{[\s\S]*?proxy_pass\s+http:\/\/mailflow_api;/);
+      assert.match(server, /location \/caldav\/ \{[\s\S]*?proxy_pass\s+http:\/\/mailflow_api;/);
+      assert.match(server, /location = \/\.well-known\/carddav \{[\s\S]*?proxy_pass\s+http:\/\/mailflow_api;/);
+      assert.match(server, /location = \/\.well-known\/caldav \{[\s\S]*?proxy_pass\s+http:\/\/mailflow_api;/);
     }
   });
 

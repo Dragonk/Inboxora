@@ -2636,17 +2636,30 @@ export class ImapManager {
       // Prune rows for folders that no longer exist on the server (renamed or
       // deleted by another client, or left behind by a pre-fix subtree rename).
       // Without this, ghost folders duplicate the sidebar tree and every sync
-      // tick keeps trying — and failing — to open their stale paths. Message
-      // rows are left alone: in-app folder deletion already removes them
-      // explicitly, and orphans stop syncing once their folder row is gone.
+      // tick keeps trying — and failing — to open their stale paths.
       // Guarded on a non-empty LIST so a pathological empty response can't
       // wipe the account's folder tree.
       if (mailboxes.length > 0) {
-        await query(
+        const pruned = await query(
           `DELETE FROM folders
-           WHERE account_id = $1 AND path != 'INBOX' AND NOT (path = ANY($2))`,
+           WHERE account_id = $1 AND path != 'INBOX' AND NOT (path = ANY($2))
+           RETURNING path`,
           [account.id, mailboxes.map(mb => mb.path)]
         );
+        // Drop the cached messages too, on the same evidence that removed the folder.
+        // This comment used to claim orphaned rows "stop syncing once their folder row is
+        // gone"; they do not. reconcileDeletes derives its folder list from message rows, so
+        // stranded rows kept it opening a mailbox the server had deleted, and because that
+        // open always failed it could never learn the messages were gone and clean them up.
+        // The rows kept the error alive and the error protected the rows.
+        if (pruned.rows.length) {
+          const paths = pruned.rows.map(r => r.path);
+          const dropped = await query(
+            'DELETE FROM messages WHERE account_id = $1 AND folder = ANY($2)',
+            [account.id, paths]
+          );
+          console.log(`Folder sync for ${logAccount(account)}: dropped ${paths.length} folder(s) no longer on the server (${paths.join(', ')}) and ${dropped.rowCount} cached message(s)`);
+        }
       }
     } catch (err) {
       console.error(`Folder sync error for ${logAccount(account)}:`, err.message);
@@ -5409,8 +5422,14 @@ export class ImapManager {
     // TOCTOU window without an extra IMAP round-trip. synced_at defaults to now() on
     // every insert; null-synced legacy rows are treated as old and stay eligible.
     const reconcileStartedAt = new Date();
+    // Only folders the server still advertises. A message row whose folder has been pruned
+    // describes a mailbox that no longer exists, and trying to open it fails on every cycle.
+    // syncFolders now removes those rows, so this is the second line of defence: it keeps a
+    // single stranded row from reviving the loop if a folder disappears by another route.
     const folderResult = await query(
-      'SELECT DISTINCT folder FROM messages WHERE account_id = $1',
+      `SELECT DISTINCT m.folder FROM messages m
+        WHERE m.account_id = $1
+          AND EXISTS (SELECT 1 FROM folders f WHERE f.account_id = m.account_id AND f.path = m.folder)`,
       [account.id]
     );
     if (!folderResult.rows.length) return;

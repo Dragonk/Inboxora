@@ -1,3 +1,4 @@
+import { resolveSelectedAccount, pruneFolders } from '../utils/accountScope.js';
 import { create } from 'zustand';
 import { api } from '../utils/api.js';
 import { accountAffectsUnifiedInbox } from '../utils/unifiedInbox.js';
@@ -174,7 +175,13 @@ export const useStore = create((set, get) => ({
   // Accounts
   accounts: [],
   accountsReady: false, // true once the initial getAccounts() call has resolved
-  setAccounts: (accounts) => set({ accounts, accountsReady: true }),
+  setAccounts: (accounts) => {
+    if (!Array.isArray(accounts)) return;
+    const previous = get().selectedAccountId;
+    const selected = resolveSelectedAccount(accounts, previous);
+    set(state => ({ accounts, accountsReady: true, folders: pruneFolders(state.folders, accounts) }));
+    if (selected !== previous) get().setSelectedAccount(selected);
+  },
   updateAccount: (id, updates) => set(state => ({
     accounts: state.accounts.map(a => a.id === id ? { ...a, ...updates } : a)
   })),

@@ -1553,6 +1553,20 @@ describe("connectAccount attaches 'error' before connect (#360)", () => {
   });
 });
 
+describe('reconcileDeletes folder source', () => {
+  it('considers only folders the server still advertises', async () => {
+    // Second line of defence for the same loop: a stranded message row must not be able to
+    // resurrect a deleted mailbox as something to open.
+    query.mockReset();
+    query.mockResolvedValue({ rows: [] });
+    await ImapManager.prototype.reconcileDeletes.call({}, { id: 'acct-1', email_address: 'a@example.com' });
+    const [sql, params] = query.mock.calls[0];
+    expect(sql).toContain('FROM folders f');
+    expect(sql).toContain('f.path = m.folder');
+    expect(params).toEqual(['acct-1']);
+  });
+});
+
 describe('syncFolders pruning', () => {
   beforeEach(() => {
     query.mockReset();
@@ -1581,6 +1595,35 @@ describe('syncFolders pruning', () => {
     const client = { list: vi.fn().mockResolvedValue([]) };
     await ImapManager.prototype.syncFolders.call({}, account, client);
     expect(query.mock.calls.some(([sql]) => sql.includes('DELETE FROM folders'))).toBe(false);
+  });
+
+  it('drops the cached messages of a folder the server no longer has', async () => {
+    // The self-sustaining loop this closes: pruning the folder row but stranding its message
+    // rows left reconcileDeletes (which derives its folder list from messages) opening a
+    // mailbox the server had deleted. That open failed every cycle, and because it failed it
+    // could never learn the messages were gone, so the rows kept the error alive forever.
+    query.mockImplementation(async sql => sql.includes('DELETE FROM folders')
+      ? { rows: [{ path: 'Newsletter' }], rowCount: 1 } : { rows: [], rowCount: 0 });
+    const client = { list: vi.fn().mockResolvedValue([{ path: 'INBOX', name: 'INBOX', delimiter: '/' }]) };
+    vi.spyOn(console, 'log').mockImplementation(() => {});
+    await ImapManager.prototype.syncFolders.call({}, account, client);
+
+    const del = query.mock.calls.find(([sql]) => sql.includes('DELETE FROM messages'));
+    expect(del).toBeTruthy();
+    expect(del[1]).toEqual(['acct-1', ['Newsletter']]);
+  });
+
+  it('touches no message rows when no folder was pruned', async () => {
+    query.mockImplementation(async () => ({ rows: [], rowCount: 0 }));
+    const client = { list: vi.fn().mockResolvedValue([{ path: 'INBOX', name: 'INBOX', delimiter: '/' }]) };
+    await ImapManager.prototype.syncFolders.call({}, account, client);
+    expect(query.mock.calls.some(([sql]) => sql.includes('DELETE FROM messages'))).toBe(false);
+  });
+
+  it('never deletes messages on an empty LIST, because nothing was pruned', async () => {
+    const client = { list: vi.fn().mockResolvedValue([]) };
+    await ImapManager.prototype.syncFolders.call({}, account, client);
+    expect(query.mock.calls.some(([sql]) => sql.includes('DELETE FROM messages'))).toBe(false);
   });
 
   it('still upserts every listed folder before pruning', async () => {

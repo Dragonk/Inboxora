@@ -69,3 +69,18 @@ test('flat rows keep physical read flags even when the reader has cached their t
   assert.equal(useStore.getState().messages[1].is_read, false);
   assert.equal(useStore.getState().messages[0].unread_count, undefined);
 });
+
+test('a deleted selected account falls back to all inboxes and releases cached messages', () => {
+  seed();
+  useStore.setState({ selectedAccountId: 'deleted', selectedFolder: 'Sent', folders: { deleted: [{ path: 'Sent' }], active: [{ path: 'INBOX' }] }, showCalendar: false });
+  useStore.getState().setAccounts([{ id: 'active' }]);
+  assert.equal(useStore.getState().selectedAccountId, null);
+  assert.equal(useStore.getState().selectedFolder, 'INBOX');
+  assert.deepEqual(useStore.getState().folders, { active: [{ path: 'INBOX' }] });
+  assert.deepEqual(useStore.getState().messages, []);
+});
+test('an unavailable account list cannot clear an existing selection', () => {
+  seed(); useStore.setState({ selectedAccountId: 'active' });
+  useStore.getState().setAccounts(undefined);
+  assert.equal(useStore.getState().selectedAccountId, 'active');
+});
