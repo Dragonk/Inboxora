@@ -1827,7 +1827,13 @@
     "renamePrompt": "Název kalendáře",
     "colorPrompt": "Barva kalendáře (#RRGGBB)",
     "invalidColor": "Zadejte šestimístnou hexadecimální barvu.",
-    "confirmCalendarDelete": "Smazat kalendář \"{{name}}\" a všechny jeho události? Tuto akci nelze vrátit."
+    "confirmCalendarDelete": "Smazat kalendář \"{{name}}\" a všechny jeho události? Tuto akci nelze vrátit.",
+    "contactDates": "Data kontaktů",
+    "contactDatesDescription": "Narozeniny a výročí z kontaktů",
+    "unnamedContact": "Kontakt",
+    "contactDateEvent": "{{label}}: {{name}}",
+    "invitationPending": "Doručení pozvánek stále čeká. Opakováním zkontrolujete stav.",
+    "retrySave": "Znovu uložit"
   },
   "mailFolders": {
     "inbox": "Doručená pošta",

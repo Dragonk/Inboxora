@@ -1,3 +1,4 @@
+import { useBackLayer } from '../hooks/useBackNavigation.js';
 import { folderLabel } from '../utils/folderLabels.js';
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { useTranslation } from 'react-i18next';
@@ -118,6 +119,7 @@ function isProtectedFolder(folder, folderMappings) {
 
 // ─── Sidebar context menu (folders + accounts) ────────────────────────────────
 function SidebarCtxMenu({ x, y, items, title, subtitle, onClose }) {
+  useBackLayer(true, onClose, 4000);
   const menuRef = useRef(null);
   const uiScale = useUiScale();
   const [pos, setPos] = useState({ x, y });
@@ -430,6 +432,11 @@ export default function Sidebar({ onEditProfile = null }) {
   // Loading state for folder ops
   const [folderOpLoading, setFolderOpLoading] = useState(false);
   const [confirmDialog, setConfirmDialog] = useState(null); // { message, onConfirm }
+  useBackLayer(confirmDialog, () => { if (!folderOpLoading) setConfirmDialog(null); }, 9000);
+  useBackLayer(creatingFolder || renamingFolder || renamingFav, () => {
+    setCreatingFolder(null); setCreateName(''); setRenamingFolder(null); setRenamingFav(null);
+  }, 1350);
+  useBackLayer(userMenuOpen, () => setUserMenuOpen(false), 4000);
 
   const toggleAccount = (id) => {
     setExpandedAccounts(prev => ({ ...prev, [id]: !prev[id] }));

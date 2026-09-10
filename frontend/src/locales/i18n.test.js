@@ -475,6 +475,8 @@ const dir = dirname(fileURLToPath(import.meta.url));
 // Two locales sharing a value is only allowed if both appear in the same group.
 // Any unlisted pair will still fail.
 const SAME_VALUE_ALLOWED = {
+  'calendar.contactDateEvent': 'any', // Interpolation-only title template.
+  'calendar.unnamedContact': [['en', 'fr'], ['cs', 'de', 'pl']],
   'layouts.compact.label': [['en', 'fr']],
   'mailFolders.archive': [['cs', 'de']],
   'mailFolders.spam': [['cs', 'de', 'en', 'it', 'pl']],

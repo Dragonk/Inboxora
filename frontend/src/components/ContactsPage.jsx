@@ -1,3 +1,5 @@
+import { contactDateLabel } from '../utils/contactDateLabels.js';
+import { useBackLayer } from '../hooks/useBackNavigation.js';
 import { intlLocale } from '../utils/intlLocale.js';
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { useTranslation } from 'react-i18next';
@@ -314,23 +316,9 @@ export default function ContactsPage({ isActive = true }) {
 
   const inForm = editing || showNew;
 
-  useEffect(() => {
-    if (!isMobile || !showContacts) return undefined;
-    const handleBack = (event) => {
-      if (confirmDelete) {
-        event.preventDefault();
-        setConfirmDelete(false);
-      } else if (inForm) {
-        event.preventDefault();
-        cancelEdit();
-      } else if (mobilePanel === 'detail') {
-        event.preventDefault();
-        goBackToList();
-      }
-    };
-    window.addEventListener('inboxora:back', handleBack);
-    return () => window.removeEventListener('inboxora:back', handleBack);
-  }, [cancelEdit, confirmDelete, inForm, isMobile, mobilePanel, showContacts]);
+  useBackLayer(showContacts && isMobile && mobilePanel === 'detail', goBackToList, 30);
+  useBackLayer(showContacts && inForm, () => { if (!saving) cancelEdit(); }, 40);
+  useBackLayer(showContacts && confirmDelete, () => setConfirmDelete(false), 9100);
 
   const saveContact = async () => {
     setSaving(true);
@@ -717,13 +705,6 @@ function ContactDetail({ contact: c, confirmDelete, saving, error, onEdit, onDel
         c.birthday && { label: 'Birthday', value: String(c.birthday).slice(0, 10) },
         c.anniversary && { label: 'Anniversary', value: String(c.anniversary).slice(0, 10) },
       ].filter(Boolean);
-  const contactDateLabel = label => {
-    const normalized = String(label).toLowerCase();
-    if (normalized === 'birthday') return t('contacts.fields.birthday');
-    if (normalized === 'anniversary') return t('contacts.fields.anniversary');
-    if (normalized === 'name day') return t('contacts.fields.nameDay');
-    return label;
-  };
   const primaryEmail = c.primary_email || c.emails?.[0]?.value || '';
 
   return (
@@ -831,7 +812,7 @@ function ContactDetail({ contact: c, confirmDelete, saving, error, onEdit, onDel
           )}
           {(contactDates.length > 0) && (
             <DetailSection label={t('contacts.fields.dates')}>
-              {contactDates.map((date, i) => <DetailRow key={`date-${i}`} icon={fieldIcon.calendar} type={contactDateLabel(date.label)}>{new Date(`${String(date.value).slice(0, 10)}T00:00:00`).toLocaleDateString(intlLocale(i18n.resolvedLanguage || i18n.language))}</DetailRow>)}
+              {contactDates.map((date, i) => <DetailRow key={`date-${i}`} icon={fieldIcon.calendar} type={contactDateLabel(date.label, t)}>{new Date(`${String(date.value).slice(0, 10)}T00:00:00`).toLocaleDateString(intlLocale(i18n.resolvedLanguage || i18n.language))}</DetailRow>)}
             </DetailSection>
           )}
           {(c.categories?.length > 0) && (
@@ -927,10 +908,11 @@ function ContactForm({
       <div style={{ marginBottom: 12 }}>
         <label style={labelStyle}>{t('contacts.fields.dates')}</label>
         {form.contactDates.map((date, index) => {
-          const preset = ['Birthday', 'Name day'].includes(date.label) ? date.label : 'custom';
+          const preset = ['Birthday', 'Anniversary', 'Name day'].includes(date.label) ? date.label : 'custom';
           return <div key={index} style={{ display: 'grid', gridTemplateColumns: preset === 'custom' ? '120px 1fr 1fr auto' : '120px 1fr auto', gap: 6, marginBottom: 6 }}>
             <select value={preset} onChange={event => onSetCollection('contactDates', index, 'label', event.target.value === 'custom' ? '' : event.target.value)} style={inputStyle}>
               <option value="Birthday">{t('contacts.fields.birthday')}</option>
+              <option value="Anniversary">{t('contacts.fields.anniversary')}</option>
               <option value="Name day">{t('contacts.fields.nameDay')}</option>
               <option value="custom">{t('contacts.fields.customDate')}</option>
             </select>

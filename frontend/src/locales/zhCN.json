@@ -1827,7 +1827,13 @@
     "renamePrompt": "日历名称",
     "colorPrompt": "日历颜色 (#RRGGBB)",
     "invalidColor": "请输入六位十六进制颜色。",
-    "confirmCalendarDelete": "删除日历 \"{{name}}\" 及其所有事件？此操作无法撤销。"
+    "confirmCalendarDelete": "删除日历 \"{{name}}\" 及其所有事件？此操作无法撤销。",
+    "contactDates": "联系人日期",
+    "contactDatesDescription": "联系人的生日和纪念日",
+    "unnamedContact": "联系人",
+    "contactDateEvent": "{{label}}：{{name}}",
+    "invitationPending": "邀请仍在等待送达，请重试以检查状态。",
+    "retrySave": "重试保存"
   },
   "mailFolders": {
     "inbox": "收件箱",

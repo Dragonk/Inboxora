@@ -1,3 +1,4 @@
+import { useBackLayer } from '../hooks/useBackNavigation.js';
 import i18n from '../i18n.js';
 import { folderLabel } from '../utils/folderLabels.js';
 import { useEffect, useLayoutEffect, useRef, useCallback, useState } from 'react';
@@ -228,6 +229,10 @@ export default function MessageList() {
   // Layout picker
   const [showLayoutPicker, setShowLayoutPicker] = useState(false);
   const [layoutPickerPos, setLayoutPickerPos] = useState(null);
+  const mailListActive = useStore(state => !state.showContacts && !state.showCalendar && !state.selectedMessageId);
+  useBackLayer(mailListActive && (selectionModeActive || selectedIds.size > 0), () => { setSelectedIds(new Set()); setSelectionModeActive(false); }, 5);
+  useBackLayer(mailListActive && (showFolderPicker || showLayoutPicker), () => { setShowFolderPicker(false); setShowLayoutPicker(false); }, 4000);
+  useBackLayer(mailListActive && searchQuery, () => setSearchQuery(''), 4);
   const layoutPickerRef = useRef(null);
 
   useEffect(() => { currentPageRef.current = currentPage; }, [currentPage]);

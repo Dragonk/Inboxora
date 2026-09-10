@@ -1,3 +1,4 @@
+import { useBackLayer } from '../hooks/useBackNavigation.js';
 import { useState, useRef } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useStore } from '../store/index.js';
@@ -36,6 +37,7 @@ export default function ProfileModal({ onClose }) {
   const [pendingAvatar, setPendingAvatar] = useState(null); // base64 to upload, or false = delete
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
+  useBackLayer(true, () => { if (!saving) onClose(); }, 3000);
 
   async function handleFileChange(e) {
     const file = e.target.files[0];

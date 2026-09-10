@@ -1,3 +1,4 @@
+import { useBackLayer } from '../hooks/useBackNavigation.js';
 import { folderLabel } from '../utils/folderLabels.js';
 import { useState, useEffect, useRef } from 'react';
 import { useTranslation } from 'react-i18next';
@@ -33,6 +34,7 @@ export default function ContextMenu({ x, y, message, onClose, onAction, defaultM
   const categorizationEnabled = useStore(s => s.categorizationEnabled);
   const categorizationActive = categorizationEnabled || !!account?.categorization_enabled;
   const menuRef = useRef(null);
+  useBackLayer(true, onClose, 4000);
   const [headerMessage, setHeaderMessage] = useState(null);
   // A plugin submenu (render fn) takes over the menu content area, like categorizeView/moveView.
   // Set via the openSubmenu capability handed to context-menu-item contributions; null = item list.

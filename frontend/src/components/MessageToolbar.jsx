@@ -1,3 +1,4 @@
+import { useBackLayer } from '../hooks/useBackNavigation.js';
 import { folderLabel } from '../utils/folderLabels.js';
 import { useMemo, useState } from 'react';
 import { useTranslation } from 'react-i18next';
@@ -61,6 +62,12 @@ export default function MessageToolbar({
   const [moreMenu, setMoreMenu] = useState(false);
   const [aiMenu, setAiMenu] = useState(false);
   const [search, setSearch] = useState('');
+  useBackLayer(replyMenu || moveMenu || moreMenu || aiMenu, () => {
+    if (aiMenu) setAiMenu(false);
+    else if (moveMenu) setMoveMenu(false);
+    else if (replyMenu) setReplyMenu(false);
+    else setMoreMenu(false);
+  }, 4000);
   const availableFolders = useMemo(() => folders.filter(folder => folder.path !== currentFolder && (!search.trim() || `${folderLabel(folder, t, folderMappings)} ${folder.path}`.toLowerCase().includes(search.trim().toLowerCase()))), [currentFolder, folders, folderMappings, search, t]);
   const title = (key, shortcut) => isMobile ? t(key) : `${t(key)}${shortcutLabel(shortcut) ? ` (${shortcutLabel(shortcut)})` : ''}`;
   const stop = handler => event => { event.stopPropagation(); handler?.(); };

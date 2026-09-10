@@ -1,3 +1,4 @@
+import { useBackLayer } from '../hooks/useBackNavigation.js';
 import { intlLocale } from '../utils/intlLocale.js';
 import { folderLabel } from '../utils/folderLabels.js';
 import { inputStyle as sharedInputStyle } from './ui.jsx';
@@ -460,6 +461,8 @@ function AccountsTab() {
   const [aliasFormId, setAliasFormId] = useState(null);
   const [aliasFormError, setAliasFormError] = useState('');
   const [aliasFormSaving, setAliasFormSaving] = useState(false);
+  useBackLayer(subview !== 'list', () => setSubview('list'), 2010);
+  useBackLayer(aliasFormMode, () => { if (!aliasFormSaving) setAliasFormMode(null); }, 2020);
 
   const handleAdd = async (form) => {
     const account = await api.addAccount(form);
@@ -3235,6 +3238,7 @@ function SSOTab() {
   const [editing, setEditing] = useState(null); // null | 'new' | provider object
   const [form, setForm] = useState(emptyProvider);
   const [saving, setSaving] = useState(false);
+  useBackLayer(editing, () => { if (!saving) setEditing(null); }, 2010);
   const [error, setError] = useState('');
   const [confirmDialog, setConfirmDialog] = useState(null);
   const [copiedId, setCopiedId] = useState(null);
@@ -5556,6 +5560,7 @@ function ConfirmOverlay({ dialog, onClose }) {
   const { t } = useTranslation();
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
+  useBackLayer(dialog, () => { if (!busy) onClose(); }, 9100);
   useEffect(() => { setBusy(false); setError(''); }, [dialog]);
   if (!dialog) return null;
 
@@ -5827,7 +5832,9 @@ function RulesTab() {
   const [formData, setFormData] = useState(null);
   const [formError, setFormError] = useState('');
   const [formSaving, setFormSaving] = useState(false);
+  useBackLayer(formMode, () => { if (!formSaving) setFormMode(null); }, 2010);
   const [confirmDelete, setConfirmDelete] = useState(null);
+  useBackLayer(confirmDelete, () => setConfirmDelete(null), 2020);
   const [runningRules, setRunningRules] = useState(false);
   const [runResult, setRunResult] = useState(null);
   const [runError, setRunError] = useState('');
@@ -6838,6 +6845,7 @@ function ShortcutsTab() {
   const { shortcuts, setShortcuts } = useStore();
   const [recording, setRecording] = useState(null); // action name currently being recorded
   const [pendingConflict, setPendingConflict] = useState(null); // { action: conflictingAction, key }
+  useBackLayer(recording || pendingConflict, () => { setPendingConflict(null); setRecording(null); }, 2010);
 
   const effective = getEffectiveShortcuts(shortcuts);
   const groups = getGroupedActions();
@@ -7286,6 +7294,7 @@ function ScreenLockSection() {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
   const [saved, setSaved] = useState(false);
+  useBackLayer(mode, () => { if (!busy) setMode(null); }, 2010);
 
   const digits = (v) => v.replace(/\D/g, '').slice(0, 6);
   const reset = () => { setMode(null); setCurrentPin(''); setPin(''); setConfirm(''); setError(''); setSaved(false); };
@@ -7388,6 +7397,7 @@ function SecurityTab() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   const [success, setSuccess] = useState('');
+  useBackLayer(step !== 'idle' || showDisable, () => { if (!loading) { setShowDisable(false); setStep('idle'); } }, 2010);
 
   const totpEnabled = user?.totpEnabled;
 
@@ -8381,6 +8391,7 @@ export default function AdminPanel() {
 
   const [searchQuery, setSearchQuery] = useState('');
   const [pendingSubTab, setPendingSubTab] = useState(null);
+  useBackLayer(searchQuery, () => setSearchQuery(''), 2005);
 
   const searchIndex = useMemo(() => makeSearchIndex(t), [t]);
 

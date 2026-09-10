@@ -1,3 +1,4 @@
+import { useBackLayer } from '../hooks/useBackNavigation.js';
 import { useState, useRef, useEffect, useCallback, forwardRef } from 'react';
 import { shouldAutosave, isAutosaveDue } from '../utils/draftAutosave.js';
 import { useTranslation } from 'react-i18next';
@@ -978,54 +979,26 @@ export default function ComposeModal() {
   };
 
   const handleClose = () => {
-    if (isDirty()) {
-      setShowCloseDialog(true);
-    } else if (draftUid != null && draftWasPreExisting.current) {
-      // Opened from the drafts list with no modifications — ask to discard or keep.
-      setShowCloseDialog(true);
-    } else {
-      closeCompose();
-    }
+    if (sending || savingDraft) return;
+    if (isDirty() || (draftUid != null && draftWasPreExisting.current)) {
+      if (isMobile) setShowDiscardSheet(true);
+      else setShowCloseDialog(true);
+    } else closeCompose();
   };
   const handleCloseRef = useRef(handleClose);
   handleCloseRef.current = handleClose;
 
-  useEffect(() => {
-    if (!isMobile) return undefined;
-    const handleBack = (event) => {
-      if (showDiscardSheet) {
-        event.preventDefault();
-        setShowDiscardSheet(false);
-      } else if (showCloseDialog) {
-        event.preventDefault();
-        setShowCloseDialog(false);
-      } else if (showAttachWarnForDraft) {
-        event.preventDefault();
-        setShowAttachWarnForDraft(false);
-      } else if (showForgottenAttachWarn) {
-        event.preventDefault();
-        setShowForgottenAttachWarn(false);
-      } else if (showEmptySubjectWarn) {
-        event.preventDefault();
-        setShowEmptySubjectWarn(false);
-      } else if (showPrioritySheet) {
-        event.preventDefault();
-        setShowPrioritySheet(false);
-      } else if (showReplyType) {
-        event.preventDefault();
-        setShowReplyType(false);
-      } else if (showCcBccMenu) {
-        event.preventDefault();
-        setShowCcBccMenu(false);
-        setCcBccMenuPos(null);
-      } else {
-        event.preventDefault();
-        handleCloseRef.current();
-      }
-    };
-    window.addEventListener('inboxora:back', handleBack);
-    return () => window.removeEventListener('inboxora:back', handleBack);
-  }, [isMobile, showAttachWarnForDraft, showCcBccMenu, showCloseDialog, showDiscardSheet, showEmptySubjectWarn, showForgottenAttachWarn, showPrioritySheet, showReplyType]);
+  useBackLayer(true, () => handleCloseRef.current(), 2001);
+  useBackLayer(showDiscardSheet || showCloseDialog || showAttachWarnForDraft || showForgottenAttachWarn || showEmptySubjectWarn || showPrioritySheet || showReplyType || showCcBccMenu, () => {
+    if (showDiscardSheet) setShowDiscardSheet(false);
+    else if (showCloseDialog) setShowCloseDialog(false);
+    else if (showAttachWarnForDraft) setShowAttachWarnForDraft(false);
+    else if (showForgottenAttachWarn) setShowForgottenAttachWarn(false);
+    else if (showEmptySubjectWarn) setShowEmptySubjectWarn(false);
+    else if (showPrioritySheet) setShowPrioritySheet(false);
+    else if (showReplyType) setShowReplyType(false);
+    else { setShowCcBccMenu(false); setCcBccMenuPos(null); }
+  }, 2101);
 
   const renderSignatureEditor = () => plaintextEmail ? (
     <textarea
@@ -1128,13 +1101,7 @@ export default function ComposeModal() {
           borderBottom: '1px solid var(--border-subtle)',
         }}>
           <button
-            onClick={() => {
-              if (isDirty() || (draftUid != null && draftWasPreExisting.current)) {
-                setShowDiscardSheet(true);
-              } else {
-                closeCompose();
-              }
-            }}
+            onClick={handleClose}
             style={{
               background: 'none', border: 'none',
               color: 'var(--accent)', fontSize: 16,
@@ -2458,6 +2425,9 @@ function RichToolbar({ editor, onAttach, onInsertImage, htmlMode, onToggleHtml, 
   const linkPopRef = useRef(null);
   const linkInputRef = useRef(null);
   const [showMobileMore, setShowMobileMore] = useState(false);
+  useBackLayer(showMobileMore || colorPos || highlightPos || emojiPos || linkPos || tablePos, () => {
+    setShowMobileMore(false); setColorPos(null); setHighlightPos(null); setEmojiPos(null); setLinkPos(null); setTablePos(null);
+  }, 2200);
 
   // Refs on the toolbar rows so we can keep their controls out of the Tab order (#266).
   const desktopBarRef = useRef(null);
@@ -3073,6 +3043,7 @@ function ChipInput({ chips, onChipsChange, value, onChange, placeholder, autoFoc
   const inputRef = useRef(null);
   const [dropStyle, setDropStyle] = useState(null);
   const [menu, setMenu] = useState(null); // { x, y, index } | null — recipient chip context menu
+  useBackLayer(menu, () => setMenu(null), 2200);
   const longPressRef = useRef(null);
 
   // Debounce contact suggestions — only when getSuggestions is wired up

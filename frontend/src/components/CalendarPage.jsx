@@ -1,3 +1,4 @@
+import { localizeContactCalendar, localizeContactEvent } from '../utils/contactDateLabels.js';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { api } from '../utils/api.js';
@@ -41,7 +42,7 @@ function nowMinutes() { const now = new Date(); return now.getHours() * 60 + now
 export default function CalendarPage({ isActive = true }) {
   const { t, i18n } = useTranslation();
   const locale = resolveDateLocale(i18n.resolvedLanguage || i18n.language);
-  const { showCalendar, accounts, calendarWeekStartsOn, calendarWorkDays, calendarWorkHoursStart, calendarWorkHoursEnd, visibleCalendarIds, setVisibleCalendarIds } = useStore();
+  const { accounts, calendarWeekStartsOn, calendarWorkDays, calendarWorkHoursStart, calendarWorkHoursEnd, visibleCalendarIds, setVisibleCalendarIds } = useStore();
   const isMobile = useMobile();
   const compactViewport = useCompactLayout();
   const surfaceRef = useRef(null);
@@ -59,7 +60,9 @@ export default function CalendarPage({ isActive = true }) {
   const [anchor, setAnchor] = useState(() => new Date());
   const loadGeneration = useRef(0);
   const [view, setView] = useState('month');
-  const [calendars, setCalendars] = useState([]); const [events, setEvents] = useState([]);
+  const [rawCalendars, setCalendars] = useState([]); const [rawEvents, setEvents] = useState([]);
+  const calendars = useMemo(() => rawCalendars.map(calendar => localizeContactCalendar(calendar, t)), [rawCalendars, t]);
+  const events = useMemo(() => rawEvents.map(event => localizeContactEvent(event, t)), [rawEvents, t]);
   const [error, setError] = useState(null); const [loading, setLoading] = useState(true); const [form, setForm] = useState(null); const [saving, setSaving] = useState(false);
   const invitationOperation = useRef(null);
   if (!invitationOperation.current) invitationOperation.current = createInvitationOperationController();
@@ -82,12 +85,6 @@ export default function CalendarPage({ isActive = true }) {
     setDayPanelOpen(false);
     setPreview(null);
   }, [isActive, isMobile]);
-  useEffect(() => {
-    if (!isMobile || !showCalendar || !form) return undefined;
-    const handleBack = event => { event.preventDefault(); invitationOperation.current.reset(); setForm(null); };
-    window.addEventListener('inboxora:back', handleBack);
-    return () => window.removeEventListener('inboxora:back', handleBack);
-  }, [form, isMobile, showCalendar]);
   const writable = calendars.filter(calendar => !calendar.read_only && calendar.source === 'local');
   const senderAccounts = accounts.filter(account => account.enabled && account.smtp_host);
   const openCreate = (date = anchor) => { if (!writable.length) return; invitationOperation.current.reset(); setForm({ ...emptyForm(writable[0]?.id || '', date), mode: 'create' }); };
@@ -172,7 +169,7 @@ export default function CalendarPage({ isActive = true }) {
       <CalendarSidebar {...sidebarProps} onSelectDate={day => { setAnchor(day); setMobilePanelOpen(false); }} onClose={() => setMobilePanelOpen(false)} />
     </Dialog>}
     {form && <EventDialog form={form} error={error} calendars={writable} accounts={senderAccounts} saving={saving} onChange={changeForm} onAllDayChange={allDay => { invitationOperation.current.reset(); setForm(current => toggleAllDayTimes(current, allDay)); }} onSave={save} onDelete={remove} onClose={() => { invitationOperation.current.reset(); setForm(null); setError(null); }} t={t} />}
-    {preview && <Dialog title={preview.summary || t('calendar.untitled')} closeLabel={t('calendar.close')} onClose={() => setPreview(null)} testId="calendar-event-preview">
+    {preview && <Dialog title={localizeContactEvent(preview, t).summary || t('calendar.untitled')} closeLabel={t('calendar.close')} onClose={() => setPreview(null)} testId="calendar-event-preview">
       <div className="ui-form"><span className="calendar-readonly">{t('calendar.readOnly')}</span>
         <p>{preview.all_day ? `${String(preview.starts_at).slice(0, 10)} · ${t('calendar.allDay')}` : `${new Date(preview.starts_at).toLocaleString(locale)} – ${new Date(preview.ends_at).toLocaleString(locale)}`}</p>
         {preview.location && <p>{preview.location}</p>}{preview.description && <p style={{ whiteSpace: 'pre-wrap' }}>{preview.description}</p>}

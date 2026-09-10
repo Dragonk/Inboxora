@@ -287,7 +287,7 @@ describe('local calendar API', () => {
     expect(query.mock.calls[1][0]).toContain('contact_dates');
     expect(events).toHaveLength(1);
     expect(events[0]).toMatchObject({
-      calendar_id: 'contacts-birthdays', uid: expect.stringMatching(/^contacts-contact-1-/), summary: 'Wedding: Ada',
+      calendar_id: 'contacts-birthdays', uid: expect.stringMatching(/^contacts-contact-1-/), summary: 'Wedding: Ada', contact_date_label: 'Wedding', contact_name: 'Ada',
       starts_at: '2026-09-14T00:00:00.000Z', ends_at: '2026-09-15T00:00:00.000Z', all_day: true,
       source: 'contacts', read_only: true,
     });

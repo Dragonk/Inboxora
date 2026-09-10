@@ -1827,7 +1827,13 @@
     "renamePrompt": "Nazwa kalendarza",
     "colorPrompt": "Kolor kalendarza (#RRGGBB)",
     "invalidColor": "Wpisz sześciocyfrowy kolor szesnastkowy.",
-    "confirmCalendarDelete": "Usunąć kalendarz „{{name}}” i wszystkie wydarzenia? Tej operacji nie można cofnąć."
+    "confirmCalendarDelete": "Usunąć kalendarz „{{name}}” i wszystkie wydarzenia? Tej operacji nie można cofnąć.",
+    "contactDates": "Daty kontaktów",
+    "contactDatesDescription": "Urodziny i rocznice z kontaktów",
+    "unnamedContact": "Kontakt",
+    "contactDateEvent": "{{label}}: {{name}}",
+    "invitationPending": "Dostarczenie zaproszeń jeszcze trwa. Ponów próbę, aby sprawdzić stan.",
+    "retrySave": "Ponów zapis"
   },
   "mailFolders": {
     "inbox": "Odebrane",

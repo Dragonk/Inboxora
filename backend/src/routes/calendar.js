@@ -48,7 +48,7 @@ function contactDateEvents(contacts, from, to) {
         const labelKey = crypto.createHash('sha256').update(label).digest('hex').slice(0, 16);
         const dateSlug = value.replaceAll('-', '');
         const id = `contacts-${contact.id}-${labelKey}-${dateSlug}-${year}`;
-        events.push({ id, calendar_id: 'contacts-birthdays', uid: id, summary: `${label}: ${contact.display_name || contact.primary_email || 'Contact'}`, starts_at: startsAt, ends_at: endsAt, all_day: true, calendar_name: 'Contact dates', calendar_color: '#e879f9', source: 'contacts', read_only: true });
+        events.push({ id, calendar_id: 'contacts-birthdays', uid: id, summary: `${label}: ${contact.display_name || contact.primary_email || 'Contact'}`, contact_date_label: label, contact_name: contact.display_name || contact.primary_email || null, starts_at: startsAt, ends_at: endsAt, all_day: true, calendar_name: 'Contact dates', calendar_color: '#e879f9', source: 'contacts', read_only: true });
       }
     }
   }

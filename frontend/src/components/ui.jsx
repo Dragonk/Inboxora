@@ -1,3 +1,4 @@
+import { useBackLayer } from '../hooks/useBackNavigation.js';
 import { useEffect, useId, useRef } from 'react';
 import { createPortal } from 'react-dom';
 import { useUiScale } from '../hooks/useUiScale.js';
@@ -34,6 +35,7 @@ export function Dialog({ title, closeLabel, onClose, children, footer, testId, c
   const busyRef = useRef(busy);
   close.current = onClose;
   busyRef.current = busy;
+  useBackLayer(true, () => { if (!busyRef.current) close.current(); }, 4500);
   useEffect(() => {
     const element = panel.current;
     const previous = trigger.current;
@@ -51,13 +53,10 @@ export function Dialog({ title, closeLabel, onClose, children, footer, testId, c
         else if (!event.shiftKey && document.activeElement === last) { event.preventDefault(); first.focus(); }
       }
     };
-    const back = event => { if (dialogs.at(-1) !== element) return; event.preventDefault(); event.stopImmediatePropagation(); if (!busyRef.current) close.current(); };
     document.addEventListener('keydown', keydown, true);
-    window.addEventListener('inboxora:back', back, true);
     return () => {
       dialogs.splice(dialogs.indexOf(element), 1);
       document.removeEventListener('keydown', keydown, true);
-      window.removeEventListener('inboxora:back', back, true);
       if (previous?.isConnected) previous.focus();
     };
   }, []);

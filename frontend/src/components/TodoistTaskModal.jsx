@@ -1,3 +1,4 @@
+import { useBackLayer } from '../hooks/useBackNavigation.js';
 import { useState, useEffect } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useStore } from '../store/index.js';
@@ -19,6 +20,7 @@ export default function TodoistTaskModal({ message, onClose }) {
   const [loading, setLoading] = useState(true);
   const [creating, setCreating] = useState(false);
   const [error, setError] = useState('');
+  useBackLayer(true, () => { if (!creating) onClose(); }, 3000);
 
   useEffect(() => {
     async function load() {

@@ -1827,7 +1827,13 @@
     "renamePrompt": "Nombre del calendario",
     "colorPrompt": "Color del calendario (#RRGGBB)",
     "invalidColor": "Introduce un color hexadecimal de seis dígitos.",
-    "confirmCalendarDelete": "¿Eliminar el calendario \"{{name}}\" y todos sus eventos? Esta acción no se puede deshacer."
+    "confirmCalendarDelete": "¿Eliminar el calendario \"{{name}}\" y todos sus eventos? Esta acción no se puede deshacer.",
+    "contactDates": "Fechas de contactos",
+    "contactDatesDescription": "Cumpleaños y aniversarios de los contactos",
+    "unnamedContact": "Contacto",
+    "contactDateEvent": "{{label}}: {{name}}",
+    "invitationPending": "La entrega de invitaciones sigue pendiente. Reinténtalo para comprobar su estado.",
+    "retrySave": "Reintentar guardar"
   },
   "mailFolders": {
     "inbox": "Recibidos",

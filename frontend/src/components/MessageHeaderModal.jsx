@@ -1,3 +1,4 @@
+import { useBackLayer } from '../hooks/useBackNavigation.js';
 import { useState, useEffect, useRef } from 'react';
 import { useTranslation } from 'react-i18next';
 import { api } from '../utils/api.js';
@@ -28,14 +29,7 @@ export default function MessageHeaderModal({ messageId, subject, onClose, onSubj
       .finally(() => setLoading(false));
   }, [messageId]);
 
-  useEffect(() => {
-    const handleBack = event => {
-      event.preventDefault();
-      onCloseRef.current();
-    };
-    window.addEventListener('inboxora:back', handleBack);
-    return () => window.removeEventListener('inboxora:back', handleBack);
-  }, []);
+  useBackLayer(true, () => onCloseRef.current(), 5000);
 
   const handleCopy = () => {
     navigator.clipboard.writeText(headers || '');

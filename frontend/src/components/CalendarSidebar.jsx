@@ -1,3 +1,4 @@
+import { useBackLayer } from '../hooks/useBackNavigation.js';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { api } from '../utils/api.js';
 import { Button, Dialog } from './ui.jsx';
@@ -24,6 +25,7 @@ export default function CalendarSidebar({ anchor, calendars, visibleCalendarIds,
   const [form, setForm] = useState({ kind: 'ical_url', displayName: '', url: '', username: '', password: '', color: '#7c6af7', intervalMin: 60 });
   const [openCalendarMenu, setOpenCalendarMenu] = useState(null);
   const [calendarSaving, setCalendarSaving] = useState(false);
+  useBackLayer(openCalendarMenu, () => { if (!calendarSaving) setOpenCalendarMenu(null); }, 4510);
   const cells = useMemo(() => monthCells(anchor, weekStartsOn), [anchor, weekStartsOn]);
   const weekdays = useMemo(() => Array.from({ length: 7 }, (_, index) => new Date(2026, 0, 4 + ((index + weekStartsOn) % 7)).toLocaleDateString(locale, { weekday: 'short' })), [locale, weekStartsOn]);
   const isVisible = id => visibleCalendarIds == null || visibleCalendarIds.includes(id);

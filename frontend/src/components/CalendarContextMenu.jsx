@@ -1,7 +1,9 @@
+import { useBackLayer } from '../hooks/useBackNavigation.js';
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
 
 export default function CalendarContextMenu({ x, y, event, isMobile = false, onEdit, onDelete, onClose, triggerRef, t }) {
   const menuRef = useRef(null);
+  useBackLayer(true, onClose, 4000);
   const onCloseRef = useRef(onClose);
   const [position, setPosition] = useState({ x, y });
   const writable = event.source === 'local' && !event.read_only;

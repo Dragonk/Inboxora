@@ -4,6 +4,7 @@ import { useStore } from '../store/index.js';
 import { api } from '../utils/api.js';
 import { conversationApi } from '../utils/conversationApi.js';
 import { useWebSocket } from '../hooks/useWebSocket.js';
+import { useBackLayer, useBackNavigation } from '../hooks/useBackNavigation.js';
 import { useMobile } from '../hooks/useMobile.js';
 import { useCompactLayout } from '../hooks/useCompactLayout.js';
 import { Button } from './ui.jsx';
@@ -30,17 +31,6 @@ const WindowLayer  = lazy(() => import('./WindowLayer.jsx'));
 const ComposeModal = lazy(() => import('./ComposeModal.jsx'));
 const AdminPanel   = lazy(() => import('./AdminPanel.jsx'));
 const ElectronNotificationBridge = lazy(() => import('./ElectronNotificationBridge.jsx'));
-
-function dismissNestedMobileView() {
-  const event = new CustomEvent('inboxora:back', { cancelable: true });
-  window.dispatchEvent(event);
-  return event.defaultPrevented;
-}
-
-function isStandalonePwa() {
-  return window.navigator.standalone === true
-    || window.matchMedia?.('(display-mode: standalone)').matches === true;
-}
 
 // Read + atomically clear the deep-link the service worker persisted on a
 // notification tap (shared IndexedDB store 'mailflow-nav'). Fully guarded so any
@@ -147,7 +137,14 @@ export default function MailApp() {
   }, [accounts, openCompose]);
 
   useEffect(() => {
-    if (!conversationReaderViewEnabled || !selectedMessageId) return undefined;
+    if (!conversationReaderViewEnabled || !selectedMessageId) {
+      setConversationId(null);
+      setTargetLogicalMessageId(null);
+      setSelectedConversationCopy(null);
+      setNativeThreadId(null);
+      setNativeFolder(null);
+      return undefined;
+    }
     let cancelled = false;
     // The selected physical copy is the canonical selection. Resolve its CE identity
     // independently of which list path produced the click (flat, ThreadRow parent or child).
@@ -423,63 +420,22 @@ export default function MailApp() {
     document.addEventListener('mouseup', onMouseUp);
   };
 
-  // Push a history entry when an email is opened on mobile so that the browser's
-  // native back gesture (iOS swipe, Android back button) pops an in-app state
-  // instead of leaving Inboxora entirely.
-  const prevMessageIdRef = useRef(selectedMessageId);
-
-  useEffect(() => {
-    if (!isMobile) return;
-    const prev = prevMessageIdRef.current;
-    prevMessageIdRef.current = selectedMessageId;
-    if (selectedMessageId && !prev) {
-      history.pushState({ inboxora: 'message' }, '', '/');
-    }
-  }, [isMobile, selectedMessageId]);
-
-  useEffect(() => {
-    if (!isMobile) return;
-    // In standalone PWA mode (iOS home-screen install), push a guard entry on
-    // startup so there is always at least one history entry above the baseline.
-    // The handler re-pushes it after every popstate so back swipes always land
-    // inside the app rather than exiting the PWA and showing a blank Safari page.
-    if (isStandalonePwa() && history.state?.inboxora !== 'guard') {
-      history.pushState({ inboxora: 'guard' }, '', '/');
-    }
-    const handler = (event) => {
-      const state = useStore.getState();
-      // Browser/PWA Back must dismiss app-owned layers before it is allowed to
-      // reach the browser history baseline. Native Android performs the same
-      // order through __inboxoraHandleAndroidBack below.
-      if (dismissNestedMobileView()) {
-        // A visible subview restored its own parent screen. Do not also close
-        // the destination below it.
-      } else if (state.composing) {
-        state.closeCompose();
-      } else if (state.showAdmin) {
-        setShowAdmin(false);
-      } else if (state.mobileSidebarOpen) {
-        setMobileSidebarOpen(false);
-      } else if (state.showContacts) {
-        setShowContacts(false);
-      } else if (state.showCalendar) {
-        setShowCalendar(false);
-      } else if (conversationReaderViewEnabled && conversationId) {
-        setConversationId(null);
-        setTargetLogicalMessageId(null);
-      } else if (selectedMessageIdRef.current) {
-        setSelectedMessage(null);
-      }
-      // Backing out of a message lands on the existing guard entry. Re-pushing
-      // during that popstate can make iOS PWA history gestures temporarily stop
-      // delivering taps, so only re-arm when the user has backed past the guard.
-      if (isStandalonePwa() && event.state?.inboxora !== 'guard') {
-        history.pushState({ inboxora: 'guard' }, '', '/');
-      }
-    };
-    window.addEventListener('popstate', handler);
-    return () => window.removeEventListener('popstate', handler);
-  }, [conversationId, conversationReaderViewEnabled, isMobile, setMobileSidebarOpen, setSelectedMessage, setShowAdmin, setShowCalendar, setShowContacts]);
+  const closeReader = useCallback(() => {
+    // Clear the canonical physical selection AND every derived reader identity.
+    // Clearing only CE identity leaves the native reader visible after Back.
+    setSelectedMessage(null);
+    setConversationId(null);
+    setTargetLogicalMessageId(null);
+    setSelectedConversationCopy(null);
+    setNativeThreadId(null);
+    setNativeFolder(null);
+  }, [setSelectedMessage]);
+  useBackNavigation(isMobile);
+  useBackLayer(readerOpen && !showContacts && !showCalendar, closeReader, 10);
+  useBackLayer(showContacts, () => setShowContacts(false), 20);
+  useBackLayer(showCalendar, () => setShowCalendar(false), 20);
+  useBackLayer(mobileSidebarOpen, () => setMobileSidebarOpen(false), 1300);
+  useBackLayer(showAdmin, () => setShowAdmin(false), 2000);
 
   const wsRef = useWebSocket();
 
@@ -670,75 +626,12 @@ export default function MailApp() {
   useEffect(() => { showAdminRef.current  = showAdmin;  }, [showAdmin]);
 
   const mobileSidebarOpenRef = useRef(mobileSidebarOpen);
-  const showContactsRef = useRef(showContacts);
-  const showCalendarRef = useRef(showCalendar);
-  const showShortcutHelpRef = useRef(showShortcutHelp);
-  const paletteOpenRef = useRef(paletteOpen);
   useEffect(() => {
     if (mobileSidebarOpenRef.current && !mobileSidebarOpen) document.querySelector('[data-testid="mobile-topbar-menu"]')?.focus();
     mobileSidebarOpenRef.current = mobileSidebarOpen;
   }, [mobileSidebarOpen]);
-  useEffect(() => { showContactsRef.current = showContacts; }, [showContacts]);
-  useEffect(() => { showCalendarRef.current = showCalendar; }, [showCalendar]);
-  useEffect(() => { showShortcutHelpRef.current = showShortcutHelp; }, [showShortcutHelp]);
-  useEffect(() => { paletteOpenRef.current = paletteOpen; }, [paletteOpen]);
-
-  useEffect(() => {
-    window.__inboxoraHandleAndroidBack = () => {
-      if (dismissNestedMobileView()) return true;
-
-      if (composingRef.current) {
-        useStore.getState().closeCompose();
-        return true;
-      }
-
-      if (showAdminRef.current) {
-        setShowAdmin(false);
-        return true;
-      }
-
-      if (paletteOpenRef.current) {
-        setPaletteOpen(false);
-        return true;
-      }
-
-      if (showShortcutHelpRef.current) {
-        setShowShortcutHelp(false);
-        return true;
-      }
-
-      if (mobileSidebarOpenRef.current) {
-        setMobileSidebarOpen(false);
-        return true;
-      }
-
-      if (showContactsRef.current) {
-        setShowContacts(false);
-        return true;
-      }
-
-      if (showCalendarRef.current) {
-        setShowCalendar(false);
-        return true;
-      }
-
-      if (conversationReaderViewEnabled && conversationId) {
-        setConversationId(null);
-        setTargetLogicalMessageId(null);
-        return true;
-      }
-      if (selectedMessageIdRef.current) {
-        setSelectedMessage(null);
-        return true;
-      }
-
-      return false;
-    };
-
-    return () => {
-      if (window.__inboxoraHandleAndroidBack) delete window.__inboxoraHandleAndroidBack;
-    };
-  }, [conversationId, conversationReaderViewEnabled, setMobileSidebarOpen, setSelectedMessage, setShowAdmin, setShowCalendar, setShowContacts]);
+  useBackLayer(showShortcutHelp, () => setShowShortcutHelp(false), 6000);
+  useBackLayer(paletteOpen, () => setPaletteOpen(false), 9500);
 
   useEffect(() => {
     if (isMobile) return;
@@ -966,7 +859,7 @@ export default function MailApp() {
             <MessageList />
           </div>
           <div data-ce-reader-pane="true" style={{ flex: 1, display: !showContacts && !showCalendar && (selectedMessageId || (conversationReaderViewEnabled && conversationId)) ? 'flex' : 'none', overflow: 'hidden', height: '100%', minWidth: 0 }}>
-            <MessagePane mode={conversationReaderViewEnabled && (conversationId || nativeThreadId) ? 'conversation' : 'single'} conversationId={conversationId} targetLogicalMessageId={targetLogicalMessageId} selectedConversationCopy={selectedConversationCopy} nativeThreadId={nativeThreadId} nativeFolder={nativeFolder} onReply={replyFromConversation} onNativeThreadUnavailable={handleNativeThreadUnavailable} onMobileBack={() => { if (conversationReaderViewEnabled && conversationId) { setConversationId(null); setTargetLogicalMessageId(null); } else setSelectedMessage(null); }} />
+            <MessagePane mode={conversationReaderViewEnabled && (conversationId || nativeThreadId) ? 'conversation' : 'single'} conversationId={conversationId} targetLogicalMessageId={targetLogicalMessageId} selectedConversationCopy={selectedConversationCopy} nativeThreadId={nativeThreadId} nativeFolder={nativeFolder} onReply={replyFromConversation} onNativeThreadUnavailable={handleNativeThreadUnavailable} onMobileBack={closeReader} />
           </div>
           {mobileProfileOpen && <ProfileModal onClose={() => setMobileProfileOpen(false)} />}
           </div>
@@ -1020,8 +913,8 @@ export default function MailApp() {
                 />
               )}
               <div data-ce-reader-pane="true" style={{ flex: 1, minWidth: 0, overflow: 'hidden', height: '100%', display: compactMail && !readerOpen ? 'none' : 'flex', flexDirection: 'column' }}>
-                {compactMail && <div className="tablet-reader-back"><Button variant="ghost" onClick={() => { setConversationId(null); setTargetLogicalMessageId(null); setSelectedMessage(null); }} aria-label={t('mailApp.back')}>‹ {t('mailApp.back')}</Button></div>}
-                <MessagePane mode={conversationReaderViewEnabled && (conversationId || nativeThreadId) ? 'conversation' : 'single'} conversationId={conversationId} targetLogicalMessageId={targetLogicalMessageId} selectedConversationCopy={selectedConversationCopy} nativeThreadId={nativeThreadId} nativeFolder={nativeFolder} onReply={replyFromConversation} onNativeThreadUnavailable={handleNativeThreadUnavailable} onMobileBack={() => { if (conversationReaderViewEnabled && conversationId) { setConversationId(null); setTargetLogicalMessageId(null); } else setSelectedMessage(null); }} />
+                {compactMail && <div className="tablet-reader-back"><Button variant="ghost" onClick={closeReader} aria-label={t('common.back')}>‹ {t('common.back')}</Button></div>}
+                <MessagePane mode={conversationReaderViewEnabled && (conversationId || nativeThreadId) ? 'conversation' : 'single'} conversationId={conversationId} targetLogicalMessageId={targetLogicalMessageId} selectedConversationCopy={selectedConversationCopy} nativeThreadId={nativeThreadId} nativeFolder={nativeFolder} onReply={replyFromConversation} onNativeThreadUnavailable={handleNativeThreadUnavailable} onMobileBack={closeReader} />
               </div>
               {/* Generic right-sidebar column, populated from the content seam above. */}
               {currentLayout.direction === 'row' && rightSidebarContent != null && (

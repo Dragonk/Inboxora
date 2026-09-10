@@ -1,3 +1,4 @@
+import { useBackLayer } from '../hooks/useBackNavigation.js';
 /* eslint-disable no-unused-vars */
 import { useEffect, useLayoutEffect, useState, useRef, useCallback, useMemo, lazy, Suspense } from 'react';
 import { useTranslation } from 'react-i18next';
@@ -307,6 +308,7 @@ export default function MessagePane({ windowMessageId = null, onWindowClose = nu
   const [movePickerLoading, setMovePickerLoading] = useState(false);
   const [contextMenu, setContextMenu] = useState(null);
   const [findDialogOpen, setFindDialogOpen] = useState(false);
+  useBackLayer(findDialogOpen, () => setFindDialogOpen(false), 3000);
   const [findQuery, setFindQuery] = useState('');
   const [findMatchCase, setFindMatchCase] = useState(false);
   const [findMatchIndex, setFindMatchIndex] = useState(-1);
@@ -1859,7 +1861,7 @@ ${bodyContent}
             borderBottom: '1px solid var(--border-subtle)',
             background: 'var(--bg-secondary)', flexShrink: 0,
           }}>
-            <button onClick={goBackToMobileList} style={{ background: 'transparent', border: 'none', cursor: 'pointer', padding: 4, display: 'flex', alignItems: 'center' }} aria-label={t('mailApp.back')}>
+            <button onClick={goBackToMobileList} style={{ background: 'transparent', border: 'none', cursor: 'pointer', padding: 4, display: 'flex', alignItems: 'center' }} aria-label={t('common.back')}>
               <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><polyline points="15 18 9 12 15 6"/></svg>
             </button>
           </div>
