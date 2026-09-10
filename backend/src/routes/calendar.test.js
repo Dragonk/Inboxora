@@ -1,3 +1,4 @@
+import { outlookCalendar } from '../test/fixtures/outlookCalendar.js';
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import 'express-async-errors';
 
@@ -886,4 +887,13 @@ describe('local calendar API', () => {
     expect(query.mock.calls.filter(([sql]) => sql.includes('UPDATE calendar_events')).length).toBe(1);
   });
 
+});
+
+it('recovers metadata for already imported events without returning the raw ICS', async () => {
+  query.mockResolvedValue({ rows: [] }).mockResolvedValueOnce({ rows: [{ id: 'event-1', description: null, location: null, attendees: [], starts_at: '2026-09-10T07:00:00Z', raw_ical: outlookCalendar('09', 'DESCRIPTION:Existing agenda\r\nLOCATION:Office\r\nATTENDEE:mailto:jane@example.test\r\n') }] });
+  const response = await fetch(`${base}/api/calendar/events?from=2026-09-01&to=2026-10-01`);
+  expect(response.status).toBe(200);
+  const { events } = await response.json();
+  expect(events[0]).toMatchObject({ description: 'Existing agenda', location: 'Office', attendees: ['jane@example.test'] });
+  expect(events[0]).not.toHaveProperty('raw_ical');
 });

@@ -377,3 +377,15 @@ describe('CalDAV calendar objects', () => {
     expect(query.mock.calls[2][0]).toContain('AND invite_account_id IS NULL');
   });
 });
+
+ it('maps folded event metadata and quoted participant parameters through DAV PUT', async () => {
+  authenticateDavCredential.mockResolvedValue({ userId: 'user-1', credentialId: 'credential-1' });
+  query.mockResolvedValueOnce({ rows: [{ id: 'calendar-1', source: 'local', read_only: false }] })
+    .mockResolvedValueOnce({ rows: [] }).mockResolvedValueOnce({ rows: [{ uid: 'synthetic-exchange-event', etag: 'mapped' }] });
+  const raw = outlookCalendar('09', 'DESCRIPTION:First line\\nSecond \r\n line\r\nLOCATION:Room\\, A\r\nURL:https://example.test/meeting\r\nORGANIZER;CN="Team: Europe":mailto:team@example.test\r\nATTENDEE;CN="Doe; Jane":mailto:jane@example.test\r\n');
+  const event = parseCalendarEvent(raw);
+  expect(event).toMatchObject({ description: 'First line\nSecond line', location: 'Room, A', url: 'https://example.test/meeting', organizer: 'team@example.test', attendees: ['jane@example.test'] });
+  const response = await fetch(`${base}/caldav/user-1/calendar-1/synthetic-exchange-event.ics`, { method: 'PUT', headers: { authorization: basic('sam@example.test', 'test-dav-password') }, body: raw });
+  expect(response.status).toBe(201);
+  expect(query.mock.calls[2][1].slice(-5)).toEqual([event.description, event.location, event.url, event.organizer, JSON.stringify(event.attendees)]);
+ });

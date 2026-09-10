@@ -1,3 +1,4 @@
+import { parseCalendarEvent } from '../utils/ical.js';
 import { Router } from 'express';
 import crypto from 'crypto';
 import { query, withTransaction } from '../services/db.js';
@@ -298,7 +299,7 @@ router.get('/events', async (req, res) => {
     return res.status(400).json({ error: 'The requested event range is too large' });
   }
   const result = await query(
-    `SELECT e.id, e.calendar_id, e.uid, e.recurrence_id, e.etag, e.summary, e.description,
+    `SELECT e.id, e.calendar_id, e.uid, e.recurrence_id, e.etag, e.summary, e.description, e.raw_ical,
             e.location, e.url, e.organizer, e.starts_at, e.ends_at, e.all_day, e.timezone, e.attendees, e.invite_account_id, e.invitation_sequence,
             c.name AS calendar_name, c.color AS calendar_color, c.source, c.read_only
      FROM calendar_events e
@@ -315,7 +316,16 @@ router.get('/events', async (req, res) => {
   const contactEvents = contactDateEvents(contactResult?.rows || [], from, to).map(event => ({
     ...event, calendar_name: appearance.name || event.calendar_name, calendar_custom_name: Boolean(appearance.name), calendar_color: appearance.color || event.calendar_color,
   }));
-  const events = [...result.rows, ...contactEvents]
+  // Older imports retain metadata in raw_ical even though their columns are empty.
+  const mappedEvents = result.rows.map(({ raw_ical, ...event }) => {
+    const parsed = raw_ical && parseCalendarEvent(raw_ical);
+    if (!parsed) return event;
+    return { ...event, description: event.description ?? parsed.description,
+      location: event.location ?? parsed.location, url: event.url ?? parsed.url,
+      organizer: event.organizer ?? parsed.organizer,
+      attendees: event.attendees?.length ? event.attendees : parsed.attendees };
+  });
+  const events = [...mappedEvents, ...contactEvents]
     .sort((left, right) => new Date(left.starts_at) - new Date(right.starts_at));
   res.json({ events });
 });

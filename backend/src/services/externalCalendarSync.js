@@ -6,7 +6,7 @@ import { query } from './db.js';
 import { decrypt } from './encryption.js';
 import { safeFetch } from './safeFetch.js';
 import { getConnectionPolicy } from './connectionPolicy.js';
-import { parseCalendarEvent } from '../routes/caldav.js';
+import { parseCalendarEvent } from '../utils/ical.js';
 
 const parser = new XMLParser({ ignoreAttributes: false, removeNSPrefix: true, trimValues: false });
 const syncing = new Set();
@@ -127,12 +127,13 @@ async function syncSource(source) {
       seen.push(event.uid);
       const etag = crypto.createHash('sha256').update(event.raw).digest('hex');
       await query(
-        `INSERT INTO calendar_events (calendar_id, user_id, uid, raw_ical, etag, summary, starts_at, ends_at, all_day, timezone)
-         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)
+        `INSERT INTO calendar_events (calendar_id, user_id, uid, raw_ical, etag, summary, starts_at, ends_at, all_day, timezone, description, location, url, organizer, attendees)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15::jsonb)
          ON CONFLICT (calendar_id, uid, recurrence_id) DO UPDATE SET raw_ical = EXCLUDED.raw_ical,
            etag = EXCLUDED.etag, summary = EXCLUDED.summary, starts_at = EXCLUDED.starts_at, ends_at = EXCLUDED.ends_at,
-           all_day = EXCLUDED.all_day, timezone = EXCLUDED.timezone, updated_at = NOW()`,
-        [calendarId, source.user_id, event.uid, event.raw, etag, event.summary, event.startsAt, event.endsAt, event.allDay, event.timeZone],
+           all_day = EXCLUDED.all_day, timezone = EXCLUDED.timezone, description = EXCLUDED.description,
+           location = EXCLUDED.location, url = EXCLUDED.url, organizer = EXCLUDED.organizer, attendees = EXCLUDED.attendees, updated_at = NOW()`,
+        [calendarId, source.user_id, event.uid, event.raw, etag, event.summary, event.startsAt, event.endsAt, event.allDay, event.timeZone, event.description, event.location, event.url, event.organizer, JSON.stringify(event.attendees)],
       );
     }
     throwIfRemoved(state);

@@ -168,6 +168,16 @@ describe('external calendar imports', () => {
     await expect(syncCalendarSource('user-1', replacement.id)).resolves.toEqual({ ok: true, eventCount: 1 });
   });
 
+
+it('persists the full visible metadata on external synchronization', async () => {
+  query.mockResolvedValue({ rows: [] }).mockResolvedValueOnce({ rows: [source] }).mockResolvedValueOnce({ rows: [{ id: 'calendar-work' }] });
+  safeFetch.mockResolvedValue({ ok: true, text: vi.fn().mockResolvedValue(outlookCalendar('09', 'DESCRIPTION:Agenda\r\nLOCATION:Office\r\nURL:https://example.test/join\r\nORGANIZER:mailto:team@example.test\r\nATTENDEE:mailto:jane@example.test\r\n')) });
+  expect((await syncCalendarSource('user-1', 'source-1')).ok).toBe(true);
+  const insert = query.mock.calls.find(([sql]) => sql.includes('INSERT INTO calendar_events'));
+  expect(insert[1].slice(-5)).toEqual(['Agenda', 'Office', 'https://example.test/join', 'team@example.test', '["jane@example.test"]']);
+  expect(insert[0]).toContain('description = EXCLUDED.description');
+});
+
   it('aborts an in-flight fetch when the source is stopped without persisting removal as an error', async () => {
     query.mockResolvedValueOnce({ rows: [source] }).mockResolvedValue({ rows: [] });
     safeFetch.mockImplementation((_url, { signal }) => new Promise((_resolve, reject) => {
