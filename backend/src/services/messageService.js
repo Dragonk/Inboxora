@@ -95,11 +95,11 @@ export async function listMessages({ userId, accountId, folder = 'INBOX', limit 
     // (Inbox+Sent+Inbox) — a silent mismatch between the list and the reader.
     const threadResult = await query(`
       WITH paged_threads AS (
-        SELECT ${threadIdentityExpr} AS thread_id
+        SELECT m.account_id, m.thread_key
         FROM messages m
         WHERE ${where}
-        GROUP BY ${threadIdentityExpr}
-        ORDER BY MAX(m.date) DESC
+        GROUP BY m.account_id, m.thread_key
+        ORDER BY MAX(m.date) DESC, m.account_id, m.thread_key
         LIMIT $${p + 1} OFFSET $${p + 2}
       ),
       deduped AS MATERIALIZED (
@@ -118,12 +118,12 @@ export async function listMessages({ userId, accountId, folder = 'INBOX', limit 
                a.color AS account_color,
                (co.id IS NOT NULL) AS has_contact_photo
         FROM messages m
+        JOIN paged_threads pt ON pt.account_id = m.account_id AND pt.thread_key = m.thread_key
         JOIN email_accounts a ON m.account_id = a.id
         LEFT JOIN contacts co ON co.user_id = a.user_id
                               AND co.primary_email = lower(m.from_email)
                               AND co.photo_data IS NOT NULL
         WHERE ${where}
-          AND ${threadIdentityExpr} IN (SELECT thread_id FROM paged_threads)
         ORDER BY m.account_id,
                  m.thread_key,
                  COALESCE(NULLIF(btrim(m.message_id), ''), '__physical__:' || m.id::text),
@@ -137,9 +137,9 @@ export async function listMessages({ userId, accountId, folder = 'INBOX', limit 
                -- fall back to their physical message ID so they remain visible/countable.
                COUNT(DISTINCT COALESCE(NULLIF(btrim(m.message_id), ''), '__physical__:' || m.id::text))::int AS message_count
         FROM messages m
+        JOIN paged_threads pt ON pt.account_id = m.account_id AND pt.thread_key = m.thread_key
         WHERE m.account_id = ANY($${p})
           AND m.is_deleted = false
-          AND ${threadIdentityExpr} IN (SELECT thread_id FROM paged_threads)
         GROUP BY ${threadIdentityExpr}
       ),
       ranked AS (
@@ -175,9 +175,13 @@ export async function listMessages({ userId, accountId, folder = 'INBOX', limit 
     `, [...filterValues, threadAccountParam, safeLimit, safeOffset]);
 
     const threadCountResult = await query(`
-      SELECT COUNT(DISTINCT ${threadIdentityExpr})::int AS total
-      FROM messages m
-      WHERE ${where}
+      SELECT COUNT(*)::int AS total
+      FROM (
+        SELECT m.account_id, m.thread_key
+        FROM messages m
+        WHERE ${where}
+        GROUP BY m.account_id, m.thread_key
+      ) counted_threads
     `, filterValues);
 
     return {

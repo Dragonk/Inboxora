@@ -221,7 +221,8 @@ describe('listMessages — threaded mode', () => {
     expect(cteSql).toContain("m.account_id::text || ':' || m.thread_key");
     expect(cteSql).toContain('m.thread_key,');
     expect(cteSql).toContain('PARTITION BY d.thread_id');
-    expect(countSql).toContain("COUNT(DISTINCT (m.account_id::text || ':' || m.thread_key))");
+    expect(countSql).toContain('GROUP BY m.account_id, m.thread_key');
+    expect(cteSql).toContain('pt.account_id = m.account_id AND pt.thread_key = m.thread_key');
   });
 });
 
