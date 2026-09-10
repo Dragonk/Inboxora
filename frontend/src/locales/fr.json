@@ -1834,7 +1834,13 @@
     "retrySave": "Réessayer l’enregistrement",
     "syncSkipped": "Événements ignorés : {{count}}. Les autres ont été synchronisés.",
     "syncFailed": "La synchronisation du calendrier a échoué.",
-    "syncDetails": "Détails du diagnostic"
+    "syncDetails": "Détails du diagnostic",
+    "mailInvitation": "Invitation calendrier",
+    "addInvitation": "Ajouter au calendrier",
+    "invitationAdded": "Ajouté au calendrier",
+    "invitationCancelled": "Cet événement a été annulé",
+    "invitationLocalCopy": "Enregistre l’événement sans envoyer de réponse à l’organisateur.",
+    "invitationLoadFailed": "Impossible de charger ou d’enregistrer l’invitation."
   },
   "mailFolders": {
     "inbox": "Boîte de réception",

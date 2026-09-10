@@ -1,3 +1,4 @@
+import { outlookCalendar } from '../test/fixtures/outlookCalendar.js';
 import { describe, expect, it } from 'vitest';
 import { parseInboundCalendarInvitation } from './inboundCalendarInvitation.js';
 
@@ -65,4 +66,9 @@ describe('inbound calendar invitations', () => {
     expect(parseInboundCalendarInvitation(request.replace('END:VEVENT', 'BEGIN:VALARM\r\nEND:VCALENDAR\r\nEND:VEVENT'))).toBeNull();
     expect(parseInboundCalendarInvitation(request.replace('ATTENDEE:mailto:sam@example.test', 'ATTENDEE:mailto:sam@example.test\r\nBEGIN:VALARM\r\nSUMMARY:Nested alarm must not become event metadata\r\nEND:VALARM'))).toMatchObject({ summary: null, uid: 'meeting-123' });
   });
+});
+
+it('recognizes Exchange REQUESTs with explicit DATE-TIME and quoted participant names', () => {
+  const raw = outlookCalendar('09', 'DTSTAMP:20260901T090000Z\r\nORGANIZER;CN="Team: Europe":mailto:team@example.test\r\nATTENDEE:mailto:jane@example.test\r\n').replace('VERSION:2.0', 'VERSION:2.0\r\nMETHOD:REQUEST');
+  expect(parseInboundCalendarInvitation(raw)).toMatchObject({ method: 'REQUEST', startsAt: new Date('2026-09-10T07:00:00Z'), organizer: 'mailto:team@example.test' });
 });

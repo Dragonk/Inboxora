@@ -22,7 +22,7 @@ function unfoldICalendarLines(raw) {
   return lines;
 }
 
-function propertyFromLine(line) {
+export function propertyFromLine(line) {
   let quoted = false;
   let separator = -1;
   for (let i = 0; i < line.length; i++) {

@@ -1834,7 +1834,13 @@
     "retrySave": "Znovu uložit",
     "syncSkipped": "Vynechané události: {{count}}. Ostatní byly synchronizovány.",
     "syncFailed": "Synchronizace kalendáře se nezdařila.",
-    "syncDetails": "Diagnostické podrobnosti"
+    "syncDetails": "Diagnostické podrobnosti",
+    "mailInvitation": "Pozvánka do kalendáře",
+    "addInvitation": "Přidat do kalendáře",
+    "invitationAdded": "Přidáno do kalendáře",
+    "invitationCancelled": "Tato událost byla zrušena",
+    "invitationLocalCopy": "Uloží událost bez odeslání odpovědi organizátorovi.",
+    "invitationLoadFailed": "Pozvánku se nepodařilo načíst nebo uložit."
   },
   "mailFolders": {
     "inbox": "Doručená pošta",

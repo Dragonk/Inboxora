@@ -1,3 +1,4 @@
+import { requireCompleteMultistatus, decodeDavCharRefs } from '../utils/davXml.js';
 // Pull-only external CalDAV/iCalendar import. Remote data is never modified and
 // failures are recorded per source so one unavailable server cannot block others.
 import crypto from 'crypto';
@@ -56,10 +57,12 @@ async function fetchEvents(source, policy, signal, secretSink) {
     return { payloads: calendarPayloads(sourceDocument), sourceDocument };
   }
   const body = `<?xml version="1.0" encoding="utf-8"?><C:calendar-query xmlns="DAV:" xmlns:C="urn:ietf:params:xml:ns:caldav"><prop><getetag/><C:calendar-data/></prop><C:filter><C:comp-filter name="VCALENDAR"><C:comp-filter name="VEVENT"/></C:comp-filter></C:filter></C:calendar-query>`;
-  const xml = parser.parse(await remoteFetch(source, { method: 'REPORT', headers: { 'Content-Type': 'application/xml; charset=utf-8', Depth: '1' }, body }, policy, signal, secretSink));
+  const rawXml = await remoteFetch(source, { method: 'REPORT', headers: { 'Content-Type': 'application/xml; charset=utf-8', Depth: '1' }, body }, policy, signal, secretSink);
+  const xml = parser.parse(rawXml);
+  requireCompleteMultistatus(rawXml, xml);
   const payloads = [];
   for (const response of toArray(xml?.multistatus?.response)) {
-    const data = textOf(propsOf(response)['calendar-data']);
+    const data = decodeDavCharRefs(textOf(propsOf(response)['calendar-data']));
     if (data) payloads.push(data);
   }
   return { payloads, sourceDocument: null };

@@ -35,11 +35,7 @@ function escapeValue(str) {
 // Unescape a vCard property value.
 function unescapeValue(str) {
   if (!str) return '';
-  return str
-    .replace(/\\n/gi, '\n')
-    .replace(/\\,/g, ',')
-    .replace(/\\;/g, ';')
-    .replace(/\\\\/g, '\\');
+  return str.replace(/\\([\\;,nN])/g, (_match, escaped) => escaped.toLowerCase() === 'n' ? '\n' : escaped);
 }
 
 // Split structured or list values without treating escaped delimiters as
@@ -206,6 +202,8 @@ export function parseVCard(raw) {
     }
   };
 
+  let preferredEmail = -1;
+  let preferredRank = Infinity;
   const groupedLabels = new Map();
   for (const line of text.split(/\r?\n/)) {
     const trimmed = line.trim();
@@ -247,7 +245,7 @@ export function parseVCard(raw) {
         break;
       case 'N': {
         // N:Last;First;Additional;Prefix;Suffix
-        const parts = value.split(';').map(p => unescapeValue(p).trim());
+        const parts = splitEscaped(value, ';').map(p => unescapeValue(p).trim());
         result.lastName  = parts[0] || null;
         result.firstName = parts[1] || null;
         break;
@@ -257,13 +255,15 @@ export function parseVCard(raw) {
         if (emailVal) {
           const typeMatch = params.match(/TYPE=([^;]+)/i);
           const type = typeMatch ? typeMatch[1].toLowerCase().replace(/["']/g, '') : 'other';
-          const isPrimary = result.emails.length === 0;
-          result.emails.push({ value: emailVal, type, primary: isPrimary });
+          const pref = /(?:^|;)PREF="?(\d+)/i.exec(params);
+          const rank = pref && Number(pref[1]) >= 1 && Number(pref[1]) <= 100 ? Number(pref[1]) : /(?:^|[;,])PREF(?:[,;]|$)/i.test(params) || /TYPE=[^;]*\bPREF\b/i.test(params) ? 1 : Infinity;
+          if (preferredEmail < 0 || rank < preferredRank) { preferredEmail = result.emails.length; preferredRank = rank; }
+          result.emails.push({ value: emailVal, type: type.split(',').filter(part => part !== 'pref').join(',') || 'other', primary: false });
         }
         break;
       }
       case 'TEL': {
-        const phoneVal = unescapeValue(value).trim();
+        const phoneVal = unescapeValue(value).trim().replace(/^tel:/i, '');
         if (phoneVal) {
           const typeMatch = params.match(/TYPE=([^;]+)/i);
           const type = typeMatch ? typeMatch[1].toLowerCase().replace(/["']/g, '') : 'other';
@@ -272,7 +272,7 @@ export function parseVCard(raw) {
         break;
       }
       case 'ORG':
-        result.organization = unescapeValue(value.split(';')[0]).trim() || null;
+        result.organization = unescapeValue(splitEscaped(value, ';')[0]).trim() || null;
         break;
       case 'NOTE':
         result.notes = unescapeValue(value).trim() || null;
@@ -347,6 +347,7 @@ export function parseVCard(raw) {
     }
   }
 
+  if (preferredEmail >= 0) result.emails[preferredEmail].primary = true;
   return result;
 }
 
@@ -393,7 +394,7 @@ export function generateVCard(contact) {
 
   for (const e of emails) {
     const type = escapeParam((e.type || 'other').toUpperCase());
-    lines.push(`EMAIL;TYPE=${type}:${escapeValue(e.value || '')}`);
+    lines.push(`EMAIL;TYPE=${type}${e.primary ? ",PREF" : ""}:${escapeValue(e.value || '')}`);
   }
 
   for (const p of phones) {

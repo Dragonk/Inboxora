@@ -1834,7 +1834,13 @@
     "retrySave": "Ponów zapis",
     "syncSkipped": "Pominięte wydarzenia: {{count}}. Pozostałe zostały zsynchronizowane.",
     "syncFailed": "Synchronizacja kalendarza nie powiodła się.",
-    "syncDetails": "Szczegóły diagnostyczne"
+    "syncDetails": "Szczegóły diagnostyczne",
+    "mailInvitation": "Zaproszenie do kalendarza",
+    "addInvitation": "Dodaj do kalendarza",
+    "invitationAdded": "Dodano do kalendarza",
+    "invitationCancelled": "Wydarzenie zostało odwołane",
+    "invitationLocalCopy": "Zapisuje wydarzenie bez wysyłania odpowiedzi organizatorowi.",
+    "invitationLoadFailed": "Nie udało się odczytać lub zapisać zaproszenia."
   },
   "mailFolders": {
     "inbox": "Odebrane",

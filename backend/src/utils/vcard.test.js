@@ -193,3 +193,15 @@ describe('vCard rich contact fields', () => {
     expect(parsed.urls).toEqual([{ value: 'https://example.test/safe', type: 'other' }]);
   });
 });
+
+it('preserves structured escapes, literal backslashes and the preferred address on a DAV round trip', () => {
+ const raw = ['BEGIN:VCARD', 'VERSION:3.0', 'UID:mapping', 'N:Doe\\;Smith;Jane;;;', 'ORG:Example\\; Group;Department', 'NOTE:literal \\\\n and newline\\nnext', 'EMAIL;TYPE=HOME:home@example.test', 'EMAIL;TYPE=WORK,PREF:work@example.test', 'TEL;VALUE=uri:tel:+48123456789', 'END:VCARD'].join('\r\n');
+ const contact = parseVCard(raw);
+ expect(contact.lastName).toBe('Doe;Smith'); expect(contact.organization).toBe('Example; Group');
+ expect(contact.notes).toBe('literal \\n and newline\nnext');
+ expect(contact.emails.map(item => item.primary)).toEqual([false, true]);
+ expect(contact.phones[0].value).toBe('+48123456789');
+ expect(parseVCard(generateVCard(contact)).emails).toEqual(contact.emails);
+ const v4 = raw.replace('TYPE=WORK,PREF', 'TYPE=WORK;PREF=1');
+ expect(parseVCard(v4).emails[1].primary).toBe(true);
+});

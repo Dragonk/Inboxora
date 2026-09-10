@@ -1834,7 +1834,13 @@
     "retrySave": "Speichern erneut versuchen",
     "syncSkipped": "Übersprungene Termine: {{count}}. Die übrigen wurden synchronisiert.",
     "syncFailed": "Kalendersynchronisierung fehlgeschlagen.",
-    "syncDetails": "Diagnosedetails"
+    "syncDetails": "Diagnosedetails",
+    "mailInvitation": "Kalendereinladung",
+    "addInvitation": "Zum Kalender hinzufügen",
+    "invitationAdded": "Zum Kalender hinzugefügt",
+    "invitationCancelled": "Diese Veranstaltung wurde abgesagt",
+    "invitationLocalCopy": "Speichert den Termin, ohne dem Organisator zu antworten.",
+    "invitationLoadFailed": "Die Einladung konnte nicht geladen oder gespeichert werden."
   },
   "mailFolders": {
     "inbox": "Posteingang",

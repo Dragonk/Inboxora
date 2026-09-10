@@ -1834,7 +1834,13 @@
     "retrySave": "重试保存",
     "syncSkipped": "已跳过 {{count}} 个事件，其余事件已同步。",
     "syncFailed": "日历同步失败。",
-    "syncDetails": "诊断详情"
+    "syncDetails": "诊断详情",
+    "mailInvitation": "日历邀请",
+    "addInvitation": "添加到日历",
+    "invitationAdded": "已添加到日历",
+    "invitationCancelled": "此活动已取消",
+    "invitationLocalCopy": "保存活动，但不向组织者发送回复。",
+    "invitationLoadFailed": "无法加载或保存邀请。"
   },
   "mailFolders": {
     "inbox": "收件箱",

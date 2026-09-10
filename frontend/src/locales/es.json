@@ -1834,7 +1834,13 @@
     "retrySave": "Reintentar guardar",
     "syncSkipped": "Eventos omitidos: {{count}}. Los demás se han sincronizado.",
     "syncFailed": "Error al sincronizar el calendario.",
-    "syncDetails": "Detalles del diagnóstico"
+    "syncDetails": "Detalles del diagnóstico",
+    "mailInvitation": "Invitación de calendario",
+    "addInvitation": "Añadir al calendario",
+    "invitationAdded": "Añadido al calendario",
+    "invitationCancelled": "Este evento se ha cancelado",
+    "invitationLocalCopy": "Guarda el evento sin enviar una respuesta al organizador.",
+    "invitationLoadFailed": "No se pudo cargar o guardar la invitación."
   },
   "mailFolders": {
     "inbox": "Recibidos",

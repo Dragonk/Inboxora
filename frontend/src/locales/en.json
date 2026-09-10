@@ -1834,7 +1834,13 @@
     "retrySave": "Retry save",
     "syncSkipped": "Skipped events: {{count}}. Other events were synchronized.",
     "syncFailed": "Calendar synchronization failed.",
-    "syncDetails": "Diagnostic details"
+    "syncDetails": "Diagnostic details",
+    "mailInvitation": "Calendar invitation",
+    "addInvitation": "Add to calendar",
+    "invitationAdded": "Added to calendar",
+    "invitationCancelled": "This event has been cancelled",
+    "invitationLocalCopy": "Saves the event without sending a reply to the organizer.",
+    "invitationLoadFailed": "Could not load or save the invitation."
   },
   "mailFolders": {
     "inbox": "Inbox",

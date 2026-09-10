@@ -1,3 +1,4 @@
+import { requireCompleteMultistatus } from '../utils/davXml.js';
 // Minimal CardDAV *client* — discovers address books on a remote server (e.g.
 // Nextcloud) and pulls vCards. One-way/read-only: we never write back.
 //
@@ -201,6 +202,7 @@ export function parseCards(xmlText, baseUrl) {
   if (responses.some(response => /\b507\b/.test(textOf(response.status)))) {
     throw new Error('CardDAV server returned a truncated address book response');
   }
+  requireCompleteMultistatus(xmlText, xml);
   const cards = [];
   for (const response of responses) {
     const props = propsOf(response);

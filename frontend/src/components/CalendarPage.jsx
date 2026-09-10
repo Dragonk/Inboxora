@@ -1,3 +1,4 @@
+import { safeHttpUrl } from '../utils/contactLinks.js';
 import MobileFloatingAction from './MobileFloatingAction.jsx';
 import { localizeContactCalendar, localizeContactEvent } from '../utils/contactDateLabels.js';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
@@ -78,6 +79,11 @@ export default function CalendarPage({ isActive = true }) {
     finally { if (generation === loadGeneration.current) setLoading(false); }
   }, [rangeStart, rangeEnd, t]);
   useEffect(() => { load(); }, [load]);
+  useEffect(() => {
+    const refresh = () => load();
+    window.addEventListener('inboxora:calendar-changed', refresh);
+    return () => window.removeEventListener('inboxora:calendar-changed', refresh);
+  }, [load]);
   useEffect(() => {
     if (!isMobile || !isActive) return;
     invitationOperation.current.reset();
@@ -175,6 +181,8 @@ export default function CalendarPage({ isActive = true }) {
       <div className="ui-form"><span className="calendar-readonly">{t('calendar.readOnly')}</span>
         <p>{preview.all_day ? `${String(preview.starts_at).slice(0, 10)} · ${t('calendar.allDay')}` : `${new Date(preview.starts_at).toLocaleString(locale)} – ${new Date(preview.ends_at).toLocaleString(locale)}`}</p>
         {preview.location && <p>{preview.location}</p>}{preview.description && <p style={{ whiteSpace: 'pre-wrap' }}>{preview.description}</p>}
+        {safeHttpUrl(preview.url) && <p><a href={safeHttpUrl(preview.url)} target="_blank" rel="noopener noreferrer">{preview.url}</a></p>}
+        {preview.attendees?.length > 0 && <p>{t('calendar.attendees')}: {preview.attendees.join(', ')}</p>}
         {preview.organizer && <p>{t('calendar.organizer')}: {preview.organizer}</p>}
       </div>
     </Dialog>}

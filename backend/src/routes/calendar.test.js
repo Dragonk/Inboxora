@@ -897,3 +897,33 @@ it('recovers metadata for already imported events without returning the raw ICS'
   expect(events[0]).toMatchObject({ description: 'Existing agenda', location: 'Office', attendees: ['jane@example.test'] });
   expect(events[0]).not.toHaveProperty('raw_ical');
 });
+
+describe('adding mail invitations to a local calendar', () => {
+ const raw = outlookCalendar('09', 'DTSTAMP:20260901T090000Z\r\nORGANIZER:mailto:team@example.test\r\nATTENDEE:mailto:jane@example.test\r\nDESCRIPTION:Agenda\r\n').replace('VERSION:2.0', 'VERSION:2.0\r\nMETHOD:REQUEST');
+ it('scopes invitation reads to the owner and exposes metadata without raw ICS', async () => {
+   query.mockResolvedValueOnce({ rows: [{ raw_ical: raw }] });
+   const response = await fetch(`${base}/api/calendar/invitations/message-1`);
+   expect(response.status).toBe(200);
+   expect((await response.json()).invitation).toMatchObject({ description: 'Agenda', method: 'REQUEST' });
+   expect(query.mock.calls[0][1]).toEqual(['message-1', 'user-1']);
+   expect(query.mock.calls[0][0]).toContain('a.user_id = $2');
+ });
+ it('adds a scoped local copy and retains description without sending mail', async () => {
+   query.mockResolvedValueOnce({ rows: [{ id: 'calendar-1', source: 'local', read_only: false }] })
+     .mockResolvedValueOnce({ rows: [{ raw_ical: raw }] }).mockResolvedValueOnce({ rows: [{ id: 'event-1' }] });
+   const response = await fetch(`${base}/api/calendar/invitations/message-1`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ calendarId: 'calendar-1' }) });
+   expect(response.status).toBe(200);
+   const insert = query.mock.calls[2];
+   expect(insert[1][3]).not.toContain('METHOD:REQUEST');
+   expect(insert[1][3]).toContain(`UID:${insert[1][2]}`);
+   expect(insert[1][9]).toBe('Agenda');
+   expect(insert[0]).toContain('calendar_events.invitation_sequence < EXCLUDED.invitation_sequence');
+   expect(sendCalendarInvitation).not.toHaveBeenCalled();
+ });
+ it('rejects a foreign message and a read-only calendar', async () => {
+   query.mockResolvedValueOnce({ rows: [] });
+   expect((await fetch(`${base}/api/calendar/invitations/foreign`)).status).toBe(404);
+   query.mockResolvedValueOnce({ rows: [{ id: 'remote', source: 'caldav', read_only: true }] });
+   expect((await fetch(`${base}/api/calendar/invitations/message-1`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ calendarId: 'remote' }) })).status).toBe(403);
+ });
+});

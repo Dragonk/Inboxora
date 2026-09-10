@@ -1413,7 +1413,8 @@ describe('walkStructure attachment classification', () => {
     });
 
     expect(results.textParts.map(part => part.part)).toEqual(['1']);
-    expect(results.attachments).toHaveLength(0);
+    expect(results.attachments).toHaveLength(2);
+    expect(results.attachments[0]).toMatchObject({ type: 'text/calendar', part: '2' });
     expect(results.calendarParts).toEqual([
       { part: '2', type: 'text/calendar', encoding: 'base64', charset: 'utf-8' },
       { part: '3', type: 'application/ics', encoding: 'quoted-printable', charset: 'utf-8' },

@@ -354,6 +354,8 @@ export const api = {
 
   // Local calendar resources shared with the built-in CalDAV service.
   calendar: {
+    getInvitation: id => request('GET', `/calendar/invitations/${encodeURIComponent(id)}`),
+    addInvitation: (id, calendarId) => request('POST', `/calendar/invitations/${encodeURIComponent(id)}`, { calendarId }),
     listCalendars: () => request('GET', '/calendar/calendars'),
     updateCalendar: (id, data) => request('PATCH', `/calendar/calendars/${encodeURIComponent(id)}`, data),
     deleteCalendar: (id, confirmName) => request('DELETE', `/calendar/calendars/${encodeURIComponent(id)}`, { confirmName }),

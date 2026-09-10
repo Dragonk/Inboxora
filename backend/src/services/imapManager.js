@@ -640,6 +640,7 @@ export function walkStructure(node, results) {
       encoding: node.encoding || '',
       charset: node.parameters?.charset || 'utf-8',
     });
+    results.attachments.push({ part: node.part || '1', filename: filename || 'invitation.ics', type, size: node.size || 0 });
     return;
   }
   // A part explicitly marked Content-Disposition: attachment is an attachment

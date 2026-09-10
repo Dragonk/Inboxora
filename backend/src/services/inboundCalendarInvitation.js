@@ -1,3 +1,4 @@
+import { calendarZoneResolver, parseICalendarDate, propertyFromLine } from '../utils/ical.js';
 const MAX_ICAL_BYTES = 1024 * 1024;
 
 function unfoldLines(raw) {
@@ -7,18 +8,6 @@ function unfoldLines(raw) {
     else if (physicalLine) lines.push(physicalLine);
   }
   return lines;
-}
-
-function propertyFromLine(line) {
-  const separator = line.indexOf(':');
-  if (separator < 1) return null;
-  const [name, ...parameterParts] = line.slice(0, separator).split(';');
-  const parameters = Object.fromEntries(parameterParts.map((part) => {
-    const parameterSeparator = part.indexOf('=');
-    if (parameterSeparator < 1) return [part.toUpperCase(), ''];
-    return [part.slice(0, parameterSeparator).toUpperCase(), part.slice(parameterSeparator + 1).replace(/^"|"$/g, '')];
-  }));
-  return { name: name.toUpperCase(), parameters, value: line.slice(separator + 1) };
 }
 
 function componentMarker(line) {
@@ -86,7 +75,7 @@ function localDateInTimeZone(year, month, day, hour, minute, second, timeZone) {
   return candidates.length === 1 ? candidates[0] : null;
 }
 
-function parseDate(property) {
+function parseDate(property, zoneFor) {
   const { value, parameters } = property;
   const allDay = parameters.VALUE?.toUpperCase() === 'DATE' || /^\d{8}$/.test(value);
   if (allDay) {
@@ -95,7 +84,7 @@ function parseDate(property) {
     return date && { date, allDay: true, timeZone: null, form: 'date' };
   }
   const match = value.match(/^(\d{4})(\d{2})(\d{2})T(\d{2})(\d{2})(\d{2})(Z?)$/);
-  if (!match || parameters.VALUE) return null;
+  if (!match || (parameters.VALUE && parameters.VALUE.toUpperCase() !== 'DATE-TIME')) return null;
   const [, year, month, day, hour, minute, second, utc] = match;
   const numeric = [year, month, day, hour, minute, second].map(Number);
   if (utc) return parameters.TZID ? null : (() => {
@@ -104,17 +93,19 @@ function parseDate(property) {
   })();
   const timeZone = parameters.TZID;
   if (!timeZone) return null;
-  const date = localDateInTimeZone(...numeric, timeZone);
+  const embedded = zoneFor?.(timeZone);
+  const date = embedded ? parseICalendarDate(property, () => embedded)?.date : localDateInTimeZone(...numeric, timeZone);
   return date && { date, allDay: false, timeZone, form: 'timezone' };
 }
 
-function isoRecurrenceId(property) {
-  const parsed = parseDate(property);
+function isoRecurrenceId(property, zoneFor) {
+  const parsed = parseDate(property, zoneFor);
   return parsed ? parsed.date.toISOString().replace(/[-:]/g, '').replace('.000', '') : null;
 }
 
 export function parseInboundCalendarInvitation(raw) {
   if (typeof raw !== 'string' || !raw.trim() || Buffer.byteLength(raw, 'utf8') > MAX_ICAL_BYTES) return null;
+  const zoneFor = calendarZoneResolver(raw);
   const lines = unfoldLines(raw);
   if (lines[0]?.toUpperCase() !== 'BEGIN:VCALENDAR' || lines.at(-1)?.toUpperCase() !== 'END:VCALENDAR') return null;
   const structure = calendarStructure(lines);
@@ -136,11 +127,11 @@ export function parseInboundCalendarInvitation(raw) {
   const [summary] = named(eventProperties, 'SUMMARY');
   const [organizer] = named(eventProperties, 'ORGANIZER');
   const [recurrenceId] = named(eventProperties, 'RECURRENCE-ID');
-  const stampDate = stamp && parseDate(stamp);
+  const stampDate = stamp && parseDate(stamp, zoneFor);
   if (!uid || !uid.value.trim() || named(eventProperties, 'UID').length !== 1) return null;
   const sequenceValue = sequence ? Number(sequence.value) : 0;
   if ((sequence && !/^\d+$/.test(sequence.value)) || !Number.isSafeInteger(sequenceValue) || sequenceValue < 0 || named(eventProperties, 'SEQUENCE').length > 1) return null;
-  const recurrenceValue = recurrenceId ? isoRecurrenceId(recurrenceId) : '';
+  const recurrenceValue = recurrenceId ? isoRecurrenceId(recurrenceId, zoneFor) : '';
   if (recurrenceId && (!recurrenceValue || named(eventProperties, 'RECURRENCE-ID').length !== 1)) return null;
 
   if (normalizedMethod === 'CANCEL') {
@@ -152,8 +143,8 @@ export function parseInboundCalendarInvitation(raw) {
     if (named(eventProperties, 'STATUS').length && named(eventProperties, 'STATUS')[0].value.trim().toUpperCase() !== 'CANCELLED') return null;
     const attendees = named(eventProperties, 'ATTENDEE');
     if (attendees.some(attendee => !attendee.value.trim())) return null;
-    const startsAt = start && parseDate(start);
-    const endsAt = end && parseDate(end);
+    const startsAt = start && parseDate(start, zoneFor);
+    const endsAt = end && parseDate(end, zoneFor);
     if ((start && !startsAt) || (end && !endsAt)
       || (startsAt && endsAt && (startsAt.form !== endsAt.form || startsAt.timeZone !== endsAt.timeZone || endsAt.date <= startsAt.date))) return null;
     return {
@@ -167,11 +158,11 @@ export function parseInboundCalendarInvitation(raw) {
   const attendees = named(eventProperties, 'ATTENDEE');
   if (!stamp || named(eventProperties, 'DTSTAMP').length !== 1 || stampDate?.form !== 'utc' || !organizer || named(eventProperties, 'ORGANIZER').length !== 1 || !organizer.value.trim()) return null;
   if (!start || named(eventProperties, 'DTSTART').length !== 1 || !end || named(eventProperties, 'DTEND').length !== 1 || !attendees.length || attendees.some(attendee => !attendee.value.trim())) return null;
-  const startsAt = parseDate(start);
-  const endsAt = parseDate(end);
+  const startsAt = parseDate(start, zoneFor);
+  const endsAt = parseDate(end, zoneFor);
   if (!startsAt || !endsAt || startsAt.form !== endsAt.form || startsAt.timeZone !== endsAt.timeZone || endsAt.date <= startsAt.date) return null;
   if (recurrenceId) {
-    const recurrenceDate = parseDate(recurrenceId);
+    const recurrenceDate = parseDate(recurrenceId, zoneFor);
     if (!recurrenceDate || recurrenceDate.form !== startsAt.form || recurrenceDate.timeZone !== startsAt.timeZone) return null;
   }
 
