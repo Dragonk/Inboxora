@@ -29,7 +29,7 @@ test('V3 calendar selects a day, reveals overflow, filters both agendas and show
   await expect(page.getByTestId('calendar-agenda-view').getByRole('button', { name: /Wyjazd zespołu/ })).toHaveCount(2);
   await expect(page.getByTestId('calendar-agenda-view')).not.toContainText('Plan października');
   if (page.viewportSize().width < 768) await page.getByTestId('calendar-mobile-panel').click();
-  await page.getByTestId('calendar-sidebar').getByLabel(/Zespół/).uncheck();
+  await page.getByTestId('calendar-sidebar').getByRole('checkbox', { name: /Zespół/ }).uncheck();
   if (page.viewportSize().width < 768) await page.getByTestId('calendar-sidebar-close').click();
   await expect(page.getByTestId('calendar-agenda-view')).not.toContainText('Wyjazd zespołu');
 });
@@ -126,7 +126,8 @@ test('V3 calendar retries failed saves without closing the editor or losing ente
     return route.fallback();
   });
   await page.goto('/'); await navigateModule(page, 'calendar');
-  await page.getByRole('button', { name: /Nowe wydarzenie/, exact: false }).click();
+  if (page.viewportSize().width < 768) await page.getByTestId('calendar-header-new').click();
+  else await page.getByTestId('calendar-sidebar').getByRole('button', { name: /Nowe wydarzenie/ }).click();
   const editor = page.getByTestId('calendar-event-dialog');
   const title = editor.getByRole('textbox').first();
   await expect(title).toBeFocused();

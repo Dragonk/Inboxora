@@ -470,7 +470,7 @@ test('mobile contacts fill the viewport and keep creation in the shared header',
     const detailBox = await page.getByTestId('contacts-mobile-detail').boundingBox();
     expect(detailBox.x).toBe(0);
     expect(detailBox.width).toBe(viewport.width);
-    await page.getByTestId('contacts-mobile-detail').locator('..').getByRole('button').first().click();
+    await page.getByRole('button', { name: 'Wróć do listy kontaktów', exact: true }).click();
     await expect(list).toBeVisible();
   }
 });
