@@ -1,3 +1,4 @@
+import { inputStyle as sharedInputStyle } from './ui.jsx';
 import { useCallback, useState, useEffect, useLayoutEffect, useRef, useMemo } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useStore } from '../store/index.js';
@@ -43,12 +44,7 @@ function Field({ label, required, children }) {
   );
 }
 
-const inputStyle = {
-  width: '100%', padding: '9px 12px',
-  background: 'var(--bg-tertiary)', border: '1px solid var(--border)',
-  borderRadius: 7, color: 'var(--text-primary)', fontSize: 13,
-  outline: 'none', transition: 'border-color 0.15s', boxSizing: 'border-box',
-};
+const inputStyle = sharedInputStyle;
 
 const TOGGLE_OFF_BACKGROUND = 'var(--border)';
 
@@ -2061,6 +2057,7 @@ function LayoutsTab() {
           <button
             type="button"
             role="switch"
+            data-testid="conversation-list-toggle"
             aria-checked={threadedView}
             aria-label={threadedView ? t('conversation.groupIntoConversationsOn') : t('conversation.seriesOff')}
             onClick={() => setThreadedView(!threadedView)}
@@ -2094,6 +2091,7 @@ function LayoutsTab() {
           <button
             type="button"
             role="switch"
+            data-testid="conversation-reader-toggle"
             aria-checked={conversationReaderViewEnabled}
             aria-label={conversationReaderViewEnabled ? t('conversation.readerOn') : t('conversation.readerOff')}
             onClick={() => setConversationReaderViewEnabled(!conversationReaderViewEnabled)}
@@ -8465,7 +8463,7 @@ export default function AdminPanel() {
           borderBottom: '1px solid var(--border-subtle)',
           flexShrink: 0,
         }}>
-          <span style={{ fontSize: 16, fontWeight: 700, color: 'var(--text-primary)' }}>{t('admin.title')}</span>
+          <span style={{ fontFamily: 'var(--font-display)', fontSize: 16, fontWeight: 600, color: 'var(--text-primary)' }}>{t('admin.title')}</span>
           <button
             onClick={() => setShowAdmin(false)}
             style={{
@@ -8500,7 +8498,7 @@ export default function AdminPanel() {
                 onClick={() => handleTabClick(tab.id)}
                 style={{
                   display: 'flex', alignItems: 'center', gap: 6,
-                  padding: '7px 12px', borderRadius: 20, border: 'none',
+                  padding: '7px 12px', borderRadius: 6, border: 'none',
                   background: adminTab === tab.id && !searchResults ? 'var(--accent)' : 'var(--bg-tertiary)',
                   color: adminTab === tab.id && !searchResults ? '#fff' : 'var(--text-secondary)',
                   cursor: 'pointer', fontSize: 13, fontWeight: 500,
@@ -8538,7 +8536,7 @@ export default function AdminPanel() {
     <div
       onClick={e => e.target === e.currentTarget && setShowAdmin(false)}
       style={{
-        position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.6)',
+        position: 'fixed', inset: 0, background: 'var(--overlay-scrim)',
         backdropFilter: 'blur(8px)', WebkitBackdropFilter: 'blur(8px)',
         display: 'flex', alignItems: 'center', justifyContent: 'center',
         zIndex: 2000, padding: 24,
@@ -8547,7 +8545,7 @@ export default function AdminPanel() {
     >
       <div className="admin-panel admin-window" style={{
         background: 'var(--bg-secondary)', border: '1px solid var(--border)',
-        borderRadius: 16, width: '100%', maxWidth: 740,
+        borderRadius: 'var(--radius-dialog)', width: '100%', maxWidth: 860,
         height: '82vh', maxHeight: 700, display: 'flex', overflow: 'hidden',
         boxShadow: 'var(--shadow-modal)',
         animation: 'modal-enter var(--motion-normal) var(--ease-emphasized) both',

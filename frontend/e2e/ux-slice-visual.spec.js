@@ -9,18 +9,18 @@ test('mobile UX slice keeps mail, contacts, calendar and settings visually reach
   await page.goto('/?list=0&reader=1', { waitUntil: 'domcontentloaded' });
   await listLoaded;
   await expect(page.locator('[data-ce-reader-enabled]:visible').first()).toHaveAttribute('data-ce-reader-enabled', 'true');
-  await expect(page.getByTestId('mobile-menu')).toBeVisible();
+  await expect(page.getByTestId('mobile-topbar-menu')).toBeVisible();
   await page.screenshot({ path: `artifacts/ux-slice-mail-list-${width}.png`, fullPage: true });
   await page.locator('[data-msgid="conversation-gmail-copy-2"]:visible').click();
   await expect(page.locator('[data-testid="message-pane-toolbar"]:visible')).toBeVisible();
   await page.screenshot({ path: `artifacts/ux-slice-mail-preview-${width}.png`, fullPage: true });
   await page.goto('/?list=0&reader=1', { waitUntil: 'domcontentloaded' });
-  await expect(page.getByTestId('mobile-menu')).toBeVisible();
-  await page.getByTestId('mobile-menu').click();
+  await expect(page.getByTestId('mobile-topbar-menu')).toBeVisible();
+  await page.getByTestId('mobile-topbar-menu').click();
   await page.getByTestId('contacts-nav-mobile').click();
   await expect(page.getByTestId('mobile-contacts-page')).toBeVisible();
   await page.screenshot({ path: `artifacts/ux-slice-contacts-${width}.png`, fullPage: true });
-  await page.getByTestId('contacts-mobile-menu').click();
+  await page.getByTestId('mobile-topbar-menu').click();
   await page.getByTestId('calendar-nav-mobile').click();
   await expect(page.getByTestId('calendar-grid')).toBeVisible();
   const calendarPage = page.getByTestId('mobile-calendar-page');
@@ -29,8 +29,8 @@ test('mobile UX slice keeps mail, contacts, calendar and settings visually reach
   expect(headerControls.length).toBeGreaterThan(0);
   for (const control of headerControls) { expect(control.left).toBeGreaterThanOrEqual(0); expect(control.right).toBeLessThanOrEqual(width); }
   await page.screenshot({ path: `artifacts/ux-slice-calendar-${width}.png`, fullPage: true });
-  await page.getByTestId('calendar-mobile-menu').click();
-  await page.getByTestId('mobile-sidebar').getByText(/e2e@example\.test/i).first().evaluate(element => element.parentElement?.click());
+  await page.getByTestId('mobile-topbar-menu').click();
+  await page.getByTestId('sidebar-user-menu').click();
   await expect(page.getByTestId('mobile-settings')).toBeVisible();
   await page.getByTestId('mobile-settings').click();
   await expect(page.getByText(/Ustawienia|Settings/i).first()).toBeVisible();

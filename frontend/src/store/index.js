@@ -348,7 +348,7 @@ export const useStore = create((set, get) => ({
   }),
   sidebarWidth: (() => {
     const n = parseInt(localStorage.getItem('mailflow_sidebar_width'));
-    return (n >= 160 && n <= 400) ? n : 240;
+    return (n >= 160 && n <= 400) ? n : 250;
   })(),
   setSidebarWidth: (w) => {
     localStorage.setItem('mailflow_sidebar_width', String(w));

@@ -15,7 +15,7 @@ export function weekRange(anchor, weekStartsOn = 1) {
 }
 
 export function shiftCalendarAnchor(anchor, view, direction) {
-  if (view !== 'month') {
+  if (view !== 'month' && view !== 'agenda') {
     const next = new Date(anchor);
     next.setDate(next.getDate() + direction * 7);
     return next;
@@ -24,6 +24,33 @@ export function shiftCalendarAnchor(anchor, view, direction) {
   const month = anchor.getMonth() + direction;
   const lastDay = new Date(year, month + 1, 0).getDate();
   return new Date(year, month, Math.min(anchor.getDate(), lastDay));
+}
+
+export function calendarVisibleRange(anchor, view, weekStartsOn = 1) {
+  if (view === 'agenda') return monthRange(anchor);
+  if (view !== 'month') return weekRange(anchor, weekStartsOn);
+  const { start: monthStart } = monthRange(anchor);
+  const { start } = weekRange(monthStart, weekStartsOn);
+  const end = new Date(start);
+  end.setDate(end.getDate() + 42);
+  return { start, end };
+}
+
+export function agendaDays(events, anchor) {
+  const { start, end } = monthRange(anchor);
+  const days = [];
+  for (const day = new Date(start); day < end; day.setDate(day.getDate() + 1)) {
+    const entries = sortedDayEvents(events, day);
+    if (entries.length) days.push({ day: new Date(day), events: entries });
+  }
+  return days;
+}
+
+export function sortedDayEvents(events, day) {
+  return eventsForDay(events, day).sort((a, b) =>
+    Number(Boolean(b.all_day || b.allDay)) - Number(Boolean(a.all_day || a.allDay)) ||
+    parseEventDate(a.starts_at ?? a.startsAt) - parseEventDate(b.starts_at ?? b.startsAt) ||
+    String(a.id).localeCompare(String(b.id)));
 }
 
 export function toDateTimeLocal(value) {

@@ -475,6 +475,7 @@ const dir = dirname(fileURLToPath(import.meta.url));
 // Two locales sharing a value is only allowed if both appear in the same group.
 // Any unlisted pair will still fail.
 const SAME_VALUE_ALLOWED = {
+  'calendar.agenda': 'any', // Common calendar term in these languages.
   'calendar.caldav': 'any',
   'calendar.day6': [['cs', 'pl']],
   'calendar.icsWebcal': 'any',

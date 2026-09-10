@@ -302,7 +302,7 @@ export default function LoginPage() {
           <div style={{ display: 'inline-flex', alignItems: 'center', gap: 12, marginBottom: 8 }}>
             <LogoMark size={44} />
             <span style={{ display: 'flex', alignItems: 'baseline' }}>
-              <span style={{ fontFamily: "'Syne', sans-serif", fontSize: 30, fontWeight: 700, color: 'var(--text-primary)', letterSpacing: '-0.03em' }}>Inboxora</span>
+              <span style={{ fontFamily: 'var(--font-display)', fontSize: 30, fontWeight: 700, color: 'var(--text-primary)', letterSpacing: '-0.03em' }}>Inboxora</span>
             </span>
           </div>
           <p style={{ color: 'var(--text-tertiary)', fontSize: 14, margin: 0 }}>{t('login.tagline')}</p>
@@ -311,7 +311,7 @@ export default function LoginPage() {
         {/* Card */}
         <div style={{
           background: 'var(--bg-secondary)', border: '1px solid var(--border)',
-          borderRadius: 16, padding: 32,
+          borderRadius: 'var(--radius-dialog)', padding: 32,
         }}>
           {internalAuthDisabled && !totpRequired && !emailOtpRequired && !mfaEnrollRequired ? (
             <>

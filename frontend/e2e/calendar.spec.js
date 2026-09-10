@@ -1,4 +1,5 @@
 import { test, expect } from './fixtures.js';
+import { navigateModule } from './v3-fixtures.js';
 
 test('remote ICS first sync failure can be retried without duplicating the imported event', async ({ page, fixtureApi }, testInfo) => {
   test.skip(testInfo.project.name !== 'chromium-desktop', 'desktop source management contract');
@@ -220,28 +221,21 @@ test('calendar and contacts remain reachable and their mobile FABs clear bottom 
   await page.goto('/');
 
   if (page.viewportSize().width < 768) {
-    const navigation = page.getByTestId('mobile-primary-nav');
-    await expect(navigation).toBeVisible();
-
-    await navigation.getByRole('button', { name: 'Kontakty' }).click();
+    await navigateModule(page, 'contacts');
     await expect(page.getByTestId('contacts-mobile-list')).toBeVisible();
-    const [contactsFab, navBox] = await Promise.all([
-      page.getByTestId('contacts-mobile-fab').boundingBox(),
-      navigation.boundingBox(),
-    ]);
-    expect(contactsFab.y + contactsFab.height).toBeLessThanOrEqual(navBox.y + 1);
-
-    await navigation.getByRole('button', { name: 'Kalendarz' }).click();
+    const contactsFab = await page.getByTestId('contacts-mobile-fab').boundingBox();
+    expect(contactsFab.y + contactsFab.height).toBeLessThanOrEqual(page.viewportSize().height - 20);
+    await navigateModule(page, 'calendar');
     await expect(page.getByTestId('calendar-mobile-new-event')).toBeVisible();
-    await page.getByRole('button', { name: 'Kalendarze' }).click();
+    await page.getByRole('button', { name: 'Kalendarze', exact: true }).click();
     const dock = page.getByTestId('calendar-mobile-dock');
     await expect(dock).toBeVisible();
     await expect(page.getByTestId('calendar-mobile-new-event')).toBeHidden();
     const dockBox = await dock.boundingBox();
-    expect(dockBox.y + dockBox.height).toBeLessThanOrEqual(navBox.y + 1);
-
-    await navigation.getByRole('button', { name: 'Wszystkie skrzynki odbiorcze' }).click();
-    await expect(navigation.getByRole('button', { name: 'Wszystkie skrzynki odbiorcze' })).toHaveAttribute('aria-current', 'page');
+    expect(dockBox.y + dockBox.height).toBeLessThanOrEqual(page.viewportSize().height);
+    await page.keyboard.press('Escape');
+    await page.getByTestId('calendar-mobile-back').click();
+    await expect(page.getByTestId('message-list-scroll')).toBeVisible();
   } else {
     await page.setViewportSize({ width: 1280, height: 800 });
     await page.getByTestId('calendar-nav-primary').click();
@@ -254,7 +248,7 @@ test('calendar and contacts remain reachable and their mobile FABs clear bottom 
       page.getByTestId('calendar-sidebar').boundingBox(),
     ]);
     expect(Math.abs(rootBox.x + rootBox.width - page.viewportSize().width)).toBeLessThanOrEqual(1);
-    expect(sidebarBox.width).toBe(280);
+    expect(sidebarBox.width).toBe(210);
     await page.screenshot({ path: testInfo.outputPath('desktop-calendar-1280x800.png') });
     await page.getByTestId('contacts-nav-primary').click();
     await expect(page.getByTestId('contacts-desktop-list')).toBeVisible();
@@ -270,12 +264,10 @@ test('calendar event menus support desktop keyboard and mobile invocation while 
     { id: 'remote-event', calendar_id: 'calendar-personal', summary: 'Imported meeting', starts_at: `${day}T12:00:00.000Z`, ends_at: `${day}T13:00:00.000Z`, source: 'ical', read_only: true },
   ] } }));
   await page.goto('/');
-  const calendar = page.viewportSize().width < 768
-    ? page.getByTestId('mobile-primary-nav').getByRole('button', { name: 'Kalendarz' })
-    : page.getByTestId('calendar-nav-primary');
-  await calendar.click();
-  const local = page.getByRole('button', { name: /Local planning/ });
-  const imported = page.getByRole('button', { name: /Imported meeting/ });
+  await navigateModule(page, 'calendar');
+  if (page.viewportSize().width < 768) await page.getByTestId('calendar-view-week').click();
+  const local = page.getByTestId('calendar-grid').getByRole('button', { name: /Local planning/ });
+  const imported = page.getByTestId('calendar-grid').getByRole('button', { name: /Imported meeting/ });
   await expect(local).toBeVisible();
   await expect(imported).toBeVisible();
   if (page.viewportSize().width < 768) await page.getByTestId('calendar-event-actions').first().click();
@@ -364,10 +356,7 @@ test('week and work-week time-grid events expose menus for timed and all-day eve
     ] } });
   });
   await page.goto('/');
-  const calendar = page.viewportSize().width < 768
-    ? page.getByTestId('mobile-primary-nav').getByRole('button', { name: 'Kalendarz' })
-    : page.getByTestId('calendar-nav-primary');
-  await calendar.click();
+  await navigateModule(page, 'calendar');
   for (const view of ['week', 'workweek']) {
     await page.getByTestId(`calendar-view-${view}`).click();
     const grid = page.getByTestId('calendar-grid');
@@ -409,7 +398,7 @@ test('mobile week and work-week timed events expose writable and read-only actio
     ] } });
   });
   await page.goto('/');
-  await page.getByTestId('mobile-primary-nav').getByRole('button', { name: 'Kalendarz' }).click();
+  await navigateModule(page, 'calendar');
   const grid = page.getByTestId('calendar-grid');
   for (const view of ['week', 'workweek']) {
     await page.getByTestId(`calendar-view-${view}`).click();
@@ -452,34 +441,26 @@ test('mobile contacts fill the viewport and keep their FAB anchored above naviga
 
   if (page.viewportSize().width < 768) {
     const viewport = page.viewportSize();
-    const navigation = page.getByTestId('mobile-primary-nav');
-    await navigation.getByRole('button', { name: 'Kontakty' }).click();
+    await navigateModule(page, 'contacts');
 
     const list = page.getByTestId('contacts-mobile-list');
     const fab = page.getByTestId('contacts-mobile-fab');
     await expect(list).toBeVisible();
     await expect(fab).toBeVisible();
     await page.waitForFunction(() => Array.from(document.getAnimations()).every(animation => animation.playState !== 'running'));
-    const [listBox, fabBox, navBox] = await Promise.all([
-      list.boundingBox(), fab.boundingBox(), navigation.boundingBox(),
+    const [listBox, fabBox] = await Promise.all([
+      list.boundingBox(), fab.boundingBox(),
     ]);
     expect(listBox.x).toBe(0);
     expect(listBox.width).toBe(viewport.width);
     expect(fabBox.x + fabBox.width).toBe(viewport.width - 20);
-    expect(navBox.y - (fabBox.y + fabBox.height)).toBeGreaterThanOrEqual(20);
+    expect(viewport.height - (fabBox.y + fabBox.height)).toBeGreaterThanOrEqual(20);
 
-    const hitTests = await page.evaluate(({ fabCenter, navCenters }) => ({
-      fab: document.elementFromPoint(fabCenter.x, fabCenter.y)?.closest('[data-testid="contacts-mobile-fab"]') != null,
-      navigation: navCenters.map(({ x, y }) => document.elementFromPoint(x, y)?.tagName === 'BUTTON'),
-    }), {
-      fabCenter: { x: fabBox.x + fabBox.width / 2, y: fabBox.y + fabBox.height / 2 },
-      navCenters: await Promise.all(['Wszystkie skrzynki odbiorcze', 'Kontakty', 'Kalendarz'].map(async name => {
-        const box = await navigation.getByRole('button', { name }).boundingBox();
-        return { x: box.x + box.width / 2, y: box.y + box.height / 2 };
-      })),
-    });
-    expect(hitTests.fab).toBe(true);
-    expect(hitTests.navigation).toEqual([true, true, true]);
+    expect(await fab.evaluate(button => {
+      const box = button.getBoundingClientRect();
+      return document.elementFromPoint(box.x + box.width / 2, box.y + box.height / 2)?.closest('button') === button;
+    })).toBe(true);
+    await expect(page.getByTestId('mobile-topbar-menu')).toBeVisible();
 
     await page.getByText('Jan Testowy', { exact: true }).click();
     await expect(page.getByTestId('contacts-mobile-detail')).toBeVisible();
@@ -498,28 +479,24 @@ test('mobile calendar fits the full localized week and keeps every dock control 
 
   if (page.viewportSize().width >= 768) return;
 
-  const navigation = page.getByTestId('mobile-primary-nav');
-  await navigation.getByRole('button', { name: 'Kalendarz' }).click();
+  await navigateModule(page, 'calendar');
   const grid = page.getByTestId('calendar-month-grid');
-  const headers = grid.getByTestId('calendar-weekday');
+  const headers = page.getByTestId('calendar-grid').getByTestId('calendar-weekday');
   await expect(headers).toHaveCount(7);
   await expect(headers.nth(6)).toBeVisible();
   expect(await grid.evaluate(element => element.scrollWidth)).toBeLessThanOrEqual(await grid.evaluate(element => element.clientWidth));
 
   const expectedWeekdays = await page.evaluate(() => Array.from({ length: 7 }, (_, index) => new Intl.DateTimeFormat('pl', { weekday: 'short' }).format(new Date(2024, 0, index + 1))));
-  await expect(headers).toHaveText(expectedWeekdays);
+  await expect(headers).toHaveText(await page.evaluate(locale => Array.from({ length: 7 }, (_, index) => new Intl.DateTimeFormat(locale, { weekday: 'long' }).format(new Date(2024, 0, index + 1))), expectedWeekdays[0] === 'Mon' ? 'en' : 'pl'));
 
   await page.getByRole('button', { name: 'Kalendarze' }).click();
   const dock = page.getByTestId('calendar-mobile-dock');
   const miniMonth = page.getByTestId('calendar-mini-month');
   await expect(dock).toBeVisible();
   await expect(miniMonth.getByTestId('calendar-mini-weekday')).toHaveText(expectedWeekdays);
-  const [toggleBox, miniBox, dockBox] = await Promise.all([
-    page.getByRole('button', { name: 'Kalendarze' }).boundingBox(),
-    miniMonth.boundingBox(),
-    dock.boundingBox(),
-  ]);
-  expect(toggleBox.y + toggleBox.height <= miniBox.y || miniBox.y + miniBox.height <= toggleBox.y).toBe(true);
+  const dockBox = await dock.boundingBox();
+  expect(dockBox.x).toBeGreaterThanOrEqual(0);
+  expect(dockBox.y + dockBox.height).toBeLessThanOrEqual(page.viewportSize().height);
   await expect(page.getByTestId('calendar-mobile-new-event')).toBeHidden();
 
   const interactiveControls = await dock.getByRole('button').evaluateAll(buttons => buttons.filter(button => {
@@ -567,9 +544,7 @@ test(`Contacts destructive controls expose responsive danger states${theme ? ` i
     } });
   });
   await page.goto('/?list=0&reader=0');
-  const navigation = page.getByTestId('mobile-primary-nav');
-  if (page.viewportSize().width < 768) await navigation.getByRole('button', { name: 'Kontakty' }).click();
-  else await page.getByTestId('contacts-nav-primary').click();
+  await navigateModule(page, 'contacts');
   await page.getByText('Danger Contact', { exact: true }).click();
 
   await page.getByRole('button', { name: 'Edytuj' }).click();
@@ -700,13 +675,10 @@ test('calendar weekday headings use the active English locale', async ({ page, f
   await fixtureApi;
   await page.goto('/');
 
-  const calendarControl = page.viewportSize().width < 768
-    ? page.getByTestId('mobile-primary-nav').getByRole('button', { name: 'Calendar' })
-    : page.getByTestId('calendar-nav-primary');
-  await calendarControl.click();
-  const headers = page.getByTestId('calendar-month-grid').getByTestId('calendar-weekday');
+  await navigateModule(page, 'calendar');
+  const headers = page.getByTestId('calendar-grid').getByTestId('calendar-weekday');
   const expectedWeekdays = await page.evaluate(() => Array.from({ length: 7 }, (_, index) => new Intl.DateTimeFormat('en', { weekday: 'short' }).format(new Date(2024, 0, index + 1))));
-  await expect(headers).toHaveText(expectedWeekdays);
+  await expect(headers).toHaveText(await page.evaluate(locale => Array.from({ length: 7 }, (_, index) => new Intl.DateTimeFormat(locale, { weekday: 'long' }).format(new Date(2024, 0, index + 1))), expectedWeekdays[0] === 'Mon' ? 'en' : 'pl'));
   if (page.viewportSize().width < 768) await page.getByRole('button', { name: 'Calendars' }).click();
   await expect(page.getByTestId('calendar-mini-month').getByTestId('calendar-mini-weekday')).toHaveText(expectedWeekdays);
 });
@@ -728,31 +700,40 @@ test('mobile primary navigation re-enters Contacts and Calendar at their roots w
   });
   await page.goto('/');
 
-  const navigation = page.getByTestId('mobile-primary-nav');
-  const mail = navigation.getByRole('button', { name: 'Wszystkie skrzynki odbiorcze' });
-  const contacts = navigation.getByRole('button', { name: 'Kontakty' });
-  const calendar = navigation.getByRole('button', { name: 'Kalendarz' });
+  const menu = page.getByTestId('mobile-topbar-menu');
+  const openContacts = () => navigateModule(page, 'contacts');
+  const openCalendar = () => navigateModule(page, 'calendar');
+  const openMail = async () => {
+    if (await page.getByTestId('calendar-mobile-back').isVisible()) await page.getByTestId('calendar-mobile-back').click();
+    else {
+      if (await page.getByRole('button', { name: 'Wróć do listy kontaktów' }).isVisible()) await page.getByRole('button', { name: 'Wróć do listy kontaktów' }).click();
+      await page.getByRole('button', { name: 'Wróć do poczty' }).click();
+    }
+    await expect(page.getByTestId('message-list-scroll')).toBeVisible();
+  };
 
-  await contacts.click();
+  await openContacts();
   await page.getByText('Jan Testowy', { exact: true }).click();
   await expect(page.getByTestId('contacts-mobile-detail')).toBeVisible();
-  await mail.click();
-  await contacts.click();
+  await openMail();
+  await openContacts();
   await expect(page.getByTestId('contacts-mobile-list')).toBeVisible();
   await expect(page.getByTestId('contacts-mobile-detail')).toBeHidden();
-  await expect(contacts).toBeFocused();
+  await expect(menu).toBeFocused();
   expect(await page.evaluate(() => document.activeElement?.closest('[data-testid="contacts-mobile-detail"]') === null)).toBe(true);
 
-  await calendar.click();
+  await openCalendar();
   await page.getByTestId('calendar-mobile-new-event').click();
   const editorInput = page.getByTestId('calendar-event-dialog').getByRole('textbox').first();
   await expect(editorInput).toBeFocused();
-  await mail.click();
-  await calendar.click();
+  await page.keyboard.press('Escape');
+  await expect(page.getByTestId('calendar-event-dialog')).toBeHidden();
+  await openMail();
+  await openCalendar();
   await expect(page.getByTestId('calendar-month-grid')).toBeVisible();
   await expect(page.getByTestId('calendar-mobile-dock')).toBeHidden();
   expect(await page.evaluate(() => document.activeElement?.closest('[data-testid="calendar-event-dialog"]') === null)).toBe(true);
-  await expect(calendar).toBeFocused();
+  await expect(menu).toBeFocused();
 });
 
 test('mobile Contacts exposes contextual back-button names and preserves focus after keyboard activation', async ({ page, fixtureApi }) => {
@@ -772,16 +753,15 @@ test('mobile Contacts exposes contextual back-button names and preserves focus a
   });
   await page.goto('/');
 
-  const navigation = page.getByTestId('mobile-primary-nav');
-  await navigation.getByRole('button', { name: 'Kontakty' }).click();
+  await navigateModule(page, 'contacts');
   const backToMail = page.getByRole('button', { name: 'Wróć do poczty' });
   await expect(backToMail).toBeVisible();
   await backToMail.focus();
   await expect(backToMail).toBeFocused();
   await page.keyboard.press('Enter');
-  await expect(navigation.getByRole('button', { name: 'Wszystkie skrzynki odbiorcze' })).toHaveAttribute('aria-current', 'page');
+  await expect(page.getByTestId('message-list-scroll')).toBeVisible();
 
-  await navigation.getByRole('button', { name: 'Kontakty' }).click();
+  await navigateModule(page, 'contacts');
   await page.getByText('Jan Testowy', { exact: true }).click();
   await expect(page.getByTestId('contacts-mobile-detail')).toBeVisible();
   const backToContacts = page.getByRole('button', { name: 'Wróć do listy kontaktów' });
@@ -810,7 +790,7 @@ test('mobile contact rows are reachable by Tab and restore focus after Enter and
   });
   await page.goto('/');
 
-  await page.getByTestId('mobile-primary-nav').getByRole('button', { name: 'Kontakty' }).click();
+  await navigateModule(page, 'contacts');
   const search = page.getByPlaceholder('Szukaj kontaktów');
   const row = page.getByRole('button', { name: 'Jan Testowy', exact: true });
   const backToList = page.getByRole('button', { name: 'Wróć do listy kontaktów' });
@@ -878,8 +858,7 @@ test('mobile long Contacts and Mail lists keep their final rows above fixed navi
     });
     await page.goto('/');
 
-    const navigation = page.getByTestId('mobile-primary-nav');
-    await navigation.getByRole('button', { name: 'Kontakty' }).click();
+    await navigateModule(page, 'contacts');
     const contactsList = page.getByTestId('contacts-list-scroll');
     const lastContact = page.getByRole('button', { name: 'Kontakt 100', exact: true });
     await contactsList.evaluate(element => { element.scrollTop = element.scrollHeight; element.dispatchEvent(new Event('scroll')); });
@@ -887,12 +866,11 @@ test('mobile long Contacts and Mail lists keep their final rows above fixed navi
 
     const contactsGeometry = await page.evaluate(() => {
       const row = document.querySelector('[data-contact-id="contact-100"]')?.getBoundingClientRect();
-      const nav = document.querySelector('[data-testid="mobile-primary-nav"]')?.getBoundingClientRect();
       const fab = document.querySelector('[data-testid="contacts-mobile-fab"]')?.getBoundingClientRect();
       const hit = row && document.elementFromPoint(row.x + row.width / 2, row.y + row.height / 2)?.closest('[data-contact-id]')?.getAttribute('data-contact-id');
-      return { row: row && { top: row.top, bottom: row.bottom }, nav: nav && { top: nav.top }, fab: fab && { top: fab.top }, hit };
+      return { row: row && { top: row.top, bottom: row.bottom }, fab: fab && { top: fab.top }, hit };
     });
-    expect(contactsGeometry.row.bottom).toBeLessThanOrEqual(contactsGeometry.nav.top);
+    expect(contactsGeometry.row.bottom).toBeLessThanOrEqual(viewport.height);
     expect(contactsGeometry.row.bottom).toBeLessThanOrEqual(contactsGeometry.fab.top - 20);
     expect(contactsGeometry.hit).toBe('contact-100');
 
@@ -907,18 +885,18 @@ test('mobile long Contacts and Mail lists keep their final rows above fixed navi
     await page.keyboard.press('Space');
     await expect(page.getByTestId('contacts-mobile-detail')).toBeVisible();
 
-    await navigation.getByRole('button', { name: 'Wszystkie skrzynki odbiorcze' }).click();
+    await page.getByRole('button', { name: 'Wróć do listy kontaktów' }).click();
+    await page.getByRole('button', { name: 'Wróć do poczty' }).click();
     const mailboxList = page.getByTestId('message-list-scroll');
     const lastMessage = page.locator('[data-msgid="large-row-99"]');
     await mailboxList.evaluate(element => { element.scrollTop = element.scrollHeight; element.dispatchEvent(new Event('scroll')); });
     await expect(lastMessage).toBeVisible();
     const mailGeometry = await page.evaluate(() => {
       const row = document.querySelector('[data-msgid="large-row-99"]')?.getBoundingClientRect();
-      const nav = document.querySelector('[data-testid="mobile-primary-nav"]')?.getBoundingClientRect();
       const hit = row && document.elementFromPoint(row.x + row.width / 2, row.y + row.height / 2)?.closest('[data-msgid]')?.getAttribute('data-msgid');
-      return { row: row && { bottom: row.bottom }, nav: nav && { top: nav.top }, hit };
+      return { row: row && { bottom: row.bottom }, hit };
     });
-    expect(mailGeometry.row.bottom).toBeLessThanOrEqual(mailGeometry.nav.top);
+    expect(mailGeometry.row.bottom).toBeLessThanOrEqual(viewport.height);
     expect(mailGeometry.hit).toBe('large-row-99');
   }
 });

@@ -5,6 +5,8 @@ import { api } from '../utils/api.js';
 import { conversationApi } from '../utils/conversationApi.js';
 import { useWebSocket } from '../hooks/useWebSocket.js';
 import { useMobile } from '../hooks/useMobile.js';
+import { useCompactLayout } from '../hooks/useCompactLayout.js';
+import { Button } from './ui.jsx';
 import { LAYOUTS } from '../layouts.js';
 import { shortcutBus } from '../utils/shortcutBus.js';
 import { setPending, pendingMarkReadMap, completedMarkReadMap } from '../utils/pendingReads.js';
@@ -93,6 +95,7 @@ export default function MailApp() {
   const autoLockMinutes = useStore(s => s.autoLockMinutes);
   const lockScreen = useStore(s => s.lockScreen);
   const isMobile = useMobile();
+  const compactLayout = useCompactLayout();
   const [conversationId, setConversationId] = useState(null);
   const [mobileProfileOpen, setMobileProfileOpen] = useState(false);
   const [targetLogicalMessageId, setTargetLogicalMessageId] = useState(null);
@@ -343,6 +346,8 @@ export default function MailApp() {
   }, []);
 
   const currentLayout = LAYOUTS[layout] || LAYOUTS.comfortable;
+  const compactMail = compactLayout && currentLayout.direction === 'row';
+  const readerOpen = Boolean(selectedMessageId || (conversationReaderViewEnabled && conversationId));
 
   // Shortcut hint (e.g. "⌘/") for the collapse/expand tooltips, derived from the
   // live shortcut map via the existing helpers — no new plumbing. '' when unbound.
@@ -667,7 +672,10 @@ export default function MailApp() {
   const showCalendarRef = useRef(showCalendar);
   const showShortcutHelpRef = useRef(showShortcutHelp);
   const paletteOpenRef = useRef(paletteOpen);
-  useEffect(() => { mobileSidebarOpenRef.current = mobileSidebarOpen; }, [mobileSidebarOpen]);
+  useEffect(() => {
+    if (mobileSidebarOpenRef.current && !mobileSidebarOpen) document.querySelector('[data-testid="mobile-topbar-menu"]')?.focus();
+    mobileSidebarOpenRef.current = mobileSidebarOpen;
+  }, [mobileSidebarOpen]);
   useEffect(() => { showContactsRef.current = showContacts; }, [showContacts]);
   useEffect(() => { showCalendarRef.current = showCalendar; }, [showCalendar]);
   useEffect(() => { showShortcutHelpRef.current = showShortcutHelp; }, [showShortcutHelp]);
@@ -924,6 +932,7 @@ export default function MailApp() {
           {/* Slide-in sidebar drawer */}
           <div
             data-testid="mobile-sidebar"
+            inert={mobileSidebarOpen ? undefined : ''}
             style={{
               position: 'fixed', left: 0, top: 0, bottom: 0,
               zIndex: 1300, display: 'flex',
@@ -965,9 +974,10 @@ export default function MailApp() {
           <Sidebar />
           {!sidebarCollapsed && (
             <div
+              className="ui-resize-handle"
               onMouseDown={handleSidebarResizeMouseDown}
               style={{
-                width: 4, flexShrink: 0, cursor: 'col-resize',
+                width: 1, flexShrink: 0, cursor: 'col-resize',
                 background: 'var(--border-subtle)',
                 transition: 'background 0.15s',
                 zIndex: 10,
@@ -987,18 +997,19 @@ export default function MailApp() {
             {showCalendar && <div data-testid="desktop-calendar-page" style={{ display: 'flex', flex: 1, minWidth: 0, overflow: 'hidden', height: '100%' }}>
               <Suspense fallback={lazyFallback}><CalendarPage /></Suspense>
             </div>}
-            <div style={{ display: showContacts || showCalendar ? 'none' : 'flex', flex: 1, minWidth: 0, overflow: 'hidden', height: '100%', flexDirection: currentLayout.direction }}>
+            <div style={{ position: 'relative', display: showContacts || showCalendar ? 'none' : 'flex', flex: 1, minWidth: 0, overflow: 'hidden', height: '100%', flexDirection: currentLayout.direction }}>
               <div data-ce-reader-enabled={conversationReaderViewEnabled ? 'true' : 'false'} data-ce-reader-state={conversationReaderViewEnabled ? 'enabled' : 'disabled'} data-ce-conversation-id={conversationId || ''} data-ce-selected-message-id={selectedMessageId || ''} data-ce-resolution-error={conversationResolutionError ? 'true' : 'false'} style={{
-                display: 'flex', flex: currentLayout.direction === 'row' ? '0 0 var(--list-width)' : '1 1 50%',
-                width: currentLayout.direction === 'row' ? 'var(--list-width)' : '100%', minWidth: 0, overflow: 'hidden', height: '100%',
+                display: compactMail && readerOpen ? 'none' : 'flex', flex: compactMail ? 1 : currentLayout.direction === 'row' ? '0 0 var(--list-width)' : '1 1 50%',
+                width: compactMail ? '100%' : currentLayout.direction === 'row' ? 'var(--list-width)' : '100%', minWidth: 0, overflow: 'hidden', height: '100%',
               }}>
                 <MessageList />
               </div>
-              {currentLayout.direction === 'row' && (
+              {!compactMail && currentLayout.direction === 'row' && (
                 <div
+                  className="ui-resize-handle"
                   onMouseDown={handleListResizeMouseDown}
                   style={{
-                    width: 4, flexShrink: 0, cursor: 'col-resize',
+                    width: 1, flexShrink: 0, cursor: 'col-resize',
                     background: 'var(--border-subtle)',
                     transition: 'background 0.15s',
                   }}
@@ -1006,7 +1017,8 @@ export default function MailApp() {
                   onMouseLeave={e => { e.currentTarget.style.background = 'var(--border-subtle)'; }}
                 />
               )}
-              <div data-ce-reader-pane="true" style={{ flex: 1, minWidth: 0, overflow: 'hidden', height: '100%', display: 'flex' }}>
+              <div data-ce-reader-pane="true" style={{ flex: 1, minWidth: 0, overflow: 'hidden', height: '100%', display: compactMail && !readerOpen ? 'none' : 'flex', flexDirection: 'column' }}>
+                {compactMail && <div className="tablet-reader-back"><Button variant="ghost" onClick={() => { setConversationId(null); setTargetLogicalMessageId(null); setSelectedMessage(null); }} aria-label={t('mailApp.back')}>‹ {t('mailApp.back')}</Button></div>}
                 <MessagePane mode={conversationReaderViewEnabled && (conversationId || nativeThreadId) ? 'conversation' : 'single'} conversationId={conversationId} targetLogicalMessageId={targetLogicalMessageId} selectedConversationCopy={selectedConversationCopy} nativeThreadId={nativeThreadId} nativeFolder={nativeFolder} onReply={replyFromConversation} onNativeThreadUnavailable={handleNativeThreadUnavailable} onMobileBack={() => { if (conversationReaderViewEnabled && conversationId) { setConversationId(null); setTargetLogicalMessageId(null); } else setSelectedMessage(null); }} />
               </div>
               {/* Generic right-sidebar column, populated from the content seam above. */}
@@ -1032,6 +1044,7 @@ export default function MailApp() {
                   <div style={{
                     position: 'relative', flexShrink: 0, overflow: 'hidden', height: '100%',
                     width: rightSidebarHidden ? 0 : 'var(--right-sidebar-width, 296px)',
+                    ...(compactMail && !rightSidebarHidden ? { position: 'absolute', right: 0, top: 0, bottom: 0, zIndex: 25, background: 'var(--bg-primary)', boxShadow: 'var(--shadow-drawer)' } : {}),
                     // Disabled while dragging (mirrors Sidebar's isSidebarResizing guard):
                     // otherwise every mousemove's CSS-var write would animate toward the new
                     // width instead of tracking the cursor.

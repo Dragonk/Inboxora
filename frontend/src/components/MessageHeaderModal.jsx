@@ -176,7 +176,7 @@ export default function MessageHeaderModal({ messageId, subject, onClose, onSubj
     >
       <div style={{
         background: 'var(--bg-secondary)', border: '1px solid var(--border)',
-        borderRadius: 14, width: '100%', maxWidth: 720,
+        borderRadius: 'var(--radius-dialog)', width: '100%', maxWidth: 720,
         maxHeight: '85vh', display: 'flex', flexDirection: 'column',
         overflow: 'hidden',
         boxShadow: 'var(--shadow-modal)',

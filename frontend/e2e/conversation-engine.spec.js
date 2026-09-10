@@ -134,6 +134,7 @@ test.describe('native conversation engine matrix', () => {
       expect.arrayContaining([expect.stringMatching(/\/api\/mail\/messages\?[^#]*threaded=true/)]),
     );
     await parent.locator("button[aria-label*='(5)']").click();
+    if (page.viewportSize().width >= 768 && page.viewportSize().width <= 1100) await page.locator('.tablet-reader-back button').click();
     const directions = parent.locator('xpath=..').locator('[data-message-direction]');
     // P1-D: first direction is the parent arrow for the newest unique child; the
     // remaining five are the exact expanded native children.
@@ -222,6 +223,7 @@ test.describe('native conversation engine matrix', () => {
     await open(page, fixtureApi, true, true);
     const parent = page.locator('[data-msgid="conversation-gmail-copy-5"]:visible');
     await parent.locator("button[aria-label*='(5)']").click();
+    if (page.viewportSize().width >= 768 && page.viewportSize().width <= 1100) await page.locator('.tablet-reader-back button').click();
     const directions = parent.locator('xpath=..').locator('[data-message-direction]');
     // Parent latest direction + five native child directions.
     await expect(directions).toHaveCount(6);
@@ -466,6 +468,7 @@ test.describe('thread context and ThreadRow interaction regressions', () => {
 
     await open(page, fixtureApi, true, true);
     await page.locator('[data-msgid="conversation-gmail-copy-5"]:visible').locator('[data-thread-row-parent="true"]').click();
+    if (page.viewportSize().width >= 768 && page.viewportSize().width <= 1100) await page.locator('.tablet-reader-back button').click();
     await page.locator('[data-thread-row-child="conversation-gmail-copy-2"]:visible').click();
     const groupedReader = page.locator('section[data-conversation-id="conversation-gmail"]:visible');
     await expect(groupedReader).toHaveAttribute('data-reader-source', 'native-thread');
@@ -599,6 +602,7 @@ test.describe('reader target navigation follow-up', () => {
     // Body layout schedules the reader's final alignment on animation frames. The
     // toolbar can be visible before that post-layout pass, so sampling immediately
     // creates a timing race rather than exercising the intended final geometry.
+    await expect.poll(() => page.evaluate(() => window.__readerScrollWrites)).toBe(2);
     await expect.poll(async () => Math.abs((await readGeometry()).anchorError)).toBeLessThanOrEqual(3);
     const geometry = await readGeometry();
     expect(Math.abs(geometry.anchorError)).toBeLessThanOrEqual(3);
@@ -663,6 +667,11 @@ test.describe('reader target navigation follow-up', () => {
       await page.locator('[data-msgid="conversation-gmail-copy-10"]:visible').click();
       const reader = page.locator('section[data-conversation-id="conversation-gmail"]:visible');
       await expect(reader.locator('#logical-message-conversation-gmail-logical-10 iframe')).toBeVisible();
+      // Finish the initial short-last-message navigation before recording the
+      // next navigation. A visible iframe can still have its placeholder height.
+      await expect.poll(() => reader.evaluate(element => Math.abs(
+        element.scrollTop - (element.scrollHeight - element.clientHeight),
+      ))).toBeLessThanOrEqual(1);
       await reader.evaluate((element, position) => { element.scrollTop = position === 'bottom'
         ? element.scrollHeight - element.clientHeight : 0; }, start);
       const previousScrollTop = await reader.evaluate(element => element.scrollTop);
@@ -690,6 +699,9 @@ test.describe('reader target navigation follow-up', () => {
         const container = element.closest('section');
         return Math.abs(element.getBoundingClientRect().top - (container.getBoundingClientRect().top + 8));
       })).toBeLessThanOrEqual(2);
+      // The preliminary position can already match the final header position.
+      // Still wait for the post-body animation frame before asserting two phases.
+      await expect.poll(() => page.evaluate(() => window.__twoPhaseReaderWrites.length)).toBe(2);
       const geometry = await anchor.evaluate(element => {
         const container = element.closest('section');
         return {

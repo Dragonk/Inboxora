@@ -51,27 +51,16 @@ async function expectDesktopGeometry(page, state) {
 
 async function expectMobileControlsUsable(page, control) {
   const viewport = page.viewportSize();
-  const navigation = page.getByTestId('mobile-primary-nav');
-  const [controlBox, navigationBox] = await Promise.all([control.boundingBox(), navigation.boundingBox()]);
-  expect(controlBox).not.toBeNull();
-  expect(navigationBox).not.toBeNull();
-  expect(controlBox.x).toBeGreaterThanOrEqual(0);
-  expect(controlBox.x + controlBox.width).toBeLessThanOrEqual(viewport.width);
-  expect(controlBox.y).toBeGreaterThanOrEqual(0);
-  expect(controlBox.y + controlBox.height).toBeLessThanOrEqual(navigationBox.y - 16);
-
-  const hitTest = await page.evaluate(({ controlCenter, navigationCenters }) => ({
-    control: document.elementFromPoint(controlCenter.x, controlCenter.y)?.closest('button') != null,
-    navigation: navigationCenters.map(({ x, y }) => document.elementFromPoint(x, y)?.closest('button') != null),
-  }), {
-    controlCenter: { x: controlBox.x + controlBox.width / 2, y: controlBox.y + controlBox.height / 2 },
-    navigationCenters: await Promise.all(['Wszystkie skrzynki odbiorcze', 'Kontakty', 'Kalendarz'].map(async name => {
-      const box = await navigation.getByRole('button', { name }).boundingBox();
-      return { x: box.x + box.width / 2, y: box.y + box.height / 2 };
-    })),
-  });
-  expect(hitTest.control).toBe(true);
-  expect(hitTest.navigation).toEqual([true, true, true]);
+  const box = await control.boundingBox();
+  expect(box).not.toBeNull();
+  expect(box.x).toBeGreaterThanOrEqual(0);
+  expect(box.x + box.width).toBeLessThanOrEqual(viewport.width);
+  expect(box.y + box.height).toBeLessThanOrEqual(viewport.height);
+  await expect(page.getByTestId('mobile-topbar-menu')).toBeVisible();
+  expect(await control.evaluate(element => {
+    const rect = element.getBoundingClientRect();
+    return element.contains(document.elementFromPoint(rect.x + rect.width / 2, rect.y + rect.height / 2));
+  })).toBe(true);
 }
 
 async function exerciseParityFlow({ page, testInfo, fixtureApi }) {
@@ -80,14 +69,14 @@ async function exerciseParityFlow({ page, testInfo, fixtureApi }) {
   await page.goto('/', { waitUntil: 'domcontentloaded' });
   await expect(page.locator('[data-ce-reader-enabled]').first()).toBeVisible();
 
-  const mobileNavigation = page.getByTestId('mobile-primary-nav');
-  if (mobile) await expect(mobileNavigation).toBeVisible();
+  if (mobile) await expect(page.getByTestId('mobile-topbar-menu')).toBeVisible();
 
   await expectSingleVisibleContentPanel(page, mobile);
   await captureState(page, testInfo, 'mail');
 
   if (mobile) {
-    await mobileNavigation.getByRole('button', { name: 'Kontakty' }).click();
+    await page.getByTestId('mobile-topbar-menu').click();
+    await page.getByTestId('contacts-nav-mobile').click();
     await expect(page.getByTestId('contacts-mobile-list')).toBeVisible();
     await expectMobileControlsUsable(page, page.getByTestId('contacts-mobile-fab'));
   } else {
@@ -100,7 +89,8 @@ async function exerciseParityFlow({ page, testInfo, fixtureApi }) {
   await captureState(page, testInfo, 'contacts');
 
   if (mobile) {
-    await mobileNavigation.getByRole('button', { name: 'Kalendarz' }).click();
+    await page.getByTestId('mobile-topbar-menu').click();
+    await page.getByTestId('calendar-nav-mobile').click();
   } else {
     await page.getByTestId('calendar-nav-primary').click();
   }
@@ -113,7 +103,7 @@ async function exerciseParityFlow({ page, testInfo, fixtureApi }) {
   await captureState(page, testInfo, 'calendar');
 
   if (mobile) {
-    await mobileNavigation.getByRole('button', { name: 'Wszystkie skrzynki odbiorcze' }).click();
+    await page.getByTestId('calendar-mobile-back').click();
   } else {
     await page.goto('/', { waitUntil: 'domcontentloaded' });
     await expect(page.locator('[data-ce-reader-enabled]').first()).toBeVisible();

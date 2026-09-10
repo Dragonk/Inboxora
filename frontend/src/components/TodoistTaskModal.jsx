@@ -95,7 +95,7 @@ export default function TodoistTaskModal({ message, onClose }) {
     <div
       onClick={e => e.target === e.currentTarget && onClose()}
       style={{
-        position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.6)',
+        position: 'fixed', inset: 0, background: 'var(--overlay-scrim)',
         backdropFilter: 'blur(6px)', WebkitBackdropFilter: 'blur(6px)',
         display: 'flex', alignItems: 'center', justifyContent: 'center',
         zIndex: 3000, padding: 24,
@@ -103,7 +103,7 @@ export default function TodoistTaskModal({ message, onClose }) {
     >
       <div style={{
         background: 'var(--bg-secondary)', border: '1px solid var(--border)',
-        borderRadius: 14, width: '100%', maxWidth: 480,
+        borderRadius: 'var(--radius-dialog)', width: '100%', maxWidth: 480,
         boxShadow: 'var(--shadow-modal)', overflow: 'hidden',
         maxHeight: 'calc(100vh - 48px)', display: 'flex', flexDirection: 'column',
       }}>

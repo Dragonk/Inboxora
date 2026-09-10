@@ -6,10 +6,10 @@ test('desktop calendar grid fills the workspace next to its sidebar', async ({ p
   await page.goto('/?list=0&reader=0');
 
   await page.getByTestId('calendar-nav-primary').click();
-  const pageSurface = page.getByTestId('calendar-page');
+  const pageSurface = page.locator('.calendar-main');
   const grid = page.getByTestId('calendar-grid');
   await expect(grid).toBeVisible();
 
   const [pageBox, gridBox] = await Promise.all([pageSurface.boundingBox(), grid.boundingBox()]);
-  expect(gridBox.width).toBeGreaterThan(pageBox.width * 0.6);
+  expect(gridBox.width).toBeCloseTo(pageBox.width, 0);
 });

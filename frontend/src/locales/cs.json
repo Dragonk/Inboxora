@@ -1720,6 +1720,14 @@
     "close": "Zavřít"
   },
   "calendar": {
+    "myCalendars": "Moje kalendáře",
+    "organizer": "Organizátor",
+    "retry": "Zkusit znovu",
+    "eventCount": "Události: {{count}}",
+    "emptyDay": "Tento den nejsou žádné události",
+    "emptyMonth": "Tento měsíc nejsou žádné události",
+    "dayAgenda": "Denní agenda",
+    "agenda": "Agenda",
     "title": "Kalendář",
     "moreEvents": "+{{n}} další",
     "previousMonth": "Předchozí měsíc",

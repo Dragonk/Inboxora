@@ -6,7 +6,6 @@ if (isRealApp && !process.env.PLAYWRIGHT_WEB_SERVER_COMMAND) {
   throw new Error('PLAYWRIGHT_REAL_APP=1 requires PLAYWRIGHT_WEB_SERVER_COMMAND for a provisioned live backend.');
 }
 const webServerCommand = process.env.PLAYWRIGHT_WEB_SERVER_COMMAND || 'VITE_E2E_MOCKED=true npm run preview -- --host 127.0.0.1 --port 4173';
-const isMatrix = process.env.PLAYWRIGHT_MATRIX === '1';
 
 export default defineConfig({
   // Playwright must discover only browser specs. Node's frontend unit tests under
@@ -14,7 +13,7 @@ export default defineConfig({
   // Node ESM tests in the browser runner and emit JSON import failures.
   testDir: './e2e',
   testMatch: '**/*.spec.js',
-  testIgnore: ['**/chromium-smoke.js', '**/fixtures.js', '**/real-app-fixtures.js'],
+  testIgnore: ['**/chromium-smoke.js', '**/fixtures.js', '**/real-app-fixtures.js', ...(isRealApp ? [] : ['**/real-app.spec.js'])],
   timeout: 30_000,
   expect: { timeout: 5_000 },
   fullyParallel: false,
@@ -34,11 +33,13 @@ export default defineConfig({
     navigationTimeout: 15_000,
     actionTimeout: 10_000,
     locale: 'pl-PL',
+    timezoneId: 'UTC',
     colorScheme: 'light',
     headless: true,
   },
   projects: [
     { name: 'chromium-desktop', use: { ...devices['Desktop Chrome'] } },
+    { name: 'chromium-tablet', testMatch: '**/v3-*.spec.js', use: { ...devices['Desktop Chrome'], viewport: { width: 1024, height: 768 } } },
     // Required mobile reader widths: narrow 390×844 and native Pixel 7 412×915.
     { name: 'chromium-mobile-390', use: { ...devices['Pixel 7'], viewport: { width: 390, height: 844 } } },
     { name: 'chromium-mobile', use: { ...devices['Pixel 7'] } },
