@@ -3,6 +3,9 @@ import { useTranslation } from 'react-i18next';
 import { api } from '../utils/api.js';
 import { useStore } from '../store/index.js';
 import { useMobile } from '../hooks/useMobile.js';
+import { useCompactLayout } from '../hooks/useCompactLayout.js';
+import { Button, inputStyle as sharedInputStyle } from './ui.jsx';
+import './contacts.css';
 import SenderAvatarImage from './SenderAvatarImage.jsx';
 import { safeHttpUrl } from '../utils/contactLinks.js';
 
@@ -65,7 +68,8 @@ const PAGE_SIZE = 100;
 export default function ContactsPage({ isActive = true }) {
   const { t } = useTranslation();
   const { showContacts, setShowContacts } = useStore();
-  const isMobile = useMobile();
+  const phone = useMobile();
+  const isMobile = useCompactLayout();
 
   const [contacts, setContacts]     = useState([]);
   const [addressBooks, setAddressBooks] = useState([]);
@@ -91,7 +95,7 @@ export default function ContactsPage({ isActive = true }) {
   const importInputRef              = useRef(null);
   const contactSelectionRequestRef  = useRef(0);
 
-  // MailApp keeps primary views mounted. A mobile bottom-nav re-entry must not
+  // A navigation drawer re-entry must not
   // expose a retained contact detail or new-contact form.
   useEffect(() => {
     if (!isMobile) return;
@@ -127,6 +131,7 @@ export default function ContactsPage({ isActive = true }) {
   const totalRef       = useRef(0);
   const loadingMoreRef = useRef(false);
   const searchRef      = useRef('');
+  const listRequestRef = useRef(0);
 
   useEffect(() => { contactsRef.current = contacts; }, [contacts]);
   useEffect(() => { totalRef.current = total; }, [total]);
@@ -139,26 +144,37 @@ export default function ContactsPage({ isActive = true }) {
   }, []);
 
   const load = useCallback(async (q = '') => {
+    const requestId = ++listRequestRef.current;
+    loadingMoreRef.current = true;
+    setLoadingMore(false);
     setLoading(true);
     setListError(null);
     searchRef.current = q;
     try {
       const res = await api.getContacts({ q, limit: PAGE_SIZE, offset: 0, addressBookId: selectedAddressBookId || undefined });
+      if (requestId !== listRequestRef.current) return;
       setContacts(res.contacts);
       setTotal(res.total);
     } catch (err) {
-      setListError(err.message);
+      if (requestId === listRequestRef.current) setListError(err.message);
     } finally {
-      setLoading(false);
+      if (requestId === listRequestRef.current) { setLoading(false); loadingMoreRef.current = false; }
     }
   }, [selectedAddressBookId]);
 
-  useEffect(() => { load(''); }, [load]);
+  useEffect(() => {
+    clearTimeout(searchTimer.current);
+    load(searchRef.current);
+    return () => { listRequestRef.current += 1; clearTimeout(searchTimer.current); };
+  }, [load]);
   useEffect(() => { loadAddressBooks().catch(err => setListError(err.message)); }, [loadAddressBooks]);
 
   const onSearchChange = (e) => {
     const val = e.target.value;
     setSearch(val);
+    searchRef.current = val;
+    listRequestRef.current += 1;
+    loadingMoreRef.current = true;
     clearTimeout(searchTimer.current);
     searchTimer.current = setTimeout(() => load(val), 300);
   };
@@ -201,13 +217,16 @@ export default function ContactsPage({ isActive = true }) {
     setLoadingMore(true);
     const q = searchRef.current;
     const offset = contactsRef.current.length;
+    const requestId = listRequestRef.current;
     api.getContacts({ q, limit: PAGE_SIZE, offset, addressBookId: selectedAddressBookId || undefined })
       .then(res => {
+        if (requestId !== listRequestRef.current) return;
         setContacts(prev => [...prev, ...res.contacts]);
         setTotal(res.total);
       })
-      .catch(err => console.error('loadMore error:', err))
+      .catch(err => { if (requestId === listRequestRef.current) setListError(err.message); })
       .finally(() => {
+        if (requestId !== listRequestRef.current) return;
         loadingMoreRef.current = false;
         setLoadingMore(false);
       });
@@ -409,9 +428,40 @@ export default function ContactsPage({ isActive = true }) {
   const removeCollection = (key, idx) => setForm(f => ({ ...f, [key]: f[key].filter((_, i) => i !== idx) }));
   const setCategories = value => setForm(f => ({ ...f, categories: value.split(',').map(category => category.trim()).filter(Boolean) }));
 
+  const selectedBook = addressBooks.find(book => book.id === selectedAddressBookId);
+  const bookControls = <div className="contacts-book-controls">
+    <div className="contacts-books" role="group" aria-label={t('contacts.addressBooks.label')}>
+      <button type="button" aria-pressed={!selectedAddressBookId} onClick={() => setSelectedAddressBookId('')}>{t('contacts.addressBooks.allVisible')}</button>
+      {addressBooks.map(book => <button type="button" key={book.id} aria-pressed={selectedAddressBookId === book.id} onClick={() => setSelectedAddressBookId(book.id)} title={book.name}>{book.visible ? '' : '○ '}{book.name}</button>)}
+    </div>
+    <details className="contacts-book-menu">
+      <summary aria-label={t('contacts.addressBooks.label')}>⋯</summary>
+      <div className="contacts-book-actions">
+        <select data-testid="contacts-address-book-select" aria-label={t('contacts.addressBooks.label')} value={selectedAddressBookId} onChange={e => setSelectedAddressBookId(e.target.value)} style={sharedInputStyle}>
+          <option value="">{t('contacts.addressBooks.allVisible')}</option>
+          {addressBooks.map(book => <option key={book.id} value={book.id}>{book.visible ? '' : '○ '}{book.name}</option>)}
+        </select>
+        <Button onClick={createAddressBook}>{t('contacts.addressBooks.create')}</Button>
+        {selectedAddressBookId && <>
+          <Button onClick={toggleAddressBookVisibility}>{t(selectedBook?.visible ? 'contacts.addressBooks.hide' : 'contacts.addressBooks.show')}</Button>
+          {selectedBook?.source === 'local' && <Button onClick={() => importInputRef.current?.click()}>{t('contacts.addressBooks.importGoogle')}</Button>}
+          <a className="ui-button" href={api.addressBooks.exportUrl(selectedAddressBookId, 'google-csv')}>{t('contacts.addressBooks.exportGoogle')}</a>
+          <a className="ui-button" href={api.addressBooks.exportUrl(selectedAddressBookId, 'outlook-csv')}>{t('contacts.addressBooks.exportOutlook')}</a>
+          <a className="ui-button" href={api.addressBooks.exportUrl(selectedAddressBookId, 'vcard')}>vCard</a>
+        </>}
+      </div>
+    </details>
+    <input ref={importInputRef} type="file" accept=".csv,text/csv" onChange={importGoogleCsv} style={{ display: 'none' }} />
+  </div>;
+  const searchControl = <div className="contacts-search">
+    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" aria-hidden="true"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.4-4.4" /></svg>
+    <input type="search" value={search} onChange={onSearchChange} aria-label={t('contacts.search')} placeholder={t('contacts.search')} style={{ ...sharedInputStyle, paddingLeft: 30 }} />
+  </div>;
+
   // Shared list panel content (used by both mobile and desktop)
   const listPanel = (
     <>
+      {listError && contacts.length > 0 && <ErrorBanner msg={listError} />}
       {/* List */}
       <div
         data-testid="contacts-list-scroll"
@@ -441,6 +491,7 @@ export default function ContactsPage({ isActive = true }) {
               else rowRefs.current.delete(c.id);
             }}
             data-contact-id={c.id}
+            aria-pressed={selected?.id === c.id}
             role="button"
             tabIndex={0}
             aria-label={contactName}
@@ -452,9 +503,9 @@ export default function ContactsPage({ isActive = true }) {
             }}
             style={{
               display: 'flex', alignItems: 'center', gap: 10,
-              padding: '9px 14px', cursor: 'pointer',
+              padding: 'var(--layout-row-py) var(--layout-row-px)', cursor: 'pointer',
               borderBottom: '1px solid var(--border-subtle)',
-              background: selected?.id === c.id ? 'var(--bg-hover)' : 'transparent',
+              background: selected?.id === c.id ? 'var(--accent-dim)' : 'transparent',
               transition: 'background 0.1s',
             }}
             onMouseEnter={e => { if (selected?.id !== c.id) e.currentTarget.style.background = 'color-mix(in srgb, var(--bg-hover) 42%, transparent)'; }}
@@ -481,13 +532,14 @@ export default function ContactsPage({ isActive = true }) {
                   {c.primary_email}
                 </div>
               )}
-            </div>
-            {(c.organization || c.is_auto) && (
-              <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginTop: 5 }}>
+            {(c.organization || c.is_auto || c.address_book_id) && (
+              <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginTop: 5, flexWrap: 'wrap' }}>
+                {c.address_book_id && <span style={rowTypeChip}>{addressBooks.find(book => book.id === c.address_book_id)?.name}</span>}
                 {c.organization && <span style={rowTypeChip}>{c.organization}</span>}
                 {c.is_auto && <span style={rowTypeChip}>{t('contacts.auto')}</span>}
               </div>
             )}
+            </div>
           </div>
           );
         })}
@@ -584,11 +636,11 @@ export default function ContactsPage({ isActive = true }) {
       : t('contacts.title');
 
     return (
-      <div className="contacts-page" style={{ display: 'flex', flex: 1, width: '100%', minWidth: 0, flexDirection: 'column', height: '100%', overflow: 'hidden', background: 'var(--bg-secondary)' }}>
+      <div className="contacts-page contacts-compact" style={{ display: 'flex', flex: 1, width: '100%', minWidth: 0, flexDirection: 'column', height: '100%', overflow: 'hidden', background: 'var(--bg-secondary)' }}>
         {/* Mobile header — matches MessageList header style */}
         <div style={{
           display: 'flex', alignItems: 'center', gap: 4,
-          paddingTop: 'calc(var(--sat) + 10px)',
+          paddingTop: phone ? 'calc(var(--sat) + 10px)' : 10,
           paddingBottom: 10, paddingLeft: 12, paddingRight: 12,
           borderBottom: '1px solid var(--border-subtle)',
           background: 'var(--bg-secondary)', flexShrink: 0,
@@ -621,20 +673,7 @@ export default function ContactsPage({ isActive = true }) {
 
         {/* Search bar — only on list view */}
         {mobilePanel === 'list' && (
-          <div style={{ padding: '10px 12px', borderBottom: '1px solid var(--border-subtle)', background: 'var(--bg-secondary)', flexShrink: 0 }}>
-            <input
-              value={search}
-              onChange={onSearchChange}
-              placeholder={t('contacts.search')}
-              style={{
-                width: '100%', boxSizing: 'border-box',
-                padding: '8px 12px', borderRadius: 8,
-                border: '1px solid var(--border)',
-                background: 'var(--bg-input)', color: 'var(--text-primary)',
-                fontSize: 14, outline: 'none',
-              }}
-            />
-          </div>
+          <div className="contacts-list-header">{bookControls}{searchControl}</div>
         )}
 
         {/* Content */}
@@ -663,58 +702,14 @@ export default function ContactsPage({ isActive = true }) {
       {/* Contact list panel */}
       <div data-testid="contacts-desktop-list" style={{
         flex: '0 0 var(--list-width)', width: 'var(--list-width)', display: 'flex', flexDirection: 'column',
-        borderRight: '1px solid var(--border)',
-        background: 'var(--bg-secondary)',
+        borderRight: '1px solid var(--border-subtle)',
+        background: 'var(--bg-primary)',
         overflow: 'hidden',
       }}>
-        {/* Header */}
-        <div style={{ padding: '14px 14px 10px', borderBottom: '1px solid var(--border-subtle)' }}>
-          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 6 }}>
-            <h1 style={{ margin: 0, fontFamily: 'var(--font-display)', fontSize: 20, fontWeight: 600, color: 'var(--text-primary)' }}>
-              {t('contacts.title')}
-            </h1>
-            <button
-              onClick={startNew}
-              style={{
-                background: 'var(--accent)', border: 'none', borderRadius: 6,
-                color: 'var(--accent-text)', fontSize: 12, fontWeight: 500,
-                padding: '4px 10px', cursor: 'pointer',
-              }}
-            >
-              + {t('contacts.new')}
-            </button>
-          </div>
-          <div style={{ fontSize: 11.5, color: 'var(--text-tertiary)', margin: '2px 0 10px' }}>{t('contacts.listSubtitle')}</div>
-          <div style={{ position: 'relative', marginBottom: 2 }}>
-            <svg style={{ position: 'absolute', left: 9, top: '50%', transform: 'translateY(-50%)', color: 'var(--text-tertiary)' }} width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" aria-hidden="true"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
-            <input
-            value={search}
-            onChange={onSearchChange}
-            placeholder={t('contacts.search')}
-            style={{
-                width: '100%', boxSizing: 'border-box',
-                padding: '7px 10px 7px 30px', borderRadius: 7,
-                border: '1px solid var(--border-subtle)',
-                background: 'var(--bg-input)', color: 'var(--text-primary)',
-                fontSize: 13, outline: 'none',
-            }}
-          />
-          </div>
-          <div style={{ display: 'flex', gap: 6, marginTop: 8, alignItems: 'center' }}>
-            <select data-testid="contacts-address-book-select" aria-label={t('contacts.addressBooks.label')} value={selectedAddressBookId} onChange={e => setSelectedAddressBookId(e.target.value)} style={{ minWidth: 0, flex: 1, padding: '5px 8px', borderRadius: 8, border: '1px solid var(--border-subtle)', background: 'var(--bg-tertiary)', color: 'var(--text-primary)', fontSize: 12 }}>
-              <option value="">{t('contacts.addressBooks.allVisible')}</option>
-              {addressBooks.map(book => <option key={book.id} value={book.id}>{book.visible ? '' : '○ '}{book.name}</option>)}
-            </select>
-            <button type="button" onClick={createAddressBook} aria-label={t('contacts.addressBooks.create')} style={{ padding: '6px 8px' }}>+</button>
-          </div>
-          {selectedAddressBookId && <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, marginTop: 6, fontSize: 11 }}>
-            <button type="button" onClick={toggleAddressBookVisibility}>{addressBooks.find(book => book.id === selectedAddressBookId)?.visible ? t('contacts.addressBooks.hide') : t('contacts.addressBooks.show')}</button>
-            <button type="button" onClick={() => importInputRef.current?.click()}>{t('contacts.addressBooks.importGoogle')}</button>
-            <a href={api.addressBooks.exportUrl(selectedAddressBookId, 'google-csv')}>{t('contacts.addressBooks.exportGoogle')}</a>
-            <a href={api.addressBooks.exportUrl(selectedAddressBookId, 'outlook-csv')}>{t('contacts.addressBooks.exportOutlook')}</a>
-            <a href={api.addressBooks.exportUrl(selectedAddressBookId, 'vcard')}>vCard</a>
-            <input ref={importInputRef} type="file" accept=".csv,text/csv" onChange={importGoogleCsv} style={{ display: 'none' }} />
-          </div>}
+        <div className="contacts-list-header">
+          <div className="contacts-heading"><h1>{t('contacts.title')}</h1><Button variant="primary" onClick={startNew}>+ {t('contacts.new')}</Button></div>
+          <p className="contacts-subtitle">{t('contacts.listSubtitle')}</p>
+          {bookControls}{searchControl}
         </div>
 
         {listPanel}
@@ -753,14 +748,14 @@ function ContactDetail({ contact: c, confirmDelete, saving, error, onEdit, onDel
 
   return (
     <div style={{ width: '100%', maxWidth: 600, position: 'relative', animation: 'pane-fade-in var(--motion-normal) var(--ease-emphasized) both' }}>
-      {/* Edit/Delete for editable contacts — out of flow, top-right (fixed width). */}
+      {/* Actions wrap above the contact heading so long names remain readable. */}
       {!c.read_only && (
-        <div style={{ position: 'absolute', top: 0, right: 0, display: 'flex', gap: 8 }}>
+        <div style={{ display: 'flex', justifyContent: 'flex-end', flexWrap: 'wrap', gap: 8, marginBottom: 10 }}>
           <ActionBtn onClick={onEdit}>{t('common.edit')}</ActionBtn>
           <ActionBtn onClick={onDeleteRequest} danger>{t('common.delete')}</ActionBtn>
         </div>
       )}
-      <div style={{ display: 'flex', alignItems: 'flex-start', gap: 16, marginBottom: 18, paddingRight: c.read_only ? 0 : 128 }}>
+      <div style={{ display: 'flex', alignItems: 'flex-start', gap: 16, marginBottom: 18, paddingRight: 0 }}>
         <Avatar
           name={c.display_name}
           email={c.primary_email}
@@ -768,7 +763,7 @@ function ContactDetail({ contact: c, confirmDelete, saving, error, onEdit, onDel
           hasContactPhoto={Boolean(c.photo_data)}
         />
         <div style={{ flex: 1, minWidth: 0 }}>
-          <h2 style={{ margin: 0, fontSize: 22, fontWeight: 600, color: 'var(--text-primary)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+          <h2 style={{ margin: 0, fontFamily: 'var(--font-display)', fontSize: 22, fontWeight: 600, color: 'var(--text-primary)', overflowWrap: 'anywhere' }}>
             {c.display_name || c.primary_email}
             {c.nickname && <span style={{ fontSize: 13, color: 'var(--text-tertiary)', fontWeight: 400 }}> ({c.nickname})</span>}
           </h2>
@@ -822,7 +817,7 @@ function ContactDetail({ contact: c, confirmDelete, saving, error, onEdit, onDel
             <DetailSection label={t('contacts.fields.email')}>
               {(c.emails || []).map((e, i) => (
                 <DetailRow key={i} icon={fieldIcon.mail} type={t(`contacts.emailTypes.${e.type || 'other'}`, { defaultValue: t('contacts.emailTypes.other') })}>
-                  <a href={`mailto:${e.value}`} style={{ color: 'var(--accent)', textDecoration: 'none' }}>{e.value}</a>
+                  <a href={`mailto:${e.value}`} onClick={event => { event.preventDefault(); openCompose({ to: [{ email: e.value }] }); }} style={{ color: 'var(--accent)', textDecoration: 'none' }}>{e.value}</a>
                 </DetailRow>
               ))}
             </DetailSection>
@@ -883,7 +878,7 @@ function ContactDetail({ contact: c, confirmDelete, saving, error, onEdit, onDel
       <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, marginTop: 18 }}>
         <button
           type="button"
-          onClick={() => { if (primaryEmail) openCompose({ to: primaryEmail }); }}
+          onClick={() => { if (primaryEmail) openCompose({ to: [{ email: primaryEmail }] }); }}
           disabled={!primaryEmail}
           className="btn-press"
           style={{
@@ -908,17 +903,11 @@ function ContactForm({
   onSetCollection, onAddCollection, onRemoveCollection, onSetCategories,
   onSave, onCancel, t,
 }) {
-  const inputStyle = {
-    width: '100%', boxSizing: 'border-box',
-    padding: '8px 10px', borderRadius: 7,
-    border: '1px solid var(--border)',
-    background: 'var(--bg-input)', color: 'var(--text-primary)',
-    fontSize: 13, outline: 'none',
-  };
+  const inputStyle = sharedInputStyle;
   const labelStyle = { fontSize: 12, color: 'var(--text-tertiary)', marginBottom: 4, display: 'block' };
 
   return (
-    <div style={{ width: '100%', animation: 'pane-fade-in var(--motion-normal) var(--ease-emphasized) both' }}>
+    <div className="contacts-form" style={{ width: '100%', animation: 'pane-fade-in var(--motion-normal) var(--ease-emphasized) both' }}>
       <h2 style={{ margin: '0 0 24px', fontSize: 18, fontWeight: 600, color: 'var(--text-primary)' }}>
         {isNew ? t('contacts.newContact') : t('contacts.editContact')}
       </h2>
@@ -927,32 +916,32 @@ function ContactForm({
 
       <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12, marginBottom: 12 }}>
         <div>
-          <label style={labelStyle}>{t('contacts.fields.firstName')}</label>
-          <input style={inputStyle} value={form.firstName} onChange={e => onField('firstName', e.target.value)} />
+          <label htmlFor="contact-firstName" style={labelStyle}>{t('contacts.fields.firstName')}</label>
+          <input id="contact-firstName" style={inputStyle} value={form.firstName} onChange={e => onField('firstName', e.target.value)} />
         </div>
         <div>
-          <label style={labelStyle}>{t('contacts.fields.lastName')}</label>
-          <input style={inputStyle} value={form.lastName} onChange={e => onField('lastName', e.target.value)} />
+          <label htmlFor="contact-lastName" style={labelStyle}>{t('contacts.fields.lastName')}</label>
+          <input id="contact-lastName" style={inputStyle} value={form.lastName} onChange={e => onField('lastName', e.target.value)} />
         </div>
       </div>
 
       <div style={{ marginBottom: 12 }}>
-        <label style={labelStyle}>{t('contacts.fields.displayName')}</label>
-        <input style={inputStyle} value={form.displayName} onChange={e => onField('displayName', e.target.value)} />
+        <label htmlFor="contact-displayName" style={labelStyle}>{t('contacts.fields.displayName')}</label>
+        <input id="contact-displayName" style={inputStyle} value={form.displayName} onChange={e => onField('displayName', e.target.value)} />
       </div>
 
       <div style={{ marginBottom: 12 }}>
-        <label style={labelStyle}>{t('contacts.fields.organization')}</label>
-        <input style={inputStyle} value={form.organization} onChange={e => onField('organization', e.target.value)} />
+        <label htmlFor="contact-organization" style={labelStyle}>{t('contacts.fields.organization')}</label>
+        <input id="contact-organization" style={inputStyle} value={form.organization} onChange={e => onField('organization', e.target.value)} />
       </div>
 
       <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12, marginBottom: 12 }}>
-        <div><label style={labelStyle}>{t('contacts.fields.title')}</label><input style={inputStyle} value={form.title} onChange={e => onField('title', e.target.value)} /></div>
-        <div><label style={labelStyle}>{t('contacts.fields.role')}</label><input style={inputStyle} value={form.role} onChange={e => onField('role', e.target.value)} /></div>
+        <div><label htmlFor="contact-title" style={labelStyle}>{t('contacts.fields.title')}</label><input id="contact-title" style={inputStyle} value={form.title} onChange={e => onField('title', e.target.value)} /></div>
+        <div><label htmlFor="contact-role" style={labelStyle}>{t('contacts.fields.role')}</label><input id="contact-role" style={inputStyle} value={form.role} onChange={e => onField('role', e.target.value)} /></div>
       </div>
       <div style={{ marginBottom: 12 }}>
-        <label style={labelStyle}>{t('contacts.fields.nickname')}</label>
-        <input style={inputStyle} value={form.nickname} onChange={e => onField('nickname', e.target.value)} />
+        <label htmlFor="contact-nickname" style={labelStyle}>{t('contacts.fields.nickname')}</label>
+        <input id="contact-nickname" style={inputStyle} value={form.nickname} onChange={e => onField('nickname', e.target.value)} />
       </div>
 
       <div style={{ marginBottom: 12 }}>
@@ -1047,8 +1036,8 @@ function ContactForm({
       <ContactTextCollection label={t('contacts.fields.url')} items={form.urls} inputType="url" placeholder="https://example.com" onSet={(index, value) => onSetCollection('urls', index, 'value', value)} onAdd={() => onAddCollection('urls', { value: '', type: 'other' })} onRemove={index => onRemoveCollection('urls', index)} inputStyle={inputStyle} addLabel={t('contacts.addUrl')} removeLabel={t('common.delete')} />
       <ContactTextCollection label={t('contacts.fields.instantMessage')} items={form.instantMessages} placeholder="matrix:@name:example.com" onSet={(index, value) => onSetCollection('instantMessages', index, 'value', value)} onAdd={() => onAddCollection('instantMessages', { value: '', type: 'other' })} onRemove={index => onRemoveCollection('instantMessages', index)} inputStyle={inputStyle} addLabel={t('contacts.addInstantMessage')} removeLabel={t('common.delete')} />
       <div style={{ marginBottom: 12 }}>
-        <label style={labelStyle}>{t('contacts.fields.categories')}</label>
-        <input style={inputStyle} value={form.categories.join(', ')} onChange={event => onSetCategories(event.target.value)} placeholder={t('contacts.categoriesPlaceholder')} />
+        <label htmlFor="contact-categories" style={labelStyle}>{t('contacts.fields.categories')}</label>
+        <input id="contact-categories" style={inputStyle} value={form.categories.join(', ')} onChange={event => onSetCategories(event.target.value)} placeholder={t('contacts.categoriesPlaceholder')} />
       </div>
       <div style={{ marginBottom: 24 }}>
         <label style={labelStyle}>{t('contacts.fields.address')}</label>
@@ -1196,7 +1185,7 @@ function ContactDangerButton({ children, onClick, disabled = false, ...props }) 
 
 function ErrorBanner({ msg }) {
   return (
-    <div style={{
+    <div role="alert" style={{
       marginBottom: 16, padding: '10px 14px', borderRadius: 8,
       background: 'var(--red-dim, rgba(248,113,113,0.1))',
       border: '1px solid var(--red-border, rgba(248,113,113,0.3))',

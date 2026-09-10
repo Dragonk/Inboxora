@@ -1720,6 +1720,14 @@
     "close": "Закрыть"
   },
   "calendar": {
+    "myCalendars": "Мои календари",
+    "organizer": "Организатор",
+    "retry": "Повторить",
+    "eventCount": "События: {{count}}",
+    "emptyDay": "В этот день нет событий",
+    "emptyMonth": "В этом месяце нет событий",
+    "dayAgenda": "Повестка дня",
+    "agenda": "Повестка",
     "title": "Календарь",
     "moreEvents": "Ещё: {{n}}",
     "previousMonth": "Предыдущий месяц",

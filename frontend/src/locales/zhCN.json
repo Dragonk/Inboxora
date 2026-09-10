@@ -1720,6 +1720,14 @@
     "close": "关闭"
   },
   "calendar": {
+    "myCalendars": "我的日历",
+    "organizer": "组织者",
+    "retry": "重试",
+    "eventCount": "活动：{{count}}",
+    "emptyDay": "当天没有活动",
+    "emptyMonth": "本月没有活动",
+    "dayAgenda": "当日日程",
+    "agenda": "日程",
     "title": "日历",
     "moreEvents": "另外 {{n}} 项",
     "previousMonth": "上个月",

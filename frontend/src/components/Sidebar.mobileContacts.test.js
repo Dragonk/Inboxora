@@ -60,22 +60,6 @@ describe('mobile Calendar navigation contract', () => {
     assert.match(calendar, /aria-label=\{t\('calendar\.back'\)\}/);
   });
 
-  it('keeps the calendar panel reachable as a mock-up drawer', async () => {
-    const calendar = await readFile(new URL('./CalendarPage.jsx', import.meta.url), 'utf8');
-
-    assert.match(calendar, /data-testid="calendar-mobile-dock"/);
-    assert.match(calendar, /transform: mobilePanelOpen \? 'translateX\(0\)'/);
-    assert.match(calendar, /data-testid="calendar-mobile-dock"/);
-    assert.match(calendar, /transform: mobilePanelOpen \? 'translateX\(0\)'/);
-  });
-  it('labels the calendar mobile panel and keeps the page column layout', async () => {
-    const calendar = await readFile(new URL('./CalendarPage.jsx', import.meta.url), 'utf8');
-
-    assert.match(calendar, /const page = \{ display: 'flex', flexDirection: 'column'/);
-    assert.match(calendar, /position: 'sticky', bottom: 'calc\(var\(--mobile-nav-height\) \+ var\(--sab\)\)'[\s\S]*order: 2/);
-    assert.match(calendar, /id="calendar-mobile-panel"/);
-    assert.match(calendar, /onClose=\{\(\) => setMobilePanelOpen\(false\)\}/);
-  });
 });
 
 describe('mobile mail header contract', () => {

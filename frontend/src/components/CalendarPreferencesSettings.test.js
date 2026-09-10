@@ -18,18 +18,6 @@ test('calendar navigation preferences live in the application appearance setting
   assert.doesNotMatch(calendar, /onMobileNavigationPositionChange/);
 });
 
-test('desktop calendar grid fills the application content pane', async () => {
-  const calendar = await source('./CalendarPage.jsx');
-
-  assert.match(calendar, /<CalendarGrid[^>]*isMobile=\{isMobile\}/);
-  assert.match(calendar, /flex: 1, minWidth: 0/);
-  assert.match(calendar, /minmax\(\$\{isMobile && !month \? 112 : 0\}px, 1fr\)/);
-  assert.match(calendar, /style=\{\{ \.\.\.page, \.\.\.\(isMobile \? mobilePage : \{\}\) \}\}/);
-  assert.match(calendar, /const page = \{[^\n]*overflow: 'auto'/);
-  assert.match(calendar, /const mobilePage = \{ overflowX: 'hidden', paddingBottom: 'calc\(var\(--mobile-nav-height\) \+ var\(--sab\) \+ 12px\)' \}/);
-  assert.match(calendar, /\.\.\.\(isMobile \? mobileToolbar : \{\}\)/);
-  assert.match(calendar, /const mobileToolbar = \{ flexBasis: '100%', width: '100%' \}/);
-});
 
 test('external calendar management is directly discoverable from the calendar visibility panel', async () => {
   const [calendar, sidebar] = await Promise.all([

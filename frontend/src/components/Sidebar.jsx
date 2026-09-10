@@ -791,7 +791,7 @@ export default function Sidebar({ onEditProfile = null }) {
   };
 
   return (
-    <div style={{
+    <div className="inboxora-sidebar" style={{
       width: sidebarCollapsed ? 60 : sidebarWidth,
       minWidth: sidebarCollapsed ? 60 : sidebarWidth,
       height: isMobile ? '100%' : '100%',
@@ -804,8 +804,8 @@ export default function Sidebar({ onEditProfile = null }) {
     }}>
       {/* Header */}
       <div style={{
-        paddingTop: 'calc(var(--sat) + 16px)',
-        paddingBottom: 16, paddingLeft: 12, paddingRight: 12,
+        paddingTop: 'calc(var(--sat) + 14px)',
+        paddingBottom: 10, paddingLeft: 12, paddingRight: 12,
         display: 'flex', alignItems: 'center',
         justifyContent: 'space-between', borderBottom: '1px solid var(--border-subtle)',
         minHeight: 56, flexShrink: 0,
@@ -815,7 +815,7 @@ export default function Sidebar({ onEditProfile = null }) {
             <LogoMark size={24} />
             <span style={{ display: 'flex', alignItems: 'baseline', gap: 0 }}>
               <span style={{
-                fontFamily: "'Syne', sans-serif",
+                fontFamily: 'var(--font-display)',
                 fontSize: 17, fontWeight: 700,
                 color: 'var(--text-primary)',
                 letterSpacing: '-0.02em', whiteSpace: 'nowrap',
@@ -1567,9 +1567,10 @@ export default function Sidebar({ onEditProfile = null }) {
       {isMobile ? (
         <div style={{ borderTop: '1px solid var(--border-subtle)', flexShrink: 0 }}>
           {/* User identity — tap to expand/collapse actions */}
-          <div
+          <button type="button" data-testid="sidebar-user-menu" aria-expanded={bottomExpanded}
             onClick={() => setBottomExpanded(prev => !prev)}
             style={{
+              width: '100%', border: 0, background: 'transparent', textAlign: 'left', color: 'var(--text-primary)',
               display: 'flex', alignItems: 'center', gap: 10,
               paddingTop: 12, paddingLeft: 14, paddingRight: 14,
               paddingBottom: bottomExpanded ? 10 : 'calc(var(--sab) + 10px)',
@@ -1611,7 +1612,7 @@ export default function Sidebar({ onEditProfile = null }) {
               style={{ flexShrink: 0, color: 'var(--text-tertiary)', transform: bottomExpanded ? 'rotate(180deg)' : 'none', transition: 'transform 0.2s' }}>
               <polyline points="6 9 12 15 18 9"/>
             </svg>
-          </div>
+          </button>
 
           {bottomExpanded && (
           <>
@@ -1696,10 +1697,11 @@ export default function Sidebar({ onEditProfile = null }) {
           </div>
 
           {/* Settings */}
-          <div
+          <button type="button"
             data-testid="mobile-settings"
             onClick={() => { setAdminTab('accounts'); setShowAdmin(true); setMobileSidebarOpen(false); }}
             style={{
+              width: '100%', border: 0, background: 'transparent', textAlign: 'left',
               display: 'flex', alignItems: 'center', gap: 10,
               padding: '8px 14px', cursor: 'pointer',
               WebkitTapHighlightColor: 'transparent',
@@ -1718,7 +1720,7 @@ export default function Sidebar({ onEditProfile = null }) {
             <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="var(--text-tertiary)" strokeWidth="2" style={{ flexShrink: 0 }}>
               <polyline points="9 18 15 12 9 6"/>
             </svg>
-          </div>
+          </button>
 
           {/* Update available (#261) */}
           {updateInfo?.updateAvailable && (
@@ -1787,10 +1789,11 @@ export default function Sidebar({ onEditProfile = null }) {
       ) : (
         <>
           <div style={{ padding: '8px', borderTop: '1px solid var(--border-subtle)' }}>
-          <div
+          <button type="button" data-testid="sidebar-user-menu" aria-expanded={userMenuOpen}
             ref={userMenuBtnRef}
             onClick={openUserMenu}
             style={{
+              width: '100%', border: 0, textAlign: 'left', color: 'var(--text-primary)',
               display: 'flex', alignItems: 'center',
               gap: 8, padding: sidebarCollapsed ? '7px' : '7px 10px',
               borderRadius: 8, cursor: 'pointer',
@@ -1828,7 +1831,7 @@ export default function Sidebar({ onEditProfile = null }) {
                 </svg>
               </>
             )}
-          </div>
+          </button>
         </div>
         </>
       )}

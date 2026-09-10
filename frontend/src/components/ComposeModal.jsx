@@ -1686,7 +1686,7 @@ export default function ComposeModal() {
 
   const inputStyle = {
     width: '100%', padding: '8px 12px',
-    background: 'var(--bg-tertiary)', border: 'none',
+    background: 'var(--bg-primary)', border: 'none',
     borderBottom: '1px solid var(--border-subtle)',
     color: 'var(--text-primary)', fontSize: 13,
     outline: 'none',
@@ -1738,7 +1738,7 @@ export default function ComposeModal() {
         zIndex: 1000, display: 'flex', flexDirection: 'column',
       } : pos ? {
         position: 'fixed', top: pos.y, left: pos.x,
-        width: customSize?.width || 540,
+        width: customSize?.width || 600,
         ...(customSize?.height ? { height: customSize.height } : { maxHeight: '75vh' }),
         maxWidth: 'calc(100vw - 16px)',
         background: 'var(--bg-secondary)', border: '1px solid var(--border)',
@@ -1748,7 +1748,7 @@ export default function ComposeModal() {
         // Bottom-right sheet, per the compose mock-up: attached to the bottom
         // edge (no bottom border/radius) on the elevated surface.
         position: 'fixed', bottom: 0, right: 24,
-        width: customSize?.width || 540, maxWidth: 'calc(100vw - 48px)',
+        width: customSize?.width || 600, maxWidth: 'calc(100vw - 48px)',
         ...(customSize?.height ? { height: customSize.height } : { maxHeight: '75vh' }),
         background: 'var(--bg-elevated)', border: '1px solid var(--border-subtle)',
         borderBottom: 'none', borderRadius: '10px 10px 0 0',

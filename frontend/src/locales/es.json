@@ -1720,6 +1720,14 @@
     "close": "Cerrar"
   },
   "calendar": {
+    "myCalendars": "Mis calendarios",
+    "organizer": "Organizador",
+    "retry": "Reintentar",
+    "eventCount": "Eventos: {{count}}",
+    "emptyDay": "No hay eventos este día",
+    "emptyMonth": "No hay eventos este mes",
+    "dayAgenda": "Agenda del día",
+    "agenda": "Agenda",
     "title": "Agenda",
     "moreEvents": "+{{n}} más",
     "previousMonth": "Mes anterior",
