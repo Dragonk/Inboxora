@@ -10,16 +10,13 @@ import {
 } from '../services/pushDevices.js';
 import { transportStatus } from '../services/pushTransports.js';
 import { pushConfigured } from '../services/pushNotifications.js';
+import { allowPrivatePushEndpoints, pushBaseUrl } from '../services/pushConfig.js';
 import { query } from '../services/db.js';
 import { validateHost } from '../services/hostValidation.js';
 
 const router = Router();
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
-
-function allowPrivatePushEndpoints() {
-  return process.env.PUSH_ALLOW_PRIVATE_ENDPOINTS === 'true';
-}
 
 // ── Authenticated device management (/api/push/devices) ──────────────────────
 
@@ -55,10 +52,13 @@ router.post('/devices', requireAuth, async (req, res) => {
       try { endpointUrl = new URL(String(input.endpoint || '')); } catch {
         return res.status(400).json({ error: 'UnifiedPush endpoint must be a valid URL' });
       }
-      if (endpointUrl.protocol !== 'https:') {
+      const allowPrivate = allowPrivatePushEndpoints();
+      // HTTPS is required unless an operator explicitly opted into a private/LAN
+      // install, where the whole server (and therefore its /push URL) is http.
+      if (endpointUrl.protocol !== 'https:' && !(allowPrivate && endpointUrl.protocol === 'http:')) {
         return res.status(400).json({ error: 'UnifiedPush endpoint must use HTTPS' });
       }
-      const hostErr = await validateHost(endpointUrl.hostname, { allowPrivate: allowPrivatePushEndpoints() });
+      const hostErr = await validateHost(endpointUrl.hostname, { allowPrivate });
       if (hostErr) return res.status(400).json({ error: 'UnifiedPush endpoint host is not allowed' });
     }
 
@@ -111,6 +111,9 @@ router.get('/status', requireAuth, async (req, res) => {
   res.json({
     webPushConfigured: pushConfigured,
     nativeTransports: transportStatus(),
+    // What the Android settings screen shows next to the ntfy instructions and
+    // what the user types into the ntfy app. Null when APP_URL is not set.
+    pushBaseUrl: pushBaseUrl(),
     devices: result.rows[0] || { total: 0, active: 0 },
   });
 });

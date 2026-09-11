@@ -15,6 +15,7 @@
 //     Optional; the server must be given its own service-account credentials.
 import { SignJWT, importPKCS8 } from 'jose';
 import { safeFetch } from './safeFetch.js';
+import { allowPrivatePushEndpoints } from './pushConfig.js';
 
 export const TRANSPORT_INVALID = 'invalid';     // permanent: drop the registration
 export const TRANSPORT_RETRY = 'retry';         // transient: keep it, count the failure
@@ -24,12 +25,6 @@ export const TRANSPORT_DISABLED = 'disabled';   // transport not configured
 const delay = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
 // ── UnifiedPush ──────────────────────────────────────────────────────────────
-
-// A distributor on a private LAN (self-hosted ntfy) is opt-in, because allowing
-// arbitrary private endpoints by default would turn this into an SSRF primitive.
-function allowPrivateEndpoints() {
-  return process.env.PUSH_ALLOW_PRIVATE_ENDPOINTS === 'true';
-}
 
 export async function sendUnifiedPush(device, event) {
   if (!device?.endpoint || !event) return TRANSPORT_DISABLED;
@@ -41,7 +36,7 @@ export async function sendUnifiedPush(device, event) {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(event),
       signal: AbortSignal.timeout(10000),
-    }, { allowPrivate: allowPrivateEndpoints(), requireHttps: !allowPrivateEndpoints() });
+    }, { allowPrivate: allowPrivatePushEndpoints(), requireHttps: !allowPrivatePushEndpoints() });
   } catch (err) {
     // A blocked/private endpoint is a permanent rejection (SSRF guard); every
     // other network error is transient and worth retrying later.

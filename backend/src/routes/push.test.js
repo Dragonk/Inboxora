@@ -25,6 +25,10 @@ vi.mock('../services/pushDevices.js', () => ({
 }));
 vi.mock('../services/pushTransports.js', () => ({ transportStatus }));
 vi.mock('../services/pushNotifications.js', () => ({ pushConfigured: true }));
+vi.mock('../services/pushConfig.js', () => ({
+  pushBaseUrl: () => 'https://mail.example.com/push',
+  allowPrivatePushEndpoints: () => false,
+}));
 vi.mock('../services/db.js', () => ({ query }));
 vi.mock('../services/hostValidation.js', () => ({ validateHost }));
 
@@ -129,7 +133,12 @@ describe('device management', () => {
     query.mockResolvedValue({ rows: [{ total: 2, active: 1 }] });
     const response = await fetch(`${base}/api/push/status`);
     const body = await response.json();
-    expect(body).toEqual({ webPushConfigured: true, nativeTransports: { unifiedpush: true, fcm: false }, devices: { total: 2, active: 1 } });
+    expect(body).toEqual({
+      webPushConfigured: true,
+      nativeTransports: { unifiedpush: true, fcm: false },
+      pushBaseUrl: 'https://mail.example.com/push',
+      devices: { total: 2, active: 1 },
+    });
   });
 });
 

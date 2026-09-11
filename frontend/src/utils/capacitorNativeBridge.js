@@ -86,6 +86,9 @@ export async function installCapacitorNativeBridge() {
         getStatus: async () => callNative('getPushStatus', undefined, { status: 'unavailable' }),
         register: async () => callNative('registerPush', undefined, { status: 'unavailable' }),
         clear: async () => callNative('clearPush', undefined, { status: 'unavailable' }),
+        openDistributor: async () => callNative('openPushDistributor', undefined, { opened: false }),
+        openInstallPage: async () => callNative('openPushInstallPage'),
+        openHelp: async () => callNative('openPushHelp'),
       },
       actions: {
         ...existingBridge.actions,

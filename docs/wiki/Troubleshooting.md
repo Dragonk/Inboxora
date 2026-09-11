@@ -98,6 +98,24 @@ themselves.
 - Narrow the sync window by leaving accounts out of the unified inbox if you do not need them
   there; this also reduces unified search scope.
 
+## Android instant notifications
+
+These cover the built-in ntfy / UnifiedPush path. See
+[Notifications and background delivery](Notifications.md) for how it works.
+
+| Symptom | Cause and fix |
+| --- | --- |
+| Settings card says **Additional app required** | No UnifiedPush distributor is installed. Install the **ntfy** app (the card links to it) and reopen Inboxora. Everything else in Inboxora keeps working without it. |
+| ntfy is installed but the card says **not connected** | The ntfy app is not pointed at this server. Open ntfy, add/select the server `${APP_URL}/push`, then tap *Check again*. The exact URL is shown on the card. |
+| `/push` returns **502** | The bundled ntfy container is not running. Check `docker compose ps ntfy` and its logs (`docker compose logs ntfy`). If you deliberately use an external ntfy, start with `docker-compose.external-ntfy.yml` and set `PUSH_BASE_URL`. |
+| `/push` returns **404** or the SPA loads instead | A fronting reverse proxy is stripping or not forwarding `/push`. It must preserve `/push` and forward it to the Inboxora frontend; the bundled nginx does the ntfy prefix stripping. |
+| Notification arrives only while the app is open | The UnifiedPush socket was closed. Check the proxy WebSocket upgrade and idle timeout for `/push` (use at least a few minutes; the bundled nginx uses 3600 s), and make sure the app is not battery-restricted (next row). |
+| Notifications are delayed or stop after a while | Android battery optimization is suspending ntfy. Exempt **ntfy** and **Inboxora** from battery optimization: Android Settings → Apps → ntfy → Battery → *Unrestricted*, and the same for Inboxora. On aggressive OEM skins (Xiaomi, Huawei, Samsung) also enable autostart for ntfy. |
+| No notification at all, while the app is open | Android notification permission is off. Settings → Notifications in Inboxora shows *Permission denied* and links to the Android notification settings. |
+| Notifications still arrive after switching servers | The old registration was not cleared. Sign out of Inboxora or re-save the host in the app (both unregister the device), or delete the `push_devices` row for that user on the old server. |
+| Need to re-register a device | Inboxora → Settings → Notifications → *Check again*, or reinstall/clear data for the ntfy app and set the server again. The endpoint is rotated automatically on the next registration. |
+| Notifications work, but a duplicate appears once after reinstalling | The dedup cache is per install; a fresh install can show one already-seen message. Subsequent events are deduplicated normally. |
+
 ## Getting help
 
 Open an issue with:

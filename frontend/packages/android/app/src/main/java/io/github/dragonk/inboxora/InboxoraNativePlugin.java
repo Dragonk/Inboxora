@@ -313,10 +313,19 @@ public class InboxoraNativePlugin extends Plugin {
     // Native push status for the settings screen. Exposes no endpoint or token.
     @PluginMethod
     public void getPushStatus(PluginCall call) {
+        Context context = getContext();
         JSObject result = new JSObject();
-        result.put("status", InboxoraPushManager.status(getContext()));
-        result.put("transport", InboxoraNativePush.transport(getContext()));
-        result.put("deviceId", InboxoraNativePush.deviceId(getContext()));
+        result.put("status", InboxoraPushManager.status(context));
+        result.put("transport", InboxoraNativePush.transport(context));
+        result.put("deviceId", InboxoraNativePush.deviceId(context));
+        // UnifiedPush distributor discovery for the settings screen. No secrets.
+        String preferred = InboxoraPushManager.preferredDistributor(context);
+        result.put("distributor", preferred);
+        result.put("distributorLabel", InboxoraPushManager.distributorLabel(context, preferred));
+        JSArray installed = new JSArray();
+        for (String packageName : InboxoraPushManager.distributors(context)) installed.put(packageName);
+        result.put("distributors", installed);
+        result.put("hasEndpoint", InboxoraNativePush.endpoint(context) != null);
         call.resolve(result);
     }
 
@@ -339,6 +348,29 @@ public class InboxoraNativePlugin extends Plugin {
         JSObject result = new JSObject();
         result.put("status", InboxoraPushManager.status(getContext()));
         call.resolve(result);
+    }
+
+    // Bring the installed UnifiedPush distributor (e.g. ntfy) to the front so the
+    // user can point it at this Inboxora server. No endpoint copying involved.
+    @PluginMethod
+    public void openPushDistributor(PluginCall call) {
+        JSObject result = new JSObject();
+        result.put("opened", InboxoraPushManager.openDistributorApp(getContext()));
+        call.resolve(result);
+    }
+
+    // Store page for the recommended distributor (market://, F-Droid fallback).
+    @PluginMethod
+    public void openPushInstallPage(PluginCall call) {
+        InboxoraPushManager.openDistributorInstallPage(getContext());
+        call.resolve();
+    }
+
+    // Fixed Inboxora help page; never takes a caller-supplied URL.
+    @PluginMethod
+    public void openPushHelp(PluginCall call) {
+        InboxoraPushManager.openHelpPage(getContext());
+        call.resolve();
     }
 
     @PluginMethod
@@ -610,6 +642,9 @@ public class InboxoraNativePlugin extends Plugin {
             + "window.inboxoraNative.notifications.getStatus=function(){return call('getPushStatus',{},{});};"
             + "window.inboxoraNative.notifications.register=function(){return call('registerPush',{},{});};"
             + "window.inboxoraNative.notifications.clear=function(){return call('clearPush',{},{});};"
+            + "window.inboxoraNative.notifications.openDistributor=function(){return call('openPushDistributor',{},{});};"
+            + "window.inboxoraNative.notifications.openInstallPage=function(){return call('openPushInstallPage',{},{});};"
+            + "window.inboxoraNative.notifications.openHelp=function(){return call('openPushHelp',{},{});};"
             + "}catch(e){}})();";
 
         webView.post(() -> webView.evaluateJavascript(script, null));

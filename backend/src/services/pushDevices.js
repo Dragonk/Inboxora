@@ -2,6 +2,7 @@ import bcrypt from 'bcryptjs';
 import crypto from 'crypto';
 import { query } from './db.js';
 import { encrypt, decrypt } from './encryption.js';
+import { allowPrivatePushEndpoints } from './pushConfig.js';
 
 // A native push device is stored in push_devices. The row carries two secrets:
 //   1. the provider endpoint/token (FCM registration token or a UnifiedPush
@@ -63,7 +64,11 @@ export function validateDeviceRegistration(input) {
   if (transport === 'unifiedpush') {
     let url;
     try { url = new URL(endpoint); } catch { throw Object.assign(new Error('UnifiedPush endpoint must be a valid URL'), { statusCode: 400 }); }
-    if (url.protocol !== 'https:') throw Object.assign(new Error('UnifiedPush endpoint must use HTTPS'), { statusCode: 400 });
+    // A LAN install (PUSH_ALLOW_PRIVATE_ENDPOINTS=true) serves /push over http.
+    const allowHttp = allowPrivatePushEndpoints() && url.protocol === 'http:';
+    if (url.protocol !== 'https:' && !allowHttp) {
+      throw Object.assign(new Error('UnifiedPush endpoint must use HTTPS'), { statusCode: 400 });
+    }
   }
 
   const appVersion = trimmed(input?.appVersion, MAX_APP_VERSION) || null;

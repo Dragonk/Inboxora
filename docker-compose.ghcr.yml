@@ -110,6 +110,51 @@ services:
     networks:
       - inboxora
 
+  # ── ntfy (built-in UnifiedPush transport) ────────────────────────────────────
+  # Android instant notifications travel: Inboxora -> this ntfy -> UnifiedPush
+  # distributor (ntfy Android app) -> Inboxora Android. The frontend nginx serves
+  # it publicly at ${APP_URL}/push (stripping that prefix) and the container never
+  # publishes a host port.
+  #
+  # Why the prefix is handled in the proxy: ntfy 2.28 refuses a base-url that
+  # contains a path ("hosting ntfy on a sub-path is not supported"). The Android
+  # ntfy app builds its UnifiedPush endpoint from the URL the user types
+  # (https://<host>/push), so the public path survives end to end and only this
+  # one proxy hop is rewritten.
+  #
+  # Anonymous access is limited to UnifiedPush topics ("up" + 12 random base62
+  # characters generated on-device, ~71 bits, never derived from a user id or
+  # address). Everything else is denied: this is not a public topic server.
+  #
+  # Advanced: to use your own external ntfy instead, set PUSH_BASE_URL and start
+  # with docker-compose.external-ntfy.yml, which disables this service.
+  ntfy:
+    image: binwiederhier/ntfy:v2.28.0
+    container_name: inboxora-ntfy
+    restart: unless-stopped
+    command: serve
+    environment:
+      NTFY_LISTEN_HTTP: ":80"
+      NTFY_BEHIND_PROXY: "true"
+      NTFY_CACHE_FILE: /var/cache/ntfy/cache.db
+      NTFY_CACHE_DURATION: ${NTFY_CACHE_DURATION:-12h}
+      NTFY_AUTH_FILE: /var/cache/ntfy/user.db
+      NTFY_AUTH_DEFAULT_ACCESS: deny-all
+      NTFY_AUTH_ACCESS: "*:up*:rw"
+      NTFY_VISITOR_REQUEST_LIMIT_BURST: "60"
+      NTFY_VISITOR_REQUEST_LIMIT_REPLENISH: 5s
+      NTFY_VISITOR_MESSAGE_DAILY_LIMIT: "500"
+    volumes:
+      - ntfy_data:/var/cache/ntfy
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://127.0.0.1:80/v1/health"]
+      interval: 15s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+    networks:
+      - inboxora
+
   # ── Caddy (automatic HTTPS via Let's Encrypt — optional) ────────────────────
   # Use docker-compose.https.yml to avoid the port conflict with the frontend:
   #   docker compose -f docker-compose.yml -f docker-compose.https.yml --profile https up -d
@@ -140,6 +185,7 @@ services:
 volumes:
   postgres_data:
   redis_data:
+  ntfy_data:
   caddy_data:
   caddy_config:
 

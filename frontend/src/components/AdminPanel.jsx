@@ -13,7 +13,8 @@ import { PluginSlot } from '../plugins/PluginSlot.jsx';
 import { newAiAction, AI_ACTION_LIMITS } from '../aiActions.js';
 import { useMobile } from '../hooks/useMobile.js';
 import { api } from '../utils/api.js';
-import { getNativePushStatus, registerNativePush } from '../utils/nativePush.js';
+import { getInstantPushState, openPushDistributor, openPushHelp, openPushInstallPage, registerNativePush } from '../utils/nativePush.js';
+import { deriveInstantPushView } from '../utils/instantPushState.js';
 import {
   AI_ACCOUNT_PROVIDER_OPTIONS,
   AI_CONNECTION_METHOD_ACCOUNT,
@@ -5274,86 +5275,149 @@ function UsersAndInvitesPanel() {
   );
 }
 
-// ─── Native (Android) Push Status (inside NotificationsTab) ──────────────────
-// Web Push above covers the PWA. This row reports the native transport that
-// delivers new-mail notifications while the app is backgrounded or killed:
-// connected / unavailable / permission denied / background fallback.
+// ─── Instant notifications (Android native push) ─────────────────────────────
+// Web Push above covers the PWA. This card explains the separate app that makes
+// notifications arrive after Inboxora is closed (a UnifiedPush distributor such
+// as ntfy), and shows whether this device is connected to this server's /push.
+// All branching lives in deriveInstantPushView() so it is unit-testable.
 function NativePushSection() {
   const { t } = useTranslation();
-  const [status, setStatus] = useState(null);
+  const [state, setState] = useState(null);
   const [busy, setBusy] = useState(false);
+  const [copied, setCopied] = useState(false);
 
-  const supported = typeof window !== 'undefined' && window.Capacitor?.isNativePlatform?.() === true;
-  const refresh = useCallback(async () => {
-    if (!supported) return;
-    setStatus(await getNativePushStatus());
-  }, [supported]);
-
+  const refresh = useCallback(async () => { setState(await getInstantPushState()); }, []);
   useEffect(() => { refresh(); }, [refresh]);
 
-  if (!supported) return null;
+  const view = deriveInstantPushView(state);
+  if (view.kind === 'unsupported') return null;
 
-  const state = status?.status || 'unavailable';
-  let statusColor = 'var(--text-tertiary)';
-  let statusLabel = t('admin.push.statusOff');
-  if (state === 'connected') {
-    statusColor = 'var(--green, #22c55e)';
-    statusLabel = t('admin.push.statusOn');
-  } else if (state === 'permission_denied') {
-    statusColor = 'var(--red)';
-    statusLabel = t('admin.push.statusDenied');
-  }
+  const appName = 'Inboxora';
+  const distributorName = view.distributorName || t('admin.push.instantFallbackName');
+  const recommended = 'ntfy';
 
-  const handleAction = async () => {
+  const run = async (action) => {
     setBusy(true);
-    try {
-      if (state === 'permission_denied') {
-        await window.inboxoraNative?.notifications?.openSettings?.();
-      } else {
-        await registerNativePush();
-        await refresh();
-      }
-    } finally {
-      setBusy(false);
-    }
+    try { await action(); await refresh(); } finally { setBusy(false); }
   };
 
+  const copyServer = async () => {
+    if (!view.pushBaseUrl) return;
+    try {
+      await navigator.clipboard.writeText(view.pushBaseUrl);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    } catch { /* clipboard unavailable — the URL is visible to type */ }
+  };
+
+  const buttonStyle = (primary) => ({
+    padding: '7px 14px', borderRadius: 7, fontSize: 13, fontWeight: 500,
+    cursor: busy ? 'wait' : 'pointer',
+    background: primary ? 'var(--accent)' : 'transparent',
+    color: primary ? 'white' : 'var(--text-secondary)',
+    border: primary ? '1px solid transparent' : '1px solid var(--border)',
+    opacity: busy ? 0.6 : 1, transition: 'all 0.15s',
+  });
+  const urlBox = {
+    fontFamily: 'monospace', fontSize: 12, color: 'var(--text-primary)',
+    padding: '7px 10px', borderRadius: 6, background: 'var(--bg-tertiary)',
+    border: '1px solid var(--border)', wordBreak: 'break-all', flex: 1,
+  };
+  const muted = { fontSize: 12, color: 'var(--text-tertiary)', maxWidth: 420, lineHeight: 1.5 };
+
   return (
-    <div style={{ marginTop: 20 }}>
-      <div style={{
-        display: 'flex', alignItems: 'center', justifyContent: 'space-between',
-        padding: '14px 16px', borderRadius: 10,
-        background: 'var(--bg-secondary)', border: '1px solid var(--border-subtle)',
-      }}>
+    <div style={{ marginTop: 20, padding: '16px', borderRadius: 10, background: 'var(--bg-secondary)', border: '1px solid var(--border-subtle)' }}>
+      <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--text-primary)', marginBottom: 12 }}>
+        {t('admin.push.instantTitle')}
+      </div>
+
+      {view.kind === 'permission_denied' && (
         <div>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 3 }}>
-            <div style={{ width: 7, height: 7, borderRadius: '50%', background: statusColor, flexShrink: 0 }} />
-            <span style={{ fontSize: 13, fontWeight: 500, color: 'var(--text-primary)' }}>{statusLabel}</span>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 6 }}>
+            <div style={{ width: 7, height: 7, borderRadius: '50%', background: 'var(--red)', flexShrink: 0 }} />
+            <span style={{ fontSize: 13, fontWeight: 500, color: 'var(--text-primary)' }}>{t('admin.push.statusDenied')}</span>
           </div>
-          {state === 'permission_denied' && (
-            <div style={{ fontSize: 12, color: 'var(--text-tertiary)', maxWidth: 340 }}>
-              {t('admin.push.permissionDenied')}
+          <div style={{ ...muted, marginBottom: 12 }}>{t('admin.push.permissionDenied')}</div>
+          <button style={buttonStyle(true)} disabled={busy} onClick={() => run(() => window.inboxoraNative?.notifications?.openSettings?.())}>
+            {t('admin.push.enable')}
+          </button>
+        </div>
+      )}
+
+      {view.kind === 'no_distributor' && (
+        <div>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 6 }}>
+            <span aria-hidden="true">⚠</span>
+            <span style={{ fontSize: 13, fontWeight: 500, color: 'var(--text-primary)' }}>{t('admin.push.instantNeedsAppTitle')}</span>
+          </div>
+          <div style={{ ...muted, marginBottom: 6 }}>
+            {t('admin.push.instantNeedsAppBody', { app: appName, distributor: recommended })}
+          </div>
+          <div style={{ ...muted, marginBottom: 12 }}>
+            {t('admin.push.instantNeedsAppWhy', { app: appName, distributor: recommended })}
+          </div>
+          <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+            <button style={buttonStyle(true)} disabled={busy} onClick={() => run(() => openPushInstallPage())}>
+              {t('admin.push.instantInstall', { distributor: recommended })}
+            </button>
+            <button style={buttonStyle(false)} disabled={busy} onClick={() => openPushHelp()}>
+              {t('admin.push.instantLearnMore')}
+            </button>
+          </div>
+        </div>
+      )}
+
+      {view.kind === 'pending' && (
+        <div>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 6 }}>
+            <div style={{ width: 7, height: 7, borderRadius: '50%', background: 'var(--amber, #f59e0b)', flexShrink: 0 }} />
+            <span style={{ fontSize: 13, fontWeight: 500, color: 'var(--text-primary)' }}>
+              {t('admin.push.instantPendingTitle', { distributor: distributorName })}
+            </span>
+          </div>
+          <div style={{ ...muted, marginBottom: 8 }}>
+            {t('admin.push.instantPendingBody', { distributor: distributorName })}
+          </div>
+          {view.pushBaseUrl && (
+            <div style={{ display: 'flex', gap: 8, alignItems: 'center', marginBottom: 12 }}>
+              <span style={urlBox}>{view.pushBaseUrl}</span>
+              <button style={buttonStyle(false)} disabled={busy} onClick={copyServer}>
+                {copied ? '✓' : t('common.copy')}
+              </button>
             </div>
           )}
-          {status?.transport && (
-            <div style={{ fontSize: 12, color: 'var(--text-tertiary)' }}>{status.transport}</div>
-          )}
+          <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+            <button style={buttonStyle(true)} disabled={busy} onClick={() => run(() => openPushDistributor())}>
+              {t('admin.push.instantOpen', { distributor: distributorName })}
+            </button>
+            <button style={buttonStyle(false)} disabled={busy} onClick={() => run(() => registerNativePush())}>
+              {t('admin.push.instantCheckAgain')}
+            </button>
+            <button style={buttonStyle(false)} disabled={busy} onClick={() => openPushHelp()}>
+              {t('admin.push.instantLearnMore')}
+            </button>
+          </div>
         </div>
-        {state !== 'connected' && (
-          <button
-            onClick={handleAction}
-            disabled={busy}
-            style={{
-              padding: '7px 16px', borderRadius: 7, fontSize: 13, fontWeight: 500,
-              cursor: busy ? 'wait' : 'pointer',
-              background: 'var(--accent)', color: 'white', border: '1px solid transparent',
-              opacity: busy ? 0.6 : 1, transition: 'all 0.15s',
-            }}
-          >
-            {busy ? t('admin.push.loading') : t('admin.push.enable')}
-          </button>
-        )}
-      </div>
+      )}
+
+      {view.kind === 'connected' && (
+        <div>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8 }}>
+            <span aria-hidden="true">✓</span>
+            <span style={{ fontSize: 13, fontWeight: 500, color: 'var(--green, #22c55e)' }}>{t('admin.push.instantActive')}</span>
+          </div>
+          <div style={{ display: 'grid', gridTemplateColumns: 'auto 1fr', gap: '4px 12px', alignItems: 'baseline' }}>
+            <span style={muted}>{t('admin.push.instantProvider')}</span>
+            <span style={{ fontSize: 12, color: 'var(--text-primary)' }}>{distributorName}</span>
+            {view.pushBaseUrl && (
+              <>
+                <span style={muted}>{t('admin.push.instantServer')}</span>
+                <span style={{ ...urlBox, background: 'transparent', border: 'none', padding: 0 }}>{view.pushBaseUrl}</span>
+              </>
+            )}
+          </div>
+        </div>
+      )}
     </div>
   );
 }

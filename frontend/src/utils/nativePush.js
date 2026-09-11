@@ -53,3 +53,52 @@ export async function clearNativePush() {
     await window.inboxoraNative?.notifications?.clear?.().catch(() => {});
   } catch { /* never block sign-out on push cleanup */ }
 }
+
+// Combined state for the settings card: native distributor/permission info plus
+// the server's advertised UnifiedPush base URL. The server value wins; when the
+// server has no APP_URL configured, the current origin is the best local guess
+// for a single-domain install.
+export async function getInstantPushState() {
+  if (!isNativePlatform()) {
+    return { platformSupported: false, status: 'unavailable', distributors: [], pushBaseUrl: null };
+  }
+  await installCapacitorNativeBridge();
+  const [native, server] = await Promise.all([
+    window.inboxoraNative?.notifications?.getStatus?.().catch(() => null),
+    api.getPushStatus().catch(() => null),
+  ]);
+  const current = native || {};
+  const origin = typeof window !== 'undefined' ? window.location?.origin : null;
+  return {
+    platformSupported: true,
+    status: current.status || 'unavailable',
+    transport: current.transport || null,
+    deviceId: current.deviceId || null,
+    distributor: current.distributor || null,
+    distributorLabel: current.distributorLabel || null,
+    distributors: Array.isArray(current.distributors) ? current.distributors : [],
+    hasEndpoint: current.hasEndpoint === true,
+    pushBaseUrl: server?.pushBaseUrl || (origin ? `${origin}/push` : null),
+    nativeTransports: server?.nativeTransports || null,
+  };
+}
+
+export async function openPushDistributor() {
+  if (!isNativePlatform()) return false;
+  await installCapacitorNativeBridge();
+  const result = await window.inboxoraNative?.notifications?.openDistributor?.().catch(() => null);
+  return result?.opened === true;
+}
+
+export async function openPushInstallPage() {
+  if (!isNativePlatform()) return;
+  await installCapacitorNativeBridge();
+  await window.inboxoraNative?.notifications?.openInstallPage?.().catch(() => {});
+}
+
+export async function openPushHelp() {
+  if (!isNativePlatform()) return;
+  await installCapacitorNativeBridge();
+  await window.inboxoraNative?.notifications?.openHelp?.().catch(() => {});
+}
+

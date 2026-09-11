@@ -112,6 +112,9 @@ upstream is published with the release tag.
   mobile shell, and self-hosted typography.
 - **Platform reach.** Installable PWA with an unread badge and Web Push. Electron desktop and
   Android/Capacitor shells exist and are being stabilised; they are not release-ready yet.
+  Android instant notifications use a bundled **ntfy** (UnifiedPush) server on the same domain at
+  `/push` — no Firebase, no second hostname. See
+  [Notifications](https://github.com/Dragonk/Inboxora/wiki/Notifications).
 
 ## Quick start
 
@@ -135,8 +138,13 @@ with `openssl rand -hex 32` (or `-hex 16` for `DB_PASSWORD`):
 | `DB_PASSWORD` | Password for the bundled PostgreSQL. |
 | `ENCRYPTION_KEY` | Encrypts stored mail and DAV credentials at rest. **Losing it makes saved credentials unreadable.** |
 
+The same `docker compose up -d` also starts **ntfy**, the self-hosted UnifiedPush server for
+Android instant notifications, published on the same domain at `${APP_URL}/push`. One domain,
+one certificate, no extra configuration.
+
 Optional: `VAPID_PUBLIC_KEY` / `VAPID_PRIVATE_KEY` / `VAPID_SUBJECT` for Web Push, and
-`DOMAIN` / `ACME_EMAIL` when Inboxora terminates TLS itself. See the
+`DOMAIN` / `ACME_EMAIL` when Inboxora terminates TLS itself. Set `PUSH_BASE_URL` plus the
+`docker-compose.external-ntfy.yml` override to use your own external ntfy instead. See the
 [Installation](https://github.com/Dragonk/Inboxora/wiki/Installation) wiki page for the full
 matrix, including running behind an existing reverse proxy.
 

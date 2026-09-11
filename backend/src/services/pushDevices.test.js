@@ -61,6 +61,15 @@ describe('device registration validation', () => {
     expect(() => validateDeviceRegistration({ deviceId: 'd', platform: 'android', transport: 'unifiedpush', endpoint: 'not-a-url' })).toThrow(/valid URL/);
   });
 
+  it('accepts a plain-http /push endpoint only for a LAN install that opted in', () => {
+    vi.stubEnv('PUSH_ALLOW_PRIVATE_ENDPOINTS', 'true');
+    expect(validateDeviceRegistration({
+      deviceId: 'd', platform: 'android', transport: 'unifiedpush',
+      endpoint: 'http://192.168.1.10/push/upABCDEF123456?up=1',
+    })).toMatchObject({ endpoint: 'http://192.168.1.10/push/upABCDEF123456?up=1' });
+    vi.unstubAllEnvs();
+  });
+
   it('requires a device id and an endpoint', () => {
     expect(() => validateDeviceRegistration({ platform: 'android', transport: 'fcm', endpoint: 'token' })).toThrow(/deviceId/);
     expect(() => validateDeviceRegistration({ deviceId: 'd', platform: 'android', transport: 'fcm' })).toThrow(/endpoint/);

@@ -5,12 +5,15 @@
 //   DB_HOST=127.0.0.1 DB_PORT=5432 DB_NAME=inboxora_test \
 //   DB_USER=... DB_PASSWORD=... \
 //   ENCRYPTION_KEY=<64 hex> REQUIRE_PUSH_POSTGRES=1 npx vitest run src/routes/push.integration.test.js
-import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
+import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { randomUUID } from 'crypto';
+import { createServer } from 'http';
 import express from 'express';
 import 'express-async-errors';
 import { pool, query } from '../services/db.js';
 import pushRouter from './push.js';
+import { buildMailNotificationEvent } from '../services/mailNotificationEvent.js';
+import { dispatchMailNotification, resetDispatchDedup } from '../services/pushDispatcher.js';
 
 const enabled = process.env.REQUIRE_PUSH_POSTGRES === '1';
 
@@ -133,4 +136,61 @@ describe.skipIf(!enabled)('push device registry with PostgreSQL', () => {
     expect(native.status).toBe(200);
     expect((await query('SELECT COUNT(*)::int AS n FROM push_devices WHERE user_id=$1 AND device_id=$2', [ownerId, 'restart-device'])).rows[0].n).toBe(1);
   });
+
+  it('delivers only the opaque event to a UnifiedPush endpoint (mock distributor)', async () => {
+    sessions.userId = ownerId;
+    const received = [];
+    const mock = createServer((req, res) => {
+      let body = '';
+      req.on('data', (chunk) => { body += chunk; });
+      req.on('end', () => {
+        received.push({ url: req.url, method: req.method, body });
+        res.writeHead(200, { 'content-type': 'text/plain' });
+        res.end('ok');
+      });
+    });
+    await new Promise((resolve) => mock.listen(0, '127.0.0.1', resolve));
+    const port = mock.address().port;
+
+    const previous = process.env.PUSH_ALLOW_PRIVATE_ENDPOINTS;
+    process.env.PUSH_ALLOW_PRIVATE_ENDPOINTS = 'true';
+    try {
+      const { response, body } = await register('opaque-device', `http://127.0.0.1:${port}/upMOCKTOPIC123?up=1`);
+      expect(response.status).toBe(201);
+      expect(body.deviceToken).toMatch(/^mf_push_/);
+
+      resetDispatchDedup();
+      const event = buildMailNotificationEvent({
+        userId: ownerId,
+        message: {
+          id: randomUUID(),
+          account_id: randomUUID(),
+          folder: 'INBOX',
+          fromName: 'Ada Lovelace',
+          fromEmail: 'ada@example.com',
+          subject: 'Top secret subject',
+        },
+        alertCount: 1,
+      });
+
+      const summary = await dispatchMailNotification(event);
+      expect(summary.native.delivered).toBe(1);
+
+      await new Promise((resolve) => setTimeout(resolve, 50));
+      expect(received).toHaveLength(1);
+      expect(received[0].method).toBe('POST');
+      expect(received[0].url).toBe('/upMOCKTOPIC123?up=1');
+      // Exactly the opaque event — no sender, subject, address or body.
+      expect(JSON.parse(received[0].body)).toEqual({ type: 'mail.changed', eventId: event.eventId });
+      expect(received[0].body).not.toContain('Ada');
+      expect(received[0].body).not.toContain('Top secret');
+      expect(received[0].body).not.toContain('ada@example.com');
+    } finally {
+      if (previous === undefined) delete process.env.PUSH_ALLOW_PRIVATE_ENDPOINTS;
+      else process.env.PUSH_ALLOW_PRIVATE_ENDPOINTS = previous;
+      await new Promise((resolve) => mock.close(resolve));
+      await query('DELETE FROM push_devices WHERE user_id=$1 AND device_id=$2', [ownerId, 'opaque-device']);
+    }
+  });
 });
+

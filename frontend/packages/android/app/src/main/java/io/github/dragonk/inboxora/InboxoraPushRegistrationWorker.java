@@ -40,14 +40,18 @@ public class InboxoraPushRegistrationWorker extends Worker {
         String host = InboxoraNativePlugin.getSavedHost(context);
         if (host == null || host.isEmpty()) return Result.success();
 
+        // Not logged in yet, or no distributor/endpoint available: nothing to do
+        // now. Returning success (instead of retry) avoids an endless background
+        // retry loop on devices that never install a distributor — the next
+        // launch, login or onNewEndpoint callback enqueues registration again.
         String cookie = CookieManager.getInstance().getCookie(host);
-        if (cookie == null || cookie.trim().isEmpty()) return Result.retry();
+        if (cookie == null || cookie.trim().isEmpty()) return Result.success();
 
         String transport = InboxoraNativePush.transport(context);
         String endpoint = InboxoraNativePush.endpoint(context);
         if (transport == null || endpoint == null || endpoint.isEmpty()) {
             InboxoraPushManager.ensureRegistered(context);
-            return Result.retry();
+            return Result.success();
         }
 
         try {
@@ -60,7 +64,12 @@ public class InboxoraPushRegistrationWorker extends Worker {
             if (appVersion != null) payload.put("appVersion", appVersion);
 
             Response response = post(host + "/api/push/devices", cookie, payload.toString());
-            if (response.status == HTTP_UNAUTHORIZED) return Result.retry();
+            if (response.status == HTTP_UNAUTHORIZED) {
+                // Session expired or signed out. Re-registration happens on the
+                // next launch/login; do not keep waking the device for this.
+                InboxoraNativePush.setStatus(context, InboxoraNativePush.STATUS_FALLBACK);
+                return Result.success();
+            }
             if (response.status == HTTP_BAD_REQUEST) {
                 // The server rejected this endpoint (e.g. a blocked private
                 // distributor URL). Retrying cannot help; surface it in settings.
