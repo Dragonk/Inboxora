@@ -155,3 +155,70 @@ Uwaga: w drzewie roboczym znajdują się **cudze, niezcommitowane** zmiany
 dotykałem ich i nie weszły do tego commita. Obrazy zbudowano z czystego drzewa
 commita, nie z working tree.
 
+---
+
+# Runda 3 — odbiór zaproszenia z maila + spójny opis opcji w ustawieniach
+
+## 10. Przyczyna: załącznik `.ics` nie był odkodowany
+
+Karta zaproszenia w odbieranej skrzynce pokazywała „Nie udało się odczytać lub
+zapisać zaproszenia”. `walkStructure()` dla części `text/calendar` dopisywał ją do
+listy załączników **bez pola `encoding`**, a `fetchAttachment()` robiło:
+
+```js
+let encoding = 'base64';              // poprawna domyślna wartość
+if (att) encoding = att.encoding;     // ...nadpisana przez undefined
+```
+
+czyli traciło domyślne `base64` i **nie odkodowywało** części. Parser dostawał
+`QkVHSU46VkNBTEVOREFS…` zamiast `BEGIN:VCALENDAR…` i odrzucał zaproszenie.
+Ten sam defekt psuł pobieranie pliku `.ics` i przekazywanie go dalej.
+
+## 11. Naprawa
+
+- część kalendarza niesie teraz zadeklarowany transfer encoding, a
+  `attachmentTransferEncoding()` rozstrzyga go tak, że **brak wartości nie
+  nadpisuje domyślnej** (to była właściwa przyczyna);
+- gdy zapisane `raw_ical` jest nieobecne **lub nieparsowalne**, czytnik schodzi
+  do surowej części MIME — wiadomość sprzed zapisu zaproszenia nadal da się
+  otworzyć i zaimportować;
+- nieosiągalna skrzynka to „brak zaproszenia”, a nie 500 z niejasnym błędem.
+
+Testy: `imapManager.test.js` (odkodowanie realnego base64 ICS + zachowanie
+domyślnego kodowania) oraz nowy `calendar.invitationRead.test.js` (5 przypadków:
+odczyt z załącznika, fallback z nieparsowalnego `raw_ical`, brak sięgania do
+skrzynki gdy zapis jest dobry, niedostępna skrzynka, import do kalendarza).
+Sprawdzone także odwrotnie: po cofnięciu naprawy oba testy `imapManager` padają.
+
+## 12. Domyślna skrzynka do zaproszeń
+
+`Ustawienia → Kalendarz → Domyślna skrzynka nadawcy zaproszeń`: lista kont
+zdolnych do wysyłki (`enabled` + `smtp_host`), zapisywana jako preferencja
+użytkownika. Nowe wydarzenie wybiera ją wstępnie; wartość wskazująca konto, które
+nie może już wysyłać, jest ignorowana.
+
+## 13. Spójna prezentacja opcji
+
+Jeden wzorzec (nazwa opcji + krótki opis pod spodem), jak w
+`Ustawienia → Wygląd → Układ → Lista wiadomości`:
+
+- `SettingsChoices` przyjmuje opis grupy i opis dla każdej wartości — używają go
+  kalendarz (pierwszy dzień tygodnia) i pozycja panelu na telefonie (góra/dół);
+- nowy `SettingsSwitchRow` (nazwa + stały opis + przełącznik) obsługuje
+  **Grupowanie wiadomości**, **Czytnik wiadomości** i **Favikony nadawcy** —
+  wcześniej te dwa pierwsze miały inną typografię i podmieniały opis między
+  wariantem „on/off”, co odbiegało od reszty ustawień;
+- opisy dodane także do dni roboczych i godzin pracy;
+- martwe klucze `threadingOn/Off`, `threadingOnDesc/OffDesc`,
+  `readerOnDesc/OffDesc` usunięte z 9 języków, w ich miejsce stałe opisy.
+
+## 14. Testy i obrazy (runda 3)
+
+- backend: `npx vitest run` — 1696 przechodzi, 13 pominiętych;
+- frontend: `npm test` — 2180 przechodzi; `npm run build` — OK;
+- `eslint --max-warnings 0` — czysto;
+- obrazy `:dev` z commita `41f582c` (amd64+arm64), sprawdzone po pobraniu z GHCR:
+  backend zawiera `attachmentTransferEncoding` i `fetchInvitationAttachment`,
+  frontend — `defaultInviteAccount` i style `settings-switch-row`.
+
+
