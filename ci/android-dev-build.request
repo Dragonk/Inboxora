@@ -1,12 +1,11 @@
 # Android dev APK request.
 #
 # Push an update to this file to build a test APK. The workflow reads the first
-# 40-hex SHA below, verifies it is reachable from origin/dev, and checks it out,
-# so the APK is built from exactly this commit (matching the Docker dev images).
+# 40-hex SHA below, verifies it is reachable from origin/dev, and checks it out.
 #
 # The build is signed with the stable dev debug keystore from the
 # ANDROID_DEV_KEYSTORE_BASE64 repo secret, so successive dev APKs update in
 # place instead of failing with "App not installed".
 #
-# Target dev commit (same SHA as the published ghcr.io/dragonk/inboxora-*:dev):
-119b0937da38838b5a7649f67b8c502b47ec8430
+# Target dev commit:
+d0798a8453cc22e44a909afdd56d1211b390d775
