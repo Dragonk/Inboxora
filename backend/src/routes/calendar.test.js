@@ -397,7 +397,10 @@ describe('local calendar API', () => {
     expect(query.mock.calls[1][0]).toContain('id = $1 AND user_id = $2');
     expect(query.mock.calls[1][1]).toEqual(['account-1', 'user-1']);
     expect(query.mock.calls[2][0]).toContain('attendees, invite_account_id');
-    expect(query.mock.calls[2][1]).toContainEqual(['guest@example.test']);
+    // attendees is a jsonb column: the driver must receive a JSON string, never a
+    // JavaScript array (node-postgres would render that as a PostgreSQL array
+    // literal, which jsonb rejects with "invalid input syntax for type json").
+    expect(query.mock.calls[2][1]).toContainEqual(JSON.stringify(['guest@example.test']));
     expect(sendCalendarInvitation).toHaveBeenCalledWith(expect.objectContaining({ account: sender, attendees: ['guest@example.test'], summary: 'Planning' }));
   });
 
@@ -423,6 +426,33 @@ describe('local calendar API', () => {
     expect(query.mock.calls[1][1][3]).toContain('DESCRIPTION:Bring notes\\nDiscuss scope');
     expect(query.mock.calls[1][1][3]).toContain('LOCATION:Room\\, 2');
     expect(query.mock.calls[1][1][3]).toContain('DTSTART:20260901T090000Z');
+  });
+
+  it('sanitizes a rich-text description and writes it as DESCRIPTION plus X-ALT-DESC', async () => {
+    query
+      .mockResolvedValueOnce({ rows: [{ id: 'calendar-1', source: 'local', read_only: false }] })
+      .mockResolvedValueOnce({ rows: [{ id: 'event-1', calendar_id: 'calendar-1', uid: 'uid-1', summary: 'Planning' }] })
+      .mockResolvedValueOnce({ rows: [] });
+
+    const response = await fetch(`${base}/api/calendar/events`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({
+        calendarId: 'calendar-1', summary: 'Planning',
+        description: '<p>Bring notes</p><script>steal()</script><p>Discuss scope</p>',
+        startsAt: '2026-09-01T09:00:00.000Z', endsAt: '2026-09-01T10:00:00.000Z',
+      }),
+    });
+
+    expect(response.status).toBe(201);
+    // Stored value is the sanitized HTML, never the script.
+    expect(query.mock.calls[1][1][5]).toBe('<p>Bring notes</p><p>Discuss scope</p>');
+    const raw = query.mock.calls[1][1][3];
+    // Plain calendar clients still get a readable DESCRIPTION, HTML clients get
+    // the formatted alternative (RFC 5545 section 3.8.8.2).
+    expect(raw).toContain('DESCRIPTION:Bring notes\\nDiscuss scope');
+    expect(raw).toContain('X-ALT-DESC;FMTTYPE=text/html:<p>Bring notes</p><p>Discuss scope</p>');
+    expect(raw).not.toContain('steal');
   });
 
   it('escapes lone carriage returns in local iCalendar text', async () => {
@@ -543,7 +573,7 @@ describe('local calendar API', () => {
     expect(query.mock.calls[3][0]).toContain('invitation_sequence = CASE');
     expect(query.mock.calls[3][0]).toContain('invitation_sequence + 1');
     expect(query.mock.calls[3][0]).toContain('WHERE id = $13 AND calendar_id = $14 AND user_id = $15');
-    expect(query.mock.calls[3][1]).toContainEqual(['guest@example.test']);
+    expect(query.mock.calls[3][1]).toContainEqual(JSON.stringify(['guest@example.test']));
     expect(sendCalendarInvitation).toHaveBeenCalledWith(expect.objectContaining({ account: sender, attendees: ['guest@example.test'], uid: 'uid-1', method: 'REQUEST', sequence: 1 }));
     expect(withTransaction).toHaveBeenCalledTimes(1);
     expect(query.mock.calls[2][0]).toContain('FOR UPDATE');
@@ -750,7 +780,7 @@ describe('local calendar API', () => {
     const response = await fetch(`${base}/api/calendar/events/event-1?calendarId=calendar-1`, { method: 'DELETE' });
 
     expect(response.status).toBe(204);
-    expect(query.mock.calls[1][0]).toContain('SELECT uid, raw_ical, attendees, invite_account_id');
+    expect(query.mock.calls[1][0]).toContain("SELECT uid, raw_ical, CASE WHEN jsonb_typeof(attendees) = 'array'");
     expect(query.mock.calls[3][0]).toContain('DELETE FROM calendar_events');
     expect(sendCalendarInvitation).toHaveBeenCalledWith(expect.objectContaining({
       account: sender, attendees: ['guest@example.test'], uid: 'uid-1', method: 'CANCEL', sequence: 3,

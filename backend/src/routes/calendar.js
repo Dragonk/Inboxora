@@ -2,6 +2,7 @@ import { mergeCalendarResource } from '../utils/calendarRecurrence.js';
 import ICAL from 'ical.js';
 import { parseInboundCalendarInvitation } from '../services/inboundCalendarInvitation.js';
 import { parseCalendarEvent } from '../utils/ical.js';
+import { descriptionContentLines, normalizeDescription } from '../utils/richText.js';
 import { Router } from 'express';
 import crypto from 'crypto';
 import { query, withTransaction } from '../services/db.js';
@@ -117,7 +118,7 @@ function localEventIcal({ uid, summary, description, location, url, organizer, a
   const dateParameter = allDay ? ';VALUE=DATE' : '';
   const lines = ['BEGIN:VCALENDAR', 'VERSION:2.0', 'PRODID:-//Inboxora//DAV Hub//EN', 'BEGIN:VEVENT', `UID:${uid}`, `DTSTAMP:${formatICalendarDate(new Date(), false)}`, `DTSTART${dateParameter}:${formatICalendarDate(startsAt, allDay)}`, `DTEND${dateParameter}:${formatICalendarDate(endsAt, allDay)}`];
   if (summary) lines.push(`SUMMARY:${escapeICalendarText(summary)}`);
-  if (description) lines.push(`DESCRIPTION:${escapeICalendarText(description)}`);
+  lines.push(...descriptionContentLines(description, escapeICalendarText));
   if (location) lines.push(`LOCATION:${escapeICalendarText(location)}`);
   if (url) lines.push(`URL:${String(url).replace(/[\r\n]/g, '')}`);
   if (organizer) lines.push(`ORGANIZER:mailto:${escapeICalendarText(organizer.replace(/^mailto:/i, ''))}`);
@@ -132,6 +133,21 @@ function normalizeAttendees(value) {
   if (attendees.some(email => /[\r\n\0\s,;"<>]/.test(email) || !/^[^@]+@[^@]+\.[^@]+$/.test(email))) return null;
   return [...new Set(attendees)];
 }
+
+// `attendees` is a jsonb column. node-postgres serialises a JavaScript array as a
+// PostgreSQL array literal (`{a@b.c}`), which jsonb rejects with
+// "invalid input syntax for type json" — and an empty array silently becomes the
+// jsonb OBJECT `{}`. Either way a plain array must never be bound directly.
+function jsonbAttendees(value) {
+  return JSON.stringify(Array.isArray(value) ? value : []);
+}
+
+// Older rows may already hold `{}` because of the binding bug above. Read them
+// back as an empty array and never call jsonb_array_length() on a non-array.
+const ATTENDEES_IS_ARRAY = "jsonb_typeof(attendees) = 'array'";
+// Reads must tolerate `{}` rows written before the binding fix; the CASE keeps
+// jsonb_array_length() from ever seeing a non-array.
+const READ_ATTENDEES = "CASE WHEN jsonb_typeof(attendees) = 'array' THEN attendees ELSE '[]'::jsonb END AS attendees";
 
 function invitationOperationKey(req) {
   const supplied = req.headers['x-idempotency-key'];
@@ -186,7 +202,7 @@ async function updateInvitedEvent(req, fields) {
       if (!event || event.id !== req.params.eventId) return { conflict: true };
       return { event, duplicate: true, ...duplicateInvitationStatus(prior.rows[0]) };
     }
-    const existing = (await client.query('SELECT uid, raw_ical, attendees, invite_account_id, invitation_sequence, summary, description, location, starts_at, ends_at, all_day FROM calendar_events WHERE id = $1 AND calendar_id = $2 AND user_id = $3 FOR UPDATE', [req.params.eventId, calendarId, req.session.userId])).rows[0];
+    const existing = (await client.query(`SELECT uid, raw_ical, ${READ_ATTENDEES}, invite_account_id, invitation_sequence, summary, description, location, starts_at, ends_at, all_day FROM calendar_events WHERE id = $1 AND calendar_id = $2 AND user_id = $3 FOR UPDATE`, [req.params.eventId, calendarId, req.session.userId])).rows[0];
     if (!existing) return { notFound: true };
     const hadInvitation = Boolean(existing.invite_account_id && Array.isArray(existing.attendees) && existing.attendees.length);
     const senderChanged = hadInvitation && invitationAccount.id !== existing.invite_account_id;
@@ -201,7 +217,7 @@ async function updateInvitedEvent(req, fields) {
       if (!cancellationAccount) return { cancelFailed: true };
     }
     const rawIcal = mergeCalendarResource(existing.raw_ical, localEventIcal({ uid: existing.uid, summary, description, location, url, organizer, attendees: normalizedAttendees, allDay: Boolean(allDay), ...times }));
-    const result = await client.query(`UPDATE calendar_events SET raw_ical = $1, summary = $2, description = $3, location = $4, url = $5, organizer = $6, starts_at = $7, ends_at = $8, all_day = $9, timezone = $10, attendees = $11, invite_account_id = $12, invitation_sequence = CASE WHEN (invite_account_id IS NOT NULL AND jsonb_array_length(attendees) > 0) OR invitation_sequence > 0 THEN invitation_sequence + 1 ELSE 0 END, etag = gen_random_uuid()::text, updated_at = NOW() WHERE id = $13 AND calendar_id = $14 AND user_id = $15 RETURNING id, calendar_id, uid, etag, summary, description, location, url, organizer, starts_at, ends_at, all_day, timezone, attendees, invite_account_id, invitation_sequence, created_at, updated_at`, [rawIcal, summary || null, description, location, url, organizer, times.startsAt, times.endsAt, Boolean(allDay), timezone, normalizedAttendees, invitationAccount.id, req.params.eventId, calendarId, req.session.userId]);
+    const result = await client.query(`UPDATE calendar_events SET raw_ical = $1, summary = $2, description = $3, location = $4, url = $5, organizer = $6, starts_at = $7, ends_at = $8, all_day = $9, timezone = $10, attendees = $11, invite_account_id = $12, invitation_sequence = CASE WHEN (invite_account_id IS NOT NULL AND ${ATTENDEES_IS_ARRAY} AND jsonb_array_length(attendees) > 0) OR invitation_sequence > 0 THEN invitation_sequence + 1 ELSE 0 END, etag = gen_random_uuid()::text, updated_at = NOW() WHERE id = $13 AND calendar_id = $14 AND user_id = $15 RETURNING id, calendar_id, uid, etag, summary, description, location, url, organizer, starts_at, ends_at, all_day, timezone, attendees, invite_account_id, invitation_sequence, created_at, updated_at`, [rawIcal, summary || null, description, location, url, organizer, times.startsAt, times.endsAt, Boolean(allDay), timezone, jsonbAttendees(normalizedAttendees), invitationAccount.id, req.params.eventId, calendarId, req.session.userId]);
     const event = result.rows[0];
     const actions = [];
     if (cancelledAttendees.length) actions.push({ account: cancellationAccount, attendees: cancelledAttendees, summary: existing.summary, description: existing.description, location: existing.location, uid: existing.uid, allDay: Boolean(existing.all_day), method: 'CANCEL', sequence: Number(existing.invitation_sequence || 0) + 1, startsAt: new Date(existing.starts_at).toISOString(), endsAt: new Date(existing.ends_at).toISOString() });
@@ -440,7 +456,8 @@ router.get('/events', async (req, res) => {
 });
 
 router.post('/events', async (req, res) => {
-  const { calendarId, summary, description = null, location = null, url = null, organizer = null, allDay = false, timezone = null, sendInvites = false, inviteAccountId, attendees } = req.body || {};
+  const { calendarId, summary, description: rawDescription = null, location = null, url = null, organizer = null, allDay = false, timezone = null, sendInvites = false, inviteAccountId, attendees } = req.body || {};
+  const description = normalizeDescription(rawDescription);
   const times = parseEventTimes(req.body);
   if (!calendarId || !times) return res.status(400).json({ error: 'calendarId and a valid event range are required' });
   const normalizedAttendees = normalizeAttendees(attendees || []);
@@ -480,7 +497,7 @@ router.post('/events', async (req, res) => {
         `INSERT INTO calendar_events (calendar_id, user_id, uid, raw_ical, summary, description, location, url, organizer, starts_at, ends_at, all_day, timezone, attendees, invite_account_id)
          VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15)
          RETURNING id, calendar_id, uid, etag, summary, description, location, url, organizer, starts_at, ends_at, all_day, timezone, attendees, invite_account_id, invitation_sequence, created_at, updated_at`,
-        [calendarId, req.session.userId, uid, rawIcal, summary || null, description, location, url, organizer, times.startsAt, times.endsAt, Boolean(allDay), timezone, normalizedAttendees, invitationAccount.id],
+        [calendarId, req.session.userId, uid, rawIcal, summary || null, description, location, url, organizer, times.startsAt, times.endsAt, Boolean(allDay), timezone, jsonbAttendees(normalizedAttendees), invitationAccount.id],
       );
       const event = result.rows[0];
       const outbox = await client.query(
@@ -490,7 +507,7 @@ router.post('/events', async (req, res) => {
         return { event, outboxId: outbox.rows[0].id };
       });
     } catch (error) {
-      console.error('Calendar invitation transaction failed:', error.message);
+      console.error('Calendar invitation transaction failed:', error.message, error.code ? `(code ${error.code})` : '');
       return res.status(500).json({ error: 'The event and invitation could not be saved; no partial changes were kept.' });
     }
     if (outcome.conflict) return res.status(409).json({ error: 'The idempotency key was already used for a different calendar operation' });
@@ -508,7 +525,7 @@ router.post('/events', async (req, res) => {
      ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15)
      RETURNING id, calendar_id, uid, etag, summary, description, location, url, organizer,
                starts_at, ends_at, all_day, timezone, attendees, invite_account_id, invitation_sequence, created_at, updated_at`,
-    [calendarId, req.session.userId, uid, rawIcal, summary || null, description, location, url, organizer, times.startsAt, times.endsAt, Boolean(allDay), timezone, normalizedAttendees, invitationAccount?.id || null],
+    [calendarId, req.session.userId, uid, rawIcal, summary || null, description, location, url, organizer, times.startsAt, times.endsAt, Boolean(allDay), timezone, jsonbAttendees(normalizedAttendees), invitationAccount?.id || null],
   );
   let invitationError = null;
   if (invitationAccount) {
@@ -538,7 +555,7 @@ router.all('/events/:eventId/occurrence', async (req, res) => {
     if (!row) return { status: 404 };
     const event = parseCalendarEvent(row.raw_ical);
     if (!event) return { status: 409 };
-    const replacement = localEventIcal(cancel ? { ...event, allDay: event.allDay } : { ...req.body, attendees, ...times, uid: row.uid });
+    const replacement = localEventIcal(cancel ? { ...event, allDay: event.allDay } : { ...req.body, description: normalizeDescription(req.body?.description), attendees, ...times, uid: row.uid });
     const raw = mergeCalendarResource(row.raw_ical, replacement, recurrenceId, cancel);
     await client.query('UPDATE calendar_events SET raw_ical = $1, etag = gen_random_uuid()::text, updated_at = NOW() WHERE id = $2 AND calendar_id = $3 AND user_id = $4', [raw, req.params.eventId, calendarId, req.session.userId]);
     return { status: 200 };
@@ -548,7 +565,8 @@ router.all('/events/:eventId/occurrence', async (req, res) => {
 });
 
 router.patch('/events/:eventId', async (req, res) => {
-  const { calendarId, summary, description = null, location = null, url = null, organizer = null, allDay = false, timezone = null, sendInvites = false, inviteAccountId, attendees } = req.body || {};
+  const { calendarId, summary, description: rawDescription = null, location = null, url = null, organizer = null, allDay = false, timezone = null, sendInvites = false, inviteAccountId, attendees } = req.body || {};
+  const description = normalizeDescription(rawDescription);
   const times = parseEventTimes(req.body);
   if (!calendarId || !times) return res.status(400).json({ error: 'calendarId and a valid event range are required' });
   const normalizedAttendees = normalizeAttendees(attendees || []);
@@ -570,7 +588,7 @@ router.patch('/events/:eventId', async (req, res) => {
     try {
       outcome = await updateInvitedEvent(req, { calendarId, invitationAccount, normalizedAttendees, times, summary, description, location, url, organizer, allDay, timezone });
     } catch (error) {
-      console.error('Calendar invitation transaction failed:', error.message);
+      console.error('Calendar invitation transaction failed:', error.message, error.code ? `(code ${error.code})` : '');
       return res.status(500).json({ error: 'The event and invitation could not be saved; no partial changes were kept.' });
     }
     if (outcome.notFound) return res.status(404).json({ error: 'Event not found' });
@@ -582,7 +600,7 @@ router.patch('/events/:eventId', async (req, res) => {
   }
 
   const outcome = await withTransaction(async client => {
-    const existing = await client.query(`SELECT uid, raw_ical, attendees, invite_account_id, invitation_sequence, summary, description, location, starts_at, ends_at, all_day FROM calendar_events WHERE id = $1 AND calendar_id = $2 AND user_id = $3 FOR UPDATE`, [req.params.eventId, calendarId, req.session.userId]);
+    const existing = await client.query(`SELECT uid, raw_ical, ${READ_ATTENDEES}, invite_account_id, invitation_sequence, summary, description, location, starts_at, ends_at, all_day FROM calendar_events WHERE id = $1 AND calendar_id = $2 AND user_id = $3 FOR UPDATE`, [req.params.eventId, calendarId, req.session.userId]);
     const existingEvent = existing.rows[0];
     if (!existingEvent) return { notFound: true };
 
@@ -607,7 +625,7 @@ router.patch('/events/:eventId', async (req, res) => {
     }
 
     const rawIcal = mergeCalendarResource(existingEvent.raw_ical, localEventIcal({ uid: existingEvent.uid, summary, description, location, url, organizer, attendees: normalizedAttendees, allDay: Boolean(allDay), ...times }));
-    const result = await client.query(`UPDATE calendar_events SET raw_ical = $1, summary = $2, description = $3, location = $4, url = $5, organizer = $6, starts_at = $7, ends_at = $8, all_day = $9, timezone = $10, attendees = $11, invite_account_id = $12, invitation_sequence = CASE WHEN (invite_account_id IS NOT NULL AND jsonb_array_length(attendees) > 0) OR invitation_sequence > 0 THEN invitation_sequence + 1 ELSE 0 END, etag = gen_random_uuid()::text, updated_at = NOW() WHERE id = $13 AND calendar_id = $14 AND user_id = $15 RETURNING id, calendar_id, uid, etag, summary, description, location, url, organizer, starts_at, ends_at, all_day, timezone, attendees, invite_account_id, invitation_sequence, created_at, updated_at`, [rawIcal, summary || null, description, location, url, organizer, times.startsAt, times.endsAt, Boolean(allDay), timezone, normalizedAttendees, invitationAccount?.id || null, req.params.eventId, calendarId, req.session.userId]);
+    const result = await client.query(`UPDATE calendar_events SET raw_ical = $1, summary = $2, description = $3, location = $4, url = $5, organizer = $6, starts_at = $7, ends_at = $8, all_day = $9, timezone = $10, attendees = $11, invite_account_id = $12, invitation_sequence = CASE WHEN (invite_account_id IS NOT NULL AND ${ATTENDEES_IS_ARRAY} AND jsonb_array_length(attendees) > 0) OR invitation_sequence > 0 THEN invitation_sequence + 1 ELSE 0 END, etag = gen_random_uuid()::text, updated_at = NOW() WHERE id = $13 AND calendar_id = $14 AND user_id = $15 RETURNING id, calendar_id, uid, etag, summary, description, location, url, organizer, starts_at, ends_at, all_day, timezone, attendees, invite_account_id, invitation_sequence, created_at, updated_at`, [rawIcal, summary || null, description, location, url, organizer, times.startsAt, times.endsAt, Boolean(allDay), timezone, jsonbAttendees(normalizedAttendees), invitationAccount?.id || null, req.params.eventId, calendarId, req.session.userId]);
     if (!result.rows[0]) return { notFound: true };
 
     let invitationError = null;
@@ -638,7 +656,7 @@ router.delete('/events/:eventId', async (req, res) => {
   if (access.error) return res.status(access.status).json({ error: access.error });
 
   const outcome = await withTransaction(async client => {
-    const existing = await client.query(`SELECT uid, raw_ical, attendees, invite_account_id, invitation_sequence, summary, description, location, starts_at, ends_at, all_day FROM calendar_events WHERE id = $1 AND calendar_id = $2 AND user_id = $3 FOR UPDATE`, [req.params.eventId, calendarId, req.session.userId]);
+    const existing = await client.query(`SELECT uid, raw_ical, ${READ_ATTENDEES}, invite_account_id, invitation_sequence, summary, description, location, starts_at, ends_at, all_day FROM calendar_events WHERE id = $1 AND calendar_id = $2 AND user_id = $3 FOR UPDATE`, [req.params.eventId, calendarId, req.session.userId]);
     const event = existing.rows[0];
     if (!event) return { notFound: true };
 
