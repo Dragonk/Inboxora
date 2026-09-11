@@ -13,4 +13,6 @@
   - [Upgrading](Upgrading.md)
   - [Troubleshooting](Troubleshooting.md)
   - [Development](Development.md)
-- [Release notes 4.0.0](Release-notes-4.0.0.md)
+- **Reference**
+  - [V3 interface](V3-interface.md)
+  - [Release notes 4.0.0](Release-notes-4.0.0.md)
