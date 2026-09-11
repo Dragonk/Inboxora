@@ -1519,16 +1519,26 @@ function SwipeActionIcon({ action, size = 17 }) {
 
 function CalendarSettingsTab() {
   const { t } = useTranslation();
-  const { calendarWeekStartsOn, setCalendarWeekStartsOn, calendarWorkDays, setCalendarWorkDays, calendarWorkHoursStart, setCalendarWorkHoursStart, calendarWorkHoursEnd, setCalendarWorkHoursEnd, calendarWorkHoursError } = useStore();
+  const { calendarWeekStartsOn, setCalendarWeekStartsOn, calendarWorkDays, setCalendarWorkDays, calendarWorkHoursStart, setCalendarWorkHoursStart, calendarWorkHoursEnd, setCalendarWorkHoursEnd, calendarWorkHoursError, calendarInviteAccountId, setCalendarInviteAccountId, accounts } = useStore();
+  // Only accounts that can actually send mail may be offered as a default sender.
+  const senderAccounts = (accounts || []).filter(account => account.enabled && account.smtp_host);
   return <div data-testid="calendar-settings">
       <div>
         <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--text-primary)', marginBottom: 16 }}>
           {t('calendar.title')}
         </div>
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: 14 }}>
-          <SettingsChoices label={t('calendar.firstDayOfWeek')} testId="calendar-week-start-setting" value={calendarWeekStartsOn} onChange={setCalendarWeekStartsOn} options={[[1, t('calendar.monday')], [0, t('calendar.sunday')]]} />
+          <SettingsChoices
+            label={t('calendar.firstDayOfWeek')}
+            description={t('calendar.firstDayOfWeekDescription')}
+            testId="calendar-week-start-setting"
+            value={calendarWeekStartsOn}
+            onChange={setCalendarWeekStartsOn}
+            options={[[1, t('calendar.monday'), t('calendar.mondayDescription')], [0, t('calendar.sunday'), t('calendar.sundayDescription')]]}
+          />
           <div style={{ display: 'grid', gap: 8, fontSize: 12, color: 'var(--text-secondary)', gridColumn: '1 / -1' }}>
             <span>{t('calendar.workDays', 'Work days')}</span>
+            <p className="settings-choice-description">{t('calendar.workDaysDescription')}</p>
             <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
               {[1, 2, 3, 4, 5, 6, 0].map(day => {
                 const checked = calendarWorkDays.includes(day);
@@ -1542,22 +1552,73 @@ function CalendarSettingsTab() {
           <label style={{ display: 'grid', gap: 6, fontSize: 12, color: 'var(--text-secondary)' }}>
             {t('calendar.workHoursStart', 'Working hours start')}
             <input data-testid="calendar-work-hours-start" type="time" value={calendarWorkHoursStart} onChange={event => setCalendarWorkHoursStart(event.target.value)} aria-describedby={calendarWorkHoursError ? 'calendar-work-hours-error' : undefined} style={inputStyle} />
+            <span className="settings-choice-description">{t('calendar.workHoursStartDescription')}</span>
           </label>
           <label style={{ display: 'grid', gap: 6, fontSize: 12, color: 'var(--text-secondary)' }}>
             {t('calendar.workHoursEnd', 'Working hours end')}
             <input data-testid="calendar-work-hours-end" type="time" value={calendarWorkHoursEnd} onChange={event => setCalendarWorkHoursEnd(event.target.value)} aria-describedby={calendarWorkHoursError ? 'calendar-work-hours-error' : undefined} style={inputStyle} />
+            <span className="settings-choice-description">{t('calendar.workHoursEndDescription')}</span>
           </label>
           {calendarWorkHoursError && <div id="calendar-work-hours-error" role="alert" style={{ gridColumn: '1 / -1', fontSize: 12, color: 'var(--red)' }}>{calendarWorkHoursError}</div>}
+          <label style={{ display: 'grid', gap: 6, fontSize: 12, color: 'var(--text-secondary)', gridColumn: '1 / -1' }}>
+            {t('calendar.defaultInviteAccount')}
+            <select data-testid="calendar-invite-account-setting" value={calendarInviteAccountId} onChange={event => setCalendarInviteAccountId(event.target.value)} style={inputStyle}>
+              <option value="">{t('calendar.defaultInviteAccountNone')}</option>
+              {senderAccounts.map(account => <option key={account.id} value={account.id}>{account.name || account.email_address} · {account.email_address}</option>)}
+            </select>
+            <span className="settings-choice-description">{t('calendar.defaultInviteAccountDescription')}</span>
+          </label>
         </div>
       </div>
 
   </div>;
 }
 
-function SettingsChoices({ label, testId, value, onChange, options }) {
+// One shared presentation for a settings choice group, matching the message-list
+// settings: the option name, a short line explaining what the group controls, and
+// one button per value carrying its own name and a short line saying what picking
+// that value means. Every tab reads the same way.
+function SettingsChoices({ label, description, testId, value, onChange, options, disabled = false }) {
   return <div className="settings-choices" role="group" aria-label={label} data-testid={testId}>
     <div className="settings-choice-label">{label}</div>
-    <div className="settings-choice-options">{options.map(([id, title]) => <button key={id} type="button" aria-pressed={value === id} onClick={() => onChange(id)}>{title}</button>)}</div>
+    {description && <p className="settings-choice-description">{description}</p>}
+    <div className="settings-choice-options">{options.map(([id, title, optionDescription]) => <button key={id} type="button" disabled={disabled} aria-pressed={value === id} onClick={() => onChange(id)}><span className="settings-option-title">{title}</span>{optionDescription && <span className="settings-option-description">{optionDescription}</span>}</button>)}</div>
+  </div>;
+}
+
+// A single on/off setting as its own row: name + what it does on the left, the
+// switch on the right. The description explains the setting itself and never
+// flips with its state — the switch, its aria-checked and its label carry state.
+function SettingsSwitchRow({ label, description, checked, onChange, testId, disabled = false, ariaLabel = null, children = null }) {
+  return <div className="settings-switch-row" data-testid={testId ? `${testId}-row` : undefined}>
+    <div className="settings-switch-text">
+      <div className="settings-switch-label">{label}</div>
+      {description && <div className="settings-switch-description">{description}</div>}
+      {children}
+    </div>
+    <button
+      type="button"
+      role="switch"
+      data-testid={testId}
+      aria-checked={checked}
+      aria-label={ariaLabel || label}
+      disabled={disabled}
+      onClick={() => onChange(!checked)}
+      style={{
+        width: 44, height: 24, borderRadius: 12,
+        background: checked ? 'var(--accent)' : 'var(--bg-elevated)',
+        border: `1px solid ${checked ? 'var(--accent)' : 'var(--border)'}`,
+        cursor: disabled ? 'not-allowed' : 'pointer',
+        position: 'relative', transition: 'all 0.2s', flexShrink: 0,
+        opacity: disabled ? 0.6 : 1,
+      }}
+    >
+      <span style={{
+        position: 'absolute', top: 3, left: checked ? 22 : 3,
+        width: 16, height: 16, borderRadius: '50%', background: 'white',
+        transition: 'left 0.2s', boxShadow: '0 1px 3px rgba(0,0,0,0.3)',
+      }} />
+    </button>
   </div>;
 }
 
@@ -1726,8 +1787,14 @@ function LayoutsTab() {
       </div>
 
       <div style={{ marginTop: 28, paddingTop: 22, borderTop: '1px solid var(--border-subtle)' }}>
-        <SettingsChoices label={t('admin.appearance.mobileNavigation')} testId="mobile-navigation-position-setting" value={mobileNavigationPosition} onChange={setMobileNavigationPosition} options={[["top", t('admin.appearance.navigationTop')], ["bottom", t('admin.appearance.navigationBottom')]]} />
-        <p style={{ fontSize: 12, color: 'var(--text-tertiary)' }}>{t('admin.appearance.mobileNavigationDescription')}</p>
+        <SettingsChoices
+          label={t('admin.appearance.mobileNavigation')}
+          description={t('admin.appearance.mobileNavigationDescription')}
+          testId="mobile-navigation-position-setting"
+          value={mobileNavigationPosition}
+          onChange={setMobileNavigationPosition}
+          options={[["top", t('admin.appearance.navigationTop'), t('admin.appearance.navigationTopDesc')], ["bottom", t('admin.appearance.navigationBottom'), t('admin.appearance.navigationBottomDesc')]]}
+        />
       </div>
 
       {/* Message list behaviour */}
@@ -1921,46 +1988,18 @@ function LayoutsTab() {
         )}
 
         <div style={{ marginTop: 18, paddingTop: 18, borderTop: '1px solid var(--border-subtle)' }}>
-          <div style={{
-            display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 16,
-            padding: '12px 14px', borderRadius: 8,
-            background: 'var(--bg-tertiary)', border: '1px solid var(--border-subtle)',
-          }}>
-            <div>
-              <div style={{ fontSize: 13, fontWeight: 500, color: 'var(--text-primary)' }}>
-                {t('admin.messageList.senderFavicons')}
-              </div>
-              <div style={{ fontSize: 12, color: 'var(--text-tertiary)', marginTop: 2 }}>
-                {t('admin.messageList.senderFaviconsDesc')}
-              </div>
-            </div>
-            <button
-              type="button"
-              role="switch"
-              aria-checked={senderFavicons}
-              aria-label={t('admin.messageList.senderFavicons')}
-              disabled={senderFaviconsSaving}
-              onClick={async () => {
-                setSenderFaviconsError('');
-                try { await setSenderFavicons(!senderFavicons); }
-                catch { setSenderFaviconsError(t('admin.messageList.senderFaviconsSaveError')); }
-              }}
-              style={{
-                width: 44, height: 24, borderRadius: 12,
-                background: senderFavicons ? 'var(--accent)' : 'var(--bg-elevated)',
-                border: `1px solid ${senderFavicons ? 'var(--accent)' : 'var(--border)'}`,
-                cursor: senderFaviconsSaving ? 'not-allowed' : 'pointer',
-                position: 'relative', transition: 'all 0.2s', flexShrink: 0,
-                opacity: senderFaviconsSaving ? 0.6 : 1,
-              }}
-            >
-              <span style={{
-                position: 'absolute', top: 3, left: senderFavicons ? 22 : 3,
-                width: 16, height: 16, borderRadius: '50%', background: 'white',
-                transition: 'left 0.2s', boxShadow: '0 1px 3px rgba(0,0,0,0.3)',
-              }} />
-            </button>
-          </div>
+          <SettingsSwitchRow
+            label={t('admin.messageList.senderFavicons')}
+            description={t('admin.messageList.senderFaviconsDesc')}
+            checked={senderFavicons}
+            disabled={senderFaviconsSaving}
+            ariaLabel={t('admin.messageList.senderFavicons')}
+            onChange={async value => {
+              setSenderFaviconsError('');
+              try { await setSenderFavicons(value); }
+              catch { setSenderFaviconsError(t('admin.messageList.senderFaviconsSaveError')); }
+            }}
+          />
           {senderFaviconsError && (
             <div style={{ color: 'var(--red)', fontSize: 12, marginTop: 8 }}>
               {senderFaviconsError}
@@ -2055,72 +2094,28 @@ function LayoutsTab() {
         </div>
       </div>
 
-      {/* Threading mode — Grupowanie rozmów (switch, per appearance mock-up) */}
+      {/* Threading mode — Grupowanie wiadomości (same option row as the rest) */}
       <div style={{ marginTop: 28, paddingTop: 22, borderTop: '1px solid var(--border-subtle)' }}>
-        <div style={{ display: 'flex', alignItems: 'flex-start', gap: 14 }}>
-          <div style={{ flex: 1, minWidth: 0 }}>
-            <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--text-primary)', marginBottom: 4 }}>
-              {t('conversation.groupIntoConversations')}
-            </div>
-            <div style={{ fontSize: 11.5, color: 'var(--text-secondary)' }}>
-              {threadedView ? t('admin.messageList.threadingOnDesc') : t('admin.messageList.threadingOffDesc')}
-            </div>
-          </div>
-          <button
-            type="button"
-            role="switch"
-            data-testid="conversation-list-toggle"
-            aria-checked={threadedView}
-            aria-label={threadedView ? t('conversation.groupIntoConversationsOn') : t('conversation.seriesOff')}
-            onClick={() => setThreadedView(!threadedView)}
-            style={{
-              width: 36, height: 20, borderRadius: 10, border: 'none', cursor: 'pointer', padding: 0,
-              background: threadedView ? 'var(--accent)' : 'var(--border)',
-              position: 'relative', transition: 'background var(--motion-normal) var(--ease-standard)', flexShrink: 0, marginTop: 1,
-            }}
-          >
-            <span style={{
-              position: 'absolute', top: 2, left: 2, width: 16, height: 16, borderRadius: '50%',
-              background: '#fff', boxShadow: '0 1px 2px rgba(0,0,0,0.2)',
-              transition: 'transform var(--motion-normal) var(--ease-emphasized)',
-              transform: threadedView ? 'translateX(16px)' : 'translateX(0)',
-            }} />
-          </button>
-        </div>
+        <SettingsSwitchRow
+          label={t('conversation.groupIntoConversations')}
+          description={t('admin.messageList.threadingDesc')}
+          testId="conversation-list-toggle"
+          checked={threadedView}
+          onChange={setThreadedView}
+          ariaLabel={threadedView ? t('conversation.groupIntoConversationsOn') : t('conversation.seriesOff')}
+        />
       </div>
 
-      {/* Conversation reader — Czytnik rozmowy (switch, per appearance mock-up) */}
+      {/* Conversation reader — Czytnik wiadomości (same option row as the rest) */}
       <div style={{ marginTop: 20, paddingTop: 16, borderTop: '1px solid var(--border-subtle)' }}>
-        <div style={{ display: 'flex', alignItems: 'flex-start', gap: 14 }}>
-          <div style={{ flex: 1, minWidth: 0 }}>
-            <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--text-primary)', marginBottom: 4 }}>
-              {t('conversation.conversationReader')}
-            </div>
-            <div style={{ fontSize: 11.5, color: 'var(--text-secondary)' }}>
-              {conversationReaderViewEnabled ? t('conversation.readerOnDesc') : t('conversation.readerOffDesc')}
-            </div>
-          </div>
-          <button
-            type="button"
-            role="switch"
-            data-testid="conversation-reader-toggle"
-            aria-checked={conversationReaderViewEnabled}
-            aria-label={conversationReaderViewEnabled ? t('conversation.readerOn') : t('conversation.readerOff')}
-            onClick={() => setConversationReaderViewEnabled(!conversationReaderViewEnabled)}
-            style={{
-              width: 36, height: 20, borderRadius: 10, border: 'none', cursor: 'pointer', padding: 0,
-              background: conversationReaderViewEnabled ? 'var(--accent)' : 'var(--border)',
-              position: 'relative', transition: 'background var(--motion-normal) var(--ease-standard)', flexShrink: 0, marginTop: 1,
-            }}
-          >
-            <span style={{
-              position: 'absolute', top: 2, left: 2, width: 16, height: 16, borderRadius: '50%',
-              background: '#fff', boxShadow: '0 1px 2px rgba(0,0,0,0.2)',
-              transition: 'transform var(--motion-normal) var(--ease-emphasized)',
-              transform: conversationReaderViewEnabled ? 'translateX(16px)' : 'translateX(0)',
-            }} />
-          </button>
-        </div>
+        <SettingsSwitchRow
+          label={t('conversation.conversationReader')}
+          description={t('conversation.readerDesc')}
+          testId="conversation-reader-toggle"
+          checked={conversationReaderViewEnabled}
+          onChange={setConversationReaderViewEnabled}
+          ariaLabel={conversationReaderViewEnabled ? t('conversation.readerOn') : t('conversation.readerOff')}
+        />
       </div>
 
       {/* Compose format */}

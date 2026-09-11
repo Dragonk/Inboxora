@@ -244,7 +244,9 @@
       "mobileNavigation": "Nawigacja mobilna",
       "navigationTop": "U góry",
       "navigationBottom": "Na dole",
-      "mobileNavigationDescription": "Położenie menu i działań w poczcie, kontaktach i kalendarzu."
+      "mobileNavigationDescription": "Położenie menu i działań w poczcie, kontaktach i kalendarzu.",
+      "navigationTopDesc": "Przełącznik paneli znajduje się nad listą wiadomości.",
+      "navigationBottomDesc": "Przełącznik paneli jest na dole, w zasięgu kciuka."
     },
     "messageList": {
       "title": "Lista wiadomości",
@@ -280,10 +282,6 @@
       "folderSyncFrequency": "Częstotliwość synchronizacji struktury folderów",
       "folderSyncFrequencyDesc": "Jak często Inboxora odświeża listę folderów każdego konta na podstawie serwera (w tym folderów utworzonych w innych aplikacjach)",
       "threadingMode": "Grupowanie rozmów",
-      "threadingOff": "Wyłączone",
-      "threadingOffDesc": "Każda wiadomość jest wyświetlana osobno",
-      "threadingOn": "Włączone",
-      "threadingOnDesc": "Odpowiedzi grupowane w rozmowy",
       "composeFormat": "Format tworzenia wiadomości",
       "composeRichText": "Tekst sformatowany",
       "composeRichTextDesc": "Wysyłaj HTML — obsługuje formatowanie i sformatowane podpisy",
@@ -331,7 +329,8 @@
       "gravatarOff": "Wyłączone",
       "gravatarOffDesc": "Prywatne — brak kontaktu z podmiotami trzecimi.",
       "gravatarOn": "Włączone",
-      "gravatarOnDesc": "Pobieraj zdjęcia nadawców z usługi Gravatar — do zewnętrznej usługi wysyłane są skrócone adresy nadawców."
+      "gravatarOnDesc": "Pobieraj zdjęcia nadawców z usługi Gravatar — do zewnętrznej usługi wysyłane są skrócone adresy nadawców.",
+      "threadingDesc": "Grupuje wiadomość i odpowiedzi w jedną rozmowę na liście wiadomości."
     },
     "notifications": {
       "title": "Powiadomienia",
@@ -1189,8 +1188,6 @@
     "confirmMoveBody": "Przenieść {{count}} wiadomość(-i) do innego folderu?",
     "showQuotedText": "Pokaż cytowaną treść",
     "hideQuotedText": "Ukryj cytowaną treść",
-    "readerOffDesc": "Otwieraj tylko wybraną wiadomość",
-    "readerOnDesc": "Pokazuj całą rozmowę w panelu wiadomości",
     "groupIntoConversationsOn": "Włączone",
     "readerOff": "Wyłączony",
     "readerOn": "Włączony",
@@ -1199,7 +1196,8 @@
     "outgoingMessage": "Wiadomość wychodząca",
     "expandMessage": "Rozwiń wiadomość od {{sender}}: {{subject}}",
     "collapseMessage": "Zwiń wiadomość od {{sender}}: {{subject}}",
-    "summary": "Skrót:"
+    "summary": "Skrót:",
+    "readerDesc": "Otwiera całą rozmowę w panelu czytania zamiast pojedynczej wiadomości."
   },
   "diagnostics": {
     "section": "Diagnostyka",
@@ -1843,7 +1841,16 @@
     "invitationLoadFailed": "Nie udało się odczytać lub zapisać zaproszenia.",
     "editOccurrence": "Edytujesz tylko to wystąpienie wydarzenia.",
     "incompleteSeries": "Niektóre wydarzenia cykliczne nie mogły zostać w pełni rozwinięte i mogą nie być widoczne w tym widoku.",
-    "descriptionPlaceholder": "Agenda, notatki, link do rozmowy…"
+    "descriptionPlaceholder": "Agenda, notatki, link do rozmowy…",
+    "firstDayOfWeekDescription": "Od którego dnia zaczyna się tydzień w widoku miesiąca i tygodnia.",
+    "mondayDescription": "Tydzień zaczyna się w poniedziałek",
+    "sundayDescription": "Tydzień zaczyna się w niedzielę",
+    "workDaysDescription": "Dni pokazywane jako dni robocze w widoku tygodnia i tygodnia roboczego.",
+    "workHoursStartDescription": "Pierwsza godzina podświetlenia dnia roboczego.",
+    "workHoursEndDescription": "Ostatnia godzina podświetlenia dnia roboczego.",
+    "defaultInviteAccount": "Domyślna skrzynka nadawcy zaproszeń",
+    "defaultInviteAccountNone": "Brak domyślnej — wybieraj przy wydarzeniu",
+    "defaultInviteAccountDescription": "Konto SMTP wybierane domyślnie, gdy zapraszasz uczestników do wydarzenia."
   },
   "mailFolders": {
     "inbox": "Odebrane",

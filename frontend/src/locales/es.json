@@ -179,7 +179,9 @@
       "mobileNavigation": "Navegación móvil",
       "navigationTop": "Arriba",
       "navigationBottom": "Abajo",
-      "mobileNavigationDescription": "Posición del menú y las acciones en correo, contactos y calendario."
+      "mobileNavigationDescription": "Posición del menú y las acciones en correo, contactos y calendario.",
+      "navigationTopDesc": "El selector de paneles está encima de la lista de mensajes.",
+      "navigationBottomDesc": "El selector de paneles está abajo, al alcance del pulgar."
     },
     "blockList": {
       "description": "Los correos de remitentes bloqueados se mueven automáticamente a la papelera.",
@@ -425,10 +427,6 @@
       "folderSyncFrequency": "Frecuencia de sincronización de carpetas",
       "folderSyncFrequencyDesc": "Con qué frecuencia Inboxora actualiza la lista de carpetas de cada cuenta desde el servidor (carpetas creadas en otras aplicaciones)",
       "threadingMode": "Agrupación por conversación",
-      "threadingOff": "Desactivado",
-      "threadingOffDesc": "Cada mensaje se muestra individualmente",
-      "threadingOn": "Activado",
-      "threadingOnDesc": "Las respuestas se agrupan en conversaciones",
       "composeFormat": "Formato de redacción",
       "composeRichText": "Texto enriquecido",
       "composeRichTextDesc": "Envía HTML — admite formato y firmas con estilo",
@@ -476,7 +474,8 @@
       "markReadDelaySeconds_other": "{{count}} segundos",
       "markReadDelaySeconds_many": "{{count}} seconds",
       "markReadDelaySeconds_one": "{{count}} segundo",
-      "markReadDelaySeconds_few": "{{count}} seconds"
+      "markReadDelaySeconds_few": "{{count}} seconds",
+      "threadingDesc": "Agrupa un mensaje y sus respuestas en una sola conversación."
     },
     "notifications": {
       "title": "Notificaciones",
@@ -1189,8 +1188,6 @@
     "confirmMoveBody": "¿Mover {{count}} mensaje(s) a otra carpeta?",
     "showQuotedText": "Mostrar texto citado",
     "hideQuotedText": "Ocultar texto citado",
-    "readerOffDesc": "Abrir solo el mensaje seleccionado",
-    "readerOnDesc": "Mostrar toda la conversación en el panel de mensajes",
     "groupIntoConversationsOn": "On",
     "readerOff": "Disabled",
     "readerOn": "Enabled",
@@ -1199,7 +1196,8 @@
     "outgoingMessage": "Mensaje saliente",
     "expandMessage": "Expandir mensaje de {{sender}}: {{subject}}",
     "collapseMessage": "Contraer mensaje de {{sender}}: {{subject}}",
-    "summary": "Resumen:"
+    "summary": "Resumen:",
+    "readerDesc": "Abre toda la conversación en el panel de lectura en lugar de un solo mensaje."
   },
   "diagnostics": {
     "section": "Diagnóstico",
@@ -1843,7 +1841,16 @@
     "invitationLoadFailed": "No se pudo cargar o guardar la invitación.",
     "editOccurrence": "Estás editando solo esta ocurrencia.",
     "incompleteSeries": "Algunos eventos recurrentes no se pudieron expandir por completo y pueden faltar en esta vista.",
-    "descriptionPlaceholder": "Orden del día, notas, enlace de vídeo…"
+    "descriptionPlaceholder": "Orden del día, notas, enlace de vídeo…",
+    "firstDayOfWeekDescription": "Día en que empieza la semana en las vistas de mes y semana.",
+    "mondayDescription": "Las semanas empiezan el lunes",
+    "sundayDescription": "Las semanas empiezan el domingo",
+    "workDaysDescription": "Días que se muestran como laborables en las vistas de semana y semana laboral.",
+    "workHoursStartDescription": "Primera hora del resaltado de la jornada laboral.",
+    "workHoursEndDescription": "Última hora del resaltado de la jornada laboral.",
+    "defaultInviteAccount": "Remitente predeterminado de las invitaciones",
+    "defaultInviteAccountNone": "Sin predeterminado — elegir por evento",
+    "defaultInviteAccountDescription": "La cuenta SMTP preseleccionada al invitar a participantes a un evento."
   },
   "mailFolders": {
     "inbox": "Recibidos",

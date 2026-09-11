@@ -542,6 +542,14 @@ export const useStore = create((set, get) => ({
     set({ mobileNavigationPosition: value });
     schedulePrefSave({ mobileNavigationPosition: value });
   },
+  // The SMTP account the new-event dialog preselects for calendar invitations.
+  // Empty means "no default": the dialog leaves the sender picker unselected.
+  calendarInviteAccountId: '',
+  setCalendarInviteAccountId: (calendarInviteAccountId) => {
+    const value = typeof calendarInviteAccountId === 'string' ? calendarInviteAccountId : '';
+    set({ calendarInviteAccountId: value });
+    schedulePrefSave({ calendarInviteAccountId: value });
+  },
   calendarWorkDays: [...DEFAULT_CALENDAR_PREFERENCES.calendarWorkDays],
   setCalendarWorkDays: (calendarWorkDays) => {
     const value = normalizeCalendarWorkDays(calendarWorkDays);
@@ -1179,6 +1187,9 @@ export const useStore = create((set, get) => ({
       }
       if (prefs.mobileNavigationPosition === 'top' || prefs.mobileNavigationPosition === 'bottom') {
         set({ mobileNavigationPosition: prefs.mobileNavigationPosition });
+      }
+      if (typeof prefs.calendarInviteAccountId === 'string') {
+        set({ calendarInviteAccountId: prefs.calendarInviteAccountId });
       }
       if (Array.isArray(prefs.calendarWorkDays)) set({ calendarWorkDays: normalizeCalendarWorkDays(prefs.calendarWorkDays) });
       if (prefs.calendarWorkHoursStart || prefs.calendarWorkHoursEnd) {

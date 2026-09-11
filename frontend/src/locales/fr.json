@@ -179,7 +179,9 @@
       "mobileNavigation": "Navigation mobile",
       "navigationTop": "En haut",
       "navigationBottom": "En bas",
-      "mobileNavigationDescription": "Position du menu et des actions dans les e-mails, les contacts et le calendrier."
+      "mobileNavigationDescription": "Position du menu et des actions dans les e-mails, les contacts et le calendrier.",
+      "navigationTopDesc": "Le sélecteur de panneaux se trouve au-dessus de la liste des messages.",
+      "navigationBottomDesc": "Le sélecteur de panneaux est en bas, à portée de pouce."
     },
     "blockList": {
       "description": "Les e-mails des expéditeurs bloqués sont automatiquement déplacés vers la corbeille.",
@@ -425,10 +427,6 @@
       "folderSyncFrequency": "Fréquence de synchronisation des dossiers",
       "folderSyncFrequencyDesc": "À quelle fréquence Inboxora actualise la liste des dossiers de chaque compte depuis le serveur (dossiers créés dans d'autres applications)",
       "threadingMode": "Regroupement par conversation",
-      "threadingOff": "Désactivé",
-      "threadingOffDesc": "Chaque message affiché individuellement",
-      "threadingOn": "Activé",
-      "threadingOnDesc": "Les réponses sont regroupées en conversations",
       "composeFormat": "Format de rédaction",
       "composeRichText": "Texte enrichi",
       "composeRichTextDesc": "Envoie du HTML — prend en charge la mise en forme et les signatures stylisées",
@@ -476,7 +474,8 @@
       "markReadDelaySeconds_other": "{{count}} secondes",
       "markReadDelaySeconds_many": "{{count}} seconds",
       "markReadDelaySeconds_one": "{{count}} seconde",
-      "markReadDelaySeconds_few": "{{count}} seconds"
+      "markReadDelaySeconds_few": "{{count}} seconds",
+      "threadingDesc": "Regroupe un message et ses réponses dans une seule conversation."
     },
     "notifications": {
       "title": "Notifications",
@@ -1189,8 +1188,6 @@
     "confirmMoveBody": "Déplacer {{count}} message(s) vers un autre dossier ?",
     "showQuotedText": "Afficher le texte cité",
     "hideQuotedText": "Masquer le texte cité",
-    "readerOffDesc": "Ouvrir uniquement le message sélectionné",
-    "readerOnDesc": "Afficher toute la conversation dans le panneau de message",
     "groupIntoConversationsOn": "On",
     "readerOff": "Disabled",
     "readerOn": "Enabled",
@@ -1199,7 +1196,8 @@
     "outgoingMessage": "Message sortant",
     "expandMessage": "Développer le message de {{sender}} : {{subject}}",
     "collapseMessage": "Réduire le message de {{sender}} : {{subject}}",
-    "summary": "Aperçu :"
+    "summary": "Aperçu :",
+    "readerDesc": "Ouvre toute la conversation dans le volet de lecture au lieu d'un seul message."
   },
   "diagnostics": {
     "section": "Diagnostic",
@@ -1843,7 +1841,16 @@
     "invitationLoadFailed": "Impossible de charger ou d’enregistrer l’invitation.",
     "editOccurrence": "Vous modifiez uniquement cette occurrence.",
     "incompleteSeries": "Certains événements récurrents n'ont pas pu être entièrement développés et peuvent manquer dans cette vue.",
-    "descriptionPlaceholder": "Ordre du jour, notes, lien visio…"
+    "descriptionPlaceholder": "Ordre du jour, notes, lien visio…",
+    "firstDayOfWeekDescription": "Jour à partir duquel la semaine commence dans les vues mois et semaine.",
+    "mondayDescription": "Les semaines commencent le lundi",
+    "sundayDescription": "Les semaines commencent le dimanche",
+    "workDaysDescription": "Jours affichés comme jours travaillés dans les vues semaine et semaine de travail.",
+    "workHoursStartDescription": "Première heure de la mise en évidence de la journée de travail.",
+    "workHoursEndDescription": "Dernière heure de la mise en évidence de la journée de travail.",
+    "defaultInviteAccount": "Expéditeur par défaut des invitations",
+    "defaultInviteAccountNone": "Aucun par défaut — choisir par événement",
+    "defaultInviteAccountDescription": "Le compte SMTP présélectionné lorsque vous invitez des participants à un événement."
   },
   "mailFolders": {
     "inbox": "Boîte de réception",

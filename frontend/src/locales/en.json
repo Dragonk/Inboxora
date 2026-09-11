@@ -179,7 +179,9 @@
       "mobileNavigation": "Mobile navigation",
       "navigationTop": "Top",
       "navigationBottom": "Bottom",
-      "mobileNavigationDescription": "Position of the menu and actions in mail, contacts and calendar."
+      "mobileNavigationDescription": "Position of the menu and actions in mail, contacts and calendar.",
+      "navigationTopDesc": "The panel switcher sits above the message list.",
+      "navigationBottomDesc": "The panel switcher sits below, within thumb reach."
     },
     "blockList": {
       "description": "Emails from blocked senders are automatically moved to trash.",
@@ -425,10 +427,6 @@
       "folderSyncFrequency": "Folder Structure Sync Frequency",
       "folderSyncFrequencyDesc": "How often Inboxora refreshes each account's folder list from the server (folders created in other apps)",
       "threadingMode": "Conversation threading",
-      "threadingOff": "Off",
-      "threadingOffDesc": "Each message shown individually",
-      "threadingOn": "On",
-      "threadingOnDesc": "Replies grouped into conversations",
       "composeFormat": "Compose format",
       "composeRichText": "Rich text",
       "composeRichTextDesc": "Sends HTML — supports formatting and styled signatures",
@@ -476,7 +474,8 @@
       "gravatarOnDesc": "Fetch sender photos from Gravatar — shares hashed sender addresses with a third party.",
       "markReadDelaySeconds_many": "{{count}} seconds",
       "markReadDelaySeconds_one": "{{count}} second",
-      "markReadDelaySeconds_few": "{{count}} seconds"
+      "markReadDelaySeconds_few": "{{count}} seconds",
+      "threadingDesc": "Group a message and its replies into one conversation in the message list."
     },
     "notifications": {
       "title": "Notifications",
@@ -1189,8 +1188,6 @@
     "confirmMoveBody": "Move {{count}} message(s) to another folder?",
     "showQuotedText": "Show quoted text",
     "hideQuotedText": "Hide quoted text",
-    "readerOffDesc": "Open only the selected message",
-    "readerOnDesc": "Show the entire conversation in the message pane",
     "groupIntoConversationsOn": "On",
     "readerOff": "Disabled",
     "readerOn": "Enabled",
@@ -1199,7 +1196,8 @@
     "outgoingMessage": "Outgoing message",
     "expandMessage": "Expand message from {{sender}}: {{subject}}",
     "collapseMessage": "Collapse message from {{sender}}: {{subject}}",
-    "summary": "Summary:"
+    "summary": "Summary:",
+    "readerDesc": "Open the whole conversation in the reading pane instead of one message at a time."
   },
   "diagnostics": {
     "section": "Diagnostics",
@@ -1843,7 +1841,16 @@
     "invitationLoadFailed": "Could not load or save the invitation.",
     "editOccurrence": "You are editing only this occurrence.",
     "incompleteSeries": "Some recurring events could not be fully expanded and may be missing from this view.",
-    "descriptionPlaceholder": "Agenda, notes, video link…"
+    "descriptionPlaceholder": "Agenda, notes, video link…",
+    "firstDayOfWeekDescription": "Which day a week starts on in the month and week grid.",
+    "mondayDescription": "Weeks start on Monday",
+    "sundayDescription": "Weeks start on Sunday",
+    "workDaysDescription": "Days shown as working days in the week and work-week views.",
+    "workHoursStartDescription": "First hour of the working-day highlight.",
+    "workHoursEndDescription": "Last hour of the working-day highlight.",
+    "defaultInviteAccount": "Default sender for calendar invitations",
+    "defaultInviteAccountNone": "No default — choose per event",
+    "defaultInviteAccountDescription": "The SMTP account preselected when you invite attendees to an event."
   },
   "mailFolders": {
     "inbox": "Inbox",

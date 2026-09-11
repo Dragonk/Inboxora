@@ -12,7 +12,8 @@ vi.mock('../utils/redact.js', () => ({ redactEmail: vi.fn() }));
 vi.mock('./hostValidation.js', () => ({ resolveForConnection: vi.fn() }));
 vi.mock('./connectionPolicy.js', () => ({ getConnectionPolicy: vi.fn() }));
 
-import { ImapManager, providerProfile, makeClientCfg, relocateExemptGuard, insertCopiedSibling, deleteMessageCopyRow, emitSectionsChanged, ensureMailbox, createKeyedSemaphore, isConnectionRefusal, connectCooldownMs, effectiveSyncIntervalMs, folderSyncDue, planModseqSync, connectStaggerFor, walkStructure, shouldFallbackToTextPart, persistInboundCalendarInvitationFromMessage, looksLikeTextPayload, parsePersistentCap, resolvePersistentCap, persistentEligible, shouldRetryIPv4, classifyMoveBySearch } from './imapManager.js';
+import { ImapManager, providerProfile, makeClientCfg, attachmentTransferEncoding, relocateExemptGuard, insertCopiedSibling, deleteMessageCopyRow, emitSectionsChanged, ensureMailbox, createKeyedSemaphore, isConnectionRefusal, connectCooldownMs, effectiveSyncIntervalMs, folderSyncDue, planModseqSync, connectStaggerFor, walkStructure, shouldFallbackToTextPart, persistInboundCalendarInvitationFromMessage, looksLikeTextPayload, parsePersistentCap, resolvePersistentCap, persistentEligible, shouldRetryIPv4, classifyMoveBySearch } from './imapManager.js';
+import { parseInboundCalendarInvitation } from './inboundCalendarInvitation.js';
 import { pluginRegistry } from '../plugins/registry.js';
 import { EventEmitter } from 'node:events';
 import { ImapFlow } from 'imapflow';
@@ -1433,6 +1434,83 @@ describe('walkStructure attachment classification', () => {
     expect(shouldFallbackToTextPart({ textParts: [], calendarParts: [] })).toBe(true);
     expect(shouldFallbackToTextPart({ textParts: [], attachments: [] })).toBe(true);
     expect(shouldFallbackToTextPart({ textParts: [], calendarParts: [{ part: '1' }] })).toBe(false);
+  });
+
+  // Regression: an invitation received by mail could not be read or imported
+  // ("Nie udało się odczytać lub zapisać zaproszenia"). The calendar part was
+  // listed as an attachment without its transfer encoding, so the attachment
+  // fetcher lost the 'base64' default and handed the parser still-encoded text.
+  it('carries the transfer encoding on the attachment entry of a calendar part', () => {
+    const results = walk({
+      type: 'multipart/mixed',
+      childNodes: [
+        { part: '1', type: 'text/plain', encoding: '7bit' },
+        {
+          part: '2', type: 'text/calendar', encoding: 'base64', disposition: 'attachment',
+          parameters: { charset: 'utf-8', method: 'REQUEST' }, dispositionParameters: { filename: 'invitation.ics' },
+        },
+      ],
+    });
+    expect(results.attachments[0]).toMatchObject({ part: '2', type: 'text/calendar', encoding: 'base64' });
+    expect(attachmentTransferEncoding(results, '2')).toBe('base64');
+  });
+
+  it('keeps the caller default when a part declares no transfer encoding', () => {
+    const declared = walk({
+      type: 'multipart/mixed',
+      childNodes: [{ part: '2', type: 'text/calendar', disposition: 'attachment', dispositionParameters: { filename: 'invitation.ics' } }],
+    });
+    // No declared encoding: the base64 default must survive instead of being
+    // overwritten with undefined (which skipped decoding entirely).
+    expect(attachmentTransferEncoding(declared, '2')).toBe('base64');
+    expect(attachmentTransferEncoding(declared, '9')).toBe('base64');
+    expect(attachmentTransferEncoding({ attachments: [] }, '2', '7bit')).toBe('7bit');
+    expect(attachmentTransferEncoding(undefined, '2')).toBe('base64');
+  });
+
+  it('decodes a real base64 invitation attachment into parseable iCalendar', async () => {
+    const ics = ['BEGIN:VCALENDAR', 'VERSION:2.0', 'METHOD:REQUEST', 'BEGIN:VEVENT', 'UID:invite-1',
+      'DTSTAMP:20260911T120000Z', 'DTSTART:20260911T130000Z', 'DTEND:20260911T140000Z',
+      'ORGANIZER:mailto:sender@example.test', 'SUMMARY:Testowe wydarzenie',
+      'ATTENDEE;ROLE=REQ-PARTICIPANT:mailto:admin@kmms.ovh', 'END:VEVENT', 'END:VCALENDAR', ''].join('\r\n');
+    const bodyStructure = {
+      type: 'multipart/mixed',
+      childNodes: [
+        { part: '1', type: 'text/plain', encoding: '7bit' },
+        {
+          part: '2', type: 'text/calendar', encoding: 'base64', disposition: 'attachment',
+          parameters: { charset: 'utf-8', method: 'REQUEST' }, dispositionParameters: { filename: 'invitation.ics' },
+        },
+      ],
+    };
+    // The wire carries the .ics base64-encoded, exactly like the invitation this
+    // app emails out. The fetcher must decode it before anyone parses it.
+    const rawParts = new Map([['2', Buffer.from(Buffer.from(ics, 'utf8').toString('base64'), 'utf8')]]);
+    ImapFlow.mockImplementation(function () {
+      const client = new EventEmitter();
+      client.connect = vi.fn(async () => { client.authenticated = true; return client; });
+      client.logout = vi.fn(async () => {});
+      client.close = vi.fn();
+      client.mailbox = { exists: 1, uidValidity: 1n, path: 'INBOX' };
+      client.getMailboxLock = vi.fn(async () => ({ release: vi.fn() }));
+      client.fetch = vi.fn(() => (async function* generate() { yield { bodyStructure, bodyParts: rawParts }; })());
+      client.list = vi.fn(async () => []);
+      return client;
+    });
+    getConnectionPolicy.mockResolvedValue({ allowPrivateHosts: true, allowInsecureTls: true });
+    resolveForConnection.mockResolvedValue({ host: '127.0.0.1', addresses: ['127.0.0.1'], servername: null });
+    query.mockResolvedValue({ rows: [] });
+
+    const manager = new ImapManager(null);
+    clearInterval(manager._healthCheckTimer);
+    clearInterval(manager._snippetSchedulerTimer);
+    const buffer = await manager.fetchAttachment({ id: 'account-1', imap_host: 'imap.example.test', imap_port: 993, imap_tls: true, auth_user: 'u', auth_pass: 'p' }, 42, 'INBOX', '2');
+
+    const raw = buffer.toString('utf8');
+    expect(raw.startsWith('BEGIN:VCALENDAR')).toBe(true);
+    expect(parseInboundCalendarInvitation(raw)).toMatchObject({
+      method: 'REQUEST', uid: 'invite-1', summary: 'Testowe wydarzenie', organizer: 'mailto:sender@example.test',
+    });
   });
 });
 

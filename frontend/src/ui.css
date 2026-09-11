@@ -83,10 +83,21 @@ button, input, textarea, select { font-family: inherit; }
 .mobile-header-action:hover { background: var(--bg-hover); }
 .mobile-header-action:disabled { opacity: .45; cursor: default; }
 
-.settings-choice-label { font-size: 12px; color: var(--text-secondary); margin-bottom: 8px; }
+.settings-choice-label { font-size: 12px; color: var(--text-secondary); margin-bottom: 4px; }
+/* The shared option contract: a name with a short line under it saying what the
+   option means. Used by choice groups and switch rows across every settings tab. */
+.settings-choice-description { font-size: 11px; color: var(--text-tertiary); margin: 0 0 8px; line-height: 1.45; }
 .settings-choice-options { display: flex; gap: 8px; flex-wrap: wrap; }
-.settings-choice-options button { flex: 1; min-height: 44px; padding: 10px 12px; color: var(--text-primary); background: var(--bg-tertiary); border: 2px solid var(--border-subtle); border-radius: 8px; cursor: pointer; }
+.settings-choice-options button { flex: 1; min-height: 44px; padding: 10px 12px; text-align: left; color: var(--text-primary); background: var(--bg-tertiary); border: 2px solid var(--border-subtle); border-radius: 8px; cursor: pointer; }
 .settings-choice-options button[aria-pressed="true"] { background: var(--bg-hover); border-color: var(--accent); }
+.settings-choice-options button:disabled { opacity: .6; cursor: not-allowed; }
+.settings-option-title { display: block; font-size: 12px; font-weight: 500; color: var(--text-primary); }
+.settings-option-description { display: block; margin-top: 2px; font-size: 11px; color: var(--text-tertiary); line-height: 1.4; }
+
+.settings-switch-row { display: flex; align-items: center; justify-content: space-between; gap: 16px; padding: 12px 14px; border-radius: 8px; background: var(--bg-tertiary); border: 1px solid var(--border-subtle); }
+.settings-switch-text { min-width: 0; }
+.settings-switch-label { font-size: 13px; font-weight: 500; color: var(--text-primary); }
+.settings-switch-description { margin-top: 2px; font-size: 12px; color: var(--text-tertiary); line-height: 1.45; }
 .settings-day-choice { display: inline-flex; position: relative; align-items: center; gap: 8px; min-height: 44px; padding: 8px 12px; border: 2px solid var(--border-subtle); border-radius: 8px; background: var(--bg-tertiary); cursor: pointer; color: var(--text-primary); }
 .settings-day-choice.is-selected { border-color: var(--accent); background: var(--bg-hover); }
 .settings-day-choice input { accent-color: var(--accent); width: 16px; height: 16px; }

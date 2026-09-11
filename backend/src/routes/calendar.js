@@ -230,6 +230,30 @@ async function contactCalendarAppearance(userId) {
   return result?.rows?.[0]?.appearance || {};
 }
 
+// Fetch the raw .ics MIME part of a message. Extracted so the reader can fall back
+// to it whenever the invitation captured during sync is missing or unusable.
+async function fetchInvitationAttachment(row, userId) {
+  const attachments = typeof row.attachments === 'string' ? JSON.parse(row.attachments) : row.attachments || [];
+  const candidates = attachments.filter(item => /^(text\/calendar|application\/(ics|ical|calendar))$/i.test(item.type || '') || /\.ics$/i.test(item.filename || ''));
+  if (candidates.length !== 1 || candidates[0].size > 1024 * 1024) return null;
+  const account = await query('SELECT * FROM email_accounts WHERE id = $1 AND user_id = $2', [row.account_id, userId]);
+  if (!account.rows[0]) return null;
+  const { imapManager } = await import('../index.js');
+  let data;
+  try {
+    data = await imapManager.fetchAttachment(account.rows[0], row.uid, row.folder, candidates[0].part);
+  } catch (error) {
+    // The mailbox could not be reached right now. This is a fetch failure, not a
+    // malformed invitation, and it must not turn into an opaque 500.
+    console.warn('Calendar invitation attachment fetch failed:', error.message);
+    return null;
+  }
+  if (!data) return null;
+  // The fetched part is decoded bytes; the parser needs the iCalendar text.
+  const raw = Buffer.isBuffer(data) ? data.toString('utf8') : String(data);
+  return raw.trim() ? raw : null;
+}
+
 async function readMessageInvitation(messageId, userId) {
   const result = await query(`SELECT i.raw_ical, m.account_id, m.uid, m.folder, m.attachments
     FROM messages m JOIN email_accounts a ON a.id = m.account_id
@@ -237,20 +261,17 @@ async function readMessageInvitation(messageId, userId) {
     WHERE m.id = $1 AND a.user_id = $2`, [messageId, userId]);
   const row = result.rows[0];
   if (!row) return null;
-  let raw = row.raw_ical;
-  if (!raw) {
-    const attachments = typeof row.attachments === 'string' ? JSON.parse(row.attachments) : row.attachments || [];
-    const candidates = attachments.filter(item => /^(text\/calendar|application\/(ics|ical|calendar))$/i.test(item.type || '') || /\.ics$/i.test(item.filename || ''));
-    if (candidates.length !== 1 || candidates[0].size > 1024 * 1024) return null;
-    const account = await query('SELECT * FROM email_accounts WHERE id = $1 AND user_id = $2', [row.account_id, userId]);
-    if (!account.rows[0]) return null;
-    const { imapManager } = await import('../index.js');
-    const data = await imapManager.fetchAttachment(account.rows[0], row.uid, row.folder, candidates[0].part);
-    raw = data.toString('utf8');
+  // Prefer the invitation captured during sync. When it is absent, or present but
+  // not parseable, fall back to the raw MIME part: a message that predates the
+  // capture (or whose capture was incomplete) must still be openable and importable.
+  const sources = [row.raw_ical, () => fetchInvitationAttachment(row, userId)];
+  for (const source of sources) {
+    const raw = typeof source === 'function' ? await source() : source;
+    if (!raw) continue;
+    const invitation = parseInboundCalendarInvitation(raw);
+    if (invitation) return { ...invitation, event: parseCalendarEvent(raw) };
   }
-  const invitation = parseInboundCalendarInvitation(raw);
-  if (!invitation) return null;
-  return { ...invitation, event: parseCalendarEvent(raw) };
+  return null;
 }
 
 router.get('/invitations/:messageId', async (req, res) => {

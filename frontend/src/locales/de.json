@@ -179,7 +179,9 @@
       "mobileNavigation": "Mobile Navigation",
       "navigationTop": "Oben",
       "navigationBottom": "Unten",
-      "mobileNavigationDescription": "Position des Menüs und der Aktionen in E-Mail, Kontakten und Kalender."
+      "mobileNavigationDescription": "Position des Menüs und der Aktionen in E-Mail, Kontakten und Kalender.",
+      "navigationTopDesc": "Der Panel-Umschalter liegt über der Nachrichtenliste.",
+      "navigationBottomDesc": "Der Panel-Umschalter liegt unten, in Daumenreichweite."
     },
     "blockList": {
       "description": "E-Mails von blockierten Absendern werden automatisch in den Papierkorb verschoben.",
@@ -425,10 +427,6 @@
       "folderSyncFrequency": "Synchronisierungshäufigkeit der Ordnerstruktur",
       "folderSyncFrequencyDesc": "Wie oft Inboxora die Ordnerliste jedes Kontos vom Server aktualisiert (in anderen Apps erstellte Ordner)",
       "threadingMode": "Gesprächs-Threading",
-      "threadingOff": "Aus",
-      "threadingOffDesc": "Jede Nachricht einzeln angezeigt",
-      "threadingOn": "An",
-      "threadingOnDesc": "Antworten in Gesprächen gruppiert",
       "composeFormat": "Verfassungsformat",
       "composeRichText": "Rich Text",
       "composeRichTextDesc": "Sendet HTML — unterstützt Formatierung und gestaltete Signaturen",
@@ -476,7 +474,8 @@
       "markReadDelaySeconds_other": "{{count}} Sekunden",
       "markReadDelaySeconds_many": "{{count}} seconds",
       "markReadDelaySeconds_one": "{{count}} Sekunde",
-      "markReadDelaySeconds_few": "{{count}} seconds"
+      "markReadDelaySeconds_few": "{{count}} seconds",
+      "threadingDesc": "Fasst eine Nachricht und ihre Antworten in der Nachrichtenliste zu einer Konversation zusammen."
     },
     "notifications": {
       "title": "Benachrichtigungen",
@@ -1189,8 +1188,6 @@
     "confirmMoveBody": "{{count}} Nachricht(en) in einen anderen Ordner verschieben?",
     "showQuotedText": "Zitierten Text anzeigen",
     "hideQuotedText": "Zitierten Text ausblenden",
-    "readerOffDesc": "Nur die ausgewählte Nachricht öffnen",
-    "readerOnDesc": "Die gesamte Unterhaltung im Nachrichtenbereich anzeigen",
     "groupIntoConversationsOn": "On",
     "readerOff": "Disabled",
     "readerOn": "Enabled",
@@ -1199,7 +1196,8 @@
     "outgoingMessage": "Ausgehende Nachricht",
     "expandMessage": "Nachricht von {{sender}} aufklappen: {{subject}}",
     "collapseMessage": "Nachricht von {{sender}} zuklappen: {{subject}}",
-    "summary": "Vorschau:"
+    "summary": "Vorschau:",
+    "readerDesc": "Öffnet die ganze Konversation im Lesebereich statt einzelner Nachrichten."
   },
   "diagnostics": {
     "section": "Diagnose",
@@ -1843,7 +1841,16 @@
     "invitationLoadFailed": "Die Einladung konnte nicht geladen oder gespeichert werden.",
     "editOccurrence": "Sie bearbeiten nur diesen Termin der Serie.",
     "incompleteSeries": "Einige Serientermine konnten nicht vollständig aufgelöst werden und fehlen möglicherweise in dieser Ansicht.",
-    "descriptionPlaceholder": "Agenda, Notizen, Videolink…"
+    "descriptionPlaceholder": "Agenda, Notizen, Videolink…",
+    "firstDayOfWeekDescription": "An welchem Tag die Woche in Monats- und Wochenansicht beginnt.",
+    "mondayDescription": "Wochen beginnen am Montag",
+    "sundayDescription": "Wochen beginnen am Sonntag",
+    "workDaysDescription": "Tage, die in Wochen- und Arbeitswochenansicht als Arbeitstage gelten.",
+    "workHoursStartDescription": "Erste Stunde der Hervorhebung des Arbeitstags.",
+    "workHoursEndDescription": "Letzte Stunde der Hervorhebung des Arbeitstags.",
+    "defaultInviteAccount": "Standardabsender für Kalendereinladungen",
+    "defaultInviteAccountNone": "Kein Standard — pro Termin wählen",
+    "defaultInviteAccountDescription": "Das SMTP-Konto, das beim Einladen von Teilnehmern vorausgewählt wird."
   },
   "mailFolders": {
     "inbox": "Posteingang",

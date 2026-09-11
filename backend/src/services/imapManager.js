@@ -595,6 +595,15 @@ export function looksLikeTextPayload(buf) {
   return new RegExp(`(?:<!doctype|<!--|<\\/?(?:${tags})\\b|=3c\\/?(?:${tags})(?:=3e|=20|=09)|&lt;\\/?(?:${tags})(?:&gt;|\\s)|(?:^|[\\r\\n])Content-(?:Type|Transfer-Encoding):)`, 'i').test(sample);
 }
 
+// The transfer encoding an attachment part must be decoded with. The declared
+// encoding wins; when the structure declares none (or the part is missing from
+// it) the caller's fallback is kept — an absent value must never override it,
+// because that silently skipped the base64 decoding.
+export function attachmentTransferEncoding(results, partNum, fallback = 'base64') {
+  const match = (results?.attachments || []).find(attachment => String(attachment.part) === String(partNum));
+  return match?.encoding || fallback;
+}
+
 function decodeAttachmentBuffer(buf, encoding) {
   const enc = (encoding || '').toLowerCase();
   if (enc === 'base64') {
@@ -640,7 +649,15 @@ export function walkStructure(node, results) {
       encoding: node.encoding || '',
       charset: node.parameters?.charset || 'utf-8',
     });
-    results.attachments.push({ part: node.part || '1', filename: filename || 'invitation.ics', type, size: node.size || 0 });
+    // The calendar part is also listed as an attachment (so the paperclip and the
+    // attachment list see it), and it must carry its transfer encoding: the
+    // attachment fetcher decodes the raw part with it. Omitting it made a base64
+    // .ics come back still encoded, which is why an invitation received by mail
+    // could not be read or imported.
+    results.attachments.push({
+      part: node.part || '1', filename: filename || 'invitation.ics', type,
+      encoding: node.encoding || '', size: node.size || 0,
+    });
     return;
   }
   // A part explicitly marked Content-Disposition: attachment is an attachment
@@ -4649,8 +4666,7 @@ export class ImapManager {
           if (msg.bodyStructure) {
             const r = { textParts: [], attachments: [] };
             walkStructure(msg.bodyStructure, r);
-            const att = r.attachments.find(a => a.part === partNum);
-            if (att) encoding = att.encoding;
+            encoding = attachmentTransferEncoding(r, partNum);
           }
           const buf = msg.bodyParts?.get(partNum);
           if (buf) {

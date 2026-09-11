@@ -19,6 +19,23 @@ test('calendar preferences have their own tab and mobile navigation is global', 
   assert.doesNotMatch(calendar, /onMobileNavigationPositionChange/);
 });
 
+test('the default invitation sender is configured in the calendar tab and preselected for new events', async () => {
+  const [adminPanel, calendar] = await Promise.all([
+    source('./AdminPanel.jsx'),
+    source('./CalendarPage.jsx'),
+  ]);
+
+  // The setting lives in Settings → Calendar and only offers accounts that can send.
+  assert.match(adminPanel, /data-testid="calendar-invite-account-setting"/);
+  assert.match(adminPanel, /setCalendarInviteAccountId/);
+  assert.match(adminPanel, /calendar\.defaultInviteAccountDescription/);
+  assert.match(adminPanel, /account\.enabled && account\.smtp_host/);
+  // A new event preselects it; a default that can no longer send is ignored.
+  assert.match(calendar, /calendarInviteAccountId = useStore/);
+  assert.match(calendar, /senderAccounts\.some\(account => account\.id === calendarInviteAccountId\)/);
+  assert.match(calendar, /emptyForm\(writable\[0\]\?\.id \|\| '', date, defaultInviteAccountId\)/);
+});
+
 
 test('external calendar management is directly discoverable from the calendar visibility panel', async () => {
   const [calendar, sidebar] = await Promise.all([

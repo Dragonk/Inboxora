@@ -27,7 +27,7 @@ function resolveDateLocale(language) {
   return DATE_LOCALE_OVERRIDES[language] || language.replace('_', '-');
 }
 
-const emptyForm = (calendarId = '', date = new Date()) => ({ calendarId, summary: '', description: '', location: '', url: '', organizer: '', attendees: [], sendInvites: false, inviteAccountId: '', allDay: false, startsAt: toDateTimeLocal(date), endsAt: toDateTimeLocal(new Date(date.getTime() + 3600000)) });
+const emptyForm = (calendarId = '', date = new Date(), inviteAccountId = '') => ({ calendarId, summary: '', description: '', location: '', url: '', organizer: '', attendees: [], sendInvites: false, inviteAccountId, allDay: false, startsAt: toDateTimeLocal(date), endsAt: toDateTimeLocal(new Date(date.getTime() + 3600000)) });
 function iso(date) { return date.toISOString(); }
 function calendarDays(anchor, weekStartsOn = 1) {
   const { start } = monthRange(anchor); const first = new Date(start); first.setDate(first.getDate() - ((first.getDay() - weekStartsOn + 7) % 7));
@@ -57,6 +57,8 @@ export default function CalendarPage({ isActive = true }) {
   const calendarWorkDays = useStore(state => state.calendarWorkDays);
   const calendarWorkHoursStart = useStore(state => state.calendarWorkHoursStart);
   const calendarWorkHoursEnd = useStore(state => state.calendarWorkHoursEnd);
+  // Sender preselected for invitations (Settings → Calendar).
+  const calendarInviteAccountId = useStore(state => state.calendarInviteAccountId);
   const visibleCalendarIds = useStore(state => state.visibleCalendarIds);
   const setVisibleCalendarIds = useStore(state => state.setVisibleCalendarIds);
   const isMobile = useMobile();
@@ -166,7 +168,14 @@ export default function CalendarPage({ isActive = true }) {
   }, [isActive, isMobile]);
   const writable = calendars.filter(calendar => !calendar.read_only && calendar.source === 'local');
   const senderAccounts = accounts.filter(account => account.enabled && account.smtp_host);
-  const openCreate = (date = anchor) => { if (!writable.length) return; invitationOperation.current.reset(); setForm({ ...emptyForm(writable[0]?.id || '', date), mode: 'create' }); };
+  const openCreate = (date = anchor) => {
+    if (!writable.length) return;
+    invitationOperation.current.reset();
+    // The sender chosen in Settings → Calendar is preselected. A default whose
+    // account can no longer send is ignored rather than carried as a dead value.
+    const defaultInviteAccountId = senderAccounts.some(account => account.id === calendarInviteAccountId) ? calendarInviteAccountId : '';
+    setForm({ ...emptyForm(writable[0]?.id || '', date, defaultInviteAccountId), mode: 'create' });
+  };
   const openEdit = event => { invitationOperation.current.reset(); setForm({ mode: 'edit', ...event, id: event.series_id || event.id, recurrenceId: event.recurring ? event.recurrence_id : undefined, calendarId: event.calendar_id, summary: event.summary || '', description: event.description || '', location: event.location || '', url: event.url || '', organizer: event.organizer || '', attendees: Array.isArray(event.attendees) ? event.attendees : [], sendInvites: Boolean(event.invite_account_id && event.attendees?.length), inviteAccountId: event.invite_account_id || '', allDay: Boolean(event.all_day), startsAt: event.all_day ? String(event.starts_at).slice(0, 10) : toDateTimeLocal(event.starts_at), endsAt: event.all_day ? String(event.ends_at).slice(0, 10) : toDateTimeLocal(event.ends_at) }); };
   const save = async () => {
     const payload = eventPayload(form);

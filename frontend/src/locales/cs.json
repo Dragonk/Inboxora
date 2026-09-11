@@ -111,7 +111,9 @@
       "mobileNavigation": "Mobilní navigace",
       "navigationTop": "Nahoře",
       "navigationBottom": "Dole",
-      "mobileNavigationDescription": "Umístění nabídky a akcí v poště, kontaktech a kalendáři."
+      "mobileNavigationDescription": "Umístění nabídky a akcí v poště, kontaktech a kalendáři.",
+      "navigationTopDesc": "Přepínač panelů je nad seznamem zpráv.",
+      "navigationBottomDesc": "Přepínač panelů je dole, na dosah palce."
     },
     "accounts": {
       "title": "E-mailové účty",
@@ -380,10 +382,6 @@
       "folderSyncFrequency": "Frekvence synchronizace struktury složek",
       "folderSyncFrequencyDesc": "Jak často Inboxora načte ze serveru aktuální seznam složek jednotlivých účtů (včetně složek vytvořených v jiných aplikacích)",
       "threadingMode": "Seskupování do konverzací",
-      "threadingOff": "Vypnuto",
-      "threadingOffDesc": "Každá zpráva se zobrazuje samostatně",
-      "threadingOn": "Zapnuto",
-      "threadingOnDesc": "Odpovědi se seskupují do konverzací",
       "composeFormat": "Formát zpráv",
       "composeRichText": "Formátovaný text",
       "composeRichTextDesc": "Odesílá HTML — podporuje formátování a stylované podpisy",
@@ -431,7 +429,8 @@
       "gravatarOff": "Vypnuto",
       "gravatarOffDesc": "Soukromé — nikdy nekontaktuje třetí stranu.",
       "gravatarOn": "Zapnuto",
-      "gravatarOnDesc": "Načítat fotografie odesílatelů z Gravataru — sdílí hashované adresy odesílatelů s třetí stranou."
+      "gravatarOnDesc": "Načítat fotografie odesílatelů z Gravataru — sdílí hashované adresy odesílatelů s třetí stranou.",
+      "threadingDesc": "Sdruží zprávu a její odpovědi do jedné konverzace v seznamu zpráv."
     },
     "gtd": {
       "description": "Proměňte Inboxora v systém GTD. Zapněte jej pro jednotlivé účty a potom přiřaďte každý stav ke složce IMAP, která obsahuje jeho štítek.",
@@ -1189,8 +1188,6 @@
     "confirmMoveBody": "Move {{count}} message(s) to another folder?",
     "showQuotedText": "Show quoted text",
     "hideQuotedText": "Hide quoted text",
-    "readerOffDesc": "Otevřít pouze vybranou zprávu",
-    "readerOnDesc": "Zobrazit celou konverzaci v panelu zpráv",
     "groupIntoConversationsOn": "On",
     "readerOff": "Disabled",
     "readerOn": "Enabled",
@@ -1199,7 +1196,8 @@
     "outgoingMessage": "Odchozí zpráva",
     "expandMessage": "Rozbalit zprávu od {{sender}}: {{subject}}",
     "collapseMessage": "Sbalit zprávu od {{sender}}: {{subject}}",
-    "summary": "Náhled:"
+    "summary": "Náhled:",
+    "readerDesc": "Otevře celou konverzaci v panelu čtení místo jedné zprávy."
   },
   "diagnostics": {
     "section": "Diagnostika",
@@ -1843,7 +1841,16 @@
     "invitationLoadFailed": "Pozvánku se nepodařilo načíst nebo uložit.",
     "editOccurrence": "Upravujete pouze tento výskyt události.",
     "incompleteSeries": "Některé opakující se události nebylo možné plně rozvinout a v tomto zobrazení mohou chybět.",
-    "descriptionPlaceholder": "Program, poznámky, odkaz na schůzku…"
+    "descriptionPlaceholder": "Program, poznámky, odkaz na schůzku…",
+    "firstDayOfWeekDescription": "Kterým dnem začíná týden v zobrazení měsíce a týdne.",
+    "mondayDescription": "Týden začíná v pondělí",
+    "sundayDescription": "Týden začíná v neděli",
+    "workDaysDescription": "Dny zobrazené jako pracovní v zobrazení týdne a pracovního týdne.",
+    "workHoursStartDescription": "První hodina zvýraznění pracovního dne.",
+    "workHoursEndDescription": "Poslední hodina zvýraznění pracovního dne.",
+    "defaultInviteAccount": "Výchozí odesílatel pozvánek",
+    "defaultInviteAccountNone": "Žádný výchozí — volit u každé události",
+    "defaultInviteAccountDescription": "Účet SMTP předvybraný při zvání účastníků na událost."
   },
   "mailFolders": {
     "inbox": "Doručená pošta",

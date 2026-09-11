@@ -179,7 +179,9 @@
       "mobileNavigation": "Мобильная навигация",
       "navigationTop": "Сверху",
       "navigationBottom": "Снизу",
-      "mobileNavigationDescription": "Расположение меню и действий в почте, контактах и календаре."
+      "mobileNavigationDescription": "Расположение меню и действий в почте, контактах и календаре.",
+      "navigationTopDesc": "Переключатель панелей находится над списком сообщений.",
+      "navigationBottomDesc": "Переключатель панелей находится снизу, под большим пальцем."
     },
     "blockList": {
       "description": "Письма от заблокированных отправителей автоматически перемещаются в корзину.",
@@ -425,10 +427,6 @@
       "folderSyncFrequency": "Частота синхронизации структуры папок",
       "folderSyncFrequencyDesc": "Как часто Inboxora обновляет список папок каждой учётной записи с сервера (папки, созданные в других приложениях)",
       "threadingMode": "Группировка переписки",
-      "threadingOff": "Выключена",
-      "threadingOffDesc": "Каждое сообщение показывается отдельно",
-      "threadingOn": "Включена",
-      "threadingOnDesc": "Ответы группируются в цепочки переписки",
       "composeFormat": "Формат создания письма",
       "composeRichText": "Форматированный текст",
       "composeRichTextDesc": "Отправляет HTML — поддерживает форматирование и стилизованные подписи",
@@ -476,7 +474,8 @@
       "markReadDelaySeconds_other": "{{count}} секунд",
       "markReadDelaySeconds_many": "{{count}} seconds",
       "markReadDelaySeconds_one": "{{count}} секунда",
-      "markReadDelaySeconds_few": "{{count}} seconds"
+      "markReadDelaySeconds_few": "{{count}} seconds",
+      "threadingDesc": "Объединяет сообщение и ответы в одну переписку в списке сообщений."
     },
     "notifications": {
       "title": "Уведомления",
@@ -1189,8 +1188,6 @@
     "confirmMoveBody": "Переместить сообщений: {{count}} в другую папку?",
     "showQuotedText": "Показать цитируемый текст",
     "hideQuotedText": "Скрыть цитируемый текст",
-    "readerOffDesc": "Открывать только выбранное сообщение",
-    "readerOnDesc": "Показывать всю переписку на панели сообщений",
     "groupIntoConversationsOn": "On",
     "readerOff": "Disabled",
     "readerOn": "Enabled",
@@ -1199,7 +1196,8 @@
     "outgoingMessage": "Исходящее сообщение",
     "expandMessage": "Развернуть сообщение от {{sender}}: {{subject}}",
     "collapseMessage": "Свернуть сообщение от {{sender}}: {{subject}}",
-    "summary": "Кратко:"
+    "summary": "Кратко:",
+    "readerDesc": "Открывает всю переписку в области чтения вместо одного сообщения."
   },
   "diagnostics": {
     "section": "Диагностика",
@@ -1843,7 +1841,16 @@
     "invitationLoadFailed": "Не удалось загрузить или сохранить приглашение.",
     "editOccurrence": "Вы изменяете только этот экземпляр события.",
     "incompleteSeries": "Некоторые повторяющиеся события не удалось полностью развернуть, и они могут отсутствовать в этом представлении.",
-    "descriptionPlaceholder": "Повестка, заметки, ссылка на встречу…"
+    "descriptionPlaceholder": "Повестка, заметки, ссылка на встречу…",
+    "firstDayOfWeekDescription": "С какого дня начинается неделя в представлениях месяца и недели.",
+    "mondayDescription": "Неделя начинается с понедельника",
+    "sundayDescription": "Неделя начинается с воскресенья",
+    "workDaysDescription": "Дни, отображаемые как рабочие в представлениях недели и рабочей недели.",
+    "workHoursStartDescription": "Первый час подсветки рабочего дня.",
+    "workHoursEndDescription": "Последний час подсветки рабочего дня.",
+    "defaultInviteAccount": "Отправитель приглашений по умолчанию",
+    "defaultInviteAccountNone": "Без значения по умолчанию — выбирать для каждого события",
+    "defaultInviteAccountDescription": "Учётная запись SMTP, выбираемая заранее при приглашении участников."
   },
   "mailFolders": {
     "inbox": "Входящие",
