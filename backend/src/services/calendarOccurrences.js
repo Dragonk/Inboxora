@@ -105,11 +105,14 @@ export async function materializeEvent(eventId, horizon = occurrenceHorizon()) {
   const row = result.rows[0];
   if (!row) return 'skipped';
 
-  // Inline projection: this already runs off the request path on the worker's own turn, and
-  // going through the worker pool again would queue behind the reads it exists to keep fast.
+  // Expansion goes through the bounded worker pool, NOT inline. Running it on this thread was
+  // the first attempt and it froze the API: measured with monitorEventLoopDelay, four series
+  // blocked the event loop for the whole 429 ms of the batch and recorded *zero* timer samples,
+  // where the pool kept the worst stall to 8 ms. The pool costs ~30% more wall time and buys a
+  // responsive process, which is the entire reason it exists — and reads served from
+  // materialised rows never touch it, so it is idle exactly when it is needed here.
   const projection = await projectCalendarResources([row], horizon.from, horizon.to, {
     userId: row.user_id,
-    useWorkers: false,
     cache: false,
   });
 

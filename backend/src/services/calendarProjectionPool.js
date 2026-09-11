@@ -253,6 +253,11 @@ const PROJECTION_CACHE_MAX_EVENTS_DEFAULT = 50000;
 const projectionCache = new Map();
 const inflightProjections = new Map();
 let projectionCacheEvents = 0;
+// Counts expansions handed to the worker pool. Exposed so a caller that must not run
+// expansion on the event loop — the occurrence materialiser — can prove it is really using
+// the pool; a timing assertion cannot, because an inline batch hands the loop back between
+// events and its longest stall then looks small compared to the batch.
+let jobsDispatched = 0;
 
 function projectionKey(userId, row, horizonKey, maxIterations) {
   return `${userId ?? ''}\u0000${row.id}\u0000${row.etag ?? ''}\u0000${horizonKey}\u0000${maxIterations}\u0000${PROJECTION_VERSION}`;
@@ -394,6 +399,7 @@ async function dispatchProjection(rows, from, to, options, settings) {
   }
 
   const jobs = accepted.map(row => new Promise((resolve) => {
+    jobsDispatched += 1;
     pending.push({ jobId: nextJobId++, row, from, to, resolve, done: false });
   }));
   drain();
@@ -580,6 +586,7 @@ export function calendarProjectionPoolStats() {
     configuredWorkers: settings.workers,
     queued: pending.length,
     maxQueue: settings.maxQueue,
+    jobsDispatched,
     timeoutMs: settings.timeoutMs,
     maxIterations: settings.maxIterations,
     cacheEnabled: settings.cacheEnabled,

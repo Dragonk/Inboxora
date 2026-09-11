@@ -8,10 +8,16 @@
 // Run with:
 //   DB_HOST=localhost DB_NAME=mailflow_test DB_USER=mailflow_test DB_PASSWORD=mailflow_test \
 //     npx vitest run src/services/calendarOccurrences.integration.test.js
+//
+// Note: under vitest the projection worker pool cannot spawn its threads, so these tests
+// exercise the inline fallback. That is fine for correctness — both paths run the same
+// expansion — but it means this file cannot prove the materialiser stays off the event loop;
+// calendarOccurrences.test.js pins that separately.
 
 import { afterAll, afterEach, beforeAll, describe, expect, it } from 'vitest';
 import { query, withTransaction, pool } from './db.js';
 import { coveragePredicate, finalizeMaterialization, materializeEvent, materializePendingOccurrences, occurrenceHorizon } from './calendarOccurrences.js';
+import { closeCalendarProjectionPool } from './calendarProjectionPool.js';
 import { projectCalendarResource } from '../utils/calendarRecurrence.js';
 
 const hasPg = process.env.DB_HOST && process.env.DB_NAME;
@@ -102,6 +108,7 @@ afterEach(async () => {
 afterAll(async () => {
   if (!hasPg) return;
   await query('DELETE FROM users WHERE id = $1', [USER_ID]);
+  await closeCalendarProjectionPool();
   await pool.end();
 });
 

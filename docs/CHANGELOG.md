@@ -75,7 +75,10 @@ limitations — read the matching page in the Wiki, for example
   that has not been rebuilt yet is expanded on the fly exactly as before, so a lagging or failing
   worker makes the calendar slower — never missing an event. Any write marks its series for rebuild
   through a database trigger, which covers all eleven write paths including CalDAV and the external
-  sync without depending on each one remembering to. See migration `0083`.
+  sync without depending on each one remembering to. See migration `0083`. The expansion runs
+  on the projection worker pool, not the background thread: the first version expanded inline and
+  froze the API, holding the event loop for the whole 429 ms of a four-series batch with zero
+  timer samples recorded, against 5-7 ms through the pool.
 - **The calendar no longer scans every event to find recurring ones.** The read paths selected
   "events in this window, plus every recurring series" and expressed the second half as a regular
   expression over the iCalendar body. No index can satisfy a regex over an unindexed column, so
