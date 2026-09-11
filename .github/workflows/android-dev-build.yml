@@ -1,0 +1,126 @@
+name: Android dev APK
+
+# Test-only Android build: a debug-signed, installable APK from an exact dev
+# commit. No production keystore, no GitHub Release, no store publishing.
+#
+# How to trigger it:
+#   1. Preferred (once this workflow is on the default branch):
+#        gh workflow run android-dev-build.yml --ref dev -f source_sha=<40-hex>
+#   2. From any branch, including before it is merged: commit the target SHA to
+#      ci/android-dev-build.request and push to dev. This workflow then checks
+#      out exactly that SHA, so the APK matches the published Docker dev images.
+on:
+  workflow_dispatch:
+    inputs:
+      source_sha:
+        description: "Commit SHA reachable from origin/dev (defaults to the selected dev revision)"
+        required: false
+        type: string
+  push:
+    branches: ["dev"]
+    paths:
+      - "ci/android-dev-build.request"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: inboxora-android-dev
+  cancel-in-progress: false
+
+jobs:
+  android:
+    name: Debug APK from dev
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout dev
+        uses: actions/checkout@v6
+        with:
+          ref: dev
+          fetch-depth: 0
+
+      - name: Resolve and validate the source revision
+        id: source
+        env:
+          DISPATCH_SHA: ${{ inputs.source_sha }}
+          EVENT_SHA: ${{ github.sha }}
+        run: |
+          set -euo pipefail
+          src="$DISPATCH_SHA"
+          if [ -z "$src" ] && [ -f ci/android-dev-build.request ]; then
+            src="$(grep -oE '[0-9a-f]{40}' ci/android-dev-build.request | head -1 || true)"
+          fi
+          if [ -z "$src" ]; then src="$EVENT_SHA"; fi
+          if ! printf '%s' "$src" | grep -qE '^[0-9a-f]{40}$'; then
+            echo "Not a 40-hex commit SHA: $src" >&2
+            exit 1
+          fi
+          git fetch origin dev --quiet
+          if ! git merge-base --is-ancestor "$src" origin/dev; then
+            echo "SHA $src is not reachable from origin/dev" >&2
+            exit 1
+          fi
+          git checkout --force "$src"
+          echo "source_sha=$src" >> "$GITHUB_OUTPUT"
+          echo "short_sha=${src:0:8}" >> "$GITHUB_OUTPUT"
+          echo "Building dev APK from $src (short ${src:0:8})"
+
+      - uses: actions/setup-node@v6
+        with:
+          node-version: "22"
+          cache: "npm"
+          cache-dependency-path: frontend/package-lock.json
+
+      - uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: "21"
+
+      - uses: android-actions/setup-android@v3
+
+      - name: Install Android SDK packages
+        run: |
+          yes | sdkmanager --licenses >/dev/null 2>&1 || true
+          sdkmanager --install "platform-tools" "platforms;android-36" "build-tools;36.0.0"
+
+      - name: Install frontend dependencies
+        working-directory: frontend
+        env:
+          ELECTRON_SKIP_BINARY_DOWNLOAD: "1"
+        run: npm ci
+
+      - name: Stamp the dev version
+        working-directory: frontend
+        env:
+          DEV_VERSION: 4.0.0-dev.${{ github.run_number }}
+        run: npm run app:version -- "$DEV_VERSION" "${{ github.run_number }}"
+
+      - name: Build web assets and sync the Android shell
+        working-directory: frontend
+        env:
+          VITE_BUILD_SHA: ${{ steps.source.outputs.source_sha }}
+          VITE_EMAIL_DIV_RENDER: "false"
+        run: npm run android:sync
+
+      - name: Gradle unit tests, lint and debug APK
+        working-directory: frontend/packages/android
+        run: |
+          chmod +x gradlew
+          ./gradlew :app:testDebugUnitTest :app:lintDebug :app:assembleDebug --no-daemon --console=plain
+
+      - name: Collect the APK
+        working-directory: frontend
+        env:
+          SHORT_SHA: ${{ steps.source.outputs.short_sha }}
+        run: |
+          mkdir -p packages/release
+          cp packages/android/app/build/outputs/apk/debug/app-debug.apk "packages/release/Inboxora-dev-${SHORT_SHA}.apk"
+          ls -la packages/release
+
+      - name: Upload the APK artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: inboxora-android-dev-${{ steps.source.outputs.short_sha }}
+          if-no-files-found: error
+          retention-days: 14
+          path: frontend/packages/release/Inboxora-dev-*.apk
