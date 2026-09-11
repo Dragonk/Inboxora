@@ -94,6 +94,15 @@
 .calendar-mobile .calendar-date-controls > .ui-button { min-width: 44px; min-height: 44px; }
 .calendar-view-select { min-width: 0; max-width: 48%; min-height: 44px; border: 1px solid var(--border-subtle); border-radius: 6px; background: var(--bg-primary); color: var(--text-primary); padding: 0 8px; font: inherit; font-size: 12px; }
 
+/* All-day and multi-day events fill the day column instead of shrinking to a chip in
+   a thin row above the grid: one that covers a day is drawn as a full-height band.
+   The tint stays translucent so the hour grid reads through it, the solid label at the
+   top carries the title and the interaction, and the squared edges of a continuing
+   multi-day block let the neighbouring day join up into one stretched event. */
+.calendar-page .calendar-allday-band { position: absolute; top: 0; height: 1440px; z-index: 0; box-sizing: border-box; border-style: solid; border-width: 1px; overflow: hidden; pointer-events: none; }
+.calendar-page .calendar-allday-band-label { position: absolute; top: 0; left: 0; right: 0; display: block; width: 100%; border: 0; padding: 3px 6px; color: #fff; font-size: 11px; font-weight: 600; line-height: 1.4; text-align: left; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; cursor: pointer; pointer-events: auto; }
+.calendar-mobile .calendar-allday-band-label { font-size: 10px; padding: 2px 4px; }
+
 /* Which part of a recurring series to delete. The three answers are stacked rather than placed
    in a row so each reads as a distinct action, and they stay full-width on a phone. */
 .calendar-delete-scope-when { font-family: var(--font-mono, ui-monospace, monospace); font-size: 12px; color: var(--text-tertiary); margin: -4px 0 0; }

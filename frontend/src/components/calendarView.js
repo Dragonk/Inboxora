@@ -225,6 +225,44 @@ export function eventGeometryForDay(event, day) {
   return { start, end: Math.max(start + 1, end) };
 }
 
+function localDayKey(day) {
+  return [day.getFullYear(), String(day.getMonth() + 1).padStart(2, '0'), String(day.getDate()).padStart(2, '0')].join('-');
+}
+
+// Whether the copy of an all-day event shown in one day continues from an earlier
+// day or into a later one. The week grid draws these events as full-height bands, so
+// the edges that join a neighbouring day are squared off instead of rounded, which
+// makes a multi-day event read as one stretched block rather than separate chips.
+export function allDayEventSegment(event, day) {
+  const dayKey = localDayKey(day);
+  const next = new Date(day.getFullYear(), day.getMonth(), day.getDate() + 1);
+  const startKey = String(event.starts_at ?? event.startsAt ?? '').slice(0, 10);
+  const endKey = String(event.ends_at ?? event.endsAt ?? '').slice(0, 10);
+  return { continuesFrom: startKey < dayKey, continuesTo: endKey > localDayKey(next) };
+}
+
+// Place every all-day event that covers `day`. Unlike timed events these all span
+// the whole day, so they simply take one equal-width column each, which keeps two
+// full-day events side by side instead of hiding one behind the other. The input is
+// re-sorted by start then id so the same event keeps the same column on every day it
+// covers, even though each day is laid out independently.
+export function layoutAllDayEvents(events, day) {
+  const dayKey = localDayKey(day);
+  const covering = (Array.isArray(events) ? events : [])
+    .filter(event => {
+      if (!(event.all_day || event.allDay)) return false;
+      const startKey = String(event.starts_at ?? event.startsAt ?? '').slice(0, 10);
+      const endKey = String(event.ends_at ?? event.endsAt ?? '').slice(0, 10);
+      return startKey <= dayKey && dayKey < endKey;
+    })
+    .sort((a, b) => {
+      const startDifference = String(a.starts_at ?? a.startsAt ?? '').localeCompare(String(b.starts_at ?? b.startsAt ?? ''));
+      return startDifference || String(a.id).localeCompare(String(b.id));
+    });
+  const columns = Math.max(1, covering.length);
+  return covering.map((event, column) => ({ event, column, columns, ...allDayEventSegment(event, day) }));
+}
+
 // Range-maximum over a static array. The collision-group width below needs the
 // peak overlap inside an interval; a sparse table answers each query in O(1)
 // after O(n log n) construction. This replaces the previous nested scans, which

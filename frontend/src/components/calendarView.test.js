@@ -1,6 +1,6 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
-import { createDayEventsResolver, centeredScrollLeft, eventPayload, eventsForDay, layoutTimedEvents, monthRange, shiftCalendarAnchor, sortedDayEvents, toggleAllDayTimes, weekFocusIndex, weekRange } from './calendarView.js';
+import { allDayEventSegment, createDayEventsResolver, centeredScrollLeft, eventPayload, eventsForDay, layoutAllDayEvents, layoutTimedEvents, monthRange, shiftCalendarAnchor, sortedDayEvents, toggleAllDayTimes, weekFocusIndex, weekRange } from './calendarView.js';
 
 describe('calendar desktop helpers', () => {
   it('returns an exclusive month range', () => {
@@ -185,5 +185,39 @@ describe('week grid focus and centring', () => {
   it('returns 0 rather than NaN for unmeasurable geometry', () => {
     assert.equal(centeredScrollLeft({ columnStart: NaN, columnWidth: 150, viewportWidth: 390, contentWidth: 1102 }), 0);
     assert.equal(centeredScrollLeft({}), 0);
+  });
+});
+
+describe('calendar all-day and multi-day stretch layout', () => {
+  const day = new Date(2026, 8, 14); // Mon 14 Sep 2026
+  const allDay = (id, start, end) => ({ id, all_day: true, starts_at: start, ends_at: end });
+
+  it('gives a single all-day event the whole day column', () => {
+    const laidOut = layoutAllDayEvents([allDay('a', '2026-09-14', '2026-09-15')], day);
+    assert.deepEqual(laidOut.map(item => [item.event.id, item.column, item.columns, item.continuesFrom, item.continuesTo]), [['a', 0, 1, false, false]]);
+  });
+
+  it('places several all-day events side by side so none hides another', () => {
+    const laidOut = layoutAllDayEvents([allDay('b', '2026-09-14', '2026-09-15'), allDay('a', '2026-09-14', '2026-09-15')], day);
+    assert.deepEqual(laidOut.map(item => [item.event.id, item.column, item.columns]), [['a', 0, 2], ['b', 1, 2]]);
+  });
+
+  it('marks the middle days of a multi-day event as a continuation', () => {
+    const event = allDay('span', '2026-09-13', '2026-09-16');
+    assert.deepEqual(allDayEventSegment(event, new Date(2026, 8, 13)), { continuesFrom: false, continuesTo: true });
+    assert.deepEqual(allDayEventSegment(event, new Date(2026, 8, 14)), { continuesFrom: true, continuesTo: true });
+    assert.deepEqual(allDayEventSegment(event, new Date(2026, 8, 15)), { continuesFrom: true, continuesTo: false });
+  });
+
+  it('includes each covered day and excludes the exclusive end date', () => {
+    const event = allDay('span', '2026-09-13', '2026-09-16');
+    assert.equal(layoutAllDayEvents([event], new Date(2026, 8, 12)).length, 0);
+    assert.equal(layoutAllDayEvents([event], new Date(2026, 8, 15)).length, 1);
+    assert.equal(layoutAllDayEvents([event], new Date(2026, 8, 16)).length, 0);
+  });
+
+  it('ignores timed events, which the time grid lays out separately', () => {
+    const timed = { id: 'timed', starts_at: '2026-09-14T09:00:00', ends_at: '2026-09-14T10:00:00' };
+    assert.deepEqual(layoutAllDayEvents([timed], day), []);
   });
 });
