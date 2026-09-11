@@ -58,6 +58,9 @@ appearance and selects **Always light** or **Always dark**, so an upgrade never 
 
 - **Group messages into conversations** — the threaded list.
 - **Conversation reader** — open whole conversations in the reading pane.
+- **Rebuild conversations** — re-group the mail already in your mailbox, for accounts that were
+  imported or migrated from elsewhere. It always asks for confirmation and starts in dry-run
+  mode; see [Email and threading](Email-and-threading.md#grouping-mail-that-already-exists).
 - Rich text or plain-text composing, and whether the Reply button replies to the sender or to
   everyone.
 - Message previews, quick actions on hover, mobile sender avatars, and paginated or infinite

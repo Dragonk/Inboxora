@@ -21,7 +21,8 @@ and no message content. It is the fastest way to describe a problem in an issue.
 | The instance looks **empty** after switching to Inboxora | The database or volume was not reused. The backend is running against a new, empty database next to your data. Stop it before importing anything and follow [Migrating from MailFlow](Migrating-from-MailFlow.md). |
 | Backend will not start: `database "inboxora" does not exist` | Inboxora's compose defaults `DB_NAME` to `inboxora`, but your existing PostgreSQL volume only holds `mailflow`, and `POSTGRES_DB` is ignored on a non-empty data directory. Set `DB_NAME=mailflow` and `DB_USER=mailflow` in `.env`. |
 | Stored passwords rejected or OAuth accounts need reconnecting | `ENCRYPTION_KEY` was not carried over. Restore the original value; if it is lost, users must re-enter credentials and re-consent OAuth. |
-| Old mail appears as single messages with no threads | Expected until a rebuild groups it; the conversation engine is new to a MailFlow database. See [Grouping existing mail](Migrating-from-MailFlow.md#grouping-existing-mail). |
+| Old mail appears as single messages with no threads | Expected until a rebuild groups it; the conversation engine is new to a MailFlow database. Use **Settings → Appearance → Layout → Rebuild conversations**. See [Grouping existing mail](Migrating-from-MailFlow.md#grouping-existing-mail). |
+| The rebuild button says a rebuild was started moments ago | The endpoint allows two starts a minute per user. Wait a minute and try again. |
 | `Migration checksum mismatch: <version>` on start | A migration file changed after it was applied. Only restore a database dump taken with the matching image; do not edit migration files in place. |
 
 ## Mail does not arrive

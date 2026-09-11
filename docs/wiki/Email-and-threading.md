@@ -89,6 +89,41 @@ reader, or a threaded list that opens single messages.
 | --- | --- |
 | ![Conversation reader](https://raw.githubusercontent.com/Dragonk/Inboxora/main/media/screenshots/mail-conversation-desktop.png) | ![Conversation reader on a phone](https://raw.githubusercontent.com/Dragonk/Inboxora/main/media/screenshots/mail-conversation-mobile.png) |
 
+## Grouping mail that already exists
+
+Both views read the conversations the server has built. New mail is grouped as it arrives, but
+mail that was already stored before the conversation engine existed — the usual case after a
+migration from MailFlow — has no conversation yet and would appear as single messages.
+
+**Settings → Appearance → Layout → Rebuild conversations** re-runs grouping over the messages
+already in the database:
+
+![Threading settings with the conversation rebuild action](https://raw.githubusercontent.com/Dragonk/Inboxora/main/media/screenshots/settings-threading-desktop.png)
+
+| Threading and rebuild settings | On a phone |
+| --- | --- |
+| ![Threading settings](https://raw.githubusercontent.com/Dragonk/Inboxora/main/media/screenshots/settings-threading-desktop.png) | ![Threading settings on a phone](https://raw.githubusercontent.com/Dragonk/Inboxora/main/media/screenshots/settings-threading-mobile.png) |
+
+- The confirmation dialog starts with **Dry run** ticked, so the first run reports how many
+  messages would change and writes nothing.
+
+| The confirmation, with the safe default already ticked | On a phone |
+| --- | --- |
+| ![Rebuild confirmation dialog](https://raw.githubusercontent.com/Dragonk/Inboxora/main/media/screenshots/settings-rebuild-confirm-desktop.png) | ![Rebuild confirmation dialog on a phone](https://raw.githubusercontent.com/Dragonk/Inboxora/main/media/screenshots/settings-rebuild-confirm-mobile.png) |
+
+- Clear the tick and run it again to regroup for real. It never downloads, modifies, moves or
+  deletes a message, and it can be repeated.
+- It only touches the accounts of the signed-in user, so on a shared instance each person rebuilds
+  their own mail.
+- Setting **Dry run** aside, the rebuild is limited to two starts per minute; the dialog explains
+  the limit if you reach it.
+
+A rebuild is a convenience, not a prerequisite: mail syncs and reads normally without it. If a
+conversation still looks wrong afterwards, check its **threading diagnostics**, or use the manual
+merge, split and lock actions. See
+[Migrating from MailFlow](Migrating-from-MailFlow.md#grouping-existing-mail) for the migration
+walkthrough and the scripted alternative.
+
 ## Reading mail safely
 
 - HTML is rendered in a sandboxed frame without scripts, and it is sanitised both when it is

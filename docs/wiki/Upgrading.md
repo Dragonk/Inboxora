@@ -60,12 +60,15 @@ straightforward — but note the following.
 ### Recommended post-upgrade steps
 
 1. Sign in and confirm folders and unread counts.
-2. Open **Settings → Appearance** and decide whether to enable the threaded list and the
+2. Open **Settings → Appearance → Layout** and decide whether to enable the threaded list and the
    conversation reader.
-3. Add contacts (import or CardDAV) and calendars (local, CalDAV or ICS).
-4. Create DAV application passwords for each device and re-add the account on the device.
-5. Ask an administrator to review **Threading diagnostics** if a mailbox is grouped oddly, and
-   to run a dry-run rebuild first.
+3. Group the existing mail with **Rebuild conversations**, on the same screen. Start with the
+   dry run (it is on by default) to see how much would change, then clear it and run again for
+   real. Existing mail has no conversation until this runs; new mail is grouped as it syncs.
+4. Add contacts (import or CardDAV) and calendars (local, CalDAV or ICS).
+5. Create DAV application passwords for each device and re-add the account on the device.
+6. If a mailbox is still grouped oddly afterwards, review **Threading diagnostics** for the
+   affected conversations and use the manual merge, split or lock actions.
 
 ## Rollback
 

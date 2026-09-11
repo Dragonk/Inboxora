@@ -157,7 +157,7 @@ own tables. Carry `ENCRYPTION_KEY` across exactly as before.
    the section above rather than re-importing.
 3. **Group the existing mail into conversations.** The conversation engine is new to a MailFlow
    database, so historical messages have no conversation yet. New mail is grouped automatically as
-   it syncs; for the backlog, an administrator runs a rebuild — see
+   it syncs; for the backlog, use the rebuild button — see
    [Grouping existing mail](#grouping-existing-mail).
 4. **Turn threading on** if you want it. The threaded list and the conversation reader are both
    **off by default**, so nothing about your reading experience changes until you enable them
@@ -171,17 +171,43 @@ own tables. Carry `ENCRYPTION_KEY` across exactly as before.
 
 ### Grouping existing mail
 
-Existing messages are grouped by a **rebuild**, which re-runs threading over the messages already
-in the database. It is safe and repeatable, has a dry-run mode, and is scoped per user (each
-person rebuilds their own mail). There is currently **no button for it in the interface**, so it
-is an API call.
+Historical messages arrive from MailFlow without a conversation, because the conversation engine
+did not exist when they were stored. New mail is grouped automatically as it syncs; the backlog is
+grouped by a **rebuild**, which re-runs threading over the messages already in the database. It
+never downloads, changes, moves or deletes a message, and it is safe to run again.
 
-The call runs as the signed-in user, so it needs that user's session cookie (`connect.sid`). Copy
-it from the browser: sign in, open the developer tools, and read the `connect.sid` cookie value
-under **Application → Cookies**.
+#### From the interface
+
+1. Open **Settings → Appearance → Layout**.
+2. Find **Rebuild conversations**, under the two threading switches.
+3. Choose **Rebuild conversations** to open the confirmation, then **Start rebuild**.
+
+The dialog starts with **Dry run** ticked, so the first run is a report: it tells you how many
+messages were checked and how many would change, and writes nothing. Clear the tick and start it
+again to regroup for real:
+
+![The rebuild confirmation with the dry run enabled](https://raw.githubusercontent.com/Dragonk/Inboxora/main/media/screenshots/settings-rebuild-confirm-desktop.png)
+
+| Dry run | What happens |
+| --- | --- |
+| Ticked (default) | *Checked 12,480 messages — 3,102 would change. Nothing was written.* |
+| Cleared | *Checked 12,480 messages — 3,102 regrouped.* |
+
+The action is per user: it only ever touches the accounts of the person running it, so on a
+multi-user instance each person rebuilds their own mail. A rebuild is limited to two starts a
+minute; if you hit that, the dialog says so and you can retry after a minute.
+
+The rebuild also appears in settings search — searching for *migration*, *MailFlow*, *rebuild* or
+*regroup* finds it.
+
+#### From the API
+
+For scripted migration, or to rebuild one account at a time, call the endpoint directly. It runs
+as the signed-in user, so it needs that user's session cookie (`connect.sid`); read it from the
+browser under **Application → Cookies**.
 
 ```bash
-COOKIE='connect.sid=s%3A...'   # from the browser, for the user whose mail you are rebuilding
+COOKIE='connect.sid=s%3A...'   # for the user whose mail you are rebuilding
 
 # 1. Dry run first: reports what would change and writes nothing.
 curl -X POST https://your-domain/api/mail/conversations/rebuild \
@@ -205,8 +231,9 @@ The response is `202` with a `jobId`; poll progress with
 | `force` | Re-evaluate messages that already have a conversation. |
 
 Grouping is a convenience, not a prerequisite: mail syncs and reads normally without it, and new
-mail is grouped automatically as it arrives. Repeat the call per user (or let each person do their
-own) — the endpoint only ever touches the caller's accounts.
+mail is grouped automatically as it arrives. Repeat the call per user (or let each person use the
+button) — the endpoint only ever touches the caller's accounts. Every run is recorded in
+`conversation_rebuild_audit`.
 
 ## Rolling back
 
