@@ -7,6 +7,10 @@ async function sharedPanelWidth(page) {
   return page.evaluate(() => parseFloat(getComputedStyle(document.documentElement).getPropertyValue('--list-width')));
 }
 
+async function sharedAgendaWidth(page) {
+  return page.evaluate(() => parseFloat(getComputedStyle(document.documentElement).getPropertyValue('--agenda-width')));
+}
+
 async function dragHandle(page, testId, dx) {
   const handle = page.getByTestId(testId);
   await expect(handle).toBeVisible();
@@ -45,22 +49,55 @@ test('every resizable side panel drives one shared width across Mail, Contacts a
   const narrowed = await sharedPanelWidth(page);
   expect(narrowed).toBeCloseTo(widened - 30, 0);
 
-  // Calendar rail and day agenda use the very same width.
+  // The calendar rail joins the same shared column...
   await page.getByTestId('calendar-nav-primary').click();
   const rail = page.getByTestId('calendar-sidebar');
   await expect(rail).toBeVisible();
   expect((await rail.boundingBox()).width).toBeCloseTo(narrowed, 0);
   const agenda = page.locator('aside.calendar-agenda');
   await expect(agenda).toBeVisible();
-  expect((await agenda.boundingBox()).width).toBeCloseTo(narrowed, 0);
+  // ...but the day agenda deliberately keeps its own width.
+  const agendaWidth = await sharedAgendaWidth(page);
+  expect((await agenda.boundingBox()).width).toBeCloseTo(agendaWidth, 0);
+  expect(agendaWidth).not.toBeCloseTo(narrowed, 0);
 
   await dragHandle(page, 'calendar-rail-resize', 40);
   const fromCalendar = await sharedPanelWidth(page);
   expect(fromCalendar).toBeCloseTo(narrowed + 40, 0);
+  // Resizing the rail leaves the agenda exactly where it was.
+  expect(await sharedAgendaWidth(page)).toBeCloseTo(agendaWidth, 0);
+  expect((await agenda.boundingBox()).width).toBeCloseTo(agendaWidth, 0);
 
   await page.getByText('Gmail fixture', { exact: true }).click();
   await expect(page.getByTestId('message-list-scroll')).toBeVisible();
   expect((await mailList.boundingBox()).width).toBeCloseTo(fromCalendar, 0);
+});
+
+test('the day agenda resizes independently of the shared list column', async ({ page, fixtureApi }, testInfo) => {
+  test.skip(testInfo.project.name !== 'chromium-desktop', 'desktop resize contract');
+  await fixtureApi;
+  await page.setViewportSize({ width: 1600, height: 900 });
+  await page.goto('/');
+  await expect(page.getByTestId('message-list-scroll')).toBeVisible();
+  const listWidth = await sharedPanelWidth(page);
+
+  await page.getByTestId('calendar-nav-primary').click();
+  const agenda = page.locator('aside.calendar-agenda');
+  await expect(agenda).toBeVisible();
+  const initial = await sharedAgendaWidth(page);
+  expect((await agenda.boundingBox()).width).toBeCloseTo(initial, 0);
+
+  // The handle sits on the agenda's left edge, so dragging left widens it.
+  await dragHandle(page, 'calendar-agenda-resize', -60);
+  const widened = await sharedAgendaWidth(page);
+  expect(widened).toBeCloseTo(initial + 60, 0);
+  expect((await agenda.boundingBox()).width).toBeCloseTo(widened, 0);
+
+  // The shared Mail/Contacts/rail column is untouched by that drag.
+  expect(await sharedPanelWidth(page)).toBeCloseTo(listWidth, 0);
+  await page.getByText('Gmail fixture', { exact: true }).click();
+  await expect(page.getByTestId('message-list-scroll')).toBeVisible();
+  expect((await page.locator('[data-ce-reader-enabled]').boundingBox()).width).toBeCloseTo(listWidth, 0);
 });
 
 test('the stacked mail layout renders the message list across the full width', async ({ page, fixtureApi }, testInfo) => {
@@ -112,6 +149,7 @@ test('mobile calendar panel and day agenda share the same bottom sheet with one 
     // Exactly one close affordance: the sheet header's ×. The panel used to add
     // its own "Zamknij" button next to it.
     await expect(sheet.getByRole('button', { name: 'Zamknij', exact: true })).toHaveCount(1);
+    await expect(sheet.getByTestId('sheet-grabber')).toBeVisible();
     await expectContent(sheet);
     await sheet.getByRole('button', { name: 'Zamknij', exact: true }).click();
     await expect(sheet).toBeHidden();
@@ -127,4 +165,49 @@ test('mobile calendar panel and day agenda share the same bottom sheet with one 
     await expect(sheet.getByTestId('calendar-sidebar')).toBeVisible();
     await expect(sheet.getByTestId('calendar-mini-month')).toBeVisible();
   });
+});
+
+test('a mobile calendar sheet follows the finger and closes when pushed down', async ({ page, fixtureApi }, testInfo) => {
+  test.skip(!MOBILE_PROJECTS.has(testInfo.project.name), 'mobile sheet gesture contract');
+  await fixtureApi;
+  await page.goto('/');
+  await page.getByTestId('mobile-topbar-menu').click();
+  await page.getByTestId('calendar-nav-mobile').click();
+  await page.getByTestId('calendar-open-day').click();
+
+  const sheet = page.getByTestId('calendar-day-sheet');
+  await expect(sheet).toBeVisible();
+  await settleAnimations(page);
+  const header = sheet.getByTestId('sheet-drag-header');
+  const start = await header.boundingBox();
+  const viewportHeight = page.viewportSize().height;
+  const grabX = start.x + start.width / 2;
+  const grabY = start.y + start.height / 2;
+
+  // A slow short pull tracks the pointer, then snaps back instead of dismissing.
+  // Paced deliberately: a fast flick this short is a dismissal by design.
+  await page.mouse.move(grabX, grabY);
+  await page.mouse.down();
+  for (const offset of [12, 24, 36, 50]) {
+    await page.mouse.move(grabX, grabY + offset, { steps: 2 });
+    await page.waitForTimeout(60);
+  }
+  const pulled = await sheet.boundingBox();
+  expect(pulled.y).toBeGreaterThan(start.y + 20);
+  await page.mouse.up();
+  await expect(sheet).toBeVisible();
+  // The snap-back is a transition, so poll until it settles back at its resting
+  // place (sub-pixel overlay zoom rounding leaves a 1px tolerance).
+  await expect.poll(async () => Math.abs((await sheet.boundingBox()).y - start.y)).toBeLessThanOrEqual(1);
+
+  // A pull past the dismiss threshold slides the sheet off and closes it. The
+  // pull stays inside the viewport: a pointer moved below the fold stops
+  // producing moves, which would strand the sheet mid-gesture.
+  const again = await header.boundingBox();
+  const pullTo = Math.min(viewportHeight - 12, again.y + again.height / 2 + 160);
+  await page.mouse.move(grabX, again.y + again.height / 2);
+  await page.mouse.down();
+  await page.mouse.move(grabX, pullTo, { steps: 8 });
+  await page.mouse.up();
+  await expect(sheet).toBeHidden();
 });

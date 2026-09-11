@@ -17,7 +17,7 @@ import RichTextEditor from './RichTextEditor.jsx';
 import { Button, Dialog, PanelResizeHandle } from './ui.jsx';
 import { MobileModuleHeader, HeaderAction } from './MobileModuleHeader.jsx';
 import { useCompactLayout } from '../hooks/useCompactLayout.js';
-import { beginPanelResize } from '../utils/panelWidth.js';
+import { applyAgendaWidth, beginAgendaResize, beginPanelResize, readAgendaWidth } from '../utils/panelWidth.js';
 import './calendar.css';
 
 const DATE_LOCALE_OVERRIDES = { zhCN: 'zh-CN' };
@@ -64,19 +64,25 @@ export default function CalendarPage({ isActive = true }) {
   const surfaceRef = useRef(null);
   const railResizeRef = useRef(null);
   const agendaResizeRef = useRef(null);
-  // Both calendar side panels drag the same shared width the mail and contact
-  // lists use, so the workspace keeps one column width across every module.
+  // The rail carries the shared list width (Mail, Contacts, Calendar rail stay in
+  // step). The day agenda is a supplementary column and keeps its own persisted
+  // width, so resizing either one never disturbs the other.
   const handleRailResizeMouseDown = useCallback(event => {
     railResizeRef.current?.();
     railResizeRef.current = beginPanelResize(event, { edge: 'right' });
   }, []);
   const handleAgendaResizeMouseDown = useCallback(event => {
     agendaResizeRef.current?.();
-    agendaResizeRef.current = beginPanelResize(event, { edge: 'left' });
+    agendaResizeRef.current = beginAgendaResize(event, { edge: 'left' });
   }, []);
-  useEffect(() => () => {
-    railResizeRef.current?.();
-    agendaResizeRef.current?.();
+  // Publish the stored agenda width on mount so the first paint already uses the
+  // user's value instead of the stylesheet default.
+  useEffect(() => {
+    applyAgendaWidth(readAgendaWidth());
+    return () => {
+      railResizeRef.current?.();
+      agendaResizeRef.current?.();
+    };
   }, []);
   const [surfaceWidth, setSurfaceWidth] = useState(Infinity);
   const compact = compactViewport || surfaceWidth < 1100;

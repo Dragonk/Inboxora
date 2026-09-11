@@ -59,11 +59,14 @@ test('V3 desktop panel geometry and independent pane scrolling follow the mockup
   const sidebar = await page.getByTestId('calendar-sidebar').boundingBox();
   const surface = await page.getByTestId('calendar-page').boundingBox();
   const agenda = await page.locator('aside.calendar-agenda').boundingBox();
-  // The calendar rail and the day agenda both carry the shared panel width the
-  // mail and contact lists use, so all modules line up on one column width.
+  // The rail carries the shared list column (Mail/Contacts/Calendar stay in step)
+  // while the day agenda keeps its own independently persisted width.
   const sharedWidth = await page.evaluate(() => parseFloat(getComputedStyle(document.documentElement).getPropertyValue('--list-width')));
+  const agendaWidth = await page.evaluate(() => parseFloat(getComputedStyle(document.documentElement).getPropertyValue('--agenda-width')));
   expect(sharedWidth).toBeGreaterThan(0);
-  expect(sidebar.width).toBeCloseTo(sharedWidth, 0); expect(agenda.width).toBeCloseTo(sharedWidth, 0);
+  expect(agendaWidth).toBeGreaterThan(0);
+  expect(sidebar.width).toBeCloseTo(sharedWidth, 0);
+  expect(agenda.width).toBeCloseTo(agendaWidth, 0);
   expect(sidebar.y).toBe(surface.y); expect(sidebar.x).toBe(surface.x);
   expect(agenda.x + agenda.width).toBe(1440);
   const body = await page.locator('.calendar-body').boundingBox();

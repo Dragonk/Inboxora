@@ -48,7 +48,8 @@ button, input, textarea, select { font-family: inherit; }
 
 /* Bottom sheet used by the narrow-screen calendar panel and day agenda. Both
    render as the same full-width panel sliding up from the bottom, with the
-   dialog header providing the one and only close control. */
+   dialog header providing the one and only close control and acting as the
+   drag zone for the dismiss gesture. */
 .ui-overlay:has(> .ui-sheet) { align-items: end; justify-items: stretch; padding: 0; }
 .ui-dialog.ui-sheet {
   width: 100%; max-width: 100%; height: auto;
@@ -57,10 +58,15 @@ button, input, textarea, select { font-family: inherit; }
   padding-bottom: env(safe-area-inset-bottom, 0px);
   animation: sheet-enter var(--motion-normal) var(--ease-emphasized);
 }
-.ui-dialog.ui-sheet .ui-dialog-header { position: relative; padding-top: 18px; }
-.ui-dialog.ui-sheet .ui-dialog-header::before {
-  content: ''; position: absolute; top: 7px; left: 50%; transform: translateX(-50%);
-  width: 36px; height: 4px; border-radius: 999px; background: var(--border);
+/* The grabber is a real element (not a ::before) so the drag zone is testable and
+   the pointer handlers can attach directly to it. */
+.ui-dialog.ui-sheet .ui-dialog-header { position: relative; padding-top: 18px; cursor: grab; touch-action: none; }
+.ui-dialog.ui-sheet .ui-dialog-header:active { cursor: grabbing; }
+.ui-sheet-grabber {
+  position: absolute; top: 6px; left: 50%; transform: translateX(-50%);
+  width: 42px; height: 5px; border-radius: 999px; background: var(--border);
+  /* A wider invisible hit area than the visible pill. */
+  padding: 8px 22px; box-sizing: content-box; background-clip: content-box;
 }
 .ui-dialog.ui-sheet .ui-dialog-body { padding: 12px 16px 16px; }
 @media (prefers-reduced-motion: reduce) { .ui-dialog.ui-sheet { animation: none; } }
