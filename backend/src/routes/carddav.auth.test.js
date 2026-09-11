@@ -85,7 +85,7 @@ describe('CardDAV authentication', () => {
     expect(xml).toContain('/carddav/user-1/personal-contacts/');
     expect(xml).toContain('/carddav/user-1/work-contacts/');
     expect(query).toHaveBeenCalledWith(
-      'SELECT id, name, sync_token FROM address_books WHERE user_id = $1 ORDER BY created_at',
+      'SELECT id, name, sync_token, sync_version FROM address_books WHERE user_id = $1 ORDER BY created_at',
       ['user-1'],
     );
   });
@@ -309,4 +309,45 @@ it('enforces create-only and update-only CardDAV preconditions before modifying 
   const response = await fetch(`${base}/carddav/user-1/book-1/same.vcf`, { method: 'PUT', headers: { authorization: basic('sam@example.test','secret'), ...headers }, body: 'BEGIN:VCARD\r\nVERSION:3.0\r\nUID:same\r\nFN:Ada\r\nEND:VCARD' });
   expect(response.status).toBe(412); expect(query.mock.calls).toHaveLength(2);
  }
+});
+
+it('returns CardDAV deltas with deletion tombstones and a collection-scoped token', async () => {
+  authenticateDavCredential.mockResolvedValue({ userId: 'user-1' });
+  query.mockResolvedValueOnce({ rows: [{ id: 'book-1', sync_version: '7' }] })
+    .mockResolvedValueOnce({ rows: [{ dav_filename: 'removed.vcf', deleted: true }] });
+  const result = await fetch(`${base}/carddav/user-1/book-1/`, {
+    method: 'REPORT', headers: { authorization: basic('test', 'dav-password') },
+    body: '<D:sync-collection xmlns:D="DAV:"><D:sync-token>urn:inboxora:carddav:book-1:5</D:sync-token></D:sync-collection>',
+  });
+  expect(result.status).toBe(207);
+  const xml = await result.text();
+  expect(xml).toContain('<D:href>/carddav/user-1/book-1/removed.vcf</D:href><D:status>HTTP/1.1 404 Not Found</D:status>');
+  expect(xml).toContain('urn:inboxora:carddav:book-1:7');
+  expect(query.mock.calls[1][1]).toEqual(['book-1', 5, '7']);
+});
+
+it('rejects an old or foreign CardDAV token instead of silently missing deletions', async () => {
+  authenticateDavCredential.mockResolvedValue({ userId: 'user-1' });
+  query.mockResolvedValueOnce({ rows: [{ id: 'book-1', sync_version: 7 }] });
+  const result = await fetch(`${base}/carddav/user-1/book-1/`, {
+    method: 'REPORT', headers: { authorization: basic('test', 'dav-password') },
+    body: '<D:sync-collection xmlns:D="DAV:"><D:sync-token>legacy-random-token</D:sync-token></D:sync-collection>',
+  });
+  expect(result.status).toBe(409);
+  expect(await result.text()).toContain('valid-sync-token');
+  expect(query).toHaveBeenCalledTimes(1);
+});
+
+it('limits CardDAV multiget to requested filenames and reports missing resources', async () => {
+  authenticateDavCredential.mockResolvedValue({ userId: 'user-1' });
+  query.mockResolvedValueOnce({ rows: [{ id: 'book-1' }] }).mockResolvedValueOnce({ rows: [{ uid: 'embedded-uid', dav_filename: 'ada lovelace.vcf', etag: 'a', vcard: 'FN:Ada' }] });
+  const result = await fetch(`${base}/carddav/user-1/book-1/`, {
+    method: 'REPORT', headers: { authorization: basic('test', 'dav-password') },
+    body: '<C:addressbook-multiget xmlns:C="urn:ietf:params:xml:ns:carddav" xmlns:D="DAV:"><D:href>/carddav/user-1/book-1/ada%20lovelace.vcf</D:href><D:href>/carddav/user-1/book-1/missing.vcf</D:href></C:addressbook-multiget>',
+  });
+  expect(result.status).toBe(207);
+  expect(query.mock.calls[1][1]).toEqual(['book-1', ['ada lovelace.vcf', 'missing.vcf']]);
+  const xml = await result.text();
+  expect(xml).toContain('FN:Ada');
+  expect(xml).toContain('<D:href>/carddav/user-1/book-1/missing.vcf</D:href><D:status>HTTP/1.1 404 Not Found</D:status>');
 });

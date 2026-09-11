@@ -1,7 +1,7 @@
 import { Router } from 'express';
 import { query, withTransaction } from '../services/db.js';
 import { requireAuth } from '../middleware/auth.js';
-import { generateVCard, mergeVCard, normalizeContactDateLabel, parseVCard } from '../utils/vcard.js';
+import { generateVCard, mergeVCard, normalizeContactDateLabel, normalizeVCardDate, parseVCard } from '../utils/vcard.js';
 import { chooseDefined, normalizeRichContactFields } from '../utils/contactFields.js';
 import { safeFetch } from '../services/safeFetch.js';
 import { contactsToGoogleCsv, contactsToOutlookCsv, contactsToVCard, parseGoogleCsv } from '../utils/contactTransfer.js';
@@ -25,7 +25,7 @@ function normalizeContactDates(value) {
   for (const entry of value) {
     if (!entry || typeof entry !== 'object' || typeof entry.label !== 'string') return undefined;
     const label = normalizeContactDateLabel(entry.label);
-    const date = normalizeContactDate(entry.value);
+    const date = normalizeVCardDate(entry.value);
     if (!label || !date) return undefined;
     const key = `${label.toLocaleLowerCase()}\\u0000${date}`;
     if (!seen.has(key)) { seen.add(key); dates.push({ label, value: date }); }
@@ -48,6 +48,7 @@ function contactDatesWithLegacy(contactDates, birthday, anniversary, authoritati
 function legacyDatesFromContactDates(contactDates) {
   const values = { birthday: null, anniversary: null };
   for (const { label, value } of contactDates) {
+    if (value.startsWith('--')) continue;
     const field = label.toLocaleLowerCase();
     if (field === 'birthday' && values.birthday === null) values.birthday = value;
     if (field === 'anniversary' && values.anniversary === null) values.anniversary = value;
@@ -399,7 +400,7 @@ router.post('/', async (req, res) => {
   const normalizedBirthday = normalizeContactDate(birthday); const normalizedAnniversary = normalizeContactDate(anniversary);
   if (normalizedBirthday === undefined || normalizedAnniversary === undefined) return res.status(400).json({ error: 'Contact dates must use YYYY-MM-DD' });
   const normalizedContactDates = normalizeContactDates(contactDates ?? []);
-  if (normalizedContactDates === undefined) return res.status(400).json({ error: 'contactDates must be an array of safe labelled YYYY-MM-DD dates' });
+  if (normalizedContactDates === undefined) return res.status(400).json({ error: 'contactDates must be an array of safe labelled YYYY-MM-DD or --MM-DD dates' });
   const storedContactDates = contactDatesWithLegacy(
     normalizedContactDates, normalizedBirthday, normalizedAnniversary, contactDates !== undefined
   );
@@ -466,7 +467,7 @@ router.patch('/:id', async (req, res) => {
   if (phones !== undefined && !Array.isArray(phones)) return res.status(400).json({ error: 'phones must be an array' });
   const normalizedBirthday = normalizeContactDate(birthday); const normalizedAnniversary = normalizeContactDate(anniversary);
   if (normalizedBirthday === undefined || normalizedAnniversary === undefined) return res.status(400).json({ error: 'Contact dates must use YYYY-MM-DD' });
-  if (contactDates !== undefined && normalizeContactDates(contactDates) === undefined) return res.status(400).json({ error: 'contactDates must be an array of safe labelled YYYY-MM-DD dates' });
+  if (contactDates !== undefined && normalizeContactDates(contactDates) === undefined) return res.status(400).json({ error: 'contactDates must be an array of safe labelled YYYY-MM-DD or --MM-DD dates' });
 
   try {
     // Load current contact (with its book source to block edits to synced contacts)

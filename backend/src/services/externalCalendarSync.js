@@ -31,6 +31,7 @@ function calendarPayloads(raw) {
   const timeZoneBlocks = raw.match(new RegExp(`BEGIN:VTIMEZONE${lineBreak}[\\s\\S]*?END:VTIMEZONE`, 'gi')) || [];
   const context = timeZoneBlocks.length ? `${timeZoneBlocks.join('\r\n')}\r\n` : '';
   try { return calendarResources(raw); } catch {
+    if (!eventBlocks.length) throw new Error('Remote calendar contains an unsupported event');
     return eventBlocks.map((block) => `BEGIN:VCALENDAR\r\nVERSION:2.0\r\n${context}${block}\r\nEND:VCALENDAR\r\n`);
   }
 }
@@ -112,10 +113,10 @@ async function syncSource(source) {
       const uid = raw.match(/(?:^|\r\n|\n|\r)UID(?:;[^:]*)?:([^\r\n]*)/i)?.[1]?.trim() || `event-${index + 1}`;
       return { uid, reason: 'unsupported or malformed VEVENT' };
     });
-    // An empty or wholly unsupported response must never delete a healthy
-    // projection. In a mixed response, retain only the explicitly skipped
+    // A wholly unsupported response must never delete a healthy projection.
+    // A validated empty collection does remove its previous projection. In a mixed response, retain only the explicitly skipped
     // UIDs; other rows are known to be absent from the feed and are stale.
-    if (!events.length) throw new Error('Remote calendar contains an unsupported event');
+    if (!events.length && skipped.length) throw new Error('Remote calendar contains an unsupported event');
     const calendarId = await calendarFor(source, state);
     if (sourceDocument) {
       throwIfRemoved(state);

@@ -40,11 +40,11 @@ function contactDateEvents(contacts, from, to) {
       const label = typeof date.label === 'string' && date.label.trim() ? date.label.trim() : 'Other';
       if (date.value instanceof Date && Number.isNaN(date.value.getTime())) continue;
       const value = date.value instanceof Date ? date.value.toISOString().slice(0, 10) : typeof date.value === 'string' ? date.value.trim() : '';
-      if (!/^\d{4}-\d{2}-\d{2}$/.test(value)) continue;
+      if (!/^(?:\d{4}|-)-\d{2}-\d{2}$/.test(value)) continue;
       const key = `${label.toLocaleLowerCase()}\u0000${value}`;
       if (seen.has(key)) continue;
       seen.add(key);
-      const [, , month, day] = value.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+      const [, , month, day] = value.match(/^(\d{4}|-)-(\d{2})-(\d{2})$/);
       for (let year = from.getUTCFullYear(); year <= to.getUTCFullYear(); year++) {
         const startsAt = new Date(Date.UTC(year, Number(month) - 1, Number(day)));
         if (startsAt.getUTCMonth() !== Number(month) - 1 || startsAt.getUTCDate() !== Number(day) || startsAt < from || startsAt >= to) continue;

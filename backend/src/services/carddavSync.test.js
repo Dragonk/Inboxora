@@ -119,3 +119,10 @@ describe('remote CardDAV contact-date persistence', () => {
     expect(postConfigQueries[0][0]).toContain('UPDATE user_integrations SET config');
   });
 });
+
+it('releases the sync lock when loading connection policy fails', async () => {
+  query.mockReset(); configureSync();
+  getConnectionPolicy.mockRejectedValueOnce(new Error('Temporary policy failure'));
+  expect(await syncUser('policy-retry-user')).toMatchObject({ ok: false, error: 'Temporary policy failure' });
+  expect(await syncUser('policy-retry-user')).toMatchObject({ ok: true, contactCount: 2 });
+});

@@ -66,8 +66,14 @@ function isHttpUrl(value) {
   }
 }
 
-function normalizeDate(value) {
+export function normalizeVCardDate(value, allowPartial = true) {
+  if (typeof value !== 'string') return null;
   const date = unescapeValue(value).trim();
+  const partial = /^--(\d{2})-?(\d{2})$/.exec(date);
+  if (partial && allowPartial) {
+    const full = normalizeVCardDate(`2000-${partial[1]}-${partial[2]}`, false);
+    return full ? `--${partial[1]}-${partial[2]}` : null;
+  }
   const dashed = /^(\d{4})-(\d{2})-(\d{2})$/.exec(date);
   const compact = /^(\d{4})(\d{2})(\d{2})$/.exec(date);
   const parts = dashed || compact;
@@ -186,7 +192,7 @@ export function parseVCard(raw) {
   if (hasUnterminatedDateLabelParam(raw)) result.invalidDateLabels.push('unterminated parameter');
 
   const addContactDate = (label, value) => {
-    const normalized = normalizeDate(value);
+    const normalized = normalizeVCardDate(value);
     const cleanLabel = normalizeContactDateLabel(label);
     if (!cleanLabel) {
       result.invalidDateLabels.push(String(label || ''));
@@ -278,12 +284,12 @@ export function parseVCard(raw) {
         result.notes = unescapeValue(value).trim() || null;
         break;
       case 'BDAY': {
-        result.birthday = result.birthday || normalizeDate(value);
+        result.birthday = result.birthday || normalizeVCardDate(value, false);
         addContactDate(dateLabelFromParams(params, 'Birthday'), value);
         break;
       }
       case 'ANNIVERSARY': {
-        result.anniversary = result.anniversary || normalizeDate(value);
+        result.anniversary = result.anniversary || normalizeVCardDate(value, false);
         addContactDate(dateLabelFromParams(params, 'Anniversary'), value);
         break;
       }
@@ -293,7 +299,7 @@ export function parseVCard(raw) {
       case 'X-ANDROID-CUSTOM': {
         const parts = splitEscaped(value, ';').map(part => unescapeValue(part));
         if (parts[0] === 'vnd.android.cursor.item/contact_event') {
-          const dateFirst = normalizeDate(parts[1]);
+          const dateFirst = normalizeVCardDate(parts[1]);
           addContactDate(dateFirst ? parts[3] : parts[2], dateFirst ? parts[1] : parts[3]);
         }
         break;
@@ -412,7 +418,7 @@ export function generateVCard(contact) {
   if (Array.isArray(contactDates)) {
     const seenDates = new Set();
     for (const date of contactDates) {
-      const value = normalizeDate(date?.value);
+      const value = normalizeVCardDate(date?.value);
       const label = normalizeContactDateLabel(date?.label);
       if (!value || !label) continue;
       const key = `${label.toLocaleLowerCase()}\u0000${value}`;

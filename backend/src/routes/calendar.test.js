@@ -335,6 +335,17 @@ describe('local calendar API', () => {
     expect(events.map(event => event.summary)).toEqual(expect.arrayContaining(['Birthday: Ada', 'Wedding: Ada']));
   });
 
+  it('projects a birthday without a year on leap day without inventing a birth year', async () => {
+    query.mockResolvedValueOnce({ rows: [] }).mockResolvedValueOnce({ rows: [{
+      id: 'contact-1', display_name: 'Ada', birthday: null, contact_dates: [{ label: 'Birthday', value: '--02-29' }],
+    }] });
+    const response = await fetch(`${base}/api/calendar/events?from=2028-02-01T00:00:00.000Z&to=2028-03-01T00:00:00.000Z`);
+    expect(response.status).toBe(200);
+    const { events } = await response.json();
+    expect(events).toHaveLength(1);
+    expect(events[0]).toMatchObject({ contact_date_label: 'Birthday', starts_at: '2028-02-29T00:00:00.000Z' });
+  });
+
   it('keeps normalized-label collisions distinct and ignores malformed contact dates', async () => {
     query.mockResolvedValueOnce({ rows: [] }).mockResolvedValueOnce({ rows: [{
       id: 'contact-1', display_name: 'Ada', birthday: null, anniversary: null,

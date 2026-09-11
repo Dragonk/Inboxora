@@ -3,6 +3,7 @@ import { calendarZoneResolver, calendarDescription, parseCalendarEvent, parseICa
 
 export function calendarResources(raw) {
   const root = new ICAL.Component(ICAL.parse(raw));
+  if (root.name !== 'vcalendar' || !/^END:VCALENDAR\s*$/im.test(raw)) throw new Error('Invalid calendar document');
   const groups = new Map();
   for (const event of root.getAllSubcomponents('vevent')) {
     const uid = event.getFirstPropertyValue('uid');
@@ -50,7 +51,7 @@ export function projectCalendarResource(row, from, to) {
     result.push({ ...metadata,
       ...(recurring ? { id: `${row.id}@${recurrenceId}`, series_id: row.id, recurrence_id: recurrenceId, recurring: true } : {}),
       summary: component.getFirstPropertyValue('summary') ?? metadata.summary,
-      description: calendarDescription(component) ?? metadata.description,
+      description: calendarDescription(component) ?? calendarDescription(base) ?? metadata.description,
       location: component.getFirstPropertyValue('location') ?? metadata.location,
       url: component.getFirstPropertyValue('url') ?? metadata.url,
       organizer: String(component.getFirstPropertyValue('organizer') || metadata.organizer || '').replace(/^mailto:/i, '') || null,

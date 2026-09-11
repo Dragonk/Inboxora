@@ -182,11 +182,9 @@ export async function syncUser(userId) {
   if (!config?.serverUrl) return { ok: false, error: 'not connected' };
   if (syncing.has(userId)) return { ok: false, error: 'A sync is already in progress' };
   syncing.add(userId);
-  const policy = await getConnectionPolicy();
-  const allowPrivate = policy.allowPrivateHosts;
-  const creds = { username: config.username, password: decrypt(config.password), allowPrivate };
-
   try {
+    const policy = await getConnectionPolicy();
+    const creds = { username: config.username, password: decrypt(config.password), allowPrivate: policy.allowPrivateHosts };
     const books = await discoverAddressBooks({ serverUrl: config.serverUrl, ...creds });
     let contactCount = 0;
     const seenUrls = [];

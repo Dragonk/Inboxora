@@ -205,3 +205,12 @@ it('preserves structured escapes, literal backslashes and the preferred address 
  const v4 = raw.replace('TYPE=WORK,PREF', 'TYPE=WORK;PREF=1');
  expect(parseVCard(v4).emails[1].primary).toBe(true);
 });
+
+it('round trips birthdays without a year without inventing a birth year', () => {
+  const parsed = parseVCard('BEGIN:VCARD\r\nVERSION:4.0\r\nFN:Ada\r\nBDAY:--0229\r\nEND:VCARD\r\n');
+  expect(parsed.birthday).toBeNull();
+  expect(parsed.invalidDates).toEqual([]);
+  expect(parsed.contactDates).toEqual([{ label: 'Birthday', value: '--02-29' }]);
+  expect(parseVCard(generateVCard(parsed)).contactDates).toEqual(parsed.contactDates);
+  expect(parseVCard('BEGIN:VCARD\r\nBDAY:--0230\r\nEND:VCARD').invalidDates).toEqual(['--0230']);
+});

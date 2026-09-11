@@ -1,5 +1,5 @@
 import MobileFloatingAction from './MobileFloatingAction.jsx';
-import { contactDateLabel } from '../utils/contactDateLabels.js';
+import { contactDateLabel, formatContactDate } from '../utils/contactDateLabels.js';
 import { useBackLayer } from '../hooks/useBackNavigation.js';
 import { intlLocale } from '../utils/intlLocale.js';
 import { useState, useEffect, useRef, useCallback } from 'react';
@@ -814,7 +814,7 @@ function ContactDetail({ contact: c, confirmDelete, saving, error, onEdit, onDel
           )}
           {(contactDates.length > 0) && (
             <DetailSection label={t('contacts.fields.dates')}>
-              {contactDates.map((date, i) => <DetailRow key={`date-${i}`} icon={fieldIcon.calendar} type={contactDateLabel(date.label, t)}>{new Date(`${String(date.value).slice(0, 10)}T00:00:00`).toLocaleDateString(intlLocale(i18n.resolvedLanguage || i18n.language))}</DetailRow>)}
+              {contactDates.map((date, i) => <DetailRow key={`date-${i}`} icon={fieldIcon.calendar} type={contactDateLabel(date.label, t)}>{formatContactDate(date.value, intlLocale(i18n.resolvedLanguage || i18n.language))}</DetailRow>)}
             </DetailSection>
           )}
           {(c.categories?.length > 0) && (
@@ -919,7 +919,7 @@ function ContactForm({
               <option value="custom">{t('contacts.fields.customDate')}</option>
             </select>
             {preset === 'custom' && <input style={inputStyle} value={date.label} placeholder={t('contacts.fields.customDate')} onChange={event => onSetCollection('contactDates', index, 'label', event.target.value)} />}
-            <input type="date" style={inputStyle} value={date.value} onChange={event => onSetCollection('contactDates', index, 'value', event.target.value)} />
+            <input type={date.value.startsWith('--') ? 'text' : 'date'} pattern={date.value.startsWith('--') ? '--[0-9]{2}-[0-9]{2}' : undefined} style={inputStyle} value={date.value} onChange={event => onSetCollection('contactDates', index, 'value', event.target.value)} />
             <ContactDangerButton onClick={() => onRemoveCollection('contactDates', index)} aria-label={`${t('common.delete')} ${t('contacts.fields.dates')} ${index + 1}`}>{t('common.delete')}</ContactDangerButton>
           </div>;
         })}

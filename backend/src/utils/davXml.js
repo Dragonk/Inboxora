@@ -2,10 +2,10 @@ import { XMLValidator } from 'fast-xml-parser';
 
 // A failed/truncated REPORT is not evidence that resources were deleted.
 export function requireCompleteMultistatus(raw, parsed) {
-  if (XMLValidator.validate(raw) !== true || !parsed?.multistatus || typeof parsed.multistatus !== 'object') {
+  if (XMLValidator.validate(raw) !== true || !Object.hasOwn(parsed || {}, 'multistatus') || (parsed.multistatus !== '' && typeof parsed.multistatus !== 'object')) {
     throw new Error('DAV server returned an invalid multistatus response');
   }
-  const responses = parsed.multistatus.response;
+  const responses = parsed.multistatus?.response;
   for (const response of Array.isArray(responses) ? responses : responses ? [responses] : []) {
     const statuses = [response.status, ...(Array.isArray(response.propstat) ? response.propstat : response.propstat ? [response.propstat] : []).map(item => item.status)];
     if (statuses.some(status => /\b(?:403|5\d\d)\b/.test(typeof status === 'string' ? status : status?.['#text'] || ''))) {

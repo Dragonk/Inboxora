@@ -128,6 +128,21 @@ describe('Contact REST PATCH legacy date synchronization', () => {
     expect(update[1][18]).not.toContain('1991-01-02');
   });
 
+  it('preserves a yearless birthday through REST editing without writing a fake SQL date', async () => {
+    const dates = [{ label: 'Birthday', value: '--02-29' }];
+    arrangeQuery(dates, { ...updatedContact, birthday: null, contactDates: dates });
+    const server = createApp().listen(0);
+    const response = await fetch(`http://127.0.0.1:${server.address().port}/api/contacts/contact-1`, {
+      method: 'PATCH', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ contactDates: dates }),
+    });
+    await new Promise(resolve => server.close(resolve));
+    expect(response.status).toBe(200);
+    const update = query.mock.calls.find(([sql]) => sql.includes('UPDATE contacts SET'));
+    expect(update[1][8]).toBeNull();
+    expect(JSON.parse(update[1][10])).toEqual(dates);
+    expect(update[1][18]).toContain('BDAY;TYPE=Birthday:--02-29');
+  });
+
   it('clears the legacy anniversary when authoritative contactDates omits it', async () => {
     arrangeQuery([
       { label: 'Anniversary', value: '2021-05-06' },
@@ -163,7 +178,7 @@ describe('Contact REST labelled date validation', () => {
     await new Promise(resolve => server.close(resolve));
 
     expect(response.status).toBe(400);
-    expect(await response.json()).toEqual({ error: 'contactDates must be an array of safe labelled YYYY-MM-DD dates' });
+    expect(await response.json()).toEqual({ error: 'contactDates must be an array of safe labelled YYYY-MM-DD or --MM-DD dates' });
     expect(query).toHaveBeenCalledTimes(1);
     expect(query.mock.calls[0][0]).toContain('SELECT id FROM users');
   });
@@ -181,7 +196,7 @@ describe('Contact REST labelled date validation', () => {
     await new Promise(resolve => server.close(resolve));
 
     expect(response.status).toBe(400);
-    expect(await response.json()).toEqual({ error: 'contactDates must be an array of safe labelled YYYY-MM-DD dates' });
+    expect(await response.json()).toEqual({ error: 'contactDates must be an array of safe labelled YYYY-MM-DD or --MM-DD dates' });
     expect(query).toHaveBeenCalledTimes(1);
     expect(query.mock.calls[0][0]).toContain('SELECT id FROM users');
   });

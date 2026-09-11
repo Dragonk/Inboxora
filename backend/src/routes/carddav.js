@@ -64,6 +64,7 @@ router.use((req, _res, next) => {
 
 const DAV_NS     = 'DAV:';
 const CARD_NS    = 'urn:ietf:params:xml:ns:carddav';
+const syncToken = book => `urn:inboxora:carddav:${book.id}:${book.sync_version || 0}`;
 const CDAV_NS    = 'http://calendarserver.org/ns/';
 
 function xmlHeader() {
@@ -161,7 +162,7 @@ router.propfind('/:userId/', async (req, res) => {
   if (req.params.userId !== userId) return res.status(403).end();
 
   const principalPath  = `/carddav/${userId}/`;
-  const r = await query('SELECT id, name, sync_token FROM address_books WHERE user_id = $1 ORDER BY created_at', [userId]);
+  const r = await query('SELECT id, name, sync_token, sync_version FROM address_books WHERE user_id = $1 ORDER BY created_at', [userId]);
   const principal = response(principalPath, [
     propstat([
       '<D:resourcetype><D:principal/><D:collection/></D:resourcetype>',
@@ -175,7 +176,7 @@ router.propfind('/:userId/', async (req, res) => {
     propstat([
       '<D:resourcetype><D:collection/><C:addressbook/></D:resourcetype>',
       `<D:displayname>${xmlEscape(book.name)}</D:displayname>`,
-      `<D:sync-token>${xmlEscape(book.sync_token)}</D:sync-token>`,
+      `<D:sync-token>${xmlEscape(syncToken(book))}</D:sync-token>`,
       `<CS:getctag>${xmlEscape(book.sync_token)}</CS:getctag>`,
     ], '200 OK'),
   ]));
@@ -206,7 +207,7 @@ router.propfind('/:userId/:bookId/', async (req, res) => {
     propstat([
       `<D:resourcetype><D:collection/><C:addressbook/></D:resourcetype>`,
       `<D:displayname>${xmlEscape(book.name)}</D:displayname>`,
-      `<D:sync-token>${xmlEscape(book.sync_token)}</D:sync-token>`,
+      `<D:sync-token>${xmlEscape(syncToken(book))}</D:sync-token>`,
       `<CS:getctag>${xmlEscape(book.sync_token)}</CS:getctag>`,
     ], '200 OK'),
   ]);
@@ -251,14 +252,34 @@ router.report('/:userId/:bookId/', async (req, res) => {
   const body = await rawBody(req);
   const isSyncCollection = body.includes('sync-collection');
 
-  // Fetch all contacts with their vCard data.
-  const contacts = await query(
-    'SELECT uid, dav_filename, vcard, etag FROM contacts WHERE address_book_id = $1',
-    [book.id]
-  );
+  const isMultiget = body.includes('addressbook-multiget');
+  if (!isSyncCollection && !isMultiget && !body.includes('addressbook-query')) return res.status(400).end();
+  let contacts;
+  let filenames = [];
+  if (isSyncCollection) {
+    const token = body.match(/<(?:[\w.-]+:)?sync-token(?:\s[^>]*)?>([^<]*)<\/(?:[\w.-]+:)?sync-token>/)?.[1]?.trim();
+    const prefix = `urn:inboxora:carddav:${book.id}:`;
+    const version = token?.startsWith(prefix) && /^\d+$/.test(token.slice(prefix.length)) ? Number(token.slice(prefix.length)) : NaN;
+    if (token && (!Number.isSafeInteger(version) || version > Number(book.sync_version || 0))) {
+      return sendXml(res, 409, `${xmlHeader()}<D:error xmlns:D="${DAV_NS}"><D:valid-sync-token/></D:error>`);
+    }
+    if (token) contacts = await query(
+      `SELECT DISTINCT ON (filename) filename AS dav_filename, etag, vcard, deleted
+       FROM contact_sync_changes WHERE address_book_id = $1 AND version > $2 AND version <= $3
+       ORDER BY filename, version DESC`, [book.id, version, book.sync_version || 0]);
+  } else if (isMultiget) {
+    try {
+      filenames = [...new Set([...body.matchAll(/<(?:[\w.-]+:)?href(?:\s[^>]*)?>([^<]+)<\/(?:[\w.-]+:)?href>/g)]
+        .map(match => decodeURIComponent(match[1].trim().replace(/^.*\//, ''))))];
+    } catch { return res.status(400).end(); }
+    if (!filenames.length) return res.status(400).end();
+    contacts = await query("SELECT uid, dav_filename, vcard, etag FROM contacts WHERE address_book_id = $1 AND COALESCE(dav_filename, uid || '.vcf') = ANY($2)", [book.id, filenames]);
+  }
+  if (!contacts) contacts = await query('SELECT uid, dav_filename, vcard, etag FROM contacts WHERE address_book_id = $1', [book.id]);
 
   const cardResponses = contacts.rows.map(c => {
     const href = `${bookPath}${encodeURIComponent(c.dav_filename || `${c.uid}.vcf`)}`;
+    if (c.deleted) return response(href, ['<D:status>HTTP/1.1 404 Not Found</D:status>']);
     return response(href, [
       propstat([
         '<D:resourcetype/>',
@@ -269,12 +290,16 @@ router.report('/:userId/:bookId/', async (req, res) => {
     ]);
   });
 
+  const returned = new Set(contacts.rows.map(c => c.dav_filename || `${c.uid}.vcf`));
+  for (const filename of filenames.filter(name => !returned.has(name))) {
+    cardResponses.push(response(`${bookPath}${encodeURIComponent(filename)}`, ['<D:status>HTTP/1.1 404 Not Found</D:status>']));
+  }
   if (isSyncCollection) {
     const xml = [
       xmlHeader(),
       `<D:multistatus xmlns:D="${DAV_NS}" xmlns:C="${CARD_NS}">`,
       ...cardResponses,
-      `<D:sync-token>${xmlEscape(book.sync_token)}</D:sync-token>`,
+      `<D:sync-token>${xmlEscape(syncToken(book))}</D:sync-token>`,
       '</D:multistatus>',
     ].join('');
     return sendXml(res, 207, xml);

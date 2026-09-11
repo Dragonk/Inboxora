@@ -26,3 +26,9 @@ for (const language of ['en', 'pl', 'de', 'fr', 'es', 'it', 'cs', 'ru', 'zhCN'])
     assert.ok(localizeContactEvent({ ...base, contact_name: undefined }, t).summary.includes(translation.contacts.fields.birthday));
   });
 }
+
+it('formats a birthday without a year in the selected language', async () => {
+  const { formatContactDate } = await import('./contactDateLabels.js');
+  assert.equal(formatContactDate('--02-29', 'pl-PL'), '29 lutego');
+  assert.equal(formatContactDate('--02-29', 'en-US'), 'February 29');
+});

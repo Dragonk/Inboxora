@@ -195,3 +195,19 @@ it('persists the full visible metadata on external synchronization', async () =>
     expect(query.mock.calls.slice(2).some(([sql]) => /INSERT|UPDATE|DELETE/i.test(sql))).toBe(false);
   });
 });
+
+it.each(['ical_url', 'caldav'])('removes the previous projection for a validated empty %s collection', async kind => {
+  query.mockReset(); query.mockResolvedValue({ rows: [] }).mockResolvedValueOnce({ rows: [{ ...source, id: `empty-${kind}`, kind }] }).mockResolvedValueOnce({ rows: [{ id: 'calendar-1' }] });
+  getConnectionPolicy.mockResolvedValue({ allowPrivateHosts: false });
+  safeFetch.mockResolvedValue({ ok: true, text: async () => kind === 'caldav' ? '<D:multistatus xmlns:D="DAV:"/>' : 'BEGIN:VCALENDAR\r\nVERSION:2.0\r\nEND:VCALENDAR\r\n' });
+  expect(await syncCalendarSource('user-1', `empty-${kind}`)).toEqual({ ok: true, eventCount: 0 });
+  expect(query.mock.calls.find(([sql]) => sql.includes('DELETE FROM calendar_events'))[1]).toEqual(['calendar-1', ['']]);
+});
+
+it('does not treat an HTML error page as an empty calendar', async () => {
+  query.mockReset(); query.mockResolvedValue({ rows: [] }).mockResolvedValueOnce({ rows: [{ ...source, id: 'html-source' }] });
+  getConnectionPolicy.mockResolvedValue({ allowPrivateHosts: false });
+  safeFetch.mockResolvedValue({ ok: true, text: async () => '<html>Service unavailable</html>' });
+  expect(await syncCalendarSource('user-1', 'html-source')).toMatchObject({ ok: false });
+  expect(query.mock.calls.some(([sql]) => sql.includes('DELETE FROM calendar_events'))).toBe(false);
+});

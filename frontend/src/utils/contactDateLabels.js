@@ -28,3 +28,12 @@ export function localizeContactEvent(event, t) {
     calendar_name: event.calendar_custom_name ? event.calendar_name : t('calendar.contactDates'),
   };
 }
+
+// vCard permits birthdays without a year; use a leap year only for formatting.
+export function formatContactDate(value, locale) {
+  const date = String(value || '').slice(0, 10);
+  const partial = /^--\d{2}-\d{2}$/.test(date);
+  const parsed = new Date(`${partial ? `2000-${date.slice(2)}` : date}T00:00:00`);
+  if (Number.isNaN(parsed.getTime())) return date;
+  return parsed.toLocaleDateString(locale, partial ? { month: 'long', day: 'numeric' } : undefined);
+}
