@@ -128,6 +128,45 @@ test('a drag applies the new width even without an onResize observer', t => {
   stopAgenda();
 });
 
+// Regression guard for the same optional-call trap, one level deeper: persistence
+// used to run only as the argument of `onEnd?.(persist(...))`. No caller passes
+// onEnd, so the width was applied while dragging and never written, and every
+// reload snapped back to the default.
+test('finishing a drag persists the width even though no caller passes onEnd', t => {
+  t.after(restoreDom);
+  const { storage } = stubDom({ variable: '360px' });
+
+  const stop = beginPanelResize({ preventDefault() {}, clientX: 600 }, { edge: 'right' });
+  dragListeners.mousemove[0]({ clientX: 660 });
+  assert.equal(storage.get(PANEL_WIDTH_STORAGE_KEY), undefined, 'nothing is persisted mid-drag');
+  dragListeners.mouseup.forEach(handler => handler({}));
+  assert.equal(storage.get(PANEL_WIDTH_STORAGE_KEY), '420');
+  assert.equal(savedPanelWidth(), 420);
+  stop();
+
+  // The agenda channel persists through the same path.
+  const agendaStorage = stubDom().storage;
+  const stopAgenda = beginAgendaResize({ preventDefault() {}, clientX: 900 }, { edge: 'left' });
+  dragListeners.mousemove.at(-1)({ clientX: 840 });
+  dragListeners.mouseup.forEach(handler => handler({}));
+  assert.equal(agendaStorage.get(AGENDA_WIDTH_STORAGE_KEY), String(AGENDA_WIDTH_DEFAULT + 60));
+  stopAgenda();
+});
+
+// A drag that is never released must not stack listeners: the next drag would then
+// move the width twice per pixel.
+test('mouseup releases the drag listeners', t => {
+  t.after(restoreDom);
+  stubDom({ variable: '360px' });
+  const stop = beginPanelResize({ preventDefault() {}, clientX: 600 }, { edge: 'right' });
+  assert.equal(dragListeners.mousemove.length, 1);
+  assert.equal(dragListeners.mouseup.length, 1);
+  dragListeners.mouseup.forEach(handler => handler({}));
+  assert.equal(dragListeners.mousemove.length, 0);
+  assert.equal(dragListeners.mouseup.length, 0);
+  stop();
+});
+
 test('the stacked layout preset still defines the shared panel width', t => {
   t.after(restoreDom);
   const { properties } = stubDom();

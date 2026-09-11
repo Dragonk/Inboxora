@@ -93,7 +93,12 @@ function createWidthChannel({ variable, storageKey, fallback, min = PANEL_WIDTH_
       document.body.style.userSelect = previousUserSelect;
       document.removeEventListener('mousemove', onMouseMove);
       document.removeEventListener('mouseup', onMouseUp);
-      onEnd?.(persist(read()));
+      // Persist BEFORE notifying. `onEnd?.(persist(...))` would short-circuit the
+      // whole argument list when no listener is registered — which is the case for
+      // every caller — so the width was applied but never written to storage, and
+      // every reload snapped back to the default.
+      const width = persist(read());
+      onEnd?.(width);
     };
 
     document.addEventListener('mousemove', onMouseMove);
