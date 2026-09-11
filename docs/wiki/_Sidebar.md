@@ -1,0 +1,16 @@
+- [Home](Home.md)
+- [Installation](Installation.md)
+- [Getting started](Getting-started.md)
+- **Email**
+  - [Email and threading](Email-and-threading.md)
+  - [Configuration](Configuration.md)
+- **Workspace**
+  - [Calendar](Calendar.md)
+  - [Contacts and DAV](Contacts-and-DAV.md)
+  - [External calendars](External-calendars.md)
+- **Operations**
+  - [Security](Security.md)
+  - [Upgrading](Upgrading.md)
+  - [Troubleshooting](Troubleshooting.md)
+  - [Development](Development.md)
+- [Release notes 4.0.0](Release-notes-4.0.0.md)

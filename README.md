@@ -1,22 +1,273 @@
 <p align="center"><img src="media/inboxora-logo.png" width="200" alt="Inboxora logo"></p>
 
-# Inboxora
+<h1 align="center">Inboxora</h1>
 
-Self-hosted unified inbox for email, contacts and calendars.
+<p align="center">Self-hosted unified inbox for email, contacts and calendars.</p>
 
-> **Thanks to [maathimself](https://github.com/maathimself), creator of [MailFlow](https://github.com/maathimself/mailflow).** Inboxora is an independently developed AGPL-3.0-only fork with distinct product goals; required upstream notices remain preserved.
+<p align="center">
+  <a href="https://github.com/Dragonk/Inboxora/actions/workflows/ci.yml"><img src="https://github.com/Dragonk/Inboxora/actions/workflows/ci.yml/badge.svg?branch=dev" alt="CI"></a>
+  <a href="LICENSE"><img src="https://img.shields.io/badge/license-AGPL--3.0--only-blue" alt="License: AGPL-3.0-only"></a>
+  <img src="https://img.shields.io/badge/version-4.0.0-informational" alt="Version 4.0.0">
+</p>
 
-## Start here
+Inboxora brings mail, contacts and calendars into one self-hosted application. It speaks
+standard protocols — IMAP, SMTP, CardDAV, CalDAV — so your data stays on your server and
+your existing devices keep working.
 
-- **Images:** `ghcr.io/dragonk/inboxora-backend:dev` and `ghcr.io/dragonk/inboxora-frontend:dev` are development candidates; use a tagged release for stable deployments.
-- **Quick start:** copy `docker-compose.ghcr.yml` and `.env.example`, set the required secrets, then run `docker compose up -d` behind your configured reverse proxy.
-- **Development:** `npm test`, `npm run lint`, and `npm run build` in `frontend/` and `backend/`; browser coverage uses Playwright.
-- **Support:** [Issues](https://github.com/Dragonk/Inboxora/issues) · [Contributing](CONTRIBUTING.md) · [Roadmap](ROADMAP.md)
+This release is a large step beyond the upstream MailFlow fork it started from: Inboxora
+adds a real conversation engine for email threading, a full calendar with invitations,
+first-party contacts with CardDAV/CalDAV access, and a rebuilt interface. See
+[What's new in 4.0](#whats-new-in-40) for the full picture.
+
+<p align="center">
+  <img src="media/screenshots/mail-list-desktop.png" width="820" alt="Inboxora mail list with unified inbox, folders and the reading pane">
+</p>
+
+## Highlights
+
+- **Email with real threading.** Gmail, Outlook/Microsoft 365 and generic IMAP accounts feed a
+  server-side conversation engine: a message and its replies become one logical conversation,
+  with physical copies tracked per folder and per account. Expand a thread inline in the list,
+  or read the whole conversation in the reading pane with per-message actions.
+- **Calendar that works with your mail.** Local writable calendars with month, week, work-week
+  and agenda views, recurring events with time-zone-aware expansion, event descriptions rendered
+  like message bodies, invitations sent by email with retry, and invitations received by mail
+  added to a calendar in one click.
+- **Contacts with real interoperability.** Rich vCard fields, Google CSV import, Google CSV /
+  Outlook CSV / vCard export, and read-only CardDAV address books.
+- **CalDAV and CardDAV access through application passwords.** Dedicated, revocable app
+  passwords — never your login password — so DAVx5, Thunderbird and iOS/Android clients sync
+  contacts and calendars even on accounts protected by TOTP or SSO.
+- **A rebuilt interface for desktop and phone.** Ink theme, self-hosted fonts, resizable panels,
+  drawer navigation, safe-area-aware mobile layout and system Back handling.
+
+## Screenshots
+
+Captured from the running application on desktop (1440×900) and phone (390×844). The complete
+set lives in [`media/screenshots/`](media/screenshots/).
+
+### Email
+
+| Conversation reader | Threaded list |
+| --- | --- |
+| ![Conversation reader](media/screenshots/mail-conversation-desktop.png) | ![Threaded list](media/screenshots/mail-threaded-list-desktop.png) |
+
+| Mail on desktop | Mail on phone |
+| --- | --- |
+| ![Mail list](media/screenshots/mail-list-desktop.png) | <img src="media/screenshots/mail-list-mobile.png" width="260" alt="Mail list on a phone"> |
+
+| Composer | Composer on phone |
+| --- | --- |
+| ![Composer](media/screenshots/mail-composer-desktop.png) | <img src="media/screenshots/mail-composer-mobile.png" width="260" alt="Composer on a phone"> |
+
+### Calendar
+
+| Month | Week |
+| --- | --- |
+| ![Calendar month view](media/screenshots/calendar-month-desktop.png) | ![Calendar week view](media/screenshots/calendar-week-desktop.png) |
+
+| Agenda | Calendar on phone |
+| --- | --- |
+| ![Calendar agenda view](media/screenshots/calendar-agenda-desktop.png) | <img src="media/screenshots/calendar-month-mobile.png" width="260" alt="Calendar on a phone"> |
+
+### Contacts
+
+| Contact details | Rich contact editor |
+| --- | --- |
+| ![Contact details](media/screenshots/contacts-desktop.png) | ![Contact editor](media/screenshots/contact-editor-desktop.png) |
+
+### Settings and DAV access
+
+| DAV application passwords | On phone |
+| --- | --- |
+| ![DAV access settings](media/screenshots/settings-dav-access-desktop.png) | <img src="media/screenshots/settings-dav-access-mobile.png" width="260" alt="DAV access settings on a phone"> |
+
+## What's new in 4.0
+
+4.0.0 is a major version because Inboxora is no longer only a mail client. Everything below
+is new or rebuilt relative to the upstream MailFlow fork; the area-by-area changelog is in
+[`docs/CHANGELOG.md`](docs/CHANGELOG.md), and the exhaustive per-change comparison against
+upstream is published with the release tag.
+
+- **Conversation engine.** Server-side threading with logical messages, per-folder physical
+  copies, provider thread mapping (Gmail `X-GM-THRID`, Outlook `Thread-Index`, generic IMAP),
+  manual merge/split/lock overrides, threading diagnostics and a dry-run rebuild.
+- **Two independent threading views.** A threaded message list and a whole-conversation reader,
+  each switchable on its own.
+- **Calendar.** Local calendars, four views, recurrence with exceptions, event editing, email
+  invitations with delivery retry, incoming invitation cards, read-only CalDAV/ICS sources and
+  a generated Contact dates calendar.
+- **Contacts and DAV.** First-party address books with rich vCard fields, CSV/vCard import and
+  export, CardDAV server and client, CalDAV server, and revocable DAV application passwords.
+- **Interface.** The Ink-based layout with resizable panels, per-module navigation, a rebuilt
+  mobile shell, and self-hosted typography.
+- **Platform reach.** Installable PWA with an unread badge and Web Push. Electron desktop and
+  Android/Capacitor shells exist and are being stabilised; they are not release-ready yet.
+
+## Quick start
+
+Docker Compose with pre-built images is the recommended deployment.
+
+```bash
+mkdir inboxora && cd inboxora
+curl -o docker-compose.yml https://raw.githubusercontent.com/Dragonk/Inboxora/main/docker-compose.ghcr.yml
+curl -o .env https://raw.githubusercontent.com/Dragonk/Inboxora/main/.env.example
+# edit .env: APP_URL, SESSION_SECRET, DB_PASSWORD, ENCRYPTION_KEY
+docker compose up -d
+```
+
+Then open `APP_URL` and create the first account. The forms need three secrets, each generated
+with `openssl rand -hex 32` (or `-hex 16` for `DB_PASSWORD`):
+
+| Variable | Purpose |
+| --- | --- |
+| `APP_URL` | The public URL users open; used for invitation links, OAuth callbacks and cookies. |
+| `SESSION_SECRET` | Signs session cookies. |
+| `DB_PASSWORD` | Password for the bundled PostgreSQL. |
+| `ENCRYPTION_KEY` | Encrypts stored mail and DAV credentials at rest. **Losing it makes saved credentials unreadable.** |
+
+Optional: `VAPID_PUBLIC_KEY` / `VAPID_PRIVATE_KEY` / `VAPID_SUBJECT` for Web Push, and
+`DOMAIN` / `ACME_EMAIL` when Inboxora terminates TLS itself. See the
+[Installation](https://github.com/Dragonk/Inboxora/wiki/Installation) wiki page for the full
+matrix, including running behind an existing reverse proxy.
+
+## Connecting your accounts
+
+- **IMAP/SMTP** — any provider, with Gmail, Yahoo, iCloud and custom presets.
+- **Gmail** — connect with a Google **app password**; Inboxora uses IMAP/SMTP with it.
+- **Microsoft 365 / Outlook.com** — OAuth2 (authorization code or device code). An administrator
+  registers one Azure application under **Settings → Integrations**.
+- **Contacts and calendars on your devices** — generate an application password under
+  **Settings → DAV access** and point DAVx5, Thunderbird or a native client at your Inboxora URL.
+  Use your Inboxora username with that app password; login passwords and TOTP codes are never
+  used for DAV.
+
+## Feature tour
+
+<details>
+<summary><strong>Email</strong></summary>
+
+- Multiple IMAP/SMTP accounts with per-account colours, sender names, aliases (send-as with
+  Reply-To and per-alias signatures) and signatures.
+- Unified inbox across chosen accounts, per-folder and per-account unread counts, and unified
+  search across every included account.
+- Native conversation threading plus a server-side conversation engine, with a threaded list
+  and a whole-conversation reader as independent preferences.
+- Rich or plain-text composing, reply/reply-all/forward with correct `In-Reply-To` and
+  `References`, attachments and inline images, drafts saved to the IMAP Drafts folder, and
+  idempotent sending that never delivers twice on a retry.
+- Rules and a block list, manual spam/ham handling, one-click `List-Unsubscribe`, snooze,
+  archive, move, star and bulk actions with undo.
+- Full-text search with operators such as `from:`, `to:`, `subject:`, `has:attachment`,
+  `is:unread`, `after:` and `before:`.
+- Sandboxed HTML rendering with remote images blocked by default, an allow-list per address or
+  domain, a raw-headers viewer and in-message find.
+- Live updates over IMAP IDLE and a WebSocket event stream, plus optional Web Push.
+- Command palette, rebindable keyboard shortcuts, and optional AI summarisation/compose help.
+
+</details>
+
+<details>
+<summary><strong>Calendar</strong></summary>
+
+- Month, week, work-week and agenda views with a day agenda that follows calendar visibility.
+- Local writable calendars plus read-only calendars from CalDAV and ICS/webcal sources.
+- Recurring events (`RRULE`, `RDATE`, `RECURRENCE-ID`, `EXDATE`) projected server-side with
+  per-event time zones; editing a single occurrence preserves the series.
+- Event descriptions edited as rich text and rendered through the same sanitised pipeline as
+  message bodies.
+- Invitations sent as an ICS email from a chosen SMTP account, with `SEQUENCE` handling,
+  cancellation on attendee removal, and a retry action when delivery fails.
+- Invitations received by mail surface as a card in the reader with **Add to calendar**; the
+  local copy never sends an RSVP and is updated by UID and organizer.
+- A generated **Contact dates** calendar turns contact birthdays and anniversaries into all-day
+  yearly events, including dates stored without a year.
+- Anonymous read-only `.ics` feed links that can be rotated or revoked.
+
+</details>
+
+<details>
+<summary><strong>Contacts and DAV</strong></summary>
+
+- Multiple local address books plus read-only CardDAV books, with visibility filters and search
+  that survives switching books.
+- Rich vCard fields: names, nickname, typed emails and phones, organisation, job title, role,
+  URLs, instant messages, structured addresses, categories, notes, photos and multiple
+  labelled dates.
+- Google CSV import into local books, and Google CSV, Outlook CSV and vCard 3.0 export.
+- CardDAV and CalDAV servers with `.well-known` discovery, ETag/If-Match conflict detection,
+  sync tokens with tombstones and client-chosen resource filenames.
+- Revocable application passwords for DAV clients, listed with creation and last-use times.
+- A CardDAV client that pulls a remote server (for example Nextcloud) into read-only local books.
+
+</details>
+
+<details>
+<summary><strong>Interface, mobile and platform</strong></summary>
+
+- Desktop layout with independently resizable panels, shared list width across Mail, Contacts
+  and Calendar, and a compact layout below 1100 layout pixels.
+- Mobile shell below 767 px with a top bar, navigation drawer, floating action buttons,
+  safe-area insets and system Back handling that closes in-app layers before leaving the PWA.
+- Nine interface languages: English, German, French, Spanish, Italian, Russian, Chinese
+  (Simplified), Polish and Czech.
+- ~24 themes, multiple font pairings, a font-size scale from 80 % to 130 %, five reader layouts
+  and configurable swipe actions.
+- Installable PWA with an unread badge and push notifications; Electron desktop and
+  Android/Capacitor shells are present and are being stabilised for release.
+
+</details>
 
 ## Documentation
 
-The project **Wiki is the canonical documentation** for installation, configuration, security, calendars, contacts/DAV, external sources, mobile navigation, troubleshooting and development. Wiki source is maintained in [`docs/wiki/`](docs/wiki/); it is published to the repository Wiki as part of reviewed releases.
+The **[project Wiki](https://github.com/Dragonk/Inboxora/wiki)** is the canonical documentation.
+Its reviewed source lives in [`docs/wiki/`](docs/wiki/) and is published to the Wiki as part of a
+release.
 
-## License
+| Page | Covers |
+| --- | --- |
+| [Installation](docs/wiki/Installation.md) | Deployment modes, secrets, reverse proxy, upgrades. |
+| [Getting started](docs/wiki/Getting-started.md) | First account, first mail account, first calendar and contacts. |
+| [Email and threading](docs/wiki/Email-and-threading.md) | Conversation engine, threaded list, reader, actions, search. |
+| [Configuration](docs/wiki/Configuration.md) | Accounts, preferences, themes, notifications, admin tabs. |
+| [Calendar](docs/wiki/Calendar.md) | Views, recurrence, invitations, visibility, sharing. |
+| [Contacts and DAV](docs/wiki/Contacts-and-DAV.md) | Address books, imports/exports, CardDAV, DAVx5, app passwords. |
+| [External calendars](docs/wiki/External-calendars.md) | CalDAV and ICS/webcal sources and secret feeds. |
+| [Mobile navigation](docs/wiki/Mobile-navigation.md) | Phone layout, drawers, Back handling, safe areas. |
+| [Security](docs/wiki/Security.md) | Secrets, network boundaries, DAV and rendering safety. |
+| [Upgrading](docs/wiki/Upgrading.md) | Upgrade path, 4.0.0 notes, rollback, legacy identifiers. |
+| [Troubleshooting](docs/wiki/Troubleshooting.md) | Diagnostic paths and common failures. |
+| [Development](docs/wiki/Development.md) | Local verification, browser tests, documentation policy. |
+| [Release notes 4.0.0](docs/wiki/Release-notes-4.0.0.md) | Why this is a major release and what changed. |
 
-[AGPL-3.0-only](LICENSE). Network users of a modified deployment must be offered its corresponding source, as required by the AGPL. Contributions are accepted under the same terms.
+## Development
+
+```bash
+# frontend
+cd frontend && npm ci && npm test && npm run lint && npm run build
+
+# backend
+cd backend && npm ci && npm test && npm run lint
+```
+
+Browser coverage uses Playwright and runs the full mocked suite plus visual comparisons:
+`cd frontend && npx playwright install chromium && npm run test:e2e`. Documentation screenshots
+are generated on demand with `DOCS_SCREENSHOTS=1 npx playwright test e2e/docs-screenshots.spec.js`;
+see [`docs/wiki/Development.md`](docs/wiki/Development.md).
+
+## Security
+
+Inboxora is meant to sit behind a reverse proxy that terminates TLS; do not publish the internal
+host ports directly. Keep `.env` out of source control and never paste app passwords, tokens or
+deployment secrets into issues, screenshots or the Wiki. To report a vulnerability, follow
+[SECURITY.md](SECURITY.md) instead of opening a public issue with exploit details.
+
+## Credits and licence
+
+**Thanks to [maathimself](https://github.com/maathimself), creator of
+[MailFlow](https://github.com/maathimself/mailflow).** Inboxora is an independently developed
+fork with distinct product goals; the required upstream notices remain preserved.
+
+Licensed under [AGPL-3.0-only](LICENSE). If you run a modified Inboxora as a network service, you
+must offer its corresponding source to your users. Contributions are accepted under the same
+terms — see [CONTRIBUTING.md](CONTRIBUTING.md).
