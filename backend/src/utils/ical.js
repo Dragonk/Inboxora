@@ -1,15 +1,27 @@
 import { Parser } from 'htmlparser2';
 import ICAL from 'ical.js';
 
-export function calendarZoneResolver(raw) {
-  let component;
+// Resolve TZID references against the VTIMEZONE definitions of one calendar
+// resource. `parsedRoot` lets a caller that already parsed the document reuse
+// that parse instead of paying for a second one.
+export function calendarZoneResolver(raw, parsedRoot = null) {
+  let component = parsedRoot;
+  // The cache is scoped to this resolver, i.e. to one resource and its current
+  // revision. Two different documents may declare the same TZID with different
+  // offsets, so a TZID alone is never a valid cache key across resources.
+  const zones = new Map();
   return tzid => {
     try {
+      if (zones.has(tzid)) return zones.get(tzid);
       component ??= new ICAL.Component(ICAL.parse(raw));
       const definition = component.getAllSubcomponents('vtimezone').find(zone => zone.getFirstPropertyValue('tzid') === tzid);
       // An empty context cannot define an offset; use Intl for known IANA IDs.
-      if (!definition?.getAllSubcomponents().some(child => ['standard', 'daylight'].includes(child.name))) return null;
-      return new ICAL.Timezone({ component: definition, tzid });
+      let resolved = null;
+      if (definition?.getAllSubcomponents().some(child => ['standard', 'daylight'].includes(child.name))) {
+        resolved = new ICAL.Timezone({ component: definition, tzid });
+      }
+      zones.set(tzid, resolved);
+      return resolved;
     } catch { return null; }
   };
 }
@@ -50,11 +62,42 @@ function utcDate(year, month, day, hour = 0, minute = 0, second = 0) {
     && date.getUTCHours() === hour && date.getUTCMinutes() === minute && date.getUTCSeconds() === second ? date : null;
 }
 
-function timeZoneParts(date, timeZone) {
+// Constructing an Intl.DateTimeFormat is expensive relative to formatting, and a
+// single recurrence expansion asks for the same zone hundreds of times. The
+// formatter is immutable and safe to share, so keep a small LRU keyed by zone.
+// A null entry records an unusable zone id so it is not probed again.
+const TIME_ZONE_FORMATTER_LIMIT = 64;
+const timeZoneFormatters = new Map();
+
+function timeZoneFormatter(timeZone) {
+  const cached = timeZoneFormatters.get(timeZone);
+  if (cached !== undefined) {
+    // Refresh recency so a hot zone survives the eviction below.
+    timeZoneFormatters.delete(timeZone);
+    timeZoneFormatters.set(timeZone, cached);
+    return cached;
+  }
+  let formatter;
   try {
-    const parts = new Intl.DateTimeFormat('en-CA', {
+    formatter = new Intl.DateTimeFormat('en-CA', {
       timeZone, year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', second: '2-digit', hourCycle: 'h23',
-    }).formatToParts(date);
+    });
+  } catch {
+    formatter = null;
+  }
+  if (timeZoneFormatters.size >= TIME_ZONE_FORMATTER_LIMIT) {
+    const oldest = timeZoneFormatters.keys().next().value;
+    timeZoneFormatters.delete(oldest);
+  }
+  timeZoneFormatters.set(timeZone, formatter);
+  return formatter;
+}
+
+function timeZoneParts(date, timeZone) {
+  const formatter = timeZoneFormatter(timeZone);
+  if (!formatter) return null;
+  try {
+    const parts = formatter.formatToParts(date);
     return Object.fromEntries(parts.filter((part) => part.type !== 'literal').map((part) => [part.type, Number(part.value)]));
   } catch {
     return null;
