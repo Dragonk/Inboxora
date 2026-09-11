@@ -39,6 +39,9 @@ export function projectCalendarResource(row, from, to) {
   const zoneFor = calendarZoneResolver(raw_ical);
   const recurring = master && (master.hasProperty('rrule') || master.hasProperty('rdate'));
   const event = new ICAL.Event(base);
+  const recurrenceRule = base.getFirstPropertyValue('rrule');
+  const hasCount = typeof recurrenceRule?.isByCount === 'function' ? recurrenceRule.isByCount() : false;
+  const rangeStart = ICAL.Time.fromJSDate(from, true);
   const result = [];
   const seen = new Set();
   const append = (details, recurrenceId) => {
@@ -63,9 +66,18 @@ export function projectCalendarResource(row, from, to) {
     append({ item: event, startDate: event.startDate, endDate: event.endDate }, '');
     return result;
   }
-  // Iterate from the series origin: starting a COUNT rule at the view's start
-  // would incorrectly extend it. This cap also bounds hostile per-second rules.
-  const iterator = event.iterator();
+  // Iterating from the series origin for COUNT rules preserves rule semantics.
+  // For non-COUNT rules, this reduces work for long-running series without endings.
+  let iterator = event.iterator();
+  if (recurrenceRule && !hasCount) {
+    const seriesStart = event.startDate;
+    const startTime = (seriesStart.compare(rangeStart) < 0 ? rangeStart : seriesStart);
+    try {
+      iterator = event.iterator(startTime);
+    } catch {
+      iterator = event.iterator();
+    }
+  }
   let iterations = 0;
   for (let occurrence = iterator.next(); occurrence; occurrence = iterator.next()) {
     if (++iterations > 100000) throw new Error('Calendar recurrence exceeds the supported expansion limit');
