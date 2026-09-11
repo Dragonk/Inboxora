@@ -5,6 +5,7 @@ import { accountAffectsUnifiedInbox } from '../utils/unifiedInbox.js';
 import { applyTheme, applyCustomCss, getInitialTheme } from '../themes.js';
 import { applyFontSet, applyFontSize, effectiveFontSet, isRetroFont, THEME_FONT } from '../fonts.js';
 import { applyLayout, normalizeLayout } from '../layouts.js';
+import { PANEL_WIDTH_STORAGE_KEY, savedPanelWidth } from '../utils/panelWidth.js';
 import { DEFAULT_AI_ACTIONS } from '../aiActions.js';
 import {
   removeGtdThreadFromSections,
@@ -877,7 +878,7 @@ export const useStore = create((set, get) => ({
   setLayout: (layout) => {
     const clean = normalizeLayout(layout);
     localStorage.setItem('mailflow_layout', clean);
-    localStorage.removeItem('mailflow_list_width');
+    localStorage.removeItem(PANEL_WIDTH_STORAGE_KEY);
     set({ layout: clean });
     applyLayout(clean);
     schedulePrefSave({ layout: clean });
@@ -1084,10 +1085,10 @@ export const useStore = create((set, get) => ({
         const prevLayout = get().layout;
         localStorage.setItem('mailflow_layout', clean);
         set({ layout: clean });
-        if (clean !== prevLayout) localStorage.removeItem('mailflow_list_width');
+        if (clean !== prevLayout) localStorage.removeItem(PANEL_WIDTH_STORAGE_KEY);
         const savedListWidth = clean !== prevLayout
           ? undefined
-          : (Number(localStorage.getItem('mailflow_list_width')) || undefined);
+          : savedPanelWidth();
         applyLayout(clean, savedListWidth);
       }
       if (prefs.notificationSound) {

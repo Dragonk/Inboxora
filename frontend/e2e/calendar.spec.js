@@ -1,4 +1,4 @@
-import { selectCalendarView, returnToMail } from './navigation.js';
+import { selectCalendarView, returnToMail, settleAnimations } from './navigation.js';
 import { test, expect } from './fixtures.js';
 import { navigateModule } from './v3-fixtures.js';
 
@@ -232,6 +232,7 @@ test('calendar and contacts remain reachable and their mobile actions share the 
     const dock = page.getByTestId('calendar-mobile-dock');
     await expect(dock).toBeVisible();
     await expect(page.getByTestId('calendar-mobile-new-event')).toHaveCount(0);
+    await settleAnimations(page);
     const dockBox = await dock.boundingBox();
     expect(dockBox.y + dockBox.height).toBeLessThanOrEqual(page.viewportSize().height);
     await page.keyboard.press('Escape');
@@ -249,7 +250,11 @@ test('calendar and contacts remain reachable and their mobile actions share the 
       page.getByTestId('calendar-sidebar').boundingBox(),
     ]);
     expect(Math.abs(rootBox.x + rootBox.width - page.viewportSize().width)).toBeLessThanOrEqual(1);
-    expect(sidebarBox.width).toBe(210);
+    // The calendar rail uses the shared panel width instead of a private value.
+    const sharedWidth = await page.evaluate(() => parseFloat(getComputedStyle(document.documentElement).getPropertyValue('--list-width')));
+    expect(sharedWidth).toBeGreaterThan(0);
+    expect(sidebarBox.width).toBeCloseTo(sharedWidth, 0);
+    await expect(page.getByTestId('calendar-rail-resize')).toBeVisible();
     await page.screenshot({ path: testInfo.outputPath('desktop-calendar-1280x800.png') });
     await page.getByTestId('contacts-nav-primary').click();
     await expect(page.getByTestId('contacts-desktop-list')).toBeVisible();
@@ -496,6 +501,7 @@ test('mobile calendar fits the full localized week and keeps every dock control 
   const miniMonth = page.getByTestId('calendar-mini-month');
   await expect(dock).toBeVisible();
   await expect(miniMonth.getByTestId('calendar-mini-weekday')).toHaveText(expectedWeekdays);
+  await settleAnimations(page);
   const dockBox = await dock.boundingBox();
   expect(dockBox.x).toBeGreaterThanOrEqual(0);
   expect(dockBox.y + dockBox.height).toBeLessThanOrEqual(page.viewportSize().height);

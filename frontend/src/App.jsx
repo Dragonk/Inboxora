@@ -5,6 +5,7 @@ import { api } from './utils/api.js';
 import { applyTheme, getInitialTheme } from './themes.js';
 import { applyFontSet, effectiveFontSet } from './fonts.js'; // still used for the instant localStorage apply on mount
 import { applyLayout } from './layouts.js';
+import { savedPanelWidth } from './utils/panelWidth.js';
 import LoginPage from './components/LoginPage.jsx';
 import MailApp from './components/MailApp.jsx';
 import LockScreen from './components/LockScreen.jsx';
@@ -39,8 +40,7 @@ export default function App() {
     const bootTheme = localStorage.getItem('mailflow_theme') || getInitialTheme();
     applyTheme(bootTheme);
     applyFontSet(effectiveFontSet(bootTheme, localStorage.getItem('mailflow_font') || 'default'));
-    const savedListWidth = Number(localStorage.getItem('mailflow_list_width')) || undefined;
-    applyLayout(localStorage.getItem('mailflow_layout') || 'comfortable', savedListWidth);
+    applyLayout(localStorage.getItem('mailflow_layout') || 'comfortable', savedPanelWidth());
 
     // Handle OAuth popup callback
     const params = new URLSearchParams(window.location.search);

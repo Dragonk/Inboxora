@@ -8,8 +8,9 @@ import { api } from '../utils/api.js';
 import { useStore } from '../store/index.js';
 import { useMobile } from '../hooks/useMobile.js';
 import { useCompactLayout } from '../hooks/useCompactLayout.js';
-import { Button, Dialog, inputStyle as sharedInputStyle } from './ui.jsx';
+import { Button, Dialog, PanelResizeHandle, inputStyle as sharedInputStyle } from './ui.jsx';
 import { MobileModuleHeader, HeaderAction } from './MobileModuleHeader.jsx';
+import { beginPanelResize } from '../utils/panelWidth.js';
 import './contacts.css';
 import SenderAvatarImage from './SenderAvatarImage.jsx';
 import { safeHttpUrl } from '../utils/contactLinks.js';
@@ -100,6 +101,15 @@ export default function ContactsPage({ isActive = true }) {
   const mobileBackButtonRef         = useRef(null);
   const importInputRef              = useRef(null);
   const contactSelectionRequestRef  = useRef(0);
+  const listResizeRef               = useRef(null);
+
+  // The contact list resizes with the same shared width the mail list uses, so
+  // widening it in Contacts also widens the mail list (and the calendar panels).
+  const handleListResizeMouseDown = (event) => {
+    listResizeRef.current?.();
+    listResizeRef.current = beginPanelResize(event, { edge: 'right' });
+  };
+  useEffect(() => () => { listResizeRef.current?.(); }, []);
 
   // A navigation drawer re-entry must not
   // expose a retained contact detail or new-contact form.
@@ -682,6 +692,8 @@ export default function ContactsPage({ isActive = true }) {
 
         {listPanel}
       </div>
+
+      <PanelResizeHandle testId="contacts-list-resize" onMouseDown={handleListResizeMouseDown} />
 
       {/* Detail / form panel — keyed by contact id so scroll resets when switching contacts.
           When nothing is selected, center the empty-state placeholder in the full pane. */}

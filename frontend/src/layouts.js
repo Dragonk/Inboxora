@@ -1,3 +1,5 @@
+import { clampPanelWidth, PANEL_WIDTH_DEFAULT } from './utils/panelWidth.js';
+
 // Each layout defines the structural arrangement of the three-pane mail UI.
 // direction: 'row' = list beside reading pane; 'column' = list above reading pane
 // listWidth: px width of the message list in row mode (null for column mode)
@@ -62,14 +64,17 @@ export function normalizeLayout(layoutKey) {
 
 // customListWidth: optional px override from drag-to-resize (persisted in localStorage).
 // When provided it is applied instead of the preset listWidth.
+// The width is shared by every list-style panel (mail, contacts, calendar), so the
+// same override also drives the contact list and the calendar rail/agenda.
 export function applyLayout(layoutKey, customListWidth) {
   const layout = LAYOUTS[normalizeLayout(layoutKey)];
   const root = document.documentElement;
   root.style.setProperty('--layout-row-py', layout.rowPy + 'px');
   root.style.setProperty('--layout-row-px', layout.rowPx + 'px');
-  if (layout.listWidth != null) {
-    root.style.setProperty('--list-width', (customListWidth ?? layout.listWidth) + 'px');
-  }
+  // The stacked (column) preset has no list width of its own, but Contacts and
+  // Calendar still read the shared column width, so it must always be defined.
+  const width = clampPanelWidth(customListWidth) ?? layout.listWidth ?? PANEL_WIDTH_DEFAULT;
+  root.style.setProperty('--list-width', width + 'px');
 }
 
 // Labels are resolved at render time so changing the language updates open menus.

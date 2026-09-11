@@ -10,6 +10,12 @@ test('desktop Contacts uses the shared Mail list width and fills its detail pane
   assert.doesNotMatch(source, /maxWidth: 560/);
 });
 
+test('desktop Contacts resizes its list with the shared panel handle', () => {
+  assert.match(source, /import \{ beginPanelResize \} from '\.\.\/utils\/panelWidth\.js'/);
+  assert.match(source, /<PanelResizeHandle testId="contacts-list-resize" onMouseDown=\{handleListResizeMouseDown\} \/>/);
+  assert.match(source, /beginPanelResize\(event, \{ edge: 'right' \}\)/);
+});
+
 test('mobile Contacts puts creation in the shared header without reserving floating-button space', () => {
   assert.match(source, /data-testid="contacts-header-new"/);
   assert.doesNotMatch(source, /contacts-mobile-fab/);

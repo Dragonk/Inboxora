@@ -16,10 +16,13 @@ describe('CalendarSidebar contract', () => {
     assert.match(component, /data-testid="calendar-sidebar-manage-sources"/);
   });
 
-  it('provides an explicit close action when rendered in the mobile dialog', async () => {
+  it('leaves closing to the one shared sheet header control', async () => {
+    // The panel used to render its own "Zamknij" button next to the dialog's ×.
+    // The bottom sheet header now owns the single close affordance, so the rail
+    // neither renders that button nor accepts an onClose prop.
     const component = await source();
-    assert.match(component, /onClose/);
-    assert.match(component, /data-testid="calendar-sidebar-close"/);
+    assert.doesNotMatch(component, /calendar-sidebar-close/);
+    assert.doesNotMatch(component, /canCreate, onClose/);
   });
 
   it('keeps application-wide calendar preferences out of the calendar source panel', async () => {

@@ -1,4 +1,4 @@
-import { selectCalendarView, openContactBooks } from './navigation.js';
+import { selectCalendarView, openContactBooks, settleAnimations } from './navigation.js';
 import { test, expect } from './fixtures.js';
 import { setupV3, navigateModule, richContact } from './v3-fixtures.js';
 
@@ -21,7 +21,9 @@ test('V3 calendar selects a day, reveals overflow, filters both agendas and show
   await agenda.getByRole('button', { name: /Wyjazd zespołu/ }).click();
   await expect(page.getByTestId('calendar-event-preview').getByRole('button', { name: 'Zamknij', exact: true })).toBeFocused();
   const preview = page.getByTestId('calendar-event-preview');
-  await expect(preview).toContainText('Wydarzenie ze źródła CalDAV.');
+  // The imported description renders through the sanitized body iframe mail uses,
+  // so the copy is asserted inside that frame rather than on the dialog's DOM text.
+  await expect(preview.getByTestId('calendar-event-description-body').frameLocator('iframe').locator('body')).toContainText('Wydarzenie ze źródła CalDAV.');
   await expect(preview.getByRole('button', { name: /Zapisz|Usuń/ })).toHaveCount(0);
   await preview.getByRole('button', { name: 'Zamknij', exact: true }).click();
   if (page.viewportSize().width <= 1100) await page.getByRole('dialog', { name: 'Agenda dnia', exact: true }).getByRole('button', { name: 'Zamknij', exact: true }).click();
@@ -30,7 +32,7 @@ test('V3 calendar selects a day, reveals overflow, filters both agendas and show
   await expect(page.getByTestId('calendar-agenda-view')).not.toContainText('Plan października');
   if (page.viewportSize().width < 768) await page.getByTestId('calendar-mobile-panel').click();
   await page.getByTestId('calendar-sidebar').getByRole('checkbox', { name: /Zespół/ }).uncheck();
-  if (page.viewportSize().width < 768) await page.getByTestId('calendar-sidebar-close').click();
+  if (page.viewportSize().width < 768) await page.getByTestId('calendar-mobile-dock').getByRole('button', { name: 'Zamknij', exact: true }).click();
   await expect(page.getByTestId('calendar-agenda-view')).not.toContainText('Wyjazd zespołu');
 });
 
@@ -57,7 +59,11 @@ test('V3 desktop panel geometry and independent pane scrolling follow the mockup
   const sidebar = await page.getByTestId('calendar-sidebar').boundingBox();
   const surface = await page.getByTestId('calendar-page').boundingBox();
   const agenda = await page.locator('aside.calendar-agenda').boundingBox();
-  expect(sidebar.width).toBe(242); expect(agenda.width).toBe(296);
+  // The calendar rail and the day agenda both carry the shared panel width the
+  // mail and contact lists use, so all modules line up on one column width.
+  const sharedWidth = await page.evaluate(() => parseFloat(getComputedStyle(document.documentElement).getPropertyValue('--list-width')));
+  expect(sharedWidth).toBeGreaterThan(0);
+  expect(sidebar.width).toBeCloseTo(sharedWidth, 0); expect(agenda.width).toBeCloseTo(sharedWidth, 0);
   expect(sidebar.y).toBe(surface.y); expect(sidebar.x).toBe(surface.x);
   expect(agenda.x + agenda.width).toBe(1440);
   const body = await page.locator('.calendar-body').boundingBox();
@@ -110,6 +116,9 @@ test('V3 retains calendar preferences, filters and useful geometry at increased 
   await page.getByTestId('calendar-open-day').click();
   const drawer = page.getByRole('dialog', { name: 'Agenda dnia', exact: true });
   await expect(drawer).toBeVisible();
+  // The panel is a bottom sheet on narrow screens; measure it after the slide-up
+  // settles so the transform cannot place it below the viewport mid-animation.
+  await settleAnimations(page);
   const box = await drawer.boundingBox();
   expect(box.x).toBeGreaterThanOrEqual(0);
   expect(box.x + box.width).toBeLessThanOrEqual(page.viewportSize().width + 1);

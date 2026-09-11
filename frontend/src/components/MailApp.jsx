@@ -8,9 +8,10 @@ import { useWebSocket } from '../hooks/useWebSocket.js';
 import { useBackLayer, useBackNavigation } from '../hooks/useBackNavigation.js';
 import { useMobile } from '../hooks/useMobile.js';
 import { useCompactLayout } from '../hooks/useCompactLayout.js';
-import { Button } from './ui.jsx';
+import { Button, PanelResizeHandle } from './ui.jsx';
 import { MobileHeaderHost } from './MobileModuleHeader.jsx';
 import { LAYOUTS } from '../layouts.js';
+import { beginPanelResize } from '../utils/panelWidth.js';
 import { shortcutBus } from '../utils/shortcutBus.js';
 import { setPending, pendingMarkReadMap, completedMarkReadMap } from '../utils/pendingReads.js';
 import { openReplyFromMessage, openForwardFromMessage } from '../utils/composeFromMessage.js';
@@ -331,10 +332,8 @@ export default function MailApp() {
         document.body.style.userSelect = '';
       }
       if (listResizeRef.current) {
-        document.removeEventListener('mousemove', listResizeRef.current.onMouseMove);
-        document.removeEventListener('mouseup', listResizeRef.current.onMouseUp);
-        document.body.style.cursor = '';
-        document.body.style.userSelect = '';
+        listResizeRef.current();
+        listResizeRef.current = null;
       }
       if (rightSidebarResizeRef.current) {
         document.removeEventListener('mousemove', rightSidebarResizeRef.current.onMouseMove);
@@ -362,31 +361,10 @@ export default function MailApp() {
   const rightSidebarApplicable = !isMobile && currentLayout.direction === 'row' && rightSidebarContent != null;
 
   const handleListResizeMouseDown = (e) => {
-    e.preventDefault();
-    const startX = e.clientX;
-    const startWidth = parseInt(getComputedStyle(document.documentElement).getPropertyValue('--list-width')) || currentLayout.listWidth || 360;
-    document.body.style.cursor = 'col-resize';
-    document.body.style.userSelect = 'none';
-
-    const onMouseMove = (mv) => {
-      const dx = mv.clientX - startX;
-      const clamped = Math.max(180, Math.min(700, startWidth + dx));
-      document.documentElement.style.setProperty('--list-width', clamped + 'px');
-    };
-
-    const onMouseUp = () => {
-      document.body.style.cursor = '';
-      document.body.style.userSelect = '';
-      document.removeEventListener('mousemove', onMouseMove);
-      document.removeEventListener('mouseup', onMouseUp);
-      listResizeRef.current = null;
-      const finalWidth = parseInt(getComputedStyle(document.documentElement).getPropertyValue('--list-width'));
-      if (finalWidth) localStorage.setItem('mailflow_list_width', String(finalWidth));
-    };
-
-    listResizeRef.current = { onMouseMove, onMouseUp };
-    document.addEventListener('mousemove', onMouseMove);
-    document.addEventListener('mouseup', onMouseUp);
+    // The mail list is the canonical left panel: the width it sets here is the
+    // same shared width the contact list, calendar rail and day agenda use.
+    listResizeRef.current?.();
+    listResizeRef.current = beginPanelResize(e, { edge: 'right' });
   };
 
   // Right-sidebar resize — its own width var + handle, independent of --list-width.
@@ -899,17 +877,7 @@ export default function MailApp() {
                 <MessageList />
               </div>
               {!compactMail && currentLayout.direction === 'row' && (
-                <div
-                  className="ui-resize-handle"
-                  onMouseDown={handleListResizeMouseDown}
-                  style={{
-                    width: 1, flexShrink: 0, cursor: 'col-resize',
-                    background: 'var(--border-subtle)',
-                    transition: 'background 0.15s',
-                  }}
-                  onMouseEnter={e => { e.currentTarget.style.background = 'var(--accent)'; }}
-                  onMouseLeave={e => { e.currentTarget.style.background = 'var(--border-subtle)'; }}
-                />
+                <PanelResizeHandle testId="mail-list-resize" onMouseDown={handleListResizeMouseDown} />
               )}
               <div data-ce-reader-pane="true" style={{ flex: 1, minWidth: 0, overflow: 'hidden', height: '100%', display: compactMail && !readerOpen ? 'none' : 'flex', flexDirection: 'column' }}>
                 {compactMail && <div className="tablet-reader-back"><Button variant="ghost" onClick={closeReader} aria-label={t('common.back')}>‹ {t('common.back')}</Button></div>}

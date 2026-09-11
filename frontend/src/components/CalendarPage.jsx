@@ -14,9 +14,10 @@ import CalendarContextMenu from './CalendarContextMenu.jsx';
 import CalendarAgenda from './CalendarAgenda.jsx';
 import MessageBodyRenderer from './MessageBodyRenderer.jsx';
 import RichTextEditor from './RichTextEditor.jsx';
-import { Button, Dialog } from './ui.jsx';
+import { Button, Dialog, PanelResizeHandle } from './ui.jsx';
 import { MobileModuleHeader, HeaderAction } from './MobileModuleHeader.jsx';
 import { useCompactLayout } from '../hooks/useCompactLayout.js';
+import { beginPanelResize } from '../utils/panelWidth.js';
 import './calendar.css';
 
 const DATE_LOCALE_OVERRIDES = { zhCN: 'zh-CN' };
@@ -61,6 +62,22 @@ export default function CalendarPage({ isActive = true }) {
   const isMobile = useMobile();
   const compactViewport = useCompactLayout();
   const surfaceRef = useRef(null);
+  const railResizeRef = useRef(null);
+  const agendaResizeRef = useRef(null);
+  // Both calendar side panels drag the same shared width the mail and contact
+  // lists use, so the workspace keeps one column width across every module.
+  const handleRailResizeMouseDown = useCallback(event => {
+    railResizeRef.current?.();
+    railResizeRef.current = beginPanelResize(event, { edge: 'right' });
+  }, []);
+  const handleAgendaResizeMouseDown = useCallback(event => {
+    agendaResizeRef.current?.();
+    agendaResizeRef.current = beginPanelResize(event, { edge: 'left' });
+  }, []);
+  useEffect(() => () => {
+    railResizeRef.current?.();
+    agendaResizeRef.current?.();
+  }, []);
   const [surfaceWidth, setSurfaceWidth] = useState(Infinity);
   const compact = compactViewport || surfaceWidth < 1100;
   useEffect(() => {
@@ -199,6 +216,7 @@ export default function CalendarPage({ isActive = true }) {
       <HeaderAction icon="add" label={t('calendar.newEvent')} data-testid="calendar-header-new" disabled={!writable.length || Boolean(form)} onClick={() => openCreate()} />
     </MobileModuleHeader>}
     {!isMobile && <CalendarSidebar {...sidebarProps} />}
+    {!isMobile && <PanelResizeHandle testId="calendar-rail-resize" onMouseDown={handleRailResizeMouseDown} />}
     <main className="calendar-main">
       <header className="calendar-header">
         {!isMobile && <h1>{title}</h1>}
@@ -224,10 +242,13 @@ export default function CalendarPage({ isActive = true }) {
         {view === 'agenda' ? <CalendarAgenda {...agendaProps} monthly /> : <CalendarGrid days={days} dayEventsFor={dayEventsFor} view={view} anchor={anchor} isMobile={isMobile} locale={locale} onSelectDay={selectDay} openCreate={openCreate} openEdit={openEvent} openContextMenu={(event, x, y, trigger) => setContextMenu({ event, x, y, triggerRef: { current: trigger } })} t={t} calendarWorkHoursStart={calendarWorkHoursStart} calendarWorkHoursEnd={calendarWorkHoursEnd} />}
       </div>
     </main>
+    {!compact && <PanelResizeHandle testId="calendar-agenda-resize" onMouseDown={handleAgendaResizeMouseDown} />}
     {!compact && <aside className="calendar-agenda" aria-label={t('calendar.dayAgenda')}><CalendarAgenda {...agendaProps} /></aside>}
-    {compact && dayPanelOpen && <Dialog title={t('calendar.dayAgenda')} closeLabel={t('calendar.close')} onClose={() => setDayPanelOpen(false)} className="calendar-day-dialog ui-drawer-right"><CalendarAgenda {...agendaProps} /></Dialog>}
-    {isMobile && mobilePanelOpen && <Dialog title={t('calendar.panel')} closeLabel={t('calendar.close')} onClose={() => setMobilePanelOpen(false)} testId="calendar-mobile-dock" className="calendar-panel-dialog ui-drawer-left">
-      <CalendarSidebar {...sidebarProps} onSelectDate={day => { setAnchor(day); setMobilePanelOpen(false); }} onClose={() => setMobilePanelOpen(false)} />
+    {/* Narrow screens show both calendar panels as the same bottom sheet the
+        contact and mail lists use, instead of two differently placed drawers. */}
+    {compact && dayPanelOpen && <Dialog title={t('calendar.dayAgenda')} closeLabel={t('calendar.close')} onClose={() => setDayPanelOpen(false)} testId="calendar-day-sheet" className="calendar-day-dialog ui-sheet"><CalendarAgenda {...agendaProps} /></Dialog>}
+    {isMobile && mobilePanelOpen && <Dialog title={t('calendar.panel')} closeLabel={t('calendar.close')} onClose={() => setMobilePanelOpen(false)} testId="calendar-mobile-dock" className="calendar-panel-dialog ui-sheet">
+      <CalendarSidebar {...sidebarProps} onSelectDate={day => { setAnchor(day); setMobilePanelOpen(false); }} />
     </Dialog>}
     {form && <EventDialog form={form} error={error} calendars={writable} accounts={senderAccounts} saving={saving} onChange={changeForm} onAllDayChange={allDay => { invitationOperation.current.reset(); setForm(current => toggleAllDayTimes(current, allDay)); }} onSave={save} onDelete={remove} onClose={() => { invitationOperation.current.reset(); setForm(null); setError(null); }} t={t} />}
     {preview && <Dialog title={localizeContactEvent(preview, t).summary || t('calendar.untitled')} closeLabel={t('calendar.close')} onClose={() => setPreview(null)} testId="calendar-event-preview">

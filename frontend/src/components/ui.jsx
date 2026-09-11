@@ -19,6 +19,29 @@ export function Button({ variant = 'default', className = '', children, ...props
   return <button type="button" className={`ui-button ui-button-${variant} ${className}`} {...props}>{children}</button>;
 }
 
+// The one drag handle used by every resizable side panel (mail list, contact
+// list, calendar rail, calendar day agenda). Keeping a single implementation is
+// what makes the panels resize identically and share one persisted width.
+export function PanelResizeHandle({ onMouseDown, testId, width = 1, zIndex = 10 }) {
+  return (
+    <div
+      className="ui-resize-handle"
+      data-testid={testId}
+      role="separator"
+      aria-orientation="vertical"
+      onMouseDown={onMouseDown}
+      style={{
+        width, flexShrink: 0, cursor: 'col-resize',
+        background: 'var(--border-subtle)',
+        transition: 'background 0.15s',
+        zIndex,
+      }}
+      onMouseEnter={e => { e.currentTarget.style.background = 'var(--accent)'; }}
+      onMouseLeave={e => { e.currentTarget.style.background = 'var(--border-subtle)'; }}
+    />
+  );
+}
+
 export function EmptyState({ title, children }) {
   return <div className="ui-empty"><strong>{title}</strong>{children && <span>{children}</span>}</div>;
 }

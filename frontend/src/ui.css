@@ -46,6 +46,25 @@ button, input, textarea, select { font-family: inherit; }
 .ui-overlay:has(> .ui-drawer-right) { justify-items: end; padding-right: 0; }
 .ui-dialog:is(.ui-drawer-left, .ui-drawer-right) { height: 100%; max-height: 100%; border-radius: 0; }
 
+/* Bottom sheet used by the narrow-screen calendar panel and day agenda. Both
+   render as the same full-width panel sliding up from the bottom, with the
+   dialog header providing the one and only close control. */
+.ui-overlay:has(> .ui-sheet) { align-items: end; justify-items: stretch; padding: 0; }
+.ui-dialog.ui-sheet {
+  width: 100%; max-width: 100%; height: auto;
+  max-height: min(88dvh, 100%);
+  border-radius: 16px 16px 0 0;
+  padding-bottom: env(safe-area-inset-bottom, 0px);
+  animation: sheet-enter var(--motion-normal) var(--ease-emphasized);
+}
+.ui-dialog.ui-sheet .ui-dialog-header { position: relative; padding-top: 18px; }
+.ui-dialog.ui-sheet .ui-dialog-header::before {
+  content: ''; position: absolute; top: 7px; left: 50%; transform: translateX(-50%);
+  width: 36px; height: 4px; border-radius: 999px; background: var(--border);
+}
+.ui-dialog.ui-sheet .ui-dialog-body { padding: 12px 16px 16px; }
+@media (prefers-reduced-motion: reduce) { .ui-dialog.ui-sheet { animation: none; } }
+
 /* Zoom applies the saved interface scale to portals while keeping the overlay
    in viewport coordinates. Constrain the grid row before sizing its dialog. */
 .ui-overlay { grid-template-rows: minmax(0, 1fr); }

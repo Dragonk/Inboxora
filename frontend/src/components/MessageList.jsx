@@ -2698,14 +2698,17 @@ export default function MessageList() {
 
   return (
     <div style={{
-      width: isMobile ? '100%' : (isColumn ? '100%' : 'var(--list-width)'),
-      minWidth: isMobile ? undefined : (isColumn ? undefined : 180),
-      flex: isMobile ? 1 : (isColumn ? '0 0 42%' : undefined),
-      minHeight: isColumn && !isMobile ? 0 : undefined,
+      // The list always fills the column its shell allocates: in row layouts that
+      // column is the shared --list-width pane, in the stacked (column) layout the
+      // shell hands it the full width. A percentage flex basis here would shrink
+      // the stacked list to a fraction of the width instead of the full screen.
+      width: '100%',
+      minWidth: 0,
+      flex: 1,
       borderRight: (isMobile || isColumn) ? 'none' : '1px solid var(--border-subtle)',
       borderBottom: (!isMobile && isColumn) ? '1px solid var(--border-subtle)' : 'none',
       display: 'flex', flexDirection: 'column',
-      height: (isMobile || isColumn) ? undefined : '100%',
+      height: '100%',
       background: 'var(--bg-primary)',
     }}>
 

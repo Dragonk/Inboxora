@@ -17,7 +17,9 @@ for (const reader of [false, true]) test(`mail invitation can be added from ${re
     if (!await card.count()) await page.locator('[data-conversation-message-toggle]').first().click();
   }
   const invitation = page.getByTestId('calendar-invitation-card').filter({ visible: true }).first();
-  await expect(invitation).toContainText('Pierwsza linia');
+  // The description renders through the sanitized message-body iframe (the same
+  // renderer mail bodies use), so the copy lives inside that frame.
+  await expect(invitation.getByTestId('calendar-invitation-description').frameLocator('iframe').locator('body')).toContainText('Pierwsza linia');
   await invitation.getByRole('button', { name: 'Dodaj do kalendarza', exact: true }).click();
   await expect(invitation.getByRole('status')).toHaveText('Dodano do kalendarza');
   expect(additions).toEqual([{ calendarId: 'calendar-personal' }]);
@@ -31,7 +33,8 @@ test('imported event preview exposes description, participants and safe meeting 
   await page.goto('/'); await navigateModule(page, 'calendar');
   await page.getByRole('button', { name: /Pełne wydarzenie/ }).first().click();
   const preview = page.getByTestId('calendar-event-preview');
-  await expect(preview).toContainText('Szczegóły');
+  // Description copy is rendered by the message-body iframe, not as DOM text.
+  await expect(preview.getByTestId('calendar-event-description-body').frameLocator('iframe').locator('body')).toContainText('Szczegóły');
   await expect(preview).toContainText('jane@example.test');
   await expect(preview.getByRole('link')).toHaveAttribute('href', 'https://example.test/join');
   await page.screenshot({ path: testInfo.outputPath('event-metadata.png') });
