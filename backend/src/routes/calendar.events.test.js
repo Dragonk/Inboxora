@@ -117,6 +117,25 @@ describe('GET /api/calendar/events calendar selection', () => {
     }
   });
 
+  // The read path has two queries, and an event reaches the client through whichever one covers
+  // it. They must expose the same contract: dropping a field from one makes that event render
+  // differently for no visible reason — which is exactly how events from one calendar started
+  // appearing in the default colour while their neighbours kept the calendar's own.
+  it('exposes the same calendar metadata from both read paths', async () => {
+    await fetch(`${base}/api/calendar/events?${RANGE}`);
+    const eventQueries = query.mock.calls.filter(([sql]) => sql.includes('FROM calendar_events') || sql.includes('FROM calendar_occurrences o'));
+    expect(eventQueries.length).toBe(2);
+    for (const [sql] of eventQueries) {
+      // raw_ical is deliberately absent from the materialised path: stored occurrences do not
+      // need it, and it must never reach the client.
+      for (const field of ['calendar_name', 'calendar_color', 'source', 'read_only', 'source_message_id', 'source_folder', 'source_account_id']) {
+        expect(sql).toContain(field);
+      }
+      // Colour and editability come from the calendar row, so both paths must join it.
+      expect(sql).toContain('JOIN calendars c ON c.id =');
+    }
+  });
+
   it('exposes the source message folder and account so the reader can be opened', async () => {
     query.mockImplementation(async (sql) => {
       if (sql.includes('FROM calendar_events')) {

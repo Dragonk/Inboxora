@@ -513,7 +513,8 @@ router.get('/events', async (req, res) => {
       `SELECT ${EVENT_COLUMNS},
               CASE WHEN sa.id IS NOT NULL THEN e.source_message_id END AS source_message_id,
               sm.folder AS source_folder,
-              sa.id AS source_account_id
+              sa.id AS source_account_id,
+              c.name AS calendar_name, c.color AS calendar_color, c.source, c.read_only
        FROM calendar_events e
        JOIN calendars c ON c.id = e.calendar_id
        LEFT JOIN messages sm ON sm.id = e.source_message_id
