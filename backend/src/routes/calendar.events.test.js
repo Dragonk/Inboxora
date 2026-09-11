@@ -103,12 +103,18 @@ describe('GET /api/calendar/events calendar selection', () => {
 
   it('resolves the source message of a mail invitation only for its own account', async () => {
     await fetch(`${base}/api/calendar/events?${RANGE}`);
-    const eventQuery = query.mock.calls.find(([sql]) => sql.includes('FROM calendar_events'));
-    // The link back to the original mail must not be able to cross tenants, and it
-    // must disappear when the message is gone instead of pointing at a dead id.
-    expect(eventQuery[0]).toContain('LEFT JOIN messages sm ON sm.id = e.source_message_id');
-    expect(eventQuery[0]).toContain('LEFT JOIN email_accounts sa ON sa.id = sm.account_id AND sa.user_id = e.user_id');
-    expect(eventQuery[0]).toContain('CASE WHEN sa.id IS NOT NULL THEN e.source_message_id END AS source_message_id');
+    // The read path has two queries now — materialised occurrences and the live fallback — and
+    // both expose the mail link, so both must carry the tenant-safe join. Checking only the
+    // first match would let a regression through in whichever one moved.
+    const eventQueries = query.mock.calls.filter(([sql]) => sql.includes('FROM calendar_events'));
+    expect(eventQueries.length).toBeGreaterThan(0);
+    for (const [sql] of eventQueries) {
+      // The link back to the original mail must not be able to cross tenants, and it
+      // must disappear when the message is gone instead of pointing at a dead id.
+      expect(sql).toContain('LEFT JOIN messages sm ON sm.id = e.source_message_id');
+      expect(sql).toContain('LEFT JOIN email_accounts sa ON sa.id = sm.account_id AND sa.user_id = e.user_id');
+      expect(sql).toContain('CASE WHEN sa.id IS NOT NULL THEN e.source_message_id END AS source_message_id');
+    }
   });
 
   it('exposes the source message folder and account so the reader can be opened', async () => {

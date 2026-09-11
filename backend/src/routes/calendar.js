@@ -14,6 +14,7 @@ import { releaseCalendarSource, scheduleCalendarSource, stopCalendarSource, sync
 import { sendCalendarInvitation } from '../services/calendarInvitation.js';
 import { deliverInvitationOutbox, deliverStoredInvitation, invitationActionsForStorage, invitationDeliveryError, resolveInvitationActions } from '../services/calendarInvitationOutbox.js';
 import { projectCalendarResources } from '../services/calendarProjectionPool.js';
+import { EVENT_COLUMNS, coveragePredicate } from '../services/calendarOccurrences.js';
 
 const router = Router();
 const MAX_EVENT_RANGE_DAYS = 366;
@@ -462,33 +463,69 @@ router.get('/events', async (req, res) => {
   // A selection naming only the contact calendar still needs no event query, and
   // an explicitly empty selection means "no calendars at all". Ownership stays
   // enforced by the SQL predicate, so a foreign id can only match zero rows.
+  let materializedRows = [];
   let eventRows = [];
   if (selection.ids === null || selectedIds.length > 0) {
     const params = [req.session.userId, from, to];
     let calendarFilter = '';
     if (selectedIds !== null) { params.push(selectedIds); calendarFilter = ' AND c.id = ANY($4::uuid[])'; }
+    // Materialised occurrences: a plain indexed range scan, with no recurrence expansion at
+    // all. Any event whose stored rows are missing, stale, or do not cover this window is
+    // excluded here and picked up by the fallback query below, so this read can never be the
+    // reason an event is missing — only the reason it appears fast.
     const result = await query(
-      // source_message_id is only exposed when the message still exists AND belongs
-      // to this user's own account, so the UI can offer "open the original message"
-      // without ever leaking another tenant's identifier.
-      // `e.recurring` is a stored, indexed column rather than a regex over raw_ical:
-      // the regex could not use an index, so the planner fell back to scanning every
-      // event the user owned and detoasting each raw_ical. See migration 0082.
-      `SELECT e.id, e.calendar_id, e.uid, e.recurrence_id, e.etag, e.summary, e.description, e.raw_ical,
-              e.location, e.url, e.organizer, e.starts_at, e.ends_at, e.all_day, e.timezone, e.attendees, e.invite_account_id, e.invitation_sequence,
+      `SELECT CASE WHEN o.recurrence_id = '' THEN e.id::text ELSE e.id::text || '@' || o.recurrence_id END AS id,
+              CASE WHEN e.recurring THEN e.id END AS series_id,
+              e.recurring,
+              o.recurrence_id, o.starts_at, o.ends_at, o.all_day, o.timezone,
+              COALESCE(o.summary, e.summary) AS summary,
+              COALESCE(o.description, e.description) AS description,
+              COALESCE(o.location, e.location) AS location,
+              COALESCE(o.url, e.url) AS url,
+              COALESCE(o.organizer, e.organizer) AS organizer,
+              COALESCE(o.attendees, e.attendees) AS attendees,
+              e.calendar_id, e.uid, e.etag, e.invite_account_id, e.invitation_sequence,
               CASE WHEN sa.id IS NOT NULL THEN e.source_message_id END AS source_message_id,
               sm.folder AS source_folder,
               sa.id AS source_account_id,
               c.name AS calendar_name, c.color AS calendar_color, c.source, c.read_only
+       FROM calendar_occurrences o
+       JOIN calendar_events e ON e.id = o.event_id
+       JOIN calendars c ON c.id = o.calendar_id
+       LEFT JOIN messages sm ON sm.id = e.source_message_id
+       LEFT JOIN email_accounts sa ON sa.id = sm.account_id AND sa.user_id = e.user_id
+       LEFT JOIN calendar_occurrence_state s ON s.event_id = e.id
+       WHERE o.user_id = $1 AND c.user_id = $1 AND c.owner_user_id = $1
+         AND o.starts_at < $3 AND o.ends_at > $2
+         AND NOT ${coveragePredicate('s')}${calendarFilter}
+       ORDER BY o.starts_at ASC`,
+      params,
+    );
+    materializedRows = result.rows;
+
+    // The live fallback. Everything not covered above is expanded exactly as it was before
+    // materialisation existed, which is what makes a lagging or broken worker a performance
+    // problem rather than a correctness one.
+    // `e.recurring` is a stored, indexed column rather than a regex over raw_ical: the regex
+    // could not use an index, so the planner scanned every event the user owned and detoasted
+    // each raw_ical. See migration 0082.
+    const fallback = await query(
+      `SELECT ${EVENT_COLUMNS},
+              CASE WHEN sa.id IS NOT NULL THEN e.source_message_id END AS source_message_id,
+              sm.folder AS source_folder,
+              sa.id AS source_account_id
        FROM calendar_events e
        JOIN calendars c ON c.id = e.calendar_id
        LEFT JOIN messages sm ON sm.id = e.source_message_id
        LEFT JOIN email_accounts sa ON sa.id = sm.account_id AND sa.user_id = e.user_id
-       WHERE e.user_id = $1 AND c.user_id = $1 AND c.owner_user_id = $1 AND ((e.starts_at < $3 AND e.ends_at > $2) OR e.recurring)${calendarFilter}
+       LEFT JOIN calendar_occurrence_state s ON s.event_id = e.id
+       WHERE e.user_id = $1 AND c.user_id = $1 AND c.owner_user_id = $1
+         AND ((e.starts_at < $3 AND e.ends_at > $2) OR e.recurring)
+         AND ${coveragePredicate('s')}${calendarFilter}
        ORDER BY e.starts_at ASC`,
       params,
     );
-    eventRows = result.rows;
+    eventRows = fallback.rows;
   }
   let contactEvents = [];
   if (includeContacts) {
@@ -505,11 +542,11 @@ router.get('/events', async (req, res) => {
       ...event, calendar_name: appearance.name || event.calendar_name, calendar_custom_name: Boolean(appearance.name), calendar_color: appearance.color || event.calendar_color,
     }));
   }
-  // Expansion runs in a bounded worker pool: synchronous CPU work on the request
-  // thread would delay every other endpoint served by this process. Each resource
-  // is isolated, so one broken series cannot suppress the rest.
+  // Only the events the fast read could not serve are expanded here — normally none. The
+  // worker pool still bounds the CPU when it does happen, so a single request cannot stall
+  // the process on a series the worker has not reached yet.
   const projection = await projectCalendarResources(eventRows, from, to, { userId: req.session.userId });
-  const events = [...projection.events, ...contactEvents]
+  const events = [...materializedRows, ...projection.events, ...contactEvents]
     .sort((left, right) => new Date(left.starts_at) - new Date(right.starts_at));
   if (projection.truncated) {
     // A partial result must never look complete. Only the series id and a reason

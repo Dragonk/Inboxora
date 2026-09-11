@@ -63,6 +63,19 @@ limitations — read the matching page in the Wiki, for example
 
 ### Performance
 
+- **Recurring events are now expanded ahead of time instead of while you wait.** A series has to
+  be walked from its own start date — re-seeding the rule iterator at the requested window is not
+  equivalent, and that was verified against the library rather than assumed. Measured at ~10-20 µs
+  per occurrence, a daily series running since 2018 takes ~50-90 ms *every* time it is expanded, so
+  a work calendar with twenty such series spent ~750 ms of CPU per cold view and forty spent
+  ~1.4 s. Caching could remove the repetition but never the walk, which is why the first view of
+  each month stayed slow. Occurrences are now materialised into a table in the background and a
+  read is an indexed range scan: the same week went from ~745 ms of expansion to **3.5 ms**, with
+  the query plan confirming a `Bitmap Index Scan` on the range index (0.14 ms execution). An event
+  that has not been rebuilt yet is expanded on the fly exactly as before, so a lagging or failing
+  worker makes the calendar slower — never missing an event. Any write marks its series for rebuild
+  through a database trigger, which covers all eleven write paths including CalDAV and the external
+  sync without depending on each one remembering to. See migration `0083`.
 - **The calendar no longer scans every event to find recurring ones.** The read paths selected
   "events in this window, plus every recurring series" and expressed the second half as a regular
   expression over the iCalendar body. No index can satisfy a regex over an unindexed column, so
@@ -93,11 +106,16 @@ limitations — read the matching page in the Wiki, for example
 
 ### Known limitations
 
-- **The first expansion of an old recurring series still costs a full walk.** The cache removes
-  the repetition, not the walk itself. On a calendar with tens of long-running series the first
-  open of each month still takes a few hundred milliseconds, and that grows with the age of the
-  series. Removing it requires expanding the occurrences once when a series changes and storing
-  them, instead of recomputing them on read.
+- **Browsing outside the materialised range falls back to expanding on the fly.** Occurrences are
+  materialised from three months back to eighteen months ahead. Outside that, and for the few
+  seconds between saving an event and the background rebuild, events are still expanded from their
+  series start, which is slower for series that began years ago. The range is configurable with
+  `CALENDAR_OCCURRENCE_HORIZON_*`; widening it costs database rows (a daily series is ~365 rows per
+  year of range), so it is a deliberate trade rather than a fixed constant.
+- **Cancelling a recurring event is all-or-nothing or single-occurrence.** There is no "cancel this
+  and every following occurrence" (`RECURRENCE-ID;RANGE=THISANDFUTURE`) yet, although the
+  underlying library and the projection already honour that semantics when it arrives from an
+  external calendar.
 
 ## [4.0.0]
 

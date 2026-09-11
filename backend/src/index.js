@@ -52,6 +52,7 @@ import conversationRebuildRoutes from './routes/conversationRebuild.js';
 import conversationOverridesRoutes from './routes/conversationOverrides.js';
 import { retryConversationIngestFailures } from './services/conversationIngestRetry.js';
 import { startCalendarInvitationOutboxWorker } from './services/calendarInvitationOutbox.js';
+import { startOccurrenceScheduler } from './services/calendarOccurrences.js';
 import { createBrowserCors } from './middleware/browserCors.js';
 
 const packageMeta = JSON.parse(readFileSync(new URL('../package.json', import.meta.url), 'utf-8'));
@@ -304,6 +305,9 @@ setInterval(() => retryConversationIngestFailures({ limit: 25 }).catch(err => co
 // Retry calendar invitations whose SMTP delivery failed, so a transient outage
 // does not leave a saved event whose invitation never reached the attendees.
 startCalendarInvitationOutboxWorker();
+// Expand recurring series into materialised occurrences in the background, so the calendar
+// read path becomes an indexed range scan instead of walking every series from its origin.
+startOccurrenceScheduler();
 
 if (process.env.NODE_ENV !== 'test' && process.env.E2E_DISABLE_IMAP_CONNECT !== 'true') {
   try {

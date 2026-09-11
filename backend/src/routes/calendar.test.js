@@ -52,6 +52,19 @@ beforeEach(() => {
   syncCalendarSource.mockReset().mockResolvedValue({ ok: true });
 });
 
+// The events read runs two disjoint queries: materialised occurrences, and the live fallback
+// for whatever the background worker has not covered. These tests route the fake data by SQL
+// content rather than by call order, so adding a query to the read path cannot silently
+// rewire which fixture each test receives — which is exactly what happened when
+// materialisation was introduced.
+function mockEventRead({ events = [], contacts = [], occurrences = [] } = {}) {
+  query.mockImplementation(async sql => {
+    if (typeof sql === 'string' && sql.includes('FROM calendar_occurrences o')) return { rows: occurrences };
+    if (typeof sql === 'string' && sql.includes('contact_dates')) return { rows: contacts };
+    return { rows: events };
+  });
+}
+
 describe('local calendar API', () => {
 
   it('rejects a CalDAV source without dedicated remote credentials', async () => {
@@ -303,7 +316,7 @@ describe('local calendar API', () => {
   });
 
   it('projects a labelled-only contact date and selects the JSON date column', async () => {
-    query.mockResolvedValueOnce({ rows: [] }).mockResolvedValueOnce({ rows: [{
+    mockEventRead({ contacts: [{
       id: 'contact-1', display_name: 'Ada', primary_email: 'ada@example.test', birthday: null, anniversary: null,
       contact_dates: [{ label: 'Wedding', value: '2020-09-14' }],
     }] });
@@ -312,7 +325,7 @@ describe('local calendar API', () => {
     const { events } = await response.json();
 
     expect(response.status).toBe(200);
-    expect(query.mock.calls[1][0]).toContain('contact_dates');
+    expect(query.mock.calls.some(([sql]) => typeof sql === 'string' && sql.includes('contact_dates'))).toBe(true);
     expect(events).toHaveLength(1);
     expect(events[0]).toMatchObject({
       calendar_id: 'contacts-birthdays', uid: expect.stringMatching(/^contacts-contact-1-/), summary: 'Wedding: Ada', contact_date_label: 'Wedding', contact_name: 'Ada',
@@ -322,7 +335,7 @@ describe('local calendar API', () => {
   });
 
   it('deduplicates a legacy date mirrored in labelled contact dates', async () => {
-    query.mockResolvedValueOnce({ rows: [] }).mockResolvedValueOnce({ rows: [{
+    mockEventRead({ contacts: [{
       id: 'contact-1', display_name: 'Ada', birthday: '1990-01-02', anniversary: null,
       contact_dates: [{ label: 'Birthday', value: '1990-01-02' }, { label: 'Wedding', value: '2020-09-14' }],
     }] });
@@ -336,7 +349,7 @@ describe('local calendar API', () => {
   });
 
   it('projects a birthday without a year on leap day without inventing a birth year', async () => {
-    query.mockResolvedValueOnce({ rows: [] }).mockResolvedValueOnce({ rows: [{
+    mockEventRead({ contacts: [{
       id: 'contact-1', display_name: 'Ada', birthday: null, contact_dates: [{ label: 'Birthday', value: '--02-29' }],
     }] });
     const response = await fetch(`${base}/api/calendar/events?from=2028-02-01T00:00:00.000Z&to=2028-03-01T00:00:00.000Z`);
@@ -347,7 +360,7 @@ describe('local calendar API', () => {
   });
 
   it('keeps normalized-label collisions distinct and ignores malformed contact dates', async () => {
-    query.mockResolvedValueOnce({ rows: [] }).mockResolvedValueOnce({ rows: [{
+    mockEventRead({ contacts: [{
       id: 'contact-1', display_name: 'Ada', birthday: null, anniversary: null,
       contact_dates: [
         { label: 'Family Other', value: '2020-09-14' }, { label: 'Family-Other', value: '2020-09-14' },
@@ -362,6 +375,65 @@ describe('local calendar API', () => {
     expect(events).toHaveLength(2);
     expect(new Set(events.map(event => event.uid)).size).toBe(2);
     expect(events.map(event => event.summary)).toEqual(expect.arrayContaining(['Family Other: Ada', 'Family-Other: Ada']));
+  });
+
+  // A materialised occurrence is returned straight from the store with no expansion at all.
+  // This is the path that replaced walking every series from its origin, so it must actually
+  // be exercised — and it must not leak the raw ICS, which the expansion path strips.
+  it('serves a materialised occurrence without expanding the series', async () => {
+    mockEventRead({ occurrences: [{
+      id: 'event-1@20260907T070000Z', series_id: 'event-1', recurring: true,
+      recurrence_id: '20260907T070000Z', starts_at: '2026-09-07T07:00:00.000Z', ends_at: '2026-09-07T07:30:00.000Z',
+      all_day: false, timezone: 'Europe/Warsaw', summary: 'From the store', description: 'Stored body',
+      location: null, url: null, organizer: null, attendees: [], calendar_id: 'calendar-1', uid: 'uid-1',
+      etag: 'etag-1', invite_account_id: null, invitation_sequence: 0, source_message_id: null,
+      source_folder: null, source_account_id: null, calendar_name: 'Personal', calendar_color: '#123456',
+      source: 'local', read_only: false,
+    }] });
+
+    const response = await fetch(`${base}/api/calendar/events?from=2026-09-01T00:00:00.000Z&to=2026-10-01T00:00:00.000Z`);
+    const { events, truncated } = await response.json();
+
+    expect(response.status).toBe(200);
+    expect(truncated).toBe(false);
+    expect(events).toHaveLength(1);
+    expect(events[0]).toMatchObject({
+      id: 'event-1@20260907T070000Z', series_id: 'event-1', summary: 'From the store',
+      starts_at: '2026-09-07T07:00:00.000Z', description: 'Stored body',
+    });
+    expect(events[0]).not.toHaveProperty('raw_ical');
+    // Nothing needed expansion, so no series is reported as incomplete.
+    expect(events[0]).not.toHaveProperty('incompleteSeries');
+  });
+
+  it('merges materialised occurrences with the live fallback for uncovered events', async () => {
+    // One event the worker has built, and one series it has not reached yet: both must appear,
+    // which is what makes a lagging worker a performance problem rather than a missing event.
+    const raw = outlookCalendar('09', 'DTSTAMP:20260901T090000Z\r\n');
+    query.mockImplementation(async sql => {
+      if (typeof sql === 'string' && sql.includes('FROM calendar_occurrences o')) {
+        return { rows: [{
+          id: 'built-1', series_id: null, recurring: false, recurrence_id: '',
+          starts_at: '2026-09-02T07:00:00.000Z', ends_at: '2026-09-02T08:00:00.000Z', all_day: false,
+          timezone: null, summary: 'Built', description: null, location: null, url: null, organizer: null,
+          attendees: [], calendar_id: 'calendar-1', uid: 'built-1', etag: 'etag-1', invite_account_id: null,
+          invitation_sequence: 0, source_message_id: null, source_folder: null, source_account_id: null,
+          calendar_name: 'Personal', calendar_color: '#123456', source: 'local', read_only: false,
+        }] };
+      }
+      if (typeof sql === 'string' && sql.includes('contact_dates')) return { rows: [] };
+      return { rows: [{ id: 'fallback-1', uid: 'fallback-1', summary: 'Fallback', starts_at: '2026-09-03T07:00:00Z', ends_at: '2026-09-03T08:00:00Z', all_day: false, description: null, location: null, url: null, organizer: null, attendees: [], raw_ical: raw, etag: 'etag-2', calendar_id: 'calendar-1', calendar_name: 'Personal', calendar_color: '#123456', source: 'local', read_only: false }] };
+    });
+
+    const response = await fetch(`${base}/api/calendar/events?from=2026-09-01T00:00:00.000Z&to=2026-10-01T00:00:00.000Z`);
+    const { events } = await response.json();
+
+    expect(response.status).toBe(200);
+    // Ordering is by start time; the fallback event's summary comes from its ICS (the
+    // expansion is authoritative over the denormalised row), so assert identity, not text.
+    expect(events).toHaveLength(2);
+    expect(events[0].summary).toBe('Built');
+    expect(events[1].id).toBe('fallback-1');
   });
 
   it('requires a sender account and attendee list before sending invitations', async () => {
@@ -966,7 +1038,7 @@ describe('local calendar API', () => {
 });
 
 it('recovers metadata for already imported events without returning the raw ICS', async () => {
-  query.mockResolvedValue({ rows: [] }).mockResolvedValueOnce({ rows: [{ id: 'event-1', description: null, location: null, attendees: [], starts_at: '2026-09-10T07:00:00Z', raw_ical: outlookCalendar('09', 'DESCRIPTION:Existing agenda\r\nLOCATION:Office\r\nATTENDEE:mailto:jane@example.test\r\n') }] });
+  mockEventRead({ events: [{ id: 'event-1', description: null, location: null, attendees: [], starts_at: '2026-09-10T07:00:00Z', raw_ical: outlookCalendar('09', 'DESCRIPTION:Existing agenda\r\nLOCATION:Office\r\nATTENDEE:mailto:jane@example.test\r\n') }] });
   const response = await fetch(`${base}/api/calendar/events?from=2026-09-01&to=2026-10-01`);
   expect(response.status).toBe(200);
   const { events } = await response.json();
