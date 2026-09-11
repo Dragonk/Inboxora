@@ -102,6 +102,25 @@ jobs:
           VITE_EMAIL_DIV_RENDER: "false"
         run: npm run android:sync
 
+      - name: Use a stable dev signing key
+        # The default Android debug keystore is generated fresh on every GitHub
+        # runner, so two dev APKs have different signatures and the second one
+        # cannot update the first ("App not installed"). Installing a fixed debug
+        # keystore (repo secret) keeps the signature stable across runs, so dev
+        # APKs upgrade in place. This key is for test builds only; release builds
+        # keep using MAILFLOW_ANDROID_* from publish-apps.yml.
+        env:
+          DEV_KEYSTORE_BASE64: ${{ secrets.ANDROID_DEV_KEYSTORE_BASE64 }}
+        run: |
+          if [ -z "$DEV_KEYSTORE_BASE64" ]; then
+            echo "ANDROID_DEV_KEYSTORE_BASE64 is not set; using the runner's ephemeral debug key."
+            exit 0
+          fi
+          android_user_home="${ANDROID_USER_HOME:-$HOME/.android}"
+          mkdir -p "$android_user_home"
+          printf '%s' "$DEV_KEYSTORE_BASE64" | base64 -d > "$android_user_home/debug.keystore"
+          echo "Installed the stable dev debug keystore at $android_user_home/debug.keystore"
+
       - name: Gradle unit tests, lint and debug APK
         working-directory: frontend/packages/android
         run: |
