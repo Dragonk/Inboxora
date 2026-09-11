@@ -3,10 +3,10 @@ import MobileFloatingAction from './MobileFloatingAction.jsx';
 import { localizeContactCalendar, localizeContactEvent } from '../utils/contactDateLabels.js';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
-import { api } from '../utils/api.js';
+import { api, isAbortError } from '../utils/api.js';
 import { useStore } from '../store/index.js';
 import { useMobile } from '../hooks/useMobile.js';
-import { calendarVisibleRange, eventPayload, eventsForDay, layoutTimedEvents, monthRange, shiftCalendarAnchor, sortedDayEvents, toDateTimeLocal, toggleAllDayTimes, weekRange, workHoursGeometry } from './calendarView.js';
+import { calendarVisibleRange, createDayEventsResolver, eventPayload, layoutTimedEvents, monthRange, shiftCalendarAnchor, toDateTimeLocal, toggleAllDayTimes, weekRange, workHoursGeometry } from './calendarView.js';
 import CalendarSidebar from './CalendarSidebar.jsx';
 import { createInvitationOperationController } from './calendarInvitationRetry.js';
 import CalendarContextMenu from './CalendarContextMenu.jsx';
@@ -44,7 +44,17 @@ function nowMinutes() { const now = new Date(); return now.getHours() * 60 + now
 export default function CalendarPage({ isActive = true }) {
   const { t, i18n } = useTranslation();
   const locale = resolveDateLocale(i18n.resolvedLanguage || i18n.language);
-  const { accounts, calendarWeekStartsOn, calendarWorkDays, calendarWorkHoursStart, calendarWorkHoursEnd, visibleCalendarIds, setVisibleCalendarIds } = useStore();
+  // Subscribe to the individual fields this page reads. Selecting the whole store
+  // would re-render the calendar on every unrelated change (new mail, unread
+  // counts, sidebar state, and so on) — the calendar is expensive to render, so
+  // it must not be dragged along by mail activity.
+  const accounts = useStore(state => state.accounts);
+  const calendarWeekStartsOn = useStore(state => state.calendarWeekStartsOn);
+  const calendarWorkDays = useStore(state => state.calendarWorkDays);
+  const calendarWorkHoursStart = useStore(state => state.calendarWorkHoursStart);
+  const calendarWorkHoursEnd = useStore(state => state.calendarWorkHoursEnd);
+  const visibleCalendarIds = useStore(state => state.visibleCalendarIds);
+  const setVisibleCalendarIds = useStore(state => state.setVisibleCalendarIds);
   const isMobile = useMobile();
   const compactViewport = useCompactLayout();
   const surfaceRef = useRef(null);
@@ -66,19 +76,52 @@ export default function CalendarPage({ isActive = true }) {
   const calendars = useMemo(() => rawCalendars.map(calendar => localizeContactCalendar(calendar, t)), [rawCalendars, t]);
   const events = useMemo(() => rawEvents.map(event => localizeContactEvent(event, t)), [rawEvents, t]);
   const [error, setError] = useState(null); const [loading, setLoading] = useState(true); const [form, setForm] = useState(null); const [saving, setSaving] = useState(false);
+  // Set when the server could not expand every series within its budget. The
+  // events that are shown stay valid, but the view must say it is incomplete
+  // rather than silently presenting a partial month as the whole truth.
+  const [incompleteSeries, setIncompleteSeries] = useState(0);
   const invitationOperation = useRef(null);
   if (!invitationOperation.current) invitationOperation.current = createInvitationOperationController();
   const [mobilePanelOpen, setMobilePanelOpen] = useState(false);
   const range = useMemo(() => calendarVisibleRange(anchor, view, calendarWeekStartsOn), [anchor, calendarWeekStartsOn, view]);
   const rangeStart = iso(range.start); const rangeEnd = iso(range.end);
+  // Requests in flight for this page. Every new load aborts the previous one, and
+  // unmounting aborts whatever is still running, so a superseded range cannot
+  // keep fetching, and the backend stops expanding work nobody will display.
+  const abortRef = useRef(null);
+  // The selection is sent to the server so unselected series are not expanded at
+  // all. `null` keeps the historical "every calendar" semantics.
+  const selectionKey = visibleCalendarIds == null ? null : [...visibleCalendarIds].sort().join(',');
   const load = useCallback(async () => {
     const generation = ++loadGeneration.current;
+    abortRef.current?.abort();
+    const controller = new AbortController();
+    abortRef.current = controller;
     setLoading(true); setError(null);
-    try { const [calendarResult, eventResult] = await Promise.all([api.calendar.listCalendars(), api.calendar.listEvents(rangeStart, rangeEnd)]); if (generation === loadGeneration.current) { setCalendars(calendarResult.calendars || []); setEvents(eventResult.events || []); } }
-    catch (err) { if (generation === loadGeneration.current) setError(err.message || t('calendar.loadFailed')); }
-    finally { if (generation === loadGeneration.current) setLoading(false); }
-  }, [rangeStart, rangeEnd, t]);
-  useEffect(() => { load(); }, [load]);
+    try {
+      const calendarIds = selectionKey == null ? null : (selectionKey ? selectionKey.split(',') : []);
+      const [calendarResult, eventResult] = await Promise.all([
+        api.calendar.listCalendars({ signal: controller.signal }),
+        api.calendar.listEvents(rangeStart, rangeEnd, { signal: controller.signal, calendarIds }),
+      ]);
+      if (generation === loadGeneration.current) {
+        setCalendars(calendarResult.calendars || []);
+        setEvents(eventResult.events || []);
+        setIncompleteSeries(Array.isArray(eventResult.incompleteSeries) ? eventResult.incompleteSeries.length : 0);
+      }
+    } catch (err) {
+      // A cancelled load is not a failure: a newer load (or an unmount) replaced
+      // it, so it must not overwrite state or raise an error banner.
+      if (!isAbortError(err) && generation === loadGeneration.current) { setError(err.message || t('calendar.loadFailed')); setIncompleteSeries(0); }
+    } finally { if (generation === loadGeneration.current) setLoading(false); }
+  }, [rangeStart, rangeEnd, selectionKey, t]);
+  useEffect(() => {
+    load();
+    // Abort the in-flight load on unmount (leaving the calendar module) so the
+    // backend is not left expanding a window the user has already navigated away
+    // from, and no stale response is applied to an unmounted tree.
+    return () => { loadGeneration.current += 1; abortRef.current?.abort(); abortRef.current = null; };
+  }, [load]);
   useEffect(() => {
     const refresh = () => load();
     window.addEventListener('inboxora:calendar-changed', refresh);
@@ -121,6 +164,9 @@ export default function CalendarPage({ isActive = true }) {
   const [contextMenu, setContextMenu] = useState(null);
   const days = view === 'month' ? calendarDays(anchor, calendarWeekStartsOn) : weekDays(anchor, view === 'workweek', calendarWeekStartsOn, calendarWorkDays);
   const visibleEvents = visibleCalendarIds == null ? events : events.filter(event => visibleCalendarIds.includes(event.calendar_id));
+  // One parse-and-bucket pass per event list, reused by every day cell and every
+  // render, instead of re-filtering and re-sorting the whole array per day.
+  const dayEventsFor = useMemo(() => createDayEventsResolver(visibleEvents), [visibleEvents]);
   const toggleCalendar = id => {
     const current = visibleCalendarIds == null ? calendars.map(calendar => calendar.id) : visibleCalendarIds;
     setVisibleCalendarIds(current.includes(id) ? current.filter(value => value !== id) : [...current, id]);
@@ -165,10 +211,11 @@ export default function CalendarPage({ isActive = true }) {
         </div>
       </header>
       {error && !form && <div role="alert" className="ui-alert">{error}<Button variant="ghost" onClick={load}>{t('calendar.retry')}</Button></div>}
+      {incompleteSeries > 0 && <div role="status" data-testid="calendar-incomplete" className="calendar-notice">{t('calendar.incompleteSeries', { n: incompleteSeries })}</div>}
       {!writable.length && !loading && <div className="calendar-notice">{t('calendar.noWritable')}</div>}
       {loading && <div role="status" className="calendar-notice">{t('calendar.loading')}</div>}
       <div className="calendar-body" aria-busy={loading}>
-        {view === 'agenda' ? <CalendarAgenda {...agendaProps} monthly /> : <CalendarGrid days={days} events={visibleEvents} view={view} anchor={anchor} isMobile={isMobile} locale={locale} onSelectDay={selectDay} openCreate={openCreate} openEdit={openEvent} openContextMenu={(event, x, y, trigger) => setContextMenu({ event, x, y, triggerRef: { current: trigger } })} t={t} calendarWorkHoursStart={calendarWorkHoursStart} calendarWorkHoursEnd={calendarWorkHoursEnd} />}
+        {view === 'agenda' ? <CalendarAgenda {...agendaProps} monthly /> : <CalendarGrid days={days} dayEventsFor={dayEventsFor} view={view} anchor={anchor} isMobile={isMobile} locale={locale} onSelectDay={selectDay} openCreate={openCreate} openEdit={openEvent} openContextMenu={(event, x, y, trigger) => setContextMenu({ event, x, y, triggerRef: { current: trigger } })} t={t} calendarWorkHoursStart={calendarWorkHoursStart} calendarWorkHoursEnd={calendarWorkHoursEnd} />}
       </div>
     </main>
     {!compact && <aside className="calendar-agenda" aria-label={t('calendar.dayAgenda')}><CalendarAgenda {...agendaProps} /></aside>}
@@ -190,14 +237,14 @@ export default function CalendarPage({ isActive = true }) {
   </div>;
 }
 
-function CalendarGrid({ days, events, view, anchor, isMobile, locale, onSelectDay, openCreate, openEdit, openContextMenu, t, calendarWorkHoursStart, calendarWorkHoursEnd }) {
+function CalendarGrid({ days, dayEventsFor, view, anchor, isMobile, locale, onSelectDay, openCreate, openEdit, openContextMenu, t, calendarWorkHoursStart, calendarWorkHoursEnd }) {
   const month = view === 'month';
-  if (!month) return <TimeGrid days={days} events={events} view={view} isMobile={isMobile} locale={locale} openCreate={openCreate} openEdit={openEdit} openContextMenu={openContextMenu} onSelectDay={onSelectDay} anchor={anchor} t={t} calendarWorkHoursStart={calendarWorkHoursStart} calendarWorkHoursEnd={calendarWorkHoursEnd} />;
+  if (!month) return <TimeGrid days={days} dayEventsFor={dayEventsFor} view={view} isMobile={isMobile} locale={locale} openCreate={openCreate} openEdit={openEdit} openContextMenu={openContextMenu} onSelectDay={onSelectDay} anchor={anchor} t={t} calendarWorkHoursStart={calendarWorkHoursStart} calendarWorkHoursEnd={calendarWorkHoursEnd} />;
   return <div data-testid="calendar-grid" style={{ ...calendarSurface, flex: 1, minWidth: 0 }}>
     <div style={monthDow}>{days.slice(0, 7).map(day => <div key={`header-${day.toISOString()}`} style={monthDowCell}><span data-testid="calendar-weekday" style={monthDowLabel}>{day.toLocaleDateString(locale, { weekday: 'long' })}</span></div>)}</div>
     <div data-testid="calendar-month-grid" style={{ ...dayGrid, gridTemplateColumns: `repeat(7, minmax(${isMobile && !month ? 112 : 0}px, 1fr))`, gridAutoRows: 'minmax(108px, 1fr)', gap: 1, background: 'var(--border-subtle)', borderTop: '1px solid var(--border-subtle)' }}>
       {days.map(day => {
-        const inMonth = day.getMonth() === anchor.getMonth(); const dayEvents = sortedDayEvents(events, day); const visibleDayEvents = dayEvents.slice(0, 3); const hiddenCount = dayEvents.length - visibleDayEvents.length;
+        const inMonth = day.getMonth() === anchor.getMonth(); const dayEvents = dayEventsFor(day); const visibleDayEvents = dayEvents.slice(0, 3); const hiddenCount = dayEvents.length - visibleDayEvents.length;
         return <section key={day.toDateString()} className="cal-cell" data-selected={day.toDateString() === anchor.toDateString()} onClick={event => { if (event.target === event.currentTarget) onSelectDay(day); }} onDoubleClick={event => { if (event.target === event.currentTarget) openCreate(day); }} style={{ ...monthCell, ...(isWeekend(day) ? weekendCell : {}), ...(inMonth ? {} : outCell) }}>
           <button type="button" className="calendar-day-select" aria-label={day.toLocaleDateString(locale, { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' })} aria-pressed={day.toDateString() === anchor.toDateString()} onClick={() => onSelectDay(day)} style={{ ...dateChip, ...(isToday(day) ? dateChipToday : {}) }}>{day.getDate()}</button>
           <div style={eventStack}>{visibleDayEvents.map(event => {
@@ -222,14 +269,14 @@ function timeToMinutes(value) {
   return (Number.isFinite(hours) ? hours : 9) * 60 + (Number.isFinite(minutes) ? minutes : 0);
 }
 
-function TimeGrid({ days, events, view, isMobile, locale, openCreate, openEdit, openContextMenu, onSelectDay, anchor, t, calendarWorkHoursStart, calendarWorkHoursEnd }) {
+function TimeGrid({ days, dayEventsFor, view, isMobile, locale, openCreate, openEdit, openContextMenu, onSelectDay, anchor, t, calendarWorkHoursStart, calendarWorkHoursEnd }) {
   const scroller = useRef(null);
   useEffect(() => {
     if (scroller.current) scroller.current.scrollTop = Math.max(0, Math.min(timeToMinutes(calendarWorkHoursStart), timeToMinutes(calendarWorkHoursEnd)) - 120);
   }, [calendarWorkHoursEnd, calendarWorkHoursStart, view]);
   const columns = `52px repeat(${days.length}, minmax(${isMobile ? 150 : 0}px, 1fr))`;
   const workHours = workHoursGeometry(calendarWorkHoursStart, calendarWorkHoursEnd);
-  const allDayEvents = days.map(day => eventsForDay(events, day).filter(event => event.all_day || event.allDay));
+  const allDayEvents = days.map(day => dayEventsFor(day).filter(event => event.all_day || event.allDay));
   const showMenu = (event, target) => openContextMenu(event, target.clientX, target.clientY, target.currentTarget);
   const invokeMenu = (event, keyboardEvent) => {
     if (keyboardEvent.key !== 'ContextMenu' && !(keyboardEvent.shiftKey && keyboardEvent.key === 'F10')) return;
@@ -250,7 +297,7 @@ function TimeGrid({ days, events, view, isMobile, locale, openCreate, openEdit, 
         <div style={{ display: 'grid', gridTemplateColumns: columns }}>
           <div style={timeAxis}>{Array.from({ length: 24 }, (_, hour) => <span key={hour} style={{ ...timeAxisSpan, top: hour * 60 }}>{`${String(hour).padStart(2, '0')}:00`}</span>)}</div>
           {days.map(day => {
-            const dayEvents = eventsForDay(events, day);
+            const dayEvents = dayEventsFor(day);
             const timed = layoutTimedEvents(dayEvents, day);
             return <div key={day.toDateString()} onDoubleClick={() => openCreate(day)} style={{ ...timeColumn, ...(isWeekend(day) ? weekendColumn : {}) }}>{Array.from({ length: 24 }, (_, hour) => <i key={hour} style={{ top: hour * 60 }} />)}<div aria-label={`${t('calendar.workHoursStart', 'Working hours start')} ${calendarWorkHoursStart} – ${t('calendar.workHoursEnd', 'Working hours end')} ${calendarWorkHoursEnd}`} data-testid="calendar-work-hours-boundary" style={{ ...workHoursBoundary, ...(isToday(day) ? workHoursBoundaryToday : {}), top: workHours.start, height: Math.max(0, workHours.end - workHours.start) }} />{isToday(day) && <div aria-hidden="true" style={{ ...nowLine, top: nowMinutes() }}><span style={nowLineDot} /></div>}{timed.map(({ event, geometry, column, columns: count }) => <div key={event.id} style={{ ...timedEvent, top: geometry.start, height: Math.max(18, geometry.end - geometry.start), left: `calc(${column * 100 / count}% + 3px)`, width: `calc(${100 / count}% - 6px)`, padding: 0, display: 'flex', overflow: 'visible' }}><button className="cal-ev" onClick={() => openEdit(event)} onContextMenu={keyboardEvent => { keyboardEvent.preventDefault(); showMenu(event, keyboardEvent); }} onKeyDown={keyboardEvent => invokeMenu(event, keyboardEvent)} title={event.read_only ? t('calendar.readOnly') : t('calendar.edit')} style={{ ...timedEvent, position: 'absolute', inset: 0, width: '100%', height: '100%', background: event.calendar_color || 'var(--accent)', cursor: event.read_only || event.source !== 'local' ? 'default' : 'pointer' }}><strong style={timedEventTime}>{eventTime(event)}</strong> {event.summary || t('calendar.untitled')}{geometry.end - geometry.start > 30 && event.location && <span style={timedEventLoc}>{event.location}</span>}</button>{isMobile && <button type="button" data-testid="calendar-event-actions" aria-label={t('calendar.eventActions', 'Event actions')} onClick={target => showMenu(event, target)} style={{ ...eventActionButton, position: 'absolute', top: 0, right: 0, zIndex: 2 }}>⋮</button>}</div>)}</div>;
           })}

@@ -1841,7 +1841,8 @@
     "invitationCancelled": "This event has been cancelled",
     "invitationLocalCopy": "Saves the event without sending a reply to the organizer.",
     "invitationLoadFailed": "Could not load or save the invitation.",
-    "editOccurrence": "You are editing only this occurrence."
+    "editOccurrence": "You are editing only this occurrence.",
+    "incompleteSeries": "Some recurring events could not be fully expanded and may be missing from this view."
   },
   "mailFolders": {
     "inbox": "Inbox",

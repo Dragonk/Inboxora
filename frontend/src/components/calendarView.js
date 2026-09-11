@@ -53,6 +53,47 @@ export function sortedDayEvents(events, day) {
     String(a.id).localeCompare(String(b.id)));
 }
 
+// Build a per-day lookup for a fixed event array.
+//
+// The month grid asks for 42 days on every render, and the week grid asks twice
+// per visible day; re-filtering and re-sorting the whole event array each time
+// repeated the same work (and re-parsed every date). This parses each event's
+// dates once, then answers per-day queries from a cache, so a render costs one
+// pass over the events plus one pass per distinct day. The predicate and the
+// ordering are exactly those of eventsForDay/sortedDayEvents.
+export function createDayEventsResolver(events) {
+  const list = Array.isArray(events) ? events : [];
+  const prepared = list.map(event => ({
+    event,
+    allDay: Boolean(event.all_day || event.allDay),
+    startKey: String(event.starts_at ?? event.startsAt ?? '').slice(0, 10),
+    endKey: String(event.ends_at ?? event.endsAt ?? '').slice(0, 10),
+    startDate: parseEventDate(event.starts_at ?? event.startsAt),
+    endDate: parseEventDate(event.ends_at ?? event.endsAt),
+  }));
+  const cache = new Map();
+  return day => {
+    const dayKey = [day.getFullYear(), String(day.getMonth() + 1).padStart(2, '0'), String(day.getDate()).padStart(2, '0')].join('-');
+    const cached = cache.get(dayKey);
+    if (cached) return cached;
+    const dayStart = new Date(day.getFullYear(), day.getMonth(), day.getDate());
+    const dayEnd = new Date(dayStart); dayEnd.setDate(dayEnd.getDate() + 1);
+    const entries = [];
+    for (const item of prepared) {
+      if (item.allDay) {
+        if (item.startKey <= dayKey && dayKey < item.endKey) entries.push(item);
+      } else if (item.startDate < dayEnd && item.endDate > dayStart) entries.push(item);
+    }
+    entries.sort((a, b) =>
+      Number(b.allDay) - Number(a.allDay) ||
+      a.startDate - b.startDate ||
+      String(a.event.id).localeCompare(String(b.event.id)));
+    const result = entries.map(item => item.event);
+    cache.set(dayKey, result);
+    return result;
+  };
+}
+
 export function toDateTimeLocal(value) {
   if (!value) return '';
   const date = new Date(value);
@@ -152,20 +193,99 @@ export function eventGeometryForDay(event, day) {
   return { start, end: Math.max(start + 1, end) };
 }
 
+// Range-maximum over a static array. The collision-group width below needs the
+// peak overlap inside an interval; a sparse table answers each query in O(1)
+// after O(n log n) construction. This replaces the previous nested scans, which
+// were cubic in the number of simultaneously overlapping events.
+function buildRangeMax(values) {
+  const length = values.length;
+  if (!length) return () => 0;
+  const logs = new Array(length + 1).fill(0);
+  for (let index = 2; index <= length; index += 1) logs[index] = logs[index >> 1] + 1;
+  const table = [values.slice()];
+  for (let level = 1; (1 << level) <= length; level += 1) {
+    const previous = table[level - 1];
+    const row = new Array(length - (1 << level) + 1);
+    for (let index = 0; index < row.length; index += 1) {
+      row[index] = Math.max(previous[index], previous[index + (1 << (level - 1))]);
+    }
+    table.push(row);
+  }
+  // `start` is inclusive, `end` exclusive.
+  return (start, end) => {
+    if (start >= end) return 0;
+    const level = logs[end - start];
+    return Math.max(table[level][start], table[level][end - (1 << level)]);
+  };
+}
+
+// Intervals already placed in one column are pairwise disjoint, so they can be
+// kept sorted by start (and therefore by end). That makes "does any of them
+// overlap [start, end)?" a binary search: the last interval starting before
+// `end` carries the largest end, so it alone decides the answer.
+function columnOverlaps(columnIntervals, start, end) {
+  let low = 0;
+  let high = columnIntervals.length;
+  while (low < high) {
+    const middle = (low + high) >> 1;
+    if (columnIntervals[middle][0] < end) low = middle + 1;
+    else high = middle;
+  }
+  return low > 0 && columnIntervals[low - 1][1] > start;
+}
+
+function insertByStart(columnIntervals, interval) {
+  let low = 0;
+  let high = columnIntervals.length;
+  while (low < high) {
+    const middle = (low + high) >> 1;
+    if (columnIntervals[middle][0] < interval[0]) low = middle + 1;
+    else high = middle;
+  }
+  columnIntervals.splice(low, 0, interval);
+}
+
+// Lay timed events out in the day column.
+//
+// `column` keeps the original first-fit semantics: events are assigned in input
+// order, and an event takes the lowest column index whose already-placed events
+// do not overlap it. `columns` is the peak number of events overlapping at once
+// inside the event's own interval — the collision-group width used to size each
+// card. Both are computed without the nested scans the previous implementation
+// used, which made assigning columns cubic in the number of overlapping events.
 export function layoutTimedEvents(events, day) {
   const items = events.map(event => ({ event, geometry: eventGeometryForDay(event, day) })).filter(item => item.geometry);
-  const placed = [];
-  for (const item of items) {
+  if (!items.length) return [];
+  const columns = [];
+  const placed = items.map(item => {
+    const { start, end } = item.geometry;
     let column = 0;
-    while (placed.some(other => other.column === column && other.geometry.start < item.geometry.end && other.geometry.end > item.geometry.start)) column += 1;
-    placed.push({ ...item, column });
-  }
-  return placed.map(item => {
-    const overlaps = placed.filter(other => other.geometry.start < item.geometry.end && other.geometry.end > item.geometry.start);
-    const points = [...new Set(overlaps.flatMap(other => [Math.max(other.geometry.start, item.geometry.start), Math.min(other.geometry.end, item.geometry.end)]))].sort((a, b) => a - b);
-    const columns = Math.max(...points.slice(0, -1).map((point, index) => overlaps.filter(other => other.geometry.start <= point && other.geometry.end > point && other.geometry.start < points[index + 1]).length), 1);
-    return { ...item, columns };
+    while (column < columns.length && columnOverlaps(columns[column], start, end)) column += 1;
+    if (column === columns.length) columns.push([[start, end]]);
+    else insertByStart(columns[column], [start, end]);
+    return { ...item, column };
   });
+  if (placed.length === 1) return placed.map(item => ({ ...item, columns: 1 }));
+  const boundaries = [...new Set(placed.flatMap(item => [item.geometry.start, item.geometry.end]))].sort((left, right) => left - right);
+  const boundaryIndex = new Map(boundaries.map((value, index) => [value, index]));
+  // Concurrency is constant between adjacent boundaries, so a difference array
+  // yields the peak overlap for every elementary interval in one pass.
+  const delta = new Array(boundaries.length).fill(0);
+  for (const item of placed) {
+    delta[boundaryIndex.get(item.geometry.start)] += 1;
+    delta[boundaryIndex.get(item.geometry.end)] -= 1;
+  }
+  const concurrency = new Array(Math.max(0, boundaries.length - 1));
+  let running = 0;
+  for (let index = 0; index < concurrency.length; index += 1) {
+    running += delta[index];
+    concurrency[index] = running;
+  }
+  const rangeMax = buildRangeMax(concurrency);
+  return placed.map(item => ({
+    ...item,
+    columns: Math.max(1, rangeMax(boundaryIndex.get(item.geometry.start), boundaryIndex.get(item.geometry.end))),
+  }));
 }
 
 export function workHoursGeometry(start = '09:00', end = '17:00') {

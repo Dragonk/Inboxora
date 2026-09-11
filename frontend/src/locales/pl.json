@@ -1841,7 +1841,8 @@
     "invitationCancelled": "Wydarzenie zostało odwołane",
     "invitationLocalCopy": "Zapisuje wydarzenie bez wysyłania odpowiedzi organizatorowi.",
     "invitationLoadFailed": "Nie udało się odczytać lub zapisać zaproszenia.",
-    "editOccurrence": "Edytujesz tylko to wystąpienie wydarzenia."
+    "editOccurrence": "Edytujesz tylko to wystąpienie wydarzenia.",
+    "incompleteSeries": "Niektóre wydarzenia cykliczne nie mogły zostać w pełni rozwinięte i mogą nie być widoczne w tym widoku."
   },
   "mailFolders": {
     "inbox": "Odebrane",

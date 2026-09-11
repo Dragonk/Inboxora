@@ -1841,7 +1841,8 @@
     "invitationCancelled": "Este evento se ha cancelado",
     "invitationLocalCopy": "Guarda el evento sin enviar una respuesta al organizador.",
     "invitationLoadFailed": "No se pudo cargar o guardar la invitación.",
-    "editOccurrence": "Estás editando solo esta ocurrencia."
+    "editOccurrence": "Estás editando solo esta ocurrencia.",
+    "incompleteSeries": "Algunos eventos recurrentes no se pudieron expandir por completo y pueden faltar en esta vista."
   },
   "mailFolders": {
     "inbox": "Recibidos",

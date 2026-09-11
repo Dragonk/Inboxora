@@ -1841,7 +1841,8 @@
     "invitationCancelled": "Tato událost byla zrušena",
     "invitationLocalCopy": "Uloží událost bez odeslání odpovědi organizátorovi.",
     "invitationLoadFailed": "Pozvánku se nepodařilo načíst nebo uložit.",
-    "editOccurrence": "Upravujete pouze tento výskyt události."
+    "editOccurrence": "Upravujete pouze tento výskyt události.",
+    "incompleteSeries": "Některé opakující se události nebylo možné plně rozvinout a v tomto zobrazení mohou chybět."
   },
   "mailFolders": {
     "inbox": "Doručená pošta",

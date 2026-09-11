@@ -40,6 +40,13 @@ async function request(method, path, body, extraHeaders, extraOptions = {}) {
   return res.json();
 }
 
+// Aborting a request rejects with a DOMException named AbortError (or, in some
+// runtimes, an object carrying that name). Callers use this to tell a deliberate
+// cancellation from a real failure, so a cancelled load never surfaces an error.
+export function isAbortError(error) {
+  return Boolean(error) && (error.name === 'AbortError' || error.code === 20);
+}
+
 export async function streamAiChat(messages, { signal, onDelta } = {}) {
   const response = await fetch(`${BASE}/ai/chat`, {
     method: 'POST',
@@ -356,10 +363,17 @@ export const api = {
   calendar: {
     getInvitation: id => request('GET', `/calendar/invitations/${encodeURIComponent(id)}`),
     addInvitation: (id, calendarId) => request('POST', `/calendar/invitations/${encodeURIComponent(id)}`, { calendarId }),
-    listCalendars: () => request('GET', '/calendar/calendars'),
+    listCalendars: ({ signal } = {}) => request('GET', '/calendar/calendars', undefined, undefined, { signal }),
     updateCalendar: (id, data) => request('PATCH', `/calendar/calendars/${encodeURIComponent(id)}`, data),
     deleteCalendar: (id, confirmName) => request('DELETE', `/calendar/calendars/${encodeURIComponent(id)}`, { confirmName }),
-    listEvents: (from, to) => request('GET', `/calendar/events?${new URLSearchParams({ from, to })}`),
+    // Reads accept an AbortSignal so a superseded range or an unmounting page can
+    // cancel work the user no longer needs. `calendarIds` narrows the expansion
+    // server-side; `null` means every calendar, `[]` means none.
+    listEvents: (from, to, { signal, calendarIds } = {}) => {
+      const params = new URLSearchParams({ from, to });
+      if (Array.isArray(calendarIds)) params.set('calendarIds', calendarIds.join(','));
+      return request('GET', `/calendar/events?${params}`, undefined, undefined, { signal });
+    },
     createEvent: (data, idempotencyKey) => request('POST', '/calendar/events', data, idempotencyKey ? { 'X-Idempotency-Key': idempotencyKey } : undefined),
     updateEvent: (id, data, idempotencyKey) => request('PATCH', `/calendar/events/${id}${data.recurrenceId ? '/occurrence' : ''}`, data, idempotencyKey ? { 'X-Idempotency-Key': idempotencyKey } : undefined),
     deleteEvent: (id, calendarId, recurrenceId) => recurrenceId ? request('DELETE', `/calendar/events/${encodeURIComponent(id)}/occurrence`, { calendarId, recurrenceId }) : request('DELETE', `/calendar/events/${encodeURIComponent(id)}?calendarId=${encodeURIComponent(calendarId)}`),
