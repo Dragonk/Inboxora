@@ -1,0 +1,127 @@
+// Event-listing behaviour for the calendar endpoint: calendar selection stays
+// scoped to the owner, an explicit empty selection means "none", and an
+// incomplete projection is reported rather than silently shortened.
+
+import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
+import 'express-async-errors';
+
+const { query } = vi.hoisted(() => ({ query: vi.fn() }));
+vi.mock('../services/db.js', () => ({ query, withTransaction: vi.fn(async (fn) => fn({ query })) }));
+vi.mock('../services/encryption.js', () => ({ encrypt: (value) => `enc:${value}`, decrypt: (value) => value, }));
+vi.mock('../services/calendarInvitation.js', () => ({ sendCalendarInvitation: vi.fn() }));
+vi.mock('../services/externalCalendarSync.js', () => ({ releaseCalendarSource: vi.fn(), scheduleCalendarSource: vi.fn(), stopCalendarSource: vi.fn(), syncCalendarSource: vi.fn() }));
+vi.mock('../middleware/auth.js', () => ({ requireAuth: (req, _res, next) => { req.session = { userId: 'user-1' }; next(); } }));
+vi.mock('../services/hostValidation.js', () => ({ validateHost: vi.fn(async () => null) }));
+vi.mock('../services/connectionPolicy.js', () => ({ getConnectionPolicy: vi.fn(async () => ({ allowPrivateHosts: false })) }));
+
+import express from 'express';
+import calendarRouter from './calendar.js';
+
+let server;
+let base;
+
+beforeAll(async () => {
+  const app = express();
+  app.use(express.json());
+  app.use('/api/calendar', calendarRouter);
+  app.use((error, _req, res, next) => { void next; return res.status(500).json({ error: error.message }); });
+  await new Promise((resolve) => { server = app.listen(0, resolve); });
+  base = `http://127.0.0.1:${server.address().port}`;
+});
+
+afterAll(async () => {
+  await new Promise((resolve) => server.close(resolve));
+});
+
+beforeEach(() => {
+  query.mockReset();
+  query.mockResolvedValue({ rows: [] });
+});
+
+const RANGE = 'from=2026-09-01T00:00:00.000Z&to=2026-10-01T00:00:00.000Z';
+const calendarId = '11111111-1111-4111-8111-111111111111';
+
+describe('GET /api/calendar/events calendar selection', () => {
+  it('keeps the owner scope on every query', async () => {
+    await fetch(`${base}/api/calendar/events?${RANGE}`);
+    const eventQuery = query.mock.calls.find(([sql]) => sql.includes('FROM calendar_events'));
+    expect(eventQuery[0]).toContain('e.user_id = $1 AND c.user_id = $1 AND c.owner_user_id = $1');
+    expect(eventQuery[1][0]).toBe('user-1');
+  });
+
+  it('adds a parameterised calendar filter only when a selection is supplied', async () => {
+    await fetch(`${base}/api/calendar/events?${RANGE}`);
+    const unfiltered = query.mock.calls.find(([sql]) => sql.includes('FROM calendar_events'));
+    expect(unfiltered[0]).not.toContain('ANY($4::uuid[])');
+
+    query.mockClear();
+    await fetch(`${base}/api/calendar/events?${RANGE}&calendarIds=${calendarId}`);
+    const filtered = query.mock.calls.find(([sql]) => sql.includes('FROM calendar_events'));
+    expect(filtered[0]).toContain('c.id = ANY($4::uuid[])');
+    expect(filtered[1][3]).toEqual([calendarId]);
+  });
+
+  it('treats an explicitly empty selection as no calendars at all', async () => {
+    const response = await fetch(`${base}/api/calendar/events?${RANGE}&calendarIds=`);
+    expect(response.status).toBe(200);
+    expect(await response.json()).toEqual({ events: [], truncated: false });
+    // No event query at all: an empty selection cannot match a calendar.
+    expect(query.mock.calls.some(([sql]) => sql.includes('FROM calendar_events'))).toBe(false);
+  });
+
+  it('skips the event query when only the contact calendar is selected', async () => {
+    const response = await fetch(`${base}/api/calendar/events?${RANGE}&calendarIds=contacts-birthdays`);
+    expect(response.status).toBe(200);
+    expect(query.mock.calls.some(([sql]) => sql.includes('FROM calendar_events'))).toBe(false);
+    expect(query.mock.calls.some(([sql]) => sql.includes('FROM contacts'))).toBe(true);
+  });
+
+  it('rejects a malformed calendar id before touching the database', async () => {
+    const response = await fetch(`${base}/api/calendar/events?${RANGE}&calendarIds=not-a-uuid`);
+    expect(response.status).toBe(400);
+    expect(await response.json()).toEqual({ error: 'Invalid calendar id' });
+    expect(query).not.toHaveBeenCalled();
+  });
+
+  it('accepts a comma-separated selection and de-duplicates it', async () => {
+    const other = '22222222-2222-4222-8222-222222222222';
+    await fetch(`${base}/api/calendar/events?${RANGE}&calendarIds=${calendarId},${other},${calendarId}`);
+    const filtered = query.mock.calls.find(([sql]) => sql.includes('FROM calendar_events'));
+    expect(filtered[1][3]).toEqual([calendarId, other]);
+  });
+});
+
+describe('GET /api/calendar/events projection outcome', () => {
+  it('reports a complete result with an explicit truncated:false', async () => {
+    const response = await fetch(`${base}/api/calendar/events?${RANGE}`);
+    expect(await response.json()).toEqual({ events: [], truncated: false });
+  });
+
+  it('reports an incomplete series without leaking internal error text', async () => {
+    query.mockImplementation(async (sql) => {
+      if (sql.includes('FROM calendar_events')) {
+        return { rows: [{
+          id: 'row-dense', calendar_id: calendarId, uid: 'dense', etag: 'etag-1',
+          raw_ical: ['BEGIN:VCALENDAR', 'VERSION:2.0', 'BEGIN:VEVENT', 'UID:dense', 'DTSTAMP:20200101T000000Z',
+            'DTSTART:19700101T000000Z', 'DTEND:19700101T000100Z', 'RRULE:FREQ=MINUTELY', 'SUMMARY:Dense', 'END:VEVENT', 'END:VCALENDAR', ''].join('\r\n'),
+          summary: 'Dense', starts_at: new Date('1970-01-01T00:00:00Z'), ends_at: new Date('1970-01-01T00:01:00Z'), all_day: false,
+        }] };
+      }
+      return { rows: [] };
+    });
+    const previous = process.env.CALENDAR_PROJECTION_MAX_ITERATIONS;
+    process.env.CALENDAR_PROJECTION_MAX_ITERATIONS = '500';
+    try {
+      const response = await fetch(`${base}/api/calendar/events?${RANGE}`);
+      const payload = await response.json();
+      expect(response.status).toBe(200);
+      expect(payload.truncated).toBe(true);
+      expect(payload.incompleteSeries).toEqual([{ series_id: 'row-dense', reason: 'iteration-limit' }]);
+      // The marker is present and stable; no stack trace or SQL detail is exposed.
+      expect(JSON.stringify(payload)).not.toMatch(/stack|at Object|SELECT|FROM calendar_events/);
+    } finally {
+      if (previous === undefined) delete process.env.CALENDAR_PROJECTION_MAX_ITERATIONS;
+      else process.env.CALENDAR_PROJECTION_MAX_ITERATIONS = previous;
+    }
+  });
+});

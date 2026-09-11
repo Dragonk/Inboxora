@@ -1,4 +1,4 @@
-import { projectCalendarResource, mergeCalendarResource } from '../utils/calendarRecurrence.js';
+import { mergeCalendarResource } from '../utils/calendarRecurrence.js';
 import ICAL from 'ical.js';
 import { parseInboundCalendarInvitation } from '../services/inboundCalendarInvitation.js';
 import { parseCalendarEvent } from '../utils/ical.js';
@@ -11,11 +11,33 @@ import { validateHost } from '../services/hostValidation.js';
 import { getConnectionPolicy } from '../services/connectionPolicy.js';
 import { releaseCalendarSource, scheduleCalendarSource, stopCalendarSource, syncCalendarSource } from '../services/externalCalendarSync.js';
 import { sendCalendarInvitation } from '../services/calendarInvitation.js';
+import { projectCalendarResources } from '../services/calendarProjectionPool.js';
 
 const router = Router();
 const MAX_EVENT_RANGE_DAYS = 366;
 const MAX_EVENT_RANGE_MS = MAX_EVENT_RANGE_DAYS * 24 * 60 * 60 * 1000;
+const CONTACT_CALENDAR_ID = 'contacts-birthdays';
+const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 router.use(requireAuth);
+
+// Calendar selection is opt-in: an absent parameter means "every calendar"
+// (the historical behaviour), while an explicitly empty selection means "none".
+// Ownership is still enforced by the SQL filter (`c.user_id`/`c.owner_user_id`),
+// so a foreign id can only ever match zero rows.
+function parseCalendarSelection(raw) {
+  if (raw === undefined || raw === null) return { ids: null };
+  const parts = (Array.isArray(raw) ? raw : [raw])
+    .flatMap(value => String(value).split(','))
+    .map(value => value.trim())
+    .filter(Boolean);
+  const ids = [];
+  for (const id of parts) {
+    if (id === CONTACT_CALENDAR_ID) { ids.push(id); continue; }
+    if (!UUID_PATTERN.test(id)) return { error: 'Invalid calendar id' };
+    ids.push(id);
+  }
+  return { ids: [...new Set(ids)] };
+}
 
 function parseEventTimes(body) {
   const startsAt = new Date(body?.startsAt);
@@ -361,28 +383,60 @@ router.get('/events', async (req, res) => {
   if (to.getTime() - from.getTime() > MAX_EVENT_RANGE_MS) {
     return res.status(400).json({ error: 'The requested event range is too large' });
   }
-  const result = await query(
-    `SELECT e.id, e.calendar_id, e.uid, e.recurrence_id, e.etag, e.summary, e.description, e.raw_ical,
-            e.location, e.url, e.organizer, e.starts_at, e.ends_at, e.all_day, e.timezone, e.attendees, e.invite_account_id, e.invitation_sequence,
-            c.name AS calendar_name, c.color AS calendar_color, c.source, c.read_only
-     FROM calendar_events e
-     JOIN calendars c ON c.id = e.calendar_id
-     WHERE e.user_id = $1 AND c.user_id = $1 AND c.owner_user_id = $1 AND ((e.starts_at < $3 AND e.ends_at > $2) OR e.raw_ical ~* '(RRULE|RDATE|RECURRENCE-ID)[:;]')
-     ORDER BY e.starts_at ASC`,
-    [req.session.userId, from, to],
-  );
-  const contactResult = await query(
-    'SELECT id, display_name, primary_email, birthday, anniversary, contact_dates FROM contacts WHERE user_id = $1 AND (birthday IS NOT NULL OR anniversary IS NOT NULL OR (jsonb_typeof(contact_dates) = \'array\' AND jsonb_array_length(contact_dates) > 0))',
-    [req.session.userId],
-  );
-  const appearance = await contactCalendarAppearance(req.session.userId);
-  const contactEvents = contactDateEvents(contactResult?.rows || [], from, to).map(event => ({
-    ...event, calendar_name: appearance.name || event.calendar_name, calendar_custom_name: Boolean(appearance.name), calendar_color: appearance.color || event.calendar_color,
-  }));
-  const mappedEvents = result.rows.flatMap(event => projectCalendarResource(event, from, to));
-  const events = [...mappedEvents, ...contactEvents]
+  const selection = parseCalendarSelection(req.query.calendarIds);
+  if (selection.error) return res.status(400).json({ error: selection.error });
+  const selectedIds = selection.ids === null ? null : selection.ids.filter(id => id !== CONTACT_CALENDAR_ID);
+  const includeContacts = selection.ids === null || selection.ids.includes(CONTACT_CALENDAR_ID);
+  // A selection naming only the contact calendar still needs no event query, and
+  // an explicitly empty selection means "no calendars at all". Ownership stays
+  // enforced by the SQL predicate, so a foreign id can only match zero rows.
+  let eventRows = [];
+  if (selection.ids === null || selectedIds.length > 0) {
+    const params = [req.session.userId, from, to];
+    let calendarFilter = '';
+    if (selectedIds !== null) { params.push(selectedIds); calendarFilter = ' AND c.id = ANY($4::uuid[])'; }
+    const result = await query(
+      `SELECT e.id, e.calendar_id, e.uid, e.recurrence_id, e.etag, e.summary, e.description, e.raw_ical,
+              e.location, e.url, e.organizer, e.starts_at, e.ends_at, e.all_day, e.timezone, e.attendees, e.invite_account_id, e.invitation_sequence,
+              c.name AS calendar_name, c.color AS calendar_color, c.source, c.read_only
+       FROM calendar_events e
+       JOIN calendars c ON c.id = e.calendar_id
+       WHERE e.user_id = $1 AND c.user_id = $1 AND c.owner_user_id = $1 AND ((e.starts_at < $3 AND e.ends_at > $2) OR e.raw_ical ~* '(RRULE|RDATE|RECURRENCE-ID)[:;]')${calendarFilter}
+       ORDER BY e.starts_at ASC`,
+      params,
+    );
+    eventRows = result.rows;
+  }
+  let contactEvents = [];
+  if (includeContacts) {
+    const contactResult = await query(
+      'SELECT id, display_name, primary_email, birthday, anniversary, contact_dates FROM contacts WHERE user_id = $1 AND (birthday IS NOT NULL OR anniversary IS NOT NULL OR (jsonb_typeof(contact_dates) = \'array\' AND jsonb_array_length(contact_dates) > 0))',
+      [req.session.userId],
+    );
+    const appearance = await contactCalendarAppearance(req.session.userId);
+    contactEvents = contactDateEvents(contactResult?.rows || [], from, to).map(event => ({
+      ...event, calendar_name: appearance.name || event.calendar_name, calendar_custom_name: Boolean(appearance.name), calendar_color: appearance.color || event.calendar_color,
+    }));
+  }
+  // Expansion runs in a bounded worker pool: synchronous CPU work on the request
+  // thread would delay every other endpoint served by this process. Each resource
+  // is isolated, so one broken series cannot suppress the rest.
+  const projection = await projectCalendarResources(eventRows, from, to, { userId: req.session.userId });
+  const events = [...projection.events, ...contactEvents]
     .sort((left, right) => new Date(left.starts_at) - new Date(right.starts_at));
-  res.json({ events });
+  if (projection.truncated) {
+    // A partial result must never look complete. Only the series id and a reason
+    // category cross the wire; internal error text stays in the server log.
+    for (const failure of projection.failures) {
+      console.warn('Calendar projection incomplete:', JSON.stringify({ userId: req.session.userId, seriesId: failure.id, reason: failure.reason }));
+    }
+    return res.json({
+      events,
+      truncated: true,
+      incompleteSeries: projection.failures.map(failure => ({ series_id: failure.id, reason: failure.reason || 'truncated' })),
+    });
+  }
+  res.json({ events, truncated: false });
 });
 
 router.post('/events', async (req, res) => {
