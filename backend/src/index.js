@@ -51,6 +51,7 @@ import conversationsRoutes from './routes/conversations.js';
 import conversationRebuildRoutes from './routes/conversationRebuild.js';
 import conversationOverridesRoutes from './routes/conversationOverrides.js';
 import { retryConversationIngestFailures } from './services/conversationIngestRetry.js';
+import { startCalendarInvitationOutboxWorker } from './services/calendarInvitationOutbox.js';
 import { createBrowserCors } from './middleware/browserCors.js';
 
 const packageMeta = JSON.parse(readFileSync(new URL('../package.json', import.meta.url), 'utf-8'));
@@ -300,6 +301,9 @@ startCardavScheduler();
 startExternalCalendarScheduler().catch(err => console.warn('External calendar scheduler start failed:', err.message));
 // Retry conversation persistence failures without blocking IMAP synchronization.
 setInterval(() => retryConversationIngestFailures({ limit: 25 }).catch(err => console.warn('Conversation ingest retry failed:', err.message)), 5 * 60 * 1000);
+// Retry calendar invitations whose SMTP delivery failed, so a transient outage
+// does not leave a saved event whose invitation never reached the attendees.
+startCalendarInvitationOutboxWorker();
 
 if (process.env.NODE_ENV !== 'test' && process.env.E2E_DISABLE_IMAP_CONNECT !== 'true') {
   try {

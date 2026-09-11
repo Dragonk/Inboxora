@@ -870,7 +870,7 @@ describe('local calendar API', () => {
     expect(sendCalendarInvitation).not.toHaveBeenCalled();
   });
 
-  it('returns durable failed delivery status for a duplicate idempotent POST without sending again', async () => {
+  it('resends a failed invitation when the same idempotent POST is retried', async () => {
     const sender = { id: 'account-1', email_address: 'owner@example.test', smtp_host: 'smtp.example.test', enabled: true };
     const event = { id: 'event-1', calendar_id: 'calendar-1', uid: 'uid-1', invitation_sequence: 0 };
     let outbox;
@@ -878,7 +878,10 @@ describe('local calendar API', () => {
     query.mockImplementation(async (sql, params) => {
       if (sql.includes('FROM calendars')) return { rows: [{ id: 'calendar-1', source: 'local', read_only: false }] };
       if (sql.includes('FROM email_accounts')) return { rows: [sender] };
-      if (sql.includes('FROM calendar_invitation_outbox')) return { rows: outbox ? [{ ...outbox, status: 'sending', last_error: 'SMTP unavailable' }] : [] };
+      if (sql.includes('FROM calendar_invitation_outbox')) {
+        // The stored payload is what a retry re-sends; the account is resolved by id.
+        return { rows: outbox ? [{ ...outbox, status: 'failed', last_error: 'SMTP unavailable', payload: { actions: [{ accountId: 'account-1', attendees: ['guest@example.test'], summary: 'Planning', uid: 'uid-1', allDay: false, method: 'REQUEST', sequence: 0, startsAt: '2026-09-01T09:00:00.000Z', endsAt: '2026-09-01T10:00:00.000Z' }] } }] : [] };
+      }
       if (sql.includes('INSERT INTO calendar_events')) return { rows: [event] };
       if (sql.includes('INSERT INTO calendar_invitation_outbox')) { outbox = { id: 'outbox-1', event_id: event.id, request_fingerprint: params[3] }; return { rows: [{ id: 'outbox-1' }] }; }
       if (sql.includes('UPDATE calendar_invitation_outbox')) return { rows: [] };
@@ -891,14 +894,44 @@ describe('local calendar API', () => {
     const second = await fetch(`${base}/api/calendar/events`, { method: 'POST', headers: { 'content-type': 'application/json', 'X-Idempotency-Key': 'post-failed' }, body: JSON.stringify(body) });
 
     expect(first.status).toBe(201);
-    expect((await first.json()).invitationError).toContain('Retry the same save to check its delivery status');
+    expect(await first.json()).toMatchObject({ invitationStatus: { status: 'failed', lastError: 'SMTP unavailable' }, invitationError: expect.stringContaining('SMTP unavailable') });
+    // A retry of an undelivered invitation must actually send it again, not replay
+    // the earlier error — that was the reported bug.
     expect(second.status).toBe(201);
-    expect(await second.json()).toMatchObject({ invitationError: expect.stringContaining('SMTP unavailable'), invitationStatus: { status: 'failed', lastError: 'SMTP unavailable' } });
-    expect(sendCalendarInvitation).toHaveBeenCalledTimes(1);
+    expect(await second.json()).toMatchObject({ invitationStatus: { status: 'sent', lastError: null } });
+    expect(sendCalendarInvitation).toHaveBeenCalledTimes(2);
+    // The idempotency key still guarantees a single event row.
     expect(query.mock.calls.filter(([sql]) => sql.includes('INSERT INTO calendar_events')).length).toBe(1);
   });
 
-  it('returns durable failed delivery status for a duplicate idempotent PATCH without sending again', async () => {
+  it('does not resend an invitation the outbox already delivered', async () => {
+    const sender = { id: 'account-1', email_address: 'owner@example.test', smtp_host: 'smtp.example.test', enabled: true };
+    const event = { id: 'event-1', calendar_id: 'calendar-1', uid: 'uid-1', invitation_sequence: 0 };
+    let outbox;
+    query.mockImplementation(async (sql, params) => {
+      if (sql.includes('FROM calendars')) return { rows: [{ id: 'calendar-1', source: 'local', read_only: false }] };
+      if (sql.includes('FROM email_accounts')) return { rows: [sender] };
+      if (sql.includes('FROM calendar_invitation_outbox')) return { rows: outbox ? [{ ...outbox, status: 'sent', last_error: null, payload: { actions: [] } }] : [] };
+      if (sql.includes('INSERT INTO calendar_events')) return { rows: [event] };
+      if (sql.includes('INSERT INTO calendar_invitation_outbox')) { outbox = { id: 'outbox-1', event_id: event.id, request_fingerprint: params[3] }; return { rows: [{ id: 'outbox-1' }] }; }
+      if (sql.includes('UPDATE calendar_invitation_outbox')) return { rows: [] };
+      if (sql.includes('FROM calendar_events')) return { rows: [event] };
+      return { rows: [] };
+    });
+    const body = { calendarId: 'calendar-1', summary: 'Planning', sendInvites: true, inviteAccountId: 'account-1', attendees: ['guest@example.test'], startsAt: '2026-09-01T09:00:00.000Z', endsAt: '2026-09-01T10:00:00.000Z' };
+
+    await fetch(`${base}/api/calendar/events`, { method: 'POST', headers: { 'content-type': 'application/json', 'X-Idempotency-Key': 'post-sent' }, body: JSON.stringify(body) });
+    const second = await fetch(`${base}/api/calendar/events`, { method: 'POST', headers: { 'content-type': 'application/json', 'X-Idempotency-Key': 'post-sent' }, body: JSON.stringify(body) });
+
+    expect(second.status).toBe(201);
+    const payload = await second.json();
+    expect(payload).toMatchObject({ invitationStatus: { status: 'sent', lastError: null } });
+    expect(payload.invitationError).toBeUndefined();
+    // Delivered once, never duplicated by a repeated save.
+    expect(sendCalendarInvitation).toHaveBeenCalledTimes(1);
+  });
+
+  it('resends a failed invitation when the same idempotent PATCH is retried', async () => {
     const sender = { id: 'account-1', email_address: 'owner@example.test', smtp_host: 'smtp.example.test', enabled: true };
     const existing = { uid: 'uid-1', attendees: [], invite_account_id: null, invitation_sequence: 0, summary: 'Planning', starts_at: '2026-09-01T09:00:00.000Z', ends_at: '2026-09-01T10:00:00.000Z', all_day: false };
     const event = { id: 'event-1', calendar_id: 'calendar-1', uid: 'uid-1', attendees: ['guest@example.test'], invite_account_id: 'account-1', invitation_sequence: 0 };
@@ -907,7 +940,9 @@ describe('local calendar API', () => {
     query.mockImplementation(async (sql, params) => {
       if (sql.includes('FROM calendars')) return { rows: [{ id: 'calendar-1', source: 'local', read_only: false }] };
       if (sql.includes('FROM email_accounts')) return { rows: [sender] };
-      if (sql.includes('FROM calendar_invitation_outbox')) return { rows: outbox ? [{ ...outbox, status: 'sending', last_error: 'SMTP unavailable' }] : [] };
+      if (sql.includes('FROM calendar_invitation_outbox')) {
+        return { rows: outbox ? [{ ...outbox, status: 'failed', last_error: 'SMTP unavailable', payload: { actions: [{ accountId: 'account-1', attendees: ['guest@example.test'], summary: 'Planning', uid: 'uid-1', allDay: false, method: 'REQUEST', sequence: 0, startsAt: '2026-09-01T11:00:00.000Z', endsAt: '2026-09-01T12:00:00.000Z' }] } }] : [] };
+      }
       if (sql.includes('FOR UPDATE')) return { rows: [existing] };
       if (sql.includes('UPDATE calendar_events')) return { rows: [event] };
       if (sql.includes('INSERT INTO calendar_invitation_outbox')) { outbox = { id: 'outbox-1', event_id: event.id, request_fingerprint: params[3] }; return { rows: [{ id: 'outbox-1' }] }; }
@@ -921,10 +956,10 @@ describe('local calendar API', () => {
     const second = await fetch(`${base}/api/calendar/events/event-1`, { method: 'PATCH', headers: { 'content-type': 'application/json', 'X-Idempotency-Key': 'patch-failed' }, body: JSON.stringify(body) });
 
     expect(first.status).toBe(200);
-    expect((await first.json()).invitationError).toContain('Retry the same save to check its delivery status');
+    expect(await first.json()).toMatchObject({ invitationStatus: { status: 'failed', lastError: 'SMTP unavailable' }, invitationError: expect.stringContaining('SMTP unavailable') });
     expect(second.status).toBe(200);
-    expect(await second.json()).toMatchObject({ invitationError: expect.stringContaining('SMTP unavailable'), invitationStatus: { status: 'failed', lastError: 'SMTP unavailable' } });
-    expect(sendCalendarInvitation).toHaveBeenCalledTimes(1);
+    expect(await second.json()).toMatchObject({ invitationStatus: { status: 'sent', lastError: null } });
+    expect(sendCalendarInvitation).toHaveBeenCalledTimes(2);
     expect(query.mock.calls.filter(([sql]) => sql.includes('UPDATE calendar_events')).length).toBe(1);
   });
 
