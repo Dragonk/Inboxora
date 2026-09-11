@@ -84,3 +84,22 @@ test('an unavailable account list cannot clear an existing selection', () => {
   useStore.getState().setAccounts(undefined);
   assert.equal(useStore.getState().selectedAccountId, 'active');
 });
+
+test('a late unread-count response cannot overwrite a newer response or an optimistic read', async () => {
+  const { api } = await import('../utils/api.js');
+  const { refreshUnreadCounts } = await import('../utils/unreadRefresh.js');
+  const original = api.getUnreadCounts;
+  const resolvers = [];
+  api.getUnreadCounts = () => new Promise(resolve => resolvers.push(resolve));
+  try {
+    useStore.setState({ accounts: [{ id: 'a', enabled: true }], unreadCounts: { total: 3, byAccount: { a: 3 } } });
+    const old = refreshUnreadCounts(); const recent = refreshUnreadCounts();
+    resolvers[1]({ total: 2, byAccount: { a: 2 } }); await recent;
+    resolvers[0]({ total: 3, byAccount: { a: 3 } }); await old;
+    assert.equal(useStore.getState().unreadCounts.total, 2);
+    const beforeRead = refreshUnreadCounts();
+    useStore.getState().decrementUnread('a');
+    resolvers[2]({ total: 2, byAccount: { a: 2 } }); await beforeRead;
+    assert.equal(useStore.getState().unreadCounts.total, 1);
+  } finally { api.getUnreadCounts = original; }
+});

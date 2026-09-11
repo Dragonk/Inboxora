@@ -1365,6 +1365,7 @@ export class ImapManager {
     // Bounded engine facade handed to plugin hooks instead of `this` — plugins get only the reviewed
     // sync/label primitives (see mailEngineFacade), never the raw engine, its connections, or locks.
     this.pluginFacade = createPluginMailFacade(this);
+    this._pendingInboxSync = new Set();
     this.syncingAccounts = new Set(); // prevent overlapping interval syncs
     this.syncStartedAt = new Map();   // accountId -> ms when the current sync tick began (hung-sync detection)
     this.syncThrottleSkips = new Map(); // accountId -> remaining ticks to skip when throttled
@@ -1782,7 +1783,7 @@ export class ImapManager {
           account.user_id
         );
       }
-      if (this.syncingAccounts.has(account.id)) return;
+      if (this.syncingAccounts.has(account.id)) { this._pendingInboxSync.add(account.id); return; }
       console.log(`IMAP IDLE: new mail for ${logAccount(account)} (${prevCount} → ${count})`);
       this._syncTick(account).catch(err =>
         console.warn(`IDLE-triggered sync error for ${logAccount(account)}:`, err.message)
@@ -1970,6 +1971,7 @@ export class ImapManager {
   }
 
   async disconnectAccount(accountId) {
+    this._pendingInboxSync.delete(accountId);
     const timer = this.syncIntervals.get(accountId);
     // clearTimeout works for both setTimeout and setInterval Timeout objects in Node.js
     if (timer) { clearTimeout(timer); this.syncIntervals.delete(accountId); }
@@ -2391,6 +2393,11 @@ export class ImapManager {
     } finally {
       this.syncingAccounts.delete(account.id);
       this.syncStartedAt.delete(account.id);
+      if (this._pendingInboxSync.delete(account.id) && this.connections.has(account.id)) {
+        setImmediate(() => {
+          if (this.connections.has(account.id)) this._syncTick(account).catch(err => console.warn('Queued inbox sync failed:', err.message));
+        });
+      }
     }
   }
 
@@ -2776,6 +2783,7 @@ export class ImapManager {
         );
         const maxKnownUid = Number(max_uid);
 
+        const manager = this;
         let newMessages = [];
         let insertedCount = 0;
         let broadcastedNewMessages = false;
@@ -2996,6 +3004,126 @@ export class ImapManager {
           }
         }
 
+        await flushNewMessages();
+        async function flushNewMessages() {
+        if (newMessages.length > 0) {
+          // mutedIds: messages that had a mark_read rule applied and stayed in INBOX.
+          // Push and client-side sound/toast are skipped for these so mark_read rules
+          // don't still alert the user about mail they chose to auto-silence.
+          let mutedIds = new Set();
+          if (folder === 'INBOX') {
+            // Snapshot the unread candidates before the block-list / rules run, so the ingest
+            // re-eval below can exclude any they move out of INBOX. Only needed with an ingest plugin.
+            const unreadBeforeRules = wantsInboxIngest ? newMessages.map(m => m.id) : null;
+            try {
+              newMessages = await applyBlockList(newMessages, account, manager);
+            } catch (err) {
+              console.error('blockList error:', err.message);
+            }
+            try {
+              const rulesResult = await applyInboxRules(newMessages, account, manager);
+              newMessages = rulesResult.remaining;
+              mutedIds = rulesResult.mutedIds;
+            } catch (err) {
+              console.error('inboxRules error:', err.message);
+            }
+            // Any unread candidate no longer in `newMessages` was moved out of / deleted from
+            // INBOX by the block-list or a rule. Only genuinely-DELETED ones are excluded from
+            // the ingest re-eval: a rule that merely MOVED an inbound reply (its row still lives,
+            // in another folder) must still let the plugin re-evaluate the thread so a self-reply's
+            // Watch/Delegated label clears. Distinguish the two by a single is_deleted probe over
+            // the removed ids — a moved row survives (is_deleted = false), a deleted one does not.
+            if (unreadBeforeRules) {
+              const survivingIds = new Set(newMessages.map(m => m.id));
+              const removedIds = unreadBeforeRules.filter(id => !survivingIds.has(id));
+              if (removedIds.length) {
+                const alive = await query(
+                  'SELECT id FROM messages WHERE id = ANY($1::uuid[]) AND is_deleted = false',
+                  [removedIds]
+                );
+                const aliveIds = new Set(alive.rows.map(r => r.id));
+                for (const id of removedIds) {
+                  if (!aliveIds.has(id)) ingestDeletedIds.add(id);
+                }
+              }
+            }
+          }
+          // alertMessages: remaining messages not silenced by a mark_read rule.
+          const alertMessages = newMessages.filter(m => !mutedIds.has(m.id));
+          const alertCount = alertMessages.length;
+          if (newMessages.length > 0) manager.broadcast({
+            type: 'new_messages', accountId: account.id,
+            folder, messages: newMessages.slice(-5), count: newMessages.length,
+            alertMessages: alertMessages.slice(-5), alertCount,
+          }, account.user_id);
+          if (newMessages.length > 0) broadcastedNewMessages = true;
+          // Web Push — INBOX only, alert-eligible messages only. Non-inbox folder syncs
+          // (Archive, Spam, on-demand) can surface old or filtered messages; sending push
+          // for them or for mark_read-silenced messages would be misleading.
+          // Fire-and-forget: push errors are non-fatal.
+          if (folder === 'INBOX' && alertMessages.length > 0) {
+            const latest = alertMessages[alertMessages.length - 1];
+            const basePayload = {
+              title: latest.fromName || latest.fromEmail || 'New mail',
+              body: alertCount === 1
+                ? (latest.subject || '(no subject)')
+                : `${alertCount} new messages`,
+              icon: '/inboxora-envelope-512.png',
+              // Deep-link the notification to the latest message (the notification's
+              // tag collapses arrivals into one card representing `latest`). Guarded:
+              // fall back to the inbox if the id is somehow absent.
+              url: latest.id ? `/?m=${latest.id}` : '/',
+            };
+            // Try to include the total unread count for the home screen badge.
+            // If the query fails for any reason, send the push without it so
+            // notifications are never silently dropped.
+            query(
+              `SELECT COUNT(*)::int AS total FROM messages m
+               JOIN email_accounts a ON a.id = m.account_id
+               WHERE a.user_id = $1 AND a.enabled = true AND m.folder = 'INBOX' AND m.is_read = false AND m.is_deleted = false`,
+              [account.user_id]
+            ).then(r => {
+              sendPushToUser(account.user_id, { ...basePayload, unreadCount: r.rows[0]?.total ?? 0 })
+                .catch(err => console.warn('Push notification error:', err.message));
+            }).catch(() => {
+              sendPushToUser(account.user_id, basePayload)
+                .catch(err => console.warn('Push notification error:', err.message));
+            });
+          }
+          // Pre-warm the body cache for newly arrived messages so clicking one
+          // immediately after receipt doesn't require a live IMAP fetch.
+          // Only do this for small batches (periodic new mail, not initial bulk sync),
+          // and let provider profiles cap or disable the work when BODY[] is sensitive.
+          const prefetchProfile = providerProfile(account);
+          if (newMessages.length <= 5 && prefetchProfile.prefetchNewBodies !== false) {
+            const warmLimit = Math.max(1, Number(prefetchProfile.prefetchNewBodiesLimit) || newMessages.length);
+            const msgsToCache = newMessages.slice(-warmLimit);
+            setImmediate(() => {
+              manager.prefetchNewMessageBodies(account, msgsToCache)
+                .catch(err => console.warn(`Body prefetch error for ${logAccount(account)}:`, err.message));
+            });
+          }
+
+          // Auto-learn senders from new inbound mail (fire-and-forget).
+          // Only runs for INBOX; skips bulk and robot senders.
+          if (folder === 'INBOX') {
+            const inboundSenders = newMessages.filter(m =>
+              m.fromEmail &&
+              (m.isBulk !== true) &&
+              !/^(noreply|no-reply|donotreply|mailer-daemon|notifications?|bounce[^@]*)@/i.test(m.fromEmail)
+            );
+            if (inboundSenders.length) {
+              setImmediate(() => {
+                manager.upsertAutoContacts(account.user_id, inboundSenders)
+                  .catch(err => console.warn(`Auto-contact error for ${logAccount(account)}:`, err.message));
+              });
+            }
+          }
+        }
+
+          newMessages = [];
+        }
+
         // ── Flag/metadata-change scan — the expensive part, gated by modseq. Covers changes to
         // EXISTING messages (read/star on another device), which the UID phase above cannot see.
         // Bounded by FLAG_SCAN_TIMEOUT_MS: if a throttled connection makes it crawl, we DEFER it
@@ -3100,120 +3228,7 @@ export class ImapManager {
           );
         }
 
-        if (newMessages.length > 0) {
-          // mutedIds: messages that had a mark_read rule applied and stayed in INBOX.
-          // Push and client-side sound/toast are skipped for these so mark_read rules
-          // don't still alert the user about mail they chose to auto-silence.
-          let mutedIds = new Set();
-          if (folder === 'INBOX') {
-            // Snapshot the unread candidates before the block-list / rules run, so the ingest
-            // re-eval below can exclude any they move out of INBOX. Only needed with an ingest plugin.
-            const unreadBeforeRules = wantsInboxIngest ? newMessages.map(m => m.id) : null;
-            try {
-              newMessages = await applyBlockList(newMessages, account, this);
-            } catch (err) {
-              console.error('blockList error:', err.message);
-            }
-            try {
-              const rulesResult = await applyInboxRules(newMessages, account, this);
-              newMessages = rulesResult.remaining;
-              mutedIds = rulesResult.mutedIds;
-            } catch (err) {
-              console.error('inboxRules error:', err.message);
-            }
-            // Any unread candidate no longer in `newMessages` was moved out of / deleted from
-            // INBOX by the block-list or a rule. Only genuinely-DELETED ones are excluded from
-            // the ingest re-eval: a rule that merely MOVED an inbound reply (its row still lives,
-            // in another folder) must still let the plugin re-evaluate the thread so a self-reply's
-            // Watch/Delegated label clears. Distinguish the two by a single is_deleted probe over
-            // the removed ids — a moved row survives (is_deleted = false), a deleted one does not.
-            if (unreadBeforeRules) {
-              const survivingIds = new Set(newMessages.map(m => m.id));
-              const removedIds = unreadBeforeRules.filter(id => !survivingIds.has(id));
-              if (removedIds.length) {
-                const alive = await query(
-                  'SELECT id FROM messages WHERE id = ANY($1::uuid[]) AND is_deleted = false',
-                  [removedIds]
-                );
-                const aliveIds = new Set(alive.rows.map(r => r.id));
-                for (const id of removedIds) {
-                  if (!aliveIds.has(id)) ingestDeletedIds.add(id);
-                }
-              }
-            }
-          }
-          // alertMessages: remaining messages not silenced by a mark_read rule.
-          const alertMessages = newMessages.filter(m => !mutedIds.has(m.id));
-          const alertCount = alertMessages.length;
-          if (newMessages.length > 0) this.broadcast({
-            type: 'new_messages', accountId: account.id,
-            folder, messages: newMessages.slice(-5), count: newMessages.length,
-            alertMessages: alertMessages.slice(-5), alertCount,
-          }, account.user_id);
-          if (newMessages.length > 0) broadcastedNewMessages = true;
-          // Web Push — INBOX only, alert-eligible messages only. Non-inbox folder syncs
-          // (Archive, Spam, on-demand) can surface old or filtered messages; sending push
-          // for them or for mark_read-silenced messages would be misleading.
-          // Fire-and-forget: push errors are non-fatal.
-          if (folder === 'INBOX' && alertMessages.length > 0) {
-            const latest = alertMessages[alertMessages.length - 1];
-            const basePayload = {
-              title: latest.fromName || latest.fromEmail || 'New mail',
-              body: alertCount === 1
-                ? (latest.subject || '(no subject)')
-                : `${alertCount} new messages`,
-              icon: '/inboxora-icon-512.png?v=inboxora-2',
-              // Deep-link the notification to the latest message (the notification's
-              // tag collapses arrivals into one card representing `latest`). Guarded:
-              // fall back to the inbox if the id is somehow absent.
-              url: latest.id ? `/?m=${latest.id}` : '/',
-            };
-            // Try to include the total unread count for the home screen badge.
-            // If the query fails for any reason, send the push without it so
-            // notifications are never silently dropped.
-            query(
-              `SELECT COUNT(*)::int AS total FROM messages m
-               JOIN email_accounts a ON a.id = m.account_id
-               WHERE a.user_id = $1 AND a.enabled = true AND m.folder = 'INBOX' AND m.is_read = false AND m.is_deleted = false`,
-              [account.user_id]
-            ).then(r => {
-              sendPushToUser(account.user_id, { ...basePayload, unreadCount: r.rows[0]?.total ?? 0 })
-                .catch(err => console.warn('Push notification error:', err.message));
-            }).catch(() => {
-              sendPushToUser(account.user_id, basePayload)
-                .catch(err => console.warn('Push notification error:', err.message));
-            });
-          }
-          // Pre-warm the body cache for newly arrived messages so clicking one
-          // immediately after receipt doesn't require a live IMAP fetch.
-          // Only do this for small batches (periodic new mail, not initial bulk sync),
-          // and let provider profiles cap or disable the work when BODY[] is sensitive.
-          const prefetchProfile = providerProfile(account);
-          if (newMessages.length <= 5 && prefetchProfile.prefetchNewBodies !== false) {
-            const warmLimit = Math.max(1, Number(prefetchProfile.prefetchNewBodiesLimit) || newMessages.length);
-            const msgsToCache = newMessages.slice(-warmLimit);
-            setImmediate(() => {
-              this.prefetchNewMessageBodies(account, msgsToCache)
-                .catch(err => console.warn(`Body prefetch error for ${logAccount(account)}:`, err.message));
-            });
-          }
-
-          // Auto-learn senders from new inbound mail (fire-and-forget).
-          // Only runs for INBOX; skips bulk and robot senders.
-          if (folder === 'INBOX') {
-            const inboundSenders = newMessages.filter(m =>
-              m.fromEmail &&
-              (m.isBulk !== true) &&
-              !/^(noreply|no-reply|donotreply|mailer-daemon|notifications?|bounce[^@]*)@/i.test(m.fromEmail)
-            );
-            if (inboundSenders.length) {
-              setImmediate(() => {
-                this.upsertAutoContacts(account.user_id, inboundSenders)
-                  .catch(err => console.warn(`Auto-contact error for ${logAccount(account)}:`, err.message));
-              });
-            }
-          }
-        }
+        await flushNewMessages();
 
         // Inbox-ingest: hand the newly-arrived INBOX rows to any active ingest plugin so it can
         // re-evaluate the affected threads, independent of the unread notification path above —

@@ -9,6 +9,7 @@ import { nativeThreadToReaderMessages, mergeThreadWithConversation } from '../ut
 import { removePhysicalCopy } from '../utils/conversationMutations.js';
 import { queueReadStateMutation, isLatestReadStateMutation, pendingReadState } from '../utils/readStateMutation.js';
 import { setCompletedDelete, applyDeleteGuard } from '../utils/pendingDeletes.js';
+import { setPending, pendingMarkReadMap } from '../utils/pendingReads.js';
 import { useStore } from '../store/index.js';
 
 // Data-only CE adapter. It owns logical/physical identity and expansion policy;
@@ -158,12 +159,27 @@ export default function ConversationReader({ conversationId, targetLogicalMessag
   // That keeps a late automatic read from overwriting a newer explicit unread intent.
   const setCopyReadState = useCallback((copyId, read) => {
     if (!copyId) return Promise.resolve();
-    const before = messages.some(message => (message.copies || []).some(copy => String(copy.id) === String(copyId) && Boolean(copy.isRead ?? copy.is_read)));
+    const copy = messages.flatMap(message => message.copies || []).find(copy => String(copy.id) === String(copyId));
+    const before = pendingReadState(copyId) ?? Boolean(copy?.isRead ?? copy?.is_read);
+    const accountId = copy?.accountId ?? copy?.account_id;
+    const affectsInbox = String(copy?.folder || '').toUpperCase() === 'INBOX' && accountId && before !== read;
+    const adjustCount = value => {
+      const state = useStore.getState();
+      if (affectsInbox) {
+        (value ? state.decrementUnread : state.incrementUnread)(accountId);
+        state.adjustFolderUnread(accountId, 'INBOX', value ? -1 : 1);
+      }
+    };
+    adjustCount(read);
+    if (affectsInbox && read) setPending(copyId, accountId);
     setLocalReadState(copyId, read);
     const mutation = queueReadStateMutation(copyId, read, targetRead => api.bulkRead([copyId], targetRead));
     return mutation.promise.then(() => { refreshEpoch.current += 1; }).catch(error => {
-      if (isLatestReadStateMutation(copyId, mutation.version)) setLocalReadState(copyId, before);
+      if (isLatestReadStateMutation(copyId, mutation.version)) { setLocalReadState(copyId, before); adjustCount(!read); }
       throw error;
+    }).finally(() => {
+      if (isLatestReadStateMutation(copyId, mutation.version)) pendingMarkReadMap.delete(copyId);
+      window.dispatchEvent(new CustomEvent('inboxora:unread_changed'));
     });
   }, [messages, setLocalReadState]);
 

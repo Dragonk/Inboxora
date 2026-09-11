@@ -4,49 +4,12 @@ import { useStore } from '../store/index.js';
 import { api } from '../utils/api.js';
 import { installCapacitorNativeBridge } from '../utils/capacitorNativeBridge.js';
 import { playNotificationSound } from '../utils/notificationSounds.js';
-import { pendingMarkReadMap } from '../utils/pendingReads.js';
+import { refreshUnreadCounts } from '../utils/unreadRefresh.js';
+import { restorePushSubscription } from '../utils/pushSubscription.js';
 import { dispatchPluginWsMessage, dispatchPluginReconnect } from '../plugins/events.js';
 import { accountAffectsUnifiedInbox } from '../utils/unifiedInbox.js';
 import { recordDiagEvent } from '../utils/diagEvents.js';
 
-
-// Apply a fresh server count, guarding against double-adjustment of in-flight
-// mark-read operations.
-//
-// Since /unread-counts now queries messages directly, the DB reflects a
-// mark-read as soon as the PATCH's UPDATE commits — which happens well before
-// IMAP flag work finishes and before the HTTP response returns. This means
-// pendingMarkReadMap can lag the DB by hundreds of milliseconds, and naively
-// subtracting it from the server count would undercount by one per in-flight read.
-//
-// Guard: only subtract pending reads when the server count is still at least
-// (current optimistic + pending size). If the server count is already lower,
-// the DB has applied those reads and subtracting again would double-count.
-function _applyServerCounts(counts) {
-  const _before = useStore.getState().unreadCounts.total;
-  if (pendingMarkReadMap.size > 0) {
-    const state = useStore.getState();
-    const current = state.unreadCounts;
-    const pendingUnifiedCount = [...pendingMarkReadMap.values()]
-      .filter(accountId => accountAffectsUnifiedInbox(state.accounts, accountId))
-      .length;
-    if (counts.total >= current.total + pendingUnifiedCount) {
-      // Server hasn't incorporated in-flight reads yet — subtract them.
-      const byAccount = { ...counts.byAccount };
-      for (const accountId of pendingMarkReadMap.values()) {
-        if (byAccount[accountId] > 0) byAccount[accountId]--;
-      }
-      const total = Math.max(0, counts.total - pendingUnifiedCount);
-      useStore.setState({ unreadCounts: { total, byAccount } });
-    } else {
-      // DB already applied the reads — use the authoritative count directly.
-      useStore.setState({ unreadCounts: counts });
-    }
-  } else {
-    useStore.setState({ unreadCounts: counts });
-  }
-  recordDiagEvent({ category: 'unread', cause: 'server_counts', beforeTotal: _before, afterTotal: useStore.getState().unreadCounts.total });
-}
 
 async function _forwardNativeNewMailNotification(notification) {
   await installCapacitorNativeBridge();
@@ -118,9 +81,7 @@ export function useWebSocket() {
       if (wasReconnect) {
         recordDiagEvent({ category: 'ws', type: 'reconnect' });
         window.dispatchEvent(new CustomEvent('inboxora:refresh', { detail: { refreshThreads: true } }));
-        api.getUnreadCounts().then(counts => {
-          useStore.setState({ unreadCounts: counts });
-        }).catch(() => {});
+        refreshUnreadCounts();
         // A plugin's rail/derived data can drift during the outage — events fired while the socket
         // was down are lost, not buffered. Let each activated plugin resync (GTD refetches its
         // sections). Core stays plugin-agnostic.
@@ -212,7 +173,7 @@ export function useWebSocket() {
         // and corrects any optimistic delta that exists_hint applied earlier.
         // Also handles periodic syncs that have no preceding exists_hint.
         if (isInbox) {
-          api.getUnreadCounts().then(_applyServerCounts).catch(() => {});
+          refreshUnreadCounts();
         }
         break;
       }
@@ -301,7 +262,7 @@ export function useWebSocket() {
           window.dispatchEvent(new CustomEvent('inboxora:refresh', { detail: { refreshThreads: true } }));
           window.dispatchEvent(new CustomEvent('inboxora:sync_done'));
         }
-        api.getUnreadCounts().then(_applyServerCounts).catch(() => {});
+        refreshUnreadCounts();
         break;
       }
 
@@ -310,7 +271,7 @@ export function useWebSocket() {
         window.dispatchEvent(new CustomEvent('inboxora:sync_done'));
         // Re-fetch unread counts so sidebar badges reflect messages marked read
         // in external clients (the message list refresh alone doesn't update counts).
-        api.getUnreadCounts().then(_applyServerCounts).catch(() => {});
+        refreshUnreadCounts();
         // Re-fetch per-folder counts for the affected account so sidebar folder
         // badges stay in sync (unread_count, total_count). Only refresh accounts
         // whose folders are already loaded to avoid unnecessary requests.
@@ -327,7 +288,7 @@ export function useWebSocket() {
         addNotification({ title: data.ok ? t('sidebar.emptied') : t('sidebar.emptyFailed') });
         window.dispatchEvent(new CustomEvent('inboxora:refresh', { detail: { refreshThreads: true } }));
         window.dispatchEvent(new CustomEvent('inboxora:sync_done'));
-        api.getUnreadCounts().then(_applyServerCounts).catch(() => {});
+        refreshUnreadCounts();
         if (data.accountId && useStore.getState().folders[data.accountId]) {
           api.getFolders(data.accountId).then(f => setFolders(data.accountId, f)).catch(() => {});
         }
@@ -336,9 +297,7 @@ export function useWebSocket() {
 
       case 'snooze_wakeup': {
         window.dispatchEvent(new CustomEvent('inboxora:refresh', { detail: { refreshThreads: true } }));
-        api.getUnreadCounts().then(counts => {
-          useStore.setState({ unreadCounts: counts });
-        }).catch(() => {});
+        refreshUnreadCounts();
         break;
       }
 
@@ -348,7 +307,7 @@ export function useWebSocket() {
         // sync activity stays visible now that sync_complete no longer fires every tick.
         window.dispatchEvent(new CustomEvent('inboxora:refresh', { detail: { refreshThreads: true } }));
         window.dispatchEvent(new CustomEvent('inboxora:sync_done'));
-        api.getUnreadCounts().then(_applyServerCounts).catch(() => {});
+        refreshUnreadCounts();
         break;
       }
 
@@ -370,7 +329,7 @@ export function useWebSocket() {
           flagCountRefreshTimer = setTimeout(() => {
             // A collapsed thread may contain changed copies absent from the local cache.
             window.dispatchEvent(new CustomEvent('inboxora:refresh', { detail: { refreshThreads: true } }));
-            api.getUnreadCounts().then(_applyServerCounts).catch(() => {});
+            refreshUnreadCounts();
           }, 400);
         }
         break;
@@ -398,16 +357,30 @@ export function useWebSocket() {
   useEffect(() => {
     const revive = () => {
       if (document.visibilityState !== 'visible') return;
+      window.dispatchEvent(new CustomEvent('inboxora:refresh', { detail: { refreshThreads: true } }));
+      refreshUnreadCounts();
+      restorePushSubscription();
       const ws = wsRef.current;
+      if (ws?.readyState === WebSocket.OPEN && Date.now() - (ws._lastActivity || 0) > 30000) {
+        connect();
+        return;
+      }
       if (!ws || ws.readyState === WebSocket.CLOSED || ws.readyState === WebSocket.CLOSING) {
         clearTimeout(reconnectTimer.current);
         reconnectAttempt.current = 0;
         connect();
       }
     };
+    const pushed = event => { if (event.data?.type === 'inboxora_mail_changed') revive(); };
+    const countsChanged = () => refreshUnreadCounts();
+    navigator.serviceWorker?.addEventListener('message', pushed);
+    window.addEventListener('inboxora:unread_changed', countsChanged);
+    restorePushSubscription();
     document.addEventListener('visibilitychange', revive);
     window.addEventListener('online', revive);
     return () => {
+      navigator.serviceWorker?.removeEventListener('message', pushed);
+      window.removeEventListener('inboxora:unread_changed', countsChanged);
       document.removeEventListener('visibilitychange', revive);
       window.removeEventListener('online', revive);
     };

@@ -1,3 +1,4 @@
+import { refreshUnreadCounts } from '../utils/unreadRefresh.js';
 import { useBackLayer } from '../hooks/useBackNavigation.js';
 import { folderLabel } from '../utils/folderLabels.js';
 import { useState, useEffect, useRef, useCallback } from 'react';
@@ -527,9 +528,7 @@ export default function Sidebar({ onEditProfile = null }) {
     try {
       await api.markAllRead(accountId, folder);
       window.dispatchEvent(new CustomEvent('inboxora:refresh'));
-      api.getUnreadCounts().then(counts => {
-        useStore.setState({ unreadCounts: counts });
-      }).catch(() => {});
+      refreshUnreadCounts();
       api.getFolders(accountId).then(f => setFolders(accountId, f)).catch(() => {});
     } catch (err) { console.error('markAllRead failed:', err.message); }
   };
@@ -947,7 +946,7 @@ export default function Sidebar({ onEditProfile = null }) {
           const rowLabel = collapsedTooltip(account.email_address, sidebarCollapsed);
 
           return (
-            <div key={account.id}>
+            <div key={account.id} data-account-id={account.id} data-unread-count={unread}>
               {/* Only the collapsed row may carry a button role: expanded, it holds
                   the expand toggle, and a button cannot nest inside a button. */}
               <div

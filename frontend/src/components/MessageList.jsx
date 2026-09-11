@@ -1,3 +1,4 @@
+import { refreshUnreadCounts } from '../utils/unreadRefresh.js';
 import { MobileModuleHeader, HeaderAction } from './MobileModuleHeader.jsx';
 import MobileFloatingAction from './MobileFloatingAction.jsx';
 import { useBackLayer } from '../hooks/useBackNavigation.js';
@@ -1267,7 +1268,7 @@ export default function MessageList() {
       // Even if our optimistic math was right, edge cases like the user
       // moving messages between two folders that share a parent, or a
       // concurrent IMAP IDLE update, can desync the local counters.
-      api.getUnreadCounts().then(c => useStore.getState().setUnreadCounts(c)).catch(() => {});
+      refreshUnreadCounts();
       api.getFolders(accountId).then(f => useStore.getState().setFolders(accountId, f)).catch(() => {});
     }, 4500));
 

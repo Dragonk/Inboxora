@@ -1209,15 +1209,22 @@ describe('syncMessages — Web Push branding', () => {
     sendPushToUser.mockReset().mockResolvedValue();
   });
 
-  it('uses the canonical Inboxora icon in a new-mail Web Push payload', async () => {
+  it('broadcasts new mail before scanning old flags and uses the canonical push icon', async () => {
     const account = {
       id: 'acct-push-branding', user_id: 'user-1', email_address: 'me@example.com',
       gtd_enabled: false, categorization_enabled: false, imap_host: 'imap.example.com',
     };
+    const broadcast = vi.fn();
     const client = {
       getMailboxLock: vi.fn().mockResolvedValue({ release: vi.fn() }),
-      mailbox: { exists: 1, uidValidity: 100, highestModseq: 500n },
-      fetch: vi.fn(async function* () { yield { uid: 501 }; }),
+      mailbox: { exists: 1, uidValidity: 100, highestModseq: 501n },
+      fetch: vi.fn(async function* (_range, request) {
+        if (request.headers) yield { uid: 501 };
+        else {
+          expect(broadcast).toHaveBeenCalledWith(expect.objectContaining({ type: 'new_messages' }), 'user-1');
+          yield { uid: 501, flags: new Set() };
+        }
+      }),
     };
     query.mockImplementation((sql) => {
       if (sql.includes('SELECT uid_validity, highest_modseq FROM folders')) return Promise.resolve({ rows: [{ uid_validity: 100, highest_modseq: '500' }] });
@@ -1234,14 +1241,14 @@ describe('syncMessages — Web Push branding', () => {
     });
 
     await ImapManager.prototype.syncMessages.call({
-      broadcast: vi.fn(),
+      broadcast,
       pluginFacade: {},
       prefetchNewMessageBodies: vi.fn().mockResolvedValue(),
       upsertAutoContacts: vi.fn().mockResolvedValue(),
     }, account, client, 'INBOX', 50, false, true);
     await vi.waitFor(() => expect(sendPushToUser).toHaveBeenCalled());
 
-    expect(sendPushToUser).toHaveBeenCalledWith('user-1', expect.objectContaining({ icon: '/inboxora-icon-512.png?v=inboxora-2' }));
+    expect(sendPushToUser).toHaveBeenCalledWith('user-1', expect.objectContaining({ icon: '/inboxora-envelope-512.png' }));
   });
 });
 
@@ -1912,4 +1919,33 @@ describe('syncMessages — empty mailbox still stamps last_sync', () => {
     await ImapManager.prototype.syncMessages.call({}, emptyMailboxAccount, client, 'INBOX', 50, false, true);
     expect(query.mock.calls.filter(c => /UPDATE email_accounts SET last_sync/.test(c[0]))).toHaveLength(0);
   });
+});
+
+it('queues an IDLE arrival during a running sync instead of dropping it', () => {
+  const client = new EventEmitter();
+  const mgr = new ImapManager({ clients: new Set() });
+  const account = { id: 'idle-busy', user_id: 'user-1' };
+  mgr.syncingAccounts.add(account.id);
+  mgr._syncTick = vi.fn();
+  mgr._attachIdleListeners(client, account);
+  client.emit('exists', { count: 12, prevCount: 11 });
+  expect(mgr._pendingInboxSync.has(account.id)).toBe(true);
+  expect(mgr._syncTick).not.toHaveBeenCalled();
+});
+
+it('drains a queued arrival after the active sync releases its account lock', async () => {
+  const mgr = new ImapManager({ clients: new Set() });
+  const account = { id: 'idle-drain', user_id: 'user-1', imap_host: 'imap.example.test' };
+  mgr.connections.set(account.id, { logout: async () => {} });
+  mgr.lastFolderSyncAt.set(account.id, Date.now());
+  mgr._clearAccountError = vi.fn().mockResolvedValue();
+  mgr._syncFlagsForRange = vi.fn().mockResolvedValue();
+  mgr.syncMessages = vi.fn().mockImplementationOnce(async () => {
+    mgr._pendingInboxSync.add(account.id);
+    return { insertedCount: 0 };
+  }).mockResolvedValue({ insertedCount: 0 });
+  await mgr._syncTick(account);
+  await vi.waitFor(() => expect(mgr.syncMessages).toHaveBeenCalledTimes(2));
+  expect(mgr._pendingInboxSync.has(account.id)).toBe(false);
+  clearInterval(mgr._healthCheckTimer); clearInterval(mgr._snippetSchedulerTimer);
 });

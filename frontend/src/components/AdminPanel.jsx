@@ -1,3 +1,4 @@
+import { refreshUnreadCounts } from '../utils/unreadRefresh.js';
 import { useBackLayer } from '../hooks/useBackNavigation.js';
 import { intlLocale } from '../utils/intlLocale.js';
 import { folderLabel } from '../utils/folderLabels.js';
@@ -492,7 +493,7 @@ function AccountsTab() {
       total: unifiedUnreadTotal(unreadCounts.byAccount, nextAccounts),
       byAccount: unreadCounts.byAccount,
     });
-    api.getUnreadCounts().then(setUnreadCounts).catch(console.error);
+    refreshUnreadCounts();
     setSubview('list');
     setEditTarget(null);
   };

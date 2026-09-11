@@ -1,3 +1,4 @@
+import { refreshUnreadCounts } from '../utils/unreadRefresh.js';
 import { lazy, Suspense, useCallback, useEffect, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useStore } from '../store/index.js';
@@ -578,14 +579,11 @@ export default function MailApp() {
 
     // Load unread counts
     const refreshCounts = () => {
-      api.getUnreadCounts()
-        .then(setUnreadCounts)
-        .catch(console.error);
+      refreshUnreadCounts();
     };
     refreshCounts();
-    // 5-minute fallback poll — WebSocket sync_complete events handle the common case;
-    // this covers stale counts when the WebSocket is temporarily disconnected.
-    const interval = setInterval(refreshCounts, 300000);
+    // Visible tabs converge even if an individual WebSocket event was lost.
+    const interval = setInterval(() => { if (document.visibilityState === 'visible') refreshCounts(); }, 60000);
     return () => clearInterval(interval);
   }, [setAccounts, setUnreadCounts, setTodoistConnected]);
 
@@ -597,7 +595,8 @@ export default function MailApp() {
     const ms = Math.max(15, syncInterval || 60) * 1000;
     const id = setInterval(() => {
       if (document.visibilityState === 'visible' && wsRef.current?.readyState !== WebSocket.OPEN) {
-        window.dispatchEvent(new CustomEvent('inboxora:refresh'));
+        window.dispatchEvent(new CustomEvent('inboxora:refresh', { detail: { refreshThreads: true } }));
+        refreshUnreadCounts();
       }
     }, ms);
     return () => clearInterval(id);
