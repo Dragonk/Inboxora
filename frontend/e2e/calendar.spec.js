@@ -276,8 +276,10 @@ test('calendar event menus support desktop keyboard and mobile invocation while 
   const imported = page.getByTestId('calendar-grid').getByRole('button', { name: /Imported meeting/ });
   await expect(local).toBeVisible();
   await expect(imported).toBeVisible();
-  if (page.viewportSize().width < 768) await page.getByTestId('calendar-event-actions').first().click();
-  else await local.click({ button: 'right' });
+  // The per-event ⋮ button is gone: a tap opens the preview, and the context menu
+  // stays reachable through the contextmenu gesture (long-press on touch).
+  if (page.viewportSize().width < 768) expect(await page.getByTestId('calendar-event-actions').count()).toBe(0);
+  await local.click({ button: 'right' });
   const menu = page.getByTestId('calendar-context-menu');
   await expect(menu).toBeVisible();
   await expect(menu.getByRole('menuitem', { name: 'Edytuj wydarzenie' })).toBeVisible();
@@ -285,8 +287,7 @@ test('calendar event menus support desktop keyboard and mobile invocation while 
   await page.keyboard.press('Escape');
   await expect(menu).toBeHidden();
   if (page.viewportSize().width >= 768) await expect(local).toBeFocused();
-  else await expect(page.getByTestId('calendar-event-actions').first()).toBeFocused();
-  if (page.viewportSize().width < 768) await page.getByTestId('calendar-event-actions').first().click();
+  await local.click({ button: 'right' });
   if (page.viewportSize().width >= 768) {
     await local.focus();
     await page.keyboard.press('Shift+F10');
@@ -327,7 +328,7 @@ test('calendar event menus support desktop keyboard and mobile invocation while 
     await page.keyboard.press('Enter');
     await expect(page.getByRole('dialog', { name: 'Edytuj wydarzenie' })).toBeVisible();
     await page.getByRole('dialog', { name: 'Edytuj wydarzenie' }).getByRole('button', { name: 'Anuluj' }).click();
-    await page.getByTestId('calendar-event-actions').first().click();
+    await local.click({ button: 'right' });
     await page.keyboard.press('End');
     page.once('dialog', dialog => dialog.accept());
     await page.keyboard.press('Space');
@@ -336,7 +337,11 @@ test('calendar event menus support desktop keyboard and mobile invocation while 
   if (page.viewportSize().width >= 768) {
     await imported.focus();
     await page.keyboard.press('Shift+F10');
-  } else await page.getByTestId('calendar-event-actions').nth(1).click();
+  } else {
+    // No per-event ⋮ button on touch: the context menu is reached by the
+    // contextmenu gesture (long-press), which is what this click dispatches.
+    await imported.click({ button: 'right' });
+  }
   const readOnlyMenu = page.getByTestId('calendar-context-menu');
   await expect(readOnlyMenu).toBeVisible();
   await expect(readOnlyMenu.getByTestId('calendar-context-read-only')).toBeVisible();
@@ -344,7 +349,6 @@ test('calendar event menus support desktop keyboard and mobile invocation while 
   await page.getByRole('button', { name: 'Zamknij menu kalendarza' }).click();
   await expect(readOnlyMenu).toBeHidden();
   if (page.viewportSize().width >= 768) await expect(imported).toBeFocused();
-  else await expect(page.getByTestId('calendar-event-actions').nth(1)).toBeFocused();
 });
 
 test('week and work-week time-grid events expose menus for timed and all-day events', async ({ page, fixtureApi }, testInfo) => {
@@ -369,20 +373,17 @@ test('week and work-week time-grid events expose menus for timed and all-day eve
     await expect(grid.getByRole('button', { name: /Grid timed local/ })).toBeVisible();
     const allDayLocal = grid.getByRole('button', { name: /Grid all-day local/ }).first();
     await expect(allDayLocal).toBeVisible();
-    if (page.viewportSize().width < 768) {
-      const action = allDayLocal.locator('..').getByTestId('calendar-event-actions');
-      expect((await action.boundingBox()).width).toBeGreaterThanOrEqual(44);
-      await action.click();
-    } else {
-      await grid.getByRole('button', { name: /Grid timed local/ }).click({ button: 'right' });
-    }
+    if (page.viewportSize().width < 768) expect(await allDayLocal.locator('..').getByTestId('calendar-event-actions').count()).toBe(0);
+    // No per-event action button exists; a tap opens the preview and the context menu
+    // is reached through the contextmenu gesture on every input.
+    await grid.getByRole('button', { name: /Grid timed local/ }).click({ button: 'right' });
     const menu = page.getByTestId('calendar-context-menu');
     await expect(menu.getByRole('menuitem')).toHaveCount(2);
     await page.keyboard.press('Escape');
     if (page.viewportSize().width >= 768) {
       await grid.getByRole('button', { name: /Grid all-day remote/ }).first().press('Shift+F10');
     } else {
-      await grid.getByRole('button', { name: /Grid all-day remote/ }).first().locator('..').getByTestId('calendar-event-actions').click();
+      await grid.getByRole('button', { name: /Grid all-day remote/ }).first().click({ button: 'right' });
     }
     await expect(page.getByTestId('calendar-context-read-only')).toBeVisible();
     await expect(page.getByTestId('calendar-context-menu').getByRole('menuitem')).toHaveCount(0);
@@ -391,7 +392,7 @@ test('week and work-week time-grid events expose menus for timed and all-day eve
   await page.screenshot({ path: testInfo.outputPath('calendar-time-grid-menus.png'), fullPage: true });
 });
 
-test('mobile week and work-week timed events expose writable and read-only actions', async ({ page, fixtureApi }, testInfo) => {
+test('mobile timed events open the preview instead of a per-event action button', async ({ page, fixtureApi }, testInfo) => {
   test.skip(!['chromium-mobile-390', 'chromium-mobile'].includes(testInfo.project.name), 'mobile timed-event actions');
   await fixtureApi;
   await page.route('**/api/calendar/events**', route => {
@@ -406,26 +407,28 @@ test('mobile week and work-week timed events expose writable and read-only actio
   await page.goto('/');
   await navigateModule(page, 'calendar');
   const grid = page.getByTestId('calendar-grid');
+  const preview = page.getByTestId('calendar-event-preview');
   for (const view of ['week', 'workweek']) {
     await selectCalendarView(page, view);
-    const local = grid.getByRole('button', { name: /Mobile timed local/ });
-    const remote = grid.getByRole('button', { name: /Mobile timed remote/ });
-    const localActions = local.locator('..').getByTestId('calendar-event-actions');
-    const remoteActions = remote.locator('..').getByTestId('calendar-event-actions');
-    await expect(localActions).toBeVisible();
-    await expect(remoteActions).toBeVisible();
-    expect((await localActions.boundingBox()).width).toBeGreaterThanOrEqual(44);
-    expect((await localActions.boundingBox()).height).toBeGreaterThanOrEqual(44);
-    expect((await remoteActions.boundingBox()).width).toBeGreaterThanOrEqual(44);
-    expect((await remoteActions.boundingBox()).height).toBeGreaterThanOrEqual(44);
-    await localActions.click();
-    const menu = page.getByTestId('calendar-context-menu');
-    await expect(menu.getByRole('menuitem')).toHaveCount(2);
+    // The ⋮ action button was redundant: tapping an event already reaches edit and
+    // delete, so no per-event action button may exist any more.
+    expect(await grid.getByTestId('calendar-event-actions').count()).toBe(0);
+
+    // A writable event opens the preview with both edit and delete.
+    await grid.getByRole('button', { name: /Mobile timed local/ }).click();
+    await expect(preview).toBeVisible();
+    await expect(page.getByTestId('calendar-preview-edit')).toBeVisible();
+    await expect(preview.getByRole('button', { name: 'Usuń' })).toBeVisible();
     await page.keyboard.press('Escape');
-    await remoteActions.click();
-    await expect(page.getByTestId('calendar-context-read-only')).toBeVisible();
-    await expect(menu.getByRole('menuitem')).toHaveCount(0);
+    await expect(preview).toBeHidden();
+
+    // A read-only event opens the same preview, but without editing or deleting.
+    await grid.getByRole('button', { name: /Mobile timed remote/ }).click();
+    await expect(preview).toBeVisible();
+    await expect(page.getByTestId('calendar-preview-edit')).toHaveCount(0);
+    await expect(preview.getByRole('button', { name: 'Usuń' })).toHaveCount(0);
     await page.keyboard.press('Escape');
+    await expect(preview).toBeHidden();
   }
 });
 

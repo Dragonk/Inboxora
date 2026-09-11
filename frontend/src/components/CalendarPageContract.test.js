@@ -6,16 +6,20 @@ const calendarPath = new URL('./CalendarPage.jsx', import.meta.url);
 const sidebarPath = new URL('./CalendarSidebar.jsx', import.meta.url);
 const localesPath = new URL('../locales/', import.meta.url);
 
-test('calendar events expose context-menu invocation and mobile action affordances', async () => {
+test('calendar events expose context-menu invocation without per-event action buttons', async () => {
   const source = await readFile(calendarPath, 'utf8');
   assert.match(source, /onContextMenu=\{event => \{ event\.preventDefault\(\)/);
   assert.match(source, /keyboardEvent\.key !== 'ContextMenu'/);
   assert.match(source, /keyboardEvent\.shiftKey && keyboardEvent\.key === 'F10'/);
-  assert.match(source, /data-testid="calendar-event-actions"/);
+  // The ⋮ button was redundant: tapping an event already reaches edit and delete
+  // through the preview, so no per-event action button may come back.
+  assert.doesNotMatch(source, /data-testid="calendar-event-actions"/);
+  assert.doesNotMatch(source, /eventActionButton/);
+  // The context menu itself stays available (right-click / Shift+F10 / long-press).
+  assert.match(source, /<CalendarContextMenu/);
   assert.match(source, /source === 'local'/);
   assert.match(source, /<TimeGrid[^>]*openContextMenu=\{openContextMenu\}/);
   assert.match(source, /allDayEvents[\s\S]*onContextMenu/);
-  assert.match(source, /minWidth: 44/);
 });
 
 test('time grid re-anchors on a view change without resetting same-view manual scrolling', async () => {
