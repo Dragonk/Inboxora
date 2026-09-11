@@ -131,29 +131,60 @@
       const button = document.querySelector('#submit-button');
       const error = document.querySelector('#error');
 
-      function installCapacitorNativeBridge() {
+      // Capacitor exposes natively registered plugins under Capacitor.Plugins,
+      // and also offers the low-level Capacitor.nativePromise(...) entry point.
+      // Prefer the former, fall back to the latter: the setup screen must never
+      // depend on one specific bridge shape.
+      function callNative(method, args, fallback) {
         const plugin = window.Capacitor?.Plugins?.InboxoraNative;
-        if (!plugin || window.inboxoraNative) return;
+        if (plugin && typeof plugin[method] === 'function') {
+          return Promise.resolve(plugin[method](args || {}));
+        }
+        const cap = window.Capacitor;
+        if (cap && typeof cap.nativePromise === 'function') {
+          return cap.nativePromise('InboxoraNative', method, args || {});
+        }
+        return Promise.resolve(fallback);
+      }
+
+      function installCapacitorNativeBridge() {
+        // Electron injects window.inboxoraNative via its preload script; keep it.
+        if (window.inboxoraNative && typeof window.inboxoraNative.saveHost === 'function') return;
+
+        const hasPlugin = !!window.Capacitor?.Plugins?.InboxoraNative;
+        const hasRawBridge = typeof window.Capacitor?.nativePromise === 'function';
+        if (!hasPlugin && !hasRawBridge) return;
 
         window.inboxoraNative = {
+          ...(window.inboxoraNative || {}),
           getHost: async () => {
-            const result = await plugin.getHost();
+            const result = await callNative('getHost', undefined, {});
             return result?.host || null;
           },
           saveHost: async (host) => {
-            const result = await plugin.saveHost({ host });
-            return result?.host || host;
+            const result = await callNative('saveHost', { host }, null);
+            if (!result || !result.host) throw new Error('The native host could not be saved.');
+            return result.host;
           },
           checkNotificationPermission: async () => {
-            const result = await plugin.checkNotificationPermission();
+            const result = await callNative('checkNotificationPermission', undefined, {});
             return result?.permission || 'default';
           },
           requestNotificationPermission: async () => {
-            const result = await plugin.requestNotificationPermission();
+            const result = await callNative('requestNotificationPermission', undefined, {});
             return result?.permission || 'default';
           },
-          resetHost: async () => plugin.resetHost(),
+          resetHost: async () => callNative('resetHost', undefined, null),
         };
+      }
+
+      // Never leave "Continue" looking dead: if the native side does not answer,
+      // re-enable the button with a message instead of hanging forever.
+      function withTimeout(promise, ms, message) {
+        return Promise.race([
+          promise,
+          new Promise((_, reject) => setTimeout(() => reject(new Error(message)), ms)),
+        ]);
       }
 
       function normalizeHost(value) {
@@ -213,8 +244,12 @@
         try {
           const host = normalizeHost(input.value);
 
-          if (window.inboxoraNative) {
-            const savedHost = await window.inboxoraNative.saveHost(host);
+          if (window.inboxoraNative && typeof window.inboxoraNative.saveHost === 'function') {
+            const savedHost = await withTimeout(
+              window.inboxoraNative.saveHost(host),
+              20000,
+              'The app did not answer. Please try again.',
+            );
             loadHost(savedHost || host);
           } else {
             localStorage.setItem(STORAGE_KEY, host);

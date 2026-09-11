@@ -18,7 +18,7 @@ dispatchMailNotification()            src/services/pushDispatcher.js
         └── Native    ──▶ push_devices        (Android)
                               │
                               ▼
-                    built-in ntfy at ${APP_URL}/push
+                    built-in ntfy at the ${APP_URL} origin
                               │
                               ▼
                     UnifiedPush distributor (ntfy Android app)
@@ -39,10 +39,17 @@ in `push_subscriptions`. Adding native push does not change this path.
 ### How it works, in one paragraph
 
 Inboxora does not use Firebase. Instead the Docker stack includes **ntfy**, an
-open-source UnifiedPush server, published on the **same domain** as Inboxora at
-`${APP_URL}/push`. On the phone you install the **ntfy** app, point it at
-`https://your-domain/push`, and Inboxora registers a random endpoint with your
-own Inboxora server. When mail arrives, Inboxora sends only an anonymous
+open-source UnifiedPush server, running on the **same domain** as Inboxora. On
+the phone you install the **ntfy** app and point it at the origin,
+`https://your-domain` — **without any path**. Inboxora proxies only the
+UnifiedPush topic namespace ("up" + 12 random characters) and ntfy's `/v1` API
+at that origin; `https://your-domain/push` is kept as a compatibility alias.
+
+Why no `/push` in the app: the ntfy Android app rejects a base URL that
+contains a path (`validBaseUrl`), and the ntfy server itself also refuses a
+`base-url` with a path. Keeping ntfy on the same domain therefore means serving
+it at the origin for those paths, not under a prefix. Inboxora registers a
+random endpoint with your own Inboxora server. When mail arrives, Inboxora sends only an anonymous
 `{"type":"mail.changed","eventId":"..."}` event through ntfy; the app wakes and
 fetches the real notification details from your own Inboxora server.
 
@@ -65,7 +72,7 @@ notifications while the app is closed.
 ```text
 1. Install the Inboxora Android app.
 2. Install ntfy (F-Droid, or the link shown in Inboxora).
-3. In ntfy, set the server to:  https://your-domain/push
+3. In ntfy, set the server to:  https://your-domain        (no /push!)
 4. Open Inboxora.
 5. Go to Settings -> Notifications.
 6. Turn on Instant notifications.
@@ -183,16 +190,17 @@ docker compose -f docker-compose.yml -f docker-compose.external-ntfy.yml up -d
 ```
 
 The override moves the bundled `ntfy` service into an unused profile, so it is
-not started. Point the ntfy Android app at `PUSH_BASE_URL`; the `/push` path on
-the Inboxora domain is then unused. The endpoint must be HTTPS (or, for a LAN
-install with `PUSH_ALLOW_PRIVATE_ENDPOINTS=true`, HTTP on a private address).
+not started. Point the ntfy Android app at `PUSH_BASE_URL` (again the origin of
+that ntfy, with no path); the origin routing on the Inboxora domain is then
+unused. The endpoint must be HTTPS (or, for a LAN install with
+`PUSH_ALLOW_PRIVATE_ENDPOINTS=true`, HTTP on a private address).
 
 ## Configuration
 
 | Variable | Default | Purpose |
 | --- | --- | --- |
-| `APP_URL` | — | Public origin. The UnifiedPush base becomes `${APP_URL}/push`. |
-| `PUSH_BASE_URL` | unset | Advanced: an external ntfy base. Overrides `${APP_URL}/push`. |
+| `APP_URL` | — | Public origin. It is also the UnifiedPush base shown to the ntfy app (path-less). |
+| `PUSH_BASE_URL` | unset | Advanced: an external ntfy origin (path-less). Overrides `${APP_URL}`. |
 | `PUSH_ALLOW_PRIVATE_ENDPOINTS` | `false` | Allow a private/LAN (and http) UnifiedPush endpoint. Off by default (SSRF guard). |
 | `NTFY_CACHE_DURATION` | `12h` | How long the bundled ntfy keeps an undelivered event. |
 | `NTFY_DATA` | `ntfy_data` volume | Where the bundled ntfy stores its cache/auth database. |
@@ -200,18 +208,21 @@ install with `PUSH_ALLOW_PRIVATE_ENDPOINTS=true`, HTTP on a private address).
 | `FCM_SERVICE_ACCOUNT_JSON` | unset | Optional/experimental FCM transport for builds with their own Firebase project. Not required. |
 
 Nothing above is required: with no configuration the web app and PWA Web Push
-work exactly as before, the bundled ntfy is ready at `/push`, and the Android
-app uses it as soon as a distributor is installed.
+work exactly as before, the bundled ntfy is ready at the origin (and under the
+`/push` alias), and the Android app uses it as soon as a distributor is
+installed.
 
 ## Reverse proxy requirements
 
-The bundled nginx (`frontend/nginx.conf`) already routes `/push/*` to ntfy,
-stripping the prefix and upgrading WebSockets. If you put your own proxy
-(Zoraxy, Nginx, Traefik, Caddy, Cloudflare, …) in front of Inboxora, it must:
+The bundled nginx (`frontend/nginx.conf`) already routes the UnifiedPush
+surface to ntfy: `/up` + 12 base62 characters and `/v1/*` at the origin, plus
+the compatibility `/push/*` prefix. If you put your own proxy (Zoraxy, Nginx,
+Traefik, Caddy, Cloudflare, …) in front of Inboxora, it must:
 
-- **preserve the `/push` path** and forward it to the Inboxora frontend (do not
-  strip it there — the bundled nginx strips it for ntfy);
-- support **WebSocket upgrade** (`Upgrade` / `Connection`) for `/push/*/ws`;
+- **preserve the paths** and forward them to the Inboxora frontend — do not strip
+  or rewrite `/up…` or `/v1/`; the bundled nginx does the ntfy hop;
+- support **WebSocket upgrade** (`Upgrade` / `Connection`) for `/up…/ws`
+  (and `/push/…/ws`);
 - pass `X-Forwarded-For` and `X-Forwarded-Proto`;
 - not impose a short idle timeout — the UnifiedPush socket is long-lived. A
   read timeout of at least a few minutes (the bundled nginx uses 3600 s) is
@@ -221,7 +232,9 @@ stripping the prefix and upgrading WebSockets. If you put your own proxy
 Example for an external nginx fronting the Inboxora container:
 
 ```nginx
-location /push/ {
+# Forward everything to the Inboxora frontend; it performs the /up… and /v1
+# routing to ntfy itself. Preserve the original path and scheme.
+location / {
     proxy_pass         http://127.0.0.1:8080;   # Inboxora frontend nginx
     proxy_http_version 1.1;
     proxy_set_header   Upgrade $http_upgrade;
@@ -240,11 +253,12 @@ Cloudflare and other CDNs must have WebSockets enabled for the zone.
 - **"Additional app required"** — no UnifiedPush distributor is installed.
   Install ntfy (the card links to it).
 - **"ntfy is installed but not connected"** — the distributor's server is not set
-  to this Inboxora's `/push` URL, or registration has not completed. Set the
-  server in ntfy and tap *Check again*. See
-  [Troubleshooting](Troubleshooting.md).
-- **`/push` returns 502** — the bundled ntfy container is not running
+  to this Inboxora's origin URL (`https://your-domain`, with **no path**), or
+  registration has not completed. Set the server in ntfy and tap *Check again*.
+  See [Troubleshooting](Troubleshooting.md).
+- **`/v1/health` returns 502** — the bundled ntfy container is not running
   (`docker compose ps ntfy`), or an external ntfy with the override is expected.
+  (`/push/v1/health` is the same endpoint under the alias.)
 - **Notifications delayed after the app is closed** — Android battery
   optimization is often the cause; exempt ntfy and Inboxora. Detailed steps are
   in [Troubleshooting](Troubleshooting.md).
@@ -271,7 +285,7 @@ release-ready:
 ```text
 Setup
   1. Install the Inboxora APK and the ntfy app.
-  2. In ntfy, set the server to https://<your-domain>/push.
+  2. In ntfy, set the server to https://<your-domain>   (no path).
   3. Open Inboxora -> Settings -> Notifications. Wait for "Active".
   4. Keep a stopwatch ready; the target is a few seconds from arrival.
 
@@ -294,6 +308,6 @@ without opening the app.
 
 If a state fails, see the Android section in
 [Troubleshooting](Troubleshooting.md) — most failures are battery optimization
-suspending ntfy, or a reverse proxy closing the /push WebSocket.
+suspending ntfy, or a reverse proxy closing the UnifiedPush (/up…) WebSocket.
 ```
 

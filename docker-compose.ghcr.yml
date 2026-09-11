@@ -112,15 +112,15 @@ services:
 
   # ── ntfy (built-in UnifiedPush transport) ────────────────────────────────────
   # Android instant notifications travel: Inboxora -> this ntfy -> UnifiedPush
-  # distributor (ntfy Android app) -> Inboxora Android. The frontend nginx serves
-  # it publicly at ${APP_URL}/push (stripping that prefix) and the container never
-  # publishes a host port.
+  # distributor (ntfy Android app) -> Inboxora Android. The frontend nginx
+  # proxies the UnifiedPush namespace at the domain origin and the container
+  # never publishes a host port.
   #
-  # Why the prefix is handled in the proxy: ntfy 2.28 refuses a base-url that
-  # contains a path ("hosting ntfy on a sub-path is not supported"). The Android
-  # ntfy app builds its UnifiedPush endpoint from the URL the user types
-  # (https://<host>/push), so the public path survives end to end and only this
-  # one proxy hop is rewritten.
+  # Why the origin and not a path: ntfy 2.28 refuses a base-url containing a path
+  # ("hosting ntfy on a sub-path is not supported") AND the ntfy Android app
+  # rejects a base URL with a path. nginx therefore routes only "/up" + 12 base62
+  # chars and "/v1" to ntfy (the SPA keeps every other path); /push/ is kept as a
+  # compatibility alias.
   #
   # Anonymous access is limited to UnifiedPush topics ("up" + 12 random base62
   # characters generated on-device, ~71 bits, never derived from a user id or

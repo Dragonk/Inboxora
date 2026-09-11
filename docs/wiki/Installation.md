@@ -13,7 +13,7 @@ candidates for testing only and must not be used for a server people depend on.
 - Persistent storage for PostgreSQL and Redis.
 - An existing reverse proxy for browser access and TLS termination. Do not expose additional
   public host ports for Inboxora. The proxy must pass WebSocket upgrades for `/ws` (live
-  updates) and for `/push` (Android instant notifications).
+  updates) and for the UnifiedPush paths `/up…` and `/v1/` (Android instant notifications).
 - A hostname and TLS certificate. `APP_URL` must be the external HTTPS URL whenever you use
   invitations, OAuth callbacks or browser cookies.
 - Outbound network access to your mail and calendar providers. For Microsoft 365, the host must
@@ -64,10 +64,11 @@ no second certificate:
 
 ```text
 Inboxora:      ${APP_URL}
-UnifiedPush:   ${APP_URL}/push
+UnifiedPush:   ${APP_URL}   (enter this origin in the ntfy app — no /push path)
 ```
 
-Android users install the **ntfy** app and point it at `${APP_URL}/push`; see
+Android users install the **ntfy** app and point it at `${APP_URL}` (the origin,
+no path — the ntfy app rejects a base URL with a path); see
 [Notifications and background delivery](Notifications.md). No additional configuration is
 required for the default setup. To use your own external ntfy instead, set `PUSH_BASE_URL` and
 start with `docker-compose.external-ntfy.yml` (download it alongside the compose file).
@@ -86,7 +87,7 @@ invitations or open registration, depending on your settings.
 | `INBOXORA_VERSION` | Recommended | Pins the image tag. |
 | `APP_PORT` / `APP_HTTP_PORT` | No | Published ports for the frontend container (default 443/80). |
 | `VAPID_PUBLIC_KEY` / `VAPID_PRIVATE_KEY` / `VAPID_SUBJECT` | No | Enables Web Push. Generate once with `npx web-push generate-vapid-keys`. |
-| `PUSH_BASE_URL` | No | Advanced: an external ntfy base URL. Defaults to `${APP_URL}/push`. |
+| `PUSH_BASE_URL` | No | Advanced: an external ntfy origin (path-less). Defaults to `${APP_URL}`. |
 | `PUSH_ALLOW_PRIVATE_ENDPOINTS` | No | Allow a private/LAN (http) UnifiedPush endpoint. Off by default (SSRF guard). |
 | `NTFY_CACHE_DURATION` | No | How long the bundled ntfy keeps an undelivered event (default `12h`). |
 | `NTFY_DATA` | No | Host path for the bundled ntfy data (a Docker named volume by default). |
@@ -115,7 +116,7 @@ Point the proxy at the frontend container's HTTP port and forward the original s
 
 - `X-Forwarded-Proto: https`
 - `X-Forwarded-For` and `Host` as usual
-- WebSocket upgrade for `/ws` and `/push`, plus a long idle timeout for `/push` so the
+- WebSocket upgrade for `/ws` and the UnifiedPush paths, plus a long idle timeout so the
   UnifiedPush connection is not dropped
 
 Leave the Caddy profile off in this setup.
@@ -132,7 +133,7 @@ All three are configured inside the application after startup:
 - **Web Push** — Settings → Notifications, once the VAPID key pair is present in the
   environment.
 - **Android instant notifications** — install the **ntfy** app on the phone and set its server
-  to `${APP_URL}/push`. Inboxora detects the app and registers automatically; the status
+  to `${APP_URL}` (the origin, no path). Inboxora detects the app and registers automatically; the status
   appears under Settings → Notifications. See
   [Notifications and background delivery](Notifications.md). No Firebase project is involved.
 

@@ -4,16 +4,18 @@ import { allowPrivatePushEndpoints, pushBaseUrl } from './pushConfig.js';
 afterEach(() => vi.unstubAllEnvs());
 
 describe('pushBaseUrl', () => {
-  it('defaults to the APP_URL plus /push', () => {
+  // The ntfy Android distributor rejects base URLs containing a path, so the
+  // advertised base is the origin; nginx routes the "up<12>" topics to ntfy.
+  it('defaults to the APP_URL origin (no /push path)', () => {
     vi.stubEnv('APP_URL', 'https://mail.example.com');
     vi.stubEnv('PUSH_BASE_URL', '');
-    expect(pushBaseUrl()).toBe('https://mail.example.com/push');
+    expect(pushBaseUrl()).toBe('https://mail.example.com');
   });
 
   it('normalizes trailing slashes', () => {
     vi.stubEnv('APP_URL', 'https://mail.example.com/');
     vi.stubEnv('PUSH_BASE_URL', '');
-    expect(pushBaseUrl()).toBe('https://mail.example.com/push');
+    expect(pushBaseUrl()).toBe('https://mail.example.com');
   });
 
   it('prefers an explicit external PUSH_BASE_URL', () => {

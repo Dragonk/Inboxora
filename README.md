@@ -112,8 +112,8 @@ upstream is published with the release tag.
   mobile shell, and self-hosted typography.
 - **Platform reach.** Installable PWA with an unread badge and Web Push. Electron desktop and
   Android/Capacitor shells exist and are being stabilised; they are not release-ready yet.
-  Android instant notifications use a bundled **ntfy** (UnifiedPush) server on the same domain at
-  `/push` — no Firebase, no second hostname. See
+  Android instant notifications use a bundled **ntfy** (UnifiedPush) server on the same domain
+  (enter the origin, no path, in the ntfy app) — no Firebase, no second hostname. See
   [Notifications](https://github.com/Dragonk/Inboxora/wiki/Notifications).
 
 ## Quick start
@@ -139,7 +139,7 @@ with `openssl rand -hex 32` (or `-hex 16` for `DB_PASSWORD`):
 | `ENCRYPTION_KEY` | Encrypts stored mail and DAV credentials at rest. **Losing it makes saved credentials unreadable.** |
 
 The same `docker compose up -d` also starts **ntfy**, the self-hosted UnifiedPush server for
-Android instant notifications, published on the same domain at `${APP_URL}/push`. One domain,
+Android instant notifications, running on the same domain at the `${APP_URL}` origin. One domain,
 one certificate, no extra configuration.
 
 Optional: `VAPID_PUBLIC_KEY` / `VAPID_PRIVATE_KEY` / `VAPID_SUBJECT` for Web Push, and

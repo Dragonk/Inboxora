@@ -113,6 +113,7 @@ public class InboxoraNativePlugin extends Plugin {
 
     @PluginMethod
     public void saveHost(PluginCall call) {
+        try {
         String host = call.getString("host", "");
         String normalizedHost = normalizeHost(host);
 
@@ -137,6 +138,9 @@ public class InboxoraNativePlugin extends Plugin {
         }
 
         persistHost(call, normalizedHost);
+        } catch (Exception error) {
+            call.reject("Could not save the Inboxora host: " + error.getMessage());
+        }
     }
 
     private void persistHost(PluginCall call, String normalizedHost) {
@@ -144,16 +148,30 @@ public class InboxoraNativePlugin extends Plugin {
         // Switching servers must not leave a native push subscription (and the
         // device token that authenticates it) alive for the previous account.
         if (previousHost != null && !previousHost.equals(normalizedHost)) {
-            InboxoraPushManager.unregister(getContext());
+            try { InboxoraPushManager.unregister(getContext()); } catch (Throwable ignored) {}
             InboxoraNotificationDedupStore.clear(getContext());
         }
         getPrefs(getContext()).edit().putString(PREF_HOST, normalizedHost).apply();
         if (getActivity() instanceof MainActivity) {
             ((MainActivity) getActivity()).configureNativeMessageBridge(normalizedHost);
         }
-        InboxoraBackgroundSync.schedule(getContext());
-        InboxoraPushManager.ensureRegistered(getContext());
-        InboxoraNativePush.enqueueRegistration(getContext());
+        // Background side effects must never stop the host from being saved or
+        // the app from navigating to the server.
+        try { InboxoraBackgroundSync.schedule(getContext()); } catch (Throwable ignored) {}
+        try { InboxoraPushManager.ensureRegistered(getContext()); } catch (Throwable ignored) {}
+        try { InboxoraNativePush.enqueueRegistration(getContext()); } catch (Throwable ignored) {}
+
+        // Load the server natively. The setup screen also calls
+        // window.location.replace(), but a JS-initiated navigation can race the
+        // preference write and be treated as an external URL, which made
+        // "Continue" look like it did nothing. A direct loadUrl() bypasses the
+        // URL-override hook and always lands in the configured host.
+        if (getBridge() != null && getBridge().getWebView() != null) {
+            WebView webView = getBridge().getWebView();
+            webView.post(() -> {
+                try { webView.loadUrl(normalizedHost); } catch (Throwable ignored) {}
+            });
+        }
 
         JSObject result = new JSObject();
         result.put("host", normalizedHost);

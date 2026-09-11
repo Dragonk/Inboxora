@@ -22,6 +22,25 @@ describe('UnifiedPush (/push) reverse proxy contract', () => {
     }
   });
 
+  it('serves UnifiedPush at the domain origin for the path-less ntfy base URL', () => {
+    // The ntfy Android distributor rejects a base URL that contains a path, so
+    // the "up" + 12 base62 topic namespace and ntfy's /v1 API must be reachable
+    // at the origin while every other path stays with the SPA.
+    const originLocation = 'location ~ "^/up[A-Za-z0-9]{12}(/|$)"';
+    for (const server of serverBlocks(config)) {
+      assert.ok(server.includes(originLocation), 'origin UnifiedPush location missing');
+      const start = server.indexOf(originLocation);
+      assert.ok(
+        server.indexOf('proxy_pass             http://mailflow_ntfy;', start) > start,
+        'origin UnifiedPush location does not proxy to ntfy',
+      );
+      assert.ok(server.includes('location ^~ /v1/'), 'ntfy /v1 API location missing');
+    }
+    const uncommented = nativeConfig.replace(/^#\s?/gm, '');
+    assert.ok(uncommented.includes(originLocation), 'native origin UnifiedPush location missing');
+    assert.ok(uncommented.includes('location ^~ /v1/'), 'native ntfy /v1 location missing');
+  });
+
   it('documents the same /push routing for native nginx installations', () => {
     const uncommented = nativeConfig.replace(/^#\s?/gm, '');
     assert.match(uncommented, /location \^~ \/push\/ \{[\s\S]*?proxy_pass\s+http:\/\/127\.0\.0\.1:2586\/;/);

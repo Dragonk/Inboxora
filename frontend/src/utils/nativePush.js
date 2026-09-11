@@ -55,9 +55,9 @@ export async function clearNativePush() {
 }
 
 // Combined state for the settings card: native distributor/permission info plus
-// the server's advertised UnifiedPush base URL. The server value wins; when the
-// server has no APP_URL configured, the current origin is the best local guess
-// for a single-domain install.
+// the server's advertised UnifiedPush base URL (the value to type into ntfy).
+// The server value wins; when the server has no APP_URL configured, the current
+// origin is the best local guess for a single-domain install.
 export async function getInstantPushState() {
   if (!isNativePlatform()) {
     return { platformSupported: false, status: 'unavailable', distributors: [], pushBaseUrl: null };
@@ -78,7 +78,9 @@ export async function getInstantPushState() {
     distributorLabel: current.distributorLabel || null,
     distributors: Array.isArray(current.distributors) ? current.distributors : [],
     hasEndpoint: current.hasEndpoint === true,
-    pushBaseUrl: server?.pushBaseUrl || (origin ? `${origin}/push` : null),
+    // The ntfy distributor needs a path-less base URL, so the origin is the
+    // right value to type into it (nginx routes the "up<12>" topics to ntfy).
+    pushBaseUrl: server?.pushBaseUrl || origin || null,
     nativeTransports: server?.nativeTransports || null,
   };
 }

@@ -77,7 +77,8 @@ appearance and selects **Always light** or **Always dark**, so an upgrade never 
 - **Web Push**, which needs the VAPID keys from the server environment
   ([Installation](Installation.md)). On iOS the app must be added to the Home Screen first.
 - **Instant notifications** (Android app only). Inboxora ships **ntfy** as a
-  UnifiedPush server on the same domain at `${APP_URL}/push`. After installing
+  UnifiedPush server on the same domain. Enter `${APP_URL}` (the origin, with no
+  path) in the ntfy app. After installing
   the ntfy app on the phone and pointing it at that URL, the settings card shows
   *Active* with the provider (ntfy) and the push server. If no distributor app is
   installed it explains that one is needed and links to it; if notification
