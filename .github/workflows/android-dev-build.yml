@@ -32,6 +32,11 @@ jobs:
   android:
     name: Debug APK from dev
     runs-on: ubuntu-latest
+    env:
+      # Explicit Android user home so the stable debug keystore installed below
+      # is the one AGP signs with. Without this, AGP falls back to
+      # $XDG_CONFIG_HOME/.android and every runner generates a fresh debug key.
+      ANDROID_USER_HOME: ${{ runner.temp }}/android-user-home
     steps:
       - name: Checkout dev
         uses: actions/checkout@v6
@@ -126,6 +131,21 @@ jobs:
         run: |
           chmod +x gradlew
           ./gradlew :app:testDebugUnitTest :app:lintDebug :app:assembleDebug --no-daemon --console=plain
+
+      - name: Assert the APK is signed with the stable dev key
+        # Fails the build if the stable keystore was not picked up, so a dev APK
+        # can never silently ship with an ephemeral signature again.
+        working-directory: frontend/packages/android
+        run: |
+          apk=app/build/outputs/apk/debug/app-debug.apk
+          expected="$("$JAVA_HOME/bin/keytool" -list -v -keystore "$ANDROID_USER_HOME/debug.keystore" -storepass android -alias androiddebugkey \
+            | grep -m1 'SHA256:' | awk '{print $2}' | tr -d ':' | tr 'A-F' 'a-f')"
+          actual="$("$ANDROID_HOME/build-tools/36.0.0/apksigner" verify --print-certs "$apk" \
+            | grep -m1 'certificate SHA-256 digest:' | awk '{print $NF}' | tr -d ':' | tr 'A-F' 'a-f')"
+          echo "keystore: $expected"
+          echo "apk     : $actual"
+          test -n "$expected"
+          test "$expected" = "$actual"
 
       - name: Collect the APK
         working-directory: frontend
