@@ -765,7 +765,9 @@ router.get('/preferences', async (req, res) => {
 
 export async function patchPreferences(req, res) {
   if (!req.session.userId) return res.status(401).json({ error: 'Not authenticated' });
-  const { theme, themeMode, themeLight, themeDark,
+  // themeMode/themeLight/themeDark are read by sanitizeThemePrefs below, which validates
+  // them as a group, so they are deliberately not destructured here.
+  const { theme,
           font, layout, notificationSound, pageSize, scrollMode, syncInterval,
           blockRemoteImages, imageWhitelist, shortcuts, hiddenFolders, language,
           threadedView, plaintextEmail, hoverQuickActions, swipeActions,
