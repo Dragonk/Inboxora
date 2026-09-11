@@ -49,6 +49,32 @@ limitations — read the matching page in the Wiki, for example
   sideways swipe. They now open with today centred (or the selected day when today is not in
   view), and the grid scrolls in both directions from a single container — the nested pair of
   scrollers it used before made every horizontal swipe hand off between two elements and stutter.
+- **Address books can be renamed.** The API already accepted a rename, but nothing in the
+  interface reached it, so a book was stuck with the name it was created or imported under. The
+  book menu now offers **Rename**, and creating a book uses the app's own dialog instead of a
+  native browser prompt.
+- **Standalone dropdowns match the interface.** A `select` placed outside a form — the calendar
+  picker on a mail invitation, the external-calendar sync interval — rendered as raw platform
+  chrome. They now share one themed control with the app's own arrow and focus ring.
+
+### Performance
+
+- **The calendar no longer scans every event to find recurring ones.** The read paths selected
+  "events in this window, plus every recurring series" and expressed the second half as a regular
+  expression over the iCalendar body. No index can satisfy a regex over an unindexed column, so
+  the database scanned every event the user owned and decompressed each body: measured on 20,000
+  events this was a sequential scan that discarded all 20,000 rows and cost ~131 ms, before any
+  recurrence was expanded, growing with mailbox age. Recurrence is now a stored, trigger-maintained
+  column with partial indexes; the planner uses a BitmapOr of the range and recurrence indexes and
+  the same query costs ~3 ms.
+- **Expanded occurrences are cached for 30 minutes instead of 5.** Because the cache key carries
+  the event's version, an edit invalidates its own entry immediately — the TTL only bounds memory.
+  At five minutes, opening the calendar after any pause was a cold cache and re-expanded every
+  series from its original start.
+- **A failed expansion is cached briefly** (30 seconds) rather than not at all. A series that
+  overran its iteration budget was previously re-expanded on every single request.
+- The contact-calendar and appearance reads now run concurrently instead of one after the other,
+  on a path that is active by default.
 
 ## [4.0.0]
 

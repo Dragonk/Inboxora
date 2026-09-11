@@ -97,6 +97,7 @@ export default function CalendarInvitationCard({ messageId }) {
         </span>
         : <span style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
           <select
+            className="ui-select"
             aria-label={t('calendar.calendar')}
             value={calendarId}
             onChange={event => setCalendarId(event.target.value)}

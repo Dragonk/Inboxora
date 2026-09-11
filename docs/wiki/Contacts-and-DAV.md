@@ -9,12 +9,17 @@ CalDAV.
 ## Address books
 
 - Create, rename, recolour, hide or delete local address books. At least one local book remains.
+- **Rename** a book from the book menu next to the book picker: it opens a dialog prefilled with
+  the current name, so "Personal" can become "Prywatne" or anything else. Naming is a real dialog
+  with the server's validation in place — a name is required and 120 characters is the limit; a
+  duplicate name is refused without losing what you typed.
 - Address books appear as scrollable tabs above the search field. **All visible** respects the
   visibility filter, and a hidden book can still be selected explicitly.
 - Switching books keeps your current search; results from a previous book can never replace the
   ones you are looking at.
 - Contacts discovered automatically from received mail are marked **auto**.
-- Read-only books (CardDAV imports) cannot be edited locally.
+- Read-only books (CardDAV imports) cannot be edited locally, so they offer no rename: their name
+  belongs to the server they sync from.
 
 The book menu holds book creation, visibility, **Google CSV import** into local books, and
 **Google CSV / Outlook CSV / vCard export**.

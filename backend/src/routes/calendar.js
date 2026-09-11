@@ -471,6 +471,9 @@ router.get('/events', async (req, res) => {
       // source_message_id is only exposed when the message still exists AND belongs
       // to this user's own account, so the UI can offer "open the original message"
       // without ever leaking another tenant's identifier.
+      // `e.recurring` is a stored, indexed column rather than a regex over raw_ical:
+      // the regex could not use an index, so the planner fell back to scanning every
+      // event the user owned and detoasting each raw_ical. See migration 0082.
       `SELECT e.id, e.calendar_id, e.uid, e.recurrence_id, e.etag, e.summary, e.description, e.raw_ical,
               e.location, e.url, e.organizer, e.starts_at, e.ends_at, e.all_day, e.timezone, e.attendees, e.invite_account_id, e.invitation_sequence,
               CASE WHEN sa.id IS NOT NULL THEN e.source_message_id END AS source_message_id,
@@ -481,7 +484,7 @@ router.get('/events', async (req, res) => {
        JOIN calendars c ON c.id = e.calendar_id
        LEFT JOIN messages sm ON sm.id = e.source_message_id
        LEFT JOIN email_accounts sa ON sa.id = sm.account_id AND sa.user_id = e.user_id
-       WHERE e.user_id = $1 AND c.user_id = $1 AND c.owner_user_id = $1 AND ((e.starts_at < $3 AND e.ends_at > $2) OR e.raw_ical ~* '(RRULE|RDATE|RECURRENCE-ID)[;:]')${calendarFilter}
+       WHERE e.user_id = $1 AND c.user_id = $1 AND c.owner_user_id = $1 AND ((e.starts_at < $3 AND e.ends_at > $2) OR e.recurring)${calendarFilter}
        ORDER BY e.starts_at ASC`,
       params,
     );
@@ -489,11 +492,15 @@ router.get('/events', async (req, res) => {
   }
   let contactEvents = [];
   if (includeContacts) {
-    const contactResult = await query(
-      'SELECT id, display_name, primary_email, birthday, anniversary, contact_dates FROM contacts WHERE user_id = $1 AND (birthday IS NOT NULL OR anniversary IS NOT NULL OR (jsonb_typeof(contact_dates) = \'array\' AND jsonb_array_length(contact_dates) > 0))',
-      [req.session.userId],
-    );
-    const appearance = await contactCalendarAppearance(req.session.userId);
+    // Both reads only need the same user id, so they run together rather than one after
+    // the other — the contact calendar is on by default, so this is on the common path.
+    const [contactResult, appearance] = await Promise.all([
+      query(
+        'SELECT id, display_name, primary_email, birthday, anniversary, contact_dates FROM contacts WHERE user_id = $1 AND (birthday IS NOT NULL OR anniversary IS NOT NULL OR (jsonb_typeof(contact_dates) = \'array\' AND jsonb_array_length(contact_dates) > 0))',
+        [req.session.userId],
+      ),
+      contactCalendarAppearance(req.session.userId),
+    ]);
     contactEvents = contactDateEvents(contactResult?.rows || [], from, to).map(event => ({
       ...event, calendar_name: appearance.name || event.calendar_name, calendar_custom_name: Boolean(appearance.name), calendar_color: appearance.color || event.calendar_color,
     }));

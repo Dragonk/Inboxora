@@ -76,6 +76,12 @@ export default function ContactsPage({ isActive = true }) {
   const { showContacts } = useStore();
   const phone = useMobile();
   const [booksOpen, setBooksOpen] = useState(false);
+  // The address-book name dialog: null when closed, otherwise the mode and the value
+  // being edited. A real dialog rather than window.prompt, so naming a book looks like
+  // the rest of the app and can show the server's validation error in place.
+  const [bookDialog, setBookDialog] = useState(null);
+  const [bookSaving, setBookSaving] = useState(false);
+  const [bookError, setBookError] = useState(null);
   const isMobile = useCompactLayout();
 
   const [contacts, setContacts]     = useState([]);
@@ -195,14 +201,28 @@ export default function ContactsPage({ isActive = true }) {
     searchTimer.current = setTimeout(() => load(val), 300);
   };
 
-  const createAddressBook = async () => {
-    const name = window.prompt(t('contacts.addressBooks.newPrompt'));
-    if (!name?.trim()) return;
+  // Both naming flows go through one dialog. Creating and renaming differ only in which
+  // request is sent, so they share the field, the validation message and the keyboard flow.
+  const openCreateBook = () => { setBookError(null); setBookDialog({ mode: 'create', id: null, name: '' }); };
+  const openRenameBook = book => { setBookError(null); setBookDialog({ mode: 'rename', id: book.id, name: book.name }); };
+  const submitBookDialog = async () => {
+    if (!bookDialog || bookSaving) return;
+    const name = bookDialog.name.trim();
+    if (!name) { setBookError(t('contacts.addressBooks.nameRequired')); return; }
+    setBookSaving(true); setBookError(null);
     try {
-      const book = await api.addressBooks.create(name);
-      await loadAddressBooks();
-      setSelectedAddressBookId(book.id);
-    } catch (err) { setListError(err.message); }
+      if (bookDialog.mode === 'create') {
+        const book = await api.addressBooks.create(name);
+        await loadAddressBooks();
+        setSelectedAddressBookId(book.id);
+      } else {
+        // The renamed book stays selected, so the list does not jump to another book.
+        await api.addressBooks.update(bookDialog.id, { name });
+        await loadAddressBooks();
+      }
+      setBookDialog(null);
+    } catch (err) { setBookError(err.message); }
+    finally { setBookSaving(false); }
   };
 
   const toggleAddressBookVisibility = async () => {
@@ -443,8 +463,9 @@ export default function ContactsPage({ isActive = true }) {
           <option value="">{t('contacts.addressBooks.allVisible')}</option>
           {addressBooks.map(book => <option key={book.id} value={book.id}>{book.visible ? '' : '○ '}{book.name}</option>)}
         </select>
-        <Button onClick={createAddressBook}>{t('contacts.addressBooks.create')}</Button>
+        <Button onClick={openCreateBook}>{t('contacts.addressBooks.create')}</Button>
         {selectedAddressBookId && <>
+          {selectedBook?.source === 'local' && <Button data-testid="contacts-address-book-rename" onClick={() => openRenameBook(selectedBook)}>{t('contacts.addressBooks.rename')}</Button>}
           <Button onClick={toggleAddressBookVisibility}>{t(selectedBook?.visible ? 'contacts.addressBooks.hide' : 'contacts.addressBooks.show')}</Button>
           {selectedBook?.source === 'local' && <Button onClick={() => importInputRef.current?.click()}>{t('contacts.addressBooks.importGoogle')}</Button>}
           <a className="ui-button" href={api.addressBooks.exportUrl(selectedAddressBookId, 'google-csv')}>{t('contacts.addressBooks.exportGoogle')}</a>
@@ -455,6 +476,34 @@ export default function ContactsPage({ isActive = true }) {
     </details>
     <input ref={importInputRef} type="file" accept=".csv,text/csv" onChange={importGoogleCsv} style={{ display: 'none' }} />
   </div>;
+  // Rendered by both layouts: the address-book menu is shared, so its dialog must be too.
+  const bookNameDialog = bookDialog && <Dialog
+    title={t(bookDialog.mode === 'create' ? 'contacts.addressBooks.create' : 'contacts.addressBooks.renameTitle')}
+    closeLabel={t('common.close')}
+    busy={bookSaving}
+    onClose={() => { if (!bookSaving) setBookDialog(null); }}
+    testId="contacts-book-name-dialog"
+    footer={<>
+      <Button onClick={() => setBookDialog(null)} disabled={bookSaving}>{t('common.cancel')}</Button>
+      <Button variant="primary" onClick={submitBookDialog} disabled={bookSaving || !bookDialog.name.trim()}>
+        {t(bookSaving ? 'common.saving' : 'common.save')}
+      </Button>
+    </>}
+  >
+    <div className="ui-form">
+      {bookError && <div role="alert" className="ui-alert">{bookError}</div>}
+      <label>{t('contacts.addressBooks.nameLabel')}
+        <input
+          data-testid="contacts-book-name-input"
+          autoFocus
+          maxLength={120}
+          value={bookDialog.name}
+          onChange={event => setBookDialog(current => ({ ...current, name: event.target.value }))}
+          onKeyDown={event => { if (event.key === 'Enter') { event.preventDefault(); submitBookDialog(); } }}
+        />
+      </label>
+    </div>
+  </Dialog>;
   const searchControl = <div className="contacts-search">
     <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" aria-hidden="true"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.4-4.4" /></svg>
     <input type="search" value={search} onChange={onSearchChange} aria-label={t('contacts.search')} placeholder={t('contacts.search')} style={{ ...sharedInputStyle, paddingLeft: 30 }} />
@@ -661,6 +710,7 @@ export default function ContactsPage({ isActive = true }) {
         {phone && booksOpen && <Dialog title={t('contacts.addressBooks.label')} closeLabel={t('common.close')} onClose={() => setBooksOpen(false)} testId="contacts-books-dialog" className="contacts-books-dialog">
           {bookControls}
         </Dialog>}
+        {bookNameDialog}
 
         {/* Content */}
         {mobilePanel === 'list' ? (
@@ -711,6 +761,7 @@ export default function ContactsPage({ isActive = true }) {
       }}>
         {detailPanel}
       </div>
+      {bookNameDialog}
     </div>
   );
 }

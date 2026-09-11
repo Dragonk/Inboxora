@@ -43,6 +43,12 @@ edited and deleted, and are published to DAV clients through CalDAV.
   time.
 - If a series cannot be fully expanded, the view tells you the series is incomplete instead of
   silently showing a partial month.
+- **Expanded occurrences are cached per event**, keyed by the event's version, so opening a month
+  again — or coming back to it later in the same session — does not re-expand anything. An edit,
+  an import or an external sync gives the event a new version, which invalidates its entry
+  immediately. A series whose expansion fails is cached briefly (30 seconds) and then retried, so
+  one problematic series cannot slow every calendar view. See `CALENDAR_PROJECTION_*` in
+  [`.env.example`](../../.env.example) for the sizing knobs.
 - **Editing a recurring event changes only the occurrence you opened**; the series, its rule and
   the other occurrences are preserved. Creating new recurrence rules from scratch is not
   currently offered in the interface.

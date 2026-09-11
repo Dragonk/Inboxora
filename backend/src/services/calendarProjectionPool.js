@@ -46,6 +46,7 @@ function config() {
     cacheEntries: envInt('CALENDAR_PROJECTION_CACHE_ENTRIES', PROJECTION_CACHE_ENTRIES_DEFAULT, { min: 1, max: 100000 }),
     cacheMaxEvents: envInt('CALENDAR_PROJECTION_CACHE_MAX_EVENTS', PROJECTION_CACHE_MAX_EVENTS_DEFAULT, { min: 1 }),
     cacheTtlMs: envInt('CALENDAR_PROJECTION_CACHE_TTL_MS', PROJECTION_CACHE_TTL_MS_DEFAULT, { min: 1000, max: 86400000 }),
+    failureCacheTtlMs: envInt('CALENDAR_PROJECTION_FAILURE_CACHE_TTL_MS', PROJECTION_FAILURE_CACHE_TTL_MS_DEFAULT, { min: 1000, max: 86400000 }),
   };
 }
 
@@ -229,7 +230,19 @@ function inlineProject(rows, from, to, options) {
 // import, exception change or delete simply stops matching. Bump
 // PROJECTION_VERSION whenever the projection semantics change.
 const PROJECTION_VERSION = 1;
-const PROJECTION_CACHE_TTL_MS_DEFAULT = 300000;
+// The key already carries the resource's `etag`, so an edit stops matching immediately and
+// the TTL is only a memory safety valve, not a freshness mechanism. It is therefore set well
+// beyond a browsing session: at five minutes, a normal visit to the calendar after any pause
+// was a cold cache and re-walked every series from its origin — tens of milliseconds each,
+// all of it CPU the request waits on. Thirty minutes makes re-entering the month the user
+// was just looking at free.
+const PROJECTION_CACHE_TTL_MS_DEFAULT = 1800000;
+// A series that ran out of iteration budget or timed out is not cached for the full TTL,
+// because the answer may change once load drops — but it is cached briefly all the same.
+// Leaving it uncached meant one pathological series (measured at over a second to expand)
+// was re-walked on every request, which is worse than repeating the same honest
+// "incomplete" notice a moment later.
+const PROJECTION_FAILURE_CACHE_TTL_MS_DEFAULT = 30000;
 const PROJECTION_CACHE_ENTRIES_DEFAULT = 500;
 const PROJECTION_CACHE_MAX_EVENTS_DEFAULT = 50000;
 
@@ -271,7 +284,7 @@ function evictProjectionCache(settings) {
   }
 }
 
-function cacheSet(key, status, settings) {
+function cacheSet(key, status, settings, ttlMs) {
   // Empty successful results are cached too: a COUNT series that already ended
   // is a legitimate answer, and re-walking it on every request is pure waste.
   const existing = projectionCache.get(key);
@@ -279,7 +292,8 @@ function cacheSet(key, status, settings) {
     projectionCacheEvents -= existing.status.events.length;
     projectionCache.delete(key);
   }
-  projectionCache.set(key, { status, expiresAt: Date.now() + (settings.cacheTtlMs ?? PROJECTION_CACHE_TTL_MS_DEFAULT) });
+  const ttl = ttlMs ?? settings.cacheTtlMs ?? PROJECTION_CACHE_TTL_MS_DEFAULT;
+  projectionCache.set(key, { status, expiresAt: Date.now() + ttl });
   projectionCacheEvents += status.events.length;
   evictProjectionCache(settings);
 }
@@ -404,7 +418,12 @@ export async function projectCalendarResources(rows, from, to, options = {}) {
         ? { events: [], truncated: true, reason: failure.reason || 'truncated', error: failure.error || null }
         : { events: eventsByRow.get(item.row.id) || [], truncated: false, reason: null, error: null };
       statuses.set(item.row.id, status);
-      if (!failure && item.key) cacheSet(item.key, status, settings);
+      // Failures are cached too, on a short TTL: a series that overran its budget was
+      // otherwise re-walked on every request, so one bad series could make the whole
+      // calendar slow indefinitely. The short expiry lets it recover on its own.
+      if (item.key) {
+        cacheSet(item.key, status, settings, failure ? (settings.failureCacheTtlMs ?? PROJECTION_FAILURE_CACHE_TTL_MS_DEFAULT) : undefined);
+      }
       const resolve = item.key ? deferred.get(item.key) : null;
       if (resolve) resolve(status);
     }

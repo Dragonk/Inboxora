@@ -228,6 +228,7 @@ function SourceIntervalSelect({ label, value, onChange, t }) {
     : t('calendar.sourceSyncMinutes', { count: minutes }));
   return <label style={intervalLabel}>{label}
     <select
+      className="ui-select"
       data-testid="calendar-source-interval"
       value={known ? value : ''}
       onChange={event => onChange(Number(event.target.value))}

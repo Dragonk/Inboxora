@@ -25,6 +25,30 @@ button, input, textarea, select { font-family: inherit; }
 .ui-form input[type=checkbox] { accent-color: var(--accent); }
 .ui-form-columns { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
 .ui-form :is(input, select, textarea):focus-visible, .contacts-page :is(input, select, textarea):focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; box-shadow: 0 0 0 3px var(--accent-glow); }
+/* A standalone select — one placed in a notice row or a toolbar rather than inside a
+   .ui-form. Without this it renders as raw native chrome: a raised grey bezel, a
+   platform dropdown arrow and no relation to the theme, which is jarring next to the
+   app's own buttons. The arrow is drawn as a background image because a <select>
+   cannot host a pseudo-element; two surface variants keep it legible in both
+   appearances, using the same attribute the logo contrast switch relies on. */
+.ui-select {
+  min-width: 0; max-width: 100%;
+  padding: 6px 26px 6px 9px;
+  border: 1px solid var(--border-subtle); border-radius: var(--radius-control);
+  background-color: var(--bg-primary); color: var(--text-primary);
+  font-size: 12px; line-height: 1.4; cursor: pointer;
+  appearance: none; -webkit-appearance: none;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 10 6'%3E%3Cpath d='M1 1l4 4 4-4' fill='none' stroke='%236b7480' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
+  background-repeat: no-repeat; background-position: right 8px center; background-size: 10px 6px;
+  transition: background-color var(--motion-fast), border-color var(--motion-fast);
+}
+:root[data-inboxora-surface="dark"] .ui-select {
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 10 6'%3E%3Cpath d='M1 1l4 4 4-4' fill='none' stroke='%23a9b0bd' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
+}
+.ui-select:hover:not(:disabled) { background-color: var(--bg-hover); border-color: var(--border); }
+.ui-select:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; box-shadow: 0 0 0 3px var(--accent-glow); }
+.ui-select:disabled { opacity: .55; cursor: not-allowed; }
+.ui-select option { background: var(--bg-elevated); color: var(--text-primary); }
 .ui-alert { padding: 10px 12px; border-radius: 6px; color: var(--red); background: color-mix(in srgb, var(--red) 9%, var(--bg-primary)); font-size: 12px; }
 .ui-resize-handle { position: relative; }
 .ui-resize-handle::after { content: ''; position: absolute; top: 0; bottom: 0; left: -3px; right: -3px; z-index: 12; }

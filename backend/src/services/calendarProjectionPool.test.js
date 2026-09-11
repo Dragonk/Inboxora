@@ -155,4 +155,46 @@ describe('calendar projection worker pool', () => {
     await projectCalendarResources(rows, FROM, TO, { userId: 'user-1', cache: false });
     expect(calendarProjectionCacheStats().entries).toBe(0);
   });
+
+  it('caches a series that overran its budget instead of re-walking it on every request', async () => {
+    process.env.CALENDAR_PROJECTION_MAX_ITERATIONS = '500';
+    const dense = {
+      id: 'budget-dense', calendar_id: 'cal-1', uid: 'budget-dense', etag: 'etag-budget',
+      raw_ical: ics([
+        'BEGIN:VEVENT', 'UID:budget-dense', 'DTSTAMP:20200101T000000Z',
+        'DTSTART:19700101T000000Z', 'DTEND:19700101T000100Z', 'RRULE:FREQ=MINUTELY', 'SUMMARY:Dense', 'END:VEVENT',
+      ]),
+      summary: 'Dense', starts_at: new Date('1970-01-01T00:00:00Z'), ends_at: new Date('1970-01-01T00:01:00Z'), all_day: false,
+    };
+    const first = await projectCalendarResources([dense], FROM, TO, { userId: 'user-1' });
+    expect(first.truncated).toBe(true);
+    // The answer is cached even though it is a failure. Leaving it out meant this walk —
+    // over a thousand iterations of pure CPU — ran again on every single request.
+    expect(calendarProjectionCacheStats().entries).toBe(1);
+
+    const second = await projectCalendarResources([dense], FROM, TO, { userId: 'user-1' });
+    expect(second.truncated).toBe(true);
+    expect(second.failures).toContainEqual(expect.objectContaining({ id: 'budget-dense' }));
+  });
+
+  it('expires a cached failure sooner than a cached success', async () => {
+    process.env.CALENDAR_PROJECTION_MAX_ITERATIONS = '500';
+    // A failure that outlived its usefulness would hide a series that has since become
+    // expandable, so it must expire on its own short timer.
+    process.env.CALENDAR_PROJECTION_FAILURE_CACHE_TTL_MS = '1000';
+    const dense = {
+      id: 'ttl-dense', calendar_id: 'cal-1', uid: 'ttl-dense', etag: 'etag-ttl',
+      raw_ical: ics([
+        'BEGIN:VEVENT', 'UID:ttl-dense', 'DTSTAMP:20200101T000000Z',
+        'DTSTART:19700101T000000Z', 'DTEND:19700101T000100Z', 'RRULE:FREQ=MINUTELY', 'SUMMARY:Dense', 'END:VEVENT',
+      ]),
+      summary: 'Dense', starts_at: new Date('1970-01-01T00:00:00Z'), ends_at: new Date('1970-01-01T00:01:00Z'), all_day: false,
+    };
+    await projectCalendarResources([dense], FROM, TO, { userId: 'user-1' });
+    expect(calendarProjectionCacheStats().entries).toBe(1);
+    await new Promise(resolve => { setTimeout(resolve, 1100); });
+    // Reading it again drops the expired entry rather than serving it.
+    const after = await projectCalendarResources([dense], FROM, TO, { userId: 'user-1' });
+    expect(after.truncated).toBe(true);
+  });
 });
