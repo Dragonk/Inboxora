@@ -306,5 +306,63 @@ Zmierzone po naprawie: tytuły `["Agenda dnia"]`, padding `0px`, wiersz agendy
   przepływu podgląd → edycja;
 - Playwright: `calendar*.spec.js` — 89 przechodzi, 8 pominiętych.
 
+---
+
+# Runda 5 — pamięć widoku, szerokości paneli i menu wydarzenia
+
+## 21. Szerokości paneli nigdy nie były zapisywane (realny błąd)
+
+Zmierzone: przeciągnięcie uchwytu zmieniało szerokość na żywo (296 → 376 px), ale
+`localStorage.mailflow_agenda_width` pozostawało `null`, a po przeładowaniu wracało
+296 px. Przyczyna w `panelWidth.js`:
+
+```js
+onEnd?.(persist(read()));   // brak onEnd ⇒ persist() NIGDY się nie wykonuje
+```
+
+Opcjonalne wywołanie zwiera **argumenty**, a `onEnd` nie przekazuje żaden
+wywołujący — więc `persist()` nie działało. To ta sama pułapka, przed którą kod
+ostrzega obok przy `onResize?.(apply(...))`, tylko o poziom niżej. Naprawa:
+najpierw zapis, potem powiadomienie. Nowy test (`panelLayout.test.js`) sprawdza
+zapis po `mouseup` bez `onEnd` i **zawodzi na poprzedniej implementacji** —
+poprzedni test weryfikował tylko, że przeciągnięcie stosuje szerokość, dlatego
+błąd przeszedł.
+
+## 22. Widok kalendarza nie był pamiętany
+
+`{showCalendar && <CalendarPage/>}` — strona jest **odmontowywana** przy powrocie
+do skrzynki, więc `useState('month')` gubiło wybór zarówno w sesji, jak i po
+przeładowaniu. Widok zapisywany jest teraz per urządzenie
+(`mailflow_calendar_view`), obok szerokości paneli: ile kalendarza mieści się na
+ekranie, zależy od ekranu, więc telefon i desktop mogą mieć różne widoki.
+Nieznana lub nieczytelna wartość wraca do miesiąca zamiast rzucać wyjątkiem.
+Weryfikacja: `calendar-persistence.spec.js` — widok przeżywa wyjście z kalendarza
+i reload na desktopie i telefonie, a szerokość panelu wraca po odświeżeniu.
+
+## 23. Menu z trzema kropkami usunięte
+
+Przycisk `⋮` przy wydarzeniu konkurował o szerokość z tytułem, a dotknięcie
+wydarzenia i tak otwiera podgląd z edycją i usunięciem (dla edytowalnych) lub bez
+nich (dla tylko-do-odczytu). Usunięte w obu miejscach (siatka czasu i pasek
+całodniowy) wraz z nieużywanym stylem. Menu kontekstowe zostaje: prawy przycisk,
+`Shift+F10` i gest long-press — testy sprawdzają teraz gest zamiast przycisku.
+
+Snapshoty mobilne tygodnia odświeżone: kafelek wydarzenia był `flex: 1` obok
+przycisku 44 px, więc po jego usunięciu każdy kafelek się poszerza (zmiana obszaru
+siatki to oczekiwany reflow, nie przypadkowy diff).
+
+## 24. Testy (runda 5)
+
+- frontend: `npm test` — 2192 przechodzi, 0 padniętych; `eslint src` czysto;
+- backend: `npx vitest run` — 1698 przechodzi (bez zmian w tej rundzie; jeden
+  test czasu padł raz pod obciążeniem równoległego Playwrighta i przechodzi
+  w izolacji oraz w pełnym przebiegu);
+- Playwright: 151 przechodzi (kalendarz, zaproszenia, arkusze, trwałość,
+  mobilna nawigacja, v3-interface, panel-width, responsive-parity).
+
+Uwaga: lint `e2e/` ma 12 zastanych problemów (poza zakresem CI, który lintuje
+`src`); moje pliki e2e są czyste.
+
+
 
 
