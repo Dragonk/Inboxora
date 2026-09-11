@@ -274,12 +274,58 @@ async function readMessageInvitation(messageId, userId) {
   return null;
 }
 
+// The local event a message's invitation was imported into, if any. The reader uses it
+// to show an already-added invitation as added — and, on a cancellation, to offer
+// removing the copy the organizer has just retracted. Scoped to the importing message
+// so an unrelated local event with the same UID is never reported or removed.
+async function importedEventForMessage(messageId, userId) {
+  const result = await query(
+    `SELECT id, calendar_id, invitation_sequence, starts_at, ends_at, all_day
+     FROM calendar_events
+     WHERE source_message_id = $1 AND user_id = $2
+     ORDER BY created_at ASC LIMIT 1`,
+    [messageId, userId],
+  );
+  const event = result.rows[0];
+  return event ? {
+    id: event.id, calendarId: event.calendar_id, sequence: Number(event.invitation_sequence || 0),
+    startsAt: event.starts_at, endsAt: event.ends_at, allDay: event.all_day,
+  } : null;
+}
+
 router.get('/invitations/:messageId', async (req, res) => {
   const invitation = await readMessageInvitation(req.params.messageId, req.session.userId);
   if (!invitation) return res.status(404).json({ error: 'Calendar invitation not found' });
   const { raw, event, ...metadata } = invitation;
   void raw;
-  res.json({ invitation: { ...metadata, description: event?.description, location: event?.location, url: event?.url, attendees: event?.attendees || [] } });
+  const localEvent = await importedEventForMessage(req.params.messageId, req.session.userId);
+  res.json({ invitation: { ...metadata, localEvent, description: event?.description, location: event?.location, url: event?.url, attendees: event?.attendees || [] } });
+});
+
+// Remove the copy this message's invitation was added as. This is what makes a
+// cancellation actionable: an organizer retracting an invitation should leave the
+// calendar in the state it would have been in had the invitation never been accepted.
+router.delete('/invitations/:messageId', async (req, res) => {
+  const invitation = await readMessageInvitation(req.params.messageId, req.session.userId);
+  if (!invitation) return res.status(404).json({ error: 'Calendar invitation not found' });
+  const localEvent = await importedEventForMessage(req.params.messageId, req.session.userId);
+  if (!localEvent) return res.status(404).json({ error: 'This invitation was not added to a calendar' });
+  // A retraction that predates the copy we hold must not delete it: the organizer may
+  // have sent a newer update since. Same ordering rule the import path already applies.
+  if (Number(invitation.sequence || 0) < localEvent.sequence) {
+    return res.status(409).json({ error: 'This cancellation is older than the event already in the calendar' });
+  }
+  // Only the imported mirror is removed, and only while it is still that mirror: an
+  // event the user has since taken ownership of (by inviting attendees from it) is
+  // left alone rather than silently deleted out from under them.
+  const removed = await query(
+    `DELETE FROM calendar_events
+     WHERE id = $1 AND user_id = $2 AND source_message_id = $3 AND invite_account_id IS NULL
+     RETURNING id`,
+    [localEvent.id, req.session.userId, req.params.messageId],
+  );
+  if (!removed.rows[0]) return res.status(409).json({ error: 'This event can no longer be removed automatically' });
+  res.json({ removed: true, calendarId: localEvent.calendarId });
 });
 
 router.post('/invitations/:messageId', async (req, res) => {
@@ -783,6 +829,30 @@ router.post('/sources/:sourceId/sync', async (req, res) => {
   const result = await syncCalendarSource(req.session.userId, req.params.sourceId);
   if (!result.ok && result.error === 'Calendar source not found') return res.status(404).json({ error: result.error });
   res.json(result);
+});
+
+// Change an existing source's cadence. The interval is a per-calendar setting, so it
+// must be editable after creation and not only at creation time: how often a feed is
+// worth polling depends on how often it changes, which the user learns over time.
+router.patch('/sources/:sourceId', async (req, res) => {
+  if (req.body?.intervalMin === undefined) return res.status(400).json({ error: 'intervalMin is required' });
+  const interval = Number.parseInt(req.body.intervalMin, 10);
+  // Same bounds as the CHECK constraint and the create route, rejected explicitly
+  // rather than clamped so a bad client value is visible instead of silently ignored.
+  if (!Number.isInteger(interval) || interval < 15 || interval > 1440) {
+    return res.status(400).json({ error: 'intervalMin must be between 15 and 1440' });
+  }
+  const result = await query(
+    `UPDATE calendar_import_sources SET interval_min = $1, updated_at = NOW()
+     WHERE id = $2 AND user_id = $3 RETURNING *`,
+    [interval, req.params.sourceId, req.session.userId],
+  );
+  const source = result.rows[0];
+  if (!source) return res.status(404).json({ error: 'Calendar source not found' });
+  // Re-arm the timer. The scheduler closes over the source row it was given, so without
+  // this the new interval would not take effect until the process restarted.
+  scheduleCalendarSource(source);
+  res.json({ source: publicSource(source) });
 });
 
 router.delete('/sources/:sourceId', async (req, res) => {

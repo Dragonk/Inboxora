@@ -25,6 +25,30 @@ limitations — read the matching page in the Wiki, for example
   followed the operating system, so a message that declared no colours of its own was painted
   black on the dark appearance. The frame now declares the theme's colour scheme and, in a dark
   appearance, the surface and text colour it actually uses.
+- **A message that brings its own design keeps its own canvas.** Forcing the dark surface onto a
+  newsletter that paints its own light card made that card's own text invisible, and a message
+  with hard-coded dark text over a transparent background became black-on-dark. A message that
+  declares colours of its own is now rendered on the light canvas it was authored for, while a
+  message with no colours of its own still follows the app theme.
+- **A retracted invitation can be withdrawn from the calendar.** Cancelling an event in the mail
+  reader previously only reported the cancellation. The panel now offers to remove the copy the
+  message created, and refuses to remove an event the user has since taken ownership of or a
+  cancellation older than the copy on file.
+
+### Changed
+
+- **The mail-invitation panel is a compact action row.** It carries the date, the calendar and
+  the action only; the title, location and description are no longer duplicated inside it, since
+  the message already shows them above and below. Invitations already added report that state
+  instead of offering to add them a second time.
+- **External calendar sync cadence is editable per calendar.** The interval was already stored
+  per source and defaulted to 60 minutes, but was neither surfaced nor changeable after creation;
+  it can now be set from the source list (15 minutes to 24 hours).
+- **The phone week grid opens on today and pans smoothly.** Week and work-week views are wider
+  than a phone screen and previously opened on the first day of the week, hiding today behind a
+  sideways swipe. They now open with today centred (or the selected day when today is not in
+  view), and the grid scrolls in both directions from a single container — the nested pair of
+  scrollers it used before made every horizontal swipe hand off between two elements and stutter.
 
 ## [4.0.0]
 

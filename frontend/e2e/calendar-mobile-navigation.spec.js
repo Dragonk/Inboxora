@@ -125,14 +125,23 @@ test('mobile week calendar keeps its deliberate horizontal scroll inside the gri
   const grid = page.getByTestId('calendar-grid');
   await expect(grid).toBeVisible();
 
-  const widths = await grid.evaluate((element) => ({
-    documentClientWidth: document.documentElement.clientWidth,
-    documentScrollWidth: document.documentElement.scrollWidth,
-    gridClientWidth: element.clientWidth,
-    gridScrollWidth: element.scrollWidth,
-  }));
+  // The week columns overflow horizontally, so the grid must scroll rather than widen the
+  // page. Both axes now live on the single time-grid scroller (see
+  // calendar-mobile-week-scroll.spec.js): the wrapper clips, the scroller scrolls.
+  const widths = await grid.evaluate((element) => {
+    const scroller = element.querySelector('[data-testid="calendar-time-grid-scroll"]');
+    return {
+      documentClientWidth: document.documentElement.clientWidth,
+      documentScrollWidth: document.documentElement.scrollWidth,
+      gridClientWidth: element.clientWidth,
+      gridScrollWidth: element.scrollWidth,
+      scrollerClientWidth: scroller.clientWidth,
+      scrollerScrollWidth: scroller.scrollWidth,
+    };
+  });
   expect(widths.documentScrollWidth).toBe(widths.documentClientWidth);
-  expect(widths.gridScrollWidth).toBeGreaterThan(widths.gridClientWidth);
+  expect(widths.gridScrollWidth).toBeLessThanOrEqual(widths.gridClientWidth);
+  expect(widths.scrollerScrollWidth).toBeGreaterThan(widths.scrollerClientWidth);
 });
 
 test('mobile week timeline keeps hourly geometry inside the calendar surface', async ({ page, fixtureApi }, testInfo) => {

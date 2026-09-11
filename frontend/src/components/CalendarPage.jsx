@@ -4,12 +4,12 @@ import { readStoredCalendarView, storeCalendarView } from '../utils/calendarPref
 import { openDeepLinkMessage } from '../utils/gtd.js';
 import MobileFloatingAction from './MobileFloatingAction.jsx';
 import { localizeContactCalendar, localizeContactEvent } from '../utils/contactDateLabels.js';
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { api, isAbortError } from '../utils/api.js';
 import { useStore } from '../store/index.js';
 import { useMobile } from '../hooks/useMobile.js';
-import { calendarVisibleRange, createDayEventsResolver, eventPayload, layoutTimedEvents, monthRange, shiftCalendarAnchor, toDateTimeLocal, toggleAllDayTimes, weekRange, workHoursGeometry } from './calendarView.js';
+import { calendarVisibleRange, centeredScrollLeft, createDayEventsResolver, eventPayload, layoutTimedEvents, monthRange, shiftCalendarAnchor, toDateTimeLocal, toggleAllDayTimes, weekFocusIndex, weekRange, workHoursGeometry } from './calendarView.js';
 import CalendarSidebar from './CalendarSidebar.jsx';
 import { createInvitationOperationController } from './calendarInvitationRetry.js';
 import CalendarContextMenu from './CalendarContextMenu.jsx';
@@ -363,6 +363,33 @@ function TimeGrid({ days, dayEventsFor, view, isMobile, locale, openCreate, open
   const columns = `52px repeat(${days.length}, minmax(${isMobile ? 150 : 0}px, 1fr))`;
   const workHours = workHoursGeometry(calendarWorkHoursStart, calendarWorkHoursEnd);
   const allDayEvents = days.map(day => dayEventsFor(day).filter(event => event.all_day || event.allDay));
+  // One scroll container owns both axes. Splitting them across nested elements (an outer
+  // horizontal scroller around an inner vertical one) made touch panning stutter: a
+  // gesture locks to a single container and axis, so every sideways drag had to be handed
+  // off between the two, which read as the grid "catching" mid-swipe. A single container
+  // pans in both directions natively.
+  const daysKey = days.map(day => day.toDateString()).join('|');
+  useLayoutEffect(() => {
+    const container = scroller.current;
+    if (!container?.clientWidth) return;
+    const index = weekFocusIndex(days, anchor);
+    if (index < 0) return;
+    const column = container.querySelector(`[data-calendar-day-index="${index}"]`);
+    if (!column) return;
+    // Measure the column as laid out rather than deriving its width, so a wide screen
+    // (where the columns share the available space) lands on 0 and is left untouched.
+    const columnRect = column.getBoundingClientRect();
+    const containerRect = container.getBoundingClientRect();
+    container.scrollLeft = centeredScrollLeft({
+      columnStart: columnRect.left - containerRect.left + container.scrollLeft,
+      columnWidth: columnRect.width,
+      viewportWidth: container.clientWidth,
+      contentWidth: container.scrollWidth,
+    });
+    // `anchor` is intentionally not a dependency: selecting a day inside the visible week
+    // must not yank the grid sideways under the finger.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [daysKey, view, isMobile]);
   const showMenu = (event, target) => openContextMenu(event, target.clientX, target.clientY, target.currentTarget);
   const invokeMenu = (event, keyboardEvent) => {
     if (keyboardEvent.key !== 'ContextMenu' && !(keyboardEvent.shiftKey && keyboardEvent.key === 'F10')) return;
@@ -371,11 +398,15 @@ function TimeGrid({ days, dayEventsFor, view, isMobile, locale, openCreate, open
     const rect = target.getBoundingClientRect();
     openContextMenu(event, rect.right, rect.bottom, target);
   };
-  return <div data-testid="calendar-grid" style={{ ...calendarSurface, flex: 1, minWidth: 0, overflowX: 'auto', overflowY: 'hidden' }}>
-    <div data-testid="calendar-time-grid-scroll" ref={scroller} style={{ overflowAnchor: 'none', width: isMobile ? 52 + days.length * 150 : '100%', overflowY: 'auto', overflowX: 'visible', height: '100%', minHeight: 0 }}>
+  return <div data-testid="calendar-grid" style={{ ...calendarSurface, flex: 1, minWidth: 0, minHeight: 0, display: 'flex', overflow: 'hidden' }}>
+    <div
+      data-testid="calendar-time-grid-scroll"
+      ref={scroller}
+      style={{ flex: 1, minWidth: 0, minHeight: 0, width: '100%', overflow: 'auto', overflowAnchor: 'none', overscrollBehavior: 'contain' }}
+    >
       <div style={{ width: isMobile ? 52 + days.length * 150 : '100%', minWidth: isMobile ? 52 + days.length * 150 : 0 }}>
         <div style={{ display: 'grid', gridTemplateColumns: columns, position: 'sticky', top: 0, zIndex: 3, background: 'var(--bg-secondary)' }}>
-          <div style={timeAxisHeader} />{days.map(day => <button type="button" key={day.toDateString()} aria-label={day.toLocaleDateString(locale, { dateStyle: 'full' })} aria-pressed={day.toDateString() === anchor.toDateString()} onClick={() => onSelectDay(day)} style={{ ...dayHeader, borderTop: 0, borderLeft: 0, borderRight: 0, cursor: 'pointer' }}><span style={dayHeaderWeekday}>{day.toLocaleDateString(locale, { weekday: 'short' })}</span><strong style={{ ...dayHeaderDay, ...(isToday(day) ? todayDayChip : {}) }}>{day.getDate()}</strong></button>)}
+          <div style={timeAxisHeader} />{days.map((day, index) => <button type="button" key={day.toDateString()} data-calendar-day-index={index} data-calendar-today={isToday(day) ? 'true' : undefined} aria-label={day.toLocaleDateString(locale, { dateStyle: 'full' })} aria-pressed={day.toDateString() === anchor.toDateString()} onClick={() => onSelectDay(day)} style={{ ...dayHeader, borderTop: 0, borderLeft: 0, borderRight: 0, cursor: 'pointer' }}><span style={dayHeaderWeekday}>{day.toLocaleDateString(locale, { weekday: 'short' })}</span><strong style={{ ...dayHeaderDay, ...(isToday(day) ? todayDayChip : {}) }}>{day.getDate()}</strong></button>)}
         </div>
         <div style={{ display: 'grid', gridTemplateColumns: columns, borderBottom: '1px solid var(--border)' }}>
           <div style={allDayLabel}>{t('calendar.allDay')}</div>{allDayEvents.map((dayEvents, index) => <div key={days[index].toDateString()} style={allDayCell}>{dayEvents.map(event => <div key={event.id} style={eventRow}><button className="cal-ev" onClick={() => openEdit(event)} onContextMenu={keyboardEvent => { keyboardEvent.preventDefault(); showMenu(event, keyboardEvent); }} onKeyDown={keyboardEvent => invokeMenu(event, keyboardEvent)} title={event.read_only ? t('calendar.readOnly') : t('calendar.edit')} style={{ ...eventCard, background: event.calendar_color || 'var(--accent)' }}>{event.summary || t('calendar.untitled')}</button></div>)}</div>)}

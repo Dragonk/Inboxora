@@ -363,6 +363,7 @@ export const api = {
   calendar: {
     getInvitation: id => request('GET', `/calendar/invitations/${encodeURIComponent(id)}`),
     addInvitation: (id, calendarId) => request('POST', `/calendar/invitations/${encodeURIComponent(id)}`, { calendarId }),
+    removeInvitation: id => request('DELETE', `/calendar/invitations/${encodeURIComponent(id)}`),
     listCalendars: ({ signal } = {}) => request('GET', '/calendar/calendars', undefined, undefined, { signal }),
     updateCalendar: (id, data) => request('PATCH', `/calendar/calendars/${encodeURIComponent(id)}`, data),
     deleteCalendar: (id, confirmName) => request('DELETE', `/calendar/calendars/${encodeURIComponent(id)}`, { confirmName }),
@@ -379,6 +380,7 @@ export const api = {
     deleteEvent: (id, calendarId, recurrenceId) => recurrenceId ? request('DELETE', `/calendar/events/${encodeURIComponent(id)}/occurrence`, { calendarId, recurrenceId }) : request('DELETE', `/calendar/events/${encodeURIComponent(id)}?calendarId=${encodeURIComponent(calendarId)}`),
     listSources: () => request('GET', '/calendar/sources'),
     createSource: (data) => request('POST', '/calendar/sources', data),
+    updateSource: (id, data) => request('PATCH', `/calendar/sources/${encodeURIComponent(id)}`, data),
     syncSource: (id) => request('POST', `/calendar/sources/${encodeURIComponent(id)}/sync`),
     deleteSource: (id) => request('DELETE', `/calendar/sources/${encodeURIComponent(id)}`),
   },

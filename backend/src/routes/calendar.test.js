@@ -977,12 +977,57 @@ it('recovers metadata for already imported events without returning the raw ICS'
 describe('adding mail invitations to a local calendar', () => {
  const raw = outlookCalendar('09', 'DTSTAMP:20260901T090000Z\r\nORGANIZER:mailto:team@example.test\r\nATTENDEE:mailto:jane@example.test\r\nDESCRIPTION:Agenda\r\n').replace('VERSION:2.0', 'VERSION:2.0\r\nMETHOD:REQUEST');
  it('scopes invitation reads to the owner and exposes metadata without raw ICS', async () => {
-   query.mockResolvedValueOnce({ rows: [{ raw_ical: raw }] });
+   query.mockResolvedValueOnce({ rows: [{ raw_ical: raw }] })
+     // The read also looks up the local copy this message was imported into, so the
+     // reader can show the invitation as already added.
+     .mockResolvedValueOnce({ rows: [] });
    const response = await fetch(`${base}/api/calendar/invitations/message-1`);
    expect(response.status).toBe(200);
-   expect((await response.json()).invitation).toMatchObject({ description: 'Agenda', method: 'REQUEST' });
+   const body = await response.json();
+   expect(body.invitation).toMatchObject({ description: 'Agenda', method: 'REQUEST', localEvent: null });
+   expect(body.invitation.raw).toBeUndefined();
    expect(query.mock.calls[0][1]).toEqual(['message-1', 'user-1']);
    expect(query.mock.calls[0][0]).toContain('a.user_id = $2');
+ });
+ it('reports the local copy a message was imported into', async () => {
+   query.mockResolvedValueOnce({ rows: [{ raw_ical: raw }] })
+     .mockResolvedValueOnce({ rows: [{ id: 'event-1', calendar_id: 'calendar-1', invitation_sequence: 2, starts_at: null, ends_at: null, all_day: false }] });
+   const response = await fetch(`${base}/api/calendar/invitations/message-1`);
+   expect(response.status).toBe(200);
+   expect((await response.json()).invitation.localEvent).toEqual({
+     id: 'event-1', calendarId: 'calendar-1', sequence: 2, startsAt: null, endsAt: null, allDay: false,
+   });
+   // Scoped to this user and this message, so a foreign event can never be reported as the
+   // copy this message created.
+   expect(query.mock.calls[1][0]).toContain('source_message_id = $1');
+   expect(query.mock.calls[1][1]).toEqual(['message-1', 'user-1']);
+ });
+ it('withdraws the imported copy when the organizer cancels', async () => {
+   const cancelled = outlookCalendar('09', 'DTSTAMP:20260901T090000Z\r\nORGANIZER:mailto:team@example.test\r\nSEQUENCE:3\r\nSTATUS:CANCELLED\r\n').replace('VERSION:2.0', 'VERSION:2.0\r\nMETHOD:CANCEL');
+   query.mockResolvedValueOnce({ rows: [{ raw_ical: cancelled }] })
+     .mockResolvedValueOnce({ rows: [{ id: 'event-1', calendar_id: 'calendar-1', invitation_sequence: 1, starts_at: null, ends_at: null, all_day: false }] })
+     .mockResolvedValueOnce({ rows: [{ id: 'event-1' }] });
+   const response = await fetch(`${base}/api/calendar/invitations/message-1`, { method: 'DELETE' });
+   expect(response.status).toBe(200);
+   expect(await response.json()).toMatchObject({ removed: true, calendarId: 'calendar-1' });
+   const deletion = query.mock.calls[2];
+   expect(deletion[0]).toContain('source_message_id = $3');
+   // A locally-owned event (one that invited attendees of its own) is never auto-removed.
+   expect(deletion[0]).toContain('invite_account_id IS NULL');
+   expect(deletion[1]).toEqual(['event-1', 'user-1', 'message-1']);
+ });
+ it('refuses a cancellation older than the imported copy', async () => {
+   const cancelled = outlookCalendar('09', 'DTSTAMP:20260901T090000Z\r\nORGANIZER:mailto:team@example.test\r\nSEQUENCE:1\r\nSTATUS:CANCELLED\r\n').replace('VERSION:2.0', 'VERSION:2.0\r\nMETHOD:CANCEL');
+   query.mockResolvedValueOnce({ rows: [{ raw_ical: cancelled }] })
+     .mockResolvedValueOnce({ rows: [{ id: 'event-1', calendar_id: 'calendar-1', invitation_sequence: 5, starts_at: null, ends_at: null, all_day: false }] });
+   const response = await fetch(`${base}/api/calendar/invitations/message-1`, { method: 'DELETE' });
+   // A newer update may have arrived since this cancellation, so it must not delete.
+   expect(response.status).toBe(409);
+ });
+ it('reports no copy to withdraw when the invitation was never added', async () => {
+   query.mockResolvedValueOnce({ rows: [{ raw_ical: raw }] }).mockResolvedValueOnce({ rows: [] });
+   const response = await fetch(`${base}/api/calendar/invitations/message-1`, { method: 'DELETE' });
+   expect(response.status).toBe(404);
  });
  it('adds a scoped local copy and retains description without sending mail', async () => {
    query.mockResolvedValueOnce({ rows: [{ id: 'calendar-1', source: 'local', read_only: false }] })

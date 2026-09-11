@@ -675,6 +675,11 @@ const SAME_VALUE_ALLOWED = {
   'admin.cleanup.account': [['en', 'it'], ['de', 'pl']],
   // "{{n}} min" — the "min" abbreviation is shared in en, es, fr, it
   'admin.lock.autoLockMin': [['cs', 'en', 'es', 'fr', 'it', 'pl']],
+  // External-calendar sync cadence: SI-style unit abbreviations, unchanged across the
+  // languages that use the Latin "min"/"h" forms (de and pl localise them; ru and zhCN
+  // use their own scripts).
+  'calendar.sourceSyncMinutes': [['cs', 'en', 'es', 'fr', 'it', 'pl']],
+  'calendar.sourceSyncHours':   [['cs', 'en', 'es', 'fr', 'it']],
 
   // "Website" — international term, same in de and en
   'admin.about.website': [['de', 'en']],

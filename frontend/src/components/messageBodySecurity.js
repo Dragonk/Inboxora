@@ -1,5 +1,6 @@
 import DOMPurifyModule from 'dompurify';
 import postcss from 'postcss';
+import { emailAssumesLightCanvas } from '../utils/emailCanvas.js';
 
 function purifier() {
   if (typeof DOMPurifyModule?.sanitize === 'function') return DOMPurifyModule;
@@ -97,40 +98,58 @@ function safeCssColor(value) {
   return CSS_COLOR_RE.test(candidate) ? candidate : null;
 }
 
+// The canvas a message that brings its own design is drawn on. White is what mail is
+// authored against, so a message that declares colours of its own keeps the surface it
+// expects instead of being repainted with the app's theme.
+const AUTHORED_CANVAS = '#ffffff';
+
+// Resolves the surface actually painted into the frame.
+//
+// A message that carries its own colours is never given the dark surface: doing so is what
+// produced light text on a message's own white card, and black text on the dark canvas the
+// message never asked for. Those messages get a light canvas and the user agent's own dark
+// default text (which is what they were authored against) — the light appearance already
+// worked this way and stays untouched.
+function resolveEmailSurface(html, surface) {
+  if (!surface || (surface.tone !== 'light' && surface.tone !== 'dark')) return null;
+  // The light appearance already inherits the panel behind the frame, which paints the
+  // theme surface. Adding a background here would only switch text from grayscale to
+  // subpixel antialiasing and churn every light-mode capture for no visible gain.
+  if (surface.tone === 'light') return { tone: 'light' };
+  if (emailAssumesLightCanvas(html)) return { tone: 'light', background: AUTHORED_CANVAS, foreground: null };
+  return surface;
+}
+
 function emailSurfaceCss(surface) {
   if (!surface || (surface.tone !== 'light' && surface.tone !== 'dark')) return '';
   const tone = surface.tone;
-  // The colour scheme always follows the app theme. This is the declaration the backend
-  // relies on when it strips an email's own `color-scheme`: it is what stops the frame's
-  // user-agent defaults — default text colour, form controls, scrollbars,
+  const background = safeCssColor(surface.background);
+  const foreground = safeCssColor(surface.foreground);
+  // The colour scheme always follows the canvas being painted. This is the declaration the
+  // backend relies on when it strips an email's own `color-scheme`: it is what stops the
+  // frame's user-agent defaults — default text colour, form controls, scrollbars,
   // prefers-color-scheme — from following the operating system instead of Inboxora.
   const rules = [`  html { color-scheme: ${tone}; }`];
-  if (tone === 'dark') {
-    const background = safeCssColor(surface.background);
-    const foreground = safeCssColor(surface.foreground);
-    // A dark appearance states the surface it paints on. Without it the frame would
-    // fall back to the user agent's own dark canvas and default text, neither of which
-    // matches the theme. The light appearance deliberately declares nothing here: it
-    // inherits the panel behind the frame, which already paints the theme surface, and
-    // painting it again in the frame would only switch text from grayscale to subpixel
-    // antialiasing — churning every light-mode capture for no visible gain.
-    const declarations = [];
-    if (background) declarations.push(`background-color: ${background};`);
-    if (foreground) declarations.push(`color: ${foreground};`);
-    if (declarations.length) rules.push(`  html, body { ${declarations.join(' ')} }`);
-  }
+  const declarations = [];
+  if (background) declarations.push(`background-color: ${background};`);
+  // A dark canvas must state its text colour: leaving it to the user agent is exactly what
+  // followed the operating system. A light canvas keeps the user agent's dark default,
+  // which is the text the light appearance has always rendered.
+  if (tone === 'dark' && foreground) declarations.push(`color: ${foreground};`);
+  if (declarations.length) rules.push(`  html, body { ${declarations.join(' ')} }`);
   return `\n  /* Mail body surface, declared from the app theme. Scoped to this document only. */\n${rules.join('\n')}`;
 }
 
 export function buildSrcDoc(html, { remoteImages = false, surface = null } = {}) {
   const csp = emailCsp({ remoteImages });
-  const surfaceCss = emailSurfaceCss(surface);
+  const resolved = resolveEmailSurface(html, surface);
+  const surfaceCss = emailSurfaceCss(resolved);
   // The colour-scheme meta is the documented counterpart of the backend stripping an
   // email's own `color-scheme` declarations: a message must not choose the frame's
   // scheme, the app does. It also drives form controls, scrollbars and the
   // prefers-color-scheme media query inside the frame.
   const colorSchemeMeta = surfaceCss
-    ? `<meta name="color-scheme" content="${surface.tone === 'dark' ? 'dark' : 'light'}">\n`
+    ? `<meta name="color-scheme" content="${resolved.tone === 'dark' ? 'dark' : 'light'}">\n`
     : '';
   return `<!DOCTYPE html><html><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">

@@ -155,6 +155,47 @@ describe('mail body surface contract', () => {
     assert.doesNotMatch(surfaceDeclarations(doc), /(?:^|[\s;])color:/);
   });
 
+  it('gives a message that brings its own light design a light canvas', async () => {
+    const { buildSrcDoc } = await import('./messageBodySecurity.js');
+    // The reported regression: a white card with no text colour of its own. Forcing the
+    // app's dark canvas plus light text made its own text invisible on that white card.
+    const doc = buildSrcDoc(
+      '<table style="background-color:#F7F7F7"><tr><td style="background-color:#FFFFFF"><div>Witaj</div></td></tr></table>',
+      { surface: surface('dark') },
+    );
+    assert.match(doc, /<meta name="color-scheme" content="light">/);
+    assert.match(doc, /html \{ color-scheme: light; \}/);
+    // The canvas is painted white, so the message keeps the surface it was authored for...
+    assert.match(surfaceDeclarations(doc), /background-color: #ffffff;/);
+    // ...and no light text colour is forced onto it; the user agent's dark default applies.
+    // The check must not be fooled by `background-color:` ending in `color:`.
+    assert.doesNotMatch(surfaceDeclarations(doc), /(?:^|[\s;])color:/);
+  });
+
+  it('gives a message with hard-coded dark text a light canvas too', async () => {
+    const { buildSrcDoc } = await import('./messageBodySecurity.js');
+    // Black text over a transparent background assumes a white page, so the dark canvas
+    // would have rendered it black-on-dark.
+    const doc = buildSrcDoc('<h1 style="color:#000000">Tytuł</h1>', { surface: surface('dark') });
+    assert.match(doc, /<meta name="color-scheme" content="light">/);
+    assert.match(surfaceDeclarations(doc), /background-color: #ffffff;/);
+  });
+
+  it('still gives an unstyled message the dark surface', async () => {
+    const { buildSrcDoc } = await import('./messageBodySecurity.js');
+    const doc = buildSrcDoc('<p>Fixture body</p><a href="https://example.test">Link</a>', { surface: surface('dark') });
+    assert.match(doc, /<meta name="color-scheme" content="dark">/);
+    assert.match(surfaceDeclarations(doc), /background-color: #1a1e25;/);
+    assert.match(surfaceDeclarations(doc), /color: #e8e6df;/);
+  });
+
+  it('keeps a message with only dark colours on the dark surface', async () => {
+    const { buildSrcDoc } = await import('./messageBodySecurity.js');
+    const doc = buildSrcDoc('<td style="background-color:#000000;color:#ffffff">Dark card</td>', { surface: surface('dark') });
+    assert.match(doc, /<meta name="color-scheme" content="dark">/);
+    assert.match(surfaceDeclarations(doc), /background-color: #1a1e25;/);
+  });
+
   it('ignores an unknown tone', async () => {
     const { buildSrcDoc } = await import('./messageBodySecurity.js');
     const doc = buildSrcDoc('<p>hello</p>', { surface: { tone: 'neon', background: '#000', foreground: '#fff' } });

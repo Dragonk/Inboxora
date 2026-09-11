@@ -38,6 +38,36 @@ export function calendarVisibleRange(anchor, view, weekStartsOn = 1) {
   return { start, end };
 }
 
+// A week column grid is wider than a phone screen, so opening it at scrollLeft 0 would
+// hide today behind a horizontal swipe. These two helpers pick the day to bring into
+// view and work out where to scroll to, kept pure so the behaviour is testable without
+// a browser.
+
+/**
+ * The index of the visible day a week/work-week grid should open on: today when the
+ * shown week contains it, otherwise the selected day. `-1` when neither is visible
+ * (for example a work-week that excludes a weekend anchor), meaning "leave it alone".
+ */
+export function weekFocusIndex(days, anchor, today = new Date()) {
+  if (!Array.isArray(days) || !days.length) return -1;
+  const todayIndex = days.findIndex(day => day.toDateString() === today.toDateString());
+  if (todayIndex >= 0) return todayIndex;
+  return days.findIndex(day => day.toDateString() === anchor?.toDateString());
+}
+
+/**
+ * The scrollLeft that puts the middle of one column in the middle of the viewport,
+ * clamped to the scrollable range. Returns 0 when the content already fits, so a wide
+ * screen is unaffected.
+ */
+export function centeredScrollLeft({ columnStart, columnWidth, viewportWidth, contentWidth }) {
+  if (![columnStart, columnWidth, viewportWidth, contentWidth].every(Number.isFinite)) return 0;
+  const maxScroll = Math.max(0, contentWidth - viewportWidth);
+  if (maxScroll <= 0) return 0;
+  const target = columnStart + columnWidth / 2 - viewportWidth / 2;
+  return Math.max(0, Math.min(maxScroll, Math.round(target)));
+}
+
 export function agendaDays(events, anchor) {
   const { start, end } = monthRange(anchor);
   const days = [];

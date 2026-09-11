@@ -13,6 +13,10 @@ and agenda views share the same selected date and the same visibility filters.
 - **Week** and **work week** — a time grid with a working-hours band, a "now" line and
   side-by-side layout for overlapping events. Work week shows only your working days.
 - **Agenda** — the active month grouped by day, all-day events first.
+- On a phone the week grid is wider than the screen, so it opens **centred on today** rather
+  than on the first day of the week; when today is not in view (a stored week, or a work week
+  that excludes a weekend), it opens on the selected day instead. Pan sideways to reach the
+  rest of the week. Selecting a day inside the visible week never moves the grid sideways.
 - The **day agenda** panel sits beside the grid on wide screens and opens as a sheet on smaller
   ones. It lists every event for the selected day, respecting calendar visibility.
 - The **mini-month** in the sidebar changes the active date; the grid follows in every view.
@@ -67,14 +71,21 @@ a plain-text fallback with an HTML alternative, so other calendar clients displa
 
 ## Invitations you receive
 
-Messages that contain a calendar invitation show an **invitation card** in the reader with the
-summary, time, location, organizer and description:
+Messages that contain a calendar invitation show a compact **invitation card** in the reader. It
+deliberately carries only the date, the target calendar and the action — the message itself already
+shows the title above and the body below, and the card sits between them:
 
 - **Add to calendar** copies the event into a local calendar of your choice. It does **not** send
   an RSVP to the organizer.
+- An invitation you have already added says so, and offers **Remove from calendar** instead of
+  adding it a second time.
 - Adding the same invitation again updates the existing event instead of duplicating it, and an
   older version of an invitation never overwrites a newer one.
-- A cancelled invitation is shown as cancelled instead of offering to add it.
+- A **cancelled** invitation never offers to add the event. If you had added it, the card offers
+  to remove that copy; if you had not, it simply explains the cancellation.
+- Removing an automatically imported event is limited to the copy the message created, and is
+  refused once you have taken the event over by inviting attendees yourself. A cancellation older
+  than the copy on file is ignored, so a late retraction cannot delete a newer update.
 - Events added from mail keep a link back to the original message, even when it lives in another
   account or folder.
 

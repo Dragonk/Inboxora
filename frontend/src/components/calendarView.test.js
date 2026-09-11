@@ -1,6 +1,6 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
-import { createDayEventsResolver, eventPayload, eventsForDay, layoutTimedEvents, monthRange, shiftCalendarAnchor, sortedDayEvents, toggleAllDayTimes, weekRange } from './calendarView.js';
+import { createDayEventsResolver, centeredScrollLeft, eventPayload, eventsForDay, layoutTimedEvents, monthRange, shiftCalendarAnchor, sortedDayEvents, toggleAllDayTimes, weekFocusIndex, weekRange } from './calendarView.js';
 
 describe('calendar desktop helpers', () => {
   it('returns an exclusive month range', () => {
@@ -131,5 +131,59 @@ describe('calendar day event index', () => {
     const resolved = createDayEventsResolver(events)(new Date(2026, 8, 14)).map(event => event.id);
     assert.deepEqual(resolved, ['a-all-day', 'b-all-day', 'a-timed', 'z-timed']);
     assert.deepEqual(resolved, collect(events, new Date(2026, 8, 14)));
+  });
+});
+
+describe('week grid focus and centring', () => {
+  const week = Array.from({ length: 7 }, (_, index) => new Date(2026, 8, 7 + index)); // Mon 7 → Sun 13 Sep
+
+  it('focuses today when the shown week contains it', () => {
+    assert.equal(weekFocusIndex(week, new Date(2026, 8, 7), new Date(2026, 8, 10)), 3);
+    assert.equal(weekFocusIndex(week, new Date(2026, 8, 7), new Date(2026, 8, 7)), 0);
+    assert.equal(weekFocusIndex(week, new Date(2026, 8, 7), new Date(2026, 8, 13)), 6);
+  });
+
+  it('falls back to the selected day when today is in another week', () => {
+    // Anchored on a later week, so today is nowhere in view: the anchor leads instead.
+    const later = Array.from({ length: 7 }, (_, index) => new Date(2026, 8, 21 + index));
+    assert.equal(weekFocusIndex(later, new Date(2026, 8, 24), new Date(2026, 8, 10)), 3);
+  });
+
+  it('reports nothing to focus for a work-week that excludes a weekend anchor', () => {
+    // Mon 7 → Fri 11 September, which is what a work-week view renders.
+    const workWeek = Array.from({ length: 5 }, (_, offset) => new Date(2026, 8, 7 + offset));
+    // Today is Saturday and the anchor is that same Saturday, so neither is in view.
+    assert.equal(workWeek.at(-1).toDateString(), 'Fri Sep 11 2026');
+    assert.equal(weekFocusIndex(workWeek, new Date(2026, 8, 12), new Date(2026, 8, 12)), -1);
+  });
+
+  it('handles an empty or missing day list', () => {
+    assert.equal(weekFocusIndex([], new Date(2026, 8, 7)), -1);
+    assert.equal(weekFocusIndex(null, new Date(2026, 8, 7)), -1);
+    assert.equal(weekFocusIndex(week, null, new Date(2026, 9, 1)), -1);
+  });
+
+  it('centres a column in the viewport', () => {
+    // Column 3 of a phone-width week grid: 52px axis, 150px columns, 390px viewport.
+    // Its centre (502 + 75) goes to the middle of the viewport (195), so 382.
+    const columnStart = 52 + 3 * 150;
+    assert.equal(centeredScrollLeft({ columnStart, columnWidth: 150, viewportWidth: 390, contentWidth: 1102 }), 382);
+  });
+
+  it('clamps to the scrollable range instead of overscrolling past either edge', () => {
+    // Monday sits at the left edge and cannot be centred, so it lands on 0.
+    assert.equal(centeredScrollLeft({ columnStart: 52, columnWidth: 150, viewportWidth: 390, contentWidth: 1102 }), 0);
+    // Sunday sits at the right edge and is pinned to the maximum scroll.
+    assert.equal(centeredScrollLeft({ columnStart: 52 + 6 * 150, columnWidth: 150, viewportWidth: 390, contentWidth: 1102 }), 712);
+  });
+
+  it('leaves a grid that already fits exactly where it is', () => {
+    // Desktop: the columns share the width, so there is nothing to scroll.
+    assert.equal(centeredScrollLeft({ columnStart: 200, columnWidth: 180, viewportWidth: 1200, contentWidth: 1200 }), 0);
+  });
+
+  it('returns 0 rather than NaN for unmeasurable geometry', () => {
+    assert.equal(centeredScrollLeft({ columnStart: NaN, columnWidth: 150, viewportWidth: 390, contentWidth: 1102 }), 0);
+    assert.equal(centeredScrollLeft({}), 0);
   });
 });

@@ -8,8 +8,11 @@ import { test, expect } from './fixtures.js';
 // The fixture bodies are exactly that case: a bare <p> with no colour declarations.
 
 /** Opens the first message and returns a probe of the frame's resolved surface. */
-async function measureEmailSurface(page, preferences) {
+async function measureEmailSurface(page, preferences, { bodyHtml = null } = {}) {
   page.__preferencesOverride = preferences;
+  if (bodyHtml) {
+    await page.route('**/api/mail/messages/*/body**', route => route.fulfill({ json: { html: bodyHtml, text: '' } }));
+  }
   await page.goto('/?list=0&reader=0');
   await page.locator('[data-msgid]').first().click();
   const frame = page.frameLocator('iframe[sandbox]').first();
@@ -79,6 +82,37 @@ test.describe('mail body surface follows the app theme', () => {
     expect(surface.colorScheme).toBe('light');
     expect(surface.backgroundLuminance).toBeGreaterThan(0.5);
     expect(surface.textLuminance).toBeLessThan(0.2);
+    expect(surface.contrast).toBeGreaterThanOrEqual(4.5);
+  });
+
+  // The reported regression: the message paints its own light card but declares no text
+  // colour, so forcing light text onto the app's dark canvas made its own copy invisible.
+  test('a message with its own light background keeps dark, readable text', async ({ page, fixtureApi }) => {
+    test.skip(page.viewportSize().width < 768, 'desktop parent-row selection contract');
+    await fixtureApi;
+    const surface = await measureEmailSurface(page, DARK, {
+      bodyHtml: '<table width="100%" style="background-color:#F7F7F7"><tbody><tr><td style="background-color:#FFFFFF"><div>Witaj Kamil Maciąg</div></td></tr></tbody></table>',
+    });
+
+    // The message keeps the light canvas it was authored for...
+    expect(surface.colorScheme).toBe('light');
+    expect(surface.backgroundLuminance).toBeGreaterThan(0.5);
+    // ...so its default text stays dark rather than being lightened onto its white card.
+    expect(surface.textLuminance).toBeLessThan(0.2);
+    expect(surface.contrast).toBeGreaterThanOrEqual(4.5);
+  });
+
+  test('a message with hard-coded black text on a transparent background stays readable', async ({ page, fixtureApi }) => {
+    test.skip(page.viewportSize().width < 768, 'desktop parent-row selection contract');
+    await fixtureApi;
+    // Black text with no background of its own assumes a white page; on the dark canvas it
+    // would have been black-on-dark.
+    const surface = await measureEmailSurface(page, DARK, {
+      bodyHtml: '<h1 style="color:#000000">Tytuł</h1><p style="color: rgb(13, 13, 13)">Treść</p>',
+    });
+
+    expect(surface.colorScheme).toBe('light');
+    expect(surface.backgroundLuminance).toBeGreaterThan(0.5);
     expect(surface.contrast).toBeGreaterThanOrEqual(4.5);
   });
 

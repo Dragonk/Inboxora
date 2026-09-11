@@ -8,7 +8,7 @@ for (const reader of [false, true]) test(`mail invitation can be added from ${re
   await page.route('**/api/mail/messages/*/body**', route => route.fulfill({ json: { html: '<p>Invitation message</p>', text: 'Invitation message', calendarInvitation: true, attachments: [] } }));
   await page.route('**/api/calendar/invitations/*', route => {
     if (route.request().method() === 'POST') { additions.push(route.request().postDataJSON()); return route.fulfill({ json: { added: true } }); }
-    return route.fulfill({ json: { invitation: { method: 'REQUEST', summary: 'Planowanie z maila', description: 'Pierwsza linia\nDruga linia', location: 'Biuro', startsAt: '2026-09-10T09:00:00Z' } } });
+    return route.fulfill({ json: { invitation: { method: 'REQUEST', summary: 'Planowanie z maila', description: 'Pierwsza linia\nDruga linia', location: 'Biuro', startsAt: '2026-09-10T09:00:00Z', endsAt: '2026-09-10T10:00:00Z' } } });
   });
   await page.goto('/');
   await page.locator('[data-msgid="conversation-gmail-copy-2"]:visible').click();
@@ -17,13 +17,82 @@ for (const reader of [false, true]) test(`mail invitation can be added from ${re
     if (!await card.count()) await page.locator('[data-conversation-message-toggle]').first().click();
   }
   const invitation = page.getByTestId('calendar-invitation-card').filter({ visible: true }).first();
-  // The description renders through the sanitized message-body iframe (the same
-  // renderer mail bodies use), so the copy lives inside that frame.
-  await expect(invitation.getByTestId('calendar-invitation-description').frameLocator('iframe').locator('body')).toContainText('Pierwsza linia');
+  // The panel is a single compact action row: the message itself already shows the title
+  // above and the body below, so only the date, the calendar and the action belong here.
+  // The title and description must NOT be repeated inside the panel.
+  await expect(invitation).toContainText('Zaproszenie do kalendarza');
+  await expect(invitation.getByTestId('calendar-invitation-when')).toContainText('10 wrz 2026');
+  await expect(invitation).not.toContainText('Planowanie z maila');
+  await expect(invitation).not.toContainText('Pierwsza linia');
+  await expect(invitation.locator('iframe')).toHaveCount(0);
   await invitation.getByRole('button', { name: 'Dodaj do kalendarza', exact: true }).click();
   await expect(invitation.getByRole('status')).toHaveText('Dodano do kalendarza');
   expect(additions).toEqual([{ calendarId: 'calendar-personal' }]);
   await page.screenshot({ path: testInfo.outputPath('invitation-added.png') });
+});
+
+test('an added invitation reports the copy and can withdraw it again', async ({ page, fixtureApi }, testInfo) => {
+  test.skip(testInfo.project.name !== 'chromium-desktop', 'reader coverage');
+  await fixtureApi; await setupV3(page); page.__conversationMatrix = '00';
+  const removals = [];
+  await page.route('**/api/mail/messages/*/body**', route => route.fulfill({ json: { html: '<p>Invitation message</p>', text: '', calendarInvitation: true, attachments: [] } }));
+  await page.route('**/api/calendar/invitations/*', route => {
+    if (route.request().method() === 'DELETE') { removals.push(route.request().url()); return route.fulfill({ json: { removed: true } }); }
+    // The server reports that this message already created a local event.
+    return route.fulfill({ json: { invitation: {
+      method: 'REQUEST', summary: 'Planowanie z maila', startsAt: '2026-09-10T09:00:00Z', endsAt: '2026-09-10T10:00:00Z',
+      localEvent: { id: 'event-1', calendarId: 'calendar-personal', sequence: 0 },
+    } } });
+  });
+  await page.goto('/');
+  await page.locator('[data-msgid="conversation-gmail-copy-2"]:visible').click();
+  const invitation = page.getByTestId('calendar-invitation-card').filter({ visible: true }).first();
+  // A reload must show the invitation as already added, not offer to add it twice.
+  await expect(invitation.getByRole('status')).toHaveText('Już w kalendarzu');
+  await expect(invitation.getByRole('button', { name: 'Dodaj do kalendarza', exact: true })).toHaveCount(0);
+  await invitation.getByRole('button', { name: 'Usuń z kalendarza', exact: true }).click();
+  await expect(invitation.getByRole('button', { name: 'Dodaj do kalendarza', exact: true })).toBeVisible();
+  expect(removals).toHaveLength(1);
+});
+
+test('a cancelled invitation is actionable and withdraws the added copy', async ({ page, fixtureApi }, testInfo) => {
+  test.skip(testInfo.project.name !== 'chromium-desktop', 'reader coverage');
+  await fixtureApi; await setupV3(page); page.__conversationMatrix = '00';
+  const removals = [];
+  await page.route('**/api/mail/messages/*/body**', route => route.fulfill({ json: { html: '<p>Cancelled invitation</p>', text: '', calendarInvitation: true, attachments: [] } }));
+  await page.route('**/api/calendar/invitations/*', route => {
+    if (route.request().method() === 'DELETE') { removals.push(route.request().url()); return route.fulfill({ json: { removed: true } }); }
+    return route.fulfill({ json: { invitation: {
+      method: 'CANCEL', summary: 'Planowanie z maila', startsAt: '2026-09-10T09:00:00Z', endsAt: '2026-09-10T10:00:00Z',
+      localEvent: { id: 'event-1', calendarId: 'calendar-personal', sequence: 0 },
+    } } });
+  });
+  await page.goto('/');
+  await page.locator('[data-msgid="conversation-gmail-copy-2"]:visible').click();
+  const invitation = page.getByTestId('calendar-invitation-card').filter({ visible: true }).first();
+  // A cancellation must not offer to add the event; it offers to remove the copy it made.
+  await expect(invitation).toContainText('Wydarzenie anulowane');
+  await expect(invitation.getByRole('button', { name: 'Dodaj do kalendarza', exact: true })).toHaveCount(0);
+  await invitation.getByRole('button', { name: 'Usuń z kalendarza', exact: true }).click();
+  // Once the copy is gone there is nothing left to withdraw, so the panel falls back to the
+  // plain explanation of the cancellation.
+  await expect(invitation.getByRole('status')).toHaveText('Organizator anulował to wydarzenie.');
+  await expect(invitation.getByRole('button', { name: 'Usuń z kalendarza', exact: true })).toHaveCount(0);
+  expect(removals).toHaveLength(1);
+});
+
+test('a cancelled invitation that was never added explains itself without an action', async ({ page, fixtureApi }, testInfo) => {
+  test.skip(testInfo.project.name !== 'chromium-desktop', 'reader coverage');
+  await fixtureApi; await setupV3(page); page.__conversationMatrix = '00';
+  await page.route('**/api/mail/messages/*/body**', route => route.fulfill({ json: { html: '<p>Cancelled invitation</p>', text: '', calendarInvitation: true, attachments: [] } }));
+  await page.route('**/api/calendar/invitations/*', route => route.fulfill({ json: { invitation: {
+    method: 'CANCEL', summary: 'Planowanie z maila', startsAt: '2026-09-10T09:00:00Z', localEvent: null,
+  } } }));
+  await page.goto('/');
+  await page.locator('[data-msgid="conversation-gmail-copy-2"]:visible').click();
+  const invitation = page.getByTestId('calendar-invitation-card').filter({ visible: true }).first();
+  await expect(invitation).toContainText('Organizator anulował to wydarzenie');
+  await expect(invitation.getByRole('button')).toHaveCount(0);
 });
 
 test('imported event preview exposes description, participants and safe meeting link', async ({ page, fixtureApi }, testInfo) => {

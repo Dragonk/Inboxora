@@ -134,6 +134,19 @@ export default function CalendarSidebar({ anchor, calendars, visibleCalendarIds,
     catch (error) { setSourceError(error.message); }
     finally { setSyncingSourceIds(current => { const next = new Set(current); next.delete(id); return next; }); }
   };
+  // The cadence is per calendar, so it saves on change rather than behind a save
+  // button: one control, one decision. The row already shows the resulting state.
+  const changeSourceInterval = async (source, intervalMin) => {
+    const previous = source.intervalMin;
+    setSources(current => current.map(item => item.id === source.id ? { ...item, intervalMin } : item));
+    try { await api.calendar.updateSource(source.id, { intervalMin }); }
+    catch (error) {
+      // Put the previous value back, so the control never claims a cadence the server
+      // did not accept.
+      setSources(current => current.map(item => item.id === source.id ? { ...item, intervalMin: previous } : item));
+      setSourceError(error.message);
+    }
+  };
   const ownedCalendar = calendar => Boolean(calendar.source === 'local' && !calendar.read_only && calendar.owner_user_id);
   const updateCalendarAppearance = async (calendar, changes) => {
     setCalendarSaving(true); setEditError(null);
@@ -190,11 +203,41 @@ export default function CalendarSidebar({ anchor, calendars, visibleCalendarIds,
         <label>{t('calendar.sourceName')}<input required value={form.displayName} onChange={event => setForm(current => ({ ...current, displayName: event.target.value }))} /></label>
         <label>{t('calendar.sourceUrl')}<input required type="url" value={form.url} onChange={event => setForm(current => ({ ...current, url: event.target.value }))} /></label>
         {form.kind === 'caldav' && <><label>{t('calendar.sourceUsername')}<input required value={form.username} onChange={event => setForm(current => ({ ...current, username: event.target.value }))} /></label><label>{t('calendar.sourcePassword')}<input required type="password" autoComplete="new-password" value={form.password} onChange={event => setForm(current => ({ ...current, password: event.target.value }))} /></label></>}
+        <SourceIntervalSelect
+          label={t('calendar.sourceSyncInterval')}
+          value={form.intervalMin}
+          onChange={value => setForm(current => ({ ...current, intervalMin: value }))}
+          t={t}
+        />
         <button type="submit" style={primaryButton}>{t('calendar.addSource')}</button>
       </form>
-      <div style={sourceList}>{sources.map(source => <div key={source.id} data-testid="calendar-source-row" style={sourceRow}><span style={sourceDetails}><strong>{source.displayName}</strong><small style={{ display: 'block' }}>{source.kind === 'caldav' ? t('calendar.caldav') : t('calendar.icsWebcal')}</small><SourceStatus source={source} pending={pendingSourceIds.current.has(source.id) || syncingSourceIds.has(source.id)} t={t} /></span><span style={sourceActions}><button disabled={syncingSourceIds.has(source.id) || pendingSourceIds.current.has(source.id)} onClick={() => syncSource(source.id)} style={linkButton}>{t('calendar.syncSource')}</button><button onClick={() => removeSource(source.id)} style={dangerButton}>{t('calendar.delete')}</button></span></div>)}</div>
+      <div style={sourceList}>{sources.map(source => <div key={source.id} data-testid="calendar-source-row" style={sourceRow}><span style={sourceDetails}><strong>{source.displayName}</strong><small style={{ display: 'block' }}>{source.kind === 'caldav' ? t('calendar.caldav') : t('calendar.icsWebcal')}</small><SourceStatus source={source} pending={pendingSourceIds.current.has(source.id) || syncingSourceIds.has(source.id)} t={t} /><SourceIntervalSelect label={t('calendar.sourceSyncInterval')} value={source.intervalMin} onChange={value => changeSourceInterval(source, value)} t={t} /></span><span style={sourceActions}><button disabled={syncingSourceIds.has(source.id) || pendingSourceIds.current.has(source.id)} onClick={() => syncSource(source.id)} style={linkButton}>{t('calendar.syncSource')}</button><button onClick={() => removeSource(source.id)} style={dangerButton}>{t('calendar.delete')}</button></span></div>)}</div>
     </Dialog>}
   </aside>;
+}
+
+// Sync cadence for one external calendar. The server accepts any whole number of
+// minutes between 15 and 1440, so the control offers the values people actually
+// choose rather than a free-text field that invites typos the server would reject.
+const SYNC_INTERVALS = [15, 30, 60, 180, 360, 720, 1440];
+
+function SourceIntervalSelect({ label, value, onChange, t }) {
+  const known = SYNC_INTERVALS.includes(value);
+  const format = minutes => (minutes % 60 === 0 && minutes >= 60
+    ? t('calendar.sourceSyncHours', { count: minutes / 60 })
+    : t('calendar.sourceSyncMinutes', { count: minutes }));
+  return <label style={intervalLabel}>{label}
+    <select
+      data-testid="calendar-source-interval"
+      value={known ? value : ''}
+      onChange={event => onChange(Number(event.target.value))}
+    >
+      {/* A value set outside this list (an older custom value) stays selectable so
+          opening the dialog never silently rewrites it. */}
+      {!known && <option value="">{format(value || 60)}</option>}
+      {SYNC_INTERVALS.map(minutes => <option key={minutes} value={minutes}>{format(minutes)}</option>)}
+    </select>
+  </label>;
 }
 
 function SourceStatus({ source, pending, t }) {
@@ -218,4 +261,4 @@ const today = { background: 'var(--accent)', color: 'var(--accent-text)', fontWe
 const section = { display: 'grid', gap: 4, paddingTop: 10 }; const sectionHeading = { display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 8, fontFamily: 'var(--font-mono, ui-monospace, monospace)', fontSize: 10, letterSpacing: '0.09em', textTransform: 'uppercase', color: 'var(--text-tertiary)' };
 const calendarRow = { display: 'flex', alignItems: 'center', gap: 4, padding: '6px 8px', borderRadius: 6, fontSize: 12.5, color: 'var(--text-secondary)' }; const calendarToggle = { display: 'flex', alignItems: 'center', gap: 8, flex: 1, minWidth: 0, color: 'var(--text-secondary)', fontSize: 12.5, cursor: 'pointer' }; const colorDot = { width: 10, height: 10, borderRadius: 3 }; const readOnly = { marginLeft: 'auto', color: 'var(--text-tertiary)', fontFamily: 'var(--font-mono, ui-monospace, monospace)', fontSize: 10 }; const owned = { marginLeft: 'auto', color: 'var(--accent)', fontFamily: 'var(--font-mono, ui-monospace, monospace)', fontSize: 10 }; const menuWrap = { position: 'relative' }; const menuButton = { border: 0, background: 'transparent', color: 'var(--text-secondary)', cursor: 'pointer', fontSize: 18, padding: '0 6px' }; const contextMenu = { position: 'absolute', right: 0, top: '100%', zIndex: 3, display: 'grid', minWidth: 150, padding: 4, border: '1px solid var(--border)', borderRadius: 7, background: 'var(--bg-secondary)', boxShadow: '0 8px 22px rgba(0,0,0,.18)' };
 const linkButton = { border: 0, background: 'transparent', color: 'var(--accent)', cursor: 'pointer', padding: 4, fontWeight: 650 }; const dangerButton = { ...linkButton, color: 'var(--red)' }; const primaryButton = { border: 0, borderRadius: 7, background: 'var(--accent)', color: 'var(--accent-text)', padding: '8px 10px', cursor: 'pointer', fontWeight: 650 };
-const formStyle = { display: 'grid', gap: 10, minWidth: 0 }; const sourceList = { display: 'grid', gap: 8, marginTop: 16, minWidth: 0 }; const sourceRow = { display: 'flex', justifyContent: 'space-between', gap: 8, flexWrap: 'wrap', padding: 10, minWidth: 0, border: '1px solid var(--border-subtle)', borderRadius: 8 }; const sourceDetails = { minWidth: 0, overflowWrap: 'anywhere' }; const sourceActions = { display: 'flex', flexWrap: 'wrap', justifyContent: 'flex-end', gap: 4, minWidth: 0 }; const error = { color: 'var(--red)' };
+const formStyle = { display: 'grid', gap: 10, minWidth: 0 }; const sourceList = { display: 'grid', gap: 8, marginTop: 16, minWidth: 0 }; const sourceRow = { display: 'flex', justifyContent: 'space-between', gap: 8, flexWrap: 'wrap', padding: 10, minWidth: 0, border: '1px solid var(--border-subtle)', borderRadius: 8 }; const sourceDetails = { minWidth: 0, overflowWrap: 'anywhere' }; const sourceActions = { display: 'flex', flexWrap: 'wrap', justifyContent: 'flex-end', gap: 4, minWidth: 0 }; const intervalLabel = { display: 'flex', alignItems: 'center', gap: 6, marginTop: 6, fontSize: 11, color: 'var(--text-secondary)' }; const error = { color: 'var(--red)' };

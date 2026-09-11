@@ -10,6 +10,17 @@ Add, sync or remove them from the calendar panel under **Manage sources**.
 | **CalDAV** | Server URL, remote username and password (or app password) | Nextcloud, Fastmail, Radicale, Synology and other CalDAV servers. |
 | **ICS / webcal** | A calendar URL, or a `webcal://` link | Published `.ics` feeds, holiday calendars, team schedules. |
 
+## Sync schedule
+
+Every source has its own interval, chosen when you add it and editable at any time from its row in
+**Manage sources** (15, 30 or 60 minutes, 3, 6, 12 or 24 hours; the default is hourly). Pick it
+from how often the feed actually changes: a busy shared team calendar is worth polling every 15
+minutes, a public holiday calendar is not.
+
+Changing the interval re-arms the schedule immediately — the server does not need a restart, and
+the wait does not stay tied to the old interval. **Sync now** ignores the schedule and refreshes a
+single source straight away.
+
 ## Behaviour
 
 - Sources are **pull-only**. Inboxora never writes to the remote calendar.
