@@ -44,6 +44,7 @@ import MessageHeaderModal from './MessageHeaderModal.jsx';
 import { MessageAvatar } from './MessagePresentation.jsx';
 import MessageToolbar from './MessageToolbar.jsx';
 import ContextMenu from './ContextMenu.jsx';
+import { MobileModuleHeader, HeaderAction } from './MobileModuleHeader.jsx';
 
 function parseAddressField(raw) {
   try {
@@ -99,6 +100,7 @@ export default function MessagePane({ windowMessageId = null, onWindowClose = nu
     replyDefault, shortcuts,
     categorizationEnabled, setCategoryCounts, adjustCategoryCount,
     aiActions, setShowAdmin, setAdminTab,
+    showContacts, showCalendar,
   } = useStore();
 
   // Detached-window mode (#219): when a message id is passed in, this pane renders that
@@ -118,6 +120,10 @@ export default function MessagePane({ windowMessageId = null, onWindowClose = nu
   }, [onMobileBack, setSelectedMessage]);
 
   const isMobile = useMobile();
+  // The shell's mobile top bar hosts exactly one module's header at a time. The reader
+  // claims it only while its pane is the visible module — when Contacts/Calendar are
+  // shown the pane is hidden, so the reader must not portal into the shared host.
+  const showMobileHeader = isMobile && !showContacts && !showCalendar;
   const defaultReplyAll = replyDefault === 'replyAll';
 
   const effectiveShortcuts = getEffectiveShortcuts(shortcuts);
@@ -224,6 +230,13 @@ export default function MessagePane({ windowMessageId = null, onWindowClose = nu
   const allMessages = searchQuery.trim() ? searchResults : messages;
   const message = allMessages.find(m => m.id === selectedMessageId)
     ?? Object.values(threadMessages).flat().find(m => m.id === selectedMessageId);
+
+  // Compose lives in the mobile top bar now that the reader owns it (the shell's
+  // fallback compose row is hidden while the reader is open). Target the account of
+  // the open message/conversation copy, matching the list header's compose action.
+  const openComposeFromMobileHeader = useCallback(() => {
+    openCompose({ accountId: message?.account_id || selectedConversationCopy?.accountId || undefined });
+  }, [openCompose, message, selectedConversationCopy]);
 
   useEffect(() => {
     setResolvedSubject(null);
@@ -1853,18 +1866,12 @@ ${bodyContent}
         }}
       >
         {isMobile && <style>{`@keyframes mobileSlideIn { from { transform: translateX(100%) } to { transform: translateX(0) } }`}</style>}
-        {isMobile && (
-          <div style={{
-            display: 'flex', alignItems: 'center', gap: 8,
-            paddingTop: 'calc(var(--sat) + 10px)',
-            paddingBottom: 10, paddingLeft: 14, paddingRight: 14,
-            borderBottom: '1px solid var(--border-subtle)',
-            background: 'var(--bg-secondary)', flexShrink: 0,
-          }}>
-            <button onClick={goBackToMobileList} style={{ background: 'transparent', border: 'none', cursor: 'pointer', padding: 4, display: 'flex', alignItems: 'center' }} aria-label={t('common.back')}>
-              <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><polyline points="15 18 9 12 15 6"/></svg>
-            </button>
-          </div>
+        {showMobileHeader && (
+          <MobileModuleHeader leading={
+            <HeaderAction icon="back" label={t('common.back')} onClick={goBackToMobileList} data-testid="message-pane-back" />
+          }>
+            <HeaderAction icon="compose" label={t('sidebar.compose')} onClick={openComposeFromMobileHeader} />
+          </MobileModuleHeader>
         )}
         <Suspense fallback={<div style={{ padding: 24, textAlign: 'center', color: 'var(--text-tertiary)' }}>{t('conversation.loading')}</div>}>
           <ConversationReader conversationId={conversationId} targetLogicalMessageId={targetLogicalMessageId} selectedCopyId={selectedConversationCopy?.id} selectedAccountId={selectedConversationCopy?.accountId} accounts={accounts} onReply={onReply} nativeThreadId={nativeThreadId} nativeFolder={nativeFolder} onNativeThreadUnavailable={onNativeThreadUnavailable} />
@@ -1884,68 +1891,16 @@ ${bodyContent}
     >
       {isMobile && <style>{`@keyframes mobileSlideIn { from { transform: translateX(100%) } to { transform: translateX(0) } }`}</style>}
 
-      {/* Mobile back bar */}
-      {isMobile && (
-        <div style={{
-          display: 'flex', alignItems: 'center', gap: 8,
-          paddingTop: 'calc(var(--sat) + 10px)',
-          paddingBottom: 10, paddingLeft: 14, paddingRight: 14,
-          borderBottom: '1px solid var(--border-subtle)',
-          background: 'var(--bg-secondary)', flexShrink: 0,
-          boxShadow: paneScrolled ? '0 1px 10px rgba(0,0,0,0.2)' : 'none',
-          transition: 'box-shadow 0.2s ease',
-        }}>
-          <button
-            onClick={goBackToMobileList}
-            style={{
-              background: 'none', border: 'none', color: 'var(--accent)',
-              cursor: 'pointer', display: 'flex', alignItems: 'center',
-              gap: 2, padding: '4px 0', fontSize: 15, fontWeight: 500,
-            }}
-          >
-            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
-              <polyline points="15 18 9 12 15 6"/>
-            </svg>
-            {t('common.back')}
-          </button>
-          <div style={{
-            flex: 1, minWidth: 0,
-            fontSize: 14, fontWeight: 500, color: 'var(--text-primary)',
-            overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
-          }}>
-            {message?.subject || ''}
-          </div>
-          <button
-            disabled={!hasPrev}
-            onClick={() => selectAndMarkRead(allMessages[currentIdx - 1])}
-            title={t('message.previousMessage')}
-            style={{
-              background: 'none', border: 'none', flexShrink: 0,
-              color: 'var(--text-secondary)', cursor: hasPrev ? 'pointer' : 'default',
-              display: 'flex', alignItems: 'center', padding: '4px 6px',
-              opacity: hasPrev ? 1 : 0.3,
-            }}
-          >
-            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
-              <polyline points="18 15 12 9 6 15"/>
-            </svg>
-          </button>
-          <button
-            disabled={!hasNext}
-            onClick={() => selectAndMarkRead(allMessages[currentIdx + 1])}
-            title={t('message.nextMessage')}
-            style={{
-              background: 'none', border: 'none', flexShrink: 0,
-              color: 'var(--text-secondary)', cursor: hasNext ? 'pointer' : 'default',
-              display: 'flex', alignItems: 'center', padding: '4px 6px',
-              opacity: hasNext ? 1 : 0.3,
-            }}
-          >
-            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
-              <polyline points="6 9 12 15 18 9"/>
-            </svg>
-          </button>
-        </div>
+      {/* Mobile header — rendered into the shell's single top bar (see MobileTopBar). */}
+      {showMobileHeader && (
+        <MobileModuleHeader
+          leading={<HeaderAction icon="back" label={t('common.back')} onClick={goBackToMobileList} data-testid="message-pane-back" />}
+          title={message?.subject || ''}
+        >
+          <HeaderAction icon="previous" label={t('message.previousMessage')} disabled={!hasPrev} onClick={() => selectAndMarkRead(allMessages[currentIdx - 1])} />
+          <HeaderAction icon="next" label={t('message.nextMessage')} disabled={!hasNext} onClick={() => selectAndMarkRead(allMessages[currentIdx + 1])} />
+          <HeaderAction icon="compose" label={t('sidebar.compose')} onClick={openComposeFromMobileHeader} />
+        </MobileModuleHeader>
       )}
 
       {/* Native toolbar presentation shared with expanded conversation messages. */}

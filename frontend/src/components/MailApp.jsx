@@ -787,7 +787,11 @@ export default function MailApp() {
     }}>
       {isMobile ? (
         <MobileHeaderHost.Provider value={mobileHeaderHost}><div style={{ display: 'flex', flexDirection: 'column', width: '100%', height: '100%', minHeight: 0 }}>
-          <MobileTopBar position={mobileNavigationPosition} moduleActive={showContacts || showCalendar || !readerOpen} actionsRef={setMobileHeaderHost} onMenu={() => setMobileSidebarOpen(true)} onCompose={() => openCompose({ accountId: selectedAccountId || undefined })} t={t} />
+          {/* The mobile bar always hosts the active surface's header: Contacts, Calendar,
+              the message list, or the reader. The bare "Inboxora" fallback used to render
+              only while the reader was open, stacking a second header under this bar — so
+              the reader (like the list) must count as active. */}
+          <MobileTopBar position={mobileNavigationPosition} moduleActive actionsRef={setMobileHeaderHost} onMenu={() => setMobileSidebarOpen(true)} onCompose={() => openCompose({ accountId: selectedAccountId || undefined })} t={t} />
           <div style={{ display: 'flex', flex: 1, minHeight: 0, width: '100%', position: 'relative' }}>
           {/* Backdrop — covers full screen including status bar area */}
           {mobileSidebarOpen && (

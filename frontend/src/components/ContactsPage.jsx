@@ -640,16 +640,22 @@ export default function ContactsPage({ isActive = true }) {
     return (
       <div className="contacts-page contacts-compact" style={{ display: 'flex', flex: 1, width: '100%', minWidth: 0, flexDirection: 'column', height: '100%', overflow: 'hidden', background: 'var(--bg-secondary)' }}>
         {showContacts && <MobileFloatingAction label={t('contacts.new')} onClick={startNew} disabled={inForm} />}
-        {phone && <MobileModuleHeader title={t('contacts.title')} subtitle={selectedBook?.name || t('contacts.addressBooks.allVisible')}>
+        {phone && <MobileModuleHeader
+          leading={mobilePanel === 'detail' ? <button type="button" ref={mobileBackButtonRef} className="mobile-header-action" onClick={inForm ? cancelEdit : goBackToList} aria-label={t('contacts.backToList')}>
+            <svg aria-hidden="true" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="m15 18-6-6 6-6"/></svg>
+          </button> : undefined}
+          title={mobileHeaderTitle}
+          subtitle={mobilePanel === 'detail' ? undefined : (selectedBook?.name || t('contacts.addressBooks.allVisible'))}
+        >
           <HeaderAction icon="books" label={t('contacts.addressBooks.label')} data-testid="contacts-address-books" onClick={() => setBooksOpen(true)} />
           <HeaderAction icon="add" label={t('contacts.new')} data-testid="contacts-header-new" onClick={startNew} disabled={inForm} />
         </MobileModuleHeader>}
-        {(!phone || mobilePanel === 'detail') && <div className="contacts-compact-heading">
+        {!phone && <div className="contacts-compact-heading">
           {mobilePanel === 'detail' && <button type="button" ref={mobileBackButtonRef} className="mobile-header-action" onClick={inForm ? cancelEdit : goBackToList} aria-label={t('contacts.backToList')}>
             <svg aria-hidden="true" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="m15 18-6-6 6-6"/></svg>
           </button>}
           <h2>{mobileHeaderTitle}</h2>
-          {!phone && <HeaderAction icon="add" label={t('contacts.new')} onClick={startNew} disabled={inForm} />}
+          <HeaderAction icon="add" label={t('contacts.new')} onClick={startNew} disabled={inForm} />
         </div>}
         {mobilePanel === 'list' && <div className="contacts-list-header">{!phone && bookControls}{searchControl}</div>}
         {phone && booksOpen && <Dialog title={t('contacts.addressBooks.label')} closeLabel={t('common.close')} onClose={() => setBooksOpen(false)} testId="contacts-books-dialog" className="contacts-books-dialog">

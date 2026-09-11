@@ -5,10 +5,13 @@ export const MobileHeaderHost = createContext(null);
 
 // The active module owns its actions, including disabled/loading state. Rendering
 // them in the shell avoids duplicate headers and imperative cross-module events.
-export function MobileModuleHeader({ title, subtitle, children }) {
+// `leading` lets a drill-down view (reader / contact detail) place its back
+// affordance before the title inside the same single top-bar row.
+export function MobileModuleHeader({ leading, title, subtitle, children }) {
   const host = useContext(MobileHeaderHost);
   if (!host) return null;
   return createPortal(<>
+    {leading}
     <div className="mobile-module-title"><h1 title={title}>{title}</h1>{subtitle && <small title={subtitle}>{subtitle}</small>}</div>
     {children}
   </>, host);
@@ -16,6 +19,9 @@ export function MobileModuleHeader({ title, subtitle, children }) {
 
 export function HeaderAction({ icon, label, ...props }) {
   const paths = {
+    back: <path d="m15 18-6-6 6-6"/>,
+    previous: <path d="m18 15-6-6-6 6"/>,
+    next: <path d="m6 9 6 6 6-6"/>,
     unread: <><rect x="3" y="6" width="18" height="14" rx="2"/><path d="m3 7 9 7 9-7"/><circle cx="19" cy="5" r="3" fill="currentColor" stroke="var(--bg-secondary)"/></>,
     sync: <><path d="M20 7v5h-5M4 17v-5h5"/><path d="M5.6 7a8 8 0 0 1 13.2-1L20 8M4 16l1.2 2A8 8 0 0 0 18.4 17"/></>,
     select: <><rect x="3" y="3" width="18" height="18" rx="2"/><path d="m8 12 3 3 6-7"/></>,
