@@ -35,3 +35,6 @@ Thumbs.db
 output/
 frontend/artifacts/
 artifacts/
+
+# Lokalny zapis digestow do rollbacku (nie commitowac)
+.rollback/
