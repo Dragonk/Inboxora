@@ -85,9 +85,9 @@ one message:
 The list and reader preferences are independent: you can have a flat list with a conversation
 reader, or a threaded list that opens single messages.
 
-| Threaded list on a phone | Conversation reader on a phone |
+| Conversation reader with the thread history expanded | The same conversation on a phone |
 | --- | --- |
-| ![Threaded list on a phone](https://raw.githubusercontent.com/Dragonk/Inboxora/main/media/screenshots/mail-threaded-list-mobile.png) | ![Conversation reader on a phone](https://raw.githubusercontent.com/Dragonk/Inboxora/main/media/screenshots/mail-conversation-mobile.png) |
+| ![Conversation reader](https://raw.githubusercontent.com/Dragonk/Inboxora/main/media/screenshots/mail-conversation-desktop.png) | ![Conversation reader on a phone](https://raw.githubusercontent.com/Dragonk/Inboxora/main/media/screenshots/mail-conversation-mobile.png) |
 
 ## Reading mail safely
 

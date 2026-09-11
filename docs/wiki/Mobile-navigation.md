@@ -3,7 +3,18 @@
 The same application adapts from a phone to a wide desktop. This page describes what changes and
 how to get around on a small screen.
 
-![Inboxora on a phone](https://raw.githubusercontent.com/Dragonk/Inboxora/main/media/screenshots/mail-list-mobile.png)
+![Inboxora on a phone](https://raw.githubusercontent.com/Dragonk/Inboxora/main/media/screenshots/mail-inbox-mobile.png)
+
+## Navigation position
+
+The navigation bar can sit at the **top** or the **bottom** of the screen
+(**Settings → Appearance**). The bottom position respects device safe areas, and floating action
+buttons shift above it so they stay tappable. Both variants are shown here because the choice
+changes the whole shell:
+
+| Navigation at the top | Navigation at the bottom |
+| --- | --- |
+| ![Phone shell with navigation at the top](https://raw.githubusercontent.com/Dragonk/Inboxora/main/media/screenshots/mobile-navigation-top-mobile.png) | ![Phone shell with navigation at the bottom](https://raw.githubusercontent.com/Dragonk/Inboxora/main/media/screenshots/mobile-navigation-bottom-mobile.png) |
 
 ## Layout breakpoints
 
@@ -22,9 +33,6 @@ taken into account when deciding whether a compact presentation is needed.
 - The drawer — opened from the top bar — switches between **Mail**, **Calendar** and
   **Contacts**, and gives access to accounts, settings and sign-out.
 - Swiping left on the drawer closes it.
-- The bar can sit at the **top** or the **bottom** of the screen (**Settings → Appearance**). The
-  bottom position respects device safe areas, and floating action buttons shift above it so they
-  stay tappable.
 
 ## Creating things
 

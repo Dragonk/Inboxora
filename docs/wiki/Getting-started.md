@@ -3,7 +3,7 @@
 This page takes you from a fresh installation to a working inbox with your contacts and
 calendar in place.
 
-![Inboxora mail list](https://raw.githubusercontent.com/Dragonk/Inboxora/main/media/screenshots/mail-list-desktop.png)
+![Inboxora mail list](https://raw.githubusercontent.com/Dragonk/Inboxora/main/media/screenshots/mail-inbox-desktop.png)
 
 ## 1. Sign in and create the administrator
 
