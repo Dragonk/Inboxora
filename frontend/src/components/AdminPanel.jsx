@@ -3,6 +3,7 @@ import { useBackLayer } from '../hooks/useBackNavigation.js';
 import { intlLocale } from '../utils/intlLocale.js';
 import { folderLabel } from '../utils/folderLabels.js';
 import { inputStyle as sharedInputStyle } from './ui.jsx';
+import ConversationRebuild from './ConversationRebuild.jsx';
 import { useCallback, useState, useEffect, useLayoutEffect, useRef, useMemo } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useStore } from '../store/index.js';
@@ -2185,6 +2186,10 @@ function LayoutsTab() {
           ariaLabel={conversationReaderViewEnabled ? t('conversation.readerOn') : t('conversation.readerOff')}
         />
       </div>
+
+      {/* Rebuilding existing mail's threading — the step that groups a mailbox
+          migrated from MailFlow — sits beside the two threading switches. */}
+      <ConversationRebuild />
 
       {/* Compose format */}
       <div style={{ marginTop: 28, paddingTop: 22, borderTop: '1px solid var(--border-subtle)' }}>
@@ -8361,6 +8366,8 @@ function makeSearchIndex(t) {
     { label: t('admin.messageList.syncFrequency'), keywords: ['sync', 'interval', 'frequency', 'refresh', 'poll', 'check mail', '15s', '30s', '60s'], tab: 'appearance', subtab: 'layout', breadcrumb: layoutCrumb },
     { label: t('admin.messageList.folderSyncFrequency'), keywords: ['folder', 'sync', 'structure', 'list', 'refresh', 'mailbox', '15 min', '30 min', '1 hour', 'never'], tab: 'appearance', subtab: 'layout', breadcrumb: layoutCrumb },
     { label: t('admin.messageList.threadingMode'), keywords: ['thread', 'conversation', 'grouping', 'threading', 'group'], tab: 'appearance', subtab: 'layout', breadcrumb: layoutCrumb },
+    // Discoverable by the words a person migrating a mailbox would actually search for.
+    { label: t('conversation.rebuildConversations'), keywords: ['rebuild', 'conversation', 'threading', 'group', 'regroup', 'reindex', 'mailflow', 'migrate', 'migration', 'import', 'history', 'backlog'], tab: 'appearance', subtab: 'layout', breadcrumb: layoutCrumb },
     { label: t('admin.messageList.composeFormat'), keywords: ['compose', 'format', 'rich text', 'plain text', 'html', 'editor'], tab: 'appearance', subtab: 'layout', breadcrumb: layoutCrumb },
     { label: t('admin.messageList.defaultReplyAction'), keywords: ['reply', 'reply all', 'default reply'], tab: 'appearance', subtab: 'layout', breadcrumb: layoutCrumb },
     { label: t('admin.messageList.markReadBehavior'), keywords: ['mark read', 'mark as read', 'read delay', 'auto read', 'manual read', 'unread'], tab: 'appearance', subtab: 'layout', breadcrumb: layoutCrumb },

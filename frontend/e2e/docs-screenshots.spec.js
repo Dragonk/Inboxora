@@ -193,6 +193,14 @@ async function openSettingsTab(page, name) {
   await button.click();
 }
 
+// Appearance groups its options into sub-tabs; the threading settings and the
+// conversation rebuild live under Layout, not on the default Theme sub-tab.
+async function openSettingsSubTab(page, name) {
+  const button = page.locator('.admin-panel').getByRole('button', { name: new RegExp(`^${name}$`, 'i') }).first();
+  await button.scrollIntoViewIfNeeded();
+  await button.click();
+}
+
 // The hero image: a mailbox that is actually in use. The conversation is expanded in the
 // list and one of its messages is open in the reading pane, so the image shows threading
 // and reading at the same time rather than an empty shell.
@@ -297,6 +305,30 @@ test('settings: appearance, DAV access and about', async ({ page, fixtureApi }) 
   await expect(page.getByText('4.0.0', { exact: true })).toBeVisible();
   await capture(page, 'settings-about', { mode: 'workspace', require: [
     page.getByText('AGPL-3.0', { exact: true }),
+  ] });
+});
+
+// The rebuild is the step that groups a mailbox migrated from MailFlow, and its
+// confirmation dialog is where the safe default (dry run, ticked) is visible.
+test('settings: the conversation rebuild confirmation', async ({ page, fixtureApi }) => {
+  await openMail(page, fixtureApi);
+  await openSettings(page);
+  await openSettingsTab(page, 'Appearance');
+  await openSettingsSubTab(page, 'Layout');
+  const open = page.getByTestId('conversation-rebuild-open');
+  await expect(open).toBeVisible();
+  await capture(page, 'settings-threading', { mode: 'workspace', require: [
+    page.getByTestId('conversation-list-toggle'),
+    page.getByTestId('conversation-reader-toggle'),
+    open,
+  ] });
+  await open.click();
+  const dialog = page.getByTestId('conversation-rebuild-dialog');
+  await expect(dialog).toBeVisible();
+  await expect(page.getByTestId('conversation-rebuild-dry-run')).toBeChecked();
+  await capture(page, 'settings-rebuild-confirm', { mode: 'workspace', require: [
+    dialog,
+    page.getByTestId('conversation-rebuild-dry-run'),
   ] });
 });
 

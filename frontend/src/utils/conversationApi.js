@@ -20,7 +20,12 @@ async function apiFetch(path, options = {}) {
   });
   if (!res.ok) {
     const body = await res.json().catch(() => ({}));
-    throw new Error(body.error || `HTTP ${res.status}`);
+    // Carry the status on the error so a caller can react to a specific one: the
+    // rebuild endpoint answers 429 when its per-user rate limit is hit, and that
+    // deserves a different message from a generic failure.
+    const error = new Error(body.error || `HTTP ${res.status}`);
+    error.status = res.status;
+    throw error;
   }
   return res.json();
 }
@@ -149,10 +154,20 @@ export const conversationApi = {
   diagnostics: (conversationId) => apiFetch(`/conversations/${conversationId}/diagnostics`),
 
   // Rebuild
-  rebuild: ({ dryRun = false, scope = 'all' } = {}) =>
+  //
+  // `dryRun` defaults to true here as well as on the server, so a caller that
+  // forgets to decide gets a report rather than a write. Only the options the
+  // endpoint actually reads are sent; the request is always scoped to the signed-in
+  // user's own accounts.
+  rebuild: ({ dryRun = true, accountId = null, limit, force = false } = {}) =>
     apiFetch(`/conversations/rebuild`, {
       method: 'POST',
-      body: JSON.stringify({ dryRun, scope }),
+      body: JSON.stringify({
+        dryRun,
+        ...(accountId ? { accountId } : {}),
+        ...(limit ? { limit } : {}),
+        ...(force ? { force } : {}),
+      }),
     }),
 
   rebuildStatus: (jobId) => apiFetch(`/conversations/rebuild/${jobId}`),
