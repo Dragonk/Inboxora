@@ -110,11 +110,27 @@ upstream is published with the release tag.
   export, CardDAV server and client, CalDAV server, and revocable DAV application passwords.
 - **Interface.** The Ink-based layout with resizable panels, per-module navigation, a rebuilt
   mobile shell, and self-hosted typography.
-- **Platform reach.** Installable PWA with an unread badge and Web Push. Electron desktop and
-  Android/Capacitor shells exist and are being stabilised; they are not release-ready yet.
-  Android instant notifications use a bundled **ntfy** (UnifiedPush) server on the same domain
-  (enter the origin, no path, in the ntfy app) — no Firebase, no second hostname. See
+- **Platform reach.** Installable PWA with an unread badge and Web Push, a Windows Electron
+  desktop application, and a native Android/Capacitor application. Android instant notifications
+  use the bundled **ntfy** (UnifiedPush) server in the same stack — no Firebase, no second
+  hostname. See [Platforms](#platforms) and
   [Notifications](https://github.com/Dragonk/Inboxora/wiki/Notifications).
+
+## Platforms
+
+- **Web / PWA.** The self-hosted web app, installable from the browser, with Web Push (VAPID)
+  notifications and an unread badge. Works in any modern browser.
+- **Desktop.** An Electron application for Windows (the same packaging also builds Linux and
+  macOS artifacts). It wraps the web app, keeps the session, and supports the host picker, tray,
+  `mailto:` links and the update checker.
+- **Android.** A native Capacitor application with instant notifications. Android notifications
+  go through **UnifiedPush**, so a compatible distributor app must be installed on the phone —
+  the recommended one is **ntfy**. The Docker stack already ships the ntfy server on the same
+  domain, so no second hostname or certificate is needed. Without a distributor the app still
+  works and mail syncs, but notifications while the app is closed are not delivered.
+
+See [Notifications](https://github.com/Dragonk/Inboxora/wiki/Notifications) for the phone setup
+and [Installation](https://github.com/Dragonk/Inboxora/wiki/Installation) for the server side.
 
 ## Quick start
 
@@ -253,8 +269,8 @@ mail into conversations afterwards, is in
   80 % to 130 %, five reader layouts and configurable swipe actions. **Ink** is the default
   light theme and **Dark ink** its dark counterpart, so a fresh profile follows the system and
   switches between the two on its own.
-- Installable PWA with an unread badge and push notifications; Electron desktop and
-  Android/Capacitor shells are present and are being stabilised for release.
+- Installable PWA with an unread badge and push notifications, an Electron desktop application
+  for Windows, and a native Android application with instant UnifiedPush (ntfy) notifications.
 
 </details>
 

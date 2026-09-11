@@ -1,6 +1,6 @@
 # Release notes 4.0.0
 
-**Status:** preparing the release · **Previous version:** 3.4.0
+**Status:** released 2026-09-11 · **Previous version:** 3.4.0
 
 ## Why 4.0.0
 
@@ -63,8 +63,20 @@ upgrade path.
 - The Ink-based shell, resizable panels, compact mode, and a phone layout with a drawer,
   floating actions, safe areas and system Back handling.
 - Nine interface languages and a rebuilt settings surface, including a **DAV access** tab.
-- PWA with an unread badge and Web Push; Electron and Android/Capacitor shells under
-  stabilisation.
+- A **Windows Electron** desktop application, and a native **Android** application with
+  instant notifications through a bundled **ntfy** (UnifiedPush) server.
+- PWA with an unread badge and Web Push.
+
+### Notifications
+
+- **PWA / browser Web Push** with VAPID keys, an unread badge and rich notifications.
+- **Android** instant notifications through **UnifiedPush**, with a self-hosted **ntfy** server
+  shipped in the Docker stack on the same domain. Inboxora sends only an opaque
+  `{"type":"mail.changed","eventId":"…"}` event; the app fetches the message from its own server
+  and builds the notification locally, so no sender, subject or body reaches the push provider.
+- Native notification **actions** (Open, Reply, Delete, Star), **deduplication** on the message id,
+  and a **WorkManager** reconciler as a fallback only (never the primary channel).
+- Nothing calls Firebase: the optional FCM transport exists for custom builds but is not required.
 
 ## Compatibility
 
@@ -82,7 +94,9 @@ upgrade path.
 - No automatic spam classifier; spam handling is manual.
 - Recurrence rules are read and expanded, but the interface does not author new `RRULE`s.
 - No backup/restore feature in the application; back up PostgreSQL and `.env` yourself.
-- Native desktop and Android builds are not release-ready.
+- Android instant notifications need a compatible **UnifiedPush distributor** on the phone
+  (recommended: **ntfy**). Without one the app works and syncs mail, but notifications while the
+  app is closed are not delivered. No Firebase project is involved.
 
 ## Detailed changelog
 

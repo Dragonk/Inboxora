@@ -55,10 +55,14 @@ straightforward — but note the following.
 | Calendar | New local calendars start empty. Add CalDAV or ICS sources to import existing ones. |
 | Contacts | New empty address books. Import a Google CSV, or connect a CardDAV account to pull existing contacts. |
 | DAV | CardDAV and CalDAV endpoints become available. Existing devices need an **application password** from Settings → DAV access. |
+| Docker stack | A new **ntfy** service and a new `ntfy_data` volume are added for Android instant notifications. They are independent of PostgreSQL and Redis, so no mail, calendar or contact data is touched. Refresh the published `docker-compose.yml` from the release before pulling. |
+| Notifications (Android) | Set the **ntfy** app's **Default server** to `https://<your-domain>` — the origin, **no `/push` path** (the ntfy app rejects a base URL with a path). Inboxora proxies the UnifiedPush topic namespace at that origin. PWA Web Push is unchanged. |
 | Bookmarks | Unchanged. The phone layout and navigation drawer are the same shell as 3.4. |
 
 ### Recommended post-upgrade steps
 
+0. Refresh the compose file from the release, then `docker compose pull && docker compose up -d`. The new
+   `ntfy` service must be healthy (`docker compose ps ntfy`) before Android notifications work.
 1. Sign in and confirm folders and unread counts.
 2. Open **Settings → Appearance → Layout** and decide whether to enable the threaded list and the
    conversation reader.
@@ -78,6 +82,10 @@ Images are pinned, so a rollback is an image change:
 2. `docker compose pull && docker compose up -d`.
 3. If the newer version applied migrations your older image does not understand, restore the
    database backup taken before the upgrade.
+
+Do **not** delete the `ntfy_data` volume when rolling back: it only holds undelivered push
+events, and keeping it avoids re-registering devices. Do not revert database migrations by hand —
+restore the pre-upgrade backup instead.
 
 ## Upgrading a MailFlow deployment
 
