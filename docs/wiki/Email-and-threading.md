@@ -93,7 +93,15 @@ reader, or a threaded list that opens single messages.
 
 - HTML is rendered in a sandboxed frame without scripts, and it is sanitised both when it is
   stored and when it is displayed.
-- **Remote images are blocked by default**, including tracking pixels. Load them for one
+- **A message is not repainted to suit the theme.** The reading surface always follows the
+  appearance you chose, and only the individual colours that would become unreadable are
+  adjusted: text that is too dark for a dark surface is lifted to a readable light colour, and
+  content inside a card the message painted itself (a white newsletter panel, for example) gets
+  a dark text colour so your theme's light text cannot land on it. Hue and saturation are kept,
+  so a muted grey footer stays muted and a heading stays the most prominent line.
+- A message that paints its own light design therefore keeps those panels, because that is what
+  its author intended, while everything around them stays on your theme.
+- Remote images are blocked by default, including tracking pixels. Load them for one
   message, allow the sender's address, allow the whole domain, or manage the global allow-list
   under **Settings → Privacy**.
 - Attachments download individually or together as a ZIP; inline images referenced by `cid:`

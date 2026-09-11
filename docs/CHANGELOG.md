@@ -25,11 +25,15 @@ limitations — read the matching page in the Wiki, for example
   followed the operating system, so a message that declared no colours of its own was painted
   black on the dark appearance. The frame now declares the theme's colour scheme and, in a dark
   appearance, the surface and text colour it actually uses.
-- **A message that brings its own design keeps its own canvas.** Forcing the dark surface onto a
-  newsletter that paints its own light card made that card's own text invisible, and a message
-  with hard-coded dark text over a transparent background became black-on-dark. A message that
-  declares colours of its own is now rendered on the light canvas it was authored for, while a
-  message with no colours of its own still follows the app theme.
+- **A message is adapted to the dark appearance instead of being repainted.** Deciding the
+  reading canvas from "does this message declare any colours of its own?" was far too blunt:
+  virtually every real message contains at least one dark colour (a footer, a legal line), so a
+  dark theme rendered every message on a white page. The canvas now always follows the theme, and
+  only the declarations that would be unreadable are adjusted — dark text on the dark surface is
+  lifted to a readable light colour, and content inside a card the message painted itself gains a
+  dark text colour so the theme's light default cannot land on it. Hue and saturation are
+  preserved, so a muted footer stays muted. A message's own light panels are kept, because that
+  is what its author intended.
 - **A retracted invitation can be withdrawn from the calendar.** Cancelling an event in the mail
   reader previously only reported the cancellation. The panel now offers to remove the copy the
   message created, and refuses to remove an event the user has since taken ownership of or a

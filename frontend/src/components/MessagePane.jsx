@@ -20,6 +20,7 @@ import { renderMarkdown } from '../utils/renderMarkdown.js';
 import { pickReplyAlias, collectOwnAddresses } from '../utils/replyAlias.js';
 import { buildReplyHeaders } from '../utils/composeFromMessage.js';
 import MessageBodyRenderer, { sanitizeMessageHtml } from './MessageBodyRenderer.jsx';
+import { getEmailSurface } from '../themes.js';
 import MessageDetailContent from './MessageDetailContent.jsx';
 const USE_DIV_RENDER = import.meta.env.VITE_EMAIL_DIV_RENDER === 'true';
 const MESSAGE_OPENING_EVENT = 'inboxora:message-opening';
@@ -347,8 +348,11 @@ export default function MessagePane({ windowMessageId = null, onWindowClose = nu
   // retryKey is intentionally a dependency: ref mutations from Load images/whitelist
   // must force this sanitizer projection to recompute even though the ref itself is
   // not a reactive value.
+  // The div renderer bypasses the iframe, so it has to apply the same canvas contract
+  // itself: the tone drives the colour adaptation the sanitiser performs.
+  const paneTheme = useStore(state => state.theme);
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  const renderableHtml = useMemo(() => body?.html ? sanitizeMessageHtml(body.html, { remoteImages: allowRemoteImages }) : '', [body?.html, allowRemoteImages, retryKey]);
+  const renderableHtml = useMemo(() => body?.html ? sanitizeMessageHtml(body.html, { remoteImages: allowRemoteImages, tone: getEmailSurface(paneTheme)?.tone }) : '', [body?.html, allowRemoteImages, retryKey, paneTheme]);
   const prepared = useMemo(() => {
     if (!USE_DIV_RENDER || !renderableHtml) return null;
     return prepareEmailHtml(renderableHtml, windowMode ? `w${message?.id ?? 'preview'}` : String(message?.id ?? 'preview'));

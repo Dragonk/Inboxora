@@ -1,6 +1,15 @@
 import DOMPurifyModule from 'dompurify';
 import postcss from 'postcss';
-import { emailAssumesLightCanvas } from '../utils/emailCanvas.js';
+import {
+  adaptTextForCanvas,
+  findColorToken,
+  isLightBackground,
+  needsDarkening,
+  needsLifting,
+  parseColor,
+  rgbToHex,
+  textForLightBackground,
+} from '../utils/emailCanvas.js';
 
 function purifier() {
   if (typeof DOMPurifyModule?.sanitize === 'function') return DOMPurifyModule;
@@ -29,7 +38,103 @@ function preserveCid(html) {
   return html.replace(/(src|href)=("|')cid:/gi, '$1=$2cid:');
 }
 
-export function sanitizeMessageHtml(html = '', { remoteImages = false } = {}) {
+// ── Adapting a message to the app's dark canvas ───────────────────────────────
+//
+// Applied only in the dark appearance. The canvas stays dark — the message is not
+// repainted — and the individual declarations that would become unreadable are adjusted:
+//
+//   * an element painting its own light background keeps it, and gains a dark text colour
+//     when it declares none, so the app's light default cannot land on the message's card;
+//   * text that is dark, and not inside any light region the message painted, is lifted to
+//     a light colour, so it stays readable on the dark canvas;
+//   * the mirror case — light text inside a light region — is darkened.
+//
+// Only inline styles are adapted. A <style> block cannot be reasoned about element by
+// element, and rewriting its colours blind would break the rules targeting content inside
+// a message's own light cards. Real messages carry the colours that matter inline.
+
+function readDeclarations(styleText) {
+  const found = new Map();
+  for (const declaration of String(styleText || '').split(';')) {
+    const separator = declaration.indexOf(':');
+    if (separator < 1) continue;
+    const property = declaration.slice(0, separator).trim().toLowerCase();
+    const value = declaration.slice(separator + 1).trim();
+    if (property && value) found.set(property, value);
+  }
+  return found;
+}
+
+function writeDeclarations(element, declarations) {
+  if (!declarations.size) { element.removeAttribute('style'); return; }
+  element.setAttribute('style', [...declarations].map(([property, value]) => `${property}:${value}`).join(';'));
+}
+
+// The colour an element paints behind its content: the inline background, else the legacy
+// bgcolor attribute that table-based mail still uses.
+function elementBackground(element, declarations) {
+  const declared = declarations.get('background-color') || declarations.get('background');
+  const fromStyle = declared ? parseColor(findColorToken(declared)) : null;
+  if (fromStyle) return fromStyle;
+  return parseColor(element.getAttribute('bgcolor'));
+}
+
+function elementForeground(declarations) {
+  const declared = declarations.get('color');
+  return declared ? parseColor(findColorToken(declared)) : null;
+}
+
+// The surface a piece of text is actually read on: the nearest element that paints a
+// background, starting with the element itself. Walking all the way up and asking "is any
+// ancestor light?" is wrong — a dark band nested inside a light wrapper would be judged by
+// the wrapper, and its white text would be darkened into the band.
+function nearestPaintedBackground(element) {
+  for (let node = element; node; node = node.parentElement) {
+    const declarations = readDeclarations(node.getAttribute('style'));
+    const background = elementBackground(node, declarations);
+    if (background) return background;
+  }
+  return null;
+}
+
+function setColorDeclaration(declarations, color) {
+  declarations.delete('color');
+  declarations.set('color', rgbToHex(color));
+}
+
+/**
+ * Adapts an already-sanitised message to a dark canvas. Mutates the nodes in place.
+ * Exported so the contract can be exercised directly in a browser test.
+ */
+export function adaptMessageForDarkCanvas(root) {
+  if (!root) return;
+  for (const element of root.querySelectorAll('[style], [bgcolor]')) {
+    const declarations = readDeclarations(element.getAttribute('style'));
+    const ownBackground = elementBackground(element, declarations);
+    const foreground = elementForeground(declarations);
+    // The region the text is read in is decided by the nearest painted background, falling
+    // back to the app's canvas when the message paints none above it.
+    const region = ownBackground || nearestPaintedBackground(element.parentElement);
+    const lightRegion = Boolean(region && isLightBackground(region));
+    const paintsLight = Boolean(ownBackground && isLightBackground(ownBackground));
+    // Tracked explicitly rather than by comparing the attribute before and after: only the
+    // parsed map is mutated here, so the attribute is still unchanged at the comparison.
+    let changed = false;
+
+    if (foreground) {
+      if (needsDarkening(foreground, lightRegion)) { setColorDeclaration(declarations, adaptTextForCanvas(foreground, true)); changed = true; }
+      else if (needsLifting(foreground, lightRegion)) { setColorDeclaration(declarations, adaptTextForCanvas(foreground, false)); changed = true; }
+    } else if (paintsLight) {
+      // The message's own light card carries content with no colour of its own.
+      setColorDeclaration(declarations, textForLightBackground(ownBackground));
+      changed = true;
+    }
+
+    if (changed) writeDeclarations(element, declarations);
+  }
+}
+
+export function sanitizeMessageHtml(html = '', { remoteImages = false, tone = null } = {}) {
   const purify = purifier();
   const sanitized = purify.sanitize(preserveCid(String(html)), {
     ...EMAIL_SANITIZE_POLICY,
@@ -42,6 +147,8 @@ export function sanitizeMessageHtml(html = '', { remoteImages = false } = {}) {
     const safe = sanitizeInlineStyle(element.getAttribute('style'));
     if (safe) element.setAttribute('style', safe); else element.removeAttribute('style');
   }
+  // After sanitising, so adaptation can never reintroduce a property the sanitizer stripped.
+  if (tone === 'dark') adaptMessageForDarkCanvas(template.content);
   for (const style of template.content.querySelectorAll('style')) {
     const safe = sanitizeEmailCss(style.textContent);
     if (safe) style.textContent = safe; else style.remove();
@@ -98,25 +205,19 @@ function safeCssColor(value) {
   return CSS_COLOR_RE.test(candidate) ? candidate : null;
 }
 
-// The canvas a message that brings its own design is drawn on. White is what mail is
-// authored against, so a message that declares colours of its own keeps the surface it
-// expects instead of being repainted with the app's theme.
-const AUTHORED_CANVAS = '#ffffff';
-
-// Resolves the surface actually painted into the frame.
+// Resolves the surface painted into the frame.
 //
-// A message that carries its own colours is never given the dark surface: doing so is what
-// produced light text on a message's own white card, and black text on the dark canvas the
-// message never asked for. Those messages get a light canvas and the user agent's own dark
-// default text (which is what they were authored against) — the light appearance already
-// worked this way and stays untouched.
-function resolveEmailSurface(html, surface) {
+// The canvas always follows the app theme. Deciding it from the message instead — "this
+// one carries colours of its own, so paint it white" — was far too blunt: virtually every
+// real message contains at least one dark colour (a footer, a legal line), so a dark theme
+// rendered every message white. Conflicts are resolved per declaration by
+// adaptMessageForDarkCanvas instead.
+function resolveEmailSurface(surface) {
   if (!surface || (surface.tone !== 'light' && surface.tone !== 'dark')) return null;
   // The light appearance already inherits the panel behind the frame, which paints the
   // theme surface. Adding a background here would only switch text from grayscale to
   // subpixel antialiasing and churn every light-mode capture for no visible gain.
   if (surface.tone === 'light') return { tone: 'light' };
-  if (emailAssumesLightCanvas(html)) return { tone: 'light', background: AUTHORED_CANVAS, foreground: null };
   return surface;
 }
 
@@ -142,7 +243,7 @@ function emailSurfaceCss(surface) {
 
 export function buildSrcDoc(html, { remoteImages = false, surface = null } = {}) {
   const csp = emailCsp({ remoteImages });
-  const resolved = resolveEmailSurface(html, surface);
+  const resolved = resolveEmailSurface(surface);
   const surfaceCss = emailSurfaceCss(resolved);
   // The colour-scheme meta is the documented counterpart of the backend stripping an
   // email's own `color-scheme` declarations: a message must not choose the frame's

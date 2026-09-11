@@ -34,10 +34,13 @@ export default function MessageBodyRenderer({ html = '', text = '', remoteImages
   const theme = useStore(state => state.theme);
 
   const srcDoc = useMemo(() => {
+    // The surface decides the canvas; its tone also tells the sanitiser whether the
+    // message has to be adapted to a dark canvas before it is written into the frame.
+    const surface = getEmailSurface(theme);
     const content = html
-      ? sanitizeMessageHtml(html, { remoteImages })
+      ? sanitizeMessageHtml(html, { remoteImages, tone: surface?.tone })
       : `<pre data-mailflow-plain-text="true">${escapeMessageText(text)}</pre>`;
-    return buildSrcDoc(content, { remoteImages, surface: getEmailSurface(theme) });
+    return buildSrcDoc(content, { remoteImages, surface });
   }, [html, text, remoteImages, theme]);
 
   // Auto-height: measure the iframe content and set the iframe height

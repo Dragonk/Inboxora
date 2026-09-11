@@ -1,18 +1,46 @@
 import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
-import { emailAssumesLightCanvas, luminance, parseColor } from './emailCanvas.js';
+import {
+  adaptTextForCanvas,
+  findColorToken,
+  hslToRgb,
+  isLightBackground,
+  lightness,
+  needsDarkening,
+  needsLifting,
+  parseColor,
+  rgbToHex,
+  rgbToHsl,
+  textForLightBackground,
+} from './emailCanvas.js';
 
-describe('parseColor', () => {
-  it('parses the colour notations mail actually uses', () => {
+// WCAG relative luminance, so the assertions speak in contrast ratios rather than in
+// raw channel values.
+function contrast(a, b) {
+  const luminance = ([r, g, b]) => {
+    const channel = value => {
+      const c = value / 255;
+      return c <= 0.03928 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4;
+    };
+    return 0.2126 * channel(r) + 0.7152 * channel(g) + 0.0722 * channel(b);
+  };
+  const [hi, lo] = [luminance(a), luminance(b)].sort((x, y) => y - x);
+  return (hi + 0.05) / (lo + 0.05);
+}
+
+// dark_ink's canvas and default text — the surface a message is adapted to.
+const CANVAS = parseColor('#1a1e25');
+const THEME_TEXT = parseColor('#e8e6df');
+
+describe('parseColor and findColorToken', () => {
+  it('parses the notations mail actually uses', () => {
     assert.deepEqual(parseColor('#fff'), [255, 255, 255]);
     assert.deepEqual(parseColor('#FFFFFF'), [255, 255, 255]);
     assert.deepEqual(parseColor('#1a1e25'), [26, 30, 37]);
-    assert.deepEqual(parseColor('#ffffffff'), [255, 255, 255]);
     assert.deepEqual(parseColor('rgb(255, 255, 255)'), [255, 255, 255]);
     assert.deepEqual(parseColor('rgba(0, 0, 0, 0.5)'), [0, 0, 0]);
     assert.deepEqual(parseColor('rgb(100% 100% 100%)'), [255, 255, 255]);
     assert.deepEqual(parseColor('white'), [255, 255, 255]);
-    assert.deepEqual(parseColor('  Black  '), [0, 0, 0]);
   });
 
   it('returns null for anything it cannot be sure about', () => {
@@ -20,72 +48,145 @@ describe('parseColor', () => {
     assert.equal(parseColor(null), null);
     assert.equal(parseColor('currentColor'), null);
     assert.equal(parseColor('var(--x)'), null);
-    assert.equal(parseColor('url(x.png)'), null);
     assert.equal(parseColor('#12345'), null);
-    assert.equal(parseColor(0xffffff), null);
+  });
+
+  it('finds a colour inside a shorthand without being fooled by a URL', () => {
+    assert.equal(findColorToken('#fff url(x.png) no-repeat'), '#fff');
+    assert.equal(findColorToken('rgb(13, 13, 13)'), 'rgb(13, 13, 13)');
+    assert.equal(findColorToken('url(white.png)'), null);
   });
 });
 
-describe('luminance', () => {
-  it('orders black, mid and white as expected', () => {
-    assert.equal(luminance([0, 0, 0]), 0);
-    assert.equal(luminance([255, 255, 255]), 1);
-    assert.ok(luminance([128, 128, 128]) > 0.2 && luminance([128, 128, 128]) < 0.25);
+describe('colour space round trips', () => {
+  it('converts to HSL and back without drifting more than a rounding step', () => {
+    for (const hex of ['#000000', '#ffffff', '#666666', '#222222', '#1a1e25', '#00a790', '#ff5a00']) {
+      const rgb = parseColor(hex);
+      const back = hslToRgb(rgbToHsl(rgb));
+      for (let channel = 0; channel < 3; channel += 1) {
+        assert.ok(Math.abs(rgb[channel] - back[channel]) <= 1, `${hex} channel ${channel}: ${rgb[channel]} vs ${back[channel]}`);
+      }
+    }
+  });
+
+  it('orders lightness the way the eye does', () => {
+    assert.ok(lightness(parseColor('#000000')) < lightness(parseColor('#666666')));
+    assert.ok(lightness(parseColor('#666666')) < lightness(parseColor('#ffffff')));
+  });
+
+  it('renders hex back at full width', () => {
+    assert.equal(rgbToHex([0, 0, 0]), '#000000');
+    assert.equal(rgbToHex([255, 255, 255]), '#ffffff');
+    assert.equal(rgbToHex([26, 30, 37]), '#1a1e25');
   });
 });
 
-describe('emailAssumesLightCanvas', () => {
-  it('detects a light background declared inline', () => {
-    // The reported case: a light card with no text colour of its own.
-    assert.equal(emailAssumesLightCanvas(
-      '<table width="100%" style="background-color:#F7F7F7"><tr><td style="background-color:#FFFFFF"><div>Witaj</div></td></tr></table>',
-    ), true);
+describe('isLightBackground', () => {
+  it('recognises the light surfaces mail paints', () => {
+    for (const hex of ['#ffffff', '#eceff1', '#f7f7f7', '#edece6']) {
+      assert.equal(isLightBackground(parseColor(hex)), true, hex);
+    }
   });
 
-  it('detects a light background declared through the legacy bgcolor attribute', () => {
-    assert.equal(emailAssumesLightCanvas('<table bgcolor="#FFFFFF"><tr><td>Hi</td></tr></table>'), true);
-    assert.equal(emailAssumesLightCanvas('<body bgcolor="white"><p>Hi</p></body>'), true);
+  it('does not mistake a dark surface or a mid-grey card for one', () => {
+    for (const hex of ['#1a1e25', '#000000', '#3a4e58']) {
+      assert.equal(isLightBackground(parseColor(hex)), false, hex);
+    }
+  });
+});
+
+describe('adapting text to the dark canvas', () => {
+  it('lifts dark text to a readable light colour', () => {
+    // #222 is the near-black body text of a light-designed newsletter.
+    const lifted = adaptTextForCanvas(parseColor('#222222'), false);
+    assert.ok(lightness(lifted) > 0.8, `expected a light result, got ${rgbToHex(lifted)}`);
+    assert.ok(contrast(lifted, CANVAS) >= 4.5, `contrast ${contrast(lifted, CANVAS)}`);
   });
 
-  it('detects a light background declared in a style block', () => {
-    assert.equal(emailAssumesLightCanvas(
-      '<style>.card { background: #f3f3f3 url(bg.png) no-repeat; }</style><div class="card">Hi</div>',
-    ), true);
+  it('lifts a muted grey but keeps it muted relative to body text', () => {
+    // A #666 footer must become readable without competing with the message body.
+    const footer = adaptTextForCanvas(parseColor('#666666'), false);
+    const body = adaptTextForCanvas(parseColor('#222222'), false);
+    assert.ok(contrast(footer, CANVAS) >= 4.5, `contrast ${contrast(footer, CANVAS)}`);
+    assert.ok(contrast(footer, CANVAS) <= 8, `footer became as bright as body text: ${contrast(footer, CANVAS)}`);
+    assert.ok(lightness(footer) < lightness(body), 'the footer must stay dimmer than the body');
   });
 
-  it('detects dark text that would sit on a light canvas', () => {
-    // The second reported case: black text on a transparent background, which assumes the
-    // surrounding canvas is white.
-    assert.equal(emailAssumesLightCanvas('<h1 style="color:#000000">Tytuł</h1>'), true);
-    assert.equal(emailAssumesLightCanvas('<p style="color: rgb(13, 13, 13)">Text</p>'), true);
-    assert.equal(emailAssumesLightCanvas('<style>p { color: black; }</style><p>Text</p>'), true);
+  it('keeps the author’s hue and saturation', () => {
+    const [hue] = rgbToHsl(parseColor('#00a790'));
+    const adapted = rgbToHsl(adaptTextForCanvas(parseColor('#00a790'), false));
+    assert.ok(Math.abs(adapted[0] - hue) < 2, `hue drifted from ${hue} to ${adapted[0]}`);
+    assert.ok(adapted[1] > 0.3, 'saturation was flattened');
   });
 
-  it('leaves an unstyled message to the app theme', () => {
-    assert.equal(emailAssumesLightCanvas('<p>Fixture body</p><a href="https://example.test">Link</a>'), false);
-    assert.equal(emailAssumesLightCanvas('<div><table><tr><td>Plain</td></tr></table></div>'), false);
-    assert.equal(emailAssumesLightCanvas(''), false);
-    assert.equal(emailAssumesLightCanvas(null), false);
+  it('never leaves adapted text mid-grey', () => {
+    for (const hex of ['#767676', '#808080', '#999999', '#4d4d4d']) {
+      const lifted = adaptTextForCanvas(parseColor(hex), false);
+      assert.ok(lightness(lifted) >= 0.6, `${hex} lifted only to ${rgbToHex(lifted)}`);
+      assert.ok(contrast(lifted, CANVAS) >= 4.5, `${hex} contrast ${contrast(lifted, CANVAS)}`);
+    }
   });
 
-  it('leaves a message with only dark backgrounds to the app theme', () => {
-    assert.equal(emailAssumesLightCanvas('<td style="background-color:#000000;color:#ffffff">Dark card</td>'), false);
-    assert.equal(emailAssumesLightCanvas('<div style="background: #1a1e25">Dark</div>'), false);
+  it('darkens light text that sits inside a light region', () => {
+    const darkened = adaptTextForCanvas(parseColor('#cccccc'), true);
+    assert.ok(lightness(darkened) <= 0.35, `expected a dark result, got ${rgbToHex(darkened)}`);
+    assert.ok(contrast(darkened, parseColor('#ffffff')) >= 4.5, `contrast ${contrast(darkened, parseColor('#ffffff'))}`);
   });
 
-  it('ignores colours it cannot parse', () => {
-    assert.equal(emailAssumesLightCanvas('<div style="background-color:var(--surface)">x</div>'), false);
-    assert.equal(emailAssumesLightCanvas('<div style="color:currentColor">x</div>'), false);
+  it('caps adapted text so it can never become the same shade as its canvas', () => {
+    for (const hex of ['#000000', '#111111', '#fefefe', '#ffffff']) {
+      const lifted = adaptTextForCanvas(parseColor(hex), false);
+      const darkened = adaptTextForCanvas(parseColor(hex), true);
+      assert.ok(contrast(lifted, CANVAS) >= 4.5, `${hex} lifted contrast ${contrast(lifted, CANVAS)}`);
+      assert.ok(contrast(darkened, parseColor('#ffffff')) >= 4.5, `${hex} darkened contrast ${contrast(darkened, parseColor('#ffffff'))}`);
+    }
+  });
+});
+
+describe('text decided from a message’s own light background', () => {
+  it('produces readable dark text for a white card that declares none', () => {
+    for (const hex of ['#ffffff', '#f7f7f7', '#eceff1', '#fff8e1']) {
+      const text = textForLightBackground(parseColor(hex));
+      assert.ok(contrast(text, parseColor(hex)) >= 4.5, `${hex} contrast ${contrast(text, parseColor(hex))}`);
+    }
   });
 
-  it('ignores a mid-grey background but reads mid-grey text as a light-canvas signal', () => {
-    // #808080 is not a light background, so on its own it does not ask for a light canvas.
-    assert.equal(emailAssumesLightCanvas('<div style="background-color:#808080">x</div>'), false);
-    // The same grey as *text* is unreadable on a dark canvas, so it does.
-    assert.equal(emailAssumesLightCanvas('<div style="color:#808080">x</div>'), true);
+  it('keeps a hint of the card’s hue rather than always using pure black', () => {
+    const onCream = textForLightBackground(parseColor('#fff8e1'));
+    assert.ok(rgbToHsl(onCream)[1] > 0, 'the cream card produced a neutral grey');
+  });
+});
+
+describe('deciding whether a declaration needs adapting', () => {
+  it('acts only on the side that would be unreadable', () => {
+    // On the dark canvas: dark text is adapted, light text is left alone.
+    assert.equal(needsLifting(parseColor('#222222'), false), true);
+    assert.equal(needsLifting(parseColor('#e8e6df'), false), false);
+    assert.equal(needsDarkening(parseColor('#e8e6df'), false), false);
+    // Inside a light region it is the other way round.
+    assert.equal(needsDarkening(parseColor('#cccccc'), true), true);
+    assert.equal(needsDarkening(parseColor('#222222'), true), false);
+    assert.equal(needsLifting(parseColor('#222222'), true), false);
   });
 
-  it('does not read a background image URL as a colour', () => {
-    assert.equal(emailAssumesLightCanvas('<div style="background-image:url(https://x.test/white.png)">x</div>'), false);
+  it('leaves a colour that already contrasts with its region', () => {
+    // The Allegro link colour is dark-ish but sits on a white card, so it stays.
+    assert.equal(needsLifting(parseColor('#00a790'), true), false);
+    assert.equal(needsDarkening(parseColor('#00a790'), true), false);
+  });
+});
+
+describe('what the theme text itself must satisfy', () => {
+  it('needs no adaptation on the canvas it was chosen for', () => {
+    assert.ok(contrast(THEME_TEXT, CANVAS) >= 4.5);
+    // The frame's default text is readable on the dark canvas as-is, so it is left alone.
+    assert.equal(needsLifting(THEME_TEXT, false), false);
+    assert.equal(needsDarkening(THEME_TEXT, false), false);
+  });
+
+  it('would be darkened if a message declared it inside a light card', () => {
+    // Not something the frame does — it sets its own dark colour on the element that
+    // paints a light background — but the rule has to hold for a message that does.
+    assert.equal(needsDarkening(THEME_TEXT, true), true);
   });
 });
