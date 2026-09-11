@@ -1,5 +1,6 @@
 import webPush from 'web-push';
 import { query } from './db.js';
+import { setTimeout as delay } from 'node:timers/promises';
 
 const vapidPublicKey  = process.env.VAPID_PUBLIC_KEY;
 const vapidPrivateKey = process.env.VAPID_PRIVATE_KEY;
@@ -39,19 +40,28 @@ export async function sendPushToUser(userId, payload) {
       endpoint: row.endpoint,
       keys: { p256dh: row.p256dh, auth: row.auth },
     };
-    try {
-      await webPush.sendNotification(subscription, body, {
-        // TTL: how long (seconds) the push service should retain an undelivered message.
-        // 24 hours is reasonable for email notifications — if the device is offline
-        // longer than that, the notification is no longer timely.
-        TTL: 86400,
-      });
-    } catch (err) {
-      if (err.statusCode === 410 || err.statusCode === 404) {
-        // Push service has invalidated this subscription — remove it.
-        staleIds.push(row.id);
-      } else {
-        console.warn(`Push send failed for user ${userId} endpoint ${row.endpoint.slice(0, 40)}…:`, err.message);
+    for (let attempt = 0; attempt < 3; attempt++) {
+      try {
+        await webPush.sendNotification(subscription, body, {
+          TTL: 86400,
+          urgency: 'high',
+          timeout: 10000,
+        });
+        break;
+      } catch (err) {
+        if (err.statusCode === 410 || err.statusCode === 404) {
+          staleIds.push(row.id);
+          break;
+        }
+        const transient = !err.statusCode || err.statusCode === 429 || err.statusCode >= 500;
+        if (!transient || attempt === 2) {
+          console.warn(`Push delivery failed (${err.statusCode || 'network'}, attempt ${attempt + 1})`);
+          break;
+        }
+        const retryAfter = err.headers?.['retry-after'];
+        const requestedDelay = /^\d+$/.test(String(retryAfter || ''))
+          ? Number(retryAfter) * 1000 : Date.parse(retryAfter) - Date.now();
+        await delay(Math.min(60000, Math.max(1000 * (2 ** attempt), Number.isFinite(requestedDelay) ? requestedDelay : 0)));
       }
     }
   }));

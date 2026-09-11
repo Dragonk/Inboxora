@@ -1,12 +1,17 @@
+import { refreshUnreadCounts } from '../utils/unreadRefresh.js';
 import { lazy, Suspense, useCallback, useEffect, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useStore } from '../store/index.js';
 import { api } from '../utils/api.js';
 import { conversationApi } from '../utils/conversationApi.js';
 import { useWebSocket } from '../hooks/useWebSocket.js';
+import { useBackLayer, useBackNavigation } from '../hooks/useBackNavigation.js';
 import { useMobile } from '../hooks/useMobile.js';
+import { useCompactLayout } from '../hooks/useCompactLayout.js';
+import { Button, PanelResizeHandle } from './ui.jsx';
+import { MobileHeaderHost } from './MobileModuleHeader.jsx';
 import { LAYOUTS } from '../layouts.js';
-import { updateFaviconBadge } from '../themes.js';
+import { beginPanelResize } from '../utils/panelWidth.js';
 import { shortcutBus } from '../utils/shortcutBus.js';
 import { setPending, pendingMarkReadMap, completedMarkReadMap } from '../utils/pendingReads.js';
 import { openReplyFromMessage, openForwardFromMessage } from '../utils/composeFromMessage.js';
@@ -15,6 +20,7 @@ import Sidebar from './Sidebar.jsx';
 import MessageList from './MessageList.jsx';
 import MessagePane from './MessagePane.jsx';
 import NotificationToasts from './NotificationToasts.jsx';
+import ProfileModal from './ProfileModal.jsx';
 // CE v2 uses the native MessageList/MessagePane shells with grouped/conversation modes.
 // on the native MessageList/MessagePane — no separate import needed.
 import CommandPalette from './CommandPalette.jsx';
@@ -64,15 +70,16 @@ const lazyFallback = (
 
 export default function MailApp() {
   const { t } = useTranslation();
+  const [mobileHeaderHost, setMobileHeaderHost] = useState(null);
   const {
     setAccounts, setUnreadCounts, showAdmin,
     setShowAdmin, setAdminTab, composing, sidebarCollapsed, layout,
     unreadCounts, selectedAccountId, openCompose, setSelectedAccount,
     shortcuts, selectedMessageId, setSelectedMessage,
-    mobileSidebarOpen, setMobileSidebarOpen, addNotification,
-    fontSize, showAppBadge, showFaviconBadge,
+    mobileSidebarOpen, setMobileSidebarOpen, mobileNavigationPosition, addNotification,
+    fontSize, showAppBadge,
     sidebarWidth, setSidebarWidth, setIsSidebarResizing,
-    showContacts, showCalendar, setTodoistConnected,
+    showContacts, showCalendar, setShowContacts, setShowCalendar, setTodoistConnected,
     accounts, rightSidebarWidth, setRightSidebarWidth, isRightSidebarResizing, setIsRightSidebarResizing,
     rightSidebarHidden, toggleRightSidebarHidden,
     conversationReaderViewEnabled,
@@ -82,7 +89,9 @@ export default function MailApp() {
   const autoLockMinutes = useStore(s => s.autoLockMinutes);
   const lockScreen = useStore(s => s.lockScreen);
   const isMobile = useMobile();
+  const compactLayout = useCompactLayout();
   const [conversationId, setConversationId] = useState(null);
+  const [mobileProfileOpen, setMobileProfileOpen] = useState(false);
   const [targetLogicalMessageId, setTargetLogicalMessageId] = useState(null);
   const [selectedConversationCopy, setSelectedConversationCopy] = useState(null);
   const [conversationResolutionError, setConversationResolutionError] = useState(null);
@@ -130,7 +139,14 @@ export default function MailApp() {
   }, [accounts, openCompose]);
 
   useEffect(() => {
-    if (!conversationReaderViewEnabled || !selectedMessageId) return undefined;
+    if (!conversationReaderViewEnabled || !selectedMessageId) {
+      setConversationId(null);
+      setTargetLogicalMessageId(null);
+      setSelectedConversationCopy(null);
+      setNativeThreadId(null);
+      setNativeFolder(null);
+      return undefined;
+    }
     let cancelled = false;
     // The selected physical copy is the canonical selection. Resolve its CE identity
     // independently of which list path produced the click (flat, ThreadRow parent or child).
@@ -316,10 +332,8 @@ export default function MailApp() {
         document.body.style.userSelect = '';
       }
       if (listResizeRef.current) {
-        document.removeEventListener('mousemove', listResizeRef.current.onMouseMove);
-        document.removeEventListener('mouseup', listResizeRef.current.onMouseUp);
-        document.body.style.cursor = '';
-        document.body.style.userSelect = '';
+        listResizeRef.current();
+        listResizeRef.current = null;
       }
       if (rightSidebarResizeRef.current) {
         document.removeEventListener('mousemove', rightSidebarResizeRef.current.onMouseMove);
@@ -331,6 +345,8 @@ export default function MailApp() {
   }, []);
 
   const currentLayout = LAYOUTS[layout] || LAYOUTS.comfortable;
+  const compactMail = compactLayout && currentLayout.direction === 'row';
+  const readerOpen = Boolean(selectedMessageId || (conversationReaderViewEnabled && conversationId));
 
   // Shortcut hint (e.g. "⌘/") for the collapse/expand tooltips, derived from the
   // live shortcut map via the existing helpers — no new plumbing. '' when unbound.
@@ -345,31 +361,10 @@ export default function MailApp() {
   const rightSidebarApplicable = !isMobile && currentLayout.direction === 'row' && rightSidebarContent != null;
 
   const handleListResizeMouseDown = (e) => {
-    e.preventDefault();
-    const startX = e.clientX;
-    const startWidth = parseInt(getComputedStyle(document.documentElement).getPropertyValue('--list-width')) || currentLayout.listWidth || 360;
-    document.body.style.cursor = 'col-resize';
-    document.body.style.userSelect = 'none';
-
-    const onMouseMove = (mv) => {
-      const dx = mv.clientX - startX;
-      const clamped = Math.max(180, Math.min(700, startWidth + dx));
-      document.documentElement.style.setProperty('--list-width', clamped + 'px');
-    };
-
-    const onMouseUp = () => {
-      document.body.style.cursor = '';
-      document.body.style.userSelect = '';
-      document.removeEventListener('mousemove', onMouseMove);
-      document.removeEventListener('mouseup', onMouseUp);
-      listResizeRef.current = null;
-      const finalWidth = parseInt(getComputedStyle(document.documentElement).getPropertyValue('--list-width'));
-      if (finalWidth) localStorage.setItem('mailflow_list_width', String(finalWidth));
-    };
-
-    listResizeRef.current = { onMouseMove, onMouseUp };
-    document.addEventListener('mousemove', onMouseMove);
-    document.addEventListener('mouseup', onMouseUp);
+    // The mail list is the canonical left panel: the width it sets here is the
+    // same shared width the contact list, calendar rail and day agenda use.
+    listResizeRef.current?.();
+    listResizeRef.current = beginPanelResize(e, { edge: 'right' });
   };
 
   // Right-sidebar resize — its own width var + handle, independent of --list-width.
@@ -404,45 +399,22 @@ export default function MailApp() {
     document.addEventListener('mouseup', onMouseUp);
   };
 
-  // Push a history entry when an email is opened on mobile so that the browser's
-  // native back gesture (iOS swipe, Android back button) pops an in-app state
-  // instead of leaving Inboxora entirely.
-  const prevMessageIdRef = useRef(selectedMessageId);
-
-  useEffect(() => {
-    if (!isMobile) return;
-    const prev = prevMessageIdRef.current;
-    prevMessageIdRef.current = selectedMessageId;
-    if (selectedMessageId && !prev) {
-      history.pushState({ inboxora: 'message' }, '', '/');
-    }
-  }, [isMobile, selectedMessageId]);
-
-  useEffect(() => {
-    if (!isMobile) return;
-    // In standalone PWA mode (iOS home-screen install), push a guard entry on
-    // startup so there is always at least one history entry above the baseline.
-    // The handler re-pushes it after every popstate so back swipes always land
-    // inside the app rather than exiting the PWA and showing a blank Safari page.
-    if (window.navigator.standalone && history.state?.mailflow !== 'guard') {
-      history.pushState({ inboxora: 'guard' }, '', '/');
-    }
-    const handler = (event) => {
-      if (conversationReaderViewEnabled && conversationId) {
-        setConversationId(null);
-        setTargetLogicalMessageId(null);
-      }
-      if (selectedMessageIdRef.current) setSelectedMessage(null);
-      // Backing out of a message lands on the existing guard entry. Re-pushing
-      // during that popstate can make iOS PWA history gestures temporarily stop
-      // delivering taps, so only re-arm when the user has backed past the guard.
-      if (window.navigator.standalone && event.state?.mailflow !== 'guard') {
-        history.pushState({ inboxora: 'guard' }, '', '/');
-      }
-    };
-    window.addEventListener('popstate', handler);
-    return () => window.removeEventListener('popstate', handler);
-  }, [conversationId, conversationReaderViewEnabled, isMobile, setSelectedMessage]);
+  const closeReader = useCallback(() => {
+    // Clear the canonical physical selection AND every derived reader identity.
+    // Clearing only CE identity leaves the native reader visible after Back.
+    setSelectedMessage(null);
+    setConversationId(null);
+    setTargetLogicalMessageId(null);
+    setSelectedConversationCopy(null);
+    setNativeThreadId(null);
+    setNativeFolder(null);
+  }, [setSelectedMessage]);
+  useBackNavigation(isMobile);
+  useBackLayer(readerOpen && !showContacts && !showCalendar, closeReader, 10);
+  useBackLayer(showContacts, () => setShowContacts(false), 20);
+  useBackLayer(showCalendar, () => setShowCalendar(false), 20);
+  useBackLayer(mobileSidebarOpen, () => setMobileSidebarOpen(false), 1300);
+  useBackLayer(showAdmin, () => setShowAdmin(false), 2000);
 
   const wsRef = useWebSocket();
 
@@ -585,14 +557,11 @@ export default function MailApp() {
 
     // Load unread counts
     const refreshCounts = () => {
-      api.getUnreadCounts()
-        .then(setUnreadCounts)
-        .catch(console.error);
+      refreshUnreadCounts();
     };
     refreshCounts();
-    // 5-minute fallback poll — WebSocket sync_complete events handle the common case;
-    // this covers stale counts when the WebSocket is temporarily disconnected.
-    const interval = setInterval(refreshCounts, 300000);
+    // Visible tabs converge even if an individual WebSocket event was lost.
+    const interval = setInterval(() => { if (document.visibilityState === 'visible') refreshCounts(); }, 60000);
     return () => clearInterval(interval);
   }, [setAccounts, setUnreadCounts, setTodoistConnected]);
 
@@ -604,20 +573,17 @@ export default function MailApp() {
     const ms = Math.max(15, syncInterval || 60) * 1000;
     const id = setInterval(() => {
       if (document.visibilityState === 'visible' && wsRef.current?.readyState !== WebSocket.OPEN) {
-        window.dispatchEvent(new CustomEvent('inboxora:refresh'));
+        window.dispatchEvent(new CustomEvent('inboxora:refresh', { detail: { refreshThreads: true } }));
+        refreshUnreadCounts();
       }
     }, ms);
     return () => clearInterval(id);
   }, [syncInterval, wsRef]);
 
-  // Update browser tab title, favicon badge, and PWA home screen badge with unread count
+  // Update browser tab title and PWA home screen badge with unread count
   useEffect(() => {
     const total = unreadCounts.total;
-    const tabCount = selectedAccountId
-      ? (unreadCounts.byAccount[selectedAccountId] ?? 0)
-      : total;
     document.title = 'Inboxora';
-    updateFaviconBadge(showFaviconBadge ? tabCount : 0);
     // App-icon badge always reflects total unread across all accounts so that
     // selecting a zero-unread account never clears the home screen badge.
     if ('setAppBadge' in navigator) {
@@ -625,7 +591,7 @@ export default function MailApp() {
       else navigator.clearAppBadge().catch(() => {});
     }
     window.inboxoraNative?.badges?.setUnreadCount?.(total).catch(() => {});
-  }, [unreadCounts, selectedAccountId, showAppBadge, showFaviconBadge]);
+  }, [unreadCounts, showAppBadge]);
 
   // ── Global keyboard shortcut listener ──────────────────────────────────────
   // Uses refs for composing/showAdmin so the listener doesn't need to
@@ -637,56 +603,12 @@ export default function MailApp() {
   useEffect(() => { showAdminRef.current  = showAdmin;  }, [showAdmin]);
 
   const mobileSidebarOpenRef = useRef(mobileSidebarOpen);
-  const showShortcutHelpRef = useRef(showShortcutHelp);
-  const paletteOpenRef = useRef(paletteOpen);
-  useEffect(() => { mobileSidebarOpenRef.current = mobileSidebarOpen; }, [mobileSidebarOpen]);
-  useEffect(() => { showShortcutHelpRef.current = showShortcutHelp; }, [showShortcutHelp]);
-  useEffect(() => { paletteOpenRef.current = paletteOpen; }, [paletteOpen]);
-
   useEffect(() => {
-    window.__mailflowHandleAndroidBack = () => {
-      if (composingRef.current) {
-        useStore.getState().closeCompose();
-        return true;
-      }
-
-      if (showAdminRef.current) {
-        setShowAdmin(false);
-        return true;
-      }
-
-      if (paletteOpenRef.current) {
-        setPaletteOpen(false);
-        return true;
-      }
-
-      if (showShortcutHelpRef.current) {
-        setShowShortcutHelp(false);
-        return true;
-      }
-
-      if (mobileSidebarOpenRef.current) {
-        setMobileSidebarOpen(false);
-        return true;
-      }
-
-      if (conversationReaderViewEnabled && conversationId) {
-        setConversationId(null);
-        setTargetLogicalMessageId(null);
-        return true;
-      }
-      if (selectedMessageIdRef.current) {
-        setSelectedMessage(null);
-        return true;
-      }
-
-      return false;
-    };
-
-    return () => {
-      if (window.__mailflowHandleAndroidBack) delete window.__mailflowHandleAndroidBack;
-    };
-  }, [conversationId, conversationReaderViewEnabled, setMobileSidebarOpen, setSelectedMessage, setShowAdmin]);
+    if (mobileSidebarOpenRef.current && !mobileSidebarOpen) document.querySelector('[data-testid="mobile-topbar-menu"]')?.focus();
+    mobileSidebarOpenRef.current = mobileSidebarOpen;
+  }, [mobileSidebarOpen]);
+  useBackLayer(showShortcutHelp, () => setShowShortcutHelp(false), 6000);
+  useBackLayer(paletteOpen, () => setPaletteOpen(false), 9500);
 
   useEffect(() => {
     if (isMobile) return;
@@ -854,6 +776,7 @@ export default function MailApp() {
       display: 'flex',
       width: scale !== 1 ? `${(vpSize.w / scale).toFixed(2)}px` : '100%',
       height: scale !== 1 ? `${(vpSize.h / scale).toFixed(2)}px` : '100%',
+      '--mobile-nav-height': '0px',
       ...(scale !== 1 && {
         transform: `scale(${scale})`,
         transformOrigin: 'top left',
@@ -863,13 +786,19 @@ export default function MailApp() {
       background: 'var(--bg-primary)',
     }}>
       {isMobile ? (
-        <>
+        <MobileHeaderHost.Provider value={mobileHeaderHost}><div style={{ display: 'flex', flexDirection: 'column', width: '100%', height: '100%', minHeight: 0 }}>
+          {/* The mobile bar always hosts the active surface's header: Contacts, Calendar,
+              the message list, or the reader. The bare "Inboxora" fallback used to render
+              only while the reader was open, stacking a second header under this bar — so
+              the reader (like the list) must count as active. */}
+          <MobileTopBar position={mobileNavigationPosition} moduleActive actionsRef={setMobileHeaderHost} onMenu={() => setMobileSidebarOpen(true)} onCompose={() => openCompose({ accountId: selectedAccountId || undefined })} t={t} />
+          <div style={{ display: 'flex', flex: 1, minHeight: 0, width: '100%', position: 'relative' }}>
           {/* Backdrop — covers full screen including status bar area */}
           {mobileSidebarOpen && (
             <div
               onClick={() => setMobileSidebarOpen(false)}
               style={{
-                position: 'fixed', inset: 0, zIndex: 900,
+                position: 'fixed', inset: 0, zIndex: 1299,
                 background: 'var(--overlay-scrim)',
                 backdropFilter: 'blur(6px)',
                 WebkitBackdropFilter: 'blur(6px)',
@@ -879,9 +808,10 @@ export default function MailApp() {
           {/* Slide-in sidebar drawer */}
           <div
             data-testid="mobile-sidebar"
+            inert={mobileSidebarOpen ? undefined : ''}
             style={{
               position: 'fixed', left: 0, top: 0, bottom: 0,
-              zIndex: 901, display: 'flex',
+              zIndex: 1300, display: 'flex',
               transform: mobileSidebarOpen ? 'translateX(0)' : 'translateX(-100%)',
               transition: 'transform 0.25s cubic-bezier(0.25,0.46,0.45,0.94)',
               boxShadow: mobileSidebarOpen ? 'var(--shadow-drawer)' : 'none',
@@ -898,30 +828,32 @@ export default function MailApp() {
               if (dx < -60 && Math.abs(dy) < Math.abs(dx)) setMobileSidebarOpen(false);
             }}
           >
-            <Sidebar />
+            <Sidebar onEditProfile={() => setMobileProfileOpen(true)} />
           </div>
-          {/* Keep destination views mounted so their state survives drawer navigation. */}
-          <div data-testid="mobile-contacts-page" style={{ display: showContacts ? 'flex' : 'none', flex: 1, minWidth: 0, overflow: 'hidden', height: '100%' }}>
-            <Suspense fallback={lazyFallback}><ContactsPage /></Suspense>
-          </div>
-          <div data-testid="mobile-calendar-page" style={{ display: showCalendar ? 'flex' : 'none', flex: 1, minWidth: 0, overflow: 'hidden', height: '100%' }}>
-            <Suspense fallback={lazyFallback}><CalendarPage /></Suspense>
-          </div>
+          {showContacts && <div data-testid="mobile-contacts-page" style={{ display: 'flex', flex: 1, minWidth: 0, overflow: 'hidden', height: '100%' }}>
+            <Suspense fallback={lazyFallback}><ContactsPage isActive={showContacts} /></Suspense>
+          </div>}
+          {showCalendar && <div data-testid="mobile-calendar-page" style={{ display: 'flex', flex: 1, minWidth: 0, overflow: 'hidden', height: '100%' }}>
+            <Suspense fallback={lazyFallback}><CalendarPage isActive={showCalendar} /></Suspense>
+          </div>}
           <div data-ce-reader-enabled={conversationReaderViewEnabled ? 'true' : 'false'} data-ce-reader-state={conversationReaderViewEnabled ? 'enabled' : 'disabled'} data-ce-conversation-id={conversationId || ''} data-ce-selected-message-id={selectedMessageId || ''} data-ce-resolution-error={conversationResolutionError ? 'true' : 'false'} style={{ flex: 1, display: !showContacts && !showCalendar && !selectedMessageId && !(conversationReaderViewEnabled && conversationId) ? 'flex' : 'none', overflow: 'hidden', height: '100%' }}>
             <MessageList />
           </div>
           <div data-ce-reader-pane="true" style={{ flex: 1, display: !showContacts && !showCalendar && (selectedMessageId || (conversationReaderViewEnabled && conversationId)) ? 'flex' : 'none', overflow: 'hidden', height: '100%', minWidth: 0 }}>
-            <MessagePane mode={conversationReaderViewEnabled && (conversationId || nativeThreadId) ? 'conversation' : 'single'} conversationId={conversationId} targetLogicalMessageId={targetLogicalMessageId} selectedConversationCopy={selectedConversationCopy} nativeThreadId={nativeThreadId} nativeFolder={nativeFolder} onReply={replyFromConversation} onNativeThreadUnavailable={handleNativeThreadUnavailable} />
+            <MessagePane mode={conversationReaderViewEnabled && (conversationId || nativeThreadId) ? 'conversation' : 'single'} conversationId={conversationId} targetLogicalMessageId={targetLogicalMessageId} selectedConversationCopy={selectedConversationCopy} nativeThreadId={nativeThreadId} nativeFolder={nativeFolder} onReply={replyFromConversation} onNativeThreadUnavailable={handleNativeThreadUnavailable} onMobileBack={closeReader} />
           </div>
-        </>
+          {mobileProfileOpen && <ProfileModal onClose={() => setMobileProfileOpen(false)} />}
+          </div>
+        </div></MobileHeaderHost.Provider>
       ) : (
         <>
           <Sidebar />
           {!sidebarCollapsed && (
             <div
+              className="ui-resize-handle"
               onMouseDown={handleSidebarResizeMouseDown}
               style={{
-                width: 4, flexShrink: 0, cursor: 'col-resize',
+                width: 1, flexShrink: 0, cursor: 'col-resize',
                 background: 'var(--border-subtle)',
                 transition: 'background 0.15s',
                 zIndex: 10,
@@ -935,34 +867,25 @@ export default function MailApp() {
             minWidth: 0, flexDirection: currentLayout.direction,
             height: '100%',
           }}>
-            {/* Keep all three mounted so scroll/state survive navigation. */}
-            <div style={{ display: showContacts ? 'flex' : 'none', flex: 1, minWidth: 0, overflow: 'hidden', height: '100%' }}>
-              <Suspense fallback={lazyFallback}><ContactsPage /></Suspense>
-            </div>
-            <div data-testid="desktop-calendar-page" style={{ display: showCalendar ? 'flex' : 'none', flex: 1, minWidth: 0, overflow: 'hidden', height: '100%' }}>
+            {showContacts && <div style={{ display: 'flex', flex: 1, minWidth: 0, overflow: 'hidden', height: '100%' }}>
+              <Suspense fallback={lazyFallback}><ContactsPage isActive={showContacts} /></Suspense>
+            </div>}
+            {showCalendar && <div data-testid="desktop-calendar-page" style={{ display: 'flex', flex: 1, minWidth: 0, overflow: 'hidden', height: '100%' }}>
               <Suspense fallback={lazyFallback}><CalendarPage /></Suspense>
-            </div>
-            <div style={{ display: showContacts || showCalendar ? 'none' : 'flex', flex: 1, minWidth: 0, overflow: 'hidden', height: '100%', flexDirection: currentLayout.direction }}>
+            </div>}
+            <div style={{ position: 'relative', display: showContacts || showCalendar ? 'none' : 'flex', flex: 1, minWidth: 0, overflow: 'hidden', height: '100%', flexDirection: currentLayout.direction }}>
               <div data-ce-reader-enabled={conversationReaderViewEnabled ? 'true' : 'false'} data-ce-reader-state={conversationReaderViewEnabled ? 'enabled' : 'disabled'} data-ce-conversation-id={conversationId || ''} data-ce-selected-message-id={selectedMessageId || ''} data-ce-resolution-error={conversationResolutionError ? 'true' : 'false'} style={{
-                display: 'flex', flex: currentLayout.direction === 'row' ? '0 0 var(--list-width)' : '1 1 50%',
-                width: currentLayout.direction === 'row' ? 'var(--list-width)' : '100%', minWidth: 0, overflow: 'hidden', height: '100%',
+                display: compactMail && readerOpen ? 'none' : 'flex', flex: compactMail ? 1 : currentLayout.direction === 'row' ? '0 0 var(--list-width)' : '1 1 50%',
+                width: compactMail ? '100%' : currentLayout.direction === 'row' ? 'var(--list-width)' : '100%', minWidth: 0, overflow: 'hidden', height: '100%',
               }}>
                 <MessageList />
               </div>
-              {currentLayout.direction === 'row' && (
-                <div
-                  onMouseDown={handleListResizeMouseDown}
-                  style={{
-                    width: 4, flexShrink: 0, cursor: 'col-resize',
-                    background: 'var(--border-subtle)',
-                    transition: 'background 0.15s',
-                  }}
-                  onMouseEnter={e => { e.currentTarget.style.background = 'var(--accent)'; }}
-                  onMouseLeave={e => { e.currentTarget.style.background = 'var(--border-subtle)'; }}
-                />
+              {!compactMail && currentLayout.direction === 'row' && (
+                <PanelResizeHandle testId="mail-list-resize" onMouseDown={handleListResizeMouseDown} />
               )}
-              <div data-ce-reader-pane="true" style={{ flex: 1, minWidth: 0, overflow: 'hidden', height: '100%', display: 'flex' }}>
-                <MessagePane mode={conversationReaderViewEnabled && (conversationId || nativeThreadId) ? 'conversation' : 'single'} conversationId={conversationId} targetLogicalMessageId={targetLogicalMessageId} selectedConversationCopy={selectedConversationCopy} nativeThreadId={nativeThreadId} nativeFolder={nativeFolder} onReply={replyFromConversation} onNativeThreadUnavailable={handleNativeThreadUnavailable} />
+              <div data-ce-reader-pane="true" style={{ flex: 1, minWidth: 0, overflow: 'hidden', height: '100%', display: compactMail && !readerOpen ? 'none' : 'flex', flexDirection: 'column' }}>
+                {compactMail && <div className="tablet-reader-back"><Button variant="ghost" onClick={closeReader} aria-label={t('common.back')}>‹ {t('common.back')}</Button></div>}
+                <MessagePane mode={conversationReaderViewEnabled && (conversationId || nativeThreadId) ? 'conversation' : 'single'} conversationId={conversationId} targetLogicalMessageId={targetLogicalMessageId} selectedConversationCopy={selectedConversationCopy} nativeThreadId={nativeThreadId} nativeFolder={nativeFolder} onReply={replyFromConversation} onNativeThreadUnavailable={handleNativeThreadUnavailable} onMobileBack={closeReader} />
               </div>
               {/* Generic right-sidebar column, populated from the content seam above. */}
               {currentLayout.direction === 'row' && rightSidebarContent != null && (
@@ -987,6 +910,7 @@ export default function MailApp() {
                   <div style={{
                     position: 'relative', flexShrink: 0, overflow: 'hidden', height: '100%',
                     width: rightSidebarHidden ? 0 : 'var(--right-sidebar-width, 296px)',
+                    ...(compactMail && !rightSidebarHidden ? { position: 'absolute', right: 0, top: 0, bottom: 0, zIndex: 25, background: 'var(--bg-primary)', boxShadow: 'var(--shadow-drawer)' } : {}),
                     // Disabled while dragging (mirrors Sidebar's isSidebarResizing guard):
                     // otherwise every mousemove's CSS-var write would animate toward the new
                     // width instead of tracking the cursor.
@@ -1044,6 +968,37 @@ export default function MailApp() {
         />
       )}
     </div>
+    </div>
+  );
+}
+
+function MobileTopBar({ position, moduleActive, actionsRef, onMenu, onCompose, t }) {
+  return (
+    <div data-testid="mobile-topbar" data-position={position} style={{
+      order: position === 'bottom' ? 2 : 0,
+      ...(position === 'bottom' && { borderTop: '1px solid var(--border-subtle)' }),
+      display: 'flex', alignItems: 'center', gap: 4, padding: position === 'bottom' ? '4px 8px calc(4px + var(--sab))' : '4px 8px',
+      borderBottom: '1px solid var(--border-subtle)', background: 'var(--bg-secondary)',
+      flexShrink: 0,
+    }}>
+      <button type="button" data-testid="mobile-topbar-menu" onClick={onMenu} aria-label={t('messageList.menu', 'Menu')} style={{
+        background: 'none', border: 'none', color: 'var(--text-secondary)',
+        cursor: 'pointer', padding: 0, borderRadius: 7,
+        display: 'flex', alignItems: 'center', justifyContent: 'center',
+        minWidth: 44, minHeight: 44,
+      }}>
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" aria-hidden="true"><line x1="3" y1="6" x2="21" y2="6"/><line x1="3" y1="12" x2="21" y2="12"/><line x1="3" y1="18" x2="21" y2="18"/></svg>
+      </button>
+      <div ref={actionsRef} className="mobile-header-content" style={{ display: moduleActive ? 'flex' : 'none' }} />
+      {!moduleActive && <><span style={{ fontFamily: 'var(--font-display)', fontSize: 16, fontWeight: 600, flex: 1, minWidth: 0 }}>Inboxora</span>
+      <button type="button" onClick={onCompose} aria-label={t('sidebar.compose')} style={{
+        background: 'none', border: 'none', color: 'var(--accent)',
+        cursor: 'pointer', padding: 0, borderRadius: 7,
+        display: 'flex', alignItems: 'center', justifyContent: 'center',
+        minWidth: 44, minHeight: 44,
+      }}>
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" aria-hidden="true"><path d="M11 4H4a2 2 0 00-2 2v14a2 2 0 002 2h14a2 2 0 002-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 013 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>
+      </button></>}
     </div>
   );
 }

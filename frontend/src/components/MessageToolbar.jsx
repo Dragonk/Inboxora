@@ -1,3 +1,5 @@
+import { useBackLayer } from '../hooks/useBackNavigation.js';
+import { folderLabel } from '../utils/folderLabels.js';
 import { useMemo, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import FolderIcon from './FolderIcon.jsx';
@@ -49,7 +51,7 @@ function MenuItem({ icon, label, onClick, danger = false }) {
 export default function MessageToolbar({
   isMobile = false, defaultReplyAll = false, targetId, scrollAnchorId, className, style,
   isRead = true, isStarred = false, currentFolder = null,
-  folders = [], foldersLoading = false, onLoadFolders,
+  folders = [], folderMappings, foldersLoading = false, onLoadFolders,
   onReply, onReplyAll, onForward, onArchive, onMove, onSpam, onHam,
   onSetRead, onViewHeaders, onPrint, aiActions = [], onAiAction, onManageAiActions, onStar, onDelete,
   shortcutLabel = () => null,
@@ -60,7 +62,13 @@ export default function MessageToolbar({
   const [moreMenu, setMoreMenu] = useState(false);
   const [aiMenu, setAiMenu] = useState(false);
   const [search, setSearch] = useState('');
-  const availableFolders = useMemo(() => folders.filter(folder => folder.path !== currentFolder && (!search.trim() || folder.name?.toLowerCase().includes(search.trim().toLowerCase()))), [currentFolder, folders, search]);
+  useBackLayer(replyMenu || moveMenu || moreMenu || aiMenu, () => {
+    if (aiMenu) setAiMenu(false);
+    else if (moveMenu) setMoveMenu(false);
+    else if (replyMenu) setReplyMenu(false);
+    else setMoreMenu(false);
+  }, 4000);
+  const availableFolders = useMemo(() => folders.filter(folder => folder.path !== currentFolder && (!search.trim() || `${folderLabel(folder, t, folderMappings)} ${folder.path}`.toLowerCase().includes(search.trim().toLowerCase()))), [currentFolder, folders, folderMappings, search, t]);
   const title = (key, shortcut) => isMobile ? t(key) : `${t(key)}${shortcutLabel(shortcut) ? ` (${shortcutLabel(shortcut)})` : ''}`;
   const stop = handler => event => { event.stopPropagation(); handler?.(); };
   const closeMore = handler => () => { setMoreMenu(false); handler?.(); };
@@ -90,7 +98,7 @@ export default function MessageToolbar({
       {moveMenu && <><div onClick={event => { event.stopPropagation(); setMoveMenu(false); }} aria-hidden style={{ position: 'fixed', inset: 0, zIndex: 199 }}/><div style={{ ...menuStyle, left: 0, minWidth: 220, maxWidth: 320 }}>
         <div style={{ padding: 8, borderBottom: '1px solid var(--border-subtle)' }}><input autoFocus={!isMobile} value={search} onChange={event => setSearch(event.target.value)} placeholder={t('contextMenu.folders.search')} style={{ width: '100%', boxSizing: 'border-box', padding: '6px 8px', background: 'var(--bg-tertiary)', border: '1px solid var(--border)', borderRadius: 5, color: 'var(--text-primary)' }}/></div>
         <div style={{ maxHeight: isMobile ? '55vh' : 285, overflowY: 'auto' }}>
-          {foldersLoading ? <div style={{ padding: 20, color: 'var(--text-tertiary)', fontSize: 12 }}>{t('contextMenu.folders.loading')}</div> : availableFolders.length ? availableFolders.map(folder => <button type="button" key={folder.path} onClick={() => { setMoveMenu(false); onMove(folder.path); }} style={{ display: 'flex', gap: 8, width: '100%', padding: isMobile ? '12px 14px' : '8px 12px', background: 'none', border: 0, borderBottom: '1px solid var(--border-subtle)', color: 'var(--text-primary)', cursor: 'pointer', textAlign: 'left' }}><span style={{ color: 'var(--text-tertiary)' }}><FolderIcon specialUse={folder.special_use}/></span><span>{folder.name}</span></button>) : <div style={{ padding: 20, color: 'var(--text-tertiary)', fontSize: 12 }}>{t('contextMenu.folders.empty')}</div>}
+          {foldersLoading ? <div style={{ padding: 20, color: 'var(--text-tertiary)', fontSize: 12 }}>{t('contextMenu.folders.loading')}</div> : availableFolders.length ? availableFolders.map(folder => <button type="button" key={folder.path} onClick={() => { setMoveMenu(false); onMove(folder.path); }} style={{ display: 'flex', gap: 8, width: '100%', padding: isMobile ? '12px 14px' : '8px 12px', background: 'none', border: 0, borderBottom: '1px solid var(--border-subtle)', color: 'var(--text-primary)', cursor: 'pointer', textAlign: 'left' }}><span style={{ color: 'var(--text-tertiary)' }}><FolderIcon specialUse={folder.special_use}/></span><span>{folderLabel(folder, t, folderMappings)}</span></button>) : <div style={{ padding: 20, color: 'var(--text-tertiary)', fontSize: 12 }}>{t('contextMenu.folders.empty')}</div>}
         </div>
       </div></>}
     </div>}

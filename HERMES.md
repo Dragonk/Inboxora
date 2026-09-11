@@ -1,0 +1,32 @@
+# Inboxora — Hermes execution contract
+
+## Scope
+
+- Canonical repository: `https://github.com/Dragonk/Inboxora.git`.
+- Canonical integration branch: `dev`.
+- Do not work in legacy MailFlow checkouts or any release branch.
+- Treat `dev` as the only integration target. Push every verified, integrated slice to `origin/dev`; do not open a PR unless Kamil explicitly asks.
+
+## Kanban automation
+
+- The orchestrator may automatically decompose a well-scoped Triage card and dispatch independent children when their task bodies contain this project contract or explicitly cite this file.
+- Every implementation child must use an isolated Git worktree created from the current `origin/dev`, on its own `wt/<task-id>` branch. Never let concurrent workers write to the canonical checkout.
+- Before the first edit and before commit, verify: canonical remote, worktree path, branch descended from current `origin/dev`, and no unrelated changes.
+- A completed, independently verifiable slice must run targeted tests, receive a diff review, and be committed immediately with `Assisted-by: Hermes Agent`.
+- Do not accumulate uncommitted work across long agent runs. At the first independently testable slice, commit it on the task branch and report its SHA. If a testable slice cannot be reached promptly, stop expanding scope, preserve the exact diagnosis in the task, and block/re-scope the card rather than consuming further model budget on speculative work. Never discard an existing worktree or its changes without an explicit decision.
+- Integration into `dev` belongs to the orchestrator: rebase/cherry-pick against current `dev`, run integration tests and review, then run `scripts/verify-task-integration.sh <candidate-commit> dev`. A QA or review task must not claim a candidate is present on `dev` unless that command succeeds. Immediately push each verified, integrated slice to `origin/dev`; no separate push approval is required.
+- A mutable GHCR `:dev` image is a milestone artifact, not a per-commit artifact. When every Kanban task in one explicitly related scope is done, integrated, tested, reviewed, and pushed to `dev`, the orchestrator must manually dispatch `.github/workflows/publish.yml` on that exact `dev` SHA. It must wait for the workflow, verify both `inboxora-backend:dev` and `inboxora-frontend:dev` manifests carry that source revision, then report the run URL/SHA. Do not dispatch this workflow for intermediate slices.
+- Use dependencies only for real data/API/order constraints. Independent implementation, test, and review tasks should run in parallel within configured concurrency limits.
+
+## Routing and quality
+
+- Luna: simple, localized and low-risk changes.
+- Terra: medium-complexity or cross-component changes.
+- Sol: high-risk, security-sensitive, performance-critical, or architectural work.
+- Every child card must state: current failure/reproduction, expected result, acceptance criteria, tests (and relevant viewport/API cases), non-goals, and commit boundary.
+- Developers implement and test. Reviewers independently inspect committed work and request precise changes. The orchestrator owns routing, dependencies, integration and release gates.
+
+## Safety
+
+- Never expose credentials, tokens, secrets, connection strings or real user data.
+- Browser QA must use a fresh preview and report observed facts; do not claim visual verification without it.

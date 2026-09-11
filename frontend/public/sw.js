@@ -27,51 +27,25 @@ self.addEventListener('push', (event) => {
   const {
     title       = 'Inboxora',
     body        = 'New message',
-    icon        = '/icon-512.png',
     url         = '/',
     unreadCount,          // intentionally no default — undefined means "don't touch badge"
   } = data;
 
-  event.waitUntil(
-    self.clients
-      .matchAll({ type: 'window', includeUncontrolled: true })
-      .then((clients) => {
-        const promises = [];
-
-        // Update the home screen badge (iOS 17.4+, Android Chrome PWA).
-        // Only runs when unreadCount is explicitly provided — a missing value
-        // means the backend couldn't determine the count and should not clear it.
-        // Uses self.navigator — bare `navigator` is not reliably exposed in iOS
-        // Safari service worker scope.
-        try {
-          if (self.navigator && 'setAppBadge' in self.navigator && unreadCount != null) {
-            const p = unreadCount > 0
-              ? self.navigator.setAppBadge(unreadCount)
-              : self.navigator.clearAppBadge();
-            if (p && typeof p.then === 'function') promises.push(p.catch(() => {}));
-          }
-        } catch (_) {}
-
-        // iOS/WebKit requires showNotification() to be called for every push event.
-        // Skipping it — even when a client is focused — causes WebKit to log a
-        // user-visible-notification violation and will eventually revoke push permission.
-        // The in-app WebSocket toast still fires independently via the open client.
-        promises.push(
-          self.registration.showNotification(title, {
-            body,
-            icon,
-            badge: '/icon-512.png',
-            data:  { url },
-            // Replace any existing Inboxora notification so rapid arrivals
-            // don't stack unboundedly in the notification center.
-            tag:      'mailflow-new-mail',
-            renotify: true,
-          })
-        );
-
-        return Promise.all(promises);
-      })
-  );
+  // Delivery must not depend on enumerating open tabs: the app can be closed
+  // or clients.matchAll may fail while the browser is waking the worker.
+  const work = [self.registration.showNotification(title, {
+    body, icon: '/inboxora-envelope-512.png', badge: '/inboxora-envelope-badge.png',
+    data: { url }, tag: 'mailflow-new-mail', renotify: true,
+  })];
+  try {
+    if (self.navigator && 'setAppBadge' in self.navigator && unreadCount != null) {
+      work.push(unreadCount > 0 ? self.navigator.setAppBadge(unreadCount) : self.navigator.clearAppBadge());
+    }
+  } catch (_) {}
+  work.push(self.clients.matchAll({ type: 'window', includeUncontrolled: true }).then(clients => {
+    for (const client of clients) client.postMessage({ type: 'inboxora_mail_changed' });
+  }).catch(() => {}));
+  event.waitUntil(Promise.allSettled(work));
 });
 
 // Persist a deep-link target in IndexedDB so the page can consume it on focus or
@@ -126,4 +100,19 @@ self.addEventListener('notificationclick', (event) => {
         return self.clients.openWindow(targetUrl);
       })
   );
+});
+
+self.addEventListener('pushsubscriptionchange', event => {
+  event.waitUntil((async () => {
+    // Re-use the prior application server key. A renewed subscription must be
+    // persisted even when no Inboxora tab is currently open.
+    const options = event.oldSubscription?.options;
+    const subscription = event.newSubscription || (options && await self.registration.pushManager.subscribe(options));
+    if (!subscription) return;
+    await fetch('/api/auth/push/subscribe', {
+      method: 'POST', credentials: 'include',
+      headers: { 'Content-Type': 'application/json', 'X-Requested-With': 'MailFlow' },
+      body: JSON.stringify(subscription.toJSON()),
+    });
+  })().catch(() => {}));
 });

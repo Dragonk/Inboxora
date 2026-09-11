@@ -6,7 +6,10 @@ import ConversationMessage from './ConversationMessage.jsx';
 import { initialConversationExpansion, initialConversationTarget, toggleConversationExpansion } from './conversationExpansion.js';
 import { alignReaderHeader } from './readerScrollAlignment.js';
 import { nativeThreadToReaderMessages, mergeThreadWithConversation } from '../utils/conversationThreadAdapter.js';
-import { queueReadStateMutation, isLatestReadStateMutation } from '../utils/readStateMutation.js';
+import { removePhysicalCopy } from '../utils/conversationMutations.js';
+import { queueReadStateMutation, isLatestReadStateMutation, pendingReadState } from '../utils/readStateMutation.js';
+import { setCompletedDelete, applyDeleteGuard } from '../utils/pendingDeletes.js';
+import { setPending, pendingMarkReadMap } from '../utils/pendingReads.js';
 import { useStore } from '../store/index.js';
 
 // Data-only CE adapter. It owns logical/physical identity and expansion policy;
@@ -36,6 +39,7 @@ export default function ConversationReader({ conversationId, targetLogicalMessag
   const automaticScrollRef = useRef(false);
   const [activeTargetLogicalId, setActiveTargetLogicalId] = useState(null);
   const updateMessage = useStore(state => state.updateMessage);
+  const refreshEpoch = useRef(0);
 
   useEffect(() => {
     let active = true;
@@ -75,17 +79,59 @@ export default function ConversationReader({ conversationId, targetLogicalMessag
       setData(result);
     }).catch(reason => active && setError(reason.message || t('conversation.loadFailed')));
     const controllers = aborters.current;
-    return () => { active = false; for (const controller of controllers.values()) controller.abort(); controllers.clear(); };
+    return () => { active = false; refreshEpoch.current += 1; for (const controller of controllers.values()) controller.abort(); controllers.clear(); };
   }, [conversationId, targetLogicalMessageId, nativeThreadId, nativeFolder, selectedAccountId, selectedCopyId, t, onNativeThreadUnavailable]);
 
   const messages = useMemo(() => data?.logicalMessages || [], [data]);
-  const refresh = useCallback(() => conversationApi.detail(conversationId).then(setData), [conversationId]);
+  const refresh = useCallback(async () => {
+    // Keep the reader, expansion and physical body cache mounted during live updates.
+    if (!data) return;
+    const epoch = ++refreshEpoch.current;
+    const [ce, native] = await Promise.all([
+      conversationId ? conversationApi.detail(conversationId).catch(() => null) : null,
+      nativeThreadId && selectedAccountId ? api.getThread(nativeThreadId, nativeFolder || 'INBOX', false, selectedAccountId).catch(() => null) : null,
+    ]);
+    if (epoch !== refreshEpoch.current) return;
+    if (nativeThreadId && selectedAccountId && !native) return;
+    if (!ce && !native) return;
+    const physical = applyDeleteGuard(native?.messages || []).map(copy => {
+      const read = pendingReadState(copy.id);
+      return read === undefined ? copy : { ...copy, is_read: read, isRead: read };
+    });
+    const nativeMessages = nativeThreadToReaderMessages(physical, selectedAccountId);
+    setData(previous => ({ ...previous, ...ce, logicalMessages: native
+      ? mergeThreadWithConversation(ce?.logicalMessages || [], nativeMessages)
+      : ce.logicalMessages || previous.logicalMessages }));
+  }, [conversationId, nativeThreadId, nativeFolder, selectedAccountId, data]);
+  const handleActionComplete = useCallback(async mutation => {
+    const { action, copyId, logicalMessageId, isRead, isStarred } = mutation || {};
+    if (['delete', 'archive', 'move'].includes(action) && copyId) {
+      setData(previous => !previous ? previous : {
+        ...previous,
+        logicalMessages: removePhysicalCopy(previous.logicalMessages, logicalMessageId, copyId),
+      });
+      // A refresh may arrive before IMAP has reflected the mutation. Keep the
+      // just-removed physical copy out of that stale response during reconciliation.
+      // MessageList consumes this guard during its refresh; deliberately do not clear
+      // the global selection here because the reader can still contain another copy.
+      setCompletedDelete(copyId);
+    } else if (action === 'read' && copyId) {
+      updateMessage(copyId, { is_read: isRead, isRead });
+    } else if (action === 'star' && copyId) {
+      updateMessage(copyId, { is_starred: isStarred, isStarred });
+    }
+    window.dispatchEvent(new CustomEvent('inboxora:refresh'));
+  }, [updateMessage]);
   useEffect(() => {
     const handleConversationRefresh = event => {
-      if (event.detail?.conversationId === conversationId) refresh().catch(() => {});
+      if (event.detail?.refreshThreads || (event.type === 'inboxora:conversation-refresh' && event.detail?.conversationId === conversationId)) refresh().catch(() => {});
     };
     window.addEventListener('inboxora:conversation-refresh', handleConversationRefresh);
-    return () => window.removeEventListener('inboxora:conversation-refresh', handleConversationRefresh);
+    window.addEventListener('inboxora:refresh', handleConversationRefresh);
+    return () => {
+      window.removeEventListener('inboxora:conversation-refresh', handleConversationRefresh);
+      window.removeEventListener('inboxora:refresh', handleConversationRefresh);
+    };
   }, [conversationId, refresh]);
   const selectedCopyFor = useCallback(logicalId => {
     const logical = messages.find(item => item.id === logicalId);
@@ -96,6 +142,7 @@ export default function ConversationReader({ conversationId, targetLogicalMessag
   }, [messages, selectedAccountId, selectedCopyId]);
 
   const setLocalReadState = useCallback((copyId, read) => {
+    refreshEpoch.current += 1;
     setData(previous => !previous ? previous : {
       ...previous,
       logicalMessages: previous.logicalMessages.map(message => {
@@ -112,12 +159,27 @@ export default function ConversationReader({ conversationId, targetLogicalMessag
   // That keeps a late automatic read from overwriting a newer explicit unread intent.
   const setCopyReadState = useCallback((copyId, read) => {
     if (!copyId) return Promise.resolve();
-    const before = messages.some(message => (message.copies || []).some(copy => String(copy.id) === String(copyId) && Boolean(copy.isRead ?? copy.is_read)));
+    const copy = messages.flatMap(message => message.copies || []).find(copy => String(copy.id) === String(copyId));
+    const before = pendingReadState(copyId) ?? Boolean(copy?.isRead ?? copy?.is_read);
+    const accountId = copy?.accountId ?? copy?.account_id;
+    const affectsInbox = String(copy?.folder || '').toUpperCase() === 'INBOX' && accountId && before !== read;
+    const adjustCount = value => {
+      const state = useStore.getState();
+      if (affectsInbox) {
+        (value ? state.decrementUnread : state.incrementUnread)(accountId);
+        state.adjustFolderUnread(accountId, 'INBOX', value ? -1 : 1);
+      }
+    };
+    adjustCount(read);
+    if (affectsInbox && read) setPending(copyId, accountId);
     setLocalReadState(copyId, read);
     const mutation = queueReadStateMutation(copyId, read, targetRead => api.bulkRead([copyId], targetRead));
-    return mutation.promise.catch(error => {
-      if (isLatestReadStateMutation(copyId, mutation.version)) setLocalReadState(copyId, before);
+    return mutation.promise.then(() => { refreshEpoch.current += 1; }).catch(error => {
+      if (isLatestReadStateMutation(copyId, mutation.version)) { setLocalReadState(copyId, before); adjustCount(!read); }
       throw error;
+    }).finally(() => {
+      if (isLatestReadStateMutation(copyId, mutation.version)) pendingMarkReadMap.delete(copyId);
+      window.dispatchEvent(new CustomEvent('inboxora:unread_changed'));
     });
   }, [messages, setLocalReadState]);
 
@@ -257,6 +319,14 @@ export default function ConversationReader({ conversationId, targetLogicalMessag
 
 
   const activateMessage = useCallback(id => {
+    // A new explicit target supersedes any pending automatic alignment for the
+    // previously selected target. Without this handoff, a late body-layout frame
+    // can write the old scroll position into the new navigation's sample window.
+    for (const state of navigationStateRef.current.values()) {
+      state.userInteracted = true;
+      if (state.finalFrame) cancelAnimationFrame(state.finalFrame);
+      state.finalFrame = null;
+    }
     setActiveTargetLogicalId(id);
     const copy = selectedCopyFor(id);
     if (copy?.id && !(copy.isRead ?? copy.is_read)) {
@@ -278,7 +348,7 @@ export default function ConversationReader({ conversationId, targetLogicalMessag
   return <section ref={readerRef} aria-label={t('conversation.label')} data-conversation-id={conversationId} data-reader-source={nativeThreadId ? 'native-thread' : 'conversation'} data-selected-copy-id={selectedCopyId || ''} data-selected-account-id={selectedAccountId || ''} style={{ flex: 1, overflowY: 'auto', overflowX: 'hidden', padding: 0, minWidth: 0 }}>
     {messages.map(message => {
       const physicalCopyId = selectedCopyFor(message.id)?.id;
-      return <ConversationMessage key={message.id} conversationId={conversationId} message={message} selectedCopyId={selectedCopyId} selectedAccountId={selectedAccountId} accounts={accounts} expanded={expanded.has(message.id)} onToggle={toggle} body={physicalCopyId ? bodiesByCopy[physicalCopyId] : null} status={physicalCopyId ? bodyStatusByCopy[physicalCopyId] : { unavailable: true }} onLoadBody={loadBody} onRemoteImages={id => loadBody(id, true, true)} onReply={onReply} onActionComplete={refresh} onSetRead={setCopyReadState} onInitialBodyLayout={handleInitialTargetBodyLayout} />;
+      return <ConversationMessage key={message.id} conversationId={conversationId} message={message} selectedCopyId={selectedCopyId} selectedAccountId={selectedAccountId} accounts={accounts} expanded={expanded.has(message.id)} onToggle={toggle} body={physicalCopyId ? bodiesByCopy[physicalCopyId] : null} status={physicalCopyId ? bodyStatusByCopy[physicalCopyId] : { unavailable: true }} onLoadBody={loadBody} onRemoteImages={id => loadBody(id, true, true)} onReply={onReply} onActionComplete={handleActionComplete} onSetRead={setCopyReadState} onInitialBodyLayout={handleInitialTargetBodyLayout} />;
     })}
   </section>;
 }

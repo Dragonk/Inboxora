@@ -16,7 +16,7 @@ export function providerIdentityForCopy(copy, accountContext = copy) {
   const persistedProvider = copy.provider_namespace?.split(':')[0] || null;
   const host = String(accountContext?.imap_host || accountContext?.imapHost || '').toLowerCase();
   const provider = persistedProvider || (
-    /gmail/.test(host) ? 'gmail' :
+    /gmail|googlemail/.test(host) ? 'gmail' :
     /outlook|office365|exchange|hotmail|live\.com/.test(host) ? 'outlook' :
     null
   );

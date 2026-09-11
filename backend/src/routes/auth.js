@@ -17,6 +17,7 @@ import { buildEndSessionUrl } from './oidc.js';
 import { invalidateGlobalCategorizationCache } from '../services/categorizer.js';
 import { sanitizeGtdPrefs } from '../utils/gtdPrefs.js';
 import { sanitizeRightSidebarPrefs } from '../utils/rightSidebarPrefs.js';
+import { sanitizeThemePrefs } from '../utils/themePrefs.js';
 import { redisClient } from '../services/redis.js';
 import { consume as rlConsume, reset as rlReset } from '../services/rateLimiter.js';
 import { ensureUserDavResources } from '../services/userDavResources.js';
@@ -764,15 +765,20 @@ router.get('/preferences', async (req, res) => {
 
 export async function patchPreferences(req, res) {
   if (!req.session.userId) return res.status(401).json({ error: 'Not authenticated' });
-  const { theme, font, layout, notificationSound, pageSize, scrollMode, syncInterval,
+  // themeMode/themeLight/themeDark are read by sanitizeThemePrefs below, which validates
+  // them as a group, so they are deliberately not destructured here.
+  const { theme,
+          font, layout, notificationSound, pageSize, scrollMode, syncInterval,
           blockRemoteImages, imageWhitelist, shortcuts, hiddenFolders, language,
           threadedView, plaintextEmail, hoverQuickActions, swipeActions,
           expandedAccounts, collapsedFolders, favoriteFolders, recentFolders, fontSize,
-          showAppBadge, showFaviconBadge, replyDefault, sidebarWidth,
+          showAppBadge, replyDefault, sidebarWidth,
           categorizationEnabled, markReadBehavior, markReadDelay, aiActions,
           autoLockMinutes, showMobileAvatars, gravatarAvatars, folderSyncInterval,
           folderOrder, senderFavicons, showMessagePreviews,
-          conversation_list_view_enabled, conversation_reader_view_enabled } = req.body;
+          conversation_list_view_enabled, conversation_reader_view_enabled,
+          calendarWeekStartsOn, mobileNavigationPosition, visibleCalendarIds,
+          calendarWorkDays, calendarWorkHoursStart, calendarWorkHoursEnd } = req.body;
   for (const [name, value] of [
     ['conversation_list_view_enabled', conversation_list_view_enabled],
     ['conversation_reader_view_enabled', conversation_reader_view_enabled],
@@ -786,6 +792,18 @@ export async function patchPreferences(req, res) {
   // preference — it lives per-account in email_accounts.gtd_enabled.
   const { gtdCollapsedSections, gtdPetSlug } = sanitizeGtdPrefs(req.body);
   const { rightSidebarWidth, rightSidebarHidden } = sanitizeRightSidebarPrefs(req.body);
+  // Separate light/dark theme defaults plus the mode that selects between them. A
+  // malformed value is rejected rather than silently dropped, so the client can surface it.
+  const themePrefs = sanitizeThemePrefs(req.body);
+  if (req.body.themeMode !== undefined && themePrefs.themeMode === null) {
+    return res.status(400).json({ error: 'themeMode must be system, light or dark' });
+  }
+  if (req.body.themeLight !== undefined && themePrefs.themeLight === null) {
+    return res.status(400).json({ error: 'themeLight must be a lowercase theme identifier' });
+  }
+  if (req.body.themeDark !== undefined && themePrefs.themeDark === null) {
+    return res.status(400).json({ error: 'themeDark must be a lowercase theme identifier' });
+  }
   const gtdCollapsedSectionsJson = gtdCollapsedSections != null ? JSON.stringify(gtdCollapsedSections) : null;
   // JSONB fields must be serialised to strings for the ::jsonb cast
   const imageWhitelistJson    = imageWhitelist    != null ? JSON.stringify(imageWhitelist)    : null;
@@ -819,7 +837,52 @@ export async function patchPreferences(req, res) {
   if (hasSenderFavicons && typeof senderFavicons !== 'boolean') {
     return res.status(400).json({ error: 'senderFavicons must be a boolean' });
   }
+  if (calendarWeekStartsOn !== undefined && calendarWeekStartsOn !== 0 && calendarWeekStartsOn !== 1) {
+    return res.status(400).json({ error: 'calendarWeekStartsOn must be 0 or 1' });
+  }
+  if (mobileNavigationPosition !== undefined && !['top', 'bottom'].includes(mobileNavigationPosition)) {
+    return res.status(400).json({ error: 'mobileNavigationPosition must be top or bottom' });
+  }
+  if (visibleCalendarIds !== undefined && (!Array.isArray(visibleCalendarIds) || visibleCalendarIds.length > 100 || visibleCalendarIds.some(id => typeof id !== 'string' || id.length > 128))) {
+    return res.status(400).json({ error: 'visibleCalendarIds must be an array of calendar identifiers' });
+  }
+  if (calendarWorkDays !== undefined && (!Array.isArray(calendarWorkDays) || calendarWorkDays.length === 0 || calendarWorkDays.length > 7 || calendarWorkDays.some(day => !Number.isInteger(day) || day < 0 || day > 6) || new Set(calendarWorkDays).size !== calendarWorkDays.length)) {
+    return res.status(400).json({ error: 'calendarWorkDays must contain unique weekday numbers from 0 to 6' });
+  }
+  const validWorkTime = value => typeof value === 'string' && /^(?:[01]\d|2[0-3]):[0-5]\d$/.test(value);
+  const workTimeMinutes = value => {
+    const [hours, minutes] = value.split(':').map(Number);
+    return hours * 60 + minutes;
+  };
+  const validWorkRange = (start, end) => validWorkTime(start) && validWorkTime(end) && workTimeMinutes(start) < workTimeMinutes(end);
+  if (calendarWorkHoursStart !== undefined && !validWorkTime(calendarWorkHoursStart)) {
+    return res.status(400).json({ error: 'calendarWorkHoursStart must be a valid HH:mm time' });
+  }
+  if (calendarWorkHoursEnd !== undefined && !validWorkTime(calendarWorkHoursEnd)) {
+    return res.status(400).json({ error: 'calendarWorkHoursEnd must be a valid HH:mm time' });
+  }
+  let persistedWorkHoursStart = calendarWorkHoursStart;
+  let persistedWorkHoursEnd = calendarWorkHoursEnd;
+  if (calendarWorkHoursStart !== undefined || calendarWorkHoursEnd !== undefined) {
+    if (calendarWorkHoursStart !== undefined && calendarWorkHoursEnd !== undefined) {
+      if (!validWorkRange(calendarWorkHoursStart, calendarWorkHoursEnd)) {
+        return res.status(400).json({ error: 'calendar work hours must be a strictly increasing same-day range' });
+      }
+    } else {
+      const currentPreferences = (await query('SELECT preferences FROM users WHERE id = $1', [req.session.userId])).rows[0]?.preferences || {};
+      const currentStart = currentPreferences.calendarWorkHoursStart;
+      const currentEnd = currentPreferences.calendarWorkHoursEnd;
+      const baseStart = validWorkRange(currentStart, currentEnd) ? currentStart : '09:00';
+      const baseEnd = validWorkRange(currentStart, currentEnd) ? currentEnd : '17:00';
+      persistedWorkHoursStart = calendarWorkHoursStart ?? baseStart;
+      persistedWorkHoursEnd = calendarWorkHoursEnd ?? baseEnd;
+      if (!validWorkRange(persistedWorkHoursStart, persistedWorkHoursEnd)) {
+        return res.status(400).json({ error: 'calendar work hours must be a strictly increasing same-day range' });
+      }
+    }
+  }
   const senderFaviconsVal = hasSenderFavicons ? senderFavicons : null;
+  const visibleCalendarIdsJson = visibleCalendarIds !== undefined ? JSON.stringify([...new Set(visibleCalendarIds)]) : null;
   await query(`
     UPDATE users
     SET preferences = preferences
@@ -845,37 +908,49 @@ export async function patchPreferences(req, res) {
       || CASE WHEN $21::jsonb IS NOT NULL THEN jsonb_build_object('recentFolders', $21::jsonb) ELSE '{}'::jsonb END
       || CASE WHEN $22::text IS NOT NULL THEN jsonb_build_object('fontSize', $22::text) ELSE '{}'::jsonb END
       || CASE WHEN $23::boolean IS NOT NULL THEN jsonb_build_object('showAppBadge', $23::boolean) ELSE '{}'::jsonb END
-      || CASE WHEN $24::boolean IS NOT NULL THEN jsonb_build_object('showFaviconBadge', $24::boolean) ELSE '{}'::jsonb END
-      || CASE WHEN $25::text IS NOT NULL THEN jsonb_build_object('replyDefault', $25::text) ELSE '{}'::jsonb END
-      || CASE WHEN $26::text IS NOT NULL THEN jsonb_build_object('sidebarWidth', $26::text) ELSE '{}'::jsonb END
-      || CASE WHEN $27::boolean IS NOT NULL THEN jsonb_build_object('categorizationEnabled', $27::boolean) ELSE '{}'::jsonb END
-      || CASE WHEN $28::text IS NOT NULL THEN jsonb_build_object('markReadBehavior', $28::text) ELSE '{}'::jsonb END
-      || CASE WHEN $29::text IS NOT NULL THEN jsonb_build_object('markReadDelay', $29::text) ELSE '{}'::jsonb END
-      || CASE WHEN $30::jsonb IS NOT NULL THEN jsonb_build_object('aiActions', $30::jsonb) ELSE '{}'::jsonb END
-      || CASE WHEN $31::int IS NOT NULL THEN jsonb_build_object('rightSidebarWidth', $31::int) ELSE '{}'::jsonb END
-      || CASE WHEN $32::boolean IS NOT NULL THEN jsonb_build_object('rightSidebarHidden', $32::boolean) ELSE '{}'::jsonb END
-      || CASE WHEN $33::jsonb IS NOT NULL THEN jsonb_build_object('gtdCollapsedSections', $33::jsonb) ELSE '{}'::jsonb END
-      || CASE WHEN $34::text IS NOT NULL THEN jsonb_build_object('gtdPetSlug', $34::text) ELSE '{}'::jsonb END
-      || CASE WHEN $35::text IS NOT NULL THEN jsonb_build_object('autoLockMinutes', $35::text) ELSE '{}'::jsonb END
-      || CASE WHEN $36::boolean IS NOT NULL THEN jsonb_build_object('showMobileAvatars', $36::boolean) ELSE '{}'::jsonb END
-      || CASE WHEN $37::boolean IS NOT NULL THEN jsonb_build_object('gravatarAvatars', $37::boolean) ELSE '{}'::jsonb END
-      || CASE WHEN $38::text IS NOT NULL THEN jsonb_build_object('folderSyncInterval', $38::text) ELSE '{}'::jsonb END
-      || CASE WHEN $39::jsonb IS NOT NULL THEN jsonb_build_object('folderOrder', $39::jsonb) ELSE '{}'::jsonb END
-      || CASE WHEN $40::boolean IS NOT NULL THEN jsonb_build_object('senderFavicons', $40::boolean) ELSE '{}'::jsonb END
-      || CASE WHEN $41::boolean IS NOT NULL THEN jsonb_build_object('showMessagePreviews', $41::boolean) ELSE '{}'::jsonb END
-      || CASE WHEN $42::boolean IS NOT NULL THEN jsonb_build_object('conversation_list_view_enabled', $42::boolean) ELSE '{}'::jsonb END
-      || CASE WHEN $43::boolean IS NOT NULL THEN jsonb_build_object('conversation_reader_view_enabled', $43::boolean) ELSE '{}'::jsonb END
+      || CASE WHEN $24::text IS NOT NULL THEN jsonb_build_object('replyDefault', $24::text) ELSE '{}'::jsonb END
+      || CASE WHEN $25::text IS NOT NULL THEN jsonb_build_object('sidebarWidth', $25::text) ELSE '{}'::jsonb END
+      || CASE WHEN $26::boolean IS NOT NULL THEN jsonb_build_object('categorizationEnabled', $26::boolean) ELSE '{}'::jsonb END
+      || CASE WHEN $27::text IS NOT NULL THEN jsonb_build_object('markReadBehavior', $27::text) ELSE '{}'::jsonb END
+      || CASE WHEN $28::text IS NOT NULL THEN jsonb_build_object('markReadDelay', $28::text) ELSE '{}'::jsonb END
+      || CASE WHEN $29::jsonb IS NOT NULL THEN jsonb_build_object('aiActions', $29::jsonb) ELSE '{}'::jsonb END
+      || CASE WHEN $30::int IS NOT NULL THEN jsonb_build_object('rightSidebarWidth', $30::int) ELSE '{}'::jsonb END
+      || CASE WHEN $31::boolean IS NOT NULL THEN jsonb_build_object('rightSidebarHidden', $31::boolean) ELSE '{}'::jsonb END
+      || CASE WHEN $32::jsonb IS NOT NULL THEN jsonb_build_object('gtdCollapsedSections', $32::jsonb) ELSE '{}'::jsonb END
+      || CASE WHEN $33::text IS NOT NULL THEN jsonb_build_object('gtdPetSlug', $33::text) ELSE '{}'::jsonb END
+      || CASE WHEN $34::text IS NOT NULL THEN jsonb_build_object('autoLockMinutes', $34::text) ELSE '{}'::jsonb END
+      || CASE WHEN $35::boolean IS NOT NULL THEN jsonb_build_object('showMobileAvatars', $35::boolean) ELSE '{}'::jsonb END
+      || CASE WHEN $36::boolean IS NOT NULL THEN jsonb_build_object('gravatarAvatars', $36::boolean) ELSE '{}'::jsonb END
+      || CASE WHEN $37::text IS NOT NULL THEN jsonb_build_object('folderSyncInterval', $37::text) ELSE '{}'::jsonb END
+      || CASE WHEN $38::jsonb IS NOT NULL THEN jsonb_build_object('folderOrder', $38::jsonb) ELSE '{}'::jsonb END
+      || CASE WHEN $39::boolean IS NOT NULL THEN jsonb_build_object('senderFavicons', $39::boolean) ELSE '{}'::jsonb END
+      || CASE WHEN $40::boolean IS NOT NULL THEN jsonb_build_object('showMessagePreviews', $40::boolean) ELSE '{}'::jsonb END
+      || CASE WHEN $41::boolean IS NOT NULL THEN jsonb_build_object('conversation_list_view_enabled', $41::boolean) ELSE '{}'::jsonb END
+      || CASE WHEN $42::boolean IS NOT NULL THEN jsonb_build_object('conversation_reader_view_enabled', $42::boolean) ELSE '{}'::jsonb END
+      || CASE WHEN $43::int IS NOT NULL THEN jsonb_build_object('calendarWeekStartsOn', $43::int) ELSE '{}'::jsonb END
+      || CASE WHEN $44::text IS NOT NULL THEN jsonb_build_object('mobileNavigationPosition', $44::text) ELSE '{}'::jsonb END
+      || CASE WHEN $45::jsonb IS NOT NULL THEN jsonb_build_object('visibleCalendarIds', $45::jsonb) ELSE '{}'::jsonb END
+      || CASE WHEN $46::jsonb IS NOT NULL THEN jsonb_build_object('calendarWorkDays', $46::jsonb) ELSE '{}'::jsonb END
+      || CASE WHEN $47::text IS NOT NULL THEN jsonb_build_object('calendarWorkHoursStart', $47::text) ELSE '{}'::jsonb END
+      || CASE WHEN $48::text IS NOT NULL THEN jsonb_build_object('calendarWorkHoursEnd', $48::text) ELSE '{}'::jsonb END
+      || CASE WHEN $49::text IS NOT NULL THEN jsonb_build_object('themeMode', $49::text) ELSE '{}'::jsonb END
+      || CASE WHEN $50::text IS NOT NULL THEN jsonb_build_object('themeLight', $50::text) ELSE '{}'::jsonb END
+      || CASE WHEN $51::text IS NOT NULL THEN jsonb_build_object('themeDark', $51::text) ELSE '{}'::jsonb END
     WHERE id = $1
   `, [req.session.userId, theme ?? null, font ?? null, layout ?? null, notificationSound ?? null,
       pageSize ?? null, scrollMode ?? null, syncInterval ?? null,
       blockRemoteImages ?? null, imageWhitelistJson, shortcutsJson, hiddenFoldersJson,
       language ?? null, threadedView ?? null, plaintextEmail ?? null, hoverQuickActions ?? null,
       swipeActionsJson, expandedAccountsJson, collapsedFoldersJson, favoriteFoldersJson, recentFoldersJson, fontSizeVal,
-      showAppBadge ?? null, showFaviconBadge ?? null, replyDefaultVal, sidebarWidthVal,
+      showAppBadge ?? null, replyDefaultVal, sidebarWidthVal,
       categorizationEnabled ?? null, markReadBehaviorVal, markReadDelayVal, aiActionsJson,
       rightSidebarWidth, rightSidebarHidden, gtdCollapsedSectionsJson, gtdPetSlug, autoLockMinutesVal,
       showMobileAvatars ?? null, gravatarAvatars ?? null, folderSyncIntervalVal, folderOrderJson, senderFaviconsVal,
-      showMessagePreviews ?? null, conversation_list_view_enabled ?? null, conversation_reader_view_enabled ?? null]);
+      showMessagePreviews ?? null, conversation_list_view_enabled ?? null, conversation_reader_view_enabled ?? null,
+      calendarWeekStartsOn ?? null, mobileNavigationPosition ?? null, visibleCalendarIdsJson,
+      calendarWorkDays !== undefined ? JSON.stringify(calendarWorkDays) : null,
+      persistedWorkHoursStart ?? null, persistedWorkHoursEnd ?? null,
+      themePrefs.themeMode, themePrefs.themeLight, themePrefs.themeDark]);
 
   if (syncInterval != null) {
     const ms = parseInt(syncInterval) * 1000;

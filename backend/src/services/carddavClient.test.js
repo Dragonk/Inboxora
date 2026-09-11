@@ -198,3 +198,10 @@ END:VCARD</card:address-data>
     expect(cards[0].vcard).toContain('Tom <0> Ltd'); // entities still decoded
   });
 });
+
+describe('incomplete DAV responses', () => {
+ it('rejects HTML/login pages and failed propstats rather than returning an empty book', () => {
+   expect(() => parseCards('<html><body>Login</body></html>', 'https://example.test')).toThrow(/invalid multistatus/);
+   expect(() => parseCards('<multistatus><response><propstat><status>HTTP/1.1 503 Unavailable</status><prop/></propstat></response></multistatus>', 'https://example.test')).toThrow(/incomplete/);
+ });
+});

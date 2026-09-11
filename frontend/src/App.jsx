@@ -5,6 +5,7 @@ import { api } from './utils/api.js';
 import { applyTheme, getInitialTheme } from './themes.js';
 import { applyFontSet, effectiveFontSet } from './fonts.js'; // still used for the instant localStorage apply on mount
 import { applyLayout } from './layouts.js';
+import { savedPanelWidth } from './utils/panelWidth.js';
 import LoginPage from './components/LoginPage.jsx';
 import MailApp from './components/MailApp.jsx';
 import LockScreen from './components/LockScreen.jsx';
@@ -17,7 +18,7 @@ export default function App() {
   // The SW itself does nothing until the user explicitly grants push permission.
   useEffect(() => {
     if ('serviceWorker' in navigator) {
-      navigator.serviceWorker.register('/sw.js').catch((err) =>
+      navigator.serviceWorker.register('/sw.js?v=inboxora-3').catch((err) =>
         console.warn('Service worker registration failed:', err)
       );
     }
@@ -34,13 +35,29 @@ export default function App() {
     };
   }, [setUser, setLocked]);
 
+  // While the theme mode is "system", swap between the light and dark defaults as
+  // the operating system colour scheme changes. The store ignores the event under
+  // a forced light/dark mode, so this is safe to keep mounted.
   useEffect(() => {
-    // Apply localStorage immediately so there's no flash while we check auth
-    const bootTheme = localStorage.getItem('mailflow_theme') || getInitialTheme();
+    const media = window.matchMedia?.('(prefers-color-scheme: dark)');
+    if (!media) return undefined;
+    const onSchemeChange = () => useStore.getState().syncSystemTheme();
+    if (media.addEventListener) {
+      media.addEventListener('change', onSchemeChange);
+      return () => media.removeEventListener('change', onSchemeChange);
+    }
+    media.addListener(onSchemeChange); // Safari < 14
+    return () => media.removeListener(onSchemeChange);
+  }, []);
+
+  useEffect(() => {
+    // Apply localStorage immediately so there's no flash while we check auth.
+    // getInitialTheme() resolves the stored light/dark defaults + mode here, so the
+    // first paint already matches the chosen appearance and the OS colour scheme.
+    const bootTheme = getInitialTheme();
     applyTheme(bootTheme);
     applyFontSet(effectiveFontSet(bootTheme, localStorage.getItem('mailflow_font') || 'default'));
-    const savedListWidth = Number(localStorage.getItem('mailflow_list_width')) || undefined;
-    applyLayout(localStorage.getItem('mailflow_layout') || 'comfortable', savedListWidth);
+    applyLayout(localStorage.getItem('mailflow_layout') || 'comfortable', savedPanelWidth());
 
     // Handle OAuth popup callback
     const params = new URLSearchParams(window.location.search);

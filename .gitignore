@@ -20,6 +20,10 @@ certs/
 *.log
 npm-debug.log*
 
+# Local Playwright browser cache (installed into the workspace when ~/.cache is
+# not writable); never committed.
+.pw-browsers/
+
 # OS
 .DS_Store
 Thumbs.db
@@ -31,6 +35,13 @@ Thumbs.db
 *.swo
 
 .superpowers/
+.hermes/
 output/
 frontend/artifacts/
 artifacts/
+
+# Lokalny zapis digestow do rollbacku (nie commitowac)
+.rollback/
+
+# Local Android/JDK toolchain used for on-device build verification — never committed
+.toolchain/

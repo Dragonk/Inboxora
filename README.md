@@ -1,641 +1,330 @@
-<p align="center">
-  <img src="media/inboxora-logo.png" width="200" alt="Inboxora logo">
-</p>
+<p align="center"><img src="media/inboxora-logo.png" width="200" alt="Inboxora logo"></p>
+
+<h1 align="center">Inboxora</h1>
+
+<p align="center">Self-hosted unified inbox for email, contacts and calendars.</p>
 
 <p align="center">
-  <strong>Inboxora</strong> — a self-hosted, unified inbox for email, contacts and calendars.
+  <a href="https://github.com/Dragonk/Inboxora/actions/workflows/ci.yml"><img src="https://github.com/Dragonk/Inboxora/actions/workflows/ci.yml/badge.svg?branch=dev" alt="CI"></a>
+  <a href="LICENSE"><img src="https://img.shields.io/badge/license-AGPL--3.0--only-blue" alt="License: AGPL-3.0-only"></a>
+  <img src="https://img.shields.io/badge/version-4.0.0-informational" alt="Version 4.0.0">
 </p>
+
+Inboxora brings mail, contacts and calendars into one self-hosted application. It speaks
+standard protocols — IMAP, SMTP, CardDAV, CalDAV — so your data stays on your server and
+your existing devices keep working.
+
+This release is a large step beyond the upstream MailFlow fork it started from: Inboxora
+adds a real conversation engine for email threading, a full calendar with invitations,
+first-party contacts with CardDAV/CalDAV access, and a rebuilt interface. See
+[What's new in 4.0](#whats-new-in-40) for the full picture.
 
 <p align="center">
-  <a href="#installation">Quick Start</a> ·
-  <a href="#email-provider-setup">Setup Guide</a> ·
-  <a href="CONTRIBUTING.md">Contributing</a> ·
-  <a href="ROADMAP.md">Roadmap</a> ·
-  <a href="https://github.com/Dragonk/Inboxora/issues">Issues</a>
+  <img src="media/screenshots/mail-inbox-desktop.png" width="820" alt="Inboxora: the unified inbox with an expanded conversation and an open message">
 </p>
 
-## Licensing
+## Highlights
 
-- **[AGPL-3.0-only](LICENSE)** — Inboxora is free software. If you convey a modified copy or make a modified version available for users to interact with over a network, the AGPL requires an offer of the corresponding source code.
-
-The project does not offer a commercial licence. AGPL permits commercial use and sale; it protects users' right to receive the corresponding source for modified network services. Required copyright notices and upstream attribution remain intact.
-
-Contributions are accepted under the same AGPL-3.0-only terms; see [CONTRIBUTING.md](CONTRIBUTING.md).
-
-
-## Features
-
-- **Unified inbox** — all accounts merged in one view, sorted by date
-- **Sender imagery** — real manual/CardDAV contact photos take priority, with optional domain favicons proxied and cached through Twenty Icons and deterministic initials as the offline fallback; disable sender favicons under Appearance to prevent lookups for your user
-- **Email categorization** — automatic inbox tabs (Primary, Newsletters, Social, Notifications, Other) sort incoming mail by type using header detection and sender heuristics; AI reclassify button for misclassifications
-- **Unsubscribe** — one-click unsubscribe button appears in the message pane for detected newsletters; sends the request or opens the unsubscribe URL automatically
-- **Conversation threads** — messages grouped into reply chains with inline sent replies
-- **Optional conversation controls** — list grouping and Conversation Reader V2 can each be enabled or disabled independently in Settings → Appearance → Layout
-- **Rich text compose** — WYSIWYG editor with font family, size, color, highlight, tables, emoji, links, attachments, image resize handles, and Excel table paste
-- **Attachments** — send and receive file attachments across all accounts
-- **Multiple layouts** — classic, compact, wide reader, vertical split, and more
-- **Multiple themes** — dark, light, and several color schemes; custom CSS field for per-user style overrides
-- **Multi-language UI** — English, French, Spanish, Italian, German, Russian, Simplified Chinese, and Polish
-- **Full-text search** — across all connected accounts simultaneously
-- **Real-time notifications** — WebSocket-powered new-mail toasts and web push notifications
-- **PWA** — installable as a desktop or mobile app with push notification support
-- **Command palette** — Cmd+K / Ctrl+K quick-access for actions and navigation
-- **Keyboard shortcuts** — full shortcut set, fully customisable per user
-- **Smart contact autocomplete** — learns from sent mail to rank suggestions
-- **Reply / Forward / Compose** — correct per-account SMTP routing; font family groups, email priority
-- **Folder navigation** — expand any account to browse folders
-- **Folder-structure sync** — folders created or renamed in other clients appear automatically, on a configurable interval or on demand
-- **Star, archive, delete, mark read/unread** — synced back to IMAP
-- **Mark-as-read behavior** — choose immediate (on open), after a configurable delay in seconds, or manual (button only) per-user preference
-- **Inbox rules** — automate actions (move, archive, delete, mark read, star) based on sender, subject, recipient, headers, body, or attachments
-- **Block list** — automatically move mail from blocked senders to trash before inbox rules run
-- **Spam reporting** — mark messages as spam or not spam from the context menu, toolbar, or bulk actions; feedback will feed into automated filtering in a future release
-- **Snooze** — snooze messages until a chosen time; they reappear at the top of the inbox
-- **AI assistant** — use an OpenAI-compatible API provider or a ChatGPT Codex subscription; summarise threads, draft replies, ask questions about a message
-- **Password recovery** — recover your account via a recovery email address configured in profile settings
-- **User management** — admin panel, invite-only registration, invite emails
-- **Two-factor authentication** — TOTP (any authenticator app), email OTP fallback, persistent device trust; admin-configurable enforcement policy
-- **SSO / OIDC** — single sign-on via any OpenID Connect provider; group claims from the IdP can be mapped to the Inboxora admin role, with optional RP-initiated (end-session) logout to sign out of the provider too
-- **Microsoft 365 / OAuth2** — work accounts via Azure App Registration; personal Outlook.com via device code flow
-- **Todoist integration** — create tasks directly from emails; tasks include a deep link back to the original message
-- **CardDAV contacts** — expose contacts to phone and desktop contact apps; contact photos sync and appear as sender avatars in the message list
-- **DAV Hub (in progress)** — revocable DAV application passwords plus first-party contacts and calendar resources for DAVx5-compatible CardDAV/CalDAV sync
-- **GTD workflow** — optional Getting-Things-Done rail: label threads Todo / Watch / Delegated / Someday / Reference (each backed by a real IMAP folder) with the t / w / d keys; opt in per account, see below
-
----
-
-## GTD (Getting Things Done)
-
-An optional Getting-Things-Done workflow, off by default and enabled per account
-under Settings → Categories → GTD. When on, a rail beside the message list
-groups threads into five states, each backed by a real IMAP folder — so the labels
-are just server-side folders that sync to every mail client and survive Inboxora
-itself:
-
-- **Todo** / **Someday** — things you need to act on; the label clears itself once you reply.
-- **Watch** / **Delegated** — things you're waiting on; the label clears itself once the other party replies.
-- **Reference** — kept until you remove it by hand.
-
-Label the selected thread from the keyboard — **t** for Todo, **w** for Watch,
-**d** for Delegated (all remappable in the keyboard-shortcut settings) — or from the
-context menu, which also covers Someday and Reference. Each state's folder name is
-configurable per account, and accounts with GTD off behave exactly as before.
-
----
+- **Email with real threading.** Gmail, Outlook/Microsoft 365 and generic IMAP accounts feed a
+  server-side conversation engine: a message and its replies become one logical conversation,
+  with physical copies tracked per folder and per account. Expand a thread inline in the list,
+  or read the whole conversation in the reading pane with per-message actions.
+- **Calendar that works with your mail.** Local writable calendars with month, week, work-week
+  and agenda views, recurring events with time-zone-aware expansion, event descriptions rendered
+  like message bodies, invitations sent by email with retry, and invitations received by mail
+  added to a calendar in one click.
+- **Contacts with real interoperability.** Rich vCard fields, Google CSV import, Google CSV /
+  Outlook CSV / vCard export, and read-only CardDAV address books.
+- **CalDAV and CardDAV access through application passwords.** Dedicated, revocable app
+  passwords — never your login password — so DAVx5, Thunderbird and iOS/Android clients sync
+  contacts and calendars even on accounts protected by TOTP or SSO.
+- **A rebuilt interface for desktop and phone.** Ink and its new Dark ink counterpart, separate
+  default themes for the light and dark appearance, self-hosted fonts, resizable panels,
+  drawer navigation, safe-area-aware mobile layout and system Back handling.
 
 ## Screenshots
 
-Screenshots are intentionally omitted until clean Inboxora captures of the Contacts and Calendar interface are ready.
+Captured from the running application in one consistent style, on desktop (1440×900) and phone
+(390×844). The complete set lives in [`media/screenshots/`](media/screenshots/) and is
+regenerated by CI, so it always shows the current interface.
 
----
+### Email
 
-## Installation
+On desktop, captured with the conversation expanded in the list and a message open in the reading
+pane:
 
-There are three ways to run Inboxora. The pre-built image method is recommended for most users.
+| Unified inbox — thread expanded, message open | Conversation reader — full thread history | Composer |
+| --- | --- | --- |
+| ![Unified inbox](media/screenshots/mail-inbox-desktop.png) | ![Conversation reader](media/screenshots/mail-conversation-desktop.png) | ![Composer](media/screenshots/mail-composer-desktop.png) |
 
----
+The same mailbox on a phone (390×844):
 
-## Option A — Pre-built images (recommended)
+| Conversation reader | Composer |
+| --- | --- |
+| <img src="media/screenshots/mail-inbox-mobile.png" width="320" alt="Conversation reader on a phone"> | <img src="media/screenshots/mail-composer-mobile.png" width="320" alt="Composer on a phone"> |
 
-No cloning or building required. Docker pulls the pre-built images directly from GHCR.
+### Calendar
 
-### Prerequisites
+| Month | Week |
+| --- | --- |
+| ![Calendar month view](media/screenshots/calendar-month-desktop.png) | ![Calendar week view](media/screenshots/calendar-week-desktop.png) |
 
-- A server with Docker and Docker Compose installed
+| Agenda | Calendar on phone |
+| --- | --- |
+| ![Calendar agenda view](media/screenshots/calendar-agenda-desktop.png) | <img src="media/screenshots/calendar-month-mobile.png" width="260" alt="Calendar on a phone"> |
 
-### 1. Download the compose file and default config
+### Contacts
+
+| Contact details | Rich contact editor |
+| --- | --- |
+| ![Contact details](media/screenshots/contacts-desktop.png) | ![Contact editor](media/screenshots/contact-editor-desktop.png) |
+
+### Phone navigation, top or bottom
+
+| Navigation at the top | Navigation at the bottom |
+| --- | --- |
+| <img src="media/screenshots/mobile-navigation-top-mobile.png" width="260" alt="Phone shell with navigation at the top"> | <img src="media/screenshots/mobile-navigation-bottom-mobile.png" width="260" alt="Phone shell with navigation at the bottom"> |
+
+### DAV access
+
+| Application passwords | On phone |
+| --- | --- |
+| ![DAV access settings](media/screenshots/settings-dav-access-desktop.png) | <img src="media/screenshots/settings-dav-access-mobile.png" width="260" alt="DAV access settings on a phone"> |
+
+## What's new in 4.0
+
+4.0.0 is a major version because Inboxora is no longer only a mail client. Everything below
+is new or rebuilt relative to the upstream MailFlow fork; the area-by-area changelog is in
+[`docs/CHANGELOG.md`](docs/CHANGELOG.md), and the exhaustive per-change comparison against
+upstream is published with the release tag.
+
+- **Conversation engine.** Server-side threading with logical messages, per-folder physical
+  copies, provider thread mapping (Gmail `X-GM-THRID`, Outlook `Thread-Index`, generic IMAP),
+  manual merge/split/lock overrides, threading diagnostics and a dry-run rebuild.
+- **Two independent threading views.** A threaded message list and a whole-conversation reader,
+  each switchable on its own.
+- **Calendar.** Local calendars, four views, recurrence with exceptions, event editing, email
+  invitations with delivery retry, incoming invitation cards, read-only CalDAV/ICS sources and
+  a generated Contact dates calendar.
+- **Contacts and DAV.** First-party address books with rich vCard fields, CSV/vCard import and
+  export, CardDAV server and client, CalDAV server, and revocable DAV application passwords.
+- **Interface.** The Ink-based layout with resizable panels, per-module navigation, a rebuilt
+  mobile shell, and self-hosted typography.
+- **Platform reach.** Installable PWA with an unread badge and Web Push, a Windows Electron
+  desktop application, and a native Android/Capacitor application. Android instant notifications
+  use the bundled **ntfy** (UnifiedPush) server in the same stack — no Firebase, no second
+  hostname. See [Platforms](#platforms) and
+  [Notifications](https://github.com/Dragonk/Inboxora/wiki/Notifications).
+
+## Platforms
+
+- **Web / PWA.** The self-hosted web app, installable from the browser, with Web Push (VAPID)
+  notifications and an unread badge. Works in any modern browser.
+- **Desktop.** An Electron application for Windows (the same packaging also builds Linux and
+  macOS artifacts). It wraps the web app, keeps the session, and supports the host picker, tray,
+  `mailto:` links and the update checker.
+- **Android.** A native Capacitor application with instant notifications. Android notifications
+  go through **UnifiedPush**, so a compatible distributor app must be installed on the phone —
+  the recommended one is **ntfy**. The Docker stack already ships the ntfy server on the same
+  domain, so no second hostname or certificate is needed. Without a distributor the app still
+  works and mail syncs, but notifications while the app is closed are not delivered.
+
+See [Notifications](https://github.com/Dragonk/Inboxora/wiki/Notifications) for the phone setup
+and [Installation](https://github.com/Dragonk/Inboxora/wiki/Installation) for the server side.
+
+## Quick start
+
+Docker Compose with pre-built images is the recommended deployment.
 
 ```bash
+mkdir inboxora && cd inboxora
 curl -o docker-compose.yml https://raw.githubusercontent.com/Dragonk/Inboxora/main/docker-compose.ghcr.yml
-curl -o .env               https://raw.githubusercontent.com/Dragonk/Inboxora/main/.env.example
-```
-
-### 2. Configure environment
-
-Edit `.env` — the required fields are:
-
-| Variable | Description |
-|---|---|
-| `APP_URL` | Full URL, e.g. `https://mail.example.com` |
-| `SESSION_SECRET` | `openssl rand -hex 32` |
-| `DB_PASSWORD` | `openssl rand -hex 16` |
-| `ENCRYPTION_KEY` | `openssl rand -hex 32` |
-
-### 3. Start
-
-```bash
+curl -o .env https://raw.githubusercontent.com/Dragonk/Inboxora/main/.env.example
+# edit .env: APP_URL, SESSION_SECRET, DB_PASSWORD, ENCRYPTION_KEY
 docker compose up -d
 ```
 
-Inboxora will be available on port 443 (HTTPS, self-signed certificate) and port 80 (HTTP).
+Then open `APP_URL` and create the first account. The forms need three secrets, each generated
+with `openssl rand -hex 32` (or `-hex 16` for `DB_PASSWORD`):
 
-**Ports are configurable in `.env`:**
+| Variable | Purpose |
+| --- | --- |
+| `APP_URL` | The public URL users open; used for invitation links, OAuth callbacks and cookies. |
+| `SESSION_SECRET` | Signs session cookies. |
+| `DB_PASSWORD` | Password for the bundled PostgreSQL. |
+| `ENCRYPTION_KEY` | Encrypts stored mail and DAV credentials at rest. **Losing it makes saved credentials unreadable.** |
 
-| Variable | Default | Description |
-|---|---|---|
-| `APP_PORT` | `443` | HTTPS port |
-| `APP_HTTP_PORT` | `80` | HTTP port |
+The same `docker compose up -d` also starts **ntfy**, the self-hosted UnifiedPush server for
+Android instant notifications, running on the same domain at the `${APP_URL}` origin. One domain,
+one certificate, no extra configuration.
 
-**Optional — automatic HTTPS via Let's Encrypt:** set `DOMAIN` and `ACME_EMAIL` in `.env`, download the HTTPS overlay, then restart:
+Optional: `VAPID_PUBLIC_KEY` / `VAPID_PRIVATE_KEY` / `VAPID_SUBJECT` for Web Push, and
+`DOMAIN` / `ACME_EMAIL` when Inboxora terminates TLS itself. Set `PUSH_BASE_URL` plus the
+`docker-compose.external-ntfy.yml` override to use your own external ntfy instead. See the
+[Installation](https://github.com/Dragonk/Inboxora/wiki/Installation) wiki page for the full
+matrix, including running behind an existing reverse proxy.
 
-```bash
-curl -o docker-compose.https.yml https://raw.githubusercontent.com/Dragonk/Inboxora/main/docker-compose.https.yml
-docker compose -f docker-compose.yml -f docker-compose.https.yml --profile https up -d
-```
+## Coming from MailFlow?
 
-This adds a Caddy reverse proxy that handles certificate issuance and renewal automatically. Requires Docker Compose 2.21+, a public domain with DNS pointing at the server, and ports 80/443 open.
+An existing MailFlow deployment can be moved to Inboxora **without losing mail, accounts, rules,
+contacts or preferences**.
 
-**Optional — behind your own reverse proxy:** point your proxy at port 80. Set `APP_HTTP_PORT` in `.env` if you need a different host port. Your proxy should forward `X-Forwarded-Proto: https` so that session cookies are marked Secure correctly.
+> **Only MailFlow 3.3.0 is supported as a migration source.** Newer versions have not been tested.
 
-### 4. Create your admin account
+The upgrade is a database migration that only adds: the 50 schema migrations MailFlow 3.3.0 ships
+are byte-for-byte identical in Inboxora, which adds its own on top. Before you start, keep your
+original `ENCRYPTION_KEY`, `DB_NAME` and `DB_USER`, and bring the stack up from the directory that
+holds your volumes — Inboxora's compose file uses `inboxora` as its database default, and a new
+database name on an existing volume is the usual reason a migrated instance looks empty.
 
-Open `https://your-domain.com` in a browser. The **first account registered becomes
-the admin**. After registering, you can close registration and manage users from the
-settings panel → Users tab.
+The full procedure, including the in-place and dump-and-restore routes and how to group existing
+mail into conversations afterwards, is in
+[**Migrating from MailFlow**](docs/wiki/Migrating-from-MailFlow.md).
 
-### 5. Add your email accounts
+## Connecting your accounts
 
-In the settings panel → Accounts → Add Account.
-Select a preset (Gmail, iCloud) or Custom for any IMAP server.
+- **IMAP/SMTP** — any provider, with Gmail, Yahoo, iCloud and custom presets.
+- **Gmail** — connect with a Google **app password**; Inboxora uses IMAP/SMTP with it.
+- **Microsoft 365 / Outlook.com** — OAuth2 (authorization code or device code). An administrator
+  registers one Azure application under **Settings → Integrations**.
+- **Contacts and calendars on your devices** — generate an application password under
+  **Settings → DAV access** and point DAVx5, Thunderbird or a native client at your Inboxora URL.
+  Use your Inboxora username with that app password; login passwords and TOTP codes are never
+  used for DAV.
 
-### Updating
+## Feature tour
 
-```bash
-docker compose pull
-docker compose up -d
-```
+<details>
+<summary><strong>Email</strong></summary>
 
-To pin to a specific version instead of `latest`, add `INBOXORA_VERSION=3.4.0` to your `.env`.
+- Multiple IMAP/SMTP accounts with per-account colours, sender names, aliases (send-as with
+  Reply-To and per-alias signatures) and signatures.
+- Unified inbox across chosen accounts, per-folder and per-account unread counts, and unified
+  search across every included account.
+- Native conversation threading plus a server-side conversation engine, with a threaded list
+  and a whole-conversation reader as independent preferences.
+- Rich or plain-text composing, reply/reply-all/forward with correct `In-Reply-To` and
+  `References`, attachments and inline images, drafts saved to the IMAP Drafts folder, and
+  idempotent sending that never delivers twice on a retry.
+- Rules and a block list, manual spam/ham handling, one-click `List-Unsubscribe`, snooze,
+  archive, move, star and bulk actions with undo.
+- Full-text search with operators such as `from:`, `to:`, `subject:`, `has:attachment`,
+  `is:unread`, `after:` and `before:`.
+- Sandboxed HTML rendering with remote images blocked by default, an allow-list per address or
+  domain, a raw-headers viewer and in-message find.
+- Live updates over IMAP IDLE and a WebSocket event stream, plus optional Web Push.
+- Command palette, rebindable keyboard shortcuts, and optional AI summarisation/compose help.
 
----
+</details>
 
-## Option B — Build from source
+<details>
+<summary><strong>Calendar</strong></summary>
 
-### Prerequisites
+- Month, week, work-week and agenda views with a day agenda that follows calendar visibility.
+  All-day and multi-day events stretch across every day they cover in the week grids.
+- Local writable calendars plus read-only calendars from CalDAV and ICS/webcal sources. A
+  subscription is added by URL, or as a one-click Thunderbird public-holiday feed, from
+  **Settings → Calendar**.
+- Recurring events (`RRULE`, `RDATE`, `RECURRENCE-ID`, `EXDATE`) projected server-side with
+  per-event time zones; editing a single occurrence preserves the series.
+- Event descriptions edited as rich text and rendered through the same sanitised pipeline as
+  message bodies.
+- Invitations sent as an ICS email from a chosen SMTP account, with `SEQUENCE` handling,
+  cancellation on attendee removal, and a retry action when delivery fails.
+- Invitations received by mail surface as a card in the reader with **Add to calendar**; the
+  local copy never sends an RSVP and is updated by UID and organizer.
+- A generated **Contact dates** calendar turns contact birthdays and anniversaries into all-day
+  yearly events, including dates stored without a year.
+- Anonymous read-only `.ics` feed links that can be rotated or revoked.
 
-- A server with Docker and Docker Compose installed
+</details>
 
-### 1. Get the code
+<details>
+<summary><strong>Contacts and DAV</strong></summary>
 
-```bash
-git clone https://github.com/Dragonk/Inboxora.git inboxora
-cd inboxora
-```
+- Multiple local address books plus read-only CardDAV books, with visibility filters and search
+  that survives switching books.
+- Rich vCard fields: names, nickname, typed emails and phones, organisation, job title, role,
+  URLs, instant messages, structured addresses, categories, notes, photos and multiple
+  labelled dates.
+- Google CSV import into local books, and Google CSV, Outlook CSV and vCard 3.0 export.
+- CardDAV and CalDAV servers with `.well-known` discovery, ETag/If-Match conflict detection,
+  sync tokens with tombstones and client-chosen resource filenames.
+- Revocable application passwords for DAV clients, listed with creation and last-use times.
+- A CardDAV client that pulls a remote server (for example Nextcloud) into read-only local books.
 
-### 2. Configure environment
+</details>
 
-```bash
-cp .env.example .env
-```
+<details>
+<summary><strong>Interface, mobile and platform</strong></summary>
 
-Edit `.env` — the required fields are:
+- Desktop layout with independently resizable panels, shared list width across Mail, Contacts
+  and Calendar, and a compact layout below 1100 layout pixels.
+- Mobile shell below 767 px with a top bar, navigation drawer, floating action buttons,
+  safe-area insets and system Back handling that closes in-app layers before leaving the PWA.
+- Nine interface languages: English, German, French, Spanish, Italian, Russian, Chinese
+  (Simplified), Polish and Czech.
+- ~25 themes with a separate default for the light and the dark appearance, a theme mode that
+  follows the system or forces one appearance, multiple font pairings, a font-size scale from
+  80 % to 130 %, five reader layouts and configurable swipe actions. **Ink** is the default
+  light theme and **Dark ink** its dark counterpart, so a fresh profile follows the system and
+  switches between the two on its own.
+- Installable PWA with an unread badge and push notifications, an Electron desktop application
+  for Windows, and a native Android application with instant UnifiedPush (ntfy) notifications.
 
-| Variable | Description |
-|---|---|
-| `APP_URL` | Full URL, e.g. `https://mail.example.com` |
-| `SESSION_SECRET` | `openssl rand -hex 32` |
-| `DB_PASSWORD` | `openssl rand -hex 16` |
-| `ENCRYPTION_KEY` | `openssl rand -hex 32` |
+</details>
 
-### 3. Build and start
+## Documentation
 
-```bash
-docker compose up -d --build
-```
+The **[project Wiki](https://github.com/Dragonk/Inboxora/wiki)** is the canonical documentation.
+Its reviewed source lives in [`docs/wiki/`](docs/wiki/) and is published to the Wiki as part of a
+release.
 
-First build takes 2–3 minutes. Inboxora will be available on port 443 (HTTPS, self-signed certificate) and port 80 (HTTP).
+| Page | Covers |
+| --- | --- |
+| [Installation](docs/wiki/Installation.md) | Deployment modes, secrets, reverse proxy, upgrades. |
+| [Getting started](docs/wiki/Getting-started.md) | First account, first mail account, first calendar and contacts. |
+| [Email and threading](docs/wiki/Email-and-threading.md) | Conversation engine, threaded list, reader, actions, search. |
+| [Configuration](docs/wiki/Configuration.md) | Accounts, preferences, themes, notifications, admin tabs. |
+| [Calendar](docs/wiki/Calendar.md) | Views, recurrence, invitations, visibility, sharing. |
+| [Contacts and DAV](docs/wiki/Contacts-and-DAV.md) | Address books, imports/exports, CardDAV, DAVx5, app passwords. |
+| [External calendars](docs/wiki/External-calendars.md) | CalDAV and ICS/webcal sources and secret feeds. |
+| [Mobile navigation](docs/wiki/Mobile-navigation.md) | Phone layout, drawers, Back handling, safe areas. |
+| [Security](docs/wiki/Security.md) | Secrets, network boundaries, DAV and rendering safety. |
+| [Upgrading](docs/wiki/Upgrading.md) | Upgrade path, 4.0.0 notes, rollback, legacy identifiers. |
+| [Migrating from MailFlow](docs/wiki/Migrating-from-MailFlow.md) | Moving a MailFlow 3.3.0 deployment to Inboxora. |
+| [Troubleshooting](docs/wiki/Troubleshooting.md) | Diagnostic paths and common failures. |
+| [Development](docs/wiki/Development.md) | Local verification, browser tests, documentation policy. |
+| [Release notes 4.0.0](docs/wiki/Release-notes-4.0.0.md) | Why this is a major release and what changed. |
 
-**Optional — automatic HTTPS via Let's Encrypt:** set `DOMAIN` and `ACME_EMAIL` in `.env`, then start with the HTTPS overlay (requires Docker Compose 2.21+):
-
-```bash
-docker compose -f docker-compose.yml -f docker-compose.https.yml --profile https up -d --build
-```
-
-**Optional — behind your own reverse proxy:** point your proxy at port 80. Your proxy should forward `X-Forwarded-Proto: https` so that session cookies are marked Secure correctly.
-
-### 4. Create your admin account
-
-Open `https://your-domain.com` in a browser. The **first account registered becomes
-the admin**. After registering, you can close registration and manage users from the
-settings panel → Users tab.
-
-### 5. Add your email accounts
-
-In the settings panel → Accounts → Add Account.
-Select a preset (Gmail, iCloud) or Custom for any IMAP server.
-
----
-
-## Option C — Native install (no Docker)
-
-Run Inboxora directly on any Linux, macOS, or BSD machine using Node.js, PostgreSQL, and Redis.
-No container runtime required. The steps below use Ubuntu/Debian; adapt package manager commands for other platforms.
-
-### Prerequisites
-
-- **Node.js 22 (LTS)** — [nodejs.org](https://nodejs.org) or via your package manager. Newer majors break the backend: Node's built-in `fetch` conflicts with the pinned `undici` dispatcher.
-- **PostgreSQL 16+**
-- **Redis 7+**
-- **nginx** — serves the built frontend and proxies API/WebSocket requests to the backend
-
-### 1. Install system dependencies
-
-**Ubuntu / Debian:**
-```bash
-# Node.js 22 via NodeSource
-curl -fsSL https://deb.nodesource.com/setup_22.x | sudo -E bash -
-sudo apt-get install -y nodejs postgresql redis-server nginx
-```
-
-**macOS (Homebrew):**
-```bash
-brew install node@22 postgresql@16 redis nginx
-brew services start postgresql@16
-brew services start redis
-```
-
-### 2. Create the database
-
-```bash
-sudo -u postgres psql <<'SQL'
-CREATE USER inboxora WITH PASSWORD 'replace-with-a-strong-password';
-CREATE DATABASE inboxora OWNER inboxora;
-SQL
-```
-
-### 3. Get the code
-
-```bash
-git clone https://github.com/Dragonk/Inboxora.git /opt/inboxora
-cd /opt/inboxora
-```
-
-### 4. Configure environment
-
-```bash
-cp .env.example .env
-```
-
-Edit `.env`. In addition to the required secrets, set these for a native install:
-
-| Variable | Value |
-|---|---|
-| `APP_URL` | Full URL, e.g. `https://mail.example.com` |
-| `SESSION_SECRET` | `openssl rand -hex 32` |
-| `DB_HOST` | `localhost` |
-| `DB_PORT` | `5432` — override for a Postgres server on a non-standard port |
-| `DB_NAME` | `inboxora` |
-| `DB_USER` | `inboxora` |
-| `DB_PASSWORD` | password you set in step 2 |
-| `REDIS_URL` | `redis://localhost:6379` — or `redis+unix:///path/to/redis.sock` for a Unix socket |
-
-For Docker installs, the bundled Postgres/Redis work out of the box. To point at **external** database or cache servers (any host/port), or to store data on a host **bind mount** (e.g. an Unraid appdata share with `PUID`/`PGID`), see the "Database & Redis" and "Storage & permissions" sections of [`.env.example`](.env.example).
-| `ENCRYPTION_KEY` | `openssl rand -hex 32` |
-
-### 5. Build the frontend
+## Development
 
 ```bash
-cd /opt/inboxora/frontend
-npm ci
-npm run build
-# Built files are written to /opt/inboxora/frontend/dist
+# frontend
+cd frontend && npm ci && npm test && npm run lint && npm run build
+
+# backend
+cd backend && npm ci && npm test && npm run lint
 ```
 
-### 6. Install backend dependencies
-
-```bash
-cd /opt/inboxora/backend
-npm ci --omit=dev
-```
-
-### 7. Configure nginx
-
-A ready-to-use nginx config is provided in `contrib/nginx.conf`. Copy it, update the `root` path, then enable it:
-
-```bash
-sudo mkdir -p /etc/nginx/sites-available /etc/nginx/sites-enabled
-sudo cp /opt/inboxora/contrib/nginx.conf /etc/nginx/sites-available/inboxora
-```
-
-Open `/etc/nginx/sites-available/inboxora` and replace `/path/to/inboxora/frontend/dist` with `/opt/inboxora/frontend/dist`.
-
-The provided config listens on port 80 for use behind a TLS-terminating reverse proxy (Nginx/Caddy/Traefik). If you want nginx to terminate TLS directly, uncomment the HTTPS server block in the file and set your certificate paths. A quick self-signed cert:
-
-```bash
-sudo mkdir -p /etc/ssl/inboxora
-sudo openssl req -x509 -nodes -newkey rsa:4096 -days 3650 \
-  -keyout /etc/ssl/inboxora/key.pem \
-  -out    /etc/ssl/inboxora/cert.pem \
-  -subj "/CN=inboxora"
-```
-
-Enable the site and reload nginx:
-
-```bash
-sudo ln -sf /etc/nginx/sites-available/inboxora /etc/nginx/sites-enabled/inboxora
-sudo rm -f /etc/nginx/sites-enabled/default
-sudo nginx -t && sudo systemctl reload nginx
-```
-
-### 8. Run the backend
-
-**Option A — systemd (recommended for production):**
-
-```bash
-sudo cp /opt/inboxora/contrib/inboxora.service /etc/systemd/system/inboxora.service
-# Edit the service file if your install path or user differs from the defaults
-sudo systemctl daemon-reload
-sudo systemctl enable --now inboxora
-sudo systemctl status inboxora
-```
-
-**Option B — PM2:**
-
-```bash
-sudo npm install -g pm2
-cd /opt/inboxora/backend
-pm2 start src/index.js --name inboxora
-pm2 save
-pm2 startup   # follow the printed command to register auto-start on boot
-```
-
-**Option C — foreground (testing only):**
-
-```bash
-cd /opt/inboxora/backend
-node src/index.js
-```
-
-### 9. Create your admin account
-
-Open the app in a browser. The **first account registered becomes the admin**. After registering, close open registration from Settings → Users.
-
-### 10. Add your email accounts
-
-In the settings panel → Accounts → Add Account.
-
-### Updating
-
-```bash
-cd /opt/inboxora
-git pull
-cd frontend && npm ci && npm run build && cd ..
-cd backend && npm ci --omit=dev && cd ..
-sudo systemctl restart inboxora   # or: pm2 restart inboxora
-```
-
----
-
-## Email Provider Setup
-
-### Gmail
-
-Gmail requires an **App Password** (not your normal password):
-
-1. Enable 2-step verification on your Google account
-2. Go to [myaccount.google.com/apppasswords](https://myaccount.google.com/apppasswords)
-3. Create a new App Password — name it "Inboxora"
-4. Use the 16-character password in the Inboxora account form
-
-| Setting | Value |
-|---|---|
-| IMAP Host | `imap.gmail.com` |
-| IMAP Port | `993` |
-| SMTP Host | `smtp.gmail.com` |
-| SMTP Port | `587` |
-| Username | your Gmail address |
-
-### iCloud / Apple Mail
-
-1. Go to [appleid.apple.com](https://appleid.apple.com) → Sign-In and Security → App-Specific Passwords
-2. Generate a password — name it "Inboxora"
-
-| Setting | Value |
-|---|---|
-| IMAP Host | `imap.mail.me.com` |
-| IMAP Port | `993` |
-| SMTP Host | `smtp.mail.me.com` |
-| SMTP Port | `587` |
-| Username | your full iCloud email (`you@icloud.com`) |
-
-### Microsoft 365 / Outlook (OAuth2)
-
-Microsoft has disabled basic (password) auth for Outlook.com, Hotmail, and most
-Microsoft 365 accounts, so they connect via OAuth2 under **Settings → Integrations →
-Microsoft 365** (not the normal Add Account form). This is a one-time setup: you
-create a free [Microsoft Entra app registration](https://portal.azure.com) once, and
-the same app then serves every account and user on your instance.
-
-**1. Register the app.** In the Azure portal, go to **Microsoft Entra ID → App
-registrations → New registration**. Under **Supported account types**, choose
-**"Accounts in any organizational directory and personal Microsoft accounts"** so it
-covers both Outlook.com/Hotmail and work/school accounts. After creating it, copy the
-**Application (Client) ID**.
-
-**2. Grant the mail permissions.** Open the app's **API permissions** page and add
-both of these, then follow the consent note:
-
-- **Add a permission → APIs my organization uses → Office 365 Exchange Online →
-  Delegated permissions**, and add **`IMAP.AccessAsUser.All`** and **`SMTP.Send`**
-  (if Exchange Online is not listed, type "Exchange" in the search box).
-- **Add a permission → Microsoft Graph → Delegated permissions**, and add
-  **`offline_access`**, **`openid`**, **`email`**, and **`profile`**.
-- For **work / school** accounts, click **Grant admin consent for your
-  organization**. Personal accounts consent at sign-in and can skip this.
-
-> This step is required. Without these permissions the account still "connects" and
-> is added, but no mail loads and sending fails with a credentials error, because
-> Outlook's IMAP and SMTP servers reject a token that lacks the mail scopes.
-
-Then follow the steps for your account type:
-
-**Personal accounts (Outlook.com / Hotmail)** (public client, device code):
-
-1. In the Azure app, open **Authentication** and set **"Allow public client flows"**
-   to **Yes**. No client secret or redirect URI is needed.
-2. In Integrations → Microsoft 365, enter the **Client ID** and **Tenant ID**
-   (`common`), leave Client Secret and Redirect URI blank, then save.
-3. Start the device-code flow shown there. Inboxora displays a short code; visit
-   [microsoft.com/devicelogin](https://microsoft.com/devicelogin) and enter it to
-   authorise.
-
-**Work / school accounts (Microsoft 365)** (confidential client):
-
-1. In the Azure app, open **Authentication → Add a platform → Web**, and set the
-   redirect URI to `https://<your-inboxora-host>/oauth/microsoft/callback` (the exact
-   value is shown on the Integrations screen).
-2. Under **Certificates & secrets → New client secret**, create a secret and copy its
-   **Value** (not the Secret ID).
-3. In Integrations → Microsoft 365, enter the Client ID, Tenant ID, Client Secret,
-   and Redirect URI, then save and click **Connect Microsoft account**.
-
-### Custom IMAP
-
-Any standard IMAP/SMTP server works. Use port 993 for IMAP (TLS) and
-587 (STARTTLS) or 465 (TLS) for SMTP.
-
----
-
-## Management
-
-```bash
-# View all logs
-docker compose logs -f
-
-# View backend logs only
-docker compose logs -f backend
-
-# Stop
-docker compose down
-
-# Stop and delete all data (destructive)
-docker compose down -v
-
-# Update to latest images (pre-built install)
-docker compose pull && docker compose up -d
-
-# Rebuild after a code change (Docker build-from-source install)
-docker compose up -d --build
-
-# Update a native install
-git pull && \
-  cd frontend && npm ci && npm run build && cd .. && \
-  cd backend && npm ci --omit=dev && cd .. && \
-  sudo systemctl restart inboxora   # or: pm2 restart inboxora
-```
-
-## Backup and Restore
-
-```bash
-# Backup database
-docker exec inboxora-postgres pg_dump -U inboxora inboxora \
-  > inboxora-$(date +%Y%m%d).sql
-
-# Restore database
-cat inboxora-YYYYMMDD.sql | \
-  docker exec -i inboxora-postgres psql -U inboxora -d inboxora
-```
-
----
-
-## Architecture
-
-### Default deployment (self-signed HTTPS)
-
-```
-Browser (HTTPS / HTTP)
-  │
-  ▼
-nginx  (frontend container — ports 443 + 80)
-  │
-  ├── /api/*  → Node.js backend (port 3000)
-  ├── /oauth/ → Node.js backend (port 3000)
-  └── /ws     → Node.js backend WebSocket (port 3000)
-                    │
-                    ├── PostgreSQL  (messages, accounts, users)
-                    ├── Redis       (sessions)
-                    └── IMAP        (outbound to mail servers)
-```
-
-nginx and the backend communicate on an internal Docker network. PostgreSQL and Redis are not exposed outside that network.
-
-### With your own reverse proxy
-
-```
-Browser (HTTPS)
-  │
-  ▼
-Your proxy  (Nginx / Traefik / Caddy / etc. — TLS termination)
-  │  X-Forwarded-Proto: https
-  ▼
-nginx  (frontend container — port 80)
-  │
-  └── backend, PostgreSQL, Redis (internal network, unchanged)
-```
-
-### With automatic HTTPS (--profile https)
-
-```
-Browser (HTTPS)
-  │
-  ▼
-Caddy  (ports 80/443 — TLS termination, auto Let's Encrypt)
-  │
-  ▼
-nginx  (frontend container — internal only)
-  │
-  └── backend, PostgreSQL, Redis (internal network, unchanged)
-```
-
-## Desktop and Android apps
-
-Inboxora remains a self-hosted web app, but the repository includes native wrappers for users who prefer an installed desktop or mobile application:
-
-- Windows, macOS, and Linux use Electron-based packages.
-- Android uses a Capacitor WebView wrapper.
-- On first launch, the native wrapper prompts for the Inboxora server URL, such as `https://mail.your-domain.com`, stores it locally, and connects to that server.
-- Native package sources live under `frontend/packages`.
-
-> **Note:** Prebuilt, signed native apps are not published yet — they are in development and will be attached to a future Inboxora release. For now you can build them locally from source:
-
-```bash
-cd frontend
-npm ci
-npm run electron:dist   # desktop installers (.exe / .dmg / .deb / .rpm)
-npm run android:dist    # Android package (.apk / .aab)
-```
-
-## Upgrading
-
-### GTD
-
-GTD is opt-in per account (**Settings → Categories → GTD**). Migrations for the new schema are additive and apply automatically on first startup. No operator action needed.
-
-### v2.5.0 – v2.7.0
-
-No manual migration steps required. All schema changes apply automatically on first startup.
-
-### v2.2.0 – v2.4.1
-
-No manual migration steps required. All schema changes apply automatically on first startup.
-
-### v2.1.0
-
-No manual migration steps required. All schema changes apply automatically on first startup.
-
-### v2.0.0
-
-No manual migration steps required. All schema changes apply automatically on first startup.
-
-`ENCRYPTION_KEY` is now required at startup. The server will refuse to start if the variable is missing or not exactly 64 hex characters. Generate one with `openssl rand -hex 32` before upgrading if you have not already set this.
-
-### v1.9.0
-
-Two database migrations (`0019_user_integrations`, `0020_mfa_device_trust`) run automatically on startup. No manual steps required.
-
-2FA is off by default. Existing users are unaffected unless an admin enables enforcement under **Settings → Security**.
-
-### Mail Server Connection Policy (earlier releases)
-
-**Breaking change for accounts with "Skip TLS verification" enabled.**
-
-An earlier release introduced an admin-controlled connection policy (Settings → Security → Mail Server Connection Policy). TLS verification is now enforced by default at the server level.
-
-If any accounts were configured with **Skip TLS verification** (e.g. for a self-signed certificate on a local IMAP server), those accounts will stop syncing after upgrading from an older version. To restore connectivity, an admin must enable **Allow insecure TLS** in Settings → Security before or immediately after deploying.
-
----
-
-## Security notes
-
-- The first registered user becomes the admin automatically
-- Close open registration in Settings → Users once you've set up your accounts
-- Use the invite system to onboard additional users
-- Enable two-factor authentication in Settings → Security — supports TOTP (authenticator app), email OTP fallback, and persistent device trust. TOTP codes are one-time and cannot be replayed within their validity window
-- Session cookies are `HttpOnly`, `SameSite=Lax`, with a 7-day TTL. The `Secure` flag is set automatically when the connection is HTTPS (direct or via a proxy that forwards `X-Forwarded-Proto: https`)
-- Passwords are bcrypt-hashed (cost factor 12)
-- Login and registration endpoints are rate-limited (10 attempts per 15 minutes per IP)
-- Password reset tokens are consumed atomically — concurrent reset requests cannot both succeed
-- Database and Redis are not exposed outside the Docker network
-- IMAP/SMTP credentials are stored at rest in the database (standard for webmail clients — protect access to your server and database volume accordingly)
-- Responses set a strict `Content-Security-Policy`, clickjacking protection via `X-Frame-Options`, and a restrictive `Referrer-Policy`
-- Email HTML is sanitized before rendering, including stripping external `url()` references from CSS style blocks to prevent tracking
+Browser coverage uses Playwright and runs the full mocked suite plus visual comparisons:
+`cd frontend && npx playwright install chromium && npm run test:e2e`. Documentation screenshots
+are generated on demand with `DOCS_SCREENSHOTS=1 npx playwright test e2e/docs-screenshots.spec.js`;
+see [`docs/wiki/Development.md`](docs/wiki/Development.md).
+
+## Security
+
+Inboxora is meant to sit behind a reverse proxy that terminates TLS; do not publish the internal
+host ports directly. Keep `.env` out of source control and never paste app passwords, tokens or
+deployment secrets into issues, screenshots or the Wiki. To report a vulnerability, follow
+[SECURITY.md](SECURITY.md) instead of opening a public issue with exploit details.
+
+## Credits and licence
+
+**Thanks to [maathimself](https://github.com/maathimself), creator of
+[MailFlow](https://github.com/maathimself/mailflow).** Inboxora is an independently developed
+fork with distinct product goals; the required upstream notices remain preserved.
+
+Licensed under [AGPL-3.0-only](LICENSE). If you run a modified Inboxora as a network service, you
+must offer its corresponding source to your users. Contributions are accepted under the same
+terms — see [CONTRIBUTING.md](CONTRIBUTING.md).

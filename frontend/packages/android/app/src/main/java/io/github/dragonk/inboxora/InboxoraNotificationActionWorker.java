@@ -52,6 +52,9 @@ public class InboxoraNotificationActionWorker extends Worker {
         connection.setConnectTimeout(15000);
         connection.setReadTimeout(15000);
         connection.setRequestProperty("Accept", "application/json");
+        // The server's CSRF guard requires this header on every mutating /api
+        // request; without it Delete/Star from a notification was rejected (403).
+        connection.setRequestProperty("X-Requested-With", "MailFlow");
         connection.setRequestProperty("Cookie", cookie);
 
         if (body != null) {

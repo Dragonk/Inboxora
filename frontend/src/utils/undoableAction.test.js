@@ -62,4 +62,25 @@ describe('createUndoableCommit', () => {
     assert.equal(timer.wasCancelled(), false);
     assert.deepEqual(calls, ['commit']);
   });
+
+  it('can undo while an opted-in commit is awaiting asynchronous work', async () => {
+    const timer = fakeTimer();
+    const calls = [];
+    let release;
+    const pending = new Promise(resolve => { release = resolve; });
+    const action = undoableAction.createUndoableCommit({
+      allowUndoWhileCommitting: true,
+      commit: async () => { calls.push('commit'); await pending; },
+      undo: () => { calls.push('undo'); },
+      schedule: timer.schedule,
+      cancel: timer.cancel,
+    });
+
+    const firing = timer.fire();
+    await Promise.resolve();
+    assert.equal(action.undo(), true);
+    release();
+    await firing;
+    assert.deepEqual(calls, ['commit', 'undo']);
+  });
 });

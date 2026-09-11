@@ -1,9 +1,20 @@
+import { resolveSelectedAccount, pruneFolders } from '../utils/accountScope.js';
 import { create } from 'zustand';
 import { api } from '../utils/api.js';
 import { accountAffectsUnifiedInbox } from '../utils/unifiedInbox.js';
-import { applyTheme, applyCustomCss, getInitialTheme } from '../themes.js';
+import {
+  THEMES,
+  applyTheme,
+  applyCustomCss,
+  resolveTheme,
+  readThemePrefs,
+  normalizeThemeMode,
+  themeTone,
+  THEME_MODES,
+} from '../themes.js';
 import { applyFontSet, applyFontSize, effectiveFontSet, isRetroFont, THEME_FONT } from '../fonts.js';
 import { applyLayout, normalizeLayout } from '../layouts.js';
+import { PANEL_WIDTH_STORAGE_KEY, savedPanelWidth } from '../utils/panelWidth.js';
 import { DEFAULT_AI_ACTIONS } from '../aiActions.js';
 import {
   removeGtdThreadFromSections,
@@ -22,11 +33,14 @@ import {
   readFolderOrder,
 } from './folderOrder.js';
 import { removeThreadCacheEntry } from '../utils/threadedArchive.js';
+import { DEFAULT_CALENDAR_PREFERENCES, normalizeCalendarWorkDays, normalizeCalendarWorkTime } from '../utils/calendarPreferences.js';
 import i18n from '../i18n.js';
 
 // Accumulate rapid preference changes and flush at most once per second.
 let _prefFlushTimer = null;
 let _pendingPrefs = {};
+let _calendarWorkHoursFlushTimer = null;
+let _calendarWorkHoursSaveChain = Promise.resolve();
 function schedulePrefSave(prefs) {
   Object.assign(_pendingPrefs, prefs);
   clearTimeout(_prefFlushTimer);
@@ -34,6 +48,32 @@ function schedulePrefSave(prefs) {
     const toSave = _pendingPrefs;
     _pendingPrefs = {};
     api.savePreferences(toSave).catch(() => {});
+  }, 1000);
+}
+function calendarWorkTimeMinutes(value) {
+  const [hours, minutes] = value.split(':').map(Number);
+  return hours * 60 + minutes;
+}
+function isValidCalendarWorkRange(start, end) {
+  return calendarWorkTimeMinutes(start) < calendarWorkTimeMinutes(end);
+}
+function scheduleCalendarWorkHoursSave(prefs, next) {
+  clearTimeout(_calendarWorkHoursFlushTimer);
+  _calendarWorkHoursFlushTimer = setTimeout(() => {
+    const userId = useStore.getState().user?.id;
+    const save = _calendarWorkHoursSaveChain.then(() => api.savePreferences(prefs));
+    _calendarWorkHoursSaveChain = save.catch(() => {});
+    save
+      .then(() => useStore.setState(state => state.user?.id === userId ? { calendarWorkHoursPersisted: next } : {}))
+      .catch(() => useStore.setState(state => {
+        if (state.user?.id !== userId) return {};
+        if (state.calendarWorkHoursStart !== next.start || state.calendarWorkHoursEnd !== next.end) return {};
+        return {
+          calendarWorkHoursStart: state.calendarWorkHoursPersisted.start,
+          calendarWorkHoursEnd: state.calendarWorkHoursPersisted.end,
+          calendarWorkHoursError: 'Working hours could not be saved. The previous range was restored.',
+        };
+      }));
   }, 1000);
 }
 // Drop any queued preference flush. Called on logout / account switch: a pending debounce
@@ -44,6 +84,8 @@ function cancelPendingPrefSave() {
   clearTimeout(_prefFlushTimer);
   _prefFlushTimer = null;
   _pendingPrefs = {};
+  clearTimeout(_calendarWorkHoursFlushTimer);
+  _calendarWorkHoursFlushTimer = null;
 }
 
 // GTD sections fetch coordination. A monotonic seq guards against stale
@@ -61,6 +103,10 @@ function readGtdCollapsedSections() {
   // until the user wants it.
   return { someday: true };
 }
+
+// The stored light/dark theme defaults are read once at startup; the active theme
+// is derived from them plus the OS colour scheme (mode 'system').
+const _initialThemePrefs = readThemePrefs();
 
 export const useStore = create((set, get) => ({
   // Auth
@@ -143,7 +189,13 @@ export const useStore = create((set, get) => ({
   // Accounts
   accounts: [],
   accountsReady: false, // true once the initial getAccounts() call has resolved
-  setAccounts: (accounts) => set({ accounts, accountsReady: true }),
+  setAccounts: (accounts) => {
+    if (!Array.isArray(accounts)) return;
+    const previous = get().selectedAccountId;
+    const selected = resolveSelectedAccount(accounts, previous);
+    set(state => ({ accounts, accountsReady: true, folders: pruneFolders(state.folders, accounts) }));
+    if (selected !== previous) get().setSelectedAccount(selected);
+  },
   updateAccount: (id, updates) => set(state => ({
     accounts: state.accounts.map(a => a.id === id ? { ...a, ...updates } : a)
   })),
@@ -164,8 +216,15 @@ export const useStore = create((set, get) => ({
       // exactly like the in-box clear (X) button does.
       const navChanged = state.selectedAccountId !== accountId || state.selectedFolder !== folder;
       const wasScopedSearch = !!state.selectedAccountId && !state.searchAllFolders && !!state.searchQuery.trim();
+      // Returning from Calendar/Contacts is a presentation change, not a reload.
+      // The mounted mail list still receives background updates. Preserve its
+      // loaded pages, scroll position and native thread membership immediately.
+      if (!navChanged && (state.showCalendar || state.showContacts)) {
+        return { showContacts: false, showCalendar: false, selectedMessageId: null, mobileSidebarOpen: false };
+      }
       return {
         selectedAccountId: accountId,
+        mobileSidebarOpen: false,
         selectedFolder: folder,
         selectedMessageId: null,
         messages: [],
@@ -201,18 +260,15 @@ export const useStore = create((set, get) => ({
     const threadMessages = Object.fromEntries(
       Object.entries(state.threadMessages).map(([tid, msgs]) => [tid, msgs.map(apply)])
     );
-    // Resync the parent thread row's aggregate read state only when a sub-message was
-    // updated. Sub-messages live exclusively in threadMessages, not in the main list.
-    // Resyncing on direct thread-row updates would read stale sub-messages and revert
-    // keyboard mark-read and setMessagesReadState changes.
-    const inMainList = state.messages.some(m => m.id === id);
+    // An explicit unread_count is a whole-thread action. Otherwise a physical
+    // copy (including the representative row itself) changes only its own state.
+    const aggregateUpdate = Object.hasOwn(updates, 'unread_count');
     const messages = state.messages.map(m => {
       const updated = apply(m);
-      if (inMainList) return updated;
-      const tid = m.thread_id || m.id;
-      const subs = threadMessages[tid];
-      if (!subs) return updated;
-      const unread_count = subs.filter(s => !s.is_read).length;
+      if (!state.threadedView || !m.thread_id || aggregateUpdate || typeof updates.is_read !== 'boolean') return updated;
+      const subs = threadMessages[m.thread_id || m.id];
+      if (!subs?.some(copy => copy.id === id)) return updated;
+      const unread_count = subs.filter(copy => !copy.is_read).length;
       return { ...updated, unread_count, is_read: unread_count === 0 };
     });
     return { messages, searchResults: state.searchResults.map(apply), threadMessages };
@@ -317,7 +373,7 @@ export const useStore = create((set, get) => ({
   }),
   sidebarWidth: (() => {
     const n = parseInt(localStorage.getItem('mailflow_sidebar_width'));
-    return (n >= 160 && n <= 400) ? n : 240;
+    return (n >= 160 && n <= 400) ? n : 250;
   })(),
   setSidebarWidth: (w) => {
     localStorage.setItem('mailflow_sidebar_width', String(w));
@@ -479,6 +535,71 @@ export const useStore = create((set, get) => ({
   setShowContacts: (showContacts) => set({ showContacts, ...(showContacts ? { showCalendar: false } : {}) }),
   showCalendar: false,
   setShowCalendar: (showCalendar) => set({ showCalendar, ...(showCalendar ? { showContacts: false } : {}) }),
+  // Calendar presentation preferences are persisted per user. A missing visibility list means
+  // all known calendars are visible, so upgrades never hide an existing source unexpectedly.
+  calendarWeekStartsOn: 1,
+  setCalendarWeekStartsOn: (calendarWeekStartsOn) => {
+    const value = calendarWeekStartsOn === 0 ? 0 : 1;
+    set({ calendarWeekStartsOn: value });
+    schedulePrefSave({ calendarWeekStartsOn: value });
+  },
+  visibleCalendarIds: null,
+  setVisibleCalendarIds: (visibleCalendarIds) => {
+    const value = Array.isArray(visibleCalendarIds) ? [...new Set(visibleCalendarIds.filter(id => typeof id === 'string'))] : null;
+    set({ visibleCalendarIds: value });
+    schedulePrefSave({ visibleCalendarIds: value || [] });
+  },
+  mobileNavigationPosition: 'top',
+  setMobileNavigationPosition: (mobileNavigationPosition) => {
+    const value = mobileNavigationPosition === 'bottom' ? 'bottom' : 'top';
+    set({ mobileNavigationPosition: value });
+    schedulePrefSave({ mobileNavigationPosition: value });
+  },
+  // The SMTP account the new-event dialog preselects for calendar invitations.
+  // Empty means "no default": the dialog leaves the sender picker unselected.
+  calendarInviteAccountId: '',
+  setCalendarInviteAccountId: (calendarInviteAccountId) => {
+    const value = typeof calendarInviteAccountId === 'string' ? calendarInviteAccountId : '';
+    set({ calendarInviteAccountId: value });
+    schedulePrefSave({ calendarInviteAccountId: value });
+  },
+  calendarWorkDays: [...DEFAULT_CALENDAR_PREFERENCES.calendarWorkDays],
+  setCalendarWorkDays: (calendarWorkDays) => {
+    const value = normalizeCalendarWorkDays(calendarWorkDays);
+    set({ calendarWorkDays: value });
+    schedulePrefSave({ calendarWorkDays: value });
+  },
+  calendarWorkHoursStart: DEFAULT_CALENDAR_PREFERENCES.calendarWorkHoursStart,
+  calendarWorkHoursPersisted: {
+    start: DEFAULT_CALENDAR_PREFERENCES.calendarWorkHoursStart,
+    end: DEFAULT_CALENDAR_PREFERENCES.calendarWorkHoursEnd,
+  },
+  calendarWorkHoursError: '',
+  setCalendarWorkHoursStart: (value) => {
+    const start = normalizeCalendarWorkTime(value, DEFAULT_CALENDAR_PREFERENCES.calendarWorkHoursStart);
+    const current = get();
+    const legacyRange = !isValidCalendarWorkRange(current.calendarWorkHoursStart, current.calendarWorkHoursEnd);
+    const next = { start, end: legacyRange ? DEFAULT_CALENDAR_PREFERENCES.calendarWorkHoursEnd : current.calendarWorkHoursEnd };
+    if (!isValidCalendarWorkRange(next.start, next.end)) {
+      set({ calendarWorkHoursError: 'Working hours must end after they start.' });
+      return;
+    }
+    set({ calendarWorkHoursStart: next.start, calendarWorkHoursEnd: next.end, calendarWorkHoursError: '' });
+    scheduleCalendarWorkHoursSave(legacyRange ? { calendarWorkHoursStart: next.start } : { calendarWorkHoursStart: next.start, calendarWorkHoursEnd: next.end }, next);
+  },
+  calendarWorkHoursEnd: DEFAULT_CALENDAR_PREFERENCES.calendarWorkHoursEnd,
+  setCalendarWorkHoursEnd: (value) => {
+    const end = normalizeCalendarWorkTime(value, DEFAULT_CALENDAR_PREFERENCES.calendarWorkHoursEnd);
+    const current = get();
+    const legacyRange = !isValidCalendarWorkRange(current.calendarWorkHoursStart, current.calendarWorkHoursEnd);
+    const next = { start: legacyRange ? DEFAULT_CALENDAR_PREFERENCES.calendarWorkHoursStart : current.calendarWorkHoursStart, end };
+    if (!isValidCalendarWorkRange(next.start, next.end)) {
+      set({ calendarWorkHoursError: 'Working hours must end after they start.' });
+      return;
+    }
+    set({ calendarWorkHoursStart: next.start, calendarWorkHoursEnd: next.end, calendarWorkHoursError: '' });
+    scheduleCalendarWorkHoursSave(legacyRange ? { calendarWorkHoursEnd: next.end } : { calendarWorkHoursStart: next.start, calendarWorkHoursEnd: next.end }, next);
+  },
   rulesPreFill: null, // { fromEmail, fromName, subject } — transient, set by context menu
   setRulesPreFill: (v) => set({ rulesPreFill: v }),
 
@@ -593,11 +714,29 @@ export const useStore = create((set, get) => ({
   loadingThread: null,
   setLoadingThread: (id) => set({ loadingThread: id }),
 
-  // Theme
-  theme: localStorage.getItem('mailflow_theme') || getInitialTheme(),
-  setTheme: (theme) => {
-    localStorage.setItem('mailflow_theme', theme);
-    set({ theme });
+  // Theme — a default for the light appearance and one for the dark appearance,
+  // plus the mode that picks between them. `theme` stays the *effective* theme so
+  // existing consumers (fonts, diagnostics, command palette) keep working.
+  themeMode: _initialThemePrefs.mode,
+  lightTheme: _initialThemePrefs.light,
+  darkTheme: _initialThemePrefs.dark,
+  theme: resolveTheme(_initialThemePrefs),
+
+  // Shared by every theme action: store the three preferences, derive the active
+  // theme and re-apply the CSS variables plus the theme-paired font.
+  applyThemeSelection: (partial) => {
+    const current = { mode: get().themeMode, light: get().lightTheme, dark: get().darkTheme };
+    const next = {
+      mode: partial.mode !== undefined ? normalizeThemeMode(partial.mode) : current.mode,
+      light: THEMES[partial.light] ? partial.light : current.light,
+      dark: THEMES[partial.dark] ? partial.dark : current.dark,
+    };
+    const theme = resolveTheme(next);
+    localStorage.setItem('mailflow_theme_mode', next.mode);
+    localStorage.setItem('mailflow_theme_light', next.light);
+    localStorage.setItem('mailflow_theme_dark', next.dark);
+    localStorage.setItem('mailflow_theme', theme); // legacy/effective mirror
+    set({ themeMode: next.mode, lightTheme: next.light, darkTheme: next.dark, theme });
     applyTheme(theme); // keep CSS vars + favicon in sync
     // If a retro font was left as the saved choice, a non-retro theme must not keep it —
     // normalise the stored choice so it can't "stick" (and the font picker stays honest).
@@ -608,7 +747,32 @@ export const useStore = create((set, get) => ({
     }
     // Retro themes bring their own font; other themes fall back to the saved choice.
     applyFontSet(effectiveFontSet(theme, get().fontSet));
-    schedulePrefSave({ theme });
+    schedulePrefSave({ themeMode: next.mode, themeLight: next.light, themeDark: next.dark, theme });
+  },
+
+  setThemeMode: (mode) => get().applyThemeSelection({ mode }),
+  setLightTheme: (theme) => get().applyThemeSelection({ light: theme }),
+  setDarkTheme: (theme) => get().applyThemeSelection({ dark: theme }),
+
+  // An explicit theme choice targets the slot for its own tone and forces that
+  // appearance — the behaviour of the old single-theme picker and the command palette.
+  setTheme: (theme) => {
+    if (!THEMES[theme]) return;
+    get().applyThemeSelection(themeTone(theme) === 'light'
+      ? { mode: 'light', light: theme }
+      : { mode: 'dark', dark: theme });
+  },
+
+  // Re-derive the active theme after the OS colour scheme changes. Only relevant
+  // while following the system, and applied locally — the OS is not a preference,
+  // so nothing is written back to the server.
+  syncSystemTheme: () => {
+    if (get().themeMode !== 'system') return;
+    const theme = resolveTheme({ mode: 'system', light: get().lightTheme, dark: get().darkTheme });
+    if (theme === get().theme) return;
+    set({ theme });
+    applyTheme(theme);
+    applyFontSet(effectiveFontSet(theme, get().fontSet));
   },
 
   // Font
@@ -636,12 +800,6 @@ export const useStore = create((set, get) => ({
     schedulePrefSave({ showAppBadge: val });
   },
 
-  showFaviconBadge: localStorage.getItem('mailflow_favicon_badge') !== 'false',
-  setShowFaviconBadge: (val) => {
-    localStorage.setItem('mailflow_favicon_badge', String(val));
-    set({ showFaviconBadge: val });
-    schedulePrefSave({ showFaviconBadge: val });
-  },
 
   categorizationEnabled: false,
   setCategorizationEnabled: (val) => {
@@ -784,7 +942,7 @@ export const useStore = create((set, get) => ({
   setLayout: (layout) => {
     const clean = normalizeLayout(layout);
     localStorage.setItem('mailflow_layout', clean);
-    localStorage.removeItem('mailflow_list_width');
+    localStorage.removeItem(PANEL_WIDTH_STORAGE_KEY);
     set({ layout: clean });
     applyLayout(clean);
     schedulePrefSave({ layout: clean });
@@ -968,10 +1126,29 @@ export const useStore = create((set, get) => ({
       // Per-user plugin activation. Absent = nothing activated (new users start with GTD off);
       // existing GTD users were grandfathered into ['gtd'] by migration 0042.
       set({ enabledPlugins: Array.isArray(prefs.enabledPlugins) ? prefs.enabledPlugins : [] });
-      if (prefs.theme) {
-        localStorage.setItem('mailflow_theme', prefs.theme);
-        set({ theme: prefs.theme });
-        applyTheme(prefs.theme);
+      // Theme: the server is authoritative. New-style preferences carry the separate
+      // light/dark defaults plus the mode; a legacy single `theme` becomes an explicit
+      // mode for its own tone, so an upgrade never silently changes someone's look.
+      const hydrateTheme = (next) => {
+        const theme = resolveTheme(next);
+        localStorage.setItem('mailflow_theme_mode', next.mode);
+        localStorage.setItem('mailflow_theme_light', next.light);
+        localStorage.setItem('mailflow_theme_dark', next.dark);
+        localStorage.setItem('mailflow_theme', theme); // legacy/effective mirror
+        set({ themeMode: next.mode, lightTheme: next.light, darkTheme: next.dark, theme });
+        applyTheme(theme);
+      };
+      const serverMode = THEME_MODES.includes(prefs.themeMode) ? prefs.themeMode : null;
+      if (serverMode || prefs.themeLight || prefs.themeDark) {
+        hydrateTheme({
+          mode: serverMode || 'system',
+          light: THEMES[prefs.themeLight] ? prefs.themeLight : get().lightTheme,
+          dark: THEMES[prefs.themeDark] ? prefs.themeDark : get().darkTheme,
+        });
+      } else if (prefs.theme && THEMES[prefs.theme]) {
+        hydrateTheme(themeTone(prefs.theme) === 'light'
+          ? { mode: 'light', light: prefs.theme, dark: get().darkTheme }
+          : { mode: 'dark', light: get().lightTheme, dark: prefs.theme });
       }
       if (prefs.font) {
         localStorage.setItem('mailflow_font', prefs.font);
@@ -991,10 +1168,10 @@ export const useStore = create((set, get) => ({
         const prevLayout = get().layout;
         localStorage.setItem('mailflow_layout', clean);
         set({ layout: clean });
-        if (clean !== prevLayout) localStorage.removeItem('mailflow_list_width');
+        if (clean !== prevLayout) localStorage.removeItem(PANEL_WIDTH_STORAGE_KEY);
         const savedListWidth = clean !== prevLayout
           ? undefined
-          : (Number(localStorage.getItem('mailflow_list_width')) || undefined);
+          : savedPanelWidth();
         applyLayout(clean, savedListWidth);
       }
       if (prefs.notificationSound) {
@@ -1077,6 +1254,33 @@ export const useStore = create((set, get) => ({
         set({ language: prefs.language });
         i18n.changeLanguage(prefs.language);
       }
+      if (prefs.calendarWeekStartsOn === 0 || prefs.calendarWeekStartsOn === 1) {
+        set({ calendarWeekStartsOn: prefs.calendarWeekStartsOn });
+      }
+      if (Array.isArray(prefs.visibleCalendarIds)) {
+        set({ visibleCalendarIds: prefs.visibleCalendarIds.filter(id => typeof id === 'string') });
+      }
+      if (prefs.mobileNavigationPosition === 'top' || prefs.mobileNavigationPosition === 'bottom') {
+        set({ mobileNavigationPosition: prefs.mobileNavigationPosition });
+      }
+      if (typeof prefs.calendarInviteAccountId === 'string') {
+        set({ calendarInviteAccountId: prefs.calendarInviteAccountId });
+      }
+      if (Array.isArray(prefs.calendarWorkDays)) set({ calendarWorkDays: normalizeCalendarWorkDays(prefs.calendarWorkDays) });
+      if (prefs.calendarWorkHoursStart || prefs.calendarWorkHoursEnd) {
+        const calendarWorkHoursStart = prefs.calendarWorkHoursStart
+          ? normalizeCalendarWorkTime(prefs.calendarWorkHoursStart)
+          : get().calendarWorkHoursStart;
+        const calendarWorkHoursEnd = prefs.calendarWorkHoursEnd
+          ? normalizeCalendarWorkTime(prefs.calendarWorkHoursEnd, DEFAULT_CALENDAR_PREFERENCES.calendarWorkHoursEnd)
+          : get().calendarWorkHoursEnd;
+        set({
+          calendarWorkHoursStart,
+          calendarWorkHoursEnd,
+          calendarWorkHoursPersisted: { start: calendarWorkHoursStart, end: calendarWorkHoursEnd },
+          calendarWorkHoursError: '',
+        });
+      }
       if (typeof prefs.threadedView === 'boolean') {
         localStorage.setItem('mailflow_threaded_view', String(prefs.threadedView));
         set({ threadedView: prefs.threadedView });
@@ -1129,10 +1333,6 @@ export const useStore = create((set, get) => ({
       if (typeof prefs.showAppBadge === 'boolean') {
         localStorage.setItem('mailflow_app_badge', String(prefs.showAppBadge));
         set({ showAppBadge: prefs.showAppBadge });
-      }
-      if (typeof prefs.showFaviconBadge === 'boolean') {
-        localStorage.setItem('mailflow_favicon_badge', String(prefs.showFaviconBadge));
-        set({ showFaviconBadge: prefs.showFaviconBadge });
       }
       if (typeof prefs.categorizationEnabled === 'boolean') {
         set({ categorizationEnabled: prefs.categorizationEnabled });

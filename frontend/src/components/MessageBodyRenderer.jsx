@@ -2,6 +2,9 @@ import { useEffect, useRef, useMemo } from 'react';
 export { EMAIL_SANITIZE_POLICY, sanitizeMessageHtml, emailCsp, EMAIL_BASE_TAG, buildSrcDoc } from './messageBodySecurity.js';
 import { sanitizeMessageHtml, buildSrcDoc, escapeMessageText } from './messageBodySecurity.js';
 import { installMessageQuoteFolding } from './messageQuoteFolding.js';
+import { scheduleInitialLayoutReady } from './messageBodyLayout.js';
+import { useStore } from '../store/index.js';
+import { getEmailSurface } from '../themes.js';
 
 /**
  * SafeMessageFrame — shared production HTML body renderer using a sandboxed iframe.
@@ -25,12 +28,20 @@ export default function MessageBodyRenderer({ html = '', text = '', remoteImages
   const internalIframeRef = useRef(null);
   const iframeRef = externalIframeRef || internalIframeRef;
 
+  // The active theme, so the frame's own document can declare a matching surface.
+  // Subscribing here (rather than at each call site) keeps message bodies, calendar
+  // descriptions and every future embed on the same contract.
+  const theme = useStore(state => state.theme);
+
   const srcDoc = useMemo(() => {
+    // The surface decides the canvas; its tone also tells the sanitiser whether the
+    // message has to be adapted to a dark canvas before it is written into the frame.
+    const surface = getEmailSurface(theme);
     const content = html
-      ? sanitizeMessageHtml(html, { remoteImages })
+      ? sanitizeMessageHtml(html, { remoteImages, tone: surface?.tone })
       : `<pre data-mailflow-plain-text="true">${escapeMessageText(text)}</pre>`;
-    return buildSrcDoc(content, { remoteImages });
-  }, [html, text, remoteImages]);
+    return buildSrcDoc(content, { remoteImages, surface });
+  }, [html, text, remoteImages, theme]);
 
   // Auto-height: measure the iframe content and set the iframe height
   // so no internal scrollbar appears (same approach as MessagePane).
@@ -39,6 +50,7 @@ export default function MessageBodyRenderer({ html = '', text = '', remoteImages
     if (!iframe || !srcDoc) return;
 
     let initialLayoutReported = false;
+    let cancelInitialLayout = null;
     const measure = () => {
       try {
         const doc = iframe.contentDocument;
@@ -52,11 +64,15 @@ export default function MessageBodyRenderer({ html = '', text = '', remoteImages
         iframe.style.height = contentHeight + 'px';
         onHeightChange?.(contentHeight);
         if (!initialLayoutReported) {
-          initialLayoutReported = true;
           // The iframe height participates in its parent reader's scroll range on
-          // the following paint. Report readiness then, once, not on later observer
-          // measurements from images or quote interactions.
-          requestAnimationFrame(() => onInitialLayoutReady?.(contentHeight));
+          // the following paint. Wait an additional frame so the parent card's
+          // scrollHeight reflects that committed height before final alignment.
+          cancelInitialLayout?.();
+          cancelInitialLayout = scheduleInitialLayoutReady(() => {
+            initialLayoutReported = true;
+            cancelInitialLayout = null;
+            onInitialLayoutReady?.(contentHeight);
+          });
         }
       } catch {
         // Cross-origin or not yet loaded — leave default height.
@@ -170,6 +186,7 @@ export default function MessageBodyRenderer({ html = '', text = '', remoteImages
     if (iframe.contentDocument?.readyState === 'complete') onLoaded();
     return () => {
       cleanup?.();
+      cancelInitialLayout?.();
       iframe.removeEventListener('load', onLoaded);
     };
   }, [srcDoc, remoteImages, quoteFolding, showQuotedTextLabel, hideQuotedTextLabel, onQuoteDetected, onHeightChange, onInitialLayoutReady, onLoad, onContextMenu, iframeRef]);

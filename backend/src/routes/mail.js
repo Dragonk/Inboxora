@@ -106,6 +106,7 @@ function notifyMailMutation(rows, userId) {
 // Get messages (unified or per-account/folder)
 router.get('/messages', async (req, res) => {
   const { accountId, folder = 'INBOX', limit = 50, offset = 0, unreadOnly, threaded, category } = req.query;
+  const __t0 = Date.now();
 
   if (!isValidFolderName(folder)) return res.status(400).json({ error: 'Invalid folder name' });
 
@@ -125,6 +126,7 @@ router.get('/messages', async (req, res) => {
     category: safeCategory,
   });
 
+  console.info(`[perf] GET /api/mail/messages scope=${accountId || 'unified'} folder=${folder} ${Date.now() - __t0}ms total=${total}`);
   if (resolvedAccountId && messages.length) {
     imapManager.prefetchFolderBodies(resolvedAccountId, messages.map(r => r.id))
       .catch(err => console.warn('Folder body prefetch error:', err.message));
@@ -339,9 +341,10 @@ router.get('/messages/:id/body', async (req, res) => {
   if (!UUID_RE.test(id)) return res.status(400).json({ error: 'Invalid message id' });
 
   const result = await query(`
-    SELECT m.*, a.user_id, u.preferences FROM messages m
+    SELECT m.*, a.user_id, u.preferences, ci.message_id AS calendar_invitation_id FROM messages m
     JOIN email_accounts a ON m.account_id = a.id
     JOIN users u ON u.id = a.user_id
+    LEFT JOIN inbound_calendar_invitations ci ON ci.message_id = m.id
     WHERE m.id = $1 AND a.user_id = $2
   `, [id, req.session.userId]);
 
@@ -410,7 +413,7 @@ router.get('/messages/:id/body', async (req, res) => {
       responseHtml = blockRemoteImages(html);
       hasBlockedRemoteImages = true;
     }
-    return res.json({ html: responseHtml, text: message.body_text, attachments, hasBlockedRemoteImages, senderEmail: message.sender_email, senderName: message.sender_name });
+    return res.json({ html: responseHtml, text: message.body_text, attachments, hasBlockedRemoteImages, senderEmail: message.sender_email, senderName: message.sender_name, ...(message.calendar_invitation_id ? { calendarInvitation: true } : {}) });
   }
 
   // Fetch from IMAP — signal user activity so background jobs back off during this request.
@@ -449,7 +452,7 @@ router.get('/messages/:id/body', async (req, res) => {
       responseHtml = blockRemoteImages(safeHtml);
       hasBlockedRemoteImages = true;
     }
-    res.json({ html: responseHtml, text: safeText, attachments: attachments || [], hasBlockedRemoteImages, senderEmail: message.sender_email, senderName: message.sender_name });
+    res.json({ html: responseHtml, text: safeText, attachments: attachments || [], hasBlockedRemoteImages, senderEmail: message.sender_email, senderName: message.sender_name, ...(message.calendar_invitation_id ? { calendarInvitation: true } : {}) });
   } catch (err) {
     const msg = err.message || 'Unknown error';
     console.error('Body fetch error:', msg);
@@ -2194,7 +2197,7 @@ router.post('/messages/:id/unsubscribe', async (req, res) => {
       // internal address. (The validateHost above stays as a fast pre-check.)
       const unsub = await safeFetch(httpsUrl, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/x-www-form-urlencoded', 'User-Agent': 'Inboxora/3.4.0' },
+        headers: { 'Content-Type': 'application/x-www-form-urlencoded', 'User-Agent': 'Inboxora/4.0.0' },
         body: 'List-Unsubscribe=One-Click',
         signal: AbortSignal.timeout(10000),
       });

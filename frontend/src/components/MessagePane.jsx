@@ -1,3 +1,4 @@
+import { useBackLayer } from '../hooks/useBackNavigation.js';
 /* eslint-disable no-unused-vars */
 import { useEffect, useLayoutEffect, useState, useRef, useCallback, useMemo, lazy, Suspense } from 'react';
 import { useTranslation } from 'react-i18next';
@@ -11,12 +12,15 @@ import { getEffectiveShortcuts, parseModKey, modCompactLabel } from '../utils/de
 import { useMobile } from '../hooks/useMobile.js';
 import { clearDeleteGuard, clearPendingDelete, setCompletedDelete, setPendingDelete } from '../utils/pendingDeletes.js';
 import { pendingMarkReadMap, completedMarkReadMap, setPending } from '../utils/pendingReads.js';
+import { queueReadStateMutation, isLatestReadStateMutation } from '../utils/readStateMutation.js';
+import { queueStarStateMutation, isLatestStarStateMutation } from '../utils/starStateMutation.js';
 import { BUILTIN_SUMMARIZE, summarizePromptForLocale } from '../aiActions.js';
 import { getResults, saveResult, removeResult } from '../aiResults.js';
 import { renderMarkdown } from '../utils/renderMarkdown.js';
 import { pickReplyAlias, collectOwnAddresses } from '../utils/replyAlias.js';
 import { buildReplyHeaders } from '../utils/composeFromMessage.js';
 import MessageBodyRenderer, { sanitizeMessageHtml } from './MessageBodyRenderer.jsx';
+import { getEmailSurface } from '../themes.js';
 import MessageDetailContent from './MessageDetailContent.jsx';
 const USE_DIV_RENDER = import.meta.env.VITE_EMAIL_DIV_RENDER === 'true';
 const MESSAGE_OPENING_EVENT = 'inboxora:message-opening';
@@ -41,6 +45,7 @@ import MessageHeaderModal from './MessageHeaderModal.jsx';
 import { MessageAvatar } from './MessagePresentation.jsx';
 import MessageToolbar from './MessageToolbar.jsx';
 import ContextMenu from './ContextMenu.jsx';
+import { MobileModuleHeader, HeaderAction } from './MobileModuleHeader.jsx';
 
 function parseAddressField(raw) {
   try {
@@ -87,7 +92,7 @@ function fileIcon(type) {
   );
 }
 
-export default function MessagePane({ windowMessageId = null, onWindowClose = null, mode = 'single', conversationId = null, targetLogicalMessageId = null, selectedConversationCopy = null, onReply = null, nativeThreadId = null, nativeFolder = null, onNativeThreadUnavailable = null } = {}) {
+export default function MessagePane({ windowMessageId = null, onWindowClose = null, mode = 'single', conversationId = null, targetLogicalMessageId = null, selectedConversationCopy = null, onReply = null, nativeThreadId = null, nativeFolder = null, onNativeThreadUnavailable = null, onMobileBack = null } = {}) {
   const { t, i18n } = useTranslation();
   const {
     messages, searchResults, searchQuery, selectedMessageId: globalSelectedId, setSelectedMessage,
@@ -96,6 +101,7 @@ export default function MessagePane({ windowMessageId = null, onWindowClose = nu
     replyDefault, shortcuts,
     categorizationEnabled, setCategoryCounts, adjustCategoryCount,
     aiActions, setShowAdmin, setAdminTab,
+    showContacts, showCalendar,
   } = useStore();
 
   // Detached-window mode (#219): when a message id is passed in, this pane renders that
@@ -109,8 +115,16 @@ export default function MessagePane({ windowMessageId = null, onWindowClose = nu
   const closeWindowIfWindowed = useCallback(() => {
     if (windowMode) onWindowClose?.();
   }, [windowMode, onWindowClose]);
+  const goBackToMobileList = useCallback(() => {
+    if (onMobileBack) onMobileBack();
+    else setSelectedMessage(null);
+  }, [onMobileBack, setSelectedMessage]);
 
   const isMobile = useMobile();
+  // The shell's mobile top bar hosts exactly one module's header at a time. The reader
+  // claims it only while its pane is the visible module — when Contacts/Calendar are
+  // shown the pane is hidden, so the reader must not portal into the shared host.
+  const showMobileHeader = isMobile && !showContacts && !showCalendar;
   const defaultReplyAll = replyDefault === 'replyAll';
 
   const effectiveShortcuts = getEffectiveShortcuts(shortcuts);
@@ -137,13 +151,16 @@ export default function MessagePane({ windowMessageId = null, onWindowClose = nu
         decrementUnread(msg.account_id);
         adjustCategoryCount(msg.category, -1);
         setPending(msg.id, msg.account_id);
-        api.bulkRead([msg.id], true)
+        const mutation = queueReadStateMutation(msg.id, true, read => api.bulkRead([msg.id], read));
+        mutation.promise
           .then(() => {
+            if (!isLatestReadStateMutation(msg.id, mutation.version)) return;
             pendingMarkReadMap.delete(msg.id);
             completedMarkReadMap.set(msg.id, msg.account_id);
             setTimeout(() => completedMarkReadMap.delete(msg.id), 10000);
           })
           .catch(e => {
+            if (!isLatestReadStateMutation(msg.id, mutation.version)) return;
             console.error('markRead failed:', e.message);
             updateMessage(msg.id, { is_read: false });
             incrementUnread(msg.account_id);
@@ -179,7 +196,7 @@ export default function MessagePane({ windowMessageId = null, onWindowClose = nu
   // The mobile swipe-back gesture writes transform/transition inline for the
   // dismiss animation. MessagePane stays mounted while hidden, so clear those
   // inline styles before painting the next selected email. Also cancel the
-  // swipe-back timer so it can't fire history.back() after a new email has
+  // swipe-back timer so it can't close a newly selected email after a new email has
   // already been selected (race: user selects email B within the 220ms window).
   useLayoutEffect(() => {
     if (!isMobile || !selectedMessageId) return;
@@ -188,7 +205,7 @@ export default function MessagePane({ windowMessageId = null, onWindowClose = nu
       swipeBackTimerRef.current = null;
     }
     resetPaneSwipeStyles();
-  }, [isMobile, selectedMessageId, resetPaneSwipeStyles]);
+  }, [goBackToMobileList, isMobile, selectedMessageId, resetPaneSwipeStyles]);
 
   // Reset scroll position and iframe height synchronously before the browser
   // paints the new message, so the user never sees stale blank space from the
@@ -214,6 +231,13 @@ export default function MessagePane({ windowMessageId = null, onWindowClose = nu
   const allMessages = searchQuery.trim() ? searchResults : messages;
   const message = allMessages.find(m => m.id === selectedMessageId)
     ?? Object.values(threadMessages).flat().find(m => m.id === selectedMessageId);
+
+  // Compose lives in the mobile top bar now that the reader owns it (the shell's
+  // fallback compose row is hidden while the reader is open). Target the account of
+  // the open message/conversation copy, matching the list header's compose action.
+  const openComposeFromMobileHeader = useCallback(() => {
+    openCompose({ accountId: message?.account_id || selectedConversationCopy?.accountId || undefined });
+  }, [openCompose, message, selectedConversationCopy]);
 
   useEffect(() => {
     setResolvedSubject(null);
@@ -298,6 +322,7 @@ export default function MessagePane({ windowMessageId = null, onWindowClose = nu
   const [movePickerLoading, setMovePickerLoading] = useState(false);
   const [contextMenu, setContextMenu] = useState(null);
   const [findDialogOpen, setFindDialogOpen] = useState(false);
+  useBackLayer(findDialogOpen, () => setFindDialogOpen(false), 3000);
   const [findQuery, setFindQuery] = useState('');
   const [findMatchCase, setFindMatchCase] = useState(false);
   const [findMatchIndex, setFindMatchIndex] = useState(-1);
@@ -323,8 +348,11 @@ export default function MessagePane({ windowMessageId = null, onWindowClose = nu
   // retryKey is intentionally a dependency: ref mutations from Load images/whitelist
   // must force this sanitizer projection to recompute even though the ref itself is
   // not a reactive value.
+  // The div renderer bypasses the iframe, so it has to apply the same canvas contract
+  // itself: the tone drives the colour adaptation the sanitiser performs.
+  const paneTheme = useStore(state => state.theme);
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  const renderableHtml = useMemo(() => body?.html ? sanitizeMessageHtml(body.html, { remoteImages: allowRemoteImages }) : '', [body?.html, allowRemoteImages, retryKey]);
+  const renderableHtml = useMemo(() => body?.html ? sanitizeMessageHtml(body.html, { remoteImages: allowRemoteImages, tone: getEmailSurface(paneTheme)?.tone }) : '', [body?.html, allowRemoteImages, retryKey, paneTheme]);
   const prepared = useMemo(() => {
     if (!USE_DIV_RENDER || !renderableHtml) return null;
     return prepareEmailHtml(renderableHtml, windowMode ? `w${message?.id ?? 'preview'}` : String(message?.id ?? 'preview'));
@@ -906,7 +934,7 @@ export default function MessagePane({ windowMessageId = null, onWindowClose = nu
           swipeBackTimerRef.current = setTimeout(() => {
             swipeBackTimerRef.current = null;
             resetPaneSwipeStyles();
-            if (mountedRef.current) history.back();
+            if (mountedRef.current) goBackToMobileList();
           }, 220);
         } else {
           el.style.transition = 'transform 0.25s ease';
@@ -936,13 +964,16 @@ export default function MessagePane({ windowMessageId = null, onWindowClose = nu
                 decUnread(target.account_id);
                 adjCat(target.category, -1);
                 setPending(target.id, target.account_id);
-                api.bulkRead([target.id], true)
+                const mutation = queueReadStateMutation(target.id, true, read => api.bulkRead([target.id], read));
+                mutation.promise
                   .then(() => {
+                    if (!isLatestReadStateMutation(target.id, mutation.version)) return;
                     pendingMarkReadMap.delete(target.id);
                     completedMarkReadMap.set(target.id, target.account_id);
                     setTimeout(() => completedMarkReadMap.delete(target.id), 10000);
                   })
                   .catch(e => {
+                    if (!isLatestReadStateMutation(target.id, mutation.version)) return;
                     console.error('markRead failed:', e.message);
                     updMsg(target.id, { is_read: false });
                     incUnread(target.account_id);
@@ -970,7 +1001,7 @@ export default function MessagePane({ windowMessageId = null, onWindowClose = nu
       el.removeEventListener('touchmove', onMove);
       el.removeEventListener('touchend', onEnd);
     };
-  }, [isMobile, setSelectedMessage, resetPaneSwipeStyles]);
+  }, [goBackToMobileList, isMobile, setSelectedMessage, resetPaneSwipeStyles]);
 
   const handleReply = (replyAll = false) => {
     if (!message) return;
@@ -1086,8 +1117,16 @@ export default function MessagePane({ windowMessageId = null, onWindowClose = nu
   const handleStarToggle = async () => {
     if (!message) return;
     const newVal = !message.is_starred;
-    await api.markStarred(message.id, newVal);
     updateMessage(message.id, { is_starred: newVal });
+    const mutation = queueStarStateMutation(message.id, newVal, target => api.markStarred(message.id, target));
+    try {
+      await mutation.promise;
+    } catch (err) {
+      if (isLatestStarStateMutation(message.id, mutation.version)) {
+        updateMessage(message.id, { is_starred: !newVal });
+      }
+      throw err;
+    }
   };
 
   const handlePrint = () => {
@@ -1287,7 +1326,9 @@ ${bodyContent}
     adjustCategoryCount(message.category, 1);
     completedMarkReadMap.delete(message.id);
     pendingMarkReadMap.delete(message.id);
-    api.bulkRead([message.id], false).catch(e => {
+    const mutation = queueReadStateMutation(message.id, false, read => api.bulkRead([message.id], read));
+    mutation.promise.catch(e => {
+      if (!isLatestReadStateMutation(message.id, mutation.version)) return;
       console.error('markUnread failed:', e.message);
       updateMessage(message.id, { is_read: true });
       decrementUnread(message.account_id);
@@ -1600,7 +1641,9 @@ ${bodyContent}
           decrementUnread(message.account_id);
           adjustCategoryCount(message.category, -1);
           setPending(message.id, message.account_id);
-          api.bulkRead([message.id], true).catch(e => {
+          const mutation = queueReadStateMutation(message.id, true, read => api.bulkRead([message.id], read));
+          mutation.promise.catch(e => {
+            if (!isLatestReadStateMutation(message.id, mutation.version)) return;
             console.error('markRead failed:', e.message);
             updateMessage(message.id, { is_read: false });
             incrementUnread(message.account_id);
@@ -1827,18 +1870,12 @@ ${bodyContent}
         }}
       >
         {isMobile && <style>{`@keyframes mobileSlideIn { from { transform: translateX(100%) } to { transform: translateX(0) } }`}</style>}
-        {isMobile && (
-          <div style={{
-            display: 'flex', alignItems: 'center', gap: 8,
-            paddingTop: 'calc(var(--sat) + 10px)',
-            paddingBottom: 10, paddingLeft: 14, paddingRight: 14,
-            borderBottom: '1px solid var(--border-subtle)',
-            background: 'var(--bg-secondary)', flexShrink: 0,
-          }}>
-            <button onClick={() => history.back()} style={{ background: 'transparent', border: 'none', cursor: 'pointer', padding: 4, display: 'flex', alignItems: 'center' }} aria-label={t('mailApp.back')}>
-              <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><polyline points="15 18 9 12 15 6"/></svg>
-            </button>
-          </div>
+        {showMobileHeader && (
+          <MobileModuleHeader leading={
+            <HeaderAction icon="back" label={t('common.back')} onClick={goBackToMobileList} data-testid="message-pane-back" />
+          }>
+            <HeaderAction icon="compose" label={t('sidebar.compose')} onClick={openComposeFromMobileHeader} />
+          </MobileModuleHeader>
         )}
         <Suspense fallback={<div style={{ padding: 24, textAlign: 'center', color: 'var(--text-tertiary)' }}>{t('conversation.loading')}</div>}>
           <ConversationReader conversationId={conversationId} targetLogicalMessageId={targetLogicalMessageId} selectedCopyId={selectedConversationCopy?.id} selectedAccountId={selectedConversationCopy?.accountId} accounts={accounts} onReply={onReply} nativeThreadId={nativeThreadId} nativeFolder={nativeFolder} onNativeThreadUnavailable={onNativeThreadUnavailable} />
@@ -1858,72 +1895,21 @@ ${bodyContent}
     >
       {isMobile && <style>{`@keyframes mobileSlideIn { from { transform: translateX(100%) } to { transform: translateX(0) } }`}</style>}
 
-      {/* Mobile back bar */}
-      {isMobile && (
-        <div style={{
-          display: 'flex', alignItems: 'center', gap: 8,
-          paddingTop: 'calc(var(--sat) + 10px)',
-          paddingBottom: 10, paddingLeft: 14, paddingRight: 14,
-          borderBottom: '1px solid var(--border-subtle)',
-          background: 'var(--bg-secondary)', flexShrink: 0,
-          boxShadow: paneScrolled ? '0 1px 10px rgba(0,0,0,0.2)' : 'none',
-          transition: 'box-shadow 0.2s ease',
-        }}>
-          <button
-            onClick={() => history.back()}
-            style={{
-              background: 'none', border: 'none', color: 'var(--accent)',
-              cursor: 'pointer', display: 'flex', alignItems: 'center',
-              gap: 2, padding: '4px 0', fontSize: 15, fontWeight: 500,
-            }}
-          >
-            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
-              <polyline points="15 18 9 12 15 6"/>
-            </svg>
-            {t('common.back')}
-          </button>
-          <div style={{
-            flex: 1, minWidth: 0,
-            fontSize: 14, fontWeight: 500, color: 'var(--text-primary)',
-            overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
-          }}>
-            {message?.subject || ''}
-          </div>
-          <button
-            disabled={!hasPrev}
-            onClick={() => selectAndMarkRead(allMessages[currentIdx - 1])}
-            title={t('message.previousMessage')}
-            style={{
-              background: 'none', border: 'none', flexShrink: 0,
-              color: 'var(--text-secondary)', cursor: hasPrev ? 'pointer' : 'default',
-              display: 'flex', alignItems: 'center', padding: '4px 6px',
-              opacity: hasPrev ? 1 : 0.3,
-            }}
-          >
-            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
-              <polyline points="18 15 12 9 6 15"/>
-            </svg>
-          </button>
-          <button
-            disabled={!hasNext}
-            onClick={() => selectAndMarkRead(allMessages[currentIdx + 1])}
-            title={t('message.nextMessage')}
-            style={{
-              background: 'none', border: 'none', flexShrink: 0,
-              color: 'var(--text-secondary)', cursor: hasNext ? 'pointer' : 'default',
-              display: 'flex', alignItems: 'center', padding: '4px 6px',
-              opacity: hasNext ? 1 : 0.3,
-            }}
-          >
-            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
-              <polyline points="6 9 12 15 18 9"/>
-            </svg>
-          </button>
-        </div>
+      {/* Mobile header — rendered into the shell's single top bar (see MobileTopBar). */}
+      {showMobileHeader && (
+        <MobileModuleHeader
+          leading={<HeaderAction icon="back" label={t('common.back')} onClick={goBackToMobileList} data-testid="message-pane-back" />}
+          title={message?.subject || ''}
+        >
+          <HeaderAction icon="previous" label={t('message.previousMessage')} disabled={!hasPrev} onClick={() => selectAndMarkRead(allMessages[currentIdx - 1])} />
+          <HeaderAction icon="next" label={t('message.nextMessage')} disabled={!hasNext} onClick={() => selectAndMarkRead(allMessages[currentIdx + 1])} />
+          <HeaderAction icon="compose" label={t('sidebar.compose')} onClick={openComposeFromMobileHeader} />
+        </MobileModuleHeader>
       )}
 
       {/* Native toolbar presentation shared with expanded conversation messages. */}
       <MessageToolbar
+        folderMappings={account?.folder_mappings}
         isMobile={isMobile}
         defaultReplyAll={defaultReplyAll}
         isRead={Boolean(message.is_read)}
@@ -1967,7 +1953,7 @@ ${bodyContent}
           marginBottom: isMobile ? 12 : 24,
           marginLeft: isMobile ? 0 : undefined,
           marginRight: isMobile ? 0 : undefined,
-          background: 'var(--bg-secondary)',
+          background: 'var(--bg-elevated)',
           borderRadius: isMobile ? 0 : 10,
           border: isMobile ? 'none' : '1px solid var(--border-subtle)',
           borderBottom: '1px solid var(--border-subtle)',
@@ -1979,7 +1965,7 @@ ${bodyContent}
           <div style={{
             padding: '14px 16px 12px',
             borderBottom: '1px solid var(--border-subtle)',
-            fontSize: 17, fontWeight: 600,
+            fontSize: 19, fontWeight: 600,
             color: 'var(--text-primary)', lineHeight: 1.3,
             fontFamily: 'var(--font-display)',
           }}>

@@ -7,12 +7,13 @@ vi.mock('../routes/oauth.js', () => ({ refreshMicrosoftToken: vi.fn() }));
 vi.mock('./emailSanitizer.js', () => ({ sanitizeEmail: vi.fn() }));
 vi.mock('./encryption.js', () => ({ decrypt: vi.fn() }));
 vi.mock('./aiProvider.js', () => ({ getAiStatus: vi.fn(), completeText: vi.fn() }));
-vi.mock('./pushNotifications.js', () => ({ sendPushToUser: vi.fn() }));
+vi.mock('./pushDispatcher.js', () => ({ dispatchMailNotification: vi.fn() }));
 vi.mock('../utils/redact.js', () => ({ redactEmail: vi.fn() }));
 vi.mock('./hostValidation.js', () => ({ resolveForConnection: vi.fn() }));
 vi.mock('./connectionPolicy.js', () => ({ getConnectionPolicy: vi.fn() }));
 
-import { ImapManager, providerProfile, makeClientCfg, relocateExemptGuard, insertCopiedSibling, deleteMessageCopyRow, emitSectionsChanged, ensureMailbox, createKeyedSemaphore, isConnectionRefusal, connectCooldownMs, effectiveSyncIntervalMs, folderSyncDue, planModseqSync, connectStaggerFor, walkStructure, looksLikeTextPayload, parsePersistentCap, resolvePersistentCap, persistentEligible, shouldRetryIPv4, classifyMoveBySearch } from './imapManager.js';
+import { ImapManager, providerProfile, makeClientCfg, attachmentTransferEncoding, relocateExemptGuard, insertCopiedSibling, deleteMessageCopyRow, emitSectionsChanged, ensureMailbox, createKeyedSemaphore, isConnectionRefusal, connectCooldownMs, effectiveSyncIntervalMs, folderSyncDue, planModseqSync, connectStaggerFor, walkStructure, shouldFallbackToTextPart, persistInboundCalendarInvitationFromMessage, looksLikeTextPayload, parsePersistentCap, resolvePersistentCap, persistentEligible, shouldRetryIPv4, classifyMoveBySearch } from './imapManager.js';
+import { parseInboundCalendarInvitation } from './inboundCalendarInvitation.js';
 import { pluginRegistry } from '../plugins/registry.js';
 import { EventEmitter } from 'node:events';
 import { ImapFlow } from 'imapflow';
@@ -21,6 +22,7 @@ import { resolveForConnection } from './hostValidation.js';
 import { getConnectionPolicy } from './connectionPolicy.js';
 import { invalidateGtdConfigCache } from '../plugins/gtd/gtdConfig.js';
 import { parseMessage } from './messageParser.js';
+import { dispatchMailNotification } from './pushDispatcher.js';
 
 const account = (imap_host, oauth_provider = null) => ({ imap_host, oauth_provider });
 
@@ -1201,6 +1203,61 @@ describe('syncMessages — empty local cache vs nonempty server (wiring)', () =>
   });
 });
 
+describe('syncMessages — Web Push branding', () => {
+  beforeEach(() => {
+    query.mockReset();
+    parseMessage.mockReset();
+    dispatchMailNotification.mockReset().mockResolvedValue({});
+  });
+
+  it('broadcasts new mail before scanning old flags and uses the canonical push icon', async () => {
+    const account = {
+      id: 'acct-push-branding', user_id: 'user-1', email_address: 'me@example.com',
+      gtd_enabled: false, categorization_enabled: false, imap_host: 'imap.example.com',
+    };
+    const broadcast = vi.fn();
+    const client = {
+      getMailboxLock: vi.fn().mockResolvedValue({ release: vi.fn() }),
+      mailbox: { exists: 1, uidValidity: 100, highestModseq: 501n },
+      fetch: vi.fn(async function* (_range, request) {
+        if (request.headers) yield { uid: 501 };
+        else {
+          expect(broadcast).toHaveBeenCalledWith(expect.objectContaining({ type: 'new_messages' }), 'user-1');
+          yield { uid: 501, flags: new Set() };
+        }
+      }),
+    };
+    query.mockImplementation((sql) => {
+      if (sql.includes('SELECT uid_validity, highest_modseq FROM folders')) return Promise.resolve({ rows: [{ uid_validity: 100, highest_modseq: '500' }] });
+      if (sql.includes('COUNT(*) FILTER (WHERE is_read = false)')) return Promise.resolve({ rows: [{ n: 0 }] });
+      if (sql.includes('COALESCE(MAX(uid), 0)')) return Promise.resolve({ rows: [{ max_uid: 0 }] });
+      if (sql.includes('INSERT INTO messages')) return Promise.resolve({ rows: [{ id: 'msg-push', is_new: true }] });
+      if (sql.includes('SELECT COUNT(*)::int AS total FROM messages')) return Promise.resolve({ rows: [{ total: 1 }] });
+      return Promise.resolve({ rows: [] });
+    });
+    parseMessage.mockResolvedValue({
+      uid: 501, messageId: '<push@x>', subject: 'New mail', fromName: 'Sender', fromEmail: 'sender@example.com',
+      to: [], cc: [], replyTo: [], inReplyTo: null, references: null, date: new Date('2026-09-01T10:00:00Z'),
+      snippet: 'hi', isRead: false, isStarred: false, hasAttachments: false, flags: [], isBulk: false, parsedHeaders: {},
+    });
+
+    await ImapManager.prototype.syncMessages.call({
+      broadcast,
+      pluginFacade: {},
+      prefetchNewMessageBodies: vi.fn().mockResolvedValue(),
+      upsertAutoContacts: vi.fn().mockResolvedValue(),
+    }, account, client, 'INBOX', 50, false, true);
+    await vi.waitFor(() => expect(dispatchMailNotification).toHaveBeenCalled());
+
+    expect(dispatchMailNotification).toHaveBeenCalledWith(expect.objectContaining({
+      userId: 'user-1',
+      eventId: 'msg-push',
+      webPush: expect.objectContaining({ icon: '/inboxora-envelope-512.png', unreadCount: 1 }),
+      native: { type: 'mail.changed', eventId: 'msg-push' },
+    }));
+  });
+});
+
 describe('syncMessages — unread_count recompute ordering (folder badge fix)', () => {
   it('recomputes folders.unread_count from rows AFTER inserting new messages', async () => {
     // The provisional unread_count written before the fetch left on-demand folders (e.g. Junk)
@@ -1279,7 +1336,7 @@ describe('_syncSpamFolder — periodic spam poll guards', () => {
 
 describe('walkStructure attachment classification', () => {
   const walk = (node) => {
-    const results = { textParts: [], attachments: [] };
+    const results = { textParts: [], attachments: [], calendarParts: [] };
     walkStructure(node, results);
     return results;
   };
@@ -1353,6 +1410,147 @@ describe('walkStructure attachment classification', () => {
     });
     expect(results.attachments).toHaveLength(1);
     expect(results.attachments[0].filename).toBe('invoice.pdf');
+  });
+
+  it('collects calendar MIME parts separately from body text and attachments', () => {
+    const results = walk({
+      type: 'multipart/mixed',
+      childNodes: [
+        { part: '1', type: 'text/plain', encoding: '7bit' },
+        {
+          part: '2', type: 'text/calendar', encoding: 'base64', disposition: 'attachment',
+          parameters: { charset: 'utf-8', method: 'REQUEST' }, dispositionParameters: { filename: 'invite.ics' },
+        },
+        { part: '3', type: 'application/ics', encoding: 'quoted-printable', disposition: 'inline' },
+      ],
+    });
+
+    expect(results.textParts.map(part => part.part)).toEqual(['1']);
+    expect(results.attachments).toHaveLength(2);
+    expect(results.attachments[0]).toMatchObject({ type: 'text/calendar', part: '2' });
+    expect(results.calendarParts).toEqual([
+      { part: '2', type: 'text/calendar', encoding: 'base64', charset: 'utf-8' },
+      { part: '3', type: 'application/ics', encoding: 'quoted-printable', charset: 'utf-8' },
+    ]);
+    expect(shouldFallbackToTextPart(results)).toBe(false);
+  });
+
+  it('uses a plain-text fallback only when no calendar MIME part was discovered', () => {
+    expect(shouldFallbackToTextPart({ textParts: [], calendarParts: [] })).toBe(true);
+    expect(shouldFallbackToTextPart({ textParts: [], attachments: [] })).toBe(true);
+    expect(shouldFallbackToTextPart({ textParts: [], calendarParts: [{ part: '1' }] })).toBe(false);
+  });
+
+  // Regression: an invitation received by mail could not be read or imported
+  // ("Nie udało się odczytać lub zapisać zaproszenia"). The calendar part was
+  // listed as an attachment without its transfer encoding, so the attachment
+  // fetcher lost the 'base64' default and handed the parser still-encoded text.
+  it('carries the transfer encoding on the attachment entry of a calendar part', () => {
+    const results = walk({
+      type: 'multipart/mixed',
+      childNodes: [
+        { part: '1', type: 'text/plain', encoding: '7bit' },
+        {
+          part: '2', type: 'text/calendar', encoding: 'base64', disposition: 'attachment',
+          parameters: { charset: 'utf-8', method: 'REQUEST' }, dispositionParameters: { filename: 'invitation.ics' },
+        },
+      ],
+    });
+    expect(results.attachments[0]).toMatchObject({ part: '2', type: 'text/calendar', encoding: 'base64' });
+    expect(attachmentTransferEncoding(results, '2')).toBe('base64');
+  });
+
+  it('keeps the caller default when a part declares no transfer encoding', () => {
+    const declared = walk({
+      type: 'multipart/mixed',
+      childNodes: [{ part: '2', type: 'text/calendar', disposition: 'attachment', dispositionParameters: { filename: 'invitation.ics' } }],
+    });
+    // No declared encoding: the base64 default must survive instead of being
+    // overwritten with undefined (which skipped decoding entirely).
+    expect(attachmentTransferEncoding(declared, '2')).toBe('base64');
+    expect(attachmentTransferEncoding(declared, '9')).toBe('base64');
+    expect(attachmentTransferEncoding({ attachments: [] }, '2', '7bit')).toBe('7bit');
+    expect(attachmentTransferEncoding(undefined, '2')).toBe('base64');
+  });
+
+  it('decodes a real base64 invitation attachment into parseable iCalendar', async () => {
+    const ics = ['BEGIN:VCALENDAR', 'VERSION:2.0', 'METHOD:REQUEST', 'BEGIN:VEVENT', 'UID:invite-1',
+      'DTSTAMP:20260911T120000Z', 'DTSTART:20260911T130000Z', 'DTEND:20260911T140000Z',
+      'ORGANIZER:mailto:sender@example.test', 'SUMMARY:Testowe wydarzenie',
+      'ATTENDEE;ROLE=REQ-PARTICIPANT:mailto:admin@kmms.ovh', 'END:VEVENT', 'END:VCALENDAR', ''].join('\r\n');
+    const bodyStructure = {
+      type: 'multipart/mixed',
+      childNodes: [
+        { part: '1', type: 'text/plain', encoding: '7bit' },
+        {
+          part: '2', type: 'text/calendar', encoding: 'base64', disposition: 'attachment',
+          parameters: { charset: 'utf-8', method: 'REQUEST' }, dispositionParameters: { filename: 'invitation.ics' },
+        },
+      ],
+    };
+    // The wire carries the .ics base64-encoded, exactly like the invitation this
+    // app emails out. The fetcher must decode it before anyone parses it.
+    const rawParts = new Map([['2', Buffer.from(Buffer.from(ics, 'utf8').toString('base64'), 'utf8')]]);
+    ImapFlow.mockImplementation(function () {
+      const client = new EventEmitter();
+      client.connect = vi.fn(async () => { client.authenticated = true; return client; });
+      client.logout = vi.fn(async () => {});
+      client.close = vi.fn();
+      client.mailbox = { exists: 1, uidValidity: 1n, path: 'INBOX' };
+      client.getMailboxLock = vi.fn(async () => ({ release: vi.fn() }));
+      client.fetch = vi.fn(() => (async function* generate() { yield { bodyStructure, bodyParts: rawParts }; })());
+      client.list = vi.fn(async () => []);
+      return client;
+    });
+    getConnectionPolicy.mockResolvedValue({ allowPrivateHosts: true, allowInsecureTls: true });
+    resolveForConnection.mockResolvedValue({ host: '127.0.0.1', addresses: ['127.0.0.1'], servername: null });
+    query.mockResolvedValue({ rows: [] });
+
+    const manager = new ImapManager(null);
+    clearInterval(manager._healthCheckTimer);
+    clearInterval(manager._snippetSchedulerTimer);
+    const buffer = await manager.fetchAttachment({ id: 'account-1', imap_host: 'imap.example.test', imap_port: 993, imap_tls: true, auth_user: 'u', auth_pass: 'p' }, 42, 'INBOX', '2');
+
+    const raw = buffer.toString('utf8');
+    expect(raw.startsWith('BEGIN:VCALENDAR')).toBe(true);
+    expect(parseInboundCalendarInvitation(raw)).toMatchObject({
+      method: 'REQUEST', uid: 'invite-1', summary: 'Testowe wydarzenie', organizer: 'mailto:sender@example.test',
+    });
+  });
+});
+
+describe('persistInboundCalendarInvitationFromMessage', () => {
+  const rawInvitation = ['BEGIN:VCALENDAR', 'VERSION:2.0', 'METHOD:REQUEST', 'BEGIN:VEVENT', 'UID:meeting-123', 'SEQUENCE:0', 'DTSTAMP:20260901T070000Z', 'DTSTART:20260908T090000Z', 'DTEND:20260908T100000Z', 'ORGANIZER:mailto:taylor@example.test', 'ATTENDEE:mailto:sam@example.test', 'END:VEVENT', 'END:VCALENDAR', ''].join(String.fromCharCode(10));
+
+  beforeEach(() => query.mockReset());
+
+  it('fetches a discovered calendar MIME part and persists its validated projection for the physical message', async () => {
+    const client = { fetch: vi.fn(async function* () { yield { bodyParts: new Map([['2', Buffer.from(rawInvitation)]]) }; }) };
+    query.mockResolvedValue({ rowCount: 1, rows: [] });
+
+    const persisted = await persistInboundCalendarInvitationFromMessage({
+      client,
+      message: { uid: 42, bodyStructure: { type: 'multipart/mixed', childNodes: [{ part: '2', type: 'text/calendar', encoding: '7bit', parameters: { charset: 'utf-8' } }] } },
+      messageId: '4b7b090d-ec0f-4ef3-a94f-2fb6017dfbcd',
+    });
+
+    expect(persisted).toBe(true);
+    expect(client.fetch).toHaveBeenCalledWith('42', { uid: true, bodyParts: ['2'] }, { uid: true });
+    expect(query).toHaveBeenCalledWith(expect.stringContaining('INSERT INTO inbound_calendar_invitations'), expect.arrayContaining([
+      '4b7b090d-ec0f-4ef3-a94f-2fb6017dfbcd', 'REQUEST', 'meeting-123', rawInvitation,
+    ]));
+  });
+
+  it('fails closed when multiple MIME parts contain valid but competing invitations', async () => {
+    const client = { fetch: vi.fn(async function* (_uid, request) { const part = request.bodyParts[0]; const raw = part === '2' ? rawInvitation : rawInvitation.replace('UID:meeting-123', 'UID:meeting-456'); yield { bodyParts: new Map([[part, Buffer.from(raw)]]) }; }) };
+
+    await expect(persistInboundCalendarInvitationFromMessage({
+      client,
+      message: { uid: 42, bodyStructure: { type: 'multipart/mixed', childNodes: [{ part: '2', type: 'text/calendar', encoding: '7bit' }, { part: '3', type: 'application/ics', encoding: '7bit' }] } },
+      messageId: '4b7b090d-ec0f-4ef3-a94f-2fb6017dfbcd',
+    })).resolves.toBe(false);
+
+    expect(query).not.toHaveBeenCalled();
   });
 });
 
@@ -1445,6 +1643,20 @@ describe("connectAccount attaches 'error' before connect (#360)", () => {
   });
 });
 
+describe('reconcileDeletes folder source', () => {
+  it('considers only folders the server still advertises', async () => {
+    // Second line of defence for the same loop: a stranded message row must not be able to
+    // resurrect a deleted mailbox as something to open.
+    query.mockReset();
+    query.mockResolvedValue({ rows: [] });
+    await ImapManager.prototype.reconcileDeletes.call({}, { id: 'acct-1', email_address: 'a@example.com' });
+    const [sql, params] = query.mock.calls[0];
+    expect(sql).toContain('FROM folders f');
+    expect(sql).toContain('f.path = m.folder');
+    expect(params).toEqual(['acct-1']);
+  });
+});
+
 describe('syncFolders pruning', () => {
   beforeEach(() => {
     query.mockReset();
@@ -1473,6 +1685,35 @@ describe('syncFolders pruning', () => {
     const client = { list: vi.fn().mockResolvedValue([]) };
     await ImapManager.prototype.syncFolders.call({}, account, client);
     expect(query.mock.calls.some(([sql]) => sql.includes('DELETE FROM folders'))).toBe(false);
+  });
+
+  it('drops the cached messages of a folder the server no longer has', async () => {
+    // The self-sustaining loop this closes: pruning the folder row but stranding its message
+    // rows left reconcileDeletes (which derives its folder list from messages) opening a
+    // mailbox the server had deleted. That open failed every cycle, and because it failed it
+    // could never learn the messages were gone, so the rows kept the error alive forever.
+    query.mockImplementation(async sql => sql.includes('DELETE FROM folders')
+      ? { rows: [{ path: 'Newsletter' }], rowCount: 1 } : { rows: [], rowCount: 0 });
+    const client = { list: vi.fn().mockResolvedValue([{ path: 'INBOX', name: 'INBOX', delimiter: '/' }]) };
+    vi.spyOn(console, 'log').mockImplementation(() => {});
+    await ImapManager.prototype.syncFolders.call({}, account, client);
+
+    const del = query.mock.calls.find(([sql]) => sql.includes('DELETE FROM messages'));
+    expect(del).toBeTruthy();
+    expect(del[1]).toEqual(['acct-1', ['Newsletter']]);
+  });
+
+  it('touches no message rows when no folder was pruned', async () => {
+    query.mockImplementation(async () => ({ rows: [], rowCount: 0 }));
+    const client = { list: vi.fn().mockResolvedValue([{ path: 'INBOX', name: 'INBOX', delimiter: '/' }]) };
+    await ImapManager.prototype.syncFolders.call({}, account, client);
+    expect(query.mock.calls.some(([sql]) => sql.includes('DELETE FROM messages'))).toBe(false);
+  });
+
+  it('never deletes messages on an empty LIST, because nothing was pruned', async () => {
+    const client = { list: vi.fn().mockResolvedValue([]) };
+    await ImapManager.prototype.syncFolders.call({}, account, client);
+    expect(query.mock.calls.some(([sql]) => sql.includes('DELETE FROM messages'))).toBe(false);
   });
 
   it('still upserts every listed folder before pruning', async () => {
@@ -1761,4 +2002,33 @@ describe('syncMessages — empty mailbox still stamps last_sync', () => {
     await ImapManager.prototype.syncMessages.call({}, emptyMailboxAccount, client, 'INBOX', 50, false, true);
     expect(query.mock.calls.filter(c => /UPDATE email_accounts SET last_sync/.test(c[0]))).toHaveLength(0);
   });
+});
+
+it('queues an IDLE arrival during a running sync instead of dropping it', () => {
+  const client = new EventEmitter();
+  const mgr = new ImapManager({ clients: new Set() });
+  const account = { id: 'idle-busy', user_id: 'user-1' };
+  mgr.syncingAccounts.add(account.id);
+  mgr._syncTick = vi.fn();
+  mgr._attachIdleListeners(client, account);
+  client.emit('exists', { count: 12, prevCount: 11 });
+  expect(mgr._pendingInboxSync.has(account.id)).toBe(true);
+  expect(mgr._syncTick).not.toHaveBeenCalled();
+});
+
+it('drains a queued arrival after the active sync releases its account lock', async () => {
+  const mgr = new ImapManager({ clients: new Set() });
+  const account = { id: 'idle-drain', user_id: 'user-1', imap_host: 'imap.example.test' };
+  mgr.connections.set(account.id, { logout: async () => {} });
+  mgr.lastFolderSyncAt.set(account.id, Date.now());
+  mgr._clearAccountError = vi.fn().mockResolvedValue();
+  mgr._syncFlagsForRange = vi.fn().mockResolvedValue();
+  mgr.syncMessages = vi.fn().mockImplementationOnce(async () => {
+    mgr._pendingInboxSync.add(account.id);
+    return { insertedCount: 0 };
+  }).mockResolvedValue({ insertedCount: 0 });
+  await mgr._syncTick(account);
+  await vi.waitFor(() => expect(mgr.syncMessages).toHaveBeenCalledTimes(2));
+  expect(mgr._pendingInboxSync.has(account.id)).toBe(false);
+  clearInterval(mgr._healthCheckTimer); clearInterval(mgr._snippetSchedulerTimer);
 });

@@ -1,0 +1,37 @@
+.contacts-list-header { padding: 16px 16px 10px; background: var(--bg-primary); }
+.contacts-heading { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.contacts-heading h1 { margin: 0; font-family: var(--font-display); font-size: 20px; font-weight: 600; }
+.contacts-subtitle { margin: 2px 0 10px; font-size: 11.5px; color: var(--text-tertiary); }
+.contacts-search { position: relative; }
+.contacts-search svg { position: absolute; left: 9px; top: 50%; transform: translateY(-50%); color: var(--text-tertiary); }
+.contacts-book-controls { display: flex; align-items: center; gap: 4px; min-width: 0; margin: 2px 0 10px; position: relative; }
+.contacts-books { display: flex; gap: 2px; padding: 2px; min-width: 0; overflow-x: auto; background: var(--bg-tertiary); border: 1px solid var(--border-subtle); border-radius: 8px; }
+.contacts-books button { border: 0; border-radius: 6px; padding: 5px 11px; font-size: 12px; color: var(--text-secondary); white-space: nowrap; background: transparent; cursor: pointer; }
+.contacts-books button[aria-pressed=true] { background: var(--bg-elevated); color: var(--text-primary); font-weight: 600; box-shadow: var(--shadow-soft); }
+.contacts-book-menu { flex-shrink: 0; }
+.contacts-book-menu summary { list-style: none; width: 28px; height: 30px; text-align: center; cursor: pointer; border-radius: 6px; font-size: 20px; }
+.contacts-book-menu summary::-webkit-details-marker { display: none; }
+.contacts-book-menu summary:hover { background: var(--bg-hover); }
+.contacts-book-actions { position: absolute; top: 100%; right: 0; z-index: 20; display: grid; gap: 5px; width: min(280px, 100%); padding: 10px; border: 1px solid var(--border-subtle); border-radius: 8px; background: var(--bg-elevated); box-shadow: var(--shadow-popover); }
+.contacts-book-actions a { text-decoration: none; }
+.contacts-page :is(h1, h2) { font-family: var(--font-display); }
+.contacts-page [data-contact-id] { min-width: 0; }
+.contacts-page [data-contact-id] span { max-width: 100%; overflow: hidden; text-overflow: ellipsis; }
+.contacts-form { max-width: 600px; }
+.contacts-form h2 { font-family: var(--font-display); }
+.contacts-compact { background: var(--bg-primary) !important; }
+.contacts-compact .contacts-form > div[style*="grid"] { grid-template-columns: minmax(0, 1fr) !important; }
+.contacts-compact [data-testid=contacts-mobile-detail] { background: var(--bg-secondary); padding: 20px 18px !important; }
+.contacts-page :is(input, textarea, select) { min-width: 0; }
+.contacts-page [data-testid=contacts-desktop-detail] a { overflow-wrap: anywhere; }
+@media (max-width: 767px) {
+  .contacts-books button { min-height: 40px; }
+  .contacts-book-menu summary { width: 40px; height: 40px; }
+}
+.contacts-compact-heading { display: flex; align-items: center; gap: 4px; padding: 4px 12px; border-bottom: 1px solid var(--border-subtle); flex-shrink: 0; }
+.contacts-compact-heading h2 { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; margin: 0; font-size: 15px; }
+.contacts-books-dialog .contacts-book-controls { display: block; }
+.contacts-books-dialog .contacts-books { display: grid; padding: 4px; }
+.contacts-books-dialog .contacts-books button { text-align: left; white-space: normal; overflow-wrap: anywhere; min-height: 44px; }
+.contacts-books-dialog .contacts-book-menu { margin-top: 8px; }
+.contacts-books-dialog .contacts-book-actions { position: static; width: 100%; box-sizing: border-box; }

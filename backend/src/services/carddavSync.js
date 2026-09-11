@@ -68,7 +68,10 @@ function contactFromVCard(vcard, href) {
     firstName: c.firstName, lastName: c.lastName,
     primaryEmail: primaryEmail ? primaryEmail.toLowerCase().trim() : null,
     emails: c.emails, phones: c.phones,
-    organization: c.organization, notes: c.notes, photoData: c.photoData,
+    organization: c.organization, notes: c.notes, birthday: c.birthday, anniversary: c.anniversary, contactDates: c.contactDates, photoData: c.photoData,
+    title: c.title, role: c.role, nickname: c.nickname, urls: c.urls,
+    instantMessages: c.instantMessages, categories: c.categories, addresses: c.addresses,
+    invalidDates: c.invalidDates, invalidDateLabels: c.invalidDateLabels,
     vcard,
   };
 }
@@ -79,20 +82,27 @@ async function upsertCardavContact(bookId, userId, c) {
     INSERT INTO contacts (
       address_book_id, user_id, uid, vcard, etag,
       display_name, first_name, last_name, primary_email,
-      emails, phones, organization, notes, photo_data, is_auto
-    ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10::jsonb,$11::jsonb,$12,$13,$14,false)
+      emails, phones, organization, notes, birthday, anniversary, contact_dates, photo_data,
+      title, role, nickname, urls, instant_messages, categories, addresses, is_auto
+    ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10::jsonb,$11::jsonb,$12,$13,$14,$15,$16::jsonb,$17,$18,$19,$20,$21::jsonb,$22::jsonb,$23::jsonb,$24::jsonb,false)
     ON CONFLICT (address_book_id, uid) DO UPDATE SET
       vcard = EXCLUDED.vcard, etag = EXCLUDED.etag,
       display_name = EXCLUDED.display_name, first_name = EXCLUDED.first_name,
       last_name = EXCLUDED.last_name, primary_email = EXCLUDED.primary_email,
       emails = EXCLUDED.emails, phones = EXCLUDED.phones,
       organization = EXCLUDED.organization, notes = EXCLUDED.notes,
+      birthday = EXCLUDED.birthday, anniversary = EXCLUDED.anniversary,
+      contact_dates = EXCLUDED.contact_dates,
+      title = EXCLUDED.title, role = EXCLUDED.role, nickname = EXCLUDED.nickname,
+      urls = EXCLUDED.urls, instant_messages = EXCLUDED.instant_messages,
+      categories = EXCLUDED.categories, addresses = EXCLUDED.addresses,
       photo_data = EXCLUDED.photo_data, updated_at = NOW()
   `, [
     bookId, userId, c.uid, c.vcard, etag,
     c.displayName, c.firstName, c.lastName, c.primaryEmail,
     JSON.stringify(c.emails), JSON.stringify(c.phones),
-    c.organization, c.notes, c.photoData,
+    c.organization, c.notes, c.birthday, c.anniversary, JSON.stringify(c.contactDates), c.photoData,
+    c.title, c.role, c.nickname, JSON.stringify(c.urls), JSON.stringify(c.instantMessages), JSON.stringify(c.categories), JSON.stringify(c.addresses),
   ]);
 }
 
@@ -104,17 +114,23 @@ async function mergeIntoExisting(id, c) {
   await query(`
     UPDATE contacts SET
       display_name = $2, first_name = $3, last_name = $4,
-      phones = $5::jsonb, organization = $6, notes = $7,
-      photo_data = COALESCE($8, photo_data), vcard = $9, etag = $10, updated_at = NOW()
+      phones = $5::jsonb, organization = $6, notes = $7, birthday = $8, anniversary = $9,
+      contact_dates = $10::jsonb, photo_data = COALESCE($11, photo_data), title = $12, role = $13, nickname = $14,
+      urls = $15::jsonb, instant_messages = $16::jsonb, categories = $17::jsonb, addresses = $18::jsonb,
+      vcard = $19, etag = $20, updated_at = NOW()
     WHERE id = $1
   `, [id, c.displayName, c.firstName, c.lastName, JSON.stringify(c.phones),
-      c.organization, c.notes, c.photoData, c.vcard, etag]);
+      c.organization, c.notes, c.birthday, c.anniversary, JSON.stringify(c.contactDates), c.photoData, c.title, c.role, c.nickname,
+      JSON.stringify(c.urls), JSON.stringify(c.instantMessages), JSON.stringify(c.categories), JSON.stringify(c.addresses), c.vcard, etag]);
 }
 
 async function syncBook(userId, book, dupMode, creds) {
-  const bookId = await ensureCardavBook(userId, book);
   const rawCards = await fetchAddressBookCards({ ...book, ...creds });
   const cards = rawCards.map(rc => contactFromVCard(rc.vcard, rc.href));
+  if (cards.some(card => card.invalidDates.length || card.invalidDateLabels.length)) {
+    throw new Error('Remote CardDAV vCard contains an invalid contact date');
+  }
+  const bookId = await ensureCardavBook(userId, book);
 
   // Emails present in the user's OTHER books, for cross-book duplicate handling.
   const otherEmail = new Map(); // email -> existing contact id
@@ -166,11 +182,9 @@ export async function syncUser(userId) {
   if (!config?.serverUrl) return { ok: false, error: 'not connected' };
   if (syncing.has(userId)) return { ok: false, error: 'A sync is already in progress' };
   syncing.add(userId);
-  const policy = await getConnectionPolicy();
-  const allowPrivate = policy.allowPrivateHosts;
-  const creds = { username: config.username, password: decrypt(config.password), allowPrivate };
-
   try {
+    const policy = await getConnectionPolicy();
+    const creds = { username: config.username, password: decrypt(config.password), allowPrivate: policy.allowPrivateHosts };
     const books = await discoverAddressBooks({ serverUrl: config.serverUrl, ...creds });
     let contactCount = 0;
     const seenUrls = [];

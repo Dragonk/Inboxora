@@ -1,3 +1,4 @@
+import { useBackLayer } from '../hooks/useBackNavigation.js';
 import { useState, useRef } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useStore } from '../store/index.js';
@@ -36,6 +37,7 @@ export default function ProfileModal({ onClose }) {
   const [pendingAvatar, setPendingAvatar] = useState(null); // base64 to upload, or false = delete
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
+  useBackLayer(true, () => { if (!saving) onClose(); }, 3000);
 
   async function handleFileChange(e) {
     const file = e.target.files[0];
@@ -89,7 +91,7 @@ export default function ProfileModal({ onClose }) {
     <div
       onClick={e => e.target === e.currentTarget && onClose()}
       style={{
-        position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.6)',
+        position: 'fixed', inset: 0, background: 'var(--overlay-scrim)',
         backdropFilter: 'blur(6px)', WebkitBackdropFilter: 'blur(6px)',
         display: 'flex', alignItems: 'center', justifyContent: 'center',
         zIndex: 3000, padding: 24,
@@ -97,7 +99,7 @@ export default function ProfileModal({ onClose }) {
     >
       <div style={{
         background: 'var(--bg-secondary)', border: '1px solid var(--border)',
-        borderRadius: 14, width: '100%', maxWidth: 400,
+        borderRadius: 'var(--radius-dialog)', width: '100%', maxWidth: 400,
         boxShadow: 'var(--shadow-modal)', overflow: 'hidden',
       }}>
         {/* Header */}
@@ -105,7 +107,7 @@ export default function ProfileModal({ onClose }) {
           display: 'flex', alignItems: 'center', justifyContent: 'space-between',
           padding: '16px 18px', borderBottom: '1px solid var(--border-subtle)',
         }}>
-          <span style={{ fontSize: 15, fontWeight: 600, color: 'var(--text-primary)' }}>
+          <span style={{ fontFamily: 'var(--font-display)', fontSize: 16, fontWeight: 600, color: 'var(--text-primary)' }}>
             {t('profile.title')}
           </span>
           <button

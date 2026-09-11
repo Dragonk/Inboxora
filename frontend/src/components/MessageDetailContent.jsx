@@ -1,3 +1,4 @@
+import CalendarInvitationCard from './CalendarInvitationCard.jsx';
 import { useCallback, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import MessageBodyRenderer from './MessageBodyRenderer.jsx';
@@ -88,6 +89,7 @@ export default function MessageDetailContent({
         </button>)}
       </div>
     </div>}
+    {canAccessCopy && physicalCopyId && (body?.calendarInvitation || attachments.some(item => /^(text\/calendar|application\/(ics|ical|calendar))$/i.test(item.type || '') || /\.ics$/i.test(item.filename || ''))) && <CalendarInvitationCard key={physicalCopyId} messageId={physicalCopyId} />}
     {listUnsubscribe && !unsubscribedAt && unsubscribeStatus !== 'done' && <div className="msg-notice" data-message-detail-unsubscribe="true" style={{ marginBottom: 10, padding: '9px 14px', background: 'var(--bg-secondary)', border: '1px solid var(--border)', borderLeft: '3px solid var(--text-tertiary)', borderRadius: 8, display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap', fontSize: 12, color: 'var(--text-secondary)' }}>
       <span style={{ flex: 1 }}>{t('message.unsubscribe.info')}</span><button type="button" onClick={unsubscribe} disabled={unsubscribeStatus === 'loading'}>{unsubscribeStatus === 'loading' ? t('common.loading') : unsubscribeStatus === 'error' ? t('message.unsubscribe.error') : t('message.unsubscribe.button')}</button>
     </div>}

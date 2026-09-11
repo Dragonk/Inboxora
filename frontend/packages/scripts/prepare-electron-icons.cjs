@@ -7,12 +7,12 @@ const iconDir = path.join(rootDir, 'packages', 'electron', 'icons');
 
 const pngBySize = new Map(
   [32, 72, 96, 128, 144, 152, 192, 384, 512]
-    .map((size) => [size, path.join(publicDir, `icon-${size}.png`)])
+    .map((size) => [size, path.join(publicDir, `inboxora-icon-${size}.png`)])
     .filter(([, file]) => fs.existsSync(file))
 );
 
 if (!pngBySize.has(512)) {
-  throw new Error('Expected frontend/public/icon-512.png to exist.');
+  throw new Error('Expected frontend/public/inboxora-icon-512.png to exist.');
 }
 
 fs.mkdirSync(iconDir, { recursive: true });

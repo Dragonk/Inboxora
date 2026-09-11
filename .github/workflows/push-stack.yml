@@ -1,0 +1,86 @@
+name: Push stack (ntfy / UnifiedPush)
+
+# Verifies the built-in ntfy transport end to end through the public /push path:
+# the real frontend nginx.conf (prefix stripping + WebSocket upgrade) in front of
+# the real ntfy container from docker-compose.yml.
+#
+# No Android device is required. The long-idle step proves the proxy keeps the
+# UnifiedPush WebSocket open well beyond nginx's 60s default.
+
+on:
+  push:
+    branches: ["dev"]
+  pull_request:
+    branches: ["dev", "main"]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: push-stack-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  push-stack:
+    name: Built-in ntfy behind /push
+    runs-on: ubuntu-latest
+    env:
+      COMPOSE_PROJECT_NAME: inboxora
+      SESSION_SECRET: ci-session-secret-ci-session-secret-1234567890
+      ENCRYPTION_KEY: "0000000000000000000000000000000000000000000000000000000000000000"
+      DB_PASSWORD: ci-db-password
+      APP_URL: https://mail.example.test
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: actions/setup-node@v6
+        with:
+          node-version: "22"
+
+      - name: Assert exact tested SHA
+        run: test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+
+      - name: Validate the compose files
+        run: docker compose -f docker-compose.yml config -q
+
+      - name: Start the bundled ntfy service
+        run: docker compose -f docker-compose.yml up -d ntfy
+
+      - name: Assert the pinned ntfy version
+        run: |
+          version="$(docker exec mailflow-ntfy ntfy --version | head -1)"
+          echo "ntfy version: $version"
+          echo "$version" | grep -q '2.28.0'
+
+      - name: Generate a throwaway certificate for the frontend nginx
+        run: |
+          mkdir -p "$RUNNER_TEMP/ssl"
+          openssl req -x509 -nodes -newkey rsa:2048 -days 1 \
+            -keyout "$RUNNER_TEMP/ssl/key.pem" -out "$RUNNER_TEMP/ssl/cert.pem" \
+            -subj "/CN=localhost" >/dev/null 2>&1
+
+      - name: Start the frontend reverse proxy with the production nginx.conf
+        run: |
+          docker run -d --name push-proxy \
+            --network inboxora_mailflow \
+            -p 8080:80 \
+            -v "$PWD/frontend/nginx.conf":/etc/nginx/conf.d/default.conf:ro \
+            -v "$RUNNER_TEMP/ssl":/etc/nginx/ssl:ro \
+            nginx:alpine
+          sleep 3
+
+      - name: /push HTTP, WebSocket, opaque payload and long-idle survival
+        run: PUSH_TEST_URL=http://127.0.0.1:8080 PUSH_TEST_IDLE_MS=65000 node scripts/push-integration-test.mjs
+
+      - name: Dump logs on failure
+        if: failure()
+        run: |
+          docker logs mailflow-ntfy || true
+          docker logs push-proxy || true
+
+      - name: Tear down
+        if: always()
+        run: |
+          docker rm -f push-proxy || true
+          docker compose -f docker-compose.yml down -v || true

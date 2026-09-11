@@ -1,3 +1,4 @@
+import i18n from '../i18n.js';
 import { useState } from 'react';
 import {
   GTD_COLORS, GTD_CHIP_BG, agingLabel, resolveRowDisplay,
@@ -100,7 +101,7 @@ export default function GtdEntryRow({
           </span>
         )}
         <span style={{ fontSize: v.dateSize, color: 'var(--text-tertiary)', flexShrink: 0 }}>
-          {formatDate(thread.date)}
+          {formatDate(thread.date, i18n.resolvedLanguage || i18n.language)}
         </span>
       </div>
 

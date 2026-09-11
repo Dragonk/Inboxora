@@ -29,11 +29,22 @@ async function request(method, path, body, extraHeaders, extraOptions = {}) {
       window.dispatchEvent(new CustomEvent('inboxora:session_expired'));
     }
     const err = await res.json().catch(() => ({ error: 'Request failed' }));
-    throw new Error(err.error || 'Request failed');
+    const error = new Error(err.error || 'Request failed');
+    error.status = res.status;
+    if (err.source) error.source = err.source;
+    if (err.sync) error.sync = err.sync;
+    throw error;
   }
   // A successful DELETE may deliberately return no representation (HTTP 204).
   if (res.status === 204) return null;
   return res.json();
+}
+
+// Aborting a request rejects with a DOMException named AbortError (or, in some
+// runtimes, an object carrying that name). Callers use this to tell a deliberate
+// cancellation from a real failure, so a cancelled load never surfaces an error.
+export function isAbortError(error) {
+  return Boolean(error) && (error.name === 'AbortError' || error.code === 20);
 }
 
 export async function streamAiChat(messages, { signal, onDelta } = {}) {
@@ -309,12 +320,13 @@ export const api = {
   suggestContacts: (q) => request('GET', `/search/contacts?q=${encodeURIComponent(q)}`),
 
   // Contacts
-  getContacts:   ({ q, limit, offset, is_auto } = {}) => {
+  getContacts:   ({ q, limit, offset, is_auto, addressBookId } = {}) => {
     const p = new URLSearchParams();
     if (q) p.set('q', q);
     if (limit !== undefined) p.set('limit', limit);
     if (offset !== undefined) p.set('offset', offset);
     if (is_auto !== undefined) p.set('is_auto', is_auto);
+    if (addressBookId) p.set('addressBookId', addressBookId);
     const qs = p.toString();
     return request('GET', `/contacts${qs ? '?' + qs : ''}`);
   },
@@ -322,6 +334,14 @@ export const api = {
   createContact: (data)     => request('POST',   '/contacts', data),
   updateContact: (id, data) => request('PATCH',  `/contacts/${id}`, data),
   deleteContact: (id)       => request('DELETE', `/contacts/${id}`),
+  addressBooks: {
+    list: () => request('GET', '/contacts/address-books'),
+    create: (name) => request('POST', '/contacts/address-books', { name }),
+    update: (id, data) => request('PATCH', `/contacts/address-books/${encodeURIComponent(id)}`, data),
+    remove: (id) => request('DELETE', `/contacts/address-books/${encodeURIComponent(id)}`),
+    importGoogleCsv: (id, csv) => request('POST', `/contacts/address-books/${encodeURIComponent(id)}/import/google-csv`, { csv }),
+    exportUrl: (id, format) => `${BASE}/contacts/address-books/${encodeURIComponent(id)}/export?format=${encodeURIComponent(format)}`,
+  },
 
   // CardDAV contact sync (Nextcloud etc.)
   carddav: {
@@ -341,11 +361,31 @@ export const api = {
 
   // Local calendar resources shared with the built-in CalDAV service.
   calendar: {
-    listCalendars: () => request('GET', '/calendar/calendars'),
-    listEvents: (from, to) => request('GET', `/calendar/events?${new URLSearchParams({ from, to })}`),
-    createEvent: (data) => request('POST', '/calendar/events', data),
-    updateEvent: (id, data) => request('PATCH', `/calendar/events/${id}`, data),
-    deleteEvent: (id, calendarId) => request('DELETE', `/calendar/events/${encodeURIComponent(id)}?calendarId=${encodeURIComponent(calendarId)}`),
+    getInvitation: id => request('GET', `/calendar/invitations/${encodeURIComponent(id)}`),
+    addInvitation: (id, calendarId) => request('POST', `/calendar/invitations/${encodeURIComponent(id)}`, { calendarId }),
+    removeInvitation: id => request('DELETE', `/calendar/invitations/${encodeURIComponent(id)}`),
+    listCalendars: ({ signal } = {}) => request('GET', '/calendar/calendars', undefined, undefined, { signal }),
+    updateCalendar: (id, data) => request('PATCH', `/calendar/calendars/${encodeURIComponent(id)}`, data),
+    deleteCalendar: (id, confirmName) => request('DELETE', `/calendar/calendars/${encodeURIComponent(id)}`, { confirmName }),
+    // Reads accept an AbortSignal so a superseded range or an unmounting page can
+    // cancel work the user no longer needs. `calendarIds` narrows the expansion
+    // server-side; `null` means every calendar, `[]` means none.
+    listEvents: (from, to, { signal, calendarIds } = {}) => {
+      const params = new URLSearchParams({ from, to });
+      if (Array.isArray(calendarIds)) params.set('calendarIds', calendarIds.join(','));
+      return request('GET', `/calendar/events?${params}`, undefined, undefined, { signal });
+    },
+    createEvent: (data, idempotencyKey) => request('POST', '/calendar/events', data, idempotencyKey ? { 'X-Idempotency-Key': idempotencyKey } : undefined),
+    updateEvent: (id, data, idempotencyKey) => request('PATCH', `/calendar/events/${id}${data.recurrenceId ? '/occurrence' : ''}`, data, idempotencyKey ? { 'X-Idempotency-Key': idempotencyKey } : undefined),
+    // scope 'following' ends the series just before this occurrence; with no recurrenceId the
+    // whole event is removed. Removing an entire series goes through the plain event DELETE,
+    // which is also the path that notifies invited attendees.
+    deleteEvent: (id, calendarId, recurrenceId, scope) => recurrenceId ? request('DELETE', `/calendar/events/${encodeURIComponent(id)}/occurrence`, { calendarId, recurrenceId, ...(scope ? { scope } : {}) }) : request('DELETE', `/calendar/events/${encodeURIComponent(id)}?calendarId=${encodeURIComponent(calendarId)}`),
+    listSources: () => request('GET', '/calendar/sources'),
+    createSource: (data) => request('POST', '/calendar/sources', data),
+    updateSource: (id, data) => request('PATCH', `/calendar/sources/${encodeURIComponent(id)}`, data),
+    syncSource: (id) => request('POST', `/calendar/sources/${encodeURIComponent(id)}/sync`),
+    deleteSource: (id) => request('DELETE', `/calendar/sources/${encodeURIComponent(id)}`),
   },
 
   // Image whitelist
@@ -355,6 +395,14 @@ export const api = {
   getPushVapidKey:  ()           => request('GET',    '/auth/push/vapid-key'),
   pushSubscribe:    (subscription) => request('POST',   '/auth/push/subscribe',    subscription),
   pushUnsubscribe:  (body)       => request('POST',    '/auth/push/unsubscribe',   body),
+
+  // Native (Android) push device registry. Registration is normally driven from
+  // the native layer (it owns the provider endpoint/token); these calls back the
+  // settings UI and the logout path.
+  getPushStatus:        ()         => request('GET',    '/push/status'),
+  listPushDevices:      ()         => request('GET',    '/push/devices'),
+  removePushDevice:     (deviceId) => request('DELETE', `/push/devices/${encodeURIComponent(deviceId)}`),
+  removeAllPushDevices: ()         => request('DELETE', '/push/devices'),
 
   // Inbox Rules
   getRules:    ()         => request('GET',    '/rules'),

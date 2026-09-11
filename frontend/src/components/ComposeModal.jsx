@@ -1,3 +1,4 @@
+import { useBackLayer } from '../hooks/useBackNavigation.js';
 import { useState, useRef, useEffect, useCallback, forwardRef } from 'react';
 import { shouldAutosave, isAutosaveDue } from '../utils/draftAutosave.js';
 import { useTranslation } from 'react-i18next';
@@ -978,15 +979,26 @@ export default function ComposeModal() {
   };
 
   const handleClose = () => {
-    if (isDirty()) {
-      setShowCloseDialog(true);
-    } else if (draftUid != null && draftWasPreExisting.current) {
-      // Opened from the drafts list with no modifications — ask to discard or keep.
-      setShowCloseDialog(true);
-    } else {
-      closeCompose();
-    }
+    if (sending || savingDraft) return;
+    if (isDirty() || (draftUid != null && draftWasPreExisting.current)) {
+      if (isMobile) setShowDiscardSheet(true);
+      else setShowCloseDialog(true);
+    } else closeCompose();
   };
+  const handleCloseRef = useRef(handleClose);
+  handleCloseRef.current = handleClose;
+
+  useBackLayer(true, () => handleCloseRef.current(), 2001);
+  useBackLayer(showDiscardSheet || showCloseDialog || showAttachWarnForDraft || showForgottenAttachWarn || showEmptySubjectWarn || showPrioritySheet || showReplyType || showCcBccMenu, () => {
+    if (showDiscardSheet) setShowDiscardSheet(false);
+    else if (showCloseDialog) setShowCloseDialog(false);
+    else if (showAttachWarnForDraft) setShowAttachWarnForDraft(false);
+    else if (showForgottenAttachWarn) setShowForgottenAttachWarn(false);
+    else if (showEmptySubjectWarn) setShowEmptySubjectWarn(false);
+    else if (showPrioritySheet) setShowPrioritySheet(false);
+    else if (showReplyType) setShowReplyType(false);
+    else { setShowCcBccMenu(false); setCcBccMenuPos(null); }
+  }, 2101);
 
   const renderSignatureEditor = () => plaintextEmail ? (
     <textarea
@@ -1089,13 +1101,7 @@ export default function ComposeModal() {
           borderBottom: '1px solid var(--border-subtle)',
         }}>
           <button
-            onClick={() => {
-              if (isDirty() || (draftUid != null && draftWasPreExisting.current)) {
-                setShowDiscardSheet(true);
-              } else {
-                closeCompose();
-              }
-            }}
+            onClick={handleClose}
             style={{
               background: 'none', border: 'none',
               color: 'var(--accent)', fontSize: 16,
@@ -1647,7 +1653,7 @@ export default function ComposeModal() {
 
   const inputStyle = {
     width: '100%', padding: '8px 12px',
-    background: 'var(--bg-tertiary)', border: 'none',
+    background: 'var(--bg-primary)', border: 'none',
     borderBottom: '1px solid var(--border-subtle)',
     color: 'var(--text-primary)', fontSize: 13,
     outline: 'none',
@@ -1659,8 +1665,8 @@ export default function ComposeModal() {
         onClick={() => setMinimized(false)}
         style={{
           position: 'fixed', bottom: 0, right: 24,
-          background: 'var(--bg-elevated)', border: '1px solid var(--border)',
-          borderBottom: 'none', borderRadius: '8px 8px 0 0',
+          background: 'var(--bg-elevated)', border: '1px solid var(--border-subtle)',
+          borderBottom: 'none', borderRadius: '10px 10px 0 0',
           padding: '10px 16px', cursor: 'pointer',
           display: 'flex', alignItems: 'center', gap: 10,
           color: 'var(--text-primary)', fontSize: 13, fontWeight: 500,
@@ -1699,18 +1705,20 @@ export default function ComposeModal() {
         zIndex: 1000, display: 'flex', flexDirection: 'column',
       } : pos ? {
         position: 'fixed', top: pos.y, left: pos.x,
-        width: customSize?.width || 540,
+        width: customSize?.width || 600,
         ...(customSize?.height ? { height: customSize.height } : { maxHeight: '75vh' }),
         maxWidth: 'calc(100vw - 16px)',
         background: 'var(--bg-secondary)', border: '1px solid var(--border)',
         borderRadius: 10, boxShadow: 'var(--shadow-modal)',
         zIndex: 1000, display: 'flex', flexDirection: 'column',
       } : {
+        // Bottom-right sheet, per the compose mock-up: attached to the bottom
+        // edge (no bottom border/radius) on the elevated surface.
         position: 'fixed', bottom: 0, right: 24,
-        width: customSize?.width || 540, maxWidth: 'calc(100vw - 48px)',
+        width: customSize?.width || 600, maxWidth: 'calc(100vw - 48px)',
         ...(customSize?.height ? { height: customSize.height } : { maxHeight: '75vh' }),
-        background: 'var(--bg-secondary)', border: '1px solid var(--border)',
-        borderRadius: 10,
+        background: 'var(--bg-elevated)', border: '1px solid var(--border-subtle)',
+        borderBottom: 'none', borderRadius: '10px 10px 0 0',
         boxShadow: 'var(--shadow-modal)',
         zIndex: 1000, display: 'flex', flexDirection: 'column',
         animation: 'compose-enter var(--motion-normal) var(--ease-emphasized) backwards',
@@ -1828,7 +1836,7 @@ export default function ComposeModal() {
       <div style={{ flexShrink: 0 }}>
         {/* From */}
         <div style={{ display: 'flex', alignItems: 'center', borderBottom: '1px solid var(--border-subtle)', padding: '0 12px' }}>
-          <span style={{ fontSize: 12, color: 'var(--text-tertiary)', width: 52, flexShrink: 0 }}>{t('compose.from')}</span>
+          <span style={{ fontFamily: 'var(--font-mono, ui-monospace, monospace)', fontSize: 10, letterSpacing: '0.06em', textTransform: 'uppercase', color: 'var(--text-tertiary)', width: 52, flexShrink: 0 }}>{t('compose.from')}</span>
           <select
             value={fromValue}
             onChange={e => setFromValue(e.target.value)}
@@ -1862,7 +1870,7 @@ export default function ComposeModal() {
 
         {/* To */}
         <div style={{ display: 'flex', alignItems: 'flex-start', borderBottom: '1px solid var(--border-subtle)', padding: '0 12px' }}>
-          <span style={{ fontSize: 12, color: 'var(--text-tertiary)', width: 52, flexShrink: 0, paddingTop: 9 }}>{t('compose.to')}</span>
+          <span style={{ fontFamily: 'var(--font-mono, ui-monospace, monospace)', fontSize: 10, letterSpacing: '0.06em', textTransform: 'uppercase', color: 'var(--text-tertiary)', width: 52, flexShrink: 0, paddingTop: 9 }}>{t('compose.to')}</span>
           <ChipInput
             chips={toChips} onChipsChange={setToChips}
             value={toInput} onChange={setToInput}
@@ -1890,7 +1898,7 @@ export default function ComposeModal() {
         {/* Cc */}
         {showCc && (
           <div style={{ display: 'flex', alignItems: 'flex-start', borderBottom: '1px solid var(--border-subtle)', padding: '0 12px' }}>
-            <span style={{ fontSize: 12, color: 'var(--text-tertiary)', width: 52, flexShrink: 0, paddingTop: 9 }}>{t('compose.cc')}</span>
+            <span style={{ fontFamily: 'var(--font-mono, ui-monospace, monospace)', fontSize: 10, letterSpacing: '0.06em', textTransform: 'uppercase', color: 'var(--text-tertiary)', width: 52, flexShrink: 0, paddingTop: 9 }}>{t('compose.cc')}</span>
             <ChipInput
               chips={ccChips} onChipsChange={setCcChips}
               value={ccInput} onChange={setCcInput}
@@ -1904,7 +1912,7 @@ export default function ComposeModal() {
         {/* Bcc */}
         {showBcc && (
           <div style={{ display: 'flex', alignItems: 'flex-start', borderBottom: '1px solid var(--border-subtle)', padding: '0 12px' }}>
-            <span style={{ fontSize: 12, color: 'var(--text-tertiary)', width: 52, flexShrink: 0, paddingTop: 9 }}>{t('compose.bcc')}</span>
+            <span style={{ fontFamily: 'var(--font-mono, ui-monospace, monospace)', fontSize: 10, letterSpacing: '0.06em', textTransform: 'uppercase', color: 'var(--text-tertiary)', width: 52, flexShrink: 0, paddingTop: 9 }}>{t('compose.bcc')}</span>
             <ChipInput
               chips={bccChips} onChipsChange={setBccChips}
               value={bccInput} onChange={setBccInput}
@@ -1917,7 +1925,7 @@ export default function ComposeModal() {
 
         {/* Subject */}
         <div style={{ display: 'flex', alignItems: 'center', borderBottom: '1px solid var(--border-subtle)', padding: '0 12px' }}>
-          <span style={{ fontSize: 12, color: 'var(--text-tertiary)', width: 52, flexShrink: 0 }}>{t('compose.subject')}</span>
+          <span style={{ fontFamily: 'var(--font-mono, ui-monospace, monospace)', fontSize: 10, letterSpacing: '0.06em', textTransform: 'uppercase', color: 'var(--text-tertiary)', width: 52, flexShrink: 0 }}>{t('compose.subject')}</span>
           <input
             type="text" value={subject} onChange={e => setSubject(e.target.value)}
             placeholder={t('compose.subject')}
@@ -2417,6 +2425,9 @@ function RichToolbar({ editor, onAttach, onInsertImage, htmlMode, onToggleHtml, 
   const linkPopRef = useRef(null);
   const linkInputRef = useRef(null);
   const [showMobileMore, setShowMobileMore] = useState(false);
+  useBackLayer(showMobileMore || colorPos || highlightPos || emojiPos || linkPos || tablePos, () => {
+    setShowMobileMore(false); setColorPos(null); setHighlightPos(null); setEmojiPos(null); setLinkPos(null); setTablePos(null);
+  }, 2200);
 
   // Refs on the toolbar rows so we can keep their controls out of the Tab order (#266).
   const desktopBarRef = useRef(null);
@@ -3032,6 +3043,7 @@ function ChipInput({ chips, onChipsChange, value, onChange, placeholder, autoFoc
   const inputRef = useRef(null);
   const [dropStyle, setDropStyle] = useState(null);
   const [menu, setMenu] = useState(null); // { x, y, index } | null — recipient chip context menu
+  useBackLayer(menu, () => setMenu(null), 2200);
   const longPressRef = useRef(null);
 
   // Debounce contact suggestions — only when getSuggestions is wired up
@@ -3158,15 +3170,16 @@ function ChipInput({ chips, onChipsChange, value, onChange, placeholder, autoFoc
           onTouchMove={cancelLongPress}
           style={{
             display: 'inline-flex', alignItems: 'center', gap: 3,
-            background: 'var(--accent-dim)', color: 'var(--accent)',
-            borderRadius: 6, padding: '2px 6px 2px 8px', fontSize: 12,
+            background: 'var(--bg-tertiary)', color: 'var(--text-secondary)',
+            border: '1px solid var(--border-subtle)',
+            borderRadius: 999, padding: '1px 4px 1px 9px', fontSize: 12,
             maxWidth: 220, cursor: 'default', userSelect: 'none',
           }}>
           <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', minWidth: 0 }}>{chip}</span>
           <button
             type="button"
             onClick={() => onChipsChange(chips.filter((_, j) => j !== i))}
-            style={{ background: 'none', border: 'none', padding: '0 0 0 2px', cursor: 'pointer', color: 'var(--accent)', display: 'flex', lineHeight: 1, flexShrink: 0 }}
+            style={{ background: 'none', border: 'none', padding: '1px', cursor: 'pointer', color: 'var(--text-tertiary)', display: 'flex', lineHeight: 1, flexShrink: 0, borderRadius: '50%' }}
           >
             <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
               <line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/>

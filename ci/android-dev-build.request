@@ -1,0 +1,12 @@
+# Android dev APK request.
+#
+# Push an update to this file to build a test APK. The workflow reads the first
+# 40-hex SHA below, verifies it is reachable from origin/dev, and checks it out.
+#
+# The build is signed with the stable dev debug keystore from the
+# ANDROID_DEV_KEYSTORE_BASE64 repo secret, so successive dev APKs update in
+# place instead of failing with "App not installed".
+#
+# The APK is signed with the stable dev debug keystore and CI asserts it.
+# Target dev commit:
+d0798a8453cc22e44a909afdd56d1211b390d775

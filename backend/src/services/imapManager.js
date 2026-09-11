@@ -9,7 +9,8 @@ import { sanitizeEmail } from './emailSanitizer.js';
 import { logger } from './logger.js';
 import { recordBroadcast, recordWarning, recordSyncSignal } from './diagnosticsRing.js';
 import { decrypt } from './encryption.js';
-import { sendPushToUser } from './pushNotifications.js';
+import { buildMailNotificationEvent } from './mailNotificationEvent.js';
+import { dispatchMailNotification } from './pushDispatcher.js';
 import { redactEmail } from '../utils/redact.js';
 import { adjustFolderCounts, resolveSpamFolder } from '../utils/mailUtils.js';
 import { RELOCATE_COPY_COLS } from '../utils/relocateColumns.js';
@@ -22,6 +23,8 @@ import { upsertConversationCopy } from './conversationPersistence.js';
 import { recordConversationIngestFailure } from './conversationIngestFailures.js';
 import { conversationPersistedFields, resolveOwnIdentityAddresses } from './conversationIngestEnvelope.js';
 import { providerFetchQuery, providerCapabilitiesFromClient } from './providerThreadAdapter.js';
+import { parseInboundCalendarInvitation } from './inboundCalendarInvitation.js';
+import { persistInboundCalendarInvitation } from './inboundCalendarInvitationPersistence.js';
 
 
 // Shorthand for log lines — keeps domain visible while masking the local part.
@@ -407,7 +410,7 @@ function extractBodyFromMsg(msg) {
   if (!msg.bodyStructure) return { html: null, text: null, attachments: [] };
   const results = { textParts: [], attachments: [] };
   walkStructure(msg.bodyStructure, results);
-  if (results.textParts.length === 0) {
+  if (shouldFallbackToTextPart(results)) {
     const rootType = (msg.bodyStructure.type || '').toLowerCase();
     results.textParts.push({
       part: msg.bodyStructure.part || '1',
@@ -424,6 +427,32 @@ function extractBodyFromMsg(msg) {
     else if (part.type === 'text/plain' && !text) text = decoded;
   }
   return { html, text, attachments: results.attachments };
+}
+
+export async function persistInboundCalendarInvitationFromMessage({ client, message, messageId }) {
+  if (!client || !messageId || !message?.uid || !message.bodyStructure) return false;
+  const results = { textParts: [], attachments: [], calendarParts: [] };
+  walkStructure(message.bodyStructure, results);
+  let invitation = null;
+  for (const part of results.calendarParts) {
+    let payload = message.bodyParts?.get(part.part);
+    if (!payload) {
+      try {
+        for await (const fetched of client.fetch(String(message.uid), { uid: true, bodyParts: [part.part] }, { uid: true })) {
+          payload = fetched.bodyParts?.get(part.part) || payload;
+        }
+      } catch {
+        continue;
+      }
+    }
+    const parsed = payload && parseInboundCalendarInvitation(decodeBody(payload, part.encoding, part.charset));
+    if (!parsed) continue;
+    if (invitation) return false;
+    invitation = parsed;
+  }
+  if (!invitation) return false;
+  await persistInboundCalendarInvitation({ query, messageId, invitation });
+  return true;
 }
 
 // Decode a MIME body part from its raw Buffer.
@@ -567,6 +596,15 @@ export function looksLikeTextPayload(buf) {
   return new RegExp(`(?:<!doctype|<!--|<\\/?(?:${tags})\\b|=3c\\/?(?:${tags})(?:=3e|=20|=09)|&lt;\\/?(?:${tags})(?:&gt;|\\s)|(?:^|[\\r\\n])Content-(?:Type|Transfer-Encoding):)`, 'i').test(sample);
 }
 
+// The transfer encoding an attachment part must be decoded with. The declared
+// encoding wins; when the structure declares none (or the part is missing from
+// it) the caller's fallback is kept — an absent value must never override it,
+// because that silently skipped the base64 decoding.
+export function attachmentTransferEncoding(results, partNum, fallback = 'base64') {
+  const match = (results?.attachments || []).find(attachment => String(attachment.part) === String(partNum));
+  return match?.encoding || fallback;
+}
+
 function decodeAttachmentBuffer(buf, encoding) {
   const enc = (encoding || '').toLowerCase();
   if (enc === 'base64') {
@@ -605,6 +643,24 @@ export function walkStructure(node, results) {
   const disposition = (node.disposition || '').toLowerCase();
   const rawFilename = node.dispositionParameters?.filename || node.parameters?.name || null;
   const filename = rawFilename ? rawFilename.replace(BIDI_OVERRIDE_RE, '').trim() || 'attachment' : null;
+  if (['text/calendar', 'application/ics', 'application/ical', 'application/calendar'].includes(type)) {
+    results.calendarParts = results.calendarParts || [];
+    results.calendarParts.push({
+      part: node.part || '1', type,
+      encoding: node.encoding || '',
+      charset: node.parameters?.charset || 'utf-8',
+    });
+    // The calendar part is also listed as an attachment (so the paperclip and the
+    // attachment list see it), and it must carry its transfer encoding: the
+    // attachment fetcher decodes the raw part with it. Omitting it made a base64
+    // .ics come back still encoded, which is why an invitation received by mail
+    // could not be read or imported.
+    results.attachments.push({
+      part: node.part || '1', filename: filename || 'invitation.ics', type,
+      encoding: node.encoding || '', size: node.size || 0,
+    });
+    return;
+  }
   // A part explicitly marked Content-Disposition: attachment is an attachment
   // no matter its MIME type. Checking the text/* types first used to absorb
   // attached .html/.txt files into the message body: the paperclip showed
@@ -659,6 +715,10 @@ export function walkStructure(node, results) {
       disposition,
     });
   }
+}
+
+export function shouldFallbackToTextPart(results) {
+  return results.textParts.length === 0 && !results.calendarParts?.length;
 }
 
 // Extract a human-readable message from an imapflow error.
@@ -1323,6 +1383,7 @@ export class ImapManager {
     // Bounded engine facade handed to plugin hooks instead of `this` — plugins get only the reviewed
     // sync/label primitives (see mailEngineFacade), never the raw engine, its connections, or locks.
     this.pluginFacade = createPluginMailFacade(this);
+    this._pendingInboxSync = new Set();
     this.syncingAccounts = new Set(); // prevent overlapping interval syncs
     this.syncStartedAt = new Map();   // accountId -> ms when the current sync tick began (hung-sync detection)
     this.syncThrottleSkips = new Map(); // accountId -> remaining ticks to skip when throttled
@@ -1740,7 +1801,7 @@ export class ImapManager {
           account.user_id
         );
       }
-      if (this.syncingAccounts.has(account.id)) return;
+      if (this.syncingAccounts.has(account.id)) { this._pendingInboxSync.add(account.id); return; }
       console.log(`IMAP IDLE: new mail for ${logAccount(account)} (${prevCount} → ${count})`);
       this._syncTick(account).catch(err =>
         console.warn(`IDLE-triggered sync error for ${logAccount(account)}:`, err.message)
@@ -1928,6 +1989,7 @@ export class ImapManager {
   }
 
   async disconnectAccount(accountId) {
+    this._pendingInboxSync.delete(accountId);
     const timer = this.syncIntervals.get(accountId);
     // clearTimeout works for both setTimeout and setInterval Timeout objects in Node.js
     if (timer) { clearTimeout(timer); this.syncIntervals.delete(accountId); }
@@ -2349,6 +2411,11 @@ export class ImapManager {
     } finally {
       this.syncingAccounts.delete(account.id);
       this.syncStartedAt.delete(account.id);
+      if (this._pendingInboxSync.delete(account.id) && this.connections.has(account.id)) {
+        setImmediate(() => {
+          if (this.connections.has(account.id)) this._syncTick(account).catch(err => console.warn('Queued inbox sync failed:', err.message));
+        });
+      }
     }
   }
 
@@ -2594,17 +2661,30 @@ export class ImapManager {
       // Prune rows for folders that no longer exist on the server (renamed or
       // deleted by another client, or left behind by a pre-fix subtree rename).
       // Without this, ghost folders duplicate the sidebar tree and every sync
-      // tick keeps trying — and failing — to open their stale paths. Message
-      // rows are left alone: in-app folder deletion already removes them
-      // explicitly, and orphans stop syncing once their folder row is gone.
+      // tick keeps trying — and failing — to open their stale paths.
       // Guarded on a non-empty LIST so a pathological empty response can't
       // wipe the account's folder tree.
       if (mailboxes.length > 0) {
-        await query(
+        const pruned = await query(
           `DELETE FROM folders
-           WHERE account_id = $1 AND path != 'INBOX' AND NOT (path = ANY($2))`,
+           WHERE account_id = $1 AND path != 'INBOX' AND NOT (path = ANY($2))
+           RETURNING path`,
           [account.id, mailboxes.map(mb => mb.path)]
         );
+        // Drop the cached messages too, on the same evidence that removed the folder.
+        // This comment used to claim orphaned rows "stop syncing once their folder row is
+        // gone"; they do not. reconcileDeletes derives its folder list from message rows, so
+        // stranded rows kept it opening a mailbox the server had deleted, and because that
+        // open always failed it could never learn the messages were gone and clean them up.
+        // The rows kept the error alive and the error protected the rows.
+        if (pruned.rows.length) {
+          const paths = pruned.rows.map(r => r.path);
+          const dropped = await query(
+            'DELETE FROM messages WHERE account_id = $1 AND folder = ANY($2)',
+            [account.id, paths]
+          );
+          console.log(`Folder sync for ${logAccount(account)}: dropped ${paths.length} folder(s) no longer on the server (${paths.join(', ')}) and ${dropped.rowCount} cached message(s)`);
+        }
       }
     } catch (err) {
       console.error(`Folder sync error for ${logAccount(account)}:`, err.message);
@@ -2721,6 +2801,7 @@ export class ImapManager {
         );
         const maxKnownUid = Number(max_uid);
 
+        const manager = this;
         let newMessages = [];
         let insertedCount = 0;
         let broadcastedNewMessages = false;
@@ -2884,6 +2965,8 @@ export class ImapManager {
               sanitizeStr(parsed.senderName), sanitizeStr(parsed.senderEmail),
             ]);
             await persistConversationCopyForRow(result.rows[0].id, account, msg);
+            await persistInboundCalendarInvitationFromMessage({ client, message: msg, messageId: result.rows[0].id })
+              .catch(error => console.warn('Inbound calendar invitation persistence failed: ' + error.message));
             if (result.rows[0]?.is_new) {
               insertedCount++;
               // Inbox-ingest candidate: any newly-inserted INBOX row, read OR unread (read state
@@ -2937,6 +3020,118 @@ export class ImapManager {
             // Non-fatal — next sync will catch up.
             console.warn(`New-mail sync skipped for ${logAccount(account)}/${folder}: stale UID range after concurrent expunge`);
           }
+        }
+
+        await flushNewMessages();
+        async function flushNewMessages() {
+        if (newMessages.length > 0) {
+          // mutedIds: messages that had a mark_read rule applied and stayed in INBOX.
+          // Push and client-side sound/toast are skipped for these so mark_read rules
+          // don't still alert the user about mail they chose to auto-silence.
+          let mutedIds = new Set();
+          if (folder === 'INBOX') {
+            // Snapshot the unread candidates before the block-list / rules run, so the ingest
+            // re-eval below can exclude any they move out of INBOX. Only needed with an ingest plugin.
+            const unreadBeforeRules = wantsInboxIngest ? newMessages.map(m => m.id) : null;
+            try {
+              newMessages = await applyBlockList(newMessages, account, manager);
+            } catch (err) {
+              console.error('blockList error:', err.message);
+            }
+            try {
+              const rulesResult = await applyInboxRules(newMessages, account, manager);
+              newMessages = rulesResult.remaining;
+              mutedIds = rulesResult.mutedIds;
+            } catch (err) {
+              console.error('inboxRules error:', err.message);
+            }
+            // Any unread candidate no longer in `newMessages` was moved out of / deleted from
+            // INBOX by the block-list or a rule. Only genuinely-DELETED ones are excluded from
+            // the ingest re-eval: a rule that merely MOVED an inbound reply (its row still lives,
+            // in another folder) must still let the plugin re-evaluate the thread so a self-reply's
+            // Watch/Delegated label clears. Distinguish the two by a single is_deleted probe over
+            // the removed ids — a moved row survives (is_deleted = false), a deleted one does not.
+            if (unreadBeforeRules) {
+              const survivingIds = new Set(newMessages.map(m => m.id));
+              const removedIds = unreadBeforeRules.filter(id => !survivingIds.has(id));
+              if (removedIds.length) {
+                const alive = await query(
+                  'SELECT id FROM messages WHERE id = ANY($1::uuid[]) AND is_deleted = false',
+                  [removedIds]
+                );
+                const aliveIds = new Set(alive.rows.map(r => r.id));
+                for (const id of removedIds) {
+                  if (!aliveIds.has(id)) ingestDeletedIds.add(id);
+                }
+              }
+            }
+          }
+          // alertMessages: remaining messages not silenced by a mark_read rule.
+          const alertMessages = newMessages.filter(m => !mutedIds.has(m.id));
+          const alertCount = alertMessages.length;
+          if (newMessages.length > 0) manager.broadcast({
+            type: 'new_messages', accountId: account.id,
+            folder, messages: newMessages.slice(-5), count: newMessages.length,
+            alertMessages: alertMessages.slice(-5), alertCount,
+          }, account.user_id);
+          if (newMessages.length > 0) broadcastedNewMessages = true;
+          // Canonical new-mail notification event — INBOX only, alert-eligible messages
+          // only. Non-inbox folder syncs (Archive, Spam, on-demand) can surface old or
+          // filtered messages; notifying for them or for mark_read-silenced messages
+          // would be misleading. ONE event fans out to every channel (browser Web Push,
+          // native Android push); no channel detects new mail on its own.
+          // Fire-and-forget: push errors are non-fatal.
+          if (folder === 'INBOX' && alertMessages.length > 0) {
+            const latest = alertMessages[alertMessages.length - 1];
+            const dispatch = (unreadCount) => dispatchMailNotification(buildMailNotificationEvent({
+              userId: account.user_id,
+              message: latest,
+              alertCount,
+              ...(unreadCount != null ? { unreadCount } : {}),
+            })).catch(err => console.warn('Push notification error:', err.message));
+            // Try to include the total unread count for the home screen badge.
+            // If the query fails for any reason, dispatch without it so
+            // notifications are never silently dropped.
+            query(
+              `SELECT COUNT(*)::int AS total FROM messages m
+               JOIN email_accounts a ON a.id = m.account_id
+               WHERE a.user_id = $1 AND a.enabled = true AND m.folder = 'INBOX' AND m.is_read = false AND m.is_deleted = false`,
+              [account.user_id]
+            ).then(r => dispatch(r.rows[0]?.total ?? 0))
+              .catch(() => dispatch(null));
+          }
+          // Pre-warm the body cache for newly arrived messages so clicking one
+          // immediately after receipt doesn't require a live IMAP fetch.
+          // Only do this for small batches (periodic new mail, not initial bulk sync),
+          // and let provider profiles cap or disable the work when BODY[] is sensitive.
+          const prefetchProfile = providerProfile(account);
+          if (newMessages.length <= 5 && prefetchProfile.prefetchNewBodies !== false) {
+            const warmLimit = Math.max(1, Number(prefetchProfile.prefetchNewBodiesLimit) || newMessages.length);
+            const msgsToCache = newMessages.slice(-warmLimit);
+            setImmediate(() => {
+              manager.prefetchNewMessageBodies(account, msgsToCache)
+                .catch(err => console.warn(`Body prefetch error for ${logAccount(account)}:`, err.message));
+            });
+          }
+
+          // Auto-learn senders from new inbound mail (fire-and-forget).
+          // Only runs for INBOX; skips bulk and robot senders.
+          if (folder === 'INBOX') {
+            const inboundSenders = newMessages.filter(m =>
+              m.fromEmail &&
+              (m.isBulk !== true) &&
+              !/^(noreply|no-reply|donotreply|mailer-daemon|notifications?|bounce[^@]*)@/i.test(m.fromEmail)
+            );
+            if (inboundSenders.length) {
+              setImmediate(() => {
+                manager.upsertAutoContacts(account.user_id, inboundSenders)
+                  .catch(err => console.warn(`Auto-contact error for ${logAccount(account)}:`, err.message));
+              });
+            }
+          }
+        }
+
+          newMessages = [];
         }
 
         // ── Flag/metadata-change scan — the expensive part, gated by modseq. Covers changes to
@@ -3043,120 +3238,7 @@ export class ImapManager {
           );
         }
 
-        if (newMessages.length > 0) {
-          // mutedIds: messages that had a mark_read rule applied and stayed in INBOX.
-          // Push and client-side sound/toast are skipped for these so mark_read rules
-          // don't still alert the user about mail they chose to auto-silence.
-          let mutedIds = new Set();
-          if (folder === 'INBOX') {
-            // Snapshot the unread candidates before the block-list / rules run, so the ingest
-            // re-eval below can exclude any they move out of INBOX. Only needed with an ingest plugin.
-            const unreadBeforeRules = wantsInboxIngest ? newMessages.map(m => m.id) : null;
-            try {
-              newMessages = await applyBlockList(newMessages, account, this);
-            } catch (err) {
-              console.error('blockList error:', err.message);
-            }
-            try {
-              const rulesResult = await applyInboxRules(newMessages, account, this);
-              newMessages = rulesResult.remaining;
-              mutedIds = rulesResult.mutedIds;
-            } catch (err) {
-              console.error('inboxRules error:', err.message);
-            }
-            // Any unread candidate no longer in `newMessages` was moved out of / deleted from
-            // INBOX by the block-list or a rule. Only genuinely-DELETED ones are excluded from
-            // the ingest re-eval: a rule that merely MOVED an inbound reply (its row still lives,
-            // in another folder) must still let the plugin re-evaluate the thread so a self-reply's
-            // Watch/Delegated label clears. Distinguish the two by a single is_deleted probe over
-            // the removed ids — a moved row survives (is_deleted = false), a deleted one does not.
-            if (unreadBeforeRules) {
-              const survivingIds = new Set(newMessages.map(m => m.id));
-              const removedIds = unreadBeforeRules.filter(id => !survivingIds.has(id));
-              if (removedIds.length) {
-                const alive = await query(
-                  'SELECT id FROM messages WHERE id = ANY($1::uuid[]) AND is_deleted = false',
-                  [removedIds]
-                );
-                const aliveIds = new Set(alive.rows.map(r => r.id));
-                for (const id of removedIds) {
-                  if (!aliveIds.has(id)) ingestDeletedIds.add(id);
-                }
-              }
-            }
-          }
-          // alertMessages: remaining messages not silenced by a mark_read rule.
-          const alertMessages = newMessages.filter(m => !mutedIds.has(m.id));
-          const alertCount = alertMessages.length;
-          if (newMessages.length > 0) this.broadcast({
-            type: 'new_messages', accountId: account.id,
-            folder, messages: newMessages.slice(-5), count: newMessages.length,
-            alertMessages: alertMessages.slice(-5), alertCount,
-          }, account.user_id);
-          if (newMessages.length > 0) broadcastedNewMessages = true;
-          // Web Push — INBOX only, alert-eligible messages only. Non-inbox folder syncs
-          // (Archive, Spam, on-demand) can surface old or filtered messages; sending push
-          // for them or for mark_read-silenced messages would be misleading.
-          // Fire-and-forget: push errors are non-fatal.
-          if (folder === 'INBOX' && alertMessages.length > 0) {
-            const latest = alertMessages[alertMessages.length - 1];
-            const basePayload = {
-              title: latest.fromName || latest.fromEmail || 'New mail',
-              body: alertCount === 1
-                ? (latest.subject || '(no subject)')
-                : `${alertCount} new messages`,
-              icon: '/icon-512.png',
-              // Deep-link the notification to the latest message (the notification's
-              // tag collapses arrivals into one card representing `latest`). Guarded:
-              // fall back to the inbox if the id is somehow absent.
-              url: latest.id ? `/?m=${latest.id}` : '/',
-            };
-            // Try to include the total unread count for the home screen badge.
-            // If the query fails for any reason, send the push without it so
-            // notifications are never silently dropped.
-            query(
-              `SELECT COUNT(*)::int AS total FROM messages m
-               JOIN email_accounts a ON a.id = m.account_id
-               WHERE a.user_id = $1 AND a.enabled = true AND m.folder = 'INBOX' AND m.is_read = false AND m.is_deleted = false`,
-              [account.user_id]
-            ).then(r => {
-              sendPushToUser(account.user_id, { ...basePayload, unreadCount: r.rows[0]?.total ?? 0 })
-                .catch(err => console.warn('Push notification error:', err.message));
-            }).catch(() => {
-              sendPushToUser(account.user_id, basePayload)
-                .catch(err => console.warn('Push notification error:', err.message));
-            });
-          }
-          // Pre-warm the body cache for newly arrived messages so clicking one
-          // immediately after receipt doesn't require a live IMAP fetch.
-          // Only do this for small batches (periodic new mail, not initial bulk sync),
-          // and let provider profiles cap or disable the work when BODY[] is sensitive.
-          const prefetchProfile = providerProfile(account);
-          if (newMessages.length <= 5 && prefetchProfile.prefetchNewBodies !== false) {
-            const warmLimit = Math.max(1, Number(prefetchProfile.prefetchNewBodiesLimit) || newMessages.length);
-            const msgsToCache = newMessages.slice(-warmLimit);
-            setImmediate(() => {
-              this.prefetchNewMessageBodies(account, msgsToCache)
-                .catch(err => console.warn(`Body prefetch error for ${logAccount(account)}:`, err.message));
-            });
-          }
-
-          // Auto-learn senders from new inbound mail (fire-and-forget).
-          // Only runs for INBOX; skips bulk and robot senders.
-          if (folder === 'INBOX') {
-            const inboundSenders = newMessages.filter(m =>
-              m.fromEmail &&
-              (m.isBulk !== true) &&
-              !/^(noreply|no-reply|donotreply|mailer-daemon|notifications?|bounce[^@]*)@/i.test(m.fromEmail)
-            );
-            if (inboundSenders.length) {
-              setImmediate(() => {
-                this.upsertAutoContacts(account.user_id, inboundSenders)
-                  .catch(err => console.warn(`Auto-contact error for ${logAccount(account)}:`, err.message));
-              });
-            }
-          }
-        }
+        await flushNewMessages();
 
         // Inbox-ingest: hand the newly-arrived INBOX rows to any active ingest plugin so it can
         // re-evaluate the affected threads, independent of the unread notification path above —
@@ -3552,7 +3634,11 @@ export class ImapManager {
                 ]);
                 backfilledRows++;
                 const inserted = await query(`SELECT id FROM messages WHERE account_id = $1 AND uid = $2 AND folder = $3`, [account.id, parsed.uid, folder]);
-                if (inserted.rows[0]) await persistConversationCopyForRow(inserted.rows[0].id, account, msg);
+                if (inserted.rows[0]) {
+                  await persistConversationCopyForRow(inserted.rows[0].id, account, msg);
+                  await persistInboundCalendarInvitationFromMessage({ client: bfClient, message: msg, messageId: inserted.rows[0].id })
+                    .catch(error => console.warn('Inbound calendar invitation persistence failed: ' + error.message));
+                }
                 if (bfThreadId && bfThreadId !== bfMsgId) {
                   await query(
                     `UPDATE messages SET thread_id = $1
@@ -4384,7 +4470,7 @@ export class ImapManager {
         walkStructure(structure, results);
 
         // Handle single-part root node (no childNodes, type is the content type)
-        if (results.textParts.length === 0) {
+        if (shouldFallbackToTextPart(results)) {
           const rootType = (structure.type || '').toLowerCase();
           results.textParts.push({
             part: structure.part || '1',
@@ -4573,8 +4659,7 @@ export class ImapManager {
           if (msg.bodyStructure) {
             const r = { textParts: [], attachments: [] };
             walkStructure(msg.bodyStructure, r);
-            const att = r.attachments.find(a => a.part === partNum);
-            if (att) encoding = att.encoding;
+            encoding = attachmentTransferEncoding(r, partNum);
           }
           const buf = msg.bodyParts?.get(partNum);
           if (buf) {
@@ -5361,8 +5446,14 @@ export class ImapManager {
     // TOCTOU window without an extra IMAP round-trip. synced_at defaults to now() on
     // every insert; null-synced legacy rows are treated as old and stay eligible.
     const reconcileStartedAt = new Date();
+    // Only folders the server still advertises. A message row whose folder has been pruned
+    // describes a mailbox that no longer exists, and trying to open it fails on every cycle.
+    // syncFolders now removes those rows, so this is the second line of defence: it keeps a
+    // single stranded row from reviving the loop if a folder disappears by another route.
     const folderResult = await query(
-      'SELECT DISTINCT folder FROM messages WHERE account_id = $1',
+      `SELECT DISTINCT m.folder FROM messages m
+        WHERE m.account_id = $1
+          AND EXISTS (SELECT 1 FROM folders f WHERE f.account_id = m.account_id AND f.path = m.folder)`,
       [account.id]
     );
     if (!folderResult.rows.length) return;

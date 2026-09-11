@@ -1,14 +1,31 @@
 // Conversation Engine v2 API client
+import { CSRF_HEADER, CSRF_VALUE } from './api.js';
+
 const API_BASE = '/api/mail';
+
+export function buildConversationRequestHeaders(extraHeaders = {}) {
+  const headers = new Headers({ 'Content-Type': 'application/json' });
+  for (const [name, value] of new Headers(extraHeaders)) {
+    if (name.toLowerCase() !== CSRF_HEADER.toLowerCase()) headers.set(name, value);
+  }
+  headers.set(CSRF_HEADER, CSRF_VALUE);
+  return headers;
+}
 
 async function apiFetch(path, options = {}) {
   const res = await fetch(`${API_BASE}${path}`, {
     ...options,
-    headers: { 'Content-Type': 'application/json', ...options.headers },
+    credentials: 'include',
+    headers: buildConversationRequestHeaders(options.headers),
   });
   if (!res.ok) {
     const body = await res.json().catch(() => ({}));
-    throw new Error(body.error || `HTTP ${res.status}`);
+    // Carry the status on the error so a caller can react to a specific one: the
+    // rebuild endpoint answers 429 when its per-user rate limit is hit, and that
+    // deserves a different message from a generic failure.
+    const error = new Error(body.error || `HTTP ${res.status}`);
+    error.status = res.status;
+    throw error;
   }
   return res.json();
 }
@@ -137,10 +154,20 @@ export const conversationApi = {
   diagnostics: (conversationId) => apiFetch(`/conversations/${conversationId}/diagnostics`),
 
   // Rebuild
-  rebuild: ({ dryRun = false, scope = 'all' } = {}) =>
+  //
+  // `dryRun` defaults to true here as well as on the server, so a caller that
+  // forgets to decide gets a report rather than a write. Only the options the
+  // endpoint actually reads are sent; the request is always scoped to the signed-in
+  // user's own accounts.
+  rebuild: ({ dryRun = true, accountId = null, limit, force = false } = {}) =>
     apiFetch(`/conversations/rebuild`, {
       method: 'POST',
-      body: JSON.stringify({ dryRun, scope }),
+      body: JSON.stringify({
+        dryRun,
+        ...(accountId ? { accountId } : {}),
+        ...(limit ? { limit } : {}),
+        ...(force ? { force } : {}),
+      }),
     }),
 
   rebuildStatus: (jobId) => apiFetch(`/conversations/rebuild/${jobId}`),

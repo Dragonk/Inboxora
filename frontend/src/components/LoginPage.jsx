@@ -4,6 +4,36 @@ import { useStore } from '../store/index.js';
 import { api } from '../utils/api.js';
 import LogoMark from './LogoMark.jsx';
 
+// SSO/OIDC is the highlighted sign-in method: an accent-tinted card with the
+// identity shield from the mock-up, rendered ahead of the password form.
+function SsoProviderButton({ provider: p, t }) {
+  return (
+    <a
+      href={`/auth/oidc/${p.slug}/start`}
+      style={{
+        display: 'flex', alignItems: 'center', gap: 10, padding: '11px 14px',
+        background: 'var(--accent-dim)',
+        border: '1px solid color-mix(in srgb, var(--accent) 35%, transparent)',
+        borderRadius: 8, color: 'var(--text-primary)', fontSize: 14,
+        fontWeight: 500, textDecoration: 'none',
+        transition: 'background 0.15s, border-color 0.15s',
+      }}
+      onMouseEnter={e => { e.currentTarget.style.background = 'var(--accent-glow)'; e.currentTarget.style.borderColor = 'var(--accent)'; }}
+      onMouseLeave={e => { e.currentTarget.style.background = 'var(--accent-dim)'; e.currentTarget.style.borderColor = 'color-mix(in srgb, var(--accent) 35%, transparent)'; }}
+    >
+      <span style={{ color: 'var(--accent)', flexShrink: 0, display: 'inline-flex' }} aria-hidden="true">
+        <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75">
+          <path d="M12 3L4 7v5c0 5 3.5 9.3 8 10.3C16.5 21.3 20 17 20 12V7L12 3z"/>
+        </svg>
+      </span>
+      <span style={{ flex: 1, minWidth: 0 }}>{t('login.signInWith', { name: p.name })}</span>
+      <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" style={{ color: 'var(--text-tertiary)', flexShrink: 0 }} aria-hidden="true">
+        <polyline points="9 18 15 12 9 6"/>
+      </svg>
+    </a>
+  );
+}
+
 export default function LoginPage() {
   const { t } = useTranslation();
   const { setUser, loadPreferences } = useStore();
@@ -272,8 +302,7 @@ export default function LoginPage() {
           <div style={{ display: 'inline-flex', alignItems: 'center', gap: 12, marginBottom: 8 }}>
             <LogoMark size={44} />
             <span style={{ display: 'flex', alignItems: 'baseline' }}>
-              <span style={{ fontFamily: "'Syne', sans-serif", fontSize: 30, fontWeight: 700, color: 'var(--text-primary)', letterSpacing: '-0.03em' }}>Mail</span>
-              <span style={{ fontFamily: "'Syne', sans-serif", fontSize: 30, fontWeight: 600, color: 'var(--accent)', letterSpacing: '-0.03em' }}>Flow</span>
+              <span style={{ fontFamily: 'var(--font-display)', fontSize: 30, fontWeight: 700, color: 'var(--text-primary)', letterSpacing: '-0.03em' }}>Inboxora</span>
             </span>
           </div>
           <p style={{ color: 'var(--text-tertiary)', fontSize: 14, margin: 0 }}>{t('login.tagline')}</p>
@@ -282,7 +311,7 @@ export default function LoginPage() {
         {/* Card */}
         <div style={{
           background: 'var(--bg-secondary)', border: '1px solid var(--border)',
-          borderRadius: 16, padding: 32,
+          borderRadius: 'var(--radius-dialog)', padding: 32,
         }}>
           {internalAuthDisabled && !totpRequired && !emailOtpRequired && !mfaEnrollRequired ? (
             <>
@@ -300,27 +329,7 @@ export default function LoginPage() {
                 }}>{oidcError}</div>
               )}
               <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-                {oidcProviders.map(p => (
-                  <a
-                    key={p.id}
-                    href={`/auth/oidc/${p.slug}/start`}
-                    style={{
-                      display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8,
-                      padding: '10px 16px',
-                      background: 'var(--bg-tertiary)', border: '1px solid var(--border)',
-                      borderRadius: 8, color: 'var(--text-primary)', fontSize: 14,
-                      fontWeight: 500, textDecoration: 'none',
-                      transition: 'background 0.15s, border-color 0.15s',
-                    }}
-                    onMouseEnter={e => { e.currentTarget.style.background = 'var(--bg-hover)'; e.currentTarget.style.borderColor = 'var(--accent)'; }}
-                    onMouseLeave={e => { e.currentTarget.style.background = 'var(--bg-tertiary)'; e.currentTarget.style.borderColor = 'var(--border)'; }}
-                  >
-                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75">
-                      <circle cx="12" cy="12" r="10"/><path d="M12 8v4l3 3"/>
-                    </svg>
-                    {t('login.signInWith', { name: p.name })}
-                  </a>
-                ))}
+                {oidcProviders.map(p => <SsoProviderButton key={p.id} provider={p} t={t} />)}
               </div>
             </>
           ) : totpRequired ? (
@@ -865,6 +874,20 @@ export default function LoginPage() {
             }}>{oidcError}</div>
           )}
 
+          {/* SSO/OIDC first — the highlighted sign-in method (mock-up: card + shield). */}
+          {mode === 'login' && oidcProviders.length > 0 && (
+            <div style={{ marginBottom: 20 }}>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                {oidcProviders.map(p => <SsoProviderButton key={p.id} provider={p} t={t} />)}
+              </div>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginTop: 16 }}>
+                <div style={{ flex: 1, height: 1, background: 'var(--border)' }} />
+                <span style={{ fontSize: 12, color: 'var(--text-tertiary)', whiteSpace: 'nowrap' }}>{t('login.orContinueWith')}</span>
+                <div style={{ flex: 1, height: 1, background: 'var(--border)' }} />
+              </div>
+            </div>
+          )}
+
           <form onSubmit={submit} style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
             <div>
               <label htmlFor="login-username" style={{ display: 'block', fontSize: 13, color: 'var(--text-secondary)', marginBottom: 6 }}>
@@ -942,41 +965,6 @@ export default function LoginPage() {
               {loading ? t('login.pleaseWait') : (mode === 'login' ? t('login.signIn') : t('login.createAccount'))}
             </button>
           </form>
-
-          {mode === 'login' && oidcProviders.length > 0 && (
-            <>
-              <div style={{
-                display: 'flex', alignItems: 'center', gap: 10, margin: '20px 0 16px',
-              }}>
-                <div style={{ flex: 1, height: 1, background: 'var(--border)' }} />
-                <span style={{ fontSize: 12, color: 'var(--text-tertiary)', whiteSpace: 'nowrap' }}>{t('login.orContinueWith')}</span>
-                <div style={{ flex: 1, height: 1, background: 'var(--border)' }} />
-              </div>
-              <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-                {oidcProviders.map(p => (
-                  <a
-                    key={p.id}
-                    href={`/auth/oidc/${p.slug}/start`}
-                    style={{
-                      display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8,
-                      padding: '10px 16px',
-                      background: 'var(--bg-tertiary)', border: '1px solid var(--border)',
-                      borderRadius: 8, color: 'var(--text-primary)', fontSize: 14,
-                      fontWeight: 500, textDecoration: 'none',
-                      transition: 'background 0.15s, border-color 0.15s',
-                    }}
-                    onMouseEnter={e => { e.currentTarget.style.background = 'var(--bg-hover)'; e.currentTarget.style.borderColor = 'var(--accent)'; }}
-                    onMouseLeave={e => { e.currentTarget.style.background = 'var(--bg-tertiary)'; e.currentTarget.style.borderColor = 'var(--border)'; }}
-                  >
-                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75">
-                      <circle cx="12" cy="12" r="10"/><path d="M12 8v4l3 3"/>
-                    </svg>
-                    {t('login.signInWith', { name: p.name })}
-                  </a>
-                ))}
-              </div>
-            </>
-          )}
           </>
           )}
         </div>

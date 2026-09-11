@@ -1,7 +1,6 @@
 import express from 'express';
 import 'express-async-errors'; // route a rejected async handler to the error middleware (Express 4 doesn't)
 import session from 'express-session';
-import cors from 'cors';
 import { createServer } from 'http';
 import { readFileSync } from 'fs';
 import { WebSocketServer } from 'ws';
@@ -36,7 +35,9 @@ import carddavRouter from './routes/carddav.js';
 import caldavRouter from './routes/caldav.js';
 import carddavAccountRouter from './routes/carddavAccount.js';
 import davCredentialsRouter from './routes/davCredentials.js';
+import pushRoutes from './routes/push.js';
 import calendarRouter from './routes/calendar.js';
+import calendarFeedRouter from './routes/calendarFeed.js';
 import { startCardavScheduler } from './services/carddavSync.js';
 import { startExternalCalendarScheduler } from './services/externalCalendarSync.js';
 import { encryptExistingCredentials, query } from './services/db.js';
@@ -51,6 +52,9 @@ import conversationsRoutes from './routes/conversations.js';
 import conversationRebuildRoutes from './routes/conversationRebuild.js';
 import conversationOverridesRoutes from './routes/conversationOverrides.js';
 import { retryConversationIngestFailures } from './services/conversationIngestRetry.js';
+import { startCalendarInvitationOutboxWorker } from './services/calendarInvitationOutbox.js';
+import { startOccurrenceScheduler } from './services/calendarOccurrences.js';
+import { createBrowserCors } from './middleware/browserCors.js';
 
 const packageMeta = JSON.parse(readFileSync(new URL('../package.json', import.meta.url), 'utf-8'));
 let buildMeta = {};
@@ -111,9 +115,9 @@ const sessionMiddleware = session({
   }
 });
 
-app.use(cors({
+app.use(createBrowserCors({
   origin: process.env.FRONTEND_URL || 'http://localhost:5173',
-  credentials: true
+  credentials: true,
 }));
 
 // Performance baseline: time the full request lifecycle and record it under the
@@ -189,6 +193,9 @@ app.set('imapManager', imapManager);
 setMailEngine(imapManager);
 
 // Routes
+// Secret calendar feeds intentionally sit outside the authenticated API mount;
+// their anonymous GET is protected by the high-entropy bearer token.
+app.use('/', calendarFeedRouter);
 app.use('/api/auth', authRoutes);
 app.use('/api/auth/oidc', oidcApiRouter);
 app.use('/auth/oidc', oidcBrowserRouter);
@@ -210,6 +217,10 @@ app.use('/api/contacts', contactsRoutes);
 app.use('/api/todoist', todoistRoutes);
 app.use('/api/carddav', carddavAccountRouter);
 app.use('/api/dav-credentials', davCredentialsRouter);
+// Native (Android) push device registry + the device-token-authenticated
+// background notification API. Absent configuration the routes still answer;
+// only the optional FCM/UnifiedPush legs go quiet.
+app.use('/api/push', pushRoutes);
 app.use('/api/calendar', calendarRouter);
 app.use('/api', aiRoutes);
 app.use('/api', categoriesRoutes);
@@ -296,6 +307,12 @@ startCardavScheduler();
 startExternalCalendarScheduler().catch(err => console.warn('External calendar scheduler start failed:', err.message));
 // Retry conversation persistence failures without blocking IMAP synchronization.
 setInterval(() => retryConversationIngestFailures({ limit: 25 }).catch(err => console.warn('Conversation ingest retry failed:', err.message)), 5 * 60 * 1000);
+// Retry calendar invitations whose SMTP delivery failed, so a transient outage
+// does not leave a saved event whose invitation never reached the attendees.
+startCalendarInvitationOutboxWorker();
+// Expand recurring series into materialised occurrences in the background, so the calendar
+// read path becomes an indexed range scan instead of walking every series from its origin.
+startOccurrenceScheduler();
 
 if (process.env.NODE_ENV !== 'test' && process.env.E2E_DISABLE_IMAP_CONNECT !== 'true') {
   try {

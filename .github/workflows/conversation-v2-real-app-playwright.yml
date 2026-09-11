@@ -2,7 +2,7 @@ name: Conversation Engine v2 Real App Playwright E2E
 
 on:
   pull_request:
-    branches: [main]
+    branches: [dev, main]
   workflow_dispatch:
     inputs:
       expected_sha:

@@ -12,8 +12,8 @@ export async function ensureUserDavResources(client, userId) {
     [userId],
   );
   await client.query(
-    `INSERT INTO calendars (user_id, name, source, read_only)
-     VALUES ($1, 'Personal', 'local', false)
+    `INSERT INTO calendars (user_id, owner_user_id, name, source, read_only)
+     VALUES ($1, $1, 'Personal', 'local', false)
      ON CONFLICT (user_id, name) DO NOTHING`,
     [userId],
   );

@@ -139,6 +139,21 @@ function updateFolderCountsForAction(rows, action, imapManager, userId) {
   }
 }
 
+function broadcastMessageFlagsForAction(rows, action, imapManager, userId) {
+  if (!imapManager || !rows.length || !['read', 'star'].includes(action)) return;
+  const changesByAccount = new Map();
+  for (const row of rows) {
+    const field = action === 'read' ? 'is_read' : 'is_starred';
+    if (typeof row[field] !== 'boolean') continue;
+    const changes = changesByAccount.get(row.account_id) || [];
+    changes.push({ id: row.id, [field]: row[field] });
+    changesByAccount.set(row.account_id, changes);
+  }
+  for (const [accountId, changes] of changesByAccount) {
+    imapManager.broadcast?.({ type: 'message_flags', accountId, changes }, userId);
+  }
+}
+
 function assertScope(scope) {
   if (!COPY_SCOPES.has(scope)) {
     const error = new Error(`Unsupported copy scope: ${scope}`);
@@ -225,7 +240,7 @@ async function resolvePhysicalIds(client, { userId, conversationId, scope, copyI
   }
 
   const affected = await client.query(
-    `SELECT m.id, m.account_id, m.logical_message_id, m.conversation_id, m.folder, m.uid
+    `SELECT m.id, m.account_id, m.logical_message_id, m.conversation_id, m.folder, m.uid, m.is_read
        FROM messages m
        JOIN email_accounts a ON a.id = m.account_id AND a.user_id = $1
       WHERE m.is_deleted = false AND ${where}
@@ -308,14 +323,17 @@ export async function applyConversationAction({
       [resolved.canonicalConversationId, userId],
     );
 
-    updateFolderCountsForAction(result.rows, action, imapManager, userId);
+    const resolvedRowsById = new Map(resolved.rows.map(row => [row.id, row]));
+    const mutatedRows = result.rows.map(row => ({ ...resolvedRowsById.get(row.id), ...row }));
+    updateFolderCountsForAction(mutatedRows, action, imapManager, userId);
+    broadcastMessageFlagsForAction(mutatedRows, action, imapManager, userId);
     return {
       ok: true,
       action,
       scope,
       conversationId: resolved.canonicalConversationId,
       selectedCopyId: resolved.selected.id,
-      affectedIds: result.rows.map(row => row.id),
+      affectedIds: mutatedRows.map(row => row.id),
       affectedCount: result.rowCount,
     };
   }, { serializable: true });

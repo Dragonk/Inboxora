@@ -1,3 +1,4 @@
+import { useBackLayer } from '../hooks/useBackNavigation.js';
 import { useState, useEffect } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useStore } from '../store/index.js';
@@ -12,6 +13,7 @@ export default function DiagnosticsReportModal({ onClose }) {
   const uiScale = useUiScale();
   const addNotification = useStore(s => s.addNotification);
   const [state, setState] = useState({ status: 'loading' });
+  useBackLayer(true, onClose, 5000);
 
   useEffect(() => {
     let cancelled = false;

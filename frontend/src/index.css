@@ -37,6 +37,15 @@
   --overlay-scrim: rgba(0,0,0,0.5);
 }
 
+/* The mark is an inline SVG monogram (IO) whose tile follows var(--accent), so it
+   adapts to any surface without swap rules. The legacy __light/__dark classes stay
+   as hook classes on the shine/tonal overlay layers (see brandAudit.test.js). */
+.inboxora-logo-mark {
+  display: inline-block;
+  flex: 0 0 auto;
+  position: relative;
+}
+
 * {
   box-sizing: border-box;
   -webkit-font-smoothing: antialiased;
@@ -92,6 +101,65 @@ body, #root {
   --message-body-bg: var(--bg-secondary);
 }
 
+/* ── Per-theme elevation (never global) ───────────────────────────────────────
+   The :root shadows above are tuned for the neutral dark surface. Every light
+   theme overrides them with a warm-neutral tint so elevation stays visible on
+   paper backgrounds; Ink uses the exact values from the design brief, Parchment
+   keeps its sepia cast from the V2/V3 mock-ups, and the remaining light surfaces
+   reuse the brief's warm-neutral values. Dark ink, the dark counterpart of Ink,
+   reuses that same warm-neutral tint over dark paper. */
+:root[data-mailflow-theme="ink"] {
+  --shadow-soft: 0 2px 8px rgba(33, 43, 54, 0.10);
+  --shadow-popover: 0 4px 20px rgba(33, 43, 54, 0.14), 0 0 0 1px rgba(33, 43, 54, 0.05);
+  --shadow-modal: 0 8px 48px rgba(33, 43, 54, 0.20), 0 0 0 1px rgba(33, 43, 54, 0.06);
+  --overlay-scrim: rgba(23, 30, 40, 0.42);
+}
+
+/* Dark ink is the dark counterpart of Ink: the same warm-neutral elevation tint
+   over dark paper, so the paper family reads consistently in both appearances. */
+:root[data-mailflow-theme="dark_ink"] {
+  --shadow-soft: 0 2px 8px rgba(8, 10, 14, 0.34);
+  --shadow-popover: 0 4px 20px rgba(8, 10, 14, 0.52), 0 0 0 1px rgba(232, 230, 223, 0.04);
+  --shadow-modal: 0 8px 48px rgba(8, 10, 14, 0.66), 0 0 0 1px rgba(232, 230, 223, 0.06);
+  --overlay-scrim: rgba(8, 10, 14, 0.55);
+}
+
+:root[data-mailflow-theme="parchment"] {
+  --shadow-soft: 0 2px 8px rgba(74, 56, 28, 0.10);
+  --shadow-popover: 0 4px 20px rgba(74, 56, 28, 0.14), 0 0 0 1px rgba(42, 31, 16, 0.05);
+  --shadow-modal: 0 8px 48px rgba(74, 56, 28, 0.20), 0 0 0 1px rgba(42, 31, 16, 0.06);
+  --overlay-scrim: rgba(42, 31, 16, 0.40);
+}
+
+:root[data-mailflow-theme="light"] {
+  --shadow-soft: 0 2px 8px rgba(30, 30, 60, 0.08);
+  --shadow-popover: 0 4px 20px rgba(30, 30, 60, 0.12), 0 0 0 1px rgba(26, 26, 46, 0.04);
+  --shadow-modal: 0 8px 48px rgba(30, 30, 60, 0.18), 0 0 0 1px rgba(26, 26, 46, 0.05);
+  --overlay-scrim: rgba(26, 26, 46, 0.35);
+}
+
+:root[data-mailflow-theme="catppuccin_latte"],
+:root[data-mailflow-theme="winxp"],
+:root[data-mailflow-theme="win9x"] {
+  --shadow-soft: 0 2px 8px rgba(33, 43, 54, 0.10);
+  --shadow-popover: 0 4px 20px rgba(33, 43, 54, 0.14), 0 0 0 1px rgba(33, 43, 54, 0.05);
+  --shadow-modal: 0 8px 48px rgba(33, 43, 54, 0.20), 0 0 0 1px rgba(33, 43, 54, 0.06);
+  --overlay-scrim: rgba(23, 30, 40, 0.42);
+}
+
+/* Subtle paper grain for the two paper themes — a 22px dot raster at ~2% alpha,
+   matching the mock-up. Pointer-events none, so it never intercepts clicks. */
+:root[data-mailflow-theme="ink"] body::before,
+:root[data-mailflow-theme="parchment"] body::before {
+  content: '';
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+  z-index: 1;
+  background-image: radial-gradient(rgba(42, 31, 16, 0.022) 1px, transparent 1px);
+  background-size: 22px 22px;
+}
+
 /* Custom scrollbar */
 ::-webkit-scrollbar { width: 5px; height: 5px; }
 ::-webkit-scrollbar-track { background: transparent; }
@@ -102,6 +170,32 @@ body, #root {
 *:focus-visible {
   outline: 2px solid var(--accent);
   outline-offset: 2px;
+}
+
+/* Contacts destructive controls keep their danger treatment in one scoped contract. */
+.contacts-danger-btn {
+  background: var(--contacts-danger-bg, transparent) !important;
+  border: 1px solid var(--contacts-danger-border, var(--red-border, rgba(248, 113, 113, 0.4))) !important;
+  color: var(--contacts-danger-text, var(--red, #f87171)) !important;
+  transition: background 0.1s, border-color 0.1s, color 0.1s;
+}
+
+.contacts-danger-btn:hover:not(:disabled) {
+  background: var(--contacts-danger-hover-bg, var(--red-dim, rgba(248, 113, 113, 0.14))) !important;
+  border-color: var(--contacts-danger-hover-border, var(--red, #f87171)) !important;
+}
+
+.contacts-danger-btn:focus-visible {
+  outline: 2px solid var(--contacts-danger-focus, var(--red, #f87171));
+  outline-offset: 2px;
+}
+
+.contacts-danger-btn:disabled {
+  transition: none !important;
+  background-color: rgba(148, 163, 184, 0.16) !important;
+  background-image: linear-gradient(var(--contacts-danger-disabled-bg, transparent), var(--contacts-danger-disabled-bg, transparent)) !important;
+  border-color: var(--contacts-danger-disabled-border, rgba(148, 163, 184, 0.4)) !important;
+  color: var(--contacts-danger-disabled-text, #94a3b8) !important;
 }
 
 /* Selection */
@@ -239,6 +333,25 @@ body, #root {
   opacity: 0.85;
 }
 
+/* Calendar control states — components style themselves inline, so the
+   pseudo-class states (hover/active/disabled) live here, scoped to the page.
+   .cal-btn = chrome buttons; .cal-ev = event chips (hover brightens like the
+   mock-up, press scales per the shared active-state contract). */
+.calendar-page .cal-cell:hover { background: var(--bg-elevated); }
+.calendar-page .cal-row:hover { background: var(--bg-hover); }
+
+.calendar-page .cal-btn {
+  transition: background var(--motion-fast) var(--ease-standard), transform var(--motion-fast) var(--ease-standard);
+}
+.calendar-page .cal-btn:hover:not(:disabled) { filter: brightness(0.97); }
+.calendar-page .cal-btn:active:not(:disabled) { transform: scale(0.97); }
+.calendar-page .cal-btn:disabled { opacity: 0.45; cursor: default; }
+.calendar-page .cal-ev {
+  transition: filter var(--motion-fast) var(--ease-standard), transform var(--motion-fast) var(--ease-standard);
+}
+.calendar-page .cal-ev:hover { filter: brightness(1.08); }
+.calendar-page .cal-ev:active { transform: scale(0.97); }
+
 /* Unified popover entrance */
 @keyframes popover-in {
   from { opacity: 0; transform: scale(0.96) translateY(-4px); }
@@ -294,6 +407,52 @@ body, #root {
   float: left;
   height: 0;
 }
+
+/* TipTap rich-text editor used for short fields (calendar descriptions). Same
+   content styling as the compose editor so a description looks like a body. */
+.rich-text-editor .ProseMirror {
+  outline: none;
+  color: var(--text-primary);
+  font-family: var(--font-sans, 'DM Sans', sans-serif);
+  font-size: 13px;
+  line-height: 1.6;
+  min-height: inherit;
+}
+.rich-text-editor .ProseMirror p { margin: 0 0 0.25em; }
+.rich-text-editor .ProseMirror p:last-child { margin-bottom: 0; }
+.rich-text-editor .ProseMirror ul { padding-left: 1.4em; margin: 0.25em 0; list-style-type: disc; }
+.rich-text-editor .ProseMirror ol { padding-left: 1.4em; margin: 0.25em 0; list-style-type: decimal; }
+.rich-text-editor .ProseMirror li { display: list-item; }
+.rich-text-editor .ProseMirror blockquote {
+  border-left: 3px solid var(--border);
+  margin: 0.25em 0;
+  padding-left: 0.75em;
+  color: var(--text-secondary);
+}
+.rich-text-editor .ProseMirror a { color: var(--accent); text-decoration: underline; }
+.rich-text-editor .ProseMirror p.is-editor-empty:first-child::before {
+  content: attr(data-placeholder);
+  color: var(--text-tertiary);
+  pointer-events: none;
+  float: left;
+  height: 0;
+}
+/* Mobile: keep the 16px floor so iOS does not zoom the field on focus. */
+@supports (-webkit-touch-callout: none) {
+  .rich-text-editor .ProseMirror { font-size: 16px; }
+}
+
+/* A calendar description is shown exactly like a mail body: same sanitized
+   iframe, framed the same way as the message body panel. */
+.calendar-event-description {
+  border: 1px solid var(--border-subtle);
+  border-radius: 8px;
+  background: var(--message-body-bg, var(--bg-primary));
+  overflow: hidden;
+  padding: 10px 12px;
+}
+.calendar-description { display: block; margin-bottom: 10px; }
+.calendar-description-label { display: block; margin-bottom: 4px; font-size: 12px; color: var(--text-secondary); }
 
 /* Mobile: match textarea font-size override */
 @supports (-webkit-touch-callout: none) {
@@ -506,6 +665,50 @@ body, #root {
   outline: 1px dotted #24417a !important;
   outline-offset: -4px !important;
 }
+
+/* Contacts danger controls keep their accessible contract above retro button chrome. */
+[data-mailflow-theme="win9x"] .contacts-page .contacts-danger-btn {
+  background: #800000 !important;
+  background-image: none !important;
+  border: 1px solid #400000 !important;
+  color: #ffffff !important;
+}
+[data-mailflow-theme="win9x"] .contacts-page .contacts-danger-btn:hover:not(:disabled) {
+  background: #c00000 !important;
+  border-color: #800000 !important;
+}
+[data-mailflow-theme="win9x"] .contacts-page .contacts-danger-btn:focus-visible {
+  outline: 2px solid #ffff00 !important;
+  outline-offset: 2px !important;
+}
+[data-mailflow-theme="win9x"] .contacts-page .contacts-danger-btn:disabled {
+  background: #808080 !important;
+  border-color: #404040 !important;
+  color: #dcdcdc !important;
+  box-shadow: none !important;
+}
+
+[data-mailflow-theme="winxp"] .contacts-page .contacts-danger-btn {
+  background: #f4b4b4 !important;
+  background-image: none !important;
+  border: 1px solid #a00000 !important;
+  color: #600000 !important;
+}
+[data-mailflow-theme="winxp"] .contacts-page .contacts-danger-btn:hover:not(:disabled) {
+  background: #e07070 !important;
+  border-color: #800000 !important;
+}
+[data-mailflow-theme="winxp"] .contacts-page .contacts-danger-btn:focus-visible {
+  outline: 2px solid #800000 !important;
+  outline-offset: 2px !important;
+}
+[data-mailflow-theme="winxp"] .contacts-page .contacts-danger-btn:disabled {
+  background: #d0d0d0 !important;
+  border-color: #808080 !important;
+  color: #606060 !important;
+  box-shadow: none !important;
+}
+
 [data-mailflow-theme="winxp"] input:not([type="checkbox"]):not([type="radio"]):not([type="range"]):not([type="color"]):not([type="file"]),
 [data-mailflow-theme="winxp"] textarea,
 [data-mailflow-theme="winxp"] select {

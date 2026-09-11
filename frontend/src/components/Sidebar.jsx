@@ -1,7 +1,11 @@
+import { refreshUnreadCounts } from '../utils/unreadRefresh.js';
+import { useBackLayer } from '../hooks/useBackNavigation.js';
+import { folderLabel } from '../utils/folderLabels.js';
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useStore } from '../store/index.js';
 import { api } from '../utils/api.js';
+import { clearNativePush } from '../utils/nativePush.js';
 import {
   activateOnKey,
   buildFolderTree,
@@ -117,6 +121,7 @@ function isProtectedFolder(folder, folderMappings) {
 
 // ─── Sidebar context menu (folders + accounts) ────────────────────────────────
 function SidebarCtxMenu({ x, y, items, title, subtitle, onClose }) {
+  useBackLayer(true, onClose, 4000);
   const menuRef = useRef(null);
   const uiScale = useUiScale();
   const [pos, setPos] = useState({ x, y });
@@ -248,7 +253,7 @@ function CtxMenuItem({ icon, label, onClick, danger, disabled }) {
 }
 
 // ─── Main Sidebar ─────────────────────────────────────────────────────────────
-export default function Sidebar() {
+export default function Sidebar({ onEditProfile = null }) {
   const { t } = useTranslation();
   const uiScale = useUiScale();
   const {
@@ -429,6 +434,11 @@ export default function Sidebar() {
   // Loading state for folder ops
   const [folderOpLoading, setFolderOpLoading] = useState(false);
   const [confirmDialog, setConfirmDialog] = useState(null); // { message, onConfirm }
+  useBackLayer(confirmDialog, () => { if (!folderOpLoading) setConfirmDialog(null); }, 9000);
+  useBackLayer(creatingFolder || renamingFolder || renamingFav, () => {
+    setCreatingFolder(null); setCreateName(''); setRenamingFolder(null); setRenamingFav(null);
+  }, 1350);
+  useBackLayer(userMenuOpen, () => setUserMenuOpen(false), 4000);
 
   const toggleAccount = (id) => {
     setExpandedAccounts(prev => ({ ...prev, [id]: !prev[id] }));
@@ -465,6 +475,9 @@ export default function Sidebar() {
   }, []);
 
   const handleLogout = async () => {
+    // Remove this device's native push registration (server + local secrets) while
+    // the session is still valid, so no notification survives the sign-out.
+    await clearNativePush();
     // The logout response may carry an OIDC end-session URL when the account signed in
     // through a provider with RP-initiated logout enabled; navigating there also clears
     // the upstream SSO session. Falls back to /login otherwise. (#310)
@@ -519,9 +532,7 @@ export default function Sidebar() {
     try {
       await api.markAllRead(accountId, folder);
       window.dispatchEvent(new CustomEvent('inboxora:refresh'));
-      api.getUnreadCounts().then(counts => {
-        useStore.setState({ unreadCounts: counts });
-      }).catch(() => {});
+      refreshUnreadCounts();
       api.getFolders(accountId).then(f => setFolders(accountId, f)).catch(() => {});
     } catch (err) { console.error('markAllRead failed:', err.message); }
   };
@@ -791,7 +802,7 @@ export default function Sidebar() {
   };
 
   return (
-    <div style={{
+    <div className="inboxora-sidebar" style={{
       width: sidebarCollapsed ? 60 : sidebarWidth,
       minWidth: sidebarCollapsed ? 60 : sidebarWidth,
       height: isMobile ? '100%' : '100%',
@@ -804,8 +815,8 @@ export default function Sidebar() {
     }}>
       {/* Header */}
       <div style={{
-        paddingTop: 'calc(var(--sat) + 16px)',
-        paddingBottom: 16, paddingLeft: 12, paddingRight: 12,
+        paddingTop: 'calc(var(--sat) + 14px)',
+        paddingBottom: 10, paddingLeft: 12, paddingRight: 12,
         display: 'flex', alignItems: 'center',
         justifyContent: 'space-between', borderBottom: '1px solid var(--border-subtle)',
         minHeight: 56, flexShrink: 0,
@@ -815,20 +826,12 @@ export default function Sidebar() {
             <LogoMark size={24} />
             <span style={{ display: 'flex', alignItems: 'baseline', gap: 0 }}>
               <span style={{
-                fontFamily: "'Syne', sans-serif",
+                fontFamily: 'var(--font-display)',
                 fontSize: 17, fontWeight: 700,
                 color: 'var(--text-primary)',
                 letterSpacing: '-0.02em', whiteSpace: 'nowrap',
               }}>
-                Mail
-              </span>
-              <span style={{
-                fontFamily: "'Syne', sans-serif",
-                fontSize: 17, fontWeight: 600,
-                color: 'var(--accent)',
-                letterSpacing: '-0.02em', whiteSpace: 'nowrap',
-              }}>
-                Flow
+                Inboxora
               </span>
             </span>
           </div>
@@ -884,9 +887,10 @@ export default function Sidebar() {
         {/* Unified Inbox — only shown with 2+ enabled accounts */}
         {accounts.filter(a => a.enabled).length >= 2 && (
           <NavItem
+            testId="all-inboxes"
             icon={ICONS.inbox}
             label={t('sidebar.allInboxes')}
-            active={isUnified && !showContacts}
+            active={isUnified && !showContacts && !showCalendar}
             collapsed={sidebarCollapsed}
             badge={unreadCounts.total}
             onClick={() => setSelectedAccount(null, 'INBOX')}
@@ -934,6 +938,435 @@ export default function Sidebar() {
           />
         )}
 
+
+        {/* Per-account */}
+        <div style={{ fontFamily: 'var(--font-mono, ui-monospace, monospace)', fontSize: 10, letterSpacing: '0.09em', textTransform: 'uppercase', color: 'var(--text-tertiary)', padding: '10px 10px 4px' }}>{t('sidebar.accounts', 'Konta')}</div>
+        {accounts.map(account => {
+          const unread = unreadCounts.byAccount[account.id] || 0;
+          const expanded = expandedAccounts[account.id];
+          const isSelected = !showContacts && !showCalendar && selectedAccountId === account.id;
+          const accountFolders = folders[account.id] || [];
+
+          const selectInbox = () => setSelectedAccount(account.id, 'INBOX');
+          const rowLabel = collapsedTooltip(account.email_address, sidebarCollapsed);
+
+          return (
+            <div key={account.id} data-account-id={account.id} data-unread-count={unread}>
+              {/* Only the collapsed row may carry a button role: expanded, it holds
+                  the expand toggle, and a button cannot nest inside a button. */}
+              <div
+                style={{
+                  display: 'flex', alignItems: 'center', gap: 8,
+                  padding: sidebarCollapsed ? '8px' : '7px 10px',
+                  borderRadius: 7, cursor: 'pointer',
+                  background: isSelected && selectedFolder === 'INBOX'
+                    ? 'var(--bg-hover)' : 'transparent',
+                  transition: 'background 0.1s',
+                  justifyContent: sidebarCollapsed ? 'center' : 'flex-start',
+                }}
+                onMouseEnter={e => {
+                  if (!(isSelected && selectedFolder === 'INBOX'))
+                    e.currentTarget.style.background = 'var(--bg-tertiary)';
+                }}
+                onMouseLeave={e => {
+                  if (!(isSelected && selectedFolder === 'INBOX'))
+                    e.currentTarget.style.background = 'transparent';
+                }}
+                onClick={selectInbox}
+                onContextMenu={!sidebarCollapsed ? (e) => openAccountCtxMenu(e, account) : undefined}
+                title={rowLabel}
+                aria-label={rowLabel}
+                role={sidebarCollapsed ? 'button' : undefined}
+                tabIndex={sidebarCollapsed ? 0 : undefined}
+                onKeyDown={sidebarCollapsed ? activateOnKey(selectInbox) : undefined}
+              >
+                {/* Account indicator */}
+                {sidebarCollapsed ? (
+                  <div style={{
+                    width: 28, height: 28, borderRadius: 7,
+                    background: account.color + '22',
+                    border: `1px solid ${account.color}66`,
+                    flexShrink: 0,
+                    display: 'flex', alignItems: 'center', justifyContent: 'center',
+                    fontSize: 12, fontWeight: 600, color: account.color,
+                    outline: account.sync_error ? '2px solid rgba(248,113,113,0.5)' : 'none',
+                    userSelect: 'none',
+                  }}>
+                    {(account.name || account.email_address || '?').charAt(0).toUpperCase()}
+                  </div>
+                ) : (
+                  <div style={{
+                    width: 8, height: 8, borderRadius: '50%',
+                    background: account.color, flexShrink: 0,
+                    boxShadow: account.sync_error ? '0 0 0 2px rgba(248,113,113,0.4)' : 'none',
+                  }} />
+                )}
+
+                {!sidebarCollapsed && (
+                  <>
+                    <div style={{ flex: 1, minWidth: 0 }}>
+                      <div style={{
+                        fontSize: 13, color: 'var(--text-primary)',
+                        whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis',
+                        fontWeight: unread > 0 ? 500 : 400,
+                      }}>
+                        {account.name}
+                      </div>
+                      {!account.sync_error && (
+                        <div style={{
+                          fontSize: 11, color: 'var(--text-tertiary)',
+                          whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis',
+                        }}>
+                          {account.email_address}
+                        </div>
+                      )}
+                      {account.sync_error && (
+                        <div style={{ fontSize: 11, color: 'var(--red)' }}>
+                          {t('sidebar.connectionError')}
+                        </div>
+                      )}
+                    </div>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 4, flexShrink: 0 }}>
+                      {unread > 0 && (
+                        <span style={{
+                          fontFamily: 'var(--font-mono, ui-monospace, monospace)',
+                          fontSize: 10, fontWeight: 600, color: 'white',
+                          background: account.color, padding: '1px 6px',
+                          borderRadius: 9, minWidth: 18, textAlign: 'center',
+                        }}>
+                          {unread > 999 ? '999+' : unread}
+                        </span>
+                      )}
+                      {/* Expand toggle */}
+                      <button
+                        onClick={e => { e.stopPropagation(); toggleAccount(account.id); }}
+                        style={{
+                          background: 'none', border: 'none', padding: 2,
+                          color: 'var(--text-tertiary)', cursor: 'pointer',
+                          display: 'flex', alignItems: 'center',
+                          transform: expanded ? 'rotate(90deg)' : 'none',
+                          transition: 'transform 0.15s',
+                        }}
+                      >
+                        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                          <polyline points="9 18 15 12 9 6"/>
+                        </svg>
+                      </button>
+                    </div>
+                  </>
+                )}
+              </div>
+
+              {/* Folder tree */}
+              {expanded && !sidebarCollapsed && (() => {
+                const BASE_INDENT = 26;
+                const DEPTH_INDENT = 14;
+
+                const createFolderInput = (indent) => (
+                  <div style={{
+                    display: 'flex', alignItems: 'center', gap: 8,
+                    padding: `6px 10px 6px ${indent}px`, borderRadius: 7,
+                  }}>
+                    <span style={{ color: 'var(--text-tertiary)', flexShrink: 0, display: 'flex' }}>{ICONS.folder}</span>
+                    <input
+                      ref={createInputRef}
+                      value={createName}
+                      onChange={e => setCreateName(e.target.value)}
+                      placeholder={creatingFolder?.parentPath ? t('sidebar.subfolderPh') : t('sidebar.folderPh')}
+                      onKeyDown={e => {
+                        if (e.key === 'Enter') handleCreateFolderSubmit();
+                        if (e.key === 'Escape') { setCreatingFolder(null); setCreateName(''); }
+                        e.stopPropagation();
+                      }}
+                      style={{
+                        flex: 1, fontSize: 12, background: 'var(--bg-primary)',
+                        border: '1px solid var(--accent)', borderRadius: 4,
+                        color: 'var(--text-primary)', padding: '2px 6px', outline: 'none', minWidth: 0,
+                      }}
+                    />
+                    <div style={{ display: 'flex', gap: 2, flexShrink: 0 }}>
+                      <button onClick={handleCreateFolderSubmit} style={{ background: 'var(--accent)', border: 'none', borderRadius: 4, color: 'var(--accent-text)', padding: '2px 6px', cursor: 'pointer', fontSize: 11 }}>✓</button>
+                      <button onClick={() => { setCreatingFolder(null); setCreateName(''); }} style={{ background: 'var(--bg-tertiary)', border: 'none', borderRadius: 4, color: 'var(--text-secondary)', padding: '2px 6px', cursor: 'pointer', fontSize: 11 }}>✕</button>
+                    </div>
+                  </div>
+                );
+
+                const accountHiddenPaths = hiddenFolders[account.id] || [];
+                const showingHidden = showHiddenFor.has(account.id);
+
+                const handleFolderOrderDragStart = (event, path) => {
+                  event.stopPropagation();
+                  event.dataTransfer.effectAllowed = 'move';
+                  event.dataTransfer.setData(
+                    FOLDER_ORDER_DRAG_TYPE,
+                    JSON.stringify({ accountId: account.id, path }),
+                  );
+                  setMsgDragTarget(null);
+                  setFolderDrag({ accountId: account.id, path });
+                  setFolderDropTarget(null);
+                };
+
+                const handleFolderOrderDragOver = (event, path, siblings) => {
+                  if (!event.dataTransfer.types.includes(FOLDER_ORDER_DRAG_TYPE)) return false;
+                  event.preventDefault();
+                  event.stopPropagation();
+                  const validTarget = (
+                    folderDrag?.accountId === account.id
+                    && folderDrag.path !== path
+                    && siblings.some(sibling => sibling.path === folderDrag.path)
+                  );
+                  event.dataTransfer.dropEffect = validTarget ? 'move' : 'none';
+                  if (!validTarget) {
+                    setFolderDropTarget(null);
+                    return true;
+                  }
+                  setFolderDropTarget({
+                    accountId: account.id,
+                    path,
+                    position: folderDropPosition(
+                      event.clientY,
+                      event.currentTarget.getBoundingClientRect(),
+                    ),
+                  });
+                  return true;
+                };
+
+                const handleFolderOrderDrop = (event, path) => {
+                  if (!event.dataTransfer.types.includes(FOLDER_ORDER_DRAG_TYPE)) return false;
+                  event.preventDefault();
+                  event.stopPropagation();
+                  const next = resolveFolderOrderDrop(
+                    accountFolders,
+                    folderOrder[account.id],
+                    event.dataTransfer,
+                    account.id,
+                    path,
+                    event.clientY,
+                    event.currentTarget.getBoundingClientRect(),
+                  );
+                  if (next) setFolderOrder(account.id, next);
+                  clearFolderDrag();
+                  return true;
+                };
+
+                const renderNode = (node, depth, siblings) => {
+                  const { children, ...folder } = node;
+                  const isHidden = accountHiddenPaths.includes(folder.path);
+                  if (isHidden && !showingHidden) return null;
+
+                  const isRenaming = renamingFolder?.accountId === account.id && renamingFolder?.path === folder.path;
+                  const isFolderSelected = !showContacts && !showCalendar && selectedAccountId === account.id && selectedFolder === folder.path;
+                  const visibleChildren = showingHidden ? children : children.filter(c => !accountHiddenPaths.includes(c.path));
+                  const hasChildren = visibleChildren.length > 0;
+                  const collapseKey = `${account.id}:${folder.path}`;
+                  const isExpanded = !collapsedFolders.includes(collapseKey);
+                  const indent = BASE_INDENT + depth * DEPTH_INDENT;
+                  const canReorder = !isMobile && siblings.length >= 2;
+                  const dropPosition = (
+                    folderDropTarget?.accountId === account.id
+                    && folderDropTarget.path === folder.path
+                  ) ? folderDropTarget.position : null;
+
+                  return (
+                    <div key={folder.path} style={isHidden ? { opacity: 0.45 } : undefined}>
+                      <div
+                        style={{
+                          display: 'flex', alignItems: 'center', gap: 6,
+                          padding: `6px 10px 6px ${indent}px`, borderRadius: 7,
+                          cursor: isRenaming ? 'default' : 'pointer',
+                          background: (msgDragTarget === `${account.id}:${folder.path}`) ? 'var(--accent-dim)' : isFolderSelected ? 'var(--bg-hover)' : 'transparent',
+                          transition: 'background 0.1s',
+                          boxShadow: dropPosition === 'before'
+                            ? 'inset 0 2px var(--accent)'
+                            : dropPosition === 'after'
+                              ? 'inset 0 -2px var(--accent)'
+                              : 'none',
+                        }}
+                        onMouseEnter={e => { if (!isFolderSelected && !isRenaming) e.currentTarget.style.background = 'var(--bg-tertiary)'; }}
+                        onMouseLeave={e => { if (!isFolderSelected) e.currentTarget.style.background = 'transparent'; }}
+                        onClick={() => !isRenaming && setSelectedAccount(account.id, folder.path)}
+                        onContextMenu={e => openFolderCtxMenu(e, account.id, folder)}
+                        onDragOver={event => {
+                          if (handleFolderOrderDragOver(event, folder.path, siblings)) return;
+                          event.preventDefault();
+                          event.dataTransfer.dropEffect = 'move';
+                          setMsgDragTarget(`${account.id}:${folder.path}`);
+                        }}
+                        onDragLeave={event => {
+                          if (event.currentTarget.contains(event.relatedTarget)) return;
+                          setMsgDragTarget(null);
+                          if (
+                            folderDropTarget?.accountId === account.id
+                            && folderDropTarget.path === folder.path
+                          ) setFolderDropTarget(null);
+                        }}
+                        onDrop={event => {
+                          if (handleFolderOrderDrop(event, folder.path)) return;
+                          handleMsgDrop(event, folder.path);
+                        }}
+                      >
+                        {canReorder ? (
+                          <span
+                            draggable
+                            onDragStart={event => handleFolderOrderDragStart(event, folder.path)}
+                            onDragEnd={clearFolderDrag}
+                            title={t('sidebar.reorderFolder', 'Drag to reorder folder')}
+                            style={{
+                              color: 'var(--text-tertiary)', flexShrink: 0,
+                              display: 'flex', opacity: 0.4, cursor: 'grab',
+                            }}
+                          >
+                            <svg width="10" height="14" viewBox="0 0 10 14" fill="currentColor">
+                              <circle cx="2" cy="2" r="1.5"/><circle cx="8" cy="2" r="1.5"/>
+                              <circle cx="2" cy="7" r="1.5"/><circle cx="8" cy="7" r="1.5"/>
+                              <circle cx="2" cy="12" r="1.5"/><circle cx="8" cy="12" r="1.5"/>
+                            </svg>
+                          </span>
+                        ) : !isMobile && (
+                          // Keep single-child rows aligned with siblings that have a
+                          // drag handle — without this spacer the missing handle
+                          // visually cancels the depth indent.
+                          <span style={{ width: 10, flexShrink: 0 }} />
+                        )}
+                        {/* Chevron toggle for parent folders; invisible spacer for leaf folders to align icons */}
+                        {hasChildren ? (
+                          <button
+                            onClick={e => { e.stopPropagation(); toggleCollapsedFolder(account.id, folder.path); }}
+                            style={{
+                              background: 'none', border: 'none', padding: 2, margin: 0, flexShrink: 0,
+                              color: 'var(--text-tertiary)', cursor: 'pointer',
+                              display: 'flex', alignItems: 'center',
+                              transform: isExpanded ? 'rotate(90deg)' : 'none',
+                              transition: 'transform 0.15s',
+                            }}
+                          >
+                            <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
+                              <polyline points="9 18 15 12 9 6"/>
+                            </svg>
+                          </button>
+                        ) : (
+                          <span style={{ width: 14, flexShrink: 0 }} />
+                        )}
+
+                        <span style={{ color: 'var(--text-tertiary)', flexShrink: 0, display: 'flex' }}>
+                          {folderIcon(folder.path, folder.special_use, account.folder_mappings)}
+                        </span>
+
+                        {isRenaming ? (
+                          <input
+                            ref={renameInputRef}
+                            value={renamingFolder.value}
+                            onChange={e => setRenamingFolder(prev => ({ ...prev, value: e.target.value }))}
+                            onKeyDown={e => {
+                              if (e.key === 'Enter') handleRenameSubmit();
+                              if (e.key === 'Escape') setRenamingFolder(null);
+                              e.stopPropagation();
+                            }}
+                            onClick={e => e.stopPropagation()}
+                            style={{
+                              flex: 1, fontSize: 12, background: 'var(--bg-primary)',
+                              border: '1px solid var(--accent)', borderRadius: 4,
+                              color: 'var(--text-primary)', padding: '2px 6px', outline: 'none', minWidth: 0,
+                            }}
+                          />
+                        ) : (
+                          <span style={{
+                            fontSize: 12, color: 'var(--text-secondary)',
+                            flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
+                          }}>
+                            {folderLabel(folder, t, account.folder_mappings)}
+                          </span>
+                        )}
+
+                        {isRenaming ? (
+                          <div style={{ display: 'flex', gap: 2, flexShrink: 0 }} onClick={e => e.stopPropagation()}>
+                            <button onClick={handleRenameSubmit} disabled={folderOpLoading} style={{ background: 'var(--accent)', border: 'none', borderRadius: 4, color: 'var(--accent-text)', padding: '2px 6px', cursor: 'pointer', fontSize: 11 }}>
+                              {folderOpLoading ? '…' : '✓'}
+                            </button>
+                            <button onClick={() => setRenamingFolder(null)} style={{ background: 'var(--bg-tertiary)', border: 'none', borderRadius: 4, color: 'var(--text-secondary)', padding: '2px 6px', cursor: 'pointer', fontSize: 11 }}>✕</button>
+                          </div>
+                        ) : (
+                          folder.unread_count > 0 && (
+                            <span style={{ fontSize: 10, color: 'var(--text-tertiary)', background: 'var(--bg-elevated)', padding: '1px 5px', borderRadius: 8, flexShrink: 0 }}>
+                              {folder.unread_count}
+                            </span>
+                          )
+                        )}
+                      </div>
+
+                      {/* Children — shown when expanded */}
+                      {hasChildren && isExpanded && (
+                        <>
+                          {visibleChildren.map(child => renderNode(child, depth + 1, visibleChildren))}
+                          {creatingFolder?.accountId === account.id && creatingFolder?.parentPath === folder.path &&
+                            createFolderInput(BASE_INDENT + (depth + 1) * DEPTH_INDENT)}
+                        </>
+                      )}
+                    </div>
+                  );
+                };
+
+                const tree = buildFolderTree(accountFolders, folderOrder[account.id]);
+                const visibleTree = showingHidden
+                  ? tree
+                  : tree.filter(node => !accountHiddenPaths.includes(node.path));
+                return (
+                  <div>
+                    {visibleTree.map(node => renderNode(node, 0, visibleTree))}
+                    {/* Show/hide hidden folders toggle */}
+                    {accountHiddenPaths.length > 0 && (
+                      <button
+                        onClick={() => toggleShowHidden(account.id)}
+                        style={{
+                          display: 'flex', alignItems: 'center', gap: 6,
+                          padding: '4px 10px 4px 26px', borderRadius: 7,
+                          background: 'none', border: 'none', cursor: 'pointer',
+                          color: showingHidden ? 'var(--accent)' : 'var(--text-tertiary)',
+                          fontSize: 11, width: '100%', transition: 'color 0.1s',
+                        }}
+                        onMouseEnter={e => e.currentTarget.style.color = showingHidden ? 'var(--accent)' : 'var(--text-secondary)'}
+                        onMouseLeave={e => e.currentTarget.style.color = showingHidden ? 'var(--accent)' : 'var(--text-tertiary)'}
+                      >
+                        <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                          {showingHidden
+                            ? <><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></>
+                            : <><path d="M17.94 17.94A10.07 10.07 0 0112 20c-7 0-11-8-11-8a18.45 18.45 0 015.06-5.94M9.9 4.24A9.12 9.12 0 0112 4c7 0 11 8 11 8a18.5 18.5 0 01-2.16 3.19m-6.72-1.07a3 3 0 11-4.24-4.24"/><line x1="1" y1="1" x2="23" y2="23"/></>
+                          }
+                        </svg>
+                        {showingHidden ? t('sidebar.hideHidden') : t('sidebar.hiddenFolders', { count: accountHiddenPaths.length })}
+                      </button>
+                    )}
+                    {/* Root-level create or "New folder" button */}
+                    {creatingFolder?.accountId === account.id && !creatingFolder?.parentPath
+                      ? createFolderInput(BASE_INDENT)
+                      : (
+                        <button
+                          onClick={() => handleStartCreateFolder(account.id)}
+                          style={{
+                            display: 'flex', alignItems: 'center', gap: 8,
+                            padding: '5px 10px 5px 26px', borderRadius: 7,
+                            background: 'none', border: 'none', cursor: 'pointer',
+                            color: 'var(--text-tertiary)', fontSize: 11, width: '100%',
+                            transition: 'color 0.1s',
+                          }}
+                          onMouseEnter={e => e.currentTarget.style.color = 'var(--text-secondary)'}
+                          onMouseLeave={e => e.currentTarget.style.color = 'var(--text-tertiary)'}
+                        >
+                          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                            <line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/>
+                          </svg>
+                          {t('sidebar.newFolder')}
+                        </button>
+                      )
+                    }
+                  </div>
+                );
+              })()}
+            </div>
+          );
+        })}
+      </nav>
+
         {/* Favorites section */}
         {!sidebarCollapsed && favoriteFolders.length > 0 && (() => {
           const visibleFaves = favoriteFolders.filter(({ accountId }) => accounts.some(a => a.id === accountId));
@@ -949,7 +1382,7 @@ export default function Sidebar() {
                 if (!account) return null;
                 const accountFolders = folders[accountId] || [];
                 const folderObj = accountFolders.find(f => f.path === path);
-                const isActive = selectedAccountId === accountId && selectedFolder === path;
+                const isActive = !showContacts && !showCalendar && selectedAccountId === accountId && selectedFolder === path;
                 const unreadCount = folderObj?.unread_count || 0;
                 const isRenamingThis = renamingFav?.accountId === accountId && renamingFav?.path === path;
                 const isDragging = favDragIdx === idx;
@@ -1102,7 +1535,7 @@ export default function Sidebar() {
                       />
                     ) : (
                       <span style={{ fontSize: 13, fontWeight: isActive ? 500 : 400, flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                        {label || folderObj?.name || path.split('/').pop() || path}
+                        {label || folderLabel(folderObj || { path }, t, account.folder_mappings)}
                       </span>
                     )}
                     <div style={{ display: 'flex', alignItems: 'center', gap: 5, flexShrink: 0 }}>
@@ -1142,439 +1575,14 @@ export default function Sidebar() {
           );
         })()}
 
-        {/* Per-account */}
-        {accounts.map(account => {
-          const unread = unreadCounts.byAccount[account.id] || 0;
-          const expanded = expandedAccounts[account.id];
-          const isSelected = selectedAccountId === account.id;
-          const accountFolders = folders[account.id] || [];
-
-          const selectInbox = () => setSelectedAccount(account.id, 'INBOX');
-          const rowLabel = collapsedTooltip(account.email_address, sidebarCollapsed);
-
-          return (
-            <div key={account.id}>
-              {/* Only the collapsed row may carry a button role: expanded, it holds
-                  the expand toggle, and a button cannot nest inside a button. */}
-              <div
-                style={{
-                  display: 'flex', alignItems: 'center', gap: 8,
-                  padding: sidebarCollapsed ? '8px' : '7px 10px',
-                  borderRadius: 7, cursor: 'pointer',
-                  background: isSelected && selectedFolder === 'INBOX'
-                    ? 'var(--bg-hover)' : 'transparent',
-                  transition: 'background 0.1s',
-                  justifyContent: sidebarCollapsed ? 'center' : 'flex-start',
-                }}
-                onMouseEnter={e => {
-                  if (!(isSelected && selectedFolder === 'INBOX'))
-                    e.currentTarget.style.background = 'var(--bg-tertiary)';
-                }}
-                onMouseLeave={e => {
-                  if (!(isSelected && selectedFolder === 'INBOX'))
-                    e.currentTarget.style.background = 'transparent';
-                }}
-                onClick={selectInbox}
-                onContextMenu={!sidebarCollapsed ? (e) => openAccountCtxMenu(e, account) : undefined}
-                title={rowLabel}
-                aria-label={rowLabel}
-                role={sidebarCollapsed ? 'button' : undefined}
-                tabIndex={sidebarCollapsed ? 0 : undefined}
-                onKeyDown={sidebarCollapsed ? activateOnKey(selectInbox) : undefined}
-              >
-                {/* Account indicator */}
-                {sidebarCollapsed ? (
-                  <div style={{
-                    width: 28, height: 28, borderRadius: 7,
-                    background: account.color + '22',
-                    border: `1px solid ${account.color}66`,
-                    flexShrink: 0,
-                    display: 'flex', alignItems: 'center', justifyContent: 'center',
-                    fontSize: 12, fontWeight: 600, color: account.color,
-                    outline: account.sync_error ? '2px solid rgba(248,113,113,0.5)' : 'none',
-                    userSelect: 'none',
-                  }}>
-                    {(account.name || account.email_address || '?').charAt(0).toUpperCase()}
-                  </div>
-                ) : (
-                  <div style={{
-                    width: 8, height: 8, borderRadius: '50%',
-                    background: account.color, flexShrink: 0,
-                    boxShadow: account.sync_error ? '0 0 0 2px rgba(248,113,113,0.4)' : 'none',
-                  }} />
-                )}
-
-                {!sidebarCollapsed && (
-                  <>
-                    <div style={{ flex: 1, minWidth: 0 }}>
-                      <div style={{
-                        fontSize: 13, color: 'var(--text-primary)',
-                        whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis',
-                        fontWeight: unread > 0 ? 500 : 400,
-                      }}>
-                        {account.name}
-                      </div>
-                      {!account.sync_error && (
-                        <div style={{
-                          fontSize: 11, color: 'var(--text-tertiary)',
-                          whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis',
-                        }}>
-                          {account.email_address}
-                        </div>
-                      )}
-                      {account.sync_error && (
-                        <div style={{ fontSize: 11, color: 'var(--red)' }}>
-                          {t('sidebar.connectionError')}
-                        </div>
-                      )}
-                    </div>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: 4, flexShrink: 0 }}>
-                      {unread > 0 && (
-                        <span style={{
-                          fontSize: 11, fontWeight: 600, color: 'white',
-                          background: account.color, padding: '1px 6px',
-                          borderRadius: 10, minWidth: 20, textAlign: 'center',
-                        }}>
-                          {unread > 999 ? '999+' : unread}
-                        </span>
-                      )}
-                      {/* Expand toggle */}
-                      <button
-                        onClick={e => { e.stopPropagation(); toggleAccount(account.id); }}
-                        style={{
-                          background: 'none', border: 'none', padding: 2,
-                          color: 'var(--text-tertiary)', cursor: 'pointer',
-                          display: 'flex', alignItems: 'center',
-                          transform: expanded ? 'rotate(90deg)' : 'none',
-                          transition: 'transform 0.15s',
-                        }}
-                      >
-                        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                          <polyline points="9 18 15 12 9 6"/>
-                        </svg>
-                      </button>
-                    </div>
-                  </>
-                )}
-              </div>
-
-              {/* Folder tree */}
-              {expanded && !sidebarCollapsed && (() => {
-                const BASE_INDENT = 26;
-                const DEPTH_INDENT = 14;
-
-                const createFolderInput = (indent) => (
-                  <div style={{
-                    display: 'flex', alignItems: 'center', gap: 8,
-                    padding: `6px 10px 6px ${indent}px`, borderRadius: 7,
-                  }}>
-                    <span style={{ color: 'var(--text-tertiary)', flexShrink: 0, display: 'flex' }}>{ICONS.folder}</span>
-                    <input
-                      ref={createInputRef}
-                      value={createName}
-                      onChange={e => setCreateName(e.target.value)}
-                      placeholder={creatingFolder?.parentPath ? t('sidebar.subfolderPh') : t('sidebar.folderPh')}
-                      onKeyDown={e => {
-                        if (e.key === 'Enter') handleCreateFolderSubmit();
-                        if (e.key === 'Escape') { setCreatingFolder(null); setCreateName(''); }
-                        e.stopPropagation();
-                      }}
-                      style={{
-                        flex: 1, fontSize: 12, background: 'var(--bg-primary)',
-                        border: '1px solid var(--accent)', borderRadius: 4,
-                        color: 'var(--text-primary)', padding: '2px 6px', outline: 'none', minWidth: 0,
-                      }}
-                    />
-                    <div style={{ display: 'flex', gap: 2, flexShrink: 0 }}>
-                      <button onClick={handleCreateFolderSubmit} style={{ background: 'var(--accent)', border: 'none', borderRadius: 4, color: 'var(--accent-text)', padding: '2px 6px', cursor: 'pointer', fontSize: 11 }}>✓</button>
-                      <button onClick={() => { setCreatingFolder(null); setCreateName(''); }} style={{ background: 'var(--bg-tertiary)', border: 'none', borderRadius: 4, color: 'var(--text-secondary)', padding: '2px 6px', cursor: 'pointer', fontSize: 11 }}>✕</button>
-                    </div>
-                  </div>
-                );
-
-                const accountHiddenPaths = hiddenFolders[account.id] || [];
-                const showingHidden = showHiddenFor.has(account.id);
-
-                const handleFolderOrderDragStart = (event, path) => {
-                  event.stopPropagation();
-                  event.dataTransfer.effectAllowed = 'move';
-                  event.dataTransfer.setData(
-                    FOLDER_ORDER_DRAG_TYPE,
-                    JSON.stringify({ accountId: account.id, path }),
-                  );
-                  setMsgDragTarget(null);
-                  setFolderDrag({ accountId: account.id, path });
-                  setFolderDropTarget(null);
-                };
-
-                const handleFolderOrderDragOver = (event, path, siblings) => {
-                  if (!event.dataTransfer.types.includes(FOLDER_ORDER_DRAG_TYPE)) return false;
-                  event.preventDefault();
-                  event.stopPropagation();
-                  const validTarget = (
-                    folderDrag?.accountId === account.id
-                    && folderDrag.path !== path
-                    && siblings.some(sibling => sibling.path === folderDrag.path)
-                  );
-                  event.dataTransfer.dropEffect = validTarget ? 'move' : 'none';
-                  if (!validTarget) {
-                    setFolderDropTarget(null);
-                    return true;
-                  }
-                  setFolderDropTarget({
-                    accountId: account.id,
-                    path,
-                    position: folderDropPosition(
-                      event.clientY,
-                      event.currentTarget.getBoundingClientRect(),
-                    ),
-                  });
-                  return true;
-                };
-
-                const handleFolderOrderDrop = (event, path) => {
-                  if (!event.dataTransfer.types.includes(FOLDER_ORDER_DRAG_TYPE)) return false;
-                  event.preventDefault();
-                  event.stopPropagation();
-                  const next = resolveFolderOrderDrop(
-                    accountFolders,
-                    folderOrder[account.id],
-                    event.dataTransfer,
-                    account.id,
-                    path,
-                    event.clientY,
-                    event.currentTarget.getBoundingClientRect(),
-                  );
-                  if (next) setFolderOrder(account.id, next);
-                  clearFolderDrag();
-                  return true;
-                };
-
-                const renderNode = (node, depth, siblings) => {
-                  const { children, ...folder } = node;
-                  const isHidden = accountHiddenPaths.includes(folder.path);
-                  if (isHidden && !showingHidden) return null;
-
-                  const isRenaming = renamingFolder?.accountId === account.id && renamingFolder?.path === folder.path;
-                  const isFolderSelected = selectedAccountId === account.id && selectedFolder === folder.path;
-                  const visibleChildren = showingHidden ? children : children.filter(c => !accountHiddenPaths.includes(c.path));
-                  const hasChildren = visibleChildren.length > 0;
-                  const collapseKey = `${account.id}:${folder.path}`;
-                  const isExpanded = !collapsedFolders.includes(collapseKey);
-                  const indent = BASE_INDENT + depth * DEPTH_INDENT;
-                  const canReorder = !isMobile && siblings.length >= 2;
-                  const dropPosition = (
-                    folderDropTarget?.accountId === account.id
-                    && folderDropTarget.path === folder.path
-                  ) ? folderDropTarget.position : null;
-
-                  return (
-                    <div key={folder.path} style={isHidden ? { opacity: 0.45 } : undefined}>
-                      <div
-                        style={{
-                          display: 'flex', alignItems: 'center', gap: 6,
-                          padding: `6px 10px 6px ${indent}px`, borderRadius: 7,
-                          cursor: isRenaming ? 'default' : 'pointer',
-                          background: (msgDragTarget === `${account.id}:${folder.path}`) ? 'var(--accent-dim)' : isFolderSelected ? 'var(--bg-hover)' : 'transparent',
-                          transition: 'background 0.1s',
-                          boxShadow: dropPosition === 'before'
-                            ? 'inset 0 2px var(--accent)'
-                            : dropPosition === 'after'
-                              ? 'inset 0 -2px var(--accent)'
-                              : 'none',
-                        }}
-                        onMouseEnter={e => { if (!isFolderSelected && !isRenaming) e.currentTarget.style.background = 'var(--bg-tertiary)'; }}
-                        onMouseLeave={e => { if (!isFolderSelected) e.currentTarget.style.background = 'transparent'; }}
-                        onClick={() => !isRenaming && setSelectedAccount(account.id, folder.path)}
-                        onContextMenu={e => openFolderCtxMenu(e, account.id, folder)}
-                        onDragOver={event => {
-                          if (handleFolderOrderDragOver(event, folder.path, siblings)) return;
-                          event.preventDefault();
-                          event.dataTransfer.dropEffect = 'move';
-                          setMsgDragTarget(`${account.id}:${folder.path}`);
-                        }}
-                        onDragLeave={event => {
-                          if (event.currentTarget.contains(event.relatedTarget)) return;
-                          setMsgDragTarget(null);
-                          if (
-                            folderDropTarget?.accountId === account.id
-                            && folderDropTarget.path === folder.path
-                          ) setFolderDropTarget(null);
-                        }}
-                        onDrop={event => {
-                          if (handleFolderOrderDrop(event, folder.path)) return;
-                          handleMsgDrop(event, folder.path);
-                        }}
-                      >
-                        {canReorder ? (
-                          <span
-                            draggable
-                            onDragStart={event => handleFolderOrderDragStart(event, folder.path)}
-                            onDragEnd={clearFolderDrag}
-                            title={t('sidebar.reorderFolder', 'Drag to reorder folder')}
-                            style={{
-                              color: 'var(--text-tertiary)', flexShrink: 0,
-                              display: 'flex', opacity: 0.4, cursor: 'grab',
-                            }}
-                          >
-                            <svg width="10" height="14" viewBox="0 0 10 14" fill="currentColor">
-                              <circle cx="2" cy="2" r="1.5"/><circle cx="8" cy="2" r="1.5"/>
-                              <circle cx="2" cy="7" r="1.5"/><circle cx="8" cy="7" r="1.5"/>
-                              <circle cx="2" cy="12" r="1.5"/><circle cx="8" cy="12" r="1.5"/>
-                            </svg>
-                          </span>
-                        ) : !isMobile && (
-                          // Keep single-child rows aligned with siblings that have a
-                          // drag handle — without this spacer the missing handle
-                          // visually cancels the depth indent.
-                          <span style={{ width: 10, flexShrink: 0 }} />
-                        )}
-                        {/* Chevron toggle for parent folders; invisible spacer for leaf folders to align icons */}
-                        {hasChildren ? (
-                          <button
-                            onClick={e => { e.stopPropagation(); toggleCollapsedFolder(account.id, folder.path); }}
-                            style={{
-                              background: 'none', border: 'none', padding: 2, margin: 0, flexShrink: 0,
-                              color: 'var(--text-tertiary)', cursor: 'pointer',
-                              display: 'flex', alignItems: 'center',
-                              transform: isExpanded ? 'rotate(90deg)' : 'none',
-                              transition: 'transform 0.15s',
-                            }}
-                          >
-                            <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
-                              <polyline points="9 18 15 12 9 6"/>
-                            </svg>
-                          </button>
-                        ) : (
-                          <span style={{ width: 14, flexShrink: 0 }} />
-                        )}
-
-                        <span style={{ color: 'var(--text-tertiary)', flexShrink: 0, display: 'flex' }}>
-                          {folderIcon(folder.path, folder.special_use, account.folder_mappings)}
-                        </span>
-
-                        {isRenaming ? (
-                          <input
-                            ref={renameInputRef}
-                            value={renamingFolder.value}
-                            onChange={e => setRenamingFolder(prev => ({ ...prev, value: e.target.value }))}
-                            onKeyDown={e => {
-                              if (e.key === 'Enter') handleRenameSubmit();
-                              if (e.key === 'Escape') setRenamingFolder(null);
-                              e.stopPropagation();
-                            }}
-                            onClick={e => e.stopPropagation()}
-                            style={{
-                              flex: 1, fontSize: 12, background: 'var(--bg-primary)',
-                              border: '1px solid var(--accent)', borderRadius: 4,
-                              color: 'var(--text-primary)', padding: '2px 6px', outline: 'none', minWidth: 0,
-                            }}
-                          />
-                        ) : (
-                          <span style={{
-                            fontSize: 12, color: 'var(--text-secondary)',
-                            flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
-                          }}>
-                            {folder.name}
-                          </span>
-                        )}
-
-                        {isRenaming ? (
-                          <div style={{ display: 'flex', gap: 2, flexShrink: 0 }} onClick={e => e.stopPropagation()}>
-                            <button onClick={handleRenameSubmit} disabled={folderOpLoading} style={{ background: 'var(--accent)', border: 'none', borderRadius: 4, color: 'var(--accent-text)', padding: '2px 6px', cursor: 'pointer', fontSize: 11 }}>
-                              {folderOpLoading ? '…' : '✓'}
-                            </button>
-                            <button onClick={() => setRenamingFolder(null)} style={{ background: 'var(--bg-tertiary)', border: 'none', borderRadius: 4, color: 'var(--text-secondary)', padding: '2px 6px', cursor: 'pointer', fontSize: 11 }}>✕</button>
-                          </div>
-                        ) : (
-                          folder.unread_count > 0 && (
-                            <span style={{ fontSize: 10, color: 'var(--text-tertiary)', background: 'var(--bg-elevated)', padding: '1px 5px', borderRadius: 8, flexShrink: 0 }}>
-                              {folder.unread_count}
-                            </span>
-                          )
-                        )}
-                      </div>
-
-                      {/* Children — shown when expanded */}
-                      {hasChildren && isExpanded && (
-                        <>
-                          {visibleChildren.map(child => renderNode(child, depth + 1, visibleChildren))}
-                          {creatingFolder?.accountId === account.id && creatingFolder?.parentPath === folder.path &&
-                            createFolderInput(BASE_INDENT + (depth + 1) * DEPTH_INDENT)}
-                        </>
-                      )}
-                    </div>
-                  );
-                };
-
-                const tree = buildFolderTree(accountFolders, folderOrder[account.id]);
-                const visibleTree = showingHidden
-                  ? tree
-                  : tree.filter(node => !accountHiddenPaths.includes(node.path));
-                return (
-                  <div>
-                    {visibleTree.map(node => renderNode(node, 0, visibleTree))}
-                    {/* Show/hide hidden folders toggle */}
-                    {accountHiddenPaths.length > 0 && (
-                      <button
-                        onClick={() => toggleShowHidden(account.id)}
-                        style={{
-                          display: 'flex', alignItems: 'center', gap: 6,
-                          padding: '4px 10px 4px 26px', borderRadius: 7,
-                          background: 'none', border: 'none', cursor: 'pointer',
-                          color: showingHidden ? 'var(--accent)' : 'var(--text-tertiary)',
-                          fontSize: 11, width: '100%', transition: 'color 0.1s',
-                        }}
-                        onMouseEnter={e => e.currentTarget.style.color = showingHidden ? 'var(--accent)' : 'var(--text-secondary)'}
-                        onMouseLeave={e => e.currentTarget.style.color = showingHidden ? 'var(--accent)' : 'var(--text-tertiary)'}
-                      >
-                        <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                          {showingHidden
-                            ? <><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></>
-                            : <><path d="M17.94 17.94A10.07 10.07 0 0112 20c-7 0-11-8-11-8a18.45 18.45 0 015.06-5.94M9.9 4.24A9.12 9.12 0 0112 4c7 0 11 8 11 8a18.5 18.5 0 01-2.16 3.19m-6.72-1.07a3 3 0 11-4.24-4.24"/><line x1="1" y1="1" x2="23" y2="23"/></>
-                          }
-                        </svg>
-                        {showingHidden ? t('sidebar.hideHidden') : t('sidebar.hiddenFolders', { count: accountHiddenPaths.length })}
-                      </button>
-                    )}
-                    {/* Root-level create or "New folder" button */}
-                    {creatingFolder?.accountId === account.id && !creatingFolder?.parentPath
-                      ? createFolderInput(BASE_INDENT)
-                      : (
-                        <button
-                          onClick={() => handleStartCreateFolder(account.id)}
-                          style={{
-                            display: 'flex', alignItems: 'center', gap: 8,
-                            padding: '5px 10px 5px 26px', borderRadius: 7,
-                            background: 'none', border: 'none', cursor: 'pointer',
-                            color: 'var(--text-tertiary)', fontSize: 11, width: '100%',
-                            transition: 'color 0.1s',
-                          }}
-                          onMouseEnter={e => e.currentTarget.style.color = 'var(--text-secondary)'}
-                          onMouseLeave={e => e.currentTarget.style.color = 'var(--text-tertiary)'}
-                        >
-                          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                            <line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/>
-                          </svg>
-                          {t('sidebar.newFolder')}
-                        </button>
-                      )
-                    }
-                  </div>
-                );
-              })()}
-            </div>
-          );
-        })}
-      </nav>
-
       {/* Bottom — mobile: inline user section; desktop: user menu button */}
       {isMobile ? (
         <div style={{ borderTop: '1px solid var(--border-subtle)', flexShrink: 0 }}>
           {/* User identity — tap to expand/collapse actions */}
-          <div
+          <button type="button" data-testid="sidebar-user-menu" aria-expanded={bottomExpanded}
             onClick={() => setBottomExpanded(prev => !prev)}
             style={{
+              width: '100%', border: 0, background: 'transparent', textAlign: 'left', color: 'var(--text-primary)',
               display: 'flex', alignItems: 'center', gap: 10,
               paddingTop: 12, paddingLeft: 14, paddingRight: 14,
               paddingBottom: bottomExpanded ? 10 : 'calc(var(--sab) + 10px)',
@@ -1616,7 +1624,7 @@ export default function Sidebar() {
               style={{ flexShrink: 0, color: 'var(--text-tertiary)', transform: bottomExpanded ? 'rotate(180deg)' : 'none', transition: 'transform 0.2s' }}>
               <polyline points="6 9 12 15 18 9"/>
             </svg>
-          </div>
+          </button>
 
           {bottomExpanded && (
           <>
@@ -1682,7 +1690,7 @@ export default function Sidebar() {
 
           {/* Edit Profile */}
           <div
-            onClick={() => { setShowProfile(true); setMobileSidebarOpen(false); }}
+            onClick={() => { if (onEditProfile) onEditProfile(); else setShowProfile(true); setMobileSidebarOpen(false); }}
             style={{
               display: 'flex', alignItems: 'center', gap: 10,
               padding: '8px 14px', cursor: 'pointer',
@@ -1701,10 +1709,11 @@ export default function Sidebar() {
           </div>
 
           {/* Settings */}
-          <div
+          <button type="button"
             data-testid="mobile-settings"
             onClick={() => { setAdminTab('accounts'); setShowAdmin(true); setMobileSidebarOpen(false); }}
             style={{
+              width: '100%', border: 0, background: 'transparent', textAlign: 'left',
               display: 'flex', alignItems: 'center', gap: 10,
               padding: '8px 14px', cursor: 'pointer',
               WebkitTapHighlightColor: 'transparent',
@@ -1723,7 +1732,7 @@ export default function Sidebar() {
             <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="var(--text-tertiary)" strokeWidth="2" style={{ flexShrink: 0 }}>
               <polyline points="9 18 15 12 9 6"/>
             </svg>
-          </div>
+          </button>
 
           {/* Update available (#261) */}
           {updateInfo?.updateAvailable && (
@@ -1792,10 +1801,11 @@ export default function Sidebar() {
       ) : (
         <>
           <div style={{ padding: '8px', borderTop: '1px solid var(--border-subtle)' }}>
-          <div
+          <button type="button" data-testid="sidebar-user-menu" aria-expanded={userMenuOpen}
             ref={userMenuBtnRef}
             onClick={openUserMenu}
             style={{
+              width: '100%', border: 0, textAlign: 'left', color: 'var(--text-primary)',
               display: 'flex', alignItems: 'center',
               gap: 8, padding: sidebarCollapsed ? '7px' : '7px 10px',
               borderRadius: 8, cursor: 'pointer',
@@ -1833,7 +1843,7 @@ export default function Sidebar() {
                 </svg>
               </>
             )}
-          </div>
+          </button>
         </div>
         </>
       )}
@@ -1960,7 +1970,7 @@ export default function Sidebar() {
         <SidebarCtxMenu
           x={folderCtxMenu.x}
           y={folderCtxMenu.y}
-          title={folderCtxMenu.folderObj.name}
+          title={folderLabel(folderCtxMenu.folderObj, t, accounts.find(a => a.id === folderCtxMenu.accountId)?.folder_mappings)}
           subtitle={folderCtxMenu.folderObj.path}
           items={buildFolderMenuItems(folderCtxMenu.accountId, folderCtxMenu.folderObj)}
           onClose={() => setFolderCtxMenu(null)}
@@ -2021,6 +2031,7 @@ function NavItem({ testId, icon, label, active, collapsed, badge, onClick }) {
     <div
       className={active ? 'nav-item nav-item-active' : 'nav-item'}
       data-testid={testId}
+      aria-current={active ? 'page' : undefined}
       onClick={onClick}
       onKeyDown={activateOnKey(onClick)}
       role="button"
@@ -2031,7 +2042,7 @@ function NavItem({ testId, icon, label, active, collapsed, badge, onClick }) {
         display: 'flex', alignItems: 'center',
         gap: 8, padding: collapsed ? '9px' : '8px 10px',
         borderRadius: 7, cursor: 'pointer',
-        background: active ? 'var(--bg-hover)' : 'transparent',
+        background: active ? 'var(--accent-dim)' : 'transparent',
         color: active ? 'var(--text-primary)' : 'var(--text-secondary)',
         transition: 'background 0.1s, color 0.1s',
         justifyContent: collapsed ? 'center' : 'flex-start',
@@ -2044,15 +2055,16 @@ function NavItem({ testId, icon, label, active, collapsed, badge, onClick }) {
         if (!active) { e.currentTarget.style.background = 'transparent'; e.currentTarget.style.color = 'var(--text-secondary)'; }
       }}
     >
-      <span style={{ flexShrink: 0 }}>{icon}</span>
+      <span style={{ flexShrink: 0, display: 'inline-flex', color: active ? 'var(--accent)' : 'inherit' }}>{icon}</span>
       {!collapsed && (
         <>
           <span style={{ fontSize: 13, fontWeight: active ? 500 : 400, flex: 1 }}>{label}</span>
           {badge > 0 && (
             <span style={{
-              fontSize: 11, fontWeight: 600, color: 'var(--accent-text)',
-              background: 'var(--accent)', padding: '1px 7px',
-              borderRadius: 10, minWidth: 20, textAlign: 'center',
+              fontFamily: 'var(--font-mono, ui-monospace, monospace)',
+              fontSize: 10, fontWeight: 600, color: 'var(--accent-text)',
+              background: 'var(--accent)', padding: '1px 6px',
+              borderRadius: 9, minWidth: 18, textAlign: 'center',
             }}>
               {badge > 999 ? '999+' : badge}
             </span>

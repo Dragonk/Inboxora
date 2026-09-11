@@ -12,7 +12,7 @@ export function providerNamespace({ provider, accountId, host }) {
 
 export function classifyProviderHost(host = '') {
   const value = String(host).toLowerCase();
-  if (value.includes('gmail')) return 'gmail';
+  if (/gmail|googlemail/.test(value)) return 'gmail';
   if (/outlook|office365|microsoft|exchange|hotmail|live\.com/.test(value)) return 'outlook';
   return 'generic';
 }
@@ -25,8 +25,8 @@ export function parseProviderMetadata(msg, account) {
   // Keep that value provider-neutral; only the legacy xGm* aliases are explicitly
   // identified as Gmail extensions. This prevents OBJECTID from being mislabeled
   // as X-GM-MSGID while retaining compatibility with older fixtures.
-  const msgId = attributes.emailId ?? attributes.xGmMsgId ?? attributes['x-gm-msgid'] ?? attributes.x_gm_msgid ?? null;
-  const threadId = attributes.threadId ?? attributes.xGmThrid ?? attributes['x-gm-thrid'] ?? attributes.x_gm_thrid ?? null;
+  const msgId = attributes.emailId ?? attributes.xGmMsgId ?? attributes['x-gm-msgid'] ?? attributes.x_gm_msgid ?? msg?.provider_message_id ?? null;
+  const threadId = attributes.threadId ?? attributes.xGmThrid ?? attributes['x-gm-thrid'] ?? attributes.x_gm_thrid ?? msg?.provider_thread_id ?? null;
   const safeMsgId = toScalar(msgId);
   const safeThreadId = toScalar(threadId);
   const legacyGmailMsgId = attributes.xGmMsgId ?? attributes['x-gm-msgid'] ?? attributes.x_gm_msgid;

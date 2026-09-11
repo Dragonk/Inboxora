@@ -11,7 +11,7 @@ fs.copyFileSync(shellIndex, distIndex);
 
 const hostUnavailableHtml = fs
   .readFileSync(shellHostUnavailable, 'utf8')
-  .replace('../electron/icons/512x512.png', 'icon-512.png');
+  .replace('../electron/icons/512x512.png', 'inboxora-icon-512.png');
 fs.writeFileSync(distHostUnavailable, hostUnavailableHtml);
 
 console.log('Prepared native shell in dist/index.html and dist/host-unavailable.html');

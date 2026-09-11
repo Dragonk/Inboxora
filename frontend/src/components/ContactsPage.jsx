@@ -1,9 +1,19 @@
+import MobileFloatingAction from './MobileFloatingAction.jsx';
+import { contactDateLabel, formatContactDate } from '../utils/contactDateLabels.js';
+import { useBackLayer } from '../hooks/useBackNavigation.js';
+import { intlLocale } from '../utils/intlLocale.js';
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { useTranslation } from 'react-i18next';
 import { api } from '../utils/api.js';
 import { useStore } from '../store/index.js';
 import { useMobile } from '../hooks/useMobile.js';
+import { useCompactLayout } from '../hooks/useCompactLayout.js';
+import { Button, Dialog, PanelResizeHandle, inputStyle as sharedInputStyle } from './ui.jsx';
+import { MobileModuleHeader, HeaderAction } from './MobileModuleHeader.jsx';
+import { beginPanelResize } from '../utils/panelWidth.js';
+import './contacts.css';
 import SenderAvatarImage from './SenderAvatarImage.jsx';
+import { safeHttpUrl } from '../utils/contactLinks.js';
 
 // Deterministic avatar color from a string
 function avatarColor(str) {
@@ -48,17 +58,35 @@ function emptyContact() {
     phones: [],
     organization: '',
     notes: '',
+    contactDates: [],
+    title: '',
+    role: '',
+    nickname: '',
+    urls: [],
+    instantMessages: [],
+    categories: [],
+    addresses: [],
   };
 }
 
 const PAGE_SIZE = 100;
 
-export default function ContactsPage() {
+export default function ContactsPage({ isActive = true }) {
   const { t } = useTranslation();
-  const { setShowContacts } = useStore();
-  const isMobile = useMobile();
+  const { showContacts } = useStore();
+  const phone = useMobile();
+  const [booksOpen, setBooksOpen] = useState(false);
+  // The address-book name dialog: null when closed, otherwise the mode and the value
+  // being edited. A real dialog rather than window.prompt, so naming a book looks like
+  // the rest of the app and can show the server's validation error in place.
+  const [bookDialog, setBookDialog] = useState(null);
+  const [bookSaving, setBookSaving] = useState(false);
+  const [bookError, setBookError] = useState(null);
+  const isMobile = useCompactLayout();
 
   const [contacts, setContacts]     = useState([]);
+  const [addressBooks, setAddressBooks] = useState([]);
+  const [selectedAddressBookId, setSelectedAddressBookId] = useState('');
   const [total, setTotal]           = useState(0);
   const [loading, setLoading]       = useState(true);
   const [loadingMore, setLoadingMore] = useState(false);
@@ -74,38 +102,147 @@ export default function ContactsPage() {
   // Mobile: 'list' shows the contact list, 'detail' shows contact/form panel
   const [mobilePanel, setMobilePanel] = useState('list');
   const searchTimer                 = useRef(null);
+  const rowRefs                     = useRef(new Map());
+  const selectedRowIdRef            = useRef(null);
+  const mobileBackButtonRef         = useRef(null);
+  const importInputRef              = useRef(null);
+  const contactSelectionRequestRef  = useRef(0);
+  const listResizeRef               = useRef(null);
+
+  // The contact list resizes with the same shared width the mail list uses, so
+  // widening it in Contacts also widens the mail list (and the calendar panels).
+  const handleListResizeMouseDown = (event) => {
+    listResizeRef.current?.();
+    listResizeRef.current = beginPanelResize(event, { edge: 'right' });
+  };
+  useEffect(() => () => { listResizeRef.current?.(); }, []);
+
+  // A navigation drawer re-entry must not
+  // expose a retained contact detail or new-contact form.
+  useEffect(() => {
+    if (!isMobile) return;
+    contactSelectionRequestRef.current += 1;
+    if (!isActive) return;
+    // Only an explicit in-module back action may restore the activating row.
+    // Re-entering via primary navigation must leave focus on that navigation.
+    selectedRowIdRef.current = null;
+    setMobilePanel('list');
+    setSelected(null);
+    setShowNew(false);
+    setEditing(false);
+    setError(null);
+  }, [isActive, isMobile]);
+
+  useEffect(() => {
+    if (!isMobile) return;
+    if (mobilePanel === 'detail' && selected) {
+      mobileBackButtonRef.current?.focus();
+      return;
+    }
+    if (mobilePanel === 'list' && selectedRowIdRef.current) {
+      const row = rowRefs.current.get(selectedRowIdRef.current);
+      if (row) {
+        row.focus();
+        selectedRowIdRef.current = null;
+      }
+    }
+  }, [contacts, isMobile, mobilePanel, selected]);
 
   // Stable refs used inside scroll handler to avoid stale closures.
   const contactsRef    = useRef([]);
   const totalRef       = useRef(0);
   const loadingMoreRef = useRef(false);
   const searchRef      = useRef('');
+  const listRequestRef = useRef(0);
 
   useEffect(() => { contactsRef.current = contacts; }, [contacts]);
   useEffect(() => { totalRef.current = total; }, [total]);
 
+  const loadAddressBooks = useCallback(async () => {
+    const result = await api.addressBooks.list();
+    // Older servers and test fixtures may not expose address books yet. Contacts
+    // must remain usable while the client and API roll out independently.
+    setAddressBooks(Array.isArray(result.addressBooks) ? result.addressBooks : []);
+  }, []);
+
   const load = useCallback(async (q = '') => {
+    const requestId = ++listRequestRef.current;
+    loadingMoreRef.current = true;
+    setLoadingMore(false);
     setLoading(true);
     setListError(null);
     searchRef.current = q;
     try {
-      const res = await api.getContacts({ q, limit: PAGE_SIZE, offset: 0 });
+      const res = await api.getContacts({ q, limit: PAGE_SIZE, offset: 0, addressBookId: selectedAddressBookId || undefined });
+      if (requestId !== listRequestRef.current) return;
       setContacts(res.contacts);
       setTotal(res.total);
     } catch (err) {
-      setListError(err.message);
+      if (requestId === listRequestRef.current) setListError(err.message);
     } finally {
-      setLoading(false);
+      if (requestId === listRequestRef.current) { setLoading(false); loadingMoreRef.current = false; }
     }
-  }, []);
+  }, [selectedAddressBookId]);
 
-  useEffect(() => { load(''); }, [load]);
+  useEffect(() => {
+    clearTimeout(searchTimer.current);
+    load(searchRef.current);
+    return () => { listRequestRef.current += 1; clearTimeout(searchTimer.current); };
+  }, [load]);
+  useEffect(() => { loadAddressBooks().catch(err => setListError(err.message)); }, [loadAddressBooks]);
 
   const onSearchChange = (e) => {
     const val = e.target.value;
     setSearch(val);
+    searchRef.current = val;
+    listRequestRef.current += 1;
+    loadingMoreRef.current = true;
     clearTimeout(searchTimer.current);
     searchTimer.current = setTimeout(() => load(val), 300);
+  };
+
+  // Both naming flows go through one dialog. Creating and renaming differ only in which
+  // request is sent, so they share the field, the validation message and the keyboard flow.
+  const openCreateBook = () => { setBookError(null); setBookDialog({ mode: 'create', id: null, name: '' }); };
+  const openRenameBook = book => { setBookError(null); setBookDialog({ mode: 'rename', id: book.id, name: book.name }); };
+  const submitBookDialog = async () => {
+    if (!bookDialog || bookSaving) return;
+    const name = bookDialog.name.trim();
+    if (!name) { setBookError(t('contacts.addressBooks.nameRequired')); return; }
+    setBookSaving(true); setBookError(null);
+    try {
+      if (bookDialog.mode === 'create') {
+        const book = await api.addressBooks.create(name);
+        await loadAddressBooks();
+        setSelectedAddressBookId(book.id);
+      } else {
+        // The renamed book stays selected, so the list does not jump to another book.
+        await api.addressBooks.update(bookDialog.id, { name });
+        await loadAddressBooks();
+      }
+      setBookDialog(null);
+    } catch (err) { setBookError(err.message); }
+    finally { setBookSaving(false); }
+  };
+
+  const toggleAddressBookVisibility = async () => {
+    const book = addressBooks.find(item => item.id === selectedAddressBookId);
+    if (!book) return;
+    try {
+      await api.addressBooks.update(book.id, { visible: !book.visible });
+      await loadAddressBooks();
+    } catch (err) { setListError(err.message); }
+  };
+
+  const importGoogleCsv = async (event) => {
+    const file = event.target.files?.[0];
+    if (!file || !selectedAddressBookId) return;
+    try {
+      await api.addressBooks.importGoogleCsv(selectedAddressBookId, await file.text());
+      await load(search);
+      await loadAddressBooks();
+    } catch (err) { setListError(err.message); }
+    finally { event.target.value = ''; }
   };
 
   const handleListScroll = useCallback((e) => {
@@ -116,22 +253,28 @@ export default function ContactsPage() {
     setLoadingMore(true);
     const q = searchRef.current;
     const offset = contactsRef.current.length;
-    api.getContacts({ q, limit: PAGE_SIZE, offset })
+    const requestId = listRequestRef.current;
+    api.getContacts({ q, limit: PAGE_SIZE, offset, addressBookId: selectedAddressBookId || undefined })
       .then(res => {
+        if (requestId !== listRequestRef.current) return;
         setContacts(prev => [...prev, ...res.contacts]);
         setTotal(res.total);
       })
-      .catch(err => console.error('loadMore error:', err))
+      .catch(err => { if (requestId === listRequestRef.current) setListError(err.message); })
       .finally(() => {
+        if (requestId !== listRequestRef.current) return;
         loadingMoreRef.current = false;
         setLoadingMore(false);
       });
-  }, []);
+  }, [selectedAddressBookId]);
 
   const selectContact = async (c) => {
     setError(null);
+    if (isMobile) selectedRowIdRef.current = c.id;
+    const requestId = ++contactSelectionRequestRef.current;
     try {
       const full = await api.getContact(c.id);
+      if (requestId !== contactSelectionRequestRef.current) return;
       setSelected(full);
       setEditing(false);
       setShowNew(false);
@@ -139,11 +282,13 @@ export default function ContactsPage() {
       setError(null);
       if (isMobile) setMobilePanel('detail');
     } catch (err) {
+      if (requestId !== contactSelectionRequestRef.current) return;
       setError(err.message);
     }
   };
 
   const startNew = () => {
+    contactSelectionRequestRef.current += 1;
     setSelected(null);
     setForm(emptyContact());
     setEditing(false);
@@ -154,6 +299,7 @@ export default function ContactsPage() {
   };
 
   const goBackToList = () => {
+    contactSelectionRequestRef.current += 1;
     setMobilePanel('list');
     setSelected(null);
     setShowNew(false);
@@ -171,12 +317,25 @@ export default function ContactsPage() {
       phones:       selected.phones        || [],
       organization: selected.organization  || '',
       notes:        selected.notes         || '',
+      contactDates: selected.contactDates?.length
+        ? selected.contactDates
+        : [
+            selected.birthday && { label: 'Birthday', value: String(selected.birthday).slice(0, 10) },
+            selected.anniversary && { label: 'Anniversary', value: String(selected.anniversary).slice(0, 10) },
+          ].filter(Boolean),
+      title:        selected.title || '',
+      role:         selected.role || '',
+      nickname:     selected.nickname || '',
+      urls:         selected.urls || [],
+      instantMessages: selected.instantMessages || [],
+      categories:   selected.categories || [],
+      addresses:    selected.addresses || [],
     });
     setEditing(true);
     setError(null);
   };
 
-  const cancelEdit = () => {
+  const cancelEdit = useCallback(() => {
     if (showNew) {
       setShowNew(false);
       if (isMobile) setMobilePanel('list');
@@ -184,7 +343,13 @@ export default function ContactsPage() {
       setEditing(false);
     }
     setError(null);
-  };
+  }, [isMobile, showNew]);
+
+  const inForm = editing || showNew;
+
+  useBackLayer(showContacts && isMobile && mobilePanel === 'detail', goBackToList, 30);
+  useBackLayer(showContacts && inForm, () => { if (!saving) cancelEdit(); }, 40);
+  useBackLayer(showContacts && confirmDelete, () => setConfirmDelete(false), 9100);
 
   const saveContact = async () => {
     setSaving(true);
@@ -202,10 +367,18 @@ export default function ContactsPage() {
         phones:       form.phones.filter(p => p.value.trim()),
         organization: form.organization || null,
         notes:        form.notes        || null,
+        contactDates: form.contactDates.filter(date => date.value).map(({ label, value }) => ({ label, value })),
+        title:        form.title || null,
+        role:         form.role || null,
+        nickname:     form.nickname || null,
+        urls:         form.urls.filter(item => item.value.trim()),
+        instantMessages: form.instantMessages.filter(item => item.value.trim()),
+        categories:   form.categories.filter(Boolean),
+        addresses:    form.addresses.filter(address => Object.entries(address).some(([key, value]) => key !== 'type' && value.trim())),
       };
       let saved;
       if (showNew) {
-        saved = await api.createContact(payload);
+        saved = await api.createContact({ ...payload, addressBookId: selectedAddressBookId || undefined });
       } else {
         saved = await api.updateContact(selected.id, payload);
       }
@@ -268,13 +441,87 @@ export default function ContactsPage() {
     ...f, phones: f.phones.filter((_, i) => i !== idx),
   }));
 
-  const inForm = editing || showNew;
+  const setCollection = (key, idx, field, value) => setForm(f => ({
+    ...f,
+    [key]: f[key].map((item, i) => i === idx ? { ...item, [field]: value } : item),
+  }));
+
+  const addCollection = (key, item) => setForm(f => ({ ...f, [key]: [...f[key], item] }));
+  const removeCollection = (key, idx) => setForm(f => ({ ...f, [key]: f[key].filter((_, i) => i !== idx) }));
+  const setCategories = value => setForm(f => ({ ...f, categories: value.split(',').map(category => category.trim()).filter(Boolean) }));
+
+  const selectedBook = addressBooks.find(book => book.id === selectedAddressBookId);
+  const bookControls = <div className="contacts-book-controls">
+    <div className="contacts-books" role="group" aria-label={t('contacts.addressBooks.label')}>
+      <button type="button" aria-pressed={!selectedAddressBookId} onClick={() => { setSelectedAddressBookId(''); setBooksOpen(false); }}>{t('contacts.addressBooks.allVisible')}</button>
+      {addressBooks.map(book => <button type="button" key={book.id} aria-pressed={selectedAddressBookId === book.id} onClick={() => { setSelectedAddressBookId(book.id); setBooksOpen(false); }} title={book.name}>{book.visible ? '' : '○ '}{book.name}</button>)}
+    </div>
+    <details className="contacts-book-menu">
+      <summary aria-label={t('contacts.addressBooks.label')}>⋯</summary>
+      <div className="contacts-book-actions">
+        <select data-testid="contacts-address-book-select" aria-label={t('contacts.addressBooks.label')} value={selectedAddressBookId} onChange={e => setSelectedAddressBookId(e.target.value)} style={sharedInputStyle}>
+          <option value="">{t('contacts.addressBooks.allVisible')}</option>
+          {addressBooks.map(book => <option key={book.id} value={book.id}>{book.visible ? '' : '○ '}{book.name}</option>)}
+        </select>
+        <Button onClick={openCreateBook}>{t('contacts.addressBooks.create')}</Button>
+        {selectedAddressBookId && <>
+          {selectedBook?.source === 'local' && <Button data-testid="contacts-address-book-rename" onClick={() => openRenameBook(selectedBook)}>{t('contacts.addressBooks.rename')}</Button>}
+          <Button onClick={toggleAddressBookVisibility}>{t(selectedBook?.visible ? 'contacts.addressBooks.hide' : 'contacts.addressBooks.show')}</Button>
+          {selectedBook?.source === 'local' && <Button onClick={() => importInputRef.current?.click()}>{t('contacts.addressBooks.importGoogle')}</Button>}
+          <a className="ui-button" href={api.addressBooks.exportUrl(selectedAddressBookId, 'google-csv')}>{t('contacts.addressBooks.exportGoogle')}</a>
+          <a className="ui-button" href={api.addressBooks.exportUrl(selectedAddressBookId, 'outlook-csv')}>{t('contacts.addressBooks.exportOutlook')}</a>
+          <a className="ui-button" href={api.addressBooks.exportUrl(selectedAddressBookId, 'vcard')}>vCard</a>
+        </>}
+      </div>
+    </details>
+    <input ref={importInputRef} type="file" accept=".csv,text/csv" onChange={importGoogleCsv} style={{ display: 'none' }} />
+  </div>;
+  // Rendered by both layouts: the address-book menu is shared, so its dialog must be too.
+  const bookNameDialog = bookDialog && <Dialog
+    title={t(bookDialog.mode === 'create' ? 'contacts.addressBooks.create' : 'contacts.addressBooks.renameTitle')}
+    closeLabel={t('common.close')}
+    busy={bookSaving}
+    onClose={() => { if (!bookSaving) setBookDialog(null); }}
+    testId="contacts-book-name-dialog"
+    footer={<>
+      <Button onClick={() => setBookDialog(null)} disabled={bookSaving}>{t('common.cancel')}</Button>
+      <Button variant="primary" onClick={submitBookDialog} disabled={bookSaving || !bookDialog.name.trim()}>
+        {t(bookSaving ? 'common.saving' : 'common.save')}
+      </Button>
+    </>}
+  >
+    <div className="ui-form">
+      {bookError && <div role="alert" className="ui-alert">{bookError}</div>}
+      <label>{t('contacts.addressBooks.nameLabel')}
+        <input
+          data-testid="contacts-book-name-input"
+          autoFocus
+          maxLength={120}
+          value={bookDialog.name}
+          onChange={event => setBookDialog(current => ({ ...current, name: event.target.value }))}
+          onKeyDown={event => { if (event.key === 'Enter') { event.preventDefault(); submitBookDialog(); } }}
+        />
+      </label>
+    </div>
+  </Dialog>;
+  const searchControl = <div className="contacts-search">
+    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" aria-hidden="true"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.4-4.4" /></svg>
+    <input type="search" value={search} onChange={onSearchChange} aria-label={t('contacts.search')} placeholder={t('contacts.search')} style={{ ...sharedInputStyle, paddingLeft: 30 }} />
+  </div>;
 
   // Shared list panel content (used by both mobile and desktop)
   const listPanel = (
     <>
+      {listError && contacts.length > 0 && <ErrorBanner msg={listError} />}
       {/* List */}
-      <div style={{ flex: 1, overflowY: 'auto' }} onScroll={handleListScroll}>
+      <div
+        data-testid="contacts-list-scroll"
+        style={{
+          flex: 1, overflowY: 'auto', boxSizing: 'border-box',
+          paddingBottom: isMobile ? 'calc(var(--sab) + 12px)' : 0,
+        }}
+        onScroll={handleListScroll}
+      >
         {loading && !contacts.length && (
           <div style={{ padding: 20, textAlign: 'center', color: 'var(--text-tertiary)', fontSize: 13 }}>
             {t('common.loading')}
@@ -285,52 +532,68 @@ export default function ContactsPage() {
             {listError || (search ? t('contacts.noResults') : t('contacts.empty'))}
           </div>
         )}
-        {contacts.map(c => (
+        {contacts.map(c => {
+          const contactName = c.display_name || c.primary_email || '—';
+          return (
           <div
             key={c.id}
+            ref={element => {
+              if (element) rowRefs.current.set(c.id, element);
+              else rowRefs.current.delete(c.id);
+            }}
+            data-contact-id={c.id}
+            aria-pressed={selected?.id === c.id}
+            role="button"
+            tabIndex={0}
+            aria-label={contactName}
             onClick={() => selectContact(c)}
+            onKeyDown={e => {
+              if (e.key !== 'Enter' && e.key !== ' ') return;
+              e.preventDefault();
+              selectContact(c);
+            }}
             style={{
               display: 'flex', alignItems: 'center', gap: 10,
-              padding: '9px 14px', cursor: 'pointer',
-              background: selected?.id === c.id ? 'var(--bg-hover)' : 'transparent',
+              padding: 'var(--layout-row-py) var(--layout-row-px)', cursor: 'pointer',
+              borderBottom: '1px solid var(--border-subtle)',
+              background: selected?.id === c.id ? 'var(--accent-dim)' : 'transparent',
               transition: 'background 0.1s',
             }}
-            onMouseEnter={e => { if (selected?.id !== c.id) e.currentTarget.style.background = 'var(--bg-tertiary)'; }}
+            onMouseEnter={e => { if (selected?.id !== c.id) e.currentTarget.style.background = 'color-mix(in srgb, var(--bg-hover) 42%, transparent)'; }}
             onMouseLeave={e => { if (selected?.id !== c.id) e.currentTarget.style.background = 'transparent'; }}
           >
             <Avatar
               name={c.display_name}
               email={c.primary_email}
-              size={34}
+              size={36}
               hasContactPhoto={c.has_contact_photo}
             />
             <div style={{ flex: 1, minWidth: 0 }}>
               <div style={{
-                fontSize: 13, fontWeight: 500, color: 'var(--text-primary)',
+                fontSize: 13, fontWeight: 600, color: 'var(--text-primary)',
                 whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis',
               }}>
-                {c.display_name || c.primary_email}
+                {contactName}
               </div>
               {c.display_name && c.primary_email && (
                 <div style={{
-                  fontSize: 11, color: 'var(--text-tertiary)',
+                  fontSize: 12, color: 'var(--text-secondary)',
                   whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis',
                 }}>
                   {c.primary_email}
                 </div>
               )}
-            </div>
-            {c.is_auto && (
-              <div style={{
-                fontSize: 10, color: 'var(--text-tertiary)',
-                background: 'var(--bg-tertiary)', borderRadius: 4,
-                padding: '1px 5px', flexShrink: 0,
-              }}>
-                {t('contacts.auto')}
+            {(c.organization || c.is_auto || c.address_book_id) && (
+              <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginTop: 5, flexWrap: 'wrap' }}>
+                {c.address_book_id && <span style={rowTypeChip}>{addressBooks.find(book => book.id === c.address_book_id)?.name}</span>}
+                {c.organization && <span style={rowTypeChip}>{c.organization}</span>}
+                {c.is_auto && <span style={rowTypeChip}>{t('contacts.auto')}</span>}
               </div>
             )}
+            </div>
           </div>
-        ))}
+          );
+        })}
         {loadingMore && (
           <div style={{ padding: '10px 14px', textAlign: 'center', fontSize: 12, color: 'var(--text-tertiary)' }}>
             {t('common.loading')}
@@ -339,7 +602,7 @@ export default function ContactsPage() {
       </div>
 
       {total > 0 && (
-        <div style={{ padding: '8px 14px', borderTop: '1px solid var(--border-subtle)', fontSize: 11, color: 'var(--text-tertiary)', flexShrink: 0 }}>
+        <div style={{ padding: '8px 14px', borderTop: '1px solid var(--border-subtle)', fontFamily: 'var(--font-mono, ui-monospace, monospace)', fontSize: 10.5, color: 'var(--text-tertiary)', flexShrink: 0 }}>
           {contacts.length < total
             ? `${contacts.length} / ${t('contacts.count', { count: total })}`
             : t('contacts.count', { count: total })
@@ -391,6 +654,10 @@ export default function ContactsPage() {
           onSetPhone={setPhone}
           onAddPhone={addPhone}
           onRemovePhone={removePhone}
+          onSetCollection={setCollection}
+          onAddCollection={addCollection}
+          onRemoveCollection={removeCollection}
+          onSetCategories={setCategories}
           onSave={saveContact}
           onCancel={cancelEdit}
           t={t}
@@ -420,79 +687,41 @@ export default function ContactsPage() {
       : t('contacts.title');
 
     return (
-      <div style={{ display: 'flex', flexDirection: 'column', height: '100%', overflow: 'hidden', background: 'var(--bg-secondary)' }}>
-        {/* Mobile header — matches MessageList header style */}
-        <div style={{
-          display: 'flex', alignItems: 'center', gap: 4,
-          paddingTop: 'calc(var(--sat) + 10px)',
-          paddingBottom: 10, paddingLeft: 12, paddingRight: 12,
-          borderBottom: '1px solid var(--border-subtle)',
-          background: 'var(--bg-secondary)', flexShrink: 0,
-        }}>
-          <button
-            onClick={mobilePanel === 'detail' ? goBackToList : () => setShowContacts(false)}
-            style={{
-              background: 'none', border: 'none', color: 'var(--text-secondary)',
-              cursor: 'pointer', padding: 0, borderRadius: 7,
-              display: 'flex', alignItems: 'center', justifyContent: 'center',
-              minWidth: 44, minHeight: 44,
-            }}
-          >
-            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-              <polyline points="15 18 9 12 15 6"/>
-            </svg>
-          </button>
-
-          <h2 style={{
-            flex: 1, margin: 0, fontSize: 16, fontWeight: 600,
-            color: 'var(--text-primary)',
-            overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
-          }}>
-            {mobileHeaderTitle}
-          </h2>
-
-          {mobilePanel === 'list' && (
-            <button
-              onClick={startNew}
-              style={{
-                background: 'none', border: 'none', color: 'var(--accent)',
-                cursor: 'pointer', padding: 0,
-                display: 'flex', alignItems: 'center', justifyContent: 'center',
-                minWidth: 44, minHeight: 44,
-              }}
-            >
-              <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                <line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/>
-              </svg>
-            </button>
-          )}
-        </div>
-
-        {/* Search bar — only on list view */}
-        {mobilePanel === 'list' && (
-          <div style={{ padding: '10px 12px', borderBottom: '1px solid var(--border-subtle)', background: 'var(--bg-secondary)', flexShrink: 0 }}>
-            <input
-              value={search}
-              onChange={onSearchChange}
-              placeholder={t('contacts.search')}
-              style={{
-                width: '100%', boxSizing: 'border-box',
-                padding: '8px 12px', borderRadius: 8,
-                border: '1px solid var(--border)',
-                background: 'var(--bg-input)', color: 'var(--text-primary)',
-                fontSize: 14, outline: 'none',
-              }}
-            />
-          </div>
-        )}
+      <div className="contacts-page contacts-compact" style={{ display: 'flex', flex: 1, width: '100%', minWidth: 0, flexDirection: 'column', height: '100%', overflow: 'hidden', background: 'var(--bg-secondary)' }}>
+        {showContacts && <MobileFloatingAction label={t('contacts.new')} onClick={startNew} disabled={inForm} />}
+        {phone && <MobileModuleHeader
+          leading={mobilePanel === 'detail' ? <button type="button" ref={mobileBackButtonRef} className="mobile-header-action" onClick={inForm ? cancelEdit : goBackToList} aria-label={t('contacts.backToList')}>
+            <svg aria-hidden="true" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="m15 18-6-6 6-6"/></svg>
+          </button> : undefined}
+          title={mobileHeaderTitle}
+          subtitle={mobilePanel === 'detail' ? undefined : (selectedBook?.name || t('contacts.addressBooks.allVisible'))}
+        >
+          <HeaderAction icon="books" label={t('contacts.addressBooks.label')} data-testid="contacts-address-books" onClick={() => setBooksOpen(true)} />
+          <HeaderAction icon="add" label={t('contacts.new')} data-testid="contacts-header-new" onClick={startNew} disabled={inForm} />
+        </MobileModuleHeader>}
+        {!phone && <div className="contacts-compact-heading">
+          {mobilePanel === 'detail' && <button type="button" ref={mobileBackButtonRef} className="mobile-header-action" onClick={inForm ? cancelEdit : goBackToList} aria-label={t('contacts.backToList')}>
+            <svg aria-hidden="true" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="m15 18-6-6 6-6"/></svg>
+          </button>}
+          <h2>{mobileHeaderTitle}</h2>
+          <HeaderAction icon="add" label={t('contacts.new')} onClick={startNew} disabled={inForm} />
+        </div>}
+        {mobilePanel === 'list' && <div className="contacts-list-header">{!phone && bookControls}{searchControl}</div>}
+        {phone && booksOpen && <Dialog title={t('contacts.addressBooks.label')} closeLabel={t('common.close')} onClose={() => setBooksOpen(false)} testId="contacts-books-dialog" className="contacts-books-dialog">
+          {bookControls}
+        </Dialog>}
+        {bookNameDialog}
 
         {/* Content */}
         {mobilePanel === 'list' ? (
-          <div style={{ flex: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden', animation: 'slide-in-left var(--motion-normal) var(--ease-emphasized) both' }}>
-            {listPanel}
-          </div>
+          <>
+            <div data-testid="contacts-mobile-list" style={{ flex: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden', animation: 'slide-in-left var(--motion-normal) var(--ease-emphasized) both' }}>
+              {listPanel}
+            </div>
+
+          </>
         ) : (
-          <div style={{ flex: 1, overflow: 'hidden auto', padding: '20px 16px', animation: 'slide-in-right var(--motion-normal) var(--ease-emphasized) both' }}>
+          <div data-testid="contacts-mobile-detail" style={{ flex: 1, overflow: 'hidden auto', padding: '20px 16px', animation: 'slide-in-right var(--motion-normal) var(--ease-emphasized) both' }}>
             {detailPanel}
           </div>
         )}
@@ -502,92 +731,90 @@ export default function ContactsPage() {
 
   // ── Desktop layout ────────────────────────────────────────────────────────
   return (
-    <div style={{ display: 'flex', flex: 1, minWidth: 0, height: '100%', overflow: 'hidden', background: 'var(--bg-primary)' }}>
+    <div className="contacts-page" style={{ display: 'flex', flex: 1, minWidth: 0, height: '100%', overflow: 'hidden', background: 'var(--bg-primary)' }}>
 
       {/* Contact list panel */}
-      <div style={{
-        width: 280, flexShrink: 0, display: 'flex', flexDirection: 'column',
-        borderRight: '1px solid var(--border)',
-        background: 'var(--bg-secondary)',
+      <div data-testid="contacts-desktop-list" style={{
+        flex: '0 0 var(--list-width)', width: 'var(--list-width)', display: 'flex', flexDirection: 'column',
+        borderRight: '1px solid var(--border-subtle)',
+        background: 'var(--bg-primary)',
         overflow: 'hidden',
       }}>
-        {/* Header */}
-        <div style={{ padding: '14px 14px 10px', borderBottom: '1px solid var(--border-subtle)' }}>
-          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 10 }}>
-            <span style={{ fontSize: 14, fontWeight: 600, color: 'var(--text-primary)' }}>
-              {t('contacts.title')}
-            </span>
-            <button
-              onClick={startNew}
-              style={{
-                background: 'var(--accent)', border: 'none', borderRadius: 6,
-                color: 'var(--accent-text)', fontSize: 12, fontWeight: 500,
-                padding: '4px 10px', cursor: 'pointer',
-              }}
-            >
-              + {t('contacts.new')}
-            </button>
-          </div>
-          <input
-            value={search}
-            onChange={onSearchChange}
-            placeholder={t('contacts.search')}
-            style={{
-              width: '100%', boxSizing: 'border-box',
-              padding: '7px 10px', borderRadius: 7,
-              border: '1px solid var(--border)',
-              background: 'var(--bg-input)', color: 'var(--text-primary)',
-              fontSize: 13, outline: 'none',
-            }}
-          />
+        <div className="contacts-list-header">
+          <div className="contacts-heading"><h1>{t('contacts.title')}</h1><Button variant="primary" onClick={startNew}>+ {t('contacts.new')}</Button></div>
+          <p className="contacts-subtitle">{t('contacts.listSubtitle')}</p>
+          {bookControls}{searchControl}
         </div>
 
         {listPanel}
       </div>
 
+      <PanelResizeHandle testId="contacts-list-resize" onMouseDown={handleListResizeMouseDown} />
+
       {/* Detail / form panel — keyed by contact id so scroll resets when switching contacts.
           When nothing is selected, center the empty-state placeholder in the full pane. */}
-      <div key={selected?.id ?? (showNew ? 'new' : 'empty')} style={{
+      <div data-testid="contacts-desktop-detail" key={selected?.id ?? (showNew ? 'new' : 'empty')} style={{
         flex: 1, overflow: 'hidden auto', minWidth: 0,
-        padding: (!selected && !showNew) ? 0 : 32,
+        background: 'var(--bg-secondary)',
+        padding: (!selected && !showNew) ? 0 : '26px 30px',
         ...((!selected && !showNew) && { display: 'flex', alignItems: 'center', justifyContent: 'center' }),
       }}>
         {detailPanel}
       </div>
+      {bookNameDialog}
     </div>
   );
 }
 
 function ContactDetail({ contact: c, confirmDelete, saving, error, onEdit, onDeleteRequest, onDeleteConfirm, onDeleteCancel, t }) {
+  const { i18n } = useTranslation();
+  const detailType = type => type ? t(`contacts.emailTypes.${type}`, { defaultValue: String(type) }) : undefined;
+  const openCompose = useStore(state => state.openCompose);
+  const contactDates = c.contactDates?.length
+    ? c.contactDates
+    : [
+        c.birthday && { label: 'Birthday', value: String(c.birthday).slice(0, 10) },
+        c.anniversary && { label: 'Anniversary', value: String(c.anniversary).slice(0, 10) },
+      ].filter(Boolean);
+  const primaryEmail = c.primary_email || c.emails?.[0]?.value || '';
+
   return (
-    <div style={{ width: '100%', maxWidth: 560, position: 'relative', animation: 'pane-fade-in var(--motion-normal) var(--ease-emphasized) both' }}>
-      {/* Edit/Delete for editable contacts — out of flow, top-right (fixed width). */}
+    <div style={{ width: '100%', maxWidth: 600, position: 'relative', animation: 'pane-fade-in var(--motion-normal) var(--ease-emphasized) both' }}>
+      {/* Actions wrap above the contact heading so long names remain readable. */}
       {!c.read_only && (
-        <div style={{ position: 'absolute', top: 0, right: 0, display: 'flex', gap: 8 }}>
+        <div style={{ display: 'flex', justifyContent: 'flex-end', flexWrap: 'wrap', gap: 8, marginBottom: 10 }}>
           <ActionBtn onClick={onEdit}>{t('common.edit')}</ActionBtn>
           <ActionBtn onClick={onDeleteRequest} danger>{t('common.delete')}</ActionBtn>
         </div>
       )}
-      <div style={{ display: 'flex', alignItems: 'flex-start', gap: 18, marginBottom: 28, paddingRight: c.read_only ? 0 : 128 }}>
+      <div style={{ display: 'flex', alignItems: 'flex-start', gap: 16, marginBottom: 18, paddingRight: 0 }}>
         <Avatar
           name={c.display_name}
           email={c.primary_email}
-          size={60}
+          size={56}
           hasContactPhoto={Boolean(c.photo_data)}
         />
         <div style={{ flex: 1, minWidth: 0 }}>
-          <h2 style={{ margin: 0, fontSize: 22, fontWeight: 600, color: 'var(--text-primary)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+          <h2 style={{ margin: 0, fontFamily: 'var(--font-display)', fontSize: 22, fontWeight: 600, color: 'var(--text-primary)', overflowWrap: 'anywhere' }}>
             {c.display_name || c.primary_email}
+            {c.nickname && <span style={{ fontSize: 13, color: 'var(--text-tertiary)', fontWeight: 400 }}> ({c.nickname})</span>}
           </h2>
-          {c.organization && (
-            <div style={{ fontSize: 14, color: 'var(--text-secondary)', marginTop: 2 }}>{c.organization}</div>
+          {(c.title || c.organization) && (
+            <div style={{ fontSize: 13, color: 'var(--text-secondary)', marginTop: 2, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+              {[c.title, c.organization].filter(Boolean).join(', ')}
+            </div>
           )}
-          {/* CardDAV badge sits in flow below the name so it can never overlap it, whatever
-              the badge's translated width. */}
-          {c.read_only && (
-            <span style={{ display: 'inline-block', marginTop: 6, fontSize: 11, padding: '4px 10px', borderRadius: 100, background: 'var(--bg-tertiary)', color: 'var(--text-tertiary)', border: '1px solid var(--border)', whiteSpace: 'nowrap' }}>
-              {t('contacts.carddavBadge')}
-            </span>
+          {/* Context chips (CardDAV provenance, last contact) sit in flow below the name
+              so they can never overlap it, whatever their translated width. */}
+          {(c.read_only || c.last_sent) && (
+            <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, marginTop: 7 }}>
+              {c.read_only && (
+                <span style={contactStatChip}>{t('contacts.carddavBadge')}</span>
+              )}
+              {c.last_sent && (
+                <span style={contactStatChip}>{t('contacts.fields.lastContacted')}: {new Date(c.last_sent).toLocaleDateString(intlLocale(i18n.resolvedLanguage || i18n.language))}</span>
+              )}
+            </div>
           )}
           {c.is_auto && (
             <div style={{ fontSize: 12, color: 'var(--text-tertiary)', marginTop: 4 }}>{t('contacts.autoHint')}</div>
@@ -598,7 +825,7 @@ function ContactDetail({ contact: c, confirmDelete, saving, error, onEdit, onDel
       {error && <ErrorBanner msg={error} />}
 
       {confirmDelete && (
-        <div style={{
+        <div data-testid="contacts-delete-confirmation" style={{
           padding: '14px 16px', borderRadius: 10,
           background: 'var(--red-dim, rgba(248,113,113,0.1))',
           border: '1px solid var(--red-border, rgba(248,113,113,0.3))',
@@ -616,34 +843,87 @@ function ContactDetail({ contact: c, confirmDelete, saving, error, onEdit, onDel
         </div>
       )}
 
-      {((c.emails?.length > 0) || (c.phones?.length > 0) || c.notes) && (
-        <DetailSection>
-          {(c.emails || []).map((e, i) => (
-            <DetailRow key={i} label={t(`contacts.emailTypes.${e.type || 'other'}`, { defaultValue: t('contacts.emailTypes.other') })}>
-              <a href={`mailto:${e.value}`} style={{ color: 'var(--accent)', textDecoration: 'none' }}>{e.value}</a>
-            </DetailRow>
-          ))}
-          {(c.phones || []).map((p, i) => (
-            <DetailRow key={i} label={t(`contacts.phoneTypes.${p.type === 'cell' || p.type === 'iphone' ? 'mobile' : (p.type || 'other')}`, { defaultValue: t('contacts.phoneTypes.other') })}>
-              <a href={`tel:${p.value}`} style={{ color: 'var(--text-primary)', textDecoration: 'none' }}>{p.value}</a>
-            </DetailRow>
-          ))}
-          {c.notes && <DetailRow label={t('contacts.fields.notes')}>{c.notes}</DetailRow>}
-        </DetailSection>
+      {((c.emails?.length > 0) || (c.phones?.length > 0) || c.notes || contactDates.length || c.title || c.role || c.nickname || c.urls?.length || c.instantMessages?.length || c.categories?.length || c.addresses?.length) && (
+        <div>
+          {(c.emails?.length > 0) && (
+            <DetailSection label={t('contacts.fields.email')}>
+              {(c.emails || []).map((e, i) => (
+                <DetailRow key={i} icon={fieldIcon.mail} type={t(`contacts.emailTypes.${e.type || 'other'}`, { defaultValue: t('contacts.emailTypes.other') })}>
+                  <a href={`mailto:${e.value}`} onClick={event => { event.preventDefault(); openCompose({ to: [{ email: e.value }] }); }} style={{ color: 'var(--accent)', textDecoration: 'none' }}>{e.value}</a>
+                </DetailRow>
+              ))}
+            </DetailSection>
+          )}
+          {(c.phones?.length > 0) && (
+            <DetailSection label={t('contacts.fields.phone')}>
+              {(c.phones || []).map((p, i) => (
+                <DetailRow key={i} icon={fieldIcon.phone} type={t(`contacts.phoneTypes.${p.type === 'cell' || p.type === 'iphone' ? 'mobile' : (p.type || 'other')}`, { defaultValue: t('contacts.phoneTypes.other') })}>
+                  <a href={`tel:${p.value}`} style={{ color: 'var(--text-primary)', textDecoration: 'none' }}>{p.value}</a>
+                </DetailRow>
+              ))}
+            </DetailSection>
+          )}
+          {(c.urls?.length > 0) && (
+            <DetailSection label={t('contacts.fields.url')}>
+              {(c.urls || []).map((url, i) => {
+                const href = safeHttpUrl(url.value);
+                return <DetailRow key={`url-${i}`} icon={fieldIcon.globe} type={detailType(url.type)}>{href ? <a href={href} rel="noreferrer" target="_blank" style={{ color: 'var(--accent)', textDecoration: 'none' }}>{url.value}</a> : url.value}</DetailRow>;
+              })}
+            </DetailSection>
+          )}
+          {(c.instantMessages?.length > 0) && (
+            <DetailSection label={t('contacts.fields.instantMessage')}>
+              {(c.instantMessages || []).map((message, i) => <DetailRow key={`im-${i}`} icon={fieldIcon.message} type={message.type ? String(message.type) : undefined}>{message.value}</DetailRow>)}
+            </DetailSection>
+          )}
+          {(c.addresses?.length > 0) && (
+            <DetailSection label={t('contacts.fields.address')}>
+              {(c.addresses || []).map((address, i) => <DetailRow key={`address-${i}`} icon={fieldIcon.mapPin} type={detailType(address.type)}>{[address.pobox, address.extended, address.street, address.locality, address.region, address.postalCode, address.country].filter(Boolean).join(', ')}</DetailRow>)}
+            </DetailSection>
+          )}
+          {(contactDates.length > 0) && (
+            <DetailSection label={t('contacts.fields.dates')}>
+              {contactDates.map((date, i) => <DetailRow key={`date-${i}`} icon={fieldIcon.calendar} type={contactDateLabel(date.label, t)}>{formatContactDate(date.value, intlLocale(i18n.resolvedLanguage || i18n.language))}</DetailRow>)}
+            </DetailSection>
+          )}
+          {(c.categories?.length > 0) && (
+            <DetailSection label={t('contacts.fields.categories')}>
+              <div style={{ display: 'flex', flexWrap: 'wrap' }}>
+                {c.categories.map((category, i) => <span key={`cat-${i}`} style={{ ...contactStatChip, margin: '2px 6px 2px 0' }}>{category}</span>)}
+              </div>
+            </DetailSection>
+          )}
+          {c.notes && (
+            <DetailSection label={t('contacts.fields.notes')}>
+              <p style={detailNote}>{c.notes}</p>
+            </DetailSection>
+          )}
+          {(c.role || c.send_count > 0) && (
+            <DetailSection>
+              {c.role && <DetailRow icon={fieldIcon.briefcase} type={t('contacts.fields.role')}>{c.role}</DetailRow>}
+              {c.send_count > 0 && <DetailRow icon={fieldIcon.mail} type={t('contacts.fields.emailsSent')}>{c.send_count}</DetailRow>}
+            </DetailSection>
+          )}
+        </div>
       )}
 
-      {(c.send_count > 0 || c.last_sent) && (
-        <DetailSection>
-          {c.send_count > 0 && (
-            <DetailRow label={t('contacts.fields.emailsSent')}>{c.send_count}</DetailRow>
-          )}
-          {c.last_sent && (
-            <DetailRow label={t('contacts.fields.lastContacted')}>
-              {new Date(c.last_sent).toLocaleDateString()}
-            </DetailRow>
-          )}
-        </DetailSection>
-      )}
+      <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, marginTop: 18 }}>
+        <button
+          type="button"
+          onClick={() => { if (primaryEmail) openCompose({ to: [{ email: primaryEmail }] }); }}
+          disabled={!primaryEmail}
+          className="btn-press"
+          style={{
+            display: 'inline-flex', alignItems: 'center', gap: 7,
+            background: 'var(--accent)', color: 'var(--accent-text)', border: 'none',
+            borderRadius: 6, padding: '8px 14px', fontSize: 12.5, fontWeight: 600,
+            cursor: primaryEmail ? 'pointer' : 'not-allowed', opacity: primaryEmail ? 1 : 0.6,
+          }}
+        >
+          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" aria-hidden="true"><path d="M11 4H4a2 2 0 00-2 2v14a2 2 0 002 2h14a2 2 0 002-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 013 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>
+          {t('contacts.composeTo')}
+        </button>
+      </div>
     </div>
   );
 }
@@ -652,19 +932,14 @@ function ContactForm({
   form, isNew, saving, error,
   onField, onSetEmail, onAddEmail, onRemoveEmail,
   onSetPhone, onAddPhone, onRemovePhone,
+  onSetCollection, onAddCollection, onRemoveCollection, onSetCategories,
   onSave, onCancel, t,
 }) {
-  const inputStyle = {
-    width: '100%', boxSizing: 'border-box',
-    padding: '8px 10px', borderRadius: 7,
-    border: '1px solid var(--border)',
-    background: 'var(--bg-input)', color: 'var(--text-primary)',
-    fontSize: 13, outline: 'none',
-  };
+  const inputStyle = sharedInputStyle;
   const labelStyle = { fontSize: 12, color: 'var(--text-tertiary)', marginBottom: 4, display: 'block' };
 
   return (
-    <div style={{ width: '100%', maxWidth: 560, animation: 'pane-fade-in var(--motion-normal) var(--ease-emphasized) both' }}>
+    <div className="contacts-form" style={{ width: '100%', animation: 'pane-fade-in var(--motion-normal) var(--ease-emphasized) both' }}>
       <h2 style={{ margin: '0 0 24px', fontSize: 18, fontWeight: 600, color: 'var(--text-primary)' }}>
         {isNew ? t('contacts.newContact') : t('contacts.editContact')}
       </h2>
@@ -673,23 +948,51 @@ function ContactForm({
 
       <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12, marginBottom: 12 }}>
         <div>
-          <label style={labelStyle}>{t('contacts.fields.firstName')}</label>
-          <input style={inputStyle} value={form.firstName} onChange={e => onField('firstName', e.target.value)} />
+          <label htmlFor="contact-firstName" style={labelStyle}>{t('contacts.fields.firstName')}</label>
+          <input id="contact-firstName" style={inputStyle} value={form.firstName} onChange={e => onField('firstName', e.target.value)} />
         </div>
         <div>
-          <label style={labelStyle}>{t('contacts.fields.lastName')}</label>
-          <input style={inputStyle} value={form.lastName} onChange={e => onField('lastName', e.target.value)} />
+          <label htmlFor="contact-lastName" style={labelStyle}>{t('contacts.fields.lastName')}</label>
+          <input id="contact-lastName" style={inputStyle} value={form.lastName} onChange={e => onField('lastName', e.target.value)} />
         </div>
       </div>
 
       <div style={{ marginBottom: 12 }}>
-        <label style={labelStyle}>{t('contacts.fields.displayName')}</label>
-        <input style={inputStyle} value={form.displayName} onChange={e => onField('displayName', e.target.value)} />
+        <label htmlFor="contact-displayName" style={labelStyle}>{t('contacts.fields.displayName')}</label>
+        <input id="contact-displayName" style={inputStyle} value={form.displayName} onChange={e => onField('displayName', e.target.value)} />
       </div>
 
       <div style={{ marginBottom: 12 }}>
-        <label style={labelStyle}>{t('contacts.fields.organization')}</label>
-        <input style={inputStyle} value={form.organization} onChange={e => onField('organization', e.target.value)} />
+        <label htmlFor="contact-organization" style={labelStyle}>{t('contacts.fields.organization')}</label>
+        <input id="contact-organization" style={inputStyle} value={form.organization} onChange={e => onField('organization', e.target.value)} />
+      </div>
+
+      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12, marginBottom: 12 }}>
+        <div><label htmlFor="contact-title" style={labelStyle}>{t('contacts.fields.title')}</label><input id="contact-title" style={inputStyle} value={form.title} onChange={e => onField('title', e.target.value)} /></div>
+        <div><label htmlFor="contact-role" style={labelStyle}>{t('contacts.fields.role')}</label><input id="contact-role" style={inputStyle} value={form.role} onChange={e => onField('role', e.target.value)} /></div>
+      </div>
+      <div style={{ marginBottom: 12 }}>
+        <label htmlFor="contact-nickname" style={labelStyle}>{t('contacts.fields.nickname')}</label>
+        <input id="contact-nickname" style={inputStyle} value={form.nickname} onChange={e => onField('nickname', e.target.value)} />
+      </div>
+
+      <div style={{ marginBottom: 12 }}>
+        <label style={labelStyle}>{t('contacts.fields.dates')}</label>
+        {form.contactDates.map((date, index) => {
+          const preset = ['Birthday', 'Anniversary', 'Name day'].includes(date.label) ? date.label : 'custom';
+          return <div key={index} style={{ display: 'grid', gridTemplateColumns: preset === 'custom' ? '120px 1fr 1fr auto' : '120px 1fr auto', gap: 6, marginBottom: 6 }}>
+            <select value={preset} onChange={event => onSetCollection('contactDates', index, 'label', event.target.value === 'custom' ? '' : event.target.value)} style={inputStyle}>
+              <option value="Birthday">{t('contacts.fields.birthday')}</option>
+              <option value="Anniversary">{t('contacts.fields.anniversary')}</option>
+              <option value="Name day">{t('contacts.fields.nameDay')}</option>
+              <option value="custom">{t('contacts.fields.customDate')}</option>
+            </select>
+            {preset === 'custom' && <input style={inputStyle} value={date.label} placeholder={t('contacts.fields.customDate')} onChange={event => onSetCollection('contactDates', index, 'label', event.target.value)} />}
+            <input type={date.value.startsWith('--') ? 'text' : 'date'} pattern={date.value.startsWith('--') ? '--[0-9]{2}-[0-9]{2}' : undefined} style={inputStyle} value={date.value} onChange={event => onSetCollection('contactDates', index, 'value', event.target.value)} />
+            <ContactDangerButton onClick={() => onRemoveCollection('contactDates', index)} aria-label={`${t('common.delete')} ${t('contacts.fields.dates')} ${index + 1}`}>{t('common.delete')}</ContactDangerButton>
+          </div>;
+        })}
+        <button onClick={() => onAddCollection('contactDates', { label: 'Birthday', value: '' })} style={addFieldBtn}>+ {t('contacts.addDate')}</button>
       </div>
 
       {/* Emails */}
@@ -714,9 +1017,9 @@ function ContactForm({
               <option value="home">{t('contacts.emailTypes.home')}</option>
             </select>
             {form.emails.length > 1 && (
-              <button onClick={() => onRemoveEmail(i)} style={removeBtn}>
+              <ContactDangerButton onClick={() => onRemoveEmail(i)} aria-label={`${t('common.delete')} ${t('contacts.fields.email')} ${i + 1}`}>
                 <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
-              </button>
+              </ContactDangerButton>
             )}
           </div>
         ))}
@@ -745,9 +1048,9 @@ function ContactForm({
               <option value="home">{t('contacts.phoneTypes.home')}</option>
               <option value="other">{t('contacts.phoneTypes.other')}</option>
             </select>
-            <button onClick={() => onRemovePhone(i)} style={removeBtn}>
+            <ContactDangerButton onClick={() => onRemovePhone(i)} aria-label={`${t('common.delete')} ${t('contacts.fields.phone')} ${i + 1}`}>
               <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
-            </button>
+            </ContactDangerButton>
           </div>
         ))}
         <button onClick={onAddPhone} style={addFieldBtn}>+ {t('contacts.addPhone')}</button>
@@ -761,6 +1064,27 @@ function ContactForm({
           value={form.notes}
           onChange={e => onField('notes', e.target.value)}
         />
+      </div>
+
+      <ContactTextCollection label={t('contacts.fields.url')} items={form.urls} inputType="url" placeholder="https://example.com" onSet={(index, value) => onSetCollection('urls', index, 'value', value)} onAdd={() => onAddCollection('urls', { value: '', type: 'other' })} onRemove={index => onRemoveCollection('urls', index)} inputStyle={inputStyle} addLabel={t('contacts.addUrl')} removeLabel={t('common.delete')} />
+      <ContactTextCollection label={t('contacts.fields.instantMessage')} items={form.instantMessages} placeholder="matrix:@name:example.com" onSet={(index, value) => onSetCollection('instantMessages', index, 'value', value)} onAdd={() => onAddCollection('instantMessages', { value: '', type: 'other' })} onRemove={index => onRemoveCollection('instantMessages', index)} inputStyle={inputStyle} addLabel={t('contacts.addInstantMessage')} removeLabel={t('common.delete')} />
+      <div style={{ marginBottom: 12 }}>
+        <label htmlFor="contact-categories" style={labelStyle}>{t('contacts.fields.categories')}</label>
+        <input id="contact-categories" style={inputStyle} value={form.categories.join(', ')} onChange={event => onSetCategories(event.target.value)} placeholder={t('contacts.categoriesPlaceholder')} />
+      </div>
+      <div style={{ marginBottom: 24 }}>
+        <label style={labelStyle}>{t('contacts.fields.address')}</label>
+        {form.addresses.map((address, index) => <div key={index} style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 6, marginBottom: 6 }}>
+          <input style={inputStyle} value={address.pobox} placeholder={t('contacts.fields.pobox')} onChange={event => onSetCollection('addresses', index, 'pobox', event.target.value)} />
+          <input style={inputStyle} value={address.extended} placeholder={t('contacts.fields.extended')} onChange={event => onSetCollection('addresses', index, 'extended', event.target.value)} />
+          <input style={inputStyle} value={address.street} placeholder={t('contacts.fields.street')} onChange={event => onSetCollection('addresses', index, 'street', event.target.value)} />
+          <input style={inputStyle} value={address.locality} placeholder={t('contacts.fields.locality')} onChange={event => onSetCollection('addresses', index, 'locality', event.target.value)} />
+          <input style={inputStyle} value={address.region} placeholder={t('contacts.fields.region')} onChange={event => onSetCollection('addresses', index, 'region', event.target.value)} />
+          <input style={inputStyle} value={address.postalCode} placeholder={t('contacts.fields.postalCode')} onChange={event => onSetCollection('addresses', index, 'postalCode', event.target.value)} />
+          <input style={inputStyle} value={address.country} placeholder={t('contacts.fields.country')} onChange={event => onSetCollection('addresses', index, 'country', event.target.value)} />
+          <ContactDangerButton onClick={() => onRemoveCollection('addresses', index)} aria-label={`${t('common.delete')} ${t('contacts.fields.address')} ${index + 1}`}>{t('common.delete')}</ContactDangerButton>
+        </div>)}
+        <button onClick={() => onAddCollection('addresses', { type: 'other', pobox: '', extended: '', street: '', locality: '', region: '', postalCode: '', country: '' })} style={addFieldBtn}>+ {t('contacts.addAddress')}</button>
       </div>
 
       <div style={{ display: 'flex', gap: 8 }}>
@@ -782,27 +1106,70 @@ function ContactForm({
   );
 }
 
-function DetailSection({ children }) {
+function ContactTextCollection({ label, items, inputType = 'text', placeholder, onSet, onAdd, onRemove, inputStyle, addLabel, removeLabel }) {
+  return <div style={{ marginBottom: 12 }}>
+    <label style={{ fontSize: 12, color: 'var(--text-tertiary)', marginBottom: 4, display: 'block' }}>{label}</label>
+    {items.map((item, index) => <div key={index} style={{ display: 'flex', gap: 6, marginBottom: 6 }}>
+      <input type={inputType} style={{ ...inputStyle, flex: 1 }} value={item.value} placeholder={placeholder} onChange={event => onSet(index, event.target.value)} />
+      <ContactDangerButton onClick={() => onRemove(index)} aria-label={`${removeLabel} ${label} ${index + 1}`}>{'×'}</ContactDangerButton>
+    </div>)}
+    <button onClick={onAdd} style={addFieldBtn}>+ {addLabel}</button>
+  </div>;
+}
+
+// Detail sections follow the mock-up: hairline-separated groups with a mono
+// uppercase label, rows of icon + value + a mono type chip (§ contacts brief).
+const detailSectionLabel = {
+  fontFamily: 'var(--font-mono, ui-monospace, monospace)', fontSize: 10,
+  letterSpacing: '0.09em', textTransform: 'uppercase',
+  color: 'var(--text-tertiary)', margin: '0 0 7px',
+};
+const detailTypeChip = {
+  fontFamily: 'var(--font-mono, ui-monospace, monospace)', fontSize: 9.5,
+  color: 'var(--text-tertiary)', border: '1px solid var(--border-subtle)',
+  borderRadius: 4, padding: '0 5px', flexShrink: 0, whiteSpace: 'nowrap',
+};
+const contactStatChip = {
+  display: 'inline-flex', alignItems: 'center', gap: 5, fontSize: 11,
+  fontFamily: 'var(--font-mono, ui-monospace, monospace)', borderRadius: 999,
+  padding: '2px 9px', border: '1px solid var(--border-subtle)',
+  color: 'var(--text-secondary)', whiteSpace: 'nowrap',
+};
+const detailNote = { margin: 0, fontSize: 12.5, color: 'var(--text-secondary)', lineHeight: 1.6 };
+const rowTypeChip = { fontFamily: 'var(--font-mono, ui-monospace, monospace)', fontSize: 10, color: 'var(--text-tertiary)', border: '1px solid var(--border-subtle)', borderRadius: 4, padding: '1px 5px', whiteSpace: 'nowrap' };
+
+// Feather-style field icons (15px, stroke 1.75, currentColor) for detail rows.
+const fieldIcon = {
+  mail: <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" aria-hidden="true"><rect x="2" y="4" width="20" height="16" rx="2"/><path d="M22 7l-10 6L2 7"/></svg>,
+  phone: <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" aria-hidden="true"><path d="M22 16.92v3a2 2 0 01-2.18 2 19.79 19.79 0 01-8.63-3.07 19.5 19.5 0 01-6-6 19.79 19.79 0 01-3.07-8.67A2 2 0 014.11 2h3a2 2 0 012 1.72c.127.96.361 1.903.7 2.81a2 2 0 01-.45 2.11L8.09 9.91a16 16 0 006 6l1.27-1.27a2 2 0 012.11-.45c.907.339 1.85.573 2.81.7A2 2 0 0122 16.92z"/></svg>,
+  globe: <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" aria-hidden="true"><circle cx="12" cy="12" r="10"/><line x1="2" y1="12" x2="22" y2="12"/><path d="M12 2a15.3 15.3 0 014 10 15.3 15.3 0 01-4 10 15.3 15.3 0 01-4-10 15.3 15.3 0 014-10z"/></svg>,
+  message: <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" aria-hidden="true"><path d="M21 11.5a8.38 8.38 0 01-.9 3.8 8.5 8.5 0 01-7.6 4.7 8.38 8.38 0 01-3.8-.9L3 21l1.9-5.7a8.38 8.38 0 01-.9-3.8 8.5 8.5 0 014.7-7.6 8.38 8.38 0 013.8-.9h.5a8.48 8.48 0 018 8v.5z"/></svg>,
+  mapPin: <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" aria-hidden="true"><path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0118 0z"/><circle cx="12" cy="10" r="3"/></svg>,
+  calendar: <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" aria-hidden="true"><rect x="3" y="4" width="18" height="18" rx="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>,
+  briefcase: <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" aria-hidden="true"><rect x="2" y="7" width="20" height="14" rx="2"/><path d="M16 21V5a2 2 0 00-2-2h-4a2 2 0 00-2 2v16"/></svg>,
+};
+
+function DetailSection({ label, children }) {
   return (
-    <div style={{
-      background: 'var(--bg-secondary)',
-      borderRadius: 10, border: '1px solid var(--border-subtle)',
-      overflow: 'hidden', marginBottom: 16,
+    <section style={{
+      borderTop: '1px solid var(--border-subtle)',
+      padding: '12px 0', marginBottom: 2,
     }}>
+      {label && <div style={detailSectionLabel}>{label}</div>}
       {children}
-    </div>
+    </section>
   );
 }
 
-function DetailRow({ label, children }) {
+function DetailRow({ icon, type, children }) {
   return (
     <div style={{
-      display: 'flex', gap: 16, padding: '10px 16px',
-      borderBottom: '1px solid var(--border-subtle)',
+      display: 'flex', alignItems: 'center', gap: 10, padding: '5px 0',
       fontSize: 13,
     }}>
-      <div style={{ width: 110, flexShrink: 0, color: 'var(--text-tertiary)', textTransform: 'capitalize' }}>{label}</div>
-      <div style={{ flex: 1, color: 'var(--text-primary)', wordBreak: 'break-word' }}>{children}</div>
+      {icon && <span style={{ color: 'var(--text-tertiary)', flexShrink: 0, display: 'inline-flex' }} aria-hidden="true">{icon}</span>}
+      <span style={{ flex: 1, minWidth: 0, color: 'var(--text-primary)', wordBreak: 'break-word' }}>{children}</span>
+      {type && <span style={detailTypeChip}>{type}</span>}
     </div>
   );
 }
@@ -810,14 +1177,15 @@ function DetailRow({ label, children }) {
 function ActionBtn({ children, onClick, danger, disabled }) {
   return (
     <button
+      type="button"
       onClick={onClick}
       disabled={disabled}
-      className="btn-press"
+      className={`btn-press${danger ? ' contacts-danger-btn' : ''}`}
       style={{
-        background: danger ? 'transparent' : 'var(--bg-tertiary)',
-        border: danger ? '1px solid var(--red-border, rgba(248,113,113,0.4))' : '1px solid var(--border)',
+        background: danger ? (disabled ? 'rgba(148, 163, 184, 0.16)' : 'transparent') : 'var(--bg-tertiary)',
+        border: danger ? `1px solid ${disabled ? 'rgba(148, 163, 184, 0.4)' : 'var(--red-border, rgba(248,113,113,0.4))'}` : '1px solid var(--border)',
         borderRadius: 7,
-        color: danger ? 'var(--red, #f87171)' : 'var(--text-primary)',
+        color: danger ? (disabled ? '#94a3b8' : 'var(--red, #f87171)') : 'var(--text-primary)',
         fontSize: 12, fontWeight: 500,
         padding: '6px 12px', cursor: disabled ? 'not-allowed' : 'pointer',
         opacity: disabled ? 0.6 : 1,
@@ -829,9 +1197,28 @@ function ActionBtn({ children, onClick, danger, disabled }) {
   );
 }
 
+function ContactDangerButton({ children, onClick, disabled = false, ...props }) {
+  return (
+    <button
+      type="button"
+      {...props}
+      onClick={onClick}
+      disabled={disabled}
+      className="contacts-danger-btn"
+      style={{
+        borderRadius: 6, fontSize: 12, cursor: disabled ? 'not-allowed' : 'pointer',
+        padding: '0 8px', display: 'flex', alignItems: 'center', flexShrink: 0,
+        opacity: disabled ? 0.6 : 1,
+      }}
+    >
+      {children}
+    </button>
+  );
+}
+
 function ErrorBanner({ msg }) {
   return (
-    <div style={{
+    <div role="alert" style={{
       marginBottom: 16, padding: '10px 14px', borderRadius: 8,
       background: 'var(--red-dim, rgba(248,113,113,0.1))',
       border: '1px solid var(--red-border, rgba(248,113,113,0.3))',
@@ -841,15 +1228,6 @@ function ErrorBanner({ msg }) {
     </div>
   );
 }
-
-const removeBtn = {
-  background: 'transparent',
-  border: '1px solid var(--border)',
-  borderRadius: 6, cursor: 'pointer',
-  color: 'var(--text-tertiary)',
-  padding: '0 8px', display: 'flex', alignItems: 'center',
-  flexShrink: 0,
-};
 
 const addFieldBtn = {
   background: 'transparent',

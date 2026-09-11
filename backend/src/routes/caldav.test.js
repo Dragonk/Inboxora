@@ -1,4 +1,6 @@
+import { outlookCalendar } from '../test/fixtures/outlookCalendar.js';
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
+import { createBrowserCors } from '../middleware/browserCors.js';
 
 const { authenticateDavCredential, query } = vi.hoisted(() => ({
   authenticateDavCredential: vi.fn(),
@@ -11,7 +13,7 @@ vi.mock('../services/rateLimiter.js', () => ({ consume: vi.fn(async () => ({ lim
 vi.mock('../services/authEvents.js', () => ({ logAuthEvent: vi.fn() }));
 
 import express from 'express';
-import caldavRouter from './caldav.js';
+import caldavRouter, { parseCalendarEvent } from './caldav.js';
 
 function basic(username, password) {
   return `Basic ${Buffer.from(`${username}:${password}`).toString('base64')}`;
@@ -22,6 +24,7 @@ let base;
 
 beforeAll(async () => {
   const app = express();
+  app.use(createBrowserCors({ origin: 'https://email.kmms.ovh', credentials: true }));
   app.use('/caldav', caldavRouter);
   await new Promise((resolve) => { server = app.listen(0, resolve); });
   base = `http://127.0.0.1:${server.address().port}`;
@@ -95,6 +98,46 @@ describe('CalDAV discovery', () => {
 });
 
 describe('CalDAV calendar objects', () => {
+  it('uses embedded Exchange timezone rules in summer and winter and accepts explicit DATE-TIME', () => {
+    for (const [month, hour] of [['09', '07'], ['01', '08']]) {
+      const event = parseCalendarEvent(outlookCalendar(month));
+      expect(event?.startsAt.toISOString()).toBe(`2026-${month}-10T${hour}:00:00.000Z`);
+      expect(event?.endsAt - event?.startsAt).toBe(3600000);
+      expect(event?.timeZone).toBe('Central European Standard Time');
+    }
+  });
+  it('does not read VALARM dates or titles as event properties', () => {
+    const event = parseCalendarEvent(outlookCalendar('09', 'BEGIN:VALARM\nDTSTART:20260910T050000Z\nSUMMARY:Alarm\nACTION:DISPLAY\nEND:VALARM\n'));
+    expect(event?.summary).toBe('Planning');
+    expect(event?.startsAt.toISOString()).toBe('2026-09-10T07:00:00.000Z');
+  });
+  it('does not guess offsets for an unknown zone without its definition', () => {
+    expect(parseCalendarEvent(outlookCalendar().replace(/BEGIN:VTIMEZONE[\s\S]*?END:VTIMEZONE/, ''))).toBeNull();
+  });
+  it('accepts case-insensitive iCalendar component markers and properties', () => {
+    const event = parseCalendarEvent('begin:vcalendar\r\nbegin:vevent\r\nuid:case-insensitive\r\ndtstart:20260901T090000Z\r\ndtend:20260901T100000Z\r\nsummary:Planning\r\nend:vevent\r\nend:vcalendar\r\n');
+
+    expect(event).toMatchObject({ uid: 'case-insensitive', summary: 'Planning' });
+    expect(event.startsAt).toEqual(new Date('2026-09-01T09:00:00.000Z'));
+  });
+
+  it('projects a recurring VEVENT while preserving standard scheduling fields in its raw iCalendar object', () => {
+    const raw = 'BEGIN:VCALENDAR\r\nVERSION:2.0\r\nBEGIN:VTIMEZONE\r\nTZID:Europe/Berlin\r\nEND:VTIMEZONE\r\nBEGIN:VEVENT\r\nUID:weekly-planning\r\nDTSTART;TZID=Europe/Berlin:20260901T090000\r\nDURATION:PT1H\r\nRRULE:FREQ=WEEKLY;COUNT=4\r\nSTATUS:CONFIRMED\r\nTRANSP:OPAQUE\r\nATTENDEE;CN=Sam;PARTSTAT=ACCEPTED:mailto:sam@example.test\r\nBEGIN:VALARM\r\nTRIGGER:-PT15M\r\nACTION:DISPLAY\r\nDESCRIPTION:Reminder\r\nEND:VALARM\r\nEND:VEVENT\r\nBEGIN:VTODO\r\nUID:todo-1\r\nSUMMARY:Ignored task projection\r\nEND:VTODO\r\nEND:VCALENDAR\r\n';
+
+    const event = parseCalendarEvent(raw);
+
+    expect(event).toMatchObject({ uid: 'weekly-planning', summary: null, allDay: false, timeZone: 'Europe/Berlin' });
+    expect(event.startsAt).toEqual(new Date('2026-09-01T07:00:00.000Z'));
+    expect(event.endsAt).toEqual(new Date('2026-09-01T08:00:00.000Z'));
+    expect(event.raw).toBe(raw);
+  });
+
+  it('rejects an empty UID before projecting a calendar event', () => {
+    const event = parseCalendarEvent('BEGIN:VCALENDAR\r\nBEGIN:VEVENT\r\nUID:\r\nDTSTART:20260901T090000Z\r\nDTEND:20260901T100000Z\r\nEND:VEVENT\r\nEND:VCALENDAR\r\n');
+
+    expect(event).toBeNull();
+  });
+
   it('creates a local event with an ETag and returns it through GET', async () => {
     authenticateDavCredential.mockResolvedValue({ userId: 'user-1', credentialId: 'credential-1' });
     query
@@ -167,15 +210,14 @@ describe('CalDAV calendar objects', () => {
     ]));
   });
 
-  it('rejects malformed end semantics and unsupported recurrence rules before storing', async () => {
+  it('rejects malformed end semantics before storing', async () => {
     authenticateDavCredential.mockResolvedValue({ userId: 'user-1', credentialId: 'credential-1' });
     for (const body of [
       'BEGIN:VCALENDAR\r\nBEGIN:VEVENT\r\nUID:both-end-values\r\nDTSTART:20260901T090000Z\r\nDTEND:20260901T100000Z\r\nDURATION:PT1H\r\nEND:VEVENT\r\nEND:VCALENDAR\r\n',
-      'BEGIN:VCALENDAR\r\nBEGIN:VEVENT\r\nUID:recurring\r\nDTSTART:20260901T090000Z\r\nDTEND:20260901T100000Z\r\nRRULE:FREQ=DAILY\r\nEND:VEVENT\r\nEND:VCALENDAR\r\n',
     ]) {
       query.mockReset();
       query.mockResolvedValueOnce({ rows: [{ id: 'calendar-1', source: 'local', read_only: false }] });
-      const response = await fetch(`${base}/caldav/user-1/calendar-1/${body.includes('recurring') ? 'recurring' : 'both-end-values'}.ics`, {
+      const response = await fetch(`${base}/caldav/user-1/calendar-1/both-end-values.ics`, {
         method: 'PUT', headers: { authorization: basic('sam@example.test', 'test-dav-password') }, body,
       });
       expect(response.status).toBe(400);
@@ -236,8 +278,8 @@ describe('CalDAV calendar objects', () => {
     });
 
     expect(response.status).toBe(207);
-    expect(query.mock.calls[1][0]).toContain('uid = ANY($3)');
-    expect(query.mock.calls[1][1]).toEqual(['calendar-1', '', ['event 1']]);
+    expect(query.mock.calls[1][0]).toContain("COALESCE(dav_filename, uid || '.ics') = ANY($3)");
+    expect(query.mock.calls[1][1]).toEqual(['calendar-1', '', ['event 1.ics']]);
   });
 
   it('filters calendar-query results to the requested time range', async () => {
@@ -272,4 +314,91 @@ describe('CalDAV calendar objects', () => {
     expect(response.status).toBe(412);
     expect(query).toHaveBeenCalledTimes(2);
   });
+
+  it('rejects CalDAV mutation of an event whose invitation lifecycle is managed by Inboxora', async () => {
+    authenticateDavCredential.mockResolvedValue({ userId: 'user-1', credentialId: 'credential-1' });
+    query
+      .mockResolvedValueOnce({ rows: [{ id: 'calendar-1', source: 'local', read_only: false }] })
+      .mockResolvedValueOnce({ rows: [{ etag: 'current-etag', invite_account_id: 'account-1' }] });
+
+    const response = await fetch(`${base}/caldav/user-1/calendar-1/event-1.ics`, {
+      method: 'PUT', headers: { authorization: basic('sam@example.test', 'test-dav-password') },
+      body: 'BEGIN:VCALENDAR\r\nVERSION:2.0\r\nBEGIN:VEVENT\r\nUID:event-1\r\nDTSTART:20260901T090000Z\r\nDTEND:20260901T100000Z\r\nEND:VEVENT\r\nEND:VCALENDAR\r\n',
+    });
+
+    expect(response.status).toBe(409);
+    expect(query).toHaveBeenCalledTimes(2);
+  });
+
+  it('rejects CalDAV deletion of an event whose invitation lifecycle is managed by Inboxora', async () => {
+    authenticateDavCredential.mockResolvedValue({ userId: 'user-1', credentialId: 'credential-1' });
+    query
+      .mockResolvedValueOnce({ rows: [{ id: 'calendar-1', source: 'local', read_only: false }] })
+      .mockResolvedValueOnce({ rows: [{ etag: 'current-etag', invite_account_id: 'account-1' }] });
+
+    const response = await fetch(`${base}/caldav/user-1/calendar-1/event-1.ics`, {
+      method: 'DELETE', headers: { authorization: basic('sam@example.test', 'test-dav-password') },
+    });
+
+    expect(response.status).toBe(409);
+    expect(query).toHaveBeenCalledTimes(2);
+  });
+
+  it('keeps the CalDAV write guarded when an invitation is enabled after its initial read', async () => {
+    authenticateDavCredential.mockResolvedValue({ userId: 'user-1', credentialId: 'credential-1' });
+    query
+      .mockResolvedValueOnce({ rows: [{ id: 'calendar-1', source: 'local', read_only: false }] })
+      .mockResolvedValueOnce({ rows: [{ etag: 'current-etag', invite_account_id: null }] })
+      // A concurrent Inboxora update enabled invitations before the UPSERT locked the row.
+      .mockResolvedValueOnce({ rows: [] });
+
+    const response = await fetch(`${base}/caldav/user-1/calendar-1/event-1.ics`, {
+      method: 'PUT', headers: { authorization: basic('sam@example.test', 'test-dav-password') },
+      body: 'BEGIN:VCALENDAR\r\nVERSION:2.0\r\nBEGIN:VEVENT\r\nUID:event-1\r\nDTSTART:20260901T090000Z\r\nDTEND:20260901T100000Z\r\nEND:VEVENT\r\nEND:VCALENDAR\r\n',
+    });
+
+    expect(response.status).toBe(409);
+    expect(query.mock.calls[2][0]).toContain('WHERE calendar_events.invite_account_id IS NULL');
+  });
+
+  it('keeps the CalDAV deletion guarded when an invitation is enabled after its initial read', async () => {
+    authenticateDavCredential.mockResolvedValue({ userId: 'user-1', credentialId: 'credential-1' });
+    query
+      .mockResolvedValueOnce({ rows: [{ id: 'calendar-1', source: 'local', read_only: false }] })
+      .mockResolvedValueOnce({ rows: [{ etag: 'current-etag', invite_account_id: null }] })
+      // A concurrent Inboxora update enabled invitations before DELETE locked the row.
+      .mockResolvedValueOnce({ rows: [] });
+
+    const response = await fetch(`${base}/caldav/user-1/calendar-1/event-1.ics`, {
+      method: 'DELETE', headers: { authorization: basic('sam@example.test', 'test-dav-password') },
+    });
+
+    expect(response.status).toBe(409);
+    expect(query.mock.calls[2][0]).toContain('AND invite_account_id IS NULL');
+  });
+});
+
+ it('maps folded event metadata and quoted participant parameters through DAV PUT', async () => {
+  authenticateDavCredential.mockResolvedValue({ userId: 'user-1', credentialId: 'credential-1' });
+  query.mockResolvedValueOnce({ rows: [{ id: 'calendar-1', source: 'local', read_only: false }] })
+    .mockResolvedValueOnce({ rows: [] }).mockResolvedValueOnce({ rows: [{ uid: 'synthetic-exchange-event', etag: 'mapped' }] });
+  const raw = outlookCalendar('09', 'DESCRIPTION:First line\\nSecond \r\n line\r\nLOCATION:Room\\, A\r\nURL:https://example.test/meeting\r\nORGANIZER;CN="Team: Europe":mailto:team@example.test\r\nATTENDEE;CN="Doe; Jane":mailto:jane@example.test\r\n');
+  const event = parseCalendarEvent(raw);
+  expect(event).toMatchObject({ description: 'First line\nSecond line', location: 'Room, A', url: 'https://example.test/meeting', organizer: 'team@example.test', attendees: ['jane@example.test'] });
+  const response = await fetch(`${base}/caldav/user-1/calendar-1/synthetic-exchange-event.ics`, { method: 'PUT', headers: { authorization: basic('sam@example.test', 'test-dav-password') }, body: raw });
+  expect(response.status).toBe(201);
+  expect(query.mock.calls[2][1].slice(9, 14)).toEqual([event.description, event.location, event.url, event.organizer, JSON.stringify(event.attendees)]);
+ });
+
+it('keeps client resource filenames independent of the embedded calendar UID', async () => {
+ authenticateDavCredential.mockResolvedValue({ userId: 'user-1' });
+ query.mockResolvedValueOnce({ rows: [{ id: 'calendar-1', source: 'local', read_only: false }] }).mockResolvedValueOnce({ rows: [] }).mockResolvedValueOnce({ rows: [{ uid: 'synthetic-exchange-event', etag: 'etag' }] });
+ const response = await fetch(`${base}/caldav/user-1/calendar-1/client-generated.ics`, { method: 'PUT', headers: { authorization: basic('sam@example.test','secret'), 'if-none-match': '*' }, body: outlookCalendar() });
+ expect(response.status).toBe(201);
+ expect(query.mock.calls[2][1][2]).toBe('synthetic-exchange-event');
+ expect(query.mock.calls[2][1][14]).toBe('client-generated.ics');
+ query.mockReset(); query.mockResolvedValueOnce({ rows: [{ raw_ical: outlookCalendar(), etag: 'etag' }] });
+ const get = await fetch(`${base}/caldav/user-1/calendar-1/client-generated.ics`, { headers: { authorization: basic('sam@example.test','secret') } });
+ expect(get.status).toBe(200); expect(query.mock.calls[0][1][2]).toBe('client-generated.ics');
+ expect(query.mock.calls[0][0]).toContain('COALESCE(e.dav_filename');
 });

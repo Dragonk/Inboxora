@@ -55,6 +55,8 @@ services:
       VAPID_PUBLIC_KEY: ${VAPID_PUBLIC_KEY:-}
       VAPID_PRIVATE_KEY: ${VAPID_PRIVATE_KEY:-}
       VAPID_SUBJECT: ${VAPID_SUBJECT:-}
+      FCM_SERVICE_ACCOUNT_JSON: ${FCM_SERVICE_ACCOUNT_JSON:-}
+      PUSH_ALLOW_PRIVATE_ENDPOINTS: ${PUSH_ALLOW_PRIVATE_ENDPOINTS:-}
       IMAP_MAX_PERSISTENT_PER_HOST: ${IMAP_MAX_PERSISTENT_PER_HOST:-}
     depends_on:
       postgres:
@@ -112,6 +114,51 @@ services:
     networks:
       - mailflow
 
+  # ── ntfy (built-in UnifiedPush transport) ────────────────────────────────────
+  # Android instant notifications travel: Inboxora -> this ntfy -> UnifiedPush
+  # distributor (ntfy Android app) -> Inboxora Android. The frontend nginx
+  # proxies the UnifiedPush namespace at the domain origin and the container
+  # never publishes a host port.
+  #
+  # Why the origin and not a path: ntfy 2.28 refuses a base-url containing a path
+  # ("hosting ntfy on a sub-path is not supported") AND the ntfy Android app
+  # rejects a base URL with a path. nginx therefore routes only "/up" + 12 base62
+  # chars and "/v1" to ntfy (the SPA keeps every other path); /push/ is kept as a
+  # compatibility alias.
+  #
+  # Anonymous access is limited to UnifiedPush topics ("up" + 12 random base62
+  # characters generated on-device, ~71 bits, never derived from a user id or
+  # address). Everything else is denied: this is not a public topic server.
+  #
+  # Advanced: to use your own external ntfy instead, set PUSH_BASE_URL and start
+  # with docker-compose.external-ntfy.yml, which disables this service.
+  ntfy:
+    image: binwiederhier/ntfy:v2.28.0
+    container_name: mailflow-ntfy
+    restart: unless-stopped
+    command: serve
+    environment:
+      NTFY_LISTEN_HTTP: ":80"
+      NTFY_BEHIND_PROXY: "true"
+      NTFY_CACHE_FILE: /var/cache/ntfy/cache.db
+      NTFY_CACHE_DURATION: ${NTFY_CACHE_DURATION:-12h}
+      NTFY_AUTH_FILE: /var/cache/ntfy/user.db
+      NTFY_AUTH_DEFAULT_ACCESS: deny-all
+      NTFY_AUTH_ACCESS: "*:up*:rw"
+      NTFY_VISITOR_REQUEST_LIMIT_BURST: "60"
+      NTFY_VISITOR_REQUEST_LIMIT_REPLENISH: 5s
+      NTFY_VISITOR_MESSAGE_DAILY_LIMIT: "500"
+    volumes:
+      - ${NTFY_DATA:-ntfy_data}:/var/cache/ntfy
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://127.0.0.1:80/v1/health"]
+      interval: 15s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+    networks:
+      - mailflow
+
   # ── Caddy (automatic HTTPS via Let's Encrypt — production only) ──────────────
   # Use docker-compose.https.yml to avoid the port conflict with the frontend:
   #   docker compose -f docker-compose.yml -f docker-compose.https.yml --profile https up -d --build
@@ -140,6 +187,7 @@ services:
 volumes:
   postgres_data:
   redis_data:
+  ntfy_data:
   caddy_data:
   caddy_config:
 

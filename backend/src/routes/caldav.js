@@ -2,6 +2,8 @@
 // Auth: HTTP Basic with dedicated, revocable DAV application passwords only.
 
 import { Router } from 'express';
+import { parseCalendarEvent, parseUtc } from '../utils/ical.js';
+export { parseCalendarEvent } from '../utils/ical.js';
 import { query } from '../services/db.js';
 import { authLimiterConfig } from '../services/authLimiter.js';
 import { createDavAuthMiddleware } from '../services/davServerAuth.js';
@@ -43,143 +45,9 @@ function rawBody(req) {
   });
 }
 
-function unfoldICalendarLines(raw) {
-  const lines = [];
-  for (const physicalLine of raw.split(/\r\n|\n|\r/)) {
-    if (/^[ \t]/.test(physicalLine) && lines.length) lines[lines.length - 1] += physicalLine.slice(1);
-    else if (physicalLine) lines.push(physicalLine);
-  }
-  return lines;
-}
-
-function propertyFromLine(line) {
-  const separator = line.indexOf(':');
-  if (separator < 1) return null;
-  const [name, ...parameterParts] = line.slice(0, separator).split(';');
-  const parameters = Object.fromEntries(parameterParts.map((part) => {
-    const parameterSeparator = part.indexOf('=');
-    if (parameterSeparator < 1) return [part.toUpperCase(), ''];
-    return [part.slice(0, parameterSeparator).toUpperCase(), part.slice(parameterSeparator + 1).replace(/^"|"$/g, '')];
-  }));
-  return { name: name.toUpperCase(), parameters, value: line.slice(separator + 1) };
-}
-
-function unescapeICalendarText(value) {
-  return value.replace(/\\([\\;,nN])/g, (_match, escaped) => (escaped.toLowerCase() === 'n' ? '\n' : escaped));
-}
-
-function utcDate(year, month, day, hour = 0, minute = 0, second = 0) {
-  const date = new Date(Date.UTC(year, month - 1, day, hour, minute, second));
-  return date.getUTCFullYear() === year && date.getUTCMonth() === month - 1 && date.getUTCDate() === day
-    && date.getUTCHours() === hour && date.getUTCMinutes() === minute && date.getUTCSeconds() === second ? date : null;
-}
-
-function timeZoneParts(date, timeZone) {
-  try {
-    const parts = new Intl.DateTimeFormat('en-CA', {
-      timeZone, year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', second: '2-digit', hourCycle: 'h23',
-    }).formatToParts(date);
-    return Object.fromEntries(parts.filter((part) => part.type !== 'literal').map((part) => [part.type, Number(part.value)]));
-  } catch {
-    return null;
-  }
-}
-
-function localDateInTimeZone(year, month, day, hour, minute, second, timeZone) {
-  const wallTime = utcDate(year, month, day, hour, minute, second);
-  if (!wallTime) return null;
-  let instant = wallTime;
-  for (let attempt = 0; attempt < 3; attempt++) {
-    const parts = timeZoneParts(instant, timeZone);
-    if (!parts) return null;
-    const offset = Date.UTC(parts.year, parts.month - 1, parts.day, parts.hour, parts.minute, parts.second) - instant.getTime();
-    instant = new Date(wallTime.getTime() - offset);
-  }
-  const resolved = timeZoneParts(instant, timeZone);
-  return resolved && resolved.year === year && resolved.month === month && resolved.day === day
-    && resolved.hour === hour && resolved.minute === minute && resolved.second === second ? instant : null;
-}
-
-function parseUtc(value) {
-  if (!/^\d{8}T\d{6}Z$/.test(value || '')) return null;
-  return utcDate(Number(value.slice(0, 4)), Number(value.slice(4, 6)), Number(value.slice(6, 8)), Number(value.slice(9, 11)), Number(value.slice(11, 13)), Number(value.slice(13, 15)));
-}
-
-function parseICalendarDate(property) {
-  const { value, parameters } = property;
-  const dateOnly = parameters.VALUE?.toUpperCase() === 'DATE' || /^\d{8}$/.test(value);
-  if (dateOnly) {
-    if (!/^\d{8}$/.test(value)) return null;
-    const date = utcDate(Number(value.slice(0, 4)), Number(value.slice(4, 6)), Number(value.slice(6, 8)));
-    return date && { date, allDay: true, timeZone: null };
-  }
-  const match = value.match(/^(\d{4})(\d{2})(\d{2})T(\d{2})(\d{2})(\d{2})(Z?)$/);
-  if (!match || parameters.VALUE) return null;
-  const [, year, month, day, hour, minute, second, utc] = match;
-  const numeric = [year, month, day, hour, minute, second].map(Number);
-  if (utc) {
-    if (parameters.TZID) return null;
-    const date = utcDate(...numeric);
-    return date && { date, allDay: false, timeZone: null };
-  }
-  const timeZone = parameters.TZID;
-  if (!timeZone) return null;
-  const date = localDateInTimeZone(...numeric, timeZone);
-  return date && { date, allDay: false, timeZone };
-}
-
-function parseDuration(value) {
-  const match = value.match(/^P(?:(\d+)W|(?:(\d+)D)?(?:T(?:(\d+)H)?(?:(\d+)M)?(?:(\d+)S)?)?)$/);
-  if (!match) return null;
-  const milliseconds = ((Number(match[1] || 0) * 7 + Number(match[2] || 0)) * 24 * 60 * 60
-    + Number(match[3] || 0) * 60 * 60 + Number(match[4] || 0) * 60 + Number(match[5] || 0)) * 1000;
-  return milliseconds > 0 ? milliseconds : null;
-}
-
-export function parseCalendarEvent(raw) {
-  if (typeof raw !== 'string' || raw.length === 0 || raw.length > 1024 * 1024) return null;
-  const lines = unfoldICalendarLines(raw);
-  const starts = lines.filter((line) => line === 'BEGIN:VEVENT');
-  const ends = lines.filter((line) => line === 'END:VEVENT');
-  const start = lines.indexOf('BEGIN:VEVENT');
-  const end = lines.indexOf('END:VEVENT');
-  if (starts.length !== 1 || ends.length !== 1 || start < 0 || end <= start) return null;
-  const properties = lines.slice(start + 1, end).map(propertyFromLine);
-  if (properties.some((property) => !property) || properties.some((property) => ['RRULE', 'RDATE', 'EXDATE', 'RECURRENCE-ID'].includes(property.name))) return null;
-  const named = (name) => properties.filter((property) => property.name === name);
-  const [uid] = named('UID');
-  const [startProperty] = named('DTSTART');
-  const [endProperty] = named('DTEND');
-  const [durationProperty] = named('DURATION');
-  if (!uid || named('UID').length !== 1 || !startProperty || named('DTSTART').length !== 1
-    || named('DTEND').length > 1 || named('DURATION').length > 1 || (endProperty && durationProperty)) return null;
-  const startsAt = parseICalendarDate(startProperty);
-  if (!startsAt) return null;
-  let endsAt;
-  if (endProperty) {
-    endsAt = parseICalendarDate(endProperty);
-    if (!endsAt || endsAt.allDay !== startsAt.allDay) return null;
-  } else if (durationProperty) {
-    const duration = parseDuration(durationProperty.value);
-    if (!duration || (startsAt.allDay && duration % (24 * 60 * 60 * 1000))) return null;
-    endsAt = { date: new Date(startsAt.date.getTime() + duration), allDay: startsAt.allDay };
-  } else return null;
-  if (endsAt.date <= startsAt.date) return null;
-  const [summary] = named('SUMMARY');
-  return {
-    uid: uid.value,
-    startsAt: startsAt.date,
-    endsAt: endsAt.date,
-    allDay: startsAt.allDay,
-    timeZone: startsAt.timeZone,
-    summary: summary ? unescapeICalendarText(summary.value) : null,
-    raw,
-  };
-}
-
 function uidFromCalendarHref(href) {
   try {
-    return decodeURIComponent(href.trim().replace(/^.*\//, '').replace(/\.ics$/i, '')) || null;
+    return decodeURIComponent(href.trim().replace(/^.*\//, '')) || null;
   } catch {
     return null;
   }
@@ -318,7 +186,7 @@ router.report('/:userId/:calendarId/', async (req, res) => {
     }
     if (requestedToken) {
       const changes = await query(
-        `SELECT DISTINCT ON (uid, recurrence_id) uid, recurrence_id, etag, deleted, raw_ical
+        `SELECT DISTINCT ON (uid, recurrence_id) uid, recurrence_id, etag, deleted, raw_ical, dav_filename
          FROM calendar_sync_changes
          WHERE calendar_id = $1 AND version > $2
          ORDER BY uid, recurrence_id, version DESC`,
@@ -327,7 +195,7 @@ router.report('/:userId/:calendarId/', async (req, res) => {
       events = changes.rows;
     } else {
       const current = await query(
-        "SELECT uid, recurrence_id, etag, false AS deleted, raw_ical FROM calendar_events WHERE calendar_id = $1 AND recurrence_id = $2 ORDER BY uid ASC",
+        "SELECT uid, recurrence_id, etag, false AS deleted, raw_ical, dav_filename FROM calendar_events WHERE calendar_id = $1 AND recurrence_id = $2 ORDER BY uid ASC",
         [calendar.id, ''],
       );
       events = current.rows;
@@ -338,7 +206,7 @@ router.report('/:userId/:calendarId/', async (req, res) => {
       .filter(Boolean);
     if (!requestedUids.length) return res.status(400).end();
     const current = await query(
-      "SELECT uid, recurrence_id, etag, raw_ical FROM calendar_events WHERE calendar_id = $1 AND recurrence_id = $2 AND uid = ANY($3) ORDER BY uid ASC",
+      "SELECT uid, recurrence_id, etag, raw_ical, dav_filename FROM calendar_events WHERE calendar_id = $1 AND recurrence_id = $2 AND COALESCE(dav_filename, uid || '.ics') = ANY($3) ORDER BY uid ASC",
       [calendar.id, '', requestedUids],
     );
     events = current.rows;
@@ -349,17 +217,19 @@ router.report('/:userId/:calendarId/', async (req, res) => {
     if (timeRange && (!start || !end || end <= start)) return res.status(400).end();
     const current = start
       ? await query(
-        "SELECT uid, recurrence_id, etag, raw_ical FROM calendar_events WHERE calendar_id = $1 AND recurrence_id = $2 AND starts_at < $4 AND ends_at > $3 ORDER BY uid ASC",
+        // `recurring` is the stored, indexed form of the old raw_ical regex, which could
+        // not use an index and forced a scan of the calendar (see migration 0082).
+        "SELECT uid, recurrence_id, etag, raw_ical, dav_filename FROM calendar_events WHERE calendar_id = $1 AND recurrence_id = $2 AND ((starts_at < $4 AND ends_at > $3) OR recurring) ORDER BY uid ASC",
         [calendar.id, '', start, end],
       )
       : await query(
-        "SELECT uid, recurrence_id, etag, raw_ical FROM calendar_events WHERE calendar_id = $1 AND recurrence_id = $2 ORDER BY uid ASC",
+        "SELECT uid, recurrence_id, etag, raw_ical, dav_filename FROM calendar_events WHERE calendar_id = $1 AND recurrence_id = $2 ORDER BY uid ASC",
         [calendar.id, ''],
       );
     events = current.rows;
   }
 
-  const responses = events.map((event) => response(`${basePath}${encodeURIComponent(event.uid)}.ics`, event.deleted
+  const responses = events.map((event) => response(`${basePath}${encodeURIComponent(event.dav_filename || `${event.uid}.ics`)}`, event.deleted
     ? ['<D:resourcetype/>']
     : [
       '<D:resourcetype/>', `<D:getetag>"${xmlEscape(event.etag)}"</D:getetag>`,
@@ -371,11 +241,11 @@ router.report('/:userId/:calendarId/', async (req, res) => {
 
 router.get('/:userId/:calendarId/:filename', async (req, res) => {
   if (req.params.userId !== req.caldavUserId) return res.status(403).end();
-  const uid = req.params.filename.replace(/\.ics$/i, '');
+  const uid = req.params.filename;
   const result = await query(
     `SELECT e.raw_ical, e.etag FROM calendar_events e
      JOIN calendars c ON c.id = e.calendar_id
-     WHERE c.id = $1 AND c.user_id = $2 AND e.uid = $3`,
+     WHERE c.id = $1 AND c.user_id = $2 AND COALESCE(e.dav_filename, e.uid || '.ics') = $3`,
     [req.params.calendarId, req.caldavUserId, uid],
   );
   if (!result.rows[0]) return res.status(404).end();
@@ -393,26 +263,37 @@ router.put('/:userId/:calendarId/:filename', async (req, res) => {
   if (!calendar) return res.status(404).end();
   if (calendar.source !== 'local' || calendar.read_only) return res.status(403).end();
   const event = parseCalendarEvent(await rawBody(req));
-  const filenameUid = req.params.filename.replace(/\.ics$/i, '');
-  if (!event || event.uid !== filenameUid) return res.status(400).end();
+  const filename = req.params.filename;
+  if (!event) return res.status(400).end();
   const currentResult = await query(
-    'SELECT etag FROM calendar_events WHERE calendar_id = $1 AND uid = $2 AND recurrence_id = $3',
-    [calendar.id, event.uid, ''],
+    "SELECT uid, dav_filename, etag, invite_account_id FROM calendar_events WHERE calendar_id = $1 AND (uid = $2 OR COALESCE(dav_filename, uid || '.ics') = $4) AND recurrence_id = $3",
+    [calendar.id, event.uid, '', filename],
   );
   const current = currentResult.rows[0];
+  if (current?.uid && (current.uid !== event.uid || (current.dav_filename || `${current.uid}.ics`) !== filename)) return res.status(409).end();
+  if (current?.invite_account_id) return res.status(409).end();
   if (req.headers['if-none-match'] === '*' && current) return res.status(412).end();
   if (req.headers['if-match'] && (!current || !etagMatches(req.headers['if-match'], current.etag))) return res.status(412).end();
-  const stored = await query(
-    `INSERT INTO calendar_events (calendar_id, user_id, uid, raw_ical, etag, summary, starts_at, ends_at, all_day, timezone)
-     VALUES ($1, $2, $3, $4, gen_random_uuid()::text, $5, $6, $7, $8, $9)
+  let stored;
+  try {
+    stored = await query(
+    `INSERT INTO calendar_events (calendar_id, user_id, uid, raw_ical, etag, summary, starts_at, ends_at, all_day, timezone, description, location, url, organizer, attendees, dav_filename)
+     VALUES ($1, $2, $3, $4, gen_random_uuid()::text, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14::jsonb, $15)
      ON CONFLICT (calendar_id, uid, recurrence_id) DO UPDATE SET
        raw_ical = EXCLUDED.raw_ical, etag = gen_random_uuid()::text, summary = EXCLUDED.summary,
        starts_at = EXCLUDED.starts_at, ends_at = EXCLUDED.ends_at, all_day = EXCLUDED.all_day,
-       timezone = EXCLUDED.timezone, updated_at = NOW()
+       timezone = EXCLUDED.timezone, description = EXCLUDED.description, location = EXCLUDED.location,
+       url = EXCLUDED.url, organizer = EXCLUDED.organizer, attendees = EXCLUDED.attendees, dav_filename = EXCLUDED.dav_filename, updated_at = NOW()
+     WHERE calendar_events.invite_account_id IS NULL AND COALESCE(calendar_events.dav_filename, calendar_events.uid || '.ics') = EXCLUDED.dav_filename AND calendar_events.etag = $16
      RETURNING uid, etag`,
-    [calendar.id, req.caldavUserId, event.uid, event.raw, event.summary, event.startsAt, event.endsAt, event.allDay, event.timeZone],
-  );
-  res.setHeader('ETag', `"${stored.rows[0].etag}"`).status(current ? 204 : 201).end();
+     [calendar.id, req.caldavUserId, event.uid, event.raw, event.summary, event.startsAt, event.endsAt, event.allDay, event.timeZone, event.description, event.location, event.url, event.organizer, JSON.stringify(event.attendees), filename, current?.etag || null],
+     );
+  } catch (error) {
+    if (error.code === '23505') return res.status(req.headers['if-none-match'] === '*' ? 412 : 409).end();
+    throw error;
+  }
+     if (!stored.rows[0]) return res.status(req.headers['if-match'] || req.headers['if-none-match'] ? 412 : 409).end();
+     res.setHeader('ETag', `"${stored.rows[0].etag}"`).status(current ? 204 : 201).end();
 });
 
 router.delete('/:userId/:calendarId/:filename', async (req, res) => {
@@ -421,12 +302,17 @@ router.delete('/:userId/:calendarId/:filename', async (req, res) => {
   const calendar = calendarResult.rows[0];
   if (!calendar) return res.status(404).end();
   if (calendar.source !== 'local' || calendar.read_only) return res.status(403).end();
-  const uid = req.params.filename.replace(/\.ics$/i, '');
-  const currentResult = await query('SELECT etag FROM calendar_events WHERE calendar_id = $1 AND uid = $2 AND recurrence_id = $3', [calendar.id, uid, '']);
+  const uid = req.params.filename;
+  const currentResult = await query("SELECT etag, invite_account_id FROM calendar_events WHERE calendar_id = $1 AND COALESCE(dav_filename, uid || '.ics') = $2 AND recurrence_id = $3", [calendar.id, uid, '']);
   const current = currentResult.rows[0];
   if (!current) return res.status(404).end();
+  if (current.invite_account_id) return res.status(409).end();
   if (req.headers['if-match'] && !etagMatches(req.headers['if-match'], current.etag)) return res.status(412).end();
-  await query('DELETE FROM calendar_events WHERE calendar_id = $1 AND uid = $2 AND recurrence_id = $3', [calendar.id, uid, '']);
+  const deleted = await query(
+    "DELETE FROM calendar_events WHERE calendar_id = $1 AND COALESCE(dav_filename, uid || '.ics') = $2 AND recurrence_id = $3 AND invite_account_id IS NULL AND etag = $4 RETURNING id",
+    [calendar.id, uid, '', current.etag],
+  );
+  if (!deleted.rows[0]) return res.status(req.headers['if-match'] ? 412 : 409).end();
   res.status(204).end();
 });
 

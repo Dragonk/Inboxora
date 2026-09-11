@@ -134,6 +134,7 @@ test.describe('native conversation engine matrix', () => {
       expect.arrayContaining([expect.stringMatching(/\/api\/mail\/messages\?[^#]*threaded=true/)]),
     );
     await parent.locator("button[aria-label*='(5)']").click();
+    if (page.viewportSize().width >= 768 && page.viewportSize().width <= 1100) await page.locator('.tablet-reader-back button').click();
     const directions = parent.locator('xpath=..').locator('[data-message-direction]');
     // P1-D: first direction is the parent arrow for the newest unique child; the
     // remaining five are the exact expanded native children.
@@ -184,15 +185,13 @@ test.describe('native conversation engine matrix', () => {
     // Conversation mutations use the CE endpoint and are scoped to the selected
     // physical copy. Read state intentionally uses the shared per-copy bulk-read
     // lane instead, so assert that contract separately below.
-    for (const [action, expectedPath] of [['star', '/star'], ['delete', '/delete']]) {
-      const directAction = second.locator(`[data-message-action="${action}"]`);
-      await directAction.click();
-      await expect.poll(() => page.__conversationActions.at(-1)?.url).toContain(expectedPath);
-      await expect.poll(() => page.__conversationActions.at(-1)?.body).toMatchObject({
-        scope: 'THIS_COPY', copyId: 'conversation-gmail-copy-2', logicalMessageId: 'conversation-gmail-logical-2',
-      });
-      await expect(second).toHaveAttribute('data-conversation-message-state', 'expanded');
-    }
+    const starAction = second.locator('[data-message-action="star"]');
+    await starAction.click();
+    await expect.poll(() => page.__conversationActions.at(-1)?.url).toContain('/star');
+    await expect.poll(() => page.__conversationActions.at(-1)?.body).toMatchObject({
+      scope: 'THIS_COPY', copyId: 'conversation-gmail-copy-2', logicalMessageId: 'conversation-gmail-logical-2',
+    });
+    await expect(second).toHaveAttribute('data-conversation-message-state', 'expanded');
     const unreadAction = second.locator('[data-message-action="unread"]');
     if (await unreadAction.count() === 0) {
       // The mobile toolbar intentionally puts read/unread inside the More menu.
@@ -203,21 +202,28 @@ test.describe('native conversation engine matrix', () => {
     }
     await expect.poll(() => page.__bulkReadActions.at(-1)).toEqual({ ids: ['conversation-gmail-copy-2'], read: false });
     await expect(second).toHaveAttribute('data-conversation-message-state', 'expanded');
-    await second.locator('[data-message-action="archive"]').evaluate(button => button.click());
+    await second.locator('[data-message-action="reply"]').evaluate(button => button.click());
+    await expect(reader.locator('[data-conversation-message-actions="true"]')).toHaveCount(2);
     await expect(second).toHaveAttribute('data-conversation-message-state', 'expanded');
-    await expect(latest).toHaveAttribute('data-conversation-message-state', 'expanded');
+    await second.locator('[data-message-action="archive"]').evaluate(button => button.click());
     await expect.poll(() => page.__conversationActions.at(-1)).toMatchObject({
       method: 'POST',
       body: { scope: 'THIS_COPY', copyId: 'conversation-gmail-copy-2', logicalMessageId: 'conversation-gmail-logical-2' },
     });
-    await second.locator('[data-message-action="reply"]').evaluate(button => button.click());
-    await expect(reader.locator('[data-conversation-message-actions="true"]')).toHaveCount(2);
-    await expect(second).toHaveAttribute('data-conversation-message-state', 'expanded');
+    await expect(second).toHaveCount(0);
+    await latest.locator('[data-message-action="delete"]').click();
+    await expect.poll(() => page.__conversationActions.at(-1)?.url).toContain('/delete');
+    await expect.poll(() => page.__conversationActions.at(-1)?.body).toMatchObject({
+      scope: 'THIS_COPY', copyId: 'conversation-gmail-copy-5', logicalMessageId: 'conversation-gmail-logical-5',
+    });
+    await expect(latest).toHaveCount(0);
+    await expect(page.locator('[data-msgid="conversation-gmail-copy-5"]:visible')).toHaveCount(0);
   });
   test('ON/ON expanded native child rows expose per-message incoming/outgoing direction', async ({ page, fixtureApi }) => {
     await open(page, fixtureApi, true, true);
     const parent = page.locator('[data-msgid="conversation-gmail-copy-5"]:visible');
     await parent.locator("button[aria-label*='(5)']").click();
+    if (page.viewportSize().width >= 768 && page.viewportSize().width <= 1100) await page.locator('.tablet-reader-back button').click();
     const directions = parent.locator('xpath=..').locator('[data-message-direction]');
     // Parent latest direction + five native child directions.
     await expect(directions).toHaveCount(6);
@@ -226,6 +232,7 @@ test.describe('native conversation engine matrix', () => {
     await expect(directions.nth(4)).toHaveAttribute('data-message-direction', 'outgoing');
     await expect(directions.nth(5)).toHaveAttribute('data-message-direction', 'incoming');
   });
+
 
   test('ON/ON exposes a terminal no-copy state without actions or body retries', async ({ page, fixtureApi }, testInfo) => {
     test.skip(!isDesktopProject(testInfo), 'desktop parent-row selection contract');
@@ -461,6 +468,7 @@ test.describe('thread context and ThreadRow interaction regressions', () => {
 
     await open(page, fixtureApi, true, true);
     await page.locator('[data-msgid="conversation-gmail-copy-5"]:visible').locator('[data-thread-row-parent="true"]').click();
+    if (page.viewportSize().width >= 768 && page.viewportSize().width <= 1100) await page.locator('.tablet-reader-back button').click();
     await page.locator('[data-thread-row-child="conversation-gmail-copy-2"]:visible').click();
     const groupedReader = page.locator('section[data-conversation-id="conversation-gmail"]:visible');
     await expect(groupedReader).toHaveAttribute('data-reader-source', 'native-thread');
@@ -594,6 +602,7 @@ test.describe('reader target navigation follow-up', () => {
     // Body layout schedules the reader's final alignment on animation frames. The
     // toolbar can be visible before that post-layout pass, so sampling immediately
     // creates a timing race rather than exercising the intended final geometry.
+    await expect.poll(() => page.evaluate(() => window.__readerScrollWrites)).toBe(2);
     await expect.poll(async () => Math.abs((await readGeometry()).anchorError)).toBeLessThanOrEqual(3);
     const geometry = await readGeometry();
     expect(Math.abs(geometry.anchorError)).toBeLessThanOrEqual(3);
@@ -635,16 +644,20 @@ test.describe('reader target navigation follow-up', () => {
       return { reader, target, anchor, header };
     };
     const short = await select('conversation-gmail-copy-10', 'short', 10);
-    const shortGeometry = await short.reader.evaluate(element => ({ scrollTop: element.scrollTop, max: element.scrollHeight - element.clientHeight }));
-    expect(Math.abs(shortGeometry.scrollTop - shortGeometry.max)).toBeLessThanOrEqual(1);
     await expect(short.target.locator('iframe').contentFrame().locator('[data-testid="target-body"]')).toBeVisible();
+    // The initial iframe paint and the parent's final scroll-range commit are
+    // separate layout passes. Wait for the settled terminal geometry instead of
+    // sampling the transient placeholder range.
+    await expect.poll(() => short.reader.evaluate(element => Math.abs(
+      element.scrollTop - (element.scrollHeight - element.clientHeight),
+    ))).toBeLessThanOrEqual(1);
 
     const long = await select('conversation-gmail-copy-10', 'long', 10);
-    const longGeometry = await long.anchor.evaluate(element => {
+    await expect(long.target.locator('iframe').contentFrame().locator('[data-testid="target-body"]')).toBeVisible();
+    await expect.poll(() => long.anchor.evaluate(element => {
       const reader = element.closest('section');
-      return { anchorTop: element.getBoundingClientRect().top, readerTop: reader.getBoundingClientRect().top };
-    });
-    expect(longGeometry.anchorTop - longGeometry.readerTop).toBeLessThanOrEqual(12);
+      return element.getBoundingClientRect().top - reader.getBoundingClientRect().top;
+    })).toBeLessThanOrEqual(12);
 
     const twoPhaseNavigation = async ({ target, start }) => {
       page.__conversationSize = 10;
@@ -654,6 +667,11 @@ test.describe('reader target navigation follow-up', () => {
       await page.locator('[data-msgid="conversation-gmail-copy-10"]:visible').click();
       const reader = page.locator('section[data-conversation-id="conversation-gmail"]:visible');
       await expect(reader.locator('#logical-message-conversation-gmail-logical-10 iframe')).toBeVisible();
+      // Finish the initial short-last-message navigation before recording the
+      // next navigation. A visible iframe can still have its placeholder height.
+      await expect.poll(() => reader.evaluate(element => Math.abs(
+        element.scrollTop - (element.scrollHeight - element.clientHeight),
+      ))).toBeLessThanOrEqual(1);
       await reader.evaluate((element, position) => { element.scrollTop = position === 'bottom'
         ? element.scrollHeight - element.clientHeight : 0; }, start);
       const previousScrollTop = await reader.evaluate(element => element.scrollTop);
@@ -681,6 +699,9 @@ test.describe('reader target navigation follow-up', () => {
         const container = element.closest('section');
         return Math.abs(element.getBoundingClientRect().top - (container.getBoundingClientRect().top + 8));
       })).toBeLessThanOrEqual(2);
+      // The preliminary position can already match the final header position.
+      // Still wait for the post-body animation frame before asserting two phases.
+      await expect.poll(() => page.evaluate(() => window.__twoPhaseReaderWrites.length)).toBe(2);
       const geometry = await anchor.evaluate(element => {
         const container = element.closest('section');
         return {

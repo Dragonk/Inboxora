@@ -321,6 +321,9 @@ router.delete('/:id', async (req, res) => {
     );
     res.json({ ok: true });
   } catch (err) {
+    if (err.code === '23503') {
+      return res.status(409).json({ error: 'This account is still used to send calendar invitations. Cancel or transfer those invitations before deleting it.' });
+    }
     console.error('Account delete error:', err);
     res.status(500).json({ error: 'Failed to delete account' });
   }

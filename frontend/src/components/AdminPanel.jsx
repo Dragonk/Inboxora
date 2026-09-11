@@ -1,3 +1,10 @@
+import { refreshUnreadCounts } from '../utils/unreadRefresh.js';
+import { useBackLayer } from '../hooks/useBackNavigation.js';
+import { intlLocale } from '../utils/intlLocale.js';
+import { folderLabel } from '../utils/folderLabels.js';
+import { inputStyle as sharedInputStyle } from './ui.jsx';
+import ConversationRebuild from './ConversationRebuild.jsx';
+import CalendarSubscriptionsSettings from './CalendarSubscriptionsSettings.jsx';
 import { useCallback, useState, useEffect, useLayoutEffect, useRef, useMemo } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useStore } from '../store/index.js';
@@ -6,6 +13,8 @@ import { PluginSlot } from '../plugins/PluginSlot.jsx';
 import { newAiAction, AI_ACTION_LIMITS } from '../aiActions.js';
 import { useMobile } from '../hooks/useMobile.js';
 import { api } from '../utils/api.js';
+import { getInstantPushState, openPushDistributor, openPushHelp, openPushInstallPage, registerNativePush } from '../utils/nativePush.js';
+import { deriveInstantPushView } from '../utils/instantPushState.js';
 import {
   AI_ACCOUNT_PROVIDER_OPTIONS,
   AI_CONNECTION_METHOD_ACCOUNT,
@@ -20,9 +29,9 @@ import {
   normalizeAiForm,
   selectAiConnectionMethod,
 } from '../utils/aiConfig.js';
-import { THEMES, applyTheme, applyCustomCss } from '../themes.js';
+import { THEMES, applyCustomCss, themesByTone } from '../themes.js';
 import { FONT_SETS, loadFontSet, isRetroFont } from '../fonts.js';
-import { LAYOUTS, applyLayout } from '../layouts.js';
+import { LAYOUTS, localizedLayout, applyLayout } from '../layouts.js';
 import { NOTIFICATION_SOUNDS, playNotificationSound, playCustomSound, warmUpAudioContext } from '../utils/notificationSounds.js';
 import { usePushNotifications } from '../hooks/usePushNotifications.js';
 import SignatureEditor from './SignatureEditor.jsx';
@@ -43,12 +52,7 @@ function Field({ label, required, children }) {
   );
 }
 
-const inputStyle = {
-  width: '100%', padding: '9px 12px',
-  background: 'var(--bg-tertiary)', border: '1px solid var(--border)',
-  borderRadius: 7, color: 'var(--text-primary)', fontSize: 13,
-  outline: 'none', transition: 'border-color 0.15s', boxSizing: 'border-box',
-};
+const inputStyle = sharedInputStyle;
 
 const TOGGLE_OFF_BACKGROUND = 'var(--border)';
 
@@ -462,6 +466,8 @@ function AccountsTab() {
   const [aliasFormId, setAliasFormId] = useState(null);
   const [aliasFormError, setAliasFormError] = useState('');
   const [aliasFormSaving, setAliasFormSaving] = useState(false);
+  useBackLayer(subview !== 'list', () => setSubview('list'), 2010);
+  useBackLayer(aliasFormMode, () => { if (!aliasFormSaving) setAliasFormMode(null); }, 2020);
 
   const handleAdd = async (form) => {
     const account = await api.addAccount(form);
@@ -491,7 +497,7 @@ function AccountsTab() {
       total: unifiedUnreadTotal(unreadCounts.byAccount, nextAccounts),
       byAccount: unreadCounts.byAccount,
     });
-    api.getUnreadCounts().then(setUnreadCounts).catch(console.error);
+    refreshUnreadCounts();
     setSubview('list');
     setEditTarget(null);
   };
@@ -906,11 +912,11 @@ function AccountsTab() {
                   style={selectStyle}
                 >
                   <option value="" style={{ background: 'var(--bg-tertiary)' }}>
-                    {autoFolder ? `${t('admin.folderMappings.autoDetect')} (${autoFolder.path})` : t('admin.folderMappings.autoDetectNone')}
+                    {autoFolder ? `${t('admin.folderMappings.autoDetect')} (${folderLabel(autoFolder, t, folderMappings)})` : t('admin.folderMappings.autoDetectNone')}
                   </option>
                   {availableFolders.filter(f => !f.no_select).map(f => (
                     <option key={f.path} value={f.path} style={{ background: 'var(--bg-tertiary)' }}>
-                      {f.path}
+                      {folderLabel(f, t, folderMappings)} — {f.path}
                     </option>
                   ))}
                 </select>
@@ -1090,9 +1096,76 @@ function AccountsTab() {
 }
 
 // ─── Themes Tab ───────────────────────────────────────────────────────────────
+// One grid per appearance: the light default and the dark default are chosen
+// separately, and the mode decides which of the two is rendered.
+function ThemeDefaultGrid({ tone, selected, onSelect }) {
+  const themes = themesByTone(tone);
+  if (!themes.length) return null;
+  return (
+    <div
+      data-testid={`theme-default-${tone}`}
+      style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(200px, 1fr))', gap: 10 }}
+    >
+      {themes.map(([key, themeObj]) => (
+        <button
+          key={key}
+          type="button"
+          onClick={() => onSelect(key)}
+          aria-pressed={selected === key}
+          style={{
+            background: selected === key ? 'var(--bg-hover)' : 'var(--bg-tertiary)',
+            border: `2px solid ${selected === key ? 'var(--accent)' : 'var(--border-subtle)'}`,
+            borderRadius: 10, padding: '12px', cursor: 'pointer',
+            textAlign: 'left', transition: 'all 0.15s',
+            outline: 'none',
+          }}
+          onMouseEnter={e => { if (selected !== key) e.currentTarget.style.borderColor = 'var(--border)'; }}
+          onMouseLeave={e => { if (selected !== key) e.currentTarget.style.borderColor = 'var(--border-subtle)'; }}
+        >
+          {/* Color swatches */}
+          <div style={{ display: 'flex', gap: 4, marginBottom: 10 }}>
+            {themeObj.preview.map((c, i) => (
+              <div key={i} style={{
+                flex: i === 0 ? 2 : 1, height: 28, borderRadius: 5,
+                background: c,
+                border: '1px solid rgba(255,255,255,0.1)',
+              }} />
+            ))}
+          </div>
+
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+            <div>
+              <div style={{ fontSize: 13, fontWeight: 500, color: 'var(--text-primary)' }}>
+                {themeObj.label}
+              </div>
+              <div style={{ fontSize: 11, color: 'var(--text-tertiary)', marginTop: 2 }}>
+                {themeObj.description}
+              </div>
+            </div>
+            {selected === key && (
+              <div style={{
+                width: 18, height: 18, borderRadius: '50%',
+                background: 'var(--accent)', display: 'flex',
+                alignItems: 'center', justifyContent: 'center', flexShrink: 0,
+              }}>
+                <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="var(--accent-text)" strokeWidth="3">
+                  <polyline points="20 6 9 17 4 12"/>
+                </svg>
+              </div>
+            )}
+          </div>
+        </button>
+      ))}
+    </div>
+  );
+}
+
 function ThemesTab() {
   const { t } = useTranslation();
-  const { theme, setTheme } = useStore();
+  const {
+    theme, themeMode, lightTheme, darkTheme,
+    setThemeMode, setLightTheme, setDarkTheme,
+  } = useStore();
   const [customCss, setCustomCss] = useState('');
   const [cssSaving, setCssSaving] = useState(false);
   const [cssSaved, setCssSaved] = useState(false);
@@ -1103,11 +1176,6 @@ function ThemesTab() {
       .then(d => setCustomCss(d.settings.custom_css || ''))
       .catch(() => {});
   }, []);
-
-  const handleSelect = (key) => {
-    setTheme(key);
-    applyTheme(key);
-  };
 
   const handleSaveCustomCss = async () => {
     setCssSaving(true);
@@ -1125,6 +1193,14 @@ function ThemesTab() {
     }
   };
 
+  const modeOptions = [
+    ['system', t('admin.appearance.themeModeSystem')],
+    ['light', t('admin.appearance.themeModeLight')],
+    ['dark', t('admin.appearance.themeModeDark')],
+  ];
+  const sectionLabel = { fontSize: 13, fontWeight: 600, color: 'var(--text-primary)', marginBottom: 4 };
+  const sectionHint = { fontSize: 12, color: 'var(--text-tertiary)' };
+
   return (
     <div>
       <div style={{ fontSize: 15, fontWeight: 600, color: 'var(--text-primary)', marginBottom: 4 }}>
@@ -1134,55 +1210,53 @@ function ThemesTab() {
         {t('admin.appearance.description')}
       </div>
 
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(200px, 1fr))', gap: 10 }}>
-        {Object.entries(THEMES).map(([key, themeObj]) => (
+      <div style={sectionLabel}>{t('admin.appearance.themeMode')}</div>
+      <div style={{ ...sectionHint, marginBottom: 10 }}>{t('admin.appearance.themeModeDescription')}</div>
+      <div
+        role="group"
+        aria-label={t('admin.appearance.themeMode')}
+        style={{ display: 'inline-flex', padding: 2, gap: 2, borderRadius: 8, background: 'var(--bg-tertiary)', border: '1px solid var(--border-subtle)' }}
+      >
+        {modeOptions.map(([key, label]) => (
           <button
             key={key}
-            onClick={() => handleSelect(key)}
+            type="button"
+            onClick={() => setThemeMode(key)}
+            aria-pressed={themeMode === key}
             style={{
-              background: theme === key ? 'var(--bg-hover)' : 'var(--bg-tertiary)',
-              border: `2px solid ${theme === key ? 'var(--accent)' : 'var(--border-subtle)'}`,
-              borderRadius: 10, padding: '12px', cursor: 'pointer',
-              textAlign: 'left', transition: 'all 0.15s',
-              outline: 'none',
+              background: themeMode === key ? 'var(--accent)' : 'transparent',
+              color: themeMode === key ? 'var(--accent-text)' : 'var(--text-secondary)',
+              border: 'none', borderRadius: 6, padding: '6px 14px', fontSize: 12,
+              fontWeight: themeMode === key ? 600 : 400, cursor: 'pointer',
             }}
-            onMouseEnter={e => { if (theme !== key) e.currentTarget.style.borderColor = 'var(--border)'; }}
-            onMouseLeave={e => { if (theme !== key) e.currentTarget.style.borderColor = 'var(--border-subtle)'; }}
           >
-            {/* Color swatches */}
-            <div style={{ display: 'flex', gap: 4, marginBottom: 10 }}>
-              {themeObj.preview.map((c, i) => (
-                <div key={i} style={{
-                  flex: i === 0 ? 2 : 1, height: 28, borderRadius: 5,
-                  background: c,
-                  border: '1px solid rgba(255,255,255,0.1)',
-                }} />
-              ))}
-            </div>
-
-            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-              <div>
-                <div style={{ fontSize: 13, fontWeight: 500, color: 'var(--text-primary)' }}>
-                  {themeObj.label}
-                </div>
-                <div style={{ fontSize: 11, color: 'var(--text-tertiary)', marginTop: 2 }}>
-                  {themeObj.description}
-                </div>
-              </div>
-              {theme === key && (
-                <div style={{
-                  width: 18, height: 18, borderRadius: '50%',
-                  background: 'var(--accent)', display: 'flex',
-                  alignItems: 'center', justifyContent: 'center', flexShrink: 0,
-                }}>
-                  <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="3">
-                    <polyline points="20 6 9 17 4 12"/>
-                  </svg>
-                </div>
-              )}
-            </div>
+            {label}
           </button>
         ))}
+      </div>
+
+      <div style={{ ...sectionHint, marginTop: 14, marginBottom: 24 }}>
+        {t('admin.appearance.themeDefaultsDescription')}
+      </div>
+
+      <div style={sectionLabel}>{t('admin.appearance.lightTheme')}</div>
+      <div style={{ height: 10 }} />
+      <ThemeDefaultGrid
+        tone="light"
+        selected={lightTheme}
+        onSelect={setLightTheme}
+      />
+
+      <div style={{ ...sectionLabel, marginTop: 24 }}>{t('admin.appearance.darkTheme')}</div>
+      <div style={{ height: 10 }} />
+      <ThemeDefaultGrid
+        tone="dark"
+        selected={darkTheme}
+        onSelect={setDarkTheme}
+      />
+
+      <div style={{ ...sectionHint, marginTop: 16 }}>
+        {t('admin.appearance.activeTheme', { theme: THEMES[theme]?.label || theme })}
       </div>
 
       <div style={{ borderTop: '1px solid var(--border-subtle)', marginTop: 28, paddingTop: 28 }}>
@@ -1515,10 +1589,117 @@ function SwipeActionIcon({ action, size = 17 }) {
   return <svg {...common}><rect x="2" y="3" width="20" height="5" rx="1"/><path d="M4 8v11a1 1 0 001 1h14a1 1 0 001-1V8"/><polyline points="9 13 12 16 15 13"/><line x1="12" y1="11" x2="12" y2="16"/></svg>;
 }
 
+function CalendarSettingsTab() {
+  const { t, i18n } = useTranslation();
+  const { calendarWeekStartsOn, setCalendarWeekStartsOn, calendarWorkDays, setCalendarWorkDays, calendarWorkHoursStart, setCalendarWorkHoursStart, calendarWorkHoursEnd, setCalendarWorkHoursEnd, calendarWorkHoursError, calendarInviteAccountId, setCalendarInviteAccountId, accounts } = useStore();
+  // Only accounts that can actually send mail may be offered as a default sender.
+  const senderAccounts = (accounts || []).filter(account => account.enabled && account.smtp_host);
+  return <div data-testid="calendar-settings">
+      <div>
+        <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--text-primary)', marginBottom: 16 }}>
+          {t('calendar.title')}
+        </div>
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: 14 }}>
+          <SettingsChoices
+            label={t('calendar.firstDayOfWeek')}
+            description={t('calendar.firstDayOfWeekDescription')}
+            testId="calendar-week-start-setting"
+            value={calendarWeekStartsOn}
+            onChange={setCalendarWeekStartsOn}
+            options={[[1, t('calendar.monday'), t('calendar.mondayDescription')], [0, t('calendar.sunday'), t('calendar.sundayDescription')]]}
+          />
+          <div style={{ display: 'grid', gap: 8, fontSize: 12, color: 'var(--text-secondary)', gridColumn: '1 / -1' }}>
+            <span>{t('calendar.workDays', 'Work days')}</span>
+            <p className="settings-choice-description">{t('calendar.workDaysDescription')}</p>
+            <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
+              {[1, 2, 3, 4, 5, 6, 0].map(day => {
+                const checked = calendarWorkDays.includes(day);
+                return <label key={day} className={`settings-day-choice${checked ? ' is-selected' : ''}`}>
+                  <input type="checkbox" data-testid={`calendar-work-day-${day}`} checked={checked} onChange={() => setCalendarWorkDays(checked ? calendarWorkDays.filter(value => value !== day) : [...calendarWorkDays, day])} />
+                  {t(`calendar.day${day}`, ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'][day])}
+                </label>;
+              })}
+            </div>
+          </div>
+          <label style={{ display: 'grid', gap: 6, fontSize: 12, color: 'var(--text-secondary)' }}>
+            {t('calendar.workHoursStart', 'Working hours start')}
+            <input data-testid="calendar-work-hours-start" type="time" value={calendarWorkHoursStart} onChange={event => setCalendarWorkHoursStart(event.target.value)} aria-describedby={calendarWorkHoursError ? 'calendar-work-hours-error' : undefined} style={inputStyle} />
+            <span className="settings-choice-description">{t('calendar.workHoursStartDescription')}</span>
+          </label>
+          <label style={{ display: 'grid', gap: 6, fontSize: 12, color: 'var(--text-secondary)' }}>
+            {t('calendar.workHoursEnd', 'Working hours end')}
+            <input data-testid="calendar-work-hours-end" type="time" value={calendarWorkHoursEnd} onChange={event => setCalendarWorkHoursEnd(event.target.value)} aria-describedby={calendarWorkHoursError ? 'calendar-work-hours-error' : undefined} style={inputStyle} />
+            <span className="settings-choice-description">{t('calendar.workHoursEndDescription')}</span>
+          </label>
+          {calendarWorkHoursError && <div id="calendar-work-hours-error" role="alert" style={{ gridColumn: '1 / -1', fontSize: 12, color: 'var(--red)' }}>{calendarWorkHoursError}</div>}
+          <label style={{ display: 'grid', gap: 6, fontSize: 12, color: 'var(--text-secondary)', gridColumn: '1 / -1' }}>
+            {t('calendar.defaultInviteAccount')}
+            <select data-testid="calendar-invite-account-setting" value={calendarInviteAccountId} onChange={event => setCalendarInviteAccountId(event.target.value)} style={inputStyle}>
+              <option value="">{t('calendar.defaultInviteAccountNone')}</option>
+              {senderAccounts.map(account => <option key={account.id} value={account.id}>{account.name || account.email_address} · {account.email_address}</option>)}
+            </select>
+            <span className="settings-choice-description">{t('calendar.defaultInviteAccountDescription')}</span>
+          </label>
+        </div>
+      </div>
+      <CalendarSubscriptionsSettings locale={intlLocale(i18n.resolvedLanguage || i18n.language)} />
+
+  </div>;
+}
+
+// One shared presentation for a settings choice group, matching the message-list
+// settings: the option name, a short line explaining what the group controls, and
+// one button per value carrying its own name and a short line saying what picking
+// that value means. Every tab reads the same way.
+function SettingsChoices({ label, description, testId, value, onChange, options, disabled = false }) {
+  return <div className="settings-choices" role="group" aria-label={label} data-testid={testId}>
+    <div className="settings-choice-label">{label}</div>
+    {description && <p className="settings-choice-description">{description}</p>}
+    <div className="settings-choice-options">{options.map(([id, title, optionDescription]) => <button key={id} type="button" disabled={disabled} aria-pressed={value === id} onClick={() => onChange(id)}><span className="settings-option-title">{title}</span>{optionDescription && <span className="settings-option-description">{optionDescription}</span>}</button>)}</div>
+  </div>;
+}
+
+// A single on/off setting as its own row: name + what it does on the left, the
+// switch on the right. The description explains the setting itself and never
+// flips with its state — the switch, its aria-checked and its label carry state.
+function SettingsSwitchRow({ label, description, checked, onChange, testId, disabled = false, ariaLabel = null, children = null }) {
+  return <div className="settings-switch-row" data-testid={testId ? `${testId}-row` : undefined}>
+    <div className="settings-switch-text">
+      <div className="settings-switch-label">{label}</div>
+      {description && <div className="settings-switch-description">{description}</div>}
+      {children}
+    </div>
+    <button
+      type="button"
+      role="switch"
+      data-testid={testId}
+      aria-checked={checked}
+      aria-label={ariaLabel || label}
+      disabled={disabled}
+      onClick={() => onChange(!checked)}
+      style={{
+        width: 44, height: 24, borderRadius: 12,
+        background: checked ? 'var(--accent)' : 'var(--bg-elevated)',
+        border: `1px solid ${checked ? 'var(--accent)' : 'var(--border)'}`,
+        cursor: disabled ? 'not-allowed' : 'pointer',
+        position: 'relative', transition: 'all 0.2s', flexShrink: 0,
+        opacity: disabled ? 0.6 : 1,
+      }}
+    >
+      <span style={{
+        position: 'absolute', top: 3, left: checked ? 22 : 3,
+        width: 16, height: 16, borderRadius: '50%', background: 'white',
+        transition: 'left 0.2s', boxShadow: '0 1px 3px rgba(0,0,0,0.3)',
+      }} />
+    </button>
+  </div>;
+}
+
 function LayoutsTab() {
-  const { t } = useTranslation();
+  const { t, i18n } = useTranslation();
   const isMobile = useMobile();
-  const { layout, setLayout, pageSize, setPageSize, scrollMode, setScrollMode, swipeActions, setSwipeAction, syncInterval, setSyncInterval, folderSyncInterval, setFolderSyncInterval, threadedView, setThreadedView, plaintextEmail, setPlaintextEmail, hoverQuickActions, setHoverQuickActions, showMobileAvatars, setShowMobileAvatars, gravatarAvatars, setGravatarAvatars, replyDefault, setReplyDefault, markReadBehavior, setMarkReadBehavior, markReadDelay, setMarkReadDelay, senderFavicons, senderFaviconsSaving, setSenderFavicons, showMessagePreviews, setShowMessagePreviews, conversationReaderViewEnabled, setConversationReaderViewEnabled } = useStore();
+  const { layout, setLayout, pageSize, setPageSize, scrollMode, setScrollMode, swipeActions, setSwipeAction, syncInterval, setSyncInterval, folderSyncInterval, setFolderSyncInterval, threadedView, setThreadedView, plaintextEmail, setPlaintextEmail, hoverQuickActions, setHoverQuickActions, showMobileAvatars, setShowMobileAvatars, gravatarAvatars, setGravatarAvatars, replyDefault, setReplyDefault, markReadBehavior, setMarkReadBehavior, markReadDelay, setMarkReadDelay, senderFavicons, senderFaviconsSaving, setSenderFavicons, showMessagePreviews, setShowMessagePreviews, conversationReaderViewEnabled, setConversationReaderViewEnabled, fontSize, setFontSize } = useStore();
+  const { mobileNavigationPosition, setMobileNavigationPosition } = useStore();
   const [senderFaviconsError, setSenderFaviconsError] = useState('');
 
   // "Set Inboxora as your default email app": registerProtocolHandler is the
@@ -1623,7 +1804,7 @@ function LayoutsTab() {
                   display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8,
                 }}>
                   <div style={{ fontSize: 13, fontWeight: 500, color: 'var(--text-primary)' }}>
-                    {l.label}
+                    {localizedLayout(key, t).label}
                   </div>
                   {isActive && (
                     <div style={{
@@ -1638,12 +1819,55 @@ function LayoutsTab() {
                   )}
                 </div>
                 <div style={{ fontSize: 11, color: 'var(--text-tertiary)', marginTop: 4, lineHeight: 1.4 }}>
-                  {l.description}
+                  {localizedLayout(key, t).description}
                 </div>
               </div>
             </button>
           );
         })}
+      </div>
+
+      {/* Interface density — segmented control (per appearance mock-up). Drives the
+          existing global UI scale (the Fonts-tab percentage), so no new state. */}
+      <div style={{ marginTop: 20, paddingTop: 16, borderTop: '1px solid var(--border-subtle)' }}>
+        <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--text-primary)', marginBottom: 10 }}>
+          {t('admin.appearance.density')}
+        </div>
+        <div style={{ display: 'inline-flex', padding: 2, gap: 2, borderRadius: 8, background: 'var(--bg-tertiary)', border: '1px solid var(--border-subtle)' }} role="group" aria-label={t('admin.appearance.density')}>
+          {[
+            ['compact', 90, t('admin.appearance.densityCompact')],
+            ['comfortable', 100, t('admin.appearance.densityComfortable')],
+            ['spacious', 115, t('admin.appearance.densitySpacious')],
+          ].map(([key, value, label]) => (
+            <button
+              key={key}
+              type="button"
+              onClick={() => setFontSize(value)}
+              aria-pressed={fontSize === value}
+              style={{
+                border: 0, padding: '5px 12px', borderRadius: 6, fontSize: 12, cursor: 'pointer',
+                background: fontSize === value ? 'var(--bg-elevated)' : 'transparent',
+                color: fontSize === value ? 'var(--text-primary)' : 'var(--text-secondary)',
+                fontWeight: fontSize === value ? 600 : 400,
+                boxShadow: fontSize === value ? 'var(--shadow-soft)' : 'none',
+                transition: 'background var(--motion-fast) var(--ease-standard)',
+              }}
+            >
+              {label}
+            </button>
+          ))}
+        </div>
+      </div>
+
+      <div style={{ marginTop: 28, paddingTop: 22, borderTop: '1px solid var(--border-subtle)' }}>
+        <SettingsChoices
+          label={t('admin.appearance.mobileNavigation')}
+          description={t('admin.appearance.mobileNavigationDescription')}
+          testId="mobile-navigation-position-setting"
+          value={mobileNavigationPosition}
+          onChange={setMobileNavigationPosition}
+          options={[["top", t('admin.appearance.navigationTop'), t('admin.appearance.navigationTopDesc')], ["bottom", t('admin.appearance.navigationBottom'), t('admin.appearance.navigationBottomDesc')]]}
+        />
       </div>
 
       {/* Message list behaviour */}
@@ -1837,46 +2061,18 @@ function LayoutsTab() {
         )}
 
         <div style={{ marginTop: 18, paddingTop: 18, borderTop: '1px solid var(--border-subtle)' }}>
-          <div style={{
-            display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 16,
-            padding: '12px 14px', borderRadius: 8,
-            background: 'var(--bg-tertiary)', border: '1px solid var(--border-subtle)',
-          }}>
-            <div>
-              <div style={{ fontSize: 13, fontWeight: 500, color: 'var(--text-primary)' }}>
-                {t('admin.messageList.senderFavicons')}
-              </div>
-              <div style={{ fontSize: 12, color: 'var(--text-tertiary)', marginTop: 2 }}>
-                {t('admin.messageList.senderFaviconsDesc')}
-              </div>
-            </div>
-            <button
-              type="button"
-              role="switch"
-              aria-checked={senderFavicons}
-              aria-label={t('admin.messageList.senderFavicons')}
-              disabled={senderFaviconsSaving}
-              onClick={async () => {
-                setSenderFaviconsError('');
-                try { await setSenderFavicons(!senderFavicons); }
-                catch { setSenderFaviconsError(t('admin.messageList.senderFaviconsSaveError')); }
-              }}
-              style={{
-                width: 44, height: 24, borderRadius: 12,
-                background: senderFavicons ? 'var(--accent)' : 'var(--bg-elevated)',
-                border: `1px solid ${senderFavicons ? 'var(--accent)' : 'var(--border)'}`,
-                cursor: senderFaviconsSaving ? 'not-allowed' : 'pointer',
-                position: 'relative', transition: 'all 0.2s', flexShrink: 0,
-                opacity: senderFaviconsSaving ? 0.6 : 1,
-              }}
-            >
-              <span style={{
-                position: 'absolute', top: 3, left: senderFavicons ? 22 : 3,
-                width: 16, height: 16, borderRadius: '50%', background: 'white',
-                transition: 'left 0.2s', boxShadow: '0 1px 3px rgba(0,0,0,0.3)',
-              }} />
-            </button>
-          </div>
+          <SettingsSwitchRow
+            label={t('admin.messageList.senderFavicons')}
+            description={t('admin.messageList.senderFaviconsDesc')}
+            checked={senderFavicons}
+            disabled={senderFaviconsSaving}
+            ariaLabel={t('admin.messageList.senderFavicons')}
+            onChange={async value => {
+              setSenderFaviconsError('');
+              try { await setSenderFavicons(value); }
+              catch { setSenderFaviconsError(t('admin.messageList.senderFaviconsSaveError')); }
+            }}
+          />
           {senderFaviconsError && (
             <div style={{ color: 'var(--red)', fontSize: 12, marginTop: 8 }}>
               {senderFaviconsError}
@@ -1944,9 +2140,9 @@ function LayoutsTab() {
         </div>
         <div style={{ display: 'flex', gap: 6 }}>
           {[
-            { value: 900,  label: '15 min' },
-            { value: 1800, label: '30 min' },
-            { value: 3600, label: '1 hour' },
+            { value: 900,  label: new Intl.NumberFormat(intlLocale(i18n.resolvedLanguage || i18n.language), { style: 'unit', unit: 'minute', unitDisplay: 'short' }).format(15) },
+            { value: 1800, label: new Intl.NumberFormat(intlLocale(i18n.resolvedLanguage || i18n.language), { style: 'unit', unit: 'minute', unitDisplay: 'short' }).format(30) },
+            { value: 3600, label: new Intl.NumberFormat(intlLocale(i18n.resolvedLanguage || i18n.language), { style: 'unit', unit: 'hour', unitDisplay: 'short' }).format(1) },
             { value: 0,    label: t('common.never') },
           ].map(({ value, label }) => {
             const active = folderSyncInterval === value;
@@ -1971,70 +2167,33 @@ function LayoutsTab() {
         </div>
       </div>
 
-      {/* Threading mode — Grupowanie rozmów */}
+      {/* Threading mode — Grupowanie wiadomości (same option row as the rest) */}
       <div style={{ marginTop: 28, paddingTop: 22, borderTop: '1px solid var(--border-subtle)' }}>
-        <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--text-primary)', marginBottom: 4 }}>
-          {t('conversation.groupIntoConversations')}
-        </div>
-        <div style={{ display: 'flex', gap: 8 }}>
-          {[
-            { id: false, label: t('conversation.seriesOff'), desc: t('admin.messageList.threadingOffDesc') },
-            { id: true,  label: t('conversation.groupIntoConversationsOn'), desc: t('admin.messageList.threadingOnDesc') },
-          ].map(({ id, label, desc }) => {
-            const active = threadedView === id;
-            return (
-              <button
-                key={String(id)}
-                onClick={() => setThreadedView(id)}
-                style={{
-                  flex: 1, padding: '10px 12px', textAlign: 'left',
-                  background: active ? 'var(--bg-hover)' : 'var(--bg-tertiary)',
-                  border: `2px solid ${active ? 'var(--accent)' : 'var(--border-subtle)'}`,
-                  borderRadius: 8, cursor: 'pointer', transition: 'all 0.15s', outline: 'none',
-                }}
-                onMouseEnter={e => { if (!active) e.currentTarget.style.borderColor = 'var(--border)'; }}
-                onMouseLeave={e => { if (!active) e.currentTarget.style.borderColor = 'var(--border-subtle)'; }}
-              >
-                <div style={{ fontSize: 12, fontWeight: 500, color: 'var(--text-primary)', marginBottom: 2 }}>{label}</div>
-                <div style={{ fontSize: 11, color: 'var(--text-tertiary)' }}>{desc}</div>
-              </button>
-            );
-          })}
-        </div>
+        <SettingsSwitchRow
+          label={t('conversation.groupIntoConversations')}
+          description={t('admin.messageList.threadingDesc')}
+          testId="conversation-list-toggle"
+          checked={threadedView}
+          onChange={setThreadedView}
+          ariaLabel={threadedView ? t('conversation.groupIntoConversationsOn') : t('conversation.seriesOff')}
+        />
       </div>
 
-      {/* Conversation reader — Czytnik rozmowy, same card layout as grouping above */}
+      {/* Conversation reader — Czytnik wiadomości (same option row as the rest) */}
       <div style={{ marginTop: 20, paddingTop: 16, borderTop: '1px solid var(--border-subtle)' }}>
-        <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--text-primary)', marginBottom: 4 }}>
-          {t('conversation.conversationReader')}
-        </div>
-        <div style={{ display: 'flex', gap: 8 }}>
-          {[
-            { id: false, label: t('conversation.readerOff'), desc: t('conversation.readerOffDesc') },
-            { id: true,  label: t('conversation.readerOn'), desc: t('conversation.readerOnDesc') },
-          ].map(({ id, label, desc }) => {
-            const active = conversationReaderViewEnabled === id;
-            return (
-              <button
-                key={String(id)}
-                type="button"
-                onClick={() => setConversationReaderViewEnabled(id)}
-                style={{
-                  flex: 1, padding: '10px 12px', textAlign: 'left',
-                  background: active ? 'var(--bg-hover)' : 'var(--bg-tertiary)',
-                  border: `2px solid ${active ? 'var(--accent)' : 'var(--border-subtle)'}`,
-                  borderRadius: 8, cursor: 'pointer', transition: 'all 0.15s', outline: 'none',
-                }}
-                onMouseEnter={e => { if (!active) e.currentTarget.style.borderColor = 'var(--border)'; }}
-                onMouseLeave={e => { if (!active) e.currentTarget.style.borderColor = 'var(--border-subtle)'; }}
-              >
-                <div style={{ fontSize: 12, fontWeight: 500, color: 'var(--text-primary)', marginBottom: 2 }}>{label}</div>
-                <div style={{ fontSize: 11, color: 'var(--text-tertiary)' }}>{desc}</div>
-              </button>
-            );
-          })}
-        </div>
+        <SettingsSwitchRow
+          label={t('conversation.conversationReader')}
+          description={t('conversation.readerDesc')}
+          testId="conversation-reader-toggle"
+          checked={conversationReaderViewEnabled}
+          onChange={setConversationReaderViewEnabled}
+          ariaLabel={conversationReaderViewEnabled ? t('conversation.readerOn') : t('conversation.readerOff')}
+        />
       </div>
+
+      {/* Rebuilding existing mail's threading — the step that groups a mailbox
+          migrated from MailFlow — sits beside the two threading switches. */}
+      <ConversationRebuild />
 
       {/* Compose format */}
       <div style={{ marginTop: 28, paddingTop: 22, borderTop: '1px solid var(--border-subtle)' }}>
@@ -3152,6 +3311,7 @@ function SSOTab() {
   const [editing, setEditing] = useState(null); // null | 'new' | provider object
   const [form, setForm] = useState(emptyProvider);
   const [saving, setSaving] = useState(false);
+  useBackLayer(editing, () => { if (!saving) setEditing(null); }, 2010);
   const [error, setError] = useState('');
   const [confirmDialog, setConfirmDialog] = useState(null);
   const [copiedId, setCopiedId] = useState(null);
@@ -3363,6 +3523,10 @@ function SSOTab() {
             background: 'var(--bg-tertiary)', border: '1px solid var(--border-subtle)',
           }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+              {/* Provider identity mark — the OIDC shield from the mock-up provider card. */}
+              <span style={{ color: 'var(--accent)', flexShrink: 0, display: 'inline-flex' }} aria-hidden="true">
+                <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75"><path d="M12 3L4 7v5c0 5 3.5 9.3 8 10.3C16.5 21.3 20 17 20 12V7L12 3z"/></svg>
+              </span>
               <div style={{ flex: 1, minWidth: 0 }}>
                 <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 2 }}>
                   <span style={{ fontSize: 13, fontWeight: 500, color: 'var(--text-primary)' }}>{p.name}</span>
@@ -5111,6 +5275,153 @@ function UsersAndInvitesPanel() {
   );
 }
 
+// ─── Instant notifications (Android native push) ─────────────────────────────
+// Web Push above covers the PWA. This card explains the separate app that makes
+// notifications arrive after Inboxora is closed (a UnifiedPush distributor such
+// as ntfy), and shows whether this device is connected to this server's /push.
+// All branching lives in deriveInstantPushView() so it is unit-testable.
+function NativePushSection() {
+  const { t } = useTranslation();
+  const [state, setState] = useState(null);
+  const [busy, setBusy] = useState(false);
+  const [copied, setCopied] = useState(false);
+
+  const refresh = useCallback(async () => { setState(await getInstantPushState()); }, []);
+  useEffect(() => { refresh(); }, [refresh]);
+
+  const view = deriveInstantPushView(state);
+  if (view.kind === 'unsupported') return null;
+
+  const appName = 'Inboxora';
+  const distributorName = view.distributorName || t('admin.push.instantFallbackName');
+  const recommended = 'ntfy';
+
+  const run = async (action) => {
+    setBusy(true);
+    try { await action(); await refresh(); } finally { setBusy(false); }
+  };
+
+  const copyServer = async () => {
+    if (!view.pushBaseUrl) return;
+    try {
+      await navigator.clipboard.writeText(view.pushBaseUrl);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    } catch { /* clipboard unavailable — the URL is visible to type */ }
+  };
+
+  const buttonStyle = (primary) => ({
+    padding: '7px 14px', borderRadius: 7, fontSize: 13, fontWeight: 500,
+    cursor: busy ? 'wait' : 'pointer',
+    background: primary ? 'var(--accent)' : 'transparent',
+    color: primary ? 'white' : 'var(--text-secondary)',
+    border: primary ? '1px solid transparent' : '1px solid var(--border)',
+    opacity: busy ? 0.6 : 1, transition: 'all 0.15s',
+  });
+  const urlBox = {
+    fontFamily: 'monospace', fontSize: 12, color: 'var(--text-primary)',
+    padding: '7px 10px', borderRadius: 6, background: 'var(--bg-tertiary)',
+    border: '1px solid var(--border)', wordBreak: 'break-all', flex: 1,
+  };
+  const muted = { fontSize: 12, color: 'var(--text-tertiary)', maxWidth: 420, lineHeight: 1.5 };
+
+  return (
+    <div style={{ marginTop: 20, padding: '16px', borderRadius: 10, background: 'var(--bg-secondary)', border: '1px solid var(--border-subtle)' }}>
+      <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--text-primary)', marginBottom: 12 }}>
+        {t('admin.push.instantTitle')}
+      </div>
+
+      {view.kind === 'permission_denied' && (
+        <div>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 6 }}>
+            <div style={{ width: 7, height: 7, borderRadius: '50%', background: 'var(--red)', flexShrink: 0 }} />
+            <span style={{ fontSize: 13, fontWeight: 500, color: 'var(--text-primary)' }}>{t('admin.push.statusDenied')}</span>
+          </div>
+          <div style={{ ...muted, marginBottom: 12 }}>{t('admin.push.permissionDenied')}</div>
+          <button style={buttonStyle(true)} disabled={busy} onClick={() => run(() => window.inboxoraNative?.notifications?.openSettings?.())}>
+            {t('admin.push.enable')}
+          </button>
+        </div>
+      )}
+
+      {view.kind === 'no_distributor' && (
+        <div>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 6 }}>
+            <span aria-hidden="true">⚠</span>
+            <span style={{ fontSize: 13, fontWeight: 500, color: 'var(--text-primary)' }}>{t('admin.push.instantNeedsAppTitle')}</span>
+          </div>
+          <div style={{ ...muted, marginBottom: 6 }}>
+            {t('admin.push.instantNeedsAppBody', { app: appName, distributor: recommended })}
+          </div>
+          <div style={{ ...muted, marginBottom: 12 }}>
+            {t('admin.push.instantNeedsAppWhy', { app: appName, distributor: recommended })}
+          </div>
+          <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+            <button style={buttonStyle(true)} disabled={busy} onClick={() => run(() => openPushInstallPage())}>
+              {t('admin.push.instantInstall', { distributor: recommended })}
+            </button>
+            <button style={buttonStyle(false)} disabled={busy} onClick={() => openPushHelp()}>
+              {t('admin.push.instantLearnMore')}
+            </button>
+          </div>
+        </div>
+      )}
+
+      {view.kind === 'pending' && (
+        <div>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 6 }}>
+            <div style={{ width: 7, height: 7, borderRadius: '50%', background: 'var(--amber, #f59e0b)', flexShrink: 0 }} />
+            <span style={{ fontSize: 13, fontWeight: 500, color: 'var(--text-primary)' }}>
+              {t('admin.push.instantPendingTitle', { distributor: distributorName })}
+            </span>
+          </div>
+          <div style={{ ...muted, marginBottom: 8 }}>
+            {t('admin.push.instantPendingBody', { distributor: distributorName })}
+          </div>
+          {view.pushBaseUrl && (
+            <div style={{ display: 'flex', gap: 8, alignItems: 'center', marginBottom: 12 }}>
+              <span style={urlBox}>{view.pushBaseUrl}</span>
+              <button style={buttonStyle(false)} disabled={busy} onClick={copyServer}>
+                {copied ? '✓' : t('common.copy')}
+              </button>
+            </div>
+          )}
+          <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+            <button style={buttonStyle(true)} disabled={busy} onClick={() => run(() => openPushDistributor())}>
+              {t('admin.push.instantOpen', { distributor: distributorName })}
+            </button>
+            <button style={buttonStyle(false)} disabled={busy} onClick={() => run(() => registerNativePush())}>
+              {t('admin.push.instantCheckAgain')}
+            </button>
+            <button style={buttonStyle(false)} disabled={busy} onClick={() => openPushHelp()}>
+              {t('admin.push.instantLearnMore')}
+            </button>
+          </div>
+        </div>
+      )}
+
+      {view.kind === 'connected' && (
+        <div>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8 }}>
+            <span aria-hidden="true">✓</span>
+            <span style={{ fontSize: 13, fontWeight: 500, color: 'var(--green, #22c55e)' }}>{t('admin.push.instantActive')}</span>
+          </div>
+          <div style={{ display: 'grid', gridTemplateColumns: 'auto 1fr', gap: '4px 12px', alignItems: 'baseline' }}>
+            <span style={muted}>{t('admin.push.instantProvider')}</span>
+            <span style={{ fontSize: 12, color: 'var(--text-primary)' }}>{distributorName}</span>
+            {view.pushBaseUrl && (
+              <>
+                <span style={muted}>{t('admin.push.instantServer')}</span>
+                <span style={{ ...urlBox, background: 'transparent', border: 'none', padding: 0 }}>{view.pushBaseUrl}</span>
+              </>
+            )}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
 // ─── Push Notifications Section (inside NotificationsTab) ─────────────────────
 function PushNotificationsSection() {
   const { t } = useTranslation();
@@ -5243,7 +5554,7 @@ function PushNotificationsSection() {
 function NotificationsTab() {
   const { t } = useTranslation();
   const { notificationSound, setNotificationSound, customSoundDataUrl, setCustomSoundDataUrl,
-          showAppBadge, setShowAppBadge, showFaviconBadge, setShowFaviconBadge } = useStore();
+          showAppBadge, setShowAppBadge } = useStore();
   const fileInputRef = useRef(null);
   const [customFileName, setCustomFileName] = useState(
     () => localStorage.getItem('mailflow_custom_sound_name') || ''
@@ -5431,7 +5742,6 @@ function NotificationsTab() {
         <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
           {[
             { label: t('admin.notifications.appBadge'), desc: t('admin.notifications.appBadgeDesc'), value: showAppBadge, set: setShowAppBadge },
-            { label: t('admin.notifications.faviconBadge'), desc: t('admin.notifications.faviconBadgeDesc'), value: showFaviconBadge, set: setShowFaviconBadge },
           ].map(({ label, desc, value, set: setter }) => (
             <div key={label} style={{
               display: 'flex', alignItems: 'center', justifyContent: 'space-between',
@@ -5461,6 +5771,7 @@ function NotificationsTab() {
 
       {/* Push Notifications */}
       <PushNotificationsSection />
+      <NativePushSection />
     </div>
   );
 }
@@ -5470,6 +5781,7 @@ function ConfirmOverlay({ dialog, onClose }) {
   const { t } = useTranslation();
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
+  useBackLayer(dialog, () => { if (!busy) onClose(); }, 9100);
   useEffect(() => { setBusy(false); setError(''); }, [dialog]);
   if (!dialog) return null;
 
@@ -5741,7 +6053,9 @@ function RulesTab() {
   const [formData, setFormData] = useState(null);
   const [formError, setFormError] = useState('');
   const [formSaving, setFormSaving] = useState(false);
+  useBackLayer(formMode, () => { if (!formSaving) setFormMode(null); }, 2010);
   const [confirmDelete, setConfirmDelete] = useState(null);
+  useBackLayer(confirmDelete, () => setConfirmDelete(null), 2020);
   const [runningRules, setRunningRules] = useState(false);
   const [runResult, setRunResult] = useState(null);
   const [runError, setRunError] = useState('');
@@ -6663,6 +6977,7 @@ function MailboxCleanupTab() {
 
 const TAB_GROUPS = [
   { id: 'account-mail', labelKey: 'admin.tabs.groupAccountMail', tabIds: ['accounts', 'notifications', 'rules', 'categories', 'cleanup'] },
+  { id: 'calendar', labelKey: 'calendar.title', tabIds: ['calendar'] },
   { id: 'display', labelKey: 'admin.tabs.groupDisplay', tabIds: ['appearance', 'shortcuts'] },
   { id: 'security-integrations', labelKey: 'admin.tabs.groupSecurityIntegrations', tabIds: ['security', 'dav-credentials', 'integrations', 'ai', 'ai-actions', 'plugins'] },
   { id: 'admin', labelKey: 'admin.tabs.groupAdmin', tabIds: ['users', 'sso'] },
@@ -6690,6 +7005,7 @@ const TABS = [
     id: 'cleanup', labelKey: 'admin.tabs.cleanup', beta: true,
     icon: <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round"><path d="M19 3l-6 6"/><path d="M14 4l6 6"/><path d="M11 8l-7 7c-1 1-1 3 0 4s3 1 4 0l7-7"/><path d="M6 20l-3-3"/></svg>,
   },
+  { id: 'calendar', labelKey: 'calendar.title', icon: <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75"><rect x="3" y="5" width="18" height="16" rx="2"/><path d="M16 3v4M8 3v4M3 11h18"/></svg> },
   // Display
   {
     id: 'appearance', labelKey: 'admin.tabs.appearance',
@@ -6750,6 +7066,7 @@ function ShortcutsTab() {
   const { shortcuts, setShortcuts } = useStore();
   const [recording, setRecording] = useState(null); // action name currently being recorded
   const [pendingConflict, setPendingConflict] = useState(null); // { action: conflictingAction, key }
+  useBackLayer(recording || pendingConflict, () => { setPendingConflict(null); setRecording(null); }, 2010);
 
   const effective = getEffectiveShortcuts(shortcuts);
   const groups = getGroupedActions();
@@ -7198,6 +7515,7 @@ function ScreenLockSection() {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
   const [saved, setSaved] = useState(false);
+  useBackLayer(mode, () => { if (!busy) setMode(null); }, 2010);
 
   const digits = (v) => v.replace(/\D/g, '').slice(0, 6);
   const reset = () => { setMode(null); setCurrentPin(''); setPin(''); setConfirm(''); setError(''); setSaved(false); };
@@ -7300,6 +7618,7 @@ function SecurityTab() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   const [success, setSuccess] = useState('');
+  useBackLayer(step !== 'idle' || showDisable, () => { if (!loading) { setShowDisable(false); setStep('idle'); } }, 2010);
 
   const totpEnabled = user?.totpEnabled;
 
@@ -8179,8 +8498,13 @@ function makeSearchIndex(t) {
     { label: t('admin.rules.title'), keywords: ['rule', 'filter', 'condition', 'action', 'move', 'auto', 'automate', 'inbox rule', 'sort'], tab: 'rules', subtab: 'rules', breadcrumb: `${tabLabel('rules')} › ${t('admin.rules.subTabRules')}` },
     { label: t('admin.rules.subTabBlockList'), keywords: ['block', 'blocked', 'sender', 'blacklist', 'spam', 'domain'], tab: 'rules', subtab: 'block-list', breadcrumb: `${tabLabel('rules')} › ${t('admin.rules.subTabBlockList')}` },
     // Appearance > Theme
-    { label: tabLabel('theme'), keywords: ['theme', 'dark', 'light', 'color', 'colour', 'dark mode', 'light mode'], tab: 'appearance', subtab: 'theme', breadcrumb: `${tabLabel('appearance')} › ${tabLabel('theme')}` },
+    { label: tabLabel('theme'), keywords: ['theme', 'dark', 'light', 'color', 'colour', 'dark mode', 'light mode', 'dark ink', 'ink'], tab: 'appearance', subtab: 'theme', breadcrumb: `${tabLabel('appearance')} › ${tabLabel('theme')}` },
+    { label: t('admin.appearance.themeMode'), keywords: ['theme mode', 'system', 'follow system', 'auto', 'always light', 'always dark', 'appearance'], tab: 'appearance', subtab: 'theme', breadcrumb: `${tabLabel('appearance')} › ${tabLabel('theme')}` },
+    { label: t('admin.appearance.lightTheme'), keywords: ['light theme', 'default light', 'day', 'bright'], tab: 'appearance', subtab: 'theme', breadcrumb: `${tabLabel('appearance')} › ${tabLabel('theme')}` },
+    { label: t('admin.appearance.darkTheme'), keywords: ['dark theme', 'default dark', 'night', 'dark ink'], tab: 'appearance', subtab: 'theme', breadcrumb: `${tabLabel('appearance')} › ${tabLabel('theme')}` },
     // Appearance > Layout
+    ...['firstDayOfWeek', 'workDays', 'workHoursStart', 'workHoursEnd'].map(key => ({ label: t(`calendar.${key}`), keywords: ['calendar', 'kalendarz', 'week', 'work', 'hours'], tab: 'calendar', breadcrumb: t('calendar.title') })),
+    { label: t('admin.appearance.mobileNavigation'), keywords: ['mobile', 'navigation', 'nawigacja', 'top', 'bottom'], tab: 'appearance', subtab: 'layout', breadcrumb: layoutCrumb },
     { label: t('admin.appearance.layout'), keywords: ['layout', 'pane', 'split', 'preview', 'reading pane', 'side by side', 'stacked'], tab: 'appearance', subtab: 'layout', breadcrumb: layoutCrumb },
     { label: t('admin.messageList.scrollingMode'), keywords: ['scroll', 'infinite', 'paginated', 'pagination', 'pages'], tab: 'appearance', subtab: 'layout', breadcrumb: layoutCrumb },
     { label: t('admin.messageList.perPagePaginated'), keywords: ['per page', 'batch', 'messages per page', 'count', '25', '50', '100', '200', 'page size'], tab: 'appearance', subtab: 'layout', breadcrumb: layoutCrumb },
@@ -8194,6 +8518,8 @@ function makeSearchIndex(t) {
     { label: t('admin.messageList.syncFrequency'), keywords: ['sync', 'interval', 'frequency', 'refresh', 'poll', 'check mail', '15s', '30s', '60s'], tab: 'appearance', subtab: 'layout', breadcrumb: layoutCrumb },
     { label: t('admin.messageList.folderSyncFrequency'), keywords: ['folder', 'sync', 'structure', 'list', 'refresh', 'mailbox', '15 min', '30 min', '1 hour', 'never'], tab: 'appearance', subtab: 'layout', breadcrumb: layoutCrumb },
     { label: t('admin.messageList.threadingMode'), keywords: ['thread', 'conversation', 'grouping', 'threading', 'group'], tab: 'appearance', subtab: 'layout', breadcrumb: layoutCrumb },
+    // Discoverable by the words a person migrating a mailbox would actually search for.
+    { label: t('conversation.rebuildConversations'), keywords: ['rebuild', 'conversation', 'threading', 'group', 'regroup', 'reindex', 'mailflow', 'migrate', 'migration', 'import', 'history', 'backlog'], tab: 'appearance', subtab: 'layout', breadcrumb: layoutCrumb },
     { label: t('admin.messageList.composeFormat'), keywords: ['compose', 'format', 'rich text', 'plain text', 'html', 'editor'], tab: 'appearance', subtab: 'layout', breadcrumb: layoutCrumb },
     { label: t('admin.messageList.defaultReplyAction'), keywords: ['reply', 'reply all', 'default reply'], tab: 'appearance', subtab: 'layout', breadcrumb: layoutCrumb },
     { label: t('admin.messageList.markReadBehavior'), keywords: ['mark read', 'mark as read', 'read delay', 'auto read', 'manual read', 'unread'], tab: 'appearance', subtab: 'layout', breadcrumb: layoutCrumb },
@@ -8219,7 +8545,6 @@ function makeSearchIndex(t) {
     // Notifications
     { label: t('admin.search.notificationSound'), keywords: ['sound', 'notification sound', 'audio', 'alert', 'beep', 'chime'], tab: 'notifications', breadcrumb: tabLabel('notifications') },
     { label: t('admin.notifications.appBadge'), keywords: ['badge', 'app icon', 'pwa', 'unread count', 'icon badge'], tab: 'notifications', breadcrumb: tabLabel('notifications') },
-    { label: t('admin.notifications.faviconBadge'), keywords: ['favicon', 'tab badge', 'browser tab', 'tab icon', 'unread dot'], tab: 'notifications', breadcrumb: tabLabel('notifications') },
     { label: t('admin.push.title'), keywords: ['push', 'notification', 'browser notification', 'desktop notification', 'permission'], tab: 'notifications', breadcrumb: tabLabel('notifications') },
     // Shortcuts (desktop only)
     { label: tabLabel('shortcuts'), keywords: ['shortcut', 'keyboard', 'hotkey', 'keybind', 'key binding', 'compose shortcut', 'reply shortcut'], tab: 'shortcuts', mobileHidden: true, breadcrumb: tabLabel('shortcuts') },
@@ -8292,6 +8617,7 @@ export default function AdminPanel() {
 
   const [searchQuery, setSearchQuery] = useState('');
   const [pendingSubTab, setPendingSubTab] = useState(null);
+  useBackLayer(searchQuery, () => setSearchQuery(''), 2005);
 
   const searchIndex = useMemo(() => makeSearchIndex(t), [t]);
 
@@ -8355,6 +8681,7 @@ export default function AdminPanel() {
       {adminTab === 'rules' && <RulesAndBlockListTab initialSubTab={pendingSubTab} />}
       {adminTab === 'categories' && <CategoriesSection initialSubTab={pendingSubTab} />}
       {adminTab === 'cleanup' && <MailboxCleanupTab />}
+      {adminTab === 'calendar' && <CalendarSettingsTab />}
       {adminTab === 'appearance' && <AppearanceTab initialSubTab={pendingSubTab} />}
       {adminTab === 'integrations' && <IntegrationsTab />}
       {adminTab === 'users' && <UsersTab />}
@@ -8386,12 +8713,13 @@ export default function AdminPanel() {
           borderBottom: '1px solid var(--border-subtle)',
           flexShrink: 0,
         }}>
-          <span style={{ fontSize: 16, fontWeight: 700, color: 'var(--text-primary)' }}>{t('admin.title')}</span>
+          <span style={{ fontFamily: 'var(--font-display)', fontSize: 16, fontWeight: 600, color: 'var(--text-primary)' }}>{t('admin.title')}</span>
           <button
+            type="button" aria-label={t('common.close')}
             onClick={() => setShowAdmin(false)}
             style={{
               background: 'none', border: 'none', cursor: 'pointer',
-              color: 'var(--text-tertiary)', padding: 6, display: 'flex',
+              color: 'var(--text-tertiary)', padding: 6, display: 'flex', minWidth: 44, minHeight: 44, alignItems: 'center', justifyContent: 'center',
             }}
           >
             <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
@@ -8421,7 +8749,7 @@ export default function AdminPanel() {
                 onClick={() => handleTabClick(tab.id)}
                 style={{
                   display: 'flex', alignItems: 'center', gap: 6,
-                  padding: '7px 12px', borderRadius: 20, border: 'none',
+                  padding: '7px 12px', borderRadius: 6, border: 'none',
                   background: adminTab === tab.id && !searchResults ? 'var(--accent)' : 'var(--bg-tertiary)',
                   color: adminTab === tab.id && !searchResults ? '#fff' : 'var(--text-secondary)',
                   cursor: 'pointer', fontSize: 13, fontWeight: 500,
@@ -8459,7 +8787,7 @@ export default function AdminPanel() {
     <div
       onClick={e => e.target === e.currentTarget && setShowAdmin(false)}
       style={{
-        position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.6)',
+        position: 'fixed', inset: 0, background: 'var(--overlay-scrim)',
         backdropFilter: 'blur(8px)', WebkitBackdropFilter: 'blur(8px)',
         display: 'flex', alignItems: 'center', justifyContent: 'center',
         zIndex: 2000, padding: 24,
@@ -8468,7 +8796,7 @@ export default function AdminPanel() {
     >
       <div className="admin-panel admin-window" style={{
         background: 'var(--bg-secondary)', border: '1px solid var(--border)',
-        borderRadius: 16, width: '100%', maxWidth: 740,
+        borderRadius: 'var(--radius-dialog)', width: '100%', maxWidth: 860,
         height: '82vh', maxHeight: 700, display: 'flex', overflow: 'hidden',
         boxShadow: 'var(--shadow-modal)',
         animation: 'modal-enter var(--motion-normal) var(--ease-emphasized) both',
@@ -8563,6 +8891,7 @@ export default function AdminPanel() {
 
           <div style={{ height: 1, background: 'var(--border-subtle)', margin: '6px 0' }} />
           <button
+            type="button" aria-label={t('common.close')}
             onClick={() => setShowAdmin(false)}
             style={{
               display: 'flex', alignItems: 'center', gap: 9,

@@ -36,8 +36,17 @@ public final class InboxoraBackgroundSync {
             .setConstraints(constraints)
             .build();
 
-        WorkManager workManager = WorkManager.getInstance(context.getApplicationContext());
-        workManager.enqueueUniquePeriodicWork(PERIODIC_WORK, ExistingPeriodicWorkPolicy.UPDATE, periodicRequest);
-        workManager.enqueueUniqueWork(ONE_TIME_WORK, ExistingWorkPolicy.REPLACE, oneTimeRequest);
+        // Scheduling is best-effort: a WorkManager hiccup must never fail the
+        // caller (e.g. saving the host on the setup screen).
+        try {
+            WorkManager workManager = WorkManager.getInstance(context.getApplicationContext());
+            workManager.enqueueUniquePeriodicWork(PERIODIC_WORK, ExistingPeriodicWorkPolicy.UPDATE, periodicRequest);
+            workManager.enqueueUniqueWork(ONE_TIME_WORK, ExistingWorkPolicy.REPLACE, oneTimeRequest);
+
+            // Reconciliation also keeps the native push registration alive: a rotated
+            // provider token or a server-side pruned row is repaired on this cadence
+            // even if the app never reaches the foreground again.
+            InboxoraNativePush.enqueueRegistration(context);
+        } catch (Throwable ignored) {}
     }
 }

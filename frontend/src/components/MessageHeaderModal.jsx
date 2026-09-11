@@ -1,3 +1,4 @@
+import { useBackLayer } from '../hooks/useBackNavigation.js';
 import { useState, useEffect, useRef } from 'react';
 import { useTranslation } from 'react-i18next';
 import { api } from '../utils/api.js';
@@ -11,7 +12,9 @@ export default function MessageHeaderModal({ messageId, subject, onClose, onSubj
   const [loading, setLoading] = useState(true);
   const [copied, setCopied] = useState(false);
   const onSubjectResolvedRef = useRef(onSubjectResolved);
+  const onCloseRef = useRef(onClose);
   onSubjectResolvedRef.current = onSubjectResolved;
+  onCloseRef.current = onClose;
 
   useEffect(() => {
     api.getMessageHeaders(messageId)
@@ -25,6 +28,8 @@ export default function MessageHeaderModal({ messageId, subject, onClose, onSubj
       .catch(err => setHeaders(`Error: ${err.message}`))
       .finally(() => setLoading(false));
   }, [messageId]);
+
+  useBackLayer(true, () => onCloseRef.current(), 5000);
 
   const handleCopy = () => {
     navigator.clipboard.writeText(headers || '');
@@ -165,7 +170,7 @@ export default function MessageHeaderModal({ messageId, subject, onClose, onSubj
     >
       <div style={{
         background: 'var(--bg-secondary)', border: '1px solid var(--border)',
-        borderRadius: 14, width: '100%', maxWidth: 720,
+        borderRadius: 'var(--radius-dialog)', width: '100%', maxWidth: 720,
         maxHeight: '85vh', display: 'flex', flexDirection: 'column',
         overflow: 'hidden',
         boxShadow: 'var(--shadow-modal)',

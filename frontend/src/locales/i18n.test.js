@@ -475,6 +475,17 @@ const dir = dirname(fileURLToPath(import.meta.url));
 // Two locales sharing a value is only allowed if both appear in the same group.
 // Any unlisted pair will still fail.
 const SAME_VALUE_ALLOWED = {
+  'calendar.contactDateEvent': 'any', // Interpolation-only title template.
+  'calendar.unnamedContact': [['en', 'fr'], ['cs', 'de', 'pl']],
+  'layouts.compact.label': [['en', 'fr']],
+  'mailFolders.archive': [['cs', 'de']],
+  'mailFolders.spam': [['cs', 'de', 'en', 'it', 'pl']],
+  'calendar.agenda': 'any', // Common calendar term in these languages.
+  'calendar.caldav': 'any',
+  'calendar.day6': [['cs', 'pl']],
+  'calendar.icsWebcal': 'any',
+  'calendar.sourceCalendar': [['en', 'fr']],
+  'calendar.sourceUrl': 'any',
   // CE v2 candidate-only locale keys retained from the candidate branch.
   'admin.messageList.markReadDelaySeconds_few': 'any',
   'admin.messageList.markReadDelaySeconds_many': 'any',
@@ -664,6 +675,11 @@ const SAME_VALUE_ALLOWED = {
   'admin.cleanup.account': [['en', 'it'], ['de', 'pl']],
   // "{{n}} min" — the "min" abbreviation is shared in en, es, fr, it
   'admin.lock.autoLockMin': [['cs', 'en', 'es', 'fr', 'it', 'pl']],
+  // External-calendar sync cadence: SI-style unit abbreviations, unchanged across the
+  // languages that use the Latin "min"/"h" forms (de and pl localise them; ru and zhCN
+  // use their own scripts).
+  'calendar.sourceSyncMinutes': [['cs', 'en', 'es', 'fr', 'it', 'pl']],
+  'calendar.sourceSyncHours':   [['cs', 'en', 'es', 'fr', 'it']],
 
   // "Website" — international term, same in de and en
   'admin.about.website': [['de', 'en']],
@@ -764,6 +780,11 @@ const SAME_VALUE_ALLOWED = {
 
   // "Telefon" / "Projekt" — established Polish/German technical loanwords
   'contacts.fields.phone': [['cs', 'de', 'pl']],
+  // Established identical translations in the richer vCard contact form.
+  'contacts.fields.address': [['de', 'fr']],
+  'contacts.fields.categories': [['cs', 'pl']],
+  'contacts.fields.role': [['cs', 'en']],
+  'contacts.fields.url': [['de', 'en']],
   'todoist.project':       [['cs', 'de', 'pl']],
 
   // "Password" — international term, same in en and it
@@ -907,6 +928,10 @@ const LOCALE_SPECIFIC_KEYS = new Set(
 // found by a plain text search of the source. Add here to suppress false
 // "unused key" failures.
 const DYNAMIC_KEYS = new Set([
+  // Calendar weekday labels and work-hours copy are selected from preference values.
+  'calendar.day0', 'calendar.day1', 'calendar.day2', 'calendar.day3',
+  'calendar.day4', 'calendar.day5', 'calendar.day6', 'calendar.workDays',
+  'calendar.workHoursStart', 'calendar.workHoursEnd',
   // t(tab.labelKey) — labelKey is a string property set in the TABS array
   'admin.tabs.accounts',
   'admin.tabs.rules',
@@ -997,8 +1022,8 @@ const HARDCODED_OK = new Set([
   // Tooltip label for a rich-text editor colour input — purely visual affordance,
   // identical concept in all languages
   'Emoji',
-  // "MailFlow" brand name split into two spans for typography styling
-  'Mail', 'Flow',
+  // Inboxora is the product name, retained identically in every locale.
+  'Inboxora',
   // Email header labels inside the handlePrint() HTML template literal —
   // translating them requires passing t() results into the template string
   'From:', 'Date:',
@@ -1167,6 +1192,15 @@ const langs = Object.keys(locales).sort();
 const allKeys = [...new Set(langs.flatMap(l => Object.keys(locales[l])))].filter(k => !LOCALE_SPECIFIC_KEYS.has(k)).sort();
 
 describe('i18n locale files', () => {
+
+  it('translates the mobile calendar navigation setting in every locale', () => {
+    for (const lang of langs) {
+      for (const key of ['admin.appearance.mobileNavigation', 'admin.appearance.navigationTop', 'admin.appearance.navigationBottom']) {
+        assert.equal(typeof locales[lang][key], 'string', `${lang} is missing ${key}`);
+        assert.notEqual(locales[lang][key], '', `${lang} has empty ${key}`);
+      }
+    }
+  });
 
   it('places sender favicon setting copy under the admin message-list namespace', () => {
     const keys = [

@@ -90,3 +90,99 @@ describe('safe email CSS contract', () => {
     assert.match(enabled.match(/Content-Security-Policy" content="([^"]+)/)?.[1] || '', /img-src[^;]*https:/);
   });
 });
+
+describe('mail body surface contract', () => {
+  const surface = tone => ({ tone, background: '#1a1e25', foreground: '#e8e6df' });
+  // The declarations the renderer injected for the frame's own colours. Note that
+  // `background-color:` itself ends in `color:`, so the check has to look at the
+  // captured declarations rather than at the rendered stylesheet.
+  const surfaceDeclarations = doc =>
+    doc.match(/html, body \{([^}]*)\}/)?.[1] ?? '';
+
+  it('declares a dark frame surface so unstyled mail is not black on dark', async () => {
+    const { buildSrcDoc } = await import('./messageBodySecurity.js');
+    const doc = buildSrcDoc('<p>hello</p>', { surface: surface('dark') });
+    // The frame, not the operating system, decides the colour scheme...
+    assert.match(doc, /<meta name="color-scheme" content="dark">/);
+    assert.match(doc, /html \{ color-scheme: dark; \}/);
+    // ...and the surface is stated rather than inherited from the user agent.
+    assert.match(surfaceDeclarations(doc), /background-color: #1a1e25;/);
+    assert.match(surfaceDeclarations(doc), /color: #e8e6df;/);
+  });
+
+  it('only fixes the colour scheme on the light frame, leaving the surface alone', async () => {
+    const { buildSrcDoc } = await import('./messageBodySecurity.js');
+    const doc = buildSrcDoc('<p>hello</p>', { surface: surface('light') });
+    assert.match(doc, /<meta name="color-scheme" content="light">/);
+    assert.match(doc, /html \{ color-scheme: light; \}/);
+    // The light appearance has always inherited the panel behind the frame, which
+    // already paints the theme surface. Declaring it here would switch text rendering
+    // to subpixel antialiasing and churn every committed light-mode capture.
+    assert.doesNotMatch(doc, /html, body \{/);
+    assert.doesNotMatch(doc, /background-color: #1a1e25/);
+  });
+
+  it('emits no surface rule when no surface is supplied', async () => {
+    const { buildSrcDoc } = await import('./messageBodySecurity.js');
+    const doc = buildSrcDoc('<p>hello</p>');
+    assert.doesNotMatch(doc, /name="color-scheme"/);
+    assert.doesNotMatch(doc, /color-scheme:/);
+  });
+
+  it('refuses a value that is not a plain CSS colour', async () => {
+    const { buildSrcDoc } = await import('./messageBodySecurity.js');
+    const doc = buildSrcDoc('<p>hello</p>', {
+      surface: { tone: 'dark', background: 'red; } body { display: none', foreground: 'url(https://evil.test/x)' },
+    });
+    // Both declarations are dropped, so nothing is injected rather than the injected
+    // rule being closed early by the hand-written value.
+    assert.doesNotMatch(doc, /background-color: red/);
+    assert.doesNotMatch(doc, /evil\.test/);
+    assert.doesNotMatch(doc, /html, body \{/);
+    // The tone is still trusted, so the frame stays on the requested scheme.
+    assert.match(doc, /html \{ color-scheme: dark; \}/);
+  });
+
+  it('keeps the valid half of a partially malformed surface', async () => {
+    const { buildSrcDoc } = await import('./messageBodySecurity.js');
+    const doc = buildSrcDoc('<p>hello</p>', {
+      surface: { tone: 'dark', background: '#1a1e25', foreground: 'javascript:alert(1)' },
+    });
+    assert.match(surfaceDeclarations(doc), /background-color: #1a1e25;/);
+    assert.doesNotMatch(doc, /javascript/);
+    // No stray `color:` declaration is emitted for the rejected foreground. The check
+    // must not be fooled by `background-color:` ending in `color:`.
+    assert.doesNotMatch(surfaceDeclarations(doc), /(?:^|[\s;])color:/);
+  });
+
+  it('keeps the dark canvas for a message that brings its own light design', async () => {
+    const { buildSrcDoc } = await import('./messageBodySecurity.js');
+    // A white card with no text colour of its own. The canvas must stay dark — the card
+    // keeps its own light background and gains a dark text colour, applied by
+    // adaptMessageForDarkCanvas, rather than the whole frame being repainted white.
+    const doc = buildSrcDoc(
+      '<table style="background-color:#F7F7F7"><tr><td style="background-color:#FFFFFF"><div>Witaj</div></td></tr></table>',
+      { surface: surface('dark') },
+    );
+    assert.match(doc, /<meta name="color-scheme" content="dark">/);
+    assert.match(doc, /html \{ color-scheme: dark; \}/);
+    assert.match(surfaceDeclarations(doc), /background-color: #1a1e25;/);
+    assert.doesNotMatch(surfaceDeclarations(doc), /background-color: #ffffff/);
+  });
+
+  it('keeps the dark canvas for a message with hard-coded dark text', async () => {
+    const { buildSrcDoc } = await import('./messageBodySecurity.js');
+    // Nearly every real message contains some dark colour somewhere; that alone must not
+    // turn the whole reader white in a dark theme. The text is adapted instead.
+    const doc = buildSrcDoc('<h1 style="color:#000000">Tytuł</h1>', { surface: surface('dark') });
+    assert.match(doc, /<meta name="color-scheme" content="dark">/);
+    assert.match(surfaceDeclarations(doc), /background-color: #1a1e25;/);
+    assert.doesNotMatch(surfaceDeclarations(doc), /background-color: #ffffff/);
+  });
+
+  it('ignores an unknown tone', async () => {
+    const { buildSrcDoc } = await import('./messageBodySecurity.js');
+    const doc = buildSrcDoc('<p>hello</p>', { surface: { tone: 'neon', background: '#000', foreground: '#fff' } });
+    assert.doesNotMatch(doc, /color-scheme/);
+  });
+});

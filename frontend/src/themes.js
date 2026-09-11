@@ -1,7 +1,63 @@
+import { brandSvg } from './brandMark.js';
 export const THEMES = {
+  // Ink leads the object on purpose: the appearance tab iterates THEMES in
+  // insertion order, so the new default theme is also the first suggestion.
+  ink: {
+    label: 'Ink',
+    tone: 'light',
+    description: 'Paper and fountain-pen indigo — the default light theme',
+    preview: ['#f6f5f1', '#edece6', '#35548a', '#212b36'],
+    vars: {
+      '--bg-primary': '#f6f5f1',
+      '--bg-secondary': '#edece6',
+      '--bg-tertiary': '#e5e4dc',
+      '--bg-elevated': '#fbfaf7',
+      '--bg-hover': '#e0dfd6',
+      '--border': '#d2d0c5',
+      '--border-subtle': '#e2e0d7',
+      '--text-primary': '#212b36',
+      '--text-secondary': '#4d586b',
+      '--text-tertiary': '#939aa3',
+      '--accent': '#35548a',
+      '--accent-text': '#ffffff',
+      '--accent-dim': '#e3e9f2',
+      '--accent-glow': 'rgba(53,84,138,0.14)',
+      '--green': '#35793a',
+      '--red': '#a32e2e',
+      '--amber': '#a87518',
+    }
+  },
+
+  dark_ink: {
+    label: 'Dark ink',
+    tone: 'dark',
+    description: 'Dark paper and fountain-pen indigo — the dark counterpart of Ink',
+    preview: ['#14171c', '#1a1e25', '#8aa5dd', '#e8e6df'],
+    vars: {
+      '--bg-primary': '#14171c',
+      '--bg-secondary': '#1a1e25',
+      '--bg-tertiary': '#21262f',
+      '--bg-elevated': '#262c36',
+      '--bg-hover': '#2c333e',
+      '--border': '#363d49',
+      '--border-subtle': '#262c36',
+      '--text-primary': '#e8e6df',
+      '--text-secondary': '#a9b0bd',
+      '--text-tertiary': '#6b7480',
+      '--accent': '#8aa5dd',
+      '--accent-text': '#10141b',
+      '--accent-dim': '#242f47',
+      '--accent-glow': 'rgba(138,165,221,0.16)',
+      '--green': '#6fbf7e',
+      '--red': '#e08a8a',
+      '--amber': '#d9ab55',
+    }
+  },
+
   dark: {
     label: 'Dark',
-    description: 'Default dark theme',
+    tone: 'dark',
+    description: 'Neutral dark — the former dark default',
     preview: ['#0f0f11', '#161619', '#7c6af7', '#e8e8ed'],
     vars: {
       '--bg-primary': '#0f0f11',
@@ -26,7 +82,8 @@ export const THEMES = {
 
   light: {
     label: 'Light',
-    description: 'Clean light theme',
+    tone: 'light',
+    description: 'Neutral light — the former light default',
     preview: ['#f8f8fc', '#ffffff', '#6366f1', '#1a1a2e'],
     vars: {
       '--bg-primary': '#f0f0f5',
@@ -51,6 +108,7 @@ export const THEMES = {
 
   gtd: {
     label: 'GTD',
+    tone: 'dark',
     description: 'Getting Things Done — dark, per-state accents',
     preview: ['#0f0f11', '#161619', '#4A9EDD', '#e8e8ed'],
     vars: {
@@ -76,6 +134,7 @@ export const THEMES = {
 
   gruvbox: {
     label: 'Gruvbox',
+    tone: 'dark',
     description: 'Retro groove',
     preview: ['#282828', '#3c3836', '#d79921', '#ebdbb2'],
     vars: {
@@ -101,6 +160,7 @@ export const THEMES = {
 
   catppuccin_mocha: {
     label: 'Catppuccin Mocha',
+    tone: 'dark',
     description: 'Soothing pastel dark',
     preview: ['#1e1e2e', '#181825', '#cba6f7', '#cdd6f4'],
     vars: {
@@ -126,6 +186,7 @@ export const THEMES = {
 
   catppuccin_latte: {
     label: 'Catppuccin Latte',
+    tone: 'light',
     description: 'Soothing pastel light',
     preview: ['#eff1f5', '#e6e9ef', '#8839ef', '#4c4f69'],
     vars: {
@@ -151,6 +212,7 @@ export const THEMES = {
 
   nord: {
     label: 'Nord',
+    tone: 'dark',
     description: 'Arctic, north-bluish',
     preview: ['#2e3440', '#3b4252', '#88c0d0', '#eceff4'],
     vars: {
@@ -176,6 +238,7 @@ export const THEMES = {
 
   tokyo_night: {
     label: 'Tokyo Night',
+    tone: 'dark',
     description: 'City lights after dark',
     preview: ['#1a1b26', '#16161e', '#7aa2f7', '#c0caf5'],
     vars: {
@@ -201,6 +264,7 @@ export const THEMES = {
 
   solarized: {
     label: 'Solarized Dark',
+    tone: 'dark',
     description: 'Precision colors for machines',
     preview: ['#002b36', '#073642', '#268bd2', '#839496'],
     vars: {
@@ -226,6 +290,7 @@ export const THEMES = {
 
   dracula: {
     label: 'Dracula',
+    tone: 'dark',
     description: 'Dark theme for the night owl',
     preview: ['#282a36', '#1e1f29', '#bd93f9', '#f8f8f2'],
     vars: {
@@ -251,6 +316,7 @@ export const THEMES = {
 
   rose_pine: {
     label: 'Rosé Pine',
+    tone: 'dark',
     description: 'All natural pine, faux fur',
     preview: ['#191724', '#1f1d2e', '#c4a7e7', '#e0def4'],
     vars: {
@@ -276,6 +342,7 @@ export const THEMES = {
 
   midnight_blue: {
     label: 'Midnight Blue',
+    tone: 'dark',
     description: 'Deep navy with electric blue — bold and immersive',
     preview: ['#070d1a', '#0d1629', '#3b9eff', '#c8e0ff'],
     vars: {
@@ -301,6 +368,7 @@ export const THEMES = {
 
   cyberpunk: {
     label: 'Cyberpunk',
+    tone: 'dark',
     description: 'Dark neon with hot pink — electric and futuristic',
     preview: ['#0a0010', '#110020', '#ff00aa', '#f0d0ff'],
     vars: {
@@ -326,6 +394,7 @@ export const THEMES = {
 
   forest: {
     label: 'Forest',
+    tone: 'dark',
     description: 'Deep green with emerald — lush and organic',
     preview: ['#0a1a0d', '#0f2214', '#00c896', '#c8f0d0'],
     vars: {
@@ -351,6 +420,7 @@ export const THEMES = {
 
   sunset: {
     label: 'Sunset',
+    tone: 'dark',
     description: 'Warm dark amber with golden orange — rich and warm',
     preview: ['#130b00', '#1e1100', '#ff9900', '#ffe8c8'],
     vars: {
@@ -376,6 +446,7 @@ export const THEMES = {
 
   executive: {
     label: 'Executive',
+    tone: 'dark',
     description: 'Dark navy with antique gold — formal and authoritative',
     preview: ['#0a0d1a', '#101525', '#c8a840', '#ddd0b0'],
     vars: {
@@ -401,6 +472,7 @@ export const THEMES = {
 
   parchment: {
     label: 'Parchment',
+    tone: 'light',
     description: 'Cream and sepia — classic and scholarly',
     preview: ['#f5f0e8', '#ede7d8', '#8b4513', '#2a1f10'],
     vars: {
@@ -427,6 +499,7 @@ export const THEMES = {
 
   slate_pro: {
     label: 'Slate Pro',
+    tone: 'dark',
     description: 'Blue-grey with sky blue — professional and crisp',
     preview: ['#1a1f2e', '#1f2540', '#4a90d9', '#d0d8f0'],
     vars: {
@@ -452,6 +525,7 @@ export const THEMES = {
 
   monokai: {
     label: 'Monokai',
+    tone: 'dark',
     description: 'The classic developer color scheme',
     preview: ['#272822', '#1e1f1a', '#ae81ff', '#f8f8f2'],
     vars: {
@@ -477,6 +551,7 @@ export const THEMES = {
 
   high_contrast: {
     label: 'High Contrast',
+    tone: 'dark',
     description: 'Pure black with vivid yellow — maximum readability',
     preview: ['#000000', '#0a0a0a', '#f5e642', '#ffffff'],
     vars: {
@@ -502,6 +577,7 @@ export const THEMES = {
 
   espresso: {
     label: 'Espresso',
+    tone: 'dark',
     description: 'Coffee brown with copper — warm and inviting',
     preview: ['#1a1008', '#221508', '#d4773a', '#f5e8d0'],
     vars: {
@@ -527,6 +603,7 @@ export const THEMES = {
 
   winxp: {
     label: 'Windows XP',
+    tone: 'light',
     description: 'Luna blue and silver — early-2000s Windows',
     preview: ['#ece9d8', '#ffffff', '#2a5fd8', '#0a0a0a'],
     vars: {
@@ -552,6 +629,7 @@ export const THEMES = {
 
   win9x: {
     label: 'Windows Classic',
+    tone: 'light',
     description: 'Battleship grey and navy — 95/98/2000 chrome',
     preview: ['#c0c0c0', '#ffffff', '#000080', '#000000'],
     vars: {
@@ -575,71 +653,6 @@ export const THEMES = {
     }
   },
 };
-
-// ── Color helpers ────────────────────────────────────────────────────────────
-
-function hexToRgb(hex) {
-  return [
-    parseInt(hex.slice(1, 3), 16),
-    parseInt(hex.slice(3, 5), 16),
-    parseInt(hex.slice(5, 7), 16),
-  ];
-}
-
-function lighten(hex, t) {
-  return '#' + hexToRgb(hex)
-    .map(c => Math.min(255, Math.round(c + (255 - c) * t)).toString(16).padStart(2, '0'))
-    .join('');
-}
-
-function darken(hex, t) {
-  return '#' + hexToRgb(hex)
-    .map(c => Math.round(c * (1 - t)).toString(16).padStart(2, '0'))
-    .join('');
-}
-
-function buildFaviconSvg(accent, count = 0) {
-  const light = lighten(accent, 0.25);
-  const dark  = darken(accent, 0.30);
-  const [dr, dg, db] = hexToRgb(dark);
-
-  let badge = '';
-  if (count > 0) {
-    const label = count > 99 ? '99+' : String(count);
-    const r  = label.length > 2 ? 10 : 11;
-    const cx = 32 - r;
-    const cy = r;
-    const fs = label.length > 2 ? 8 : label.length > 1 ? 12 : 14;
-    badge = `<circle cx="${cx}" cy="${cy}" r="${r}" fill="#ef4444" stroke="white" stroke-width="1.5"/>` +
-            `<text x="${cx}" y="${cy}" text-anchor="middle" dominant-baseline="central" ` +
-            `fill="white" font-family="system-ui,sans-serif" font-weight="800" font-size="${fs}">${label}</text>`;
-  }
-
-  return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32" width="32" height="32">
-  <defs>
-    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
-      <stop offset="0%" stop-color="${light}"/>
-      <stop offset="100%" stop-color="${dark}"/>
-    </linearGradient>
-    <linearGradient id="shine" x1="0" y1="0" x2="0" y2="1">
-      <stop offset="0%" stop-color="rgba(255,255,255,0.14)"/>
-      <stop offset="100%" stop-color="rgba(255,255,255,0)"/>
-    </linearGradient>
-    <clipPath id="ec">
-      <rect x="5" y="10.5" width="22" height="15" rx="2.5"/>
-    </clipPath>
-  </defs>
-  <rect width="32" height="32" rx="7.5" fill="url(#bg)"/>
-  <rect width="32" height="16" rx="7.5" fill="url(#shine)"/>
-  <rect x="5" y="11.5" width="22" height="15" rx="2.5" fill="rgba(0,0,0,0.18)"/>
-  <rect x="5" y="10.5" width="22" height="15" rx="2.5" fill="white"/>
-  <path d="M5,10.5 L16,20.5 L27,10.5 Z" fill="rgba(${dr},${dg},${db},0.10)" clip-path="url(#ec)"/>
-  <path d="M5,10.5 L16,20.5 L27,10.5" fill="none" stroke="rgba(${dr},${dg},${db},0.38)" stroke-width="1.4" stroke-linejoin="round" clip-path="url(#ec)"/>
-  <line x1="5" y1="25.5" x2="13" y2="20" stroke="rgba(${dr},${dg},${db},0.16)" stroke-width="1.1"/>
-  <line x1="27" y1="25.5" x2="19" y2="20" stroke="rgba(${dr},${dg},${db},0.16)" stroke-width="1.1"/>
-  ${badge}
-</svg>`;
-}
 
 // ── Sender avatar color ───────────────────────────────────────────────────────
 
@@ -693,16 +706,94 @@ export function applyCustomCss(css) {
   refreshAccentDerived(); // flow a custom --accent override through to favicon/logo
 }
 
-// ── Theme application ─────────────────────────────────────────────────────────
+// ── Light/dark theme defaults ─────────────────────────────────────────────────
+
+// Ink is the default light appearance and Dark ink its dark counterpart. A user
+// can pick a different theme for each appearance separately (Settings →
+// Appearance → Theme), and the mode decides which one is used: follow the OS
+// colour scheme, or force light/dark.
+export const DEFAULT_LIGHT_THEME = 'ink';
+export const DEFAULT_DARK_THEME = 'dark_ink';
+export const THEME_MODES = ['system', 'light', 'dark'];
+
+export const THEME_MODE_STORAGE_KEYS = {
+  mode: 'mailflow_theme_mode',
+  light: 'mailflow_theme_light',
+  dark: 'mailflow_theme_dark',
+};
+
+// A theme is either a light or a dark appearance. The metadata lives on the theme
+// itself so the two pickers can group themes without a second list to maintain.
+export function themeTone(name) {
+  return THEMES[name]?.tone === 'light' ? 'light' : 'dark';
+}
+
+export function themesByTone(tone) {
+  return Object.entries(THEMES).filter(([, theme]) => theme.tone === tone);
+}
+
+export function normalizeThemeMode(mode) {
+  return THEME_MODES.includes(mode) ? mode : 'system';
+}
+
+// matchMedia is guarded so an environment without it (tests, SSR) never throws and
+// simply resolves to the light appearance.
+export function systemPrefersDark() {
+  try {
+    return Boolean(window.matchMedia?.('(prefers-color-scheme: dark)').matches);
+  } catch { return false; }
+}
+
+function readStored(key) {
+  try { return localStorage.getItem(key); } catch { return null; }
+}
+
+// The stored default light/dark themes plus the mode. A legacy single `theme`
+// choice (stored before separate defaults existed) becomes an explicit mode for
+// its own tone, so an upgrade never silently changes someone's appearance.
+export function readThemePrefs() {
+  const storedMode = readStored(THEME_MODE_STORAGE_KEYS.mode);
+  if (storedMode) {
+    const storedLight = readStored(THEME_MODE_STORAGE_KEYS.light);
+    const storedDark = readStored(THEME_MODE_STORAGE_KEYS.dark);
+    return {
+      mode: normalizeThemeMode(storedMode),
+      light: THEMES[storedLight] ? storedLight : DEFAULT_LIGHT_THEME,
+      dark: THEMES[storedDark] ? storedDark : DEFAULT_DARK_THEME,
+    };
+  }
+  const legacy = readStored('mailflow_theme');
+  if (legacy && THEMES[legacy]) {
+    return themeTone(legacy) === 'light'
+      ? { mode: 'light', light: legacy, dark: DEFAULT_DARK_THEME }
+      : { mode: 'dark', light: DEFAULT_LIGHT_THEME, dark: legacy };
+  }
+  return { mode: 'system', light: DEFAULT_LIGHT_THEME, dark: DEFAULT_DARK_THEME };
+}
+
+// The theme that should render for a set of preferences: light/dark is forced by
+// the mode, while `system` follows the operating system colour scheme.
+export function resolveTheme(prefs = readThemePrefs()) {
+  const light = THEMES[prefs?.light] ? prefs.light : DEFAULT_LIGHT_THEME;
+  const dark = THEMES[prefs?.dark] ? prefs.dark : DEFAULT_DARK_THEME;
+  const mode = normalizeThemeMode(prefs?.mode);
+  if (mode === 'light') return light;
+  if (mode === 'dark') return dark;
+  return systemPrefersDark() ? dark : light;
+}
 
 // The theme to use before any stored/server preference is known — i.e. on the
-// login screen and the very first visit. Honors the OS light/dark setting and
-// falls back to dark. matchMedia is guarded so a missing API never throws.
+// login screen and the very first visit: the configured light default when the OS
+// is light, the configured dark default when it prefers dark.
 export function getInitialTheme() {
-  try {
-    if (window.matchMedia?.('(prefers-color-scheme: light)').matches) return 'light';
-  } catch { /* matchMedia unavailable — fall through to dark */ }
-  return 'dark';
+  return resolveTheme();
+}
+
+// ── Theme application ─────────────────────────────────────────────────────────
+
+// The favicon follows the same vector master and effective accent as the app.
+export function buildFaviconSvg(accent) {
+  return `data:image/svg+xml,${encodeURIComponent(brandSvg(accent))}`;
 }
 
 // ── Effective accent (theme value, or a custom-CSS override of --accent) ───────
@@ -725,21 +816,83 @@ export function subscribeAccent(fn) {
   return () => { _accentListeners.delete(fn); };
 }
 
-// Recompute everything derived from the accent (favicon, PWA theme-color, logo)
-// from the *effective* accent. Called after both applyTheme and applyCustomCss so
-// the accent's source (preset theme or custom override) doesn't matter.
+// ── Mail body surface ─────────────────────────────────────────────────────────
+
+// HTML mail renders inside a sandboxed iframe — a separate document that cannot see
+// the app's CSS custom properties, and whose own user-agent defaults follow the
+// *operating system* rather than the app theme. Unstyled bodies therefore inherited
+// black text, which on a dark theme landed on the dark panel — black on dark.
+//
+// The frame is given the surface explicitly instead, from the same tokens the
+// surrounding panel uses, so the default text colour always matches the surface it
+// actually sits on. Values are read from the *computed* root style, so a custom-CSS
+// override of --message-body-bg or --text-primary flows through, exactly like
+// getEffectiveAccent().
+//
+// Anything that is not a plain CSS colour is discarded before it reaches the frame's
+// stylesheet, so a hand-written custom CSS value can never break out of the rule.
+const CSS_COLOR_RE = /^(?:#[0-9a-f]{3,8}|rgba?\(\s*[\d.%,\s/]+\)|hsla?\(\s*[\d.%,\s/deg]+\)|[a-z]{3,20})$/i;
+
+function safeColor(value, fallback) {
+  const candidate = String(value ?? '').trim();
+  return CSS_COLOR_RE.test(candidate) ? candidate : fallback;
+}
+
+function effectiveToken(name, fallback) {
+  try {
+    return getComputedStyle(document.documentElement).getPropertyValue(name).trim() || fallback;
+  } catch { return fallback; }
+}
+
+// The surface for the mail/description iframe of the given theme. `tone` lets the
+// frame declare its colour scheme, and the two colours are the panel background and
+// its default text colour.
+export function getEmailSurface(themeName) {
+  const name = THEMES[themeName] ? themeName : DEFAULT_LIGHT_THEME;
+  const vars = THEMES[name].vars;
+  return {
+    tone: themeTone(name),
+    background: safeColor(
+      typeof document === 'undefined' ? null : effectiveToken('--message-body-bg', vars['--bg-secondary']),
+      vars['--bg-secondary'],
+    ),
+    foreground: safeColor(
+      typeof document === 'undefined' ? null : effectiveToken('--text-primary', vars['--text-primary']),
+      vars['--text-primary'],
+    ),
+  };
+}
+
+function refreshBrandSurface() {
+  const probe = document.createElement('span');
+  probe.style.color = 'var(--bg-primary)';
+  probe.style.display = 'none';
+  document.documentElement.appendChild(probe);
+  const rgb = getComputedStyle(probe).color;
+  probe.remove();
+  const channels = [...rgb.matchAll(/\d+(?:\.\d+)?/g)]
+    .slice(0, 3)
+    .map(match => Number(match[0]) / 255);
+  if (channels.length !== 3) return;
+
+  const luminance = channels.reduce((total, channel, index) => total + channel * [0.2126, 0.7152, 0.0722][index], 0);
+  document.documentElement.setAttribute('data-inboxora-surface', luminance > 0.45 ? 'light' : 'dark');
+}
+
+// Recompute everything derived from the effective appearance (PWA theme-color
+// and UI logo). Called after both applyTheme and applyCustomCss so custom
+// overrides are reflected too.
 function refreshAccentDerived() {
+  refreshBrandSurface();
   const accent = getEffectiveAccent();
-  if (!accent.startsWith('#')) return; // favicon rasteriser + meta expect a hex colour
+  if (!accent.startsWith('#')) return; // PWA theme-color expects a hex colour
   document.querySelector('meta[name="theme-color"]')?.setAttribute('content', accent);
-  // Only invalidate the base favicon cache when the accent actually changed — the
-  // double applyTheme at startup (localStorage then server prefs) usually repeats it.
-  if (_baseAccent !== accent) {
-    _baseCanvas = null;
-    _baseAccent = null;
+  // Swap the pre-JS PNG favicon for the accent-tinted IO monogram.
+  const favicon = document.querySelector('link[rel="icon"]');
+  if (favicon) {
+    favicon.setAttribute('type', 'image/svg+xml');
+    favicon.setAttribute('href', buildFaviconSvg(accent));
   }
-  _applyFavicon(accent);
-  if (_badgeCount > 0) _warmBase(accent);
   _accentListeners.forEach(fn => {
     try { fn(accent); } catch { /* a listener error must not break theming */ }
   });
@@ -766,148 +919,8 @@ export function applyTheme(themeName) {
     Object.entries(theme.vars).map(([k, v]) => `  ${k}: ${v};`).join('\n')
   }\n}`;
 
-  // Recompute favicon + PWA theme-color + logo from the *effective* accent. If a
+  // Recompute PWA theme-color + logo from the *effective* accent. If a
   // custom-CSS override of --accent is present, getComputedStyle picks it up here;
   // applyCustomCss also re-runs this so an override applied afterwards is reflected.
   refreshAccentDerived();
-}
-
-// ── Favicon badge ─────────────────────────────────────────────────────────────
-
-const FAVICON_PX = 32;
-let _badgeCount  = 0;
-let _renderSeq   = 0;
-let _appliedSeq  = 0;
-
-// Cached rasterization of the base favicon (envelope icon, no badge).
-// Once populated, badge updates are drawn synchronously with Canvas 2D —
-// no SVG → Image → onload round-trip needed.
-let _baseCanvas = null;
-let _baseAccent = null;
-
-// Persistent <link rel="icon"> element. We update href in-place rather than
-// removing/adding the element each time. DOM remove+add causes Chrome to briefly
-// show no favicon between the two mutations, making updates appear sluggish.
-let _faviconLink = null;
-
-function _setFaviconLink(dataUri) {
-  if (!_faviconLink || !_faviconLink.isConnected) {
-    // Reuse the existing icon element from index.html on first call so Chrome
-    // processes a href change on a known element rather than discovering a new one.
-    _faviconLink = document.querySelector("link[rel='icon']") || (() => {
-      const el = document.createElement('link');
-      el.rel = 'icon';
-      document.head.appendChild(el);
-      return el;
-    })();
-    // Remove any competing icon links (e.g. a second link added by HMR or SSR)
-    // but leave apple-touch-icon and other non-standard rel values alone.
-    document.querySelectorAll("link[rel='icon']").forEach(l => {
-      if (l !== _faviconLink) l.remove();
-    });
-  }
-  _faviconLink.type = 'image/png';
-  _faviconLink.href = dataUri;
-}
-
-function _rasterise(svgStr, onCanvas) {
-  const blob = new Blob([svgStr], { type: 'image/svg+xml' });
-  const url  = URL.createObjectURL(blob);
-  const img  = new Image(FAVICON_PX, FAVICON_PX);
-  img.onload = () => {
-    URL.revokeObjectURL(url);
-    const canvas = document.createElement('canvas');
-    canvas.width  = FAVICON_PX;
-    canvas.height = FAVICON_PX;
-    canvas.getContext('2d').drawImage(img, 0, 0, FAVICON_PX, FAVICON_PX);
-    onCanvas(canvas);
-  };
-  img.onerror = () => URL.revokeObjectURL(url);
-  img.src = url;
-}
-
-function _warmBase(accent) {
-  if (_baseCanvas && _baseAccent === accent) return;
-  _rasterise(buildFaviconSvg(accent, 0), (canvas) => {
-    if (_baseCanvas && _baseAccent === accent) return; // lost the race
-    _baseCanvas = canvas;
-    _baseAccent = accent;
-  });
-}
-
-function _applyFavicon(accent) {
-  // Rasterise the SVG to a canvas and export as PNG. PNG data URIs go through
-  // the browser's image pipeline rather than the document pipeline, which avoids
-  // the Chromium quirk where SVG favicons are silently reverted to the cached
-  // on-disk file after tab focus changes.
-  const isBase = _badgeCount === 0; // capture before any async gap
-  const seq    = ++_renderSeq;
-  _rasterise(buildFaviconSvg(accent, _badgeCount), (canvas) => {
-    // Cache the no-badge render as the base so all future badge updates can
-    // skip the async round-trip and draw synchronously via Canvas 2D.
-    // Do this before the seq guard so the cache is always populated, even
-    // if a later render has already applied its result to the DOM.
-    if (isBase && !_baseCanvas) {
-      _baseCanvas = canvas;
-      _baseAccent = accent;
-    }
-
-    // Only skip this render if a *later* render already applied its result.
-    if (seq < _appliedSeq) return;
-    _appliedSeq = seq;
-    _setFaviconLink(canvas.toDataURL('image/png'));
-  });
-}
-
-export function updateFaviconBadge(count) {
-  _badgeCount = count;
-  const accent = getComputedStyle(document.documentElement).getPropertyValue('--accent').trim();
-  if (!accent || !accent.startsWith('#')) return;
-
-  // Fast synchronous path: base favicon is cached — composite badge directly.
-  if (_baseCanvas && _baseAccent === accent) {
-    // Advance the sequence counter so any in-flight slow-path renders that
-    // complete later are treated as stale and don't overwrite this result.
-    _appliedSeq = ++_renderSeq;
-
-    const canvas = document.createElement('canvas');
-    canvas.width  = FAVICON_PX;
-    canvas.height = FAVICON_PX;
-    const ctx = canvas.getContext('2d');
-    ctx.drawImage(_baseCanvas, 0, 0);
-
-    if (count > 0) {
-      const label = count > 99 ? '99+' : String(count);
-      const r  = label.length > 2 ? 10 : 11;
-      const cx = FAVICON_PX - r;
-      const cy = r;
-      const fs = label.length > 2 ? 8 : label.length > 1 ? 12 : 14;
-      // White border (filled circle, slightly larger than the badge)
-      ctx.beginPath();
-      ctx.arc(cx, cy, r + 1.5, 0, 2 * Math.PI);
-      ctx.fillStyle = 'white';
-      ctx.fill();
-      // Red badge
-      ctx.beginPath();
-      ctx.arc(cx, cy, r, 0, 2 * Math.PI);
-      ctx.fillStyle = '#ef4444';
-      ctx.fill();
-      // White label
-      ctx.fillStyle = 'white';
-      ctx.font = `800 ${fs}px system-ui,sans-serif`;
-      ctx.textAlign = 'center';
-      ctx.textBaseline = 'middle';
-      ctx.fillText(label, cx, cy + 0.5);
-    }
-
-    _setFaviconLink(canvas.toDataURL('image/png'));
-    return;
-  }
-
-  // Slow path: base not cached yet (first render or theme change) — use async
-  // SVG rasterization. Also warm the base cache separately so the next badge
-  // update can use the fast synchronous path, even if _badgeCount > 0 now
-  // (which would prevent _applyFavicon from auto-caching the base).
-  _applyFavicon(accent);
-  if (_badgeCount > 0) _warmBase(accent);
 }

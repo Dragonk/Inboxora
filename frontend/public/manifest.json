@@ -4,60 +4,33 @@
   "description": "Your private inbox for email, contacts and calendars",
   "start_url": "/",
   "display": "standalone",
-  "background_color": "#0f0f11",
-  "theme_color": "#7c6af7",
+  "background_color": "#f5f4ef",
+  "theme_color": "#35558a",
   "orientation": "portrait-primary",
   "protocol_handlers": [
-    { "protocol": "mailto", "url": "/?mailto=%s" }
+    {
+      "protocol": "mailto",
+      "url": "/?mailto=%s"
+    }
   ],
   "icons": [
     {
-      "src": "/icon-512.png",
-      "sizes": "512x512",
-      "type": "image/png",
-      "purpose": "maskable any"
-    },
-    {
-      "src": "/icon-384.png",
-      "sizes": "384x384",
-      "type": "image/png",
-      "purpose": "any"
-    },
-    {
-      "src": "/icon-192.png",
+      "src": "/inboxora-envelope-192.png",
       "sizes": "192x192",
       "type": "image/png",
       "purpose": "any"
     },
     {
-      "src": "/icon-152.png",
-      "sizes": "152x152",
+      "src": "/inboxora-envelope-512.png",
+      "sizes": "512x512",
       "type": "image/png",
       "purpose": "any"
     },
     {
-      "src": "/icon-144.png",
-      "sizes": "144x144",
+      "src": "/inboxora-envelope-maskable-512.png",
+      "sizes": "512x512",
       "type": "image/png",
-      "purpose": "any"
-    },
-    {
-      "src": "/icon-128.png",
-      "sizes": "128x128",
-      "type": "image/png",
-      "purpose": "any"
-    },
-    {
-      "src": "/icon-96.png",
-      "sizes": "96x96",
-      "type": "image/png",
-      "purpose": "any"
-    },
-    {
-      "src": "/icon-72.png",
-      "sizes": "72x72",
-      "type": "image/png",
-      "purpose": "any"
+      "purpose": "maskable"
     }
   ]
 }

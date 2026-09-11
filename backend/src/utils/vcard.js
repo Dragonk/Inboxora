@@ -5,7 +5,20 @@
 // Strips CR, LF, and other characters that are structural in vCard lines.
 function escapeParam(str) {
   if (!str) return '';
-  return str.replace(/[\r\n;:,]/g, '');
+  return str.replace(/[\r\n;]/g, '');
+}
+
+function quoteParam(str) {
+  return `"${str}"`;
+}
+
+// vCard parameter values cannot contain controls, DQUOTE, or backslash escapes.
+// Keep punctuation valid inside a quoted parameter (notably ; and :) so values
+// are round-trippable rather than silently rewritten during serialization.
+export function normalizeContactDateLabel(value) {
+  if (typeof value !== 'string') return null;
+  const label = value.trim();
+  return label && !/[\p{Cc}"\\]/u.test(label) ? label : null;
 }
 
 // Escape special characters in a vCard property value.
@@ -22,11 +35,57 @@ function escapeValue(str) {
 // Unescape a vCard property value.
 function unescapeValue(str) {
   if (!str) return '';
-  return str
-    .replace(/\\n/gi, '\n')
-    .replace(/\\,/g, ',')
-    .replace(/\\;/g, ';')
-    .replace(/\\\\/g, '\\');
+  return str.replace(/\\([\\;,nN])/g, (_match, escaped) => escaped.toLowerCase() === 'n' ? '\n' : escaped);
+}
+
+// Split structured or list values without treating escaped delimiters as
+// separators. Keep escapes in the fragments so unescapeValue() can decode them.
+function splitEscaped(value, delimiter) {
+  const parts = [];
+  let part = '';
+  let escaped = false;
+  for (const char of value) {
+    if (char === delimiter && !escaped) {
+      parts.push(part);
+      part = '';
+    } else {
+      part += char;
+    }
+    escaped = char === '\\' ? !escaped : false;
+  }
+  parts.push(part);
+  return parts;
+}
+
+function isHttpUrl(value) {
+  try {
+    const url = new URL(value);
+    return url.protocol === 'http:' || url.protocol === 'https:';
+  } catch {
+    return false;
+  }
+}
+
+export function normalizeVCardDate(value, allowPartial = true) {
+  if (typeof value !== 'string') return null;
+  const date = unescapeValue(value).trim();
+  const partial = /^--(\d{2})-?(\d{2})$/.exec(date);
+  if (partial && allowPartial) {
+    const full = normalizeVCardDate(`2000-${partial[1]}-${partial[2]}`, false);
+    return full ? `--${partial[1]}-${partial[2]}` : null;
+  }
+  const dashed = /^(\d{4})-(\d{2})-(\d{2})$/.exec(date);
+  const compact = /^(\d{4})(\d{2})(\d{2})$/.exec(date);
+  const parts = dashed || compact;
+  if (!parts) return null;
+  const year = Number(parts[1]);
+  const month = Number(parts[2]);
+  const day = Number(parts[3]);
+  const daysInMonth = month === 2
+    ? (year % 4 === 0 && (year % 100 !== 0 || year % 400 === 0) ? 29 : 28)
+    : ([4, 6, 9, 11].includes(month) ? 30 : 31);
+  if (year < 1 || month < 1 || month > 12 || day < 1 || day > daysInMonth) return null;
+  return `${parts[1]}-${parts[2]}-${parts[3]}`;
 }
 
 // Fold a vCard line at 75 octets per RFC 6350 §3.2.
@@ -59,6 +118,46 @@ function unfold(raw) {
   return raw.replace(/\r\n[ \t]/g, '').replace(/\n[ \t]/g, '');
 }
 
+function findPropertySeparator(line) {
+  let quoted = false;
+  let escaped = false;
+  for (let index = 0; index < line.length; index++) {
+    const char = line[index];
+    if (char === '"' && !escaped) quoted = !quoted;
+    if (char === ':' && !quoted) return index;
+    escaped = char === '\\' && !escaped;
+    if (char !== '\\') escaped = false;
+  }
+  return -1;
+}
+
+function dateLabelFromParams(params, fallback) {
+  const match = /(?:^|;)(?:TYPE|LABEL)=/i.exec(params);
+  if (!match) return fallback;
+  const value = params.slice(match.index + match[0].length);
+  if (!value.startsWith('"')) return value.split(';', 1)[0];
+
+  for (let index = 1; index < value.length; index++) {
+    if (value[index] === '\\') return null;
+    if (value[index] === '"') {
+      return value.slice(index + 1).startsWith(';') || index === value.length - 1
+        ? value.slice(1, index)
+        : null;
+    }
+  }
+  return null;
+}
+
+function hasUnterminatedDateLabelParam(raw) {
+  const text = unfold(raw || '');
+  return text.split(/\r?\n/).some(line => {
+    const property = line.split(';', 1)[0].toUpperCase().split('.').at(-1);
+    if (!['BDAY', 'ANNIVERSARY', 'X-ABDATE'].includes(property)) return false;
+    const match = /(?:^|;)(?:TYPE|LABEL)="/i.exec(line);
+    return match && !line.slice(match.index + match[0].length).includes('"');
+  });
+}
+
 /**
  * Parse a vCard 3.0 string and return a plain object with the fields
  * MailFlow cares about. Unknown properties are silently ignored.
@@ -77,21 +176,68 @@ export function parseVCard(raw) {
     organization: null,
     notes: null,
     photoData: null,
+    birthday: null,
+    anniversary: null,
+    title: null,
+    role: null,
+    nickname: null,
+    urls: [],
+    instantMessages: [],
+    categories: [],
+    addresses: [],
+    contactDates: [],
+    invalidDates: [],
+    invalidDateLabels: [],
   };
+  if (hasUnterminatedDateLabelParam(raw)) result.invalidDateLabels.push('unterminated parameter');
+
+  const addContactDate = (label, value) => {
+    const normalized = normalizeVCardDate(value);
+    const cleanLabel = normalizeContactDateLabel(label);
+    if (!cleanLabel) {
+      result.invalidDateLabels.push(String(label || ''));
+      return;
+    }
+    if (!normalized) {
+      if (unescapeValue(value).trim()) result.invalidDates.push(unescapeValue(value).trim());
+      return;
+    }
+    const key = `${cleanLabel.toLocaleLowerCase()}\u0000${normalized}`;
+    if (!result.contactDates.some(date => `${date.label.toLocaleLowerCase()}\u0000${date.value}` === key)) {
+      result.contactDates.push({ label: cleanLabel, value: normalized });
+    }
+  };
+
+  let preferredEmail = -1;
+  let preferredRank = Infinity;
+  const groupedLabels = new Map();
+  for (const line of text.split(/\r?\n/)) {
+    const trimmed = line.trim();
+    const colonIdx = findPropertySeparator(trimmed);
+    if (colonIdx < 0) continue;
+    const property = trimmed.slice(0, colonIdx).split(';')[0];
+    const dotIdx = property.indexOf('.');
+    const propertyName = (dotIdx >= 0 ? property.slice(dotIdx + 1) : property).toUpperCase();
+    if (propertyName !== 'X-ABLABEL' || dotIdx < 0) continue;
+    groupedLabels.set(property.slice(0, dotIdx).toLocaleLowerCase(), unescapeValue(trimmed.slice(colonIdx + 1)).trim());
+  }
 
   for (const line of text.split(/\r?\n/)) {
     const trimmed = line.trim();
     if (!trimmed || trimmed === 'BEGIN:VCARD' || trimmed === 'END:VCARD') continue;
 
-    const colonIdx = trimmed.indexOf(':');
+    const colonIdx = findPropertySeparator(trimmed);
     if (colonIdx < 0) continue;
 
-    const rawName = trimmed.slice(0, colonIdx).toUpperCase();
+    const rawName = trimmed.slice(0, colonIdx);
     const value   = trimmed.slice(colonIdx + 1);
+    const property = rawName.split(';')[0];
+    const dotIdx = property.indexOf('.');
+    const group = dotIdx >= 0 ? property.slice(0, dotIdx).toLocaleLowerCase() : null;
 
     // Strip parameters (e.g. "EMAIL;TYPE=WORK:..." → name = "EMAIL"), then drop an
     // optional group prefix (e.g. "ITEM1.EMAIL" → "EMAIL") used by Apple/Nextcloud.
-    let name = rawName.split(';')[0];
+    let name = rawName.split(';')[0].toUpperCase();
     if (name.includes('.')) name = name.slice(name.lastIndexOf('.') + 1);
     const params = rawName.includes(';') ? rawName.slice(rawName.indexOf(';') + 1) : '';
 
@@ -105,7 +251,7 @@ export function parseVCard(raw) {
         break;
       case 'N': {
         // N:Last;First;Additional;Prefix;Suffix
-        const parts = value.split(';').map(p => unescapeValue(p).trim());
+        const parts = splitEscaped(value, ';').map(p => unescapeValue(p).trim());
         result.lastName  = parts[0] || null;
         result.firstName = parts[1] || null;
         break;
@@ -115,13 +261,15 @@ export function parseVCard(raw) {
         if (emailVal) {
           const typeMatch = params.match(/TYPE=([^;]+)/i);
           const type = typeMatch ? typeMatch[1].toLowerCase().replace(/["']/g, '') : 'other';
-          const isPrimary = result.emails.length === 0;
-          result.emails.push({ value: emailVal, type, primary: isPrimary });
+          const pref = /(?:^|;)PREF="?(\d+)/i.exec(params);
+          const rank = pref && Number(pref[1]) >= 1 && Number(pref[1]) <= 100 ? Number(pref[1]) : /(?:^|[;,])PREF(?:[,;]|$)/i.test(params) || /TYPE=[^;]*\bPREF\b/i.test(params) ? 1 : Infinity;
+          if (preferredEmail < 0 || rank < preferredRank) { preferredEmail = result.emails.length; preferredRank = rank; }
+          result.emails.push({ value: emailVal, type: type.split(',').filter(part => part !== 'pref').join(',') || 'other', primary: false });
         }
         break;
       }
       case 'TEL': {
-        const phoneVal = unescapeValue(value).trim();
+        const phoneVal = unescapeValue(value).trim().replace(/^tel:/i, '');
         if (phoneVal) {
           const typeMatch = params.match(/TYPE=([^;]+)/i);
           const type = typeMatch ? typeMatch[1].toLowerCase().replace(/["']/g, '') : 'other';
@@ -130,11 +278,59 @@ export function parseVCard(raw) {
         break;
       }
       case 'ORG':
-        result.organization = unescapeValue(value.split(';')[0]).trim() || null;
+        result.organization = unescapeValue(splitEscaped(value, ';')[0]).trim() || null;
         break;
       case 'NOTE':
         result.notes = unescapeValue(value).trim() || null;
         break;
+      case 'BDAY': {
+        result.birthday = result.birthday || normalizeVCardDate(value, false);
+        addContactDate(dateLabelFromParams(params, 'Birthday'), value);
+        break;
+      }
+      case 'ANNIVERSARY': {
+        result.anniversary = result.anniversary || normalizeVCardDate(value, false);
+        addContactDate(dateLabelFromParams(params, 'Anniversary'), value);
+        break;
+      }
+      case 'X-ABDATE':
+        addContactDate(groupedLabels.get(group) || dateLabelFromParams(params, 'Other'), value);
+        break;
+      case 'X-ANDROID-CUSTOM': {
+        const parts = splitEscaped(value, ';').map(part => unescapeValue(part));
+        if (parts[0] === 'vnd.android.cursor.item/contact_event') {
+          const dateFirst = normalizeVCardDate(parts[1]);
+          addContactDate(dateFirst ? parts[3] : parts[2], dateFirst ? parts[1] : parts[3]);
+        }
+        break;
+      }
+      case 'TITLE':
+        result.title = unescapeValue(value).trim() || null;
+        break;
+      case 'ROLE':
+        result.role = unescapeValue(value).trim() || null;
+        break;
+      case 'NICKNAME':
+        result.nickname = unescapeValue(value).trim() || null;
+        break;
+      case 'URL': {
+        const url = unescapeValue(value).trim();
+        if (isHttpUrl(url)) result.urls.push({ value: url, type: (params.match(/TYPE=([^;]+)/i)?.[1] || 'other').toLowerCase().replace(/["']/g, '') });
+        break;
+      }
+      case 'IMPP': {
+        const im = unescapeValue(value).trim();
+        if (im) result.instantMessages.push({ value: im, type: (params.match(/TYPE=([^;]+)/i)?.[1] || im.split(':', 1)[0] || 'other').toLowerCase().replace(/["']/g, '') });
+        break;
+      }
+      case 'CATEGORIES':
+        result.categories.push(...splitEscaped(value, ',').map(part => unescapeValue(part).trim()).filter(Boolean));
+        break;
+      case 'ADR': {
+        const parts = splitEscaped(value, ';').map(part => unescapeValue(part).trim());
+        result.addresses.push({ type: (params.match(/TYPE=([^;]+)/i)?.[1] || 'other').toLowerCase().replace(/["']/g, ''), pobox: parts[0] || '', extended: parts[1] || '', street: parts[2] || '', locality: parts[3] || '', region: parts[4] || '', postalCode: parts[5] || '', country: parts[6] || '' });
+        break;
+      }
       case 'PHOTO': {
         const v = value.trim();
         if (!v) break;
@@ -157,6 +353,7 @@ export function parseVCard(raw) {
     }
   }
 
+  if (preferredEmail >= 0) result.emails[preferredEmail].primary = true;
   return result;
 }
 
@@ -175,6 +372,16 @@ export function generateVCard(contact) {
     phones = [],
     organization,
     notes,
+    birthday,
+    anniversary,
+    title,
+    role,
+    nickname,
+    urls = [],
+    instantMessages = [],
+    categories = [],
+    addresses = [],
+    contactDates,
   } = contact;
 
   const lines = [];
@@ -193,7 +400,7 @@ export function generateVCard(contact) {
 
   for (const e of emails) {
     const type = escapeParam((e.type || 'other').toUpperCase());
-    lines.push(`EMAIL;TYPE=${type}:${escapeValue(e.value || '')}`);
+    lines.push(`EMAIL;TYPE=${type}${e.primary ? ",PREF" : ""}:${escapeValue(e.value || '')}`);
   }
 
   for (const p of phones) {
@@ -208,9 +415,67 @@ export function generateVCard(contact) {
   if (notes) {
     lines.push(`NOTE:${escapeValue(notes)}`);
   }
+  if (Array.isArray(contactDates)) {
+    const seenDates = new Set();
+    for (const date of contactDates) {
+      const value = normalizeVCardDate(date?.value);
+      const label = normalizeContactDateLabel(date?.label);
+      if (!value || !label) continue;
+      const key = `${label.toLocaleLowerCase()}\u0000${value}`;
+      if (seenDates.has(key)) continue;
+      seenDates.add(key);
+      const property = label.toLocaleLowerCase() === 'birthday' ? 'BDAY' : label.toLocaleLowerCase() === 'anniversary' ? 'ANNIVERSARY' : 'X-ABDATE';
+      const encodedLabel = /[,;:"]/.test(label) ? quoteParam(label) : escapeParam(label);
+      lines.push(`${property};TYPE=${encodedLabel}:${value}`);
+    }
+  } else {
+    if (/^\d{4}-\d{2}-\d{2}$/.test(birthday || '')) lines.push(`BDAY:${birthday}`);
+    if (/^\d{4}-\d{2}-\d{2}$/.test(anniversary || '')) lines.push(`ANNIVERSARY:${anniversary}`);
+  }
+  if (title) lines.push(`TITLE:${escapeValue(title)}`);
+  if (role) lines.push(`ROLE:${escapeValue(role)}`);
+  if (nickname) lines.push(`NICKNAME:${escapeValue(nickname)}`);
+  for (const url of urls) if (url?.value) lines.push(`URL;TYPE=${escapeParam((url.type || 'other').toUpperCase())}:${escapeValue(url.value)}`);
+  for (const instantMessage of instantMessages) if (instantMessage?.value) lines.push(`IMPP;TYPE=${escapeParam((instantMessage.type || 'other').toUpperCase())}:${escapeValue(instantMessage.value)}`);
+  if (categories.length) lines.push(`CATEGORIES:${categories.map(escapeValue).join(',')}`);
+  for (const address of addresses) {
+    const type = escapeParam((address?.type || 'other').toUpperCase());
+    const parts = ['pobox', 'extended', 'street', 'locality', 'region', 'postalCode', 'country'].map(key => escapeValue(address?.[key] || ''));
+    lines.push(`ADR;TYPE=${type}:${parts.join(';')}`);
+  }
 
   lines.push('END:VCARD');
 
   // Fold and join
   return lines.map(foldLine).join('');
+}
+
+// Update only the properties owned by the local contact editor. The original
+// vCard remains the source of truth for DAV clients, so unsupported extensions
+// (including grouped Apple properties and X-* fields) survive local edits.
+export function mergeVCard(raw, contact) {
+  const original = unfold(raw || '');
+  if (!/^BEGIN:VCARD\s*$/im.test(original) || !/^END:VCARD\s*$/im.test(original)) {
+    return generateVCard(contact);
+  }
+  const managed = new Set(['FN', 'N', 'EMAIL', 'TEL', 'ORG', 'NOTE', 'BDAY', 'ANNIVERSARY', 'X-ABDATE', 'X-ANDROID-CUSTOM']);
+  const richProperties = { title: 'TITLE', role: 'ROLE', nickname: 'NICKNAME', urls: 'URL', instantMessages: 'IMPP', categories: 'CATEGORIES', addresses: 'ADR' };
+  for (const [field, property] of Object.entries({ contactDates: 'X-ABDATE', ...richProperties })) {
+    if (Object.hasOwn(contact, field)) managed.add(property);
+  }
+  const propertyName = line => {
+    const colon = findPropertySeparator(line);
+    if (colon < 0) return '';
+    const name = line.slice(0, colon).split(';', 1)[0].toUpperCase();
+    return name.includes('.') ? name.slice(name.lastIndexOf('.') + 1) : name;
+  };
+  const existing = original.split(/\r?\n/).filter(Boolean);
+  const uid = contact.uid || parseVCard(original).uid;
+  const replacement = unfold(generateVCard({ ...contact, uid })).split(/\r?\n/)
+    .filter(line => line && !['BEGIN', 'VERSION', 'UID', 'END'].includes(propertyName(line)));
+  const preserved = existing.filter(line => {
+    const name = propertyName(line);
+    return name && !['BEGIN', 'END'].includes(name) && !managed.has(name);
+  });
+  return ['BEGIN:VCARD', ...preserved, ...replacement, 'END:VCARD'].map(foldLine).join('');
 }

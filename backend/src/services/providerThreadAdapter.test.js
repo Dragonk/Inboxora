@@ -39,3 +39,9 @@ describe('provider thread adapter foundations', () => {
     expect(normalizeProviderReferences('<a@x> <a@x> prose')).toEqual(['<a@x>']);
   });
 });
+
+it('uses persisted Gmail identities when replay has no fresh IMAP attributes', () => {
+  const result = parseProviderMetadata({ provider_message_id: '123', provider_thread_id: '90071992547409931' }, { id: 'gmail-account', imap_host: 'imap.googlemail.com' });
+  expect(result).toMatchObject({ provider: 'gmail', providerThreadId: '90071992547409931', isStrong: true });
+  expect(providerFetchQuery({ imap_host: 'imap.googlemail.com' })).toMatchObject({ threadId: true });
+});

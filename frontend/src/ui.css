@@ -1,0 +1,141 @@
+/* Shared V3 chrome. Message HTML is intentionally styled by its own renderer. */
+:root { --radius-control: 6px; --radius-card: 8px; --radius-dialog: 10px; --bg-input: var(--bg-primary); }
+button, input, textarea, select { font-family: inherit; }
+.ui-button { display: inline-flex; align-items: center; justify-content: center; gap: 7px; border: 1px solid var(--border); border-radius: var(--radius-control); padding: 7px 12px; background: var(--bg-elevated); color: var(--text-primary); font-size: 12.5px; font-weight: 600; cursor: pointer; transition: background var(--motion-fast), transform var(--motion-fast); }
+.ui-button:hover:not(:disabled) { background: var(--bg-hover); }
+.ui-button:active:not(:disabled) { transform: scale(.97); }
+.ui-button-primary { background: var(--accent); border-color: var(--accent); color: var(--accent-text); }
+.ui-button-primary:hover:not(:disabled) { background: color-mix(in srgb, var(--accent) 88%, black); }
+.ui-button-ghost { background: transparent; border-color: transparent; color: var(--text-secondary); }
+.ui-button-danger { color: var(--red); }
+.ui-button:disabled { opacity: .5; cursor: not-allowed; }
+.ui-empty { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 5px; padding: 32px 20px; text-align: center; color: var(--text-tertiary); font-size: 12px; }
+.ui-empty strong { color: var(--text-secondary); font-size: 13px; font-weight: 600; }
+.ui-overlay { position: fixed; inset: 0; z-index: 4500; background: var(--overlay-scrim); display: grid; place-items: center; padding: max(20px, env(safe-area-inset-top)) 20px max(20px, env(safe-area-inset-bottom)); animation: backdrop-enter var(--motion-normal) ease; }
+.ui-dialog { width: min(590px, 100%); max-height: calc(100dvh - 48px); min-height: 0; min-width: 0; display: flex; flex-direction: column; background: var(--bg-elevated); border: 1px solid var(--border-subtle); border-radius: var(--radius-dialog); box-shadow: var(--shadow-modal); overflow: hidden; animation: modal-enter var(--motion-normal) var(--ease-emphasized); }
+.ui-dialog-header, .ui-dialog-footer { display: flex; flex: 0 0 auto; align-items: center; justify-content: space-between; gap: 10px; padding: 13px 18px; }
+.ui-dialog-header { border-bottom: 1px solid var(--border-subtle); }
+.ui-dialog-header h2 { margin: 0; font-family: var(--font-display); font-size: 16px; font-weight: 600; }
+.ui-dialog-body { padding: 16px 18px; min-height: 0; overflow-y: auto; }
+.ui-dialog-footer { border-top: 1px solid var(--border-subtle); flex-wrap: wrap; }
+.ui-form { display: grid; gap: 12px; }
+.ui-form label { display: grid; gap: 5px; font-size: 12px; color: var(--text-secondary); }
+.ui-form :is(input:not([type=checkbox]):not([type=radio]), textarea, select) { min-width: 0; width: 100%; padding: 7px 10px; border: 1px solid var(--border-subtle); border-radius: 6px; background: var(--bg-primary); color: var(--text-primary); font-size: 13px; }
+.ui-form .ui-check { display: flex; align-items: center; gap: 8px; }
+.ui-form input[type=checkbox] { accent-color: var(--accent); }
+.ui-form-columns { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
+.ui-form :is(input, select, textarea):focus-visible, .contacts-page :is(input, select, textarea):focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; box-shadow: 0 0 0 3px var(--accent-glow); }
+/* A standalone select — one placed in a notice row or a toolbar rather than inside a
+   .ui-form. Without this it renders as raw native chrome: a raised grey bezel, a
+   platform dropdown arrow and no relation to the theme, which is jarring next to the
+   app's own buttons. The arrow is drawn as a background image because a <select>
+   cannot host a pseudo-element; two surface variants keep it legible in both
+   appearances, using the same attribute the logo contrast switch relies on. */
+.ui-select {
+  min-width: 0; max-width: 100%;
+  padding: 6px 26px 6px 9px;
+  border: 1px solid var(--border-subtle); border-radius: var(--radius-control);
+  background-color: var(--bg-primary); color: var(--text-primary);
+  font-size: 12px; line-height: 1.4; cursor: pointer;
+  appearance: none; -webkit-appearance: none;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 10 6'%3E%3Cpath d='M1 1l4 4 4-4' fill='none' stroke='%236b7480' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
+  background-repeat: no-repeat; background-position: right 8px center; background-size: 10px 6px;
+  transition: background-color var(--motion-fast), border-color var(--motion-fast);
+}
+:root[data-inboxora-surface="dark"] .ui-select {
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 10 6'%3E%3Cpath d='M1 1l4 4 4-4' fill='none' stroke='%23a9b0bd' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
+}
+.ui-select:hover:not(:disabled) { background-color: var(--bg-hover); border-color: var(--border); }
+.ui-select:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; box-shadow: 0 0 0 3px var(--accent-glow); }
+.ui-select:disabled { opacity: .55; cursor: not-allowed; }
+.ui-select option { background: var(--bg-elevated); color: var(--text-primary); }
+.ui-alert { padding: 10px 12px; border-radius: 6px; color: var(--red); background: color-mix(in srgb, var(--red) 9%, var(--bg-primary)); font-size: 12px; }
+.ui-resize-handle { position: relative; }
+.ui-resize-handle::after { content: ''; position: absolute; top: 0; bottom: 0; left: -3px; right: -3px; z-index: 12; }
+.tablet-reader-back { padding: 6px 12px; border-bottom: 1px solid var(--border-subtle); background: var(--bg-secondary); }
+.admin-panel :is(h1, h2, h3), .compose-window > div:first-of-type { font-family: var(--font-display); }
+.admin-panel :is(input, select, textarea):focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+.admin-panel .admin-tab-active { background: var(--accent-dim) !important; color: var(--text-primary) !important; }
+.admin-panel .admin-tab { border-radius: 6px !important; }
+.admin-panel :is(button, input, textarea, select), .compose-window button { transition: background var(--motion-fast), border-color var(--motion-fast); }
+@media (max-width: 767px) {
+  .ui-button { min-height: 44px; }
+  .ui-overlay { padding: max(12px, env(safe-area-inset-top)) 12px max(12px, env(safe-area-inset-bottom)); }
+  .ui-dialog { max-height: calc(100dvh - env(safe-area-inset-top) - env(safe-area-inset-bottom) - 24px); }
+  .ui-form-columns { grid-template-columns: minmax(0, 1fr); }
+  /* A full-screen dialog on a phone: the content owns the whole viewport instead of
+     floating in a small card. Used by the calendar event preview and editor, where
+     the description and the form need the room. */
+  .ui-overlay:has(> .ui-fullscreen) { padding: 0; align-items: stretch; justify-items: stretch; }
+  .ui-dialog.ui-fullscreen {
+    width: 100%; max-width: 100%; height: 100dvh; max-height: 100dvh;
+    border: 0; border-radius: 0;
+    padding-top: env(safe-area-inset-top); padding-bottom: env(safe-area-inset-bottom);
+  }
+  .ui-dialog.ui-fullscreen .ui-dialog-body { flex: 1; }
+}
+@media (prefers-reduced-motion: reduce) { .ui-overlay, .ui-dialog { animation: none; } }
+
+.ui-overlay:has(> .ui-drawer-left) { justify-items: start; padding-left: 0; }
+.ui-overlay:has(> .ui-drawer-right) { justify-items: end; padding-right: 0; }
+.ui-dialog:is(.ui-drawer-left, .ui-drawer-right) { height: 100%; max-height: 100%; border-radius: 0; }
+
+/* Bottom sheet used by the narrow-screen calendar panel and day agenda. Both
+   render as the same full-width panel sliding up from the bottom, with the
+   dialog header providing the one and only close control and acting as the
+   drag zone for the dismiss gesture. */
+.ui-overlay:has(> .ui-sheet) { align-items: end; justify-items: stretch; padding: 0; }
+.ui-dialog.ui-sheet {
+  width: 100%; max-width: 100%; height: auto;
+  max-height: min(88dvh, 100%);
+  border-radius: 16px 16px 0 0;
+  padding-bottom: env(safe-area-inset-bottom, 0px);
+  animation: sheet-enter var(--motion-normal) var(--ease-emphasized);
+}
+/* The grabber is a real element (not a ::before) so the drag zone is testable and
+   the pointer handlers can attach directly to it. */
+.ui-dialog.ui-sheet .ui-dialog-header { position: relative; padding-top: 18px; cursor: grab; touch-action: none; }
+.ui-dialog.ui-sheet .ui-dialog-header:active { cursor: grabbing; }
+.ui-sheet-grabber {
+  position: absolute; top: 6px; left: 50%; transform: translateX(-50%);
+  width: 42px; height: 5px; border-radius: 999px; background: var(--border);
+  /* A wider invisible hit area than the visible pill. */
+  padding: 8px 22px; box-sizing: content-box; background-clip: content-box;
+}
+.ui-dialog.ui-sheet .ui-dialog-body { padding: 12px 16px 16px; }
+@media (prefers-reduced-motion: reduce) { .ui-dialog.ui-sheet { animation: none; } }
+
+/* Zoom applies the saved interface scale to portals while keeping the overlay
+   in viewport coordinates. Constrain the grid row before sizing its dialog. */
+.ui-overlay { grid-template-rows: minmax(0, 1fr); }
+.ui-dialog { max-height: 100%; }
+.mobile-header-content { flex: 1; min-width: 0; align-items: center; gap: 2px; }
+.mobile-module-title { flex: 1; min-width: 0; }
+.mobile-module-title h1 { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; margin: 0; font-family: var(--font-display); font-size: 16px; font-weight: 600; }
+.mobile-module-title small { display: block; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; font-size: 10.5px; color: var(--text-secondary); }
+.mobile-header-action { display: inline-flex; align-items: center; justify-content: center; min-width: 44px; height: 44px; flex-shrink: 0; padding: 0; border: 0; border-radius: 6px; color: var(--accent); background: transparent; cursor: pointer; }
+.mobile-header-action:hover { background: var(--bg-hover); }
+.mobile-header-action:disabled { opacity: .45; cursor: default; }
+
+.settings-choice-label { font-size: 12px; color: var(--text-secondary); margin-bottom: 4px; }
+/* The shared option contract: a name with a short line under it saying what the
+   option means. Used by choice groups and switch rows across every settings tab. */
+.settings-choice-description { font-size: 11px; color: var(--text-tertiary); margin: 0 0 8px; line-height: 1.45; }
+.settings-choice-options { display: flex; gap: 8px; flex-wrap: wrap; }
+.settings-choice-options button { flex: 1; min-height: 44px; padding: 10px 12px; text-align: left; color: var(--text-primary); background: var(--bg-tertiary); border: 2px solid var(--border-subtle); border-radius: 8px; cursor: pointer; }
+.settings-choice-options button[aria-pressed="true"] { background: var(--bg-hover); border-color: var(--accent); }
+.settings-choice-options button:disabled { opacity: .6; cursor: not-allowed; }
+.settings-option-title { display: block; font-size: 12px; font-weight: 500; color: var(--text-primary); }
+.settings-option-description { display: block; margin-top: 2px; font-size: 11px; color: var(--text-tertiary); line-height: 1.4; }
+
+.settings-switch-row { display: flex; align-items: center; justify-content: space-between; gap: 16px; padding: 12px 14px; border-radius: 8px; background: var(--bg-tertiary); border: 1px solid var(--border-subtle); }
+.settings-switch-text { min-width: 0; }
+.settings-switch-label { font-size: 13px; font-weight: 500; color: var(--text-primary); }
+.settings-switch-description { margin-top: 2px; font-size: 12px; color: var(--text-tertiary); line-height: 1.45; }
+.settings-day-choice { display: inline-flex; position: relative; align-items: center; gap: 8px; min-height: 44px; padding: 8px 12px; border: 2px solid var(--border-subtle); border-radius: 8px; background: var(--bg-tertiary); cursor: pointer; color: var(--text-primary); }
+.settings-day-choice.is-selected { border-color: var(--accent); background: var(--bg-hover); }
+.settings-day-choice input { accent-color: var(--accent); width: 16px; height: 16px; }
+.settings-day-choice:focus-within { outline: 2px solid var(--accent); outline-offset: 2px; }
+
+.mobile-header-action[aria-pressed="true"] { background: var(--bg-hover); box-shadow: inset 0 0 0 1px var(--accent); }
+.mobile-header-action[aria-busy="true"] svg { animation: spin .8s linear infinite; }

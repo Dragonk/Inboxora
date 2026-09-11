@@ -1,0 +1,14 @@
+# Advanced: use an existing external ntfy server instead of the bundled one.
+#
+#   PUSH_BASE_URL=https://push.example.com docker compose \
+#     -f docker-compose.yml -f docker-compose.external-ntfy.yml up -d
+#
+# The bundled ntfy is moved into a profile that this file never activates, so it
+# is not started. Point the Android ntfy app at PUSH_BASE_URL; the /push path on
+# the Inboxora domain is then unused.
+#
+# Equivalent for the prebuilt images:
+#   docker compose -f docker-compose.ghcr.yml -f docker-compose.external-ntfy.yml up -d
+services:
+  ntfy:
+    profiles: ["internal-ntfy"]

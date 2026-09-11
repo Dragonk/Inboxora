@@ -1,12 +1,60 @@
 import { Router } from 'express';
-import { query } from '../services/db.js';
+import { query, withTransaction } from '../services/db.js';
 import { requireAuth } from '../middleware/auth.js';
-import { generateVCard } from '../utils/vcard.js';
+import { generateVCard, mergeVCard, normalizeContactDateLabel, normalizeVCardDate, parseVCard } from '../utils/vcard.js';
+import { chooseDefined, normalizeRichContactFields } from '../utils/contactFields.js';
 import { safeFetch } from '../services/safeFetch.js';
+import { contactsToGoogleCsv, contactsToOutlookCsv, contactsToVCard, parseGoogleCsv } from '../utils/contactTransfer.js';
 import crypto from 'crypto';
 
 const router = Router();
 router.use(requireAuth);
+
+function normalizeContactDate(value) {
+  if (value == null || value === '') return null;
+  if (typeof value !== 'string' || !/^\d{4}-\d{2}-\d{2}$/.test(value)) return undefined;
+  const [year, month, day] = value.split('-').map(Number);
+  const date = new Date(Date.UTC(year, month - 1, day));
+  return date.getUTCFullYear() === year && date.getUTCMonth() === month - 1 && date.getUTCDate() === day ? value : undefined;
+}
+
+function normalizeContactDates(value) {
+  if (!Array.isArray(value)) return undefined;
+  const dates = [];
+  const seen = new Set();
+  for (const entry of value) {
+    if (!entry || typeof entry !== 'object' || typeof entry.label !== 'string') return undefined;
+    const label = normalizeContactDateLabel(entry.label);
+    const date = normalizeVCardDate(entry.value);
+    if (!label || !date) return undefined;
+    const key = `${label.toLocaleLowerCase()}\\u0000${date}`;
+    if (!seen.has(key)) { seen.add(key); dates.push({ label, value: date }); }
+  }
+  return dates;
+}
+
+function contactDatesWithLegacy(contactDates, birthday, anniversary, authoritative = false) {
+  const dates = (Array.isArray(contactDates) ? contactDates : [])
+    .filter(({ label }) => authoritative || !['birthday', 'anniversary'].includes(label.toLocaleLowerCase()))
+    .map(({ label, value }) => ({ label, value }));
+  if (authoritative) return dates;
+  const seen = new Set(dates.map(({ label, value }) => `${label.toLocaleLowerCase()}\\u0000${value}`));
+  for (const [label, value] of [['Birthday', birthday], ['Anniversary', anniversary]]) {
+    if (value && !seen.has(`${label.toLocaleLowerCase()}\\u0000${value}`)) dates.push({ label, value });
+  }
+  return dates;
+}
+
+function legacyDatesFromContactDates(contactDates) {
+  const values = { birthday: null, anniversary: null };
+  for (const { label, value } of contactDates) {
+    if (value.startsWith('--')) continue;
+    const field = label.toLocaleLowerCase();
+    if (field === 'birthday' && values.birthday === null) values.birthday = value;
+    if (field === 'anniversary' && values.anniversary === null) values.anniversary = value;
+  }
+  return values;
+}
 
 // In-memory cache for Gravatar lookups (hash -> { buf, type } hit or { miss:true }).
 // Bounded + TTL'd so we don't re-hit Gravatar for every list render and so the number of
@@ -44,10 +92,69 @@ async function bumpSyncToken(addressBookId) {
   );
 }
 
+function localBookName(value) {
+  const name = typeof value === 'string' ? value.trim().replace(/\s+/g, ' ') : '';
+  return name.length >= 1 && name.length <= 120 ? name : null;
+}
+
+async function requireLocalAddressBook(userId, addressBookId) {
+  const result = await query('SELECT id, name, source, visible FROM address_books WHERE id = $1 AND user_id = $2', [addressBookId, userId]);
+  const book = result.rows[0];
+  if (!book) return { error: 'Address book not found', status: 404 };
+  if (book.source !== 'local') return { error: 'This address book is read-only', status: 403 };
+  return { book };
+}
+
+router.get('/address-books', async (req, res) => {
+  try {
+    const result = await query(`SELECT ab.id, ab.name, ab.source, ab.visible, COUNT(c.id)::int AS contact_count FROM address_books ab LEFT JOIN contacts c ON c.address_book_id = ab.id WHERE ab.user_id = $1 GROUP BY ab.id ORDER BY ab.created_at ASC`, [req.session.userId]);
+    res.json({ addressBooks: result.rows });
+  } catch (err) { console.error('Address book list error:', err); res.status(500).json({ error: 'Failed to fetch address books' }); }
+});
+
+router.post('/address-books', async (req, res) => {
+  const name = localBookName(req.body?.name);
+  if (!name) return res.status(400).json({ error: 'Address book name must be 1 to 120 characters' });
+  try {
+    const result = await query(`INSERT INTO address_books (user_id, name, source, visible) VALUES ($1, $2, 'local', true) RETURNING id, name, source, visible`, [req.session.userId, name]);
+    res.status(201).json(result.rows[0]);
+  } catch (err) {
+    if (err.code === '23505') return res.status(409).json({ error: 'An address book with that name already exists' });
+    console.error('Address book create error:', err); res.status(500).json({ error: 'Failed to create address book' });
+  }
+});
+
+router.patch('/address-books/:id', async (req, res) => {
+  const { name: rawName, visible } = req.body || {};
+  if (rawName !== undefined && !localBookName(rawName)) return res.status(400).json({ error: 'Address book name must be 1 to 120 characters' });
+  if (visible !== undefined && typeof visible !== 'boolean') return res.status(400).json({ error: 'visible must be a boolean' });
+  if (rawName === undefined && visible === undefined) return res.status(400).json({ error: 'No address book changes supplied' });
+  try {
+    const local = await requireLocalAddressBook(req.session.userId, req.params.id);
+    if (local.error) return res.status(local.status).json({ error: local.error });
+    const result = await query(`UPDATE address_books SET name = COALESCE($1, name), visible = COALESCE($2, visible), updated_at = NOW() WHERE id = $3 AND user_id = $4 RETURNING id, name, source, visible`, [rawName === undefined ? null : localBookName(rawName), visible === undefined ? null : visible, req.params.id, req.session.userId]);
+    res.json(result.rows[0]);
+  } catch (err) {
+    if (err.code === '23505') return res.status(409).json({ error: 'An address book with that name already exists' });
+    console.error('Address book update error:', err); res.status(500).json({ error: 'Failed to update address book' });
+  }
+});
+
+router.delete('/address-books/:id', async (req, res) => {
+  try {
+    const local = await requireLocalAddressBook(req.session.userId, req.params.id);
+    if (local.error) return res.status(local.status).json({ error: local.error });
+    const count = await query(`SELECT COUNT(*)::int AS count FROM address_books WHERE user_id = $1 AND source = 'local'`, [req.session.userId]);
+    if (count.rows[0].count <= 1) return res.status(409).json({ error: 'At least one local address book is required' });
+    await query('DELETE FROM address_books WHERE id = $1 AND user_id = $2', [req.params.id, req.session.userId]);
+    res.status(204).end();
+  } catch (err) { console.error('Address book delete error:', err); res.status(500).json({ error: 'Failed to delete address book' }); }
+});
+
 // GET /api/contacts
 // Query params: q (search), limit, offset, is_auto (true|false|'')
 router.get('/', async (req, res) => {
-  const { q, limit = 50, offset = 0, is_auto } = req.query;
+  const { q, limit = 50, offset = 0, is_auto, addressBookId } = req.query;
   const userId = req.session.userId;
   const cap = Math.min(parseInt(limit) || 50, 500);
   const off = Math.max(0, parseInt(offset) || 0);
@@ -74,12 +181,21 @@ router.get('/', async (req, res) => {
     conditions.push('c.is_auto = false');
   }
 
+  if (addressBookId) {
+    params.push(addressBookId);
+    conditions.push(`c.address_book_id = $${p++}`);
+  } else {
+    conditions.push('ab.visible = true');
+  }
+
   try {
     const result = await query(`
       SELECT
         c.id, c.uid, c.display_name, c.first_name, c.last_name,
         c.primary_email, c.emails, c.phones, c.organization,
-        c.notes, c.is_auto, c.send_count, c.last_sent,
+        c.notes, c.birthday, c.anniversary, c.contact_dates AS "contactDates", c.title, c.role, c.nickname,
+        c.urls, c.addresses, c.instant_messages AS "instantMessages", c.categories,
+        c.address_book_id, ab.name AS address_book_name, c.is_auto, c.send_count, c.last_sent,
         c.etag, c.created_at, c.updated_at,
         (c.photo_data IS NOT NULL) AS has_contact_photo,
         (ab.source = 'carddav') AS read_only
@@ -94,7 +210,7 @@ router.get('/', async (req, res) => {
     `, [...params, cap, off]);
 
     const total = await query(
-      `SELECT COUNT(*) FROM contacts c WHERE ${conditions.join(' AND ')}`,
+      `SELECT COUNT(*) FROM contacts c JOIN address_books ab ON ab.id = c.address_book_id WHERE ${conditions.join(' AND ')}`,
       params
     );
 
@@ -177,7 +293,7 @@ router.get('/gravatar', async (req, res) => {
     const url = `https://www.gravatar.com/avatar/${hash}?d=404&s=80&r=g`;
     const resp = await safeFetch(url, {
       signal: AbortSignal.timeout(6000),
-      headers: { 'User-Agent': 'Inboxora/3.4.0' },
+      headers: { 'User-Agent': 'Inboxora/4.0.0' },
     });
     if (resp.status === 404) {
       gravatarCacheSet(hash, { miss: true, expires: now + GRAVATAR_MISS_TTL_MS });
@@ -196,6 +312,44 @@ router.get('/gravatar', async (req, res) => {
   }
 });
 
+router.get('/address-books/:id/export', async (req, res) => {
+  const format = req.query.format;
+  if (!['google-csv', 'outlook-csv', 'vcard'].includes(format)) return res.status(400).json({ error: 'Unsupported export format' });
+  try {
+    const book = await query('SELECT id, name FROM address_books WHERE id = $1 AND user_id = $2', [req.params.id, req.session.userId]);
+    if (!book.rows.length) return res.status(404).json({ error: 'Address book not found' });
+    const contacts = await query(`SELECT uid, display_name, first_name, last_name, emails, phones, organization, title, notes FROM contacts WHERE address_book_id = $1 ORDER BY lower(coalesce(display_name, primary_email, ''))`, [book.rows[0].id]);
+    const filename = `${book.rows[0].name.replace(/[^a-z0-9_-]+/gi, '-') || 'contacts'}`;
+    if (format === 'vcard') {
+      res.type('text/vcard').attachment(`${filename}.vcf`).send(contactsToVCard(contacts.rows));
+    } else {
+      const content = format === 'google-csv' ? contactsToGoogleCsv(contacts.rows) : contactsToOutlookCsv(contacts.rows);
+      res.type('text/csv').attachment(`${filename}-${format}.csv`).send(content);
+    }
+  } catch (err) { console.error('Address book export error:', err); res.status(500).json({ error: 'Failed to export address book' }); }
+});
+
+router.post('/address-books/:id/import/google-csv', async (req, res) => {
+  const csv = typeof req.body?.csv === 'string' ? req.body.csv : '';
+  if (!csv || csv.length > 900_000) return res.status(400).json({ error: 'Google CSV must be a non-empty file smaller than 900 KB' });
+  try {
+    const local = await requireLocalAddressBook(req.session.userId, req.params.id);
+    if (local.error) return res.status(local.status).json({ error: local.error });
+    const contacts = parseGoogleCsv(csv);
+    if (!contacts.length) return res.status(400).json({ error: 'No contacts found in Google CSV' });
+    await withTransaction(async client => {
+      for (const contact of contacts) {
+        const uid = crypto.randomUUID();
+        const vcard = generateVCard({ uid, ...contact });
+        const etag = crypto.createHash('md5').update(vcard).digest('hex');
+        await client.query(`INSERT INTO contacts (address_book_id, user_id, uid, vcard, etag, display_name, first_name, last_name, primary_email, emails, phones, organization, notes, birthday, anniversary, contact_dates, title, role, nickname, urls, instant_messages, categories, addresses, google_fields, is_auto) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16::jsonb,$17,$18,$19,$20::jsonb,$21::jsonb,$22::jsonb,$23::jsonb,$24::jsonb,false) ON CONFLICT (address_book_id, primary_email) WHERE primary_email IS NOT NULL DO UPDATE SET vcard = EXCLUDED.vcard, etag = EXCLUDED.etag, display_name = EXCLUDED.display_name, first_name = EXCLUDED.first_name, last_name = EXCLUDED.last_name, emails = EXCLUDED.emails, phones = EXCLUDED.phones, organization = EXCLUDED.organization, notes = EXCLUDED.notes, birthday = EXCLUDED.birthday, anniversary = EXCLUDED.anniversary, contact_dates = EXCLUDED.contact_dates, title = EXCLUDED.title, role = EXCLUDED.role, nickname = EXCLUDED.nickname, urls = EXCLUDED.urls, instant_messages = EXCLUDED.instant_messages, categories = EXCLUDED.categories, addresses = EXCLUDED.addresses, google_fields = EXCLUDED.google_fields, is_auto = false, updated_at = NOW()`, [local.book.id, req.session.userId, uid, vcard, etag, contact.displayName || null, contact.firstName || null, contact.lastName || null, contact.emails[0]?.value || null, JSON.stringify(contact.emails), JSON.stringify(contact.phones), contact.organization || null, contact.notes || null, contact.birthday || null, contact.anniversary || null, JSON.stringify(contact.contactDates || []), contact.title || null, contact.role || null, contact.nickname || null, JSON.stringify(contact.urls || []), JSON.stringify(contact.instantMessages || []), JSON.stringify(contact.categories || []), JSON.stringify(contact.addresses || []), JSON.stringify(contact.sourceFields || {})]);
+      }
+    });
+    await bumpSyncToken(local.book.id);
+    res.status(201).json({ imported: contacts.length });
+  } catch (err) { console.error('Google CSV import error:', err); res.status(500).json({ error: 'Failed to import Google CSV' }); }
+});
+
 // GET /api/contacts/:id
 router.get('/:id', async (req, res) => {
   const userId = req.session.userId;
@@ -203,7 +357,10 @@ router.get('/:id', async (req, res) => {
     const result = await query(
       `SELECT c.id, c.uid, c.display_name, c.first_name, c.last_name,
               c.primary_email, c.emails, c.phones, c.organization,
-              c.notes, c.photo_data, c.is_auto, c.send_count, c.last_sent,
+              c.notes, c.birthday, c.anniversary, c.contact_dates AS "contactDates", c.title, c.role, c.nickname,
+              c.urls, c.addresses, c.instant_messages AS "instantMessages", c.categories,
+              c.google_fields AS "googleFields",
+              c.photo_data, c.is_auto, c.send_count, c.last_sent,
               c.etag, c.vcard, c.created_at, c.updated_at,
               (ab.source = 'carddav') AS read_only
        FROM contacts c
@@ -212,7 +369,14 @@ router.get('/:id', async (req, res) => {
       [req.params.id, userId]
     );
     if (!result.rows.length) return res.status(404).json({ error: 'Contact not found' });
-    res.json(result.rows[0]);
+    const contact = result.rows[0];
+    if (contact.vcard) {
+      const parsed = parseVCard(contact.vcard);
+      for (const field of ['title', 'role', 'nickname', 'urls', 'addresses', 'instantMessages', 'categories']) {
+        if (contact[field] == null || (Array.isArray(contact[field]) && !contact[field].length)) contact[field] = parsed[field];
+      }
+    }
+    res.json(contact);
   } catch (err) {
     console.error('Contact get error:', err);
     res.status(500).json({ error: 'Failed to fetch contact' });
@@ -225,11 +389,24 @@ router.post('/', async (req, res) => {
   const {
     displayName, firstName, lastName,
     emails = [], phones = [],
-    organization, notes,
+    organization, notes, birthday, anniversary, contactDates,
+    title, role, nickname, urls = [], instantMessages = [], categories = [], addresses = [], addressBookId: requestedAddressBookId,
   } = req.body || {};
 
   if (!Array.isArray(emails)) return res.status(400).json({ error: 'emails must be an array' });
   if (!Array.isArray(phones)) return res.status(400).json({ error: 'phones must be an array' });
+  const rich = normalizeRichContactFields({ title, role, nickname, urls, instantMessages, categories, addresses });
+  if (!rich) return res.status(400).json({ error: 'Rich contact fields are malformed' });
+  const normalizedBirthday = normalizeContactDate(birthday); const normalizedAnniversary = normalizeContactDate(anniversary);
+  if (normalizedBirthday === undefined || normalizedAnniversary === undefined) return res.status(400).json({ error: 'Contact dates must use YYYY-MM-DD' });
+  const normalizedContactDates = normalizeContactDates(contactDates ?? []);
+  if (normalizedContactDates === undefined) return res.status(400).json({ error: 'contactDates must be an array of safe labelled YYYY-MM-DD or --MM-DD dates' });
+  const storedContactDates = contactDatesWithLegacy(
+    normalizedContactDates, normalizedBirthday, normalizedAnniversary, contactDates !== undefined
+  );
+  const authoritativeLegacyDates = contactDates === undefined ? null : legacyDatesFromContactDates(storedContactDates);
+  const storedBirthday = authoritativeLegacyDates?.birthday ?? (contactDates === undefined ? normalizedBirthday : null);
+  const storedAnniversary = authoritativeLegacyDates?.anniversary ?? (contactDates === undefined ? normalizedAnniversary : null);
 
   const primaryEmail = emails[0]?.value
     ? emails[0].value.toLowerCase().trim()
@@ -240,25 +417,32 @@ router.post('/', async (req, res) => {
   }
 
   try {
-    const addressBookId = await defaultAddressBook(userId);
+    const addressBookId = requestedAddressBookId || await defaultAddressBook(userId);
+    if (requestedAddressBookId) {
+      const local = await requireLocalAddressBook(userId, requestedAddressBookId);
+      if (local.error) return res.status(local.status).json({ error: local.error });
+    }
     const uid = crypto.randomUUID();
-    const vcard = generateVCard({ uid, displayName, firstName, lastName, emails, phones, organization, notes });
+    const vcard = generateVCard({ uid, displayName, firstName, lastName, emails, phones, organization, notes, birthday: storedBirthday, anniversary: storedAnniversary, contactDates: storedContactDates, ...rich });
     const etag = crypto.createHash('md5').update(vcard).digest('hex');
 
     const result = await query(`
       INSERT INTO contacts (
         address_book_id, user_id, uid, vcard, etag,
         display_name, first_name, last_name, primary_email,
-        emails, phones, organization, notes, is_auto
-      ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13, false)
+        emails, phones, organization, notes, birthday, anniversary, contact_dates,
+        title, role, nickname, urls, instant_messages, categories, addresses, is_auto
+      ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17::jsonb,$18,$19,$20,$21,$22,$23, false)
       RETURNING id, uid, display_name, first_name, last_name,
-                primary_email, emails, phones, organization, notes,
+                primary_email, emails, phones, organization, notes, birthday, anniversary, contact_dates AS "contactDates",
+                title, role, nickname, urls, addresses, instant_messages AS "instantMessages", categories,
                 is_auto, send_count, last_sent, etag, created_at, updated_at
     `, [
       addressBookId, userId, uid, vcard, etag,
       displayName || null, firstName || null, lastName || null, primaryEmail,
       JSON.stringify(emails), JSON.stringify(phones),
-      organization || null, notes || null,
+      organization || null, notes || null, storedBirthday, storedAnniversary, JSON.stringify(storedContactDates),
+      rich.title, rich.role, rich.nickname, JSON.stringify(rich.urls), JSON.stringify(rich.instantMessages), JSON.stringify(rich.categories), JSON.stringify(rich.addresses),
     ]);
 
     await bumpSyncToken(addressBookId);
@@ -275,11 +459,15 @@ router.patch('/:id', async (req, res) => {
   const userId = req.session.userId;
   const {
     displayName, firstName, lastName,
-    emails, phones, organization, notes,
+    emails, phones, organization, notes, birthday, anniversary, contactDates,
+    title, role, nickname, urls, instantMessages, categories, addresses,
   } = req.body || {};
 
   if (emails !== undefined && !Array.isArray(emails)) return res.status(400).json({ error: 'emails must be an array' });
   if (phones !== undefined && !Array.isArray(phones)) return res.status(400).json({ error: 'phones must be an array' });
+  const normalizedBirthday = normalizeContactDate(birthday); const normalizedAnniversary = normalizeContactDate(anniversary);
+  if (normalizedBirthday === undefined || normalizedAnniversary === undefined) return res.status(400).json({ error: 'Contact dates must use YYYY-MM-DD' });
+  if (contactDates !== undefined && normalizeContactDates(contactDates) === undefined) return res.status(400).json({ error: 'contactDates must be an array of safe labelled YYYY-MM-DD or --MM-DD dates' });
 
   try {
     // Load current contact (with its book source to block edits to synced contacts)
@@ -295,6 +483,21 @@ router.patch('/:id', async (req, res) => {
       return res.status(403).json({ error: 'This contact is synced from CardDAV and is read-only' });
     }
 
+    const hasRichFields = [title, role, nickname, urls, instantMessages, categories, addresses].some(value => value !== undefined);
+    const rich = hasRichFields ? normalizeRichContactFields({
+      title: chooseDefined(title, c.title),
+      role: chooseDefined(role, c.role),
+      nickname: chooseDefined(nickname, c.nickname),
+      urls: chooseDefined(urls, c.urls),
+      instantMessages: chooseDefined(instantMessages, c.instant_messages),
+      categories: chooseDefined(categories, c.categories),
+      addresses: chooseDefined(addresses, c.addresses),
+    }) : {
+      title: c.title, role: c.role, nickname: c.nickname,
+      urls: c.urls, instantMessages: c.instant_messages, categories: c.categories, addresses: c.addresses,
+    };
+    if (!rich) return res.status(400).json({ error: 'Rich contact fields are malformed' });
+
     const newEmails    = emails    !== undefined ? emails    : c.emails;
     const newPhones    = phones    !== undefined ? phones    : c.phones;
     const newDisplay   = displayName  !== undefined ? displayName  : c.display_name;
@@ -302,11 +505,21 @@ router.patch('/:id', async (req, res) => {
     const newLast      = lastName     !== undefined ? lastName     : c.last_name;
     const newOrg       = organization !== undefined ? organization : c.organization;
     const newNotes     = notes        !== undefined ? notes        : c.notes;
+    const newBirthday = birthday !== undefined ? normalizedBirthday : c.birthday;
+    const newAnniversary = anniversary !== undefined ? normalizedAnniversary : c.anniversary;
+    const normalizedContactDates = normalizeContactDates(contactDates === undefined ? (c.contact_dates || []) : contactDates);
+    if (normalizedContactDates === undefined) return res.status(400).json({ error: 'Stored contactDates contain unsafe labels' });
+    const newContactDates = contactDatesWithLegacy(
+      normalizedContactDates, newBirthday, newAnniversary, contactDates !== undefined
+    );
+    const authoritativeLegacyDates = contactDates === undefined ? null : legacyDatesFromContactDates(newContactDates);
+    const storedBirthday = authoritativeLegacyDates?.birthday ?? (contactDates === undefined ? newBirthday : null);
+    const storedAnniversary = authoritativeLegacyDates?.anniversary ?? (contactDates === undefined ? newAnniversary : null);
     const newPrimary   = emails === undefined
       ? c.primary_email
       : (newEmails[0]?.value ? newEmails[0].value.toLowerCase().trim() : null);
 
-    const vcard = generateVCard({
+    const contactVCard = {
       uid: c.uid,
       displayName: newDisplay,
       firstName: newFirst,
@@ -315,25 +528,33 @@ router.patch('/:id', async (req, res) => {
       phones: newPhones,
       organization: newOrg,
       notes: newNotes,
-    });
+      birthday: storedBirthday,
+      anniversary: storedAnniversary,
+      contactDates: newContactDates,
+      ...rich,
+    };
+    const vcard = c.vcard ? mergeVCard(c.vcard, contactVCard) : generateVCard(contactVCard);
     const etag = crypto.createHash('md5').update(vcard).digest('hex');
 
     const result = await query(`
       UPDATE contacts SET
         display_name = $1, first_name = $2, last_name = $3,
         primary_email = $4, emails = $5, phones = $6,
-        organization = $7, notes = $8,
-        vcard = $9, etag = $10, updated_at = NOW(),
+        organization = $7, notes = $8, birthday = $9, anniversary = $10, contact_dates = $11::jsonb,
+        title = $12, role = $13, nickname = $14, urls = $15, instant_messages = $16, categories = $17, addresses = $18,
+        vcard = $19, etag = $20, updated_at = NOW(),
         is_auto = false
-      WHERE id = $11 AND user_id = $12
+      WHERE id = $21 AND user_id = $22
       RETURNING id, uid, display_name, first_name, last_name,
-                primary_email, emails, phones, organization, notes,
+                primary_email, emails, phones, organization, notes, birthday, anniversary, contact_dates AS "contactDates",
+                title, role, nickname, urls, addresses, instant_messages AS "instantMessages", categories,
                 is_auto, send_count, last_sent, etag, created_at, updated_at
     `, [
       newDisplay || null, newFirst || null, newLast || null,
       newPrimary,
       JSON.stringify(newEmails), JSON.stringify(newPhones),
-      newOrg || null, newNotes || null,
+      newOrg || null, newNotes || null, storedBirthday, storedAnniversary, JSON.stringify(newContactDates),
+      rich.title, rich.role, rich.nickname, JSON.stringify(rich.urls), JSON.stringify(rich.instantMessages), JSON.stringify(rich.categories), JSON.stringify(rich.addresses),
       vcard, etag,
       req.params.id, userId,
     ]);

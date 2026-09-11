@@ -5,6 +5,7 @@ export function createUndoableCommit({
   delayMs = UNDO_WINDOW_MS,
   commit,
   undo,
+  allowUndoWhileCommitting = false,
   schedule = setTimeout,
   cancel = clearTimeout,
 }) {
@@ -21,7 +22,7 @@ export function createUndoableCommit({
 
   return {
     undo() {
-      if (state !== 'pending') return false;
+      if (state !== 'pending' && !(allowUndoWhileCommitting && state === 'committing')) return false;
       state = 'undone';
       cancel(timer);
       undo();

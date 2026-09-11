@@ -137,12 +137,13 @@ export const test = base.extend({
       const listEnabled = matrix[0] !== '0';
       const readerEnabled = matrix[1] !== '0';
       return route.fulfill({ json: {
-        language: 'pl',
+        language: page.__languageOverride || 'pl',
         theme: page.__themeOverride || 'light',
         threadedView: listEnabled,
         conversation_list_view_enabled: listEnabled,
         conversation_reader_view_enabled: readerEnabled,
         block_remote_images: true,
+        ...page.__preferencesOverride,
       } });
     });
     // Keep optional boot calls from reaching the real backend. A 401 from one of
@@ -153,9 +154,16 @@ export const test = base.extend({
     await page.route('**/api/todoist/status', route => route.fulfill({ json: { connected: false } }));
     await page.route('**/api/update', route => route.fulfill({ json: { current: '3.2.4', latest: '3.2.4', updateAvailable: false } }));
     await page.route('**/api/contacts**', route => route.fulfill({ json: { contacts: [], total: 0 } }));
+    await page.route('**/api/calendar/calendars', route => route.fulfill({ json: { calendars: [
+      { id: 'calendar-personal', name: 'Personal', color: '#6366f1', source: 'local', read_only: false },
+    ] } }));
+    await page.route('**/api/calendar/events**', route => route.fulfill({ json: { events: [] } }));
     await page.route('**/api/auth/registration-status', route => route.fulfill({ json: { open: true, internalAuthDisabled: false } }));
     await page.route('**/api/auth/oidc/providers', route => route.fulfill({ json: { providers: [] } }));
-    await page.route('**/api/mail/unread-counts', route => route.fulfill({ json: { total: 0, byAccount: {} } }));
+    await page.route('**/api/mail/unread-counts', route => {
+      const total = new Set(page.__unreadCopies || []).size;
+      return route.fulfill({ json: { total, byAccount: total ? { 'account-gmail': total } : {} } });
+    });
     page.__conversationActions = [];
     await page.route(url => /\/api\/mail\/conversations\/[^/]+\/(archive|move|delete|read|star)$/.test(url.pathname), async route => {
       const request = route.request();
@@ -174,7 +182,12 @@ export const test = base.extend({
       const id = parts.at(-1);
       if (parts.includes('logical-messages') || ['archive', 'move', 'delete', 'read', 'star'].includes(id)) return route.fallback();
       if (id && id !== 'conversations') return route.fulfill({ json: details(id, Boolean(page.__ceIncomplete), page.__ceMode || null, page.__unreadCopies || [], Number(page.__conversationSize || 0) || null) });
-      return route.fulfill({ json: { conversations: fixture.conversations, nextCursor: null, total: fixture.conversations.length } });
+      const unread = new Set(page.__unreadCopies || []);
+      const mixedReadState = Boolean(page.__mixedReadState);
+      const conversations = fixture.conversations.map(row => row.conversation_id === 'conversation-gmail'
+        ? (mixedReadState ? { ...row, is_read: !unread.has('conversation-gmail-copy-5'), unread_count: unread.has('conversation-gmail-copy-5') ? unread.size : 0 } : row)
+        : row);
+      return route.fulfill({ json: { conversations, nextCursor: null, total: conversations.length } });
     });
     await page.route('**/api/mail/messages/*', route => {
       const url = new URL(route.request().url());
@@ -205,6 +218,8 @@ export const test = base.extend({
       if (/\/api\/mail\/messages\/[^/]+$/.test(url.pathname)) return route.fulfill({ json: { id: 'legacy-message-1', subject: 'Legacy fixture', is_read: true, account_id: 'account-gmail', folder: 'INBOX', date: new Date().toISOString(), from_email: 'sender@example.test', body_text: 'Fixture body legacy' } });
       const conversationSize = Number(page.__conversationSize || 5);
       const unread = new Set(page.__unreadCopies || []);
+      const mixedReadState = Boolean(page.__mixedReadState);
+      const starred = new Set(page.__starredCopies || []);
       const messages = Array.from({ length: conversationSize }, (_, index) => {
         const number = index + 1;
         const outgoing = [2, 4].includes(number);
@@ -219,11 +234,19 @@ export const test = base.extend({
           from_email: 'sender@gmail.test', message_id: `<large-${index}@fixture.test>`,
           thread_id: `large-thread-${index}`, thread_key: `large-thread-${index}`, message_count: 2,
         }))
-        : threaded ? [{ ...messages.at(-1), thread_key: 'conversation-gmail', is_starred: true }] : messages;
+        : threaded ? [{ ...messages.at(-1), thread_key: 'conversation-gmail', is_starred: page.__initialThreadStarred ?? true, is_read: !unread.has('conversation-gmail-copy-5'), unread_count: unread.has('conversation-gmail-copy-5') ? unread.size : 0 }] : messages;
       return route.fulfill({ json: { messages: listMessages, total: listMessages.length, ...(threaded ? { threaded: true } : {}) } });
     });
-    await page.route('**/api/mail/thread/*', route => {
+    await page.route('**/api/mail/thread/*', async route => {
       const threadId = new URL(route.request().url()).pathname.split('/').at(-1);
+      page.__threadLoadStarts = page.__threadLoadStarts || [];
+      page.__threadLoadStarts.push({ threadId, url: route.request().url() });
+      const gate = page.__threadLoadGates?.shift() || page.__threadLoadGate;
+      if (gate) await gate.promise;
+      if (page.__nativeThreadLoadFailuresRemaining > 0) {
+        page.__nativeThreadLoadFailuresRemaining -= 1;
+        return route.fulfill({ status: 503, json: { detail: 'Native thread unavailable' } });
+      }
       if (page.__nativeThreadLoadFails) return route.fulfill({ status: 503, json: { detail: 'Native thread unavailable' } });
       if (page.__nativeThreadEmpty) return route.fulfill({ json: { messages: [] } });
       if (page.__nativeThreadMalformed) return route.fulfill({ json: { messages: {} } });
@@ -243,9 +266,50 @@ export const test = base.extend({
       }) } });
     });
     await page.route('**/api/mail/messages/bulk-read', async route => {
+      const body = route.request().postDataJSON();
       page.__bulkReadActions = page.__bulkReadActions || [];
-      page.__bulkReadActions.push(route.request().postDataJSON());
+      page.__bulkReadActions.push(body);
+      page.__bulkReadStarts = page.__bulkReadStarts || [];
+      page.__bulkReadStarts.push(body);
+      const configured = page.__bulkReadGates?.[String(body.read)];
+      const gate = Array.isArray(configured) ? configured.shift() : configured;
+      if (gate) await gate.promise;
+      if (page.__bulkReadFailure || (body.ids || []).some(id => page.__bulkReadFailureIds?.has(id))) {
+        return route.fulfill({ status: 503, json: { error: 'Fixture bulk read failed' } });
+      }
       return route.fulfill({ json: { ok: true } });
+    });
+    await page.route('**/api/mail/messages/*/star', async route => {
+      const url = new URL(route.request().url());
+      const id = url.pathname.split('/').at(-2);
+      page.__starActions = page.__starActions || [];
+      page.__starActions.push({ id, body: route.request().postDataJSON() });
+      page.__starStarts = page.__starStarts || [];
+      page.__starStarts.push({ id, body: route.request().postDataJSON() });
+      const configured = page.__starGates?.[String(route.request().postDataJSON()?.starred)];
+      const gate = Array.isArray(configured) ? configured.shift() : configured;
+      if (gate) await gate.promise;
+      if (page.__starFailureIds?.has(id)) {
+        return route.fulfill({ status: 503, json: { error: 'Fixture star failed' } });
+      }
+      return route.fulfill({ json: { ok: true } });
+    });
+    await page.route('**/api/mail/messages/bulk-*', async route => {
+      const url = new URL(route.request().url());
+      const action = url.pathname.split('/').at(-1).replace('bulk-', '');
+      const body = route.request().postDataJSON() || {};
+      if (action === 'read') return route.fallback();
+      page.__conversationActions.push({ action, url: route.request().url(), method: route.request().method(), body });
+      page.__conversationActionStarts = page.__conversationActionStarts || [];
+      page.__conversationActionStarts.push({ action, body });
+      const configured = page.__conversationActionGates?.[action];
+      const gate = Array.isArray(configured) ? configured.shift() : configured;
+      if (gate) await gate.promise;
+      if (page.__conversationActionFailures?.has(action)) {
+        return route.fulfill({ status: 503, json: { error: `Fixture ${action} failed` } });
+      }
+      const ids = body.ids || [];
+      return route.fulfill({ json: { ok: true, ...(action === 'delete' ? { deleted: ids } : {}), ...(action === 'move' ? { moved: ids } : {}) } });
     });
     await page.route('**/api/mail/messages/*/body**', async route => {
       const url = new URL(route.request().url());
