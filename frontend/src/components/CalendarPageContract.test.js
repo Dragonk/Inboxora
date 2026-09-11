@@ -53,3 +53,46 @@ test('every locale declares a single effective calendar dictionary', async () =>
     assert.equal(source.match(/^ {2}"calendar"\s*:/gm)?.length, 1, file);
   }
 });
+
+// Deleting part of a series is three different operations, not one, so it cannot be a yes/no
+// confirmation. Until this existed the interface could only ever remove a single occurrence:
+// there was no way to remove an entire series, and none to stop one from a date onward.
+test('deleting a recurring event asks which part of the series to remove', async () => {
+  const source = await readFile(calendarPath, 'utf8');
+  // A recurring event must open the chooser instead of confirming.
+  assert.match(source, /if \(event\.recurring && event\.recurrence_id\) \{ setDeleteTarget\(target\); return; \}/);
+  assert.match(source, /<CalendarDeleteScopeDialog/);
+  assert.match(source, /onSelect=\{scope => performDelete\(deleteTarget, scope\)\}/);
+  // The edit dialog deletes only what it opened, which for a series is one occurrence.
+  assert.match(source, /if \(form\.recurrenceId\) \{ setDeleteTarget\(target\); return; \}/);
+});
+
+test('each delete scope maps to the request that matches its meaning', async () => {
+  const source = await readFile(calendarPath, 'utf8');
+  // 'all' removes the event outright and therefore carries no recurrenceId, which is the path
+  // that also notifies invited attendees. 'following' ends the series at this occurrence.
+  assert.match(source, /scope === 'all' \? undefined : target\.recurrenceId/);
+  assert.match(source, /scope === 'following' \? 'following' : undefined/);
+});
+
+test('the scope chooser offers exactly the three meanings and nothing else', async () => {
+  const dialog = await readFile(new URL('./CalendarDeleteScopeDialog.jsx', import.meta.url), 'utf8');
+  assert.match(dialog, /data-testid="calendar-delete-scope-single"/);
+  assert.match(dialog, /data-testid="calendar-delete-scope-following"/);
+  assert.match(dialog, /data-testid="calendar-delete-scope-all"/);
+  assert.match(dialog, /onSelect\('single'\)/);
+  assert.match(dialog, /onSelect\('following'\)/);
+  assert.match(dialog, /onSelect\('all'\)/);
+});
+
+test('every locale explains the three delete scopes', async () => {
+  const locales = (await readdir(localesPath)).filter(name => name.endsWith('.json'));
+  assert.equal(locales.length, 9);
+  for (const name of locales) {
+    const strings = JSON.parse(await readFile(new URL(name, localesPath), 'utf8'));
+    for (const key of ['deleteRecurringTitle', 'deleteRecurringBody', 'deleteScopeSingle', 'deleteScopeFollowing', 'deleteScopeAll']) {
+      assert.equal(typeof strings.calendar[key], 'string', `${name} is missing calendar.${key}`);
+      assert.ok(strings.calendar[key].length > 0, `${name} has an empty calendar.${key}`);
+    }
+  }
+});

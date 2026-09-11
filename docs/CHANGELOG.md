@@ -107,6 +107,25 @@ limitations — read the matching page in the Wiki, for example
 - The contact-calendar and appearance reads now run concurrently instead of one after the other,
   on a path that is active by default.
 
+### Added
+
+- **Deleting an event that belongs to a series now asks which part of it you mean**, because the
+  three answers produce three genuinely different calendars: only that occurrence, that occurrence
+  and every following one, or the entire series. Before this the interface could only ever remove a
+  single occurrence — there was no way to delete a whole series at all, and none to stop one from a
+  given date onward.
+- "This and every following occurrence" is written by **ending the series' rule** (`UNTIL` set just
+  before the chosen occurrence, with any later exceptions dropped). Cancelling from a series' first
+  occurrence removes the event rather than leaving a series that produces nothing. Truncating the
+  rule is what other calendars write for this operation, so the result stays portable between
+  clients.
+  - The obvious alternative was measured and rejected: an exception carrying
+    `RECURRENCE-ID;RANGE=THISANDFUTURE` with `STATUS:CANCELLED` **left the series completely
+    unchanged**. `RANGE=THISANDFUTURE` in this library exists to *reschedule* the remainder of a
+    series — moving one occurrence to 14:00 moved every later one, which is correct — but a
+    cancelled range exception is not a deletion. An earlier revision of this changelog claimed the
+    library honoured that semantics; that claim was wrong.
+
 ### Known limitations
 
 - **Browsing outside the materialised range falls back to expanding on the fly.** Occurrences are
@@ -115,10 +134,10 @@ limitations — read the matching page in the Wiki, for example
   series start, which is slower for series that began years ago. The range is configurable with
   `CALENDAR_OCCURRENCE_HORIZON_*`; widening it costs database rows (a daily series is ~365 rows per
   year of range), so it is a deliberate trade rather than a fixed constant.
-- **Cancelling a recurring event is all-or-nothing or single-occurrence.** There is no "cancel this
-  and every following occurrence" (`RECURRENCE-ID;RANGE=THISANDFUTURE`) yet, although the
-  underlying library and the projection already honour that semantics when it arrives from an
-  external calendar.
+- **Cancelling part of an invited series does not notify attendees.** Removing a single occurrence
+  or ending a series from a date changes only the local copy; the iTIP `CANCEL` message is sent for
+  a whole-event delete only. Attendees keep the occurrence until the organiser's calendar says
+  otherwise.
 
 ## [4.0.0]
 

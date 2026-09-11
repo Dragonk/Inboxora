@@ -23,6 +23,7 @@ vi.mock('../middleware/auth.js', () => ({
 }));
 
 import express from 'express';
+import { projectCalendarResource } from '../utils/calendarRecurrence.js';
 import calendarRouter from './calendar.js';
 
 let server;
@@ -434,6 +435,72 @@ describe('local calendar API', () => {
     expect(events).toHaveLength(2);
     expect(events[0].summary).toBe('Built');
     expect(events[1].id).toBe('fallback-1');
+  });
+
+  // "Cancel this and every following occurrence". The series has to be ended by truncating
+  // its rule: a `RECURRENCE-ID;RANGE=THISANDFUTURE` exception with STATUS:CANCELLED was
+  // measured and leaves the series completely unchanged.
+  describe('cancelling a series from an occurrence onward', () => {
+    const daily = () => ['BEGIN:VCALENDAR', 'VERSION:2.0', 'BEGIN:VEVENT', 'UID:uid-1',
+      'DTSTART;TZID=Europe/Warsaw:20260105T090000', 'DTEND;TZID=Europe/Warsaw:20260105T100000',
+      'RRULE:FREQ=DAILY;COUNT=10', 'SUMMARY:Daily', 'END:VEVENT', 'END:VCALENDAR'].join('\r\n');
+    const startsOf = raw => projectCalendarResource({ id: 'event-1', uid: 'uid-1', raw_ical: raw, summary: 'Daily' }, new Date('2026-01-01'), new Date('2026-03-01'))
+      .map(event => event.starts_at.toISOString().slice(5, 16));
+    const cancel = body => fetch(`${base}/api/calendar/events/event-1/occurrence`, {
+      method: 'DELETE', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body),
+    });
+
+    it('ends the series just before the named occurrence', async () => {
+      query.mockResolvedValueOnce({ rows: [{ id: 'calendar-1', source: 'local', read_only: false }] })
+        .mockResolvedValueOnce({ rows: [{ uid: 'uid-1', raw_ical: daily(), invite_account_id: null }] })
+        .mockResolvedValueOnce({ rows: [] });
+
+      const response = await cancel({ calendarId: 'calendar-1', recurrenceId: '2026-01-09T09:00:00', scope: 'following' });
+      expect(response.status).toBe(200);
+      expect((await response.json()).scope).toBe('following');
+
+      const update = query.mock.calls.find(([sql]) => typeof sql === 'string' && sql.includes('UPDATE calendar_events SET raw_ical'));
+      expect(update).toBeTruthy();
+      // The stored resource itself must only produce the occurrences before the cut.
+      expect(startsOf(update[1][0])).toEqual(['01-05T08:00', '01-06T08:00', '01-07T08:00', '01-08T08:00']);
+    });
+
+    it('removes the event when the cut leaves no occurrences at all', async () => {
+      query.mockResolvedValueOnce({ rows: [{ id: 'calendar-1', source: 'local', read_only: false }] })
+        .mockResolvedValueOnce({ rows: [{ uid: 'uid-1', raw_ical: daily(), invite_account_id: null }] })
+        .mockResolvedValueOnce({ rows: [] });
+
+      const response = await cancel({ calendarId: 'calendar-1', recurrenceId: '2026-01-05T09:00:00', scope: 'following' });
+      expect(response.status).toBe(200);
+      // A series that produces nothing must not be left behind as an empty shell.
+      const deletion = query.mock.calls.find(([sql]) => typeof sql === 'string' && sql.includes('DELETE FROM calendar_events'));
+      expect(deletion).toBeTruthy();
+      expect(query.mock.calls.some(([sql]) => typeof sql === 'string' && sql.includes('UPDATE calendar_events SET raw_ical'))).toBe(false);
+    });
+
+    it('still cancels a single occurrence by default', async () => {
+      query.mockResolvedValueOnce({ rows: [{ id: 'calendar-1', source: 'local', read_only: false }] })
+        .mockResolvedValueOnce({ rows: [{ uid: 'uid-1', raw_ical: daily(), invite_account_id: null }] })
+        .mockResolvedValueOnce({ rows: [] });
+
+      const response = await cancel({ calendarId: 'calendar-1', recurrenceId: '2026-01-09T09:00:00' });
+      expect(response.status).toBe(200);
+      expect((await response.json()).scope).toBe('single');
+
+      const update = query.mock.calls.find(([sql]) => typeof sql === 'string' && sql.includes('UPDATE calendar_events SET raw_ical'));
+      // One occurrence is excluded; the rest of the series is untouched.
+      expect(startsOf(update[1][0])).toHaveLength(9);
+      expect(startsOf(update[1][0])).not.toContain('01-09T08:00');
+      expect(startsOf(update[1][0])).toContain('01-14T08:00');
+    });
+
+    it('refuses a following-scope edit, which has no defined meaning', async () => {
+      const response = await fetch(`${base}/api/calendar/events/event-1/occurrence`, {
+        method: 'PATCH', headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ calendarId: 'calendar-1', recurrenceId: '2026-01-09T09:00:00', scope: 'following', startsAt: '2026-01-09T09:00:00.000Z', endsAt: '2026-01-09T10:00:00.000Z' }),
+      });
+      expect(response.status).toBe(400);
+    });
   });
 
   it('requires a sender account and attendee list before sending invitations', async () => {

@@ -64,6 +64,13 @@ edited and deleted, and are published to DAV clients through CalDAV.
 - **Editing a recurring event changes only the occurrence you opened**; the series, its rule and
   the other occurrences are preserved. Creating new recurrence rules from scratch is not
   currently offered in the interface.
+- **Deleting one of these events asks what you mean**, because there are three different answers:
+  *only this occurrence*, *this and every following occurrence*, or *the whole series*. Ending a
+  series this way shortens its rule, so the result is understood by other calendar apps too.
+  Cancelling from the series' first occurrence removes the event entirely rather than leaving a
+  series with nothing in it. One caveat: for a meeting you organised, cancelling only part of the
+  series changes your copy without emailing the attendees — only deleting the whole event sends a
+  cancellation.
 - All-day events use dates without times, and multi-day events span every day from their start
   up to, but not including, their end date.
 

@@ -162,6 +162,60 @@ export function projectCalendarResourceWithStatus(row, from, to, options = {}) {
   return status;
 }
 
+// End a recurring series just before the given occurrence, which is what "cancel this and every
+// following occurrence" means.
+//
+// The obvious implementation — an exception with `RECURRENCE-ID;RANGE=THISANDFUTURE` and
+// `STATUS:CANCELLED` — was measured and does nothing here: ical.js applies a range exception in
+// order to *reschedule* the tail (a THISANDFUTURE exception that moves one occurrence to 14:00
+// moved every later one, which is correct), but a cancelled range exception left the series
+// completely unchanged. Truncating the rule with UNTIL is also what other calendars write for
+// this operation, so the result stays portable instead of depending on one reader's extension.
+//
+// Returns `{ raw, empty }` — `empty` means the cut removed every occurrence (the caller asked
+// to cancel from the series' own first instance), in which case the event should be deleted
+// rather than left behind as a series that produces nothing. Null when there is nothing to
+// truncate: not a series, or the resource no longer parses.
+export function truncateSeriesBefore(raw, recurrenceId) {
+  if (!raw) return null;
+  let root;
+  try { root = new ICAL.Component(ICAL.parse(raw)); } catch { return null; }
+  const master = root.getAllSubcomponents('vevent').find(event => !event.hasProperty('recurrence-id'));
+  if (!master) return null;
+  const rule = master.getFirstPropertyValue('rrule');
+  if (!rule) return null;
+
+  const dtstartProperty = master.getFirstProperty('dtstart');
+  const id = ICAL.Time.fromString(recurrenceId);
+  const zoneFor = calendarZoneResolver(raw, root);
+  // The recurrence id is a bare local time, so it only becomes an instant through the series'
+  // own time zone — the same resolution the projection uses.
+  const startDate = dateOf(id, dtstartProperty, zoneFor);
+  if (!startDate) return null;
+
+  // Cutting at the series' first occurrence leaves no occurrences at all.
+  const seriesStart = dateOf(master.getFirstPropertyValue('dtstart'), dtstartProperty, zoneFor);
+  const empty = Boolean(seriesStart) && seriesStart.getTime() >= startDate.getTime();
+
+  const until = id.isDate
+    // A date-valued series needs a date-valued UNTIL, or ical.js compares a DATE against a
+    // DATE-TIME and the boundary occurrence survives. ICAL.Time.fromString wants the dashed
+    // form for a DATE, not the compact one.
+    ? ICAL.Time.fromString(new Date(startDate.getTime() - 1000).toISOString().slice(0, 10))
+    : ICAL.Time.fromJSDate(new Date(startDate.getTime() - 1000), true);
+  rule.until = until;
+  master.updatePropertyWithValue('rrule', rule);
+
+  // Exceptions at or after the cut describe occurrences the series no longer produces.
+  const cutoff = startDate.getTime();
+  for (const event of root.getAllSubcomponents('vevent')) {
+    if (!event.hasProperty('recurrence-id')) continue;
+    const exceptionDate = dateOf(event.getFirstPropertyValue('recurrence-id'), dtstartProperty, zoneFor);
+    if (exceptionDate && exceptionDate.getTime() >= cutoff) root.removeSubcomponent(event);
+  }
+  return { raw: root.toString(), empty };
+}
+
 // Replace editor-owned properties while retaining recurrence, alarms, extension
 // fields, and other instances in the DAV resource.
 export function mergeCalendarResource(raw, replacementRaw, recurrenceId = null, cancel = false) {

@@ -1,4 +1,4 @@
-import { mergeCalendarResource } from '../utils/calendarRecurrence.js';
+import { mergeCalendarResource, truncateSeriesBefore } from '../utils/calendarRecurrence.js';
 import ICAL from 'ical.js';
 import { parseInboundCalendarInvitation } from '../services/inboundCalendarInvitation.js';
 import { parseCalendarEvent } from '../utils/ical.js';
@@ -660,6 +660,10 @@ router.all('/events/:eventId/occurrence', async (req, res) => {
   if (!['PATCH', 'DELETE'].includes(req.method)) return res.status(405).end();
   const { calendarId, recurrenceId } = req.body || {};
   if (!calendarId || typeof recurrenceId !== 'string' || !/^\d{4}-\d{2}-\d{2}(T\d{2}:\d{2}:\d{2}Z?)?$/.test(recurrenceId)) return res.status(400).json({ error: 'A valid occurrence and calendar are required' });
+  // 'single' changes only the occurrence named; 'following' ends the series just before it.
+  // Deleting the whole series is the plain event DELETE, which already handles invitations.
+  const scope = req.body?.scope === 'following' ? 'following' : 'single';
+  if (scope !== 'single' && req.method !== 'DELETE') return res.status(400).json({ error: 'Only a cancellation can affect following occurrences' });
   const access = await writableCalendar(req.session.userId, calendarId);
   if (access.error) return res.status(access.status).json({ error: access.error });
   const cancel = req.method === 'DELETE';
@@ -669,6 +673,18 @@ router.all('/events/:eventId/occurrence', async (req, res) => {
   const outcome = await withTransaction(async client => {
     const row = (await client.query('SELECT uid, raw_ical, invite_account_id FROM calendar_events WHERE id = $1 AND calendar_id = $2 AND user_id = $3 FOR UPDATE', [req.params.eventId, calendarId, req.session.userId])).rows[0];
     if (!row) return { status: 404 };
+    if (scope === 'following') {
+      const truncated = truncateSeriesBefore(row.raw_ical, recurrenceId);
+      if (!truncated) return { status: 409 };
+      if (truncated.empty) {
+        // Cancelling from the series' own first occurrence leaves nothing, so remove the event
+        // rather than keep a series that produces no occurrences.
+        await client.query('DELETE FROM calendar_events WHERE id = $1 AND calendar_id = $2 AND user_id = $3', [req.params.eventId, calendarId, req.session.userId]);
+        return { status: 200 };
+      }
+      await client.query('UPDATE calendar_events SET raw_ical = $1, etag = gen_random_uuid()::text, updated_at = NOW() WHERE id = $2 AND calendar_id = $3 AND user_id = $4', [truncated.raw, req.params.eventId, calendarId, req.session.userId]);
+      return { status: 200 };
+    }
     const event = parseCalendarEvent(row.raw_ical);
     if (!event) return { status: 409 };
     const replacement = localEventIcal(cancel ? { ...event, allDay: event.allDay } : { ...req.body, description: normalizeDescription(req.body?.description), attendees, ...times, uid: row.uid });
@@ -677,7 +693,7 @@ router.all('/events/:eventId/occurrence', async (req, res) => {
     return { status: 200 };
   });
   if (outcome.status !== 200) return res.status(outcome.status).json({ error: 'Calendar occurrence unavailable' });
-  res.json({ updated: true });
+  res.json({ updated: true, scope });
 });
 
 router.patch('/events/:eventId', async (req, res) => {

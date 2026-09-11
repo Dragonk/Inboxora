@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { calendarResources, mergeCalendarResource, projectCalendarResource } from './calendarRecurrence.js';
+import { calendarResources, mergeCalendarResource, projectCalendarResource, truncateSeriesBefore } from './calendarRecurrence.js';
 import { parseCalendarEvent } from './ical.js';
 const resource = (extra = '', exception = '') => ['BEGIN:VCALENDAR', 'VERSION:2.0', 'BEGIN:VEVENT', 'UID:series', 'DTSTART;TZID=Europe/Warsaw:20260322T090000', 'DTEND;TZID=Europe/Warsaw:20260322T100000', 'RRULE:FREQ=WEEKLY;COUNT=4', 'SUMMARY:Weekly', 'DESCRIPTION:Full agenda', extra, 'END:VEVENT', exception, 'END:VCALENDAR'].filter(Boolean).join('\r\n');
 const row = raw => ({ id: 'row', calendar_id: 'cal', raw_ical: raw });
@@ -47,4 +47,53 @@ it('stores a plain-text description verbatim and sanitizes raw markup in DESCRIP
  expect(parseCalendarEvent(resource()).description).toBe('Full agenda');
  const raw = resource().replace('DESCRIPTION:Full agenda', 'DESCRIPTION:<p>Line one</p><p>Line&nbsp;two</p><script>bad()</script>');
  expect(parseCalendarEvent(raw).description).toBe('<p>Line one</p><p>Line\u00a0two</p>');
+});
+
+// "Cancel this and every following occurrence".
+//
+// The natural-looking implementation is an exception carrying
+// `RECURRENCE-ID;RANGE=THISANDFUTURE` with `STATUS:CANCELLED`, and it does *nothing* here:
+// a cancelled range exception left the series unchanged when measured, while a range
+// exception does reschedule the tail. Truncating the rule with UNTIL is what actually ends
+// the series, and it is what other calendars write, so the result stays portable.
+describe('cancelling a series from an occurrence onward', () => {
+  const seriesWith = (extra = []) => ['BEGIN:VCALENDAR', 'VERSION:2.0', 'BEGIN:VEVENT', 'UID:s',
+    'DTSTART;TZID=Europe/Warsaw:20260105T090000', 'DTEND;TZID=Europe/Warsaw:20260105T100000',
+    'RRULE:FREQ=DAILY;COUNT=10', 'SUMMARY:Daily', 'END:VEVENT', ...extra, 'END:VCALENDAR'].join('\r\n');
+  const starts = raw => projectCalendarResource(row(raw), new Date('2026-01-01'), new Date('2026-03-01'))
+    .map(event => event.starts_at.toISOString().slice(5, 16));
+
+  it('ends the series just before the named occurrence', () => {
+    const result = truncateSeriesBefore(seriesWith(), '2026-01-09T09:00:00');
+    expect(starts(result.raw)).toEqual(['01-05T08:00', '01-06T08:00', '01-07T08:00', '01-08T08:00']);
+    expect(result.empty).toBe(false);
+  });
+
+  it('reports that cutting at the first occurrence leaves nothing', () => {
+    const result = truncateSeriesBefore(seriesWith(), '2026-01-05T09:00:00');
+    expect(starts(result.raw)).toEqual([]);
+    expect(result.empty).toBe(true);
+  });
+
+  it('keeps an earlier moved instance and drops the ones past the cut', () => {
+    const earlier = ['BEGIN:VEVENT', 'UID:s', 'RECURRENCE-ID;TZID=Europe/Warsaw:20260106T090000',
+      'DTSTART;TZID=Europe/Warsaw:20260106T150000', 'DTEND;TZID=Europe/Warsaw:20260106T160000', 'SUMMARY:Early', 'END:VEVENT'];
+    const later = ['BEGIN:VEVENT', 'UID:s', 'RECURRENCE-ID;TZID=Europe/Warsaw:20260112T090000',
+      'DTSTART;TZID=Europe/Warsaw:20260112T150000', 'DTEND;TZID=Europe/Warsaw:20260112T160000', 'SUMMARY:Later', 'END:VEVENT'];
+    const result = truncateSeriesBefore(seriesWith([...earlier, ...later]), '2026-01-09T09:00:00');
+    // The moved instance before the cut survives at its moved time; the one after is gone.
+    expect(starts(result.raw)).toEqual(['01-05T08:00', '01-06T14:00', '01-07T08:00', '01-08T08:00']);
+  });
+
+  it('handles a date-valued series without leaving the boundary occurrence behind', () => {
+    const raw = seriesWith().replace('DTSTART;TZID=Europe/Warsaw:20260105T090000', 'DTSTART;VALUE=DATE:20260105')
+      .replace('DTEND;TZID=Europe/Warsaw:20260105T100000', 'DTEND;VALUE=DATE:20260106');
+    const result = truncateSeriesBefore(raw, '2026-01-09');
+    expect(projectCalendarResource(row(result.raw), new Date('2026-01-01'), new Date('2026-03-01')).map(event => event.starts_at.toISOString().slice(5, 10)))
+      .toEqual(['01-05', '01-06', '01-07', '01-08']);
+  });
+
+  it('reports nothing to truncate for an event that does not recur', () => {
+    expect(truncateSeriesBefore(seriesWith().replace('RRULE:FREQ=DAILY;COUNT=10\r\n', ''), '2026-01-09T09:00:00')).toBeNull();
+  });
 });

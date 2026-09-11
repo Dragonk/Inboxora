@@ -11,6 +11,7 @@ import { useStore } from '../store/index.js';
 import { useMobile } from '../hooks/useMobile.js';
 import { calendarVisibleRange, centeredScrollLeft, createDayEventsResolver, eventPayload, layoutTimedEvents, monthRange, shiftCalendarAnchor, toDateTimeLocal, toggleAllDayTimes, weekFocusIndex, weekRange, workHoursGeometry } from './calendarView.js';
 import CalendarSidebar from './CalendarSidebar.jsx';
+import CalendarDeleteScopeDialog from './CalendarDeleteScopeDialog.jsx';
 import { createInvitationOperationController } from './calendarInvitationRetry.js';
 import CalendarContextMenu from './CalendarContextMenu.jsx';
 import CalendarAgenda from './CalendarAgenda.jsx';
@@ -206,9 +207,45 @@ export default function CalendarPage({ isActive = true }) {
       setError(message);
     } finally { setSaving(false); }
   };
-  const remove = async () => { if (!form?.id || !window.confirm(t('calendar.confirmDelete'))) return; setSaving(true); try { await api.calendar.deleteEvent(form.id, form.calendarId, form.recurrenceId); invitationOperation.current.reset(); setForm(null); await load(); } catch (err) { setError(err.message || t('calendar.deleteFailed')); } finally { setSaving(false); } };
+  // `scope` decides the request shape: 'single' and 'following' address one occurrence, 'all'
+  // removes the event outright — the path that also notifies invited attendees.
+  const performDelete = async (target, scope) => {
+    try {
+      await api.calendar.deleteEvent(
+        target.id,
+        target.calendarId,
+        scope === 'all' ? undefined : target.recurrenceId,
+        scope === 'following' ? 'following' : undefined,
+      );
+      invitationOperation.current.reset();
+      setDeleteTarget(null);
+      setForm(null);
+      await load();
+    } catch (err) {
+      setError(err.message || t('calendar.deleteFailed'));
+      setDeleteTarget(null);
+    }
+  };
+  const remove = async () => {
+    if (!form?.id) return;
+    const target = { id: form.id, calendarId: form.calendarId, recurrenceId: form.recurrenceId };
+    // An event opened from a series is one occurrence, so which of the three things to remove is
+    // the user's choice rather than something to assume.
+    if (form.recurrenceId) { setDeleteTarget(target); return; }
+    if (!window.confirm(t('calendar.confirmDelete'))) return;
+    setSaving(true);
+    try { await performDelete(target, 'all'); } finally { setSaving(false); }
+  };
   const changeForm = (key, value) => { invitationOperation.current.reset(); setForm(current => ({ ...current, [key]: value, invitationError: null })); };
-  const deleteEvent = async event => { if (!window.confirm(t('calendar.confirmDelete'))) return; try { await api.calendar.deleteEvent(event.series_id || event.id, event.calendar_id, event.recurring ? event.recurrence_id : undefined); invitationOperation.current.reset(); await load(); } catch (err) { setError(err.message || t('calendar.deleteFailed')); } };
+  const deleteEvent = async event => {
+    const target = { id: event.series_id || event.id, calendarId: event.calendar_id, recurrenceId: event.recurrence_id };
+    // A series can be removed from here on, entirely, or just at this occurrence. Asking is the
+    // only honest option: the three answers produce three different calendars.
+    if (event.recurring && event.recurrence_id) { setDeleteTarget(target); return; }
+    if (!window.confirm(t('calendar.confirmDelete'))) return;
+    await performDelete(target, 'all');
+  };
+  const [deleteTarget, setDeleteTarget] = useState(null);
   const [contextMenu, setContextMenu] = useState(null);
   const days = view === 'month' ? calendarDays(anchor, calendarWeekStartsOn) : weekDays(anchor, view === 'workweek', calendarWeekStartsOn, calendarWorkDays);
   const visibleEvents = visibleCalendarIds == null ? events : events.filter(event => visibleCalendarIds.includes(event.calendar_id));
@@ -320,6 +357,7 @@ export default function CalendarPage({ isActive = true }) {
       </div>
     </Dialog>}
     {contextMenu && <CalendarContextMenu {...contextMenu} isMobile={isMobile} onEdit={() => openEdit(contextMenu.event)} onDelete={() => deleteEvent(contextMenu.event)} onClose={() => setContextMenu(null)} t={t} />}
+    {deleteTarget && <CalendarDeleteScopeDialog event={deleteTarget} busy={saving} onSelect={scope => performDelete(deleteTarget, scope)} onClose={() => setDeleteTarget(null)} t={t} />}
   </div>;
 }
 
