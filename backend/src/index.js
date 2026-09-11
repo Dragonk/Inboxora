@@ -35,6 +35,7 @@ import carddavRouter from './routes/carddav.js';
 import caldavRouter from './routes/caldav.js';
 import carddavAccountRouter from './routes/carddavAccount.js';
 import davCredentialsRouter from './routes/davCredentials.js';
+import pushRoutes from './routes/push.js';
 import calendarRouter from './routes/calendar.js';
 import calendarFeedRouter from './routes/calendarFeed.js';
 import { startCardavScheduler } from './services/carddavSync.js';
@@ -216,6 +217,10 @@ app.use('/api/contacts', contactsRoutes);
 app.use('/api/todoist', todoistRoutes);
 app.use('/api/carddav', carddavAccountRouter);
 app.use('/api/dav-credentials', davCredentialsRouter);
+// Native (Android) push device registry + the device-token-authenticated
+// background notification API. Absent configuration the routes still answer;
+// only the optional FCM/UnifiedPush legs go quiet.
+app.use('/api/push', pushRoutes);
 app.use('/api/calendar', calendarRouter);
 app.use('/api', aiRoutes);
 app.use('/api', categoriesRoutes);

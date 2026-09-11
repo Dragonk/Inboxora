@@ -42,3 +42,6 @@ artifacts/
 
 # Lokalny zapis digestow do rollbacku (nie commitowac)
 .rollback/
+
+# Local Android/JDK toolchain used for on-device build verification — never committed
+.toolchain/

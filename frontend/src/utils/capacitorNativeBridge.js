@@ -80,6 +80,12 @@ export async function installCapacitorNativeBridge() {
         },
         openSettings: async () => callNative('openNotificationSettings'),
         showNewMail: async (notification) => callNative('showNewMail', notification || {}),
+        // Native push (Android) lifecycle. The native layer owns the provider
+        // endpoint/token and the server registration; JS only triggers it and
+        // reads a non-secret status for the settings screen.
+        getStatus: async () => callNative('getPushStatus', undefined, { status: 'unavailable' }),
+        register: async () => callNative('registerPush', undefined, { status: 'unavailable' }),
+        clear: async () => callNative('clearPush', undefined, { status: 'unavailable' }),
       },
       actions: {
         ...existingBridge.actions,

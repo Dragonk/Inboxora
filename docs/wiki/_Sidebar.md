@@ -3,6 +3,7 @@
 - [Getting started](Getting-started.md)
 - **Email**
   - [Email and threading](Email-and-threading.md)
+  - [Notifications and background delivery](Notifications.md)
   - [Configuration](Configuration.md)
 - **Workspace**
   - [Calendar](Calendar.md)

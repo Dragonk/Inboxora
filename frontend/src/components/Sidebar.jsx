@@ -5,6 +5,7 @@ import { useState, useEffect, useRef, useCallback } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useStore } from '../store/index.js';
 import { api } from '../utils/api.js';
+import { clearNativePush } from '../utils/nativePush.js';
 import {
   activateOnKey,
   buildFolderTree,
@@ -474,6 +475,9 @@ export default function Sidebar({ onEditProfile = null }) {
   }, []);
 
   const handleLogout = async () => {
+    // Remove this device's native push registration (server + local secrets) while
+    // the session is still valid, so no notification survives the sign-out.
+    await clearNativePush();
     // The logout response may carry an OIDC end-session URL when the account signed in
     // through a provider with RP-initiated logout enabled; navigating there also clears
     // the upstream SSO session. Falls back to /login otherwise. (#310)

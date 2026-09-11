@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useStore } from '../store/index.js';
 import { api } from '../utils/api.js';
+import { clearNativePush } from '../utils/nativePush.js';
 
 export default function LockScreen() {
   const { t } = useTranslation();
@@ -14,6 +15,7 @@ export default function LockScreen() {
   async function handleSignOut() {
     setSigningOut(true);
     try {
+      await clearNativePush();
       await api.logout();
     } catch { /* intentional */ }
     localStorage.removeItem('mailflow_locked_message');

@@ -6,6 +6,7 @@ import { installCapacitorNativeBridge } from '../utils/capacitorNativeBridge.js'
 import { playNotificationSound } from '../utils/notificationSounds.js';
 import { refreshUnreadCounts } from '../utils/unreadRefresh.js';
 import { restorePushSubscription } from '../utils/pushSubscription.js';
+import { ensureNativePushRegistered } from '../utils/nativePush.js';
 import { dispatchPluginWsMessage, dispatchPluginReconnect } from '../plugins/events.js';
 import { accountAffectsUnifiedInbox } from '../utils/unifiedInbox.js';
 import { recordDiagEvent } from '../utils/diagEvents.js';
@@ -376,6 +377,10 @@ export function useWebSocket() {
     navigator.serviceWorker?.addEventListener('message', pushed);
     window.addEventListener('inboxora:unread_changed', countsChanged);
     restorePushSubscription();
+    // Android: make sure the native push registration exists for the signed-in
+    // user. Runs once per mount; the native side reconciles it on the WorkManager
+    // cadence afterwards.
+    ensureNativePushRegistered();
     document.addEventListener('visibilitychange', revive);
     window.addEventListener('online', revive);
     return () => {

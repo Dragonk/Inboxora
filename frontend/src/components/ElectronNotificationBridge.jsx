@@ -315,9 +315,13 @@ export default function ElectronNotificationBridge() {
     };
 
     const drainInjectedActions = () => {
-      const actions = Array.isArray(window.__mailflowPendingNativeActions)
-        ? window.__mailflowPendingNativeActions.splice(0)
-        : [];
+      // The Android shell injects into __inboxoraPendingNativeActions; the
+      // Electron shell has historically used __mailflowPendingNativeActions.
+      // Read (and clear) whichever is present so a notification action is never
+      // dropped on a cold start.
+      const queue = [window.__inboxoraPendingNativeActions, window.__mailflowPendingNativeActions]
+        .find(candidate => Array.isArray(candidate));
+      const actions = queue ? queue.splice(0) : [];
       actions.forEach(runNativeAction);
     };
 

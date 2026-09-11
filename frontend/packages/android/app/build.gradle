@@ -75,6 +75,14 @@ dependencies {
     implementation "androidx.core:core-splashscreen:$coreSplashScreenVersion"
     implementation "androidx.webkit:webkit:$androidxWebkitVersion"
     implementation "androidx.work:work-runtime:$androidxWorkVersion"
+    // Native push transports, both optional at runtime:
+    //  - UnifiedPush (self-hosted-first): needs the user to have a distributor
+    //    app; no central service and no server-side credentials.
+    //  - FCM: only active when this build ships its own google-services.json,
+    //    so the sender credentials stay with whoever built the APK.
+    implementation platform('com.google.firebase:firebase-bom:34.19.0')
+    implementation 'com.google.firebase:firebase-messaging'
+    implementation 'org.unifiedpush.android:connector:3.3.5'
     implementation project(':capacitor-android')
     testImplementation "junit:junit:$junitVersion"
     androidTestImplementation "androidx.test.ext:junit:$androidxJunitVersion"

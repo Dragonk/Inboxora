@@ -13,6 +13,7 @@ import { PluginSlot } from '../plugins/PluginSlot.jsx';
 import { newAiAction, AI_ACTION_LIMITS } from '../aiActions.js';
 import { useMobile } from '../hooks/useMobile.js';
 import { api } from '../utils/api.js';
+import { getNativePushStatus, registerNativePush } from '../utils/nativePush.js';
 import {
   AI_ACCOUNT_PROVIDER_OPTIONS,
   AI_CONNECTION_METHOD_ACCOUNT,
@@ -5273,6 +5274,90 @@ function UsersAndInvitesPanel() {
   );
 }
 
+// ─── Native (Android) Push Status (inside NotificationsTab) ──────────────────
+// Web Push above covers the PWA. This row reports the native transport that
+// delivers new-mail notifications while the app is backgrounded or killed:
+// connected / unavailable / permission denied / background fallback.
+function NativePushSection() {
+  const { t } = useTranslation();
+  const [status, setStatus] = useState(null);
+  const [busy, setBusy] = useState(false);
+
+  const supported = typeof window !== 'undefined' && window.Capacitor?.isNativePlatform?.() === true;
+  const refresh = useCallback(async () => {
+    if (!supported) return;
+    setStatus(await getNativePushStatus());
+  }, [supported]);
+
+  useEffect(() => { refresh(); }, [refresh]);
+
+  if (!supported) return null;
+
+  const state = status?.status || 'unavailable';
+  let statusColor = 'var(--text-tertiary)';
+  let statusLabel = t('admin.push.statusOff');
+  if (state === 'connected') {
+    statusColor = 'var(--green, #22c55e)';
+    statusLabel = t('admin.push.statusOn');
+  } else if (state === 'permission_denied') {
+    statusColor = 'var(--red)';
+    statusLabel = t('admin.push.statusDenied');
+  }
+
+  const handleAction = async () => {
+    setBusy(true);
+    try {
+      if (state === 'permission_denied') {
+        await window.inboxoraNative?.notifications?.openSettings?.();
+      } else {
+        await registerNativePush();
+        await refresh();
+      }
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <div style={{ marginTop: 20 }}>
+      <div style={{
+        display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+        padding: '14px 16px', borderRadius: 10,
+        background: 'var(--bg-secondary)', border: '1px solid var(--border-subtle)',
+      }}>
+        <div>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 3 }}>
+            <div style={{ width: 7, height: 7, borderRadius: '50%', background: statusColor, flexShrink: 0 }} />
+            <span style={{ fontSize: 13, fontWeight: 500, color: 'var(--text-primary)' }}>{statusLabel}</span>
+          </div>
+          {state === 'permission_denied' && (
+            <div style={{ fontSize: 12, color: 'var(--text-tertiary)', maxWidth: 340 }}>
+              {t('admin.push.permissionDenied')}
+            </div>
+          )}
+          {status?.transport && (
+            <div style={{ fontSize: 12, color: 'var(--text-tertiary)' }}>{status.transport}</div>
+          )}
+        </div>
+        {state !== 'connected' && (
+          <button
+            onClick={handleAction}
+            disabled={busy}
+            style={{
+              padding: '7px 16px', borderRadius: 7, fontSize: 13, fontWeight: 500,
+              cursor: busy ? 'wait' : 'pointer',
+              background: 'var(--accent)', color: 'white', border: '1px solid transparent',
+              opacity: busy ? 0.6 : 1, transition: 'all 0.15s',
+            }}
+          >
+            {busy ? t('admin.push.loading') : t('admin.push.enable')}
+          </button>
+        )}
+      </div>
+    </div>
+  );
+}
+
 // ─── Push Notifications Section (inside NotificationsTab) ─────────────────────
 function PushNotificationsSection() {
   const { t } = useTranslation();
@@ -5622,6 +5707,7 @@ function NotificationsTab() {
 
       {/* Push Notifications */}
       <PushNotificationsSection />
+      <NativePushSection />
     </div>
   );
 }

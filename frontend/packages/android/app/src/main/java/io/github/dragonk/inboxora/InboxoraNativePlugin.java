@@ -66,6 +66,8 @@ public class InboxoraNativePlugin extends Plugin {
     private static final String TAG = "InboxoraUpdater";
     private static final String CHANNEL_NEW_MAIL = "inboxora_new_mail";
     private static final String CHANNEL_UPDATES = "inboxora_updates";
+    private static final String NOTIFICATION_GROUP = "inboxora_new_mail";
+    private static final int NOTIFICATION_SUMMARY_ID = 0x494e424f; // "INBO"
     private static final String PREFS_NAME = "inboxora-native";
     private static final String PREF_HOST = "host";
     private static final String PREF_INTENT_SECRET = "intent_secret";
@@ -95,6 +97,10 @@ public class InboxoraNativePlugin extends Plugin {
         instance = this;
         createNotificationChannel(getContext());
         restoreDownloadedUpdateState();
+        // Re-assert the native push registration every launch: this recovers from a
+        // rotated provider token, a reinstalled distributor or a stale server row.
+        InboxoraPushManager.ensureRegistered(getContext());
+        InboxoraNativePush.enqueueRegistration(getContext());
         checkForUpdatesInBackground(false, null);
     }
 
@@ -134,11 +140,20 @@ public class InboxoraNativePlugin extends Plugin {
     }
 
     private void persistHost(PluginCall call, String normalizedHost) {
+        String previousHost = getSavedHost(getContext());
+        // Switching servers must not leave a native push subscription (and the
+        // device token that authenticates it) alive for the previous account.
+        if (previousHost != null && !previousHost.equals(normalizedHost)) {
+            InboxoraPushManager.unregister(getContext());
+            InboxoraNotificationDedupStore.clear(getContext());
+        }
         getPrefs(getContext()).edit().putString(PREF_HOST, normalizedHost).apply();
         if (getActivity() instanceof MainActivity) {
             ((MainActivity) getActivity()).configureNativeMessageBridge(normalizedHost);
         }
         InboxoraBackgroundSync.schedule(getContext());
+        InboxoraPushManager.ensureRegistered(getContext());
+        InboxoraNativePush.enqueueRegistration(getContext());
 
         JSObject result = new JSObject();
         result.put("host", normalizedHost);
@@ -147,6 +162,10 @@ public class InboxoraNativePlugin extends Plugin {
 
     @PluginMethod
     public void resetHost(PluginCall call) {
+        // Forget the server-side device registration and every local trace of it
+        // before the host is dropped.
+        InboxoraPushManager.unregister(getContext());
+        InboxoraNotificationDedupStore.clear(getContext());
         getPrefs(getContext()).edit().remove(PREF_HOST).apply();
         if (getActivity() instanceof MainActivity) {
             ((MainActivity) getActivity()).configureNativeMessageBridge(null);
@@ -291,6 +310,37 @@ public class InboxoraNativePlugin extends Plugin {
         call.resolve();
     }
 
+    // Native push status for the settings screen. Exposes no endpoint or token.
+    @PluginMethod
+    public void getPushStatus(PluginCall call) {
+        JSObject result = new JSObject();
+        result.put("status", InboxoraPushManager.status(getContext()));
+        result.put("transport", InboxoraNativePush.transport(getContext()));
+        result.put("deviceId", InboxoraNativePush.deviceId(getContext()));
+        call.resolve(result);
+    }
+
+    // Settings action: retry provider + server registration now.
+    @PluginMethod
+    public void registerPush(PluginCall call) {
+        InboxoraPushManager.ensureRegistered(getContext());
+        InboxoraNativePush.enqueueRegistration(getContext());
+        JSObject result = new JSObject();
+        result.put("status", InboxoraPushManager.status(getContext()));
+        call.resolve(result);
+    }
+
+    // Settings action / logout: drop the provider registration and the local
+    // device token so no notification can arrive for the old session.
+    @PluginMethod
+    public void clearPush(PluginCall call) {
+        InboxoraPushManager.unregister(getContext());
+        InboxoraNotificationDedupStore.clear(getContext());
+        JSObject result = new JSObject();
+        result.put("status", InboxoraPushManager.status(getContext()));
+        call.resolve(result);
+    }
+
     @PluginMethod
     public void showNewMail(PluginCall call) {
         String title = call.getString("title", "New mail");
@@ -300,12 +350,22 @@ public class InboxoraNativePlugin extends Plugin {
         String folder = call.getString("folder", "INBOX");
         JSObject message = call.getObject("message");
 
-        postNewMailNotification(getContext(), title, body, messageId, accountId, folder, message);
-        call.resolve();
+        boolean shown = postNewMailNotification(getContext(), title, body, messageId, accountId, folder, message);
+        JSObject result = new JSObject();
+        result.put("shown", shown);
+        call.resolve(result);
     }
 
-    static void postNewMailNotification(Context context, String title, String body, String messageId, String accountId, String folder, JSObject message) {
-        if (!hasNotificationPermission(context)) return;
+    static boolean postNewMailNotification(Context context, String title, String body, String messageId, String accountId, String folder, JSObject message) {
+        if (!hasNotificationPermission(context)) return false;
+
+        final String eventId = (messageId == null || messageId.isEmpty()) ? null : messageId;
+        synchronized (InboxoraNotificationDedupStore.LOCK) {
+        InboxoraNotificationDedup dedup = InboxoraNotificationDedupStore.load(context);
+        long now = System.currentTimeMillis();
+        // The same persisted message can reach the device over the live WebSocket,
+        // native push and the reconciliation worker. One stable event id => one card.
+        if (eventId != null && dedup.isDuplicate(eventId, now)) return false;
 
         Intent intent = new Intent(context, MainActivity.class);
         intent.setAction(ACTION_OPEN_MESSAGE);
@@ -316,7 +376,11 @@ public class InboxoraNativePlugin extends Plugin {
         putExtra(intent, "folder", folder);
         if (message != null) putExtra(intent, "message", message.toString());
 
-        int notificationId = Math.abs(UUID.randomUUID().hashCode());
+        // Deterministic id: a repeat for the same message updates the existing
+        // notification instead of stacking a second one.
+        int notificationId = eventId != null
+            ? InboxoraNotificationDedup.stableNotificationId(eventId)
+            : Math.abs(UUID.randomUUID().hashCode());
         PendingIntent pendingIntent = PendingIntent.getActivity(
             context,
             notificationId,
@@ -361,11 +425,35 @@ public class InboxoraNativePlugin extends Plugin {
             .addAction(R.mipmap.ic_launcher, "Delete", deletePendingIntent)
             .addAction(R.mipmap.ic_launcher, "Star", starPendingIntent)
             .setAutoCancel(true)
+            .setGroup(NOTIFICATION_GROUP)
+            .setGroupAlertBehavior(NotificationCompat.GROUP_ALERT_CHILDREN)
             .setPriority(NotificationCompat.PRIORITY_DEFAULT);
 
         try {
-            NotificationManagerCompat.from(context).notify(notificationId, builder.build());
+            NotificationManagerCompat manager = NotificationManagerCompat.from(context);
+            manager.notify(notificationId, builder.build());
+            // A group summary collapses several arrivals into one expandable card
+            // (and keeps the shade tidy when a batch lands at once).
+            NotificationCompat.Builder summary = new NotificationCompat.Builder(context, CHANNEL_NEW_MAIL)
+                .setSmallIcon(R.mipmap.ic_launcher)
+                .setContentTitle(title)
+                .setContentText(body)
+                .setStyle(new NotificationCompat.BigTextStyle().bigText(body))
+                .setContentIntent(pendingIntent)
+                .setGroup(NOTIFICATION_GROUP)
+                .setGroupSummary(true)
+                .setGroupAlertBehavior(NotificationCompat.GROUP_ALERT_CHILDREN)
+                .setAutoCancel(true)
+                .setPriority(NotificationCompat.PRIORITY_DEFAULT);
+            manager.notify(NOTIFICATION_SUMMARY_ID, summary.build());
         } catch (SecurityException ignored) {}
+
+        if (eventId != null) {
+            dedup.remember(eventId, now);
+            InboxoraNotificationDedupStore.save(context, dedup);
+        }
+        return true;
+        }
     }
 
     private static PendingIntent messageActionPendingIntent(Context context, int notificationId, String action, String messageId, String accountId, String folder, JSObject message) {
@@ -519,6 +607,9 @@ public class InboxoraNativePlugin extends Plugin {
             + "window.inboxoraNative.notifications.checkPermission=function(){return call('checkNotificationPermission',{},{}).then(function(result){return result&&result.permission||'default';});};"
             + "window.inboxoraNative.notifications.requestPermission=function(){return call('requestNotificationPermission',{},{}).then(function(result){return result&&result.permission||'default';});};"
             + "window.inboxoraNative.notifications.openSettings=function(){return call('openNotificationSettings',{});};"
+            + "window.inboxoraNative.notifications.getStatus=function(){return call('getPushStatus',{},{});};"
+            + "window.inboxoraNative.notifications.register=function(){return call('registerPush',{},{});};"
+            + "window.inboxoraNative.notifications.clear=function(){return call('clearPush',{},{});};"
             + "}catch(e){}})();";
 
         webView.post(() -> webView.evaluateJavascript(script, null));
@@ -1211,7 +1302,7 @@ public class InboxoraNativePlugin extends Plugin {
         return hasNotificationPermission(getContext());
     }
 
-    private static boolean hasNotificationPermission(Context context) {
+    static boolean hasNotificationPermission(Context context) {
         if (!NotificationManagerCompat.from(context).areNotificationsEnabled()) {
             return false;
         }
@@ -1245,7 +1336,7 @@ public class InboxoraNativePlugin extends Plugin {
             JSONObject notification = args == null ? new JSONObject() : args;
             JSONObject messageObject = notification.optJSONObject("message");
             JSObject message = messageObject == null ? null : JSObject.fromJSONObject(messageObject);
-            postNewMailNotification(
+            boolean shown = postNewMailNotification(
                 context,
                 notification.optString("title", "New mail"),
                 notification.optString("body", "You have new mail."),
@@ -1255,7 +1346,7 @@ public class InboxoraNativePlugin extends Plugin {
                 message
             );
             JSObject result = new JSObject();
-            result.put("shown", true);
+            result.put("shown", shown);
             return result;
         }
 

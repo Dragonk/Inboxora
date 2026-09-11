@@ -396,6 +396,14 @@ export const api = {
   pushSubscribe:    (subscription) => request('POST',   '/auth/push/subscribe',    subscription),
   pushUnsubscribe:  (body)       => request('POST',    '/auth/push/unsubscribe',   body),
 
+  // Native (Android) push device registry. Registration is normally driven from
+  // the native layer (it owns the provider endpoint/token); these calls back the
+  // settings UI and the logout path.
+  getPushStatus:        ()         => request('GET',    '/push/status'),
+  listPushDevices:      ()         => request('GET',    '/push/devices'),
+  removePushDevice:     (deviceId) => request('DELETE', `/push/devices/${encodeURIComponent(deviceId)}`),
+  removeAllPushDevices: ()         => request('DELETE', '/push/devices'),
+
   // Inbox Rules
   getRules:    ()         => request('GET',    '/rules'),
   createRule:  (data)     => request('POST',   '/rules', data),

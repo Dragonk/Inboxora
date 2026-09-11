@@ -76,6 +76,13 @@ appearance and selects **Always light** or **Always dark**, so an upgrade never 
 - The unread count badge on the app icon.
 - **Web Push**, which needs the VAPID keys from the server environment
   ([Installation](Installation.md)). On iOS the app must be added to the Home Screen first.
+- **Native push** (Android app only), reported as *connected*, *unavailable*,
+  *permission denied* or *background fallback*. When notification permission is
+  denied the screen links straight to the Android settings.
+
+See [Notifications and background delivery](Notifications.md) for the transports,
+the data that does and does not pass through an external provider, the required
+environment variables, and device revocation.
 
 Mail that a rule marks as read never raises a sound, toast or push notification.
 

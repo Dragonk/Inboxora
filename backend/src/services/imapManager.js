@@ -9,7 +9,8 @@ import { sanitizeEmail } from './emailSanitizer.js';
 import { logger } from './logger.js';
 import { recordBroadcast, recordWarning, recordSyncSignal } from './diagnosticsRing.js';
 import { decrypt } from './encryption.js';
-import { sendPushToUser } from './pushNotifications.js';
+import { buildMailNotificationEvent } from './mailNotificationEvent.js';
+import { dispatchMailNotification } from './pushDispatcher.js';
 import { redactEmail } from '../utils/redact.js';
 import { adjustFolderCounts, resolveSpamFolder } from '../utils/mailUtils.js';
 import { RELOCATE_COPY_COLS } from '../utils/relocateColumns.js';
@@ -3074,38 +3075,30 @@ export class ImapManager {
             alertMessages: alertMessages.slice(-5), alertCount,
           }, account.user_id);
           if (newMessages.length > 0) broadcastedNewMessages = true;
-          // Web Push — INBOX only, alert-eligible messages only. Non-inbox folder syncs
-          // (Archive, Spam, on-demand) can surface old or filtered messages; sending push
-          // for them or for mark_read-silenced messages would be misleading.
+          // Canonical new-mail notification event — INBOX only, alert-eligible messages
+          // only. Non-inbox folder syncs (Archive, Spam, on-demand) can surface old or
+          // filtered messages; notifying for them or for mark_read-silenced messages
+          // would be misleading. ONE event fans out to every channel (browser Web Push,
+          // native Android push); no channel detects new mail on its own.
           // Fire-and-forget: push errors are non-fatal.
           if (folder === 'INBOX' && alertMessages.length > 0) {
             const latest = alertMessages[alertMessages.length - 1];
-            const basePayload = {
-              title: latest.fromName || latest.fromEmail || 'New mail',
-              body: alertCount === 1
-                ? (latest.subject || '(no subject)')
-                : `${alertCount} new messages`,
-              icon: '/inboxora-envelope-512.png',
-              // Deep-link the notification to the latest message (the notification's
-              // tag collapses arrivals into one card representing `latest`). Guarded:
-              // fall back to the inbox if the id is somehow absent.
-              url: latest.id ? `/?m=${latest.id}` : '/',
-            };
+            const dispatch = (unreadCount) => dispatchMailNotification(buildMailNotificationEvent({
+              userId: account.user_id,
+              message: latest,
+              alertCount,
+              ...(unreadCount != null ? { unreadCount } : {}),
+            })).catch(err => console.warn('Push notification error:', err.message));
             // Try to include the total unread count for the home screen badge.
-            // If the query fails for any reason, send the push without it so
+            // If the query fails for any reason, dispatch without it so
             // notifications are never silently dropped.
             query(
               `SELECT COUNT(*)::int AS total FROM messages m
                JOIN email_accounts a ON a.id = m.account_id
                WHERE a.user_id = $1 AND a.enabled = true AND m.folder = 'INBOX' AND m.is_read = false AND m.is_deleted = false`,
               [account.user_id]
-            ).then(r => {
-              sendPushToUser(account.user_id, { ...basePayload, unreadCount: r.rows[0]?.total ?? 0 })
-                .catch(err => console.warn('Push notification error:', err.message));
-            }).catch(() => {
-              sendPushToUser(account.user_id, basePayload)
-                .catch(err => console.warn('Push notification error:', err.message));
-            });
+            ).then(r => dispatch(r.rows[0]?.total ?? 0))
+              .catch(() => dispatch(null));
           }
           // Pre-warm the body cache for newly arrived messages so clicking one
           // immediately after receipt doesn't require a live IMAP fetch.

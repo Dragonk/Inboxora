@@ -105,6 +105,16 @@ describe('migration integrity', () => {
     expect(readFileSync(join(process.cwd(), 'migrations/0074_contact_dates_multi.sql'), 'utf8')).toContain('contact_dates JSONB NOT NULL DEFAULT');
   });
 
+  it('creates a tenant-scoped push device registry with unique per-user device ids', () => {
+    const sql = readFileSync(join(process.cwd(), 'migrations/0084_push_devices.sql'), 'utf8');
+    expect(sql).toContain('CREATE TABLE IF NOT EXISTS push_devices');
+    expect(sql).toContain('user_id        UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE');
+    expect(sql).toContain('UNIQUE (user_id, device_id)');
+    expect(sql).toContain('push_devices_user_active_idx');
+    expect(sql).toContain('push_devices_token_prefix_idx');
+    expect(sql).toContain('push_devices_last_seen_idx');
+  });
+
   it('adds a partial logical-message lookup index for non-deleted physical copies', () => {
     const sql = readFileSync(join(process.cwd(), 'migrations/0060_conversation_logical_message_lookup_index.sql'), 'utf8');
     expect(sql).toContain('ON messages(logical_message_id, date DESC NULLS LAST, id DESC)');

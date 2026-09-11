@@ -7,7 +7,7 @@ vi.mock('../routes/oauth.js', () => ({ refreshMicrosoftToken: vi.fn() }));
 vi.mock('./emailSanitizer.js', () => ({ sanitizeEmail: vi.fn() }));
 vi.mock('./encryption.js', () => ({ decrypt: vi.fn() }));
 vi.mock('./aiProvider.js', () => ({ getAiStatus: vi.fn(), completeText: vi.fn() }));
-vi.mock('./pushNotifications.js', () => ({ sendPushToUser: vi.fn() }));
+vi.mock('./pushDispatcher.js', () => ({ dispatchMailNotification: vi.fn() }));
 vi.mock('../utils/redact.js', () => ({ redactEmail: vi.fn() }));
 vi.mock('./hostValidation.js', () => ({ resolveForConnection: vi.fn() }));
 vi.mock('./connectionPolicy.js', () => ({ getConnectionPolicy: vi.fn() }));
@@ -22,7 +22,7 @@ import { resolveForConnection } from './hostValidation.js';
 import { getConnectionPolicy } from './connectionPolicy.js';
 import { invalidateGtdConfigCache } from '../plugins/gtd/gtdConfig.js';
 import { parseMessage } from './messageParser.js';
-import { sendPushToUser } from './pushNotifications.js';
+import { dispatchMailNotification } from './pushDispatcher.js';
 
 const account = (imap_host, oauth_provider = null) => ({ imap_host, oauth_provider });
 
@@ -1207,7 +1207,7 @@ describe('syncMessages — Web Push branding', () => {
   beforeEach(() => {
     query.mockReset();
     parseMessage.mockReset();
-    sendPushToUser.mockReset().mockResolvedValue();
+    dispatchMailNotification.mockReset().mockResolvedValue({});
   });
 
   it('broadcasts new mail before scanning old flags and uses the canonical push icon', async () => {
@@ -1247,9 +1247,14 @@ describe('syncMessages — Web Push branding', () => {
       prefetchNewMessageBodies: vi.fn().mockResolvedValue(),
       upsertAutoContacts: vi.fn().mockResolvedValue(),
     }, account, client, 'INBOX', 50, false, true);
-    await vi.waitFor(() => expect(sendPushToUser).toHaveBeenCalled());
+    await vi.waitFor(() => expect(dispatchMailNotification).toHaveBeenCalled());
 
-    expect(sendPushToUser).toHaveBeenCalledWith('user-1', expect.objectContaining({ icon: '/inboxora-envelope-512.png' }));
+    expect(dispatchMailNotification).toHaveBeenCalledWith(expect.objectContaining({
+      userId: 'user-1',
+      eventId: 'msg-push',
+      webPush: expect.objectContaining({ icon: '/inboxora-envelope-512.png', unreadCount: 1 }),
+      native: { type: 'mail.changed', eventId: 'msg-push' },
+    }));
   });
 });
 
