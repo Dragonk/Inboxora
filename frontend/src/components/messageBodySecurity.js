@@ -82,11 +82,59 @@ export function emailCsp({ remoteImages = false } = {}) {
 
 export const EMAIL_BASE_TAG = '<base target="_blank" rel="noopener noreferrer">';
 
-export function buildSrcDoc(html, { remoteImages = false } = {}) {
+// A mail body's own document cannot inherit the app's custom properties, and its
+// user-agent defaults (black text in a light colour scheme) follow the operating
+// system rather than the app theme. Without an explicit surface an unstyled message
+// therefore renders black-on-dark whenever the app is in a dark appearance. The
+// caller passes the surface in (see getEmailSurface) and this turns it into the
+// frame's defaults.
+//
+// The values are re-checked here rather than trusted, so the exported helper stays
+// safe for any caller: only a plain CSS colour can reach the frame's stylesheet.
+const CSS_COLOR_RE = /^(?:#[0-9a-f]{3,8}|rgba?\(\s*[\d.%,\s/]+\)|hsla?\(\s*[\d.%,\s/deg]+\)|[a-z]{3,20})$/i;
+function safeCssColor(value) {
+  const candidate = String(value ?? '').trim();
+  return CSS_COLOR_RE.test(candidate) ? candidate : null;
+}
+
+function emailSurfaceCss(surface) {
+  if (!surface || (surface.tone !== 'light' && surface.tone !== 'dark')) return '';
+  const tone = surface.tone;
+  // The colour scheme always follows the app theme. This is the declaration the backend
+  // relies on when it strips an email's own `color-scheme`: it is what stops the frame's
+  // user-agent defaults — default text colour, form controls, scrollbars,
+  // prefers-color-scheme — from following the operating system instead of Inboxora.
+  const rules = [`  html { color-scheme: ${tone}; }`];
+  if (tone === 'dark') {
+    const background = safeCssColor(surface.background);
+    const foreground = safeCssColor(surface.foreground);
+    // A dark appearance states the surface it paints on. Without it the frame would
+    // fall back to the user agent's own dark canvas and default text, neither of which
+    // matches the theme. The light appearance deliberately declares nothing here: it
+    // inherits the panel behind the frame, which already paints the theme surface, and
+    // painting it again in the frame would only switch text from grayscale to subpixel
+    // antialiasing — churning every light-mode capture for no visible gain.
+    const declarations = [];
+    if (background) declarations.push(`background-color: ${background};`);
+    if (foreground) declarations.push(`color: ${foreground};`);
+    if (declarations.length) rules.push(`  html, body { ${declarations.join(' ')} }`);
+  }
+  return `\n  /* Mail body surface, declared from the app theme. Scoped to this document only. */\n${rules.join('\n')}`;
+}
+
+export function buildSrcDoc(html, { remoteImages = false, surface = null } = {}) {
   const csp = emailCsp({ remoteImages });
+  const surfaceCss = emailSurfaceCss(surface);
+  // The colour-scheme meta is the documented counterpart of the backend stripping an
+  // email's own `color-scheme` declarations: a message must not choose the frame's
+  // scheme, the app does. It also drives form controls, scrollbars and the
+  // prefers-color-scheme media query inside the frame.
+  const colorSchemeMeta = surfaceCss
+    ? `<meta name="color-scheme" content="${surface.tone === 'dark' ? 'dark' : 'light'}">\n`
+    : '';
   return `<!DOCTYPE html><html><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<meta http-equiv="Content-Security-Policy" content="${csp}">
+${colorSchemeMeta}<meta http-equiv="Content-Security-Policy" content="${csp}">
 ${EMAIL_BASE_TAG}
 <style>
   /* Shared MessagePane/ConversationReader mobile fit contract. Never hide overflow:
@@ -103,6 +151,7 @@ ${EMAIL_BASE_TAG}
   .mailflow-quote-toggle { display: inline-flex; align-items: center; justify-content: center; min-width: 34px; margin: 8px 0; padding: 2px 9px; border: 1px solid #c7c7c7; border-radius: 999px; background: #f3f3f3; color: #555; font: 12px/1.5 system-ui, sans-serif; cursor: pointer; }
   .mailflow-quote-toggle:hover { background: #e8e8e8; }
   .mailflow-quote-toggle:focus-visible { outline: 2px solid #4c8bf5; outline-offset: 2px; }
+${surfaceCss}
 </style>
 </head><body>${html}</body></html>`;
 }

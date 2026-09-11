@@ -1,0 +1,97 @@
+import { test, expect } from './fixtures.js';
+
+// The mail body is its own document inside a sandboxed iframe, so it cannot inherit
+// the app's colour tokens and its user-agent default text colour follows the
+// operating system. A message that declares no colours of its own must still be
+// legible on the surface it actually sits on — this is the black-on-dark regression.
+//
+// The fixture bodies are exactly that case: a bare <p> with no colour declarations.
+
+/** Opens the first message and returns a probe of the frame's resolved surface. */
+async function measureEmailSurface(page, preferences) {
+  page.__preferencesOverride = preferences;
+  await page.goto('/?list=0&reader=0');
+  await page.locator('[data-msgid]').first().click();
+  const frame = page.frameLocator('iframe[sandbox]').first();
+  await expect(frame.locator('body')).toBeVisible();
+  return page.evaluate(() => {
+    // Relative luminance + WCAG contrast, computed against the server-rendered values.
+    const luminance = ([r, g, b]) => {
+      const channel = value => {
+        const c = value / 255;
+        return c <= 0.03928 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4;
+      };
+      return 0.2126 * channel(r) + 0.7152 * channel(g) + 0.0722 * channel(b);
+    };
+    const parse = value => (value.match(/[\d.]+/g) || []).slice(0, 3).map(Number);
+    const contrast = (a, b) => {
+      const [hi, lo] = [luminance(parse(a)), luminance(parse(b))].sort((x, y) => y - x);
+      return (hi + 0.05) / (lo + 0.05);
+    };
+
+    const iframe = document.querySelector('iframe[sandbox]');
+    const doc = iframe.contentDocument;
+    const bodyStyle = getComputedStyle(doc.body);
+    const htmlStyle = getComputedStyle(doc.documentElement);
+    // Resolve the frame's own painted background: the body's if declared, else the root's.
+    const bodyBg = bodyStyle.backgroundColor === 'rgba(0, 0, 0, 0)'
+      ? htmlStyle.backgroundColor
+      : bodyStyle.backgroundColor;
+    const background = bodyBg === 'rgba(0, 0, 0, 0)'
+      // Transparent means the surrounding panel shows through — measure that instead.
+      ? getComputedStyle(iframe.closest('.conversation-message-body-panel') || iframe.parentElement).backgroundColor
+      : bodyBg;
+    const text = bodyStyle.color;
+    return {
+      colorScheme: htmlStyle.colorScheme,
+      background,
+      text,
+      contrast: contrast(text, background),
+      textLuminance: luminance(parse(text)),
+      backgroundLuminance: luminance(parse(background)),
+    };
+  });
+}
+
+const LIGHT = { theme: 'ink', themeMode: 'light', themeLight: 'ink', themeDark: 'dark_ink' };
+const DARK = { theme: 'dark_ink', themeMode: 'dark', themeLight: 'ink', themeDark: 'dark_ink' };
+
+test.describe('mail body surface follows the app theme', () => {
+  test('an unstyled message stays legible on the dark appearance', async ({ page, fixtureApi }) => {
+    test.skip(page.viewportSize().width < 768, 'desktop parent-row selection contract');
+    await fixtureApi;
+    const surface = await measureEmailSurface(page, DARK);
+
+    // The frame declares the app's appearance, so UA defaults stop following the OS.
+    expect(surface.colorScheme).toBe('dark');
+    // The body really is a dark surface...
+    expect(surface.backgroundLuminance).toBeLessThan(0.2);
+    // ...and the default text on it is light, not the black user-agent default.
+    expect(surface.textLuminance).toBeGreaterThan(0.5);
+    expect(surface.contrast).toBeGreaterThanOrEqual(4.5);
+  });
+
+  test('the light appearance keeps dark text on the light surface', async ({ page, fixtureApi }) => {
+    test.skip(page.viewportSize().width < 768, 'desktop parent-row selection contract');
+    await fixtureApi;
+    const surface = await measureEmailSurface(page, LIGHT);
+
+    expect(surface.colorScheme).toBe('light');
+    expect(surface.backgroundLuminance).toBeGreaterThan(0.5);
+    expect(surface.textLuminance).toBeLessThan(0.2);
+    expect(surface.contrast).toBeGreaterThanOrEqual(4.5);
+  });
+
+  test('the frame background matches the panel it sits in', async ({ page, fixtureApi }) => {
+    test.skip(page.viewportSize().width < 768, 'desktop parent-row selection contract');
+    await fixtureApi;
+    const surface = await measureEmailSurface(page, DARK);
+    const panel = await page.evaluate(() => {
+      const panel = document.querySelector('.conversation-message-body-panel');
+      return getComputedStyle(panel).backgroundColor;
+    });
+    // An explicit frame background must not introduce a visible seam against the panel
+    // that already painted the same token.
+    expect(surface.background).toBe(panel);
+  });
+});

@@ -18,6 +18,14 @@ limitations — read the matching page in the Wiki, for example
   **Dark ink** is the default dark theme, so a fresh profile follows the system out of the box.
   A single theme chosen before this change is preserved as an explicit choice for its appearance.
 
+### Fixed
+
+- **Message bodies no longer render black on dark.** An HTML mail is displayed in its own
+  sandboxed document, which cannot inherit the app's colour tokens; its default text colour
+  followed the operating system, so a message that declared no colours of its own was painted
+  black on the dark appearance. The frame now declares the theme's colour scheme and, in a dark
+  appearance, the surface and text colour it actually uses.
+
 ## [4.0.0]
 
 This is the first release of Inboxora as a suite rather than a mail client. Inboxora began as an

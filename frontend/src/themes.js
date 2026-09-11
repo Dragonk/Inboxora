@@ -816,6 +816,53 @@ export function subscribeAccent(fn) {
   return () => { _accentListeners.delete(fn); };
 }
 
+// ── Mail body surface ─────────────────────────────────────────────────────────
+
+// HTML mail renders inside a sandboxed iframe — a separate document that cannot see
+// the app's CSS custom properties, and whose own user-agent defaults follow the
+// *operating system* rather than the app theme. Unstyled bodies therefore inherited
+// black text, which on a dark theme landed on the dark panel — black on dark.
+//
+// The frame is given the surface explicitly instead, from the same tokens the
+// surrounding panel uses, so the default text colour always matches the surface it
+// actually sits on. Values are read from the *computed* root style, so a custom-CSS
+// override of --message-body-bg or --text-primary flows through, exactly like
+// getEffectiveAccent().
+//
+// Anything that is not a plain CSS colour is discarded before it reaches the frame's
+// stylesheet, so a hand-written custom CSS value can never break out of the rule.
+const CSS_COLOR_RE = /^(?:#[0-9a-f]{3,8}|rgba?\(\s*[\d.%,\s/]+\)|hsla?\(\s*[\d.%,\s/deg]+\)|[a-z]{3,20})$/i;
+
+function safeColor(value, fallback) {
+  const candidate = String(value ?? '').trim();
+  return CSS_COLOR_RE.test(candidate) ? candidate : fallback;
+}
+
+function effectiveToken(name, fallback) {
+  try {
+    return getComputedStyle(document.documentElement).getPropertyValue(name).trim() || fallback;
+  } catch { return fallback; }
+}
+
+// The surface for the mail/description iframe of the given theme. `tone` lets the
+// frame declare its colour scheme, and the two colours are the panel background and
+// its default text colour.
+export function getEmailSurface(themeName) {
+  const name = THEMES[themeName] ? themeName : DEFAULT_LIGHT_THEME;
+  const vars = THEMES[name].vars;
+  return {
+    tone: themeTone(name),
+    background: safeColor(
+      typeof document === 'undefined' ? null : effectiveToken('--message-body-bg', vars['--bg-secondary']),
+      vars['--bg-secondary'],
+    ),
+    foreground: safeColor(
+      typeof document === 'undefined' ? null : effectiveToken('--text-primary', vars['--text-primary']),
+      vars['--text-primary'],
+    ),
+  };
+}
+
 function refreshBrandSurface() {
   const probe = document.createElement('span');
   probe.style.color = 'var(--bg-primary)';

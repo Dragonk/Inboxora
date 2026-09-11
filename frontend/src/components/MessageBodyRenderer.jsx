@@ -3,6 +3,8 @@ export { EMAIL_SANITIZE_POLICY, sanitizeMessageHtml, emailCsp, EMAIL_BASE_TAG, b
 import { sanitizeMessageHtml, buildSrcDoc, escapeMessageText } from './messageBodySecurity.js';
 import { installMessageQuoteFolding } from './messageQuoteFolding.js';
 import { scheduleInitialLayoutReady } from './messageBodyLayout.js';
+import { useStore } from '../store/index.js';
+import { getEmailSurface } from '../themes.js';
 
 /**
  * SafeMessageFrame — shared production HTML body renderer using a sandboxed iframe.
@@ -26,12 +28,17 @@ export default function MessageBodyRenderer({ html = '', text = '', remoteImages
   const internalIframeRef = useRef(null);
   const iframeRef = externalIframeRef || internalIframeRef;
 
+  // The active theme, so the frame's own document can declare a matching surface.
+  // Subscribing here (rather than at each call site) keeps message bodies, calendar
+  // descriptions and every future embed on the same contract.
+  const theme = useStore(state => state.theme);
+
   const srcDoc = useMemo(() => {
     const content = html
       ? sanitizeMessageHtml(html, { remoteImages })
       : `<pre data-mailflow-plain-text="true">${escapeMessageText(text)}</pre>`;
-    return buildSrcDoc(content, { remoteImages });
-  }, [html, text, remoteImages]);
+    return buildSrcDoc(content, { remoteImages, surface: getEmailSurface(theme) });
+  }, [html, text, remoteImages, theme]);
 
   // Auto-height: measure the iframe content and set the iframe height
   // so no internal scrollbar appears (same approach as MessagePane).
