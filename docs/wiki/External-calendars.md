@@ -1,7 +1,8 @@
 # External calendars
 
 Inboxora subscribes to **CalDAV** and **ICS/webcal** calendars as pull-only, read-only sources.
-Add, sync or remove them from the calendar panel under **Manage sources**.
+Add one from **Settings → Calendar → Calendar subscriptions** or from the calendar panel under
+**Manage sources**, which is also where you sync, reschedule and remove them.
 
 ## Source types
 
@@ -9,6 +10,32 @@ Add, sync or remove them from the calendar panel under **Manage sources**.
 | --- | --- | --- |
 | **CalDAV** | Server URL, remote username and password (or app password) | Nextcloud, Fastmail, Radicale, Synology and other CalDAV servers. |
 | **ICS / webcal** | A calendar URL, or a `webcal://` link | Published `.ics` feeds, holiday calendars, team schedules. |
+
+## Add a subscription in two steps
+
+The fastest route is **Settings → Calendar → Calendar subscriptions**. Paste a name and the feed
+URL and choose **Subscribe**. Inboxora accepts an `https://` link or the `webcal://` link a website
+hands out; a `webcal://` link is converted to `https://` automatically. The source starts syncing
+straight away and appears as a read-only calendar named after the entry you added.
+
+The same list is available from the calendar panel under **Manage sources**, which is also where you
+remove a subscription, run **Sync now**, inspect a failure and change its cadence.
+
+### Holiday calendars
+
+The **Public holidays** block in the same settings section adds a country's holidays as an ordinary
+ICS subscription. Inboxora does **not** ship a holiday database: picking a country only resolves to
+the matching read-only ICS feed published by the
+[Thunderbird holiday calendar project](https://www.thunderbird.net/calendar/holidays/), and the
+ordinary external-calendar sync pulls it like any other source. The calendar arrives as
+**Holidays — <country>**, can be hidden or recoloured like any other calendar, and is refreshed
+daily because holidays change at most once a year.
+
+Inboxora deliberately does not generate holidays itself: moving feasts, statutory changes and
+regional variants are exactly the kind of data the Thunderbird project already maintains and
+updates. If a country is missing from the picker, add its `https://` or `webcal://` feed through
+the subscription form above. Holiday calendars are subject to the same connection and credential
+rules as every other source.
 
 ## Sync schedule
 

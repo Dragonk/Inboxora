@@ -1887,7 +1887,20 @@
     "defaultInviteAccount": "日历邀请的默认发件账户",
     "defaultInviteAccountNone": "无默认 — 每个事件单独选择",
     "defaultInviteAccountDescription": "邀请参与者时预先选择的 SMTP 账户。",
-    "openSourceMessage": "打开原始邮件"
+    "openSourceMessage": "打开原始邮件",
+    "subscribeTitle": "日历订阅",
+    "subscribeDescription": "订阅已发布的 ICS 或 webcal 日历。订阅为只读，并按计划刷新。",
+    "subscribeAdd": "订阅",
+    "subscribeHint": "粘贴 https:// 或 webcal:// 链接。webcal:// 链接会自动转换。",
+    "subscribeSuccess": "订阅已添加。首次同步后将显示在你的日历中。",
+    "subscribeFailed": "无法添加订阅。",
+    "subscribeExisting": "当前订阅",
+    "subscribeEmpty": "还没有外部日历订阅。",
+    "holidayTitle": "法定假日",
+    "holidayDescription": "添加某个国家的法定假日。该日历由 Thunderbird 项目以 ICS 源发布；Inboxora 不管理其内容。",
+    "holidayCountry": "国家/地区",
+    "holidayAdd": "添加假日日历",
+    "holidayName": "假日 — {{country}}"
   },
   "mailFolders": {
     "inbox": "收件箱",

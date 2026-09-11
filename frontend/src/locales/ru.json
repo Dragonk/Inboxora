@@ -1887,7 +1887,20 @@
     "defaultInviteAccount": "Отправитель приглашений по умолчанию",
     "defaultInviteAccountNone": "Без значения по умолчанию — выбирать для каждого события",
     "defaultInviteAccountDescription": "Учётная запись SMTP, выбираемая заранее при приглашении участников.",
-    "openSourceMessage": "Открыть исходное письмо"
+    "openSourceMessage": "Открыть исходное письмо",
+    "subscribeTitle": "Подписки на календари",
+    "subscribeDescription": "Подпишитесь на опубликованный календарь ICS или webcal. Подписки доступны только для чтения и обновляются по расписанию.",
+    "subscribeAdd": "Подписаться",
+    "subscribeHint": "Вставьте ссылку https:// или webcal://. Ссылки webcal:// преобразуются автоматически.",
+    "subscribeSuccess": "Подписка добавлена. Она появится в календарях после первой синхронизации.",
+    "subscribeFailed": "Не удалось добавить подписку.",
+    "subscribeExisting": "Текущие подписки",
+    "subscribeEmpty": "Пока нет подписок на внешние календари.",
+    "holidayTitle": "Государственные праздники",
+    "holidayDescription": "Добавьте государственные праздники страны. Календарь публикуется проектом Thunderbird как канал ICS; Inboxora не управляет его содержимым.",
+    "holidayCountry": "Страна",
+    "holidayAdd": "Добавить календарь праздников",
+    "holidayName": "Праздники — {{country}}"
   },
   "mailFolders": {
     "inbox": "Входящие",

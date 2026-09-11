@@ -1887,7 +1887,20 @@
     "defaultInviteAccount": "Domyślna skrzynka nadawcy zaproszeń",
     "defaultInviteAccountNone": "Brak domyślnej — wybieraj przy wydarzeniu",
     "defaultInviteAccountDescription": "Konto SMTP wybierane domyślnie, gdy zapraszasz uczestników do wydarzenia.",
-    "openSourceMessage": "Otwórz pierwotną wiadomość"
+    "openSourceMessage": "Otwórz pierwotną wiadomość",
+    "subscribeTitle": "Subskrypcje kalendarzy",
+    "subscribeDescription": "Subskrybuj opublikowany kalendarz ICS lub webcal. Subskrypcje są tylko do odczytu i odświeżają się zgodnie z harmonogramem.",
+    "subscribeAdd": "Subskrybuj",
+    "subscribeHint": "Wklej adres https:// lub webcal://. Adresy webcal:// są konwertowane automatycznie.",
+    "subscribeSuccess": "Subskrypcja dodana. Pojawi się w kalendarzach po pierwszej synchronizacji.",
+    "subscribeFailed": "Nie udało się dodać subskrypcji.",
+    "subscribeExisting": "Bieżące subskrypcje",
+    "subscribeEmpty": "Brak subskrypcji kalendarzy zewnętrznych.",
+    "holidayTitle": "Święta państwowe",
+    "holidayDescription": "Dodaj święta państwowe wybranego kraju. Kalendarz jest publikowany jako kanał ICS przez projekt Thunderbird; Inboxora nie zarządza jego zawartością.",
+    "holidayCountry": "Kraj",
+    "holidayAdd": "Dodaj kalendarz świąt",
+    "holidayName": "Święta — {{country}}"
   },
   "mailFolders": {
     "inbox": "Odebrane",

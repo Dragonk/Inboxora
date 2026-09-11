@@ -1887,7 +1887,20 @@
     "defaultInviteAccount": "Výchozí odesílatel pozvánek",
     "defaultInviteAccountNone": "Žádný výchozí — volit u každé události",
     "defaultInviteAccountDescription": "Účet SMTP předvybraný při zvání účastníků na událost.",
-    "openSourceMessage": "Otevřít původní zprávu"
+    "openSourceMessage": "Otevřít původní zprávu",
+    "subscribeTitle": "Odběry kalendářů",
+    "subscribeDescription": "Odebírejte zveřejněný kalendář ICS nebo webcal. Odběry jsou jen pro čtení a obnovují se podle plánu.",
+    "subscribeAdd": "Odebírat",
+    "subscribeHint": "Vložte odkaz https:// nebo webcal://. Odkazy webcal:// se převedou automaticky.",
+    "subscribeSuccess": "Odběr přidán. V kalendářích se objeví po prvním synchronizování.",
+    "subscribeFailed": "Odběr se nepodařilo přidat.",
+    "subscribeExisting": "Současné odběry",
+    "subscribeEmpty": "Zatím žádné odběry externích kalendářů.",
+    "holidayTitle": "Státní svátky",
+    "holidayDescription": "Přidejte státní svátky země. Kalendář zveřejňuje projekt Thunderbird jako ICS kanál; Inboxora jeho obsah nespravuje.",
+    "holidayCountry": "Země",
+    "holidayAdd": "Přidat kalendář svátků",
+    "holidayName": "Svátky — {{country}}"
   },
   "mailFolders": {
     "inbox": "Doručená pošta",

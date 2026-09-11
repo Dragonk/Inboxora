@@ -12,6 +12,8 @@ and agenda views share the same selected date and the same visibility filters.
   day plus a **+N more** chip.
 - **Week** and **work week** — a time grid with a working-hours band, a "now" line and
   side-by-side layout for overlapping events. Work week shows only your working days.
+  All-day and multi-day events are stretched to fill every day they cover instead of being
+  squeezed into a chip above the grid, and a multi-day event joins across the day columns.
 - **Agenda** — the active month grouped by day, all-day events first.
 - On a phone the week grid is wider than the screen, so it opens **centred on today** rather
   than on the first day of the week; when today is not in view (a stored week, or a work week
@@ -72,7 +74,9 @@ edited and deleted, and are published to DAV clients through CalDAV.
   series changes your copy without emailing the attendees — only deleting the whole event sends a
   cancellation.
 - All-day events use dates without times, and multi-day events span every day from their start
-  up to, but not including, their end date.
+  up to, but not including, their end date. In the week and work-week grids they are drawn as
+  full-height bands that fill each covered day; a multi-day event keeps its block continuous
+  across the days it spans.
 
 ## Event descriptions
 
@@ -134,6 +138,10 @@ any other calendar. See [Contacts and DAV](Contacts-and-DAV.md).
 Read-only calendars come from **CalDAV** or **ICS/webcal** subscriptions — see
 [External calendars](External-calendars.md) — or from a CardDAV-synced account. They are never
 modified by Inboxora: imported events open in a preview without editing controls.
+
+Add a subscription by URL, or add a country's public holidays as a ready-made Thunderbird ICS
+feed, from **Settings → Calendar → Calendar subscriptions**. The same sources can be synced,
+rescheduled and removed from the calendar panel under **Manage sources**.
 
 ## Sharing a calendar as a link
 

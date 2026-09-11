@@ -1887,7 +1887,20 @@
     "defaultInviteAccount": "Remitente predeterminado de las invitaciones",
     "defaultInviteAccountNone": "Sin predeterminado — elegir por evento",
     "defaultInviteAccountDescription": "La cuenta SMTP preseleccionada al invitar a participantes a un evento.",
-    "openSourceMessage": "Abrir el mensaje original"
+    "openSourceMessage": "Abrir el mensaje original",
+    "subscribeTitle": "Suscripciones de calendario",
+    "subscribeDescription": "Suscríbete a un calendario ICS o webcal publicado. Las suscripciones son de solo lectura y se actualizan según una programación.",
+    "subscribeAdd": "Suscribirse",
+    "subscribeHint": "Pega un enlace https:// o webcal://. Los enlaces webcal:// se convierten automáticamente.",
+    "subscribeSuccess": "Suscripción añadida. Aparecerá en tus calendarios tras la primera sincronización.",
+    "subscribeFailed": "No se pudo añadir la suscripción.",
+    "subscribeExisting": "Suscripciones actuales",
+    "subscribeEmpty": "Aún no hay suscripciones a calendarios externos.",
+    "holidayTitle": "Días festivos",
+    "holidayDescription": "Añade los días festivos de un país. El proyecto Thunderbird publica el calendario como canal ICS; Inboxora no gestiona su contenido.",
+    "holidayCountry": "País",
+    "holidayAdd": "Añadir calendario de festivos",
+    "holidayName": "Festivos — {{country}}"
   },
   "mailFolders": {
     "inbox": "Recibidos",

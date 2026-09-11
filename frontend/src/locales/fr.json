@@ -1887,7 +1887,20 @@
     "defaultInviteAccount": "Expéditeur par défaut des invitations",
     "defaultInviteAccountNone": "Aucun par défaut — choisir par événement",
     "defaultInviteAccountDescription": "Le compte SMTP présélectionné lorsque vous invitez des participants à un événement.",
-    "openSourceMessage": "Ouvrir le message d'origine"
+    "openSourceMessage": "Ouvrir le message d'origine",
+    "subscribeTitle": "Abonnements de calendriers",
+    "subscribeDescription": "Abonnez-vous à un calendrier ICS ou webcal publié. Les abonnements sont en lecture seule et s’actualisent selon un calendrier défini.",
+    "subscribeAdd": "S’abonner",
+    "subscribeHint": "Collez un lien https:// ou webcal://. Les liens webcal:// sont convertis automatiquement.",
+    "subscribeSuccess": "Abonnement ajouté. Il apparaîtra dans vos calendriers après la première synchronisation.",
+    "subscribeFailed": "Impossible d’ajouter l’abonnement.",
+    "subscribeExisting": "Abonnements actuels",
+    "subscribeEmpty": "Aucun abonnement de calendrier externe pour le moment.",
+    "holidayTitle": "Jours fériés",
+    "holidayDescription": "Ajoutez les jours fériés d’un pays. Le calendrier est publié en tant que flux ICS par le projet Thunderbird ; Inboxora n’en gère pas le contenu.",
+    "holidayCountry": "Pays",
+    "holidayAdd": "Ajouter le calendrier des jours fériés",
+    "holidayName": "Jours fériés — {{country}}"
   },
   "mailFolders": {
     "inbox": "Boîte de réception",

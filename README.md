@@ -197,7 +197,10 @@ mail into conversations afterwards, is in
 <summary><strong>Calendar</strong></summary>
 
 - Month, week, work-week and agenda views with a day agenda that follows calendar visibility.
-- Local writable calendars plus read-only calendars from CalDAV and ICS/webcal sources.
+  All-day and multi-day events stretch across every day they cover in the week grids.
+- Local writable calendars plus read-only calendars from CalDAV and ICS/webcal sources. A
+  subscription is added by URL, or as a one-click Thunderbird public-holiday feed, from
+  **Settings → Calendar**.
 - Recurring events (`RRULE`, `RDATE`, `RECURRENCE-ID`, `EXDATE`) projected server-side with
   per-event time zones; editing a single occurrence preserves the series.
 - Event descriptions edited as rich text and rendered through the same sanitised pipeline as

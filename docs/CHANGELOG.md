@@ -18,7 +18,19 @@ limitations — read the matching page in the Wiki, for example
   **Dark ink** is the default dark theme, so a fresh profile follows the system out of the box.
   A single theme chosen before this change is preserved as an explicit choice for its appearance.
 
+- **Calendar subscriptions from Settings** — the Calendar settings tab now has a **Calendar
+  subscriptions** section where an ICS/webcal feed is added by URL, next to a **Public holidays**
+  picker that subscribes to the matching Thunderbird holiday calendar for a country. Inboxora still
+  keeps no holiday data of its own: the country only selects the URL of the maintained read-only
+  feed, which the normal external-calendar sync then pulls. See
+  [External calendars](wiki/External-calendars.md).
+
 ### Fixed
+
+- **All-day and multi-day events stretch across the day in the week grids.** They were drawn as
+  small chips in a thin row above the time grid; they now fill the full height of every day they
+  cover, side by side when several overlap, and a multi-day event joins across the day columns
+  instead of restarting in each one.
 
 - **Message bodies no longer render black on dark.** An HTML mail is displayed in its own
   sandboxed document, which cannot inherit the app's colour tokens; its default text colour

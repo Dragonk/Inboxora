@@ -47,12 +47,14 @@ against the upstream MailFlow fork.
 ### Calendar
 
 - Local writable calendars with month, week, work-week and agenda views, and a day agenda that
-  follows your calendar visibility.
+  follows your calendar visibility. All-day and multi-day events stretch across every day they
+  cover in the week grids.
 - Recurring events (`RRULE`, `RDATE`, `RECURRENCE-ID`, `EXDATE`) expanded with per-event time
   zones; editing one occurrence preserves the series.
 - Invitations sent by email with delivery status and retry, and invitations received by mail
   added to a calendar in one click.
-- Read-only **CalDAV** and **ICS/webcal** sources, plus anonymous `.ics` feed links.
+- Read-only **CalDAV** and **ICS/webcal** sources added from **Settings → Calendar**, including
+  one-click public-holiday feeds, plus anonymous `.ics` feed links.
 - A generated **Contact dates** calendar for birthdays and anniversaries.
 
 ### Contacts and DAV

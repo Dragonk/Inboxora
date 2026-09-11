@@ -4,6 +4,7 @@ import { intlLocale } from '../utils/intlLocale.js';
 import { folderLabel } from '../utils/folderLabels.js';
 import { inputStyle as sharedInputStyle } from './ui.jsx';
 import ConversationRebuild from './ConversationRebuild.jsx';
+import CalendarSubscriptionsSettings from './CalendarSubscriptionsSettings.jsx';
 import { useCallback, useState, useEffect, useLayoutEffect, useRef, useMemo } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useStore } from '../store/index.js';
@@ -1587,7 +1588,7 @@ function SwipeActionIcon({ action, size = 17 }) {
 }
 
 function CalendarSettingsTab() {
-  const { t } = useTranslation();
+  const { t, i18n } = useTranslation();
   const { calendarWeekStartsOn, setCalendarWeekStartsOn, calendarWorkDays, setCalendarWorkDays, calendarWorkHoursStart, setCalendarWorkHoursStart, calendarWorkHoursEnd, setCalendarWorkHoursEnd, calendarWorkHoursError, calendarInviteAccountId, setCalendarInviteAccountId, accounts } = useStore();
   // Only accounts that can actually send mail may be offered as a default sender.
   const senderAccounts = (accounts || []).filter(account => account.enabled && account.smtp_host);
@@ -1639,6 +1640,7 @@ function CalendarSettingsTab() {
           </label>
         </div>
       </div>
+      <CalendarSubscriptionsSettings locale={intlLocale(i18n.resolvedLanguage || i18n.language)} />
 
   </div>;
 }

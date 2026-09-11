@@ -1887,7 +1887,20 @@
     "defaultInviteAccount": "Default sender for calendar invitations",
     "defaultInviteAccountNone": "No default — choose per event",
     "defaultInviteAccountDescription": "The SMTP account preselected when you invite attendees to an event.",
-    "openSourceMessage": "Open original message"
+    "openSourceMessage": "Open original message",
+    "subscribeTitle": "Calendar subscriptions",
+    "subscribeDescription": "Subscribe to a published ICS or webcal calendar. Subscriptions are read-only and refresh on a schedule.",
+    "subscribeAdd": "Subscribe",
+    "subscribeHint": "Paste an https:// or webcal:// link. webcal:// links are converted automatically.",
+    "subscribeSuccess": "Subscription added. It will appear in your calendars after the first sync.",
+    "subscribeFailed": "Could not add the subscription.",
+    "subscribeExisting": "Current subscriptions",
+    "subscribeEmpty": "No external calendar subscriptions yet.",
+    "holidayTitle": "Public holidays",
+    "holidayDescription": "Add the public holidays of a country. The calendar is published as an ICS feed by the Thunderbird project; Inboxora does not manage its contents.",
+    "holidayCountry": "Country",
+    "holidayAdd": "Add holiday calendar",
+    "holidayName": "Holidays — {{country}}"
   },
   "mailFolders": {
     "inbox": "Inbox",
