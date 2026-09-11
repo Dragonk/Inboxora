@@ -4,6 +4,7 @@ import { test, expect } from './fixtures.js';
 import { navigateModule } from './v3-fixtures.js';
 import { selectCalendarView } from './navigation.js';
 import {
+  DOCS_CLOCK,
   DOCS_THEME,
   assertDocsPresentation,
   demoConversationId,
@@ -52,6 +53,11 @@ test.beforeEach(async ({ page }, testInfo) => {
   page.__languageOverride = 'en';
   page.__themeOverride = DOCS_THEME;
   await useEnglishLocale(page);
+  // Freeze the clock for every capture, not only the calendar ones: the message list
+  // prints times, the week grid draws a "now" line, and relative dates would otherwise
+  // make two runs of the same code produce different pixels (and flap the CI staleness
+  // check).
+  await page.clock.setFixedTime(new Date(DOCS_CLOCK));
   if (desktop) await page.setViewportSize({ width: 1440, height: 900 });
 });
 
@@ -60,6 +66,34 @@ async function settle(page) {
   await page.waitForFunction(() => document.getAnimations().every(
     animation => animation.effect?.getComputedTiming().endTime === Infinity || animation.playState !== 'running',
   ));
+}
+
+/**
+ * Waits until a scroll container stops moving, optionally pinning it first.
+ *
+ * The conversation reader scrolls itself to align the selected message, and it does that
+ * again when a lazily loaded body changes the pane height. Left alone, the capture races
+ * that alignment and the same code produces different pixels between runs. So: let the
+ * reader finish, pin the pane, then confirm nothing re-snapped.
+ */
+async function settleScroll(locator, page, { pin = null } = {}) {
+  await waitForStableScroll(locator, page);
+  if (pin !== null) await locator.evaluate((element, value) => { element.scrollTop = value; }, pin);
+  return waitForStableScroll(locator, page);
+}
+
+/** Resolves once scrollTop and scrollHeight have both been unchanged for three reads. */
+async function waitForStableScroll(locator, page) {
+  let previous = null;
+  let stableReads = 0;
+  for (let attempt = 0; attempt < 60; attempt += 1) {
+    const current = await locator.evaluate(element => `${element.scrollTop}:${element.scrollHeight}`);
+    stableReads = current === previous ? stableReads + 1 : 0;
+    previous = current;
+    if (stableReads >= 3) return current;
+    await page.waitForTimeout(120);
+  }
+  throw new Error(`The reading pane never settled (last state: ${previous}).`);
 }
 
 /**
@@ -100,6 +134,7 @@ async function openDemoConversation(page, copy = demoCopyId(3)) {
   const reader = page.locator(`section[data-conversation-id="${demoConversationId()}"]:visible`);
   await expect(reader).toBeVisible();
   await expect(reader.locator('iframe').first()).toBeVisible();
+  await settleScroll(reader, page, { pin: 0 });
   return reader;
 }
 
@@ -160,6 +195,8 @@ test('mail: conversation reader with the thread history expanded', async ({ page
     if (await toggle.count()) await toggle.click();
   }
   await expect.poll(() => reader.locator('iframe').count()).toBeGreaterThanOrEqual(3);
+  // Expanding more messages changes the pane height, so re-pin the scroll position.
+  await settleScroll(reader, page, { pin: 0 });
   await capture(page, 'mail-conversation', { mode: 'mail-reader' });
 });
 
@@ -260,7 +297,10 @@ test('mobile shell: navigation docked at the top and at the bottom', async ({ pa
     // conversation reader, which shows the navigation position together with real content.
     await row.locator("button[aria-label*='(4)']").click();
     await row.locator(`[data-thread-row-child="${demoCopyId(3)}"]`).click();
-    await expect(page.locator(`section[data-conversation-id="${demoConversationId()}"]:visible`)).toBeVisible();
+    const reader = page.locator(`section[data-conversation-id="${demoConversationId()}"]:visible`);
+    await expect(reader).toBeVisible();
+    await expect(reader.locator('iframe').first()).toBeVisible();
+    await settleScroll(reader, page, { pin: 0 });
     await capture(page, `mobile-navigation-${position}`, { mode: 'mail-reader', variant: 'mobile' });
   }
 });

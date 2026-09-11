@@ -15,6 +15,12 @@ import { expect } from '@playwright/test';
 /** Every documentation capture uses this theme, so the set stays visually consistent. */
 export const DOCS_THEME = 'ink';
 
+/**
+ * The frozen wall clock for every capture. The demo data is dated around it, so dates,
+ * times, relative labels and the calendar's "now" line are all deterministic.
+ */
+export const DOCS_CLOCK = '2026-09-10T10:15:00Z';
+
 /** Pins the interface language (and therefore date formatting) before the app boots. */
 export async function useEnglishLocale(page) {
   await page.addInitScript(() => {
