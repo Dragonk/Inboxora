@@ -5,4 +5,4 @@
 # so the APK is built from exactly this commit (matching the Docker dev images).
 #
 # Target dev commit (same SHA as the published ghcr.io/dragonk/inboxora-*:dev):
-304b2275ea492c879003ec2d12db121802e609d5
+119b0937da38838b5a7649f67b8c502b47ec8430
