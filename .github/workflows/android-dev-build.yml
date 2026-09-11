@@ -32,11 +32,6 @@ jobs:
   android:
     name: Debug APK from dev
     runs-on: ubuntu-latest
-    env:
-      # Explicit Android user home so the stable debug keystore installed below
-      # is the one AGP signs with. Without this, AGP falls back to
-      # $XDG_CONFIG_HOME/.android and every runner generates a fresh debug key.
-      ANDROID_USER_HOME: ${{ runner.temp }}/android-user-home
     steps:
       - name: Checkout dev
         uses: actions/checkout@v6
@@ -87,6 +82,12 @@ jobs:
         run: |
           yes | sdkmanager --licenses >/dev/null 2>&1 || true
           sdkmanager --install "platform-tools" "platforms;android-36" "build-tools;36.0.0"
+
+      - name: Configure a stable Android user home
+        # AGP resolves the debug keystore from ANDROID_USER_HOME and otherwise
+        # falls back to XDG_CONFIG_HOME/.android (set on GitHub runners), where a
+        # fresh key is generated every run. Pinning it keeps dev APKs updatable.
+        run: echo "ANDROID_USER_HOME=$HOME/.android-inboxora" >> "$GITHUB_ENV"
 
       - name: Install frontend dependencies
         working-directory: frontend
