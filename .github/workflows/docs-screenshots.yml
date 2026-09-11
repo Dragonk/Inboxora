@@ -91,6 +91,12 @@ jobs:
         working-directory: frontend
         run: npm run build
 
+      # Keep the committed images so the regenerated ones can be compared against them.
+      - name: Snapshot the committed screenshots
+        run: |
+          mkdir -p artifacts/docs-baseline
+          cp media/screenshots/*.png artifacts/docs-baseline/
+
       - name: Generate documentation screenshots
         working-directory: frontend
         env:
@@ -100,29 +106,40 @@ jobs:
       - name: Verify the screenshot set
         run: node scripts/verify-docs-screenshots.mjs
 
+      # Pixel comparison with the same tolerance the visual regression spec uses, because
+      # byte equality is not achievable across machines even for an identical interface.
+      - name: Compare with the committed screenshots
+        id: comparison
+        continue-on-error: true
+        run: |
+          node scripts/compare-docs-screenshots.mjs \
+            artifacts/docs-baseline media/screenshots \
+            --diff-dir artifacts/docs-screenshot-diffs
+
+      - name: Report staleness
+        id: staleness
+        run: |
+          if [[ "${{ steps.comparison.outcome }}" == "success" ]]; then
+            echo "stale=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "stale=true" >> "$GITHUB_OUTPUT"
+          fi
+
       - name: Upload the generated screenshots
         if: always()
         uses: actions/upload-artifact@v4
         with:
           name: docs-screenshots-${{ github.run_id }}
           if-no-files-found: error
-          path: media/screenshots/
-
-      - name: Report staleness
-        id: staleness
-        run: |
-          if git diff --quiet -- media/screenshots; then
-            echo "stale=false" >> "$GITHUB_OUTPUT"
-          else
-            echo "stale=true" >> "$GITHUB_OUTPUT"
-            git --no-pager diff --stat -- media/screenshots
-          fi
+          path: |
+            media/screenshots/
+            artifacts/docs-screenshot-diffs/
 
       # Verification runs: the committed images must match what the application renders now.
       - name: Fail when the committed screenshots are stale
         if: steps.staleness.outputs.stale == 'true' && github.event_name != 'workflow_dispatch'
         run: |
-          echo "::error::media/screenshots/ is out of date. Download the docs-screenshots artifact and commit the regenerated images, or dispatch this workflow with 'commit' enabled."
+          echo "::error::media/screenshots/ is out of date. Download the docs-screenshots artifact (it includes diff images) and commit the regenerated set, or dispatch this workflow with 'commit' enabled."
           exit 1
 
       - name: Commit the regenerated screenshots
@@ -145,6 +162,7 @@ jobs:
             echo "- stale: ${{ steps.staleness.outputs.stale }}"
             echo "- event: ${{ github.event_name }}"
             echo
-            echo "The presentation contract (shared theme, unified inbox, populated content)"
-            echo "is asserted by the spec before every capture."
+            echo "Each capture asserts the presentation contract (shared theme, unified inbox,"
+            echo "populated content) before it is written, and the regenerated set is compared"
+            echo "with the committed one at a 0.2 % pixel tolerance."
           } >> "$GITHUB_STEP_SUMMARY"
