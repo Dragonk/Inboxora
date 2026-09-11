@@ -25,6 +25,7 @@ against the upstream MailFlow fork.
 | Harden a deployment | [Security](Security.md) |
 | Fix something that is not working | [Troubleshooting](Troubleshooting.md) |
 | Upgrade from 3.x or from MailFlow | [Upgrading](Upgrading.md) |
+| Move a MailFlow 3.3.0 deployment to Inboxora | [Migrating from MailFlow](Migrating-from-MailFlow.md) |
 | Build, test or contribute | [Development](Development.md) |
 
 ## Core features

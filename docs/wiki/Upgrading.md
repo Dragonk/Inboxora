@@ -7,6 +7,9 @@ therefore: back up, change the version, pull, recreate.
 > restoring a database backup without the matching key leaves every stored credential
 > unreadable.
 
+Coming from MailFlow rather than an earlier Inboxora? Use
+[**Migrating from MailFlow**](Migrating-from-MailFlow.md) instead.
+
 ## Standard upgrade
 
 ```bash
@@ -75,14 +78,25 @@ Images are pinned, so a rollback is an image change:
 
 ## Upgrading a MailFlow deployment
 
-Inboxora began as a fork of [MailFlow](https://github.com/maathimself/mailflow) and deliberately
-keeps several legacy identifiers so existing deployments keep working:
-`mailflow_`-prefixed browser storage, the `mailflow` Docker network and container names, and the
-default database names. Preserve those names when upgrading in place, or the stack will create an
-empty database next to your data. Fresh installations may rename the database through the
-documented environment variables.
+Inboxora began as a fork of [MailFlow](https://github.com/maathimself/mailflow), and an existing
+MailFlow deployment can be moved over without losing data.
 
-The retained identifiers and the reasoning behind them are recorded in
+> **Only MailFlow 3.3.0 is supported as a migration source.** Newer MailFlow versions have not
+> been tested and the migration history is not compatible with them.
+
+[**Migrating from MailFlow**](Migrating-from-MailFlow.md) is the full procedure: what carries
+over, the in-place and dump-and-restore routes, the database and volume naming traps that make a
+migrated instance look empty, and how to group existing mail into conversations afterwards.
+
+Two things to know before you start, both covered there in detail:
+
+- Keep your existing **`ENCRYPTION_KEY`**, `DB_NAME` and `DB_USER`, and bring the stack up from
+  the directory that holds your volumes. Inboxora's published compose file uses `inboxora` as its
+  database default, and a new database name on an existing volume means the backend cannot
+  connect.
+- The image version variable was renamed: **`MAILFLOW_VERSION` → `INBOXORA_VERSION`**.
+
+The retained legacy identifiers and the reasoning behind them are recorded in
 [`docs/technical-identifier-audit.md`](https://github.com/Dragonk/Inboxora/blob/dev/docs/technical-identifier-audit.md).
 
 ## Versioning

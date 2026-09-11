@@ -147,6 +147,12 @@ endpoints.
 - Existing preferences and legacy storage identifiers are preserved; the retained identifiers are
   documented in [`docs/technical-identifier-audit.md`](technical-identifier-audit.md).
 - Threading is disabled by default, so an upgrade does not change how existing mail is displayed.
+- **MailFlow 3.3.0 deployments can migrate in place without losing data.** The 50 schema
+  migrations MailFlow 3.3.0 ships are byte-for-byte identical here, and this release only adds
+  migrations on top. Only MailFlow 3.3.0 is a supported migration source; newer versions have not
+  been tested. Keep `ENCRYPTION_KEY`, `DB_NAME` and `DB_USER`, note that `MAILFLOW_VERSION` became
+  `INBOXORA_VERSION`, and follow
+  [Migrating from MailFlow](wiki/Migrating-from-MailFlow.md).
 
 ## [3.4.0]
 

@@ -140,6 +140,23 @@ Optional: `VAPID_PUBLIC_KEY` / `VAPID_PRIVATE_KEY` / `VAPID_SUBJECT` for Web Pus
 [Installation](https://github.com/Dragonk/Inboxora/wiki/Installation) wiki page for the full
 matrix, including running behind an existing reverse proxy.
 
+## Coming from MailFlow?
+
+An existing MailFlow deployment can be moved to Inboxora **without losing mail, accounts, rules,
+contacts or preferences**.
+
+> **Only MailFlow 3.3.0 is supported as a migration source.** Newer versions have not been tested.
+
+The upgrade is a database migration that only adds: the 50 schema migrations MailFlow 3.3.0 ships
+are byte-for-byte identical in Inboxora, which adds its own on top. Before you start, keep your
+original `ENCRYPTION_KEY`, `DB_NAME` and `DB_USER`, and bring the stack up from the directory that
+holds your volumes — Inboxora's compose file uses `inboxora` as its database default, and a new
+database name on an existing volume is the usual reason a migrated instance looks empty.
+
+The full procedure, including the in-place and dump-and-restore routes and how to group existing
+mail into conversations afterwards, is in
+[**Migrating from MailFlow**](docs/wiki/Migrating-from-MailFlow.md).
+
 ## Connecting your accounts
 
 - **IMAP/SMTP** — any provider, with Gmail, Yahoo, iCloud and custom presets.
@@ -248,6 +265,7 @@ release.
 | [Mobile navigation](docs/wiki/Mobile-navigation.md) | Phone layout, drawers, Back handling, safe areas. |
 | [Security](docs/wiki/Security.md) | Secrets, network boundaries, DAV and rendering safety. |
 | [Upgrading](docs/wiki/Upgrading.md) | Upgrade path, 4.0.0 notes, rollback, legacy identifiers. |
+| [Migrating from MailFlow](docs/wiki/Migrating-from-MailFlow.md) | Moving a MailFlow 3.3.0 deployment to Inboxora. |
 | [Troubleshooting](docs/wiki/Troubleshooting.md) | Diagnostic paths and common failures. |
 | [Development](docs/wiki/Development.md) | Local verification, browser tests, documentation policy. |
 | [Release notes 4.0.0](docs/wiki/Release-notes-4.0.0.md) | Why this is a major release and what changed. |

@@ -11,6 +11,7 @@
 - **Operations**
   - [Security](Security.md)
   - [Upgrading](Upgrading.md)
+  - [Migrating from MailFlow](Migrating-from-MailFlow.md)
   - [Troubleshooting](Troubleshooting.md)
   - [Development](Development.md)
 - **Reference**

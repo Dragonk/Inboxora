@@ -14,6 +14,16 @@ and no message content. It is the fastest way to describe a problem in an issue.
 | Password login disabled | SSO is enabled and password login was turned off. Use the SSO button. |
 | Changes lost after an update | A service worker from an older build is still cached; reload the page once. |
 
+## After migrating from MailFlow
+
+| Symptom | Cause and fix |
+| --- | --- |
+| The instance looks **empty** after switching to Inboxora | The database or volume was not reused. The backend is running against a new, empty database next to your data. Stop it before importing anything and follow [Migrating from MailFlow](Migrating-from-MailFlow.md). |
+| Backend will not start: `database "inboxora" does not exist` | Inboxora's compose defaults `DB_NAME` to `inboxora`, but your existing PostgreSQL volume only holds `mailflow`, and `POSTGRES_DB` is ignored on a non-empty data directory. Set `DB_NAME=mailflow` and `DB_USER=mailflow` in `.env`. |
+| Stored passwords rejected or OAuth accounts need reconnecting | `ENCRYPTION_KEY` was not carried over. Restore the original value; if it is lost, users must re-enter credentials and re-consent OAuth. |
+| Old mail appears as single messages with no threads | Expected until a rebuild groups it; the conversation engine is new to a MailFlow database. See [Grouping existing mail](Migrating-from-MailFlow.md#grouping-existing-mail). |
+| `Migration checksum mismatch: <version>` on start | A migration file changed after it was applied. Only restore a database dump taken with the matching image; do not edit migration files in place. |
+
 ## Mail does not arrive
 
 1. Check the account state in the sidebar: a connection error is shown per account.

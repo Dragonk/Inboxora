@@ -126,3 +126,8 @@ docker compose up -d
 
 Database migrations run automatically on backend start. Review the release notes and
 [Upgrading](Upgrading.md) before a major version change.
+
+Replacing an existing **MailFlow** deployment — rather than installing fresh — is a different
+procedure with its own traps around database and volume names: see
+[Migrating from MailFlow](Migrating-from-MailFlow.md). Only MailFlow 3.3.0 is supported as a
+migration source.
