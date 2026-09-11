@@ -398,6 +398,52 @@ body, #root {
   height: 0;
 }
 
+/* TipTap rich-text editor used for short fields (calendar descriptions). Same
+   content styling as the compose editor so a description looks like a body. */
+.rich-text-editor .ProseMirror {
+  outline: none;
+  color: var(--text-primary);
+  font-family: var(--font-sans, 'DM Sans', sans-serif);
+  font-size: 13px;
+  line-height: 1.6;
+  min-height: inherit;
+}
+.rich-text-editor .ProseMirror p { margin: 0 0 0.25em; }
+.rich-text-editor .ProseMirror p:last-child { margin-bottom: 0; }
+.rich-text-editor .ProseMirror ul { padding-left: 1.4em; margin: 0.25em 0; list-style-type: disc; }
+.rich-text-editor .ProseMirror ol { padding-left: 1.4em; margin: 0.25em 0; list-style-type: decimal; }
+.rich-text-editor .ProseMirror li { display: list-item; }
+.rich-text-editor .ProseMirror blockquote {
+  border-left: 3px solid var(--border);
+  margin: 0.25em 0;
+  padding-left: 0.75em;
+  color: var(--text-secondary);
+}
+.rich-text-editor .ProseMirror a { color: var(--accent); text-decoration: underline; }
+.rich-text-editor .ProseMirror p.is-editor-empty:first-child::before {
+  content: attr(data-placeholder);
+  color: var(--text-tertiary);
+  pointer-events: none;
+  float: left;
+  height: 0;
+}
+/* Mobile: keep the 16px floor so iOS does not zoom the field on focus. */
+@supports (-webkit-touch-callout: none) {
+  .rich-text-editor .ProseMirror { font-size: 16px; }
+}
+
+/* A calendar description is shown exactly like a mail body: same sanitized
+   iframe, framed the same way as the message body panel. */
+.calendar-event-description {
+  border: 1px solid var(--border-subtle);
+  border-radius: 8px;
+  background: var(--message-body-bg, var(--bg-primary));
+  overflow: hidden;
+  padding: 10px 12px;
+}
+.calendar-description { display: block; margin-bottom: 10px; }
+.calendar-description-label { display: block; margin-bottom: 4px; font-size: 12px; color: var(--text-secondary); }
+
 /* Mobile: match textarea font-size override */
 @supports (-webkit-touch-callout: none) {
   .tiptap-compose .ProseMirror { font-size: 16px !important; }

@@ -32,8 +32,19 @@ describe('recurring calendar resources', () => {
  });
 });
 
-it('renders HTML-only descriptions as safe readable text', () => {
- const raw = resource().replace('DESCRIPTION:Full agenda', 'X-ALT-DESC;FMTTYPE=text/html:<p>Plan &amp; details</p><script>hidden()</script><p>Next</p>');
- expect(projectCalendarResource(row(raw), from, to)[0].description).toBe('Plan & details\nNext');
- expect(parseCalendarEvent(raw).description).toBe('Plan & details\nNext');
+// A description is displayed by the same sanitized HTML pipeline as a mail body,
+// so an HTML alternative is preserved as markup (not flattened to text) and is
+// cleaned on the way out of the parser: scripts and event handlers never reach
+// the client, while the formatting the sender wrote survives.
+it('keeps an HTML-only description as sanitized mail-like markup', () => {
+ const raw = resource().replace('DESCRIPTION:Full agenda', 'X-ALT-DESC;FMTTYPE=text/html:<p>Plan &amp; details</p><script>hidden()</script><p><a href="javascript:alert(1)" onclick="x()">Next</a></p>');
+ const expected = '<p>Plan &amp; details</p><p><a rel="noopener noreferrer" target="_blank">Next</a></p>';
+ expect(projectCalendarResource(row(raw), from, to)[0].description).toBe(expected);
+ expect(parseCalendarEvent(raw).description).toBe(expected);
+});
+
+it('stores a plain-text description verbatim and sanitizes raw markup in DESCRIPTION', () => {
+ expect(parseCalendarEvent(resource()).description).toBe('Full agenda');
+ const raw = resource().replace('DESCRIPTION:Full agenda', 'DESCRIPTION:<p>Line one</p><p>Line&nbsp;two</p><script>bad()</script>');
+ expect(parseCalendarEvent(raw).description).toBe('<p>Line one</p><p>Line\u00a0two</p>');
 });

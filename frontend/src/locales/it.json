@@ -1842,7 +1842,8 @@
     "invitationLocalCopy": "Salva l’evento senza inviare una risposta all’organizzatore.",
     "invitationLoadFailed": "Impossibile caricare o salvare l’invito.",
     "editOccurrence": "Stai modificando solo questa occorrenza.",
-    "incompleteSeries": "Alcuni eventi ricorrenti non è stato possibile espanderli completamente e potrebbero mancare in questa vista."
+    "incompleteSeries": "Alcuni eventi ricorrenti non è stato possibile espanderli completamente e potrebbero mancare in questa vista.",
+    "descriptionPlaceholder": "Ordine del giorno, note, link video…"
   },
   "mailFolders": {
     "inbox": "Posta in arrivo",
@@ -1876,5 +1877,10 @@
       "label": "Divisione verticale",
       "description": "L’elenco dei messaggi si trova sopra il riquadro di lettura."
     }
+  },
+  "richTextEditor": {
+    "bulletList": "Elenco puntato",
+    "orderedList": "Elenco numerato",
+    "clearFormat": "Rimuovi formattazione"
   }
 }

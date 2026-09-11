@@ -1842,7 +1842,8 @@
     "invitationLocalCopy": "Speichert den Termin, ohne dem Organisator zu antworten.",
     "invitationLoadFailed": "Die Einladung konnte nicht geladen oder gespeichert werden.",
     "editOccurrence": "Sie bearbeiten nur diesen Termin der Serie.",
-    "incompleteSeries": "Einige Serientermine konnten nicht vollständig aufgelöst werden und fehlen möglicherweise in dieser Ansicht."
+    "incompleteSeries": "Einige Serientermine konnten nicht vollständig aufgelöst werden und fehlen möglicherweise in dieser Ansicht.",
+    "descriptionPlaceholder": "Agenda, Notizen, Videolink…"
   },
   "mailFolders": {
     "inbox": "Posteingang",
@@ -1876,5 +1877,10 @@
       "label": "Vertikal geteilt",
       "description": "Die Nachrichtenliste steht über dem Lesebereich."
     }
+  },
+  "richTextEditor": {
+    "bulletList": "Aufzählungsliste",
+    "orderedList": "Nummerierte Liste",
+    "clearFormat": "Formatierung entfernen"
   }
 }

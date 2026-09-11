@@ -1,3 +1,5 @@
+import { richTextOrNull } from '../utils/richText.js';
+
 export function monthRange(anchor) {
   const start = new Date(anchor.getFullYear(), anchor.getMonth(), 1);
   const end = new Date(anchor.getFullYear(), anchor.getMonth() + 1, 1);
@@ -139,7 +141,7 @@ export function eventPayload(form) {
     ...(form.recurrenceId ? { recurrenceId: form.recurrenceId } : {}),
     calendarId: form.calendarId,
     summary: form.summary.trim(),
-    description: form.description.trim() || null,
+    description: richTextOrNull(form.description),
     location: form.location.trim() || null,
     url: form.url.trim() || null,
     organizer: form.organizer.trim() || null,

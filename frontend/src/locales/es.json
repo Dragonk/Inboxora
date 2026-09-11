@@ -1842,7 +1842,8 @@
     "invitationLocalCopy": "Guarda el evento sin enviar una respuesta al organizador.",
     "invitationLoadFailed": "No se pudo cargar o guardar la invitación.",
     "editOccurrence": "Estás editando solo esta ocurrencia.",
-    "incompleteSeries": "Algunos eventos recurrentes no se pudieron expandir por completo y pueden faltar en esta vista."
+    "incompleteSeries": "Algunos eventos recurrentes no se pudieron expandir por completo y pueden faltar en esta vista.",
+    "descriptionPlaceholder": "Orden del día, notas, enlace de vídeo…"
   },
   "mailFolders": {
     "inbox": "Recibidos",
@@ -1876,5 +1877,10 @@
       "label": "División vertical",
       "description": "La lista de mensajes aparece encima del panel de lectura."
     }
+  },
+  "richTextEditor": {
+    "bulletList": "Lista con viñetas",
+    "orderedList": "Lista numerada",
+    "clearFormat": "Borrar formato"
   }
 }

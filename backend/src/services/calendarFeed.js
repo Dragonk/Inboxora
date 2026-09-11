@@ -1,4 +1,5 @@
 import crypto from 'crypto';
+import { descriptionContentLines } from '../utils/richText.js';
 
 export const FEED_TOKEN_BYTES = 32;
 
@@ -43,7 +44,7 @@ export function serializeCalendarFeed(events, calendarName = 'Inboxora') {
     const allDay = Boolean(event.all_day);
     lines.push('BEGIN:VEVENT', `UID:${escapeText(event.uid || event.id)}`, `DTSTAMP:${dateValue(event.updated_at || event.created_at || event.starts_at, false)}`, `DTSTART${allDay ? ';VALUE=DATE' : ''}:${dateValue(event.starts_at, allDay)}`, `DTEND${allDay ? ';VALUE=DATE' : ''}:${dateValue(event.ends_at, allDay)}`);
     if (event.summary) lines.push(`SUMMARY:${escapeText(event.summary)}`);
-    if (event.description) lines.push(`DESCRIPTION:${escapeText(event.description)}`);
+    lines.push(...descriptionContentLines(event.description, escapeText));
     if (event.location) lines.push(`LOCATION:${escapeText(event.location)}`);
     if (event.url) lines.push(`URL:${escapeText(event.url)}`);
     lines.push('END:VEVENT');

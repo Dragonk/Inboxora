@@ -1,4 +1,5 @@
 import { safeHttpUrl } from '../utils/contactLinks.js';
+import { calendarDescriptionBody } from '../utils/richText.js';
 import MobileFloatingAction from './MobileFloatingAction.jsx';
 import { localizeContactCalendar, localizeContactEvent } from '../utils/contactDateLabels.js';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
@@ -11,6 +12,8 @@ import CalendarSidebar from './CalendarSidebar.jsx';
 import { createInvitationOperationController } from './calendarInvitationRetry.js';
 import CalendarContextMenu from './CalendarContextMenu.jsx';
 import CalendarAgenda from './CalendarAgenda.jsx';
+import MessageBodyRenderer from './MessageBodyRenderer.jsx';
+import RichTextEditor from './RichTextEditor.jsx';
 import { Button, Dialog } from './ui.jsx';
 import { MobileModuleHeader, HeaderAction } from './MobileModuleHeader.jsx';
 import { useCompactLayout } from '../hooks/useCompactLayout.js';
@@ -76,6 +79,9 @@ export default function CalendarPage({ isActive = true }) {
   const calendars = useMemo(() => rawCalendars.map(calendar => localizeContactCalendar(calendar, t)), [rawCalendars, t]);
   const events = useMemo(() => rawEvents.map(event => localizeContactEvent(event, t)), [rawEvents, t]);
   const [error, setError] = useState(null); const [loading, setLoading] = useState(true); const [form, setForm] = useState(null); const [saving, setSaving] = useState(false);
+  // Read-only events (imported/synced sources) are shown in a preview dialog whose
+  // description is rendered by the mail body renderer.
+  const descriptionBody = useMemo(() => calendarDescriptionBody(preview?.description), [preview]);
   // Set when the server could not expand every series within its budget. The
   // events that are shown stay valid, but the view must say it is incomplete
   // rather than silently presenting a partial month as the whole truth.
@@ -227,7 +233,12 @@ export default function CalendarPage({ isActive = true }) {
     {preview && <Dialog title={localizeContactEvent(preview, t).summary || t('calendar.untitled')} closeLabel={t('calendar.close')} onClose={() => setPreview(null)} testId="calendar-event-preview">
       <div className="ui-form"><span className="calendar-readonly">{t('calendar.readOnly')}</span>
         <p>{preview.all_day ? `${String(preview.starts_at).slice(0, 10)} · ${t('calendar.allDay')}` : `${new Date(preview.starts_at).toLocaleString(locale)} – ${new Date(preview.ends_at).toLocaleString(locale)}`}</p>
-        {preview.location && <p>{preview.location}</p>}{preview.description && <p style={{ whiteSpace: 'pre-wrap' }}>{preview.description}</p>}
+        {preview.location && <p>{preview.location}</p>}
+        {/* The description is rendered exactly like a message body: the same
+            sanitized, script-free iframe. Invitations accepted from mail arrive
+            with HTML (X-ALT-DESC or markup inside DESCRIPTION) and used to show
+            raw tags here; plain text keeps the mail reader's text treatment. */}
+        {(descriptionBody.html || descriptionBody.text) && <div className="calendar-event-description" data-testid="calendar-event-description-body"><MessageBodyRenderer {...descriptionBody} title={t('calendar.description')} showQuotedTextLabel={t('conversation.showQuotedText')} hideQuotedTextLabel={t('conversation.hideQuotedText')} /></div>}
         {safeHttpUrl(preview.url) && <p><a href={safeHttpUrl(preview.url)} target="_blank" rel="noopener noreferrer">{preview.url}</a></p>}
         {preview.attendees?.length > 0 && <p>{t('calendar.attendees')}: {preview.attendees.join(', ')}</p>}
         {preview.organizer && <p>{t('calendar.organizer')}: {preview.organizer}</p>}
@@ -321,7 +332,7 @@ function EventDialog({ form, error, calendars, accounts, saving, onChange, onAll
       <div className="ui-form-columns"><label>{t('calendar.starts')}<input type={form.allDay ? 'date' : 'datetime-local'} value={form.startsAt} onChange={e => onChange('startsAt', e.target.value)} /></label><label>{t('calendar.ends')}<input type={form.allDay ? 'date' : 'datetime-local'} value={form.endsAt} onChange={e => onChange('endsAt', e.target.value)} /></label></div>
       <label>{t('calendar.calendar')}<select value={form.calendarId} onChange={e => onChange('calendarId', e.target.value)}>{calendars.map(calendar => <option key={calendar.id} value={calendar.id}>{calendar.name}</option>)}</select></label>
       <label>{t('calendar.location')}<input value={form.location} onChange={e => onChange('location', e.target.value)} /></label>
-      <label>{t('calendar.description')}<textarea rows="4" value={form.description} onChange={e => onChange('description', e.target.value)} /></label>
+      <div className="calendar-description"><span className="calendar-description-label">{t('calendar.description')}</span><RichTextEditor value={form.description} onChange={html => onChange('description', html)} placeholder={t('calendar.descriptionPlaceholder')} label={t('calendar.description')} testId="calendar-event-description" /></div>
       <div className="calendar-invites ui-form"><label className="ui-check"><input type="checkbox" checked={form.sendInvites} onChange={e => onChange('sendInvites', e.target.checked)} />{t('calendar.sendInvites')}</label>
         {form.sendInvites && <><label>{t('calendar.attendees')}<input value={attendeeValue} onChange={e => onChange('attendees', e.target.value.split(',').map(email => email.trim()).filter(Boolean))} placeholder={t('calendar.attendeesPlaceholder')} /></label>
           <label>{t('calendar.senderAccount')}<select value={form.inviteAccountId} onChange={e => onChange('inviteAccountId', e.target.value)}><option value="">{t('calendar.chooseSender')}</option>{accounts.map(account => <option key={account.id} value={account.id}>{account.name || account.email_address} · {account.email_address}</option>)}</select></label>

@@ -1,3 +1,5 @@
+import { descriptionContentLines } from '../utils/richText.js';
+
 function escapeICalendarText(value) {
   return String(value || '')
     .replaceAll('\\', '\\\\')
@@ -47,7 +49,7 @@ function invitationIcal({ uid, summary, description, location, organizerEmail, a
   ];
   if (method === 'CANCEL') lines.push('STATUS:CANCELLED');
   if (summary) lines.push(`SUMMARY:${escapeICalendarText(summary)}`);
-  if (description) lines.push(`DESCRIPTION:${escapeICalendarText(description)}`);
+  lines.push(...descriptionContentLines(description, escapeICalendarText));
   if (location) lines.push(`LOCATION:${escapeICalendarText(location)}`);
   for (const attendee of attendees) lines.push(`ATTENDEE;ROLE=REQ-PARTICIPANT:mailto:${attendee}`);
   lines.push('END:VEVENT', 'END:VCALENDAR', '');

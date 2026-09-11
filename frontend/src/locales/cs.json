@@ -1842,7 +1842,8 @@
     "invitationLocalCopy": "Uloží událost bez odeslání odpovědi organizátorovi.",
     "invitationLoadFailed": "Pozvánku se nepodařilo načíst nebo uložit.",
     "editOccurrence": "Upravujete pouze tento výskyt události.",
-    "incompleteSeries": "Některé opakující se události nebylo možné plně rozvinout a v tomto zobrazení mohou chybět."
+    "incompleteSeries": "Některé opakující se události nebylo možné plně rozvinout a v tomto zobrazení mohou chybět.",
+    "descriptionPlaceholder": "Program, poznámky, odkaz na schůzku…"
   },
   "mailFolders": {
     "inbox": "Doručená pošta",
@@ -1876,5 +1877,10 @@
       "label": "Svislé rozdělení",
       "description": "Seznam zpráv je nad panelem čtení."
     }
+  },
+  "richTextEditor": {
+    "bulletList": "Odrážkový seznam",
+    "orderedList": "Číslovaný seznam",
+    "clearFormat": "Vymazat formátování"
   }
 }

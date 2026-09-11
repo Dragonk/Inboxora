@@ -1,6 +1,8 @@
 import { useEffect, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { api } from '../utils/api.js';
+import { calendarDescriptionBody } from '../utils/richText.js';
+import MessageBodyRenderer from './MessageBodyRenderer.jsx';
 import { Button } from './ui.jsx';
 import { intlLocale } from '../utils/intlLocale.js';
 
@@ -35,7 +37,7 @@ export default function CalendarInvitationCard({ messageId }) {
     {invitation && <><p>{invitation.summary || t('calendar.untitled')}</p>
       {invitation.startsAt && <p>{invitation.allDay ? String(invitation.startsAt).slice(0, 10) : new Date(invitation.startsAt).toLocaleString(intlLocale(i18n.language))}</p>}
       {invitation.location && <p>{invitation.location}</p>}
-      {invitation.description && <p style={{ whiteSpace: 'pre-wrap', overflowWrap: 'anywhere' }}>{invitation.description}</p>}
+      {invitation.description && <div className="calendar-event-description" data-testid="calendar-invitation-description"><MessageBodyRenderer {...calendarDescriptionBody(invitation.description)} title={t('calendar.description')} showQuotedTextLabel={t('conversation.showQuotedText')} hideQuotedTextLabel={t('conversation.hideQuotedText')} /></div>}
       {invitation.method === 'CANCEL' ? <p role="status">{t('calendar.invitationCancelled')}</p> : saved ? <p role="status">{t('calendar.invitationAdded')}</p> : <div className="ui-form">
         <label>{t('calendar.calendar')}<select value={calendarId} onChange={event => setCalendarId(event.target.value)} disabled={saving}>{calendars.map(calendar => <option key={calendar.id} value={calendar.id}>{calendar.name}</option>)}</select></label>
         {!calendars.length && <p>{t('calendar.noWritable')}</p>}

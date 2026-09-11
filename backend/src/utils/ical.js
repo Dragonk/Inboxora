@@ -1,5 +1,5 @@
-import { Parser } from 'htmlparser2';
 import ICAL from 'ical.js';
+import { isHtmlDescription, sanitizeDescriptionHtml } from './richText.js';
 
 // Resolve TZID references against the VTIMEZONE definitions of one calendar
 // resource. `parsedRoot` lets a caller that already parsed the document reuse
@@ -225,7 +225,7 @@ export function parseCalendarEvent(raw) {
     allDay: startsAt.allDay,
     timeZone: startsAt.timeZone,
     summary: summary ? unescapeICalendarText(summary.value) : null,
-    description: named('DESCRIPTION')[0] ? unescapeICalendarText(named('DESCRIPTION')[0].value) : (() => { try { return calendarDescription(new ICAL.Component(ICAL.parse(raw)).getFirstSubcomponent('vevent')); } catch { return null; } })(),
+    description: eventDescription(named, raw),
     location: named('LOCATION')[0] ? unescapeICalendarText(named('LOCATION')[0].value) : null,
     url: named('URL')[0]?.value || null,
     organizer: named('ORGANIZER')[0]?.value.replace(/^mailto:/i, '') || null,
@@ -235,18 +235,35 @@ export function parseCalendarEvent(raw) {
 }
 
 
+// The description a mail-derived invitation should display. RFC 5545 keeps the
+// text in DESCRIPTION and the HTML alternative in X-ALT-DESC;FMTTYPE=text/html.
+// Rendering the HTML when a sender provided it is what makes an invitation
+// accepted from mail look like the mail it came from. When only DESCRIPTION
+// exists it is used verbatim (raw HTML in DESCRIPTION is rendered as HTML by the
+// reader), and an unparsable resource still falls back to the flattened text.
+function eventDescription(named, raw) {
+  const htmlAlternative = named('X-ALT-DESC').find((property) => /html/i.test(String(property.parameters?.FMTTYPE || '')));
+  if (htmlAlternative) {
+    const html = sanitizeDescriptionHtml(unescapeICalendarText(htmlAlternative.value));
+    if (isHtmlDescription(html)) return html;
+  }
+  const plain = named('DESCRIPTION')[0];
+  if (plain) return sanitizeDescriptionHtml(unescapeICalendarText(plain.value));
+  try {
+    return calendarDescription(new ICAL.Component(ICAL.parse(raw)).getFirstSubcomponent('vevent'));
+  } catch {
+    return null;
+  }
+}
+
+// The description of a parsed component, ready for the mail-like reader: the
+// HTML alternative when the sender provided one, otherwise DESCRIPTION verbatim
+// (raw markup in DESCRIPTION is rendered as HTML). Anything HTML is sanitized
+// with the same policy as a compose body before it leaves this module.
 export function calendarDescription(component) {
+  const html = component.getAllProperties('x-alt-desc').find(property => /html/i.test(String(property.getParameter('fmttype'))))?.getFirstValue();
+  const sanitizedHtml = html ? sanitizeDescriptionHtml(String(html)) : null;
+  if (isHtmlDescription(sanitizedHtml)) return sanitizedHtml;
   const plain = component.getFirstPropertyValue('description');
-  if (plain) return plain;
-  const html = component.getAllProperties('x-alt-desc').find(property => String(property.getParameter('fmttype')).toLowerCase() === 'text/html')?.getFirstValue();
-  if (!html) return plain || null;
-  let suppressed = 0;
-  let text = '';
-  const parser = new Parser({
-    onopentag(name) { if (['script', 'style'].includes(name)) suppressed++; if (name === 'br' && !suppressed) text += '\n'; },
-    ontext(value) { if (!suppressed) text += value; },
-    onclosetag(name) { if (['script', 'style'].includes(name)) suppressed = Math.max(0, suppressed - 1); if (['p', 'div', 'li'].includes(name) && !suppressed) text += '\n'; },
-  }, { decodeEntities: true });
-  parser.end(String(html));
-  return text.trim() || null;
+  return plain ? sanitizeDescriptionHtml(String(plain)) : null;
 }

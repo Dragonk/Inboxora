@@ -1842,7 +1842,8 @@
     "invitationLocalCopy": "Zapisuje wydarzenie bez wysyłania odpowiedzi organizatorowi.",
     "invitationLoadFailed": "Nie udało się odczytać lub zapisać zaproszenia.",
     "editOccurrence": "Edytujesz tylko to wystąpienie wydarzenia.",
-    "incompleteSeries": "Niektóre wydarzenia cykliczne nie mogły zostać w pełni rozwinięte i mogą nie być widoczne w tym widoku."
+    "incompleteSeries": "Niektóre wydarzenia cykliczne nie mogły zostać w pełni rozwinięte i mogą nie być widoczne w tym widoku.",
+    "descriptionPlaceholder": "Agenda, notatki, link do rozmowy…"
   },
   "mailFolders": {
     "inbox": "Odebrane",
@@ -1876,5 +1877,10 @@
       "label": "Podział pionowy",
       "description": "Lista wiadomości znajduje się nad panelem czytania."
     }
+  },
+  "richTextEditor": {
+    "bulletList": "Lista punktowana",
+    "orderedList": "Lista numerowana",
+    "clearFormat": "Wyczyść formatowanie"
   }
 }

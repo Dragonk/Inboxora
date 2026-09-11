@@ -1842,7 +1842,8 @@
     "invitationLocalCopy": "Saves the event without sending a reply to the organizer.",
     "invitationLoadFailed": "Could not load or save the invitation.",
     "editOccurrence": "You are editing only this occurrence.",
-    "incompleteSeries": "Some recurring events could not be fully expanded and may be missing from this view."
+    "incompleteSeries": "Some recurring events could not be fully expanded and may be missing from this view.",
+    "descriptionPlaceholder": "Agenda, notes, video link…"
   },
   "mailFolders": {
     "inbox": "Inbox",
@@ -1876,5 +1877,10 @@
       "label": "Vertical split",
       "description": "The message list sits above the reading pane."
     }
+  },
+  "richTextEditor": {
+    "bulletList": "Bullet list",
+    "orderedList": "Numbered list",
+    "clearFormat": "Clear formatting"
   }
 }

@@ -1842,7 +1842,8 @@
     "invitationLocalCopy": "保存活动，但不向组织者发送回复。",
     "invitationLoadFailed": "无法加载或保存邀请。",
     "editOccurrence": "您仅在编辑此次活动。",
-    "incompleteSeries": "部分重复事件无法完全展开，可能不会显示在此视图中。"
+    "incompleteSeries": "部分重复事件无法完全展开，可能不会显示在此视图中。",
+    "descriptionPlaceholder": "议程、备注、会议链接…"
   },
   "mailFolders": {
     "inbox": "收件箱",
@@ -1876,5 +1877,10 @@
       "label": "上下分栏",
       "description": "邮件列表位于阅读窗格上方。"
     }
+  },
+  "richTextEditor": {
+    "bulletList": "项目符号列表",
+    "orderedList": "编号列表",
+    "clearFormat": "清除格式"
   }
 }
