@@ -1,7 +1,7 @@
 import { Router } from 'express';
 import { query, withTransaction } from '../services/db.js';
 import { requireAuth } from '../middleware/auth.js';
-import { generateVCard, mergeVCard, normalizeContactDateLabel } from '../utils/vcard.js';
+import { generateVCard, mergeVCard, normalizeContactDateLabel, parseVCard } from '../utils/vcard.js';
 import { chooseDefined, normalizeRichContactFields } from '../utils/contactFields.js';
 import { safeFetch } from '../services/safeFetch.js';
 import { contactsToGoogleCsv, contactsToOutlookCsv, contactsToVCard, parseGoogleCsv } from '../utils/contactTransfer.js';
@@ -368,7 +368,14 @@ router.get('/:id', async (req, res) => {
       [req.params.id, userId]
     );
     if (!result.rows.length) return res.status(404).json({ error: 'Contact not found' });
-    res.json(result.rows[0]);
+    const contact = result.rows[0];
+    if (contact.vcard) {
+      const parsed = parseVCard(contact.vcard);
+      for (const field of ['title', 'role', 'nickname', 'urls', 'addresses', 'instantMessages', 'categories']) {
+        if (contact[field] == null || (Array.isArray(contact[field]) && !contact[field].length)) contact[field] = parsed[field];
+      }
+    }
+    res.json(contact);
   } catch (err) {
     console.error('Contact get error:', err);
     res.status(500).json({ error: 'Failed to fetch contact' });

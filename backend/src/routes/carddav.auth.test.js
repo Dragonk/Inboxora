@@ -125,7 +125,7 @@ describe('CardDAV authentication', () => {
 
     expect(response.status).toBe(201);
     const [sql, params] = query.mock.calls.find(([statement]) => statement.includes('INSERT INTO contacts'));
-    expect(sql.match(/VALUES ([^\n]+)/)?.[1]).toBe('($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16::jsonb,$17, false)');
+    expect(sql.match(/VALUES ([^\n]+)/)?.[1]).toBe('($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16::jsonb,$17,$18,$19,$20,$21::jsonb,$22::jsonb,$23::jsonb,$24::jsonb,$25, false)');
     expect(params).toEqual([
       'book-1', 'user-1', 'contact-1', expect.any(String), expect.any(String),
       'Ada', null, null, null, '[]', '[]', null, null,
@@ -135,7 +135,7 @@ describe('CardDAV authentication', () => {
         { label: 'Anniversary', value: '2020-09-14' },
         { label: 'Rencontre', value: '2019-10-19' },
       ]),
-      'data:image/png;base64,AQI=',
+      'data:image/png;base64,AQI=', null, null, null, '[]', '[]', '[]', '[]', 'contact-1.vcf',
     ]);
   });
 
@@ -225,8 +225,9 @@ describe('CardDAV authentication', () => {
     expect(params).toContain(JSON.stringify([{ label: 'Family;Other', value: '2020-09-14' }]));
   });
 
-  it('rejects a vCard UID that conflicts with the resource filename', async () => {
+  it('rejects replacing an existing DAV path with a different UID', async () => {
     authenticateDavCredential.mockResolvedValue({ userId: 'user-1', credentialId: 'credential-1' });
+    query.mockResolvedValueOnce({ rows: [{ id: 'book-1', source: 'local' }] }).mockResolvedValueOnce({ rows: [{ uid: 'path-a', dav_filename: 'path-a.vcf', etag: 'old' }] });
     const response = await fetch(`${base}/carddav/user-1/book-1/path-a.vcf`, {
       method: 'PUT',
       headers: { authorization: `Basic ${Buffer.from('sam@example.test:secret').toString('base64')}`, 'content-type': 'text/vcard' },
@@ -234,7 +235,7 @@ describe('CardDAV authentication', () => {
     });
 
     expect(response.status).toBe(409);
-    expect(query).not.toHaveBeenCalled();
+    expect(query.mock.calls.some(([sql]) => /INSERT INTO contacts|UPDATE contacts/.test(sql))).toBe(false);
   });
 
   it('rejects an impossible BDAY before querying the address book', async () => {
@@ -275,8 +276,9 @@ describe('CardDAV authentication', () => {
     expect(params).toContain(JSON.stringify([{ label: 'Rencontre', value: '2019-10-19' }]));
   });
 
-  it('rejects a vCard UID that conflicts with the resource filename', async () => {
+  it('rejects replacing an existing DAV path with a different UID', async () => {
     authenticateDavCredential.mockResolvedValue({ userId: 'user-1', credentialId: 'credential-1' });
+    query.mockResolvedValueOnce({ rows: [{ id: 'book-1', source: 'local' }] }).mockResolvedValueOnce({ rows: [{ uid: 'path-a', dav_filename: 'path-a.vcf', etag: 'old' }] });
     const response = await fetch(`${base}/carddav/user-1/book-1/path-a.vcf`, {
       method: 'PUT',
       headers: { authorization: `Basic ${Buffer.from('sam@example.test:secret').toString('base64')}`, 'content-type': 'text/vcard' },
@@ -284,6 +286,27 @@ describe('CardDAV authentication', () => {
     });
 
     expect(response.status).toBe(409);
-    expect(query).not.toHaveBeenCalled();
+    expect(query.mock.calls.some(([sql]) => /INSERT INTO contacts|UPDATE contacts/.test(sql))).toBe(false);
   });
+});
+
+it('accepts a client chosen filename and maps every rich field and preferred email', async () => {
+ authenticateDavCredential.mockResolvedValue({ userId: 'user-1' });
+ query.mockResolvedValueOnce({ rows: [{ id: 'book-1', source: 'local' }] }).mockResolvedValueOnce({ rows: [] });
+ const raw = ['BEGIN:VCARD', 'VERSION:3.0', 'UID:embedded-uid', 'FN:Ada', 'EMAIL;TYPE=HOME:home@example.test', 'EMAIL;TYPE=WORK,PREF:work@example.test', 'TITLE:Director', 'ROLE:Design', 'NICKNAME:A', 'URL:https://example.test', 'IMPP:matrix:ada@example.test', 'CATEGORIES:Team', 'ADR;TYPE=WORK:;;Main Street;Warsaw;;;Poland', 'END:VCARD'].join('\r\n');
+ const response = await fetch(`${base}/carddav/user-1/book-1/client-generated.vcf`, { method: 'PUT', headers: { authorization: basic('sam@example.test','secret'), 'if-none-match': '*' }, body: raw });
+ expect(response.status).toBe(201);
+ const insert = query.mock.calls.find(([sql]) => sql.includes('INSERT INTO contacts'));
+ expect(insert[1][2]).toBe('embedded-uid'); expect(insert[1][8]).toBe('work@example.test');
+ expect(insert[1].slice(17,20)).toEqual(['Director','Design','A']);
+ expect(insert[1].at(-1)).toBe('client-generated.vcf');
+ expect(insert[0]).toContain('instant_messages, categories, addresses, dav_filename');
+});
+it('enforces create-only and update-only CardDAV preconditions before modifying a contact', async () => {
+ authenticateDavCredential.mockResolvedValue({ userId: 'user-1' });
+ for (const [headers, rows] of [[{ 'if-none-match': '*' }, [{ id: 'contact', uid: 'same', etag: 'old' }]], [{ 'if-match': '"missing"' }, []]]) {
+  query.mockReset(); query.mockResolvedValueOnce({ rows: [{ id: 'book-1', source: 'local' }] }).mockResolvedValueOnce({ rows });
+  const response = await fetch(`${base}/carddav/user-1/book-1/same.vcf`, { method: 'PUT', headers: { authorization: basic('sam@example.test','secret'), ...headers }, body: 'BEGIN:VCARD\r\nVERSION:3.0\r\nUID:same\r\nFN:Ada\r\nEND:VCARD' });
+  expect(response.status).toBe(412); expect(query.mock.calls).toHaveLength(2);
+ }
 });

@@ -278,8 +278,8 @@ describe('CalDAV calendar objects', () => {
     });
 
     expect(response.status).toBe(207);
-    expect(query.mock.calls[1][0]).toContain('uid = ANY($3)');
-    expect(query.mock.calls[1][1]).toEqual(['calendar-1', '', ['event 1']]);
+    expect(query.mock.calls[1][0]).toContain("COALESCE(dav_filename, uid || '.ics') = ANY($3)");
+    expect(query.mock.calls[1][1]).toEqual(['calendar-1', '', ['event 1.ics']]);
   });
 
   it('filters calendar-query results to the requested time range', async () => {
@@ -387,5 +387,18 @@ describe('CalDAV calendar objects', () => {
   expect(event).toMatchObject({ description: 'First line\nSecond line', location: 'Room, A', url: 'https://example.test/meeting', organizer: 'team@example.test', attendees: ['jane@example.test'] });
   const response = await fetch(`${base}/caldav/user-1/calendar-1/synthetic-exchange-event.ics`, { method: 'PUT', headers: { authorization: basic('sam@example.test', 'test-dav-password') }, body: raw });
   expect(response.status).toBe(201);
-  expect(query.mock.calls[2][1].slice(-5)).toEqual([event.description, event.location, event.url, event.organizer, JSON.stringify(event.attendees)]);
+  expect(query.mock.calls[2][1].slice(9, 14)).toEqual([event.description, event.location, event.url, event.organizer, JSON.stringify(event.attendees)]);
  });
+
+it('keeps client resource filenames independent of the embedded calendar UID', async () => {
+ authenticateDavCredential.mockResolvedValue({ userId: 'user-1' });
+ query.mockResolvedValueOnce({ rows: [{ id: 'calendar-1', source: 'local', read_only: false }] }).mockResolvedValueOnce({ rows: [] }).mockResolvedValueOnce({ rows: [{ uid: 'synthetic-exchange-event', etag: 'etag' }] });
+ const response = await fetch(`${base}/caldav/user-1/calendar-1/client-generated.ics`, { method: 'PUT', headers: { authorization: basic('sam@example.test','secret'), 'if-none-match': '*' }, body: outlookCalendar() });
+ expect(response.status).toBe(201);
+ expect(query.mock.calls[2][1][2]).toBe('synthetic-exchange-event');
+ expect(query.mock.calls[2][1][14]).toBe('client-generated.ics');
+ query.mockReset(); query.mockResolvedValueOnce({ rows: [{ raw_ical: outlookCalendar(), etag: 'etag' }] });
+ const get = await fetch(`${base}/caldav/user-1/calendar-1/client-generated.ics`, { headers: { authorization: basic('sam@example.test','secret') } });
+ expect(get.status).toBe(200); expect(query.mock.calls[0][1][2]).toBe('client-generated.ics');
+ expect(query.mock.calls[0][0]).toContain('COALESCE(e.dav_filename');
+});

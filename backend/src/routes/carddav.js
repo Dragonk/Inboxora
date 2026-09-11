@@ -217,12 +217,12 @@ router.propfind('/:userId/:bookId/', async (req, res) => {
 
   // Depth: 1 — list all VCards in the book.
   const contacts = await query(
-    'SELECT uid, etag FROM contacts WHERE address_book_id = $1',
+    'SELECT uid, dav_filename, etag FROM contacts WHERE address_book_id = $1',
     [book.id]
   );
 
   const cardResponses = contacts.rows.map(c =>
-    response(`${bookPath}${encodeURIComponent(c.uid)}.vcf`, [
+    response(`${bookPath}${encodeURIComponent(c.dav_filename || `${c.uid}.vcf`)}`, [
       propstat([
         '<D:resourcetype/>',
         `<D:getetag>"${xmlEscape(c.etag)}"</D:getetag>`,
@@ -253,12 +253,12 @@ router.report('/:userId/:bookId/', async (req, res) => {
 
   // Fetch all contacts with their vCard data.
   const contacts = await query(
-    'SELECT uid, vcard, etag FROM contacts WHERE address_book_id = $1',
+    'SELECT uid, dav_filename, vcard, etag FROM contacts WHERE address_book_id = $1',
     [book.id]
   );
 
   const cardResponses = contacts.rows.map(c => {
-    const href = `${bookPath}${encodeURIComponent(c.uid)}.vcf`;
+    const href = `${bookPath}${encodeURIComponent(c.dav_filename || `${c.uid}.vcf`)}`;
     return response(href, [
       propstat([
         '<D:resourcetype/>',
@@ -289,12 +289,12 @@ router.get('/:userId/:bookId/:filename', async (req, res) => {
   const userId = req.cardavUserId;
   if (req.params.userId !== userId) return res.status(403).end();
 
-  const uid = req.params.filename.replace(/\.vcf$/i, '');
+  const uid = req.params.filename;
 
   const result = await query(
     `SELECT c.vcard, c.etag FROM contacts c
      JOIN address_books ab ON ab.id = c.address_book_id
-     WHERE ab.id = $1 AND ab.user_id = $2 AND c.uid = $3`,
+     WHERE ab.id = $1 AND ab.user_id = $2 AND COALESCE(c.dav_filename, c.uid || '.vcf') = $3`,
     [req.params.bookId, userId, uid]
   );
   if (!result.rows.length) return res.status(404).end();
@@ -312,17 +312,17 @@ router.put('/:userId/:bookId/:filename', async (req, res) => {
   const userId = req.cardavUserId;
   if (req.params.userId !== userId) return res.status(403).end();
 
-  const uid  = req.params.filename.replace(/\.vcf$/i, '');
+  const filename = req.params.filename;
   const body = await rawBody(req);
   if (!body.trim()) return res.status(400).end();
 
   const parsed = parseVCard(body);
   if (parsed.invalidDates.length || parsed.invalidDateLabels.length) return res.status(400).end();
-  if (parsed.uid && parsed.uid !== uid) return res.status(409).json({ error: 'vCard UID must match the resource filename' });
+  const uid = parsed.uid || filename.replace(/\.vcf$/i, '');
   const vcard  = body; // store what the client sent verbatim
   const etag   = crypto.createHash('md5').update(vcard).digest('hex');
 
-  const primaryEmail = parsed.emails[0]?.value?.toLowerCase() || null;
+  const primaryEmail = (parsed.emails.find(email => email.primary) || parsed.emails[0])?.value?.toLowerCase() || null;
 
   try {
     const bookResult = await query(
@@ -335,10 +335,14 @@ router.put('/:userId/:bookId/:filename', async (req, res) => {
     const bookId = book.id;
 
     const existing = await query(
-      'SELECT id, etag FROM contacts WHERE address_book_id = $1 AND uid = $2',
-      [bookId, uid]
+      "SELECT id, uid, dav_filename, etag FROM contacts WHERE address_book_id = $1 AND (uid = $2 OR COALESCE(dav_filename, uid || '.vcf') = $3)",
+      [bookId, uid, filename]
     );
 
+    const current = existing.rows[0];
+    if (current?.uid && (current.uid !== uid || (current.dav_filename || `${current.uid}.vcf`) !== filename)) return res.status(409).end();
+    if (req.headers['if-none-match'] === '*' && current) return res.status(412).end();
+    if (req.headers['if-match'] && !current) return res.status(412).end();
     if (existing.rows.length) {
       // Enforce If-Match precondition (RFC 6352 §6.3.2)
       const ifMatch = req.headers['if-match'];
@@ -347,22 +351,25 @@ router.put('/:userId/:bookId/:filename', async (req, res) => {
         if (clientEtag !== existing.rows[0].etag) return res.status(412).end();
       }
       // Update
-      await query(`
+      const updated = await query(`
         UPDATE contacts SET
           vcard = $1, etag = $2,
           display_name = $3, first_name = $4, last_name = $5,
           primary_email = $6, emails = $7, phones = $8,
           organization = $9, notes = $10, birthday = $11, anniversary = $12, contact_dates = $13::jsonb, photo_data = $14,
+          title = $16, role = $17, nickname = $18, urls = $19::jsonb, instant_messages = $20::jsonb,
+          categories = $21::jsonb, addresses = $22::jsonb, dav_filename = $23,
           is_auto = false, updated_at = NOW()
-        WHERE id = $15
+        WHERE id = $15 AND etag = $24 RETURNING id
       `, [
         vcard, etag,
         parsed.displayName, parsed.firstName, parsed.lastName,
         primaryEmail,
         JSON.stringify(parsed.emails), JSON.stringify(parsed.phones),
         parsed.organization, parsed.notes, parsed.birthday, parsed.anniversary, JSON.stringify(parsed.contactDates), parsed.photoData,
-        existing.rows[0].id,
+        existing.rows[0].id, parsed.title, parsed.role, parsed.nickname, JSON.stringify(parsed.urls), JSON.stringify(parsed.instantMessages), JSON.stringify(parsed.categories), JSON.stringify(parsed.addresses), filename, current.etag,
       ]);
+      if (!updated.rows.length) return res.status(412).end();
       await query(
         'UPDATE address_books SET sync_token = gen_random_uuid()::text, updated_at = NOW() WHERE id = $1',
         [bookId]
@@ -374,14 +381,15 @@ router.put('/:userId/:bookId/:filename', async (req, res) => {
         INSERT INTO contacts (
           address_book_id, user_id, uid, vcard, etag,
           display_name, first_name, last_name, primary_email,
-          emails, phones, organization, notes, birthday, anniversary, contact_dates, photo_data, is_auto
-        ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16::jsonb,$17, false)
+          emails, phones, organization, notes, birthday, anniversary, contact_dates, photo_data, title, role, nickname, urls, instant_messages, categories, addresses, dav_filename, is_auto
+        ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16::jsonb,$17,$18,$19,$20,$21::jsonb,$22::jsonb,$23::jsonb,$24::jsonb,$25, false)
       `, [
         bookId, userId, uid, vcard, etag,
         parsed.displayName, parsed.firstName, parsed.lastName,
         primaryEmail,
         JSON.stringify(parsed.emails), JSON.stringify(parsed.phones),
         parsed.organization, parsed.notes, parsed.birthday, parsed.anniversary, JSON.stringify(parsed.contactDates), parsed.photoData,
+        parsed.title, parsed.role, parsed.nickname, JSON.stringify(parsed.urls), JSON.stringify(parsed.instantMessages), JSON.stringify(parsed.categories), JSON.stringify(parsed.addresses), filename,
       ]);
       await query(
         'UPDATE address_books SET sync_token = gen_random_uuid()::text, updated_at = NOW() WHERE id = $1',
@@ -402,7 +410,7 @@ router.delete('/:userId/:bookId/:filename', async (req, res) => {
   const userId = req.cardavUserId;
   if (req.params.userId !== userId) return res.status(403).end();
 
-  const uid = req.params.filename.replace(/\.vcf$/i, '');
+  const uid = req.params.filename;
 
   try {
     const bookResult = await query(
@@ -418,11 +426,12 @@ router.delete('/:userId/:bookId/:filename', async (req, res) => {
        WHERE contacts.address_book_id = address_books.id
          AND address_books.id = $1
          AND address_books.user_id = $2
-         AND contacts.uid = $3
+         AND COALESCE(contacts.dav_filename, contacts.uid || '.vcf') = $3
+         AND ($4::text IS NULL OR contacts.etag = $4)
        RETURNING address_books.id AS book_id`,
-      [req.params.bookId, userId, uid]
+      [req.params.bookId, userId, uid, req.headers['if-match'] && req.headers['if-match'] !== '*' ? req.headers['if-match'].replace(/^"|"$/g, '') : null]
     );
-    if (!result.rows.length) return res.status(404).end();
+    if (!result.rows.length) return res.status(req.headers['if-match'] ? 412 : 404).end();
     await query(
       'UPDATE address_books SET sync_token = gen_random_uuid()::text, updated_at = NOW() WHERE id = $1',
       [result.rows[0].book_id]
