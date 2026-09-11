@@ -92,9 +92,66 @@ Frontend: `components/RichTextEditor.jsx` (nowy), `utils/richText.js` (nowy),
 
 ## 5. Testy i obrazy
 
-- backend: `npx vitest run` — 1673 przechodzi, 13 pominiętych;
-- frontend: `npm test` — 2153 przechodzi; `npm run build` — OK;
-- `eslint --max-warnings 0` — backend i frontend bez ostrzeżeń;
+- backend: `npx vitest run` — 1688 przechodzi, 13 pominiętych;
+- frontend: `npm test` — 2159 przechodzi; `npm run build` — OK;
+- `eslint --max-warnings 0` — pliki tej zmiany bez ostrzeżeń;
 - nowe obrazy `:dev`: `ghcr.io/dragonk/inboxora-backend:dev` oraz
   `ghcr.io/dragonk/inboxora-frontend:dev`, zbudowane z commita tej naprawy
   (etykieta `org.opencontainers.image.revision` = SHA commita).
+
+---
+
+# Runda 2 — zaproszenie nie było wysyłane, opis z maila źle się renderował
+
+## 6. Przyczyna: brak stanu „nie udało się” w outboxie
+
+Zapis wydarzenia działał, ale **wiadomość nie wychodziła**, a „Ponów zapis” w GUI
+odtwarzał zapisany błąd zamiast wysłać ponownie. Outbox znał tylko statusy
+`sending` i `sent`:
+
+- nieudana wysyłka zostawała na `sending` z `last_error`, bez harmonogramu
+  ponowienia — więc kolejne identyczne żądanie nie mogło odróżnić „w trakcie”
+  od „poddane” i **nigdy nie wysyłało ponownie**;
+- `next_attempt_at` nie istniało, więc nie było czego ponawiać automatycznie;
+- payload JSONB trzymał **cały wiersz konta** (z poświadczeniami), przez co
+  zapisane ponowienie nie miało bezpiecznej drogi do nadawcy.
+
+Potwierdzone end-to-end na żywym SMTP (skrzynka-sink) i na zbudowanym obrazie.
+
+## 7. Naprawa
+
+- migracja `0080_calendar_invitation_outbox_delivery.sql` — status `failed`
+  + `next_attempt_at` + częściowy indeks; nieudane zaproszenie staje się
+  **zakolejkowanym, ponawialnym** elementem, a nie martwym wierszem;
+- `services/calendarInvitationOutbox.js` (nowy) — próby są zapisywane, porażki
+  planowane z wykładniczym backoffem, a payload trzyma **tylko id konta**,
+  rozwiązywane na nowo przy każdej próbie;
+- identyczne ponowienie nieudanego zaproszenia **wysyła je ponownie**, ale
+  zaproszenie już dostarczone nigdy nie leci drugi raz;
+- worker w tle dociąga zaległe zaproszenia, więc chwilowa awaria SMTP leczy się
+  bez otwierania wydarzenia;
+- POST/PATCH i obie ścieżki „duplicate” zwracają realny stan dostarczenia
+  (`invitationStatus` + `invitationError`).
+
+## 8. Opis z maila renderuje się jak treść wiadomości
+
+Opis tekstowy z zaproszenia Outlooka (bez HTML) szedł do `<pre>`, więc widać było
+jeden ciąg z literalnym `&lt;https://…&gt;`. Teraz tekst przechodzi tę samą drogą
+co HTML treści maila: akapity, łamania linii, a adresy w nawiasach ostrych
+(`<https://…>`), `www.` i `mailto:` stają się prawdziwymi linkami; znaki
+interpunkcyjne zostają poza linkiem, a `&` w adresie jest poprawnie escapowany.
+
+## 9. Weryfikacja end-to-end (obraz + prawdziwy SMTP)
+
+Na zbudowanym obrazie i skrzynce SMTP: 3 wydarzenia → **dokładnie 3 wiadomości,
+zero duplikatów**; pierwsza próba na nieosiągalnym SMTP zapisała `failed` z
+`next_attempt_at`, a ponowienie z tym samym kluczem idempotencji wysłało
+`sent` bez duplikatu wydarzenia; powtórny zapis już dostarczonego zaproszenia
+nie wysłał go drugi raz. Każdy załącznik ICS zawierał `DESCRIPTION` (tekst)
+oraz `X-ALT-DESC;FMTTYPE=text/html`.
+
+Uwaga: w drzewie roboczym znajdują się **cudze, niezcommitowane** zmiany
+(m.in. `CalendarSidebar.jsx`, `panelWidth.js`, `MailApp.jsx`, `ui.jsx`) — nie
+dotykałem ich i nie weszły do tego commita. Obrazy zbudowano z czystego drzewa
+commita, nie z working tree.
+
