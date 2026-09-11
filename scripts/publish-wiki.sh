@@ -34,7 +34,7 @@ done
 [[ -d "$SOURCE_DIR" ]] || { echo "Missing $SOURCE_DIR" >&2; exit 1; }
 [[ -f "$SOURCE_DIR/Home.md" ]] || { echo "Missing $SOURCE_DIR/Home.md" >&2; exit 1; }
 
-if [[ -n "$(git -C "$REPO_ROOT" status --porcelain)" ]]; then
+if [[ -n "$(git -C "$REPO_ROOT" status --porcelain --untracked-files=no)" ]]; then
   echo "Error: the working tree has uncommitted changes; publish reviewed content only." >&2
   exit 1
 fi
