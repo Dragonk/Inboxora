@@ -43,12 +43,16 @@ edited and deleted, and are published to DAV clients through CalDAV.
   time.
 - If a series cannot be fully expanded, the view tells you the series is incomplete instead of
   silently showing a partial month.
-- **Expanded occurrences are cached per event**, keyed by the event's version, so opening a month
-  again — or coming back to it later in the same session — does not re-expand anything. An edit,
-  an import or an external sync gives the event a new version, which invalidates its entry
-  immediately. A series whose expansion fails is cached briefly (30 seconds) and then retried, so
-  one problematic series cannot slow every calendar view. See `CALENDAR_PROJECTION_*` in
-  [`.env.example`](../../.env.example) for the sizing knobs.
+- **Expanded occurrences are cached per event for the whole month you are looking at**, keyed by
+  the event's version, so once a month has been opened every other view of it — stepping through
+  its weeks, switching between the month grid and the agenda, coming back later in the same
+  session — is served instantly. An edit, an import or an external sync gives the event a new
+  version, which invalidates its entry immediately. A series whose expansion fails is cached
+  briefly (30 seconds) and then retried, so one problematic series cannot slow every calendar
+  view. See `CALENDAR_PROJECTION_*` in [`.env.example`](../../.env.example) for the sizing knobs.
+- The **first** view of a month that contains long-running recurring series still takes a moment:
+  a series has to be walked from its own start date, and that cost grows with the age of the
+  series. Only that first expansion is expensive; everything after it is cached.
 - **Editing a recurring event changes only the occurrence you opened**; the series, its rule and
   the other occurrences are preserved. Creating new recurrence rules from scratch is not
   currently offered in the interface.

@@ -77,8 +77,27 @@ limitations — read the matching page in the Wiki, for example
   series from its original start.
 - **A failed expansion is cached briefly** (30 seconds) rather than not at all. A series that
   overran its iteration budget was previously re-expanded on every single request.
+- **Expanded occurrences are now cached per calendar month, not per requested window.** A
+  recurring series must be walked from its original start — re-seeding the rule iterator at the
+  window start silently changes the occurrences for most rules, and that was verified against the
+  library rather than assumed. Costing ~10-20 µs per occurrence, a daily series running since
+  2015 takes ~50 ms to expand, so a calendar whose series are old paid that walk again for every
+  window: opening the month grid, stepping a week, switching to the agenda and coming back each
+  cost a fresh walk. Measured over a realistic session with 25 such series, the total fell from
+  **2093 ms to 435 ms** — every view of a month after the first is now free — while the *first*
+  open is unchanged (429 ms → 434 ms). A wider cache (a whole year, or a quarter) was tried and
+  rejected: it made the first open slower by emitting months of occurrences the view never
+  displayed.
 - The contact-calendar and appearance reads now run concurrently instead of one after the other,
   on a path that is active by default.
+
+### Known limitations
+
+- **The first expansion of an old recurring series still costs a full walk.** The cache removes
+  the repetition, not the walk itself. On a calendar with tens of long-running series the first
+  open of each month still takes a few hundred milliseconds, and that grows with the age of the
+  series. Removing it requires expanding the occurrences once when a series changes and storing
+  them, instead of recomputing them on read.
 
 ## [4.0.0]
 

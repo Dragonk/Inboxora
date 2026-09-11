@@ -123,6 +123,33 @@ describe('calendar projection worker pool', () => {
     expect(calendarProjectionCacheStats().entries).toBe(1);
   });
 
+  // The cache is bucketed by calendar quarter so that arrowing around a month is free, which
+  // means two different windows can share one key. A horizon computed for the smaller window
+  // must never be served to the larger one, or the larger window would silently lose events.
+  it('never serves a cached horizon to a wider window that shares its bucket', async () => {
+    const rows = [dailyRow('coverage')];
+    // Both windows start in the same quarter and therefore share a key. The first is short,
+    // so the horizon it caches stops well inside the second one's range.
+    await projectCalendarResources(rows, new Date('2026-09-07T00:00:00Z'), new Date('2026-09-14T00:00:00Z'), { userId: 'user-1' });
+    const wide = await projectCalendarResources(rows, new Date('2026-09-01T00:00:00Z'), new Date('2027-03-01T00:00:00Z'), { userId: 'user-1' });
+
+    // The wide window must contain its own February occurrences, which lie past the horizon
+    // the short request cached. Serving the stale entry would end the result in November.
+    const months = new Set(wide.events.map(event => new Date(event.starts_at).getUTCMonth()));
+    expect(months.has(1)).toBe(true);
+    expect(wide.events.length).toBeGreaterThan(150);
+  });
+
+  it('reuses one entry for navigation inside the same quarter', async () => {
+    const rows = [dailyRow('navigate')];
+    await projectCalendarResources(rows, new Date('2026-09-01T00:00:00Z'), new Date('2026-09-14T00:00:00Z'), { userId: 'user-1' });
+    await projectCalendarResources(rows, new Date('2026-09-14T00:00:00Z'), new Date('2026-09-21T00:00:00Z'), { userId: 'user-1' });
+    await projectCalendarResources(rows, new Date('2026-09-21T00:00:00Z'), new Date('2026-10-01T00:00:00Z'), { userId: 'user-1' });
+    // Stepping through September must not create a new entry per window: that was the cost
+    // the per-window cache paid on every navigation.
+    expect(calendarProjectionCacheStats().entries).toBe(1);
+  });
+
   it('invalidates a cached projection when the resource version changes', async () => {
     const original = dailyRow('edited');
     await projectCalendarResources([original], FROM, TO, { userId: 'user-1' });
