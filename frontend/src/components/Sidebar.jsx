@@ -883,6 +883,7 @@ export default function Sidebar({ onEditProfile = null }) {
         {/* Unified Inbox — only shown with 2+ enabled accounts */}
         {accounts.filter(a => a.enabled).length >= 2 && (
           <NavItem
+            testId="all-inboxes"
             icon={ICONS.inbox}
             label={t('sidebar.allInboxes')}
             active={isUnified && !showContacts && !showCalendar}

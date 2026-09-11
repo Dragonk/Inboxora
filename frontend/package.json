@@ -37,7 +37,8 @@
     "native:prepare": "npm run build && node packages/scripts/prepare-native-shell.cjs",
     "android:sync": "npm run native:prepare && node packages/scripts/sync-android.cjs",
     "android:dist": "npm run android:sync && node packages/scripts/build-android.cjs && node packages/scripts/collect-android-artifacts.cjs",
-    "test:e2e": "playwright test"
+    "test:e2e": "playwright test",
+    "docs:screenshots": "DOCS_SCREENSHOTS=1 playwright test e2e/docs-screenshots.spec.js --project=chromium-desktop --project=chromium-mobile-390"
   },
   "build": {
     "appId": "io.github.dragonk.inboxora",
