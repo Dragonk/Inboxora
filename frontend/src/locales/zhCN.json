@@ -1850,7 +1850,8 @@
     "workHoursEndDescription": "工作时间高亮显示的结束小时。",
     "defaultInviteAccount": "日历邀请的默认发件账户",
     "defaultInviteAccountNone": "无默认 — 每个事件单独选择",
-    "defaultInviteAccountDescription": "邀请参与者时预先选择的 SMTP 账户。"
+    "defaultInviteAccountDescription": "邀请参与者时预先选择的 SMTP 账户。",
+    "openSourceMessage": "打开原始邮件"
   },
   "mailFolders": {
     "inbox": "收件箱",

@@ -1850,7 +1850,8 @@
     "workHoursEndDescription": "Letzte Stunde der Hervorhebung des Arbeitstags.",
     "defaultInviteAccount": "Standardabsender für Kalendereinladungen",
     "defaultInviteAccountNone": "Kein Standard — pro Termin wählen",
-    "defaultInviteAccountDescription": "Das SMTP-Konto, das beim Einladen von Teilnehmern vorausgewählt wird."
+    "defaultInviteAccountDescription": "Das SMTP-Konto, das beim Einladen von Teilnehmern vorausgewählt wird.",
+    "openSourceMessage": "Ursprüngliche Nachricht öffnen"
   },
   "mailFolders": {
     "inbox": "Posteingang",

@@ -297,16 +297,18 @@ router.post('/invitations/:messageId', async (req, res) => {
   component.getFirstSubcomponent('vevent').updatePropertyWithValue('uid', uid);
   const raw = component.toString();
   const result = await query(`INSERT INTO calendar_events
-    (calendar_id, user_id, uid, raw_ical, etag, summary, starts_at, ends_at, all_day, timezone, description, location, url, organizer, attendees, invitation_sequence)
-    VALUES ($1,$2,$3,$4,gen_random_uuid()::text,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14::jsonb,$15)
+    (calendar_id, user_id, uid, raw_ical, etag, summary, starts_at, ends_at, all_day, timezone, description, location, url, organizer, attendees, invitation_sequence, source_message_id)
+    VALUES ($1,$2,$3,$4,gen_random_uuid()::text,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14::jsonb,$15,$16)
     ON CONFLICT (calendar_id, uid, recurrence_id) DO UPDATE SET
       raw_ical = EXCLUDED.raw_ical, etag = gen_random_uuid()::text, summary = EXCLUDED.summary,
       starts_at = EXCLUDED.starts_at, ends_at = EXCLUDED.ends_at, all_day = EXCLUDED.all_day, timezone = EXCLUDED.timezone,
       description = EXCLUDED.description, location = EXCLUDED.location, url = EXCLUDED.url,
-      organizer = EXCLUDED.organizer, attendees = EXCLUDED.attendees, invitation_sequence = EXCLUDED.invitation_sequence, updated_at = NOW()
+      organizer = EXCLUDED.organizer, attendees = EXCLUDED.attendees, invitation_sequence = EXCLUDED.invitation_sequence,
+      source_message_id = COALESCE(EXCLUDED.source_message_id, calendar_events.source_message_id), updated_at = NOW()
     WHERE calendar_events.invitation_sequence < EXCLUDED.invitation_sequence AND calendar_events.invite_account_id IS NULL
     RETURNING id`, [req.body.calendarId, req.session.userId, uid, raw, event.summary, event.startsAt, event.endsAt,
-      event.allDay, event.timeZone, event.description, event.location, event.url, event.organizer, JSON.stringify(event.attendees), invitation.sequence]);
+      event.allDay, event.timeZone, event.description, event.location, event.url, event.organizer, JSON.stringify(event.attendees), invitation.sequence,
+      req.params.messageId]);
   res.json({ added: true, changed: Boolean(result.rows[0]), calendarId: req.body.calendarId });
 });
 
@@ -420,12 +422,20 @@ router.get('/events', async (req, res) => {
     let calendarFilter = '';
     if (selectedIds !== null) { params.push(selectedIds); calendarFilter = ' AND c.id = ANY($4::uuid[])'; }
     const result = await query(
+      // source_message_id is only exposed when the message still exists AND belongs
+      // to this user's own account, so the UI can offer "open the original message"
+      // without ever leaking another tenant's identifier.
       `SELECT e.id, e.calendar_id, e.uid, e.recurrence_id, e.etag, e.summary, e.description, e.raw_ical,
               e.location, e.url, e.organizer, e.starts_at, e.ends_at, e.all_day, e.timezone, e.attendees, e.invite_account_id, e.invitation_sequence,
+              CASE WHEN sa.id IS NOT NULL THEN e.source_message_id END AS source_message_id,
+              sm.folder AS source_folder,
+              sa.id AS source_account_id,
               c.name AS calendar_name, c.color AS calendar_color, c.source, c.read_only
        FROM calendar_events e
        JOIN calendars c ON c.id = e.calendar_id
-       WHERE e.user_id = $1 AND c.user_id = $1 AND c.owner_user_id = $1 AND ((e.starts_at < $3 AND e.ends_at > $2) OR e.raw_ical ~* '(RRULE|RDATE|RECURRENCE-ID)[:;]')${calendarFilter}
+       LEFT JOIN messages sm ON sm.id = e.source_message_id
+       LEFT JOIN email_accounts sa ON sa.id = sm.account_id AND sa.user_id = e.user_id
+       WHERE e.user_id = $1 AND c.user_id = $1 AND c.owner_user_id = $1 AND ((e.starts_at < $3 AND e.ends_at > $2) OR e.raw_ical ~* '(RRULE|RDATE|RECURRENCE-ID)[;:]')${calendarFilter}
        ORDER BY e.starts_at ASC`,
       params,
     );

@@ -1850,7 +1850,8 @@
     "workHoursEndDescription": "Ultima ora dell'evidenziazione della giornata lavorativa.",
     "defaultInviteAccount": "Mittente predefinito degli inviti",
     "defaultInviteAccountNone": "Nessun predefinito — scegli per evento",
-    "defaultInviteAccountDescription": "L'account SMTP preselezionato quando inviti partecipanti a un evento."
+    "defaultInviteAccountDescription": "L'account SMTP preselezionato quando inviti partecipanti a un evento.",
+    "openSourceMessage": "Apri il messaggio originale"
   },
   "mailFolders": {
     "inbox": "Posta in arrivo",

@@ -1850,7 +1850,8 @@
     "workHoursEndDescription": "Dernière heure de la mise en évidence de la journée de travail.",
     "defaultInviteAccount": "Expéditeur par défaut des invitations",
     "defaultInviteAccountNone": "Aucun par défaut — choisir par événement",
-    "defaultInviteAccountDescription": "Le compte SMTP présélectionné lorsque vous invitez des participants à un événement."
+    "defaultInviteAccountDescription": "Le compte SMTP présélectionné lorsque vous invitez des participants à un événement.",
+    "openSourceMessage": "Ouvrir le message d'origine"
   },
   "mailFolders": {
     "inbox": "Boîte de réception",

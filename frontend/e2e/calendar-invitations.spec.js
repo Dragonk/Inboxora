@@ -50,6 +50,10 @@ test('editing a recurring occurrence uses its series identity and preserves part
   });
   await page.goto('/'); await navigateModule(page, 'calendar');
   await page.getByRole('button', { name: /Cykliczne spotkanie/ }).first().click();
+  // Opening an event shows the mail-like preview first; editing is one tap away.
+  const preview = page.getByTestId('calendar-event-preview');
+  await expect(preview).toBeVisible();
+  await page.getByTestId('calendar-preview-edit').click();
   const editor = page.getByTestId('calendar-event-dialog');
   await expect(editor).toContainText('tylko to wystąpienie');
   await editor.getByLabel('Tytuł', { exact: true }).fill('Przeniesione spotkanie');

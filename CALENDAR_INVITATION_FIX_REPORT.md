@@ -221,4 +221,90 @@ Jeden wzorzec (nazwa opcji + krótki opis pod spodem), jak w
   backend zawiera `attachmentTransferEncoding` i `fetchInvitationAttachment`,
   frontend — `defaultInviteAccount` i style `settings-switch-row`.
 
+---
+
+# Runda 4 — podgląd wydarzenia, link do maila, nagłówki i panele na telefonie
+
+Wszystkie pomiary wykonane Playwrightem na zbudowanej aplikacji (390×844 i
+1440×900), nie „na oko”.
+
+## 15. Dlaczego opis „nadal nie renderował się jak treść maila”
+
+Zmierzone: mail i kalendarz renderowały opis **identycznie** (ta sama ramka, ten
+sam `MessageBodyRenderer`, ten sam wynik 300 px dla krótkiej treści, a dla
+bogatego HTML `b=1, li=2, a=1, table=1`). Różnica była w tym, **który widok się
+otwierał**:
+
+```js
+if (!event.read_only && event.source === 'local') openEdit(event);  // ← pomijał podgląd
+else setPreview(event);
+```
+
+Wydarzenia lokalne — czyli te, z którymi pracuje użytkownik — trafiały **prosto do
+edytora**, więc opis nigdy nie był renderowany jak treść wiadomości. To była
+właściwa przyczyna.
+
+**Naprawa:** `openEvent` zawsze otwiera podgląd (mail-like), a edycja jest o jedno
+dotknięcie (`Edytuj` w stopce podglądu, tylko dla wydarzeń edytowalnych).
+
+## 16. Link do pierwotnej wiadomości
+
+- migracja `0081_calendar_event_source_message.sql` — `calendar_events.source_message_id`
+  z `ON DELETE SET NULL` + indeks częściowy;
+- import zaproszenia z maila zapisuje to id (także przy `ON CONFLICT`);
+- `GET /events` zwraca `source_message_id` **tylko gdy wiadomość należy do konta
+  tego użytkownika** (`LEFT JOIN messages` + `LEFT JOIN email_accounts ... AND
+  sa.user_id = e.user_id`), razem z `source_folder` i `source_account_id`;
+- podgląd pokazuje „Otwórz pierwotną wiadomość”; kliknięcie pobiera wiadomość po
+  id i publikuje ją jako jedną rozmowę (`openDeepLinkMessage`), bo wiadomość może
+  być w innym koncie/folderze i nie być na załadowanej liście (samo
+  `setSelectedMessage` na nieznanym id otwiera pusty czytnik).
+
+Sprawdzone na żywym PostgreSQL: własna wiadomość linkuje się z folderem i kontem,
+**wiadomość innego użytkownika nigdy nie jest linkowana**, a usunięcie maila
+zostawia wydarzenie i usuwa link.
+
+## 17. Podgląd i edycja pełnoekranowe na telefonie
+
+Nowy modyfikator `.ui-fullscreen` (`ui.css`, w media query ≤767 px): overlay bez
+paddingu, panel 100 % szerokości i `100dvh`, bez zaokrągleń, z poszanowaniem
+safe-area. Używają go podgląd wydarzenia i edytor. Zmierzone: podgląd na 390×844
+ma dokładnie 390×844 px i `y=0`.
+
+## 18. Dwa wiersze nagłówkowe na telefonie
+
+Zmierzone w czytniku: `mobile-topbar` (wys. 53 px, hamburger + „Inboxora”) **nad**
+własnym wierszem czytnika („Wstecz | temat”). Gdy czytnik jest otwarty,
+`moduleActive` było `false`, więc pasek pokazywał bezużyteczną nazwę aplikacji.
+Naprawa: czytnik (i widok kontaktu) przekazuje swoje akcje do wspólnego paska przez
+istniejący `MobileModuleHeader`, a własny drugi wiersz znika. Podwójny safe-area
+padding (`calc(var(--sat) + 10px)`) usunięty — pasek już go obsługuje.
+
+## 19. Spójność „Agenda dnia” i „Panel kalendarzy”
+
+Zmierzone przed naprawą: w obu panelach **podwójny padding** (body `12px 16px 16px`
++ rail `14px`), **zdublowany tytuł** (nagłówek arkusza i `h1`/`h2` w treści),
+trzecie „Nowe wydarzenie” w arkuszu, a dni mini-miesiąca miały **22 px** wysokości.
+Reguła `.ui-dialog.ui-sheet .ui-dialog-body` ma wyższą specyficzność, więc samo
+`.calendar-day-dialog .ui-dialog-body { padding: 0 }` nie działało — stąd brak
+efektu pierwszego podejścia.
+
+Naprawa: jedna warstwa paddingu, jeden tytuł (nagłówek arkusza), brak trzeciego
+„Nowe wydarzenie”, wspólna skala typograficzna i **dotykowe cele 40×40**
+(rozmiar mini-miesiąca przeniesiony z inline do CSS, bo inline wygrywał z regułą).
+Zmierzone po naprawie: tytuły `["Agenda dnia"]`, padding `0px`, wiersz agendy
+55 px, przycisk dnia 40×40.
+
+## 20. Testy (runda 4)
+
+- backend: `npx vitest run` — 1698 przechodzi, 13 pominiętych;
+- frontend: `npm test` — bez regresji; `npm run build` — OK; `eslint` — czysto;
+- nowe testy: `calendar.events.test.js` (izolacja źródłowej wiadomości),
+  `calendar.invitationRead.test.js` (zapis `source_message_id`),
+  `CalendarEventPreview.test.js` (kontrakt podglądu), `e2e/calendar-sheets.spec.js`
+  (spójność arkuszy); zaktualizowany `e2e/calendar-invitations.spec.js` do nowego
+  przepływu podgląd → edycja;
+- Playwright: `calendar*.spec.js` — 89 przechodzi, 8 pominiętych.
+
+
 

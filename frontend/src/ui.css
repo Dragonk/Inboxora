@@ -39,6 +39,16 @@ button, input, textarea, select { font-family: inherit; }
   .ui-overlay { padding: max(12px, env(safe-area-inset-top)) 12px max(12px, env(safe-area-inset-bottom)); }
   .ui-dialog { max-height: calc(100dvh - env(safe-area-inset-top) - env(safe-area-inset-bottom) - 24px); }
   .ui-form-columns { grid-template-columns: minmax(0, 1fr); }
+  /* A full-screen dialog on a phone: the content owns the whole viewport instead of
+     floating in a small card. Used by the calendar event preview and editor, where
+     the description and the form need the room. */
+  .ui-overlay:has(> .ui-fullscreen) { padding: 0; align-items: stretch; justify-items: stretch; }
+  .ui-dialog.ui-fullscreen {
+    width: 100%; max-width: 100%; height: 100dvh; max-height: 100dvh;
+    border: 0; border-radius: 0;
+    padding-top: env(safe-area-inset-top); padding-bottom: env(safe-area-inset-bottom);
+  }
+  .ui-dialog.ui-fullscreen .ui-dialog-body { flex: 1; }
 }
 @media (prefers-reduced-motion: reduce) { .ui-overlay, .ui-dialog { animation: none; } }
 

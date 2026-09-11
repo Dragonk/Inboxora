@@ -89,6 +89,38 @@ describe('GET /api/calendar/events calendar selection', () => {
     const filtered = query.mock.calls.find(([sql]) => sql.includes('FROM calendar_events'));
     expect(filtered[1][3]).toEqual([calendarId, other]);
   });
+
+  it('resolves the source message of a mail invitation only for its own account', async () => {
+    await fetch(`${base}/api/calendar/events?${RANGE}`);
+    const eventQuery = query.mock.calls.find(([sql]) => sql.includes('FROM calendar_events'));
+    // The link back to the original mail must not be able to cross tenants, and it
+    // must disappear when the message is gone instead of pointing at a dead id.
+    expect(eventQuery[0]).toContain('LEFT JOIN messages sm ON sm.id = e.source_message_id');
+    expect(eventQuery[0]).toContain('LEFT JOIN email_accounts sa ON sa.id = sm.account_id AND sa.user_id = e.user_id');
+    expect(eventQuery[0]).toContain('CASE WHEN sa.id IS NOT NULL THEN e.source_message_id END AS source_message_id');
+  });
+
+  it('exposes the source message folder and account so the reader can be opened', async () => {
+    query.mockImplementation(async (sql) => {
+      if (sql.includes('FROM calendar_events')) {
+        return { rows: [{
+          id: 'row-mail', calendar_id: calendarId, uid: 'mail-1', etag: 'etag-1',
+          raw_ical: ['BEGIN:VCALENDAR', 'VERSION:2.0', 'BEGIN:VEVENT', 'UID:mail-1', 'DTSTAMP:20260901T000000Z',
+            'DTSTART:20260910T090000Z', 'DTEND:20260910T100000Z', 'SUMMARY:Z zaproszenia', 'END:VEVENT', 'END:VCALENDAR', ''].join('\r\n'),
+          summary: 'Z zaproszenia', starts_at: new Date('2026-09-10T09:00:00Z'), ends_at: new Date('2026-09-10T10:00:00Z'),
+          all_day: false, attendees: [], source_message_id: 'copy-1', source_folder: 'INBOX', source_account_id: 'account-1',
+          calendar_name: 'Prywatny', calendar_color: '#4b75ff', source: 'local', read_only: false,
+        }] };
+      }
+      return { rows: [] };
+    });
+
+    const response = await fetch(`${base}/api/calendar/events?${RANGE}`);
+    const { events } = await response.json();
+    expect(events[0]).toMatchObject({
+      summary: 'Z zaproszenia', source_message_id: 'copy-1', source_folder: 'INBOX', source_account_id: 'account-1',
+    });
+  });
 });
 
 describe('GET /api/calendar/events projection outcome', () => {

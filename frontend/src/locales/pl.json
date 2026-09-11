@@ -1850,7 +1850,8 @@
     "workHoursEndDescription": "Ostatnia godzina podświetlenia dnia roboczego.",
     "defaultInviteAccount": "Domyślna skrzynka nadawcy zaproszeń",
     "defaultInviteAccountNone": "Brak domyślnej — wybieraj przy wydarzeniu",
-    "defaultInviteAccountDescription": "Konto SMTP wybierane domyślnie, gdy zapraszasz uczestników do wydarzenia."
+    "defaultInviteAccountDescription": "Konto SMTP wybierane domyślnie, gdy zapraszasz uczestników do wydarzenia.",
+    "openSourceMessage": "Otwórz pierwotną wiadomość"
   },
   "mailFolders": {
     "inbox": "Odebrane",

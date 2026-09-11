@@ -154,5 +154,7 @@ describe('GET /api/calendar/invitations/:messageId', () => {
     expect(insertParams[9]).toBe('Agenda');
     // attendees is jsonb: bound as JSON, never as a PostgreSQL array literal.
     expect(insertParams[13]).toBe(JSON.stringify(['admin@kmms.ovh']));
+    // The event remembers the message it came from, so the calendar can link back.
+    expect(insertParams[15]).toBe(MESSAGE_ID);
   });
 });

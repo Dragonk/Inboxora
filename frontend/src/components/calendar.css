@@ -14,6 +14,10 @@
 .calendar-rail { width: var(--list-width, 320px); min-width: 0; }
 .calendar-rail-heading { margin: 0 0 12px; font-family: var(--font-display); font-size: 20px; font-weight: 600; }
 .calendar-rail-create { width: 100%; margin-bottom: 14px; }
+/* Mini-month control sizing. Kept in CSS (not inline) so the bottom sheet can raise
+   the touch targets on a phone without fighting an inline style. */
+.calendar-mini-day { width: 24px; height: 22px; min-height: 22px; }
+.calendar-mini-nav { min-width: 28px; min-height: 28px; }
 .calendar-mini-selected { box-shadow: inset 0 0 0 1.5px var(--accent); }
 .calendar-rail .cal-row { flex-wrap: wrap; }
 .calendar-rail .cal-row label { flex-wrap: wrap; }
@@ -41,11 +45,32 @@
 .calendar-readonly { font-family: var(--font-mono); font-size: 11px; color: var(--text-secondary); }
 /* The calendar panel and the day agenda share one bottom-sheet presentation on
    narrow screens; only their content differs. The sheet header owns the single
-   close affordance, so the rail must not render a second "Zamknij" button. */
-.calendar-panel-dialog .calendar-rail { width: 100%; border-right: 0 !important; }
-.calendar-panel-dialog .ui-dialog-body { padding: 0; }
-.calendar-day-dialog .ui-dialog-body { padding: 0; }
+   close affordance and the single title, so the rail must not render a second
+   "Zamknij" button, and neither panel may repeat the sheet title inside its body.
+   The sheet body owns the padding — the inner panel must not add its own, which
+   used to inset the content twice. */
+.calendar-panel-dialog .calendar-rail { width: 100%; border-right: 0 !important; padding: 0; }
+/* The shared sheet rule (.ui-dialog.ui-sheet .ui-dialog-body) is more specific, so
+   the zero padding must outrank it — otherwise the sheet body keeps its own padding
+   and the panel insets its content a second time. */
+.ui-dialog.ui-sheet.calendar-panel-dialog .ui-dialog-body,
+.ui-dialog.ui-sheet.calendar-day-dialog .ui-dialog-body { padding: 0; }
+.calendar-panel-dialog .calendar-rail-heading { display: none; }
+/* The sheet is already reachable from a screen that owns "new event" twice (the
+   floating action and the header action), so the rail must not add a third.
+   These dialogs are portalled to <body>, so they cannot be scoped under
+   .calendar-mobile — the dialog class alone identifies the sheet. */
+.calendar-panel-dialog .calendar-rail-create { display: none; }
+.calendar-day-dialog [data-testid=calendar-day-agenda] > h2 { display: none; }
 .calendar-day-dialog [data-testid=calendar-day-agenda] { padding: 14px 16px calc(18px + var(--sab)); }
+/* Sheet content follows the shared type scale and touch targets instead of the
+   desktop rail metrics. */
+.calendar-panel-dialog .calendar-rail { font-size: 12.5px; }
+.calendar-panel-dialog .calendar-mini-day { width: 40px; height: 40px; min-height: 40px; font-size: 12px; }
+.calendar-panel-dialog .calendar-mini-nav { min-width: 40px; min-height: 40px; }
+.calendar-panel-dialog [data-testid=calendar-mini-weekday] { font-size: 10.5px; }
+.calendar-day-dialog .calendar-agenda-entry { font-size: 12.5px; }
+.calendar-day-dialog .calendar-agenda-count { font-size: 11px; }
 .calendar-mobile .calendar-header { padding: 10px 12px; gap: 6px; }
 .calendar-mobile .calendar-header h1 { font-size: 17px; min-width: 0; }
 .calendar-mobile .calendar-toolbar { flex-basis: 100%; }

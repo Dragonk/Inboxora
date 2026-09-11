@@ -1850,7 +1850,8 @@
     "workHoursEndDescription": "Последний час подсветки рабочего дня.",
     "defaultInviteAccount": "Отправитель приглашений по умолчанию",
     "defaultInviteAccountNone": "Без значения по умолчанию — выбирать для каждого события",
-    "defaultInviteAccountDescription": "Учётная запись SMTP, выбираемая заранее при приглашении участников."
+    "defaultInviteAccountDescription": "Учётная запись SMTP, выбираемая заранее при приглашении участников.",
+    "openSourceMessage": "Открыть исходное письмо"
   },
   "mailFolders": {
     "inbox": "Входящие",

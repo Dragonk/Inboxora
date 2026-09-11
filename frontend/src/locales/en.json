@@ -1850,7 +1850,8 @@
     "workHoursEndDescription": "Last hour of the working-day highlight.",
     "defaultInviteAccount": "Default sender for calendar invitations",
     "defaultInviteAccountNone": "No default — choose per event",
-    "defaultInviteAccountDescription": "The SMTP account preselected when you invite attendees to an event."
+    "defaultInviteAccountDescription": "The SMTP account preselected when you invite attendees to an event.",
+    "openSourceMessage": "Open original message"
   },
   "mailFolders": {
     "inbox": "Inbox",

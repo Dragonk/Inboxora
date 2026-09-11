@@ -1850,7 +1850,8 @@
     "workHoursEndDescription": "Poslední hodina zvýraznění pracovního dne.",
     "defaultInviteAccount": "Výchozí odesílatel pozvánek",
     "defaultInviteAccountNone": "Žádný výchozí — volit u každé události",
-    "defaultInviteAccountDescription": "Účet SMTP předvybraný při zvání účastníků na událost."
+    "defaultInviteAccountDescription": "Účet SMTP předvybraný při zvání účastníků na událost.",
+    "openSourceMessage": "Otevřít původní zprávu"
   },
   "mailFolders": {
     "inbox": "Doručená pošta",

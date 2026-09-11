@@ -1,5 +1,6 @@
 import { safeHttpUrl } from '../utils/contactLinks.js';
 import { calendarDescriptionBody } from '../utils/richText.js';
+import { openDeepLinkMessage } from '../utils/gtd.js';
 import MobileFloatingAction from './MobileFloatingAction.jsx';
 import { localizeContactCalendar, localizeContactEvent } from '../utils/contactDateLabels.js';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
@@ -60,6 +61,11 @@ export default function CalendarPage({ isActive = true }) {
   // Sender preselected for invitations (Settings → Calendar).
   const calendarInviteAccountId = useStore(state => state.calendarInviteAccountId);
   const visibleCalendarIds = useStore(state => state.visibleCalendarIds);
+  const setSelectedMessage = useStore(state => state.setSelectedMessage);
+  const setThreadMessages = useStore(state => state.setThreadMessages);
+  const setSelectedAccount = useStore(state => state.setSelectedAccount);
+  const setShowCalendar = useStore(state => state.setShowCalendar);
+  const setShowContacts = useStore(state => state.setShowContacts);
   const setVisibleCalendarIds = useStore(state => state.setVisibleCalendarIds);
   const isMobile = useMobile();
   const compactViewport = useCompactLayout();
@@ -215,8 +221,24 @@ export default function CalendarPage({ isActive = true }) {
   const step = direction => setAnchor(current => shiftCalendarAnchor(current, view, direction));
   const shiftMiniMonth = direction => setAnchor(current => shiftCalendarAnchor(current, 'month', direction));
   const openEvent = event => {
-    if (!event.read_only && event.source === 'local') openEdit(event);
-    else setPreview(event);
+    // Always open the mail-like preview first, for every event. Editing is one tap
+    // away from it, so opening a local event no longer skips the readable view (the
+    // description is only ever rendered like a message body in the preview).
+    invitationOperation.current.reset();
+    setPreview(event);
+  };
+  const editablePreview = Boolean(preview && !preview.read_only && preview.source === 'local');
+  // The message an invitation was accepted from may sit in another account or folder
+  // and is therefore not in the loaded list: fetching it by id and publishing it as a
+  // one-message thread is what keeps the reader from opening blank.
+  const openSourceMessage = async () => {
+    const messageId = preview?.source_message_id;
+    if (!messageId) return;
+    setPreview(null);
+    setShowCalendar(false);
+    setShowContacts(false);
+    if (preview.source_account_id) setSelectedAccount(preview.source_account_id, preview.source_folder || 'INBOX');
+    await openDeepLinkMessage(messageId, { getMessage: api.getMessage, setThreadMessages, setSelectedMessage });
   };
   const selectDay = day => { setAnchor(day); if (compact) setDayPanelOpen(true); };
   const sidebarProps = { anchor, calendars, visibleCalendarIds, weekStartsOn: calendarWeekStartsOn, locale,
@@ -265,15 +287,28 @@ export default function CalendarPage({ isActive = true }) {
     {isMobile && mobilePanelOpen && <Dialog title={t('calendar.panel')} closeLabel={t('calendar.close')} onClose={() => setMobilePanelOpen(false)} testId="calendar-mobile-dock" className="calendar-panel-dialog ui-sheet">
       <CalendarSidebar {...sidebarProps} onSelectDate={day => { setAnchor(day); setMobilePanelOpen(false); }} />
     </Dialog>}
-    {form && <EventDialog form={form} error={error} calendars={writable} accounts={senderAccounts} saving={saving} onChange={changeForm} onAllDayChange={allDay => { invitationOperation.current.reset(); setForm(current => toggleAllDayTimes(current, allDay)); }} onSave={save} onDelete={remove} onClose={() => { invitationOperation.current.reset(); setForm(null); setError(null); }} t={t} />}
-    {preview && <Dialog title={localizeContactEvent(preview, t).summary || t('calendar.untitled')} closeLabel={t('calendar.close')} onClose={() => setPreview(null)} testId="calendar-event-preview">
-      <div className="ui-form"><span className="calendar-readonly">{t('calendar.readOnly')}</span>
+    {form && <EventDialog form={form} error={error} calendars={writable} accounts={senderAccounts} saving={saving} fullScreen={isMobile} onChange={changeForm} onAllDayChange={allDay => { invitationOperation.current.reset(); setForm(current => toggleAllDayTimes(current, allDay)); }} onSave={save} onDelete={remove} onClose={() => { invitationOperation.current.reset(); setForm(null); setError(null); }} t={t} />}
+    {preview && <Dialog
+      title={localizeContactEvent(preview, t).summary || t('calendar.untitled')}
+      closeLabel={t('calendar.close')}
+      onClose={() => setPreview(null)}
+      testId="calendar-event-preview"
+      className={isMobile ? 'calendar-event-dialog-full ui-fullscreen' : ''}
+      footer={<>
+        <div>{editablePreview && <Button variant="danger" disabled={saving} onClick={() => deleteEvent(preview)}>{t('calendar.delete')}</Button>}</div>
+        <div style={{ display: 'flex', gap: 8 }}>
+          {preview.source_message_id && <Button data-testid="calendar-open-source-message" onClick={openSourceMessage}>{t('calendar.openSourceMessage')}</Button>}
+          {editablePreview && <Button data-testid="calendar-preview-edit" variant="primary" onClick={() => { const event = preview; setPreview(null); openEdit(event); }}>{t('calendar.edit')}</Button>}
+        </div>
+      </>}
+    >
+      <div className="ui-form">{!editablePreview && <span className="calendar-readonly">{t('calendar.readOnly')}</span>}
         <p>{preview.all_day ? `${String(preview.starts_at).slice(0, 10)} · ${t('calendar.allDay')}` : `${new Date(preview.starts_at).toLocaleString(locale)} – ${new Date(preview.ends_at).toLocaleString(locale)}`}</p>
         {preview.location && <p>{preview.location}</p>}
         {/* The description is rendered exactly like a message body: the same
             sanitized, script-free iframe. Invitations accepted from mail arrive
-            with HTML (X-ALT-DESC or markup inside DESCRIPTION) and used to show
-            raw tags here; plain text keeps the mail reader's text treatment. */}
+            with HTML (X-ALT-DESC or markup inside DESCRIPTION); plain text keeps
+            the mail reader's text treatment. */}
         {(descriptionBody.html || descriptionBody.text) && <div className="calendar-event-description" data-testid="calendar-event-description-body"><MessageBodyRenderer {...descriptionBody} title={t('calendar.description')} showQuotedTextLabel={t('conversation.showQuotedText')} hideQuotedTextLabel={t('conversation.hideQuotedText')} /></div>}
         {safeHttpUrl(preview.url) && <p><a href={safeHttpUrl(preview.url)} target="_blank" rel="noopener noreferrer">{preview.url}</a></p>}
         {preview.attendees?.length > 0 && <p>{t('calendar.attendees')}: {preview.attendees.join(', ')}</p>}
@@ -354,9 +389,9 @@ function TimeGrid({ days, dayEventsFor, view, isMobile, locale, openCreate, open
   </div>;
 }
 
-function EventDialog({ form, error, calendars, accounts, saving, onChange, onAllDayChange, onSave, onDelete, onClose, t }) {
+function EventDialog({ form, error, calendars, accounts, saving, onChange, onAllDayChange, onSave, onDelete, onClose, t, fullScreen = false }) {
   const attendeeValue = form.attendees.join(', ');
-  return <Dialog title={form.mode === 'edit' ? t('calendar.editEvent') : t('calendar.newEvent')} closeLabel={t('calendar.close')} onClose={onClose} busy={saving} testId="calendar-event-dialog" footer={<>
+  return <Dialog title={form.mode === 'edit' ? t('calendar.editEvent') : t('calendar.newEvent')} closeLabel={t('calendar.close')} onClose={onClose} busy={saving} testId="calendar-event-dialog" className={fullScreen ? 'calendar-event-dialog-full ui-fullscreen' : ''} footer={<>
     <div>{form.mode === 'edit' && <Button variant="danger" disabled={saving} onClick={onDelete}>{t('calendar.delete')}</Button>}</div>
     <div style={{ display: 'flex', gap: 8 }}><Button disabled={saving} onClick={onClose}>{t('calendar.cancel')}</Button><Button variant="primary" disabled={saving} onClick={onSave}>{saving ? t('calendar.saving') : form.invitationError ? t('calendar.retrySave') : t('calendar.save')}</Button></div>
   </>}>
