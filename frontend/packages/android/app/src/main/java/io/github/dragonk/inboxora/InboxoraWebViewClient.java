@@ -13,8 +13,15 @@ import com.getcapacitor.BridgeWebViewClient;
 
 public class InboxoraWebViewClient extends BridgeWebViewClient {
     private static final String FALLBACK_URL = "file:///android_asset/public/host-unavailable.html";
+    private static final String OIDC_PATH_PREFIX = "/auth/oidc/";
+    // An SSO round-trip should never take longer than this; the window only widens
+    // which navigations stay in the WebView, and is cleared on the first normal
+    // Inboxora page after the flow.
+    private static final long OIDC_FLOW_TIMEOUT_MS = 10 * 60 * 1000L;
+
     private final Context context;
     private boolean loadingFallback = false;
+    private long oidcFlowStartedAt = 0L;
 
     public InboxoraWebViewClient(Bridge bridge, Context context) {
         super(bridge);
@@ -27,7 +34,13 @@ public class InboxoraWebViewClient extends BridgeWebViewClient {
         if (request == null || uri == null) return super.shouldOverrideUrlLoading(view, request);
 
         String url = uri.toString();
+        boolean oidc = trackOidcFlow(view, url);
+
         if (isConfiguredHost(url) || FALLBACK_URL.equals(url)) return false;
+        // SSO: the identity provider's redirect chain must stay inside this WebView,
+        // otherwise the callback sets the session cookie in an external browser and
+        // the app itself never logs in.
+        if (oidc && isWebUrl(uri)) return false;
         if (!request.isForMainFrame()) return isWebUrl(uri);
         if (openExternallyIfNeeded(url)) return true;
 
@@ -36,12 +49,35 @@ public class InboxoraWebViewClient extends BridgeWebViewClient {
 
     @Override
     public boolean shouldOverrideUrlLoading(WebView view, String url) {
+        boolean oidc = trackOidcFlow(view, url);
+
         if (isConfiguredHost(url) || FALLBACK_URL.equals(url)) return false;
+        if (oidc && isWebUrl(Uri.parse(url))) return false;
         if (openExternallyIfNeeded(url)) {
             return true;
         }
 
         return super.shouldOverrideUrlLoading(view, url);
+    }
+
+    // True while an OIDC login/logout detour is in progress. The detour starts on
+    // an Inboxora /auth/oidc/... page and continues on the identity provider's own
+    // domain, so every main-frame navigation in between stays in the WebView.
+    private boolean trackOidcFlow(WebView view, String targetUrl) {
+        boolean onOidcPage = isOidcPath(targetUrl) || (view != null && isOidcPath(view.getUrl()));
+        if (onOidcPage) oidcFlowStartedAt = System.currentTimeMillis();
+        return onOidcPage
+            || (oidcFlowStartedAt > 0 && System.currentTimeMillis() - oidcFlowStartedAt < OIDC_FLOW_TIMEOUT_MS);
+    }
+
+    private boolean isOidcPath(String url) {
+        if (url == null || !isConfiguredHost(url)) return false;
+        try {
+            String path = Uri.parse(url).getPath();
+            return path != null && path.startsWith(OIDC_PATH_PREFIX);
+        } catch (Exception error) {
+            return false;
+        }
     }
 
     @Override
@@ -72,6 +108,10 @@ public class InboxoraWebViewClient extends BridgeWebViewClient {
         loadingFallback = false;
 
         if (!isConfiguredHost(url)) return;
+
+        // Back on a normal Inboxora page: the SSO detour is over, so external
+        // links go to the browser again.
+        if (!isOidcPath(url)) oidcFlowStartedAt = 0L;
 
         InboxoraNativePlugin.injectCapacitorCompat(view);
         InboxoraNativePlugin.injectPendingActions(view, context);
