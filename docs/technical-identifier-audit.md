@@ -1,6 +1,6 @@
 # Inboxora technical identifier audit
 
-Audited for v3.4.0. Public names, app metadata, package IDs, UI titles, notifications,
+Audited for v3.4.0 and rechecked for v4.0.0. Public names, app metadata, package IDs, UI titles, notifications,
 user-agent strings, generated certificate subject, and translated product references use
 **Inboxora**. The legacy identifiers below are intentional compatibility boundaries, not
 user-facing branding.

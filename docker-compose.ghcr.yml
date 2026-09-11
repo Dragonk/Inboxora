@@ -7,7 +7,7 @@
 #   docker compose up -d
 #
 # To pin a specific version instead of latest, set INBOXORA_VERSION in your .env:
-#   INBOXORA_VERSION=3.4.0
+#   INBOXORA_VERSION=4.0.0
 
 services:
 

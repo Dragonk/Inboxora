@@ -2197,7 +2197,7 @@ router.post('/messages/:id/unsubscribe', async (req, res) => {
       // internal address. (The validateHost above stays as a fast pre-check.)
       const unsub = await safeFetch(httpsUrl, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/x-www-form-urlencoded', 'User-Agent': 'Inboxora/3.4.0' },
+        headers: { 'Content-Type': 'application/x-www-form-urlencoded', 'User-Agent': 'Inboxora/4.0.0' },
         body: 'List-Unsubscribe=One-Click',
         signal: AbortSignal.timeout(10000),
       });
