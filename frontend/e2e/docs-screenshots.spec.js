@@ -102,9 +102,26 @@ async function waitForStableScroll(locator, page) {
  * run instead of shipping a screenshot that undersells the application.
  */
 async function capture(page, name, { mode = 'mail-list', require: required = [], variant = page.__isDesktop ? 'desktop' : 'mobile' } = {}) {
+  await parkPointer(page);
   await settle(page);
   await assertDocsPresentation(page, { mode, require: required });
   await page.screenshot({ path: `${OUTPUT_DIR}${name}-${variant}.png`, animations: 'disabled' });
+}
+
+/**
+ * Moves the pointer out of the way before a capture.
+ *
+ * Playwright leaves the cursor where it clicked, and whether that element keeps its hover
+ * style once a modal covers it depends on when the browser re-runs hit testing. The
+ * Compose button's hover opacity, seen through the composer's blurred backdrop, made the
+ * same run differ by 0.7 % of pixels from one launch to the next. Parking the pointer
+ * removes pointer state as a variable for every capture, not just the composer.
+ */
+async function parkPointer(page) {
+  await page.mouse.move(2, 2);
+  // Hover styles here are transitions, so give them a chance to finish before the
+  // animation wait in settle() decides the page is idle.
+  await page.waitForTimeout(200);
 }
 
 /** Opens the mail module with the shared demo data registered. */
