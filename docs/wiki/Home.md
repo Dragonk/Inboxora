@@ -67,7 +67,8 @@ against the upstream MailFlow fork.
 
 - Desktop layout with resizable panels and a compact mode, plus a phone shell with a navigation
   drawer, floating actions and system Back support.
-- Nine interface languages, ~24 themes, five reader layouts and configurable swipe actions.
+- Nine interface languages, ~25 themes with separate light and dark defaults, a theme mode that
+  follows the system or forces an appearance, five reader layouts and configurable swipe actions.
 - Installable PWA with an unread badge and push notifications; Electron desktop and
   Android/Capacitor shells are present and being stabilised.
 

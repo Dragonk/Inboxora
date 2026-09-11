@@ -101,17 +101,27 @@ body, #root {
   --message-body-bg: var(--bg-secondary);
 }
 
-/* ── Light-surface elevation (per-theme, never global) ────────────────────────
-   The :root shadows above are tuned for dark surfaces. Every light theme
-   overrides them with a warm-neutral tint so elevation stays visible on paper
-   backgrounds. Ink uses the exact values from the design brief; Parchment keeps
-   its sepia cast from the V2/V3 mock-ups; the remaining light surfaces reuse the
-   brief's warm-neutral values. */
+/* ── Per-theme elevation (never global) ───────────────────────────────────────
+   The :root shadows above are tuned for the neutral dark surface. Every light
+   theme overrides them with a warm-neutral tint so elevation stays visible on
+   paper backgrounds; Ink uses the exact values from the design brief, Parchment
+   keeps its sepia cast from the V2/V3 mock-ups, and the remaining light surfaces
+   reuse the brief's warm-neutral values. Dark ink, the dark counterpart of Ink,
+   reuses that same warm-neutral tint over dark paper. */
 :root[data-mailflow-theme="ink"] {
   --shadow-soft: 0 2px 8px rgba(33, 43, 54, 0.10);
   --shadow-popover: 0 4px 20px rgba(33, 43, 54, 0.14), 0 0 0 1px rgba(33, 43, 54, 0.05);
   --shadow-modal: 0 8px 48px rgba(33, 43, 54, 0.20), 0 0 0 1px rgba(33, 43, 54, 0.06);
   --overlay-scrim: rgba(23, 30, 40, 0.42);
+}
+
+/* Dark ink is the dark counterpart of Ink: the same warm-neutral elevation tint
+   over dark paper, so the paper family reads consistently in both appearances. */
+:root[data-mailflow-theme="dark_ink"] {
+  --shadow-soft: 0 2px 8px rgba(8, 10, 14, 0.34);
+  --shadow-popover: 0 4px 20px rgba(8, 10, 14, 0.52), 0 0 0 1px rgba(232, 230, 223, 0.04);
+  --shadow-modal: 0 8px 48px rgba(8, 10, 14, 0.66), 0 0 0 1px rgba(232, 230, 223, 0.06);
+  --overlay-scrim: rgba(8, 10, 14, 0.55);
 }
 
 :root[data-mailflow-theme="parchment"] {

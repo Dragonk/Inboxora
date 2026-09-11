@@ -17,6 +17,7 @@ import { buildEndSessionUrl } from './oidc.js';
 import { invalidateGlobalCategorizationCache } from '../services/categorizer.js';
 import { sanitizeGtdPrefs } from '../utils/gtdPrefs.js';
 import { sanitizeRightSidebarPrefs } from '../utils/rightSidebarPrefs.js';
+import { sanitizeThemePrefs } from '../utils/themePrefs.js';
 import { redisClient } from '../services/redis.js';
 import { consume as rlConsume, reset as rlReset } from '../services/rateLimiter.js';
 import { ensureUserDavResources } from '../services/userDavResources.js';
@@ -764,7 +765,8 @@ router.get('/preferences', async (req, res) => {
 
 export async function patchPreferences(req, res) {
   if (!req.session.userId) return res.status(401).json({ error: 'Not authenticated' });
-  const { theme, font, layout, notificationSound, pageSize, scrollMode, syncInterval,
+  const { theme, themeMode, themeLight, themeDark,
+          font, layout, notificationSound, pageSize, scrollMode, syncInterval,
           blockRemoteImages, imageWhitelist, shortcuts, hiddenFolders, language,
           threadedView, plaintextEmail, hoverQuickActions, swipeActions,
           expandedAccounts, collapsedFolders, favoriteFolders, recentFolders, fontSize,
@@ -788,6 +790,18 @@ export async function patchPreferences(req, res) {
   // preference — it lives per-account in email_accounts.gtd_enabled.
   const { gtdCollapsedSections, gtdPetSlug } = sanitizeGtdPrefs(req.body);
   const { rightSidebarWidth, rightSidebarHidden } = sanitizeRightSidebarPrefs(req.body);
+  // Separate light/dark theme defaults plus the mode that selects between them. A
+  // malformed value is rejected rather than silently dropped, so the client can surface it.
+  const themePrefs = sanitizeThemePrefs(req.body);
+  if (req.body.themeMode !== undefined && themePrefs.themeMode === null) {
+    return res.status(400).json({ error: 'themeMode must be system, light or dark' });
+  }
+  if (req.body.themeLight !== undefined && themePrefs.themeLight === null) {
+    return res.status(400).json({ error: 'themeLight must be a lowercase theme identifier' });
+  }
+  if (req.body.themeDark !== undefined && themePrefs.themeDark === null) {
+    return res.status(400).json({ error: 'themeDark must be a lowercase theme identifier' });
+  }
   const gtdCollapsedSectionsJson = gtdCollapsedSections != null ? JSON.stringify(gtdCollapsedSections) : null;
   // JSONB fields must be serialised to strings for the ::jsonb cast
   const imageWhitelistJson    = imageWhitelist    != null ? JSON.stringify(imageWhitelist)    : null;
@@ -917,6 +931,9 @@ export async function patchPreferences(req, res) {
       || CASE WHEN $46::jsonb IS NOT NULL THEN jsonb_build_object('calendarWorkDays', $46::jsonb) ELSE '{}'::jsonb END
       || CASE WHEN $47::text IS NOT NULL THEN jsonb_build_object('calendarWorkHoursStart', $47::text) ELSE '{}'::jsonb END
       || CASE WHEN $48::text IS NOT NULL THEN jsonb_build_object('calendarWorkHoursEnd', $48::text) ELSE '{}'::jsonb END
+      || CASE WHEN $49::text IS NOT NULL THEN jsonb_build_object('themeMode', $49::text) ELSE '{}'::jsonb END
+      || CASE WHEN $50::text IS NOT NULL THEN jsonb_build_object('themeLight', $50::text) ELSE '{}'::jsonb END
+      || CASE WHEN $51::text IS NOT NULL THEN jsonb_build_object('themeDark', $51::text) ELSE '{}'::jsonb END
     WHERE id = $1
   `, [req.session.userId, theme ?? null, font ?? null, layout ?? null, notificationSound ?? null,
       pageSize ?? null, scrollMode ?? null, syncInterval ?? null,
@@ -930,7 +947,8 @@ export async function patchPreferences(req, res) {
       showMessagePreviews ?? null, conversation_list_view_enabled ?? null, conversation_reader_view_enabled ?? null,
       calendarWeekStartsOn ?? null, mobileNavigationPosition ?? null, visibleCalendarIdsJson,
       calendarWorkDays !== undefined ? JSON.stringify(calendarWorkDays) : null,
-      persistedWorkHoursStart ?? null, persistedWorkHoursEnd ?? null]);
+      persistedWorkHoursStart ?? null, persistedWorkHoursEnd ?? null,
+      themePrefs.themeMode, themePrefs.themeLight, themePrefs.themeDark]);
 
   if (syncInterval != null) {
     const ms = parseInt(syncInterval) * 1000;

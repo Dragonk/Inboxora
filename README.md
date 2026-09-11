@@ -222,7 +222,9 @@ matrix, including running behind an existing reverse proxy.
   (Simplified), Polish and Czech.
 - ~25 themes with a separate default for the light and the dark appearance, a theme mode that
   follows the system or forces one appearance, multiple font pairings, a font-size scale from
-  80 % to 130 %, five reader layouts and configurable swipe actions.
+  80 % to 130 %, five reader layouts and configurable swipe actions. **Ink** is the default
+  light theme and **Dark ink** its dark counterpart, so a fresh profile follows the system and
+  switches between the two on its own.
 - Installable PWA with an unread badge and push notifications; Electron desktop and
   Android/Capacitor shells are present and are being stabilised for release.
 

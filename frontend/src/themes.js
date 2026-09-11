@@ -4,7 +4,8 @@ export const THEMES = {
   // insertion order, so the new default theme is also the first suggestion.
   ink: {
     label: 'Ink',
-    description: 'Paper and fountain-pen indigo — the new default',
+    tone: 'light',
+    description: 'Paper and fountain-pen indigo — the default light theme',
     preview: ['#f6f5f1', '#edece6', '#35548a', '#212b36'],
     vars: {
       '--bg-primary': '#f6f5f1',
@@ -27,9 +28,36 @@ export const THEMES = {
     }
   },
 
+  dark_ink: {
+    label: 'Dark ink',
+    tone: 'dark',
+    description: 'Dark paper and fountain-pen indigo — the dark counterpart of Ink',
+    preview: ['#14171c', '#1a1e25', '#8aa5dd', '#e8e6df'],
+    vars: {
+      '--bg-primary': '#14171c',
+      '--bg-secondary': '#1a1e25',
+      '--bg-tertiary': '#21262f',
+      '--bg-elevated': '#262c36',
+      '--bg-hover': '#2c333e',
+      '--border': '#363d49',
+      '--border-subtle': '#262c36',
+      '--text-primary': '#e8e6df',
+      '--text-secondary': '#a9b0bd',
+      '--text-tertiary': '#6b7480',
+      '--accent': '#8aa5dd',
+      '--accent-text': '#10141b',
+      '--accent-dim': '#242f47',
+      '--accent-glow': 'rgba(138,165,221,0.16)',
+      '--green': '#6fbf7e',
+      '--red': '#e08a8a',
+      '--amber': '#d9ab55',
+    }
+  },
+
   dark: {
     label: 'Dark',
-    description: 'Default dark theme',
+    tone: 'dark',
+    description: 'Neutral dark — the former dark default',
     preview: ['#0f0f11', '#161619', '#7c6af7', '#e8e8ed'],
     vars: {
       '--bg-primary': '#0f0f11',
@@ -54,7 +82,8 @@ export const THEMES = {
 
   light: {
     label: 'Light',
-    description: 'Clean light theme',
+    tone: 'light',
+    description: 'Neutral light — the former light default',
     preview: ['#f8f8fc', '#ffffff', '#6366f1', '#1a1a2e'],
     vars: {
       '--bg-primary': '#f0f0f5',
@@ -79,6 +108,7 @@ export const THEMES = {
 
   gtd: {
     label: 'GTD',
+    tone: 'dark',
     description: 'Getting Things Done — dark, per-state accents',
     preview: ['#0f0f11', '#161619', '#4A9EDD', '#e8e8ed'],
     vars: {
@@ -104,6 +134,7 @@ export const THEMES = {
 
   gruvbox: {
     label: 'Gruvbox',
+    tone: 'dark',
     description: 'Retro groove',
     preview: ['#282828', '#3c3836', '#d79921', '#ebdbb2'],
     vars: {
@@ -129,6 +160,7 @@ export const THEMES = {
 
   catppuccin_mocha: {
     label: 'Catppuccin Mocha',
+    tone: 'dark',
     description: 'Soothing pastel dark',
     preview: ['#1e1e2e', '#181825', '#cba6f7', '#cdd6f4'],
     vars: {
@@ -154,6 +186,7 @@ export const THEMES = {
 
   catppuccin_latte: {
     label: 'Catppuccin Latte',
+    tone: 'light',
     description: 'Soothing pastel light',
     preview: ['#eff1f5', '#e6e9ef', '#8839ef', '#4c4f69'],
     vars: {
@@ -179,6 +212,7 @@ export const THEMES = {
 
   nord: {
     label: 'Nord',
+    tone: 'dark',
     description: 'Arctic, north-bluish',
     preview: ['#2e3440', '#3b4252', '#88c0d0', '#eceff4'],
     vars: {
@@ -204,6 +238,7 @@ export const THEMES = {
 
   tokyo_night: {
     label: 'Tokyo Night',
+    tone: 'dark',
     description: 'City lights after dark',
     preview: ['#1a1b26', '#16161e', '#7aa2f7', '#c0caf5'],
     vars: {
@@ -229,6 +264,7 @@ export const THEMES = {
 
   solarized: {
     label: 'Solarized Dark',
+    tone: 'dark',
     description: 'Precision colors for machines',
     preview: ['#002b36', '#073642', '#268bd2', '#839496'],
     vars: {
@@ -254,6 +290,7 @@ export const THEMES = {
 
   dracula: {
     label: 'Dracula',
+    tone: 'dark',
     description: 'Dark theme for the night owl',
     preview: ['#282a36', '#1e1f29', '#bd93f9', '#f8f8f2'],
     vars: {
@@ -279,6 +316,7 @@ export const THEMES = {
 
   rose_pine: {
     label: 'Rosé Pine',
+    tone: 'dark',
     description: 'All natural pine, faux fur',
     preview: ['#191724', '#1f1d2e', '#c4a7e7', '#e0def4'],
     vars: {
@@ -304,6 +342,7 @@ export const THEMES = {
 
   midnight_blue: {
     label: 'Midnight Blue',
+    tone: 'dark',
     description: 'Deep navy with electric blue — bold and immersive',
     preview: ['#070d1a', '#0d1629', '#3b9eff', '#c8e0ff'],
     vars: {
@@ -329,6 +368,7 @@ export const THEMES = {
 
   cyberpunk: {
     label: 'Cyberpunk',
+    tone: 'dark',
     description: 'Dark neon with hot pink — electric and futuristic',
     preview: ['#0a0010', '#110020', '#ff00aa', '#f0d0ff'],
     vars: {
@@ -354,6 +394,7 @@ export const THEMES = {
 
   forest: {
     label: 'Forest',
+    tone: 'dark',
     description: 'Deep green with emerald — lush and organic',
     preview: ['#0a1a0d', '#0f2214', '#00c896', '#c8f0d0'],
     vars: {
@@ -379,6 +420,7 @@ export const THEMES = {
 
   sunset: {
     label: 'Sunset',
+    tone: 'dark',
     description: 'Warm dark amber with golden orange — rich and warm',
     preview: ['#130b00', '#1e1100', '#ff9900', '#ffe8c8'],
     vars: {
@@ -404,6 +446,7 @@ export const THEMES = {
 
   executive: {
     label: 'Executive',
+    tone: 'dark',
     description: 'Dark navy with antique gold — formal and authoritative',
     preview: ['#0a0d1a', '#101525', '#c8a840', '#ddd0b0'],
     vars: {
@@ -429,6 +472,7 @@ export const THEMES = {
 
   parchment: {
     label: 'Parchment',
+    tone: 'light',
     description: 'Cream and sepia — classic and scholarly',
     preview: ['#f5f0e8', '#ede7d8', '#8b4513', '#2a1f10'],
     vars: {
@@ -455,6 +499,7 @@ export const THEMES = {
 
   slate_pro: {
     label: 'Slate Pro',
+    tone: 'dark',
     description: 'Blue-grey with sky blue — professional and crisp',
     preview: ['#1a1f2e', '#1f2540', '#4a90d9', '#d0d8f0'],
     vars: {
@@ -480,6 +525,7 @@ export const THEMES = {
 
   monokai: {
     label: 'Monokai',
+    tone: 'dark',
     description: 'The classic developer color scheme',
     preview: ['#272822', '#1e1f1a', '#ae81ff', '#f8f8f2'],
     vars: {
@@ -505,6 +551,7 @@ export const THEMES = {
 
   high_contrast: {
     label: 'High Contrast',
+    tone: 'dark',
     description: 'Pure black with vivid yellow — maximum readability',
     preview: ['#000000', '#0a0a0a', '#f5e642', '#ffffff'],
     vars: {
@@ -530,6 +577,7 @@ export const THEMES = {
 
   espresso: {
     label: 'Espresso',
+    tone: 'dark',
     description: 'Coffee brown with copper — warm and inviting',
     preview: ['#1a1008', '#221508', '#d4773a', '#f5e8d0'],
     vars: {
@@ -555,6 +603,7 @@ export const THEMES = {
 
   winxp: {
     label: 'Windows XP',
+    tone: 'light',
     description: 'Luna blue and silver — early-2000s Windows',
     preview: ['#ece9d8', '#ffffff', '#2a5fd8', '#0a0a0a'],
     vars: {
@@ -580,6 +629,7 @@ export const THEMES = {
 
   win9x: {
     label: 'Windows Classic',
+    tone: 'light',
     description: 'Battleship grey and navy — 95/98/2000 chrome',
     preview: ['#c0c0c0', '#ffffff', '#000080', '#000000'],
     vars: {
@@ -656,18 +706,90 @@ export function applyCustomCss(css) {
   refreshAccentDerived(); // flow a custom --accent override through to favicon/logo
 }
 
-// ── Theme application ─────────────────────────────────────────────────────────
+// ── Light/dark theme defaults ─────────────────────────────────────────────────
+
+// Ink is the default light appearance and Dark ink its dark counterpart. A user
+// can pick a different theme for each appearance separately (Settings →
+// Appearance → Theme), and the mode decides which one is used: follow the OS
+// colour scheme, or force light/dark.
+export const DEFAULT_LIGHT_THEME = 'ink';
+export const DEFAULT_DARK_THEME = 'dark_ink';
+export const THEME_MODES = ['system', 'light', 'dark'];
+
+export const THEME_MODE_STORAGE_KEYS = {
+  mode: 'mailflow_theme_mode',
+  light: 'mailflow_theme_light',
+  dark: 'mailflow_theme_dark',
+};
+
+// A theme is either a light or a dark appearance. The metadata lives on the theme
+// itself so the two pickers can group themes without a second list to maintain.
+export function themeTone(name) {
+  return THEMES[name]?.tone === 'light' ? 'light' : 'dark';
+}
+
+export function themesByTone(tone) {
+  return Object.entries(THEMES).filter(([, theme]) => theme.tone === tone);
+}
+
+export function normalizeThemeMode(mode) {
+  return THEME_MODES.includes(mode) ? mode : 'system';
+}
+
+// matchMedia is guarded so an environment without it (tests, SSR) never throws and
+// simply resolves to the light appearance.
+export function systemPrefersDark() {
+  try {
+    return Boolean(window.matchMedia?.('(prefers-color-scheme: dark)').matches);
+  } catch { return false; }
+}
+
+function readStored(key) {
+  try { return localStorage.getItem(key); } catch { return null; }
+}
+
+// The stored default light/dark themes plus the mode. A legacy single `theme`
+// choice (stored before separate defaults existed) becomes an explicit mode for
+// its own tone, so an upgrade never silently changes someone's appearance.
+export function readThemePrefs() {
+  const storedMode = readStored(THEME_MODE_STORAGE_KEYS.mode);
+  if (storedMode) {
+    const storedLight = readStored(THEME_MODE_STORAGE_KEYS.light);
+    const storedDark = readStored(THEME_MODE_STORAGE_KEYS.dark);
+    return {
+      mode: normalizeThemeMode(storedMode),
+      light: THEMES[storedLight] ? storedLight : DEFAULT_LIGHT_THEME,
+      dark: THEMES[storedDark] ? storedDark : DEFAULT_DARK_THEME,
+    };
+  }
+  const legacy = readStored('mailflow_theme');
+  if (legacy && THEMES[legacy]) {
+    return themeTone(legacy) === 'light'
+      ? { mode: 'light', light: legacy, dark: DEFAULT_DARK_THEME }
+      : { mode: 'dark', light: DEFAULT_LIGHT_THEME, dark: legacy };
+  }
+  return { mode: 'system', light: DEFAULT_LIGHT_THEME, dark: DEFAULT_DARK_THEME };
+}
+
+// The theme that should render for a set of preferences: light/dark is forced by
+// the mode, while `system` follows the operating system colour scheme.
+export function resolveTheme(prefs = readThemePrefs()) {
+  const light = THEMES[prefs?.light] ? prefs.light : DEFAULT_LIGHT_THEME;
+  const dark = THEMES[prefs?.dark] ? prefs.dark : DEFAULT_DARK_THEME;
+  const mode = normalizeThemeMode(prefs?.mode);
+  if (mode === 'light') return light;
+  if (mode === 'dark') return dark;
+  return systemPrefersDark() ? dark : light;
+}
 
 // The theme to use before any stored/server preference is known — i.e. on the
-// login screen and the very first visit. Ink is the new light default (not the
-// old 'light' theme); a dark OS preference still resolves to 'dark'. matchMedia
-// is guarded so a missing API never throws.
+// login screen and the very first visit: the configured light default when the OS
+// is light, the configured dark default when it prefers dark.
 export function getInitialTheme() {
-  try {
-    if (window.matchMedia?.('(prefers-color-scheme: dark)').matches) return 'dark';
-  } catch { /* matchMedia unavailable — fall through to ink */ }
-  return 'ink';
+  return resolveTheme();
 }
+
+// ── Theme application ─────────────────────────────────────────────────────────
 
 // The favicon follows the same vector master and effective accent as the app.
 export function buildFaviconSvg(accent) {

@@ -122,8 +122,10 @@ or into the commit message that fixed the issue. Git history keeps the full reco
 
 ## Interface conventions
 
-- The default interface uses the Ink theme with self-hosted DM Sans, Fraunces and JetBrains Mono.
-  Existing theme, font, scale and width preferences are never migrated or reset.
+- The default interface uses Ink in the light appearance and Dark ink in the dark appearance,
+  with self-hosted DM Sans, Fraunces and JetBrains Mono. Each appearance has its own default theme
+  and the mode can follow the system; a single theme chosen before separate defaults existed is
+  kept as an explicit choice for its tone, so a preference is never silently reset.
 - Shared controls live in `ui.jsx` / `ui.css`; Calendar and Contacts have scoped presentation
   styles; email HTML keeps its own isolated renderer.
 - `v3-interface.spec.js` checks both behaviour and image references at desktop, tablet and mobile

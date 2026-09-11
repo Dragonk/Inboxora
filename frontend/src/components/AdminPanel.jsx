@@ -25,7 +25,7 @@ import {
   normalizeAiForm,
   selectAiConnectionMethod,
 } from '../utils/aiConfig.js';
-import { THEMES, applyTheme, applyCustomCss } from '../themes.js';
+import { THEMES, applyCustomCss, themesByTone } from '../themes.js';
 import { FONT_SETS, loadFontSet, isRetroFont } from '../fonts.js';
 import { LAYOUTS, localizedLayout, applyLayout } from '../layouts.js';
 import { NOTIFICATION_SOUNDS, playNotificationSound, playCustomSound, warmUpAudioContext } from '../utils/notificationSounds.js';
@@ -1092,9 +1092,76 @@ function AccountsTab() {
 }
 
 // ─── Themes Tab ───────────────────────────────────────────────────────────────
+// One grid per appearance: the light default and the dark default are chosen
+// separately, and the mode decides which of the two is rendered.
+function ThemeDefaultGrid({ tone, selected, onSelect }) {
+  const themes = themesByTone(tone);
+  if (!themes.length) return null;
+  return (
+    <div
+      data-testid={`theme-default-${tone}`}
+      style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(200px, 1fr))', gap: 10 }}
+    >
+      {themes.map(([key, themeObj]) => (
+        <button
+          key={key}
+          type="button"
+          onClick={() => onSelect(key)}
+          aria-pressed={selected === key}
+          style={{
+            background: selected === key ? 'var(--bg-hover)' : 'var(--bg-tertiary)',
+            border: `2px solid ${selected === key ? 'var(--accent)' : 'var(--border-subtle)'}`,
+            borderRadius: 10, padding: '12px', cursor: 'pointer',
+            textAlign: 'left', transition: 'all 0.15s',
+            outline: 'none',
+          }}
+          onMouseEnter={e => { if (selected !== key) e.currentTarget.style.borderColor = 'var(--border)'; }}
+          onMouseLeave={e => { if (selected !== key) e.currentTarget.style.borderColor = 'var(--border-subtle)'; }}
+        >
+          {/* Color swatches */}
+          <div style={{ display: 'flex', gap: 4, marginBottom: 10 }}>
+            {themeObj.preview.map((c, i) => (
+              <div key={i} style={{
+                flex: i === 0 ? 2 : 1, height: 28, borderRadius: 5,
+                background: c,
+                border: '1px solid rgba(255,255,255,0.1)',
+              }} />
+            ))}
+          </div>
+
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+            <div>
+              <div style={{ fontSize: 13, fontWeight: 500, color: 'var(--text-primary)' }}>
+                {themeObj.label}
+              </div>
+              <div style={{ fontSize: 11, color: 'var(--text-tertiary)', marginTop: 2 }}>
+                {themeObj.description}
+              </div>
+            </div>
+            {selected === key && (
+              <div style={{
+                width: 18, height: 18, borderRadius: '50%',
+                background: 'var(--accent)', display: 'flex',
+                alignItems: 'center', justifyContent: 'center', flexShrink: 0,
+              }}>
+                <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="var(--accent-text)" strokeWidth="3">
+                  <polyline points="20 6 9 17 4 12"/>
+                </svg>
+              </div>
+            )}
+          </div>
+        </button>
+      ))}
+    </div>
+  );
+}
+
 function ThemesTab() {
   const { t } = useTranslation();
-  const { theme, setTheme } = useStore();
+  const {
+    theme, themeMode, lightTheme, darkTheme,
+    setThemeMode, setLightTheme, setDarkTheme,
+  } = useStore();
   const [customCss, setCustomCss] = useState('');
   const [cssSaving, setCssSaving] = useState(false);
   const [cssSaved, setCssSaved] = useState(false);
@@ -1105,11 +1172,6 @@ function ThemesTab() {
       .then(d => setCustomCss(d.settings.custom_css || ''))
       .catch(() => {});
   }, []);
-
-  const handleSelect = (key) => {
-    setTheme(key);
-    applyTheme(key);
-  };
 
   const handleSaveCustomCss = async () => {
     setCssSaving(true);
@@ -1127,6 +1189,14 @@ function ThemesTab() {
     }
   };
 
+  const modeOptions = [
+    ['system', t('admin.appearance.themeModeSystem')],
+    ['light', t('admin.appearance.themeModeLight')],
+    ['dark', t('admin.appearance.themeModeDark')],
+  ];
+  const sectionLabel = { fontSize: 13, fontWeight: 600, color: 'var(--text-primary)', marginBottom: 4 };
+  const sectionHint = { fontSize: 12, color: 'var(--text-tertiary)' };
+
   return (
     <div>
       <div style={{ fontSize: 15, fontWeight: 600, color: 'var(--text-primary)', marginBottom: 4 }}>
@@ -1136,55 +1206,53 @@ function ThemesTab() {
         {t('admin.appearance.description')}
       </div>
 
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(200px, 1fr))', gap: 10 }}>
-        {Object.entries(THEMES).map(([key, themeObj]) => (
+      <div style={sectionLabel}>{t('admin.appearance.themeMode')}</div>
+      <div style={{ ...sectionHint, marginBottom: 10 }}>{t('admin.appearance.themeModeDescription')}</div>
+      <div
+        role="group"
+        aria-label={t('admin.appearance.themeMode')}
+        style={{ display: 'inline-flex', padding: 2, gap: 2, borderRadius: 8, background: 'var(--bg-tertiary)', border: '1px solid var(--border-subtle)' }}
+      >
+        {modeOptions.map(([key, label]) => (
           <button
             key={key}
-            onClick={() => handleSelect(key)}
+            type="button"
+            onClick={() => setThemeMode(key)}
+            aria-pressed={themeMode === key}
             style={{
-              background: theme === key ? 'var(--bg-hover)' : 'var(--bg-tertiary)',
-              border: `2px solid ${theme === key ? 'var(--accent)' : 'var(--border-subtle)'}`,
-              borderRadius: 10, padding: '12px', cursor: 'pointer',
-              textAlign: 'left', transition: 'all 0.15s',
-              outline: 'none',
+              background: themeMode === key ? 'var(--accent)' : 'transparent',
+              color: themeMode === key ? 'var(--accent-text)' : 'var(--text-secondary)',
+              border: 'none', borderRadius: 6, padding: '6px 14px', fontSize: 12,
+              fontWeight: themeMode === key ? 600 : 400, cursor: 'pointer',
             }}
-            onMouseEnter={e => { if (theme !== key) e.currentTarget.style.borderColor = 'var(--border)'; }}
-            onMouseLeave={e => { if (theme !== key) e.currentTarget.style.borderColor = 'var(--border-subtle)'; }}
           >
-            {/* Color swatches */}
-            <div style={{ display: 'flex', gap: 4, marginBottom: 10 }}>
-              {themeObj.preview.map((c, i) => (
-                <div key={i} style={{
-                  flex: i === 0 ? 2 : 1, height: 28, borderRadius: 5,
-                  background: c,
-                  border: '1px solid rgba(255,255,255,0.1)',
-                }} />
-              ))}
-            </div>
-
-            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-              <div>
-                <div style={{ fontSize: 13, fontWeight: 500, color: 'var(--text-primary)' }}>
-                  {themeObj.label}
-                </div>
-                <div style={{ fontSize: 11, color: 'var(--text-tertiary)', marginTop: 2 }}>
-                  {themeObj.description}
-                </div>
-              </div>
-              {theme === key && (
-                <div style={{
-                  width: 18, height: 18, borderRadius: '50%',
-                  background: 'var(--accent)', display: 'flex',
-                  alignItems: 'center', justifyContent: 'center', flexShrink: 0,
-                }}>
-                  <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="3">
-                    <polyline points="20 6 9 17 4 12"/>
-                  </svg>
-                </div>
-              )}
-            </div>
+            {label}
           </button>
         ))}
+      </div>
+
+      <div style={{ ...sectionHint, marginTop: 14, marginBottom: 24 }}>
+        {t('admin.appearance.themeDefaultsDescription')}
+      </div>
+
+      <div style={sectionLabel}>{t('admin.appearance.lightTheme')}</div>
+      <div style={{ height: 10 }} />
+      <ThemeDefaultGrid
+        tone="light"
+        selected={lightTheme}
+        onSelect={setLightTheme}
+      />
+
+      <div style={{ ...sectionLabel, marginTop: 24 }}>{t('admin.appearance.darkTheme')}</div>
+      <div style={{ height: 10 }} />
+      <ThemeDefaultGrid
+        tone="dark"
+        selected={darkTheme}
+        onSelect={setDarkTheme}
+      />
+
+      <div style={{ ...sectionHint, marginTop: 16 }}>
+        {t('admin.appearance.activeTheme', { theme: THEMES[theme]?.label || theme })}
       </div>
 
       <div style={{ borderTop: '1px solid var(--border-subtle)', marginTop: 28, paddingTop: 28 }}>
@@ -8273,7 +8341,10 @@ function makeSearchIndex(t) {
     { label: t('admin.rules.title'), keywords: ['rule', 'filter', 'condition', 'action', 'move', 'auto', 'automate', 'inbox rule', 'sort'], tab: 'rules', subtab: 'rules', breadcrumb: `${tabLabel('rules')} › ${t('admin.rules.subTabRules')}` },
     { label: t('admin.rules.subTabBlockList'), keywords: ['block', 'blocked', 'sender', 'blacklist', 'spam', 'domain'], tab: 'rules', subtab: 'block-list', breadcrumb: `${tabLabel('rules')} › ${t('admin.rules.subTabBlockList')}` },
     // Appearance > Theme
-    { label: tabLabel('theme'), keywords: ['theme', 'dark', 'light', 'color', 'colour', 'dark mode', 'light mode'], tab: 'appearance', subtab: 'theme', breadcrumb: `${tabLabel('appearance')} › ${tabLabel('theme')}` },
+    { label: tabLabel('theme'), keywords: ['theme', 'dark', 'light', 'color', 'colour', 'dark mode', 'light mode', 'dark ink', 'ink'], tab: 'appearance', subtab: 'theme', breadcrumb: `${tabLabel('appearance')} › ${tabLabel('theme')}` },
+    { label: t('admin.appearance.themeMode'), keywords: ['theme mode', 'system', 'follow system', 'auto', 'always light', 'always dark', 'appearance'], tab: 'appearance', subtab: 'theme', breadcrumb: `${tabLabel('appearance')} › ${tabLabel('theme')}` },
+    { label: t('admin.appearance.lightTheme'), keywords: ['light theme', 'default light', 'day', 'bright'], tab: 'appearance', subtab: 'theme', breadcrumb: `${tabLabel('appearance')} › ${tabLabel('theme')}` },
+    { label: t('admin.appearance.darkTheme'), keywords: ['dark theme', 'default dark', 'night', 'dark ink'], tab: 'appearance', subtab: 'theme', breadcrumb: `${tabLabel('appearance')} › ${tabLabel('theme')}` },
     // Appearance > Layout
     ...['firstDayOfWeek', 'workDays', 'workHoursStart', 'workHoursEnd'].map(key => ({ label: t(`calendar.${key}`), keywords: ['calendar', 'kalendarz', 'week', 'work', 'hours'], tab: 'calendar', breadcrumb: t('calendar.title') })),
     { label: t('admin.appearance.mobileNavigation'), keywords: ['mobile', 'navigation', 'nawigacja', 'top', 'bottom'], tab: 'appearance', subtab: 'layout', breadcrumb: layoutCrumb },

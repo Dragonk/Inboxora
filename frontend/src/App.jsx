@@ -35,9 +35,26 @@ export default function App() {
     };
   }, [setUser, setLocked]);
 
+  // While the theme mode is "system", swap between the light and dark defaults as
+  // the operating system colour scheme changes. The store ignores the event under
+  // a forced light/dark mode, so this is safe to keep mounted.
   useEffect(() => {
-    // Apply localStorage immediately so there's no flash while we check auth
-    const bootTheme = localStorage.getItem('mailflow_theme') || getInitialTheme();
+    const media = window.matchMedia?.('(prefers-color-scheme: dark)');
+    if (!media) return undefined;
+    const onSchemeChange = () => useStore.getState().syncSystemTheme();
+    if (media.addEventListener) {
+      media.addEventListener('change', onSchemeChange);
+      return () => media.removeEventListener('change', onSchemeChange);
+    }
+    media.addListener(onSchemeChange); // Safari < 14
+    return () => media.removeListener(onSchemeChange);
+  }, []);
+
+  useEffect(() => {
+    // Apply localStorage immediately so there's no flash while we check auth.
+    // getInitialTheme() resolves the stored light/dark defaults + mode here, so the
+    // first paint already matches the chosen appearance and the OS colour scheme.
+    const bootTheme = getInitialTheme();
     applyTheme(bootTheme);
     applyFontSet(effectiveFontSet(bootTheme, localStorage.getItem('mailflow_font') || 'default'));
     applyLayout(localStorage.getItem('mailflow_layout') || 'comfortable', savedPanelWidth());

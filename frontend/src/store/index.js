@@ -2,7 +2,16 @@ import { resolveSelectedAccount, pruneFolders } from '../utils/accountScope.js';
 import { create } from 'zustand';
 import { api } from '../utils/api.js';
 import { accountAffectsUnifiedInbox } from '../utils/unifiedInbox.js';
-import { applyTheme, applyCustomCss, getInitialTheme } from '../themes.js';
+import {
+  THEMES,
+  applyTheme,
+  applyCustomCss,
+  resolveTheme,
+  readThemePrefs,
+  normalizeThemeMode,
+  themeTone,
+  THEME_MODES,
+} from '../themes.js';
 import { applyFontSet, applyFontSize, effectiveFontSet, isRetroFont, THEME_FONT } from '../fonts.js';
 import { applyLayout, normalizeLayout } from '../layouts.js';
 import { PANEL_WIDTH_STORAGE_KEY, savedPanelWidth } from '../utils/panelWidth.js';
@@ -94,6 +103,10 @@ function readGtdCollapsedSections() {
   // until the user wants it.
   return { someday: true };
 }
+
+// The stored light/dark theme defaults are read once at startup; the active theme
+// is derived from them plus the OS colour scheme (mode 'system').
+const _initialThemePrefs = readThemePrefs();
 
 export const useStore = create((set, get) => ({
   // Auth
@@ -701,11 +714,29 @@ export const useStore = create((set, get) => ({
   loadingThread: null,
   setLoadingThread: (id) => set({ loadingThread: id }),
 
-  // Theme
-  theme: localStorage.getItem('mailflow_theme') || getInitialTheme(),
-  setTheme: (theme) => {
-    localStorage.setItem('mailflow_theme', theme);
-    set({ theme });
+  // Theme — a default for the light appearance and one for the dark appearance,
+  // plus the mode that picks between them. `theme` stays the *effective* theme so
+  // existing consumers (fonts, diagnostics, command palette) keep working.
+  themeMode: _initialThemePrefs.mode,
+  lightTheme: _initialThemePrefs.light,
+  darkTheme: _initialThemePrefs.dark,
+  theme: resolveTheme(_initialThemePrefs),
+
+  // Shared by every theme action: store the three preferences, derive the active
+  // theme and re-apply the CSS variables plus the theme-paired font.
+  applyThemeSelection: (partial) => {
+    const current = { mode: get().themeMode, light: get().lightTheme, dark: get().darkTheme };
+    const next = {
+      mode: partial.mode !== undefined ? normalizeThemeMode(partial.mode) : current.mode,
+      light: THEMES[partial.light] ? partial.light : current.light,
+      dark: THEMES[partial.dark] ? partial.dark : current.dark,
+    };
+    const theme = resolveTheme(next);
+    localStorage.setItem('mailflow_theme_mode', next.mode);
+    localStorage.setItem('mailflow_theme_light', next.light);
+    localStorage.setItem('mailflow_theme_dark', next.dark);
+    localStorage.setItem('mailflow_theme', theme); // legacy/effective mirror
+    set({ themeMode: next.mode, lightTheme: next.light, darkTheme: next.dark, theme });
     applyTheme(theme); // keep CSS vars + favicon in sync
     // If a retro font was left as the saved choice, a non-retro theme must not keep it —
     // normalise the stored choice so it can't "stick" (and the font picker stays honest).
@@ -716,7 +747,32 @@ export const useStore = create((set, get) => ({
     }
     // Retro themes bring their own font; other themes fall back to the saved choice.
     applyFontSet(effectiveFontSet(theme, get().fontSet));
-    schedulePrefSave({ theme });
+    schedulePrefSave({ themeMode: next.mode, themeLight: next.light, themeDark: next.dark, theme });
+  },
+
+  setThemeMode: (mode) => get().applyThemeSelection({ mode }),
+  setLightTheme: (theme) => get().applyThemeSelection({ light: theme }),
+  setDarkTheme: (theme) => get().applyThemeSelection({ dark: theme }),
+
+  // An explicit theme choice targets the slot for its own tone and forces that
+  // appearance — the behaviour of the old single-theme picker and the command palette.
+  setTheme: (theme) => {
+    if (!THEMES[theme]) return;
+    get().applyThemeSelection(themeTone(theme) === 'light'
+      ? { mode: 'light', light: theme }
+      : { mode: 'dark', dark: theme });
+  },
+
+  // Re-derive the active theme after the OS colour scheme changes. Only relevant
+  // while following the system, and applied locally — the OS is not a preference,
+  // so nothing is written back to the server.
+  syncSystemTheme: () => {
+    if (get().themeMode !== 'system') return;
+    const theme = resolveTheme({ mode: 'system', light: get().lightTheme, dark: get().darkTheme });
+    if (theme === get().theme) return;
+    set({ theme });
+    applyTheme(theme);
+    applyFontSet(effectiveFontSet(theme, get().fontSet));
   },
 
   // Font
@@ -1070,10 +1126,29 @@ export const useStore = create((set, get) => ({
       // Per-user plugin activation. Absent = nothing activated (new users start with GTD off);
       // existing GTD users were grandfathered into ['gtd'] by migration 0042.
       set({ enabledPlugins: Array.isArray(prefs.enabledPlugins) ? prefs.enabledPlugins : [] });
-      if (prefs.theme) {
-        localStorage.setItem('mailflow_theme', prefs.theme);
-        set({ theme: prefs.theme });
-        applyTheme(prefs.theme);
+      // Theme: the server is authoritative. New-style preferences carry the separate
+      // light/dark defaults plus the mode; a legacy single `theme` becomes an explicit
+      // mode for its own tone, so an upgrade never silently changes someone's look.
+      const hydrateTheme = (next) => {
+        const theme = resolveTheme(next);
+        localStorage.setItem('mailflow_theme_mode', next.mode);
+        localStorage.setItem('mailflow_theme_light', next.light);
+        localStorage.setItem('mailflow_theme_dark', next.dark);
+        localStorage.setItem('mailflow_theme', theme); // legacy/effective mirror
+        set({ themeMode: next.mode, lightTheme: next.light, darkTheme: next.dark, theme });
+        applyTheme(theme);
+      };
+      const serverMode = THEME_MODES.includes(prefs.themeMode) ? prefs.themeMode : null;
+      if (serverMode || prefs.themeLight || prefs.themeDark) {
+        hydrateTheme({
+          mode: serverMode || 'system',
+          light: THEMES[prefs.themeLight] ? prefs.themeLight : get().lightTheme,
+          dark: THEMES[prefs.themeDark] ? prefs.themeDark : get().darkTheme,
+        });
+      } else if (prefs.theme && THEMES[prefs.theme]) {
+        hydrateTheme(themeTone(prefs.theme) === 'light'
+          ? { mode: 'light', light: prefs.theme, dark: get().darkTheme }
+          : { mode: 'dark', light: get().lightTheme, dark: prefs.theme });
       }
       if (prefs.font) {
         localStorage.setItem('mailflow_font', prefs.font);

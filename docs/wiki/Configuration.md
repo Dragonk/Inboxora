@@ -28,13 +28,25 @@ password.
 
 **Settings → Appearance** groups theme, layout and typography.
 
-- **Theme** — around two dozen built-in themes, including a dark theme. The interface follows
-  the operating system preference until you pick one.
+- **Theme mode** — **Follow system** switches automatically between your light and dark default
+  as the operating system changes; **Always light** and **Always dark** pin one appearance
+  regardless of the system.
+- **Default light theme** and **Default dark theme** — choose the theme for each appearance
+  separately from the roughly two dozen built-in themes. The light list and the dark list are
+  picked independently, so a paper theme and a night theme can live side by side.
+- **Ink** is the default light theme and **Dark ink** — its dark counterpart, dark paper with the
+  same fountain-pen indigo accent — is the default dark theme. A fresh profile therefore follows
+  the system and uses Ink in light mode and Dark ink in dark mode without any configuration.
+- **Currently active** — the theme actually rendering right now, which depends on the mode and,
+  under **Follow system**, on the operating system.
 - **Layout** — focused, compact, comfortable, wide or vertical split; interface density; mobile
   navigation position (top or bottom).
 - **Fonts and language** — multiple font pairings, a font-size scale from 80 % to 130 %, and
   nine interface languages: English, German, French, Spanish, Italian, Russian, Chinese
   (Simplified), Polish and Czech.
+
+A theme chosen before separate defaults existed is kept: it becomes the default for its own
+appearance and selects **Always light** or **Always dark**, so an upgrade never changes the look.
 
 | Appearance on desktop | Appearance on a phone |
 | --- | --- |
