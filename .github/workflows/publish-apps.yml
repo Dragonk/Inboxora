@@ -5,6 +5,16 @@ name: Publish Apps
 # Re-add the `push.tags` trigger to publish native builds automatically on a tag.
 on:
   workflow_dispatch:
+    inputs:
+      version:
+        description: "Version to publish (defaults to the selected ref name)"
+        required: false
+        type: string
+      windows_signing:
+        description: "Sign the Windows installer (requires a valid MAILFLOW_WINDOWS_CSC_LINK)"
+        required: false
+        type: boolean
+        default: true
 
 permissions:
   contents: write
@@ -16,13 +26,13 @@ jobs:
 
     strategy:
       fail-fast: false
-      # Windows is the released desktop target and has its signing secrets.
-      # macOS is skipped until Apple Developer ID signing / notarisation secrets
-      # exist; Linux is skipped until the rpm target has a maintainer identity
-      # (electron-builder requires an author e-mail for .rpm).
+      # Windows and Linux are the released desktop targets. macOS is skipped
+      # until Apple Developer ID signing / notarisation secrets exist, which
+      # electron-builder needs for a distributable .dmg.
       matrix:
         os:
           - windows-latest
+          - ubuntu-latest
 
     steps:
       - uses: actions/checkout@v6
@@ -57,7 +67,7 @@ jobs:
         run: npm run app:version -- "${{ steps.app-version.outputs.version }}" "${{ github.run_number }}"
 
       - name: Validate desktop release signing
-        if: matrix.os == 'windows-latest' || matrix.os == 'macos-latest'
+        if: (matrix.os == 'windows-latest' || matrix.os == 'macos-latest') && inputs.windows_signing != false
         shell: bash
         env:
           MAILFLOW_WINDOWS_CSC_LINK: ${{ secrets.MAILFLOW_WINDOWS_CSC_LINK }}
@@ -82,13 +92,15 @@ jobs:
             exit 1
           fi
 
-      - name: Build signed Windows Electron package
+      - name: Build Windows Electron package
         if: matrix.os == 'windows-latest'
         working-directory: frontend
         run: npm run electron:dist
         env:
-          CSC_LINK: ${{ secrets.MAILFLOW_WINDOWS_CSC_LINK }}
-          CSC_KEY_PASSWORD: ${{ secrets.MAILFLOW_WINDOWS_CSC_KEY_PASSWORD }}
+          # windows_signing=false produces a correct but unsigned installer.
+          CSC_LINK: ${{ inputs.windows_signing && secrets.MAILFLOW_WINDOWS_CSC_LINK || '' }}
+          CSC_KEY_PASSWORD: ${{ inputs.windows_signing && secrets.MAILFLOW_WINDOWS_CSC_KEY_PASSWORD || '' }}
+          CSC_IDENTITY_AUTO_DISCOVERY: ${{ inputs.windows_signing && 'true' || 'false' }}
 
       - name: Build signed macOS Electron package
         if: matrix.os == 'macos-latest'

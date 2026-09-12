@@ -5,7 +5,8 @@
   "description": "A self-hosted inbox for email, contacts and calendars.",
   "homepage": "https://github.com/Dragonk/Inboxora",
   "author": {
-    "name": "Dragonk"
+    "name": "Dragonk",
+    "email": "kamil.maciag@outlook.com"
   },
   "type": "module",
   "main": "packages/electron/main.cjs",
