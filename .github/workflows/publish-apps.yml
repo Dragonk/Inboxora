@@ -16,10 +16,12 @@ jobs:
 
     strategy:
       fail-fast: false
+      # macOS is intentionally not built until Apple Developer ID signing and
+      # notarisation secrets exist (MAILFLOW_MAC_CSC_LINK / _KEY_PASSWORD);
+      # without them electron-builder cannot produce a distributable .dmg.
       matrix:
         os:
           - windows-latest
-          - macos-latest
           - ubuntu-latest
 
     steps:
