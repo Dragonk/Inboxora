@@ -16,18 +16,19 @@ jobs:
 
     strategy:
       fail-fast: false
-      # macOS is intentionally not built until Apple Developer ID signing and
-      # notarisation secrets exist (MAILFLOW_MAC_CSC_LINK / _KEY_PASSWORD);
-      # without them electron-builder cannot produce a distributable .dmg.
+      # Windows is the released desktop target and has its signing secrets.
+      # macOS is skipped until Apple Developer ID signing / notarisation secrets
+      # exist; Linux is skipped until the rpm target has a maintainer identity
+      # (electron-builder requires an author e-mail for .rpm).
       matrix:
         os:
           - windows-latest
-          - ubuntu-latest
 
     steps:
       - uses: actions/checkout@v6
 
       - name: Assert exact tested SHA
+        shell: bash
         run: test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
 
       - uses: actions/setup-node@v6
