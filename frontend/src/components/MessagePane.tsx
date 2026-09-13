@@ -569,12 +569,12 @@ export default function MessagePane({ windowMessageId = null, onWindowClose = nu
     const iframe = iframeRef.current;
     if (!iframe || !body?.html) return;
 
-    let rafId;
+    let rafId: number | undefined;
     let lastH = 0;
-    let contextMenuDoc = null;
-    let iframeContextMenuHandler = null;
-    let clickDoc = null;
-    let iframeClickHandler = null;
+    let contextMenuDoc: Document | null = null;
+    let iframeContextMenuHandler: ((event: MouseEvent) => void) | null = null;
+    let clickDoc: Document | null = null;
+    let iframeClickHandler: ((event: MouseEvent) => void) | null = null;
 
     const setHeight = () => {
       const doc: Document | null = iframe.contentDocument;
@@ -705,7 +705,8 @@ export default function MessagePane({ windowMessageId = null, onWindowClose = nu
         clickDoc.removeEventListener('click', iframeClickHandler);
       }
       iframeClickHandler = (ev) => {
-        const anchor = ev.target.closest('a[href]');
+        const target = ev.target;
+        const anchor = target instanceof Element ? target.closest('a[href]') : null;
         if (!anchor) return;
         ev.preventDefault();
         let raw = anchor.getAttribute('href') || '';
