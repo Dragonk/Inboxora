@@ -309,7 +309,7 @@ export default function MessagePane({ windowMessageId = null, onWindowClose = nu
   const hasPrev = currentIdx > 0;
   const hasNext = currentIdx >= 0 && currentIdx < allMessages.length - 1;
 
-  const [body, setBody] = useState(null);
+  const [body, setBody] = useState<{ html?: string | null; text?: string | null; senderName?: string | null; senderEmail?: string | null; attachments?: Array<{ part?: string; filename?: string; type?: string; size?: number; [key: string]: unknown }>; [key: string]: unknown } | null>(null);
   const [bodyError, setBodyError] = useState(null);
   const [retryKey, setRetryKey] = useState(0);
   const [loadingBody, setLoadingBody] = useState(false);
@@ -342,7 +342,7 @@ export default function MessagePane({ windowMessageId = null, onWindowClose = nu
   // One AbortController per in-flight action, keyed by action key.
   const aiAbortRefs = useRef<Record<string, AbortController | undefined>>({});
   const scrollContainerRef = useRef<HTMLDivElement | null>(null);
-  const iframeRef = useRef(null);
+  const iframeRef = useRef<HTMLIFrameElement | null>(null);
   const roRef = useRef(null);
   // Session-scoped set of message IDs where the user has clicked "Load images once".
   // This is intentionally declared before renderableHtml so the div renderer can use
@@ -426,7 +426,7 @@ export default function MessagePane({ windowMessageId = null, onWindowClose = nu
   }, [getPaneSelectionText, hasNativeContextTarget, openPaneContextMenu]);
 
   // Track previous blocking policy so we can detect tightening vs loosening.
-  const prevBlockingPolicyRef = useRef(null);
+  const prevBlockingPolicyRef = useRef<{ blockRemoteImages?: boolean; addrCount?: number; domainCount?: number } | null>(null);
 
   // Flush body cache when the image-blocking policy changes:
   // - Tightening (blocking ON, or whitelist entry removed): evict unblocked entries so they
