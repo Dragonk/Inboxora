@@ -18,7 +18,7 @@ function monthCells(anchor, weekStartsOn) {
 
 export default function CalendarSidebar({ anchor, calendars, visibleCalendarIds, weekStartsOn = 1, locale, onSelectDate, onShiftMonth, onToggleCalendar, onSourcesChanged, onCalendarsChanged, onCreate, canCreate, sourcePanelRequest = 0, t }) {
   const [showSources, setShowSources] = useState(false);
-  const [sources, setSources] = useState([]);
+  const [sources, setSources] = useState<Array<{ id: string; displayName?: string; kind?: string; intervalMin?: number; lastError?: string | null; lastSyncAt?: string | null; [key: string]: unknown }>>([]);
   const [sourceError, setSourceError] = useState(null);
   const mounted = useRef(false);
   const pendingSourceIds = useRef(new Set());

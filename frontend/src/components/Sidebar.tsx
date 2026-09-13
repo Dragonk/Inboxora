@@ -285,7 +285,7 @@ export default function Sidebar({ onEditProfile = null }) {
 
   const [msgDragTarget, setMsgDragTarget] = useState(null);
   const [folderDrag, setFolderDrag] = useState<{ accountId: string; path?: string; rootPath?: string; [key: string]: unknown } | null>(null);
-  const [folderDropTarget, setFolderDropTarget] = useState(null);
+  const [folderDropTarget, setFolderDropTarget] = useState<{ accountId: string; path?: string; [key: string]: unknown } | null>(null);
 
   const clearFolderDrag = useCallback(() => {
     setFolderDrag(null);
@@ -394,14 +394,14 @@ export default function Sidebar({ onEditProfile = null }) {
   const renameInputRef = useRef<HTMLInputElement | null>(null);
 
   // Inline rename (favorite alias)
-  const [renamingFav, setRenamingFav] = useState(null); // {accountId, path, value}
+  const [renamingFav, setRenamingFav] = useState<{ accountId: string; path: string; value?: string } | null>(null); // {accountId, path, value}
   const renameFavInputRef = useRef<HTMLInputElement | null>(null);
 
   // Drag-and-drop state for favorites reorder
   const [favDragIdx, setFavDragIdx] = useState(null);
   const [favDropIdx, setFavDropIdx] = useState(null);
   const favLongPressTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const favTouchStart = useRef(null); // { x, y } captured at touchstart for movement threshold
+  const favTouchStart = useRef<{ x: number; y: number } | null>(null); // { x, y } captured at touchstart for movement threshold
 
   // Inline create folder
   const [creatingFolder, setCreatingFolder] = useState<{ accountId: string; parentPath?: string | null; [key: string]: unknown } | null>(null); // {accountId}

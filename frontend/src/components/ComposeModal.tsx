@@ -301,7 +301,7 @@ export default function ComposeModal() {
   const [htmlSource, setHtmlSource] = useState('');
   const [aiStatus, setAiStatus] = useState(null);
   const [aiPanel, setAiPanel] = useState<{ text?: string; status?: string; [key: string]: unknown } | null>(null);
-  const aiAbortRef = useRef(null);
+  const aiAbortRef = useRef<AbortController | null>(null);
   // Stable idempotency key for the current logical send. Generated on the first send
   // attempt, reused across retries (so a retry after a lost response dedupes rather than
   // double-sending), and cleared on success. Fixes audit finding [1].
@@ -314,7 +314,7 @@ export default function ComposeModal() {
   const quotedHtmlRef = useRef<HTMLDivElement | null>(null);
   const composeWindowRef = useRef<HTMLDivElement | null>(null);
   const posRef = useRef(null);
-  const customSizeRef = useRef(null);
+  const customSizeRef = useRef<{ width?: number; height?: number } | null>(null);
   const dragCleanupRef = useRef(null);
   posRef.current = pos;
   customSizeRef.current = customSize;
@@ -3052,7 +3052,7 @@ function ChipInput({ chips, onChipsChange, value, onChange, placeholder, autoFoc
   const wrapperRef = useRef<HTMLDivElement | null>(null);
   const inputRef = useRef<HTMLInputElement | null>(null);
   const [dropStyle, setDropStyle] = useState(null);
-  const [menu, setMenu] = useState(null); // { x, y, index } | null — recipient chip context menu
+  const [menu, setMenu] = useState<{ x: number; y: number; index: number } | null>(null); // { x, y, index } | null — recipient chip context menu
   useBackLayer(menu, () => setMenu(null), 2200);
   const longPressRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 

@@ -3347,7 +3347,7 @@ function SSOTab() {
   ];
   const [providers, setProviders] = useState<Array<{ id: string; name?: string; enabled?: boolean; issuer_url?: string; slug?: string; [key: string]: unknown }>>([]);
   const [loading, setLoading] = useState(true);
-  const [editing, setEditing] = useState(null); // null | 'new' | provider object
+  const [editing, setEditing] = useState<'new' | 'picking' | { id?: string; name?: string; enabled?: boolean; issuer_url?: string; slug?: string; [key: string]: unknown } | null>(null); // null | 'new' | 'picking' | provider object
   const [form, setForm] = useState(emptyProvider);
   const [saving, setSaving] = useState(false);
   useBackLayer(editing, () => { if (!saving) setEditing(null); }, 2010);
@@ -3445,7 +3445,7 @@ function SSOTab() {
         if (!payload.client_secret) return setError(t('admin.sso.errorSecretRequired'));
         const data = await api.admin.oidc.createProvider(payload);
         setProviders(ps => [...ps, data.provider]);
-      } else {
+      } else if (editing && typeof editing === 'object') {
         const data = await api.admin.oidc.updateProvider(editing.id, payload);
         setProviders(ps => ps.map(p => p.id === editing.id ? data.provider : p));
       }
@@ -3914,7 +3914,7 @@ function AISection() {
   const [deviceState, setDeviceState] = useState(null);
   const [copied, setCopied] = useState(false);
   const [msg, setMsg] = useState<{ type?: string; text?: string; url?: string; [key: string]: unknown } | null>(null);
-  const pollerRef = useRef(null);
+  const pollerRef = useRef<{ start: (device?: unknown) => Promise<unknown>; cancel: () => Promise<void>; dispose: () => void } | null>(null);
   const formRef = useRef(form);
   const tRef = useRef(t);
 
@@ -8626,7 +8626,7 @@ function SearchResultsView({ results, query, onNavigate, t }) {
 }
 
 function DavCredentialsTab() {
-  const { t } = useTranslation(); const [credentials, setCredentials] = useState([]); const [label, setLabel] = useState(''); const [secret, setSecret] = useState(''); const [error, setError] = useState(''); const [loading, setLoading] = useState(true); const [busy, setBusy] = useState(false); const [copied, setCopied] = useState(false);
+  const { t } = useTranslation(); const [credentials, setCredentials] = useState<Array<{ id: string; label?: string; created_at?: string; last_used_at?: string; [key: string]: unknown }>>([]); const [label, setLabel] = useState(''); const [secret, setSecret] = useState(''); const [error, setError] = useState(''); const [loading, setLoading] = useState(true); const [busy, setBusy] = useState(false); const [copied, setCopied] = useState(false);
   const load = useCallback(async () => { setLoading(true); try { const result = await api.davCredentials.list(); setCredentials(result.credentials || []); } catch (err) { setError(err.message || t('admin.davCredentials.loadError')); } finally { setLoading(false); } }, [t]);
   useEffect(() => { load(); }, [load]);
   const create = async () => { if (!label.trim()) return; setBusy(true); setError(''); setSecret(''); setCopied(false); try { const result = await api.davCredentials.create(label.trim()); setCredentials(current => [result.credential, ...current]); setLabel(''); setSecret(result.secret); } catch (err) { setError(err.message || t('admin.davCredentials.createError')); } finally { setBusy(false); } };

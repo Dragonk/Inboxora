@@ -215,7 +215,7 @@ export default function MessageList() {
   const pullDirectionRef = useRef(null);
   const pullDistRef = useRef(0);
   const handleSyncRef = useRef(null);
-  const [contextMenu, setContextMenu] = useState(null); // { x, y, message, defaultMoveView? }
+  const [contextMenu, setContextMenu] = useState<{ x: number; y: number; message: StoreMessageRow; defaultMoveView?: boolean } | null>(null); // { x, y, message, defaultMoveView? }
   const [searchFocused, setSearchFocused] = useState(false);
   const [searchHasMore, setSearchHasMore] = useState(false);
   const [searchLoadingMore, setSearchLoadingMore] = useState(false);
