@@ -10,7 +10,7 @@ import { parentPort } from 'node:worker_threads';
 
 import { projectCalendarResourceWithStatus } from '../utils/calendarRecurrence.js';
 
-function failureResult(row, error) {
+function failureResult(row, error: unknown) {
   return {
     ok: false,
     id: row?.id ?? null,
