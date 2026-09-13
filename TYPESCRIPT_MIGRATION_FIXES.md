@@ -744,3 +744,14 @@ To nadal osobny, wieloetapowy refactor, udokumentowany w planie (5c).
 - Wniosek: pozostale ~3000 to glownie TS7006 (sygnatury funkcji) — wymaga osobnego,
   wieloetapowego typowania parametrow; udokumentowane w planie (5c).
 
+
+## 67. Redukcja dlugu strict - runda 3
+
+- noImplicitAny (backend): 3008 -> 2913 (-95). tsc 0, testy 1785/0, lint czysty, build OK.
+- emailSanitizer.ts: 18 funkcji przetwarzania HTML otypowanych (html/str/css/style/url/href).
+  WYKRYTE przy tym: normalizeHref zwracal null (kod sprawdzal === null), a adnotacja mowila
+  string — poprawione na string | null; wywolanie z atrybutu HTML przez String(...).
+- calendarProjectionPool.ts: added ProjectionOptions/ProjectionStatus/ProjectionRow;
+  settings jako ReturnType<typeof config> (bez zgadywania pol); dateMs(value: unknown)
+  z zawężeniem String(value) dla konstruktora Date.
+

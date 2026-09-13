@@ -56,7 +56,27 @@ const WORKER_URL = new URL(
   import.meta.url,
 );
 
-function envInt(name, fallback, { min = 1, max = Number.MAX_SAFE_INTEGER } = {}) {
+interface ProjectionOptions {
+  useWorkers?: boolean;
+  maxIterations?: number;
+  deadline?: number;
+  userId?: string;
+  cache?: unknown;
+}
+
+interface ProjectionRow {
+  id: string;
+  [key: string]: unknown;
+}
+
+interface ProjectionStatus {
+  events: ProjectionEvent[];
+  truncated: boolean;
+  reason?: string | null;
+  error?: string | null;
+}
+
+function envInt(name: string, fallback: number, { min = 1, max = Number.MAX_SAFE_INTEGER }: { min?: number; max?: number } = {}) {
   const parsed = Number.parseInt(process.env[name] ?? '', 10);
   if (!Number.isFinite(parsed)) return fallback;
   return Math.max(min, Math.min(max, parsed));
@@ -113,7 +133,7 @@ function workerExecArgv() {
   return filtered;
 }
 
-function spawnSlot(settings) {
+function spawnSlot(settings: ReturnType<typeof config>) {
   const worker = new Worker(WORKER_URL, { name: 'calendar-projection', execArgv: workerExecArgv() });
   const slot = { worker, job: null, timer: null };
   worker.unref?.();
@@ -159,7 +179,7 @@ function spawnSlot(settings) {
   return slot;
 }
 
-function ensureSlots(settings) {
+function ensureSlots(settings: ReturnType<typeof config>) {
   if (slots) return slots;
   const created = [];
   for (let index = 0; index < settings.workers; index += 1) {
@@ -197,7 +217,7 @@ function drain() {
   }
 }
 
-function startJob(slot, job, settings) {
+function startJob(slot: ReturnType<typeof spawnSlot>, job: Record<string, unknown>, settings: ReturnType<typeof config>) {
   slot.job = job;
   // The projection loop cannot be interrupted from outside, so the hard budget
   // terminates this worker. Only this job is lost, and it is reported as such.
@@ -233,7 +253,7 @@ function startJob(slot, job, settings) {
   }
 }
 
-function inlineProject(rows, from, to, options): ProjectionAggregate {
+function inlineProject(rows: ProjectionRow[], from: Date, to: Date, options: ProjectionOptions): ProjectionAggregate {
   const maxIterations = options.maxIterations ?? DEFAULT_MAX_ITERATIONS;
   const events = [];
   const failures: ProjectionFailure[] = [];
@@ -296,7 +316,7 @@ let projectionCacheEvents = 0;
 // events and its longest stall then looks small compared to the batch.
 let jobsDispatched = 0;
 
-function projectionKey(userId, row, horizonKey, maxIterations) {
+function projectionKey(userId: string, row: ProjectionRow, horizonKey: string, maxIterations: number) {
   return `${userId ?? ''}\u0000${row.id}\u0000${row.etag ?? ''}\u0000${horizonKey}\u0000${maxIterations}\u0000${PROJECTION_VERSION}`;
 }
 
@@ -327,15 +347,15 @@ function projectionKey(userId, row, horizonKey, maxIterations) {
 // ordinary navigation — stepping through the visible month — free.
 const PROJECTION_FORWARD_MONTHS_DEFAULT = 0;
 
-function monthToUtcMs(absoluteMonth) {
+function monthToUtcMs(absoluteMonth: number) {
   return Date.UTC(Math.floor(absoluteMonth / 12), absoluteMonth % 12, 1);
 }
 
-function absoluteMonthOf(date) {
+function absoluteMonthOf(date: Date) {
   return date.getUTCFullYear() * 12 + date.getUTCMonth();
 }
 
-function horizonFor(fromMs, toMs, forwardMonths) {
+function horizonFor(fromMs: number, toMs: number, forwardMonths: number) {
   const lower = new Date(Math.min(fromMs, toMs));
   const upper = new Date(Math.max(fromMs, toMs));
   const startMonth = absoluteMonthOf(lower);
@@ -351,7 +371,7 @@ function horizonFor(fromMs, toMs, forwardMonths) {
 
 // Narrows a cached horizon projection to the window the caller asked for, using the same
 // predicate the projection itself applies when it emits an occurrence.
-function filterStatus(status, fromMs, toMs) {
+function filterStatus(status: ProjectionStatus, fromMs: number, toMs: number) {
   if (!status?.events?.length) return status;
   const events = status.events.filter(event => {
     const startsAt = dateMs(event.starts_at);
@@ -361,8 +381,8 @@ function filterStatus(status, fromMs, toMs) {
   return events.length === status.events.length ? status : { ...status, events };
 }
 
-function dateMs(value) {
-  const date = value instanceof Date ? value : new Date(value);
+function dateMs(value: unknown) {
+  const date = value instanceof Date ? value : new Date(String(value));
   return date.getTime();
 }
 
@@ -371,7 +391,7 @@ function dateMs(value) {
 // the 42-day September grid both bucket to Q3 yet the grid reaches further, so a horizon
 // cached from the smaller request must not be served to the larger one. A miss simply
 // recomputes with the wider horizon.
-function cacheGet(key, fromMs, toMs) {
+function cacheGet(key: string, fromMs: number, toMs: number) {
   const entry = projectionCache.get(key);
   if (!entry) return null;
   if (entry.expiresAt <= Date.now()) {
@@ -386,7 +406,7 @@ function cacheGet(key, fromMs, toMs) {
   return entry.status;
 }
 
-function evictProjectionCache(settings) {
+function evictProjectionCache(settings: ReturnType<typeof config>) {
   while (projectionCache.size > (settings.cacheEntries ?? PROJECTION_CACHE_ENTRIES_DEFAULT)
     || projectionCacheEvents > (settings.cacheMaxEvents ?? PROJECTION_CACHE_MAX_EVENTS_DEFAULT)) {
     const oldestKey = projectionCache.keys().next().value;
@@ -403,7 +423,7 @@ interface CacheSetOptions {
   horizonEndMs?: number;
 }
 
-function cacheSet(key, status, settings, { ttlMs, horizonStartMs, horizonEndMs }: CacheSetOptions = {}) {
+function cacheSet(key: string, status: ProjectionStatus, settings: ReturnType<typeof config>, { ttlMs, horizonStartMs, horizonEndMs }: CacheSetOptions = {}) {
   // Empty successful results are cached too: a COUNT series that already ended
   // is a legitimate answer, and re-walking it on every request is pure waste.
   const existing = projectionCache.get(key);
@@ -428,7 +448,7 @@ export function calendarProjectionCacheStats() {
   return { entries: projectionCache.size, events: projectionCacheEvents };
 }
 
-async function dispatchProjection(rows, from, to, options, settings): Promise<ProjectionAggregate> {
+async function dispatchProjection(rows: ProjectionRow[], from: Date, to: Date, options: ProjectionOptions, settings: ReturnType<typeof config>): Promise<ProjectionAggregate> {
   if (!rows.length) return { events: [], failures: [], truncated: false, truncatedSeries: [], overloaded: false, degraded: false };
   if (options.useWorkers === false || !settings.enabled) return inlineProject(rows, from, to, { ...options, maxIterations: settings.maxIterations });
   const active = ensureSlots(settings);

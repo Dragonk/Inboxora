@@ -42,7 +42,7 @@ export function shouldBlockRemoteImages(preferences: RemoteImagePreferences = {}
 // and content ends at the nearest close (indexOf — same as lazy `[\s\S]*?`). When no
 // `>` or close exists at/after an opener, none exists for any later opener either
 // (positions only advance), so we stop — exactly what the regex would leave unmatched.
-function scanPaired(str, openNameRe, closeLiteral, transform) {
+function scanPaired(str: string, openNameRe: RegExp, closeLiteral: string, transform: (open: string, content: string, close: string) => string): string {
   const lower = str.toLowerCase();
   const close = closeLiteral.toLowerCase();
   let out = '';
@@ -66,7 +66,7 @@ function scanPaired(str, openNameRe, closeLiteral, transform) {
 // Strip MSO-positive conditional comments (<!--[if mso]>…<![endif]-->) linearly,
 // preserving <!--[if !mso]> blocks (browser-targeted CSS). Mirrors the old regex
 // /<!--\[if(?!\s*!)[^\]]*\]>[\s\S]*?<!\[endif\]-->/gi without its backtracking.
-function stripMsoConditionals(hc) {
+function stripMsoConditionals(hc: string): string {
   const END = '<![endif]-->';
   const lower = hc.toLowerCase();
   const openRe = /<!--\[if/gi;
@@ -90,7 +90,7 @@ function stripMsoConditionals(hc) {
   return out + hc.slice(pos);
 }
 
-export function stripEmailHead(html) {
+export function stripEmailHead(html: string): string {
   if (!html) return html;
   return scanPaired(html, /<head\b/gi, '</head>', (_open, headContent) => {
     const noMso = stripMsoConditionals(headContent);
@@ -102,7 +102,7 @@ export function stripEmailHead(html) {
 }
 
 
-function upgradeUrl(url) {
+function upgradeUrl(url: string): string {
   return typeof url === 'string' && url.startsWith('http://') ? 'https://' + url.slice(7) : url;
 }
 
@@ -110,7 +110,7 @@ function upgradeUrl(url) {
 // null if the href cannot be safely resolved (relative paths, fragments, etc.).
 // Returns null for hrefs that would resolve against the mailflow origin in a
 // same-origin srcdoc iframe — callers should omit the href attribute entirely.
-function normalizeHref(href) {
+function normalizeHref(href: string): string | null {
   if (!href) return null;
   const h = href.trim();
   if (!h) return null;
@@ -129,7 +129,7 @@ function normalizeHref(href) {
 
 // Rewrite anchor hrefs in already-cached HTML — applied at serve-time for emails
 // stored before href normalisation was added to sanitizeEmail().
-export function rewriteAnchorHrefs(html) {
+export function rewriteAnchorHrefs(html: string): string {
   if (!html) return html;
   return html.replace(
     /(<a\b[^>]*?\s)href=(["'])([^"']*)\2/gi,
@@ -147,7 +147,7 @@ export function rewriteAnchorHrefs(html) {
 // never carry eBay cookies (SameSite policy), so imageser returns 1 byte instead
 // of the actual image.  The real URL is always in the `imageUrl` query parameter
 // and is publicly accessible from i.ebayimg.com.  Extract and use it directly.
-function unwrapEbayImgUrl(url) {
+function unwrapEbayImgUrl(url: string): string {
   if (!url || !url.includes('svcs.ebay.com/imageser')) return url;
   try {
     const u = new URL(url);
@@ -163,7 +163,7 @@ function unwrapEbayImgUrl(url) {
 // Applied at serve-time for emails stored before this fix was deployed.
 // The src attribute value in stored HTML has & escaped as &amp;, so we decode
 // it before parsing the URL.
-export function rewriteEbayImageserUrls(html) {
+export function rewriteEbayImageserUrls(html: string): string {
   if (!html || !html.includes('svcs.ebay.com/imageser')) return html;
   return html.replace(
     /(<img\b[^>]*?\s)src=(["'])(https:\/\/svcs\.ebay\.com\/imageser\/[^"']*)\2/gi,
@@ -183,7 +183,7 @@ export function rewriteEbayImageserUrls(html) {
 
 // Upgrade http:// → https:// inside CSS url() expressions.
 // Handles both quoted (url('http://...'), url("http://...")) and unquoted (url(http://...)) forms.
-function upgradeStyleUrls(style) {
+function upgradeStyleUrls(style: string): string {
   if (!style) return style;
   return style.replace(/url\(\s*(['"]?)http:\/\//gi, (_, q) => `url(${q}https://`);
 }
@@ -191,7 +191,7 @@ function upgradeStyleUrls(style) {
 // Strip external http/https url() expressions from <style> block CSS at sanitize time.
 // This prevents CSS-based exfiltration (loading pixel beacons or fonts) regardless of
 // the user's remote image blocking preference.  data: and cid: URIs are left intact.
-function stripExternalStyleBlockUrls(html) {
+function stripExternalStyleBlockUrls(html: string): string {
   if (!html) return html;
   return scanPaired(html, /<style\b/gi, '</style>', (open, content, close) =>
     open + content.replace(/url\s*\(\s*(['"]?)https?:\/\/[^)]*\1\s*\)/gi, 'url()') + close
@@ -201,7 +201,7 @@ function stripExternalStyleBlockUrls(html) {
 // Post-process sanitized HTML to upgrade http:// URLs inside <style> blocks.
 // sanitize-html only transforms attributes, not element text content, so <style>
 // block CSS must be handled separately after sanitization.
-function upgradeStyleBlocks(html) {
+function upgradeStyleBlocks(html: string): string {
   if (!html) return html;
   return scanPaired(html, /<style\b/gi, '</style>', (open, content, close) =>
     open + content.replace(/url\(\s*(['"]?)http:\/\//gi, (_, q) => `url(${q}https://`) + close
@@ -211,7 +211,7 @@ function upgradeStyleBlocks(html) {
 // Strip dark-mode CSS from a <style> block's text content.
 // Targets @media (prefers-color-scheme: dark) blocks, Outlook dark-mode attribute
 // selectors, and properties that invert or override the forced-light background.
-function stripDarkModeCss(css) {
+function stripDarkModeCss(css: string): string {
   // Remove @media (prefers-color-scheme: dark) { ... } blocks.
   // Pattern handles one level of brace nesting (sufficient for email CSS).
   let out = css.replace(
@@ -229,7 +229,7 @@ function stripDarkModeCss(css) {
   return out;
 }
 
-function stripDarkModeStyleBlocks(html) {
+function stripDarkModeStyleBlocks(html: string): string {
   if (!html) return html;
   return scanPaired(html, /<style\b/gi, '</style>', (open, content, close) =>
     open + stripDarkModeCss(content) + close
@@ -237,7 +237,7 @@ function stripDarkModeStyleBlocks(html) {
 }
 
 // Sanitize HTML email body — permissive but safe.
-export function sanitizeEmail(html) {
+export function sanitizeEmail(html: string): string {
   const sanitized = sanitizeHtml(stripEmailHead(html), {
     allowVulnerableTags: true,
     allowedTags: [
@@ -278,7 +278,7 @@ export function sanitizeEmail(html) {
       'a': (tagName, attribs) => {
         const out = { ...attribs, rel: 'noopener noreferrer' };
         if ('href' in out) {
-          const normalized = normalizeHref(out.href);
+          const normalized = normalizeHref(String(out.href));
           if (normalized === null) delete out.href;
           else out.href = normalized;
         }
@@ -329,7 +329,7 @@ export function sanitizeEmail(html) {
 
 // Sanitize user-authored compose body HTML — allows rich formatting and inline
 // images (data: or https:) but strips scripts and event handlers.
-export function sanitizeComposeBody(html) {
+export function sanitizeComposeBody(html: string): string {
   if (!html) return html;
   return sanitizeHtml(html, {
     allowedTags: [
@@ -365,7 +365,7 @@ export function sanitizeComposeBody(html) {
 
 // Sanitize user-authored signature HTML — allows common formatting and images
 // but strips all event handlers and scripts. Stricter than sanitizeEmail().
-export function sanitizeSignature(html) {
+export function sanitizeSignature(html: string): string {
   if (!html) return html;
   return sanitizeHtml(html, {
     allowedTags: [
@@ -400,7 +400,7 @@ export function sanitizeSignature(html) {
 // Returns true if the sanitized HTML contains any remote http/https image references,
 // including CSS @import with a bare quoted URL (not wrapped in url()) which bypasses
 // the url() pattern check but still causes an outbound stylesheet request.
-export function hasRemoteImages(html) {
+export function hasRemoteImages(html: string): boolean {
   if (!html) return false;
   return (
     /<img\b[^>]*\ssrc=["']https?:\/\//i.test(html) ||
@@ -415,7 +415,7 @@ export function hasRemoteImages(html) {
 // data: and cid: sources are always left intact.
 // Never call this on HTML that will be written back to the database — apply only at
 // response time so the canonical cached body remains unmodified.
-export function blockRemoteImages(html) {
+export function blockRemoteImages(html: string): string {
   if (!html) return html;
 
   // Block <img src="https://..."> — replace with a dimension-preserving SVG placeholder
