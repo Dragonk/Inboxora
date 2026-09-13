@@ -11,9 +11,9 @@ import {
 } from './gtdGist.js';
 
 // Cast mocked module exports so their vitest mock helpers type-check.
-const query = __mock_query as any;
-const completeText = __mock_completeText as any;
-const getAiStatus = __mock_getAiStatus as any;
+const query = vi.mocked(__mock_query);
+const completeText = vi.mocked(__mock_completeText);
+const getAiStatus = vi.mocked(__mock_getAiStatus);
 
 // buildGistPrompt/sanitizeGist moved to the generic `summarize` capability — see
 // summarize.test.js. This file now covers only GTD's orchestration: candidate selection,
@@ -59,7 +59,7 @@ describe('queueGistGeneration — provider gating', () => {
   });
 
   it('issues zero generation queries when the selected AI provider is unavailable', async () => {
-    getAiStatus.mockResolvedValue({ enabled: false, features: { summarize: true } });
+    getAiStatus.mockResolvedValue({ enabled: false, provider: 'api-key', features: { summarize: true }, reconnectRequired: false });
     const broadcast = vi.fn();
 
     await queueGistGeneration({ sections: oneWaiting, userId: 'u1', broadcast });
@@ -71,7 +71,7 @@ describe('queueGistGeneration — provider gating', () => {
   });
 
   it('does not run generation when the provider is present but summarize is disabled', async () => {
-    getAiStatus.mockResolvedValue({ enabled: true, features: { summarize: false } });
+    getAiStatus.mockResolvedValue({ enabled: true, provider: 'api-key', features: { summarize: false }, reconnectRequired: false });
     await queueGistGeneration({ sections: oneWaiting, userId: 'u1', broadcast: vi.fn() });
     expect(getAiStatus).toHaveBeenCalledTimes(1);
     expect(completeText).not.toHaveBeenCalled();
@@ -103,7 +103,7 @@ describe('queueGistGeneration — write path', () => {
           rows: ids.map((id) => ({ id, subject: `S ${id}`, from_name: 'Alice', from_email: 'a@x', content: `body ${id}` })),
         });
       }
-      if (isGistUpdate(sql)) return Promise.resolve({ rowCount: updateRowCount });
+      if (isGistUpdate(sql)) return Promise.resolve({ rows: [], rowCount: updateRowCount });
       return Promise.resolve({ rows: [] });
     });
   }
@@ -116,7 +116,7 @@ describe('queueGistGeneration — write path', () => {
     query.mockReset();
     getAiStatus.mockReset();
     completeText.mockReset();
-    getAiStatus.mockResolvedValue({ enabled: true, features: { summarize: true } });
+    getAiStatus.mockResolvedValue({ enabled: true, provider: 'api-key', features: { summarize: true }, reconnectRequired: false });
     // Model reply arrives wrapped in quotes and carrying an emoji so the write-path
     // assertion also proves we persist the sanitised gist, not the raw provider output.
     completeText.mockResolvedValue('"waiting on their reply 🎉"');
@@ -180,13 +180,13 @@ describe('queueGistGeneration — write path', () => {
     // first sits between reserving its ids and generating — the exact TOCTOU window.
     let releaseConfig;
     const configGate = new Promise((resolve) => { releaseConfig = resolve; });
-    getAiStatus.mockImplementation(() => configGate.then(() => ({ enabled: true, features: { summarize: true } })));
+    getAiStatus.mockImplementation(() => configGate.then(() => ({ enabled: true, provider: 'api-key', features: { summarize: true }, reconnectRequired: false })));
     query.mockImplementation((sql, params) => {
       if (isBodySelect(sql)) {
         const ids = params[0];
         return Promise.resolve({ rows: ids.map((id) => ({ id, subject: 'S', from_name: 'A', from_email: 'a@x', content: 'b' })) });
       }
-      if (isGistUpdate(sql)) return Promise.resolve({ rowCount: 1 });
+      if (isGistUpdate(sql)) return Promise.resolve({ rows: [], rowCount: 1 });
       return Promise.resolve({ rows: [] });
     });
     const broadcast = vi.fn();

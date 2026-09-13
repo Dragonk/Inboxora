@@ -564,3 +564,22 @@ Frontend: 0 wystapien as any / : any / any[] (start: 64). tsc 0 · testy 2335/0 
 - .backup/ (41 MB bundle z wczesniejszej sesji) dodany do .gitignore.
 - Stan: backend 463 wystapien any, tsc 0; frontend 0 any, tsc 0.
 
+
+## 56. Backend: vi.mocked zamiast as any (94 miejsc) + realne niezgodnosci
+
+Backend any: 463 -> 331 (tsc 0, testy 1785/0, lint czysty).
+
+- 94 wystapien __mock_x as any zamienione na vi.mocked(__mock_x) w 39 plikach.
+  vi.mocked sprawdza sygnatury, co UJAWNILO 25 realnych niezgodnosci ukrytych przez any:
+  * makiety query zwracajace { rowCount } bez rows (kontrakt to { rows, rowCount? }) — dodane rows: []
+  * makiety getAiStatus bez wymaganych provider/reconnectRequired — dodane
+  * makiety transportera SMTP bez verify — dodane
+  * sanitizeGtdFoldersDetailed bez rejected/reserved — dodane
+  * createAccountSmtpTransport bez status — dodane
+  * makiety parseMessage bez attributes/senderName/senderEmail/deliveryAddresses — dodane
+- calendar.test.ts: 35 x (await response.json()) as any -> zadeklarowany CalendarTestResponse.
+- gtdPet: (descriptor as any).width/height -> PetDescriptor z width/height; parsePetJson otypowane.
+- hostValidation.resolveForConnection: jawny ResolvedConnectionInfo (addresses/lookup opcjonalne) —
+  wczesniej unia wymuszala lookup, gdy podano addresses.
+- aiProvider AiProviderStatus.connection: any -> jawny kształt.
+

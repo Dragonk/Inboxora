@@ -8,7 +8,7 @@ import { gatherSnoozeConversation } from './mail.js';
 import { query as __mock_query } from '../services/db.js';
 
 // Cast mocked module exports so their vitest mock helpers type-check.
-const query = __mock_query as any;
+const query = vi.mocked(__mock_query);
 
 // Column subset that the pool query selects.
 function row(id, message_id, { in_reply_to = null, thread_references = null, folder = 'INBOX', is_read = true } = {}) {

@@ -25,12 +25,12 @@ import { parseMessage as __mock_parseMessage } from './messageParser.js';
 import { dispatchMailNotification as __mock_dispatchMailNotification } from './pushDispatcher.js';
 
 // Cast mocked module exports so their vitest mock helpers type-check.
-const ImapFlow = __mock_ImapFlow as any;
-const query = __mock_query as any;
-const resolveForConnection = __mock_resolveForConnection as any;
-const getConnectionPolicy = __mock_getConnectionPolicy as any;
-const parseMessage = __mock_parseMessage as any;
-const dispatchMailNotification = __mock_dispatchMailNotification as any;
+const ImapFlow = vi.mocked(__mock_ImapFlow);
+const query = vi.mocked(__mock_query);
+const resolveForConnection = vi.mocked(__mock_resolveForConnection);
+const getConnectionPolicy = vi.mocked(__mock_getConnectionPolicy);
+const parseMessage = vi.mocked(__mock_parseMessage);
+const dispatchMailNotification = vi.mocked(__mock_dispatchMailNotification);
 
 const account = (imap_host, oauth_provider = null) => ({ imap_host, oauth_provider });
 
@@ -1046,6 +1046,10 @@ describe('syncMessages — empty local cache vs nonempty server (wiring)', () =>
       return Promise.resolve({ rows: [] });
     });
     parseMessage.mockResolvedValue({
+      deliveryAddresses: [],
+      attributes: { emailId: null, threadId: null },
+      senderName: 'External',
+      senderEmail: 'them@example.com',
       uid: 501,
       messageId: null,
       subject: 'Watch first message',
@@ -1157,6 +1161,10 @@ describe('syncMessages — empty local cache vs nonempty server (wiring)', () =>
       // Arrived already \Seen, so it never enters the unread notification list — it must still
       // reach inboxIngest via the read-inclusive candidate set.
       parseMessage.mockResolvedValue({
+      deliveryAddresses: [],
+      attributes: { emailId: null, threadId: null },
+      senderName: 'External',
+      senderEmail: 'them@example.com',
         uid: 501, messageId: '<in1@x>', subject: 'Reply', fromName: 'External', fromEmail: 'them@example.com',
         to: [], cc: [], replyTo: [], inReplyTo: null, references: null, date: new Date('2026-07-17T10:00:00Z'),
         snippet: 'hi', isRead: true, isStarred: false, hasAttachments: false, flags: ['\\Seen'], isBulk: false, parsedHeaders: {},
@@ -1197,6 +1205,10 @@ describe('syncMessages — empty local cache vs nonempty server (wiring)', () =>
         return Promise.resolve({ rows: [] });
       });
       parseMessage.mockResolvedValue({
+      deliveryAddresses: [],
+      attributes: { emailId: null, threadId: null },
+      senderName: 'External',
+      senderEmail: 'them@example.com',
         uid: 501, messageId: '<in2@x>', subject: 'Reply', fromName: 'External', fromEmail: 'them@example.com',
         to: [], cc: [], replyTo: [], inReplyTo: null, references: null, date: new Date('2026-07-17T10:00:00Z'),
         snippet: 'hi', isRead: true, isStarred: false, hasAttachments: false, flags: ['\\Seen'], isBulk: false, parsedHeaders: {},
@@ -1244,6 +1256,10 @@ describe('syncMessages — Web Push branding', () => {
       return Promise.resolve({ rows: [] });
     });
     parseMessage.mockResolvedValue({
+      deliveryAddresses: [],
+      attributes: { emailId: null, threadId: null },
+      senderName: 'External',
+      senderEmail: 'them@example.com',
       uid: 501, messageId: '<push@x>', subject: 'New mail', fromName: 'Sender', fromEmail: 'sender@example.com',
       to: [], cc: [], replyTo: [], inReplyTo: null, references: null, date: new Date('2026-09-01T10:00:00Z'),
       snippet: 'hi', isRead: false, isStarred: false, hasAttachments: false, flags: [], isBulk: false, parsedHeaders: {},
@@ -1295,6 +1311,10 @@ describe('syncMessages — unread_count recompute ordering (folder badge fix)', 
       // Already-\Seen so the message doesn't enter the new-mail notification path (which needs a
       // broadcast stub); it is still INSERTed, which is all the ordering assertion needs.
       parseMessage.mockResolvedValue({
+      deliveryAddresses: [],
+      attributes: { emailId: null, threadId: null },
+      senderName: 'External',
+      senderEmail: 'them@example.com',
         uid: 501, messageId: '<n1@x>', subject: 'Spam', fromName: 'Sketchy', fromEmail: 's@x.com',
         to: [], cc: [], replyTo: [], inReplyTo: null, references: null, date: new Date('2026-08-20T10:00:00Z'),
         snippet: 'hi', isRead: true, isStarred: false, hasAttachments: false, flags: ['\\Seen'], isBulk: false, parsedHeaders: {},

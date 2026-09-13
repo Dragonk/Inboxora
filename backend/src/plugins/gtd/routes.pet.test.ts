@@ -30,20 +30,20 @@ import { customPetSlug as __mock_customPetSlug, importPet as __mock_importPet } 
 import gtdRoutes from './routes.js';
 
 // Cast mocked module exports so their vitest mock helpers type-check.
-const query = __mock_query as any;
-const customPetSlug = __mock_customPetSlug as any;
-const importPet = __mock_importPet as any;
+const query = vi.mocked(__mock_query);
+const customPetSlug = vi.mocked(__mock_customPetSlug);
+const importPet = vi.mocked(__mock_importPet);
 
 // Must match the requireAuth mock's default userId above.
 const OWNER_ID = '3f2a1b4c-5d6e-7f80-9a1b-2c3d4e5f6071';
 const OTHER_ID = '00000000-0000-4000-8000-000000000001';
 const OWNER_SLUG = customPetSlug(OWNER_ID);
 
-const OWNER_PET_ROW = { slug: OWNER_SLUG, display_name: 'My Pet', descriptor: { cols: 8 }, is_custom: true };
-const BUILTIN_PET_ROW = { slug: 'steve-jobs', display_name: 'Steve Jobs', descriptor: { cols: 8 }, is_custom: false };
+const OWNER_PET_ROW = { slug: OWNER_SLUG, display_name: 'My Pet', descriptor: { cols: 8, rows: 1, frameW: 32, frameH: 32, frameCount: 8, staticFrame: 0, hover: { start: 0, count: 8 }, source: 'declared' }, is_custom: true };
+const BUILTIN_PET_ROW = { slug: 'steve-jobs', display_name: 'Steve Jobs', descriptor: { cols: 8, rows: 1, frameW: 32, frameH: 32, frameCount: 8, staticFrame: 0, hover: { start: 0, count: 8 }, source: 'declared' }, is_custom: false };
 // A public pet whose slug happens to start with custom- : stored is_custom false, so it
 // must stay readable by everyone (provenance beats slug shape).
-const CUSTOM_PREFIX_PUBLIC_ROW = { slug: 'custom-cat', display_name: 'Custom Cat', descriptor: { cols: 8 }, is_custom: false };
+const CUSTOM_PREFIX_PUBLIC_ROW = { slug: 'custom-cat', display_name: 'Custom Cat', descriptor: { cols: 8, rows: 1, frameW: 32, frameH: 32, frameCount: 8, staticFrame: 0, hover: { start: 0, count: 8 }, source: 'declared' }, is_custom: false };
 const META_ROWS = { [OWNER_SLUG]: OWNER_PET_ROW, 'steve-jobs': BUILTIN_PET_ROW, 'custom-cat': CUSTOM_PREFIX_PUBLIC_ROW };
 
 // The pet now reads from generic plugin storage (plugin_data). Map the fixture rows to that
@@ -109,7 +109,7 @@ describe('GET /api/gtd/pet/:slug/{meta,sheet} — custom pet ownership scoping',
   it('lets the owner read their own custom pet meta + sheet', async () => {
     const metaRes = await petMeta(OWNER_SLUG, OWNER_ID);
     expect(metaRes.status).toBe(200);
-    expect((await metaRes.json()) as any).toEqual({ slug: OWNER_SLUG, displayName: 'My Pet', descriptor: { cols: 8 } });
+    expect((await metaRes.json()) as any).toEqual({ slug: OWNER_SLUG, displayName: 'My Pet', descriptor: { cols: 8, rows: 1, frameW: 32, frameH: 32, frameCount: 8, staticFrame: 0, hover: { start: 0, count: 8 }, source: 'declared' } });
 
     const sheetRes = await petSheet(OWNER_SLUG, OWNER_ID);
     expect(sheetRes.status).toBe(200);
@@ -154,10 +154,10 @@ describe('GET /api/gtd/pet/:slug/{meta,sheet} — custom pet ownership scoping',
 // uncoded to a generic 500 (import never touches the network).
 describe('POST /api/gtd/pet/import — error mapping', () => {
   it('decodes the sheet and returns the imported pet on success (200)', async () => {
-    importPet.mockResolvedValueOnce({ slug: 'custom-abc', displayName: 'My Pet', descriptor: { cols: 8 } });
+    importPet.mockResolvedValueOnce({ slug: 'custom-abc', displayName: 'My Pet', descriptor: { cols: 8, rows: 1, frameW: 32, frameH: 32, frameCount: 8, staticFrame: 0, hover: { start: 0, count: 8 }, source: 'declared' } });
     const res = await petImport({ petJson: '{}', sheet: VALID_SHEET_B64 });
     expect(res.status).toBe(200);
-    expect((await res.json()) as any).toEqual({ slug: 'custom-abc', displayName: 'My Pet', descriptor: { cols: 8 } });
+    expect((await res.json()) as any).toEqual({ slug: 'custom-abc', displayName: 'My Pet', descriptor: { cols: 8, rows: 1, frameW: 32, frameH: 32, frameCount: 8, staticFrame: 0, hover: { start: 0, count: 8 }, source: 'declared' } });
     // The route decodes the base64 sheet to bytes and passes the pet.json text through verbatim.
     const arg = importPet.mock.calls[0][0];
     expect(Buffer.isBuffer(arg.sheet)).toBe(true);

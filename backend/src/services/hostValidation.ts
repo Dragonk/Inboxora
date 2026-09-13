@@ -147,7 +147,14 @@ export function createPinnedLookup(addresses: string[]): PinnedLookup {
 //
 // Throws if the host is a reserved/private literal or if DNS resolves to a private range.
 // Pass { allowPrivate: true } to skip all private/local checks (for self-hosted servers).
-export async function resolveForConnection(hostname, { allowPrivate = false } = {}) {
+export interface ResolvedConnectionInfo {
+  host: string;
+  servername: string | null;
+  addresses?: string[];
+  lookup?: PinnedLookup;
+}
+
+export async function resolveForConnection(hostname, { allowPrivate = false } = {}): Promise<ResolvedConnectionInfo> {
   const literalErr = validateHostLiteral(hostname, { allowPrivate });
   if (literalErr) throw new Error(literalErr);
 

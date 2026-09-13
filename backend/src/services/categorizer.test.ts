@@ -8,8 +8,8 @@ import { completeText as __mock_completeText } from './aiProvider.js';
 import { aiClassifyMessage } from './categorizer.js';
 
 // Cast mocked module exports so their vitest mock helpers type-check.
-const query = __mock_query as any;
-const completeText = __mock_completeText as any;
+const query = vi.mocked(__mock_query);
+const completeText = vi.mocked(__mock_completeText);
 
 beforeEach(() => {
   query.mockReset();

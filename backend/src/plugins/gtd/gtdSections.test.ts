@@ -16,9 +16,9 @@ import { resolveAllDraftsPaths as __mock_resolveAllDraftsPaths } from '../../uti
 import { getGtdSections, emitGtdIfRelevant } from './gtdSections.js';
 
 // Cast mocked module exports so their vitest mock helpers type-check.
-const query = __mock_query as any;
-const getGtdConfig = __mock_getGtdConfig as any;
-const resolveAllDraftsPaths = __mock_resolveAllDraftsPaths as any;
+const query = vi.mocked(__mock_query);
+const getGtdConfig = vi.mocked(__mock_getGtdConfig);
+const resolveAllDraftsPaths = vi.mocked(__mock_resolveAllDraftsPaths);
 
 const DEFAULT_FOLDERS = {
   todo: 'Todo', watch: 'Watch', delegated: 'Delegated', someday: 'Someday', reference: 'Reference',

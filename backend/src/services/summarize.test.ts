@@ -10,8 +10,8 @@ import {
 } from './summarize.js';
 
 // Cast mocked module exports so their vitest mock helpers type-check.
-const completeText = __mock_completeText as any;
-const getAiStatus = __mock_getAiStatus as any;
+const completeText = vi.mocked(__mock_completeText);
+const getAiStatus = vi.mocked(__mock_getAiStatus);
 
 describe('buildSummaryPrompt', () => {
   it('includes from, subject, and a whitespace-collapsed body', () => {
@@ -65,16 +65,16 @@ describe('summarizeAvailable', () => {
   beforeEach(() => { getAiStatus.mockReset(); });
 
   it('is true only when enabled and summarize is not disabled', async () => {
-    getAiStatus.mockResolvedValue({ enabled: true, features: { summarize: true } });
+    getAiStatus.mockResolvedValue({ enabled: true, provider: 'api-key', features: { summarize: true }, reconnectRequired: false });
     expect(await summarizeAvailable()).toBe(true);
-    getAiStatus.mockResolvedValue({ enabled: true, features: {} }); // absent => allowed
+    getAiStatus.mockResolvedValue({ enabled: true, provider: 'api-key', features: {}, reconnectRequired: false }); // absent => allowed
     expect(await summarizeAvailable()).toBe(true);
   });
 
   it('is false when disabled, when summarize is off, or when status throws', async () => {
-    getAiStatus.mockResolvedValue({ enabled: false, features: { summarize: true } });
+    getAiStatus.mockResolvedValue({ enabled: false, provider: 'api-key', features: { summarize: true }, reconnectRequired: false });
     expect(await summarizeAvailable()).toBe(false);
-    getAiStatus.mockResolvedValue({ enabled: true, features: { summarize: false } });
+    getAiStatus.mockResolvedValue({ enabled: true, provider: 'api-key', features: { summarize: false }, reconnectRequired: false });
     expect(await summarizeAvailable()).toBe(false);
     getAiStatus.mockRejectedValue(new Error('down'));
     expect(await summarizeAvailable()).toBe(false);

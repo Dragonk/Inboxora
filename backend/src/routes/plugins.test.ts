@@ -15,8 +15,8 @@ import { getActivatedPlugins as __mock_getActivatedPlugins, setPluginActivated a
 import pluginsRoutes from './plugins.js';
 
 // Cast mocked module exports so their vitest mock helpers type-check.
-const getActivatedPlugins = __mock_getActivatedPlugins as any;
-const setPluginActivated = __mock_setPluginActivated as any;
+const getActivatedPlugins = vi.mocked(__mock_getActivatedPlugins);
+const setPluginActivated = vi.mocked(__mock_setPluginActivated);
 
 const MANIFEST = { id: 'gtd', name: 'Getting Things Done', version: '1.0.0', tier: 1 };
 

@@ -370,7 +370,11 @@ export function createAiProvider({
     provider: string;
     features: Partial<AiProviderStatusFeatures>;
     reconnectRequired: boolean;
-    connection?: any;
+    connection?: {
+      connected?: boolean;
+      reconnectRequired?: boolean;
+      [key: string]: unknown;
+    };
   }
 
   async function getAiStatus(): Promise<AiProviderStatus> {

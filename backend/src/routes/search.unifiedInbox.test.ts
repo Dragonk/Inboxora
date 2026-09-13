@@ -13,7 +13,7 @@ import searchRoutes from './search.js';
 import { query as __mock_query } from '../services/db.js';
 
 // Cast mocked module exports so their vitest mock helpers type-check.
-const query = __mock_query as any;
+const query = vi.mocked(__mock_query);
 
 function buildApp() {
   const app = express();

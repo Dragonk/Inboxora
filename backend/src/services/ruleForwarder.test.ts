@@ -13,8 +13,8 @@ import {
 } from './ruleForwarder.js';
 
 // Cast mocked module exports so their vitest mock helpers type-check.
-const query = __mock_query as any;
-const createAccountSmtpTransport = __mock_createAccountSmtpTransport as any;
+const query = vi.mocked(__mock_query);
+const createAccountSmtpTransport = vi.mocked(__mock_createAccountSmtpTransport);
 
 const account = {
   id: 'account-1',
@@ -496,6 +496,7 @@ describe('forwardRuleMessage', () => {
   it('deletes the reservation when SMTP setup returns a safe error', async () => {
     createAccountSmtpTransport.mockResolvedValue({
       error: 'SMTP is unavailable',
+      status: 503,
     });
     query
       .mockResolvedValueOnce({ rows: [{ id: 'delivery-1' }] })

@@ -13,10 +13,10 @@ import { createAccountSmtpTransport as __mock_createAccountSmtpTransport } from 
 import { resolveSentFolder as __mock_resolveSentFolder } from '../utils/mailUtils.js';
 
 // Cast mocked module exports so their vitest mock helpers type-check.
-const query = __mock_query as any;
-const redisClient = __mock_redisClient as any;
-const createAccountSmtpTransport = __mock_createAccountSmtpTransport as any;
-const resolveSentFolder = __mock_resolveSentFolder as any;
+const query = vi.mocked(__mock_query);
+const redisClient = vi.mocked(__mock_redisClient);
+const createAccountSmtpTransport = vi.mocked(__mock_createAccountSmtpTransport);
+const resolveSentFolder = vi.mocked(__mock_resolveSentFolder);
 
 const account = { id: 'a1', email_address: 'me@example.com', name: 'Me', oauth_provider: 'google' };
 const sendMail = vi.fn();
@@ -35,7 +35,7 @@ beforeEach(() => {
   redisClient.get.mockResolvedValue(null);
   redisClient.set.mockResolvedValue('OK');
   redisClient.del.mockResolvedValue(1);
-  createAccountSmtpTransport.mockResolvedValue({ account, transport: { sendMail } });
+  createAccountSmtpTransport.mockResolvedValue({ account, transport: { sendMail, verify: vi.fn() } });
   sendMail.mockResolvedValue({});
   resolveSentFolder.mockResolvedValue(null);
 });

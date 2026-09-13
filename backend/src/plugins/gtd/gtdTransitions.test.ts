@@ -18,9 +18,9 @@ import { getGtdConfig as __mock_getGtdConfig } from './gtdConfig.js';
 import { resolveAllDraftsPaths as __mock_resolveAllDraftsPaths } from '../../utils/mailUtils.js';
 
 // Cast mocked module exports so their vitest mock helpers type-check.
-const query = __mock_query as any;
-const getGtdConfig = __mock_getGtdConfig as any;
-const resolveAllDraftsPaths = __mock_resolveAllDraftsPaths as any;
+const query = vi.mocked(__mock_query);
+const getGtdConfig = vi.mocked(__mock_getGtdConfig);
+const resolveAllDraftsPaths = vi.mocked(__mock_resolveAllDraftsPaths);
 
 const DEFAULT_FOLDERS = { todo: 'Todo', watch: 'Watch', delegated: 'Delegated', someday: 'Someday', reference: 'Reference' };
 const account = { id: 'acct-1', user_id: 'user-1', email_address: 'me@example.com', folder_mappings: {} };

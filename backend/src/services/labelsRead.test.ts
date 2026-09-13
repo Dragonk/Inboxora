@@ -5,7 +5,7 @@ import { query as __mock_query } from './db.js';
 import { listThreadHeadsByLabels, notifyOnLabelTouch } from './labelsRead.js';
 
 // Cast mocked module exports so their vitest mock helpers type-check.
-const query = __mock_query as any;
+const query = vi.mocked(__mock_query);
 
 describe('listThreadHeadsByLabels', () => {
   beforeEach(() => query.mockReset());

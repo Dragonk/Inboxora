@@ -14,7 +14,7 @@ import { COPY_SCOPES, applyConversationAction, applyBulkConversationAction } fro
 import { withTransaction as __mock_withTransaction } from './db.js';
 
 // Cast mocked module exports so their vitest mock helpers type-check.
-const withTransaction = __mock_withTransaction as any;
+const withTransaction = vi.mocked(__mock_withTransaction);
 
 function fakeClient() {
   const calls = [];

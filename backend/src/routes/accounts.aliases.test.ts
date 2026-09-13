@@ -18,7 +18,7 @@ import { pluginRegistry } from '../plugins/registry.js';
 import accountRoutes from './accounts.js';
 
 // Cast mocked module exports so their vitest mock helpers type-check.
-const query = __mock_query as any;
+const query = vi.mocked(__mock_query);
 
 // The route now signals identity changes through the generic `onAccountIdentityChanged` hook
 // (GTD's owner-address cache invalidation lives behind it), so we assert the hook dispatch as the

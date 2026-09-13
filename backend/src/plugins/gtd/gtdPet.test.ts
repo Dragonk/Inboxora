@@ -15,7 +15,7 @@ import {
 } from './gtdPet.js';
 
 // Cast mocked module exports so their vitest mock helpers type-check.
-const query = __mock_query as any;
+const query = vi.mocked(__mock_query);
 
 // ── Image-header fixtures (crafted magic bytes, no image library) ──────────────
 
@@ -311,7 +311,7 @@ describe('deleteUserPet', () => {
   beforeEach(() => query.mockReset());
 
   it('removes the user\'s pet row from plugin storage by derived slug', async () => {
-    query.mockResolvedValueOnce({ rowCount: 1 });
+    query.mockResolvedValueOnce({ rows: [], rowCount: 1 });
     await deleteUserPet('11111111-1111-4111-8111-111111111111');
     const slug = customPetSlug('11111111-1111-4111-8111-111111111111');
     const del = query.mock.calls.find(([sql]) => /DELETE FROM plugin_data/.test(sql));

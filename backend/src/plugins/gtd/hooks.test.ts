@@ -23,20 +23,20 @@ import { deleteUserPet as __mock_deleteUserPet } from './gtdPet.js';
 import { relocateExemptFolders, sectionsChanged, inboxIngest, selectGtdReevalIds, gtdEnabledForAccount, emitAfterDeferredCopySync, afterLabelCopy, afterLabelRemove, onMailMutation, onSentMessage, onUserDelete, enrichAccount, validateAccountSettings, persistAccountSettings, onAccountIdentityChanged, onPluginActivationChanged } from './hooks.js';
 
 // Cast mocked module exports so their vitest mock helpers type-check.
-const query = __mock_query as any;
-const getGtdFolderSet = __mock_getGtdFolderSet as any;
-const getGtdConfig = __mock_getGtdConfig as any;
-const sanitizeGtdFoldersDetailed = __mock_sanitizeGtdFoldersDetailed as any;
-const findGtdFolderCollisions = __mock_findGtdFolderCollisions as any;
-const invalidateGtdConfigCache = __mock_invalidateGtdConfigCache as any;
-const getAccountConfig = __mock_getAccountConfig as any;
-const setAccountConfig = __mock_setAccountConfig as any;
-const runGtdTransitions = __mock_runGtdTransitions as any;
-const threadKeysForMessageIds = __mock_threadKeysForMessageIds as any;
-const runTransitionsForSentMessage = __mock_runTransitionsForSentMessage as any;
-const invalidateOwnerAddressesCache = __mock_invalidateOwnerAddressesCache as any;
-const emitGtdIfRelevant = __mock_emitGtdIfRelevant as any;
-const deleteUserPet = __mock_deleteUserPet as any;
+const query = vi.mocked(__mock_query);
+const getGtdFolderSet = vi.mocked(__mock_getGtdFolderSet);
+const getGtdConfig = vi.mocked(__mock_getGtdConfig);
+const sanitizeGtdFoldersDetailed = vi.mocked(__mock_sanitizeGtdFoldersDetailed);
+const findGtdFolderCollisions = vi.mocked(__mock_findGtdFolderCollisions);
+const invalidateGtdConfigCache = vi.mocked(__mock_invalidateGtdConfigCache);
+const getAccountConfig = vi.mocked(__mock_getAccountConfig);
+const setAccountConfig = vi.mocked(__mock_setAccountConfig);
+const runGtdTransitions = vi.mocked(__mock_runGtdTransitions);
+const threadKeysForMessageIds = vi.mocked(__mock_threadKeysForMessageIds);
+const runTransitionsForSentMessage = vi.mocked(__mock_runTransitionsForSentMessage);
+const invalidateOwnerAddressesCache = vi.mocked(__mock_invalidateOwnerAddressesCache);
+const emitGtdIfRelevant = vi.mocked(__mock_emitGtdIfRelevant);
+const deleteUserPet = vi.mocked(__mock_deleteUserPet);
 
 describe('gtd hooks — relocateExemptFolders', () => {
   beforeEach(() => getGtdFolderSet.mockReset());
@@ -300,7 +300,7 @@ describe('gtd hooks — account settings (enrichAccount / validateAccountSetting
     getAccountConfig.mockResolvedValueOnce({ enabled: true, folders: {} });
     sanitizeGtdFoldersDetailed
       .mockReturnValueOnce({ folders: { todo: 'Tasks' }, rejected: ['bad/../path'], reserved: [] }) // new
-      .mockReturnValueOnce({ folders: { todo: 'Todo' } });                                            // stored
+      .mockReturnValueOnce({ folders: { todo: 'Todo' }, rejected: [], reserved: [] });                                            // stored
     findGtdFolderCollisions.mockReturnValueOnce([]);
     const out = await validateAccountSettings({ updates: { gtd_folders: { todo: 'Tasks' } }, accountId: 'a1' });
     expect(out.patch).toBeUndefined();                       // validate no longer writes
@@ -312,7 +312,7 @@ describe('gtd hooks — account settings (enrichAccount / validateAccountSetting
     getAccountConfig.mockResolvedValueOnce({ enabled: true, folders: {} });
     sanitizeGtdFoldersDetailed
       .mockReturnValueOnce({ folders: { todo: 'Todo' }, rejected: [], reserved: [] }) // new
-      .mockReturnValueOnce({ folders: { todo: 'Todo' } });                            // stored
+      .mockReturnValueOnce({ folders: { todo: 'Todo' }, rejected: [], reserved: [] });                            // stored
     findGtdFolderCollisions.mockReturnValueOnce([]);
     const out = await validateAccountSettings({ updates: { gtd_folders: { todo: 'Todo' } }, accountId: 'a1' });
     expect(out.requiresReconnect).toBe(false);

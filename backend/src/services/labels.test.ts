@@ -14,8 +14,8 @@ import {
 } from './labels.js';
 
 // Cast mocked module exports so their vitest mock helpers type-check.
-const query = __mock_query as any;
-const fanOutReadToSiblings = __mock_fanOutReadToSiblings as any;
+const query = vi.mocked(__mock_query);
+const fanOutReadToSiblings = vi.mocked(__mock_fanOutReadToSiblings);
 
 const account = { id: 'acct-1' };
 const mkImap = () => ({ ensureFolder: vi.fn(), copyMessage: vi.fn(), removeMessageCopy: vi.fn() });

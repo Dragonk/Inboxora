@@ -45,13 +45,13 @@ setMailEngine(imapManager);
 import gtdRoutes from './routes.js';
 
 // Cast mocked module exports so their vitest mock helpers type-check.
-const query = __mock_query as any;
-const resolveArchiveFolder = __mock_resolveArchiveFolder as any;
-const isAllMailFolder = __mock_isAllMailFolder as any;
-const adjustFolderCounts = __mock_adjustFolderCounts as any;
-const fanOutReadToSiblings = __mock_fanOutReadToSiblings as any;
-const getGtdConfig = __mock_getGtdConfig as any;
-const DEFAULT_GTD_FOLDERS = __mock_DEFAULT_GTD_FOLDERS as any;
+const query = vi.mocked(__mock_query);
+const resolveArchiveFolder = vi.mocked(__mock_resolveArchiveFolder);
+const isAllMailFolder = vi.mocked(__mock_isAllMailFolder);
+const adjustFolderCounts = vi.mocked(__mock_adjustFolderCounts);
+const fanOutReadToSiblings = vi.mocked(__mock_fanOutReadToSiblings);
+const getGtdConfig = vi.mocked(__mock_getGtdConfig);
+const DEFAULT_GTD_FOLDERS = vi.mocked(__mock_DEFAULT_GTD_FOLDERS);
 
 const MSG_ID = 'dddddddd-dddd-4ddd-8ddd-dddddddddddd';
 const ACCT_ID = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa';
@@ -71,7 +71,7 @@ function buildApp() {
 
 // Route every query /done issues; archiveWrite is the swappable rowCount of the INBOX row's
 // archive UPDATE/DELETE — the authority for whether this call or a concurrent /done won the race.
-function stubQueries({ inbox = inboxCopy, archiveWrite = { rowCount: 1 } } = {}) {
+function stubQueries({ inbox = inboxCopy, archiveWrite = { rows: [], rowCount: 1 } } = {}) {
   query.mockImplementation(async (sql) => {
     if (sql.includes('FROM messages m') && sql.includes('JOIN email_accounts')) return { rows: [msg] };
     if (sql.startsWith('SELECT * FROM email_accounts')) return { rows: [account] };
@@ -119,7 +119,7 @@ describe('POST /api/gtd/done — id validation', () => {
 
 describe('POST /api/gtd/done — archive count-adjust race', () => {
   it('archives + adjusts both counts when the INBOX-scoped write applied (rowCount 1)', async () => {
-    stubQueries({ archiveWrite: { rowCount: 1 } });
+    stubQueries({ archiveWrite: { rows: [], rowCount: 1 } });
     imapManager.moveMessage.mockResolvedValue(88); // UIDPLUS newUid
     const res = await done({ id: MSG_ID, states: ['watch'] });
     expect(res.status).toBe(200);
@@ -130,7 +130,7 @@ describe('POST /api/gtd/done — archive count-adjust race', () => {
   });
 
   it('no count drift, archived=false when a concurrent /done already moved the INBOX row (rowCount 0)', async () => {
-    stubQueries({ archiveWrite: { rowCount: 0 } });
+    stubQueries({ archiveWrite: { rows: [], rowCount: 0 } });
     imapManager.moveMessage.mockResolvedValue(null); // silent server-side no-op
     const res = await done({ id: MSG_ID, states: ['watch'] });
     expect(res.status).toBe(200);
@@ -168,7 +168,7 @@ describe('POST /api/gtd/done — strip-ok + archive-fail', () => {
   });
 
   it('full success: archived=true, archiveFailed=false, noArchiveFolder=false', async () => {
-    stubQueries({ archiveWrite: { rowCount: 1 } });
+    stubQueries({ archiveWrite: { rows: [], rowCount: 1 } });
     imapManager.moveMessage.mockResolvedValue(88);
     const res = await done({ id: MSG_ID, states: ['watch'] });
     expect(res.status).toBe(200);

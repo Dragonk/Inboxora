@@ -25,10 +25,10 @@ import { runGtdTransitions as __mock_runGtdTransitions, threadKeysInFolders as _
 import { gtdSyncTick } from './hooks.js';
 
 // Cast mocked module exports so their vitest mock helpers type-check.
-const query = __mock_query as any;
-const getAccountConfig = __mock_getAccountConfig as any;
-const runGtdTransitions = __mock_runGtdTransitions as any;
-const threadKeysInFolders = __mock_threadKeysInFolders as any;
+const query = vi.mocked(__mock_query);
+const getAccountConfig = vi.mocked(__mock_getAccountConfig);
+const runGtdTransitions = vi.mocked(__mock_runGtdTransitions);
+const threadKeysInFolders = vi.mocked(__mock_threadKeysInFolders);
 
 describe('gtd hooks — gtdSyncTick', () => {
   // mgr is core's bounded engine facade (mailEngineFacade), not the raw engine.

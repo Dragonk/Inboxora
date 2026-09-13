@@ -14,11 +14,11 @@ import { createSmtpTransport as __mock_createSmtpTransport } from './smtpTranspo
 import { getConnectionPolicy as __mock_getConnectionPolicy } from './connectionPolicy.js';
 
 // Cast mocked module exports so their vitest mock helpers type-check.
-const query = __mock_query as any;
-const decrypt = __mock_decrypt as any;
-const resolveForConnection = __mock_resolveForConnection as any;
-const createSmtpTransport = __mock_createSmtpTransport as any;
-const getConnectionPolicy = __mock_getConnectionPolicy as any;
+const query = vi.mocked(__mock_query);
+const decrypt = vi.mocked(__mock_decrypt);
+const resolveForConnection = vi.mocked(__mock_resolveForConnection);
+const createSmtpTransport = vi.mocked(__mock_createSmtpTransport);
+const getConnectionPolicy = vi.mocked(__mock_getConnectionPolicy);
 
 const CONFIG = {
   host: 'mail.internal.lan',
@@ -41,7 +41,7 @@ describe('sendSystemEmail honors allow-private-hosts policy (#358)', () => {
     query.mockResolvedValue({ rows: [{ value: JSON.stringify(CONFIG) }] });
     decrypt.mockReturnValue('smtp-secret');
     resolveForConnection.mockResolvedValue({ host: '10.0.0.5', servername: null });
-    createSmtpTransport.mockReturnValue({ sendMail: vi.fn().mockResolvedValue({}) });
+    createSmtpTransport.mockReturnValue({ sendMail: vi.fn().mockResolvedValue({}), verify: vi.fn() });
   });
 
   it('passes allowPrivate:true through to host resolution when the policy allows it', async () => {

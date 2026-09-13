@@ -23,8 +23,8 @@ import {
 } from './gtdConfig.js';
 
 // Cast mocked module exports so their vitest mock helpers type-check.
-const getAccountConfig = __mock_getAccountConfig as any;
-const isPluginActivatedForAccount = __mock_isPluginActivatedForAccount as any;
+const getAccountConfig = vi.mocked(__mock_getAccountConfig);
+const isPluginActivatedForAccount = vi.mocked(__mock_isPluginActivatedForAccount);
 
 // Each test uses a distinct account id so the module-level cache never leaks
 // between cases, then asserts on how many times the DB was hit.

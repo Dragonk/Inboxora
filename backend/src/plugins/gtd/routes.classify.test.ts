@@ -22,9 +22,9 @@ import { getGtdConfig as __mock_getGtdConfig, DEFAULT_GTD_FOLDERS as __mock_DEFA
 import gtdRoutes from './routes.js';
 
 // Cast mocked module exports so their vitest mock helpers type-check.
-const query = __mock_query as any;
-const getGtdConfig = __mock_getGtdConfig as any;
-const DEFAULT_GTD_FOLDERS = __mock_DEFAULT_GTD_FOLDERS as any;
+const query = vi.mocked(__mock_query);
+const getGtdConfig = vi.mocked(__mock_getGtdConfig);
+const DEFAULT_GTD_FOLDERS = vi.mocked(__mock_DEFAULT_GTD_FOLDERS);
 
 // The label/broadcast capabilities the routes use are bound (via plugin-api) to the platform's
 // mail engine. Inject a mock engine instead of the real imapManager; the same object is asserted

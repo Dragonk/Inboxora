@@ -19,7 +19,7 @@ import { buildEndSessionUrl } from './oidc.js';
 let fetchMock: ReturnType<typeof vi.fn>;
 
 // Cast mocked module exports so their vitest mock helpers type-check.
-const query = __mock_query as any;
+const query = vi.mocked(__mock_query);
 
 const realFetch = global.fetch;
 let discoveryDoc = null;

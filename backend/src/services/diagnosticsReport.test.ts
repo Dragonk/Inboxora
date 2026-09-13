@@ -21,7 +21,7 @@ import { hashRef, folderLabel, categorizeSyncError, deriveProvider, scrubReport,
 import { query as __mock_query } from './db.js';
 
 // Cast mocked module exports so their vitest mock helpers type-check.
-const query = __mock_query as any;
+const query = vi.mocked(__mock_query);
 
 describe('deriveProvider', () => {
   it('prefers the OAuth provider, else maps known hosts, else generic imap (never the raw host)', () => {

@@ -179,7 +179,25 @@ function fallbackHover(source, cols, frameCount) {
 // pet.json carries NO animation schema (only id/displayName/description/spritesheetPath),
 // so the common path is the 8×9 sprite-grid convention with a jump-row hover loop. Any
 // recognisable explicit grid/sequence overrides it. Pure.
-export function parsePetJson(petJson, imageSize) {
+export interface PetDescriptor {
+  cols: number;
+  rows: number;
+  frameW: number;
+  frameH: number;
+  frameCount: number;
+  staticFrame: number;
+  hover: { start: number; count: number } | null;
+  source: string;
+  width?: number;
+  height?: number;
+}
+
+interface PetJsonInput {
+  grid?: { cols?: unknown; columns?: unknown; rows?: unknown; frameWidth?: unknown; frameHeight?: unknown } | null;
+  [key: string]: unknown;
+}
+
+export function parsePetJson(petJson: PetJsonInput | null | undefined, imageSize: { width?: number; height?: number }): PetDescriptor | null {
   const width = imageSize?.width;
   const height = imageSize?.height;
   if (!Number.isFinite(width) || !Number.isFinite(height) || width <= 0 || height <= 0) return null;
@@ -232,8 +250,8 @@ async function finalizeAndStorePet({ slug, petJson, sheet, displayNameFallback, 
 
   const descriptor = parsePetJson(petJson, size);
   if (!descriptor) throw Object.assign(new Error('Could not derive pet animation from the assets'), { code: 'BAD_META' });
-  (descriptor as any).width = size.width;
-  (descriptor as any).height = size.height;
+  descriptor.width = size.width;
+  descriptor.height = size.height;
 
   // petJson may not be an object even after a clean JSON.parse — the text "null" parses to
   // null, "true"/"42" to primitives — so coerce it the same way parsePetJson does before

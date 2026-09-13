@@ -13,7 +13,7 @@ import conversationsRoutes from './conversations.js';
 import { query as __mock_query } from '../services/db.js';
 
 // Cast mocked module exports so their vitest mock helpers type-check.
-const query = __mock_query as any;
+const query = vi.mocked(__mock_query);
 
 const COPY_ID = '11111111-1111-4111-8111-111111111111';
 const MESSAGE_ID = '<a+b@example.test>';
