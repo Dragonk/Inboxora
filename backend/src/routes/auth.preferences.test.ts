@@ -8,8 +8,8 @@ vi.mock('../index.js', () => ({
   },
 }));
 vi.mock('../services/encryption.js', () => ({
-  decrypt: value => value,
-  encrypt: value => value,
+  decrypt: (value: unknown) => value,
+  encrypt: (value: unknown) => value,
 }));
 vi.mock('../services/pushNotifications.js', () => ({ pushConfigured: false }));
 vi.mock('../services/hostValidation.js', () => ({

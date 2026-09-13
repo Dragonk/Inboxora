@@ -855,8 +855,8 @@ export async function patchPreferences(req, res) {
   if (calendarWorkDays !== undefined && (!Array.isArray(calendarWorkDays) || calendarWorkDays.length === 0 || calendarWorkDays.length > 7 || calendarWorkDays.some(day => !Number.isInteger(day) || day < 0 || day > 6) || new Set(calendarWorkDays).size !== calendarWorkDays.length)) {
     return res.status(400).json({ error: 'calendarWorkDays must contain unique weekday numbers from 0 to 6' });
   }
-  const validWorkTime = value => typeof value === 'string' && /^(?:[01]\d|2[0-3]):[0-5]\d$/.test(value);
-  const workTimeMinutes = value => {
+  const validWorkTime = (value: unknown): boolean => typeof value === 'string' && /^(?:[01]\d|2[0-3]):[0-5]\d$/.test(value);
+  const workTimeMinutes = (value: string): number => {
     const [hours, minutes] = value.split(':').map(Number);
     return hours * 60 + minutes;
   };

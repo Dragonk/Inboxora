@@ -22,7 +22,7 @@ setInterval(() => {
   }
 }, 5 * 60 * 1000).unref();
 
-function xmlEscape(value) {
+function xmlEscape(value: unknown): string {
   return String(value || '')
     .replace(/&/g, '&amp;')
     .replace(/</g, '&lt;')
@@ -54,7 +54,7 @@ function uidFromCalendarHref(href: string) {
   }
 }
 
-function etagMatches(header, etag) {
+function etagMatches(header: string, etag: string): boolean {
   return header === '*' || header.split(',').some((value) => value.trim().replace(/^W\//, '').replaceAll('"', '') === etag);
 }
 
