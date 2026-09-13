@@ -67,7 +67,7 @@ export interface ComposeDraft {
   isForward?: boolean;
   inReplyTo?: string;
   references?: string;
-  originalFrom?: string;
+  originalFrom?: string | string[] | Array<{ email: string; name?: string | null }>;
   allRecipients?: string[];
   forwardedAttachments?: Array<{ messageId?: string; part?: string; [key: string]: unknown }>;
   threadId?: string;
@@ -128,7 +128,7 @@ export interface StoreState {
   setUnreadCounts: (counts: { total: number; byAccount: Record<string, number> }) => void;
   decrementUnread: (accountId: string, count?: number) => void;
   incrementUnread: (accountId: string, count?: number) => void;
-  folders: Record<string, Array<{ path: string; unread_count?: number; [key: string]: unknown }>>;
+  folders: Record<string, Array<{ path: string; name?: string | null; special_use?: string | null; unread_count?: number; [key: string]: unknown }>>;
   setFolders: (accountId: string, folders: Array<{ path: string; unread_count?: number }>) => void;
   adjustFolderUnread: (accountId: string, folderPath: string, delta: number) => void;
   sidebarCollapsed: boolean;
@@ -310,8 +310,8 @@ export interface StoreState {
   }) => void;
   shortcuts: Record<string, string>;
   setShortcuts: (overrides: Record<string, string>) => void;
-  aiActions: unknown[];
-  setAiActions: (actions: unknown[]) => void;
+  aiActions: Array<{ id: string; label: string; prompt?: string; [key: string]: unknown }>;
+  setAiActions: (actions: Array<{ id: string; label: string; prompt?: string; [key: string]: unknown }>) => void;
   hiddenFolders: string[];
   setHiddenFolders: (hf: string[]) => void;
   folderOrder: Record<string, string[]>;
@@ -363,7 +363,7 @@ export interface StoreMessageRow {
   from_email?: string | null;
   to_addresses?: unknown;
   cc_addresses?: unknown;
-  reply_to?: unknown;
+  reply_to?: string | null;
   category?: string | null;
   [key: string]: unknown;
 }
@@ -1405,7 +1405,7 @@ export const useStore = create<StoreState>()((set, get) => ({
   // User-defined AI actions (#202), synced across devices. Each: { id, label, prompt }.
   // null = not yet loaded; loadPreferences seeds defaults on first run.
   aiActions: null,
-  setAiActions: (actions: unknown[]) =>{
+  setAiActions: (actions: Array<{ id: string; label: string; prompt?: string; [key: string]: unknown }>) =>{
     set({ aiActions: actions });
     return api.savePreferences({ aiActions: actions }).catch(() => {});
   },
