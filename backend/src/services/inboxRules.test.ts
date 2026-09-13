@@ -22,6 +22,7 @@ const {
 } = vi.mocked(await import('../utils/mailUtils.js'));
 const { forwardRuleMessage } = vi.mocked(await import('./ruleForwarder.js'));
 import { applyInboxRules } from './inboxRules.js';
+import { mockImapManager } from '../test/imapClient.js';
 
 const account = { id: 'acc-1', user_id: 'user-1', folder_mappings: {} };
 
@@ -41,12 +42,12 @@ const mkRule = (actions, overrides = {}) => ({
   ...overrides,
 });
 
-const mockImap = {
+const mockImap = mockImapManager({
   bulkMoveMessages: vi.fn(),
   setFlag: vi.fn(),
   _guardMoveUid: vi.fn(),
   _unguardMoveUid: vi.fn(),
-};
+});
 
 beforeEach(() => {
   vi.clearAllMocks();

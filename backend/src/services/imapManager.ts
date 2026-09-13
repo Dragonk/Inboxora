@@ -2971,7 +2971,7 @@ export class ImapManager {
         const maxKnownUid = Number(max_uid);
 
         const manager = this;
-        let newMessages: Array<{ id: string; accountId: string; folder: string; fromEmail?: string | null; isBulk?: boolean; [key: string]: unknown }> = [];
+        let newMessages: Array<{ id: string; uid: number; accountId: string; folder: string; fromEmail?: string | null; isBulk?: boolean; [key: string]: unknown }> = [];
         let insertedCount = 0;
         let broadcastedNewMessages = false;
 
@@ -3203,16 +3203,21 @@ export class ImapManager {
             // Snapshot the unread candidates before the block-list / rules run, so the ingest
             // re-eval below can exclude any they move out of INBOX. Only needed with an ingest plugin.
             const unreadBeforeRules = wantsInboxIngest ? newMessages.map(m => m.id) : null;
+            const rulesAccount = account.id && account.user_id
+              ? { ...account, id: account.id, user_id: account.user_id }
+              : null;
             try {
-              newMessages = await applyBlockList(newMessages, account, manager);
+              newMessages = rulesAccount ? await applyBlockList(newMessages, rulesAccount, manager) : newMessages;
             } catch (caught) {
               const err = toAppError(caught);
               console.error('blockList error:', err.message);
             }
             try {
-              const rulesResult = await applyInboxRules(newMessages, account, manager);
-              newMessages = rulesResult.remaining;
-              mutedIds = rulesResult.mutedIds;
+              const rulesResult = rulesAccount ? await applyInboxRules(newMessages, rulesAccount, manager) : null;
+              if (rulesResult) {
+                newMessages = rulesResult.remaining;
+                mutedIds = rulesResult.mutedIds;
+              }
             } catch (caught) {
               const err = toAppError(caught);
               console.error('inboxRules error:', err.message);

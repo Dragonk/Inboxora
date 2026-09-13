@@ -1,7 +1,42 @@
 import { query } from './db.js';
 import { resolveArchiveFolder, isAllMailFolder, resolveTrashFolder, resolveAllTrashPaths, getDeleteStrategy, adjustFolderCounts } from '../utils/mailUtils.js';
+import type { FolderMappings } from '../utils/mailUtils.js';
 import { toAppError } from '../utils/errors.js';
+import type { ImapManager } from './imapManager.js';
 
+/** One condition of a stored rule. */
+interface RuleCondition { field?: string; operator?: string; value?: string; headerName?: string; [key: string]: unknown }
+
+/** One action of a stored rule. */
+interface RuleAction { type?: string; value?: string; folder?: string; [key: string]: unknown }
+
+/** A stored inbox rule (or block-list entry) row. */
+interface InboxRuleRow { id: string; match_type?: string; conditions?: RuleCondition[]; actions?: RuleAction[]; [key: string]: unknown }
+
+/** A recipient on an ingest message. */
+interface RuleRecipient { email?: string; name?: string }
+
+/** An ingest message the rules run against. */
+interface RuleMessage {
+  id: string;
+  uid: number;
+  folder: string;
+  subject?: string;
+  fromEmail?: string;
+  fromName?: string;
+  isRead?: boolean;
+  is_read?: boolean;
+  hasAttachments?: boolean;
+  to?: RuleRecipient[];
+  parsedHeaders?: unknown;
+  _bodyText?: string;
+  [key: string]: unknown;
+}
+
+/** The account a rule batch is scoped to. */
+type RuleAccount = { id: string; user_id: string; folder_mappings?: FolderMappings | null; [key: string]: unknown }
+
+/** The mail-engine slice the rule actions use. */
 async function getRulesForAccount(userId: string, accountId: string) {
   const result = await query(
     `SELECT * FROM inbox_rules
@@ -13,15 +48,15 @@ async function getRulesForAccount(userId: string, accountId: string) {
   return result.rows;
 }
 
-function normalizeStr(val) {
-  return (val || '').toLowerCase().trim();
+function normalizeStr(val: unknown): string {
+  return String(val || '').toLowerCase().trim();
 }
 
 // Returns true if a user-supplied regex is unsafe to run: too long, uncompilable,
 // or a catastrophic-backtracking shape. User regexes run synchronously on the event
 // loop for every incoming message, so a single bad pattern can freeze the whole
 // server (ReDoS). Exported so rules can be rejected at creation time too.
-export function isDangerousRegex(src) {
+export function isDangerousRegex(src: unknown): boolean {
   if (!src || typeof src !== 'string' || src.length > 200) return true;
   // Quantified alternation / quantifier-then-quantifier, e.g. (a|a)+, (a+).*+ .
   if (/\(.*[+*]\).*[+*]|\(.*\|.*\).*[+*]/.test(src)) return true;
@@ -45,7 +80,7 @@ export function isDangerousRegex(src) {
   return false;
 }
 
-function matchOperator(operator, fieldVal, ruleVal) {
+function matchOperator(operator: unknown, fieldVal: unknown, ruleVal: unknown): boolean {
   const f = normalizeStr(fieldVal);
   const r = normalizeStr(ruleVal);
   // A blank rule value with contains/starts_with/ends_with matches every string
@@ -64,7 +99,7 @@ function matchOperator(operator, fieldVal, ruleVal) {
       // user patterns run synchronously on every incoming message.
       if (isDangerousRegex(ruleVal)) return false;
       try {
-        return new RegExp(ruleVal, 'i').test(fieldVal || '');
+        return new RegExp(r, 'i').test(f);
       } catch {
         return false;
       }
@@ -73,7 +108,7 @@ function matchOperator(operator, fieldVal, ruleVal) {
   }
 }
 
-function evaluateCondition(cond, msg) {
+function evaluateCondition(cond: RuleCondition | null | undefined, msg: RuleMessage): boolean {
   if (!cond || typeof cond.field !== 'string') return false;
   const { field, operator, value } = cond;
   switch (field) {
@@ -133,7 +168,7 @@ function evaluateCondition(cond, msg) {
   }
 }
 
-function evaluateRule(rule, msg) {
+function evaluateRule(rule: InboxRuleRow, msg: RuleMessage): boolean {
   const conditions = Array.isArray(rule.conditions) ? rule.conditions : [];
   if (conditions.length === 0) return false;
   if (rule.condition_logic === 'OR') {
@@ -146,10 +181,10 @@ function evaluateRule(rule, msg) {
 //   remaining — messages still in INBOX after rules ran (moved/archived/deleted excluded)
 //   mutedIds  — IDs of remaining messages that had mark_read applied by a rule;
 //               the caller uses this to suppress sound/toast/push for silenced mail
-export async function applyInboxRules(messages, account, imapManager) {
+export async function applyInboxRules<T extends RuleMessage>(messages: T[], account: RuleAccount, imapManager: ImapManager) {
   if (!messages.length) return { remaining: messages, mutedIds: new Set() };
 
-  let rules;
+  let rules: InboxRuleRow[];
   try {
     rules = await getRulesForAccount(account.user_id, account.id);
   } catch (caught) {
@@ -194,15 +229,15 @@ export async function applyInboxRules(messages, account, imapManager) {
   // skipped, but results are reused across messages to avoid N+1 DB queries.
   const resolverCache: ResolverCache = {};
 
-  const remaining = [...messages];
-  const removedIds = new Set();
+  const remaining: T[] = [...messages];
+  const removedIds = new Set<string>();
   // A failed forward leaves the source in place for an intentional retry or
   // manual recovery. Keep every destination action blocked so nothing moves,
   // archives, or deletes that source out from under recovery.
   const destinationBlockedIds = new Set();
   // IDs of remaining-in-INBOX messages that had mark_read applied by a rule.
   // Used by the caller to skip sound/toast/push for mail the user chose to silence.
-  const mutedIds = new Set();
+  const mutedIds = new Set<string>();
   const lastForwardRuleIndex = rules.reduce(
     (lastIndex, rule, index) =>
       Array.isArray(rule.actions) &&
@@ -213,10 +248,10 @@ export async function applyInboxRules(messages, account, imapManager) {
   );
 
   for (const msg of messages) {
-    const deferredDestinations = [];
+    const deferredDestinations: Array<{ action: RuleAction; ruleId: string; isDest?: boolean }> = [];
     let forwardBarrierPassed = lastForwardRuleIndex === -1;
 
-    const executeNonForwardAction = async (action, ruleId: string, isDest) => {
+    const executeNonForwardAction = async (action: RuleAction, ruleId: string, isDest: boolean): Promise<void> => {
       try {
         const acted = await applyAction(
           action,
@@ -330,7 +365,7 @@ export async function applyInboxRules(messages, account, imapManager) {
 }
 
 // Moves messages from blocked senders to trash before inbox rules run.
-export async function applyBlockList(messages, account, imapManager) {
+export async function applyBlockList<T extends RuleMessage>(messages: T[], account: RuleAccount, imapManager: ImapManager) {
   if (!messages.length) return messages;
 
   let blockedRows;
@@ -363,7 +398,7 @@ export async function applyBlockList(messages, account, imapManager) {
     return messages;
   }
 
-  const remaining = [];
+  const remaining: T[] = [];
   for (const msg of messages) {
     if (!blockedSet.has((msg.fromEmail || '').toLowerCase())) {
       remaining.push(msg);
@@ -419,7 +454,7 @@ interface ResolverCache {
   allTrashPaths?: Set<string> | null;
 }
 
-async function applyAction(action, msg, account, imapManager, ruleId: string, resolverCache: ResolverCache = {}) {
+async function applyAction(action: RuleAction, msg: RuleMessage, account: RuleAccount, imapManager: ImapManager, ruleId: string, resolverCache: ResolverCache = {}) {
   switch (action.type) {
     case 'forward': {
       // Load this path only when a forward action actually runs. ruleForwarder
