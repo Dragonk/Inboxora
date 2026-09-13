@@ -39,10 +39,10 @@ import DiagnosticsReportModal from './DiagnosticsReportModal.tsx';
 import { getEffectiveShortcuts, getGroupedActions, ACTION_DEFS, SPECIAL_KEY_LABELS, parseModKey, modLabel } from '../utils/defaultShortcuts.ts';
 import { unifiedUnreadTotal } from '../utils/unifiedInbox.ts';
 import { isValidForwardAddress } from '../utils/ruleActions.ts';
-import type { CSSProperties } from 'react';
+import type { CSSProperties, SVGProps } from 'react';
 
 // ─── Shared field component ───────────────────────────────────────────────────
-function Field({ label, required, children }) {
+function Field({ label, required = false, children }) {
   return (
     <div style={{ marginBottom: 14 }}>
       <label style={{ display: 'block', fontSize: 12, color: 'var(--text-secondary)', marginBottom: 5 }}>
@@ -1305,7 +1305,7 @@ function ThemesTab() {
 }
 
 // ─── Admin Panel Shell ────────────────────────────────────────────────────────
-function IconBtn({ children, onClick, title, danger, disabled }) {
+function IconBtn({ children, onClick, title, danger = false, disabled = false }) {
   const [hov, setHov] = useState(false);
   return (
     <button onClick={disabled ? undefined : onClick} title={title} disabled={disabled}
@@ -1580,7 +1580,7 @@ function LayoutDiagram({ layoutConfig, active }) {
 
 // ─── Layouts Tab ──────────────────────────────────────────────────────────────
 function SwipeActionIcon({ action, size = 17 }) {
-  const common = { width: size, height: size, viewBox: '0 0 24 24', fill: 'none', stroke: 'currentColor', strokeWidth: 1.8, strokeLinecap: 'round', strokeLinejoin: 'round' };
+  const common: SVGProps<SVGSVGElement> = { width: size, height: size, viewBox: '0 0 24 24', fill: 'none', stroke: 'currentColor', strokeWidth: 1.8, strokeLinecap: 'round', strokeLinejoin: 'round' };
   if (action === 'star') return <svg {...common}><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/></svg>;
   if (action === 'delete') return <svg {...common}><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 01-2 2H7a2 2 0 01-2-2V6"/><path d="M8 6V4a1 1 0 011-1h6a1 1 0 011 1v2"/></svg>;
   if (action === 'markRead') return <svg {...common}><path d="M22,9v9c0,1.1-.9,2-2,2H4c-1.1,0-2-.9-2-2v-9"/><polyline points="22 9 12 16 2 9"/><polyline points="2 9 12 2 22 9"/></svg>;

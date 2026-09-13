@@ -30,7 +30,7 @@ export function getResults(messageId) {
 }
 
 // Persist a completed action result, marking the message as most-recently-used.
-export function saveResult(messageId, actionKey, text, label) {
+export function saveResult(messageId, actionKey, text, label = undefined) {
   if (!messageId || !actionKey) return;
   const store = read();
   if (!store.data[messageId]) store.data[messageId] = {};

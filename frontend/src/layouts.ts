@@ -66,7 +66,7 @@ export function normalizeLayout(layoutKey) {
 // When provided it is applied instead of the preset listWidth.
 // The width is shared by every list-style panel (mail, contacts, calendar), so the
 // same override also drives the contact list and the calendar rail/agenda.
-export function applyLayout(layoutKey, customListWidth) {
+export function applyLayout(layoutKey, customListWidth = undefined) {
   const layout = LAYOUTS[normalizeLayout(layoutKey)];
   const root = document.documentElement;
   root.style.setProperty('--layout-row-py', layout.rowPy + 'px');

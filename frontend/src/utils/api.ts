@@ -240,7 +240,7 @@ export const api = {
   getMessage: (id) => request('GET', `/mail/messages/${id}`),
   // Resolve a deep-link reference (stable Message-ID header, or a legacy UUID) to the
   // current message row — durable across folder moves (#270).
-  resolveMessage: (ref, accountId) => {
+  resolveMessage: (ref, accountId = undefined) => {
     const qs = new URLSearchParams({ ref });
     if (accountId) qs.set('accountId', accountId);
     return request('GET', `/mail/resolve-message?${qs}`);

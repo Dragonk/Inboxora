@@ -241,3 +241,22 @@ Testy frontendu: 2335 / 0 failed · lint czysty · build OK.
 Frontend `tsc`: **506 błędów** (z 661 po zdjęciu `@ts-nocheck`). Testy 2335/0 · lint czysty · build OK.
 Backend: `tsc` 0 · testy 1785/0 · 0 `@ts-nocheck`.
 
+
+## 23. Frontend: propsy komponentów, DOM i daty
+
+- 🟠 **`Field.required`**, **`IconBtn.danger/disabled`**, **`ToolbarButton.danger/style/action/targetId`**,
+  **`ChipInput.autoFocus/containerStyle`** — wymagane, choć w wywołaniach pomijane → domyślne wartości.
+- 🔴 **`e.target.style` w `MessageList`** (20 miejsc) — `EventTarget` nie ma `style`; użyto `e.currentTarget`
+  (zdarzenie jest na tym samym elemencie).
+- 🔴 **`MessagePane`**: `doc.querySelectorAll("*")` nie dawało typowanych elementów →
+  `querySelectorAll<HTMLElement>` + `Set<HTMLElement>` (realne typowanie DOM).
+- 🔴 **Arytmetyka `Date`** w `MessagePane` i `calendarView` → `.getTime()`.
+- 🟠 **SVG**: wspólne propsy `const common` → `SVGProps<SVGSVGElement>` (6 błędów).
+- 🟠 **Opcjonalne parametry**: `applyLayout(customListWidth?)`, `api.resolveMessage(accountId?)`,
+  `saveResult(label?)`, `handlePaneContextAction(data?)`.
+
+## 24. Stan weryfikacji
+
+Frontend `tsc`: **419 błędów** (z 661). Testy 2335/0 · lint czysty · build OK.
+Backend: `tsc` 0 · testy 1785/0.
+

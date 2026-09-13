@@ -28,7 +28,7 @@ function Icon({ name, filled = false }) {
   }
 }
 
-export function ToolbarButton({ children, onClick, title, danger, style, action, targetId }) {
+export function ToolbarButton({ children, onClick, title, danger = false, style = undefined, action = undefined, targetId = undefined }) {
   const [hovered, setHovered] = useState(false);
   return <button type="button" onClick={onClick} title={title} data-message-action={action} data-action-target-id={targetId}
     className="btn-press" onMouseEnter={() => setHovered(true)} onMouseLeave={() => setHovered(false)} style={{

@@ -81,7 +81,7 @@ export function agendaDays(events, anchor) {
 export function sortedDayEvents(events, day) {
   return eventsForDay(events, day).sort((a, b) =>
     Number(Boolean(b.all_day || b.allDay)) - Number(Boolean(a.all_day || a.allDay)) ||
-    parseEventDate(a.starts_at ?? a.startsAt) - parseEventDate(b.starts_at ?? b.startsAt) ||
+    parseEventDate(a.starts_at ?? a.startsAt).getTime() - parseEventDate(b.starts_at ?? b.startsAt).getTime() ||
     String(a.id).localeCompare(String(b.id)));
 }
 

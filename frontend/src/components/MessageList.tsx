@@ -3041,8 +3041,8 @@ export default function MessageList() {
               borderRadius: 8, color: 'var(--text-primary)', fontSize: 13,
               outline: 'none', boxSizing: 'border-box',
             }}
-            onFocus={e => { e.target.style.borderColor = 'var(--accent)'; setSearchFocused(true); }}
-            onBlur={e => { e.target.style.borderColor = 'var(--border)'; setSearchFocused(false); }}
+            onFocus={e => { e.currentTarget.style.borderColor = 'var(--accent)'; setSearchFocused(true); }}
+            onBlur={e => { e.currentTarget.style.borderColor = 'var(--border)'; setSearchFocused(false); }}
           />
           {searchQuery && (
             <button
@@ -3129,8 +3129,8 @@ export default function MessageList() {
                 borderRadius: 8, color: 'var(--text-primary)', fontSize: 13,
                 outline: 'none', boxSizing: 'border-box',
               }}
-              onFocus={e => e.target.style.borderColor = 'var(--accent)'}
-              onBlur={e => e.target.style.borderColor = 'var(--border)'}
+              onFocus={e => e.currentTarget.style.borderColor = 'var(--accent)'}
+              onBlur={e => e.currentTarget.style.borderColor = 'var(--border)'}
             />
             {searchQuery && (
               <button
@@ -3843,8 +3843,8 @@ export default function MessageList() {
                     color: 'var(--text-secondary)', cursor: 'pointer', fontSize: 12,
                     transition: 'all 0.1s',
                   }}
-                  onMouseEnter={e => { e.target.style.borderColor = 'var(--accent)'; e.target.style.color = 'var(--accent)'; }}
-                  onMouseLeave={e => { e.target.style.borderColor = 'var(--border)'; e.target.style.color = 'var(--text-secondary)'; }}
+                  onMouseEnter={e => { e.currentTarget.style.borderColor = 'var(--accent)'; e.currentTarget.style.color = 'var(--accent)'; }}
+                  onMouseLeave={e => { e.currentTarget.style.borderColor = 'var(--border)'; e.currentTarget.style.color = 'var(--text-secondary)'; }}
                 >
                   {t('messageList.loadMore')}
                 </button>
@@ -3877,8 +3877,8 @@ export default function MessageList() {
                     color: 'var(--text-secondary)', cursor: 'pointer', fontSize: 12,
                     transition: 'all 0.1s',
                   }}
-                  onMouseEnter={e => { e.target.style.borderColor = 'var(--accent)'; e.target.style.color = 'var(--accent)'; }}
-                  onMouseLeave={e => { e.target.style.borderColor = 'var(--border)'; e.target.style.color = 'var(--text-secondary)'; }}
+                  onMouseEnter={e => { e.currentTarget.style.borderColor = 'var(--accent)'; e.currentTarget.style.color = 'var(--accent)'; }}
+                  onMouseLeave={e => { e.currentTarget.style.borderColor = 'var(--border)'; e.currentTarget.style.color = 'var(--text-secondary)'; }}
                 >
                   {t('messageList.loadMore')}
                 </button>
@@ -3912,8 +3912,8 @@ export default function MessageList() {
                 onClick={() => loadPage(currentPage - 1)}
                 disabled={currentPage <= 1}
                 style={btnStyle(currentPage <= 1)}
-                onMouseEnter={e => { if (currentPage > 1) { e.target.style.borderColor = 'var(--accent)'; e.target.style.color = 'var(--accent)'; }}}
-                onMouseLeave={e => { e.target.style.borderColor = 'var(--border)'; e.target.style.color = currentPage <= 1 ? 'var(--text-tertiary)' : 'var(--text-secondary)'; }}
+                onMouseEnter={e => { if (currentPage > 1) { e.currentTarget.style.borderColor = 'var(--accent)'; e.currentTarget.style.color = 'var(--accent)'; }}}
+                onMouseLeave={e => { e.currentTarget.style.borderColor = 'var(--border)'; e.currentTarget.style.color = currentPage <= 1 ? 'var(--text-tertiary)' : 'var(--text-secondary)'; }}
               >← {t('messageList.prevPage')}</button>
               <span style={{ fontSize: 12, color: 'var(--text-secondary)' }}>
                 {t('messageList.pageOf', { current: currentPage, total: totalPages })}
@@ -3922,8 +3922,8 @@ export default function MessageList() {
                 onClick={() => loadPage(currentPage + 1)}
                 disabled={currentPage >= totalPages}
                 style={btnStyle(currentPage >= totalPages)}
-                onMouseEnter={e => { if (currentPage < totalPages) { e.target.style.borderColor = 'var(--accent)'; e.target.style.color = 'var(--accent)'; }}}
-                onMouseLeave={e => { e.target.style.borderColor = 'var(--border)'; e.target.style.color = currentPage >= totalPages ? 'var(--text-tertiary)' : 'var(--text-secondary)'; }}
+                onMouseEnter={e => { if (currentPage < totalPages) { e.currentTarget.style.borderColor = 'var(--accent)'; e.currentTarget.style.color = 'var(--accent)'; }}}
+                onMouseLeave={e => { e.currentTarget.style.borderColor = 'var(--border)'; e.currentTarget.style.color = currentPage >= totalPages ? 'var(--text-tertiary)' : 'var(--text-secondary)'; }}
               >{t('messageList.nextPage')} →</button>
             </div>
           );

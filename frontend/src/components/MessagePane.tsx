@@ -655,11 +655,11 @@ export default function MessagePane({ windowMessageId = null, onWindowClose = nu
       // calls from image load handlers can re-check and grow them as lazy images add
       // height (an element that was 1 000 px after the first pass may be 3 000 px
       // once all images are loaded).
-      const expandedEls = new Set();
+      const expandedEls = new Set<HTMLElement>();
       const dv = doc.defaultView;
       const expandScrollContainers = () => {
         if (!dv) return;
-        Array.from(doc.querySelectorAll('*')).reverse().forEach(el => {
+        Array.from(doc.querySelectorAll<HTMLElement>('*')).reverse().forEach(el => {
           const cs = dv.getComputedStyle(el);
           const oy = cs.overflowY;
           const isScrollContainer = (oy === 'auto' || oy === 'scroll') && el.scrollHeight > el.clientHeight + 2;
@@ -773,7 +773,7 @@ export default function MessagePane({ windowMessageId = null, onWindowClose = nu
     if (!USE_DIV_RENDER || !prepared) return;
 
     let rafId = null;
-    const expandedEls = new Set();
+    const expandedEls = new Set<HTMLElement>();
 
     // Neutralize nested sender-created scroll containers (overflow:auto/scroll +
     // fixed height) so iOS scrolls the message pane instead of an inner block —
@@ -1590,13 +1590,13 @@ ${bodyContent}
         undone = true;
         clearTimeout(timer);
         const state = useStore.getState();
-        state.setMessages([...state.messages, archived].sort((a, b) => new Date(b.date) - new Date(a.date)));
+        state.setMessages([...state.messages, archived].sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime()));
         if (!archived.is_read) incrementUnread(archived.account_id);
       },
     });
   };
 
-  const handlePaneContextAction = async (action, data) => {
+  const handlePaneContextAction = async (action, data = undefined) => {
     if (!message) return;
 
     switch (action) {
