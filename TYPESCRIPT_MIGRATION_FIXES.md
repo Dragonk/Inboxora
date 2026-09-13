@@ -130,3 +130,25 @@ Backend `tsc`: **144 błędy** (z 474). Czyste m.in.: `routes/mail.ts`, `service
 `services/conversationPersistence.ts`, `services/calendarProjectionPool.ts`.
 Testy: 1785 / 0 failed. Lint: czysty.
 
+
+## 12. Iteracja: profile providerów IMAP i konfiguracja klienta
+
+- 🔴 **`PROVIDERS`** był unią różnych kształtów → odczyty `freshInboxSync`, `usesIdle`,
+  `preferFreshBodyFetch`, `maxSyncIntervalMs`, `idleKeepaliveMs`, `maxPersistentPerHost` były przypadkowe.
+  Dodany interfejs `ProviderProfile`.
+- 🔴 **`makeClientCfg`** miało wcześniej obejście `: any` (moje) — zastąpione realnymi typami:
+  `EmailAccountRow`, `ResolvedConnection`, `ConnectionPolicyLike`, `MakeClientCfgOptions`, `ImapClientCfg`.
+- 🔴 **Realny błąd logiczny: `computeThreadId` wołane z 5 argumentami, przyjmuje 4** — nadmiarowy
+  `sanitizeStr(subject)` był po cichu ignorowany. Usunięty (bez zmiany zachowania).
+- 🔴 **`new Promise((_, reject) => ...)` bez argumentu typu** w sondzie staleness → `Promise<unknown>`,
+  przez co `Promise.race` dawał `unknown`. Teraz `Promise<never>` (poprawny typ dla promise, który
+  nigdy nie resolvuje).
+- 🟠 **`logger: boolean`** nie pasował do `ImapFlowOptions` (`false | Logger`) → `logger: false`.
+- 🟠 **`providerFetchQuery`** — dodany `ImapFetchQuery` (`bodyParts`, `threadId`).
+- 🟠 **`Error.imapError`** dodane do augmentacji; usunięty mój wcześniejszy `details?: any` → `unknown`.
+
+## 13. Stan weryfikacji
+
+Backend `tsc`: **110 błędów** (z 474). `services/imapManager.ts` — 0 błędów.
+Testy: 1785 / 0 failed. Lint: czysty.
+

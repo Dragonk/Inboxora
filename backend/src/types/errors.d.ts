@@ -7,6 +7,7 @@ declare global {
     statusCode?: number;
     status?: number;
     code?: string;
-    details?: any;
+    details?: unknown;
+    imapError?: unknown;
   }
 }

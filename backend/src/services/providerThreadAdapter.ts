@@ -48,7 +48,18 @@ export function parseProviderMetadata(msg, account) {
   };
 }
 
-export function providerFetchQuery(account, base = {}, liveCapabilities = null) {
+export interface ImapFetchQuery {
+  uid?: boolean;
+  flags?: boolean;
+  envelope?: boolean;
+  bodyStructure?: boolean;
+  headers?: boolean;
+  threadId?: boolean;
+  bodyParts?: unknown[];
+  [key: string]: unknown;
+}
+
+export function providerFetchQuery(account, base: ImapFetchQuery = {}, liveCapabilities = null): ImapFetchQuery {
   const host = (account?.imap_host || '').toLowerCase();
   const provider = classifyProviderHost(host);
   const caps = liveCapabilities || account?.capabilities || account?.imap_capabilities || [];

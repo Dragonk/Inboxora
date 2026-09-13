@@ -760,7 +760,31 @@ function safeDate(d) {
 // connectStaggerMs:     base gap between successive account connects at startup, to keep the
 //                       initial burst under a provider's per-IP connection rate limit.
 //                       Omitted → 200ms default. See connectStaggerFor(). (#218)
-const PROVIDERS = {
+interface ProviderProfile {
+  batchSize: number;
+  batchDelay: number;
+  errorDelay: number;
+  batchesPerConn: number;
+  fetchBody: boolean;
+  pushesFlags: boolean;
+  snippetIndex: boolean;
+  speculativeFetch: boolean;
+  skipFolderPatterns: string[];
+  skipFolderNames: string[];
+  autoBackfillExistingOnConnect?: boolean;
+  connectStaggerMs?: number;
+  flagPollEveryTicks?: number;
+  freshInboxSync?: boolean;
+  idleKeepaliveMs?: number;
+  maxPersistentPerHost?: number;
+  maxSyncIntervalMs?: number;
+  preferFreshBodyFetch?: boolean;
+  prefetchNewBodies?: boolean;
+  prefetchNewBodiesLimit?: number;
+  usesIdle?: boolean;
+}
+
+const PROVIDERS: Record<string, ProviderProfile> = {
   google: {
     // Large batches, short delay: Gmail only throttles BODY[] not envelope/flags/uid.
     // Backfills 30k+ messages in ~2 min instead of 12+ hours.
@@ -1075,7 +1099,7 @@ async function ensureFreshToken(account) {
   const expiry = new Date(account.oauth_token_expiry);
   const now = new Date();
   // Refresh if token expires within 5 minutes
-  if (expiry - now < 5 * 60 * 1000) {
+  if (expiry.getTime() - now.getTime() < 5 * 60 * 1000) {
     console.log(`Refreshing Microsoft token for ${logAccount(account)}`);
     try {
       account = await refreshMicrosoftToken(account);
@@ -1089,12 +1113,53 @@ async function ensureFreshToken(account) {
 // resolved comes from resolveForConnection(), which limits sockets to the validated
 // address set so DNS rebinding cannot change the target between validation and connect.
 // policy: result of getConnectionPolicy() — gates TLS verification override.
-export function makeClientCfg(account, resolved, { enableIdle = false, policy = {}, idleKeepaliveMs } = {}): any {
+interface ConnectionPolicyLike {
+  allowInsecureTls?: boolean;
+}
+
+interface ResolvedConnection {
+  host: string;
+  servername?: string | null;
+  lookup?: unknown;
+}
+
+interface EmailAccountRow {
+  id?: string;
+  email_address?: string;
+  imap_host?: string;
+  imap_port?: number;
+  imap_tls?: boolean;
+  imap_skip_tls_verify?: boolean;
+  auth_user?: string;
+  auth_pass?: string;
+  oauth_provider?: string;
+  oauth_access_token?: string | null;
+  oauth_token_expiry?: string | Date | null;
+}
+
+export interface ImapClientCfg {
+  host: string;
+  port: number;
+  secure: boolean;
+  auth: { user: string; pass?: string | null; accessToken?: string };
+  logger: false;
+  tls: Record<string, unknown>;
+  commandTimeout: number;
+  maxIdleTime?: number;
+}
+
+interface MakeClientCfgOptions {
+  enableIdle?: boolean;
+  policy?: ConnectionPolicyLike;
+  idleKeepaliveMs?: number;
+}
+
+export function makeClientCfg(account: EmailAccountRow, resolved: ResolvedConnection, { enableIdle = false, policy = {}, idleKeepaliveMs }: MakeClientCfgOptions = {}): ImapClientCfg {
   if (!policy.allowInsecureTls && !account.imap_tls) {
     throw new Error('Plain-text IMAP is not allowed: admin must enable "Allow insecure TLS"');
   }
   const skipTls = policy.allowInsecureTls && !!account.imap_skip_tls_verify;
-  const tlsOpts = { rejectUnauthorized: !skipTls };
+  const tlsOpts: Record<string, unknown> = { rejectUnauthorized: !skipTls };
   // Keep the original hostname for TLS authentication while Node connects only to the
   // prevalidated addresses and moves to the next candidate when one is unreachable.
   if (resolved.servername) tlsOpts.servername = resolved.servername;
@@ -1103,11 +1168,11 @@ export function makeClientCfg(account, resolved, { enableIdle = false, policy = 
     tlsOpts.autoSelectFamily = true;
     tlsOpts.autoSelectFamilyAttemptTimeout = 1000;
   }
-  const cfg = {
+  const cfg: ImapClientCfg = {
     host: resolved.lookup && resolved.servername ? resolved.servername : resolved.host,
     port: account.imap_port,
     secure: account.imap_tls,
-    auth: { user: account.auth_user, pass: decrypt(account.auth_pass) },
+    auth: { user: account.auth_user || account.email_address || '', pass: decrypt(account.auth_pass) },
     logger: false,
     tls: tlsOpts,
     // Prevent IMAP commands from hanging forever on half-open TCP connections.
@@ -1638,7 +1703,7 @@ export class ImapManager {
                     return fetched.filter(mid => !(mid && have.has(mid))).length;
                   } finally { lock.release(); }
                 })(),
-                new Promise((_, reject) => setTimeout(() => reject(new Error('Staleness probe timeout (25s)')), 25000)),
+                new Promise<never>((_, reject) => setTimeout(() => reject(new Error('Staleness probe timeout (25s)')), 25000)),
               ]);
             } finally {
               // close() (not logout()) — destroys the socket AND aborts a still-pending
@@ -1830,7 +1895,7 @@ export class ImapManager {
   // and the in-_syncTick reconnect path. Centralised here so a fix in one place
   // automatically covers both code paths.
   _attachIdleListeners(client, account) {
-    client.on('exists', ({ count, prevCount } = {}) => {
+    client.on('exists', ({ count, prevCount }: { count?: number; prevCount?: number } = {}) => {
       if ((count ?? 0) <= (prevCount ?? 0)) return;
       // Push an optimistic delta to the frontend immediately so the unread badge
       // updates without waiting for the full IMAP fetch + DB insert cycle.
@@ -4161,7 +4226,7 @@ export class ImapManager {
     // Self-rooting orphaned every sent message into its own thread, showing as a duplicate
     // "shadow" separate from the conversation (#378).
     const threadId = msgId
-      ? await computeThreadId(account.id, msgId, sanitizeStr(inReplyTo), sanitizeStr(references), sanitizeStr(subject))
+      ? await computeThreadId(account.id, msgId, sanitizeStr(inReplyTo), sanitizeStr(references))
       : null;
     await query(`
       INSERT INTO messages (
