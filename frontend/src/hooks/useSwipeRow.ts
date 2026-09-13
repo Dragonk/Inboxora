@@ -9,7 +9,21 @@ export function isInteractiveSwipeTarget(target, swipeSurface = null) {
   return Boolean(interactive && interactive !== swipeSurface);
 }
 
-export function useSwipeRow({ isMobile, message, onSwipeLeft, onSwipeRight, onLongPress, onTap }) {
+export interface SwipeRowMessage {
+  id?: string;
+  [key: string]: unknown;
+}
+
+export interface UseSwipeRowOptions<M extends SwipeRowMessage> {
+  isMobile?: boolean;
+  message?: M;
+  onSwipeLeft?: (message: M) => void;
+  onSwipeRight?: (message: M) => void;
+  onLongPress?: (id: string) => void;
+  onTap?: (message: M) => void;
+}
+
+export function useSwipeRow<M extends SwipeRowMessage>({ isMobile, message, onSwipeLeft, onSwipeRight, onLongPress, onTap }: UseSwipeRowOptions<M>) {
   const contentRef = useRef(null);
   const swipeBgLeftRef = useRef(null);
   const swipeBgRightRef = useRef(null);
@@ -18,7 +32,7 @@ export function useSwipeRow({ isMobile, message, onSwipeLeft, onSwipeRight, onLo
   const springBackTimerRef = useRef(null);
   const longPressActivatedRef = useRef(false);
   const tapSuppressTimerRef = useRef(null);
-  const latestRef = useRef({});
+  const latestRef = useRef<Partial<UseSwipeRowOptions<M>>>({});
   // tappedRef is set to true when onTap fires so the subsequent click event can be
   // suppressed — prevents handleSelect from being called twice on the same tap.
   const tappedRef = useRef(false);
@@ -79,12 +93,14 @@ export function useSwipeRow({ isMobile, message, onSwipeLeft, onSwipeRight, onLo
       const interactive = isInteractiveSwipeTarget(e.target, el);
       swipeRef.current = { active: false, startX: t.clientX, startY: t.clientY, dir: null, x: 0, interactive };
       showBgs();
-      if (!interactive && latestRef.current.onLongPress) {
+      const longPress = latestRef.current.onLongPress;
+      const longPressId = latestRef.current.message?.id;
+      if (!interactive && longPress && longPressId != null) {
         longPressTimerRef.current = setTimeout(() => {
           longPressTimerRef.current = null;
           longPressActivatedRef.current = true;
           springBack();
-          latestRef.current.onLongPress?.(latestRef.current.message.id);
+          longPress(longPressId);
         }, 500);
       }
     };

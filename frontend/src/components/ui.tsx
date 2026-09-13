@@ -57,7 +57,7 @@ const SHEET_FLICK_DISTANCE = 40;
 const SHEET_FLICK_VELOCITY = 0.5;
 const SHEET_EXIT_MS = 160;
 
-export function Dialog({ title, closeLabel, onClose, children, footer, testId, className = '', busy = false }) {
+export function Dialog({ title, closeLabel, onClose, children, footer = null, testId = undefined, className = '', busy = false }) {
   const titleId = useId();
   const scale = useUiScale();
   const panel = useRef(null);

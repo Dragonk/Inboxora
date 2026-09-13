@@ -326,3 +326,23 @@ Backend: `tsc` 0 · testy 1785/0.
 Frontend `tsc`: **267 błędów** (z 661). Testy 2335/0 · lint czysty · build OK.
 Backend: `tsc` 0 · testy 1785/0.
 
+
+## 33. Frontend: hook swipe, Sidebar, realny błąd `pointerType`
+
+- 🔴 **`onContextMenu` używał `e.pointerType`** — `MouseEvent` nie ma `pointerType`, więc warunek
+  „Desktop right-click only” był **zawsze prawdziwy**. Zamieniony na istniejący tracker dotyku
+  (`favTouchStart.current`), zgodnie z intencją opisaną w komentarzu.
+- 🔴 **`onDragLeave`: `e.currentTarget.contains(e.relatedTarget)`** — `relatedTarget` może być `null`
+  (opuszczenie okna); dodane zawężenie `instanceof Node`.
+- 🔴 **`useSwipeRow`** — opcje bez typów (`onLongPress`/`onSwipeLeft`/`onSwipeRight`/`onTap`/`message`),
+  `latestRef = useRef({})` → `Partial<UseSwipeRowOptions<M>>`. Odkryte przy tym, że `onLongPress`
+  dostaje **id** (wołający robią `toggleSelect(id)`), a nie obiekt — typ callbacku poprawiony;
+  dodatkowo usunięte ryzyko `message === undefined` (wcześniej `message.id` bez sprawdzenia).
+- 🟠 **`Dialog.footer/testId`**, **`CtxMenuItem.danger/disabled`**, **`NavItem.badge`** — domyślne wartości.
+- 🟠 Tablica pozycji menu kontekstowego w `Sidebar` otypowana.
+
+## 34. Stan weryfikacji
+
+Frontend `tsc`: **237 błędów** (z 661). Testy 2335/0 · lint czysty · build OK.
+Backend: `tsc` 0 · testy 1785/0.
+

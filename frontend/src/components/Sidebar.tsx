@@ -18,6 +18,7 @@ import { useMobile } from '../hooks/useMobile.ts';
 import LogoMark from './LogoMark.tsx';
 import ProfileModal from './ProfileModal.tsx';
 import { useUiScale, descale } from '../hooks/useUiScale.ts';
+import type { ReactNode } from 'react';
 
 const ICONS = {
   inbox: (
@@ -223,7 +224,7 @@ function SidebarCtxMenu({ x, y, items, title, subtitle, onClose }) {
   );
 }
 
-function CtxMenuItem({ icon, label, onClick, danger, disabled }) {
+function CtxMenuItem({ icon, label, onClick, danger = false, disabled = false }) {
   const [hov, setHov] = useState(false);
   return (
     <div
@@ -746,7 +747,14 @@ export default function Sidebar({ onEditProfile = null }) {
     const idx = accounts.findIndex(a => a.id === account.id);
     const isFirst = idx === 0;
     const isLast = idx === accounts.length - 1;
-    const items = [
+    const items: Array<{
+      label?: string;
+      icon?: ReactNode;
+      action?: () => void;
+      disabled?: boolean;
+      separator?: boolean;
+      danger?: boolean;
+    }> = [
       {
         label: t('sidebar.accountMenu.newFolder'),
         icon: <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75"><path d="M22 19a2 2 0 01-2 2H4a2 2 0 01-2-2V5a2 2 0 012-2h5l2 3h9a2 2 0 012 2z"/><line x1="12" y1="11" x2="12" y2="17"/><line x1="9" y1="14" x2="15" y2="14"/></svg>,
@@ -1193,7 +1201,8 @@ export default function Sidebar({ onEditProfile = null }) {
                           setMsgDragTarget(`${account.id}:${folder.path}`);
                         }}
                         onDragLeave={event => {
-                          if (event.currentTarget.contains(event.relatedTarget)) return;
+                          const related = event.relatedTarget;
+                          if (related instanceof Node && event.currentTarget.contains(related)) return;
                           setMsgDragTarget(null);
                           if (
                             folderDropTarget?.accountId === account.id
@@ -1402,7 +1411,8 @@ export default function Sidebar({ onEditProfile = null }) {
                       }
                     }}
                     onDragLeave={e => {
-                      if (!e.currentTarget.contains(e.relatedTarget)) setMsgDragTarget(null);
+                      const related = e.relatedTarget;
+                      if (!(related instanceof Node) || !e.currentTarget.contains(related)) setMsgDragTarget(null);
                     }}
                     onDrop={e => {
                       if (e.dataTransfer.types.includes('application/x-mailflow-message')) {
@@ -1476,8 +1486,10 @@ export default function Sidebar({ onEditProfile = null }) {
                     onContextMenu={e => {
                       e.preventDefault();
                       e.stopPropagation();
-                      // Desktop right-click only — touch is fully handled above
-                      if (e.pointerType !== 'touch' && folderObj) {
+                      // Desktop right-click only — touch is fully handled above. A MouseEvent
+                      // carries no pointerType, so rely on the touch tracker: it is still
+                      // set while a long-press is in flight.
+                      if (!favTouchStart.current && folderObj) {
                         setFolderCtxMenu({ x: e.clientX, y: e.clientY, accountId, folderObj });
                         setAccountCtxMenu(null);
                       }
@@ -2026,7 +2038,7 @@ export default function Sidebar({ onEditProfile = null }) {
   );
 }
 
-function NavItem({ testId, icon, label, active, collapsed, badge, onClick }) {
+function NavItem({ testId, icon, label, active, collapsed, badge = undefined, onClick }) {
   return (
     <div
       className={active ? 'nav-item nav-item-active' : 'nav-item'}
