@@ -1,6 +1,12 @@
 import { describe, expect, it } from 'vitest';
 import { contactsToGoogleCsv, contactsToOutlookCsv, contactsToVCard, parseGoogleCsv } from './contactTransfer.js';
 
+function firstContact(csv: string): NonNullable<ReturnType<typeof parseGoogleCsv>[number]> {
+  const [parsed] = parseGoogleCsv(csv);
+  if (!parsed) throw new Error('expected a parsed contact');
+  return parsed;
+}
+
 const contact = {
   uid: 'c-1', display_name: 'Jan Kowalski', first_name: 'Jan', last_name: 'Kowalski',
   emails: [{ value: 'jan@example.test', type: 'work' }],
@@ -81,13 +87,13 @@ describe('contact transfer', () => {
   });
 
   it('retains unsafe event labels as source data without serializing them into a vCard', () => {
-    const [contact] = parseGoogleCsv('First Name,Event 1 - Label,Event 1 - Value\nAda,"Wedding\r\nX-Evil: injected",2020-09-14');
+    const contact = firstContact('First Name,Event 1 - Label,Event 1 - Value\nAda,"Wedding\r\nX-Evil: injected",2020-09-14');
     expect(contact.contactDates).toEqual([]);
     expect(contact.sourceFields['Event 1 - Label']).toBe('Wedding\r\nX-Evil: injected');
   });
 
   it('imports current Event Type, IM service, and Unicode-dash Google headers', () => {
-    const [contact] = parseGoogleCsv([
+    const contact = firstContact([
       'First Name,Event 1 – Type,Event 1 – Value,IM 1 – Service,IM 1 – Value',
       'Ada,Name day,1815-12-10,Signal,ada.signal',
     ].join('\n'));

@@ -1,6 +1,25 @@
 import { normalizeContactDateLabel } from './vcard.js';
 
-function csvEscape(value) {
+interface ContactEntry {
+  value?: string;
+  type?: string;
+}
+
+interface ContactRecord {
+  uid?: string;
+  display_name?: string | null;
+  first_name?: string | null;
+  last_name?: string | null;
+  organization?: string | null;
+  title?: string | null;
+  notes?: string | null;
+  emails?: ContactEntry[] | null;
+  phones?: ContactEntry[] | null;
+  [key: string]: unknown;
+}
+
+
+function csvEscape(value: unknown): string {
   let text = String(value ?? '');
   // Spreadsheets execute cells beginning with these characters as formulas.
   // Exported contact data is untrusted, so force a text cell instead.
@@ -8,33 +27,33 @@ function csvEscape(value) {
   return /[",\r\n]/.test(text) ? `"${text.replaceAll('"', '""')}"` : text;
 }
 
-function csvRow(columns) {
+function csvRow(columns: unknown[]): string {
   return columns.map(csvEscape).join(',');
 }
 
-function firstValue(entries = []) {
+function firstValue(entries: ContactEntry[] = []): string {
   return entries.find(entry => entry?.value?.trim())?.value?.trim() || '';
 }
 
-function contactName(contact) {
-  return contact.display_name || [contact.first_name, contact.last_name].filter(Boolean).join(' ') || firstValue(contact.emails);
+function contactName(contact: ContactRecord): string {
+  return contact.display_name || [contact.first_name, contact.last_name].filter(Boolean).join(' ') || firstValue(contact.emails ?? []);
 }
 
-function normalizeType(value, fallback = 'other') {
+function normalizeType(value: unknown, fallback = 'other'): string {
   const type = String(value || fallback).trim().toLowerCase();
   return ({ cell: 'mobile', iphone: 'mobile', work: 'work', home: 'home', mobile: 'mobile', 'komórka': 'mobile', 'komorkowy': 'mobile', 'służbowy': 'work', 'sluzbowy': 'work', dom: 'home' })[type] || type || fallback;
 }
 
-function csvType(value) {
+function csvType(value: unknown): string {
   const type = normalizeType(value);
   return type.charAt(0).toUpperCase() + type.slice(1);
 }
 
-function vcardEscape(value) {
+function vcardEscape(value: unknown): string {
   return String(value ?? '').replaceAll('\\', '\\\\').replaceAll('\n', '\\n').replaceAll(';', '\\;').replaceAll(',', '\\,');
 }
 
-export function contactsToGoogleCsv(contacts) {
+export function contactsToGoogleCsv(contacts: ContactRecord[]): string {
   const header = ['Name', 'Given Name', 'Family Name', 'Organization 1 - Name', 'Organization 1 - Title', 'E-mail 1 - Type', 'E-mail 1 - Value', 'Phone 1 - Type', 'Phone 1 - Value', 'Notes'];
   return [header, ...contacts.map(contact => {
     const email = contact.emails?.[0] || {};
@@ -43,7 +62,7 @@ export function contactsToGoogleCsv(contacts) {
   })].map(csvRow).join('\r\n');
 }
 
-export function contactsToOutlookCsv(contacts) {
+export function contactsToOutlookCsv(contacts: ContactRecord[]): string {
   const header = ['First Name', 'Middle Name', 'Last Name', 'Title', 'Company', 'E-mail Address', 'Business Phone', 'Mobile Phone', 'Notes'];
   return [header, ...contacts.map(contact => {
     const emails = contact.emails || [];
@@ -54,7 +73,7 @@ export function contactsToOutlookCsv(contacts) {
   })].map(csvRow).join('\r\n');
 }
 
-export function contactsToVCard(contacts) {
+export function contactsToVCard(contacts: ContactRecord[]): string {
   return contacts.map(contact => {
     const lines = ['BEGIN:VCARD', 'VERSION:3.0', `UID:${vcardEscape(contact.uid)}`, `FN:${vcardEscape(contactName(contact))}`, `N:${vcardEscape(contact.last_name)};${vcardEscape(contact.first_name)};;;`];
     for (const email of contact.emails || []) if (email?.value) lines.push(`EMAIL;TYPE=${normalizeType(email.type).toUpperCase()}:${vcardEscape(email.value)}`);
@@ -68,8 +87,8 @@ export function contactsToVCard(contacts) {
 }
 
 function parseCsv(text: string): string[][] {
-  const rows = [];
-  let row = []; let value = ''; let quoted = false;
+  const rows: string[][] = [];
+  let row: string[] = []; let value = ''; let quoted = false;
   for (let index = 0; index < text.length; index++) {
     const char = text[index];
     if (quoted && char === '"' && text[index + 1] === '"') { value += '"'; index++; }
@@ -86,31 +105,38 @@ function parseCsv(text: string): string[][] {
 
 export function parseGoogleCsv(text: string) {
   const [header = [], ...rows] = parseCsv(String(text || ''));
-  const columns = new Map(header.map((name, index) => [name.trim().replace(/\s+[–—]\s+/g, ' - '), index]));
-  const get = (row, ...names) => names.map(name => row[columns.get(name) ?? '']?.trim() || '').find(Boolean) || '';
-  const indexedFields = field => [...columns.keys()]
+  const columns = new Map(header.map((name, index): [string, number] => [name.trim().replace(/\s+[–—]\s+/g, ' - '), index]));
+  const get = (row: string[], ...names: string[]): string => {
+    for (const name of names) {
+      const index = columns.get(name);
+      const value = index === undefined ? undefined : row[index]?.trim();
+      if (value) return value;
+    }
+    return '';
+  };
+  const indexedFields = (field: string): number[] => [...columns.keys()]
     .map(name => new RegExp(`^${field} (\\d+) - `).exec(name as string)?.[1])
     .filter(Boolean)
     .map(Number)
     .filter((number, index, values) => values.indexOf(number) === index)
     .sort((a, b) => a - b);
-  const entries = (row, field) => {
-    const values = [];
+  const entries = (row: string[], field: string): ContactEntry[] => {
+    const values: ContactEntry[] = [];
     for (const number of indexedFields(field)) {
       const value = get(row, `${field} ${number} - Value`);
       if (value) values.push({ value, type: normalizeType(get(row, `${field} ${number} - Type`, `${field} ${number} - Label`)) });
     }
     return values;
   };
-  const validDate = value => {
+  const validDate = (value: string): string | null => {
     if (!/^\d{4}-\d{2}-\d{2}$/.test(value)) return null;
     const [year, month, day] = value.split('-').map(Number);
     const date = new Date(Date.UTC(year, month - 1, day));
     return date.getUTCFullYear() === year && date.getUTCMonth() === month - 1 && date.getUTCDate() === day ? value : null;
   };
-  const labels = value => value.split(/\s+:::\s+/).map((label: string) => label.trim()).filter(Boolean);
+  const labels = (value: string): string[] => value.split(/\s+:::\s+/).map((label: string) => label.trim()).filter(Boolean);
   return rows.map(row => {
-    const emails = entries(row, 'E-mail').map((email, index) => ({ ...email, value: email.value.toLowerCase(), primary: index === 0 }));
+    const emails = entries(row, 'E-mail').map((email, index) => ({ ...email, value: (email.value ?? '').toLowerCase(), primary: index === 0 }));
     const phones = entries(row, 'Phone');
     const firstName = get(row, 'Given Name', 'First Name');
     const lastName = get(row, 'Family Name', 'Last Name');

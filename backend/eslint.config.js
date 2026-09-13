@@ -25,6 +25,9 @@ export default tseslint.config(
       // Quality issues — report but don't block
       // The TS-aware rule understands type positions; the base rule reports
       // function-type parameters as unused.
+      // TypeScript overload signatures look like redeclarations to the base rule;
+      // tsc already rejects genuine duplicates.
+      'no-redeclare': 'off',
       'no-unused-vars': 'off',
       '@typescript-eslint/no-unused-vars': ['warn', {
         argsIgnorePattern: '^_',

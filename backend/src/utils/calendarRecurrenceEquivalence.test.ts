@@ -9,20 +9,34 @@ import { describe, expect, it } from 'vitest';
 
 import { projectCalendarResourceWithStatus } from './calendarRecurrence.js';
 
-function ics(lines) {
+import type { ProjectOptions, ProjectStatus, ProjectedEvent } from './calendarRecurrence.js';
+
+function startOf(event: ProjectedEvent): Date {
+  if (!event.starts_at) throw new Error('expected a projected start date');
+  return event.starts_at instanceof Date ? event.starts_at : new Date(event.starts_at);
+}
+
+function endOf(event: ProjectedEvent): Date {
+  if (!event.ends_at) throw new Error('expected a projected end date');
+  return event.ends_at instanceof Date ? event.ends_at : new Date(event.ends_at);
+}
+
+
+
+function ics(lines: string[]): string {
   return ['BEGIN:VCALENDAR', 'VERSION:2.0', 'PRODID:-//Equivalence//EN', ...lines, 'END:VCALENDAR', ''].join('\r\n');
 }
 
-function row(id, lines, startsAt, endsAt, allDay = false) {
+function row(id: string, lines: string[], startsAt: string, endsAt: string, allDay = false) {
   return { id, calendar_id: 'cal-1', uid: id, raw_ical: ics(lines), summary: id, starts_at: new Date(startsAt), ends_at: new Date(endsAt), all_day: allDay };
 }
 
-function project(row, from, to, options = {}) {
+function project(row: ProjectedEvent & { raw_ical: string }, from: Date, to: Date, options: ProjectOptions = {}): ProjectStatus {
   return projectCalendarResourceWithStatus(row, from, to, options);
 }
 
-function occurrences(status) {
-  return status.events.map(event => `${event.recurrence_id}|${new Date(event.starts_at).toISOString()}|${new Date(event.ends_at).toISOString()}|${event.all_day}`).sort();
+function occurrences(status: ProjectStatus): string[] {
+  return status.events.map(event => `${event.recurrence_id}|${startOf(event).toISOString()}|${endOf(event).toISOString()}|${event.all_day}`).sort();
 }
 
 const event = (uid: string, lines: string[]) => ['BEGIN:VEVENT', `UID:${uid}`, 'DTSTAMP:20260101T000000Z', ...lines, 'END:VEVENT'];
@@ -72,8 +86,8 @@ describe('rule shapes called out by the audit', () => {
     expect(status.truncated).toBe(false);
     expect(status.events.length).toBeGreaterThan(0);
     for (const occurrence of status.events) {
-      expect(new Date(occurrence.starts_at).getUTCDay()).toBe(5);
-      expect(new Date(occurrence.starts_at).toISOString().slice(11)).toBe('09:00:00.000Z');
+      expect(startOf(occurrence).getUTCDay()).toBe(5);
+      expect(startOf(occurrence).toISOString().slice(11)).toBe('09:00:00.000Z');
     }
   });
 
@@ -88,7 +102,7 @@ describe('rule shapes called out by the audit', () => {
     // DTSTART, so a series whose only recurrence data is RDATE yields the RDATE
     // list without a separate DTSTART occurrence. Any change to that is a
     // deliberate behaviour change, not a side effect of the optimisation.
-    expect(status.events.map(item => new Date(item.starts_at).toISOString())).toEqual([
+    expect(status.events.map(item => startOf(item).toISOString())).toEqual([
       '2026-09-10T09:00:00.000Z',
       '2026-09-17T09:00:00.000Z',
     ]);
@@ -106,7 +120,7 @@ describe('rule shapes called out by the audit', () => {
     ].join('\r\n');
     const status = project({ id: 'tz', calendar_id: 'cal-1', uid: 'tz', raw_ical: raw }, new Date('2026-03-01T00:00:00Z'), new Date('2026-05-01T00:00:00Z'));
     // Wall time stays 09:00; the UTC instant moves when Poland enters DST on 29 March.
-    expect(status.events.map(item => new Date(item.starts_at).toISOString())).toEqual([
+    expect(status.events.map(item => startOf(item).toISOString())).toEqual([
       '2026-03-22T08:00:00.000Z',
       '2026-03-29T07:00:00.000Z',
       '2026-04-05T07:00:00.000Z',
@@ -120,7 +134,7 @@ describe('rule shapes called out by the audit', () => {
       new Date('2026-03-01T00:00:00Z'),
       new Date('2026-05-01T00:00:00Z'),
     );
-    expect(status.events.map(item => new Date(item.starts_at).toISOString())).toEqual([
+    expect(status.events.map(item => startOf(item).toISOString())).toEqual([
       '2026-03-22T08:00:00.000Z',
       '2026-03-29T07:00:00.000Z',
     ]);
@@ -166,8 +180,8 @@ describe('rule shapes called out by the audit', () => {
       new Date('2026-09-01T00:00:00Z'),
       new Date('2026-09-15T00:00:00Z'),
     );
-    expect(new Date(status.events[0].starts_at).toISOString()).toBe('2026-08-30T12:00:00.000Z');
-    expect(new Date(status.events[0].ends_at).toISOString()).toBe('2026-09-01T12:00:00.000Z');
+    expect(startOf(status.events[0]).toISOString()).toBe('2026-08-30T12:00:00.000Z');
+    expect(endOf(status.events[0]).toISOString()).toBe('2026-09-01T12:00:00.000Z');
   });
 
   it('includes an exception moved into the window from an occurrence outside it', () => {
@@ -180,7 +194,7 @@ describe('rule shapes called out by the audit', () => {
       new Date('2026-09-15T00:00:00Z'),
     );
     expect(status.events).toHaveLength(1);
-    expect(new Date(status.events[0].starts_at).toISOString()).toBe('2026-09-05T09:00:00.000Z');
+    expect(startOf(status.events[0]).toISOString()).toBe('2026-09-05T09:00:00.000Z');
   });
 
   it('applies a THISANDFUTURE exception through a full scan', () => {
@@ -195,8 +209,8 @@ describe('rule shapes called out by the audit', () => {
     );
     expect(status.events.length).toBe(6);
     // The range exception shifts this and every following occurrence by two hours.
-    for (const occurrence of status.events.filter(item => new Date(item.starts_at) >= new Date('2026-09-03T00:00:00Z'))) {
-      expect(new Date(occurrence.starts_at).getUTCHours()).toBe(11);
+    for (const occurrence of status.events.filter(item => startOf(item) >= new Date('2026-09-03T00:00:00Z'))) {
+      expect(startOf(occurrence).getUTCHours()).toBe(11);
     }
   });
 });

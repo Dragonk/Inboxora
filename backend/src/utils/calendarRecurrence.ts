@@ -83,7 +83,7 @@ export function projectCalendarResource(row: ProjectedEvent & { raw_ical?: strin
 // presented as complete. `options.fullScan` disables the conservative
 // wall-clock pre-filter; it exists so tests can prove the fast path is
 // occurrence-equivalent to a full scan.
-interface ProjectOptions {
+export interface ProjectOptions {
   maxIterations?: number;
   deadline?: number;
   shouldAbort?: () => boolean;
@@ -100,7 +100,7 @@ export interface ProjectedEvent {
   [key: string]: unknown;
 }
 
-interface ProjectStatus {
+export interface ProjectStatus {
   events: ProjectedEvent[];
   truncated: boolean;
   reason: string | null;

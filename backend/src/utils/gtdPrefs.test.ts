@@ -21,11 +21,11 @@ describe('sanitizeGtdPrefs — gtdCollapsedSections', () => {
 
   it('drops keys that are too long and caps the number of entries', () => {
     const longKey = 'x'.repeat(80);
-    const many = {};
+    const many: Record<string, boolean> = {};
     for (let i = 0; i < 40; i++) many[`k${i}`] = true;
     const { gtdCollapsedSections } = sanitizeGtdPrefs({ gtdCollapsedSections: { ...many, [longKey]: true } });
-    expect(Object.keys(gtdCollapsedSections)).not.toContain(longKey);
-    expect(Object.keys(gtdCollapsedSections).length).toBeLessThanOrEqual(20);
+    expect(Object.keys(gtdCollapsedSections ?? {})).not.toContain(longKey);
+    expect(Object.keys(gtdCollapsedSections ?? {}).length).toBeLessThanOrEqual(20);
   });
 });
 

@@ -20,7 +20,7 @@ export function requireCompleteMultistatus(raw: string, parsed: DavMultistatus |
   const responses = typeof multistatus === 'object' && multistatus !== null ? multistatus.response : undefined;
   for (const response of Array.isArray(responses) ? responses : responses ? [responses] : []) {
     const statuses: unknown[] = [response.status, ...(Array.isArray(response.propstat) ? response.propstat : response.propstat ? [response.propstat] : []).map(item => item.status)];
-    if (statuses.some(status => /\b(?:403|5\d\d)\b/.test(typeof status === 'string' ? status : status?.['#text'] || ''))) {
+    if (statuses.some(status => /\b(?:403|5\d\d)\b/.test(typeof status === 'string' ? status : (status as { '#text'?: string } | null)?.['#text'] || ''))) {
       throw new Error('DAV server returned an incomplete resource response');
     }
   }

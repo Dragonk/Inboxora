@@ -20,7 +20,9 @@ interface InlineAttachment {
   contentType: string;
 }
 
-export function embedInlineDataImages(html: string): { html: string; attachments: InlineAttachment[] } {
+export function embedInlineDataImages(html: string): { html: string; attachments: InlineAttachment[] };
+export function embedInlineDataImages(html: null | undefined): { html: null | undefined; attachments: InlineAttachment[] };
+export function embedInlineDataImages(html: string | null | undefined): { html: string | null | undefined; attachments: InlineAttachment[] } {
   if (!html) return { html, attachments: [] };
 
   const attachments: InlineAttachment[] = [];

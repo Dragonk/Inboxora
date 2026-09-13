@@ -10,7 +10,7 @@ import { recordSyncSignal } from '../services/diagnosticsRing.js';
 // non-selectable, return null so the caller falls back to special-use / name detection.
 // This self-heals affected accounts on the next resolve, once folder sync (syncFolders) has
 // flagged the offending folder as no_select.
-export async function mappedFolderUsable(accountId: string, path: string) {
+export async function mappedFolderUsable(accountId: string, path?: string | null) {
   if (!path) return null;
   const result = await query(
     `SELECT 1 FROM folders
@@ -103,7 +103,7 @@ export async function resolveArchiveFolder(accountId: string, folderMappings?: F
 // Callers that move a message there (see resolveArchiveFolder) must delete the source
 // row instead of re-homing it into folder = <All Mail path> — the message should
 // simply vanish from our view, matching how the app treats All Mail everywhere else.
-export async function isAllMailFolder(accountId: string, path: string) {
+export async function isAllMailFolder(accountId: string, path?: string | null) {
   if (!path) return false;
   const result = await query(
     `SELECT 1 FROM folders WHERE account_id = $1 AND path = $2 AND special_use = '\\All'`,
@@ -199,7 +199,7 @@ export function adjustFolderCounts(accountId: string, path: string, totalDelta: 
 // (already at the target state), so only rows that genuinely flip are returned — and
 // each returned folder gets its unread count adjusted. Callers gate on the message
 // actually having siblings, so a plain single-folder message never reaches here.
-export async function fanOutReadToSiblings(accountId: string, messageId: string, read: boolean) {
+export async function fanOutReadToSiblings(accountId: string, messageId: string | null, read: boolean) {
   if (!messageId) return; // no shared header → no siblings to fan out to
   const res = await query(
     `UPDATE messages SET is_read = $1, read_changed_at = NOW()
@@ -215,7 +215,7 @@ export async function fanOutReadToSiblings(accountId: string, messageId: string,
 // Star fan-out counterpart. Stars never contribute to folder unread counts (the star
 // route has never touched adjustFolderCounts), so this only mirrors the flag across
 // sibling rows.
-export async function fanOutStarToSiblings(accountId: string, messageId: string, starred: boolean) {
+export async function fanOutStarToSiblings(accountId: string, messageId: string | null, starred: boolean) {
   if (!messageId) return;
   await query(
     `UPDATE messages SET is_starred = $1, star_changed_at = NOW()

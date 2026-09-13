@@ -10,7 +10,7 @@
 // RFC 5987 `filename*=UTF-8''…` parameter, and reduces the quoted `filename="…"` fallback to
 // printable ASCII (also neutralizing " and \, which would otherwise break the quoted-string). See #367.
 
-export function safeFilename(name: string) {
+export function safeFilename(name: string | null | undefined): string {
   if (!name) return 'attachment';
   const cleaned = String(name)
     .replace(/[/\\]/g, '_')

@@ -245,7 +245,11 @@ describe('getDeleteStrategy', () => {
 // adjust each sibling folder's unread count off the rows that actually flipped.
 
 // query.mock.calls entries are [sql, params]; find the one whose SQL contains `frag`.
-const callWith = (frag) => query.mock.calls.find(([sql]) => sql.includes(frag));
+const callWith = (frag: string) => {
+  const call = query.mock.calls.find(([sql]) => sql.includes(frag));
+  if (!call) throw new Error('no query call containing ' + frag);
+  return call;
+};
 // All folder-count adjustments issued (adjustFolderCounts → UPDATE folders …).
 const countCalls = () => query.mock.calls.filter(([sql]) => sql.includes('UPDATE folders'));
 
