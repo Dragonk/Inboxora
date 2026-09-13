@@ -15,7 +15,7 @@ export function senderDomainFromEmail(email) {
   return domain;
 }
 
-export function avatarImageCandidates({ email, hasContactPhoto, gravatarAvatars, senderFavicons }) {
+export function avatarImageCandidates({ email, hasContactPhoto, gravatarAvatars = undefined, senderFavicons = undefined }) {
   const trimmed = typeof email === 'string' ? email.trim() : '';
   if (!trimmed) return [];
   const candidates = [];

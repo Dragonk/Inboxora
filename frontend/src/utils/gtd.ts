@@ -174,7 +174,7 @@ const WAITING_KIND_ORDER = ['watch', 'delegated'];
 // payload) do we fall back to deducing the dedupe from the visible heads: sum the two
 // totals and subtract the collapses we can actually see, which drifts high once an
 // overlap escapes the window.
-export function mergeWaiting(watch, delegated, waiting) {
+export function mergeWaiting(watch, delegated, waiting = undefined) {
   const w = normSection(watch);
   const d = normSection(delegated);
   const tagged = [

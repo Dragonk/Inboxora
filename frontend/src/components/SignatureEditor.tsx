@@ -9,7 +9,7 @@ const BTN = {
   display: 'flex', alignItems: 'center', justifyContent: 'center',
 };
 
-function ToolBtn({ onClick, title, active, children }) {
+function ToolBtn({ onClick, title, active = false, children }) {
   const [hov, setHov] = useState(false);
   return (
     <button

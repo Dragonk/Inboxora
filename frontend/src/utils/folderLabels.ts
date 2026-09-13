@@ -15,7 +15,7 @@ export function folderRole(folder, mappings = {}) {
   return ({ inbox: 'inbox', sent: 'sent', 'sent items': 'sent', 'sent mail': 'sent', draft: 'drafts', drafts: 'drafts', trash: 'trash', 'deleted items': 'trash', 'deleted messages': 'trash', spam: 'spam', junk: 'spam', 'junk email': 'spam', archive: 'archive', archives: 'archive', 'all mail': 'all', starred: 'starred', important: 'important' })[canonical] || null;
 }
 
-export function folderLabel(folder, t, mappings) {
+export function folderLabel(folder, t, mappings = undefined) {
   const labels = {
     inbox: () => t('mailFolders.inbox'), sent: () => t('mailFolders.sent'),
     drafts: () => t('mailFolders.drafts'), trash: () => t('mailFolders.trash'),

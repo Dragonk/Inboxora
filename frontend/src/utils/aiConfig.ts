@@ -24,7 +24,31 @@ function cleanBaseUrl(value) {
   return cleanString(value).replace(/\/+$/, '');
 }
 
-export function normalizeAiForm(raw = {}) {
+export interface AiApiKeyConfig {
+  baseUrl?: string;
+  apiKey?: string | null;
+  model?: string;
+}
+
+export interface AiChatGptConfig {
+  model?: string;
+}
+
+export interface AiConfigFormInput {
+  enabled?: boolean;
+  provider?: string;
+  connectionMethod?: string;
+  accountProvider?: string;
+  apiKeyConfig?: AiApiKeyConfig;
+  chatgptConfig?: AiChatGptConfig;
+  features?: { compose?: boolean; summarize?: boolean };
+  // Legacy flat shape still accepted from the API.
+  baseUrl?: string;
+  apiKey?: string | null;
+  model?: string;
+}
+
+export function normalizeAiForm(raw: AiConfigFormInput = {}) {
   const structured = raw.apiKeyConfig && typeof raw.apiKeyConfig === 'object';
   const apiKeyConfig = structured ? raw.apiKeyConfig : raw;
   const chatgptConfig = raw.chatgptConfig && typeof raw.chatgptConfig === 'object'
@@ -76,7 +100,7 @@ export function selectAiConnectionMethod(form, connectionMethod) {
   return normalizeAiForm({ ...form, connectionMethod });
 }
 
-export function isAiFormValid(form = {}) {
+export function isAiFormValid(form: AiConfigFormInput = {}) {
   if (!CONNECTION_METHODS.has(form.connectionMethod)) return false;
   if (form.enabled === false) return true;
   if (form.connectionMethod === AI_CONNECTION_METHOD_API) {
@@ -89,7 +113,7 @@ export function isAiFormValid(form = {}) {
   return false;
 }
 
-export function buildAiSavePayload(form = {}) {
+export function buildAiSavePayload(form: AiConfigFormInput = {}) {
   const normalized = normalizeAiForm(form);
   if (!CONNECTION_METHODS.has(normalized.connectionMethod)) {
     throw new TypeError('Select an AI connection method before saving');
@@ -109,6 +133,21 @@ function finiteNumber(value) {
   return typeof value === 'number' && Number.isFinite(value) ? value : null;
 }
 
+export interface CodexDeviceFlow {
+  intervalMs: number;
+  [key: string]: unknown;
+}
+
+export interface CodexDevicePollerOptions {
+  startDevice?: () => Promise<CodexDeviceFlow>;
+  pollDevice?: (flow: CodexDeviceFlow) => Promise<unknown>;
+  cancelDevice?: (flow: CodexDeviceFlow) => Promise<unknown>;
+  onState?: (state: unknown) => void;
+  now?: () => number;
+  setTimer?: (callback: () => void, delay: number) => unknown;
+  clearTimer?: (timer: unknown) => void;
+}
+
 export function createCodexDevicePoller({
   startDevice,
   pollDevice,
@@ -117,7 +156,7 @@ export function createCodexDevicePoller({
   now = () => Date.now(),
   setTimer = (callback, delay) => setTimeout(callback, delay),
   clearTimer = (timer) => clearTimeout(timer),
-} = {}) {
+}: CodexDevicePollerOptions = {}) {
   if (typeof startDevice !== 'function' || typeof pollDevice !== 'function'
       || typeof cancelDevice !== 'function' || typeof onState !== 'function') {
     throw new TypeError('ChatGPT device poller dependencies are required');

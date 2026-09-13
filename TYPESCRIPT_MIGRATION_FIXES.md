@@ -260,3 +260,19 @@ Backend: `tsc` 0 · testy 1785/0 · 0 `@ts-nocheck`.
 Frontend `tsc`: **419 błędów** (z 661). Testy 2335/0 · lint czysty · build OK.
 Backend: `tsc` 0 · testy 1785/0.
 
+
+## 25. Frontend: konfiguracja AI, poller Codex, kontrakty pomocnicze
+
+- 🔴 **`normalizeAiForm(raw = {})` i `isAiFormValid`/`buildAiSavePayload`** — parametr `= {}` dawał typ
+  `{}`, więc odczyt `apiKeyConfig`/`chatgptConfig`/`connectionMethod` był niekontrolowany (30 błędów).
+  Dodany `AiConfigFormInput` (+ `AiApiKeyConfig`, `AiChatGptConfig`).
+- 🟠 **`createCodexDevicePoller({...} = {})`** — brak typu opcji → `CodexDevicePollerOptions` + `CodexDeviceFlow`.
+- 🟠 **Opcjonalne parametry**: `laneAndVersion`, `queuePerCopyMutation`, `folderLabel(mappings?)`,
+  `handleContextAction(data?)`, `mergeWaiting(waiting?)`, `api.calendar.updateEvent(idempotencyKey?)`.
+- 🟠 **`ToolBtn.active`** i **`avatarImageCandidates(gravatarAvatars?)`** — domyślne wartości.
+
+## 26. Stan weryfikacji
+
+Frontend `tsc`: **365 błędów** (z 661). Testy 2335/0 · lint czysty · build OK.
+Backend: `tsc` 0 · testy 1785/0.
+

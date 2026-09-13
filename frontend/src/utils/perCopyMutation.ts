@@ -23,7 +23,7 @@ function versionFor(lane, version) {
   return version.startsWith(prefix) ? Number(version.slice(prefix.length)) : version;
 }
 
-function laneAndVersion(laneOrVersion, maybeVersion) {
+function laneAndVersion(laneOrVersion, maybeVersion = undefined) {
   if (maybeVersion !== undefined) return [laneOrVersion, maybeVersion];
   if (typeof laneOrVersion === 'string') {
     const separator = laneOrVersion.lastIndexOf(':');
@@ -32,7 +32,7 @@ function laneAndVersion(laneOrVersion, maybeVersion) {
   return ['default', laneOrVersion];
 }
 
-export function queuePerCopyMutation(id, laneOrRequest, maybeRequest) {
+export function queuePerCopyMutation(id, laneOrRequest, maybeRequest = undefined) {
   const [lane, request] = normalizeArgs(laneOrRequest, maybeRequest);
   const key = keyFor(id, lane);
   const version = (versions.get(key) || 0) + 1;

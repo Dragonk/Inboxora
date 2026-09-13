@@ -2183,7 +2183,7 @@ export default function MessageList() {
   }, [showFolderPicker]);
   // ─────────────────────────────────────────────────────────────
 
-  const handleContextAction = async (action, message, data) => {
+  const handleContextAction = async (action, message, data = undefined) => {
     switch (action) {
       case 'open':
         handleSelect(message);

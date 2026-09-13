@@ -376,7 +376,7 @@ export const api = {
       return request('GET', `/calendar/events?${params}`, undefined, undefined, { signal });
     },
     createEvent: (data, idempotencyKey) => request('POST', '/calendar/events', data, idempotencyKey ? { 'X-Idempotency-Key': idempotencyKey } : undefined),
-    updateEvent: (id, data, idempotencyKey) => request('PATCH', `/calendar/events/${id}${data.recurrenceId ? '/occurrence' : ''}`, data, idempotencyKey ? { 'X-Idempotency-Key': idempotencyKey } : undefined),
+    updateEvent: (id, data, idempotencyKey = undefined) => request('PATCH', `/calendar/events/${id}${data.recurrenceId ? '/occurrence' : ''}`, data, idempotencyKey ? { 'X-Idempotency-Key': idempotencyKey } : undefined),
     // scope 'following' ends the series just before this occurrence; with no recurrenceId the
     // whole event is removed. Removing an entire series goes through the plain event DELETE,
     // which is also the path that notifies invited attendees.
