@@ -38,7 +38,7 @@ const BACKOFF_MAX = 30000;
 export function useWebSocket() {
   const { t } = useTranslation();
   const wsRef = useRef(null);
-  const reconnectTimer = useRef(null);
+  const reconnectTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const mountedRef = useRef(true);
   const reconnectAttempt = useRef(0);
   // True once the socket has connected at least once. Distinguishes the initial

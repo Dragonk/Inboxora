@@ -123,7 +123,7 @@ function isProtectedFolder(folder, folderMappings) {
 // ─── Sidebar context menu (folders + accounts) ────────────────────────────────
 function SidebarCtxMenu({ x, y, items, title, subtitle, onClose }) {
   useBackLayer(true, onClose, 4000);
-  const menuRef = useRef(null);
+  const menuRef = useRef<HTMLDivElement | null>(null);
   const uiScale = useUiScale();
   const [pos, setPos] = useState({ x, y });
 
@@ -360,8 +360,8 @@ export default function Sidebar({ onEditProfile = null }) {
   const [userMenuOpen, setUserMenuOpen] = useState(false);
   const [userMenuPos, setUserMenuPos] = useState({ bottom: 0, left: 0 });
   const [bottomExpanded, setBottomExpanded] = useState(false);
-  const userMenuBtnRef = useRef(null);
-  const userMenuPopoverRef = useRef(null);
+  const userMenuBtnRef = useRef<HTMLButtonElement | null>(null);
+  const userMenuPopoverRef = useRef<HTMLDivElement | null>(null);
 
   // Close user menu on outside click
   useEffect(() => {
@@ -391,22 +391,22 @@ export default function Sidebar({ onEditProfile = null }) {
 
   // Inline rename (IMAP folder)
   const [renamingFolder, setRenamingFolder] = useState(null); // {accountId, path, value}
-  const renameInputRef = useRef(null);
+  const renameInputRef = useRef<HTMLInputElement | null>(null);
 
   // Inline rename (favorite alias)
   const [renamingFav, setRenamingFav] = useState(null); // {accountId, path, value}
-  const renameFavInputRef = useRef(null);
+  const renameFavInputRef = useRef<HTMLInputElement | null>(null);
 
   // Drag-and-drop state for favorites reorder
   const [favDragIdx, setFavDragIdx] = useState(null);
   const [favDropIdx, setFavDropIdx] = useState(null);
-  const favLongPressTimer = useRef(null);
+  const favLongPressTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const favTouchStart = useRef(null); // { x, y } captured at touchstart for movement threshold
 
   // Inline create folder
   const [creatingFolder, setCreatingFolder] = useState(null); // {accountId}
   const [createName, setCreateName] = useState('');
-  const createInputRef = useRef(null);
+  const createInputRef = useRef<HTMLInputElement | null>(null);
 
   // Per-account toggle to reveal hidden folders
   const [showHiddenFor, setShowHiddenFor] = useState(new Set()); // Set of accountIds

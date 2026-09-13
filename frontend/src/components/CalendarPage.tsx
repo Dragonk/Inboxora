@@ -73,7 +73,7 @@ export default function CalendarPage({ isActive = true }) {
   const setVisibleCalendarIds = useStore((state: StoreState) => state.setVisibleCalendarIds);
   const isMobile = useMobile();
   const compactViewport = useCompactLayout();
-  const surfaceRef = useRef(null);
+  const surfaceRef = useRef<HTMLDivElement | null>(null);
   const railResizeRef = useRef(null);
   const agendaResizeRef = useRef(null);
   // The rail carries the shared list width (Mail, Contacts, Calendar rail stay in
@@ -396,7 +396,7 @@ function timeToMinutes(value) {
 }
 
 function TimeGrid({ days, dayEventsFor, view, isMobile, locale, openCreate, openEdit, openContextMenu, onSelectDay, anchor, t, calendarWorkHoursStart, calendarWorkHoursEnd }) {
-  const scroller = useRef(null);
+  const scroller = useRef<HTMLDivElement | null>(null);
   useEffect(() => {
     if (scroller.current) scroller.current.scrollTop = Math.max(0, Math.min(timeToMinutes(calendarWorkHoursStart), timeToMinutes(calendarWorkHoursEnd)) - 120);
   }, [calendarWorkHoursEnd, calendarWorkHoursStart, view]);

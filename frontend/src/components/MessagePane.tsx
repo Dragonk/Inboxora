@@ -176,10 +176,10 @@ export default function MessagePane({ windowMessageId = null, onWindowClose = nu
     }
   }, [setSelectedMessage, updateMessage, decrementUnread, incrementUnread, adjustCategoryCount]);
 
-  const paneRef = useRef(null);
+  const paneRef = useRef<HTMLDivElement | null>(null);
   const mountedRef = useRef(true);
-  const swipeBackTimerRef = useRef(null);
-  const autoMarkReadTimerRef = useRef(null);
+  const swipeBackTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const autoMarkReadTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   useEffect(() => () => {
     mountedRef.current = false;
     if (swipeBackTimerRef.current) clearTimeout(swipeBackTimerRef.current);
@@ -332,7 +332,7 @@ export default function MessagePane({ windowMessageId = null, onWindowClose = nu
   const [findQuery, setFindQuery] = useState('');
   const [findMatchCase, setFindMatchCase] = useState(false);
   const [findMatchIndex, setFindMatchIndex] = useState(-1);
-  const findInputRef = useRef(null);
+  const findInputRef = useRef<HTMLInputElement | null>(null);
   const [aiStatus, setAiStatus] = useState(null);
   // Per-action results for the current message: { [actionKey]: { status, text, label } }.
   // status: 'loading' | 'done' | 'error'. Restored from localStorage on message change.
@@ -341,7 +341,7 @@ export default function MessagePane({ windowMessageId = null, onWindowClose = nu
   const [_unsubscribeStatus, setUnsubscribeStatus] = useState(null); // null | 'loading' | 'done' | 'error'
   // One AbortController per in-flight action, keyed by action key.
   const aiAbortRefs = useRef<Record<string, AbortController | undefined>>({});
-  const scrollContainerRef = useRef(null);
+  const scrollContainerRef = useRef<HTMLDivElement | null>(null);
   const iframeRef = useRef(null);
   const roRef = useRef(null);
   // Session-scoped set of message IDs where the user has clicked "Load images once".
@@ -2265,7 +2265,7 @@ function AiResultBox({ result, canRegen, onRegen, onDismiss }) {
   // expand/collapse doesn't re-parse; re-runs as text streams in during generation (#215).
   const html = useMemo(() => renderMarkdown(result.text || ''), [result.text]);
   const [copied, setCopied] = useState(false);
-  const copyTimerRef = useRef(null);
+  const copyTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   useEffect(() => () => clearTimeout(copyTimerRef.current), []);
   // Copy the output to the clipboard as BOTH rich text (the rendered HTML) and source
   // (the raw markdown), so pasting into a rich editor gives formatting and pasting into a

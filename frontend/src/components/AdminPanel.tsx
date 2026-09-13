@@ -2516,7 +2516,7 @@ function IntegrationsTab() {
   const [connectingMs, setConnectingMs] = useState(false);
   const [deviceFlow, setDeviceFlow] = useState(null); // { userCode, verificationUri, interval }
   const [deviceStatus, setDeviceStatus] = useState(null); // 'pending'|'success'|'declined'|'expired'|'error'
-  const devicePollRef = useRef(null);
+  const devicePollRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   // Todoist state
   const [tdConnected, setTdConnected] = useState(false);
@@ -5565,7 +5565,7 @@ function NotificationsTab() {
   const { t } = useTranslation();
   const { notificationSound, setNotificationSound, customSoundDataUrl, setCustomSoundDataUrl,
           showAppBadge, setShowAppBadge } = useStore();
-  const fileInputRef = useRef(null);
+  const fileInputRef = useRef<HTMLInputElement | null>(null);
   const [customFileName, setCustomFileName] = useState(
     () => localStorage.getItem('mailflow_custom_sound_name') || ''
   );
@@ -8613,7 +8613,7 @@ export default function AdminPanel() {
   const isMobile = useMobile();
   const visibleTabs = TABS.filter(tab => (!tab.adminOnly || user?.isAdmin) && (!tab.mobileHidden || !isMobile));
 
-  const tabScrollRef = useRef(null);
+  const tabScrollRef = useRef<HTMLDivElement | null>(null);
   const [tabRightOverflow, setTabRightOverflow] = useState(false);
   const isAdmin = !!user?.isAdmin;
   useLayoutEffect(() => {

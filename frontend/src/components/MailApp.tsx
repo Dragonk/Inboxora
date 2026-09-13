@@ -102,7 +102,7 @@ export default function MailApp() {
   const [nativeThreadId, setNativeThreadId] = useState(null);
   const [nativeFolder, setNativeFolder] = useState(null);
   const [nativeThreadUnavailableFor, setNativeThreadUnavailableFor] = useState(null);
-  const fallbackMarkReadTimerRef = useRef(null);
+  const fallbackMarkReadTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const selectedMessageIdRef = useRef(selectedMessageId);
   useEffect(() => { selectedMessageIdRef.current = selectedMessageId; }, [selectedMessageId]);
   const handleNativeThreadUnavailable = useCallback(() => {

@@ -210,12 +210,12 @@ export default function MessageList() {
   const [searchHasMore, setSearchHasMore] = useState(false);
   const [searchLoadingMore, setSearchLoadingMore] = useState(false);
   const searchFetchedOffsetRef = useRef(0);
-  const listRef = useRef(null);
-  const searchInputRef = useRef(null); // for focusSearch shortcut
+  const listRef = useRef<HTMLDivElement | null>(null);
+  const searchInputRef = useRef<HTMLInputElement | null>(null); // for focusSearch shortcut
   const pendingDeleteTimers = useRef(new Map()); // id/thread key -> pending delete metadata
 
   const recentMessageOpenUntilRef = useRef(0);
-  const deferredRefreshTimerRef = useRef(null);
+  const deferredRefreshTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   // Bulk selection state
   const [selectedIds, setSelectedIds] = useState(new Set());
@@ -225,8 +225,8 @@ export default function MessageList() {
   const [pickerFolders, setPickerFolders] = useState<PickerFolder[]>([]);
   const [pickerLoading, setPickerLoading] = useState(false);
   const [pickerSearch, setPickerSearch] = useState('');
-  const folderPickerRef = useRef(null);
-  const pickerMenuRef = useRef(null);
+  const folderPickerRef = useRef<HTMLDivElement | null>(null);
+  const pickerMenuRef = useRef<HTMLDivElement | null>(null);
   const [pickerPos, setPickerPos] = useState(null);
   // Tracks the index of the last toggled row for shift-click range selection
   const lastSelectIdxRef = useRef(-1);
@@ -238,7 +238,7 @@ export default function MessageList() {
   useBackLayer(mailListActive && (selectionModeActive || selectedIds.size > 0), () => { setSelectedIds(new Set()); setSelectionModeActive(false); }, 5);
   useBackLayer(mailListActive && (showFolderPicker || showLayoutPicker), () => { setShowFolderPicker(false); setShowLayoutPicker(false); }, 4000);
   useBackLayer(mailListActive && searchQuery, () => setSearchQuery(''), 4);
-  const layoutPickerRef = useRef(null);
+  const layoutPickerRef = useRef<HTMLDivElement | null>(null);
 
   useEffect(() => { currentPageRef.current = currentPage; }, [currentPage]);
   useEffect(() => { setActiveCategory('primary'); setActiveGtdTab(null); }, [selectedAccountId, selectedFolder, setActiveGtdTab]);
@@ -249,10 +249,10 @@ export default function MessageList() {
     window.addEventListener('inboxora:message-opening', markOpening);
     return () => window.removeEventListener('inboxora:message-opening', markOpening);
   }, []);
-  const searchTimer = useRef(null);
+  const searchTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   // Category tab scroll arrows
-  const catScrollRef = useRef(null);
+  const catScrollRef = useRef<HTMLDivElement | null>(null);
   const [catScrollEdges, setCatScrollEdges] = useState({ left: false, right: false });
   const updateCatScrollEdges = useCallback(() => {
     const el = catScrollRef.current;
@@ -2055,7 +2055,7 @@ export default function MessageList() {
     }
   }, [updateMessage, decrementUnread, incrementUnread, adjustCategoryCount]);
 
-  const autoMarkReadTimerRef = useRef(null);
+  const autoMarkReadTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   useEffect(() => () => clearTimeout(autoMarkReadTimerRef.current), []);
 
   // Keep refs to bulk handlers so the shortcut effect (registered once) is never stale

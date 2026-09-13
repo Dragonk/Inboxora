@@ -35,8 +35,8 @@ function Sep() {
 export default function SignatureEditor({ value, onChange }) {
   const { t } = useTranslation();
   const { addNotification } = useStore();
-  const editorRef = useRef(null);
-  const fileInputRef = useRef(null);
+  const editorRef = useRef<HTMLDivElement | null>(null);
+  const fileInputRef = useRef<HTMLInputElement | null>(null);
   const [showSource, setShowSource] = useState(false);
   const [sourceVal, setSourceVal] = useState('');
 

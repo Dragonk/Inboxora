@@ -67,8 +67,8 @@ export default function CommandPalette({ open, onClose }) {
   const [query, setQuery] = useState('');
   const [activeIdx, setActiveIdx] = useState(0);
   const [listScrolled, setListScrolled] = useState(false);
-  const inputRef = useRef(null);
-  const listRef = useRef(null);
+  const inputRef = useRef<HTMLInputElement | null>(null);
+  const listRef = useRef<HTMLDivElement | null>(null);
 
   const actions = buildActions({ t, openCompose, setSelectedAccount, setShowAdmin, setAdminTab, theme, setTheme, accounts, selectedAccountId });
 

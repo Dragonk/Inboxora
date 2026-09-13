@@ -43,7 +43,7 @@ export default function ConversationRebuild() {
   const [job, setJob] = useState(null);
   const [error, setError] = useState('');
   const [note, setNote] = useState('');
-  const timer = useRef(null);
+  const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const stopPolling = useCallback(() => {
     clearTimeout(timer.current);

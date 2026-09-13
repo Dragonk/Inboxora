@@ -30,7 +30,7 @@ function resizeImage(file, maxPx = 256) {
 export default function ProfileModal({ onClose }) {
   const { t } = useTranslation();
   const { user, updateUser } = useStore();
-  const fileRef = useRef(null);
+  const fileRef = useRef<HTMLInputElement | null>(null);
 
   const [displayName, setDisplayName] = useState(user?.displayName || '');
   const [avatarPreview, setAvatarPreview] = useState(user?.avatar || null);
