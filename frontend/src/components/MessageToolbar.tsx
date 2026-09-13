@@ -7,7 +7,56 @@ import type { CSSProperties } from 'react';
 
 const iconProps = { width: 15, height: 15, viewBox: '0 0 24 24', fill: 'none', stroke: 'currentColor', strokeWidth: 1.75 };
 
-function Icon({ name, filled = false }) {
+/** A toolbar icon, keyed by name. */
+type ToolbarIconName = string;
+
+interface ToolbarButtonProps {
+  children: React.ReactNode;
+  onClick?: (event: React.MouseEvent<HTMLButtonElement>) => void;
+  title?: string;
+  danger?: boolean;
+  style?: CSSProperties;
+  action?: string;
+  targetId?: string;
+}
+
+interface MenuItemProps { icon: ToolbarIconName; label: React.ReactNode; onClick?: () => void; danger?: boolean }
+
+/** The toolbar's action surface (Mirrors the parent's handlers). */
+interface MessageToolbarProps {
+  isMobile?: boolean;
+  defaultReplyAll?: boolean;
+  targetId?: string;
+  scrollAnchorId?: string;
+  className?: string;
+  style?: CSSProperties;
+  isRead?: boolean;
+  isStarred?: boolean;
+  currentFolder?: string | null;
+  folders?: Array<{ path: string; name?: string; [key: string]: unknown }>;
+  folderMappings?: Record<string, unknown> | null;
+  foldersLoading?: boolean;
+  onLoadFolders?: () => void;
+  onReply?: () => void;
+  onReplyAll?: () => void;
+  onForward?: () => void;
+  onArchive?: () => void;
+  onMove?: (folder: string) => void;
+  onSpam?: () => void;
+  onHam?: () => void;
+  onSetRead?: (read: boolean) => void;
+  onViewHeaders?: () => void;
+  onPrint?: () => void;
+  aiActions?: Array<{ id: string; label: string; [key: string]: unknown }>;
+  onAiAction?: (action: { id: string; [key: string]: unknown }) => void;
+  onManageAiActions?: () => void;
+  onStar?: () => void;
+  onDelete?: () => void;
+  shortcutLabel?: (shortcut?: string) => React.ReactNode;
+}
+
+
+function Icon({ name, filled = false }: { name: ToolbarIconName; filled?: boolean }) {
   const p = { ...iconProps, fill: filled ? 'currentColor' : 'none' };
   switch (name) {
     case 'reply': return <svg {...p}><polyline points="9 17 4 12 9 7"/><path d="M20 18v-2a4 4 0 00-4-4H4"/></svg>;
@@ -28,7 +77,7 @@ function Icon({ name, filled = false }) {
   }
 }
 
-export function ToolbarButton({ children, onClick, title, danger = false, style = undefined, action = undefined, targetId = undefined }) {
+export function ToolbarButton({ children, onClick, title, danger = false, style = undefined, action = undefined, targetId = undefined }: ToolbarButtonProps) {
   const [hovered, setHovered] = useState(false);
   return <button type="button" onClick={onClick} title={title} data-message-action={action} data-action-target-id={targetId}
     className="btn-press" onMouseEnter={() => setHovered(true)} onMouseLeave={() => setHovered(false)} style={{
@@ -39,7 +88,7 @@ export function ToolbarButton({ children, onClick, title, danger = false, style 
     }}>{children}</button>;
 }
 
-function MenuItem({ icon, label, onClick, danger = false }) {
+function MenuItem({ icon, label, onClick, danger = false }: MenuItemProps) {
   return <button type="button" onClick={onClick} style={{
     display: 'flex', alignItems: 'center', gap: 10, width: '100%', padding: '10px 14px', background: 'transparent',
     border: 0, borderBottom: '1px solid var(--border-subtle)', color: danger ? 'var(--red)' : 'var(--text-primary)',
@@ -56,7 +105,7 @@ export default function MessageToolbar({
   onReply, onReplyAll, onForward, onArchive, onMove, onSpam, onHam,
   onSetRead, onViewHeaders, onPrint, aiActions = [], onAiAction, onManageAiActions, onStar, onDelete,
   shortcutLabel = (_shortcut?: string) => null,
-}) {
+}: MessageToolbarProps) {
   const { t } = useTranslation();
   const [replyMenu, setReplyMenu] = useState(false);
   const [moveMenu, setMoveMenu] = useState(false);
@@ -70,10 +119,10 @@ export default function MessageToolbar({
     else setMoreMenu(false);
   }, 4000);
   const availableFolders = useMemo(() => folders.filter(folder => folder.path !== currentFolder && (!search.trim() || `${folderLabel(folder, t, folderMappings)} ${folder.path}`.toLowerCase().includes(search.trim().toLowerCase()))), [currentFolder, folders, folderMappings, search, t]);
-  const title = (key, shortcut) => isMobile ? t(key) : `${t(key)}${shortcutLabel(shortcut) ? ` (${shortcutLabel(shortcut)})` : ''}`;
-  const stop = handler => event => { event.stopPropagation(); handler?.(); };
-  const closeMore = handler => () => { setMoreMenu(false); handler?.(); };
-  const openMove = event => { event.stopPropagation(); setMoveMenu(value => !value); if (!moveMenu) onLoadFolders?.(); };
+  const title = (key: string, shortcut?: string): string => isMobile ? t(key) : `${t(key)}${shortcutLabel(shortcut) ? ` (${shortcutLabel(shortcut)})` : ''}`;
+  const stop = (handler?: () => void) => (event: React.MouseEvent) => { event.stopPropagation(); handler?.(); };
+  const closeMore = (handler?: () => void) => () => { setMoreMenu(false); handler?.(); };
+  const openMove = (event: React.MouseEvent) => { event.stopPropagation(); setMoveMenu((value) => !value); if (!moveMenu) onLoadFolders?.(); };
   const menuStyle: CSSProperties = { position: 'absolute', top: 'calc(100% + 4px)', background: 'var(--bg-elevated)', border: '1px solid var(--border)', borderRadius: 8, overflow: 'hidden', zIndex: 200, boxShadow: 'var(--shadow-popover, 0 4px 20px rgba(0,0,0,.4))' };
   const primaryReply = defaultReplyAll ? onReplyAll : onReply;
 
