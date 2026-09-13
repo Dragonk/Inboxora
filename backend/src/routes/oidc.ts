@@ -12,14 +12,26 @@ import { logAuthEvent } from '../services/authEvents.js';
 import { ensureUserDavResources } from '../services/userDavResources.js';
 import { queryString } from '../utils/query.js';
 
+interface InsecureFetchOptions {
+  method?: string;
+  headers?: Record<string, string>;
+  body?: string;
+  signal?: AbortSignal;
+}
+
+interface EndSessionInput {
+  providerId?: string | null;
+  idToken?: string | null;
+}
+
 // In-memory OIDC discovery cache keyed by issuerUrl
 const discoveryCache = new Map();
 const DISCOVERY_TTL_MS = 5 * 60 * 1000;
 
 // Fetch that skips TLS certificate verification — only used when allow_insecure is set.
-function makeInsecureFetch(signal) {
-  return function insecureFetch(url, { method = 'GET', headers = {}, body, signal: optsSignal } = {}) {
-    return new Promise((resolve, reject) => {
+function makeInsecureFetch(signal: AbortSignal): typeof fetch {
+  return function insecureFetch(url: string, { method = 'GET', headers = {}, body, signal: optsSignal }: InsecureFetchOptions = {}) {
+    return new Promise<Response>((resolve, reject) => {
       const effectiveSignal = optsSignal ?? signal;
       const parsed = new URL(url);
       const isHttps = parsed.protocol === 'https:';
@@ -32,7 +44,7 @@ function makeInsecureFetch(signal) {
           res.on('data', c => chunks.push(c));
           res.on('end', () => {
             const text = Buffer.concat(chunks).toString('utf8');
-            resolve({ ok: res.statusCode >= 200 && res.statusCode < 300, status: res.statusCode, json: async () => JSON.parse(text), text: async () => text });
+            resolve(new Response(text, { status: res.statusCode ?? 200 }));
           });
           res.on('error', reject);
         }
@@ -168,7 +180,7 @@ function rememberOidcSession(req, providerId, idToken) {
 // provider on the session, the toggle is off, the provider is gone, discovery fails, or
 // the issuer advertises no end_session_endpoint — so logout falls back to local-only.
 // Never throws: logging out must always succeed locally regardless of the IdP.
-export async function buildEndSessionUrl({ providerId, idToken } = {}) {
+export async function buildEndSessionUrl({ providerId, idToken }: EndSessionInput = {}) {
   if (!providerId) return null;
   try {
     const { rows } = await query(

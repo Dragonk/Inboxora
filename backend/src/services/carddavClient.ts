@@ -11,6 +11,14 @@ import { XMLParser } from 'fast-xml-parser';
 import { validateHost } from './hostValidation.js';
 import { safeFetch } from './safeFetch.js';
 
+interface DavRequestOptions {
+  username?: string;
+  password?: string;
+  depth?: number | string | null;
+  body?: unknown;
+  allowPrivate?: boolean;
+}
+
 const parser = new XMLParser({
   ignoreAttributes: false,
   removeNSPrefix: true,   // <d:response> -> response, so parsing is namespace-agnostic
@@ -34,11 +42,11 @@ async function assertHostAllowed(url, allowPrivate) {
   if (err) throw new Error(err);
 }
 
-async function dav(method, url, { username, password, depth, body, allowPrivate = false } = {}) {
+async function dav(method: string, url: string, { username, password, depth, body, allowPrivate = false }: DavRequestOptions = {}) {
   // Re-validate on every request: hrefs returned by the server (principal, home
   // set, book URLs) are attacker-influenced and could point at internal hosts.
   await assertHostAllowed(url, allowPrivate);
-  const headers = {
+  const headers: Record<string, string> = {
     Authorization: basicAuth(username, password),
     'Content-Type': 'application/xml; charset=utf-8',
   };

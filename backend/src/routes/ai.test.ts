@@ -58,7 +58,13 @@ function buildApp() {
   return app;
 }
 
-function request(path, { method = 'GET', user = ADMIN, body } = {}) {
+interface TestRequestOptions {
+  method?: string;
+  user?: string;
+  body?: unknown;
+}
+
+function request(path: string, { method = 'GET', user = ADMIN, body }: TestRequestOptions = {}) {
   const headers = {};
   if (user) headers['x-test-user'] = user;
   if (body !== undefined) headers['content-type'] = 'application/json';

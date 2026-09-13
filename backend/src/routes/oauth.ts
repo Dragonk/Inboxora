@@ -7,6 +7,27 @@ import { encrypt, decrypt } from '../services/encryption.js';
 import { redactEmail } from '../utils/redact.js';
 import { queryString } from '../utils/query.js';
 
+interface OAuthTokenResponse {
+  access_token?: string;
+  refresh_token?: string;
+  id_token?: string;
+  token_type?: string;
+  scope?: string;
+  expires_in?: number;
+  error?: string;
+  error_description?: string;
+}
+
+interface DeviceCodeResponse {
+  device_code?: string;
+  user_code?: string;
+  verification_uri?: string;
+  expires_in?: number;
+  interval?: number;
+  error?: string;
+  error_description?: string;
+}
+
 // Cache JWKS fetchers per tenant — createRemoteJWKSet handles caching internally.
 const jwksCache = new Map();
 function getMsJwks(tenantId) {
@@ -104,7 +125,7 @@ router.get('/microsoft/callback', async (req, res) => {
       signal: AbortSignal.timeout(10000),
     });
 
-    const tokens = await tokenRes.json();
+    const tokens = (await tokenRes.json()) as OAuthTokenResponse;
     if (!tokenRes.ok) {
       throw new Error(tokens.error_description || tokens.error || 'Token exchange failed');
     }
@@ -235,7 +256,7 @@ router.post('/microsoft/device', async (req, res) => {
       }),
       signal: AbortSignal.timeout(10000),
     });
-    const dc = await dcRes.json();
+    const dc = (await dcRes.json()) as DeviceCodeResponse;
     if (!dcRes.ok) {
       throw new Error(dc.error_description || dc.error || 'Failed to start device code flow');
     }

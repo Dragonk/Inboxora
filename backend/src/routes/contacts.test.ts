@@ -9,6 +9,7 @@ vi.mock('../services/db.js', () => ({ query, withTransaction }));
 import express from 'express';
 import session from 'express-session';
 import contactsRouter from './contacts.js';
+import { listeningPort } from '../test/net.js';
 
 const existingVCard = [
   'BEGIN:VCARD',
@@ -63,7 +64,7 @@ describe('Contact REST PATCH legacy date synchronization', () => {
     ], { ...updatedContact, contactDates: [{ label: 'Wedding', value: '2020-09-14' }] });
 
     const server = createApp().listen(0);
-    const response = await fetch(`http://127.0.0.1:${server.address().port}/api/contacts/contact-1`, {
+    const response = await fetch(`http://127.0.0.1:${listeningPort(server)}/api/contacts/contact-1`, {
       method: 'PATCH', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ birthday: null }),
     });
     await new Promise(resolve => server.close(resolve));
@@ -89,7 +90,7 @@ describe('Contact REST PATCH legacy date synchronization', () => {
     ] });
 
     const server = createApp().listen(0);
-    const response = await fetch(`http://127.0.0.1:${server.address().port}/api/contacts/contact-1`, {
+    const response = await fetch(`http://127.0.0.1:${listeningPort(server)}/api/contacts/contact-1`, {
       method: 'PATCH', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ anniversary: '2022-06-07' }),
     });
     await new Promise(resolve => server.close(resolve));
@@ -112,7 +113,7 @@ describe('Contact REST PATCH legacy date synchronization', () => {
     });
 
     const server = createApp().listen(0);
-    const response = await fetch(`http://127.0.0.1:${server.address().port}/api/contacts/contact-1`, {
+    const response = await fetch(`http://127.0.0.1:${listeningPort(server)}/api/contacts/contact-1`, {
       method: 'PATCH', headers: { 'content-type': 'application/json' },
       body: JSON.stringify({ birthday: '1991-01-02', contactDates: [{ label: 'Birthday', value: '1990-01-02' }] }),
     });
@@ -132,7 +133,7 @@ describe('Contact REST PATCH legacy date synchronization', () => {
     const dates = [{ label: 'Birthday', value: '--02-29' }];
     arrangeQuery(dates, { ...updatedContact, birthday: null, contactDates: dates });
     const server = createApp().listen(0);
-    const response = await fetch(`http://127.0.0.1:${server.address().port}/api/contacts/contact-1`, {
+    const response = await fetch(`http://127.0.0.1:${listeningPort(server)}/api/contacts/contact-1`, {
       method: 'PATCH', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ contactDates: dates }),
     });
     await new Promise(resolve => server.close(resolve));
@@ -150,7 +151,7 @@ describe('Contact REST PATCH legacy date synchronization', () => {
     ], { ...updatedContact, anniversary: null, contactDates: [{ label: 'Wedding', value: '2020-09-14' }] });
 
     const server = createApp().listen(0);
-    const response = await fetch(`http://127.0.0.1:${server.address().port}/api/contacts/contact-1`, {
+    const response = await fetch(`http://127.0.0.1:${listeningPort(server)}/api/contacts/contact-1`, {
       method: 'PATCH', headers: { 'content-type': 'application/json' },
       body: JSON.stringify({ anniversary: '2022-06-07', contactDates: [{ label: 'Wedding', value: '2020-09-14' }] }),
     });
@@ -171,7 +172,7 @@ describe('Contact REST labelled date validation', () => {
   ])('rejects unsafe labelled dates on POST before any write query: %s', async label => {
     query.mockResolvedValueOnce({ rows: [{ id: 'user-1' }] });
     const server = createApp().listen(0);
-    const response = await fetch(`http://127.0.0.1:${server.address().port}/api/contacts`, {
+    const response = await fetch(`http://127.0.0.1:${listeningPort(server)}/api/contacts`, {
       method: 'POST', headers: { 'content-type': 'application/json' },
       body: JSON.stringify({ displayName: 'Ada', contactDates: [{ label, value: '2020-09-14' }] }),
     });
@@ -189,7 +190,7 @@ describe('Contact REST labelled date validation', () => {
   ])('rejects unsafe labelled dates on PATCH before loading or writing: %s', async label => {
     query.mockResolvedValueOnce({ rows: [{ id: 'user-1' }] });
     const server = createApp().listen(0);
-    const response = await fetch(`http://127.0.0.1:${server.address().port}/api/contacts/contact-1`, {
+    const response = await fetch(`http://127.0.0.1:${listeningPort(server)}/api/contacts/contact-1`, {
       method: 'PATCH', headers: { 'content-type': 'application/json' },
       body: JSON.stringify({ contactDates: [{ label, value: '2020-09-14' }] }),
     });
@@ -211,7 +212,7 @@ describe('Contact REST labelled date validation', () => {
       ] }] })
       .mockResolvedValueOnce({ rows: [] });
     const server = createApp().listen(0);
-    const response = await fetch(`http://127.0.0.1:${server.address().port}/api/contacts`, {
+    const response = await fetch(`http://127.0.0.1:${listeningPort(server)}/api/contacts`, {
       method: 'POST', headers: { 'content-type': 'application/json' },
       body: JSON.stringify({ displayName: 'Ada', contactDates: [
         { label: 'Family:Other', value: '2020-09-14' },
@@ -243,7 +244,7 @@ describe('Google CSV import persistence', () => {
       'Ada,Lovelace,Ada,Analytical Society,Mathematician,Research,1815-12-10,Anniversary,1835-01-01,Home,St James Square,London,Portfolio,https://example.test,Friends ::: VIP,Legacy ID,42',
     ].join('\n');
     const server = createApp().listen(0);
-    const response = await fetch(`http://127.0.0.1:${server.address().port}/api/contacts/address-books/book-1/import/google-csv`, {
+    const response = await fetch(`http://127.0.0.1:${listeningPort(server)}/api/contacts/address-books/book-1/import/google-csv`, {
       method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ csv }),
     });
     await new Promise(resolve => server.close(resolve));

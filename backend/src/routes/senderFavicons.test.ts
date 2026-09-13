@@ -2,6 +2,7 @@ import { describe, it, expect, vi } from 'vitest';
 import http from 'node:http';
 import express from 'express';
 import senderFaviconsRouter, { createSenderFaviconHandler } from './senderFavicons.js';
+import { listeningPort } from '../test/net.js';
 
 function request(domain = 'example.com') {
   return { params: { domain }, session: { userId: 7 } };
@@ -100,7 +101,7 @@ describe('sender favicon router authentication boundary', () => {
     });
 
     try {
-      const { port } = server.address();
+      const port = listeningPort(server);
       const res = await fetch(`http://127.0.0.1:${port}/api/sender-favicons/example.com`);
       expect(res.status).toBe(401);
       expect(res.headers.get('cache-control')).toBe('private, no-store');

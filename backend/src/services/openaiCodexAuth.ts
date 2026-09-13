@@ -28,8 +28,18 @@ const JSON_BODY_LIMIT_BYTES = 256 * 1024;
 const ERROR_BODY_LIMIT_BYTES = 8 * 1024;
 const TERMINAL_REFRESH_ERRORS = new Set(['invalid_grant', 'invalid_client', 'unauthorized_client']);
 
+export interface CodexAuthErrorOptions {
+  status?: number;
+  code?: string;
+  transient?: boolean;
+}
+
 export class CodexAuthError extends Error {
-  constructor(message, { status = 400, code, transient = false } = {}) {
+  status: number;
+  code?: string;
+  transient: boolean;
+
+  constructor(message: string, { status = 400, code, transient = false }: CodexAuthErrorOptions = {}) {
     super(message);
     this.name = 'CodexAuthError';
     this.status = status;

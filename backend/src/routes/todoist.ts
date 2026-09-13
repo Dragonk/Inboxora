@@ -3,6 +3,19 @@ import { query } from '../services/db.js';
 import { requireAuth } from '../middleware/auth.js';
 import { encrypt, decrypt } from '../services/encryption.js';
 
+interface TodoistListResponse { results?: unknown[] }
+interface TodoistTask { id?: string; content?: string }
+interface TodoistErrorResponse { error?: string }
+interface TodoistTaskInput {
+  content: string;
+  description?: string;
+  project_id?: string;
+  labels?: unknown[];
+  priority?: number;
+  due_string?: string;
+  due_date?: string;
+}
+
 const router = Router();
 router.use(requireAuth);
 
@@ -17,18 +30,18 @@ async function getTodoistToken(userId) {
   return decrypt(result.rows[0].config.token);
 }
 
-async function todoistFetch(token, method, path, body) {
-  const opts = {
+async function todoistFetch<T = unknown>(token: string, method: string, path: string, body?: unknown): Promise<T> {
+  const opts: { method: string; headers: Record<string, string>; body?: string } = {
     method,
     headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
   };
   if (body) opts.body = JSON.stringify(body);
   const res = await fetch(`https://api.todoist.com/api/v1${path}`, opts);
   if (!res.ok) {
-    const err = await res.json().catch(() => ({}));
+    const err = (await res.json().catch(() => ({}))) as TodoistErrorResponse;
     throw Object.assign(new Error(err.error || `Todoist API error ${res.status}`), { status: res.status });
   }
-  return res.json();
+  return res.json() as Promise<T>;
 }
 
 // GET /api/todoist/status
@@ -94,7 +107,7 @@ router.delete('/disconnect', async (req, res) => {
 router.get('/projects', async (req, res) => {
   try {
     const token = await getTodoistToken(req.session.userId);
-    const data = await todoistFetch(token, 'GET', '/projects');
+    const data = await todoistFetch<TodoistListResponse>(token, 'GET', '/projects');
     res.json(data.results ?? data);
   } catch (err) {
     res.status(err.status || 500).json({ error: err.message });
@@ -105,7 +118,7 @@ router.get('/projects', async (req, res) => {
 router.get('/labels', async (req, res) => {
   try {
     const token = await getTodoistToken(req.session.userId);
-    const data = await todoistFetch(token, 'GET', '/labels');
+    const data = await todoistFetch<TodoistListResponse>(token, 'GET', '/labels');
     res.json(data.results ?? data);
   } catch (err) {
     res.status(err.status || 500).json({ error: err.message });
@@ -120,14 +133,14 @@ router.post('/tasks', async (req, res) => {
     if (!content || !content.trim()) {
       return res.status(400).json({ error: 'Task title is required' });
     }
-    const taskData = { content: content.trim() };
+    const taskData: TodoistTaskInput = { content: content.trim() };
     if (description) taskData.description = description;
     if (project_id) taskData.project_id = project_id;
     if (labels?.length) taskData.labels = labels;
     if (priority && priority > 1) taskData.priority = priority;
     if (due_string) taskData.due_string = due_string;
     if (due_date) taskData.due_date = due_date;
-    const task = await todoistFetch(token, 'POST', '/tasks', taskData);
+    const task = await todoistFetch<TodoistTask>(token, 'POST', '/tasks', taskData);
     res.json({ ...task, url: `https://app.todoist.com/app/task/${task.id}` });
   } catch (err) {
     res.status(err.status || 500).json({ error: err.message });

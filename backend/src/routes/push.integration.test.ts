@@ -14,6 +14,7 @@ import { pool, query } from '../services/db.js';
 import pushRouter from './push.js';
 import { buildMailNotificationEvent } from '../services/mailNotificationEvent.js';
 import { dispatchMailNotification, resetDispatchDedup } from '../services/pushDispatcher.js';
+import { listeningPort } from '../test/net.js';
 
 const enabled = process.env.REQUIRE_PUSH_POSTGRES === '1';
 
@@ -150,7 +151,7 @@ describe.skipIf(!enabled)('push device registry with PostgreSQL', () => {
       });
     });
     await new Promise((resolve) => mock.listen(0, '127.0.0.1', resolve));
-    const port = mock.address().port;
+    const port = listeningPort(mock);
 
     const previous = process.env.PUSH_ALLOW_PRIVATE_ENDPOINTS;
     process.env.PUSH_ALLOW_PRIVATE_ENDPOINTS = 'true';
