@@ -1,14 +1,8 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 vi.mock('./db.js', () => ({ query: vi.fn(), withTransaction: vi.fn() }));
-import {
-  OPENAI_CODEX_DEVICE_URL,
-  createOpenAiCodexAuth,
-  createPostgresCodexStore,
-  decodeJwtClaims,
-  extractChatGptAccount,
-  hashSessionId,
-} from './openaiCodexAuth.js';
+import { OPENAI_CODEX_DEVICE_URL, createOpenAiCodexAuth, createPostgresCodexStore, decodeJwtClaims, extractChatGptAccount, hashSessionId } from './openaiCodexAuth.js';
+import type { CodexStore, CodexFlowInput, CodexClaimInput, CodexReleaseInput, CodexAuthorizeInput, CodexCompleteInput, CodexCancelInput, CodexLatestInput, CodexCredentialLock, CodexDeviceFlow } from './openaiCodexAuth.js';
 import { decrypt, encrypt } from './encryption.js';
 import { withTransaction as __mock_withTransaction } from './db.js';
 import { mockPoolClient } from '../test/poolClient.js';
@@ -35,9 +29,9 @@ function accessToken({ accountId = 'acct_123', email = 'owner@example.com', expi
   return `${header}.${payload}.signature`;
 }
 
-class MemoryStore {
+class MemoryStore implements CodexStore {
   flows: Map<any, any>;
-  credential: Record<string, unknown> | null;
+  credential: string | null;
   nextId: number;
   lock: Promise<any>;
 
@@ -48,23 +42,39 @@ class MemoryStore {
     this.lock = Promise.resolve();
   }
 
-  async createFlow(flow) {
+  async createFlow(flow: CodexFlowInput) {
     for (const current of this.flows.values()) {
       if (current.adminUserId === flow.adminUserId && current.sessionHash === flow.sessionHash
           && ['pending', 'polling', 'authorized'].includes(current.state)) {
         current.state = 'cancelled';
       }
     }
-    const record = { ...flow, id: `flow-${this.nextId++}`, updatedAt: flow.createdAt };
+    // Mirror the persisted row shape exactly (the store returns a full device flow).
+    const record: CodexDeviceFlow = {
+      id: `flow-${this.nextId++}`,
+      adminUserId: flow.adminUserId,
+      sessionHash: flow.sessionHash,
+      deviceAuthIdEnc: flow.deviceAuthIdEnc,
+      userCodeEnc: flow.userCodeEnc,
+      authorizationCodeEnc: flow.authorizationCodeEnc ?? null,
+      codeVerifierEnc: flow.codeVerifierEnc ?? null,
+      intervalMs: flow.intervalMs,
+      expiresAt: flow.expiresAt,
+      nextPollAt: flow.nextPollAt,
+      state: flow.state ?? 'pending',
+      failureCode: null,
+      createdAt: flow.createdAt,
+      updatedAt: flow.createdAt,
+    };
     this.flows.set(record.id, record);
     return { ...record };
   }
 
-  owned(flow, owner) {
+  owned(flow: CodexDeviceFlow, owner: { adminUserId: string; sessionHash: string }) {
     return flow && flow.adminUserId === owner.adminUserId && flow.sessionHash === owner.sessionHash;
   }
 
-  async claimFlow({ id, adminUserId, sessionHash, now, staleBefore }) {
+  async claimFlow({ id, adminUserId, sessionHash, now, staleBefore }: CodexClaimInput) {
     const flow = this.flows.get(id);
     if (!this.owned(flow, { adminUserId, sessionHash })) return { kind: 'not_found' };
     if (['pending', 'polling', 'authorized'].includes(flow.state) && flow.expiresAt <= now) {
@@ -85,7 +95,7 @@ class MemoryStore {
     return { kind: 'claimed', flow: { ...flow } };
   }
 
-  async releaseFlow({ id, state, intervalMs, nextPollAt, failureCode, clearSecrets = false }) {
+  async releaseFlow({ id, state, intervalMs, nextPollAt, failureCode, clearSecrets = false }: CodexReleaseInput) {
     const flow = this.flows.get(id);
     if (!['polling', 'authorized'].includes(flow.state)) return;
     flow.state = state;
@@ -101,7 +111,7 @@ class MemoryStore {
     flow.updatedAt = Date.now();
   }
 
-  async authorizeFlow({ id, authorizationCodeEnc, codeVerifierEnc }) {
+  async authorizeFlow({ id, authorizationCodeEnc, codeVerifierEnc }: CodexAuthorizeInput) {
     const flow = this.flows.get(id);
     if (flow.state !== 'polling') return false;
     flow.authorizationCodeEnc = authorizationCodeEnc;
@@ -110,7 +120,7 @@ class MemoryStore {
     return true;
   }
 
-  async completeFlow({ id, encryptedCredential }) {
+  async completeFlow({ id, encryptedCredential }: CodexCompleteInput) {
     const flow = this.flows.get(id);
     if (flow.state !== 'authorized' && flow.state !== 'polling') return false;
     this.credential = encryptedCredential;
@@ -125,7 +135,7 @@ class MemoryStore {
     return true;
   }
 
-  async cancelFlow({ id, adminUserId, sessionHash }) {
+  async cancelFlow({ id, adminUserId, sessionHash }: CodexCancelInput) {
     const flow = this.flows.get(id);
     if (!this.owned(flow, { adminUserId, sessionHash })
         || !['pending', 'polling', 'authorized'].includes(flow.state)) return false;
@@ -139,7 +149,7 @@ class MemoryStore {
     return true;
   }
 
-  async latestOwnedFlow({ adminUserId, sessionHash }) {
+  async latestOwnedFlow({ adminUserId, sessionHash }: CodexLatestInput) {
     return [...this.flows.values()].reverse()
       .find((flow) => this.owned(flow, { adminUserId, sessionHash })) || null;
   }
@@ -155,7 +165,7 @@ class MemoryStore {
     }
   }
 
-  async withCredentialLock(callback) {
+  async withCredentialLock<T>(callback: (scope: CodexCredentialLock) => Promise<T>): Promise<T> {
     const previous = this.lock;
     let release: ((value?: unknown) => void) | undefined;
     this.lock = new Promise((resolve) => { release = resolve; });

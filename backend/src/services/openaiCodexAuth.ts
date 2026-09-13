@@ -154,7 +154,7 @@ interface CodexFlowDbRow {
   updated_at: Date | string;
 }
 
-interface CodexDeviceFlow {
+export interface CodexDeviceFlow {
   id: string;
   adminUserId: string;
   sessionHash: string;
@@ -192,9 +192,41 @@ function rowToFlow(row: CodexFlowDbRow): CodexDeviceFlow | null {
   };
 }
 
+/** Argument shapes for the PostgreSQL-backed codex store. */
+export interface CodexReleaseInput {
+  id: string;
+  state: string;
+  intervalMs?: number | null;
+  nextPollAt?: number | null;
+  failureCode?: string | null;
+  clearSecrets?: boolean;
+}
+
+export interface CodexFlowInput {
+  adminUserId: string;
+  sessionHash: string;
+  deviceAuthIdEnc: string | null;
+  userCodeEnc: string | null;
+  intervalMs: number;
+  state?: string;
+  authorizationCodeEnc?: string | null;
+  codeVerifierEnc?: string | null;
+  expiresAt: number;
+  nextPollAt: number;
+  createdAt: number;
+}
+export interface CodexClaimInput { id: string; adminUserId: string; sessionHash: string; now: number; staleBefore: number }
+export interface CodexAuthorizeInput { id: string; authorizationCodeEnc: string; codeVerifierEnc: string }
+export interface CodexCompleteInput { id: string; encryptedCredential: string }
+export interface CodexCancelInput { id: string; adminUserId: string; sessionHash: string }
+export interface CodexLatestInput { adminUserId: string; sessionHash: string }
+export interface CodexCredentialLock { encryptedCredential: string | null; save: (value: string) => Promise<void> }
+
+
 export function createPostgresCodexStore() {
+  // The store contract is whatever this factory returns; exported for the test double.
   return {
-    async createFlow(flow) {
+    async createFlow(flow: CodexFlowInput) {
       return withTransaction(async (client) => {
         await client.query(
           'SELECT id FROM users WHERE id = $1 FOR UPDATE',
@@ -227,7 +259,7 @@ export function createPostgresCodexStore() {
       });
     },
 
-    async claimFlow({ id, adminUserId, sessionHash, now, staleBefore }) {
+    async claimFlow({ id, adminUserId, sessionHash, now, staleBefore }: CodexClaimInput) {
       return withTransaction(async (client) => {
         const result = await client.query(
           `SELECT * FROM ai_codex_device_flows
@@ -264,14 +296,7 @@ export function createPostgresCodexStore() {
       });
     },
 
-    async releaseFlow({ id, state, intervalMs = null, nextPollAt = null, failureCode = null, clearSecrets = false }: {
-      id: string;
-      state: string;
-      intervalMs?: number | null;
-      nextPollAt?: number | null;
-      failureCode?: string | null;
-      clearSecrets?: boolean;
-    }) {
+    async releaseFlow({ id, state, intervalMs = null, nextPollAt = null, failureCode = null, clearSecrets = false }: CodexReleaseInput) {
       await query(
         `UPDATE ai_codex_device_flows
          SET state = $2,
@@ -288,7 +313,7 @@ export function createPostgresCodexStore() {
       );
     },
 
-    async authorizeFlow({ id, authorizationCodeEnc, codeVerifierEnc }) {
+    async authorizeFlow({ id, authorizationCodeEnc, codeVerifierEnc }: CodexAuthorizeInput): Promise<boolean> {
       const result = await query(
         `UPDATE ai_codex_device_flows
          SET state = 'authorized', authorization_code_enc = $2, code_verifier_enc = $3, updated_at = NOW()
@@ -298,7 +323,7 @@ export function createPostgresCodexStore() {
       return result.rowCount > 0;
     },
 
-    async completeFlow({ id, encryptedCredential }) {
+    async completeFlow({ id, encryptedCredential }: CodexCompleteInput): Promise<boolean> {
       return withTransaction(async (client) => {
         const lock = await client.query(
           `SELECT state FROM ai_codex_device_flows WHERE id = $1 FOR UPDATE`,
@@ -323,7 +348,7 @@ export function createPostgresCodexStore() {
       });
     },
 
-    async cancelFlow({ id, adminUserId, sessionHash }) {
+    async cancelFlow({ id, adminUserId, sessionHash }: CodexCancelInput): Promise<boolean> {
       const result = await query(
         `UPDATE ai_codex_device_flows
          SET state = 'cancelled',
@@ -337,7 +362,7 @@ export function createPostgresCodexStore() {
       return result.rows.length > 0;
     },
 
-    async latestOwnedFlow({ adminUserId, sessionHash }) {
+    async latestOwnedFlow({ adminUserId, sessionHash }: CodexLatestInput) {
       const result = await query(
         `SELECT * FROM ai_codex_device_flows
          WHERE admin_user_id = $1 AND session_hash = $2
@@ -347,12 +372,12 @@ export function createPostgresCodexStore() {
       return rowToFlow(result.rows[0]);
     },
 
-    async getCredential() {
+    async getCredential(): Promise<string | null> {
       const result = await query('SELECT encrypted_payload FROM ai_codex_credentials WHERE singleton = TRUE');
       return result.rows[0]?.encrypted_payload || null;
     },
 
-    async disconnect() {
+    async disconnect(): Promise<void> {
       await withTransaction(async (client) => {
         await client.query(
           `UPDATE ai_codex_device_flows
@@ -364,7 +389,7 @@ export function createPostgresCodexStore() {
       });
     },
 
-    async withCredentialLock(callback) {
+    async withCredentialLock<T>(callback: (scope: CodexCredentialLock) => Promise<T>): Promise<T> {
       return withTransaction(async (client) => {
         const result = await client.query(
           'SELECT encrypted_payload FROM ai_codex_credentials WHERE singleton = TRUE FOR UPDATE',
@@ -384,6 +409,9 @@ export function createPostgresCodexStore() {
     },
   };
 }
+
+/** The codex store contract (see createPostgresCodexStore). */
+export type CodexStore = ReturnType<typeof createPostgresCodexStore>;
 
 function terminalPollResult(state: string, failureCode: string | null) {
   if (state === 'completed') return { status: 'connected' };
