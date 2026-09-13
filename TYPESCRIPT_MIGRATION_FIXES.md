@@ -60,3 +60,18 @@ Backend `tsc --noEmit`: **335 błędów pozostałych** (drzewo w trakcie naprawy
 Frontend: 37 plików z `@ts-nocheck` do naprawy.
 Testy i buildy pozostają zielone; naprawy typu nie zmieniają zachowania (poza usunięciem
 realnych błędów opisanych wyżej).
+
+## 4. Iteracja: typowanie zewnętrznych API i realne zawężanie
+
+- 🟠 **OAuth/OIDC**: odpowiedzi `token`/`device_code`/`discovery` były `unknown`. Dodane interfejsy `OAuthTokenResponse`, `DeviceCodeResponse`, `OidcDiscoveryDocument` (zamiast `any`).
+- 🔴 **Niestandardowy fetch OIDC** zwracał obiekt-atrapę zamiast `Response`. Teraz zwraca prawdziwe `Response` (poprawne `ok`/`status`/`json`/`text`).
+- 🟠 **CardDAV**: opcje żądania i nagłówki niedookreślone; dodany `DavRequestOptions` oraz `Record<string,string>` dla nagłówków.
+- 🟠 **Todoist**: `todoistFetch` nietypowany (opts bez `body`, odpowiedzi `unknown`) → generyczny `todoistFetch<T>` + `TodoistTaskInput`/`TodoistErrorResponse`.
+- 🟠 **CodexAuthError**: brak deklaracji `status`/`code`/`transient` i opcja `code` poza typem.
+- 🟠 **Testy sieciowe**: `server.address().port` na unii `string | AddressInfo` → wspólny helper `src/test/net.ts#listeningPort` (realne zawężanie, głośny błąd zamiast cichego `undefined`).
+- 🟠 **`ai.test.ts`**: opcje żądania bez `body` → `TestRequestOptions`.
+
+## 5. Stan weryfikacji
+
+Backend `tsc --noEmit`: **265 błędów** (z 474 po zdjęciu `@ts-nocheck`). Testy: 1785 passed / 0 failed. Lint: czysty.
+
