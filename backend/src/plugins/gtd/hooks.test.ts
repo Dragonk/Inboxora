@@ -1,5 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { queryCall } from '../../test/query.js';
+import type { GtdValidationResult } from './hooks.js';
 
 vi.mock('../../services/db.js', () => ({ query: vi.fn() }));
 vi.mock('./gtdConfig.js', () => ({
@@ -22,6 +23,17 @@ import { runGtdTransitions as __mock_runGtdTransitions, threadKeysForMessageIds 
 import { emitGtdIfRelevant as __mock_emitGtdIfRelevant } from './gtdSections.js';
 import { deleteUserPet as __mock_deleteUserPet } from './gtdPet.js';
 import { relocateExemptFolders, sectionsChanged, inboxIngest, selectGtdReevalIds, gtdEnabledForAccount, emitAfterDeferredCopySync, afterLabelCopy, afterLabelRemove, onMailMutation, onSentMessage, onUserDelete, enrichAccount, validateAccountSettings, persistAccountSettings, onAccountIdentityChanged, onPluginActivationChanged } from './hooks.js';
+
+function mustResult<T>(result: T | undefined): T {
+  if (result === undefined) throw new Error('expected the hook to return a result');
+  return result;
+}
+
+function rejection(result: GtdValidationResult | undefined): NonNullable<GtdValidationResult['error']> {
+  if (!result?.error) throw new Error('expected the patch to be rejected');
+  return result.error;
+}
+
 
 // Cast mocked module exports so their vitest mock helpers type-check.
 const query = vi.mocked(__mock_query);
@@ -284,8 +296,8 @@ describe('gtd hooks — account settings (enrichAccount / validateAccountSetting
   it('hard-rejects a state mapped to a reserved system folder', async () => {
     sanitizeGtdFoldersDetailed.mockReturnValueOnce({ folders: {}, rejected: [], reserved: ['INBOX'] });
     const out = await validateAccountSettings({ updates: { gtd_folders: { todo: 'INBOX' } }, accountId: 'a1' });
-    expect(out.error.status).toBe(400);
-    expect(out.error.body.reserved).toEqual(['INBOX']);
+    expect(rejection(out).status).toBe(400);
+    expect(rejection(out).body.reserved).toEqual(['INBOX']);
   });
 
   it('hard-rejects a folder collision', async () => {
@@ -305,8 +317,8 @@ describe('gtd hooks — account settings (enrichAccount / validateAccountSetting
     findGtdFolderCollisions.mockReturnValueOnce([]);
     const out = await validateAccountSettings({ updates: { gtd_folders: { todo: 'Tasks' } }, accountId: 'a1' });
     expect((out as { patch?: unknown }).patch).toBeUndefined();                       // validate no longer writes
-    expect(out.rejected).toEqual({ gtd_folders: ['bad/../path'] });
-    expect(out.requiresReconnect).toBe(true);
+    expect(mustResult(out).rejected).toEqual({ gtd_folders: ['bad/../path'] });
+    expect(mustResult(out).requiresReconnect).toBe(true);
   });
 
   it('does not require a reconnect when the sanitized folders match the stored config', async () => {
@@ -332,7 +344,7 @@ describe('gtd hooks — account settings (enrichAccount / validateAccountSetting
     sanitizeGtdFoldersDetailed.mockReturnValueOnce({ folders: { todo: 'Tasks' }, rejected: [], reserved: [] });
     const out = await persistAccountSettings({ accountId: 'a1', updates: { gtd_folders: { todo: 'Tasks' } } });
     expect(setAccountConfig).toHaveBeenCalledWith('gtd', 'a1', { enabled: true, folders: { todo: 'Tasks' } });
-    expect(out.patch).toEqual({ gtd_enabled: true, gtd_folders: { todo: 'Tasks' } });
+    expect(mustResult(out).patch).toEqual({ gtd_enabled: true, gtd_folders: { todo: 'Tasks' } });
   });
 
   it('persistAccountSettings contributes nothing (no write) when no gtd field changed', async () => {

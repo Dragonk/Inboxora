@@ -31,7 +31,13 @@ const fakeManager = () => ({ removeMessageCopy: vi.fn().mockResolvedValue({}), b
 // One switchboard for the queries the engine issues: the sent-message Message-ID lookup
 // (recognised by message_id = ANY), the owner-address UNION (account_aliases), and the
 // per-thread row load (thread_key = ANY).
-function mockQuery({ owner = [{ addr: 'me@example.com' }], rows = [], sent = [] }) {
+interface MockQueryOptions {
+  owner?: Array<{ addr: string }>;
+  rows?: Array<Record<string, unknown>>;
+  sent?: Array<Record<string, unknown>>;
+}
+
+function mockQuery({ owner = [{ addr: 'me@example.com' }], rows = [], sent = [] }: MockQueryOptions = {}) {
   query.mockImplementation((sql) => {
     if (sql.includes('message_id = ANY')) return Promise.resolve({ rows: sent });
     if (sql.includes('account_aliases')) return Promise.resolve({ rows: owner });
@@ -283,6 +289,7 @@ describe('runTransitionsForSentMessage', () => {
     await runTransitionsForSentMessage(mgr, { ...account, gtd_enabled: true }, '<abc@example.com>');
 
     const midCall = query.mock.calls.find(([sql]) => sql.includes('message_id = ANY'));
+    if (!midCall) throw new Error('expected the Message-ID lookup');
     expect(midCall[1]).toEqual(['acct-1', ['abc@example.com', '<abc@example.com>']]);
     expect(mgr.removeMessageCopy).toHaveBeenCalledWith('acct-1', 81, 'Todo');
     expect(mgr.broadcast).toHaveBeenCalledWith({ type: 'gtd_sections_updated', accountId: 'acct-1' }, 'user-1');
