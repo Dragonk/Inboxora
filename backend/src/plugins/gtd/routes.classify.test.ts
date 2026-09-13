@@ -11,7 +11,7 @@ import type { JsonBody } from '../../test/json.js';
 // session. Mirrors gtd.done.test.js's express harness.
 vi.mock('../../services/db.js', () => ({ query: vi.fn() }));
 vi.mock('../../middleware/auth.js', () => ({
-  requireAuth: (req, _res, next) => { req.session = { userId: 'u1' }; next(); },
+  requireAuth: (req: { session?: { userId?: string } }, _res: unknown, next: () => void) => { req.session = { userId: 'u1' }; next(); },
 }));
 vi.mock('./gtdConfig.js', async (importOriginal) => {
   const actual = (await importOriginal()) as Record<string, unknown>;
@@ -61,7 +61,14 @@ const account = { id: ACCT_ID, user_id: 'u1', folder_mappings: {} };
 // Route every query classify issues: the ownership-scoped message load, the account fetch
 // (POST copy path), and resolveCopyUid's sibling lookup (DELETE). Each is individually swappable
 // so a test can drive the not-owned (msg:null) / no-sibling (sibling:null) branches.
-function stubQueries({ msg = inboxMsg, acct = account, sibling = null, exact = { uid: 77 } } = {}) {
+interface ClassifyStubs {
+  msg?: Record<string, unknown> | null;
+  acct?: Record<string, unknown> | null;
+  sibling?: Record<string, unknown> | null;
+  exact?: Record<string, unknown> | null;
+}
+
+function stubQueries({ msg = inboxMsg, acct = account, sibling = null, exact = { uid: 77 } }: ClassifyStubs = {}) {
   query.mockImplementation(async (sql) => {
     if (sql.includes('FROM messages m') && sql.includes('JOIN email_accounts')) return { rows: msg ? [msg] : [] };
     if (sql.startsWith('SELECT * FROM email_accounts')) return { rows: acct ? [acct] : [] };
@@ -78,13 +85,13 @@ function buildApp() {
   return app;
 }
 
-const classify = (body) => fetch(`${base}/api/gtd/classify`, {
+const classify = (body: unknown) => fetch(`${base}/api/gtd/classify`, {
   method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body),
 });
-const unclassify = (body) => fetch(`${base}/api/gtd/classify`, {
+const unclassify = (body: unknown) => fetch(`${base}/api/gtd/classify`, {
   method: 'DELETE', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body),
 });
-const undoClassify = (body) => fetch(`${base}/api/gtd/classify/undo`, {
+const undoClassify = (body: unknown) => fetch(`${base}/api/gtd/classify/undo`, {
   method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body),
 });
 

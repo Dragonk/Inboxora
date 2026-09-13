@@ -15,6 +15,7 @@ describe('loadBundledPlugins', () => {
     if (!gtd) throw new Error('expected the bundled gtd plugin to be registered');
     expect(gtd).toBeTruthy();
     expect(gtd.tier).toBe(1);
+    if (!gtd.router) throw new Error('expected the gtd router');
     expect(gtd.router.base).toBe('/api/gtd');
     expect(typeof gtd.router.handler).toBe('function');
   });

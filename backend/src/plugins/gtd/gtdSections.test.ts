@@ -15,6 +15,14 @@ import { query as __mock_query } from '../../services/db.js';
 import { getGtdConfig as __mock_getGtdConfig } from './gtdConfig.js';
 import { resolveAllDraftsPaths as __mock_resolveAllDraftsPaths } from '../../utils/mailUtils.js';
 import { getGtdSections, emitGtdIfRelevant } from './gtdSections.js';
+import type { GtdSectionSummary, GtdThreadSummary } from './gtdSections.js';
+
+function threadsOf(sections: Record<string, GtdSectionSummary>, state: string): GtdThreadSummary[] {
+  const section = sections[state];
+  if (!section?.threads) throw new Error(`expected threads for ${state}`);
+  return section.threads;
+}
+
 
 // Cast mocked module exports so their vitest mock helpers type-check.
 const query = vi.mocked(__mock_query);
@@ -102,12 +110,12 @@ describe('getGtdSections — section folding', () => {
 
     const { sections } = (await getGtdSections({ userId: 'u1' }));
 
-    expect(sections.todo.threads).toHaveLength(1);
-    expect(sections.reference.threads).toHaveLength(1);
-    expect(sections.todo.threads[0].message_id).toBe('<mid-1@x>');
-    expect(sections.todo.threads[0].in_inbox).toBe(true);
-    expect(sections.todo.threads[0].folders).toEqual(['INBOX', 'Todo', 'Reference']);
-    expect(sections.watch.threads).toHaveLength(0);
+    expect(threadsOf(sections, 'todo')).toHaveLength(1);
+    expect(threadsOf(sections, 'reference')).toHaveLength(1);
+    expect(threadsOf(sections, 'todo')[0].message_id).toBe('<mid-1@x>');
+    expect(threadsOf(sections, 'todo')[0].in_inbox).toBe(true);
+    expect(threadsOf(sections, 'todo')[0].folders).toEqual(['INBOX', 'Todo', 'Reference']);
+    expect(threadsOf(sections, 'watch')).toHaveLength(0);
   });
 
   it('surfaces an archived (inbox-absent) thread with in_inbox false', async () => {
@@ -119,8 +127,8 @@ describe('getGtdSections — section folding', () => {
 
     const { sections } = (await getGtdSections({ userId: 'u1' }));
 
-    expect(sections.watch.threads).toHaveLength(1);
-    expect(sections.watch.threads[0].in_inbox).toBe(false);
+    expect(threadsOf(sections, 'watch')).toHaveLength(1);
+    expect(threadsOf(sections, 'watch')[0].in_inbox).toBe(false);
   });
 
   it('reports per-section total and unread from the query pass', async () => {
@@ -136,9 +144,9 @@ describe('getGtdSections — section folding', () => {
 
     expect(sections.todo.total).toBe(3);
     expect(sections.todo.unread).toBe(2);
-    expect(sections.todo.threads).toHaveLength(3);
+    expect(threadsOf(sections, 'todo')).toHaveLength(3);
     // newest first
-    expect(sections.todo.threads.map(t => t.id)).toEqual(['a', 'b', 'c']);
+    expect(threadsOf(sections, 'todo').map(t => t.id)).toEqual(['a', 'b', 'c']);
   });
 });
 
@@ -155,7 +163,7 @@ describe('getGtdSections — thread-level unread', () => {
 
     const { sections } = (await getGtdSections({ userId: 'u1' }));
 
-    expect(sections.todo.threads[0].is_read).toBe(false);
+    expect(threadsOf(sections, 'todo')[0].is_read).toBe(false);
     expect(sections.todo.unread).toBe(1);
   });
 
@@ -168,7 +176,7 @@ describe('getGtdSections — thread-level unread', () => {
 
     const { sections } = (await getGtdSections({ userId: 'u1' }));
 
-    expect(sections.todo.threads[0].is_read).toBe(true);
+    expect(threadsOf(sections, 'todo')[0].is_read).toBe(true);
     expect(sections.todo.unread).toBe(0);
   });
 
@@ -183,7 +191,7 @@ describe('getGtdSections — thread-level unread', () => {
 
     // One truth per thread: the rollup badge and the row styling must agree.
     expect(sections.waiting).toEqual({ total: 1, unread: 1 });
-    expect(sections.watch.threads[0].is_read).toBe(false);
+    expect(threadsOf(sections, 'watch')[0].is_read).toBe(false);
   });
 });
 
@@ -200,7 +208,7 @@ describe('getGtdSections — unified merge', () => {
 
     const { sections } = (await getGtdSections({ userId: 'u1' }));
 
-    expect(sections.todo.threads.map(thread => thread.id)).toEqual(['a']);
+    expect(threadsOf(sections, 'todo').map(thread => thread.id)).toEqual(['a']);
     expect(query).toHaveBeenCalledTimes(2);
   });
 
@@ -222,7 +230,7 @@ describe('getGtdSections — unified merge', () => {
     expect(sections.todo.total).toBe(2);
     expect(sections.todo.unread).toBe(1);
     // acc-2's head is newer, so it sorts first
-    expect(sections.todo.threads.map(t => t.id)).toEqual(['b', 'a']);
+    expect(threadsOf(sections, 'todo').map(t => t.id)).toEqual(['b', 'a']);
   });
 
   it('dedupes the same message_id appearing across two accounts', async () => {
@@ -240,7 +248,7 @@ describe('getGtdSections — unified merge', () => {
 
     const { sections } = (await getGtdSections({ userId: 'u1' }));
 
-    expect(sections.todo.threads).toHaveLength(1);
+    expect(threadsOf(sections, 'todo')).toHaveLength(1);
   });
 });
 
@@ -250,7 +258,7 @@ describe('getGtdSections — query shape and limits', () => {
       .mockResolvedValueOnce({ rows: [{ id: 'acc-1', folder_mappings: null, enabled: true }] })
       .mockResolvedValueOnce({ rows: [] });
     (await getGtdSections({ userId: 'u1' }));
-    expect(query.mock.calls[1][1][4]).toBe(8); // default limit param ($5)
+    expect(queryCall(query, 1)[1][4]).toBe(8); // default limit param ($5)
 
     query.mockReset();
     getGtdConfig.mockResolvedValue({ enabled: true, folders: DEFAULT_FOLDERS });
@@ -259,7 +267,7 @@ describe('getGtdSections — query shape and limits', () => {
       .mockResolvedValueOnce({ rows: [{ id: 'acc-1', folder_mappings: null, enabled: true }] })
       .mockResolvedValueOnce({ rows: [] });
     (await getGtdSections({ userId: 'u1', limit: 500 }));
-    expect(query.mock.calls[1][1][4]).toBe(50); // capped ($5)
+    expect(queryCall(query, 1)[1][4]).toBe(50); // capped ($5)
   });
 
   it('passes the resolved draft paths and excludes them in the query', async () => {
@@ -276,7 +284,7 @@ describe('getGtdSections — query shape and limits', () => {
     expect(sectionSql).toContain('is_deleted = false');
     expect(sectionSql).toContain("bool_or(folder = 'INBOX')");
     expect(sectionSql).toContain('<> ALL($4::text[])'); // draft exclusion
-    expect(query.mock.calls[1][1][3]).toEqual(['Drafts', '[Gmail]/Drafts']); // draft paths ($4)
+    expect(queryCall(query, 1)[1][3]).toEqual(['Drafts', '[Gmail]/Drafts']); // draft paths ($4)
   });
 
   it('picks the thread head from a GTD-label folder so its row id is stable to click', async () => {
@@ -335,7 +343,7 @@ describe('getGtdSections — query shape and limits', () => {
     expect(sectionSql).toContain('waiting_total');
     expect(sectionSql).toContain('waiting_unread');
     // $6 carries the waiting states present for the account (subset of the state list).
-    expect(query.mock.calls[1][1][5]).toEqual(['watch', 'delegated']);
+    expect(queryCall(query, 1)[1][5]).toEqual(['watch', 'delegated']);
   });
 });
 
@@ -347,7 +355,7 @@ describe('getGtdSections — waiting rollup + star', () => {
 
     const { sections } = (await getGtdSections({ userId: 'u1' }));
 
-    expect(sections.todo.threads[0].is_starred).toBe(true);
+    expect(threadsOf(sections, 'todo')[0].is_starred).toBe(true);
   });
 
   it('folds the query rollup into a deduped sections.waiting count instead of watch+delegated summed', async () => {

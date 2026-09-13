@@ -12,7 +12,7 @@ import type { JsonBody } from '../../test/json.js';
 // vs. non-owner reads can share one running app.
 vi.mock('../../services/db.js', () => ({ query: vi.fn() }));
 vi.mock('../../middleware/auth.js', () => ({
-  requireAuth: (req, _res, next) => {
+  requireAuth: (req: { headers: Record<string, string>; session?: { userId?: string } }, _res: unknown, next: () => void) => {
     req.session = { userId: req.headers['x-test-user'] || '3f2a1b4c-5d6e-7f80-9a1b-2c3d4e5f6071' };
     next();
   },
@@ -41,20 +41,28 @@ const importPet = vi.mocked(__mock_importPet);
 const OWNER_ID = '3f2a1b4c-5d6e-7f80-9a1b-2c3d4e5f6071';
 const OTHER_ID = '00000000-0000-4000-8000-000000000001';
 const OWNER_SLUG = customPetSlug(OWNER_ID);
+if (!OWNER_SLUG) throw new Error('expected the owner pet slug');
 
 const OWNER_PET_ROW = { slug: OWNER_SLUG, display_name: 'My Pet', descriptor: { cols: 8, rows: 1, frameW: 32, frameH: 32, frameCount: 8, staticFrame: 0, hover: { start: 0, count: 8 }, source: 'declared' }, is_custom: true };
 const BUILTIN_PET_ROW = { slug: 'steve-jobs', display_name: 'Steve Jobs', descriptor: { cols: 8, rows: 1, frameW: 32, frameH: 32, frameCount: 8, staticFrame: 0, hover: { start: 0, count: 8 }, source: 'declared' }, is_custom: false };
 // A public pet whose slug happens to start with custom- : stored is_custom false, so it
 // must stay readable by everyone (provenance beats slug shape).
 const CUSTOM_PREFIX_PUBLIC_ROW = { slug: 'custom-cat', display_name: 'Custom Cat', descriptor: { cols: 8, rows: 1, frameW: 32, frameH: 32, frameCount: 8, staticFrame: 0, hover: { start: 0, count: 8 }, source: 'declared' }, is_custom: false };
-const META_ROWS = { [OWNER_SLUG]: OWNER_PET_ROW, 'steve-jobs': BUILTIN_PET_ROW, 'custom-cat': CUSTOM_PREFIX_PUBLIC_ROW };
+interface PetFixtureRow {
+  slug: string;
+  display_name: string;
+  descriptor: unknown;
+  is_custom?: boolean;
+}
+
+const META_ROWS: Record<string, PetFixtureRow> = { [OWNER_SLUG]: OWNER_PET_ROW, 'steve-jobs': BUILTIN_PET_ROW, 'custom-cat': CUSTOM_PREFIX_PUBLIC_ROW } as Record<string, PetFixtureRow>;
 
 // The pet now reads from generic plugin storage (plugin_data). Map the fixture rows to that
 // shape: is_custom → visibility ('private' = custom), and the metadata lives in `value`.
-function metaRow(r) {
+function metaRow(r: PetFixtureRow): { key: string; owner_id: null; value: { displayName: string; descriptor: unknown }; visibility: string } {
   return { key: r.slug, owner_id: null, value: { displayName: r.display_name, descriptor: r.descriptor }, visibility: r.is_custom ? 'private' : 'public' };
 }
-function blobRow(isCustom) {
+function blobRow(isCustom: boolean | undefined): { blob: Buffer; blob_mime: string; owner_id: null; visibility: string } {
   return { blob: Buffer.from('fake-sheet-bytes'), blob_mime: 'image/webp', owner_id: null, visibility: isCustom ? 'private' : 'public' };
 }
 
@@ -84,7 +92,7 @@ const petMeta = (slug: string, userId: string) => fetch(`${base}/api/gtd/pet/${s
 const petSheet = (slug: string, userId: string) => fetch(`${base}/api/gtd/pet/${slug}/sheet`, {
   headers: userId ? { 'x-test-user': userId } : {},
 });
-const petImport = (body) => fetch(`${base}/api/gtd/pet/import`, {
+const petImport = (body: unknown) => fetch(`${base}/api/gtd/pet/import`, {
   method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body),
 });
 // A base64 payload decodeUploadedSheet accepts, so the import route reaches importPet.

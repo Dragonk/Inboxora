@@ -8,7 +8,7 @@ describe('plugin registry — registration & validation', () => {
     const r = createPluginRegistry();
     r.register(base);
     expect(r.has('p1')).toBe(true);
-    expect(r.get('p1').name).toBe('Plugin One');
+    expect(r.get('p1')?.name).toBe('Plugin One');
     expect(r.list()).toHaveLength(1);
   });
 
@@ -31,9 +31,9 @@ describe('plugin registry — registration & validation', () => {
 describe('plugin registry — runHook (fire-and-forget)', () => {
   it('runs every active handler for the hook', async () => {
     const r = createPluginRegistry();
-    const calls = [];
-    r.register({ ...base, id: 'a', hooks: { onX: (ctx) => calls.push(`a:${ctx.v}`) } });
-    r.register({ ...base, id: 'b', hooks: { onX: (ctx) => calls.push(`b:${ctx.v}`) } });
+    const calls: string[] = [];
+    r.register({ ...base, id: 'a', hooks: { onX: (ctx: Record<string, unknown>) => calls.push(`a:${String(ctx.v)}`) } });
+    r.register({ ...base, id: 'b', hooks: { onX: (ctx: Record<string, unknown>) => calls.push(`b:${String(ctx.v)}`) } });
     r.register({ ...base, id: 'c', hooks: { onY: () => calls.push('c') } }); // different hook
     const errors = await r.runHook('onX', { v: 1 });
     expect(calls.sort()).toEqual(['a:1', 'b:1']);
@@ -42,7 +42,7 @@ describe('plugin registry — runHook (fire-and-forget)', () => {
 
   it('swallows a throwing handler and still runs the others', async () => {
     const r = createPluginRegistry();
-    const calls = [];
+    const calls: string[] = [];
     r.register({ ...base, id: 'boom', hooks: { onX: () => { throw new Error('kaboom'); } } });
     r.register({ ...base, id: 'ok', hooks: { onX: () => calls.push('ok') } });
     const errors = await r.runHook('onX', {});
@@ -53,10 +53,10 @@ describe('plugin registry — runHook (fire-and-forget)', () => {
 
   it('respects isActive gating (per-account enablement)', async () => {
     const r = createPluginRegistry();
-    const calls = [];
+    const calls: string[] = [];
     r.register({
       ...base, id: 'gated',
-      isActive: (ctx) => ctx.account?.enabled === true,
+      isActive: (ctx: { account?: { enabled?: boolean } }) => ctx.account?.enabled === true,
       hooks: { onX: () => calls.push('ran') },
     });
     await r.runHook('onX', { account: { enabled: false } });
@@ -67,7 +67,7 @@ describe('plugin registry — runHook (fire-and-forget)', () => {
 
   it('a throwing isActive excludes the plugin rather than breaking dispatch', async () => {
     const r = createPluginRegistry();
-    const calls = [];
+    const calls: string[] = [];
     r.register({ ...base, id: 'bad-gate', isActive: () => { throw new Error('x'); }, hooks: { onX: () => calls.push('x') } });
     r.register({ ...base, id: 'good', hooks: { onX: () => calls.push('good') } });
     await r.runHook('onX', {});
@@ -103,12 +103,12 @@ describe('plugin registry — per-hook isActive & hasActive', () => {
 
   it('accepts the { handler, isActive } entry form and gates only that hook', async () => {
     const r = createPluginRegistry();
-    const calls = [];
+    const calls: string[] = [];
     r.register({
       ...base, id: 'gtd',
       hooks: {
         always: () => calls.push('always'),                                   // bare fn — never gated
-        gated: { handler: () => calls.push('gated'), isActive: (ctx) => !!ctx.account?.gtd_enabled },
+        gated: { handler: () => calls.push('gated'), isActive: (ctx: { account?: { gtd_enabled?: boolean } }) => !!ctx.account?.gtd_enabled },
       },
     });
     // The account-scoped hook is gated…
@@ -123,11 +123,11 @@ describe('plugin registry — per-hook isActive & hasActive', () => {
 
   it('per-hook isActive composes with (does not override) manifest isActive', async () => {
     const r = createPluginRegistry();
-    const calls = [];
+    const calls: string[] = [];
     r.register({
       ...base, id: 'both',
-      isActive: (ctx) => ctx.tier2 === true,                                  // manifest gate
-      hooks: { gated: { handler: () => calls.push('ran'), isActive: (ctx) => ctx.on === true } },
+      isActive: (ctx: { tier2?: boolean }) => ctx.tier2 === true,                                  // manifest gate
+      hooks: { gated: { handler: () => calls.push('ran'), isActive: (ctx: { on?: boolean }) => ctx.on === true } },
     });
     await r.runHook('gated', { tier2: true, on: false });   // hook gate rejects
     await r.runHook('gated', { tier2: false, on: true });   // manifest gate rejects
@@ -140,7 +140,7 @@ describe('plugin registry — per-hook isActive & hasActive', () => {
     const r = createPluginRegistry();
     r.register({
       ...base, id: 'gtd',
-      hooks: { ingest: { handler: () => {}, isActive: (ctx) => !!ctx.account?.gtd_enabled } },
+      hooks: { ingest: { handler: () => {}, isActive: (ctx: { account?: { gtd_enabled?: boolean } }) => !!ctx.account?.gtd_enabled } },
     });
     expect(r.hasActive('ingest', { account: { gtd_enabled: true } })).toBe(true);
     expect(r.hasActive('ingest', { account: { gtd_enabled: false } })).toBe(false);

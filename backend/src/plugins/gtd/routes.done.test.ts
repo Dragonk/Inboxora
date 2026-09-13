@@ -11,7 +11,7 @@ import type { JsonBody } from '../../test/json.js';
 // mocked to a fixed enabled config; requireAuth is a passthrough injecting a session.
 vi.mock('../../services/db.js', () => ({ query: vi.fn() }));
 vi.mock('../../middleware/auth.js', () => ({
-  requireAuth: (req, _res, next) => { req.session = { userId: 'u1' }; next(); },
+  requireAuth: (req: { session?: { userId?: string } }, _res: unknown, next: () => void) => { req.session = { userId: 'u1' }; next(); },
 }));
 vi.mock('../../utils/mailUtils.js', async (importOriginal) => {
   const actual = (await importOriginal()) as Record<string, unknown>;
@@ -75,18 +75,23 @@ function buildApp() {
 
 // Route every query /done issues; archiveWrite is the swappable rowCount of the INBOX row's
 // archive UPDATE/DELETE — the authority for whether this call or a concurrent /done won the race.
-function stubQueries({ inbox = inboxCopy, archiveWrite = { rows: [], rowCount: 1 } } = {}) {
+interface DoneStubs {
+  inbox?: Record<string, unknown> | null;
+  archiveWrite?: { rows: unknown[]; rowCount: number } | null;
+}
+
+function stubQueries({ inbox = inboxCopy, archiveWrite = { rows: [], rowCount: 1 } }: DoneStubs = {}) {
   query.mockImplementation(async (sql) => {
     if (sql.includes('FROM messages m') && sql.includes('JOIN email_accounts')) return { rows: [msg] };
     if (sql.startsWith('SELECT * FROM email_accounts')) return { rows: [account] };
     if (sql.startsWith('SELECT id, uid, is_read FROM messages')) return { rows: inbox ? [inbox] : [] };
     if (sql.startsWith('SELECT uid FROM messages')) return { rows: [{ uid: 10 }] };
-    if (sql.startsWith('DELETE FROM messages') || sql.startsWith('UPDATE messages SET folder')) return archiveWrite;
+    if (sql.startsWith('DELETE FROM messages') || sql.startsWith('UPDATE messages SET folder')) return archiveWrite ?? { rows: [], rowCount: 0 };
     return { rows: [] };
   });
 }
 
-const done = (body) => fetch(`${base}/api/gtd/done`, {
+const done = (body: unknown) => fetch(`${base}/api/gtd/done`, {
   method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body),
 });
 

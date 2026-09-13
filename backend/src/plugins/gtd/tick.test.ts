@@ -33,7 +33,7 @@ const threadKeysInFolders = vi.mocked(__mock_threadKeysInFolders);
 describe('gtd hooks — gtdSyncTick', () => {
   // mgr is core's bounded engine facade (mailEngineFacade), not the raw engine.
   const mgrWithConnection = (accountId: string, overrides = {}) => ({
-    isConnected: (id) => id === accountId,
+    isConnected: (id: string) => id === accountId,
     tryClaimFolderSync: vi.fn().mockReturnValue(true),
     releaseFolderSync: vi.fn(),
     folderFingerprint: vi.fn(),

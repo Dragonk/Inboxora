@@ -10,7 +10,7 @@ import type { Server } from 'node:http';
 // logic still runs.
 vi.mock('../../services/db.js', () => ({ query: vi.fn() }));
 vi.mock('../../middleware/auth.js', () => ({
-  requireAuth: (req, _res, next) => { req.session = { userId: 'u1' }; next(); },
+  requireAuth: (req: { session?: { userId?: string } }, _res: unknown, next: () => void) => { req.session = { userId: 'u1' }; next(); },
 }));
 vi.mock('./gtdConfig.js', async (importOriginal) => {
   const actual = (await importOriginal()) as Record<string, unknown>;
@@ -160,6 +160,7 @@ describe('POST /api/gtd/folders/ensure — persist effective paths', () => {
     // watch is already saved as 'todo' (not just typed in the form this request), so its
     // stored configured name matches what the request ensures; a case-insensitive server
     // then returns INBOX.Todo for both 'Todo' and 'todo'.
+    if (!storedConfig) throw new Error('expected a stored config');
     storedConfig.folders = { watch: 'todo' };
     imapManager.ensureFolder.mockImplementation(async (_acct, folder) => ({
       path: folder.toLowerCase() === 'todo' ? 'INBOX.Todo' : `INBOX.${folder}`,
@@ -193,7 +194,7 @@ describe('POST /api/gtd/folders/ensure — persist effective paths', () => {
       someday: 'INBOX.Someday',
       reference: 'INBOX.Reference',
     });
-    expect(body.folders.todo).toBeUndefined();
+    expect((body.folders as Record<string, unknown>).todo).toBeUndefined();
     const upd = persistCall();
     expect(upd[2].folders).toEqual(body.folders);
     expect(invalidateGtdConfigCache).toHaveBeenCalledWith(ACCOUNT_ID);
