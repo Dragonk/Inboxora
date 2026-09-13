@@ -176,8 +176,8 @@ export function fromDateTimeLocal(value: unknown): string | null {
 }
 
 export function toggleAllDayTimes(form: CalendarEventForm, allDay: boolean): CalendarEventForm {
-  const toDate = value => String(value || '').slice(0, 10);
-  const toDateTime = value => {
+  const toDate = (value: unknown): string => String(value || '').slice(0, 10);
+  const toDateTime = (value: unknown): string => {
     const date = toDate(value);
     return date ? `${date}T00:00` : '';
   };
@@ -189,10 +189,10 @@ export function toggleAllDayTimes(form: CalendarEventForm, allDay: boolean): Cal
   };
 }
 
-export function eventPayload(form: CalendarEventForm): Record<string, unknown> {
-  const dateOnlyToIso = value => {
-    if (!/^\d{4}-\d{2}-\d{2}$/.test(value || '')) return null;
-    const [year, month, day] = value.split('-').map(Number);
+export function eventPayload(form: CalendarEventForm): Record<string, unknown> | null {
+  const dateOnlyToIso = (value: unknown): string | null => {
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(String(value || ''))) return null;
+    const [year, month, day] = String(value).split('-').map(Number);
     const date = new Date(Date.UTC(year, month - 1, day));
     if (date.getUTCFullYear() !== year || date.getUTCMonth() !== month - 1 || date.getUTCDate() !== day) return null;
     return date.toISOString();
@@ -206,11 +206,11 @@ export function eventPayload(form: CalendarEventForm): Record<string, unknown> {
   return {
     ...(form.recurrenceId ? { recurrenceId: form.recurrenceId } : {}),
     calendarId: form.calendarId,
-    summary: form.summary.trim(),
+    summary: String(form.summary ?? '').trim(),
     description: richTextOrNull(form.description),
-    location: form.location.trim() || null,
-    url: form.url.trim() || null,
-    organizer: form.organizer.trim() || null,
+    location: String(form.location ?? '').trim() || null,
+    url: String(form.url ?? '').trim() || null,
+    organizer: String(form.organizer ?? '').trim() || null,
     allDay: Boolean(form.allDay),
     timezone: Intl.DateTimeFormat().resolvedOptions().timeZone || null,
     startsAt,
@@ -225,7 +225,7 @@ export function eventsForDay(events: CalendarViewEvent[] | null | undefined, day
   const dayKey = [day.getFullYear(), String(day.getMonth() + 1).padStart(2, '0'), String(day.getDate()).padStart(2, '0')].join('-');
   const dayStart = new Date(day.getFullYear(), day.getMonth(), day.getDate());
   const dayEnd = new Date(dayStart); dayEnd.setDate(dayEnd.getDate() + 1);
-  return events.filter(event => {
+  return (events ?? []).filter(event => {
     if (event.all_day || event.allDay) {
       const start = String(event.starts_at ?? event.startsAt ?? '').slice(0, 10);
       const end = String(event.ends_at ?? event.endsAt ?? '').slice(0, 10);
@@ -318,7 +318,7 @@ function buildRangeMax(values: number[]) {
     table.push(row);
   }
   // `start` is inclusive, `end` exclusive.
-  return (start, end) => {
+  return (start: number, end: number): number => {
     if (start >= end) return 0;
     const level = logs[end - start];
     return Math.max(table[level][start], table[level][end - (1 << level)]);
@@ -360,9 +360,9 @@ function insertByStart(columnIntervals: Array<[number, number]>, interval: [numb
 // card. Both are computed without the nested scans the previous implementation
 // used, which made assigning columns cubic in the number of overlapping events.
 export function layoutTimedEvents(events: CalendarViewEvent[] | null | undefined, day: Date) {
-  const items = events.map(event => ({ event, geometry: eventGeometryForDay(event, day) })).filter(item => item.geometry);
+  const items = (events ?? []).map(event => ({ event, geometry: eventGeometryForDay(event, day) })).filter((item): item is { event: CalendarViewEvent; geometry: NonNullable<ReturnType<typeof eventGeometryForDay>> } => Boolean(item.geometry));
   if (!items.length) return [];
-  const columns = [];
+  const columns: Array<Array<[number, number]>> = [];
   const placed = items.map(item => {
     const { start, end } = item.geometry;
     let column = 0;
@@ -372,30 +372,34 @@ export function layoutTimedEvents(events: CalendarViewEvent[] | null | undefined
     return { ...item, column };
   });
   if (placed.length === 1) return placed.map(item => ({ ...item, columns: 1 }));
-  const boundaries = [...new Set<number>(placed.flatMap(item => [item.geometry.start, item.geometry.end]))].sort((left, right) => left - right);
-  const boundaryIndex = new Map(boundaries.map((value, index) => [value, index]));
+  const boundaries = [...new Set<number>(placed.flatMap(item => [item.geometry.start, item.geometry.end]))].sort((left: number, right: number) => left - right);
+  const boundaryIndex = new Map(boundaries.map((value, index) => [value, index] as const));
   // Concurrency is constant between adjacent boundaries, so a difference array
   // yields the peak overlap for every elementary interval in one pass.
-  const delta = new Array(boundaries.length).fill(0);
+  const delta = new Array<number>(boundaries.length).fill(0);
   for (const item of placed) {
-    delta[boundaryIndex.get(item.geometry.start)] += 1;
-    delta[boundaryIndex.get(item.geometry.end)] -= 1;
+    const startIndex = boundaryIndex.get(item.geometry.start);
+    const endIndex = boundaryIndex.get(item.geometry.end);
+    if (startIndex === undefined || endIndex === undefined) continue;
+    delta[startIndex] += 1;
+    delta[endIndex] -= 1;
   }
-  const concurrency = new Array(Math.max(0, boundaries.length - 1));
+  const concurrency = new Array<number>(Math.max(0, boundaries.length - 1));
   let running = 0;
   for (let index = 0; index < concurrency.length; index += 1) {
     running += delta[index];
     concurrency[index] = running;
   }
   const rangeMax = buildRangeMax(concurrency);
-  return placed.map(item => ({
-    ...item,
-    columns: Math.max(1, rangeMax(boundaryIndex.get(item.geometry.start), boundaryIndex.get(item.geometry.end))),
-  }));
+  return placed.map(item => {
+    const startIndex = boundaryIndex.get(item.geometry.start) ?? 0;
+    const endIndex = boundaryIndex.get(item.geometry.end) ?? startIndex;
+    return { ...item, columns: Math.max(1, rangeMax(startIndex, endIndex)) };
+  });
 }
 
 export function workHoursGeometry(start = '09:00', end = '17:00') {
-  const toMinutes = value => {
+  const toMinutes = (value: unknown): number => {
     const [hours, minutes] = String(value || '').split(':').map(Number);
     return (Number.isFinite(hours) ? hours : 9) * 60 + (Number.isFinite(minutes) ? minutes : 0);
   };
