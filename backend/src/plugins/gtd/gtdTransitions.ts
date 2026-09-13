@@ -10,7 +10,33 @@ import { resolveAllDraftsPaths, logger, getAccountAddresses, getThreadKeysForMes
 //   'other' → strip when that message is NOT from the owner       (Watch/Delegated: the
 //             ball is back in my court once they reply, so the waiting state clears)
 //   null    → never auto-strip                                    (Reference: manual only)
-const STRIP_RULE = {
+/** The mail-engine slice the transition engine uses. */
+export interface TransitionMailEngine {
+  broadcast(payload: unknown, userId?: string): void;
+  removeMessageCopy?(accountId: string, uid: number, folder: string): Promise<unknown>;
+  [key: string]: unknown;
+}
+
+/** The account row a transition run is scoped to. */
+interface TransitionAccount {
+  id: string;
+  user_id?: string;
+  folder_mappings?: Record<string, string> | null;
+  [key: string]: unknown;
+}
+
+/** One physical message copy row from the thread-key lookup. */
+interface TransitionRow {
+  uid: number;
+  folder: string;
+  thread_key?: string;
+  id?: string;
+  date?: string | Date | null;
+  from_email?: string | null;
+  [key: string]: unknown;
+}
+
+const STRIP_RULE: Record<string, 'self' | 'other' | null> = {
   todo: 'self',
   someday: 'self',
   watch: 'other',
@@ -37,7 +63,7 @@ export function invalidateOwnerAddressesCache(accountId: string) {
 
 // Reduce free-form address text to a bare lowercase addr-spec. Handles a stored
 // `Name <a@b>` display form and stray whitespace/casing; returns null for empties.
-function normalizeAddress(raw) {
+function normalizeAddress(raw: unknown): string | null {
   if (!raw) return null;
   let s = String(raw).trim();
   const angled = s.match(/<([^>]*)>/);
@@ -66,8 +92,8 @@ export async function getOwnerAddresses(accountId: string) {
 
 // Thin GTD-facing wrappers over the mail-access capabilities (kept as exports so the hooks and
 // tests that import them from here are unchanged).
-export const threadKeysForMessageIds = (accountId: string, ids) => _threadKeysForIds(accountId, ids);
-export const threadKeysInFolders = (accountId: string, folders) => _threadKeysInFolders(accountId, folders);
+export const threadKeysForMessageIds = (accountId: string, ids: string[]) => _threadKeysForIds(accountId, ids);
+export const threadKeysInFolders = (accountId: string, folders: string[]) => _threadKeysInFolders(accountId, folders);
 
 // ── Transition engine ────────────────────────────────────────────────────────
 // Apply the GTD Labeler rules to a set of threads for one account.
@@ -87,7 +113,7 @@ export const threadKeysInFolders = (accountId: string, folders) => _threadKeysIn
 //
 // imapManager is injected (the hooks pass `this`) so the DB-touching logic stays unit-
 // testable without standing up a live IMAP pool.
-export async function runGtdTransitions(imapManager, account, threadKeys) {
+export async function runGtdTransitions(imapManager: TransitionMailEngine, account: TransitionAccount, threadKeys: string[] | null | undefined): Promise<void> {
   const keys = [...new Set(threadKeys || [])];
   if (keys.length === 0) return;
 
@@ -103,7 +129,7 @@ export async function runGtdTransitions(imapManager, account, threadKeys) {
   // stripped), so no whole-run early-return is warranted; the tradeoff is that if every state
   // were ever blanked, this run would still issue its draft/owner/rows lookups before finding
   // nothing to strip — cheap, and still correct (it never strips anything wrongly).
-  const stateFolder = {};
+  const stateFolder: Record<string, string> = {};
   for (const state of Object.keys(STRIP_RULE)) {
     if (folders[state]) stateFolder[state] = folders[state];
   }
@@ -113,23 +139,25 @@ export async function runGtdTransitions(imapManager, account, threadKeys) {
 
   const rows = await getMessagesByThreadKeys(account.id, keys);
 
-  const byThread = new Map();
+  const byThread = new Map<string, TransitionRow[]>();
   for (const row of rows) {
-    if (!byThread.has(row.thread_key)) byThread.set(row.thread_key, []);
-    byThread.get(row.thread_key).push(row);
+    const key = String(row.thread_key);
+    const bucket = byThread.get(key);
+    if (bucket) bucket.push(row);
+    else byThread.set(key, [row]);
   }
 
   let anyStripped = false;
 
   for (const [, threadRows] of byThread) {
-    const nonDraft = threadRows.filter((r) => !draftPaths.has(r.folder));
+    const nonDraft = threadRows.filter((r: TransitionRow) => !draftPaths.has(r.folder));
     if (nonDraft.length === 0) continue;
 
     // Newest non-draft message wins; ties break by id (matches the sections head order),
     // though a tie is always between sibling copies of one message so it cannot flip self.
     let newest = nonDraft[0];
     for (const r of nonDraft) {
-      const diff = new Date(r.date).getTime() - new Date(newest.date).getTime();
+      const diff = new Date(r.date ?? 0).getTime() - new Date(newest.date ?? 0).getTime();
       if (diff > 0 || (diff === 0 && String(r.id) > String(newest.id))) newest = r;
     }
     const isSelf = owner.has(normalizeAddress(newest.from_email));
@@ -139,15 +167,15 @@ export async function runGtdTransitions(imapManager, account, threadKeys) {
       const shouldStrip = rule === 'self' ? isSelf : rule === 'other' ? !isSelf : false;
       if (!shouldStrip) continue;
 
-      for (const copy of threadRows.filter((r) => r.folder === folder)) {
+      for (const copy of threadRows.filter((r: TransitionRow) => r.folder === folder)) {
         anyStripped = true;
         try {
-          await imapManager.removeMessageCopy(account.id, copy.uid, copy.folder);
+          await imapManager.removeMessageCopy?.(account.id, copy.uid, copy.folder);
         } catch (err) {
           // An external automation may strip the same label concurrently, so the copy
           // can already be gone on the server. Treat a failed removal as a successful
           // strip and move on; the stale DB row reconciles on the next sync.
-          logger.debug(`gtdTransitions: tolerated removeMessageCopy failure uid=${copy.uid} ${copy.folder}: ${err.message}`);
+          logger.debug(`gtdTransitions: tolerated removeMessageCopy failure uid=${copy.uid} ${copy.folder}: ${err instanceof Error ? err.message : String(err)}`);
         }
       }
     }
@@ -170,7 +198,7 @@ export async function runGtdTransitions(imapManager, account, threadKeys) {
 // synced yet) resolves to an empty key set, which runGtdTransitions treats as a no-op — a
 // later post-send sync attempt (or, on Gmail, the next tick) retries. Errors propagate to the
 // caller, which swallows them (a missed strip self-heals on the next inbound sync / tick).
-export async function runTransitionsForSentMessage(imapManager, account, messageId: string) {
+export async function runTransitionsForSentMessage(imapManager: TransitionMailEngine, account: TransitionAccount, messageId: string): Promise<void> {
   if (!account?.id || !messageId) return;
   if (!(await getGtdConfig(account.id)).enabled) return;
   const bare = String(messageId).replace(/[<>]/g, '').trim();

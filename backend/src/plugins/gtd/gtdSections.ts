@@ -8,9 +8,41 @@ export const WAITING_STATES = ['watch', 'delegated'];
 const DEFAULT_LIMIT = 8;
 const MAX_LIMIT = 50;
 
+/** One row of the GTD section query (with its per-thread aggregates). */
+interface GtdSectionRow {
+  id: string;
+  state: string;
+  account_id?: string;
+  message_id?: string | null;
+  thread_key?: string;
+  subject?: string | null;
+  from_name?: string | null;
+  from_email?: string | null;
+  date?: string | number | Date | null;
+  snippet?: string | null;
+  thread_unread?: unknown;
+  is_starred?: unknown;
+  uid?: number;
+  folder?: string;
+  folders?: string[];
+  in_inbox?: unknown;
+  gist?: unknown;
+  total?: number;
+  unread?: number;
+  waiting_total?: unknown;
+  waiting_unread?: unknown;
+  [key: string]: unknown;
+}
+
+/** The mail-engine slice the sections emitter uses. */
+interface GtdSectionsMailEngine {
+  broadcast?(payload: unknown, userId?: string): void;
+  [key: string]: unknown;
+}
+
 export interface GtdThreadSummary {
   id?: string;
-  message_id?: string;
+  message_id?: string | null;
   date?: string | number | Date | null;
   in_inbox?: boolean;
   folders?: string[];
@@ -33,7 +65,7 @@ function emptySections(): Record<string, GtdSectionSummary> {
   return s;
 }
 
-function mapHead(row) {
+function mapHead(row: GtdSectionRow): GtdThreadSummary {
   return {
     id: row.id,
     account_id: row.account_id,
@@ -66,6 +98,7 @@ function mapHead(row) {
 // or disabled accountId simply resolves to no targets and yields empty sections.
 export async function getGtdSections({ userId, accountId = null, limit }: { userId?: string; accountId?: string | null; limit?: number } = {}): Promise<GtdSectionsResult> {
   const safeLimit = Math.min(Math.max(Number(limit) || DEFAULT_LIMIT, 1), MAX_LIMIT);
+  if (!userId) return { sections: { ...emptySections(), waiting: { total: 0, unread: 0 } } };
 
   // The user's enabled accounts; the per-account GTD gate (gtd active for the account) is applied
   // per account below via getGtdConfig, so accounts where GTD is off simply contribute nothing.
@@ -93,12 +126,12 @@ export async function getGtdSections({ userId, accountId = null, limit }: { user
 
     // The labels-read capability is generic (no GTD columns); merge GTD's own per-message gist
     // (stored in the message's plugin annotations) onto each head so mapHead can surface it.
-    const gists = await getMessageAnnotations(acct.id, rows.map(r => r.id), 'gtd');
+    const gists = (await getMessageAnnotations(acct.id, rows.map(r => r.id), 'gtd')) as Record<string, { gist?: unknown } | undefined>;
     for (const row of rows) row.gist = gists[row.id]?.gist ?? null;
 
     // Fold this account's rows in. total/unread are constant within a state, so add
     // each state's figure exactly once (from its first row) rather than per head.
-    const seenState = new Set();
+    const seenState = new Set<string>();
     for (const row of rows) {
       const sec = sections[row.state];
       if (!sec) continue;
@@ -107,7 +140,7 @@ export async function getGtdSections({ userId, accountId = null, limit }: { user
         sec.unread += row.unread;
         seenState.add(row.state);
       }
-      sec.threads.push(mapHead(row));
+      (sec.threads ??= []).push(mapHead(row));
     }
     // waiting_total/unread are constant across the account's rows — add once.
     if (rows.length) {
@@ -120,12 +153,13 @@ export async function getGtdSections({ userId, accountId = null, limit }: { user
   // (the same mail delivered to two accounts collapses to one head), cap to the limit.
   for (const st of GTD_STATES) {
     const sec = sections[st];
-    sec.threads.sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
-    const seen = new Set();
-    sec.threads = sec.threads
-      .filter(h => {
-        const key = h.message_id || h.id;
-        if (seen.has(key)) return false;
+    const threads = sec.threads ?? [];
+    threads.sort((a, b) => new Date(b.date ?? 0).getTime() - new Date(a.date ?? 0).getTime());
+    const seen = new Set<string>();
+    sec.threads = threads
+      .filter((h: GtdThreadSummary) => {
+        const key = String(h.message_id || h.id || '');
+        if (!key || seen.has(key)) return false;
         seen.add(key);
         return true;
       })
@@ -155,7 +189,7 @@ export async function getGtdSections({ userId, accountId = null, limit }: { user
 // cached). One broadcast per call regardless of how many messages qualified. imapManager
 // is injected (like the transition engine) so this stays unit-testable without a live
 // socket server.
-export async function emitGtdIfRelevant(imapManager, accountId: string | null | undefined, userId: string | null | undefined, messageIds?: Array<string | number> | null, actedFolders: string[] | null = null) {
+export async function emitGtdIfRelevant(imapManager: GtdSectionsMailEngine, accountId: string | null | undefined, userId: string | null | undefined, messageIds?: Array<string | number> | null, actedFolders: string[] | null = null) {
   if (!accountId || !userId) return;
   const ids = [...new Set((messageIds || []).filter(Boolean))];
   if (!ids.length) return; // short-circuit before touching config (no getGtdConfig on an empty batch)

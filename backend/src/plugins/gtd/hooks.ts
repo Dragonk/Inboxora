@@ -10,6 +10,7 @@
 // transient DB blip degrades to "nothing contributed" rather than a noisy rejection.
 import { getGtdFolderSet, getGtdConfig, gtdTickFolders, sanitizeGtdFoldersDetailed, findGtdFolderCollisions, DEFAULT_GTD_FOLDERS, invalidateGtdConfigCache } from './gtdConfig.js';
 import { runGtdTransitions, threadKeysForMessageIds, threadKeysInFolders, runTransitionsForSentMessage, invalidateOwnerAddressesCache } from './gtdTransitions.js';
+import type { TransitionMailEngine } from './gtdTransitions.js';
 import { emitGtdIfRelevant } from './gtdSections.js';
 import { deleteUserPet } from './gtdPet.js';
 import { logger, getThreadKeyForUid, listUserAccounts, getAccountConfig, setAccountConfig } from '../api.js';
@@ -208,7 +209,7 @@ export async function afterLabelRemove({ mgr, account }: { mgr: GtdMailEngine; a
 // and delegates the relevance check + scoped broadcast to core's notifyOnLabelTouch. The route
 // fires this per affected account; the hook swallows per-plugin errors so a completed mutation is
 // never turned into a 500.
-export async function onMailMutation({ imapManager, accountId, userId, messageIds, actedFolders }: { imapManager: unknown; accountId: string; userId: string; messageIds: Array<string | number>; actedFolders: string[] | null }): Promise<void> {
+export async function onMailMutation({ imapManager, accountId, userId, messageIds, actedFolders }: { imapManager: TransitionMailEngine; accountId: string; userId: string; messageIds: Array<string | number>; actedFolders: string[] | null }): Promise<void> {
   await emitGtdIfRelevant(imapManager, accountId, userId, messageIds, actedFolders);
 }
 
@@ -216,7 +217,7 @@ export async function onMailMutation({ imapManager, accountId, userId, messageId
 // transitions for its thread — a reply to a Todo/Someday thread means the owner acted, so that
 // label should drop. Self-gates on gtd_enabled inside runTransitionsForSentMessage; a Sent copy
 // that hasn't synced yet resolves to an empty thread set (no-op) and a later attempt retries.
-export async function onSentMessage({ imapManager, account, messageId }: { imapManager: unknown; account: GtdAccount; messageId: string }): Promise<void> {
+export async function onSentMessage({ imapManager, account, messageId }: { imapManager: TransitionMailEngine; account: GtdAccount; messageId: string }): Promise<void> {
   await runTransitionsForSentMessage(imapManager, account, messageId);
 }
 
