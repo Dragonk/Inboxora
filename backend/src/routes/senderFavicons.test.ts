@@ -106,7 +106,7 @@ describe('sender favicon router authentication boundary', () => {
       expect(res.status).toBe(401);
       expect(res.headers.get('cache-control')).toBe('private, no-store');
     } finally {
-      await new Promise((resolve, reject) => {
+      await new Promise<void>((resolve, reject) => {
         server.close(error => error ? reject(error) : resolve());
       });
     }

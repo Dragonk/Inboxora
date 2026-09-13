@@ -1,4 +1,3 @@
-// @ts-nocheck
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 
 vi.mock('./db.js', () => ({ query: vi.fn() }));

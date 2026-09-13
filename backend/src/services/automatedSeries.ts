@@ -1,11 +1,10 @@
-// @ts-nocheck
 import { createHash } from 'crypto';
 
 const WINDOW_MS = 72 * 60 * 60 * 1000;
 const MAX_SEGMENT = 100;
 const GENERIC_SUBJECTS = new Set(['test', 'hello', 'hi', 'question', 'invoice', 'faktura', 'oferta', 'informacja', 'notification', 'powiadomienie', 'no subject', 'brak tematu']);
 
-export function automationSignals(message = {}) {
+export function automationSignals(message: any = {}) {
   const headers = message.headers || message.parsedHeaders || {};
   const autoSubmitted = String(headers['auto-submitted'] || '').toLowerCase();
   const precedence = String(headers.precedence || '').toLowerCase();

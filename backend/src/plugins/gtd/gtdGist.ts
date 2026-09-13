@@ -1,4 +1,3 @@
-// @ts-nocheck
 import { summarizeMessage, summarizeAvailable, getMessageFields, getMessageAnnotations, setMessageAnnotation } from '../api.js';
 
 // AI-condensed one-line gist for GTD "waiting" entries. The client shows the raw
@@ -74,7 +73,7 @@ async function generateForAccount(accountId, ids) {
       subject: row.subject,
       from: row.from_name || row.from_email,
       content: row.content,
-    });
+    } as any);
     if (!gist) return;
     // Store under GTD's annotation namespace on the message (cleaned with the message on delete).
     const n = await setMessageAnnotation(accountId, row.id, 'gtd', { gist });
@@ -86,7 +85,7 @@ async function generateForAccount(accountId, ids) {
 // Lazily generate gists for the waiting heads in a sections payload. Fire-and-forget
 // from the sections route — never blocks the response. Short-circuits (no queries)
 // when there are no candidates or no provider is configured.
-export async function queueGistGeneration({ sections, userId, broadcast } = {}) {
+export async function queueGistGeneration({ sections, userId, broadcast }: { sections?: any; userId?: any; broadcast?: any } = {}) {
   const candidates = selectGistCandidates(sections).filter(c => !_inFlight.has(c.id));
   if (!candidates.length) return;
 

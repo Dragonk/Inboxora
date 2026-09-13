@@ -1,4 +1,3 @@
-// @ts-nocheck
 // Real PostgreSQL tests for materialised calendar occurrences.
 //
 // These exist because materialisation introduces a second representation of the same data,
@@ -32,7 +31,7 @@ const vcalendar = (body, exceptions = []) =>
   ['BEGIN:VCALENDAR', 'VERSION:2.0', 'PRODID:-//test//EN', 'BEGIN:VEVENT', 'UID:CASE', ...body, 'END:VEVENT', ...exceptions, 'END:VCALENDAR'].join(CRLF);
 
 // Every shape where a stored occurrence could plausibly drift from a live expansion.
-const CASES = {
+const CASES: Record<string, any> = {
   plain: ['DTSTART;TZID=Europe/Warsaw:20260105T090000', 'DTEND;TZID=Europe/Warsaw:20260105T100000', 'RRULE:FREQ=DAILY;COUNT=20', 'SUMMARY:Plain'],
   exdate: ['DTSTART;TZID=Europe/Warsaw:20260105T090000', 'DTEND;TZID=Europe/Warsaw:20260105T100000', 'RRULE:FREQ=DAILY;COUNT=20', 'EXDATE;TZID=Europe/Warsaw:20260107T090000', 'SUMMARY:Exdate'],
   allday: ['DTSTART;VALUE=DATE:20260105', 'DTEND;VALUE=DATE:20260106', 'RRULE:FREQ=WEEKLY;COUNT=6', 'SUMMARY:Allday'],
@@ -58,7 +57,7 @@ const WINDOW = { from: new Date('2026-01-01T00:00:00Z'), to: new Date('2026-12-0
 const BUILT = { from: new Date('2026-01-01T00:00:00Z'), to: new Date('2027-01-01T00:00:00Z') };
 
 // Only the fields the expansion consumes; the rest of the row is irrelevant to correctness.
-function eventRow(raw, overrides = {}) {
+function eventRow(raw, overrides: any = {}) {
   return {
     id: overrides.id, uid: 'CASE', raw_ical: raw, summary: overrides.summary ?? null,
     description: null, location: null, url: null, organizer: null, attendees: null,

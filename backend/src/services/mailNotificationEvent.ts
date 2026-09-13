@@ -1,4 +1,3 @@
-// @ts-nocheck
 // Canonical "Inboxora received a new message" notification event.
 //
 // Every notification channel (browser Web Push, native Android push) is derived
@@ -19,13 +18,13 @@ export function buildMailNotificationEvent({
   alertCount = 1,
   unreadCount,
   icon = '/inboxora-envelope-512.png',
-} = {}) {
+}: { userId?: any; message?: any; alertCount?: number; unreadCount?: any; icon?: string } = {}) {
   const eventId = typeof message?.id === 'string' && message.id ? message.id : null;
   const count = Number.isFinite(alertCount) && alertCount > 0 ? alertCount : 1;
   const title = message?.fromName || message?.fromEmail || 'New mail';
   const body = count === 1 ? (message?.subject || '(no subject)') : `${count} new messages`;
 
-  const webPush = { title, body, icon, url: eventId ? `/?m=${eventId}` : '/' };
+  const webPush: any = { title, body, icon, url: eventId ? `/?m=${eventId}` : '/' };
   if (unreadCount != null) webPush.unreadCount = unreadCount;
 
   return {

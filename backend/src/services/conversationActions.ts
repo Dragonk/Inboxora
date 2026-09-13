@@ -257,11 +257,11 @@ export async function applyConversationAction({
   copyId = null,
   logicalMessageId = null,
   action,
-  isRead,
-  isStarred,
-  targetFolder,
+  isRead = undefined,
+  isStarred = undefined,
+  targetFolder = undefined,
   imapManager = null,
-}) {
+}: { userId?: any; conversationId?: any; scope?: string; copyId?: any; logicalMessageId?: any; action: any; isRead?: any; isStarred?: any; targetFolder?: any; imapManager?: any }) {
   if (!userId) throw Object.assign(new Error('userId is required'), { statusCode: 400 });
   if (!conversationId) throw Object.assign(new Error('conversationId is required'), { statusCode: 400 });
   assertScope(scope);

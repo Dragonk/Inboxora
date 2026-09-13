@@ -1,4 +1,3 @@
-// @ts-nocheck
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import {
   AI_PROVIDER_API_KEY,
@@ -17,7 +16,7 @@ function jsonResponse(body, status = 200) {
   });
 }
 
-function sseResponse(chunks, { status = 200, close = true, onCancel } = {}) {
+function sseResponse(chunks, { status = 200, close = true, onCancel }: any = {}) {
   return new Response(new ReadableStream({
     start(controller) {
       chunks.forEach((chunk) => controller.enqueue(encoder.encode(chunk)));
@@ -50,7 +49,7 @@ function memorySettings(initial) {
   return { queryFn, read: () => stored == null ? null : JSON.parse(stored) };
 }
 
-function factory({ initial, ...overrides } = {}) {
+function factory({ initial, ...overrides }: any = {}) {
   const settings = memorySettings(initial);
   const deps = {
     queryFn: settings.queryFn,

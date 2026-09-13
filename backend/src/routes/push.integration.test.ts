@@ -39,7 +39,7 @@ describe.skipIf(!enabled)('push device registry with PostgreSQL', () => {
     app.use('/api/push', (req, _res, next) => { req.session = { userId: sessions.userId }; next(); });
     app.use('/api/push', pushRouter);
     await new Promise((resolve) => { server = app.listen(0, '127.0.0.1', resolve); });
-    base = `http://127.0.0.1:${server.address().port}`;
+    base = `http://127.0.0.1:${(server.address() as any).port}`;
   });
 
   afterAll(async () => {
@@ -98,7 +98,7 @@ describe.skipIf(!enabled)('push device registry with PostgreSQL', () => {
     const otherDevice = await register('other-device');
 
     // The other user cannot see the owner's device in their list.
-    const list = await (await fetch(`${base}/api/push/devices`)).json();
+    const list: any = await (await fetch(`${base}/api/push/devices`)).json();
     expect(list.devices.map((device) => device.deviceId)).not.toContain('owner-device');
 
     // ... nor delete it by id.

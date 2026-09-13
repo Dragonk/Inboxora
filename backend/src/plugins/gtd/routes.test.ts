@@ -1,4 +1,3 @@
-// @ts-nocheck
 import { describe, it, expect, vi } from 'vitest';
 
 // gtd.js registers auth middleware and pulls imapManager from the app entrypoint

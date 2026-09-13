@@ -1,4 +1,3 @@
-// @ts-nocheck
 // Real PostgreSQL copy-scope verification for CE actions.
 // Exercises the production conversationActions service, then verifies rows and
 // aggregates directly in PostgreSQL.

@@ -1,4 +1,3 @@
-// @ts-nocheck
 import { Router } from 'express';
 import { requireAuth } from '../api.js';
 import { getGtdSections } from './gtdSections.js';
@@ -36,7 +35,7 @@ export function classifyTarget({ enabled, folders, state }) {
 //     labels are skipped, never an error; a thread with none resolves to { folders: [] } so
 //     the route degrades to mark-read + archive.
 // Returns { folders } to proceed, or { status, error } to reject. Pure — exported for tests.
-export function resolveDoneFolders({ enabled, folders, states, existing }) {
+export function resolveDoneFolders({ enabled, folders, states, existing = undefined }: { enabled?: any; folders?: any; states?: any; existing?: any } = {}) {
   if (!enabled) return { status: 400, error: 'GTD is not enabled for this account' };
   if (states === 'all') {
     const present = new Set(Array.isArray(existing) ? existing : []);
@@ -63,7 +62,7 @@ export function resolveDoneFolders({ enabled, folders, states, existing }) {
 // to that owned account. Ownership + gtd_enabled filtering happen in the service.
 // (Router is mounted at /api/gtd, so the paths here omit the gtd/ prefix.)
 router.get('/sections', async (req, res) => {
-  const { accountId, limit } = req.query;
+  const { accountId, limit } = req.query as any;
   if (accountId && !UUID_RE.test(accountId)) return res.status(400).json({ error: 'Invalid account id' });
   const result = await getGtdSections({
     userId: req.session.userId,

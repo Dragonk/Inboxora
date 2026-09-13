@@ -230,10 +230,10 @@ describe('createPinnedLookup', () => {
     const server = createServer(socket => socket.end());
     await new Promise(resolve => server.listen(0, '127.0.0.1', resolve));
     try {
-      const socket = await new Promise((resolve, reject) => {
+      const socket: any = await new Promise((resolve, reject) => {
         const candidate = connect({
           host: 'mail.example.com',
-          port: server.address().port,
+          port: (server.address() as any).port,
           lookup: createPinnedLookup(['127.0.0.2', '127.0.0.1']),
           autoSelectFamily: true,
           autoSelectFamilyAttemptTimeout: 10,

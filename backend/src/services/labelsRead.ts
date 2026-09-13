@@ -108,7 +108,7 @@ export async function listThreadHeadsByLabels(accountId, { labels, labelFolders,
 // type; the plugin never names another user — the broadcast is scoped to `userId`. imapManager
 // is injected so this stays unit-testable without a live socket server. Returns whether it
 // broadcast.
-export async function notifyOnLabelTouch(imapManager, { accountId, userId, messageIds, actedFolders, labelFolders, event }) {
+export async function notifyOnLabelTouch(imapManager, { accountId, userId, messageIds, actedFolders = undefined, labelFolders, event }: { accountId?: any; userId?: any; messageIds?: any; actedFolders?: any; labelFolders?: any; event?: any }) {
   if (!accountId || !userId || !event) return false;
   const ids = [...new Set((messageIds || []).filter(Boolean))];
   if (!ids.length) return false;

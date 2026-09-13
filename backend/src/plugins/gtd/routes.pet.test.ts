@@ -1,4 +1,3 @@
-// @ts-nocheck
 import { describe, it, expect, vi, beforeEach, beforeAll, afterAll } from 'vitest';
 
 // GET /api/gtd/pet/:slug/{meta,sheet} ownership scoping (see petRowReadable in gtd.js):
@@ -21,7 +20,7 @@ vi.mock('../../index.js', () => ({ imapManager: { broadcast: vi.fn() } }));
 // scoping tests + the import route's decode step) so the tests below can drive the route's
 // error-code → status mapping in isolation.
 vi.mock('./gtdPet.js', async (importOriginal) => {
-  const actual = await importOriginal();
+  const actual: any = await importOriginal();
   return { ...actual, importPet: vi.fn() };
 });
 
@@ -110,7 +109,7 @@ describe('GET /api/gtd/pet/:slug/{meta,sheet} — custom pet ownership scoping',
   it('lets the owner read their own custom pet meta + sheet', async () => {
     const metaRes = await petMeta(OWNER_SLUG, OWNER_ID);
     expect(metaRes.status).toBe(200);
-    expect(await metaRes.json()).toEqual({ slug: OWNER_SLUG, displayName: 'My Pet', descriptor: { cols: 8 } });
+    expect((await metaRes.json()) as any).toEqual({ slug: OWNER_SLUG, displayName: 'My Pet', descriptor: { cols: 8 } });
 
     const sheetRes = await petSheet(OWNER_SLUG, OWNER_ID);
     expect(sheetRes.status).toBe(200);
@@ -120,7 +119,7 @@ describe('GET /api/gtd/pet/:slug/{meta,sheet} — custom pet ownership scoping',
   it("404s a different authenticated user reading someone else's custom pet (never 403 — no existence leak)", async () => {
     const metaRes = await petMeta(OWNER_SLUG, OTHER_ID);
     expect(metaRes.status).toBe(404);
-    expect((await metaRes.json()).error).toMatch(/not found/i);
+    expect(((await metaRes.json()) as any).error).toMatch(/not found/i);
 
     const sheetRes = await petSheet(OWNER_SLUG, OTHER_ID);
     expect(sheetRes.status).toBe(404);
@@ -129,7 +128,7 @@ describe('GET /api/gtd/pet/:slug/{meta,sheet} — custom pet ownership scoping',
   it('keeps a public pet whose slug merely starts with custom- readable by anyone (provenance beats slug shape)', async () => {
     const metaRes = await petMeta('custom-cat', OTHER_ID);
     expect(metaRes.status).toBe(200);
-    expect((await metaRes.json()).slug).toBe('custom-cat');
+    expect(((await metaRes.json()) as any).slug).toBe('custom-cat');
 
     const sheetRes = await petSheet('custom-cat', OTHER_ID);
     expect(sheetRes.status).toBe(200);
@@ -137,13 +136,13 @@ describe('GET /api/gtd/pet/:slug/{meta,sheet} — custom pet ownership scoping',
 
   it('never leaks the is_custom flag in the meta response', async () => {
     const metaRes = await petMeta(OWNER_SLUG, OWNER_ID);
-    expect(Object.keys(await metaRes.json()).sort()).toEqual(['descriptor', 'displayName', 'slug']);
+    expect(Object.keys((await metaRes.json()) as any).sort()).toEqual(['descriptor', 'displayName', 'slug']);
   });
 
   it('keeps built-in pet slugs readable by any authenticated user, unchanged', async () => {
     const metaRes = await petMeta('steve-jobs', OTHER_ID);
     expect(metaRes.status).toBe(200);
-    expect((await metaRes.json()).slug).toBe('steve-jobs');
+    expect(((await metaRes.json()) as any).slug).toBe('steve-jobs');
 
     const sheetRes = await petSheet('steve-jobs', OWNER_ID);
     expect(sheetRes.status).toBe(200);

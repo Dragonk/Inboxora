@@ -1,4 +1,3 @@
-// @ts-nocheck
 import { describe, it, expect, vi, beforeEach, afterEach, beforeAll, afterAll } from 'vitest';
 
 // Alias CRUD is exercised through the mounted accounts router so these tests cover the
@@ -77,7 +76,7 @@ function buildApp() {
   return app;
 }
 
-function request(method, path, body) {
+function request(method, path, body = undefined) {
   return fetch(`${base}/api/accounts/${path}`, {
     method,
     headers: body ? { 'Content-Type': 'application/json' } : undefined,
