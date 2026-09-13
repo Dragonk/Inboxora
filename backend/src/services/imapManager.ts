@@ -5520,8 +5520,8 @@ export class ImapManager {
     `);
   }
 
-  broadcast(data, userId = null) {
-    recordBroadcast(data?.type);
+  broadcast(data: unknown, userId: string | null = null): void {
+    recordBroadcast((data as { type?: string } | null)?.type);
     const msg = JSON.stringify(data);
     this.wss.clients.forEach(ws => {
       if (ws.readyState === 1 && (!userId || ws.userId === userId)) {

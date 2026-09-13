@@ -27,7 +27,11 @@ function buildApp() {
 }
 const tick = () => new Promise(r => setTimeout(r, 20));
 const clearedDb = () => query.mock.calls.some(([sql]) => sql.includes('DELETE FROM messages WHERE account_id = $1 AND folder = $2'));
-const emittedType = (type) => imapManager.broadcast.mock.calls.find(c => c[0]?.type === type)?.[0];
+interface EmittedPayload { type?: string; ok?: boolean }
+
+const emittedType = (type: string): EmittedPayload | undefined => imapManager.broadcast.mock.calls
+  .map((call) => call[0] as EmittedPayload)
+  .find((payload) => payload?.type === type);
 
 describe('POST /api/mail/folders/empty — async background empty', () => {
   let server, base;
