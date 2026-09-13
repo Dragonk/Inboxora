@@ -18,13 +18,20 @@ export function startsWithReplyMarker(value: unknown = ''): boolean {
   return normalizedLines(value).slice(0, 4).some(line => REPLY_MARKER_RE.test(line));
 }
 
-function uniqueTopLevel(elements: Element[]) {
+/** Labels and callback for one quote expander. */
+interface QuoteToggleOptions {
+  showLabel: string;
+  hideLabel: string;
+  onChange: () => void;
+}
+
+function uniqueTopLevel<T extends Element>(elements: T[]): T[] {
   const ordered = [...new Set(elements)].filter(Boolean);
   return ordered.filter(element => !ordered.some(other => other !== element && other.contains(element)));
 }
 
-function quoteElements(doc: Document): Element[] {
-  const explicit = [...doc.querySelectorAll([
+function quoteElements(doc: Document): HTMLElement[] {
+  const explicit = [...doc.querySelectorAll<HTMLElement>([
     '.gmail_quote',
     '.gmail_quote_container',
     '.moz-quote-container',
@@ -33,17 +40,17 @@ function quoteElements(doc: Document): Element[] {
     '#divRplyFwdMsg',
     '.OutlookMessageHeader',
   ].join(','))];
-  const markedBlockquotes = [...doc.querySelectorAll('blockquote')]
+  const markedBlockquotes = [...doc.querySelectorAll<HTMLElement>('blockquote')]
     .filter(element => startsWithReplyMarker(element.textContent));
   return [...new Set([...explicit, ...markedBlockquotes])];
 }
 
-function protectedForwardRoots(doc) {
-  return [...doc.querySelectorAll('.gmail_quote, .gmail_quote_container, .moz-forward-container, blockquote, div')]
+function protectedForwardRoots(doc: Document): HTMLElement[] {
+  return [...doc.querySelectorAll<HTMLElement>('.gmail_quote, .gmail_quote_container, .moz-forward-container, blockquote, div')]
     .filter(element => startsWithForwardMarker(element.textContent));
 }
 
-function candidateGroups(doc, protectedForwards) {
+function candidateGroups(doc: Document, protectedForwards: HTMLElement[]): HTMLElement[][] {
   const protectedSet = new Set(protectedForwards);
   // A forwarded envelope remains visible, but quote candidates nested inside it are
   // still eligible. Filtering forward roots before top-level de-duplication is what
@@ -67,7 +74,7 @@ function candidateGroups(doc, protectedForwards) {
   return groups;
 }
 
-function structuralQuoteRoots(doc, protectedSet, explicitElements = []) {
+function structuralQuoteRoots(doc: Document, protectedSet: Set<Element>, explicitElements: HTMLElement[] = []): HTMLElement[] {
   const roots = [];
   const seen = new Set();
   const topLevel = [...(doc.body?.children || [])];
@@ -95,7 +102,7 @@ function structuralQuoteRoots(doc, protectedSet, explicitElements = []) {
   return roots;
 }
 
-function elementStartsWithReplyMarker(element) {
+function elementStartsWithReplyMarker(element: Element): boolean {
   // Check the element's own visible text first (for <p>On ... wrote:</p> at top level).
   if (startsWithReplyMarker(element.textContent || '')) return true;
   // Then check descendant block elements (for <div><p>On ... wrote:</p>...</div>).
@@ -107,7 +114,7 @@ function elementStartsWithReplyMarker(element) {
   return false;
 }
 
-function createToggle(doc, id, showLabel, hideLabel, onChange) {
+function createToggle(doc: Document, id: string, showLabel: string, hideLabel: string, onChange: () => void): HTMLElement {
   const button = doc.createElement('button');
   button.type = 'button';
   button.className = 'mailflow-quote-toggle';
@@ -129,7 +136,7 @@ function createToggle(doc, id, showLabel, hideLabel, onChange) {
   return button;
 }
 
-function installGroup(doc, elements, index, options) {
+function installGroup(doc: Document, elements: HTMLElement[], index: number, options: QuoteToggleOptions): void {
   if (!elements.length) return;
   const id = `mailflow-quote-${index}`;
   // One toggle before the first element; all elements share the same group ID so
@@ -142,7 +149,7 @@ function installGroup(doc, elements, index, options) {
   elements[0].parentNode?.insertBefore(createToggle(doc, id, options.showLabel, options.hideLabel, options.onChange), elements[0]);
 }
 
-export function plainTextBoundary(text) {
+export function plainTextBoundary(text: unknown): number {
   const lines = String(text).replace(/\r\n?/g, '\n').split('\n');
   let offset = 0;
   for (let index = 0; index < lines.length; index += 1) {
@@ -158,7 +165,7 @@ export function plainTextBoundary(text) {
   return -1;
 }
 
-function installPlainTextGroup(doc, pre, options) {
+function installPlainTextGroup(doc: Document, pre: Element, options: QuoteToggleOptions): boolean {
   const text = pre.textContent || '';
   const boundary = plainTextBoundary(text);
   if (boundary < 0) return false;
@@ -179,7 +186,7 @@ export function installMessageQuoteFolding(doc, {
   showLabel = 'Show quoted text',
   hideLabel = 'Hide quoted text',
   onChange = null,
-} = {}) {
+}: { showLabel?: string; hideLabel?: string; onChange?: (() => void) | null } = {}) {
   if (!doc?.body) return { count: 0, protectedForwardCount: 0 };
   const plainText = doc.querySelector('[data-mailflow-plain-text="true"]');
   if (plainText) {

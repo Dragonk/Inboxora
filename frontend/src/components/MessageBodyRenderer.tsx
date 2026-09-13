@@ -24,7 +24,26 @@ import { getEmailSurface } from '../themes.ts';
  * CSS external URLs are blocked by CSP + regex sanitization.
  * iframe/object/embed/form are stripped by DOMPurify FORBID_TAGS.
  */
-export default function MessageBodyRenderer({ html = '', text = '', remoteImages = false, quoteFolding = true, onQuoteDetected = null, onHeightChange = null, onInitialLayoutReady = null, iframeRef: externalIframeRef = null, onLoad = null, title = 'Message body', showQuotedTextLabel = 'Show quoted text', hideQuotedTextLabel = 'Hide quoted text', style: frameStyle = null, onContextMenu = null }) {
+/** The props of the sandboxed message-body frame. */
+interface MessageBodyRendererProps {
+  html?: string;
+  text?: string;
+  remoteImages?: boolean;
+  quoteFolding?: boolean;
+  onQuoteDetected?: ((detected: boolean) => void) | null;
+  onHeightChange?: ((height: number) => void) | null;
+  onInitialLayoutReady?: ((height: number) => void) | null;
+  iframeRef?: { current: HTMLIFrameElement | null } | null;
+  onLoad?: (() => void) | null;
+  title?: string;
+  showQuotedTextLabel?: string;
+  hideQuotedTextLabel?: string;
+  style?: React.CSSProperties | null;
+  onContextMenu?: ((position: { x: number; y: number; selectedText: string }) => void) | null;
+}
+
+
+export default function MessageBodyRenderer({ html = '', text = '', remoteImages = false, quoteFolding = true, onQuoteDetected = null, onHeightChange = null, onInitialLayoutReady = null, iframeRef: externalIframeRef = null, onLoad = null, title = 'Message body', showQuotedTextLabel = 'Show quoted text', hideQuotedTextLabel = 'Hide quoted text', style: frameStyle = null, onContextMenu = null }: MessageBodyRendererProps) {
   const internalIframeRef = useRef<HTMLIFrameElement | null>(null);
   const iframeRef = externalIframeRef || internalIframeRef;
 
@@ -81,10 +100,10 @@ export default function MessageBodyRenderer({ html = '', text = '', remoteImages
     const install = () => {
       const doc = iframe.contentDocument;
       if (!doc) return;
-      const expanded = new Map();
+      const expanded = new Map<HTMLElement, { overflowY: string; overflowYPriority: string; height: string; heightPriority: string; maxHeight: string; maxHeightPriority: string }>();
       let quoteResult = { count: 0 };
       const expandScrollContainers = () => {
-        const elements = [...doc.querySelectorAll('*')].reverse();
+        const elements = [...doc.querySelectorAll<HTMLElement>('*')].reverse();
         for (const el of elements) {
           const style = doc.defaultView?.getComputedStyle(el);
           if (!style) continue;

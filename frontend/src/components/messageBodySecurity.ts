@@ -134,7 +134,7 @@ export function adaptMessageForDarkCanvas(root) {
   }
 }
 
-export function sanitizeMessageHtml(html = '', { remoteImages = false, tone = null } = {}) {
+export function sanitizeMessageHtml(html: unknown = '', { remoteImages = false, tone = null }: { remoteImages?: boolean; tone?: string | null } = {}): string {
   const purify = purifier();
   const sanitized = purify.sanitize(preserveCid(String(html)), {
     ...EMAIL_SANITIZE_POLICY,
@@ -212,7 +212,9 @@ function safeCssColor(value) {
 // real message contains at least one dark colour (a footer, a legal line), so a dark theme
 // rendered every message white. Conflicts are resolved per declaration by
 // adaptMessageForDarkCanvas instead.
-function resolveEmailSurface(surface) {
+type EmailSurfaceLike = { tone?: string; background?: unknown; foreground?: unknown };
+
+function resolveEmailSurface(surface: EmailSurfaceLike | null | undefined) {
   if (!surface || (surface.tone !== 'light' && surface.tone !== 'dark')) return null;
   // The light appearance already inherits the panel behind the frame, which paints the
   // theme surface. Adding a background here would only switch text from grayscale to
@@ -241,7 +243,7 @@ function emailSurfaceCss(surface) {
   return `\n  /* Mail body surface, declared from the app theme. Scoped to this document only. */\n${rules.join('\n')}`;
 }
 
-export function buildSrcDoc(html, { remoteImages = false, surface = null } = {}) {
+export function buildSrcDoc(html: unknown, { remoteImages = false, surface = null }: { remoteImages?: boolean; surface?: EmailSurfaceLike | null } = {}): string {
   const csp = emailCsp({ remoteImages });
   const resolved = resolveEmailSurface(surface);
   const surfaceCss = emailSurfaceCss(resolved);
