@@ -1,8 +1,19 @@
+import type { DbClient } from './db.js';
 import { withTransaction } from './db.js';
 import { resolveConversationAlias } from './conversationOverridePolicy.js';
 import { adjustFolderCounts } from '../utils/mailUtils.js';
 
-async function resolveArchiveDestination(client, accountId, folderMappings) {
+interface ConversationRow {
+  id: string;
+  account_id?: string;
+  folder?: string;
+  uid?: number | string | null;
+  is_read?: boolean;
+  is_starred?: boolean;
+  [key: string]: unknown;
+}
+
+async function resolveArchiveDestination(client: DbClient, accountId: string, folderMappings: { archive?: string | null } | null | undefined) {
   const mapped = folderMappings?.archive;
   if (mapped) {
     const row = await client.query('SELECT path, special_use FROM folders WHERE account_id = $1 AND path = $2 AND no_select = false LIMIT 1', [accountId, mapped]);
@@ -14,7 +25,7 @@ async function resolveArchiveDestination(client, accountId, folderMappings) {
   return row.rows[0] || null;
 }
 
-async function resolveMoveDestination(client, accountId, targetFolder) {
+async function resolveMoveDestination(client: DbClient, accountId: string, targetFolder: string) {
   const result = await client.query(
     'SELECT path, special_use FROM folders WHERE account_id = $1 AND path = $2 AND no_select = false LIMIT 1',
     [accountId, targetFolder],
@@ -27,7 +38,7 @@ async function resolveMoveDestination(client, accountId, targetFolder) {
 // offline planning callers deterministic. The database row is updated only for
 // confirmed IMAP moves; non-UIDPLUS moves are removed locally and re-synced so
 // an unknown destination UID is never fabricated.
-async function movePhysicalRowsWithProvider(client, rows, destinations, imapManager) {
+async function movePhysicalRowsWithProvider(client: DbClient, rows: ConversationRow[], destinations: Map<string, { path: string }>, imapManager: ConversationImapManager | null) {
   if (!imapManager) {
     // Pure service callers (unit/planning paths) retain the deterministic DB-only
     // behavior. Application routes always pass the ImapManager and therefore take
@@ -67,7 +78,7 @@ async function movePhysicalRowsWithProvider(client, rows, destinations, imapMana
   return { moved, resync };
 }
 
-async function archiveRows(client, rows, userId, imapManager = null) {
+async function archiveRows(client: DbClient, rows: ConversationRow[], userId: string, imapManager: ConversationImapManager | null = null) {
   const destinations = new Map();
   const accountMappings = new Map();
   for (const row of rows) {
@@ -113,7 +124,7 @@ export const COPY_SCOPES = new Set([
   'WHOLE_CONVERSATION',
 ]);
 
-function updateFolderCountsForAction(rows, action, imapManager, userId) {
+function updateFolderCountsForAction(rows: ConversationRow[], action: string, imapManager: ConversationImapManager | null, userId: string) {
   if (!imapManager || !rows.length || !['archive', 'move', 'delete'].includes(action)) return;
   const deltas = new Map();
   const add = (accountId, folder, total, unread) => {
@@ -139,7 +150,7 @@ function updateFolderCountsForAction(rows, action, imapManager, userId) {
   }
 }
 
-function broadcastMessageFlagsForAction(rows, action, imapManager, userId) {
+function broadcastMessageFlagsForAction(rows: ConversationRow[], action: string, imapManager: ConversationImapManager | null, userId: string) {
   if (!imapManager || !rows.length || !['read', 'star'].includes(action)) return;
   const changesByAccount = new Map();
   for (const row of rows) {
@@ -154,7 +165,7 @@ function broadcastMessageFlagsForAction(rows, action, imapManager, userId) {
   }
 }
 
-function assertScope(scope) {
+function assertScope(scope: string) {
   if (!COPY_SCOPES.has(scope)) {
     const error = new Error(`Unsupported copy scope: ${scope}`);
     error.statusCode = 400;
@@ -162,7 +173,7 @@ function assertScope(scope) {
   }
 }
 
-function normalizeIds(value) {
+function normalizeIds(value: unknown): string[] {
   return [...new Set((Array.isArray(value) ? value : [value]).filter(Boolean).map(String))];
 }
 
@@ -171,7 +182,7 @@ function normalizeIds(value) {
  * explicit physical copy id when the caller supplies one; for list rows the
  * deterministic latest visible copy is used as the selected copy.
  */
-async function resolvePhysicalIds(client, { userId, conversationId, scope, copyId, logicalMessageId }) {
+async function resolvePhysicalIds(client: DbClient, { userId, conversationId, scope, copyId, logicalMessageId }: { userId: string; conversationId: string; scope: string; copyId?: string | null; logicalMessageId?: string | null }) {
   assertScope(scope);
   const owned = await client.query('SELECT account_id FROM conversations WHERE id = $1 AND user_id = $2 FOR UPDATE', [conversationId, userId]);
   if (!owned.rows[0]) {
@@ -375,7 +386,11 @@ interface BulkConversationActionInput {
 
 export interface ConversationImapManager {
   broadcast?(payload: unknown, userId?: string): void;
-  bulkMoveMessages?(account: unknown, uids: unknown[], src: string, dest: string): Promise<unknown>;
+  bulkMoveMessages?(account: unknown, uids: unknown[], src: string, dest: string): Promise<{
+    succeeded?: Array<string | number>;
+    uidMap?: Map<number, number> | null;
+    [key: string]: unknown;
+  }>;
   syncFolderOnDemand?(account: unknown, folder: string): Promise<unknown>;
 }
 

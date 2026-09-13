@@ -755,3 +755,16 @@ To nadal osobny, wieloetapowy refactor, udokumentowany w planie (5c).
   settings jako ReturnType<typeof config> (bez zgadywania pol); dateMs(value: unknown)
   z zawężeniem String(value) dla konstruktora Date.
 
+
+## 68. Redukcja dlugu strict - runda 4
+
+- noImplicitAny (backend): 2913 -> 2846 (-67). tsc 0, testy 1785/0, lint czysty, build OK.
+- openaiCodexAuth.ts: 17 sygnatur otypowanych (decodeJwtClaims -> Record<string, unknown> | null,
+  fetchAuthResponse(fetchFn: typeof fetch, ...), maskAccountLabel(value: unknown), rowToFlow ze
+  zadeklarowanym CodexFlowDbRow -> CodexDeviceFlow). WYKRYTE: intervalMilliseconds zwracal null,
+  a adnotacja mowila number (poprawione na number | null); credentialExpiry uzywa Number(...).
+- db.ts: dodany wspoldzielony DbClient (kontrakt puli/transakcji).
+- conversationActions.ts: client: DbClient, rows: ConversationRow[], imapManager:
+  ConversationImapManager | null, folderMappings/destinations/scope otypowane;
+  bulkMoveMessages zwraca { succeeded, uidMap }.
+

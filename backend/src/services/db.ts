@@ -35,6 +35,11 @@ pool.on('error', err => {
  */
 export type DbRow = any;
 
+/** The slice of a pool/transaction client this codebase uses. */
+export interface DbClient {
+  query(text: string, params?: unknown[]): Promise<{ rows: DbRow[]; rowCount?: number }>;
+}
+
 export async function query(text: string, params: unknown[] = []): Promise<{ rows: DbRow[]; rowCount?: number }> {
   // Time the query for the performance baseline (behavior-neutral). This is the
   // single top-level DB chokepoint; transaction clients (withTransaction) are not

@@ -48,12 +48,12 @@ export class CodexAuthError extends Error {
   }
 }
 
-export function hashSessionId(sessionId) {
+export function hashSessionId(sessionId: unknown): string {
   if (typeof sessionId !== 'string' || !sessionId) throw new CodexAuthError('Session is required', { status: 401 });
   return crypto.createHash('sha256').update(sessionId).digest('hex');
 }
 
-export function decodeJwtClaims(token) {
+export function decodeJwtClaims(token: unknown): Record<string, unknown> | null {
   if (typeof token !== 'string') return null;
   const parts = token.split('.');
   if (parts.length !== 3 || !parts[1]) return null;
@@ -64,10 +64,10 @@ export function decodeJwtClaims(token) {
   }
 }
 
-export function extractChatGptAccount(claims) {
+export function extractChatGptAccount(claims: Record<string, unknown>) {
   if (!claims || typeof claims !== 'object') throw new CodexAuthError('ChatGPT token has no account information');
-  const auth = claims['https://api.openai.com/auth'];
-  const profile = claims['https://api.openai.com/profile'];
+  const auth = claims['https://api.openai.com/auth'] as { chatgpt_account_id?: unknown; email?: unknown } | undefined;
+  const profile = claims['https://api.openai.com/profile'] as { email?: unknown } | undefined;
   const accountId = typeof auth?.chatgpt_account_id === 'string'
     ? auth.chatgpt_account_id
     : (typeof claims.chatgpt_account_id === 'string' ? claims.chatgpt_account_id : '');
@@ -78,21 +78,21 @@ export function extractChatGptAccount(claims) {
   return { accountId, email };
 }
 
-function maskAccountLabel(value) {
+function maskAccountLabel(value: unknown): string {
   if (typeof value !== 'string' || !value) return '';
   const at = value.indexOf('@');
   if (at > 0) return `${value[0]}***${value.slice(at)}`;
   return value.length <= 4 ? '••••' : `${value.slice(0, 2)}••••${value.slice(-2)}`;
 }
 
-function responseErrorCode(body) {
+function responseErrorCode(body: { error?: string | { code?: string } } | null | undefined): string {
   const error = body?.error;
   if (typeof error === 'string') return error;
   if (error && typeof error.code === 'string') return error.code;
   return '';
 }
 
-function authHeaders(contentType) {
+function authHeaders(contentType: string): Record<string, string> {
   return {
     'Content-Type': contentType,
     originator: 'mailflow',
@@ -100,7 +100,7 @@ function authHeaders(contentType) {
   };
 }
 
-async function fetchAuthResponse(fetchFn, url, init, timeoutMs = REQUEST_TIMEOUT_MS) {
+async function fetchAuthResponse(fetchFn: typeof fetch, url: string, init: RequestInit, timeoutMs = REQUEST_TIMEOUT_MS) {
   const requestSignal = createRequestSignal(null, timeoutMs, 'request timeout');
   try {
     const response = await fetchFn(url, { ...init, signal: requestSignal.signal });
@@ -116,18 +116,18 @@ async function fetchAuthResponse(fetchFn, url, init, timeoutMs = REQUEST_TIMEOUT
   }
 }
 
-function intervalMilliseconds(raw) {
+function intervalMilliseconds(raw: unknown): number | null {
   if (raw === undefined || raw === null || raw === '') return DEFAULT_INTERVAL_MS;
-  const seconds = typeof raw === 'string' ? Number(raw.trim()) : raw;
+  const seconds = typeof raw === 'string' ? Number(raw.trim()) : Number(raw);
   if (!Number.isFinite(seconds) || seconds < 0) return null;
   return Math.min(MAX_INTERVAL_MS, Math.max(MIN_INTERVAL_MS, Math.round(seconds * 1000)));
 }
 
-function encryptedJson(value, encryptFn) {
+function encryptedJson(value: unknown, encryptFn: (value: string) => string) {
   return encryptFn(JSON.stringify(value));
 }
 
-function decryptedJson(value, decryptFn) {
+function decryptedJson(value: string, decryptFn: (value: string) => string) {
   const plaintext = decryptFn(value);
   if (!plaintext) throw new CodexAuthError('Stored ChatGPT authorization is unavailable', { status: 503 });
   try {
@@ -137,9 +137,43 @@ function decryptedJson(value, decryptFn) {
   }
 }
 
-function rowToFlow(row) {
+interface CodexFlowDbRow {
+  id: string;
+  admin_user_id: string;
+  session_hash: string;
+  device_auth_id_enc: string | null;
+  user_code_enc: string | null;
+  authorization_code_enc: string | null;
+  code_verifier_enc: string | null;
+  interval_ms: number;
+  expires_at: Date | string;
+  next_poll_at: Date | string;
+  state: string;
+  failure_code: string | null;
+  created_at: Date | string;
+  updated_at: Date | string;
+}
+
+interface CodexDeviceFlow {
+  id: string;
+  adminUserId: string;
+  sessionHash: string;
+  deviceAuthIdEnc: string | null;
+  userCodeEnc: string | null;
+  authorizationCodeEnc: string | null;
+  codeVerifierEnc: string | null;
+  intervalMs: number;
+  expiresAt: number;
+  nextPollAt: number;
+  state: string;
+  failureCode: string | null;
+  createdAt: number;
+  updatedAt: number;
+}
+
+function rowToFlow(row: CodexFlowDbRow): CodexDeviceFlow | null {
   if (!row) return null;
-  const time = (value) => value instanceof Date ? value.getTime() : new Date(value).getTime();
+  const time = (value: Date | string): number => value instanceof Date ? value.getTime() : new Date(value).getTime();
   return {
     id: row.id,
     adminUserId: row.admin_user_id,
@@ -351,16 +385,17 @@ export function createPostgresCodexStore() {
   };
 }
 
-function terminalPollResult(state, failureCode) {
+function terminalPollResult(state: string, failureCode: string | null) {
   if (state === 'completed') return { status: 'connected' };
   if (state === 'failed') return { status: 'failed', reconnectRequired: true, reason: failureCode || 'authorization_failed' };
   return { status: state };
 }
 
-function credentialExpiry(tokenBody, claims, now) {
-  const seconds = typeof tokenBody.expires_in === 'string' ? Number(tokenBody.expires_in) : tokenBody.expires_in;
+function credentialExpiry(tokenBody: Record<string, unknown>, claims: Record<string, unknown>, now: number) {
+  const seconds = Number(tokenBody.expires_in);
   if (Number.isFinite(seconds) && seconds > 0) return now + seconds * 1000;
-  if (Number.isFinite(claims?.exp) && claims.exp > 0) return claims.exp * 1000;
+  const exp = Number(claims?.exp);
+  if (Number.isFinite(exp) && exp > 0) return exp * 1000;
   throw new CodexAuthError('ChatGPT token response has no valid expiry');
 }
 
@@ -374,14 +409,14 @@ export function createOpenAiCodexAuth({
   let refreshInFlight = null;
   const owner = (userId, sessionId) => ({ adminUserId: userId, sessionHash: hashSessionId(sessionId) });
 
-  function accessResult(credential) {
+  function accessResult(credential: Record<string, unknown> | null) {
     if (credential?.state !== 'connected' || !credential.accessToken || !credential.accountId) {
       throw new CodexAuthError('ChatGPT authorization requires reconnection', { status: 401 });
     }
     return { accessToken: credential.accessToken, accountId: credential.accountId };
   }
 
-  async function refreshUnderLock(forceRefresh) {
+  async function refreshUnderLock(forceRefresh: boolean) {
     return store.withCredentialLock(async ({ encryptedCredential, save }) => {
       if (!encryptedCredential) throw new CodexAuthError('ChatGPT is not connected', { status: 503 });
       const credential = decryptedJson(encryptedCredential, decryptFn);
@@ -496,7 +531,7 @@ export function createOpenAiCodexAuth({
     return result;
   }
 
-  async function startDeviceFlow({ userId, sessionId }) {
+  async function startDeviceFlow({ userId, sessionId }: { userId?: string | null; sessionId?: string | null }) {
     const { response, text } = await fetchAuthResponse(fetchFn, DEVICE_CODE_URL, {
       method: 'POST',
       headers: authHeaders('application/json'),
@@ -539,7 +574,7 @@ export function createOpenAiCodexAuth({
     };
   }
 
-  async function releaseFailed(flowId, error, state = 'failed') {
+  async function releaseFailed(flowId: string, error: { code?: string; transient?: boolean }, state = 'failed') {
     await store.releaseFlow({
       id: flowId,
       state,
