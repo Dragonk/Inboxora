@@ -1250,7 +1250,7 @@ ${bodyContent}
   };
 
   // Dismiss a pinned result box and drop its cached copy.
-  const _dismissAiResult = (key) => {
+  const _dismissAiResult = (key: string) => {
     aiAbortRefs.current[key]?.abort();
     removeResult(selectedMessageId, key);
     setAiResults(r => { const next = { ...r }; delete next[key]; return next; });

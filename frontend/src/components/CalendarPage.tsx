@@ -41,10 +41,10 @@ function calendarDays(anchor, weekStartsOn = 1) {
 function weekDays(anchor, workWeek, weekStartsOn = 1, workDays = [1, 2, 3, 4, 5]) {
   const { start } = weekRange(anchor, weekStartsOn);
   if (!workWeek) return Array.from({ length: 7 }, (_, index) => { const day = new Date(start); day.setDate(day.getDate() + index); return day; });
-  return [...workDays].sort((a, b) => ((a - weekStartsOn + 7) % 7) - ((b - weekStartsOn + 7) % 7)).map(dayOfWeek => { const day = new Date(start); day.setDate(day.getDate() + ((dayOfWeek - weekStartsOn + 7) % 7)); return day; });
+  return [...workDays].sort((a: number, b: number) => ((a - weekStartsOn + 7) % 7) - ((b - weekStartsOn + 7) % 7)).map(dayOfWeek => { const day = new Date(start); day.setDate(day.getDate() + ((dayOfWeek - weekStartsOn + 7) % 7)); return day; });
 }
 function isToday(day) { const today = new Date(); return day.toDateString() === today.toDateString(); }
-function eventTime(event) { return new Date(event.starts_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }); }
+function eventTime(event: { starts_at?: string | number | Date | null; [key: string]: unknown }) { return new Date(String(event.starts_at ?? '')).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }); }
 function isWeekend(day) { const weekday = day.getDay(); return weekday === 0 || weekday === 6; }
 // "Now" marker for the time grid — read at render time (the line refreshes
 // whenever the view re-renders; purely presentational, no timers).
@@ -238,7 +238,7 @@ export default function CalendarPage({ isActive = true }) {
     setSaving(true);
     try { await performDelete(target, 'all'); } finally { setSaving(false); }
   };
-  const changeForm = (key, value) => { invitationOperation.current.reset(); setForm(current => ({ ...current, [key]: value, invitationError: null })); };
+  const changeForm = (key: string, value: unknown) => { invitationOperation.current.reset(); setForm(current => ({ ...current, [key]: value, invitationError: null })); };
   const deleteEvent = async event => {
     const target = { id: event.series_id || event.id, calendarId: event.calendar_id, recurrenceId: event.recurrence_id };
     // A series can be removed from here on, entirely, or just at this occurrence. Asking is the
@@ -390,7 +390,7 @@ function CalendarGrid({ days, dayEventsFor, view, anchor, isMobile, locale, onSe
   </div>;
 }
 
-function timeToMinutes(value) {
+function timeToMinutes(value: unknown) {
   const [hours, minutes] = String(value || '09:00').split(':').map(Number);
   return (Number.isFinite(hours) ? hours : 9) * 60 + (Number.isFinite(minutes) ? minutes : 0);
 }

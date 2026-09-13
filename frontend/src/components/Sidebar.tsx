@@ -410,7 +410,7 @@ export default function Sidebar({ onEditProfile = null }) {
 
   // Per-account toggle to reveal hidden folders
   const [showHiddenFor, setShowHiddenFor] = useState(new Set()); // Set of accountIds
-  const toggleShowHidden = useCallback((accountId) => {
+  const toggleShowHidden = useCallback((accountId: string) => {
     setShowHiddenFor(prev => {
       const next = new Set(prev);
       if (next.has(accountId)) next.delete(accountId); else next.add(accountId);
@@ -418,13 +418,13 @@ export default function Sidebar({ onEditProfile = null }) {
     });
   }, []);
 
-  const hideFolderFn = useCallback((accountId, path) => {
+  const hideFolderFn = useCallback((accountId: string, path: string) => {
     const current = hiddenFolders[accountId] || [];
     if (current.includes(path)) return;
     setHiddenFolders({ ...hiddenFolders, [accountId]: [...current, path] });
   }, [hiddenFolders, setHiddenFolders]);
 
-  const unhideFolderFn = useCallback((accountId, path) => {
+  const unhideFolderFn = useCallback((accountId: string, path: string) => {
     const current = hiddenFolders[accountId] || [];
     const next = current.filter(p => p !== path);
     const updated = { ...hiddenFolders };
@@ -441,7 +441,7 @@ export default function Sidebar({ onEditProfile = null }) {
   }, 1350);
   useBackLayer(userMenuOpen, () => setUserMenuOpen(false), 4000);
 
-  const toggleAccount = (id) => {
+  const toggleAccount = (id: string) => {
     setExpandedAccounts(prev => ({ ...prev, [id]: !prev[id] }));
     if (!expandedAccounts[id] && !folders[id]) {
       api.getFolders(id).then(f => setFolders(id, f)).catch(console.error);
@@ -529,7 +529,7 @@ export default function Sidebar({ onEditProfile = null }) {
   }, []);
 
   // ── Handlers ──────────────────────────────────────────────────────────────
-  const handleMarkAllRead = async (accountId, folder) => {
+  const handleMarkAllRead = async (accountId: string, folder: string) => {
     try {
       await api.markAllRead(accountId, folder);
       window.dispatchEvent(new CustomEvent('inboxora:refresh'));
@@ -538,7 +538,7 @@ export default function Sidebar({ onEditProfile = null }) {
     } catch (err) { console.error('markAllRead failed:', err.message); }
   };
 
-  const handleSyncFolder = (accountId, folder) => {
+  const handleSyncFolder = (accountId: string, folder: string) => {
     api.syncFolder(accountId, folder).catch(err => console.error('syncFolder failed:', err.message));
   };
 
@@ -619,7 +619,7 @@ export default function Sidebar({ onEditProfile = null }) {
     });
   };
 
-  const handleStartCreateFolder = (accountId) => {
+  const handleStartCreateFolder = (accountId: string) => {
     setCreatingFolder({ accountId });
     setCreateName('');
     if (!expandedAccounts[accountId]) {
