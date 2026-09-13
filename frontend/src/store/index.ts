@@ -37,12 +37,51 @@ import { removeThreadCacheEntry } from '../utils/threadedArchive.ts';
 import { DEFAULT_CALENDAR_PREFERENCES, normalizeCalendarWorkDays, normalizeCalendarWorkTime } from '../utils/calendarPreferences.ts';
 import i18n from '../i18n.ts';
 
+/** A message row as the store holds it. */
+interface StoreMessageRow { id: string; account_id?: string; folder?: string; is_read?: boolean; is_starred?: boolean; message_id?: string | null; thread_id?: string; [key: string]: unknown }
+
+/** The store fields its own set()/get() callbacks read. */
+interface StoreStateRead {
+  _winSeq: number;
+  accounts: Array<{ id: string; enabled?: boolean; include_in_unified_inbox?: boolean; [key: string]: unknown }>;
+  backfillProgress: Record<string, unknown>;
+  calendarWorkHoursEnd: string;
+  calendarWorkHoursPersisted: { start: string; end: string };
+  calendarWorkHoursStart: string;
+  categoryCounts: Record<string, number>;
+  enabledPlugins: string[];
+  folders: Record<string, Array<{ path: string; unread_count?: number; [key: string]: unknown }>>;
+  gtdCollapsedSections: Record<string, boolean>;
+  gtdSections: GtdSections | null;
+  messageWindows: Array<{ winId?: string; messageId?: string; z?: number; id?: string; [key: string]: unknown }>;
+  messages: StoreMessageRow[];
+  messagesRefreshToken: number;
+  notifications: Array<{ id?: string; [key: string]: unknown }>;
+  rightSidebarHidden: boolean;
+  searchAllFolders: boolean;
+  searchQuery: string;
+  searchResults: StoreMessageRow[];
+  selectedAccountId: string | null;
+  selectedFolder: string;
+  selectedMessageId: string | null;
+  senderFaviconsEpoch: number;
+  showCalendar: boolean;
+  showContacts: boolean;
+  sidebarCollapsed: boolean;
+  swipeActions: { start?: string; end?: string; [key: string]: unknown };
+  threadMessages: Record<string, StoreMessageRow[]>;
+  threadKeys: Record<string, string>;
+  threadedView: boolean;
+  unreadCounts: { total: number; byAccount: Record<string, number> };
+  user: { id?: string; username?: string; [key: string]: unknown } | null;
+}
+
 // Accumulate rapid preference changes and flush at most once per second.
-let _prefFlushTimer = null;
-let _pendingPrefs = {};
-let _calendarWorkHoursFlushTimer = null;
-let _calendarWorkHoursSaveChain = Promise.resolve();
-function schedulePrefSave(prefs) {
+let _prefFlushTimer: ReturnType<typeof setTimeout> | null = null;
+let _pendingPrefs: Record<string, unknown> = {};
+let _calendarWorkHoursFlushTimer: ReturnType<typeof setTimeout> | null = null;
+let _calendarWorkHoursSaveChain: Promise<unknown> = Promise.resolve();
+function schedulePrefSave(prefs: Record<string, unknown>): void {
   Object.assign(_pendingPrefs, prefs);
   clearTimeout(_prefFlushTimer);
   _prefFlushTimer = setTimeout(() => {
@@ -51,22 +90,22 @@ function schedulePrefSave(prefs) {
     api.savePreferences(toSave).catch(() => {});
   }, 1000);
 }
-function calendarWorkTimeMinutes(value) {
+function calendarWorkTimeMinutes(value: string): number {
   const [hours, minutes] = value.split(':').map(Number);
   return hours * 60 + minutes;
 }
-function isValidCalendarWorkRange(start, end) {
+function isValidCalendarWorkRange(start: string, end: string): boolean {
   return calendarWorkTimeMinutes(start) < calendarWorkTimeMinutes(end);
 }
-function scheduleCalendarWorkHoursSave(prefs, next) {
+function scheduleCalendarWorkHoursSave(prefs: Record<string, unknown>, next: Record<string, unknown>): void {
   clearTimeout(_calendarWorkHoursFlushTimer);
   _calendarWorkHoursFlushTimer = setTimeout(() => {
     const userId = useStore.getState().user?.id;
     const save = _calendarWorkHoursSaveChain.then(() => api.savePreferences(prefs));
     _calendarWorkHoursSaveChain = save.catch(() => {});
     save
-      .then(() => useStore.setState(state => state.user?.id === userId ? { calendarWorkHoursPersisted: next } : {}))
-      .catch(() => useStore.setState(state => {
+      .then(() => useStore.setState((state: StoreStateRead) => state.user?.id === userId ? { calendarWorkHoursPersisted: next } : {}))
+      .catch(() => useStore.setState((state: StoreStateRead) => {
         if (state.user?.id !== userId) return {};
         if (state.calendarWorkHoursStart !== next.start || state.calendarWorkHoursEnd !== next.end) return {};
         return {
@@ -93,7 +132,7 @@ function cancelPendingPrefSave() {
 // responses landing after a newer context switch; the timer debounces the
 // WS-driven refetch (gtd_sections_updated can fire several times per tick).
 let _gtdSectionsSeq = 0;
-let _gtdFetchTimer = null;
+let _gtdFetchTimer: ReturnType<typeof setTimeout> | null = null;
 
 function readGtdCollapsedSections() {
   try {
@@ -129,7 +168,7 @@ export const useStore = create<any>((set, get) => ({
     // On a real identity change (login, logout, account switch) drop any queued preference
     // flush so the previous user's debounce can't save into the new/absent session.
     if (get().user?.id !== user?.id) cancelPendingPrefSave();
-    set(state => ({
+    set((state: StoreStateRead) => ({
       user,
       ...(state.user?.id !== user?.id ? {
         senderFaviconsLoaded: false,
@@ -138,7 +177,7 @@ export const useStore = create<any>((set, get) => ({
       } : {}),
     }));
   },
-  updateUser: (updates) => set(state => ({ user: state.user ? { ...state.user, ...updates } : state.user })),
+  updateUser: (updates) => set((state: StoreStateRead) => ({ user: state.user ? { ...state.user, ...updates } : state.user })),
 
   // Plugin activation — the per-user set of activated plugin ids (users.preferences.enabledPlugins).
   // Hydrated in loadPreferences and mutated only via setPluginActivated (the Plugins settings
@@ -147,7 +186,7 @@ export const useStore = create<any>((set, get) => ({
   enabledPlugins: [],
   setPluginActivated: async (id, activated) => {
     await api.plugins.setActivated(id, activated);
-    set(state => {
+    set((state: StoreStateRead) => {
       const next = new Set(state.enabledPlugins);
       if (activated) next.add(id); else next.delete(id);
       return { enabledPlugins: [...next] };
@@ -207,10 +246,10 @@ export const useStore = create<any>((set, get) => ({
     if (!Array.isArray(accounts)) return;
     const previous = get().selectedAccountId;
     const selected = resolveSelectedAccount(accounts, previous);
-    set(state => ({ accounts, accountsReady: true, folders: pruneFolders(state.folders, accounts) }));
+    set((state: StoreStateRead) => ({ accounts, accountsReady: true, folders: pruneFolders(state.folders, accounts) }));
     if (selected !== previous) get().setSelectedAccount(selected);
   },
-  updateAccount: (id, updates) => set(state => ({
+  updateAccount: (id, updates) => set((state: StoreStateRead) => ({
     accounts: state.accounts.map(a => a.id === id ? { ...a, ...updates } : a)
   })),
 
@@ -221,7 +260,7 @@ export const useStore = create<any>((set, get) => ({
   setSelectedAccount: (accountId, folder = 'INBOX') => {
     localStorage.setItem('mailflow_selected_account', accountId ?? '');
     localStorage.setItem('mailflow_selected_folder', folder);
-    return set(state => {
+    return set((state: StoreStateRead) => {
       // #221: auto-close a folder-scoped search when navigating to a different
       // folder/account. A scoped search (a specific account with "Search all folders"
       // off) targets the current folder, so its results are stale once you leave it;
@@ -261,7 +300,7 @@ export const useStore = create<any>((set, get) => ({
   // must render once, matching isSelectedRow's identity model (#378). appendMessages/restore
   // dedupe on their own paths; this covers the initial/refresh/page loads that replace wholesale.
   setMessages: (messages) => set({ messages: dedupeByIdentity(messages) }),
-  appendMessages: (newMessages) => set(state => {
+  appendMessages: (newMessages) => set((state: StoreStateRead) => {
     // Merge by stable identity (Message-ID when present, else id): a same-id row is dropped so the
     // existing copy keeps any optimistic local-only fields a refresh lost (unread_count, etc.),
     // while a reindexed message (same Message-ID, new id after a purge+reinsert) replaces its stale
@@ -269,7 +308,7 @@ export const useStore = create<any>((set, get) => ({
     const messages = appendMessagesByIdentity(state.messages, newMessages);
     return messages === state.messages ? {} : { messages };
   }),
-  updateMessage: (id, updates) => set(state => {
+  updateMessage: (id, updates) => set((state: StoreStateRead) => {
     const apply = (m) => m.id === id ? { ...m, ...updates } : m;
     const threadMessages = Object.fromEntries(
       Object.entries(state.threadMessages as Record<string, StoreMessage[]>).map(([tid, msgs]) => [tid, msgs.map(apply)])
@@ -287,7 +326,7 @@ export const useStore = create<any>((set, get) => ({
     });
     return { messages, searchResults: state.searchResults.map(apply), threadMessages };
   }),
-  removeMessage: (id) => set(state => ({
+  removeMessage: (id) => set((state: StoreStateRead) => ({
     messages: state.messages.filter(m => m.id !== id),
     searchResults: state.searchResults.filter(m => m.id !== id),
     selectedMessageId: state.selectedMessageId === id ? null : state.selectedMessageId,
@@ -296,7 +335,7 @@ export const useStore = create<any>((set, get) => ({
   // otherwise calls removeMessage once per id, firing one store update — and, in a
   // non-virtualized list, one re-render — each, which stalls the UI. This collapses them
   // into one filter pass and one update.
-  removeMessages: (ids) => set(state => {
+  removeMessages: (ids) => set((state: StoreStateRead) => {
     const idSet = ids instanceof Set ? ids : new Set(ids);
     if (idSet.size === 0) return {};
     return {
@@ -305,7 +344,7 @@ export const useStore = create<any>((set, get) => ({
       selectedMessageId: idSet.has(state.selectedMessageId) ? null : state.selectedMessageId,
     };
   }),
-  restoreMessages: (msgs) => set(state => {
+  restoreMessages: (msgs) => set((state: StoreStateRead) => {
     const list = Array.isArray(msgs) ? msgs : [msgs];
     const sort = arr => [...arr].sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
     // Deduplicate against both the main list and searchResults by stable identity (Message-ID when
@@ -337,7 +376,7 @@ export const useStore = create<any>((set, get) => ({
   // Unread counts
   unreadCounts: { total: 0, byAccount: {} },
   setUnreadCounts: (counts) => set({ unreadCounts: counts }),
-  decrementUnread: (accountId, count = 1) => set(state => {
+  decrementUnread: (accountId, count = 1) => set((state: StoreStateRead) => {
     const byAccount = { ...state.unreadCounts.byAccount };
     byAccount[accountId] = Math.max(0, (byAccount[accountId] || 0) - count);
     const total = accountAffectsUnifiedInbox(state.accounts, accountId)
@@ -345,7 +384,7 @@ export const useStore = create<any>((set, get) => ({
       : state.unreadCounts.total;
     return { unreadCounts: { total, byAccount } };
   }),
-  incrementUnread: (accountId, count = 1) => set(state => {
+  incrementUnread: (accountId, count = 1) => set((state: StoreStateRead) => {
     const byAccount = { ...state.unreadCounts.byAccount };
     byAccount[accountId] = (byAccount[accountId] || 0) + count;
     const total = accountAffectsUnifiedInbox(state.accounts, accountId)
@@ -356,14 +395,14 @@ export const useStore = create<any>((set, get) => ({
 
   // Folders
   folders: {}, // accountId -> folders[]
-  setFolders: (accountId, folders) => set(state => ({
+  setFolders: (accountId, folders) => set((state: StoreStateRead) => ({
     folders: { ...state.folders, [accountId]: folders }
   })),
   // Increment/decrement the unread_count of a single folder in one account's
   // list. Used for optimistic UI updates when marking messages as read/spam/ham
   // so the sidebar badge updates without waiting for a full folder sync.
   // We clamp at 0 to avoid negative counters when the optimistic guess was off.
-  adjustFolderUnread: (accountId, folderPath, delta) => set(state => {
+  adjustFolderUnread: (accountId, folderPath, delta) => set((state: StoreStateRead) => {
     const accountFolders = state.folders[accountId];
     if (!accountFolders) return {};
     let changed = false;
@@ -380,7 +419,7 @@ export const useStore = create<any>((set, get) => ({
 
   // UI state
   sidebarCollapsed: localStorage.getItem('mailflow_sidebar_collapsed') === 'true',
-  toggleSidebar: () => set(state => {
+  toggleSidebar: () => set((state: StoreStateRead) => {
     const next = !state.sidebarCollapsed;
     localStorage.setItem('mailflow_sidebar_collapsed', String(next));
     return { sidebarCollapsed: next };
@@ -422,7 +461,7 @@ export const useStore = create<any>((set, get) => ({
       return { left: 'archive', right: 'markRead' };
     }
   })(),
-  setSwipeAction: (direction, action) => set(state => {
+  setSwipeAction: (direction, action) => set((state: StoreStateRead) => {
     const next = { ...state.swipeActions, [direction]: action };
     localStorage.setItem('mailflow_swipe_actions', JSON.stringify(next));
     schedulePrefSave({ swipeActions: next });
@@ -471,7 +510,7 @@ export const useStore = create<any>((set, get) => ({
   // and the z-order stamp (higher = on top / more recently focused).
   messageWindows: [],
   _winSeq: 0,
-  openMessageWindow: (messageId) => set(state => {
+  openMessageWindow: (messageId) => set((state: StoreStateRead) => {
     const seq = state._winSeq + 1;
     // Re-opening a message that already has a window focuses + un-minimizes it
     // rather than spawning a duplicate.
@@ -495,17 +534,17 @@ export const useStore = create<any>((set, get) => ({
       messageWindows: [...state.messageWindows, { winId: `mw-${seq}`, messageId, x, y, w, h, z: seq, minimized: false }],
     };
   }),
-  closeMessageWindow: (winId) => set(state => ({
+  closeMessageWindow: (winId) => set((state: StoreStateRead) => ({
     messageWindows: state.messageWindows.filter(w => w.winId !== winId),
   })),
-  focusMessageWindow: (winId) => set(state => {
+  focusMessageWindow: (winId) => set((state: StoreStateRead) => {
     const seq = state._winSeq + 1;
     return {
       _winSeq: seq,
       messageWindows: state.messageWindows.map(w => w.winId === winId ? { ...w, z: seq } : w),
     };
   }),
-  setMessageWindowMinimized: (winId, minimized) => set(state => {
+  setMessageWindowMinimized: (winId, minimized) => set((state: StoreStateRead) => {
     const seq = state._winSeq + 1;
     return {
       _winSeq: seq,
@@ -514,7 +553,7 @@ export const useStore = create<any>((set, get) => ({
         w.winId === winId ? { ...w, minimized, z: minimized ? w.z : seq } : w),
     };
   }),
-  updateMessageWindowRect: (winId, rect) => set(state => ({
+  updateMessageWindowRect: (winId, rect) => set((state: StoreStateRead) => ({
     messageWindows: state.messageWindows.map(w => w.winId === winId ? { ...w, ...rect } : w),
   })),
   closeAllMessageWindows: () => set({ messageWindows: [] }),
@@ -531,10 +570,10 @@ export const useStore = create<any>((set, get) => ({
 
   // Notifications
   notifications: [],
-  addNotification: (n) => set(state => ({
+  addNotification: (n) => set((state: StoreStateRead) => ({
     notifications: [{ ...n, id: crypto.randomUUID?.() ?? `${Date.now()}-${Math.random().toString(36).slice(2)}` }, ...state.notifications].slice(0, 5)
   })),
-  removeNotification: (id) => set(state => ({
+  removeNotification: (id) => set((state: StoreStateRead) => ({
     notifications: state.notifications.filter(n => n.id !== id)
   })),
 
@@ -618,7 +657,7 @@ export const useStore = create<any>((set, get) => ({
   setRulesPreFill: (v) => set({ rulesPreFill: v }),
 
   backfillProgress: {}, // { [accountId]: { synced: N, total: N } | null } — transient
-  setBackfillProgress: (accountId, progress) => set(state => ({
+  setBackfillProgress: (accountId, progress) => set((state: StoreStateRead) => ({
     backfillProgress: { ...state.backfillProgress, [accountId]: progress },
   })),
 
@@ -719,10 +758,10 @@ export const useStore = create<any>((set, get) => ({
   expandedThreadId: null,
   setExpandedThreadId: (id) => set({ expandedThreadId: id }),
   threadMessages: {},
-  setThreadMessages: (threadId, msgs) => set(state => ({
+  setThreadMessages: (threadId, msgs) => set((state: StoreStateRead) => ({
     threadMessages: { ...state.threadMessages, [threadId]: msgs },
   })),
-  clearThreadMessages: (threadId) => set(state => ({
+  clearThreadMessages: (threadId) => set((state: StoreStateRead) => ({
     threadMessages: removeThreadCacheEntry(state.threadMessages, threadId),
   })),
   loadingThread: null,
@@ -824,7 +863,7 @@ export const useStore = create<any>((set, get) => ({
   // Unread counts per category for the tab bar badges { primary: N, newsletter: N, ... }
   categoryCounts: {},
   setCategoryCounts: (counts) => set({ categoryCounts: counts }),
-  adjustCategoryCount: (category, delta) => set(state => {
+  adjustCategoryCount: (category, delta) => set((state: StoreStateRead) => {
     const key = category || 'primary';
     const current = state.categoryCounts[key] || 0;
     return { categoryCounts: { ...state.categoryCounts, [key]: Math.max(0, current + delta) } };
@@ -843,7 +882,7 @@ export const useStore = create<any>((set, get) => ({
   setIsRightSidebarResizing: (v) => set({ isRightSidebarResizing: v }),
 
   rightSidebarHidden: localStorage.getItem('mailflow_right_sidebar_hidden') === 'true',
-  toggleRightSidebarHidden: () => set(state => {
+  toggleRightSidebarHidden: () => set((state: StoreStateRead) => {
     const next = !state.rightSidebarHidden;
     localStorage.setItem('mailflow_right_sidebar_hidden', String(next));
     schedulePrefSave({ rightSidebarHidden: next });
@@ -853,7 +892,7 @@ export const useStore = create<any>((set, get) => ({
   // ── GTD content + tabs ──────────────────────────────────────────────────────
   // Per-section collapse state (section key -> bool). Someday collapsed by default.
   gtdCollapsedSections: readGtdCollapsedSections(),
-  toggleGtdSection: (section) => set(state => {
+  toggleGtdSection: (section) => set((state: StoreStateRead) => {
     const next = { ...state.gtdCollapsedSections, [section]: !state.gtdCollapsedSections[section] };
     localStorage.setItem('mailflow_gtd_collapsed_sections', JSON.stringify(next));
     schedulePrefSave({ gtdCollapsedSections: next });
@@ -891,14 +930,14 @@ export const useStore = create<any>((set, get) => ({
   // Waiting rollup in step so the Waiting badge is correct instantly.
   removeGtdThread: (identity, states) => {
     let snapshot = null;
-    set(state => {
+    set((state: StoreStateRead) => {
       snapshot = snapshotGtdThreadRemoval(state.gtdSections, identity, states);
       const next = removeGtdThreadFromSections(state.gtdSections, identity, states);
       return next === state.gtdSections ? {} : { gtdSections: next };
     });
     return snapshot;
   },
-  restoreGtdThread: (snapshot) => set(state => {
+  restoreGtdThread: (snapshot) => set((state: StoreStateRead) => {
     const next = restoreGtdThreadRemoval(state.gtdSections, snapshot);
     return next === state.gtdSections ? {} : { gtdSections: next };
   }),
@@ -907,7 +946,7 @@ export const useStore = create<any>((set, get) => ({
   // identity is message_id||id and matches across every state a thread is labelled with
   // (a merged Waiting row lives in both watch and delegated), keeping them in sync — and
   // the deduped Waiting rollup's unread with them (pure helper, unit-tested in gtd.test.js).
-  markGtdThreadRead: (identity, isRead) => set(state => {
+  markGtdThreadRead: (identity, isRead) => set((state: StoreStateRead) => {
     const next = setGtdThreadReadInSections(state.gtdSections, identity, isRead);
     return next === state.gtdSections ? {} : { gtdSections: next };
   }),
@@ -915,7 +954,7 @@ export const useStore = create<any>((set, get) => ({
   // on a toggle; the WS/gtd refetch reconciles. identity is message_id||id and matches across
   // every state a thread is labelled with (a merged Waiting row lives in both watch and
   // delegated), keeping them in sync. Star does not affect the unread rollup.
-  markGtdThreadStarred: (identity, isStarred) => set(state => {
+  markGtdThreadStarred: (identity, isStarred) => set((state: StoreStateRead) => {
     const cur = state.gtdSections as GtdSections | null;
     if (!cur || identity == null) return {};
     const next = { ...cur };
@@ -976,7 +1015,7 @@ export const useStore = create<any>((set, get) => ({
   setSenderFavicons: async (enabled) => {
     if (get().senderFaviconsSaving) return;
     const userId = get().user?.id;
-    set(state => ({ senderFaviconsSaving: true, senderFaviconsEpoch: state.senderFaviconsEpoch + 1 }));
+    set((state: StoreStateRead) => ({ senderFaviconsSaving: true, senderFaviconsEpoch: state.senderFaviconsEpoch + 1 }));
     if (!enabled) {
       set({ senderFavicons: false });
       try { await api.savePreferences({ senderFavicons: false }); }
