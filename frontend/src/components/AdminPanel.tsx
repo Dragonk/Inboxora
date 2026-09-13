@@ -86,7 +86,7 @@ const PRESETS = {
 };
 
 // ─── Account Form (Add or Edit) ───────────────────────────────────────────────
-function isMicrosoftImapHost(host) {
+function isMicrosoftImapHost(host: string): boolean {
   const h = (host || '').toLowerCase();
   return h.includes('.outlook.com') || h.includes('office365.com') || h.includes('.hotmail.com') || h.includes('.live.com');
 }
@@ -513,13 +513,13 @@ function AccountsTab() {
   useBackLayer(subview !== 'list', () => setSubview('list'), 2010);
   useBackLayer(aliasFormMode, () => { if (!aliasFormSaving) setAliasFormMode(null); }, 2020);
 
-  const handleAdd = async (form) => {
+  const handleAdd = async (form: AccountFormState) => {
     const account = await api.addAccount(form);
     setAccounts([...accounts, account]);
     setSubview('list');
   };
 
-  const handleEdit = async (form) => {
+  const handleEdit = async (form: AccountFormState) => {
     if (!editTarget) return;
     const updates: Record<string, unknown> = { name: form.name, sender_name: form.sender_name || null, color: form.color, imap_host: form.imap_host, imap_port: form.imap_port, imap_skip_tls_verify: !!form.imap_skip_tls_verify, smtp_host: form.smtp_host, smtp_port: form.smtp_port, smtp_tls: form.smtp_tls, signature: form.signature || null, categorization_enabled: !!form.categorization_enabled, include_in_unified_inbox: form.include_in_unified_inbox !== false };
     if (form.auth_pass) updates.auth_pass = form.auth_pass;
@@ -534,7 +534,7 @@ function AccountsTab() {
       updates.smtp_auth_pass = null;
     }
     const updated = await api.updateAccount(editTarget.id, updates);
-    const nextAccounts = accounts.map(account => account.id === editTarget.id
+    const nextAccounts = accounts.map((account: { id: string; [key: string]: unknown }) => account.id === editTarget.id
       ? { ...account, ...updated }
       : account);
     updateAccount(editTarget.id, updated);
@@ -554,7 +554,7 @@ function AccountsTab() {
       confirmLabel: 'Remove',
       onConfirm: async () => {
         await api.deleteAccount(id);
-        setAccounts(accounts.filter(a => a.id !== id));
+        setAccounts(accounts.filter((a: { id?: string; [key: string]: unknown }) => a.id !== id));
       },
     });
   };
