@@ -809,3 +809,17 @@ noImplicitAny zredukowane z 3502 do 2846 w backendzie. Udokumentowane w STATUS i
   * calendarFeed czytal req.params.token bez zawężenia (string | string[]);
   * messageParser przekazywal unknown do decodeMimeWords bez zawężenia.
 
+
+## 71. Wdrozenie: obrazy dev i dokumentacja
+
+- E2E (pelny przebieg): 370 passed / 0 failed / 357 skipped (727 total).
+- Wypchnieto galaz dev na GitHub (0ea5d84..d9f76d9).
+- Uruchomiono workflow 'Publish to GHCR' dla SHA d9f76d9 -> sukces; opublikowane
+  ghcr.io/dragonk/inboxora-backend:dev i ghcr.io/dragonk/inboxora-frontend:dev.
+- Zweryfikowano lokalnie: stack z obrazow :dev wystartowal (wszystkie kontenery healthy),
+  /api/health -> {"status":"ok"}, /api/version -> {"version":"dev","sha":"d9f76d9..."}.
+- docs/wiki/Installation.md: dodana sekcja 'Development builds (the dev tag)' z instrukcja
+  uruchomienia obrazu dev i ostrzezeniem o osobnej bazie.
+- TYPESCRIPT_MIGRATION_STATUS.md: zaktualizowane wyniki E2E, informacja o opublikowanych
+  obrazach oraz aktualny dlug strict (backend 3363, frontend 5096).
+

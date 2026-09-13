@@ -9,7 +9,7 @@ Last updated: final verification round.
 | Backend source | 305 files, 100% `.ts` (0 `.js`) |
 | Frontend source | 238 files, 100% `.ts`/`.tsx` (0 `.js`/`.jsx`) |
 | Total `.ts`/`.tsx` in both `src` trees | 543 |
-| E2E specs | `.ts` (Playwright: 727 tests in 28 files) |
+| E2E specs | `.ts`; Playwright run: **370 passed, 0 failed**, 357 skipped (727 total) |
 | Backend typecheck | `tsc --noEmit` → **0 errors** |
 | Frontend typecheck | `tsc --noEmit` → **0 errors** |
 | Backend tests | vitest: **1785 passed**, 0 failed (36 skipped) |
@@ -17,6 +17,7 @@ Last updated: final verification round.
 | Backend build | `tsc -p tsconfig.build.json` → `dist/index.js` present |
 | Frontend build | `vite build` → `dist/index.html` present |
 | Lint | backend + frontend `eslint --max-warnings 0` clean |
+| Published images | `ghcr.io/dragonk/inboxora-backend:dev` and `-frontend:dev` built by **Publish to GHCR** at SHA `d9f76d9`; the stack was started and answered `/api/health` |
 | `@ts-nocheck` / `@ts-ignore` / `@ts-expect-error` | **0 files** |
 | `any` occurrences | frontend **0**; backend **0** except one documented boundary alias |
 
@@ -35,8 +36,8 @@ Measured volume:
 
 | Measurement | Backend | Frontend |
 |---|---|---|
-| `strict: true` | 1609 | 2172 |
-| `noImplicitAny: true` alone | 3502 → **2846** (reduced) | 3599 |
+| `strict: true` (with `noImplicitAny`) | 3613 → **3363** | **5096** |
+| `noImplicitAny: true` alone | 3502 → 2846 (reduced) | 3599 |
 
 The dominant remainder is TS7006 (untyped function parameters) — a large, multi-round refactor.
 Progress so far removed 656 findings from the backend by typing real signatures (no flag flip,
