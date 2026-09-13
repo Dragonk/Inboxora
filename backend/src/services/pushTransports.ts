@@ -118,10 +118,10 @@ async function fcmAccessToken(account) {
     signal: AbortSignal.timeout(10000),
   });
   if (!response.ok) throw new Error(`FCM OAuth token request failed (HTTP ${response.status})`);
-  const data = await response.json();
-  if (!(data as any).access_token) throw new Error('FCM OAuth response did not contain an access token');
-  cachedAccessToken = (data as any).access_token;
-  cachedAccessTokenExpiry = Date.now() + Math.max(60, Number((data as any).expires_in) || 3600) * 1000 - 60000;
+  const data = (await response.json()) as { access_token?: string; expires_in?: number };
+  if (!data.access_token) throw new Error('FCM OAuth response did not contain an access token');
+  cachedAccessToken = data.access_token;
+  cachedAccessTokenExpiry = Date.now() + Math.max(60, Number(data.expires_in) || 3600) * 1000 - 60000;
   return cachedAccessToken;
 }
 

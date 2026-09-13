@@ -18,13 +18,28 @@ export function buildMailNotificationEvent({
   alertCount = 1,
   unreadCount,
   icon = '/inboxora-envelope-512.png',
-}: { userId?: any; message?: any; alertCount?: number; unreadCount?: any; icon?: string } = {}) {
+}: {
+  userId?: string;
+  message?: {
+    id?: string;
+    fromName?: string;
+    fromEmail?: string;
+    subject?: string;
+    account_id?: string;
+    accountId?: string;
+    folder?: string;
+    [key: string]: unknown;
+  };
+  alertCount?: number;
+  unreadCount?: number;
+  icon?: string;
+} = {}) {
   const eventId = typeof message?.id === 'string' && message.id ? message.id : null;
   const count = Number.isFinite(alertCount) && alertCount > 0 ? alertCount : 1;
   const title = message?.fromName || message?.fromEmail || 'New mail';
   const body = count === 1 ? (message?.subject || '(no subject)') : `${count} new messages`;
 
-  const webPush: any = { title, body, icon, url: eventId ? `/?m=${eventId}` : '/' };
+  const webPush: { title: string; body: string; icon: string; url: string; unreadCount?: number } = { title, body, icon, url: eventId ? `/?m=${eventId}` : '/' };
   if (unreadCount != null) webPush.unreadCount = unreadCount;
 
   return {

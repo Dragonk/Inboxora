@@ -7,6 +7,7 @@ import sanitizeHtml from 'sanitize-html';
 import { sanitizeSignature, sanitizeComposeBody } from '../services/emailSanitizer.js';
 import { embedInlineDataImages } from '../utils/inlineImages.js';
 import { imapManager } from '../index.js';
+import { Readable } from 'node:stream';
 
 const router = Router();
 router.use(requireAuth);
@@ -102,9 +103,14 @@ async function buildRawDraft({ accountId, aliasId, to, cc, bcc, subject, body, b
   const streamInfo = await streamTransport.sendMail(mailOptions);
   const chunks = [];
   await new Promise((resolve, reject) => {
-    (streamInfo.message as any).on('data', c => chunks.push(Buffer.isBuffer(c) ? c : Buffer.from(c)));
-    (streamInfo.message as any).on('end', resolve);
-    (streamInfo.message as any).on('error', reject);
+    const messageStream = streamInfo.message;
+    if (!(messageStream instanceof Readable)) {
+      reject(new Error('Stream transport did not return a readable message'));
+      return;
+    }
+    messageStream.on('data', c => chunks.push(Buffer.isBuffer(c) ? c : Buffer.from(c)));
+    messageStream.on('end', resolve);
+    messageStream.on('error', reject);
   });
   // rawHtml (pre inline-image embedding) is what the composer should reopen with —
   // inline data: URIs stay editable and getMessageBody serves body_html from the DB.

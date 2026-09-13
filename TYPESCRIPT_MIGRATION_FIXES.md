@@ -599,3 +599,21 @@ Backend any: 331 -> 283 (tsc 0, testy 1785/0, lint czysty).
   To odslonilo i otypowalo dostepy sections.todo / threads[0].message_id itd.
 - Usuniete 46 x as any z gtdSections.test.ts (parametr getGtdSections byl juz otypowany).
 
+
+## 58. Backend: augmentacje, JSON zewnetrzny, strumienie, martwy fallback
+
+Backend any: 283 -> 260 (tsc 0, testy 1785/0, lint czysty).
+
+- express.d.ts: caldavCredentialId/cardavCredentialId/davCredentialId -> string; pushDevice -> jawny kształt.
+- express-session.d.ts: pendingMFAEnrollment -> boolean; oidcPending -> jawny kształt.
+- contactFields: ValueValidator(value: unknown), typedValues(values: unknown),
+  normalizeRichContactFields(body: RichContactBody); walidator URL zawęża typeof string.
+- updateCheck / pushTransports: (data as any).x -> typowane odpowiedzi JSON.
+- draft.ts: (streamInfo.message as any).on(...) -> zawężenie instanceof Readable z błędem
+  (wcześniej możliwy wyjątek, gdy transport nie zwróci strumienia).
+- providerConversationMetadata: ProviderConversationMetadata + ConversationMetadataInput;
+  WYKRYTE: parseProviderMetadata NIGDY nie zwraca references (zweryfikowane grepem), więc
+  fallback metadata.references był martwym kodem maskowanym przez as any — usunięty.
+- contactTransfer: parseCsv -> string[][]; indeks kolumny bez as any (get(name) ?? "").
+- mailNotificationEvent: opcje i webPush otypowane.
+

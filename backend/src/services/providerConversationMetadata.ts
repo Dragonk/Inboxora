@@ -10,15 +10,34 @@ function outlookConversationRoot(value) {
   } catch { return null; }
 }
 
-export function providerMetadataForMessage(parsed, account): any {
+export interface ProviderConversationMetadata {
+  provider?: string | null;
+  providerThreadId?: string | null;
+  references?: unknown;
+  [key: string]: unknown;
+}
+
+type HeaderBag = Record<string, unknown> | Map<string, unknown>;
+
+interface ConversationMetadataInput {
+  attributes?: Record<string, unknown>;
+  parsedHeaders?: HeaderBag;
+  headers?: HeaderBag;
+  references?: unknown;
+  inReplyTo?: unknown;
+  [key: string]: unknown;
+}
+
+export function providerMetadataForMessage(parsed: ConversationMetadataInput | null | undefined, account: { id?: string; imap_host?: string } | null | undefined): ProviderConversationMetadata {
   const metadata = parseProviderMetadata(parsed, account);
   const attributes = parsed?.attributes || parsed || {};
   const headers = parsed?.parsedHeaders || parsed?.headers || {};
   const header = (name) => {
-    if (headers && typeof headers.get === 'function') {
-      const direct = headers.get(name) ?? headers.get(name.toLowerCase());
+    if (headers && typeof (headers as Map<string, unknown>).get === 'function') {
+      const map = headers as Map<string, unknown>;
+      const direct = map.get(name) ?? map.get(name.toLowerCase());
       if (direct != null) return direct;
-      for (const [key, value] of headers.entries()) {
+      for (const [key, value] of map.entries()) {
         if (String(key).toLowerCase() === name.toLowerCase()) return value;
       }
       return null;
@@ -36,7 +55,7 @@ export function providerMetadataForMessage(parsed, account): any {
     providerThreadId: metadata.providerThreadId || (metadata.provider === 'outlook' ? outlookConversationRoot(threadIndex) : null),
     isStrong: metadata.provider === 'gmail' && metadata.providerThreadId != null,
     source: metadata.providerThreadId ? (metadata.source || 'provider-thread-id') : outlookConversationRoot(threadIndex) ? 'outlook-conversation-index-root' : metadata.source,
-    references: normalizeProviderReferences(parsed?.references || (metadata as any).references || []),
+    references: normalizeProviderReferences(parsed?.references || []),
     inReplyTo: normalizeMessageIdList(parsed?.inReplyTo).at(-1) || null,
   };
 }

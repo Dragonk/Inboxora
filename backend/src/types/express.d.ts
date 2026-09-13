@@ -4,12 +4,17 @@ import 'express-serve-static-core';
 
 declare module 'express-serve-static-core' {
   interface Request {
-    caldavCredentialId?: any;
+    caldavCredentialId?: string;
     caldavUserId?: string;
-    cardavCredentialId?: any;
+    cardavCredentialId?: string;
     cardavUserId?: string;
-    davCredentialId?: any;
+    davCredentialId?: string;
     davUserId?: string;
-    pushDevice?: any;
+    pushDevice?: {
+      id: string;
+      userId: string;
+      deviceId: string;
+      [key: string]: unknown;
+    };
   }
 }

@@ -14,9 +14,9 @@ function text(value) {
   return normalized.length <= MAX_VALUE_LENGTH ? normalized : undefined;
 }
 
-type ValueValidator = (value: any) => boolean;
+type ValueValidator = (value: unknown) => boolean;
 
-function typedValues(values: any, isValid: ValueValidator = () => true) {
+function typedValues(values: unknown, isValid: ValueValidator = () => true) {
   if (!Array.isArray(values)) return undefined;
   const normalized = [];
   for (const value of values) {
@@ -47,14 +47,22 @@ function addresses(values) {
   return normalized;
 }
 
-export function normalizeRichContactFields(body: any) {
-  const normalized: Record<string, any> = {};
+interface RichContactBody {
+  urls?: unknown;
+  instantMessages?: unknown;
+  addresses?: unknown;
+  categories?: unknown;
+  [key: string]: unknown;
+}
+
+export function normalizeRichContactFields(body: RichContactBody) {
+  const normalized: { categories?: string[]; [key: string]: unknown } = {};
   for (const field of TEXT_FIELDS) {
     const value = text(body[field] ?? '');
     if (value === undefined) return undefined;
     normalized[field] = value || null;
   }
-  normalized.urls = typedValues(body.urls ?? [], value => /^https?:\/\//i.test(value));
+  normalized.urls = typedValues(body.urls ?? [], value => typeof value === 'string' && /^https?:\/\//i.test(value));
   normalized.instantMessages = typedValues(body.instantMessages ?? []);
   normalized.addresses = addresses(body.addresses ?? []);
   if (!Array.isArray(body.categories)) return undefined;

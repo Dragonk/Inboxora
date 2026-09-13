@@ -13,11 +13,19 @@ declare module 'express-session' {
     pendingTOTPSecret?: string | null;
     pendingTOTPExpiry?: number | null;
     pendingTOTPSetupExpiry?: number | null;
-    pendingMFAEnrollment?: any;
+    pendingMFAEnrollment?: boolean;
     oauthNonce?: string;
     oauthUserId?: string;
     oidcIdToken?: string;
     oidcProviderId?: string;
-    oidcPending?: any;
+    oidcPending?: {
+      state: string;
+      nonce: string;
+      verifier: string;
+      providerId: string;
+      action: string;
+      linkUserId?: string;
+      expiresAt: number;
+    };
   }
 }

@@ -38,9 +38,9 @@ async function refresh() {
     signal: AbortSignal.timeout(5000),
   });
   if (!res.ok) throw new Error(`GitHub ${res.status}`);
-  const data = await res.json();
-  const tag = String((data as any).tag_name || '').trim().replace(/^v/i, '');
-  return { latest: tag || null, url: typeof (data as any).html_url === 'string' ? (data as any).html_url : null };
+  const data = (await res.json()) as { tag_name?: string; html_url?: string };
+  const tag = String(data.tag_name || '').trim().replace(/^v/i, '');
+  return { latest: tag || null, url: typeof data.html_url === 'string' ? data.html_url : null };
 }
 
 export async function getUpdateStatus(currentVersion) {
