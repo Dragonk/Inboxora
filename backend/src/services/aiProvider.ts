@@ -5,6 +5,7 @@ import { validateHost } from './hostValidation.js';
 import { createRequestSignal, parseJson, readLimited, readSseData, sanitizeText } from './aiHttp.js';
 import { completeCodexText, streamCodexResponses } from './openaiCodexResponses.js';
 import { getCodexAccess, getCodexStatus } from './openaiCodexAuth.js';
+import { toAppError } from '../utils/errors.js';
 
 export const AI_PROVIDER_API_KEY = 'api-key';
 export const AI_PROVIDER_CHATGPT = 'chatgpt';
@@ -38,11 +39,11 @@ export class AiProviderError extends Error {
   }
 }
 
-function cleanString(value) {
+function cleanString(value: unknown): string {
   return typeof value === 'string' ? value.trim() : '';
 }
 
-function normalizeBaseUrl(value) {
+function normalizeBaseUrl(value: unknown): string {
   return cleanString(value).replace(/\/+$/, '');
 }
 
@@ -59,12 +60,11 @@ export interface AiConfigInput {
 }
 
 export function normalizeAiConfig(raw: AiConfigInput = {}) {
-  const hasStructuredConfig = raw.apiKeyConfig && typeof raw.apiKeyConfig === 'object';
-  const apiSource = hasStructuredConfig ? raw.apiKeyConfig : raw;
+  const apiSource = raw.apiKeyConfig && typeof raw.apiKeyConfig === 'object' ? raw.apiKeyConfig : raw;
   const chatgptSource = raw.chatgptConfig && typeof raw.chatgptConfig === 'object'
     ? raw.chatgptConfig
     : {};
-  const provider = PROVIDERS.has(raw.provider) ? raw.provider : AI_PROVIDER_API_KEY;
+  const provider = typeof raw.provider === 'string' && PROVIDERS.has(raw.provider) ? raw.provider : AI_PROVIDER_API_KEY;
   return {
     enabled: raw.enabled !== false,
     provider,
@@ -83,7 +83,13 @@ export function normalizeAiConfig(raw: AiConfigInput = {}) {
   };
 }
 
-function publicConfig(config) {
+/** One chat message sent to a provider. */
+type AiMessage = { role: string; content: string };
+
+/** The fully normalised configuration the provider runs with. */
+type NormalizedAiConfig = ReturnType<typeof normalizeAiConfig>;
+
+function publicConfig(config: ReturnType<typeof normalizeAiConfig> | null | undefined) {
   if (!config) return null;
   return {
     ...config,
@@ -94,34 +100,34 @@ function publicConfig(config) {
   };
 }
 
-function redactSecrets(value, secrets = []) {
-  let redacted = value;
+function redactSecrets(value: unknown, secrets: unknown[] = []): string {
+  let redacted = String(value ?? '');
   for (const secret of secrets) {
     if (typeof secret === 'string' && secret) redacted = redacted.split(secret).join('[redacted]');
   }
   return redacted;
 }
 
-function providerError(status, text: string, secrets = []) {
+function providerError(status: number, text: string, secrets: unknown[] = []) {
   const parsed = parseJson(text);
   const raw = typeof parsed?.error === 'string' ? parsed.error : parsed?.error?.message;
   const detail = sanitizeText(redactSecrets(raw || text, secrets));
   return new AiProviderError(`AI provider error (${status})${detail ? `: ${detail}` : ''}`, { status: 502, expose: true });
 }
 
-function providerRequestError(error, request, callerSignal) {
+function providerRequestError(error: unknown, request: { timedOut(): boolean; cleanup(): void }, callerSignal: AbortSignal | null | undefined) {
   if (request.timedOut()) return new AiProviderError('AI provider request timed out', { status: 504, expose: true });
   if (callerSignal?.aborted) return new AiProviderError('AI provider request was aborted', { status: 499, expose: true });
   if (error instanceof AiProviderError) return error;
   return new AiProviderError(
-    `AI provider request failed: ${sanitizeText(error?.message) || 'network error'}`,
+    `AI provider request failed: ${sanitizeText(toAppError(error).message) || 'network error'}`,
     { status: 502, expose: true },
   );
 }
 
 interface ProviderRequestOptions { signal?: AbortSignal; timeoutMs?: number }
 
-async function openProviderRequest(fetchFn, url: string, init, { signal, timeoutMs = DEFAULT_TIMEOUT_MS }: ProviderRequestOptions = {}) {
+async function openProviderRequest(fetchFn: typeof fetch, url: string, init: RequestInit, { signal, timeoutMs = DEFAULT_TIMEOUT_MS }: ProviderRequestOptions = {}) {
   const request = createRequestSignal(signal, timeoutMs, 'AI request timed out');
   try {
     const response = await fetchFn(url, { ...init, signal: request.signal });
@@ -134,9 +140,9 @@ async function openProviderRequest(fetchFn, url: string, init, { signal, timeout
 
 interface ParseSseOptions { signal?: AbortSignal; secrets?: unknown[] }
 
-async function* parseChatCompletionsSse(response, { signal, secrets }: ParseSseOptions = {}) {
+async function* parseChatCompletionsSse(response: Response, { signal, secrets }: ParseSseOptions = {}) {
   let outputChars = 0;
-  const createError = (reason) => {
+  const createError = (reason: string): AiProviderError => {
     if (reason === 'empty_body') return new AiProviderError('AI provider returned an empty stream', { status: 502 });
     if (reason === 'aborted') return new AiProviderError('AI provider request was aborted', { status: 499 });
     return new AiProviderError('AI provider stream event was too large', { status: 502 });
@@ -183,7 +189,7 @@ export function createAiProvider({
   }
 
   async function saveAiConfig(input: AiConfigInput = {}) {
-    if (!PROVIDERS.has(input.provider)) throw new AiProviderError('Unknown AI provider', { status: 400 });
+    if (typeof input.provider !== 'string' || !PROVIDERS.has(input.provider)) throw new AiProviderError('Unknown AI provider', { status: 400 });
     if (input.enabled !== false && input.provider === AI_PROVIDER_CHATGPT
         && !cleanString(input.chatgptConfig?.model)) {
       throw new AiProviderError('ChatGPT model name is required', { status: 400 });
@@ -238,11 +244,11 @@ export function createAiProvider({
     return config;
   }
 
-  function apiKeyCredential(config) {
+  function apiKeyCredential(config: NormalizedAiConfig): string | null {
     return config.apiKeyConfig.apiKey ? decryptFn(config.apiKeyConfig.apiKey) : null;
   }
 
-  function apiKeyHeaders(apiKey) {
+  function apiKeyHeaders(apiKey: string | null | undefined): Record<string, string> {
     const headers: Record<string, string> = { 'Content-Type': 'application/json' };
     if (apiKey) headers.Authorization = `Bearer ${apiKey}`;
     return headers;
@@ -250,7 +256,7 @@ export function createAiProvider({
 
   interface CompleteOptions { signal?: AbortSignal; maxTokens?: number; allowEmpty?: boolean }
 
-  async function completeApiKey(config, messages, { signal, maxTokens, allowEmpty = false }: CompleteOptions = {}) {
+  async function completeApiKey(config: NormalizedAiConfig, messages: AiMessage[], { signal, maxTokens, allowEmpty = false }: CompleteOptions = {}) {
     const apiKey = apiKeyCredential(config);
     const body = {
       model: config.apiKeyConfig.model,
@@ -294,7 +300,7 @@ export function createAiProvider({
     }
   }
 
-  async function* streamApiKey(config, messages, { signal }: { signal?: AbortSignal } = {}) {
+  async function* streamApiKey(config: NormalizedAiConfig, messages: AiMessage[], { signal }: { signal?: AbortSignal } = {}) {
     const apiKey = apiKeyCredential(config);
     const request = await openProviderRequest(fetchFn, `${config.apiKeyConfig.baseUrl}/chat/completions`, {
       method: 'POST',
@@ -315,7 +321,7 @@ export function createAiProvider({
     }
   }
 
-  function codexRequest(config, messages, options, credentials) {
+  function codexRequest(config: NormalizedAiConfig, messages: AiMessage[], options: CompleteOptions, credentials: Awaited<ReturnType<typeof getCodexAccess>>) {
     return {
       ...credentials,
       model: config.chatgptConfig.model,
@@ -324,20 +330,20 @@ export function createAiProvider({
     };
   }
 
-  async function completeText(messages, options: Record<string, any> = {}) {
+  async function completeText(messages: AiMessage[], options: CompleteOptions = {}) {
     const config = await requireSelectedConfig();
     if (config.provider === AI_PROVIDER_API_KEY) return completeApiKey(config, messages, options);
     let credentials = await getCodexAccessFn();
     try {
       return await completeCodexTextFn(codexRequest(config, messages, options, credentials));
     } catch (error) {
-      if (error?.status !== 401) throw error;
+      if (toAppError(error).status !== 401) throw error;
       credentials = await getCodexAccessFn({ forceRefresh: true });
       return completeCodexTextFn(codexRequest(config, messages, options, credentials));
     }
   }
 
-  async function* streamChat(messages, options: Record<string, any> = {}) {
+  async function* streamChat(messages: AiMessage[], options: Record<string, unknown> = {}) {
     const config = await requireSelectedConfig();
     if (config.provider === AI_PROVIDER_API_KEY) {
       yield* streamApiKey(config, messages, options);
@@ -357,7 +363,7 @@ export function createAiProvider({
         }
         return;
       } catch (error) {
-        if (forceRefresh || emitted || error?.status !== 401) throw error;
+        if (forceRefresh || emitted || toAppError(error).status !== 401) throw error;
         forceRefresh = true;
       }
     }
