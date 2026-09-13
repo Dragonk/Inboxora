@@ -41,7 +41,7 @@ import i18n from '../i18n.ts';
 /** The signed-in user as the store holds it. */
 interface StoreUserRow { id?: string; username?: string; email?: string; [key: string]: unknown }
 
-interface StoreMessageRow { id: string; account_id?: string; folder?: string; is_read?: boolean; is_starred?: boolean; message_id?: string | null; thread_id?: string; [key: string]: unknown }
+interface StoreMessageRow { id: string; account_id?: string; folder?: string; is_read?: boolean; is_starred?: boolean; message_id?: string | null; thread_id?: string; date?: string | number | Date | null; [key: string]: unknown }
 
 /** The store fields its own set()/get() callbacks read. */
 interface StoreStateRead {
@@ -245,7 +245,7 @@ export const useStore = create<any>((set, get) => ({
   // Accounts
   accounts: [],
   accountsReady: false, // true once the initial getAccounts() call has resolved
-  setAccounts: (accounts) => {
+  setAccounts: (accounts: Array<{ id: string; enabled?: boolean; include_in_unified_inbox?: boolean; [key: string]: unknown }>) =>{
     if (!Array.isArray(accounts)) return;
     const previous = get().selectedAccountId;
     const selected = resolveSelectedAccount(accounts, previous);
@@ -312,7 +312,7 @@ export const useStore = create<any>((set, get) => ({
     return messages === state.messages ? {} : { messages };
   }),
   updateMessage: (id: string, updates: Record<string, unknown>) =>set((state: StoreStateRead) => {
-    const apply = (m) => m.id === id ? { ...m, ...updates } : m;
+    const apply = (m: StoreMessageRow) => m.id === id ? { ...m, ...updates } : m;
     const threadMessages = Object.fromEntries(
       Object.entries(state.threadMessages as Record<string, StoreMessage[]>).map(([tid, msgs]) => [tid, msgs.map(apply)])
     );
@@ -344,12 +344,12 @@ export const useStore = create<any>((set, get) => ({
     return {
       messages: state.messages.filter(m => !idSet.has(m.id)),
       searchResults: state.searchResults.filter(m => !idSet.has(m.id)),
-      selectedMessageId: idSet.has(state.selectedMessageId) ? null : state.selectedMessageId,
+      selectedMessageId: state.selectedMessageId !== null && idSet.has(state.selectedMessageId) ? null : state.selectedMessageId,
     };
   }),
   restoreMessages: (msgs: StoreMessageRow[]) =>set((state: StoreStateRead) => {
     const list = Array.isArray(msgs) ? msgs : [msgs];
-    const sort = arr => [...arr].sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
+    const sort = (arr: StoreMessageRow[]) => [...arr].sort((a, b) => new Date(b.date || 0).getTime() - new Date(a.date || 0).getTime());
     // Deduplicate against both the main list and searchResults by stable identity (Message-ID when
     // present, else id): if the message is already present — including re-added by a network
     // refresh under a regenerated id (matched via Message-ID) — skip it. The local copy carries the
@@ -405,12 +405,12 @@ export const useStore = create<any>((set, get) => ({
   // list. Used for optimistic UI updates when marking messages as read/spam/ham
   // so the sidebar badge updates without waiting for a full folder sync.
   // We clamp at 0 to avoid negative counters when the optimistic guess was off.
-  adjustFolderUnread: (accountId: string, folderPath, delta) =>set((state: StoreStateRead) => {
+  adjustFolderUnread: (accountId: string, folderPath: string, delta: number) =>set((state: StoreStateRead) => {
     const accountFolders = state.folders[accountId];
     if (!accountFolders) return {};
     let changed = false;
     const next = accountFolders.map(f => {
-      if (f.path === folderPath && Number.isFinite(f.unread_count)) {
+      if (f.path === folderPath && typeof f.unread_count === 'number' && Number.isFinite(f.unread_count)) {
         const updated = Math.max(0, f.unread_count + delta);
         if (updated !== f.unread_count) { changed = true; return { ...f, unread_count: updated }; }
       }
@@ -439,13 +439,13 @@ export const useStore = create<any>((set, get) => ({
   isSidebarResizing: false,
   setIsSidebarResizing: (v: boolean) =>set({ isSidebarResizing: v }),
   pageSize: parseInt(localStorage.getItem('mailflow_page_size')) || 50,
-  setPageSize: (size) => {
+  setPageSize: (size: number) =>{
     localStorage.setItem('mailflow_page_size', String(size));
     set({ pageSize: size });
     schedulePrefSave({ pageSize: String(size) });
   },
   scrollMode: localStorage.getItem('mailflow_scroll_mode') || 'infinite',
-  setScrollMode: (mode) => {
+  setScrollMode: (mode: string) =>{
     localStorage.setItem('mailflow_scroll_mode', mode);
     set({ scrollMode: mode });
     schedulePrefSave({ scrollMode: mode });
@@ -464,14 +464,14 @@ export const useStore = create<any>((set, get) => ({
       return { left: 'archive', right: 'markRead' };
     }
   })(),
-  setSwipeAction: (direction, action) => set((state: StoreStateRead) => {
+  setSwipeAction: (direction: string, action: string) =>set((state: StoreStateRead) => {
     const next = { ...state.swipeActions, [direction]: action };
     localStorage.setItem('mailflow_swipe_actions', JSON.stringify(next));
     schedulePrefSave({ swipeActions: next });
     return { swipeActions: next };
   }),
   syncInterval: parseInt(localStorage.getItem('mailflow_sync_interval')) || 60,
-  setSyncInterval: (seconds) => {
+  setSyncInterval: (seconds: number) =>{
     localStorage.setItem('mailflow_sync_interval', String(seconds));
     set({ syncInterval: seconds });
     schedulePrefSave({ syncInterval: String(seconds) });
@@ -482,19 +482,19 @@ export const useStore = create<any>((set, get) => ({
     const v = parseInt(localStorage.getItem('mailflow_folder_sync_interval'));
     return Number.isFinite(v) ? v : 1800;
   })(),
-  setFolderSyncInterval: (seconds) => {
+  setFolderSyncInterval: (seconds: number) =>{
     localStorage.setItem('mailflow_folder_sync_interval', String(seconds));
     set({ folderSyncInterval: seconds });
     schedulePrefSave({ folderSyncInterval: String(seconds) });
   },
   notificationSound: localStorage.getItem('mailflow_notification_sound') || 'tritone',
-  setNotificationSound: (sound) => {
+  setNotificationSound: (sound: string) =>{
     localStorage.setItem('mailflow_notification_sound', sound);
     set({ notificationSound: sound });
     schedulePrefSave({ notificationSound: sound });
   },
   customSoundDataUrl: localStorage.getItem('mailflow_custom_sound') || null,
-  setCustomSoundDataUrl: (dataUrl) => {
+  setCustomSoundDataUrl: (dataUrl: string) =>{
     if (dataUrl) {
       localStorage.setItem('mailflow_custom_sound', dataUrl);
     } else {
@@ -547,7 +547,7 @@ export const useStore = create<any>((set, get) => ({
       messageWindows: state.messageWindows.map(w => w.winId === winId ? { ...w, z: seq } : w),
     };
   }),
-  setMessageWindowMinimized: (winId: string, minimized) =>set((state: StoreStateRead) => {
+  setMessageWindowMinimized: (winId: string, minimized: boolean) =>set((state: StoreStateRead) => {
     const seq = state._winSeq + 1;
     return {
       _winSeq: seq,
@@ -556,16 +556,16 @@ export const useStore = create<any>((set, get) => ({
         w.winId === winId ? { ...w, minimized, z: minimized ? w.z : seq } : w),
     };
   }),
-  updateMessageWindowRect: (winId: string, rect) =>set((state: StoreStateRead) => ({
+  updateMessageWindowRect: (winId: string, rect: { x?: number; y?: number; width?: number; height?: number }) =>set((state: StoreStateRead) => ({
     messageWindows: state.messageWindows.map(w => w.winId === winId ? { ...w, ...rect } : w),
   })),
   closeAllMessageWindows: () => set({ messageWindows: [] }),
   searchQuery: '',
-  setSearchQuery: (q) => set({ searchQuery: q }),
+  setSearchQuery: (q: string) =>set({ searchQuery: q }),
   isSearching: false,
   setIsSearching: (v: boolean) =>set({ isSearching: v }),
   searchResults: [],
-  setSearchResults: (r) => set({ searchResults: r }),
+  setSearchResults: (r: StoreMessageRow[]) =>set({ searchResults: r }),
 
   // Loading
   loadingMessages: false,
@@ -573,7 +573,7 @@ export const useStore = create<any>((set, get) => ({
 
   // Notifications
   notifications: [],
-  addNotification: (n) => set((state: StoreStateRead) => ({
+  addNotification: (n: { id?: string; [key: string]: unknown }) =>set((state: StoreStateRead) => ({
     notifications: [{ ...n, id: crypto.randomUUID?.() ?? `${Date.now()}-${Math.random().toString(36).slice(2)}` }, ...state.notifications].slice(0, 5)
   })),
   removeNotification: (id: string) =>set((state: StoreStateRead) => ({
@@ -584,29 +584,29 @@ export const useStore = create<any>((set, get) => ({
   showAdmin: false,
   adminTab: 'accounts', // 'accounts' | 'appearance' | 'integrations' | 'users'
   setShowAdmin: (v: boolean) =>set({ showAdmin: v }),
-  setAdminTab: (t) => set({ adminTab: t }),
+  setAdminTab: (t: string) =>set({ adminTab: t }),
 
   // Contacts view
   showContacts: false,
-  setShowContacts: (showContacts) => set({ showContacts, ...(showContacts ? { showCalendar: false } : {}) }),
+  setShowContacts: (showContacts: boolean) =>set({ showContacts, ...(showContacts ? { showCalendar: false } : {}) }),
   showCalendar: false,
-  setShowCalendar: (showCalendar) => set({ showCalendar, ...(showCalendar ? { showContacts: false } : {}) }),
+  setShowCalendar: (showCalendar: boolean) =>set({ showCalendar, ...(showCalendar ? { showContacts: false } : {}) }),
   // Calendar presentation preferences are persisted per user. A missing visibility list means
   // all known calendars are visible, so upgrades never hide an existing source unexpectedly.
   calendarWeekStartsOn: 1,
-  setCalendarWeekStartsOn: (calendarWeekStartsOn) => {
+  setCalendarWeekStartsOn: (calendarWeekStartsOn: number) =>{
     const value = calendarWeekStartsOn === 0 ? 0 : 1;
     set({ calendarWeekStartsOn: value });
     schedulePrefSave({ calendarWeekStartsOn: value });
   },
   visibleCalendarIds: null,
-  setVisibleCalendarIds: (visibleCalendarIds) => {
+  setVisibleCalendarIds: (visibleCalendarIds: string[]) =>{
     const value = Array.isArray(visibleCalendarIds) ? [...new Set(visibleCalendarIds.filter(id => typeof id === 'string'))] : null;
     set({ visibleCalendarIds: value });
     schedulePrefSave({ visibleCalendarIds: value || [] });
   },
   mobileNavigationPosition: 'top',
-  setMobileNavigationPosition: (mobileNavigationPosition) => {
+  setMobileNavigationPosition: (mobileNavigationPosition: string) =>{
     const value = mobileNavigationPosition === 'bottom' ? 'bottom' : 'top';
     set({ mobileNavigationPosition: value });
     schedulePrefSave({ mobileNavigationPosition: value });
@@ -614,13 +614,13 @@ export const useStore = create<any>((set, get) => ({
   // The SMTP account the new-event dialog preselects for calendar invitations.
   // Empty means "no default": the dialog leaves the sender picker unselected.
   calendarInviteAccountId: '',
-  setCalendarInviteAccountId: (calendarInviteAccountId) => {
+  setCalendarInviteAccountId: (calendarInviteAccountId: string | null) =>{
     const value = typeof calendarInviteAccountId === 'string' ? calendarInviteAccountId : '';
     set({ calendarInviteAccountId: value });
     schedulePrefSave({ calendarInviteAccountId: value });
   },
   calendarWorkDays: [...DEFAULT_CALENDAR_PREFERENCES.calendarWorkDays],
-  setCalendarWorkDays: (calendarWorkDays) => {
+  setCalendarWorkDays: (calendarWorkDays: number[]) =>{
     const value = normalizeCalendarWorkDays(calendarWorkDays);
     set({ calendarWorkDays: value });
     schedulePrefSave({ calendarWorkDays: value });
@@ -660,7 +660,7 @@ export const useStore = create<any>((set, get) => ({
   setRulesPreFill: (v: boolean) =>set({ rulesPreFill: v }),
 
   backfillProgress: {}, // { [accountId]: { synced: N, total: N } | null } — transient
-  setBackfillProgress: (accountId: string, progress) =>set((state: StoreStateRead) => ({
+  setBackfillProgress: (accountId: string, progress: Record<string, unknown>) =>set((state: StoreStateRead) => ({
     backfillProgress: { ...state.backfillProgress, [accountId]: progress },
   })),
 
@@ -670,7 +670,7 @@ export const useStore = create<any>((set, get) => ({
 
   // Language
   language: localStorage.getItem('mailflow_language') || 'en',
-  setLanguage: (lng) => {
+  setLanguage: (lng: string) =>{
     localStorage.setItem('mailflow_language', lng);
     set({ language: lng });
     i18n.changeLanguage(lng);
@@ -780,12 +780,12 @@ export const useStore = create<any>((set, get) => ({
 
   // Shared by every theme action: store the three preferences, derive the active
   // theme and re-apply the CSS variables plus the theme-paired font.
-  applyThemeSelection: (partial) => {
+  applyThemeSelection: (partial: { light?: string; dark?: string; [key: string]: unknown }) =>{
     const current = { mode: get().themeMode, light: get().lightTheme, dark: get().darkTheme };
     const next = {
       mode: partial.mode !== undefined ? normalizeThemeMode(partial.mode) : current.mode,
-      light: THEMES[partial.light] ? partial.light : current.light,
-      dark: THEMES[partial.dark] ? partial.dark : current.dark,
+      light: partial.light && THEMES[partial.light] ? partial.light : current.light,
+      dark: partial.dark && THEMES[partial.dark] ? partial.dark : current.dark,
     };
     const theme = resolveTheme(next);
     localStorage.setItem('mailflow_theme_mode', next.mode);
@@ -806,7 +806,7 @@ export const useStore = create<any>((set, get) => ({
     schedulePrefSave({ themeMode: next.mode, themeLight: next.light, themeDark: next.dark, theme });
   },
 
-  setThemeMode: (mode) => get().applyThemeSelection({ mode }),
+  setThemeMode: (mode: string) =>get().applyThemeSelection({ mode }),
   setLightTheme: (theme: string) =>get().applyThemeSelection({ light: theme }),
   setDarkTheme: (theme: string) =>get().applyThemeSelection({ dark: theme }),
 
@@ -866,7 +866,7 @@ export const useStore = create<any>((set, get) => ({
   // Unread counts per category for the tab bar badges { primary: N, newsletter: N, ... }
   categoryCounts: {},
   setCategoryCounts: (counts: Record<string, number>) =>set({ categoryCounts: counts }),
-  adjustCategoryCount: (category, delta) => set((state: StoreStateRead) => {
+  adjustCategoryCount: (category, delta: number) =>set((state: StoreStateRead) => {
     const key = category || 'primary';
     const current = state.categoryCounts[key] || 0;
     return { categoryCounts: { ...state.categoryCounts, [key]: Math.max(0, current + delta) } };
@@ -1048,7 +1048,7 @@ export const useStore = create<any>((set, get) => ({
       throw err;
     });
   },
-  addToImageWhitelist: ({ type, value }) => {
+  addToImageWhitelist: ({ type, value }: { type: string; value: string }) => {
     const prev = get().imageWhitelist;
     const key = type === 'address' ? 'addresses' : 'domains';
     const normalized = value.toLowerCase();
@@ -1126,7 +1126,7 @@ export const useStore = create<any>((set, get) => ({
     try { return JSON.parse(localStorage.getItem('mailflow_favorite_folders') || '[]'); }
     catch { return []; }
   })(),
-  addFavoriteFolder: ({ accountId, path }) => {
+  addFavoriteFolder: ({ accountId, path }: { accountId: string; path: string }) => {
     const prev = get().favoriteFolders;
     if (prev.some(f => f.accountId === accountId && f.path === path)) return;
     const next = [...prev, { accountId, path }];
@@ -1134,7 +1134,7 @@ export const useStore = create<any>((set, get) => ({
     set({ favoriteFolders: next });
     schedulePrefSave({ favoriteFolders: next });
   },
-  removeFavoriteFolder: ({ accountId, path }) => {
+  removeFavoriteFolder: ({ accountId, path }: { accountId: string; path: string }) => {
     const next = get().favoriteFolders.filter(f => !(f.accountId === accountId && f.path === path));
     localStorage.setItem('mailflow_favorite_folders', JSON.stringify(next));
     set({ favoriteFolders: next });
