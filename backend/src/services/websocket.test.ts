@@ -1,10 +1,9 @@
-// @ts-nocheck
 import { EventEmitter } from 'node:events';
 import { describe, it, expect, vi, afterEach } from 'vitest';
 vi.mock('./diagnosticsRing.js', () => ({ recordWsConnect: vi.fn(), recordWsDisconnect: vi.fn() }));
 import { setupWebSocket } from './websocket.js';
 
-function setup(sessionMiddleware, manager = { connectAllForUser: vi.fn().mockResolvedValue() }) {
+function setup(sessionMiddleware, manager = { connectAllForUser: vi.fn().mockResolvedValue(undefined) }) {
   const wss = new EventEmitter();
   const ws = Object.assign(new EventEmitter(), {
     readyState: 1, close: vi.fn(), terminate: vi.fn(), send: vi.fn(),

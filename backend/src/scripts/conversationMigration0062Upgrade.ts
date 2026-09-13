@@ -1,4 +1,3 @@
-// @ts-nocheck
 import { createHash } from 'crypto';
 import { readFile, readdir } from 'fs/promises';
 import { dirname, join } from 'path';

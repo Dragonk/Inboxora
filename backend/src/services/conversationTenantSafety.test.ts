@@ -1,4 +1,3 @@
-// @ts-nocheck
 import { describe, expect, it } from 'vitest';
 import { classifyDirection, logicalMessageIdentity, threadingDecision } from './conversationEngine.js';
 

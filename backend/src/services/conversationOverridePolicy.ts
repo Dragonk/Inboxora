@@ -10,7 +10,7 @@ import { query } from './db.js';
 // a message-level override for L1 could be picked up when querying for L2 in the
 // same conversation. Now we query message-level overrides ONLY by their exact
 // logical_message_id, and conversation-level overrides ONLY by conversation_id.
-export async function effectiveConversationOverride(client, { userId, accountId, conversationId, logicalMessageId = null }) {
+export async function effectiveConversationOverride(client, { userId, accountId, conversationId, logicalMessageId = null }: { userId?: any; accountId?: any; conversationId?: any; logicalMessageId?: any } = {}) {
   // Conversation-level overrides (lock/unlock/merge) — keyed by conversation_id only.
   const conversationResult = await client.query(`
     SELECT id, override_type, target_id, reason, logical_message_id, created_at

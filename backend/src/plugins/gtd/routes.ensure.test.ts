@@ -1,4 +1,3 @@
-// @ts-nocheck
 import { describe, it, expect, vi, beforeEach, beforeAll, afterAll } from 'vitest';
 
 // POST /api/gtd/folders/ensure end-to-end: proves the route persists the effective folder
@@ -13,7 +12,7 @@ vi.mock('../../middleware/auth.js', () => ({
 }));
 vi.mock('./gtdConfig.js', async (importOriginal) => {
   const actual = await importOriginal();
-  return { ...actual, invalidateGtdConfigCache: vi.fn() };
+  return { ...(actual as any), invalidateGtdConfigCache: vi.fn() };
 });
 // Per-account config store: the route reads the stored folders from here and persists the
 // reconciled effective paths back. Mocked at the source so the api.js barrel re-export resolves here.

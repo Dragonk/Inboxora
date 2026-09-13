@@ -1,8 +1,7 @@
-// @ts-nocheck
 import { query } from './db.js';
 import { resolveAccountScope } from './unifiedInbox.js';
 
-export async function listMessages({ userId, accountId, folder = 'INBOX', limit = 50, offset = 0, unreadOnly, threaded, category }) {
+export async function listMessages({ userId, accountId, folder = 'INBOX', limit = 50, offset = 0, unreadOnly = undefined, threaded = undefined, category = undefined }: { userId?: any; accountId?: any; folder?: string; limit?: number; offset?: number; unreadOnly?: any; threaded?: any; category?: any }) {
   const accountsResult = await query(
     'SELECT id, include_in_unified_inbox FROM email_accounts WHERE user_id = $1 AND enabled = true',
     [userId]
@@ -52,8 +51,8 @@ export async function listMessages({ userId, accountId, folder = 'INBOX', limit 
 
   const where = whereConditions.join(' AND ');
 
-  const safeLimit  = Math.min(Math.max(parseInt(limit)  || 50, 1), 500);
-  const safeOffset = Math.max(parseInt(offset) || 0, 0);
+  const safeLimit  = Math.min(Math.max(Number(limit)  || 50, 1), 500);
+  const safeOffset = Math.max(Number(offset) || 0, 0);
 
   let total = 0;
   try {

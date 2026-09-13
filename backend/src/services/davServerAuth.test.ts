@@ -1,4 +1,3 @@
-// @ts-nocheck
 import { describe, expect, it, vi } from 'vitest';
 
 const { authenticateDavCredential, consume, logAuthEvent } = vi.hoisted<any>(() => ({
@@ -24,7 +23,7 @@ describe('createDavAuthMiddleware', () => {
   it('authenticates a dedicated DAV credential and attaches its ownership to the request', async () => {
     authenticateDavCredential.mockResolvedValue({ userId: 'user-1', credentialId: 'credential-1' });
     const middleware = createDavAuthMiddleware({ realm: 'Inboxora CalDAV', eventType: 'caldav_auth_fail' });
-    const req = { headers: { authorization: `Basic ${Buffer.from('sam@example.test:test-dav-password').toString('base64')}` }, ip: '127.0.0.1' };
+    const req: any = { headers: { authorization: `Basic ${Buffer.from('sam@example.test:test-dav-password').toString('base64')}` }, ip: '127.0.0.1' };
     const res = response();
     const next = vi.fn();
 

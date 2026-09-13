@@ -1,4 +1,3 @@
-// @ts-nocheck
 // Sanitized diagnostics report builder (server side).
 //
 // Principle: ALLOWLIST, never redact. This module assembles a report from an

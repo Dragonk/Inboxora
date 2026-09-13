@@ -1,4 +1,3 @@
-// @ts-nocheck
 import nodemailer from 'nodemailer';
 import { refreshMicrosoftToken } from '../routes/oauth.js';
 import { decrypt } from './encryption.js';
@@ -122,7 +121,7 @@ export async function createAccountSmtpTransport(inputAccount) {
     };
   }
 
-  const tls = {
+  const tls: Record<string, any> = {
     rejectUnauthorized: !(policy.allowInsecureTls && account.imap_skip_tls_verify),
   };
   if (resolved.servername) tls.servername = resolved.servername;

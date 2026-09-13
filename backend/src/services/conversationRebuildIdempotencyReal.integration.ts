@@ -1,4 +1,3 @@
-// @ts-nocheck
 // CE v2 Rebuild idempotency test — real PostgreSQL
 // Tests: dry-run zero writes, write pass #1, write pass #2 (changed=0, wouldChange=0)
 // Run: node --test src/services/conversationRebuildIdempotencyReal.integration.js

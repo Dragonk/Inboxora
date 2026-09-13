@@ -1,4 +1,3 @@
-// @ts-nocheck
 import { outlookCalendar } from '../test/fixtures/outlookCalendar.js';
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import 'express-async-errors';
@@ -1064,7 +1063,7 @@ describe('local calendar API', () => {
     const second = await fetch(`${base}/api/calendar/events`, { method: 'POST', headers: { 'content-type': 'application/json', 'X-Idempotency-Key': 'post-sent' }, body: JSON.stringify(body) });
 
     expect(second.status).toBe(201);
-    const payload = await second.json();
+    const payload = (await second.json()) as any;
     expect(payload).toMatchObject({ invitationStatus: { status: 'sent', lastError: null } });
     expect(payload.invitationError).toBeUndefined();
     // Delivered once, never duplicated by a repeated save.

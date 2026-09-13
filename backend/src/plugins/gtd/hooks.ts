@@ -1,4 +1,3 @@
-// @ts-nocheck
 // GTD plugin — sync-engine hook handlers (v3.0 plugin platform).
 //
 // These are the handlers core's sync engine (imapManager) consults through the generic
@@ -235,7 +234,7 @@ export async function validateAccountSettings({ updates, accountId }) {
   // connectAccount, and the persistent-connection account object the transition hooks close over
   // must pick up the new flag.
   let requiresReconnect = 'gtd_enabled' in updates;
-  const out = {};
+  const out: Record<string, any> = {};
   if ('gtd_folders' in updates) {
     const { folders, rejected, reserved } = sanitizeGtdFoldersDetailed(updates.gtd_folders);
     // A state mapped onto a live system folder (INBOX, Sent, …) is a hard error: /done would
@@ -292,7 +291,7 @@ export async function onAccountIdentityChanged({ accountId }) {
 // into its `enabled`, so the live tick, hooks, and classify/done routes must re-read to see the
 // flip immediately. The per-account gtd_enabled/folders config in the DB is untouched, so
 // reactivating restores everything.
-export async function onPluginActivationChanged({ userId, pluginId }) {
+export async function onPluginActivationChanged({ userId, pluginId, activated: _activated = undefined }: { userId?: any; pluginId?: any; activated?: boolean } = {}) {
   if (pluginId !== 'gtd' || !userId) return;
   const accounts = await listUserAccounts(userId);
   for (const a of accounts) invalidateGtdConfigCache(a.id);

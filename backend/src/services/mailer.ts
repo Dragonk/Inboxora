@@ -1,4 +1,3 @@
-// @ts-nocheck
 import { query } from './db.js';
 import { decrypt } from './encryption.js';
 import { resolveForConnection } from './hostValidation.js';
@@ -17,7 +16,7 @@ export async function sendSystemEmail({ to, subject, text, html }) {
   // private IP can send verification/2FA codes and invites (#358); off by default.
   const policy = await getConnectionPolicy();
   const resolved = await resolveForConnection(cfg.host, { allowPrivate: policy.allowPrivateHosts });
-  const tls = { rejectUnauthorized: true };
+  const tls: Record<string, any> = { rejectUnauthorized: true };
   if (resolved.servername) tls.servername = resolved.servername;
   const transport = createSmtpTransport(resolved, {
     port: cfg.port || 587,

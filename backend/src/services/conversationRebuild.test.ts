@@ -1,4 +1,3 @@
-// @ts-nocheck
 import { describe, expect, it, vi, beforeEach } from 'vitest';
 
 const { pool, query, upsertConversationCopy, _upsertConversationCopyWithClient } = vi.hoisted<any>(() => ({

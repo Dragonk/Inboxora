@@ -7,5 +7,6 @@ declare global {
     statusCode?: number;
     status?: number;
     code?: string;
+    details?: any;
   }
 }

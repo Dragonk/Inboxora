@@ -1,4 +1,3 @@
-// @ts-nocheck
 import { randomUUID } from 'crypto';
 import { query } from './db.js';
 import { rebuildConversationCopies } from './conversationRebuild.js';
@@ -7,7 +6,7 @@ const jobs = new Map();
 const MAX_JOBS = 100;
 const JOB_TTL_MS = 60 * 60 * 1000;
 
-export function startConversationRebuildJob({ userId, accountId = null, limit = 100, dryRun = true, force = false }) {
+export function startConversationRebuildJob({ userId, accountId = null, limit = 100, dryRun = true, force = false }: { userId?: string; accountId?: string | null; limit?: number; dryRun?: boolean; force?: boolean } = {}) {
   const jobId = randomUUID();
   jobs.set(jobId, { jobId, userId, accountId, force, status: 'queued', createdAt: Date.now(), result: null, error: null });
   while (jobs.size > MAX_JOBS) jobs.delete(jobs.keys().next().value);

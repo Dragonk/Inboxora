@@ -1,4 +1,3 @@
-// @ts-nocheck
 import { query, pool } from '../services/db.js';
 import { rebuildConversationCopies } from '../services/conversationRebuild.js';
 

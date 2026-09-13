@@ -1,4 +1,3 @@
-// @ts-nocheck
 import { describe, it, expect, vi, beforeEach, beforeAll, afterAll } from 'vitest';
 
 // POST + DELETE /api/gtd/classify end-to-end — the apply-label (COPY) and remove-label
@@ -13,7 +12,7 @@ vi.mock('../../middleware/auth.js', () => ({
 }));
 vi.mock('./gtdConfig.js', async (importOriginal) => {
   const actual = await importOriginal();
-  return { ...actual, getGtdConfig: vi.fn() };
+  return { ...(actual as any), getGtdConfig: vi.fn() };
 });
 
 import express from 'express';

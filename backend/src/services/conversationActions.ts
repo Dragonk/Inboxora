@@ -1,4 +1,3 @@
-// @ts-nocheck
 import { withTransaction } from './db.js';
 import { resolveConversationAlias } from './conversationOverridePolicy.js';
 import { adjustFolderCounts } from '../utils/mailUtils.js';
@@ -324,7 +323,7 @@ export async function applyConversationAction({
       [resolved.canonicalConversationId, userId],
     );
 
-    const resolvedRowsById = new Map(resolved.rows.map(row => [row.id, row]));
+    const resolvedRowsById = new Map<string, any>(resolved.rows.map(row => [row.id, row]));
     const mutatedRows = result.rows.map(row => ({ ...resolvedRowsById.get(row.id), ...row }));
     updateFolderCountsForAction(mutatedRows, action, imapManager, userId);
     broadcastMessageFlagsForAction(mutatedRows, action, imapManager, userId);

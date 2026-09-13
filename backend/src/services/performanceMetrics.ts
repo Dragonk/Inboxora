@@ -1,4 +1,3 @@
-// @ts-nocheck
 // In-memory performance baseline metrics (measure-first, behavior-neutral).
 //
 // Aggregates HTTP request latency per route pattern and DB query latency into
@@ -38,7 +37,7 @@ function percentile(h, p) {
   return Math.round(h.maxMs);
 }
 
-const httpRoutes = Object.create(null); // routeKey -> { h, errors }
+const httpRoutes: Record<string, any> = Object.create(null); // routeKey -> { h, errors }
 const db = newHisto();
 let dbSlow = 0;
 

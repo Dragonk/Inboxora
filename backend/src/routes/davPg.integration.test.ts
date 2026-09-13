@@ -1,4 +1,3 @@
-// @ts-nocheck
 // Real PostgreSQL + real DAV HTTP handlers. Authentication is synthetic; no external server or mail is contacted.
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import { randomUUID } from 'crypto';
@@ -15,7 +14,7 @@ const enabled = process.env.REQUIRE_DAV_POSTGRES === '1';
 describe.skipIf(!enabled)('DAV HTTP with PostgreSQL migrations', () => {
   let server, base, book, calendar;
   const headers = { authorization: `Basic ${Buffer.from('synthetic:dav-test').toString('base64')}` };
-  const report = token => `<D:sync-collection xmlns:D="DAV:"><D:sync-token>${token || ''}</D:sync-token></D:sync-collection>`;
+  const report = (token = '') => `<D:sync-collection xmlns:D="DAV:"><D:sync-token>${token || ''}</D:sync-token></D:sync-collection>`;
   beforeAll(async () => {
     auth.userId = randomUUID();
     await query('INSERT INTO users(id, username, password_hash) VALUES($1,$2,$3)', [auth.userId, `dav-test-${auth.userId}`, 'unused']);

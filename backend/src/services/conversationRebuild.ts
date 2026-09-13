@@ -1,4 +1,3 @@
-// @ts-nocheck
 import { resolveOwnIdentityAddresses } from './conversationIngestEnvelope.js';
 import { providerIdentityForCopy } from './conversationProviderEnvelope.js';
 import { pool, query } from './db.js';
@@ -84,14 +83,14 @@ async function dryRunBatch(client, rows, userId) {
   return wouldChange;
 }
 
-export async function rebuildConversationCopies({ userId, accountId = null, limit = 100, dryRun = true, force = false, cursor = null } = {}) {
+export async function rebuildConversationCopies({ userId, accountId = null, limit = 100, dryRun = true, force = false, cursor = null }: { userId?: string; accountId?: string | null; limit?: number; dryRun?: boolean; force?: boolean; cursor?: any } = {}) {
   if (!userId) throw new Error('userId is required');
   // Account is the CE identity boundary. Keep the nullable public API as an
   // orchestration convenience, but never process a user-wide message stream.
   if (!accountId) {
     if (cursor) throw new Error('An all-account rebuild cannot use one shared cursor');
     const accounts = await query('SELECT id FROM email_accounts WHERE user_id = $1 ORDER BY id', [userId]);
-    const aggregate = { scanned: 0, updated: 0, wouldChange: 0, changed: 0, complete: true, next: null, dryRun, batches: 0, accounts: accounts.rows.length };
+    const aggregate = { scanned: 0, updated: 0, totalScanned: 0, totalUpdated: 0, wouldChange: 0, changed: 0, complete: true, next: null, dryRun, batches: 0, accounts: accounts.rows.length };
     for (const account of accounts.rows) {
       let accountCursor = null;
       do {

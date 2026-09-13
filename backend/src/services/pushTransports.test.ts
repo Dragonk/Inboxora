@@ -1,4 +1,3 @@
-// @ts-nocheck
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 const { safeFetch } = vi.hoisted<any>(() => ({ safeFetch: vi.fn() }));
@@ -92,7 +91,7 @@ describe('FCM transport', () => {
 
     await expect(sendFcmPush({ endpoint: 'device-fcm-token' }, event)).resolves.toBe(TRANSPORT_DELIVERED);
 
-    const [url, options] = fetchMock.mock.calls.find((call) => String(call[0]).includes('fcm.googleapis.com'));
+    const [url, options] = (fetchMock.mock.calls.find((call) => String(call[0]).includes('fcm.googleapis.com')) || []) as any;
     expect(url).toBe('https://fcm.googleapis.com/v1/projects/proj/messages:send');
     const body = JSON.parse(options.body);
     expect(body.message.token).toBe('device-fcm-token');

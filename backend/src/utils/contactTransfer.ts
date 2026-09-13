@@ -88,7 +88,7 @@ function parseCsv(text) {
 export function parseGoogleCsv(text) {
   const [header = [], ...rows] = parseCsv(String(text || ''));
   const columns = new Map(header.map((name, index) => [name.trim().replace(/\s+[–—]\s+/g, ' - '), index]));
-  const get = (row, ...names) => names.map(name => row[columns.get(name)]?.trim() || '').find(Boolean) || '';
+  const get = (row, ...names) => names.map(name => row[columns.get(name) as any]?.trim() || '').find(Boolean) || '';
   const indexedFields = field => [...columns.keys()]
     .map(name => new RegExp(`^${field} (\\d+) - `).exec(name)?.[1])
     .filter(Boolean)

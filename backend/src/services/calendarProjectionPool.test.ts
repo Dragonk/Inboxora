@@ -1,4 +1,3 @@
-// @ts-nocheck
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 
 import {
@@ -36,7 +35,7 @@ function dailyRow(id, { tzid = null, etag = 'etag-1' } = {}) {
 const FROM = new Date('2026-09-01T00:00:00Z');
 const TO = new Date('2026-09-15T00:00:00Z');
 
-const previousEnv = {};
+const previousEnv: Record<string, any> = {};
 beforeEach(() => {
   clearCalendarProjectionCache();
   for (const name of ['CALENDAR_PROJECTION_DISABLED', 'CALENDAR_PROJECTION_WORKERS', 'CALENDAR_PROJECTION_MAX_ITERATIONS', 'CALENDAR_PROJECTION_MAX_QUEUE', 'CALENDAR_PROJECTION_TIMEOUT_MS', 'CALENDAR_PROJECTION_CACHE_DISABLED', 'CALENDAR_PROJECTION_CACHE_ENTRIES', 'CALENDAR_PROJECTION_CACHE_TTL_MS']) {

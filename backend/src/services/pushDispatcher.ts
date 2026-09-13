@@ -1,4 +1,3 @@
-// @ts-nocheck
 // Fan-out for the canonical mail notification event.
 //
 //   IMAP IDLE / mail sync
@@ -97,7 +96,7 @@ async function dispatchNative(event, summary) {
 }
 
 export async function dispatchMailNotification(event) {
-  const summary = {
+  const summary: any = {
     dispatched: false,
     webPush: 'skipped',
     native: { delivered: 0, invalid: 0, retry: 0, disabled: 0, skipped: null },

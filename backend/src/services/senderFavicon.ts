@@ -1,4 +1,3 @@
-// @ts-nocheck
 import crypto from 'node:crypto';
 import net from 'node:net';
 import { domainToASCII } from 'node:url';
@@ -185,7 +184,7 @@ async function resolveDomain(domain, deps) {
 // domain's own key means direct and indirect lookups can never disagree.
 async function resolveWithParents(domain, deps) {
   let result = await fetchProvider(domain, deps);
-  if (result.kind === 'miss' && result.reason === 'not-found') {
+  if (result.kind === 'miss' && (result as any).reason === 'not-found') {
     const parent = nextParent(domain);
     if (parent) {
       const step = await resolveDomain(parent, deps);

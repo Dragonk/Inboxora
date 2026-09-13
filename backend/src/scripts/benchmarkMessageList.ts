@@ -1,4 +1,3 @@
-// @ts-nocheck
 // Isolated synthetic benchmark. Never uses or modifies an existing user's mail.
 // NODE_ENV=test DB_* node src/scripts/benchmarkMessageList.js
 import { randomUUID } from 'node:crypto';

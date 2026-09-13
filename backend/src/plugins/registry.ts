@@ -1,4 +1,3 @@
-// @ts-nocheck
 // Plugin registry — the backbone of the MailFlow plugin platform (v3.0).
 //
 // This module holds registered plugin manifests and exposes the primitives core
@@ -58,7 +57,7 @@ export function createPluginRegistry() {
       throw new Error(`plugin "${id}" hooks must be an object`);
     }
     for (const [hookName, entry] of Object.entries(manifest.hooks || {})) {
-      const ok = typeof entry === 'function' || (entry && typeof entry.handler === 'function');
+      const ok = typeof entry === 'function' || (entry && typeof (entry as any).handler === 'function');
       if (!ok) throw new Error(`plugin "${id}" hook "${hookName}" must be a function or { handler }`);
     }
     plugins.set(id, manifest);

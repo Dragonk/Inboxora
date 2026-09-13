@@ -1,4 +1,3 @@
-// @ts-nocheck
 // In-memory diagnostics runtime counters for the diagnostics report (Phase 2).
 //
 // Holds a small ring of recently categorized warnings plus cumulative WebSocket
@@ -30,7 +29,7 @@ export function recordBroadcast(type) {
 // (ghost rows served, UIDVALIDITY resets, unread-count clamps, staleness-missed mail).
 // Behavior-neutral observability; the report layer scopes to the user's accounts and
 // hashes the id. Reset on process restart.
-const syncSignals = Object.create(null); // "sig|accountId" -> { sig, accountId, count, lastT, sumMag, maxMag }
+const syncSignals: Record<string, any> = Object.create(null); // "sig|accountId" -> { sig, accountId, count, lastT, sumMag, maxMag }
 
 export function recordSyncSignal(sig, { accountId = null, magnitude = null } = {}) {
   if (!sig) return;

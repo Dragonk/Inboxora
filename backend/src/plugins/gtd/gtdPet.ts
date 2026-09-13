@@ -1,4 +1,3 @@
-// @ts-nocheck
 import { storage as pluginStorage } from '../api.js';
 
 // GTD Inbox-Zero pet: cache a user's OWN imported pet (an uploaded pet.json + spritesheet)
@@ -233,8 +232,8 @@ async function finalizeAndStorePet({ slug, petJson, sheet, displayNameFallback, 
 
   const descriptor = parsePetJson(petJson, size);
   if (!descriptor) throw Object.assign(new Error('Could not derive pet animation from the assets'), { code: 'BAD_META' });
-  descriptor.width = size.width;
-  descriptor.height = size.height;
+  (descriptor as any).width = size.width;
+  (descriptor as any).height = size.height;
 
   // petJson may not be an object even after a clean JSON.parse — the text "null" parses to
   // null, "true"/"42" to primitives — so coerce it the same way parsePetJson does before

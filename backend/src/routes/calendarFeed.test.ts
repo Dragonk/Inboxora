@@ -1,4 +1,3 @@
-// @ts-nocheck
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import { createHash } from 'crypto';
 
@@ -67,7 +66,7 @@ describe('secret calendar feeds', () => {
       throw new Error(`Unexpected query: ${sql}`);
     });
     const created = await fetch(`${base}/api/calendar/feeds`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ calendarIds: ['cal-1'] }) });
-    const { secret } = await created.json();
+    const { secret } = (await created.json()) as any;
     const url = `${base}/calendar/feeds/${secret}.ics`;
     expect((await fetch(url)).status).toBe(200);
     expect((await fetch(`${base}/api/calendar/feeds/feed-1`, { method: 'DELETE' })).status).toBe(204);

@@ -1,4 +1,3 @@
-// @ts-nocheck
 import { beforeAll, afterAll, describe, it, expect } from 'vitest';
 import { randomUUID } from 'crypto';
 import { query, pool } from './db.js';

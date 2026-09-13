@@ -1,4 +1,3 @@
-// @ts-nocheck
 import { getGtdConfig } from './gtdConfig.js';
 import { resolveAllDraftsPaths, logger, getAccountAddresses, getThreadKeysForMessageIds as _threadKeysForIds, getThreadKeysInFolders as _threadKeysInFolders, getThreadKeysForMessageIdHeaders, getMessagesByThreadKeys } from '../api.js';
 
@@ -130,7 +129,7 @@ export async function runGtdTransitions(imapManager, account, threadKeys) {
     // though a tie is always between sibling copies of one message so it cannot flip self.
     let newest = nonDraft[0];
     for (const r of nonDraft) {
-      const diff = new Date(r.date) - new Date(newest.date);
+      const diff = new Date(r.date).getTime() - new Date(newest.date).getTime();
       if (diff > 0 || (diff === 0 && String(r.id) > String(newest.id))) newest = r;
     }
     const isSelf = owner.has(normalizeAddress(newest.from_email));

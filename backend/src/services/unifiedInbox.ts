@@ -1,4 +1,4 @@
-export function resolveAccountScope(accounts, requestedAccountId) {
+export function resolveAccountScope(accounts, requestedAccountId = null) {
   const ownedIds = accounts.map(account => account.id);
   const isSpecificAccount = requestedAccountId && ownedIds.includes(requestedAccountId);
 

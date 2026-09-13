@@ -1,4 +1,3 @@
-// @ts-nocheck
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 const { authenticatePushDevice, bearerTokenFromHeader } = vi.hoisted<any>(() => ({
@@ -10,7 +9,7 @@ vi.mock('../services/pushDevices.js', () => ({ authenticatePushDevice, bearerTok
 import { requireDeviceAuth } from './deviceAuth.js';
 
 function harness(headers = {}) {
-  const req = { get: (name) => headers[name.toLowerCase()] };
+  const req: any = { get: (name) => headers[name.toLowerCase()] };
   const res = { statusCode: null, body: null, status(code) { this.statusCode = code; return this; }, json(body) { this.body = body; return this; } };
   const next = vi.fn();
   return { req, res, next };

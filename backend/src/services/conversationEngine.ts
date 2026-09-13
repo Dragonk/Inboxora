@@ -1,4 +1,3 @@
-// @ts-nocheck
 import { createHash } from 'crypto';
 import { decodeMimeWords } from './messageParser.js';
 import { normalizeMessageId } from './threading/normalizeMessageId.js';
@@ -35,7 +34,7 @@ export function fingerprint(value) {
   return createHash('sha256').update(String(value || '')).digest('hex');
 }
 
-export function logicalMessageIdentity(message, { userId } = {}) {
+export function logicalMessageIdentity(message, { userId }: { userId?: any } = {}) {
   const rawId = message.message_id || message.messageId || null;
   const canonicalMessageId = normalizeMessageId(rawId);
   // Physical copies of one RFC message can legitimately have different stored bodies
@@ -52,7 +51,7 @@ export function logicalMessageIdentity(message, { userId } = {}) {
   return { userId: userId || null, canonicalMessageId, rawMessageId: rawId, collisionKey: fingerprint(stable) };
 }
 
-export function threadingDecision({ message, parent, provider, identities = [] }) {
+export function threadingDecision({ message, parent, provider = undefined, identities = [] }: { message: any; parent?: any; provider?: any; identities?: any[] }) {
   const direction = classifyDirection(message, identities);
   const subject = canonicalConversationSubject(message.subject);
   if (provider?.isStrong && provider.providerThreadId) return { kind: 'provider_thread', reason: provider.source, confidence: 1, direction, subject };

@@ -302,7 +302,7 @@ describe('importPet', () => {
     // both, plus the global prototype, so an unsafe future refactor actually breaks this test.
     const polluted = '{"__proto__":{"polluted":"yes"},"displayName":"P","cols":8,"rows":9}';
     const pet = await importPet({ petJsonText: polluted, sheet: webpVP8X(1536, 1872), userId });
-    expect(pet.descriptor.polluted).toBeUndefined();
+    expect((pet.descriptor as any).polluted).toBeUndefined();
     expect(Object.prototype.hasOwnProperty.call(pet.descriptor, '__proto__')).toBe(false);
     expect({}.polluted).toBeUndefined();
   });
