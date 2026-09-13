@@ -189,7 +189,7 @@ export async function applyInboxRules(messages, account, imapManager) {
   // Lazy resolver cache shared across the message loop. Populated on first actual use
   // inside applyAction so resolvers are never called for actions that are deduped or
   // skipped, but results are reused across messages to avoid N+1 DB queries.
-  const resolverCache = {};
+  const resolverCache: ResolverCache = {};
 
   const remaining = [...messages];
   const removedIds = new Set();
@@ -402,7 +402,16 @@ export async function applyBlockList(messages, account, imapManager) {
   return remaining;
 }
 
-async function applyAction(action, msg, account, imapManager, ruleId, resolverCache = {}) {
+interface ResolverCache {
+  _archiveResolved?: boolean;
+  archiveFolder?: string | null;
+  archiveIsAllMail?: boolean;
+  _trashResolved?: boolean;
+  trashFolder?: string | null;
+  allTrashPaths?: Set<string> | null;
+}
+
+async function applyAction(action, msg, account, imapManager, ruleId, resolverCache: ResolverCache = {}) {
   switch (action.type) {
     case 'forward': {
       // Load this path only when a forward action actually runs. ruleForwarder

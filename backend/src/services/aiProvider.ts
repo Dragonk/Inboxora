@@ -18,11 +18,19 @@ const SSE_EVENT_LIMIT_BYTES = 256 * 1024;
 const OUTPUT_LIMIT_CHARS = 2 * 1024 * 1024;
 const DEFAULT_TIMEOUT_MS = 60_000;
 
+export interface AiProviderErrorOptions {
+  status?: number;
+  expose?: boolean;
+}
+
 export class AiProviderError extends Error {
+  status: number;
+  expose: boolean;
+
   // `expose` marks an error whose message is safe to show the caller (already
   // secret-redacted and sanitized) — provider-originated failures set it so the
   // admin sees the real reason instead of a generic message, even on a 5xx.
-  constructor(message, { status = 503, expose = false } = {}) {
+  constructor(message: string, { status = 503, expose = false }: AiProviderErrorOptions = {}) {
     super(message);
     this.name = 'AiProviderError';
     this.status = status;
@@ -38,7 +46,19 @@ function normalizeBaseUrl(value) {
   return cleanString(value).replace(/\/+$/, '');
 }
 
-export function normalizeAiConfig(raw = {}) {
+export interface AiConfigInput {
+  enabled?: boolean;
+  provider?: string;
+  apiKeyConfig?: { baseUrl?: string; apiKey?: string | null; model?: string };
+  chatgptConfig?: { model?: string };
+  features?: { compose?: boolean; summarize?: boolean };
+  // Legacy flat shape still accepted from system_settings rows.
+  baseUrl?: string;
+  apiKey?: string | null;
+  model?: string;
+}
+
+export function normalizeAiConfig(raw: AiConfigInput = {}) {
   const hasStructuredConfig = raw.apiKeyConfig && typeof raw.apiKeyConfig === 'object';
   const apiSource = hasStructuredConfig ? raw.apiKeyConfig : raw;
   const chatgptSource = raw.chatgptConfig && typeof raw.chatgptConfig === 'object'
@@ -99,7 +119,9 @@ function providerRequestError(error, request, callerSignal) {
   );
 }
 
-async function openProviderRequest(fetchFn, url, init, { signal, timeoutMs = DEFAULT_TIMEOUT_MS } = {}) {
+interface ProviderRequestOptions { signal?: AbortSignal; timeoutMs?: number }
+
+async function openProviderRequest(fetchFn, url, init, { signal, timeoutMs = DEFAULT_TIMEOUT_MS }: ProviderRequestOptions = {}) {
   const request = createRequestSignal(signal, timeoutMs, 'AI request timed out');
   try {
     const response = await fetchFn(url, { ...init, signal: request.signal });
@@ -110,7 +132,9 @@ async function openProviderRequest(fetchFn, url, init, { signal, timeoutMs = DEF
   }
 }
 
-async function* parseChatCompletionsSse(response, { signal, secrets } = {}) {
+interface ParseSseOptions { signal?: AbortSignal; secrets?: unknown[] }
+
+async function* parseChatCompletionsSse(response, { signal, secrets }: ParseSseOptions = {}) {
   let outputChars = 0;
   const createError = (reason) => {
     if (reason === 'empty_body') return new AiProviderError('AI provider returned an empty stream', { status: 502 });
@@ -141,7 +165,7 @@ export function createAiProvider({
   decryptFn = decrypt,
   validateHostFn = validateHost,
   getConnectionPolicyFn = getConnectionPolicy,
-  fetchFn = (...args) => fetch(...args),
+  fetchFn = (...args: Parameters<typeof fetch>) => fetch(...args),
   getCodexAccessFn = getCodexAccess,
   getCodexStatusFn = getCodexStatus,
   streamCodexResponsesFn = streamCodexResponses,
@@ -158,7 +182,7 @@ export function createAiProvider({
     return publicConfig(await loadAiConfig());
   }
 
-  async function saveAiConfig(input = {}) {
+  async function saveAiConfig(input: AiConfigInput = {}) {
     if (!PROVIDERS.has(input.provider)) throw new AiProviderError('Unknown AI provider', { status: 400 });
     if (input.enabled !== false && input.provider === AI_PROVIDER_CHATGPT
         && !cleanString(input.chatgptConfig?.model)) {
@@ -219,12 +243,14 @@ export function createAiProvider({
   }
 
   function apiKeyHeaders(apiKey) {
-    const headers = { 'Content-Type': 'application/json' };
+    const headers: Record<string, string> = { 'Content-Type': 'application/json' };
     if (apiKey) headers.Authorization = `Bearer ${apiKey}`;
     return headers;
   }
 
-  async function completeApiKey(config, messages, { signal, maxTokens, allowEmpty = false } = {}) {
+  interface CompleteOptions { signal?: AbortSignal; maxTokens?: number; allowEmpty?: boolean }
+
+  async function completeApiKey(config, messages, { signal, maxTokens, allowEmpty = false }: CompleteOptions = {}) {
     const apiKey = apiKeyCredential(config);
     const body = {
       model: config.apiKeyConfig.model,
@@ -268,7 +294,7 @@ export function createAiProvider({
     }
   }
 
-  async function* streamApiKey(config, messages, { signal } = {}) {
+  async function* streamApiKey(config, messages, { signal }: { signal?: AbortSignal } = {}) {
     const apiKey = apiKeyCredential(config);
     const request = await openProviderRequest(fetchFn, `${config.apiKeyConfig.baseUrl}/chat/completions`, {
       method: 'POST',

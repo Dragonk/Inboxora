@@ -91,3 +91,23 @@ Backend `tsc --noEmit`: **265 błędów** (z 474 po zdjęciu `@ts-nocheck`). Tes
 Backend `tsc`: **223 błędy** (z 474). `routes/mail.ts` i `services/messageParser.ts` — 0 błędów.
 Testy: 1785 / 0 failed. Lint: czysty.
 
+
+## 8. Iteracja: konfiguracja AI i pamięci podręczne resolverów
+
+- 🔴 **`normalizeAiConfig(raw = {})`** — parametr bez adnotacji dostał typ `{}`, więc odczyt
+  `raw.apiKeyConfig`/`provider`/`features` był niekontrolowany. Dodany `AiConfigInput` (z zgodnym
+  kształtem legacy i „structured”).
+- 🟠 **`AiProviderError`** — brak deklaracji pól `status`/`expose`; dodany `AiProviderErrorOptions`.
+- 🟠 **Opcje żądań AI** (`timeoutMs`/`signal`/`secrets`/`maxTokens`/`allowEmpty`) — niedookreślone;
+  dodane `ProviderRequestOptions`, `ParseSseOptions`, `CompleteOptions`; `fetchFn` z `Parameters<typeof fetch>`.
+- 🔴 **`apiKeyHeaders`** tworzył obiekt bez `Authorization` w typie → dodane `Record<string, string>`.
+- 🔴 **`resolverCache = {}` w `inboxRules`** — memo bez typu (`_archiveResolved`, `archiveFolder`,
+  `archiveIsAllMail`, `_trashResolved`, `trashFolder`, `allTrashPaths`) → interfejs `ResolverCache`.
+- 🟠 **`referencesAnchor(message = {})`** — wejście otypowane (`MessageReferencesInput`).
+
+## 9. Stan weryfikacji
+
+Backend `tsc`: **175 błędów** (z 474). Czyste m.in.: `routes/mail.ts`, `services/messageParser.ts`,
+`services/aiProvider.ts`, `services/inboxRules.ts`, `services/automatedSeriesAnchor.ts`.
+Testy: 1785 / 0 failed. Lint: czysty.
+
