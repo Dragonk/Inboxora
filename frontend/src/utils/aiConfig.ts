@@ -134,18 +134,34 @@ function finiteNumber(value) {
 }
 
 export interface CodexDeviceFlow {
+  flowId: string;
   intervalMs: number;
+  expiresAt: number;
   [key: string]: unknown;
+}
+
+export interface CodexDevicePollResult {
+  status?: string;
+  retryAfterMs?: number;
+  reconnectRequired?: boolean;
+  reason?: string;
+}
+
+export interface CodexDeviceState {
+  phase: string;
+  message?: string;
+  reconnectRequired?: boolean;
+  reason?: string;
 }
 
 export interface CodexDevicePollerOptions {
   startDevice?: () => Promise<CodexDeviceFlow>;
-  pollDevice?: (flow: CodexDeviceFlow) => Promise<unknown>;
-  cancelDevice?: (flow: CodexDeviceFlow) => Promise<unknown>;
-  onState?: (state: unknown) => void;
+  pollDevice?: (flowId: string) => Promise<CodexDevicePollResult>;
+  cancelDevice?: (flowId: string) => Promise<unknown>;
+  onState?: (state: CodexDeviceState) => void;
   now?: () => number;
-  setTimer?: (callback: () => void, delay: number) => unknown;
-  clearTimer?: (timer: unknown) => void;
+  setTimer?: (callback: () => void, delay: number) => ReturnType<typeof setTimeout>;
+  clearTimer?: (timer: ReturnType<typeof setTimeout>) => void;
 }
 
 export function createCodexDevicePoller({
@@ -155,7 +171,7 @@ export function createCodexDevicePoller({
   onState,
   now = () => Date.now(),
   setTimer = (callback, delay) => setTimeout(callback, delay),
-  clearTimer = (timer) => clearTimeout(timer),
+  clearTimer = (timer: ReturnType<typeof setTimeout>) => clearTimeout(timer),
 }: CodexDevicePollerOptions = {}) {
   if (typeof startDevice !== 'function' || typeof pollDevice !== 'function'
       || typeof cancelDevice !== 'function' || typeof onState !== 'function') {

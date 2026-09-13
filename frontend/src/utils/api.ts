@@ -374,12 +374,12 @@ export const api = {
       if (Array.isArray(calendarIds)) params.set('calendarIds', calendarIds.join(','));
       return request('GET', `/calendar/events?${params}`, undefined, undefined, { signal });
     },
-    createEvent: (data, idempotencyKey) => request('POST', '/calendar/events', data, idempotencyKey ? { 'X-Idempotency-Key': idempotencyKey } : undefined),
+    createEvent: (data, idempotencyKey = undefined) => request('POST', '/calendar/events', data, idempotencyKey ? { 'X-Idempotency-Key': idempotencyKey } : undefined),
     updateEvent: (id, data, idempotencyKey = undefined) => request('PATCH', `/calendar/events/${id}${data.recurrenceId ? '/occurrence' : ''}`, data, idempotencyKey ? { 'X-Idempotency-Key': idempotencyKey } : undefined),
     // scope 'following' ends the series just before this occurrence; with no recurrenceId the
     // whole event is removed. Removing an entire series goes through the plain event DELETE,
     // which is also the path that notifies invited attendees.
-    deleteEvent: (id, calendarId, recurrenceId, scope) => recurrenceId ? request('DELETE', `/calendar/events/${encodeURIComponent(id)}/occurrence`, { calendarId, recurrenceId, ...(scope ? { scope } : {}) }) : request('DELETE', `/calendar/events/${encodeURIComponent(id)}?calendarId=${encodeURIComponent(calendarId)}`),
+    deleteEvent: (id, calendarId, recurrenceId = undefined, scope = undefined) => recurrenceId ? request('DELETE', `/calendar/events/${encodeURIComponent(id)}/occurrence`, { calendarId, recurrenceId, ...(scope ? { scope } : {}) }) : request('DELETE', `/calendar/events/${encodeURIComponent(id)}?calendarId=${encodeURIComponent(calendarId)}`),
     listSources: () => request('GET', '/calendar/sources'),
     createSource: (data) => request('POST', '/calendar/sources', data),
     updateSource: (id, data) => request('PATCH', `/calendar/sources/${encodeURIComponent(id)}`, data),

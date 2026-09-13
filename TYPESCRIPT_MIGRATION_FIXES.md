@@ -365,3 +365,22 @@ Backend: `tsc` 0 · testy 1785/0.
 Frontend tsc: 210 błędów (z 661). Testy 2335/0 · lint czysty · build OK.
 Backend: tsc 0 · testy 1785/0.
 
+
+## 37. Frontend: store, poller Codex, rozmiar czcionki
+
+- 🔴 **applyFontSize() to pusty stub bez parametru**, a wolajacy przekazuja rozmiar (store 796/1168).
+  Zachowanie jest zamierzone (skalowanie robi MailApp reaktywnie), wiec parametr zostal dodany
+  i udokumentowany zamiast usuwac wywolania.
+- 🔴 **store/index.ts** — Object.entries/Object.values na wartosciach z create<any> dawaly unknown,
+  wiec msgs/m/th byly niekontrolowane. Dodany StoreMessage; selektor selectSelectedMessageMid
+  ma jawny typ parametru.
+- 🔴 **store**: arytmetyka Date -> getTime; gtdSections typowane jako GtdSections.
+- 🟠 **Poller Codex**: CodexDeviceFlow (flowId/intervalMs/expiresAt), CodexDevicePollResult,
+  CodexDeviceState; timery jako ReturnType<typeof setTimeout>.
+- 🟠 **api.calendar.createEvent/deleteEvent** — opcjonalne idempotencyKey/recurrenceId/scope.
+
+## 38. Stan weryfikacji
+
+Frontend tsc: 183 bledy (z 661). Testy 2335/0 · lint czysty · build OK.
+Backend: tsc 0 · testy 1785/0.
+

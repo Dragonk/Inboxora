@@ -80,7 +80,7 @@ describe('DAV Hub API client', () => {
       json: async () => ({ error: 'Remote calendar request failed (503)', source, sync: { ok: false } }),
     });
 
-    await assert.rejects(api.calendar.createSource({ kind: 'ical_url' }), error => {
+    await assert.rejects(api.calendar.createSource({ kind: 'ical_url' }), (error: Error) => {
       assert.equal(error.status, 502);
       assert.equal(error.message, 'Remote calendar request failed (503)');
       assert.deepEqual(error.source, source);

@@ -436,7 +436,10 @@ export function applyFontSet(fontKey) {
 
 // Font size scaling is applied reactively in MailApp via the store's fontSize
 // value using CSS transform, so no root-level changes are needed here.
-export function applyFontSize() {}
+export function applyFontSize(_pct?: number): void {
+  // Intentionally empty: scaling is applied reactively by MailApp from the store's
+  // fontSize value. The parameter mirrors applyFontSet at the call sites.
+}
 
 // Retro themes ship with a period-correct font: selecting the theme auto-applies the
 // matching font set. Any theme not listed here uses the user's chosen font.

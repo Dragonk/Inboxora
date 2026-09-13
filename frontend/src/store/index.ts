@@ -13,6 +13,7 @@ import {
   THEME_MODES,
 } from '../themes.ts';
 import { applyFontSet, applyFontSize, effectiveFontSet, isRetroFont, THEME_FONT } from '../fonts.ts';
+import type { GtdSections } from '../utils/gtd.ts';
 import { applyLayout, normalizeLayout } from '../layouts.ts';
 import { PANEL_WIDTH_STORAGE_KEY, savedPanelWidth } from '../utils/panelWidth.ts';
 import { DEFAULT_AI_ACTIONS } from '../aiActions.ts';
@@ -112,6 +113,15 @@ const _initialThemePrefs = readThemePrefs();
 // dynamically-composed slice object, and typing it in full is tracked as part of
 // the remaining TypeScript migration debt. Anonymous `any` keeps selector
 // callbacks (`useStore(s => s.x)`) usable instead of collapsing to `unknown`.
+interface StoreMessage {
+  id: string;
+  message_id?: string;
+  date?: string | number | Date | null;
+  thread_id?: string;
+  is_starred?: boolean;
+  [key: string]: unknown;
+}
+
 export const useStore = create<any>((set, get) => ({
   // Auth
   user: null,
@@ -262,7 +272,7 @@ export const useStore = create<any>((set, get) => ({
   updateMessage: (id, updates) => set(state => {
     const apply = (m) => m.id === id ? { ...m, ...updates } : m;
     const threadMessages = Object.fromEntries(
-      Object.entries(state.threadMessages).map(([tid, msgs]) => [tid, msgs.map(apply)])
+      Object.entries(state.threadMessages as Record<string, StoreMessage[]>).map(([tid, msgs]) => [tid, msgs.map(apply)])
     );
     // An explicit unread_count is a whole-thread action. Otherwise a physical
     // copy (including the representative row itself) changes only its own state.
@@ -297,7 +307,7 @@ export const useStore = create<any>((set, get) => ({
   }),
   restoreMessages: (msgs) => set(state => {
     const list = Array.isArray(msgs) ? msgs : [msgs];
-    const sort = arr => [...arr].sort((a, b) => new Date(b.date) - new Date(a.date));
+    const sort = arr => [...arr].sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
     // Deduplicate against both the main list and searchResults by stable identity (Message-ID when
     // present, else id): if the message is already present — including re-added by a network
     // refresh under a regenerated id (matched via Message-ID) — skip it. The local copy carries the
@@ -906,7 +916,7 @@ export const useStore = create<any>((set, get) => ({
   // every state a thread is labelled with (a merged Waiting row lives in both watch and
   // delegated), keeping them in sync. Star does not affect the unread rollup.
   markGtdThreadStarred: (identity, isStarred) => set(state => {
-    const cur = state.gtdSections;
+    const cur = state.gtdSections as GtdSections | null;
     if (!cur || identity == null) return {};
     const next = { ...cur };
     let changed = false;
@@ -1372,11 +1382,17 @@ export const useStore = create<any>((set, get) => ({
 // copy of the open message by identity (not just the exact DB row that was clicked). A plain selector, not
 // a state field, so it stays in sync with the list automatically; returns a primitive so a
 // useStore(selectSelectedMessageMid) subscription only re-renders when the value changes.
-export function selectSelectedMessageMid(s) {
+export function selectSelectedMessageMid(s: {
+  selectedMessageId?: string | null;
+  searchQuery?: string;
+  searchResults?: StoreMessage[];
+  messages?: StoreMessage[];
+  threadMessages?: Record<string, StoreMessage[]>;
+}) {
   const id = s.selectedMessageId;
   if (id == null) return null;
   const pool = s.searchQuery?.trim() ? s.searchResults : s.messages;
-  const msg = pool.find(m => m.id === id)
-    ?? Object.values(s.threadMessages).flat().find(m => m.id === id);
+  const msg = pool?.find(m => m.id === id)
+    ?? Object.values(s.threadMessages ?? {}).flat().find(m => m.id === id);
   return msg?.message_id ?? null;
 }
