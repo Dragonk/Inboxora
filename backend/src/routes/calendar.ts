@@ -533,7 +533,7 @@ router.get('/events', async (req, res) => {
     );
     eventRows = fallback.rows;
   }
-  let contactEvents = [];
+  let contactEvents: Array<Record<string, unknown>> = [];
   if (includeContacts) {
     // Both reads only need the same user id, so they run together rather than one after
     // the other — the contact calendar is on by default, so this is on the common path.

@@ -103,7 +103,7 @@ async function buildRawDraft({ accountId, aliasId, to, cc, bcc, subject, body, b
 
   const streamTransport = nodemailer.createTransport({ streamTransport: true, newline: 'unix' });
   const streamInfo = await streamTransport.sendMail(mailOptions);
-  const chunks = [];
+  const chunks: Buffer[] = [];
   await new Promise((resolve, reject) => {
     const messageStream = streamInfo.message;
     if (!(messageStream instanceof Readable)) {

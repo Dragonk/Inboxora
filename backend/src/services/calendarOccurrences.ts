@@ -213,7 +213,7 @@ export function coveragePredicate(alias = 's') {
   return `(${alias}.event_id IS NULL OR ${alias}.dirty OR ${alias}.built_from > $2 OR ${alias}.built_to < $3)`;
 }
 
-let timer = null;
+let timer: NodeJS.Timeout | null = null;
 
 /** Start draining the queue in the background. Safe to call twice. */
 export function startOccurrenceScheduler() {

@@ -240,9 +240,9 @@ describe('GET /api/mail/conversations/:id detail scope', () => {
       .mockResolvedValueOnce({ rows: [] })
       .mockResolvedValueOnce({ rows: [{ id: canonical, user_id: 'user-a', logical_id: 'logical-a', canonical_message_id: '<m1@test>', subject: 'Cross', direction: 'incoming', message_date: '2026-08-25T10:00:00Z', threading_reason: 'new-root', threading_confidence: 1, copies: [{ id: COPY_ID, accountId: 'account-a' }] }] });
 
-    let detailServer;
+    let detailServer: Server;
     await new Promise(resolve => { detailServer = buildApp().listen(0, resolve); });
-    const response = await fetch(`http://127.0.0.1:${detailServer.address().port}/api/mail/conversations/${canonical}`, { headers: { 'x-test-user': 'user-a' } });
+    const response = await fetch(`http://127.0.0.1:${listeningPort(detailServer)}/api/mail/conversations/${canonical}`, { headers: { 'x-test-user': 'user-a' } });
     expect(response.status).toBe(200);
     const [sql, params] = client.query.mock.calls[2];
     expect(sql).toContain('WHERE c.id = $1 AND c.user_id = $2');

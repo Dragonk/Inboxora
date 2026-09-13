@@ -511,7 +511,7 @@ describe('forwardRuleMessage', () => {
 
   it('clears a failed delivery reservation so a retry can send', async () => {
     const unsafeMessage = 'timeout after DATA for recipient@example.com';
-    let reservationStatus = null;
+    let reservationStatus: string | null = null;
     transport.sendMail
       .mockRejectedValueOnce(new Error(unsafeMessage))
       .mockResolvedValueOnce({ accepted: true });

@@ -1,16 +1,24 @@
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import http from 'node:http';
 import { safeFetch } from './safeFetch.js';
+import type { Server } from 'node:http';
+import { listeningPort } from '../test/net.js';
 
-let server, port;
+let server: Server;
+let port: number;
 beforeAll(async () => {
   server = http.createServer((req, res) => {
     if (req.url === '/redir') { res.writeHead(302, { Location: '/ok2' }); return res.end(); }
     if (req.url === '/ok' || req.url === '/ok2') { res.writeHead(200); return res.end('hi'); }
     res.writeHead(404); res.end();
   });
-  await new Promise(r => server.listen(0, '127.0.0.1', r));
-  port = server.address().port;
+  server = http.createServer((req, res) => {
+    if (req.url === '/redir') { res.writeHead(302, { Location: '/ok2' }); return res.end(); }
+    if (req.url === '/ok' || req.url === '/ok2') { res.writeHead(200); return res.end('hi'); }
+    res.writeHead(404); res.end();
+  });
+  await new Promise<void>(r => server.listen(0, '127.0.0.1', r));
+  port = listeningPort(server);
 });
 afterAll(() => server && server.close());
 

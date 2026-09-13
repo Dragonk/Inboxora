@@ -15,6 +15,8 @@ import express from 'express';
 import sendRoutes from './send.js';
 import { query as __mock_query } from '../services/db.js';
 import { imapManager as __mock_imapManager } from '../index.js';
+import type { Server } from 'node:http';
+import { listeningPort } from '../test/net.js';
 
 // Cast mocked module exports so their vitest mock helpers type-check.
 const query = vi.mocked(__mock_query);
@@ -32,10 +34,10 @@ function buildApp() {
 }
 
 describe('POST /api/mail/send — forwarded attachment guards (#F2)', () => {
-  let server, base;
+  let server: Server, base: string;
   beforeAll(async () => {
     await new Promise(r => { server = buildApp().listen(0, r); });
-    base = `http://127.0.0.1:${server.address().port}`;
+    base = `http://127.0.0.1:${listeningPort(server)}`;
   });
   afterAll(async () => { await new Promise(r => server.close(r)); });
   beforeEach(() => { query.mockReset(); imapManager.fetchAttachment.mockReset(); });

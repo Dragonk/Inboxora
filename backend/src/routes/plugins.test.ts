@@ -15,6 +15,8 @@ import express from 'express';
 import { pluginRegistry } from '../plugins/registry.js';
 import { getActivatedPlugins as __mock_getActivatedPlugins, setPluginActivated as __mock_setPluginActivated } from '../plugins/activation.js';
 import pluginsRoutes from './plugins.js';
+import type { Server } from 'node:http';
+import { listeningPort } from '../test/net.js';
 
 // Cast mocked module exports so their vitest mock helpers type-check.
 const getActivatedPlugins = vi.mocked(__mock_getActivatedPlugins);
@@ -32,10 +34,10 @@ function buildApp() {
   return app;
 }
 
-let server, base;
+let server: Server, base: string;
 beforeAll(async () => {
   await new Promise((resolve) => { server = buildApp().listen(0, resolve); });
-  base = `http://127.0.0.1:${server.address().port}`;
+  base = `http://127.0.0.1:${listeningPort(server)}`;
 });
 afterAll(async () => { await new Promise((resolve) => server.close(resolve)); });
 

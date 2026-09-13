@@ -1865,8 +1865,8 @@ export class ImapManager {
   // (possibly slow) setFlag, so the 30s "local wins" window can't lapse mid-cycle and let
   // a concurrent pull revert an unconfirmed change.
   async _rebumpFlagMarkers(ops) {
-    const readIds = [];
-    const starIds = [];
+    const readIds: string[] = [];
+    const starIds: string[] = [];
     for (const op of ops.values()) {
       (op.flag === '\\Seen' ? readIds : starIds).push(op.messageId);
     }

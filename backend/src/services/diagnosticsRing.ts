@@ -6,7 +6,7 @@
 // hashes with the per-report salt). Reset on process restart.
 
 const WARN_CAP = 200;
-const warnings = []; // { t, code, accountId | null }
+const warnings: Array<{ t: number; code: string; accountId: string | null }> = [];
 const broadcastCounts = Object.create(null);
 let wsConnects = 0;
 let wsDisconnects = 0;

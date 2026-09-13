@@ -103,7 +103,7 @@ async function calendarFor(source, state) {
 async function syncSource(source) {
   if (syncing.has(source.id)) return { ok: false, error: 'A sync is already in progress' };
   syncing.add(source.id);
-  const outboundSecrets = [];
+  const outboundSecrets: string[] = [];
   const state = { controller: new AbortController(), removed: false };
   inFlight.set(source.id, state);
   try {

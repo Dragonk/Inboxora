@@ -12,6 +12,8 @@ import { query as __mock_query } from '../services/db.js';
 import { redisClient as __mock_redisClient } from '../services/redis.js';
 import { createAccountSmtpTransport as __mock_createAccountSmtpTransport } from '../services/smtpTransport.js';
 import { resolveSentFolder as __mock_resolveSentFolder } from '../utils/mailUtils.js';
+import type { Server } from 'node:http';
+import { listeningPort } from '../test/net.js';
 
 // Cast mocked module exports so their vitest mock helpers type-check.
 const query = vi.mocked(__mock_query);
@@ -21,13 +23,13 @@ const resolveSentFolder = vi.mocked(__mock_resolveSentFolder);
 
 const account = { id: 'a1', email_address: 'me@example.com', name: 'Me', oauth_provider: 'google' };
 const sendMail = vi.fn();
-let server, base;
+let server: Server, base: string;
 beforeAll(async () => {
   const app = express();
   app.use(express.json());
   app.use('/api/mail', routes);
   await new Promise(resolve => { server = app.listen(0, resolve); });
-  base = `http://127.0.0.1:${server.address().port}`;
+  base = `http://127.0.0.1:${listeningPort(server)}`;
 });
 afterAll(async () => { await new Promise(resolve => server.close(resolve)); });
 beforeEach(() => {
