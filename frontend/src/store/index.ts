@@ -50,6 +50,35 @@ interface StoreUserRow { id?: string; username?: string; email?: string; [key: s
  * The store state. Written from the store itself (every member is declared here so the store
  * no longer needs create<any>).
  */
+/** The draft the compose window opens with. */
+export interface ComposeDraft {
+  accountId?: string;
+  aliasId?: string;
+  to?: string | string[];
+  cc?: string | string[];
+  bcc?: string | string[];
+  subject?: string;
+  body?: string;
+  bodyIsHtml?: boolean;
+  quotedBody?: string;
+  quotedBodyHtml?: string;
+  isReply?: boolean;
+  isReplyAll?: boolean;
+  isForward?: boolean;
+  inReplyTo?: string;
+  references?: string;
+  originalFrom?: string;
+  allRecipients?: string[];
+  forwardedAttachments?: Array<{ messageId?: string; part?: string; [key: string]: unknown }>;
+  threadId?: string;
+  threadCacheId?: string;
+  conversationId?: string;
+  draftFolder?: string;
+  draftUid?: number | string;
+  [key: string]: unknown;
+}
+
+
 export interface StoreState {
   user: StoreUserRow | null;
   setUser: (user: StoreUserRow | null) => void;
@@ -63,7 +92,7 @@ export interface StoreState {
   lockScreen: () => void;
   autoLockMinutes: number;
   setAutoLockMinutes: (m: number) => void;
-  accounts: Array<{ id: string; enabled?: boolean; include_in_unified_inbox?: boolean; [key: string]: unknown }>;
+  accounts: Array<{ id: string; name?: string | null; email_address?: string | null; color?: string | null; enabled?: boolean; include_in_unified_inbox?: boolean; aliases?: Array<{ id: string; [key: string]: unknown }>; folder_mappings?: Record<string, unknown> | null; [key: string]: unknown }>;
   accountsReady: boolean;
   setAccounts: (accounts: Array<{
       id: string;
@@ -125,8 +154,8 @@ export interface StoreState {
   customSoundDataUrl: string;
   setCustomSoundDataUrl: (dataUrl: string) => void;
   composing: boolean;
-  composeData: Record<string, unknown> | null;
-  openCompose: (data?: Record<string, unknown>) => void;
+  composeData: ComposeDraft | null;
+  openCompose: (data?: ComposeDraft | null) => void;
   closeCompose: () => void;
   messageWindows: Array<{ winId?: string; messageId?: string; z?: number; id?: string; [key: string]: unknown }>;
   _winSeq: number;
