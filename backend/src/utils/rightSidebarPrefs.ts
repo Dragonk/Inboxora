@@ -5,8 +5,8 @@
 const RIGHT_SIDEBAR_WIDTH_MIN = 200;
 const RIGHT_SIDEBAR_WIDTH_MAX = 600;
 
-function sanitizeWidth(value) {
-  const n = parseInt(value, 10);
+function sanitizeWidth(value: unknown): number | null {
+  const n = parseInt(String(value), 10);
   return Number.isFinite(n) && n >= RIGHT_SIDEBAR_WIDTH_MIN && n <= RIGHT_SIDEBAR_WIDTH_MAX ? n : null;
 }
 

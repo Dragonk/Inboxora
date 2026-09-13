@@ -17,7 +17,7 @@ const TAG_NAMES = 'a|abbr|address|article|aside|b|big|blockquote|body|br|center|
 const HTML_MARKUP = new RegExp(`<\\s*(?:${TAG_NAMES})(?:\\s[^<>]*)?/?>|<\\s*/\\s*(?:${TAG_NAMES})\\s*>`, 'i');
 const HTML_ENTITY = /&(?:nbsp|amp|lt|gt|quot|#\d{2,5}|#x[0-9a-f]{2,5});/i;
 
-export function isHtmlDescription(value) {
+export function isHtmlDescription(value: unknown): boolean {
   if (typeof value !== 'string' || !value) return false;
   return HTML_MARKUP.test(value) || HTML_ENTITY.test(value);
 }
@@ -25,14 +25,15 @@ export function isHtmlDescription(value) {
 // Stored descriptions are rendered by the same sanitized HTML pipeline as a mail
 // body, but they also leave the app again (iCalendar feeds, invitations), so the
 // markup is cleaned once on the way in with the compose policy.
-export function sanitizeDescriptionHtml(value) {
-  if (typeof value !== 'string' || !isHtmlDescription(value)) return value;
+export function sanitizeDescriptionHtml(value: unknown): string | null {
+  if (typeof value !== 'string') return null;
+  if (!isHtmlDescription(value)) return value;
   return sanitizeComposeBody(value);
 }
 
 // Normalise an incoming description: empty means "no description", markup is
 // sanitized, and plain text (including multi-line notes) is stored verbatim.
-export function normalizeDescription(value) {
+export function normalizeDescription(value: unknown): string | null {
   if (typeof value !== 'string') return null;
   const trimmed = value.trim();
   if (!trimmed) return null;
@@ -47,12 +48,12 @@ export function htmlToPlainText(html: string) {
   let suppressed = 0;
   let text = '';
   const parser = new Parser({
-    onopentag(name) {
+    onopentag(name: string) {
       if (name === 'script' || name === 'style') suppressed++;
       if (!suppressed && name === 'br') text += '\n';
     },
-    ontext(value) { if (!suppressed) text += value; },
-    onclosetag(name) {
+    ontext(value: string) { if (!suppressed) text += value; },
+    onclosetag(name: string) {
       if (name === 'script' || name === 'style') suppressed = Math.max(0, suppressed - 1);
       if (!suppressed && ['p', 'div', 'li', 'tr', 'h1', 'h2', 'h3', 'h4', 'h5', 'h6', 'blockquote', 'pre'].includes(name)) text += '\n';
     },
@@ -69,7 +70,7 @@ export function htmlToPlainText(html: string) {
 // The iCalendar content lines for a description: a plain-text DESCRIPTION plus,
 // when the description carries markup, the HTML alternative. `escapeText` is the
 // caller's iCalendar text escaper (each writer already owns one).
-export function descriptionContentLines(description, escapeText) {
+export function descriptionContentLines(description: string | null | undefined, escapeText: (text: string) => string): string[] {
   if (!description) return [];
   if (!isHtmlDescription(description)) return [`DESCRIPTION:${escapeText(description)}`];
   const plain = htmlToPlainText(description);

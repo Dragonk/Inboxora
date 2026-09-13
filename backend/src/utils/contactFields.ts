@@ -4,11 +4,11 @@ const MAX_VALUE_LENGTH = 2048;
 
 // PATCH distinguishes a missing property from an explicit null, which clears
 // an existing nullable scalar value.
-export function chooseDefined(value, current) {
+export function chooseDefined<T>(value: T | undefined, current: T): T {
   return value !== undefined ? value : current;
 }
 
-function text(value) {
+function text(value: unknown): string | undefined {
   if (typeof value !== 'string') return undefined;
   const normalized = value.trim();
   return normalized.length <= MAX_VALUE_LENGTH ? normalized : undefined;
@@ -16,29 +16,38 @@ function text(value) {
 
 type ValueValidator = (value: unknown) => boolean;
 
-function typedValues(values: unknown, isValid: ValueValidator = () => true) {
+interface TypedValue {
+  value: string;
+  type: string;
+}
+
+function typedValues(values: unknown, isValid: ValueValidator = () => true): TypedValue[] | undefined {
   if (!Array.isArray(values)) return undefined;
-  const normalized = [];
+  const normalized: TypedValue[] = [];
   for (const value of values) {
     if (!value || typeof value !== 'object') return undefined;
-    const itemValue = text(value.value);
-    const type = text(value.type ?? 'other');
+    const item = value as { value?: unknown; type?: unknown };
+    const itemValue = text(item.value);
+    const type = text(item.type ?? 'other');
     if (itemValue === undefined || type === undefined || (itemValue && !isValid(itemValue))) return undefined;
     if (itemValue) normalized.push({ value: itemValue, type: type || 'other' });
   }
   return normalized;
 }
 
-function addresses(values) {
+type NormalizedAddress = { type: string } & Record<string, string>;
+
+function addresses(values: unknown): NormalizedAddress[] | undefined {
   if (!Array.isArray(values)) return undefined;
-  const normalized = [];
+  const normalized: NormalizedAddress[] = [];
   for (const value of values) {
     if (!value || typeof value !== 'object') return undefined;
-    const type = text(value.type ?? 'other');
+    const source = value as Record<string, unknown>;
+    const type = text(source.type ?? 'other');
     if (type === undefined) return undefined;
-    const address = { type: type || 'other' };
+    const address: NormalizedAddress = { type: type || 'other' };
     for (const field of ADDRESS_FIELDS) {
-      const normalizedValue = text(value[field] ?? '');
+      const normalizedValue = text(source[field] ?? '');
       if (normalizedValue === undefined) return undefined;
       address[field] = normalizedValue;
     }

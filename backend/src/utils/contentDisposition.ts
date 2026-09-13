@@ -32,7 +32,7 @@ function rfc5987(str: string) {
 
 // A `Content-Disposition` value for an attachment download that always survives res.setHeader:
 // an ASCII-only quoted fallback plus the RFC 5987 `filename*` carrying the true name.
-export function attachmentDisposition(rawName) {
+export function attachmentDisposition(rawName: string): string {
   const safe = safeFilename(rawName);
   const ascii = safe.replace(/[^\u0020-\u007e]/g, '_').replace(/["\\]/g, '_') || 'attachment';
   return `attachment; filename="${ascii}"; filename*=UTF-8''${rfc5987(safe)}`;

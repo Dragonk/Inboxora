@@ -15,9 +15,9 @@ const MAX_KEY_LEN = 40;
 // gtdCollapsedSections: a flat { section: boolean } map. Non-objects/arrays → null.
 // Values are coerced to booleans; keys are length-bounded and count-capped so the
 // stored JSONB can't grow unbounded from a crafted payload.
-function sanitizeCollapsed(value) {
+function sanitizeCollapsed(value: unknown): Record<string, boolean> | null {
   if (value == null || typeof value !== 'object' || Array.isArray(value)) return null;
-  const clean = {};
+  const clean: Record<string, boolean> = {};
   for (const [k, v] of Object.entries(value)) {
     if (typeof k !== 'string' || k.length === 0 || k.length > MAX_KEY_LEN) continue;
     clean[k] = Boolean(v);
@@ -35,7 +35,7 @@ function sanitizeCollapsed(value) {
 // The '' sentinel is why this returns null only for skip: the SQL sets the key when
 // the param is non-null, so '' clears while null is a no-op.
 const PET_SLUG_RE = /^[a-z0-9][a-z0-9-]{0,63}$/;
-function sanitizePetSlug(value) {
+function sanitizePetSlug(value: unknown): string | null {
   if (value === undefined) return null;
   if (typeof value !== 'string') return null;
   const s = value.trim().toLowerCase();

@@ -1,5 +1,6 @@
 import { describe, it, expect, vi } from 'vitest';
 import { isUuid, uuidParam } from './uuid.js';
+import { mockRequest, mockResponse } from '../test/http.js';
 
 describe('uuid util', () => {
   it('isUuid accepts valid UUIDs and rejects junk', () => {
@@ -12,8 +13,8 @@ describe('uuid util', () => {
   });
 
   it('uuidParam returns 400 on a malformed value and does not call next', () => {
-    const req = {}, next = vi.fn();
-    const res = { status: vi.fn().mockReturnThis(), json: vi.fn() };
+    const req = mockRequest({}); const next = vi.fn();
+    const res = mockResponse({ status: vi.fn().mockReturnThis(), json: vi.fn() });
     uuidParam('id')(req, res, next, 'bogus');
     expect(res.status).toHaveBeenCalledWith(400);
     expect(res.json).toHaveBeenCalledWith({ error: 'Invalid id' });
@@ -21,8 +22,8 @@ describe('uuid util', () => {
   });
 
   it('uuidParam calls next() on a valid UUID and sends no response', () => {
-    const req = {}, next = vi.fn();
-    const res = { status: vi.fn().mockReturnThis(), json: vi.fn() };
+    const req = mockRequest({}); const next = vi.fn();
+    const res = mockResponse({ status: vi.fn().mockReturnThis(), json: vi.fn() });
     uuidParam('aliasId')(req, res, next, 'f5629d01-414d-4c70-8dc8-616478ddcc46');
     expect(next).toHaveBeenCalledTimes(1);
     expect(res.status).not.toHaveBeenCalled();

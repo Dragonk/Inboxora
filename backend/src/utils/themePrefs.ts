@@ -10,14 +10,14 @@ export const THEME_MODES = ['system', 'light', 'dark'];
 
 const THEME_NAME_PATTERN = /^[a-z0-9_]{1,64}$/;
 
-export function sanitizeThemeName(value) {
+export function sanitizeThemeName(value: unknown): string | null {
   if (typeof value !== 'string') return null;
   const name = value.trim();
   return THEME_NAME_PATTERN.test(name) ? name : null;
 }
 
-export function sanitizeThemeMode(value) {
-  return THEME_MODES.includes(value) ? value : null;
+export function sanitizeThemeMode(value: unknown): string | null {
+  return typeof value === 'string' && THEME_MODES.includes(value) ? value : null;
 }
 
 export function sanitizeThemePrefs(body: Record<string, any> = {}) {

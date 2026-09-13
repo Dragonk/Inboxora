@@ -3,7 +3,7 @@ import { randomBytes } from 'crypto';
 const IMG_TAG_RE = /<img\b([^>]*)>/gi;
 const DATA_SRC_RE = /\ssrc=["'](data:image\/([^;]+);base64,([^"']+))["']/i;
 
-function mimeToExtension(mimeSubtype) {
+function mimeToExtension(mimeSubtype: string | undefined): string {
   const sub = (mimeSubtype || 'png').toLowerCase();
   if (sub === 'jpeg') return 'jpg';
   if (sub === 'svg+xml') return 'svg';
@@ -12,10 +12,18 @@ function mimeToExtension(mimeSubtype) {
 
 // Convert inline data: images to MIME CID attachments so recipients can display them.
 // Most email clients (Gmail, Outlook, Apple Mail) ignore or strip data: URIs in HTML.
-export function embedInlineDataImages(html: string) {
+interface InlineAttachment {
+  filename: string;
+  content: Buffer;
+  cid: string;
+  contentDisposition: 'inline';
+  contentType: string;
+}
+
+export function embedInlineDataImages(html: string): { html: string; attachments: InlineAttachment[] } {
   if (!html) return { html, attachments: [] };
 
-  const attachments = [];
+  const attachments: InlineAttachment[] = [];
   let index = 0;
 
   const rewritten = html.replace(IMG_TAG_RE, (match, attrs) => {
