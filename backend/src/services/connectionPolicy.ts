@@ -1,7 +1,7 @@
 import { query } from './db.js';
 
 const POLICY_TTL_MS = 30_000;
-interface ConnectionPolicyCache { allowPrivateHosts: boolean; allowInsecureTls: boolean; allowNonstandardPorts: boolean }
+type ConnectionPolicyCache = { allowPrivateHosts: boolean; allowInsecureTls: boolean; allowNonstandardPorts: boolean };
 let _cache: ConnectionPolicyCache | null = null;
 let _cacheAt = 0;
 

@@ -11,16 +11,36 @@ import { getConnectionPolicy } from './connectionPolicy.js';
 import { parseCalendarEvent } from '../utils/ical.js';
 import { toAppError } from '../utils/errors.js';
 
-const parser = new XMLParser({ ignoreAttributes: false, removeNSPrefix: true, trimValues: false });
-const syncing = new Set();
-const timers = new Map();
-const inFlight = new Map();
-const stopped = new Set();
-const toArray = (value) => (Array.isArray(value) ? value : value == null ? [] : [value]);
-const textOf = (value) => typeof value === 'string' ? value : value?.['#text'] || '';
-const basicAuth = (username, password) => `Basic ${Buffer.from(`${username}:${password}`).toString('base64')}`;
+/** A decrypted external calendar source row. */
+interface CalendarSyncState { removed?: boolean; promise?: Promise<unknown>; controller?: AbortController }
 
-function calendarPayloads(raw) {
+interface ExternalCalendarSource {
+  id?: string;
+  kind?: string;
+  url?: string;
+  username?: string;
+  password?: string;
+  user_id?: string;
+  interval_min?: number;
+  [key: string]: unknown;
+}
+
+/** The subset of the connection policy these fetches read. */
+type ExternalCalendarPolicy = { allowPrivateHosts?: boolean; [key: string]: unknown };
+
+/** Fetch options with plain-string headers (this module owns every header it sends). */
+type ExternalFetchOptions = Omit<RequestInit, 'headers'> & { headers?: Record<string, string> };
+
+const parser = new XMLParser({ ignoreAttributes: false, removeNSPrefix: true, trimValues: false });
+const syncing = new Set<string>();
+const timers = new Map<string, NodeJS.Timeout>();
+const inFlight = new Map<string, CalendarSyncState>();
+const stopped = new Set<string>();
+const toArray = <T>(value: T | T[] | null | undefined): T[] => (Array.isArray(value) ? value : value == null ? [] : [value]);
+const textOf = (value: unknown): string => typeof value === 'string' ? value : String((value as Record<string, unknown> | null | undefined)?.['#text'] ?? '');
+const basicAuth = (username: string, password: string): string => `Basic ${Buffer.from(`${username}:${password}`).toString('base64')}`;
+
+function calendarPayloads(raw: unknown): string[] {
   if (typeof raw !== 'string' || !raw.trim()) {
     throw new Error('Remote calendar did not contain any VEVENT components');
   }
@@ -36,16 +56,16 @@ function calendarPayloads(raw) {
     return eventBlocks.map((block) => `BEGIN:VCALENDAR\r\nVERSION:2.0\r\n${context}${block}\r\nEND:VCALENDAR\r\n`);
   }
 }
-function propsOf(response) {
+function propsOf(response: { propstat?: Record<string, unknown> | Array<Record<string, unknown>> }): Record<string, unknown> {
   return toArray(response.propstat).reduce((result, propstat) => {
     if (!propstat.status || /\b2\d\d\b/.test(textOf(propstat.status))) Object.assign(result, propstat.prop || {});
     return result;
   }, {});
 }
 
-async function remoteFetch(source, options, policy, signal, secretSink) {
-  const headers = { ...options.headers };
-  if (source.kind === 'caldav') headers.Authorization = basicAuth(source.username, decrypt(source.password));
+async function remoteFetch(source: ExternalCalendarSource, options: ExternalFetchOptions, policy: ExternalCalendarPolicy, signal: AbortSignal | null | undefined, secretSink?: string[]): Promise<string> {
+  const headers: Record<string, string> = { ...options.headers };
+  if (source.kind === 'caldav') headers.Authorization = basicAuth(source.username ?? '', decrypt(source.password ?? ''));
   const url = decrypt(source.url);
   if (!url) throw new Error('Stored calendar source URL is unavailable');
   secretSink?.push(url);
@@ -56,7 +76,7 @@ async function remoteFetch(source, options, policy, signal, secretSink) {
   return response.text();
 }
 
-async function fetchEvents(source, policy, signal, secretSink) {
+async function fetchEvents(source: ExternalCalendarSource, policy: ExternalCalendarPolicy, signal: AbortSignal | null | undefined, secretSink?: string[]): Promise<{ payloads: string[]; sourceDocument: string | null }> {
   if (source.kind === 'ical_url') {
     const sourceDocument = await remoteFetch(source, { headers: { Accept: 'text/calendar' } }, policy, signal, secretSink);
     return { payloads: calendarPayloads(sourceDocument), sourceDocument };
@@ -73,11 +93,11 @@ async function fetchEvents(source, policy, signal, secretSink) {
   return { payloads, sourceDocument: null };
 }
 
-function throwIfRemoved(state) {
+function throwIfRemoved(state: CalendarSyncState): void {
   if (state.removed) throw new Error('Calendar source removed');
 }
 
-async function calendarFor(source, state) {
+async function calendarFor(source: ExternalCalendarSource, state: CalendarSyncState) {
   const externalUrl = `source:${source.id}`;
   const found = await query('SELECT id FROM calendars WHERE user_id = $1 AND owner_user_id = $1 AND external_url = $2', [source.user_id, externalUrl]);
   throwIfRemoved(state);
@@ -100,12 +120,14 @@ async function calendarFor(source, state) {
   throw new Error(`Could not create a calendar for "${source.display_name}"`);
 }
 
-async function syncSource(source) {
-  if (syncing.has(source.id)) return { ok: false, error: 'A sync is already in progress' };
-  syncing.add(source.id);
+async function syncSource(source: ExternalCalendarSource) {
+  const sourceId = source.id;
+  if (!sourceId) return { ok: false, error: 'Calendar source is incomplete' };
+  if (syncing.has(sourceId)) return { ok: false, error: 'A sync is already in progress' };
+  syncing.add(sourceId);
   const outboundSecrets: string[] = [];
   const state = { controller: new AbortController(), removed: false };
-  inFlight.set(source.id, state);
+  inFlight.set(sourceId, state);
   try {
     const { payloads, sourceDocument } = await fetchEvents(source, await getConnectionPolicy(), state.controller.signal, outboundSecrets);
     throwIfRemoved(state);
@@ -132,6 +154,7 @@ async function syncSource(source) {
     }
     const seen = [];
     for (const event of events) {
+      if (!event) continue;
       throwIfRemoved(state);
       seen.push(event.uid);
       const etag = crypto.createHash('sha256').update(event.raw).digest('hex');
@@ -160,21 +183,23 @@ async function syncSource(source) {
   } catch (caught) {
     const error = toAppError(caught);
     if (state.removed) return { ok: false, error: 'Calendar source removed' };
-    const secrets = [source.url, ...outboundSecrets].filter(value => typeof value === 'string' && value);
+    const secrets = [source.url, ...outboundSecrets].filter((value): value is string => typeof value === 'string' && value !== '');
     const safeError = secrets.reduce((message, secret) => message.replaceAll(secret, '[redacted]'), String(error.message || 'Calendar source sync failed'));
     await query('UPDATE calendar_import_sources SET last_sync_at = NOW(), last_error = $2 WHERE id = $1', [source.id, safeError]);
     return { ok: false, error: safeError };
   } finally {
-    syncing.delete(source.id);
-    inFlight.delete(source.id);
+    syncing.delete(sourceId);
+    inFlight.delete(sourceId);
   }
 }
 
-function runSync(source) {
-  if (stopped.has(source.id)) return Promise.resolve({ ok: false, error: 'Calendar source removed' });
-  if (inFlight.has(source.id)) return syncSource(source);
+function runSync(source: ExternalCalendarSource) {
+  const sourceId = source.id;
+  if (!sourceId) return Promise.resolve({ ok: false, error: 'Calendar source is incomplete' });
+  if (stopped.has(sourceId)) return Promise.resolve({ ok: false, error: 'Calendar source removed' });
+  if (inFlight.has(sourceId)) return syncSource(source);
   const promise = syncSource(source);
-  const state = inFlight.get(source.id);
+  const state = inFlight.get(sourceId);
   if (state) state.promise = promise;
   return promise;
 }
@@ -188,11 +213,16 @@ export async function syncAllCalendarSources() {
   const result = await query('SELECT * FROM calendar_import_sources WHERE enabled = true');
   return Promise.allSettled(result.rows.map(runSync));
 }
-export function scheduleCalendarSource(source) {
-  const previous = timers.get(source.id); if (previous) clearInterval(previous);
-  timers.set(source.id, setInterval(() => runSync(source).catch(() => {}), source.interval_min * 60_000));
+export function scheduleCalendarSource(source: ExternalCalendarSource): void {
+  const sourceId = source.id;
+  const intervalMinutes = source.interval_min;
+  // The cron expression only ever yields a complete row; a missing interval would otherwise
+  // schedule setInterval(NaN), which fires in a tight loop.
+  if (!sourceId || !intervalMinutes) return;
+  const previous = timers.get(sourceId); if (previous) clearInterval(previous);
+  timers.set(sourceId, setInterval(() => runSync(source).catch(() => {}), intervalMinutes * 60_000));
 }
-export async function stopCalendarSource(id) {
+export async function stopCalendarSource(id: string): Promise<void> {
   const timer = timers.get(id); if (timer) clearInterval(timer); timers.delete(id);
   const state = inFlight.get(id);
   // Only real scheduled or active sources need a tombstone. In particular,
@@ -201,10 +231,10 @@ export async function stopCalendarSource(id) {
   stopped.add(id);
   if (!state) return;
   state.removed = true;
-  state.controller.abort(new Error('Calendar source removed'));
+  state.controller?.abort(new Error('Calendar source removed'));
   await state.promise;
 }
-export function releaseCalendarSource(id) {
+export function releaseCalendarSource(id: string): void {
   stopped.delete(id);
 }
 export async function startExternalCalendarScheduler() {
