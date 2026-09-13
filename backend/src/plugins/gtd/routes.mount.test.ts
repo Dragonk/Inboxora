@@ -1,4 +1,5 @@
 import { describe, it, expect, vi, beforeAll, afterAll } from 'vitest';
+import type { JsonBody } from '../../test/json.js';
 
 // The gtd router pulls imapManager from the app entrypoint and query from the DB
 // layer at import time; stub both so importing the real router never boots index.js
@@ -41,7 +42,7 @@ describe('GTD route mounting vs unauthenticated probes', () => {
   it('serves /api/health with 200 and no session', async () => {
     const res = await fetch(`${base}/api/health`);
     expect(res.status).toBe(200);
-    expect((await res.json()) as any).toEqual({ status: 'ok' });
+    expect((await res.json()) as JsonBody).toEqual({ status: 'ok' });
   });
 
   it('serves /api/version with 200 and no session', async () => {

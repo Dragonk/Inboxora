@@ -1,4 +1,5 @@
 import { describe, it, expect, vi, beforeAll, afterAll, beforeEach } from 'vitest';
+import type { JsonBody } from '../test/json.js';
 
 vi.mock('../services/db.js', () => ({ query: vi.fn() }));
 vi.mock('../middleware/auth.js', () => ({
@@ -65,7 +66,7 @@ describe('POST /api/mail/draft — local row persistence', () => {
       }),
     });
     expect(res.status).toBe(200);
-    expect((await res.json()) as any).toEqual({ uid: 5, folder: 'Drafts' });
+    expect((await res.json()) as JsonBody).toEqual({ uid: 5, folder: 'Drafts' });
 
     expect(imapManager.upsertDraftMessageRecord).toHaveBeenCalledTimes(1);
     const [acct, folder, uid, meta] = imapManager.upsertDraftMessageRecord.mock.calls[0];
@@ -88,7 +89,7 @@ describe('POST /api/mail/draft — local row persistence', () => {
       body: JSON.stringify({ accountId: ACCOUNT_ID, to: ['a@b.com'], subject: 'x', body: 'y' }),
     });
     expect(res.status).toBe(200);
-    expect((await res.json()) as any).toEqual({ uid: 5, folder: 'Drafts' });
+    expect((await res.json()) as JsonBody).toEqual({ uid: 5, folder: 'Drafts' });
   });
 
   it('does not persist a row when the append returns no uid (no reliable key)', async () => {

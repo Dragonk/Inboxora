@@ -284,7 +284,7 @@ const PERSISTENT_CAP_ENV = parsePersistentCap(process.env.IMAP_MAX_PERSISTENT_PE
 // modseq values are 64-bit unsigned and only comparable within one UIDVALIDITY epoch — inputs
 // may be BigInt, decimal string, or null; comparison is done in BigInt to avoid Number()
 // precision loss above 2^53. NEVER compare these as JS Numbers.
-export function planModseqSync({ storedModseq, serverModseq, uidValidityChanged, maxKnownUid = 0, serverExists = 0 }: { storedModseq?: any; serverModseq?: any; uidValidityChanged?: boolean; maxKnownUid?: number; serverExists?: number } = {}) {
+export function planModseqSync({ storedModseq, serverModseq, uidValidityChanged, maxKnownUid = 0, serverExists = 0 }: { storedModseq?: string | number | bigint | null; serverModseq?: string | number | bigint | null; uidValidityChanged?: boolean; maxKnownUid?: number; serverExists?: number } = {}) {
   if (maxKnownUid === 0 && serverExists > 0) return 'full';
   if (uidValidityChanged) return 'full';    // epoch reset — the stored modseq is meaningless now
   if (serverModseq == null) return 'full';  // server didn't advertise CONDSTORE HIGHESTMODSEQ
@@ -1434,44 +1434,50 @@ export class ImapManager {
   // Runtime state initialised by the constructor. Declared with `declare` so
   // these are purely type-level (no emitted field initialisers), keeping the
   // class body's own assignments authoritative.
-  declare wss: any;
-  declare connections: any;
-  declare syncIntervals: any;
-  declare pluginSyncIntervals: any;
-  declare backfillRunning: any;
-  declare backfillAllRunning: any;
-  declare _bgConnSem: any;
-  declare _connectCooldown: any;
-  declare _syncErrorState: any;
-  declare _pendingFlagPush: any;
-  declare _pendingFlagSync: any;
-  declare _pendingInboxSync: any;
-  declare _pendingMoveUids: any;
-  declare _pollOnlyAccounts: any;
-  declare _stalenessCheckRunning: any;
-  declare _stalenessCheckTimer: any;
-  declare _snoozeWakeupRunning: any;
-  declare _snoozeWatcherTimer: any;
-  declare _healthCheckTimer: any;
-  declare _snippetSchedulerTimer: any;
-  declare _flagPushReconcilerTimer: any;
-  declare _flagPushRunning: any;
-  declare _flagDebounceTimers: any;
-  declare _expungeDebounceTimers: any;
-  declare connectingAccounts: any;
-  declare syncingAccounts: any;
-  declare onDemandSyncing: any;
-  declare snippetIndexerRunning: any;
-  declare snippetBackoff: any;
-  declare lastSyncOkAt: any;
-  declare lastFolderSyncAt: any;
-  declare lastUserActivity: any;
-  declare syncStartedAt: any;
-  declare syncTickCount: any;
-  declare syncThrottleSkips: any;
-  declare userSyncIntervalMs: any;
-  declare userFolderSyncIntervalMs: any;
-  declare pluginFacade: any;
+  declare wss: { clients: Set<{ send(data: string): void; readyState?: number; userId?: string }> };
+  declare connections: Map<string, { close?(): void; logout(): Promise<unknown> }>;
+  declare syncIntervals: Map<string, ReturnType<typeof setInterval>>;
+  declare pluginSyncIntervals: Map<string, ReturnType<typeof setInterval>>;
+  declare backfillRunning: Set<string>;
+  declare backfillAllRunning: Set<string>;
+  declare _bgConnSem: ReturnType<typeof createKeyedSemaphore>;
+  declare _connectCooldown: Map<string, { until: number; failures: number }>;
+  declare _syncErrorState: Map<string, unknown>;
+  declare _pendingFlagPush: Map<string, Map<string, {
+    messageId: string;
+    flag: string;
+    value: boolean;
+    attempts: number;
+    resolved?: boolean;
+  }>>;
+  declare _pendingFlagSync: Set<string>;
+  declare _pendingInboxSync: Set<string>;
+  declare _pendingMoveUids: Map<string, number>;
+  declare _pollOnlyAccounts: Set<string>;
+  declare _stalenessCheckRunning: boolean;
+  declare _stalenessCheckTimer: ReturnType<typeof setInterval> | null;
+  declare _snoozeWakeupRunning: boolean;
+  declare _snoozeWatcherTimer: ReturnType<typeof setInterval> | null;
+  declare _healthCheckTimer: ReturnType<typeof setInterval> | null;
+  declare _snippetSchedulerTimer: ReturnType<typeof setInterval> | null;
+  declare _flagPushReconcilerTimer: ReturnType<typeof setInterval> | null;
+  declare _flagPushRunning: boolean;
+  declare _flagDebounceTimers: Map<string, ReturnType<typeof setTimeout>>;
+  declare _expungeDebounceTimers: Map<string, ReturnType<typeof setTimeout>>;
+  declare connectingAccounts: Set<string>;
+  declare syncingAccounts: Set<string>;
+  declare onDemandSyncing: Set<string>;
+  declare snippetIndexerRunning: Set<string>;
+  declare snippetBackoff: Map<string, { failures: number; until: number }>;
+  declare lastSyncOkAt: Map<string, number>;
+  declare lastFolderSyncAt: Map<string, number>;
+  declare lastUserActivity: Map<string, number>;
+  declare syncStartedAt: Map<string, number>;
+  declare syncTickCount: Map<string, number>;
+  declare syncThrottleSkips: Map<string, number>;
+  declare userSyncIntervalMs: Map<string, number>;
+  declare userFolderSyncIntervalMs: Map<string, number>;
+  declare pluginFacade: ReturnType<typeof createPluginMailFacade>;
   constructor(wss) {
     this.wss = wss;
     this.connections = new Map();   // accountId -> ImapFlow (persistent sync connection)

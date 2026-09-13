@@ -5,6 +5,7 @@ import { queueGistGeneration } from './gtdGist.js';
 import { importPet, decodeUploadedSheet, getPetMeta, getPetSheet, parsePetSlug, customPetSlug } from './gtdPet.js';
 import { getGtdConfig, resolveGtdStateFolder, sanitizeGtdFolders, sanitizeGtdFoldersDetailed, DEFAULT_GTD_FOLDERS, planGtdFolderPersist, invalidateGtdConfigCache } from './gtdConfig.js';
 import { applyLabel, removeExactLabelCopy, removeLabel, markThreadRead, ensureLabelFolders, archiveInboxCopy, broadcast, loadOwnedMessage, getOwnedAccount, getMessageCopyFolders, getAccountConfig, setAccountConfig } from '../api.js';
+import { queryString, queryInt } from '../../utils/query.js';
 
 const router = Router();
 router.use(requireAuth);
@@ -35,7 +36,7 @@ export function classifyTarget({ enabled, folders, state }) {
 //     labels are skipped, never an error; a thread with none resolves to { folders: [] } so
 //     the route degrades to mark-read + archive.
 // Returns { folders } to proceed, or { status, error } to reject. Pure — exported for tests.
-export function resolveDoneFolders({ enabled, folders, states, existing = undefined }: { enabled?: any; folders?: any; states?: any; existing?: any } = {}) {
+export function resolveDoneFolders({ enabled, folders, states, existing = undefined }: { enabled?: boolean; folders?: Record<string, string>; states?: string | string[]; existing?: unknown[] } = {}) {
   if (!enabled) return { status: 400, error: 'GTD is not enabled for this account' };
   if (states === 'all') {
     const present = new Set(Array.isArray(existing) ? existing : []);
@@ -62,12 +63,13 @@ export function resolveDoneFolders({ enabled, folders, states, existing = undefi
 // to that owned account. Ownership + gtd_enabled filtering happen in the service.
 // (Router is mounted at /api/gtd, so the paths here omit the gtd/ prefix.)
 router.get('/sections', async (req, res) => {
-  const { accountId, limit } = req.query as any;
+  const accountId = queryString(req.query.accountId);
+  const limitParam = queryInt(req.query.limit, 0);
   if (accountId && !UUID_RE.test(accountId)) return res.status(400).json({ error: 'Invalid account id' });
   const result = await getGtdSections({
     userId: req.session.userId,
     accountId: accountId || null,
-    limit,
+    limit: limitParam || undefined,
   });
   res.json(result);
 

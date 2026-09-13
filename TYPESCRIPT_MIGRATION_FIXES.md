@@ -635,3 +635,20 @@ Backend any: 260 -> 149 (tsc 0, testy 1785/0, lint czysty).
   (brak w typach biblioteki, obecne w runtime — zweryfikowane).
 - conversationEngine: ConversationMessageInput/ConversationProviderHint.
 
+
+## 60. Backend: pola klasy ImapManager otypowane z inicjalizatorow
+
+Backend any: 149 -> 77 (tsc 0, testy 1785/0, lint czysty).
+
+- ImapManager: 38 pol declare ...: any -> jawne typy wyprowadzone z REALNYCH inicjalizatorow
+  w konstruktorze (nie zgadywane): backfillAllRunning to Set<string> (nie boolean),
+  _pendingFlagPush to zagniezdzona Map<accountId, Map<key, op>>, _connectCooldown to
+  Map<id, {until, failures}>, snippetBackoff Map<host, {failures, until}>, timery jako
+  ReturnType<typeof setInterval|setTimeout> | null, _bgConnSem z createKeyedSemaphore.
+  (Poprzednia, hurtowa proba w rundzie 37 dala 69 bledow, bo typy byly zgadywane.)
+- JsonBody rozszerzony (conversations) i uzyty w 14 kolejnych plikach testowych (27 miejsc).
+- conversationActions: waski ConversationImapManager (broadcast?/bulkMoveMessages?/
+  syncFolderOnDemand?) zamiast any; opcje akcji otypowane.
+- conversations.ts: values: any[] -> unknown[] (cast przy pushu usuniety).
+- gtd/routes.ts: resolveDoneFolders otypowane; req.query as any -> queryString/queryInt.
+

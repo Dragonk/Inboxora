@@ -1,4 +1,5 @@
 import { describe, it, expect, vi, beforeAll, afterAll, beforeEach } from 'vitest';
+import type { JsonBody } from '../test/json.js';
 
 vi.mock('../services/db.js', () => ({ query: vi.fn() }));
 vi.mock('../middleware/auth.js', () => ({
@@ -47,7 +48,7 @@ describe('POST /api/mail/send — forwarded attachment guards (#F2)', () => {
     const forwardedAttachments = Array.from({ length: 101 }, () => ({ messageId: MSG_ID, part: '2' }));
     const res = await post({ accountId: ACCOUNT_ID, to: ['x@example.com'], forwardedAttachments });
     expect(res.status).toBe(400);
-    expect(((await res.json()) as any).error).toMatch(/Too many forwarded attachments/);
+    expect(((await res.json()) as JsonBody).error).toMatch(/Too many forwarded attachments/);
     expect(query).not.toHaveBeenCalled();
     expect(imapManager.fetchAttachment).not.toHaveBeenCalled();
   });
@@ -70,7 +71,7 @@ describe('POST /api/mail/send — forwarded attachment guards (#F2)', () => {
       forwardedAttachments: [{ messageId: MSG_ID, part: '2' }],
     });
     expect(res.status).toBe(400);
-    expect(((await res.json()) as any).error).toMatch(/exceeds 25 MB/);
+    expect(((await res.json()) as JsonBody).error).toMatch(/exceeds 25 MB/);
     // The whole point: no IMAP fetch happens when the declared size already blows the limit.
     expect(imapManager.fetchAttachment).not.toHaveBeenCalled();
   });

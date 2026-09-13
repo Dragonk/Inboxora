@@ -51,7 +51,7 @@ async function movePhysicalRowsWithProvider(client, rows, destinations, imapMana
     );
     const account = accountResult.rows[0];
     if (!account) throw Object.assign(new Error('Account not found'), { statusCode: 404 });
-    const result = await imapManager.bulkMoveMessages(account, group.rows.map(row => row.uid), group.fromFolder, group.destination);
+    const result = await imapManager.bulkMoveMessages?.(account, group.rows.map(row => row.uid), group.fromFolder, group.destination);
     const succeeded = new Set((result.succeeded || []).map(String));
     for (const row of group.rows) {
       if (!succeeded.has(String(row.uid))) {
@@ -261,7 +261,18 @@ export async function applyConversationAction({
   isStarred = undefined,
   targetFolder = undefined,
   imapManager = null,
-}: { userId?: any; conversationId?: any; scope?: string; copyId?: any; logicalMessageId?: any; action: any; isRead?: any; isStarred?: any; targetFolder?: any; imapManager?: any }) {
+}: {
+  userId?: string | null;
+  conversationId?: string | null;
+  scope?: string;
+  copyId?: string | null;
+  logicalMessageId?: string | null;
+  action: string;
+  isRead?: boolean;
+  isStarred?: boolean;
+  targetFolder?: string | null;
+  imapManager?: ConversationImapManager | null;
+}) {
   if (!userId) throw Object.assign(new Error('userId is required'), { statusCode: 400 });
   if (!conversationId) throw Object.assign(new Error('conversationId is required'), { statusCode: 400 });
   assertScope(scope);
@@ -359,7 +370,13 @@ interface BulkConversationActionInput {
   isRead?: boolean;
   isStarred?: boolean;
   targetFolder?: string | null;
-  imapManager?: any;
+  imapManager?: ConversationImapManager | null;
+}
+
+export interface ConversationImapManager {
+  broadcast?(payload: unknown, userId?: string): void;
+  bulkMoveMessages?(account: unknown, uids: unknown[], src: string, dest: string): Promise<unknown>;
+  syncFolderOnDemand?(account: unknown, folder: string): Promise<unknown>;
 }
 
 export async function applyBulkConversationAction({ userId, conversationIds = null, items = null, scope, action, ...options }: BulkConversationActionInput) {

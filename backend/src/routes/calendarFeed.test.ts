@@ -1,4 +1,5 @@
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
+import type { JsonBody } from '../test/json.js';
 import { createHash } from 'crypto';
 
 const { query } = vi.hoisted<any>(() => ({ query: vi.fn() }));
@@ -66,7 +67,7 @@ describe('secret calendar feeds', () => {
       throw new Error(`Unexpected query: ${sql}`);
     });
     const created = await fetch(`${base}/api/calendar/feeds`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ calendarIds: ['cal-1'] }) });
-    const { secret } = (await created.json()) as any;
+    const { secret } = (await created.json()) as JsonBody;
     const url = `${base}/calendar/feeds/${secret}.ics`;
     expect((await fetch(url)).status).toBe(200);
     expect((await fetch(`${base}/api/calendar/feeds/feed-1`, { method: 'DELETE' })).status).toBe(204);
@@ -80,7 +81,7 @@ describe('secret calendar feeds', () => {
       .mockResolvedValueOnce({ rows: [{ id: 'cal-1', name: 'Personal' }] })
       .mockResolvedValueOnce({ rows: [{ id: 'feed-1', calendar_ids: ['cal-1'], created_at: '2026-09-01T00:00:00.000Z' }] });
     const response = await fetch(`${base}/api/calendar/feeds`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ calendarIds: ['cal-1'] }) });
-    const json = (await response.json()) as any;
+    const json = (await response.json()) as JsonBody;
     expect(response.status).toBe(201);
     expect(json.secret).toMatch(/^[A-Za-z0-9_-]{43}$/);
     expect(query.mock.calls[1][1]).not.toContain(json.secret);
@@ -107,7 +108,7 @@ describe('secret calendar feeds', () => {
 
   it('rotates only an owned feed and returns the replacement secret once', async () => {
     query.mockResolvedValue({ rows: [{ id: 'feed-1', calendar_ids: ['cal-1'], created_at: '2026-09-01T00:00:00.000Z' }] });
-    const response = await fetch(`${base}/api/calendar/feeds/feed-1/rotate`, { method: 'POST' }); const json = (await response.json()) as any;
+    const response = await fetch(`${base}/api/calendar/feeds/feed-1/rotate`, { method: 'POST' }); const json = (await response.json()) as JsonBody;
     expect(response.status).toBe(200); expect(json.secret).toMatch(/^[A-Za-z0-9_-]{43}$/); expect(query.mock.calls[0][0]).toContain('token_hash = $1'); expect(query.mock.calls[0][0]).toContain('owner_user_id = $3'); expect(query.mock.calls[0][1][0]).not.toBe(json.secret);
   });
 });

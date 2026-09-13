@@ -6,6 +6,7 @@
 //   DB_USER=... DB_PASSWORD=... \
 //   ENCRYPTION_KEY=<64 hex> REQUIRE_PUSH_POSTGRES=1 npx vitest run src/routes/push.integration.test.js
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import type { JsonBody } from '../test/json.js';
 import { randomUUID } from 'crypto';
 import { createServer } from 'http';
 import express from 'express';
@@ -55,7 +56,7 @@ describe.skipIf(!enabled)('push device registry with PostgreSQL', () => {
       headers: { 'content-type': 'application/json' },
       body: JSON.stringify({ deviceId, platform: 'android', transport: 'unifiedpush', endpoint, appVersion: '4.0.0' }),
     });
-    return { response, body: (await response.json()) as any };
+    return { response, body: (await response.json()) as JsonBody };
   }
 
   it('registers, encrypts the endpoint, and authenticates the native API with the issued token', async () => {

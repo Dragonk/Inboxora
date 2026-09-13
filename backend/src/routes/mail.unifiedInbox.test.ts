@@ -1,4 +1,5 @@
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
+import type { JsonBody } from '../test/json.js';
 
 vi.mock('../services/db.js', () => ({ query: vi.fn() }));
 vi.mock('../middleware/auth.js', () => ({
@@ -52,7 +53,7 @@ describe('GET /api/mail/unread-counts unified total', () => {
     const response = await fetch(`${base}/api/mail/unread-counts`);
 
     expect(response.status).toBe(200);
-    expect((await response.json()) as any).toEqual({
+    expect((await response.json()) as JsonBody).toEqual({
       total: 2,
       byAccount: { included: 2, excluded: 5 },
     });

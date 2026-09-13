@@ -12,6 +12,7 @@ export interface JsonBody {
   reserved?: unknown[];
   collisions?: unknown[];
   devices?: unknown[];
+  conversations?: Array<{ conversation_id?: string; account_id?: string; [key: string]: unknown }>;
   deviceToken?: string;
   eventId?: string | null;
   unreadCount?: number;

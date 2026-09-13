@@ -1,4 +1,5 @@
 import { describe, it, expect, beforeAll, afterAll, afterEach } from 'vitest';
+import type { JsonBody } from '../test/json.js';
 
 // The /status capability endpoint (#315) must be reachable by any authenticated user,
 // NOT just admins: a non-admin needs to learn that Microsoft OAuth is configured so the
@@ -53,13 +54,13 @@ describe('GET /api/integrations/status (non-admin capability check)', () => {
     process.env.MS_CLIENT_ID = 'some-client-id';
     const res = await fetch(`${base}/api/integrations/status`);
     expect(res.status).toBe(200);
-    expect((await res.json()) as any).toEqual({ microsoft: { configured: true } });
+    expect((await res.json()) as JsonBody).toEqual({ microsoft: { configured: true } });
   });
 
   it('reports configured=false when MS_CLIENT_ID is unset', async () => {
     const res = await fetch(`${base}/api/integrations/status`);
     expect(res.status).toBe(200);
-    expect((await res.json()) as any).toEqual({ microsoft: { configured: false } });
+    expect((await res.json()) as JsonBody).toEqual({ microsoft: { configured: false } });
   });
 
   it('never leaks credentials in the response', async () => {

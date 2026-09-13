@@ -51,7 +51,7 @@ router.get('/conversations', async (req, res) => {
   const folder = searchAllFolders === '1' ? undefined : requestedFolder;
   const cursorValue = decodeCursor(cursor);
   if (cursor && !cursorValue) return res.status(400).json({ error: 'Invalid conversation cursor' });
-  const values: any[] = [userId];
+  const values: unknown[] = [userId];
   if (accountId) values.push(accountId);
   const entryFilters = [
     'm_entry.conversation_id = c.id',
@@ -82,7 +82,7 @@ router.get('/conversations', async (req, res) => {
     values.push(cursorValue.date, cursorValue.id);
     cursorFilter = `AND (COALESCE(c.last_message_at, c.created_at), c.id) < ($${values.length - 1}::timestamptz, $${values.length}::uuid)`;
   }
-  values.push(parseLimit(limit) as any);
+  values.push(parseLimit(limit));
   const limitParam = values.length;
   const preferredCopyOrder = folderParam
     ? `CASE WHEN m_copy.folder = $${folderParam} THEN 0 WHEN m_copy.folder = 'INBOX' THEN 1 WHEN LOWER(m_copy.folder) = 'sent' THEN 2 ELSE 3 END,`

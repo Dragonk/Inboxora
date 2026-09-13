@@ -1,4 +1,5 @@
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
+import type { JsonBody } from '../test/json.js';
 
 vi.mock('../services/db.js', () => ({ query: vi.fn(), pool: {} }));
 vi.mock('../middleware/auth.js', () => ({
@@ -68,7 +69,7 @@ describe('GET /api/mail/conversations list contract', () => {
       headers: { 'x-test-user': 'user-a' },
     });
     expect(response.status).toBe(200);
-    const body = (await response.json()) as any;
+    const body = (await response.json()) as JsonBody;
     expect(body.conversations).toHaveLength(1);
     expect(body.conversations[0]).toMatchObject({
       conversation_id: CONVERSATION_A,
@@ -107,7 +108,7 @@ describe('GET /api/mail/conversations list contract', () => {
       headers: { 'x-test-user': 'user-a' },
     });
     expect(response.status).toBe(200);
-    const rows = ((await response.json()) as any).conversations;
+    const rows = ((await response.json()) as JsonBody).conversations;
     expect(rows.map(row => [row.conversation_id, row.account_id])).toEqual([
       [CONVERSATION_A, ACCOUNT_A],
       [CONVERSATION_B, ACCOUNT_B],
