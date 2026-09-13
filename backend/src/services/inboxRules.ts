@@ -28,7 +28,7 @@ export function isDangerousRegex(src) {
   // Nested quantifiers of any form, incl. bounded {n,m}: (a+)+, (a{1,9}){1,9}, (a*)? .
   // Linear scan tracking whether the current group already contains a quantifier;
   // a quantifier applied to such a group is the classic exponential shape.
-  const groupHasQuant = [];
+  const groupHasQuant: boolean[] = [];
   for (let i = 0; i < src.length; i++) {
     const c = src[i];
     if (c === '\\') { i++; continue; }                                   // escaped literal

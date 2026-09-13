@@ -3,7 +3,7 @@ import { lockConversationsDeterministically } from './conversationOverridePolicy
 
 describe('conversation race gate', () => {
   it('locks conversation ids in deterministic order', async () => {
-    const queries = [];
+    const queries: unknown[][] = [];
     const client = { query: vi.fn(async (...args) => { queries.push(args); return { rows: [] }; }) };
     const result = await lockConversationsDeterministically(client, 'user', ['b', 'a', 'b']);
     expect(result).toEqual(['a', 'b']);

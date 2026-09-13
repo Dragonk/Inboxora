@@ -108,7 +108,15 @@ function config() {
 }
 
 let slots: Array<ReturnType<typeof spawnSlot>> | null = null;
-let pending = []; // typed with the projection job shape in a later pass
+type PendingProjectionJob = {
+  jobId: number;
+  row: ProjectionEvent | null;
+  from: Date;
+  to: Date;
+  resolve: (value: { id: string | null; events: unknown[]; truncated: boolean; reason: string | null; error: string | null }) => void;
+  done: boolean;
+};
+let pending: PendingProjectionJob[] = [];
 let nextJobId = 1;
 let closing = false;
 
@@ -119,7 +127,7 @@ let closing = false;
 // launched; the remaining flags (memory limits, etc.) are still inherited.
 function workerExecArgv() {
   const inherited = process.execArgv || [];
-  const filtered = [];
+  const filtered: string[] = [];
   for (let index = 0; index < inherited.length; index += 1) {
     const flag = inherited[index];
     if (flag === '--input-type') { index += 1; continue; }

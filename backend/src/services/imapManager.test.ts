@@ -638,7 +638,7 @@ describe('emitSectionsChanged', () => {
 
 describe('_startPluginSyncTimers / _stopPluginSyncTimers', () => {
   const makeMgr = () => { const m = Object.create(ImapManager.prototype); m.pluginSyncIntervals = new Map(); m.pluginFacade = { __facade: true }; return m; };
-  let listSpy;
+  let listSpy: ReturnType<typeof vi.spyOn>;
 
   beforeEach(() => { vi.useFakeTimers(); vi.spyOn(Math, 'random').mockReturnValue(0); });
   afterEach(() => { listSpy?.mockRestore(); vi.restoreAllMocks(); vi.useRealTimers(); });
@@ -723,7 +723,7 @@ describe('createKeyedSemaphore', () => {
   it('hands slots to waiters in FIFO order', async () => {
     const sem = createKeyedSemaphore(1);
     await sem.acquire('h');
-    const order = [];
+    const order: string[] = [];
     const a = sem.acquire('h').then(() => order.push('a'));
     const b = sem.acquire('h').then(() => order.push('b'));
     await Promise.resolve();

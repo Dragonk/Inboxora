@@ -2662,7 +2662,7 @@ export class ImapManager {
             ? `${mailbox.exists - seqCount + 1}:${mailbox.exists}`
             : '1:*';
 
-          const flagsToUpdate = [];
+          const flagsToUpdate: Array<{ uid: number; isRead: boolean; isStarred: boolean }> = [];
           for await (const msg of client.fetch(fetchRange, { uid: true, flags: true })) {
             flagsToUpdate.push({
               uid: msg.uid,
@@ -2988,7 +2988,7 @@ export class ImapManager {
         // THIS account (GTD's handler is active only when gtd_enabled), so a mailbox with no such
         // plugin collects nothing and issues no extra queries — identical to the pre-plugin gate.
         const wantsInboxIngest = folder === 'INBOX' && await pluginRegistry.hasActiveAsync('inboxIngest', { account });
-        const newInboxIds = [];
+        const newInboxIds: string[] = [];
         const ingestDeletedIds = new Set();
 
         // Relocate-exempt label folders for this account (empty when no label plugin is
