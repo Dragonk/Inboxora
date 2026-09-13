@@ -12,7 +12,12 @@ export default function DiagnosticsReportModal({ onClose }) {
   const theme = useStore(s => s.theme);
   const uiScale = useUiScale();
   const addNotification = useStore(s => s.addNotification);
-  const [state, setState] = useState({ status: 'loading' });
+  const [state, setState] = useState<{
+    status: string;
+    json?: string;
+    report?: { meta?: { reportId?: string } };
+    error?: string;
+  }>({ status: 'loading' });
   useBackLayer(true, onClose, 5000);
 
   useEffect(() => {

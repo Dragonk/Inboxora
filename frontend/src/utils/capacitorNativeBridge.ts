@@ -10,7 +10,7 @@ function getPlugin() {
   return plugin;
 }
 
-async function callNative(method, args, fallback = null) {
+async function callNative(method, args = undefined, fallback = null) {
   if (pluginUnavailable) return fallback;
 
   try {

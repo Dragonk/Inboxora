@@ -19,6 +19,10 @@ declare global {
   }
 
   interface Window {
+    // Native bridge handshake flags (Electron/Capacitor shells).
+    __inboxoraNativeBridgeReady?: boolean;
+    __inboxoraPendingNativeActions?: unknown[];
+    __mailflowPendingNativeActions?: unknown[];
     inboxoraNative?: any;
     // Capacitor runtime, present only inside the native shells.
     Capacitor?: any;
@@ -34,5 +38,11 @@ declare global {
 declare module 'react' {
   interface CSSProperties {
     [key: `--${string}`]: string | number | undefined;
+  }
+
+  // The installed React 18 type definitions predate the inert attribute, which the
+  // mobile sidebar relies on to keep hidden content out of the a11y tree.
+  interface HTMLAttributes<_T> {
+    inert?: boolean;
   }
 }

@@ -297,7 +297,7 @@ export const api = {
   },
 
   // Sync
-  syncNow: (accountId) => request('POST', '/mail/sync', accountId ? { accountId } : {}),
+  syncNow: (accountId = undefined) => request('POST', '/mail/sync', accountId ? { accountId } : {}),
   syncFolder: (accountId, folder) => request('POST', '/mail/sync-folder', { accountId, folder }),
   syncFoldersNow: (accountId) => request('POST', '/mail/sync-folders', accountId ? { accountId } : {}),
 

@@ -53,8 +53,8 @@ export const ACTION_DEFS = {
 };
 
 // Returns the effective shortcut map: action → key, with user overrides applied.
-export function getEffectiveShortcuts(userOverrides = {}) {
-  const out = {};
+export function getEffectiveShortcuts(userOverrides: Record<string, string | null | undefined> = {}): Record<string, string | null | undefined> {
+  const out: Record<string, string | null | undefined> = {};
   for (const [action, def] of Object.entries(ACTION_DEFS)) {
     out[action] = action in userOverrides ? userOverrides[action] : def.defaultKey;
   }

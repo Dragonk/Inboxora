@@ -37,10 +37,10 @@ const ElectronNotificationBridge = lazy(() => import('./ElectronNotificationBrid
 // Read + atomically clear the deep-link the service worker persisted on a
 // notification tap (shared IndexedDB store 'mailflow-nav'). Fully guarded so any
 // storage error resolves to null instead of throwing.
-function takePendingDeepLink() {
-  return new Promise((resolve) => {
+function takePendingDeepLink(): Promise<string | null> {
+  return new Promise<string | null>((resolve) => {
     let settled = false;
-    const done = (v) => { if (!settled) { settled = true; resolve(v); } };
+    const done = (v: string | null) => { if (!settled) { settled = true; resolve(v); } };
     try {
       const open = indexedDB.open('mailflow-nav', 1);
       open.onupgradeneeded = () => { try { open.result.createObjectStore('kv'); } catch { /* store already exists */ } };
@@ -156,7 +156,7 @@ export default function MailApp() {
     setConversationResolutionError(null);
     if (nativeThreadUnavailableFor !== selectedMessageId) setNativeThreadUnavailableFor(null);
     const selected = useStore.getState().messages.find(item => item.id === selectedMessageId)
-      || Object.values(useStore.getState().threadMessages || {}).flat().find(item => item.id === selectedMessageId);
+      || Object.values((useStore.getState().threadMessages || {}) as Record<string, Array<{ id: string }>>).flat().find(item => item.id === selectedMessageId);
     // Preserve the exact physical selection before CE resolution. Expanded native
     // children are not in the flat list, and CE may lag native threading; neither
     // may turn a Reader-on selection into the classic pane or replace its target.
@@ -203,7 +203,7 @@ export default function MailApp() {
             const state = useStore.getState();
             if (selectedMessageIdRef.current !== selectedMessageId || state.selectedMessageId !== selectedMessageId) return;
             const current = state.messages.find(item => item.id === selectedMessageId)
-              || Object.values(state.threadMessages || {}).flat().find(item => item.id === selectedMessageId);
+              || Object.values((state.threadMessages || {}) as Record<string, Array<{ id: string }>>).flat().find(item => item.id === selectedMessageId);
             if (!current || current.is_read || state.markReadBehavior === 'manual') return;
             const previousUnreadCount = current.unread_count;
             state.updateMessage(current.id, { is_read: true, unread_count: 0 });
@@ -604,7 +604,7 @@ export default function MailApp() {
 
   const mobileSidebarOpenRef = useRef(mobileSidebarOpen);
   useEffect(() => {
-    if (mobileSidebarOpenRef.current && !mobileSidebarOpen) document.querySelector('[data-testid="mobile-topbar-menu"]')?.focus();
+    if (mobileSidebarOpenRef.current && !mobileSidebarOpen) document.querySelector<HTMLElement>('[data-testid="mobile-topbar-menu"]')?.focus();
     mobileSidebarOpenRef.current = mobileSidebarOpen;
   }, [mobileSidebarOpen]);
   useBackLayer(showShortcutHelp, () => setShowShortcutHelp(false), 6000);
@@ -808,7 +808,7 @@ export default function MailApp() {
           {/* Slide-in sidebar drawer */}
           <div
             data-testid="mobile-sidebar"
-            inert={mobileSidebarOpen ? undefined : ''}
+            inert={mobileSidebarOpen ? undefined : true}
             style={{
               position: 'fixed', left: 0, top: 0, bottom: 0,
               zIndex: 1300, display: 'flex',

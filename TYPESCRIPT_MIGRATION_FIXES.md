@@ -442,3 +442,23 @@ Backend: tsc 0 · testy 1785/0.
 Frontend tsc: 79 bledow (z 661). Testy 2335/0 · lint czysty · build OK.
 Backend: tsc 0 · testy 1785/0.
 
+
+## 45. Frontend: bridge natywny, mostek Electron, Diagnostyka, MailApp
+
+- 🔴 callNative(method, args) wymagalo args, a wiele wywolan przekazywalo tylko metode
+  (resetHost/openPushHelp itd.) -> args opcjonalny.
+- 🔴 takePendingDeepLink() nie mialo typu -> Promise<unknown>; teraz Promise<string|null>.
+- 🔴 DiagnosticsReportModal: stan {status} nie mial pol json/report/error, ktore kod przypisywal.
+- 🔴 getEffectiveShortcuts zwracalo {}, przez co odczyt toggleRightSidebar byl niekontrolowany.
+- 🟠 globalne okna mostka natywnego (__inboxoraNativeBridgeReady, __inboxoraPendingNativeActions,
+  __mailflowPendingNativeActions) dodane do Window.
+- 🟠 MailApp: Object.values(threadMessages) -> jawny typ; querySelector<HTMLElement>?.focus();
+  syncNow(accountId?) — opcjonalny.
+- 🟠 inert={... ? undefined : true} wymagalo augmentacji React 18 (HTMLAttributes<_T>.inert) —
+  typy React 18 nie znaja atrybutu inert.
+
+## 46. Stan weryfikacji
+
+Frontend tsc: 58 bledow (z 661). Testy 2335/0 · lint czysty · build OK.
+Backend: tsc 0 · testy 1785/0.
+
