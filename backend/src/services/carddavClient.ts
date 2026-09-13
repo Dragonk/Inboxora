@@ -29,13 +29,16 @@ const parser = new XMLParser({
   processEntities: { maxTotalExpansions: 10_000_000, maxExpansionDepth: 10 },
 });
 
-const toArray = (x) => (Array.isArray(x) ? x : x == null ? [] : [x]);
+/** The credentials + policy one DAV request carries. */
+interface DavCredentials { username: string; password: string; allowPrivate?: boolean }
 
-function basicAuth(username, password) {
+const toArray = <T>(x: T | T[] | null | undefined): T[] => (Array.isArray(x) ? x : x == null ? [] : [x]);
+
+function basicAuth(username: string, password: string): string {
   return 'Basic ' + Buffer.from(`${username}:${password}`).toString('base64');
 }
 
-async function assertHostAllowed(url: string, allowPrivate) {
+async function assertHostAllowed(url: string, allowPrivate: boolean): Promise<void> {
   let hostname;
   try { hostname = new URL(url).hostname; }
   catch { throw new Error('Invalid server URL'); }
@@ -78,7 +81,9 @@ interface DavPropBlock {
   getetag?: unknown;
 }
 
-function propsOf(response): DavPropBlock {
+type DavPropStat = { status?: unknown; prop?: Record<string, unknown> };
+
+function propsOf(response: { propstat?: DavPropStat | DavPropStat[] }): DavPropBlock {
   const merged: DavPropBlock = {};
   for (const ps of toArray(response.propstat)) {
     const status = typeof ps.status === 'string' ? ps.status : '';
@@ -88,10 +93,10 @@ function propsOf(response): DavPropBlock {
   return merged;
 }
 
-function textOf(node) {
+function textOf(node: unknown): string {
   if (node == null) return '';
   if (typeof node === 'string') return node;
-  if (typeof node === 'object' && '#text' in node) return String(node['#text']);
+  if (typeof node === 'object' && node !== null && '#text' in node) return String((node as Record<string, unknown>)['#text']);
   return '';
 }
 
@@ -115,15 +120,15 @@ function decodeXmlCharRefs(str: string) {
 }
 
 // Resolve an href (often an absolute path) against the request URL's origin.
-function absolute(href: string, baseUrl) {
+function absolute(href: string, baseUrl: string): string {
   try { return new URL(href, baseUrl).href; }
   catch { return href; }
 }
 
 // Pure: pull a single href-valued property out of a PROPFIND multistatus, by its
 // namespace-stripped local name (e.g. 'current-user-principal'). Exported for testing.
-export function extractHref(xmlText, key: string, baseUrl) {
-  const xml = parser.parse(xmlText);
+export function extractHref(xmlText: unknown, key: string, baseUrl: string): string | null {
+  const xml = parser.parse(String(xmlText ?? ''));
   const response = toArray(xml?.multistatus?.response)[0];
   if (!response) return null;
   const val = propsOf(response)[key];
@@ -134,7 +139,7 @@ export function extractHref(xmlText, key: string, baseUrl) {
 
 // PROPFIND for a single href-valued property. `key` is the expected local name in
 // the response (passed explicitly rather than derived from the request markup).
-async function propfindHref(url: string, propXml, key: string, creds) {
+async function propfindHref(url: string, propXml: string, key: string, creds: DavCredentials): Promise<string | null> {
   const body = `<?xml version="1.0" encoding="utf-8"?>
 <propfind xmlns="DAV:" xmlns:C="urn:ietf:params:xml:ns:carddav"><prop>${propXml}</prop></propfind>`;
   return extractHref(await dav('PROPFIND', url, { ...creds, depth: 0, body }), key, url);
@@ -143,7 +148,7 @@ async function propfindHref(url: string, propXml, key: string, creds) {
 // Find the user's principal URL. Tries the given URL, then RFC 6764 well-known
 // discovery (Nextcloud users usually enter just the base URL, which 301-redirects
 // from /.well-known/carddav to the DAV context — fetch follows that automatically).
-async function resolvePrincipal(serverUrl, creds) {
+async function resolvePrincipal(serverUrl: string, creds: DavCredentials): Promise<string | null> {
   const origin = new URL(serverUrl).origin;
   const candidates = [serverUrl, `${origin}/.well-known/carddav`];
   let lastErr;
@@ -163,7 +168,7 @@ async function resolvePrincipal(serverUrl, creds) {
 
 // Discover every address book on the server for these credentials.
 // Returns [{ url, displayName }].
-export async function discoverAddressBooks({ serverUrl, username, password, allowPrivate = false }) {
+export async function discoverAddressBooks({ serverUrl, username, password, allowPrivate = false }: { serverUrl: string; username: string; password: string; allowPrivate?: boolean }): Promise<Array<{ url: string; displayName: string }>> {
   await assertHostAllowed(serverUrl, allowPrivate);
   const creds = { username, password, allowPrivate };
 
@@ -183,8 +188,8 @@ export async function discoverAddressBooks({ serverUrl, username, password, allo
 
 // Pure: extract address-book collections from a PROPFIND multistatus. Exported
 // for testing. Returns [{ url, displayName }].
-export function parseAddressBooks(xmlText, baseUrl) {
-  const xml = parser.parse(xmlText);
+export function parseAddressBooks(xmlText: unknown, baseUrl: string): Array<{ url: string; displayName: string }> {
+  const xml = parser.parse(String(xmlText ?? ''));
   const books = [];
   for (const response of toArray(xml?.multistatus?.response)) {
     const props = propsOf(response);
@@ -202,7 +207,7 @@ export function parseAddressBooks(xmlText, baseUrl) {
 
 // Fetch every vCard in an address book via a filter-less addressbook-query REPORT.
 // Returns [{ href, etag, vcard }].
-export async function fetchAddressBookCards({ url, username, password, allowPrivate = false }) {
+export async function fetchAddressBookCards({ url, username, password, allowPrivate = false }: { url: string; username: string; password: string; allowPrivate?: boolean }): Promise<Array<{ href: string; etag: string | null; vcard: string }>> {
   await assertHostAllowed(url, allowPrivate);
   const body = `<?xml version="1.0" encoding="utf-8"?>
 <C:addressbook-query xmlns="DAV:" xmlns:C="urn:ietf:params:xml:ns:carddav"><prop>
@@ -213,13 +218,13 @@ export async function fetchAddressBookCards({ url, username, password, allowPriv
 
 // Pure: extract vCards from an addressbook-query/REPORT multistatus. Exported for
 // testing. Returns [{ href, etag, vcard }].
-export function parseCards(xmlText, baseUrl) {
-  const xml = parser.parse(xmlText);
+export function parseCards(xmlText: unknown, baseUrl: string): Array<{ href: string; etag: string | null; vcard: string }> {
+  const xml = parser.parse(String(xmlText ?? ''));
   const responses = toArray(xml?.multistatus?.response);
   if (responses.some(response => /\b507\b/.test(textOf(response.status)))) {
     throw new Error('CardDAV server returned a truncated address book response');
   }
-  requireCompleteMultistatus(xmlText, xml);
+  requireCompleteMultistatus(String(xmlText ?? ''), xml);
   const cards = [];
   for (const response of responses) {
     const props = propsOf(response);

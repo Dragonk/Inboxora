@@ -107,7 +107,7 @@ END:VCARD</card:address-data>
     const cards = parseCards(xml, BASE);
     expect(cards).toHaveLength(1); // the collection self-entry (no address-data) is skipped
     expect(cards[0].etag).toBe('abc123'); // quotes stripped
-    expect(cards[0].url ?? cards[0].href).toContain('uid1.vcf');
+    expect(cards[0].href).toContain('uid1.vcf');
     expect(cards[0].vcard.startsWith('BEGIN:VCARD')).toBe(true);
 
     // The vCard round-trips through the existing parser into a contact shape.
