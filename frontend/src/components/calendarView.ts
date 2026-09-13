@@ -220,8 +220,8 @@ export function eventGeometryForDay(event, day) {
   const starts = parseEventDate(event.starts_at ?? event.startsAt);
   const ends = parseEventDate(event.ends_at ?? event.endsAt);
   if (Number.isNaN(starts.getTime()) || Number.isNaN(ends.getTime()) || ends <= dayStart || starts >= dayEnd) return null;
-  const start = Math.max(0, Math.round((starts - dayStart) / 60000));
-  const end = Math.min(1440, Math.round((ends - dayStart) / 60000));
+  const start = Math.max(0, Math.round((starts.getTime() - dayStart.getTime()) / 60000));
+  const end = Math.min(1440, Math.round((ends.getTime() - dayStart.getTime()) / 60000));
   return { start, end: Math.max(start + 1, end) };
 }
 

@@ -23,7 +23,7 @@
 
 // Enough of the CSS named colours to cover what mail actually uses. Anything absent is
 // simply not recognised, which is the safe default (no adaptation).
-const NAMED_COLORS = {
+const NAMED_COLORS: Record<string, [number, number, number]> = {
   white: [255, 255, 255], snow: [255, 250, 250], ivory: [255, 255, 240],
   whitesmoke: [245, 245, 245], gainsboro: [220, 220, 220], silver: [192, 192, 192],
   lightgrey: [211, 211, 211], lightgray: [211, 211, 211], grey: [128, 128, 128],
@@ -46,29 +46,30 @@ function clampChannel(value) {
   return Math.max(0, Math.min(255, Math.round(value)));
 }
 
-function parseHex(value) {
+function parseHex(value: string): [number, number, number] | null {
   let hex = value.slice(1);
   if (hex.length === 3 || hex.length === 4) hex = [...hex].map(char => char + char).join('');
   if (hex.length !== 6 && hex.length !== 8) return null;
-  return [0, 2, 4].map(offset => parseInt(hex.slice(offset, offset + 2), 16));
+  const channel = (offset: number) => parseInt(hex.slice(offset, offset + 2), 16);
+  return [channel(0), channel(2), channel(4)];
 }
 
-function parseFunctional(value) {
+function parseFunctional(value: string): [number, number, number] | null {
   const match = value.match(FUNCTIONAL_RE);
   if (!match) return null;
   const parts = match[1].split(/[,\s/]+/).filter(Boolean);
   if (parts.length < 3) return null;
-  const channels = parts.slice(0, 3).map(part => {
+  const channels: number[] = [];
+  for (const part of parts.slice(0, 3)) {
     const numeric = Number.parseFloat(part);
     if (!Number.isFinite(numeric)) return null;
-    return part.endsWith('%') ? (numeric / 100) * 255 : numeric;
-  });
-  if (channels.some(channel => channel === null)) return null;
-  return channels.map(clampChannel);
+    channels.push(clampChannel(part.endsWith('%') ? (numeric / 100) * 255 : numeric));
+  }
+  return [channels[0], channels[1], channels[2]];
 }
 
 /** Parses a CSS colour to [r,g,b], or null when it is not one we recognise. */
-export function parseColor(value) {
+export function parseColor(value: unknown): [number, number, number] | null {
   const text = String(value ?? '').trim().toLowerCase();
   if (!text) return null;
   if (text in NAMED_COLORS) return NAMED_COLORS[text];
@@ -89,12 +90,12 @@ export function findColorToken(value) {
   return null;
 }
 
-export function rgbToHex([r, g, b]) {
+export function rgbToHex([r, g, b]: [number, number, number]) {
   return `#${[r, g, b].map(channel => clampChannel(channel).toString(16).padStart(2, '0')).join('')}`;
 }
 
 /** HSL with h in degrees, s and l as fractions — the space adaptation works in. */
-export function rgbToHsl([r, g, b]) {
+export function rgbToHsl([r, g, b]: [number, number, number]): [number, number, number] {
   const [red, green, blue] = [r / 255, g / 255, b / 255];
   const max = Math.max(red, green, blue);
   const min = Math.min(red, green, blue);
@@ -109,7 +110,7 @@ export function rgbToHsl([r, g, b]) {
   return [(h * 60 + 360) % 360, s, l];
 }
 
-export function hslToRgb([h, s, l]) {
+export function hslToRgb([h, s, l]: [number, number, number]): [number, number, number] {
   const chroma = (1 - Math.abs(2 * l - 1)) * s;
   const hp = (((h % 360) + 360) % 360) / 60;
   const second = chroma * (1 - Math.abs((hp % 2) - 1));
@@ -120,7 +121,8 @@ export function hslToRgb([h, s, l]) {
         : hp < 4 ? [0, second, chroma]
           : hp < 5 ? [second, 0, chroma]
             : [chroma, 0, second];
-  return [r, g, b].map(channel => clampChannel((channel + base) * 255));
+  const toChannel = (channel: number) => clampChannel((channel + base) * 255);
+  return [toChannel(r), toChannel(g), toChannel(b)];
 }
 
 /** Perceived lightness, 0 (black) to 1 (white). */

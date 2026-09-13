@@ -276,3 +276,19 @@ Backend: `tsc` 0 · testy 1785/0.
 Frontend `tsc`: **365 błędów** (z 661). Testy 2335/0 · lint czysty · build OK.
 Backend: `tsc` 0 · testy 1785/0.
 
+
+## 27. Frontend: krotki kolorów, atrapy DOM, daty
+
+- 🔴 **`parseColor`/`parseHex`/`parseFunctional`/`rgbToHsl`/`hslToRgb`/`rgbToHex`** zwracały `number[]`
+  zamiast krotki `[r,g,b]`/`[h,s,l]`, przez co `hslToRgb(rgbToHsl(rgb))` nie typowało się (6 błędów).
+  Wprowadzone krotki + `NAMED_COLORS: Record<string, [number, number, number]>`;
+  `parseFunctional` przepisany na pętlę (bez `map` + `some(null)`).
+- 🔴 **`panelLayout.test.ts`** — atrapy `document`/`getComputedStyle`/`localStorage` bez typów;
+  **usunięte obejście `(globalThis as any)`**. `const dragListeners = {}` → typowany rekord.
+- 🔴 **`calendarView`** — arytmetyka `Date` → `.getTime()` (4 błędy).
+
+## 28. Stan weryfikacji
+
+Frontend `tsc`: **340 błędów** (z 661). Testy 2335/0 · lint czysty · build OK.
+Backend: `tsc` 0 · testy 1785/0.
+

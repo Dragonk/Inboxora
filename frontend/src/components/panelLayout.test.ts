@@ -31,7 +31,8 @@ const readUtil = name => readFileSync(new URL(`../utils/${name}`, import.meta.ur
 const originalDocument = globalThis.document;
 const originalLocalStorage = globalThis.localStorage;
 
-let dragListeners = {};
+type DragListener = (event: { clientX?: number }) => void;
+let dragListeners: Record<string, DragListener[]> = {};
 
 function stubDom({ variable = '', stored = null } = {}) {
   const properties = new Map();
@@ -39,7 +40,7 @@ function stubDom({ variable = '', stored = null } = {}) {
   const storage = new Map();
   if (stored != null) storage.set(PANEL_WIDTH_STORAGE_KEY, String(stored));
   dragListeners = {};
-  globalThis.document = {
+  globalThis.document = ({
     documentElement: {
       style: {
         setProperty: (key, value) => properties.set(key, value),
@@ -51,13 +52,13 @@ function stubDom({ variable = '', stored = null } = {}) {
     removeEventListener: (type, handler) => {
       dragListeners[type] = (dragListeners[type] || []).filter(item => item !== handler);
     },
-  };
-  globalThis.getComputedStyle = element => element.style;
-  (globalThis as any).localStorage = {
+  }) as unknown as Document;
+  globalThis.getComputedStyle = ((element: { style: CSSStyleDeclaration }) => element.style) as unknown as typeof globalThis.getComputedStyle;
+  globalThis.localStorage = ({
     getItem: key => (storage.has(key) ? storage.get(key) : null),
     setItem: (key, value) => storage.set(key, String(value)),
     removeItem: key => storage.delete(key),
-  };
+  }) as unknown as Storage;
   return { properties, storage };
 }
 
