@@ -7,7 +7,7 @@ export const MobileHeaderHost = createContext(null);
 // them in the shell avoids duplicate headers and imperative cross-module events.
 // `leading` lets a drill-down view (reader / contact detail) place its back
 // affordance before the title inside the same single top-bar row.
-export function MobileModuleHeader({ leading, title, subtitle, children }) {
+export function MobileModuleHeader({ leading, title = '', subtitle = undefined, children }) {
   const host = useContext(MobileHeaderHost);
   if (!host) return null;
   return createPortal(<>

@@ -403,3 +403,23 @@ Backend: tsc 0 · testy 1785/0.
 Frontend tsc: 153 bledy (z 661). Testy 2335/0 · lint czysty · build OK.
 Backend: tsc 0 · testy 1785/0.
 
+
+## 41. Frontend: MessagePane — realny blad renderMarkdown
+
+- 🔴 REALNY BLAD RUNTIME: renderMarkdown bylo wywolywane w komponencie wyniku AI, ale
+  NIE bylo zaimportowane z utils/renderMarkdown.ts. Przy kazdym wyniku AI (streszczenie itp.)
+  grozil ReferenceError: renderMarkdown is not defined. Dodany brakujacy import.
+- 🔴 MessagePane: aiAbortRefs = useRef({}) -> Record<string, AbortController|undefined>;
+  paneActionsRef otypowany (reply/replyAll/forward/toggleStar/print); contextMenu otypowany;
+  document z iframe otypowany jako Document|null (wczesniej any blokowalo generyczne querySelectorAll).
+- 🔴 aiResults: getResults/saveResult/read/write otypowane (AiActionResult, AiResultsStore).
+- 🟠 expandScrollContainers(root: ParentNode|null) + querySelectorAll<HTMLElement>.
+- 🟠 MobileModuleHeader.title/subtitle, ConversationMessage.onInitialBodyLayout,
+  MessageDetailContent.onInitialBodyLayout, MessageToolbar.targetId/scrollAnchorId — opcjonalne.
+- 🟠 MessageToolbar.shortcutLabel domyslnie przyjmuje argument (bylo () => null przy wywolaniu z argumentem).
+
+## 42. Stan weryfikacji
+
+Frontend tsc: 112 bledow (z 661). Testy 2335/0 · lint czysty · build OK.
+Backend: tsc 0 · testy 1785/0.
+

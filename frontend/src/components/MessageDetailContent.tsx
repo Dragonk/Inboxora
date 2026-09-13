@@ -37,7 +37,7 @@ export default function MessageDetailContent({
   onUnsubscribe,
   onDownload,
   onContextAction,
-  onInitialBodyLayout,
+  onInitialBodyLayout = undefined,
   canAccessCopy = true,
   mobile = false,
   className = '',

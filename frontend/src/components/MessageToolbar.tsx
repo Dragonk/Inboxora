@@ -50,12 +50,12 @@ function MenuItem({ icon, label, onClick, danger = false }) {
 }
 
 export default function MessageToolbar({
-  isMobile = false, defaultReplyAll = false, targetId, scrollAnchorId, className = '', style = undefined,
+  isMobile = false, defaultReplyAll = false, targetId = undefined, scrollAnchorId = undefined, className = '', style = undefined,
   isRead = true, isStarred = false, currentFolder = null,
   folders = [], folderMappings, foldersLoading = false, onLoadFolders,
   onReply, onReplyAll, onForward, onArchive, onMove, onSpam, onHam,
   onSetRead, onViewHeaders, onPrint, aiActions = [], onAiAction, onManageAiActions, onStar, onDelete,
-  shortcutLabel = () => null,
+  shortcutLabel = (_shortcut?: string) => null,
 }) {
   const { t } = useTranslation();
   const [replyMenu, setReplyMenu] = useState(false);

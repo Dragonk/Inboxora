@@ -8,9 +8,20 @@
 const KEY = 'mailflow_ai_results';
 const MSG_CAP = 200;
 
-function read() {
+export interface AiActionResult {
+  text: string;
+  at: number;
+  label?: string;
+}
+
+export interface AiResultsStore {
+  order: string[];
+  data: Record<string, Record<string, AiActionResult>>;
+}
+
+function read(): AiResultsStore {
   try {
-    const parsed = JSON.parse(localStorage.getItem(KEY));
+    const parsed = JSON.parse(localStorage.getItem(KEY) ?? 'null');
     if (parsed && typeof parsed === 'object' && parsed.data) {
       return { order: Array.isArray(parsed.order) ? parsed.order : [], data: parsed.data };
     }
@@ -18,19 +29,19 @@ function read() {
   return { order: [], data: {} };
 }
 
-function write(store) {
+function write(store: AiResultsStore) {
   try { localStorage.setItem(KEY, JSON.stringify(store)); }
   catch { /* quota exceeded or storage disabled — cache is best-effort */ }
 }
 
 // Returns { [actionKey]: { text, at, label } } for a message (empty if none).
-export function getResults(messageId) {
+export function getResults(messageId?: string | null): Record<string, AiActionResult> {
   if (!messageId) return {};
   return read().data[messageId] || {};
 }
 
 // Persist a completed action result, marking the message as most-recently-used.
-export function saveResult(messageId, actionKey, text, label = undefined) {
+export function saveResult(messageId: string | null | undefined, actionKey: string | null | undefined, text: string, label = undefined) {
   if (!messageId || !actionKey) return;
   const store = read();
   if (!store.data[messageId]) store.data[messageId] = {};

@@ -44,6 +44,7 @@ import MessageHeaderModal from './MessageHeaderModal.tsx';
 import { MessageAvatar } from './MessagePresentation.tsx';
 import MessageToolbar from './MessageToolbar.tsx';
 import { MobileModuleHeader, HeaderAction } from './MobileModuleHeader.tsx';
+import { renderMarkdown } from '../utils/renderMarkdown.ts';
 
 function parseAddressField(raw) {
   try {
@@ -228,7 +229,7 @@ export default function MessagePane({ windowMessageId = null, onWindowClose = nu
 
   const allMessages = searchQuery.trim() ? searchResults : messages;
   const message = allMessages.find(m => m.id === selectedMessageId)
-    ?? Object.values(threadMessages).flat().find(m => m.id === selectedMessageId);
+    ?? Object.values(threadMessages as Record<string, Array<{ id: string }>>).flat().find(m => m.id === selectedMessageId);
 
   // Compose lives in the mobile top bar now that the reader owns it (the shell's
   // fallback compose row is hidden while the reader is open). Target the account of
@@ -318,7 +319,13 @@ export default function MessagePane({ windowMessageId = null, onWindowClose = nu
   const [resolvedSubject, setResolvedSubject] = useState(null);
   const [movePickerFolders, setMovePickerFolders] = useState([]);
   const [movePickerLoading, setMovePickerLoading] = useState(false);
-  const [contextMenu, setContextMenu] = useState(null);
+  const [contextMenu, setContextMenu] = useState<{
+    x: number;
+    y: number;
+    message: Record<string, unknown>;
+    source: string;
+    selectedText?: string | null;
+  } | null>(null);
   const [findDialogOpen, setFindDialogOpen] = useState(false);
   useBackLayer(findDialogOpen, () => setFindDialogOpen(false), 3000);
   const [findQuery, setFindQuery] = useState('');
@@ -332,7 +339,7 @@ export default function MessagePane({ windowMessageId = null, onWindowClose = nu
   const [aiClassifying, setAiClassifying] = useState(false);
   const [_unsubscribeStatus, setUnsubscribeStatus] = useState(null); // null | 'loading' | 'done' | 'error'
   // One AbortController per in-flight action, keyed by action key.
-  const aiAbortRefs = useRef({});
+  const aiAbortRefs = useRef<Record<string, AbortController | undefined>>({});
   const scrollContainerRef = useRef(null);
   const iframeRef = useRef(null);
   const roRef = useRef(null);
@@ -361,7 +368,13 @@ export default function MessagePane({ windowMessageId = null, onWindowClose = nu
   const bodyCache = useRef({}); // messageId -> body, so revisiting is instant (capped at 50)
   const bodyCacheOrder = useRef([]); // insertion-order keys for LRU eviction
   // Ref holding the latest pane action handlers so shortcut subscriptions ([] deps) never go stale
-  const paneActionsRef = useRef({});
+  const paneActionsRef = useRef<{
+    reply?: () => void;
+    replyAll?: () => void;
+    forward?: () => void;
+    toggleStar?: () => void;
+    print?: () => void;
+  }>({});
   const emailScaleRef = useRef(1); // scale applied to wide emails that resist CSS reflow
 
   const getPaneSelectionText = useCallback(() => {
@@ -390,7 +403,7 @@ export default function MessagePane({ windowMessageId = null, onWindowClose = nu
     ));
   }, [isSelectionContextTarget]);
 
-  const openPaneContextMenu = useCallback((x, y, options = {}) => {
+  const openPaneContextMenu = useCallback((x: number, y: number, options: { source?: string; selectedText?: string | null } = {}) => {
     if (!message) return;
     setContextMenu({
       x,
@@ -562,7 +575,7 @@ export default function MessagePane({ windowMessageId = null, onWindowClose = nu
     let iframeClickHandler = null;
 
     const setHeight = () => {
-      const doc = iframe.contentDocument;
+      const doc: Document | null = iframe.contentDocument;
       if (!doc) return;
       const el = doc.documentElement;
       const b  = doc.body;
@@ -584,7 +597,7 @@ export default function MessagePane({ windowMessageId = null, onWindowClose = nu
     const onLoaded = () => {
       emailScaleRef.current = 1; // reset for each new email
 
-      const doc = iframe.contentDocument;
+      const doc: Document | null = iframe.contentDocument;
       if (!doc) return;
 
       // Some marketing emails have inline styles on their <body> tag (e.g. overflow:auto,
@@ -779,9 +792,9 @@ export default function MessagePane({ windowMessageId = null, onWindowClose = nu
     // fixed height) so iOS scrolls the message pane instead of an inner block —
     // the same fix the iframe renderer applies. Runs on the unscaled content and
     // re-grows previously-expanded elements as lazy images add height.
-    const expandScrollContainers = (root) => {
+    const expandScrollContainers = (root: ParentNode | null) => {
       if (!root) return;
-      Array.from(root.querySelectorAll('*')).reverse().forEach(el => {
+      Array.from(root.querySelectorAll<HTMLElement>('*')).reverse().forEach(el => {
         const oy = window.getComputedStyle(el).overflowY;
         const isScroll = (oy === 'auto' || oy === 'scroll') && el.scrollHeight > el.clientHeight + 2;
         const grew = expandedEls.has(el) && el.scrollHeight > el.clientHeight + 2;

@@ -28,7 +28,7 @@ function date(value) {
   }) : '';
 }
 
-export default function ConversationMessage({ conversationId, message, selectedCopyId, selectedAccountId, accounts, expanded, onToggle, body, status, onLoadBody, onRemoteImages, onReply, onActionComplete, onSetRead, onInitialBodyLayout }) {
+export default function ConversationMessage({ conversationId, message, selectedCopyId, selectedAccountId, accounts, expanded, onToggle, body, status, onLoadBody, onRemoteImages, onReply, onActionComplete, onSetRead, onInitialBodyLayout = undefined }) {
   const { t } = useTranslation();
   const isMobile = useMobile();
   const { replyDefault, aiActions, setShowAdmin, setAdminTab, blockRemoteImages, imageWhitelist } = useStore();
