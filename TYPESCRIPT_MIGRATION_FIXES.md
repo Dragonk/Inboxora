@@ -346,3 +346,22 @@ Backend: `tsc` 0 · testy 1785/0.
 Frontend `tsc`: **237 błędów** (z 661). Testy 2335/0 · lint czysty · build OK.
 Backend: `tsc` 0 · testy 1785/0.
 
+
+## 35. Frontend: ComposeModal (pliki, meta viewport, TipTap)
+
+- 🔴 handleFileSelect(e) bez typu → files było unknown[], więc file.name/size/type były niekontrolowane.
+  Dodany ChangeEvent<HTMLInputElement>.
+- 🔴 document.querySelector(meta[name=viewport]) zwracał Element, a kod zapisywał .content
+  — realny błąd typów DOM. Użyty querySelector<HTMLMetaElement>.
+- 🔴 FileReader.result (string | ArrayBuffer | null) był dzielony bez zawężenia → możliwy wyjątek.
+  Dodane sprawdzenie typeof result === string.
+- 🟠 resizeImageToDataUrl(file) → Promise<string>; RichToolbar (onInsertImage?, isMobile?),
+  TitleBtn.danger, AttachmentChips.mobile, TBtn (props + forwardRef<HTMLButtonElement, TBtnProps>).
+- 🟠 onClick={handleSend} (async z opcjami) nie pasował do MouseEventHandler → jawna lambda z void.
+- 🟠 editor.commands.setContent(htmlSource, false) — TipTap oczekuje SetContentOptions → { emitUpdate: false }.
+
+## 36. Stan weryfikacji
+
+Frontend tsc: 210 błędów (z 661). Testy 2335/0 · lint czysty · build OK.
+Backend: tsc 0 · testy 1785/0.
+

@@ -1,5 +1,7 @@
 import { useBackLayer } from '../hooks/useBackNavigation.ts';
 import { useState, useRef, useEffect, useCallback, forwardRef } from 'react';
+import type { MouseEventHandler, ReactNode } from 'react';
+import type { ChangeEvent } from 'react';
 import { shouldAutosave, isAutosaveDue } from '../utils/draftAutosave.ts';
 import { useTranslation } from 'react-i18next';
 import DOMPurify from 'dompurify';
@@ -21,7 +23,7 @@ import { TableCell } from '@tiptap/extension-table-cell';
 
 // Resize an image blob/file to max maxW pixels wide, preserving aspect ratio.
 // Returns a Promise<string> of a base64 data URL.
-function resizeImageToDataUrl(file, maxW = 800) {
+function resizeImageToDataUrl(file: File, maxW = 800): Promise<string> {
   return new Promise((resolve, reject) => {
     const url = URL.createObjectURL(file);
     const img = new window.Image();
@@ -438,7 +440,7 @@ export default function ComposeModal() {
   // inside position:fixed overlays. Restore the original content on unmount.
   useEffect(() => {
     if (!isMobile) return;
-    const meta = document.querySelector('meta[name="viewport"]');
+    const meta = document.querySelector<HTMLMetaElement>('meta[name="viewport"]');
     if (!meta) return;
     const original = meta.content;
     if (!original.includes('maximum-scale')) {
@@ -632,13 +634,14 @@ export default function ComposeModal() {
     }
   }, [editor]);
 
-  const handleFileSelect = (e) => {
+  const handleFileSelect = (e: ChangeEvent<HTMLInputElement>) => {
     const files = Array.from(e.target.files || []);
     if (!files.length) return;
     files.forEach(file => {
       const reader = new FileReader();
       reader.onload = (ev) => {
-        const base64 = ev.target.result.split(',')[1];
+        const result = ev.target?.result;
+        const base64 = typeof result === 'string' ? result.split(',')[1] : '';
         setAttachments(prev => {
           if (prev.some(a => a.name === file.name)) return prev;
           return [...prev, { name: file.name, size: file.size, type: file.type, data: base64 }];
@@ -1133,7 +1136,7 @@ export default function ComposeModal() {
               </svg>
             </button>
             <button
-              onClick={handleSend}
+              onClick={() => { void handleSend(); }}
               disabled={sending || (toChips.length === 0 && !toInput.trim())}
               style={{
                 background: 'none', border: 'none',
@@ -1315,7 +1318,7 @@ export default function ComposeModal() {
                 htmlMode={htmlMode}
                 onToggleHtml={() => {
                   if (!htmlMode) { setHtmlSource(editor?.getHTML() ?? ''); setHtmlMode(true); }
-                  else { editor?.commands.setContent(htmlSource, false); setHtmlMode(false); }
+                  else { editor?.commands.setContent(htmlSource, { emitUpdate: false }); setHtmlMode(false); }
                 }}
                 isMobile
                 aiEnabled={!htmlMode && aiStatus?.enabled && aiStatus?.features?.compose}
@@ -1939,7 +1942,7 @@ export default function ComposeModal() {
         htmlMode={htmlMode}
         onToggleHtml={() => {
           if (!htmlMode) { setHtmlSource(editor?.getHTML() ?? ''); setHtmlMode(true); }
-          else { editor?.commands.setContent(htmlSource, false); setHtmlMode(false); }
+          else { editor?.commands.setContent(htmlSource, { emitUpdate: false }); setHtmlMode(false); }
         }}
         aiEnabled={!htmlMode && aiStatus?.enabled && aiStatus?.features?.compose}
         onAiAction={handleAiAction}
@@ -2076,7 +2079,7 @@ export default function ComposeModal() {
         display: 'flex', alignItems: 'center', gap: 10, flexShrink: 0,
       }}>
         <button
-          onClick={handleSend}
+          onClick={() => { void handleSend(); }}
           disabled={sending || (toChips.length === 0 && !toInput.trim())}
           title={sending ? undefined : t('compose.sendTooltip')}
           style={{
@@ -2376,7 +2379,14 @@ const FONT_GROUPS = [
 ];
 
 // Defined at module level so React never remounts it due to reference change
-const TBtn = forwardRef(function TBtn({ active, title, onMouseDown, children }, ref) {
+interface TBtnProps {
+  active?: boolean;
+  title?: string;
+  onMouseDown?: MouseEventHandler<HTMLButtonElement>;
+  children?: ReactNode;
+}
+
+const TBtn = forwardRef<HTMLButtonElement, TBtnProps>(function TBtn({ active = false, title, onMouseDown, children }, ref) {
   return (
     <button
       ref={ref}
@@ -2399,7 +2409,7 @@ function Sep() {
   return <span style={{ width: 1, background: 'var(--border-subtle)', margin: '2px 4px', alignSelf: 'stretch' }} />;
 }
 
-function RichToolbar({ editor, onAttach, onInsertImage, htmlMode, onToggleHtml, isMobile, aiEnabled, onAiAction, aiPanelOpen }) {
+function RichToolbar({ editor, onAttach, onInsertImage = undefined, htmlMode, onToggleHtml, isMobile = false, aiEnabled, onAiAction, aiPanelOpen }) {
   const { t } = useTranslation();
   const uiScale = useUiScale();
   const savedSelectionRef = useRef(null);
@@ -2950,7 +2960,7 @@ function RichToolbar({ editor, onAttach, onInsertImage, htmlMode, onToggleHtml, 
   );
 }
 
-function TitleBtn({ children, onClick, danger, title }) {
+function TitleBtn({ children, onClick, danger = false, title }) {
   const [hov, setHov] = useState(false);
   return (
     <button onClick={onClick} title={title}
@@ -2998,7 +3008,7 @@ function formatBytes(bytes) {
   return `${(bytes / 1048576).toFixed(1)}MB`;
 }
 
-function AttachmentChips({ attachments, onRemove, mobile }) {
+function AttachmentChips({ attachments, onRemove, mobile = false }) {
   return (
     <div style={{
       display: 'flex', flexWrap: 'wrap', gap: 6,
