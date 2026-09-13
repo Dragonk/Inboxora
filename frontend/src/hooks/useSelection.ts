@@ -7,7 +7,7 @@ import { useState, useCallback, useRef } from 'react';
  * grouped conversation rows so that selection state management (toggle, range select,
  * select-all, clear, Ctrl/Cmd+click, Shift+range) is defined once.
  *
- * @param {Function} getItemId  (item) => id  — defaults to item => item.id
+ * @param {Function} getItemId  (item: unknown) => id  — defaults to item => item.id
  * @returns {{ selectedIds, setSelectedIds, toggleSelect, selectAll, clearSelection,
  *            handleRowToggleSelect, handleRangeSelect, lastSelectIdxRef }}
  */
@@ -16,7 +16,7 @@ export function useSelection(getItemId = item => item.id) {
   const [selectionModeActive, setSelectionModeActive] = useState(false);
   const lastSelectIdxRef = useRef(-1);
 
-  const toggleSelect = useCallback((id) => {
+  const toggleSelect = useCallback((id: string) => {
     setSelectedIds(prev => {
       const next = new Set(prev);
       next.has(id) ? next.delete(id) : next.add(id);

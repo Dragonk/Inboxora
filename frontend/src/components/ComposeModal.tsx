@@ -3131,7 +3131,7 @@ function ChipInput({ chips, onChipsChange, value, onChange, placeholder, autoFoc
   const copyText = (text) => { navigator.clipboard?.writeText(text).catch(() => {}); };
 
   // Load a chip back into the input for editing, preserving any half-typed text.
-  const startEdit = (i) => {
+  const startEdit = (i: number) => {
     const chipText = chips[i];
     const rest = chips.filter((_, j) => j !== i);
     const pending = value.trim();

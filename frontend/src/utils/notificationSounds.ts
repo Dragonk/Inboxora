@@ -198,7 +198,7 @@ export function playCustomSound(dataUrl) {
   } catch { /* intentional */ }
 }
 
-export function playNotificationSound(id, customDataUrl = undefined) {
+export function playNotificationSound(id: string, customDataUrl = undefined) {
   if (!id || id === 'none') return;
   if (id === 'custom') {
     playCustomSound(customDataUrl);

@@ -77,7 +77,7 @@ export function modCompactLabel(mod) {
 
 // Parses a modifier+key string. Returns { mod, bare } or null for plain keys.
 // e.g. parseModKey('ctrl+p') → { mod: 'ctrl', bare: 'p' }
-export function parseModKey(key) {
+export function parseModKey(key: string) {
   if (!key) return null;
   const plus = key.indexOf('+');
   if (plus < 0) return null;

@@ -452,7 +452,7 @@ export const THEME_FONT = { winxp: 'winxp', win9x: 'win9x' };
 // be selectable as standalone choices in the font picker, or they'd become the user's saved
 // font and "stick" after switching back to a normal theme.
 const RETRO_FONTS = new Set(Object.values(THEME_FONT));
-export function isRetroFont(key) { return RETRO_FONTS.has(key); }
+export function isRetroFont(key: string) { return RETRO_FONTS.has(key); }
 
 // The font that should actually render for a given theme: the paired retro font when the
 // theme has one, otherwise the user's saved choice — but never a retro font under a normal

@@ -1,6 +1,6 @@
 const versions = new Map();
 
-export function beginMutation(key) {
+export function beginMutation(key: string) {
   const version = (versions.get(key) || 0) + 1;
   versions.set(key, version);
   return version;
@@ -10,7 +10,7 @@ export function isLatestMutation(key, version) {
   return versions.get(key) === version;
 }
 
-export function invalidateMutation(key) {
+export function invalidateMutation(key: string) {
   versions.set(key, (versions.get(key) || 0) + 1);
 }
 

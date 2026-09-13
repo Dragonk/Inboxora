@@ -23,7 +23,7 @@ export function isLatestReadStateMutation(id, version) {
   return versions.get(String(id)) === version;
 }
 
-export function pendingReadState(id) {
+export function pendingReadState(id: string) {
   return pendingIntents.get(String(id))?.read;
 }
 

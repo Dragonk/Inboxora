@@ -141,7 +141,7 @@ export async function streamAiChat(messages: unknown[], { signal, onDelta }: { s
   }
 }
 
-function getMessageBody(id, remoteImages = false, copyId = null) {
+function getMessageBody(id: string, remoteImages = false, copyId = null) {
   const key = `${id}:${copyId || 'default'}:${remoteImages ? 'remote' : 'blocked'}`;
   const existing = messageBodyRequests.get(key);
   if (existing) return existing;
@@ -299,7 +299,7 @@ export const api = {
   // records the decision in spam_training_log. markHam moves it back to
   // INBOX. No automatic classification runs here yet.
   markSpam: (id: string) => request('POST', `/mail/messages/${id}/spam`),
-  markHam:  (id) => request('POST', `/mail/messages/${id}/ham`),
+  markHam:  (id: string) => request('POST', `/mail/messages/${id}/ham`),
 
   getMessageHeaders: (id: string) => request('GET', `/mail/messages/${id}/headers`),
   snoozeMessage: (id: string, until) => request('POST', `/mail/messages/${id}/snooze`, { until }),
@@ -356,10 +356,10 @@ export const api = {
     const qs = p.toString();
     return request('GET', `/contacts${qs ? '?' + qs : ''}`);
   },
-  getContact:    (id)       => request('GET',    `/contacts/${id}`),
+  getContact:    (id: string)       => request('GET',    `/contacts/${id}`),
   createContact: (data)     => request('POST',   '/contacts', data),
   updateContact: (id: string, data: unknown) => request('PATCH',  `/contacts/${id}`, data),
-  deleteContact: (id)       => request('DELETE', `/contacts/${id}`),
+  deleteContact: (id: string)       => request('DELETE', `/contacts/${id}`),
   addressBooks: {
     list: () => request('GET', '/contacts/address-books'),
     create: (name: string) => request('POST', '/contacts/address-books', { name }),
@@ -434,7 +434,7 @@ export const api = {
   getRules:    ()         => request('GET',    '/rules'),
   createRule:  (data)     => request('POST',   '/rules', data),
   updateRule:  (id, data) => request('PUT',    `/rules/${id}`, data),
-  deleteRule:  (id)       => request('DELETE', `/rules/${id}`),
+  deleteRule:  (id: string)       => request('DELETE', `/rules/${id}`),
   reorderRules:(ids)      => request('PATCH',  '/rules/reorder', { ids }),
   runRules:    (accountId = undefined) => request('POST',  '/rules/run', accountId ? { accountId } : {}),
 
@@ -446,7 +446,7 @@ export const api = {
   // Block List
   getBlockList:          ()      => request('GET',    '/block-list'),
   addToBlockList:        (email) => request('POST',   '/block-list', { emailAddress: email }),
-  removeFromBlockList:   (id)    => request('DELETE', `/block-list/${id}`),
+  removeFromBlockList:   (id: string)    => request('DELETE', `/block-list/${id}`),
 
   // AI assistant
   ai: {

@@ -65,6 +65,6 @@ export function registerCollector(name, contribution) {
   collectors.set(name, list);
 }
 
-export function getCollectors(name) {
+export function getCollectors(name: string) {
   return collectors.get(name) || [];
 }

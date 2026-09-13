@@ -106,7 +106,7 @@ export async function installCapacitorNativeBridge(): Promise<boolean> {
           const result = await callNative<{ actions?: Array<{ id?: string; type?: string; [key: string]: unknown }> }>('getPendingActions', undefined, {});
           return result?.actions || [];
         },
-        ack: async (id) => callNative('ackAction', { id }),
+        ack: async (id: string) => callNative('ackAction', { id }),
         onAction: (callback) => {
           if (pluginUnavailable) return () => {};
           const InboxoraNative = getPlugin();

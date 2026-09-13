@@ -42,7 +42,7 @@ export default function TodoistTaskModal({ message, onClose }) {
     load();
   }, []);
 
-  function toggleLabel(name) {
+  function toggleLabel(name: string) {
     setSelectedLabels(prev =>
       prev.includes(name) ? prev.filter(l => l !== name) : [...prev, name]
     );

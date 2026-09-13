@@ -423,7 +423,7 @@ export default function MailApp() {
   // Open a specific message by id (fetch → cache → select). Shared by the on-load
   // deep-link path and the service-worker notification-tap path so both behave
   // identically.
-  const openDeepLinkMessage = useCallback((id) => {
+  const openDeepLinkMessage = useCallback((id: string) => {
     // resolveMessage matches the stable Message-ID header first, then the UUID — so a link
     // still opens after the email was moved to another folder (#270). Legacy/notification
     // links carry the UUID and resolve via the fallback.
@@ -1010,7 +1010,7 @@ function ShortcutHelpOverlay({ shortcuts, onClose }) {
   const effective = getEffectiveShortcuts(shortcuts);
   const groups    = getGroupedActions();
 
-  const keyBadge = (key) => {
+  const keyBadge = (key: string) => {
     if (!key) return <span style={{ color: 'var(--text-tertiary)', fontSize: 11 }}>—</span>;
     // Modifier combos like 'ctrl+p'
     const mod = parseModKey(key);

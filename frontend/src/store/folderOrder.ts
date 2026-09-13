@@ -2,7 +2,7 @@ import { sanitizeFolderOrder } from '../utils/sidebar.ts';
 
 const STORAGE_KEY = 'mailflow_folder_order';
 
-export function cacheFolderOrder(value, storage = localStorage) {
+export function cacheFolderOrder(value: unknown, storage = localStorage) {
   const clean = sanitizeFolderOrder(value);
   storage.setItem(STORAGE_KEY, JSON.stringify(clean));
   return clean;

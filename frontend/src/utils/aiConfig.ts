@@ -129,7 +129,7 @@ export function buildAiSavePayload(form: AiConfigFormInput = {}) {
   };
 }
 
-function finiteNumber(value) {
+function finiteNumber(value: unknown) {
   return typeof value === 'number' && Number.isFinite(value) ? value : null;
 }
 

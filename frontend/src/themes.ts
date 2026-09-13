@@ -724,7 +724,7 @@ export const THEME_MODE_STORAGE_KEYS = {
 
 // A theme is either a light or a dark appearance. The metadata lives on the theme
 // itself so the two pickers can group themes without a second list to maintain.
-export function themeTone(name) {
+export function themeTone(name: string) {
   return THEMES[name]?.tone === 'light' ? 'light' : 'dark';
 }
 
@@ -744,7 +744,7 @@ export function systemPrefersDark() {
   } catch { return false; }
 }
 
-function readStored(key) {
+function readStored(key: string) {
   try { return localStorage.getItem(key); } catch { return null; }
 }
 

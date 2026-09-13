@@ -122,7 +122,7 @@ export default function MessageToolbar({
   const title = (key: string, shortcut?: string): string => isMobile ? t(key) : `${t(key)}${shortcutLabel(shortcut) ? ` (${shortcutLabel(shortcut)})` : ''}`;
   const stop = (handler?: () => void) => (event: React.MouseEvent) => { event.stopPropagation(); handler?.(); };
   const closeMore = (handler?: () => void) => () => { setMoreMenu(false); handler?.(); };
-  const openMove = (event: React.MouseEvent) => { event.stopPropagation(); setMoveMenu((value) => !value); if (!moveMenu) onLoadFolders?.(); };
+  const openMove = (event: React.MouseEvent) => { event.stopPropagation(); setMoveMenu((value: unknown) => !value); if (!moveMenu) onLoadFolders?.(); };
   const menuStyle: CSSProperties = { position: 'absolute', top: 'calc(100% + 4px)', background: 'var(--bg-elevated)', border: '1px solid var(--border)', borderRadius: 8, overflow: 'hidden', zIndex: 200, boxShadow: 'var(--shadow-popover, 0 4px 20px rgba(0,0,0,.4))' };
   const primaryReply = defaultReplyAll ? onReplyAll : onReply;
 

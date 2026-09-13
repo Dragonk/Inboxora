@@ -149,9 +149,9 @@ function AccountForm({ initial = undefined, onSave, onCancel }: AccountFormProps
       .catch(() => {});
   }, []);
 
-  const set = (key, val) => setForm(f => ({ ...f, [key]: val }));
+  const set = (key: string, val: unknown) => setForm(f => ({ ...f, [key]: val }));
 
-  const handlePreset = (key) => {
+  const handlePreset = (key: string) => {
     const p = PRESETS[key];
     if (p.imap_host) setForm(f => ({ ...f, ...p, label: undefined }));
     setSelectedPreset(key);
@@ -547,7 +547,7 @@ function AccountsTab() {
     setEditTarget(null);
   };
 
-  const handleDelete = (id) => {
+  const handleDelete = (id: string) => {
     setConfirmDialog({
       title: 'Remove account?',
       message: 'All synced messages for this account will be deleted. This cannot be undone.',
@@ -559,12 +559,12 @@ function AccountsTab() {
     });
   };
 
-  const handleReconnect = async (id) => {
+  const handleReconnect = async (id: string) => {
     await api.reconnectAccount(id);
     updateAccount(id, { sync_error: null });
   };
 
-  const handleReindex = async (id) => {
+  const handleReindex = async (id: string) => {
     try {
       await api.reindexAccount(id);
     } catch (err) {
@@ -572,7 +572,7 @@ function AccountsTab() {
     }
   };
 
-  const handleSyncFolders = async (id) => {
+  const handleSyncFolders = async (id: string) => {
     try {
       await api.syncFoldersNow(id);
     } catch (err) {
@@ -1376,7 +1376,7 @@ function FontsTab() {
   const { fontSet, setFontSet, fontSize, setFontSize } = useStore();
   const [fontsReady, setFontsReady] = useState(false);
 
-  const handleSelect = (key) => {
+  const handleSelect = (key: string) => {
     setFontSet(key);
   };
 
@@ -1773,7 +1773,7 @@ function LayoutsTab() {
     }
   };
 
-  const handleSelect = (key) => {
+  const handleSelect = (key: string) => {
     setLayout(key);
     applyLayout(key);
   };
@@ -2749,7 +2749,7 @@ function IntegrationsTab() {
   // non-admins only ever have the env-aware capability status.
   const msConfigured = (isAdmin ? configs.microsoft?.clientId : null) || msStatus?.configured;
 
-  const subTabStyle = (key) => ({
+  const subTabStyle = (key: string) => ({
     padding: '7px 14px',
     background: 'none',
     border: 'none',
@@ -4308,7 +4308,7 @@ function AiActionsTab() {
 
   const addAction = () => { if (items.length < AI_ACTION_LIMITS.max) setItems([...items, newAiAction('', '')]); };
   const updateField = (id, field, value) => setItems(items.map(a => a.id === id ? { ...a, [field]: value } : a));
-  const removeAction = (id) => { const next = items.filter(a => a.id !== id); setItems(next); save(next); };
+  const removeAction = (id: string) => { const next = items.filter(a => a.id !== id); setItems(next); save(next); };
 
   const inputStyle: CSSProperties = {
     width: '100%', padding: '8px 10px', background: 'var(--bg-tertiary)', border: '1px solid var(--border)',
@@ -4443,7 +4443,7 @@ function CategoriesSection({ initialSubTab }: SubTabSectionProps) {
     } catch (err) { setMsg({ type: 'error', text: toAppError(err).message }); }
   };
 
-  const handleDelete = async (id) => {
+  const handleDelete = async (id: string) => {
     if (!window.confirm(t('admin.categories.deleteConfirm'))) return;
     try {
       await api.categories.deleteSource(id);
@@ -4451,7 +4451,7 @@ function CategoriesSection({ initialSubTab }: SubTabSectionProps) {
     } catch (err) { setMsg({ type: 'error', text: toAppError(err).message }); }
   };
 
-  const handleRefresh = async (id) => {
+  const handleRefresh = async (id: string) => {
     try {
       const { domainCount, error } = await api.categories.refreshSource(id);
       setSources(prev => prev.map(s => s.id === id ? { ...s, domain_count: domainCount, last_fetched_at: new Date().toISOString() } : s));
@@ -4995,7 +4995,7 @@ function UsersAndInvitesPanel() {
     }
   };
 
-  const handleRevokeInvite = async (id) => {
+  const handleRevokeInvite = async (id: string) => {
     await api.admin.deleteInvite(id);
     setInvites(inv => inv.filter(i => i.id !== id));
   };
@@ -6233,7 +6233,7 @@ function RulesTab() {
     } catch { /* intentional */ }
   }
 
-  async function handleDelete(id) {
+  async function handleDelete(id: string) {
     try {
       await api.deleteRule(id);
       setRules(prev => prev.filter(r => r.id !== id));
@@ -6793,7 +6793,7 @@ function BlockListTab() {
     }
   }
 
-  async function handleRemove(id) {
+  async function handleRemove(id: string) {
     try {
       await api.removeFromBlockList(id);
       setEntries(prev => prev.filter(e => e.id !== id));
@@ -6876,11 +6876,11 @@ function MailboxCleanupTab() {
   // Re-fetch the summary/sender data without touching the error banner or the loading
   // spinner, so a caller that just wants fresh counts (after a cleanup, including a partial
   // failure) can refresh without clobbering an error it already set.
-  const fetchUsage = useCallback(async (id) => {
+  const fetchUsage = useCallback(async (id: string) => {
     setData(await api.mailboxUsage(id));
   }, []);
 
-  const load = useCallback(async (id) => {
+  const load = useCallback(async (id: string) => {
     if (!id) return;
     setLoading(true); setError('');
     try { await fetchUsage(id); }
@@ -8541,7 +8541,7 @@ function LinkedIdentitiesSection() {
 }
 
 function makeSearchIndex(t) {
-  const tabLabel = (id) => t(`admin.tabs.${id}`);
+  const tabLabel = (id: string) => t(`admin.tabs.${id}`);
   const layoutCrumb = `${tabLabel('appearance')} › ${t('admin.appearance.layout')}`;
   const fontsCrumb = `${tabLabel('appearance')} › ${tabLabel('fontsAndLanguage')}`;
   const secCrumb = `${tabLabel('security')} › ${tabLabel('security')}`;
