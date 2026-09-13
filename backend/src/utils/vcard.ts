@@ -165,6 +165,8 @@ function hasUnterminatedDateLabelParam(raw: string): boolean {
  * Returns: { uid, displayName, firstName, lastName, emails, phones, organization, notes, photoData }
  */
 export interface ParsedVCard {
+  /** Any further vCard field the parser surfaced (indexed by the API field list). */
+  [field: string]: unknown;
   uid: string | null;
   displayName: string | null;
   firstName: string | null;

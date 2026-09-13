@@ -186,5 +186,5 @@ export function parseGoogleCsv(text: string) {
       notes: get(row, 'Notes') || null,
       sourceFields,
     };
-  }).filter(Boolean);
+  }).filter((record): record is NonNullable<typeof record> => Boolean(record));
 }

@@ -6,13 +6,13 @@ import { chooseDefined, normalizeRichContactFields } from '../utils/contactField
 import { safeFetch } from '../services/safeFetch.js';
 import { contactsToGoogleCsv, contactsToOutlookCsv, contactsToVCard, parseGoogleCsv } from '../utils/contactTransfer.js';
 import crypto from 'crypto';
-import { queryInt, queryString, sessionUserId } from '../utils/query.js';
+import { queryInt, queryString, queryStringOr, routeParam, sessionUserId } from '../utils/query.js';
 import { toAppError } from '../utils/errors.js';
 
 const router = Router();
 router.use(requireAuth);
 
-function normalizeContactDate(value) {
+function normalizeContactDate(value: unknown): string | null | undefined {
   if (value == null || value === '') return null;
   if (typeof value !== 'string' || !/^\d{4}-\d{2}-\d{2}$/.test(value)) return undefined;
   const [year, month, day] = value.split('-').map(Number);
@@ -20,7 +20,7 @@ function normalizeContactDate(value) {
   return date.getUTCFullYear() === year && date.getUTCMonth() === month - 1 && date.getUTCDate() === day ? value : undefined;
 }
 
-function normalizeContactDates(value) {
+function normalizeContactDates(value: unknown): Array<{ label: string; value: string }> | undefined {
   if (!Array.isArray(value)) return undefined;
   const dates = [];
   const seen = new Set();
@@ -35,20 +35,31 @@ function normalizeContactDates(value) {
   return dates;
 }
 
-function contactDatesWithLegacy(contactDates, birthday, anniversary, authoritative = false) {
+/** A single labelled contact date as the API accepts it. */
+interface ContactDateEntry { label: string; value: string }
+
+function isContactDateEntry(value: unknown): value is ContactDateEntry {
+  if (!value || typeof value !== 'object') return false;
+  const entry = value as { label?: unknown; value?: unknown };
+  return typeof entry.label === 'string' && typeof entry.value === 'string';
+}
+
+function contactDatesWithLegacy(contactDates: unknown, birthday: unknown, anniversary: unknown, authoritative = false) {
   const dates = (Array.isArray(contactDates) ? contactDates : [])
+    .filter(isContactDateEntry)
     .filter(({ label }) => authoritative || !['birthday', 'anniversary'].includes(label.toLocaleLowerCase()))
     .map(({ label, value }) => ({ label, value }));
   if (authoritative) return dates;
   const seen = new Set(dates.map(({ label, value }) => `${label.toLocaleLowerCase()}\\u0000${value}`));
-  for (const [label, value] of [['Birthday', birthday], ['Anniversary', anniversary]]) {
-    if (value && !seen.has(`${label.toLocaleLowerCase()}\\u0000${value}`)) dates.push({ label, value });
+  const legacyPairs: Array<[string, unknown]> = [["Birthday", birthday], ["Anniversary", anniversary]];
+  for (const [label, value] of legacyPairs) {
+    if (typeof value === 'string' && value && !seen.has(`${label.toLocaleLowerCase()}\\u0000${value}`)) dates.push({ label, value });
   }
   return dates;
 }
 
-function legacyDatesFromContactDates(contactDates) {
-  const values = { birthday: null, anniversary: null };
+function legacyDatesFromContactDates(contactDates: ContactDateEntry[]) {
+  const values: { birthday: string | null; anniversary: string | null } = { birthday: null, anniversary: null };
   for (const { label, value } of contactDates) {
     if (value.startsWith('--')) continue;
     const field = label.toLocaleLowerCase();
@@ -65,7 +76,7 @@ const gravatarCache = new Map();
 const GRAVATAR_TTL_MS      = 24 * 60 * 60 * 1000; // hits: 24h
 const GRAVATAR_MISS_TTL_MS =  6 * 60 * 60 * 1000; // 404s: 6h
 const GRAVATAR_MAX_ENTRIES = 2000;
-function gravatarCacheSet(hash, entry) {
+function gravatarCacheSet(hash: string, entry: { miss?: boolean; buf?: Buffer; type?: string; expires: number }): void {
   if (gravatarCache.size >= GRAVATAR_MAX_ENTRIES) {
     const oldest = gravatarCache.keys().next().value;
     if (oldest !== undefined) gravatarCache.delete(oldest);
@@ -86,7 +97,7 @@ async function defaultAddressBook(userId: string) {
 }
 
 // Bump the address book sync_token so CardDAV clients re-sync.
-async function bumpSyncToken(addressBookId) {
+async function bumpSyncToken(addressBookId: string): Promise<void> {
   await query(
     `UPDATE address_books SET sync_token = gen_random_uuid()::text, updated_at = NOW()
      WHERE id = $1`,
@@ -94,12 +105,12 @@ async function bumpSyncToken(addressBookId) {
   );
 }
 
-function localBookName(value) {
+function localBookName(value: unknown): string | null {
   const name = typeof value === 'string' ? value.trim().replace(/\s+/g, ' ') : '';
   return name.length >= 1 && name.length <= 120 ? name : null;
 }
 
-async function requireLocalAddressBook(userId: string, addressBookId) {
+async function requireLocalAddressBook(userId: string, addressBookId: string) {
   const result = await query('SELECT id, name, source, visible FROM address_books WHERE id = $1 AND user_id = $2', [addressBookId, userId]);
   const book = result.rows[0];
   if (!book) return { error: 'Address book not found', status: 404 };
@@ -163,7 +174,7 @@ router.get('/', async (req, res) => {
   const offset = queryInt(req.query.offset, 0);
   const is_auto = queryString(req.query.is_auto);
   const addressBookId = queryString(req.query.addressBookId);
-  const userId = req.session.userId;
+  const userId = sessionUserId(req);
   const cap = Math.min(limit, 500);
   const off = Math.max(0, offset);
 
@@ -234,7 +245,7 @@ router.get('/', async (req, res) => {
 // This route must remain ABOVE /:id to prevent Express matching "photo" as an id.
 router.get('/photo', async (req, res) => {
   const { email } = req.query;
-  const userId = req.session.userId;
+  const userId = sessionUserId(req);
 
   if (!email || typeof email !== 'string') return res.status(400).end();
 
@@ -321,10 +332,10 @@ router.get('/gravatar', async (req, res) => {
 });
 
 router.get('/address-books/:id/export', async (req, res) => {
-  const format = queryString(req.query.format);
+  const format = queryStringOr(req.query.format, '');
   if (!['google-csv', 'outlook-csv', 'vcard'].includes(format)) return res.status(400).json({ error: 'Unsupported export format' });
   try {
-    const book = await query('SELECT id, name FROM address_books WHERE id = $1 AND user_id = $2', [req.params.id, req.session.userId]);
+    const book = await query('SELECT id, name FROM address_books WHERE id = $1 AND user_id = $2', [routeParam(req.params.id), sessionUserId(req)]);
     if (!book.rows.length) return res.status(404).json({ error: 'Address book not found' });
     const contacts = await query(`SELECT uid, display_name, first_name, last_name, emails, phones, organization, title, notes FROM contacts WHERE address_book_id = $1 ORDER BY lower(coalesce(display_name, primary_email, ''))`, [book.rows[0].id]);
     const filename = `${book.rows[0].name.replace(/[^a-z0-9_-]+/gi, '-') || 'contacts'}`;
@@ -360,7 +371,7 @@ router.post('/address-books/:id/import/google-csv', async (req, res) => {
 
 // GET /api/contacts/:id
 router.get('/:id', async (req, res) => {
-  const userId = req.session.userId;
+  const userId = sessionUserId(req);
   try {
     const result = await query(
       `SELECT c.id, c.uid, c.display_name, c.first_name, c.last_name,
@@ -393,7 +404,7 @@ router.get('/:id', async (req, res) => {
 
 // POST /api/contacts
 router.post('/', async (req, res) => {
-  const userId = req.session.userId;
+  const userId = sessionUserId(req);
   const {
     displayName, firstName, lastName,
     emails = [], phones = [],
@@ -426,8 +437,10 @@ router.post('/', async (req, res) => {
 
   try {
     const addressBookId = requestedAddressBookId || await defaultAddressBook(userId);
-    if (requestedAddressBookId) {
-      const local = await requireLocalAddressBook(userId, requestedAddressBookId);
+    if (!addressBookId) return res.status(404).json({ error: 'No address book available' });
+    const requestedId = requestedAddressBookId;
+    if (requestedId) {
+      const local = await requireLocalAddressBook(userId, requestedId);
       if (local.error) return res.status(local.status).json({ error: local.error });
     }
     const uid = crypto.randomUUID();
@@ -465,7 +478,7 @@ router.post('/', async (req, res) => {
 
 // PATCH /api/contacts/:id
 router.patch('/:id', async (req, res) => {
-  const userId = req.session.userId;
+  const userId = sessionUserId(req);
   const {
     displayName, firstName, lastName,
     emails, phones, organization, notes, birthday, anniversary, contactDates,
@@ -580,7 +593,7 @@ router.patch('/:id', async (req, res) => {
 
 // DELETE /api/contacts/:id
 router.delete('/:id', async (req, res) => {
-  const userId = req.session.userId;
+  const userId = sessionUserId(req);
   try {
     // Block deletion of CardDAV-synced (read-only) contacts; they reappear on next sync anyway.
     const owner = await query(
