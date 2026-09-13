@@ -11,6 +11,7 @@ import { queueReadStateMutation, isLatestReadStateMutation, pendingReadState } f
 import { setCompletedDelete, applyDeleteGuard } from '../utils/pendingDeletes.ts';
 import { setPending, pendingMarkReadMap } from '../utils/pendingReads.ts';
 import { useStore } from '../store/index.ts';
+import { toAppError } from '../utils/errors.ts';
 
 // Data-only CE adapter. It owns logical/physical identity and expansion policy;
 // MessagePane owns the pane geometry and ConversationMessage uses MessagePane visuals.
@@ -366,7 +367,7 @@ export default function ConversationReader({ conversationId, targetLogicalMessag
     });
   }, [activateMessage]);
   if (!data && !error) return <div role="status" style={{ padding: 24, textAlign: 'center', color: 'var(--text-tertiary)' }}>{t('conversation.loading')}</div>;
-  if (error) return <div role="alert" style={{ padding: 16, color: 'var(--text-danger)' }}>{error instanceof Error ? error.message : String(error)}</div>;
+  if (error) return <div role="alert" style={{ padding: 16, color: 'var(--text-danger)' }}>{error instanceof Error ? toAppError(error).message : String(error)}</div>;
   return <section ref={readerRef} aria-label={t('conversation.label')} data-conversation-id={conversationId} data-reader-source={nativeThreadId ? 'native-thread' : 'conversation'} data-selected-copy-id={selectedCopyId || ''} data-selected-account-id={selectedAccountId || ''} style={{ flex: 1, overflowY: 'auto', overflowX: 'hidden', padding: 0, minWidth: 0 }}>
     {messages.map(message => {
       const physicalCopyId = selectedCopyFor(message.id)?.id;

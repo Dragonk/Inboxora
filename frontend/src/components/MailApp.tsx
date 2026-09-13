@@ -26,6 +26,7 @@ import ProfileModal from './ProfileModal.tsx';
 import CommandPalette from './CommandPalette.tsx';
 import { usePluginSlot, PluginRuntime } from '../plugins/PluginSlot.tsx';
 import type { StoreState } from '../store/index.ts';
+import { toAppError } from '../utils/errors.ts';
 
 const ContactsPage = lazy(() => import('./ContactsPage.tsx'));
 const CalendarPage = lazy(() => import('./CalendarPage.tsx'));
@@ -194,8 +195,8 @@ export default function MailApp() {
           // Never retain a previous conversation for a newly selected copy. This is
           // diagnostic only: the single-message pane remains a safe fallback when
           // a message has not yet been ingested by the CE model.
-          setConversationResolutionError(error.message || 'Conversation resolution failed');
-          console.warn('Conversation reader resolution failed', error.message);
+          setConversationResolutionError(toAppError(error).message || 'Conversation resolution failed');
+          console.warn('Conversation reader resolution failed', toAppError(error).message);
           // MessageList deliberately defers automatic read ownership to the reader
           // while CE resolution is pending. If neither CE nor a native thread can
           // supply that reader, preserve the normal single-pane read behavior.
@@ -450,14 +451,14 @@ export default function MailApp() {
             setTimeout(() => completedMarkReadMap.delete(msg.id), 10000);
           })
           .catch(e => {
-            console.error('Deep-link markRead failed:', e.message);
+            console.error('Deep-link markRead failed:', toAppError(e).message);
             st.updateMessage(msg.id, { is_read: false });
             st.incrementUnread(msg.account_id);
             st.adjustCategoryCount(msg.category, 1);
             pendingMarkReadMap.delete(msg.id);
           });
       })
-      .catch(err => console.warn('Deep link message not found:', err.message));
+      .catch(err => console.warn('Deep link message not found:', toAppError(err).message));
   }, [setSelectedMessage]);
 
   // Consume the deep-link the SW persisted on a notification tap: read+clear it,
@@ -534,7 +535,7 @@ export default function MailApp() {
         body: bodyText ? esc(bodyText).replace(/\r?\n/g, '<br>') : '',
       });
     } catch (err) {
-      console.warn('Invalid mailto link:', err.message);
+      console.warn('Invalid mailto link:', toAppError(err).message);
     }
   }, [openCompose]);
 

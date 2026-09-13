@@ -24,6 +24,7 @@ import { useCompactLayout } from '../hooks/useCompactLayout.ts';
 import { applyAgendaWidth, beginAgendaResize, beginPanelResize, readAgendaWidth } from '../utils/panelWidth.ts';
 import './calendar.css';
 import type { StoreState } from '../store/index.ts';
+import { toAppError } from '../utils/errors.ts';
 
 const DATE_LOCALE_OVERRIDES = { zhCN: 'zh-CN' };
 
@@ -156,7 +157,7 @@ export default function CalendarPage({ isActive = true }) {
     } catch (err) {
       // A cancelled load is not a failure: a newer load (or an unmount) replaced
       // it, so it must not overwrite state or raise an error banner.
-      if (!isAbortError(err) && generation === loadGeneration.current) { setError(err.message || t('calendar.loadFailed')); setIncompleteSeries(0); }
+      if (!isAbortError(err) && generation === loadGeneration.current) { setError(toAppError(err).message || t('calendar.loadFailed')); setIncompleteSeries(0); }
     } finally { if (generation === loadGeneration.current) setLoading(false); }
   }, [rangeStart, rangeEnd, selectionKey, t]);
   useEffect(() => {
@@ -204,7 +205,7 @@ export default function CalendarPage({ isActive = true }) {
         setForm(null); await load();
       }
     } catch (err) {
-      const message = err.message || t('calendar.saveFailed');
+      const message = toAppError(err).message || t('calendar.saveFailed');
       if (payload.sendInvites) setForm(current => ({ ...current, invitationError: message }));
       setError(message);
     } finally { setSaving(false); }
@@ -224,7 +225,7 @@ export default function CalendarPage({ isActive = true }) {
       setForm(null);
       await load();
     } catch (err) {
-      setError(err.message || t('calendar.deleteFailed'));
+      setError(toAppError(err).message || t('calendar.deleteFailed'));
       setDeleteTarget(null);
     }
   };

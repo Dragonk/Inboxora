@@ -35,6 +35,7 @@ import { queuePerCopyMutation, isLatestPerCopyMutation, invalidatePerCopyMutatio
 import { mergeThreadCacheField } from '../utils/threadCacheState.ts';
 import { queueStarStateMutation, isLatestStarStateMutation } from '../utils/starStateMutation.ts';
 import { applyDeleteGuard, clearDeleteGuard, clearPendingDelete, setCompletedDelete, setPendingDelete, threadDeleteGuardKey } from '../utils/pendingDeletes.ts';
+import { toAppError } from '../utils/errors.ts';
 import {
   archiveInChunks,
   archiveTargetGroupsForRows,
@@ -467,7 +468,7 @@ export default function MessageList() {
             if (data.messages.length === 0 && selectedAccountId && selectedFolder !== 'INBOX') {
               setFolderSyncing(true);
               api.syncFolder(selectedAccountId, selectedFolder)
-                .catch(err => console.error('syncFolder failed:', err.message))
+                .catch(err => console.error('syncFolder failed:', toAppError(err).message))
                 .finally(() => { if (!cancelled) setFolderSyncing(false); });
             } else {
               setFolderSyncing(false);
@@ -909,7 +910,7 @@ export default function MessageList() {
     try {
       actionMessages = await resolution.promise;
     } catch (err) {
-      console.error('Failed to load thread for read state change:', err.message);
+      console.error('Failed to load thread for read state change:', toAppError(err).message);
       if (!isLatestPerCopyMutation(message.id, resolution.version)) return;
       // Revert the optimistic update
       if (isThreadRow) {
@@ -1048,7 +1049,7 @@ export default function MessageList() {
     try {
       actionMessages = await resolveMessagesForThreadAction(message);
     } catch (err) {
-      console.error('Failed to load thread for star state change:', err.message);
+      console.error('Failed to load thread for star state change:', toAppError(err).message);
       if (!isLatestMutation(starIntentKey, starIntentVersion)) return;
       if (Boolean(useStore.getState().messages.find(msg => msg.id === message.id)?.is_starred) === starred) {
         updateMessage(message.id, { is_starred: previousStarred });
@@ -1077,7 +1078,7 @@ export default function MessageList() {
         });
       }
     } catch (err) {
-      console.error('markStarred failed:', err.message);
+      console.error('markStarred failed:', toAppError(err).message);
       const latest = mutations.every(({ msg, mutation }) => isLatestStarStateMutation(msg.id, mutation.version));
       if (latest && isLatestMutation(starIntentKey, starIntentVersion)) {
         updateMessage(message.id, { is_starred: !starred });
@@ -1275,7 +1276,7 @@ export default function MessageList() {
 
     const performCall = (id: string) => {
       const fn = label === 'spam' ? api.markSpam : api.markHam;
-      return fn(id).catch(err => ({ __failed: true, id, message: err.message }));
+      return fn(id).catch(err => ({ __failed: true, id, message: toAppError(err).message }));
     };
 
     timers.set('__call__', setTimeout(async () => {
@@ -1638,7 +1639,7 @@ export default function MessageList() {
       });
       deleteIds = [...new Set([...ids, ...resolved.flat().map(m => m?.id).filter(Boolean)])];
     } catch (err) {
-      console.error('Failed to load thread for bulk delete:', err.message);
+      console.error('Failed to load thread for bulk delete:', toAppError(err).message);
     }
     const searchOffsetBeforeRemoval = searchFetchedOffsetRef.current;
     const shouldPrefetchSearch = Boolean(useStore.getState().searchQuery.trim() && searchHasMore);
@@ -1721,7 +1722,7 @@ export default function MessageList() {
       }));
       moveIds = [...new Set([...ids, ...resolved.flat().map(m => m?.id).filter(Boolean)])];
     } catch (err) {
-      console.error('Failed to load thread for bulk move:', err.message);
+      console.error('Failed to load thread for bulk move:', toAppError(err).message);
     }
     ids.forEach(id => removeMessage(id));
     msgs.forEach(msg => {
@@ -1982,7 +1983,7 @@ export default function MessageList() {
       restoreMessagesIfViewCurrent(viewKey, archiveViewKeyRef, [message]);
       unreadByAccount.forEach((count, accountId) => incrementUnread(accountId, count));
       addNotification({ title: t('messageList.bulkArchived.failTitle'), body: t('messageList.bulkArchived.failBody', { count: 1 }) });
-      console.error('Failed to load thread for archive:', err.message);
+      console.error('Failed to load thread for archive:', toAppError(err).message);
       return;
     }
 
@@ -2021,7 +2022,7 @@ export default function MessageList() {
       restoreMessagesIfViewCurrent(viewKey, archiveViewKeyRef, [message]);
       unreadByAccount.forEach((count, accountId) => incrementUnread(accountId, count));
       addNotification({ title: t('messageList.bulkArchived.failTitle'), body: t('messageList.bulkArchived.failBody', { count: ids.length }) });
-      console.error('Archive failed:', err.message);
+      console.error('Archive failed:', toAppError(err).message);
     }
   }, [
     isThreadListRow, selectedAccountId, selectedFolder, expandedThreadId,
@@ -2405,7 +2406,7 @@ export default function MessageList() {
             }
           } catch (err) {
             if (!isLatestPerCopyMutation(moved.id, moveResolution.version)) return;
-            console.error('Move failed:', err.message);
+            console.error('Move failed:', toAppError(err).message);
             moveIds.forEach(clearDeleteGuard);
             restoreMove();
             addNotification({ title: t('message.moved.failTitle'), body: t('message.moved.failBody') });
@@ -2441,7 +2442,7 @@ export default function MessageList() {
         }
         addNotification({ title: t('message.snoozed.title'), body: snoozedMsg.subject || t('common.noSubject') });
         api.snoozeMessage(snoozedMsg.id, untilIso).catch(err => {
-          console.error('Snooze failed:', err.message);
+          console.error('Snooze failed:', toAppError(err).message);
           useStore.getState().restoreMessages([snoozedMsg]);
           if (!snoozedMsg.is_read) incrementUnread(snoozedMsg.account_id);
           addNotification({ title: t('message.snoozed.failTitle'), body: t('message.snoozed.failBody') });
@@ -2565,7 +2566,7 @@ export default function MessageList() {
           bodyIsHtml: !!bodyData.html,
         });
       } catch (err) {
-        console.error('Failed to open draft:', err.message);
+        console.error('Failed to open draft:', toAppError(err).message);
         setSelectedMessage(message.id);
       }
       return;
@@ -2604,7 +2605,7 @@ export default function MessageList() {
           setTimeout(() => completedMarkReadMap.delete(message.id), 10000);
         })
         .catch(e => {
-          console.error('markRead failed:', e.message);
+          console.error('markRead failed:', toAppError(e).message);
           updateMessage(message.id, { is_read: false, unread_count: prevUnread });
           incrementUnread(message.account_id);
           adjustCategoryCount(message.category, 1);

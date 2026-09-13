@@ -21,6 +21,7 @@ import { buildReplyHeaders } from '../utils/composeFromMessage.ts';
 import { sanitizeMessageHtml } from './MessageBodyRenderer.tsx';
 import { getEmailSurface } from '../themes.ts';
 import MessageDetailContent from './MessageDetailContent.tsx';
+import { toAppError } from '../utils/errors.ts';
 const USE_DIV_RENDER = import.meta.env.VITE_EMAIL_DIV_RENDER === 'true';
 const MESSAGE_OPENING_EVENT = 'inboxora:message-opening';
 
@@ -161,7 +162,7 @@ export default function MessagePane({ windowMessageId = null, onWindowClose = nu
           })
           .catch(e => {
             if (!isLatestReadStateMutation(msg.id, mutation.version)) return;
-            console.error('markRead failed:', e.message);
+            console.error('markRead failed:', toAppError(e).message);
             updateMessage(msg.id, { is_read: false });
             incrementUnread(msg.account_id);
             adjustCategoryCount(msg.category, 1);
@@ -294,7 +295,7 @@ export default function MessagePane({ windowMessageId = null, onWindowClose = nu
         addNotification({
           type: 'error',
           title: t(label === 'spam' ? 'spam.failTitle' : 'spam.failHamTitle'),
-          body: err.message || t(label === 'spam' ? 'spam.failBody' : 'spam.failHamBody'),
+          body: toAppError(err).message || t(label === 'spam' ? 'spam.failBody' : 'spam.failHamBody'),
         });
       }
     }, 4500);
@@ -520,8 +521,8 @@ export default function MessagePane({ windowMessageId = null, onWindowClose = nu
       try {
         return await api.getMessageBody(id, imagesRequestedRef.current.has(id));
       } catch (err) {
-        const isNotFound = /not found/i.test(err.message);
-        const isTransient = /Command failed|Command canceled|timed out|ECONNRESET|socket hang up|EPIPE/i.test(err.message);
+        const isNotFound = /not found/i.test(toAppError(err).message);
+        const isTransient = /Command failed|Command canceled|timed out|ECONNRESET|socket hang up|EPIPE/i.test(toAppError(err).message);
         if ((isNotFound || isTransient) && attemptsLeft > 0 && !cancelled) {
           await new Promise(r => setTimeout(r, delay));
           if (cancelled) throw err; // user navigated away during wait
@@ -548,7 +549,7 @@ export default function MessagePane({ windowMessageId = null, onWindowClose = nu
       })
       .catch(err => {
         if (cancelled) return;
-        setBodyError(err.message);
+        setBodyError(toAppError(err).message);
       })
       .finally(() => {
         if (!cancelled) setLoadingBody(false);
@@ -986,7 +987,7 @@ export default function MessagePane({ windowMessageId = null, onWindowClose = nu
                   })
                   .catch(e => {
                     if (!isLatestReadStateMutation(target.id, mutation.version)) return;
-                    console.error('markRead failed:', e.message);
+                    console.error('markRead failed:', toAppError(e).message);
                     updMsg(target.id, { is_read: false });
                     incUnread(target.account_id);
                     adjCat(target.category, 1);
@@ -1245,7 +1246,7 @@ ${bodyContent}
       if (fullText) saveResult(msgId, key, fullText, label);
     } catch (err) {
       if (err.name === 'AbortError') return;
-      setAiResults(r => ({ ...r, [key]: { status: 'error', text: err.message, label } }));
+      setAiResults(r => ({ ...r, [key]: { status: 'error', text: toAppError(err).message, label } }));
     }
   };
 
@@ -1341,7 +1342,7 @@ ${bodyContent}
     const mutation = queueReadStateMutation(message.id, false, read => api.bulkRead([message.id], read));
     mutation.promise.catch(e => {
       if (!isLatestReadStateMutation(message.id, mutation.version)) return;
-      console.error('markUnread failed:', e.message);
+      console.error('markUnread failed:', toAppError(e).message);
       updateMessage(message.id, { is_read: true });
       decrementUnread(message.account_id);
       adjustCategoryCount(message.category, -1);
@@ -1656,7 +1657,7 @@ ${bodyContent}
           const mutation = queueReadStateMutation(message.id, true, read => api.bulkRead([message.id], read));
           mutation.promise.catch(e => {
             if (!isLatestReadStateMutation(message.id, mutation.version)) return;
-            console.error('markRead failed:', e.message);
+            console.error('markRead failed:', toAppError(e).message);
             updateMessage(message.id, { is_read: false });
             incrementUnread(message.account_id);
             adjustCategoryCount(message.category, 1);
@@ -1702,7 +1703,7 @@ ${bodyContent}
           if (!snoozedMsg.is_read) decrementUnread(snoozedMsg.account_id);
           addNotification({ title: t('message.snoozed.title'), body: snoozedMsg.subject || t('common.noSubject') });
           api.snoozeMessage(snoozedMsg.id, data).catch(err => {
-            console.error('Snooze failed:', err.message);
+            console.error('Snooze failed:', toAppError(err).message);
             useStore.getState().restoreMessages([snoozedMsg]);
             if (!snoozedMsg.is_read) incrementUnread(snoozedMsg.account_id);
             addNotification({ title: t('message.snoozed.failTitle'), body: t('message.snoozed.failBody') });

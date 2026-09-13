@@ -10,6 +10,7 @@ import { useStore } from '../store/index.ts';
 import { physicalCopyDirection, preferredAccountCopy } from '../utils/conversationDirection.ts';
 import { api } from '../utils/api.ts';
 import { conversationApi } from '../utils/conversationApi.ts';
+import { toAppError } from '../utils/errors.ts';
 
 function address(value) {
   if (!value) return '';
@@ -109,7 +110,7 @@ export default function ConversationMessage({ conversationId, message, selectedC
         ...actionState,
       });
     } catch (error) {
-      setActionError(error.message || t('common.error'));
+      setActionError(toAppError(error).message || t('common.error'));
     }
   };
   const loadFolders = async () => {
@@ -119,7 +120,7 @@ export default function ConversationMessage({ conversationId, message, selectedC
       const result = await api.getFolders(selectedAccountId);
       setFolders(Array.isArray(result) ? result : (result.folders || []));
     } catch (error) {
-      setActionError(error.message || t('common.error'));
+      setActionError(toAppError(error).message || t('common.error'));
     } finally {
       setFoldersLoading(false);
     }
@@ -138,7 +139,7 @@ export default function ConversationMessage({ conversationId, message, selectedC
   const runAiAction = action => {
     const text = bodyText || String(bodyHtml || '').replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim();
     if (!text || !action?.prompt) return;
-    api.ai.chat([{ role: 'user', content: `${action.prompt}\n\n${text.slice(0, 6000)}` }]).catch(error => setActionError(error.message));
+    api.ai.chat([{ role: 'user', content: `${action.prompt}\n\n${text.slice(0, 6000)}` }]).catch(error => setActionError(toAppError(error).message));
   };
 
   const toggleLabel = t(expanded ? 'conversation.collapseMessage' : 'conversation.expandMessage', { sender, subject });

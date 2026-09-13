@@ -4,6 +4,7 @@ import { useTranslation } from 'react-i18next';
 import { useStore } from '../store/index.ts';
 import { api } from '../utils/api.ts';
 import type { CSSProperties } from 'react';
+import { toAppError } from '../utils/errors.ts';
 
 export default function TodoistTaskModal({ message, onClose }) {
   const { t } = useTranslation();
@@ -33,7 +34,7 @@ export default function TodoistTaskModal({ message, onClose }) {
         setProjects(projs);
         setLabels(lbls);
       } catch (err) {
-        setLoadError(err.message);
+        setLoadError(toAppError(err).message);
       } finally {
         setLoading(false);
       }
@@ -74,7 +75,7 @@ export default function TodoistTaskModal({ message, onClose }) {
       });
       onClose();
     } catch (err) {
-      setError(err.message);
+      setError(toAppError(err).message);
       setCreating(false);
     }
   }

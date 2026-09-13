@@ -38,6 +38,7 @@ import SignatureEditor from './SignatureEditor.tsx';
 import DiagnosticsReportModal from './DiagnosticsReportModal.tsx';
 import { getEffectiveShortcuts, getGroupedActions, ACTION_DEFS, SPECIAL_KEY_LABELS, parseModKey, modLabel } from '../utils/defaultShortcuts.ts';
 import { unifiedUnreadTotal } from '../utils/unifiedInbox.ts';
+import { toAppError } from '../utils/errors.ts';
 import { isValidForwardAddress } from '../utils/ruleActions.ts';
 import type { CSSProperties, SVGProps } from 'react';
 import type { StoreState } from '../store/index.ts';
@@ -158,7 +159,7 @@ function AccountForm({ initial = undefined, onSave, onCancel }: AccountFormProps
     try {
       await onSave(form);
     } catch (err) {
-      setError(err.message);
+      setError(toAppError(err).message);
       setSaving(false);
     }
   };
@@ -554,7 +555,7 @@ function AccountsTab() {
     try {
       await api.reindexAccount(id);
     } catch (err) {
-      addNotification({ type: 'error', title: t('admin.accounts.reindexError'), body: err.message });
+      addNotification({ type: 'error', title: t('admin.accounts.reindexError'), body: toAppError(err).message });
     }
   };
 
@@ -562,7 +563,7 @@ function AccountsTab() {
     try {
       await api.syncFoldersNow(id);
     } catch (err) {
-      addNotification({ type: 'error', title: t('admin.accounts.syncFoldersError'), body: err.message });
+      addNotification({ type: 'error', title: t('admin.accounts.syncFoldersError'), body: toAppError(err).message });
     }
   };
 
@@ -575,7 +576,7 @@ function AccountsTab() {
       const folders = await api.getFolders(account.id);
       setAvailableFolders(folders);
     } catch (err) {
-      addNotification({ type: 'error', title: 'Could not load folders', body: err.message });
+      addNotification({ type: 'error', title: 'Could not load folders', body: toAppError(err).message });
     } finally {
       setFoldersLoading(false);
     }
@@ -593,7 +594,7 @@ function AccountsTab() {
       setSubview('list');
       setEditTarget(null);
     } catch (err) {
-      addNotification({ type: 'error', title: 'Could not save folder mappings', body: err.message });
+      addNotification({ type: 'error', title: 'Could not save folder mappings', body: toAppError(err).message });
     } finally {
       setFoldersSaving(false);
     }
@@ -637,7 +638,7 @@ function AccountsTab() {
       setAliasFormData({ name: '', email: '', reply_to: '', signature: '' });
       setAliasFormId(null);
     } catch (err) {
-      setAliasFormError(err.message);
+      setAliasFormError(toAppError(err).message);
     } finally {
       setAliasFormSaving(false);
     }
@@ -1218,7 +1219,7 @@ function ThemesTab() {
       setCssSaved(true);
       setTimeout(() => setCssSaved(false), 2000);
     } catch (err) {
-      setCssError(err.message || 'Failed to save');
+      setCssError(toAppError(err).message || 'Failed to save');
     } finally {
       setCssSaving(false);
     }
@@ -1751,7 +1752,7 @@ function LayoutsTab() {
       navigator.registerProtocolHandler('mailto', window.location.origin + '/?mailto=%s');
       setMailtoStatus('ok');
     } catch (e) {
-      console.error('registerProtocolHandler failed:', e.message);
+      console.error('registerProtocolHandler failed:', toAppError(e).message);
       setMailtoStatus('error');
     }
   };
@@ -2407,24 +2408,24 @@ function CardDavCard() {
         password: form.password, dupMode: form.dupMode, intervalMin: Number(form.intervalMin),
       });
       setStatus(s); setForm(f => ({ ...f, password: '' }));
-    } catch (e) { setError(e.message || t('admin.integrations.carddav.connectFailed')); }
+    } catch (e) { setError(toAppError(e).message || t('admin.integrations.carddav.connectFailed')); }
     finally { setConnecting(false); }
   };
   const handleSync = async () => {
     setSyncing(true); setError('');
     try { const r = await api.carddav.sync(); setStatus(r.status); if (!r.ok && r.error) setError(r.error); }
-    catch (e) { setError(e.message); }
+    catch (e) { setError(toAppError(e).message); }
     finally { setSyncing(false); }
   };
   const handleDisconnect = async () => {
     setDisconnecting(true); setError('');
     try { await api.carddav.disconnect(); setStatus({ connected: false }); }
-    catch (e) { setError(e.message); }
+    catch (e) { setError(toAppError(e).message); }
     finally { setDisconnecting(false); }
   };
   const updateSetting = async (patch) => {
     setStatus(s => ({ ...s, ...patch }));
-    try { await api.carddav.update(patch); } catch (e) { setError(e.message); }
+    try { await api.carddav.update(patch); } catch (e) { setError(toAppError(e).message); }
   };
 
   const inputStyle: CSSProperties = { padding: '8px 10px', borderRadius: 8, border: '1px solid var(--border)', background: 'var(--bg-primary)', color: 'var(--text-primary)', fontSize: 13, outline: 'none', width: '100%', boxSizing: 'border-box' };
@@ -2640,7 +2641,7 @@ function IntegrationsTab() {
       }));
       setSaveMsg(t('admin.integrations.microsoft.savedNote'));
     } catch (err) {
-      setSaveMsg('Error: ' + err.message);
+      setSaveMsg('Error: ' + toAppError(err).message);
     } finally {
       setSaving(false);
     }
@@ -2679,7 +2680,7 @@ function IntegrationsTab() {
       }, intervalMs);
     } catch (err) {
       setDeviceStatus('error');
-      setSaveMsg('Error: ' + err.message);
+      setSaveMsg('Error: ' + toAppError(err).message);
     }
   };
 
@@ -2708,7 +2709,7 @@ function IntegrationsTab() {
       setTodoistConnected(true);
       setTdToken('');
     } catch (err) {
-      setTdError(err.message);
+      setTdError(toAppError(err).message);
     } finally {
       setTdConnecting(false);
     }
@@ -2722,7 +2723,7 @@ function IntegrationsTab() {
       setTdConnected(false);
       setTodoistConnected(false);
     } catch (err) {
-      setTdError(err.message);
+      setTdError(toAppError(err).message);
     } finally {
       setTdDisconnecting(false);
     }
@@ -3363,10 +3364,10 @@ function SSOTab() {
   useEffect(() => {
     const fetchProviders = api.admin.oidc.getProviders()
       .then(d => setProviders(d.providers))
-      .catch(err => setLoadError(err.message));
+      .catch(err => setLoadError(toAppError(err).message));
     const fetchSettings = api.admin.getSettings()
       .then(d => setInternalAuthDisabled(d.settings.internal_auth_disabled === 'true'))
-      .catch(err => setLoadError(err.message));
+      .catch(err => setLoadError(toAppError(err).message));
     Promise.all([fetchProviders, fetchSettings]).finally(() => setLoading(false));
   }, []);
 
@@ -3383,7 +3384,7 @@ function SSOTab() {
             await api.admin.updateSettings({ internal_auth_disabled: true });
             setInternalAuthDisabled(true);
           } catch (err) {
-            setInternalAuthError(err.message);
+            setInternalAuthError(toAppError(err).message);
           } finally {
             setInternalAuthSaving(false);
           }
@@ -3393,7 +3394,7 @@ function SSOTab() {
       setInternalAuthSaving(true);
       api.admin.updateSettings({ internal_auth_disabled: false })
         .then(() => setInternalAuthDisabled(false))
-        .catch(err => setInternalAuthError(err.message))
+        .catch(err => setInternalAuthError(toAppError(err).message))
         .finally(() => setInternalAuthSaving(false));
     }
   };
@@ -3451,7 +3452,7 @@ function SSOTab() {
       }
       closeForm();
     } catch (err) {
-      setError(err.message);
+      setError(toAppError(err).message);
     } finally {
       setSaving(false);
     }
@@ -3959,7 +3960,7 @@ function AISection() {
               if (active) setMsg({ type: 'ok', text: tRef.current('admin.ai.saved') });
             })
             .catch((error) => {
-              if (active) setMsg({ type: 'error', text: error.message });
+              if (active) setMsg({ type: 'error', text: toAppError(error).message });
             });
           refreshCodexStatus().catch(() => {
             if (active) setCodexStatus({ connected: true, state: 'connected' });
@@ -3983,7 +3984,7 @@ function AISection() {
       refreshCodexStatus(),
     ])
       .catch((error) => {
-        if (active) setMsg({ type: 'error', text: error.message });
+        if (active) setMsg({ type: 'error', text: toAppError(error).message });
       })
       .finally(() => { if (active) setLoading(false); });
 
@@ -4001,7 +4002,7 @@ function AISection() {
       await persistForm(form);
       setMsg({ type: 'ok', text: t('admin.ai.saved') });
     } catch (err) {
-      setMsg({ type: 'error', text: err.message });
+      setMsg({ type: 'error', text: toAppError(err).message });
     } finally { setSaving(false); }
   };
 
@@ -4011,7 +4012,7 @@ function AISection() {
       await api.ai.test();
       setMsg({ type: 'ok', text: t('admin.ai.testOk') });
     } catch (err) {
-      setMsg({ type: 'error', text: `${t('admin.ai.testFail')}: ${err.message}` });
+      setMsg({ type: 'error', text: `${t('admin.ai.testFail')}: ${toAppError(err).message}` });
     } finally { setTesting(false); }
   };
 
@@ -4021,7 +4022,7 @@ function AISection() {
       await pollerRef.current?.start();
       setCodexStatus({ connected: false, state: 'pending', reconnectRequired: false });
     } catch (error) {
-      setMsg({ type: 'error', text: error.message });
+      setMsg({ type: 'error', text: toAppError(error).message });
     } finally {
       setConnecting(false);
     }
@@ -4033,7 +4034,7 @@ function AISection() {
       await pollerRef.current?.cancel();
       setCodexStatus({ connected: false, state: 'disconnected', reconnectRequired: false });
     } catch (error) {
-      setMsg({ type: 'error', text: error.message });
+      setMsg({ type: 'error', text: toAppError(error).message });
     } finally {
       setCancelling(false);
     }
@@ -4046,7 +4047,7 @@ function AISection() {
       setDeviceState(null);
       setCodexStatus({ connected: false, state: 'disconnected', reconnectRequired: false });
     } catch (error) {
-      setMsg({ type: 'error', text: error.message });
+      setMsg({ type: 'error', text: toAppError(error).message });
     } finally {
       setDisconnecting(false);
     }
@@ -4392,7 +4393,7 @@ function CategoriesSection({ initialSubTab }) {
       setSources(prev => [...prev, source]);
       setManualInput('');
       setMsg({ type: 'ok', text: t('admin.categories.addedOk') });
-    } catch (err) { setAddError(err.message); }
+    } catch (err) { setAddError(toAppError(err).message); }
     finally { setAdding(false); }
   };
 
@@ -4402,7 +4403,7 @@ function CategoriesSection({ initialSubTab }) {
       const { source } = await api.categories.addSource({ sourceType: 'builtin', value: setName });
       setSources(prev => [...prev, source]);
       setMsg({ type: 'ok', text: t('admin.categories.addedOk') });
-    } catch (err) { setAddError(err.message); }
+    } catch (err) { setAddError(toAppError(err).message); }
     finally { setAdding(false); }
   };
 
@@ -4415,7 +4416,7 @@ function CategoriesSection({ initialSubTab }) {
       setSources(prev => [...prev, source]);
       setUrlInput('');
       setMsg({ type: 'ok', text: t('admin.categories.addedOk') });
-    } catch (err) { setAddError(err.message); }
+    } catch (err) { setAddError(toAppError(err).message); }
     finally { setAdding(false); }
   };
 
@@ -4423,7 +4424,7 @@ function CategoriesSection({ initialSubTab }) {
     try {
       const { source } = await api.categories.toggleSource(id, enabled);
       setSources(prev => prev.map(s => s.id === id ? source : s));
-    } catch (err) { setMsg({ type: 'error', text: err.message }); }
+    } catch (err) { setMsg({ type: 'error', text: toAppError(err).message }); }
   };
 
   const handleDelete = async (id) => {
@@ -4431,7 +4432,7 @@ function CategoriesSection({ initialSubTab }) {
     try {
       await api.categories.deleteSource(id);
       setSources(prev => prev.filter(s => s.id !== id));
-    } catch (err) { setMsg({ type: 'error', text: err.message }); }
+    } catch (err) { setMsg({ type: 'error', text: toAppError(err).message }); }
   };
 
   const handleRefresh = async (id) => {
@@ -4441,7 +4442,7 @@ function CategoriesSection({ initialSubTab }) {
       setMsg(error
         ? { type: 'error', text: error }
         : { type: 'ok', text: t('admin.categories.fetchedOk', { count: domainCount }) });
-    } catch (err) { setMsg({ type: 'error', text: err.message }); }
+    } catch (err) { setMsg({ type: 'error', text: toAppError(err).message }); }
   };
 
   const handleRecategorize = async () => {
@@ -4450,7 +4451,7 @@ function CategoriesSection({ initialSubTab }) {
     try {
       await api.categories.recategorize(recatAccount);
       setMsg({ type: 'ok', text: t('admin.categories.recategorized') });
-    } catch (err) { setMsg({ type: 'error', text: err.message }); }
+    } catch (err) { setMsg({ type: 'error', text: toAppError(err).message }); }
     finally { setRecategorizing(false); }
   };
 
@@ -4743,7 +4744,7 @@ function SystemEmailSection() {
       setConfig({ ...form });
       setMsg({ type: 'ok', text: t('admin.systemEmail.saved') });
     } catch (err) {
-      setMsg({ type: 'error', text: err.message });
+      setMsg({ type: 'error', text: toAppError(err).message });
     } finally { setSaving(false); }
   };
 
@@ -4753,7 +4754,7 @@ function SystemEmailSection() {
       await api.admin.testSystemEmail();
       setMsg({ type: 'ok', text: t('admin.systemEmail.testOk') });
     } catch (err) {
-      setMsg({ type: 'error', text: `${t('admin.systemEmail.testFail')}: ${err.message}` });
+      setMsg({ type: 'error', text: `${t('admin.systemEmail.testFail')}: ${toAppError(err).message}` });
     } finally { setTesting(false); }
   };
 
@@ -4972,7 +4973,7 @@ function UsersAndInvitesPanel() {
         setInviteTotal(d.total);
       }).catch(() => {});
     } catch (err) {
-      setInviteMsg({ type: 'error', text: err.message });
+      setInviteMsg({ type: 'error', text: toAppError(err).message });
     } finally {
       setInviteLoading(false);
     }
@@ -6867,7 +6868,7 @@ function MailboxCleanupTab() {
     if (!id) return;
     setLoading(true); setError('');
     try { await fetchUsage(id); }
-    catch (e) { setError(e.message); setData(null); }
+    catch (e) { setError(toAppError(e).message); setData(null); }
     finally { setLoading(false); }
   }, [fetchUsage]);
 
@@ -6889,7 +6890,7 @@ function MailboxCleanupTab() {
         done += batch.length;
         setProgress({ done, total: ids.length });
       }
-    } catch (e) { setError(e.message); }
+    } catch (e) { setError(toAppError(e).message); }
     finally {
       // Always refresh counts so the summary reflects what actually got archived or trashed,
       // even on a partial failure; preserve any error already set (don't route through load()).
@@ -7746,7 +7747,7 @@ function SecurityTab() {
       setProtectionSaved(true);
       setTimeout(() => setProtectionSaved(false), 3000);
     } catch (err) {
-      setProtectionError(err.message);
+      setProtectionError(toAppError(err).message);
     } finally {
       setProtectionSaving(false);
     }
@@ -7764,7 +7765,7 @@ function SecurityTab() {
       setMfaSaved(true);
       setTimeout(() => setMfaSaved(false), 3000);
     } catch (err) {
-      setMfaError(err.message);
+      setMfaError(toAppError(err).message);
     } finally {
       setMfaSaving(false);
     }
@@ -7779,7 +7780,7 @@ function SecurityTab() {
       setRecoverySaved(true);
       setTimeout(() => setRecoverySaved(false), 3000);
     } catch (err) {
-      setRecoveryError(err.message);
+      setRecoveryError(toAppError(err).message);
     } finally {
       setRecoverySaving(false);
     }
@@ -7804,7 +7805,7 @@ function SecurityTab() {
       setSetupData(data);
       setStep('scan');
     } catch (err) {
-      setError(err.message);
+      setError(toAppError(err).message);
     } finally {
       setLoading(false);
     }
@@ -7824,7 +7825,7 @@ function SecurityTab() {
       setSuccess(t('admin.security.totpSuccess'));
       setTimeout(() => setSuccess(''), 4000);
     } catch (err) {
-      setError(err.message);
+      setError(toAppError(err).message);
       setVerifyCode('');
     } finally {
       setLoading(false);
@@ -7844,7 +7845,7 @@ function SecurityTab() {
       setSuccess(t('admin.security.totpDisabledSuccess'));
       setTimeout(() => setSuccess(''), 4000);
     } catch (err) {
-      setError(err.message);
+      setError(toAppError(err).message);
       setDisablePassword('');
     } finally {
       setLoading(false);
@@ -8627,11 +8628,11 @@ function SearchResultsView({ results, query, onNavigate, t }) {
 
 function DavCredentialsTab() {
   const { t } = useTranslation(); const [credentials, setCredentials] = useState<Array<{ id: string; label?: string; created_at?: string; last_used_at?: string; [key: string]: unknown }>>([]); const [label, setLabel] = useState(''); const [secret, setSecret] = useState(''); const [error, setError] = useState(''); const [loading, setLoading] = useState(true); const [busy, setBusy] = useState(false); const [copied, setCopied] = useState(false);
-  const load = useCallback(async () => { setLoading(true); try { const result = await api.davCredentials.list(); setCredentials(result.credentials || []); } catch (err) { setError(err.message || t('admin.davCredentials.loadError')); } finally { setLoading(false); } }, [t]);
+  const load = useCallback(async () => { setLoading(true); try { const result = await api.davCredentials.list(); setCredentials(result.credentials || []); } catch (err) { setError(toAppError(err).message || t('admin.davCredentials.loadError')); } finally { setLoading(false); } }, [t]);
   useEffect(() => { load(); }, [load]);
-  const create = async () => { if (!label.trim()) return; setBusy(true); setError(''); setSecret(''); setCopied(false); try { const result = await api.davCredentials.create(label.trim()); setCredentials(current => [result.credential, ...current]); setLabel(''); setSecret(result.secret); } catch (err) { setError(err.message || t('admin.davCredentials.createError')); } finally { setBusy(false); } };
+  const create = async () => { if (!label.trim()) return; setBusy(true); setError(''); setSecret(''); setCopied(false); try { const result = await api.davCredentials.create(label.trim()); setCredentials(current => [result.credential, ...current]); setLabel(''); setSecret(result.secret); } catch (err) { setError(toAppError(err).message || t('admin.davCredentials.createError')); } finally { setBusy(false); } };
   const copy = async () => { try { await navigator.clipboard.writeText(secret); setCopied(true); } catch { setError(t('admin.davCredentials.copyError')); } };
-  const revoke = async credential => { setBusy(true); setError(''); try { await api.davCredentials.revoke(credential.id); setCredentials(current => current.filter(item => item.id !== credential.id)); } catch (err) { setError(err.message || t('admin.davCredentials.revokeError')); } finally { setBusy(false); } };
+  const revoke = async credential => { setBusy(true); setError(''); try { await api.davCredentials.revoke(credential.id); setCredentials(current => current.filter(item => item.id !== credential.id)); } catch (err) { setError(toAppError(err).message || t('admin.davCredentials.revokeError')); } finally { setBusy(false); } };
   const endpoint = window.location.origin;
   return <div style={{ maxWidth: 680 }}><h2 style={{ marginTop: 0 }}>{t('admin.davCredentials.title')}</h2><p style={{ color: 'var(--text-secondary)' }}>{t('admin.davCredentials.description')}</p>{error && <div role="alert" style={{ color: 'var(--red)', marginBottom: 12 }}>{error}</div>}<div style={{ display: 'flex', gap: 8, marginBottom: 18 }}><input aria-label={t('admin.davCredentials.label')} value={label} maxLength={120} onChange={e => setLabel(e.target.value)} onKeyDown={e => e.key === 'Enter' && create()} placeholder={t('admin.davCredentials.labelPlaceholder')} style={inputStyle}/><button disabled={busy || !label.trim()} onClick={create} style={{ background: 'var(--accent)', color: 'var(--accent-text)', border: 0, borderRadius: 6, padding: '7px 12px', cursor: 'pointer', whiteSpace: 'nowrap' }}>{t('admin.davCredentials.create')}</button></div>{secret && <section style={{ border: '1px solid var(--accent)', borderRadius: 8, padding: 16, marginBottom: 18 }}><strong>{t('admin.davCredentials.secretTitle')}</strong><p>{t('admin.davCredentials.secretWarning')}</p><code style={{ display: 'block', overflowWrap: 'anywhere' }}>{secret}</code><button onClick={copy} style={{ marginTop: 10 }}>{copied ? t('admin.davCredentials.copied') : t('common.copy')}</button></section>}<section style={{ border: '1px solid var(--border)', borderRadius: 8, padding: 16, marginBottom: 18 }}><strong>{t('admin.davCredentials.davx5Title')}</strong><p>{t('admin.davCredentials.davx5Description')}</p><code>{endpoint}/.well-known/carddav</code><br/><code>{endpoint}/.well-known/caldav</code><p style={{ color: 'var(--text-tertiary)', marginBottom: 0 }}>{t('admin.davCredentials.davx5Username')}</p></section><h3>{t('admin.davCredentials.activeTitle')}</h3>{loading ? <p>{t('common.loading')}</p> : credentials.length === 0 ? <p>{t('admin.davCredentials.empty')}</p> : <div style={{ display: 'grid', gap: 8 }}>{credentials.map(credential => <div key={credential.id} style={{ display: 'flex', gap: 12, alignItems: 'center', border: '1px solid var(--border)', borderRadius: 8, padding: 12 }}><div style={{ flex: 1 }}><strong>{credential.label}</strong><div style={{ color: 'var(--text-tertiary)', fontSize: 12 }}>{t('admin.davCredentials.metadata', { created: new Date(credential.created_at).toLocaleString(), used: credential.last_used_at ? new Date(credential.last_used_at).toLocaleString() : t('common.never') })}</div></div><button disabled={busy} onClick={() => revoke(credential)} style={{ color: 'var(--red)' }}>{t('admin.davCredentials.revoke')}</button></div>)}</div>}</div>;
 }

@@ -1,5 +1,6 @@
 import { useState, useEffect, useRef } from 'react';
 import { api } from '../utils/api.ts';
+import { toAppError } from '../utils/errors.ts';
 
 // Convert a URL-safe base64 VAPID public key (as returned by the server)
 // into the Uint8Array that PushManager.subscribe() expects.
@@ -115,7 +116,7 @@ export function usePushNotifications() {
         // so the user can retry. Ignore backend errors so the browser unsubscribe
         // always runs (avoids phantom subscriptions on a re-subscribe attempt).
         await api.pushUnsubscribe({ endpoint: sub.endpoint }).catch(err => {
-          console.error('Push unsubscribe (server) failed:', err.message);
+          console.error('Push unsubscribe (server) failed:', toAppError(err).message);
         });
         await sub.unsubscribe();
       }

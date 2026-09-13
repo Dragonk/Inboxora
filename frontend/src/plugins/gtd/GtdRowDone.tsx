@@ -4,6 +4,7 @@ import { api } from '../../utils/api.ts';
 import { advanceSelectionAfterRemoval } from '../../utils/listSelection.ts';
 import { ActionBtn } from '../../components/RowHoverActions.tsx';
 import type { StoreState } from '../../store/index.ts';
+import { toAppError } from '../../utils/errors.ts';
 
 // The GTD "done" checkmark for the row hover cluster, rendered via the 'row-hover-action' slot.
 //
@@ -36,7 +37,7 @@ export default function GtdRowDone({ message, done }) {
         addNotification({ title: t('gtd.doneArchiveFailed'), body: message.subject || t('common.noSubject') });
       }
     } catch (err) {
-      console.error('GTD done failed:', err.message);
+      console.error('GTD done failed:', toAppError(err).message);
       useStore.getState().restoreMessages([message]);
       if (unreadDelta > 0) incrementUnread(message.account_id, unreadDelta);
       addNotification({ title: t('gtd.doneFailed'), body: message.subject || t('common.noSubject') });

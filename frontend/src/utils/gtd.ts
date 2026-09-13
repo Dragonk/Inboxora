@@ -1,3 +1,4 @@
+import { toAppError } from '../utils/errors.ts';
 // Pure helpers for GTD display surfaces. Kept free of React/DOM so they can be
 // unit-tested under `node --test` at their pure seams.
 
@@ -626,7 +627,7 @@ export async function classifyThread(id, state, { gtdClassify, addNotification, 
     scheduleGtdSectionsFetch();
     addNotification({ title: t('gtd.classified'), body: t(`gtd.state.${state}`) });
   } catch (err) {
-    console.error('GTD classify failed:', err.message);
+    console.error('GTD classify failed:', toAppError(err).message);
     addNotification({ title: t('gtd.classifyFailed'), body: t(`gtd.state.${state}`) });
   }
 }
@@ -637,7 +638,7 @@ export async function unclassifyThread(id, state, { gtdUnclassify, addNotificati
     scheduleGtdSectionsFetch();
     addNotification({ title: t('gtd.removed'), body: t(`gtd.state.${state}`) });
   } catch (err) {
-    console.error('GTD unclassify failed:', err.message);
+    console.error('GTD unclassify failed:', toAppError(err).message);
     addNotification({ title: t('gtd.removeFailed'), body: t(`gtd.state.${state}`) });
   }
 }

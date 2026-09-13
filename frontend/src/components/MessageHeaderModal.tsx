@@ -3,6 +3,7 @@ import { useState, useEffect, useRef } from 'react';
 import { useTranslation } from 'react-i18next';
 import { api } from '../utils/api.ts';
 import { useMobile } from '../hooks/useMobile.ts';
+import { toAppError } from '../utils/errors.ts';
 
 export default function MessageHeaderModal({ messageId, subject, onClose, onSubjectResolved = (_subject: string) => {} }) {
   const { t } = useTranslation();
@@ -25,7 +26,7 @@ export default function MessageHeaderModal({ messageId, subject, onClose, onSubj
           onSubjectResolvedRef.current?.(data.subject);
         }
       })
-      .catch(err => setHeaders(`Error: ${err.message}`))
+      .catch(err => setHeaders(`Error: ${toAppError(err).message}`))
       .finally(() => setLoading(false));
   }, [messageId]);
 

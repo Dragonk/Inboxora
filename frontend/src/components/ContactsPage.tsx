@@ -16,6 +16,7 @@ import SenderAvatarImage from './SenderAvatarImage.tsx';
 import { safeHttpUrl } from '../utils/contactLinks.ts';
 import type { CSSProperties } from 'react';
 import type { StoreState } from '../store/index.ts';
+import { toAppError } from '../utils/errors.ts';
 
 // Deterministic avatar color from a string
 function avatarColor(str) {
@@ -209,7 +210,7 @@ export default function ContactsPage({ isActive = true }) {
       setContacts(res.contacts);
       setTotal(res.total);
     } catch (err) {
-      if (requestId === listRequestRef.current) setListError(err.message);
+      if (requestId === listRequestRef.current) setListError(toAppError(err).message);
     } finally {
       if (requestId === listRequestRef.current) { setLoading(false); loadingMoreRef.current = false; }
     }
@@ -220,7 +221,7 @@ export default function ContactsPage({ isActive = true }) {
     load(searchRef.current);
     return () => { listRequestRef.current += 1; clearTimeout(searchTimer.current); };
   }, [load]);
-  useEffect(() => { loadAddressBooks().catch(err => setListError(err.message)); }, [loadAddressBooks]);
+  useEffect(() => { loadAddressBooks().catch(err => setListError(toAppError(err).message)); }, [loadAddressBooks]);
 
   const onSearchChange = (e) => {
     const val = e.target.value;
@@ -252,7 +253,7 @@ export default function ContactsPage({ isActive = true }) {
         await loadAddressBooks();
       }
       setBookDialog(null);
-    } catch (err) { setBookError(err.message); }
+    } catch (err) { setBookError(toAppError(err).message); }
     finally { setBookSaving(false); }
   };
 
@@ -262,7 +263,7 @@ export default function ContactsPage({ isActive = true }) {
     try {
       await api.addressBooks.update(book.id, { visible: !book.visible });
       await loadAddressBooks();
-    } catch (err) { setListError(err.message); }
+    } catch (err) { setListError(toAppError(err).message); }
   };
 
   const importGoogleCsv = async (event) => {
@@ -272,7 +273,7 @@ export default function ContactsPage({ isActive = true }) {
       await api.addressBooks.importGoogleCsv(selectedAddressBookId, await file.text());
       await load(search);
       await loadAddressBooks();
-    } catch (err) { setListError(err.message); }
+    } catch (err) { setListError(toAppError(err).message); }
     finally { event.target.value = ''; }
   };
 
@@ -291,7 +292,7 @@ export default function ContactsPage({ isActive = true }) {
         setContacts(prev => [...prev, ...res.contacts]);
         setTotal(res.total);
       })
-      .catch(err => { if (requestId === listRequestRef.current) setListError(err.message); })
+      .catch(err => { if (requestId === listRequestRef.current) setListError(toAppError(err).message); })
       .finally(() => {
         if (requestId !== listRequestRef.current) return;
         loadingMoreRef.current = false;
@@ -314,7 +315,7 @@ export default function ContactsPage({ isActive = true }) {
       if (isMobile) setMobilePanel('detail');
     } catch (err) {
       if (requestId !== contactSelectionRequestRef.current) return;
-      setError(err.message);
+      setError(toAppError(err).message);
     }
   };
 
@@ -423,7 +424,7 @@ export default function ContactsPage({ isActive = true }) {
       setEditing(false);
       setSelected(updated);
     } catch (err) {
-      setError(err.message);
+      setError(toAppError(err).message);
     } finally {
       setSaving(false);
     }
@@ -439,7 +440,7 @@ export default function ContactsPage({ isActive = true }) {
       if (isMobile) setMobilePanel('list');
       await load(search);
     } catch (err) {
-      setError(err.message);
+      setError(toAppError(err).message);
     } finally {
       setSaving(false);
     }

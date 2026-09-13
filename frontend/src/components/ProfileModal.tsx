@@ -3,6 +3,7 @@ import { useState, useRef } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useStore } from '../store/index.ts';
 import { api } from '../utils/api.ts';
+import { toAppError } from '../utils/errors.ts';
 
 function resizeImage(file, maxPx = 256) {
   return new Promise((resolve, reject) => {
@@ -79,7 +80,7 @@ export default function ProfileModal({ onClose }) {
       }
       onClose();
     } catch (err) {
-      setError(err.message || t('common.error', { message: '' }));
+      setError(toAppError(err).message || t('common.error', { message: '' }));
     } finally {
       setSaving(false);
     }

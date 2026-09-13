@@ -5,6 +5,7 @@ import { api } from '../utils/api.ts';
 import { Button, inputStyle } from './ui.tsx';
 import { calendarSyncWarning } from '../utils/calendarSyncWarning.ts';
 import { intlLocale } from '../utils/intlLocale.ts';
+import { toAppError } from '../utils/errors.ts';
 import {
   HOLIDAY_CALENDARS,
   HOLIDAY_SYNC_INTERVAL_MIN,
@@ -39,7 +40,7 @@ export default function CalendarSubscriptionsSettings({ locale }) {
       setSources(result.sources || []);
       setError(null);
     } catch (err) {
-      setError(err.message);
+      setError(toAppError(err).message);
     } finally {
       setLoading(false);
     }
@@ -62,7 +63,7 @@ export default function CalendarSubscriptionsSettings({ locale }) {
       notifyCalendarChanged();
       return true;
     } catch (err) {
-      setError(err.message || t('calendar.subscribeFailed'));
+      setError(toAppError(err).message || t('calendar.subscribeFailed'));
       return false;
     } finally {
       setBusy(false);
@@ -94,7 +95,7 @@ export default function CalendarSubscriptionsSettings({ locale }) {
       await load();
       notifyCalendarChanged();
     } catch (err) {
-      setError(err.message || t('calendar.subscribeFailed'));
+      setError(toAppError(err).message || t('calendar.subscribeFailed'));
     } finally {
       setBusy(false);
     }
@@ -107,7 +108,7 @@ export default function CalendarSubscriptionsSettings({ locale }) {
       await load();
       notifyCalendarChanged();
     } catch (err) {
-      setError(err.message || t('calendar.subscribeFailed'));
+      setError(toAppError(err).message || t('calendar.subscribeFailed'));
     } finally {
       setBusy(false);
     }

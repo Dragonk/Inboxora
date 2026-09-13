@@ -20,6 +20,7 @@ import { Table } from '@tiptap/extension-table';
 import { TableRow } from '@tiptap/extension-table-row';
 import { TableHeader } from '@tiptap/extension-table-header';
 import { TableCell } from '@tiptap/extension-table-cell';
+import { toAppError } from '../utils/errors.ts';
 
 // Resize an image blob/file to max maxW pixels wide, preserving aspect ratio.
 // Returns a Promise<string> of a base64 data URL.
@@ -702,7 +703,7 @@ export default function ComposeModal() {
       setAiPanel(p => p ? { ...p, status: 'done', text: fullText } : p);
     } catch (err) {
       if (err.name !== 'AbortError') {
-        setAiPanel(p => p ? { ...p, status: 'error', text: err.message } : p);
+        setAiPanel(p => p ? { ...p, status: 'error', text: toAppError(err).message } : p);
       }
     }
   };
@@ -825,7 +826,7 @@ export default function ComposeModal() {
         setTimeout(() => { refreshThread(); refreshConversation(); }, 16000);
       }
     } catch (err) {
-      setError(err.message);
+      setError(toAppError(err).message);
       setSending(false);
     }
   };
@@ -902,7 +903,7 @@ export default function ComposeModal() {
         if (!silent) addNotification({ title: t('compose.draftSaved'), body: subject || t('common.noSubject') });
       }
     } catch (err) {
-      console.error('Save draft failed:', err.message);
+      console.error('Save draft failed:', toAppError(err).message);
     } finally {
       setSavingDraft(false);
     }

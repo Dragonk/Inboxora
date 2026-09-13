@@ -4,6 +4,7 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { api } from '../utils/api.ts';
 import { Button, Dialog } from './ui.tsx';
 import type { CSSProperties } from 'react';
+import { toAppError } from '../utils/errors.ts';
 
 function monthCells(anchor, weekStartsOn) {
   const first = new Date(anchor.getFullYear(), anchor.getMonth(), 1);
@@ -61,7 +62,7 @@ export default function CalendarSidebar({ anchor, calendars, visibleCalendarIds,
     } catch (error) {
       if (!mounted.current || generation !== sourceRequestGeneration.current) return null;
       pendingSourceIds.current.forEach(clearSourcePoll);
-      if (mounted.current) setSourceError(error.message);
+      if (mounted.current) setSourceError(toAppError(error).message);
       return null;
     }
   };
@@ -103,7 +104,7 @@ export default function CalendarSidebar({ anchor, calendars, visibleCalendarIds,
       })
       .catch(error => {
         if (!active || !mounted.current) return;
-        setSourceError(error.message);
+        setSourceError(toAppError(error).message);
       });
     return () => { active = false; };
   }, [sourcePanelRequest]);
@@ -120,19 +121,19 @@ export default function CalendarSidebar({ anchor, calendars, visibleCalendarIds,
         setSources(current => [...current.filter(source => source.id !== error.source.id), error.source]);
         try { await onSourcesChanged(); } catch { /* keep the persisted source visible even if refresh fails */ }
       }
-      setSourceError(error.message);
+      setSourceError(toAppError(error).message);
     }
   };
   const removeSource = async id => {
     sourceRequestGeneration.current += 1;
     try { await api.calendar.deleteSource(id); clearSourcePoll(id); await loadSources(); await onSourcesChanged(); }
-    catch (error) { setSourceError(error.message); }
+    catch (error) { setSourceError(toAppError(error).message); }
   };
   const syncSource = async id => {
     if (syncingSourceIds.has(id)) return;
     setSyncingSourceIds(current => new Set(current).add(id));
     try { await api.calendar.syncSource(id); await loadSources(); await onSourcesChanged(); }
-    catch (error) { setSourceError(error.message); }
+    catch (error) { setSourceError(toAppError(error).message); }
     finally { setSyncingSourceIds(current => { const next = new Set(current); next.delete(id); return next; }); }
   };
   // The cadence is per calendar, so it saves on change rather than behind a save
@@ -145,7 +146,7 @@ export default function CalendarSidebar({ anchor, calendars, visibleCalendarIds,
       // Put the previous value back, so the control never claims a cadence the server
       // did not accept.
       setSources(current => current.map(item => item.id === source.id ? { ...item, intervalMin: previous } : item));
-      setSourceError(error.message);
+      setSourceError(toAppError(error).message);
     }
   };
   const ownedCalendar = calendar => Boolean(calendar.source === 'local' && !calendar.read_only && calendar.owner_user_id);
@@ -154,7 +155,7 @@ export default function CalendarSidebar({ anchor, calendars, visibleCalendarIds,
     try {
       await api.calendar.updateCalendar(calendar.id, { name: changes.name || calendar.name, color: changes.color || calendar.color, displayVisible: calendar.display_visible !== false, customName: Boolean(calendar.custom_name || changes.name !== calendar.name) });
       setOpenCalendarMenu(null); setCalendarEdit(null); await onCalendarsChanged?.();
-    } catch (error) { setEditError(error.message); } finally { setCalendarSaving(false); }
+    } catch (error) { setEditError(toAppError(error).message); } finally { setCalendarSaving(false); }
   };
   const editCalendar = calendar => {
     setOpenCalendarMenu(null); setEditError(null);
@@ -164,7 +165,7 @@ export default function CalendarSidebar({ anchor, calendars, visibleCalendarIds,
     if (!window.confirm(t('calendar.confirmCalendarDelete', { name: calendar.name }))) return;
     setCalendarSaving(true); setSourceError(null);
     try { await api.calendar.deleteCalendar(calendar.id, calendar.name); setOpenCalendarMenu(null); await onCalendarsChanged?.(); }
-    catch (error) { setSourceError(error.message); } finally { setCalendarSaving(false); }
+    catch (error) { setSourceError(toAppError(error).message); } finally { setCalendarSaving(false); }
   };
   return <aside data-testid="calendar-sidebar" className="calendar-rail" style={panel} aria-label={t('calendar.panel')}>
     <h1 className="calendar-rail-heading">{t('calendar.title')}</h1>

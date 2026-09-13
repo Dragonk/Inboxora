@@ -1,3 +1,4 @@
+import { toAppError } from '../utils/errors.ts';
 import {
   clearGtdRemovalGuard,
   setCompletedGtdRemoval,
@@ -27,7 +28,7 @@ export async function doneGtdRow(thread, states, {
   } catch (err) {
     clearGtdRemovalGuard(identity, states);
     restoreGtdThread(snapshot);
-    console.error('GTD done failed:', err.message);
+    console.error('GTD done failed:', toAppError(err).message);
     addNotification({ title: t('gtd.doneFailed'), body: thread.subject || t('common.noSubject') });
     scheduleGtdSectionsFetch();
     return null;

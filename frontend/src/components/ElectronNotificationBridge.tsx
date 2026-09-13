@@ -4,6 +4,7 @@ import { api } from '../utils/api.ts';
 import { installCapacitorNativeBridge } from '../utils/capacitorNativeBridge.ts';
 import { createBoundedActionIdTracker, isTrustedNativeMessage } from '../utils/nativeActionSecurity.ts';
 import type { StoreState } from '../store/index.ts';
+import { toAppError } from '../utils/errors.ts';
 
 function linuxInstructionPath(filePath) {
   const normalized = String(filePath || '').replace(/\\/g, '/');
@@ -291,7 +292,7 @@ export default function ElectronNotificationBridge() {
             addNotification({
               type: 'error',
               title: 'Sync failed',
-              body: error.message || 'Could not sync mail.',
+              body: toAppError(error).message || 'Could not sync mail.',
             });
           }
         }

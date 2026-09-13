@@ -6,6 +6,7 @@ import GtdZeroPet from '../../components/GtdZeroPet.tsx';
 import { DEFAULT_GTD_FOLDERS, GTD_STATES, resolveAccountGtdFolders, diffGtdFolders, findGtdFolderCollisions } from '../../utils/gtd.ts';
 import type { CSSProperties } from 'react';
 import type { StoreState } from '../../store/index.ts';
+import { toAppError } from '../../utils/errors.ts';
 
 // GTD's settings UI, extracted from AdminPanel's CategoriesSection into the plugin. Registered into
 // the 'settings-categories' slot, which renders it only while GTD is activated — so the former
@@ -50,7 +51,7 @@ function GtdPetBlock() {
       setPetJsonFile(null); setSheetFile(null); setFileResetKey(k => k + 1);
       setMsg({ type: 'ok', text: t('admin.gtd.pet.imported', { name: pet.displayName || pet.slug }) });
     } catch (err) {
-      setMsg({ type: 'error', text: err.message || t('admin.gtd.pet.importFailed') });
+      setMsg({ type: 'error', text: toAppError(err).message || t('admin.gtd.pet.importFailed') });
     } finally { setImporting(false); }
   };
 
@@ -166,7 +167,7 @@ function GtdAccountBlock({ account }) {
       await api.updateAccount(account.id, { gtd_enabled: next });
       updateAccount(account.id, { gtd_enabled: next });
     } catch (err) {
-      setMsg({ type: 'error', text: err.message });
+      setMsg({ type: 'error', text: toAppError(err).message });
     } finally { setToggling(false); }
   };
 
@@ -220,7 +221,7 @@ function GtdAccountBlock({ account }) {
       // The 400 collision case carries a specific server message (e.g. which two states
       // clash); show it over the generic fallback. English-only — acceptable for this
       // admin-surface error detail, so no new i18n key.
-      setMsg({ type: 'error', text: err.message || t('admin.gtd.createFailed') });
+      setMsg({ type: 'error', text: toAppError(err).message || t('admin.gtd.createFailed') });
     } finally { setCreating(false); }
   };
 

@@ -3,6 +3,7 @@ import { useTranslation } from 'react-i18next';
 import { useStore } from '../store/index.ts';
 import { api } from '../utils/api.ts';
 import LogoMark from './LogoMark.tsx';
+import { toAppError } from '../utils/errors.ts';
 
 // SSO/OIDC is the highlighted sign-in method: an accent-tinted card with the
 // identity shield from the mock-up, rendered ahead of the password form.
@@ -151,7 +152,7 @@ export default function LoginPage() {
       setUser(data.user);
       await loadPreferences();
     } catch (err) {
-      setError(err.message);
+      setError(toAppError(err).message);
     } finally {
       setLoading(false);
     }
@@ -167,7 +168,7 @@ export default function LoginPage() {
       setUser(data.user);
       await loadPreferences();
     } catch (err) {
-      setError(err.message);
+      setError(toAppError(err).message);
       setTotpCode('');
     } finally {
       setLoading(false);
@@ -184,7 +185,7 @@ export default function LoginPage() {
       setUser(data.user);
       await loadPreferences();
     } catch (err) {
-      setError(err.message);
+      setError(toAppError(err).message);
       setEmailOtpCode('');
     } finally {
       setLoading(false);
@@ -198,7 +199,7 @@ export default function LoginPage() {
       const data = await api.totp.sendEmailOtp();
       setEmailHint(data.emailHint || emailHint);
     } catch (err) {
-      setError(err.message);
+      setError(toAppError(err).message);
     } finally {
       setEmailOtpResending(false);
     }
@@ -212,7 +213,7 @@ export default function LoginPage() {
       setEnrollData(data);
       setEnrollStep('scan');
     } catch (err) {
-      setError(err.message);
+      setError(toAppError(err).message);
     } finally {
       setLoading(false);
     }
@@ -228,7 +229,7 @@ export default function LoginPage() {
       setUser(data.user);
       await loadPreferences();
     } catch (err) {
-      setError(err.message);
+      setError(toAppError(err).message);
       setEnrollCode('');
     } finally {
       setLoading(false);
@@ -244,7 +245,7 @@ export default function LoginPage() {
       await api.forgotPassword(forgotEmail.trim());
       setForgotSent(true);
     } catch (err) {
-      setError(err.message);
+      setError(toAppError(err).message);
     } finally {
       setLoading(false);
     }
@@ -267,7 +268,7 @@ export default function LoginPage() {
       await api.resetPassword(resetToken, newPassword);
       setResetDone(true);
     } catch (err) {
-      setError(err.message);
+      setError(toAppError(err).message);
     } finally {
       setLoading(false);
     }

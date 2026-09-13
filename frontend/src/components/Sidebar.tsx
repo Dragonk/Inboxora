@@ -19,6 +19,7 @@ import LogoMark from './LogoMark.tsx';
 import ProfileModal from './ProfileModal.tsx';
 import { useUiScale, descale } from '../hooks/useUiScale.ts';
 import type { ReactNode } from 'react';
+import { toAppError } from '../utils/errors.ts';
 
 const ICONS = {
   inbox: (
@@ -535,11 +536,11 @@ export default function Sidebar({ onEditProfile = null }) {
       window.dispatchEvent(new CustomEvent('inboxora:refresh'));
       refreshUnreadCounts();
       api.getFolders(accountId).then(f => setFolders(accountId, f)).catch(() => {});
-    } catch (err) { console.error('markAllRead failed:', err.message); }
+    } catch (err) { console.error('markAllRead failed:', toAppError(err).message); }
   };
 
   const handleSyncFolder = (accountId: string, folder: string) => {
-    api.syncFolder(accountId, folder).catch(err => console.error('syncFolder failed:', err.message));
+    api.syncFolder(accountId, folder).catch(err => console.error('syncFolder failed:', toAppError(err).message));
   };
 
   const handleStartRename = (accountId, folderObj) => {
@@ -566,7 +567,7 @@ export default function Sidebar({ onEditProfile = null }) {
       }
       setRenamingFolder(null);
     } catch (err) {
-      addNotification({ title: t('sidebar.renameFailed'), body: err.message });
+      addNotification({ title: t('sidebar.renameFailed'), body: toAppError(err).message });
     } finally {
       setFolderOpLoading(false);
     }
@@ -590,7 +591,7 @@ export default function Sidebar({ onEditProfile = null }) {
             setSelectedAccount(accountId, 'INBOX');
           }
         } catch (err) {
-          addNotification({ title: t('sidebar.deleteFailed'), body: err.message });
+          addNotification({ title: t('sidebar.deleteFailed'), body: toAppError(err).message });
         }
       },
     });
@@ -613,7 +614,7 @@ export default function Sidebar({ onEditProfile = null }) {
           await api.emptyFolder(accountId, folderPath);
           addNotification({ title: t('sidebar.emptying', { name }) });
         } catch (err) {
-          addNotification({ title: t('sidebar.emptyFailed'), body: err.message });
+          addNotification({ title: t('sidebar.emptyFailed'), body: toAppError(err).message });
         }
       },
     });
@@ -643,7 +644,7 @@ export default function Sidebar({ onEditProfile = null }) {
       setCreatingFolder(null);
       setCreateName('');
     } catch (err) {
-      addNotification({ title: t('sidebar.createFailed'), body: err.message });
+      addNotification({ title: t('sidebar.createFailed'), body: toAppError(err).message });
     }
   };
 
@@ -664,7 +665,7 @@ export default function Sidebar({ onEditProfile = null }) {
       ]);
     } catch (err) {
       setAccounts(accounts);
-      addNotification({ title: t('sidebar.accountMenu.moveFailed'), body: err.message });
+      addNotification({ title: t('sidebar.accountMenu.moveFailed'), body: toAppError(err).message });
     }
   }, [accounts, setAccounts, addNotification, t]);
 

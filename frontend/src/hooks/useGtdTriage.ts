@@ -9,6 +9,7 @@ import {
 import { openReplyFromMessage, openForwardFromMessage } from '../utils/composeFromMessage.ts';
 import { resolveContextMenuMessage } from '../utils/contextMenuPolicy.ts';
 import { doneGtdRow } from '../utils/gtdDone.ts';
+import { toAppError } from '../utils/errors.ts';
 
 // One pending delayed auto-read across ALL GTD surfaces (module scope, not per hook
 // instance): the sidebar and the tab browse list are mounted together in desktop row
@@ -138,7 +139,7 @@ export function useGtdTriage() {
       // debounce coalesces this with any gtd_sections_updated the mark triggers).
       scheduleGtdSectionsFetch();
     } catch (err) {
-      console.error('GTD read toggle failed:', err.message);
+      console.error('GTD read toggle failed:', toAppError(err).message);
       markGtdThreadRead(identity, !read);
     }
   };
@@ -179,7 +180,7 @@ export function useGtdTriage() {
     try {
       await api.markStarred(thread.id, next);
     } catch (err) {
-      console.error('GTD star toggle failed:', err.message);
+      console.error('GTD star toggle failed:', toAppError(err).message);
       markGtdThreadStarred(identity, !next);
     }
   };
@@ -192,7 +193,7 @@ export function useGtdTriage() {
     api.deleteMessage(thread.id)
       .then(scheduleGtdSectionsFetch)
       .catch(err => {
-        console.error('GTD delete failed:', err.message);
+        console.error('GTD delete failed:', toAppError(err).message);
         addNotification({ title: t('messageList.deleted.failTitle'), body: thread.subject || t('common.noSubject') });
         scheduleGtdSectionsFetch();
       });
@@ -210,7 +211,7 @@ export function useGtdTriage() {
         scheduleGtdSectionsFetch();
       })
       .catch(err => {
-        console.error('GTD move failed:', err.message);
+        console.error('GTD move failed:', toAppError(err).message);
         addNotification({ title: t('message.moved.failTitle'), body: t('message.moved.failBody') });
         scheduleGtdSectionsFetch();
       });
@@ -259,7 +260,7 @@ export function useGtdTriage() {
             });
           }
         } catch (err) {
-          console.error('GTD compose prefill failed:', err.message);
+          console.error('GTD compose prefill failed:', toAppError(err).message);
           scheduleGtdSectionsFetch();
         }
         break;
