@@ -44,7 +44,19 @@ import type { CSSProperties, SVGProps } from 'react';
 import type { StoreState } from '../store/index.ts';
 
 // ─── Shared field component ───────────────────────────────────────────────────
-function Field({ label, required = false, children }) {
+interface FieldProps { label?: React.ReactNode; required?: boolean; children?: React.ReactNode }
+interface ThemeDefaultGridProps { tone?: string; selected?: string; onSelect: (name: string) => void }
+interface IconBtnProps { children?: React.ReactNode; onClick?: (event: React.MouseEvent<HTMLButtonElement>) => void; title?: string; danger?: boolean; disabled?: boolean }
+interface LayoutDiagramProps { layoutConfig?: { direction?: string; listWidth?: number; [key: string]: unknown }; active?: boolean }
+interface SwipeActionIconProps { action?: string; size?: number }
+interface SettingsSwitchRowProps { label?: React.ReactNode; description?: React.ReactNode; checked?: boolean; onChange?: (value: boolean) => void; testId?: string; disabled?: boolean; ariaLabel?: string | null; children?: React.ReactNode }
+interface SubTabSectionProps { initialSubTab?: string }
+interface PluginsSectionProps { onNavigate?: (tab: string, subTab?: string) => void }
+interface ConfirmOverlayProps { dialog?: { title?: React.ReactNode; message?: React.ReactNode; confirmLabel?: React.ReactNode; onConfirm?: () => void; danger?: boolean } | null; onClose: () => void }
+interface SubTabsProps { tabs?: Array<{ id: string; label?: string; content?: React.ReactNode }>; initialTab?: string }
+
+
+function Field({ label, required = false, children }: FieldProps) {
   return (
     <div style={{ marginBottom: 14 }}>
       <label style={{ display: 'block', fontSize: 12, color: 'var(--text-secondary)', marginBottom: 5 }}>
@@ -1134,7 +1146,7 @@ function AccountsTab() {
 // ─── Themes Tab ───────────────────────────────────────────────────────────────
 // One grid per appearance: the light default and the dark default are chosen
 // separately, and the mode decides which of the two is rendered.
-function ThemeDefaultGrid({ tone, selected, onSelect }) {
+function ThemeDefaultGrid({ tone, selected, onSelect }: ThemeDefaultGridProps) {
   const themes = themesByTone(tone);
   if (!themes.length) return null;
   return (
@@ -1340,7 +1352,7 @@ function ThemesTab() {
 }
 
 // ─── Admin Panel Shell ────────────────────────────────────────────────────────
-function IconBtn({ children, onClick, title, danger = false, disabled = false }) {
+function IconBtn({ children, onClick, title, danger = false, disabled = false }: IconBtnProps) {
   const [hov, setHov] = useState(false);
   return (
     <button onClick={disabled ? undefined : onClick} title={title} disabled={disabled}
@@ -1540,7 +1552,7 @@ interface CodexStatusState {
   accountLabel?: string;
 }
 
-function LayoutDiagram({ layoutConfig, active }) {
+function LayoutDiagram({ layoutConfig, active }: LayoutDiagramProps) {
   const isColumn = layoutConfig.direction === 'column';
   const accent = active ? 'var(--accent)' : 'var(--border)';
   const bg1 = active ? 'var(--accent-dim)' : 'var(--bg-elevated)';
@@ -1622,7 +1634,7 @@ function LayoutDiagram({ layoutConfig, active }) {
 }
 
 // ─── Layouts Tab ──────────────────────────────────────────────────────────────
-function SwipeActionIcon({ action, size = 17 }) {
+function SwipeActionIcon({ action, size = 17 }: SwipeActionIconProps) {
   const common: SVGProps<SVGSVGElement> = { width: size, height: size, viewBox: '0 0 24 24', fill: 'none', stroke: 'currentColor', strokeWidth: 1.8, strokeLinecap: 'round', strokeLinejoin: 'round' };
   if (action === 'star') return <svg {...common}><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/></svg>;
   if (action === 'delete') return <svg {...common}><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 01-2 2H7a2 2 0 01-2-2V6"/><path d="M8 6V4a1 1 0 011-1h6a1 1 0 011 1v2"/></svg>;
@@ -1706,7 +1718,7 @@ function SettingsChoices({ label, description, testId, value, onChange, options,
 // A single on/off setting as its own row: name + what it does on the left, the
 // switch on the right. The description explains the setting itself and never
 // flips with its state — the switch, its aria-checked and its label carry state.
-function SettingsSwitchRow({ label, description, checked, onChange, testId = undefined, disabled = false, ariaLabel = null, children = null }) {
+function SettingsSwitchRow({ label, description, checked, onChange, testId = undefined, disabled = false, ariaLabel = null, children = null }: SettingsSwitchRowProps) {
   return <div className="settings-switch-row" data-testid={testId ? `${testId}-row` : undefined}>
     <div className="settings-switch-text">
       <div className="settings-switch-label">{label}</div>
@@ -1718,7 +1730,7 @@ function SettingsSwitchRow({ label, description, checked, onChange, testId = und
       role="switch"
       data-testid={testId}
       aria-checked={checked}
-      aria-label={ariaLabel || label}
+      aria-label={ariaLabel ?? (typeof label === 'string' ? label : undefined)}
       disabled={disabled}
       onClick={() => onChange(!checked)}
       style={{
@@ -4364,7 +4376,7 @@ function AiActionsTab() {
 }
 
 // ─── Categories Section ───────────────────────────────────────────────────────
-function CategoriesSection({ initialSubTab }) {
+function CategoriesSection({ initialSubTab }: SubTabSectionProps) {
   const { t } = useTranslation();
   const { accounts, categorizationEnabled, setCategorizationEnabled } = useStore();
   const [sources, setSources] = useState<Array<{ id: string; source_type?: string; value?: string; label?: string; domain_count?: number; enabled?: boolean; [key: string]: unknown }>>([]);
@@ -4626,7 +4638,7 @@ function CategoriesSection({ initialSubTab }) {
 // Plugins settings tab — lists the plugins registered in this build and lets the user activate/
 // deactivate each for themselves. Activation is per-user (persisted server-side) and independent of
 // a plugin's own per-account config; deactivating hides that plugin's UI and makes it inert.
-function PluginsSection({ onNavigate }) {
+function PluginsSection({ onNavigate }: PluginsSectionProps) {
   const { t } = useTranslation();
   const enabledPlugins = useStore((s: StoreState) => s.enabledPlugins);
   const setPluginActivated = useStore((s: StoreState) => s.setPluginActivated);
@@ -5821,7 +5833,7 @@ function NotificationsTab() {
 }
 
 // ─── Shared confirm overlay (replaces window.confirm everywhere) ──────────────
-function ConfirmOverlay({ dialog, onClose }) {
+function ConfirmOverlay({ dialog, onClose }: ConfirmOverlayProps) {
   const { t } = useTranslation();
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
@@ -5944,7 +5956,7 @@ function LanguageTab() {
 }
 
 // ─── Sub-tab navigator (reusable within a top-level tab panel) ───────────────
-function SubTabs({ tabs, initialTab = undefined }) {
+function SubTabs({ tabs, initialTab = undefined }: SubTabsProps) {
   const [active, setActive] = useState(initialTab || tabs[0].id);
   return (
     <div>
@@ -5982,7 +5994,7 @@ function SubTabs({ tabs, initialTab = undefined }) {
 }
 
 // ─── Merged Appearance Tab ────────────────────────────────────────────────────
-function AppearanceTab({ initialSubTab }) {
+function AppearanceTab({ initialSubTab }: SubTabSectionProps) {
   const { t } = useTranslation();
   return (
     <SubTabs initialTab={initialSubTab} tabs={[
@@ -6001,7 +6013,7 @@ function AppearanceTab({ initialSubTab }) {
 }
 
 // ─── Merged Security & Privacy Tab ────────────────────────────────────────────
-function SecurityPrivacyTab({ initialSubTab }) {
+function SecurityPrivacyTab({ initialSubTab }: SubTabSectionProps) {
   const { t } = useTranslation();
   return (
     <SubTabs initialTab={initialSubTab} tabs={[
@@ -6371,7 +6383,7 @@ function RulesTab() {
     { type: 'move',      label: t('admin.rules.actionMove') },
   ];
 
-  if (formMode) {
+  if (formMode && formData) {
     const fd = formData;
     return (
       <div style={{ maxWidth: 560 }}>
