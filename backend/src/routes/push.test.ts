@@ -18,7 +18,7 @@ const {
 }));
 
 vi.mock('../middleware/auth.js', () => ({
-  requireAuth: (req, _res, next) => { req.session = { userId: 'user-1' }; next(); },
+  requireAuth: (req: { headers: Record<string, string>; session?: { userId?: string } }, _res: unknown, next: () => void) => { req.session = { userId: 'user-1' }; next(); },
 }));
 vi.mock('../middleware/deviceAuth.js', () => ({
   requireDeviceAuth: (req, _res, next) => { req.pushDevice = { id: 'row-1', userId: 'user-1', deviceId: 'device-1' }; next(); },

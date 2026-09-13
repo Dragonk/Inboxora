@@ -21,7 +21,7 @@ vi.mock('../services/encryption.js', () => ({
 vi.mock('../services/calendarInvitation.js', () => ({ sendCalendarInvitation }));
 vi.mock('../services/externalCalendarSync.js', () => ({ releaseCalendarSource, scheduleCalendarSource, stopCalendarSource, syncCalendarSource }));
 vi.mock('../middleware/auth.js', () => ({
-  requireAuth: (req, _res, next) => { req.session = { userId: 'user-1' }; next(); },
+  requireAuth: (req: { headers: Record<string, string>; session?: { userId?: string } }, _res: unknown, next: () => void) => { req.session = { userId: 'user-1' }; next(); },
 }));
 
 import express from 'express';

@@ -3,7 +3,7 @@ import type { JsonBody } from '../test/json.js';
 import type { PluginManifest } from '../plugins/registry.js';
 
 vi.mock('../middleware/auth.js', () => ({
-  requireAuth: (req, _res, next) => { req.session = { userId: 'u1' }; next(); },
+  requireAuth: (req: { headers: Record<string, string>; session?: { userId?: string } }, _res: unknown, next: () => void) => { req.session = { userId: 'u1' }; next(); },
 }));
 vi.mock('../plugins/activation.js', () => ({
   getActivatedPlugins: vi.fn(),

@@ -2,7 +2,7 @@ import { describe, it, expect, vi } from 'vitest';
 
 // Same mock surface the other mail.* route tests use so importing mail.js is side-effect free.
 vi.mock('../services/db.js', () => ({ query: vi.fn() }));
-vi.mock('../middleware/auth.js', () => ({ requireAuth: (_req, _res, next) => next() }));
+vi.mock('../middleware/auth.js', () => ({ requireAuth: (_req: unknown, _res: unknown, next: () => void) => next() }));
 vi.mock('../index.js', () => ({ imapManager: {} }));
 
 import { RELOCATE_INSERT_COLS, RELOCATE_SELECT_COLS } from '../utils/relocateColumns.js';

@@ -10,7 +10,7 @@ import { describe, it, expect, beforeAll, afterAll, afterEach, beforeEach, vi } 
 vi.mock('../services/db.js', () => ({ query: vi.fn(), pool: {} }));
 vi.mock('../services/encryption.js', () => ({ decrypt: (v) => v, isEncrypted: () => false }));
 vi.mock('../index.js', () => ({ imapManager: {} }));
-vi.mock('../middleware/auth.js', () => ({ requireAuth: (_req, _res, next) => next() }));
+vi.mock('../middleware/auth.js', () => ({ requireAuth: (_req: unknown, _res: unknown, next: () => void) => next() }));
 vi.mock('../services/authEvents.js', () => ({ logAuthEvent: vi.fn() }));
 vi.mock('../services/hostValidation.js', () => ({ validateHost: vi.fn(async () => null) }));
 

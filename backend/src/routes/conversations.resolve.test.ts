@@ -4,7 +4,7 @@ import type { Server } from 'node:http';
 
 vi.mock('../services/db.js', () => ({ query: vi.fn(), pool: {} }));
 vi.mock('../middleware/auth.js', () => ({
-  requireAuth: (req, _res, next) => {
+  requireAuth: (req: { headers: Record<string, string>; session?: { userId?: string } }, _res: unknown, next: () => void) => {
     req.session = { userId: req.headers['x-test-user'] || 'user-a' };
     next();
   },

@@ -18,7 +18,7 @@ vi.mock('../services/encryption.js', () => ({
 }));
 vi.mock('../middleware/auth.js', () => ({
   // Authenticated, but deliberately NOT an admin — requireAdmin always 403s here.
-  requireAuth: (req, _res, next) => { req.session = { userId: 'u1' }; next(); },
+  requireAuth: (req: { headers: Record<string, string>; session?: { userId?: string } }, _res: unknown, next: () => void) => { req.session = { userId: 'u1' }; next(); },
   requireAdmin: (_req, res) => res.status(403).json({ error: 'Admin access required' }),
 }));
 

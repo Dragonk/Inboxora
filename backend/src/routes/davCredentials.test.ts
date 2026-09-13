@@ -9,7 +9,7 @@ const { createDavAppPassword, listDavAppPasswords, revokeDavAppPassword } = vi.h
   revokeDavAppPassword: vi.fn(),
 }));
 vi.mock('../middleware/auth.js', () => ({
-  requireAuth: (req, _res, next) => { req.session = { userId: 'user-1' }; next(); },
+  requireAuth: (req: { headers: Record<string, string>; session?: { userId?: string } }, _res: unknown, next: () => void) => { req.session = { userId: 'user-1' }; next(); },
 }));
 vi.mock('../services/davAppPasswords.js', () => ({
   createDavAppPassword,

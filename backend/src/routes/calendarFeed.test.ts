@@ -6,7 +6,7 @@ import { createHash } from 'crypto';
 
 const { query } = vi.hoisted<any>(() => ({ query: vi.fn() }));
 vi.mock('../services/db.js', () => ({ query }));
-vi.mock('../middleware/auth.js', () => ({ requireAuth: (req, _res, next) => { req.session = { userId: 'owner-1' }; next(); } }));
+vi.mock('../middleware/auth.js', () => ({ requireAuth: (req: { headers: Record<string, string>; session?: { userId?: string } }, _res: unknown, next: () => void) => { req.session = { userId: 'owner-1' }; next(); } }));
 
 import express from 'express';
 import calendarFeedRouter from './calendarFeed.js';

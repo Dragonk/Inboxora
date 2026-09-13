@@ -8,7 +8,7 @@ import type { JsonBody } from '../test/json.js';
 // The DB, app entrypoint, and auth middleware are stubbed to keep the harness isolated.
 vi.mock('../services/db.js', () => ({ query: vi.fn() }));
 vi.mock('../middleware/auth.js', () => ({
-  requireAuth: (req, _res, next) => { req.session = { userId: 'u1' }; next(); },
+  requireAuth: (req: { headers: Record<string, string>; session?: { userId?: string } }, _res: unknown, next: () => void) => { req.session = { userId: 'u1' }; next(); },
 }));
 vi.mock('../index.js', () => ({ imapManager: {} }));
 

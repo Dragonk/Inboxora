@@ -1,7 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 
 vi.mock('../services/db.js', () => ({ query: vi.fn() }));
-vi.mock('../middleware/auth.js', () => ({ requireAuth: (_req, _res, next) => next() }));
+vi.mock('../middleware/auth.js', () => ({ requireAuth: (_req: unknown, _res: unknown, next: () => void) => next() }));
 vi.mock('../index.js', () => ({ imapManager: {} }));
 
 import { gatherSnoozeConversation } from './mail.js';
