@@ -768,3 +768,13 @@ To nadal osobny, wieloetapowy refactor, udokumentowany w planie (5c).
   ConversationImapManager | null, folderMappings/destinations/scope otypowane;
   bulkMoveMessages zwraca { succeeded, uidMap }.
 
+
+## 69. Weryfikacja koncowa (runda 50)
+
+Backend:  tsc 0 · build OK (dist/index.js) · testy 1785/0 · lint czysty
+Frontend: tsc 0 · build OK (dist/index.html) · testy 2335/0 · lint czysty · E2E 727 testow
+Audyt: 0 plikow .js/.jsx w src (543 plikow .ts/.tsx); 0 plikow z @ts-nocheck/@ts-ignore/
+@ts-expect-error; 0 wystapien any poza udokumentowanym DbRow.
+Strict mode: NIE wlaczony; zmierzone 1609 (backend) / 2172 (frontend) bledow przy strict: true;
+noImplicitAny zredukowane z 3502 do 2846 w backendzie. Udokumentowane w STATUS i PLAN (5c).
+
