@@ -27,9 +27,12 @@ const GIST_STATES = ['watch', 'delegated'];
 // Pick the waiting heads that still need a gist from a sections payload. Pure and
 // DB-free so "no candidates" and "no provider" can short-circuit before any query.
 // Returns [{ id, account_id }] deduped by id.
-export function selectGistCandidates(sections) {
-  const out = [];
-  const seen = new Set();
+interface GistThreadHead { id?: string; account_id?: string; gist?: unknown }
+interface GistSection { threads?: Array<GistThreadHead | null> | null }
+
+export function selectGistCandidates(sections: Record<string, GistSection | undefined> | null | undefined): Array<{ id: string; account_id: string }> {
+  const out: Array<{ id: string; account_id: string }> = [];
+  const seen = new Set<string>();
   for (const state of GIST_STATES) {
     const threads = sections?.[state]?.threads;
     if (!Array.isArray(threads)) continue;
@@ -45,7 +48,7 @@ export function selectGistCandidates(sections) {
 }
 
 // Bounded-concurrency runner: at most `limit` workers in flight over `items`.
-async function runPool(items, limit: number, worker) {
+async function runPool<T>(items: T[], limit: number, worker: (item: T) => Promise<unknown>): Promise<void> {
   let idx = 0;
   const runners = Array.from({ length: Math.min(limit, items.length) }, async () => {
     while (idx < items.length) {
@@ -59,16 +62,16 @@ async function runPool(items, limit: number, worker) {
 // Guards against two overlapping sections fetches queueing the same message twice.
 const _inFlight = new Set();
 
-async function generateForAccount(accountId: string, ids) {
+async function generateForAccount(accountId: string, ids: string[]): Promise<number> {
   // Skip ids that already carry a cached gist (belt-and-suspenders over the sections-side filter,
   // so a head that got a gist since the sections snapshot isn't regenerated / doesn't re-broadcast).
-  const existing = await getMessageAnnotations(accountId, ids, 'gtd');
-  const need = ids.filter((id) => !existing[id]?.gist);
+  const existing = (await getMessageAnnotations(accountId, ids, 'gtd')) as Record<string, { gist?: unknown } | undefined>;
+  const need = ids.filter((id: string) => !existing[id]?.gist);
   if (!need.length) return 0;
 
   const rows = await getMessageFields(accountId, need);
   let wrote = 0;
-  await runPool(rows, GIST_CONCURRENCY, async (row) => {
+  await runPool(rows, GIST_CONCURRENCY, async (row: { id: string; subject?: string; from_name?: string; from_email?: string; content?: string }) => {
     const gist = await summarizeMessage({
       subject: row.subject,
       from: row.from_name || row.from_email,
@@ -77,7 +80,7 @@ async function generateForAccount(accountId: string, ids) {
     if (!gist) return;
     // Store under GTD's annotation namespace on the message (cleaned with the message on delete).
     const n = await setMessageAnnotation(accountId, row.id, 'gtd', { gist });
-    if (n > 0) wrote++;
+    if ((n ?? 0) > 0) wrote++;
   });
   return wrote;
 }
@@ -85,7 +88,7 @@ async function generateForAccount(accountId: string, ids) {
 // Lazily generate gists for the waiting heads in a sections payload. Fire-and-forget
 // from the sections route — never blocks the response. Short-circuits (no queries)
 // when there are no candidates or no provider is configured.
-export async function queueGistGeneration({ sections, userId, broadcast }: { sections?: unknown; userId?: string | null; broadcast?: (payload: unknown, userId?: string) => void } = {}) {
+export async function queueGistGeneration({ sections, userId, broadcast }: { sections?: Record<string, GistSection | undefined> | null; userId?: string | null; broadcast?: (payload: unknown, userId?: string) => void } = {}) {
   const candidates = selectGistCandidates(sections).filter(c => !_inFlight.has(c.id));
   if (!candidates.length) return;
 
@@ -113,7 +116,7 @@ export async function queueGistGeneration({ sections, userId, broadcast }: { sec
       try {
         wrote = await generateForAccount(accountId, ids);
       } catch (err) {
-        console.warn(`GTD gist generation failed for account ${accountId}:`, err.message);
+        console.warn(`GTD gist generation failed for account ${accountId}:`, err instanceof Error ? err.message : String(err));
       } finally {
         // Release this batch's ids as soon as it settles (existing per-account
         // semantics), and stop tracking them so the outer finally can't later delete
@@ -121,10 +124,10 @@ export async function queueGistGeneration({ sections, userId, broadcast }: { sec
         // deletes must stay in one synchronous statement: an await between them
         // would reopen the window where an overlapping call re-reserves an id our
         // outer finally then wrongly releases.
-        ids.forEach(id => { _inFlight.delete(id); reserved.delete(id); });
+        ids.forEach((id: string) => { _inFlight.delete(id); reserved.delete(id); });
       }
       if (wrote > 0 && typeof broadcast === 'function') {
-        broadcast({ type: 'gtd_sections_updated', accountId }, userId);
+        broadcast({ type: 'gtd_sections_updated', accountId }, userId ?? undefined);
       }
     }
   } finally {

@@ -26,6 +26,7 @@ import { setMailEngine } from '../mailEngine.js';
 import { invalidateGtdConfigCache as __mock_invalidateGtdConfigCache } from './gtdConfig.js';
 import { getAccountConfig as __mock_getAccountConfig, setAccountConfig as __mock_setAccountConfig } from '../accountConfig.js';
 import gtdRoutes from './routes.js';
+import { mockMailEngine } from '../../test/mailEngine.js';
 interface GtdEnsureResponse {
   error?: string;
   code?: string;
@@ -47,7 +48,7 @@ const setAccountConfig = vi.mocked(__mock_setAccountConfig);
 // ensureLabelFolders is a bound plugin-api capability; inject a mock engine (its ensureFolder is
 // asserted on below).
 const imapManager = { ensureFolder: vi.fn(), broadcast: vi.fn() };
-setMailEngine(imapManager);
+setMailEngine(mockMailEngine(imapManager));
 
 function buildApp() {
   const app = express();

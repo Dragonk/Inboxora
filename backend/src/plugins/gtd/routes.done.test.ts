@@ -33,6 +33,7 @@ import { query as __mock_query } from '../../services/db.js';
 import { setMailEngine } from '../mailEngine.js';
 import { resolveArchiveFolder as __mock_resolveArchiveFolder, isAllMailFolder as __mock_isAllMailFolder, adjustFolderCounts as __mock_adjustFolderCounts, fanOutReadToSiblings as __mock_fanOutReadToSiblings } from '../../utils/mailUtils.js';
 import { getGtdConfig as __mock_getGtdConfig, DEFAULT_GTD_FOLDERS as __mock_DEFAULT_GTD_FOLDERS } from './gtdConfig.js';
+import { mockMailEngine } from '../../test/mailEngine.js';
 
 // The done route's mail actions (label strip, mark-read, archive, broadcast) go through the bound
 // plugin-api capabilities; inject a mock engine, asserted on directly below.
@@ -44,7 +45,7 @@ const imapManager = {
   _unguardMoveUid: vi.fn(),
   broadcast: vi.fn(),
 };
-setMailEngine(imapManager);
+setMailEngine(mockMailEngine(imapManager));
 import gtdRoutes from './routes.js';
 
 // Cast mocked module exports so their vitest mock helpers type-check.

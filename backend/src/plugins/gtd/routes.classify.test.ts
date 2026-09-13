@@ -23,6 +23,7 @@ import { query as __mock_query } from '../../services/db.js';
 import { setMailEngine } from '../mailEngine.js';
 import { getGtdConfig as __mock_getGtdConfig, DEFAULT_GTD_FOLDERS as __mock_DEFAULT_GTD_FOLDERS } from './gtdConfig.js';
 import gtdRoutes from './routes.js';
+import { mockMailEngine } from '../../test/mailEngine.js';
 
 // Cast mocked module exports so their vitest mock helpers type-check.
 const query = vi.mocked(__mock_query);
@@ -38,7 +39,7 @@ const imapManager = {
   removeMessageCopy: vi.fn(),
   broadcast: vi.fn(),
 };
-setMailEngine(imapManager);
+setMailEngine(mockMailEngine(imapManager));
 
 const MSG_ID = 'dddddddd-dddd-4ddd-8ddd-dddddddddddd';
 const ACCT_ID = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa';

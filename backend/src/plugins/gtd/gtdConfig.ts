@@ -18,7 +18,7 @@ export const GTD_STATES = ['todo', 'watch', 'delegated', 'someday', 'reference']
 // folders map (DEFAULT_GTD_FOLDERS merged with the account's overrides). Returns
 // null for an unknown state so the classify route can reject it with a 400.
 // Pure — no DB — so it is unit-testable without standing up an account.
-export function resolveGtdStateFolder(state, folders) {
+export function resolveGtdStateFolder(state: string, folders: GtdFolderMap | null | undefined): string | null {
   if (!GTD_STATES.includes(state)) return null;
   const path = folders?.[state];
   return typeof path === 'string' && path.trim() ? path : null;
@@ -57,13 +57,15 @@ function isReservedFolderPath(path: string) {
 // turns this into a 400, since /done's label strip would otherwise permanently delete mail
 // in a live system folder). Every value is dropped from `folders`, so a reserved mapping
 // can never be persisted even by a caller that ignores `reserved`. Pure.
-export function sanitizeGtdFoldersDetailed(input) {
+export type GtdFolderMap = Record<string, string | undefined>;
+
+export function sanitizeGtdFoldersDetailed(input: unknown): { folders: GtdFolderMap; rejected: string[]; reserved: string[] } {
   if (!input || typeof input !== 'object' || Array.isArray(input)) return { folders: {}, rejected: [], reserved: [] };
-  const folders = {};
+  const folders: GtdFolderMap = {};
   const rejected = [];
   const reserved = [];
   for (const state of GTD_STATES) {
-    const val = input[state];
+    const val = (input as Record<string, unknown>)[state];
     if (typeof val !== 'string') continue; // absent/non-string → default, silent
     const trimmed = val.trim();
     if (!trimmed) continue; // blank → default, silent
@@ -82,7 +84,7 @@ export function sanitizeGtdFoldersDetailed(input) {
 
 // Overrides-only view of the above, used where the rejection report isn't needed
 // (the "create missing folders" route). Same clean overrides object as before.
-export function sanitizeGtdFolders(input) {
+export function sanitizeGtdFolders(input: unknown): GtdFolderMap {
   return sanitizeGtdFoldersDetailed(input).folders;
 }
 
@@ -92,14 +94,15 @@ export function sanitizeGtdFolders(input) {
 // path rejects such a mapping. Expects a fully-resolved five-state map (defaults
 // already merged in). Returns collision groups [{ folder, states }] (empty when
 // every state is distinct). Pure.
-export function findGtdFolderCollisions(folders) {
-  const byFolder = new Map();
+export function findGtdFolderCollisions(folders: GtdFolderMap | null | undefined): Array<{ folder: string; states: string[] }> {
+  const byFolder = new Map<string, string[]>();
   for (const state of GTD_STATES) {
     const path = folders?.[state];
     if (typeof path !== 'string' || !path.trim()) continue;
     const key = path.trim();
-    if (!byFolder.has(key)) byFolder.set(key, []);
-    byFolder.get(key).push(state);
+    const states = byFolder.get(key);
+    if (states) states.push(state);
+    else byFolder.set(key, [state]);
   }
   const collisions = [];
   for (const [folder, states] of byFolder) {
@@ -190,8 +193,8 @@ export async function getGtdConfig(accountId: string) {
   // could point a state at a system folder. /done would then permanently delete real
   // mail, so drop only reserved values on read and fall back to the safe default;
   // length/traversal values retain their existing read-through behavior.
-  const safeStored = {};
-  for (const [state, val] of Object.entries(stored)) {
+  const safeStored: Record<string, unknown> = {};
+  for (const [state, val] of Object.entries(stored as Record<string, unknown>)) {
     if (typeof val === 'string' && isReservedFolderPath(val.trim())) continue;
     safeStored[state] = val;
   }

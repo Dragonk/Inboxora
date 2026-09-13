@@ -13,10 +13,12 @@
 // (`connections`, `onDemandSyncing`) are narrowed to methods so a plugin can query/coordinate but
 // can never read another account's connection object or corrupt core's lock set. The surface is the
 // exact union of what the in-repo GTD plugin uses; it grows only as new primitives are reviewed.
-export function createPluginMailFacade(engine) {
+import type { PluginMailEngine } from './mailEngine.js';
+
+export function createPluginMailFacade(engine: PluginMailEngine) {
   return Object.freeze({
     // Realtime broadcast to a user's live sessions.
-    broadcast: (payload, userId: string) => engine.broadcast(payload, userId),
+    broadcast: (payload: unknown, userId?: string) => engine.broadcast(payload, userId),
 
     // Is the account's persistent (IDLE) sync connection live? Replaces raw `connections` access so
     // a plugin can't reach another account's authenticated IMAP client.
@@ -36,8 +38,8 @@ export function createPluginMailFacade(engine) {
 
     // Sync-capability primitives — all run on pooled connections, never disturbing the IDLE client.
     folderFingerprint: (accountId: string, folder: string) => engine.folderFingerprint(accountId, folder),
-    syncFolderViaPool: (account, folder: string) => engine.syncFolderViaPool(account, folder),
-    syncFolderOnDemand: (account, folder: string) => engine.syncFolderOnDemand(account, folder),
+    syncFolderViaPool: (account: unknown, folder: string) => engine.syncFolderViaPool(account, folder),
+    syncFolderOnDemand: (account: unknown, folder: string) => engine.syncFolderOnDemand(account, folder),
 
     // Remove a message's copy from a label folder (GTD transition strips).
     removeMessageCopy: (accountId: string, uid: number, folder: string) => engine.removeMessageCopy(accountId, uid, folder),

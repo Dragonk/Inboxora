@@ -16,7 +16,7 @@ export async function getAccountConfig(pluginId: string, accountId: string) {
 }
 
 // Upsert the plugin's config for an account (replaces the whole blob).
-export async function setAccountConfig(pluginId: string, accountId: string, config) {
+export async function setAccountConfig(pluginId: string, accountId: string, config: Record<string, unknown>): Promise<void> {
   await query(
     `INSERT INTO plugin_account_config (plugin_id, account_id, config, updated_at)
      VALUES ($1, $2, $3::jsonb, now())

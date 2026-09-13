@@ -20,19 +20,19 @@ export function invalidateActivationCache(userId: string) {
 
 // The set of plugin ids this user has activated. Reads preferences.enabledPlugins; a missing/
 // malformed value reads as the empty set (default off). Cached per user with a short TTL.
-export async function getActivatedPlugins(userId: string) {
-  if (!userId) return new Set();
+export async function getActivatedPlugins(userId: string): Promise<Set<string>> {
+  if (!userId) return new Set<string>();
   const cached = activationCache.get(userId);
   if (cached && cached.expiry > Date.now()) return cached.value;
 
-  let value = new Set();
+  let value = new Set<string>();
   try {
     const { rows } = await query('SELECT preferences->\'enabledPlugins\' AS list FROM users WHERE id = $1', [userId]);
     const list = rows[0]?.list;
     if (Array.isArray(list)) value = new Set(list.filter((id) => typeof id === 'string'));
   } catch {
     // A prefs read blip degrades to "nothing activated" rather than throwing on a hot path.
-    value = new Set();
+    value = new Set<string>();
   }
   activationCache.set(userId, { value, expiry: Date.now() + CACHE_TTL_MS });
   return value;
@@ -40,7 +40,7 @@ export async function getActivatedPlugins(userId: string) {
 
 // Whether a specific plugin is activated for a user. The cheap gate plugins compose with their
 // own config.
-export async function isPluginActivated(userId: string, pluginId: string) {
+export async function isPluginActivated(userId: string, pluginId: string): Promise<boolean> {
   return (await getActivatedPlugins(userId)).has(pluginId);
 }
 
@@ -56,7 +56,7 @@ export async function isPluginActivatedForAccount(pluginId: string, accountId: s
 // Turn a plugin on/off for a user (persisted to preferences.enabledPlugins) and drop the cache so
 // the change takes effect immediately. Returns the new activated set. Read-modify-write is fine
 // here: activation toggles are rare and single-user, never a hot concurrent path.
-export async function setPluginActivated(userId: string, pluginId: string, activated) {
+export async function setPluginActivated(userId: string, pluginId: string, activated: boolean): Promise<Set<string>> {
   const set = new Set(await getActivatedPlugins(userId));
   if (activated) set.add(pluginId); else set.delete(pluginId);
   await query(

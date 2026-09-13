@@ -7,16 +7,28 @@
 // boot the whole app inside any unit test that loads a plugin file. So index.js pushes the engine
 // here at boot via setMailEngine, and the barrel pulls it lazily via getMailEngine — this leaf
 // module has no side effects and is trivial to inject in tests.
-let engine = null;
+/** The narrow mail-engine surface the plugin platform binds to. */
+export interface PluginMailEngine {
+  broadcast(payload: unknown, userId?: string): void;
+  connections: { has(accountId: string): boolean };
+  onDemandSyncing: { has(key: string): boolean; add(key: string): unknown; delete(key: string): unknown };
+  folderFingerprint(accountId: string, folder: string): Promise<unknown>;
+  syncFolderViaPool(account: unknown, folder: string): Promise<unknown>;
+  syncFolderOnDemand(account: unknown, folder: string): Promise<unknown>;
+  removeMessageCopy(accountId: string, uid: number, folder: string): Promise<unknown>;
+}
+
+
+let engine: PluginMailEngine | null = null;
 
 // Called once, at boot, by index.js after the ImapManager instance exists. Tests inject a mock.
-export function setMailEngine(instance) {
+export function setMailEngine(instance: PluginMailEngine): void {
   engine = instance;
 }
 
 // The bound capabilities call this at request time (never at import time), by which point the
 // engine has been set. Throws a clear error if a capability is used before initialization.
-export function getMailEngine() {
+export function getMailEngine(): PluginMailEngine {
   if (!engine) throw new Error('mail engine not initialized — setMailEngine() must run at boot');
   return engine;
 }

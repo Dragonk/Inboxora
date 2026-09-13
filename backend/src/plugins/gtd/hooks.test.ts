@@ -289,10 +289,10 @@ describe('gtd hooks — account settings (enrichAccount / validateAccountSetting
 
   it('hard-rejects a folder collision', async () => {
     sanitizeGtdFoldersDetailed.mockReturnValueOnce({ folders: { todo: 'X', watch: 'X' }, rejected: [], reserved: [] });
-    findGtdFolderCollisions.mockReturnValueOnce(['X']);
+    findGtdFolderCollisions.mockReturnValueOnce([{ folder: 'X', states: ['todo', 'watch'] }]);
     const out = await validateAccountSettings({ updates: { gtd_folders: { todo: 'X', watch: 'X' } }, accountId: 'a1' });
     expect(out.error.status).toBe(400);
-    expect(out.error.body.collisions).toEqual(['X']);
+    expect(out.error.body.collisions).toEqual([{ folder: 'X', states: ['todo', 'watch'] }]);
   });
 
   it('reports rejections and reconnects on a real folder change (against the stored config)', async () => {
