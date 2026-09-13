@@ -455,9 +455,9 @@ function AccountsTab() {
   const { t } = useTranslation();
   const { accounts, setAccounts, updateAccount, unreadCounts, setUnreadCounts, addNotification, backfillProgress } = useStore();
   const [subview, setSubview] = useState('list'); // 'list' | 'add' | 'edit' | 'folders' | 'aliases'
-  const [editTarget, setEditTarget] = useState(null);
+  const [editTarget, setEditTarget] = useState<{ id: string; email_address?: string; aliases?: Array<{ id: string; address?: string; name?: string; email?: string; reply_to?: string; [key: string]: unknown }>; [key: string]: unknown } | null>(null);
   const [folderMappings, setFolderMappings] = useState({});
-  const [availableFolders, setAvailableFolders] = useState([]);
+  const [availableFolders, setAvailableFolders] = useState<Array<{ path?: string; name?: string; [key: string]: unknown }>>([]);
   const [foldersLoading, setFoldersLoading] = useState(false);
   const [foldersSaving, setFoldersSaving] = useState(false);
   const [confirmDialog, setConfirmDialog] = useState(null);
@@ -2357,7 +2357,7 @@ function LayoutsTab() {
 // CardDAV contact sync (e.g. Nextcloud). One-way, read-only pull.
 function CardDavCard() {
   const { t } = useTranslation();
-  const [status, setStatus] = useState(null); // null while loading
+  const [status, setStatus] = useState<{ username?: string; serverUrl?: string; contactCount?: number; bookCount?: number; lastSyncAt?: string; lastError?: string; dupMode?: string; intervalMin?: number | string; [key: string]: unknown } | null>(null); // null while loading
   const [expanded, setExpanded] = useState(false);
   const [form, setForm] = useState({ serverUrl: '', username: '', password: '', dupMode: 'separate', intervalMin: 60 });
   const [connecting, setConnecting] = useState(false);
@@ -2514,7 +2514,7 @@ function IntegrationsTab() {
   const [saving, setSaving] = useState(false);
   const [saveMsg, setSaveMsg] = useState('');
   const [connectingMs, setConnectingMs] = useState(false);
-  const [deviceFlow, setDeviceFlow] = useState(null); // { userCode, verificationUri, interval }
+  const [deviceFlow, setDeviceFlow] = useState<{ userCode?: string; verificationUri?: string; interval?: number; [key: string]: unknown } | null>(null); // { userCode, verificationUri, interval }
   const [deviceStatus, setDeviceStatus] = useState(null); // 'pending'|'success'|'declined'|'expired'|'error'
   const devicePollRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
@@ -3316,7 +3316,7 @@ function SSOTab() {
     { value: 'login_existing_only', label: t('admin.sso.provisioningExisting') },
     { value: 'open', label: t('admin.sso.provisioningOpen') },
   ];
-  const [providers, setProviders] = useState([]);
+  const [providers, setProviders] = useState<Array<{ id: string; name?: string; enabled?: boolean; issuer_url?: string; slug?: string; [key: string]: unknown }>>([]);
   const [loading, setLoading] = useState(true);
   const [editing, setEditing] = useState(null); // null | 'new' | provider object
   const [form, setForm] = useState(emptyProvider);
@@ -3873,7 +3873,7 @@ function SSOTab() {
 function AISection() {
   const { t } = useTranslation();
   const isMobile = useMobile();
-  const [config, setConfig] = useState(null);
+  const [config, setConfig] = useState<{ fromName?: string; fromEmail?: string; user?: string; pass?: string; host?: string; port?: number | string; tls?: boolean | string; [key: string]: unknown } | null>(null);
   const [loading, setLoading] = useState(true);
   const [form, setForm] = useState(() => normalizeAiForm());
   const [saving, setSaving] = useState(false);
@@ -4333,8 +4333,8 @@ function AiActionsTab() {
 function CategoriesSection({ initialSubTab }) {
   const { t } = useTranslation();
   const { accounts, categorizationEnabled, setCategorizationEnabled } = useStore();
-  const [sources, setSources] = useState([]);
-  const [builtinSets, setBuiltinSets] = useState([]);
+  const [sources, setSources] = useState<Array<{ id: string; source_type?: string; value?: string; label?: string; domain_count?: number; enabled?: boolean; [key: string]: unknown }>>([]);
+  const [builtinSets, setBuiltinSets] = useState<string[]>([]);
   const [loading, setLoading] = useState(true);
   const [manualInput, setManualInput] = useState('');
   const [urlInput, setUrlInput] = useState('');
@@ -4687,7 +4687,7 @@ function PluginsSection({ onNavigate }) {
 // ─── System Email Section ─────────────────────────────────────────────────────
 function SystemEmailSection() {
   const { t } = useTranslation();
-  const [config, setConfig] = useState(null);
+  const [config, setConfig] = useState<{ fromName?: string; fromEmail?: string; user?: string; pass?: string; host?: string; port?: number | string; tls?: boolean | string; [key: string]: unknown } | null>(null);
   const [loading, setLoading] = useState(true);
   const [form, setForm] = useState({ host: '', port: '587', tls: 'STARTTLS', user: '', pass: '', fromName: 'Inboxora', fromEmail: '' });
   const [saving, setSaving] = useState(false);
@@ -4835,10 +4835,10 @@ function UsersTab() {
 function UsersAndInvitesPanel() {
   const { t } = useTranslation();
   const { user: currentUser } = useStore();
-  const [users, setUsers] = useState([]);
+  const [users, setUsers] = useState<Array<{ id: string; isAdmin?: boolean; username?: string; created_at?: string; totpEnabled?: boolean; [key: string]: unknown }>>([]);
   const [userTotal, setUserTotal] = useState(0);
   const [usersLoadingMore, setUsersLoadingMore] = useState(false);
-  const [invites, setInvites] = useState([]);
+  const [invites, setInvites] = useState<Array<{ id: string; token?: string; email?: string; expires_at?: string; used_at?: string; used_by_username?: string; [key: string]: unknown }>>([]);
   const [inviteTotal, setInviteTotal] = useState(0);
   const [invitesLoadingMore, setInvitesLoadingMore] = useState(false);
   const [regOpen, setRegOpen] = useState(null); // null = loading
@@ -6056,7 +6056,7 @@ function AboutTab() {
 function RulesTab() {
   const { t } = useTranslation();
   const { accounts, folders: storeFolders, setFolders, rulesPreFill, setRulesPreFill } = useStore();
-  const [rules, setRules] = useState([]);
+  const [rules, setRules] = useState<Array<{ id: string; enabled?: boolean; name?: string; [key: string]: unknown }>>([]);
   const [loading, setLoading] = useState(true);
   const [formMode, setFormMode] = useState(null); // null | 'add' | 'edit'
   const [formId, setFormId] = useState(null);
@@ -6718,7 +6718,7 @@ function RulesTab() {
 // ─── Block List Tab ────────────────────────────────────────────────────────────
 function BlockListTab() {
   const { t } = useTranslation();
-  const [entries, setEntries] = useState([]);
+  const [entries, setEntries] = useState<Array<{ id: string; created_at?: string; event_type?: string; username?: string; email_address?: string; ip?: string; success?: boolean; [key: string]: unknown }>>([]);
   const [loading, setLoading] = useState(true);
   const [newEmail, setNewEmail] = useState('');
   const [adding, setAdding] = useState(false);
@@ -7660,7 +7660,7 @@ function SecurityTab() {
   const [recoveryError, setRecoveryError] = useState('');
 
   // Admin-only: auth activity log
-  const [authEvents, setAuthEvents] = useState([]);
+  const [authEvents, setAuthEvents] = useState<Array<{ id: string; created_at?: string; event_type?: string; username?: string; ip?: string; success?: boolean; [key: string]: unknown }>>([]);
   const [eventsLoading, setEventsLoading] = useState(false);
 
   useEffect(() => {
@@ -8382,7 +8382,7 @@ function SecurityTab() {
 function LinkedIdentitiesSection() {
   const { t } = useTranslation();
   const [identities, setIdentities] = useState(null); // null = loading
-  const [providers, setProviders] = useState([]);
+  const [providers, setProviders] = useState<Array<{ id: string; name?: string; enabled?: boolean; issuer_url?: string; slug?: string; [key: string]: unknown }>>([]);
   const [confirmDialog, setConfirmDialog] = useState(null);
 
   useEffect(() => {
