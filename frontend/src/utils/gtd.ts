@@ -42,6 +42,28 @@ export const DEFAULT_GTD_FOLDERS = {
 
 // Merge an account's stored gtd_folders overrides over the defaults (same shape
 // the backend getGtdConfig produces).
+export interface GtdThread {
+  id?: string;
+  message_id?: string;
+  date?: string | number | Date | null;
+  is_read?: boolean;
+  [key: string]: unknown;
+}
+
+export interface GtdSection {
+  total?: number;
+  unread?: number;
+  threads?: GtdThread[];
+  [key: string]: unknown;
+}
+
+export type GtdSections = Record<string, GtdSection>;
+
+export interface GtdRemovalSnapshot {
+  identity: string;
+  removedByState: Record<string, Array<{ index: number; thread: GtdThread }>>;
+}
+
 export function resolveAccountGtdFolders(account) {
   const stored = account?.gtd_folders && typeof account.gtd_folders === 'object' && !Array.isArray(account.gtd_folders)
     ? account.gtd_folders : {};
@@ -68,7 +90,7 @@ export function diffGtdFolders(folders) {
 // a typo onto another state's default name — are caught. Returns collision groups
 // [{ folder, states }], empty when all five are distinct.
 export function findGtdFolderCollisions(folders) {
-  const byFolder = {};
+  const byFolder: Record<string, string[]> = {};
   for (const state of GTD_STATES) {
     const path = (folders?.[state] ?? '').trim() || DEFAULT_GTD_FOLDERS[state];
     (byFolder[path] ||= []).push(state);
@@ -140,7 +162,7 @@ export function gtdActiveForContext(accounts, selectedAccountId, gtdActivated = 
 
 const EMPTY_SECTION = { total: 0, unread: 0, threads: [] };
 
-function normSection(section) {
+function normSection(section?: GtdSection | null): GtdSection {
   if (!section) return EMPTY_SECTION;
   return {
     total: Number(section.total) || 0,
@@ -174,13 +196,13 @@ const WAITING_KIND_ORDER = ['watch', 'delegated'];
 // payload) do we fall back to deducing the dedupe from the visible heads: sum the two
 // totals and subtract the collapses we can actually see, which drifts high once an
 // overlap escapes the window.
-export function mergeWaiting(watch, delegated, waiting = undefined) {
+export function mergeWaiting(watch?: GtdSection | null, delegated?: GtdSection | null, waiting?: GtdSection | null) {
   const w = normSection(watch);
   const d = normSection(delegated);
   const tagged = [
     ...w.threads.map(t => ({ ...t, gtdKind: 'watch' })),
     ...d.threads.map(t => ({ ...t, gtdKind: 'delegated' })),
-  ].sort((a, b) => new Date(b.date || 0) - new Date(a.date || 0));
+  ].sort((a, b) => new Date(b.date || 0).getTime() - new Date(a.date || 0).getTime());
 
   const byId = new Map();
   const order = [];
@@ -284,13 +306,13 @@ export function removeGtdThreadFromSections(sections, identity, states) {
   return changed ? next : sections;
 }
 
-export function snapshotGtdThreadRemoval(sections, identity, states) {
+export function snapshotGtdThreadRemoval(sections: GtdSections | null | undefined, identity: string | null | undefined, states?: string[]) {
   if (!sections || identity == null) return null;
-  const removedByState = {};
+  const removedByState: Record<string, Array<{ index: number; thread: GtdThread }>> = {};
   for (const key of [...new Set(states || [])]) {
     const sec = sections[key];
     if (!sec || !Array.isArray(sec.threads)) continue;
-    const rows = [];
+    const rows: Array<{ index: number; thread: GtdThread }> = [];
     sec.threads.forEach((thread, index) => {
       if ((thread.message_id || thread.id) === identity) rows.push({ index, thread });
     });
@@ -299,7 +321,7 @@ export function snapshotGtdThreadRemoval(sections, identity, states) {
   return Object.keys(removedByState).length ? { identity, removedByState } : null;
 }
 
-export function restoreGtdThreadRemoval(sections, snapshot) {
+export function restoreGtdThreadRemoval(sections: GtdSections | null | undefined, snapshot: GtdRemovalSnapshot | null) {
   if (!sections || !snapshot) return sections;
   const next = { ...sections };
   let changed = false;
@@ -349,7 +371,7 @@ export function restoreGtdThreadRemoval(sections, snapshot) {
 // merged unread by one, not two); the rollup total is unaffected — the thread stays in
 // Waiting, only its read styling changes. Returns the same sections reference when nothing
 // changed, a new object otherwise; never mutates the input.
-export function setGtdThreadReadInSections(sections, identity, isRead) {
+export function setGtdThreadReadInSections(sections: GtdSections | null | undefined, identity: string | null | undefined, isRead: boolean) {
   if (!sections || identity == null) return sections;
   const next = { ...sections };
   let changed = false;
@@ -399,11 +421,16 @@ export async function collectThreadReadIds(thread, read, getThread) {
   }
 }
 
-export function scheduleGtdThreadAutoRead(thread, {
+export function scheduleGtdThreadAutoRead(thread: GtdThread, {
   markReadBehavior,
   markReadDelay,
   readThread,
   setTimer = setTimeout,
+}: {
+  markReadBehavior?: string;
+  markReadDelay?: number;
+  readThread?: (thread: GtdThread, isRead: boolean) => void;
+  setTimer?: typeof setTimeout;
 } = {}) {
   if (!thread || thread.is_read || markReadBehavior === 'manual') return null;
   if (markReadBehavior === 'delay') {
@@ -596,9 +623,16 @@ let _deepLinkSeq = 0;
 // warns, self-heals the snapshot via onMiss (a sections refetch), and retries once by
 // resolving the row's thread and matching the stable message_id. thread/getThread/onMiss
 // are optional so a bare (id, {getMessage,...}) call still degrades gracefully.
-export async function openDeepLinkMessage(id, {
+export async function openDeepLinkMessage(id: string | null | undefined, {
   getMessage, setThreadMessages, setSelectedMessage,
   thread, getThread, onMiss,
+}: {
+  getMessage?: (id: string) => Promise<GtdThread | null>;
+  setThreadMessages?: (key: string, messages: GtdThread[]) => void;
+  setSelectedMessage?: (id: string) => void;
+  thread?: { thread_key?: string; message_id?: string } | null;
+  getThread?: (key: string) => Promise<{ messages: GtdThread[] }>;
+  onMiss?: () => void;
 } = {}) {
   const seq = ++_deepLinkSeq;
   const open = (msg) => {
@@ -641,7 +675,15 @@ export async function openDeepLinkMessage(id, {
 // background-size, the at-rest static frame position, and the horizontal hover run
 // (background-position-x from → to over `hoverCount` steps, on a single row).
 // Pure and DOM-free so the frame math is unit-testable.
-export function computeSpriteLayout({ cols, rows, frameW, frameH, staticFrame = 0, hover, size = 104 } = {}) {
+export function computeSpriteLayout({ cols, rows, frameW, frameH, staticFrame = 0, hover, size = 104 }: {
+  cols?: number;
+  rows?: number;
+  frameW?: number;
+  frameH?: number;
+  staticFrame?: number;
+  hover?: { start?: number; count?: number };
+  size?: number;
+} = {}) {
   const c = Math.max(1, Math.trunc(cols) || 1);
   const r = Math.max(1, Math.trunc(rows) || 1);
   const fw = frameW > 0 ? frameW : 1;

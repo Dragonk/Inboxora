@@ -311,3 +311,18 @@ Backend: `tsc` 0 · testy 1785/0.
 Frontend `tsc`: **300 błędów** (z 661). Testy 2335/0 · lint czysty · build OK.
 Backend: `tsc` 0 · testy 1785/0.
 
+
+## 31. Frontend: GTD (sekcje, wątki, deep-link)
+
+- 🔴 **`gtd.ts`** — funkcje operowały na `unknown` (`sections[key]`, `sec.threads`, `row.thread`),
+  a `mergeWaiting`/`snapshotGtdThreadRemoval`/`restoreGtdThreadRemoval`/`setGtdThreadReadInSections`
+  nie miały typów parametrów (25 błędów). Dodane `GtdThread`, `GtdSection`, `GtdSections`, `GtdRemovalSnapshot`.
+- 🔴 **`findGtdFolderCollisions`**: `const byFolder = {}` → `Record<string, string[]>` (mapa państw).
+- 🔴 **`mergeWaiting`**: `new Date(...) - new Date(...)` → `.getTime()`.
+- 🟠 **`scheduleGtdThreadAutoRead`**, **`openDeepLinkMessage`**, **`computeSpriteLayout`** — opcje otypowane.
+
+## 32. Stan weryfikacji
+
+Frontend `tsc`: **267 błędów** (z 661). Testy 2335/0 · lint czysty · build OK.
+Backend: `tsc` 0 · testy 1785/0.
+
