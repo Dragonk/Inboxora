@@ -473,3 +473,20 @@ co chwilowo zepsulo typowanie calego JSX (58 -> 883 bledow).
 Naprawa: parametr wraca do T, a regula no-unused-vars jest wyciszona komentarzem
 z uzasadnieniem. Stan: 58 bledow (zgodnie z oczekiwaniem).
 
+
+## 48. Frontend: ostatnie pliki poza MessageList
+
+- 🔴 selectAiConnectionMethod zwracalo obiekt bez pola device, a test przypisywal je, by sprawdzic
+  brak wycieku — poprawione po stronie testu (spread), bez zmiany typu produkcyjnego.
+- 🔴 exec(cmd, val) w SignatureEditor wymagalo val, a przyciski toolbaru wolaja z jednym argumentem.
+- 🟠 CommandPalette: tablica akcji bez typu (pole active poza typem) -> jawny typ + ReactNode.
+- 🟠 MobileModuleHeader.leading opcjonalny; CalendarPage uzywa go bez leading.
+- 🟠 calendarView: Set z geometrii -> Set<number> (arytmetyka na unknown).
+- 🟠 aiConfig/gtd: wstrzykiwane timery nie musza byc setTimeout -> typy jako unknown z bezpiecznym
+  clearTimer; testy dostosowane.
+
+## 49. Stan weryfikacji
+
+Frontend tsc: 39 bledow (z 661) — WSZYSTKIE w MessageList.tsx.
+Testy 2335/0 · lint czysty · build OK. Backend: tsc 0 · testy 1785/0.
+

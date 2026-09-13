@@ -2,6 +2,7 @@ import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import * as aiConfig from './aiConfig.ts';
+import type { CodexDeviceFlow, CodexDevicePollResult } from './aiConfig.ts';
 
 const {
   AI_ACCOUNT_PROVIDER_OPTIONS,
@@ -87,7 +88,11 @@ function deviceResponse(overrides = {}) {
   };
 }
 
-function pollerFixture(overrides = {}) {
+function pollerFixture(overrides: {
+  startDevice?: () => Promise<CodexDeviceFlow>;
+  pollDevice?: (flowId: string) => Promise<CodexDevicePollResult>;
+  cancelDevice?: (flowId: string) => Promise<unknown>;
+} = {}) {
   const scheduler = fakeScheduler();
   const states = [];
   let currentTime = 10_000;
@@ -290,8 +295,7 @@ describe('buildAiSavePayload', () => {
       apiKeyConfig: { baseUrl: 'https://api.example/v1/', apiKey: '••••••••', model: 'fallback' },
       chatgptConfig: { model: 'gpt-5.4-mini' },
     });
-    const accountForm = selectAiConnectionMethod(form, 'account');
-    accountForm.device = { accessToken: 'must-not-leak' };
+    const accountForm = { ...selectAiConnectionMethod(form, 'account'), device: { accessToken: 'must-not-leak' } };
     assert.deepEqual(buildAiSavePayload(accountForm), {
       enabled: true,
       provider: 'chatgpt',

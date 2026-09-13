@@ -51,7 +51,7 @@ export default function SignatureEditor({ value, onChange }) {
 
   // onMouseDown + e.preventDefault() keeps focus in the contenteditable so
   // execCommand acts on the current selection rather than on nothing.
-  const exec = (cmd, val) => {
+  const exec = (cmd, val = undefined) => {
     document.execCommand(cmd, false, val ?? null);
     editorRef.current?.focus();
     emit();

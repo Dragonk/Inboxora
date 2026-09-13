@@ -336,7 +336,7 @@ export function layoutTimedEvents(events, day) {
     return { ...item, column };
   });
   if (placed.length === 1) return placed.map(item => ({ ...item, columns: 1 }));
-  const boundaries = [...new Set(placed.flatMap(item => [item.geometry.start, item.geometry.end]))].sort((left, right) => left - right);
+  const boundaries = [...new Set<number>(placed.flatMap(item => [item.geometry.start, item.geometry.end]))].sort((left, right) => left - right);
   const boundaryIndex = new Map(boundaries.map((value, index) => [value, index]));
   // Concurrency is constant between adjacent boundaries, so a difference array
   // yields the peak overlap for every elementary interval in one pass.

@@ -160,8 +160,8 @@ export interface CodexDevicePollerOptions {
   cancelDevice?: (flowId: string) => Promise<unknown>;
   onState?: (state: CodexDeviceState) => void;
   now?: () => number;
-  setTimer?: (callback: () => void, delay: number) => ReturnType<typeof setTimeout>;
-  clearTimer?: (timer: ReturnType<typeof setTimeout>) => void;
+  setTimer?: (callback: () => void, delay: number) => unknown;
+  clearTimer?: (timer: unknown) => void;
 }
 
 export function createCodexDevicePoller({
@@ -171,7 +171,7 @@ export function createCodexDevicePoller({
   onState,
   now = () => Date.now(),
   setTimer = (callback, delay) => setTimeout(callback, delay),
-  clearTimer = (timer: ReturnType<typeof setTimeout>) => clearTimeout(timer),
+  clearTimer = (timer: unknown) => { if (timer != null) clearTimeout(timer as ReturnType<typeof setTimeout>); },
 }: CodexDevicePollerOptions = {}) {
   if (typeof startDevice !== 'function' || typeof pollDevice !== 'function'
       || typeof cancelDevice !== 'function' || typeof onState !== 'function') {

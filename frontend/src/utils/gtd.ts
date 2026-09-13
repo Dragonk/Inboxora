@@ -430,7 +430,7 @@ export function scheduleGtdThreadAutoRead(thread: GtdThread, {
   markReadBehavior?: string;
   markReadDelay?: number;
   readThread?: (thread: GtdThread, isRead: boolean) => void;
-  setTimer?: typeof setTimeout;
+  setTimer?: (callback: () => void, delay: number) => unknown;
 } = {}) {
   if (!thread || thread.is_read || markReadBehavior === 'manual') return null;
   if (markReadBehavior === 'delay') {

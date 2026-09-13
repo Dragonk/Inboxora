@@ -1025,7 +1025,7 @@ describe('scheduleGtdThreadAutoRead', () => {
       setTimer: (fn, ms) => { calls.push(ms); return { fn }; },
     });
     assert.deepEqual(calls, [3000]);
-    assert.equal(typeof timer.fn, 'function');
+    assert.equal(typeof (timer as { fn?: unknown }).fn, 'function');
   });
 
   it('does nothing in manual mode or for an already-read thread', () => {

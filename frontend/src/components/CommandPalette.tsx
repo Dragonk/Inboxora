@@ -1,4 +1,5 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
+import type { ReactNode } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useStore } from '../store/index.ts';
 import { useMobile } from '../hooks/useMobile.ts';
@@ -7,7 +8,7 @@ import { THEMES } from '../themes.ts';
 const THEME_NAMES = Object.keys(THEMES);
 
 function buildActions({ t, openCompose, setSelectedAccount, setShowAdmin, setAdminTab, theme, setTheme, accounts, selectedAccountId }) {
-  const actions = [
+  const actions: Array<{ id: string; label: string; icon: ReactNode; active?: boolean; run: () => void }> = [
     {
       id: 'compose',
       label: t('commandPalette.actions.compose'),
