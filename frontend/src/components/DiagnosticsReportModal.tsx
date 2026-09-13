@@ -57,7 +57,7 @@ export default function DiagnosticsReportModal({ onClose }) {
       style={{ position: 'fixed', inset: 0, zIndex: 5000, background: 'rgba(0,0,0,0.5)', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 16 }}
     >
       <div
-        onClick={e => e.stopPropagation()}
+        onClick={ (e: React.MouseEvent) => e.stopPropagation()}
         style={{
           background: 'var(--bg-elevated)', border: '1px solid var(--border)', borderRadius: 12,
           width: 'min(640px, 100%)', maxHeight: '86vh', display: 'flex', flexDirection: 'column',

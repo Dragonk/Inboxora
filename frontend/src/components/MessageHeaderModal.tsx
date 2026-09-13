@@ -161,7 +161,7 @@ export default function MessageHeaderModal({ messageId, subject, onClose, onSubj
 
   return (
     <div
-      onClick={e => e.target === e.currentTarget && onClose()}
+      onClick={ (e: React.MouseEvent) => e.target === e.currentTarget && onClose()}
       style={{
         position: 'fixed', inset: 0, background: 'var(--overlay-scrim)',
         backdropFilter: 'blur(6px)', WebkitBackdropFilter: 'blur(6px)',

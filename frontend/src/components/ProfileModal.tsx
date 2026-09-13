@@ -90,7 +90,7 @@ export default function ProfileModal({ onClose }) {
 
   return (
     <div
-      onClick={e => e.target === e.currentTarget && onClose()}
+      onClick={ (e: React.MouseEvent) => e.target === e.currentTarget && onClose()}
       style={{
         position: 'fixed', inset: 0, background: 'var(--overlay-scrim)',
         backdropFilter: 'blur(6px)', WebkitBackdropFilter: 'blur(6px)',
@@ -182,7 +182,7 @@ export default function ProfileModal({ onClose }) {
             <input
               type="text"
               value={displayName}
-              onChange={e => setDisplayName(e.target.value)}
+              onChange={ (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement>) => setDisplayName(e.target.value)}
               placeholder={user?.username || ''}
               maxLength={100}
               style={{

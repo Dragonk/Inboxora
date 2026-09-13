@@ -36,7 +36,7 @@ export default function GtdTriageRow({ thread, sectionKey, variant, selected, on
       selected={selected}
       t={t}
       onClick={onOpen}
-      onContextMenu={e => { e.preventDefault(); openMenuAt(e.clientX, e.clientY); }}
+      onContextMenu={ (e: React.MouseEvent) => { e.preventDefault(); openMenuAt(e.clientX, e.clientY); }}
       renderHoverActions={hoverQuickActions ? () => (
         <RowHoverActions
           message={thread}

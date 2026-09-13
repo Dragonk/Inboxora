@@ -227,7 +227,7 @@ export default function MessageBodyRenderer({ html = '', text = '', remoteImages
         ...frameStyle,
       }}
       // Prevent the iframe from being a drag/drop target for external content.
-      onDragStart={(e) => e.preventDefault()}
+      onDragStart={ (e: React.DragEvent) => e.preventDefault()}
     />
   );
 }

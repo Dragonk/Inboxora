@@ -73,7 +73,7 @@ export default function WindowLayer() {
                 </span>
                 <button
                   type="button"
-                  onClick={(e) => { e.stopPropagation(); closeWindow(win.winId); }}
+                  onClick={ (e: React.MouseEvent) => { e.stopPropagation(); closeWindow(win.winId); }}
                   title={t('window.close')}
                   aria-label={t('window.close')}
                   style={{

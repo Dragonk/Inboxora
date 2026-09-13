@@ -14,7 +14,7 @@ function ToolBtn({ onClick, title, active = false, children }) {
   return (
     <button
       title={title}
-      onMouseDown={e => { e.preventDefault(); onClick(); }}
+      onMouseDown={ (e: React.MouseEvent) => { e.preventDefault(); onClick(); }}
       onMouseEnter={() => setHov(true)}
       onMouseLeave={() => setHov(false)}
       style={{
@@ -136,7 +136,7 @@ export default function SignatureEditor({ value, onChange }) {
         {/* Text color */}
         <label
           title={t('signatureEditor.textColor')}
-          onMouseDown={e => e.preventDefault()}
+          onMouseDown={ (e: React.MouseEvent) => e.preventDefault()}
           style={{ ...BTN, cursor: 'pointer', position: 'relative', padding: '3px 7px' }}
         >
           <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
@@ -145,7 +145,7 @@ export default function SignatureEditor({ value, onChange }) {
           <input
             type="color"
             defaultValue="#000000"
-            onChange={e => exec('foreColor', e.target.value)}
+            onChange={ (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement>) => exec('foreColor', e.target.value)}
             style={{ opacity: 0, position: 'absolute', width: 0, height: 0 }}
           />
         </label>

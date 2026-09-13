@@ -105,7 +105,7 @@ export default function LockScreen() {
             autoComplete="off"
             autoFocus
             value={pin}
-            onChange={e => { setPin(e.target.value.replace(/\D/g, '').slice(0, 6)); setError(''); }}
+            onChange={ (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement>) => { setPin(e.target.value.replace(/\D/g, '').slice(0, 6)); setError(''); }}
             placeholder={t('lockScreen.pinPlaceholder')}
             disabled={unlocking}
             style={{

@@ -23,7 +23,7 @@ export default function RowHoverActions({ message, isRead, background, deleteTit
 
       <ActionBtn
         title={isRead ? t('contextMenu.markUnread') : t('contextMenu.markRead')}
-        onClick={e => onMarkRead(e, message)}
+        onClick={ (e: React.MouseEvent) => onMarkRead(e, message)}
       >
         {isRead ? (
           <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75">
@@ -36,7 +36,7 @@ export default function RowHoverActions({ message, isRead, background, deleteTit
         )}
       </ActionBtn>
 
-      <ActionBtn title={message.is_starred ? t('contextMenu.unstar') : t('contextMenu.star')} onClick={e => onStar(e, message)}>
+      <ActionBtn title={message.is_starred ? t('contextMenu.unstar') : t('contextMenu.star')} onClick={ (e: React.MouseEvent) => onStar(e, message)}>
         <svg width="13" height="13" viewBox="0 0 24 24"
           fill={message.is_starred ? 'var(--amber)' : 'none'}
           stroke={message.is_starred ? 'var(--amber)' : 'currentColor'} strokeWidth="2">
@@ -44,7 +44,7 @@ export default function RowHoverActions({ message, isRead, background, deleteTit
         </svg>
       </ActionBtn>
 
-      <ActionBtn title={t(deleteTitleKey)} onClick={e => onDelete(e, message)}>
+      <ActionBtn title={t(deleteTitleKey)} onClick={ (e: React.MouseEvent) => onDelete(e, message)}>
         <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
           <polyline points="3 6 5 6 21 6"/>
           <path d="M19 6v14a2 2 0 01-2 2H7a2 2 0 01-2-2V6m3 0V4a1 1 0 011-1h4a1 1 0 011 1v2"/>
@@ -52,7 +52,7 @@ export default function RowHoverActions({ message, isRead, background, deleteTit
       </ActionBtn>
 
       {onMove && (
-        <ActionBtn title={t('contextMenu.moveToFolder')} onClick={e => onMove(e, message)}>
+        <ActionBtn title={t('contextMenu.moveToFolder')} onClick={ (e: React.MouseEvent) => onMove(e, message)}>
           <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
             <path d="M22 19a2 2 0 01-2 2H4a2 2 0 01-2-2V5a2 2 0 012-2h5l2 3h9a2 2 0 012 2z"/>
           </svg>

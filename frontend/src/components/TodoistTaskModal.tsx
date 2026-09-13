@@ -97,7 +97,7 @@ export default function TodoistTaskModal({ message, onClose }) {
 
   return (
     <div
-      onClick={e => e.target === e.currentTarget && onClose()}
+      onClick={ (e: React.MouseEvent) => e.target === e.currentTarget && onClose()}
       style={{
         position: 'fixed', inset: 0, background: 'var(--overlay-scrim)',
         backdropFilter: 'blur(6px)', WebkitBackdropFilter: 'blur(6px)',
@@ -142,8 +142,8 @@ export default function TodoistTaskModal({ message, onClose }) {
             <input
               type="text"
               value={title}
-              onChange={e => setTitle(e.target.value)}
-              onKeyDown={e => e.key === 'Enter' && !creating && title.trim() && handleCreate()}
+              onChange={ (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement>) => setTitle(e.target.value)}
+              onKeyDown={ (e: React.KeyboardEvent) => e.key === 'Enter' && !creating && title.trim() && handleCreate()}
               placeholder={t('todoist.taskTitlePh')}
               autoFocus
               style={inputStyle}
@@ -155,7 +155,7 @@ export default function TodoistTaskModal({ message, onClose }) {
             <label style={labelStyle}>{t('todoist.description')}</label>
             <textarea
               value={description}
-              onChange={e => setDescription(e.target.value)}
+              onChange={ (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement>) => setDescription(e.target.value)}
               placeholder={t('todoist.descriptionPh')}
               rows={3}
               style={{ ...inputStyle, resize: 'vertical', fontFamily: 'inherit' }}
@@ -177,7 +177,7 @@ export default function TodoistTaskModal({ message, onClose }) {
                 <label style={labelStyle}>{t('todoist.project')}</label>
                 <select
                   value={projectId}
-                  onChange={e => setProjectId(e.target.value)}
+                  onChange={ (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement>) => setProjectId(e.target.value)}
                   style={{ ...inputStyle, cursor: 'pointer' }}
                 >
                   <option value="">{t('todoist.inbox')}</option>
@@ -222,7 +222,7 @@ export default function TodoistTaskModal({ message, onClose }) {
               <label style={labelStyle}>{t('todoist.priority')}</label>
               <select
                 value={priority}
-                onChange={e => setPriority(Number(e.target.value))}
+                onChange={ (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement>) => setPriority(Number(e.target.value))}
                 style={{ ...inputStyle, cursor: 'pointer' }}
               >
                 {priorities.map(p => (
@@ -235,7 +235,7 @@ export default function TodoistTaskModal({ message, onClose }) {
               <input
                 type="date"
                 value={dueDate}
-                onChange={e => setDueDate(e.target.value)}
+                onChange={ (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement>) => setDueDate(e.target.value)}
                 style={inputStyle}
               />
             </div>
