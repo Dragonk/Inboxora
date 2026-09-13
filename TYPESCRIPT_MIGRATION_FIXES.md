@@ -292,3 +292,22 @@ Backend: `tsc` 0 · testy 1785/0.
 Frontend `tsc`: **340 błędów** (z 661). Testy 2335/0 · lint czysty · build OK.
 Backend: `tsc` 0 · testy 1785/0.
 
+
+## 29. Frontend: klienci API (`conversationApi`, `api`)
+
+- 🔴 **`conversationApi`** — `buildConversationRequestHeaders(extraHeaders = {})`, `apiFetch(options = {})`
+  i `list(params = {})` miały parametry `{}`, przez co odczyt `headers`/`accountId`/`folder` był niekontrolowany
+  (21 błędów). Dodane `ConversationQueryParams`, `ConversationTargetOptions`, `BulkConversationOptions`.
+- 🔴 **`api.ts`** — `request(...)` i `streamAiChat(...)` bez typów; `opts.headers["Content-Type"]` na `HeadersInit`
+  nie typowało się. Przepisane na jawny `Record<string, string>` + `RequestInit` (19 błędów).
+- 🟠 **`search`/`getContacts`/`listCalendars`/`listEvents`/`rebuild`** — opcje otypowane;
+  `URLSearchParams.set` wymaga `string` → `String(...)` dla liczb i `is_auto`.
+- 🟠 **Augmentacja `Error`** (frontend): `status`, `statusCode`, `code`, `details`, `source`, `sync`, `signedOut`.
+- 🟡 **Test `ConversationRebuild`** sprawdzał dosłowną treść źródła `rebuild: (...)`. Zaktualizowany tak,
+  by nadal wymuszał dokładnie ten sam zestaw opcji, dopuszczając adnotację typu.
+
+## 30. Stan weryfikacji
+
+Frontend `tsc`: **300 błędów** (z 661). Testy 2335/0 · lint czysty · build OK.
+Backend: `tsc` 0 · testy 1785/0.
+

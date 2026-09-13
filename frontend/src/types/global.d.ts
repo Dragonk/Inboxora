@@ -3,6 +3,16 @@
 export {};
 
 declare global {
+  interface Error {
+    status?: number;
+    statusCode?: number;
+    code?: string;
+    details?: unknown;
+    source?: string;
+    sync?: unknown;
+    signedOut?: boolean;
+  }
+
   interface Window {
     inboxoraNative?: any;
     // Capacitor runtime, present only inside the native shells.

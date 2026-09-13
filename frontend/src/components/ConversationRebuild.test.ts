@@ -44,7 +44,8 @@ describe('Conversation rebuild settings contract', () => {
 
   it('sends only the options the endpoint reads', () => {
     const api = readFileSync(new URL('../utils/conversationApi.ts', import.meta.url), 'utf8');
-    assert.match(api, /rebuild: \(\{ dryRun = true, accountId = null, limit, force = false \} = \{\}\)/);
+    // The type annotation is allowed; the destructured option set is what matters.
+    assert.match(api, /rebuild: \(\{ dryRun = true, accountId = null, limit, force = false \}: \{[^}]*\} = \{\}\)/);
     // `scope` was never read by the backend; sending it implied a control that
     // did not exist.
     assert.doesNotMatch(api, /JSON\.stringify\(\{ dryRun, scope \}\)/);

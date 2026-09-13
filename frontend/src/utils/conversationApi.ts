@@ -3,7 +3,32 @@ import { CSRF_HEADER, CSRF_VALUE } from './api.ts';
 
 const API_BASE = '/api/mail';
 
-export function buildConversationRequestHeaders(extraHeaders = {}) {
+export interface ConversationQueryParams {
+  accountId?: string;
+  folder?: string;
+  search?: string;
+  unreadOnly?: boolean;
+  category?: string;
+  pageSize?: number;
+  limit?: number;
+  cursor?: string;
+  unifiedInbox?: boolean;
+  searchAllFolders?: boolean;
+}
+
+export interface ConversationTargetOptions {
+  scope?: string;
+  copyId?: string | null;
+  logicalMessageId?: string | null;
+  items?: unknown[] | null;
+}
+
+export interface BulkConversationOptions {
+  scope?: string;
+  items?: unknown[] | null;
+}
+
+export function buildConversationRequestHeaders(extraHeaders: HeadersInit = {}) {
   const headers = new Headers({ 'Content-Type': 'application/json' });
   for (const [name, value] of new Headers(extraHeaders)) {
     if (name.toLowerCase() !== CSRF_HEADER.toLowerCase()) headers.set(name, value);
@@ -12,7 +37,7 @@ export function buildConversationRequestHeaders(extraHeaders = {}) {
   return headers;
 }
 
-async function apiFetch(path, options = {}) {
+async function apiFetch(path: string, options: RequestInit = {}) {
   const res = await fetch(`${API_BASE}${path}`, {
     ...options,
     credentials: 'include',
@@ -31,7 +56,7 @@ async function apiFetch(path, options = {}) {
 }
 
 export const conversationApi = {
-  list: (params = {}) => {
+  list: (params: ConversationQueryParams = {}) => {
     const qs = new URLSearchParams();
     if (params.accountId) qs.set('accountId', params.accountId);
     if (params.folder) qs.set('folder', params.folder);
@@ -68,13 +93,13 @@ export const conversationApi = {
 
   // Copy-aware destructive actions — `scope` is explicit (never defaults to whole conversation).
   // Scopes: THIS_COPY | ALL_COPIES_OF_LOGICAL_MESSAGE | COPIES_ON_THIS_ACCOUNT | WHOLE_CONVERSATION
-  archive: (conversationId, { scope = 'THIS_COPY', copyId = null, logicalMessageId = null } = {}) =>
+  archive: (conversationId, { scope = 'THIS_COPY', copyId = null, logicalMessageId = null }: ConversationTargetOptions = {}) =>
     apiFetch(`/conversations/${conversationId}/archive`, {
       method: 'POST',
       body: JSON.stringify({ scope, copyId, logicalMessageId }),
     }),
 
-  move: (conversationId, targetFolder, { scope = 'THIS_COPY', copyId = null, logicalMessageId = null, items = null } = {}) => {
+  move: (conversationId, targetFolder, { scope = 'THIS_COPY', copyId = null, logicalMessageId = null, items = null }: ConversationTargetOptions = {}) => {
     const ids = Array.isArray(conversationId) ? conversationId : null;
     return apiFetch(ids ? '/conversations/bulk-move' : `/conversations/${conversationId}/move`, {
       method: 'POST',
@@ -82,38 +107,38 @@ export const conversationApi = {
     });
   },
 
-  delete: (conversationId, { scope = 'THIS_COPY', copyId = null, logicalMessageId = null } = {}) =>
+  delete: (conversationId, { scope = 'THIS_COPY', copyId = null, logicalMessageId = null }: ConversationTargetOptions = {}) =>
     apiFetch(`/conversations/${conversationId}/delete`, {
       method: 'POST',
       body: JSON.stringify({ scope, copyId, logicalMessageId }),
     }),
 
-  setRead: (conversationId, isRead, { scope = 'THIS_COPY', copyId = null, logicalMessageId = null } = {}) =>
+  setRead: (conversationId, isRead, { scope = 'THIS_COPY', copyId = null, logicalMessageId = null }: ConversationTargetOptions = {}) =>
     apiFetch(`/conversations/${conversationId}/read`, {
       method: 'POST',
       body: JSON.stringify({ isRead, scope, copyId, logicalMessageId }),
     }),
 
-  setStarred: (conversationId, isStarred, { scope = 'THIS_COPY', copyId = null, logicalMessageId = null } = {}) =>
+  setStarred: (conversationId, isStarred, { scope = 'THIS_COPY', copyId = null, logicalMessageId = null }: ConversationTargetOptions = {}) =>
     apiFetch(`/conversations/${conversationId}/star`, {
       method: 'POST',
       body: JSON.stringify({ isStarred, scope, copyId, logicalMessageId }),
     }),
 
   // Bulk variants — operate on multiple conversations at once.
-  bulkArchive: (conversationIds, { scope = 'THIS_COPY', items = null } = {}) =>
+  bulkArchive: (conversationIds, { scope = 'THIS_COPY', items = null }: BulkConversationOptions = {}) =>
     apiFetch(`/conversations/bulk-archive`, {
       method: 'POST',
       body: JSON.stringify({ conversationIds, items, scope }),
     }),
 
-  bulkDelete: (conversationIds, { scope = 'THIS_COPY', items = null } = {}) =>
+  bulkDelete: (conversationIds, { scope = 'THIS_COPY', items = null }: BulkConversationOptions = {}) =>
     apiFetch(`/conversations/bulk-delete`, {
       method: 'POST',
       body: JSON.stringify({ conversationIds, items, scope }),
     }),
 
-  bulkSetRead: (conversationIds, isRead, { scope = 'THIS_COPY', items = null } = {}) =>
+  bulkSetRead: (conversationIds, isRead, { scope = 'THIS_COPY', items = null }: BulkConversationOptions = {}) =>
     apiFetch(`/conversations/bulk-read`, {
       method: 'POST',
       body: JSON.stringify({ conversationIds, items, isRead, scope }),
@@ -126,7 +151,7 @@ export const conversationApi = {
       body: JSON.stringify({ targetConversationId: targetId }),
     }),
 
-  split: (conversationId, logicalMessageId, { includeReplies = false } = {}) =>
+  split: (conversationId, logicalMessageId, { includeReplies = false }: { includeReplies?: boolean } = {}) =>
     apiFetch(`/conversations/${conversationId}/logical-messages/${logicalMessageId}/split`, {
       method: 'POST',
       body: JSON.stringify({ includeReplies }),
@@ -159,7 +184,7 @@ export const conversationApi = {
   // forgets to decide gets a report rather than a write. Only the options the
   // endpoint actually reads are sent; the request is always scoped to the signed-in
   // user's own accounts.
-  rebuild: ({ dryRun = true, accountId = null, limit, force = false } = {}) =>
+  rebuild: ({ dryRun = true, accountId = null, limit, force = false }: { dryRun?: boolean; accountId?: string | null; limit?: number; force?: boolean } = {}) =>
     apiFetch(`/conversations/rebuild`, {
       method: 'POST',
       body: JSON.stringify({

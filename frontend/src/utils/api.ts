@@ -8,17 +8,16 @@ export const CSRF_HEADER = 'X-Requested-With';
 export const CSRF_VALUE = 'MailFlow';
 const messageBodyRequests = new Map();
 
-async function request(method, path, body = undefined, extraHeaders = undefined, extraOptions = {}) {
-  const opts = {
+async function request(method: string, path: string, body: unknown = undefined, extraHeaders: Record<string, string> | undefined = undefined, extraOptions: RequestInit = {}) {
+  const headers: Record<string, string> = { [CSRF_HEADER]: CSRF_VALUE, ...(extraHeaders || {}) };
+  if (body) headers['Content-Type'] = 'application/json';
+  const opts: RequestInit = {
     method,
     credentials: 'include',
-    headers: { [CSRF_HEADER]: CSRF_VALUE, ...(extraHeaders || {}) },
+    headers,
     ...extraOptions,
   };
-  if (body) {
-    opts.headers['Content-Type'] = 'application/json';
-    opts.body = JSON.stringify(body);
-  }
+  if (body) opts.body = JSON.stringify(body);
   const res = await fetch(BASE + path, opts);
   if (!res.ok) {
     if (res.status === 423) {
@@ -47,7 +46,7 @@ export function isAbortError(error) {
   return Boolean(error) && (error.name === 'AbortError' || error.code === 20);
 }
 
-export async function streamAiChat(messages, { signal, onDelta } = {}) {
+export async function streamAiChat(messages: unknown[], { signal, onDelta }: { signal?: AbortSignal; onDelta?: (fullText: string, delta: string) => void } = {}) {
   const response = await fetch(`${BASE}/ai/chat`, {
     method: 'POST',
     credentials: 'include',
@@ -309,23 +308,23 @@ export const api = {
   emptyFolder: (accountId, path) => request('POST', '/mail/folders/empty', { accountId, path }),
 
   // Search
-  search: (q, accountId, { offset = 0, limit, folder } = {}) => {
+  search: (q, accountId, { offset = 0, limit, folder }: { offset?: number; limit?: string; folder?: string } = {}) => {
     const params = new URLSearchParams({ q });
     if (accountId) params.set('accountId', accountId);
     if (limit) params.set('limit', limit);
     if (folder) params.set('folder', folder);
-    if (offset) params.set('offset', offset);
+    if (offset) params.set('offset', String(offset));
     return request('GET', `/search?${params}`);
   },
   suggestContacts: (q) => request('GET', `/search/contacts?q=${encodeURIComponent(q)}`),
 
   // Contacts
-  getContacts:   ({ q, limit, offset, is_auto, addressBookId } = {}) => {
+  getContacts:   ({ q, limit, offset, is_auto, addressBookId }: { q?: string; limit?: string | number; offset?: string | number; is_auto?: string | boolean; addressBookId?: string } = {}) => {
     const p = new URLSearchParams();
     if (q) p.set('q', q);
-    if (limit !== undefined) p.set('limit', limit);
-    if (offset !== undefined) p.set('offset', offset);
-    if (is_auto !== undefined) p.set('is_auto', is_auto);
+    if (limit !== undefined) p.set('limit', String(limit));
+    if (offset !== undefined) p.set('offset', String(offset));
+    if (is_auto !== undefined) p.set('is_auto', String(is_auto));
     if (addressBookId) p.set('addressBookId', addressBookId);
     const qs = p.toString();
     return request('GET', `/contacts${qs ? '?' + qs : ''}`);
@@ -364,13 +363,13 @@ export const api = {
     getInvitation: id => request('GET', `/calendar/invitations/${encodeURIComponent(id)}`),
     addInvitation: (id, calendarId) => request('POST', `/calendar/invitations/${encodeURIComponent(id)}`, { calendarId }),
     removeInvitation: id => request('DELETE', `/calendar/invitations/${encodeURIComponent(id)}`),
-    listCalendars: ({ signal } = {}) => request('GET', '/calendar/calendars', undefined, undefined, { signal }),
+    listCalendars: ({ signal }: { signal?: AbortSignal } = {}) => request('GET', '/calendar/calendars', undefined, undefined, { signal }),
     updateCalendar: (id, data) => request('PATCH', `/calendar/calendars/${encodeURIComponent(id)}`, data),
     deleteCalendar: (id, confirmName) => request('DELETE', `/calendar/calendars/${encodeURIComponent(id)}`, { confirmName }),
     // Reads accept an AbortSignal so a superseded range or an unmounting page can
     // cancel work the user no longer needs. `calendarIds` narrows the expansion
     // server-side; `null` means every calendar, `[]` means none.
-    listEvents: (from, to, { signal, calendarIds } = {}) => {
+    listEvents: (from, to, { signal, calendarIds }: { signal?: AbortSignal; calendarIds?: string[] | null } = {}) => {
       const params = new URLSearchParams({ from, to });
       if (Array.isArray(calendarIds)) params.set('calendarIds', calendarIds.join(','));
       return request('GET', `/calendar/events?${params}`, undefined, undefined, { signal });
