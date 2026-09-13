@@ -1124,7 +1124,7 @@ interface ResolvedConnection {
   addresses?: unknown[];
 }
 
-interface EmailAccountRow {
+type EmailAccountRow = {
   user_id?: string;
   name?: string;
   email?: string;
@@ -1142,7 +1142,7 @@ interface EmailAccountRow {
   oauth_provider?: string;
   oauth_access_token?: string | null;
   oauth_token_expiry?: string | Date | null;
-}
+};
 
 export interface ImapClientCfg {
   host: string;

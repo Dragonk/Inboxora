@@ -645,7 +645,7 @@ describe('_startPluginSyncTimers / _stopPluginSyncTimers', () => {
   it('arms a jittered first fire then a steady interval for an active plugin tick', async () => {
     const tick = vi.fn().mockResolvedValue(undefined);
     listSpy = vi.spyOn(pluginRegistry, 'list').mockReturnValue([
-      { id: 'fake', sync: { intervalMs: 1000, isActive: () => true, tick } },
+      { id: 'fake', name: 'Fake', version: '1.0.0', tier: 1, sync: { intervalMs: 1000, isActive: () => true, tick } },
     ]);
     const mgr = makeMgr();
     const account = { id: 'a1', user_id: 'u1', email_address: 'e@x' };
@@ -661,7 +661,7 @@ describe('_startPluginSyncTimers / _stopPluginSyncTimers', () => {
   it('arms nothing for a plugin whose sync.isActive rejects the account', async () => {
     const tick = vi.fn();
     listSpy = vi.spyOn(pluginRegistry, 'list').mockReturnValue([
-      { id: 'gated', sync: { intervalMs: 1000, isActive: (ctx) => ctx.account.on === true, tick } },
+      { id: 'gated', name: 'Gated', version: '1.0.0', tier: 1, sync: { intervalMs: 1000, isActive: (ctx) => ctx.account?.on === true, tick } },
     ]);
     const mgr = makeMgr();
     await mgr._startPluginSyncTimers({ id: 'a2', on: false });
@@ -671,7 +671,7 @@ describe('_startPluginSyncTimers / _stopPluginSyncTimers', () => {
   });
 
   it('ignores a plugin with no sync descriptor', async () => {
-    listSpy = vi.spyOn(pluginRegistry, 'list').mockReturnValue([{ id: 'routeronly' }]);
+    listSpy = vi.spyOn(pluginRegistry, 'list').mockReturnValue([{ id: 'routeronly', name: 'Router only', version: '1.0.0', tier: 1 }]);
     const mgr = makeMgr();
     await mgr._startPluginSyncTimers({ id: 'a3' });
     expect(mgr.pluginSyncIntervals.size).toBe(0);
@@ -680,7 +680,7 @@ describe('_startPluginSyncTimers / _stopPluginSyncTimers', () => {
   it('tears down only the given account\'s timers', async () => {
     const tick = vi.fn();
     listSpy = vi.spyOn(pluginRegistry, 'list').mockReturnValue([
-      { id: 'fake', sync: { intervalMs: 1000, isActive: () => true, tick } },
+      { id: 'fake', name: 'Fake', version: '1.0.0', tier: 1, sync: { intervalMs: 1000, isActive: () => true, tick } },
     ]);
     const mgr = makeMgr();
     await mgr._startPluginSyncTimers({ id: 'a1', user_id: 'u1' });

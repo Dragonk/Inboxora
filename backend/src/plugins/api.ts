@@ -19,6 +19,24 @@ import { getMailEngine } from './mailEngine.js';
 import * as labelsWrite from '../services/labels.js';
 import { archiveInboxCopy as _archiveInboxCopy } from '../services/archiveInbox.js';
 
+/** A mail account as the plugin API exposes it (never the engine or credentials). */
+export interface PluginAccount {
+  id?: string;
+  user_id?: string;
+  imap_host?: string | null;
+  [key: string]: unknown;
+}
+
+/** A message copy row as the plugin API exposes it. */
+export interface PluginMessage {
+  id?: string;
+  account_id?: string;
+  folder?: string;
+  uid?: number | string;
+  message_id?: string | null;
+  [key: string]: unknown;
+}
+
 // ── Labels (read) ─────────────────────────────────────────────────────────────
 // Thread-aware read over a set of label folders: heads grouped by label with thread-level
 // unread/union counts. See services/labelsRead.js for the correctness contract.
@@ -31,21 +49,21 @@ export { notifyOnLabelTouch } from '../services/labelsRead.js';
 // Apply/remove a label (a message copy in a label folder) and mark a thread read. The mail
 // engine is bound in by the platform (getMailEngine) so a plugin performs these mail actions
 // without ever holding the engine itself. resolveLabelCopyUid is pure (no engine).
-export const applyLabel = (account, message, labelFolder) => labelsWrite.applyLabel(getMailEngine(), account, message, labelFolder);
-export const removeLabel = (message, labelFolder) => labelsWrite.removeLabel(getMailEngine(), message, labelFolder);
-export const removeExactLabelCopy = (message, labelFolder, uid: number) => labelsWrite.removeExactLabelCopy(getMailEngine(), message, labelFolder, uid);
-export const markThreadRead = (account, message) => labelsWrite.markThreadRead(getMailEngine(), account, message);
-export const ensureLabelFolders = (account, folderPaths) => labelsWrite.ensureLabelFolders(getMailEngine(), account, folderPaths);
+export const applyLabel = (account: PluginAccount, message: PluginMessage, labelFolder: string) => labelsWrite.applyLabel(getMailEngine(), account, message, labelFolder);
+export const removeLabel = (message: PluginMessage, labelFolder: string) => labelsWrite.removeLabel(getMailEngine(), message, labelFolder);
+export const removeExactLabelCopy = (message: PluginMessage, labelFolder: string, uid: number) => labelsWrite.removeExactLabelCopy(getMailEngine(), message, labelFolder, uid);
+export const markThreadRead = (account: PluginAccount, message: PluginMessage) => labelsWrite.markThreadRead(getMailEngine(), account, message);
+export const ensureLabelFolders = (account: PluginAccount, folderPaths: string[]) => labelsWrite.ensureLabelFolders(getMailEngine(), account, folderPaths);
 export const resolveLabelCopyUid = labelsWrite.resolveLabelCopyUid;
 
 // ── Archive ───────────────────────────────────────────────────────────────────
 // Archive a message's INBOX copy (used by GTD "done"). Engine bound by the platform.
-export const archiveInboxCopy = (account, inboxCopy) => _archiveInboxCopy(getMailEngine(), account, inboxCopy);
+export const archiveInboxCopy = (account: PluginAccount, inboxCopy: PluginMessage) => _archiveInboxCopy(getMailEngine(), account, inboxCopy);
 
 // ── Realtime broadcast ────────────────────────────────────────────────────────
 // Push a payload to a specific user's live sessions. A plugin can notify its own clients; it
 // cannot address other users or subsystems (the engine + user scoping are enforced here).
-export const broadcast = (payload, userId: string) => getMailEngine().broadcast(payload, userId);
+export const broadcast = (payload: unknown, userId: string) => getMailEngine().broadcast(payload, userId);
 
 // ── Summarize ─────────────────────────────────────────────────────────────────
 // Condense a message into one line via the configured AI provider (fails closed when the

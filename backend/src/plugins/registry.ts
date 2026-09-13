@@ -35,18 +35,51 @@
 //                              A cheap synchronous gate core uses to skip collecting work when no
 //                              plugin would consume it (e.g. inbox-ingest candidate tracking).
 
+export interface PluginContext {
+  userId?: string;
+  accountId?: string;
+  account?: { id?: string; user_id?: string; [key: string]: unknown };
+  [key: string]: unknown;
+}
+
+export type HookHandler = (ctx: PluginContext) => unknown;
+
+export type HookEntry =
+  | HookHandler
+  | { handler: HookHandler; isActive?: (ctx: PluginContext) => boolean };
+
+export interface PluginManifest {
+  id: string;
+  name: string;
+  version: string;
+  tier: 1 | 2;
+  migrations?: string;
+  router?: { base: string; handler: RequestHandler; json?: { limit?: number } };
+  hooks?: Record<string, unknown>;
+  sync?: {
+    intervalMs?: number;
+    isActive?: (ctx: PluginContext) => boolean | Promise<boolean>;
+    tick?: (ctx: PluginContext) => unknown;
+  };
+  isActive?: (ctx: PluginContext) => boolean;
+  [key: string]: unknown;
+}
+
+import type { RequestHandler } from 'express';
+
 const ID_RE = /^[a-z0-9][a-z0-9-]{0,63}$/;
 
 export function createPluginRegistry() {
   /** @type {Map<string, object>} id -> manifest */
-  const plugins = new Map();
+  const plugins = new Map<string, PluginManifest>();
 
-  function register(manifest) {
-    if (!manifest || typeof manifest !== 'object') {
+  function register(input: unknown): PluginManifest {
+    if (!input || typeof input !== 'object') {
       throw new Error('plugin manifest must be an object');
     }
+    const manifest = input as Partial<PluginManifest> & Record<string, unknown>;
     const { id, name, version, tier } = manifest;
-    if (!ID_RE.test(id || '')) {
+    if (typeof id !== 'string' || !ID_RE.test(id)) {
       throw new Error(`plugin id must match ${ID_RE} (got ${JSON.stringify(id)})`);
     }
     if (plugins.has(id)) throw new Error(`plugin "${id}" is already registered`);
@@ -60,20 +93,27 @@ export function createPluginRegistry() {
       const ok = typeof entry === 'function' || (entry && typeof (entry as { handler?: unknown }).handler === 'function');
       if (!ok) throw new Error(`plugin "${id}" hook "${hookName}" must be a function or { handler }`);
     }
-    plugins.set(id, manifest);
-    return manifest;
+    const registered = manifest as PluginManifest;
+    plugins.set(registered.id, registered);
+    return registered;
   }
 
-  const get = (id) => plugins.get(id);
+  const get = (id: string): PluginManifest | undefined => plugins.get(id);
   const list = () => [...plugins.values()];
-  const has = (id) => plugins.has(id);
+  const has = (id: string): boolean => plugins.has(id);
 
   // Normalize a hook entry to { handler, isActive } (isActive null when the entry is a bare
   // function). Returns null for a malformed/absent entry so activeHandlers can skip it.
-  function resolveHook(entry) {
-    if (typeof entry === 'function') return { handler: entry, isActive: null };
-    if (entry && typeof entry.handler === 'function') {
-      return { handler: entry.handler, isActive: typeof entry.isActive === 'function' ? entry.isActive : null };
+  function resolveHook(entry: unknown): { handler: HookHandler; isActive: ((ctx: PluginContext) => boolean) | null } | null {
+    if (typeof entry === 'function') return { handler: entry as HookHandler, isActive: null };
+    if (entry && typeof entry === 'object') {
+      const candidate = entry as { handler?: unknown; isActive?: unknown };
+      if (typeof candidate.handler === 'function') {
+        return {
+          handler: candidate.handler as HookHandler,
+          isActive: typeof candidate.isActive === 'function' ? (candidate.isActive as (ctx: PluginContext) => boolean) : null,
+        };
+      }
     }
     return null;
   }
@@ -82,8 +122,8 @@ export function createPluginRegistry() {
   // manifest-level isActive nor the hook's own isActive rejects this ctx (a missing predicate is
   // treated as always-active). A throwing predicate excludes the plugin rather than breaking the
   // dispatch.
-  function activeHandlers(hookName, ctx) {
-    const out = [];
+  function activeHandlers(hookName: string, ctx: PluginContext): Array<[PluginManifest, HookHandler]> {
+    const out: Array<[PluginManifest, HookHandler]> = [];
     for (const p of plugins.values()) {
       const resolved = resolveHook(p.hooks?.[hookName]);
       if (!resolved) continue;
@@ -99,14 +139,14 @@ export function createPluginRegistry() {
   }
 
   // Cheap synchronous check: does any plugin have an active handler for `hookName` in this ctx?
-  const hasActive = (hookName, ctx) => activeHandlers(hookName, ctx).length > 0;
+  const hasActive = (hookName: string, ctx: PluginContext): boolean => activeHandlers(hookName, ctx).length > 0;
 
   // Async variant of hasActive: awaits each plugin's (possibly async) isActive predicate. Needed
   // when a hook's gate reads state asynchronously — e.g. GTD's per-account config now lives in the
   // plugin_account_config table, so `gtdEnabledForAccount` is async. activeHandlers (sync) can't
   // await it, so any core gate that must know "is this hook actually active for this ctx" ahead of
   // running it (the inbox-ingest gate in syncMessages, the per-account sync-timer arm) uses this.
-  async function hasActiveAsync(hookName, ctx) {
+  async function hasActiveAsync(hookName: string, ctx: PluginContext): Promise<boolean> {
     for (const p of plugins.values()) {
       const resolved = resolveHook(p.hooks?.[hookName]);
       if (!resolved) continue;
@@ -123,9 +163,9 @@ export function createPluginRegistry() {
 
   // Fire-and-forget: run all active handlers, await them, never throw. Individual failures
   // are swallowed (and returned for optional logging) so one plugin can't break core.
-  async function runHook(hookName, ctx) {
+  async function runHook(hookName: string, ctx: PluginContext): Promise<Array<{ pluginId: string; error: unknown }>> {
     const handlers = activeHandlers(hookName, ctx);
-    const errors = [];
+    const errors: Array<{ pluginId: string; error: unknown }> = [];
     await Promise.all(handlers.map(async ([p, fn]) => {
       try { await fn(ctx); }
       catch (err) { errors.push({ pluginId: p.id, error: err }); }
@@ -134,13 +174,16 @@ export function createPluginRegistry() {
   }
 
   // Value collection: return each active handler's defined result. Errors contribute nothing.
-  async function collectHook(hookName, ctx) {
+  async function collectHook<T = unknown>(hookName: string, ctx: PluginContext): Promise<T[]> {
     const handlers = activeHandlers(hookName, ctx);
-    const results = await Promise.all(handlers.map(async ([, fn]) => {
+    const settled = await Promise.all(handlers.map(async ([, fn]) => {
       try { return await fn(ctx); }
       catch { return undefined; }
     }));
-    return results.filter((r) => r !== undefined);
+    const collected: T[] = [];
+    // Hook results are plugin-defined, so the caller supplies T; a handler that threw contributes nothing.
+    for (const value of settled) if (value !== undefined) collected.push(value as T);
+    return collected;
   }
 
   return { register, get, list, has, runHook, collectHook, hasActive, hasActiveAsync };

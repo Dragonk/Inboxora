@@ -1,5 +1,6 @@
 import { describe, it, expect, vi, beforeEach, afterEach, beforeAll, afterAll } from 'vitest';
 import type { JsonBody } from '../test/json.js';
+import type { PluginManifest } from '../plugins/registry.js';
 
 vi.mock('../middleware/auth.js', () => ({
   requireAuth: (req, _res, next) => { req.session = { userId: 'u1' }; next(); },
@@ -19,7 +20,7 @@ import pluginsRoutes from './plugins.js';
 const getActivatedPlugins = vi.mocked(__mock_getActivatedPlugins);
 const setPluginActivated = vi.mocked(__mock_setPluginActivated);
 
-const MANIFEST = { id: 'gtd', name: 'Getting Things Done', version: '1.0.0', tier: 1 };
+const MANIFEST: PluginManifest = { id: 'gtd', name: 'Getting Things Done', version: '1.0.0', tier: 1 };
 
 let listSpy, hasSpy, runHookSpy;
 

@@ -91,7 +91,7 @@ router.get('/', async (req, res) => {
   // Let plugins re-attach their own account-scoped fields (GTD: gtd_enabled/gtd_folders, no longer
   // columns) so the client sees them as before. Each enrichAccount handler returns a field patch.
   const enriched = await Promise.all(result.rows.map(async (a) => {
-    const patches = await pluginRegistry.collectHook('enrichAccount', { account: a });
+    const patches = await pluginRegistry.collectHook<Record<string, unknown>>('enrichAccount', { account: a });
     return {
       ...a,
       ...Object.assign({}, ...patches),
@@ -209,10 +209,16 @@ router.put('/:id', async (req, res) => {
   // Let plugins validate the settings fields they own (GTD owns gtd_enabled/gtd_folders) before we
   // touch anything. A plugin may hard-reject the change (return an error response), report per-field
   // sub-values it reset to defaults, and flag whether its change requires a reconnect. The actual
-  // write of a plugin's fields happens in persistAccountSettings below (into the plugin's own store,
+  interface ValidateAccountSettingsResult {
+  error?: { status: number; body: unknown };
+  rejected?: Record<string, string>;
+  requiresReconnect?: boolean;
+}
+
+// write of a plugin's fields happens in persistAccountSettings below (into the plugin's own store,
   // not a column). This is the generic account-scoped settings surface; core knows nothing
   // GTD-specific here.
-  const settingsResults = await pluginRegistry.collectHook('validateAccountSettings', {
+  const settingsResults = await pluginRegistry.collectHook<ValidateAccountSettingsResult>('validateAccountSettings', {
     updates, accountId: id,
   });
   const rejectedByField: Record<string, any> = {};
@@ -258,7 +264,7 @@ router.put('/:id', async (req, res) => {
 
   // Persist plugin-owned fields into their own stores; each returns { patch } (the saved values) to
   // echo back on the response so the client sees them as if they were columns.
-  const persistResults = await pluginRegistry.collectHook('persistAccountSettings', {
+  const persistResults = await pluginRegistry.collectHook<{ patch?: Record<string, unknown> }>('persistAccountSettings', {
     accountId: id, updates,
   });
   const pluginPatch = {};
