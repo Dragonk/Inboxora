@@ -40,7 +40,7 @@ import i18n from '../i18n.ts';
 /** A favourite folder entry. */
 interface FavoriteFolderRow { accountId?: string; path: string; label?: string; [key: string]: unknown }
 
-interface StoreUserRow { id?: string; username?: string; email?: string; [key: string]: unknown }
+export interface StoreUserRow { id?: string; username?: string; email?: string; avatar?: string | null; isAdmin?: boolean; [key: string]: unknown }
 
 /**
  * The store state. Written from the store itself (every member is declared here so the
@@ -54,9 +54,9 @@ interface StoreUserRow { id?: string; username?: string; email?: string; [key: s
 export interface ComposeDraft {
   accountId?: string;
   aliasId?: string;
-  to?: string | string[];
-  cc?: string | string[];
-  bcc?: string | string[];
+  to?: string | string[] | Array<{ email: string; name?: string | null }>;
+  cc?: string | string[] | Array<{ email: string; name?: string | null }>;
+  bcc?: string | string[] | Array<{ email: string; name?: string | null }>;
   subject?: string;
   body?: string;
   bodyIsHtml?: boolean;
@@ -353,6 +353,7 @@ export interface StoreMessageRow {
   is_starred?: boolean;
   message_id?: string | null;
   thread_id?: string;
+  thread_key?: string;
   message_count?: number | string | null;
   unread_count?: number | string | null;
   date?: string | number | Date | null;
@@ -488,6 +489,7 @@ interface StoreMessage {
   message_id?: string;
   date?: string | number | Date | null;
   thread_id?: string;
+  thread_key?: string;
   is_starred?: boolean;
   [key: string]: unknown;
 }
