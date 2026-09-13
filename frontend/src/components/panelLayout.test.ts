@@ -271,8 +271,10 @@ test('a sheet can be pushed back down the screen to dismiss it', () => {
   assert.match(ui, /SHEET_FLICK_VELOCITY/);
   assert.match(ui, /setTimeout\(\(\) => close\.current\(\), SHEET_EXIT_MS\)/);
   assert.match(ui, /finishSheetDrag/);
-  // Header controls (the ×) keep their own taps instead of starting a drag.
-  assert.match(ui, /closest\?\.\('button, a, input, select, textarea, \[role="button"\]'\)/);
+  // Header controls (the ×) keep their own taps instead of starting a drag. The target is
+  // narrowed to an Element first, so a non-element event target cannot throw.
+  assert.match(ui, /target instanceof Element/);
+  assert.match(ui, /target\.closest\('button, a, input, select, textarea, \[role="button"\]'\)/);
   const uiCss = readFileSync(new URL('../ui.css', import.meta.url), 'utf8');
   assert.match(uiCss, /\.ui-sheet-grabber \{/);
   assert.match(uiCss, /touch-action: none/);
