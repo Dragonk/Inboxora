@@ -67,7 +67,7 @@ export function sanitizeFolderOrder(value: unknown): Record<string, string[]> {
 export function normalizeFolderOrder(folders, savedOrder = []) {
   const known = folderPathsWithAncestors(Array.isArray(folders) ? folders : []);
   const knownSet = new Set(known);
-  const ranked = [];
+  const ranked: unknown[] = [];
   const seen = new Set();
   if (Array.isArray(savedOrder)) {
     for (const folderPath of savedOrder) {

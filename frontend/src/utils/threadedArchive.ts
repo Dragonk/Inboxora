@@ -100,7 +100,7 @@ export async function archiveTargetGroupsForRows(
   concurrency = 8,
 ) {
   const rows = Array.isArray(messages) ? messages : [];
-  const groups = [];
+  const groups: unknown[] = [];
   for (let offset = 0; offset < rows.length; offset += concurrency) {
     const batch = await Promise.all(rows.slice(offset, offset + concurrency).map(async (row) => {
       const resolved = await resolveMessages(row);
@@ -115,8 +115,8 @@ export async function archiveTargetGroupsForRows(
 }
 
 export async function archiveInChunks(ids, archive, chunkSize = 500) {
-  const archived = [];
-  const noArchiveFolder = [];
+  const archived: unknown[] = [];
+  const noArchiveFolder: unknown[] = [];
   for (let offset = 0; offset < ids.length; offset += chunkSize) {
     try {
       const result = await archive(ids.slice(offset, offset + chunkSize));

@@ -43,7 +43,7 @@ describe('calendar working-hour preferences', () => {
   });
 
   it('rejects a start-only change that would reverse the working-hour pair', async () => {
-    const saves = [];
+    const saves: unknown[] = [];
     api.savePreferences = async prefs => { saves.push(prefs); };
 
     useStore.getState().setCalendarWorkHoursStart('18:00');
@@ -62,7 +62,7 @@ describe('calendar working-hour preferences', () => {
   });
 
   it('persists a valid follow-up adjustment as the same full pair shown in the store', async () => {
-    const saves = [];
+    const saves: unknown[] = [];
     api.savePreferences = async prefs => { saves.push(prefs); };
 
     useStore.getState().setCalendarWorkHoursStart('18:00');
@@ -95,7 +95,7 @@ describe('calendar working-hour preferences', () => {
   });
 
   it('uses a one-control update to recover a legacy reversed pair', async () => {
-    const saves = [];
+    const saves: unknown[] = [];
     useStore.setState({
       calendarWorkHoursStart: '17:00',
       calendarWorkHoursEnd: '09:00',

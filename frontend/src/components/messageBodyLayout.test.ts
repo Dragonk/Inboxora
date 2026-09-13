@@ -6,7 +6,7 @@ function rafHarness() {
   let nextId = 1;
   const callbacks = new Map();
   const cancelledCallbacks = new Map();
-  const cancelled = [];
+  const cancelled: unknown[] = [];
   return {
     requestAnimationFrame(callback) {
       const id = nextId++;
@@ -37,7 +37,7 @@ function rafHarness() {
 describe('initial message body layout scheduling', () => {
   it('cancels the nested paint callback when the renderer unmounts after the outer paint', () => {
     const harness = rafHarness();
-    const ready = [];
+    const ready: unknown[] = [];
     const cancel = scheduleInitialLayoutReady(
       height => { ready.push(height); },
       harness.requestAnimationFrame,
@@ -57,7 +57,7 @@ describe('initial message body layout scheduling', () => {
 
   it('cancels a superseded nested paint callback before a replacement is scheduled', () => {
     const harness = rafHarness();
-    const ready = [];
+    const ready: unknown[] = [];
     const cancel = scheduleInitialLayoutReady(
       height => { ready.push(height); },
       harness.requestAnimationFrame,

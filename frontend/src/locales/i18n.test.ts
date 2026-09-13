@@ -1060,7 +1060,7 @@ function looksLikeUserText(str) {
 
 function scanHardcodedStrings() {
   const srcRoot = resolve(dir, '../..');
-  const violations = [];
+  const violations: unknown[] = [];
 
   function walk(d) {
     for (const entry of readdirSync(d, { withFileTypes: true })) {
@@ -1137,7 +1137,7 @@ function baseKey(key: string) {
 
 function loadSourceText() {
   const srcRoot = resolve(dir, '../..');
-  const out = [];
+  const out: unknown[] = [];
   function walk(d) {
     for (const entry of readdirSync(d, { withFileTypes: true })) {
       const full = join(d, entry.name);
@@ -1241,7 +1241,7 @@ describe('i18n locale files', () => {
 
     it('every literal admin.ai source translation key exists in every locale', () => {
       const sourceKeys = loadLiteralSourceTranslationKeys('admin.ai.');
-      const missing = [];
+      const missing: unknown[] = [];
       for (const lang of langs) {
         const present = new Set(Object.keys(locales[lang]));
         for (const key of sourceKeys) {
@@ -1278,7 +1278,7 @@ describe('i18n locale files', () => {
           valueToLangs.get(val).push(lang);
         }
 
-        const violations = [];
+        const violations: unknown[] = [];
         for (const [val, langsWithVal] of valueToLangs) {
           if (langsWithVal.length < 2) continue;
           for (let i = 0; i < langsWithVal.length; i++) {

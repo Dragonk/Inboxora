@@ -18,7 +18,8 @@ export function senderDomainFromEmail(email) {
 export function avatarImageCandidates({ email, hasContactPhoto, gravatarAvatars = undefined, senderFavicons = undefined }) {
   const trimmed = typeof email === 'string' ? email.trim() : '';
   if (!trimmed) return [];
-  const candidates = [];
+  /** The image sources tried in order, with the reason each one is offered. */
+  const candidates: Array<{ kind: 'contact' | 'gravatar' | 'favicon'; src: string }> = [];
   if (hasContactPhoto !== false) {
     candidates.push({ kind: 'contact', src: `/api/contacts/photo?email=${encodeURIComponent(trimmed)}` });
   }

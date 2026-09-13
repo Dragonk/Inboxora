@@ -30,7 +30,7 @@ describe('doneGtdRow', () => {
   });
 
   it('guards and removes the row before the request settles, then completes the guard', async () => {
-    const calls = [];
+    const calls: unknown[] = [];
     let resolveRequest;
     const request = new Promise(resolve => { resolveRequest = resolve; });
     const result = doneGtdRow(thread, states, deps({
@@ -61,7 +61,7 @@ describe('doneGtdRow', () => {
 
   it('clears the guard and restores only the captured row on failure', async () => {
     const snapshot = { identity: 'x', removedByState: { todo: [] } };
-    const calls = [];
+    const calls: unknown[] = [];
     const originalError = console.error;
     console.error = () => {};
     try {
@@ -87,7 +87,7 @@ describe('doneGtdRow', () => {
   });
 
   it('keeps the row removed but reports a partial archive failure', async () => {
-    const calls = [];
+    const calls: unknown[] = [];
     await doneGtdRow(thread, states, deps({
       gtdDone: async () => ({ ok: true, archiveFailed: true }),
       restoreGtdThread: () => calls.push(['restore']),

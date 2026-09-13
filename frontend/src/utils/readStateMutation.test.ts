@@ -5,7 +5,7 @@ import { queueReadStateMutation, resetReadStateMutationsForTest, pendingReadStat
 describe('read-state mutation lane', () => {
   it('commits latest explicit intent after an older auto-read', async () => {
     resetReadStateMutationsForTest();
-    const calls = [];
+    const calls: unknown[] = [];
     let release;
     const first = queueReadStateMutation('m2', true, read => new Promise(resolve => {
       calls.push(read); release = resolve;
@@ -22,7 +22,7 @@ describe('read-state mutation lane', () => {
 
   it('ignores a superseded automatic failure while committing the newer intent', async () => {
     resetReadStateMutationsForTest();
-    const calls = [];
+    const calls: unknown[] = [];
     let rejectFirst;
     const first = queueReadStateMutation('m3', true, read => new Promise((resolve, reject) => {
       calls.push(read);
@@ -38,7 +38,7 @@ describe('read-state mutation lane', () => {
 
   it('serializes reversed explicit responses as the latest read state', async () => {
     resetReadStateMutationsForTest();
-    const calls = [];
+    const calls: unknown[] = [];
     const unread = queueReadStateMutation('m1', false, async read => calls.push(read));
     const read = queueReadStateMutation('m1', true, async value => calls.push(value));
     await Promise.all([unread.promise, read.promise]);

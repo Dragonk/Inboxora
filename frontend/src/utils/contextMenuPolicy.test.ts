@@ -33,7 +33,7 @@ test('inbox retains its existing action capabilities', () => {
 });
 
 test('GTD actions resolve the current row by stable Message-ID', async () => {
-  const calls = [];
+  const calls: unknown[] = [];
   const current = { id: 'current-row' };
   const result = await resolveContextMenuMessage({
     id: 'stale-row',

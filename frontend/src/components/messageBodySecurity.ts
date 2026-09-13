@@ -22,7 +22,7 @@ const SAFE_PROPERTIES = new Set(['background','background-color','background-ima
 const BAD_CSS = /(?:expression\s*\(|behavior\s*:|-moz-binding\s*:|javascript\s*:|vbscript\s*:|@import\b)/i;
 const URL_RE = /url\(\s*(['"]?)(.*?)\1\s*\)/gi;
 function safeCssUrl(value) { let bad = false; const next = value.replace(URL_RE, (_all, _q, raw) => { const url = String(raw || '').trim(); if (/^(https?:|\/\/|cid:|data:image\/)/i.test(url)) return `url("${url.replace(/"/g, '%22')}")`; bad = true; return 'none'; }); return bad ? null : next; }
-export function sanitizeInlineStyle(style = '') { const kept = []; for (const declaration of String(style).split(';')) { const i = declaration.indexOf(':'); if (i < 1) continue; const property = declaration.slice(0, i).trim().toLowerCase(); let value = declaration.slice(i + 1).trim(); if (!SAFE_PROPERTIES.has(property) || !value || BAD_CSS.test(value)) continue; value = safeCssUrl(value); if (value != null) kept.push(`${property}:${value}`); } return kept.join(';'); }
+export function sanitizeInlineStyle(style = '') { const kept: unknown[] = []; for (const declaration of String(style).split(';')) { const i = declaration.indexOf(':'); if (i < 1) continue; const property = declaration.slice(0, i).trim().toLowerCase(); let value = declaration.slice(i + 1).trim(); if (!SAFE_PROPERTIES.has(property) || !value || BAD_CSS.test(value)) continue; value = safeCssUrl(value); if (value != null) kept.push(`${property}:${value}`); } return kept.join(';'); }
 export function sanitizeEmailCss(css = '') { let root; try { root = postcss.parse(String(css)); } catch { return ''; } root.walkAtRules(rule => { if (!['media','supports'].includes(rule.name.toLowerCase()) || BAD_CSS.test(rule.params)) rule.remove(); }); root.walkDecls(declaration => { const property = declaration.prop.toLowerCase(); const value = safeCssUrl(declaration.value); if (!SAFE_PROPERTIES.has(property) || BAD_CSS.test(declaration.value) || value == null) declaration.remove(); else declaration.value = value; }); return root.toString(); }
 
 // Shared email HTML security policy. This is a leaf module so browser tests and
@@ -233,7 +233,7 @@ function emailSurfaceCss(surface) {
   // frame's user-agent defaults — default text colour, form controls, scrollbars,
   // prefers-color-scheme — from following the operating system instead of Inboxora.
   const rules = [`  html { color-scheme: ${tone}; }`];
-  const declarations = [];
+  const declarations: unknown[] = [];
   if (background) declarations.push(`background-color: ${background};`);
   // A dark canvas must state its text colour: leaving it to the user agent is exactly what
   // followed the operating system. A light canvas keeps the user agent's dark default,

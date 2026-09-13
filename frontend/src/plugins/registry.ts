@@ -43,7 +43,9 @@ export function getPluginMeta(pluginId) {
 // Headless runtime components a plugin mounts once (near the app root) to run background behaviour
 // with no UI of its own — data-fetch effects, subscriptions, timers. Rendered by <PluginRuntime/>
 // only while the plugin is activated, so a plugin's effects tear down when the user deactivates it.
-const runtimes = []; // [{ pluginId, component }]
+/** One registered plugin runtime: the id it is gated by and the component to render. */
+interface RegisteredRuntime { pluginId: string; component: React.ComponentType }
+const runtimes: RegisteredRuntime[] = []; // [{ pluginId, component }]
 
 export function registerRuntime(contribution) {
   runtimes.push(contribution);

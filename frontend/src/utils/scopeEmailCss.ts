@@ -46,7 +46,7 @@ export function scopeEmailCss(cssText, prefix) {
 
 export function prepareEmailHtml(rawHtml, uid) {
   const prefix = `email-${uid}`;
-  const styleBlocks = [];
+  const styleBlocks: unknown[] = [];
 
   const stripped = rawHtml.replace(
     /<style[^>]*>([\s\S]*?)<\/style>/gi,

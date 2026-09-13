@@ -151,7 +151,7 @@ function normalizeTo(arr) {
 function parseChips(val) {
   const str = typeof val === 'string' ? val : normalizeTo(val);
   if (!str) return [];
-  const parts = [];
+  const parts: unknown[] = [];
   let current = '';
   let inQuote = false;
   let inAngle = false;

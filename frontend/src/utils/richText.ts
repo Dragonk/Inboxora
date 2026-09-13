@@ -46,7 +46,7 @@ export function unwrapAngleBracketUrls(text) {
 
 function linkifyLine(line) {
   const normalized = unwrapAngleBracketUrls(line);
-  const parts = [];
+  const parts: unknown[] = [];
   let cursor = 0;
   for (const match of normalized.matchAll(BARE_URL)) {
     const candidate = match[0].replace(TRAILING_PUNCTUATION, '');

@@ -27,7 +27,7 @@ describe('createUndoableCommit', () => {
   it('cancels a pending commit and runs undo exactly once', async () => {
     assert.equal(typeof undoableAction.createUndoableCommit, 'function');
     const timer = fakeTimer();
-    const calls = [];
+    const calls: unknown[] = [];
     const action = undoableAction.createUndoableCommit({
       delayMs: 4500,
       commit: async () => { calls.push('commit'); },
@@ -47,7 +47,7 @@ describe('createUndoableCommit', () => {
   it('rejects a late undo after the commit has started', async () => {
     assert.equal(typeof undoableAction.createUndoableCommit, 'function');
     const timer = fakeTimer();
-    const calls = [];
+    const calls: unknown[] = [];
     const action = undoableAction.createUndoableCommit({
       delayMs: 4500,
       commit: async () => { calls.push('commit'); },
@@ -65,7 +65,7 @@ describe('createUndoableCommit', () => {
 
   it('can undo while an opted-in commit is awaiting asynchronous work', async () => {
     const timer = fakeTimer();
-    const calls = [];
+    const calls: unknown[] = [];
     let release;
     const pending = new Promise(resolve => { release = resolve; });
     const action = undoableAction.createUndoableCommit({

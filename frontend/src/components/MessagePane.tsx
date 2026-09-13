@@ -858,7 +858,7 @@ export default function MessagePane({ windowMessageId = null, onWindowClose = nu
     };
 
     // Store image listeners so we can remove them if the message changes mid-load.
-    const imageListeners = [];
+    const imageListeners: unknown[] = [];
     innerRef.current?.querySelectorAll('img').forEach(img => {
       if (!img.complete) {
         const handler = () => scheduleScale();
@@ -1392,7 +1392,7 @@ ${bodyContent}
       },
     });
 
-    const matches = [];
+    const matches: unknown[] = [];
     let node = walker.nextNode();
     while (node) {
       const haystack = matchCase ? node.nodeValue : node.nodeValue.toLowerCase();

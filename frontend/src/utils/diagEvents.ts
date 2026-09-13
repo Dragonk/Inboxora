@@ -11,7 +11,8 @@
 const CAP = 200;
 const STORE_KEY = 'mailflow_diag_events';
 
-let events = [];
+interface DiagEvent { type?: string; message?: string; at?: number; [key: string]: unknown }
+let events: DiagEvent[] = [];
 try {
   const saved = localStorage.getItem(STORE_KEY);
   if (saved) events = JSON.parse(saved).slice(-CAP);

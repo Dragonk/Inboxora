@@ -88,7 +88,7 @@ function GtdContextSubmenu({ message, account, onClose, onBack }) {
 // the old menuPolicy.done gate (variant === 'gtdSidebar').
 export function buildGtdContextItems(ctx) {
   const { message, account, variant, onAction, onClose, openSubmenu, t } = ctx;
-  const items = [];
+  const items: unknown[] = [];
   if (account?.gtd_enabled) {
     items.push({
       label: t('gtd.title'),

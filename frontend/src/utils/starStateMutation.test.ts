@@ -9,7 +9,7 @@ import {
 describe('star-state mutation lane', () => {
   it('serializes opposite intents so the newest provider write is last', async () => {
     resetStarStateMutationsForTest();
-    const calls = [];
+    const calls: unknown[] = [];
     let releaseFirst;
     const firstGate = new Promise(resolve => { releaseFirst = resolve; });
     const request = starred => {
@@ -33,7 +33,7 @@ describe('star-state mutation lane', () => {
 
   it('keeps independent physical copies in independent lanes', async () => {
     resetStarStateMutationsForTest();
-    const calls = [];
+    const calls: unknown[] = [];
     const first = queueStarStateMutation('copy-1', true, async value => { calls.push(['copy-1', value]); });
     const second = queueStarStateMutation('copy-2', true, async value => { calls.push(['copy-2', value]); });
     await Promise.all([first.promise, second.promise]);
