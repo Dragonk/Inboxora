@@ -272,7 +272,7 @@ describe('mergeWaiting', () => {
     // No server rollup: a both-labelled thread must contribute exactly 1 to unread when ANY
     // copy is unread, and 0 when none is — independent of dedupe order (which copy is newer).
     // watch carries the newer date (first-seen, owns display); delegated the older.
-    const both = (watchRead, delegatedRead) => mergeWaiting(
+    const both = (watchRead: boolean, delegatedRead: boolean) => mergeWaiting(
       { total: 1, unread: watchRead ? 0 : 1, threads: [{ message_id: 'x', date: '2026-07-08T00:00:00Z', is_read: watchRead }] },
       { total: 1, unread: delegatedRead ? 0 : 1, threads: [{ message_id: 'x', date: '2026-07-05T00:00:00Z', is_read: delegatedRead }] },
     );
@@ -372,12 +372,12 @@ describe('gtdStatesInFolders', () => {
 
 describe('openDeepLinkMessage', () => {
   it('stashes the fetched message under __dl_<id> then selects it', async () => {
-    const calls = [];
+    const calls: unknown[] = [];
     const msg = { id: 'm1', subject: 'hi' };
     const deps = {
-      getMessage: async (id) => { calls.push(['get', id]); return msg; },
-      setThreadMessages: (tid, msgs) => calls.push(['stash', tid, msgs]),
-      setSelectedMessage: (id) => calls.push(['select', id]),
+      getMessage: async (id: string) => { calls.push(['get', id]); return msg; },
+      setThreadMessages: (tid: string, msgs: unknown) => calls.push(['stash', tid, msgs]),
+      setSelectedMessage: (id: string) => calls.push(['select', id]),
     };
     const out = await openDeepLinkMessage('m1', deps);
     assert.equal(out, msg);
@@ -389,11 +389,11 @@ describe('openDeepLinkMessage', () => {
   });
 
   it('does not select when the fetch fails and no recovery deps are supplied', async () => {
-    const calls = [];
+    const calls: unknown[] = [];
     const deps = {
       getMessage: async () => { throw new Error('nope'); },
-      setThreadMessages: (tid, msgs) => calls.push(['stash', tid, msgs]),
-      setSelectedMessage: (id) => calls.push(['select', id]),
+      setThreadMessages: (tid: string, msgs: unknown) => calls.push(['stash', tid, msgs]),
+      setSelectedMessage: (id: string) => calls.push(['select', id]),
     };
     const out = await withWarnCaptured(() => openDeepLinkMessage('m1', deps));
     assert.equal(out.result, null);
@@ -602,10 +602,10 @@ describe('missingByIdentity', () => {
 
 describe('openDeepLinkMessage — stale-id recovery', () => {
   const stash = () => {
-    const calls = [];
+    const calls: unknown[] = [];
     const base = {
-      setThreadMessages: (tid, msgs) => calls.push(['stash', tid, msgs]),
-      setSelectedMessage: (id) => calls.push(['select', id]),
+      setThreadMessages: (tid: string, msgs: unknown) => calls.push(['stash', tid, msgs]),
+      setSelectedMessage: (id: string) => calls.push(['select', id]),
     };
     return { calls, base };
   };
@@ -617,7 +617,7 @@ describe('openDeepLinkMessage — stale-id recovery', () => {
     const deps = {
       ...base,
       getMessage: async () => { throw new Error('404'); },
-      getThread: async (tk) => { calls.push(['thread', tk]); return { messages: [fresh] }; },
+      getThread: async (tk: string) => { calls.push(['thread', tk]); return { messages: [fresh] }; },
       thread: { id: 'stale', message_id: '<mid>', thread_key: 'tk1' },
       onMiss: () => { refetched += 1; },
     };
@@ -773,11 +773,11 @@ describe('computeSpriteLayout', () => {
 
 describe('openDeepLinkMessage — click race (sequence token)', () => {
   it('a slow first click loses to a faster newer click: no overwrite, no warn', async () => {
-    const calls = [];
+    const calls: unknown[] = [];
     const mk = (msg, gate) => ({
       getMessage: async () => { await gate; return msg; },
-      setThreadMessages: (tid) => calls.push(['stash', tid]),
-      setSelectedMessage: (id) => calls.push(['select', id]),
+      setThreadMessages: (tid: string) => calls.push(['stash', tid]),
+      setSelectedMessage: (id: string) => calls.push(['select', id]),
     });
     let releaseFirst;
     const firstGate = new Promise(r => { releaseFirst = r; });
@@ -984,7 +984,7 @@ describe('collectThreadReadIds', () => {
 
   it('marking READ targets every message in the thread, not just the head', async () => {
     const asked = [];
-    const getThread = async (tk) => { asked.push(tk); return { messages: [{ id: 'a' }, { id: 'b' }, { id: 'head-1' }] }; };
+    const getThread = async (tk: string) => { asked.push(tk); return { messages: [{ id: 'a' }, { id: 'b' }, { id: 'head-1' }] }; };
     const ids = await collectThreadReadIds(head, true, getThread);
     assert.deepEqual(asked, ['tk-1']);
     assert.deepEqual(ids, ['a', 'b', 'head-1']);
@@ -1006,7 +1006,7 @@ describe('scheduleGtdThreadAutoRead', () => {
   const thread = { id: 'head', is_read: false };
 
   it('reads an unread thread immediately', () => {
-    const calls = [];
+    const calls: unknown[] = [];
     const timer = scheduleGtdThreadAutoRead(thread, {
       markReadBehavior: 'immediate',
       markReadDelay: 3,
@@ -1017,7 +1017,7 @@ describe('scheduleGtdThreadAutoRead', () => {
   });
 
   it('returns the delayed timer handle and uses seconds', () => {
-    const calls = [];
+    const calls: unknown[] = [];
     const timer = scheduleGtdThreadAutoRead(thread, {
       markReadBehavior: 'delay',
       markReadDelay: 3,
@@ -1029,7 +1029,7 @@ describe('scheduleGtdThreadAutoRead', () => {
   });
 
   it('does nothing in manual mode or for an already-read thread', () => {
-    const calls = [];
+    const calls: unknown[] = [];
     const deps = { readThread: () => calls.push('read') };
     assert.equal(scheduleGtdThreadAutoRead(thread, { ...deps, markReadBehavior: 'manual' }), null);
     assert.equal(scheduleGtdThreadAutoRead({ ...thread, is_read: true }, { ...deps, markReadBehavior: 'immediate' }), null);
@@ -1094,7 +1094,7 @@ describe('openGtdThreadWithAutoRead', () => {
 
   it('does not schedule an automatic read when cancelled while the open is pending', async () => {
     const thread = { id: 'head', is_read: false };
-    const calls = [];
+    const calls: unknown[] = [];
     let cancelled = false;
     let finishOpen;
     const opening = openGtdThreadWithAutoRead(thread, {
@@ -1125,7 +1125,7 @@ describe('openGtdThreadWithAutoRead', () => {
     const tasks = new Map();
     return {
       setTimer: (fn) => { const id = ++seq; tasks.set(id, fn); return id; },
-      clearTimer: (id) => tasks.delete(id),
+      clearTimer: (id: string) => tasks.delete(id),
       tick: () => { for (const fn of [...tasks.values()]) fn(); tasks.clear(); },
     };
   };
@@ -1169,13 +1169,13 @@ describe('openGtdThreadWithAutoRead', () => {
 // API call, reconverge the GTD sections store, and notify — deps injected (like openDeepLinkMessage)
 // so the success and failure-notification paths are unit-testable without a real store/API.
 describe('classifyThread', () => {
-  const t = (key) => key;
+  const t = (key: string) => key;
 
   it('classifies, reconverges the GTD sections store, then notifies success', async () => {
-    const calls = [];
+    const calls: unknown[] = [];
     const deps = {
       gtdClassify: async (id, state) => { calls.push(['classify', id, state]); },
-      addNotification: (n) => calls.push(['notify', n.title, n.body]),
+      addNotification: (n: { title?: string; body?: string; [key: string]: unknown }) => calls.push(['notify', n.title, n.body]),
       scheduleGtdSectionsFetch: () => calls.push(['schedule']),
       t,
     };
@@ -1188,10 +1188,10 @@ describe('classifyThread', () => {
   });
 
   it('notifies a classify failure instead of the GTD sections store when the API call rejects', async () => {
-    const calls = [];
+    const calls: unknown[] = [];
     const deps = {
       gtdClassify: async () => { throw new Error('boom'); },
-      addNotification: (n) => calls.push(['notify', n.title, n.body]),
+      addNotification: (n: { title?: string; body?: string; [key: string]: unknown }) => calls.push(['notify', n.title, n.body]),
       scheduleGtdSectionsFetch: () => calls.push(['schedule']),
       t,
     };
@@ -1201,13 +1201,13 @@ describe('classifyThread', () => {
 });
 
 describe('unclassifyThread', () => {
-  const t = (key) => key;
+  const t = (key: string) => key;
 
   it('unclassifies, reconverges the GTD sections store, then notifies success', async () => {
-    const calls = [];
+    const calls: unknown[] = [];
     const deps = {
       gtdUnclassify: async (id, state) => { calls.push(['unclassify', id, state]); },
-      addNotification: (n) => calls.push(['notify', n.title, n.body]),
+      addNotification: (n: { title?: string; body?: string; [key: string]: unknown }) => calls.push(['notify', n.title, n.body]),
       scheduleGtdSectionsFetch: () => calls.push(['schedule']),
       t,
     };
@@ -1220,10 +1220,10 @@ describe('unclassifyThread', () => {
   });
 
   it('notifies an unclassify failure instead of the GTD sections store when the API call rejects', async () => {
-    const calls = [];
+    const calls: unknown[] = [];
     const deps = {
       gtdUnclassify: async () => { throw new Error('boom'); },
-      addNotification: (n) => calls.push(['notify', n.title, n.body]),
+      addNotification: (n: { title?: string; body?: string; [key: string]: unknown }) => calls.push(['notify', n.title, n.body]),
       scheduleGtdSectionsFetch: () => calls.push(['schedule']),
       t,
     };
