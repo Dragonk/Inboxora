@@ -17,7 +17,34 @@ import { doneGtdRow } from '../utils/gtdDone.ts';
 // read, or double-fire bulkRead when the same thread is opened from both. `owner`
 // remembers which hook instance scheduled the timer so an unmounting surface cancels
 // only its own pending read, never one the still-mounted surface legitimately owns.
-let autoMarkRead = { timer: null, identity: null, owner: null };
+/** A GTD section row (thread) as the triage actions use it. */
+interface GtdTriageThread {
+  id?: string;
+  message_id?: string;
+  account_id?: string;
+  accountId?: string;
+  folder?: string;
+  is_read?: boolean;
+  is_starred?: boolean;
+  [key: string]: unknown;
+}
+
+/** The store members this hook reads (the store itself is still untyped). */
+interface GtdTriageStoreSlice {
+  setThreadMessages: (threadId: string, msgs: unknown) => unknown;
+  setSelectedMessage: (id: string | null) => unknown;
+  scheduleGtdSectionsFetch: () => void;
+  removeGtdThread: (identity: string, states?: string[]) => unknown;
+  restoreGtdThread: (snapshot: unknown) => unknown;
+  markGtdThreadRead: (identity: string, isRead: boolean) => unknown;
+  markGtdThreadStarred: (identity: string, isStarred: boolean) => unknown;
+  addNotification: (n: unknown) => unknown;
+  accounts: Array<{ id?: string; [key: string]: unknown }>;
+  openCompose: (data?: Record<string, unknown>) => unknown;
+}
+
+interface AutoMarkRead { timer: ReturnType<typeof setTimeout> | null; identity: string | null; owner: unknown }
+let autoMarkRead: AutoMarkRead = { timer: null, identity: null, owner: null };
 
 // Drop the pending delay-mode auto-read outright (handle + owner identity). openRow uses
 // this: a fresh open — from ANY GTD surface — genuinely supersedes the prior row's
@@ -32,7 +59,7 @@ const cancelAutoMarkRead = () => {
 // (is_read=false) readThread later revert it or fire a spurious bulkRead — but the same
 // action on a DIFFERENT visible row (rapid triage) must leave that other row's
 // still-legitimate pending read running.
-const cancelAutoMarkReadFor = (thread) => {
+const cancelAutoMarkReadFor = (thread: GtdTriageThread) => {
   const identity = thread.message_id || thread.id;
   if (autoMarkRead.identity != null && autoMarkRead.identity === identity) {
     cancelAutoMarkRead();
@@ -52,16 +79,16 @@ const cancelAutoMarkReadFor = (thread) => {
 // here.
 export function useGtdTriage() {
   const { t } = useTranslation();
-  const setThreadMessages = useStore(s => s.setThreadMessages);
-  const setSelectedMessage = useStore(s => s.setSelectedMessage);
-  const scheduleGtdSectionsFetch = useStore(s => s.scheduleGtdSectionsFetch);
-  const removeGtdThread = useStore(s => s.removeGtdThread);
-  const restoreGtdThread = useStore(s => s.restoreGtdThread);
-  const markGtdThreadRead = useStore(s => s.markGtdThreadRead);
-  const markGtdThreadStarred = useStore(s => s.markGtdThreadStarred);
-  const addNotification = useStore(s => s.addNotification);
-  const accounts = useStore(s => s.accounts);
-  const openCompose = useStore(s => s.openCompose);
+  const setThreadMessages = useStore((s: GtdTriageStoreSlice) => s.setThreadMessages);
+  const setSelectedMessage = useStore((s: GtdTriageStoreSlice) => s.setSelectedMessage);
+  const scheduleGtdSectionsFetch = useStore((s: GtdTriageStoreSlice) => s.scheduleGtdSectionsFetch);
+  const removeGtdThread = useStore((s: GtdTriageStoreSlice) => s.removeGtdThread);
+  const restoreGtdThread = useStore((s: GtdTriageStoreSlice) => s.restoreGtdThread);
+  const markGtdThreadRead = useStore((s: GtdTriageStoreSlice) => s.markGtdThreadRead);
+  const markGtdThreadStarred = useStore((s: GtdTriageStoreSlice) => s.markGtdThreadStarred);
+  const addNotification = useStore((s: GtdTriageStoreSlice) => s.addNotification);
+  const accounts = useStore((s: GtdTriageStoreSlice) => s.accounts);
+  const openCompose = useStore((s: GtdTriageStoreSlice) => s.openCompose);
 
   // Right-click / move-picker menu for a GTD row. Carries the row's doneStates so the
   // menu's "done" and "move" stay section-scoped (the row knows which section it's in).
@@ -81,7 +108,7 @@ export function useGtdTriage() {
   // The GTD "done" action: strip this row's label(s) (`states`), mark read, archive.
   // Optimistically drop and guard the row so stale refetches cannot resurrect it. On
   // failure, restore its local snapshot and refetch for authoritative reconciliation.
-  const doneRow = (thread, states) => {
+  const doneRow = (thread: GtdTriageThread, states: string[]) => {
     cancelAutoMarkReadFor(thread);
     return doneGtdRow(thread, states, {
       gtdDone: api.gtdDone,
@@ -97,7 +124,7 @@ export function useGtdTriage() {
   // unread, so marking READ acts on every message in the thread (collectThreadReadIds —
   // the same-message_id fan-out alone can't reach an INBOX-only sibling reply), while
   // marking UNREAD needs only the head copy. On failure, flip back.
-  const setRead = async (thread, read) => {
+  const setRead = async (thread: GtdTriageThread, read: boolean) => {
     // Explicit mark-unread wins over a pending auto-read: cancel the timer before the no-op
     // guard so it can't later flip this just-opened thread back to read.
     if (!read) cancelAutoMarkReadFor(thread);
@@ -105,7 +132,7 @@ export function useGtdTriage() {
     const identity = thread.message_id || thread.id;
     markGtdThreadRead(identity, read);
     try {
-      const getAccountThread = threadKey => api.getThread(threadKey, null, false, thread.account_id || thread.accountId || null);
+      const getAccountThread = (threadKey: string) => api.getThread(threadKey, null, false, thread.account_id || thread.accountId || null);
       await api.bulkRead(await collectThreadReadIds(thread, read, getAccountThread), read);
       // Belt-and-braces under the WS read fan-out: reconcile the sidebar counts (the
       // debounce coalesces this with any gtd_sections_updated the mark triggers).
@@ -116,7 +143,7 @@ export function useGtdTriage() {
     }
   };
 
-  const openRow = (thread) => {
+  const openRow = (thread: GtdTriageThread) => {
     cancelAutoMarkRead();
     const identity = thread.message_id || thread.id;
     return openGtdThreadWithAutoRead(thread, {
@@ -145,7 +172,7 @@ export function useGtdTriage() {
   // Star: flip is_starred on the section thread instantly (identity-wide, so a merged
   // Waiting row stays consistent across watch+delegated); the star fans out to sibling
   // copies server-side. On failure, flip back.
-  const toggleStar = async (thread) => {
+  const toggleStar = async (thread: GtdTriageThread) => {
     const identity = thread.message_id || thread.id;
     const next = !thread.is_starred;
     markGtdThreadStarred(identity, next);
