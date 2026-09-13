@@ -2508,7 +2508,7 @@ function RichToolbar({ editor, onAttach, onInsertImage = undefined, htmlMode, on
   const openColor = (e) => {
     e.preventDefault();
     if (colorPos) { setColorPos(null); return; }
-    const r = colorBtnRef.current.getBoundingClientRect();
+    const r = e.currentTarget.getBoundingClientRect();
     const left = Math.max(4, Math.min(r.left, window.innerWidth - 140));
     setColorPos({ top: r.bottom + 4, left });
     setHighlightPos(null); setEmojiPos(null); setLinkPos(null);
@@ -2516,7 +2516,7 @@ function RichToolbar({ editor, onAttach, onInsertImage = undefined, htmlMode, on
   const openHighlight = (e) => {
     e.preventDefault();
     if (highlightPos) { setHighlightPos(null); return; }
-    const r = highlightBtnRef.current.getBoundingClientRect();
+    const r = e.currentTarget.getBoundingClientRect();
     const left = Math.max(4, Math.min(r.left, window.innerWidth - 140));
     setHighlightPos({ top: r.bottom + 4, left });
     setColorPos(null); setEmojiPos(null); setLinkPos(null);
@@ -2531,7 +2531,7 @@ function RichToolbar({ editor, onAttach, onInsertImage = undefined, htmlMode, on
       ]);
       emojiPickerRef.current = { Picker, data };
     }
-    const r = emojiBtnRef.current.getBoundingClientRect();
+    const r = e.currentTarget.getBoundingClientRect();
     const left = Math.max(4, Math.min(r.left, window.innerWidth - 220));
     const spaceBelow = window.innerHeight - r.bottom;
     const spaceAbove = r.top;
@@ -2544,7 +2544,7 @@ function RichToolbar({ editor, onAttach, onInsertImage = undefined, htmlMode, on
   const openLink = (e) => {
     e.preventDefault();
     if (linkPos) { setLinkPos(null); return; }
-    const r = linkBtnRef.current.getBoundingClientRect();
+    const r = e.currentTarget.getBoundingClientRect();
     const left = Math.max(4, Math.min(r.left, window.innerWidth - 300));
     setLinkPos({ top: r.bottom + 4, left });
     setColorPos(null); setHighlightPos(null); setEmojiPos(null);
@@ -2573,7 +2573,7 @@ function RichToolbar({ editor, onAttach, onInsertImage = undefined, htmlMode, on
   const openTable = (e) => {
     e.preventDefault();
     if (tablePos) { setTablePos(null); return; }
-    const r = tableBtnRef.current.getBoundingClientRect();
+    const r = e.currentTarget.getBoundingClientRect();
     const left = Math.max(4, Math.min(r.left, window.innerWidth - 200));
     setTablePos({ top: r.bottom + 4, left });
     setColorPos(null); setHighlightPos(null); setEmojiPos(null); setLinkPos(null);
@@ -2612,7 +2612,7 @@ function RichToolbar({ editor, onAttach, onInsertImage = undefined, htmlMode, on
               <button ref={aiBtnRef} title={t('compose.toolbar.aiAssist')} onMouseDown={e => {
                 e.preventDefault();
                 if (aiMenuPos) { setAiMenuPos(null); return; }
-                const r = aiBtnRef.current.getBoundingClientRect();
+                const r = e.currentTarget.getBoundingClientRect();
                 const left = Math.max(4, Math.min(r.left, window.innerWidth - 160));
                 setAiMenuPos({ top: r.bottom + 4, left });
               }} style={{
@@ -2787,7 +2787,7 @@ function RichToolbar({ editor, onAttach, onInsertImage = undefined, htmlMode, on
             <button ref={aiBtnRef} title={t('compose.toolbar.aiAssist')} onMouseDown={e => {
               e.preventDefault();
               if (aiMenuPos) { setAiMenuPos(null); return; }
-              const r = aiBtnRef.current.getBoundingClientRect();
+              const r = e.currentTarget.getBoundingClientRect();
               const left = Math.max(4, Math.min(r.left, window.innerWidth - 160));
               setAiMenuPos({ top: r.bottom + 4, left });
             }} style={{
