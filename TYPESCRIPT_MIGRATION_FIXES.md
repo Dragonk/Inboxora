@@ -730,3 +730,17 @@ Strategia: typowanie niejawnych zmiennych/parametrow przy WYLACZONYM flagu stric
 Pozostaly dlug (backend): TS7006 parametry 2104, TS7005/7031/7018/7034 zmienne i destrukturyzacje.
 To nadal osobny, wieloetapowy refactor, udokumentowany w planie (5c).
 
+
+## 66. Redukcja dlugu strict - runda 2
+
+- noImplicitAny (backend): 3094 -> 3008 (-86). tsc 0, testy 1785/0, lint czysty, build OK.
+- vcard.ts (produkcja): parametry str/value/line/raw otypowane; dodany VCardContact
+  (emails/phones/urls/instantMessages z primary?, adresy jako rekord string) zamiast
+  Record<string, unknown>, ktory kaskadowal na unknown w escapeValue.
+- 24 niejawnych `let X;` w testach otypowanych: release/releaseConfig/releaseDelivery jako
+  ((value?: unknown) => void) | undefined (resolve promisy maja parametr), requestSignal
+  jako AbortSignal, resolvePoll/resolveFetch jako (value: Response) => void, userId: string,
+  outbox jako wiersz DB, thrown jako Error & { cause?: unknown }.
+- Wniosek: pozostale ~3000 to glownie TS7006 (sygnatury funkcji) — wymaga osobnego,
+  wieloetapowego typowania parametrow; udokumentowane w planie (5c).
+

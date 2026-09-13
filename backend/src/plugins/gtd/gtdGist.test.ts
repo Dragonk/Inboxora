@@ -178,7 +178,7 @@ describe('queueGistGeneration — write path', () => {
   it('dedupes an overlapping queue for the same head so it is generated only once (FIX 1)', async () => {
     // Hold the first call inside the provider-status gate so a second call overlaps it while the
     // first sits between reserving its ids and generating — the exact TOCTOU window.
-    let releaseConfig;
+    let releaseConfig: ((value?: unknown) => void) | undefined;
     const configGate = new Promise((resolve) => { releaseConfig = resolve; });
     getAiStatus.mockImplementation(() => configGate.then(() => ({ enabled: true, provider: 'api-key', features: { summarize: true }, reconnectRequired: false })));
     query.mockImplementation((sql, params) => {

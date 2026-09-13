@@ -228,7 +228,7 @@ describe('streamCodexResponses', () => {
 
   it('keeps the timeout active while reading the streamed response body', async () => {
     vi.useFakeTimers();
-    let requestSignal;
+    let requestSignal: AbortSignal | undefined;
     vi.stubGlobal('fetch', vi.fn((_url, init) => {
       requestSignal = init.signal;
       return Promise.resolve(new Response(new ReadableStream({

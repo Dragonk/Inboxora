@@ -3,26 +3,26 @@
 
 // Sanitize a vCard parameter value (e.g. TYPE=...).
 // Strips CR, LF, and other characters that are structural in vCard lines.
-function escapeParam(str) {
+function escapeParam(str: string): string {
   if (!str) return '';
   return str.replace(/[\r\n;]/g, '');
 }
 
-function quoteParam(str) {
+function quoteParam(str: string): string {
   return `"${str}"`;
 }
 
 // vCard parameter values cannot contain controls, DQUOTE, or backslash escapes.
 // Keep punctuation valid inside a quoted parameter (notably ; and :) so values
 // are round-trippable rather than silently rewritten during serialization.
-export function normalizeContactDateLabel(value) {
+export function normalizeContactDateLabel(value: unknown): string | null {
   if (typeof value !== 'string') return null;
   const label = value.trim();
   return label && !/[\p{Cc}"\\]/u.test(label) ? label : null;
 }
 
 // Escape special characters in a vCard property value.
-function escapeValue(str) {
+function escapeValue(str: string): string {
   if (!str) return '';
   return str
     .replace(/\\/g, '\\\\')
@@ -33,14 +33,14 @@ function escapeValue(str) {
 }
 
 // Unescape a vCard property value.
-function unescapeValue(str) {
+function unescapeValue(str: string): string {
   if (!str) return '';
   return str.replace(/\\([\\;,nN])/g, (_match, escaped) => escaped.toLowerCase() === 'n' ? '\n' : escaped);
 }
 
 // Split structured or list values without treating escaped delimiters as
 // separators. Keep escapes in the fragments so unescapeValue() can decode them.
-function splitEscaped(value, delimiter) {
+function splitEscaped(value: string, delimiter: string): string[] {
   const parts = [];
   let part = '';
   let escaped = false;
@@ -57,7 +57,7 @@ function splitEscaped(value, delimiter) {
   return parts;
 }
 
-function isHttpUrl(value) {
+function isHttpUrl(value: unknown): boolean {
   try {
     const url = new URL(value);
     return url.protocol === 'http:' || url.protocol === 'https:';
@@ -89,7 +89,7 @@ export function normalizeVCardDate(value, allowPartial = true) {
 }
 
 // Fold a vCard line at 75 octets per RFC 6350 §3.2.
-function foldLine(line) {
+function foldLine(line: string): string {
   const bytes = Buffer.from(line, 'utf8');
   if (bytes.length <= 75) return line + '\r\n';
   const parts = [];
@@ -114,11 +114,11 @@ function foldLine(line) {
 }
 
 // Unfold a raw vCard string — join lines that start with whitespace.
-function unfold(raw) {
+function unfold(raw: string): string {
   return raw.replace(/\r\n[ \t]/g, '').replace(/\n[ \t]/g, '');
 }
 
-function findPropertySeparator(line) {
+function findPropertySeparator(line: string): number {
   let quoted = false;
   let escaped = false;
   for (let index = 0; index < line.length; index++) {
@@ -148,7 +148,7 @@ function dateLabelFromParams(params, fallback) {
   return null;
 }
 
-function hasUnterminatedDateLabelParam(raw) {
+function hasUnterminatedDateLabelParam(raw: string): boolean {
   const text = unfold(raw || '');
   return text.split(/\r?\n/).some(line => {
     const property = line.split(';', 1)[0].toUpperCase().split('.').at(-1);
@@ -164,7 +164,7 @@ function hasUnterminatedDateLabelParam(raw) {
  *
  * Returns: { uid, displayName, firstName, lastName, emails, phones, organization, notes, photoData }
  */
-export function parseVCard(raw) {
+export function parseVCard(raw: string) {
   const text = unfold(raw || '');
   const result = {
     uid: null,
@@ -362,7 +362,28 @@ export function parseVCard(raw) {
  *
  * contact: { uid, displayName, firstName, lastName, emails, phones, organization, notes }
  */
-export function generateVCard(contact) {
+export interface VCardContact {
+  uid?: string | null;
+  displayName?: string | null;
+  firstName?: string | null;
+  lastName?: string | null;
+  emails?: Array<{ value?: string; type?: string; primary?: boolean }>;
+  phones?: Array<{ value?: string; type?: string; primary?: boolean }>;
+  organization?: string | null;
+  notes?: string | null;
+  birthday?: string | null;
+  anniversary?: string | null;
+  title?: string | null;
+  role?: string | null;
+  nickname?: string | null;
+  urls?: Array<{ value?: string; type?: string; primary?: boolean }>;
+  instantMessages?: Array<{ value?: string; type?: string; primary?: boolean }>;
+  categories?: string[];
+  addresses?: Array<{ type?: string; [key: string]: string | undefined }>;
+  contactDates?: Array<{ label?: string; value?: string }>;
+}
+
+export function generateVCard(contact: VCardContact): string {
   const {
     uid,
     displayName,
@@ -453,7 +474,7 @@ export function generateVCard(contact) {
 // Update only the properties owned by the local contact editor. The original
 // vCard remains the source of truth for DAV clients, so unsupported extensions
 // (including grouped Apple properties and X-* fields) survive local edits.
-export function mergeVCard(raw, contact) {
+export function mergeVCard(raw: string, contact: VCardContact): string {
   const original = unfold(raw || '');
   if (!/^BEGIN:VCARD\s*$/im.test(original) || !/^END:VCARD\s*$/im.test(original)) {
     return generateVCard(contact);

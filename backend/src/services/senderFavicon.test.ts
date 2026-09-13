@@ -336,7 +336,7 @@ describe('getSenderFavicon', () => {
 
   it('coalesces simultaneous misses for one normalized domain', async () => {
     const cache = cacheDouble();
-    let release;
+    let release: ((value?: unknown) => void) | undefined;
     const blocked = new Promise(resolve => { release = resolve; });
     const fetchImpl = vi.fn<typeof fetch>(async () => { await blocked; return response(png(64)); });
     const first = getSenderFavicon('EXAMPLE.com', { cache, fetchImpl });
@@ -486,7 +486,7 @@ describe('getSenderFavicon parent walk-up', () => {
 
   it('coalesces a subdomain walk and a direct parent request onto one parent fetch', async () => {
     const cache = cacheDouble();
-    let release;
+    let release: ((value?: unknown) => void) | undefined;
     const blocked = new Promise(resolve => { release = resolve; });
     const fetchImpl = vi.fn<typeof fetch>(async target => {
       if (String(target).includes('/notion.so/')) { await blocked; return response(png(64)); }
@@ -524,7 +524,7 @@ describe('getSenderFavicon parent walk-up', () => {
     const cache = cacheDouble();
     let reached;
     const bReached = new Promise(resolve => { reached = resolve; });
-    let release;
+    let release: ((value?: unknown) => void) | undefined;
     const blocked = new Promise(resolve => { release = resolve; });
     const fetchImpl = vi.fn<typeof fetch>(async target => {
       if (String(target).includes('/b.corp.com/')) { reached(); await blocked; return notFound(); }

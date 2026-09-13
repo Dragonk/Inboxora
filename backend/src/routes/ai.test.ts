@@ -346,7 +346,7 @@ describe('authenticated AI status and streaming', () => {
 
   it('aborts the provider stream when the HTTP client disconnects', async () => {
     let providerSignal;
-    let resolveAbort;
+    let resolveAbort: ((value?: unknown) => void) | undefined;
     const aborted = new Promise((resolve) => { resolveAbort = resolve; });
     mocks.streamChat.mockImplementation(async function* stream(_messages, { signal }) {
       providerSignal = signal;

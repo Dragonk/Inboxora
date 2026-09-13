@@ -999,7 +999,7 @@ describe('local calendar API', () => {
     const sender = { id: 'account-1', email_address: 'owner@example.test', smtp_host: 'smtp.example.test', enabled: true };
     const existing = { uid: 'uid-1', attendees: ['kept@example.test', 'removed@example.test'], invite_account_id: 'account-1', invitation_sequence: 2, summary: 'Planning', starts_at: '2026-09-01T09:00:00.000Z', ends_at: '2026-09-01T10:00:00.000Z', all_day: false };
     const event = { id: 'event-1', calendar_id: 'calendar-1', uid: 'uid-1', attendees: ['kept@example.test'], invite_account_id: 'account-1', invitation_sequence: 3 };
-    let outbox;
+    let outbox: { id?: string; [key: string]: unknown } | null;
     query.mockImplementation(async (sql, params) => {
       if (sql.includes('FROM calendars')) return { rows: [{ id: 'calendar-1', source: 'local', read_only: false }] };
       if (sql.includes('FROM email_accounts')) return { rows: [sender] };
@@ -1037,7 +1037,7 @@ describe('local calendar API', () => {
   it('resends a failed invitation when the same idempotent POST is retried', async () => {
     const sender = { id: 'account-1', email_address: 'owner@example.test', smtp_host: 'smtp.example.test', enabled: true };
     const event = { id: 'event-1', calendar_id: 'calendar-1', uid: 'uid-1', invitation_sequence: 0 };
-    let outbox;
+    let outbox: { id?: string; [key: string]: unknown } | null;
     sendCalendarInvitation.mockRejectedValueOnce(new Error('SMTP unavailable'));
     query.mockImplementation(async (sql, params) => {
       if (sql.includes('FROM calendars')) return { rows: [{ id: 'calendar-1', source: 'local', read_only: false }] };
@@ -1071,7 +1071,7 @@ describe('local calendar API', () => {
   it('does not resend an invitation the outbox already delivered', async () => {
     const sender = { id: 'account-1', email_address: 'owner@example.test', smtp_host: 'smtp.example.test', enabled: true };
     const event = { id: 'event-1', calendar_id: 'calendar-1', uid: 'uid-1', invitation_sequence: 0 };
-    let outbox;
+    let outbox: { id?: string; [key: string]: unknown } | null;
     query.mockImplementation(async (sql, params) => {
       if (sql.includes('FROM calendars')) return { rows: [{ id: 'calendar-1', source: 'local', read_only: false }] };
       if (sql.includes('FROM email_accounts')) return { rows: [sender] };
@@ -1099,7 +1099,7 @@ describe('local calendar API', () => {
     const sender = { id: 'account-1', email_address: 'owner@example.test', smtp_host: 'smtp.example.test', enabled: true };
     const existing = { uid: 'uid-1', attendees: [], invite_account_id: null, invitation_sequence: 0, summary: 'Planning', starts_at: '2026-09-01T09:00:00.000Z', ends_at: '2026-09-01T10:00:00.000Z', all_day: false };
     const event = { id: 'event-1', calendar_id: 'calendar-1', uid: 'uid-1', attendees: ['guest@example.test'], invite_account_id: 'account-1', invitation_sequence: 0 };
-    let outbox;
+    let outbox: { id?: string; [key: string]: unknown } | null;
     sendCalendarInvitation.mockRejectedValueOnce(new Error('SMTP unavailable'));
     query.mockImplementation(async (sql, params) => {
       if (sql.includes('FROM calendars')) return { rows: [{ id: 'calendar-1', source: 'local', read_only: false }] };

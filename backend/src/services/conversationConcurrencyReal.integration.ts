@@ -18,7 +18,7 @@ const cfg = {
 };
 
 let pool: pg.Pool;
-let userId;
+let userId: string;
 let accountId;
 const username = `ce-concurrency-${process.pid}-${Date.now()}`;
 

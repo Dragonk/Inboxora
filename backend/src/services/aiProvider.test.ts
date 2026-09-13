@@ -282,7 +282,7 @@ describe('API-key provider regression', () => {
 
   it('keeps the provider timeout active while reading the response body', async () => {
     vi.useFakeTimers();
-    let requestSignal;
+    let requestSignal: AbortSignal | undefined;
     const fetchFn = vi.fn((_url, init) => {
       requestSignal = init.signal;
       return Promise.resolve(new Response(new ReadableStream({

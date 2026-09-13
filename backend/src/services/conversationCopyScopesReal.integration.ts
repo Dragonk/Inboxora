@@ -9,7 +9,7 @@ import { applyConversationAction } from './conversationActions.js';
 
 const cfg = { host: process.env.DB_HOST || 'localhost', port: Number(process.env.DB_PORT || 5432), database: process.env.DB_NAME || 'mailflow_test', user: process.env.DB_USER || 'test', password: process.env.DB_PASSWORD || 'test' };
 let pool: pg.Pool;
-let userId;
+let userId: string;
 let accountA;
 let accountB;
 const username = `ce-scope-${process.pid}-${Date.now()}`;

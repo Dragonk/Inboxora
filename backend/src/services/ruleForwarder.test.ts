@@ -211,7 +211,7 @@ describe('forwardRuleMessage', () => {
     let reservationCreated = false;
     let reservationStatus = 'pending';
     let notifyDeliveryStarted;
-    let releaseDelivery;
+    let releaseDelivery: ((value?: unknown) => void) | undefined;
     const deliveryStarted = new Promise(resolve => {
       notifyDeliveryStarted = resolve;
     });
@@ -537,7 +537,7 @@ describe('forwardRuleMessage', () => {
       throw new Error('Unexpected query');
     });
 
-    let thrown;
+    let thrown: (Error & { cause?: unknown }) | undefined;
     try {
       await forwardRuleMessage(input);
     } catch (err) {

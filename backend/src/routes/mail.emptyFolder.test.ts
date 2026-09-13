@@ -69,7 +69,7 @@ describe('POST /api/mail/folders/empty — async background empty', () => {
   });
 
   it('rejects a concurrent empty of the same folder with 409', async () => {
-    let release;
+    let release: ((value?: unknown) => void) | undefined;
     imapManager.emptyFolder.mockImplementation(() => new Promise(r => { release = r; }));
     const first = await empty('Junk');
     expect(first.status).toBe(202);
