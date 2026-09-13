@@ -43,7 +43,7 @@ function stubDom({ variable = '', stored = null } = {}) {
   globalThis.document = ({
     documentElement: {
       style: {
-        setProperty: (key, value) => properties.set(key, value),
+        setProperty: (key: string, value: unknown) => properties.set(key, value),
         getPropertyValue: key => properties.get(key) || '',
       },
     },
@@ -56,7 +56,7 @@ function stubDom({ variable = '', stored = null } = {}) {
   globalThis.getComputedStyle = ((element: { style: CSSStyleDeclaration }) => element.style) as unknown as typeof globalThis.getComputedStyle;
   globalThis.localStorage = ({
     getItem: key => (storage.has(key) ? storage.get(key) : null),
-    setItem: (key, value) => storage.set(key, String(value)),
+    setItem: (key: string, value: unknown) => storage.set(key, String(value)),
     removeItem: key => storage.delete(key),
   }) as unknown as Storage;
   return { properties, storage };

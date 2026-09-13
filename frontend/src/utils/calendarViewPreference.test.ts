@@ -12,7 +12,7 @@ function stubStorage({ throwOnUse = false } = {}) {
       if (throwOnUse) throw new Error('storage blocked');
       return store.has(key) ? store.get(key) : null;
     },
-    setItem: (key, value) => {
+    setItem: (key: string, value: unknown) => {
       if (throwOnUse) throw new Error('storage blocked');
       store.set(key, String(value));
     },

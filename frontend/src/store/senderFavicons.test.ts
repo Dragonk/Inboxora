@@ -20,7 +20,7 @@ registerHooks({
   let values: Record<string, any> = { mailflow_theme: 'dark' };
   return {
     getItem: key => values[key] ?? null,
-    setItem: (key, value) => { values[key] = String(value); },
+    setItem: (key: string, value: unknown) => { values[key] = String(value); },
     removeItem: key => { delete values[key]; },
     clear: () => { values = {}; },
   };

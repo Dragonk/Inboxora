@@ -1128,7 +1128,7 @@ function loadLocales() {
 // Strip known plural suffixes before searching — if the base key is in the
 // source the plural form is considered referenced.
 const PLURAL_SUFFIXES = ['_zero', '_one', '_two', '_few', '_many', '_other'];
-function baseKey(key) {
+function baseKey(key: string) {
   for (const s of PLURAL_SUFFIXES) {
     if (key.endsWith(s)) return key.slice(0, -s.length);
   }

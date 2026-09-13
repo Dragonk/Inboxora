@@ -11,7 +11,7 @@ function memoryStorage(initial: Record<string, string> = {}): Storage & { value(
   const values = new Map<string, string>(Object.entries(initial));
   return {
     getItem: key => values.get(key) ?? null,
-    setItem: (key, value) => { values.set(key, String(value)); },
+    setItem: (key: string, value: unknown) => { values.set(key, String(value)); },
     removeItem: key => { values.delete(key); },
     clear: () => { values.clear(); },
     key: index => [...values.keys()][index] ?? null,

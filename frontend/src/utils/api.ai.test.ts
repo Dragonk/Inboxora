@@ -48,7 +48,7 @@ describe('ChatGPT authorization API', () => {
 
     await assert.doesNotReject(async () => {
       const text = await streamAiChat([{ role: 'user', content: 'Draft a reply' }], {
-        onDelta: (value) => updates.push(value),
+        onDelta: (value: unknown) => updates.push(value),
       });
       assert.equal(text, 'Hello world');
     });

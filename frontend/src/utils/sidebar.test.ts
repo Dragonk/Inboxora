@@ -40,7 +40,7 @@ describe('collapsedTooltip', () => {
 });
 
 describe('activateOnKey', () => {
-  const press = (key) => {
+  const press = (key: string) => {
     const event = { key, prevented: false, preventDefault() { this.prevented = true; } };
     return event;
   };
