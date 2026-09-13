@@ -839,3 +839,56 @@ Metoda pracy (zapisana w TYPESCRIPT_MIGRATION_PLAN.md, punkt 5c): ciac modulami,
 flag strict wlaczany tylko chwilowo do pomiaru, po kazdym module tsc/testy/lint zielone.
 Flag wlaczamy na stale dopiero, gdy projekt ma 0 bledow.
 
+## 73. Strict mode: przebieg i realne bledy wykryte przez typy (rundy 1-16)
+
+Po migracji na TypeScript flaga `strict` + `noImplicitAny` byla wlaczana tymczasowo do
+pomiaru (backend 3363, frontend 5096 = 8459 znalezisk). Praca prowadzona modulami; po
+kazdym module `tsc` (bez flagi), testy, lint i build sa zielone, a flaga wraca do pomiaru.
+
+Stan po rundzie 16: **backend 3363 -> 2243** (-1120). Ukonczone calkowicie: `src/utils`,
+`src/index.ts`, `src/plugins` (0 znalezisk) oraz `src/middleware` i `src/scripts`.
+
+### Wspolne, jednorazowe mechanizmy zamiast powtarzanych rzutowan
+- `src/utils/query.ts`: `routeParam()`, `queryString()`, `queryInt()`, `sessionUserId()`.
+- `src/utils/errors.ts`: `AppError`, `toAppError()` (164 bloki `catch` w 36 plikach).
+- `src/test/http.ts`, `src/test/mailEngine.ts`, `src/test/query.ts`, `src/test/imapClient.ts`:
+  jedno udokumentowane miejsce dopasowania atrapy do typu frameworka/domeny.
+
+### Realne bledy w kodzie produkcyjnym (nie tylko typy)
+1. **`ImapManager.broadcast(data, userId = null)`** - domyslna wartosc `null` sprawiala, ze
+   typ parametru to literalnie `null`, wiec prawdziwy silnik nie byl przypisywalny do
+   powierzchni pluginow i `setMailEngine()` nie moglo sie skompilowac w trybie strict.
+2. **`client.search(...)` moze zwrocic `false`**, nie tablice (imapflow: `(await this.run(...)) || false`).
+   Osiem miejsc czytalo `.length`, `.filter`, `.map` wprost z wyniku - przy pustym SEARCH
+   grozilo to `TypeError`. Wprowadzone `searchUids()` normalizuje wynik do tablicy.
+3. **`client.mailbox` to `MailboxObject | false`** - odczyty `client.mailbox?.exists` /
+   `?.path` nie zawężały `false`; wprowadzony `openMailbox()`.
+4. **Martwa gwardia "flat namespace"** w `ensureMailbox`: kod sprawdza `client.namespace`,
+   ale **imapflow 1.7.8 nie wystawia takiego pola ani metody** - gwardia nigdy nie zadziala
+   z prawdziwym klientem (dziala wylacznie w testach, ktore podaja atrape z `namespace`).
+   Zgloszone jako osobny defekt do naprawy przez LIST/delimiter; zachowanie bez zmian.
+5. **`PluginStorage.put()`** - destrukturyzacja z domyslnymi (`blob = null, mime = null,
+   ownerId = null`) wnioskowala typy literalnie `null`, przez co kazdy zapis byl nietypowalny.
+6. **`mockQuery({ rows = [] })`** w testach GTD - domyslna pusta tablica wnioskowala `never[]`
+   i blokowala 26 asercji z wierszami fixture.
+
+### Realne bledy w testach wykryte przez typy
+7. `findGtdFolderCollisions` zwraca grupy `{ folder, states }`, a test podstawial `['X']`.
+8. `selectGistCandidates` przyjmuje payload kluczowany stanem, nie tablice sekcji.
+9. Test ``ensureMailbox`` zakladal `client.namespace`, czego prawdziwy klient nie ma (punkt 4).
+10. `resolveAllTrashPaths` - atrapa zwracala tablice tam, gdzie produkcja oczekuje `Set`.
+11. Numeryczne `email_accounts.id` w testach, podczas gdy identyfikatory sa UUID.
+
+### Regresje wlasne, ktore natychmiast wychwycily testy
+12. Pierwsza wersja `toAppError()` gubila wlasne pola rzucanego obiektu nie-Error
+    (`statusCode`, `headers`) - 2 testy `pushNotifications` wykryly zmiane logiki ponowien.
+13. Dodanie `threads: []` do sekcji `waiting` zmienialo kontrakt API - 4 testy `gtdSections`.
+14. Refaktor `searchUids()` podmienil wywolanie takze wewnatrz samego helpera (nieskonczona
+    rekurencja) - 8 testow `imapManager` zatrzymalo to natychmiast.
+
+### Defekty wykryte przy pomiarze (nie regresje migracji)
+15. Katalog snapshotow Playwright zostal przy zmianie `.js` -> `.ts` nazwany
+    `v3-interface.spec.js-snapshots`, przez co 10 testow wizualnych nie znajdowalo baseline.
+16. 5 obrazow `calendar-week-*` bylo nieaktualnych po swiadomym przeprojektowaniu paska
+    calodniowego (sprawdzone w worktree na commicie sprzed migracji: blad wystepowal tez tam).
+
