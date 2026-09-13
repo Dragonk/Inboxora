@@ -42,7 +42,7 @@ function resizeImageToDataUrl(file: File, maxW = 800): Promise<string> {
 }
 
 function ResizableImageView({ node, updateAttributes, selected }) {
-  const imgRef = useRef(null);
+  const imgRef = useRef<HTMLImageElement | null>(null);
   const { src, alt, title, width } = node.attrs;
 
   const onMouseDown = useCallback((e) => {
@@ -206,7 +206,7 @@ export default function ComposeModal() {
   const [showPrioritySheet, setShowPrioritySheet] = useState(false);
   const [showCcBccMenu, setShowCcBccMenu] = useState(false);
   const [ccBccMenuPos, setCcBccMenuPos] = useState(null);
-  const ccBccMenuBtnRef = useRef(null);
+  const ccBccMenuBtnRef = useRef<HTMLButtonElement | null>(null);
   const [draftUid, setDraftUid] = useState(() => composeData?.draftUid ?? null);
   const [draftFolder, setDraftFolder] = useState(() => composeData?.draftFolder ?? null);
   const [draftAccountId, setDraftAccountId] = useState(() => composeData?.accountId ?? null);
@@ -306,13 +306,13 @@ export default function ComposeModal() {
   // attempt, reused across retries (so a retry after a lost response dedupes rather than
   // double-sending), and cleared on success. Fixes audit finding [1].
   const idempotencyKeyRef = useRef(null);
-  const replyTypeRef = useRef(null);
-  const textareaRef = useRef(null);
-  const fileInputRef = useRef(null);
-  const imageInputRef = useRef(null);
-  const signatureRef = useRef(null);
-  const quotedHtmlRef = useRef(null);
-  const composeWindowRef = useRef(null);
+  const replyTypeRef = useRef<HTMLDivElement | null>(null);
+  const textareaRef = useRef<HTMLTextAreaElement | null>(null);
+  const fileInputRef = useRef<HTMLInputElement | null>(null);
+  const imageInputRef = useRef<HTMLInputElement | null>(null);
+  const signatureRef = useRef<HTMLDivElement | null>(null);
+  const quotedHtmlRef = useRef<HTMLDivElement | null>(null);
+  const composeWindowRef = useRef<HTMLDivElement | null>(null);
   const posRef = useRef(null);
   const customSizeRef = useRef(null);
   const dragCleanupRef = useRef(null);
@@ -398,7 +398,7 @@ export default function ComposeModal() {
   const [viewportHeight, setViewportHeight] = useState(
     () => window.visualViewport?.height ?? window.innerHeight
   );
-  const composePanelRef = useRef(null);
+  const composePanelRef = useRef<HTMLDivElement | null>(null);
   useEffect(() => {
     if (!isMobile) return;
     const vv = window.visualViewport;
@@ -2414,8 +2414,8 @@ function RichToolbar({ editor, onAttach, onInsertImage = undefined, htmlMode, on
   const uiScale = useUiScale();
   const savedSelectionRef = useRef(null);
   const [aiMenuPos, setAiMenuPos] = useState(null);
-  const aiBtnRef = useRef(null);
-  const aiMenuRef = useRef(null);
+  const aiBtnRef = useRef<HTMLButtonElement | null>(null);
+  const aiMenuRef = useRef<HTMLDivElement | null>(null);
   const [colorPos, setColorPos] = useState(null);
   const [highlightPos, setHighlightPos] = useState(null);
   const [emojiPos, setEmojiPos] = useState(null);
@@ -2423,26 +2423,26 @@ function RichToolbar({ editor, onAttach, onInsertImage = undefined, htmlMode, on
   const [linkPos, setLinkPos] = useState(null);
   const [tablePos, setTablePos] = useState(null);
   const [linkUrl, setLinkUrl] = useState('');
-  const colorBtnRef = useRef(null);
-  const highlightBtnRef = useRef(null);
-  const emojiBtnRef = useRef(null);
-  const linkBtnRef = useRef(null);
-  const tableBtnRef = useRef(null);
-  const tablePopRef = useRef(null);
-  const colorPopRef = useRef(null);
-  const highlightPopRef = useRef(null);
-  const emojiPopRef = useRef(null);
-  const linkPopRef = useRef(null);
-  const linkInputRef = useRef(null);
+  const colorBtnRef = useRef<HTMLButtonElement | null>(null);
+  const highlightBtnRef = useRef<HTMLButtonElement | null>(null);
+  const emojiBtnRef = useRef<HTMLButtonElement | null>(null);
+  const linkBtnRef = useRef<HTMLButtonElement | null>(null);
+  const tableBtnRef = useRef<HTMLButtonElement | null>(null);
+  const tablePopRef = useRef<HTMLDivElement | null>(null);
+  const colorPopRef = useRef<HTMLDivElement | null>(null);
+  const highlightPopRef = useRef<HTMLDivElement | null>(null);
+  const emojiPopRef = useRef<HTMLDivElement | null>(null);
+  const linkPopRef = useRef<HTMLDivElement | null>(null);
+  const linkInputRef = useRef<HTMLInputElement | null>(null);
   const [showMobileMore, setShowMobileMore] = useState(false);
   useBackLayer(showMobileMore || colorPos || highlightPos || emojiPos || linkPos || tablePos, () => {
     setShowMobileMore(false); setColorPos(null); setHighlightPos(null); setEmojiPos(null); setLinkPos(null); setTablePos(null);
   }, 2200);
 
   // Refs on the toolbar rows so we can keep their controls out of the Tab order (#266).
-  const desktopBarRef = useRef(null);
-  const mobileBarRef = useRef(null);
-  const mobileMoreRef = useRef(null);
+  const desktopBarRef = useRef<HTMLDivElement | null>(null);
+  const mobileBarRef = useRef<HTMLDivElement | null>(null);
+  const mobileMoreRef = useRef<HTMLDivElement | null>(null);
 
   // Keep every formatting-toolbar control out of the Tab sequence so Tab from the
   // Subject field lands directly in the editor body (#266). Formatting stays reachable
@@ -2451,7 +2451,7 @@ function RichToolbar({ editor, onAttach, onInsertImage = undefined, htmlMode, on
   // covered too. The popovers render outside these rows, so their inputs stay focusable.
   useEffect(() => {
     [desktopBarRef, mobileBarRef, mobileMoreRef].forEach(r =>
-      r.current?.querySelectorAll('button, select').forEach(el => { el.tabIndex = -1; })
+      r.current?.querySelectorAll<HTMLElement>('button, select').forEach(el => { el.tabIndex = -1; })
     );
   });
 
@@ -3048,13 +3048,13 @@ function ChipInput({ chips, onChipsChange, value, onChange, placeholder, autoFoc
   const uiScale = useUiScale();
   const [suggestions, setSuggestions] = useState([]);
   const [suggIdx, setSuggIdx] = useState(-1);
-  const debounceRef = useRef(null);
-  const wrapperRef = useRef(null);
-  const inputRef = useRef(null);
+  const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const wrapperRef = useRef<HTMLDivElement | null>(null);
+  const inputRef = useRef<HTMLInputElement | null>(null);
   const [dropStyle, setDropStyle] = useState(null);
   const [menu, setMenu] = useState(null); // { x, y, index } | null — recipient chip context menu
   useBackLayer(menu, () => setMenu(null), 2200);
-  const longPressRef = useRef(null);
+  const longPressRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   // Debounce contact suggestions — only when getSuggestions is wired up
   useEffect(() => {
