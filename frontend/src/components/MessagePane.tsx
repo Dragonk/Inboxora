@@ -337,7 +337,7 @@ export default function MessagePane({ windowMessageId = null, onWindowClose = nu
   const [aiStatus, setAiStatus] = useState(null);
   // Per-action results for the current message: { [actionKey]: { status, text, label } }.
   // status: 'loading' | 'done' | 'error'. Restored from localStorage on message change.
-  const [aiResults, setAiResults] = useState({});
+  const [aiResults, setAiResults] = useState<Record<string, { status?: string; text?: string; [key: string]: unknown }>>({});
   const [aiClassifying, setAiClassifying] = useState(false);
   const [_unsubscribeStatus, setUnsubscribeStatus] = useState(null); // null | 'loading' | 'done' | 'error'
   // One AbortController per in-flight action, keyed by action key.

@@ -27,7 +27,7 @@ export default function CalendarSidebar({ anchor, calendars, visibleCalendarIds,
   const sourceRequestGeneration = useRef(0);
   const [form, setForm] = useState({ kind: 'ical_url', displayName: '', url: '', username: '', password: '', color: '#7c6af7', intervalMin: 60 });
   const [openCalendarMenu, setOpenCalendarMenu] = useState(null);
-  const [syncingSourceIds, setSyncingSourceIds] = useState(new Set());
+  const [syncingSourceIds, setSyncingSourceIds] = useState<Set<string>>(new Set());
   const [calendarEdit, setCalendarEdit] = useState<{ calendar?: { id?: string; name?: string; color?: string; [key: string]: unknown }; name?: string; color?: string; [key: string]: unknown } | null>(null);
   const [editError, setEditError] = useState(null);
   const [calendarSaving, setCalendarSaving] = useState(false);

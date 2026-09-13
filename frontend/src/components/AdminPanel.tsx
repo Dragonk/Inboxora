@@ -498,7 +498,7 @@ function AccountsTab() {
   const { accounts, setAccounts, updateAccount, unreadCounts, setUnreadCounts, addNotification, backfillProgress } = useStore();
   const [subview, setSubview] = useState('list'); // 'list' | 'add' | 'edit' | 'folders' | 'aliases'
   const [editTarget, setEditTarget] = useState<{ id: string; email_address?: string; aliases?: Array<{ id: string; address?: string; name?: string; email?: string; reply_to?: string; [key: string]: unknown }>; [key: string]: unknown } | null>(null);
-  const [folderMappings, setFolderMappings] = useState({});
+  const [folderMappings, setFolderMappings] = useState<Record<string, string>>({});
   const [availableFolders, setAvailableFolders] = useState<Array<{ path?: string; name?: string; [key: string]: unknown }>>([]);
   const [foldersLoading, setFoldersLoading] = useState(false);
   const [foldersSaving, setFoldersSaving] = useState(false);

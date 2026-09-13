@@ -410,7 +410,7 @@ export default function Sidebar({ onEditProfile = null }) {
   const createInputRef = useRef<HTMLInputElement | null>(null);
 
   // Per-account toggle to reveal hidden folders
-  const [showHiddenFor, setShowHiddenFor] = useState(new Set()); // Set of accountIds
+  const [showHiddenFor, setShowHiddenFor] = useState<Set<string>>(new Set()); // Set of accountIds
   const toggleShowHidden = useCallback((accountId: string) => {
     setShowHiddenFor(prev => {
       const next = new Set(prev);
