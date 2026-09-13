@@ -53,7 +53,7 @@ export function calendarResources(raw) {
 
 function dateOf(time, property, zoneFor) {
   const value = time.toICALString();
-  const parameters = time.isDate ? { VALUE: 'DATE' } : value.endsWith('Z') ? {} : { TZID: property?.getParameter('tzid') || time.zone?.tzid };
+  const parameters: Record<string, string | undefined> = time.isDate ? { VALUE: 'DATE' } : value.endsWith('Z') ? {} : { TZID: property?.getParameter('tzid') || time.zone?.tzid };
   return parseICalendarDate({ value, parameters }, zoneFor)?.date;
 }
 

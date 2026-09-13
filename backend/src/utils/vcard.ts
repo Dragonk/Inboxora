@@ -59,14 +59,14 @@ function splitEscaped(value: string, delimiter: string): string[] {
 
 function isHttpUrl(value: unknown): boolean {
   try {
-    const url = new URL(value);
+    const url = new URL(String(value));
     return url.protocol === 'http:' || url.protocol === 'https:';
   } catch {
     return false;
   }
 }
 
-export function normalizeVCardDate(value, allowPartial = true) {
+export function normalizeVCardDate(value: unknown, allowPartial = true): string | null {
   if (typeof value !== 'string') return null;
   const date = unescapeValue(value).trim();
   const partial = /^--(\d{2})-?(\d{2})$/.exec(date);
@@ -131,7 +131,7 @@ function findPropertySeparator(line: string): number {
   return -1;
 }
 
-function dateLabelFromParams(params, fallback) {
+function dateLabelFromParams(params: string, fallback: string): string | null {
   const match = /(?:^|;)(?:TYPE|LABEL)=/i.exec(params);
   if (!match) return fallback;
   const value = params.slice(match.index + match[0].length);
@@ -151,7 +151,7 @@ function dateLabelFromParams(params, fallback) {
 function hasUnterminatedDateLabelParam(raw: string): boolean {
   const text = unfold(raw || '');
   return text.split(/\r?\n/).some(line => {
-    const property = line.split(';', 1)[0].toUpperCase().split('.').at(-1);
+    const property = line.split(';', 1)[0].toUpperCase().split('.').at(-1) ?? '';
     if (!['BDAY', 'ANNIVERSARY', 'X-ABDATE'].includes(property)) return false;
     const match = /(?:^|;)(?:TYPE|LABEL)="/i.exec(line);
     return match && !line.slice(match.index + match[0].length).includes('"');
@@ -164,9 +164,33 @@ function hasUnterminatedDateLabelParam(raw: string): boolean {
  *
  * Returns: { uid, displayName, firstName, lastName, emails, phones, organization, notes, photoData }
  */
-export function parseVCard(raw: string) {
+export interface ParsedVCard {
+  uid: string | null;
+  displayName: string | null;
+  firstName: string | null;
+  lastName: string | null;
+  emails: Array<{ value: string; type: string; primary?: boolean }>;
+  phones: Array<{ value: string; type: string }>;
+  organization: string | null;
+  notes: string | null;
+  photoData: string | null;
+  birthday: string | null;
+  anniversary: string | null;
+  title: string | null;
+  role: string | null;
+  nickname: string | null;
+  urls: Array<{ value: string; type: string }>;
+  instantMessages: Array<{ value: string; type: string }>;
+  categories: string[];
+  addresses: Array<{ type: string; pobox: string; extended: string; street: string; locality: string; region: string; postalCode: string; country: string }>;
+  contactDates: Array<{ label: string; value: string }>;
+  invalidDates: string[];
+  invalidDateLabels: string[];
+}
+
+export function parseVCard(raw: string): ParsedVCard {
   const text = unfold(raw || '');
-  const result = {
+  const result: ParsedVCard = {
     uid: null,
     displayName: null,
     firstName: null,
@@ -191,7 +215,7 @@ export function parseVCard(raw: string) {
   };
   if (hasUnterminatedDateLabelParam(raw)) result.invalidDateLabels.push('unterminated parameter');
 
-  const addContactDate = (label: string, value) => {
+  const addContactDate = (label: string | null, value: unknown): void => {
     const normalized = normalizeVCardDate(value);
     const cleanLabel = normalizeContactDateLabel(label);
     if (!cleanLabel) {
@@ -199,7 +223,7 @@ export function parseVCard(raw: string) {
       return;
     }
     if (!normalized) {
-      if (unescapeValue(value).trim()) result.invalidDates.push(unescapeValue(value).trim());
+      if (unescapeValue(String(value)).trim()) result.invalidDates.push(unescapeValue(String(value)).trim());
       return;
     }
     const key = `${cleanLabel.toLocaleLowerCase()}\u0000${normalized}`;
@@ -344,7 +368,7 @@ export function parseVCard(raw: string) {
           // vCard 3.0 ENCODING=b raw base64 — derive MIME from TYPE param.
           const typeMatch = params.match(/TYPE=([^;]+)/i);
           const rawType = typeMatch ? typeMatch[1].replace(/["']/g, '').toUpperCase() : 'JPEG';
-          const mimeMap = { JPEG: 'image/jpeg', JPG: 'image/jpeg', PNG: 'image/png', GIF: 'image/gif', WEBP: 'image/webp' };
+          const mimeMap: Record<string, string> = { JPEG: 'image/jpeg', JPG: 'image/jpeg', PNG: 'image/png', GIF: 'image/gif', WEBP: 'image/webp' };
           const mimeType = mimeMap[rawType] || 'image/jpeg';
           result.photoData = `data:${mimeType};base64,${v}`;
         }

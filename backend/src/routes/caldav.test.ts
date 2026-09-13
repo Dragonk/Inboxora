@@ -104,7 +104,7 @@ describe('CalDAV calendar objects', () => {
     for (const [month, hour] of [['09', '07'], ['01', '08']]) {
       const event = parseCalendarEvent(outlookCalendar(month));
       expect(event?.startsAt.toISOString()).toBe(`2026-${month}-10T${hour}:00:00.000Z`);
-      expect(event?.endsAt - event?.startsAt).toBe(3600000);
+      expect(event ? event.endsAt.getTime() - event.startsAt.getTime() : Number.NaN).toBe(3600000);
       expect(event?.timeZone).toBe('Central European Standard Time');
     }
   });

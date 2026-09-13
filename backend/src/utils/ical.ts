@@ -1,23 +1,46 @@
 import ICAL from 'ical.js';
 import { isHtmlDescription, sanitizeDescriptionHtml } from './richText.js';
 
+interface ICalProperty {
+  name: string;
+  parameters: Record<string, string | undefined>;
+  value: string;
+}
+
+export interface ParsedICalendarEvent {
+  uid: string;
+  startsAt: Date;
+  endsAt: Date;
+  allDay: boolean;
+  timeZone: string | null;
+  summary: string | null;
+  description: string | null;
+  location: string | null;
+  url: string | null;
+  organizer: string | null;
+  attendees: string[];
+  raw: string;
+}
+
+type ZoneResolver = (tzid: string) => ICAL.Timezone | null;
+
 // Resolve TZID references against the VTIMEZONE definitions of one calendar
 // resource. `parsedRoot` lets a caller that already parsed the document reuse
 // that parse instead of paying for a second one.
-export function calendarZoneResolver(raw, parsedRoot = null) {
-  let component = parsedRoot;
+export function calendarZoneResolver(raw: string, parsedRoot: ICAL.Component | null = null): ZoneResolver {
+  let component: ICAL.Component | null = parsedRoot;
   // The cache is scoped to this resolver, i.e. to one resource and its current
   // revision. Two different documents may declare the same TZID with different
   // offsets, so a TZID alone is never a valid cache key across resources.
-  const zones = new Map();
-  return tzid => {
+  const zones = new Map<string, ICAL.Timezone | null>();
+  return (tzid: string): ICAL.Timezone | null => {
     try {
-      if (zones.has(tzid)) return zones.get(tzid);
+      if (zones.has(tzid)) return zones.get(tzid) ?? null;
       component ??= new ICAL.Component(ICAL.parse(raw));
-      const definition = component.getAllSubcomponents('vtimezone').find(zone => zone.getFirstPropertyValue('tzid') === tzid);
+      const definition = component.getAllSubcomponents('vtimezone').find((zone: ICAL.Component) => zone.getFirstPropertyValue('tzid') === tzid);
       // An empty context cannot define an offset; use Intl for known IANA IDs.
       let resolved = null;
-      if (definition?.getAllSubcomponents().some(child => ['standard', 'daylight'].includes(child.name))) {
+      if (definition?.getAllSubcomponents().some((child: ICAL.Component) => ['standard', 'daylight'].includes(child.name))) {
         resolved = new ICAL.Timezone({ component: definition, tzid });
       }
       zones.set(tzid, resolved);
@@ -26,8 +49,8 @@ export function calendarZoneResolver(raw, parsedRoot = null) {
   };
 }
 
-function unfoldICalendarLines(raw) {
-  const lines = [];
+function unfoldICalendarLines(raw: string): string[] {
+  const lines: string[] = [];
   for (const physicalLine of raw.split(/\r\n|\n|\r/)) {
     if (/^[ \t]/.test(physicalLine) && lines.length) lines[lines.length - 1] += physicalLine.slice(1);
     else if (physicalLine) lines.push(physicalLine);
@@ -35,7 +58,7 @@ function unfoldICalendarLines(raw) {
   return lines;
 }
 
-export function propertyFromLine(line: string) {
+export function propertyFromLine(line: string): ICalProperty | null {
   let quoted = false;
   let separator = -1;
   for (let i = 0; i < line.length; i++) {
@@ -44,7 +67,7 @@ export function propertyFromLine(line: string) {
   }
   if (separator < 1) return null;
   const [name, ...parameterParts] = line.slice(0, separator).split(/;(?=(?:[^"]*"[^"]*")*[^"]*$)/);
-  const parameters = Object.fromEntries(parameterParts.map((part) => {
+  const parameters: Record<string, string> = Object.fromEntries(parameterParts.map((part): [string, string] => {
     const parameterSeparator = part.indexOf('=');
     if (parameterSeparator < 1) return [part.toUpperCase(), ''];
     return [part.slice(0, parameterSeparator).toUpperCase(), part.slice(parameterSeparator + 1).replace(/^"|"$/g, '')];
@@ -52,11 +75,11 @@ export function propertyFromLine(line: string) {
   return { name: name.toUpperCase(), parameters, value: line.slice(separator + 1) };
 }
 
-function unescapeICalendarText(value) {
+function unescapeICalendarText(value: string): string {
   return value.replace(/\\([\\;,nN])/g, (_match, escaped) => (escaped.toLowerCase() === 'n' ? '\n' : escaped));
 }
 
-function utcDate(year, month, day, hour = 0, minute = 0, second = 0) {
+function utcDate(year: number, month: number, day: number, hour = 0, minute = 0, second = 0): Date | null {
   const date = new Date(Date.UTC(year, month - 1, day, hour, minute, second));
   return date.getUTCFullYear() === year && date.getUTCMonth() === month - 1 && date.getUTCDate() === day
     && date.getUTCHours() === hour && date.getUTCMinutes() === minute && date.getUTCSeconds() === second ? date : null;
@@ -67,9 +90,9 @@ function utcDate(year, month, day, hour = 0, minute = 0, second = 0) {
 // formatter is immutable and safe to share, so keep a small LRU keyed by zone.
 // A null entry records an unusable zone id so it is not probed again.
 const TIME_ZONE_FORMATTER_LIMIT = 64;
-const timeZoneFormatters = new Map();
+const timeZoneFormatters = new Map<string, Intl.DateTimeFormat | null>();
 
-function timeZoneFormatter(timeZone) {
+function timeZoneFormatter(timeZone: string): Intl.DateTimeFormat | null {
   const cached = timeZoneFormatters.get(timeZone);
   if (cached !== undefined) {
     // Refresh recency so a hot zone survives the eviction below.
@@ -77,7 +100,7 @@ function timeZoneFormatter(timeZone) {
     timeZoneFormatters.set(timeZone, cached);
     return cached;
   }
-  let formatter;
+  let formatter: Intl.DateTimeFormat | null;
   try {
     formatter = new Intl.DateTimeFormat('en-CA', {
       timeZone, year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', second: '2-digit', hourCycle: 'h23',
@@ -87,24 +110,24 @@ function timeZoneFormatter(timeZone) {
   }
   if (timeZoneFormatters.size >= TIME_ZONE_FORMATTER_LIMIT) {
     const oldest = timeZoneFormatters.keys().next().value;
-    timeZoneFormatters.delete(oldest);
+    if (oldest !== undefined) timeZoneFormatters.delete(oldest);
   }
   timeZoneFormatters.set(timeZone, formatter);
   return formatter;
 }
 
-function timeZoneParts(date, timeZone) {
+function timeZoneParts(date: Date, timeZone: string): Record<string, number> | null {
   const formatter = timeZoneFormatter(timeZone);
   if (!formatter) return null;
   try {
     const parts = formatter.formatToParts(date);
-    return Object.fromEntries(parts.filter((part) => part.type !== 'literal').map((part) => [part.type, Number(part.value)]));
+    return Object.fromEntries(parts.filter((part) => part.type !== 'literal').map((part): [string, number] => [part.type, Number(part.value)]));
   } catch {
     return null;
   }
 }
 
-function localDateInTimeZone(year, month, day, hour, minute, second, timeZone) {
+function localDateInTimeZone(year: number, month: number, day: number, hour: number, minute: number, second: number, timeZone: string): Date | null {
   const wallTime = utcDate(year, month, day, hour, minute, second);
   if (!wallTime) return null;
   let instant = wallTime;
@@ -119,12 +142,12 @@ function localDateInTimeZone(year, month, day, hour, minute, second, timeZone) {
     && resolved.hour === hour && resolved.minute === minute && resolved.second === second ? instant : null;
 }
 
-export function parseUtc(value) {
-  if (!/^\d{8}T\d{6}Z$/.test(value || '')) return null;
+export function parseUtc(value: string | null | undefined): Date | null {
+  if (typeof value !== 'string' || !/^\d{8}T\d{6}Z$/.test(value)) return null;
   return utcDate(Number(value.slice(0, 4)), Number(value.slice(4, 6)), Number(value.slice(6, 8)), Number(value.slice(9, 11)), Number(value.slice(11, 13)), Number(value.slice(13, 15)));
 }
 
-export function parseICalendarDate(property, zoneFor) {
+export function parseICalendarDate(property: Pick<ICalProperty, 'value' | 'parameters'>, zoneFor?: ZoneResolver): { date: Date; allDay: boolean; timeZone: string | null } | null {
   const { value, parameters } = property;
   const dateOnly = parameters.VALUE?.toUpperCase() === 'DATE' || /^\d{8}$/.test(value);
   if (dateOnly) {
@@ -155,7 +178,7 @@ export function parseICalendarDate(property, zoneFor) {
   return date && { date, allDay: false, timeZone };
 }
 
-function parseDuration(value) {
+function parseDuration(value: string): number | null {
   const match = value.match(/^P(?:(\d+)W|(?:(\d+)D)?(?:T(?:(\d+)H)?(?:(\d+)M)?(?:(\d+)S)?)?)$/);
   if (!match) return null;
   const milliseconds = ((Number(match[1] || 0) * 7 + Number(match[2] || 0)) * 24 * 60 * 60
@@ -163,7 +186,7 @@ function parseDuration(value) {
   return milliseconds > 0 ? milliseconds : null;
 }
 
-export function parseCalendarEvent(raw) {
+export function parseCalendarEvent(raw: unknown): ParsedICalendarEvent | null {
   if (typeof raw !== 'string' || raw.length === 0 || raw.length > 1024 * 1024) return null;
   const lines = unfoldICalendarLines(raw);
   const componentLines = lines.map((line) => line.toUpperCase());
@@ -186,16 +209,17 @@ export function parseCalendarEvent(raw) {
   if (starts.length !== 1 || ends.length !== 1 || start < 0 || end <= start) return null;
   // VALARM and other nested components may carry their own DTSTART/SUMMARY.
   let depth = 0;
-  const properties = lines.slice(start + 1, end).filter(line => {
+  const rawProperties = lines.slice(start + 1, end).filter(line => {
     if (/^BEGIN:/i.test(line)) { depth++; return false; }
     if (/^END:/i.test(line)) { depth--; return false; }
     return depth === 0;
   }).map(propertyFromLine);
+  if (rawProperties.some((property) => !property)) return null;
+  const properties = rawProperties.filter((property): property is ICalProperty => property !== null);
   const zoneFor = calendarZoneResolver(raw);
   // Recurrence, alarms, attendees and other standard properties remain in the
   // raw object for round-trip interoperability. The normalized row is the
   // base-event projection. Recurrence information is retained in the resource.
-  if (properties.some((property) => !property)) return null;
   const named = (name: string) => properties.filter((property) => property.name === name);
   const [uid] = named('UID');
   const [startProperty] = named('DTSTART');
@@ -205,10 +229,11 @@ export function parseCalendarEvent(raw) {
     || named('DTEND').length > 1 || named('DURATION').length > 1 || (endProperty && durationProperty)) return null;
   const startsAt = parseICalendarDate(startProperty, zoneFor);
   if (!startsAt) return null;
-  let endsAt;
+  let endsAt: { date: Date; allDay: boolean; timeZone?: string | null };
   if (endProperty) {
-    endsAt = parseICalendarDate(endProperty, zoneFor);
-    if (!endsAt || endsAt.allDay !== startsAt.allDay) return null;
+    const end = parseICalendarDate(endProperty, zoneFor);
+    if (!end || end.allDay !== startsAt.allDay) return null;
+    endsAt = end;
   } else if (durationProperty) {
     const duration = parseDuration(durationProperty.value);
     if (!duration || (startsAt.allDay && duration % (24 * 60 * 60 * 1000))) return null;
@@ -241,7 +266,7 @@ export function parseCalendarEvent(raw) {
 // accepted from mail look like the mail it came from. When only DESCRIPTION
 // exists it is used verbatim (raw HTML in DESCRIPTION is rendered as HTML by the
 // reader), and an unparsable resource still falls back to the flattened text.
-function eventDescription(named, raw) {
+function eventDescription(named: (name: string) => ICalProperty[], raw: string): string | null {
   const htmlAlternative = named('X-ALT-DESC').find((property) => /html/i.test(String(property.parameters?.FMTTYPE || '')));
   if (htmlAlternative) {
     const html = sanitizeDescriptionHtml(unescapeICalendarText(htmlAlternative.value));
@@ -260,7 +285,8 @@ function eventDescription(named, raw) {
 // HTML alternative when the sender provided one, otherwise DESCRIPTION verbatim
 // (raw markup in DESCRIPTION is rendered as HTML). Anything HTML is sanitized
 // with the same policy as a compose body before it leaves this module.
-export function calendarDescription(component) {
+export function calendarDescription(component: ICAL.Component | null): string | null {
+  if (!component) return null;
   const html = component.getAllProperties('x-alt-desc').find(property => /html/i.test(String(property.getParameter('fmttype'))))?.getFirstValue();
   const sanitizedHtml = html ? sanitizeDescriptionHtml(String(html)) : null;
   if (isHtmlDescription(sanitizedHtml)) return sanitizedHtml;
