@@ -2,8 +2,18 @@ import { useRef, useEffect, useCallback } from 'react';
 
 const SWIPE_THRESHOLD = 72;
 
-export function isInteractiveSwipeTarget(target, swipeSurface = null) {
-  const interactive = target?.closest?.('button, input, select, textarea, a, [role="button"]');
+/** Anything exposing an optional closest() — a DOM Element or a test double. */
+interface SwipeTargetLike { closest?: (selector: string) => unknown }
+
+function isSwipeTargetLike(value: unknown): value is SwipeTargetLike {
+  if (typeof value !== 'object' || value === null) return false;
+  const candidate = value as { closest?: unknown };
+  return candidate.closest === undefined || typeof candidate.closest === 'function';
+}
+
+export function isInteractiveSwipeTarget(target: unknown, swipeSurface: unknown = null): boolean {
+  if (!isSwipeTargetLike(target)) return false;
+  const interactive = target.closest?.('button, input, select, textarea, a, [role="button"]') ?? null;
   // A ThreadRow is itself an accessible role=button. It is the swipe surface, not
   // a nested action: allow its touch stream while preserving real child controls.
   return Boolean(interactive && interactive !== swipeSurface);
@@ -24,14 +34,14 @@ export interface UseSwipeRowOptions<M extends SwipeRowMessage> {
 }
 
 export function useSwipeRow<M extends SwipeRowMessage>({ isMobile, message, onSwipeLeft, onSwipeRight, onLongPress, onTap }: UseSwipeRowOptions<M>) {
-  const contentRef = useRef(null);
-  const swipeBgLeftRef = useRef(null);
-  const swipeBgRightRef = useRef(null);
-  const swipeRef = useRef({ active: false, startX: 0, startY: 0, dir: null, x: 0, interactive: false });
-  const longPressTimerRef = useRef(null);
-  const springBackTimerRef = useRef(null);
+  const contentRef = useRef<HTMLDivElement | null>(null);
+  const swipeBgLeftRef = useRef<HTMLDivElement | null>(null);
+  const swipeBgRightRef = useRef<HTMLDivElement | null>(null);
+  const swipeRef = useRef<{ active: boolean; startX: number; startY: number; dir: string | null; x: number; interactive: boolean }>({ active: false, startX: 0, startY: 0, dir: null, x: 0, interactive: false });
+  const longPressTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const springBackTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const longPressActivatedRef = useRef(false);
-  const tapSuppressTimerRef = useRef(null);
+  const tapSuppressTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const latestRef = useRef<Partial<UseSwipeRowOptions<M>>>({});
   // tappedRef is set to true when onTap fires so the subsequent click event can be
   // suppressed — prevents handleSelect from being called twice on the same tap.
@@ -83,7 +93,7 @@ export function useSwipeRow<M extends SwipeRowMessage>({ isMobile, message, onSw
       }, 300);
     };
 
-    const onStart = (e) => {
+    const onStart = (e: TouchEvent) => {
       const t = e.touches[0];
       if (springBackTimerRef.current) {
         clearTimeout(springBackTimerRef.current);
@@ -105,7 +115,7 @@ export function useSwipeRow<M extends SwipeRowMessage>({ isMobile, message, onSw
       }
     };
 
-    const onMove = (e) => {
+    const onMove = (e: TouchEvent) => {
       const s = swipeRef.current;
       if (s.interactive) return;
       const t = e.touches[0];
@@ -151,9 +161,10 @@ export function useSwipeRow<M extends SwipeRowMessage>({ isMobile, message, onSw
         // drags must not open rows while the user is just swiping around.
         // Skip if a long press just activated (entering selection mode) so we don't
         // also navigate while React is still re-rendering the selection state.
-        if (wasTap && latestRef.current.onTap && !longPressActivatedRef.current) {
+        const tapped = latestRef.current;
+        if (wasTap && tapped.onTap && tapped.message && !longPressActivatedRef.current) {
           suppressNextClick();
-          latestRef.current.onTap(latestRef.current.message);
+          tapped.onTap(tapped.message);
         }
         return;
       }
@@ -163,10 +174,12 @@ export function useSwipeRow<M extends SwipeRowMessage>({ isMobile, message, onSw
       suppressNextClick();
       resetSwipeState();
       springBack();
+      const current = latestRef.current;
+      if (!current.message) return;
       if (x < -SWIPE_THRESHOLD) {
-        latestRef.current.onSwipeLeft?.(latestRef.current.message);
+        current.onSwipeLeft?.(current.message);
       } else if (x > SWIPE_THRESHOLD) {
-        latestRef.current.onSwipeRight?.(latestRef.current.message);
+        current.onSwipeRight?.(current.message);
       }
     };
 
