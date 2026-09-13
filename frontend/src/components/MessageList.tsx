@@ -181,7 +181,7 @@ export default function MessageList() {
   // Apply optimistic read guard to a batch of messages from the server.
   // Prevents a concurrent sync refresh from reverting a pending or recently-completed
   // mark-read before the IMAP flag has propagated back to the DB.
-  const applyReadGuard = useCallback((msgs) => {
+  const applyReadGuard = useCallback((msgs: StoreMessageRow[]) => {
     msgs = applyDeleteGuard(msgs);
     if (pendingMarkReadMap.size === 0 && completedMarkReadMap.size === 0) return msgs;
     return msgs.map(m => {
@@ -227,7 +227,7 @@ export default function MessageList() {
   const deferredRefreshTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   // Bulk selection state
-  const [selectedIds, setSelectedIds] = useState(new Set());
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [selectionModeActive, setSelectionModeActive] = useState(false);
   const [showFolderPicker, setShowFolderPicker] = useState(false);
   interface PickerFolder { path: string; name?: string; special_use?: string | null; [key: string]: unknown }
@@ -355,7 +355,7 @@ export default function MessageList() {
     addNotification: (notification: unknown) => void;
     displayMessages?: Array<{ id: string; [key: string]: unknown }>;
   } | null>(null);
-  scRef.current = { messages, selectedIds: selectedIds as Set<string>, setSelectedIds, updateMessage, decrementUnread, addNotification };
+  scRef.current = { messages, selectedIds, setSelectedIds, updateMessage, decrementUnread, addNotification };
   const tRef = useRef(t);
   useEffect(() => { tRef.current = t; }, [t]);
 
@@ -453,7 +453,7 @@ export default function MessageList() {
         const __t0 = Date.now();
         await refreshRequestRef.current.run(
           () => api.getMessages(params),
-          (data) => {
+          (data: { messages: StoreMessageRow[]; total?: number }) => {
             if (cancelled) return;
             console.info(`[perf] messages load ${Date.now() - __t0}ms unified=${!selectedAccountId} count=${data.messages.length} total=${data.total}`);
             setMessagesTotal(data.total);
@@ -540,7 +540,7 @@ export default function MessageList() {
         if (selectedFolder === 'INBOX' && (categorizationEnabled || selectedAccount?.categorization_enabled)) params.category = activeCategory;
         await refreshRequestRef.current.run(
           () => api.getMessages(params),
-          (data) => {
+          (data: { messages: StoreMessageRow[]; total?: number }) => {
             setMessagesTotal(data.total);
             // If the unread filter is on and the currently open message was just marked
             // read, the server won't return it — preserve it so the user can keep reading.
@@ -698,7 +698,7 @@ export default function MessageList() {
       if (selectedFolder === 'INBOX' && (categorizationEnabled || selectedAccount?.categorization_enabled)) params.category = activeCategory;
       await refreshRequestRef.current.run(
         () => api.getMessages(params),
-        (data) => {
+        (data: { messages: StoreMessageRow[]; total?: number }) => {
           setMessagesTotal(data.total);
           setMessages(applyReadGuard(data.messages));
           setMessagesOffset((pageNum - 1) * pageSize + data.messages.length);
@@ -839,7 +839,7 @@ export default function MessageList() {
     }
   }, [setThreadMessages]);
 
-  const setCachedThreadStarred = useCallback((message, starred) => {
+  const setCachedThreadStarred = useCallback((message: StoreMessageRow, starred: boolean) => {
     const tid = message.thread_id || message.id;
     const cached = useStore.getState().threadMessages[tid];
     if (cached) {
@@ -847,7 +847,7 @@ export default function MessageList() {
     }
   }, [setThreadMessages]);
 
-  const setCachedThreadStarredForIds = useCallback((message, ids, starred) => {
+  const setCachedThreadStarredForIds = useCallback((message: StoreMessageRow, ids: string[], starred: boolean) => {
     const tid = message.thread_id || message.id;
     const failed = new Set(ids.map(String));
     const cached = useStore.getState().threadMessages[tid];
@@ -1036,7 +1036,7 @@ export default function MessageList() {
     setMessagesReadState(message, !message.is_read);
   };
 
-  const setMessagesStarredState = useCallback(async (message, starred) => {
+  const setMessagesStarredState = useCallback(async (message: StoreMessageRow, starred: boolean) => {
     const isThreadRow = isThreadListRow(message);
     const previousStarred = Boolean(message.is_starred);
     const starIntentKey = `star:${message.id}`;
@@ -1210,7 +1210,7 @@ export default function MessageList() {
     const isBulk = ids.length > 1;
 
     // Optimistic local update: remove from view + drop unread badge.
-    const unreadCount = messages.reduce((sum, m) => sum + (m.is_read ? 0 : 1), 0);
+    const unreadCount = messages.reduce((sum: number, m: StoreMessageRow) => sum + (m.is_read ? 0 : 1), 0);
     const accountId = messages[0].account_id;
     messages.forEach(m => removeMessage(m.id));
     if (unreadCount > 0) decrementUnread(accountId, unreadCount);
@@ -1288,7 +1288,7 @@ export default function MessageList() {
       if (failed.length) {
         const failedMsgs = messages.filter(m => failed.includes(m.id));
         useStore.getState().restoreMessages(failedMsgs);
-        const failedUnread = failedMsgs.reduce((sum, m) => sum + (m.is_read ? 0 : 1), 0);
+        const failedUnread = failedMsgs.reduce((sum: number, m: StoreMessageRow) => sum + (m.is_read ? 0 : 1), 0);
         if (failedUnread > 0) incrementUnread(accountId, failedUnread);
         const titleKey = label === 'spam' ? 'spam.failTitle' : 'spam.failHamTitle';
         const bodyKey = label === 'spam' ? 'spam.failBody' : 'spam.failHamBody';
@@ -1541,7 +1541,7 @@ export default function MessageList() {
     });
   }, []);
 
-  const selectAll = useCallback((msgs) => {
+  const selectAll = useCallback((msgs: StoreMessageRow[]) => {
     setSelectedIds(new Set(msgs.map(m => m.id)));
   }, []);
 
@@ -1553,7 +1553,7 @@ export default function MessageList() {
   }, []);
 
   // Derived from store — must be declared before callbacks that use it in dependency arrays
-  const displayMessages = searchQuery.trim() ? searchResults : messages;
+  const displayMessages: StoreMessageRow[] = searchQuery.trim() ? searchResults : messages;
 
   // Folder search results — shown at the top when searching with a plain query
   // (no special operator prefixes like from:, to:, subject:, has:, is:)
@@ -1623,7 +1623,7 @@ export default function MessageList() {
     lastSelectIdxRef.current = clickedIdx;
   }, [displayMessages]);
 
-  const handleBulkDelete = useCallback(async (ids, msgs) => {
+  const handleBulkDelete = useCallback(async (ids: string[], msgs: StoreMessageRow[]) => {
     const key = `bulk:${ids[0]}`;
     // Selected thread rows delete the whole conversation, matching the
     // single-row delete path — without this only each thread's visible
@@ -1797,12 +1797,12 @@ export default function MessageList() {
     e.dataTransfer.effectAllowed = 'move';
   }, []);
 
-  const handleBulkArchive = useCallback((ids, msgs) => {
+  const handleBulkArchive = useCallback((ids: string[], msgs: StoreMessageRow[]) => {
     const activeFolder = selectedAccountId ? selectedFolder : 'INBOX';
-    const threadGuardsByRow = new Map(
+    const threadGuardsByRow = new Map<string, string>(
       msgs
         .filter(message => isThreadListRow(message))
-        .map(message => [
+        .map((message): [string, string] => [
           message.id,
           threadDeleteGuardKey(message.thread_id || message.id, activeFolder, selectedAccountId),
         ])
@@ -2028,7 +2028,7 @@ export default function MessageList() {
     decrementUnread, incrementUnread, invalidateThreadCache, addNotification, t,
   ]);
 
-  const handleBulkMarkRead = useCallback(async (ids, msgs) => {
+  const handleBulkMarkRead = useCallback(async (ids: string[], msgs: StoreMessageRow[]) => {
     const markAsRead = msgs.some(m => !m.is_read);
     // Compute per-account and per-category unread deltas before mutating state
     const deltaByAccount: Record<string, number> = {};
@@ -2083,7 +2083,7 @@ export default function MessageList() {
   useEffect(() => {
     const getState = () => useStore.getState();
 
-    const markRead = (msg) => {
+    const markRead = (msg: StoreMessageRow) => {
       if (msg.is_read) return;
       const { markReadBehavior, markReadDelay } = getState();
       if (markReadBehavior === 'manual') return;
@@ -2207,7 +2207,7 @@ export default function MessageList() {
     row?.scrollIntoView({ block: 'nearest' });
   }, [selectedMessageId]);
 
-  const handleOpenFolderPicker = useCallback(async (selectedMsgs: Array<{ account_id: string }>) => {
+  const handleOpenFolderPicker = useCallback(async (selectedMsgs: StoreMessageRow[]) => {
     if (showFolderPicker) { setShowFolderPicker(false); return; }
     const accountIds = [...new Set(selectedMsgs.map(m => m.account_id))];
     const [targetAccountId] = accountIds;
@@ -3797,8 +3797,8 @@ export default function MessageList() {
                 isMobile={isMobile}
                 swipeLeftAction={swipeLeftAction}
                 swipeRightAction={swipeRightAction}
-                onSwipeLeft={selectionMode || swipeLeftAction === 'disabled' ? undefined : (msg) => handleThreadSwipeAction(swipeLeftAction, msg)}
-                onSwipeRight={selectionMode || swipeRightAction === 'disabled' ? undefined : (msg) => handleThreadSwipeAction(swipeRightAction, msg)}
+                onSwipeLeft={selectionMode || swipeLeftAction === 'disabled' ? undefined : (msg: StoreMessageRow) => handleThreadSwipeAction(swipeLeftAction, msg)}
+                onSwipeRight={selectionMode || swipeRightAction === 'disabled' ? undefined : (msg: StoreMessageRow) => handleThreadSwipeAction(swipeRightAction, msg)}
                 isChecked={selectedIds.has(message.id)}
                 selectionMode={selectionMode}
                 onToggleSelect={handleRowToggleSelect}
@@ -3842,8 +3842,8 @@ export default function MessageList() {
                 isMobile={isMobile}
                 swipeLeftAction={swipeLeftAction}
                 swipeRightAction={swipeRightAction}
-                onSwipeLeft={selectionMode || swipeLeftAction === 'disabled' ? undefined : (msg) => handleThreadSwipeAction(swipeLeftAction, msg)}
-                onSwipeRight={selectionMode || swipeRightAction === 'disabled' ? undefined : (msg) => handleThreadSwipeAction(swipeRightAction, msg)}
+                onSwipeLeft={selectionMode || swipeLeftAction === 'disabled' ? undefined : (msg: StoreMessageRow) => handleThreadSwipeAction(swipeLeftAction, msg)}
+                onSwipeRight={selectionMode || swipeRightAction === 'disabled' ? undefined : (msg: StoreMessageRow) => handleThreadSwipeAction(swipeRightAction, msg)}
                 onLongPress={isMobile ? (id: string) => { setSelectionModeActive(true); toggleSelect(id); } : undefined}
               />
             );
