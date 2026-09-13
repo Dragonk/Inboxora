@@ -4,6 +4,7 @@ import { parseInboundCalendarInvitation } from '../services/inboundCalendarInvit
 import { parseCalendarEvent } from '../utils/ical.js';
 import { descriptionContentLines, normalizeDescription } from '../utils/richText.js';
 import { Router } from 'express';
+import type { Request } from 'express';
 import crypto from 'crypto';
 import { query, withTransaction } from '../services/db.js';
 import { requireAuth } from '../middleware/auth.js';
@@ -29,13 +30,16 @@ router.use(requireAuth);
 // (the historical behaviour), while an explicitly empty selection means "none".
 // Ownership is still enforced by the SQL filter (`c.user_id`/`c.owner_user_id`),
 // so a foreign id can only ever match zero rows.
-function parseCalendarSelection(raw) {
+/** Either the requested ids (null = all) or a validation error. */
+type CalendarSelection = { ids: string[] | null; error?: undefined } | { ids?: undefined; error: string };
+
+function parseCalendarSelection(raw: unknown): CalendarSelection {
   if (raw === undefined || raw === null) return { ids: null };
   const parts = (Array.isArray(raw) ? raw : [raw])
     .flatMap(value => String(value).split(','))
     .map(value => value.trim())
     .filter(Boolean);
-  const ids = [];
+  const ids: string[] = [];
   for (const id of parts) {
     if (id === CONTACT_CALENDAR_ID) { ids.push(id); continue; }
     if (!UUID_PATTERN.test(id)) return { error: 'Invalid calendar id' };
@@ -44,17 +48,20 @@ function parseCalendarSelection(raw) {
   return { ids: [...new Set(ids)] };
 }
 
-function parseEventTimes(body) {
-  const startsAt = new Date(body?.startsAt);
-  const endsAt = new Date(body?.endsAt);
+function parseEventTimes(body: Record<string, unknown> | null | undefined): { startsAt: Date; endsAt: Date } | null {
+  const startsAt = new Date(String(body?.startsAt ?? ''));
+  const endsAt = new Date(String(body?.endsAt ?? ''));
   if (Number.isNaN(startsAt.getTime()) || Number.isNaN(endsAt.getTime()) || endsAt <= startsAt) {
     return null;
   }
   return { startsAt, endsAt };
 }
 
-function contactDateEvents(contacts, from, to) {
-  const events = [];
+/** A contact row carrying its date entries. */
+type ContactDateRow = { id?: string; display_name?: string | null; primary_email?: string | null; contact_dates?: unknown; [key: string]: unknown };
+
+function contactDateEvents(contacts: ContactDateRow[], from: Date, to: Date) {
+  const events: Array<{ id: string; calendar_id: string; uid: string; summary: string; contact_date_label?: string | null; contact_name?: string | null; starts_at: Date; ends_at: Date; all_day: boolean; contact?: ContactDateRow; date?: { value?: unknown }; [key: string]: unknown }> = [];
   for (const contact of contacts) {
     const dates = [
       ...(Array.isArray(contact.contact_dates) ? contact.contact_dates : []),
@@ -86,7 +93,7 @@ function contactDateEvents(contacts, from, to) {
   return events;
 }
 
-function escapeICalendarText(value) {
+function escapeICalendarText(value: unknown): string {
   return String(value || '')
     .replaceAll('\\', '\\\\')
     .replaceAll('\r\n', '\n')
@@ -96,7 +103,7 @@ function escapeICalendarText(value) {
     .replaceAll(',', '\\,');
 }
 
-function formatICalendarDate(value, allDay) {
+function formatICalendarDate(value: Date, allDay: boolean): string {
   const utc = value.toISOString();
   return allDay
     ? utc.slice(0, 10).replaceAll('-', '')
@@ -131,7 +138,7 @@ function localEventIcal({ uid, summary, description, location, url, organizer, a
   return lines.map(foldICalendarLine).join('\r\n');
 }
 
-function normalizeAttendees(value) {
+function normalizeAttendees(value: unknown): string[] | null {
   if (!Array.isArray(value)) return null;
   const attendees = value.map(email => typeof email === 'string' ? email.trim().toLowerCase() : '').filter(Boolean);
   if (attendees.some(email => /[\r\n\0\s,;"<>]/.test(email) || !/^[^@]+@[^@]+\.[^@]+$/.test(email))) return null;
@@ -142,7 +149,7 @@ function normalizeAttendees(value) {
 // PostgreSQL array literal (`{a@b.c}`), which jsonb rejects with
 // "invalid input syntax for type json" — and an empty array silently becomes the
 // jsonb OBJECT `{}`. Either way a plain array must never be bound directly.
-function jsonbAttendees(value) {
+function jsonbAttendees(value: unknown): string {
   return JSON.stringify(Array.isArray(value) ? value : []);
 }
 
@@ -153,7 +160,7 @@ const ATTENDEES_IS_ARRAY = "jsonb_typeof(attendees) = 'array'";
 // jsonb_array_length() from ever seeing a non-array.
 const READ_ATTENDEES = "CASE WHEN jsonb_typeof(attendees) = 'array' THEN attendees ELSE '[]'::jsonb END AS attendees";
 
-function invitationOperationKey(req) {
+function invitationOperationKey(req: Request): string {
   const supplied = req.headers['x-idempotency-key'];
   if (typeof supplied === 'string' && supplied.trim()) return supplied.trim().slice(0, 128);
   return crypto.createHash('sha256').update(JSON.stringify(req.body || {})).digest('hex');
