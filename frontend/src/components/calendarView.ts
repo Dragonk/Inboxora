@@ -1,12 +1,28 @@
 import { richTextOrNull } from '../utils/richText.ts';
 
-export function monthRange(anchor) {
+/** A calendar event as these view helpers read it. */
+export interface CalendarViewEvent {
+  id?: string;
+  all_day?: boolean;
+  allDay?: boolean;
+  starts_at?: string | null;
+  startsAt?: string | null;
+  ends_at?: string | null;
+  endsAt?: string | null;
+  calendar_color?: string | null;
+  location?: string | null;
+  summary?: string | null;
+  [key: string]: unknown;
+}
+
+
+export function monthRange(anchor: Date): { start: Date; end: Date } {
   const start = new Date(anchor.getFullYear(), anchor.getMonth(), 1);
   const end = new Date(anchor.getFullYear(), anchor.getMonth() + 1, 1);
   return { start, end };
 }
 
-export function weekRange(anchor, weekStartsOn = 1) {
+export function weekRange(anchor: Date, weekStartsOn = 1): { start: Date; end: Date } {
   const start = new Date(anchor.getFullYear(), anchor.getMonth(), anchor.getDate());
   const normalizedWeekStartsOn = weekStartsOn === 0 ? 0 : 1;
   const weekday = (start.getDay() - normalizedWeekStartsOn + 7) % 7;
@@ -16,7 +32,7 @@ export function weekRange(anchor, weekStartsOn = 1) {
   return { start, end };
 }
 
-export function shiftCalendarAnchor(anchor, view, direction) {
+export function shiftCalendarAnchor(anchor: Date, view: string, direction: number): Date {
   if (view !== 'month' && view !== 'agenda') {
     const next = new Date(anchor);
     next.setDate(next.getDate() + direction * 7);
@@ -28,7 +44,7 @@ export function shiftCalendarAnchor(anchor, view, direction) {
   return new Date(year, month, Math.min(anchor.getDate(), lastDay));
 }
 
-export function calendarVisibleRange(anchor, view, weekStartsOn = 1) {
+export function calendarVisibleRange(anchor: Date, view: string, weekStartsOn = 1): { start: Date; end: Date } {
   if (view === 'agenda') return monthRange(anchor);
   if (view !== 'month') return weekRange(anchor, weekStartsOn);
   const { start: monthStart } = monthRange(anchor);
@@ -48,7 +64,7 @@ export function calendarVisibleRange(anchor, view, weekStartsOn = 1) {
  * shown week contains it, otherwise the selected day. `-1` when neither is visible
  * (for example a work-week that excludes a weekend anchor), meaning "leave it alone".
  */
-export function weekFocusIndex(days, anchor, today = new Date()) {
+export function weekFocusIndex(days: Date[], anchor: Date, today = new Date()): number {
   if (!Array.isArray(days) || !days.length) return -1;
   const todayIndex = days.findIndex(day => day.toDateString() === today.toDateString());
   if (todayIndex >= 0) return todayIndex;
@@ -61,16 +77,17 @@ export function weekFocusIndex(days, anchor, today = new Date()) {
  * screen is unaffected.
  */
 export function centeredScrollLeft({ columnStart, columnWidth, viewportWidth, contentWidth }: { columnStart?: number; columnWidth?: number; viewportWidth?: number; contentWidth?: number }) {
-  if (![columnStart, columnWidth, viewportWidth, contentWidth].every(Number.isFinite)) return 0;
+  if (typeof columnStart !== 'number' || typeof columnWidth !== 'number' || typeof viewportWidth !== 'number' || typeof contentWidth !== 'number') return 0;
+  if (![columnStart, columnWidth, viewportWidth, contentWidth].every((value) => Number.isFinite(value))) return 0;
   const maxScroll = Math.max(0, contentWidth - viewportWidth);
   if (maxScroll <= 0) return 0;
   const target = columnStart + columnWidth / 2 - viewportWidth / 2;
   return Math.max(0, Math.min(maxScroll, Math.round(target)));
 }
 
-export function agendaDays(events, anchor) {
+export function agendaDays(events: CalendarViewEvent[] | null | undefined, anchor: Date): Array<{ day: Date; events: CalendarViewEvent[] }> {
   const { start, end } = monthRange(anchor);
-  const days = [];
+  const days: Array<{ day: Date; events: CalendarViewEvent[] }> = [];
   for (const day = new Date(start); day < end; day.setDate(day.getDate() + 1)) {
     const entries = sortedDayEvents(events, day);
     if (entries.length) days.push({ day: new Date(day), events: entries });
@@ -78,7 +95,7 @@ export function agendaDays(events, anchor) {
   return days;
 }
 
-export function sortedDayEvents(events, day) {
+export function sortedDayEvents(events: CalendarViewEvent[] | null | undefined, day: Date): CalendarViewEvent[] {
   return eventsForDay(events, day).sort((a, b) =>
     Number(Boolean(b.all_day || b.allDay)) - Number(Boolean(a.all_day || a.allDay)) ||
     parseEventDate(a.starts_at ?? a.startsAt).getTime() - parseEventDate(b.starts_at ?? b.startsAt).getTime() ||
@@ -93,17 +110,17 @@ export function sortedDayEvents(events, day) {
 // dates once, then answers per-day queries from a cache, so a render costs one
 // pass over the events plus one pass per distinct day. The predicate and the
 // ordering are exactly those of eventsForDay/sortedDayEvents.
-export function createDayEventsResolver(events) {
+export function createDayEventsResolver(events: CalendarViewEvent[] | null | undefined): (day: Date) => CalendarViewEvent[] {
   const list = Array.isArray(events) ? events : [];
   const prepared = list.map(event => ({
     event,
     allDay: Boolean(event.all_day || event.allDay),
     startKey: String(event.starts_at ?? event.startsAt ?? '').slice(0, 10),
     endKey: String(event.ends_at ?? event.endsAt ?? '').slice(0, 10),
-    startDate: parseEventDate(event.starts_at ?? event.startsAt),
-    endDate: parseEventDate(event.ends_at ?? event.endsAt),
+    startDate: parseEventDate(event.starts_at ?? event.startsAt ?? null),
+    endDate: parseEventDate(event.ends_at ?? event.endsAt ?? null),
   }));
-  const cache = new Map();
+  const cache = new Map<string, CalendarViewEvent[]>();
   return day => {
     const dayKey = [day.getFullYear(), String(day.getMonth() + 1).padStart(2, '0'), String(day.getDate()).padStart(2, '0')].join('-');
     const cached = cache.get(dayKey);
@@ -118,7 +135,7 @@ export function createDayEventsResolver(events) {
     }
     entries.sort((a, b) =>
       Number(b.allDay) - Number(a.allDay) ||
-      a.startDate - b.startDate ||
+      a.startDate.getTime() - b.startDate.getTime() ||
       String(a.event.id).localeCompare(String(b.event.id)));
     const result = entries.map(item => item.event);
     cache.set(dayKey, result);
@@ -126,20 +143,39 @@ export function createDayEventsResolver(events) {
   };
 }
 
-export function toDateTimeLocal(value) {
+/** The event/calendar form the payload builders read. */
+export interface CalendarEventForm {
+  summary?: string;
+  description?: string;
+  location?: string;
+  url?: string;
+  startsAt?: string;
+  endsAt?: string;
+  allDay?: boolean;
+  attendees?: string[];
+  calendarId?: string;
+  inviteAccountId?: string;
+  organizer?: string;
+  recurrenceId?: string | null;
+  sendInvites?: boolean;
+  [key: string]: unknown;
+}
+
+
+export function toDateTimeLocal(value: unknown): string {
   if (!value) return '';
-  const date = new Date(value);
+  const date = value instanceof Date ? value : new Date(String(value));
   if (Number.isNaN(date.getTime())) return '';
   const offset = date.getTimezoneOffset() * 60_000;
   return new Date(date.getTime() - offset).toISOString().slice(0, 16);
 }
 
-export function fromDateTimeLocal(value) {
-  const date = new Date(value);
+export function fromDateTimeLocal(value: unknown): string | null {
+  const date = value instanceof Date ? value : new Date(String(value));
   return Number.isNaN(date.getTime()) ? null : date.toISOString();
 }
 
-export function toggleAllDayTimes(form, allDay) {
+export function toggleAllDayTimes(form: CalendarEventForm, allDay: boolean): CalendarEventForm {
   const toDate = value => String(value || '').slice(0, 10);
   const toDateTime = value => {
     const date = toDate(value);
@@ -153,7 +189,7 @@ export function toggleAllDayTimes(form, allDay) {
   };
 }
 
-export function eventPayload(form) {
+export function eventPayload(form: CalendarEventForm): Record<string, unknown> {
   const dateOnlyToIso = value => {
     if (!/^\d{4}-\d{2}-\d{2}$/.test(value || '')) return null;
     const [year, month, day] = value.split('-').map(Number);
@@ -185,7 +221,7 @@ export function eventPayload(form) {
   };
 }
 
-export function eventsForDay(events, day) {
+export function eventsForDay(events: CalendarViewEvent[] | null | undefined, day: Date): CalendarViewEvent[] {
   const dayKey = [day.getFullYear(), String(day.getMonth() + 1).padStart(2, '0'), String(day.getDate()).padStart(2, '0')].join('-');
   const dayStart = new Date(day.getFullYear(), day.getMonth(), day.getDate());
   const dayEnd = new Date(dayStart); dayEnd.setDate(dayEnd.getDate() + 1);
@@ -199,21 +235,21 @@ export function eventsForDay(events, day) {
   });
 }
 
-function localDayStart(day) {
+function localDayStart(day: Date): Date {
   return new Date(day.getFullYear(), day.getMonth(), day.getDate());
 }
 
-function parseEventDate(value) {
+function parseEventDate(value: unknown): Date {
   const text = String(value ?? '');
   const match = text.match(/^(\d{4})-(\d{2})-(\d{2})T24:00(?::00(\.\d+)?)?(Z|[+-]\d{2}:\d{2})?$/);
-  if (!match) return new Date(value);
+  if (!match) return value instanceof Date ? value : new Date(String(value));
   const [, year, month, day, fraction = '', timezone] = match;
   if (!timezone) return new Date(Number(year), Number(month) - 1, Number(day) + 1);
   const nextDay = new Date(Date.UTC(Number(year), Number(month) - 1, Number(day) + 1));
   return new Date(`${nextDay.toISOString().slice(0, 10)}T00:00${fraction ? `:00${fraction}` : ''}${timezone}`);
 }
 
-export function eventGeometryForDay(event, day) {
+export function eventGeometryForDay(event: CalendarViewEvent, day: Date) {
   if (event.all_day || event.allDay) return null;
   const dayStart = localDayStart(day);
   const dayEnd = new Date(dayStart); dayEnd.setDate(dayEnd.getDate() + 1);
@@ -225,7 +261,7 @@ export function eventGeometryForDay(event, day) {
   return { start, end: Math.max(start + 1, end) };
 }
 
-function localDayKey(day) {
+function localDayKey(day: Date): string {
   return [day.getFullYear(), String(day.getMonth() + 1).padStart(2, '0'), String(day.getDate()).padStart(2, '0')].join('-');
 }
 
@@ -233,7 +269,7 @@ function localDayKey(day) {
 // day or into a later one. The week grid draws these events as full-height bands, so
 // the edges that join a neighbouring day are squared off instead of rounded, which
 // makes a multi-day event read as one stretched block rather than separate chips.
-export function allDayEventSegment(event, day) {
+export function allDayEventSegment(event: CalendarViewEvent, day: Date) {
   const dayKey = localDayKey(day);
   const next = new Date(day.getFullYear(), day.getMonth(), day.getDate() + 1);
   const startKey = String(event.starts_at ?? event.startsAt ?? '').slice(0, 10);
@@ -246,7 +282,7 @@ export function allDayEventSegment(event, day) {
 // full-day events side by side instead of hiding one behind the other. The input is
 // re-sorted by start then id so the same event keeps the same column on every day it
 // covers, even though each day is laid out independently.
-export function layoutAllDayEvents(events, day) {
+export function layoutAllDayEvents(events: CalendarViewEvent[] | null | undefined, day: Date) {
   const dayKey = localDayKey(day);
   const covering = (Array.isArray(events) ? events : [])
     .filter(event => {
@@ -267,7 +303,7 @@ export function layoutAllDayEvents(events, day) {
 // peak overlap inside an interval; a sparse table answers each query in O(1)
 // after O(n log n) construction. This replaces the previous nested scans, which
 // were cubic in the number of simultaneously overlapping events.
-function buildRangeMax(values) {
+function buildRangeMax(values: number[]) {
   const length = values.length;
   if (!length) return () => 0;
   const logs = new Array(length + 1).fill(0);
@@ -293,7 +329,7 @@ function buildRangeMax(values) {
 // kept sorted by start (and therefore by end). That makes "does any of them
 // overlap [start, end)?" a binary search: the last interval starting before
 // `end` carries the largest end, so it alone decides the answer.
-function columnOverlaps(columnIntervals, start, end) {
+function columnOverlaps(columnIntervals: Array<[number, number]>, start: number, end: number) {
   let low = 0;
   let high = columnIntervals.length;
   while (low < high) {
@@ -304,7 +340,7 @@ function columnOverlaps(columnIntervals, start, end) {
   return low > 0 && columnIntervals[low - 1][1] > start;
 }
 
-function insertByStart(columnIntervals, interval) {
+function insertByStart(columnIntervals: Array<[number, number]>, interval: [number, number]) {
   let low = 0;
   let high = columnIntervals.length;
   while (low < high) {
@@ -323,7 +359,7 @@ function insertByStart(columnIntervals, interval) {
 // inside the event's own interval — the collision-group width used to size each
 // card. Both are computed without the nested scans the previous implementation
 // used, which made assigning columns cubic in the number of overlapping events.
-export function layoutTimedEvents(events, day) {
+export function layoutTimedEvents(events: CalendarViewEvent[] | null | undefined, day: Date) {
   const items = events.map(event => ({ event, geometry: eventGeometryForDay(event, day) })).filter(item => item.geometry);
   if (!items.length) return [];
   const columns = [];
