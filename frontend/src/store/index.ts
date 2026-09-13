@@ -42,7 +42,301 @@ interface FavoriteFolderRow { accountId?: string; path: string; label?: string; 
 
 interface StoreUserRow { id?: string; username?: string; email?: string; [key: string]: unknown }
 
-interface StoreMessageRow { id: string; account_id?: string; folder?: string; is_read?: boolean; is_starred?: boolean; message_id?: string | null; thread_id?: string; date?: string | number | Date | null; [key: string]: unknown }
+/**
+ * The store state. Written from the store itself (every member is declared here so the
+ * store no longer needs create<any>).
+ */
+/**
+ * The store state. Written from the store itself (every member is declared here so the store
+ * no longer needs create<any>).
+ */
+export interface StoreState {
+  user: StoreUserRow | null;
+  setUser: (user: StoreUserRow | null) => void;
+  updateUser: (updates: Record<string, unknown>) => void;
+  enabledPlugins: string[];
+  setPluginActivated: (id: string, activated: boolean) => Promise<void>;
+  todoistConnected: boolean;
+  setTodoistConnected: (connected: boolean) => void;
+  isLocked: boolean;
+  setLocked: (locked: boolean) => void;
+  lockScreen: () => void;
+  autoLockMinutes: number;
+  setAutoLockMinutes: (m: number) => void;
+  accounts: Array<{ id: string; enabled?: boolean; include_in_unified_inbox?: boolean; [key: string]: unknown }>;
+  accountsReady: boolean;
+  setAccounts: (accounts: Array<{
+      id: string;
+      enabled?: boolean;
+      include_in_unified_inbox?: boolean;
+      [key: string]: unknown;
+  }>) => void;
+  updateAccount: (id: string, updates: Record<string, unknown>) => void;
+  selectedAccountId: string;
+  selectedFolder: string;
+  messagesRefreshToken: number;
+  setSelectedAccount: (accountId: string, folder?: string) => void;
+  messages: StoreMessageRow[];
+  setMessages: (messages: StoreMessageRow[]) => void;
+  appendMessages: (newMessages: StoreMessageRow[]) => void;
+  updateMessage: (id: string, updates: Record<string, unknown>) => void;
+  removeMessage: (id: string) => void;
+  removeMessages: (ids: string[]) => void;
+  restoreMessages: (msgs: StoreMessageRow[]) => void;
+  messagesOffset: number;
+  setMessagesOffset: (offset: number) => void;
+  messagesTotal: number;
+  setMessagesTotal: (total: number) => void;
+  hasMoreMessages: boolean;
+  setHasMoreMessages: (v: boolean) => void;
+  selectedMessageId: string | null;
+  lastViewedMessageId: string | null;
+  setSelectedMessage: (id: string) => void;
+  unreadCounts: {
+      total: number;
+      byAccount: {};
+  };
+  setUnreadCounts: (counts: Record<string, number>) => void;
+  decrementUnread: (accountId: string, count?: number) => void;
+  incrementUnread: (accountId: string, count?: number) => void;
+  folders: {};
+  setFolders: (accountId: string, folders: Record<string, Array<{
+      path: string;
+      unread_count?: number;
+  }>>) => void;
+  adjustFolderUnread: (accountId: string, folderPath: string, delta: number) => void;
+  sidebarCollapsed: boolean;
+  toggleSidebar: () => void;
+  sidebarWidth: number;
+  setSidebarWidth: (w: string) => void;
+  isSidebarResizing: boolean;
+  setIsSidebarResizing: (v: boolean) => void;
+  pageSize: number;
+  setPageSize: (size: number) => void;
+  scrollMode: string;
+  setScrollMode: (mode: string) => void;
+  searchAllFolders: boolean;
+  setSearchAllFolders: (v: boolean) => void;
+  swipeActions: { start?: string; end?: string; [key: string]: unknown };
+  setSwipeAction: (direction: string, action: string) => void;
+  syncInterval: number;
+  setSyncInterval: (seconds: number) => void;
+  folderSyncInterval: number;
+  setFolderSyncInterval: (seconds: number) => void;
+  notificationSound: string;
+  setNotificationSound: (sound: string) => void;
+  customSoundDataUrl: string;
+  setCustomSoundDataUrl: (dataUrl: string) => void;
+  composing: boolean;
+  composeData: Record<string, unknown> | null;
+  openCompose: (data?: Record<string, unknown>) => void;
+  closeCompose: () => void;
+  messageWindows: Array<{ winId?: string; messageId?: string; z?: number; id?: string; [key: string]: unknown }>;
+  _winSeq: number;
+  openMessageWindow: (messageId: string) => void;
+  closeMessageWindow: (winId: string) => void;
+  focusMessageWindow: (winId: string) => void;
+  setMessageWindowMinimized: (winId: string, minimized: boolean) => void;
+  updateMessageWindowRect: (winId: string, rect: {
+      x?: number;
+      y?: number;
+      width?: number;
+      height?: number;
+  }) => void;
+  closeAllMessageWindows: () => void;
+  searchQuery: string;
+  setSearchQuery: (q: string) => void;
+  isSearching: boolean;
+  setIsSearching: (v: boolean) => void;
+  searchResults: StoreMessageRow[];
+  setSearchResults: (r: StoreMessageRow[]) => void;
+  loadingMessages: boolean;
+  setLoadingMessages: (v: boolean) => void;
+  notifications: Array<{ id?: string; [key: string]: unknown }>;
+  addNotification: (n: {
+      id?: string;
+      [key: string]: unknown;
+  }) => void;
+  removeNotification: (id: string) => void;
+  showAdmin: boolean;
+  adminTab: string;
+  setShowAdmin: (v: boolean) => void;
+  setAdminTab: (t: string) => void;
+  showContacts: boolean;
+  setShowContacts: (showContacts: boolean) => void;
+  showCalendar: boolean;
+  setShowCalendar: (showCalendar: boolean) => void;
+  calendarWeekStartsOn: number;
+  setCalendarWeekStartsOn: (calendarWeekStartsOn: number) => void;
+  visibleCalendarIds: string[];
+  setVisibleCalendarIds: (visibleCalendarIds: string[]) => void;
+  mobileNavigationPosition: string;
+  setMobileNavigationPosition: (mobileNavigationPosition: string) => void;
+  calendarInviteAccountId: string;
+  setCalendarInviteAccountId: (calendarInviteAccountId: string | null) => void;
+  calendarWorkDays: number[];
+  setCalendarWorkDays: (calendarWorkDays: number[]) => void;
+  calendarWorkHoursStart: string;
+  calendarWorkHoursPersisted: {
+      start: string;
+      end: string;
+  };
+  calendarWorkHoursError: string;
+  setCalendarWorkHoursStart: (value: string) => void;
+  calendarWorkHoursEnd: string;
+  setCalendarWorkHoursEnd: (value: string) => void;
+  rulesPreFill: Record<string, unknown> | null;
+  setRulesPreFill: (v: boolean) => void;
+  backfillProgress: {};
+  setBackfillProgress: (accountId: string, progress: Record<string, unknown>) => void;
+  mobileSidebarOpen: boolean;
+  setMobileSidebarOpen: (v: boolean) => void;
+  language: string;
+  setLanguage: (lng: string) => void;
+  conversationReaderViewEnabled: boolean;
+  setConversationReaderViewEnabled: (val: unknown) => void;
+  threadedView: boolean;
+  setThreadedView: (val: unknown) => void;
+  plaintextEmail: boolean;
+  setPlaintextEmail: (val: unknown) => void;
+  hoverQuickActions: boolean;
+  setHoverQuickActions: (val: unknown) => void;
+  showMobileAvatars: boolean;
+  setShowMobileAvatars: (val: unknown) => void;
+  gravatarAvatars: boolean;
+  setGravatarAvatars: (val: unknown) => void;
+  showMessagePreviews: boolean;
+  setShowMessagePreviews: (val: unknown) => void;
+  replyDefault: string;
+  setReplyDefault: (val: string) => void;
+  markReadBehavior: string;
+  setMarkReadBehavior: (val: string) => void;
+  markReadDelay: number;
+  setMarkReadDelay: (val: string) => void;
+  expandedThreadId: string | null;
+  setExpandedThreadId: (id: string) => void;
+  threadMessages: {};
+  setThreadMessages: (threadId: string, msgs: StoreMessageRow[]) => void;
+  clearThreadMessages: (threadId: string) => void;
+  loadingThread: string | null;
+  setLoadingThread: (id: string) => void;
+  themeMode: string;
+  lightTheme: string;
+  darkTheme: string;
+  theme: string;
+  applyThemeSelection: (partial: {
+      light?: string;
+      dark?: string;
+      [key: string]: unknown;
+  }) => void;
+  setThemeMode: (mode: string) => void;
+  setLightTheme: (theme: string) => void;
+  setDarkTheme: (theme: string) => void;
+  setTheme: (theme: string) => void;
+  syncSystemTheme: () => void;
+  fontSet: string;
+  setFontSet: (fontSet: string) => void;
+  fontSize: number;
+  setFontSize: (pct: number) => void;
+  showAppBadge: boolean;
+  setShowAppBadge: (val: unknown) => void;
+  categorizationEnabled: boolean;
+  setCategorizationEnabled: (val: unknown) => void;
+  categoryCounts: {};
+  setCategoryCounts: (counts: Record<string, number>) => void;
+  adjustCategoryCount: (category: string, delta: number) => void;
+  rightSidebarWidth: number;
+  setRightSidebarWidth: (w: string) => void;
+  isRightSidebarResizing: boolean;
+  setIsRightSidebarResizing: (v: boolean) => void;
+  rightSidebarHidden: boolean;
+  toggleRightSidebarHidden: () => void;
+  gtdCollapsedSections: Record<string, boolean>;
+  toggleGtdSection: (section: string) => void;
+  activeGtdTab: string;
+  setActiveGtdTab: (tab: string) => void;
+  gtdSections: GtdSections | null;
+  fetchGtdSections: () => Promise<void>;
+  scheduleGtdSectionsFetch: () => void;
+  removeGtdThread: (identity: string, states: string[]) => void;
+  restoreGtdThread: (snapshot: GtdRemovalSnapshot) => void;
+  markGtdThreadRead: (identity: string, isRead: boolean) => void;
+  markGtdThreadStarred: (identity: string, isStarred: boolean) => void;
+  gtdPetSlug: string | null;
+  setGtdPetSlug: (slug: string) => void;
+  layout: string;
+  setLayout: (layout: string) => void;
+  blockRemoteImages: boolean;
+  imageWhitelist: {
+      addresses: string[];
+      domains: string[];
+  };
+  senderFaviconsLoaded: boolean;
+  senderFavicons: boolean;
+  senderFaviconsSaving: boolean;
+  senderFaviconsEpoch: number;
+  setSenderFavicons: (enabled: boolean) => Promise<void>;
+  setBlockRemoteImages: (val: unknown) => void;
+  setImageWhitelist: (whitelist: string[]) => void;
+  addToImageWhitelist: ({ type, value }: {
+      type: string;
+      value: string;
+  }) => void;
+  shortcuts: {};
+  setShortcuts: (overrides: Record<string, unknown>) => void;
+  aiActions: unknown[];
+  setAiActions: (actions: unknown[]) => void;
+  hiddenFolders: {};
+  setHiddenFolders: (hf: string[]) => void;
+  folderOrder: Record<string, string[]>;
+  setFolderOrder: (accountId: string, paths: string[]) => void;
+  expandedAccounts: Record<string, string[]>;
+  setExpandedAccounts: (updater: (prev: string[]) => string[]) => void;
+  collapsedFolders: Record<string, string[]>;
+  toggleCollapsedFolder: (accountId: string, path: string) => void;
+  favoriteFolders: FavoriteFolderRow[];
+  addFavoriteFolder: ({ accountId, path }: {
+      accountId: string;
+      path: string;
+  }) => void;
+  removeFavoriteFolder: ({ accountId, path }: {
+      accountId: string;
+      path: string;
+  }) => void;
+  renameFavoriteFolder: ({ accountId, path, label }: {
+      accountId: string;
+      path: string;
+      label: string;
+  }) => void;
+  reorderFavoriteFolders: (next: Record<string, unknown>) => void;
+  recentFolders: FavoriteFolderRow[];
+  recordRecentFolder: ({ accountId, path }: {
+      accountId: string;
+      path: string;
+  }) => void;
+  loadPreferences: () => Promise<void>;
+}
+
+interface StoreMessageRow {
+  id: string;
+  account_id?: string;
+  account_name?: string;
+  account_color?: string;
+  folder?: string;
+  is_read?: boolean;
+  is_starred?: boolean;
+  message_id?: string | null;
+  thread_id?: string;
+  date?: string | number | Date | null;
+  subject?: string | null;
+  from_name?: string | null;
+  from_email?: string | null;
+  to_addresses?: unknown;
+  cc_addresses?: unknown;
+  reply_to?: unknown;
+  category?: string | null;
+  [key: string]: unknown;
+}
 
 /** The store fields its own set()/get() callbacks read. */
 interface StoreStateRead {
