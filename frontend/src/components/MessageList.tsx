@@ -1232,7 +1232,7 @@ export default function MessageList() {
     const spamDest = account?.folder_mappings?.spam;
     const inboxDest = account?.folder_mappings?.inbox || 'INBOX';
     const unreadBySource = new Map();
-    const unreadByHamSource = new Map(); // for ham: track source folder
+    const unreadByHamSource = new Map<string, number>(); // for ham: track source folder
     messages.forEach(m => {
       if (m.is_read) return;
       const src = m.folder;

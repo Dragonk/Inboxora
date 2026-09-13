@@ -92,7 +92,7 @@ export interface StoreState {
   lockScreen: () => void;
   autoLockMinutes: number;
   setAutoLockMinutes: (m: number) => void;
-  accounts: Array<{ id: string; name?: string | null; email_address?: string | null; color?: string | null; categorization_enabled?: boolean; enabled?: boolean; include_in_unified_inbox?: boolean; aliases?: Array<{ id: string; email?: string | null; name?: string | null; [key: string]: unknown }>; folder_mappings?: { spam?: string | null; sent?: string | null; drafts?: string | null; trash?: string | null; archive?: string | null; [key: string]: unknown } | null; [key: string]: unknown }>;
+  accounts: Array<{ id: string; name?: string | null; email_address?: string | null; color?: string | null; signature?: string | null; categorization_enabled?: boolean; enabled?: boolean; include_in_unified_inbox?: boolean; aliases?: Array<{ id: string; email?: string | null; name?: string | null; signature?: string | null; [key: string]: unknown }>; folder_mappings?: { spam?: string | null; sent?: string | null; drafts?: string | null; trash?: string | null; archive?: string | null; [key: string]: unknown } | null; [key: string]: unknown }>;
   accountsReady: boolean;
   setAccounts: (accounts: Array<{
       id: string;
@@ -143,7 +143,7 @@ export interface StoreState {
   setScrollMode: (mode: string) => void;
   searchAllFolders: boolean;
   setSearchAllFolders: (v: boolean) => void;
-  swipeActions: { start?: string; end?: string; [key: string]: unknown };
+  swipeActions: { left?: string; right?: string; [key: string]: unknown };
   setSwipeAction: (direction: string, action: string) => void;
   syncInterval: number;
   setSyncInterval: (seconds: number) => void;
@@ -213,7 +213,7 @@ export interface StoreState {
   setCalendarWorkHoursEnd: (value: string) => void;
   rulesPreFill: boolean;
   setRulesPreFill: (v: boolean) => void;
-  backfillProgress: Record<string, unknown>;
+  backfillProgress: Record<string, { total?: number; synced?: number; [key: string]: unknown }>;
   setBackfillProgress: (accountId: string, progress: Record<string, unknown>) => void;
   mobileSidebarOpen: boolean;
   setMobileSidebarOpen: (v: boolean) => void;
