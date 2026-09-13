@@ -19,7 +19,7 @@ function createManager({ foundUid = null, appendResult = { uid: 99 } } = {}) {
       foundUid ? { state: 'found', uid: foundUid } : { state: 'missing' }
     ),
     appendToSent: vi.fn().mockResolvedValue(appendResult),
-    upsertSentMessageRecord: vi.fn().mockResolvedValue(),
+    upsertSentMessageRecord: vi.fn().mockResolvedValue(undefined),
   };
 }
 
@@ -44,7 +44,7 @@ describe('ensureServerAutoSavedSentCopy', () => {
       sentMeta,
       manager,
       delays: [0],
-      sleep: vi.fn().mockResolvedValue(),
+      sleep: vi.fn().mockResolvedValue(undefined),
     });
 
     expect(result).toEqual({ saved: true, appended: false });
@@ -63,7 +63,7 @@ describe('ensureServerAutoSavedSentCopy', () => {
       sentMeta,
       manager,
       delays: [0, 0],
-      sleep: vi.fn().mockResolvedValue(),
+      sleep: vi.fn().mockResolvedValue(undefined),
     });
 
     expect(result).toEqual({ saved: true, appended: true });
@@ -85,7 +85,7 @@ describe('ensureServerAutoSavedSentCopy', () => {
       sentMeta,
       manager,
       delays: [0],
-      sleep: vi.fn().mockResolvedValue(),
+      sleep: vi.fn().mockResolvedValue(undefined),
     });
 
     expect(result).toEqual({ saved: false, appended: true });
@@ -104,7 +104,7 @@ describe('ensureServerAutoSavedSentCopy', () => {
       sentMeta,
       manager,
       delays: [0],
-      sleep: vi.fn().mockResolvedValue(),
+      sleep: vi.fn().mockResolvedValue(undefined),
     });
 
     expect(result).toEqual({ saved: false, appended: false });
@@ -123,7 +123,7 @@ describe('ensureServerAutoSavedSentCopy', () => {
       sentMeta,
       manager,
       delays: [0],
-      sleep: vi.fn().mockResolvedValue(),
+      sleep: vi.fn().mockResolvedValue(undefined),
     });
 
     expect(result).toEqual({ saved: false, appended: false });
@@ -144,7 +144,7 @@ describe('ensureServerAutoSavedSentCopy', () => {
       sentMeta,
       manager,
       delays: [0],
-      sleep: vi.fn().mockResolvedValue(),
+      sleep: vi.fn().mockResolvedValue(undefined),
     });
 
     expect(result).toEqual({ saved: true, appended: false });

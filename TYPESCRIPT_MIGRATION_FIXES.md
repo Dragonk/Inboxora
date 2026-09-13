@@ -152,3 +152,25 @@ Testy: 1785 / 0 failed. Lint: czysty.
 Backend `tsc`: **110 błędów** (z 474). `services/imapManager.ts` — 0 błędów.
 Testy: 1785 / 0 failed. Lint: czysty.
 
+
+## 14. Iteracja: wysyłka poczty i atrapy IMAP
+
+- 🟠 **`mailOptions`** był literałem bez typu — dopisywanie `html`/`inReplyTo`/`references`/`attachments`
+  było niekontrolowane. Typ `SendMailOptions` z nodemailer.
+- 🔴 **`streamInfo.message.on(...)`** na unii `Buffer | Readable` — dodane realne zawężenie
+  `instanceof Readable` z błędem, gdy transport nie zwróci strumienia (wcześniej mogło wybuchnąć
+  „on is not a function”).
+- 🔴 **`new Promise((_, rej) => ...)` bez argumentu typu** w APPEND z timeoutem → `Promise<unknown>`
+  zatruwał `Promise.race` (destrukturyzacja `{ uid }` z `unknown`). Teraz `Promise<never>`.
+- 🟠 **`ensureServerAutoSavedSentCopy`** wymagało pełnego `ImapManager`, choć używa 3 metod.
+  Wprowadzony wąski interfejs `SentCopyManager` (+ `EnsureServerAutoSavedSentCopyInput`),
+  więc testowa atrapa nie wymaga już rzutowania do pełnej klasy.
+- 🔴 **`Promise.allSettled` z mieszanym `Promise.resolve()`** dawał `void` w wyniku; ujednolicone.
+- 🟠 **`sendResult`** (`{ok:true}`) → opcjonalne pola `sentCopySaved`/`sentFolder`.
+- 🟡 **`mockResolvedValue()`** bez argumentu (3 pliki testowe) → `mockResolvedValue(undefined)`.
+
+## 15. Stan weryfikacji
+
+Backend `tsc`: **84 błędy** (z 474). `routes/send.ts`, `routes/send.sent.test.ts` — 0 błędów.
+Testy: 1785 / 0 failed. Lint: czysty.
+

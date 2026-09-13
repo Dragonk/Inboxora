@@ -6,7 +6,7 @@ vi.mock('node:timers/promises', () => ({ setTimeout: delay }));
 beforeEach(() => {
   vi.resetModules(); vi.stubEnv('VAPID_PUBLIC_KEY', 'synthetic'); vi.stubEnv('VAPID_PRIVATE_KEY', 'synthetic');
   query.mockReset().mockResolvedValue({ rows: [{ id: 'device', endpoint: 'https://push.example.test/token', p256dh: 'test', auth: 'test' }] });
-  sendNotification.mockReset().mockResolvedValue({ statusCode: 201 }); delay.mockReset().mockResolvedValue();
+  sendNotification.mockReset().mockResolvedValue({ statusCode: 201 }); delay.mockReset().mockResolvedValue(undefined);
 });
 afterEach(() => vi.unstubAllEnvs());
 it('requests prompt delivery and retries a temporary push provider failure', async () => {

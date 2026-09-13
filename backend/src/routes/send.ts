@@ -1,4 +1,6 @@
 import nodemailer from 'nodemailer';
+import type { SendMailOptions } from 'nodemailer';
+import { Readable } from 'node:stream';
 import { randomBytes, createHash, randomUUID } from 'crypto';
 import { Router } from 'express';
 import { query } from '../services/db.js';
@@ -64,6 +66,29 @@ function buildSentSnippet(body, bodyIsHtml) {
 // Message-ID, then append the exact CRLF MIME message once if it never appears.
 // The fallback is deliberately not retried: IMAP APPEND is not idempotent and a
 // timed-out first APPEND might still have reached the server.
+interface SentCopyLookupResult {
+  state: 'found' | 'missing' | 'ambiguous';
+  uid?: number | null;
+}
+
+/** The narrow slice of the IMAP manager this recovery path depends on. */
+export interface SentCopyManager {
+  findSentMessageByMessageId(account: unknown, folder: string, messageId: string): Promise<SentCopyLookupResult>;
+  appendToSent(account: unknown, folder: string, rawMessage: Buffer): Promise<{ uid?: number | null }>;
+  upsertSentMessageRecord(account: unknown, folder: string, uid: number | null | undefined, sentMeta: unknown): Promise<unknown>;
+}
+
+interface EnsureServerAutoSavedSentCopyInput {
+  account: { id?: string; email_address?: string };
+  sentFolder: string;
+  messageId: string;
+  rawMessage: Buffer;
+  sentMeta?: unknown;
+  manager?: SentCopyManager;
+  delays?: number[];
+  sleep?: (delay: number) => Promise<unknown>;
+}
+
 export async function ensureServerAutoSavedSentCopy({
   account,
   sentFolder,
@@ -73,7 +98,7 @@ export async function ensureServerAutoSavedSentCopy({
   manager = imapManager,
   delays = [3000, 10000, 20000],
   sleep = (delay) => new Promise(resolve => setTimeout(resolve, delay)),
-}) {
+}: EnsureServerAutoSavedSentCopyInput) {
   if (!sentFolder || !messageId || !rawMessage) return { saved: false, appended: false };
 
   let verificationFailed = false;
@@ -340,7 +365,7 @@ router.post('/send', async (req, res) => {
 
     // Use a stable Message-ID so the SMTP copy and any IMAP APPEND reference the same message.
     const domain = fromEmail.split('@')[1] || 'mailflow.local';
-    const mailOptions = {
+    const mailOptions: SendMailOptions = {
       messageId: `<${randomBytes(16).toString('hex')}@${domain}>`,
       from: `${fromName} <${fromEmail}>`,
       ...(fromReplyTo ? { replyTo: fromReplyTo } : {}),
@@ -406,11 +431,15 @@ router.post('/send', async (req, res) => {
     // delivered copy uses a separate transport that is already CRLF, so only the Sent copy was wrong.
     const streamTransport = nodemailer.createTransport({ streamTransport: true, newline: 'windows' });
     const streamInfo = await streamTransport.sendMail(mailOptions);
-    const chunks = [];
-    await new Promise((resolve, reject) => {
-      streamInfo.message.on('data', c => chunks.push(Buffer.isBuffer(c) ? c : Buffer.from(c)));
-      streamInfo.message.on('end', resolve);
-      streamInfo.message.on('error', reject);
+    const chunks: Buffer[] = [];
+    const messageStream = streamInfo.message;
+    if (!(messageStream instanceof Readable)) {
+      throw new Error('Stream transport did not return a readable message');
+    }
+    await new Promise<void>((resolve, reject) => {
+      messageStream.on('data', c => chunks.push(Buffer.isBuffer(c) ? c : Buffer.from(c)));
+      messageStream.on('end', resolve);
+      messageStream.on('error', reject);
     });
     const rawMessage = Buffer.concat(chunks);
 
@@ -450,7 +479,7 @@ router.post('/send', async (req, res) => {
 
           const results = await Promise.allSettled(allRecipients.map(addr => {
             const { name, email } = parseAddress(addr);
-            if (!email) return Promise.resolve();
+            if (!email) return Promise.resolve(null);
             const primaryEmail = email.toLowerCase();
             const displayName = name || primaryEmail;
             const uid    = randomUUID();
@@ -534,7 +563,7 @@ router.post('/send', async (req, res) => {
         try {
           const { uid } = await Promise.race([
             imapManager.appendToSent(account, sentFolder, rawMessage),
-            new Promise((_, rej) => setTimeout(() => rej(new Error('Sent APPEND timed out')), 20000)),
+            new Promise<never>((_, rej) => setTimeout(() => rej(new Error('Sent APPEND timed out')), 20000)),
           ]);
           sentCopySaved = true;
           if (uid && sentMeta) {
@@ -581,7 +610,7 @@ router.post('/send', async (req, res) => {
       }
     }
 
-    const sendResult = { ok: true };
+    const sendResult: { ok: boolean; sentCopySaved?: boolean; sentFolder?: string } = { ok: true };
     // Surface only the problem case so existing success handling is unchanged; the UI warns
     // when a delivered message could not be saved to the account's Sent folder.
     if (sentCopySaved === false) sendResult.sentCopySaved = false;

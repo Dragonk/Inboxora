@@ -28,10 +28,10 @@ const event = (overrides = {}) => ({
 
 beforeEach(() => {
   resetDispatchDedup();
-  sendPushToUser.mockReset().mockResolvedValue();
+  sendPushToUser.mockReset().mockResolvedValue(undefined);
   listActivePushDevices.mockReset().mockResolvedValue([]);
-  disablePushDevice.mockReset().mockResolvedValue();
-  markPushDeviceFailure.mockReset().mockResolvedValue();
+  disablePushDevice.mockReset().mockResolvedValue(undefined);
+  markPushDeviceFailure.mockReset().mockResolvedValue(undefined);
   sendNativePush.mockReset().mockResolvedValue('delivered');
 });
 
