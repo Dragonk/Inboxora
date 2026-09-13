@@ -9,6 +9,7 @@ import { usePluginCollected } from '../plugins/PluginSlot.tsx';
 import MessageHeaderModal from './MessageHeaderModal.tsx';
 import { useUiScale, descale } from '../hooks/useUiScale.ts';
 import { useMobile } from '../hooks/useMobile.ts';
+import { toAppError } from '../utils/errors.ts';
 
 // Module-level regex — spam-name heuristic shared with MessagePane.jsx so
 // it isn't recompiled on every render. Mirrors resolveAllSpamPaths on the
@@ -18,29 +19,69 @@ const SPAM_NAME_RE = /(spam|junk|bulk|indesiderata|spamverdacht|courrier\s*ind|p
 // ─── Context Menu ─────────────────────────────────────────────────────────────
 const CATEGORIES = ['primary', 'newsletter', 'promotion', 'automated', 'social'];
 
-export default function ContextMenu({ x, y, message, onClose, onAction, defaultMoveView = false, variant = 'inbox', selectedText = '' }) {
+/** The context-menu message subset. */
+interface ContextMenuMessage {
+  id: string;
+  account_id?: string;
+  folder?: string;
+  category?: string | null;
+  from_email?: string | null;
+  from_name?: string | null;
+  is_read?: boolean;
+  is_starred?: boolean;
+  message_id?: string | null;
+  subject?: string | null;
+  unread_count?: number | string;
+  [key: string]: unknown;
+}
+
+/** A folder entry as the menu lists it. */
+interface ContextMenuFolder { path: string; name?: string; special_use?: string | null; [key: string]: unknown }
+
+/** The store members this menu reads. */
+interface ContextMenuStoreSlice {
+  recentFolders: ContextMenuFolder[];
+  favoriteFolders: Array<{ accountId?: string; path: string; label?: string; [key: string]: unknown }>;
+  accounts: Array<{ id: string; categorization_enabled?: boolean; folder_mappings?: Record<string, unknown> | null; [key: string]: unknown }>;
+  folders: Record<string, ContextMenuFolder[]>;
+  categorizationEnabled: boolean;
+}
+
+interface ContextMenuProps {
+  x: number;
+  y: number;
+  message: ContextMenuMessage;
+  onClose: () => void;
+  onAction: (action: string, value?: unknown) => void;
+  defaultMoveView?: boolean;
+  variant?: string;
+  selectedText?: string;
+}
+
+
+export default function ContextMenu({ x, y, message, onClose, onAction, defaultMoveView = false, variant = 'inbox', selectedText = '' }: ContextMenuProps) {
   const { t } = useTranslation();
   const uiScale = useUiScale();
   const isMobile = useMobile();
   // Variants share one menu; the policy removes actions that depend on the center
   // list or conflict with GTD's Done contract while preserving ordinary mail actions.
   const menuPolicy = getContextMenuPolicy(variant);
-  const recentFolders = useStore(s => s.recentFolders);
-  const favoriteFolders = useStore(s => s.favoriteFolders);
+  const recentFolders = useStore((s: ContextMenuStoreSlice) => s.recentFolders);
+  const favoriteFolders = useStore((s: ContextMenuStoreSlice) => s.favoriteFolders);
   // Pull the current account so we can render the spam/ham visibility based on
   // folder_mappings.spam + special_use heuristics instead of a fragile name match.
-  const account = useStore(s => s.accounts.find(a => a.id === message.account_id));
-  const accountFolders = useStore(s => s.folders[message.account_id] || []);
-  const categorizationEnabled = useStore(s => s.categorizationEnabled);
+  const account = useStore((s: ContextMenuStoreSlice) => s.accounts.find((a) => a.id === message.account_id));
+  const accountFolders = useStore((s: ContextMenuStoreSlice) => s.folders[message.account_id ?? ''] || []);
+  const categorizationEnabled = useStore((s: ContextMenuStoreSlice) => s.categorizationEnabled);
   const categorizationActive = categorizationEnabled || !!account?.categorization_enabled;
-  const menuRef = useRef(null);
+  const menuRef = useRef<HTMLDivElement | null>(null);
   useBackLayer(true, onClose, 4000);
-  const [headerMessage, setHeaderMessage] = useState(null);
+  const [headerMessage, setHeaderMessage] = useState<ContextMenuMessage | null>(null);
   // A plugin submenu (render fn) takes over the menu content area, like categorizeView/moveView.
   // Set via the openSubmenu capability handed to context-menu-item contributions; null = item list.
-  const [pluginSubmenu, setPluginSubmenu] = useState(null);
+  const [pluginSubmenu, setPluginSubmenu] = useState<((onDone: () => void) => React.ReactNode) | null>(null);
   const [moveView, setMoveView] = useState(defaultMoveView);
-  const [moveFolders, setMoveFolders] = useState(null);
+  const [moveFolders, setMoveFolders] = useState<ContextMenuFolder[] | null>(null);
   const [moveFoldersLoading, setMoveFoldersLoading] = useState(defaultMoveView);
   const [snoozeView, setSnoozeView] = useState(false);
   const [customSnoozeView, setCustomSnoozeView] = useState(false);
@@ -48,7 +89,7 @@ export default function ContextMenu({ x, y, message, onClose, onAction, defaultM
   const [customTime, setCustomTime] = useState('09:00');
   const [categorizeView, setCategorizeView] = useState(false);
   const [folderSearch, setFolderSearch] = useState('');
-  const unreadCount = Number.parseInt(message.unread_count, 10);
+  const unreadCount = Number(message.unread_count);
   const hasUnread = Number.isFinite(unreadCount) ? unreadCount > 0 : !message.is_read;
   const isMessagePane = variant === 'messagePane';
   const hasSelectedText = Boolean(String(selectedText || '').trim());
@@ -60,7 +101,7 @@ export default function ContextMenu({ x, y, message, onClose, onAction, defaultM
   const spamFolderPaths = (() => {
     const mapped = account?.folder_mappings?.spam;
     if (mapped) return new Set([mapped]);
-    return new Set(accountFolders.filter(f =>
+    return new Set(accountFolders.filter((f) =>
       f.special_use === '\\Junk' || SPAM_NAME_RE.test(f.name || '')
     ).map(f => f.path));
   })();
@@ -120,7 +161,7 @@ export default function ContextMenu({ x, y, message, onClose, onAction, defaultM
   // never cross the frame boundary to reach `document`) and it can't be defeated by a row
   // calling stopPropagation() on its click.
   useEffect(() => {
-    const handleKey = e => { if (e.key === 'Escape') onClose(); };
+    const handleKey = (e: KeyboardEvent) => { if (e.key === 'Escape') onClose(); };
     document.addEventListener('keydown', handleKey);
     return () => document.removeEventListener('keydown', handleKey);
   }, [onClose]);
@@ -316,7 +357,7 @@ export default function ContextMenu({ x, y, message, onClose, onAction, defaultM
             try {
               setHeaderMessage(await resolveContextMenuMessage(message, variant, api.resolveMessage));
             } catch (err) {
-              console.error('Message header resolution failed:', err.message);
+              console.error('Message header resolution failed:', toAppError(err).message);
             }
           },
           keepOpen: true,
