@@ -363,7 +363,7 @@ export default function MessagePane({ windowMessageId = null, onWindowClose = nu
     if (!USE_DIV_RENDER || !renderableHtml) return null;
     return prepareEmailHtml(renderableHtml, windowMode ? `w${message?.id ?? 'preview'}` : String(message?.id ?? 'preview'));
   }, [renderableHtml, message?.id, windowMode]);
-  const outerRef = useRef(null);
+  const outerRef = useRef<HTMLDivElement | null>(null);
   const scaleRef = useRef(null);
   const innerRef = useRef(null);
   const bodyCache = useRef({}); // messageId -> body, so revisiting is instant (capped at 50)

@@ -78,7 +78,36 @@ function isMicrosoftImapHost(host) {
   return h.includes('.outlook.com') || h.includes('office365.com') || h.includes('.hotmail.com') || h.includes('.live.com');
 }
 
-function AccountForm({ initial = undefined, onSave, onCancel }) {
+/** The account form the admin panel edits. */
+interface AccountFormState {
+  id?: string;
+  name?: string;
+  email_address?: string;
+  color?: string;
+  protocol?: string;
+  imap_host?: string;
+  imap_port?: number | string;
+  imap_skip_tls_verify?: boolean;
+  smtp_host?: string;
+  smtp_port?: number | string;
+  smtp_tls?: string;
+  smtp_auth_user?: string;
+  smtp_auth_pass?: string;
+  auth_user?: string;
+  auth_pass?: string;
+  categorization_enabled?: boolean;
+  sender_name?: string | null;
+  [key: string]: unknown;
+}
+
+interface AccountFormProps {
+  initial?: AccountFormState | null;
+  onSave: (form: AccountFormState) => void;
+  onCancel: () => void;
+}
+
+
+function AccountForm({ initial = undefined, onSave, onCancel }: AccountFormProps) {
   const { t } = useTranslation();
   const { categorizationEnabled } = useStore();
 

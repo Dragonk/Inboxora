@@ -284,7 +284,7 @@ export default function Sidebar({ onEditProfile = null }) {
   }, [selectedAccountId, selectedFolder]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const [msgDragTarget, setMsgDragTarget] = useState(null);
-  const [folderDrag, setFolderDrag] = useState(null);
+  const [folderDrag, setFolderDrag] = useState<{ accountId: string; path?: string; rootPath?: string; [key: string]: unknown } | null>(null);
   const [folderDropTarget, setFolderDropTarget] = useState(null);
 
   const clearFolderDrag = useCallback(() => {
@@ -386,7 +386,7 @@ export default function Sidebar({ onEditProfile = null }) {
   };
 
   // Context menus
-  const [folderCtxMenu, setFolderCtxMenu] = useState(null); // {x, y, accountId, folderObj}
+  const [folderCtxMenu, setFolderCtxMenu] = useState<{ x: number; y: number; accountId: string; folderObj?: { path?: string; name?: string; [key: string]: unknown }; [key: string]: unknown } | null>(null); // {x, y, accountId, folderObj}
   const [accountCtxMenu, setAccountCtxMenu] = useState(null); // {x, y, account}
 
   // Inline rename (IMAP folder)
@@ -404,7 +404,7 @@ export default function Sidebar({ onEditProfile = null }) {
   const favTouchStart = useRef(null); // { x, y } captured at touchstart for movement threshold
 
   // Inline create folder
-  const [creatingFolder, setCreatingFolder] = useState(null); // {accountId}
+  const [creatingFolder, setCreatingFolder] = useState<{ accountId: string; parentPath?: string | null; [key: string]: unknown } | null>(null); // {accountId}
   const [createName, setCreateName] = useState('');
   const createInputRef = useRef<HTMLInputElement | null>(null);
 
