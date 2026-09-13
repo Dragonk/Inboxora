@@ -16,14 +16,23 @@ export const buttonStyle: CSSProperties = {
   fontSize: 12.5, fontWeight: 600, cursor: 'pointer',
 };
 
-export function Button({ variant = 'default', className = '', children, ...props }) {
+interface ButtonProps extends React.ButtonHTMLAttributes<HTMLButtonElement> { variant?: string }
+
+export function Button({ variant = 'default', className = '', children, ...props }: ButtonProps) {
   return <button type="button" className={`ui-button ui-button-${variant} ${className}`} {...props}>{children}</button>;
 }
 
 // The one drag handle used by every resizable side panel (mail list, contact
 // list, calendar rail, calendar day agenda). Keeping a single implementation is
 // what makes the panels resize identically and share one persisted width.
-export function PanelResizeHandle({ onMouseDown, testId, width = 1, zIndex = 10 }) {
+interface PanelResizeHandleProps {
+  onMouseDown: React.MouseEventHandler<HTMLDivElement>;
+  testId?: string;
+  width?: number;
+  zIndex?: number;
+}
+
+export function PanelResizeHandle({ onMouseDown, testId, width = 1, zIndex = 10 }: PanelResizeHandleProps) {
   return (
     <div
       className="ui-resize-handle"
@@ -43,13 +52,15 @@ export function PanelResizeHandle({ onMouseDown, testId, width = 1, zIndex = 10 
   );
 }
 
-export function EmptyState({ title, children = null }) {
+interface EmptyStateProps { title: React.ReactNode; children?: React.ReactNode }
+
+export function EmptyState({ title, children = null }: EmptyStateProps) {
   return <div className="ui-empty"><strong>{title}</strong>{children && <span>{children}</span>}</div>;
 }
 
 // Portals keep dialogs outside transformed/scaled panes. Only the top dialog
 // handles Escape/Back; focus returns to its trigger when it is dismissed.
-const dialogs = [];
+const dialogs: Array<HTMLDivElement | null> = [];
 // A downward drag this far (or a shorter but clearly flicked one) dismisses a
 // sheet. Kept in one place so the gesture feels the same in every sheet.
 const SHEET_DISMISS_DISTANCE = 110;
@@ -57,33 +68,48 @@ const SHEET_FLICK_DISTANCE = 40;
 const SHEET_FLICK_VELOCITY = 0.5;
 const SHEET_EXIT_MS = 160;
 
-export function Dialog({ title, closeLabel, onClose, children, footer = null, testId = undefined, className = '', busy = false }) {
+interface DialogProps {
+  title: React.ReactNode;
+  closeLabel: string;
+  onClose: () => void;
+  children: React.ReactNode;
+  footer?: React.ReactNode;
+  testId?: string;
+  className?: string;
+  busy?: boolean;
+}
+
+/** The pointer-drag state of a sheet being pushed back down. */
+interface SheetDragState { pointerId: number; startY: number; startedAt: number; dy: number }
+
+export function Dialog({ title, closeLabel, onClose, children, footer = null, testId = undefined, className = '', busy = false }: DialogProps) {
   const titleId = useId();
   const scale = useUiScale();
-  const panel = useRef(null);
-  const trigger = useRef(document.activeElement);
+  const panel = useRef<HTMLDivElement | null>(null);
+  const trigger = useRef<Element | null>(document.activeElement);
   const close = useRef(onClose);
   const busyRef = useRef(busy);
-  const drag = useRef(null);
-  const exitTimer = useRef(null);
+  const drag = useRef<SheetDragState | null>(null);
+  const exitTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   close.current = onClose;
   busyRef.current = busy;
   const isSheet = className.split(/\s+/).includes('ui-sheet');
   useBackLayer(true, () => { if (!busyRef.current) close.current(); }, 4500);
   useEffect(() => {
     const element = panel.current;
+    if (!element) return;
     const previous = trigger.current;
     dialogs.push(element);
-    const focusable = () => [...element.querySelectorAll('button, input, select, textarea, a[href], [tabindex="0"]')].filter(node => !node.disabled && node.getClientRects().length);
-    if (!element.contains(document.activeElement)) (element.querySelector('[autofocus]') || focusable()[0] || element).focus();
-    const keydown = event => {
+    const focusable = (): Array<HTMLElement & { disabled?: boolean }> => [...element.querySelectorAll<HTMLElement & { disabled?: boolean }>('button, input, select, textarea, a[href], [tabindex="0"]')].filter(node => !node.disabled && node.getClientRects().length);
+    if (!element.contains(document.activeElement)) (element.querySelector<HTMLElement>('[autofocus]') || focusable()[0] || element).focus();
+    const keydown = (event: KeyboardEvent) => {
       if (dialogs.at(-1) !== element) return;
       if (event.key === 'Escape') { event.preventDefault(); event.stopImmediatePropagation(); if (!busyRef.current) close.current(); }
       if (event.key === 'Tab') {
         const nodes = focusable();
         const first = nodes[0]; const last = nodes.at(-1);
         if (!first) { event.preventDefault(); element.focus(); }
-        else if (event.shiftKey && (document.activeElement === first || document.activeElement === element)) { event.preventDefault(); last.focus(); }
+        else if (event.shiftKey && (document.activeElement === first || document.activeElement === element)) { event.preventDefault(); last?.focus(); }
         else if (!event.shiftKey && document.activeElement === last) { event.preventDefault(); first.focus(); }
       }
     };
@@ -91,7 +117,7 @@ export function Dialog({ title, closeLabel, onClose, children, footer = null, te
     return () => {
       dialogs.splice(dialogs.indexOf(element), 1);
       document.removeEventListener('keydown', keydown, true);
-      clearTimeout(exitTimer.current);
+      if (exitTimer.current) clearTimeout(exitTimer.current);
       if (previous?.isConnected) (previous as HTMLElement).focus();
     };
   }, []);
@@ -106,13 +132,13 @@ export function Dialog({ title, closeLabel, onClose, children, footer = null, te
   // The move/up listeners live on `document` rather than on the header: a drag
   // routinely leaves the short header, and document-level listeners keep the
   // gesture alive there without depending on pointer capture being honoured.
-  const stopSheetDrag = useRef(null);
+  const stopSheetDrag = useRef<(() => void) | null>(null);
   useEffect(() => () => {
     stopSheetDrag.current?.();
-    clearTimeout(exitTimer.current);
+    if (exitTimer.current) clearTimeout(exitTimer.current);
   }, []);
 
-  const finishSheetDrag = ({ dismiss }) => {
+  const finishSheetDrag = ({ dismiss }: { dismiss?: boolean }) => {
     stopSheetDrag.current?.();
     stopSheetDrag.current = null;
     const active = drag.current;
@@ -144,20 +170,21 @@ export function Dialog({ title, closeLabel, onClose, children, footer = null, te
     exitTimer.current = setTimeout(() => close.current(), SHEET_EXIT_MS);
   };
 
-  const sheetPointerDown = event => {
+  const sheetPointerDown = (event: React.PointerEvent<HTMLDivElement>) => {
     if (!isSheet || busyRef.current) return;
     if (event.button > 0) return;
     // Controls inside the header (the × button) keep their own taps.
-    if (event.target.closest?.('button, a, input, select, textarea, [role="button"]')) return;
+    const target = event.target;
+    if (target instanceof Element && target.closest('button, a, input, select, textarea, [role="button"]')) return;
     stopSheetDrag.current?.();
     // A brand-new gesture supersedes anything the previous one left pending: a
     // stale snap-back timer would otherwise rewrite the transform the user is
     // currently dragging.
-    clearTimeout(exitTimer.current);
+    if (exitTimer.current) clearTimeout(exitTimer.current);
     exitTimer.current = null;
     drag.current = { pointerId: event.pointerId, startY: event.clientY, startedAt: Date.now(), dy: 0 };
 
-    const onMove = move => {
+    const onMove = (move: PointerEvent) => {
       const active = drag.current;
       if (!active || active.pointerId !== move.pointerId) return;
       active.dy = Math.max(0, move.clientY - active.startY);
@@ -187,7 +214,7 @@ export function Dialog({ title, closeLabel, onClose, children, footer = null, te
         onPointerDown={isSheet ? sheetPointerDown : undefined}
       >
         {isSheet && <span className="ui-sheet-grabber" data-testid="sheet-grabber" aria-hidden="true" />}
-        <h2 id={titleId}>{title}</h2><Button variant="ghost" aria-label={closeLabel || title} onClick={onClose} disabled={busy}>×</Button>
+        <h2 id={titleId}>{title}</h2><Button variant="ghost" aria-label={closeLabel || (typeof title === 'string' ? title : undefined)} onClick={onClose} disabled={busy}>×</Button>
       </header>
       <div className="ui-dialog-body">{children}</div>
       {footer && <footer className="ui-dialog-footer">{footer}</footer>}
