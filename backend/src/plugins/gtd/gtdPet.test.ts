@@ -1,4 +1,3 @@
-// @ts-nocheck
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 
 vi.mock('../../services/db.js', () => ({ query: vi.fn() }));
@@ -304,7 +303,7 @@ describe('importPet', () => {
     const pet = await importPet({ petJsonText: polluted, sheet: webpVP8X(1536, 1872), userId });
     expect((pet.descriptor as any).polluted).toBeUndefined();
     expect(Object.prototype.hasOwnProperty.call(pet.descriptor, '__proto__')).toBe(false);
-    expect({}.polluted).toBeUndefined();
+    expect(({} as any).polluted).toBeUndefined();
   });
 });
 

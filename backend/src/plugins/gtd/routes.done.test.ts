@@ -1,4 +1,3 @@
-// @ts-nocheck
 import { describe, it, expect, vi, beforeEach, beforeAll, afterAll } from 'vitest';
 
 // POST /api/gtd/done end-to-end for the archive step's two race/failure contracts (a
@@ -12,7 +11,7 @@ vi.mock('../../middleware/auth.js', () => ({
   requireAuth: (req, _res, next) => { req.session = { userId: 'u1' }; next(); },
 }));
 vi.mock('../../utils/mailUtils.js', async (importOriginal) => {
-  const actual = await importOriginal();
+  const actual: any = await importOriginal();
   return {
     ...actual,
     resolveArchiveFolder: vi.fn(),
@@ -22,7 +21,7 @@ vi.mock('../../utils/mailUtils.js', async (importOriginal) => {
   };
 });
 vi.mock('./gtdConfig.js', async (importOriginal) => {
-  const actual = await importOriginal();
+  const actual: any = await importOriginal();
   return { ...actual, getGtdConfig: vi.fn() };
 });
 

@@ -1,4 +1,3 @@
-// @ts-nocheck
 import { describe, it, expect, vi, beforeEach, afterEach, beforeAll, afterAll } from 'vitest';
 
 vi.mock('../middleware/auth.js', () => ({
@@ -47,7 +46,7 @@ beforeEach(() => {
 });
 afterEach(() => { listSpy.mockRestore(); hasSpy.mockRestore(); runHookSpy.mockRestore(); });
 
-const req = (method, path, body) => fetch(`${base}/api/plugins${path}`, {
+const req = (method, path, body = undefined) => fetch(`${base}/api/plugins${path}`, {
   method,
   headers: body ? { 'Content-Type': 'application/json' } : undefined,
   body: body ? JSON.stringify(body) : undefined,

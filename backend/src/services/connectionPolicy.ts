@@ -1,4 +1,3 @@
-// @ts-nocheck
 import { query } from './db.js';
 
 const POLICY_TTL_MS = 30_000;
@@ -12,7 +11,7 @@ export async function getConnectionPolicy() {
     `SELECT key, value FROM system_settings
      WHERE key IN ('allow_private_hosts', 'allow_insecure_tls', 'allow_nonstandard_ports')`
   );
-  const map = {};
+  const map: Record<string, any> = {};
   for (const row of result.rows) map[row.key] = row.value === 'true';
   _cache = {
     allowPrivateHosts:      !!map.allow_private_hosts,

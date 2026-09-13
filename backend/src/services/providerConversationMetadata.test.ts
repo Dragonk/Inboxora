@@ -1,4 +1,3 @@
-// @ts-nocheck
 import { describe, expect, it } from 'vitest';
 import { providerMetadataForMessage } from './providerConversationMetadata.js';
 import { parseProviderMetadata, providerFetchQuery } from './providerThreadAdapter.js';
@@ -20,8 +19,8 @@ describe('provider conversation metadata', () => {
   });
 
   it('requests Gmail thread metadata from ImapFlow', () => {
-    expect(providerFetchQuery({ imap_host: 'imap.gmail.com' }, { headers: true }).threadId).toBe(true);
-    expect(providerFetchQuery({ imap_host: 'imap.example.com' }, { headers: true }).threadId).toBeUndefined();
+    expect((providerFetchQuery({ imap_host: 'imap.gmail.com' }, { headers: true }) as any).threadId).toBe(true);
+    expect((providerFetchQuery({ imap_host: 'imap.example.com' }, { headers: true }) as any).threadId).toBeUndefined();
   });
 
   it('derives the same Outlook root identity from live-shaped and persisted-shaped data', () => {

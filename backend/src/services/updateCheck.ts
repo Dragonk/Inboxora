@@ -1,4 +1,3 @@
-// @ts-nocheck
 // Server-side "is a newer release available" check for #261.
 //
 // The BACKEND queries GitHub's releases API — host-pinned, no user input in the URL,
@@ -40,8 +39,8 @@ async function refresh() {
   });
   if (!res.ok) throw new Error(`GitHub ${res.status}`);
   const data = await res.json();
-  const tag = String(data.tag_name || '').trim().replace(/^v/i, '');
-  return { latest: tag || null, url: typeof data.html_url === 'string' ? data.html_url : null };
+  const tag = String((data as any).tag_name || '').trim().replace(/^v/i, '');
+  return { latest: tag || null, url: typeof (data as any).html_url === 'string' ? (data as any).html_url : null };
 }
 
 export async function getUpdateStatus(currentVersion) {

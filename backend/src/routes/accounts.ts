@@ -1,4 +1,3 @@
-// @ts-nocheck
 import { Router } from 'express';
 import { query } from '../services/db.js';
 import { requireAuth } from '../middleware/auth.js';
@@ -216,7 +215,7 @@ router.put('/:id', async (req, res) => {
   const settingsResults = await pluginRegistry.collectHook('validateAccountSettings', {
     updates, accountId: id,
   });
-  const rejectedByField = {};
+  const rejectedByField: Record<string, any> = {};
   let pluginRequiresReconnect = false;
   for (const r of settingsResults) {
     if (r.error) return res.status(r.error.status).json(r.error.body);
@@ -270,7 +269,7 @@ router.put('/:id', async (req, res) => {
 
   if (!sets.length && !pluginPersisted) return res.status(400).json({ error: 'No valid fields to update' });
 
-  const payload = { ...safeAccount(updated), ...pluginPatch };
+  const payload: any = { ...safeAccount(updated), ...pluginPatch };
   // Surface any plugin-rejected field sub-values (e.g. GTD folder paths reset to defaults) so the
   // settings form can flag them. Keyed by field name as the client expects.
   if (rejectedByField.gtd_folders) payload.gtd_folders_rejected = rejectedByField.gtd_folders;

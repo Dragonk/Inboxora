@@ -1,4 +1,3 @@
-// @ts-nocheck
 import { calendarZoneResolver, parseICalendarDate, propertyFromLine } from '../utils/ical.js';
 const MAX_ICAL_BYTES = 1024 * 1024;
 
@@ -61,7 +60,7 @@ function timeZoneParts(date, timeZone) {
 function localDateInTimeZone(year, month, day, hour, minute, second, timeZone) {
   const wallTime = utcDate(year, month, day, hour, minute, second);
   if (!wallTime) return null;
-  const offsets = new Set();
+  const offsets = new Set<number>();
   for (let hours = -18; hours <= 18; hours++) {
     const instant = new Date(wallTime.getTime() + hours * 60 * 60 * 1000);
     const parts = timeZoneParts(instant, timeZone);
@@ -87,7 +86,7 @@ function parseDate(property, zoneFor) {
   const match = value.match(/^(\d{4})(\d{2})(\d{2})T(\d{2})(\d{2})(\d{2})(Z?)$/);
   if (!match || (parameters.VALUE && parameters.VALUE.toUpperCase() !== 'DATE-TIME')) return null;
   const [, year, month, day, hour, minute, second, utc] = match;
-  const numeric = [year, month, day, hour, minute, second].map(Number);
+  const numeric = [year, month, day, hour, minute, second].map(Number) as [number, number, number, number, number, number];
   if (utc) return parameters.TZID ? null : (() => {
     const date = utcDate(...numeric);
     return date && { date, allDay: false, timeZone: null, form: 'utc' };

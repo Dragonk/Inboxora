@@ -1,4 +1,3 @@
-// @ts-nocheck
 import express from 'express';
 import 'express-async-errors'; // route a rejected async handler to the error middleware (Express 4 doesn't)
 import session from 'express-session';
@@ -58,7 +57,7 @@ import { startOccurrenceScheduler } from './services/calendarOccurrences.js';
 import { createBrowserCors } from './middleware/browserCors.js';
 
 const packageMeta = JSON.parse(readFileSync(new URL('../package.json', import.meta.url), 'utf-8'));
-let buildMeta = {};
+let buildMeta: any = {};
 try {
   buildMeta = JSON.parse(readFileSync(new URL('../build-meta.json', import.meta.url), 'utf-8'));
 } catch {
@@ -100,7 +99,7 @@ if (process.env.NODE_ENV === 'production' && !process.env.APP_URL) {
 
 // Session
 const sessionMiddleware = session({
-  store: new RedisStore({ client: redisClient }),
+  store: new (RedisStore as any)({ client: redisClient }),
   secret: process.env.SESSION_SECRET,
   resave: false,
   saveUninitialized: false,

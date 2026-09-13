@@ -1,4 +1,3 @@
-// @ts-nocheck
 // Behavioral reference: pi-mono's MIT-licensed OpenAI Codex Responses adapter
 // (packages/ai/src/api/openai-codex-responses.ts). This Mailflow-specific
 // implementation keeps only the text/SSE surface needed by the existing AI UI.
@@ -14,7 +13,7 @@ const OUTPUT_LIMIT_CHARS = 2 * 1024 * 1024;
 const MAILFLOW_INSTRUCTIONS = 'You are Inboxora, a helpful email assistant.';
 
 export class CodexResponseError extends Error {
-  constructor(message, { status, code } = {}) {
+  constructor(message, { status, code }: { status?: any; code?: any } = {}) {
     super(message);
     this.name = 'CodexResponseError';
     this.status = status;
@@ -77,7 +76,7 @@ function parseEventData(data) {
   }
 }
 
-export async function* parseCodexSse(response, { signal } = {}) {
+export async function* parseCodexSse(response, { signal }: { signal?: any } = {}) {
   let outputChars = 0;
   let terminal = false;
   const createError = (reason) => {

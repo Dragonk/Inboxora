@@ -1,4 +1,3 @@
-// @ts-nocheck
 // Native push transports for the Android (and future native) clients.
 //
 // A transport is a pure sender: it takes a decrypted device endpoint and the
@@ -120,9 +119,9 @@ async function fcmAccessToken(account) {
   });
   if (!response.ok) throw new Error(`FCM OAuth token request failed (HTTP ${response.status})`);
   const data = await response.json();
-  if (!data.access_token) throw new Error('FCM OAuth response did not contain an access token');
-  cachedAccessToken = data.access_token;
-  cachedAccessTokenExpiry = Date.now() + Math.max(60, Number(data.expires_in) || 3600) * 1000 - 60000;
+  if (!(data as any).access_token) throw new Error('FCM OAuth response did not contain an access token');
+  cachedAccessToken = (data as any).access_token;
+  cachedAccessTokenExpiry = Date.now() + Math.max(60, Number((data as any).expires_in) || 3600) * 1000 - 60000;
   return cachedAccessToken;
 }
 

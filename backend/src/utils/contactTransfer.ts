@@ -1,4 +1,3 @@
-// @ts-nocheck
 import { normalizeContactDateLabel } from './vcard.js';
 
 function csvEscape(value) {
@@ -86,11 +85,11 @@ function parseCsv(text) {
 }
 
 export function parseGoogleCsv(text) {
-  const [header = [], ...rows] = parseCsv(String(text || ''));
+  const [header = [], ...rows] = parseCsv(String(text || '')) as any[];
   const columns = new Map(header.map((name, index) => [name.trim().replace(/\s+[–—]\s+/g, ' - '), index]));
   const get = (row, ...names) => names.map(name => row[columns.get(name) as any]?.trim() || '').find(Boolean) || '';
   const indexedFields = field => [...columns.keys()]
-    .map(name => new RegExp(`^${field} (\\d+) - `).exec(name)?.[1])
+    .map(name => new RegExp(`^${field} (\\d+) - `).exec(name as string)?.[1])
     .filter(Boolean)
     .map(Number)
     .filter((number, index, values) => values.indexOf(number) === index)

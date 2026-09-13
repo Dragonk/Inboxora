@@ -1,4 +1,3 @@
-// @ts-nocheck
 export function byteLength(value) {
   return new TextEncoder().encode(value).byteLength;
 }
@@ -43,7 +42,7 @@ export async function readLimited(response, limitBytes) {
   }
 }
 
-export async function* readSseData(response, { signal, maxEventBytes, createError } = {}) {
+export async function* readSseData(response, { signal, maxEventBytes, createError }: { signal?: any; maxEventBytes?: any; createError?: any } = {}) {
   const error = (reason) => createError?.(reason) || new Error(reason);
   if (!response.body) throw error('empty_body');
   const reader = response.body.getReader();

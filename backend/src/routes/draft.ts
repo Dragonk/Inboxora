@@ -1,4 +1,3 @@
-// @ts-nocheck
 import nodemailer from 'nodemailer';
 import { randomBytes } from 'crypto';
 import { Router } from 'express';
@@ -103,9 +102,9 @@ async function buildRawDraft({ accountId, aliasId, to, cc, bcc, subject, body, b
   const streamInfo = await streamTransport.sendMail(mailOptions);
   const chunks = [];
   await new Promise((resolve, reject) => {
-    streamInfo.message.on('data', c => chunks.push(Buffer.isBuffer(c) ? c : Buffer.from(c)));
-    streamInfo.message.on('end', resolve);
-    streamInfo.message.on('error', reject);
+    (streamInfo.message as any).on('data', c => chunks.push(Buffer.isBuffer(c) ? c : Buffer.from(c)));
+    (streamInfo.message as any).on('end', resolve);
+    (streamInfo.message as any).on('error', reject);
   });
   // rawHtml (pre inline-image embedding) is what the composer should reopen with —
   // inline data: URIs stay editable and getMessageBody serves body_html from the DB.
