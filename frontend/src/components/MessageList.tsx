@@ -50,6 +50,7 @@ import { createUndoableCommit, UNDO_COMMIT_DELAY_MS, UNDO_WINDOW_MS } from '../u
 import { bulkUnreadDelta, failedBulkRow, failedBulkTargets } from '../utils/threadedBulkRollback.ts';
 import type { StoreState } from '../store/index.ts';
 import type { StoreMessageRow } from '../store/index.ts';
+import type { QueryParams } from '../utils/api.ts';
 
 // Folder icon for move picker
 interface FolderIconProps { specialUse?: string | null; size?: number }
@@ -236,7 +237,7 @@ export default function MessageList() {
   const [pickerSearch, setPickerSearch] = useState('');
   const folderPickerRef = useRef<HTMLDivElement | null>(null);
   const pickerMenuRef = useRef<HTMLDivElement | null>(null);
-  const [pickerPos, setPickerPos] = useState(null);
+  const [pickerPos, setPickerPos] = useState<{ x: number; y: number } | null>(null);
   // Tracks the index of the last toggled row for shift-click range selection
   const lastSelectIdxRef = useRef(-1);
 
@@ -525,7 +526,7 @@ export default function MessageList() {
         const state = useStore.getState();
         const ps = state.pageSize;
         const sm = state.scrollMode;
-        let params;
+        let params: QueryParams;
         if (sm === 'paginated') {
           const pg = currentPageRef.current;
           params = { limit: ps, offset: (pg - 1) * ps };
@@ -831,7 +832,7 @@ export default function MessageList() {
     if (useStore.getState().loadingThread === threadId) setLoadingThread(null);
   }, [clearThreadMessages, setLoadingThread]);
 
-  const setCachedThreadRead = useCallback((message, read) => {
+  const setCachedThreadRead = useCallback((message: StoreMessageRow, read: boolean) => {
     const tid = message.thread_id || message.id;
     const cached = useStore.getState().threadMessages[tid];
     if (cached) {
@@ -867,7 +868,7 @@ export default function MessageList() {
     )));
   }, [setThreadMessages]);
 
-  const setMessagesReadState = useCallback(async (message, read) => {
+  const setMessagesReadState = useCallback(async (message: StoreMessageRow, read: boolean) => {
     const isThreadRow = isThreadListRow(message);
     // Reserve the logical intent before any asynchronous thread resolution. A
     // later click must invalidate this action even if this GET is still pending.
@@ -1802,7 +1803,7 @@ export default function MessageList() {
     const threadGuardsByRow = new Map<string, string>(
       msgs
         .filter(message => isThreadListRow(message))
-        .map((message): [string, string] => [
+        .map((message: StoreMessageRow): [string, string] => [
           message.id,
           threadDeleteGuardKey(message.thread_id || message.id, activeFolder, selectedAccountId),
         ])
@@ -4058,7 +4059,7 @@ function UndoBar({ notification, onDismiss, showTopBorder }: UndoBarProps) {
   };
 
   const handleUndo = () => {
-    notification.onUndo();
+    notification.onUndo?.();
     dismiss();
   };
 
@@ -4376,14 +4377,14 @@ function ThreadRow({ message, isExpanded, threadMsgs, isLoadingThread, selectedM
         aria-expanded={isExpandableThread ? isExpanded : undefined}
         onClick={selectionMode ? (e) => {
           if (e.shiftKey && onRangeSelect) { onRangeSelect(message.id); }
-          else { onToggleSelect(message.id); }
-        } : () => { if (tappedRef.current) { tappedRef.current = false; return; } onThreadClick(); }}
+          else { onToggleSelect?.(message.id); }
+        } : () => { if (tappedRef.current) { tappedRef.current = false; return; } onThreadClick?.(); }}
         onKeyDown={selectionMode ? undefined : (e => {
           if (e.key !== 'Enter' && e.key !== ' ') return;
           e.preventDefault();
-          onThreadClick();
+          onThreadClick?.();
         })}
-        onContextMenu={!isMobile ? (e => onContextMenu(e, message)) : undefined}
+        onContextMenu={!isMobile ? (e => onContextMenu?.(e, message)) : undefined}
         style={{
           display: 'flex', alignItems: 'flex-start', gap: 10,
           padding: '11px 14px', cursor: 'pointer',
@@ -4403,7 +4404,7 @@ function ThreadRow({ message, isExpanded, threadMsgs, isLoadingThread, selectedM
                 type="checkbox"
                 checked={isChecked}
                 onChange={() => {}}
-                onClick={e => { e.stopPropagation(); onToggleSelect(message.id); }}
+                onClick={e => { e.stopPropagation(); onToggleSelect?.(message.id); }}
                 style={{ cursor: 'pointer', width: 14, height: 14, accentColor: 'var(--accent)' }}
               />
             </div>
@@ -4429,7 +4430,7 @@ function ThreadRow({ message, isExpanded, threadMsgs, isLoadingThread, selectedM
             1.5px color+'55' ring, colored initial. */}
         {showAvatar && (
           <div
-            onClick={selectionMode ? e => { e.stopPropagation(); onToggleSelect(message.id); } : undefined}
+            onClick={selectionMode ? e => { e.stopPropagation(); onToggleSelect?.(message.id); } : undefined}
             style={{
               width: avatarAsCheckbox ? 30 : 36, height: avatarAsCheckbox ? 30 : 36, borderRadius: '50%', flexShrink: 0,
               position: 'relative', overflow: 'hidden',
@@ -4492,7 +4493,7 @@ function ThreadRow({ message, isExpanded, threadMsgs, isLoadingThread, selectedM
                   type="button"
                   aria-expanded={isExpanded}
                   aria-label={`${isExpanded ? t('message.aiCollapse') : t('messageList.showAll')} (${messageCount})`}
-                  onClick={(e) => { e.stopPropagation(); onThreadClick(); }}
+                  onClick={(e) => { e.stopPropagation(); onThreadClick?.(); }}
                   style={{
                   display: 'inline-flex', alignItems: 'center', gap: isMobile ? 4 : 3,
                   fontFamily: 'var(--font-mono, ui-monospace, monospace)',
@@ -4521,7 +4522,7 @@ function ThreadRow({ message, isExpanded, threadMsgs, isLoadingThread, selectedM
               {message.is_starred && (
                 <button
                   data-thread-row-star="true"
-                  onClick={e => { e.stopPropagation(); onStar(e, message); }}
+                  onClick={e => { e.stopPropagation(); onStar?.(e, message); }}
                   style={{ background: 'none', border: 'none', padding: 0, cursor: 'pointer', display: 'flex', alignItems: 'center' }}
                 >
                   <svg width="11" height="11" viewBox="0 0 24 24" fill="var(--amber)" stroke="var(--amber)" strokeWidth="2">
@@ -4594,9 +4595,9 @@ function ThreadRow({ message, isExpanded, threadMsgs, isLoadingThread, selectedM
             <div
               data-thread-row-child={msg.id}
               data-unread={!msg.is_read}
-              onClick={e => { e.stopPropagation(); if (!selectionMode) onSelect(msg); }}
+              onClick={e => { e.stopPropagation(); if (!selectionMode) onSelect?.(msg); }}
               onDoubleClick={onOpenWindow ? (e => { e.stopPropagation(); onOpenWindow(msg); }) : undefined}
-              onContextMenu={!isMobile ? (e => { e.preventDefault(); onContextMenu(e, msg); }) : undefined}
+              onContextMenu={!isMobile ? (e => { e.preventDefault(); onContextMenu?.(e, msg); }) : undefined}
               style={{
                 display: 'flex', alignItems: 'flex-start', gap: 8,
                 padding: '9px 14px 9px 44px',
@@ -4677,7 +4678,7 @@ function MessageRow({ message, selected, lastViewed, isChecked, selectionMode, s
   const [avatarHovered, setAvatarHovered] = useState(false);
   const { contentRef, swipeBgLeftRef, swipeBgRightRef, tappedRef } = useSwipeRow({
     isMobile, message, onSwipeLeft, onSwipeRight, onLongPress,
-    onTap: isMobile && !selectionMode ? () => onSelect(message) : undefined,
+    onTap: isMobile && !selectionMode ? () => onSelect?.(message) : undefined,
   });
 
   // On mobile the row content must be opaque — swipe action panels sit behind it
@@ -4706,12 +4707,12 @@ function MessageRow({ message, selected, lastViewed, isChecked, selectionMode, s
       if (e.shiftKey && onRangeSelect) {
         onRangeSelect(message.id);
       } else {
-        onToggleSelect(message.id);
+        onToggleSelect?.(message.id);
       }
     } else {
       // onTap already fired this from touchend — skip the redundant synthesized click.
       if (tappedRef.current) { tappedRef.current = false; return; }
-      onSelect(message);
+      onSelect?.(message);
     }
   };
 
@@ -4721,7 +4722,7 @@ function MessageRow({ message, selected, lastViewed, isChecked, selectionMode, s
       if (e.shiftKey && onRangeSelect) {
         onRangeSelect(message.id);
       } else {
-        onToggleSelect(message.id);
+        onToggleSelect?.(message.id);
       }
     } else if (onAvatarClick) {
       onAvatarClick(message.id);
@@ -4750,7 +4751,7 @@ function MessageRow({ message, selected, lastViewed, isChecked, selectionMode, s
         onDragStart={!isMobile ? (e) => onDragStart(e, message) : undefined}
         onClick={handleClick}
         onDoubleClick={onOpenWindow ? (() => onOpenWindow(message)) : undefined}
-        onContextMenu={!isMobile ? (e => onContextMenu(e, message)) : undefined}
+        onContextMenu={!isMobile ? (e => onContextMenu?.(e, message)) : undefined}
         style={{
           padding: 'var(--layout-row-py, 11px) var(--layout-row-px, 14px)',
           cursor: 'pointer', background: bg, transition: 'background 0.1s',
@@ -4781,7 +4782,7 @@ function MessageRow({ message, selected, lastViewed, isChecked, selectionMode, s
               type="checkbox"
               checked={isChecked}
               onChange={() => {}}
-              onClick={e => { e.stopPropagation(); onToggleSelect(message.id); }}
+              onClick={e => { e.stopPropagation(); onToggleSelect?.(message.id); }}
               style={{ cursor: 'pointer', width: 14, height: 14, accentColor: 'var(--accent)' }}
             />
           </div>
@@ -4881,7 +4882,7 @@ function MessageRow({ message, selected, lastViewed, isChecked, selectionMode, s
             )}
             {message.is_starred && (
               <button
-                onClick={e => { e.stopPropagation(); onStar(e, message); }}
+                onClick={e => { e.stopPropagation(); onStar?.(e, message); }}
                 style={{ background: 'none', border: 'none', padding: 0, cursor: 'pointer', display: 'flex', alignItems: 'center' }}
               >
                 <svg width="11" height="11" viewBox="0 0 24 24" fill="var(--amber)" stroke="var(--amber)" strokeWidth="2">
