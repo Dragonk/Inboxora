@@ -74,7 +74,7 @@ export interface ComposeDraft {
   threadCacheId?: string;
   conversationId?: string;
   draftFolder?: string;
-  draftUid?: number | string;
+  draftUid?: number;
   [key: string]: unknown;
 }
 
@@ -92,7 +92,7 @@ export interface StoreState {
   lockScreen: () => void;
   autoLockMinutes: number;
   setAutoLockMinutes: (m: number) => void;
-  accounts: Array<{ id: string; name?: string | null; email_address?: string | null; color?: string | null; signature?: string | null; categorization_enabled?: boolean; enabled?: boolean; include_in_unified_inbox?: boolean; aliases?: Array<{ id: string; email?: string | null; name?: string | null; signature?: string | null; [key: string]: unknown }>; folder_mappings?: { spam?: string | null; sent?: string | null; drafts?: string | null; trash?: string | null; archive?: string | null; [key: string]: unknown } | null; [key: string]: unknown }>;
+  accounts: Array<{ id: string; name?: string | null; email_address?: string | null; sender_name?: string | null; color?: string | null; signature?: string | null; sync_error?: string | null; imap_host?: string | null; imap_port?: number | string | null; categorization_enabled?: boolean; enabled?: boolean; include_in_unified_inbox?: boolean; aliases?: Array<{ id: string; email?: string | null; name?: string | null; signature?: string | null; [key: string]: unknown }>; folder_mappings?: { spam?: string | null; sent?: string | null; drafts?: string | null; trash?: string | null; archive?: string | null; [key: string]: unknown } | null; [key: string]: unknown }>;
   accountsReady: boolean;
   setAccounts: (accounts: Array<{
       id: string;
@@ -211,8 +211,8 @@ export interface StoreState {
   setCalendarWorkHoursStart: (value: string) => void;
   calendarWorkHoursEnd: string;
   setCalendarWorkHoursEnd: (value: string) => void;
-  rulesPreFill: boolean;
-  setRulesPreFill: (v: boolean) => void;
+  rulesPreFill: { fromEmail?: string | null; fromName?: string | null; subject?: string | null; [key: string]: unknown } | null;
+  setRulesPreFill: (v: { fromEmail?: string | null; fromName?: string | null; subject?: string | null; [key: string]: unknown } | null) => void;
   backfillProgress: Record<string, { total?: number; synced?: number; [key: string]: unknown }>;
   setBackfillProgress: (accountId: string, progress: Record<string, unknown>) => void;
   mobileSidebarOpen: boolean;
@@ -985,7 +985,7 @@ export const useStore = create<StoreState>()((set, get) => ({
     scheduleCalendarWorkHoursSave(legacyRange ? { calendarWorkHoursEnd: next.end } : { calendarWorkHoursStart: next.start, calendarWorkHoursEnd: next.end }, next);
   },
   rulesPreFill: null, // { fromEmail, fromName, subject } — transient, set by context menu
-  setRulesPreFill: (v: boolean) =>set({ rulesPreFill: v }),
+  setRulesPreFill: (v: { fromEmail?: string | null; fromName?: string | null; subject?: string | null; [key: string]: unknown } | null) =>set({ rulesPreFill: v }),
 
   backfillProgress: {}, // { [accountId]: { synced: N, total: N } | null } — transient
   setBackfillProgress: (accountId: string, progress: Record<string, unknown>) =>set((state: StoreStateRead) => ({
