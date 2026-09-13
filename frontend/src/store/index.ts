@@ -92,7 +92,7 @@ export interface StoreState {
   lockScreen: () => void;
   autoLockMinutes: number;
   setAutoLockMinutes: (m: number) => void;
-  accounts: Array<{ id: string; name?: string | null; email_address?: string | null; color?: string | null; enabled?: boolean; include_in_unified_inbox?: boolean; aliases?: Array<{ id: string; [key: string]: unknown }>; folder_mappings?: Record<string, unknown> | null; [key: string]: unknown }>;
+  accounts: Array<{ id: string; name?: string | null; email_address?: string | null; color?: string | null; categorization_enabled?: boolean; enabled?: boolean; include_in_unified_inbox?: boolean; aliases?: Array<{ id: string; email?: string | null; name?: string | null; [key: string]: unknown }>; folder_mappings?: { spam?: string | null; sent?: string | null; drafts?: string | null; trash?: string | null; archive?: string | null; [key: string]: unknown } | null; [key: string]: unknown }>;
   accountsReady: boolean;
   setAccounts: (accounts: Array<{
       id: string;
@@ -133,8 +133,8 @@ export interface StoreState {
   adjustFolderUnread: (accountId: string, folderPath: string, delta: number) => void;
   sidebarCollapsed: boolean;
   toggleSidebar: () => void;
-  sidebarWidth: number | string;
-  setSidebarWidth: (w: string) => void;
+  sidebarWidth: number;
+  setSidebarWidth: (w: number) => void;
   isSidebarResizing: boolean;
   setIsSidebarResizing: (v: boolean) => void;
   pageSize: number;
@@ -272,7 +272,7 @@ export interface StoreState {
   setCategoryCounts: (counts: Record<string, number>) => void;
   adjustCategoryCount: (category: string, delta: number) => void;
   rightSidebarWidth: number;
-  setRightSidebarWidth: (w: string) => void;
+  setRightSidebarWidth: (w: number) => void;
   isRightSidebarResizing: boolean;
   setIsRightSidebarResizing: (v: boolean) => void;
   rightSidebarHidden: boolean;
@@ -308,8 +308,8 @@ export interface StoreState {
       type: string;
       value: string;
   }) => void;
-  shortcuts: Record<string, unknown>;
-  setShortcuts: (overrides: Record<string, unknown>) => void;
+  shortcuts: Record<string, string>;
+  setShortcuts: (overrides: Record<string, string>) => void;
   aiActions: unknown[];
   setAiActions: (actions: unknown[]) => void;
   hiddenFolders: string[];
@@ -759,7 +759,7 @@ export const useStore = create<StoreState>()((set, get) => ({
     const n = parseInt(localStorage.getItem('mailflow_sidebar_width') ?? '');
     return (n >= 160 && n <= 400) ? n : 250;
   })(),
-  setSidebarWidth: (w: string) =>{
+  setSidebarWidth: (w: number) =>{
     localStorage.setItem('mailflow_sidebar_width', String(w));
     set({ sidebarWidth: w });
     schedulePrefSave({ sidebarWidth: String(w) });
@@ -1203,7 +1203,7 @@ export const useStore = create<StoreState>()((set, get) => ({
   // ── Right-sidebar layout ────────────────────────────────────────────────────
   // Independent column width (own var + handle, not --list-width).
   rightSidebarWidth: clampRightSidebarWidth(localStorage.getItem('mailflow_right_sidebar_width')),
-  setRightSidebarWidth: (w: string) =>{
+  setRightSidebarWidth: (w: number) =>{
     const clamped = clampRightSidebarWidth(w);
     localStorage.setItem('mailflow_right_sidebar_width', String(clamped));
     set({ rightSidebarWidth: clamped });
@@ -1395,7 +1395,7 @@ export const useStore = create<StoreState>()((set, get) => ({
   // Keyboard shortcuts — stores only user overrides (action → key).
   // Merged with defaults at use-time via getEffectiveShortcuts().
   shortcuts: {},
-  setShortcuts: (overrides: Record<string, unknown>) =>{
+  setShortcuts: (overrides: Record<string, string>) =>{
     set({ shortcuts: overrides });
     return api.savePreferences({ shortcuts: overrides }).catch(() => {});
   },
