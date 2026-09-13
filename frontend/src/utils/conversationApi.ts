@@ -70,9 +70,9 @@ export const conversationApi = {
     return apiFetch(`/conversations?${qs.toString()}`);
   },
 
-  detail: (conversationId) => apiFetch(`/conversations/${conversationId}`),
+  detail: (conversationId: string | string[]) =>apiFetch(`/conversations/${conversationId}`),
 
-  body: (conversationId, logicalMessageId, signal, copyId = null, remoteImages = false) => {
+  body: (conversationId: string | string[], logicalMessageId: string | null, signal: AbortSignal | undefined, copyId = null, remoteImages = false) =>{
     const qs = new URLSearchParams();
     if (copyId) qs.set('copyId', copyId);
     if (remoteImages) qs.set('remoteImages', '1');
@@ -84,7 +84,7 @@ export const conversationApi = {
   },
 
   // `ref` may be a selected physical UUID or a durable RFC Message-ID.
-  resolveMessage: (ref, accountId = null) => {
+  resolveMessage: (ref: string, accountId = null) =>{
     const qs = new URLSearchParams();
     if (accountId) qs.set('accountId', accountId);
     const query = qs.toString() ? `?${qs.toString()}` : '';
@@ -93,13 +93,13 @@ export const conversationApi = {
 
   // Copy-aware destructive actions — `scope` is explicit (never defaults to whole conversation).
   // Scopes: THIS_COPY | ALL_COPIES_OF_LOGICAL_MESSAGE | COPIES_ON_THIS_ACCOUNT | WHOLE_CONVERSATION
-  archive: (conversationId, { scope = 'THIS_COPY', copyId = null, logicalMessageId = null }: ConversationTargetOptions = {}) =>
+  archive: (conversationId: string | string[], { scope = 'THIS_COPY', copyId = null, logicalMessageId = null }: ConversationTargetOptions = {}) =>
     apiFetch(`/conversations/${conversationId}/archive`, {
       method: 'POST',
       body: JSON.stringify({ scope, copyId, logicalMessageId }),
     }),
 
-  move: (conversationId, targetFolder, { scope = 'THIS_COPY', copyId = null, logicalMessageId = null, items = null }: ConversationTargetOptions = {}) => {
+  move: (conversationId: string | string[], targetFolder: string, { scope = 'THIS_COPY', copyId = null, logicalMessageId = null, items = null }: ConversationTargetOptions = {}) =>{
     const ids = Array.isArray(conversationId) ? conversationId : null;
     return apiFetch(ids ? '/conversations/bulk-move' : `/conversations/${conversationId}/move`, {
       method: 'POST',
@@ -107,19 +107,19 @@ export const conversationApi = {
     });
   },
 
-  delete: (conversationId, { scope = 'THIS_COPY', copyId = null, logicalMessageId = null }: ConversationTargetOptions = {}) =>
+  delete: (conversationId: string | string[], { scope = 'THIS_COPY', copyId = null, logicalMessageId = null }: ConversationTargetOptions = {}) =>
     apiFetch(`/conversations/${conversationId}/delete`, {
       method: 'POST',
       body: JSON.stringify({ scope, copyId, logicalMessageId }),
     }),
 
-  setRead: (conversationId, isRead, { scope = 'THIS_COPY', copyId = null, logicalMessageId = null }: ConversationTargetOptions = {}) =>
+  setRead: (conversationId: string | string[], isRead: boolean, { scope = 'THIS_COPY', copyId = null, logicalMessageId = null }: ConversationTargetOptions = {}) =>
     apiFetch(`/conversations/${conversationId}/read`, {
       method: 'POST',
       body: JSON.stringify({ isRead, scope, copyId, logicalMessageId }),
     }),
 
-  setStarred: (conversationId, isStarred, { scope = 'THIS_COPY', copyId = null, logicalMessageId = null }: ConversationTargetOptions = {}) =>
+  setStarred: (conversationId: string | string[], isStarred, { scope = 'THIS_COPY', copyId = null, logicalMessageId = null }: ConversationTargetOptions = {}) =>
     apiFetch(`/conversations/${conversationId}/star`, {
       method: 'POST',
       body: JSON.stringify({ isStarred, scope, copyId, logicalMessageId }),
@@ -138,7 +138,7 @@ export const conversationApi = {
       body: JSON.stringify({ conversationIds, items, scope }),
     }),
 
-  bulkSetRead: (conversationIds, isRead, { scope = 'THIS_COPY', items = null }: BulkConversationOptions = {}) =>
+  bulkSetRead: (conversationIds, isRead: boolean, { scope = 'THIS_COPY', items = null }: BulkConversationOptions = {}) =>
     apiFetch(`/conversations/bulk-read`, {
       method: 'POST',
       body: JSON.stringify({ conversationIds, items, isRead, scope }),
@@ -151,32 +151,32 @@ export const conversationApi = {
       body: JSON.stringify({ targetConversationId: targetId }),
     }),
 
-  split: (conversationId, logicalMessageId, { includeReplies = false }: { includeReplies?: boolean } = {}) =>
+  split: (conversationId: string | string[], logicalMessageId: string | null, { includeReplies = false }: { includeReplies?: boolean } = {}) =>
     apiFetch(`/conversations/${conversationId}/logical-messages/${logicalMessageId}/split`, {
       method: 'POST',
       body: JSON.stringify({ includeReplies }),
     }),
 
-  moveLogicalMessage: (conversationId, logicalMessageId, targetConversationId) =>
+  moveLogicalMessage: (conversationId: string | string[], logicalMessageId: string | null, targetConversationId) =>
     apiFetch(`/conversations/${conversationId}/logical-messages/${logicalMessageId}/move`, {
       method: 'POST',
       body: JSON.stringify({ targetConversationId }),
     }),
 
-  lock: (conversationId) =>
+  lock: (conversationId: string | string[]) =>
     apiFetch(`/conversations/${conversationId}/lock`, { method: 'POST' }),
 
-  unlock: (conversationId) =>
+  unlock: (conversationId: string | string[]) =>
     apiFetch(`/conversations/${conversationId}/unlock`, { method: 'POST' }),
 
-  forceInclude: (conversationId, logicalMessageId) =>
+  forceInclude: (conversationId: string | string[], logicalMessageId: string | null) =>
     apiFetch(`/conversations/${conversationId}/logical-messages/${logicalMessageId}/force-include`, { method: 'POST' }),
 
-  forceExclude: (conversationId, logicalMessageId) =>
+  forceExclude: (conversationId: string | string[], logicalMessageId: string | null) =>
     apiFetch(`/conversations/${conversationId}/logical-messages/${logicalMessageId}/force-exclude`, { method: 'POST' }),
 
   // Diagnostics
-  diagnostics: (conversationId) => apiFetch(`/conversations/${conversationId}/diagnostics`),
+  diagnostics: (conversationId: string | string[]) =>apiFetch(`/conversations/${conversationId}/diagnostics`),
 
   // Rebuild
   //

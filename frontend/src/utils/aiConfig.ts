@@ -49,8 +49,8 @@ export interface AiConfigFormInput {
 }
 
 export function normalizeAiForm(raw: AiConfigFormInput = {}) {
-  const structured = raw.apiKeyConfig && typeof raw.apiKeyConfig === 'object';
-  const apiKeyConfig = structured ? raw.apiKeyConfig : raw;
+  const structured = Boolean(raw.apiKeyConfig && typeof raw.apiKeyConfig === 'object');
+  const apiKeyConfig: AiApiKeyConfig = raw.apiKeyConfig && typeof raw.apiKeyConfig === 'object' ? raw.apiKeyConfig : raw;
   const chatgptConfig = raw.chatgptConfig && typeof raw.chatgptConfig === 'object'
     ? raw.chatgptConfig
     : {};
@@ -93,7 +93,7 @@ export function normalizeAiForm(raw: AiConfigFormInput = {}) {
   };
 }
 
-export function selectAiConnectionMethod(form, connectionMethod) {
+export function selectAiConnectionMethod(form: AiConfigFormInput, connectionMethod: string) {
   if (!CONNECTION_METHODS.has(connectionMethod)) {
     throw new TypeError(`Unsupported connection method: ${connectionMethod}`);
   }

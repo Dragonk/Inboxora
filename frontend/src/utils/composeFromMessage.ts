@@ -1,8 +1,34 @@
 import { collectOwnAddresses, parseAddressListField, pickReplyAlias } from './replyAlias.ts';
+import type { OwnAddressAccount, OwnAddressMessage } from './replyAlias.ts';
 
-function messageIds(value) {
+/** The message fields the reply/forward builders read. */
+export interface ReplyMessageLike extends OwnAddressMessage {
+  message_id?: string | null;
+  references?: unknown;
+  thread_references?: unknown;
+  in_reply_to?: unknown;
+  reply_to?: unknown;
+  from_email?: string | null;
+  from_name?: string | null;
+  subject?: string | null;
+  account_id?: string;
+  id?: string;
+  selectedCopyId?: string | null;
+  date?: string | number | Date | null;
+  [key: string]: unknown;
+}
+
+/** Collaborators the reply flow is handed. */
+export interface ReplyOpenOptions {
+  accounts: Array<OwnAddressAccount & { id?: string }>;
+  openCompose: (draft: Record<string, unknown>) => unknown;
+  getMessageBody: (id: string, remoteImages?: boolean, copyId?: string | null) => Promise<{ text?: string; html?: string } | null>;
+  replyAll?: boolean;
+}
+
+function messageIds(value: unknown): string[] {
   const text = Array.isArray(value) ? value.join(' ') : String(value || '');
-  const ids = [];
+  const ids: string[] = [];
   for (const match of text.matchAll(/<[^<>\r\n]+>/g)) {
     const id = match[0].trim();
     if (!ids.includes(id)) ids.push(id);
@@ -25,7 +51,7 @@ function messageIds(value) {
  * Returns `{ inReplyTo, references }` where `references` is a space-joined
  * string or `null` when no Message-ID is available at all.
  */
-export function buildReplyHeaders(message) {
+export function buildReplyHeaders(message: ReplyMessageLike): { inReplyTo: string | null; references: string | null } {
   const inReplyTo = message?.message_id || null;
   const chain = [
     ...messageIds(message?.references || message?.thread_references),
@@ -34,8 +60,8 @@ export function buildReplyHeaders(message) {
   ];
   // Dedup preserving first-seen order (messageIds already dedups within each
   // field, but the same id can appear in both References and In-Reply-To).
-  const seen = new Set();
-  const ordered = [];
+  const seen = new Set<string>();
+  const ordered: string[] = [];
   for (const id of chain) {
     if (!seen.has(id)) { seen.add(id); ordered.push(id); }
   }
@@ -43,17 +69,34 @@ export function buildReplyHeaders(message) {
   return { inReplyTo, references };
 }
 
-function parseAddressField(raw) {
+/** Parse a stored address list (array or JSON string) into name/email entries. */
+function addressList(value: unknown): Array<{ name?: string; email?: string }> {
+  let parsed: unknown = value;
+  if (typeof value === 'string') {
+    try { parsed = JSON.parse(value); } catch { return []; }
+  }
+  if (!Array.isArray(parsed)) return [];
+  return parsed.filter((entry): entry is { name?: string; email?: string } => !!entry && typeof entry === 'object');
+}
+
+function parseAddressField(raw: unknown): string {
   try {
-    const arr = Array.isArray(raw) ? raw : JSON.parse(raw || '[]');
-    return arr.map(a => a.name ? `${a.name} <${a.email}>` : a.email).filter(Boolean).join(', ');
+    const parsed: unknown = Array.isArray(raw) ? raw : JSON.parse(String(raw || '[]'));
+    if (!Array.isArray(parsed)) return '';
+    return parsed
+      .map((entry) => {
+        const address = entry as { name?: unknown; email?: unknown };
+        const name = typeof address.name === 'string' ? address.name : '';
+        const email = typeof address.email === 'string' ? address.email : '';
+        return name ? `${name} <${email}>` : email;
+      })
+      .filter(Boolean)
+      .join(', ');
   } catch { return ''; }
 }
 
-export async function openReplyFromMessage(message, { accounts, openCompose, getMessageBody, replyAll = false }) {
-  const replyToArr = Array.isArray(message.reply_to)
-    ? message.reply_to
-    : (() => { try { return JSON.parse(message.reply_to || '[]'); } catch { return []; } })();
+export async function openReplyFromMessage(message: ReplyMessageLike, { accounts, openCompose, getMessageBody, replyAll = false }: ReplyOpenOptions) {
+  const replyToArr = addressList(message.reply_to);
   const replyTarget = (replyToArr.length && replyToArr[0].email)
     ? replyToArr[0]
     : { name: message.from_name || '', email: message.from_email || '' };
@@ -127,7 +170,7 @@ export async function openReplyFromMessage(message, { accounts, openCompose, get
   });
 }
 
-export async function openForwardFromMessage(message, { openCompose, getMessageBody }) {
+export async function openForwardFromMessage(message: ReplyMessageLike, { openCompose, getMessageBody }: Pick<ReplyOpenOptions, 'openCompose' | 'getMessageBody'>) {
   const fwdBody = await getMessageBody(message.id, false, message.selectedCopyId || message.id).catch(() => null);
   const fwdDate = message.date ? new Date(message.date).toLocaleString() : '';
   const fwdSafeName = (message.from_name || '').replace(/[\r\n]+/g, ' ');

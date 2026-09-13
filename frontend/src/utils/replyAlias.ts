@@ -40,12 +40,12 @@ function normalizeAddress(raw) {
  * `user+newsletter@example.com` would not be recognized as own and Reply All
  * would Cc the user's own copy back to themselves.
  */
-interface OwnAddressAccount {
+export interface OwnAddressAccount {
   email_address?: string | null;
   aliases?: Array<{ email?: string | null } | string> | null;
 }
 
-interface OwnAddressMessage {
+export interface OwnAddressMessage {
   delivery_addresses?: string | Array<{ email?: string | null; address?: string | null } | string> | null;
 }
 
