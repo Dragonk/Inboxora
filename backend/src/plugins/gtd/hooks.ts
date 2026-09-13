@@ -13,30 +13,54 @@ import { runGtdTransitions, threadKeysForMessageIds, threadKeysInFolders, runTra
 import { emitGtdIfRelevant } from './gtdSections.js';
 import { deleteUserPet } from './gtdPet.js';
 import { logger, getThreadKeyForUid, listUserAccounts, getAccountConfig, setAccountConfig } from '../api.js';
+import type { PluginContext } from '../registry.js';
 
-// Choose the INBOX message ids to run GTD transitions over after a sync batch completes.
-//   newInboxIds — the id of every row the sync newly inserted into INBOX, collected REGARDLESS
-//     of read state. An inbound reply that arrived already \Seen (read on another device before
-//     this sync landed) must still clear its thread's Watch/Delegated label, yet such a row never
-//     enters the unread-gated notification list — so that list cannot be reused as the candidate
-//     set. Read state is deliberately not consulted here.
-//   deletedIds — ids the block-list / inbox rules genuinely DELETED (expunged / dropped) from
-//     INBOX; those threads lost this arrival entirely, so they are excluded. A rule-MOVED reply
-//     is NOT in this set — its row still lives (in another folder) and its thread must still be
-//     re-evaluated, so it stays a candidate.
-// Pure, so the candidate selection is unit-testable without the full syncMessages fetch loop.
-export function selectGtdReevalIds(newInboxIds, deletedIds) {
+// Pure helper: candidate INBOX ids minus the ones a rule genuinely deleted.
+export function selectGtdReevalIds(newInboxIds: string[], deletedIds: Iterable<string> | null | undefined): string[] {
   const removed = deletedIds instanceof Set ? deletedIds : new Set(deletedIds || []);
-  return newInboxIds.filter((id) => !removed.has(id));
+  return newInboxIds.filter((id: string) => !removed.has(id));
 }
+
+
+/** The mail-account row a GTD hook context carries. */
+interface GtdAccount {
+  id: string;
+  user_id?: string;
+  [key: string]: unknown;
+}
+
+/** The slice of the mail engine the GTD hooks use. */
+interface GtdMailEngine {
+  broadcast(payload: unknown, userId?: string): void;
+  isConnected?(accountId: string): boolean;
+  tryClaimFolderSync?(accountId: string, folder: string): boolean;
+  releaseFolderSync?(accountId: string, folder: string): void;
+  folderFingerprint?(accountId: string, folder: string): Promise<unknown>;
+  syncFolderViaPool?(account: GtdAccount, folder: string): Promise<unknown>;
+  syncFolderOnDemand?(account: GtdAccount, folder: string): Promise<unknown>;
+  [key: string]: unknown;
+}
+
+/** The result a validateAccountSettings hook may return to reject a patch. */
+export interface GtdValidationResult {
+  error?: { status: number; body: { reserved?: unknown[]; collisions?: unknown[]; rejected?: unknown[]; [key: string]: unknown } };
+  rejected?: Record<string, string>;
+  requiresReconnect?: boolean;
+}
+
+/** The GTD settings patch a plugin hook receives. */
+interface GtdSettingsPatch {
+  [key: string]: unknown;
+}
+
 
 // collectHook('relocateExemptFolders'): a labeled GTD message intentionally lives as sibling
 // rows across its state folders, so those folders must be exempt from the sync move-detector's
 // relocate (which would collapse the siblings). Returns this account's designated GTD folder
 // paths, or [] when GTD is disabled (getGtdFolderSet already returns an empty set then), so a
 // non-GTD account contributes nothing and the relocate SQL stays byte-identical.
-export async function relocateExemptFolders({ accountId }) {
-  return [...await getGtdFolderSet(accountId)];
+export async function relocateExemptFolders({ accountId }: { accountId: string }): Promise<string[]> {
+  return Array.from(await getGtdFolderSet(accountId), String);
 }
 
 // runHook('sectionsChanged'): an ordinary mail mutation (delete/purge/backfill/flag flip) that
@@ -46,13 +70,13 @@ export async function relocateExemptFolders({ accountId }) {
 // whose GTD was just toggled converges within a tick). changedCount is already > 0 by the time
 // core dispatches this, but we re-check defensively. Never throws into core; a config-fetch blip
 // degrades to a skipped emit (the next tick still reconciles).
-export async function sectionsChanged({ mgr, account, changedCount }) {
+export async function sectionsChanged({ mgr, account, changedCount }: { mgr: GtdMailEngine; account: GtdAccount; changedCount: number }): Promise<void> {
   if (!(changedCount > 0)) return;
   try {
     const { enabled } = await getGtdConfig(account.id);
     if (enabled) mgr.broadcast({ type: 'gtd_sections_updated', accountId: account.id }, account.user_id);
   } catch (err) {
-    logger.debug(`GTD sections refresh emit skipped for ${account.id}: ${err.message}`);
+    logger.debug(`GTD sections refresh emit skipped for ${account.id}: ${err instanceof Error ? err.message : String(err)}`);
   }
 }
 
@@ -62,14 +86,14 @@ export async function sectionsChanged({ mgr, account, changedCount }) {
 // with a per-hook isActive gate (account.gtd_enabled) so core only collects candidates and
 // dispatches this when GTD is on for the account — a non-GTD account issues zero extra queries.
 // Never throws into core; a transition failure degrades to a logged skip (the tick reconciles).
-export async function inboxIngest({ mgr, account, newInboxIds, deletedIds }) {
+export async function inboxIngest({ mgr, account, newInboxIds, deletedIds }: { mgr: GtdMailEngine; account: GtdAccount; newInboxIds: string[]; deletedIds: Iterable<string> | null | undefined }): Promise<void> {
   const ids = selectGtdReevalIds(newInboxIds || [], deletedIds);
   if (!ids.length) return;
   try {
     const threadKeys = await threadKeysForMessageIds(account.id, ids);
     await runGtdTransitions(mgr, account, threadKeys);
   } catch (err) {
-    logger.debug(`GTD inbox-ingest transitions failed for ${account.id}: ${err.message}`);
+    logger.debug(`GTD inbox-ingest transitions failed for ${account.id}: ${err instanceof Error ? err.message : String(err)}`);
   }
 }
 
@@ -78,7 +102,7 @@ export async function inboxIngest({ mgr, account, newInboxIds, deletedIds }) {
 // manifest hooks and the sync descriptor share one definition. Async because the per-account
 // enabled flag now lives in the plugin config store (getGtdConfig), not on the account row — core
 // gates on it via registry.hasActiveAsync / an awaited sync.isActive.
-export const gtdEnabledForAccount = async (ctx) => {
+export const gtdEnabledForAccount = async (ctx: PluginContext): Promise<boolean> => {
   const id = ctx?.account?.id;
   if (!id) return false;
   return (await getGtdConfig(id)).enabled;
@@ -93,27 +117,27 @@ export const gtdEnabledForAccount = async (ctx) => {
 // releaseFolderSync, folderFingerprint, syncFolderViaPool, broadcast) — no raw engine. The body is
 // wrapped in one try/catch so a config-fetch DB blip is logged with account context instead of
 // escaping as an unhandled rejection.
-export async function gtdSyncTick({ mgr, account }) {
+export async function gtdSyncTick({ mgr, account }: { mgr: GtdMailEngine; account: GtdAccount }): Promise<void> {
   try {
     // Live persistent connection is our signal the account is healthy; syncFolderViaPool runs on
     // a pooled connection, so it never disturbs the IDLE sync client.
-    if (!mgr.isConnected(account.id)) return;
+    if (!mgr.isConnected?.(account.id)) return;
     const config = await getGtdConfig(account.id);
     const folders = gtdTickFolders(config); // [] when GTD was turned off — inert
     if (folders.length === 0) return;
 
-    const changedFolders = [];
+    const changedFolders: string[] = [];
     for (const folder of folders) {
-      if (!mgr.tryClaimFolderSync(account.id, folder)) continue; // a user-triggered sync owns this folder
+      if (!mgr.tryClaimFolderSync?.(account.id, folder)) continue; // a user-triggered sync owns this folder
       try {
-        const before = await mgr.folderFingerprint(account.id, folder);
-        await mgr.syncFolderViaPool(account, folder);
-        const after = await mgr.folderFingerprint(account.id, folder);
+        const before = await mgr.folderFingerprint?.(account.id, folder);
+        await mgr.syncFolderViaPool?.(account, folder);
+        const after = await mgr.folderFingerprint?.(account.id, folder);
         if (before !== after) changedFolders.push(folder);
       } catch (err) {
-        console.warn(`GTD sync error ${account.id}/${folder}:`, err.message);
+        console.warn(`GTD sync error ${account.id}/${folder}:`, err instanceof Error ? err.message : String(err));
       } finally {
-        mgr.releaseFolderSync(account.id, folder);
+        mgr.releaseFolderSync?.(account.id, folder);
       }
     }
 
@@ -127,12 +151,12 @@ export async function gtdSyncTick({ mgr, account }) {
         const threadKeys = await threadKeysInFolders(account.id, changedFolders);
         await runGtdTransitions(mgr, account, threadKeys);
       } catch (err) {
-        console.warn(`GTD transitions error ${account.id}:`, err.message);
+        console.warn(`GTD transitions error ${account.id}:`, err instanceof Error ? err.message : String(err));
       }
       mgr.broadcast({ type: 'gtd_sections_updated', accountId: account.id }, account.user_id);
     }
   } catch (err) {
-    console.warn(`GTD tick error ${account.id}:`, err.message);
+    console.warn(`GTD tick error ${account.id}:`, err instanceof Error ? err.message : String(err));
   }
 }
 
@@ -145,16 +169,16 @@ export async function gtdSyncTick({ mgr, account }) {
 // deferred insert saw stale thread state, so re-running here applies any needed strip immediately.
 // Gated on gtd_enabled; transition failures are debug-level. Uses only generic mgr primitives
 // (syncFolderOnDemand, broadcast) plus GTD's own DB read + transition engine.
-export function emitAfterDeferredCopySync(mgr, account, toFolder: string, srcUid, fromFolder: string) {
-  return mgr.syncFolderOnDemand(account, toFolder)
+export function emitAfterDeferredCopySync(mgr: GtdMailEngine, account: GtdAccount, toFolder: string, srcUid: number | string, fromFolder: string): Promise<void> {
+  return Promise.resolve(mgr.syncFolderOnDemand?.(account, toFolder))
     .then(async () => {
       mgr.broadcast({ type: 'gtd_sections_updated', accountId: account.id }, account.user_id);
       if (!(await getGtdConfig(account.id)).enabled) return;
       try {
-        const threadKey = await getThreadKeyForUid(account.id, srcUid, fromFolder);
+        const threadKey = await getThreadKeyForUid(account.id, Number(srcUid), fromFolder);
         if (threadKey) await runGtdTransitions(mgr, account, [threadKey]);
       } catch (err) {
-        logger.debug(`post-copy transition re-run failed for ${toFolder}: ${err.message}`);
+        logger.debug(`post-copy transition re-run failed for ${toFolder}: ${err instanceof Error ? err.message : String(err)}`);
       }
     })
     .catch(err => console.warn(`post-copy destination sync failed for ${toFolder}:`, err.message));
@@ -165,7 +189,7 @@ export function emitAfterDeferredCopySync(mgr, account, toFolder: string, srcUid
 // and is safe on both paths), then, on the deferred (non-UIDPLUS) path where the sibling row isn't
 // inserted yet, kick off the deferred reconcile. That reconcile is intentionally NOT awaited so
 // the label write never blocks on the destination sync. Never throws into core.
-export async function afterLabelCopy({ mgr, account, toFolder, fromFolder, srcUid, newUid }) {
+export async function afterLabelCopy({ mgr, account, toFolder, fromFolder, srcUid, newUid }: { mgr: GtdMailEngine; account: GtdAccount; toFolder: string; fromFolder: string; srcUid: number | string; newUid?: number | string | null }): Promise<void> {
   mgr.broadcast({ type: 'gtd_sections_updated', accountId: account.id }, account.user_id);
   if (newUid == null) {
     emitAfterDeferredCopySync(mgr, account, toFolder, srcUid, fromFolder);
@@ -174,7 +198,7 @@ export async function afterLabelCopy({ mgr, account, toFolder, fromFolder, srcUi
 
 // runHook('afterLabelRemove'): core just deleted one folder's copy of a message. Broadcast the
 // GTD section refresh so clients refetch — same manager-level emit the pre-plugin code did.
-export async function afterLabelRemove({ mgr, account }) {
+export async function afterLabelRemove({ mgr, account }: { mgr: GtdMailEngine; account: GtdAccount }): Promise<void> {
   mgr.broadcast({ type: 'gtd_sections_updated', accountId: account.id }, account.user_id);
 }
 
@@ -184,7 +208,7 @@ export async function afterLabelRemove({ mgr, account }) {
 // and delegates the relevance check + scoped broadcast to core's notifyOnLabelTouch. The route
 // fires this per affected account; the hook swallows per-plugin errors so a completed mutation is
 // never turned into a 500.
-export async function onMailMutation({ imapManager, accountId, userId, messageIds, actedFolders }) {
+export async function onMailMutation({ imapManager, accountId, userId, messageIds, actedFolders }: { imapManager: unknown; accountId: string; userId: string; messageIds: Array<string | number>; actedFolders: string[] | null }): Promise<void> {
   await emitGtdIfRelevant(imapManager, accountId, userId, messageIds, actedFolders);
 }
 
@@ -192,14 +216,14 @@ export async function onMailMutation({ imapManager, accountId, userId, messageId
 // transitions for its thread — a reply to a Todo/Someday thread means the owner acted, so that
 // label should drop. Self-gates on gtd_enabled inside runTransitionsForSentMessage; a Sent copy
 // that hasn't synced yet resolves to an empty thread set (no-op) and a later attempt retries.
-export async function onSentMessage({ imapManager, account, messageId }) {
+export async function onSentMessage({ imapManager, account, messageId }: { imapManager: unknown; account: GtdAccount; messageId: string }): Promise<void> {
   await runTransitionsForSentMessage(imapManager, account, messageId);
 }
 
 // runHook('onUserDelete'): a user was deleted. Remove their imported GTD pet from plugin storage
 // (migrated pet rows carry a NULL owner_id, so the plugin_data cascade doesn't reach them).
 // Best-effort: the user row is already gone, so a failure here must not surface as an error.
-export async function onUserDelete({ userId }) {
+export async function onUserDelete({ userId }: { userId: string }): Promise<void> {
   await deleteUserPet(userId).catch(err => console.warn('pet cleanup on delete:', err.message));
 }
 
@@ -209,7 +233,7 @@ export async function onUserDelete({ userId }) {
 // the plugin config store, so re-attach it here. gtd_enabled is the RAW per-account flag (the
 // checkbox state), not the effective gate — activation is folded in only on the backend read path
 // (getGtdConfig). Read-only; a failure contributes nothing and the account still returns.
-export async function enrichAccount({ account }) {
+export async function enrichAccount({ account }: { account: GtdAccount }): Promise<Record<string, unknown> | undefined> {
   if (!account?.id) return undefined;
   const cfg = await getAccountConfig('gtd', account.id);
   return {
@@ -227,7 +251,7 @@ export async function enrichAccount({ account }) {
 // reconnect so connectAccount arms the tick / backfills the newly designated folder). The actual
 // write is done in persistAccountSettings (below); this only validates. Async because the
 // reconnect-diff reads the stored config.
-export async function validateAccountSettings({ updates, accountId }) {
+export async function validateAccountSettings({ updates, accountId }: { updates: GtdSettingsPatch; accountId: string }): Promise<GtdValidationResult | undefined> {
   const touchesGtd = updates && ('gtd_folders' in updates || 'gtd_enabled' in updates);
   if (!touchesGtd) return undefined;
   // Toggling gtd_enabled always needs a reconnect: the sync tick is only armed/torn down at
@@ -263,7 +287,7 @@ export async function validateAccountSettings({ updates, accountId }) {
 // saved values echoed back on the response so the client sees them — or undefined when nothing GTD
 // owns changed. Runs after validateAccountSettings has already hard-rejected bad input; the folder
 // re-sanitize here is defensive (idempotent) so the stored blob is always canonical.
-export async function persistAccountSettings({ accountId, updates }) {
+export async function persistAccountSettings({ accountId, updates }: { accountId: string; updates: GtdSettingsPatch }): Promise<{ patch?: Record<string, unknown> } | undefined> {
   const touchesGtd = updates && ('gtd_folders' in updates || 'gtd_enabled' in updates);
   if (!touchesGtd) return undefined;
   const cfg = await getAccountConfig('gtd', accountId);
@@ -282,7 +306,7 @@ export async function persistAccountSettings({ accountId, updates }) {
 // runHook('onAccountIdentityChanged'): the account's aliases/identity changed — invalidate the
 // owner-address cache the GTD delegation detector uses to tell "the owner replied" apart from an
 // inbound reply.
-export async function onAccountIdentityChanged({ accountId }) {
+export async function onAccountIdentityChanged({ accountId }: { accountId: string }): Promise<void> {
   invalidateOwnerAddressesCache(accountId);
 }
 

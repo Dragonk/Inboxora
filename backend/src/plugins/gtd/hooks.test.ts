@@ -113,7 +113,7 @@ describe('gtd hooks — inboxIngest', () => {
 
   it('resolves candidate ids to thread keys and runs transitions over them', async () => {
     threadKeysForMessageIds.mockResolvedValueOnce(['thr-1', 'thr-2']);
-    const mgr = {};
+    const mgr = { broadcast: vi.fn() };
     await inboxIngest({ mgr, account, newInboxIds: ['m1', 'm2'], deletedIds: new Set() });
     expect(threadKeysForMessageIds).toHaveBeenCalledWith('a1', ['m1', 'm2']);
     expect(runGtdTransitions).toHaveBeenCalledWith(mgr, account, ['thr-1', 'thr-2']);
@@ -121,19 +121,19 @@ describe('gtd hooks — inboxIngest', () => {
 
   it('drops rule-deleted candidates before resolving threads', async () => {
     threadKeysForMessageIds.mockResolvedValueOnce(['thr-moved']);
-    await inboxIngest({ mgr: {}, account, newInboxIds: ['deleted', 'moved'], deletedIds: new Set(['deleted']) });
+    await inboxIngest({ mgr: { broadcast: vi.fn() }, account, newInboxIds: ['deleted', 'moved'], deletedIds: new Set(['deleted']) });
     expect(threadKeysForMessageIds).toHaveBeenCalledWith('a1', ['moved']);
   });
 
   it('does no work when every candidate was deleted', async () => {
-    await inboxIngest({ mgr: {}, account, newInboxIds: ['x'], deletedIds: new Set(['x']) });
+    await inboxIngest({ mgr: { broadcast: vi.fn() }, account, newInboxIds: ['x'], deletedIds: new Set(['x']) });
     expect(threadKeysForMessageIds).not.toHaveBeenCalled();
     expect(runGtdTransitions).not.toHaveBeenCalled();
   });
 
   it('swallows a transition failure without throwing into core', async () => {
     threadKeysForMessageIds.mockRejectedValueOnce(new Error('db boom'));
-    await expect(inboxIngest({ mgr: {}, account, newInboxIds: ['m1'], deletedIds: new Set() }))
+    await expect(inboxIngest({ mgr: { broadcast: vi.fn() }, account, newInboxIds: ['m1'], deletedIds: new Set() }))
       .resolves.toBeUndefined();
     expect(runGtdTransitions).not.toHaveBeenCalled();
   });
@@ -224,14 +224,14 @@ describe('gtd hooks — route-layer adapters (onMailMutation / onSentMessage / o
 
   it('onMailMutation delegates to emitGtdIfRelevant with the mutation context', async () => {
     emitGtdIfRelevant.mockResolvedValueOnce(undefined);
-    const mgr = {};
+    const mgr = { broadcast: vi.fn() };
     await onMailMutation({ imapManager: mgr, accountId: 'a1', userId: 'u1', messageIds: ['<m1>'], actedFolders: ['INBOX'] });
     expect(emitGtdIfRelevant).toHaveBeenCalledWith(mgr, 'a1', 'u1', ['<m1>'], ['INBOX']);
   });
 
   it('onSentMessage delegates to runTransitionsForSentMessage', async () => {
     runTransitionsForSentMessage.mockResolvedValueOnce(undefined);
-    const mgr = {};
+    const mgr = { broadcast: vi.fn() };
     const account = { id: 'a1', gtd_enabled: true };
     await onSentMessage({ imapManager: mgr, account, messageId: '<abc@x>' });
     expect(runTransitionsForSentMessage).toHaveBeenCalledWith(mgr, account, '<abc@x>');
@@ -303,7 +303,7 @@ describe('gtd hooks — account settings (enrichAccount / validateAccountSetting
       .mockReturnValueOnce({ folders: { todo: 'Todo' }, rejected: [], reserved: [] });                                            // stored
     findGtdFolderCollisions.mockReturnValueOnce([]);
     const out = await validateAccountSettings({ updates: { gtd_folders: { todo: 'Tasks' } }, accountId: 'a1' });
-    expect(out.patch).toBeUndefined();                       // validate no longer writes
+    expect((out as { patch?: unknown }).patch).toBeUndefined();                       // validate no longer writes
     expect(out.rejected).toEqual({ gtd_folders: ['bad/../path'] });
     expect(out.requiresReconnect).toBe(true);
   });
