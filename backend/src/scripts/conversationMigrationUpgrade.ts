@@ -2,6 +2,7 @@ import { readFile, readdir } from 'fs/promises';
 import { join, dirname } from 'path';
 import { fileURLToPath } from 'url';
 import pg from 'pg';
+import type { DbClient } from '../services/db.js';
 
 const { Client } = pg;
 const dir = join(dirname(fileURLToPath(import.meta.url)), '../../migrations');
@@ -38,7 +39,7 @@ function splitStatements(sql: string) {
   return statements;
 }
 
-async function insertLegacyFixture(client) {
+async function insertLegacyFixture(client: DbClient) {
   const userId = '00000000-0000-0000-0000-000000000201';
   const accountA = '00000000-0000-0000-0000-000000000202';
   const accountB = '00000000-0000-0000-0000-000000000203';
@@ -46,7 +47,7 @@ async function insertLegacyFixture(client) {
   await client.query('INSERT INTO users (id, username) VALUES ($1,$2)', [userId, `legacy-fixture-${Date.now()}`]);
   await client.query('INSERT INTO email_accounts (id,user_id,name,email_address) VALUES ($1,$3,$4,$5),($2,$3,$6,$7)', [accountA, accountB, userId, 'Legacy A', 'legacy-a@example.test', 'Legacy B', 'legacy-b@example.test']);
   const fixture = await client.query('SELECT * FROM legacy_conversation_fixture ORDER BY fixture_key');
-  const accounts = { 'account-a': accountA, 'account-b': accountB };
+  const accounts: Record<string, string> = { 'account-a': accountA, 'account-b': accountB };
   for (const row of fixture.rows) {
     const id = `00000000-0000-0000-0000-${String(200 + fixture.rows.indexOf(row)).padStart(12, '0')}`;
     await client.query(`INSERT INTO messages (id,account_id,uid,folder,message_id,subject,from_email,to_addresses,date,in_reply_to,thread_references,thread_id)

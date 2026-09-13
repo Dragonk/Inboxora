@@ -23,15 +23,18 @@ try {
     await pool.query("INSERT INTO folders (account_id, path, name, total_count) VALUES ($1, 'INBOX', 'Inbox', $2)", [accountId, perAccount - Math.floor(perAccount / 3)]);
   }
   await pool.query('ANALYZE messages');
-  const report = { messages: perAccount * accounts.length, samples, cases: {} };
-  for (const [name, accountId, threaded] of [['unified-threaded', undefined, true], ['account-threaded', accounts[0], true], ['unified-flat', undefined, false]]) {
-    const timings = [];
-    let result;
+  type CaseReport = { timingsMs: number[]; medianMs: number; rows: number; total: number };
+  const report: { messages: number; samples: number; cases: Record<string, CaseReport> } = { messages: perAccount * accounts.length, samples, cases: {} };
+  const cases: Array<[string, string | undefined, boolean]> = [['unified-threaded', undefined, true], ['account-threaded', accounts[0], true], ['unified-flat', undefined, false]];
+  for (const [name, accountId, threaded] of cases) {
+    const timings: number[] = [];
+    let result: Awaited<ReturnType<typeof listMessages>> | undefined;
     for (let run = 0; run <= samples; run += 1) {
       const start = performance.now();
       result = await listMessages({ userId, accountId, threaded, limit: 50 });
       if (run) timings.push(Math.round((performance.now() - start) * 10) / 10);
     }
+    if (!result) throw new Error('benchmark case produced no result: ' + name);
     const sorted = [...timings].sort((a, b) => a - b);
     report.cases[name] = { timingsMs: timings, medianMs: sorted[Math.floor(sorted.length / 2)], rows: result.messages.length, total: result.total };
     if (name === 'unified-threaded') {

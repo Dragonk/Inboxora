@@ -3,6 +3,27 @@ import { readFile, readdir } from 'fs/promises';
 import { dirname, join } from 'path';
 import { fileURLToPath } from 'url';
 import pg from 'pg';
+import type { DbClient } from '../services/db.js';
+
+interface MigrationSnapshot {
+  counts: Record<string, number>;
+  payload: { count: number; checksum: string };
+}
+
+type RebuildFn = typeof import('../services/conversationRebuild.js').rebuildConversationCopies;
+
+interface AccountStateRow {
+  kind: string;
+  id: string;
+  data: unknown;
+}
+
+interface Migration {
+  name: string;
+  version: string;
+  sql: string;
+  sha256: string;
+}
 
 const { Client } = pg;
 const here = dirname(fileURLToPath(import.meta.url));
@@ -10,7 +31,7 @@ const migrationsDir = join(here, '../../migrations');
 const schema = process.env.DB_SCHEMA || process.env.MIGRATION_GATE_SCHEMA || 'conversation_migration_0062_gate';
 
 if (!/^[A-Za-z_][A-Za-z0-9_]*$/.test(schema)) throw new Error('DB_SCHEMA must be a simple PostgreSQL identifier');
-const qi = value => `"${value.replaceAll('"', '""')}"`;
+const qi = (value: string): string => `"${value.replaceAll('"', '""')}"`;
 
 const IDS = Object.freeze({
   user: '62000000-0000-0000-0000-000000000001',
@@ -29,22 +50,22 @@ const IDS = Object.freeze({
   localBLogical: '62000000-0000-0000-0002-00000000000b',
 });
 
-function invariant(condition, message, details = undefined) {
+function invariant(condition: unknown, message: string, details: unknown = undefined): asserts condition {
   if (!condition) {
-    const error = new Error(message);
+    const error = new Error(message) as Error & { details?: unknown };
     if (details !== undefined) error.details = details;
     throw error;
   }
 }
 
-function splitStatements(sql: string) {
-  const statements = [];
+function splitStatements(sql: string): string[] {
+  const statements: string[] = [];
   let start = 0;
   let single = false;
   let double = false;
   let lineComment = false;
   let blockDepth = 0;
-  let dollarTag = null;
+  let dollarTag: string | null = null;
   for (let i = 0; i < sql.length; i++) {
     const ch = sql[i];
     const next = sql[i + 1];
@@ -103,7 +124,7 @@ async function loadMigrations() {
   }));
 }
 
-async function applyMigration(client, migration) {
+async function applyMigration(client: DbClient, migration: Migration) {
   try {
     const noTransaction = /^--\s*no-transaction\b/im.test(migration.sql);
     if (noTransaction) {
@@ -120,13 +141,14 @@ async function applyMigration(client, migration) {
       await client.query('ROLLBACK').catch(() => {});
       throw error;
     }
-  } catch (error) {
+  } catch (caught) {
+    const error = caught instanceof Error ? caught : new Error(String(caught));
     error.message = `migration ${migration.name}: ${error.message}`;
     throw error;
   }
 }
 
-async function resetSchema(client) {
+async function resetSchema(client: DbClient): Promise<void> {
   await client.query(`DROP SCHEMA IF EXISTS ${qi(schema)} CASCADE`);
   await client.query(`CREATE SCHEMA ${qi(schema)}`);
   await client.query(`SET search_path TO ${qi(schema)}`);
@@ -134,7 +156,7 @@ async function resetSchema(client) {
   await client.query('CREATE TABLE schema_migrations (version VARCHAR(255) PRIMARY KEY, applied_at TIMESTAMPTZ DEFAULT NOW(), sha256 TEXT)');
 }
 
-async function seedFixture(client) {
+async function seedFixture(client: DbClient): Promise<void> {
   let stage = 'user';
   try {
   stage = 'user';
@@ -256,7 +278,8 @@ async function seedFixture(client) {
     await client.query(`INSERT INTO conversation_overrides(id,user_id,conversation_id,logical_message_id,override_type,target_id,target_user_id,reason)
       VALUES($1,$2,$3,$4,$5,$6,$7,$8)`, [id, IDS.user, conversationId, logicalId, type, targetId, targetId ? IDS.user : null, reason]);
   }
-  } catch (error) {
+  } catch (caught) {
+    const error = caught instanceof Error ? caught : new Error(String(caught));
     error.message = `fixture stage ${stage}: ${error.message}`;
     throw error;
   }
@@ -267,13 +290,13 @@ const countTables = [
   'unresolved_message_references', 'conversation_aliases', 'conversation_evidence', 'conversation_overrides',
 ];
 
-async function snapshotCounts(client) {
-  const result = {};
+async function snapshotCounts(client: DbClient): Promise<Record<string, number>> {
+  const result: Record<string, number> = {};
   for (const table of countTables) result[table] = Number((await client.query(`SELECT COUNT(*) AS count FROM ${table}`)).rows[0].count);
   return result;
 }
 
-async function messagePayloadSnapshot(client) {
+async function messagePayloadSnapshot(client: DbClient): Promise<{ count: number; checksum: string }> {
   const result = await client.query(`
     SELECT COUNT(*)::int AS count,
            md5(COALESCE(string_agg((to_jsonb(m) - ARRAY[
@@ -281,10 +304,10 @@ async function messagePayloadSnapshot(client) {
            ]::text[])::text, E'\n' ORDER BY m.id), '')) AS checksum
       FROM messages m
   `);
-  return result.rows[0];
+  return result.rows[0] as { count: number; checksum: string };
 }
 
-async function mismatchCounts(client) {
+async function mismatchCounts(client: DbClient) {
   const queries = {
     message_logical: `SELECT COUNT(*) FROM messages m JOIN logical_messages lm ON lm.id=m.logical_message_id WHERE m.account_id<>lm.account_id OR m.conversation_user_id<>lm.user_id`,
     message_conversation: `SELECT COUNT(*) FROM messages m JOIN conversations c ON c.id=m.conversation_id WHERE m.account_id<>c.account_id OR m.conversation_user_id<>c.user_id`,
@@ -296,12 +319,12 @@ async function mismatchCounts(client) {
     evidence: `SELECT COUNT(*) FROM conversation_evidence e JOIN conversations c ON c.id=e.conversation_id LEFT JOIN logical_messages lm ON lm.id=e.logical_message_id WHERE e.account_id<>c.account_id OR e.user_id<>c.user_id OR (lm.id IS NOT NULL AND (e.account_id<>lm.account_id OR e.user_id<>lm.user_id))`,
     overrides: `SELECT COUNT(*) FROM conversation_overrides o LEFT JOIN conversations c ON c.id=o.conversation_id LEFT JOIN logical_messages lm ON lm.id=o.logical_message_id LEFT JOIN conversations target ON target.id=o.target_id WHERE (c.id IS NOT NULL AND (o.account_id<>c.account_id OR o.user_id<>c.user_id)) OR (lm.id IS NOT NULL AND (o.account_id<>lm.account_id OR o.user_id<>lm.user_id)) OR (target.id IS NOT NULL AND (o.account_id<>target.account_id OR o.user_id<>target.user_id))`,
   };
-  const result = {};
+  const result: Record<string, number> = {};
   for (const [name, sql] of Object.entries(queries)) result[name] = Number((await client.query(sql)).rows[0].count);
   return result;
 }
 
-async function assertMigrationResult(client, before) {
+async function assertMigrationResult(client: DbClient, before: MigrationSnapshot) {
   const afterCounts = await snapshotCounts(client);
   const afterPayload = await messagePayloadSnapshot(client);
   invariant(afterPayload.count === before.payload.count, 'Physical message loss detected', { before: before.payload, after: afterPayload });
@@ -331,7 +354,8 @@ async function assertMigrationResult(client, before) {
   await client.query('SAVEPOINT uniqueness_probe');
   try {
     await client.query(`INSERT INTO logical_messages(user_id,account_id,canonical_message_id,raw_message_id,message_id_collision_key,direction) VALUES($1,$2,'<shared-root@fixture.test>','<shared-root@fixture.test>','collision-shared-root','unknown')`, [IDS.user, IDS.accountA]);
-  } catch (error) {
+  } catch (caught) {
+    const error = caught as { code?: string };
     sameAccountUnique = error.code === '23505';
   } finally {
     await client.query('ROLLBACK TO SAVEPOINT uniqueness_probe');
@@ -363,7 +387,7 @@ async function assertMigrationResult(client, before) {
   return { afterCounts, actualDeltas, mismatches, retained, split: split.rows.map(row => ({ accountId: row.account_id, logicalId: row.logical_id, conversationId: row.conversation_id })) };
 }
 
-async function accountStateRows(client, accountId: string) {
+async function accountStateRows(client: DbClient, accountId: string) {
   const result = await client.query(`
     WITH rows AS (
       SELECT 'messages' AS kind,id::text AS id,(to_jsonb(m)-ARRAY['synced_at']::text[]) AS data FROM messages m WHERE account_id=$1
@@ -379,7 +403,7 @@ async function accountStateRows(client, accountId: string) {
   return result.rows;
 }
 
-async function accountChecksum(client, accountId: string) {
+async function accountChecksum(client: DbClient, accountId: string) {
   const rows = await accountStateRows(client, accountId);
   return {
     checksum: createHash('md5').update(rows.map(row => `${row.kind}:${row.id}:${row.data}`).join('\n')).digest('hex'),
@@ -387,7 +411,7 @@ async function accountChecksum(client, accountId: string) {
   };
 }
 
-async function runRebuildToCompletion(rebuildConversationCopies, { userId, accountId, limit = 3 }) {
+async function runRebuildToCompletion(rebuildConversationCopies: RebuildFn, { userId, accountId, limit = 3 }: { userId: string; accountId: string; limit?: number }) {
   let cursor = null;
   let scanned = 0;
   let updated = 0;
@@ -469,7 +493,7 @@ async function main() {
     const finalB = await accountChecksum(client, IDS.accountB);
     const finalRowsA = await accountStateRows(client, IDS.accountA);
     const finalRowsB = await accountStateRows(client, IDS.accountB);
-    const changedRows = (before, after) => {
+    const changedRows = (before: AccountStateRow[], after: AccountStateRow[]) => {
       const prior = new Map(before.map(row => [`${row.kind}:${row.id}`, row.data]));
       const current = new Map(after.map(row => [`${row.kind}:${row.id}`, row.data]));
       return [...new Set([...prior.keys(), ...current.keys()])]
