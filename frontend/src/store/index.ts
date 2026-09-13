@@ -38,6 +38,9 @@ import { DEFAULT_CALENDAR_PREFERENCES, normalizeCalendarWorkDays, normalizeCalen
 import i18n from '../i18n.ts';
 
 /** A message row as the store holds it. */
+/** The signed-in user as the store holds it. */
+interface StoreUserRow { id?: string; username?: string; email?: string; [key: string]: unknown }
+
 interface StoreMessageRow { id: string; account_id?: string; folder?: string; is_read?: boolean; is_starred?: boolean; message_id?: string | null; thread_id?: string; [key: string]: unknown }
 
 /** The store fields its own set()/get() callbacks read. */
@@ -164,7 +167,7 @@ interface StoreMessage {
 export const useStore = create<any>((set, get) => ({
   // Auth
   user: null,
-  setUser: (user) => {
+  setUser: (user: StoreUserRow | null) =>{
     // On a real identity change (login, logout, account switch) drop any queued preference
     // flush so the previous user's debounce can't save into the new/absent session.
     if (get().user?.id !== user?.id) cancelPendingPrefSave();
@@ -177,14 +180,14 @@ export const useStore = create<any>((set, get) => ({
       } : {}),
     }));
   },
-  updateUser: (updates) => set((state: StoreStateRead) => ({ user: state.user ? { ...state.user, ...updates } : state.user })),
+  updateUser: (updates: Record<string, unknown>) =>set((state: StoreStateRead) => ({ user: state.user ? { ...state.user, ...updates } : state.user })),
 
   // Plugin activation — the per-user set of activated plugin ids (users.preferences.enabledPlugins).
   // Hydrated in loadPreferences and mutated only via setPluginActivated (the Plugins settings
   // section). Independent of a plugin's own per-account config; a plugin's UI gates on membership
   // here (e.g. GTD's gtdActiveForContext requires 'gtd' to be present).
   enabledPlugins: [],
-  setPluginActivated: async (id, activated) => {
+  setPluginActivated: async (id: string, activated: boolean) =>{
     await api.plugins.setActivated(id, activated);
     set((state: StoreStateRead) => {
       const next = new Set(state.enabledPlugins);
@@ -195,7 +198,7 @@ export const useStore = create<any>((set, get) => ({
 
   // Todoist integration status (persisted across page loads via localStorage)
   todoistConnected: localStorage.getItem('mailflow_todoist_connected') === '1',
-  setTodoistConnected: (connected) => {
+  setTodoistConnected: (connected: boolean) =>{
     if (connected) localStorage.setItem('mailflow_todoist_connected', '1');
     else localStorage.removeItem('mailflow_todoist_connected');
     set({ todoistConnected: connected });
@@ -203,7 +206,7 @@ export const useStore = create<any>((set, get) => ({
 
   // Lock screen
   isLocked: localStorage.getItem('mailflow_locked') === '1',
-  setLocked: (locked) => {
+  setLocked: (locked: boolean) =>{
     if (locked) {
       const { selectedMessageId } = get();
       if (selectedMessageId) localStorage.setItem('mailflow_locked_message', selectedMessageId);
@@ -233,7 +236,7 @@ export const useStore = create<any>((set, get) => ({
     api.lock().catch(() => {});
   },
   autoLockMinutes: 0,
-  setAutoLockMinutes: (m) => {
+  setAutoLockMinutes: (m: number) =>{
     const v = [0, 1, 5, 15, 30].includes(Number(m)) ? Number(m) : 0;
     set({ autoLockMinutes: v });
     schedulePrefSave({ autoLockMinutes: String(v) });
@@ -249,7 +252,7 @@ export const useStore = create<any>((set, get) => ({
     set((state: StoreStateRead) => ({ accounts, accountsReady: true, folders: pruneFolders(state.folders, accounts) }));
     if (selected !== previous) get().setSelectedAccount(selected);
   },
-  updateAccount: (id, updates) => set((state: StoreStateRead) => ({
+  updateAccount: (id: string, updates: Record<string, unknown>) =>set((state: StoreStateRead) => ({
     accounts: state.accounts.map(a => a.id === id ? { ...a, ...updates } : a)
   })),
 
@@ -257,7 +260,7 @@ export const useStore = create<any>((set, get) => ({
   selectedAccountId: localStorage.getItem('mailflow_selected_account') || null, // '' stored as null
   selectedFolder: localStorage.getItem('mailflow_selected_folder') || 'INBOX',
   messagesRefreshToken: 0, // incremented on every nav click so the effect always re-fires
-  setSelectedAccount: (accountId, folder = 'INBOX') => {
+  setSelectedAccount: (accountId: string, folder = 'INBOX') =>{
     localStorage.setItem('mailflow_selected_account', accountId ?? '');
     localStorage.setItem('mailflow_selected_folder', folder);
     return set((state: StoreStateRead) => {
@@ -299,8 +302,8 @@ export const useStore = create<any>((set, get) => ({
   // (same message delivered to two unified accounts, or a received copy + its Sent twin) and
   // must render once, matching isSelectedRow's identity model (#378). appendMessages/restore
   // dedupe on their own paths; this covers the initial/refresh/page loads that replace wholesale.
-  setMessages: (messages) => set({ messages: dedupeByIdentity(messages) }),
-  appendMessages: (newMessages) => set((state: StoreStateRead) => {
+  setMessages: (messages: StoreMessageRow[]) =>set({ messages: dedupeByIdentity(messages) }),
+  appendMessages: (newMessages: StoreMessageRow[]) =>set((state: StoreStateRead) => {
     // Merge by stable identity (Message-ID when present, else id): a same-id row is dropped so the
     // existing copy keeps any optimistic local-only fields a refresh lost (unread_count, etc.),
     // while a reindexed message (same Message-ID, new id after a purge+reinsert) replaces its stale
@@ -308,7 +311,7 @@ export const useStore = create<any>((set, get) => ({
     const messages = appendMessagesByIdentity(state.messages, newMessages);
     return messages === state.messages ? {} : { messages };
   }),
-  updateMessage: (id, updates) => set((state: StoreStateRead) => {
+  updateMessage: (id: string, updates: Record<string, unknown>) =>set((state: StoreStateRead) => {
     const apply = (m) => m.id === id ? { ...m, ...updates } : m;
     const threadMessages = Object.fromEntries(
       Object.entries(state.threadMessages as Record<string, StoreMessage[]>).map(([tid, msgs]) => [tid, msgs.map(apply)])
@@ -326,7 +329,7 @@ export const useStore = create<any>((set, get) => ({
     });
     return { messages, searchResults: state.searchResults.map(apply), threadMessages };
   }),
-  removeMessage: (id) => set((state: StoreStateRead) => ({
+  removeMessage: (id: string) =>set((state: StoreStateRead) => ({
     messages: state.messages.filter(m => m.id !== id),
     searchResults: state.searchResults.filter(m => m.id !== id),
     selectedMessageId: state.selectedMessageId === id ? null : state.selectedMessageId,
@@ -335,7 +338,7 @@ export const useStore = create<any>((set, get) => ({
   // otherwise calls removeMessage once per id, firing one store update — and, in a
   // non-virtualized list, one re-render — each, which stalls the UI. This collapses them
   // into one filter pass and one update.
-  removeMessages: (ids) => set((state: StoreStateRead) => {
+  removeMessages: (ids: string[]) =>set((state: StoreStateRead) => {
     const idSet = ids instanceof Set ? ids : new Set(ids);
     if (idSet.size === 0) return {};
     return {
@@ -344,7 +347,7 @@ export const useStore = create<any>((set, get) => ({
       selectedMessageId: idSet.has(state.selectedMessageId) ? null : state.selectedMessageId,
     };
   }),
-  restoreMessages: (msgs) => set((state: StoreStateRead) => {
+  restoreMessages: (msgs: StoreMessageRow[]) =>set((state: StoreStateRead) => {
     const list = Array.isArray(msgs) ? msgs : [msgs];
     const sort = arr => [...arr].sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
     // Deduplicate against both the main list and searchResults by stable identity (Message-ID when
@@ -362,21 +365,21 @@ export const useStore = create<any>((set, get) => ({
     };
   }),
   messagesOffset: 0,
-  setMessagesOffset: (offset) => set({ messagesOffset: offset }),
+  setMessagesOffset: (offset: number) =>set({ messagesOffset: offset }),
   messagesTotal: 0,
-  setMessagesTotal: (total) => set({ messagesTotal: total }),
+  setMessagesTotal: (total: number) =>set({ messagesTotal: total }),
   hasMoreMessages: true,
-  setHasMoreMessages: (v) => set({ hasMoreMessages: v }),
+  setHasMoreMessages: (v: boolean) =>set({ hasMoreMessages: v }),
 
   // Selected message
   selectedMessageId: null,
   lastViewedMessageId: null,
-  setSelectedMessage: (id) => set(id ? { selectedMessageId: id, lastViewedMessageId: id } : { selectedMessageId: null }),
+  setSelectedMessage: (id: string) =>set(id ? { selectedMessageId: id, lastViewedMessageId: id } : { selectedMessageId: null }),
 
   // Unread counts
   unreadCounts: { total: 0, byAccount: {} },
-  setUnreadCounts: (counts) => set({ unreadCounts: counts }),
-  decrementUnread: (accountId, count = 1) => set((state: StoreStateRead) => {
+  setUnreadCounts: (counts: Record<string, number>) =>set({ unreadCounts: counts }),
+  decrementUnread: (accountId: string, count = 1) =>set((state: StoreStateRead) => {
     const byAccount = { ...state.unreadCounts.byAccount };
     byAccount[accountId] = Math.max(0, (byAccount[accountId] || 0) - count);
     const total = accountAffectsUnifiedInbox(state.accounts, accountId)
@@ -384,7 +387,7 @@ export const useStore = create<any>((set, get) => ({
       : state.unreadCounts.total;
     return { unreadCounts: { total, byAccount } };
   }),
-  incrementUnread: (accountId, count = 1) => set((state: StoreStateRead) => {
+  incrementUnread: (accountId: string, count = 1) =>set((state: StoreStateRead) => {
     const byAccount = { ...state.unreadCounts.byAccount };
     byAccount[accountId] = (byAccount[accountId] || 0) + count;
     const total = accountAffectsUnifiedInbox(state.accounts, accountId)
@@ -395,14 +398,14 @@ export const useStore = create<any>((set, get) => ({
 
   // Folders
   folders: {}, // accountId -> folders[]
-  setFolders: (accountId, folders) => set((state: StoreStateRead) => ({
+  setFolders: (accountId: string, folders: Record<string, Array<{ path: string; unread_count?: number }>>) =>set((state: StoreStateRead) => ({
     folders: { ...state.folders, [accountId]: folders }
   })),
   // Increment/decrement the unread_count of a single folder in one account's
   // list. Used for optimistic UI updates when marking messages as read/spam/ham
   // so the sidebar badge updates without waiting for a full folder sync.
   // We clamp at 0 to avoid negative counters when the optimistic guess was off.
-  adjustFolderUnread: (accountId, folderPath, delta) => set((state: StoreStateRead) => {
+  adjustFolderUnread: (accountId: string, folderPath, delta) =>set((state: StoreStateRead) => {
     const accountFolders = state.folders[accountId];
     if (!accountFolders) return {};
     let changed = false;
@@ -428,13 +431,13 @@ export const useStore = create<any>((set, get) => ({
     const n = parseInt(localStorage.getItem('mailflow_sidebar_width'));
     return (n >= 160 && n <= 400) ? n : 250;
   })(),
-  setSidebarWidth: (w) => {
+  setSidebarWidth: (w: string) =>{
     localStorage.setItem('mailflow_sidebar_width', String(w));
     set({ sidebarWidth: w });
     schedulePrefSave({ sidebarWidth: String(w) });
   },
   isSidebarResizing: false,
-  setIsSidebarResizing: (v) => set({ isSidebarResizing: v }),
+  setIsSidebarResizing: (v: boolean) =>set({ isSidebarResizing: v }),
   pageSize: parseInt(localStorage.getItem('mailflow_page_size')) || 50,
   setPageSize: (size) => {
     localStorage.setItem('mailflow_page_size', String(size));
@@ -449,7 +452,7 @@ export const useStore = create<any>((set, get) => ({
   },
   // When true, search spans all folders instead of the current one (per device).
   searchAllFolders: localStorage.getItem('mailflow_search_all_folders') === '1',
-  setSearchAllFolders: (v) => {
+  setSearchAllFolders: (v: boolean) =>{
     if (v) localStorage.setItem('mailflow_search_all_folders', '1');
     else localStorage.removeItem('mailflow_search_all_folders');
     set({ searchAllFolders: v });
@@ -510,7 +513,7 @@ export const useStore = create<any>((set, get) => ({
   // and the z-order stamp (higher = on top / more recently focused).
   messageWindows: [],
   _winSeq: 0,
-  openMessageWindow: (messageId) => set((state: StoreStateRead) => {
+  openMessageWindow: (messageId: string) =>set((state: StoreStateRead) => {
     const seq = state._winSeq + 1;
     // Re-opening a message that already has a window focuses + un-minimizes it
     // rather than spawning a duplicate.
@@ -534,17 +537,17 @@ export const useStore = create<any>((set, get) => ({
       messageWindows: [...state.messageWindows, { winId: `mw-${seq}`, messageId, x, y, w, h, z: seq, minimized: false }],
     };
   }),
-  closeMessageWindow: (winId) => set((state: StoreStateRead) => ({
+  closeMessageWindow: (winId: string) =>set((state: StoreStateRead) => ({
     messageWindows: state.messageWindows.filter(w => w.winId !== winId),
   })),
-  focusMessageWindow: (winId) => set((state: StoreStateRead) => {
+  focusMessageWindow: (winId: string) =>set((state: StoreStateRead) => {
     const seq = state._winSeq + 1;
     return {
       _winSeq: seq,
       messageWindows: state.messageWindows.map(w => w.winId === winId ? { ...w, z: seq } : w),
     };
   }),
-  setMessageWindowMinimized: (winId, minimized) => set((state: StoreStateRead) => {
+  setMessageWindowMinimized: (winId: string, minimized) =>set((state: StoreStateRead) => {
     const seq = state._winSeq + 1;
     return {
       _winSeq: seq,
@@ -553,34 +556,34 @@ export const useStore = create<any>((set, get) => ({
         w.winId === winId ? { ...w, minimized, z: minimized ? w.z : seq } : w),
     };
   }),
-  updateMessageWindowRect: (winId, rect) => set((state: StoreStateRead) => ({
+  updateMessageWindowRect: (winId: string, rect) =>set((state: StoreStateRead) => ({
     messageWindows: state.messageWindows.map(w => w.winId === winId ? { ...w, ...rect } : w),
   })),
   closeAllMessageWindows: () => set({ messageWindows: [] }),
   searchQuery: '',
   setSearchQuery: (q) => set({ searchQuery: q }),
   isSearching: false,
-  setIsSearching: (v) => set({ isSearching: v }),
+  setIsSearching: (v: boolean) =>set({ isSearching: v }),
   searchResults: [],
   setSearchResults: (r) => set({ searchResults: r }),
 
   // Loading
   loadingMessages: false,
-  setLoadingMessages: (v) => set({ loadingMessages: v }),
+  setLoadingMessages: (v: boolean) =>set({ loadingMessages: v }),
 
   // Notifications
   notifications: [],
   addNotification: (n) => set((state: StoreStateRead) => ({
     notifications: [{ ...n, id: crypto.randomUUID?.() ?? `${Date.now()}-${Math.random().toString(36).slice(2)}` }, ...state.notifications].slice(0, 5)
   })),
-  removeNotification: (id) => set((state: StoreStateRead) => ({
+  removeNotification: (id: string) =>set((state: StoreStateRead) => ({
     notifications: state.notifications.filter(n => n.id !== id)
   })),
 
   // Admin panel
   showAdmin: false,
   adminTab: 'accounts', // 'accounts' | 'appearance' | 'integrations' | 'users'
-  setShowAdmin: (v) => set({ showAdmin: v }),
+  setShowAdmin: (v: boolean) =>set({ showAdmin: v }),
   setAdminTab: (t) => set({ adminTab: t }),
 
   // Contacts view
@@ -628,7 +631,7 @@ export const useStore = create<any>((set, get) => ({
     end: DEFAULT_CALENDAR_PREFERENCES.calendarWorkHoursEnd,
   },
   calendarWorkHoursError: '',
-  setCalendarWorkHoursStart: (value) => {
+  setCalendarWorkHoursStart: (value: string) =>{
     const start = normalizeCalendarWorkTime(value, DEFAULT_CALENDAR_PREFERENCES.calendarWorkHoursStart);
     const current = get();
     const legacyRange = !isValidCalendarWorkRange(current.calendarWorkHoursStart, current.calendarWorkHoursEnd);
@@ -641,7 +644,7 @@ export const useStore = create<any>((set, get) => ({
     scheduleCalendarWorkHoursSave(legacyRange ? { calendarWorkHoursStart: next.start } : { calendarWorkHoursStart: next.start, calendarWorkHoursEnd: next.end }, next);
   },
   calendarWorkHoursEnd: DEFAULT_CALENDAR_PREFERENCES.calendarWorkHoursEnd,
-  setCalendarWorkHoursEnd: (value) => {
+  setCalendarWorkHoursEnd: (value: string) =>{
     const end = normalizeCalendarWorkTime(value, DEFAULT_CALENDAR_PREFERENCES.calendarWorkHoursEnd);
     const current = get();
     const legacyRange = !isValidCalendarWorkRange(current.calendarWorkHoursStart, current.calendarWorkHoursEnd);
@@ -654,16 +657,16 @@ export const useStore = create<any>((set, get) => ({
     scheduleCalendarWorkHoursSave(legacyRange ? { calendarWorkHoursEnd: next.end } : { calendarWorkHoursStart: next.start, calendarWorkHoursEnd: next.end }, next);
   },
   rulesPreFill: null, // { fromEmail, fromName, subject } — transient, set by context menu
-  setRulesPreFill: (v) => set({ rulesPreFill: v }),
+  setRulesPreFill: (v: boolean) =>set({ rulesPreFill: v }),
 
   backfillProgress: {}, // { [accountId]: { synced: N, total: N } | null } — transient
-  setBackfillProgress: (accountId, progress) => set((state: StoreStateRead) => ({
+  setBackfillProgress: (accountId: string, progress) =>set((state: StoreStateRead) => ({
     backfillProgress: { ...state.backfillProgress, [accountId]: progress },
   })),
 
   // Mobile navigation
   mobileSidebarOpen: false,
-  setMobileSidebarOpen: (v) => set({ mobileSidebarOpen: v }),
+  setMobileSidebarOpen: (v: boolean) =>set({ mobileSidebarOpen: v }),
 
   // Language
   language: localStorage.getItem('mailflow_language') || 'en',
@@ -678,14 +681,14 @@ export const useStore = create<any>((set, get) => ({
   // threadedView preference. The old CE-specific list flag is read only as a
   // compatibility fallback for users who saved it before the canonical mapping.
   conversationReaderViewEnabled: false,
-  setConversationReaderViewEnabled: (val) => {
+  setConversationReaderViewEnabled: (val: unknown) =>{
     set({ conversationReaderViewEnabled: val });
     schedulePrefSave({ conversation_reader_view_enabled: val });
   },
 
   // Threaded view
   threadedView: localStorage.getItem('mailflow_threaded_view') === 'true',
-  setThreadedView: (val) => {
+  setThreadedView: (val: unknown) =>{
     localStorage.setItem('mailflow_threaded_view', String(val));
     set({ threadedView: val, expandedThreadId: null, threadMessages: {} });
     schedulePrefSave({ threadedView: val });
@@ -693,7 +696,7 @@ export const useStore = create<any>((set, get) => ({
 
   // Compose format
   plaintextEmail: localStorage.getItem('mailflow_plaintext_email') === 'true',
-  setPlaintextEmail: (val) => {
+  setPlaintextEmail: (val: unknown) =>{
     localStorage.setItem('mailflow_plaintext_email', String(val));
     set({ plaintextEmail: val });
     schedulePrefSave({ plaintextEmail: val });
@@ -701,7 +704,7 @@ export const useStore = create<any>((set, get) => ({
 
   // Message list quick actions
   hoverQuickActions: localStorage.getItem('mailflow_hover_quick_actions') !== 'false',
-  setHoverQuickActions: (val) => {
+  setHoverQuickActions: (val: unknown) =>{
     localStorage.setItem('mailflow_hover_quick_actions', String(val));
     set({ hoverQuickActions: val });
     schedulePrefSave({ hoverQuickActions: val });
@@ -710,7 +713,7 @@ export const useStore = create<any>((set, get) => ({
   // Show sender avatars in the mobile message list (off by default — they cost row width
   // on a narrow screen; opt-in for users who prefer the scannability). Desktop always shows them.
   showMobileAvatars: localStorage.getItem('mailflow_show_mobile_avatars') === 'true',
-  setShowMobileAvatars: (val) => {
+  setShowMobileAvatars: (val: unknown) =>{
     localStorage.setItem('mailflow_show_mobile_avatars', String(val));
     set({ showMobileAvatars: val });
     schedulePrefSave({ showMobileAvatars: val });
@@ -719,7 +722,7 @@ export const useStore = create<any>((set, get) => ({
   // Fetch sender avatars from Gravatar (off by default — opt-in third-party lookup, proxied
   // through the backend so the user's IP is never exposed). Falls back to initials on a miss.
   gravatarAvatars: localStorage.getItem('mailflow_gravatar_avatars') === 'true',
-  setGravatarAvatars: (val) => {
+  setGravatarAvatars: (val: unknown) =>{
     localStorage.setItem('mailflow_gravatar_avatars', String(val));
     set({ gravatarAvatars: val });
     schedulePrefSave({ gravatarAvatars: val });
@@ -727,27 +730,27 @@ export const useStore = create<any>((set, get) => ({
 
   // Show message preview snippets in the message list (on by default).
   showMessagePreviews: localStorage.getItem('mailflow_show_message_previews') !== 'false',
-  setShowMessagePreviews: (val) => {
+  setShowMessagePreviews: (val: unknown) =>{
     localStorage.setItem('mailflow_show_message_previews', String(val));
     set({ showMessagePreviews: val });
     schedulePrefSave({ showMessagePreviews: val });
   },
 
   replyDefault: localStorage.getItem('mailflow_reply_default') || 'reply',
-  setReplyDefault: (val) => {
+  setReplyDefault: (val: string) =>{
     localStorage.setItem('mailflow_reply_default', val);
     set({ replyDefault: val });
     schedulePrefSave({ replyDefault: val });
   },
 
   markReadBehavior: localStorage.getItem('mailflow_mark_read_behavior') || 'immediate',
-  setMarkReadBehavior: (val) => {
+  setMarkReadBehavior: (val: string) =>{
     localStorage.setItem('mailflow_mark_read_behavior', val);
     set({ markReadBehavior: val });
     schedulePrefSave({ markReadBehavior: val });
   },
   markReadDelay: parseInt(localStorage.getItem('mailflow_mark_read_delay') || '1') || 1,
-  setMarkReadDelay: (val) => {
+  setMarkReadDelay: (val: string) =>{
     const n = Math.max(1, Math.min(10, parseInt(val) || 1));
     localStorage.setItem('mailflow_mark_read_delay', String(n));
     set({ markReadDelay: n });
@@ -756,16 +759,16 @@ export const useStore = create<any>((set, get) => ({
 
   // Thread expansion cache (not persisted — reset on navigation)
   expandedThreadId: null,
-  setExpandedThreadId: (id) => set({ expandedThreadId: id }),
+  setExpandedThreadId: (id: string) =>set({ expandedThreadId: id }),
   threadMessages: {},
-  setThreadMessages: (threadId, msgs) => set((state: StoreStateRead) => ({
+  setThreadMessages: (threadId: string, msgs: StoreMessageRow[]) =>set((state: StoreStateRead) => ({
     threadMessages: { ...state.threadMessages, [threadId]: msgs },
   })),
-  clearThreadMessages: (threadId) => set((state: StoreStateRead) => ({
+  clearThreadMessages: (threadId: string) =>set((state: StoreStateRead) => ({
     threadMessages: removeThreadCacheEntry(state.threadMessages, threadId),
   })),
   loadingThread: null,
-  setLoadingThread: (id) => set({ loadingThread: id }),
+  setLoadingThread: (id: string) =>set({ loadingThread: id }),
 
   // Theme — a default for the light appearance and one for the dark appearance,
   // plus the mode that picks between them. `theme` stays the *effective* theme so
@@ -804,12 +807,12 @@ export const useStore = create<any>((set, get) => ({
   },
 
   setThemeMode: (mode) => get().applyThemeSelection({ mode }),
-  setLightTheme: (theme) => get().applyThemeSelection({ light: theme }),
-  setDarkTheme: (theme) => get().applyThemeSelection({ dark: theme }),
+  setLightTheme: (theme: string) =>get().applyThemeSelection({ light: theme }),
+  setDarkTheme: (theme: string) =>get().applyThemeSelection({ dark: theme }),
 
   // An explicit theme choice targets the slot for its own tone and forces that
   // appearance — the behaviour of the old single-theme picker and the command palette.
-  setTheme: (theme) => {
+  setTheme: (theme: string) =>{
     if (!THEMES[theme]) return;
     get().applyThemeSelection(themeTone(theme) === 'light'
       ? { mode: 'light', light: theme }
@@ -847,7 +850,7 @@ export const useStore = create<any>((set, get) => ({
   },
 
   showAppBadge: localStorage.getItem('mailflow_app_badge') !== 'false',
-  setShowAppBadge: (val) => {
+  setShowAppBadge: (val: unknown) =>{
     localStorage.setItem('mailflow_app_badge', String(val));
     set({ showAppBadge: val });
     schedulePrefSave({ showAppBadge: val });
@@ -855,14 +858,14 @@ export const useStore = create<any>((set, get) => ({
 
 
   categorizationEnabled: false,
-  setCategorizationEnabled: (val) => {
+  setCategorizationEnabled: (val: unknown) =>{
     set({ categorizationEnabled: val });
     schedulePrefSave({ categorizationEnabled: val });
   },
 
   // Unread counts per category for the tab bar badges { primary: N, newsletter: N, ... }
   categoryCounts: {},
-  setCategoryCounts: (counts) => set({ categoryCounts: counts }),
+  setCategoryCounts: (counts: Record<string, number>) =>set({ categoryCounts: counts }),
   adjustCategoryCount: (category, delta) => set((state: StoreStateRead) => {
     const key = category || 'primary';
     const current = state.categoryCounts[key] || 0;
@@ -872,14 +875,14 @@ export const useStore = create<any>((set, get) => ({
   // ── Right-sidebar layout ────────────────────────────────────────────────────
   // Independent column width (own var + handle, not --list-width).
   rightSidebarWidth: clampRightSidebarWidth(localStorage.getItem('mailflow_right_sidebar_width')),
-  setRightSidebarWidth: (w) => {
+  setRightSidebarWidth: (w: string) =>{
     const clamped = clampRightSidebarWidth(w);
     localStorage.setItem('mailflow_right_sidebar_width', String(clamped));
     set({ rightSidebarWidth: clamped });
     schedulePrefSave({ rightSidebarWidth: clamped });
   },
   isRightSidebarResizing: false,
-  setIsRightSidebarResizing: (v) => set({ isRightSidebarResizing: v }),
+  setIsRightSidebarResizing: (v: boolean) =>set({ isRightSidebarResizing: v }),
 
   rightSidebarHidden: localStorage.getItem('mailflow_right_sidebar_hidden') === 'true',
   toggleRightSidebarHidden: () => set((state: StoreStateRead) => {
@@ -892,7 +895,7 @@ export const useStore = create<any>((set, get) => ({
   // ── GTD content + tabs ──────────────────────────────────────────────────────
   // Per-section collapse state (section key -> bool). Someday collapsed by default.
   gtdCollapsedSections: readGtdCollapsedSections(),
-  toggleGtdSection: (section) => set((state: StoreStateRead) => {
+  toggleGtdSection: (section: string) =>set((state: StoreStateRead) => {
     const next = { ...state.gtdCollapsedSections, [section]: !state.gtdCollapsedSections[section] };
     localStorage.setItem('mailflow_gtd_collapsed_sections', JSON.stringify(next));
     schedulePrefSave({ gtdCollapsedSections: next });
@@ -928,7 +931,7 @@ export const useStore = create<any>((set, get) => ({
   // are the backend section keys whose labels were removed (todo/watch/delegated/…).
   // Delegates to a pure helper (unit-tested in gtd.test.js) that also keeps the deduped
   // Waiting rollup in step so the Waiting badge is correct instantly.
-  removeGtdThread: (identity, states) => {
+  removeGtdThread: (identity: string, states) =>{
     let snapshot = null;
     set((state: StoreStateRead) => {
       snapshot = snapshotGtdThreadRemoval(state.gtdSections, identity, states);
@@ -946,7 +949,7 @@ export const useStore = create<any>((set, get) => ({
   // identity is message_id||id and matches across every state a thread is labelled with
   // (a merged Waiting row lives in both watch and delegated), keeping them in sync — and
   // the deduped Waiting rollup's unread with them (pure helper, unit-tested in gtd.test.js).
-  markGtdThreadRead: (identity, isRead) => set((state: StoreStateRead) => {
+  markGtdThreadRead: (identity: string, isRead: boolean) =>set((state: StoreStateRead) => {
     const next = setGtdThreadReadInSections(state.gtdSections, identity, isRead);
     return next === state.gtdSections ? {} : { gtdSections: next };
   }),
@@ -954,7 +957,7 @@ export const useStore = create<any>((set, get) => ({
   // on a toggle; the WS/gtd refetch reconciles. identity is message_id||id and matches across
   // every state a thread is labelled with (a merged Waiting row lives in both watch and
   // delegated), keeping them in sync. Star does not affect the unread rollup.
-  markGtdThreadStarred: (identity, isStarred) => set((state: StoreStateRead) => {
+  markGtdThreadStarred: (identity: string, isStarred: boolean) =>set((state: StoreStateRead) => {
     const cur = state.gtdSections as GtdSections | null;
     if (!cur || identity == null) return {};
     const next = { ...cur };
@@ -1033,7 +1036,7 @@ export const useStore = create<any>((set, get) => ({
       if (get().user?.id === userId) set({ senderFaviconsSaving: false });
     }
   },
-  setBlockRemoteImages: (val) => {
+  setBlockRemoteImages: (val: unknown) =>{
     set({ blockRemoteImages: val });
     return api.savePreferences({ blockRemoteImages: val });
   },
@@ -1086,7 +1089,7 @@ export const useStore = create<any>((set, get) => ({
 
   // Custom per-account folder display order — { [accountId]: [path, ...] }
   folderOrder: readFolderOrder(),
-  setFolderOrder: (accountId, paths) => {
+  setFolderOrder: (accountId: string, paths) =>{
     const next = mergeFolderOrder(get().folderOrder, accountId, paths);
     set({ folderOrder: next });
     schedulePrefSave({ folderOrder: next });
@@ -1109,7 +1112,7 @@ export const useStore = create<any>((set, get) => ({
     try { return JSON.parse(localStorage.getItem('mailflow_collapsed_folders') || '[]'); }
     catch { return []; }
   })(),
-  toggleCollapsedFolder: (accountId, path) => {
+  toggleCollapsedFolder: (accountId: string, path: string) =>{
     const key = `${accountId}:${path}`;
     const prev = get().collapsedFolders;
     const next = prev.includes(key) ? prev.filter(k => k !== key) : [...prev, key];
@@ -1137,7 +1140,7 @@ export const useStore = create<any>((set, get) => ({
     set({ favoriteFolders: next });
     schedulePrefSave({ favoriteFolders: next });
   },
-  renameFavoriteFolder: ({ accountId, path, label }) => {
+  renameFavoriteFolder: ({ accountId, path, label }: { accountId: string; path: string; label: string }) =>{
     const next = get().favoriteFolders.map(f => {
       if (f.accountId !== accountId || f.path !== path) return f;
        
@@ -1148,7 +1151,7 @@ export const useStore = create<any>((set, get) => ({
     set({ favoriteFolders: next });
     schedulePrefSave({ favoriteFolders: next });
   },
-  reorderFavoriteFolders: (next) => {
+  reorderFavoriteFolders: (next: Record<string, unknown>) =>{
     localStorage.setItem('mailflow_favorite_folders', JSON.stringify(next));
     set({ favoriteFolders: next });
     schedulePrefSave({ favoriteFolders: next });
