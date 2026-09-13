@@ -508,6 +508,7 @@ function AccountsTab() {
   };
 
   const handleEdit = async (form) => {
+    if (!editTarget) return;
     const updates: Record<string, unknown> = { name: form.name, sender_name: form.sender_name || null, color: form.color, imap_host: form.imap_host, imap_port: form.imap_port, imap_skip_tls_verify: !!form.imap_skip_tls_verify, smtp_host: form.smtp_host, smtp_port: form.smtp_port, smtp_tls: form.smtp_tls, signature: form.signature || null, categorization_enabled: !!form.categorization_enabled, include_in_unified_inbox: form.include_in_unified_inbox !== false };
     if (form.auth_pass) updates.auth_pass = form.auth_pass;
     if (form.auth_user) updates.auth_user = form.auth_user;
@@ -583,6 +584,7 @@ function AccountsTab() {
   };
 
   const handleFolderMappingsSave = async () => {
+    if (!editTarget) return;
     setFoldersSaving(true);
     try {
       const cleanMappings = {};
@@ -609,6 +611,7 @@ function AccountsTab() {
   };
 
   const handleAliasSave = async () => {
+    if (!editTarget) return;
     if (!aliasFormData.name || !aliasFormData.email) {
       setAliasFormError(t('admin.aliases.errorRequired'));
       return;
@@ -657,6 +660,7 @@ function AccountsTab() {
   };
 
   const handleAliasDelete = (aliasId) => {
+    if (!editTarget) return;
     setConfirmDialog({
       title: t('admin.aliases.deleteConfirmTitle'),
       message: t('admin.aliases.deleteConfirmBody'),
@@ -6090,7 +6094,7 @@ function RulesTab() {
   const [loading, setLoading] = useState(true);
   const [formMode, setFormMode] = useState(null); // null | 'add' | 'edit'
   const [formId, setFormId] = useState(null);
-  const [formData, setFormData] = useState(null);
+  const [formData, setFormData] = useState<{ accountId?: string; name?: string; conditionLogic?: string; conditions?: Array<{ field?: string; operator?: string; value?: string; headerName?: string; [key: string]: unknown }>; actions?: Array<{ type?: string; value?: string; [key: string]: unknown }>; stopProcessing?: boolean; [key: string]: unknown } | null>(null);
   const [formError, setFormError] = useState('');
   const [formSaving, setFormSaving] = useState(false);
   useBackLayer(formMode, () => { if (!formSaving) setFormMode(null); }, 2010);
