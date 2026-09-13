@@ -583,3 +583,19 @@ Backend any: 463 -> 331 (tsc 0, testy 1785/0, lint czysty).
   wczesniej unia wymuszala lookup, gdy podano addresses.
 - aiProvider AiProviderStatus.connection: any -> jawny kształt.
 
+
+## 57. Backend: makiety fetch, cache favicon, sekcje GTD
+
+Backend any: 331 -> 283 (tsc 0, testy 1785/0, lint czysty).
+
+- senderFavicon.test: 24 x const fetchImpl: any = vi.fn(...) -> vi.fn<typeof fetch>(...)
+  (zachowuje .mock/.mockClear, ktorych typeof fetch nie ma).
+- senderFavicon: cache wynikow favikon byla typowana jako pelny RedisClientType,
+  a test podstawia 3-metodowa atrape -> wprowadzony waski SenderFaviconCache
+  (get/set/del) + SenderFaviconOptions (inwersja zaleznosci).
+- cacheDouble(): any -> jawny interfejs z sygnaturami Mock<...>.
+- gtdSections: emptySections() zwracalo {} (dynamiczne klucze) -> GtdSectionSummary/
+  GtdThreadSummary + jawny GtdSectionsResult; getGtdSections ma teraz jawny typ zwracany.
+  To odslonilo i otypowalo dostepy sections.todo / threads[0].message_id itd.
+- Usuniete 46 x as any z gtdSections.test.ts (parametr getGtdSections byl juz otypowany).
+

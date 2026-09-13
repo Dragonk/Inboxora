@@ -61,7 +61,7 @@ describe('getGtdSections — account resolution', () => {
   it('returns empty sections and issues no section query when the user has no GTD accounts', async () => {
     query.mockResolvedValueOnce({ rows: [] }); // accounts
 
-    const { sections } = (await getGtdSections({ userId: 'u1' } as any)) as any;
+    const { sections } = (await getGtdSections({ userId: 'u1' }));
 
     expect(query).toHaveBeenCalledTimes(1);
     for (const st of ['todo', 'watch', 'delegated', 'someday', 'reference']) {
@@ -71,7 +71,7 @@ describe('getGtdSections — account resolution', () => {
 
   it('scopes the accounts read to the user (via the listUserAccounts capability)', async () => {
     query.mockResolvedValueOnce({ rows: [] });
-    (await getGtdSections({ userId: 'u1' } as any)) as any;
+    (await getGtdSections({ userId: 'u1' }));
     // listUserAccounts issues the user-scoped account read; the enabled filter is applied in JS
     // and the per-account GTD gate via getGtdConfig — no gtd_enabled in the SQL anymore.
     const [sql, params] = query.mock.calls[0];
@@ -82,7 +82,7 @@ describe('getGtdSections — account resolution', () => {
   it('excludes accounts the caller does not own when accountId is supplied', async () => {
     query.mockResolvedValueOnce({ rows: [{ id: 'acc-1', folder_mappings: null, enabled: true }] }); // accounts
 
-    const { sections } = (await getGtdSections({ userId: 'u1', accountId: 'acc-other' } as any)) as any;
+    const { sections } = (await getGtdSections({ userId: 'u1', accountId: 'acc-other' }));
 
     // No section query runs — the requested account is not in the owned/enabled set.
     expect(query).toHaveBeenCalledTimes(1);
@@ -99,7 +99,7 @@ describe('getGtdSections — section folding', () => {
         headRow({ state: 'reference', folders: ['INBOX', 'Todo', 'Reference'], in_inbox: true }),
       ] });
 
-    const { sections } = (await getGtdSections({ userId: 'u1' } as any)) as any;
+    const { sections } = (await getGtdSections({ userId: 'u1' }));
 
     expect(sections.todo.threads).toHaveLength(1);
     expect(sections.reference.threads).toHaveLength(1);
@@ -116,7 +116,7 @@ describe('getGtdSections — section folding', () => {
         headRow({ state: 'watch', folders: ['Watch'], in_inbox: false, total: 1, unread: 0, thread_unread: false }),
       ] });
 
-    const { sections } = (await getGtdSections({ userId: 'u1' } as any)) as any;
+    const { sections } = (await getGtdSections({ userId: 'u1' }));
 
     expect(sections.watch.threads).toHaveLength(1);
     expect(sections.watch.threads[0].in_inbox).toBe(false);
@@ -131,7 +131,7 @@ describe('getGtdSections — section folding', () => {
         headRow({ id: 'c', message_id: '<c>', thread_key: 'tc', total: 3, unread: 2, thread_unread: false, date: '2026-06-29T10:00:00Z' }),
       ] });
 
-    const { sections } = (await getGtdSections({ userId: 'u1' } as any)) as any;
+    const { sections } = (await getGtdSections({ userId: 'u1' }));
 
     expect(sections.todo.total).toBe(3);
     expect(sections.todo.unread).toBe(2);
@@ -152,7 +152,7 @@ describe('getGtdSections — thread-level unread', () => {
         headRow({ thread_unread: true, is_read: true, total: 1, unread: 1 }),
       ] });
 
-    const { sections } = (await getGtdSections({ userId: 'u1' } as any)) as any;
+    const { sections } = (await getGtdSections({ userId: 'u1' }));
 
     expect(sections.todo.threads[0].is_read).toBe(false);
     expect(sections.todo.unread).toBe(1);
@@ -165,7 +165,7 @@ describe('getGtdSections — thread-level unread', () => {
         headRow({ thread_unread: false, total: 1, unread: 0 }),
       ] });
 
-    const { sections } = (await getGtdSections({ userId: 'u1' } as any)) as any;
+    const { sections } = (await getGtdSections({ userId: 'u1' }));
 
     expect(sections.todo.threads[0].is_read).toBe(true);
     expect(sections.todo.unread).toBe(0);
@@ -178,7 +178,7 @@ describe('getGtdSections — thread-level unread', () => {
         headRow({ state: 'watch', thread_unread: true, total: 1, unread: 1, waiting_total: 1, waiting_unread: 1 }),
       ] });
 
-    const { sections } = (await getGtdSections({ userId: 'u1' } as any)) as any;
+    const { sections } = (await getGtdSections({ userId: 'u1' }));
 
     // One truth per thread: the rollup badge and the row styling must agree.
     expect(sections.waiting).toEqual({ total: 1, unread: 1 });
@@ -197,7 +197,7 @@ describe('getGtdSections — unified merge', () => {
         headRow({ account_id: 'acc-1', id: 'a', message_id: '<a>', thread_key: 'ta' }),
       ] });
 
-    const { sections } = (await getGtdSections({ userId: 'u1' } as any)) as any;
+    const { sections } = (await getGtdSections({ userId: 'u1' }));
 
     expect(sections.todo.threads.map(thread => thread.id)).toEqual(['a']);
     expect(query).toHaveBeenCalledTimes(2);
@@ -216,7 +216,7 @@ describe('getGtdSections — unified merge', () => {
         headRow({ account_id: 'acc-2', id: 'b', message_id: '<b>', thread_key: 'tb', total: 1, unread: 0, thread_unread: false, date: '2026-07-03T00:00:00Z' }),
       ] });
 
-    const { sections } = (await getGtdSections({ userId: 'u1' } as any)) as any;
+    const { sections } = (await getGtdSections({ userId: 'u1' }));
 
     expect(sections.todo.total).toBe(2);
     expect(sections.todo.unread).toBe(1);
@@ -237,7 +237,7 @@ describe('getGtdSections — unified merge', () => {
         headRow({ account_id: 'acc-2', id: 'b', message_id: '<shared>', thread_key: 'ta', total: 1, unread: 0, thread_unread: false }),
       ] });
 
-    const { sections } = (await getGtdSections({ userId: 'u1' } as any)) as any;
+    const { sections } = (await getGtdSections({ userId: 'u1' }));
 
     expect(sections.todo.threads).toHaveLength(1);
   });
@@ -248,7 +248,7 @@ describe('getGtdSections — query shape and limits', () => {
     query
       .mockResolvedValueOnce({ rows: [{ id: 'acc-1', folder_mappings: null, enabled: true }] })
       .mockResolvedValueOnce({ rows: [] });
-    (await getGtdSections({ userId: 'u1' } as any)) as any;
+    (await getGtdSections({ userId: 'u1' }));
     expect(query.mock.calls[1][1][4]).toBe(8); // default limit param ($5)
 
     query.mockReset();
@@ -257,7 +257,7 @@ describe('getGtdSections — query shape and limits', () => {
     query
       .mockResolvedValueOnce({ rows: [{ id: 'acc-1', folder_mappings: null, enabled: true }] })
       .mockResolvedValueOnce({ rows: [] });
-    (await getGtdSections({ userId: 'u1', limit: 500 } as any)) as any;
+    (await getGtdSections({ userId: 'u1', limit: 500 }));
     expect(query.mock.calls[1][1][4]).toBe(50); // capped ($5)
   });
 
@@ -267,7 +267,7 @@ describe('getGtdSections — query shape and limits', () => {
       .mockResolvedValueOnce({ rows: [{ id: 'acc-1', folder_mappings: null, enabled: true }] })
       .mockResolvedValueOnce({ rows: [] });
 
-    (await getGtdSections({ userId: 'u1' } as any)) as any;
+    (await getGtdSections({ userId: 'u1' }));
 
     const sectionSql = query.mock.calls[1][0];
     expect(sectionSql).toContain('DISTINCT ON');
@@ -283,7 +283,7 @@ describe('getGtdSections — query shape and limits', () => {
       .mockResolvedValueOnce({ rows: [{ id: 'acc-1', folder_mappings: null, enabled: true }] })
       .mockResolvedValueOnce({ rows: [] });
 
-    (await getGtdSections({ userId: 'u1' } as any)) as any;
+    (await getGtdSections({ userId: 'u1' }));
 
     const sectionSql = query.mock.calls[1][0];
     // The head handed to the client must prefer a row living in a GTD label folder: its PK
@@ -297,7 +297,7 @@ describe('getGtdSections — query shape and limits', () => {
       .mockResolvedValueOnce({ rows: [{ id: 'acc-1', folder_mappings: null, enabled: true }] })
       .mockResolvedValueOnce({ rows: [] });
 
-    (await getGtdSections({ userId: 'u1' } as any)) as any;
+    (await getGtdSections({ userId: 'u1' }));
 
     const sectionSql = query.mock.calls[1][0];
     // A thread with a read label-folder head but a newer unread INBOX-only reply is
@@ -315,7 +315,7 @@ describe('getGtdSections — query shape and limits', () => {
       .mockResolvedValueOnce({ rows: [{ id: 'acc-1', folder_mappings: null, enabled: true }] })
       .mockResolvedValueOnce({ rows: [] });
 
-    (await getGtdSections({ userId: 'u1' } as any)) as any;
+    (await getGtdSections({ userId: 'u1' }));
 
     expect(query.mock.calls[1][0]).toContain('is_starred');
   });
@@ -325,7 +325,7 @@ describe('getGtdSections — query shape and limits', () => {
       .mockResolvedValueOnce({ rows: [{ id: 'acc-1', folder_mappings: null, enabled: true }] })
       .mockResolvedValueOnce({ rows: [] });
 
-    (await getGtdSections({ userId: 'u1' } as any)) as any;
+    (await getGtdSections({ userId: 'u1' }));
 
     const sectionSql = query.mock.calls[1][0];
     // A thread in BOTH watch and delegated must count once — COUNT(DISTINCT thread_key)
@@ -344,7 +344,7 @@ describe('getGtdSections — waiting rollup + star', () => {
       .mockResolvedValueOnce({ rows: [{ id: 'acc-1', folder_mappings: null, enabled: true }] })
       .mockResolvedValueOnce({ rows: [headRow({ state: 'todo', is_starred: true })] });
 
-    const { sections } = (await getGtdSections({ userId: 'u1' } as any)) as any;
+    const { sections } = (await getGtdSections({ userId: 'u1' }));
 
     expect(sections.todo.threads[0].is_starred).toBe(true);
   });
@@ -359,7 +359,7 @@ describe('getGtdSections — waiting rollup + star', () => {
         headRow({ state: 'delegated', id: 'a', message_id: '<a>', thread_key: 'ta', total: 1, unread: 1, thread_unread: true, waiting_total: 1, waiting_unread: 1 }),
       ] });
 
-    const { sections } = (await getGtdSections({ userId: 'u1' } as any)) as any;
+    const { sections } = (await getGtdSections({ userId: 'u1' }));
 
     expect(sections.watch.total).toBe(1);
     expect(sections.delegated.total).toBe(1);
@@ -381,7 +381,7 @@ describe('getGtdSections — waiting rollup + star', () => {
         headRow({ account_id: 'acc-2', state: 'watch', id: 'c', message_id: '<c>', thread_key: 'tc', waiting_total: 4, waiting_unread: 0, thread_unread: false }),
       ] });
 
-    const { sections } = (await getGtdSections({ userId: 'u1' } as any)) as any;
+    const { sections } = (await getGtdSections({ userId: 'u1' }));
 
     expect(sections.waiting).toEqual({ total: 7, unread: 2 });
   });
@@ -389,7 +389,7 @@ describe('getGtdSections — waiting rollup + star', () => {
   it('returns a zeroed waiting rollup when the user has no GTD accounts', async () => {
     query.mockResolvedValueOnce({ rows: [] }); // accounts
 
-    const { sections } = (await getGtdSections({ userId: 'u1' } as any)) as any;
+    const { sections } = (await getGtdSections({ userId: 'u1' }));
 
     expect(sections.waiting).toEqual({ total: 0, unread: 0 });
   });

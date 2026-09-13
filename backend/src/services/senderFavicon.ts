@@ -196,12 +196,25 @@ async function resolveWithParents(domain, deps) {
   return result;
 }
 
+export interface SenderFaviconCache {
+  get(key: string): Promise<string | null>;
+  set(key: string, value: string, options?: { EX?: number }): Promise<unknown>;
+  del(key: string): Promise<unknown>;
+}
+
+export interface SenderFaviconOptions {
+  cache?: SenderFaviconCache;
+  fetchImpl?: typeof fetch;
+  timeoutMs?: number;
+  maxBytes?: number;
+}
+
 export async function getSenderFavicon(domain, {
   cache = redisClient,
   fetchImpl = safeFetch,
   timeoutMs = 5000,
   maxBytes = MAX_BYTES,
-} = {}) {
+}: SenderFaviconOptions = {}) {
   const normalized = normalizeSenderDomain(domain);
   if (!normalized) return miss('invalid-image');
   return resolveDomain(normalized, { cache, fetchImpl, timeoutMs, maxBytes });

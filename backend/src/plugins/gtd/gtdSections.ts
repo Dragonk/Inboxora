@@ -8,8 +8,27 @@ export const WAITING_STATES = ['watch', 'delegated'];
 const DEFAULT_LIMIT = 8;
 const MAX_LIMIT = 50;
 
-function emptySections() {
-  const s = {};
+export interface GtdThreadSummary {
+  id?: string;
+  message_id?: string;
+  date?: string | number | Date | null;
+  in_inbox?: boolean;
+  folders?: string[];
+  [key: string]: unknown;
+}
+
+export interface GtdSectionSummary {
+  total: number;
+  unread: number;
+  threads?: GtdThreadSummary[];
+}
+
+export interface GtdSectionsResult {
+  sections: Record<string, GtdSectionSummary>;
+}
+
+function emptySections(): Record<string, GtdSectionSummary> {
+  const s: Record<string, GtdSectionSummary> = {};
   for (const st of GTD_STATES) s[st] = { total: 0, unread: 0, threads: [] };
   return s;
 }
@@ -45,7 +64,7 @@ function mapHead(row) {
 // accounts when accountId is null, or scoped to a single owned account otherwise.
 // Ownership + the gtd_enabled/enabled filter live in the accounts query, so a foreign
 // or disabled accountId simply resolves to no targets and yields empty sections.
-export async function getGtdSections({ userId, accountId = null, limit }: { userId?: string; accountId?: string | null; limit?: number } = {}) {
+export async function getGtdSections({ userId, accountId = null, limit }: { userId?: string; accountId?: string | null; limit?: number } = {}): Promise<GtdSectionsResult> {
   const safeLimit = Math.min(Math.max(Number(limit) || DEFAULT_LIMIT, 1), MAX_LIMIT);
 
   // The user's enabled accounts; the per-account GTD gate (gtd active for the account) is applied
