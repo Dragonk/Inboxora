@@ -1,7 +1,7 @@
 // @ts-nocheck
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
-const { sendPushToUser, listActivePushDevices, disablePushDevice, markPushDeviceFailure, sendNativePush } = vi.hoisted(() => ({
+const { sendPushToUser, listActivePushDevices, disablePushDevice, markPushDeviceFailure, sendNativePush } = vi.hoisted<any>(() => ({
   sendPushToUser: vi.fn(),
   listActivePushDevices: vi.fn(),
   disablePushDevice: vi.fn(),

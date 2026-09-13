@@ -10,7 +10,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 // of the total. The real database behaviour is covered by
 // calendarOccurrences.integration.test.js.
 
-const { query, withTransaction, projectCalendarResources } = vi.hoisted(() => ({
+const { query, withTransaction, projectCalendarResources } = vi.hoisted<any>(() => ({
   query: vi.fn(),
   withTransaction: vi.fn(),
   projectCalendarResources: vi.fn(),

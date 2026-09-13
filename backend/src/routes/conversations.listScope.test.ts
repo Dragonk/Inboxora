@@ -1,4 +1,3 @@
-// @ts-nocheck
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 
 vi.mock('../services/db.js', () => ({ query: vi.fn(), pool: {} }));
@@ -69,7 +68,7 @@ describe('GET /api/mail/conversations list contract', () => {
       headers: { 'x-test-user': 'user-a' },
     });
     expect(response.status).toBe(200);
-    const body = await response.json();
+    const body = (await response.json()) as any;
     expect(body.conversations).toHaveLength(1);
     expect(body.conversations[0]).toMatchObject({
       conversation_id: CONVERSATION_A,
@@ -108,7 +107,7 @@ describe('GET /api/mail/conversations list contract', () => {
       headers: { 'x-test-user': 'user-a' },
     });
     expect(response.status).toBe(200);
-    const rows = (await response.json()).conversations;
+    const rows = ((await response.json()) as any).conversations;
     expect(rows.map(row => [row.conversation_id, row.account_id])).toEqual([
       [CONVERSATION_A, ACCOUNT_A],
       [CONVERSATION_B, ACCOUNT_B],

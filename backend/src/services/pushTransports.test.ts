@@ -1,7 +1,7 @@
 // @ts-nocheck
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
-const { safeFetch } = vi.hoisted(() => ({ safeFetch: vi.fn() }));
+const { safeFetch } = vi.hoisted<any>(() => ({ safeFetch: vi.fn() }));
 vi.mock('./safeFetch.js', () => ({ safeFetch }));
 vi.mock('jose', () => {
   class SignJWT {

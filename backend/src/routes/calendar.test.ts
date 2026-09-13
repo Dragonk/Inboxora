@@ -3,7 +3,7 @@ import { outlookCalendar } from '../test/fixtures/outlookCalendar.js';
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import 'express-async-errors';
 
-const { query, withTransaction, sendCalendarInvitation, releaseCalendarSource, scheduleCalendarSource, stopCalendarSource, syncCalendarSource } = vi.hoisted(() => ({
+const { query, withTransaction, sendCalendarInvitation, releaseCalendarSource, scheduleCalendarSource, stopCalendarSource, syncCalendarSource } = vi.hoisted<any>(() => ({
   query: vi.fn(),
   withTransaction: vi.fn(async (fn) => fn({ query })),
   sendCalendarInvitation: vi.fn(),
@@ -76,7 +76,7 @@ describe('local calendar API', () => {
     });
 
     expect(response.status).toBe(400);
-    expect(await response.json()).toEqual({ error: 'CalDAV sources require username and password' });
+    expect((await response.json()) as any).toEqual({ error: 'CalDAV sources require username and password' });
     expect(query).not.toHaveBeenCalled();
   });
 
@@ -87,7 +87,7 @@ describe('local calendar API', () => {
     });
 
     expect(response.status).toBe(400);
-    expect(await response.json()).toEqual({ error: 'Source URL must not include credentials' });
+    expect((await response.json()) as any).toEqual({ error: 'Source URL must not include credentials' });
     expect(query).not.toHaveBeenCalled();
   });
 
@@ -101,7 +101,7 @@ describe('local calendar API', () => {
     });
 
     expect(response.status).toBe(201);
-    expect(await response.json()).toEqual({
+    expect((await response.json()) as any).toEqual({
       source: expect.not.objectContaining({ url: expect.anything(), username: expect.anything(), password: expect.anything(), url_fingerprint: expect.anything() }),
       sync: { ok: true },
     });
@@ -120,7 +120,7 @@ describe('local calendar API', () => {
     });
 
     expect(response.status).toBe(409);
-    const payload = await response.json();
+    const payload = (await response.json()) as any;
     expect(payload).toEqual({ error: 'Calendar source URL could not be stored securely' });
     expect(JSON.stringify(payload)).not.toContain('REPRO_SECRET');
   });
@@ -135,7 +135,7 @@ describe('local calendar API', () => {
     const response = await fetch(`${base}/api/calendar/sources`);
 
     expect(response.status).toBe(200);
-    const payload = await response.json();
+    const payload = (await response.json()) as any;
     expect(payload.sources).toEqual([{ id: 'source-1', kind: 'ical_url', displayName: 'Work', color: null, intervalMin: 60, enabled: true, lastSyncAt: null, lastError: 'failure [redacted]' }]);
     expect(JSON.stringify(payload)).not.toContain('ciphertext');
     expect(JSON.stringify(payload)).not.toContain('remote-user');
@@ -153,7 +153,7 @@ describe('local calendar API', () => {
     });
 
     expect(response.status).toBe(201);
-    expect(await response.json()).toEqual({ source: expect.objectContaining({ id: 'source-1' }), sync: { ok: true, eventCount: 2, skipped: [{ uid: 'bad', reason: 'unsupported or malformed VEVENT' }] } });
+    expect((await response.json()) as any).toEqual({ source: expect.objectContaining({ id: 'source-1' }), sync: { ok: true, eventCount: 2, skipped: [{ uid: 'bad', reason: 'unsupported or malformed VEVENT' }] } });
   });
 
   it('reports a persisted source first-sync failure with a differentiated status', async () => {
@@ -168,7 +168,7 @@ describe('local calendar API', () => {
     });
 
     expect(response.status).toBe(502);
-    expect(await response.json()).toEqual({ error: 'network unavailable', source: expect.objectContaining({ id: 'source-1' }), sync: { ok: false, error: 'network unavailable' } });
+    expect((await response.json()) as any).toEqual({ error: 'network unavailable', source: expect.objectContaining({ id: 'source-1' }), sync: { ok: false, error: 'network unavailable' } });
     expect(scheduleCalendarSource).toHaveBeenCalled();
   });
 
@@ -215,7 +215,7 @@ describe('local calendar API', () => {
     const response = await fetch(`${base}/api/calendar/calendars`);
 
     expect(response.status).toBe(200);
-    expect((await response.json()).calendars).toContainEqual({ id: 'calendar-1', name: 'Personal', source: 'local', read_only: false });
+    expect(((await response.json()) as any).calendars).toContainEqual({ id: 'calendar-1', name: 'Personal', source: 'local', read_only: false });
     expect(query.mock.calls[0][0]).toContain('WHERE user_id = $1');
     expect(query.mock.calls[0][1]).toEqual(['user-1']);
   });
@@ -226,7 +226,7 @@ describe('local calendar API', () => {
     const response = await fetch(`${base}/api/calendar/calendars`);
 
     expect(response.status).toBe(200);
-    expect((await response.json()).calendars).toContainEqual(expect.objectContaining({ id: 'contacts-birthdays', source: 'contacts', read_only: true }));
+    expect(((await response.json()) as any).calendars).toContainEqual(expect.objectContaining({ id: 'contacts-birthdays', source: 'contacts', read_only: true }));
   });
 
   it('creates an account-owned local calendar with display metadata', async () => {
@@ -238,7 +238,7 @@ describe('local calendar API', () => {
     });
 
     expect(response.status).toBe(201);
-    expect((await response.json()).calendar).toMatchObject({ id: 'calendar-2', name: 'Work' });
+    expect(((await response.json()) as any).calendar).toMatchObject({ id: 'calendar-2', name: 'Work' });
     expect(query.mock.calls[0][0]).toContain('owner_user_id');
     expect(query.mock.calls[0][1]).toEqual(['user-1', 'Work', '#123456', true]);
   });
@@ -252,7 +252,7 @@ describe('local calendar API', () => {
     });
 
     expect(response.status).toBe(200);
-    expect((await response.json()).calendar).toMatchObject({ name: 'Updated', display_visible: false });
+    expect(((await response.json()) as any).calendar).toMatchObject({ name: 'Updated', display_visible: false });
     expect(query.mock.calls[0][0]).toContain('owner_user_id = $5');
     expect(query.mock.calls[0][1]).toEqual(['Updated', '#abcdef', false, 'calendar-2', 'user-1']);
   });
@@ -266,7 +266,7 @@ describe('local calendar API', () => {
     expect(response.status).toBe(200);
     expect(query.mock.calls[0][0]).toContain('owner_user_id = $5 AND user_id = $5');
     expect(query.mock.calls[0][0]).not.toContain("source = 'local'");
-    expect((await response.json()).calendar.read_only).toBe(true);
+    expect(((await response.json()) as any).calendar.read_only).toBe(true);
   });
   it('persists contact calendar appearance per user while retaining translated default names', async () => {
     query.mockResolvedValueOnce({ rows: [] });
@@ -277,12 +277,12 @@ describe('local calendar API', () => {
     expect(response.status).toBe(200);
     expect(query.mock.calls[0][1][0]).toBe('user-1');
     expect(JSON.parse(query.mock.calls[0][1][1])).toMatchObject({ name: null, color: '#123456' });
-    expect((await response.json()).calendar).toMatchObject({ read_only: true, custom_name: false });
+    expect(((await response.json()) as any).calendar).toMatchObject({ read_only: true, custom_name: false });
   });
   it('returns a custom contact calendar name and color after reload', async () => {
     query.mockResolvedValueOnce({ rows: [] }).mockResolvedValueOnce({ rows: [{ appearance: { name: 'Rodzina', color: '#123456' } }] });
     const response = await fetch(`${base}/api/calendar/calendars`);
-    expect((await response.json()).calendars[0]).toMatchObject({ name: 'Rodzina', custom_name: true, color: '#123456', read_only: true });
+    expect(((await response.json()) as any).calendars[0]).toMatchObject({ name: 'Rodzina', custom_name: true, color: '#123456', read_only: true });
   });
   it('requires exact calendar-name confirmation before deleting an owned calendar', async () => {
     query.mockResolvedValueOnce({ rows: [{ id: 'calendar-2' }] });
@@ -313,7 +313,7 @@ describe('local calendar API', () => {
     const response = await fetch(`${base}/api/calendar/events?from=2026-01-01T00:00:00.000Z&to=2028-01-02T00:00:00.000Z`);
 
     expect(response.status).toBe(400);
-    expect(await response.json()).toEqual({ error: 'The requested event range is too large' });
+    expect((await response.json()) as any).toEqual({ error: 'The requested event range is too large' });
     expect(query).not.toHaveBeenCalled();
   });
 
@@ -324,7 +324,7 @@ describe('local calendar API', () => {
     }] });
 
     const response = await fetch(`${base}/api/calendar/events?from=2026-09-01T00:00:00.000Z&to=2026-10-01T00:00:00.000Z`);
-    const { events } = await response.json();
+    const { events } = (await response.json()) as any;
 
     expect(response.status).toBe(200);
     expect(query.mock.calls.some(([sql]) => typeof sql === 'string' && sql.includes('contact_dates'))).toBe(true);
@@ -343,7 +343,7 @@ describe('local calendar API', () => {
     }] });
 
     const response = await fetch(`${base}/api/calendar/events?from=2026-01-01T00:00:00.000Z&to=2027-01-01T00:00:00.000Z`);
-    const { events } = await response.json();
+    const { events } = (await response.json()) as any;
 
     expect(response.status).toBe(200);
     expect(events).toHaveLength(2);
@@ -356,7 +356,7 @@ describe('local calendar API', () => {
     }] });
     const response = await fetch(`${base}/api/calendar/events?from=2028-02-01T00:00:00.000Z&to=2028-03-01T00:00:00.000Z`);
     expect(response.status).toBe(200);
-    const { events } = await response.json();
+    const { events } = (await response.json()) as any;
     expect(events).toHaveLength(1);
     expect(events[0]).toMatchObject({ contact_date_label: 'Birthday', starts_at: '2028-02-29T00:00:00.000Z' });
   });
@@ -371,7 +371,7 @@ describe('local calendar API', () => {
     }] });
 
     const response = await fetch(`${base}/api/calendar/events?from=2026-09-01T00:00:00.000Z&to=2026-10-01T00:00:00.000Z`);
-    const { events } = await response.json();
+    const { events } = (await response.json()) as any;
 
     expect(response.status).toBe(200);
     expect(events).toHaveLength(2);
@@ -394,7 +394,7 @@ describe('local calendar API', () => {
     }] });
 
     const response = await fetch(`${base}/api/calendar/events?from=2026-09-01T00:00:00.000Z&to=2026-10-01T00:00:00.000Z`);
-    const { events, truncated } = await response.json();
+    const { events, truncated } = (await response.json()) as any;
 
     expect(response.status).toBe(200);
     expect(truncated).toBe(false);
@@ -428,7 +428,7 @@ describe('local calendar API', () => {
     });
 
     const response = await fetch(`${base}/api/calendar/events?from=2026-09-01T00:00:00.000Z&to=2026-10-01T00:00:00.000Z`);
-    const { events } = await response.json();
+    const { events } = (await response.json()) as any;
 
     expect(response.status).toBe(200);
     // Ordering is by start time; the fallback event's summary comes from its ICS (the
@@ -458,7 +458,7 @@ describe('local calendar API', () => {
 
       const response = await cancel({ calendarId: 'calendar-1', recurrenceId: '2026-01-09T09:00:00', scope: 'following' });
       expect(response.status).toBe(200);
-      expect((await response.json()).scope).toBe('following');
+      expect(((await response.json()) as any).scope).toBe('following');
 
       const update = query.mock.calls.find(([sql]) => typeof sql === 'string' && sql.includes('UPDATE calendar_events SET raw_ical'));
       expect(update).toBeTruthy();
@@ -486,7 +486,7 @@ describe('local calendar API', () => {
 
       const response = await cancel({ calendarId: 'calendar-1', recurrenceId: '2026-01-09T09:00:00' });
       expect(response.status).toBe(200);
-      expect((await response.json()).scope).toBe('single');
+      expect(((await response.json()) as any).scope).toBe('single');
 
       const update = query.mock.calls.find(([sql]) => typeof sql === 'string' && sql.includes('UPDATE calendar_events SET raw_ical'));
       // One occurrence is excluded; the rest of the series is untouched.
@@ -514,7 +514,7 @@ describe('local calendar API', () => {
     });
 
     expect(response.status).toBe(400);
-    expect(await response.json()).toEqual({ error: 'A sender account and at least one attendee are required for invitations' });
+    expect((await response.json()) as any).toEqual({ error: 'A sender account and at least one attendee are required for invitations' });
     expect(query).not.toHaveBeenCalled();
   });
 
@@ -662,7 +662,7 @@ describe('local calendar API', () => {
     });
 
     expect(response.status).toBe(403);
-    expect(await response.json()).toEqual({ error: 'This calendar is read-only' });
+    expect((await response.json()) as any).toEqual({ error: 'This calendar is read-only' });
   });
   it('updates only events in a writable calendar owned by the signed-in user', async () => {
     query
@@ -683,7 +683,7 @@ describe('local calendar API', () => {
     });
 
     expect(response.status).toBe(200);
-    expect((await response.json()).event).toMatchObject({ id: 'event-1', summary: 'Updated' });
+    expect(((await response.json()) as any).event).toMatchObject({ id: 'event-1', summary: 'Updated' });
     expect(query.mock.calls[2][0]).toContain("raw_ical = $1");
     expect(query.mock.calls[2][1][0]).toMatch(/^BEGIN:VCALENDAR\r\nVERSION:2.0\r\n/);
     expect(query.mock.calls[2][1][0]).toContain("UID:uid-1");
@@ -796,7 +796,7 @@ describe('local calendar API', () => {
     });
 
     expect(response.status).toBe(502);
-    expect(await response.json()).toEqual({ error: 'The previous invitation could not be cancelled, so the event was not changed.' });
+    expect((await response.json()) as any).toEqual({ error: 'The previous invitation could not be cancelled, so the event was not changed.' });
     expect(query).toHaveBeenCalledTimes(3);
     expect(query.mock.calls.some(([sql]) => sql.includes('UPDATE calendar_events'))).toBe(false);
   });
@@ -822,7 +822,7 @@ describe('local calendar API', () => {
     });
 
     expect(response.status).toBe(502);
-    expect(await response.json()).toEqual({ error: 'The previous invitation could not be cancelled, so the event was not changed.' });
+    expect((await response.json()) as any).toEqual({ error: 'The previous invitation could not be cancelled, so the event was not changed.' });
     expect(query).toHaveBeenCalledTimes(5);
     expect(query.mock.calls.some(([sql]) => sql.includes('UPDATE calendar_events'))).toBe(false);
     expect(query.mock.calls.some(([sql]) => /(?:INSERT INTO|UPDATE) calendar_invitation_outbox/.test(sql))).toBe(false);
@@ -889,7 +889,7 @@ describe('local calendar API', () => {
   it('rejects newline-injected attendees on update before querying the database', async () => {
     const response = await fetch(`${base}/api/calendar/events/event-1`, { method: 'PATCH', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ calendarId: 'calendar-1', attendees: ['guest@example.test\r\nBcc: victim@example.test'], startsAt: '2026-09-01T11:00:00.000Z', endsAt: '2026-09-01T12:00:00.000Z' }) });
     expect(response.status).toBe(400);
-    expect(await response.json()).toEqual({ error: 'Attendees must be valid email addresses' });
+    expect((await response.json()) as any).toEqual({ error: 'Attendees must be valid email addresses' });
     expect(query).not.toHaveBeenCalled();
   });
 
@@ -944,7 +944,7 @@ describe('local calendar API', () => {
     const response = await fetch(`${base}/api/calendar/events/event-1?calendarId=calendar-1`, { method: 'DELETE' });
 
     expect(response.status).toBe(502);
-    expect(await response.json()).toEqual({ error: 'The invitation could not be cancelled, so the event was not deleted.' });
+    expect((await response.json()) as any).toEqual({ error: 'The invitation could not be cancelled, so the event was not deleted.' });
     expect(query).toHaveBeenCalledTimes(3);
   });
 
@@ -1109,7 +1109,7 @@ it('recovers metadata for already imported events without returning the raw ICS'
   mockEventRead({ events: [{ id: 'event-1', description: null, location: null, attendees: [], starts_at: '2026-09-10T07:00:00Z', raw_ical: outlookCalendar('09', 'DESCRIPTION:Existing agenda\r\nLOCATION:Office\r\nATTENDEE:mailto:jane@example.test\r\n') }] });
   const response = await fetch(`${base}/api/calendar/events?from=2026-09-01&to=2026-10-01`);
   expect(response.status).toBe(200);
-  const { events } = await response.json();
+  const { events } = (await response.json()) as any;
   expect(events[0]).toMatchObject({ description: 'Existing agenda', location: 'Office', attendees: ['jane@example.test'] });
   expect(events[0]).not.toHaveProperty('raw_ical');
 });
@@ -1123,7 +1123,7 @@ describe('adding mail invitations to a local calendar', () => {
      .mockResolvedValueOnce({ rows: [] });
    const response = await fetch(`${base}/api/calendar/invitations/message-1`);
    expect(response.status).toBe(200);
-   const body = await response.json();
+   const body = (await response.json()) as any;
    expect(body.invitation).toMatchObject({ description: 'Agenda', method: 'REQUEST', localEvent: null });
    expect(body.invitation.raw).toBeUndefined();
    expect(query.mock.calls[0][1]).toEqual(['message-1', 'user-1']);
@@ -1134,7 +1134,7 @@ describe('adding mail invitations to a local calendar', () => {
      .mockResolvedValueOnce({ rows: [{ id: 'event-1', calendar_id: 'calendar-1', invitation_sequence: 2, starts_at: null, ends_at: null, all_day: false }] });
    const response = await fetch(`${base}/api/calendar/invitations/message-1`);
    expect(response.status).toBe(200);
-   expect((await response.json()).invitation.localEvent).toEqual({
+   expect(((await response.json()) as any).invitation.localEvent).toEqual({
      id: 'event-1', calendarId: 'calendar-1', sequence: 2, startsAt: null, endsAt: null, allDay: false,
    });
    // Scoped to this user and this message, so a foreign event can never be reported as the
@@ -1149,7 +1149,7 @@ describe('adding mail invitations to a local calendar', () => {
      .mockResolvedValueOnce({ rows: [{ id: 'event-1' }] });
    const response = await fetch(`${base}/api/calendar/invitations/message-1`, { method: 'DELETE' });
    expect(response.status).toBe(200);
-   expect(await response.json()).toMatchObject({ removed: true, calendarId: 'calendar-1' });
+   expect((await response.json()) as any).toMatchObject({ removed: true, calendarId: 'calendar-1' });
    const deletion = query.mock.calls[2];
    expect(deletion[0]).toContain('source_message_id = $3');
    // A locally-owned event (one that invited attendees of its own) is never auto-removed.

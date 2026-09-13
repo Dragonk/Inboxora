@@ -98,7 +98,7 @@ describe('POST /api/gtd/folders/ensure — persist effective paths', () => {
 
     const res = await ensure();
     expect(res.status).toBe(200);
-    const body = await res.json();
+    const body = (await res.json()) as any;
 
     const expected = {
       todo: 'INBOX.Todo',
@@ -124,7 +124,7 @@ describe('POST /api/gtd/folders/ensure — persist effective paths', () => {
 
     const res = await ensure();
     expect(res.status).toBe(200);
-    const body = await res.json();
+    const body = (await res.json()) as any;
 
     expect(body.folders).toBeUndefined();
     expect(body.results).toHaveLength(5);
@@ -137,7 +137,7 @@ describe('POST /api/gtd/folders/ensure — persist effective paths', () => {
 
     const res = await ensure({ todo: 'INBOX' });
     expect(res.status).toBe(400);
-    const body = await res.json();
+    const body = (await res.json()) as any;
     expect(body.error).toMatch(/reserved system folder/i);
     expect(body.reserved).toEqual(['todo']);
     expect(imapManager.ensureFolder).not.toHaveBeenCalled();
@@ -155,7 +155,7 @@ describe('POST /api/gtd/folders/ensure — persist effective paths', () => {
 
     const res = await ensure({ watch: 'todo' });
     expect(res.status).toBe(400);
-    const body = await res.json();
+    const body = (await res.json()) as any;
     expect(body.error).toMatch(/same folder/i);
     expect(body.collisions).toEqual([{ folder: 'INBOX.Todo', states: ['todo', 'watch'] }]);
     expect(setAccountConfig).not.toHaveBeenCalled();
@@ -172,7 +172,7 @@ describe('POST /api/gtd/folders/ensure — persist effective paths', () => {
 
     const res = await ensure({ todo: 'TodoNew' });
     expect(res.status).toBe(200);
-    const body = await res.json();
+    const body = (await res.json()) as any;
 
     expect(body.folders).toEqual({
       watch: 'INBOX.Watch',

@@ -1,4 +1,3 @@
-// @ts-nocheck
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 
 vi.mock('../services/db.js', () => ({ query: vi.fn() }));
@@ -69,7 +68,7 @@ describe('PUT /api/accounts/:id unified inbox preference', () => {
     });
 
     expect(response.status).toBe(200);
-    expect((await response.json()).include_in_unified_inbox).toBe(false);
+    expect(((await response.json()) as any).include_in_unified_inbox).toBe(false);
     expect(query.mock.calls[1][0]).toContain('include_in_unified_inbox = $1');
     expect(query.mock.calls[1][1]).toEqual([false, '44444444-4444-4444-4444-444444444444']);
   });

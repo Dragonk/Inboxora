@@ -158,7 +158,7 @@ describe('POST /api/gtd/pet/import — error mapping', () => {
     importPet.mockResolvedValueOnce({ slug: 'custom-abc', displayName: 'My Pet', descriptor: { cols: 8 } });
     const res = await petImport({ petJson: '{}', sheet: VALID_SHEET_B64 });
     expect(res.status).toBe(200);
-    expect(await res.json()).toEqual({ slug: 'custom-abc', displayName: 'My Pet', descriptor: { cols: 8 } });
+    expect((await res.json()) as any).toEqual({ slug: 'custom-abc', displayName: 'My Pet', descriptor: { cols: 8 } });
     // The route decodes the base64 sheet to bytes and passes the pet.json text through verbatim.
     const arg = importPet.mock.calls[0][0];
     expect(Buffer.isBuffer(arg.sheet)).toBe(true);
@@ -169,27 +169,27 @@ describe('POST /api/gtd/pet/import — error mapping', () => {
     importPet.mockRejectedValueOnce(Object.assign(new Error('Spritesheet is not a recognised image'), { code: 'BAD_IMAGE' }));
     const res = await petImport({ petJson: '{}', sheet: VALID_SHEET_B64 });
     expect(res.status).toBe(400);
-    expect((await res.json()).error).toBe('Spritesheet is not a recognised image');
+    expect(((await res.json()) as any).error).toBe('Spritesheet is not a recognised image');
   });
 
   it('maps an uncoded failure to 500 (import never touches the network)', async () => {
     importPet.mockRejectedValueOnce(new Error('DB write failed'));
     const res = await petImport({ petJson: '{}', sheet: VALID_SHEET_B64 });
     expect(res.status).toBe(500);
-    expect((await res.json()).error).toBe('Failed to import pet');
+    expect(((await res.json()) as any).error).toBe('Failed to import pet');
   });
 
   it('rejects a missing petJson/sheet with 400 before calling importPet', async () => {
     const res = await petImport({ sheet: VALID_SHEET_B64 });
     expect(res.status).toBe(400);
-    expect((await res.json()).error).toMatch(/petJson and sheet are required/i);
+    expect(((await res.json()) as any).error).toMatch(/petJson and sheet are required/i);
     expect(importPet).not.toHaveBeenCalled();
   });
 
   it('rejects an undecodable sheet with 400 before calling importPet', async () => {
     const res = await petImport({ petJson: '{}', sheet: 'data:image/png' }); // no comma → decode returns null
     expect(res.status).toBe(400);
-    expect((await res.json()).error).toMatch(/could not be decoded/i);
+    expect(((await res.json()) as any).error).toMatch(/could not be decoded/i);
     expect(importPet).not.toHaveBeenCalled();
   });
 });

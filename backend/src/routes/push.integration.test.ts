@@ -54,7 +54,7 @@ describe.skipIf(!enabled)('push device registry with PostgreSQL', () => {
       headers: { 'content-type': 'application/json' },
       body: JSON.stringify({ deviceId, platform: 'android', transport: 'unifiedpush', endpoint, appVersion: '4.0.0' }),
     });
-    return { response, body: await response.json() };
+    return { response, body: (await response.json()) as any };
   }
 
   it('registers, encrypts the endpoint, and authenticates the native API with the issued token', async () => {

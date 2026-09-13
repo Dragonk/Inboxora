@@ -3,9 +3,9 @@
 // anything that is due — without ever sending a message that already succeeded.
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
-const { query } = vi.hoisted(() => ({ query: vi.fn() }));
+const { query } = vi.hoisted<any>(() => ({ query: vi.fn() }));
 vi.mock('./db.js', () => ({ query }));
-const { sendCalendarInvitation } = vi.hoisted(() => ({ sendCalendarInvitation: vi.fn() }));
+const { sendCalendarInvitation } = vi.hoisted<any>(() => ({ sendCalendarInvitation: vi.fn() }));
 vi.mock('./calendarInvitation.js', () => ({ sendCalendarInvitation }));
 
 const {

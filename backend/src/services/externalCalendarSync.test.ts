@@ -2,7 +2,7 @@ import { outlookCalendar } from '../test/fixtures/outlookCalendar.js';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { readFile } from 'node:fs/promises';
 
-const { query, safeFetch, getConnectionPolicy } = vi.hoisted(() => ({
+const { query, safeFetch, getConnectionPolicy } = vi.hoisted<any>(() => ({
   query: vi.fn(), safeFetch: vi.fn(), getConnectionPolicy: vi.fn(),
 }));
 vi.mock('./db.js', () => ({ query }));

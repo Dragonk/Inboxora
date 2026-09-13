@@ -1,4 +1,3 @@
-// @ts-nocheck
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 
 vi.mock('../services/db.js', () => ({ query: vi.fn() }));
@@ -50,7 +49,7 @@ describe('POST /api/mail/folders/empty — async background empty', () => {
     imapManager.emptyFolder.mockResolvedValue(undefined);
     const res = await empty('Trash');
     expect(res.status).toBe(202);
-    expect((await res.json()).started).toBe(true);
+    expect(((await res.json()) as any).started).toBe(true);
     await tick();
     expect(imapManager.emptyFolder).toHaveBeenCalledWith(ACCOUNT, 'Trash');
     expect(clearedDb()).toBe(true);

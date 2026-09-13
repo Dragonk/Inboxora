@@ -1,7 +1,7 @@
 // @ts-nocheck
 import { describe, expect, it, vi } from 'vitest';
 
-const { createAccountSmtpTransport } = vi.hoisted(() => ({ createAccountSmtpTransport: vi.fn() }));
+const { createAccountSmtpTransport } = vi.hoisted<any>(() => ({ createAccountSmtpTransport: vi.fn() }));
 vi.mock('./smtpTransport.js', () => ({ createAccountSmtpTransport }));
 
 import { sendCalendarInvitation } from './calendarInvitation.js';

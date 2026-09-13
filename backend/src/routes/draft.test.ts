@@ -4,7 +4,7 @@ vi.mock('../services/db.js', () => ({ query: vi.fn() }));
 vi.mock('../middleware/auth.js', () => ({
   requireAuth: (req, _res, next) => { req.session = { userId: 'user-1' }; next(); },
 }));
-const imapManager = vi.hoisted(() => ({
+const imapManager = vi.hoisted<any>(() => ({
   appendToFolder: vi.fn(),
   upsertDraftMessageRecord: vi.fn(),
   permanentDeleteMessage: vi.fn(),
@@ -65,7 +65,7 @@ describe('POST /api/mail/draft — local row persistence', () => {
       }),
     });
     expect(res.status).toBe(200);
-    expect(await res.json()).toEqual({ uid: 5, folder: 'Drafts' });
+    expect((await res.json()) as any).toEqual({ uid: 5, folder: 'Drafts' });
 
     expect(imapManager.upsertDraftMessageRecord).toHaveBeenCalledTimes(1);
     const [acct, folder, uid, meta] = imapManager.upsertDraftMessageRecord.mock.calls[0];
@@ -88,7 +88,7 @@ describe('POST /api/mail/draft — local row persistence', () => {
       body: JSON.stringify({ accountId: ACCOUNT_ID, to: ['a@b.com'], subject: 'x', body: 'y' }),
     });
     expect(res.status).toBe(200);
-    expect(await res.json()).toEqual({ uid: 5, folder: 'Drafts' });
+    expect((await res.json()) as any).toEqual({ uid: 5, folder: 'Drafts' });
   });
 
   it('does not persist a row when the append returns no uid (no reliable key)', async () => {

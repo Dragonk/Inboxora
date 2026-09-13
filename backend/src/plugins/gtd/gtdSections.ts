@@ -1,4 +1,3 @@
-// @ts-nocheck
 import { getGtdConfig, GTD_STATES } from './gtdConfig.js';
 import { resolveAllDraftsPaths, listThreadHeadsByLabels, notifyOnLabelTouch, listUserAccounts, getMessageAnnotations } from '../api.js';
 
@@ -46,8 +45,8 @@ function mapHead(row) {
 // accounts when accountId is null, or scoped to a single owned account otherwise.
 // Ownership + the gtd_enabled/enabled filter live in the accounts query, so a foreign
 // or disabled accountId simply resolves to no targets and yields empty sections.
-export async function getGtdSections({ userId, accountId = null, limit } = {}) {
-  const safeLimit = Math.min(Math.max(parseInt(limit) || DEFAULT_LIMIT, 1), MAX_LIMIT);
+export async function getGtdSections({ userId, accountId = null, limit }: { userId?: string; accountId?: string | null; limit?: number } = {}) {
+  const safeLimit = Math.min(Math.max(Number(limit) || DEFAULT_LIMIT, 1), MAX_LIMIT);
 
   // The user's enabled accounts; the per-account GTD gate (gtd active for the account) is applied
   // per account below via getGtdConfig, so accounts where GTD is off simply contribute nothing.
@@ -102,7 +101,7 @@ export async function getGtdSections({ userId, accountId = null, limit } = {}) {
   // (the same mail delivered to two accounts collapses to one head), cap to the limit.
   for (const st of GTD_STATES) {
     const sec = sections[st];
-    sec.threads.sort((a, b) => new Date(b.date) - new Date(a.date));
+    sec.threads.sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
     const seen = new Set();
     sec.threads = sec.threads
       .filter(h => {
@@ -137,7 +136,7 @@ export async function getGtdSections({ userId, accountId = null, limit } = {}) {
 // cached). One broadcast per call regardless of how many messages qualified. imapManager
 // is injected (like the transition engine) so this stays unit-testable without a live
 // socket server.
-export async function emitGtdIfRelevant(imapManager, accountId, userId, messageIds, actedFolders) {
+export async function emitGtdIfRelevant(imapManager, accountId, userId, messageIds, actedFolders = null) {
   if (!accountId || !userId) return;
   const ids = [...new Set((messageIds || []).filter(Boolean))];
   if (!ids.length) return; // short-circuit before touching config (no getGtdConfig on an empty batch)

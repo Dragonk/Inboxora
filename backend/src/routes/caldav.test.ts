@@ -1,9 +1,8 @@
-// @ts-nocheck
 import { outlookCalendar } from '../test/fixtures/outlookCalendar.js';
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import { createBrowserCors } from '../middleware/browserCors.js';
 
-const { authenticateDavCredential, query } = vi.hoisted(() => ({
+const { authenticateDavCredential, query } = vi.hoisted<any>(() => ({
   authenticateDavCredential: vi.fn(),
   query: vi.fn(async () => ({ rows: [] })),
 }));

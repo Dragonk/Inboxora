@@ -1,6 +1,6 @@
 import { describe, expect, it, vi, beforeEach } from 'vitest';
 
-const { query } = vi.hoisted(() => ({ query: vi.fn() }));
+const { query } = vi.hoisted<any>(() => ({ query: vi.fn() }));
 vi.mock('./db.js', () => ({ query }));
 vi.mock('./encryption.js', () => ({
   encrypt: (value) => `enc:v1:${value}`,

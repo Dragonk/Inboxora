@@ -5,7 +5,7 @@ import { randomUUID } from 'crypto';
 import express from 'express';
 import 'express-async-errors';
 import { pool, query } from '../services/db.js';
-const auth = vi.hoisted(() => ({ userId: null }));
+const auth = vi.hoisted<any>(() => ({ userId: null }));
 vi.mock('../services/davCredentials.js', () => ({ authenticateDavCredential: async () => auth }));
 vi.mock('../services/rateLimiter.js', () => ({ consume: async () => ({ limited: false }) }));
 vi.mock('../services/authEvents.js', () => ({ logAuthEvent: () => {} }));

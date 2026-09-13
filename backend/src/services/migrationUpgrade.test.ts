@@ -3,7 +3,7 @@ import { createHash } from 'crypto';
 import { readFileSync } from 'fs';
 import { join } from 'path';
 
-const { connect, backfillRichContactFields } = vi.hoisted(() => ({
+const { connect, backfillRichContactFields } = vi.hoisted<any>(() => ({
   connect: vi.fn(),
   backfillRichContactFields: vi.fn(async () => 0),
 }));

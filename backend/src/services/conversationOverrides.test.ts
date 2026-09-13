@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from 'vitest';
 import { applyConversationOverride, validateOverrideType } from './conversationOverrides.js';
 
-const { withTransaction, query } = vi.hoisted(() => ({ withTransaction: vi.fn(), query: vi.fn() }));
+const { withTransaction, query } = vi.hoisted<any>(() => ({ withTransaction: vi.fn(), query: vi.fn() }));
 vi.mock('./db.js', () => ({ withTransaction, query }));
 
 describe('conversation overrides', () => {

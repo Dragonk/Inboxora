@@ -72,7 +72,7 @@ describe('GET /api/mail/messages/:ref/conversation', () => {
     const response = await resolve(COPY_ID);
 
     expect(response.status).toBe(200);
-    expect(await response.json()).toMatchObject({ logical_message_id: 'logical-physical', conversation_id: 'conversation-physical' });
+    expect((await response.json()) as any).toMatchObject({ logical_message_id: 'logical-physical', conversation_id: 'conversation-physical' });
     const [sql, params] = query.mock.calls[0];
     expect(sql).toContain('WHERE m.id = $1 AND a.user_id = $2 AND m.is_deleted = false');
     expect(sql).not.toContain('m.canonical_message_id = $1');
@@ -89,7 +89,7 @@ describe('GET /api/mail/messages/:ref/conversation', () => {
     const response = await resolve(MESSAGE_ID, 'user-a', ACCOUNT_A);
 
     expect(response.status).toBe(200);
-    expect(await response.json()).toMatchObject({ logical_message_id: 'logical-a', conversation_id: 'conversation-a' });
+    expect((await response.json()) as any).toMatchObject({ logical_message_id: 'logical-a', conversation_id: 'conversation-a' });
     const [sql, params] = query.mock.calls[0];
     expect(sql).toContain('m.canonical_message_id = $1');
     expect(sql).toContain('a.user_id = $2');
@@ -109,7 +109,7 @@ describe('GET /api/mail/messages/:ref/conversation', () => {
     const response = await resolve(MESSAGE_ID);
 
     expect(response.status).toBe(200);
-    expect(await response.json()).toMatchObject({ account_id: ACCOUNT_A, conversation_id: 'conversation-a' });
+    expect((await response.json()) as any).toMatchObject({ account_id: ACCOUNT_A, conversation_id: 'conversation-a' });
     expect(query.mock.calls[0][1]).toEqual([MESSAGE_ID, 'user-a', null]);
   });
 
@@ -122,7 +122,7 @@ describe('GET /api/mail/messages/:ref/conversation', () => {
     const response = await resolve(MESSAGE_ID);
 
     expect(response.status).toBe(409);
-    expect(await response.json()).toEqual({ error: 'Conversation reference is ambiguous', code: 'CONVERSATION_REFERENCE_AMBIGUOUS' });
+    expect((await response.json()) as any).toEqual({ error: 'Conversation reference is ambiguous', code: 'CONVERSATION_REFERENCE_AMBIGUOUS' });
     expect(query.mock.calls[0][1]).toEqual([MESSAGE_ID, 'user-a', null]);
   });
 
@@ -130,7 +130,7 @@ describe('GET /api/mail/messages/:ref/conversation', () => {
     const response = await resolve(MESSAGE_ID, 'user-a', 'not-a-uuid');
 
     expect(response.status).toBe(400);
-    expect(await response.json()).toEqual({ error: 'Invalid accountId' });
+    expect((await response.json()) as any).toEqual({ error: 'Invalid accountId' });
     expect(query).not.toHaveBeenCalled();
   });
 
@@ -144,7 +144,7 @@ describe('GET /api/mail/messages/:ref/conversation', () => {
     const response = await resolve(MESSAGE_ID, 'user-a', ACCOUNT_A);
 
     expect(response.status).toBe(200);
-    expect(await response.json()).toMatchObject({ account_id: ACCOUNT_A, conversation_id: 'conversation-a' });
+    expect((await response.json()) as any).toMatchObject({ account_id: ACCOUNT_A, conversation_id: 'conversation-a' });
   });
 
   it('resolves the same Message-ID to account B independently of account A', async () => {
@@ -157,7 +157,7 @@ describe('GET /api/mail/messages/:ref/conversation', () => {
     const response = await resolve(MESSAGE_ID, 'user-a', ACCOUNT_B);
 
     expect(response.status).toBe(200);
-    expect(await response.json()).toMatchObject({ account_id: ACCOUNT_B, conversation_id: 'conversation-b' });
+    expect((await response.json()) as any).toMatchObject({ account_id: ACCOUNT_B, conversation_id: 'conversation-b' });
   });
 
   it('returns 409 for two live identities with the same Message-ID inside the requested account', async () => {
@@ -169,7 +169,7 @@ describe('GET /api/mail/messages/:ref/conversation', () => {
     const response = await resolve(MESSAGE_ID, 'user-a', ACCOUNT_A);
 
     expect(response.status).toBe(409);
-    expect(await response.json()).toEqual({ error: 'Conversation reference is ambiguous', code: 'CONVERSATION_REFERENCE_AMBIGUOUS' });
+    expect((await response.json()) as any).toEqual({ error: 'Conversation reference is ambiguous', code: 'CONVERSATION_REFERENCE_AMBIGUOUS' });
   });
 
   it('passes the session tenant to the Message-ID query, so another user cannot qualify a collision', async () => {
@@ -183,7 +183,7 @@ describe('GET /api/mail/messages/:ref/conversation', () => {
     const response = await resolve(MESSAGE_ID, 'user-a', accountId);
 
     expect(response.status).toBe(200);
-    expect(await response.json()).toMatchObject({ conversation_id: 'conversation-a' });
+    expect((await response.json()) as any).toMatchObject({ conversation_id: 'conversation-a' });
     expect(query.mock.calls[0][1]).toEqual([MESSAGE_ID, 'user-a', accountId]);
   });
 
@@ -212,7 +212,7 @@ describe('GET /api/mail/messages/:ref/conversation', () => {
     const response = await resolve(MESSAGE_ID, 'user-a', ACCOUNT_A);
 
     expect(response.status).toBe(404);
-    expect(await response.json()).toEqual({ error: 'Conversation not found' });
+    expect((await response.json()) as any).toEqual({ error: 'Conversation not found' });
   });
 
   it('bounds absurd refs and rejects invalid RFC Message-ID values before querying', async () => {

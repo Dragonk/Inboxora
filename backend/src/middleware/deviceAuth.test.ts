@@ -1,7 +1,7 @@
 // @ts-nocheck
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
-const { authenticatePushDevice, bearerTokenFromHeader } = vi.hoisted(() => ({
+const { authenticatePushDevice, bearerTokenFromHeader } = vi.hoisted<any>(() => ({
   authenticatePushDevice: vi.fn(),
   bearerTokenFromHeader: vi.fn(),
 }));

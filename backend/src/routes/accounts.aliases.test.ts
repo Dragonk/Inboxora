@@ -122,7 +122,7 @@ describe('account alias mutations invalidate the owner-address cache', () => {
     const res = await request('POST', `${URL_ACCOUNT_ID}/aliases`, aliasBody);
 
     expect(res.status).toBe(200);
-    expect(await res.json()).toEqual(insertedAlias);
+    expect((await res.json()) as any).toEqual(insertedAlias);
     expectIdentityInvalidated(URL_ACCOUNT_ID);
   });
 
@@ -133,7 +133,7 @@ describe('account alias mutations invalidate the owner-address cache', () => {
     });
 
     expect(res.status).toBe(200);
-    expect(await res.json()).toEqual(updatedAlias);
+    expect((await res.json()) as any).toEqual(updatedAlias);
     expectIdentityInvalidated(CHECKED_ACCOUNT_ID);
   });
 
@@ -141,7 +141,7 @@ describe('account alias mutations invalidate the owner-address cache', () => {
     const res = await request('DELETE', `${URL_ACCOUNT_ID}/aliases/${ALIAS_ID}`);
 
     expect(res.status).toBe(200);
-    expect(await res.json()).toEqual({ ok: true });
+    expect((await res.json()) as any).toEqual({ ok: true });
     expectIdentityInvalidated(CHECKED_ACCOUNT_ID);
   });
 });
@@ -195,6 +195,6 @@ describe('account deletion with calendar invitations', () => {
     const response = await request('DELETE', URL_ACCOUNT_ID);
 
     expect(response.status).toBe(409);
-    expect(await response.json()).toEqual({ error: 'This account is still used to send calendar invitations. Cancel or transfer those invitations before deleting it.' });
+    expect((await response.json()) as any).toEqual({ error: 'This account is still used to send calendar invitations. Cancel or transfer those invitations before deleting it.' });
   });
 });

@@ -58,7 +58,7 @@ describe('GET /api/plugins', () => {
     getActivatedPlugins.mockResolvedValueOnce(new Set(['gtd']));
     const res = await req('GET', '/');
     expect(res.status).toBe(200);
-    expect(await res.json()).toEqual([
+    expect((await res.json()) as any).toEqual([
       { id: 'gtd', name: 'Getting Things Done', version: '1.0.0', tier: 1, activated: true },
     ]);
   });
@@ -66,7 +66,7 @@ describe('GET /api/plugins', () => {
   it('reports activated=false when the user has not activated it', async () => {
     getActivatedPlugins.mockResolvedValueOnce(new Set());
     const res = await req('GET', '/');
-    expect((await res.json())[0].activated).toBe(false);
+    expect(((await res.json()) as any)[0].activated).toBe(false);
   });
 });
 
@@ -74,7 +74,7 @@ describe('PATCH /api/plugins/:id', () => {
   it('activates a plugin, fires onPluginActivationChanged, and echoes the state', async () => {
     const res = await req('PATCH', '/gtd', { activated: true });
     expect(res.status).toBe(200);
-    expect(await res.json()).toEqual({ id: 'gtd', activated: true });
+    expect((await res.json()) as any).toEqual({ id: 'gtd', activated: true });
     expect(setPluginActivated).toHaveBeenCalledWith('u1', 'gtd', true);
     expect(runHookSpy).toHaveBeenCalledWith('onPluginActivationChanged', { userId: 'u1', pluginId: 'gtd', activated: true });
   });

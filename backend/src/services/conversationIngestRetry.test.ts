@@ -1,6 +1,6 @@
 import { describe, expect, it, vi, beforeEach } from 'vitest';
 
-const { claim, resolve, withTransaction, _upsertWithClient, resolveOwnIdentity, providerIdentity } = vi.hoisted(() => ({
+const { claim, resolve, withTransaction, _upsertWithClient, resolveOwnIdentity, providerIdentity } = vi.hoisted<any>(() => ({
   claim: vi.fn(),
   resolve: vi.fn(),
   withTransaction: vi.fn(),

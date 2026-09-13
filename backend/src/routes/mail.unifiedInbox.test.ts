@@ -52,7 +52,7 @@ describe('GET /api/mail/unread-counts unified total', () => {
     const response = await fetch(`${base}/api/mail/unread-counts`);
 
     expect(response.status).toBe(200);
-    expect(await response.json()).toEqual({
+    expect((await response.json()) as any).toEqual({
       total: 2,
       byAccount: { included: 2, excluded: 5 },
     });

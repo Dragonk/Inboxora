@@ -1,7 +1,7 @@
 import crypto from 'crypto';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
-const { query, discoverAddressBooks, fetchAddressBookCards, getConnectionPolicy } = vi.hoisted(() => ({
+const { query, discoverAddressBooks, fetchAddressBookCards, getConnectionPolicy } = vi.hoisted<any>(() => ({
   query: vi.fn(), discoverAddressBooks: vi.fn(), fetchAddressBookCards: vi.fn(), getConnectionPolicy: vi.fn(),
 }));
 vi.mock('./db.js', () => ({ query }));

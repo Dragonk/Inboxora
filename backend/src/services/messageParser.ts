@@ -71,7 +71,7 @@ function isDegenerateText(text) {
 // Build a plain-text snippet from either a decoded text/plain or text/html body.
 // Single canonical function used by all snippet-generation paths (IMAP sync,
 // body prefetch, backfill) so entity handling is identical everywhere.
-export function snippetFromBody(text, html) {
+export function snippetFromBody(text, html = undefined) {
   // HTML shipped in the text/plain part must go through the HTML stripper,
   // otherwise the markup itself becomes the "preview" (<!DOCTYPE html ...).
   if (text && looksLikeHtml(text)) {

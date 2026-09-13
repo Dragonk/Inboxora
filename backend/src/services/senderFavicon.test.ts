@@ -1,4 +1,3 @@
-// @ts-nocheck
 import { describe, it, expect, vi } from 'vitest';
 import {
   normalizeSenderDomain,
@@ -26,7 +25,7 @@ function response(body, status = 200, contentType = 'image/png', extraHeaders = 
   });
 }
 
-function cacheDouble(initial = new Map()) {
+function cacheDouble(initial = new Map()): any {
   return {
     values: initial,
     get: vi.fn(async key => initial.get(key) ?? null),
@@ -102,7 +101,7 @@ describe('PNG bounds', () => {
 describe('getSenderFavicon', () => {
   it('fetches the exact fixed domain-only URL and caches a validated PNG for seven days', async () => {
     const cache = cacheDouble();
-    const fetchImpl = vi.fn(async () => response(png(64)));
+    const fetchImpl: any = vi.fn(async () => response(png(64)));
 
     const result = await getSenderFavicon('Example.COM', { cache, fetchImpl });
 
@@ -123,7 +122,7 @@ describe('getSenderFavicon', () => {
     const bytes = png(32);
     const cache = cacheDouble();
     cache.get.mockResolvedValue(JSON.stringify({ v: 1, kind: 'image', pngBase64: bytes.toString('base64') }));
-    const fetchImpl = vi.fn();
+    const fetchImpl: any = vi.fn();
     const result = await getSenderFavicon('example.com', { cache, fetchImpl });
     expect(result).toMatchObject({ kind: 'image', source: 'cache' });
     expect(fetchImpl).not.toHaveBeenCalled();
@@ -132,7 +131,7 @@ describe('getSenderFavicon', () => {
   it('serves a negative cache hit without fetching', async () => {
     const cache = cacheDouble();
     cache.get.mockResolvedValue(JSON.stringify({ v: 1, kind: 'miss', reason: 'not-found' }));
-    const fetchImpl = vi.fn();
+    const fetchImpl: any = vi.fn();
     await expect(getSenderFavicon('example.com', { cache, fetchImpl })).resolves.toEqual({
       kind: 'miss', reason: 'not-found',
     });
@@ -273,7 +272,7 @@ describe('getSenderFavicon', () => {
   it('fails closed without fetching when Redis read fails', async () => {
     const cache = cacheDouble();
     cache.get.mockRejectedValue(new Error('redis unavailable'));
-    const fetchImpl = vi.fn();
+    const fetchImpl: any = vi.fn();
     await expect(getSenderFavicon('example.com', { cache, fetchImpl })).resolves.toEqual({
       kind: 'miss', reason: 'cache-unavailable',
     });
@@ -283,7 +282,7 @@ describe('getSenderFavicon', () => {
   it('evicts malformed cache data and refetches', async () => {
     const cache = cacheDouble();
     cache.get.mockResolvedValue('{broken');
-    const fetchImpl = vi.fn(async () => response(png(64)));
+    const fetchImpl: any = vi.fn(async () => response(png(64)));
     await getSenderFavicon('example.com', { cache, fetchImpl });
     expect(cache.del).toHaveBeenCalledTimes(1);
     expect(fetchImpl).toHaveBeenCalledTimes(1);
@@ -295,7 +294,7 @@ describe('getSenderFavicon', () => {
   ])('evicts a cached entry with %s and refetches', async (_label, cached) => {
     const cache = cacheDouble();
     cache.get.mockResolvedValue(cached);
-    const fetchImpl = vi.fn(async () => response(png()));
+    const fetchImpl: any = vi.fn(async () => response(png()));
     await expect(getSenderFavicon('example.com', { cache, fetchImpl })).resolves.toMatchObject({ kind: 'image' });
     expect(cache.del).toHaveBeenCalledTimes(1);
     expect(fetchImpl).toHaveBeenCalledTimes(1);
@@ -308,7 +307,7 @@ describe('getSenderFavicon', () => {
       kind: 'image',
       pngBase64: png(65).toString('base64'),
     }));
-    const fetchImpl = vi.fn(async () => response(png(32)));
+    const fetchImpl: any = vi.fn(async () => response(png(32)));
     await expect(getSenderFavicon('example.com', { cache, fetchImpl })).resolves.toMatchObject({
       kind: 'image', source: 'upstream',
     });
@@ -331,7 +330,7 @@ describe('getSenderFavicon', () => {
     const cache = cacheDouble();
     let release;
     const blocked = new Promise(resolve => { release = resolve; });
-    const fetchImpl = vi.fn(async () => { await blocked; return response(png(64)); });
+    const fetchImpl: any = vi.fn(async () => { await blocked; return response(png(64)); });
     const first = getSenderFavicon('EXAMPLE.com', { cache, fetchImpl });
     const second = getSenderFavicon('example.com.', { cache, fetchImpl });
     release();
@@ -347,7 +346,7 @@ describe('getSenderFavicon parent walk-up', () => {
 
   it('resolves a not-found subdomain to its registrable parent, caching under both keys', async () => {
     const cache = cacheDouble();
-    const fetchImpl = vi.fn(async target => (target.includes('/notion.so/') ? response(png(64)) : notFound()));
+    const fetchImpl: any = vi.fn(async target => (target.includes('/notion.so/') ? response(png(64)) : notFound()));
 
     const result = await getSenderFavicon('mail.notion.so', { cache, fetchImpl });
 
@@ -364,7 +363,7 @@ describe('getSenderFavicon parent walk-up', () => {
 
   it('walks on a provider 400 the same as a 404 (unresolvable mail-only subdomain)', async () => {
     const cache = cacheDouble();
-    const fetchImpl = vi.fn(async target =>
+    const fetchImpl: any = vi.fn(async target =>
       (target.includes('/wanver.shop/') ? response(png(64)) : response('bad request', 400, 'text/html')));
 
     const result = await getSenderFavicon('email.mg.wanver.shop', { cache, fetchImpl });
@@ -375,7 +374,7 @@ describe('getSenderFavicon parent walk-up', () => {
 
   it('reuses a cached parent favicon for a sibling subdomain without refetching it', async () => {
     const cache = cacheDouble();
-    const fetchImpl = vi.fn(async target => (target.includes('/notion.so/') ? response(png(64)) : notFound()));
+    const fetchImpl: any = vi.fn(async target => (target.includes('/notion.so/') ? response(png(64)) : notFound()));
 
     await getSenderFavicon('mail.notion.so', { cache, fetchImpl });
     fetchImpl.mockClear();
@@ -388,7 +387,7 @@ describe('getSenderFavicon parent walk-up', () => {
 
   it('walks to a registrable domain but stops before a co.uk public suffix', async () => {
     const cache = cacheDouble();
-    const fetchImpl = vi.fn(async target => (target.includes('/acme.co.uk/') ? response(png(64)) : notFound()));
+    const fetchImpl: any = vi.fn(async target => (target.includes('/acme.co.uk/') ? response(png(64)) : notFound()));
 
     const result = await getSenderFavicon('news.acme.co.uk', { cache, fetchImpl });
 
@@ -398,7 +397,7 @@ describe('getSenderFavicon parent walk-up', () => {
 
   it('never queries a stoplisted public suffix while walking', async () => {
     const cache = cacheDouble();
-    const fetchImpl = vi.fn(notFound);
+    const fetchImpl: any = vi.fn(notFound);
 
     const result = await getSenderFavicon('foo.github.io', { cache, fetchImpl });
 
@@ -409,7 +408,7 @@ describe('getSenderFavicon parent walk-up', () => {
 
   it('walks every registrable parent of a deep subdomain, one label at a time', async () => {
     const cache = cacheDouble();
-    const fetchImpl = vi.fn(notFound);
+    const fetchImpl: any = vi.fn(notFound);
 
     const result = await getSenderFavicon('a.b.c.d.example.com', { cache, fetchImpl });
 
@@ -425,7 +424,7 @@ describe('getSenderFavicon parent walk-up', () => {
 
   it('does not walk a two-label domain', async () => {
     const cache = cacheDouble();
-    const fetchImpl = vi.fn(notFound);
+    const fetchImpl: any = vi.fn(notFound);
 
     const result = await getSenderFavicon('example.com', { cache, fetchImpl });
 
@@ -440,7 +439,7 @@ describe('getSenderFavicon parent walk-up', () => {
     ['invalid-image', () => response(png(65))],
   ])('does not walk parents when the full domain is %s', async (reason, upstream) => {
     const cache = cacheDouble();
-    const fetchImpl = vi.fn(async () => upstream());
+    const fetchImpl: any = vi.fn(async () => upstream());
 
     const result = await getSenderFavicon('mail.notion.so', { cache, fetchImpl });
 
@@ -451,7 +450,7 @@ describe('getSenderFavicon parent walk-up', () => {
 
   it('caches an aggregate transient under the original key when a parent step is transient', async () => {
     const cache = cacheDouble();
-    const fetchImpl = vi.fn(async target =>
+    const fetchImpl: any = vi.fn(async target =>
       (target.includes('/notion.so/') ? response('', 503, 'text/plain') : notFound()));
 
     const result = await getSenderFavicon('mail.notion.so', { cache, fetchImpl });
@@ -465,7 +464,7 @@ describe('getSenderFavicon parent walk-up', () => {
 
   it('caches a single not-found aggregate under the original key when every candidate misses', async () => {
     const cache = cacheDouble();
-    const fetchImpl = vi.fn(notFound);
+    const fetchImpl: any = vi.fn(notFound);
 
     const result = await getSenderFavicon('mail.notion.so', { cache, fetchImpl });
 
@@ -481,7 +480,7 @@ describe('getSenderFavicon parent walk-up', () => {
     const cache = cacheDouble();
     let release;
     const blocked = new Promise(resolve => { release = resolve; });
-    const fetchImpl = vi.fn(async target => {
+    const fetchImpl: any = vi.fn(async target => {
       if (target.includes('/notion.so/')) { await blocked; return response(png(64)); }
       return notFound();
     });
@@ -501,7 +500,7 @@ describe('getSenderFavicon parent walk-up', () => {
   // own entry must then hold corp.com's image, not the 404 the walk saw.
   it('caches an intermediate parent under its resolved image, not the miss the walk observed', async () => {
     const cache = cacheDouble();
-    const fetchImpl = vi.fn(async target => (target.includes('/corp.com/') ? response(png(64)) : notFound()));
+    const fetchImpl: any = vi.fn(async target => (target.includes('/corp.com/') ? response(png(64)) : notFound()));
 
     const deep = await getSenderFavicon('a.b.corp.com', { cache, fetchImpl });
     expect(deep).toMatchObject({ kind: 'image' });
@@ -519,7 +518,7 @@ describe('getSenderFavicon parent walk-up', () => {
     const bReached = new Promise(resolve => { reached = resolve; });
     let release;
     const blocked = new Promise(resolve => { release = resolve; });
-    const fetchImpl = vi.fn(async target => {
+    const fetchImpl: any = vi.fn(async target => {
       if (target.includes('/b.corp.com/')) { reached(); await blocked; return notFound(); }
       if (target.includes('/corp.com/')) return response(png(64));
       return notFound();
@@ -539,7 +538,7 @@ describe('getSenderFavicon parent walk-up', () => {
 
   it('resolves a deep chain level by level, caching each level under its own resolved image', async () => {
     const cache = cacheDouble();
-    const fetchImpl = vi.fn(async target => (target.includes('/corp.com/') ? response(png(64)) : notFound()));
+    const fetchImpl: any = vi.fn(async target => (target.includes('/corp.com/') ? response(png(64)) : notFound()));
 
     const result = await getSenderFavicon('w.x.corp.com', { cache, fetchImpl });
 
@@ -561,7 +560,7 @@ describe('getSenderFavicon parent walk-up', () => {
 
   it('rejects a domain over the label cap at the front door, without fetching', async () => {
     const cache = cacheDouble();
-    const fetchImpl = vi.fn(notFound);
+    const fetchImpl: any = vi.fn(notFound);
 
     // An 11-label domain is rejected by normalize, so no walk and no fetch occur.
     const result = await getSenderFavicon('a.b.c.d.e.f.g.h.i.j.com', { cache, fetchImpl });
@@ -572,7 +571,7 @@ describe('getSenderFavicon parent walk-up', () => {
 
   it('walks the full ancestry of a ten-label domain, caching every level with none uncached', async () => {
     const cache = cacheDouble();
-    const fetchImpl = vi.fn(notFound);
+    const fetchImpl: any = vi.fn(notFound);
 
     const result = await getSenderFavicon('a.b.c.d.e.f.g.h.i.com', { cache, fetchImpl });
 

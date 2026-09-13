@@ -110,14 +110,14 @@ describe('POST /api/gtd/classify — request validation', () => {
   it('rejects a missing messageId/state with 400 before any lookup', async () => {
     const res = await classify({ state: 'todo' });
     expect(res.status).toBe(400);
-    expect((await res.json()).error).toMatch(/messageId and state are required/i);
+    expect(((await res.json()) as any).error).toMatch(/messageId and state are required/i);
     expect(query).not.toHaveBeenCalled();
   });
 
   it('rejects a non-UUID messageId with 400 before any lookup', async () => {
     const res = await classify({ messageId: 'not-a-uuid', state: 'todo' });
     expect(res.status).toBe(400);
-    expect((await res.json()).error).toMatch(/invalid message id/i);
+    expect(((await res.json()) as any).error).toMatch(/invalid message id/i);
     expect(query).not.toHaveBeenCalled();
   });
 });
@@ -126,7 +126,7 @@ describe('POST /api/gtd/classify — apply a GTD label (COPY)', () => {
   it('copies an INBOX message and returns an exact undo token for UIDPLUS', async () => {
     const res = await classify({ messageId: MSG_ID, state: 'todo' });
     expect(res.status).toBe(200);
-    expect(await res.json()).toEqual({
+    expect((await res.json()) as any).toEqual({
       ok: true,
       folder: 'Todo',
       applied: true,
@@ -140,7 +140,7 @@ describe('POST /api/gtd/classify — apply a GTD label (COPY)', () => {
   it('succeeds without advertising an unsafe inverse for non-UIDPLUS', async () => {
     imapManager.copyMessage.mockResolvedValueOnce(null);
     const res = await classify({ messageId: MSG_ID, state: 'todo' });
-    expect(await res.json()).toEqual({
+    expect((await res.json()) as any).toEqual({
       ok: true, folder: 'Todo', applied: true, undoToken: null,
     });
   });
@@ -148,7 +148,7 @@ describe('POST /api/gtd/classify — apply a GTD label (COPY)', () => {
   it('succeeds without advertising an unverifiable inverse when Message-ID is absent', async () => {
     stubQueries({ msg: { ...inboxMsg, message_id: null } });
     const res = await classify({ messageId: MSG_ID, state: 'todo' });
-    expect(await res.json()).toEqual({
+    expect((await res.json()) as any).toEqual({
       ok: true, folder: 'Todo', applied: true, undoToken: null,
     });
   });
@@ -157,7 +157,7 @@ describe('POST /api/gtd/classify — apply a GTD label (COPY)', () => {
     stubQueries({ msg: { ...inboxMsg, folder: 'Todo' } });
     const res = await classify({ messageId: MSG_ID, state: 'todo' });
     expect(res.status).toBe(200);
-    expect(await res.json()).toEqual({
+    expect((await res.json()) as any).toEqual({
       ok: true, folder: 'Todo', applied: false, undoToken: null,
     });
     expect(imapManager.ensureFolder).not.toHaveBeenCalled();
@@ -167,7 +167,7 @@ describe('POST /api/gtd/classify — apply a GTD label (COPY)', () => {
   it('short-circuits when a sibling already carries the state label', async () => {
     stubQueries({ sibling: { uid: 42 } });
     const res = await classify({ messageId: MSG_ID, state: 'todo' });
-    expect(await res.json()).toEqual({
+    expect((await res.json()) as any).toEqual({
       ok: true, folder: 'Todo', applied: false, undoToken: null,
     });
     expect(imapManager.copyMessage).not.toHaveBeenCalled();
@@ -177,7 +177,7 @@ describe('POST /api/gtd/classify — apply a GTD label (COPY)', () => {
     stubQueries({ msg: null });
     const res = await classify({ messageId: MSG_ID, state: 'todo' });
     expect(res.status).toBe(404);
-    expect((await res.json()).error).toMatch(/not found/i);
+    expect(((await res.json()) as any).error).toMatch(/not found/i);
     expect(imapManager.copyMessage).not.toHaveBeenCalled();
   });
 
@@ -185,7 +185,7 @@ describe('POST /api/gtd/classify — apply a GTD label (COPY)', () => {
     imapManager.copyMessage.mockRejectedValue(new Error('IMAP COPY failed'));
     const res = await classify({ messageId: MSG_ID, state: 'todo' });
     expect(res.status).toBe(500);
-    expect((await res.json()).error).toMatch(/failed to apply gtd label/i);
+    expect(((await res.json()) as any).error).toMatch(/failed to apply gtd label/i);
   });
 });
 
@@ -194,7 +194,7 @@ describe('DELETE /api/gtd/classify — remove a GTD label', () => {
     stubQueries({ sibling: { uid: 42 } });
     const res = await unclassify({ messageId: MSG_ID, state: 'todo' });
     expect(res.status).toBe(200);
-    expect(await res.json()).toEqual({ ok: true, removed: true, folder: 'Todo' });
+    expect((await res.json()) as any).toEqual({ ok: true, removed: true, folder: 'Todo' });
     // resolveCopyUid found the state-folder copy (uid 42) via the shared Message-ID join.
     expect(imapManager.removeMessageCopy).toHaveBeenCalledWith(ACCT_ID, 42, 'Todo');
   });
@@ -203,7 +203,7 @@ describe('DELETE /api/gtd/classify — remove a GTD label', () => {
     stubQueries({ sibling: null });
     const res = await unclassify({ messageId: MSG_ID, state: 'todo' });
     expect(res.status).toBe(200);
-    expect(await res.json()).toEqual({ ok: true, removed: false });
+    expect((await res.json()) as any).toEqual({ ok: true, removed: false });
     expect(imapManager.removeMessageCopy).not.toHaveBeenCalled();
   });
 
@@ -211,7 +211,7 @@ describe('DELETE /api/gtd/classify — remove a GTD label', () => {
     stubQueries({ msg: { ...inboxMsg, message_id: null } }); // INBOX ≠ Todo and no Message-ID → sibling unresolvable
     const res = await unclassify({ messageId: MSG_ID, state: 'todo' });
     expect(res.status).toBe(400);
-    expect((await res.json()).error).toMatch(/no Message-ID/i);
+    expect(((await res.json()) as any).error).toMatch(/no Message-ID/i);
     expect(imapManager.removeMessageCopy).not.toHaveBeenCalled();
   });
 
@@ -222,7 +222,7 @@ describe('DELETE /api/gtd/classify — remove a GTD label', () => {
     stubQueries({ msg: { ...inboxMsg, folder: 'Todo', message_id: null } });
     const res = await unclassify({ messageId: MSG_ID, state: 'todo' });
     expect(res.status).toBe(200);
-    expect(await res.json()).toEqual({ ok: true, removed: true, folder: 'Todo' });
+    expect((await res.json()) as any).toEqual({ ok: true, removed: true, folder: 'Todo' });
     expect(imapManager.removeMessageCopy).toHaveBeenCalledWith(ACCT_ID, 10, 'Todo');
   });
 
@@ -238,7 +238,7 @@ describe('DELETE /api/gtd/classify — remove a GTD label', () => {
     imapManager.removeMessageCopy.mockRejectedValue(new Error('IMAP delete failed'));
     const res = await unclassify({ messageId: MSG_ID, state: 'todo' });
     expect(res.status).toBe(500);
-    expect((await res.json()).error).toMatch(/failed to remove gtd label/i);
+    expect(((await res.json()) as any).error).toMatch(/failed to remove gtd label/i);
   });
 });
 
@@ -248,7 +248,7 @@ describe('POST /api/gtd/classify/undo — remove only the request-owned copy', (
   it('removes the exact copy identified by the classify response', async () => {
     const res = await undoClassify(token);
     expect(res.status).toBe(200);
-    expect(await res.json()).toEqual({ ok: true, removed: true, folder: 'Todo' });
+    expect((await res.json()) as any).toEqual({ ok: true, removed: true, folder: 'Todo' });
     expect(imapManager.removeMessageCopy).toHaveBeenCalledWith(ACCT_ID, 77, 'Todo');
   });
 
@@ -256,7 +256,7 @@ describe('POST /api/gtd/classify/undo — remove only the request-owned copy', (
     stubQueries({ exact: null });
     const res = await undoClassify(token);
     expect(res.status).toBe(200);
-    expect(await res.json()).toEqual({ ok: true, removed: false, folder: 'Todo' });
+    expect((await res.json()) as any).toEqual({ ok: true, removed: false, folder: 'Todo' });
     expect(imapManager.removeMessageCopy).not.toHaveBeenCalled();
   });
 
@@ -273,7 +273,7 @@ describe('POST /api/gtd/classify/undo — remove only the request-owned copy', (
     });
     const res = await undoClassify(token);
     expect(res.status).toBe(409);
-    expect((await res.json()).error).toMatch(/folder changed/i);
+    expect(((await res.json()) as any).error).toMatch(/folder changed/i);
     expect(imapManager.removeMessageCopy).not.toHaveBeenCalled();
   });
 
@@ -281,7 +281,7 @@ describe('POST /api/gtd/classify/undo — remove only the request-owned copy', (
     stubQueries({ exact: null });
     const res = await undoClassify(token);
     expect(res.status).toBe(200);
-    expect(await res.json()).toEqual({ ok: true, removed: false, folder: 'Todo' });
+    expect((await res.json()) as any).toEqual({ ok: true, removed: false, folder: 'Todo' });
     expect(imapManager.removeMessageCopy).not.toHaveBeenCalled();
   });
 });

@@ -53,13 +53,13 @@ describe('GET /api/integrations/status (non-admin capability check)', () => {
     process.env.MS_CLIENT_ID = 'some-client-id';
     const res = await fetch(`${base}/api/integrations/status`);
     expect(res.status).toBe(200);
-    expect(await res.json()).toEqual({ microsoft: { configured: true } });
+    expect((await res.json()) as any).toEqual({ microsoft: { configured: true } });
   });
 
   it('reports configured=false when MS_CLIENT_ID is unset', async () => {
     const res = await fetch(`${base}/api/integrations/status`);
     expect(res.status).toBe(200);
-    expect(await res.json()).toEqual({ microsoft: { configured: false } });
+    expect((await res.json()) as any).toEqual({ microsoft: { configured: false } });
   });
 
   it('never leaks credentials in the response', async () => {

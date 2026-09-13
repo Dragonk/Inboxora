@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
-const { query } = vi.hoisted(() => ({ query: vi.fn() }));
+const { query } = vi.hoisted<any>(() => ({ query: vi.fn() }));
 vi.mock('./db.js', () => ({ query }));
 
 import { authenticateDavCredential } from './davCredentials.js';

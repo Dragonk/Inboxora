@@ -64,7 +64,7 @@ describe('send failure semantics', () => {
     resolveSentFolder.mockRejectedValueOnce(new Error('database unavailable'));
     const res = await post();
     expect(res.status).toBe(200);
-    expect(await res.json()).toEqual({ ok: true, sentCopySaved: false });
+    expect((await res.json()) as any).toEqual({ ok: true, sentCopySaved: false });
     expect(sendMail).toHaveBeenCalledOnce();
     expect(redisClient.set).toHaveBeenLastCalledWith('send_idem:u1:send1', JSON.stringify({ ok: true, sentCopySaved: false }), { EX: 86400 });
     expect(redisClient.del).not.toHaveBeenCalled();

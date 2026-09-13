@@ -1,7 +1,7 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 
 // Shared mock Redis state (hoisted so the vi.mock factory can reference it).
-const { rs } = vi.hoisted(() => ({ rs: { fail: false, store: new Map() } }));
+const { rs } = vi.hoisted<any>(() => ({ rs: { fail: false, store: new Map() } }));
 vi.mock('./redis.js', () => ({
   redisClient: {
     async incr(k)        { if (rs.fail) throw new Error('down'); const e = rs.store.get(k) || { v: 0, exp: 0 }; e.v++; rs.store.set(k, e); return e.v; },

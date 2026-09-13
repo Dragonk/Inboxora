@@ -1,4 +1,3 @@
-// @ts-nocheck
 // Event-listing behaviour for the calendar endpoint: calendar selection stays
 // scoped to the owner, an explicit empty selection means "none", and an
 // incomplete projection is reported rather than silently shortened.
@@ -6,7 +5,7 @@
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import 'express-async-errors';
 
-const { query } = vi.hoisted(() => ({ query: vi.fn() }));
+const { query } = vi.hoisted<any>(() => ({ query: vi.fn() }));
 vi.mock('../services/db.js', () => ({ query, withTransaction: vi.fn(async (fn) => fn({ query })) }));
 vi.mock('../services/encryption.js', () => ({ encrypt: (value) => `enc:${value}`, decrypt: (value) => value, }));
 vi.mock('../services/calendarInvitation.js', () => ({ sendCalendarInvitation: vi.fn() }));
@@ -65,7 +64,7 @@ describe('GET /api/calendar/events calendar selection', () => {
   it('treats an explicitly empty selection as no calendars at all', async () => {
     const response = await fetch(`${base}/api/calendar/events?${RANGE}&calendarIds=`);
     expect(response.status).toBe(200);
-    expect(await response.json()).toEqual({ events: [], truncated: false });
+    expect((await response.json()) as any).toEqual({ events: [], truncated: false });
     // No event query at all: an empty selection cannot match a calendar.
     expect(query.mock.calls.some(([sql]) => sql.includes('FROM calendar_events'))).toBe(false);
   });
@@ -80,7 +79,7 @@ describe('GET /api/calendar/events calendar selection', () => {
   it('rejects a malformed calendar id before touching the database', async () => {
     const response = await fetch(`${base}/api/calendar/events?${RANGE}&calendarIds=not-a-uuid`);
     expect(response.status).toBe(400);
-    expect(await response.json()).toEqual({ error: 'Invalid calendar id' });
+    expect((await response.json()) as any).toEqual({ error: 'Invalid calendar id' });
     expect(query).not.toHaveBeenCalled();
   });
 
@@ -153,7 +152,7 @@ describe('GET /api/calendar/events calendar selection', () => {
     });
 
     const response = await fetch(`${base}/api/calendar/events?${RANGE}`);
-    const { events } = await response.json();
+    const { events } = (await response.json()) as any;
     expect(events[0]).toMatchObject({
       summary: 'Z zaproszenia', source_message_id: 'copy-1', source_folder: 'INBOX', source_account_id: 'account-1',
     });
@@ -163,7 +162,7 @@ describe('GET /api/calendar/events calendar selection', () => {
 describe('GET /api/calendar/events projection outcome', () => {
   it('reports a complete result with an explicit truncated:false', async () => {
     const response = await fetch(`${base}/api/calendar/events?${RANGE}`);
-    expect(await response.json()).toEqual({ events: [], truncated: false });
+    expect((await response.json()) as any).toEqual({ events: [], truncated: false });
   });
 
   it('reports an incomplete series without leaking internal error text', async () => {
@@ -182,7 +181,7 @@ describe('GET /api/calendar/events projection outcome', () => {
     process.env.CALENDAR_PROJECTION_MAX_ITERATIONS = '500';
     try {
       const response = await fetch(`${base}/api/calendar/events?${RANGE}`);
-      const payload = await response.json();
+      const payload = (await response.json()) as any;
       expect(response.status).toBe(200);
       expect(payload.truncated).toBe(true);
       expect(payload.incompleteSeries).toEqual([{ series_id: 'row-dense', reason: 'iteration-limit' }]);

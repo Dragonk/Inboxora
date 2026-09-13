@@ -1,6 +1,6 @@
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 
-const { createDavAppPassword, listDavAppPasswords, revokeDavAppPassword } = vi.hoisted(() => ({
+const { createDavAppPassword, listDavAppPasswords, revokeDavAppPassword } = vi.hoisted<any>(() => ({
   createDavAppPassword: vi.fn(),
   listDavAppPasswords: vi.fn(),
   revokeDavAppPassword: vi.fn(),
@@ -45,7 +45,7 @@ describe('DAV application password API', () => {
     const response = await fetch(`${base}/api/dav-credentials`);
 
     expect(response.status).toBe(200);
-    expect(await response.json()).toEqual({ credentials: [{ id: 'credential-1', label: 'DAVx5 phone', created_at: '2026-08-30T00:00:00.000Z', last_used_at: null }] });
+    expect((await response.json()) as any).toEqual({ credentials: [{ id: 'credential-1', label: 'DAVx5 phone', created_at: '2026-08-30T00:00:00.000Z', last_used_at: null }] });
     expect(listDavAppPasswords).toHaveBeenCalledWith('user-1');
   });
 
@@ -59,7 +59,7 @@ describe('DAV application password API', () => {
     });
 
     expect(response.status).toBe(201);
-    expect(await response.json()).toEqual({ credential: { id: 'credential-1', label: 'DAVx5 phone', created_at: '2026-08-30T00:00:00.000Z' }, secret: 'mf_dav_example.secret' });
+    expect((await response.json()) as any).toEqual({ credential: { id: 'credential-1', label: 'DAVx5 phone', created_at: '2026-08-30T00:00:00.000Z' }, secret: 'mf_dav_example.secret' });
     expect(createDavAppPassword).toHaveBeenCalledWith('user-1', 'DAVx5 phone');
   });
 
@@ -69,7 +69,7 @@ describe('DAV application password API', () => {
     const response = await fetch(`${base}/api/dav-credentials/credential-1`, { method: 'DELETE' });
 
     expect(response.status).toBe(200);
-    expect(await response.json()).toEqual({ credential: { id: 'credential-1', revoked_at: '2026-08-30T00:00:00.000Z' } });
+    expect((await response.json()) as any).toEqual({ credential: { id: 'credential-1', revoked_at: '2026-08-30T00:00:00.000Z' } });
     expect(revokeDavAppPassword).toHaveBeenCalledWith('user-1', 'credential-1');
   });
 });

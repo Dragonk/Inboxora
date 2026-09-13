@@ -1,7 +1,7 @@
 // @ts-nocheck
 import { describe, expect, it, vi } from 'vitest';
 
-const { authenticateDavCredential, consume, logAuthEvent } = vi.hoisted(() => ({
+const { authenticateDavCredential, consume, logAuthEvent } = vi.hoisted<any>(() => ({
   authenticateDavCredential: vi.fn(),
   consume: vi.fn(),
   logAuthEvent: vi.fn(),

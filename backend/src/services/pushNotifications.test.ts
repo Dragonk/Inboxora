@@ -1,6 +1,5 @@
-// @ts-nocheck
 import { beforeEach, afterEach, expect, it, vi } from 'vitest';
-const { sendNotification, query, delay } = vi.hoisted(() => ({ sendNotification: vi.fn(), query: vi.fn(), delay: vi.fn() }));
+const { sendNotification, query, delay } = vi.hoisted<any>(() => ({ sendNotification: vi.fn(), query: vi.fn(), delay: vi.fn() }));
 vi.mock('web-push', () => ({ default: { setVapidDetails: vi.fn(), sendNotification } }));
 vi.mock('./db.js', () => ({ query }));
 vi.mock('node:timers/promises', () => ({ setTimeout: delay }));

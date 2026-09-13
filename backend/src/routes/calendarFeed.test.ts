@@ -2,7 +2,7 @@
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import { createHash } from 'crypto';
 
-const { query } = vi.hoisted(() => ({ query: vi.fn() }));
+const { query } = vi.hoisted<any>(() => ({ query: vi.fn() }));
 vi.mock('../services/db.js', () => ({ query }));
 vi.mock('../middleware/auth.js', () => ({ requireAuth: (req, _res, next) => { req.session = { userId: 'owner-1' }; next(); } }));
 
@@ -81,7 +81,7 @@ describe('secret calendar feeds', () => {
       .mockResolvedValueOnce({ rows: [{ id: 'cal-1', name: 'Personal' }] })
       .mockResolvedValueOnce({ rows: [{ id: 'feed-1', calendar_ids: ['cal-1'], created_at: '2026-09-01T00:00:00.000Z' }] });
     const response = await fetch(`${base}/api/calendar/feeds`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ calendarIds: ['cal-1'] }) });
-    const json = await response.json();
+    const json = (await response.json()) as any;
     expect(response.status).toBe(201);
     expect(json.secret).toMatch(/^[A-Za-z0-9_-]{43}$/);
     expect(query.mock.calls[1][1]).not.toContain(json.secret);
@@ -108,7 +108,7 @@ describe('secret calendar feeds', () => {
 
   it('rotates only an owned feed and returns the replacement secret once', async () => {
     query.mockResolvedValue({ rows: [{ id: 'feed-1', calendar_ids: ['cal-1'], created_at: '2026-09-01T00:00:00.000Z' }] });
-    const response = await fetch(`${base}/api/calendar/feeds/feed-1/rotate`, { method: 'POST' }); const json = await response.json();
+    const response = await fetch(`${base}/api/calendar/feeds/feed-1/rotate`, { method: 'POST' }); const json = (await response.json()) as any;
     expect(response.status).toBe(200); expect(json.secret).toMatch(/^[A-Za-z0-9_-]{43}$/); expect(query.mock.calls[0][0]).toContain('token_hash = $1'); expect(query.mock.calls[0][0]).toContain('owner_user_id = $3'); expect(query.mock.calls[0][1][0]).not.toBe(json.secret);
   });
 });

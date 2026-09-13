@@ -1,11 +1,10 @@
-// @ts-nocheck
 // Reading a calendar invitation out of a received message. The card in the reader
 // could not open or import an invitation ("Nie udało się odczytać lub zapisać
 // zaproszenia") because the .ics MIME part was handed over still base64-encoded.
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import 'express-async-errors';
 
-const { query } = vi.hoisted(() => ({ query: vi.fn() }));
+const { query } = vi.hoisted<any>(() => ({ query: vi.fn() }));
 vi.mock('../services/db.js', () => ({ query, withTransaction: vi.fn(async (fn) => fn({ query })) }));
 vi.mock('../services/encryption.js', () => ({ encrypt: (value) => `enc:${value}`, decrypt: (value) => value }));
 vi.mock('../services/calendarInvitation.js', () => ({ sendCalendarInvitation: vi.fn() }));
@@ -16,7 +15,7 @@ vi.mock('../services/connectionPolicy.js', () => ({ getConnectionPolicy: vi.fn(a
 
 // The route reaches the mailbox through the running server module, which must never
 // be imported for real in a unit test.
-const { imapManager } = vi.hoisted(() => ({ imapManager: { fetchAttachment: vi.fn() } }));
+const { imapManager } = vi.hoisted<any>(() => ({ imapManager: { fetchAttachment: vi.fn() } }));
 vi.mock('../index.js', () => ({ imapManager }));
 
 import express from 'express';
@@ -78,7 +77,7 @@ describe('GET /api/calendar/invitations/:messageId', () => {
 
     const response = await fetch(`${base}/api/calendar/invitations/${MESSAGE_ID}`);
     expect(response.status).toBe(200);
-    const { invitation } = await response.json();
+    const { invitation } = (await response.json()) as any;
     expect(invitation).toMatchObject({
       method: 'REQUEST',
       uid: '5f49e131-290f-4f27-88d2-3406d72725a5',
@@ -102,7 +101,7 @@ describe('GET /api/calendar/invitations/:messageId', () => {
 
     const response = await fetch(`${base}/api/calendar/invitations/${MESSAGE_ID}`);
     expect(response.status).toBe(200);
-    expect((await response.json()).invitation.summary).toBe('Testowe wydarzenie');
+    expect(((await response.json()) as any).invitation.summary).toBe('Testowe wydarzenie');
   });
 
   it('prefers the captured invitation and never opens the mailbox when it parses', async () => {
@@ -127,7 +126,7 @@ describe('GET /api/calendar/invitations/:messageId', () => {
 
     const response = await fetch(`${base}/api/calendar/invitations/${MESSAGE_ID}`);
     expect(response.status).toBe(404);
-    expect((await response.json()).error).toBe('Calendar invitation not found');
+    expect(((await response.json()) as any).error).toBe('Calendar invitation not found');
   });
 
   it('imports the invitation into the chosen calendar', async () => {
@@ -145,7 +144,7 @@ describe('GET /api/calendar/invitations/:messageId', () => {
       body: JSON.stringify({ calendarId: 'calendar-1' }),
     });
     expect(response.status).toBe(200);
-    expect(await response.json()).toMatchObject({ added: true, changed: true });
+    expect((await response.json()) as any).toMatchObject({ added: true, changed: true });
 
     const insert = query.mock.calls.find(([sql]) => sql.includes('INSERT INTO calendar_events'));
     const insertParams = insert[1];

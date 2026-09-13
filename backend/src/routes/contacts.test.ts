@@ -1,7 +1,7 @@
 // @ts-nocheck
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
-const { query, withTransaction } = vi.hoisted(() => ({
+const { query, withTransaction } = vi.hoisted<any>(() => ({
   query: vi.fn(),
   withTransaction: vi.fn(async callback => callback({ query })),
 }));
@@ -120,7 +120,7 @@ describe('Contact REST PATCH legacy date synchronization', () => {
     await new Promise(resolve => server.close(resolve));
 
     expect(response.status).toBe(200);
-    expect((await response.json()).birthday).toBe('1990-01-02');
+    expect(((await response.json()) as any).birthday).toBe('1990-01-02');
     const update = query.mock.calls.find(([sql]) => sql.includes('UPDATE contacts SET'));
     expect(update[1][8]).toBe('1990-01-02');
     expect(JSON.parse(update[1][10])).toEqual([{ label: 'Birthday', value: '1990-01-02' }]);
@@ -179,7 +179,7 @@ describe('Contact REST labelled date validation', () => {
     await new Promise(resolve => server.close(resolve));
 
     expect(response.status).toBe(400);
-    expect(await response.json()).toEqual({ error: 'contactDates must be an array of safe labelled YYYY-MM-DD or --MM-DD dates' });
+    expect((await response.json()) as any).toEqual({ error: 'contactDates must be an array of safe labelled YYYY-MM-DD or --MM-DD dates' });
     expect(query).toHaveBeenCalledTimes(1);
     expect(query.mock.calls[0][0]).toContain('SELECT id FROM users');
   });
@@ -197,7 +197,7 @@ describe('Contact REST labelled date validation', () => {
     await new Promise(resolve => server.close(resolve));
 
     expect(response.status).toBe(400);
-    expect(await response.json()).toEqual({ error: 'contactDates must be an array of safe labelled YYYY-MM-DD or --MM-DD dates' });
+    expect((await response.json()) as any).toEqual({ error: 'contactDates must be an array of safe labelled YYYY-MM-DD or --MM-DD dates' });
     expect(query).toHaveBeenCalledTimes(1);
     expect(query.mock.calls[0][0]).toContain('SELECT id FROM users');
   });
@@ -250,7 +250,7 @@ describe('Google CSV import persistence', () => {
     await new Promise(resolve => server.close(resolve));
 
     expect(response.status).toBe(201);
-    expect(await response.json()).toEqual({ imported: 1 });
+    expect((await response.json()) as any).toEqual({ imported: 1 });
     const insert = query.mock.calls.find(([sql]) => sql.includes('INSERT INTO contacts'));
     expect(insert[0]).toContain('google_fields');
     expect(JSON.parse(insert[1][15])).toEqual([

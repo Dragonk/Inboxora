@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
 
-const { withTransaction } = vi.hoisted(() => ({ withTransaction: vi.fn() }));
+const { withTransaction } = vi.hoisted<any>(() => ({ withTransaction: vi.fn() }));
 vi.mock('./db.js', () => ({ withTransaction }));
 
 import { claimConversationIngestFailures, recordConversationIngestFailure, resolveConversationIngestFailure } from './conversationIngestFailures.js';
