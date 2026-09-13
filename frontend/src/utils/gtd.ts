@@ -42,11 +42,48 @@ export const DEFAULT_GTD_FOLDERS = {
 
 // Merge an account's stored gtd_folders overrides over the defaults (same shape
 // the backend getGtdConfig produces).
+/** A state -> folder-path map as the settings form and accounts store it. */
+export type GtdFolderMap = Record<string, string>;
+
+/** The account fields the GTD helpers read. */
+export type GtdAccountLike = {
+  id?: string;
+  gtd_enabled?: boolean;
+  gtd_folders?: GtdFolderMap | null;
+  [key: string]: unknown;
+};
+
+/** A section after normalisation: every field present. */
+/** The display fields a GTD entry row derives from its thread. */
+export interface GtdRowDisplay {
+  kinds: string[];
+  rowState: string;
+  unread: boolean;
+  days: number;
+  stale: boolean;
+  sender: string;
+}
+
+/** A section after normalisation: every field present. */
+export interface GtdNormalizedSection {
+  total: number;
+  unread: number;
+  threads: GtdThread[];
+  [key: string]: unknown;
+}
+
 export interface GtdThread {
   id?: string;
   message_id?: string;
   date?: string | number | Date | null;
   is_read?: boolean;
+  /** Attached by the Waiting merge (a thread can carry both watch and delegated). */
+  gtdKind?: string;
+  gtdKinds?: string[];
+  /** The conservative (older) waiting date used for the aging chip. */
+  agingDate?: string | number | Date | null;
+  from_name?: string | null;
+  from_email?: string | null;
   [key: string]: unknown;
 }
 
@@ -64,7 +101,7 @@ export interface GtdRemovalSnapshot {
   removedByState: Record<string, Array<{ index: number; thread: GtdThread }>>;
 }
 
-export function resolveAccountGtdFolders(account) {
+export function resolveAccountGtdFolders(account: GtdAccountLike | null | undefined): GtdFolderMap {
   const stored = account?.gtd_folders && typeof account.gtd_folders === 'object' && !Array.isArray(account.gtd_folders)
     ? account.gtd_folders : {};
   return { ...DEFAULT_GTD_FOLDERS, ...stored };
@@ -74,8 +111,8 @@ export function resolveAccountGtdFolders(account) {
 // defaults, trimmed. Stored as the account's gtd_folders so an untouched mapping
 // persists as {} ("all defaults") and a later default change still propagates. A
 // blank field falls back to its default (dropped here).
-export function diffGtdFolders(folders) {
-  const out = {};
+export function diffGtdFolders(folders: GtdFolderMap | null | undefined): GtdFolderMap {
+  const out: GtdFolderMap = {};
   for (const state of GTD_STATES) {
     const v = (folders?.[state] ?? '').trim();
     if (v && v !== DEFAULT_GTD_FOLDERS[state]) out[state] = v;
@@ -89,7 +126,7 @@ export function diffGtdFolders(folders) {
 // before comparison, so two states pointing at the same folder — by override or by
 // a typo onto another state's default name — are caught. Returns collision groups
 // [{ folder, states }], empty when all five are distinct.
-export function findGtdFolderCollisions(folders) {
+export function findGtdFolderCollisions(folders: GtdFolderMap | null | undefined): Array<{ folder: string; states: string[] }> {
   const byFolder: Record<string, string[]> = {};
   for (const state of GTD_STATES) {
     const path = (folders?.[state] ?? '').trim() || DEFAULT_GTD_FOLDERS[state];
@@ -103,7 +140,7 @@ export function findGtdFolderCollisions(folders) {
 // Which GTD states a message's thread is currently labelled with, given the
 // thread's folder paths and the account's resolved state→folder map. Drives the
 // "Remove from <state>" context-menu options (only shown for labels present).
-export function gtdStatesInFolders(folders, resolvedMap) {
+export function gtdStatesInFolders(folders: string[] | null | undefined, resolvedMap: GtdFolderMap): string[] {
   const set = new Set(Array.isArray(folders) ? folders : []);
   return GTD_STATES.filter(state => set.has(resolvedMap?.[state]));
 }
@@ -111,7 +148,7 @@ export function gtdStatesInFolders(folders, resolvedMap) {
 // Whole days between a thread head's date and now. null when there is no
 // parseable date. Future dates clamp to 0 (a freshly-synced head can carry a
 // clock-skewed date slightly ahead of the client).
-export function agingDays(dateStr, now = Date.now()) {
+export function agingDays(dateStr: string | number | Date | null | undefined, now = Date.now()): number {
   if (!dateStr) return null;
   const t = new Date(dateStr).getTime();
   if (!Number.isFinite(t)) return null;
@@ -119,11 +156,11 @@ export function agingDays(dateStr, now = Date.now()) {
   return days < 0 ? 0 : days;
 }
 
-export function isStale(days) {
+export function isStale(days: number): boolean {
   return days != null && days > STALE_DAYS;
 }
 
-export function agingLabel(days) {
+export function agingLabel(days: number): string {
   if (days == null) return '';
   return `⏱ ${days}d`;
 }
@@ -134,7 +171,7 @@ export function agingLabel(days) {
 // drives both — so a merged W+D row reads as watch (yellow), matching the Waiting section
 // color. Age comes from the conservative (older) waiting date on a merged row; agingDate
 // falls back to the row's own date for a single-kind row. Shared by the GTD display surfaces.
-export function resolveRowDisplay(thread, sectionKey) {
+export function resolveRowDisplay(thread: GtdThread, sectionKey: string): GtdRowDisplay {
   const isWaiting = sectionKey === 'waiting';
   const kinds = isWaiting ? (thread.gtdKinds?.length ? thread.gtdKinds : [thread.gtdKind || 'watch']) : [];
   const rowState = isWaiting ? (kinds[0] || 'watch') : sectionKey;
@@ -150,7 +187,7 @@ export function resolveRowDisplay(thread, sectionKey) {
 // independent of per-account config), then: unified (no account selected) → any account with GTD
 // on; single account → that account's flag only. gtdActivated defaults true so callers that don't
 // yet thread activation (and the unit tests) keep the pre-plugin behavior.
-export function gtdActiveForContext(accounts, selectedAccountId, gtdActivated = true) {
+export function gtdActiveForContext(accounts: GtdAccountLike[] | null | undefined, selectedAccountId: string | null | undefined, gtdActivated = true): boolean {
   if (!gtdActivated) return false;
   if (!Array.isArray(accounts) || accounts.length === 0) return false;
   if (selectedAccountId == null) {
@@ -162,7 +199,7 @@ export function gtdActiveForContext(accounts, selectedAccountId, gtdActivated = 
 
 const EMPTY_SECTION = { total: 0, unread: 0, threads: [] };
 
-function normSection(section?: GtdSection | null): GtdSection {
+function normSection(section?: GtdSection | null): GtdNormalizedSection {
   if (!section) return EMPTY_SECTION;
   return {
     total: Number(section.total) || 0,
@@ -176,7 +213,7 @@ function normSection(section?: GtdSection | null): GtdSection {
 // single row. message_id is preferred (stable across accounts, matching the
 // backend's cross-account dedupe), then the row id — no thread_key step, to match
 // the backend's analogous dedupe (gtdSections.js: message_id || id).
-function waitingIdentity(t) {
+function waitingIdentity(t: GtdThread): string | null {
   return t.message_id || t.id;
 }
 
