@@ -1,4 +1,6 @@
 import { describe, it, expect, vi, beforeAll, afterAll } from 'vitest';
+import { listeningPort } from '../../test/net.js';
+import type { Server } from 'node:http';
 import type { JsonBody } from '../../test/json.js';
 
 // The gtd router pulls imapManager from the app entrypoint and query from the DB
@@ -25,14 +27,14 @@ function buildApp() {
 }
 
 describe('GTD route mounting vs unauthenticated probes', () => {
-  let server;
-  let base;
+  let server: Server;
+  let base = '';
 
   beforeAll(async () => {
     await new Promise((resolve) => {
       server = buildApp().listen(0, resolve);
     });
-    base = `http://127.0.0.1:${server.address().port}`;
+    base = `http://127.0.0.1:${listeningPort(server)}`;
   });
 
   afterAll(async () => {

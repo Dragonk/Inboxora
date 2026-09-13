@@ -1,4 +1,6 @@
 import { describe, it, expect, beforeAll, afterAll, afterEach } from 'vitest';
+import { listeningPort } from '../test/net.js';
+import type { Server } from 'node:http';
 import type { JsonBody } from '../test/json.js';
 
 // The /status capability endpoint (#315) must be reachable by any authenticated user,
@@ -32,13 +34,13 @@ function buildApp() {
   return app;
 }
 
-let server;
-let base;
+let server: Server;
+let base = '';
 const savedClientId = process.env.MS_CLIENT_ID;
 
 beforeAll(async () => {
   await new Promise((resolve) => { server = buildApp().listen(0, resolve); });
-  base = `http://127.0.0.1:${server.address().port}`;
+  base = `http://127.0.0.1:${listeningPort(server)}`;
 });
 
 afterAll(async () => {

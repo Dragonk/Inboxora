@@ -3,6 +3,8 @@
 // incomplete projection is reported rather than silently shortened.
 
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
+import { listeningPort } from '../test/net.js';
+import type { Server } from 'node:http';
 import type { JsonBody } from '../test/json.js';
 import 'express-async-errors';
 
@@ -18,8 +20,8 @@ vi.mock('../services/connectionPolicy.js', () => ({ getConnectionPolicy: vi.fn(a
 import express from 'express';
 import calendarRouter from './calendar.js';
 
-let server;
-let base;
+let server: Server;
+let base = '';
 
 beforeAll(async () => {
   const app = express();
@@ -27,7 +29,7 @@ beforeAll(async () => {
   app.use('/api/calendar', calendarRouter);
   app.use((error, _req, res, next) => { void next; return res.status(500).json({ error: error.message }); });
   await new Promise((resolve) => { server = app.listen(0, resolve); });
-  base = `http://127.0.0.1:${server.address().port}`;
+  base = `http://127.0.0.1:${listeningPort(server)}`;
 });
 
 afterAll(async () => {

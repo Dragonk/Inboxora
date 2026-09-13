@@ -1,4 +1,6 @@
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
+import { listeningPort } from '../test/net.js';
+import type { Server } from 'node:http';
 import type { JsonBody } from '../test/json.js';
 
 const { createDavAppPassword, listDavAppPasswords, revokeDavAppPassword } = vi.hoisted<any>(() => ({
@@ -18,15 +20,15 @@ vi.mock('../services/davAppPasswords.js', () => ({
 import express from 'express';
 import davCredentialsRouter from './davCredentials.js';
 
-let server;
-let base;
+let server: Server;
+let base = '';
 
 beforeAll(async () => {
   const app = express();
   app.use(express.json());
   app.use('/api/dav-credentials', davCredentialsRouter);
   await new Promise((resolve) => { server = app.listen(0, resolve); });
-  base = `http://127.0.0.1:${server.address().port}`;
+  base = `http://127.0.0.1:${listeningPort(server)}`;
 });
 
 afterAll(async () => {

@@ -1,4 +1,6 @@
 import { describe, it, expect, vi, beforeEach, beforeAll, afterAll } from 'vitest';
+import { listeningPort } from '../../test/net.js';
+import type { Server } from 'node:http';
 import type { JsonBody } from '../../test/json.js';
 
 // POST /api/gtd/done end-to-end for the archive step's two race/failure contracts (a
@@ -87,12 +89,12 @@ const done = (body) => fetch(`${base}/api/gtd/done`, {
   method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body),
 });
 
-let server;
-let base;
+let server: Server;
+let base = '';
 
 beforeAll(async () => {
   await new Promise((resolve) => { server = buildApp().listen(0, resolve); });
-  base = `http://127.0.0.1:${server.address().port}`;
+  base = `http://127.0.0.1:${listeningPort(server)}`;
 });
 
 afterAll(async () => {

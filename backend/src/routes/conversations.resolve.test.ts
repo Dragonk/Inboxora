@@ -1,4 +1,6 @@
 import { describe, expect, it, vi, beforeAll, afterAll, beforeEach } from 'vitest';
+import { listeningPort } from '../test/net.js';
+import type { Server } from 'node:http';
 
 vi.mock('../services/db.js', () => ({ query: vi.fn(), pool: {} }));
 vi.mock('../middleware/auth.js', () => ({
@@ -45,12 +47,12 @@ function buildApp() {
 }
 
 describe('GET /api/mail/messages/:ref/conversation', () => {
-  let server;
-  let base;
+  let server: Server;
+  let base = '';
 
   beforeAll(async () => {
     await new Promise(resolve => { server = buildApp().listen(0, resolve); });
-    base = `http://127.0.0.1:${server.address().port}`;
+    base = `http://127.0.0.1:${listeningPort(server)}`;
   });
 
   afterAll(async () => {

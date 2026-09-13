@@ -714,3 +714,19 @@ Strict mode NIE jest wlaczony. Zmierzone wolumeny przy jego wlaczeniu:
 Wniosek: to osobny, duzy etap (gownie typowanie niejawnych parametrow), ktorego nie da sie
 bezpiecznie dokonczyc bez dlugotrwalej czerwonej galezi. Zostalo to jawnie zapisane w
 TYPESCRIPT_MIGRATION_PLAN.md (5c) oraz tutaj.
+
+## 65. Redukcja dlugu strict mode - runda 1 (bez czerwonej galezi)
+
+Strategia: typowanie niejawnych zmiennych/parametrow przy WYLACZONYM flagu strict w commicie
+(galaz pozostaje zielona); postep mierzony chwilowym wlaczeniem noImplicitAny.
+
+- Zmierzone noImplicitAny (backend): 3502 -> 3094 (-408).
+- `let base;` zamienione na `let base = ''` w 24 plikach testowych (najliczniejszy wzorzec).
+- `let pool;` -> `let pool: pg.Pool` + jawny typ zwracany helpera q() (pg.QueryResult<QueryResultRow>).
+- `let server;` -> `let server: Server` w 24 plikach; `server.address().port` zastapione
+  istniejacym, typowanym helperem listeningPort(server) z src/test/net.ts (bez rzutowan).
+- Weryfikacja: tsc 0, testy 1785/0, lint czysty, build OK - nic nie zostalo zepsute.
+
+Pozostaly dlug (backend): TS7006 parametry 2104, TS7005/7031/7018/7034 zmienne i destrukturyzacje.
+To nadal osobny, wieloetapowy refactor, udokumentowany w planie (5c).
+

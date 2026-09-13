@@ -1,5 +1,7 @@
 import { outlookCalendar } from '../test/fixtures/outlookCalendar.js';
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
+import { listeningPort } from '../test/net.js';
+import type { Server } from 'node:http';
 import { createBrowserCors } from '../middleware/browserCors.js';
 
 const { authenticateDavCredential, query } = vi.hoisted<any>(() => ({
@@ -19,15 +21,15 @@ function basic(username, password) {
   return `Basic ${Buffer.from(`${username}:${password}`).toString('base64')}`;
 }
 
-let server;
-let base;
+let server: Server;
+let base = '';
 
 beforeAll(async () => {
   const app = express();
   app.use(createBrowserCors({ origin: 'https://email.kmms.ovh', credentials: true }));
   app.use('/caldav', caldavRouter);
   await new Promise((resolve) => { server = app.listen(0, resolve); });
-  base = `http://127.0.0.1:${server.address().port}`;
+  base = `http://127.0.0.1:${listeningPort(server)}`;
 });
 
 afterAll(async () => {

@@ -1,4 +1,6 @@
 import { describe, it, expect, vi, beforeEach, beforeAll, afterAll } from 'vitest';
+import { listeningPort } from '../../test/net.js';
+import type { Server } from 'node:http';
 
 // POST /api/gtd/folders/ensure end-to-end: proves the route persists the effective folder
 // paths, invalidates the config cache, and reflects the persisted map — the wiring the pure
@@ -78,12 +80,12 @@ const ensure = (folders = {}) => fetch(`${base}/api/gtd/folders/ensure`, {
 // The config-store write (setAccountConfig('gtd', accountId, config)), if any.
 const persistCall = () => setAccountConfig.mock.calls[0];
 
-let server;
-let base;
+let server: Server;
+let base = '';
 
 beforeAll(async () => {
   await new Promise((resolve) => { server = buildApp().listen(0, resolve); });
-  base = `http://127.0.0.1:${server.address().port}`;
+  base = `http://127.0.0.1:${listeningPort(server)}`;
 });
 
 afterAll(async () => {

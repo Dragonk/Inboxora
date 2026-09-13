@@ -1,4 +1,6 @@
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
+import { listeningPort } from '../test/net.js';
+import type { Server } from 'node:http';
 import type { JsonBody } from '../test/json.js';
 
 vi.mock('../services/db.js', () => ({ query: vi.fn(), pool: {} }));
@@ -48,12 +50,12 @@ function goldenRow(overrides = {}) {
 }
 
 describe('GET /api/mail/conversations list contract', () => {
-  let server;
-  let base;
+  let server: Server;
+  let base = '';
 
   beforeAll(async () => {
     await new Promise(resolve => { server = buildApp().listen(0, resolve); });
-    base = `http://127.0.0.1:${server.address().port}`;
+    base = `http://127.0.0.1:${listeningPort(server)}`;
   });
 
   afterAll(async () => {

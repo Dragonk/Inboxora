@@ -1,4 +1,6 @@
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
+import { listeningPort } from '../test/net.js';
+import type { Server } from 'node:http';
 import type { JsonBody } from '../test/json.js';
 import { createHash } from 'crypto';
 
@@ -10,14 +12,14 @@ import express from 'express';
 import calendarFeedRouter from './calendarFeed.js';
 import { reset } from '../services/rateLimiter.js';
 
-let server;
-let base;
+let server: Server;
+let base = '';
 beforeAll(async () => {
   const app = express();
   app.use(express.json());
   app.use('/', calendarFeedRouter);
   await new Promise(resolve => { server = app.listen(0, resolve); });
-  base = `http://127.0.0.1:${server.address().port}`;
+  base = `http://127.0.0.1:${listeningPort(server)}`;
 });
 afterAll(() => new Promise(resolve => server.close(resolve)));
 beforeEach(async () => {

@@ -17,12 +17,12 @@ const cfg = {
   password: process.env.DB_PASSWORD || 'test',
 };
 
-let pool;
+let pool: pg.Pool;
 let userId;
 let accountId;
 const username = `ce-concurrency-${process.pid}-${Date.now()}`;
 
-async function q(sql, params = []) { return pool.query(sql, params); }
+async function q(sql: string, params: unknown[] = []): Promise<pg.QueryResult<pg.QueryResultRow>> { return pool.query(sql, params); }
 
 async function createConversation(subject) {
   const id = randomUUID();

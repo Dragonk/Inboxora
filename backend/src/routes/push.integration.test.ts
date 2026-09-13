@@ -6,6 +6,7 @@
 //   DB_USER=... DB_PASSWORD=... \
 //   ENCRYPTION_KEY=<64 hex> REQUIRE_PUSH_POSTGRES=1 npx vitest run src/routes/push.integration.test.js
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import type { Server } from 'node:http';
 import type { JsonBody } from '../test/json.js';
 import { randomUUID } from 'crypto';
 import { createServer } from 'http';
@@ -22,8 +23,8 @@ import type { AddressInfo } from 'node:net';
 const enabled = process.env.REQUIRE_PUSH_POSTGRES === '1';
 
 describe.skipIf(!enabled)('push device registry with PostgreSQL', () => {
-  let server;
-  let base;
+  let server: Server;
+  let base = '';
   let ownerId;
   let otherId;
   const sessions = { userId: null };

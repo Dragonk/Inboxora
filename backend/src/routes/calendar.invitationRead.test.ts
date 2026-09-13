@@ -2,6 +2,8 @@
 // could not open or import an invitation ("Nie udało się odczytać lub zapisać
 // zaproszenia") because the .ics MIME part was handed over still base64-encoded.
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
+import { listeningPort } from '../test/net.js';
+import type { Server } from 'node:http';
 import type { JsonBody } from '../test/json.js';
 import 'express-async-errors';
 
@@ -44,8 +46,8 @@ const MESSAGE_ROW = {
   attachments: JSON.stringify([{ part: '2', filename: 'invitation.ics', type: 'text/calendar', size: 676 }]),
 };
 
-let server;
-let base;
+let server: Server;
+let base = '';
 
 beforeAll(async () => {
   const app = express();
@@ -53,7 +55,7 @@ beforeAll(async () => {
   app.use('/api/calendar', calendarRouter);
   app.use((error, _req, res, next) => { void next; return res.status(500).json({ error: error.message }); });
   await new Promise((resolve) => { server = app.listen(0, resolve); });
-  base = `http://127.0.0.1:${server.address().port}`;
+  base = `http://127.0.0.1:${listeningPort(server)}`;
 });
 
 afterAll(async () => {

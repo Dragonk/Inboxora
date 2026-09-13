@@ -14,7 +14,7 @@ const POOL_CONFIG = {
   password: process.env.DB_PASSWORD || 'test',
 };
 
-let pool;
+let pool: pg.Pool;
 
 before(async () => {
   pool = new pg.Pool({ ...POOL_CONFIG, max: 5 });

@@ -1,9 +1,11 @@
 import express from 'express';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { listeningPort } from '../test/net.js';
+import type { Server } from 'node:http';
 import { createBrowserCors } from './browserCors.js';
 
-let server;
-let base;
+let server: Server;
+let base = '';
 
 beforeAll(async () => {
   const app = express();
@@ -11,7 +13,7 @@ beforeAll(async () => {
   app.options('/api/protected', (_req, res) => res.status(401).end());
   app.options('/carddav/', (_req, res) => res.set('DAV', '1, 2, 3, addressbook').status(200).end());
   await new Promise((resolve) => { server = app.listen(0, resolve); });
-  base = `http://127.0.0.1:${server.address().port}`;
+  base = `http://127.0.0.1:${listeningPort(server)}`;
 });
 
 afterAll(async () => {

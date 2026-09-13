@@ -1,4 +1,6 @@
 import { describe, it, expect, vi, beforeEach, beforeAll, afterAll } from 'vitest';
+import { listeningPort } from '../../test/net.js';
+import type { Server } from 'node:http';
 import type { JsonBody } from '../../test/json.js';
 
 // POST + DELETE /api/gtd/classify end-to-end — the apply-label (COPY) and remove-label
@@ -85,12 +87,12 @@ const undoClassify = (body) => fetch(`${base}/api/gtd/classify/undo`, {
   method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body),
 });
 
-let server;
-let base;
+let server: Server;
+let base = '';
 
 beforeAll(async () => {
   await new Promise((resolve) => { server = buildApp().listen(0, resolve); });
-  base = `http://127.0.0.1:${server.address().port}`;
+  base = `http://127.0.0.1:${listeningPort(server)}`;
 });
 
 afterAll(async () => {

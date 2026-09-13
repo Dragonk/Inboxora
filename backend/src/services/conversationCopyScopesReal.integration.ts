@@ -8,13 +8,13 @@ import { randomUUID } from 'crypto';
 import { applyConversationAction } from './conversationActions.js';
 
 const cfg = { host: process.env.DB_HOST || 'localhost', port: Number(process.env.DB_PORT || 5432), database: process.env.DB_NAME || 'mailflow_test', user: process.env.DB_USER || 'test', password: process.env.DB_PASSWORD || 'test' };
-let pool;
+let pool: pg.Pool;
 let userId;
 let accountA;
 let accountB;
 const username = `ce-scope-${process.pid}-${Date.now()}`;
 
-async function q(sql, params = []) { return pool.query(sql, params); }
+async function q(sql: string, params: unknown[] = []): Promise<pg.QueryResult<pg.QueryResultRow>> { return pool.query(sql, params); }
 async function setup() {
   userId = (await q(`INSERT INTO users (username,password_hash,is_admin) VALUES ($1,'x',false) RETURNING id`, [username])).rows[0].id;
   accountA = (await q(`INSERT INTO email_accounts (user_id,name,email_address,protocol,enabled) VALUES ($1,'Scope A','${username}.a@example.test','imap',true) RETURNING id`, [userId])).rows[0].id;
