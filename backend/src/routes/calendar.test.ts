@@ -84,7 +84,7 @@ beforeEach(() => {
 // rewire which fixture each test receives — which is exactly what happened when
 // materialisation was introduced.
 function mockEventRead({ events = [], contacts = [], occurrences = [] } = {}) {
-  query.mockImplementation(async sql => {
+  query.mockImplementation(async (sql: string) => {
     if (typeof sql === 'string' && sql.includes('FROM calendar_occurrences o')) return { rows: occurrences };
     if (typeof sql === 'string' && sql.includes('contact_dates')) return { rows: contacts };
     return { rows: events };
@@ -116,7 +116,7 @@ describe('local calendar API', () => {
   });
 
   it('normalizes a webcal source to HTTPS before storing it', async () => {
-    query.mockImplementation(async (sql) => sql.includes('INSERT INTO calendar_import_sources')
+    query.mockImplementation(async (sql: string) => sql.includes('INSERT INTO calendar_import_sources')
       ? { rows: [{ id: 'source-1', kind: 'ical_url', url: 'https://calendar.example/events.ics', display_name: 'Work' }] }
       : { rows: [] });
     const response = await fetch(`${base}/api/calendar/sources`, {
@@ -167,7 +167,7 @@ describe('local calendar API', () => {
 
   it('returns the actual first-sync result instead of an unconditional add success', async () => {
     syncCalendarSource.mockResolvedValueOnce({ ok: true, eventCount: 2, skipped: [{ uid: 'bad', reason: 'unsupported or malformed VEVENT' }] });
-    query.mockImplementation(async (sql) => sql.includes('INSERT INTO calendar_import_sources')
+    query.mockImplementation(async (sql: string) => sql.includes('INSERT INTO calendar_import_sources')
       ? { rows: [{ id: 'source-1', kind: 'ical_url', url: 'https://calendar.example/events.ics', display_name: 'Work' }] }
       : { rows: [] });
 
@@ -182,7 +182,7 @@ describe('local calendar API', () => {
 
   it('reports a persisted source first-sync failure with a differentiated status', async () => {
     syncCalendarSource.mockResolvedValueOnce({ ok: false, error: 'network unavailable' });
-    query.mockImplementation(async (sql) => sql.includes('INSERT INTO calendar_import_sources')
+    query.mockImplementation(async (sql: string) => sql.includes('INSERT INTO calendar_import_sources')
       ? { rows: [{ id: 'source-1', kind: 'ical_url', url: 'https://calendar.example/events.ics', display_name: 'Work' }] }
       : { rows: [] });
 
@@ -436,7 +436,7 @@ describe('local calendar API', () => {
     // One event the worker has built, and one series it has not reached yet: both must appear,
     // which is what makes a lagging worker a performance problem rather than a missing event.
     const raw = outlookCalendar('09', 'DTSTAMP:20260901T090000Z\r\n');
-    query.mockImplementation(async sql => {
+    query.mockImplementation(async (sql: string) => {
       if (typeof sql === 'string' && sql.includes('FROM calendar_occurrences o')) {
         return { rows: [{
           id: 'built-1', series_id: null, recurring: false, recurrence_id: '',
@@ -1000,7 +1000,7 @@ describe('local calendar API', () => {
     const existing = { uid: 'uid-1', attendees: ['kept@example.test', 'removed@example.test'], invite_account_id: 'account-1', invitation_sequence: 2, summary: 'Planning', starts_at: '2026-09-01T09:00:00.000Z', ends_at: '2026-09-01T10:00:00.000Z', all_day: false };
     const event = { id: 'event-1', calendar_id: 'calendar-1', uid: 'uid-1', attendees: ['kept@example.test'], invite_account_id: 'account-1', invitation_sequence: 3 };
     let outbox: { id?: string; [key: string]: unknown } | null;
-    query.mockImplementation(async (sql, params) => {
+    query.mockImplementation(async (sql: string, params) => {
       if (sql.includes('FROM calendars')) return { rows: [{ id: 'calendar-1', source: 'local', read_only: false }] };
       if (sql.includes('FROM email_accounts')) return { rows: [sender] };
       if (sql.includes('FROM calendar_invitation_outbox')) return { rows: outbox ? [outbox] : [] };
@@ -1039,7 +1039,7 @@ describe('local calendar API', () => {
     const event = { id: 'event-1', calendar_id: 'calendar-1', uid: 'uid-1', invitation_sequence: 0 };
     let outbox: { id?: string; [key: string]: unknown } | null;
     sendCalendarInvitation.mockRejectedValueOnce(new Error('SMTP unavailable'));
-    query.mockImplementation(async (sql, params) => {
+    query.mockImplementation(async (sql: string, params) => {
       if (sql.includes('FROM calendars')) return { rows: [{ id: 'calendar-1', source: 'local', read_only: false }] };
       if (sql.includes('FROM email_accounts')) return { rows: [sender] };
       if (sql.includes('FROM calendar_invitation_outbox')) {
@@ -1072,7 +1072,7 @@ describe('local calendar API', () => {
     const sender = { id: 'account-1', email_address: 'owner@example.test', smtp_host: 'smtp.example.test', enabled: true };
     const event = { id: 'event-1', calendar_id: 'calendar-1', uid: 'uid-1', invitation_sequence: 0 };
     let outbox: { id?: string; [key: string]: unknown } | null;
-    query.mockImplementation(async (sql, params) => {
+    query.mockImplementation(async (sql: string, params) => {
       if (sql.includes('FROM calendars')) return { rows: [{ id: 'calendar-1', source: 'local', read_only: false }] };
       if (sql.includes('FROM email_accounts')) return { rows: [sender] };
       if (sql.includes('FROM calendar_invitation_outbox')) return { rows: outbox ? [{ ...outbox, status: 'sent', last_error: null, payload: { actions: [] } }] : [] };
@@ -1101,7 +1101,7 @@ describe('local calendar API', () => {
     const event = { id: 'event-1', calendar_id: 'calendar-1', uid: 'uid-1', attendees: ['guest@example.test'], invite_account_id: 'account-1', invitation_sequence: 0 };
     let outbox: { id?: string; [key: string]: unknown } | null;
     sendCalendarInvitation.mockRejectedValueOnce(new Error('SMTP unavailable'));
-    query.mockImplementation(async (sql, params) => {
+    query.mockImplementation(async (sql: string, params) => {
       if (sql.includes('FROM calendars')) return { rows: [{ id: 'calendar-1', source: 'local', read_only: false }] };
       if (sql.includes('FROM email_accounts')) return { rows: [sender] };
       if (sql.includes('FROM calendar_invitation_outbox')) {

@@ -20,7 +20,7 @@ async function validateSubscriptionUrl(raw) {
 
 // Fetch a plain-text domain list from a URL.
 // Returns { domains: string[], error: string|null }.
-async function fetchDomainList(url) {
+async function fetchDomainList(url: string) {
   try {
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), 8000);

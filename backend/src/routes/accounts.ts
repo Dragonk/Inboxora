@@ -19,7 +19,7 @@ const reconnectQueue = createKeyedSerializer();
 const ALLOWED_IMAP_PORTS = new Set([143, 993]);
 const ALLOWED_SMTP_PORTS = new Set([465, 587]);
 
-function validatePort(port, allowed) {
+function validatePort(port: number, allowed) {
   const n = Number(port);
   if (!Number.isInteger(n) || n < 1 || n > 65535) {
     return `Port ${port} is not a valid port number`;
@@ -34,7 +34,7 @@ function validatePort(port, allowed) {
 }
 
 // Reject strings that contain characters that could inject extra email headers.
-function hasHeaderInjectionChars(str) {
+function hasHeaderInjectionChars(str: string) {
   return typeof str === 'string' && /[\r\n\0]/.test(str);
 }
 

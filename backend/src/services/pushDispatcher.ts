@@ -23,7 +23,7 @@ const DEDUP_TTL_MS = 60_000;
 const DEDUP_MAX = 2000;
 const recentEvents = new Map();
 
-function alreadyDispatched(userId, eventId) {
+function alreadyDispatched(userId: string, eventId: string) {
   if (!eventId) return false;
   const key = `${userId}:${eventId}`;
   const now = Date.now();

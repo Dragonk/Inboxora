@@ -10,7 +10,7 @@
 // RFC 5987 `filename*=UTF-8''…` parameter, and reduces the quoted `filename="…"` fallback to
 // printable ASCII (also neutralizing " and \, which would otherwise break the quoted-string). See #367.
 
-export function safeFilename(name) {
+export function safeFilename(name: string) {
   if (!name) return 'attachment';
   const cleaned = String(name)
     .replace(/[/\\]/g, '_')
@@ -26,7 +26,7 @@ export function safeFilename(name) {
 // Percent-encode a UTF-8 string as an RFC 5987 ext-value (for `filename*=UTF-8''…`). encodeURIComponent
 // handles almost all of it, but leaves ' ( ) * unencoded — and those are NOT RFC 5987 attr-chars —
 // so encode them too, matching encodeURIComponent's uppercase %XX form.
-function rfc5987(str) {
+function rfc5987(str: string) {
   return encodeURIComponent(str).replace(/['()*]/g, c => '%' + c.charCodeAt(0).toString(16).toUpperCase());
 }
 

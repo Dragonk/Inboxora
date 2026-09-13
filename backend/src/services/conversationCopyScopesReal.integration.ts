@@ -55,7 +55,7 @@ async function fixture() {
   await q(`UPDATE conversations SET logical_message_count=3,copy_count=5,unread_count=5,last_message_at=NOW() WHERE id=$1`, [conversationId]);
   return { conversationId, accountBConversationId, lm1, lm2, lm3, copies };
 }
-async function counts(conversationId) {
+async function counts(conversationId: string) {
   return (await q(`SELECT COUNT(*)::int AS copies, COUNT(DISTINCT logical_message_id)::int AS logicals FROM messages WHERE conversation_id=$1 AND NOT is_deleted`, [conversationId])).rows[0];
 }
 

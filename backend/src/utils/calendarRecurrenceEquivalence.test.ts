@@ -25,7 +25,7 @@ function occurrences(status) {
   return status.events.map(event => `${event.recurrence_id}|${new Date(event.starts_at).toISOString()}|${new Date(event.ends_at).toISOString()}|${event.all_day}`).sort();
 }
 
-const event = (uid, lines) => ['BEGIN:VEVENT', `UID:${uid}`, 'DTSTAMP:20260101T000000Z', ...lines, 'END:VEVENT'];
+const event = (uid: string, lines: string[]) => ['BEGIN:VEVENT', `UID:${uid}`, 'DTSTAMP:20260101T000000Z', ...lines, 'END:VEVENT'];
 
 describe('projection fast path equals a full scan', () => {
   const series = [

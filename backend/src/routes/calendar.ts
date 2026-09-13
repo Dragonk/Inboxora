@@ -102,7 +102,7 @@ function formatICalendarDate(value, allDay) {
     : utc.replaceAll('-', '').replaceAll(':', '').replace('.000', '');
 }
 
-function foldICalendarLine(line) {
+function foldICalendarLine(line: string) {
   const chunks = [];
   let chunk = '';
   let limit = 75;
@@ -196,7 +196,7 @@ async function updateInvitedEvent(req, fields) {
     const hadInvitation = Boolean(existing.invite_account_id && Array.isArray(existing.attendees) && existing.attendees.length);
     const senderChanged = hadInvitation && invitationAccount.id !== existing.invite_account_id;
     const cancelledAttendees = hadInvitation
-      ? (senderChanged ? existing.attendees : existing.attendees.filter(email => !normalizedAttendees.includes(email)))
+      ? (senderChanged ? existing.attendees : existing.attendees.filter((email: string) => !normalizedAttendees.includes(email)))
       : [];
     let cancellationAccount = null;
     if (cancelledAttendees.length) {
@@ -216,7 +216,7 @@ async function updateInvitedEvent(req, fields) {
   });
 }
 
-async function writableCalendar(userId, calendarId) {
+async function writableCalendar(userId: string, calendarId) {
   const result = await query(
     'SELECT id, source, read_only FROM calendars WHERE id = $1 AND user_id = $2 AND owner_user_id = $2',
     [calendarId, userId],
@@ -227,14 +227,14 @@ async function writableCalendar(userId, calendarId) {
   return { calendar };
 }
 
-async function contactCalendarAppearance(userId) {
+async function contactCalendarAppearance(userId: string) {
   const result = await query("SELECT preferences->'calendarContactAppearance' AS appearance FROM users WHERE id = $1", [userId]);
   return result?.rows?.[0]?.appearance || {};
 }
 
 // Fetch the raw .ics MIME part of a message. Extracted so the reader can fall back
 // to it whenever the invitation captured during sync is missing or unusable.
-async function fetchInvitationAttachment(row, userId) {
+async function fetchInvitationAttachment(row, userId: string) {
   const attachments = typeof row.attachments === 'string' ? JSON.parse(row.attachments) : row.attachments || [];
   const candidates = attachments.filter(item => /^(text\/calendar|application\/(ics|ical|calendar))$/i.test(item.type || '') || /\.ics$/i.test(item.filename || ''));
   if (candidates.length !== 1 || candidates[0].size > 1024 * 1024) return null;
@@ -256,7 +256,7 @@ async function fetchInvitationAttachment(row, userId) {
   return raw.trim() ? raw : null;
 }
 
-async function readMessageInvitation(messageId, userId) {
+async function readMessageInvitation(messageId: string, userId: string) {
   const result = await query(`SELECT i.raw_ical, m.account_id, m.uid, m.folder, m.attachments
     FROM messages m JOIN email_accounts a ON a.id = m.account_id
     LEFT JOIN inbound_calendar_invitations i ON i.message_id = m.id
@@ -280,7 +280,7 @@ async function readMessageInvitation(messageId, userId) {
 // to show an already-added invitation as added — and, on a cancellation, to offer
 // removing the copy the organizer has just retracted. Scoped to the importing message
 // so an unrelated local event with the same UID is never reported or removed.
-async function importedEventForMessage(messageId, userId) {
+async function importedEventForMessage(messageId: string, userId: string) {
   const result = await query(
     `SELECT id, calendar_id, invitation_sequence, starts_at, ends_at, all_day
      FROM calendar_events
@@ -746,7 +746,7 @@ router.patch('/events/:eventId', async (req, res) => {
 
     const hadInvitation = Boolean(existingEvent.invite_account_id && Array.isArray(existingEvent.attendees) && existingEvent.attendees.length);
     const senderChanged = hadInvitation && sendInvites && invitationAccount?.id !== existingEvent.invite_account_id;
-    const cancelledAttendees = hadInvitation ? (senderChanged || !sendInvites ? existingEvent.attendees : existingEvent.attendees.filter(email => !normalizedAttendees.includes(email))) : [];
+    const cancelledAttendees = hadInvitation ? (senderChanged || !sendInvites ? existingEvent.attendees : existingEvent.attendees.filter((email: string) => !normalizedAttendees.includes(email))) : [];
     const cancellationAccount = invitationAccount?.id === existingEvent.invite_account_id
       ? invitationAccount
       : cancelledAttendees.length

@@ -25,11 +25,11 @@ router.use(requireAuth);
 // Folds plugin activation in (strictly safer than the old raw column — a deactivated plugin no
 // longer triggers fan-out). The fan-out itself is still additionally gated on the message actually
 // having siblings, so a non-plugin account stays byte-identical to pre-GTD.
-const accountMaintainsLabelSiblings = (accountId) =>
+const accountMaintainsLabelSiblings = (accountId: string) =>
   pluginRegistry.hasActiveAsync('inboxIngest', { account: { id: accountId } });
 
 // Validate a folder name / path component: no control chars, max 255 chars.
-function isValidFolderName(name) {
+function isValidFolderName(name: string) {
   // eslint-disable-next-line no-control-regex -- intentionally rejecting control characters
   return typeof name === 'string' && name.length > 0 && name.length <= 255 && !/[\x00-\x1f\x7f]/.test(name);
 }
@@ -98,7 +98,7 @@ function snippetIsGarbled(s) {
 // no post-mutation sibling to find). Rows are the pre-mutation message rows so their message_id
 // and folder are captured before a move/delete can drop them; the hook swallows per-plugin
 // errors, so a completed mutation is never turned into a 500.
-function notifyMailMutation(rows, userId) {
+function notifyMailMutation(rows, userId: string) {
   const byAccount = new Map();
   for (const m of rows) {
     if (!m.message_id) continue;
@@ -344,7 +344,7 @@ const BODY_FETCH_TIMEOUT_MS = 40000;
 // fetch keeps running and releases its pooled client via withFreshClient's own cleanup;
 // we just stop making the HTTP request wait on it. clearTimeout avoids keeping the
 // event loop alive after the race settles.
-function fetchWithTimeout(promise, ms) {
+function fetchWithTimeout(promise, ms: number) {
   let timer;
   const timeout = new Promise((_, reject) => {
     timer = setTimeout(() => reject(new Error('BODY_FETCH_TIMEOUT')), ms);
@@ -1995,7 +1995,7 @@ router.delete('/messages/:id', async (req, res) => {
 
 // Helper: move a single message to a destination folder, update DB, log to
 // training_log, and broadcast folder_updated. Shared between /spam and /ham.
-async function moveForSpamLabel(messageId, userId, destinationFolder, label) {
+async function moveForSpamLabel(messageId: string, userId: string, destinationFolder, label: string) {
   const result = await query(`
     SELECT m.*, a.user_id, a.folder_mappings FROM messages m
     JOIN email_accounts a ON m.account_id = a.id

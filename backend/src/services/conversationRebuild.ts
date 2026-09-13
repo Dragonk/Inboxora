@@ -5,7 +5,7 @@ import { _upsertConversationCopyWithClient } from './conversationPersistence.js'
 
 const ALL_ACCOUNTS_SCOPE = '00000000-0000-0000-0000-000000000000';
 
-function scopeId(accountId) {
+function scopeId(accountId: string) {
   return accountId || ALL_ACCOUNTS_SCOPE;
 }
 
@@ -63,7 +63,7 @@ function ceSnapshotChanged(before, after) {
  * which gave wouldChange=0 for records that were historically over-merged but
  * still carry complete CE IDs.
  */
-async function dryRunBatch(client, rows, userId) {
+async function dryRunBatch(client, rows, userId: string) {
   let wouldChange = 0;
   for (const row of rows) {
     const before = await snapshotMessage(client, row);

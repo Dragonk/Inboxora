@@ -12,7 +12,7 @@
 // Each key's chained tail is dropped once idle, so keys don't leak.
 export function createKeyedSerializer() {
   const tails = new Map();
-  return function run(key, op) {
+  return function run(key: string, op) {
     const prev = tails.get(key) || Promise.resolve();
     // Chain off the previous op regardless of how it settled; the caller still gets
     // this op's own outcome via `result`.

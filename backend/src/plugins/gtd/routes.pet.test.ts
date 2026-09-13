@@ -78,10 +78,10 @@ function buildApp() {
   return app;
 }
 
-const petMeta = (slug, userId) => fetch(`${base}/api/gtd/pet/${slug}/meta`, {
+const petMeta = (slug: string, userId: string) => fetch(`${base}/api/gtd/pet/${slug}/meta`, {
   headers: userId ? { 'x-test-user': userId } : {},
 });
-const petSheet = (slug, userId) => fetch(`${base}/api/gtd/pet/${slug}/sheet`, {
+const petSheet = (slug: string, userId: string) => fetch(`${base}/api/gtd/pet/${slug}/sheet`, {
   headers: userId ? { 'x-test-user': userId } : {},
 });
 const petImport = (body) => fetch(`${base}/api/gtd/pet/import`, {

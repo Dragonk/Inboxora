@@ -18,7 +18,7 @@ function formatInvitationDate(value, allDay) {
   return allDay ? value.toISOString().slice(0, 10).replaceAll('-', '') : formatICalendarDate(value);
 }
 
-function foldICalendarLine(line) {
+function foldICalendarLine(line: string) {
   const chunks = [];
   let chunk = '';
   let limit = 75;

@@ -7,7 +7,7 @@ const { Client } = pg;
 const dir = join(dirname(fileURLToPath(import.meta.url)), '../../migrations');
 const fixturePath = join(dirname(fileURLToPath(import.meta.url)), '../../fixtures/legacy_conversation_upgrade.sql');
 
-function splitStatements(sql) {
+function splitStatements(sql: string) {
   const statements = [];
   let start = 0;
   let quote = null;

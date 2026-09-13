@@ -44,7 +44,7 @@ export function parseSearchQuery(raw) {
   // The leading (-?) captures optional negation. \b sits between an optional '-'
   // and the operator name, so both `from:` and `-from:` match.
   const opPattern = /(-?)\b(from|to|subject|has|is|after|before|in):("([^"]*)"|([\S]+))/gi;
-  const remaining = raw.replace(opPattern, (_, neg, key, _v, quoted, unquoted) => {
+  const remaining = raw.replace(opPattern, (_, neg, key: string, _v, quoted, unquoted) => {
     const k = key.toLowerCase();
     const v = (quoted !== undefined ? quoted : (unquoted || '')).toLowerCase().trim();
     if (v) filters.push({ key: k, value: v, negate: neg === '-' });
@@ -65,7 +65,7 @@ export function parseSearchQuery(raw) {
 // Wraps a positive condition so that when negated it also matches rows where the
 // underlying columns are NULL (COALESCE(..., false) treats NULL as "not a match",
 // which NOT then flips to a match — the intuitive meaning of exclusion).
-function negateCond(sql) {
+function negateCond(sql: string) {
   return `NOT COALESCE((${sql}), false)`;
 }
 

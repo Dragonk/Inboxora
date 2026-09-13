@@ -22,7 +22,7 @@ export const TRANSPORT_RETRY = 'retry';         // transient: keep it, count the
 export const TRANSPORT_DELIVERED = 'delivered';
 export const TRANSPORT_DISABLED = 'disabled';   // transport not configured
 
-const delay = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+const delay = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
 // ── UnifiedPush ──────────────────────────────────────────────────────────────
 

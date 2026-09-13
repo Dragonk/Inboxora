@@ -20,7 +20,7 @@ function fakeClient() {
   const calls = [];
   return {
     calls,
-    async query(sql, params) {
+    async query(sql: string, params) {
       calls.push({ sql, params });
       if (sql.includes('SELECT account_id FROM conversations')) return { rows: [{ account_id: 'account-1' }] };
       if (sql.includes('SELECT m.id, m.account_id, m.logical_message_id, m.conversation_id')) {

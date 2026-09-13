@@ -24,7 +24,7 @@ const username = `ce-concurrency-${process.pid}-${Date.now()}`;
 
 async function q(sql: string, params: unknown[] = []): Promise<pg.QueryResult<pg.QueryResultRow>> { return pool.query(sql, params); }
 
-async function createConversation(subject) {
+async function createConversation(subject: string) {
   const id = randomUUID();
   await q(`INSERT INTO conversations (id, user_id, account_id, canonical_subject, subject_snapshot, kind, manually_locked)
            VALUES ($1, $2, $3, $4, $4, 'human_reply_chain', false)`, [id, userId, accountId, subject]);

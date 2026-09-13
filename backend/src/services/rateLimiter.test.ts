@@ -5,7 +5,7 @@ const { rs } = vi.hoisted<any>(() => ({ rs: { fail: false, store: new Map() } })
 vi.mock('./redis.js', () => ({
   redisClient: {
     async incr(k)        { if (rs.fail) throw new Error('down'); const e = rs.store.get(k) || { v: 0, exp: 0 }; e.v++; rs.store.set(k, e); return e.v; },
-    async pExpire(k, ms) { if (rs.fail) throw new Error('down'); const e = rs.store.get(k); if (e) e.exp = Date.now() + ms; return true; },
+    async pExpire(k, ms: number) { if (rs.fail) throw new Error('down'); const e = rs.store.get(k); if (e) e.exp = Date.now() + ms; return true; },
     async pTTL(k)        { if (rs.fail) throw new Error('down'); const e = rs.store.get(k); return e ? (e.exp - Date.now()) : -2; },
     async del(k)         { if (rs.fail) throw new Error('down'); rs.store.delete(k); return 1; },
   },

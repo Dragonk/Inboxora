@@ -140,7 +140,7 @@ describe('GET /api/calendar/events calendar selection', () => {
   });
 
   it('exposes the source message folder and account so the reader can be opened', async () => {
-    query.mockImplementation(async (sql) => {
+    query.mockImplementation(async (sql: string) => {
       if (sql.includes('FROM calendar_events')) {
         return { rows: [{
           id: 'row-mail', calendar_id: calendarId, uid: 'mail-1', etag: 'etag-1',
@@ -169,7 +169,7 @@ describe('GET /api/calendar/events projection outcome', () => {
   });
 
   it('reports an incomplete series without leaking internal error text', async () => {
-    query.mockImplementation(async (sql) => {
+    query.mockImplementation(async (sql: string) => {
       if (sql.includes('FROM calendar_events')) {
         return { rows: [{
           id: 'row-dense', calendar_id: calendarId, uid: 'dense', etag: 'etag-1',

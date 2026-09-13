@@ -88,9 +88,9 @@ describe('queueGistGeneration — provider gating', () => {
 });
 
 describe('queueGistGeneration — write path', () => {
-  const isBodySelect = (sql) => /FROM messages/i.test(sql) && /SELECT id, subject/i.test(sql);
+  const isBodySelect = (sql: string) => /FROM messages/i.test(sql) && /SELECT id, subject/i.test(sql);
   // The gist is now stored as a plugin annotation on the message (jsonb_set into plugin_annotations).
-  const isGistUpdate = (sql) => /UPDATE messages\s+SET plugin_annotations/i.test(sql);
+  const isGistUpdate = (sql: string) => /UPDATE messages\s+SET plugin_annotations/i.test(sql);
 
   // Route query() by SQL rather than by call order: GIST_CONCURRENCY runs UPDATEs from
   // the pool concurrently, so their relative ordering isn't deterministic. The body

@@ -65,7 +65,7 @@ function eventRow(raw, overrides: Record<string, unknown> = {}) {
   };
 }
 
-async function insertEvent(uid, raw, summary, { description = null, location = null } = {}) {
+async function insertEvent(uid: string, raw: string, summary: string, { description = null, location = null } = {}) {
   const result = await query(
     `INSERT INTO calendar_events (calendar_id, user_id, uid, raw_ical, etag, summary, description, location, starts_at, ends_at, all_day, timezone)
      VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,false,'Europe/Warsaw') RETURNING id`,
@@ -74,7 +74,7 @@ async function insertEvent(uid, raw, summary, { description = null, location = n
   return result.rows[0].id;
 }
 
-async function storedOccurrences(eventId) {
+async function storedOccurrences(eventId: string) {
   const result = await query(
     `SELECT o.starts_at, o.ends_at, o.all_day, COALESCE(o.summary, e.summary) AS summary,
             COALESCE(o.description, e.description) AS description, COALESCE(o.location, e.location) AS location
@@ -87,7 +87,7 @@ async function storedOccurrences(eventId) {
     .sort();
 }
 
-function liveOccurrences(eventId, raw, summary) {
+function liveOccurrences(eventId: string, raw, summary) {
   return projectCalendarResource(eventRow(raw, { id: eventId, summary }), WINDOW.from, WINDOW.to)
     .map(row => `${new Date(row.starts_at).toISOString()}|${new Date(row.ends_at).toISOString()}|${row.summary}|${row.all_day}|${row.description}|${row.location}`)
     .sort();

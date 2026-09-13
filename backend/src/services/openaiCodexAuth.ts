@@ -407,7 +407,7 @@ export function createOpenAiCodexAuth({
   decryptFn = decrypt,
 } = {}) {
   let refreshInFlight = null;
-  const owner = (userId, sessionId) => ({ adminUserId: userId, sessionHash: hashSessionId(sessionId) });
+  const owner = (userId: string, sessionId) => ({ adminUserId: userId, sessionHash: hashSessionId(sessionId) });
 
   function accessResult(credential: Record<string, unknown> | null) {
     if (credential?.state !== 'connected' || !credential.accessToken || !credential.accountId) {

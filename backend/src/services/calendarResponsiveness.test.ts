@@ -23,7 +23,7 @@ function ics(lines) {
 }
 
 // A MINUTELY series anchored in 2000 forces a long walk to reach a 2026 window.
-function heavyRows(count) {
+function heavyRows(count: number) {
   return Array.from({ length: count }, (_, index) => {
     const uid = `heavy-${index}`;
     return {

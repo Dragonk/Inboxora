@@ -191,7 +191,7 @@ export function parseVCard(raw: string) {
   };
   if (hasUnterminatedDateLabelParam(raw)) result.invalidDateLabels.push('unterminated parameter');
 
-  const addContactDate = (label, value) => {
+  const addContactDate = (label: string, value) => {
     const normalized = normalizeVCardDate(value);
     const cleanLabel = normalizeContactDateLabel(label);
     if (!cleanLabel) {
@@ -484,7 +484,7 @@ export function mergeVCard(raw: string, contact: VCardContact): string {
   for (const [field, property] of Object.entries({ contactDates: 'X-ABDATE', ...richProperties })) {
     if (Object.hasOwn(contact, field)) managed.add(property);
   }
-  const propertyName = line => {
+  const propertyName = (line: string) => {
     const colon = findPropertySeparator(line);
     if (colon < 0) return '';
     const name = line.slice(0, colon).split(';', 1)[0].toUpperCase();

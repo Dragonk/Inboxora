@@ -1675,7 +1675,7 @@ describe("connectAccount attaches 'error' before connect (#360)", () => {
     mgr._startSyncInterval = vi.fn();
     mgr.broadcast = vi.fn();
 
-    const acct = { id: 1, user_id: 1, imap_host: 'imap.purelymail.com', imap_port: 993, imap_tls: true, auth_user: 'u', auth_pass: 'enc' };
+    const acct = { id: 'acct-1', user_id: 'user-1', imap_host: 'imap.purelymail.com', imap_port: 993, imap_tls: true, auth_user: 'u', auth_pass: 'enc' };
     const ok = await mgr.connectAccount(acct);
 
     expect(ok).toBe(true);

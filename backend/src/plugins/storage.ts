@@ -10,7 +10,7 @@ import { query } from '../services/db.js';
 // This is the first safe, generic capability of the plugin platform: the GTD inbox-zero pet
 // is its first consumer, and it's the storage surface future (sandboxed) plugins will use.
 
-export async function put(pluginId, key, { value = {}, blob = null, mime = null, ownerId = null, visibility = 'private' } = {}) {
+export async function put(pluginId: string, key: string, { value = {}, blob = null, mime = null, ownerId = null, visibility = 'private' } = {}) {
   await query(
     `INSERT INTO plugin_data (plugin_id, key, owner_id, value, blob, blob_mime, visibility, updated_at)
      VALUES ($1, $2, $3, $4::jsonb, $5, $6, $7, NOW())
@@ -26,7 +26,7 @@ export async function put(pluginId, key, { value = {}, blob = null, mime = null,
 }
 
 // Metadata (no blob) — key, owner, JSON value, visibility. Null when absent.
-export async function getValue(pluginId, key) {
+export async function getValue(pluginId: string, key: string) {
   const { rows } = await query(
     `SELECT key, owner_id, value, visibility FROM plugin_data WHERE plugin_id = $1 AND key = $2`,
     [pluginId, key]
@@ -35,7 +35,7 @@ export async function getValue(pluginId, key) {
 }
 
 // The binary blob + mime (and owner/visibility for gating). Null when absent.
-export async function getBlob(pluginId, key) {
+export async function getBlob(pluginId: string, key: string) {
   const { rows } = await query(
     `SELECT blob, blob_mime, owner_id, visibility FROM plugin_data WHERE plugin_id = $1 AND key = $2`,
     [pluginId, key]
@@ -43,6 +43,6 @@ export async function getBlob(pluginId, key) {
   return rows[0] || null;
 }
 
-export async function del(pluginId, key) {
+export async function del(pluginId: string, key: string) {
   await query(`DELETE FROM plugin_data WHERE plugin_id = $1 AND key = $2`, [pluginId, key]);
 }

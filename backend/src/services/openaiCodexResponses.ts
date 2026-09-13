@@ -21,7 +21,7 @@ export class CodexResponseError extends Error {
   }
 }
 
-function messageItem(role, content) {
+function messageItem(role, content: string) {
   if (typeof content !== 'string') throw new Error('Each message content must be a string');
   if (!['system', 'user', 'assistant'].includes(role)) throw new Error(`Unsupported message role: ${role}`);
   if (role === 'system') {

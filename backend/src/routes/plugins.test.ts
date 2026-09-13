@@ -47,7 +47,7 @@ beforeEach(() => {
 });
 afterEach(() => { listSpy.mockRestore(); hasSpy.mockRestore(); runHookSpy.mockRestore(); });
 
-const req = (method, path, body = undefined) => fetch(`${base}/api/plugins${path}`, {
+const req = (method, path: string, body = undefined) => fetch(`${base}/api/plugins${path}`, {
   method,
   headers: body ? { 'Content-Type': 'application/json' } : undefined,
   body: body ? JSON.stringify(body) : undefined,

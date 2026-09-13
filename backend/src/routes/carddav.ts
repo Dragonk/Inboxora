@@ -80,7 +80,7 @@ function multistatus(responses) {
   ].join('');
 }
 
-function response(href, propstats) {
+function response(href: string, propstats) {
   return [
     '<D:response>',
     `<D:href>${xmlEscape(href)}</D:href>`,

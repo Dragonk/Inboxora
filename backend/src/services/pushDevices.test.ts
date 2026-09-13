@@ -126,7 +126,7 @@ describe('authenticatePushDevice', () => {
   it('rejects a wrong secret and an unknown prefix', async () => {
     const parsed = parseDeviceToken('mf_push_11111111-2222-3333-4444-555555555555.secretsecretsecret');
     const hash = await bcrypt.hash('a-different-secret-value', 4);
-    query.mockImplementation((sql) => {
+    query.mockImplementation((sql: string) => {
       if (sql.includes('FROM push_devices')) return Promise.resolve({ rows: [{ id: 'row-1', user_id: 'user-1', token_hash: hash }] });
       return Promise.resolve({ rows: [] });
     });

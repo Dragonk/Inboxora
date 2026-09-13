@@ -8,6 +8,7 @@ import { sanitizeSignature, sanitizeComposeBody } from '../services/emailSanitiz
 import { embedInlineDataImages } from '../utils/inlineImages.js';
 import { imapManager } from '../index.js';
 import { Readable } from 'node:stream';
+import { queryString } from '../utils/query.js';
 
 const router = Router();
 router.use(requireAuth);
@@ -19,7 +20,7 @@ function sanitizeHeaderValue(value) {
 
 // Extract { name, email } from an RFC 5322 address string ("Name <email>",
 // "<email>", or bare "email") for persisting to_addresses/cc_addresses.
-function parseAddress(str) {
+function parseAddress(str: string) {
   if (typeof str !== 'string') return { name: '', email: '' };
   const m = str.match(/^(.+?)\s*<([^>]+)>\s*$/);
   if (m) return { name: m[1].trim().replace(/^"|"$/g, '').trim(), email: m[2].trim().toLowerCase() };
@@ -31,7 +32,7 @@ function mapRecipientList(list) {
   return (Array.isArray(list) ? list : []).filter(Boolean).map(addr => parseAddress(addr));
 }
 
-function textToHtml(text) {
+function textToHtml(text: string) {
   return text.split('\n')
     .map(l => `<p style="margin:0">${l.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;') || '&nbsp;'}</p>`)
     .join('');
@@ -196,7 +197,8 @@ router.delete('/draft/:uid', async (req, res) => {
   const uid = parseInt(req.params.uid, 10);
   if (!uid || !Number.isFinite(uid)) return res.status(400).json({ error: 'Invalid uid' });
 
-  const { accountId, folder } = req.query;
+  const accountId = queryString(req.query.accountId);
+  const folder = queryString(req.query.folder);
   if (!accountId || !folder) return res.status(400).json({ error: 'accountId and folder required' });
 
   const ownerCheck = await query(

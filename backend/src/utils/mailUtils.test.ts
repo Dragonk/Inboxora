@@ -13,31 +13,31 @@ beforeEach(() => {
 
 describe('mappedFolderUsable', () => {
   it('returns null for a falsy path without querying the DB', async () => {
-    expect(await mappedFolderUsable(1, null)).toBeNull();
-    expect(await mappedFolderUsable(1, undefined)).toBeNull();
-    expect(await mappedFolderUsable(1, '')).toBeNull();
+    expect(await mappedFolderUsable('acct-1', null)).toBeNull();
+    expect(await mappedFolderUsable('acct-1', undefined)).toBeNull();
+    expect(await mappedFolderUsable('acct-1', '')).toBeNull();
     expect(query).not.toHaveBeenCalled();
   });
 
   it('returns the path when a selectable (no_select = false) folder row exists', async () => {
     query.mockResolvedValue({ rows: [{ '?column?': 1 }] });
-    const result = await mappedFolderUsable(1, 'INBOX.Sent');
+    const result = await mappedFolderUsable('acct-1', 'INBOX.Sent');
     expect(result).toBe('INBOX.Sent');
     expect(query).toHaveBeenCalledOnce();
     expect(query.mock.calls[0][0]).toContain('no_select = false');
-    expect(query.mock.calls[0][1]).toEqual([1, 'INBOX.Sent']);
+    expect(query.mock.calls[0][1]).toEqual(['acct-1', 'INBOX.Sent']);
   });
 
   it('returns null when the folder is missing or non-selectable (no matching row)', async () => {
     query.mockResolvedValue({ rows: [] });
-    expect(await mappedFolderUsable(1, '[Gmail]')).toBeNull();
+    expect(await mappedFolderUsable('acct-1', '[Gmail]')).toBeNull();
   });
 });
 
 describe('resolveTrashFolder', () => {
   it('returns folder_mappings.trash when it points at a selectable folder', async () => {
     query.mockResolvedValue({ rows: [{ '?column?': 1 }] }); // mappedFolderUsable finds it
-    const result = await resolveTrashFolder(1, { trash: 'INBOX.Trash' });
+    const result = await resolveTrashFolder('acct-1', { trash: 'INBOX.Trash' });
     expect(result).toBe('INBOX.Trash');
     expect(query).toHaveBeenCalledOnce();
     expect(query.mock.calls[0][0]).toContain('no_select = false');
@@ -47,27 +47,27 @@ describe('resolveTrashFolder', () => {
     query
       .mockResolvedValueOnce({ rows: [] })                         // mappedFolderUsable: not selectable
       .mockResolvedValueOnce({ rows: [{ path: 'INBOX.Trash' }] }); // \Trash detection
-    const result = await resolveTrashFolder(1, { trash: '[Gmail]' });
+    const result = await resolveTrashFolder('acct-1', { trash: '[Gmail]' });
     expect(result).toBe('INBOX.Trash');
     expect(query).toHaveBeenCalledTimes(2);
   });
 
   it('falls back to special_use=\\Trash folder when no mapping is set', async () => {
     query.mockResolvedValue({ rows: [{ path: 'INBOX.Trash' }] });
-    const result = await resolveTrashFolder(1, null);
+    const result = await resolveTrashFolder('acct-1', null);
     expect(result).toBe('INBOX.Trash');
     expect(query).toHaveBeenCalledOnce();
   });
 
   it('falls back to name heuristic when no special_use match exists', async () => {
     query.mockResolvedValue({ rows: [{ path: 'Deleted Messages' }] });
-    const result = await resolveTrashFolder(2, {});
+    const result = await resolveTrashFolder('acct-2', {});
     expect(result).toBe('Deleted Messages');
   });
 
   it('returns null when no trash folder is found', async () => {
     query.mockResolvedValue({ rows: [] });
-    const result = await resolveTrashFolder(3, undefined);
+    const result = await resolveTrashFolder('acct-3', undefined);
     expect(result).toBeNull();
   });
 });
@@ -75,7 +75,7 @@ describe('resolveTrashFolder', () => {
 describe('resolveArchiveFolder', () => {
   it('returns folder_mappings.archive when it points at a selectable folder', async () => {
     query.mockResolvedValue({ rows: [{ '?column?': 1 }] });
-    const result = await resolveArchiveFolder(1, { archive: 'INBOX.Archive' });
+    const result = await resolveArchiveFolder('acct-1', { archive: 'INBOX.Archive' });
     expect(result).toBe('INBOX.Archive');
     expect(query).toHaveBeenCalledOnce();
     expect(query.mock.calls[0][0]).toContain('no_select = false');
@@ -83,32 +83,32 @@ describe('resolveArchiveFolder', () => {
 
   it('falls back to special_use=\\Archive folder when no mapping is set', async () => {
     query.mockResolvedValue({ rows: [{ path: 'Archive' }] });
-    const result = await resolveArchiveFolder(1, null);
+    const result = await resolveArchiveFolder('acct-1', null);
     expect(result).toBe('Archive');
     expect(query).toHaveBeenCalledOnce();
   });
 
   it('falls back to name heuristic when no special_use match exists', async () => {
     query.mockResolvedValue({ rows: [{ path: 'INBOX.archive-2024' }] });
-    const result = await resolveArchiveFolder(2, {});
+    const result = await resolveArchiveFolder('acct-2', {});
     expect(result).toBe('INBOX.archive-2024');
   });
 
   it('falls back to special_use=\\All (Gmail All Mail) when nothing else matches', async () => {
     query.mockResolvedValue({ rows: [{ path: '[Gmail]/All Mail' }] });
-    const result = await resolveArchiveFolder(4, {});
+    const result = await resolveArchiveFolder('acct-4', {});
     expect(result).toBe('[Gmail]/All Mail');
   });
 
   it('returns null when no archive folder is found', async () => {
     query.mockResolvedValue({ rows: [] });
-    const result = await resolveArchiveFolder(3, undefined);
+    const result = await resolveArchiveFolder('acct-3', undefined);
     expect(result).toBeNull();
   });
 
   it('uses ORDER BY to prefer special_use=\\Archive, then name match, then \\All last', async () => {
     query.mockResolvedValue({ rows: [] });
-    await resolveArchiveFolder(1, null);
+    await resolveArchiveFolder('acct-1', null);
     const sql = query.mock.calls[0][0];
     expect(sql).toContain("WHEN special_use = '\\Archive' THEN 0");
     expect(sql).toContain("WHEN lower(name) LIKE '%archive%' THEN 1");
@@ -117,21 +117,21 @@ describe('resolveArchiveFolder', () => {
 
 describe('isAllMailFolder', () => {
   it('returns false without querying the DB when path is falsy', async () => {
-    const result = await isAllMailFolder(1, null);
+    const result = await isAllMailFolder('acct-1', null);
     expect(result).toBe(false);
     expect(query).not.toHaveBeenCalled();
   });
 
   it('returns true when the folder row has special_use = \\All', async () => {
     query.mockResolvedValue({ rows: [{ '?column?': 1 }] });
-    const result = await isAllMailFolder(1, '[Gmail]/All Mail');
+    const result = await isAllMailFolder('acct-1', '[Gmail]/All Mail');
     expect(result).toBe(true);
     expect(query).toHaveBeenCalledOnce();
   });
 
   it('returns false when no matching \\All row exists', async () => {
     query.mockResolvedValue({ rows: [] });
-    const result = await isAllMailFolder(1, 'Archive');
+    const result = await isAllMailFolder('acct-1', 'Archive');
     expect(result).toBe(false);
   });
 });
@@ -139,7 +139,7 @@ describe('isAllMailFolder', () => {
 describe('resolveSpamFolder', () => {
   it('returns folder_mappings.spam when it points at a selectable folder', async () => {
     query.mockResolvedValue({ rows: [{ '?column?': 1 }] });
-    const result = await resolveSpamFolder(1, { spam: '[Gmail]/Spam' });
+    const result = await resolveSpamFolder('acct-1', { spam: '[Gmail]/Spam' });
     expect(result).toBe('[Gmail]/Spam');
     expect(query).toHaveBeenCalledOnce();
     expect(query.mock.calls[0][0]).toContain('no_select = false');
@@ -147,38 +147,38 @@ describe('resolveSpamFolder', () => {
 
   it('falls back to special_use=\\Junk folder when no mapping is set', async () => {
     query.mockResolvedValue({ rows: [{ path: 'Junk' }] });
-    const result = await resolveSpamFolder(1, null);
+    const result = await resolveSpamFolder('acct-1', null);
     expect(result).toBe('Junk');
     expect(query).toHaveBeenCalledOnce();
   });
 
   it('falls back to multilingual name heuristic when no special_use match exists', async () => {
     query.mockResolvedValue({ rows: [{ path: 'Spamverdacht' }] });
-    const result = await resolveSpamFolder(2, {});
+    const result = await resolveSpamFolder('acct-2', {});
     expect(result).toBe('Spamverdacht');
   });
 
   it('matches Outlook-style "Junk Email" folder name', async () => {
     query.mockResolvedValue({ rows: [{ path: 'Junk Email' }] });
-    const result = await resolveSpamFolder(3, {});
+    const result = await resolveSpamFolder('acct-3', {});
     expect(result).toBe('Junk Email');
   });
 
   it('matches Italian "Posta indesiderata" folder name', async () => {
     query.mockResolvedValue({ rows: [{ path: 'Posta indesiderata' }] });
-    const result = await resolveSpamFolder(4, {});
+    const result = await resolveSpamFolder('acct-4', {});
     expect(result).toBe('Posta indesiderata');
   });
 
   it('returns null when no spam folder is found', async () => {
     query.mockResolvedValue({ rows: [] });
-    const result = await resolveSpamFolder(5, undefined);
+    const result = await resolveSpamFolder('acct-5', undefined);
     expect(result).toBeNull();
   });
 
   it('uses ORDER BY to prefer special_use match over name heuristic', async () => {
     query.mockResolvedValue({ rows: [] });
-    await resolveSpamFolder(1, null);
+    await resolveSpamFolder('acct-1', null);
     const sql = query.mock.calls[0][0];
     expect(sql).toContain("CASE WHEN special_use = '\\Junk' THEN 0 ELSE 1 END");
   });
@@ -187,7 +187,7 @@ describe('resolveSpamFolder', () => {
 describe('resolveSentFolder', () => {
   it('returns folder_mappings.sent when it points at a selectable folder', async () => {
     query.mockResolvedValue({ rows: [{ '?column?': 1 }] });
-    const result = await resolveSentFolder(1, { sent: '[Gmail]/Odeslaná pošta' });
+    const result = await resolveSentFolder('acct-1', { sent: '[Gmail]/Odeslaná pošta' });
     expect(result).toBe('[Gmail]/Odeslaná pošta');
     expect(query).toHaveBeenCalledOnce();
     expect(query.mock.calls[0][0]).toContain('no_select = false');
@@ -197,7 +197,7 @@ describe('resolveSentFolder', () => {
     query
       .mockResolvedValueOnce({ rows: [] })                                     // [Gmail] not selectable
       .mockResolvedValueOnce({ rows: [{ path: '[Gmail]/Odeslaná pošta' }] });  // \Sent detection
-    const result = await resolveSentFolder(1, { sent: '[Gmail]' });
+    const result = await resolveSentFolder('acct-1', { sent: '[Gmail]' });
     expect(result).toBe('[Gmail]/Odeslaná pošta');
     expect(query).toHaveBeenCalledTimes(2);
     expect(query.mock.calls[1][0]).toContain("special_use = '\\Sent'");
@@ -205,7 +205,7 @@ describe('resolveSentFolder', () => {
 
   it('falls back to \\Sent detection when no mapping is set (no validation query)', async () => {
     query.mockResolvedValue({ rows: [{ path: 'Sent' }] });
-    const result = await resolveSentFolder(1, null);
+    const result = await resolveSentFolder('acct-1', null);
     expect(result).toBe('Sent');
     expect(query).toHaveBeenCalledOnce();
     expect(query.mock.calls[0][0]).toContain("special_use = '\\Sent'");
@@ -213,7 +213,7 @@ describe('resolveSentFolder', () => {
 
   it('returns null when no Sent folder can be resolved', async () => {
     query.mockResolvedValue({ rows: [] });
-    expect(await resolveSentFolder(1, {})).toBeNull();
+    expect(await resolveSentFolder('acct-1', {})).toBeNull();
   });
 });
 

@@ -78,7 +78,7 @@ export function validateDeviceRegistration(input) {
 // Register or refresh a device. Returns the plaintext device token exactly once;
 // it is never retrievable afterwards. Registering an existing (user_id, device_id)
 // rotates the token so a fresh install or a lost token can recover.
-export async function registerPushDevice(userId, input) {
+export async function registerPushDevice(userId: string, input) {
   if (!userId) throw Object.assign(new Error('user id is required'), { statusCode: 400 });
   const device = validateDeviceRegistration(input);
   const { prefix, secret, token } = generateDeviceToken();
@@ -107,7 +107,7 @@ export async function registerPushDevice(userId, input) {
   return { device: result.rows[0], deviceToken: token };
 }
 
-export async function listPushDevices(userId) {
+export async function listPushDevices(userId: string) {
   const result = await query(
     `SELECT id, device_id, platform, transport, app_version, created_at, updated_at, last_seen, disabled_at
      FROM push_devices
@@ -120,7 +120,7 @@ export async function listPushDevices(userId) {
 
 // Remove one device, scoped to its owner so a device id from another account
 // can never be used to unregister someone else's endpoint (IDOR).
-export async function removePushDevice(userId, deviceId) {
+export async function removePushDevice(userId: string, deviceId: string) {
   if (!userId || !deviceId) return null;
   const result = await query(
     'DELETE FROM push_devices WHERE user_id = $1 AND device_id = $2 RETURNING id, device_id, transport',
@@ -130,7 +130,7 @@ export async function removePushDevice(userId, deviceId) {
 }
 
 // Used on logout / host change when the app cannot know the server-side row id.
-export async function removeAllPushDevices(userId) {
+export async function removeAllPushDevices(userId: string) {
   if (!userId) return 0;
   const result = await query('DELETE FROM push_devices WHERE user_id = $1 RETURNING id', [userId]);
   return result.rowCount || 0;
@@ -155,7 +155,7 @@ export async function authenticatePushDevice(tokenValue) {
 
 // Dispatch read: active devices for one user with decrypted endpoints. Rows whose
 // endpoint can no longer be decrypted (rotated ENCRYPTION_KEY) are skipped.
-export async function listActivePushDevices(userId) {
+export async function listActivePushDevices(userId: string) {
   const result = await query(
     `SELECT id, device_id, platform, transport, endpoint, failure_count
      FROM push_devices

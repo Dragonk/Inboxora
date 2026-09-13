@@ -7,7 +7,7 @@
 import { query } from '../services/db.js';
 
 // The plugin's config for an account, or {} when none is stored yet.
-export async function getAccountConfig(pluginId, accountId) {
+export async function getAccountConfig(pluginId: string, accountId: string) {
   const { rows } = await query(
     'SELECT config FROM plugin_account_config WHERE plugin_id = $1 AND account_id = $2',
     [pluginId, accountId]
@@ -16,7 +16,7 @@ export async function getAccountConfig(pluginId, accountId) {
 }
 
 // Upsert the plugin's config for an account (replaces the whole blob).
-export async function setAccountConfig(pluginId, accountId, config) {
+export async function setAccountConfig(pluginId: string, accountId: string, config) {
   await query(
     `INSERT INTO plugin_account_config (plugin_id, account_id, config, updated_at)
      VALUES ($1, $2, $3::jsonb, now())

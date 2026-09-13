@@ -61,7 +61,7 @@ describe('secret calendar feeds', () => {
 
   it('throttles only failures, while revoked feeds fail immediately after revocation', async () => {
     let revoked = false;
-    query.mockImplementation(async (sql) => {
+    query.mockImplementation(async (sql: string) => {
       if (sql.includes('SELECT f.calendar_ids')) return { rows: revoked ? [] : [{ calendar_name: 'Personal', id: 'event-1', uid: 'uid-1', summary: 'Planning', starts_at: '2026-09-01T09:00:00.000Z', ends_at: '2026-09-01T10:00:00.000Z', all_day: false }] };
       if (sql.startsWith('SELECT id, name FROM calendars')) return { rows: [{ id: 'cal-1', name: 'Personal' }] };
       if (sql.startsWith('INSERT INTO calendar_secret_feeds')) return { rows: [{ id: 'feed-1', calendar_ids: ['cal-1'], created_at: '2026-09-01T00:00:00.000Z' }] };

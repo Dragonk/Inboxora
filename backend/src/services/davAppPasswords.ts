@@ -11,13 +11,13 @@ export function parseDavAppPassword(value) {
   return match ? { prefix: match[1], secret: match[2] } : null;
 }
 
-function normalizedLabel(label) {
+function normalizedLabel(label: string) {
   const value = typeof label === 'string' ? label.trim() : '';
   if (!value || value.length > 120) throw new Error('A device label between 1 and 120 characters is required');
   return value;
 }
 
-export async function createDavAppPassword(userId, label) {
+export async function createDavAppPassword(userId: string, label: string) {
   if (!userId) throw new Error('User id is required');
   const prefix = `mf_dav_${crypto.randomUUID()}`;
   const secretPart = crypto.randomBytes(32).toString('base64url');
@@ -32,7 +32,7 @@ export async function createDavAppPassword(userId, label) {
   return { ...result.rows[0], secret };
 }
 
-export async function listDavAppPasswords(userId) {
+export async function listDavAppPasswords(userId: string) {
   if (!userId) throw new Error('User id is required');
   const result = await query(
     `SELECT id, label, created_at, last_used_at
@@ -44,7 +44,7 @@ export async function listDavAppPasswords(userId) {
   return result.rows;
 }
 
-export async function revokeDavAppPassword(userId, passwordId) {
+export async function revokeDavAppPassword(userId: string, passwordId) {
   if (!userId || !passwordId) return null;
   const result = await query(
     `UPDATE dav_app_passwords
@@ -56,7 +56,7 @@ export async function revokeDavAppPassword(userId, passwordId) {
   return result.rows[0] || null;
 }
 
-export async function findActiveDavAppPassword(userId, value) {
+export async function findActiveDavAppPassword(userId: string, value) {
   const parsed = parseDavAppPassword(value);
   if (!userId || !parsed) return null;
   const result = await query(
@@ -70,6 +70,6 @@ export async function findActiveDavAppPassword(userId, value) {
   return { id: password.id };
 }
 
-export async function verifyDavAppPassword(userId, value) {
+export async function verifyDavAppPassword(userId: string, value) {
   return Boolean(await findActiveDavAppPassword(userId, value));
 }

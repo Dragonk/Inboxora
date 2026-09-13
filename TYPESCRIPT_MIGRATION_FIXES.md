@@ -778,3 +778,34 @@ Audyt: 0 plikow .js/.jsx w src (543 plikow .ts/.tsx); 0 plikow z @ts-nocheck/@ts
 Strict mode: NIE wlaczony; zmierzone 1609 (backend) / 2172 (frontend) bledow przy strict: true;
 noImplicitAny zredukowane z 3502 do 2846 w backendzie. Udokumentowane w STATUS i PLAN (5c).
 
+
+## 70. Testy E2E, realny defekt migracji i redukcja dlugu strict (runda 51)
+
+### E2E na zbudowanej aplikacji
+- Playwright: 370 passed, 0 failed, 357 skipped (727 total).
+- WYKRYTY REALNY DEFEKT MIGRACJI: spec zostal zmieniony z .js na .ts, ale katalog
+  referencji wizualnych pozostal jako v3-interface.spec.js-snapshots. Playwright szuka
+  snapshotow obok nazwy spec-a (.ts), wiec WSZYSTKIE 10 testow wizualnych failowalo
+  komunikatem 'A snapshot doesn't exist' i zapisywalo obrazy jako nowe.
+  Naprawa: git mv katalogu na v3-interface.spec.ts-snapshots (obrazy bit-identyczne).
+- Druga, niezalezna niezgodnosc: referencje calendar-week byly nieaktualne wzgledem
+  zamierzonego redesignu pasm calodniowych (commit funkcji sprzed migracji, ktory
+  zastapil wiersz 'Caly dzien' paskami calendar-allday-band). Zweryfikowalem to na
+  worktree z commita przed migracja (2ea6329^) — test failowal tam tak samo, czyli
+  to NIE regresja migracji. Odswiezylem 5 obrazow calendar-week (36/36 przechodzi).
+- Flake: conversation-engine 'marks only the opened target read' failuje tylko pod
+  pelnym obciazeniem rownoleglym; w izolacji przechodzi.
+
+### Redukcja dlugu strict
+- Pelny strict (backend): 3613 -> 3363 (-250). tsc 0, testy 1785/0, lint czysty.
+- 424 adnotacji typow w 109 plikach backendu (parametry funkcji) wyprowadzonych
+  precyzyjnie z pozycji bledow TS7006, nie zgadywane.
+- WYKRYTE przy tym realne niezgodnosci:
+  * testy mailUtils podstawialy LICZBOWE id konta, a email_accounts.id to UUID (string);
+  * atrapa w imapManager.test uzywala id: 1 / user_id: 1 zamiast UUID;
+  * formatAddress przyjmowal tylko string, a dostaje tez { name, address };
+  * customPetSlug deklarowal string, ale waliduje dowolne wejscie (test podaje 42);
+  * ConversationRow nie mial pol destinationFolder/special_use;
+  * calendarFeed czytal req.params.token bez zawężenia (string | string[]);
+  * messageParser przekazywal unknown do decodeMimeWords bez zawężenia.
+

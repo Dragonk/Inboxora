@@ -32,7 +32,7 @@ const MAX_GTD_FOLDER_LEN = 255;
 // A `..` path segment (split on the standard IMAP hierarchy separator) is rejected
 // as path-traversal defense-in-depth. A folder whose name merely contains dots
 // (e.g. "a..b", a single segment) is left alone.
-function hasTraversalSegment(path) {
+function hasTraversalSegment(path: string) {
   return path.split('/').includes('..');
 }
 
@@ -42,7 +42,7 @@ function hasTraversalSegment(path) {
 // falling back — a nested "Work/Todo" or a plain "Todo" is fine; only these exact full
 // paths (case-insensitive) and Gmail's special "[Gmail]/…" tree are denied.
 const RESERVED_GTD_FOLDER_NAMES = new Set(['inbox', 'sent', 'drafts', 'trash', 'junk', 'spam', 'archive']);
-function isReservedFolderPath(path) {
+function isReservedFolderPath(path: string) {
   const lower = path.toLowerCase();
   return RESERVED_GTD_FOLDER_NAMES.has(lower) || lower.startsWith('[gmail]/');
 }
@@ -160,7 +160,7 @@ export function planGtdFolderPersist({ merged, stored, results }: GtdFolderPersi
 const gtdConfigCache = new Map();
 const CACHE_TTL_MS = 5 * 60 * 1000; // 5 minutes
 
-export function invalidateGtdConfigCache(accountId) {
+export function invalidateGtdConfigCache(accountId: string) {
   gtdConfigCache.delete(accountId);
 }
 
@@ -175,7 +175,7 @@ export function invalidateGtdConfigCache(accountId) {
 // backend-side while leaving the per-account gtd_enabled/folders config untouched (reactivation
 // restores everything). The cached value folds activation in, so a toggle must invalidate this
 // cache for the user's accounts — GTD's onPluginActivationChanged hook does that.
-export async function getGtdConfig(accountId) {
+export async function getGtdConfig(accountId: string) {
   const cached = gtdConfigCache.get(accountId);
   if (cached && cached.expiry > Date.now()) return cached.value;
 
@@ -208,7 +208,7 @@ export async function getGtdConfig(accountId) {
 
 // Set of the account's designated GTD folder paths, or an empty Set when GTD is
 // disabled. Used to exempt these folders from the move-detector relocate guard.
-export async function getGtdFolderSet(accountId) {
+export async function getGtdFolderSet(accountId: string) {
   const { enabled, folders } = await getGtdConfig(accountId);
   if (!enabled) return new Set();
   return new Set(Object.values(folders));

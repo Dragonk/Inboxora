@@ -19,7 +19,7 @@ interface TodoistTaskInput {
 const router = Router();
 router.use(requireAuth);
 
-async function getTodoistToken(userId) {
+async function getTodoistToken(userId: string) {
   const result = await query(
     "SELECT config FROM user_integrations WHERE user_id = $1 AND provider = 'todoist'",
     [userId]

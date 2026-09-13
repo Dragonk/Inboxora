@@ -1,6 +1,6 @@
 import cors from 'cors';
 
-function isDavPath(path) {
+function isDavPath(path: string) {
   return path === '/carddav' || path.startsWith('/carddav/')
     || path === '/caldav' || path.startsWith('/caldav/');
 }

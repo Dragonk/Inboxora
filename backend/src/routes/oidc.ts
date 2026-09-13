@@ -161,7 +161,7 @@ function resolveAdminFromClaim(payload, provider) {
 // "no matching account"). See issue #289. Never matches secondary email_accounts addresses —
 // proving control of a mailbox a user added must not log you in as that user.
 const DANGEROUS_CLAIM_KEYS = new Set(['__proto__', 'constructor', 'prototype']);
-export function resolveLoginMatchValue(provider, payload, email) {
+export function resolveLoginMatchValue(provider, payload, email: string) {
   const claim = (provider?.login_match_claim || 'email').trim() || 'email';
   // Never index the payload by an object-prototype key. `payload["__proto__"]` from JSON.parse is
   // a string own-property that would pass the typeof guard below; the others resolve to functions.
@@ -174,7 +174,7 @@ export function resolveLoginMatchValue(provider, payload, email) {
 // Seed users.display_name from the OIDC 'name' (profile) claim on first association, but only
 // when it is currently empty — never overwrite a value the user or admin set. Bounded to the
 // column width (VARCHAR(100)). Best-effort nicety; requested in #289.
-async function maybeBackfillDisplayName(client, userId, payload) {
+async function maybeBackfillDisplayName(client, userId: string, payload) {
   const name = typeof payload?.name === 'string' ? payload.name.trim() : '';
   if (!name) return;
   await client.query(

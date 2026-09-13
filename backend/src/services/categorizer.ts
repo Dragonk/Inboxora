@@ -8,7 +8,7 @@ import { detectCategoryFromHeaders } from './messageParser.js';
 const socialDomainCache = new Map();
 const CACHE_TTL_MS = 5 * 60 * 1000; // 5 minutes
 
-export function invalidateSocialDomainCache(userId) {
+export function invalidateSocialDomainCache(userId: string) {
   socialDomainCache.delete(userId);
 }
 
@@ -16,7 +16,7 @@ export function invalidateSocialDomainCache(userId) {
 // Structure: Map<userId, { value: boolean, expiry: number }>
 const globalCategorizationCache = new Map();
 
-export async function getGlobalCategorizationEnabled(userId) {
+export async function getGlobalCategorizationEnabled(userId: string) {
   const cached = globalCategorizationCache.get(userId);
   if (cached && cached.expiry > Date.now()) return cached.value;
   const result = await query(
@@ -28,7 +28,7 @@ export async function getGlobalCategorizationEnabled(userId) {
   return value;
 }
 
-export function invalidateGlobalCategorizationCache(userId) {
+export function invalidateGlobalCategorizationCache(userId: string) {
   globalCategorizationCache.delete(userId);
 }
 
@@ -71,7 +71,7 @@ const BUILTIN_SETS = {
   ],
 };
 
-async function loadSocialDomains(userId) {
+async function loadSocialDomains(userId: string) {
   const cached = socialDomainCache.get(userId);
   if (cached && cached.expiry > Date.now()) return cached.domains;
 
@@ -128,7 +128,7 @@ export function classifyMessage(parsedHeaders, fromEmail, socialDomains) {
 // signals. Returns a valid category string, or null if AI is unavailable or
 // the response is unusable. Errors are swallowed — the caller treats null as
 // 'keep primary'.
-export async function aiClassifyMessage(subject, fromEmail, snippet) {
+export async function aiClassifyMessage(subject: string, fromEmail, snippet) {
   const prompt = `Classify this email into exactly one category. Reply with only the category name, nothing else.
 
 Categories:
@@ -158,7 +158,7 @@ Category:`;
 
 // Assigns a category to a message and writes it to the DB.
 // Used during IMAP sync for new messages when categorization is enabled.
-export async function categorizeAndStore(messageId, parsedHeaders, fromEmail, userId) {
+export async function categorizeAndStore(messageId: string, parsedHeaders, fromEmail, userId: string) {
   const socialDomains = await loadSocialDomains(userId);
   const category = classifyMessage(parsedHeaders, fromEmail, socialDomains);
   if (category !== 'primary') {
@@ -171,7 +171,7 @@ export async function categorizeAndStore(messageId, parsedHeaders, fromEmail, us
 // Fetches headers from DB (is_bulk + from_email are already stored) and applies
 // header-based detection without an IMAP round-trip. Social domain matching
 // requires a separate header fetch and is handled in imapManager.refreshCategories().
-export async function backfillCategories(accountId, userId) {
+export async function backfillCategories(accountId: string, userId: string) {
   const socialDomains = await loadSocialDomains(userId);
 
   // Process in batches of 500 to avoid memory pressure.

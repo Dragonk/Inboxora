@@ -1,7 +1,7 @@
 import { query } from './db.js';
 import { resolveArchiveFolder, isAllMailFolder, resolveTrashFolder, resolveAllTrashPaths, getDeleteStrategy, adjustFolderCounts } from '../utils/mailUtils.js';
 
-async function getRulesForAccount(userId, accountId) {
+async function getRulesForAccount(userId: string, accountId: string) {
   const result = await query(
     `SELECT * FROM inbox_rules
      WHERE user_id = $1 AND enabled = true
@@ -213,7 +213,7 @@ export async function applyInboxRules(messages, account, imapManager) {
     const deferredDestinations = [];
     let forwardBarrierPassed = lastForwardRuleIndex === -1;
 
-    const executeNonForwardAction = async (action, ruleId, isDest) => {
+    const executeNonForwardAction = async (action, ruleId: string, isDest) => {
       try {
         const acted = await applyAction(
           action,
@@ -411,7 +411,7 @@ interface ResolverCache {
   allTrashPaths?: Set<string> | null;
 }
 
-async function applyAction(action, msg, account, imapManager, ruleId, resolverCache: ResolverCache = {}) {
+async function applyAction(action, msg, account, imapManager, ruleId: string, resolverCache: ResolverCache = {}) {
   switch (action.type) {
     case 'forward': {
       // Load this path only when a forward action actually runs. ruleForwarder

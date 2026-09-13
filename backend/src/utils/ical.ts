@@ -35,7 +35,7 @@ function unfoldICalendarLines(raw) {
   return lines;
 }
 
-export function propertyFromLine(line) {
+export function propertyFromLine(line: string) {
   let quoted = false;
   let separator = -1;
   for (let i = 0; i < line.length; i++) {
@@ -196,7 +196,7 @@ export function parseCalendarEvent(raw) {
   // raw object for round-trip interoperability. The normalized row is the
   // base-event projection. Recurrence information is retained in the resource.
   if (properties.some((property) => !property)) return null;
-  const named = (name) => properties.filter((property) => property.name === name);
+  const named = (name: string) => properties.filter((property) => property.name === name);
   const [uid] = named('UID');
   const [startProperty] = named('DTSTART');
   const [endProperty] = named('DTEND');

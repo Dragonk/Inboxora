@@ -22,7 +22,7 @@ const BATCH_SIZE = 25;
 // How often the queue is drained.
 const TICK_MS = 5000;
 
-function envInt(name, fallback, { min, max }) {
+function envInt(name: string, fallback, { min, max }) {
   const parsed = Number.parseInt(process.env[name] ?? '', 10);
   if (!Number.isFinite(parsed)) return fallback;
   return Math.max(min, Math.min(max, parsed));
@@ -100,7 +100,7 @@ export async function finalizeMaterialization(client, { eventId, horizon, etag, 
  * Returns 'built', 'truncated' (stored what it could, still needs the on-the-fly path) or
  * 'skipped' when the event disappeared while queued.
  */
-export async function materializeEvent(eventId, horizon = occurrenceHorizon()) {
+export async function materializeEvent(eventId: string, horizon = occurrenceHorizon()) {
   const result = await query(`SELECT ${EVENT_COLUMNS} FROM calendar_events e WHERE e.id = $1`, [eventId]);
   const row = result.rows[0];
   if (!row) return 'skipped';

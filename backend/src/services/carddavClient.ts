@@ -34,7 +34,7 @@ function basicAuth(username, password) {
   return 'Basic ' + Buffer.from(`${username}:${password}`).toString('base64');
 }
 
-async function assertHostAllowed(url, allowPrivate) {
+async function assertHostAllowed(url: string, allowPrivate) {
   let hostname;
   try { hostname = new URL(url).hostname; }
   catch { throw new Error('Invalid server URL'); }
@@ -100,8 +100,8 @@ function textOf(node) {
 // a literal "&#13;" (and an empty property renders as just "&#13;"). Decode decimal
 // and hex references back to their characters — the vCard parser then handles the
 // restored CR/LF normally. Named entities are left for the XML parser to resolve.
-function decodeXmlCharRefs(str) {
-  return str.replace(/&#([xX][0-9a-fA-F]+|\d+);/g, (match, code) => {
+function decodeXmlCharRefs(str: string) {
+  return str.replace(/&#([xX][0-9a-fA-F]+|\d+);/g, (match, code: string) => {
     const cp = (code[0] === 'x' || code[0] === 'X')
       ? parseInt(code.slice(1), 16)
       : parseInt(code, 10);
@@ -113,14 +113,14 @@ function decodeXmlCharRefs(str) {
 }
 
 // Resolve an href (often an absolute path) against the request URL's origin.
-function absolute(href, baseUrl) {
+function absolute(href: string, baseUrl) {
   try { return new URL(href, baseUrl).href; }
   catch { return href; }
 }
 
 // Pure: pull a single href-valued property out of a PROPFIND multistatus, by its
 // namespace-stripped local name (e.g. 'current-user-principal'). Exported for testing.
-export function extractHref(xmlText, key, baseUrl) {
+export function extractHref(xmlText, key: string, baseUrl) {
   const xml = parser.parse(xmlText);
   const response = toArray(xml?.multistatus?.response)[0];
   if (!response) return null;
@@ -132,7 +132,7 @@ export function extractHref(xmlText, key, baseUrl) {
 
 // PROPFIND for a single href-valued property. `key` is the expected local name in
 // the response (passed explicitly rather than derived from the request markup).
-async function propfindHref(url, propXml, key, creds) {
+async function propfindHref(url: string, propXml, key: string, creds) {
   const body = `<?xml version="1.0" encoding="utf-8"?>
 <propfind xmlns="DAV:" xmlns:C="urn:ietf:params:xml:ns:carddav"><prop>${propXml}</prop></propfind>`;
   return extractHref(await dav('PROPFIND', url, { ...creds, depth: 0, body }), key, url);

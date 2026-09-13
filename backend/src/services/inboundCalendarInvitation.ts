@@ -10,7 +10,7 @@ function unfoldLines(raw) {
   return lines;
 }
 
-function componentMarker(line) {
+function componentMarker(line: string) {
   const match = line.match(/^(BEGIN|END):([A-Z0-9-]+)$/i);
   return match && { type: match[1].toUpperCase(), name: match[2].toUpperCase() };
 }
@@ -113,7 +113,7 @@ export function parseInboundCalendarInvitation(raw) {
   const calendarProperties = structure.calendarLines.map(propertyFromLine);
   const eventProperties = structure.eventLines.map(propertyFromLine);
   if (calendarProperties.some(property => !property) || eventProperties.some(property => !property)) return null;
-  const named = (properties, name) => properties.filter(property => property.name === name);
+  const named = (properties, name: string) => properties.filter(property => property.name === name);
   const [method] = named(calendarProperties, 'METHOD');
   const acceptedMethods = new Set(['REQUEST', 'CANCEL']);
   const normalizedMethod = method?.value.trim().toUpperCase();

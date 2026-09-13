@@ -87,8 +87,7 @@ npm run test:e2e
 
 Projects cover desktop (1440×900), tablet (1024×768), phone (390×844 and 412×915) and phone
 landscape (915×412). Visual references are committed under
-`frontend/e2e/v3-interface.spec.js-snapshots/` (the directory keeps the name it had before the
-spec was renamed from `.js` to `.ts`) and CI only **compares** them — it never updates
+`frontend/e2e/v3-interface.spec.ts-snapshots/` and CI only **compares** them — it never updates
 them. Regenerate deliberately and review the images in the diff:
 
 ```bash

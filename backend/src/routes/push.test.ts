@@ -149,7 +149,7 @@ describe('native background API', () => {
   const EVENT_ID = '11111111-1111-1111-1111-111111111111';
 
   it('returns notification details for an owned message', async () => {
-    query.mockImplementation((sql) => {
+    query.mockImplementation((sql: string) => {
       if (sql.includes('COUNT(*)::int AS total')) return Promise.resolve({ rows: [{ total: 5 }] });
       return Promise.resolve({ rows: [{ id: EVENT_ID, subject: 'Hello', from_name: 'Ada', from_email: 'ada@example.com', account_id: 'acct-1', folder: 'INBOX' }] });
     });
@@ -178,7 +178,7 @@ describe('native background API', () => {
   });
 
   it('returns the reconciliation snapshot for the fallback worker', async () => {
-    query.mockImplementation((sql) => {
+    query.mockImplementation((sql: string) => {
       if (sql.includes('ORDER BY m.date')) return Promise.resolve({ rows: [{ id: 'msg-9', subject: 'Latest', from_name: '', from_email: 'bob@example.com', account_id: 'acct-1', folder: 'INBOX' }] });
       return Promise.resolve({ rows: [{ total: 2 }] });
     });

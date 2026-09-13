@@ -29,7 +29,7 @@ const router = Router();
 // doesn't exist or is SSO-only, so response latency doesn't leak account existence.
 const DUMMY_PASSWORD_HASH = bcrypt.hashSync('mailflow-timing-equalizer', 12);
 
-function maskEmail(email) {
+function maskEmail(email: string) {
   if (!email) return '';
   const [local, domain] = email.split('@');
   if (!domain) return email;
@@ -51,7 +51,7 @@ function getTrustDurationMs(setting) {
 // Delete every server-side session belonging to a user (Redis-backed store, keys
 // prefixed "sess:"). Used after a password reset so a pre-existing session can't
 // outlive a credential change. Best-effort — never throws to the caller.
-async function destroyUserSessions(userId) {
+async function destroyUserSessions(userId: string) {
   try {
     let cursor = 0;
     do {
@@ -68,7 +68,7 @@ async function destroyUserSessions(userId) {
   }
 }
 
-async function createTrustedDevice(userId, req, res) {
+async function createTrustedDevice(userId: string, req, res) {
   const trustResult = await query(
     "SELECT value FROM system_settings WHERE key = 'mfa_device_trust'"
   );
@@ -403,7 +403,7 @@ router.post('/2fa/challenge', authLimiter, async (req, res) => {
 });
 
 // Helper: generate and store an email OTP, send it to the given address
-async function sendEmailOtpCode(userId, toEmail) {
+async function sendEmailOtpCode(userId: string, toEmail) {
   const codeNum = crypto.randomBytes(3).readUIntBE(0, 3) % 900000 + 100000;
   const code = String(codeNum);
   const codeHash = crypto.createHash('sha256').update(code).digest('hex');

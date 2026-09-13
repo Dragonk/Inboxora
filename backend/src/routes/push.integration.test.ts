@@ -52,7 +52,7 @@ describe.skipIf(!enabled)('push device registry with PostgreSQL', () => {
     await pool.end();
   });
 
-  async function register(deviceId, endpoint = 'https://distributor.example/up/topic') {
+  async function register(deviceId: string, endpoint = 'https://distributor.example/up/topic') {
     const response = await fetch(`${base}/api/push/devices`, {
       method: 'POST',
       headers: { 'content-type': 'application/json' },

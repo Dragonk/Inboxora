@@ -14,7 +14,7 @@ const DEFAULT_INTERVAL_MIN = 60;
 const timers = new Map();   // userId -> interval id
 const syncing = new Set();  // userIds with a sync in flight (prevents overlap)
 
-export async function getCardavConfig(userId) {
+export async function getCardavConfig(userId: string) {
   const r = await query(
     "SELECT config FROM user_integrations WHERE user_id = $1 AND provider = 'carddav'",
     [userId],
@@ -23,7 +23,7 @@ export async function getCardavConfig(userId) {
 }
 
 // Shallow-merge a patch into the stored JSONB config.
-export async function saveCardavConfig(userId, patch) {
+export async function saveCardavConfig(userId: string, patch) {
   await query(
     `UPDATE user_integrations SET config = config || $2::jsonb, updated_at = NOW()
      WHERE user_id = $1 AND provider = 'carddav'`,
@@ -34,7 +34,7 @@ export async function saveCardavConfig(userId, patch) {
 // Find or create the local read-only address book mirroring a remote collection,
 // keyed by external_url. Address-book names are unique per user, so on a name
 // clash we disambiguate with a suffix.
-async function ensureCardavBook(userId, book) {
+async function ensureCardavBook(userId: string, book) {
   const existing = await query(
     "SELECT id FROM address_books WHERE user_id = $1 AND external_url = $2",
     [userId, book.url],
@@ -58,7 +58,7 @@ async function ensureCardavBook(userId, book) {
   throw new Error(`Could not create a local address book for "${book.displayName}"`);
 }
 
-function contactFromVCard(vcard, href) {
+function contactFromVCard(vcard, href: string) {
   const c = parseVCard(vcard);
   const uid = c.uid || crypto.createHash('md5').update(href).digest('hex');
   const primaryEmail = c.emails.find(e => e.primary)?.value || c.emails[0]?.value || null;
@@ -76,7 +76,7 @@ function contactFromVCard(vcard, href) {
   };
 }
 
-async function upsertCardavContact(bookId, userId, c) {
+async function upsertCardavContact(bookId, userId: string, c) {
   const etag = crypto.createHash('md5').update(c.vcard).digest('hex');
   await query(`
     INSERT INTO contacts (
@@ -124,7 +124,7 @@ async function mergeIntoExisting(id, c) {
       JSON.stringify(c.urls), JSON.stringify(c.instantMessages), JSON.stringify(c.categories), JSON.stringify(c.addresses), c.vcard, etag]);
 }
 
-async function syncBook(userId, book, dupMode, creds) {
+async function syncBook(userId: string, book, dupMode, creds) {
   const rawCards = await fetchAddressBookCards({ ...book, ...creds });
   const cards = rawCards.map(rc => contactFromVCard(rc.vcard, rc.href));
   if (cards.some(card => card.invalidDates.length || card.invalidDateLabels.length)) {
@@ -177,7 +177,7 @@ async function syncBook(userId, book, dupMode, creds) {
   return { bookId, count: presentUids.length };
 }
 
-export async function syncUser(userId) {
+export async function syncUser(userId: string) {
   const config = await getCardavConfig(userId);
   if (!config?.serverUrl) return { ok: false, error: 'not connected' };
   if (syncing.has(userId)) return { ok: false, error: 'A sync is already in progress' };
@@ -214,7 +214,7 @@ export async function syncUser(userId) {
 
 // ── Scheduler ─────────────────────────────────────────────────────────────────
 
-export function scheduleCardavUser(userId, intervalMin) {
+export function scheduleCardavUser(userId: string, intervalMin) {
   stopCardavUser(userId);
   const min = Math.max(15, Math.min(1440, parseInt(intervalMin) || DEFAULT_INTERVAL_MIN));
   const id = setInterval(() => {
@@ -223,7 +223,7 @@ export function scheduleCardavUser(userId, intervalMin) {
   timers.set(userId, id);
 }
 
-export function stopCardavUser(userId) {
+export function stopCardavUser(userId: string) {
   const id = timers.get(userId);
   if (id) { clearInterval(id); timers.delete(userId); }
 }

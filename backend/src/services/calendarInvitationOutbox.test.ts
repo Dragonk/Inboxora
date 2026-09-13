@@ -105,7 +105,7 @@ describe('background drain', () => {
   });
 
   it('records an undeliverable row as failed and still processes the rest of the queue', async () => {
-    query.mockImplementation(async sql => {
+    query.mockImplementation(async (sql: string) => {
       if (sql.includes('FROM calendar_invitation_outbox')) {
         return { rows: [{ id: 'outbox-1', user_id: 'user-1', payload: null, invite_account_id: null }, { id: 'outbox-2', user_id: 'user-1', payload: { actions: [{ accountId: 'account-2' }] }, invite_account_id: 'account-2' }] };
       }
@@ -123,7 +123,7 @@ describe('background drain', () => {
     // Only the second row's account lookup succeeds, so the first broken row must
     // not stop the rest of the queue.
     let lookup = 0;
-    query.mockImplementation(async sql => {
+    query.mockImplementation(async (sql: string) => {
       if (sql.includes('FROM calendar_invitation_outbox')) {
         return { rows: [{ id: 'outbox-1', user_id: 'user-1', payload: { actions: [{ accountId: 'account-1' }] }, invite_account_id: 'account-1' }, { id: 'outbox-2', user_id: 'user-1', payload: { actions: [{ accountId: 'account-2' }] }, invite_account_id: 'account-2' }] };
       }

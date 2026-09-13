@@ -84,7 +84,7 @@ function parseCsv(text: string): string[][] {
   return rows;
 }
 
-export function parseGoogleCsv(text) {
+export function parseGoogleCsv(text: string) {
   const [header = [], ...rows] = parseCsv(String(text || ''));
   const columns = new Map(header.map((name, index) => [name.trim().replace(/\s+[–—]\s+/g, ' - '), index]));
   const get = (row, ...names) => names.map(name => row[columns.get(name) ?? '']?.trim() || '').find(Boolean) || '';
@@ -108,7 +108,7 @@ export function parseGoogleCsv(text) {
     const date = new Date(Date.UTC(year, month - 1, day));
     return date.getUTCFullYear() === year && date.getUTCMonth() === month - 1 && date.getUTCDate() === day ? value : null;
   };
-  const labels = value => value.split(/\s+:::\s+/).map(label => label.trim()).filter(Boolean);
+  const labels = value => value.split(/\s+:::\s+/).map((label: string) => label.trim()).filter(Boolean);
   return rows.map(row => {
     const emails = entries(row, 'E-mail').map((email, index) => ({ ...email, value: email.value.toLowerCase(), primary: index === 0 }));
     const phones = entries(row, 'Phone');

@@ -120,7 +120,7 @@ describe('external calendar imports', () => {
   });
 
   it('keeps the prior projection when an ICS source returns an empty body', async () => {
-    query.mockResolvedValueOnce({ rows: [source] }).mockImplementation(async (sql) => (
+    query.mockResolvedValueOnce({ rows: [source] }).mockImplementation(async (sql: string) => (
       sql.includes('INSERT INTO calendars') ? { rows: [{ id: 'calendar-1' }] } : { rows: [] }
     ));
     safeFetch.mockResolvedValue({ ok: true, text: vi.fn().mockResolvedValue('   \r\n\t') });

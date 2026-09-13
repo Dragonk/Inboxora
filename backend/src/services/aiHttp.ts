@@ -10,7 +10,7 @@ export function sanitizeText(value, maxLength = 1000) {
   }).join('').replace(/\s+/g, ' ').trim().slice(0, maxLength);
 }
 
-export function parseJson(text) {
+export function parseJson(text: string) {
   try {
     const value = JSON.parse(text);
     return value && typeof value === 'object' ? value : null;
@@ -55,8 +55,8 @@ export async function* readSseData(response, { signal, maxEventBytes, createErro
     if (byteLength(block) > maxEventBytes) throw error('event_too_large');
     return block
       .split(/\r?\n/)
-      .filter((line) => line.startsWith('data:'))
-      .map((line) => line.slice(5).replace(/^ /, ''))
+      .filter((line: string) => line.startsWith('data:'))
+      .map((line: string) => line.slice(5).replace(/^ /, ''))
       .join('\n');
   }
 
@@ -89,7 +89,7 @@ export async function* readSseData(response, { signal, maxEventBytes, createErro
   }
 }
 
-export function createRequestSignal(callerSignal, timeoutMs, timeoutMessage = 'request timed out') {
+export function createRequestSignal(callerSignal, timeoutMs: number, timeoutMessage = 'request timed out') {
   const controller = new AbortController();
   let timedOut = false;
   const onAbort = () => controller.abort(callerSignal?.reason || new Error('request aborted'));

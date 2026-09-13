@@ -15,7 +15,7 @@ export function requireCompleteMultistatus(raw, parsed) {
 }
 
 export function decodeDavCharRefs(value) {
-  return value.replace(/&#([xX][0-9a-fA-F]+|\d+);/g, (match, code) => {
+  return value.replace(/&#([xX][0-9a-fA-F]+|\d+);/g, (match, code: string) => {
     const number = /^[xX]/.test(code) ? parseInt(code.slice(1), 16) : Number(code);
     return number > 0 && number <= 0x10ffff && !(number >= 0xd800 && number <= 0xdfff) ? String.fromCodePoint(number) : match;
   });

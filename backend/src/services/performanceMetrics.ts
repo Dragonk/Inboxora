@@ -13,7 +13,7 @@ function newHisto() {
   return { count: 0, sumMs: 0, maxMs: 0, buckets: new Array(LATENCY_EDGES_MS.length + 1).fill(0) };
 }
 
-function record(h, ms) {
+function record(h, ms: number) {
   h.count += 1;
   h.sumMs += ms;
   if (ms > h.maxMs) h.maxMs = ms;
@@ -41,14 +41,14 @@ const httpRoutes: Record<string, any> = Object.create(null); // routeKey -> { h,
 const db = newHisto();
 let dbSlow = 0;
 
-export function recordHttp(routeKey, ms, isError = false) {
+export function recordHttp(routeKey, ms: number, isError = false) {
   if (!routeKey || !Number.isFinite(ms)) return;
   const e = httpRoutes[routeKey] || (httpRoutes[routeKey] = { h: newHisto(), errors: 0 });
   record(e.h, ms);
   if (isError) e.errors += 1;
 }
 
-export function recordDb(ms) {
+export function recordDb(ms: number) {
   if (!Number.isFinite(ms)) return;
   record(db, ms);
   if (ms >= DB_SLOW_MS) dbSlow += 1;

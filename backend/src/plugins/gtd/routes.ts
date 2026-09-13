@@ -116,7 +116,7 @@ router.post('/pet/import', async (req, res) => {
 // starts with custom- stays readable. The owner check recomputes the requester's own slug
 // the same way importPet derives it. A non-owner gets the same 404 as an unknown slug
 // (never 403) so the response can't confirm another user's pet exists.
-function petRowReadable(row, rawSlug, userId) {
+function petRowReadable(row, rawSlug, userId: string) {
   if (!row) return false;
   return !row.isCustom || parsePetSlug(rawSlug) === customPetSlug(userId);
 }

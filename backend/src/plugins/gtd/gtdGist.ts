@@ -45,7 +45,7 @@ export function selectGistCandidates(sections) {
 }
 
 // Bounded-concurrency runner: at most `limit` workers in flight over `items`.
-async function runPool(items, limit, worker) {
+async function runPool(items, limit: number, worker) {
   let idx = 0;
   const runners = Array.from({ length: Math.min(limit, items.length) }, async () => {
     while (idx < items.length) {
@@ -59,7 +59,7 @@ async function runPool(items, limit, worker) {
 // Guards against two overlapping sections fetches queueing the same message twice.
 const _inFlight = new Set();
 
-async function generateForAccount(accountId, ids) {
+async function generateForAccount(accountId: string, ids) {
   // Skip ids that already carry a cached gist (belt-and-suspenders over the sections-side filter,
   // so a head that got a gist since the sections snapshot isn't regenerated / doesn't re-broadcast).
   const existing = await getMessageAnnotations(accountId, ids, 'gtd');

@@ -102,7 +102,7 @@ function redactSecrets(value, secrets = []) {
   return redacted;
 }
 
-function providerError(status, text, secrets = []) {
+function providerError(status, text: string, secrets = []) {
   const parsed = parseJson(text);
   const raw = typeof parsed?.error === 'string' ? parsed.error : parsed?.error?.message;
   const detail = sanitizeText(redactSecrets(raw || text, secrets));
@@ -121,7 +121,7 @@ function providerRequestError(error, request, callerSignal) {
 
 interface ProviderRequestOptions { signal?: AbortSignal; timeoutMs?: number }
 
-async function openProviderRequest(fetchFn, url, init, { signal, timeoutMs = DEFAULT_TIMEOUT_MS }: ProviderRequestOptions = {}) {
+async function openProviderRequest(fetchFn, url: string, init, { signal, timeoutMs = DEFAULT_TIMEOUT_MS }: ProviderRequestOptions = {}) {
   const request = createRequestSignal(signal, timeoutMs, 'AI request timed out');
   try {
     const response = await fetchFn(url, { ...init, signal: request.signal });

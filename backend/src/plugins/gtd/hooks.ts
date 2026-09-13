@@ -145,7 +145,7 @@ export async function gtdSyncTick({ mgr, account }) {
 // deferred insert saw stale thread state, so re-running here applies any needed strip immediately.
 // Gated on gtd_enabled; transition failures are debug-level. Uses only generic mgr primitives
 // (syncFolderOnDemand, broadcast) plus GTD's own DB read + transition engine.
-export function emitAfterDeferredCopySync(mgr, account, toFolder, srcUid, fromFolder) {
+export function emitAfterDeferredCopySync(mgr, account, toFolder: string, srcUid, fromFolder: string) {
   return mgr.syncFolderOnDemand(account, toFolder)
     .then(async () => {
       mgr.broadcast({ type: 'gtd_sections_updated', accountId: account.id }, account.user_id);

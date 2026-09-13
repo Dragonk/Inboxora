@@ -32,7 +32,7 @@ export function providerMetadataForMessage(parsed: ConversationMetadataInput | n
   const metadata = parseProviderMetadata(parsed, account);
   const attributes = parsed?.attributes || parsed || {};
   const headers = parsed?.parsedHeaders || parsed?.headers || {};
-  const header = (name) => {
+  const header = (name: string) => {
     if (headers && typeof (headers as Map<string, unknown>).get === 'function') {
       const map = headers as Map<string, unknown>;
       const direct = map.get(name) ?? map.get(name.toLowerCase());

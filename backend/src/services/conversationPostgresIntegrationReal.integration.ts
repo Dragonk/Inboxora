@@ -117,7 +117,7 @@ async function insertMessage({ accountId, userId, uid, folder, messageId, subjec
   return result.rows[0].id;
 }
 
-async function createConversation(userId, accountId, subject) {
+async function createConversation(userId: string, accountId: string, subject: string) {
   const convId = _randomUUID();
   await pool.query(
     "INSERT INTO conversations (id, user_id, account_id, canonical_subject, kind, manually_locked) VALUES ($1, $2, $3, $4, 'human_reply_chain', false)",
@@ -126,7 +126,7 @@ async function createConversation(userId, accountId, subject) {
   return convId;
 }
 
-async function createLogicalMessage(conversationId, userId, accountId, canonicalMessageId) {
+async function createLogicalMessage(conversationId: string, userId: string, accountId: string, canonicalMessageId) {
   const lmId = _randomUUID();
   await pool.query(
     "INSERT INTO logical_messages (id, conversation_id, user_id, account_id, canonical_message_id) VALUES ($1, $2, $3, $4, $5)",

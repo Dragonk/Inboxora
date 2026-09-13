@@ -45,7 +45,7 @@ function rawBody(req) {
   });
 }
 
-function uidFromCalendarHref(href) {
+function uidFromCalendarHref(href: string) {
   try {
     return decodeURIComponent(href.trim().replace(/^.*\//, '')) || null;
   } catch {
@@ -66,7 +66,7 @@ function multistatus(responses) {
   ].join('');
 }
 
-function response(href, properties, status = '200 OK') {
+function response(href: string, properties, status = '200 OK') {
   return [
     '<D:response>',
     `<D:href>${xmlEscape(href)}</D:href>`,

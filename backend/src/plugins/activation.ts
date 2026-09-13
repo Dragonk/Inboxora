@@ -14,13 +14,13 @@ import { query } from '../services/db.js';
 const activationCache = new Map(); // userId -> { value: Set<pluginId>, expiry }
 const CACHE_TTL_MS = 5 * 60 * 1000;
 
-export function invalidateActivationCache(userId) {
+export function invalidateActivationCache(userId: string) {
   activationCache.delete(userId);
 }
 
 // The set of plugin ids this user has activated. Reads preferences.enabledPlugins; a missing/
 // malformed value reads as the empty set (default off). Cached per user with a short TTL.
-export async function getActivatedPlugins(userId) {
+export async function getActivatedPlugins(userId: string) {
   if (!userId) return new Set();
   const cached = activationCache.get(userId);
   if (cached && cached.expiry > Date.now()) return cached.value;
@@ -40,13 +40,13 @@ export async function getActivatedPlugins(userId) {
 
 // Whether a specific plugin is activated for a user. The cheap gate plugins compose with their
 // own config.
-export async function isPluginActivated(userId, pluginId) {
+export async function isPluginActivated(userId: string, pluginId: string) {
   return (await getActivatedPlugins(userId)).has(pluginId);
 }
 
 // Whether a plugin is activated for the user who OWNS an account. Lets a plugin compose activation
 // into per-account logic without holding the account's userId (it resolves the owner internally).
-export async function isPluginActivatedForAccount(pluginId, accountId) {
+export async function isPluginActivatedForAccount(pluginId: string, accountId: string) {
   const { rows } = await query('SELECT user_id FROM email_accounts WHERE id = $1', [accountId]);
   const userId = rows[0]?.user_id;
   if (!userId) return false;
@@ -56,7 +56,7 @@ export async function isPluginActivatedForAccount(pluginId, accountId) {
 // Turn a plugin on/off for a user (persisted to preferences.enabledPlugins) and drop the cache so
 // the change takes effect immediately. Returns the new activated set. Read-modify-write is fine
 // here: activation toggles are rare and single-user, never a hot concurrent path.
-export async function setPluginActivated(userId, pluginId, activated) {
+export async function setPluginActivated(userId: string, pluginId: string, activated) {
   const set = new Set(await getActivatedPlugins(userId));
   if (activated) set.add(pluginId); else set.delete(pluginId);
   await query(

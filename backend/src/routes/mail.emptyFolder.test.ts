@@ -41,7 +41,7 @@ describe('POST /api/mail/folders/empty — async background empty', () => {
     });
   });
 
-  const empty = (path) => fetch(`${base}/api/mail/folders/empty`, {
+  const empty = (path: string) => fetch(`${base}/api/mail/folders/empty`, {
     method: 'POST', headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ accountId: ACCOUNT_ID, path }),
   });

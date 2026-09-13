@@ -42,7 +42,7 @@ export function normalizeDescription(value) {
 // Flatten HTML to the text alternative used for DESCRIPTION. Structure-aware so
 // paragraphs, list items and <br> stay on their own lines instead of collapsing
 // into one run-on sentence, and script/style bodies never leak into the text.
-export function htmlToPlainText(html) {
+export function htmlToPlainText(html: string) {
   if (typeof html !== 'string' || !html) return '';
   let suppressed = 0;
   let text = '';

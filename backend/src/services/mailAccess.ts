@@ -11,7 +11,7 @@
 import { query } from './db.js';
 
 // A message the user owns (joined through their accounts), or null. Full row (m.*).
-export async function loadOwnedMessage(userId, messageId) {
+export async function loadOwnedMessage(userId: string, messageId: string) {
   const { rows } = await query(
     `SELECT m.*
        FROM messages m
@@ -23,7 +23,7 @@ export async function loadOwnedMessage(userId, messageId) {
 }
 
 // One of the user's accounts by id (ownership enforced), or null. Full row.
-export async function getOwnedAccount(userId, accountId) {
+export async function getOwnedAccount(userId: string, accountId: string) {
   const { rows } = await query(
     'SELECT * FROM email_accounts WHERE id = $1 AND user_id = $2',
     [accountId, userId]
@@ -33,7 +33,7 @@ export async function getOwnedAccount(userId, accountId) {
 
 // All of the user's accounts (light columns for listing/iteration). The caller filters by its
 // own per-account config (e.g. which accounts have a feature enabled).
-export async function listUserAccounts(userId) {
+export async function listUserAccounts(userId: string) {
   const { rows } = await query(
     `SELECT id, email_address, folder_mappings, include_in_unified_inbox, enabled
        FROM email_accounts
@@ -45,7 +45,7 @@ export async function listUserAccounts(userId) {
 }
 
 // The account's own addresses (login address + aliases) as raw strings. The caller normalizes.
-export async function getAccountAddresses(accountId) {
+export async function getAccountAddresses(accountId: string) {
   const { rows } = await query(
     `SELECT email_address AS addr FROM email_accounts WHERE id = $1
      UNION ALL
@@ -56,7 +56,7 @@ export async function getAccountAddresses(accountId) {
 }
 
 // Distinct thread keys for a set of row ids within an account.
-export async function getThreadKeysForMessageIds(accountId, ids) {
+export async function getThreadKeysForMessageIds(accountId: string, ids) {
   if (!ids || ids.length === 0) return [];
   const { rows } = await query(
     `SELECT DISTINCT thread_key FROM messages
@@ -67,7 +67,7 @@ export async function getThreadKeysForMessageIds(accountId, ids) {
 }
 
 // Distinct thread keys for the live messages currently in a set of folders within an account.
-export async function getThreadKeysInFolders(accountId, folders) {
+export async function getThreadKeysInFolders(accountId: string, folders) {
   if (!folders || folders.length === 0) return [];
   const { rows } = await query(
     `SELECT DISTINCT thread_key FROM messages
@@ -78,7 +78,7 @@ export async function getThreadKeysInFolders(accountId, folders) {
 }
 
 // Distinct thread keys for messages matching any of the given RFC Message-IDs within an account.
-export async function getThreadKeysForMessageIdHeaders(accountId, messageIdHeaders) {
+export async function getThreadKeysForMessageIdHeaders(accountId: string, messageIdHeaders) {
   if (!messageIdHeaders || messageIdHeaders.length === 0) return [];
   const { rows } = await query(
     `SELECT DISTINCT thread_key FROM messages
@@ -90,7 +90,7 @@ export async function getThreadKeysForMessageIdHeaders(accountId, messageIdHeade
 
 // The live messages of a set of threads within an account (fields a labeler needs to decide
 // recency/sender). Excludes deleted rows.
-export async function getMessagesByThreadKeys(accountId, threadKeys) {
+export async function getMessagesByThreadKeys(accountId: string, threadKeys) {
   if (!threadKeys || threadKeys.length === 0) return [];
   const { rows } = await query(
     `SELECT thread_key, uid, folder, from_email, date, id
@@ -102,7 +102,7 @@ export async function getMessagesByThreadKeys(accountId, threadKeys) {
 }
 
 // The thread key of a single message identified by its (uid, folder) within an account, or null.
-export async function getThreadKeyForUid(accountId, uid, folder) {
+export async function getThreadKeyForUid(accountId: string, uid: number, folder: string) {
   const { rows } = await query(
     'SELECT thread_key FROM messages WHERE account_id = $1 AND uid = $2 AND folder = $3 LIMIT 1',
     [accountId, uid, folder]
@@ -112,7 +112,7 @@ export async function getThreadKeyForUid(accountId, uid, folder) {
 
 // The distinct folders that currently hold a live copy of a message (by RFC Message-ID) in an
 // account — i.e. which label folders a thread is present in.
-export async function getMessageCopyFolders(accountId, messageIdHeader) {
+export async function getMessageCopyFolders(accountId: string, messageIdHeader) {
   const { rows } = await query(
     'SELECT DISTINCT folder FROM messages WHERE account_id = $1 AND message_id = $2 AND is_deleted = false',
     [accountId, messageIdHeader]
@@ -122,7 +122,7 @@ export async function getMessageCopyFolders(accountId, messageIdHeader) {
 
 // Display/summarize fields for a set of message rows within an account (the body is the text body
 // falling back to the snippet). Used e.g. to feed a summarizer.
-export async function getMessageFields(accountId, ids) {
+export async function getMessageFields(accountId: string, ids) {
   if (!ids || ids.length === 0) return [];
   const { rows } = await query(
     `SELECT id, subject, from_name, from_email,
@@ -136,7 +136,7 @@ export async function getMessageFields(accountId, ids) {
 
 // A plugin's own per-message annotations for a set of message ids within an account, as
 // { [messageId]: <the plugin's annotation object> }. Reads only this plugin's namespace.
-export async function getMessageAnnotations(accountId, ids, pluginId) {
+export async function getMessageAnnotations(accountId: string, ids, pluginId: string) {
   if (!ids || ids.length === 0) return {};
   const { rows } = await query(
     'SELECT id, plugin_annotations -> $3 AS ann FROM messages WHERE account_id = $1 AND id = ANY($2::uuid[])',
@@ -150,7 +150,7 @@ export async function getMessageAnnotations(accountId, ids, pluginId) {
 // Merge `patch` into a plugin's namespace of a message's annotations (creating the namespace if
 // absent). Only ever touches plugin_annotations -> pluginId. Returns rows updated (0 if the
 // message isn't in the account). The annotation cache is cleaned with the message row on delete.
-export async function setMessageAnnotation(accountId, messageId, pluginId, patch) {
+export async function setMessageAnnotation(accountId: string, messageId: string, pluginId: string, patch) {
   const { rowCount } = await query(
     `UPDATE messages
         SET plugin_annotations = jsonb_set(

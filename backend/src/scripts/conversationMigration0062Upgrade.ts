@@ -37,7 +37,7 @@ function invariant(condition, message, details = undefined) {
   }
 }
 
-function splitStatements(sql) {
+function splitStatements(sql: string) {
   const statements = [];
   let start = 0;
   let single = false;
@@ -363,7 +363,7 @@ async function assertMigrationResult(client, before) {
   return { afterCounts, actualDeltas, mismatches, retained, split: split.rows.map(row => ({ accountId: row.account_id, logicalId: row.logical_id, conversationId: row.conversation_id })) };
 }
 
-async function accountStateRows(client, accountId) {
+async function accountStateRows(client, accountId: string) {
   const result = await client.query(`
     WITH rows AS (
       SELECT 'messages' AS kind,id::text AS id,(to_jsonb(m)-ARRAY['synced_at']::text[]) AS data FROM messages m WHERE account_id=$1
@@ -379,7 +379,7 @@ async function accountStateRows(client, accountId) {
   return result.rows;
 }
 
-async function accountChecksum(client, accountId) {
+async function accountChecksum(client, accountId: string) {
   const rows = await accountStateRows(client, accountId);
   return {
     checksum: createHash('md5').update(rows.map(row => `${row.kind}:${row.id}:${row.data}`).join('\n')).digest('hex'),

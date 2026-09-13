@@ -64,7 +64,7 @@ function agentFor(allowPrivate, requireHttps) {
   return agents.get(key);
 }
 
-export function safeFetch(url, options = {}, { allowPrivate = false, requireHttps = !allowPrivate } = {}) {
+export function safeFetch(url: string, options = {}, { allowPrivate = false, requireHttps = !allowPrivate } = {}) {
   let parsed;
   try { parsed = new URL(url); }
   catch { return Promise.reject(new Error('Invalid URL')); }

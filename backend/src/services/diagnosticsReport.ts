@@ -33,7 +33,7 @@ const STANDARD_FOLDERS = new Set([
   'Deleted Items', 'Deleted Messages', 'Junk E-Mail', 'Sent Items', 'Sent Messages', 'Notes', 'Starred',
 ]);
 
-export function folderLabel(name, specialUse, salt) {
+export function folderLabel(name: string, specialUse, salt) {
   if (!name) return `custom:${hashRef('(unnamed)', salt)}`;
   if (STANDARD_FOLDERS.has(name)) return name;
   if (name.startsWith('[Gmail]/') || name.startsWith('[Google Mail]/')) return name;
@@ -101,7 +101,7 @@ export function scrubReport(obj) {
 }
 
 // Assemble the server-owned sections of the report, scoped to one user.
-export async function buildServerReport(userId, salt) {
+export async function buildServerReport(userId: string, salt) {
   const accRes = await query(
     `SELECT id, protocol, oauth_provider, imap_host, enabled, include_in_unified_inbox, last_sync, sync_error
      FROM email_accounts WHERE user_id = $1 ORDER BY sort_order NULLS LAST, created_at`,

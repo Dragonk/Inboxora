@@ -16,30 +16,30 @@
 export function createPluginMailFacade(engine) {
   return Object.freeze({
     // Realtime broadcast to a user's live sessions.
-    broadcast: (payload, userId) => engine.broadcast(payload, userId),
+    broadcast: (payload, userId: string) => engine.broadcast(payload, userId),
 
     // Is the account's persistent (IDLE) sync connection live? Replaces raw `connections` access so
     // a plugin can't reach another account's authenticated IMAP client.
-    isConnected: (accountId) => engine.connections.has(accountId),
+    isConnected: (accountId: string) => engine.connections.has(accountId),
 
     // Claim / release the on-demand sync lock for one folder, coordinating with core's own
     // user-triggered syncs (same `${accountId}:${folder}` key set). tryClaim returns false when the
     // folder is already being synced. Narrows the raw `onDemandSyncing` Set so a plugin can't clear
     // or inspect core's locks.
-    tryClaimFolderSync: (accountId, folder) => {
+    tryClaimFolderSync: (accountId: string, folder: string) => {
       const key = `${accountId}:${folder}`;
       if (engine.onDemandSyncing.has(key)) return false;
       engine.onDemandSyncing.add(key);
       return true;
     },
-    releaseFolderSync: (accountId, folder) => engine.onDemandSyncing.delete(`${accountId}:${folder}`),
+    releaseFolderSync: (accountId: string, folder: string) => engine.onDemandSyncing.delete(`${accountId}:${folder}`),
 
     // Sync-capability primitives — all run on pooled connections, never disturbing the IDLE client.
-    folderFingerprint: (accountId, folder) => engine.folderFingerprint(accountId, folder),
-    syncFolderViaPool: (account, folder) => engine.syncFolderViaPool(account, folder),
-    syncFolderOnDemand: (account, folder) => engine.syncFolderOnDemand(account, folder),
+    folderFingerprint: (accountId: string, folder: string) => engine.folderFingerprint(accountId, folder),
+    syncFolderViaPool: (account, folder: string) => engine.syncFolderViaPool(account, folder),
+    syncFolderOnDemand: (account, folder: string) => engine.syncFolderOnDemand(account, folder),
 
     // Remove a message's copy from a label folder (GTD transition strips).
-    removeMessageCopy: (accountId, uid, folder) => engine.removeMessageCopy(accountId, uid, folder),
+    removeMessageCopy: (accountId: string, uid: number, folder: string) => engine.removeMessageCopy(accountId, uid, folder),
   });
 }

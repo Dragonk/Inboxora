@@ -51,7 +51,7 @@ try {
   const aliceEmail = 'alice@example.test';
   const myEmail = 'me@gmail.test';
 
-  async function createConversation(accountId, subject, logicalCount, copyCount) {
+  async function createConversation(accountId: string, subject: string, logicalCount, copyCount) {
     const conv = await client.query(
       `INSERT INTO conversations (user_id, account_id, canonical_subject, subject_snapshot, first_message_at, last_message_at, logical_message_count, copy_count, unread_count, threading_confidence)
        VALUES ($1, $2, $3, $3, NOW() - interval '5 days', NOW(), $4, $5, 0, 1) RETURNING id`,
@@ -60,7 +60,7 @@ try {
     return conv.rows[0].id;
   }
 
-  async function createLogical(accountId, conversationId, index, direction, subject) {
+  async function createLogical(accountId: string, conversationId: string, index: number, direction, subject: string) {
     const canonicalId = `<fixture-${conversationId.slice(0, 8)}-${index}@example.test>`;
     const logical = await client.query(
       `INSERT INTO logical_messages (user_id, account_id, conversation_id, canonical_message_id, raw_message_id, subject, canonical_subject, direction, message_date, threading_reason, threading_confidence)
@@ -70,7 +70,7 @@ try {
     return { id: logical.rows[0].id, canonicalId };
   }
 
-  async function createCopy(accountId, uid, folder, logicalId, conversationId, canonicalId, subject, bodyText, bodyHtml, direction, dayOffset) {
+  async function createCopy(accountId: string, uid: number, folder: string, logicalId, conversationId: string, canonicalId, subject: string, bodyText, bodyHtml, direction, dayOffset) {
     const fromName = direction === 'outgoing' ? 'Ja' : 'Alice';
     const fromEmail = direction === 'outgoing' ? myEmail : aliceEmail;
     const toAddr = direction === 'outgoing' ? aliceEmail : myEmail;

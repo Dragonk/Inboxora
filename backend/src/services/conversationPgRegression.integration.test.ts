@@ -58,7 +58,7 @@ async function insertMessage(opts) {
   return id;
 }
 
-async function ceChecksum(accountId) {
+async function ceChecksum(accountId: string) {
   const r = await query(`
     SELECT md5(string_agg(payload, '|' ORDER BY payload)) AS checksum
     FROM (

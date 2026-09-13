@@ -42,7 +42,7 @@ function normalizeAddress(raw) {
   return null;
 }
 
-export async function resolveOwnIdentityAddresses(db, accountId, message = null) {
+export async function resolveOwnIdentityAddresses(db, accountId: string, message = null) {
   // Direction is account-local. Another managed account owned by the same user is
   // an external correspondent from this account's perspective.
   const result = await db.query(`
@@ -74,7 +74,7 @@ export async function resolveOwnIdentityAddresses(db, accountId, message = null)
   }
 
   const deliveryHeaders = [message?.parsedHeaders, message?.headers].filter(Boolean);
-  const headerValue = (name) => {
+  const headerValue = (name: string) => {
     for (const headers of deliveryHeaders) {
       if (typeof headers.get === 'function') {
         const direct = headers.get(name) ?? headers.get(name.toLowerCase());

@@ -142,7 +142,7 @@ router.get('/microsoft/callback', async (req, res) => {
 });
 
 // Shared: validate tokens, upsert account, connect IMAP.
-async function processMicrosoftTokens(userId, tokens, { tenantId, clientId, publicClient = false }) {
+async function processMicrosoftTokens(userId: string, tokens, { tenantId, clientId, publicClient = false }) {
   const { access_token, refresh_token, expires_in, id_token } = tokens;
   const expiresInSecs = Number.isFinite(expires_in) && expires_in > 0 ? expires_in : 3600;
   const expiry = new Date(Date.now() + expiresInSecs * 1000);

@@ -26,7 +26,10 @@ function parseAddresses(value) {
   }
 }
 
-function formatAddress(address) {
+/** A recipient as stored on a row: either a plain address or a parsed { name, address } pair. */
+type AddressLike = string | { name?: string | null; address?: string | null; email?: string | null };
+
+function formatAddress(address: AddressLike): string {
   if (typeof address === 'string') return address;
   if (!address || typeof address !== 'object') return '';
 

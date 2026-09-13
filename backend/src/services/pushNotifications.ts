@@ -23,7 +23,7 @@ if (pushConfigured) {
  * Errors from individual devices never throw — they are logged and skipped so
  * one bad subscription can't block delivery to the rest.
  */
-export async function sendPushToUser(userId, payload) {
+export async function sendPushToUser(userId: string, payload) {
   if (!pushConfigured) return;
 
   const result = await query(

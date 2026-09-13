@@ -79,7 +79,7 @@ function buildApp() {
   return app;
 }
 
-function request(method, path, body = undefined) {
+function request(method, path: string, body = undefined) {
   return fetch(`${base}/api/accounts/${path}`, {
     method,
     headers: body ? { 'Content-Type': 'application/json' } : undefined,
@@ -110,7 +110,7 @@ beforeEach(() => {
 afterEach(() => { identityHook.mockRestore(); });
 
 // Assert the onAccountIdentityChanged hook fired exactly once for the given account.
-function expectIdentityInvalidated(accountId) {
+function expectIdentityInvalidated(accountId: string) {
   const calls = identityHook.mock.calls.filter(([name]) => name === 'onAccountIdentityChanged');
   expect(calls).toHaveLength(1);
   expect(calls[0][1]).toEqual({ accountId });

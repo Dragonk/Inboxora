@@ -19,7 +19,7 @@ const invalidBirthdayCard = 'BEGIN:VCARD\r\nVERSION:3.0\r\nUID:invalid-birthday\
 const invalidAndroidDateCard = 'BEGIN:VCARD\r\nVERSION:3.0\r\nUID:invalid-android-date\r\nFN:Invalid Android Date\r\nX-ANDROID-CUSTOM:vnd.android.cursor.item/contact_event;2024-04-31;0;Meeting;\r\nEND:VCARD\r\n';
 
 function configureSync() {
-  query.mockImplementation(async sql => {
+  query.mockImplementation(async (sql: string) => {
     if (sql.includes('SELECT config FROM user_integrations')) return { rows: [{ config: { serverUrl: 'https://dav.example', username: 'user', password: 'password' } }] };
     if (sql.includes('SELECT id FROM address_books')) return { rows: [{ id: 'book-1' }] };
     return { rows: [] };
@@ -70,7 +70,7 @@ describe('remote CardDAV contact-date persistence', () => {
       { label: 'Birthday', value: '1991-02-03' }, { label: 'Anniversary', value: '2021-10-19' }, { label: 'Rencontre', value: '2019-10-19' },
     ]],
   ])('merges %s labelled dates into an existing matching-email contact idempotently', async (_source, href, vcard, contactDates) => {
-    query.mockImplementation(async sql => {
+    query.mockImplementation(async (sql: string) => {
       if (sql.includes('SELECT config FROM user_integrations')) return { rows: [{ config: { serverUrl: 'https://dav.example', username: 'user', password: 'password', dupMode: 'merge' } }] };
       if (sql.includes('SELECT id FROM address_books')) return { rows: [{ id: 'book-1' }] };
       if (sql.includes('SELECT id, primary_email FROM contacts')) return { rows: [{ id: 'existing-contact-1', primary_email: 'duplicate@example.com' }] };

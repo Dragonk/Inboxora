@@ -33,7 +33,7 @@ export { notifyOnLabelTouch } from '../services/labelsRead.js';
 // without ever holding the engine itself. resolveLabelCopyUid is pure (no engine).
 export const applyLabel = (account, message, labelFolder) => labelsWrite.applyLabel(getMailEngine(), account, message, labelFolder);
 export const removeLabel = (message, labelFolder) => labelsWrite.removeLabel(getMailEngine(), message, labelFolder);
-export const removeExactLabelCopy = (message, labelFolder, uid) => labelsWrite.removeExactLabelCopy(getMailEngine(), message, labelFolder, uid);
+export const removeExactLabelCopy = (message, labelFolder, uid: number) => labelsWrite.removeExactLabelCopy(getMailEngine(), message, labelFolder, uid);
 export const markThreadRead = (account, message) => labelsWrite.markThreadRead(getMailEngine(), account, message);
 export const ensureLabelFolders = (account, folderPaths) => labelsWrite.ensureLabelFolders(getMailEngine(), account, folderPaths);
 export const resolveLabelCopyUid = labelsWrite.resolveLabelCopyUid;
@@ -45,7 +45,7 @@ export const archiveInboxCopy = (account, inboxCopy) => _archiveInboxCopy(getMai
 // ── Realtime broadcast ────────────────────────────────────────────────────────
 // Push a payload to a specific user's live sessions. A plugin can notify its own clients; it
 // cannot address other users or subsystems (the engine + user scoping are enforced here).
-export const broadcast = (payload, userId) => getMailEngine().broadcast(payload, userId);
+export const broadcast = (payload, userId: string) => getMailEngine().broadcast(payload, userId);
 
 // ── Summarize ─────────────────────────────────────────────────────────────────
 // Condense a message into one line via the configured AI provider (fails closed when the

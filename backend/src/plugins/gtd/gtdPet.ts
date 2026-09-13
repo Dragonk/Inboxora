@@ -34,7 +34,7 @@ export function parsePetSlug(input) {
 // parsePetSlug's charset — so no regex, migration, or read-route change is needed. The
 // slug is ALWAYS server-derived; the client never picks the storage key. Returns null if
 // the id is missing or somehow not slug-safe. Pure.
-export function customPetSlug(userId) {
+export function customPetSlug(userId: unknown): string | null {
   if (typeof userId !== 'string' || !userId) return null;
   const hex = userId.replace(/-/g, '').toLowerCase();
   if (!hex) return null; // guard the degenerate all-hyphen id → shared 'custom-' slug
@@ -139,7 +139,7 @@ function clampInt(v, lo, hi, fallback) {
 function recognizeHoverSequence(j, cols, frameCount) {
   const anims = j?.animations || j?.sequences;
   if (!anims || typeof anims !== 'object') return null;
-  const pick = (name) => (Array.isArray(anims) ? anims.find(a => a?.name === name) : anims[name]);
+  const pick = (name: string) => (Array.isArray(anims) ? anims.find(a => a?.name === name) : anims[name]);
   const seq = pick('jump') || pick('hover') || pick('idle') || pick('wave');
   if (!seq) return null;
   // Shapes: [f0, f1, …]  |  { frames: [...] }  |  { start, count }  |  { row }
@@ -300,7 +300,7 @@ export async function importPet({ petJsonText, sheet, userId }) {
 // Delete a user's imported pet from plugin storage. Called on user deletion: migrated pet rows
 // have a NULL owner_id (so the plugin_data user-cascade doesn't reach them), so we remove the
 // slug-keyed row explicitly. A no-op when the user has no custom pet.
-export async function deleteUserPet(userId) {
+export async function deleteUserPet(userId: string) {
   const slug = customPetSlug(userId);
   if (!slug) return;
   await pluginStorage.del('gtd', slug);
@@ -309,7 +309,7 @@ export async function deleteUserPet(userId) {
 // Read a cached pet's metadata (descriptor) for the frontend. Returns null when the
 // slug is invalid or not cached. `isCustom` feeds the read routes' ownership gate;
 // the routes strip it before responding.
-export async function getPetMeta(slug) {
+export async function getPetMeta(slug: string) {
   const s = parsePetSlug(slug);
   if (!s) return null;
   const row = await pluginStorage.getValue('gtd', s);
@@ -318,7 +318,7 @@ export async function getPetMeta(slug) {
 }
 
 // Read a cached pet's spritesheet bytes + mime. Returns null when absent.
-export async function getPetSheet(slug) {
+export async function getPetSheet(slug: string) {
   const s = parsePetSlug(slug);
   if (!s) return null;
   const row = await pluginStorage.getBlob('gtd', s);

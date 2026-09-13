@@ -88,7 +88,7 @@ const SECTION_SQL = `
 // One per-account pass: thread heads per label, each label's total/unread counts, and a
 // deduped union rollup (waiting_total/waiting_unread, constant across the returned rows).
 // Returns the raw rows; mapping/presentation is the caller's.
-export async function listThreadHeadsByLabels(accountId, { labels, labelFolders, draftFolders, limit, unionLabels }) {
+export async function listThreadHeadsByLabels(accountId: string, { labels, labelFolders, draftFolders, limit, unionLabels }) {
   const { rows } = await query(SECTION_SQL, [accountId, labels, labelFolders, draftFolders, limit, unionLabels]);
   return rows;
 }

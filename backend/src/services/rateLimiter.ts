@@ -15,7 +15,7 @@ pruneTimer.unref?.();
 
 // Count this hit against `key`. Returns { limited, resetMs }.
 // `max` requests are allowed per `windowMs`; the (max+1)th is limited.
-export async function consume(key, max, windowMs) {
+export async function consume(key: string, max, windowMs) {
   const rk = `rl:${key}`;
   try {
     const count = await redisClient.incr(rk);
@@ -39,7 +39,7 @@ export async function consume(key, max, windowMs) {
 }
 
 // Clear a key's counter (e.g. after a successful login).
-export async function reset(key) {
+export async function reset(key: string) {
   try { await redisClient.del(`rl:${key}`); } catch { /* best effort */ }
   memory.delete(key);
 }

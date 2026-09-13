@@ -40,7 +40,7 @@ const NAMED_ENTITY_MAP = {
 
 // Decode a named HTML entity reference; fall back to a single space for
 // unknown entities so they don't litter snippet text with literal &foo;
-export function decodeNamedEntity(_, name) {
+export function decodeNamedEntity(_, name: string) {
   const v = NAMED_ENTITY_MAP[name.toLowerCase()];
   return v !== undefined ? v : ' ';
 }
@@ -51,7 +51,7 @@ export function decodeNamedEntity(_, name) {
 // several closing tags near the start so prose that merely mentions an
 // attribute-less tag ("use the <b> element") is not misrouted. Only the head is
 // scanned to keep this cheap on large messages.
-function looksLikeHtml(text) {
+function looksLikeHtml(text: string) {
   const head = text.slice(0, 2048);
   if (/^\s*<(?:!doctype|html|head|body)[\s>]/i.test(head)) return true;
   if (/<[a-z][a-z0-9]*\s[^>]*=[^>]*>/i.test(head)) return true;
@@ -62,7 +62,7 @@ function looksLikeHtml(text) {
 
 // Lossy text/plain conversions can retain markup while omitting text that is
 // still present in the sibling HTML part.
-function isDegenerateText(text) {
+function isDegenerateText(text: string) {
   return /<!--/.test(text)
     || /<\/[a-z][a-z0-9:-]*\s*>/i.test(text)
     || /^\s*(?:\(\s*\)|\[\s*\]|<\s*>)/.test(text);
@@ -71,7 +71,7 @@ function isDegenerateText(text) {
 // Build a plain-text snippet from either a decoded text/plain or text/html body.
 // Single canonical function used by all snippet-generation paths (IMAP sync,
 // body prefetch, backfill) so entity handling is identical everywhere.
-export function snippetFromBody(text, html = undefined) {
+export function snippetFromBody(text: string, html = undefined) {
   // HTML shipped in the text/plain part must go through the HTML stripper,
   // otherwise the markup itself becomes the "preview" (<!DOCTYPE html ...).
   if (text && looksLikeHtml(text)) {
@@ -160,7 +160,7 @@ export function snippetFromBody(text, html = undefined) {
 const SNIPPET_SKIP_TAGS = new Set(['script', 'style', 'head', 'title', 'noscript']);
 const SNIPPET_VISIBLE_CAP = 260; // stop after this many visible chars — comfortably over the 200-char snippet
 
-function extractHtmlSnippetText(html) {
+function extractHtmlSnippetText(html: string) {
   let out = '';
   let skipDepth = 0;
   let visible = 0;
@@ -194,7 +194,7 @@ function extractHtmlSnippetText(html) {
 // only the post-extraction text cleanup stays as regex — ##marker## placeholders, residual
 // invisibles, decorative divider runs, and whitespace collapse — all operating on already
 // extracted visible text (bounded, linear).
-export function buildSnippetFromHtml(html) {
+export function buildSnippetFromHtml(html: string) {
   return extractHtmlSnippetText(html)
     // Strip ##marker## template placeholders emitted by some marketing tools
     // (UPS, Epsilon) that don't fully render before sending.
@@ -293,7 +293,7 @@ function decodeBodyPart(buf, encoding, charset) {
 // Header names are lowercased. Multiple values for the same header are joined with '\n'.
 // Decode RFC 2047 MIME encoded-words (=?charset?Q/B?text?=) in a header string.
 // Adjacent encoded words separated only by whitespace are joined per RFC 2047 §6.2.
-export function decodeMimeWords(str) {
+export function decodeMimeWords(str: string) {
   if (!str || !str.includes('=?')) return str;
   let s = str;
   let prev;
@@ -301,7 +301,7 @@ export function decodeMimeWords(str) {
     prev = s;
     s = s.replace(/(=\?[^?]+\?[BQbq]\?[^?]*\?=)\s+(=\?[^?]+\?[BQbq]\?[^?]*\?=)/g, '$1$2');
   } while (s !== prev);
-  return s.replace(/=\?([^?]+)\?([BQbq])\?([^?]*)\?=/g, (match, charset, enc, text) => {
+  return s.replace(/=\?([^?]+)\?([BQbq])\?([^?]*)\?=/g, (match, charset, enc, text: string) => {
     try {
       if (enc.toUpperCase() === 'Q') {
         const bytes = text.replace(/_/g, ' ').replace(/=([0-9A-Fa-f]{2})/g, (_, h) => String.fromCharCode(parseInt(h, 16)));
@@ -336,7 +336,7 @@ export function parseHeadersInput(headers): Record<string, string> {
   if (typeof headers === 'object') {
     const result: Record<string, string> = {};
     if (typeof headers.forEach === 'function') {
-      headers.forEach((val, key) => {
+      headers.forEach((val, key: string) => {
         const k = String(key).toLowerCase();
         const v = Array.isArray(val) ? val.join('\n') : String(val);
         result[k] = result[k] ? `${result[k]}\n${v}` : v;
@@ -416,7 +416,7 @@ function resolveSubject(envelopeSubject, parsedHeaders) {
   return fromEnvelope || fromHeader || '(no subject)';
 }
 
-function parseSingleMailbox(str) {
+function parseSingleMailbox(str: string) {
   const trimmed = decodeMimeWords(str.trim());
   const m = trimmed.match(/^(.+?)\s*<([^>]+)>\s*$/);
   if (m) {
@@ -500,7 +500,8 @@ export function enrichParsedMetadata(parsed: EnrichParsedInput, {
   }
 
   if ((!parsed.subject || parsed.subject === '(no subject)') && parsed.parsedHeaders?.subject) {
-    const subject = decodeMimeWords(parsed.parsedHeaders.subject).trim();
+    const rawSubject = parsed.parsedHeaders.subject;
+    const subject = typeof rawSubject === 'string' ? decodeMimeWords(rawSubject).trim() : '';
     if (subject) parsed.subject = subject;
   }
 

@@ -10,7 +10,7 @@ import { requireDeviceAuth } from './deviceAuth.js';
 
 function harness(headers = {}) {
   const req: { get(name: string): string | undefined; pushDevice?: unknown } = { get: (name: string) => headers[name.toLowerCase()] };
-  const res = { statusCode: null, body: null, status(code) { this.statusCode = code; return this; }, json(body) { this.body = body; return this; } };
+  const res = { statusCode: null, body: null, status(code: string) { this.statusCode = code; return this; }, json(body) { this.body = body; return this; } };
   const next = vi.fn();
   return { req, res, next };
 }

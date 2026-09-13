@@ -17,7 +17,7 @@ import { fanOutReadToSiblings } from '../utils/mailUtils.js';
 // acted row is used directly when it already lives there; otherwise the shared RFC Message-ID
 // (an IMAP COPY duplicates it verbatim) joins to the sibling copy. A message with no
 // Message-ID can only be resolved via the acted-row case.
-export async function resolveLabelCopyUid(message, folder) {
+export async function resolveLabelCopyUid(message, folder: string) {
   if (message.folder === folder) return message.uid;
   if (!message.message_id) return null;
   const { rows } = await query(
@@ -47,7 +47,7 @@ export async function applyLabel(imapManager, account, message, labelFolder) {
 // This is the safe inverse for a COPY whose destination UID was returned by UIDPLUS: a stale or
 // forged UID cannot remove a different message's label copy. Without a Message-ID there is no
 // stable identity shared by the source and copied rows, so no inverse is advertised.
-export async function removeExactLabelCopy(imapManager, message, labelFolder, uid) {
+export async function removeExactLabelCopy(imapManager, message, labelFolder, uid: number) {
   if (!message.message_id) return { removed: false };
   const { rows } = await query(
     `SELECT uid FROM messages

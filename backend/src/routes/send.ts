@@ -18,7 +18,7 @@ import { pluginRegistry } from '../plugins/registry.js';
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
-function escapeHtml(str) {
+function escapeHtml(str: string) {
   return str.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
 }
 
@@ -45,7 +45,7 @@ function sanitizeSmtpError(err) {
 
 // Extract name and email from an RFC 5322 address string.
 // Handles "Name <email>", "Name<email>", bare "<email>", and bare "email" forms.
-function parseAddress(str) {
+function parseAddress(str: string) {
   const m = str.match(/^(.+?)\s*<([^>]+)>\s*$/);
   if (m) return { name: m[1].trim().replace(/^"|"$/g, '').trim(), email: m[2].trim().toLowerCase() };
   const bare = str.match(/^\s*<([^>]+)>\s*$/);
@@ -174,13 +174,13 @@ function sanitizeHeaderValue(value) {
   return value.replace(/[\r\n\0]/g, '').trim();
 }
 
-function textToHtml(text) {
+function textToHtml(text: string) {
   return '<div style="font-family:sans-serif;font-size:14px;line-height:1.6">' +
     text.split('\n').map(l => `<p style="margin:0">${escapeHtml(l) || '&nbsp;'}</p>`).join('') +
     '</div>';
 }
 
-function sigToPlainText(html) {
+function sigToPlainText(html: string) {
   return sanitizeHtml(html, { allowedTags: [], allowedAttributes: {} }).trim();
 }
 

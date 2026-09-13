@@ -112,7 +112,7 @@ export async function assertNoAliasCycle(client, { userId, accountId, sourceConv
   throw new Error('Conversation alias chain too deep');
 }
 
-export async function refreshConversationAggregates(client, userId, conversationId) {
+export async function refreshConversationAggregates(client, userId: string, conversationId: string) {
   await client.query(`
     UPDATE conversations c SET
       first_message_at = (SELECT MIN(message_date) FROM logical_messages WHERE conversation_id = c.id),
@@ -127,19 +127,19 @@ export async function refreshConversationAggregates(client, userId, conversation
 
 // P1-05: Deterministic lock order — sort UUIDs lexicographically to prevent deadlocks.
 // P2-04: Use a text-based sort (not int32 hash) to avoid collision risk.
-export async function lockConversationsDeterministically(client, userId, ids) {
+export async function lockConversationsDeterministically(client, userId: string, ids) {
   const ordered = [...new Set(ids.filter(Boolean))].sort(); // lexicographic sort of UUID strings
   if (ordered.length) await client.query('SELECT id FROM conversations WHERE user_id = $1 AND id = ANY($2::uuid[]) ORDER BY id FOR UPDATE', [userId, ordered]);
   return ordered;
 }
 
-export async function assertConversationOwner(client, userId, conversationId, accountId = null) {
+export async function assertConversationOwner(client, userId: string, conversationId: string, accountId = null) {
   const result = await client.query('SELECT id, user_id, manually_locked FROM conversations WHERE id = $1 AND user_id = $2 AND ($3::uuid IS NULL OR account_id = $3) FOR UPDATE', [conversationId, userId, accountId]);
   if (!result.rows[0]) { const error = new Error('Conversation not found'); error.statusCode = 404; throw error; }
   return result.rows[0];
 }
 
-export async function conversationOverrideSummary(userId, conversationId) {
+export async function conversationOverrideSummary(userId: string, conversationId: string) {
   const result = await query('SELECT * FROM conversation_overrides WHERE user_id = $1 AND conversation_id = $2 ORDER BY created_at DESC', [userId, conversationId]);
   return result.rows;
 }

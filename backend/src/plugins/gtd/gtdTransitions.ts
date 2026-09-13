@@ -31,7 +31,7 @@ const CACHE_TTL_MS = 5 * 60 * 1000; // 5 minutes
 // Exported for tests, which reuse one accountId across cases and need a clean cache, and for
 // the account-alias routes, which call it only after a mutation succeeds. The next resolver
 // read must observe the committed owner identities before a GTD transition can classify mail.
-export function invalidateOwnerAddressesCache(accountId) {
+export function invalidateOwnerAddressesCache(accountId: string) {
   ownerCache.delete(accountId);
 }
 
@@ -46,7 +46,7 @@ function normalizeAddress(raw) {
   return s || null;
 }
 
-export async function getOwnerAddresses(accountId) {
+export async function getOwnerAddresses(accountId: string) {
   const cached = ownerCache.get(accountId);
   if (cached && cached.expiry > Date.now()) return cached.value;
 
@@ -66,8 +66,8 @@ export async function getOwnerAddresses(accountId) {
 
 // Thin GTD-facing wrappers over the mail-access capabilities (kept as exports so the hooks and
 // tests that import them from here are unchanged).
-export const threadKeysForMessageIds = (accountId, ids) => _threadKeysForIds(accountId, ids);
-export const threadKeysInFolders = (accountId, folders) => _threadKeysInFolders(accountId, folders);
+export const threadKeysForMessageIds = (accountId: string, ids) => _threadKeysForIds(accountId, ids);
+export const threadKeysInFolders = (accountId: string, folders) => _threadKeysInFolders(accountId, folders);
 
 // ── Transition engine ────────────────────────────────────────────────────────
 // Apply the GTD Labeler rules to a set of threads for one account.
@@ -170,7 +170,7 @@ export async function runGtdTransitions(imapManager, account, threadKeys) {
 // synced yet) resolves to an empty key set, which runGtdTransitions treats as a no-op — a
 // later post-send sync attempt (or, on Gmail, the next tick) retries. Errors propagate to the
 // caller, which swallows them (a missed strip self-heals on the next inbound sync / tick).
-export async function runTransitionsForSentMessage(imapManager, account, messageId) {
+export async function runTransitionsForSentMessage(imapManager, account, messageId: string) {
   if (!account?.id || !messageId) return;
   if (!(await getGtdConfig(account.id)).enabled) return;
   const bare = String(messageId).replace(/[<>]/g, '').trim();

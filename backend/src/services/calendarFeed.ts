@@ -8,7 +8,7 @@ export function issueCalendarFeedToken() {
   return { token, hash: crypto.createHash('sha256').update(token).digest('hex') };
 }
 
-export function hashCalendarFeedToken(token) {
+export function hashCalendarFeedToken(token: string) {
   if (typeof token !== 'string' || !/^[A-Za-z0-9_-]{43}$/.test(token)) return null;
   return crypto.createHash('sha256').update(token).digest('hex');
 }
@@ -20,7 +20,7 @@ function escapeText(value) {
     .replaceAll('\n', '\\n').replaceAll(';', '\\;').replaceAll(',', '\\,');
 }
 
-function fold(line) {
+function fold(line: string) {
   const result = [];
   let current = '';
   for (const char of line) {

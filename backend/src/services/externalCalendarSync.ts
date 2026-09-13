@@ -176,7 +176,7 @@ function runSync(source) {
   return promise;
 }
 
-export async function syncCalendarSource(userId, sourceId) {
+export async function syncCalendarSource(userId: string, sourceId: string) {
   const result = await query('SELECT * FROM calendar_import_sources WHERE id = $1 AND user_id = $2 AND enabled = true', [sourceId, userId]);
   if (!result.rows[0]) return { ok: false, error: 'Calendar source not found' };
   return runSync(result.rows[0]);

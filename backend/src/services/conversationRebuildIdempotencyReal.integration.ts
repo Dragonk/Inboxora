@@ -24,7 +24,7 @@ after(async () => {
   if (pool) await pool.end();
 });
 
-async function ceChecksum(pool, userId) {
+async function ceChecksum(pool, userId: string) {
   // Deterministic checksum of all CE state that a rebuild can mutate. Include
   // parent/evidence/provider/override/alias/checkpoint rows, not only the three
   // primary tables, so idempotency cannot hide reconciliation drift.

@@ -73,7 +73,7 @@ function gravatarCacheSet(hash, entry) {
 }
 
 // Resolve the user's default address book id, creating it if needed.
-async function defaultAddressBook(userId) {
+async function defaultAddressBook(userId: string) {
   const r = await query(
     `INSERT INTO address_books (user_id, name)
      VALUES ($1, 'Personal')
@@ -98,7 +98,7 @@ function localBookName(value) {
   return name.length >= 1 && name.length <= 120 ? name : null;
 }
 
-async function requireLocalAddressBook(userId, addressBookId) {
+async function requireLocalAddressBook(userId: string, addressBookId) {
   const result = await query('SELECT id, name, source, visible FROM address_books WHERE id = $1 AND user_id = $2', [addressBookId, userId]);
   const book = result.rows[0];
   if (!book) return { error: 'Address book not found', status: 404 };

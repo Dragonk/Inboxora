@@ -24,7 +24,7 @@ export function invitationActionsForStorage(actions) {
 // Rebuild deliverable actions from the stored payload (or straight from memory):
 // resolve missing accounts by id and normalise the date fields, which cross the
 // JSONB boundary as ISO strings.
-export async function resolveInvitationActions(userId, actions, fallbackAccountId = null) {
+export async function resolveInvitationActions(userId: string, actions, fallbackAccountId = null) {
   const normalized = (Array.isArray(actions) ? actions : []).map(action => ({
     ...action,
     accountId: action.accountId || action.account?.id || fallbackAccountId || null,

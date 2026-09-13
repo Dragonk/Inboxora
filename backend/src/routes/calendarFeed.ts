@@ -29,7 +29,8 @@ async function failureResponse(req, res) {
 // Anonymous route: token shape is checked before hashing, and all failures share
 // one response so a feed cannot be enumerated.
 router.get(['/calendar/feeds/:token.ics', '/calendar/feeds/:token'], async (req, res) => {
-  const hash = hashCalendarFeedToken(req.params.token);
+  const feedToken = Array.isArray(req.params.token) ? req.params.token[0] : req.params.token;
+  const hash = hashCalendarFeedToken(feedToken);
   if (!hash) return failureResponse(req, res);
   const result = await query(
     `SELECT f.calendar_ids, c.id AS calendar_id, c.name AS calendar_name, e.id, e.uid, e.summary, e.description,

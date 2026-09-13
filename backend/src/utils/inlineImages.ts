@@ -12,7 +12,7 @@ function mimeToExtension(mimeSubtype) {
 
 // Convert inline data: images to MIME CID attachments so recipients can display them.
 // Most email clients (Gmail, Outlook, Apple Mail) ignore or strip data: URIs in HTML.
-export function embedInlineDataImages(html) {
+export function embedInlineDataImages(html: string) {
   if (!html) return { html, attachments: [] };
 
   const attachments = [];

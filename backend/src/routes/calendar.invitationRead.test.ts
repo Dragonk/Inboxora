@@ -70,7 +70,7 @@ beforeEach(() => {
 
 describe('GET /api/calendar/invitations/:messageId', () => {
   it('opens an invitation whose captured raw_ical is missing, using the decoded attachment', async () => {
-    query.mockImplementation(async (sql) => {
+    query.mockImplementation(async (sql: string) => {
       if (sql.includes('FROM messages')) return { rows: [MESSAGE_ROW] };
       if (sql.includes('FROM email_accounts')) return { rows: [{ id: ACCOUNT_ID, imap_host: 'imap.example.test' }] };
       return { rows: [] };
@@ -95,7 +95,7 @@ describe('GET /api/calendar/invitations/:messageId', () => {
   });
 
   it('falls back to the attachment when the captured raw_ical cannot be parsed', async () => {
-    query.mockImplementation(async (sql) => {
+    query.mockImplementation(async (sql: string) => {
       if (sql.includes('FROM messages')) return { rows: [{ ...MESSAGE_ROW, raw_ical: 'not an invitation' }] };
       if (sql.includes('FROM email_accounts')) return { rows: [{ id: ACCOUNT_ID }] };
       return { rows: [] };
@@ -108,7 +108,7 @@ describe('GET /api/calendar/invitations/:messageId', () => {
   });
 
   it('prefers the captured invitation and never opens the mailbox when it parses', async () => {
-    query.mockImplementation(async (sql) => {
+    query.mockImplementation(async (sql: string) => {
       if (sql.includes('FROM messages')) return { rows: [{ ...MESSAGE_ROW, raw_ical: INVITATION }] };
       return { rows: [] };
     });
@@ -119,7 +119,7 @@ describe('GET /api/calendar/invitations/:messageId', () => {
   });
 
   it('reports a missing invitation instead of failing when the mailbox is unreachable', async () => {
-    query.mockImplementation(async (sql) => {
+    query.mockImplementation(async (sql: string) => {
       if (sql.includes('FROM messages')) return { rows: [MESSAGE_ROW] };
       if (sql.includes('FROM email_accounts')) return { rows: [{ id: ACCOUNT_ID }] };
       return { rows: [] };
@@ -133,7 +133,7 @@ describe('GET /api/calendar/invitations/:messageId', () => {
   });
 
   it('imports the invitation into the chosen calendar', async () => {
-    query.mockImplementation(async (sql, params) => {
+    query.mockImplementation(async (sql: string, params) => {
       if (sql.includes('FROM calendars')) return { rows: [{ id: 'calendar-1', source: 'local', read_only: false }] };
       if (sql.includes('FROM messages')) return { rows: [{ ...MESSAGE_ROW, raw_ical: INVITATION }] };
       if (sql.includes('INSERT INTO calendar_events')) return { rows: [{ id: 'event-1' }] };
