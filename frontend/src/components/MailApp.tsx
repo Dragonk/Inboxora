@@ -1,4 +1,3 @@
-// @ts-nocheck
 import { refreshUnreadCounts } from '../utils/unreadRefresh.ts';
 import { lazy, Suspense, useCallback, useEffect, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';

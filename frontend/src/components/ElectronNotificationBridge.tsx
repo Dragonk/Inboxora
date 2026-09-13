@@ -1,4 +1,3 @@
-// @ts-nocheck
 import { useEffect, useRef, useState } from 'react';
 import { useStore } from '../store/index.ts';
 import { api } from '../utils/api.ts';

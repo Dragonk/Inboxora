@@ -1,4 +1,3 @@
-// @ts-nocheck
 export const AI_PROVIDER_API_KEY = 'api-key';
 export const AI_PROVIDER_CHATGPT = 'chatgpt';
 export const AI_CONNECTION_METHOD_API = 'api';

@@ -1,4 +1,3 @@
-// @ts-nocheck
 // Run with: node --test src/aiResults.test.ts
 import { describe, it, beforeEach } from 'node:test';
 import assert from 'node:assert/strict';

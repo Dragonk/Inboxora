@@ -1,4 +1,3 @@
-// @ts-nocheck
 import { richTextOrNull } from '../utils/richText.ts';
 
 export function monthRange(anchor) {

@@ -1,4 +1,3 @@
-// @ts-nocheck
 // Pure helpers for GTD display surfaces. Kept free of React/DOM so they can be
 // unit-tested under `node --test` at their pure seams.
 

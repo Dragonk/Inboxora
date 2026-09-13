@@ -1,4 +1,3 @@
-// @ts-nocheck
 import { safeHttpUrl } from '../utils/contactLinks.ts';
 import { calendarDescriptionBody } from '../utils/richText.ts';
 import { readStoredCalendarView, storeCalendarView } from '../utils/calendarPreferences.ts';

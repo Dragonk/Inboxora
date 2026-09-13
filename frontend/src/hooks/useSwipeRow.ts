@@ -1,4 +1,3 @@
-// @ts-nocheck
 import { useRef, useEffect, useCallback } from 'react';
 
 const SWIPE_THRESHOLD = 72;

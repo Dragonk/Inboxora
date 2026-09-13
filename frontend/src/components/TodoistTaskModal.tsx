@@ -1,9 +1,9 @@
-// @ts-nocheck
 import { useBackLayer } from '../hooks/useBackNavigation.ts';
 import { useState, useEffect } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useStore } from '../store/index.ts';
 import { api } from '../utils/api.ts';
+import type { CSSProperties } from 'react';
 
 export default function TodoistTaskModal({ message, onClose }) {
   const { t } = useTranslation();
@@ -79,13 +79,13 @@ export default function TodoistTaskModal({ message, onClose }) {
     }
   }
 
-  const inputStyle = {
+  const inputStyle: CSSProperties = {
     padding: '8px 10px', borderRadius: 8, border: '1px solid var(--border)',
     background: 'var(--bg-primary)', color: 'var(--text-primary)',
     fontSize: 14, outline: 'none', width: '100%', boxSizing: 'border-box',
   };
 
-  const labelStyle = { fontSize: 12, fontWeight: 500, color: 'var(--text-secondary)' };
+  const labelStyle: CSSProperties = { fontSize: 12, fontWeight: 500, color: 'var(--text-secondary)' };
 
   const priorities = [
     { value: 4, label: t('todoist.priorityUrgent') },

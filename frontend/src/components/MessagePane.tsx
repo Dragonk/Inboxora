@@ -1,4 +1,3 @@
-// @ts-nocheck
 import { useBackLayer } from '../hooks/useBackNavigation.ts';
  
 import { useEffect, useLayoutEffect, useState, useRef, useCallback, useMemo, lazy, Suspense } from 'react';

@@ -1,4 +1,3 @@
-// @ts-nocheck
 import { refreshUnreadCounts } from '../utils/unreadRefresh.ts';
 import { MobileModuleHeader, HeaderAction } from './MobileModuleHeader.tsx';
 import MobileFloatingAction from './MobileFloatingAction.tsx';

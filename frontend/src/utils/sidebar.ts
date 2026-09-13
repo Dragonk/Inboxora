@@ -1,4 +1,3 @@
-// @ts-nocheck
 export function collapsedTooltip(label, collapsed) {
   if (!collapsed) return undefined;
   // An empty title suppresses the browser's own tooltip, so drop the attribute.

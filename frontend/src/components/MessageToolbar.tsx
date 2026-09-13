@@ -1,9 +1,9 @@
-// @ts-nocheck
 import { useBackLayer } from '../hooks/useBackNavigation.ts';
 import { folderLabel } from '../utils/folderLabels.ts';
 import { useMemo, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import FolderIcon from './FolderIcon.tsx';
+import type { CSSProperties } from 'react';
 
 const iconProps = { width: 15, height: 15, viewBox: '0 0 24 24', fill: 'none', stroke: 'currentColor', strokeWidth: 1.75 };
 
@@ -74,7 +74,7 @@ export default function MessageToolbar({
   const stop = handler => event => { event.stopPropagation(); handler?.(); };
   const closeMore = handler => () => { setMoreMenu(false); handler?.(); };
   const openMove = event => { event.stopPropagation(); setMoveMenu(value => !value); if (!moveMenu) onLoadFolders?.(); };
-  const menuStyle = { position: 'absolute', top: 'calc(100% + 4px)', background: 'var(--bg-elevated)', border: '1px solid var(--border)', borderRadius: 8, overflow: 'hidden', zIndex: 200, boxShadow: 'var(--shadow-popover, 0 4px 20px rgba(0,0,0,.4))' };
+  const menuStyle: CSSProperties = { position: 'absolute', top: 'calc(100% + 4px)', background: 'var(--bg-elevated)', border: '1px solid var(--border)', borderRadius: 8, overflow: 'hidden', zIndex: 200, boxShadow: 'var(--shadow-popover, 0 4px 20px rgba(0,0,0,.4))' };
   const primaryReply = defaultReplyAll ? onReplyAll : onReply;
 
   return <div className={className} data-testid="message-pane-toolbar" data-conversation-message-actions={targetId ? 'true' : undefined} data-conversation-message-scroll-anchor={scrollAnchorId || undefined} data-action-target-id={targetId} style={{

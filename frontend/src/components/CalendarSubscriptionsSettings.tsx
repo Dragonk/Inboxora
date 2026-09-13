@@ -1,5 +1,5 @@
-// @ts-nocheck
 import { useCallback, useEffect, useMemo, useState } from 'react';
+import type { CSSProperties } from 'react';
 import { useTranslation } from 'react-i18next';
 import { api } from '../utils/api.ts';
 import { Button, inputStyle } from './ui.tsx';
@@ -162,10 +162,10 @@ export default function CalendarSubscriptionsSettings({ locale }) {
 }
 
 const section = { display: 'grid', gap: 10, marginTop: 22, paddingTop: 18, borderTop: '1px solid var(--border-subtle)' };
-const formStyle = { display: 'grid', gap: 10, maxWidth: 560 };
+const formStyle: CSSProperties = { display: 'grid', gap: 10, maxWidth: 560 };
 const holidayBlock = { display: 'grid', gap: 8, marginTop: 8, padding: 12, border: '1px solid var(--border-subtle)', borderRadius: 8, background: 'var(--bg-elevated)' };
 const holidayRow = { display: 'flex', flexWrap: 'wrap', alignItems: 'flex-end', gap: 10 };
-const fieldStyle = { display: 'grid', gap: 6, flex: '1 1 220px', minWidth: 0, fontSize: 12, color: 'var(--text-secondary)' };
+const fieldStyle: CSSProperties = { display: 'grid', gap: 6, flex: '1 1 220px', minWidth: 0, fontSize: 12, color: 'var(--text-secondary)' };
 const sourceBlock = { display: 'grid', gap: 8, marginTop: 8 };
 const sourceRow = { display: 'flex', flexWrap: 'wrap', alignItems: 'center', justifyContent: 'space-between', gap: 8, padding: '9px 10px', border: '1px solid var(--border-subtle)', borderRadius: 8 };
 const sourceText = { display: 'grid', gap: 2, minWidth: 0, overflowWrap: 'anywhere' };

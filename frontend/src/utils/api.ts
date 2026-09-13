@@ -1,4 +1,3 @@
-// @ts-nocheck
 const BASE = '/api';
 
 // Sent on every /api request so the backend CSRF guard accepts it. A cross-site

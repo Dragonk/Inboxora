@@ -1,4 +1,3 @@
-// @ts-nocheck
 let installed = false;
 let plugin = null;
 let registerNativePlugin = null;

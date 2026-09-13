@@ -1,4 +1,3 @@
-// @ts-nocheck
 import { refreshUnreadCounts } from '../utils/unreadRefresh.ts';
 import { useBackLayer } from '../hooks/useBackNavigation.ts';
 import { intlLocale } from '../utils/intlLocale.ts';
@@ -40,6 +39,7 @@ import DiagnosticsReportModal from './DiagnosticsReportModal.tsx';
 import { getEffectiveShortcuts, getGroupedActions, ACTION_DEFS, SPECIAL_KEY_LABELS, parseModKey, modLabel } from '../utils/defaultShortcuts.ts';
 import { unifiedUnreadTotal } from '../utils/unifiedInbox.ts';
 import { isValidForwardAddress } from '../utils/ruleActions.ts';
+import type { CSSProperties } from 'react';
 
 // ─── Shared field component ───────────────────────────────────────────────────
 function Field({ label, required, children }) {
@@ -868,7 +868,7 @@ function AccountsTab() {
       { key: 'spam',    label: t('admin.folderMappings.spam'),    specialUse: '\\Junk' },
       { key: 'archive', label: t('admin.folderMappings.archive'), specialUse: '\\Archive' },
     ];
-    const selectStyle = {
+    const selectStyle: CSSProperties = {
       width: '100%', padding: '8px 10px',
       background: 'var(--bg-secondary)', border: '1px solid var(--border)',
       borderRadius: 7, color: 'var(--text-primary)', fontSize: 13,
@@ -2389,8 +2389,8 @@ function CardDavCard() {
     try { await api.carddav.update(patch); } catch (e) { setError(e.message); }
   };
 
-  const inputStyle = { padding: '8px 10px', borderRadius: 8, border: '1px solid var(--border)', background: 'var(--bg-primary)', color: 'var(--text-primary)', fontSize: 13, outline: 'none', width: '100%', boxSizing: 'border-box' };
-  const labelStyle = { fontSize: 12, fontWeight: 500, color: 'var(--text-secondary)', display: 'block', marginBottom: 5 };
+  const inputStyle: CSSProperties = { padding: '8px 10px', borderRadius: 8, border: '1px solid var(--border)', background: 'var(--bg-primary)', color: 'var(--text-primary)', fontSize: 13, outline: 'none', width: '100%', boxSizing: 'border-box' };
+  const labelStyle: CSSProperties = { fontSize: 12, fontWeight: 500, color: 'var(--text-secondary)', display: 'block', marginBottom: 5 };
   const errBox = error && (
     <div style={{ fontSize: 13, color: 'var(--red, #f87171)', padding: '8px 10px', borderRadius: 6, background: 'rgba(248,113,113,0.08)' }}>{error}</div>
   );
@@ -4255,7 +4255,7 @@ function AiActionsTab() {
   const updateField = (id, field, value) => setItems(items.map(a => a.id === id ? { ...a, [field]: value } : a));
   const removeAction = (id) => { const next = items.filter(a => a.id !== id); setItems(next); save(next); };
 
-  const inputStyle = {
+  const inputStyle: CSSProperties = {
     width: '100%', padding: '8px 10px', background: 'var(--bg-tertiary)', border: '1px solid var(--border)',
     borderRadius: 6, color: 'var(--text-primary)', fontSize: 13, outline: 'none', boxSizing: 'border-box',
   };
@@ -4424,7 +4424,7 @@ function CategoriesSection({ initialSubTab }) {
     }}>{msg.text}</div>
   );
 
-  const inputStyle = { width: '100%', background: 'var(--bg-tertiary)', border: '1px solid var(--border)', borderRadius: 6, padding: '7px 10px', color: 'var(--text-primary)', fontSize: 13, boxSizing: 'border-box' };
+  const inputStyle: CSSProperties = { width: '100%', background: 'var(--bg-tertiary)', border: '1px solid var(--border)', borderRadius: 6, padding: '7px 10px', color: 'var(--text-primary)', fontSize: 13, boxSizing: 'border-box' };
 
   if (loading) return <div style={{ color: 'var(--text-tertiary)', fontSize: 13 }}>{t('common.loading')}</div>;
 
@@ -7123,7 +7123,7 @@ function ShortcutsTab() {
     setPendingConflict(null);
   };
 
-  const kbdStyle = {
+  const kbdStyle: CSSProperties = {
     display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
     minWidth: 26, height: 22, padding: '0 6px',
     background: 'var(--bg-primary)', border: '1px solid var(--border)',
@@ -7544,7 +7544,7 @@ function ScreenLockSection() {
     finally { setBusy(false); }
   }
 
-  const inputStyle = { width: '100%', padding: '8px 10px', background: 'var(--bg-tertiary)', border: '1px solid var(--border)', borderRadius: 6, color: 'var(--text-primary)', fontSize: 14, letterSpacing: '0.2em', textAlign: 'center', boxSizing: 'border-box' };
+  const inputStyle: CSSProperties = { width: '100%', padding: '8px 10px', background: 'var(--bg-tertiary)', border: '1px solid var(--border)', borderRadius: 6, color: 'var(--text-primary)', fontSize: 14, letterSpacing: '0.2em', textAlign: 'center', boxSizing: 'border-box' };
   const btn = (primary) => ({ padding: '7px 14px', borderRadius: 6, fontSize: 13, fontWeight: 500, cursor: busy ? 'default' : 'pointer', border: primary ? 'none' : '1px solid var(--border)', background: primary ? 'var(--accent)' : 'var(--bg-tertiary)', color: primary ? 'var(--accent-text)' : 'var(--text-primary)', opacity: busy ? 0.6 : 1 });
 
   return (

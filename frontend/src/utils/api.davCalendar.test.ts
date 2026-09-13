@@ -1,4 +1,3 @@
-// @ts-nocheck
 import { afterEach, describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import { api, CSRF_HEADER, CSRF_VALUE } from './api.ts';

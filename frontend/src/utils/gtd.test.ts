@@ -1,4 +1,3 @@
-// @ts-nocheck
 // Run with: node --test src/utils/gtd.test.ts
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';

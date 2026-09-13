@@ -1,4 +1,3 @@
-// @ts-nocheck
 import { resolveSelectedAccount, pruneFolders } from '../utils/accountScope.ts';
 import { create } from 'zustand';
 import { api } from '../utils/api.ts';

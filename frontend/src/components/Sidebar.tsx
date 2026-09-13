@@ -1,4 +1,3 @@
-// @ts-nocheck
 import { refreshUnreadCounts } from '../utils/unreadRefresh.ts';
 import { useBackLayer } from '../hooks/useBackNavigation.ts';
 import { folderLabel } from '../utils/folderLabels.ts';

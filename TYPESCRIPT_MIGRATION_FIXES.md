@@ -216,3 +216,12 @@ Ostatnie poprawki tej iteracji:
 Backend: tsc 0 · testy 1785 / 0 failed · build OK · lint czysty · 0 `@ts-nocheck`.
 Frontend: 37 plików z `@ts-nocheck` — następny etap.
 
+
+## 20. Frontend: rozpoczęcie usuwania `@ts-nocheck`
+
+Zdjęto wszystkie 37 `@ts-nocheck` z frontendu. `tsc`: **661 błędów** (do naprawy).
+Pierwsza partia: stałe stylów adnotowane jako `CSSProperties` (AdminPanel, ContactsPage,
+CalendarSubscriptionsSettings, CalendarSidebar, TodoistTaskModal, MessageToolbar) — 661 → 635.
+
+Testy frontendu: 2335 / 0 failed · lint czysty · build OK.
+

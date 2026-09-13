@@ -1,4 +1,3 @@
-// @ts-nocheck
 import MobileFloatingAction from './MobileFloatingAction.tsx';
 import { contactDateLabel, formatContactDate } from '../utils/contactDateLabels.ts';
 import { useBackLayer } from '../hooks/useBackNavigation.ts';
@@ -15,6 +14,7 @@ import { beginPanelResize } from '../utils/panelWidth.ts';
 import './contacts.css';
 import SenderAvatarImage from './SenderAvatarImage.tsx';
 import { safeHttpUrl } from '../utils/contactLinks.ts';
+import type { CSSProperties } from 'react';
 
 // Deterministic avatar color from a string
 function avatarColor(str) {
@@ -937,7 +937,7 @@ function ContactForm({
   onSave, onCancel, t,
 }) {
   const inputStyle = sharedInputStyle;
-  const labelStyle = { fontSize: 12, color: 'var(--text-tertiary)', marginBottom: 4, display: 'block' };
+  const labelStyle: CSSProperties = { fontSize: 12, color: 'var(--text-tertiary)', marginBottom: 4, display: 'block' };
 
   return (
     <div className="contacts-form" style={{ width: '100%', animation: 'pane-fade-in var(--motion-normal) var(--ease-emphasized) both' }}>
