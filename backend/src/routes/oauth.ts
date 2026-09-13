@@ -6,6 +6,7 @@ import { imapManager } from '../index.js';
 import { encrypt, decrypt } from '../services/encryption.js';
 import { redactEmail } from '../utils/redact.js';
 import { queryString } from '../utils/query.js';
+import { toAppError } from '../utils/errors.js';
 
 interface OAuthTokenResponse {
   access_token?: string;
@@ -176,9 +177,10 @@ async function processMicrosoftTokens(userId: string, tokens, { tenantId, client
       }
       email = payload.email || payload.preferred_username || null;
       displayName = payload.name || null;
-    } catch (jwtErr) {
+    } catch (caught) {
+      const jwtErr = toAppError(caught);
       console.error('Microsoft id_token validation failed:', jwtErr.message);
-      throw new Error('Could not validate Microsoft identity token — please try again', { cause: jwtErr });
+      throw new Error('Could not validate Microsoft identity token — please try again', { cause: caught });
     }
   }
 
@@ -274,7 +276,8 @@ router.post('/microsoft/device', async (req, res) => {
       expiresIn: dc.expires_in,
       interval: dc.interval || 5,
     });
-  } catch (err) {
+  } catch (caught) {
+    const err = toAppError(caught);
     console.error('Device code init error:', err.message);
     res.status(500).json({ error: err.message });
   }
@@ -322,7 +325,8 @@ router.get('/microsoft/device/poll', async (req, res) => {
     // omit the secret too, or Microsoft rejects it with AADSTS90023 (#216).
     await processMicrosoftTokens(req.session.userId, tokens, { tenantId: flow.tenantId, clientId: flow.clientId, publicClient: true });
     res.json({ status: 'success' });
-  } catch (err) {
+  } catch (caught) {
+    const err = toAppError(caught);
     console.error('Device code poll error:', err.message);
     deviceFlows.delete(req.session.userId);
     res.json({ status: 'error', error: err.message });

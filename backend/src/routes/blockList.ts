@@ -1,6 +1,7 @@
 import { Router } from 'express';
 import { query } from '../services/db.js';
 import { requireAuth } from '../middleware/auth.js';
+import { toAppError } from '../utils/errors.js';
 
 const router = Router();
 router.use(requireAuth);
@@ -12,7 +13,8 @@ router.get('/', async (req, res) => {
       [req.session.userId]
     );
     res.json(result.rows);
-  } catch (err) {
+  } catch (caught) {
+    const err = toAppError(caught);
     console.error('GET /block-list error:', err.message);
     res.status(500).json({ error: 'Failed to load block list' });
   }
@@ -36,7 +38,8 @@ router.post('/', async (req, res) => {
         [req.session.userId, emailAddress.trim().toLowerCase()])
     ).rows[0];
     res.status(201).json(row);
-  } catch (err) {
+  } catch (caught) {
+    const err = toAppError(caught);
     console.error('POST /block-list error:', err.message);
     res.status(500).json({ error: 'Failed to add to block list' });
   }
@@ -50,7 +53,8 @@ router.delete('/:id', async (req, res) => {
     );
     if (!result.rows.length) return res.status(404).json({ error: 'Entry not found' });
     res.json({ ok: true });
-  } catch (err) {
+  } catch (caught) {
+    const err = toAppError(caught);
     console.error('DELETE /block-list/:id error:', err.message);
     res.status(500).json({ error: 'Failed to remove from block list' });
   }

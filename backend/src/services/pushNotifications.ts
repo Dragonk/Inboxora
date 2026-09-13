@@ -1,6 +1,7 @@
 import webPush from 'web-push';
 import { query } from './db.js';
 import { setTimeout as delay } from 'node:timers/promises';
+import { toAppError } from '../utils/errors.js';
 
 const vapidPublicKey  = process.env.VAPID_PUBLIC_KEY;
 const vapidPrivateKey = process.env.VAPID_PRIVATE_KEY;
@@ -48,7 +49,8 @@ export async function sendPushToUser(userId: string, payload) {
           timeout: 10000,
         });
         break;
-      } catch (err) {
+      } catch (caught) {
+        const err = toAppError(caught);
         if (err.statusCode === 410 || err.statusCode === 404) {
           staleIds.push(row.id);
           break;

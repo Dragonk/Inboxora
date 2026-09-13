@@ -22,6 +22,7 @@ import { sanitizeThemePrefs } from '../utils/themePrefs.js';
 import { redisClient } from '../services/redis.js';
 import { consume as rlConsume, reset as rlReset } from '../services/rateLimiter.js';
 import { ensureUserDavResources } from '../services/userDavResources.js';
+import { toAppError } from '../utils/errors.js';
 
 const router = Router();
 
@@ -63,7 +64,8 @@ async function destroyUserSessions(userId: string) {
         try { if (JSON.parse(raw).userId === userId) await redisClient.del(key); } catch { /* not this user / unparsable */ }
       }
     } while (cursor !== 0);
-  } catch (err) {
+  } catch (caught) {
+    const err = toAppError(caught);
     console.error('destroyUserSessions failed:', err.message);
   }
 }
@@ -220,7 +222,8 @@ router.post('/register', authLimiter, async (req, res) => {
     req.session.isAdmin = newUser.is_admin;
     imapManager.connectAllForUser(newUser.id);
     res.json({ user: { id: newUser.id, username: newUser.username, displayName: null, avatar: null, isAdmin: newUser.is_admin, totpEnabled: false } });
-  } catch (err) {
+  } catch (caught) {
+    const err = toAppError(caught);
     await client.query('ROLLBACK').catch(rbErr => console.error('Registration ROLLBACK error:', rbErr.message));
     if (err.code === '23505') return res.status(409).json({ error: 'Username already taken' });
     console.error('Registration error:', err.message);
@@ -314,7 +317,8 @@ router.post('/login', authLimiter, async (req, res) => {
         try {
           await sendEmailOtpCode(user.id, user.recovery_email);
           return res.json({ requiresEmailOTP: true, emailHint: maskEmail(user.recovery_email), deviceTrustAvailable });
-        } catch (err) {
+        } catch (caught) {
+          const err = toAppError(caught);
           console.error('Email OTP auto-send failed, falling back to enrollment:', err.message);
           // Fall through — system email not configured; direct user to TOTP enrollment
         }
@@ -456,7 +460,8 @@ router.post('/2fa/send-email-otp', authLimiter, async (req, res) => {
   try {
     await sendEmailOtpCode(uid, recoveryEmail);
     res.json({ ok: true, emailHint: maskEmail(recoveryEmail) });
-  } catch (err) {
+  } catch (caught) {
+    const err = toAppError(caught);
     console.error('Email OTP send failed:', err.message);
     res.status(500).json({ error: 'Failed to send verification code. Check system email configuration.' });
   }
@@ -1159,7 +1164,8 @@ router.post('/forgot-password', authLimiter, async (req, res) => {
         [user.id, tokenHash, expiresAt]
       );
     }
-  } catch (err) {
+  } catch (caught) {
+    const err = toAppError(caught);
     console.error('forgot-password error:', err.message);
     // Don't expose internal errors — fall through to the generic success response
   }
@@ -1200,7 +1206,8 @@ router.post('/reset-password', authLimiter, async (req, res) => {
 
     res.locals.resetRateLimit?.();
     res.json({ ok: true });
-  } catch (err) {
+  } catch (caught) {
+    const err = toAppError(caught);
     console.error('reset-password error:', err.message);
     res.status(500).json({ error: 'Failed to reset password' });
   }
@@ -1248,7 +1255,8 @@ router.post('/push/subscribe', async (req, res) => {
       [req.session.userId, endpoint, keys.p256dh, keys.auth]
     );
     res.json({ ok: true });
-  } catch (err) {
+  } catch (caught) {
+    const err = toAppError(caught);
     console.error('push/subscribe error:', err.message);
     res.status(500).json({ error: 'Failed to save push subscription.' });
   }
@@ -1267,7 +1275,8 @@ router.post('/push/unsubscribe', async (req, res) => {
       [req.session.userId, endpoint]
     );
     res.json({ ok: true });
-  } catch (err) {
+  } catch (caught) {
+    const err = toAppError(caught);
     console.error('push/unsubscribe error:', err.message);
     res.status(500).json({ error: 'Failed to remove push subscription.' });
   }

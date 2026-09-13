@@ -12,6 +12,7 @@ import { stopCardavUser } from '../services/carddavSync.js';
 import { pluginRegistry } from '../plugins/registry.js';
 import { uuidParam } from '../utils/uuid.js';
 import { queryInt } from '../utils/query.js';
+import { toAppError } from '../utils/errors.js';
 
 const router = Router();
 router.use(requireAdmin);
@@ -371,7 +372,8 @@ router.post('/invites', async (req, res) => {
       });
       emailSent = true;
     }
-  } catch (err) {
+  } catch (caught) {
+    const err = toAppError(caught);
     console.error('Invite email failed:', err.message);
     emailError = /ECONNREFUSED|ENOTFOUND|ETIMEDOUT|authentication|535|reject/i.test(err.message)
       ? 'Mail server error. Check your SMTP account settings.'
@@ -474,7 +476,8 @@ router.post('/system-email/test', async (req, res) => {
     });
     await transport.verify();
     res.json({ ok: true });
-  } catch (err) {
+  } catch (caught) {
+    const err = toAppError(caught);
     res.status(400).json({ error: err.message });
   }
 });
@@ -557,7 +560,8 @@ router.post('/oidc', async (req, res) => {
       ]
     );
     res.json({ provider: result.rows[0] });
-  } catch (err) {
+  } catch (caught) {
+    const err = toAppError(caught);
     if (err.code === '23505') return res.status(409).json({ error: 'A provider with this slug already exists' });
     throw err;
   }
@@ -664,7 +668,8 @@ router.patch('/oidc/:id', async (req, res) => {
     );
     if (!result.rows.length) return res.status(404).json({ error: 'Provider not found' });
     res.json({ provider: result.rows[0] });
-  } catch (err) {
+  } catch (caught) {
+    const err = toAppError(caught);
     if (err.code === '23505') return res.status(409).json({ error: 'A provider with this slug already exists' });
     throw err;
   }

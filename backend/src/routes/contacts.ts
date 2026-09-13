@@ -7,6 +7,7 @@ import { safeFetch } from '../services/safeFetch.js';
 import { contactsToGoogleCsv, contactsToOutlookCsv, contactsToVCard, parseGoogleCsv } from '../utils/contactTransfer.js';
 import crypto from 'crypto';
 import { queryInt, queryString, sessionUserId } from '../utils/query.js';
+import { toAppError } from '../utils/errors.js';
 
 const router = Router();
 router.use(requireAuth);
@@ -119,7 +120,8 @@ router.post('/address-books', async (req, res) => {
   try {
     const result = await query(`INSERT INTO address_books (user_id, name, source, visible) VALUES ($1, $2, 'local', true) RETURNING id, name, source, visible`, [req.session.userId, name]);
     res.status(201).json(result.rows[0]);
-  } catch (err) {
+  } catch (caught) {
+    const err = toAppError(caught);
     if (err.code === '23505') return res.status(409).json({ error: 'An address book with that name already exists' });
     console.error('Address book create error:', err); res.status(500).json({ error: 'Failed to create address book' });
   }
@@ -135,7 +137,8 @@ router.patch('/address-books/:id', async (req, res) => {
     if (local.error) return res.status(local.status).json({ error: local.error });
     const result = await query(`UPDATE address_books SET name = COALESCE($1, name), visible = COALESCE($2, visible), updated_at = NOW() WHERE id = $3 AND user_id = $4 RETURNING id, name, source, visible`, [rawName === undefined ? null : localBookName(rawName), visible === undefined ? null : visible, req.params.id, req.session.userId]);
     res.json(result.rows[0]);
-  } catch (err) {
+  } catch (caught) {
+    const err = toAppError(caught);
     if (err.code === '23505') return res.status(409).json({ error: 'An address book with that name already exists' });
     console.error('Address book update error:', err); res.status(500).json({ error: 'Failed to update address book' });
   }
@@ -452,7 +455,8 @@ router.post('/', async (req, res) => {
 
     await bumpSyncToken(addressBookId);
     res.status(201).json(result.rows[0]);
-  } catch (err) {
+  } catch (caught) {
+    const err = toAppError(caught);
     if (err.code === '23505') return res.status(409).json({ error: 'A contact with that email already exists' });
     console.error('Contact create error:', err);
     res.status(500).json({ error: 'Failed to create contact' });
@@ -566,7 +570,8 @@ router.patch('/:id', async (req, res) => {
 
     await bumpSyncToken(c.address_book_id);
     res.json(result.rows[0]);
-  } catch (err) {
+  } catch (caught) {
+    const err = toAppError(caught);
     if (err.code === '23505') return res.status(409).json({ error: 'A contact with that email already exists' });
     console.error('Contact update error:', err);
     res.status(500).json({ error: 'Failed to update contact' });

@@ -2,6 +2,7 @@ import { Router } from 'express';
 import { query } from '../services/db.js';
 import { requireAuth } from '../middleware/auth.js';
 import { applyInboxRules, isDangerousRegex } from '../services/inboxRules.js';
+import { toAppError } from '../utils/errors.js';
 
 const router = Router();
 router.use(requireAuth);
@@ -80,7 +81,8 @@ router.get('/', async (req, res) => {
       [req.session.userId]
     );
     res.json(result.rows);
-  } catch (err) {
+  } catch (caught) {
+    const err = toAppError(caught);
     console.error('GET /rules error:', err.message);
     res.status(500).json({ error: 'Failed to load rules' });
   }
@@ -106,7 +108,8 @@ router.post('/run', async (req, res) => {
       );
       accountIds = accts.rows.map(r => r.id);
     }
-  } catch (err) {
+  } catch (caught) {
+    const err = toAppError(caught);
     console.error('POST /rules/run account lookup error:', err.message);
     return res.status(500).json({ error: 'Failed to run rules' });
   }
@@ -177,7 +180,8 @@ router.post('/run', async (req, res) => {
 
         if (msgResult.rows.length < BATCH) break;
       }
-    } catch (err) {
+    } catch (caught) {
+      const err = toAppError(caught);
       console.error(`POST /rules/run error for account ${acctId}:`, err.message);
     }
   }
@@ -242,7 +246,8 @@ router.post('/', async (req, res) => {
       ]
     );
     res.status(201).json(result.rows[0]);
-  } catch (err) {
+  } catch (caught) {
+    const err = toAppError(caught);
     console.error('POST /rules error:', err.message);
     res.status(500).json({ error: 'Failed to create rule' });
   }
@@ -300,7 +305,8 @@ router.put('/:id', async (req, res) => {
     );
     if (!result.rows.length) return res.status(404).json({ error: 'Rule not found' });
     res.json(result.rows[0]);
-  } catch (err) {
+  } catch (caught) {
+    const err = toAppError(caught);
     console.error('PUT /rules/:id error:', err.message);
     res.status(500).json({ error: 'Failed to update rule' });
   }
@@ -314,7 +320,8 @@ router.delete('/:id', async (req, res) => {
     );
     if (!result.rows.length) return res.status(404).json({ error: 'Rule not found' });
     res.json({ ok: true });
-  } catch (err) {
+  } catch (caught) {
+    const err = toAppError(caught);
     console.error('DELETE /rules/:id error:', err.message);
     res.status(500).json({ error: 'Failed to delete rule' });
   }
@@ -336,7 +343,8 @@ router.patch('/reorder', async (req, res) => {
       await query('UPDATE inbox_rules SET priority = $1 WHERE id = $2', [i, ids[i]]);
     }
     res.json({ ok: true });
-  } catch (err) {
+  } catch (caught) {
+    const err = toAppError(caught);
     console.error('PATCH /rules/reorder error:', err.message);
     res.status(500).json({ error: 'Failed to reorder rules' });
   }

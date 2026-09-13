@@ -14,6 +14,7 @@
 import { pushConfigured, sendPushToUser } from './pushNotifications.js';
 import { disablePushDevice, listActivePushDevices, markPushDeviceFailure } from './pushDevices.js';
 import { TRANSPORT_INVALID, TRANSPORT_RETRY, sendNativePush } from './pushTransports.js';
+import { toAppError } from '../utils/errors.js';
 
 // Defence-in-depth against a duplicate emission of the same persisted message
 // (e.g. two sync ticks racing to report the same arrival). Bounded and
@@ -50,7 +51,8 @@ async function dispatchWebPush(event, summary) {
   try {
     await sendPushToUser(event.userId, event.webPush);
     summary.webPush = 'delivered';
-  } catch (err) {
+  } catch (caught) {
+    const err = toAppError(caught);
     summary.webPush = 'error';
     console.warn('Web Push dispatch failed:', err.message);
   }
@@ -65,7 +67,8 @@ async function dispatchNative(event, summary) {
   let devices;
   try {
     devices = await listActivePushDevices(event.userId);
-  } catch (err) {
+  } catch (caught) {
+    const err = toAppError(caught);
     summary.native.skipped = 'lookup-failed';
     console.warn('Native push device lookup failed:', err.message);
     return;
@@ -75,7 +78,8 @@ async function dispatchNative(event, summary) {
     let verdict;
     try {
       verdict = await sendNativePush(device, event.native);
-    } catch (err) {
+    } catch (caught) {
+      const err = toAppError(caught);
       // A transport must not throw, but a bug must not take the whole fan-out down.
       verdict = TRANSPORT_RETRY;
       console.warn(`Native push transport ${device.transport} threw:`, err.message);

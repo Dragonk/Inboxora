@@ -16,6 +16,7 @@
 import { SignJWT, importPKCS8 } from 'jose';
 import { safeFetch } from './safeFetch.js';
 import { allowPrivatePushEndpoints } from './pushConfig.js';
+import { toAppError } from '../utils/errors.js';
 
 export const TRANSPORT_INVALID = 'invalid';     // permanent: drop the registration
 export const TRANSPORT_RETRY = 'retry';         // transient: keep it, count the failure
@@ -132,7 +133,8 @@ export async function sendFcmPush(device, event) {
   let accessToken;
   try {
     accessToken = await fcmAccessToken(account);
-  } catch (err) {
+  } catch (caught) {
+    const err = toAppError(caught);
     console.warn('FCM credential error:', err.message);
     return TRANSPORT_RETRY;
   }

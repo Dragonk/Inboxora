@@ -11,6 +11,7 @@ import { validateHost } from '../services/hostValidation.js';
 import { logAuthEvent } from '../services/authEvents.js';
 import { ensureUserDavResources } from '../services/userDavResources.js';
 import { queryString } from '../utils/query.js';
+import { toAppError } from '../utils/errors.js';
 
 interface OidcDiscoveryDocument {
   issuer?: string;
@@ -217,7 +218,8 @@ export async function buildEndSessionUrl({ providerId, idToken }: EndSessionInpu
     if (process.env.APP_URL) params.set('post_logout_redirect_uri', `${process.env.APP_URL}/login`);
 
     return `${doc.end_session_endpoint}?${params}`;
-  } catch (err) {
+  } catch (caught) {
+    const err = toAppError(caught);
     console.error('buildEndSessionUrl failed:', err.message);
     return null;
   }
@@ -346,7 +348,8 @@ oidcBrowserRouter.get('/:slug/start', async (req, res) => {
     // committed to the store before the provider redirects back with the code.
     await new Promise<void>((resolve, reject) => req.session.save(err => err ? reject(err) : resolve()));
     res.redirect(`${doc.authorization_endpoint}?${params}`);
-  } catch (err) {
+  } catch (caught) {
+    const err = toAppError(caught);
     console.error('OIDC start error:', err.message);
     return oidcError(res, action, 'Failed to initiate SSO');
   }
@@ -430,7 +433,8 @@ oidcBrowserRouter.get('/:slug/callback', async (req, res) => {
         audience: provider.client_id,
       });
       payload = p;
-    } catch (err) {
+    } catch (caught) {
+      const err = toAppError(caught);
       console.error('OIDC id_token verification failed:', err.message);
       return oidcError(res, pending.action, 'Token verification failed');
     }
@@ -475,7 +479,8 @@ oidcBrowserRouter.get('/:slug/callback', async (req, res) => {
            VALUES ($1, $2, $3, $4, $5, $6, NOW())`,
           [pending.linkUserId, provider.id, issuer, subject, email, emailVerified]
         );
-      } catch (err) {
+      } catch (caught) {
+        const err = toAppError(caught);
         if (err.code === '23505') {
           return oidcError(res, 'link', 'This identity is already linked to another account');
         }
@@ -649,7 +654,8 @@ oidcBrowserRouter.get('/:slug/callback', async (req, res) => {
     }
 
     return oidcError(res, 'login', 'Unknown provisioning configuration');
-  } catch (err) {
+  } catch (caught) {
+    const err = toAppError(caught);
     console.error('OIDC callback error:', err.message);
     return oidcError(res, pending?.action || 'login', 'Authentication failed. Please try again.');
   } finally {

@@ -7,6 +7,7 @@ import { isUuid, uuidParam } from '../utils/uuid.js';
 import { applyConversationAction, applyBulkConversationAction } from '../services/conversationActions.js';
 import { normalizeMessageId } from '../services/threading/normalizeMessageId.js';
 import { routeParam, sessionUserId } from '../utils/query.js';
+import { toAppError } from '../utils/errors.js';
 
 const router = Router();
 router.use(requireAuth);
@@ -330,7 +331,8 @@ async function runAction(req, res, action, extra = {}) {
       ...extra,
     });
     res.json(result);
-  } catch (err) {
+  } catch (caught) {
+    const err = toAppError(caught);
     res.status(err.statusCode || 400).json({ error: err.message });
   }
 }
@@ -381,7 +383,8 @@ router.post('/conversations/:id/merge', async (req, res) => {
       targetId: targetConversationId,
     });
     res.json({ merged: true, ...result });
-  } catch (err) {
+  } catch (caught) {
+    const err = toAppError(caught);
     const status = err.statusCode || 400;
     res.status(status).json({ error: 'Merge failed', detail: err.message });
   }
@@ -401,7 +404,8 @@ router.post('/conversations/:id/logical-messages/:logicalMessageId/split', async
       overrideType: 'manual-split',
     });
     res.status(201).json({ split: true, newConversationId: result.targetId, ...result });
-  } catch (err) {
+  } catch (caught) {
+    const err = toAppError(caught);
     const status = err.statusCode || 400;
     res.status(status).json({ error: 'Split failed', detail: err.message });
   }
@@ -421,7 +425,8 @@ router.post('/conversations/:id/logical-messages/:logicalMessageId/move', async 
       targetId: targetConversationId,
     });
     res.json({ moved: true, ...result });
-  } catch (err) {
+  } catch (caught) {
+    const err = toAppError(caught);
     const status = err.statusCode || 400;
     res.status(status).json({ error: 'Move failed', detail: err.message });
   }
@@ -436,7 +441,8 @@ router.post('/conversations/:id/lock', async (req, res) => {
       overrideType: 'lock-conversation',
     });
     res.json({ locked: true, ...result });
-  } catch (err) {
+  } catch (caught) {
+    const err = toAppError(caught);
     const status = err.statusCode || 400;
     res.status(status).json({ error: 'Lock failed', detail: err.message });
   }
@@ -450,7 +456,8 @@ router.post('/conversations/:id/unlock', async (req, res) => {
       overrideType: 'unlock-conversation',
     });
     res.json({ locked: false, ...result });
-  } catch (err) {
+  } catch (caught) {
+    const err = toAppError(caught);
     const status = err.statusCode || 400;
     res.status(status).json({ error: 'Unlock failed', detail: err.message });
   }

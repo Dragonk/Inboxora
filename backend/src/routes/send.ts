@@ -15,6 +15,7 @@ import { generateVCard } from '../utils/vcard.js';
 import { createAccountSmtpTransport } from '../services/smtpTransport.js';
 import { imapManager } from '../index.js';
 import { pluginRegistry } from '../plugins/registry.js';
+import { toAppError } from '../utils/errors.js';
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
@@ -111,7 +112,8 @@ export async function ensureServerAutoSavedSentCopy({
         return { saved: true, appended: false };
       }
       if (result.state === 'ambiguous') verificationFailed = true;
-    } catch (err) {
+    } catch (caught) {
+      const err = toAppError(caught);
       verificationFailed = true;
       console.warn('Post-send Sent-copy verification failed:', err.message);
     }
@@ -133,7 +135,8 @@ export async function ensureServerAutoSavedSentCopy({
       return { saved: true, appended: false };
     }
     if (finalResult.state !== 'missing') return { saved: false, appended: false };
-  } catch (err) {
+  } catch (caught) {
+    const err = toAppError(caught);
     console.warn('Post-send final Sent-copy verification failed:', err.message);
     return { saved: false, appended: false };
   }
@@ -142,7 +145,8 @@ export async function ensureServerAutoSavedSentCopy({
     const { uid } = await manager.appendToSent(account, sentFolder, rawMessage);
     if (uid && sentMeta) await manager.upsertSentMessageRecord(account, sentFolder, uid, sentMeta);
     return { saved: true, appended: true };
-  } catch (err) {
+  } catch (caught) {
+    const err = toAppError(caught);
     console.error(`Post-send Sent-copy fallback APPEND failed for ${redactEmail(account.email_address)}/${sentFolder}: ${err.message}`);
     return { saved: false, appended: true };
   }
@@ -245,7 +249,8 @@ router.post('/send', async (req, res) => {
     normalizedTo  = normalizeRecipients(to,  'to');
     normalizedCc  = normalizeRecipients(cc,  'cc');
     normalizedBcc = normalizeRecipients(bcc, 'bcc');
-  } catch (err) {
+  } catch (caught) {
+    const err = toAppError(caught);
     return res.status(err.status || 400).json({ error: err.message });
   }
   const normalizedSubject = sanitizeHeaderValue(subject || '');
@@ -350,7 +355,8 @@ router.post('/send', async (req, res) => {
       if (uploadedBytes + fwdBytes > 26_214_400) {
         return res.status(400).json({ error: 'Total attachment size exceeds 25 MB' });
       }
-    } catch (err) {
+    } catch (caught) {
+      const err = toAppError(caught);
       return res.status(err.status || 500).json({ error: err.message || 'Failed to fetch forwarded attachments' });
     }
   }
@@ -521,7 +527,8 @@ router.post('/send', async (req, res) => {
           await Promise.all([...booksToSync].map(bookId =>
             query('UPDATE address_books SET sync_token = gen_random_uuid()::text, updated_at = NOW() WHERE id = $1', [bookId])
           ));
-        } catch (err) {
+        } catch (caught) {
+          const err = toAppError(caught);
           console.warn('Contact upsert setup error:', err.message);
         }
       });
@@ -581,7 +588,8 @@ router.post('/send', async (req, res) => {
               .then(() => pluginRegistry.runHook('onSentMessage', { imapManager: imapManager.pluginFacade, account, messageId: mailOptions.messageId }))
               .catch(e => console.error(`Post-append sync failed: ${e.message}`));
           }, 1000);
-        } catch (appendErr) {
+        } catch (caught) {
+          const appendErr = toAppError(caught);
           console.error(`IMAP append to Sent failed for ${redactEmail(account.email_address)}/${sentFolder}: ${appendErr.message}`);
           // The append may still have landed (or land shortly) — pull the folder so a
           // late-completing append self-corrects the DB rather than staying invisible.
@@ -621,7 +629,8 @@ router.post('/send', async (req, res) => {
     // response returns this instead of re-sending.
     if (idemKeyRedis) redisClient.set(idemKeyRedis, JSON.stringify(sendResult), { EX: 86400 }).catch(() => {});
     res.json(sendResult);
-  } catch (err) {
+  } catch (caught) {
+    const err = toAppError(caught);
     if (delivered) {
       // SMTP already accepted this message. A Sent-folder or metadata failure
       // must not invite the user to send it again.

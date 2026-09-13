@@ -1,5 +1,6 @@
 import { query } from './db.js';
 import { resolveArchiveFolder, isAllMailFolder, resolveTrashFolder, resolveAllTrashPaths, getDeleteStrategy, adjustFolderCounts } from '../utils/mailUtils.js';
+import { toAppError } from '../utils/errors.js';
 
 async function getRulesForAccount(userId: string, accountId: string) {
   const result = await query(
@@ -151,7 +152,8 @@ export async function applyInboxRules(messages, account, imapManager) {
   let rules;
   try {
     rules = await getRulesForAccount(account.user_id, account.id);
-  } catch (err) {
+  } catch (caught) {
+    const err = toAppError(caught);
     console.error('inboxRules: failed to load rules:', err.message);
     return { remaining: messages, mutedIds: new Set() };
   }
@@ -178,7 +180,8 @@ export async function applyInboxRules(messages, account, imapManager) {
           console.warn(`inboxRules: body_text not yet available for message ${msg.id} — body rules will not match (account uses lazy body fetch)`);
         }
       }
-    } catch (err) {
+    } catch (caught) {
+      const err = toAppError(caught);
       console.error('inboxRules: failed to fetch body_text for rules:', err.message);
     }
   }
@@ -227,7 +230,8 @@ export async function applyInboxRules(messages, account, imapManager) {
         // mark_read: add to mutedIds so caller suppresses sound/push.
         // star: intentionally NOT muted — a star-only rule should still alert.
         if (action.type === 'mark_read') mutedIds.add(msg.id);
-      } catch (err) {
+      } catch (caught) {
+        const err = toAppError(caught);
         console.error(`inboxRules: action ${action.type} failed for msg ${msg.id}:`, err.message);
       }
     };
@@ -245,7 +249,8 @@ export async function applyInboxRules(messages, account, imapManager) {
       let matches;
       try {
         matches = evaluateRule(rule, msg);
-      } catch (err) {
+      } catch (caught) {
+        const err = toAppError(caught);
         console.error(`inboxRules: rule ${rule.id} evaluation error for msg ${msg.id}:`, err.message);
         if (!forwardBarrierPassed && ruleIndex === lastForwardRuleIndex) {
           forwardBarrierPassed = true;
@@ -335,7 +340,8 @@ export async function applyBlockList(messages, account, imapManager) {
       [account.user_id]
     );
     blockedRows = res.rows;
-  } catch (err) {
+  } catch (caught) {
+    const err = toAppError(caught);
     console.error('blockList: failed to load:', err.message);
     return messages;
   }
@@ -351,7 +357,8 @@ export async function applyBlockList(messages, account, imapManager) {
       resolveTrashFolder(account.id, account.folder_mappings),
       resolveAllTrashPaths(account.id, account.folder_mappings),
     ]);
-  } catch (err) {
+  } catch (caught) {
+    const err = toAppError(caught);
     console.error('blockList: failed to resolve trash folders:', err.message);
     return messages;
   }
@@ -394,7 +401,8 @@ export async function applyBlockList(messages, account, imapManager) {
       } else {
         remaining.push(msg);
       }
-    } catch (err) {
+    } catch (caught) {
+      const err = toAppError(caught);
       console.error(`blockList: failed to move msg ${msg.id}:`, err.message);
       remaining.push(msg);
     }

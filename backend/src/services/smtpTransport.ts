@@ -3,6 +3,7 @@ import { refreshMicrosoftToken } from '../routes/oauth.js';
 import { decrypt } from './encryption.js';
 import { getConnectionPolicy } from './connectionPolicy.js';
 import { resolveForConnection } from './hostValidation.js';
+import { toAppError } from '../utils/errors.js';
 
 const SMTP_ATTEMPT_TIMEOUT_MS = 10_000;
 const SMTP_FAILOVER_BUDGET_MS = 45_000;
@@ -51,7 +52,8 @@ async function runWithAddressFallback<T>({
 
     try {
       return await operation(transport);
-    } catch (err) {
+    } catch (caught) {
+      const err = toAppError(caught);
       lastError = err;
       if (!isPreDeliveryConnectionError(err) || i === candidates.length - 1) throw err;
       console.warn('SMTP connection failed; retrying another validated address:', err.message);

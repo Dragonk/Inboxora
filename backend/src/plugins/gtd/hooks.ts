@@ -15,6 +15,7 @@ import { emitGtdIfRelevant } from './gtdSections.js';
 import { deleteUserPet } from './gtdPet.js';
 import { logger, getThreadKeyForUid, listUserAccounts, getAccountConfig, setAccountConfig } from '../api.js';
 import type { PluginContext } from '../registry.js';
+import { toAppError } from '../../utils/errors.js';
 
 // Pure helper: candidate INBOX ids minus the ones a rule genuinely deleted.
 export function selectGtdReevalIds(newInboxIds: string[], deletedIds: Iterable<string> | null | undefined): string[] {
@@ -76,7 +77,8 @@ export async function sectionsChanged({ mgr, account, changedCount }: { mgr: Gtd
   try {
     const { enabled } = await getGtdConfig(account.id);
     if (enabled) mgr.broadcast({ type: 'gtd_sections_updated', accountId: account.id }, account.user_id);
-  } catch (err) {
+  } catch (caught) {
+    const err = toAppError(caught);
     logger.debug(`GTD sections refresh emit skipped for ${account.id}: ${err instanceof Error ? err.message : String(err)}`);
   }
 }
@@ -93,7 +95,8 @@ export async function inboxIngest({ mgr, account, newInboxIds, deletedIds }: { m
   try {
     const threadKeys = await threadKeysForMessageIds(account.id, ids);
     await runGtdTransitions(mgr, account, threadKeys);
-  } catch (err) {
+  } catch (caught) {
+    const err = toAppError(caught);
     logger.debug(`GTD inbox-ingest transitions failed for ${account.id}: ${err instanceof Error ? err.message : String(err)}`);
   }
 }
@@ -135,7 +138,8 @@ export async function gtdSyncTick({ mgr, account }: { mgr: GtdMailEngine; accoun
         await mgr.syncFolderViaPool?.(account, folder);
         const after = await mgr.folderFingerprint?.(account.id, folder);
         if (before !== after) changedFolders.push(folder);
-      } catch (err) {
+      } catch (caught) {
+        const err = toAppError(caught);
         console.warn(`GTD sync error ${account.id}/${folder}:`, err instanceof Error ? err.message : String(err));
       } finally {
         mgr.releaseFolderSync?.(account.id, folder);
@@ -151,12 +155,14 @@ export async function gtdSyncTick({ mgr, account }: { mgr: GtdMailEngine; accoun
       try {
         const threadKeys = await threadKeysInFolders(account.id, changedFolders);
         await runGtdTransitions(mgr, account, threadKeys);
-      } catch (err) {
+      } catch (caught) {
+        const err = toAppError(caught);
         console.warn(`GTD transitions error ${account.id}:`, err instanceof Error ? err.message : String(err));
       }
       mgr.broadcast({ type: 'gtd_sections_updated', accountId: account.id }, account.user_id);
     }
-  } catch (err) {
+  } catch (caught) {
+    const err = toAppError(caught);
     console.warn(`GTD tick error ${account.id}:`, err instanceof Error ? err.message : String(err));
   }
 }
@@ -178,7 +184,8 @@ export function emitAfterDeferredCopySync(mgr: GtdMailEngine, account: GtdAccoun
       try {
         const threadKey = await getThreadKeyForUid(account.id, Number(srcUid), fromFolder);
         if (threadKey) await runGtdTransitions(mgr, account, [threadKey]);
-      } catch (err) {
+      } catch (caught) {
+        const err = toAppError(caught);
         logger.debug(`post-copy transition re-run failed for ${toFolder}: ${err instanceof Error ? err.message : String(err)}`);
       }
     })

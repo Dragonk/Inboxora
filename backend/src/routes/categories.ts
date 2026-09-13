@@ -5,6 +5,7 @@ import { invalidateSocialDomainCache, backfillCategories, aiClassifyMessage, BUI
 import { validateHost } from '../services/hostValidation.js';
 import { safeFetch } from '../services/safeFetch.js';
 import { routeParam, sessionUserId } from '../utils/query.js';
+import { toAppError } from '../utils/errors.js';
 
 const router = Router();
 
@@ -58,7 +59,8 @@ async function fetchDomainList(url: string) {
       .filter(line => line.length > 0 && line.length <= 253 && /^[a-z0-9][a-z0-9.-]*\.[a-z]{2,}$/.test(line));
 
     return { domains, error: null };
-  } catch (err) {
+  } catch (caught) {
+    const err = toAppError(caught);
     return { domains: [], error: err.name === 'AbortError' ? 'Request timed out' : err.message };
   }
 }
@@ -137,7 +139,8 @@ router.post('/categories/sources', requireAuth, async (req, res) => {
     }
 
     res.status(201).json({ source });
-  } catch (err) {
+  } catch (caught) {
+    const err = toAppError(caught);
     if (err.code === '23505') return res.status(409).json({ error: 'This entry already exists' });
     throw err;
   }
@@ -217,7 +220,8 @@ router.post('/categories/recategorize/:accountId', requireAuth, async (req, res)
     try {
       const processed = await backfillCategories(accountId, userId);
       console.log(`Re-categorization complete: ${processed} messages for account ${accountId}`);
-    } catch (err) {
+    } catch (caught) {
+      const err = toAppError(caught);
       console.error(`Re-categorization error for account ${accountId}:`, err.message);
     }
   })();

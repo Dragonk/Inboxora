@@ -9,6 +9,7 @@ import { decrypt } from './encryption.js';
 import { parseVCard } from '../utils/vcard.js';
 import { getConnectionPolicy } from './connectionPolicy.js';
 import { discoverAddressBooks, fetchAddressBookCards } from './carddavClient.js';
+import { toAppError } from '../utils/errors.js';
 
 const DEFAULT_INTERVAL_MIN = 60;
 const timers = new Map();   // userId -> interval id
@@ -50,7 +51,8 @@ async function ensureCardavBook(userId: string, book) {
         [userId, name, book.url],
       );
       return r.rows[0].id;
-    } catch (err) {
+    } catch (caught) {
+      const err = toAppError(caught);
       if (err.code === '23505') continue; // name taken — try next suffix
       throw err;
     }
@@ -204,7 +206,8 @@ export async function syncUser(userId: string) {
       lastError: null, bookCount: books.length, contactCount,
     });
     return { ok: true, bookCount: books.length, contactCount };
-  } catch (err) {
+  } catch (caught) {
+    const err = toAppError(caught);
     await saveCardavConfig(userId, { lastError: err.message, lastSyncAt: new Date().toISOString() });
     return { ok: false, error: err.message };
   } finally {
@@ -235,7 +238,8 @@ export async function startCardavScheduler() {
       if (row.config?.serverUrl) scheduleCardavUser(row.user_id, row.config?.intervalMin);
     }
     if (rows.rows.length) console.log(`CardDAV: scheduled sync for ${rows.rows.length} account(s)`);
-  } catch (err) {
+  } catch (caught) {
+    const err = toAppError(caught);
     console.warn('CardDAV scheduler start failed:', err.message);
   }
 }

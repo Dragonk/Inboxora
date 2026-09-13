@@ -9,6 +9,7 @@ import { embedInlineDataImages } from '../utils/inlineImages.js';
 import { imapManager } from '../index.js';
 import { Readable } from 'node:stream';
 import { queryString } from '../utils/query.js';
+import { toAppError } from '../utils/errors.js';
 
 const router = Router();
 router.use(requireAuth);
@@ -168,7 +169,8 @@ router.post('/draft', async (req, res) => {
           bodyHtml: meta.bodyHtml,
           bodyText: meta.bodyText,
         });
-      } catch (rowErr) {
+      } catch (caught) {
+        const rowErr = toAppError(caught);
         console.error(`Draft: failed to persist local row uid=${uid}: ${rowErr.message}`);
       }
     }
@@ -181,13 +183,15 @@ router.post('/draft', async (req, res) => {
           'DELETE FROM messages WHERE account_id = $1 AND uid = $2 AND folder = $3',
           [account.id, existingUid, existingFolder]
         );
-      } catch (delErr) {
+      } catch (caught) {
+        const delErr = toAppError(caught);
         console.error(`Draft: failed to delete old uid=${existingUid}: ${delErr.message}`);
       }
     }
 
     res.json({ uid, folder: draftsFolder });
-  } catch (err) {
+  } catch (caught) {
+    const err = toAppError(caught);
     console.error('Save draft failed:', err.message);
     res.status(err.status || 500).json({ error: err.message || 'Failed to save draft' });
   }
@@ -215,7 +219,8 @@ router.delete('/draft/:uid', async (req, res) => {
       [account.id, uid, folder]
     );
     res.json({ ok: true });
-  } catch (err) {
+  } catch (caught) {
+    const err = toAppError(caught);
     console.error('Delete draft failed:', err.message);
     res.status(500).json({ error: err.message || 'Failed to delete draft' });
   }

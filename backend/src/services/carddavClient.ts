@@ -10,6 +10,7 @@ import { requireCompleteMultistatus } from '../utils/davXml.js';
 import { XMLParser } from 'fast-xml-parser';
 import { validateHost } from './hostValidation.js';
 import { safeFetch } from './safeFetch.js';
+import { toAppError } from '../utils/errors.js';
 
 interface DavRequestOptions {
   username?: string;
@@ -56,9 +57,10 @@ async function dav(method: string, url: string, { username, password, depth, bod
     // safeFetch validates every redirect hop's IP (well-known discovery relies on
     // the server's 301 redirect), honouring the admin private-host policy.
     res = await safeFetch(url, { method, headers, body, redirect: 'follow', signal: AbortSignal.timeout(30000) }, { allowPrivate });
-  } catch (err) {
-    if (err.name === 'TimeoutError') throw new Error('CardDAV server did not respond (timed out)', { cause: err });
-    throw new Error(`Could not reach the CardDAV server: ${err.message}`, { cause: err });
+  } catch (caught) {
+    const err = toAppError(caught);
+    if (err.name === 'TimeoutError') throw new Error('CardDAV server did not respond (timed out)', { cause: caught });
+    throw new Error(`Could not reach the CardDAV server: ${err.message}`, { cause: caught });
   }
   if (res.status === 401) throw new Error('Authentication failed — check the username and app password');
   if (!res.ok && res.status !== 207) {
@@ -149,7 +151,8 @@ async function resolvePrincipal(serverUrl, creds) {
     try {
       const principal = await propfindHref(base, '<current-user-principal/>', 'current-user-principal', creds);
       if (principal) return principal;
-    } catch (err) {
+    } catch (caught) {
+      const err = toAppError(caught);
       if (/Authentication failed/.test(err.message)) throw err; // wrong creds — stop trying
       lastErr = err;
     }

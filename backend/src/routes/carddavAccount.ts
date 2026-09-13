@@ -12,6 +12,7 @@ import { getConnectionPolicy } from '../services/connectionPolicy.js';
 import { discoverAddressBooks } from '../services/carddavClient.js';
 import { syncUser, scheduleCardavUser, stopCardavUser, getCardavConfig } from '../services/carddavSync.js';
 import { sessionUserId } from '../utils/query.js';
+import { toAppError } from '../utils/errors.js';
 
 const router = Router();
 router.use(requireAuth);
@@ -71,7 +72,8 @@ router.post('/connect', async (req, res) => {
   // Verify credentials + reachability before storing anything.
   try {
     await discoverAddressBooks({ serverUrl, username, password, allowPrivate: policy.allowPrivateHosts });
-  } catch (err) {
+  } catch (caught) {
+    const err = toAppError(caught);
     return res.status(400).json({ error: err.message });
   }
 

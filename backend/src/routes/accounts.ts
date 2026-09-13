@@ -9,6 +9,7 @@ import { getConnectionPolicy } from '../services/connectionPolicy.js';
 import { pluginRegistry } from '../plugins/registry.js';
 import { createKeyedSerializer } from '../utils/keyedSerializer.js';
 import { uuidParam } from '../utils/uuid.js';
+import { toAppError } from '../utils/errors.js';
 
 // Serialize an account's reconnect triggers so a rapid settings change (e.g. a
 // gtd_enabled double-toggle) can't fire two overlapping disconnect→connect chains —
@@ -326,7 +327,8 @@ router.delete('/:id', async (req, res) => {
       console.error(`Disconnect error after delete for ${id}:`, err.message)
     );
     res.json({ ok: true });
-  } catch (err) {
+  } catch (caught) {
+    const err = toAppError(caught);
     if (err.code === '23503') {
       return res.status(409).json({ error: 'This account is still used to send calendar invitations. Cancel or transfer those invitations before deleting it.' });
     }
@@ -448,7 +450,8 @@ router.post('/:id/reindex', async (req, res) => {
       );
     }
     res.json({ ok: true, alreadyRunning });
-  } catch (err) {
+  } catch (caught) {
+    const err = toAppError(caught);
     console.error('POST /accounts/:id/reindex error:', err.message);
     res.status(500).json({ error: 'Failed to start reindex' });
   }

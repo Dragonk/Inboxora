@@ -3,6 +3,7 @@ import { query } from '../services/db.js';
 import { requireAuth } from '../middleware/auth.js';
 import { encrypt, decrypt } from '../services/encryption.js';
 import { sessionUserId } from '../utils/query.js';
+import { toAppError } from '../utils/errors.js';
 
 interface TodoistListResponse { results?: unknown[] }
 interface TodoistTask { id?: string; content?: string }
@@ -53,7 +54,8 @@ router.get('/status', async (req, res) => {
       [req.session.userId]
     );
     res.json({ connected: result.rows.length > 0 });
-  } catch (err) {
+  } catch (caught) {
+    const err = toAppError(caught);
     res.status(500).json({ error: err.message });
   }
 });
@@ -86,7 +88,8 @@ router.post('/connect', async (req, res) => {
     `, [req.session.userId, { token: encryptedToken }]);
 
     res.json({ ok: true });
-  } catch (err) {
+  } catch (caught) {
+    const err = toAppError(caught);
     res.status(500).json({ error: err.message });
   }
 });
@@ -99,7 +102,8 @@ router.delete('/disconnect', async (req, res) => {
       [req.session.userId]
     );
     res.json({ ok: true });
-  } catch (err) {
+  } catch (caught) {
+    const err = toAppError(caught);
     res.status(500).json({ error: err.message });
   }
 });
@@ -110,7 +114,8 @@ router.get('/projects', async (req, res) => {
     const token = await getTodoistToken(sessionUserId(req));
     const data = await todoistFetch<TodoistListResponse>(token, 'GET', '/projects');
     res.json(data.results ?? data);
-  } catch (err) {
+  } catch (caught) {
+    const err = toAppError(caught);
     res.status(err.status || 500).json({ error: err.message });
   }
 });
@@ -121,7 +126,8 @@ router.get('/labels', async (req, res) => {
     const token = await getTodoistToken(sessionUserId(req));
     const data = await todoistFetch<TodoistListResponse>(token, 'GET', '/labels');
     res.json(data.results ?? data);
-  } catch (err) {
+  } catch (caught) {
+    const err = toAppError(caught);
     res.status(err.status || 500).json({ error: err.message });
   }
 });
@@ -143,7 +149,8 @@ router.post('/tasks', async (req, res) => {
     if (due_date) taskData.due_date = due_date;
     const task = await todoistFetch<TodoistTask>(token, 'POST', '/tasks', taskData);
     res.json({ ...task, url: `https://app.todoist.com/app/task/${task.id}` });
-  } catch (err) {
+  } catch (caught) {
+    const err = toAppError(caught);
     res.status(err.status || 500).json({ error: err.message });
   }
 });

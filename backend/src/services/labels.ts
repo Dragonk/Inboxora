@@ -1,5 +1,6 @@
 import { query } from './db.js';
 import { fanOutReadToSiblings } from '../utils/mailUtils.js';
+import { toAppError } from '../utils/errors.js';
 
 // Generic "labels" capability (v3.0 plugin platform).
 //
@@ -85,7 +86,8 @@ export async function ensureLabelFolders(imapManager, account, folderPaths) {
     try {
       const { path, created } = await imapManager.ensureFolder(account, folder, { resolvePath: true });
       results.push({ folder, path, created });
-    } catch (err) {
+    } catch (caught) {
+      const err = toAppError(caught);
       console.error(`ensureLabelFolders failed for ${folder}:`, err.message);
       results.push({ folder, error: true });
     }

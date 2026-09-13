@@ -14,6 +14,7 @@ import { allowPrivatePushEndpoints, pushBaseUrl } from '../services/pushConfig.j
 import { query } from '../services/db.js';
 import { validateHost } from '../services/hostValidation.js';
 import { routeParam, sessionUserId } from '../utils/query.js';
+import { toAppError } from '../utils/errors.js';
 
 const router = Router();
 
@@ -80,7 +81,8 @@ router.post('/devices', requireAuth, async (req, res) => {
       // Returned exactly once. The app stores it in its encrypted native store.
       deviceToken,
     });
-  } catch (err) {
+  } catch (caught) {
+    const err = toAppError(caught);
     if (err.statusCode === 400) return res.status(400).json({ error: err.message });
     throw err;
   }

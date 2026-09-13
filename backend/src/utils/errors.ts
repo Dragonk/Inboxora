@@ -4,6 +4,11 @@ export interface AppError extends Error {
   status?: number;
   statusCode?: number;
   details?: unknown;
+  /** IMAP: the server response code (e.g. NO/BAD) and its text. */
+  serverResponseCode?: string;
+  responseText?: string;
+  /** Fetch/HTTP: the response headers when the error carries them. */
+  headers?: Record<string, string>;
 }
 
 /**
@@ -12,6 +17,11 @@ export interface AppError extends Error {
  */
 export function toAppError(value: unknown): AppError {
   if (value instanceof Error) return value as AppError;
+  if (value && typeof value === "object") {
+    const record = value as { message?: unknown };
+    const message = typeof record.message === "string" ? record.message : String(value);
+    return Object.assign(new Error(message), value) as AppError;
+  }
   return new Error(String(value)) as AppError;
 }
 

@@ -3,6 +3,7 @@ import { query } from '../services/db.js';
 import { requireAuth, requireAdmin } from '../middleware/auth.js';
 import { encrypt, decrypt, isEncrypted } from '../services/encryption.js';
 import { routeParam } from '../utils/query.js';
+import { toAppError } from '../utils/errors.js';
 
 const router = Router();
 router.use(requireAuth);
@@ -111,7 +112,8 @@ export async function loadIntegrationConfigs() {
       }
     }
     console.log('Integration configs loaded');
-  } catch (err) {
+  } catch (caught) {
+    const err = toAppError(caught);
     console.error('Failed to load integration configs:', err.message);
   }
 }

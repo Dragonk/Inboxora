@@ -1,4 +1,5 @@
 import { summarizeMessage, summarizeAvailable, getMessageFields, getMessageAnnotations, setMessageAnnotation } from '../api.js';
+import { toAppError } from '../../utils/errors.js';
 
 // AI-condensed one-line gist for GTD "waiting" entries. The client shows the raw
 // message snippet by default; when a gist has been generated for a waiting thread's
@@ -115,7 +116,8 @@ export async function queueGistGeneration({ sections, userId, broadcast }: { sec
       let wrote = 0;
       try {
         wrote = await generateForAccount(accountId, ids);
-      } catch (err) {
+      } catch (caught) {
+        const err = toAppError(caught);
         console.warn(`GTD gist generation failed for account ${accountId}:`, err instanceof Error ? err.message : String(err));
       } finally {
         // Release this batch's ids as soon as it settles (existing per-account

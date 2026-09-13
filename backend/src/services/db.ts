@@ -1,6 +1,7 @@
 import pg from 'pg';
 import { encrypt, isEncrypted } from './encryption.js';
 import { recordDb } from './performanceMetrics.js';
+import { toAppError } from '../utils/errors.js';
 
 const { Pool } = pg;
 
@@ -67,7 +68,8 @@ export async function withTransaction(fn, { serializable = false, retries = 2 } 
       // P2-02: Don't let a failed ROLLBACK mask the original error.
       try {
         await client.query('ROLLBACK');
-      } catch (rollbackErr) {
+      } catch (caught) {
+        const rollbackErr = toAppError(caught);
         // ROLLBACK failed — the client is in an indeterminate state.
         // Log the rollback error but throw the original error so the caller
         // sees what actually went wrong, not the secondary ROLLBACK failure.

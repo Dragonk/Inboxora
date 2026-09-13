@@ -2,6 +2,7 @@ import { Router } from 'express';
 import { requireAuth } from '../middleware/auth.js';
 import { applyConversationOverride, listConversationOverrides } from '../services/conversationOverrides.js';
 import { uuidParam } from '../utils/uuid.js';
+import { toAppError } from '../utils/errors.js';
 
 const router = Router();
 router.use(requireAuth);
@@ -23,7 +24,8 @@ router.post('/conversations/:id/overrides', async (req, res) => {
       reason: req.body?.reason || null,
     });
     res.status(201).json(result);
-  } catch (err) {
+  } catch (caught) {
+    const err = toAppError(caught);
     if (err.statusCode === 404) return res.status(404).json({ error: err.message });
     res.status(400).json({ error: err.message });
   }

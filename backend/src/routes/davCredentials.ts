@@ -1,6 +1,7 @@
 import { Router } from 'express';
 import { requireAuth } from '../middleware/auth.js';
 import { sessionUserId } from '../utils/query.js';
+import { toAppError } from '../utils/errors.js';
 import {
   createDavAppPassword,
   listDavAppPasswords,
@@ -20,7 +21,8 @@ router.post('/', async (req, res) => {
     const created = await createDavAppPassword(sessionUserId(req), req.body?.label);
     const { secret, ...credential } = created;
     res.status(201).json({ credential, secret });
-  } catch (err) {
+  } catch (caught) {
+    const err = toAppError(caught);
     if (err.message === 'A device label between 1 and 120 characters is required') {
       return res.status(400).json({ error: err.message });
     }

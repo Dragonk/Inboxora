@@ -25,6 +25,7 @@ import { conversationPersistedFields, resolveOwnIdentityAddresses } from './conv
 import { providerFetchQuery, providerCapabilitiesFromClient } from './providerThreadAdapter.js';
 import { parseInboundCalendarInvitation } from './inboundCalendarInvitation.js';
 import { persistInboundCalendarInvitation } from './inboundCalendarInvitationPersistence.js';
+import { toAppError } from '../utils/errors.js';
 
 
 // Shorthand for log lines — keeps domain visible while masking the local part.
@@ -54,7 +55,8 @@ async function persistConversationCopyForRow(rowId, account: EmailAccountRow, ra
       // persisted/message payload in the conversation persistence layer.
       userId: account.user_id,
     });
-  } catch (err) {
+  } catch (caught) {
+    const err = toAppError(caught);
     console.error('Conversation persistence error:', err.message);
     await recordConversationIngestFailure({ userId: account.user_id, accountId: account.id, messageRowId: rowId, operation: 'imap-ingest', error: err, diagnostics: { rawMessageId: rawMessage?.envelope?.messageId || rawMessage?.messageId || null } }).catch(recordErr => console.error('Conversation failure recording error:', recordErr.message));
   }
@@ -1103,7 +1105,8 @@ async function ensureFreshToken(account: EmailAccountRow) {
     console.log(`Refreshing Microsoft token for ${logAccount(account)}`);
     try {
       account = await refreshMicrosoftToken(account);
-    } catch (err) {
+    } catch (caught) {
+      const err = toAppError(caught);
       console.error(`Token refresh failed for ${logAccount(account)}:`, err.message);
     }
   }
@@ -1371,7 +1374,8 @@ export async function ensureMailbox(client, path: string, { resolvePath = false 
     // Already exists (imapflow caught ALREADYEXISTS): res.path is the requested casing.
     const known = res?.path || requested;
     return { path: resolvePath ? await resolveServerFolderCasing(client, known) : known, created: false };
-  } catch (err) {
+  } catch (caught) {
+    const err = toAppError(caught);
     // imapflow throws with err.message fixed to the generic 'Command failed' (see
     // lib/imap-flow.js's NO/BAD tagged-response handling); the server's actual text lands
     // in err.responseText and, when the server sends an RFC 5530 response code, the parsed
@@ -1569,7 +1573,8 @@ export class ImapManager {
             }
           }
         }
-      } catch (err) {
+      } catch (caught) {
+        const err = toAppError(caught);
         console.error('Health check error:', err.message);
       }
     }, 90000); // 90 seconds — fast enough to catch startup failures, slow enough not to spam
@@ -1598,7 +1603,8 @@ export class ImapManager {
             console.warn(`Scheduled snippet indexer failed for account ${accountId}:`, err.message)
           );
         }
-      } catch (err) {
+      } catch (caught) {
+        const err = toAppError(caught);
         console.error('Snippet scheduler error:', err.message);
       }
     }, 10 * 60 * 1000); // every 10 minutes
@@ -1769,7 +1775,8 @@ export class ImapManager {
               console.error(`Staleness reconnect sync failed for ${logAccount(account)}:`, extractImapError(err)));
             if (wasSyncing) setTimeout(reconnect, 3000);
             else reconnect();
-          } catch (err) {
+          } catch (caught) {
+            const err = toAppError(caught);
             recordWarning('staleness_error', accountId);
             console.warn(`Staleness check error for ${accountId}:`, err.message);
           }
@@ -1890,7 +1897,8 @@ export class ImapManager {
           // marker in place and let the pull reconcile, rather than clearing to our stale push.
           if (!op.resolved) await this._clearFlagMarker(op.messageId, op.flag); // confirmed on server
           ops.delete(key);
-        } catch (err) {
+        } catch (caught) {
+          const err = toAppError(caught);
           op.attempts += 1;
           if (op.attempts >= FLAG_PUSH_MAX_ATTEMPTS) {
             console.warn(`Flag-push giving up after ${op.attempts} attempts (${op.flag} msg=${op.messageId}): ${extractImapError(err)}`);
@@ -2243,7 +2251,8 @@ export class ImapManager {
         [userId]
       );
       await Promise.all(result.rows.map(a => this.disconnectAccount(a.id)));
-    } catch (err) {
+    } catch (caught) {
+      const err = toAppError(caught);
       console.error(`disconnectUser error for user ${userId}:`, err.message);
     }
   }
@@ -2274,7 +2283,8 @@ export class ImapManager {
       await query('UPDATE email_accounts SET sync_error = $1 WHERE id = $2', [detail, account.id]);
       this._syncErrorState.set(account.id, detail);
       this.broadcast({ type: 'account_error', accountId: account.id, error: detail }, account.user_id);
-    } catch (err) {
+    } catch (caught) {
+      const err = toAppError(caught);
       // Leave _syncErrorState untouched so the next failure retries the write.
       console.warn(`Could not record sync_error for ${logAccount(account)}: ${err.message}`);
     }
@@ -2293,7 +2303,8 @@ export class ImapManager {
       if (typeof prev === 'string') {
         this.broadcast({ type: 'account_connected', accountId: account.id }, account.user_id);
       }
-    } catch (err) {
+    } catch (caught) {
+      const err = toAppError(caught);
       console.warn(`Could not clear sync_error for ${logAccount(account)}: ${err.message}`);
     }
   }
@@ -2467,7 +2478,8 @@ export class ImapManager {
           // and the rest of the tick (flag poll, reconcile) still runs.
           await raceTimeout(this.syncFolders(syncAccount, activeClient), 20000, 'Periodic folder sync');
           this.broadcast({ type: 'folders_synced', accountId: account.id }, syncAccount.user_id);
-        } catch (err) {
+        } catch (caught) {
+          const err = toAppError(caught);
           console.warn(`Periodic folder sync failed for ${logAccount(syncAccount)}:`, err.message);
         }
         // Server-side spam filtering deposits mail straight into Junk (bypassing INBOX), so the
@@ -2503,7 +2515,8 @@ export class ImapManager {
           );
         });
       }
-    } catch (err) {
+    } catch (caught) {
+      const err = toAppError(caught);
       const detail = extractImapError(err);
       console.error(`Sync error for ${logAccount(account)}:`, detail);
       if (detail.includes('THROTTLED') || detail.includes('throttl')) {
@@ -2641,7 +2654,8 @@ export class ImapManager {
           lock.release();
         }
       });
-    } catch (err) {
+    } catch (caught) {
+      const err = toAppError(caught);
       console.warn(`Flag range sync error for ${logAccount(account)}:`, err.message);
     }
   }
@@ -2805,7 +2819,8 @@ export class ImapManager {
           console.log(`Folder sync for ${logAccount(account)}: dropped ${paths.length} folder(s) no longer on the server (${paths.join(', ')}) and ${dropped.rowCount} cached message(s)`);
         }
       }
-    } catch (err) {
+    } catch (caught) {
+      const err = toAppError(caught);
       console.error(`Folder sync error for ${logAccount(account)}:`, err.message);
     }
   }
@@ -2875,7 +2890,8 @@ export class ImapManager {
               await this._bgConnSem.acquire(reindexHost);
               try {
                 await this.backfillMessages(account, folder);
-              } catch (err) {
+              } catch (caught) {
+                const err = toAppError(caught);
                 console.error(`Post-UIDVALIDITY backfill error for ${logAccount(account)}/${folder}:`, err.message);
               } finally {
                 this._bgConnSem.release(reindexHost);
@@ -3108,7 +3124,8 @@ export class ImapManager {
                 [threadId, account.id, msgId]
               );
             }
-          } catch (parseErr) {
+          } catch (caught) {
+            const parseErr = toAppError(caught);
             console.error('Message sync parse error:', parseErr.message);
           }
         };
@@ -3154,14 +3171,16 @@ export class ImapManager {
             const unreadBeforeRules = wantsInboxIngest ? newMessages.map(m => m.id) : null;
             try {
               newMessages = await applyBlockList(newMessages, account, manager);
-            } catch (err) {
+            } catch (caught) {
+              const err = toAppError(caught);
               console.error('blockList error:', err.message);
             }
             try {
               const rulesResult = await applyInboxRules(newMessages, account, manager);
               newMessages = rulesResult.remaining;
               mutedIds = rulesResult.mutedIds;
-            } catch (err) {
+            } catch (caught) {
+              const err = toAppError(caught);
               console.error('inboxRules error:', err.message);
             }
             // Any unread candidate no longer in `newMessages` was moved out of / deleted from
@@ -3765,7 +3784,8 @@ export class ImapManager {
                     [bfThreadId, account.id, bfMsgId]
                   );
                 }
-              } catch (parseErr) {
+              } catch (caught) {
+                const parseErr = toAppError(caught);
                 console.error('Backfill parse error:', parseErr.message);
               }
             }
@@ -3788,7 +3808,8 @@ export class ImapManager {
 
           await new Promise(r => setTimeout(r, cfg.batchDelay));
 
-        } catch (err) {
+        } catch (caught) {
+          const err = toAppError(caught);
           consecutiveErrors++;
           const detail = extractImapError(err);
           // Discard the broken connection — openBfClient will reconnect next iteration
@@ -3828,7 +3849,8 @@ export class ImapManager {
       // affected folder (backfillAllFolders loops here); the client debounces. Gated cheaply
       // on gtd_enabled + changedCount>0 only.
       await emitSectionsChanged(this.pluginFacade, account, backfilledRows);
-    } catch (err) {
+    } catch (caught) {
+      const err = toAppError(caught);
       console.error(`Backfill failed for ${logAccount(account)}/${folder}:`, err.message);
     } finally {
       if (bfClient) { try { await bfClient.logout(); } catch { /* already disconnected */ } }
@@ -3878,7 +3900,8 @@ export class ImapManager {
           [addressBookId]
         );
       }
-    } catch (err) {
+    } catch (caught) {
+      const err = toAppError(caught);
       console.warn(`upsertAutoContacts error for user ${userId}:`, err.message);
     }
   }
@@ -3940,7 +3963,8 @@ export class ImapManager {
           );
         }
         console.log(`Bulk flag refresh: ${updates.length}/${msgs.length} updated in ${folder} for ${logAccount(account)}`);
-      } catch (err) {
+      } catch (caught) {
+        const err = toAppError(caught);
         console.warn(`Bulk flag refresh error for ${logAccount(account)}/${folder}: ${err.message}`);
       } finally {
         if (client) { try { await client.logout(); } catch { /* ignore */ } }
@@ -4143,7 +4167,8 @@ export class ImapManager {
             );
             batchCount++;
             consecutiveErrors = 0;
-          } catch (err) {
+          } catch (caught) {
+            const err = toAppError(caught);
             consecutiveErrors++;
             console.error(`Snippet indexer batch error ${logAccount(account)}/${folder}:`, err.message);
             // Connection refusal = the provider is at its per-host/per-IP connection limit
@@ -4176,7 +4201,8 @@ export class ImapManager {
       }
 
       console.log(`Snippet indexer complete for ${logAccount(account)} (${batchCount} batches)`);
-    } catch (err) {
+    } catch (caught) {
+      const err = toAppError(caught);
       failed = true;
       console.error(`Snippet indexer error ${logAccount(account)}:`, err.message);
     } finally {
@@ -4393,7 +4419,8 @@ export class ImapManager {
       console.log(`syncFolderOnDemand done: ${logAccount(account)}/${folder}`);
       // sync_complete fires mailflow:refresh in the frontend, reloading the message list
       this.broadcast({ type: 'sync_complete', accountId: account.id }, account.user_id);
-    } catch (err) {
+    } catch (caught) {
+      const err = toAppError(caught);
       console.error(`On-demand sync error ${logAccount(account)}/${folder}:`, err.message);
     } finally {
       this.onDemandSyncing.delete(key);
@@ -4431,7 +4458,8 @@ export class ImapManager {
       } finally {
         this._bgConnSem.release(host);
       }
-    } catch (err) {
+    } catch (caught) {
+      const err = toAppError(caught);
       console.warn(`Periodic spam sync failed for ${logAccount(account)}/${spamPath}:`, err.message);
     } finally {
       this.onDemandSyncing.delete(key);
@@ -4466,7 +4494,8 @@ export class ImapManager {
             [sanitizeStr(safeHtml), sanitizeStr(text), JSON.stringify(attachments || []), msg.id, sanitizeStr(snip)]
           );
         }
-      } catch (err) {
+      } catch (caught) {
+        const err = toAppError(caught);
         console.warn(`Body prefetch failed for uid ${msg.uid}:`, err.message);
       }
     }
@@ -4517,7 +4546,8 @@ export class ImapManager {
             [sanitizeStr(safeHtml), sanitizeStr(text), JSON.stringify(attachments || []), msg.id, sanitizeStr(snip)]
           );
         }
-      } catch (err) {
+      } catch (caught) {
+        const err = toAppError(caught);
         console.warn(`Folder body prefetch failed for uid ${msg.uid}:`, err.message);
       }
     }
@@ -4900,7 +4930,8 @@ export class ImapManager {
           lock.release();
         }
       });
-    } catch (err) {
+    } catch (caught) {
+      const err = toAppError(caught);
       console.error(`moveMessageGetNewUid failed: uid=${uid}:`, err.message);
       throw err;
     }
@@ -4930,7 +4961,8 @@ export class ImapManager {
       try {
         if (!client.mailbox || client.mailbox.exists === 0) return;
         await this._deleteAllInFolder(client, folder);
-      } catch (err) {
+      } catch (caught) {
+        const err = toAppError(caught);
         const msg = (err.message || '').toLowerCase();
         // Non-fatal if folder is already empty or server reports no messages
         if (!msg.includes('no messages') && !msg.includes('empty') && !msg.includes('nothing')) throw err;
@@ -5005,7 +5037,8 @@ export class ImapManager {
         // into a whole-operation failure (which would leave the DB read but the server
         // unread, and the next flag-sync would flip those rows back to unread).
         await this._markSeenInFolder(client, folder);
-      } catch (err) {
+      } catch (caught) {
+        const err = toAppError(caught);
         console.warn(`markAllRead IMAP warning for ${folder}:`, err.message);
         // Non-fatal — DB is already updated; the next sync reconciles any residual unread.
       } finally {
@@ -5027,7 +5060,8 @@ export class ImapManager {
           lock.release();
         }
       });
-    } catch (err) {
+    } catch (caught) {
+      const err = toAppError(caught);
       console.error(`moveMessage failed: uid=${uid}:`, err.message);
       throw err;
     }
@@ -5075,7 +5109,8 @@ export class ImapManager {
           lock.release();
         }
       });
-    } catch (err) {
+    } catch (caught) {
+      const err = toAppError(caught);
       console.error(`copyMessage failed: uid=${uid}:`, err.message);
       throw err;
     }
@@ -5133,7 +5168,8 @@ export class ImapManager {
         return await client.status(toFolder, { uidNext: true });
       });
       destUidNextBefore = status?.uidNext ?? null;
-    } catch (statusErr) {
+    } catch (caught) {
+      const statusErr = toAppError(caught);
       console.warn(`bulkMoveMessages STATUS ${toFolder} failed (${statusErr.message}) — reconciliation skipped`);
     }
 
@@ -5185,7 +5221,8 @@ export class ImapManager {
       }
       return { uidMap: bySearch.uidMap, succeeded: bySearch.succeeded, failed: bySearch.failed };
 
-    } catch (err) {
+    } catch (caught) {
+      const err = toAppError(caught);
       console.warn(`bulkMoveMessages ${fromFolder} → ${toFolder}: batch failed (${err.message}), verifying via UID SEARCH`);
       // A thrown move may have applied partway; reconcile by search to report what actually moved.
       // Not counted as stale_mutation_uid — this is a move failure, not a stale-identity meeting.
@@ -5209,7 +5246,8 @@ export class ImapManager {
         try { return await client.search({ uid: uids.join(',') }, { uid: true }); }
         finally { lock.release(); }
       });
-    } catch (searchErr) {
+    } catch (caught) {
+      const searchErr = toAppError(caught);
       console.error(`bulkMoveMessages: source UID SEARCH failed (${searchErr.message}) — leaving all ${uids.length} for next sync`);
       return { uidMap: new Map(), succeeded: [], failed: uids, staleCount: null };
     }
@@ -5224,7 +5262,8 @@ export class ImapManager {
           finally { lock.release(); }
         });
         destArrived = destNew.length;
-      } catch (destErr) {
+      } catch (caught) {
+        const destErr = toAppError(caught);
         console.warn(`bulkMoveMessages: destination verification failed (${destErr.message}) — trusting source-absence`);
       }
     }
@@ -5284,7 +5323,8 @@ export class ImapManager {
         }
       });
       return { succeeded: uids, failed: [] };
-    } catch (err) {
+    } catch (caught) {
+      const err = toAppError(caught);
       console.warn(`bulkPermanentDelete ${folder}: batch failed (${err.message}), verifying via UID SEARCH`);
       try {
         const remaining = await withFreshClient(account, async (client) => {
@@ -5302,7 +5342,8 @@ export class ImapManager {
           console.log(`bulkPermanentDelete: ${succeeded.length}/${uids.length} messages confirmed deleted via UID SEARCH`);
         }
         return { succeeded, failed };
-      } catch (searchErr) {
+      } catch (caught) {
+        const searchErr = toAppError(caught);
         console.error(`bulkPermanentDelete: UID SEARCH verification failed: ${searchErr.message}`);
         return { succeeded: [], failed: uids };
       }
@@ -5346,7 +5387,8 @@ export class ImapManager {
           await this.syncMessages(account, client, 'INBOX', 20, false, true);
         }
         console.log(`syncNow complete: ${logAccount(account)}`);
-      } catch (err) {
+      } catch (caught) {
+        const err = toAppError(caught);
         console.error(`syncNow error for ${logAccount(account)}:`, err.message);
         // Identity-guard: if this manual refresh hung and the staleness check meanwhile
         // reconnected a fresh client into the map slot, tear down ONLY the client this
@@ -5394,7 +5436,8 @@ export class ImapManager {
         }
         this.lastFolderSyncAt.set(account.id, Date.now());
         this.broadcast({ type: 'folders_synced', accountId: account.id }, account.user_id);
-      } catch (err) {
+      } catch (caught) {
+        const err = toAppError(caught);
         console.error(`syncFoldersNow error for ${logAccount(account)}:`, err.message);
       }
     }));
@@ -5463,7 +5506,8 @@ export class ImapManager {
                   lock.release();
                 }
               });
-            } catch (err) {
+            } catch (caught) {
+              const err = toAppError(caught);
               console.warn(`Snooze wakeup: could not mark message unread on server (no UIDPLUS): ${err.message}`);
             }
           }
@@ -5500,7 +5544,8 @@ export class ImapManager {
         this.broadcast({ type: 'snooze_wakeup', accountId: row.account_id }, row.user_id);
 
         console.log(`Snooze wakeup: message ${row.message_id_header} restored to ${row.original_folder}`);
-      } catch (err) {
+      } catch (caught) {
+        const err = toAppError(caught);
         console.error(`Snooze wakeup failed for snooze_id ${row.snooze_id}:`, err.message);
       }
     }
@@ -5663,7 +5708,8 @@ export class ImapManager {
       if ([0, 900, 1800, 3600].includes(folderSec)) {
         this.userFolderSyncIntervalMs.set(userId, folderSec * 1000);
       }
-    } catch (err) {
+    } catch (caught) {
+      const err = toAppError(caught);
       console.warn(`Failed to load sync preference for user ${userId}:`, err.message);
     }
 

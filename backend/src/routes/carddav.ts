@@ -15,6 +15,7 @@ import { query } from '../services/db.js';
 import { parseVCard } from '../utils/vcard.js';
 import { authLimiterConfig } from '../services/authLimiter.js';
 import { createDavAuthMiddleware } from '../services/davServerAuth.js';
+import { toAppError } from '../utils/errors.js';
 
 const router = Router();
 
@@ -422,7 +423,8 @@ router.put('/:userId/:bookId/:filename', async (req, res) => {
       );
       res.set('ETag', `"${etag}"`).status(201).end();
     }
-  } catch (err) {
+  } catch (caught) {
+    const err = toAppError(caught);
     if (err.code === '23505') return res.status(409).end(); // unique conflict
     console.error('CardDAV PUT error:', err);
     res.status(500).end();

@@ -6,6 +6,7 @@ import { importPet, decodeUploadedSheet, getPetMeta, getPetSheet, parsePetSlug, 
 import { getGtdConfig, resolveGtdStateFolder, sanitizeGtdFolders, sanitizeGtdFoldersDetailed, DEFAULT_GTD_FOLDERS, planGtdFolderPersist, invalidateGtdConfigCache } from './gtdConfig.js';
 import { applyLabel, removeExactLabelCopy, removeLabel, markThreadRead, ensureLabelFolders, archiveInboxCopy, broadcast, loadOwnedMessage, getOwnedAccount, getMessageCopyFolders, getAccountConfig, setAccountConfig } from '../api.js';
 import { queryString, queryInt, routeParam, sessionUserId } from '../../utils/query.js';
+import { toAppError } from '../../utils/errors.js';
 
 const router = Router();
 router.use(requireAuth);
@@ -166,7 +167,8 @@ router.post('/classify', async (req, res) => {
   let result;
   try {
     result = await applyLabel(account, msg, toFolder);
-  } catch (err) {
+  } catch (caught) {
+    const err = toAppError(caught);
     console.error(`GTD classify failed for message ${messageId} -> ${toFolder}:`, err instanceof Error ? err.message : String(err));
     return res.status(500).json({ error: 'Failed to apply GTD label' });
   }
@@ -203,7 +205,8 @@ router.post('/classify/undo', async (req, res) => {
   try {
     const { removed } = await removeExactLabelCopy(msg, folder, uid);
     return res.json({ ok: true, removed, folder });
-  } catch (err) {
+  } catch (caught) {
+    const err = toAppError(caught);
     console.error(`GTD classify undo failed for message ${messageId} in ${folder}:`, err instanceof Error ? err.message : String(err));
     return res.status(500).json({ error: 'Failed to undo GTD classification' });
   }
@@ -238,7 +241,8 @@ router.delete('/classify', async (req, res) => {
   try {
     const { removed } = await removeLabel(msg, stateFolder);
     if (!removed) return res.json({ ok: true, removed: false });
-  } catch (err) {
+  } catch (caught) {
+    const err = toAppError(caught);
     console.error(`GTD unclassify failed for message ${messageId} in ${stateFolder}:`, err instanceof Error ? err.message : String(err));
     return res.status(500).json({ error: 'Failed to remove GTD label' });
   }
@@ -311,7 +315,8 @@ router.post('/done', async (req, res) => {
       const { removed: didRemove } = await removeLabel(msg, folder);
       if (didRemove) removed.push(folder);
     }
-  } catch (err) {
+  } catch (caught) {
+    const err = toAppError(caught);
     console.error(`GTD done: label strip for ${id} failed:`, err instanceof Error ? err.message : String(err));
     return res.status(500).json({ error: 'Failed to mark done' });
   }
@@ -328,7 +333,8 @@ router.post('/done', async (req, res) => {
       const result = await archiveInboxCopy(account, inboxCopy);
       archived = result.archived;
       noArchiveFolder = result.noArchiveFolder;
-    } catch (err) {
+    } catch (caught) {
+      const err = toAppError(caught);
       // Step (b) already stripped the labels (or had nothing to strip). A failed archive must
       // not 500: that misreports a mostly-successful action, and — with the label row now
       // gone — a retry by the same id would 404. Report a partial success (200, archiveFailed

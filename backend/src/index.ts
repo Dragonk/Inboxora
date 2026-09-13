@@ -57,6 +57,7 @@ import { retryConversationIngestFailures } from './services/conversationIngestRe
 import { startCalendarInvitationOutboxWorker } from './services/calendarInvitationOutbox.js';
 import { startOccurrenceScheduler } from './services/calendarOccurrences.js';
 import { createBrowserCors } from './middleware/browserCors.js';
+import { toAppError } from './utils/errors.js';
 
 const packageMeta = JSON.parse(readFileSync(new URL('../package.json', import.meta.url), 'utf-8'));
 let buildMeta: { version?: string } = {};
@@ -333,7 +334,8 @@ if (process.env.NODE_ENV !== 'test' && process.env.E2E_DISABLE_IMAP_CONNECT !== 
       }
       for (let i = 0; i < Math.min(MAX_CONCURRENT, queue.length); i++) connectNext();
     }
-  } catch (err) {
+  } catch (caught) {
+    const err = toAppError(caught);
     console.error('Startup account connection error:', err instanceof Error ? err.message : String(err));
   }
 }

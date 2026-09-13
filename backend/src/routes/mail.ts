@@ -15,6 +15,7 @@ import { resolveAccountScope } from '../services/unifiedInbox.js';
 import { validateHost } from '../services/hostValidation.js';
 import { safeFetch } from '../services/safeFetch.js';
 import { safeFilename, attachmentDisposition } from '../utils/contentDisposition.js';
+import { toAppError } from '../utils/errors.js';
 
 const router = Router();
 router.use(requireAuth);
@@ -183,7 +184,8 @@ router.get('/messages/:id', async (req, res) => {
     `, [id, req.session.userId]);
     if (!result.rows.length) return res.status(404).json({ error: 'Message not found' });
     res.json(result.rows[0]);
-  } catch (err) {
+  } catch (caught) {
+    const err = toAppError(caught);
     console.error('GET /messages/:id error:', err.message);
     res.status(500).json({ error: 'Failed to load message' });
   }
@@ -240,7 +242,8 @@ router.get('/resolve-message', async (req, res) => {
     }
     if (result.rows.length === 0) return res.status(404).json({ error: 'Message not found' });
     res.json(result.rows[0]);
-  } catch (err) {
+  } catch (caught) {
+    const err = toAppError(caught);
     console.error('GET /resolve-message error:', err.message);
     res.status(500).json({ error: 'Failed to resolve message' });
   }
@@ -471,7 +474,8 @@ router.get('/messages/:id/body', async (req, res) => {
       hasBlockedRemoteImages = true;
     }
     res.json({ html: responseHtml, text: safeText, attachments: attachments || [], hasBlockedRemoteImages, senderEmail: message.sender_email, senderName: message.sender_name, ...(message.calendar_invitation_id ? { calendarInvitation: true } : {}) });
-  } catch (err) {
+  } catch (caught) {
+    const err = toAppError(caught);
     const msg = err.message || 'Unknown error';
     console.error('Body fetch error:', msg);
     // Detect Gmail/IMAP throttling and surface a helpful message
@@ -523,7 +527,8 @@ router.get('/messages/:id/headers', async (req, res) => {
     let headers = '';
     try {
       headers = await imapManager.fetchHeaders(account, message.uid, message.folder);
-    } catch (fetchErr) {
+    } catch (caught) {
+      const fetchErr = toAppError(caught);
       console.warn('Headers IMAP fetch failed:', fetchErr.message);
     }
 
@@ -734,7 +739,8 @@ router.patch('/messages/:id/read', async (req, res) => {
   try {
     await imapManager.setFlag(accountResult.rows[0], message.uid, message.folder, '\\Seen', read);
     imapManager._resolveFlagPush(message.account_id, id, '\\Seen'); // confirmed — drop any stale queued op
-  } catch (err) {
+  } catch (caught) {
+    const err = toAppError(caught);
     console.error('IMAP flag update failed:', err.message);
     // Push failed — queue a durable retry so a later flag-sync pull can't silently revert
     // the user's change once the 30s local-wins window lapses.
@@ -785,7 +791,8 @@ router.patch('/messages/:id/star', async (req, res) => {
   try {
     await imapManager.setFlag(accountResult.rows[0], message.uid, message.folder, '\\Flagged', starred);
     imapManager._resolveFlagPush(message.account_id, id, '\\Flagged'); // confirmed — drop any stale queued op
-  } catch (err) {
+  } catch (caught) {
+    const err = toAppError(caught);
     console.error('IMAP star update failed:', err.message);
     // Push failed — queue a durable retry so a later flag-sync pull can't silently revert it.
     imapManager._enqueueFlagPush(message.account_id, id, '\\Flagged', starred);
@@ -920,7 +927,8 @@ router.post('/folders/delete', async (req, res) => {
 
   try {
     await imapManager.deleteFolder(check.rows[0], path);
-  } catch (err) {
+  } catch (caught) {
+    const err = toAppError(caught);
     console.error(`IMAP deleteFolder failed for ${path}:`, err.message);
     return res.status(500).json({ error: 'Failed to delete folder on server' });
   }
@@ -1028,7 +1036,8 @@ router.post('/folders/empty', async (req, res) => {
       );
       imapManager.broadcast({ type: 'folder_emptied', accountId, folder: path, ok: true }, account.user_id);
       imapManager.broadcast({ type: 'sync_complete', accountId }, account.user_id);
-    } catch (err) {
+    } catch (caught) {
+      const err = toAppError(caught);
       console.error(`Async emptyFolder failed for ${path}:`, err.message);
       imapManager.broadcast({ type: 'folder_emptied', accountId, folder: path, ok: false }, account.user_id);
     } finally {
@@ -1851,7 +1860,8 @@ router.post('/messages/:id/snooze', async (req, res) => {
 
   try {
     await imapManager.ensureFolder(account, snoozedFolder);
-  } catch (err) {
+  } catch (caught) {
+    const err = toAppError(caught);
     console.error(`Snooze ensureFolder failed for message ${id}:`, err.message);
     return res.status(500).json({ error: 'Failed to move message to Snoozed folder' });
   }
@@ -1862,7 +1872,8 @@ router.post('/messages/:id/snooze', async (req, res) => {
       let snoozedUid;
       try {
         snoozedUid = await imapManager.moveMessage(account, tm.uid, tm.folder, snoozedFolder);
-      } catch (err) {
+      } catch (caught) {
+        const err = toAppError(caught);
         console.error(`Snooze IMAP move failed for message ${tm.id}:`, err.message);
         // The message the user acted on must succeed; a failed sibling is logged
         // and skipped so the rest of the conversation still snoozes.
@@ -1919,7 +1930,8 @@ router.delete('/messages/:id', async (req, res) => {
   if (allDraftsPaths.has(message.folder)) {
     try {
       await imapManager.permanentDeleteMessage(account, message.uid, message.folder);
-    } catch (err) {
+    } catch (caught) {
+      const err = toAppError(caught);
       console.error('IMAP permanent delete (draft) failed:', err.message);
       return res.status(500).json({ error: 'Failed to delete draft' });
     }
@@ -1945,7 +1957,8 @@ router.delete('/messages/:id', async (req, res) => {
     try {
       try {
         newUid = await imapManager.moveMessage(account, message.uid, message.folder, trashPath);
-      } catch (err) {
+      } catch (caught) {
+        const err = toAppError(caught);
         console.error('IMAP move to trash failed:', err.message);
         return res.status(500).json({ error: 'Failed to delete message' });
       }
@@ -1971,7 +1984,8 @@ router.delete('/messages/:id', async (req, res) => {
     // strategy.action === 'expunge': message is already in Trash — permanently delete.
     try {
       await imapManager.permanentDeleteMessage(account, message.uid, message.folder);
-    } catch (err) {
+    } catch (caught) {
+      const err = toAppError(caught);
       console.error('IMAP permanent delete failed:', err.message);
       return res.status(500).json({ error: 'Failed to delete message' });
     }
@@ -2033,7 +2047,8 @@ async function moveForSpamLabel(messageId: string, userId: string, destinationFo
   try {
     try {
       newUid = await imapManager.moveMessage(account, message.uid, message.folder, destinationFolder);
-    } catch (err) {
+    } catch (caught) {
+      const err = toAppError(caught);
       console.error(`IMAP move for /${label} failed:`, err.message);
       return { ok: false, status: 502, error: `IMAP move failed: ${err.message}` };
     }
@@ -2236,7 +2251,8 @@ router.post('/messages/:id/unsubscribe', async (req, res) => {
       }
       console.warn(`One-click unsubscribe returned ${unsub.status} for ${httpsUrl}`);
       // Fall through to URL/mailto fallback
-    } catch (err) {
+    } catch (caught) {
+      const err = toAppError(caught);
       console.warn('One-click unsubscribe failed:', err.message);
       // Fall through to URL/mailto options instead
     }

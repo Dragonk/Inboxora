@@ -1,4 +1,5 @@
 import { query } from './db.js';
+import { toAppError } from '../utils/errors.js';
 
 // Mutable config read by the rate-limit middleware on every request, so
 // admin changes (via reloadAuthSettings) take effect without a restart.
@@ -20,7 +21,8 @@ export async function reloadAuthSettings() {
           authLimiterConfig.windowMs = val * 60 * 1000;
       }
     }
-  } catch (err) {
+  } catch (caught) {
+    const err = toAppError(caught);
     console.error('[auth] Failed to load rate limit settings:', err.message);
   }
 }
