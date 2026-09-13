@@ -1,6 +1,7 @@
 import { randomUUID } from 'crypto';
 import { query } from './db.js';
 import { rebuildConversationCopies } from './conversationRebuild.js';
+import { toAppError } from '../utils/errors.js';
 
 const jobs = new Map();
 const MAX_JOBS = 100;
@@ -42,7 +43,8 @@ export function startConversationRebuildJob({ userId, accountId = null, limit = 
       if (job.status === 'cancelled') return;
       job.status = 'complete';
       await recordConversationRebuildAudit({ userId, jobId, action: 'completed', details: { accountId, dryRun, result: job.result } });
-    } catch (error) {
+    } catch (caught) {
+      const error = toAppError(caught);
       job.error = error.message;
       job.status = 'failed';
       await recordConversationRebuildAudit({ userId, jobId, action: 'failed', details: { accountId, dryRun, error: error.message } }).catch(() => {});

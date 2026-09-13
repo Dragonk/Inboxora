@@ -2,6 +2,7 @@ import { Router } from 'express';
 import { query } from '../services/db.js';
 import { requireAuth } from '../middleware/auth.js';
 import { encrypt, decrypt } from '../services/encryption.js';
+import { sessionUserId } from '../utils/query.js';
 
 interface TodoistListResponse { results?: unknown[] }
 interface TodoistTask { id?: string; content?: string }
@@ -106,7 +107,7 @@ router.delete('/disconnect', async (req, res) => {
 // GET /api/todoist/projects
 router.get('/projects', async (req, res) => {
   try {
-    const token = await getTodoistToken(req.session.userId);
+    const token = await getTodoistToken(sessionUserId(req));
     const data = await todoistFetch<TodoistListResponse>(token, 'GET', '/projects');
     res.json(data.results ?? data);
   } catch (err) {
@@ -117,7 +118,7 @@ router.get('/projects', async (req, res) => {
 // GET /api/todoist/labels
 router.get('/labels', async (req, res) => {
   try {
-    const token = await getTodoistToken(req.session.userId);
+    const token = await getTodoistToken(sessionUserId(req));
     const data = await todoistFetch<TodoistListResponse>(token, 'GET', '/labels');
     res.json(data.results ?? data);
   } catch (err) {
@@ -128,7 +129,7 @@ router.get('/labels', async (req, res) => {
 // POST /api/todoist/tasks
 router.post('/tasks', async (req, res) => {
   try {
-    const token = await getTodoistToken(req.session.userId);
+    const token = await getTodoistToken(sessionUserId(req));
     const { content, description, project_id, labels, priority, due_string, due_date } = req.body;
     if (!content || !content.trim()) {
       return res.status(400).json({ error: 'Task title is required' });

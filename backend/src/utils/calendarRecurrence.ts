@@ -1,6 +1,7 @@
 import ICAL from 'ical.js';
 import { calendarZoneResolver, calendarDescription, parseCalendarEvent, parseICalendarDate } from './ical.js';
 import type { ZoneResolver } from './ical.js';
+import { toAppError } from '../utils/errors.js';
 /**
  * The shipped ical.js type definitions omit the `Time.fromString` static although the
  * runtime provides it (verified against ical.js 2.2). This narrow, documented view
@@ -185,7 +186,8 @@ export function projectCalendarResourceWithStatus(row: ProjectedEvent & { raw_ic
       }
       append(event.getOccurrenceDetails(occurrence), occurrence.toString());
     }
-  } catch (error) {
+  } catch (caught) {
+    const error = toAppError(caught);
     // A malformed rule must not discard occurrences already projected for this
     // resource; the caller's per-resource isolation records the failure.
     status.truncated = true;

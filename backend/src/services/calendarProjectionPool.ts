@@ -21,6 +21,7 @@ import { Worker } from 'node:worker_threads';
 import os from 'node:os';
 
 import { DEFAULT_MAX_ITERATIONS, projectCalendarResourceWithStatus } from '../utils/calendarRecurrence.js';
+import { toAppError } from '../utils/errors.js';
 
 interface ProjectionEvent {
   id?: string;
@@ -241,7 +242,8 @@ function startJob(slot: ReturnType<typeof spawnSlot>, job: Record<string, unknow
       maxIterations: settings.maxIterations,
       deadlineMs: settings.timeoutMs,
     });
-  } catch (error) {
+  } catch (caught) {
+    const error = toAppError(caught);
     settleJob(slot, current => current.resolve({
       id: current.row?.id ?? null,
       events: [],
@@ -266,7 +268,8 @@ function inlineProject(rows: ProjectionRow[], from: Date, to: Date, options: Pro
         truncatedSeries.push(row.id);
         failures.push({ id: row.id, error: status.error || 'Calendar projection was truncated', reason: status.reason || 'truncated' });
       }
-    } catch (error) {
+    } catch (caught) {
+      const error = toAppError(caught);
       failures.push({ id: row.id, error: error instanceof Error ? error.message : String(error), reason: 'rule-error' });
     }
   }

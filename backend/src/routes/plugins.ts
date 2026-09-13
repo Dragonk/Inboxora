@@ -9,6 +9,7 @@ import { Router } from 'express';
 import { requireAuth } from '../middleware/auth.js';
 import { pluginRegistry } from '../plugins/registry.js';
 import { getActivatedPlugins, setPluginActivated } from '../plugins/activation.js';
+import { sessionUserId } from '../utils/query.js';
 
 const router = Router();
 router.use(requireAuth);
@@ -38,7 +39,7 @@ router.patch('/:id', async (req, res) => {
     return res.status(400).json({ error: 'activated (boolean) is required' });
   }
   const activated = req.body.activated;
-  await setPluginActivated(req.session.userId, id, activated);
+  await setPluginActivated(sessionUserId(req), id, activated);
 
   // Let the plugin react to its activation change (e.g. GTD invalidates its per-account config
   // cache for this user so the effective gate flips immediately). Errors are swallowed per-plugin.

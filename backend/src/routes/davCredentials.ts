@@ -1,5 +1,6 @@
 import { Router } from 'express';
 import { requireAuth } from '../middleware/auth.js';
+import { sessionUserId } from '../utils/query.js';
 import {
   createDavAppPassword,
   listDavAppPasswords,
@@ -10,13 +11,13 @@ const router = Router();
 router.use(requireAuth);
 
 router.get('/', async (req, res) => {
-  const credentials = await listDavAppPasswords(req.session.userId);
+  const credentials = await listDavAppPasswords(sessionUserId(req));
   res.json({ credentials });
 });
 
 router.post('/', async (req, res) => {
   try {
-    const created = await createDavAppPassword(req.session.userId, req.body?.label);
+    const created = await createDavAppPassword(sessionUserId(req), req.body?.label);
     const { secret, ...credential } = created;
     res.status(201).json({ credential, secret });
   } catch (err) {
@@ -28,7 +29,7 @@ router.post('/', async (req, res) => {
 });
 
 router.delete('/:id', async (req, res) => {
-  const credential = await revokeDavAppPassword(req.session.userId, req.params.id);
+  const credential = await revokeDavAppPassword(sessionUserId(req), req.params.id);
   if (!credential) return res.status(404).json({ error: 'DAV application password not found' });
   res.json({ credential });
 });

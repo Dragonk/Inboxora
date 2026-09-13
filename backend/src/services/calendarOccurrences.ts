@@ -1,5 +1,6 @@
 import { query, withTransaction } from './db.js';
 import { projectCalendarResources } from './calendarProjectionPool.js';
+import { toAppError } from '../utils/errors.js';
 
 // Materialising calendar occurrences.
 //
@@ -178,7 +179,8 @@ export async function materializePendingOccurrences({ limit = BATCH_SIZE } = {})
   for (const { event_id: eventId } of pending.rows) {
     try {
       outcomes.push({ eventId, result: await materializeEvent(eventId, horizon) });
-    } catch (error) {
+    } catch (caught) {
+      const error = toAppError(caught);
       // One broken series must not stall the queue for everyone else. Re-arm it so the next
       // tick retries, and let reads keep using the on-the-fly path in the meantime.
       await query('UPDATE calendar_occurrence_state SET dirty = true, updated_at = NOW() WHERE event_id = $1', [eventId])

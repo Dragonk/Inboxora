@@ -59,7 +59,7 @@ async function runInBatches(items, concurrency, fn) {
 }
 
 import { RELOCATE_INSERT_COLS, RELOCATE_SELECT_COLS } from '../utils/relocateColumns.js';
-import { queryString, queryInt } from '../utils/query.js';
+import { queryInt, queryString, sessionUserId } from '../utils/query.js';
 import type { FolderMappings } from '../utils/mailUtils.js';
 
 interface MailMessageRow {
@@ -742,7 +742,7 @@ router.patch('/messages/:id/read', async (req, res) => {
   }
 
   // Refresh GTD section data if this message's thread carries a GTD label (its head shows read state).
-  notifyMailMutation([message], req.session.userId);
+  notifyMailMutation([message], sessionUserId(req));
 
   res.json({ ok: true, is_read: read });
 });
@@ -792,7 +792,7 @@ router.patch('/messages/:id/star', async (req, res) => {
   }
 
   // Refresh GTD section data if this message's thread carries a GTD label (its head shows star state).
-  notifyMailMutation([message], req.session.userId);
+  notifyMailMutation([message], sessionUserId(req));
   // Reflect the star change on the user's other sessions in place (no full refetch).
   if (!!message.is_starred !== !!starred) {
     imapManager.broadcast({ type: 'message_flags', accountId: message.account_id, changes: [{ id, is_starred: starred }] }, req.session.userId);
@@ -813,7 +813,7 @@ router.post('/sync', async (req, res) => {
     if (!check.rows.length) return res.status(404).json({ error: 'Account not found' });
   }
   // Run sync in background so response returns immediately
-  imapManager.syncNow(req.session.userId, accountId || null)
+  imapManager.syncNow(sessionUserId(req), accountId || null)
     .catch(err => console.error('syncNow error:', err.message));
   res.json({ ok: true });
 });
@@ -833,7 +833,7 @@ router.post('/sync-folders', async (req, res) => {
   }
   // Run in background so the response returns immediately; the folders_synced
   // broadcast tells clients when to refetch the folder list.
-  imapManager.syncFoldersNow(req.session.userId, accountId || null)
+  imapManager.syncFoldersNow(sessionUserId(req), accountId || null)
     .catch(err => console.error('syncFoldersNow error:', err.message));
   res.json({ ok: true });
 });
@@ -1130,7 +1130,7 @@ router.post('/messages/bulk-read', async (req, res) => {
     }
 
     // Refresh GTD section data for any updated thread that carries a GTD label.
-    notifyMailMutation(toUpdate, req.session.userId);
+    notifyMailMutation(toUpdate, sessionUserId(req));
 
     res.json({ ok: true, updated: toUpdate.map(m => m.id) });
   } catch (err) {
@@ -1320,7 +1320,7 @@ router.post('/messages/bulk-delete', async (req, res) => {
     }
 
     // Refresh GTD section data for any deleted thread that still carries a GTD label sibling.
-    notifyMailMutation(owned, req.session.userId);
+    notifyMailMutation(owned, sessionUserId(req));
 
     res.json({ ok: true, deleted: allSucceeded });
   } catch (err) {
@@ -1539,7 +1539,7 @@ router.post('/messages/bulk-move', async (req, res) => {
     }
 
     // Refresh GTD section data for any moved thread that still carries a GTD label sibling.
-    notifyMailMutation(owned, req.session.userId);
+    notifyMailMutation(owned, sessionUserId(req));
 
     res.json({ ok: true, moved: movedIds });
   } catch (err) {
@@ -1706,7 +1706,7 @@ router.post('/messages/bulk-archive', async (req, res) => {
     }
 
     // Refresh GTD section data for any archived thread that still carries a GTD label sibling.
-    notifyMailMutation(owned, req.session.userId);
+    notifyMailMutation(owned, sessionUserId(req));
 
     res.json({ ok: true, archived: archivedIds.map(a => a.id), noArchiveFolder });
   } catch (err) {
@@ -1891,7 +1891,7 @@ router.post('/messages/:id/snooze', async (req, res) => {
   }
 
   // Refresh GTD section data if the snoozed conversation carries a GTD label (its in_inbox flips).
-  notifyMailMutation(convo, req.session.userId);
+  notifyMailMutation(convo, sessionUserId(req));
 
   res.json({ ok: true });
 });
@@ -1981,7 +1981,7 @@ router.delete('/messages/:id', async (req, res) => {
   imapManager.broadcast({ type: 'folder_updated', folder: message.folder, accountId: message.account_id }, req.session.userId);
   // Refresh GTD section data if this thread still carries a GTD label sibling (same staleness the
   // bulk-delete route addresses, reached via the single-message delete button).
-  notifyMailMutation([message], req.session.userId);
+  notifyMailMutation([message], sessionUserId(req));
   res.json({ ok: true });
 });
 
@@ -2117,7 +2117,7 @@ router.post('/messages/:id/spam', async (req, res) => {
   const spamFolder = await resolveSpamFolder(lookup.rows[0].account_id, lookup.rows[0].folder_mappings);
   if (!spamFolder) return res.status(422).json({ error: 'No spam folder configured for this account' });
 
-  const result = await moveForSpamLabel(id, req.session.userId, spamFolder, 'spam');
+  const result = await moveForSpamLabel(id, sessionUserId(req), spamFolder, 'spam');
   if (!result.ok) return res.status(result.status).json({ error: result.error });
   res.json(result.body);
 });
@@ -2277,7 +2277,7 @@ router.post('/messages/:id/ham', async (req, res) => {
   // the literal 'INBOX' (e.g. 'Inbox' on Dovecot, 'Posteingang', etc.).
   // Same pattern as folder_mappings.sent / .drafts in send.js and draft.js.
   const inboxFolder = lookup.rows[0].folder_mappings?.inbox || 'INBOX';
-  const result = await moveForSpamLabel(id, req.session.userId, inboxFolder, 'ham');
+  const result = await moveForSpamLabel(id, sessionUserId(req), inboxFolder, 'ham');
   if (!result.ok) return res.status(result.status).json({ error: result.error });
   res.json(result.body);
 });

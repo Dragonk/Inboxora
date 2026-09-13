@@ -9,6 +9,7 @@ import { decrypt } from './encryption.js';
 import { safeFetch } from './safeFetch.js';
 import { getConnectionPolicy } from './connectionPolicy.js';
 import { parseCalendarEvent } from '../utils/ical.js';
+import { toAppError } from '../utils/errors.js';
 
 const parser = new XMLParser({ ignoreAttributes: false, removeNSPrefix: true, trimValues: false });
 const syncing = new Set();
@@ -91,7 +92,8 @@ async function calendarFor(source, state) {
         [source.user_id, name, source.color, source.kind, externalUrl],
       );
       return inserted.rows[0].id;
-    } catch (error) {
+    } catch (caught) {
+      const error = toAppError(caught);
       if (error.code !== '23505') throw error;
     }
   }
@@ -155,7 +157,8 @@ async function syncSource(source) {
     throwIfRemoved(state);
     await query('UPDATE calendar_import_sources SET last_sync_at = NOW(), last_error = NULL WHERE id = $1', [source.id]);
     return { ok: true, eventCount: events.length };
-  } catch (error) {
+  } catch (caught) {
+    const error = toAppError(caught);
     if (state.removed) return { ok: false, error: 'Calendar source removed' };
     const secrets = [source.url, ...outboundSecrets].filter(value => typeof value === 'string' && value);
     const safeError = secrets.reduce((message, secret) => message.replaceAll(secret, '[redacted]'), String(error.message || 'Calendar source sync failed'));

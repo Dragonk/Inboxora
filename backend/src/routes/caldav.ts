@@ -7,6 +7,7 @@ export { parseCalendarEvent } from '../utils/ical.js';
 import { query } from '../services/db.js';
 import { authLimiterConfig } from '../services/authLimiter.js';
 import { createDavAuthMiddleware } from '../services/davServerAuth.js';
+import { toAppError } from '../utils/errors.js';
 
 const router = Router();
 const caldavBuckets = new Map();
@@ -288,7 +289,8 @@ router.put('/:userId/:calendarId/:filename', async (req, res) => {
      RETURNING uid, etag`,
      [calendar.id, req.caldavUserId, event.uid, event.raw, event.summary, event.startsAt, event.endsAt, event.allDay, event.timeZone, event.description, event.location, event.url, event.organizer, JSON.stringify(event.attendees), filename, current?.etag || null],
      );
-  } catch (error) {
+  } catch (caught) {
+    const error = toAppError(caught);
     if (error.code === '23505') return res.status(req.headers['if-none-match'] === '*' ? 412 : 409).end();
     throw error;
   }

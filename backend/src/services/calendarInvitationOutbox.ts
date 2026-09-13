@@ -1,5 +1,6 @@
 import { query } from './db.js';
 import { sendCalendarInvitation } from './calendarInvitation.js';
+import { toAppError } from '../utils/errors.js';
 
 // A calendar invitation is only "sent" when SMTP accepted it. The outbox keeps
 // every attempt, its error and the next scheduled retry, so a transient SMTP
@@ -87,7 +88,8 @@ export async function deliverInvitationOutbox({ outboxId, actions }) {
     }
     await markSent(outboxId);
     return { status: 'sent', lastError: null };
-  } catch (error) {
+  } catch (caught) {
+    const error = toAppError(caught);
     await markFailed(outboxId, error.message);
     console.error('Calendar invitation delivery failed:', error.message, error.code ? `(code ${error.code})` : '');
     return { status: 'failed', lastError: error.message };
@@ -124,7 +126,8 @@ export async function drainPendingInvitations({ limit = 5 } = {}) {
     // Never let one broken account stop the rest of the queue.
     try {
       results.push({ id: row.id, ...(await deliverStoredInvitation({ userId: row.user_id, outboxId: row.id, payload: row.payload, fallbackAccountId: row.invite_account_id })) });
-    } catch (error) {
+    } catch (caught) {
+      const error = toAppError(caught);
       console.error('Calendar invitation outbox drain failed:', error.message);
     }
   }

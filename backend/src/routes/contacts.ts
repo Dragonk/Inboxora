@@ -6,7 +6,7 @@ import { chooseDefined, normalizeRichContactFields } from '../utils/contactField
 import { safeFetch } from '../services/safeFetch.js';
 import { contactsToGoogleCsv, contactsToOutlookCsv, contactsToVCard, parseGoogleCsv } from '../utils/contactTransfer.js';
 import crypto from 'crypto';
-import { queryString, queryInt } from '../utils/query.js';
+import { queryInt, queryString, sessionUserId } from '../utils/query.js';
 
 const router = Router();
 router.use(requireAuth);
@@ -131,7 +131,7 @@ router.patch('/address-books/:id', async (req, res) => {
   if (visible !== undefined && typeof visible !== 'boolean') return res.status(400).json({ error: 'visible must be a boolean' });
   if (rawName === undefined && visible === undefined) return res.status(400).json({ error: 'No address book changes supplied' });
   try {
-    const local = await requireLocalAddressBook(req.session.userId, req.params.id);
+    const local = await requireLocalAddressBook(sessionUserId(req), req.params.id);
     if (local.error) return res.status(local.status).json({ error: local.error });
     const result = await query(`UPDATE address_books SET name = COALESCE($1, name), visible = COALESCE($2, visible), updated_at = NOW() WHERE id = $3 AND user_id = $4 RETURNING id, name, source, visible`, [rawName === undefined ? null : localBookName(rawName), visible === undefined ? null : visible, req.params.id, req.session.userId]);
     res.json(result.rows[0]);
@@ -143,7 +143,7 @@ router.patch('/address-books/:id', async (req, res) => {
 
 router.delete('/address-books/:id', async (req, res) => {
   try {
-    const local = await requireLocalAddressBook(req.session.userId, req.params.id);
+    const local = await requireLocalAddressBook(sessionUserId(req), req.params.id);
     if (local.error) return res.status(local.status).json({ error: local.error });
     const count = await query(`SELECT COUNT(*)::int AS count FROM address_books WHERE user_id = $1 AND source = 'local'`, [req.session.userId]);
     if (count.rows[0].count <= 1) return res.status(409).json({ error: 'At least one local address book is required' });
@@ -338,7 +338,7 @@ router.post('/address-books/:id/import/google-csv', async (req, res) => {
   const csv = typeof req.body?.csv === 'string' ? req.body.csv : '';
   if (!csv || csv.length > 900_000) return res.status(400).json({ error: 'Google CSV must be a non-empty file smaller than 900 KB' });
   try {
-    const local = await requireLocalAddressBook(req.session.userId, req.params.id);
+    const local = await requireLocalAddressBook(sessionUserId(req), req.params.id);
     if (local.error) return res.status(local.status).json({ error: local.error });
     const contacts = parseGoogleCsv(csv);
     if (!contacts.length) return res.status(400).json({ error: 'No contacts found in Google CSV' });
@@ -347,7 +347,7 @@ router.post('/address-books/:id/import/google-csv', async (req, res) => {
         const uid = crypto.randomUUID();
         const vcard = generateVCard({ uid, ...contact });
         const etag = crypto.createHash('md5').update(vcard).digest('hex');
-        await client.query(`INSERT INTO contacts (address_book_id, user_id, uid, vcard, etag, display_name, first_name, last_name, primary_email, emails, phones, organization, notes, birthday, anniversary, contact_dates, title, role, nickname, urls, instant_messages, categories, addresses, google_fields, is_auto) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16::jsonb,$17,$18,$19,$20::jsonb,$21::jsonb,$22::jsonb,$23::jsonb,$24::jsonb,false) ON CONFLICT (address_book_id, primary_email) WHERE primary_email IS NOT NULL DO UPDATE SET vcard = EXCLUDED.vcard, etag = EXCLUDED.etag, display_name = EXCLUDED.display_name, first_name = EXCLUDED.first_name, last_name = EXCLUDED.last_name, emails = EXCLUDED.emails, phones = EXCLUDED.phones, organization = EXCLUDED.organization, notes = EXCLUDED.notes, birthday = EXCLUDED.birthday, anniversary = EXCLUDED.anniversary, contact_dates = EXCLUDED.contact_dates, title = EXCLUDED.title, role = EXCLUDED.role, nickname = EXCLUDED.nickname, urls = EXCLUDED.urls, instant_messages = EXCLUDED.instant_messages, categories = EXCLUDED.categories, addresses = EXCLUDED.addresses, google_fields = EXCLUDED.google_fields, is_auto = false, updated_at = NOW()`, [local.book.id, req.session.userId, uid, vcard, etag, contact.displayName || null, contact.firstName || null, contact.lastName || null, contact.emails[0]?.value || null, JSON.stringify(contact.emails), JSON.stringify(contact.phones), contact.organization || null, contact.notes || null, contact.birthday || null, contact.anniversary || null, JSON.stringify(contact.contactDates || []), contact.title || null, contact.role || null, contact.nickname || null, JSON.stringify(contact.urls || []), JSON.stringify(contact.instantMessages || []), JSON.stringify(contact.categories || []), JSON.stringify(contact.addresses || []), JSON.stringify(contact.sourceFields || {})]);
+        await client.query(`INSERT INTO contacts (address_book_id, user_id, uid, vcard, etag, display_name, first_name, last_name, primary_email, emails, phones, organization, notes, birthday, anniversary, contact_dates, title, role, nickname, urls, instant_messages, categories, addresses, google_fields, is_auto) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16::jsonb,$17,$18,$19,$20::jsonb,$21::jsonb,$22::jsonb,$23::jsonb,$24::jsonb,false) ON CONFLICT (address_book_id, primary_email) WHERE primary_email IS NOT NULL DO UPDATE SET vcard = EXCLUDED.vcard, etag = EXCLUDED.etag, display_name = EXCLUDED.display_name, first_name = EXCLUDED.first_name, last_name = EXCLUDED.last_name, emails = EXCLUDED.emails, phones = EXCLUDED.phones, organization = EXCLUDED.organization, notes = EXCLUDED.notes, birthday = EXCLUDED.birthday, anniversary = EXCLUDED.anniversary, contact_dates = EXCLUDED.contact_dates, title = EXCLUDED.title, role = EXCLUDED.role, nickname = EXCLUDED.nickname, urls = EXCLUDED.urls, instant_messages = EXCLUDED.instant_messages, categories = EXCLUDED.categories, addresses = EXCLUDED.addresses, google_fields = EXCLUDED.google_fields, is_auto = false, updated_at = NOW()`, [local.book.id, sessionUserId(req), uid, vcard, etag, contact.displayName || null, contact.firstName || null, contact.lastName || null, contact.emails[0]?.value || null, JSON.stringify(contact.emails), JSON.stringify(contact.phones), contact.organization || null, contact.notes || null, contact.birthday || null, contact.anniversary || null, JSON.stringify(contact.contactDates || []), contact.title || null, contact.role || null, contact.nickname || null, JSON.stringify(contact.urls || []), JSON.stringify(contact.instantMessages || []), JSON.stringify(contact.categories || []), JSON.stringify(contact.addresses || []), JSON.stringify(contact.sourceFields || {})]);
       }
     });
     await bumpSyncToken(local.book.id);

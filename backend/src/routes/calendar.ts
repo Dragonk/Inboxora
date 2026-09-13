@@ -15,7 +15,8 @@ import { sendCalendarInvitation } from '../services/calendarInvitation.js';
 import { deliverInvitationOutbox, deliverStoredInvitation, invitationActionsForStorage, invitationDeliveryError, resolveInvitationActions } from '../services/calendarInvitationOutbox.js';
 import { projectCalendarResources } from '../services/calendarProjectionPool.js';
 import { EVENT_COLUMNS, coveragePredicate } from '../services/calendarOccurrences.js';
-import { queryString } from '../utils/query.js';
+import { queryString, sessionUserId } from '../utils/query.js';
+import { toAppError } from '../utils/errors.js';
 
 const router = Router();
 const MAX_EVENT_RANGE_DAYS = 366;
@@ -244,7 +245,8 @@ async function fetchInvitationAttachment(row, userId: string) {
   let data;
   try {
     data = await imapManager.fetchAttachment(account.rows[0], row.uid, row.folder, candidates[0].part);
-  } catch (error) {
+  } catch (caught) {
+    const error = toAppError(caught);
     // The mailbox could not be reached right now. This is a fetch failure, not a
     // malformed invitation, and it must not turn into an opaque 500.
     console.warn('Calendar invitation attachment fetch failed:', error.message);
@@ -296,11 +298,11 @@ async function importedEventForMessage(messageId: string, userId: string) {
 }
 
 router.get('/invitations/:messageId', async (req, res) => {
-  const invitation = await readMessageInvitation(req.params.messageId, req.session.userId);
+  const invitation = await readMessageInvitation(req.params.messageId, sessionUserId(req));
   if (!invitation) return res.status(404).json({ error: 'Calendar invitation not found' });
   const { raw, event, ...metadata } = invitation;
   void raw;
-  const localEvent = await importedEventForMessage(req.params.messageId, req.session.userId);
+  const localEvent = await importedEventForMessage(req.params.messageId, sessionUserId(req));
   res.json({ invitation: { ...metadata, localEvent, description: event?.description, location: event?.location, url: event?.url, attendees: event?.attendees || [] } });
 });
 
@@ -308,9 +310,9 @@ router.get('/invitations/:messageId', async (req, res) => {
 // cancellation actionable: an organizer retracting an invitation should leave the
 // calendar in the state it would have been in had the invitation never been accepted.
 router.delete('/invitations/:messageId', async (req, res) => {
-  const invitation = await readMessageInvitation(req.params.messageId, req.session.userId);
+  const invitation = await readMessageInvitation(req.params.messageId, sessionUserId(req));
   if (!invitation) return res.status(404).json({ error: 'Calendar invitation not found' });
-  const localEvent = await importedEventForMessage(req.params.messageId, req.session.userId);
+  const localEvent = await importedEventForMessage(req.params.messageId, sessionUserId(req));
   if (!localEvent) return res.status(404).json({ error: 'This invitation was not added to a calendar' });
   // A retraction that predates the copy we hold must not delete it: the organizer may
   // have sent a newer update since. Same ordering rule the import path already applies.
@@ -332,9 +334,9 @@ router.delete('/invitations/:messageId', async (req, res) => {
 
 router.post('/invitations/:messageId', async (req, res) => {
   if (!req.body?.calendarId) return res.status(400).json({ error: 'calendarId is required' });
-  const access = await writableCalendar(req.session.userId, req.body.calendarId);
+  const access = await writableCalendar(sessionUserId(req), req.body.calendarId);
   if (access.error) return res.status(access.status).json({ error: access.error });
-  const invitation = await readMessageInvitation(req.params.messageId, req.session.userId);
+  const invitation = await readMessageInvitation(req.params.messageId, sessionUserId(req));
   if (!invitation) return res.status(404).json({ error: 'Calendar invitation not found' });
   if (invitation.method !== 'REQUEST' || !invitation.event) return res.status(409).json({ error: 'This invitation cannot be added' });
   const event = invitation.event;
@@ -366,7 +368,7 @@ router.get('/calendars', async (req, res) => {
      FROM calendars WHERE user_id = $1 AND owner_user_id = $1 ORDER BY created_at ASC`,
     [req.session.userId],
   );
-  const appearance = await contactCalendarAppearance(req.session.userId);
+  const appearance = await contactCalendarAppearance(sessionUserId(req));
   res.json({ calendars: [...result.rows, {
     id: 'contacts-birthdays', name: appearance.name || 'Contact dates', custom_name: Boolean(appearance.name), description: 'Birthdays and anniversaries from contacts',
     color: appearance.color || '#e879f9', source: 'contacts', external_url: null, read_only: true, display_visible: appearance.displayVisible !== false,
@@ -398,7 +400,8 @@ router.post('/calendars', async (req, res) => {
       [req.session.userId, name, color, displayVisible],
     );
     return res.status(201).json({ calendar: result.rows[0] });
-  } catch (error) {
+  } catch (caught) {
+    const error = toAppError(caught);
     if (error.code === '23505') return res.status(409).json({ error: 'A calendar with that name already exists' });
     throw error;
   }
@@ -429,7 +432,8 @@ router.patch('/calendars/:calendarId', async (req, res) => {
     );
     if (!result.rows[0]) return res.status(404).json({ error: 'Calendar not found' });
     return res.json({ calendar: result.rows[0] });
-  } catch (error) {
+  } catch (caught) {
+    const error = toAppError(caught);
     if (error.code === '23505') return res.status(409).json({ error: 'A calendar with that name already exists' });
     throw error;
   }
@@ -538,7 +542,7 @@ router.get('/events', async (req, res) => {
         'SELECT id, display_name, primary_email, birthday, anniversary, contact_dates FROM contacts WHERE user_id = $1 AND (birthday IS NOT NULL OR anniversary IS NOT NULL OR (jsonb_typeof(contact_dates) = \'array\' AND jsonb_array_length(contact_dates) > 0))',
         [req.session.userId],
       ),
-      contactCalendarAppearance(req.session.userId),
+      contactCalendarAppearance(sessionUserId(req)),
     ]);
     contactEvents = contactDateEvents(contactResult?.rows || [], from, to).map(event => ({
       ...event, calendar_name: appearance.name || event.calendar_name, calendar_custom_name: Boolean(appearance.name), calendar_color: appearance.color || event.calendar_color,
@@ -576,7 +580,7 @@ router.post('/events', async (req, res) => {
     return res.status(400).json({ error: 'A sender account and at least one attendee are required for invitations' });
   }
 
-  const access = await writableCalendar(req.session.userId, calendarId);
+  const access = await writableCalendar(sessionUserId(req), calendarId);
   if (access.error) return res.status(access.status).json({ error: access.error });
 
   let invitationAccount = null;
@@ -617,7 +621,8 @@ router.post('/events', async (req, res) => {
       );
         return { event, outboxId: outbox.rows[0].id };
       });
-    } catch (error) {
+    } catch (caught) {
+      const error = toAppError(caught);
       console.error('Calendar invitation transaction failed:', error.message, error.code ? `(code ${error.code})` : '');
       return res.status(500).json({ error: 'The event and invitation could not be saved; no partial changes were kept.' });
     }
@@ -629,7 +634,7 @@ router.post('/events', async (req, res) => {
       const delivered = await deliverStoredInvitation({ userId: req.session.userId, outboxId: outcome.outboxId, payload: outcome.payload, fallbackAccountId: outcome.event?.invite_account_id });
       return res.status(201).json(invitationDeliveryResponse(outcome.event, delivered));
     }
-    const actions = await resolveInvitationActions(req.session.userId, [{ account: invitationAccount, attendees: normalizedAttendees, summary, description, location, uid: outcome.event.uid, allDay: Boolean(allDay), method: 'REQUEST', sequence: outcome.event.invitation_sequence ?? 0, startsAt: times.startsAt.toISOString(), endsAt: times.endsAt.toISOString() }]);
+    const actions = await resolveInvitationActions(sessionUserId(req), [{ account: invitationAccount, attendees: normalizedAttendees, summary, description, location, uid: outcome.event.uid, allDay: Boolean(allDay), method: 'REQUEST', sequence: outcome.event.invitation_sequence ?? 0, startsAt: times.startsAt.toISOString(), endsAt: times.endsAt.toISOString() }]);
     const delivered = await deliverInvitationOutbox({ outboxId: outcome.outboxId, actions });
     return res.status(201).json(invitationDeliveryResponse(outcome.event, delivered));
   }
@@ -649,7 +654,8 @@ router.post('/events', async (req, res) => {
   if (invitationAccount) {
     try {
       await sendCalendarInvitation({ account: invitationAccount, attendees: normalizedAttendees, summary, description, location, uid, allDay: Boolean(allDay), method: 'REQUEST', sequence: result.rows[0].invitation_sequence ?? 0, ...times });
-    } catch (error) {
+    } catch (caught) {
+      const error = toAppError(caught);
       invitationError = 'The event was saved, but the invitation could not be sent.';
       console.error('Calendar invitation delivery failed:', error.message);
     }
@@ -666,7 +672,7 @@ router.all('/events/:eventId/occurrence', async (req, res) => {
   // Deleting the whole series is the plain event DELETE, which already handles invitations.
   const scope = req.body?.scope === 'following' ? 'following' : 'single';
   if (scope !== 'single' && req.method !== 'DELETE') return res.status(400).json({ error: 'Only a cancellation can affect following occurrences' });
-  const access = await writableCalendar(req.session.userId, calendarId);
+  const access = await writableCalendar(sessionUserId(req), calendarId);
   if (access.error) return res.status(access.status).json({ error: access.error });
   const cancel = req.method === 'DELETE';
   const times = cancel ? null : parseEventTimes(req.body);
@@ -707,7 +713,7 @@ router.patch('/events/:eventId', async (req, res) => {
   if (!normalizedAttendees) return res.status(400).json({ error: 'Attendees must be valid email addresses' });
   if (sendInvites && (!inviteAccountId || !normalizedAttendees.length)) return res.status(400).json({ error: 'A sender account and at least one attendee are required for invitations' });
 
-  const access = await writableCalendar(req.session.userId, calendarId);
+  const access = await writableCalendar(sessionUserId(req), calendarId);
   if (access.error) return res.status(access.status).json({ error: access.error });
 
   let invitationAccount = null;
@@ -721,7 +727,8 @@ router.patch('/events/:eventId', async (req, res) => {
     let outcome;
     try {
       outcome = await updateInvitedEvent(req, { calendarId, invitationAccount, normalizedAttendees, times, summary, description, location, url, organizer, allDay, timezone });
-    } catch (error) {
+    } catch (caught) {
+      const error = toAppError(caught);
       console.error('Calendar invitation transaction failed:', error.message, error.code ? `(code ${error.code})` : '');
       return res.status(500).json({ error: 'The event and invitation could not be saved; no partial changes were kept.' });
     }
@@ -734,7 +741,7 @@ router.patch('/events/:eventId', async (req, res) => {
       const delivered = await deliverStoredInvitation({ userId: req.session.userId, outboxId: outcome.outboxId, payload: outcome.payload, fallbackAccountId: outcome.event?.invite_account_id });
       return res.json(invitationDeliveryResponse(outcome.event, delivered));
     }
-    const actions = await resolveInvitationActions(req.session.userId, outcome.actions);
+    const actions = await resolveInvitationActions(sessionUserId(req), outcome.actions);
     const delivered = await deliverInvitationOutbox({ outboxId: outcome.outboxId, actions });
     return res.json(invitationDeliveryResponse(outcome.event, delivered));
   }
@@ -758,7 +765,8 @@ router.patch('/events/:eventId', async (req, res) => {
       if (!cancellationAccount) return { cancelFailed: true };
       try {
         await sendCalendarInvitation({ account: cancellationAccount, attendees: cancelledAttendees, summary: existingEvent.summary, description: existingEvent.description, location: existingEvent.location, uid: existingEvent.uid, allDay: Boolean(existingEvent.all_day), method: 'CANCEL', sequence: Number(existingEvent.invitation_sequence || 0) + 1, startsAt: new Date(existingEvent.starts_at), endsAt: new Date(existingEvent.ends_at) });
-      } catch (error) {
+      } catch (caught) {
+        const error = toAppError(caught);
         console.error('Calendar invitation cancellation before update failed:', error.message);
         return { cancelFailed: true };
       }
@@ -775,7 +783,8 @@ router.patch('/events/:eventId', async (req, res) => {
         // cannot overtake it with a higher sequence number.
         await sendCalendarInvitation({ account: invitationAccount, attendees: normalizedAttendees, summary, description, location, uid: existingEvent.uid, allDay: Boolean(allDay), method: 'REQUEST', sequence: result.rows[0].invitation_sequence, ...times });
         delivered = { status: 'sent', lastError: null };
-      } catch (error) {
+      } catch (caught) {
+        const error = toAppError(caught);
         delivered = { status: 'failed', lastError: error.message };
         console.error('Calendar invitation delivery failed:', error.message, error.code ? `(code ${error.code})` : '');
       }
@@ -793,7 +802,7 @@ router.delete('/events/:eventId', async (req, res) => {
   const calendarId = typeof req.query.calendarId === 'string' ? req.query.calendarId : null;
   if (!calendarId) return res.status(400).json({ error: 'calendarId is required' });
 
-  const access = await writableCalendar(req.session.userId, calendarId);
+  const access = await writableCalendar(sessionUserId(req), calendarId);
   if (access.error) return res.status(access.status).json({ error: access.error });
 
   const outcome = await withTransaction(async client => {
@@ -808,7 +817,8 @@ router.delete('/events/:eventId', async (req, res) => {
         const sender = await client.query('SELECT * FROM email_accounts WHERE id = $1 AND user_id = $2 AND smtp_host IS NOT NULL', [event.invite_account_id, req.session.userId]);
         if (!sender.rows[0]) return { cancelFailed: true };
         await sendCalendarInvitation({ account: sender.rows[0], attendees: event.attendees, summary: event.summary, description: event.description, location: event.location, uid: event.uid, allDay: Boolean(event.all_day), method: 'CANCEL', sequence: Number(event.invitation_sequence || 0) + 1, startsAt: new Date(event.starts_at), endsAt: new Date(event.ends_at) });
-      } catch (error) {
+      } catch (caught) {
+        const error = toAppError(caught);
         console.error('Calendar invitation cancellation before deletion failed:', error.message);
         return { cancelFailed: true };
       }
@@ -871,7 +881,7 @@ router.post('/sources', async (req, res) => {
     );
     const source = result.rows[0];
     scheduleCalendarSource(source);
-    const sync = await syncCalendarSource(req.session.userId, source.id);
+    const sync = await syncCalendarSource(sessionUserId(req), source.id);
     if (!sync.ok) {
       // The sync records the failure asynchronously from the insert result;
       // reflect that terminal state in the response so the client can render
@@ -880,7 +890,8 @@ router.post('/sources', async (req, res) => {
       return res.status(502).json({ error: sync.error, source: publicSource(source), sync });
     }
     res.status(201).json({ source: publicSource(source), sync });
-  } catch (error) {
+  } catch (caught) {
+    const error = toAppError(caught);
     if (error.code === '23505') return res.status(409).json({ error: 'A source with this URL already exists' });
     if (error.code === '23514') return res.status(409).json({ error: 'Calendar source URL could not be stored securely' });
     throw error;
@@ -888,7 +899,7 @@ router.post('/sources', async (req, res) => {
 });
 
 router.post('/sources/:sourceId/sync', async (req, res) => {
-  const result = await syncCalendarSource(req.session.userId, req.params.sourceId);
+  const result = await syncCalendarSource(sessionUserId(req), req.params.sourceId);
   if (!result.ok && result.error === 'Calendar source not found') return res.status(404).json({ error: result.error });
   res.json(result);
 });

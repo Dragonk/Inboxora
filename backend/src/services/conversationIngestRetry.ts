@@ -3,6 +3,7 @@ import { claimConversationIngestFailures, resolveConversationIngestFailure } fro
 import { resolveOwnIdentityAddresses } from './conversationIngestEnvelope.js';
 import { _upsertConversationCopyWithClient } from './conversationPersistence.js';
 import { providerIdentityForCopy } from './conversationProviderEnvelope.js';
+import { toAppError } from '../utils/errors.js';
 
 export async function retryConversationIngestFailures({ userId = null, limit = 25 } = {}) {
   const failures = await claimConversationIngestFailures({ userId, limit });
@@ -41,7 +42,8 @@ export async function retryConversationIngestFailures({ userId = null, limit = 2
       }, { serializable: true });
       await resolveConversationIngestFailure(failure.id);
       results.push({ id: failure.id, resolved: true, ...result });
-    } catch (error) {
+    } catch (caught) {
+      const error = toAppError(caught);
       results.push({ id: failure.id, resolved: false, error: error.message });
     }
   }

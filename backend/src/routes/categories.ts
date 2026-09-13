@@ -4,7 +4,7 @@ import { requireAuth } from '../middleware/auth.js';
 import { invalidateSocialDomainCache, backfillCategories, aiClassifyMessage, BUILTIN_SETS } from '../services/categorizer.js';
 import { validateHost } from '../services/hostValidation.js';
 import { safeFetch } from '../services/safeFetch.js';
-import { routeParam } from '../utils/query.js';
+import { routeParam, sessionUserId } from '../utils/query.js';
 
 const router = Router();
 
@@ -118,7 +118,7 @@ router.post('/categories/sources', requireAuth, async (req, res) => {
        RETURNING id, source_type, value, label, enabled, last_fetched_at, fetch_ok, fetch_error, created_at`,
       [req.session.userId, sourceType, trimmedValue, label?.trim() || null]
     );
-    invalidateSocialDomainCache(req.session.userId);
+    invalidateSocialDomainCache(sessionUserId(req));
 
     const source = result.rows[0];
 
@@ -132,7 +132,7 @@ router.post('/categories/sources', requireAuth, async (req, res) => {
            WHERE id = $4`,
           [domains, !error, error, source.id]
         );
-        invalidateSocialDomainCache(req.session.userId);
+        invalidateSocialDomainCache(sessionUserId(req));
       })().catch(() => {});
     }
 
@@ -157,7 +157,7 @@ router.patch('/categories/sources/:id', requireAuth, async (req, res) => {
   );
   if (!result.rows.length) return res.status(404).json({ error: 'Source not found' });
 
-  invalidateSocialDomainCache(req.session.userId);
+  invalidateSocialDomainCache(sessionUserId(req));
   res.json({ source: result.rows[0] });
 });
 
@@ -170,7 +170,7 @@ router.delete('/categories/sources/:id', requireAuth, async (req, res) => {
   );
   if (!result.rows.length) return res.status(404).json({ error: 'Source not found' });
 
-  invalidateSocialDomainCache(req.session.userId);
+  invalidateSocialDomainCache(sessionUserId(req));
   res.json({ ok: true });
 });
 
@@ -193,7 +193,7 @@ router.post('/categories/sources/:id/refresh', requireAuth, async (req, res) => 
      WHERE id = $4`,
     [domains, !error, error, source.id]
   );
-  invalidateSocialDomainCache(req.session.userId);
+  invalidateSocialDomainCache(sessionUserId(req));
 
   res.json({ ok: true, domainCount: domains.length, error: error || null });
 });

@@ -6,6 +6,7 @@ import { sanitizeEmail, blockRemoteImages, hasRemoteImages, shouldBlockRemoteIma
 import { isUuid, uuidParam } from '../utils/uuid.js';
 import { applyConversationAction, applyBulkConversationAction } from '../services/conversationActions.js';
 import { normalizeMessageId } from '../services/threading/normalizeMessageId.js';
+import { routeParam, sessionUserId } from '../utils/query.js';
 
 const router = Router();
 router.use(requireAuth);
@@ -341,19 +342,19 @@ router.post('/conversations/:id/read', (req, res) => runAction(req, res, 'read',
 router.post('/conversations/:id/star', (req, res) => runAction(req, res, 'star', { isStarred: req.body?.isStarred }));
 
 router.post('/conversations/bulk-archive', async (req, res) => {
-  try { res.json(await applyBulkConversationAction({ userId: req.session.userId, conversationIds: req.body?.conversationIds, items: req.body?.items, scope: req.body?.scope || 'THIS_COPY', action: 'archive', imapManager: req.app.get('imapManager') })); }
+  try { res.json(await applyBulkConversationAction({ userId: sessionUserId(req), conversationIds: req.body?.conversationIds, items: req.body?.items, scope: req.body?.scope || 'THIS_COPY', action: 'archive', imapManager: req.app.get('imapManager') })); }
   catch (err) { res.status(err.statusCode || 400).json({ error: err.message }); }
 });
 router.post('/conversations/bulk-delete', async (req, res) => {
-  try { res.json(await applyBulkConversationAction({ userId: req.session.userId, conversationIds: req.body?.conversationIds, items: req.body?.items, scope: req.body?.scope || 'THIS_COPY', action: 'delete', imapManager: req.app.get('imapManager') })); }
+  try { res.json(await applyBulkConversationAction({ userId: sessionUserId(req), conversationIds: req.body?.conversationIds, items: req.body?.items, scope: req.body?.scope || 'THIS_COPY', action: 'delete', imapManager: req.app.get('imapManager') })); }
   catch (err) { res.status(err.statusCode || 400).json({ error: err.message }); }
 });
 router.post('/conversations/bulk-read', async (req, res) => {
-  try { res.json(await applyBulkConversationAction({ userId: req.session.userId, conversationIds: req.body?.conversationIds, items: req.body?.items, scope: req.body?.scope || 'THIS_COPY', action: 'read', isRead: req.body?.isRead, imapManager: req.app.get('imapManager') })); }
+  try { res.json(await applyBulkConversationAction({ userId: sessionUserId(req), conversationIds: req.body?.conversationIds, items: req.body?.items, scope: req.body?.scope || 'THIS_COPY', action: 'read', isRead: req.body?.isRead, imapManager: req.app.get('imapManager') })); }
   catch (err) { res.status(err.statusCode || 400).json({ error: err.message }); }
 });
 router.post('/conversations/bulk-move', async (req, res) => {
-  try { res.json(await applyBulkConversationAction({ userId: req.session.userId, conversationIds: req.body?.conversationIds, items: req.body?.items, scope: req.body?.scope || 'THIS_COPY', action: 'move', targetFolder: req.body?.targetFolder, imapManager: req.app.get('imapManager') })); }
+  try { res.json(await applyBulkConversationAction({ userId: sessionUserId(req), conversationIds: req.body?.conversationIds, items: req.body?.items, scope: req.body?.scope || 'THIS_COPY', action: 'move', targetFolder: req.body?.targetFolder, imapManager: req.app.get('imapManager') })); }
   catch (err) { res.status(err.statusCode || 400).json({ error: err.message }); }
 });
 
@@ -395,7 +396,7 @@ router.post('/conversations/:id/logical-messages/:logicalMessageId/split', async
     const result = await applyConversationOverride({
       userId: req.session.userId,
       conversationId: req.params.id,
-      logicalMessageId: req.params.logicalMessageId,
+      logicalMessageId: routeParam(req.params.logicalMessageId),
       scope: includeReplies ? 'message-with-descendants' : 'message-only',
       overrideType: 'manual-split',
     });
@@ -415,7 +416,7 @@ router.post('/conversations/:id/logical-messages/:logicalMessageId/move', async 
     const result = await applyConversationOverride({
       userId: req.session.userId,
       conversationId: req.params.id,
-      logicalMessageId: req.params.logicalMessageId,
+      logicalMessageId: routeParam(req.params.logicalMessageId),
       overrideType: 'manual-move',
       targetId: targetConversationId,
     });
@@ -460,7 +461,7 @@ router.post('/conversations/:id/logical-messages/:logicalMessageId/force-include
   const result = await applyConversationOverride({
     userId: req.session.userId,
     conversationId: req.params.id,
-    logicalMessageId: req.params.logicalMessageId,
+    logicalMessageId: routeParam(req.params.logicalMessageId),
     scope: 'message-only',
     overrideType: 'force-include',
     targetConversationId: req.body?.targetConversationId || req.body?.targetId || req.params.id,
@@ -472,7 +473,7 @@ router.post('/conversations/:id/logical-messages/:logicalMessageId/force-exclude
   const result = await applyConversationOverride({
     userId: req.session.userId,
     conversationId: req.params.id,
-    logicalMessageId: req.params.logicalMessageId,
+    logicalMessageId: routeParam(req.params.logicalMessageId),
     scope: 'message-only',
     overrideType: 'force-exclude',
   });

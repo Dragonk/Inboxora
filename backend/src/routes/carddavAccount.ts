@@ -11,6 +11,7 @@ import { validateHost } from '../services/hostValidation.js';
 import { getConnectionPolicy } from '../services/connectionPolicy.js';
 import { discoverAddressBooks } from '../services/carddavClient.js';
 import { syncUser, scheduleCardavUser, stopCardavUser, getCardavConfig } from '../services/carddavSync.js';
+import { sessionUserId } from '../utils/query.js';
 
 const router = Router();
 router.use(requireAuth);
@@ -35,7 +36,7 @@ function publicStatus(config) {
 }
 
 router.get('/', async (req, res) => {
-  res.json(publicStatus(await getCardavConfig(req.session.userId)));
+  res.json(publicStatus(await getCardavConfig(sessionUserId(req))));
 });
 
 router.post('/connect', async (req, res) => {
@@ -88,15 +89,15 @@ router.post('/connect', async (req, res) => {
     [req.session.userId, JSON.stringify(config)],
   );
 
-  scheduleCardavUser(req.session.userId, config.intervalMin);
+  scheduleCardavUser(sessionUserId(req), config.intervalMin);
   // Kick off the first sync in the background; the client polls GET / for status.
-  syncUser(req.session.userId).catch(() => {});
+  syncUser(sessionUserId(req)).catch(() => {});
   res.json(publicStatus(config));
 });
 
 // Update duplicate handling / interval (and optionally rotate the password).
 router.patch('/', async (req, res) => {
-  const existing = await getCardavConfig(req.session.userId);
+  const existing = await getCardavConfig(sessionUserId(req));
   if (!existing?.serverUrl) return res.status(409).json({ error: 'CardDAV not connected' });
 
   interface CardavConfigPatch { dupMode?: string; intervalMin?: number; password?: string }
@@ -110,19 +111,19 @@ router.patch('/', async (req, res) => {
      WHERE user_id = $1 AND provider = 'carddav'`,
     [req.session.userId, JSON.stringify(patch)],
   );
-  if (patch.intervalMin) scheduleCardavUser(req.session.userId, patch.intervalMin);
+  if (patch.intervalMin) scheduleCardavUser(sessionUserId(req), patch.intervalMin);
   res.json(publicStatus({ ...existing, ...patch }));
 });
 
 router.post('/sync', async (req, res) => {
-  const config = await getCardavConfig(req.session.userId);
+  const config = await getCardavConfig(sessionUserId(req));
   if (!config?.serverUrl) return res.status(409).json({ error: 'CardDAV not connected' });
-  const result = await syncUser(req.session.userId);
-  res.json({ ...result, status: publicStatus(await getCardavConfig(req.session.userId)) });
+  const result = await syncUser(sessionUserId(req));
+  res.json({ ...result, status: publicStatus(await getCardavConfig(sessionUserId(req))) });
 });
 
 router.delete('/', async (req, res) => {
-  stopCardavUser(req.session.userId);
+  stopCardavUser(sessionUserId(req));
   // Remove the synced (read-only) address books; contacts cascade with them.
   await query(
     "DELETE FROM address_books WHERE user_id = $1 AND source = 'carddav'",

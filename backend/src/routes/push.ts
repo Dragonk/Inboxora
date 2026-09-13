@@ -13,7 +13,7 @@ import { pushConfigured } from '../services/pushNotifications.js';
 import { allowPrivatePushEndpoints, pushBaseUrl } from '../services/pushConfig.js';
 import { query } from '../services/db.js';
 import { validateHost } from '../services/hostValidation.js';
-import { routeParam } from '../utils/query.js';
+import { routeParam, sessionUserId } from '../utils/query.js';
 
 const router = Router();
 
@@ -22,7 +22,7 @@ const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/
 // ── Authenticated device management (/api/push/devices) ──────────────────────
 
 router.get('/devices', requireAuth, async (req, res) => {
-  const devices = await listPushDevices(req.session.userId);
+  const devices = await listPushDevices(sessionUserId(req));
   res.json({
     devices: devices.map((device) => ({
       id: device.id,
@@ -63,7 +63,7 @@ router.post('/devices', requireAuth, async (req, res) => {
       if (hostErr) return res.status(400).json({ error: 'UnifiedPush endpoint host is not allowed' });
     }
 
-    const { device, deviceToken } = await registerPushDevice(req.session.userId, input);
+    const { device, deviceToken } = await registerPushDevice(sessionUserId(req), input);
     // Opportunistic, bounded cleanup so expired registrations cannot accumulate.
     pruneStalePushDevices().catch(() => {});
     res.status(201).json({
@@ -88,14 +88,14 @@ router.post('/devices', requireAuth, async (req, res) => {
 
 // Logout / "forget this device" from a trustworthy session.
 router.delete('/devices', requireAuth, async (req, res) => {
-  const removed = await removeAllPushDevices(req.session.userId);
+  const removed = await removeAllPushDevices(sessionUserId(req));
   res.json({ ok: true, removed });
 });
 
 // Unregister by the app-generated device id. Scoped to the session's user, so a
 // device id belonging to another account returns 404 rather than deleting it.
 router.delete('/devices/:deviceId', requireAuth, async (req, res) => {
-  const device = await removePushDevice(req.session.userId, routeParam(req.params.deviceId));
+  const device = await removePushDevice(sessionUserId(req), routeParam(req.params.deviceId));
   if (!device) return res.status(404).json({ error: 'Push device not found' });
   res.json({ ok: true, device: { id: device.id, deviceId: device.device_id } });
 });
