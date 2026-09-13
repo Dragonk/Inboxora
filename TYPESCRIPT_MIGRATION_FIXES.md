@@ -554,3 +554,13 @@ Frontend: 0 wystapien as any / : any / any[] (start: 64). tsc 0 · testy 2335/0 
 - isTrustedNativeMessage: parametry strukturalne (NativeMessageEvent/ExpectedWindow) zamiast Window.
 - mobileMenu/CalendarContextMenu -> CSSProperties; useSwipeRow.test/nativeActionSecurity.test otypowane.
 
+
+## 55. Backend: rozpoczecie usuwania any (463 wystapien)
+
+- imapManager.ts mial 44 any, glownie pola klasy zadeklarowane jako declare ...: any (38 pol).
+  Proba otypowania ich hurtem (w jednym kroku) dala 69 bledow — pola maja zlozone,
+  zroznicowane kontrakty (Map/Set/semafory/obiekty z .until). Zmiana zostala COFNIETA,
+  by nie zostawiac galezi czerwonej; wymaga typowania pole-po-polu na podstawie uzyc.
+- .backup/ (41 MB bundle z wczesniejszej sesji) dodany do .gitignore.
+- Stan: backend 463 wystapien any, tsc 0; frontend 0 any, tsc 0.
+

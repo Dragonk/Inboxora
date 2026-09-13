@@ -46,3 +46,6 @@ artifacts/
 
 # Local Android/JDK toolchain used for on-device build verification — never committed
 .toolchain/
+
+# Local git bundles/backups (not part of the project)
+.backup/
