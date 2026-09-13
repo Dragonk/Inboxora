@@ -19,7 +19,7 @@ const cfg = {
 
 let pool: pg.Pool;
 let userId: string;
-let accountId;
+let accountId: string;
 const username = `ce-concurrency-${process.pid}-${Date.now()}`;
 
 async function q(sql: string, params: unknown[] = []): Promise<pg.QueryResult<pg.QueryResultRow>> { return pool.query(sql, params); }

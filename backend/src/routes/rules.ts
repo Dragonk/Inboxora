@@ -149,7 +149,7 @@ router.post('/run', async (req, res) => {
         lastId = msgResult.rows[msgResult.rows.length - 1].id;
 
         const messages = msgResult.rows.map(row => {
-          let toArr = [];
+          let toArr: Array<{ email: string; name: string }> = [];
           try {
             const raw = typeof row.to_addresses === 'string'
               ? JSON.parse(row.to_addresses)

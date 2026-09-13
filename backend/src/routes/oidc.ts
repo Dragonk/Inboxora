@@ -55,7 +55,7 @@ function makeInsecureFetch(signal?: AbortSignal): typeof fetch {
       const isHttps = parsed.protocol === 'https:';
       const port = parsed.port ? parseInt(parsed.port) : (isHttps ? 443 : 80);
       const reqFn = isHttps ? httpsRequest : httpRequest;
-      const chunks = [];
+      const chunks: Buffer[] = [];
       const req = reqFn(
         { hostname: parsed.hostname, port, path: parsed.pathname + parsed.search, method, headers, rejectUnauthorized: false },
         res => {

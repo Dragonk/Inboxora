@@ -38,8 +38,10 @@ function searchLimiter(req, res, next) {
 // (-from:smith) or a bare word (-invoice). Filters are a list (not a map) so
 // repeated/negated operators like `from:a -from:b` are all preserved.
 export function parseSearchQuery(raw) {
-  const filters = [];
-  const terms = [];
+  interface SearchFilter { key: string; value: string; negate: boolean }
+  interface SearchTerm { value: string; negate: boolean }
+  const filters: SearchFilter[] = [];
+  const terms: SearchTerm[] = [];
 
   // The leading (-?) captures optional negation. \b sits between an optional '-'
   // and the operator name, so both `from:` and `-from:` match.

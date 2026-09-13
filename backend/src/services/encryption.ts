@@ -6,7 +6,7 @@ const PREFIX = 'enc:v1:';
 
 // Cache the parsed key buffer so we don't re-allocate on every encrypt/decrypt call.
 // Only cached when valid — null is not cached so a late-set env var is still picked up.
-let _cachedKey = null;
+let _cachedKey: Buffer | null = null;
 
 function getKey() {
   if (_cachedKey) return _cachedKey;

@@ -349,7 +349,7 @@ const BODY_FETCH_TIMEOUT_MS = 40000;
 // we just stop making the HTTP request wait on it. clearTimeout avoids keeping the
 // event loop alive after the race settles.
 function fetchWithTimeout(promise, ms: number) {
-  let timer;
+  let timer: NodeJS.Timeout | undefined;
   const timeout = new Promise((_, reject) => {
     timer = setTimeout(() => reject(new Error('BODY_FETCH_TIMEOUT')), ms);
   });

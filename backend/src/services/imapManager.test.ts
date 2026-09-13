@@ -1545,7 +1545,7 @@ describe('walkStructure attachment classification', () => {
       client.list = vi.fn(async () => []);
       return client;
     });
-    getConnectionPolicy.mockResolvedValue({ allowPrivateHosts: true, allowInsecureTls: true });
+    getConnectionPolicy.mockResolvedValue({ allowPrivateHosts: true, allowInsecureTls: true, allowNonstandardPorts: true });
     resolveForConnection.mockResolvedValue({ host: '127.0.0.1', addresses: ['127.0.0.1'], servername: null });
     query.mockResolvedValue({ rows: [] });
 
@@ -1656,7 +1656,7 @@ describe("connectAccount attaches 'error' before connect (#360)", () => {
     // PurelyMail host: preferFreshBodyFetch skips the pool pre-warm and its private
     // acquirePooledClient (which would build a second mock client), keeping this test to
     // the single connectAccount code path under test.
-    getConnectionPolicy.mockResolvedValue({ allowPrivateHosts: true, allowInsecureTls: true });
+    getConnectionPolicy.mockResolvedValue({ allowPrivateHosts: true, allowInsecureTls: true, allowNonstandardPorts: true });
     resolveForConnection.mockResolvedValue({ host: '127.0.0.1', addresses: ['127.0.0.1'], servername: null });
     query.mockResolvedValue({ rows: [] });
     vi.spyOn(console, 'error').mockImplementation(() => {});

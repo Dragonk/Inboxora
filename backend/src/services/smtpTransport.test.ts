@@ -106,6 +106,7 @@ describe('createAccountSmtpTransport', () => {
     vi.mocked(getConnectionPolicy).mockResolvedValue({
       allowPrivateHosts: false,
       allowInsecureTls: false,
+      allowNonstandardPorts: false,
     });
     vi.mocked(resolveForConnection).mockResolvedValue(resolved);
     createTransportMock.mockReturnValue({

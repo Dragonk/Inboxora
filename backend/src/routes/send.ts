@@ -16,6 +16,7 @@ import { createAccountSmtpTransport } from '../services/smtpTransport.js';
 import { imapManager } from '../index.js';
 import { pluginRegistry } from '../plugins/registry.js';
 import { toAppError } from '../utils/errors.js';
+import type { InlineAttachment } from '../utils/inlineImages.js';
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
@@ -385,7 +386,7 @@ router.post('/send', async (req, res) => {
         : bodyToPlain(body, bodyIsHtml) + (quotedBody || ''),
     };
 
-    let inlineImageAttachments = [];
+    let inlineImageAttachments: InlineAttachment[] = [];
     if (!plaintextEmail) {
       const rawHtml = bodyToHtml(body, bodyIsHtml) +
         (effectiveSignature

@@ -17,7 +17,7 @@ import { withTransaction as __mock_withTransaction } from './db.js';
 const withTransaction = vi.mocked(__mock_withTransaction);
 
 function fakeClient() {
-  const calls = [];
+  const calls: Array<{ sql: string; params: unknown[] }> = [];
   return {
     calls,
     async query(sql: string, params) {

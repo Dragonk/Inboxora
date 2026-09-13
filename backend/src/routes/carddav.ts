@@ -256,7 +256,7 @@ router.report('/:userId/:bookId/', async (req, res) => {
   const isMultiget = body.includes('addressbook-multiget');
   if (!isSyncCollection && !isMultiget && !body.includes('addressbook-query')) return res.status(400).end();
   let contacts;
-  let filenames = [];
+  let filenames: string[] = [];
   if (isSyncCollection) {
     const token = body.match(/<(?:[\w.-]+:)?sync-token(?:\s[^>]*)?>([^<]*)<\/(?:[\w.-]+:)?sync-token>/)?.[1]?.trim();
     const prefix = `urn:inboxora:carddav:${book.id}:`;

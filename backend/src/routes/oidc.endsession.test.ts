@@ -22,7 +22,7 @@ let fetchMock: ReturnType<typeof vi.fn>;
 const query = vi.mocked(__mock_query);
 
 const realFetch = global.fetch;
-let discoveryDoc = null;
+let discoveryDoc: Record<string, unknown> | null = null;
 
 function discoveryFor(issuer, { endSession = true } = {}) {
   const doc: { issuer: string; authorization_endpoint: string; token_endpoint: string; jwks_uri: string; end_session_endpoint?: string } = {

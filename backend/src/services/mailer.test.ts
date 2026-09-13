@@ -45,7 +45,7 @@ describe('sendSystemEmail honors allow-private-hosts policy (#358)', () => {
   });
 
   it('passes allowPrivate:true through to host resolution when the policy allows it', async () => {
-    getConnectionPolicy.mockResolvedValue({ allowPrivateHosts: true });
+    getConnectionPolicy.mockResolvedValue({ allowPrivateHosts: true, allowInsecureTls: false, allowNonstandardPorts: false });
 
     await sendSystemEmail({ to: 'user@example.com', subject: 'Hi', text: 'body' });
 
@@ -53,7 +53,7 @@ describe('sendSystemEmail honors allow-private-hosts policy (#358)', () => {
   });
 
   it('passes allowPrivate:false when the policy disallows private hosts', async () => {
-    getConnectionPolicy.mockResolvedValue({ allowPrivateHosts: false });
+    getConnectionPolicy.mockResolvedValue({ allowPrivateHosts: false, allowInsecureTls: false, allowNonstandardPorts: false });
 
     await sendSystemEmail({ to: 'user@example.com', subject: 'Hi', text: 'body' });
 
@@ -61,7 +61,7 @@ describe('sendSystemEmail honors allow-private-hosts policy (#358)', () => {
   });
 
   it('surfaces a private-host rejection from resolution rather than swallowing it', async () => {
-    getConnectionPolicy.mockResolvedValue({ allowPrivateHosts: false });
+    getConnectionPolicy.mockResolvedValue({ allowPrivateHosts: false, allowInsecureTls: false, allowNonstandardPorts: false });
     resolveForConnection.mockRejectedValue(new Error('Host resolves to a private or reserved IP address'));
 
     await expect(sendSystemEmail({ to: 'user@example.com', subject: 'Hi', text: 'body' }))
