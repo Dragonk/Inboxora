@@ -317,7 +317,7 @@ export interface StoreState {
   loadPreferences: () => Promise<void>;
 }
 
-interface StoreMessageRow {
+export interface StoreMessageRow {
   id: string;
   account_id?: string;
   account_name?: string;
@@ -327,6 +327,8 @@ interface StoreMessageRow {
   is_starred?: boolean;
   message_id?: string | null;
   thread_id?: string;
+  message_count?: number | string | null;
+  unread_count?: number | string | null;
   date?: string | number | Date | null;
   subject?: string | null;
   from_name?: string | null;

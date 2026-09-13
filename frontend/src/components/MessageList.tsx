@@ -49,9 +49,18 @@ import {
 import { createUndoableCommit, UNDO_COMMIT_DELAY_MS, UNDO_WINDOW_MS } from '../utils/undoableAction.ts';
 import { bulkUnreadDelta, failedBulkRow, failedBulkTargets } from '../utils/threadedBulkRollback.ts';
 import type { StoreState } from '../store/index.ts';
+import type { StoreMessageRow } from '../store/index.ts';
 
 // Folder icon for move picker
-function FolderIcon({ specialUse, size = 13 }) {
+interface FolderIconProps { specialUse?: string | null; size?: number }
+interface SwipeActionSvgProps { icon?: string; fill?: string }
+interface SwipeBackgroundProps { side: string; actionView: { icon?: string; fill?: string; label?: string; color?: string; [key: string]: unknown }; innerRef?: { current: HTMLDivElement | null } }
+interface UndoBarProps { notification: { id?: string; title?: React.ReactNode; message?: React.ReactNode; onUndo?: () => void; undoDurationMs?: number; [key: string]: unknown }; onDismiss: () => void; showTopBorder?: boolean }
+interface BulkBtnProps { children?: React.ReactNode; onClick?: (event: React.MouseEvent<HTMLButtonElement>) => void; title?: string; disabled?: boolean; danger?: boolean }
+interface RowMenuButtonProps { onOpen: (event: React.MouseEvent<HTMLButtonElement>) => void; label: string }
+
+
+function FolderIcon({ specialUse, size = 13 }: FolderIconProps) {
   const s = (specialUse || '').toLowerCase();
   if (s.includes('sent'))   return <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><line x1="22" y1="2" x2="11" y2="13"/><polygon points="22 2 15 22 11 13 2 9 22 2"/></svg>;
   if (s.includes('trash'))  return <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 01-2 2H7a2 2 0 01-2-2V6m3 0V4a1 1 0 011-1h4a1 1 0 011 1v2"/></svg>;
@@ -65,7 +74,7 @@ function restoreMessagesIfViewCurrent(viewKey, currentViewKeyRef, messages) {
   if (currentViewKeyRef.current === viewKey) useStore.getState().restoreMessages(messages);
 }
 
-function destructiveMutationKey(message) {
+function destructiveMutationKey(message: StoreMessageRow) {
   return `${message.account_id || ''}:${message.thread_id || message.id}`;
 }
 
@@ -90,7 +99,7 @@ function getSwipeActionView(action, message, t, unreadCount = null) {
   return null;
 }
 
-function SwipeActionSvg({ icon, fill = 'none' }) {
+function SwipeActionSvg({ icon, fill = 'none' }: SwipeActionSvgProps) {
   if (icon === 'delete') return <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="2"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 01-2 2H7a2 2 0 01-2-2V6m3 0V4a1 1 0 011-1h4a1 1 0 011 1v2"/></svg>;
   if (icon === 'star') return <svg width="18" height="18" viewBox="0 0 24 24" fill={fill} stroke="white" strokeWidth="2"><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/></svg>;
   if (icon === 'markRead') return <svg width="18" height="18" viewBox="0 0 24 24" fill={fill} stroke="white" strokeWidth="2"><path style={{strokeLinecap: 'round'}} d="M22,9v9c0,1.1-.9,2-2,2H4c-1.1,0-2-.9-2-2v-9"/><polyline points="22 9 12 16 2 9"/><polyline points="2 9 12 2 22 9"/></svg>;
@@ -101,7 +110,7 @@ function SwipeActionSvg({ icon, fill = 'none' }) {
   return <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="2"><rect x="2" y="3" width="20" height="5" rx="1"/><path d="M4 8v11a1 1 0 001 1h14a1 1 0 001-1V8"/><polyline points="9 13 12 16 15 13"/><line x1="12" y1="11" x2="12" y2="16"/></svg>;
 }
 
-function SwipeBackground({ side, actionView, innerRef }) {
+function SwipeBackground({ side, actionView, innerRef }: SwipeBackgroundProps) {
   if (!actionView) return null;
   const isLeft = side === 'left';
   return (
@@ -798,8 +807,8 @@ export default function MessageList() {
     return () => window.removeEventListener('inboxora:sync_done', handler);
   }, []);
 
-  const isThreadListRow = useCallback((message) => {
-    const messageCount = Number.parseInt(message.message_count, 10);
+  const isThreadListRow = useCallback((message: StoreMessageRow) => {
+    const messageCount = Number(message.message_count);
     return threadedView && !searchQuery.trim() && !message._normalizedSingleton && message.thread_id && messageCount > 1;
   }, [threadedView, searchQuery]);
 
@@ -863,7 +872,7 @@ export default function MessageList() {
     // Reserve the logical intent before any asynchronous thread resolution. A
     // later click must invalidate this action even if this GET is still pending.
     const resolution = queuePerCopyMutation(message.id, 'read', () => resolveMessagesForThreadAction(message));
-    const unreadCount = Number.parseInt(message.unread_count, 10);
+    const unreadCount = Number(message.unread_count);
     // Use the row's own unread_count as the immediate estimate.
     // For thread rows this is the aggregate already present on the row;
     // for single messages it is always 1 (or 0 if already in the target state).
@@ -1082,7 +1091,7 @@ export default function MessageList() {
   };
 
   // Undo-able delete: optimistically remove, delay the API call by 4.5s so user can undo
-  const scheduleDelete = useCallback(async (message) => {
+  const scheduleDelete = useCallback(async (message: StoreMessageRow) => {
     const tid = message.thread_id || message.id;
     const isThreadRow = isThreadListRow(message);
     const key = isThreadRow ? `thread:${tid}` : message.id;
@@ -1091,7 +1100,7 @@ export default function MessageList() {
     const intentVersion = beginMutation(intentKey);
 
     const visibleMessage = message;
-    const unreadCount = Number.parseInt(message.unread_count, 10);
+    const unreadCount = Number(message.unread_count);
     const optimisticUnreadDelta = Number.isFinite(unreadCount) ? unreadCount : (message.is_read ? 0 : 1);
     let deleteMessages = [message];
     let ids = [message.id].filter(Boolean);
@@ -1118,7 +1127,7 @@ export default function MessageList() {
         deleteMessages = await resolution.promise;
         ids = [...new Set(deleteMessages.map(msg => msg.id).filter(Boolean))];
         if (!isLatestMutation(intentKey, intentVersion) || !isLatestPerCopyMutation(message.id, resolution.version)) return;
-        ids.forEach((id) => setPendingDelete(id));
+        ids.forEach((id: string) => setPendingDelete(id));
         if (ids.length > 1) {
           const result = await api.bulkDelete(ids);
           if (!isLatestMutation(intentKey, intentVersion) || !isLatestPerCopyMutation(message.id, resolution.version)) return;
@@ -1144,11 +1153,11 @@ export default function MessageList() {
           await api.deleteMessage(ids[0] || visibleMessage.id);
           if (!isLatestMutation(intentKey, intentVersion) || !isLatestPerCopyMutation(message.id, resolution.version)) return;
           pendingDeleteTimers.current.delete(key);
-          ids.forEach((id) => setCompletedDelete(id));
+          ids.forEach((id: string) => setCompletedDelete(id));
         }
       } catch {
         if (!isLatestMutation(intentKey, intentVersion) || !isLatestPerCopyMutation(message.id, resolution.version)) return;
-        ids.forEach((id) => clearDeleteGuard(id));
+        ids.forEach((id: string) => clearDeleteGuard(id));
         useStore.getState().restoreMessages([visibleMessage]);
         if (optimisticUnreadDelta > 0) incrementUnread(message.account_id, optimisticUnreadDelta);
         addNotification({
@@ -1170,7 +1179,7 @@ export default function MessageList() {
         invalidateMutation(intentKey);
         clearTimeout(pending.timer);
         pendingDeleteTimers.current.delete(key);
-        ids.forEach((id) => clearPendingDelete(id));
+        ids.forEach((id: string) => clearPendingDelete(id));
         useStore.getState().restoreMessages([visibleMessage]);
         if (optimisticUnreadDelta > 0) incrementUnread(message.account_id, optimisticUnreadDelta);
       },
@@ -1263,7 +1272,7 @@ export default function MessageList() {
       }
     };
 
-    const performCall = (id) => {
+    const performCall = (id: string) => {
       const fn = label === 'spam' ? api.markSpam : api.markHam;
       return fn(id).catch(err => ({ __failed: true, id, message: err.message }));
     };
@@ -1357,7 +1366,7 @@ export default function MessageList() {
           const actuallyDeleted = new Set(result?.deleted ?? deleteIds);
           deleteIds.forEach(id => (actuallyDeleted.has(id) ? setCompletedDelete(id) : clearDeleteGuard(id)));
         })
-        .catch(() => { deleteIds.forEach((id) => clearDeleteGuard(id)); });
+        .catch(() => { deleteIds.forEach((id: string) => clearDeleteGuard(id)); });
     });
   }, []);
 
@@ -1367,18 +1376,18 @@ export default function MessageList() {
   };
 
   // Mobile swipe action handlers (no event object needed)
-  const handleSwipeDelete = useCallback((message) => {
+  const handleSwipeDelete = useCallback((message: StoreMessageRow) => {
     scheduleDelete(message);
   }, [scheduleDelete]);
 
-  const handleSwipeToggleRead = useCallback(async (message) => {
-    const unreadCount = Number.parseInt(message.unread_count, 10);
+  const handleSwipeToggleRead = useCallback(async (message: StoreMessageRow) => {
+    const unreadCount = Number(message.unread_count);
     const hasThreadUnreadCount = Number.isFinite(unreadCount);
     const isUnread = hasThreadUnreadCount ? unreadCount > 0 : !message.is_read;
     await setMessagesReadState(message, isUnread);
   }, [setMessagesReadState]);
 
-  const handleSwipeArchive = useCallback(async (message) => {
+  const handleSwipeArchive = useCallback(async (message: StoreMessageRow) => {
     const archiveMessage = archiveVisibleMessageRef.current;
     if (!archiveMessage) return;
     const threadRow = isThreadListRow(message);
@@ -1395,7 +1404,7 @@ export default function MessageList() {
     advanceSelectionAfterRemoval(message.id);
     removeMessage(message.id);
     if (threadRow && expandedThreadId === threadId) setExpandedThreadId(null);
-    const aggregateUnread = Number.parseInt(message.unread_count, 10);
+    const aggregateUnread = Number(message.unread_count);
     const optimisticUnread = threadRow && Number.isFinite(aggregateUnread)
       ? aggregateUnread
       : (message.is_read ? 0 : 1);
@@ -1423,7 +1432,7 @@ export default function MessageList() {
     addNotification, t,
   ]);
 
-  const handleSwipeStar = useCallback((message) => {
+  const handleSwipeStar = useCallback((message: StoreMessageRow) => {
     setMessagesStarredState(message, !message.is_starred);
   }, [setMessagesStarredState]);
 
@@ -1498,7 +1507,7 @@ export default function MessageList() {
     });
   }, [accounts, openCompose]);
   
-  const runSwipeAction = useCallback((action, message) => {
+  const runSwipeAction = useCallback((action: string, message: StoreMessageRow) => {
     switch (action) {
       case 'archive':
         handleSwipeArchive(message);
@@ -1524,7 +1533,7 @@ export default function MessageList() {
   }, [handleSwipeArchive, handleSwipeDelete, handleSwipeReply, handleSwipeStar, handleSwipeToggleRead]);
 
   // ── Bulk selection helpers ───────────────────────────────────
-  const toggleSelect = useCallback((id) => {
+  const toggleSelect = useCallback((id: string) => {
     setSelectedIds(prev => {
       const next = new Set(prev);
       next.has(id) ? next.delete(id) : next.add(id);
@@ -1576,7 +1585,7 @@ export default function MessageList() {
   }, []);
 
   // Called when the avatar is clicked: enters selection mode and selects that message
-  const handleAvatarClick = useCallback((id) => {
+  const handleAvatarClick = useCallback((id: string) => {
     const idx = displayMessages.findIndex(m => m.id === id);
     lastSelectIdxRef.current = idx;
     setSelectionModeActive(true);
@@ -1588,7 +1597,7 @@ export default function MessageList() {
   }, [displayMessages]);
 
   // Called for normal (non-shift) row checkbox toggles — tracks anchor for range select
-  const handleRowToggleSelect = useCallback((id) => {
+  const handleRowToggleSelect = useCallback((id: string) => {
     const idx = displayMessages.findIndex(m => m.id === id);
     lastSelectIdxRef.current = idx;
     setSelectedIds(prev => {
@@ -1599,7 +1608,7 @@ export default function MessageList() {
   }, [displayMessages]);
 
   // Called on shift-click: selects all rows between anchor and current index
-  const handleRangeSelect = useCallback((id) => {
+  const handleRangeSelect = useCallback((id: string) => {
     const msgs = displayMessages;
     const clickedIdx = msgs.findIndex(m => m.id === id);
     if (clickedIdx === -1) return;
@@ -1703,7 +1712,7 @@ export default function MessageList() {
     let moveIds = ids;
     const targetsByRow = new Map<string, Map<string, ListMessage>>(msgs.map(msg => [msg.id, new Map([[String(msg.id), msg]])]));
     try {
-      const resolved = await Promise.all(msgs.map(async (m) => {
+      const resolved = await Promise.all(msgs.map(async (m: StoreMessageRow) => {
         const thread = await resolveMessagesForThreadAction(m);
         const targets = thread.filter(tm => tm?.account_id === m.account_id);
         targets.forEach(message => message?.id && targetsByRow.get(m.id)?.set(String(message.id), message));
@@ -1806,8 +1815,8 @@ export default function MessageList() {
     initialGuards.forEach(setPendingDelete);
     removeMessages(ids);
     let unreadByAccount = new Map();
-    msgs.forEach((message) => {
-      const aggregateUnread = Number.parseInt(message.unread_count, 10);
+    msgs.forEach((message: StoreMessageRow) => {
+      const aggregateUnread = Number(message.unread_count);
       const count = isThreadListRow(message) && Number.isFinite(aggregateUnread)
         ? aggregateUnread
         : (message.is_read ? 0 : 1);
@@ -1937,7 +1946,7 @@ export default function MessageList() {
       if (threadRow && expandedThreadId === threadId) setExpandedThreadId(null);
     }
 
-    const aggregateUnread = Number.parseInt(message.unread_count, 10);
+    const aggregateUnread = Number(message.unread_count);
     const optimisticUnread = threadRow && Number.isFinite(aggregateUnread)
       ? aggregateUnread
       : (message.is_read ? 0 : 1);
@@ -2540,7 +2549,7 @@ export default function MessageList() {
     }).filter(Boolean);
   };
 
-  const handleSelect = async (message) => {
+  const handleSelect = async (message: StoreMessageRow) => {
     if (isDraftsFolder) {
       try {
         const bodyData = await api.getMessageBody(message.id);
@@ -2573,7 +2582,7 @@ export default function MessageList() {
   // Mark a message read when it is opened, honoring the manual/delay/instant setting.
   // Shared by the main-pane selection (handleSelect) and the detached-window open
   // path (#219) so both routes behave identically.
-  const markMessageReadOnOpen = (message) => {
+  const markMessageReadOnOpen = (message: StoreMessageRow) => {
     clearTimeout(autoMarkReadTimerRef.current);
     autoMarkReadTimerRef.current = null;
     if (message.is_read || markReadBehavior === 'manual') return;
@@ -2611,7 +2620,7 @@ export default function MessageList() {
 
   // Open a message in a detached floating window (#219). Warms the body cache and marks
   // it read (like a normal open) without disturbing the main-pane selection.
-  const handleOpenInWindow = (message) => {
+  const handleOpenInWindow = (message: StoreMessageRow) => {
     if (!message || isMobile) return;
     openMessageWindow(message.id);
     api.getMessageBody(message.id).catch(() => {});
@@ -2626,7 +2635,7 @@ export default function MessageList() {
     return byDate || String(right.id).localeCompare(String(left.id));
   })[0] || null;
 
-  const loadThreadChildren = useCallback(async (message) => {
+  const loadThreadChildren = useCallback(async (message: StoreMessageRow) => {
     const tid = message.thread_id || message.id;
     const cached = threadMessages[tid];
     if (cached) return normalizedNativeThreadMembers(cached);
@@ -2676,7 +2685,7 @@ export default function MessageList() {
   // Aggregate list metadata can count duplicate provider copies. Resolve exact native
   // membership only for a user action; rendering a mailbox must never fan out one
   // /thread request per grouped row.
-  const handleThreadClick = async (message) => {
+  const handleThreadClick = async (message: StoreMessageRow) => {
     const tid = message.thread_id || message.id;
     const members = message.thread_id ? await loadThreadChildren(message) : [message];
     if (!isExpandableNativeThread(members)) {
@@ -2695,7 +2704,7 @@ export default function MessageList() {
     }
   };
 
-  const handleThreadSwipeAction = async (action, message) => {
+  const handleThreadSwipeAction = async (action: string, message: StoreMessageRow) => {
     const members = message.thread_id ? await loadThreadChildren(message) : [message];
     const target = isExpandableNativeThread(members)
       ? message
@@ -3794,7 +3803,7 @@ export default function MessageList() {
                 selectionMode={selectionMode}
                 onToggleSelect={handleRowToggleSelect}
                 onRangeSelect={handleRangeSelect}
-                onLongPress={isMobile ? (id) => { setSelectionModeActive(true); toggleSelect(id); } : undefined}
+                onLongPress={isMobile ? (id: string) => { setSelectionModeActive(true); toggleSelect(id); } : undefined}
                 accounts={accounts}
               />
             );
@@ -3835,7 +3844,7 @@ export default function MessageList() {
                 swipeRightAction={swipeRightAction}
                 onSwipeLeft={selectionMode || swipeLeftAction === 'disabled' ? undefined : (msg) => handleThreadSwipeAction(swipeLeftAction, msg)}
                 onSwipeRight={selectionMode || swipeRightAction === 'disabled' ? undefined : (msg) => handleThreadSwipeAction(swipeRightAction, msg)}
-                onLongPress={isMobile ? (id) => { setSelectionModeActive(true); toggleSelect(id); } : undefined}
+                onLongPress={isMobile ? (id: string) => { setSelectionModeActive(true); toggleSelect(id); } : undefined}
               />
             );
           })
@@ -4039,7 +4048,7 @@ export default function MessageList() {
   );
 }
 
-function UndoBar({ notification, onDismiss, showTopBorder }) {
+function UndoBar({ notification, onDismiss, showTopBorder }: UndoBarProps) {
   const { t } = useTranslation();
   const [exiting, setExiting] = useState(false);
 
@@ -4868,7 +4877,7 @@ function MessageRow({ message, selected, lastViewed, isChecked, selectionMode, s
   );
 }
 
-function BulkBtn({ children, onClick, title, disabled = false, danger = false }) {
+function BulkBtn({ children, onClick, title, disabled = false, danger = false }: BulkBtnProps) {
   const [hov, setHov] = useState(false);
   return (
     <button
@@ -4897,7 +4906,7 @@ function BulkBtn({ children, onClick, title, disabled = false, danger = false })
 // Mobile-only per-message overflow ("⋯") button. Touch devices have no
 // right-click, so this is how a list row reaches the full labeled context menu
 // (Snooze, Reply, Move, Star, Select, etc.). Desktop keeps native right-click.
-function RowMenuButton({ onOpen, label }) {
+function RowMenuButton({ onOpen, label }: RowMenuButtonProps) {
   return (
     <button
       onClick={e => { e.stopPropagation(); onOpen(e); }}
