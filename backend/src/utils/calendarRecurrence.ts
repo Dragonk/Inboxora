@@ -1,5 +1,6 @@
 import ICAL from 'ical.js';
 import { calendarZoneResolver, calendarDescription, parseCalendarEvent, parseICalendarDate } from './ical.js';
+import type { ZoneResolver } from './ical.js';
 /**
  * The shipped ical.js type definitions omit the `Time.fromString` static although the
  * runtime provides it (verified against ical.js 2.2). This narrow, documented view
@@ -23,7 +24,7 @@ const MAX_AHEAD_UTC_OFFSET_MS = 12 * 60 * 60 * 1000;
 
 // Wall-clock fields as epoch-like milliseconds, with no time-zone lookup. Used
 // only for a conservative window pre-filter, never for the projected value.
-function wallClockMs(time) {
+function wallClockMs(time: ICAL.Time): number {
   const year = Number(time?.year);
   // Years below 100 (and malformed values) cannot be inside a modern window and
   // Date.UTC would remap them into the 1900s anyway.
@@ -31,16 +32,17 @@ function wallClockMs(time) {
   return Date.UTC(year, time.month - 1, time.day, time.hour || 0, time.minute || 0, time.second || 0);
 }
 
-export function calendarResources(raw) {
+export function calendarResources(raw: string): string[] {
   const root = new ICAL.Component(ICAL.parse(raw));
   if (root.name !== 'vcalendar' || !/^END:VCALENDAR\s*$/im.test(raw)) throw new Error('Invalid calendar document');
-  const groups = new Map();
+  const groups = new Map<string | symbol, ICAL.Component[]>();
   for (const event of root.getAllSubcomponents('vevent')) {
     const uid = event.getFirstPropertyValue('uid');
     // Keep malformed objects separate so the importer can report them.
-    const key = uid || Symbol();
-    if (!groups.has(key)) groups.set(key, []);
-    groups.get(key).push(event);
+    const key: string | symbol = typeof uid === 'string' && uid ? uid : Symbol();
+    const existing = groups.get(key);
+    if (existing) existing.push(event);
+    else groups.set(key, [event]);
   }
   return [...groups.values()].map(events => {
     const calendar = new ICAL.Component('vcalendar');
@@ -51,13 +53,16 @@ export function calendarResources(raw) {
   });
 }
 
-function dateOf(time, property, zoneFor) {
+function dateOf(time: ICAL.Time, property: ICAL.Property | null | undefined, zoneFor?: ZoneResolver): Date | null {
   const value = time.toICALString();
-  const parameters: Record<string, string | undefined> = time.isDate ? { VALUE: 'DATE' } : value.endsWith('Z') ? {} : { TZID: property?.getParameter('tzid') || time.zone?.tzid };
-  return parseICalendarDate({ value, parameters }, zoneFor)?.date;
+  const paramTzid = property?.getParameter('tzid');
+  const zoneTzid = time.zone?.tzid;
+  const tzid: string | undefined = typeof paramTzid === 'string' && paramTzid ? paramTzid : (typeof zoneTzid === 'string' ? zoneTzid : undefined);
+  const parameters: Record<string, string | undefined> = time.isDate ? { VALUE: 'DATE' } : value.endsWith('Z') ? {} : { TZID: tzid };
+  return parseICalendarDate({ value, parameters }, zoneFor)?.date ?? null;
 }
 
-export function projectCalendarResource(row, from, to) {
+export function projectCalendarResource(row: ProjectedEvent & { raw_ical?: string | null }, from: Date | string, to: Date | string): ProjectedEvent[] {
   return projectCalendarResourceWithStatus(row, from, to).events;
 }
 
@@ -102,16 +107,18 @@ interface ProjectStatus {
   error?: string;
 }
 
-export function projectCalendarResourceWithStatus(row: ProjectedEvent & { raw_ical?: string | null }, from: Date, to: Date, options: ProjectOptions = {}) {
+export function projectCalendarResourceWithStatus(row: ProjectedEvent & { raw_ical?: string | null }, from: Date | string, to: Date | string, options: ProjectOptions = {}) {
   const { raw_ical, ...metadata } = row;
-  const maxIterations = Number.isFinite(options.maxIterations) && options.maxIterations > 0
-    ? Math.floor(options.maxIterations)
+  const requestedIterations = Number(options.maxIterations ?? DEFAULT_MAX_ITERATIONS);
+  const maxIterations = Number.isFinite(requestedIterations) && requestedIterations > 0
+    ? Math.floor(requestedIterations)
     : DEFAULT_MAX_ITERATIONS;
-  const deadline = Number.isFinite(options.deadline) ? options.deadline : null;
+  const requestedDeadline = Number(options.deadline);
+  const deadline = Number.isFinite(requestedDeadline) ? requestedDeadline : null;
   const shouldAbort = typeof options.shouldAbort === 'function' ? options.shouldAbort : null;
   const status: ProjectStatus = { events: [], truncated: false, reason: null };
   if (!raw_ical) { status.events = [metadata]; return status; }
-  let root;
+  let root: ICAL.Component;
   try { root = new ICAL.Component(ICAL.parse(raw_ical)); } catch { status.events = [metadata]; return status; }
   const components = root.getAllSubcomponents('vevent');
   const master = components.find(component => !component.hasProperty('recurrence-id'));
@@ -120,11 +127,11 @@ export function projectCalendarResourceWithStatus(row: ProjectedEvent & { raw_ic
   const zoneFor = calendarZoneResolver(raw_ical, root);
   const recurring = master && (master.hasProperty('rrule') || master.hasProperty('rdate'));
   const event = new ICAL.Event(base);
-  const result = [];
-  const seen = new Set();
+  const result: ProjectedEvent[] = [];
+  const seen = new Set<string>();
   const fromTime = from instanceof Date ? from.getTime() : new Date(from).getTime();
   const toTime = to instanceof Date ? to.getTime() : new Date(to).getTime();
-  const append = (details, recurrenceId) => {
+  const append = (details: { item: ICAL.Event; startDate: ICAL.Time; endDate: ICAL.Time }, recurrenceId: string): void => {
     const component = details.item.component;
     if (String(component.getFirstPropertyValue('status')).toUpperCase() === 'CANCELLED') return;
     const startsAt = dateOf(details.startDate, component.getFirstProperty('dtstart') || base.getFirstProperty('dtstart'), zoneFor);
@@ -133,9 +140,9 @@ export function projectCalendarResourceWithStatus(row: ProjectedEvent & { raw_ic
     seen.add(recurrenceId);
     result.push({ ...metadata,
       ...(recurring ? { id: `${row.id}@${recurrenceId}`, series_id: row.id, recurrence_id: recurrenceId, recurring: true } : {}),
-      summary: component.getFirstPropertyValue('summary') ?? metadata.summary,
+      summary: (component.getFirstPropertyValue('summary') as string | null) ?? metadata.summary ?? null,
       description: calendarDescription(component) ?? calendarDescription(base) ?? metadata.description,
-      location: component.getFirstPropertyValue('location') ?? metadata.location,
+      location: (component.getFirstPropertyValue('location') as string | null) ?? metadata.location ?? null,
       url: component.getFirstPropertyValue('url') ?? metadata.url,
       organizer: String(component.getFirstPropertyValue('organizer') || metadata.organizer || '').replace(/^mailto:/i, '') || null,
       attendees: component.hasProperty('attendee') ? component.getAllProperties('attendee').map(property => String(property.getFirstValue()).replace(/^mailto:/i, '')) : metadata.attendees || [],
@@ -147,7 +154,7 @@ export function projectCalendarResourceWithStatus(row: ProjectedEvent & { raw_ic
     status.events = result;
     return status;
   }
-  let iterator;
+  let iterator: ReturnType<ICAL.Event['iterator']>;
   try { iterator = event.iterator(); } catch { status.events = result; status.truncated = true; status.reason = 'iterator-failed'; return status; }
   // Walking from the series origin is required for correctness, so the walk must
   // be cheap. Converting an occurrence to a JS Date costs a time-zone lookup,
@@ -210,13 +217,13 @@ export function projectCalendarResourceWithStatus(row: ProjectedEvent & { raw_ic
 // to cancel from the series' own first instance), in which case the event should be deleted
 // rather than left behind as a series that produces nothing. Null when there is nothing to
 // truncate: not a series, or the resource no longer parses.
-export function truncateSeriesBefore(raw, recurrenceId) {
+export function truncateSeriesBefore(raw: string | null | undefined, recurrenceId: string): { raw: string; empty: boolean } | null {
   if (!raw) return null;
-  let root;
+  let root: ICAL.Component;
   try { root = new ICAL.Component(ICAL.parse(raw)); } catch { return null; }
   const master = root.getAllSubcomponents('vevent').find(event => !event.hasProperty('recurrence-id'));
   if (!master) return null;
-  const rule = master.getFirstPropertyValue('rrule');
+  const rule = master.getFirstPropertyValue('rrule') as ICAL.Recur | null;
   if (!rule) return null;
 
   const dtstartProperty = master.getFirstProperty('dtstart');
@@ -228,8 +235,8 @@ export function truncateSeriesBefore(raw, recurrenceId) {
   if (!startDate) return null;
 
   // Cutting at the series' first occurrence leaves no occurrences at all.
-  const seriesStart = dateOf(master.getFirstPropertyValue('dtstart'), dtstartProperty, zoneFor);
-  const empty = Boolean(seriesStart) && seriesStart.getTime() >= startDate.getTime();
+  const seriesStart = dateOf(master.getFirstPropertyValue('dtstart') as ICAL.Time, dtstartProperty, zoneFor);
+  const empty = seriesStart !== null && seriesStart.getTime() >= startDate.getTime();
 
   const until = id.isDate
     // A date-valued series needs a date-valued UNTIL, or ical.js compares a DATE against a
@@ -244,7 +251,7 @@ export function truncateSeriesBefore(raw, recurrenceId) {
   const cutoff = startDate.getTime();
   for (const event of root.getAllSubcomponents('vevent')) {
     if (!event.hasProperty('recurrence-id')) continue;
-    const exceptionDate = dateOf(event.getFirstPropertyValue('recurrence-id'), dtstartProperty, zoneFor);
+    const exceptionDate = dateOf(event.getFirstPropertyValue('recurrence-id') as ICAL.Time, dtstartProperty, zoneFor);
     if (exceptionDate && exceptionDate.getTime() >= cutoff) root.removeSubcomponent(event);
   }
   return { raw: root.toString(), empty };
@@ -252,17 +259,20 @@ export function truncateSeriesBefore(raw, recurrenceId) {
 
 // Replace editor-owned properties while retaining recurrence, alarms, extension
 // fields, and other instances in the DAV resource.
-export function mergeCalendarResource(raw, replacementRaw, recurrenceId = null, cancel = false) {
+export function mergeCalendarResource(raw: string | null | undefined, replacementRaw: string, recurrenceId: string | null = null, cancel = false): string {
   if (!raw) return replacementRaw;
   const root = new ICAL.Component(ICAL.parse(raw));
   const replacement = new ICAL.Component(ICAL.parse(replacementRaw)).getFirstSubcomponent('vevent');
+  if (!replacement) return replacementRaw;
   const master = root.getAllSubcomponents('vevent').find(event => !event.hasProperty('recurrence-id'));
   if (!master) return replacementRaw;
-  let target = master;
+  let target: ICAL.Component = master;
   if (recurrenceId) {
     const id = TimeFromString.fromString(recurrenceId);
-    target = root.getAllSubcomponents('vevent').find(event => event.getFirstPropertyValue('recurrence-id')?.toString() === recurrenceId);
-    if (!target) {
+    const existingException = root.getAllSubcomponents('vevent').find(event => event.getFirstPropertyValue('recurrence-id')?.toString() === recurrenceId);
+    if (existingException) {
+      target = existingException;
+    } else {
       target = new ICAL.Component(structuredClone(master.toJSON()));
       for (const field of ['rrule', 'rdate', 'exdate']) target.removeAllProperties(field);
       const property = new ICAL.Property('recurrence-id');
@@ -281,7 +291,7 @@ export function mergeCalendarResource(raw, replacementRaw, recurrenceId = null, 
   return root.toString();
 }
 
-export function calendarProjection(raw) {
+export function calendarProjection(raw: string): ReturnType<typeof parseCalendarEvent> {
   const event = parseCalendarEvent(raw);
   if (!event) throw new Error('Invalid calendar event');
   return event;

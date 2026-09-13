@@ -22,7 +22,7 @@ export interface ParsedICalendarEvent {
   raw: string;
 }
 
-type ZoneResolver = (tzid: string) => ICAL.Timezone | null;
+export type ZoneResolver = (tzid: string) => ICAL.Timezone | null;
 
 // Resolve TZID references against the VTIMEZONE definitions of one calendar
 // resource. `parsedRoot` lets a caller that already parsed the document reuse

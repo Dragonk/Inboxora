@@ -19,6 +19,7 @@ import { query, withTransaction, pool } from './db.js';
 import { coveragePredicate, finalizeMaterialization, materializeEvent, materializePendingOccurrences, occurrenceHorizon } from './calendarOccurrences.js';
 import { closeCalendarProjectionPool } from './calendarProjectionPool.js';
 import { projectCalendarResource } from '../utils/calendarRecurrence.js';
+import type { ProjectedEvent } from '../utils/calendarRecurrence.js';
 
 const hasPg = process.env.DB_HOST && process.env.DB_NAME;
 const describeOrSkip = hasPg ? describe : describe.skip;
@@ -57,7 +58,7 @@ const WINDOW = { from: new Date('2026-01-01T00:00:00Z'), to: new Date('2026-12-0
 const BUILT = { from: new Date('2026-01-01T00:00:00Z'), to: new Date('2027-01-01T00:00:00Z') };
 
 // Only the fields the expansion consumes; the rest of the row is irrelevant to correctness.
-function eventRow(raw, overrides: Record<string, unknown> = {}) {
+function eventRow(raw: string, overrides: Partial<ProjectedEvent> = {}): ProjectedEvent & { raw_ical: string } {
   return {
     id: overrides.id, uid: 'CASE', raw_ical: raw, summary: overrides.summary ?? null,
     description: null, location: null, url: null, organizer: null, attendees: null,
