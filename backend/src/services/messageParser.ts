@@ -312,10 +312,10 @@ export function decodeMimeWords(str) {
   });
 }
 
-export function parseRawHeaders(buf) {
+export function parseRawHeaders(buf): Record<string, string> {
   if (!buf) return {};
   const text = Buffer.isBuffer(buf) ? buf.toString('utf8') : String(buf);
-  const result = {};
+  const result: Record<string, string> = {};
   // Headers can be folded (continuation lines start with whitespace)
   const unfolded = text.replace(/\r\n([ \t])/g, ' ').replace(/\n([ \t])/g, ' ');
   for (const line of unfolded.split(/\r?\n/)) {
@@ -330,11 +330,11 @@ export function parseRawHeaders(buf) {
 }
 
 // Normalize imapflow header payloads (Buffer, string, Map-like) into a key/value map.
-export function parseHeadersInput(headers) {
+export function parseHeadersInput(headers): Record<string, string> {
   if (!headers) return {};
   if (Buffer.isBuffer(headers) || typeof headers === 'string') return parseRawHeaders(headers);
   if (typeof headers === 'object') {
-    const result = {};
+    const result: Record<string, string> = {};
     if (typeof headers.forEach === 'function') {
       headers.forEach((val, key) => {
         const k = String(key).toLowerCase();

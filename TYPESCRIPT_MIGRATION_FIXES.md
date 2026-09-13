@@ -75,3 +75,19 @@ realnych błędów opisanych wyżej).
 
 Backend `tsc --noEmit`: **265 błędów** (z 474 po zdjęciu `@ts-nocheck`). Testy: 1785 passed / 0 failed. Lint: czysty.
 
+
+## 6. Iteracja: mapy bez typów i nagłówki MIME
+
+- 🔴 **Mapy `= {}` gubiły typ i kaskadowały `unknown`** w `routes/mail.ts` (bulk-delete/move/archive):
+  `byAccount`, `byFolder`, `byExpungeFolder`, `byTrashPath`, `srcDeltas`, `dstDeltas`, `srcTotals`,
+  `folderDeltas`. Każda otypowana zgodnie z rzeczywistym kształtem (wiersz wiadomości vs licznik vs `{msg,newUid}`).
+  Wcześniej błędny typ mógł prowadzić do wyjątku przy `undefined.map(...)`.
+- 🔴 **`parseRawHeaders`/`parseHeadersInput` zwracały `{}`** → `parsed.subject` w handlerze nagłówków.
+  Zwracają teraz `Record<string, string>`.
+- 🟠 **`MessageHeadersRow`** — wiersz handlera `/messages/:id/headers` otypowany (id, account_id, uid, folder, subject…).
+
+## 7. Stan weryfikacji
+
+Backend `tsc`: **223 błędy** (z 474). `routes/mail.ts` i `services/messageParser.ts` — 0 błędów.
+Testy: 1785 / 0 failed. Lint: czysty.
+

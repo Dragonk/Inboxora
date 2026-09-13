@@ -61,6 +61,16 @@ async function runInBatches(items, concurrency, fn) {
 import { RELOCATE_INSERT_COLS, RELOCATE_SELECT_COLS } from '../utils/relocateColumns.js';
 import { queryString, queryInt } from '../utils/query.js';
 
+interface MailMessageRow {
+  id: string;
+  uid: number;
+  folder: string;
+  account_id: string;
+  is_read?: boolean;
+  folder_mappings?: unknown;
+  subject?: string | null;
+}
+
 
 // Returns true if a snippet contains content that should never appear in plain-text
 // preview, indicating it was generated from unclean HTML and needs regeneration:
@@ -313,7 +323,7 @@ router.get('/unread-counts', async (req, res) => {
     GROUP BY m.account_id, a.include_in_unified_inbox
   `, [req.session.userId]);
 
-  const byAccount = {};
+  const byAccount: Record<string, number> = {};
   let total = 0;
   for (const row of result.rows) {
     byAccount[row.account_id] = parseInt(row.count);
@@ -493,7 +503,17 @@ router.get('/messages/:id/headers', async (req, res) => {
   `, [id, req.session.userId]);
 
   if (!result.rows.length) return res.status(404).json({ error: 'Message not found' });
-  const message = result.rows[0];
+  interface MessageHeadersRow {
+    id: string;
+    account_id: string;
+    uid: number;
+    folder: string;
+    subject?: string | null;
+    from_email?: string | null;
+    from_name?: string | null;
+    date?: string | Date | null;
+  }
+  const message: MessageHeadersRow = result.rows[0];
 
   try {
     const accountResult = await query('SELECT * FROM email_accounts WHERE id = $1', [message.account_id]);
@@ -1053,7 +1073,7 @@ router.post('/messages/bulk-read', async (req, res) => {
     );
 
     // Adjust cached unread counts per account+folder.
-    const folderDeltas = {};
+    const folderDeltas: Record<string, { accountId: string; folder: string; delta: number }> = {};
     for (const msg of toUpdate) {
       const key = `${msg.account_id}:${msg.folder}`;
       if (!folderDeltas[key]) folderDeltas[key] = { accountId: msg.account_id, folder: msg.folder, delta: 0 };
@@ -1086,7 +1106,7 @@ router.post('/messages/bulk-read', async (req, res) => {
     imapManager.broadcast({ type: 'message_flags', changes: toUpdate.map(m => ({ id: m.id, is_read: read })) }, req.session.userId);
 
     // IMAP flag updates — group by account to fetch each account row once.
-    const byAccount = {};
+    const byAccount: Record<string, MailMessageRow[]> = {};
     for (const msg of toUpdate) {
       (byAccount[msg.account_id] = byAccount[msg.account_id] || []).push(msg);
     }
@@ -1152,16 +1172,16 @@ router.post('/messages/bulk-delete', async (req, res) => {
       imapManager._guardMoveUid(m.account_id, m.folder, m.uid);
     }
 
-    const byAccount = {};
+    const byAccount: Record<string, MailMessageRow[]> = {};
     for (const msg of owned) {
       (byAccount[msg.account_id] = byAccount[msg.account_id] || []).push(msg);
     }
 
     // expungeSucceeded: permanently deleted (already in Trash, or no Trash folder on account).
     // trashMoveSucceeded: moved from a non-Trash folder into Trash.
-    const expungeSucceeded = [];
-    const trashMoveSucceeded = []; // { msg, trashPath, newUid }
-    const accountsById = {};
+    const expungeSucceeded: MailMessageRow[] = [];
+    const trashMoveSucceeded: Array<{ msg: MailMessageRow; trashPath: string; newUid: number | null }> = [];
+    const accountsById: Record<string, unknown> = {};
 
     for (const [accountId, msgs] of Object.entries(byAccount)) {
       const accountResult = await query('SELECT * FROM email_accounts WHERE id = $1', [accountId]);
@@ -1182,7 +1202,7 @@ router.post('/messages/bulk-delete', async (req, res) => {
 
       // Permanently delete messages already in a trash-like folder (grouped by actual folder).
       if (toExpunge.length) {
-        const byExpungeFolder = {};
+        const byExpungeFolder: Record<string, MailMessageRow[]> = {};
         for (const msg of toExpunge) {
           (byExpungeFolder[msg.folder] = byExpungeFolder[msg.folder] || []).push(msg);
         }
@@ -1196,7 +1216,7 @@ router.post('/messages/bulk-delete', async (req, res) => {
 
       // Move messages from non-Trash folders into Trash.
       if (toMove.length) {
-        const byFolder = {};
+        const byFolder: Record<string, MailMessageRow[]> = {};
         for (const msg of toMove) {
           (byFolder[msg.folder] = byFolder[msg.folder] || []).push(msg);
         }
@@ -1220,7 +1240,7 @@ router.post('/messages/bulk-delete', async (req, res) => {
     // immediately re-INSERT at the destination when new UIDs are known.
     // Group by trashPath since different accounts may have different Trash folders.
     if (trashMoveSucceeded.length) {
-      const byTrashPath = {};
+      const byTrashPath: Record<string, Array<{ msg: MailMessageRow; trashPath: string; newUid: number | null }>> = {};
       for (const u of trashMoveSucceeded) {
         (byTrashPath[u.trashPath] = byTrashPath[u.trashPath] || []).push(u);
       }
@@ -1266,7 +1286,7 @@ router.post('/messages/bulk-delete', async (req, res) => {
       ...trashMoveSucceeded.map(u => u.msg.id),
     ];
     if (allSucceeded.length) {
-      const srcDeltas = {};
+      const srcDeltas: Record<string, { accountId: string; path: string; total: number; unread: number }> = {};
       for (const msg of expungeSucceeded) {
         const key = `${msg.account_id}:${msg.folder}`;
         if (!srcDeltas[key]) srcDeltas[key] = { accountId: msg.account_id, path: msg.folder, total: 0, unread: 0 };
@@ -1282,7 +1302,7 @@ router.post('/messages/bulk-delete', async (req, res) => {
       for (const { accountId, path, total, unread } of Object.values(srcDeltas)) {
         adjustFolderCounts(accountId, path, -total, -unread);
       }
-      const dstDeltas = {};
+      const dstDeltas: Record<string, { accountId: string; path: string; total: number; unread: number }> = {};
       for (const { msg, trashPath } of trashMoveSucceeded) {
         const key = `${msg.account_id}:${trashPath}`;
         if (!dstDeltas[key]) dstDeltas[key] = { accountId: msg.account_id, path: trashPath, total: 0, unread: 0 };
@@ -1426,7 +1446,7 @@ router.post('/messages/bulk-move', async (req, res) => {
       imapManager._guardMoveUid(m.account_id, m.folder, m.uid);
     }
 
-    const byAccount = {};
+    const byAccount: Record<string, MailMessageRow[]> = {};
     for (const msg of owned) {
       (byAccount[msg.account_id] = byAccount[msg.account_id] || []).push(msg);
     }
@@ -1446,7 +1466,7 @@ router.post('/messages/bulk-move', async (req, res) => {
       }
       const accountResult = await query('SELECT * FROM email_accounts WHERE id = $1', [accountId]);
       const account = accountResult.rows[0];
-      const byFolder = {};
+      const byFolder: Record<string, MailMessageRow[]> = {};
       for (const msg of msgs) {
         (byFolder[msg.folder] = byFolder[msg.folder] || []).push(msg);
       }
@@ -1497,7 +1517,7 @@ router.post('/messages/bulk-move', async (req, res) => {
       }
       // Adjust cached counts: decrement source folders, increment the destination.
       const movedSet = new Set(movedIds);
-      const srcTotals = {};
+      const srcTotals: Record<string, { accountId: string; path: string; total: number; unread: number }> = {};
       for (const msg of owned) {
         if (!movedSet.has(msg.id)) continue;
         const key = `${msg.account_id}:${msg.folder}`;
@@ -1562,7 +1582,7 @@ router.post('/messages/bulk-archive', async (req, res) => {
       imapManager._guardMoveUid(m.account_id, m.folder, m.uid);
     }
 
-    const byAccount = {};
+    const byAccount: Record<string, MailMessageRow[]> = {};
     for (const msg of owned) {
       (byAccount[msg.account_id] = byAccount[msg.account_id] || []).push(msg);
     }
@@ -1588,7 +1608,7 @@ router.post('/messages/bulk-archive', async (req, res) => {
       const accountResult = await query('SELECT * FROM email_accounts WHERE id = $1', [accountId]);
       const account = accountResult.rows[0];
       accountsById[accountId] = account;
-      const byFolder = {};
+      const byFolder: Record<string, MailMessageRow[]> = {};
       for (const msg of msgs) {
         (byFolder[msg.folder] = byFolder[msg.folder] || []).push(msg);
       }
@@ -1606,7 +1626,7 @@ router.post('/messages/bulk-archive', async (req, res) => {
     // Update DB: same CTE DELETE+INSERT pattern as bulk-move — except when the
     // destination is Gmail's All Mail, where the message just vanishes from our view
     // (see allMailDestFolders above), so a plain DELETE with no reinsert is correct.
-    const byFolder = {};
+    const byFolder: Record<string, Array<{ id: string; newUid: number | null }>> = {};
     for (const { id, folder, newUid } of archivedIds) {
       (byFolder[folder] = byFolder[folder] || []).push({ id, newUid });
     }
@@ -1653,7 +1673,7 @@ router.post('/messages/bulk-archive', async (req, res) => {
     // Adjust cached folder counts: use signed deltas so source and dest share one pass.
     if (archivedIds.length > 0) {
       const idToArchiveDest = new Map(archivedIds.map(({ id, folder: dest }) => [id, dest]));
-      const folderDeltas = {}; // key: `${accountId}:${path}` -> { accountId, path, totalDelta, unreadDelta }
+      const folderDeltas: Record<string, { accountId: string; path: string; totalDelta: number; unreadDelta: number }> = {}; // key: `${accountId}:${path}` -> { accountId, path, totalDelta, unreadDelta }
       for (const msg of owned) {
         const dest = idToArchiveDest.get(msg.id);
         if (!dest) continue;
