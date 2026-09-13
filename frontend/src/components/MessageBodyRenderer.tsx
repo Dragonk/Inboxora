@@ -199,7 +199,7 @@ export default function MessageBodyRenderer({ html = '', text = '', remoteImages
         restoreScrollContainers();
       };
     };
-    let cleanup = null;
+    let cleanup: (() => void) | null = null;
     const onLoaded = () => { cleanup?.(); cleanup = install() || null; };
     iframe.addEventListener('load', onLoaded);
     if (iframe.contentDocument?.readyState === 'complete') onLoaded();

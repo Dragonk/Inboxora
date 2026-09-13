@@ -788,7 +788,7 @@ export default function MessagePane({ windowMessageId = null, onWindowClose = nu
   useEffect(() => {
     if (!USE_DIV_RENDER || !prepared) return;
 
-    let rafId = null;
+    let rafId: number | undefined = null;
     const expandedEls = new Set<HTMLElement>();
 
     // Neutralize nested sender-created scroll containers (overflow:auto/scroll +

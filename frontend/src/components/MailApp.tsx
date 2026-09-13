@@ -493,7 +493,7 @@ export default function MailApp() {
   useEffect(() => {
     const onVisible = () => { if (document.visibilityState === 'visible') consumePendingDeepLink(); };
     document.addEventListener('visibilitychange', onVisible);
-    let onSwMessage;
+    let onSwMessage: ((event: MessageEvent) => void);
     if ('serviceWorker' in navigator) {
       onSwMessage = (event) => {
         if (event.data && event.data.type === 'mailflow_deeplink') consumePendingDeepLink();
@@ -623,7 +623,7 @@ export default function MailApp() {
     );
 
     let pendingKey   = null;
-    let pendingTimer = null;
+    let pendingTimer: ReturnType<typeof setTimeout> | null = null;
 
     const clearPending = () => {
       pendingKey = null;

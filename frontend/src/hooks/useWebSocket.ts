@@ -29,9 +29,9 @@ async function _forwardNativeNewMailNotification(notification) {
 const NO_RECONNECT_CODES = new Set([4001, 4003]);
 
 // Module-level timer for debouncing backfill_progress refreshes
-let backfillRefreshTimer = null;
+let backfillRefreshTimer: ReturnType<typeof setTimeout> | null = null;
 // Debounce the unread-count refetch triggered by cross-device flag updates.
-let flagCountRefreshTimer = null;
+let flagCountRefreshTimer: ReturnType<typeof setTimeout> | null = null;
 const BACKOFF_BASE = 1000;
 const BACKOFF_MAX = 30000;
 
