@@ -10,7 +10,28 @@ import { query } from '../services/db.js';
 // This is the first safe, generic capability of the plugin platform: the GTD inbox-zero pet
 // is its first consumer, and it's the storage surface future (sandboxed) plugins will use.
 
-export async function put(pluginId: string, key: string, { value = {}, blob = null, mime = null, ownerId = null, visibility = 'private' } = {}) {
+/** Options for a plugin-storage write. */
+export interface PutOptions {
+  value?: unknown;
+  blob?: Buffer | null;
+  mime?: string | null;
+  ownerId?: string | null;
+  visibility?: string;
+}
+
+/** A plugin_data row as the storage helpers expose it. */
+export interface PluginDataRow {
+  key?: string;
+  owner_id?: string | null;
+  value?: unknown;
+  visibility?: string;
+  blob?: Buffer | null;
+  blob_mime?: string | null;
+  [column: string]: unknown;
+}
+
+
+export async function put(pluginId: string, key: string, { value = {}, blob = null, mime = null, ownerId = null, visibility = 'private' }: PutOptions = {}): Promise<void> {
   await query(
     `INSERT INTO plugin_data (plugin_id, key, owner_id, value, blob, blob_mime, visibility, updated_at)
      VALUES ($1, $2, $3, $4::jsonb, $5, $6, $7, NOW())

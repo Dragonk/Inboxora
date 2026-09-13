@@ -21,7 +21,7 @@ const MAX_SHEET_DIM = 8192;
 // Normalise and validate a pet slug. Returns a lowercased slug or null. The read routes
 // key meta/sheet lookups by :slug (a path param, always a bare slug) and the ownership
 // gate compares it against customPetSlug, so this is pure slug hygiene. Pure.
-export function parsePetSlug(input) {
+export function parsePetSlug(input: unknown): string | null {
   if (typeof input !== 'string') return null;
   const s = input.trim().toLowerCase();
   if (!s) return null;
@@ -44,7 +44,7 @@ export function customPetSlug(userId: unknown): string | null {
 
 // Identify the image type from its magic bytes (no image library allowed). Returns
 // an image mime or null. Pure.
-export function sniffImageMime(buf) {
+export function sniffImageMime(buf: Buffer | null | undefined): string | null {
   if (!buf || buf.length < 12) return null;
   // PNG: 89 50 4E 47 0D 0A 1A 0A
   if (buf[0] === 0x89 && buf[1] === 0x50 && buf[2] === 0x4e && buf[3] === 0x47 &&
@@ -61,7 +61,7 @@ export function sniffImageMime(buf) {
 // WebP sub-formats (VP8X extended, VP8 lossy, VP8L lossless). Returns { width,
 // height } or null. Pure — the frame-grid math depends on it, so it is unit-tested
 // against the real steve-jobs sheet.
-export function readImageSize(buf) {
+export function readImageSize(buf: Buffer | null | undefined): { width: number; height: number } | null {
   if (!buf || buf.length < 12) return null;
   const mime = sniffImageMime(buf);
   if (mime === 'image/png') {
@@ -105,7 +105,7 @@ export function readImageSize(buf) {
 // decides the real type) or a bare base64 string. Returns a Buffer, or null when the
 // input is not a usable string. Byte-level image validation is the caller's job
 // (sniffImageMime), so this only handles the transport decode. Pure.
-export function decodeUploadedSheet(input) {
+export function decodeUploadedSheet(input: unknown): Buffer | null {
   if (typeof input !== 'string') return null;
   let b64 = input.trim();
   if (!b64) return null;
@@ -119,7 +119,7 @@ export function decodeUploadedSheet(input) {
   return buf.length ? buf : null;
 }
 
-function firstPositiveInt(...vals) {
+function firstPositiveInt(...vals: unknown[]): number | null {
   for (const v of vals) {
     const n = Number(v);
     if (Number.isFinite(n) && Number.isInteger(n) && n > 0) return n;
@@ -127,7 +127,7 @@ function firstPositiveInt(...vals) {
   return null;
 }
 
-function clampInt(v, lo, hi, fallback) {
+function clampInt(v: unknown, lo: number, hi: number, fallback: number): number {
   const n = Number(v);
   if (!Number.isFinite(n) || !Number.isInteger(n)) return fallback;
   return Math.max(lo, Math.min(hi, n));
@@ -136,10 +136,12 @@ function clampInt(v, lo, hi, fallback) {
 // Try to recognise an explicit hover animation in the (undocumented) pet.json.
 // Accepts a handful of plausible shapes; returns { start, count } within the sheet,
 // or null so the caller applies the "loop the first row" fallback.
-function recognizeHoverSequence(j, cols, frameCount) {
+type HoverSequence = { frames?: unknown; start?: unknown; count?: unknown; length?: unknown; row?: unknown } | unknown[];
+
+function recognizeHoverSequence(j: PetJsonInput | null | undefined, cols: number, frameCount: number): { start: number; count: number } | null {
   const anims = j?.animations || j?.sequences;
   if (!anims || typeof anims !== 'object') return null;
-  const pick = (name: string) => (Array.isArray(anims) ? anims.find(a => a?.name === name) : anims[name]);
+  const pick = (name: string): HoverSequence | undefined => (Array.isArray(anims) ? (anims as Array<{ name?: string }>).find((a) => a?.name === name) as HoverSequence | undefined : (anims as Record<string, HoverSequence | undefined>)[name]);
   const seq = pick('jump') || pick('hover') || pick('idle') || pick('wave');
   if (!seq) return null;
   // Shapes: [f0, f1, …]  |  { frames: [...] }  |  { start, count }  |  { row }
@@ -148,10 +150,12 @@ function recognizeHoverSequence(j, cols, frameCount) {
     const start = clampInt(frames[0], 0, frameCount - 1, 0);
     return { start, count: Math.min(frames.length, frameCount - start) };
   }
-  const start = firstPositiveInt(seq.start) ?? (Number.isInteger(seq.start) ? seq.start : null);
-  const count = firstPositiveInt(seq.count, seq.length);
+  // Not a frame list: read the explicit fields off the object shape.
+  const shape = Array.isArray(seq) ? {} : seq;
+  const start = firstPositiveInt(shape.start) ?? (Number.isInteger(shape.start) ? Number(shape.start) : null);
+  const count = firstPositiveInt(shape.count, shape.length);
   if (start != null && count) return { start: clampInt(start, 0, frameCount - 1, 0), count: Math.min(count, frameCount) };
-  const row = firstPositiveInt(seq.row) ?? (Number.isInteger(seq.row) ? seq.row : null);
+  const row = firstPositiveInt(shape.row) ?? (Number.isInteger(shape.row) ? Number(shape.row) : null);
   if (row != null && cols) return { start: clampInt(row * cols, 0, frameCount - 1, 0), count: cols };
   return null;
 }
@@ -167,7 +171,7 @@ const CONVENTION_8X9_JUMP = { row: 4, frames: 5 };
 // Hover sequence to use when pet.json declares none. For the 8×9 convention we know
 // the layout, so loop its jump row over just the populated frames; for a declared
 // grid we don't know the padding, so keep the plain first-row loop.
-function fallbackHover(source, cols, frameCount) {
+function fallbackHover(source: string, cols: number, frameCount: number): { start: number; count: number } {
   if (source === 'convention-8x9') {
     const start = Math.min(CONVENTION_8X9_JUMP.row * cols, frameCount - 1);
     return { start, count: Math.min(CONVENTION_8X9_JUMP.frames, frameCount - start) };
@@ -198,8 +202,8 @@ interface PetJsonInput {
 }
 
 export function parsePetJson(petJson: PetJsonInput | null | undefined, imageSize: { width?: number; height?: number }): PetDescriptor | null {
-  const width = imageSize?.width;
-  const height = imageSize?.height;
+  const width = Number(imageSize?.width);
+  const height = Number(imageSize?.height);
   if (!Number.isFinite(width) || !Number.isFinite(height) || width <= 0 || height <= 0) return null;
 
   const j = (petJson && typeof petJson === 'object') ? petJson : {};
@@ -239,7 +243,13 @@ export function parsePetJson(petJson: PetJsonInput | null | undefined, imageSize
 // descriptor, and upsert the cache row. The image type is decided by MAGIC BYTES only,
 // never a declared/HTTP content-type; the stored descriptor is DERIVED (raw pet.json is
 // never persisted). Throws an Error with a `.code` on any validation failure.
-async function finalizeAndStorePet({ slug, petJson, sheet, displayNameFallback, userId = null }) {
+export interface ImportedPet {
+  slug: string;
+  displayName: string;
+  descriptor: PetDescriptor;
+}
+
+async function finalizeAndStorePet({ slug, petJson, sheet, displayNameFallback, userId = null }: { slug: string; petJson: PetJsonInput | null | undefined; sheet: Buffer; displayNameFallback: string; userId?: string | null }): Promise<ImportedPet> {
   const mime = sniffImageMime(sheet);
   if (!mime) throw Object.assign(new Error('Spritesheet is not a recognised image'), { code: 'BAD_IMAGE' });
   const size = readImageSize(sheet);
@@ -282,7 +292,7 @@ async function finalizeAndStorePet({ slug, petJson, sheet, displayNameFallback, 
 // arrive in the payload — so the whole defense is: the caps below, magic-byte sniffing +
 // defensive parse inside finalizeAndStorePet, and the server-derived slug. Returns
 // { slug, displayName, descriptor }; throws an Error with a `.code` on any failure.
-export async function importPet({ petJsonText, sheet, userId }) {
+export async function importPet({ petJsonText, sheet, userId }: { petJsonText: unknown; sheet: unknown; userId: string | null | undefined }): Promise<ImportedPet> {
   const slug = customPetSlug(userId);
   if (!slug) throw Object.assign(new Error('Could not derive a storage slug for this user'), { code: 'BAD_SLUG' });
 
