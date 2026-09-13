@@ -1,4 +1,3 @@
-// @ts-nocheck
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 
 vi.mock('imapflow', () => ({ ImapFlow: vi.fn() }));
@@ -83,7 +82,7 @@ describe('providerProfile — host detection', () => {
     ['imap.purelymail.com'],
     ['mail.purelymail.com'],
   ])('detects purelymail (IDLE-based profile) for %s', host => {
-    const p = providerProfile(account(host));
+    const p: any = providerProfile(account(host));
     // IDLE-first with an aggressive keepalive: one long-lived IDLE connection pushes new
     // mail, re-issued every 4 min so it never goes deaf; the periodic tick is a light
     // backstop. Body work stays conservative (no snippet indexing / speculative fetch,
@@ -106,7 +105,7 @@ describe('providerProfile — host detection', () => {
     ['imap.fastmail.com'],
     ['imap.protonmail.com'],
   ])('falls back to generic for unknown host %s', host => {
-    const p = providerProfile(account(host));
+    const p: any = providerProfile(account(host));
     expect(p.speculativeFetch).toBe(true);
     expect(p.pushesFlags).toBe(true);
     expect(p.snippetIndex).toBe(true);
@@ -1070,14 +1069,14 @@ describe('syncMessages — empty local cache vs nonempty server (wiring)', () =>
     const result = await ImapManager.prototype.syncMessages.call({}, account, client, 'Watch', 50, false, true);
 
     expect(client.fetch).toHaveBeenCalledTimes(1);
-    expect(client.fetch.mock.calls[0][0]).toBe('1:*');
-    expect(client.fetch.mock.calls[0][1]).toEqual(expect.objectContaining({
+    expect((client.fetch as any).mock.calls[0][0]).toBe('1:*');
+    expect((client.fetch as any).mock.calls[0][1]).toEqual(expect.objectContaining({
       envelope: true,
       bodyStructure: true,
       flags: true,
       uid: true,
     }));
-    expect(client.fetch.mock.calls[0][2]).toBeUndefined();
+    expect((client.fetch as any).mock.calls[0][2]).toBeUndefined();
     const insertIndex = query.mock.calls.findIndex(([sql]) => sql.includes('INSERT INTO messages'));
     const modseqUpdateIndex = query.mock.calls.findIndex(([sql]) => sql.includes('UPDATE folders SET highest_modseq'));
     expect(insertIndex).toBeGreaterThanOrEqual(0);
@@ -1253,8 +1252,8 @@ describe('syncMessages — Web Push branding', () => {
     await ImapManager.prototype.syncMessages.call({
       broadcast,
       pluginFacade: {},
-      prefetchNewMessageBodies: vi.fn().mockResolvedValue(),
-      upsertAutoContacts: vi.fn().mockResolvedValue(),
+      prefetchNewMessageBodies: vi.fn().mockResolvedValue(undefined),
+      upsertAutoContacts: vi.fn().mockResolvedValue(undefined),
     }, account, client, 'INBOX', 50, false, true);
     await vi.waitFor(() => expect(dispatchMailNotification).toHaveBeenCalled());
 
@@ -1406,8 +1405,8 @@ describe('walkStructure attachment classification', () => {
         },
       ],
     });
-    expect(results.inlineImages).toHaveLength(1);
-    expect(results.inlineImages[0].cid).toBe('logo@x');
+    expect((results as any).inlineImages).toHaveLength(1);
+    expect((results as any).inlineImages[0].cid).toBe('logo@x');
     expect(results.attachments).toHaveLength(1);
     expect(results.attachments[0].filename).toBe('photo.jpg');
   });
@@ -1501,7 +1500,7 @@ describe('walkStructure attachment classification', () => {
     // app emails out. The fetcher must decode it before anyone parses it.
     const rawParts = new Map([['2', Buffer.from(Buffer.from(ics, 'utf8').toString('base64'), 'utf8')]]);
     ImapFlow.mockImplementation(function () {
-      const client = new EventEmitter();
+      const client = (new EventEmitter() as any);
       client.connect = vi.fn(async () => { client.authenticated = true; return client; });
       client.logout = vi.fn(async () => {});
       client.close = vi.fn();
@@ -1605,7 +1604,7 @@ describe("connectAccount attaches 'error' before connect (#360)", () => {
     let emitThrew = false;
 
     ImapFlow.mockImplementation(function () {
-      const client = new EventEmitter();
+      const client = (new EventEmitter() as any);
       client.connect = vi.fn(() => {
         errorListenersAtConnect = client.listenerCount('error');
         // Simulate a transport 'error' during the handshake. With the listener already
@@ -1636,7 +1635,7 @@ describe("connectAccount attaches 'error' before connect (#360)", () => {
     mgr.disconnectAccount = vi.fn(() => Promise.resolve());
     mgr._attachIdleListeners = vi.fn();
     mgr.syncFolders = vi.fn(() => Promise.resolve());
-    mgr.syncMessages = vi.fn(() => Promise.resolve());
+    mgr.syncMessages = vi.fn(() => Promise.resolve()) as any;
     mgr._shouldAutoBackfillOnConnect = vi.fn(() => Promise.resolve(false));
     mgr.backfillAllFolders = vi.fn(() => Promise.resolve());
     mgr._startSyncInterval = vi.fn();
@@ -1742,7 +1741,7 @@ describe('syncFolders pruning', () => {
 
 // ── _deleteAllInFolder — chunked, throttle-tolerant empty ─────────────────────
 describe('_deleteAllInFolder — chunked delete', () => {
-  const run = (client, opts) =>
+  const run = (client, opts = {}) =>
     ImapManager.prototype._deleteAllInFolder.call(ImapManager.prototype, client, 'Trash', { retryBackoffMs: 0, ...opts });
 
   it('deletes in UID-addressed chunks of chunkSize and returns the total', async () => {
@@ -1808,7 +1807,7 @@ describe('_deleteAllInFolder — chunked delete', () => {
 
 // ── _markSeenInFolder — chunked mark-all-read ────────────────────────────────
 describe('_markSeenInFolder — chunked mark-all-read', () => {
-  const run = (client, opts) =>
+  const run = (client, opts = {}) =>
     ImapManager.prototype._markSeenInFolder.call(ImapManager.prototype, client, 'INBOX', { retryBackoffMs: 0, ...opts });
 
   it('adds \\Seen to UNSEEN messages in UID-addressed chunks', async () => {
@@ -1943,7 +1942,7 @@ describe('_recordAccountError / _clearAccountError', () => {
   it('clears a recorded error and tells the client', async () => {
     const m = mgr();
     await m._recordAccountError(acct, 'read ETIMEDOUT');
-    m.broadcast.mockClear();
+    (m.broadcast as any).mockClear();
     await m._clearAccountError(acct);
     expect(query).toHaveBeenLastCalledWith(
       'UPDATE email_accounts SET sync_error = NULL WHERE id = $1', ['a1'],
@@ -2014,7 +2013,7 @@ describe('syncMessages — empty mailbox still stamps last_sync', () => {
 });
 
 it('queues an IDLE arrival during a running sync instead of dropping it', () => {
-  const client = new EventEmitter();
+  const client = (new EventEmitter() as any);
   const mgr = new ImapManager({ clients: new Set() });
   const account = { id: 'idle-busy', user_id: 'user-1' };
   mgr.syncingAccounts.add(account.id);
@@ -2030,8 +2029,8 @@ it('drains a queued arrival after the active sync releases its account lock', as
   const account = { id: 'idle-drain', user_id: 'user-1', imap_host: 'imap.example.test' };
   mgr.connections.set(account.id, { logout: async () => {} });
   mgr.lastFolderSyncAt.set(account.id, Date.now());
-  mgr._clearAccountError = vi.fn().mockResolvedValue();
-  mgr._syncFlagsForRange = vi.fn().mockResolvedValue();
+  mgr._clearAccountError = vi.fn().mockResolvedValue(undefined);
+  mgr._syncFlagsForRange = vi.fn().mockResolvedValue(undefined);
   mgr.syncMessages = vi.fn().mockImplementationOnce(async () => {
     mgr._pendingInboxSync.add(account.id);
     return { insertedCount: 0 };

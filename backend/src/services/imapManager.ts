@@ -285,7 +285,7 @@ const PERSISTENT_CAP_ENV = parsePersistentCap(process.env.IMAP_MAX_PERSISTENT_PE
 // modseq values are 64-bit unsigned and only comparable within one UIDVALIDITY epoch — inputs
 // may be BigInt, decimal string, or null; comparison is done in BigInt to avoid Number()
 // precision loss above 2^53. NEVER compare these as JS Numbers.
-export function planModseqSync({ storedModseq, serverModseq, uidValidityChanged, maxKnownUid, serverExists }) {
+export function planModseqSync({ storedModseq, serverModseq, uidValidityChanged, maxKnownUid = 0, serverExists = 0 }: { storedModseq?: any; serverModseq?: any; uidValidityChanged?: boolean; maxKnownUid?: number; serverExists?: number } = {}) {
   if (maxKnownUid === 0 && serverExists > 0) return 'full';
   if (uidValidityChanged) return 'full';    // epoch reset — the stored modseq is meaningless now
   if (serverModseq == null) return 'full';  // server didn't advertise CONDSTORE HIGHESTMODSEQ
@@ -1090,7 +1090,7 @@ async function ensureFreshToken(account) {
 // resolved comes from resolveForConnection(), which limits sockets to the validated
 // address set so DNS rebinding cannot change the target between validation and connect.
 // policy: result of getConnectionPolicy() — gates TLS verification override.
-export function makeClientCfg(account, resolved, { enableIdle = false, policy = {}, idleKeepaliveMs } = {}) {
+export function makeClientCfg(account, resolved, { enableIdle = false, policy = {}, idleKeepaliveMs } = {}): any {
   if (!policy.allowInsecureTls && !account.imap_tls) {
     throw new Error('Plain-text IMAP is not allowed: admin must enable "Allow insecure TLS"');
   }
