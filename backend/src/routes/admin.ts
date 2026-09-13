@@ -289,7 +289,7 @@ router.post('/invites', async (req, res) => {
         if (cfg.host && cfg.user && pass) {
           const policy = await getConnectionPolicy();
           const sysResolved = await resolveForConnection(cfg.host, { allowPrivate: policy.allowPrivateHosts });
-          const sysTls = { rejectUnauthorized: true };
+          const sysTls: Record<string, any> = { rejectUnauthorized: true };
           if (sysResolved.servername) sysTls.servername = sysResolved.servername;
           transport = createSmtpTransport(sysResolved, {
             port: cfg.port || 587,
@@ -325,7 +325,7 @@ router.post('/invites', async (req, res) => {
         }
         const policy = await getConnectionPolicy();
         const acctResolved = await resolveForConnection(account.smtp_host, { allowPrivate: policy.allowPrivateHosts });
-        const acctTls = { rejectUnauthorized: policy.allowInsecureTls ? !account.imap_skip_tls_verify : true };
+        const acctTls: Record<string, any> = { rejectUnauthorized: policy.allowInsecureTls ? !account.imap_skip_tls_verify : true };
         if (acctResolved.servername) acctTls.servername = acctResolved.servername;
         transport = createSmtpTransport(acctResolved, {
           port: account.smtp_port,
@@ -464,7 +464,7 @@ router.post('/system-email/test', async (req, res) => {
   try {
     const policy = await getConnectionPolicy();
     const testResolved = await resolveForConnection(cfg.host, { allowPrivate: policy.allowPrivateHosts });
-    const testTls = { rejectUnauthorized: true };
+    const testTls: Record<string, any> = { rejectUnauthorized: true };
     if (testResolved.servername) testTls.servername = testResolved.servername;
     const transport = createSmtpTransport(testResolved, {
       port: cfg.port,

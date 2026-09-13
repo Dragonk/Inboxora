@@ -1,4 +1,3 @@
-// @ts-nocheck
 import { createPortal } from 'react-dom';
 import { useTranslation } from 'react-i18next';
 import { useStore, selectSelectedMessageMid } from '../store/index.ts';

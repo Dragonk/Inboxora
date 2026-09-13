@@ -1,4 +1,3 @@
-// @ts-nocheck
 import { useMobile } from '../hooks/useMobile.ts';
 import { useStore } from '../store/index.ts';
 

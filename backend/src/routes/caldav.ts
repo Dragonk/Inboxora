@@ -1,4 +1,3 @@
-// @ts-nocheck
 // CalDAV server — RFC 4791 discovery surface for DAVx5 and compatible clients.
 // Auth: HTTP Basic with dedicated, revocable DAV application passwords only.
 
@@ -35,7 +34,7 @@ function sendXml(res, status, body) {
 }
 
 function rawBody(req) {
-  return new Promise((resolve, reject) => {
+  return new Promise<string>(( resolve, reject) => {
     if (typeof req.body === 'string') return resolve(req.body);
     if (Buffer.isBuffer(req.body)) return resolve(req.body.toString('utf8'));
     let body = '';

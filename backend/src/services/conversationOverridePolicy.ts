@@ -1,4 +1,3 @@
-// @ts-nocheck
 import { query } from './db.js';
 
 // P1-01: Override scoping — CONVERSATION-LEVEL vs MESSAGE-LEVEL.

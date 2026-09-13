@@ -1,4 +1,3 @@
-// @ts-nocheck
 import { api } from './api.ts';
 import { useStore } from '../store/index.ts';
 import { pendingMarkReadMap } from './pendingReads.ts';

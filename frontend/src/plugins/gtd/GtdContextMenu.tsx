@@ -1,4 +1,3 @@
-// @ts-nocheck
 import { useTranslation } from 'react-i18next';
 import { GTD_STATES, GTD_COLORS, resolveAccountGtdFolders, gtdStatesInFolders, unclassifyThread } from '../../utils/gtd.ts';
 import { useStore } from '../../store/index.ts';

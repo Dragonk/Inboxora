@@ -1,4 +1,3 @@
-// @ts-nocheck
 import { useEffect, useRef, useMemo } from 'react';
 export { EMAIL_SANITIZE_POLICY, sanitizeMessageHtml, emailCsp, EMAIL_BASE_TAG, buildSrcDoc } from './messageBodySecurity.ts';
 import { sanitizeMessageHtml, buildSrcDoc, escapeMessageText } from './messageBodySecurity.ts';

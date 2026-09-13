@@ -1,4 +1,3 @@
-// @ts-nocheck
 import { isIPv4, isIPv6 } from 'net';
 import { promises as dnsPromises } from 'dns';
 

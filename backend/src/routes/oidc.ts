@@ -315,7 +315,7 @@ oidcBrowserRouter.get('/:slug/start', async (req, res) => {
 
     // Save session before redirecting so the PKCE verifier and state nonce are
     // committed to the store before the provider redirects back with the code.
-    await new Promise((resolve, reject) => req.session.save(err => err ? reject(err) : resolve()));
+    await new Promise<void>((resolve, reject) => req.session.save(err => err ? reject(err) : resolve()));
     res.redirect(`${doc.authorization_endpoint}?${params}`);
   } catch (err) {
     console.error('OIDC start error:', err.message);
@@ -481,12 +481,12 @@ oidcBrowserRouter.get('/:slug/callback', async (req, res) => {
         'UPDATE user_identities SET last_used_at = NOW() WHERE issuer = $1 AND subject = $2',
         [issuer, subject]
       );
-      await new Promise((resolve, reject) => req.session.regenerate(err => err ? reject(err) : resolve()));
+      await new Promise<void>((resolve, reject) => req.session.regenerate(err => err ? reject(err) : resolve()));
       req.session.userId = user.id;
       req.session.username = user.username;
       req.session.isAdmin = user.is_admin;
       rememberOidcSession(req, provider.id, tokenData.id_token);
-      await new Promise((resolve, reject) => req.session.save(err => err ? reject(err) : resolve()));
+      await new Promise<void>((resolve, reject) => req.session.save(err => err ? reject(err) : resolve()));
       imapManager.connectAllForUser(user.id);
       logAuthEvent('sso_login', { username: user.username, userId: user.id, ip: req.ip, success: true });
       return res.redirect('/?oidc_success=login');
@@ -536,12 +536,12 @@ oidcBrowserRouter.get('/:slug/callback', async (req, res) => {
         [user.id, provider.id, issuer, subject, email, emailVerified]
       );
       await maybeBackfillDisplayName(client, user.id, payload);
-      await new Promise((resolve, reject) => req.session.regenerate(err => err ? reject(err) : resolve()));
+      await new Promise<void>((resolve, reject) => req.session.regenerate(err => err ? reject(err) : resolve()));
       req.session.userId = user.id;
       req.session.username = user.username;
       req.session.isAdmin = user.is_admin;
       rememberOidcSession(req, provider.id, tokenData.id_token);
-      await new Promise((resolve, reject) => req.session.save(err => err ? reject(err) : resolve()));
+      await new Promise<void>((resolve, reject) => req.session.save(err => err ? reject(err) : resolve()));
       imapManager.connectAllForUser(user.id);
       logAuthEvent('sso_login', { username: user.username, userId: user.id, ip: req.ip, success: true });
       return res.redirect('/?oidc_success=login');
@@ -601,12 +601,12 @@ oidcBrowserRouter.get('/:slug/callback', async (req, res) => {
         );
         await maybeBackfillDisplayName(client, user.id, payload);
         await client.query('COMMIT');
-        await new Promise((resolve, reject) => req.session.regenerate(err => err ? reject(err) : resolve()));
+        await new Promise<void>((resolve, reject) => req.session.regenerate(err => err ? reject(err) : resolve()));
         req.session.userId = user.id;
         req.session.username = user.username;
         req.session.isAdmin = user.is_admin;
         rememberOidcSession(req, provider.id, tokenData.id_token);
-        await new Promise((resolve, reject) => req.session.save(err => err ? reject(err) : resolve()));
+        await new Promise<void>((resolve, reject) => req.session.save(err => err ? reject(err) : resolve()));
         imapManager.connectAllForUser(user.id);
         logAuthEvent('sso_login', { username: user.username, userId: user.id, ip: req.ip, success: true });
         return res.redirect('/?oidc_success=login');

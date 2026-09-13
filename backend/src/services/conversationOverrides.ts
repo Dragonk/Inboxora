@@ -1,4 +1,3 @@
-// @ts-nocheck
 import { pool, withTransaction } from './db.js';
 import { assertConversationOwner, assertNoAliasCycle, lockConversationsDeterministically, refreshConversationAggregates, resolveConversationAlias } from './conversationOverridePolicy.js';
 

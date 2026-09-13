@@ -1,4 +1,3 @@
-// @ts-nocheck
 // GTD plugin — frontend registrations (v3.0 plugin platform).
 //
 // Registers GTD's UI into core's plugin slots so core components carry no GTD-specific code. This is

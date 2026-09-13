@@ -1,4 +1,3 @@
-// @ts-nocheck
 // Frontend plugin behaviour registrations (v3.0 plugin platform — frontend half).
 //
 // Slots (registry.js / PluginSlot.jsx) cover UI a plugin RENDERS. This covers BEHAVIOUR a plugin

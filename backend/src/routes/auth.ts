@@ -214,7 +214,7 @@ router.post('/register', authLimiter, async (req, res) => {
     await client.query('COMMIT');
 
     // Regenerate session ID to prevent session fixation before elevating privileges
-    await new Promise((resolve, reject) => req.session.regenerate(err => err ? reject(err) : resolve()));
+    await new Promise<void>((resolve, reject) => req.session.regenerate(err => err ? reject(err) : resolve()));
     req.session.userId = newUser.id;
     req.session.username = newUser.username;
     req.session.isAdmin = newUser.is_admin;
@@ -264,7 +264,7 @@ router.post('/login', authLimiter, async (req, res) => {
     }
 
     // Regenerate session ID before storing any auth state to prevent session fixation
-    await new Promise((resolve, reject) => req.session.regenerate(err => err ? reject(err) : resolve()));
+    await new Promise<void>((resolve, reject) => req.session.regenerate(err => err ? reject(err) : resolve()));
 
     // Check trusted device cookie — bypass 2FA if valid
     const rawCookies = req.headers.cookie || '';
@@ -386,7 +386,7 @@ router.post('/2fa/challenge', authLimiter, async (req, res) => {
   }
 
   // Regenerate session ID before elevating from pending to fully authenticated
-  await new Promise((resolve, reject) => req.session.regenerate(err => err ? reject(err) : resolve()));
+  await new Promise<void>((resolve, reject) => req.session.regenerate(err => err ? reject(err) : resolve()));
   req.session.userId = user.id;
   req.session.username = user.username;
   req.session.isAdmin = user.is_admin;
@@ -502,7 +502,7 @@ router.post('/2fa/verify-email-otp', authLimiter, async (req, res) => {
   const user = userResult.rows[0];
   if (!user) return res.status(401).json({ error: 'Authentication failed' });
 
-  await new Promise((resolve, reject) => req.session.regenerate(err => err ? reject(err) : resolve()));
+  await new Promise<void>((resolve, reject) => req.session.regenerate(err => err ? reject(err) : resolve()));
   req.session.userId = user.id;
   req.session.username = user.username;
   req.session.isAdmin = user.is_admin;
@@ -576,7 +576,7 @@ router.post('/2fa/enrollment/enable', authLimiter, async (req, res) => {
   const user = userResult.rows[0];
   if (!user) return res.status(401).json({ error: 'Authentication failed' });
 
-  await new Promise((resolve, reject) => req.session.regenerate(err => err ? reject(err) : resolve()));
+  await new Promise<void>((resolve, reject) => req.session.regenerate(err => err ? reject(err) : resolve()));
   req.session.userId = user.id;
   req.session.username = user.username;
   req.session.isAdmin = user.is_admin;
@@ -1105,7 +1105,7 @@ router.post('/forgot-password', authLimiter, async (req, res) => {
           if (cfg.host && cfg.user && pass) {
             const policy = await getConnectionPolicy();
             const sysResolved = await resolveForConnection(cfg.host, { allowPrivate: policy.allowPrivateHosts });
-            const sysTls = { rejectUnauthorized: true };
+            const sysTls: Record<string, any> = { rejectUnauthorized: true };
             if (sysResolved.servername) sysTls.servername = sysResolved.servername;
             transport = createSmtpTransport(sysResolved, {
               port: cfg.port || 587,
@@ -1139,7 +1139,7 @@ router.post('/forgot-password', authLimiter, async (req, res) => {
           }
           const policy = await getConnectionPolicy();
           const acctResolved = await resolveForConnection(acct.smtp_host, { allowPrivate: policy.allowPrivateHosts });
-          const acctTls = { rejectUnauthorized: policy.allowInsecureTls ? !acct.imap_skip_tls_verify : true };
+          const acctTls: Record<string, any> = { rejectUnauthorized: policy.allowInsecureTls ? !acct.imap_skip_tls_verify : true };
           if (acctResolved.servername) acctTls.servername = acctResolved.servername;
           transport = createSmtpTransport(acctResolved, {
             port: acct.smtp_port,

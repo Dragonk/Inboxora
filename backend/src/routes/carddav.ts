@@ -1,4 +1,3 @@
-// @ts-nocheck
 // CardDAV server — supports Apple Contacts, Thunderbird, DAVx5 / Android.
 // Protocol: RFC 6352 (CardDAV), RFC 4918 (WebDAV).
 // Auth: HTTP Basic with dedicated, revocable DAV application passwords.
@@ -118,7 +117,7 @@ function sendXml(res, status, xml) {
 // Collect the request body as a string by reading the raw stream.
 // We do not go through express.json/text — CardDAV uses custom content types.
 function rawBody(req) {
-  return new Promise((resolve, reject) => {
+  return new Promise<string>(( resolve, reject) => {
     // If a body parser already collected it (unlikely here), use it.
     if (typeof req.body === 'string') return resolve(req.body);
     if (Buffer.isBuffer(req.body)) return resolve(req.body.toString('utf8'));

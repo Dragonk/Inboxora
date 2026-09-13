@@ -109,7 +109,11 @@ function readGtdCollapsedSections() {
 // is derived from them plus the OS colour scheme (mode 'system').
 const _initialThemePrefs = readThemePrefs();
 
-export const useStore = create((set, get) => ({
+// The store shape is intentionally typed as `any` for now: it is a large,
+// dynamically-composed slice object, and typing it in full is tracked as part of
+// the remaining TypeScript migration debt. Anonymous `any` keeps selector
+// callbacks (`useStore(s => s.x)`) usable instead of collapsing to `unknown`.
+export const useStore = create<any>((set, get) => ({
   // Auth
   user: null,
   setUser: (user) => {

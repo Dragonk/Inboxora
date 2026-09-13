@@ -1,4 +1,3 @@
-// @ts-nocheck
 import { Fragment } from 'react';
 import { useStore } from '../store/index.ts';
 import { getSlotContributions, getRuntimes, getCollectors } from './registry.ts';

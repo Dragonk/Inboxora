@@ -1,4 +1,3 @@
-// @ts-nocheck
 import { useStore } from '../store/index.ts';
 
 // Auto-advance the reading pane when the open message leaves the list: select the row that takes

@@ -62,7 +62,7 @@ router.get('/microsoft', async (req, res) => {
 
   // Save session before redirecting so the nonce is committed to the store
   // before the external provider redirects back with the authorization code.
-  await new Promise((resolve, reject) => req.session.save(err => err ? reject(err) : resolve()));
+  await new Promise<void>((resolve, reject) => req.session.save(err => err ? reject(err) : resolve()));
   res.redirect(`${MICROSOFT_AUTH_URL}/${tenantId}/oauth2/v2.0/authorize?${params}`);
 });
 

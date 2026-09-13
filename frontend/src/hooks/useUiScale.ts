@@ -1,4 +1,3 @@
-// @ts-nocheck
 import { useStore } from '../store/index.ts';
 
 // The whole app is rendered inside a `transform: scale(fontSize/100)` wrapper whose
