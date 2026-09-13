@@ -6,7 +6,8 @@ function fixture() {
   const entries = [{ external: true }, { otherState: 'preserved' }];
   let index = 1;
   let listener;
-  const jobs = [];
+  /** The pending navigation jobs, newest last. */
+  const jobs: Array<() => void> = [];
   const history = {
     get state() { return entries[index]; },
     pushState(state) { entries.splice(++index, Infinity, state); },
@@ -21,7 +22,7 @@ function fixture() {
 
 describe('system Back layer history', () => {
   it('dismisses one top layer per gesture and permits exiting only at the root', () => {
-    const f = fixture(); const closed = [];
+    const f = fixture(); const closed: string[] = [];
     const reader = f.nav.register('reader', () => { closed.push('reader'); reader(); }, 10);
     const modal = f.nav.register('modal', () => { closed.push('modal'); modal(); }, 5000);
     f.flush(); assert.equal(f.index, 2);
@@ -48,7 +49,7 @@ describe('system Back layer history', () => {
     assert.equal(closed, false); assert.equal(f.index, 2);
   });
   it('uses LIFO within one priority and blocks navigation through busy dialogs', () => {
-    const f = fixture(); const closed = [];
+    const f = fixture(); const closed: string[] = [];
     f.nav.register('reader', () => closed.push('reader'), 10);
     f.nav.register('busy', () => closed.push('busy'), 4500);
     const inner = f.nav.register('inner', () => { closed.push('inner'); inner(); }, 4500);

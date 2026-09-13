@@ -962,7 +962,7 @@ export default function MessageList() {
       });
     }
 
-    let mutations = [];
+    let mutations: Array<{ msg: StoreMessageRow; mutation: ReturnType<typeof queueReadStateMutation> }> = [];
     try {
       // Serialize every native-copy mutation. This makes auto-read and two quick
       // explicit swipes deterministic even when provider responses arrive reversed.
@@ -1283,7 +1283,7 @@ export default function MessageList() {
       if (settled) return;
       timers.delete('__call__');
       const results = await Promise.allSettled(ids.map(performCall));
-      const failed = [];
+      const failed: string[] = [];
       results.forEach((r, i) => {
         if (r.status === 'rejected' || r.value?.__failed) failed.push(ids[i]);
       });
@@ -1563,7 +1563,7 @@ export default function MessageList() {
     const q = searchQuery.trim().toLowerCase();
     if (!q) return [];
     if (/(?:^|\s)-?(?:from|to|subject|has|is|cc|bcc|in|after|before):/.test(q)) return [];
-    const results = [];
+    const results: Array<{ accountId: string; accountName: string; [key: string]: unknown }> = [];
     for (const [accountId, folderList] of Object.entries(folders)) {
       if (!Array.isArray(folderList)) continue;
       const account = accounts.find(a => a.id === accountId);

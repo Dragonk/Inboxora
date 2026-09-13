@@ -38,7 +38,7 @@ export default function MessageHeaderModal({ messageId, subject, onClose, onSubj
     setTimeout(() => setCopied(false), 2000);
   };
 
-  const parsedHeaders = [];
+  const parsedHeaders: Array<{ key: string; value: string }> = [];
   if (headers) {
     const lines = headers.split('\n');
     let current = null;

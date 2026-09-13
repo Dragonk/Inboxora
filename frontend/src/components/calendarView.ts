@@ -127,7 +127,7 @@ export function createDayEventsResolver(events: CalendarViewEvent[] | null | und
     if (cached) return cached;
     const dayStart = new Date(day.getFullYear(), day.getMonth(), day.getDate());
     const dayEnd = new Date(dayStart); dayEnd.setDate(dayEnd.getDate() + 1);
-    const entries = [];
+    const entries: typeof prepared = [];
     for (const item of prepared) {
       if (item.allDay) {
         if (item.startKey <= dayKey && dayKey < item.endKey) entries.push(item);
