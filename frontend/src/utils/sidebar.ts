@@ -1,3 +1,13 @@
+interface SidebarFolderNode {
+  path: string;
+  name?: string;
+  delimiter?: string;
+  special_use?: string | null;
+  account_id?: string;
+  children: SidebarFolderNode[];
+  [key: string]: unknown;
+}
+
 export function collapsedTooltip(label, collapsed) {
   if (!collapsed) return undefined;
   // An empty title suppresses the browser's own tooltip, so drop the attribute.
@@ -27,7 +37,7 @@ function folderParent(path, delimiter) {
 
 function folderPathsWithAncestors(folders) {
   const delimiter = delimiterFor(folders);
-  const paths = new Set();
+  const paths = new Set<string>();
   for (const folder of folders) {
     if (typeof folder?.path !== 'string' || !folder.path) continue;
     const parts = folder.path.split(delimiter);
@@ -76,7 +86,7 @@ export function normalizeFolderOrder(folders, savedOrder = []) {
 export function buildFolderTree(folders, savedOrder = []) {
   const safeFolders = Array.isArray(folders) ? folders : [];
   const delimiter = delimiterFor(safeFolders);
-  const map = {};
+  const map: Record<string, SidebarFolderNode> = {};
   for (const folder of safeFolders) {
     if (typeof folder?.path !== 'string' || !folder.path) continue;
     map[folder.path] = { ...folder, children: [] };
@@ -100,7 +110,7 @@ export function buildFolderTree(folders, savedOrder = []) {
     }
   }
 
-  const roots = [];
+  const roots: SidebarFolderNode[] = [];
   const nodes = Object.values(map).sort((a, b) => a.path.localeCompare(b.path));
   for (const node of nodes) {
     const parentPath = folderParent(node.path, delimiter);

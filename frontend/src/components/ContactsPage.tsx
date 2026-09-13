@@ -375,7 +375,7 @@ export default function ContactsPage({ isActive = true }) {
         urls:         form.urls.filter(item => item.value.trim()),
         instantMessages: form.instantMessages.filter(item => item.value.trim()),
         categories:   form.categories.filter(Boolean),
-        addresses:    form.addresses.filter(address => Object.entries(address).some(([key, value]) => key !== 'type' && value.trim())),
+        addresses:    form.addresses.filter(address => Object.entries(address).some(([key, value]) => key !== 'type' && typeof value === 'string' && value.trim())),
       };
       let saved;
       if (showNew) {
@@ -1150,7 +1150,7 @@ const fieldIcon = {
   briefcase: <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" aria-hidden="true"><rect x="2" y="7" width="20" height="14" rx="2"/><path d="M16 21V5a2 2 0 00-2-2h-4a2 2 0 00-2 2v16"/></svg>,
 };
 
-function DetailSection({ label, children }) {
+function DetailSection({ label = undefined, children }) {
   return (
     <section style={{
       borderTop: '1px solid var(--border-subtle)',
@@ -1175,7 +1175,7 @@ function DetailRow({ icon, type, children }) {
   );
 }
 
-function ActionBtn({ children, onClick, danger, disabled }) {
+function ActionBtn({ children, onClick, danger = false, disabled = false }) {
   return (
     <button
       type="button"

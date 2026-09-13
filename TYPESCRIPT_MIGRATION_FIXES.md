@@ -423,3 +423,22 @@ Backend: tsc 0 · testy 1785/0.
 Frontend tsc: 112 bledow (z 661). Testy 2335/0 · lint czysty · build OK.
 Backend: tsc 0 · testy 1785/0.
 
+
+## 43. Frontend: sidebar, body status, heartbeat WS, atrapy pamięci
+
+- 🔴 sidebar.ts: Set/obiekt drzewa folderow bez typow (path/children) -> SidebarFolderNode;
+  localeCompare na unknown byl niekontrolowany.
+- 🔴 MessageDetailContent: status = {} -> jawny typ (loading/error/unavailable);
+  wczesniej kazdy odczyt status.* byl niekontrolowany.
+- 🔴 useWebSocket: wlasne pola na WebSocket (_lastActivity/_pingInterval) -> HeartbeatWebSocket;
+  patch = {} -> typ; zmiany z WS jako jawna tablica { id, is_read, is_starred }.
+- 🔴 ContactsPage: value.trim() na unknown w filtrach adresow (Object.entries) -> zawężenie typeof string.
+- 🟠 folderOrder.test: atrapa localStorage nie implementowala Storage; pelna implementacja
+  (getItem/setItem/removeItem/clear/key/length + value).
+- 🟠 DetailSection.label i ActionBtn.danger/disabled — opcjonalne.
+
+## 44. Stan weryfikacji
+
+Frontend tsc: 79 bledow (z 661). Testy 2335/0 · lint czysty · build OK.
+Backend: tsc 0 · testy 1785/0.
+

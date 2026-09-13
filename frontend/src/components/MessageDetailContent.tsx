@@ -28,7 +28,11 @@ export default function MessageDetailContent({
   physicalCopyId,
   message,
   body,
-  status = {},
+  status = {} as {
+    loading?: boolean;
+    error?: string | null;
+    unavailable?: boolean;
+  },
   remoteImages = false,
   onLoadBody,
   onRemoteImages,

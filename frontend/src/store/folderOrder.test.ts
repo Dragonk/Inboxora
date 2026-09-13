@@ -7,11 +7,15 @@ import {
   readFolderOrder,
 } from './folderOrder.ts';
 
-function memoryStorage(initial = {}) {
-  const values = new Map(Object.entries(initial));
+function memoryStorage(initial: Record<string, string> = {}): Storage & { value(key: string): string | undefined } {
+  const values = new Map<string, string>(Object.entries(initial));
   return {
     getItem: key => values.get(key) ?? null,
-    setItem: (key, value) => values.set(key, String(value)),
+    setItem: (key, value) => { values.set(key, String(value)); },
+    removeItem: key => { values.delete(key); },
+    clear: () => { values.clear(); },
+    key: index => [...values.keys()][index] ?? null,
+    get length() { return values.size; },
     value: key => values.get(key),
   };
 }

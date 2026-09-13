@@ -59,7 +59,11 @@ export function useWebSocket() {
       wsRef.current.close();
     }
     const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-    const ws = new WebSocket(`${protocol}//${window.location.host}/ws`);
+    interface HeartbeatWebSocket extends WebSocket {
+      _lastActivity?: number;
+      _pingInterval?: ReturnType<typeof setInterval>;
+    }
+    const ws = new WebSocket(`${protocol}//${window.location.host}/ws`) as HeartbeatWebSocket;
 
     ws.onopen = () => {
       const wasReconnect = hasConnectedBefore.current;
@@ -319,9 +323,9 @@ export function useWebSocket() {
         const { changes } = data;
         if (Array.isArray(changes) && changes.length) {
           const { updateMessage } = useStore.getState();
-          for (const c of changes) {
+          for (const c of changes as Array<{ id?: string; is_read?: boolean; is_starred?: boolean }>) {
             if (!c || !c.id) continue;
-            const patch = {};
+            const patch: { is_read?: boolean; is_starred?: boolean } = {};
             if (typeof c.is_read === 'boolean') patch.is_read = c.is_read;
             if (typeof c.is_starred === 'boolean') patch.is_starred = c.is_starred;
             if (Object.keys(patch).length) updateMessage(c.id, patch);
