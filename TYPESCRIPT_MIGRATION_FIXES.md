@@ -528,3 +528,15 @@ Frontend any: 64 -> 48 (tsc nadal 0). Naprawione realnie (bez maskowania):
 - RichTextEditor: setContent(next, { emitUpdate: false }) zamiast false as any.
 - MessageHeaderModal.onSubjectResolved: (_subject: string).
 
+
+## 53. Frontend: typy mostka natywnego i undoable commit
+
+- 🔴 global.d.ts: inboxoraNative/Capacitor/webkitAudioContext/__inboxoraHandleAndroidBack byly any.
+  Zdefiniowany pelny InboxoraNativeBridge (notifications/badges/updates/actions/platform,
+  getHost/saveHost/resetHost) wraz z typami wynikow (status, push, update, copy/install).
+  Ujawnilo to i otypowalo wszystkie uzywane metody (checkPermission/showNewMail/onPush/
+  installAuto/openDownload/getPending/ack/onAction).
+- 🔴 undoableAction.createUndoableCommit: opcje bez typow -> UndoableCommitOptions
+  (schedule/cancel jako wstrzykiwane funkcje), usuniete as any z 6 miejsc w testach.
+- Frontend any: 48 -> 38 (tsc 0, testy 2335/0, lint czysty).
+

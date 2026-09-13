@@ -2,6 +2,96 @@
 // web build runs without any native host.
 export {};
 
+interface InboxoraNativeStatus {
+  deviceId?: string;
+  status?: string;
+  enabled?: boolean;
+  [key: string]: unknown;
+}
+
+interface InboxoraNativePushNotification {
+  type?: string;
+  title?: string;
+  body?: string;
+  message?: string;
+  [key: string]: unknown;
+}
+
+interface InboxoraNativeUpdateData {
+  filePath?: string;
+  updatePath?: string;
+  installCommand?: string;
+  [key: string]: unknown;
+}
+
+interface InboxoraNativeUpdateStatus {
+  type?: string;
+  data?: InboxoraNativeUpdateData;
+  [key: string]: unknown;
+}
+
+interface InboxoraNativeNotifications {
+  checkPermission?(): Promise<string>;
+  requestPermission?(): Promise<NotificationPermission>;
+  showNewMail?(payload: unknown): Promise<unknown>;
+  getStatus?(): Promise<InboxoraNativeStatus>;
+  register?(): Promise<InboxoraNativeStatus>;
+  clear?(): Promise<InboxoraNativeStatus>;
+  openDistributor?(): Promise<InboxoraNativeStatus>;
+  openInstallPage?(): Promise<InboxoraNativeStatus>;
+  openHelp?(): Promise<InboxoraNativeStatus>;
+  openSettings?(): Promise<InboxoraNativeStatus>;
+  onPush?(callback: (notification: InboxoraNativePushNotification) => void): () => void;
+}
+
+interface InboxoraNativeBadges {
+  setUnreadCount?(count: number): Promise<unknown>;
+}
+
+interface InboxoraNativeCopyResult {
+  copied?: boolean;
+  reason?: string;
+  installCommand?: string;
+  [key: string]: unknown;
+}
+
+interface InboxoraNativeInstallResult {
+  installed?: boolean;
+  reason?: string;
+  [key: string]: unknown;
+}
+
+interface InboxoraNativeUpdates {
+  check?(foreground?: boolean): Promise<unknown>;
+  onStatus?(callback: (status: InboxoraNativeUpdateStatus) => void): () => void;
+  copyInstallCommandAndQuit?(options: unknown): Promise<InboxoraNativeCopyResult>;
+  installDownloaded?(): Promise<InboxoraNativeInstallResult>;
+  installAuto?(): Promise<InboxoraNativeInstallResult>;
+  openDownload?(): Promise<unknown>;
+}
+
+interface InboxoraNativeActions {
+  ack?(id: string): Promise<unknown>;
+  onAction?(callback: (payload: unknown) => void): () => void;
+  getPending?(): Promise<Array<{ id?: string; type?: string; [key: string]: unknown }>>;
+}
+
+interface InboxoraNativeBridge {
+  platform?: string;
+  getHost?(): Promise<unknown>;
+  saveHost?(host: string): Promise<unknown>;
+  resetHost?(): Promise<unknown>;
+  notifications?: InboxoraNativeNotifications;
+  badges?: InboxoraNativeBadges;
+  updates?: InboxoraNativeUpdates;
+  actions?: InboxoraNativeActions;
+}
+
+interface CapacitorRuntime {
+  isNativePlatform(): boolean;
+  [key: string]: unknown;
+}
+
 declare global {
   interface Error {
     status?: number;
@@ -23,13 +113,13 @@ declare global {
     __inboxoraNativeBridgeReady?: boolean;
     __inboxoraPendingNativeActions?: unknown[];
     __mailflowPendingNativeActions?: unknown[];
-    inboxoraNative?: any;
+    inboxoraNative?: InboxoraNativeBridge;
     // Capacitor runtime, present only inside the native shells.
-    Capacitor?: any;
+    Capacitor?: CapacitorRuntime;
     // Legacy Safari/WebKit AudioContext constructor.
-    webkitAudioContext?: any;
+    webkitAudioContext?: typeof AudioContext;
     // Android hardware-back handler installed by the native shell bridge.
-    __inboxoraHandleAndroidBack?: any;
+    __inboxoraHandleAndroidBack?: () => void;
   }
 }
 

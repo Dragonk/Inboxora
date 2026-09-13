@@ -32,8 +32,8 @@ describe('createUndoableCommit', () => {
       delayMs: 4500,
       commit: async () => { calls.push('commit'); },
       undo: () => { calls.push('undo'); },
-      schedule: timer.schedule as any,
-      cancel: timer.cancel as any,
+      schedule: timer.schedule,
+      cancel: timer.cancel,
     });
 
     assert.equal(action.undo(), true);
@@ -52,8 +52,8 @@ describe('createUndoableCommit', () => {
       delayMs: 4500,
       commit: async () => { calls.push('commit'); },
       undo: () => { calls.push('undo'); },
-      schedule: timer.schedule as any,
-      cancel: timer.cancel as any,
+      schedule: timer.schedule,
+      cancel: timer.cancel,
     });
 
     await timer.fire();
@@ -72,8 +72,8 @@ describe('createUndoableCommit', () => {
       allowUndoWhileCommitting: true,
       commit: async () => { calls.push('commit'); await pending; },
       undo: () => { calls.push('undo'); },
-      schedule: timer.schedule as any,
-      cancel: timer.cancel as any,
+      schedule: timer.schedule,
+      cancel: timer.cancel,
     });
 
     const firing = timer.fire();
