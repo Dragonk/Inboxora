@@ -231,7 +231,7 @@ export default function MessagePane({ windowMessageId = null, onWindowClose = nu
 
   const allMessages = searchQuery.trim() ? searchResults : messages;
   const message = allMessages.find(m => m.id === selectedMessageId)
-    ?? Object.values(threadMessages as Record<string, Array<{ id: string }>>).flat().find(m => m.id === selectedMessageId);
+    ?? Object.values(threadMessages).flat().find(m => m.id === selectedMessageId);
 
   // Compose lives in the mobile top bar now that the reader owns it (the shell's
   // fallback compose row is hidden while the reader is open). Target the account of

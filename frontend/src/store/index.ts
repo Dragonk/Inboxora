@@ -99,11 +99,8 @@ export interface StoreState {
   setUnreadCounts: (counts: { total: number; byAccount: Record<string, number> }) => void;
   decrementUnread: (accountId: string, count?: number) => void;
   incrementUnread: (accountId: string, count?: number) => void;
-  folders: {};
-  setFolders: (accountId: string, folders: Record<string, Array<{
-      path: string;
-      unread_count?: number;
-  }>>) => void;
+  folders: Record<string, Array<{ path: string; unread_count?: number; [key: string]: unknown }>>;
+  setFolders: (accountId: string, folders: Array<{ path: string; unread_count?: number }>) => void;
   adjustFolderUnread: (accountId: string, folderPath: string, delta: number) => void;
   sidebarCollapsed: boolean;
   toggleSidebar: () => void;
@@ -187,7 +184,7 @@ export interface StoreState {
   setCalendarWorkHoursEnd: (value: string) => void;
   rulesPreFill: boolean;
   setRulesPreFill: (v: boolean) => void;
-  backfillProgress: {};
+  backfillProgress: Record<string, unknown>;
   setBackfillProgress: (accountId: string, progress: Record<string, unknown>) => void;
   mobileSidebarOpen: boolean;
   setMobileSidebarOpen: (v: boolean) => void;
@@ -215,7 +212,7 @@ export interface StoreState {
   setMarkReadDelay: (val: string) => void;
   expandedThreadId: string | null;
   setExpandedThreadId: (id: string) => void;
-  threadMessages: {};
+  threadMessages: Record<string, StoreMessageRow[]>;
   setThreadMessages: (threadId: string, msgs: StoreMessageRow[]) => void;
   clearThreadMessages: (threadId: string) => void;
   loadingThread: string | null;
@@ -242,7 +239,7 @@ export interface StoreState {
   setShowAppBadge: (val: unknown) => void;
   categorizationEnabled: boolean;
   setCategorizationEnabled: (val: unknown) => void;
-  categoryCounts: {};
+  categoryCounts: Record<string, number>;
   setCategoryCounts: (counts: Record<string, number>) => void;
   adjustCategoryCount: (category: string, delta: number) => void;
   rightSidebarWidth: number;
@@ -282,11 +279,11 @@ export interface StoreState {
       type: string;
       value: string;
   }) => void;
-  shortcuts: {};
+  shortcuts: Record<string, unknown>;
   setShortcuts: (overrides: Record<string, unknown>) => void;
   aiActions: unknown[];
   setAiActions: (actions: unknown[]) => void;
-  hiddenFolders: {};
+  hiddenFolders: string[];
   setHiddenFolders: (hf: string[]) => void;
   folderOrder: Record<string, string[]>;
   setFolderOrder: (accountId: string, paths: string[]) => void;
@@ -700,7 +697,7 @@ export const useStore = create<StoreState>()((set, get) => ({
 
   // Folders
   folders: {}, // accountId -> folders[]
-  setFolders: (accountId: string, folders: Record<string, Array<{ path: string; unread_count?: number }>>) =>set((state: StoreStateRead) => ({
+  setFolders: (accountId: string, folders: Array<{ path: string; unread_count?: number }>) =>set((state: StoreStateRead) => ({
     folders: { ...state.folders, [accountId]: folders }
   })),
   // Increment/decrement the unread_count of a single folder in one account's
@@ -1383,7 +1380,7 @@ export const useStore = create<StoreState>()((set, get) => ({
   },
 
   // Hidden folders — { [accountId]: [path, ...] }
-  hiddenFolders: {},
+  hiddenFolders: [],
   setHiddenFolders: (hf: string[]) =>{
     set({ hiddenFolders: hf });
     return api.savePreferences({ hiddenFolders: hf }).catch(() => {});
