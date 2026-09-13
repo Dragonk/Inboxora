@@ -1,4 +1,5 @@
 import express from 'express';
+import type { NextFunction, Request, Response } from 'express';
 import 'express-async-errors'; // route a rejected async handler to the error middleware (Express 4 doesn't)
 import session from 'express-session';
 import type { Store as SessionStore } from 'express-session';
@@ -152,7 +153,7 @@ app.use('/api/mail/draft', express.json({ limit: '35mb' }));
 app.use('/api/gtd/pet/import', express.json({ limit: '8mb' }));
 app.use(express.json({ limit: '1mb' }));
 // Return a clean JSON error when the body parser rejects an oversized payload.
-app.use((err, req, res, next) => {
+app.use((err: Error & { type?: string }, req: Request, res: Response, next: NextFunction) => {
   if (err.type === 'entity.too.large') {
     return res.status(413).json({ error: 'Request too large. Total attachment size must not exceed 25 MB.' });
   }
@@ -259,7 +260,7 @@ app.get('/api/update', async (_req, res) => {
 // Catch unhandled errors thrown (or rejected) inside async route handlers.
 // The `express-async-errors` import above patches Express 4 to forward async
 // rejections here; without both pieces, a thrown DB error hangs the request.
-app.use((err, req, res, _next) => {
+app.use((err: unknown, req: Request, res: Response, _next: NextFunction) => {
   console.error('Unhandled route error:', err);
   if (res.headersSent) return;
   res.status(500).json({ error: 'Internal server error' });
@@ -333,7 +334,7 @@ if (process.env.NODE_ENV !== 'test' && process.env.E2E_DISABLE_IMAP_CONNECT !== 
       for (let i = 0; i < Math.min(MAX_CONCURRENT, queue.length); i++) connectNext();
     }
   } catch (err) {
-    console.error('Startup account connection error:', err.message);
+    console.error('Startup account connection error:', err instanceof Error ? err.message : String(err));
   }
 }
 
