@@ -11,7 +11,7 @@ vi.mock('../utils/mailUtils.js', () => ({
 }));
 vi.mock('./ruleForwarder.js', () => ({ forwardRuleMessage: vi.fn() }));
 
-const { query } = (await import('./db.js')) as any;
+const { query } = vi.mocked(await import('./db.js'));
 const {
   resolveArchiveFolder,
   isAllMailFolder,
@@ -19,8 +19,8 @@ const {
   resolveAllTrashPaths,
   getDeleteStrategy,
   adjustFolderCounts,
-} = (await import('../utils/mailUtils.js')) as any;
-const { forwardRuleMessage } = (await import('./ruleForwarder.js')) as any;
+} = vi.mocked(await import('../utils/mailUtils.js'));
+const { forwardRuleMessage } = vi.mocked(await import('./ruleForwarder.js'));
 import { applyInboxRules } from './inboxRules.js';
 
 const account = { id: 'acc-1', user_id: 'user-1', folder_mappings: {} };
@@ -172,7 +172,7 @@ describe('applyInboxRules — forwarding', () => {
       resolveArchiveFolder.mockResolvedValue('Archive');
       isAllMailFolder.mockResolvedValue(false);
       resolveTrashFolder.mockResolvedValue('Trash');
-      resolveAllTrashPaths.mockResolvedValue(['Trash']);
+      resolveAllTrashPaths.mockResolvedValue(new Set(['Trash']));
       getDeleteStrategy.mockReturnValue({
         action: 'move',
         destination: 'Trash',

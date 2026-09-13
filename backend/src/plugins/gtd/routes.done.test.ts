@@ -12,7 +12,7 @@ vi.mock('../../middleware/auth.js', () => ({
   requireAuth: (req, _res, next) => { req.session = { userId: 'u1' }; next(); },
 }));
 vi.mock('../../utils/mailUtils.js', async (importOriginal) => {
-  const actual: any = await importOriginal();
+  const actual = (await importOriginal()) as Record<string, unknown>;
   return {
     ...actual,
     resolveArchiveFolder: vi.fn(),
@@ -22,7 +22,7 @@ vi.mock('../../utils/mailUtils.js', async (importOriginal) => {
   };
 });
 vi.mock('./gtdConfig.js', async (importOriginal) => {
-  const actual: any = await importOriginal();
+  const actual = (await importOriginal()) as Record<string, unknown>;
   return { ...actual, getGtdConfig: vi.fn() };
 });
 

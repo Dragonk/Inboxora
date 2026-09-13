@@ -652,3 +652,20 @@ Backend any: 149 -> 77 (tsc 0, testy 1785/0, lint czysty).
 - conversations.ts: values: any[] -> unknown[] (cast przy pushu usuniety).
 - gtd/routes.ts: resolveDoneFolders otypowane; req.query as any -> queryString/queryInt.
 
+
+## 61. Backend: testy — makiety modulow i realne niezgodnosci
+
+Backend any: 77 -> 43 (tsc 0, testy 1785/0, lint czysty).
+
+- WYKRYTY REALNY BLAD: w inboxRules.test mock resolveAllTrashPaths zwracal TABLICE,
+  a funkcja zwraca Set — produkcja wolalaby .has() na tablicy (wyjatek w runtime).
+  Poprawione na new Set([...]).
+- vi.mocked(await import(...)) zamiast (await import(...)) as any w 5 plikach testowych.
+- hostValidation.test: dns.resolve4/6 -> vi.mocked(dns.resolveX) (18 miejsc).
+- imapManager.test: FakeImapClient (EventEmitter + otypowane metody), fetch jako
+  Mock<(...args: unknown[]) => unknown> (generator-mocki), vi.spyOn(syncMessages),
+  vi.mocked(broadcast), usuniete zbedne (providerProfile() as any).
+- index.ts: buildMeta -> { version?: string }; RedisStore z UDOKUMENTOWANYM waskim
+  widokiem konstruktora (luka w typach connect-redis) zwracajacym SessionStore.
+- gtdGist/queueGistGeneration, mailUtils deltas, senderFavicon result — otypowane.
+

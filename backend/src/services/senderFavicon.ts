@@ -183,8 +183,8 @@ async function resolveDomain(domain, deps) {
 // never on which caller started the walk — so the outcome cached under this
 // domain's own key means direct and indirect lookups can never disagree.
 async function resolveWithParents(domain, deps) {
-  let result = await fetchProvider(domain, deps);
-  if (result.kind === 'miss' && (result as any).reason === 'not-found') {
+  let result: { kind: string; reason?: string; bytes?: Buffer; source?: string } = await fetchProvider(domain, deps);
+  if (result.kind === 'miss' && result.reason === 'not-found') {
     const parent = nextParent(domain);
     if (parent) {
       const step = await resolveDomain(parent, deps);

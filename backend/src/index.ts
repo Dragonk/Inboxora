@@ -1,6 +1,7 @@
 import express from 'express';
 import 'express-async-errors'; // route a rejected async handler to the error middleware (Express 4 doesn't)
 import session from 'express-session';
+import type { Store as SessionStore } from 'express-session';
 import { createServer } from 'http';
 import { readFileSync } from 'fs';
 import { WebSocketServer } from 'ws';
@@ -57,7 +58,7 @@ import { startOccurrenceScheduler } from './services/calendarOccurrences.js';
 import { createBrowserCors } from './middleware/browserCors.js';
 
 const packageMeta = JSON.parse(readFileSync(new URL('../package.json', import.meta.url), 'utf-8'));
-let buildMeta: any = {};
+let buildMeta: { version?: string } = {};
 try {
   buildMeta = JSON.parse(readFileSync(new URL('../build-meta.json', import.meta.url), 'utf-8'));
 } catch {
@@ -99,7 +100,7 @@ if (process.env.NODE_ENV === 'production' && !process.env.APP_URL) {
 
 // Session
 const sessionMiddleware = session({
-  store: new (RedisStore as any)({ client: redisClient }),
+  store: new (RedisStore as unknown as new (options: { client: unknown }) => SessionStore)({ client: redisClient }),
   secret: process.env.SESSION_SECRET,
   resave: false,
   saveUninitialized: false,

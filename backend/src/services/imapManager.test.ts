@@ -1,4 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+import type { Mock } from 'vitest';
 
 vi.mock('imapflow', () => ({ ImapFlow: vi.fn() }));
 vi.mock('./db.js', () => ({ query: vi.fn() }));
@@ -23,6 +24,19 @@ import { getConnectionPolicy as __mock_getConnectionPolicy } from './connectionP
 import { invalidateGtdConfigCache } from '../plugins/gtd/gtdConfig.js';
 import { parseMessage as __mock_parseMessage } from './messageParser.js';
 import { dispatchMailNotification as __mock_dispatchMailNotification } from './pushDispatcher.js';
+interface FakeImapClient extends EventEmitter {
+  authenticated?: boolean;
+  connect?: (...args: unknown[]) => Promise<unknown>;
+  logout?: (...args: unknown[]) => Promise<unknown>;
+  close?: () => void;
+  fetch?: Mock<(...args: unknown[]) => unknown>;
+  list?: ReturnType<typeof vi.fn>;
+  getMailboxLock?: ReturnType<typeof vi.fn>;
+  mailbox?: Record<string, unknown> | null;
+  [key: string]: unknown;
+}
+
+
 
 // Cast mocked module exports so their vitest mock helpers type-check.
 const ImapFlow = vi.mocked(__mock_ImapFlow);
@@ -82,7 +96,7 @@ describe('providerProfile — host detection', () => {
     ['imap.purelymail.com'],
     ['mail.purelymail.com'],
   ])('detects purelymail (IDLE-based profile) for %s', host => {
-    const p: any = providerProfile(account(host));
+    const p = providerProfile(account(host));
     // IDLE-first with an aggressive keepalive: one long-lived IDLE connection pushes new
     // mail, re-issued every 4 min so it never goes deaf; the periodic tick is a light
     // backstop. Body work stays conservative (no snippet indexing / speculative fetch,
@@ -105,7 +119,7 @@ describe('providerProfile — host detection', () => {
     ['imap.fastmail.com'],
     ['imap.protonmail.com'],
   ])('falls back to generic for unknown host %s', host => {
-    const p: any = providerProfile(account(host));
+    const p = providerProfile(account(host));
     expect(p.speculativeFetch).toBe(true);
     expect(p.pushesFlags).toBe(true);
     expect(p.snippetIndex).toBe(true);
@@ -372,7 +386,7 @@ describe('insertCopiedSibling', () => {
   });
 
   it('uses the shared projection for CE metadata on partial Sent/repair envelopes', async () => {
-    const sourceText = await (import('node:fs') as any).then(({ readFileSync }) => readFileSync(new URL('./imapManager.ts', import.meta.url), 'utf8'));
+    const sourceText = await import('node:fs').then(({ readFileSync }) => readFileSync(new URL('./imapManager.ts', import.meta.url), 'utf8'));
     expect(sourceText).toContain('const persistenceMessage = { ...result.rows[0], ...(rawMessage || {}) };');
   });
 });
@@ -1027,7 +1041,7 @@ describe('syncMessages — empty local cache vs nonempty server (wiring)', () =>
     const client = {
       getMailboxLock: vi.fn().mockResolvedValue({ release: vi.fn() }),
       mailbox: { exists: 1, uidValidity: 100, highestModseq: 500n },
-      fetch: vi.fn(async function* () { yield { uid: 501 }; }),
+      fetch: vi.fn(async function* (_range: string, _options?: unknown, _third?: unknown) { yield { uid: 501 }; }),
     };
     query.mockImplementation((sql) => {
       if (sql.includes('SELECT uid_validity, highest_modseq FROM folders')) {
@@ -1073,14 +1087,14 @@ describe('syncMessages — empty local cache vs nonempty server (wiring)', () =>
     const result = await ImapManager.prototype.syncMessages.call({}, account, client, 'Watch', 50, false, true);
 
     expect(client.fetch).toHaveBeenCalledTimes(1);
-    expect((client.fetch as any).mock.calls[0][0]).toBe('1:*');
-    expect((client.fetch as any).mock.calls[0][1]).toEqual(expect.objectContaining({
+    expect(vi.mocked(client.fetch).mock.calls[0][0]).toBe('1:*');
+    expect(vi.mocked(client.fetch).mock.calls[0][1]).toEqual(expect.objectContaining({
       envelope: true,
       bodyStructure: true,
       flags: true,
       uid: true,
     }));
-    expect((client.fetch as any).mock.calls[0][2]).toBeUndefined();
+    expect(vi.mocked(client.fetch).mock.calls[0][2]).toBeUndefined();
     const insertIndex = query.mock.calls.findIndex(([sql]) => sql.includes('INSERT INTO messages'));
     const modseqUpdateIndex = query.mock.calls.findIndex(([sql]) => sql.includes('UPDATE folders SET highest_modseq'));
     expect(insertIndex).toBeGreaterThanOrEqual(0);
@@ -1425,8 +1439,8 @@ describe('walkStructure attachment classification', () => {
         },
       ],
     });
-    expect((results as any).inlineImages).toHaveLength(1);
-    expect((results as any).inlineImages[0].cid).toBe('logo@x');
+    expect((results as { inlineImages?: Array<{ cid?: string }> }).inlineImages).toHaveLength(1);
+    expect((results as { inlineImages?: Array<{ cid?: string }> }).inlineImages[0]?.cid).toBe('logo@x');
     expect(results.attachments).toHaveLength(1);
     expect(results.attachments[0].filename).toBe('photo.jpg');
   });
@@ -1520,7 +1534,7 @@ describe('walkStructure attachment classification', () => {
     // app emails out. The fetcher must decode it before anyone parses it.
     const rawParts = new Map([['2', Buffer.from(Buffer.from(ics, 'utf8').toString('base64'), 'utf8')]]);
     ImapFlow.mockImplementation(function () {
-      const client = (new EventEmitter() as any);
+      const client = (new EventEmitter() as FakeImapClient);
       client.connect = vi.fn(async () => { client.authenticated = true; return client; });
       client.logout = vi.fn(async () => {});
       client.close = vi.fn();
@@ -1624,7 +1638,7 @@ describe("connectAccount attaches 'error' before connect (#360)", () => {
     let emitThrew = false;
 
     ImapFlow.mockImplementation(function () {
-      const client = (new EventEmitter() as any);
+      const client = (new EventEmitter() as FakeImapClient);
       client.connect = vi.fn(() => {
         errorListenersAtConnect = client.listenerCount('error');
         // Simulate a transport 'error' during the handshake. With the listener already
@@ -1655,7 +1669,7 @@ describe("connectAccount attaches 'error' before connect (#360)", () => {
     mgr.disconnectAccount = vi.fn(() => Promise.resolve());
     mgr._attachIdleListeners = vi.fn();
     mgr.syncFolders = vi.fn(() => Promise.resolve());
-    mgr.syncMessages = vi.fn(() => Promise.resolve()) as any;
+    vi.spyOn(mgr, 'syncMessages').mockResolvedValue(undefined);
     mgr._shouldAutoBackfillOnConnect = vi.fn(() => Promise.resolve(false));
     mgr.backfillAllFolders = vi.fn(() => Promise.resolve());
     mgr._startSyncInterval = vi.fn();
@@ -1962,7 +1976,7 @@ describe('_recordAccountError / _clearAccountError', () => {
   it('clears a recorded error and tells the client', async () => {
     const m = mgr();
     await m._recordAccountError(acct, 'read ETIMEDOUT');
-    (m.broadcast as any).mockClear();
+    vi.mocked(m.broadcast).mockClear();
     await m._clearAccountError(acct);
     expect(query).toHaveBeenLastCalledWith(
       'UPDATE email_accounts SET sync_error = NULL WHERE id = $1', ['a1'],
@@ -2033,7 +2047,7 @@ describe('syncMessages — empty mailbox still stamps last_sync', () => {
 });
 
 it('queues an IDLE arrival during a running sync instead of dropping it', () => {
-  const client = (new EventEmitter() as any);
+  const client = (new EventEmitter() as FakeImapClient);
   const mgr = new ImapManager({ clients: new Set() });
   const account = { id: 'idle-busy', user_id: 'user-1' };
   mgr.syncingAccounts.add(account.id);

@@ -237,7 +237,7 @@ export async function fanOutBulkReadToSiblings(actedIds, read) {
       RETURNING m.account_id, m.folder`,
     [read, actedIds]
   );
-  const deltas: Record<string, { accountId: any; folder: any; unread: number }> = {};
+  const deltas: Record<string, { accountId: string; folder: string; unread: number }> = {};
   for (const row of res.rows) {
     const key = `${row.account_id}:${row.folder}`;
     if (!deltas[key]) deltas[key] = { accountId: row.account_id, folder: row.folder, unread: 0 };

@@ -6,8 +6,8 @@ vi.mock('../index.js', () => ({ imapManager: {} }));
 vi.mock('../services/db.js', () => ({ query: vi.fn(), withTransaction: vi.fn() }));
 vi.mock('../services/encryption.js', () => ({ encrypt: (v) => v, decrypt: (v) => v }));
 
-const { query } = (await import('../services/db.js')) as any;
-const { refreshMicrosoftToken } = (await import('./oauth.js')) as any;
+const { query } = vi.mocked(await import('../services/db.js'));
+const { refreshMicrosoftToken } = vi.mocked(await import('./oauth.js'));
 
 const OK_TOKENS = { access_token: 'new-access', refresh_token: 'new-refresh', expires_in: 3600 };
 const res = (ok, body) => ({ ok, json: async () => body });
