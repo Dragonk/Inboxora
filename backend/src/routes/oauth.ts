@@ -8,6 +8,7 @@ import { redactEmail } from '../utils/redact.js';
 import { queryString } from '../utils/query.js';
 import { toAppError } from '../utils/errors.js';
 import type { Request, Response } from 'express';
+import type { DbClient } from '../services/db.js';
 
 interface OAuthTokenResponse {
   access_token?: string;
@@ -191,7 +192,7 @@ async function processMicrosoftTokens(userId: string, tokens, { tenantId, client
   // advisory lock. Two OAuth callbacks racing for the same mailbox would otherwise
   // both miss the SELECT and each INSERT, producing duplicate account rows. The
   // second waiter blocks until the first commits, then sees the row and updates it.
-  const account = await withTransaction(async (client) => {
+  const account = await withTransaction(async (client: DbClient) => {
     await client.query('SELECT pg_advisory_xact_lock(hashtext($1))',
       [`oauth-account:${userId}:${email.toLowerCase()}`]);
 

@@ -7,6 +7,7 @@ import crypto from 'crypto';
 import { createRequestSignal, parseJson, readLimited, sanitizeText } from './aiHttp.js';
 import { decrypt, encrypt } from './encryption.js';
 import { query, withTransaction } from './db.js';
+import type { DbClient } from './db.js';
 
 export const OPENAI_CODEX_CLIENT_ID = 'app_EMoamEEZ73f0CkXaXp7hrann';
 export const OPENAI_CODEX_DEVICE_URL = 'https://auth.openai.com/codex/device';
@@ -227,7 +228,7 @@ export function createPostgresCodexStore() {
   // The store contract is whatever this factory returns; exported for the test double.
   return {
     async createFlow(flow: CodexFlowInput) {
-      return withTransaction(async (client) => {
+      return withTransaction(async (client: DbClient) => {
         await client.query(
           'SELECT id FROM users WHERE id = $1 FOR UPDATE',
           [flow.adminUserId],
@@ -260,7 +261,7 @@ export function createPostgresCodexStore() {
     },
 
     async claimFlow({ id, adminUserId, sessionHash, now, staleBefore }: CodexClaimInput) {
-      return withTransaction(async (client) => {
+      return withTransaction(async (client: DbClient) => {
         const result = await client.query(
           `SELECT * FROM ai_codex_device_flows
            WHERE id = $1 AND admin_user_id = $2 AND session_hash = $3
@@ -324,7 +325,7 @@ export function createPostgresCodexStore() {
     },
 
     async completeFlow({ id, encryptedCredential }: CodexCompleteInput): Promise<boolean> {
-      return withTransaction(async (client) => {
+      return withTransaction(async (client: DbClient) => {
         const lock = await client.query(
           `SELECT state FROM ai_codex_device_flows WHERE id = $1 FOR UPDATE`,
           [id],
@@ -378,7 +379,7 @@ export function createPostgresCodexStore() {
     },
 
     async disconnect(): Promise<void> {
-      await withTransaction(async (client) => {
+      await withTransaction(async (client: DbClient) => {
         await client.query(
           `UPDATE ai_codex_device_flows
            SET state = 'cancelled', device_auth_id_enc = NULL, user_code_enc = NULL,
@@ -390,7 +391,7 @@ export function createPostgresCodexStore() {
     },
 
     async withCredentialLock<T>(callback: (scope: CodexCredentialLock) => Promise<T>): Promise<T> {
-      return withTransaction(async (client) => {
+      return withTransaction(async (client: DbClient) => {
         const result = await client.query(
           'SELECT encrypted_payload FROM ai_codex_credentials WHERE singleton = TRUE FOR UPDATE',
         );

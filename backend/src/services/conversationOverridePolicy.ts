@@ -1,4 +1,5 @@
 import { query } from './db.js';
+import type { DbClient } from './db.js';
 
 // P1-01: Override scoping — CONVERSATION-LEVEL vs MESSAGE-LEVEL.
 // Conversation-level overrides: lock-conversation, unlock-conversation, manual-merge.
@@ -81,7 +82,7 @@ export async function effectiveConversationOverride(client, { userId, accountId,
   };
 }
 
-export async function resolveConversationAlias(client, { userId, accountId = null, conversationId }) {
+export async function resolveConversationAlias(client: DbClient, { userId, accountId = null, conversationId }) {
   let current = conversationId;
   const seen = new Set();
   for (let i = 0; i < 20; i++) {

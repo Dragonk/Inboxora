@@ -1,10 +1,11 @@
 import { parseVCard } from '../utils/vcard.js';
+import type { DbClient } from './db.js';
 
 /**
  * Populate the denormalized rich-contact columns from authoritative legacy
  * vCards. It is idempotent and leaves contacts.vcard untouched.
  */
-export async function backfillRichContactFields(client) {
+export async function backfillRichContactFields(client: DbClient) {
   const result = await client.query(`
     SELECT id, vcard
     FROM contacts
