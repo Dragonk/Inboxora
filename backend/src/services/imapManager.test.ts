@@ -24,6 +24,7 @@ import { getConnectionPolicy as __mock_getConnectionPolicy } from './connectionP
 import { invalidateGtdConfigCache } from '../plugins/gtd/gtdConfig.js';
 import { parseMessage as __mock_parseMessage } from './messageParser.js';
 import { dispatchMailNotification as __mock_dispatchMailNotification } from './pushDispatcher.js';
+import { mockImapClient } from '../test/imapClient.js';
 interface FakeImapClient extends EventEmitter {
   authenticated?: boolean;
   connect?: (...args: unknown[]) => Promise<unknown>;
@@ -433,8 +434,8 @@ describe('deleteMessageCopyRow', () => {
 // { created:false } return and a thrown "already exists") as success-not-created.
 
 describe('ensureMailbox — namespace + already-exists matrix', () => {
-  const clientReturning = (result) => ({ mailboxCreate: vi.fn().mockResolvedValue(result) });
-  const clientThrowing = (err) => ({ mailboxCreate: vi.fn().mockRejectedValue(err) });
+  const clientReturning = (result: unknown) => mockImapClient({ mailboxCreate: vi.fn().mockResolvedValue(result) });
+  const clientThrowing = (err: unknown) => mockImapClient({ mailboxCreate: vi.fn().mockRejectedValue(err) });
 
   it('flat server (no prefix, "/" delimiter): passes ["Todo"], surfaces the flat path as created', async () => {
     const client = clientReturning({ path: 'Todo', created: true });
@@ -519,57 +520,57 @@ describe('ensureMailbox — namespace + already-exists matrix', () => {
 // classify/snooze leave it off so they skip the extra round-trip.
 describe('ensureMailbox — case-insensitive casing resolution', () => {
   it('ALREADYEXISTS return + resolvePath: resolves the server casing from LIST', async () => {
-    const client = {
+    const client = mockImapClient({
       mailboxCreate: vi.fn().mockResolvedValue({ path: 'Todo', created: false }),
       list: vi.fn().mockResolvedValue([{ path: 'INBOX' }, { path: 'TODO' }]),
-    };
+    });
     const res = await ensureMailbox(client, 'Todo', { resolvePath: true });
     expect(res).toEqual({ path: 'TODO', created: false });
     expect(client.list).toHaveBeenCalledTimes(1);
   });
 
   it('plain-NO throw + resolvePath: resolves the casing from the bare requested name', async () => {
-    const client = {
+    const client = mockImapClient({
       mailboxCreate: vi.fn().mockRejectedValue(
         Object.assign(new Error('Command failed'), { responseText: 'Mailbox already exists' })
       ),
       list: vi.fn().mockResolvedValue([{ path: 'TODO' }]),
-    };
+    });
     const res = await ensureMailbox(client, 'Todo', { resolvePath: true });
     expect(res).toEqual({ path: 'TODO', created: false });
   });
 
   it('does NOT list without resolvePath — the hot classify path skips the round-trip', async () => {
-    const client = {
+    const client = mockImapClient({
       mailboxCreate: vi.fn().mockResolvedValue({ path: 'Todo', created: false }),
       list: vi.fn().mockResolvedValue([{ path: 'TODO' }]),
-    };
+    });
     const res = await ensureMailbox(client, 'Todo');
     expect(res).toEqual({ path: 'Todo', created: false });
     expect(client.list).not.toHaveBeenCalled();
   });
 
   it('falls back to the known path when the LIST has no case-insensitive match', async () => {
-    const client = {
+    const client = mockImapClient({
       mailboxCreate: vi.fn().mockResolvedValue({ path: 'Todo', created: false }),
       list: vi.fn().mockResolvedValue([{ path: 'Inbox' }, { path: 'Sent' }]),
-    };
+    });
     expect(await ensureMailbox(client, 'Todo', { resolvePath: true })).toEqual({ path: 'Todo', created: false });
   });
 
   it('never throws when the LIST itself fails — falls back to the input path', async () => {
-    const client = {
+    const client = mockImapClient({
       mailboxCreate: vi.fn().mockResolvedValue({ path: 'Todo', created: false }),
       list: vi.fn().mockRejectedValue(new Error('LIST failed')),
-    };
+    });
     expect(await ensureMailbox(client, 'Todo', { resolvePath: true })).toEqual({ path: 'Todo', created: false });
   });
 
   it('a freshly-created folder never triggers a lookup, even with resolvePath', async () => {
-    const client = {
+    const client = mockImapClient({
       mailboxCreate: vi.fn().mockResolvedValue({ path: 'INBOX.Todo', created: true }),
       list: vi.fn(),
-    };
+    });
     expect(await ensureMailbox(client, 'Todo', { resolvePath: true })).toEqual({ path: 'INBOX.Todo', created: true });
     expect(client.list).not.toHaveBeenCalled();
   });
@@ -581,25 +582,25 @@ describe('ensureMailbox — case-insensitive casing resolution', () => {
 // the namespace is KNOWN to be flat (an unfetched namespace is left to imapflow).
 describe('ensureMailbox — flat-namespace hierarchy guard', () => {
   it('throws a clear error for a nested path when the namespace delimiter is null', async () => {
-    const client = { namespace: { prefix: '', delimiter: null }, mailboxCreate: vi.fn() };
+    const client = mockImapClient({ namespace: { prefix: '', delimiter: null }, mailboxCreate: vi.fn() });
     await expect(ensureMailbox(client, 'Projects/Todo')).rejects.toThrow(/hierarchy/i);
     expect(client.mailboxCreate).not.toHaveBeenCalled();
   });
 
   it('allows a single-segment name on a flat-namespace server', async () => {
-    const client = { namespace: { prefix: '', delimiter: null }, mailboxCreate: vi.fn().mockResolvedValue({ path: 'Todo', created: true }) };
+    const client = mockImapClient({ namespace: { prefix: '', delimiter: null }, mailboxCreate: vi.fn().mockResolvedValue({ path: 'Todo', created: true }) });
     expect(await ensureMailbox(client, 'Todo')).toEqual({ path: 'Todo', created: true });
   });
 
   it('allows a nested path when the server advertises a hierarchy delimiter', async () => {
-    const client = { namespace: { prefix: 'INBOX.', delimiter: '.' }, mailboxCreate: vi.fn().mockResolvedValue({ path: 'INBOX.Work.Todo', created: true }) };
+    const client = mockImapClient({ namespace: { prefix: 'INBOX.', delimiter: '.' }, mailboxCreate: vi.fn().mockResolvedValue({ path: 'INBOX.Work.Todo', created: true }) });
     const res = await ensureMailbox(client, 'Work/Todo');
     expect(client.mailboxCreate).toHaveBeenCalledWith(['Work', 'Todo']);
     expect(res).toEqual({ path: 'INBOX.Work.Todo', created: true });
   });
 
   it('does not guard a nested path when the namespace is unknown (bare client)', async () => {
-    const client = { mailboxCreate: vi.fn().mockResolvedValue({ path: 'INBOX.Work.Todo', created: true }) };
+    const client = mockImapClient({ mailboxCreate: vi.fn().mockResolvedValue({ path: 'INBOX.Work.Todo', created: true }) });
     expect(await ensureMailbox(client, 'Work/Todo')).toEqual({ path: 'INBOX.Work.Todo', created: true });
   });
 });
@@ -1038,11 +1039,11 @@ describe('syncMessages — empty local cache vs nonempty server (wiring)', () =>
       categorization_enabled: false,
       imap_host: 'imap.example.com',
     };
-    const client = {
+    const client = mockImapClient({
       getMailboxLock: vi.fn().mockResolvedValue({ release: vi.fn() }),
       mailbox: { exists: 1, uidValidity: 100, highestModseq: 500n },
       fetch: vi.fn(async function* (_range: string, _options?: unknown, _third?: unknown) { yield { uid: 501 }; }),
-    };
+    });
     query.mockImplementation((sql) => {
       if (sql.includes('SELECT uid_validity, highest_modseq FROM folders')) {
         return Promise.resolve({ rows: [{ uid_validity: 100, highest_modseq: '500' }] });
@@ -1111,11 +1112,11 @@ describe('syncMessages — empty local cache vs nonempty server (wiring)', () =>
       categorization_enabled: false,
       imap_host: 'imap.example.com',
     };
-    const client = {
+    const client = mockImapClient({
       getMailboxLock: vi.fn().mockResolvedValue({ release: vi.fn() }),
       mailbox: { exists: 50, uidValidity: 100, highestModseq: 500n },
       fetch: vi.fn(async function* () {}),
-    };
+    });
     query.mockImplementation((sql) => {
       if (sql.includes('SELECT uid_validity, highest_modseq FROM folders')) {
         return Promise.resolve({ rows: [{ uid_validity: 100, highest_modseq: '500' }] });
@@ -1152,11 +1153,11 @@ describe('syncMessages — empty local cache vs nonempty server (wiring)', () =>
         id: 'acct-ingest', user_id: 'user-1', email_address: 'me@example.com',
         gtd_enabled: true, categorization_enabled: false, imap_host: 'imap.example.com',
       };
-      const client = {
+      const client = mockImapClient({
         getMailboxLock: vi.fn().mockResolvedValue({ release: vi.fn() }),
         mailbox: { exists: 1, uidValidity: 100, highestModseq: 500n },
         fetch: vi.fn(async function* () { yield { uid: 501 }; }),
-      };
+      });
       query.mockImplementation((sql) => {
         if (sql.includes('SELECT uid_validity, highest_modseq FROM folders')) {
           return Promise.resolve({ rows: [{ uid_validity: 100, highest_modseq: '500' }] });
@@ -1206,11 +1207,11 @@ describe('syncMessages — empty local cache vs nonempty server (wiring)', () =>
         id: 'acct-no-ingest', user_id: 'user-1', email_address: 'me@example.com',
         gtd_enabled: false, categorization_enabled: false, imap_host: 'imap.example.com',
       };
-      const client = {
+      const client = mockImapClient({
         getMailboxLock: vi.fn().mockResolvedValue({ release: vi.fn() }),
         mailbox: { exists: 1, uidValidity: 100, highestModseq: 500n },
         fetch: vi.fn(async function* () { yield { uid: 501 }; }),
-      };
+      });
       query.mockImplementation((sql) => {
         if (sql.includes('SELECT uid_validity, highest_modseq FROM folders')) return Promise.resolve({ rows: [{ uid_validity: 100, highest_modseq: '500' }] });
         if (sql.includes('COUNT(*) FILTER (WHERE is_read = false)')) return Promise.resolve({ rows: [{ n: 0 }] });
@@ -1250,7 +1251,7 @@ describe('syncMessages — Web Push branding', () => {
       gtd_enabled: false, categorization_enabled: false, imap_host: 'imap.example.com',
     };
     const broadcast = vi.fn();
-    const client = {
+    const client = mockImapClient({
       getMailboxLock: vi.fn().mockResolvedValue({ release: vi.fn() }),
       mailbox: { exists: 1, uidValidity: 100, highestModseq: 501n },
       fetch: vi.fn(async function* (_range, request) {
@@ -1260,7 +1261,7 @@ describe('syncMessages — Web Push branding', () => {
           yield { uid: 501, flags: new Set() };
         }
       }),
-    };
+    });
     query.mockImplementation((sql) => {
       if (sql.includes('SELECT uid_validity, highest_modseq FROM folders')) return Promise.resolve({ rows: [{ uid_validity: 100, highest_modseq: '500' }] });
       if (sql.includes('COUNT(*) FILTER (WHERE is_read = false)')) return Promise.resolve({ rows: [{ n: 0 }] });
@@ -1308,11 +1309,11 @@ describe('syncMessages — unread_count recompute ordering (folder badge fix)', 
         id: 'acct-junk', user_id: 'user-1', email_address: 'me@example.com',
         gtd_enabled: false, categorization_enabled: false, imap_host: 'imap.example.com',
       };
-      const client = {
+      const client = mockImapClient({
         getMailboxLock: vi.fn().mockResolvedValue({ release: vi.fn() }),
         mailbox: { exists: 1, uidValidity: 100, highestModseq: 500n },
         fetch: vi.fn(async function* () { yield { uid: 501 }; }),
-      };
+      });
       query.mockReset();
       query.mockImplementation((sql) => {
         if (sql.includes('SELECT uid_validity, highest_modseq FROM folders')) return Promise.resolve({ rows: [{ uid_validity: 100, highest_modseq: '500' }] });
@@ -1708,13 +1709,13 @@ describe('syncFolders pruning', () => {
   const account = { id: 'acct-1', email_address: 'a@example.com' };
 
   it('deletes DB rows for folders missing from LIST (ghosts after external rename)', async () => {
-    const client = {
+    const client = mockImapClient({
       list: vi.fn().mockResolvedValue([
         { path: 'INBOX', name: 'INBOX', delimiter: '/' },
         { path: 'Projects-Renamed', name: 'Projects-Renamed', delimiter: '/' },
         { path: 'Projects-Renamed/Sub', name: 'Sub', delimiter: '/' },
       ]),
-    };
+    });
     await ImapManager.prototype.syncFolders.call({}, account, client);
 
     const del = query.mock.calls.find(([sql]) => sql.includes('DELETE FROM folders'));
@@ -1759,11 +1760,11 @@ describe('syncFolders pruning', () => {
   });
 
   it('still upserts every listed folder before pruning', async () => {
-    const client = {
+    const client = mockImapClient({
       list: vi.fn().mockResolvedValue([
         { path: 'Archive', name: 'Archive', delimiter: '/', specialUse: '\\Archive' },
       ]),
-    };
+    });
     await ImapManager.prototype.syncFolders.call({}, account, client);
     const inserts = query.mock.calls.filter(([sql]) => sql.includes('INSERT INTO folders'));
     // The listed folder + the implicit INBOX row.
@@ -1780,10 +1781,10 @@ describe('_deleteAllInFolder — chunked delete', () => {
 
   it('deletes in UID-addressed chunks of chunkSize and returns the total', async () => {
     const uids = Array.from({ length: 1200 }, (_, i) => i + 1);
-    const client = {
+    const client = mockImapClient({
       search: vi.fn().mockResolvedValue(uids),
       messageDelete: vi.fn().mockResolvedValue(true),
-    };
+    });
     const deleted = await run(client, { chunkSize: 500 });
 
     expect(deleted).toBe(1200);
@@ -1799,41 +1800,41 @@ describe('_deleteAllInFolder — chunked delete', () => {
   });
 
   it('is a no-op when the folder is already empty', async () => {
-    const client = {
+    const client = mockImapClient({
       search: vi.fn().mockResolvedValue([]),
       messageDelete: vi.fn(),
-    };
+    });
     const deleted = await run(client);
     expect(deleted).toBe(0);
     expect(client.messageDelete).not.toHaveBeenCalled();
   });
 
   it('retries a chunk once after the server declines it, then succeeds', async () => {
-    const client = {
+    const client = mockImapClient({
       search: vi.fn().mockResolvedValue([1, 2, 3]),
       messageDelete: vi.fn().mockResolvedValueOnce(false).mockResolvedValueOnce(true),
-    };
+    });
     const deleted = await run(client);
     expect(deleted).toBe(3);
     expect(client.messageDelete).toHaveBeenCalledTimes(2); // one decline, one retry
   });
 
   it('throws with progress when a chunk keeps failing after the retry', async () => {
-    const client = {
+    const client = mockImapClient({
       search: vi.fn().mockResolvedValue([1, 2, 3]),
       messageDelete: vi.fn().mockResolvedValue(false),
-    };
+    });
     await expect(run(client)).rejects.toThrow(/messageDelete could not be confirmed/);
     expect(client.messageDelete).toHaveBeenCalledTimes(2); // initial attempt + one retry
   });
 
   it('surfaces the underlying error if the retry attempt throws', async () => {
-    const client = {
+    const client = mockImapClient({
       search: vi.fn().mockResolvedValue([1, 2, 3]),
       messageDelete: vi.fn()
         .mockResolvedValueOnce(false)
         .mockRejectedValueOnce(new Error('Socket timeout')),
-    };
+    });
     await expect(run(client)).rejects.toThrow(/Socket timeout/);
     expect(client.messageDelete).toHaveBeenCalledTimes(2);
   });
@@ -1846,10 +1847,10 @@ describe('_markSeenInFolder — chunked mark-all-read', () => {
 
   it('adds \\Seen to UNSEEN messages in UID-addressed chunks', async () => {
     const uids = Array.from({ length: 1100 }, (_, i) => i + 1);
-    const client = {
+    const client = mockImapClient({
       search: vi.fn().mockResolvedValue(uids),
       messageFlagsAdd: vi.fn().mockResolvedValue(true),
-    };
+    });
     const flagged = await run(client, { chunkSize: 500 });
 
     expect(flagged).toBe(1100);
@@ -1864,19 +1865,19 @@ describe('_markSeenInFolder — chunked mark-all-read', () => {
   });
 
   it('is a no-op when nothing is unread', async () => {
-    const client = {
+    const client = mockImapClient({
       search: vi.fn().mockResolvedValue([]),
       messageFlagsAdd: vi.fn(),
-    };
+    });
     expect(await run(client)).toBe(0);
     expect(client.messageFlagsAdd).not.toHaveBeenCalled();
   });
 
   it('retries a chunk once, then throws with progress if it keeps failing', async () => {
-    const client = {
+    const client = mockImapClient({
       search: vi.fn().mockResolvedValue([1, 2, 3]),
       messageFlagsAdd: vi.fn().mockResolvedValue(false),
-    };
+    });
     await expect(run(client)).rejects.toThrow(/messageFlagsAdd could not be confirmed/);
     expect(client.messageFlagsAdd).toHaveBeenCalledTimes(2);
   });
@@ -2028,10 +2029,10 @@ describe('syncMessages — empty mailbox still stamps last_sync', () => {
   };
 
   it('stamps last_sync when the server reports an empty mailbox', async () => {
-    const client = {
+    const client = mockImapClient({
       getMailboxLock: vi.fn().mockResolvedValue({ release: vi.fn() }),
       mailbox: { exists: 0 },
-    };
+    });
     const result = await ImapManager.prototype.syncMessages.call({}, emptyMailboxAccount, client, 'INBOX', 50, false, true);
     expect(result).toEqual({ insertedCount: 0, broadcastedNewMessages: false });
     const stamps = query.mock.calls.filter(c => /UPDATE email_accounts SET last_sync/.test(c[0]));
@@ -2052,7 +2053,7 @@ it('queues an IDLE arrival during a running sync instead of dropping it', () => 
   const account = { id: 'idle-busy', user_id: 'user-1' };
   mgr.syncingAccounts.add(account.id);
   mgr._syncTick = vi.fn();
-  mgr._attachIdleListeners(client, account);
+  mgr._attachIdleListeners(mockImapClient(client), account);
   client.emit('exists', { count: 12, prevCount: 11 });
   expect(mgr._pendingInboxSync.has(account.id)).toBe(true);
   expect(mgr._syncTick).not.toHaveBeenCalled();
@@ -2061,7 +2062,7 @@ it('queues an IDLE arrival during a running sync instead of dropping it', () => 
 it('drains a queued arrival after the active sync releases its account lock', async () => {
   const mgr = new ImapManager({ clients: new Set() });
   const account = { id: 'idle-drain', user_id: 'user-1', imap_host: 'imap.example.test' };
-  mgr.connections.set(account.id, { logout: async () => {} });
+  mgr.connections.set(account.id, mockImapClient({ logout: async () => {} }));
   mgr.lastFolderSyncAt.set(account.id, Date.now());
   mgr._clearAccountError = vi.fn().mockResolvedValue(undefined);
   mgr._syncFlagsForRange = vi.fn().mockResolvedValue(undefined);

@@ -55,7 +55,7 @@ export interface ImapFetchQuery {
   bodyStructure?: boolean;
   headers?: boolean;
   threadId?: boolean;
-  bodyParts?: unknown[];
+  bodyParts?: string[];
   [key: string]: unknown;
 }
 

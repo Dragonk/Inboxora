@@ -1,4 +1,5 @@
 import { ImapFlow } from 'imapflow';
+import type { MailboxObject } from 'imapflow';
 import { query } from './db.js';
 import { parseMessage, snippetFromBody, detectBulkFromParsedHeaders, parseHeadersInput, headersToRawString, decodeMimeWords, enrichParsedMetadata } from './messageParser.js';
 import { classifyMessage, loadSocialDomains, getGlobalCategorizationEnabled } from './categorizer.js';
@@ -1127,7 +1128,7 @@ interface ResolvedConnection {
   addresses?: unknown[];
 }
 
-type EmailAccountRow = {
+export type EmailAccountRow = {
   user_id?: string;
   name?: string;
   email?: string;
@@ -1273,7 +1274,7 @@ async function acquirePooledClient(account: EmailAccountRow) {
   });
 }
 
-function releasePooledClient(account: EmailAccountRow, client) {
+function releasePooledClient(account: EmailAccountRow, client: ImapClient): void {
   const pool = connectionPools.get(account.id);
   if (!pool) { client.logout().catch(() => {}); return; }
   pool.inUse.delete(client);
@@ -1295,7 +1296,7 @@ function evictPool(accountId: string) {
   connectionPools.delete(accountId);
 }
 
-async function withFreshClient(account: EmailAccountRow, fn) {
+async function withFreshClient<T>(account: EmailAccountRow, fn: (client: ImapClient) => Promise<T> | T): Promise<T> {
   const client = await acquirePooledClient(account);
   try {
     return await fn(client);
@@ -1358,7 +1359,24 @@ async function withFreshLogin(account: EmailAccountRow, fn) {
 // resolvePath (default off) makes the already-exists branches resolve the server's real
 // casing via a LIST. Only the /folders/ensure route sets it — it PERSISTS the returned path,
 // so wrong casing there is durable; classify/snooze discard the path and skip the extra LIST.
-export async function ensureMailbox(client, path: string, { resolvePath = false } = {}) {
+/**
+ * UID search. imapflow returns `false` — not an empty array — when the server's SEARCH response
+ * carries no matches (see its `(await this.run('SEARCH', ...)) || false`), so reading .length,
+ * .filter or .map straight off the result throws. Normalise in one place.
+ */
+/** The currently open mailbox, or undefined when none is selected (imapflow uses `false`). */
+function openMailbox(client: ImapClient): MailboxObject | undefined {
+  return client.mailbox || undefined;
+}
+
+
+async function searchUids(client: ImapClient, query: Parameters<ImapClient['search']>[0]): Promise<number[]> {
+  const result = await client.search(query, { uid: true });
+  return Array.isArray(result) ? result : [];
+}
+
+
+export async function ensureMailbox(client: ImapClient, path: string, { resolvePath = false }: { resolvePath?: boolean } = {}): Promise<{ path: string; created: boolean }> {
   const requested = String(path);
   // A flat-namespace server (personal-namespace delimiter null/empty) cannot represent a
   // nested path: imapflow joins the segments with delimiter||'' and would silently turn
@@ -1400,7 +1418,7 @@ export async function ensureMailbox(client, path: string, { resolvePath = false 
 // if persisted (planGtdFolderPersist), never case-matches the synced rows' folder value and
 // silently zeroes the state. Best-effort: any list failure (or a client without list) falls
 // back to the caller's known path — never throws.
-async function resolveServerFolderCasing(client, knownPath) {
+async function resolveServerFolderCasing(client: ImapClient, knownPath: string | null | undefined): Promise<string> {
   if (typeof client.list !== 'function') return knownPath;
   try {
     const wanted = knownPath.toLowerCase();
@@ -1440,12 +1458,22 @@ export function classifyMoveBySearch(uids, remainingUids, destArrived) {
   return { succeeded: gone, failed: stillPresent, staleCount: 0, mappable: destArrived === gone.length };
 }
 
+/** Namespace metadata a client may carry (imapflow 1.7.8 does not model it). */
+interface ImapClientNamespace { prefix?: string; delimiter?: string | null }
+
+/**
+ * What the manager needs from an IMAP client: imapflow's ImapFlow plus the optional namespace
+ * metadata the code reads. Declared here instead of using ImapFlow directly so the manager works
+ * against one reviewed shape (and so test doubles can adapt through mockImapClient).
+ */
+export type ImapClient = ImapFlow & { namespace?: ImapClientNamespace };
+
 export class ImapManager {
   // Runtime state initialised by the constructor. Declared with `declare` so
   // these are purely type-level (no emitted field initialisers), keeping the
   // class body's own assignments authoritative.
   declare wss: { clients: Set<{ send(data: string): void; readyState?: number; userId?: string }> };
-  declare connections: Map<string, { close?(): void; logout(): Promise<unknown> }>;
+  declare connections: Map<string, ImapClient>;
   declare syncIntervals: Map<string, ReturnType<typeof setInterval>>;
   declare pluginSyncIntervals: Map<string, ReturnType<typeof setInterval>>;
   declare backfillRunning: Set<string>;
@@ -1915,7 +1943,7 @@ export class ImapManager {
   // Attach the three IDLE event listeners shared by both the initial connect path
   // and the in-_syncTick reconnect path. Centralised here so a fix in one place
   // automatically covers both code paths.
-  _attachIdleListeners(client, account: EmailAccountRow) {
+  _attachIdleListeners(client: ImapClient, account: EmailAccountRow): void {
     client.on('exists', ({ count, prevCount }: { count?: number; prevCount?: number } = {}) => {
       if ((count ?? 0) <= (prevCount ?? 0)) return;
       // Push an optimistic delta to the frontend immediately so the unread badge
@@ -2765,7 +2793,7 @@ export class ImapManager {
     this.userFolderSyncIntervalMs.set(userId, newMs);
   }
 
-  async syncFolders(account: EmailAccountRow, client) {
+  async syncFolders(account: EmailAccountRow, client: ImapClient) {
     try {
       const mailboxes = await client.list();
       for (const mb of mailboxes) {
@@ -2836,7 +2864,7 @@ export class ImapManager {
   // noBodyParts: skip ALL body part fetches (uid/flags/envelope/bodyStructure only).
   // Used for the periodic sync interval so slow servers like purelymail.com don't time out
   // fetching 3+ body parts × 50 messages.  Snippets come from backfill or on-demand fetches.
-  async syncMessages(account: EmailAccountRow, client, folder = 'INBOX', limit = 50, prefetchBody = true, noBodyParts = false) {
+  async syncMessages(account: EmailAccountRow, client: ImapClient, folder = 'INBOX', limit = 50, prefetchBody = true, noBodyParts = false) {
     const provider = providerProfile(account);
 
     try {
@@ -3336,7 +3364,7 @@ export class ImapManager {
           // go delta once the local cache has a UID. Bounded to the most recent `limit` messages —
           // older un-cached messages in a large folder are backfill's job, not this scan's; backfill
           // runs on connect/reconnect/reindex and its dbCount-vs-serverTotal check re-detects the gap.
-          const liveExists = client.mailbox?.exists ?? 0;
+          const liveExists = openMailbox(client)?.exists ?? 0;
           const phase2Range = liveExists > limit
             ? `${liveExists - limit + 1}:${liveExists}` : '1:*';
           try {
@@ -4239,14 +4267,14 @@ export class ImapManager {
     return { uid, folder };
   }
 
-  async appendToSent(account: EmailAccountRow, folder: string, rawMessage) {
+  async appendToSent(account: EmailAccountRow, folder: string, rawMessage: Buffer): Promise<{ uid?: number | null }> {
     return this.appendToFolder(account, folder, rawMessage, ['\\Seen']);
   }
 
   // Persist authoritative Sent metadata right after SMTP/APPEND so a later IMAP sync
   // with an incomplete ENVELOPE (common for multipart/related inline-image mail) cannot
   // wipe subject/from/to.
-  async upsertSentMessageRecord(account: EmailAccountRow, folder: string, uid: number | string, {
+  async upsertSentMessageRecord(account: EmailAccountRow, folder: string, uid: number | string | null | undefined, {
     messageId,
     subject,
     fromName,
@@ -4374,14 +4402,14 @@ export class ImapManager {
     if (row.rows[0]) await persistConversationCopyForRow(row.rows[0].id, account, { messageId, inReplyTo, references: null });
   }
 
-  async findSentMessageByMessageId(account: EmailAccountRow, folder: string, messageId: string) {
+  async findSentMessageByMessageId(account: EmailAccountRow, folder: string, messageId: string): Promise<{ state: 'found' | 'missing' | 'ambiguous'; uid?: number | null }> {
     if (!messageId || !folder) return { state: 'missing' };
     const mid = String(messageId).replace(/[<>]/g, '').trim();
     if (!mid) return { state: 'missing' };
     return withFreshClient(account, async (client) => {
       const lock = await client.getMailboxLock(folder);
       try {
-        const uids = await client.search({ header: { 'Message-ID': mid } }, { uid: true });
+        const uids = await searchUids(client, { header: { 'Message-ID': mid } });
         if (!uids?.length) return { state: 'missing' };
         if (uids.length === 1) return { state: 'found', uid: uids[0] };
         // Multiple RFC Message-ID matches are ambiguous (provider auto-save plus
@@ -4941,7 +4969,7 @@ export class ImapManager {
   async deleteFolder(account: EmailAccountRow, path: string) {
     return withFreshClient(account, async (client) => {
       // If the pool connection has this folder selected, switch to INBOX first
-      if ((client.mailbox?.path || '').toLowerCase() === path.toLowerCase()) {
+      if ((openMailbox(client)?.path || '').toLowerCase() === path.toLowerCase()) {
         const lock = await client.getMailboxLock('INBOX');
         lock.release();
       }
@@ -4982,7 +5010,7 @@ export class ImapManager {
   // imapflow's truthy/false result. Returns the count processed; throws (with progress) if a
   // chunk cannot be confirmed.
   async _chunkedFolderOp(client, folder: string, searchQuery, apply, { label = 'operation', chunkSize = 500, retryBackoffMs = 500 } = {}) {
-    const uids = await client.search(searchQuery, { uid: true });
+    const uids = await searchUids(client, searchQuery);
     if (!uids || uids.length === 0) return 0;
     let done = 0;
     for (let i = 0; i < uids.length; i += chunkSize) {
@@ -5243,7 +5271,7 @@ export class ImapManager {
     try {
       remaining = await withFreshClient(account, async (client) => {
         const lock = await client.getMailboxLock(fromFolder);
-        try { return await client.search({ uid: uids.join(',') }, { uid: true }); }
+        try { return await searchUids(client, { uid: uids.join(',') }); }
         finally { lock.release(); }
       });
     } catch (caught) {
@@ -5258,7 +5286,7 @@ export class ImapManager {
       try {
         destNew = await withFreshClient(account, async (client) => {
           const lock = await client.getMailboxLock(toFolder);
-          try { return await client.search({ uid: `${destUidNextBefore}:*` }, { uid: true }); }
+          try { return await searchUids(client, { uid: `${destUidNextBefore}:*` }); }
           finally { lock.release(); }
         });
         destArrived = destNew.length;
@@ -5304,7 +5332,7 @@ export class ImapManager {
           } else {
             // No UIDPLUS: protect other \Deleted messages from the broad EXPUNGE.
             const ourSet = new Set(uids.map(Number));
-            const allDeleted = await client.search({ deleted: true }, { uid: true });
+            const allDeleted = await searchUids(client, { deleted: true });
             const othersDeleted = allDeleted.filter((uid: number | string) => !ourSet.has(uid));
             if (othersDeleted.length > 0) {
               await client.messageFlagsRemove(othersDeleted.join(','), ['\\Deleted'], { uid: true });
@@ -5330,7 +5358,7 @@ export class ImapManager {
         const remaining = await withFreshClient(account, async (client) => {
           const lock = await client.getMailboxLock(folder);
           try {
-            return await client.search({ uid: uids.join(',') }, { uid: true });
+            return await searchUids(client, { uid: uids.join(',') });
           } finally {
             lock.release();
           }
@@ -5495,7 +5523,7 @@ export class ImapManager {
               await withFreshClient(account, async (client) => {
                 const lock = await client.getMailboxLock(row.original_folder);
                 try {
-                  const uids = await client.search({ header: { 'Message-ID': row.message_id_header } }, { uid: true });
+                  const uids = await searchUids(client, { header: { 'Message-ID': row.message_id_header } });
                   if (uids.length > 0) {
                     const r = await client.messageFlagsRemove(String(uids[0]), ['\\Seen'], { uid: true });
                     if (r === false) console.warn(`Snooze wakeup: messageFlagsRemove returned false for ${row.original_folder}`);
@@ -5633,7 +5661,7 @@ export class ImapManager {
           try {
             const lock = await client.getMailboxLock(folder);
             try {
-              serverUids = await client.search({ all: true }, { uid: true });
+              serverUids = await searchUids(client, { all: true });
             } finally {
               lock.release();
             }
