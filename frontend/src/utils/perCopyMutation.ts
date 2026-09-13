@@ -40,13 +40,13 @@ export function queuePerCopyMutation(id, laneOrRequest, maybeRequest) {
   return { version: tokenFor(lane, version), promise: Promise.resolve().then(request) };
 }
 
-export function isLatestPerCopyMutation(id, laneOrVersion, maybeVersion) {
+export function isLatestPerCopyMutation(id, laneOrVersion, maybeVersion = undefined) {
   const [lane, version] = laneAndVersion(laneOrVersion, maybeVersion);
   return versions.get(keyFor(id, lane)) === versionFor(lane, version);
 }
 
 // Invalidate a deferred continuation without creating a new request intent.
-export function invalidatePerCopyMutation(id, laneOrVersion, maybeVersion) {
+export function invalidatePerCopyMutation(id, laneOrVersion, maybeVersion = undefined) {
   const [lane, version] = laneAndVersion(laneOrVersion, maybeVersion);
   const key = keyFor(id, lane);
   const numericVersion = versionFor(lane, version);

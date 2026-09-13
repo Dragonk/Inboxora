@@ -225,3 +225,19 @@ CalendarSubscriptionsSettings, CalendarSidebar, TodoistTaskModal, MessageToolbar
 
 Testy frontendu: 2335 / 0 failed · lint czysty · build OK.
 
+
+## 21. Frontend: stałe stylów i kontrakty
+
+- 🔴 **`ui.tsx` `inputStyle`/`buttonStyle` bez typu** — `boxSizing: string` szerokie → 82 błędy
+  `CSSProperties` w konsumentach. Dodane `CSSProperties`.
+- 🟠 Stałe stylów adnotowane jako `CSSProperties` w `AdminPanel`, `CalendarPage`,
+  `CalendarSidebar`, `CalendarSubscriptionsSettings`, `TodoistTaskModal`, `MessageToolbar`,
+  `ContactsPage` (77 adnotacji).
+- 🟠 **`isLatestPerCopyMutation`/`invalidatePerCopyMutation`** — 3. argument (`maybeVersion`)
+  realnie opcjonalny (obsługiwany przez `laneAndVersion`) → domyślna wartość (42 błędy).
+
+## 22. Stan weryfikacji
+
+Frontend `tsc`: **506 błędów** (z 661 po zdjęciu `@ts-nocheck`). Testy 2335/0 · lint czysty · build OK.
+Backend: `tsc` 0 · testy 1785/0 · 0 `@ts-nocheck`.
+

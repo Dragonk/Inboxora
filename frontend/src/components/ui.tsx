@@ -1,14 +1,15 @@
 import { useBackLayer } from '../hooks/useBackNavigation.ts';
 import { useEffect, useId, useRef } from 'react';
+import type { CSSProperties } from 'react';
 import { createPortal } from 'react-dom';
 import { useUiScale } from '../hooks/useUiScale.ts';
 
-export const inputStyle = {
+export const inputStyle: CSSProperties = {
   width: '100%', minWidth: 0, boxSizing: 'border-box', padding: '7px 10px',
   border: '1px solid var(--border-subtle)', borderRadius: 6,
   background: 'var(--bg-primary)', color: 'var(--text-primary)', fontSize: 13,
 };
-export const buttonStyle = {
+export const buttonStyle: CSSProperties = {
   display: 'inline-flex', alignItems: 'center', justifyContent: 'center', gap: 7,
   padding: '7px 12px', borderRadius: 6, border: '1px solid var(--border)',
   background: 'var(--bg-elevated)', color: 'var(--text-primary)',

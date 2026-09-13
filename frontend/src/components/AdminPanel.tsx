@@ -1199,7 +1199,7 @@ function ThemesTab() {
     ['light', t('admin.appearance.themeModeLight')],
     ['dark', t('admin.appearance.themeModeDark')],
   ];
-  const sectionLabel = { fontSize: 13, fontWeight: 600, color: 'var(--text-primary)', marginBottom: 4 };
+  const sectionLabel: CSSProperties = { fontSize: 13, fontWeight: 600, color: 'var(--text-primary)', marginBottom: 4 };
   const sectionHint = { fontSize: 12, color: 'var(--text-tertiary)' };
 
   return (
@@ -5319,12 +5319,12 @@ function NativePushSection() {
     border: primary ? '1px solid transparent' : '1px solid var(--border)',
     opacity: busy ? 0.6 : 1, transition: 'all 0.15s',
   });
-  const urlBox = {
+  const urlBox: CSSProperties = {
     fontFamily: 'monospace', fontSize: 12, color: 'var(--text-primary)',
     padding: '7px 10px', borderRadius: 6, background: 'var(--bg-tertiary)',
     border: '1px solid var(--border)', wordBreak: 'break-all', flex: 1,
   };
-  const muted = { fontSize: 12, color: 'var(--text-tertiary)', maxWidth: 420, lineHeight: 1.5 };
+  const muted: CSSProperties = { fontSize: 12, color: 'var(--text-tertiary)', maxWidth: 420, lineHeight: 1.5 };
 
   return (
     <div style={{ marginTop: 20, padding: '16px', borderRadius: 10, background: 'var(--bg-secondary)', border: '1px solid var(--border-subtle)' }}>
@@ -6861,8 +6861,8 @@ function MailboxCleanupTab() {
   };
 
   const bloatPct = data && data.inboxTotal ? Math.round((data.bulkTotal / data.inboxTotal) * 100) : 0;
-  const card = { background: 'var(--bg-secondary)', border: '1px solid var(--border-subtle)', borderRadius: 10, padding: 14, marginBottom: 16 };
-  const muted = { fontSize: 12, color: 'var(--text-tertiary)' };
+  const card: CSSProperties = { background: 'var(--bg-secondary)', border: '1px solid var(--border-subtle)', borderRadius: 10, padding: 14, marginBottom: 16 };
+  const muted: CSSProperties = { fontSize: 12, color: 'var(--text-tertiary)' };
 
   return (
     <div>
@@ -7366,14 +7366,14 @@ function PrivacyTab() {
     }
   };
 
-  const sectionHead = { fontSize: 13, fontWeight: 600, color: 'var(--text-primary)', marginBottom: 8 };
-  const pill = {
+  const sectionHead: CSSProperties = { fontSize: 13, fontWeight: 600, color: 'var(--text-primary)', marginBottom: 8 };
+  const pill: CSSProperties = {
     display: 'inline-flex', alignItems: 'center', gap: 6,
     background: 'var(--bg-tertiary)', border: '1px solid var(--border)',
     borderRadius: 20, padding: '3px 10px 3px 12px', fontSize: 12,
     color: 'var(--text-secondary)',
   };
-  const addRow = { display: 'flex', gap: 8, marginTop: 10 };
+  const addRow: CSSProperties = { display: 'flex', gap: 8, marginTop: 10 };
 
   return (
     <div>
