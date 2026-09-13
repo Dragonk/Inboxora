@@ -96,7 +96,7 @@ export interface StoreState {
       total: number;
       byAccount: {};
   };
-  setUnreadCounts: (counts: Record<string, number>) => void;
+  setUnreadCounts: (counts: { total: number; byAccount: Record<string, number> }) => void;
   decrementUnread: (accountId: string, count?: number) => void;
   incrementUnread: (accountId: string, count?: number) => void;
   folders: {};
@@ -107,7 +107,7 @@ export interface StoreState {
   adjustFolderUnread: (accountId: string, folderPath: string, delta: number) => void;
   sidebarCollapsed: boolean;
   toggleSidebar: () => void;
-  sidebarWidth: number;
+  sidebarWidth: number | string;
   setSidebarWidth: (w: string) => void;
   isSidebarResizing: boolean;
   setIsSidebarResizing: (v: boolean) => void;
@@ -185,7 +185,7 @@ export interface StoreState {
   setCalendarWorkHoursStart: (value: string) => void;
   calendarWorkHoursEnd: string;
   setCalendarWorkHoursEnd: (value: string) => void;
-  rulesPreFill: Record<string, unknown> | null;
+  rulesPreFill: boolean;
   setRulesPreFill: (v: boolean) => void;
   backfillProgress: {};
   setBackfillProgress: (accountId: string, progress: Record<string, unknown>) => void;
@@ -277,7 +277,7 @@ export interface StoreState {
   senderFaviconsEpoch: number;
   setSenderFavicons: (enabled: boolean) => Promise<void>;
   setBlockRemoteImages: (val: unknown) => void;
-  setImageWhitelist: (whitelist: string[]) => void;
+  setImageWhitelist: (whitelist: { addresses: string[]; domains: string[] }) => void;
   addToImageWhitelist: ({ type, value }: {
       type: string;
       value: string;
@@ -290,9 +290,9 @@ export interface StoreState {
   setHiddenFolders: (hf: string[]) => void;
   folderOrder: Record<string, string[]>;
   setFolderOrder: (accountId: string, paths: string[]) => void;
-  expandedAccounts: Record<string, string[]>;
+  expandedAccounts: string[];
   setExpandedAccounts: (updater: (prev: string[]) => string[]) => void;
-  collapsedFolders: Record<string, string[]>;
+  collapsedFolders: string[];
   toggleCollapsedFolder: (accountId: string, path: string) => void;
   favoriteFolders: FavoriteFolderRow[];
   addFavoriteFolder: ({ accountId, path }: {
@@ -308,7 +308,7 @@ export interface StoreState {
       path: string;
       label: string;
   }) => void;
-  reorderFavoriteFolders: (next: Record<string, unknown>) => void;
+  reorderFavoriteFolders: (next: FavoriteFolderRow[]) => void;
   recentFolders: FavoriteFolderRow[];
   recordRecentFolder: ({ accountId, path }: {
       accountId: string;
@@ -342,40 +342,44 @@ export interface StoreMessageRow {
 }
 
 /** The store fields its own set()/get() callbacks read. */
-interface StoreStateRead {
-  _winSeq: number;
-  accounts: Array<{ id: string; enabled?: boolean; include_in_unified_inbox?: boolean; [key: string]: unknown }>;
-  backfillProgress: Record<string, unknown>;
-  calendarWorkHoursEnd: string;
-  calendarWorkHoursPersisted: { start: string; end: string };
-  calendarWorkHoursStart: string;
-  categoryCounts: Record<string, number>;
-  enabledPlugins: string[];
-  folders: Record<string, Array<{ path: string; unread_count?: number; [key: string]: unknown }>>;
-  gtdCollapsedSections: Record<string, boolean>;
-  gtdSections: GtdSections | null;
-  messageWindows: Array<{ winId?: string; messageId?: string; z?: number; id?: string; [key: string]: unknown }>;
-  messages: StoreMessageRow[];
-  messagesRefreshToken: number;
-  notifications: Array<{ id?: string; [key: string]: unknown }>;
-  rightSidebarHidden: boolean;
-  searchAllFolders: boolean;
-  searchQuery: string;
-  searchResults: StoreMessageRow[];
-  selectedAccountId: string | null;
-  selectedFolder: string;
-  selectedMessageId: string | null;
-  senderFaviconsEpoch: number;
-  showCalendar: boolean;
-  showContacts: boolean;
-  sidebarCollapsed: boolean;
-  swipeActions: { start?: string; end?: string; [key: string]: unknown };
-  threadMessages: Record<string, StoreMessageRow[]>;
-  threadKeys: Record<string, string>;
-  threadedView: boolean;
-  unreadCounts: { total: number; byAccount: Record<string, number> };
-  user: { id?: string; username?: string; [key: string]: unknown } | null;
-}
+/**
+ * The state fields the store's own set()/setState() callbacks read. Derived from StoreState so
+ * the two can never disagree about a field's type.
+ */
+type StoreStateRead = Pick<StoreState,
+  | '_winSeq'
+  | 'accounts'
+  | 'backfillProgress'
+  | 'calendarWorkHoursEnd'
+  | 'calendarWorkHoursPersisted'
+  | 'calendarWorkHoursStart'
+  | 'categoryCounts'
+  | 'enabledPlugins'
+  | 'folders'
+  | 'gtdCollapsedSections'
+  | 'gtdSections'
+  | 'messageWindows'
+  | 'messages'
+  | 'messagesRefreshToken'
+  | 'notifications'
+  | 'rightSidebarHidden'
+  | 'searchAllFolders'
+  | 'searchQuery'
+  | 'searchResults'
+  | 'selectedAccountId'
+  | 'selectedFolder'
+  | 'selectedMessageId'
+  | 'senderFaviconsEpoch'
+  | 'showCalendar'
+  | 'showContacts'
+  | 'sidebarCollapsed'
+  | 'swipeActions'
+  | 'threadMessages'
+
+  | 'threadedView'
+  | 'unreadCounts'
+  | 'user'
+>;
 
 // Accumulate rapid preference changes and flush at most once per second.
 let _prefFlushTimer: ReturnType<typeof setTimeout> | null = null;
@@ -398,7 +402,7 @@ function calendarWorkTimeMinutes(value: string): number {
 function isValidCalendarWorkRange(start: string, end: string): boolean {
   return calendarWorkTimeMinutes(start) < calendarWorkTimeMinutes(end);
 }
-function scheduleCalendarWorkHoursSave(prefs: Record<string, unknown>, next: Record<string, unknown>): void {
+function scheduleCalendarWorkHoursSave(prefs: Record<string, unknown>, next: { start: string; end: string }): void {
   if (_calendarWorkHoursFlushTimer) clearTimeout(_calendarWorkHoursFlushTimer);
   _calendarWorkHoursFlushTimer = setTimeout(() => {
     const userId = useStore.getState().user?.id;
@@ -462,7 +466,7 @@ interface StoreMessage {
   [key: string]: unknown;
 }
 
-export const useStore = create<any>((set, get) => ({
+export const useStore = create<StoreState>()((set, get) => ({
   // Auth
   user: null,
   setUser: (user: StoreUserRow | null) =>{
@@ -676,7 +680,7 @@ export const useStore = create<any>((set, get) => ({
 
   // Unread counts
   unreadCounts: { total: 0, byAccount: {} },
-  setUnreadCounts: (counts: Record<string, number>) =>set({ unreadCounts: counts }),
+  setUnreadCounts: (counts: { total: number; byAccount: Record<string, number> }) =>set({ unreadCounts: counts }),
   decrementUnread: (accountId: string, count = 1) =>set((state: StoreStateRead) => {
     const byAccount = { ...state.unreadCounts.byAccount };
     byAccount[accountId] = Math.max(0, (byAccount[accountId] || 0) - count);
@@ -979,14 +983,14 @@ export const useStore = create<any>((set, get) => ({
   // threadedView preference. The old CE-specific list flag is read only as a
   // compatibility fallback for users who saved it before the canonical mapping.
   conversationReaderViewEnabled: false,
-  setConversationReaderViewEnabled: (val: unknown) =>{
+  setConversationReaderViewEnabled: (val: boolean) =>{
     set({ conversationReaderViewEnabled: val });
     schedulePrefSave({ conversation_reader_view_enabled: val });
   },
 
   // Threaded view
   threadedView: localStorage.getItem('mailflow_threaded_view') === 'true',
-  setThreadedView: (val: unknown) =>{
+  setThreadedView: (val: boolean) =>{
     localStorage.setItem('mailflow_threaded_view', String(val));
     set({ threadedView: val, expandedThreadId: null, threadMessages: {} });
     schedulePrefSave({ threadedView: val });
@@ -994,7 +998,7 @@ export const useStore = create<any>((set, get) => ({
 
   // Compose format
   plaintextEmail: localStorage.getItem('mailflow_plaintext_email') === 'true',
-  setPlaintextEmail: (val: unknown) =>{
+  setPlaintextEmail: (val: boolean) =>{
     localStorage.setItem('mailflow_plaintext_email', String(val));
     set({ plaintextEmail: val });
     schedulePrefSave({ plaintextEmail: val });
@@ -1002,7 +1006,7 @@ export const useStore = create<any>((set, get) => ({
 
   // Message list quick actions
   hoverQuickActions: localStorage.getItem('mailflow_hover_quick_actions') !== 'false',
-  setHoverQuickActions: (val: unknown) =>{
+  setHoverQuickActions: (val: boolean) =>{
     localStorage.setItem('mailflow_hover_quick_actions', String(val));
     set({ hoverQuickActions: val });
     schedulePrefSave({ hoverQuickActions: val });
@@ -1011,7 +1015,7 @@ export const useStore = create<any>((set, get) => ({
   // Show sender avatars in the mobile message list (off by default — they cost row width
   // on a narrow screen; opt-in for users who prefer the scannability). Desktop always shows them.
   showMobileAvatars: localStorage.getItem('mailflow_show_mobile_avatars') === 'true',
-  setShowMobileAvatars: (val: unknown) =>{
+  setShowMobileAvatars: (val: boolean) =>{
     localStorage.setItem('mailflow_show_mobile_avatars', String(val));
     set({ showMobileAvatars: val });
     schedulePrefSave({ showMobileAvatars: val });
@@ -1020,7 +1024,7 @@ export const useStore = create<any>((set, get) => ({
   // Fetch sender avatars from Gravatar (off by default — opt-in third-party lookup, proxied
   // through the backend so the user's IP is never exposed). Falls back to initials on a miss.
   gravatarAvatars: localStorage.getItem('mailflow_gravatar_avatars') === 'true',
-  setGravatarAvatars: (val: unknown) =>{
+  setGravatarAvatars: (val: boolean) =>{
     localStorage.setItem('mailflow_gravatar_avatars', String(val));
     set({ gravatarAvatars: val });
     schedulePrefSave({ gravatarAvatars: val });
@@ -1028,7 +1032,7 @@ export const useStore = create<any>((set, get) => ({
 
   // Show message preview snippets in the message list (on by default).
   showMessagePreviews: localStorage.getItem('mailflow_show_message_previews') !== 'false',
-  setShowMessagePreviews: (val: unknown) =>{
+  setShowMessagePreviews: (val: boolean) =>{
     localStorage.setItem('mailflow_show_message_previews', String(val));
     set({ showMessagePreviews: val });
     schedulePrefSave({ showMessagePreviews: val });
@@ -1148,7 +1152,7 @@ export const useStore = create<any>((set, get) => ({
   },
 
   showAppBadge: localStorage.getItem('mailflow_app_badge') !== 'false',
-  setShowAppBadge: (val: unknown) =>{
+  setShowAppBadge: (val: boolean) =>{
     localStorage.setItem('mailflow_app_badge', String(val));
     set({ showAppBadge: val });
     schedulePrefSave({ showAppBadge: val });
@@ -1156,7 +1160,7 @@ export const useStore = create<any>((set, get) => ({
 
 
   categorizationEnabled: false,
-  setCategorizationEnabled: (val: unknown) =>{
+  setCategorizationEnabled: (val: boolean) =>{
     set({ categorizationEnabled: val });
     schedulePrefSave({ categorizationEnabled: val });
   },
@@ -1334,11 +1338,11 @@ export const useStore = create<any>((set, get) => ({
       if (get().user?.id === userId) set({ senderFaviconsSaving: false });
     }
   },
-  setBlockRemoteImages: (val: unknown) =>{
+  setBlockRemoteImages: (val: boolean) =>{
     set({ blockRemoteImages: val });
     return api.savePreferences({ blockRemoteImages: val });
   },
-  setImageWhitelist: (whitelist: string[]) =>{
+  setImageWhitelist: (whitelist: { addresses: string[]; domains: string[] }) =>{
     const prev = get().imageWhitelist;
     set({ imageWhitelist: whitelist });
     return api.savePreferences({ imageWhitelist: whitelist }).catch(err => {
@@ -1449,7 +1453,7 @@ export const useStore = create<any>((set, get) => ({
     set({ favoriteFolders: next });
     schedulePrefSave({ favoriteFolders: next });
   },
-  reorderFavoriteFolders: (next: Record<string, unknown>) =>{
+  reorderFavoriteFolders: (next: FavoriteFolderRow[]) =>{
     localStorage.setItem('mailflow_favorite_folders', JSON.stringify(next));
     set({ favoriteFolders: next });
     schedulePrefSave({ favoriteFolders: next });
