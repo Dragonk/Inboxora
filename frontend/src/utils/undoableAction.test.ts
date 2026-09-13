@@ -1,4 +1,3 @@
-// @ts-nocheck
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import * as undoableAction from './undoableAction.ts';
@@ -33,8 +32,8 @@ describe('createUndoableCommit', () => {
       delayMs: 4500,
       commit: async () => { calls.push('commit'); },
       undo: () => { calls.push('undo'); },
-      schedule: timer.schedule,
-      cancel: timer.cancel,
+      schedule: timer.schedule as any,
+      cancel: timer.cancel as any,
     });
 
     assert.equal(action.undo(), true);
@@ -53,8 +52,8 @@ describe('createUndoableCommit', () => {
       delayMs: 4500,
       commit: async () => { calls.push('commit'); },
       undo: () => { calls.push('undo'); },
-      schedule: timer.schedule,
-      cancel: timer.cancel,
+      schedule: timer.schedule as any,
+      cancel: timer.cancel as any,
     });
 
     await timer.fire();
@@ -73,8 +72,8 @@ describe('createUndoableCommit', () => {
       allowUndoWhileCommitting: true,
       commit: async () => { calls.push('commit'); await pending; },
       undo: () => { calls.push('undo'); },
-      schedule: timer.schedule,
-      cancel: timer.cancel,
+      schedule: timer.schedule as any,
+      cancel: timer.cancel as any,
     });
 
     const firing = timer.fire();

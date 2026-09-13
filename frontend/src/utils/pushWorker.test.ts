@@ -1,10 +1,9 @@
-// @ts-nocheck
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import vm from 'node:vm';
 
-function worker(matchAll) {
+function worker(matchAll): any {
   const listeners = {}, shown = [], sent = [];
   const self = { addEventListener: (type, listener) => { listeners[type] = listener; },
     registration: { showNotification: async (...args) => shown.push(args) }, clients: { matchAll }, navigator: {},

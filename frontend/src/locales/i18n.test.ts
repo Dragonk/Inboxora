@@ -1,4 +1,3 @@
-// @ts-nocheck
 /**
  * i18n locale test — run with: node --test src/locales/i18n.test.ts
  *
@@ -1158,7 +1157,7 @@ function loadSourceText() {
 
 function loadLiteralSourceTranslationKeys(prefix) {
   const srcRoot = resolve(dir, '../..');
-  const keys = new Set();
+  const keys = new Set<string>();
   const literalTranslationCall = /(?<![\w$.])t\(\s*['"]([^'"]+)['"]/g;
 
   function walk(d) {

@@ -477,7 +477,7 @@ export const api = {
   // GTD "done": strip the row's label(s) for these states, mark read, archive the INBOX
   // copy. id is the rail head's row id (its label-folder copy); the server resolves the
   // INBOX copy from the shared Message-ID.
-  gtdDone: (id, states) => request('POST', '/gtd/done', { id, states }),
+  gtdDone: (id, states = undefined) => request('POST', '/gtd/done', { id, states }),
   gtdEnsureFolders: (accountId, folders) => request('POST', '/gtd/folders/ensure', { accountId, folders }),
 
   // GTD — Inbox-Zero pet. Import uploads your own pet (pet.json text + a base64 spritesheet)

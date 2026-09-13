@@ -1,4 +1,3 @@
-// @ts-nocheck
 import { useTranslation } from 'react-i18next';
 import { useStore } from '../../store/index.ts';
 import { api } from '../../utils/api.ts';

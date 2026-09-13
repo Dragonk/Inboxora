@@ -13,3 +13,11 @@ declare global {
     __inboxoraHandleAndroidBack?: any;
   }
 }
+
+// Allow CSS custom properties (design tokens such as --right-sidebar-header-height)
+// in React style objects, which csstype's Properties type does not include.
+declare module 'react' {
+  interface CSSProperties {
+    [key: `--${string}`]: string | number | undefined;
+  }
+}

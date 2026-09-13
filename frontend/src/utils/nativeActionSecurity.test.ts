@@ -1,10 +1,9 @@
-// @ts-nocheck
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import { createBoundedActionIdTracker, isTrustedNativeMessage } from './nativeActionSecurity.ts';
 
 test('accepts native window messages only from the same window and origin', () => {
-  const expectedWindow = { location: { origin: 'https://mail.example.com' } };
+  const expectedWindow: any = { location: { origin: 'https://mail.example.com' } };
 
   assert.equal(isTrustedNativeMessage({
     source: expectedWindow,

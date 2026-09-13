@@ -50,7 +50,7 @@ function MenuItem({ icon, label, onClick, danger = false }) {
 }
 
 export default function MessageToolbar({
-  isMobile = false, defaultReplyAll = false, targetId, scrollAnchorId, className, style,
+  isMobile = false, defaultReplyAll = false, targetId, scrollAnchorId, className = '', style = undefined,
   isRead = true, isStarred = false, currentFolder = null,
   folders = [], folderMappings, foldersLoading = false, onLoadFolders,
   onReply, onReplyAll, onForward, onArchive, onMove, onSpam, onHam,

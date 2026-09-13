@@ -1,4 +1,3 @@
-// @ts-nocheck
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import { allDayEventSegment, createDayEventsResolver, centeredScrollLeft, eventPayload, eventsForDay, layoutAllDayEvents, layoutTimedEvents, monthRange, shiftCalendarAnchor, sortedDayEvents, toggleAllDayTimes, weekFocusIndex, weekRange } from './calendarView.ts';
@@ -185,7 +184,7 @@ describe('week grid focus and centring', () => {
 
   it('returns 0 rather than NaN for unmeasurable geometry', () => {
     assert.equal(centeredScrollLeft({ columnStart: NaN, columnWidth: 150, viewportWidth: 390, contentWidth: 1102 }), 0);
-    assert.equal(centeredScrollLeft({}), 0);
+    assert.equal(centeredScrollLeft({} as any), 0);
   });
 });
 

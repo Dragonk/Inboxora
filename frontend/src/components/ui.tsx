@@ -42,7 +42,7 @@ export function PanelResizeHandle({ onMouseDown, testId, width = 1, zIndex = 10 
   );
 }
 
-export function EmptyState({ title, children }) {
+export function EmptyState({ title, children = null }) {
   return <div className="ui-empty"><strong>{title}</strong>{children && <span>{children}</span>}</div>;
 }
 

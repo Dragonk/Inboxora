@@ -420,7 +420,7 @@ export async function openGtdThreadWithAutoRead(thread, {
   isCancelled,
   getPreferences,
   readThread,
-  setTimer,
+  setTimer = undefined,
   publishTimer,
 }) {
   const message = await openThread();

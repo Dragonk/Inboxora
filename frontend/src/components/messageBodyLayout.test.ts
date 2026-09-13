@@ -1,4 +1,3 @@
-// @ts-nocheck
 import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
 import { scheduleInitialLayoutReady } from './messageBodyLayout.ts';
@@ -40,7 +39,7 @@ describe('initial message body layout scheduling', () => {
     const harness = rafHarness();
     const ready = [];
     const cancel = scheduleInitialLayoutReady(
-      height => ready.push(height),
+      height => { ready.push(height); },
       harness.requestAnimationFrame,
       harness.cancelAnimationFrame,
     );
@@ -60,7 +59,7 @@ describe('initial message body layout scheduling', () => {
     const harness = rafHarness();
     const ready = [];
     const cancel = scheduleInitialLayoutReady(
-      height => ready.push(height),
+      height => { ready.push(height); },
       harness.requestAnimationFrame,
       harness.cancelAnimationFrame,
     );

@@ -1,4 +1,3 @@
-// @ts-nocheck
 // Keyboard shortcut action definitions and helpers.
 //
 // Each action carries i18n key paths (groupKey / labelKey / descriptionKey) for
@@ -90,8 +89,8 @@ export function parseModKey(key) {
 // keep last-writer-wins behavior but are logged so they're not silently lost.
 export function buildKeyMap(userOverrides = {}) {
   const effective = getEffectiveShortcuts(userOverrides);
-  const map = {};
-  for (const [action, key] of Object.entries(effective)) {
+  const map: Record<string, any> = {};
+  for (const [action, key] of Object.entries(effective as Record<string, any>)) {
     if (!key || parseModKey(key)) continue;
     if (map[key]) {
       console.warn(`[shortcuts] key "${key}" is bound to both "${map[key]}" and "${action}"; "${action}" wins`);
@@ -106,7 +105,7 @@ export function buildKeyMap(userOverrides = {}) {
 // Collisions are logged the same way as buildKeyMap (see above).
 export function buildModKeyMap(userOverrides = {}) {
   const effective = getEffectiveShortcuts(userOverrides);
-  const map = {};
+  const map: Record<string, any> = {};
   for (const [action, key] of Object.entries(effective)) {
     const parsed = parseModKey(key);
     if (!parsed) continue;

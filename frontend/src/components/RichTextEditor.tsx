@@ -1,4 +1,3 @@
-// @ts-nocheck
 import { useEffect } from 'react';
 import { useTranslation } from 'react-i18next';
 import { EditorContent, useEditor, useEditorState } from '@tiptap/react';
@@ -13,7 +12,7 @@ import { richTextEditorContent } from '../utils/richText.ts';
 // lets the reader render it through the mail body renderer.
 const BUTTON = { background: 'none', border: 'none', borderRadius: 4, color: 'var(--text-secondary)', cursor: 'pointer', padding: '3px 7px', fontSize: 12, lineHeight: 1.4, minWidth: 26 };
 
-function ToolButton({ label, active, onActivate, testId, children }) {
+function ToolButton({ label, active = false, onActivate, testId, children }) {
   return <button type="button" title={label} aria-label={label} aria-pressed={Boolean(active)} data-testid={testId}
     onMouseDown={event => { event.preventDefault(); onActivate(); }}
     style={{ ...BUTTON, background: active ? 'var(--bg-hover)' : 'none', color: active ? 'var(--accent)' : 'var(--text-secondary)' }}
@@ -40,7 +39,7 @@ export default function RichTextEditor({ value = '', onChange, placeholder = '',
   useEffect(() => {
     if (!editor || editor.isFocused) return;
     const next = richTextEditorContent(value);
-    if (editor.getHTML() !== next) editor.commands.setContent(next, false);
+    if (editor.getHTML() !== next) editor.commands.setContent(next, false as any);
   }, [editor, value]);
 
   const state = useEditorState({

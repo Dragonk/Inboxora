@@ -1,4 +1,3 @@
-// @ts-nocheck
 import { afterEach, beforeEach, describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
@@ -18,7 +17,7 @@ registerHooks({
 });
 
 (globalThis as any).localStorage = (() => {
-  let values = { mailflow_theme: 'dark' };
+  let values: Record<string, any> = { mailflow_theme: 'dark' };
   return {
     getItem: key => values[key] ?? null,
     setItem: (key, value) => { values[key] = String(value); },

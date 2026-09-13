@@ -1,4 +1,3 @@
-// @ts-nocheck
 import { useBackLayer } from '../hooks/useBackNavigation.ts';
 import { folderLabel } from '../utils/folderLabels.ts';
 import { useState, useEffect, useRef } from 'react';

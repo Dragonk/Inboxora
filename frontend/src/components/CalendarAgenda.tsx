@@ -1,4 +1,3 @@
-// @ts-nocheck
 import { agendaDays, sortedDayEvents } from './calendarView.ts';
 import { EmptyState } from './ui.tsx';
 
