@@ -1,4 +1,3 @@
-// @ts-nocheck
 import { requireCompleteMultistatus } from '../utils/davXml.js';
 // Minimal CardDAV *client* — discovers address books on a remote server (e.g.
 // Nextcloud) and pulls vCards. One-way/read-only: we never write back.

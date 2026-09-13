@@ -1,4 +1,3 @@
-// @ts-nocheck
 import { describe, expect, it, vi } from 'vitest';
 
 const { createAccountSmtpTransport } = vi.hoisted<any>(() => ({ createAccountSmtpTransport: vi.fn() }));

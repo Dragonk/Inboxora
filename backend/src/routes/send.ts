@@ -1,4 +1,3 @@
-// @ts-nocheck
 import nodemailer from 'nodemailer';
 import { randomBytes, createHash, randomUUID } from 'crypto';
 import { Router } from 'express';

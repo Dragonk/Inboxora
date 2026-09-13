@@ -1,8 +1,8 @@
-// @ts-nocheck
 import { Router } from 'express';
 import { query } from '../services/db.js';
 import { requireAuth } from '../middleware/auth.js';
 import { resolveAccountScope } from '../services/unifiedInbox.js';
+import { queryString, queryInt } from '../utils/query.js';
 
 const router = Router();
 router.use(requireAuth);
@@ -124,8 +124,11 @@ export function freeTextTermCondition(likeIdx, ftsIdx) {
 }
 
 router.get('/', searchLimiter, async (req, res) => {
-  const { q, accountId, limit = 50, offset = 0 } = req.query;
-  const trimmed = (q || '').trim();
+  const q = queryString(req.query.q) ?? '';
+  const accountId = queryString(req.query.accountId);
+  const limit = queryInt(req.query.limit, 50);
+  const offset = queryInt(req.query.offset, 0);
+  const trimmed = q.trim();
   if (!trimmed) return res.json({ messages: [] });
   if (trimmed.length > 500) return res.status(400).json({ error: 'Search query too long' });
 
@@ -136,7 +139,7 @@ router.get('/', searchLimiter, async (req, res) => {
   const { accountIds: targetIds } = resolveAccountScope(accountsResult.rows, accountId);
   if (!targetIds.length) return res.json({ messages: [] });
 
-  const cap = Math.max(1, Math.min(parseInt(limit) || 50, 200));
+  const cap = Math.max(1, Math.min(limit, 200));
   const { filters, terms } = parseSearchQuery(trimmed);
 
   const conditions = [];
@@ -212,7 +215,7 @@ router.get('/', searchLimiter, async (req, res) => {
   if (!conditions.length) return res.json({ messages: [], query: q });
 
   // Resolve folder scope: in: operator wins; otherwise use the param.
-  const { folderScope, folderFuzzy } = resolveSearchFolderScope(filters, req.query.folder || '');
+  const { folderScope, folderFuzzy } = resolveSearchFolderScope(filters, queryString(req.query.folder) ?? '');
   if (folderScope) {
     if (folderFuzzy) {
       // in:<name> — case-insensitive match on a folder named exactly that, or a
@@ -233,7 +236,7 @@ router.get('/', searchLimiter, async (req, res) => {
     conditions.push(trashFolderExclusionCondition());
   }
 
-  const off = Math.max(0, parseInt(offset) || 0);
+  const off = Math.max(0, offset);
   params.push(cap);
   params.push(off);
 
@@ -264,8 +267,8 @@ router.get('/', searchLimiter, async (req, res) => {
 // come first; inbound-only senders from messages fill remaining slots, with
 // obvious bulk/no-reply addresses filtered out.
 router.get('/contacts', searchLimiter, async (req, res) => {
-  const { q } = req.query;
-  const trimmed = (q || '').trim();
+  const q = queryString(req.query.q) ?? '';
+  const trimmed = q.trim();
   if (!trimmed || trimmed.length < 2) return res.json({ contacts: [] });
   if (trimmed.length > 100) return res.status(400).json({ error: 'Query too long' });
 

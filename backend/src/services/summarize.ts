@@ -1,4 +1,3 @@
-// @ts-nocheck
 import { completeText, getAiStatus } from './aiProvider.js';
 
 // Generic "summarize a message into one line" capability (v3.0 plugin platform).
@@ -15,7 +14,14 @@ const SUMMARY_MAX_LEN = 120;
 
 // Build the one-line-summary prompt for a message. Pure — the load-bearing decision (what we
 // ask the model for) is unit-testable without a provider.
-export function buildSummaryPrompt({ subject, from, content, maxLen = SUMMARY_MAX_LEN } = {}) {
+export interface SummaryPromptInput {
+  subject?: string | null;
+  from?: string | null;
+  content?: string | null;
+  maxLen?: number;
+}
+
+export function buildSummaryPrompt({ subject, from, content, maxLen = SUMMARY_MAX_LEN }: SummaryPromptInput = {}) {
   const body = (content || '').replace(/\s+/g, ' ').trim().slice(0, 1000);
   return `Condense this email into ONE line of at most ${maxLen} characters.
 Rules: plain text only, no quotation marks, no emoji, present tense. Capture what the sender said and what happens next. Reply with only the line, nothing else.
@@ -68,7 +74,7 @@ export async function summarizeAvailable() {
 // Summarize one message into a sanitised ≤maxLen line, or null when the output is unusable or
 // the provider errors. Never throws. Does NOT check summarizeAvailable() itself — a batching
 // caller should gate once up front; a one-off caller can call summarizeAvailable() first.
-export async function summarizeMessage({ subject, from, content, maxLen = SUMMARY_MAX_LEN } = {}) {
+export async function summarizeMessage({ subject, from, content, maxLen = SUMMARY_MAX_LEN }: SummaryPromptInput = {}) {
   try {
     const response = await completeText(
       [{ role: 'user', content: buildSummaryPrompt({ subject, from, content, maxLen }) }],

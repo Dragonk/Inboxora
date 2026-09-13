@@ -1,4 +1,3 @@
-// @ts-nocheck
 import { randomBytes } from 'crypto';
 import { Router } from 'express';
 import { createRemoteJWKSet, jwtVerify } from 'jose';
@@ -6,6 +5,7 @@ import { query, withTransaction } from '../services/db.js';
 import { imapManager } from '../index.js';
 import { encrypt, decrypt } from '../services/encryption.js';
 import { redactEmail } from '../utils/redact.js';
+import { queryString } from '../utils/query.js';
 
 // Cache JWKS fetchers per tenant — createRemoteJWKSet handles caching internally.
 const jwksCache = new Map();
@@ -68,7 +68,10 @@ router.get('/microsoft', async (req, res) => {
 
 // Step 2: Microsoft redirects back here with auth code
 router.get('/microsoft/callback', async (req, res) => {
-  const { code, state, error, error_description } = req.query;
+  const code = queryString(req.query.code);
+  const state = queryString(req.query.state);
+  const error = queryString(req.query.error);
+  const error_description = queryString(req.query.error_description);
 
   if (error) {
     console.error('Microsoft OAuth error:', error, error_description);

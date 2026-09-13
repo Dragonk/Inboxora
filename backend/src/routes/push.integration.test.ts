@@ -1,4 +1,3 @@
-// @ts-nocheck
 // Real PostgreSQL, real push device registry + real native (device-token) auth.
 // No external push provider is contacted: registration only stores the endpoint.
 //

@@ -1,4 +1,3 @@
-// @ts-nocheck
 import { Router } from 'express';
 import { query, withTransaction } from '../services/db.js';
 import { requireAuth } from '../middleware/auth.js';
@@ -7,6 +6,7 @@ import { chooseDefined, normalizeRichContactFields } from '../utils/contactField
 import { safeFetch } from '../services/safeFetch.js';
 import { contactsToGoogleCsv, contactsToOutlookCsv, contactsToVCard, parseGoogleCsv } from '../utils/contactTransfer.js';
 import crypto from 'crypto';
+import { queryString, queryInt } from '../utils/query.js';
 
 const router = Router();
 router.use(requireAuth);
@@ -155,10 +155,14 @@ router.delete('/address-books/:id', async (req, res) => {
 // GET /api/contacts
 // Query params: q (search), limit, offset, is_auto (true|false|'')
 router.get('/', async (req, res) => {
-  const { q, limit = 50, offset = 0, is_auto, addressBookId } = req.query;
+  const q = queryString(req.query.q) ?? '';
+  const limit = queryInt(req.query.limit, 50);
+  const offset = queryInt(req.query.offset, 0);
+  const is_auto = queryString(req.query.is_auto);
+  const addressBookId = queryString(req.query.addressBookId);
   const userId = req.session.userId;
-  const cap = Math.min(parseInt(limit) || 50, 500);
-  const off = Math.max(0, parseInt(offset) || 0);
+  const cap = Math.min(limit, 500);
+  const off = Math.max(0, offset);
 
   const conditions = ['c.user_id = $1'];
   const params = [userId];
@@ -314,7 +318,7 @@ router.get('/gravatar', async (req, res) => {
 });
 
 router.get('/address-books/:id/export', async (req, res) => {
-  const format = req.query.format;
+  const format = queryString(req.query.format);
   if (!['google-csv', 'outlook-csv', 'vcard'].includes(format)) return res.status(400).json({ error: 'Unsupported export format' });
   try {
     const book = await query('SELECT id, name FROM address_books WHERE id = $1 AND user_id = $2', [req.params.id, req.session.userId]);

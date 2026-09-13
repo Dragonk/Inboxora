@@ -1,4 +1,3 @@
-// @ts-nocheck
 // CE v2 PostgreSQL integration test — ALL FOLDERS conversation scenario
 // Tests the critical product scenario: one conversation with messages across
 // Inbox, Sent, Archive, and a duplicate in All Mail.

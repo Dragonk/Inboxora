@@ -1,4 +1,3 @@
-// @ts-nocheck
 // Bounded worker-thread pool for calendar recurrence projection.
 //
 // Recurrence expansion is synchronous CPU work. Running it on the API event loop

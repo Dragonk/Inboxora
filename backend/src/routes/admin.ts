@@ -1,4 +1,3 @@
-// @ts-nocheck
 import { Router } from 'express';
 import crypto from 'crypto';
 import { query } from '../services/db.js';
@@ -12,6 +11,7 @@ import { imapManager } from '../index.js';
 import { stopCardavUser } from '../services/carddavSync.js';
 import { pluginRegistry } from '../plugins/registry.js';
 import { uuidParam } from '../utils/uuid.js';
+import { queryInt } from '../utils/query.js';
 
 const router = Router();
 router.use(requireAdmin);
@@ -21,8 +21,8 @@ router.param('id', uuidParam('id'));
 // ── Users ──────────────────────────────────────────────────────────────────────
 
 router.get('/users', async (req, res) => {
-  const limit  = Math.min(parseInt(req.query.limit)  || 100, 200);
-  const offset = Math.max(parseInt(req.query.offset) || 0,   0);
+  const limit  = Math.min(queryInt(req.query.limit, 100), 200);
+  const offset = Math.max(queryInt(req.query.offset, 0), 0);
   const [result, countResult] = await Promise.all([
     query(
       'SELECT id, username, is_admin, totp_enabled, created_at FROM users ORDER BY created_at ASC LIMIT $1 OFFSET $2',
@@ -98,8 +98,8 @@ router.get('/settings', async (req, res) => {
 });
 
 router.get('/auth-events', async (req, res) => {
-  const limit = Math.min(parseInt(req.query.limit) || 100, 500);
-  const offset = Math.max(parseInt(req.query.offset) || 0, 0);
+  const limit = Math.min(queryInt(req.query.limit, 100), 500);
+  const offset = Math.max(queryInt(req.query.offset, 0), 0);
   const [eventsResult, countResult] = await Promise.all([
     query(
       `SELECT id, event_type, username, user_id, ip, success, created_at
@@ -232,8 +232,8 @@ router.patch('/settings', async (req, res) => {
 // ── Invites ────────────────────────────────────────────────────────────────────
 
 router.get('/invites', async (req, res) => {
-  const limit  = Math.min(parseInt(req.query.limit)  || 100, 200);
-  const offset = Math.max(parseInt(req.query.offset) || 0,   0);
+  const limit  = Math.min(queryInt(req.query.limit, 100), 200);
+  const offset = Math.max(queryInt(req.query.offset, 0), 0);
   const [result, countResult] = await Promise.all([
     query(
       `SELECT i.id, i.email, i.token, i.created_at, i.expires_at, i.used_at,

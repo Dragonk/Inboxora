@@ -339,7 +339,30 @@ export async function applyConversationAction({
   }, { serializable: true });
 }
 
-export async function applyBulkConversationAction({ userId, conversationIds, items = null, scope, action, ...options }) {
+interface BulkConversationSelector {
+  conversationId: string;
+  copyId?: string | null;
+  logicalMessageId?: string | null;
+}
+
+interface BulkConversationActionInput {
+  userId: string;
+  /** Whole-conversation selectors; used when `items` is not supplied. */
+  conversationIds?: string[] | null;
+  /** Per-row selectors for copy/logical-message scopes. */
+  items?: BulkConversationSelector[] | null;
+  scope: string;
+  action: string;
+  /** Fallback selector applied to items that do not carry their own. */
+  copyId?: string | null;
+  logicalMessageId?: string | null;
+  isRead?: boolean;
+  isStarred?: boolean;
+  targetFolder?: string | null;
+  imapManager?: any;
+}
+
+export async function applyBulkConversationAction({ userId, conversationIds = null, items = null, scope, action, ...options }: BulkConversationActionInput) {
   const {
     imapManager = null,
   } = options;

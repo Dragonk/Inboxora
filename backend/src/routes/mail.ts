@@ -1,4 +1,3 @@
-// @ts-nocheck
 import { Router } from 'express';
 import { createRequire } from 'module';
 const require = createRequire(import.meta.url);
@@ -60,6 +59,7 @@ async function runInBatches(items, concurrency, fn) {
 }
 
 import { RELOCATE_INSERT_COLS, RELOCATE_SELECT_COLS } from '../utils/relocateColumns.js';
+import { queryString, queryInt } from '../utils/query.js';
 
 
 // Returns true if a snippet contains content that should never appear in plain-text
@@ -106,7 +106,13 @@ function notifyMailMutation(rows, userId) {
 
 // Get messages (unified or per-account/folder)
 router.get('/messages', async (req, res) => {
-  const { accountId, folder = 'INBOX', limit = 50, offset = 0, unreadOnly, threaded, category } = req.query;
+  const accountId = queryString(req.query.accountId);
+  const folder = queryString(req.query.folder) ?? 'INBOX';
+  const limit = queryInt(req.query.limit, 50);
+  const offset = queryInt(req.query.offset, 0);
+  const unreadOnly = queryString(req.query.unreadOnly);
+  const threaded = queryString(req.query.threaded);
+  const category = queryString(req.query.category);
   const __t0 = Date.now();
 
   if (!isValidFolderName(folder)) return res.status(400).json({ error: 'Invalid folder name' });
@@ -1312,7 +1318,7 @@ router.post('/messages/bulk-delete', async (req, res) => {
 // Analyze an INBOX for "bloat": how much is bulk mail, the top bulk senders (Tier 1 cleanup
 // targets, exact from_email addresses), and promo-keyword buckets (Tier 2 guidance).
 router.get('/mailbox-usage', async (req, res) => {
-  const { accountId } = req.query;
+  const accountId = queryString(req.query.accountId);
   if (!accountId || !UUID_RE.test(accountId)) return res.status(400).json({ error: 'valid accountId required' });
   const acct = await query('SELECT id, folder_mappings FROM email_accounts WHERE id = $1 AND user_id = $2', [accountId, req.session.userId]);
   if (!acct.rows.length) return res.status(404).json({ error: 'Account not found' });
@@ -1366,7 +1372,8 @@ router.get('/mailbox-usage', async (req, res) => {
 // bulk-only): a non-bulk message from that sender (a receipt, a personal note) is never surprise-
 // trashed. Idempotent: once those messages are trashed, a re-run returns an empty set.
 router.get('/cleanup-preview', async (req, res) => {
-  const { accountId, fromEmail } = req.query;
+  const accountId = queryString(req.query.accountId);
+  const fromEmail = queryString(req.query.fromEmail);
   if (!accountId || !UUID_RE.test(accountId)) return res.status(400).json({ error: 'valid accountId required' });
   if (!fromEmail || typeof fromEmail !== 'string' || !fromEmail.trim()) return res.status(400).json({ error: 'fromEmail required' });
   const acct = await query('SELECT id FROM email_accounts WHERE id = $1 AND user_id = $2', [accountId, req.session.userId]);
@@ -2099,7 +2106,7 @@ router.post('/messages/:id/spam', async (req, res) => {
 // category tab bar to show unread badges. Scoped to the user; optionally
 // filtered to a single account via ?accountId=.
 router.get('/category-counts', async (req, res) => {
-  const { accountId } = req.query;
+  const accountId = queryString(req.query.accountId);
   if (accountId && !UUID_RE.test(accountId)) {
     return res.status(400).json({ error: 'Invalid account id' });
   }

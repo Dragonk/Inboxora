@@ -1,4 +1,3 @@
-// @ts-nocheck
 import { randomBytes, createHash } from 'crypto';
 import { request as httpsRequest } from 'https';
 import { request as httpRequest } from 'http';
@@ -11,6 +10,7 @@ import { imapManager } from '../index.js';
 import { validateHost } from '../services/hostValidation.js';
 import { logAuthEvent } from '../services/authEvents.js';
 import { ensureUserDavResources } from '../services/userDavResources.js';
+import { queryString } from '../utils/query.js';
 
 // In-memory OIDC discovery cache keyed by issuerUrl
 const discoveryCache = new Map();
@@ -325,7 +325,10 @@ oidcBrowserRouter.get('/:slug/start', async (req, res) => {
 
 // Step 2: handle the authorization code callback from the OIDC provider
 oidcBrowserRouter.get('/:slug/callback', async (req, res) => {
-  const { code, state, error, error_description } = req.query;
+  const code = queryString(req.query.code);
+  const state = queryString(req.query.state);
+  const error = queryString(req.query.error);
+  const error_description = queryString(req.query.error_description);
 
   const pending = req.session.oidcPending;
   const pendingAction = pending?.action || 'login';

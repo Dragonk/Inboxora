@@ -1,4 +1,3 @@
-// @ts-nocheck
 import { describe, it, expect, vi } from 'vitest';
 import http from 'node:http';
 import express from 'express';

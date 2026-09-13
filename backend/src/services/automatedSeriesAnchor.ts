@@ -1,4 +1,3 @@
-// @ts-nocheck
 import { normalizeMessageIdList } from './threading/normalizeMessageId.js';
 
 export function referencesAnchor(message = {}) {

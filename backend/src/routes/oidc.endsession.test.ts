@@ -1,4 +1,3 @@
-// @ts-nocheck
 import { describe, it, expect, beforeAll, afterAll, afterEach, beforeEach, vi } from 'vitest';
 
 // buildEndSessionUrl is the core of RP-initiated (end-session) logout (#310). It must:

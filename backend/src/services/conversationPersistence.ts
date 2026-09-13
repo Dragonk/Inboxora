@@ -1,4 +1,3 @@
-// @ts-nocheck
 import { createHash } from 'crypto';
 import { withTransaction } from './db.js';
 import { effectiveConversationOverride, resolveConversationAlias, refreshConversationAggregates } from './conversationOverridePolicy.js';

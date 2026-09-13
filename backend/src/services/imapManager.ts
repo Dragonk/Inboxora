@@ -1,4 +1,3 @@
-// @ts-nocheck
 import { ImapFlow } from 'imapflow';
 import { query } from './db.js';
 import { parseMessage, snippetFromBody, detectBulkFromParsedHeaders, parseHeadersInput, headersToRawString, decodeMimeWords, enrichParsedMetadata } from './messageParser.js';

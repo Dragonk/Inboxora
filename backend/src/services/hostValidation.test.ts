@@ -1,4 +1,3 @@
-// @ts-nocheck
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { connect, createServer } from 'net';
 import { createPinnedLookup, validateHostLiteral, validateHost, resolveForConnection } from './hostValidation.js';

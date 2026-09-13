@@ -1,4 +1,3 @@
-// @ts-nocheck
 import { mergeCalendarResource, truncateSeriesBefore } from '../utils/calendarRecurrence.js';
 import ICAL from 'ical.js';
 import { parseInboundCalendarInvitation } from '../services/inboundCalendarInvitation.js';

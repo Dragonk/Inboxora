@@ -1,4 +1,3 @@
-// @ts-nocheck
 import { query } from './db.js';
 import { resolveArchiveFolder, isAllMailFolder, resolveTrashFolder, resolveAllTrashPaths, getDeleteStrategy, adjustFolderCounts } from '../utils/mailUtils.js';
 

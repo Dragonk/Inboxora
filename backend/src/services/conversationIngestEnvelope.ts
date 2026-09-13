@@ -1,4 +1,3 @@
-// @ts-nocheck
 import { providerMetadataForMessage } from './providerConversationMetadata.js';
 
 export function conversationRawHeaders(rawMessage) {
@@ -13,10 +12,19 @@ export function conversationRawHeaders(rawMessage) {
   return null;
 }
 
-export function ownIdentityAddresses(account = {}) {
+type IdentityAddress = string | { email?: string | null };
+
+interface OwnIdentityAccount {
+  email_address?: string | null;
+  aliases?: IdentityAddress[] | null;
+  delivery_addresses?: IdentityAddress[] | null;
+}
+
+export function ownIdentityAddresses(account: OwnIdentityAccount = {}): string[] {
   const aliases = Array.isArray(account.aliases) ? account.aliases : [];
   const delivery = Array.isArray(account.delivery_addresses) ? account.delivery_addresses : [];
-  return [account.email_address, ...aliases.map(alias => alias.email || alias), ...delivery.map(item => item.email || item)].filter(Boolean);
+  const addressOf = (entry: IdentityAddress): string | null | undefined => (typeof entry === 'string' ? entry : entry?.email);
+  return [account.email_address, ...aliases.map(addressOf), ...delivery.map(addressOf)].filter((value): value is string => Boolean(value));
 }
 
 /**

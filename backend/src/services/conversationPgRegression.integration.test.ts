@@ -1,4 +1,3 @@
-// @ts-nocheck
 // Real PostgreSQL regression tests for Conversation Engine v2.
 // Requires a live PostgreSQL database with all CE v2 migrations applied.
 // Run with: DB_HOST=localhost DB_NAME=mailflow_ce_test DB_USER=mailflow DB_PASSWORD=mailflow npx vitest run src/services/conversationPgRegression.integration.test.js
@@ -90,11 +89,11 @@ describeOrSkip('CE v2 PostgreSQL regression tests', () => {
     it('groups Inbox/Sent/Archive copies into one conversation', async () => {
       const baseTime = new Date('2026-01-15T10:00:00Z');
       const msgs = [
-        { messageId: '<msg-001@example.test>', subject: 'Golden thread', from: 'alice@example.test', to: 'me@example.test', folder: 'INBOX', irt: null, refs: null, date: new Date(baseTime + 0 * 60000), read: false },
-        { messageId: '<msg-002@example.test>', subject: 'Re: Golden thread', from: 'me@example.test', to: 'alice@example.test', folder: 'Sent', irt: '<msg-001@example.test>', refs: '<msg-001@example.test>', date: new Date(baseTime + 1 * 60000), read: true },
-        { messageId: '<msg-003@example.test>', subject: 'Re: Golden thread', from: 'alice@example.test', to: 'me@example.test', folder: 'INBOX', irt: '<msg-002@example.test>', refs: '<msg-001@example.test> <msg-002@example.test>', date: new Date(baseTime + 2 * 60000), read: false },
-        { messageId: '<msg-004@example.test>', subject: 'Re: Golden thread', from: 'me@example.test', to: 'alice@example.test', folder: 'Sent', irt: '<msg-003@example.test>', refs: '<msg-001@example.test> <msg-002@example.test> <msg-003@example.test>', date: new Date(baseTime + 3 * 60000), read: true },
-        { messageId: '<msg-005@example.test>', subject: 'Re: Golden thread', from: 'alice@example.test', to: 'me@example.test', folder: 'INBOX', irt: '<msg-004@example.test>', refs: '<msg-001@example.test> <msg-002@example.test> <msg-003@example.test> <msg-004@example.test>', date: new Date(baseTime + 4 * 60000), read: false },
+        { messageId: '<msg-001@example.test>', subject: 'Golden thread', from: 'alice@example.test', to: 'me@example.test', folder: 'INBOX', irt: null, refs: null, date: new Date(baseTime.getTime() + 0 * 60000), read: false },
+        { messageId: '<msg-002@example.test>', subject: 'Re: Golden thread', from: 'me@example.test', to: 'alice@example.test', folder: 'Sent', irt: '<msg-001@example.test>', refs: '<msg-001@example.test>', date: new Date(baseTime.getTime() + 1 * 60000), read: true },
+        { messageId: '<msg-003@example.test>', subject: 'Re: Golden thread', from: 'alice@example.test', to: 'me@example.test', folder: 'INBOX', irt: '<msg-002@example.test>', refs: '<msg-001@example.test> <msg-002@example.test>', date: new Date(baseTime.getTime() + 2 * 60000), read: false },
+        { messageId: '<msg-004@example.test>', subject: 'Re: Golden thread', from: 'me@example.test', to: 'alice@example.test', folder: 'Sent', irt: '<msg-003@example.test>', refs: '<msg-001@example.test> <msg-002@example.test> <msg-003@example.test>', date: new Date(baseTime.getTime() + 3 * 60000), read: true },
+        { messageId: '<msg-005@example.test>', subject: 'Re: Golden thread', from: 'alice@example.test', to: 'me@example.test', folder: 'INBOX', irt: '<msg-004@example.test>', refs: '<msg-001@example.test> <msg-002@example.test> <msg-003@example.test> <msg-004@example.test>', date: new Date(baseTime.getTime() + 4 * 60000), read: false },
       ];
 
       for (let i = 0; i < msgs.length; i++) {

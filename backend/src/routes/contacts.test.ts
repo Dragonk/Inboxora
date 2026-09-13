@@ -1,4 +1,3 @@
-// @ts-nocheck
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 const { query, withTransaction } = vi.hoisted<any>(() => ({

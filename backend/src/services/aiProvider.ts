@@ -1,4 +1,3 @@
-// @ts-nocheck
 import { decrypt, encrypt } from './encryption.js';
 import { query } from './db.js';
 import { getConnectionPolicy } from './connectionPolicy.js';
@@ -338,7 +337,17 @@ export function createAiProvider({
     }
   }
 
-  async function getAiStatus() {
+  interface AiProviderStatusFeatures { compose: boolean; summarize: boolean }
+
+  interface AiProviderStatus {
+    enabled: boolean;
+    provider: string;
+    features: Partial<AiProviderStatusFeatures>;
+    reconnectRequired: boolean;
+    connection?: any;
+  }
+
+  async function getAiStatus(): Promise<AiProviderStatus> {
     const config = await loadAiConfig();
     if (!config || !config.enabled) {
       return {

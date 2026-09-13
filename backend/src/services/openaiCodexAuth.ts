@@ -1,4 +1,3 @@
-// @ts-nocheck
 // Behavioral reference: pi-mono's MIT-licensed OpenAI Codex OAuth adapter
 // (packages/ai/src/auth/oauth/openai-codex.ts). Bounded response handling and
 // restart-safe state transitions follow the hardening patterns documented by

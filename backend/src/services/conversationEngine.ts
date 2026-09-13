@@ -34,7 +34,16 @@ export function fingerprint(value) {
   return createHash('sha256').update(String(value || '')).digest('hex');
 }
 
-export function logicalMessageIdentity(message, { userId }: { userId?: any } = {}) {
+export interface LogicalMessageIdentityInput {
+  userId?: string | null;
+  /**
+   * Accepted for call-site symmetry. Account locality is enforced by account_id in
+   * every lookup and unique index, so it deliberately does not affect the key.
+   */
+  accountId?: string | null;
+}
+
+export function logicalMessageIdentity(message: any, { userId }: LogicalMessageIdentityInput = {}) {
   const rawId = message.message_id || message.messageId || null;
   const canonicalMessageId = normalizeMessageId(rawId);
   // Physical copies of one RFC message can legitimately have different stored bodies

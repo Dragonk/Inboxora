@@ -1,4 +1,3 @@
-// @ts-nocheck
 // CardDAV *client* account management: connect/disconnect a remote CardDAV
 // server (e.g. Nextcloud) whose contacts are pulled into MailFlow. Credentials
 // live in user_integrations (provider='carddav'), password encrypted. This is
@@ -100,7 +99,8 @@ router.patch('/', async (req, res) => {
   const existing = await getCardavConfig(req.session.userId);
   if (!existing?.serverUrl) return res.status(409).json({ error: 'CardDAV not connected' });
 
-  const patch = {};
+  interface CardavConfigPatch { dupMode?: string; intervalMin?: number; password?: string }
+  const patch: CardavConfigPatch = {};
   if (req.body.dupMode && DUP_MODES.includes(req.body.dupMode)) patch.dupMode = req.body.dupMode;
   if (req.body.intervalMin != null) patch.intervalMin = clampInterval(req.body.intervalMin);
   if (req.body.password) patch.password = encrypt(req.body.password);

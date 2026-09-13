@@ -1,4 +1,3 @@
-// @ts-nocheck
 import { isPluginActivatedForAccount, getAccountConfig } from '../api.js';
 
 // Default GTD state → folder-path map. An account's gtd_folders JSONB overrides
@@ -123,7 +122,13 @@ export function findGtdFolderCollisions(folders) {
 // The candidate map is re-sanitised (255-cap / traversal) and collision-checked with the
 // same contract the save path uses, so a server-returned path can't smuggle in an invalid
 // or double-listing mapping. Pure — no DB — so it is unit-testable without an account.
-export function planGtdFolderPersist({ merged, stored, results } = {}) {
+export interface GtdFolderPersistInput {
+  merged?: Record<string, string> | null;
+  stored?: unknown;
+  results?: Array<{ error?: unknown; path?: unknown; folder?: unknown }> | null;
+}
+
+export function planGtdFolderPersist({ merged, stored, results }: GtdFolderPersistInput = {}) {
   const effective = new Map();
   for (const r of Array.isArray(results) ? results : []) {
     if (r && !r.error && typeof r.path === 'string' && r.path) effective.set(r.folder, r.path);
@@ -213,7 +218,12 @@ export async function getGtdFolderSet(accountId) {
 // ({ enabled, folders }), return the distinct folder paths the tick should sync,
 // or an empty array when GTD is disabled. Kept pure and exported so the tick's
 // "inert when disabled" contract is unit-testable without standing up a manager.
-export function gtdTickFolders({ enabled, folders } = {}) {
+export interface GtdTickConfig {
+  enabled?: boolean;
+  folders?: Record<string, string> | null;
+}
+
+export function gtdTickFolders({ enabled, folders }: GtdTickConfig = {}) {
   if (!enabled || !folders) return [];
   return [...new Set(Object.values(folders))];
 }
