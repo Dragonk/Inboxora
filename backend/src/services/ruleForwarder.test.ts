@@ -336,7 +336,7 @@ describe('forwardRuleMessage', () => {
       .mockResolvedValueOnce({ rows: [row] })
       .mockResolvedValueOnce({ rows: [] });
     const consoleSpies = ['log', 'info', 'warn', 'error'].map(method =>
-      vi.spyOn(console, method as any).mockImplementation(() => {}));
+      vi.spyOn(console, method as 'warn' | 'error' | 'log').mockImplementation(() => {}));
 
     try {
       await expect(forwardRuleMessage(input)).resolves.toBe('sent');

@@ -16,7 +16,7 @@ function jsonResponse(body, status = 200) {
   });
 }
 
-function sseResponse(chunks, { status = 200, close = true, onCancel }: any = {}) {
+function sseResponse(chunks, { status = 200, close = true, onCancel }: { status?: number; close?: boolean; onCancel?: (reason: unknown) => void } = {}) {
   return new Response(new ReadableStream({
     start(controller) {
       chunks.forEach((chunk) => controller.enqueue(encoder.encode(chunk)));
@@ -49,7 +49,7 @@ function memorySettings(initial) {
   return { queryFn, read: () => stored == null ? null : JSON.parse(stored) };
 }
 
-function factory({ initial, ...overrides }: any = {}) {
+function factory({ initial, ...overrides }: { initial?: Record<string, unknown>; [key: string]: unknown } = {}) {
   const settings = memorySettings(initial);
   const deps = {
     queryFn: settings.queryFn,

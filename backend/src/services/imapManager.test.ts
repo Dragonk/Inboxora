@@ -1241,7 +1241,7 @@ describe('syncMessages — Web Push branding', () => {
   beforeEach(() => {
     query.mockReset();
     parseMessage.mockReset();
-    dispatchMailNotification.mockReset().mockResolvedValue({});
+    dispatchMailNotification.mockReset().mockResolvedValue({ dispatched: false, webPush: 'skipped', native: { delivered: 0, invalid: 0, retry: 0, disabled: 0, skipped: null } });
   });
 
   it('broadcasts new mail before scanning old flags and uses the canonical push icon', async () => {

@@ -5,7 +5,7 @@ vi.mock('../services/db.js', () => ({
   query: vi.fn(),
 }));
 
-const { query } = (await import('../services/db.js')) as any as any;
+const { query } = vi.mocked(await import('../services/db.js'));
 
 beforeEach(() => {
   query.mockClear();

@@ -42,7 +42,7 @@ export async function readLimited(response, limitBytes) {
   }
 }
 
-export async function* readSseData(response, { signal, maxEventBytes, createError }: { signal?: any; maxEventBytes?: any; createError?: any } = {}) {
+export async function* readSseData(response, { signal, maxEventBytes, createError }: { signal?: AbortSignal; maxEventBytes?: number; createError?: (reason: string) => Error } = {}) {
   const error = (reason) => createError?.(reason) || new Error(reason);
   if (!response.body) throw error('empty_body');
   const reader = response.body.getReader();

@@ -98,7 +98,7 @@ describe('queueGistGeneration — write path', () => {
   function mockDb({ updateRowCount = 1 } = {}) {
     query.mockImplementation((sql, params) => {
       if (isBodySelect(sql)) {
-        const ids = params[0];
+        const ids = params[0] as string[];
         return Promise.resolve({
           rows: ids.map((id) => ({ id, subject: `S ${id}`, from_name: 'Alice', from_email: 'a@x', content: `body ${id}` })),
         });
@@ -183,7 +183,7 @@ describe('queueGistGeneration — write path', () => {
     getAiStatus.mockImplementation(() => configGate.then(() => ({ enabled: true, provider: 'api-key', features: { summarize: true }, reconnectRequired: false })));
     query.mockImplementation((sql, params) => {
       if (isBodySelect(sql)) {
-        const ids = params[0];
+        const ids = params[0] as string[];
         return Promise.resolve({ rows: ids.map((id) => ({ id, subject: 'S', from_name: 'A', from_email: 'a@x', content: 'b' })) });
       }
       if (isGistUpdate(sql)) return Promise.resolve({ rows: [], rowCount: 1 });

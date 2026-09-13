@@ -83,7 +83,7 @@ async function dryRunBatch(client, rows, userId) {
   return wouldChange;
 }
 
-export async function rebuildConversationCopies({ userId, accountId = null, limit = 100, dryRun = true, force = false, cursor = null }: { userId?: string; accountId?: string | null; limit?: number; dryRun?: boolean; force?: boolean; cursor?: any } = {}) {
+export async function rebuildConversationCopies({ userId, accountId = null, limit = 100, dryRun = true, force = false, cursor = null }: { userId?: string; accountId?: string | null; limit?: number; dryRun?: boolean; force?: boolean; cursor?: { date: string; id: string; isNull: boolean } | null } = {}) {
   if (!userId) throw new Error('userId is required');
   // Account is the CE identity boundary. Keep the nullable public API as an
   // orchestration convenience, but never process a user-wide message stream.

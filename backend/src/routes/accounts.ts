@@ -269,7 +269,7 @@ router.put('/:id', async (req, res) => {
 
   if (!sets.length && !pluginPersisted) return res.status(400).json({ error: 'No valid fields to update' });
 
-  const payload: any = { ...safeAccount(updated), ...pluginPatch };
+  const payload: Record<string, unknown> = { ...safeAccount(updated), ...pluginPatch };
   // Surface any plugin-rejected field sub-values (e.g. GTD folder paths reset to defaults) so the
   // settings form can flag them. Keyed by field name as the client expects.
   if (rejectedByField.gtd_folders) payload.gtd_folders_rejected = rejectedByField.gtd_folders;

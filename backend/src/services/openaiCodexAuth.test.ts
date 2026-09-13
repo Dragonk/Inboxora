@@ -36,7 +36,7 @@ function accessToken({ accountId = 'acct_123', email = 'owner@example.com', expi
 
 class MemoryStore {
   flows: Map<any, any>;
-  credential: any;
+  credential: Record<string, unknown> | null;
   nextId: number;
   lock: Promise<any>;
 

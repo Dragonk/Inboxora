@@ -155,7 +155,7 @@ export async function getGtdSections({ userId, accountId = null, limit }: { user
 // cached). One broadcast per call regardless of how many messages qualified. imapManager
 // is injected (like the transition engine) so this stays unit-testable without a live
 // socket server.
-export async function emitGtdIfRelevant(imapManager, accountId, userId, messageIds, actedFolders = null) {
+export async function emitGtdIfRelevant(imapManager, accountId: string | null | undefined, userId: string | null | undefined, messageIds?: Array<string | number> | null, actedFolders: string[] | null = null) {
   if (!accountId || !userId) return;
   const ids = [...new Set((messageIds || []).filter(Boolean))];
   if (!ids.length) return; // short-circuit before touching config (no getGtdConfig on an empty batch)
@@ -170,7 +170,7 @@ export async function emitGtdIfRelevant(imapManager, accountId, userId, messageI
     userId,
     messageIds: ids,
     actedFolders,
-    labelFolders: [...new Set(Object.values(folders))],
+    labelFolders: [...new Set(Object.values(folders).map(String))],
     event: 'gtd_sections_updated',
   });
 }

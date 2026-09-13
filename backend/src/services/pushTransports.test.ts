@@ -77,7 +77,7 @@ describe('FCM transport', () => {
   });
 
   function installFcmFetch(sendResponse) {
-    const fetchMock = vi.fn(async (url) => {
+    const fetchMock = vi.fn<typeof fetch>(async (url) => {
       if (String(url).includes('oauth2.googleapis.com')) return { ok: true, json: async () => ({ access_token: 'access-token', expires_in: 3600 }) };
       return sendResponse;
     });
@@ -91,9 +91,11 @@ describe('FCM transport', () => {
 
     await expect(sendFcmPush({ endpoint: 'device-fcm-token' }, event)).resolves.toBe(TRANSPORT_DELIVERED);
 
-    const [url, options] = (fetchMock.mock.calls.find((call) => String(call[0]).includes('fcm.googleapis.com')) || []) as any;
+    const fcmCall = fetchMock.mock.calls.find((call) => String(call[0]).includes('fcm.googleapis.com'));
+    if (!fcmCall) throw new Error('FCM request was not issued');
+    const [url, options] = fcmCall;
     expect(url).toBe('https://fcm.googleapis.com/v1/projects/proj/messages:send');
-    const body = JSON.parse(options.body);
+    const body = JSON.parse(String(options.body));
     expect(body.message.token).toBe('device-fcm-token');
     expect(body.message.data).toEqual({ type: 'mail.changed', eventId: 'msg-1' });
     expect(body.message.android.priority).toBe('high');

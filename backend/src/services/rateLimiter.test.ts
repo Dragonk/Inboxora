@@ -11,7 +11,7 @@ vi.mock('./redis.js', () => ({
   },
 }));
 
-const { consume, reset } = (await import('./rateLimiter.js')) as any;
+const { consume, reset } = vi.mocked(await import('./rateLimiter.js'));
 
 describe('rateLimiter — Redis path', () => {
   beforeEach(() => { rs.fail = false; rs.store.clear(); });

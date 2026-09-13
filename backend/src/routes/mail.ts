@@ -138,8 +138,8 @@ router.get('/messages', async (req, res) => {
     folder,
     limit,
     offset,
-    unreadOnly,
-    threaded,
+    unreadOnly: unreadOnly === 'true',
+    threaded: threaded === 'true',
     category: safeCategory,
   });
 

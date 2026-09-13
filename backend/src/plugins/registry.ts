@@ -57,7 +57,7 @@ export function createPluginRegistry() {
       throw new Error(`plugin "${id}" hooks must be an object`);
     }
     for (const [hookName, entry] of Object.entries(manifest.hooks || {})) {
-      const ok = typeof entry === 'function' || (entry && typeof (entry as any).handler === 'function');
+      const ok = typeof entry === 'function' || (entry && typeof (entry as { handler?: unknown }).handler === 'function');
       if (!ok) throw new Error(`plugin "${id}" hook "${hookName}" must be a function or { handler }`);
     }
     plugins.set(id, manifest);

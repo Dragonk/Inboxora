@@ -27,7 +27,15 @@ pool.on('error', err => {
   console.error('Idle PostgreSQL connection error:', err.message);
 });
 
-export async function query(text: string, params?: any[]): Promise<{ rows: any[]; rowCount?: number }> {
+/**
+ * A row from a dynamic SQL query. Columns differ per query and are validated by the
+ * SQL string itself, so values stay untyped at this single database boundary; every
+ * call site narrows what it reads. Typing this as Record<string, unknown> was measured
+ * to cascade into ~220 errors across call sites — a separate, dedicated refactor.
+ */
+export type DbRow = any;
+
+export async function query(text: string, params: unknown[] = []): Promise<{ rows: DbRow[]; rowCount?: number }> {
   // Time the query for the performance baseline (behavior-neutral). This is the
   // single top-level DB chokepoint; transaction clients (withTransaction) are not
   // timed here. process.hrtime avoids clock-skew and is ~nanosecond overhead.

@@ -1,7 +1,12 @@
 import sanitizeHtml from 'sanitize-html';
 
 // Apply the same stored preference/whitelist policy to every body endpoint.
-export function shouldBlockRemoteImages(preferences: any, message: Record<string, any> = {}) {
+export interface RemoteImagePreferences {
+  blockRemoteImages?: boolean;
+  imageWhitelist?: { addresses?: unknown[]; domains?: unknown[] };
+}
+
+export function shouldBlockRemoteImages(preferences: RemoteImagePreferences = {}, message: { from_email?: string | null; [key: string]: unknown } = {}) {
   if (preferences?.blockRemoteImages === false) return false;
   const senderEmail = String(message.from_email || '').toLowerCase();
   const domain = senderEmail.includes('@') ? senderEmail.split('@').at(-1) : '';

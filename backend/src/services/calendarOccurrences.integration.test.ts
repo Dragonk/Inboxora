@@ -57,7 +57,7 @@ const WINDOW = { from: new Date('2026-01-01T00:00:00Z'), to: new Date('2026-12-0
 const BUILT = { from: new Date('2026-01-01T00:00:00Z'), to: new Date('2027-01-01T00:00:00Z') };
 
 // Only the fields the expansion consumes; the rest of the row is irrelevant to correctness.
-function eventRow(raw, overrides: any = {}) {
+function eventRow(raw, overrides: Record<string, unknown> = {}) {
   return {
     id: overrides.id, uid: 'CASE', raw_ical: raw, summary: overrides.summary ?? null,
     description: null, location: null, url: null, organizer: null, attendees: null,

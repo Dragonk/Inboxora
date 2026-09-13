@@ -96,7 +96,13 @@ async function dispatchNative(event, summary) {
 }
 
 export async function dispatchMailNotification(event) {
-  const summary: any = {
+  interface DispatchSummary {
+    dispatched: boolean;
+    webPush: string;
+    native: { delivered: number; invalid: number; retry: number; disabled: number; skipped: string | null };
+    skipped?: string;
+  }
+  const summary: DispatchSummary = {
     dispatched: false,
     webPush: 'skipped',
     native: { delivered: 0, invalid: 0, retry: 0, disabled: 0, skipped: null },

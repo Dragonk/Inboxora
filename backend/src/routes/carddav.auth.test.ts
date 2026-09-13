@@ -306,7 +306,7 @@ it('enforces create-only and update-only CardDAV preconditions before modifying 
  authenticateDavCredential.mockResolvedValue({ userId: 'user-1' });
  for (const [headers, rows] of [[{ 'if-none-match': '*' }, [{ id: 'contact', uid: 'same', etag: 'old' }]], [{ 'if-match': '"missing"' }, []]]) {
   query.mockReset(); query.mockResolvedValueOnce({ rows: [{ id: 'book-1', source: 'local' }] }).mockResolvedValueOnce({ rows });
-  const response = await fetch(`${base}/carddav/user-1/book-1/same.vcf`, { method: 'PUT', headers: { authorization: basic('sam@example.test','secret'), ...(headers as any) }, body: 'BEGIN:VCARD\r\nVERSION:3.0\r\nUID:same\r\nFN:Ada\r\nEND:VCARD' });
+  const response = await fetch(`${base}/carddav/user-1/book-1/same.vcf`, { method: 'PUT', headers: { authorization: basic('sam@example.test','secret'), ...(headers as Record<string, string>) }, body: 'BEGIN:VCARD\r\nVERSION:3.0\r\nUID:same\r\nFN:Ada\r\nEND:VCARD' });
   expect(response.status).toBe(412); expect(query.mock.calls).toHaveLength(2);
  }
 });

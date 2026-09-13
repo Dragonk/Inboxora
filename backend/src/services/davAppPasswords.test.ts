@@ -37,7 +37,7 @@ describe('DAV application passwords', () => {
 
   it('authenticates an active app password and records its use', async () => {
     const secret = 'mf_dav_123e4567-e89b-12d3-a456-426614174000.exampleSecret-123456';
-    const created = await (import('bcryptjs') as any).then(({ default: bcrypt }) => bcrypt.hash('exampleSecret-123456', 4));
+    const created = await import('bcryptjs').then(({ default: bcrypt }) => bcrypt.hash('exampleSecret-123456', 4));
     query.mockResolvedValueOnce({ rows: [{ id: 'p1', user_id: 'user-1', secret_hash: created }] });
     query.mockResolvedValueOnce({ rows: [] });
 

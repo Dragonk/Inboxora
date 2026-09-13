@@ -291,7 +291,7 @@ export async function onAccountIdentityChanged({ accountId }) {
 // into its `enabled`, so the live tick, hooks, and classify/done routes must re-read to see the
 // flip immediately. The per-account gtd_enabled/folders config in the DB is untouched, so
 // reactivating restores everything.
-export async function onPluginActivationChanged({ userId, pluginId, activated: _activated = undefined }: { userId?: any; pluginId?: any; activated?: boolean } = {}) {
+export async function onPluginActivationChanged({ userId, pluginId, activated: _activated = undefined }: { userId?: string; pluginId?: string; activated?: boolean } = {}) {
   if (pluginId !== 'gtd' || !userId) return;
   const accounts = await listUserAccounts(userId);
   for (const a of accounts) invalidateGtdConfigCache(a.id);

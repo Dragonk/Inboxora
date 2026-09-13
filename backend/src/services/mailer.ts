@@ -4,7 +4,7 @@ import { resolveForConnection } from './hostValidation.js';
 import { createSmtpTransport } from './smtpTransport.js';
 import { getConnectionPolicy } from './connectionPolicy.js';
 
-export async function sendSystemEmail({ to, subject, text, html = undefined }: { to?: any; subject?: any; text?: any; html?: any }) {
+export async function sendSystemEmail({ to, subject, text, html = undefined }: { to?: string | string[]; subject?: string; text?: string; html?: string }) {
   const sysResult = await query(
     "SELECT value FROM system_settings WHERE key = 'system_email_config'"
   );

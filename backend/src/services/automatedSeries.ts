@@ -4,7 +4,15 @@ const WINDOW_MS = 72 * 60 * 60 * 1000;
 const MAX_SEGMENT = 100;
 const GENERIC_SUBJECTS = new Set(['test', 'hello', 'hi', 'question', 'invoice', 'faktura', 'oferta', 'informacja', 'notification', 'powiadomienie', 'no subject', 'brak tematu']);
 
-export function automationSignals(message: any = {}) {
+export interface AutomationSignalsMessage {
+  headers?: Record<string, unknown>;
+  parsedHeaders?: Record<string, unknown>;
+  from_email?: string | null;
+  to_addresses?: Array<{ email?: string } | string> | null;
+  [key: string]: unknown;
+}
+
+export function automationSignals(message: AutomationSignalsMessage = {}) {
   const headers = message.headers || message.parsedHeaders || {};
   const autoSubmitted = String(headers['auto-submitted'] || '').toLowerCase();
   const precedence = String(headers.precedence || '').toLowerCase();
@@ -33,7 +41,7 @@ export function automationSignals(message: any = {}) {
     // delivery), so it is evidence that auth passed but must not be part of the
     // stable sender identity used to compare two series messages.
     senderSignature: [sender, headers['return-path'] || '', headers['list-id'] || ''].join('|').toLowerCase(),
-    recipientSignature: JSON.stringify((message.to_addresses || []).map(a => a.email || a).sort()),
+    recipientSignature: JSON.stringify((message.to_addresses || []).map(a => typeof a === 'string' ? a : (a.email || a)).sort()),
   };
 }
 

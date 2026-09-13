@@ -21,7 +21,7 @@ vi.mock('../../index.js', () => ({ imapManager: { broadcast: vi.fn() } }));
 // scoping tests + the import route's decode step) so the tests below can drive the route's
 // error-code → status mapping in isolation.
 vi.mock('./gtdPet.js', async (importOriginal) => {
-  const actual: any = await importOriginal();
+  const actual = (await importOriginal()) as Record<string, unknown>;
   return { ...actual, importPet: vi.fn() };
 });
 
@@ -58,7 +58,7 @@ function blobRow(isCustom) {
 
 function stubQuery() {
   query.mockImplementation(async (sql, params) => {
-    const slug = params?.[1]; // storage keys are (plugin_id, key) → the pet slug is params[1]
+    const slug = String(params?.[1] ?? ''); // storage keys are (plugin_id, key) → the pet slug is params[1]
     if (sql.startsWith('SELECT key, owner_id, value, visibility FROM plugin_data')) {
       return { rows: META_ROWS[slug] ? [metaRow(META_ROWS[slug])] : [] };
     }

@@ -669,3 +669,25 @@ Backend any: 77 -> 43 (tsc 0, testy 1785/0, lint czysty).
   widokiem konstruktora (luka w typach connect-redis) zwracajacym SessionStore.
 - gtdGist/queueGistGeneration, mailUtils deltas, senderFavicon result — otypowane.
 
+
+## 62. MILESTONE: backend bez any (poza udokumentowanym DbRow)
+
+Backend any: 43 -> 0 realnych wystapien. tsc 0 · testy 1785/0 · lint czysty · build OK.
+
+Wykryte przy tym REALNE niezgodnosci (maskowane przez any):
+- mail.ts przekazywal unreadOnly/threaded jako stringi do parametrow boolean.
+- messageService celowo akceptuje OBA warianty (string "true" i boolean) — typ poszerzony do
+  boolean | string, wiec defensywne porownania sa poprawne.
+- inboxRules.test mockowal resolveAllTrashPaths tablica zamiast Set (runtime crash).
+- conversationRebuild.cursor to obiekt keyset-pagination, nie string.
+- messageService.test przekazywal "true" jako boolean.
+- davServerAuth req potrzebowal ip; deviceAuth.test req potrzebowal pushDevice.
+
+Dokumentowany wyjatek graniczny:
+- db.ts: type DbRow = any — wiersz dynamicznego SQL; parametry zawezone do unknown[];
+  proby otypowania rows jako Record<string, unknown> zmierzone na ~220 bledow w wywolaniach
+  (osobny, dedykowany refactor). Wyjatek jest jawnie udokumentowany w kodzie i raporcie.
+
+Pozostale: usuniete 15+ masek w testach (vi.mocked, AddressInfo/Socket, typed req/replies),
+messageParser.EnrichParsedInput, registry narrowing, aiProvider.test typed options.
+

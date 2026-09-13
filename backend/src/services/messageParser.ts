@@ -474,7 +474,17 @@ export function parseDeliveryAddresses(parsedHeaders) {
 }
 
 // Fill gaps when IMAP ENVELOPE is incomplete — common for multipart/related Sent copies.
-export function enrichParsedMetadata(parsed: any, {
+export interface EnrichParsedInput {
+  cc?: unknown[] | null;
+  to?: unknown[] | null;
+  fromEmail?: string | null;
+  fromName?: string | null;
+  subject?: string | null;
+  parsedHeaders?: Record<string, unknown>;
+  [key: string]: unknown;
+}
+
+export function enrichParsedMetadata(parsed: EnrichParsedInput, {
   accountEmail,
   accountName,
   senderName,

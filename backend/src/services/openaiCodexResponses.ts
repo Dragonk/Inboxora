@@ -13,7 +13,7 @@ const OUTPUT_LIMIT_CHARS = 2 * 1024 * 1024;
 const MAILFLOW_INSTRUCTIONS = 'You are Inboxora, a helpful email assistant.';
 
 export class CodexResponseError extends Error {
-  constructor(message, { status, code }: { status?: any; code?: any } = {}) {
+  constructor(message: string, { status, code }: { status?: number; code?: string } = {}) {
     super(message);
     this.name = 'CodexResponseError';
     this.status = status;
