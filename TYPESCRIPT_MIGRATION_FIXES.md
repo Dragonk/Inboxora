@@ -111,3 +111,22 @@ Backend `tsc`: **175 błędów** (z 474). Czyste m.in.: `routes/mail.ts`, `servi
 `services/aiProvider.ts`, `services/inboxRules.ts`, `services/automatedSeriesAnchor.ts`.
 Testy: 1785 / 0 failed. Lint: czysty.
 
+
+## 10. Iteracja: wiersze logiczne i pula projekcji kalendarza
+
+- 🔴 **`consolidateLegacyLogicalRows(..., rows)`** — parametr bez typu dawał elementy `unknown`,
+  przez co odczyt `row.id`/`row.conversation_id` był niekontrolowany. Dodany `LogicalMessageRow`.
+- 🔴 **`new Promise((resolve) => ...)` bez argumentu typu** w puli projekcji → `settled: unknown[]`,
+  więc odczyty `result.events`/`result.truncated`/`result.error` były niekontrolowane. Dodane
+  `ProjectionJobResult` i `Promise<ProjectionJobResult>`.
+- 🟠 **`cacheSet(..., { ttlMs, horizonStartMs, horizonEndMs } = {})`** — brak typu opcji → `CacheSetOptions`.
+- 🔴 **`failures`/`events`/`truncatedSeries` bez typów** w puli → `ProjectionFailure`, `ProjectionEvent`,
+  `ProjectionAggregate`; jawne typy zwracane `inlineProject`/`dispatchProjection`.
+
+## 11. Stan weryfikacji
+
+Backend `tsc`: **144 błędy** (z 474). Czyste m.in.: `routes/mail.ts`, `services/messageParser.ts`,
+`services/aiProvider.ts`, `services/inboxRules.ts`, `services/automatedSeriesAnchor.ts`,
+`services/conversationPersistence.ts`, `services/calendarProjectionPool.ts`.
+Testy: 1785 / 0 failed. Lint: czysty.
+

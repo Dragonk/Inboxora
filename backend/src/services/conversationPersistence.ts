@@ -37,7 +37,13 @@ async function matchingLegacyLogicalRows(client, hydrated) {
   return result.rows.filter(row => row.message_id && logicalMessageIdentity(row, { userId: hydrated.userId, accountId: hydrated.accountId }).collisionKey === hydrated.collisionKey);
 }
 
-async function consolidateLegacyLogicalRows(client, hydrated, rows, preferredId = null) {
+interface LogicalMessageRow {
+  id: string;
+  conversation_id: string | null;
+  parent_logical_message_id?: string | null;
+}
+
+async function consolidateLegacyLogicalRows(client, hydrated, rows: LogicalMessageRow[], preferredId: string | null = null) {
   const uniqueRows = [...new Map(rows.map(row => [row.id, row])).values()];
   if (!uniqueRows.length) return null;
   const ids = uniqueRows.map(row => row.id);

@@ -22,6 +22,28 @@ import os from 'node:os';
 
 import { DEFAULT_MAX_ITERATIONS, projectCalendarResourceWithStatus } from '../utils/calendarRecurrence.js';
 
+interface ProjectionEvent {
+  id?: string;
+  series_id?: string;
+  starts_at?: Date;
+  ends_at?: Date;
+}
+
+interface ProjectionAggregate {
+  events: ProjectionEvent[];
+  failures: ProjectionFailure[];
+  truncated: boolean;
+  truncatedSeries: Array<string | null>;
+  overloaded: boolean;
+  degraded: boolean;
+}
+
+interface ProjectionFailure {
+  id: string | null;
+  error: string;
+  reason: string;
+}
+
 // Worker threads are spawned by raw Node, which bypasses the TypeScript toolchain.
 // In the source tree the worker is TypeScript, so it is executed through the tsx
 // loader (dev/test only); the compiled build ships the same worker as .js, which
@@ -209,10 +231,10 @@ function startJob(slot, job, settings) {
   }
 }
 
-function inlineProject(rows, from, to, options) {
+function inlineProject(rows, from, to, options): ProjectionAggregate {
   const maxIterations = options.maxIterations ?? DEFAULT_MAX_ITERATIONS;
   const events = [];
-  const failures = [];
+  const failures: ProjectionFailure[] = [];
   const truncatedSeries = [];
   for (const row of rows) {
     try {
@@ -373,7 +395,13 @@ function evictProjectionCache(settings) {
   }
 }
 
-function cacheSet(key, status, settings, { ttlMs, horizonStartMs, horizonEndMs } = {}) {
+interface CacheSetOptions {
+  ttlMs?: number;
+  horizonStartMs?: number;
+  horizonEndMs?: number;
+}
+
+function cacheSet(key, status, settings, { ttlMs, horizonStartMs, horizonEndMs }: CacheSetOptions = {}) {
   // Empty successful results are cached too: a COUNT series that already ended
   // is a legitimate answer, and re-walking it on every request is pure waste.
   const existing = projectionCache.get(key);
@@ -398,7 +426,7 @@ export function calendarProjectionCacheStats() {
   return { entries: projectionCache.size, events: projectionCacheEvents };
 }
 
-async function dispatchProjection(rows, from, to, options, settings) {
+async function dispatchProjection(rows, from, to, options, settings): Promise<ProjectionAggregate> {
   if (!rows.length) return { events: [], failures: [], truncated: false, truncatedSeries: [], overloaded: false, degraded: false };
   if (options.useWorkers === false || !settings.enabled) return inlineProject(rows, from, to, { ...options, maxIterations: settings.maxIterations });
   const active = ensureSlots(settings);
@@ -411,7 +439,14 @@ async function dispatchProjection(rows, from, to, options, settings) {
     else accepted.push(row);
   }
 
-  const jobs = accepted.map(row => new Promise((resolve) => {
+  interface ProjectionJobResult {
+    id: string | null;
+    events: unknown[];
+    truncated: boolean;
+    reason: string | null;
+    error: string | null;
+  }
+  const jobs: Array<Promise<ProjectionJobResult>> = accepted.map(row => new Promise<ProjectionJobResult>((resolve) => {
     jobsDispatched += 1;
     pending.push({ jobId: nextJobId++, row, from, to, resolve, done: false });
   }));
@@ -419,7 +454,7 @@ async function dispatchProjection(rows, from, to, options, settings) {
 
   const settled = await Promise.all(jobs);
   const events = [];
-  const failures = overflow.map(row => ({ id: row.id, error: 'Calendar projection queue is full', reason: 'overloaded' }));
+  const failures: ProjectionFailure[] = overflow.map(row => ({ id: row.id, error: 'Calendar projection queue is full', reason: 'overloaded' }));
   const truncatedSeries = [];
   for (const result of settled) {
     if (result.events?.length) events.push(...result.events);
@@ -490,7 +525,7 @@ export async function projectCalendarResources(rows, from, to, options: Record<s
   // dispatchProjection resolves with a structured result and only rejects on a
   // programming error, in which case this call rejects too (never a cached
   // success). The finally block only releases the in-flight markers.
-  let aggregate;
+  let aggregate: ProjectionAggregate;
   try {
     aggregate = await dispatchProjection(
       missing.map(item => item.row),
@@ -553,9 +588,9 @@ export async function projectCalendarResources(rows, from, to, options: Record<s
     } catch { /* fall through to no result for this row */ }
   }
 
-  const events = [];
-  const failures = [];
-  const truncatedSeries = [];
+  const events: ProjectionEvent[] = [];
+  const failures: ProjectionFailure[] = [];
+  const truncatedSeries: Array<string | null> = [];
   for (const row of list) {
     const status = statuses.get(row.id);
     if (!status) continue;
