@@ -8,6 +8,33 @@ export const CSRF_HEADER = 'X-Requested-With';
 export const CSRF_VALUE = 'MailFlow';
 const messageBodyRequests = new Map();
 
+/** Query-string parameters as callers pass them. */
+/** A folder as GET /accounts/:id/folders returns it. */
+export interface FolderListEntry {
+  path: string;
+  name?: string;
+  special_use?: string | null;
+  delimiter?: string | null;
+  [key: string]: unknown;
+}
+
+/** A calendar event payload (updateEvent reads recurrenceId to target an occurrence). */
+export interface CalendarEventPayload {
+  recurrenceId?: string | null;
+  [key: string]: unknown;
+}
+
+export type QueryParams = Record<string, string | number | boolean | null | undefined>;
+
+/** Serialise query parameters, dropping absent values. */
+export function toSearchParams(params: QueryParams): string {
+  const search = new URLSearchParams();
+  for (const [key, value] of Object.entries(params)) {
+    if (value !== undefined && value !== null) search.set(key, String(value));
+  }
+  return search.toString();
+}
+
 async function request(method: string, path: string, body: unknown = undefined, extraHeaders: Record<string, string> | undefined = undefined, extraOptions: RequestInit = {}) {
   const headers: Record<string, string> = { [CSRF_HEADER]: CSRF_VALUE, ...(extraHeaders || {}) };
   if (body) headers['Content-Type'] = 'application/json';
@@ -129,18 +156,18 @@ function getMessageBody(id, remoteImages = false, copyId = null) {
 }
 
 export const api = {
-  get: (path, extraOptions = {}) => request('GET', path, undefined, undefined, extraOptions),
-  post: (path, body, extraHeaders) => request('POST', path, body, extraHeaders),
-  put: (path, body) => request('PUT', path, body),
-  patch: (path, body) => request('PATCH', path, body),
-  delete: (path) => request('DELETE', path),
+  get: (path: string, extraOptions = {}) => request('GET', path, undefined, undefined, extraOptions),
+  post: (path: string, body: unknown, extraHeaders) => request('POST', path, body, extraHeaders),
+  put: (path: string, body: unknown) => request('PUT', path, body),
+  patch: (path: string, body: unknown) => request('PATCH', path, body),
+  delete: (path: string) => request('DELETE', path),
 
   // Auth
-  login: (username, password) => request('POST', '/auth/login', { username, password }),
-  register: (username, password, inviteToken) => request('POST', '/auth/register', { username, password, inviteToken }),
+  login: (username: string, password: string) => request('POST', '/auth/login', { username, password }),
+  register: (username: string, password: string, inviteToken: string | null) => request('POST', '/auth/register', { username, password, inviteToken }),
   logout: () => request('POST', '/auth/logout'),
   lock: () => request('POST', '/auth/lock'),
-  unlock: async (pin) => {
+  unlock: async (pin: string) =>{
     // Custom (not request()) so we can read the lockout flag on failure: after too many
     // attempts the server destroys the session and returns { signedOut: true }; route to
     // login via session_expired rather than showing an error.
@@ -157,28 +184,28 @@ export const api = {
     }
     throw new Error(data.error || 'Incorrect PIN');
   },
-  setLockPin: (pin, currentPin) => request('POST', '/auth/lock-pin', { pin, currentPin }),
-  removeLockPin: (currentPin) => request('DELETE', '/auth/lock-pin', { currentPin }),
+  setLockPin: (pin: string, currentPin: string) => request('POST', '/auth/lock-pin', { pin, currentPin }),
+  removeLockPin: (currentPin: string) => request('DELETE', '/auth/lock-pin', { currentPin }),
   me: () => request('GET', '/auth/me'),
-  forgotPassword: (email) => request('POST', '/auth/forgot-password', { email }),
-  resetPassword: (token, password) => request('POST', '/auth/reset-password', { token, password }),
+  forgotPassword: (email: string) => request('POST', '/auth/forgot-password', { email }),
+  resetPassword: (token: string, password: string) => request('POST', '/auth/reset-password', { token, password }),
   getPreferences: () => request('GET', '/auth/preferences'),
-  savePreferences: (prefs) => request('PATCH', '/auth/preferences', prefs),
-  updateProfile: (data) => request('PATCH', '/auth/profile', data),
-  uploadAvatar: (avatar) => request('POST', '/auth/avatar', { avatar }),
+  savePreferences: (prefs: Record<string, unknown>) => request('PATCH', '/auth/preferences', prefs),
+  updateProfile: (data: unknown) => request('PATCH', '/auth/profile', data),
+  uploadAvatar: (avatar: unknown) => request('POST', '/auth/avatar', { avatar }),
   deleteAvatar: () => request('DELETE', '/auth/avatar'),
   getRegistrationStatus: () => request('GET', '/auth/registration-status'),
-  validateInvite: (token) => request('GET', `/auth/invite/${token}`),
+  validateInvite: (token: string) => request('GET', `/auth/invite/${token}`),
 
   // Recovery email (profile security)
   getRecoveryEmail: () => request('GET', '/auth/profile/recovery-email'),
-  updateRecoveryEmail: (email) => request('PATCH', '/auth/profile/recovery-email', { email }),
+  updateRecoveryEmail: (email: string) => request('PATCH', '/auth/profile/recovery-email', { email }),
 
   // TOTP / 2FA
   totp: {
     setup: () => request('GET', '/totp/setup'),
     enable: (code) => request('POST', '/totp/enable', { code }),
-    disable: (password) => request('POST', '/totp/disable', { password }),
+    disable: (password: string) => request('POST', '/totp/disable', { password }),
     cancel: () => request('POST', '/totp/cancel'),
     challenge: (code, rememberDevice) => request('POST', '/auth/2fa/challenge', { code, rememberDevice }),
     sendEmailOtp: () => request('POST', '/auth/2fa/send-email-otp'),
@@ -189,25 +216,25 @@ export const api = {
 
   // Admin
   admin: {
-    getUsers: (params) => request('GET', '/admin/users' + (params ? '?' + new URLSearchParams(params) : '')),
-    updateUser: (id, data) => request('PATCH', `/admin/users/${id}`, data),
-    deleteUser: (id) => request('DELETE', `/admin/users/${id}`),
-    disableUserTotp: (id) => request('POST', `/admin/users/${id}/totp/disable`),
+    getUsers: (params: QueryParams) => request('GET', '/admin/users' + (params ? '?' + toSearchParams(params) : '')),
+    updateUser: (id: string, data: unknown) => request('PATCH', `/admin/users/${id}`, data),
+    deleteUser: (id: string) => request('DELETE', `/admin/users/${id}`),
+    disableUserTotp: (id: string) => request('POST', `/admin/users/${id}/totp/disable`),
     getSettings: () => request('GET', '/admin/settings'),
-    updateSettings: (data) => request('PATCH', '/admin/settings', data),
-    getInvites: (params) => request('GET', '/admin/invites' + (params ? '?' + new URLSearchParams(params) : '')),
-    createInvite: (email) => request('POST', '/admin/invites', { email }),
-    deleteInvite: (id) => request('DELETE', `/admin/invites/${id}`),
+    updateSettings: (data: unknown) => request('PATCH', '/admin/settings', data),
+    getInvites: (params: QueryParams) => request('GET', '/admin/invites' + (params ? '?' + toSearchParams(params) : '')),
+    createInvite: (email: string) => request('POST', '/admin/invites', { email }),
+    deleteInvite: (id: string) => request('DELETE', `/admin/invites/${id}`),
     getSystemEmail: () => request('GET', '/admin/system-email'),
-    saveSystemEmail: (data) => request('POST', '/admin/system-email', data),
+    saveSystemEmail: (data: unknown) => request('POST', '/admin/system-email', data),
     testSystemEmail: () => request('POST', '/admin/system-email/test'),
     deleteSystemEmail: () => request('DELETE', '/admin/system-email'),
-    getAuthEvents: (params) => request('GET', '/admin/auth-events?' + new URLSearchParams(params)),
+    getAuthEvents: (params: QueryParams) => request('GET', '/admin/auth-events?' + toSearchParams(params)),
     oidc: {
       getProviders: () => request('GET', '/admin/oidc'),
-      createProvider: (data) => request('POST', '/admin/oidc', data),
-      updateProvider: (id, data) => request('PATCH', `/admin/oidc/${id}`, data),
-      deleteProvider: (id) => request('DELETE', `/admin/oidc/${id}`),
+      createProvider: (data: unknown) => request('POST', '/admin/oidc', data),
+      updateProvider: (id: string, data: unknown) => request('PATCH', `/admin/oidc/${id}`, data),
+      deleteProvider: (id: string) => request('DELETE', `/admin/oidc/${id}`),
     },
   },
 
@@ -215,28 +242,28 @@ export const api = {
   oidc: {
     getProviders: () => request('GET', '/auth/oidc/providers'),
     getIdentities: () => request('GET', '/auth/oidc/identities'),
-    unlinkIdentity: (id) => request('DELETE', `/auth/oidc/identities/${id}`),
+    unlinkIdentity: (id: string) => request('DELETE', `/auth/oidc/identities/${id}`),
   },
 
   // Accounts
   getAccounts: () => request('GET', '/accounts'),
-  addAccount: (data) => request('POST', '/accounts', data),
-  updateAccount: (id, data) => request('PUT', `/accounts/${id}`, data),
-  deleteAccount: (id) => request('DELETE', `/accounts/${id}`),
-  reconnectAccount: (id) => request('POST', `/accounts/${id}/reconnect`),
-  reindexAccount: (id) => request('POST', `/accounts/${id}/reindex`),
-  getFolders: (accountId) => request('GET', `/accounts/${accountId}/folders`),
-  getAliases: (accountId) => request('GET', `/accounts/${accountId}/aliases`),
-  addAlias: (accountId, data) => request('POST', `/accounts/${accountId}/aliases`, data),
-  updateAlias: (accountId, aliasId, data) => request('PUT', `/accounts/${accountId}/aliases/${aliasId}`, data),
-  deleteAlias: (accountId, aliasId) => request('DELETE', `/accounts/${accountId}/aliases/${aliasId}`),
+  addAccount: (data: unknown) => request('POST', '/accounts', data),
+  updateAccount: (id: string, data: unknown) => request('PUT', `/accounts/${id}`, data),
+  deleteAccount: (id: string) => request('DELETE', `/accounts/${id}`),
+  reconnectAccount: (id: string) => request('POST', `/accounts/${id}/reconnect`),
+  reindexAccount: (id: string) => request('POST', `/accounts/${id}/reindex`),
+  getFolders: (accountId: string) => request('GET', `/accounts/${accountId}/folders`),
+  getAliases: (accountId: string) => request('GET', `/accounts/${accountId}/aliases`),
+  addAlias: (accountId: string, data: unknown) => request('POST', `/accounts/${accountId}/aliases`, data),
+  updateAlias: (accountId: string, aliasId, data: unknown) => request('PUT', `/accounts/${accountId}/aliases/${aliasId}`, data),
+  deleteAlias: (accountId: string, aliasId) => request('DELETE', `/accounts/${accountId}/aliases/${aliasId}`),
 
   // Mail
-  getMessages: (params) => {
-    const qs = new URLSearchParams(params).toString();
+  getMessages: (params: QueryParams) =>{
+    const qs = toSearchParams(params);
     return request('GET', `/mail/messages?${qs}`);
   },
-  getMessage: (id) => request('GET', `/mail/messages/${id}`),
+  getMessage: (id: string) => request('GET', `/mail/messages/${id}`),
   // Resolve a deep-link reference (stable Message-ID header, or a legacy UUID) to the
   // current message row — durable across folder moves (#270).
   resolveMessage: (ref, accountId = undefined) => {
@@ -245,7 +272,7 @@ export const api = {
     return request('GET', `/mail/resolve-message?${qs}`);
   },
   getMessageBody,
-  getThread: (threadId, folder, unified = false, accountId = null) => {
+  getThread: (threadId, folder: string, unified = false, accountId = null) =>{
     const qs = new URLSearchParams();
     if (folder) qs.set('folder', folder);
     if (unified) qs.set('unified', 'true');
@@ -253,29 +280,29 @@ export const api = {
     const query = qs.size ? `?${qs}` : '';
     return request('GET', `/mail/thread/${encodeURIComponent(threadId)}${query}`);
   },
-  bulkRead: (ids, read) => request('POST', '/mail/messages/bulk-read', { ids, read }),
-  markStarred: (id, starred) => request('PATCH', `/mail/messages/${id}/star`, { starred }),
-  markAllRead: (accountId, folder) => request('POST', '/mail/mark-all-read', { accountId, folder }),
-  deleteMessage: (id) => request('DELETE', `/mail/messages/${id}`),
-  bulkDelete: (ids) => request('POST', '/mail/messages/bulk-delete', { ids }),
-  bulkMove: (ids, folder) => request('POST', '/mail/messages/bulk-move', { ids, folder }),
-  bulkArchive: (ids) => request('POST', '/mail/messages/bulk-archive', { ids }),
+  bulkRead: (ids: string[], read) => request('POST', '/mail/messages/bulk-read', { ids, read }),
+  markStarred: (id: string, starred) => request('PATCH', `/mail/messages/${id}/star`, { starred }),
+  markAllRead: (accountId: string, folder: string) => request('POST', '/mail/mark-all-read', { accountId, folder }),
+  deleteMessage: (id: string) => request('DELETE', `/mail/messages/${id}`),
+  bulkDelete: (ids: string[]) => request('POST', '/mail/messages/bulk-delete', { ids }),
+  bulkMove: (ids: string[], folder: string) => request('POST', '/mail/messages/bulk-move', { ids, folder }),
+  bulkArchive: (ids: string[]) => request('POST', '/mail/messages/bulk-archive', { ids }),
   getUnreadCounts: () => request('GET', '/mail/unread-counts'),
 
   // Mailbox cleanup (read-only analysis; actual cleanup reuses bulkDelete above).
-  mailboxUsage: (accountId) => request('GET', `/mail/mailbox-usage?accountId=${encodeURIComponent(accountId)}`),
-  cleanupPreview: (accountId, fromEmail) =>
+  mailboxUsage: (accountId: string) => request('GET', `/mail/mailbox-usage?accountId=${encodeURIComponent(accountId)}`),
+  cleanupPreview: (accountId: string, fromEmail) =>
     request('GET', `/mail/cleanup-preview?accountId=${encodeURIComponent(accountId)}&fromEmail=${encodeURIComponent(fromEmail)}`),
 
   // Antispam (v0.1) — manual user feedback.
   // markSpam moves the message to the account's spam/junk folder and
   // records the decision in spam_training_log. markHam moves it back to
   // INBOX. No automatic classification runs here yet.
-  markSpam: (id) => request('POST', `/mail/messages/${id}/spam`),
+  markSpam: (id: string) => request('POST', `/mail/messages/${id}/spam`),
   markHam:  (id) => request('POST', `/mail/messages/${id}/ham`),
 
-  getMessageHeaders: (id) => request('GET', `/mail/messages/${id}/headers`),
-  snoozeMessage: (id, until) => request('POST', `/mail/messages/${id}/snooze`, { until }),
+  getMessageHeaders: (id: string) => request('GET', `/mail/messages/${id}/headers`),
+  snoozeMessage: (id: string, until) => request('POST', `/mail/messages/${id}/snooze`, { until }),
 
   // Sanitized diagnostics report (server-owned sections; scoped to the user).
   diagnosticsReport: (salt) => request('POST', '/diagnostics/report', { salt }),
@@ -298,17 +325,17 @@ export const api = {
 
   // Sync
   syncNow: (accountId = undefined) => request('POST', '/mail/sync', accountId ? { accountId } : {}),
-  syncFolder: (accountId, folder) => request('POST', '/mail/sync-folder', { accountId, folder }),
-  syncFoldersNow: (accountId) => request('POST', '/mail/sync-folders', accountId ? { accountId } : {}),
+  syncFolder: (accountId: string, folder: string) => request('POST', '/mail/sync-folder', { accountId, folder }),
+  syncFoldersNow: (accountId: string) => request('POST', '/mail/sync-folders', accountId ? { accountId } : {}),
 
   // Folder management
-  createFolder: (accountId, name, parentPath) => request('POST', '/mail/folders', { accountId, name, parentPath }),
-  deleteFolder: (accountId, path) => request('POST', '/mail/folders/delete', { accountId, path }),
-  renameFolder: (accountId, oldPath, newName) => request('POST', '/mail/folders/rename', { accountId, oldPath, newName }),
-  emptyFolder: (accountId, path) => request('POST', '/mail/folders/empty', { accountId, path }),
+  createFolder: (accountId: string, name: string, parentPath) => request('POST', '/mail/folders', { accountId, name, parentPath }),
+  deleteFolder: (accountId: string, path: string) => request('POST', '/mail/folders/delete', { accountId, path }),
+  renameFolder: (accountId: string, oldPath, newName) => request('POST', '/mail/folders/rename', { accountId, oldPath, newName }),
+  emptyFolder: (accountId: string, path: string) => request('POST', '/mail/folders/empty', { accountId, path }),
 
   // Search
-  search: (q, accountId, { offset = 0, limit, folder }: { offset?: number; limit?: string | number; folder?: string } = {}) => {
+  search: (q, accountId: string, { offset = 0, limit, folder }: { offset?: number; limit?: string | number; folder?: string } = {}) =>{
     const params = new URLSearchParams({ q });
     if (accountId) params.set('accountId', accountId);
     if (limit) params.set('limit', String(limit));
@@ -331,15 +358,15 @@ export const api = {
   },
   getContact:    (id)       => request('GET',    `/contacts/${id}`),
   createContact: (data)     => request('POST',   '/contacts', data),
-  updateContact: (id, data) => request('PATCH',  `/contacts/${id}`, data),
+  updateContact: (id: string, data: unknown) => request('PATCH',  `/contacts/${id}`, data),
   deleteContact: (id)       => request('DELETE', `/contacts/${id}`),
   addressBooks: {
     list: () => request('GET', '/contacts/address-books'),
-    create: (name) => request('POST', '/contacts/address-books', { name }),
-    update: (id, data) => request('PATCH', `/contacts/address-books/${encodeURIComponent(id)}`, data),
-    remove: (id) => request('DELETE', `/contacts/address-books/${encodeURIComponent(id)}`),
-    importGoogleCsv: (id, csv) => request('POST', `/contacts/address-books/${encodeURIComponent(id)}/import/google-csv`, { csv }),
-    exportUrl: (id, format) => `${BASE}/contacts/address-books/${encodeURIComponent(id)}/export?format=${encodeURIComponent(format)}`,
+    create: (name: string) => request('POST', '/contacts/address-books', { name }),
+    update: (id: string, data: unknown) => request('PATCH', `/contacts/address-books/${encodeURIComponent(id)}`, data),
+    remove: (id: string) => request('DELETE', `/contacts/address-books/${encodeURIComponent(id)}`),
+    importGoogleCsv: (id: string, csv) => request('POST', `/contacts/address-books/${encodeURIComponent(id)}/import/google-csv`, { csv }),
+    exportUrl: (id: string, format) =>`${BASE}/contacts/address-books/${encodeURIComponent(id)}/export?format=${encodeURIComponent(format)}`,
   },
 
   // CardDAV contact sync (Nextcloud etc.)
@@ -355,17 +382,17 @@ export const api = {
   davCredentials: {
     list:   () => request('GET', '/dav-credentials'),
     create: (label) => request('POST', '/dav-credentials', { label }),
-    revoke: (id) => request('DELETE', `/dav-credentials/${id}`),
+    revoke: (id: string) => request('DELETE', `/dav-credentials/${id}`),
   },
 
   // Local calendar resources shared with the built-in CalDAV service.
   calendar: {
     getInvitation: id => request('GET', `/calendar/invitations/${encodeURIComponent(id)}`),
-    addInvitation: (id, calendarId) => request('POST', `/calendar/invitations/${encodeURIComponent(id)}`, { calendarId }),
+    addInvitation: (id: string, calendarId) => request('POST', `/calendar/invitations/${encodeURIComponent(id)}`, { calendarId }),
     removeInvitation: id => request('DELETE', `/calendar/invitations/${encodeURIComponent(id)}`),
     listCalendars: ({ signal }: { signal?: AbortSignal } = {}) => request('GET', '/calendar/calendars', undefined, undefined, { signal }),
-    updateCalendar: (id, data) => request('PATCH', `/calendar/calendars/${encodeURIComponent(id)}`, data),
-    deleteCalendar: (id, confirmName) => request('DELETE', `/calendar/calendars/${encodeURIComponent(id)}`, { confirmName }),
+    updateCalendar: (id: string, data: unknown) => request('PATCH', `/calendar/calendars/${encodeURIComponent(id)}`, data),
+    deleteCalendar: (id: string, confirmName) => request('DELETE', `/calendar/calendars/${encodeURIComponent(id)}`, { confirmName }),
     // Reads accept an AbortSignal so a superseded range or an unmounting page can
     // cancel work the user no longer needs. `calendarIds` narrows the expansion
     // server-side; `null` means every calendar, `[]` means none.
@@ -374,17 +401,17 @@ export const api = {
       if (Array.isArray(calendarIds)) params.set('calendarIds', calendarIds.join(','));
       return request('GET', `/calendar/events?${params}`, undefined, undefined, { signal });
     },
-    createEvent: (data, idempotencyKey = undefined) => request('POST', '/calendar/events', data, idempotencyKey ? { 'X-Idempotency-Key': idempotencyKey } : undefined),
-    updateEvent: (id, data, idempotencyKey = undefined) => request('PATCH', `/calendar/events/${id}${data.recurrenceId ? '/occurrence' : ''}`, data, idempotencyKey ? { 'X-Idempotency-Key': idempotencyKey } : undefined),
+    createEvent: (data: CalendarEventPayload, idempotencyKey = undefined) => request('POST', '/calendar/events', data, idempotencyKey ? { 'X-Idempotency-Key': idempotencyKey } : undefined),
+    updateEvent: (id: string, data: CalendarEventPayload, idempotencyKey = undefined) => request('PATCH', `/calendar/events/${id}${data.recurrenceId ? '/occurrence' : ''}`, data, idempotencyKey ? { 'X-Idempotency-Key': idempotencyKey } : undefined),
     // scope 'following' ends the series just before this occurrence; with no recurrenceId the
     // whole event is removed. Removing an entire series goes through the plain event DELETE,
     // which is also the path that notifies invited attendees.
-    deleteEvent: (id, calendarId, recurrenceId = undefined, scope = undefined) => recurrenceId ? request('DELETE', `/calendar/events/${encodeURIComponent(id)}/occurrence`, { calendarId, recurrenceId, ...(scope ? { scope } : {}) }) : request('DELETE', `/calendar/events/${encodeURIComponent(id)}?calendarId=${encodeURIComponent(calendarId)}`),
+    deleteEvent: (id: string, calendarId, recurrenceId = undefined, scope = undefined) =>recurrenceId ? request('DELETE', `/calendar/events/${encodeURIComponent(id)}/occurrence`, { calendarId, recurrenceId, ...(scope ? { scope } : {}) }) : request('DELETE', `/calendar/events/${encodeURIComponent(id)}?calendarId=${encodeURIComponent(calendarId)}`),
     listSources: () => request('GET', '/calendar/sources'),
-    createSource: (data) => request('POST', '/calendar/sources', data),
-    updateSource: (id, data) => request('PATCH', `/calendar/sources/${encodeURIComponent(id)}`, data),
-    syncSource: (id) => request('POST', `/calendar/sources/${encodeURIComponent(id)}/sync`),
-    deleteSource: (id) => request('DELETE', `/calendar/sources/${encodeURIComponent(id)}`),
+    createSource: (data: unknown) => request('POST', '/calendar/sources', data),
+    updateSource: (id: string, data: unknown) => request('PATCH', `/calendar/sources/${encodeURIComponent(id)}`, data),
+    syncSource: (id: string) => request('POST', `/calendar/sources/${encodeURIComponent(id)}/sync`),
+    deleteSource: (id: string) => request('DELETE', `/calendar/sources/${encodeURIComponent(id)}`),
   },
 
   // Image whitelist
@@ -413,7 +440,7 @@ export const api = {
 
   // Drafts
   saveDraft:   (data)              => request('POST',   '/mail/draft', data),
-  deleteDraft: (accountId, uid, folder) =>
+  deleteDraft: (accountId: string, uid: number, folder: string) =>
     request('DELETE', `/mail/draft/${uid}?accountId=${encodeURIComponent(accountId)}&folder=${encodeURIComponent(folder)}`),
 
   // Block List
@@ -424,7 +451,7 @@ export const api = {
   // AI assistant
   ai: {
     getConfig: () => request('GET', '/admin/ai'),
-    saveConfig: (data) => request('PATCH', '/admin/ai', data),
+    saveConfig: (data: unknown) => request('PATCH', '/admin/ai', data),
     deleteConfig: () => request('DELETE', '/admin/ai'),
     test: () => request('POST', '/admin/ai/test'),
     status: () => request('GET', '/ai/status'),
@@ -439,44 +466,44 @@ export const api = {
   },
 
   // Category counts for inbox tab badges
-  getCategoryCounts: (params) => {
-    const qs = new URLSearchParams(params || {}).toString();
+  getCategoryCounts: (params: QueryParams) =>{
+    const qs = toSearchParams(params || {});
     return request('GET', `/mail/category-counts${qs ? '?' + qs : ''}`);
   },
 
   // Manual category override for a single message
-  setMessageCategory: (id, category) => request('PATCH', `/mail/messages/${id}/category`, { category }),
+  setMessageCategory: (id: string, category) => request('PATCH', `/mail/messages/${id}/category`, { category }),
 
   // Trigger unsubscribe for a newsletter message
-  unsubscribeMessage: (id) => request('POST', `/mail/messages/${id}/unsubscribe`),
+  unsubscribeMessage: (id: string) => request('POST', `/mail/messages/${id}/unsubscribe`),
 
   // Email categorization
   categories: {
     getSources: () => request('GET', '/categories/sources'),
-    addSource: (data) => request('POST', '/categories/sources', data),
-    toggleSource: (id, enabled) => request('PATCH', `/categories/sources/${id}`, { enabled }),
-    deleteSource: (id) => request('DELETE', `/categories/sources/${id}`),
-    refreshSource: (id) => request('POST', `/categories/sources/${id}/refresh`),
-    recategorize: (accountId) => request('POST', `/categories/recategorize/${accountId}`),
-    aiClassify: (messageId) => request('POST', `/categories/ai-classify/${messageId}`),
+    addSource: (data: unknown) => request('POST', '/categories/sources', data),
+    toggleSource: (id: string, enabled) => request('PATCH', `/categories/sources/${id}`, { enabled }),
+    deleteSource: (id: string) => request('DELETE', `/categories/sources/${id}`),
+    refreshSource: (id: string) => request('POST', `/categories/sources/${id}/refresh`),
+    recategorize: (accountId: string) => request('POST', `/categories/recategorize/${accountId}`),
+    aiClassify: (messageId: string) => request('POST', `/categories/ai-classify/${messageId}`),
   },
 
   // GTD — sections feed (rail + tabs) and classify/unclassify (COPY / remove copy)
-  getGtdSections: (params) => {
+  getGtdSections: (params: QueryParams) =>{
     const p = new URLSearchParams();
-    if (params?.accountId) p.set('accountId', params.accountId);
-    if (params?.limit != null) p.set('limit', params.limit);
+    if (params?.accountId) p.set('accountId', String(params.accountId));
+    if (params?.limit != null) p.set('limit', String(params.limit));
     const qs = p.toString();
     return request('GET', `/gtd/sections${qs ? '?' + qs : ''}`);
   },
-  gtdClassify: (messageId, state) => request('POST', '/gtd/classify', { messageId, state }),
+  gtdClassify: (messageId: string, state) => request('POST', '/gtd/classify', { messageId, state }),
   gtdUndoClassify: (undoToken) => request('POST', '/gtd/classify/undo', undoToken),
-  gtdUnclassify: (messageId, state) => request('DELETE', '/gtd/classify', { messageId, state }),
+  gtdUnclassify: (messageId: string, state) => request('DELETE', '/gtd/classify', { messageId, state }),
   // GTD "done": strip the row's label(s) for these states, mark read, archive the INBOX
   // copy. id is the rail head's row id (its label-folder copy); the server resolves the
   // INBOX copy from the shared Message-ID.
-  gtdDone: (id, states = undefined) => request('POST', '/gtd/done', { id, states }),
-  gtdEnsureFolders: (accountId, folders) => request('POST', '/gtd/folders/ensure', { accountId, folders }),
+  gtdDone: (id: string, states = undefined) => request('POST', '/gtd/done', { id, states }),
+  gtdEnsureFolders: (accountId: string, folders) => request('POST', '/gtd/folders/ensure', { accountId, folders }),
 
   // GTD — Inbox-Zero pet. Import uploads your own pet (pet.json text + a base64 spritesheet)
   // and caches it server-side; meta returns the animation descriptor; the sheet URL is used
@@ -489,7 +516,7 @@ export const api = {
   // independent of a plugin's own per-account config (e.g. GTD's gtd_enabled).
   plugins: {
     list: () => request('GET', '/plugins'),
-    setActivated: (id, activated) => request('PATCH', `/plugins/${encodeURIComponent(id)}`, { activated }),
+    setActivated: (id: string, activated) => request('PATCH', `/plugins/${encodeURIComponent(id)}`, { activated }),
   },
 
   // Todoist integration

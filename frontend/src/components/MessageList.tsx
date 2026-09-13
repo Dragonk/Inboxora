@@ -220,7 +220,8 @@ export default function MessageList() {
   const [selectedIds, setSelectedIds] = useState(new Set());
   const [selectionModeActive, setSelectionModeActive] = useState(false);
   const [showFolderPicker, setShowFolderPicker] = useState(false);
-  const [pickerFolders, setPickerFolders] = useState([]);
+  interface PickerFolder { path: string; name?: string; special_use?: string | null; [key: string]: unknown }
+  const [pickerFolders, setPickerFolders] = useState<PickerFolder[]>([]);
   const [pickerLoading, setPickerLoading] = useState(false);
   const [pickerSearch, setPickerSearch] = useState('');
   const folderPickerRef = useRef(null);
@@ -325,7 +326,7 @@ export default function MessageList() {
     [key: string]: unknown;
   }
 
-  interface MessageQueryParams {
+  type MessageQueryParams = {
     limit: number;
     offset: number;
     accountId?: string;
@@ -2196,15 +2197,16 @@ export default function MessageList() {
     row?.scrollIntoView({ block: 'nearest' });
   }, [selectedMessageId]);
 
-  const handleOpenFolderPicker = useCallback(async (selectedMsgs) => {
+  const handleOpenFolderPicker = useCallback(async (selectedMsgs: Array<{ account_id: string }>) => {
     if (showFolderPicker) { setShowFolderPicker(false); return; }
     const accountIds = [...new Set(selectedMsgs.map(m => m.account_id))];
-    if (accountIds.length !== 1) return;
+    const [targetAccountId] = accountIds;
+    if (accountIds.length !== 1 || !targetAccountId) return;
     setShowFolderPicker(true);
     setPickerLoading(true);
     try {
-      const data = await api.getFolders(accountIds[0]);
-      setPickerFolders(Array.isArray(data) ? data : (data.folders || []));
+      const data = await api.getFolders(targetAccountId);
+      setPickerFolders(Array.isArray(data) ? data : []);
     } catch (err) {
       console.error('Failed to load folders:', err);
     } finally {
