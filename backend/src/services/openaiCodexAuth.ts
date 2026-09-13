@@ -230,7 +230,14 @@ export function createPostgresCodexStore() {
       });
     },
 
-    async releaseFlow({ id, state, intervalMs, nextPollAt, failureCode, clearSecrets = false }) {
+    async releaseFlow({ id, state, intervalMs = null, nextPollAt = null, failureCode = null, clearSecrets = false }: {
+      id: string;
+      state: string;
+      intervalMs?: number | null;
+      nextPollAt?: number | null;
+      failureCode?: string | null;
+      clearSecrets?: boolean;
+    }) {
       await query(
         `UPDATE ai_codex_device_flows
          SET state = $2,
@@ -359,7 +366,7 @@ function credentialExpiry(tokenBody, claims, now) {
 
 export function createOpenAiCodexAuth({
   store = createPostgresCodexStore(),
-  fetchFn = (...args) => fetch(...args),
+  fetchFn = (...args: Parameters<typeof fetch>) => fetch(...args),
   now = () => Date.now(),
   encryptFn = encrypt,
   decryptFn = decrypt,
@@ -673,7 +680,7 @@ export function createOpenAiCodexAuth({
     return { status: 'cancelled' };
   }
 
-  async function getStatus({ userId, sessionId } = {}) {
+  async function getStatus({ userId, sessionId }: { userId?: string; sessionId?: string } = {}) {
     let credentialStatus = null;
     const encryptedCredential = await store.getCredential();
     if (encryptedCredential) {

@@ -174,3 +174,23 @@ Testy: 1785 / 0 failed. Lint: czysty.
 Backend `tsc`: **84 błędy** (z 474). `routes/send.ts`, `routes/send.sent.test.ts` — 0 błędów.
 Testy: 1785 / 0 failed. Lint: czysty.
 
+
+## 16. Iteracja: OAuth/OIDC, auth, Codex i zaproszenia kalendarza
+
+- 🔴 **`verifyOpts`** (`{audience}`) — dopisanie `issuer` było niekontrolowane → typ `{audience; issuer?}`.
+- 🔴 **Odpowiedzi tokenów OAuth/OIDC** (`tokens`/`tokenData`) — `unknown` → `OAuthTokenResponse`/`OidcTokenResponse`.
+- 🟠 **Dokument discovery OIDC** — `OidcDiscoveryDocument` + pętla po literalnych kluczach (`as const`).
+- 🔴 **`makeInsecureFetch(signal)`** wymagał argumentu, a jest wołany bez niego (JWKS) → `signal?`.
+- 🟠 **Mapy ustawień `{}` w `auth.ts`** (`settingsMap`, `policyMap`, `map`) → `Record<string, string>`.
+- 🟠 **`cookieOpts`** z `sameSite: string` nie pasowało do `CookieOptions` → jawny typ.
+- 🟠 **`streamCodexResponses`/`completeCodexText`** — `signal` wymagany, choć opcjonalny → `StreamCodexOptions`.
+- 🔴 **`releaseFlow`** — `intervalMs`/`nextPollAt` realnie opcjonalne (SQL `COALESCE`), typ je wymuszał.
+- 🟠 **`getStatus({userId, sessionId} = {})`** → jawny interfejs.
+- 🟠 **`sendCalendarInvitation`** — `description`/`location` wymagane, choć opcjonalne.
+
+## 17. Stan weryfikacji
+
+Backend `tsc`: **38 błędów** (z 474). Czyste m.in.: `routes/oauth.ts`, `routes/oidc.ts`,
+`routes/auth.ts`, `services/openaiCodexResponses.ts`, `services/calendarInvitation.ts`.
+Testy: 1785 / 0 failed. Lint: czysty.
+

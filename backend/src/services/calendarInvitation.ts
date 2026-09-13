@@ -56,7 +56,7 @@ function invitationIcal({ uid, summary, description, location, organizerEmail, a
   return lines.map(foldICalendarLine).join('\r\n');
 }
 
-export async function sendCalendarInvitation({ account, attendees, summary, description, location, uid, startsAt, endsAt, allDay = false, method = 'REQUEST', sequence = 0 }) {
+export async function sendCalendarInvitation({ account, attendees, summary, description = null, location = null, uid, startsAt, endsAt, allDay = false, method = 'REQUEST', sequence = 0 }) {
   const { createAccountSmtpTransport } = await import('./smtpTransport.js');
   const smtp = await createAccountSmtpTransport(account);
   if (smtp.error) throw Object.assign(new Error(smtp.error), { status: smtp.status });

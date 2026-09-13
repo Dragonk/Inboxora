@@ -12,6 +12,23 @@ import { logAuthEvent } from '../services/authEvents.js';
 import { ensureUserDavResources } from '../services/userDavResources.js';
 import { queryString } from '../utils/query.js';
 
+interface OidcDiscoveryDocument {
+  issuer?: string;
+  authorization_endpoint?: string;
+  token_endpoint?: string;
+  jwks_uri?: string;
+  end_session_endpoint?: string;
+}
+
+interface OidcTokenResponse {
+  id_token?: string;
+  access_token?: string;
+  refresh_token?: string;
+  expires_in?: number;
+  error?: string;
+  error_description?: string;
+}
+
 interface InsecureFetchOptions {
   method?: string;
   headers?: Record<string, string>;
@@ -29,7 +46,7 @@ const discoveryCache = new Map();
 const DISCOVERY_TTL_MS = 5 * 60 * 1000;
 
 // Fetch that skips TLS certificate verification — only used when allow_insecure is set.
-function makeInsecureFetch(signal: AbortSignal): typeof fetch {
+function makeInsecureFetch(signal?: AbortSignal): typeof fetch {
   return function insecureFetch(url: string, { method = 'GET', headers = {}, body, signal: optsSignal }: InsecureFetchOptions = {}) {
     return new Promise<Response>((resolve, reject) => {
       const effectiveSignal = optsSignal ?? signal;
@@ -84,13 +101,13 @@ async function getDiscovery(issuerUrl, allowInsecure = false) {
     }
     throw new Error(`OIDC discovery failed for ${issuerUrl}: ${res.status}`);
   }
-  const doc = await res.json();
+  const doc = (await res.json()) as OidcDiscoveryDocument;
   const normConfigured = issuerUrl.replace(/\/$/, '');
   const normDiscovered = (doc.issuer || '').replace(/\/$/, '');
   if (normDiscovered !== normConfigured) {
     throw new Error(`OIDC issuer mismatch: configured "${normConfigured}", got "${normDiscovered}"`);
   }
-  for (const field of ['authorization_endpoint', 'token_endpoint', 'jwks_uri']) {
+  for (const field of ['authorization_endpoint', 'token_endpoint', 'jwks_uri'] as const) {
     const url = doc[field];
     if (!url) throw new Error(`OIDC discovery missing required field: ${field}`);
     let endpointParsed;
@@ -403,7 +420,7 @@ oidcBrowserRouter.get('/:slug/callback', async (req, res) => {
       console.error('OIDC token exchange failed:', tokenRes.status, body);
       return oidcError(res, pending.action, 'Token exchange failed');
     }
-    const tokenData = await tokenRes.json();
+    const tokenData = (await tokenRes.json()) as OidcTokenResponse;
 
     // Verify id_token — strict issuer + audience validation
     let payload;

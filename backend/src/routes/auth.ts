@@ -1,4 +1,5 @@
 import { Router } from 'express';
+import type { CookieOptions } from 'express';
 import bcrypt from 'bcryptjs';
 import crypto from 'crypto';
 import { authenticator } from 'otplib';
@@ -141,7 +142,7 @@ router.post('/register', authLimiter, async (req, res) => {
       const settingResult = await client.query(
         "SELECT key, value FROM system_settings WHERE key IN ('registration_open', 'internal_auth_disabled')"
       );
-      const settingsMap = {};
+      const settingsMap: Record<string, string> = {};
       for (const row of settingResult.rows) settingsMap[row.key] = row.value;
 
       if (settingsMap.internal_auth_disabled === 'true') {
@@ -292,7 +293,7 @@ router.post('/login', authLimiter, async (req, res) => {
     const policyResult = await query(
       "SELECT key, value FROM system_settings WHERE key IN ('mfa_enforcement', 'mfa_device_trust')"
     );
-    const policyMap = {};
+    const policyMap: Record<string, string> = {};
     for (const row of policyResult.rows) policyMap[row.key] = row.value;
     const enforcement = policyMap.mfa_enforcement || 'off';
     const trustSetting = policyMap.mfa_device_trust || '30d';
@@ -609,7 +610,7 @@ router.post('/logout', async (req, res) => {
 
   req.session.destroy((err) => {
     if (err) console.error('Session destroy error:', err.message);
-    const cookieOpts = { path: '/', sameSite: 'lax', secure: req.secure };
+    const cookieOpts: CookieOptions = { path: '/', sameSite: 'lax', secure: req.secure };
     res.clearCookie('connect.sid', cookieOpts);
     res.clearCookie('mf_td', { ...cookieOpts, httpOnly: true });
     res.json({ ok: true, endSessionUrl });
@@ -732,7 +733,7 @@ router.get('/registration-status', async (req, res) => {
   const result = await query(
     "SELECT key, value FROM system_settings WHERE key IN ('registration_open', 'internal_auth_disabled')"
   );
-  const map = {};
+  const map: Record<string, string> = {};
   for (const row of result.rows) map[row.key] = row.value;
   res.json({
     open: map.registration_open === 'true',

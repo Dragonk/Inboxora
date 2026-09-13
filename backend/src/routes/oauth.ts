@@ -154,7 +154,7 @@ async function processMicrosoftTokens(userId, tokens, { tenantId, clientId, publ
   let displayName = null;
   if (id_token) {
     const jwks = getMsJwks(tenantId);
-    const verifyOpts = { audience: clientId };
+    const verifyOpts: { audience: string; issuer?: string } = { audience: clientId };
     // For multi-tenant ('common'/'organizations'/'consumers'), issuers vary per tenant,
     // so we skip issuer validation and rely on audience + signature instead.
     const fixedTenants = new Set(['common', 'organizations', 'consumers']);
@@ -301,7 +301,7 @@ router.get('/microsoft/device/poll', async (req, res) => {
       }),
       signal: AbortSignal.timeout(10000),
     });
-    const tokens = await tokenRes.json();
+    const tokens = (await tokenRes.json()) as OAuthTokenResponse;
 
     if (tokens.error === 'authorization_pending') return res.json({ status: 'pending' });
     if (tokens.error === 'authorization_declined') {
@@ -372,7 +372,7 @@ async function doRefreshMicrosoftToken(account) {
 
   const sendSecret = !!clientSecret && !account.oauth_public_client;
   let tokenRes = await postRefresh(sendSecret);
-  let tokens = await tokenRes.json();
+  let tokens = (await tokenRes.json()) as OAuthTokenResponse;
   let becamePublic = false;
 
   // Self-heal accounts predating the oauth_public_client column: if we sent a secret
@@ -381,7 +381,7 @@ async function doRefreshMicrosoftToken(account) {
   // skip the secret straight away.
   if (!tokenRes.ok && sendSecret && /AADSTS90023/i.test(tokens.error_description || tokens.error || '')) {
     tokenRes = await postRefresh(false);
-    tokens = await tokenRes.json();
+    tokens = (await tokenRes.json()) as OAuthTokenResponse;
     becamePublic = tokenRes.ok;
   }
 

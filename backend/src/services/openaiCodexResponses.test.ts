@@ -9,7 +9,13 @@ import {
 
 const encoder = new TextEncoder();
 
-function streamResponse(chunks, { status = 200, close = true, onCancel } = {}) {
+interface StreamResponseOptions {
+  status?: number;
+  close?: boolean;
+  onCancel?: (reason: unknown) => void;
+}
+
+function streamResponse(chunks: string[], { status = 200, close = true, onCancel }: StreamResponseOptions = {}) {
   const body = new ReadableStream({
     start(controller) {
       for (const chunk of chunks) controller.enqueue(encoder.encode(chunk));

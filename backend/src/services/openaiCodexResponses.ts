@@ -76,7 +76,7 @@ function parseEventData(data) {
   }
 }
 
-export async function* parseCodexSse(response, { signal }: { signal?: any } = {}) {
+export async function* parseCodexSse(response: Response, { signal }: { signal?: AbortSignal } = {}) {
   let outputChars = 0;
   let terminal = false;
   const createError = (reason) => {
@@ -112,6 +112,15 @@ export async function* parseCodexSse(response, { signal }: { signal?: any } = {}
   if (!terminal) throw new CodexResponseError('ChatGPT response ended before completion');
 }
 
+export interface StreamCodexOptions {
+  accessToken: string;
+  accountId: string;
+  model: string;
+  messages: Array<{ role: string; content: string }>;
+  signal?: AbortSignal;
+  timeoutMs?: number;
+}
+
 export async function* streamCodexResponses({
   accessToken,
   accountId,
@@ -119,7 +128,7 @@ export async function* streamCodexResponses({
   messages,
   signal,
   timeoutMs = DEFAULT_TIMEOUT_MS,
-}) {
+}: StreamCodexOptions) {
   if (typeof accessToken !== 'string' || !accessToken) throw new CodexResponseError('ChatGPT is not connected');
   if (typeof accountId !== 'string' || !accountId) throw new CodexResponseError('ChatGPT account is unavailable');
   const request = buildCodexRequest({ model, messages });
@@ -156,7 +165,7 @@ export async function* streamCodexResponses({
   }
 }
 
-export async function completeCodexText(options) {
+export async function completeCodexText(options: StreamCodexOptions) {
   let text = '';
   for await (const delta of streamCodexResponses(options)) text += delta;
   return text;
