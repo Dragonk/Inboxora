@@ -462,3 +462,14 @@ Backend: tsc 0 · testy 1785/0.
 Frontend tsc: 58 bledow (z 661). Testy 2335/0 · lint czysty · build OK.
 Backend: tsc 0 · testy 1785/0.
 
+
+## 47. POPRAWKA: bledne scalenie typow React (self-inflicted, wykryte)
+
+W poprzednim commicie (71f5106) augmentacja HTMLAttributes uzyla parametru _T zamiast T,
+aby wyciszyc ostrzezenie ESLint o nieuzywanym parametrze. TypeScript wymaga IDENTYCZNEJ
+listy parametrow typu przy scalaniu interfejsow — _T nie scalilo sie z typami React,
+co chwilowo zepsulo typowanie calego JSX (58 -> 883 bledow).
+
+Naprawa: parametr wraca do T, a regula no-unused-vars jest wyciszona komentarzem
+z uzasadnieniem. Stan: 58 bledow (zgodnie z oczekiwaniem).
+
