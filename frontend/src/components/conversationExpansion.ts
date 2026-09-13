@@ -9,7 +9,7 @@ export function initialConversationExpansion(messages, targetLogicalMessageId) {
   return new Set(target ? [target] : []);
 }
 
-export function toggleConversationExpansion(expanded, logicalMessageId) {
+export function toggleConversationExpansion(expanded: ReadonlySet<string>, logicalMessageId: string): Set<string> {
   const next = new Set(expanded);
   if (next.has(logicalMessageId)) next.delete(logicalMessageId);
   else next.add(logicalMessageId);

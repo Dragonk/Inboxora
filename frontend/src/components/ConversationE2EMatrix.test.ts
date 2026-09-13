@@ -51,7 +51,7 @@ describe('native conversation 2x2 contract', () => {
   it('keeps compact native cards and delegates expanded physical-copy content to the shared renderer', () => {
     const reader = read('ConversationReader.tsx'); const item = read('ConversationMessage.tsx'); const detail = read('MessageDetailContent.tsx');
     assert.match(reader, /selectedPhysicalTarget/);
-    assert.match(reader, /const requestedTargetId = messages\.some\(message => message\.id === targetLogicalMessageId\)/);
+    assert.match(reader, /const requestedTargetId = messages\.some\(\(message: ConversationLogicalMessage\) => message\.id === targetLogicalMessageId\)/);
     assert.match(reader, /setExpanded\(initialConversationExpansion\(messages, requestedTargetId\)\)/);
     assert.match(reader, /api\.getMessageBody\(physicalCopyId, remoteImages\)/);
     assert.match(reader, /filter\(copy => String\(copy\.accountId \?\? copy\.account_id\) === String\(selectedAccountId\)\)/);

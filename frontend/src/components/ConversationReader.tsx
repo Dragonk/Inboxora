@@ -20,15 +20,37 @@ import { useStore } from '../store/index.ts';
 // CE detail enriches this data (logical identity, manual overrides) but incomplete CE
 // state MUST NOT silently reduce 3 native thread messages to 1 reader card. Each unique
 // real message gets one reader card; CE metadata is attached when it exists.
-export default function ConversationReader({ conversationId, targetLogicalMessageId = null, selectedCopyId = null, selectedAccountId = null, accounts = [], onReply, nativeThreadId = null, nativeFolder = null, onNativeThreadUnavailable }) {
+/** A physical copy of a logical message. */
+interface ConversationCopyRef { id?: string; accountId?: string; account_id?: string; folder?: string; [key: string]: unknown }
+
+/** A logical message with its copies, as the reader API returns it. */
+interface ConversationLogicalMessage { id: string; copies?: ConversationCopyRef[]; [key: string]: unknown }
+
+/** The reader payload. */
+interface ConversationReaderData { logicalMessages: ConversationLogicalMessage[]; [key: string]: unknown }
+
+interface ConversationReaderProps {
+  conversationId: string;
+  targetLogicalMessageId?: string | null;
+  selectedCopyId?: string | null;
+  selectedAccountId?: string | null;
+  accounts?: Array<{ id?: string; [key: string]: unknown }>;
+  onReply?: (message: unknown) => void;
+  nativeThreadId?: string | null;
+  nativeFolder?: string | null;
+  onNativeThreadUnavailable?: () => void;
+}
+
+
+export default function ConversationReader({ conversationId, targetLogicalMessageId = null, selectedCopyId = null, selectedAccountId = null, accounts = [], onReply, nativeThreadId = null, nativeFolder = null, onNativeThreadUnavailable }: ConversationReaderProps) {
   const { t } = useTranslation();
-  const [data, setData] = useState(null);
-  const [error, setError] = useState(null);
-  const [expanded, setExpanded] = useState(new Set());
+  const [data, setData] = useState<ConversationReaderData | null>(null);
+  const [error, setError] = useState<unknown>(null);
+  const [expanded, setExpanded] = useState<Set<string>>(new Set());
   // Body/cache/request identity is the physical copy ID. A logical message can
   // resolve to a different copy when the selected account/target changes.
-  const [bodiesByCopy, setBodiesByCopy] = useState({});
-  const [bodyStatusByCopy, setBodyStatusByCopy] = useState({});
+  const [bodiesByCopy, setBodiesByCopy] = useState<Record<string, unknown>>({});
+  const [bodyStatusByCopy, setBodyStatusByCopy] = useState<Record<string, unknown>>({});
   const bodiesRef = useRef({});
   const statusRef = useRef({});
   const aborters = useRef(new Map());
@@ -37,8 +59,8 @@ export default function ConversationReader({ conversationId, targetLogicalMessag
   const completedNavigationRef = useRef(new Set());
   const navigationStateRef = useRef(new Map());
   const automaticScrollRef = useRef(false);
-  const [activeTargetLogicalId, setActiveTargetLogicalId] = useState(null);
-  const updateMessage = useStore(state => state.updateMessage);
+  const [activeTargetLogicalId, setActiveTargetLogicalId] = useState<string | null>(null);
+  const updateMessage = useStore((state: { updateMessage: (id: string, updates: Record<string, unknown>) => void }) => state.updateMessage);
   const refreshEpoch = useRef(0);
 
   useEffect(() => {
@@ -71,9 +93,9 @@ export default function ConversationReader({ conversationId, targetLogicalMessag
         ? mergeThreadWithConversation(ceLogicalMessages, nativeReaderMessages)
         : ceLogicalMessages;
       const result = { ...ceResult, logicalMessages: messages };
-      const selectedPhysicalTarget = messages.find(message => (message.copies || [])
-        .some(copy => String(copy.id) === String(selectedCopyId)))?.id;
-      const requestedTargetId = messages.some(message => message.id === targetLogicalMessageId)
+      const selectedPhysicalTarget = messages.find((message: ConversationLogicalMessage) => (message.copies || [])
+        .some((copy: ConversationCopyRef) => String(copy.id) === String(selectedCopyId)))?.id;
+      const requestedTargetId = messages.some((message: ConversationLogicalMessage) => message.id === targetLogicalMessageId)
         ? targetLogicalMessageId : selectedPhysicalTarget;
       setExpanded(initialConversationExpansion(messages, requestedTargetId));
       setData(result);
@@ -94,7 +116,7 @@ export default function ConversationReader({ conversationId, targetLogicalMessag
     if (epoch !== refreshEpoch.current) return;
     if (nativeThreadId && selectedAccountId && !native) return;
     if (!ce && !native) return;
-    const physical = applyDeleteGuard(native?.messages || []).map(copy => {
+    const physical = applyDeleteGuard(native?.messages || []).map((copy: ConversationCopyRef) => {
       const read = pendingReadState(copy.id);
       return read === undefined ? copy : { ...copy, is_read: read, isRead: read };
     });
@@ -103,9 +125,9 @@ export default function ConversationReader({ conversationId, targetLogicalMessag
       ? mergeThreadWithConversation(ce?.logicalMessages || [], nativeMessages)
       : ce.logicalMessages || previous.logicalMessages }));
   }, [conversationId, nativeThreadId, nativeFolder, selectedAccountId, data]);
-  const handleActionComplete = useCallback(async mutation => {
+  const handleActionComplete = useCallback(async (mutation: { logicalMessageId?: string; copyId?: string; [key: string]: unknown }) => {
     const { action, copyId, logicalMessageId, isRead, isStarred } = mutation || {};
-    if (['delete', 'archive', 'move'].includes(action) && copyId) {
+    if (typeof action === 'string' && ['delete', 'archive', 'move'].includes(action) && copyId) {
       setData(previous => !previous ? previous : {
         ...previous,
         logicalMessages: removePhysicalCopy(previous.logicalMessages, logicalMessageId, copyId),
@@ -123,17 +145,17 @@ export default function ConversationReader({ conversationId, targetLogicalMessag
     window.dispatchEvent(new CustomEvent('inboxora:refresh'));
   }, [updateMessage]);
   useEffect(() => {
-    const handleConversationRefresh = event => {
+    const handleConversationRefresh = (event: CustomEvent<{ refreshThreads?: boolean; conversationId?: string }>) => {
       if (event.detail?.refreshThreads || (event.type === 'inboxora:conversation-refresh' && event.detail?.conversationId === conversationId)) refresh().catch(() => {});
     };
-    window.addEventListener('inboxora:conversation-refresh', handleConversationRefresh);
-    window.addEventListener('inboxora:refresh', handleConversationRefresh);
+    window.addEventListener('inboxora:conversation-refresh', handleConversationRefresh as EventListener);
+    window.addEventListener('inboxora:refresh', handleConversationRefresh as EventListener);
     return () => {
-      window.removeEventListener('inboxora:conversation-refresh', handleConversationRefresh);
-      window.removeEventListener('inboxora:refresh', handleConversationRefresh);
+      window.removeEventListener('inboxora:conversation-refresh', handleConversationRefresh as EventListener);
+      window.removeEventListener('inboxora:refresh', handleConversationRefresh as EventListener);
     };
   }, [conversationId, refresh]);
-  const selectedCopyFor = useCallback(logicalId => {
+  const selectedCopyFor = useCallback((logicalId: string) => {
     const logical = messages.find(item => item.id === logicalId);
     const sameAccountCopies = (logical?.copies || []).filter(copy => String(copy.accountId ?? copy.account_id) === String(selectedAccountId));
     return sameAccountCopies.find(item => String(item.id) === String(selectedCopyId))
@@ -141,7 +163,7 @@ export default function ConversationReader({ conversationId, targetLogicalMessag
       || null;
   }, [messages, selectedAccountId, selectedCopyId]);
 
-  const setLocalReadState = useCallback((copyId, read) => {
+  const setLocalReadState = useCallback((copyId: string, read: boolean) => {
     refreshEpoch.current += 1;
     setData(previous => !previous ? previous : {
       ...previous,
@@ -157,13 +179,13 @@ export default function ConversationReader({ conversationId, targetLogicalMessag
 
   // Every read write (automatic and explicit) shares this per-copy serialized lane.
   // That keeps a late automatic read from overwriting a newer explicit unread intent.
-  const setCopyReadState = useCallback((copyId, read) => {
+  const setCopyReadState = useCallback((copyId: string, read: boolean) => {
     if (!copyId) return Promise.resolve();
     const copy = messages.flatMap(message => message.copies || []).find(copy => String(copy.id) === String(copyId));
     const before = pendingReadState(copyId) ?? Boolean(copy?.isRead ?? copy?.is_read);
     const accountId = copy?.accountId ?? copy?.account_id;
     const affectsInbox = String(copy?.folder || '').toUpperCase() === 'INBOX' && accountId && before !== read;
-    const adjustCount = value => {
+    const adjustCount = (value: boolean) => {
       const state = useStore.getState();
       if (affectsInbox) {
         (value ? state.decrementUnread : state.incrementUnread)(accountId);
@@ -186,9 +208,9 @@ export default function ConversationReader({ conversationId, targetLogicalMessag
   // CE resolves a logical target asynchronously, while native selection already
   // has the exact physical ID. Use that physical identity as the interim target so
   // a child click expands and scrolls its own native card without waiting for CE.
-  const selectedPhysicalTarget = messages.find(message => (message.copies || [])
-    .some(copy => String(copy.id) === String(selectedCopyId)))?.id;
-  const requestedTargetId = messages.some(message => message.id === targetLogicalMessageId)
+  const selectedPhysicalTarget = messages.find((message: ConversationLogicalMessage) => (message.copies || [])
+    .some((copy: ConversationCopyRef) => String(copy.id) === String(selectedCopyId)))?.id;
+  const requestedTargetId = messages.some((message: ConversationLogicalMessage) => message.id === targetLogicalMessageId)
     ? targetLogicalMessageId : selectedPhysicalTarget;
   const initialTargetId = initialConversationTarget(messages, requestedTargetId);
   // Opening a conversation is a navigation to one physical target, never a reason to
@@ -337,14 +359,14 @@ export default function ConversationReader({ conversationId, targetLogicalMessag
       }
     }
   }, [selectedCopyFor, setCopyReadState]);
-  const toggle = useCallback(id => {
+  const toggle = useCallback((id: string) => {
     setExpanded(previous => {
       if (!previous.has(id)) activateMessage(id);
       return toggleConversationExpansion(previous, id);
     });
   }, [activateMessage]);
   if (!data && !error) return <div role="status" style={{ padding: 24, textAlign: 'center', color: 'var(--text-tertiary)' }}>{t('conversation.loading')}</div>;
-  if (error) return <div role="alert" style={{ padding: 16, color: 'var(--text-danger)' }}>{error}</div>;
+  if (error) return <div role="alert" style={{ padding: 16, color: 'var(--text-danger)' }}>{error instanceof Error ? error.message : String(error)}</div>;
   return <section ref={readerRef} aria-label={t('conversation.label')} data-conversation-id={conversationId} data-reader-source={nativeThreadId ? 'native-thread' : 'conversation'} data-selected-copy-id={selectedCopyId || ''} data-selected-account-id={selectedAccountId || ''} style={{ flex: 1, overflowY: 'auto', overflowX: 'hidden', padding: 0, minWidth: 0 }}>
     {messages.map(message => {
       const physicalCopyId = selectedCopyFor(message.id)?.id;
