@@ -63,7 +63,7 @@ export const archiveInboxCopy = (account: PluginAccount, inboxCopy: PluginMessag
 // ── Realtime broadcast ────────────────────────────────────────────────────────
 // Push a payload to a specific user's live sessions. A plugin can notify its own clients; it
 // cannot address other users or subsystems (the engine + user scoping are enforced here).
-export const broadcast = (payload: unknown, userId: string) => getMailEngine().broadcast(payload, userId);
+export const broadcast = (payload: unknown, userId?: string) => getMailEngine().broadcast(payload, userId);
 
 // ── Summarize ─────────────────────────────────────────────────────────────────
 // Condense a message into one line via the configured AI provider (fails closed when the

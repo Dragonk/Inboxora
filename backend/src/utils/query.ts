@@ -29,3 +29,12 @@ export function queryInt(value: unknown, fallback: number): number {
 export function routeParam(value: unknown): string {
   return queryString(value) ?? '';
 }
+
+// The authenticated user id. The auth middleware guarantees a session user; a missing one is a
+// programming error, so this narrows once instead of every route asserting it.
+export function sessionUserId(req: { session?: { userId?: string } }): string {
+  const id = req.session?.userId;
+  if (!id) throw Object.assign(new Error('Not authenticated'), { statusCode: 401 });
+  return id;
+}
+

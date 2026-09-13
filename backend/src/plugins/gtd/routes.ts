@@ -5,7 +5,7 @@ import { queueGistGeneration } from './gtdGist.js';
 import { importPet, decodeUploadedSheet, getPetMeta, getPetSheet, parsePetSlug, customPetSlug } from './gtdPet.js';
 import { getGtdConfig, resolveGtdStateFolder, sanitizeGtdFolders, sanitizeGtdFoldersDetailed, DEFAULT_GTD_FOLDERS, planGtdFolderPersist, invalidateGtdConfigCache } from './gtdConfig.js';
 import { applyLabel, removeExactLabelCopy, removeLabel, markThreadRead, ensureLabelFolders, archiveInboxCopy, broadcast, loadOwnedMessage, getOwnedAccount, getMessageCopyFolders, getAccountConfig, setAccountConfig } from '../api.js';
-import { queryString, queryInt } from '../../utils/query.js';
+import { queryString, queryInt, routeParam, sessionUserId } from '../../utils/query.js';
 
 const router = Router();
 router.use(requireAuth);
@@ -18,7 +18,7 @@ const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/
 // Shared classify precondition: an account must have GTD enabled and the request's
 // state must resolve to a designated folder. Returns { folder } to proceed, or
 // { status, error } to reject. Pure — exported for unit tests.
-export function classifyTarget({ enabled, folders, state }) {
+export function classifyTarget({ enabled, folders, state }: { enabled: boolean; folders: Record<string, string> | null | undefined; state: string }): { status?: number; error?: string; folder?: string; folders?: string[] } {
   if (!enabled) return { status: 400, error: 'GTD is not enabled for this account' };
   const folder = resolveGtdStateFolder(state, folders);
   if (!folder) return { status: 400, error: `Unknown GTD state: ${state}` };
@@ -40,7 +40,7 @@ export function resolveDoneFolders({ enabled, folders, states, existing = undefi
   if (!enabled) return { status: 400, error: 'GTD is not enabled for this account' };
   if (states === 'all') {
     const present = new Set(Array.isArray(existing) ? existing : []);
-    const resolved = [];
+    const resolved: string[] = [];
     for (const folder of Object.values(folders || {})) {
       if (present.has(folder) && !resolved.includes(folder)) resolved.push(folder);
     }
@@ -49,7 +49,7 @@ export function resolveDoneFolders({ enabled, folders, states, existing = undefi
   if (!Array.isArray(states) || states.length === 0) {
     return { status: 400, error: 'states must be a non-empty array' };
   }
-  const resolved = [];
+  const resolved: string[] = [];
   for (const state of states) {
     const folder = resolveGtdStateFolder(state, folders);
     if (!folder) return { status: 400, error: `Unknown GTD state: ${state}` };
@@ -67,7 +67,7 @@ router.get('/sections', async (req, res) => {
   const limitParam = queryInt(req.query.limit, 0);
   if (accountId && !UUID_RE.test(accountId)) return res.status(400).json({ error: 'Invalid account id' });
   const result = await getGtdSections({
-    userId: req.session.userId,
+    userId: sessionUserId(req),
     accountId: accountId || null,
     limit: limitParam || undefined,
   });
@@ -78,9 +78,9 @@ router.get('/sections', async (req, res) => {
   // per account when its batch completes so clients upgrade on the next refetch.
   queueGistGeneration({
     sections: result.sections,
-    userId: req.session.userId,
+    userId: sessionUserId(req),
     broadcast,
-  }).catch(err => console.warn('GTD gist generation error:', err.message));
+  }).catch(err => console.warn('GTD gist generation error:', err instanceof Error ? err.message : String(err)));
 });
 
 // ── GTD Inbox-Zero pet ────────────────────────────────────────────────────────
@@ -101,11 +101,12 @@ router.post('/pet/import', async (req, res) => {
   const bytes = decodeUploadedSheet(sheet);
   if (!bytes) return res.status(400).json({ error: 'Spritesheet could not be decoded' });
   try {
-    const pet = await importPet({ petJsonText: petJson, sheet: bytes, userId: req.session.userId });
+    const pet = await importPet({ petJsonText: petJson, sheet: bytes, userId: sessionUserId(req) });
     res.json(pet);
   } catch (err) {
-    if (err.code) return res.status(400).json({ error: err.message });
-    console.error('GTD pet import failed:', err.message);
+    const importError = err as { code?: string; message?: string };
+    if (importError.code) return res.status(400).json({ error: importError.message });
+    console.error('GTD pet import failed:', importError.message);
     res.status(500).json({ error: 'Failed to import pet' });
   }
 });
@@ -116,22 +117,22 @@ router.post('/pet/import', async (req, res) => {
 // starts with custom- stays readable. The owner check recomputes the requester's own slug
 // the same way importPet derives it. A non-owner gets the same 404 as an unknown slug
 // (never 403) so the response can't confirm another user's pet exists.
-function petRowReadable(row, rawSlug, userId: string) {
+function petRowReadable(row: { isCustom?: boolean } | null | undefined, rawSlug: string, userId: string): boolean {
   if (!row) return false;
   return !row.isCustom || parsePetSlug(rawSlug) === customPetSlug(userId);
 }
 
 // GET /api/gtd/pet/:slug/meta — the cached animation descriptor for the frontend.
 router.get('/pet/:slug/meta', async (req, res) => {
-  const meta = await getPetMeta(req.params.slug);
-  if (!petRowReadable(meta, req.params.slug, req.session.userId)) return res.status(404).json({ error: 'Pet not found' });
+  const meta = await getPetMeta(routeParam(req.params.slug));
+  if (!meta || !petRowReadable(meta, routeParam(req.params.slug), sessionUserId(req))) return res.status(404).json({ error: 'Pet not found' });
   res.json({ slug: meta.slug, displayName: meta.displayName, descriptor: meta.descriptor });
 });
 
 // GET /api/gtd/pet/:slug/sheet — the cached spritesheet bytes.
 router.get('/pet/:slug/sheet', async (req, res) => {
-  const sheet = await getPetSheet(req.params.slug);
-  if (!petRowReadable(sheet, req.params.slug, req.session.userId)) return res.status(404).end();
+  const sheet = await getPetSheet(routeParam(req.params.slug));
+  if (!sheet || !petRowReadable(sheet, routeParam(req.params.slug), sessionUserId(req))) return res.status(404).end();
   res.set('Content-Type', sheet.mime);
   res.set('Cache-Control', 'private, max-age=86400');
   res.send(sheet.data);
@@ -150,21 +151,23 @@ router.post('/classify', async (req, res) => {
   if (!messageId || !state) return res.status(400).json({ error: 'messageId and state are required' });
   if (!UUID_RE.test(messageId)) return res.status(400).json({ error: 'Invalid message id' });
 
-  const msg = await loadOwnedMessage(req.session.userId, messageId);
+  const msg = await loadOwnedMessage(sessionUserId(req), messageId);
   if (!msg) return res.status(404).json({ error: 'Message not found' });
 
   const { enabled, folders } = await getGtdConfig(msg.account_id);
   const target = classifyTarget({ enabled, folders, state });
-  if (target.error) return res.status(target.status).json({ error: target.error });
+  // An error result always carries the status this helper produced.
+  if (target.error) return res.status(target.status ?? 400).json({ error: target.error });
   const toFolder = target.folder;
+  if (!toFolder) return res.status(400).json({ error: 'Unknown GTD state' });
 
-  const account = await getOwnedAccount(req.session.userId, msg.account_id);
+  const account = await getOwnedAccount(sessionUserId(req), msg.account_id);
 
   let result;
   try {
     result = await applyLabel(account, msg, toFolder);
   } catch (err) {
-    console.error(`GTD classify failed for message ${messageId} -> ${toFolder}:`, err.message);
+    console.error(`GTD classify failed for message ${messageId} -> ${toFolder}:`, err instanceof Error ? err.message : String(err));
     return res.status(500).json({ error: 'Failed to apply GTD label' });
   }
 
@@ -186,12 +189,13 @@ router.post('/classify/undo', async (req, res) => {
   if (!UUID_RE.test(messageId)) return res.status(400).json({ error: 'Invalid message id' });
   if (!Number.isSafeInteger(uid) || uid <= 0) return res.status(400).json({ error: 'Invalid copy uid' });
 
-  const msg = await loadOwnedMessage(req.session.userId, messageId);
+  const msg = await loadOwnedMessage(sessionUserId(req), messageId);
   if (!msg) return res.status(404).json({ error: 'Message not found' });
 
   const { enabled, folders } = await getGtdConfig(msg.account_id);
   const target = classifyTarget({ enabled, folders, state });
-  if (target.error) return res.status(target.status).json({ error: target.error });
+  // An error result always carries the status this helper produced.
+  if (target.error) return res.status(target.status ?? 400).json({ error: target.error });
   if (target.folder !== folder) {
     return res.status(409).json({ error: 'GTD state folder changed — undo token is stale' });
   }
@@ -200,7 +204,7 @@ router.post('/classify/undo', async (req, res) => {
     const { removed } = await removeExactLabelCopy(msg, folder, uid);
     return res.json({ ok: true, removed, folder });
   } catch (err) {
-    console.error(`GTD classify undo failed for message ${messageId} in ${folder}:`, err.message);
+    console.error(`GTD classify undo failed for message ${messageId} in ${folder}:`, err instanceof Error ? err.message : String(err));
     return res.status(500).json({ error: 'Failed to undo GTD classification' });
   }
 });
@@ -214,13 +218,15 @@ router.delete('/classify', async (req, res) => {
   if (!messageId || !state) return res.status(400).json({ error: 'messageId and state are required' });
   if (!UUID_RE.test(messageId)) return res.status(400).json({ error: 'Invalid message id' });
 
-  const msg = await loadOwnedMessage(req.session.userId, messageId);
+  const msg = await loadOwnedMessage(sessionUserId(req), messageId);
   if (!msg) return res.status(404).json({ error: 'Message not found' });
 
   const { enabled, folders } = await getGtdConfig(msg.account_id);
   const target = classifyTarget({ enabled, folders, state });
-  if (target.error) return res.status(target.status).json({ error: target.error });
+  // An error result always carries the status this helper produced.
+  if (target.error) return res.status(target.status ?? 400).json({ error: target.error });
   const stateFolder = target.folder;
+  if (!stateFolder) return res.status(400).json({ error: 'Unknown GTD state' });
 
   // Find the copy that lives in the state folder via resolveCopyUid: the acted row when it
   // already lives there, else the shared RFC Message-ID (COPY duplicates it verbatim) joins to
@@ -233,7 +239,7 @@ router.delete('/classify', async (req, res) => {
     const { removed } = await removeLabel(msg, stateFolder);
     if (!removed) return res.json({ ok: true, removed: false });
   } catch (err) {
-    console.error(`GTD unclassify failed for message ${messageId} in ${stateFolder}:`, err.message);
+    console.error(`GTD unclassify failed for message ${messageId} in ${stateFolder}:`, err instanceof Error ? err.message : String(err));
     return res.status(500).json({ error: 'Failed to remove GTD label' });
   }
 
@@ -256,7 +262,7 @@ router.post('/done', async (req, res) => {
   if (!id) return res.status(400).json({ error: 'id is required' });
   if (!UUID_RE.test(id)) return res.status(400).json({ error: 'Invalid message id' });
 
-  const msg = await loadOwnedMessage(req.session.userId, id);
+  const msg = await loadOwnedMessage(sessionUserId(req), id);
   if (!msg) return res.status(404).json({ error: 'Message not found' });
   if (!msg.message_id) return res.status(400).json({ error: 'Message has no Message-ID — cannot mark done' });
 
@@ -273,16 +279,17 @@ router.post('/done', async (req, res) => {
   const target = allStates
     ? resolveDoneFolders({ enabled, folders, states: 'all', existing })
     : resolveDoneFolders({ enabled, folders, states });
-  if (target.error) return res.status(target.status).json({ error: target.error });
+  // An error result always carries the status this helper produced.
+  if (target.error) return res.status(target.status ?? 400).json({ error: target.error });
 
-  const account = await getOwnedAccount(req.session.userId, msg.account_id);
+  const account = await getOwnedAccount(sessionUserId(req), msg.account_id);
 
   // (a) Mark the whole thread read. The DB fan-out (by Message-ID) covers every sibling
   // copy and adjusts each folder's unread count; \Seen is set on the durable INBOX copy
   // only (it rides the archive move; Gmail propagates message-wide) — the same per-copy
   // asymmetry the ordinary read route accepts. A best-effort flag push is never fatal.
   const { inboxCopy, error: markReadError } = await markThreadRead(account, msg);
-  if (markReadError) console.warn(`GTD done: mark-read for ${id} degraded:`, markReadError.message);
+  if (markReadError) console.warn(`GTD done: mark-read for ${id} degraded:`, (markReadError as { message?: string }).message);
 
   // (b) Strip this row's GTD label copies. Each is a distinct folder copy resolved from
   // the shared Message-ID; removeMessageCopy deletes the IMAP + DB copy and adjusts that
@@ -295,8 +302,8 @@ router.post('/done', async (req, res) => {
   // other copy is gone. (msg.folder is absent from target.folders in the inbox 'all' case —
   // the acted INBOX row is never stripped anyway — so the ordering is a no-op there.)
   const stripOrder = [
-    ...target.folders.filter(f => f !== msg.folder),
-    ...target.folders.filter(f => f === msg.folder),
+    ...(target.folders ?? []).filter(f => f !== msg.folder),
+    ...(target.folders ?? []).filter(f => f === msg.folder),
   ];
   const removed = [];
   try {
@@ -305,7 +312,7 @@ router.post('/done', async (req, res) => {
       if (didRemove) removed.push(folder);
     }
   } catch (err) {
-    console.error(`GTD done: label strip for ${id} failed:`, err.message);
+    console.error(`GTD done: label strip for ${id} failed:`, err instanceof Error ? err.message : String(err));
     return res.status(500).json({ error: 'Failed to mark done' });
   }
 
@@ -326,7 +333,7 @@ router.post('/done', async (req, res) => {
       // not 500: that misreports a mostly-successful action, and — with the label row now
       // gone — a retry by the same id would 404. Report a partial success (200, archiveFailed
       // true, archived false) so the client can surface it and the id stays retryable.
-      console.error(`GTD done: archive of INBOX copy for ${id} failed:`, err.message);
+      console.error(`GTD done: archive of INBOX copy for ${id} failed:`, err instanceof Error ? err.message : String(err));
       archiveFailed = true;
     }
   }
@@ -350,7 +357,7 @@ router.post('/folders/ensure', async (req, res) => {
   if (!accountId) return res.status(400).json({ error: 'accountId is required' });
   if (!UUID_RE.test(accountId)) return res.status(400).json({ error: 'Invalid account id' });
 
-  const account = await getOwnedAccount(req.session.userId, accountId);
+  const account = await getOwnedAccount(sessionUserId(req), accountId);
   if (!account) return res.status(404).json({ error: 'Account not found' });
 
   // Reject a form mapping onto a reserved system folder before creating anything — the same
