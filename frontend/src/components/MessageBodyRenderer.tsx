@@ -25,13 +25,13 @@ import { getEmailSurface } from '../themes.ts';
  * iframe/object/embed/form are stripped by DOMPurify FORBID_TAGS.
  */
 export default function MessageBodyRenderer({ html = '', text = '', remoteImages = false, quoteFolding = true, onQuoteDetected = null, onHeightChange = null, onInitialLayoutReady = null, iframeRef: externalIframeRef = null, onLoad = null, title = 'Message body', showQuotedTextLabel = 'Show quoted text', hideQuotedTextLabel = 'Hide quoted text', style: frameStyle = null, onContextMenu = null }) {
-  const internalIframeRef = useRef(null);
+  const internalIframeRef = useRef<HTMLIFrameElement | null>(null);
   const iframeRef = externalIframeRef || internalIframeRef;
 
   // The active theme, so the frame's own document can declare a matching surface.
   // Subscribing here (rather than at each call site) keeps message bodies, calendar
   // descriptions and every future embed on the same contract.
-  const theme = useStore(state => state.theme);
+  const theme = useStore((state: { theme: string }) => state.theme);
 
   const srcDoc = useMemo(() => {
     // The surface decides the canvas; its tone also tells the sanitiser whether the
@@ -50,7 +50,7 @@ export default function MessageBodyRenderer({ html = '', text = '', remoteImages
     if (!iframe || !srcDoc) return;
 
     let initialLayoutReported = false;
-    let cancelInitialLayout = null;
+    let cancelInitialLayout: (() => void) | null = null;
     const measure = () => {
       try {
         const doc = iframe.contentDocument;

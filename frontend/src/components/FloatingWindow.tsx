@@ -11,6 +11,23 @@ import { useCallback, useLayoutEffect, useRef } from 'react';
 const MIN_W = 380;
 const MIN_H = 280;
 
+/** The window geometry as the store keeps it. */
+interface FloatingWindowRect { x: number; y: number; w: number; h: number }
+
+interface FloatingWindowProps {
+  rect: FloatingWindowRect;
+  zIndex: number;
+  title: React.ReactNode;
+  accentColor?: string;
+  onFocus?: () => void;
+  onCommitRect: (rect: FloatingWindowRect) => void;
+  onMinimize?: () => void;
+  onClose?: () => void;
+  minimizeLabel?: string;
+  closeLabel?: string;
+  children?: React.ReactNode;
+}
+
 export default function FloatingWindow({
   rect,                // { x, y, w, h }
   zIndex,
@@ -23,9 +40,9 @@ export default function FloatingWindow({
   minimizeLabel = 'Minimize',
   closeLabel = 'Close',
   children,
-}) {
-  const elRef = useRef(null);
-  const gestureCleanupRef = useRef(null);
+}: FloatingWindowProps) {
+  const elRef = useRef<HTMLDivElement | null>(null);
+  const gestureCleanupRef = useRef<((options: { commit: boolean }) => void) | null>(null);
   const gestureActiveRef = useRef(false);
 
   // Geometry (left/top/width/height) is applied imperatively rather than through the
@@ -43,9 +60,10 @@ export default function FloatingWindow({
     el.style.height = rect.h + 'px';
   }, [rect.x, rect.y, rect.w, rect.h]);
 
-  const beginTitleDrag = useCallback((e) => {
+  const beginTitleDrag = useCallback((e: React.PointerEvent<HTMLDivElement>) => {
     if (e.button !== 0) return;
-    if (e.target.closest('button, a, input, select')) return;
+    const target = e.target;
+    if (target instanceof Element && target.closest('button, a, input, select')) return;
     e.preventDefault();
     const el = elRef.current;
     if (!el) return;
@@ -63,7 +81,7 @@ export default function FloatingWindow({
     document.body.style.userSelect = 'none';
     let curX = startRect.left;
     let curY = startRect.top;
-    const onMove = (ev) => {
+    const onMove = (ev: PointerEvent) => {
       curX = Math.max(0, Math.min(window.innerWidth - w, startRect.left + ev.clientX - startMouseX));
       curY = Math.max(0, Math.min(Math.max(0, window.innerHeight - h), startRect.top + ev.clientY - startMouseY));
       el.style.left = curX + 'px';
@@ -90,7 +108,7 @@ export default function FloatingWindow({
     window.addEventListener('blur', onCancel);
   }, [onCommitRect]);
 
-  const beginResize = useCallback((e) => {
+  const beginResize = useCallback((e: React.PointerEvent<HTMLDivElement>) => {
     if (e.button !== 0) return;
     e.preventDefault();
     e.stopPropagation();

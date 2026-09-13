@@ -1,7 +1,7 @@
 const FORWARD_MARKER_RE = /^(?:[-–—]{2,}\s*)?(?:forwarded message|forwarded mail|begin forwarded message|przekazana wiadomość|wiadomość przekazana)(?:\s*[-–—]{2,})?:?/i;
 const REPLY_MARKER_RE = /^(?:on\s+.+\s+wrote:|dnia\s+.+\s+napisa(?:ł|ła|li|ły)?\(?(?:a)?\)?:|am\s+.+\s+schrieb\s+.+:|le\s+.+\s+a écrit\s*:|el\s+.+\s+escribió:|il\s+.+\s+ha scritto:|-----\s*(?:original message|wiadomość oryginalna)\s*-----)/i;
 
-function normalizedLines(value = '') {
+function normalizedLines(value: unknown = ''): string[] {
   return String(value)
     .replace(/\u00a0/g, ' ')
     .replace(/\r\n?/g, '\n')
@@ -10,11 +10,11 @@ function normalizedLines(value = '') {
     .filter(Boolean);
 }
 
-export function startsWithForwardMarker(value = '') {
+export function startsWithForwardMarker(value: unknown = ''): boolean {
   return FORWARD_MARKER_RE.test(normalizedLines(value)[0] || '');
 }
 
-export function startsWithReplyMarker(value = '') {
+export function startsWithReplyMarker(value: unknown = ''): boolean {
   return normalizedLines(value).slice(0, 4).some(line => REPLY_MARKER_RE.test(line));
 }
 
@@ -23,7 +23,7 @@ function uniqueTopLevel(elements: Element[]) {
   return ordered.filter(element => !ordered.some(other => other !== element && other.contains(element)));
 }
 
-function quoteElements(doc) {
+function quoteElements(doc: Document): Element[] {
   const explicit = [...doc.querySelectorAll([
     '.gmail_quote',
     '.gmail_quote_container',
