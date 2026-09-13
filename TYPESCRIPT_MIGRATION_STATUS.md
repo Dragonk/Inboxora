@@ -6,8 +6,8 @@ Last updated: final verification round.
 
 | Area | State |
 |---|---|
-| Backend source | 299 files, 100% `.ts` (0 `.js`) |
-| Frontend source | 236 files, 100% `.ts`/`.tsx` (0 `.js`/`.jsx`) |
+| Backend source | 305 files, 100% `.ts` (0 `.js`) |
+| Frontend source | 238 files, 100% `.ts`/`.tsx` (0 `.js`/`.jsx`) |
 | Total `.ts`/`.tsx` in both `src` trees | 543 |
 | E2E specs | `.ts` (Playwright: 727 tests in 28 files) |
 | Backend typecheck | `tsc --noEmit` → **0 errors** |

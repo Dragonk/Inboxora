@@ -9,7 +9,7 @@
 
 | | Backend | Frontend |
 |---|---|---|
-| **Source files** | 299 `.ts` (0 `.js`) | 236 `.ts`/`.tsx` (0 `.js`/`.jsx`) |
+| **Source files** | 305 `.ts` (0 `.js`) | 238 `.ts`/`.tsx` (0 `.js`/`.jsx`) |
 | **Test files** | 144 | 90 |
 | **Module system** | ESM (`"type":"module"`) | ESM + Vite |
 | **Largest file** | `imapManager.ts` | `AdminPanel.tsx` |
@@ -35,7 +35,7 @@ in the code; the running report is `TYPESCRIPT_MIGRATION_FIXES.md`.
 - [x] 0e. Update ESLint configs for TypeScript
 - [x] 0f. Verify baseline: `tsc --noEmit` runs (then `allowJs: false` once all files were `.ts`)
 
-## Phase 1 — Backend Migration (299 files)
+## Phase 1 — Backend Migration (305 files)
 
 - [x] 1a. Convert `src/utils/`
 - [x] 1b. Convert `src/services/` core infra
@@ -50,7 +50,7 @@ in the code; the running report is `TYPESCRIPT_MIGRATION_FIXES.md`.
 - [x] 1k. Migrate backend tests (vitest, 144 files)
 - [x] 1l. Create `src/types/`
 
-## Phase 2 — Frontend Migration (236 files)
+## Phase 2 — Frontend Migration (238 files)
 
 - [x] 2a. Convert `src/utils/`
 - [x] 2b. Convert `src/store/`

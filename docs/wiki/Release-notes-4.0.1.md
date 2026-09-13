@@ -19,7 +19,7 @@ a user happens to take, often in a rare state, often in production.
 TypeScript moves those checks into the build. The migration was deliberately done **without**
 `@ts-nocheck`, without blanket `as any` casts and without suppressions such as `@ts-ignore`:
 every file had to satisfy the compiler through real types and real fixes. That turned the migration
-itself into a systematic audit of 535 source files.
+itself into a systematic audit of 543 source files.
 
 ## What the audit found
 
