@@ -32,7 +32,14 @@ import { toAppError } from '../utils/errors.js';
 // Shorthand for log lines — keeps domain visible while masking the local part.
 const logAccount = (account: EmailAccountRow) => redactEmail(account?.email_address || '');
 
-async function persistConversationCopyForRow(rowId, account: EmailAccountRow, rawMessage) {
+/** A raw message envelope as the ingest paths pass it (partial on Sent/retry paths). */
+interface RawMessageInput {
+  envelope?: { messageId?: string | null } | null;
+  messageId?: string | null;
+  [key: string]: unknown;
+}
+
+async function persistConversationCopyForRow(rowId: string, account: EmailAccountRow, rawMessage: RawMessageInput | null | undefined): Promise<void> {
   try {
     const result = await query(`
       SELECT m.*, a.user_id
@@ -76,10 +83,10 @@ const resolveAccountHost = async (account: EmailAccountRow) => {
 // resource needing explicit teardown (token refresh, DNS resolution) — an abandoned
 // pending promise is then harmless. Prevents a single hung network step from wedging a
 // sequential loop whose re-entrancy guard would otherwise never reset.
-function raceTimeout(promise, ms: number, label: string) {
+function raceTimeout<T>(promise: Promise<T>, ms: number, label: string): Promise<T> {
   return Promise.race([
     promise,
-    new Promise((_, reject) => setTimeout(() => reject(new Error(`${label} timeout (${ms}ms)`)), ms)),
+    new Promise<never>((_, reject) => setTimeout(() => reject(new Error(`${label} timeout (${ms}ms)`)), ms)),
   ]);
 }
 
@@ -101,7 +108,7 @@ const hostConnectSem = createKeyedSemaphore(CONNECT_CONCURRENCY_PER_HOST);
 // host, retry once forcing IPv4-only, which sidesteps the stalled IPv6 handshake. Only a timeout
 // triggers the retry — refusals / auth / cert errors are not a family problem, so they propagate
 // unchanged. Returns a connected client the caller owns (it attaches its own 'close'/idle listeners).
-async function connectImapClient(account: EmailAccountRow, resolved, cfgOpts, timeoutMs: number, label: string) {
+async function connectImapClient(account: EmailAccountRow, resolved: ResolvedConnection, cfgOpts: MakeClientCfgOptions, timeoutMs: number, label: string): Promise<ImapFlow> {
   const host = (account.imap_host || '').toLowerCase();
   let sawRefusal = false; // a provider refusal ('Connection not available' etc.) fired mid-attempt
   const attempt = async (res, tag) => {
@@ -151,7 +158,7 @@ async function connectImapClient(account: EmailAccountRow, resolved, cfgOpts, ti
 // and there is a v4 address to fall back to) AND the provider did not REFUSE during the attempt.
 // A refusal ('Connection not available' / throttle) means the host is at its limit — a second
 // attempt just piles on pressure and doubles the delay, so back off instead (#384). Pure. (#382)
-export function shouldRetryIPv4(errMessage, addresses, sawRefusal = false) {
+export function shouldRetryIPv4(errMessage: unknown, addresses: string[] | null | undefined, sawRefusal = false): boolean {
   if (sawRefusal) return false;
   const addrs = addresses || [];
   const v4 = addrs.filter(a => !a.includes(':')); // IPv6 literals always contain a colon
@@ -164,7 +171,7 @@ export function shouldRetryIPv4(errMessage, addresses, sawRefusal = false) {
 // every account at once (which trips per-IP/per-account connection limits, bans, locks).
 // Every acquire() MUST be paired with exactly one release(key) in a finally.
 export function createKeyedSemaphore(limit: number) {
-  const slots = new Map(); // key -> { active: number, waiters: (() => void)[] }
+  const slots = new Map<string, { active: number; waiters: Array<() => void> }>(); // key -> slot state
   return {
     async acquire(key: string) {
       let s = slots.get(key);
@@ -172,7 +179,7 @@ export function createKeyedSemaphore(limit: number) {
       if (s.active < limit) { s.active++; return; }
       // At capacity — wait to be handed a slot by a future release (active is not
       // incremented here; release hands its own slot over without changing the count).
-      await new Promise(resolve => s.waiters.push(resolve));
+      await new Promise<void>(resolve => s.waiters.push(resolve));
     },
     release(key: string) {
       const s = slots.get(key);
@@ -217,7 +224,7 @@ const CONNECT_COOLDOWN_MAX_MS = 15 * 60 * 1000;  // capped at 15 min
 // A mid-operation "Socket timeout" is deliberately NOT matched — it isn't specific to a
 // connection limit and can fire on ordinary slow responses, where a backoff would only
 // delay recovery.
-export function isConnectionRefusal(detail) {
+export function isConnectionRefusal(detail: unknown): boolean {
   return /connection not available|too many|maximum number|number of connections|rate.?limit|temporarily|try again|connection limit|over quota|throttl|connect timeout/i.test(String(detail || ''));
 }
 
@@ -229,7 +236,7 @@ async function stampLastSync(accountId: string) {
 
 // Exponential backoff for consecutive connection refusals: 30s, 60s, 120s, 240s, 480s, …
 // capped at CONNECT_COOLDOWN_MAX_MS.
-export function connectCooldownMs(failures) {
+export function connectCooldownMs(failures: number): number {
   const n = Math.max(1, failures);
   return Math.min(CONNECT_COOLDOWN_BASE_MS * (2 ** Math.min(n - 1, 5)), CONNECT_COOLDOWN_MAX_MS);
 }
@@ -244,18 +251,17 @@ export function connectCooldownMs(failures) {
 // (today's behavior, zero regression); a cap only takes effect when an operator sets one.
 
 // Parse a cap from config: a positive integer caps; 0, negative, empty, or non-numeric = unlimited.
-export function parsePersistentCap(raw) {
-  const n = Number.parseInt(raw, 10);
+export function parsePersistentCap(raw: unknown): number {
+  const n = Number.parseInt(String(raw ?? ''), 10);
   return Number.isInteger(n) && n > 0 ? n : Infinity;
 }
 
 // The tighter of the global env cap and any provider-profile cap; Infinity (unlimited) when neither
 // is set. Pure given its inputs.
-export function resolvePersistentCap(envCap, profileCap) {
-  return Math.min(
-    Number.isFinite(envCap) && envCap > 0 ? envCap : Infinity,
-    Number.isFinite(profileCap) && profileCap > 0 ? profileCap : Infinity,
-  );
+export function resolvePersistentCap(envCap: unknown, profileCap: unknown): number {
+  const env = typeof envCap === 'number' && Number.isFinite(envCap) && envCap > 0 ? envCap : Infinity;
+  const profile = typeof profileCap === 'number' && Number.isFinite(profileCap) && profileCap > 0 ? profileCap : Infinity;
+  return Math.min(env, profile);
 }
 
 // Whether an account keeps a persistent connection, given the host's accounts in a STABLE order
@@ -1124,8 +1130,8 @@ interface ConnectionPolicyLike {
 interface ResolvedConnection {
   host: string;
   servername?: string | null;
-  lookup?: unknown;
-  addresses?: unknown[];
+  lookup?: ReturnType<typeof createPinnedLookup>;
+  addresses?: string[];
 }
 
 export type EmailAccountRow = {
