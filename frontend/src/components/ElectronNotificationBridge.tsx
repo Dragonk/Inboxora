@@ -3,6 +3,7 @@ import { useStore } from '../store/index.ts';
 import { api } from '../utils/api.ts';
 import { installCapacitorNativeBridge } from '../utils/capacitorNativeBridge.ts';
 import { createBoundedActionIdTracker, isTrustedNativeMessage } from '../utils/nativeActionSecurity.ts';
+import type { StoreState } from '../store/index.ts';
 
 function linuxInstructionPath(filePath) {
   const normalized = String(filePath || '').replace(/\\/g, '/');
@@ -29,12 +30,12 @@ function isLinuxPackagePath(filePath) {
 }
 
 export default function ElectronNotificationBridge() {
-  const addNotification = useStore(state => state.addNotification);
-  const openCompose = useStore(state => state.openCompose);
-  const setSelectedAccount = useStore(state => state.setSelectedAccount);
-  const setSelectedMessage = useStore(state => state.setSelectedMessage);
-  const setSearchQuery = useStore(state => state.setSearchQuery);
-  const totalUnread = useStore(state => state.unreadCounts.total);
+  const addNotification = useStore((state: StoreState) => state.addNotification);
+  const openCompose = useStore((state: StoreState) => state.openCompose);
+  const setSelectedAccount = useStore((state: StoreState) => state.setSelectedAccount);
+  const setSelectedMessage = useStore((state: StoreState) => state.setSelectedMessage);
+  const setSearchQuery = useStore((state: StoreState) => state.setSearchQuery);
+  const totalUnread = useStore((state: StoreState) => state.unreadCounts.total);
   const lastActionRef = useRef({ action: null, time: 0 });
   const processedActionIdsRef = useRef(createBoundedActionIdTracker());
   const [nativeBridgeReady, setNativeBridgeReady] = useState(() => Boolean(window.inboxoraNative));

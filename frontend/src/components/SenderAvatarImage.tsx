@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { useStore } from '../store/index.ts';
 import { avatarImageCandidates } from '../utils/senderAvatar.ts';
 import type { CSSProperties } from 'react';
+import type { StoreState } from '../store/index.ts';
 
 const imageStyle: CSSProperties = {
   position: 'absolute', inset: 0,
@@ -9,9 +10,9 @@ const imageStyle: CSSProperties = {
 };
 
 export default function SenderAvatarImage({ email, hasContactPhoto }) {
-  const loaded = useStore(state => state.senderFaviconsLoaded);
-  const enabled = useStore(state => state.senderFavicons);
-  const gravatarAvatars = useStore(state => state.gravatarAvatars);
+  const loaded = useStore((state: StoreState) => state.senderFaviconsLoaded);
+  const enabled = useStore((state: StoreState) => state.senderFavicons);
+  const gravatarAvatars = useStore((state: StoreState) => state.gravatarAvatars);
   const candidates = useMemo(() => avatarImageCandidates({
     email,
     hasContactPhoto,

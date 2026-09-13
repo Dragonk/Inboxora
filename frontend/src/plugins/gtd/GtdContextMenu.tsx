@@ -3,6 +3,7 @@ import { GTD_STATES, GTD_COLORS, resolveAccountGtdFolders, gtdStatesInFolders, u
 import { useStore } from '../../store/index.ts';
 import { api } from '../../utils/api.ts';
 import { classifyWithUndo } from './classification.ts';
+import type { StoreState } from '../../store/index.ts';
 
 // GTD's context-menu contributions, injected into core's 'context-menu-actions' collector so the
 // menu itself carries no GTD-specific code. Placement is preserved: core splices these items into
@@ -15,8 +16,8 @@ import { classifyWithUndo } from './classification.ts';
 // state; "Remove from <state>" is offered only for the states this thread is actually labelled with.
 function GtdContextSubmenu({ message, account, onClose, onBack }) {
   const { t } = useTranslation();
-  const addNotification = useStore(s => s.addNotification);
-  const scheduleGtdSectionsFetch = useStore(s => s.scheduleGtdSectionsFetch);
+  const addNotification = useStore((s: StoreState) => s.addNotification);
+  const scheduleGtdSectionsFetch = useStore((s: StoreState) => s.scheduleGtdSectionsFetch);
   const gtdFolders = resolveAccountGtdFolders(account);
   const removableStates = gtdStatesInFolders(message.folders, gtdFolders);
   // Classify = COPY into the state's label folder (message stays put); remove = strip that label.

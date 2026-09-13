@@ -4,14 +4,15 @@ import { useTranslation } from 'react-i18next';
 import { useStore } from '../store/index.ts';
 import { useUiScale } from '../hooks/useUiScale.ts';
 import { generateReport } from '../utils/diagnostics.ts';
+import type { StoreState } from '../store/index.ts';
 
 // Sanitized diagnostics report: generate, preview (so the user can see exactly
 // what will be shared), then download or copy. Nothing is sent automatically.
 export default function DiagnosticsReportModal({ onClose }) {
   const { t, i18n } = useTranslation();
-  const theme = useStore(s => s.theme);
+  const theme = useStore((s: StoreState) => s.theme);
   const uiScale = useUiScale();
-  const addNotification = useStore(s => s.addNotification);
+  const addNotification = useStore((s: StoreState) => s.addNotification);
   const [state, setState] = useState<{
     status: string;
     json?: string;

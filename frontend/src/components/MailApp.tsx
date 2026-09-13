@@ -25,6 +25,7 @@ import ProfileModal from './ProfileModal.tsx';
 // on the native MessageList/MessagePane — no separate import needed.
 import CommandPalette from './CommandPalette.tsx';
 import { usePluginSlot, PluginRuntime } from '../plugins/PluginSlot.tsx';
+import type { StoreState } from '../store/index.ts';
 
 const ContactsPage = lazy(() => import('./ContactsPage.tsx'));
 const CalendarPage = lazy(() => import('./CalendarPage.tsx'));
@@ -85,9 +86,9 @@ export default function MailApp() {
     conversationReaderViewEnabled,
   } = useStore();
 
-  const syncInterval = useStore(s => s.syncInterval);
-  const autoLockMinutes = useStore(s => s.autoLockMinutes);
-  const lockScreen = useStore(s => s.lockScreen);
+  const syncInterval = useStore((s: StoreState) => s.syncInterval);
+  const autoLockMinutes = useStore((s: StoreState) => s.autoLockMinutes);
+  const lockScreen = useStore((s: StoreState) => s.lockScreen);
   const isMobile = useMobile();
   const compactLayout = useCompactLayout();
   const [conversationId, setConversationId] = useState(null);

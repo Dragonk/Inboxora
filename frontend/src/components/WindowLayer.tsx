@@ -1,6 +1,7 @@
 import { useTranslation } from 'react-i18next';
 import { useStore } from '../store/index.ts';
 import MessageWindow from './MessageWindow.tsx';
+import type { StoreState } from '../store/index.ts';
 
 // Renders all detached message windows (#219): open ones as floating frames, minimized
 // ones as pills in a bottom-left dock so several minimized windows lay out side by side
@@ -9,13 +10,13 @@ const Z_BASE = 1400; // sits below ComposeModal (1999) so an active compose stay
 
 export default function WindowLayer() {
   const { t } = useTranslation();
-  const windows = useStore(s => s.messageWindows);
-  const setMinimized = useStore(s => s.setMessageWindowMinimized);
-  const closeWindow = useStore(s => s.closeMessageWindow);
-  const messages = useStore(s => s.messages);
-  const searchResults = useStore(s => s.searchResults);
-  const searchQuery = useStore(s => s.searchQuery);
-  const threadMessages = useStore(s => s.threadMessages);
+  const windows = useStore((s: StoreState) => s.messageWindows);
+  const setMinimized = useStore((s: StoreState) => s.setMessageWindowMinimized);
+  const closeWindow = useStore((s: StoreState) => s.closeMessageWindow);
+  const messages = useStore((s: StoreState) => s.messages);
+  const searchResults = useStore((s: StoreState) => s.searchResults);
+  const searchQuery = useStore((s: StoreState) => s.searchQuery);
+  const threadMessages = useStore((s: StoreState) => s.threadMessages);
 
   if (!windows.length) return null;
 

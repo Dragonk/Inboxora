@@ -15,6 +15,7 @@ import './contacts.css';
 import SenderAvatarImage from './SenderAvatarImage.tsx';
 import { safeHttpUrl } from '../utils/contactLinks.ts';
 import type { CSSProperties } from 'react';
+import type { StoreState } from '../store/index.ts';
 
 // Deterministic avatar color from a string
 function avatarColor(str) {
@@ -770,7 +771,7 @@ export default function ContactsPage({ isActive = true }) {
 function ContactDetail({ contact: c, confirmDelete, saving, error, onEdit, onDeleteRequest, onDeleteConfirm, onDeleteCancel, t }) {
   const { i18n } = useTranslation();
   const detailType = type => type ? t(`contacts.emailTypes.${type}`, { defaultValue: String(type) }) : undefined;
-  const openCompose = useStore(state => state.openCompose);
+  const openCompose = useStore((state: StoreState) => state.openCompose);
   const contactDates = c.contactDates?.length
     ? c.contactDates
     : [

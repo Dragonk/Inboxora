@@ -5,6 +5,7 @@ import { buildGtdDisplaySections, isSelectedRow } from '../utils/gtd.ts';
 import { useGtdTriage } from '../hooks/useGtdTriage.ts';
 import GtdTriageRow from './GtdTriageRow.tsx';
 import ContextMenu from './ContextMenu.tsx';
+import type { StoreState } from '../store/index.ts';
 
 // The list that replaces the normal message list while a GTD tab is active. Backed by
 // the same sections store as the GTD sidebar (one source of truth, live via
@@ -14,11 +15,11 @@ import ContextMenu from './ContextMenu.tsx';
 // menu — via the shared useGtdTriage hook, so this surface is full triage, not browse-only.
 export default function GtdTabList() {
   const { t } = useTranslation();
-  const activeGtdTab = useStore(s => s.activeGtdTab);
-  const gtdSections = useStore(s => s.gtdSections);
-  const selectedMessageId = useStore(s => s.selectedMessageId);
+  const activeGtdTab = useStore((s: StoreState) => s.activeGtdTab);
+  const gtdSections = useStore((s: StoreState) => s.gtdSections);
+  const selectedMessageId = useStore((s: StoreState) => s.selectedMessageId);
   const selectedMid = useStore(selectSelectedMessageMid);
-  const hoverQuickActions = useStore(s => s.hoverQuickActions);
+  const hoverQuickActions = useStore((s: StoreState) => s.hoverQuickActions);
 
   const { contextMenu, setContextMenu, handleGtdAction, openRow, rowActions } = useGtdTriage();
 

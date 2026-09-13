@@ -23,6 +23,7 @@ import { MobileModuleHeader, HeaderAction } from './MobileModuleHeader.tsx';
 import { useCompactLayout } from '../hooks/useCompactLayout.ts';
 import { applyAgendaWidth, beginAgendaResize, beginPanelResize, readAgendaWidth } from '../utils/panelWidth.ts';
 import './calendar.css';
+import type { StoreState } from '../store/index.ts';
 
 const DATE_LOCALE_OVERRIDES = { zhCN: 'zh-CN' };
 
@@ -56,20 +57,20 @@ export default function CalendarPage({ isActive = true }) {
   // would re-render the calendar on every unrelated change (new mail, unread
   // counts, sidebar state, and so on) — the calendar is expensive to render, so
   // it must not be dragged along by mail activity.
-  const accounts = useStore(state => state.accounts);
-  const calendarWeekStartsOn = useStore(state => state.calendarWeekStartsOn);
-  const calendarWorkDays = useStore(state => state.calendarWorkDays);
-  const calendarWorkHoursStart = useStore(state => state.calendarWorkHoursStart);
-  const calendarWorkHoursEnd = useStore(state => state.calendarWorkHoursEnd);
+  const accounts = useStore((state: StoreState) => state.accounts);
+  const calendarWeekStartsOn = useStore((state: StoreState) => state.calendarWeekStartsOn);
+  const calendarWorkDays = useStore((state: StoreState) => state.calendarWorkDays);
+  const calendarWorkHoursStart = useStore((state: StoreState) => state.calendarWorkHoursStart);
+  const calendarWorkHoursEnd = useStore((state: StoreState) => state.calendarWorkHoursEnd);
   // Sender preselected for invitations (Settings → Calendar).
-  const calendarInviteAccountId = useStore(state => state.calendarInviteAccountId);
-  const visibleCalendarIds = useStore(state => state.visibleCalendarIds);
-  const setSelectedMessage = useStore(state => state.setSelectedMessage);
-  const setThreadMessages = useStore(state => state.setThreadMessages);
-  const setSelectedAccount = useStore(state => state.setSelectedAccount);
-  const setShowCalendar = useStore(state => state.setShowCalendar);
-  const setShowContacts = useStore(state => state.setShowContacts);
-  const setVisibleCalendarIds = useStore(state => state.setVisibleCalendarIds);
+  const calendarInviteAccountId = useStore((state: StoreState) => state.calendarInviteAccountId);
+  const visibleCalendarIds = useStore((state: StoreState) => state.visibleCalendarIds);
+  const setSelectedMessage = useStore((state: StoreState) => state.setSelectedMessage);
+  const setThreadMessages = useStore((state: StoreState) => state.setThreadMessages);
+  const setSelectedAccount = useStore((state: StoreState) => state.setSelectedAccount);
+  const setShowCalendar = useStore((state: StoreState) => state.setShowCalendar);
+  const setShowContacts = useStore((state: StoreState) => state.setShowContacts);
+  const setVisibleCalendarIds = useStore((state: StoreState) => state.setVisibleCalendarIds);
   const isMobile = useMobile();
   const compactViewport = useCompactLayout();
   const surfaceRef = useRef(null);

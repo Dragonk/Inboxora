@@ -45,6 +45,7 @@ import { MessageAvatar } from './MessagePresentation.tsx';
 import MessageToolbar from './MessageToolbar.tsx';
 import { MobileModuleHeader, HeaderAction } from './MobileModuleHeader.tsx';
 import { renderMarkdown } from '../utils/renderMarkdown.ts';
+import type { StoreState } from '../store/index.ts';
 
 function parseAddressField(raw) {
   try {
@@ -256,7 +257,7 @@ export default function MessagePane({ windowMessageId = null, onWindowClose = nu
   // Antispam (v0.1) — toolbar visibility for the spam / ham buttons.
   // Mirrors the heuristic in ContextMenu.jsx so the toolbar matches the menu.
   const account = accounts.find(a => a.id === message?.account_id);
-  const accountFolders = useStore(s => s.folders[message?.account_id] || []);
+  const accountFolders = useStore((s: StoreState) => s.folders[message?.account_id] || []);
   const spamFolderPaths = (() => {
     const mapped = account?.folder_mappings?.spam;
     if (mapped) return new Set([mapped]);
@@ -355,7 +356,7 @@ export default function MessagePane({ windowMessageId = null, onWindowClose = nu
   // not a reactive value.
   // The div renderer bypasses the iframe, so it has to apply the same canvas contract
   // itself: the tone drives the colour adaptation the sanitiser performs.
-  const paneTheme = useStore(state => state.theme);
+  const paneTheme = useStore((state: StoreState) => state.theme);
   // eslint-disable-next-line react-hooks/exhaustive-deps
   const renderableHtml = useMemo(() => body?.html ? sanitizeMessageHtml(body.html, { remoteImages: allowRemoteImages, tone: getEmailSurface(paneTheme)?.tone }) : '', [body?.html, allowRemoteImages, retryKey, paneTheme]);
   const prepared = useMemo(() => {

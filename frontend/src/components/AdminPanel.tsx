@@ -40,6 +40,7 @@ import { getEffectiveShortcuts, getGroupedActions, ACTION_DEFS, SPECIAL_KEY_LABE
 import { unifiedUnreadTotal } from '../utils/unifiedInbox.ts';
 import { isValidForwardAddress } from '../utils/ruleActions.ts';
 import type { CSSProperties, SVGProps } from 'react';
+import type { StoreState } from '../store/index.ts';
 
 // ─── Shared field component ───────────────────────────────────────────────────
 function Field({ label, required = false, children }) {
@@ -4593,8 +4594,8 @@ function CategoriesSection({ initialSubTab }) {
 // a plugin's own per-account config; deactivating hides that plugin's UI and makes it inert.
 function PluginsSection({ onNavigate }) {
   const { t } = useTranslation();
-  const enabledPlugins = useStore(s => s.enabledPlugins);
-  const setPluginActivated = useStore(s => s.setPluginActivated);
+  const enabledPlugins = useStore((s: StoreState) => s.enabledPlugins);
+  const setPluginActivated = useStore((s: StoreState) => s.setPluginActivated);
   const [manifests, setManifests] = useState(null); // null = loading
   const [busyId, setBusyId] = useState(null);
   const [error, setError] = useState(false);

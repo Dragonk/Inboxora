@@ -5,6 +5,7 @@ import { gtdActiveForContext } from '../../utils/gtd.ts';
 import { api } from '../../utils/api.ts';
 import { shortcutBus } from '../../utils/shortcutBus.ts';
 import { classifyWithUndo, undoLatestGtdNotification } from './classification.ts';
+import type { StoreState } from '../../store/index.ts';
 
 // GTD's headless runtime: the single owner of the GTD sections fetch. Reloads whenever the context
 // (unified vs a single account) changes and GTD is active there; both the rail and the tab list read
@@ -12,9 +13,9 @@ import { classifyWithUndo, undoLatestGtdNotification } from './classification.ts
 // <PluginRuntime/> only while GTD is activated, so activation is already gated — pass `true` here.
 export default function GtdRuntime() {
   const { t } = useTranslation();
-  const accounts = useStore(s => s.accounts);
-  const selectedAccountId = useStore(s => s.selectedAccountId);
-  const fetchGtdSections = useStore(s => s.fetchGtdSections);
+  const accounts = useStore((s: StoreState) => s.accounts);
+  const selectedAccountId = useStore((s: StoreState) => s.selectedAccountId);
+  const fetchGtdSections = useStore((s: StoreState) => s.fetchGtdSections);
 
   const gtdActive = gtdActiveForContext(accounts, selectedAccountId, true);
   // Also key on the set of GTD-enabled accounts so enabling a second account refetches the unified

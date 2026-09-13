@@ -1,13 +1,14 @@
 import { Fragment } from 'react';
 import { useStore } from '../store/index.ts';
 import { getSlotContributions, getRuntimes, getCollectors } from './registry.ts';
+import type { StoreState } from '../store/index.ts';
 
 // The contributions registered for slot `name` that are live for this `ctx`: their plugin is
 // activated (store.enabledPlugins) AND their own isActive(ctx) passes. Exposed as a hook so a caller
 // can branch on whether ANY content exists before laying out around it — e.g. the right sidebar only
 // "applies" (reserves width, binds its collapse shortcut) when a provider actually supplies content.
 export function usePluginSlot(name, ctx) {
-  const enabledPlugins = useStore(s => s.enabledPlugins);
+  const enabledPlugins = useStore((s: StoreState) => s.enabledPlugins);
   return getSlotContributions(name).filter(
     c => enabledPlugins.includes(c.pluginId) && c.isActive(ctx)
   );
@@ -16,7 +17,7 @@ export function usePluginSlot(name, ctx) {
 // The merged descriptor array contributed by activated plugins for collector `name`. Core renders
 // the descriptors with its own chrome (e.g. context-menu rows). A throwing builder contributes nothing.
 export function usePluginCollected(name, ctx) {
-  const enabledPlugins = useStore(s => s.enabledPlugins);
+  const enabledPlugins = useStore((s: StoreState) => s.enabledPlugins);
   return getCollectors(name)
     .filter(c => enabledPlugins.includes(c.pluginId))
     .flatMap(c => { try { return c.build(ctx) || []; } catch { return []; } });
@@ -34,7 +35,7 @@ export function PluginSlot({ name, ctx }) {
 // effects/subscriptions). Placed once near the app root. Deactivating a plugin unmounts its runtime,
 // tearing down its effects.
 export function PluginRuntime() {
-  const enabledPlugins = useStore(s => s.enabledPlugins);
+  const enabledPlugins = useStore((s: StoreState) => s.enabledPlugins);
   const runtimes = getRuntimes().filter(r => enabledPlugins.includes(r.pluginId));
   return <>{runtimes.map((r, i) => {
     const Runtime = r.component;

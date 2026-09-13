@@ -81,8 +81,8 @@ describe('calendar page cancellation and render contract', () => {
   });
 
   it('subscribes to individual store fields instead of the whole store', () => {
-    assert.match(source, /useStore\(state => state\.visibleCalendarIds\)/);
-    assert.match(source, /useStore\(state => state\.setVisibleCalendarIds\)/);
+    assert.match(source, /useStore\(\(state: StoreState\) => state\.visibleCalendarIds\)/);
+    assert.match(source, /useStore\(\(state: StoreState\) => state\.setVisibleCalendarIds\)/);
     assert.doesNotMatch(source, /useStore\(\)/);
   });
 

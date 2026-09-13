@@ -2,13 +2,14 @@ import { useEffect, useId, useState } from 'react';
 import { useStore } from '../store/index.ts';
 import { api } from '../utils/api.ts';
 import { computeSpriteLayout } from '../utils/gtd.ts';
+import type { StoreState } from '../store/index.ts';
 
 // Inbox-zero pet: a configured imported pet when one is set and its cached assets
 // load, otherwise the built-in SVG dog. Static at rest, animated on hover (CSS, not
 // video, so it can respond to hover). The dog is the fallback for no-pet, a meta load
 // failure, and a spritesheet load error — there is never a broken-image state.
 export default function GtdZeroPet({ size = 104 }) {
-  const petSlug = useStore(s => s.gtdPetSlug);
+  const petSlug = useStore((s: StoreState) => s.gtdPetSlug);
   const [meta, setMeta] = useState(null);        // null = loading/none, object = loaded, 'error'
   const [sheetFailed, setSheetFailed] = useState(false);
 

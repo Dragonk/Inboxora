@@ -12,6 +12,7 @@ import GtdTriageRow from './GtdTriageRow.tsx';
 import GtdZeroPet from './GtdZeroPet.tsx';
 import ContextMenu from './ContextMenu.tsx';
 import RightSidebar from './RightSidebar.tsx';
+import type { StoreState } from '../store/index.ts';
 
 // Section key -> the state color/chip-bg used for its header, count chip, and the
 // row's left border. Waiting rows override per gtdKind (watch/delegated).
@@ -19,10 +20,10 @@ const SECTION_STATE = { todo: 'todo', waiting: 'watch', reference: 'reference', 
 
 export default function GtdSidebarContent({ onCollapse, toggleHint }) {
   const { t } = useTranslation();
-  const gtdSections = useStore(s => s.gtdSections);
-  const gtdCollapsedSections = useStore(s => s.gtdCollapsedSections);
-  const toggleGtdSection = useStore(s => s.toggleGtdSection);
-  const selectedMessageId = useStore(s => s.selectedMessageId);
+  const gtdSections = useStore((s: StoreState) => s.gtdSections);
+  const gtdCollapsedSections = useStore((s: StoreState) => s.gtdCollapsedSections);
+  const toggleGtdSection = useStore((s: StoreState) => s.toggleGtdSection);
+  const selectedMessageId = useStore((s: StoreState) => s.selectedMessageId);
   const selectedMid = useStore(selectSelectedMessageMid);
 
   // Every triage primitive (hover cluster + right-click menu), the auto-read timer, and the

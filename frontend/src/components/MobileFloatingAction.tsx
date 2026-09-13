@@ -1,9 +1,10 @@
 import { useMobile } from '../hooks/useMobile.ts';
 import { useStore } from '../store/index.ts';
+import type { StoreState } from '../store/index.ts';
 
 export default function MobileFloatingAction({ label, onClick, icon = 'add', disabled = false, visible = true, inline = false }) {
   const mobile = useMobile();
-  const position = useStore(state => state.mobileNavigationPosition);
+  const position = useStore((state: StoreState) => state.mobileNavigationPosition);
   if (!mobile || position === 'bottom') return null;
   return <button type="button" data-testid="mobile-floating-action" aria-label={label} title={label} onClick={onClick} disabled={disabled} style={{
     ...(inline ? {} : { position: 'fixed', bottom: 'calc(var(--sab) + 20px)', right: 20, zIndex: 200 }),

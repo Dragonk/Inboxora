@@ -48,6 +48,7 @@ import {
 } from '../utils/threadedArchive.ts';
 import { createUndoableCommit, UNDO_COMMIT_DELAY_MS, UNDO_WINDOW_MS } from '../utils/undoableAction.ts';
 import { bulkUnreadDelta, failedBulkRow, failedBulkTargets } from '../utils/threadedBulkRollback.ts';
+import type { StoreState } from '../store/index.ts';
 
 // Folder icon for move picker
 function FolderIcon({ specialUse, size = 13 }) {
@@ -233,7 +234,7 @@ export default function MessageList() {
   // Layout picker
   const [showLayoutPicker, setShowLayoutPicker] = useState(false);
   const [layoutPickerPos, setLayoutPickerPos] = useState(null);
-  const mailListActive = useStore(state => !state.showContacts && !state.showCalendar && !state.selectedMessageId);
+  const mailListActive = useStore((state: StoreState) => !state.showContacts && !state.showCalendar && !state.selectedMessageId);
   useBackLayer(mailListActive && (selectionModeActive || selectedIds.size > 0), () => { setSelectedIds(new Set()); setSelectionModeActive(false); }, 5);
   useBackLayer(mailListActive && (showFolderPicker || showLayoutPicker), () => { setShowFolderPicker(false); setShowLayoutPicker(false); }, 4000);
   useBackLayer(mailListActive && searchQuery, () => setSearchQuery(''), 4);

@@ -5,6 +5,7 @@ import { api } from '../../utils/api.ts';
 import GtdZeroPet from '../../components/GtdZeroPet.tsx';
 import { DEFAULT_GTD_FOLDERS, GTD_STATES, resolveAccountGtdFolders, diffGtdFolders, findGtdFolderCollisions } from '../../utils/gtd.ts';
 import type { CSSProperties } from 'react';
+import type { StoreState } from '../../store/index.ts';
 
 // GTD's settings UI, extracted from AdminPanel's CategoriesSection into the plugin. Registered into
 // the 'settings-categories' slot, which renders it only while GTD is activated — so the former
@@ -28,8 +29,8 @@ function readFileAsDataURL(file) {
 // pet (hover to animate) once set.
 function GtdPetBlock() {
   const { t } = useTranslation();
-  const gtdPetSlug = useStore(s => s.gtdPetSlug);
-  const setGtdPetSlug = useStore(s => s.setGtdPetSlug);
+  const gtdPetSlug = useStore((s: StoreState) => s.gtdPetSlug);
+  const setGtdPetSlug = useStore((s: StoreState) => s.setGtdPetSlug);
   const [msg, setMsg] = useState(null);
   const [petJsonFile, setPetJsonFile] = useState(null);
   const [sheetFile, setSheetFile] = useState(null);
@@ -333,7 +334,7 @@ function GtdSection() {
 // across reopens. A settings-search deep-link (initialSubTab === 'gtd') forces it open.
 export default function GtdSettings({ initialSubTab }) {
   const { t } = useTranslation();
-  const accounts = useStore(s => s.accounts);
+  const accounts = useStore((s: StoreState) => s.accounts);
   const [gtdRevealed, setGtdRevealed] = useState(() => {
     const stored = localStorage.getItem('mailflow_gtd_settings_reveal');
     if (stored === '1') return true;
