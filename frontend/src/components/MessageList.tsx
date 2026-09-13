@@ -319,8 +319,32 @@ export default function MessageList() {
 
   // Ref that always holds the latest values needed by shortcut handlers.
   // Updated synchronously on every render so handlers are never stale.
-  const scRef = useRef({});
-  scRef.current = { messages, selectedIds, setSelectedIds, updateMessage, decrementUnread, addNotification };
+  interface ListMessage {
+    id: string;
+    account_id?: string;
+    [key: string]: unknown;
+  }
+
+  interface MessageQueryParams {
+    limit: number;
+    offset: number;
+    accountId?: string;
+    folder?: string;
+    unreadOnly?: string;
+    threaded?: string;
+    category?: string;
+  }
+
+  const scRef = useRef<{
+    messages: Array<{ id: string; [key: string]: unknown }>;
+    selectedIds: Set<string>;
+    setSelectedIds: (updater: Set<string> | ((prev: Set<string>) => Set<string>)) => void;
+    updateMessage: (id: string, patch: Record<string, unknown>) => void;
+    decrementUnread: (accountId: string, delta: number) => void;
+    addNotification: (notification: unknown) => void;
+    displayMessages?: Array<{ id: string; [key: string]: unknown }>;
+  } | null>(null);
+  scRef.current = { messages, selectedIds: selectedIds as Set<string>, setSelectedIds, updateMessage, decrementUnread, addNotification };
   const tRef = useRef(t);
   useEffect(() => { tRef.current = t; }, [t]);
 
@@ -407,7 +431,7 @@ export default function MessageList() {
       setHasMoreMessages(true);
       setCurrentPage(1);
       try {
-        const params = { limit: pageSize, offset: 0 };
+        const params: MessageQueryParams = { limit: pageSize, offset: 0 };
         if (selectedAccountId) {
           params.accountId = selectedAccountId;
           params.folder = selectedFolder;
@@ -456,7 +480,7 @@ export default function MessageList() {
     try {
       // Read current offset directly from store to avoid stale closure
       const currentOffset = useStore.getState().messagesOffset;
-      const params = { limit: pageSize, offset: currentOffset };
+      const params: MessageQueryParams = { limit: pageSize, offset: currentOffset };
       if (selectedAccountId) {
         params.accountId = selectedAccountId;
         params.folder = selectedFolder;
@@ -656,7 +680,7 @@ export default function MessageList() {
     setLoadingMessages(true);
     setCurrentPage(pageNum);
     try {
-      const params = { limit: pageSize, offset: (pageNum - 1) * pageSize };
+      const params: MessageQueryParams = { limit: pageSize, offset: (pageNum - 1) * pageSize };
       if (selectedAccountId) { params.accountId = selectedAccountId; params.folder = selectedFolder; }
       if (unreadOnly) params.unreadOnly = 'true';
       if (threadedView) params.threaded = 'true';
@@ -1594,7 +1618,7 @@ export default function MessageList() {
     // single-row delete path — without this only each thread's visible
     // (newest) message was deleted and the rest of the thread survived.
     let deleteIds = ids;
-    const targetsByRow = new Map(msgs.map(msg => [msg.id, new Map([[String(msg.id), msg]])]));
+    const targetsByRow = new Map<string, Map<string, ListMessage>>(msgs.map(msg => [msg.id, new Map([[String(msg.id), msg]])]));
     try {
       const resolved = await Promise.all(msgs.map(m => resolveMessagesForThreadAction(m)));
       resolved.forEach((thread, index) => {
@@ -1675,7 +1699,7 @@ export default function MessageList() {
     // account — the server would just skip (and previously silently drop)
     // another account's copies from a folder that doesn't exist there.
     let moveIds = ids;
-    const targetsByRow = new Map(msgs.map(msg => [msg.id, new Map([[String(msg.id), msg]])]));
+    const targetsByRow = new Map<string, Map<string, ListMessage>>(msgs.map(msg => [msg.id, new Map([[String(msg.id), msg]])]));
     try {
       const resolved = await Promise.all(msgs.map(async (m) => {
         const thread = await resolveMessagesForThreadAction(m);
@@ -1887,6 +1911,12 @@ export default function MessageList() {
     onResolution,
     intentKey = destructiveMutationKey(message),
     intentVersion = null,
+  }: {
+    alreadyRemoved?: boolean;
+    viewKey?: string;
+    onResolution?: (version: string) => void;
+    intentKey?: string;
+    intentVersion?: string | null;
   } = {}) => {
     const threadRow = isThreadListRow(message);
     const threadId = message.thread_id || message.id;
@@ -1990,8 +2020,8 @@ export default function MessageList() {
   const handleBulkMarkRead = useCallback(async (ids, msgs) => {
     const markAsRead = msgs.some(m => !m.is_read);
     // Compute per-account and per-category unread deltas before mutating state
-    const deltaByAccount = {};
-    const deltaByCategory = {};
+    const deltaByAccount: Record<string, number> = {};
+    const deltaByCategory: Record<string, number> = {};
     msgs.forEach(msg => {
       if (!deltaByAccount[msg.account_id]) deltaByAccount[msg.account_id] = 0;
       const catKey = msg.category || 'primary';
@@ -4835,7 +4865,7 @@ function MessageRow({ message, selected, lastViewed, isChecked, selectionMode, s
   );
 }
 
-function BulkBtn({ children, onClick, title, disabled, danger }) {
+function BulkBtn({ children, onClick, title, disabled = false, danger = false }) {
   const [hov, setHov] = useState(false);
   return (
     <button

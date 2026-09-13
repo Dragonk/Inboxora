@@ -490,3 +490,25 @@ z uzasadnieniem. Stan: 58 bledow (zgodnie z oczekiwaniem).
 Frontend tsc: 39 bledow (z 661) — WSZYSTKIE w MessageList.tsx.
 Testy 2335/0 · lint czysty · build OK. Backend: tsc 0 · testy 1785/0.
 
+
+## 50. MILESTONE: frontend bez bledow tsc — caly projekt otypowany
+
+Frontend tsc: 0 bledow (start remediacji po zdjeciu @ts-nocheck: 661).
+Pliki z @ts-nocheck/@ts-ignore/@ts-expect-error: 0 (frontend + backend).
+
+Ostatnia partia (MessageList):
+- fetch params ({limit, offset} + doklejane accountId/folder/unreadOnly/threaded/category)
+  -> MessageQueryParams; wczesniej kazde dopisanie pola bylo niekontrolowane.
+- scRef = useRef({}) -> jawny typ (messages/selectedIds/setSelectedIds/updateMessage/
+  decrementUnread/addNotification/displayMessages) z poprawnym kontraktem setState dla Set<string>.
+- targetsByRow -> Map<string, Map<string, ListMessage>>; deltaByAccount/deltaByCategory -> Record<string, number>
+  (wczesniej delta > 0 na unknown).
+- queuePerCopyMutation<T>(...) -> { promise: Promise<T> }, wiec await zachowuje typ wyniku.
+- api.search limit: string|number; BulkBtn.danger/disabled opcjonalne; archiveVisibleMessage opcje otypowane.
+
+## 51. Stan weryfikacji koncowej
+
+Backend:  tsc 0 · testy 1785/0 · lint czysty · build OK
+Frontend: tsc 0 · testy 2335/0 · lint czysty · build OK
+Maski: 0 plikow z @ts-nocheck/@ts-ignore/@ts-expect-error.
+

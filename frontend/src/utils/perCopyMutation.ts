@@ -32,8 +32,12 @@ function laneAndVersion(laneOrVersion, maybeVersion = undefined) {
   return ['default', laneOrVersion];
 }
 
-export function queuePerCopyMutation(id, laneOrRequest, maybeRequest = undefined) {
-  const [lane, request] = normalizeArgs(laneOrRequest, maybeRequest);
+export function queuePerCopyMutation<T>(
+  id: string,
+  laneOrRequest: string | (() => T | Promise<T>),
+  maybeRequest?: (() => T | Promise<T>) | undefined,
+): { version: string; promise: Promise<T> } {
+  const [lane, request] = normalizeArgs(laneOrRequest, maybeRequest) as [string, () => T | Promise<T>];
   const key = keyFor(id, lane);
   const version = (versions.get(key) || 0) + 1;
   versions.set(key, version);
