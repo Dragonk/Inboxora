@@ -390,7 +390,7 @@ export default function Sidebar({ onEditProfile = null }) {
   const [accountCtxMenu, setAccountCtxMenu] = useState(null); // {x, y, account}
 
   // Inline rename (IMAP folder)
-  const [renamingFolder, setRenamingFolder] = useState(null); // {accountId, path, value}
+  const [renamingFolder, setRenamingFolder] = useState<{ accountId: string; path: string; value: string; originalName?: string } | null>(null); // {accountId, path, value}
   const renameInputRef = useRef<HTMLInputElement | null>(null);
 
   // Inline rename (favorite alias)

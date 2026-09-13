@@ -106,7 +106,7 @@ export default function CalendarPage({ isActive = true }) {
     return () => observer.disconnect();
   }, []);
   const [dayPanelOpen, setDayPanelOpen] = useState(false);
-  const [preview, setPreview] = useState(null);
+  const [preview, setPreview] = useState<{ read_only?: boolean; source?: string | null; source_account_id?: string | null; source_folder?: string | null; source_message_id?: string | null; all_day?: boolean; starts_at?: string | number | Date | null; ends_at?: string | number | Date | null; location?: string | null; url?: string | null; organizer?: string | null; attendees?: string[]; [key: string]: unknown } | null>(null);
   const [anchor, setAnchor] = useState(() => new Date());
   const loadGeneration = useRef(0);
   // The last view is remembered per device, so leaving the calendar and coming back

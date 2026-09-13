@@ -80,6 +80,19 @@ interface ContactRow {
   display_name?: string | null;
   primary_email?: string | null;
   organization?: string | null;
+  first_name?: string | null;
+  last_name?: string | null;
+  notes?: string | null;
+  emails?: Array<{ value?: string; type?: string; label?: string; primary?: boolean; [key: string]: unknown }>;
+  phones?: Array<{ value?: string; type?: string; label?: string; [key: string]: unknown }>;
+  contactDates?: Array<{ value?: string; label?: string; [key: string]: unknown }>;
+  title?: string | null;
+  role?: string | null;
+  nickname?: string | null;
+  urls?: Array<{ value?: string; type?: string; label?: string; [key: string]: unknown }>;
+  instantMessages?: Array<{ value?: string; type?: string; label?: string; [key: string]: unknown }>;
+  categories?: Array<{ value?: string; [key: string]: unknown }>;
+  addresses?: Array<{ value?: string; type?: string; label?: string; [key: string]: unknown }>;
   visible?: boolean;
   value?: unknown;
   [key: string]: unknown;
@@ -109,7 +122,7 @@ export default function ContactsPage({ isActive = true }) {
   const [loading, setLoading]       = useState(true);
   const [loadingMore, setLoadingMore] = useState(false);
   const [search, setSearch]         = useState('');
-  const [selected, setSelected]     = useState(null); // full contact object
+  const [selected, setSelected]     = useState<ContactRow | null>(null); // full contact object
   const [editing, setEditing]       = useState(false);
   const [form, setForm]             = useState(emptyContact());
   const [saving, setSaving]         = useState(false);
@@ -331,7 +344,9 @@ export default function ContactsPage({ isActive = true }) {
       displayName:  selected.display_name  || '',
       firstName:    selected.first_name    || '',
       lastName:     selected.last_name     || '',
-      emails:       (selected.emails?.length ? selected.emails : EmptyEmailForm()),
+      emails:       (selected.emails?.length
+        ? selected.emails.map((entry) => ({ value: String(entry.value ?? ''), type: String(entry.type ?? ''), primary: Boolean(entry.primary) }))
+        : EmptyEmailForm()),
       phones:       selected.phones        || [],
       organization: selected.organization  || '',
       notes:        selected.notes         || '',
