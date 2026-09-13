@@ -540,3 +540,17 @@ Frontend any: 64 -> 48 (tsc nadal 0). Naprawione realnie (bez maskowania):
   (schedule/cancel jako wstrzykiwane funkcje), usuniete as any z 6 miejsc w testach.
 - Frontend any: 48 -> 38 (tsc 0, testy 2335/0, lint czysty).
 
+
+## 54. FRONTEND: zero any i zero bledow
+
+Frontend: 0 wystapien as any / : any / any[] (start: 64). tsc 0 · testy 2335/0 · lint czysty · build OK.
+
+- TestGlobals (global.d.ts): jawne, udokumentowane typy podmienianych globali (fetch/localStorage/window)
+  -> 30 miejsc (globalThis as any) zamienione na (globalThis as unknown as TestGlobals).
+- pushWorker worker(matchAll) -> jawny typ zwracany (listeners/shown/sent).
+- centeredScrollLeft: parametry opcjonalne (Number.isFinite(undefined) -> 0, zachowanie bez zmian).
+- createInvitationOperationController: { randomUUID?: () => string } — wczesniej domyslna wartosc
+  zawężała typ do szablonu UUID, co wymuszalo (… as any) w testach.
+- isTrustedNativeMessage: parametry strukturalne (NativeMessageEvent/ExpectedWindow) zamiast Window.
+- mobileMenu/CalendarContextMenu -> CSSProperties; useSwipeRow.test/nativeActionSecurity.test otypowane.
+

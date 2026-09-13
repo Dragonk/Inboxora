@@ -3,7 +3,11 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import vm from 'node:vm';
 
-function worker(matchAll): any {
+function worker(matchAll: () => Promise<unknown>): {
+  listeners: Record<string, (event: unknown) => void>;
+  shown: unknown[][];
+  sent: unknown[];
+} {
   const listeners = {}, shown = [], sent = [];
   const self = { addEventListener: (type, listener) => { listeners[type] = listener; },
     registration: { showNotification: async (...args) => shown.push(args) }, clients: { matchAll }, navigator: {},

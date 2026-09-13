@@ -6,7 +6,7 @@ registerHooks({ load(url, context, nextLoad) {
   if (url.endsWith('.json')) return { format: 'module', source: `export default ${readFileSync(new URL(url), 'utf8')}`, shortCircuit: true };
   return nextLoad(url, context);
 } });
-(globalThis as any).localStorage = { getItem: () => null, setItem() {}, removeItem() {} };
+(globalThis as unknown as TestGlobals).localStorage = { getItem: () => null, setItem() {}, removeItem() {} };
 const { useStore } = await import('./index.ts');
 function seed() {
   useStore.setState({ threadedView: true, selectedAccountId: null, selectedFolder: 'INBOX', showCalendar: true, showContacts: false, mobileSidebarOpen: true, messagesRefreshToken: 4, messagesOffset: 50, expandedThreadId: 'a:thread', searchResults: [],

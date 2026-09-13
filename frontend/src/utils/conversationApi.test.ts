@@ -6,7 +6,7 @@ import { CSRF_HEADER, CSRF_VALUE } from './api.ts';
 const originalFetch = globalThis.fetch;
 
 afterEach(() => {
-  (globalThis as any).fetch = originalFetch;
+  (globalThis as unknown as TestGlobals).fetch = originalFetch;
 });
 
 describe('Conversation Engine API client', () => {
@@ -39,7 +39,7 @@ describe('Conversation Engine API client', () => {
 
   it('sends authenticated CSRF-aware requests for destructive and state-changing actions', async () => {
     const calls = [];
-    (globalThis as any).fetch = async (url, init) => {
+    (globalThis as unknown as TestGlobals).fetch = async (url, init) => {
       calls.push({ url, init });
       return { ok: true, json: async () => ({ ok: true }) };
     };

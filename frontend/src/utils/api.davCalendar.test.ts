@@ -5,13 +5,13 @@ import { api, CSRF_HEADER, CSRF_VALUE } from './api.ts';
 const originalFetch = globalThis.fetch;
 
 afterEach(() => {
-  (globalThis as any).fetch = originalFetch;
+  (globalThis as unknown as TestGlobals).fetch = originalFetch;
 });
 
 describe('DAV Hub API client', () => {
   it('uses authenticated, CSRF-aware routes for revocable DAV application passwords', async () => {
     const calls = [];
-    (globalThis as any).fetch = async (url, init) => {
+    (globalThis as unknown as TestGlobals).fetch = async (url, init) => {
       calls.push([url, init]);
       return { ok: true, json: async () => ({ ok: true }) };
     };
@@ -31,7 +31,7 @@ describe('DAV Hub API client', () => {
 
   it('uses the calendar API contract for local event CRUD and range reads', async () => {
     const calls = [];
-    (globalThis as any).fetch = async (url, init) => {
+    (globalThis as unknown as TestGlobals).fetch = async (url, init) => {
       calls.push([url, init]);
       if (init.method === 'DELETE') return { ok: true, status: 204, json: async () => { throw new Error('no content'); } };
       return { ok: true, status: 200, json: async () => ({ ok: true }) };
@@ -64,7 +64,7 @@ describe('DAV Hub API client', () => {
 
   it('propagates invitation idempotency keys to event mutations', async () => {
     const calls = [];
-    (globalThis as any).fetch = async (url, init) => { calls.push([url, init]); return { ok: true, status: 200, json: async () => ({ invitationStatus: { status: 'sent' } }) }; };
+    (globalThis as unknown as TestGlobals).fetch = async (url, init) => { calls.push([url, init]); return { ok: true, status: 200, json: async () => ({ invitationStatus: { status: 'sent' } }) }; };
     const event = { calendarId: 'calendar-1', summary: 'Planning', sendInvites: true };
     await api.calendar.createEvent(event, 'create-retry-key');
     await api.calendar.updateEvent('event-1', event, 'update-retry-key');
@@ -74,7 +74,7 @@ describe('DAV Hub API client', () => {
 
   it('preserves persisted source context when initial source sync fails', async () => {
     const source = { id: 'source-1', displayName: 'Work', kind: 'ical_url' };
-    (globalThis as any).fetch = async () => ({
+    (globalThis as unknown as TestGlobals).fetch = async () => ({
       ok: false,
       status: 502,
       json: async () => ({ error: 'Remote calendar request failed (503)', source, sync: { ok: false } }),

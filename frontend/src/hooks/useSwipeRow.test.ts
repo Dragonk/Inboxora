@@ -9,7 +9,7 @@ describe('isInteractiveSwipeTarget', () => {
   });
 
   it('allows the row role button when it is the gesture surface', () => {
-    const row: any = {}; row.closest = () => row;
+    const row: { closest?: () => unknown; [key: string]: unknown } = {}; row.closest = () => row;
     assert.equal(isInteractiveSwipeTarget(row, row), false);
   });
 

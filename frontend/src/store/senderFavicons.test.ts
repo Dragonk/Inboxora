@@ -16,7 +16,7 @@ registerHooks({
   },
 });
 
-(globalThis as any).localStorage = (() => {
+(globalThis as unknown as TestGlobals).localStorage = (() => {
   let values: Record<string, any> = { mailflow_theme: 'dark' };
   return {
     getItem: key => values[key] ?? null,

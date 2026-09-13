@@ -93,6 +93,17 @@ interface CapacitorRuntime {
 }
 
 declare global {
+  /**
+   * Typed view of the globals node:test suites swap out. The members are
+   * deliberately `unknown`: tests replace them with partial doubles, and no test
+   * reads through this view (it only assigns and restores).
+   */
+  interface TestGlobals {
+    fetch: unknown;
+    localStorage: unknown;
+    window: unknown;
+  }
+
   interface Error {
     status?: number;
     statusCode?: number;

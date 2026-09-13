@@ -1,4 +1,13 @@
-export function isTrustedNativeMessage(event, expectedWindow = window) {
+interface NativeMessageEvent {
+  source: unknown;
+  origin: string;
+}
+
+interface ExpectedWindow {
+  location: { origin: string };
+}
+
+export function isTrustedNativeMessage(event: NativeMessageEvent, expectedWindow: ExpectedWindow = window) {
   return event.source === expectedWindow && event.origin === expectedWindow.location.origin;
 }
 

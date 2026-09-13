@@ -16,7 +16,7 @@ registerHooks({
   },
 });
 
-(globalThis as any).localStorage = {
+(globalThis as unknown as TestGlobals).localStorage = {
   getItem: () => null,
   setItem: () => {},
   removeItem: () => {},

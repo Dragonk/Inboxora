@@ -2,7 +2,7 @@ function payloadFingerprint(payload) {
   return JSON.stringify(payload);
 }
 
-export function createInvitationOperationController({ randomUUID = () => globalThis.crypto.randomUUID() } = {}) {
+export function createInvitationOperationController({ randomUUID = () => globalThis.crypto.randomUUID() }: { randomUUID?: () => string } = {}) {
   let operation = null;
 
   return {

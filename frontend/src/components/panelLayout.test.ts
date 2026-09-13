@@ -66,7 +66,7 @@ function restoreDom() {
   if (originalDocument === undefined) delete globalThis.document;
   else globalThis.document = originalDocument;
   if (originalLocalStorage === undefined) delete globalThis.localStorage;
-  else (globalThis as any).localStorage = originalLocalStorage;
+  else (globalThis as unknown as TestGlobals).localStorage = originalLocalStorage;
 }
 
 test('panel width clamps to the shared resizable range', t => {

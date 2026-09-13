@@ -12,7 +12,7 @@ test('retries ambiguous invitation saves with the original key and payload', asy
     createEvent: async (payload, key) => { calls.push({ method: 'create', payload, key }); return responses.shift(); },
     updateEvent: async (id, payload, key) => { calls.push({ method: 'update', id, payload, key }); return responses.shift(); },
   };
-  const controller = (createInvitationOperationController as any)({ randomUUID: () => 'retry-key' });
+  const controller = createInvitationOperationController({ randomUUID: () => 'retry-key' });
   const form = { mode: 'create' };
   const payload = { summary: 'Planning', sendInvites: true };
 
@@ -33,7 +33,7 @@ test('resetting an abandoned retry prevents cross-event key reuse', async () => 
   const api = {
     createEvent: async (payload, key) => { calls.push({ payload, key }); return { invitationError: 'delivery failed' }; },
   };
-  const controller = (createInvitationOperationController as any)({ randomUUID: (() => { let i = 0; return () => `key-${++i}`; })() });
+  const controller = createInvitationOperationController({ randomUUID: (() => { let i = 0; return () => `key-${++i}`; })() });
 
   await controller.save({ mode: 'create' }, { summary: 'First', sendInvites: true }, api);
   controller.reset();
@@ -47,7 +47,7 @@ test('changing the payload starts a distinct invitation operation', async () => 
   const api = {
     createEvent: async (payload, key) => { calls.push({ payload, key }); return { invitationError: 'delivery failed' }; },
   };
-  const controller = (createInvitationOperationController as any)({ randomUUID: (() => { let i = 0; return () => `key-${++i}`; })() });
+  const controller = createInvitationOperationController({ randomUUID: (() => { let i = 0; return () => `key-${++i}`; })() });
 
   await controller.save({ mode: 'create' }, { summary: 'First', sendInvites: true }, api);
   await controller.save({ mode: 'create' }, { summary: 'Changed', sendInvites: true }, api);

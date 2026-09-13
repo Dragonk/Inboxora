@@ -60,7 +60,7 @@ export function weekFocusIndex(days, anchor, today = new Date()) {
  * clamped to the scrollable range. Returns 0 when the content already fits, so a wide
  * screen is unaffected.
  */
-export function centeredScrollLeft({ columnStart, columnWidth, viewportWidth, contentWidth }) {
+export function centeredScrollLeft({ columnStart, columnWidth, viewportWidth, contentWidth }: { columnStart?: number; columnWidth?: number; viewportWidth?: number; contentWidth?: number }) {
   if (![columnStart, columnWidth, viewportWidth, contentWidth].every(Number.isFinite)) return 0;
   const maxScroll = Math.max(0, contentWidth - viewportWidth);
   if (maxScroll <= 0) return 0;

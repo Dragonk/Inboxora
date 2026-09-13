@@ -22,7 +22,7 @@ test('native push helpers are inert outside a Capacitor native platform', async 
 });
 
 test('a browser window without Capacitor is still treated as non-native', async () => {
-  (globalThis as any).window = {};
+  (globalThis as unknown as TestGlobals).window = {};
   assert.equal(isNativePlatform(), false);
   await clearNativePush();
   delete globalThis.window;

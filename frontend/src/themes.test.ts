@@ -81,20 +81,20 @@ describe('light/dark theme defaults', () => {
   it('resolves the system mode from the OS colour scheme', () => {
     const original = globalThis.window;
     try {
-      (globalThis as any).window = { matchMedia: () => ({ matches: false }) };
+      (globalThis as unknown as TestGlobals).window = { matchMedia: () => ({ matches: false }) };
       assert.equal(resolveTheme({ mode: 'system', light: 'parchment', dark: 'nord' }), 'parchment');
-      (globalThis as any).window = { matchMedia: () => ({ matches: true }) };
+      (globalThis as unknown as TestGlobals).window = { matchMedia: () => ({ matches: true }) };
       assert.equal(resolveTheme({ mode: 'system', light: 'parchment', dark: 'nord' }), 'nord');
     } finally {
       if (original === undefined) delete globalThis.window;
-      else (globalThis as any).window = original;
+      else (globalThis as unknown as TestGlobals).window = original;
     }
   });
 
   it('falls back to the shipped defaults when a stored theme is unknown', () => {
     const original = globalThis.localStorage;
     try {
-      (globalThis as any).localStorage = {
+      (globalThis as unknown as TestGlobals).localStorage = {
         getItem: key => ({
           mailflow_theme_mode: 'system',
           mailflow_theme_light: 'does_not_exist',
@@ -104,24 +104,24 @@ describe('light/dark theme defaults', () => {
       assert.deepEqual(readThemePrefs(), { mode: 'system', light: 'ink', dark: 'dark_ink' });
     } finally {
       if (original === undefined) delete globalThis.localStorage;
-      else (globalThis as any).localStorage = original;
+      else (globalThis as unknown as TestGlobals).localStorage = original;
     }
   });
 
   it('migrates a legacy single theme choice into an explicit mode for its tone', () => {
     const original = globalThis.localStorage;
     try {
-      (globalThis as any).localStorage = {
+      (globalThis as unknown as TestGlobals).localStorage = {
         getItem: key => (key === 'mailflow_theme' ? 'gruvbox' : null),
       };
       assert.deepEqual(readThemePrefs(), { mode: 'dark', light: 'ink', dark: 'gruvbox' });
-      (globalThis as any).localStorage = {
+      (globalThis as unknown as TestGlobals).localStorage = {
         getItem: key => (key === 'mailflow_theme' ? 'parchment' : null),
       };
       assert.deepEqual(readThemePrefs(), { mode: 'light', light: 'parchment', dark: 'dark_ink' });
     } finally {
       if (original === undefined) delete globalThis.localStorage;
-      else (globalThis as any).localStorage = original;
+      else (globalThis as unknown as TestGlobals).localStorage = original;
     }
   });
 });
