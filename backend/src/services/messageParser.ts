@@ -17,7 +17,7 @@ export const INVISIBLE_CHARS_RE = new RegExp(
 // "Great offer&hellip;" → "Great offer…" instead of "Great offer ").
 // Numeric entities (&#8230; &#x2014;) are handled by the regex below; this
 // map covers only named references that those regexes do not catch.
-const NAMED_ENTITY_MAP = {
+const NAMED_ENTITY_MAP: Record<string, string> = {
   // Punctuation & typography
   hellip: '…', mldr: '…',
   mdash: '—', ndash: '–', minus: '−',
@@ -40,7 +40,7 @@ const NAMED_ENTITY_MAP = {
 
 // Decode a named HTML entity reference; fall back to a single space for
 // unknown entities so they don't litter snippet text with literal &foo;
-export function decodeNamedEntity(_, name: string) {
+export function decodeNamedEntity(_: string, name: string): string {
   const v = NAMED_ENTITY_MAP[name.toLowerCase()];
   return v !== undefined ? v : ' ';
 }
@@ -207,7 +207,26 @@ export function buildSnippetFromHtml(html: string) {
 
 // Walk bodyStructure to find the best text part for a snippet.
 // Prefers text/plain; falls back to text/html.
-function findSnippetPart(structure) {
+/** A parsed body-structure node. */
+interface BodyStructureLike {
+  type?: string | null;
+  part?: string | null;
+  encoding?: string | null;
+  disposition?: string | null;
+  parameters?: { charset?: string | null; [key: string]: unknown } | null;
+  childNodes?: BodyStructureLike[];
+  [key: string]: unknown;
+}
+interface BodyPartLike {
+  part?: string;
+  type?: string;
+  encoding?: string | null;
+  charset?: string | null;
+  htmlFallback?: BodyPartLike | null;
+  [key: string]: unknown;
+}
+
+function findSnippetPart(structure: BodyStructureLike | null | undefined): BodyPartLike | null {
   if (!structure) return null;
   const type = (structure.type || '').toLowerCase();
 
@@ -252,7 +271,7 @@ function findSnippetPart(structure) {
 // Decode a body part Buffer using the given transfer encoding and charset.
 // Mirrors the same function in imapManager.js — kept local to avoid a
 // circular import (messageParser is imported by imapManager).
-function decodeBodyPart(buf, encoding, charset) {
+function decodeBodyPart(buf: Buffer | Uint8Array, encoding: string | null | undefined, charset: string | null | undefined): string {
   const enc = (encoding || '').toLowerCase();
   let cs = (charset || 'utf-8').toLowerCase().trim().replace(/^['"]|['"]$/g, '');
   if (!cs || cs === 'us-ascii' || cs === 'ascii') cs = 'utf-8';
@@ -312,7 +331,7 @@ export function decodeMimeWords(str: string) {
   });
 }
 
-export function parseRawHeaders(buf): Record<string, string> {
+export function parseRawHeaders(buf: Buffer | string): Record<string, string> {
   if (!buf) return {};
   const text = Buffer.isBuffer(buf) ? buf.toString('utf8') : String(buf);
   const result: Record<string, string> = {};
@@ -329,14 +348,21 @@ export function parseRawHeaders(buf): Record<string, string> {
   return result;
 }
 
+/** A Map-like header payload (imapflow returns one). */
+interface ForEachHeaders { forEach(callback: (value: unknown, key: unknown) => void): void }
+
+function isForEachHeaders(value: unknown): value is ForEachHeaders {
+  return typeof value === 'object' && value !== null && typeof (value as { forEach?: unknown }).forEach === 'function';
+}
+
 // Normalize imapflow header payloads (Buffer, string, Map-like) into a key/value map.
-export function parseHeadersInput(headers): Record<string, string> {
+export function parseHeadersInput(headers: unknown): Record<string, string> {
   if (!headers) return {};
   if (Buffer.isBuffer(headers) || typeof headers === 'string') return parseRawHeaders(headers);
   if (typeof headers === 'object') {
     const result: Record<string, string> = {};
-    if (typeof headers.forEach === 'function') {
-      headers.forEach((val, key: string) => {
+    if (isForEachHeaders(headers)) {
+      headers.forEach((val: unknown, key: unknown) => {
         const k = String(key).toLowerCase();
         const v = Array.isArray(val) ? val.join('\n') : String(val);
         result[k] = result[k] ? `${result[k]}\n${v}` : v;
@@ -353,7 +379,7 @@ export function parseHeadersInput(headers): Record<string, string> {
   return parseRawHeaders(String(headers));
 }
 
-export function headersToRawString(headers) {
+export function headersToRawString(headers: unknown): string {
   if (!headers) return '';
   if (Buffer.isBuffer(headers)) return headers.toString('utf8');
   const parsed = parseHeadersInput(headers);

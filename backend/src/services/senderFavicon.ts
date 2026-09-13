@@ -27,7 +27,7 @@ const PUBLIC_SUFFIXES = new Set([
   'github.io',
 ]);
 
-export function normalizeSenderDomain(value) {
+export function normalizeSenderDomain(value: unknown): string | null {
   if (typeof value !== 'string') return null;
   let raw = value.trim();
   if (!raw || /[@/:\\\s?#]/.test(raw)) return null;
@@ -40,7 +40,7 @@ export function normalizeSenderDomain(value) {
   return ascii;
 }
 
-export async function readBodyLimited(body, maxBytes = MAX_BYTES) {
+export async function readBodyLimited(body: (AsyncIterable<Uint8Array | string> & { cancel?(reason?: unknown): Promise<void> }) | null | undefined, maxBytes = MAX_BYTES): Promise<Buffer> {
   if (!body) return Buffer.alloc(0);
   const chunks = [];
   let size = 0;
@@ -60,7 +60,7 @@ export async function readBodyLimited(body, maxBytes = MAX_BYTES) {
   return Buffer.concat(chunks, size);
 }
 
-export function validateSquarePng(buffer, maxDimension = MAX_DIMENSION) {
+export function validateSquarePng(buffer: unknown, maxDimension = MAX_DIMENSION): boolean {
   if (!Buffer.isBuffer(buffer) || buffer.length < 24) return false;
   if (!buffer.subarray(0, 8).equals(PNG_SIGNATURE)) return false;
   if (buffer.toString('ascii', 12, 16) !== 'IHDR') return false;
@@ -69,7 +69,7 @@ export function validateSquarePng(buffer, maxDimension = MAX_DIMENSION) {
   return width >= 1 && width === height && width <= maxDimension;
 }
 
-function cacheKey(domain) {
+function cacheKey(domain: string): string {
   const digest = crypto.createHash('sha256').update(domain).digest('hex');
   return `sender-favicon:v2:${digest}`;
 }
@@ -78,29 +78,29 @@ function cacheKey(domain) {
 // crossing into a listed public suffix. Returns the single parent candidate or
 // null at the boundary. Resolution recurses one parent per level; the MAX_LABELS
 // cap in normalize bounds the chain, so a domain's full ancestry is reached.
-function nextParent(domain) {
+function nextParent(domain: string): string | null {
   const labels = domain.split('.').slice(1);
   if (labels.length < 2) return null;
   const candidate = labels.join('.');
   return PUBLIC_SUFFIXES.has(candidate) ? null : candidate;
 }
 
-function miss(reason) {
+function miss(reason: string): SenderFaviconResult {
   return { kind: 'miss', reason };
 }
 
-function ttlFor(result) {
+function ttlFor(result: SenderFaviconResult): number {
   if (result.kind === 'image') return POSITIVE_TTL;
   return result.reason === 'transient' ? TRANSIENT_TTL : DEFINITIVE_TTL;
 }
 
-function serialize(result) {
+function serialize(result: SenderFaviconResult): string {
   return JSON.stringify(result.kind === 'image'
     ? { v: 1, kind: 'image', pngBase64: result.bytes.toString('base64') }
     : { v: 1, kind: 'miss', reason: result.reason });
 }
 
-function parseCached(value) {
+function parseCached(value: string): SenderFaviconResult {
   const entry = JSON.parse(value);
   if (entry?.v !== 1) throw new Error('Unknown favicon cache version');
   if (entry.kind === 'miss' && ['not-found', 'invalid-image', 'transient'].includes(entry.reason)) {
@@ -115,11 +115,14 @@ function parseCached(value) {
   throw new Error('Invalid favicon cache entry');
 }
 
-async function cancelBody(body) {
+async function cancelBody(body: { cancel?(reason?: unknown): Promise<void> } | null | undefined): Promise<void> {
   try { await body?.cancel?.(); } catch { /* best effort */ }
 }
 
-async function fetchProvider(domain, { fetchImpl, timeoutMs, maxBytes }) {
+/** Default provider request timeout (also the getSenderFavicon default). */
+const DEFAULT_TIMEOUT_MS = 5000;
+
+async function fetchProvider(domain: string, { fetchImpl = safeFetch, timeoutMs = DEFAULT_TIMEOUT_MS, maxBytes = MAX_BYTES }: SenderFaviconDeps = {}): Promise<SenderFaviconResult> {
   try {
     const upstream = await fetchImpl(`${PROVIDER_ORIGIN}/${encodeURIComponent(domain)}/64`, {
       headers: { Accept: 'image/png' },
@@ -148,7 +151,7 @@ async function fetchProvider(domain, { fetchImpl, timeoutMs, maxBytes }) {
   }
 }
 
-async function cacheResult(cache, domain, result) {
+async function cacheResult(cache: SenderFaviconCache, domain: string, result: SenderFaviconResult): Promise<void> {
   try { await cache.set(cacheKey(domain), serialize(result), { EX: ttlFor(result) }); }
   catch { /* current validated bytes may still be returned */ }
 }
@@ -157,7 +160,7 @@ async function cacheResult(cache, domain, result) {
 // entry and the inflight promise always carry the domain's fully resolved
 // outcome (image or its final miss), so sibling subdomains reuse it and
 // concurrent callers — direct or walking — dedupe onto the same resolution.
-async function resolveDomain(domain, deps) {
+async function resolveDomain(domain: string, deps: SenderFaviconDeps) {
   const key = cacheKey(domain);
   let cached;
   try { cached = await deps.cache.get(key); }
@@ -182,8 +185,8 @@ async function resolveDomain(domain, deps) {
 // standing. Resolution is context-free — the result depends only on the domain,
 // never on which caller started the walk — so the outcome cached under this
 // domain's own key means direct and indirect lookups can never disagree.
-async function resolveWithParents(domain, deps) {
-  let result: { kind: string; reason?: string; bytes?: Buffer; source?: string } = await fetchProvider(domain, deps);
+async function resolveWithParents(domain: string, deps: SenderFaviconDeps) {
+  let result: SenderFaviconResult = await fetchProvider(domain, deps);
   if (result.kind === 'miss' && result.reason === 'not-found') {
     const parent = nextParent(domain);
     if (parent) {
@@ -195,6 +198,12 @@ async function resolveWithParents(domain, deps) {
   await cacheResult(deps.cache, domain, result);
   return result;
 }
+
+/** The favicon lookup result: an image or a reasoned miss. */
+export type SenderFaviconResult = { kind: 'image'; bytes: Buffer; source?: string } | { kind: 'miss'; reason: string };
+
+/** The per-lookup collaborators (overridable in tests). */
+export interface SenderFaviconDeps { cache?: SenderFaviconCache; fetchImpl?: typeof safeFetch; timeoutMs?: number; maxBytes?: number; resolveDns?: (domain: string) => Promise<string[]> }
 
 export interface SenderFaviconCache {
   get(key: string): Promise<string | null>;
@@ -212,7 +221,7 @@ export interface SenderFaviconOptions {
 export async function getSenderFavicon(domain, {
   cache = redisClient,
   fetchImpl = safeFetch,
-  timeoutMs = 5000,
+  timeoutMs = DEFAULT_TIMEOUT_MS,
   maxBytes = MAX_BYTES,
 }: SenderFaviconOptions = {}) {
   const normalized = normalizeSenderDomain(domain);
