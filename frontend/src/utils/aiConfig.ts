@@ -16,11 +16,11 @@ export const AI_ACCOUNT_PROVIDER_OPTIONS = [
 const CONNECTION_METHODS = new Set(AI_CONNECTION_METHOD_OPTIONS.map(({ value }) => value));
 const ACCOUNT_PROVIDERS = new Set(AI_ACCOUNT_PROVIDER_OPTIONS.map(({ value }) => value));
 
-function cleanString(value) {
+function cleanString(value: unknown): string {
   return typeof value === 'string' ? value.trim() : '';
 }
 
-function cleanBaseUrl(value) {
+function cleanBaseUrl(value: unknown): string {
   return cleanString(value).replace(/\/+$/, '');
 }
 

@@ -8,14 +8,14 @@ interface SidebarFolderNode {
   [key: string]: unknown;
 }
 
-export function collapsedTooltip(label, collapsed) {
+export function collapsedTooltip(label: string | null | undefined, collapsed: boolean): string | undefined {
   if (!collapsed) return undefined;
   // An empty title suppresses the browser's own tooltip, so drop the attribute.
   return label?.trim() || undefined;
 }
 
-export function activateOnKey(activate) {
-  return (event) => {
+export function activateOnKey(activate: () => void): (event: { key: string; preventDefault(): void }) => void {
+  return (event: { key: string; preventDefault(): void }) => {
     if (event.key !== 'Enter' && event.key !== ' ') return;
     event.preventDefault(); // Space would otherwise scroll the page.
     activate();
@@ -24,18 +24,18 @@ export function activateOnKey(activate) {
 
 export const FOLDER_ORDER_DRAG_TYPE = 'application/x-mailflow-folder-order';
 
-function delimiterFor(folders) {
+function delimiterFor(folders: SidebarFolderNode[]): string {
   return folders.find(folder => (
     typeof folder?.delimiter === 'string' && folder.delimiter
   ))?.delimiter || '/';
 }
 
-function folderParent(path, delimiter) {
+function folderParent(path: string, delimiter: string): string | null {
   const index = path.lastIndexOf(delimiter);
   return index === -1 ? null : path.slice(0, index);
 }
 
-function folderPathsWithAncestors(folders) {
+function folderPathsWithAncestors(folders: SidebarFolderNode[]): string[] {
   const delimiter = delimiterFor(folders);
   const paths = new Set<string>();
   for (const folder of folders) {
@@ -48,9 +48,9 @@ function folderPathsWithAncestors(folders) {
   return [...paths].sort((a, b) => a.localeCompare(b));
 }
 
-export function sanitizeFolderOrder(value) {
+export function sanitizeFolderOrder(value: unknown): Record<string, string[]> {
   if (!value || typeof value !== 'object' || Array.isArray(value)) return {};
-  const clean = {};
+  const clean: Record<string, string[]> = {};
   for (const [accountId, paths] of Object.entries(value)) {
     if (!Array.isArray(paths)) continue;
     const seen = new Set();

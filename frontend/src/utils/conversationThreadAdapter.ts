@@ -1,9 +1,37 @@
-function copyDate(copy) {
-  const value = Date.parse(copy?.date || copy?.messageDate || 0);
+/** A physical message copy as the conversation adapter reads it. */
+export interface ConversationCopyLike {
+  id?: string;
+  date?: string | number | Date | null;
+  messageDate?: string | number | Date | null;
+  accountId?: string;
+  account_id?: string;
+  folder?: string;
+  messageId?: string;
+  message_id?: string;
+  subject?: string;
+  has_attachments?: boolean;
+  attachments?: unknown[] | null;
+  fromName?: string;
+  from_name?: string;
+  [key: string]: unknown;
+}
+
+/** The logical message a copy belongs to. */
+export interface LogicalMessageLike {
+  id?: string;
+  canonicalMessageId?: string;
+  canonical_message_id?: string;
+  subject?: string;
+  [key: string]: unknown;
+}
+
+function copyDate(copy: ConversationCopyLike): number {
+  const raw = copy?.date ?? copy?.messageDate ?? 0;
+  const value = raw instanceof Date ? raw.getTime() : Date.parse(String(raw));
   return Number.isFinite(value) ? value : 0;
 }
 
-export function preferredConversationCopy(copies, accountId, selectedFolder) {
+export function preferredConversationCopy(copies: ConversationCopyLike[] | null | undefined, accountId: string | null | undefined, selectedFolder: string | null | undefined): ConversationCopyLike | null {
   const sameAccount = (copies || []).filter(copy => String(copy.accountId ?? copy.account_id) === String(accountId));
   return sameAccount.sort((left, right) => {
     const rank = copy => {
@@ -17,7 +45,7 @@ export function preferredConversationCopy(copies, accountId, selectedFolder) {
   })[0] || null;
 }
 
-function nativeCopy(copy, logical, conversationId, accountId) {
+function nativeCopy(copy: ConversationCopyLike, logical: LogicalMessageLike, conversationId: string, accountId: string | null | undefined) {
   return {
     ...copy,
     id: copy.id,

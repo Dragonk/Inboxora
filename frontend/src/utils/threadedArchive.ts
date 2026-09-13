@@ -1,4 +1,31 @@
-export function findVisibleArchiveMessage(messages, selectedMessageId, threadMessages = {}) {
+/** A message row as the archive view sees it. */
+export interface ArchiveMessage {
+  id?: string;
+  thread_id?: string;
+  is_read?: boolean;
+  [key: string]: unknown;
+}
+
+/** The view-defining state the archive cache key is computed from. */
+export interface ArchiveViewKeyInput {
+  selectedAccountId?: string | null;
+  selectedFolder?: string | null;
+  searchQuery?: string | null;
+  threadedView?: boolean;
+  unreadOnly?: boolean;
+  activeCategory?: string | null;
+  currentPage?: number;
+  searchAllFolders?: boolean;
+  activeGtdTab?: string | null;
+  pageSize?: number;
+  scrollMode?: string | null;
+  categorizationEnabled?: boolean;
+  accountCategorizationEnabled?: boolean;
+  unifiedInboxAccountKey?: string | null;
+  showGtdTab?: boolean;
+}
+
+export function findVisibleArchiveMessage(messages: ArchiveMessage[] | null | undefined, selectedMessageId: string | null | undefined, threadMessages: Record<string, ArchiveMessage[]> = {}): ArchiveMessage | null {
   if (!selectedMessageId || !Array.isArray(messages)) return null;
   const direct = messages.find(message => message?.id === selectedMessageId);
   if (direct) return direct;
@@ -26,7 +53,7 @@ export function archiveViewKey({
   accountCategorizationEnabled,
   unifiedInboxAccountKey,
   showGtdTab,
-}) {
+}: ArchiveViewKeyInput): string {
   return JSON.stringify([
     selectedAccountId ?? null,
     selectedFolder ?? null,

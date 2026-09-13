@@ -1,8 +1,14 @@
-let _audioCtx = null;
+let _audioCtx: AudioContext | null = null;
 
-function getAudioCtx() {
+/** Safari only exposes the vendor-prefixed constructor. */
+type AudioContextCtor = typeof AudioContext;
+
+function getAudioCtx(): AudioContext {
   if (!_audioCtx) {
-    _audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+    const ctor: AudioContextCtor | undefined =
+      window.AudioContext ?? (window as { webkitAudioContext?: AudioContextCtor }).webkitAudioContext;
+    if (!ctor) throw new Error('Web Audio is not available');
+    _audioCtx = new ctor();
   }
   if (_audioCtx.state === 'suspended') {
     _audioCtx.resume();
@@ -10,7 +16,7 @@ function getAudioCtx() {
   return _audioCtx;
 }
 
-function note(ac, freq, type, vol, startTime, duration) {
+function note(ac: AudioContext, freq: number, type: OscillatorType, vol: number, startTime: number, duration: number): void {
   const osc = ac.createOscillator();
   const gain = ac.createGain();
   osc.connect(gain);
