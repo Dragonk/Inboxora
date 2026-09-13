@@ -49,3 +49,4 @@ artifacts/
 
 # Local git bundles/backups (not part of the project)
 .backup/
+tsconfig.strict.json
