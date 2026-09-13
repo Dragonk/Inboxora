@@ -352,7 +352,7 @@ describe('device authorization lifecycle', () => {
     store.flows.get(started.flowId).nextPollAt = 0;
 
     const fetchFn = vi.fn().mockResolvedValue(pendingResponse);
-    const afterRestart = createOpenAiCodexAuth({ store, fetchFn: fetchFn as any });
+    const afterRestart = createOpenAiCodexAuth({ store, fetchFn: fetchFn });
     const result = await afterRestart.pollDeviceFlow({
       flowId: started.flowId, userId: 'admin', sessionId: 'session',
     });
@@ -391,7 +391,7 @@ describe('device authorization lifecycle', () => {
     const { flowId } = await starter.startDeviceFlow({ userId: 'admin', sessionId: 'session' });
     Object.assign(store.flows.get(flowId), { state: 'polling', updatedAt: 0, nextPollAt: 0 });
     const fetchFn = vi.fn().mockResolvedValue(new Response(null, { status: 404 }));
-    const restarted = createOpenAiCodexAuth({ store, fetchFn: fetchFn as any, now: () => now });
+    const restarted = createOpenAiCodexAuth({ store, fetchFn: fetchFn, now: () => now });
 
     await expect(restarted.pollDeviceFlow({ flowId, userId: 'admin', sessionId: 'session' }))
       .resolves.toEqual({ status: 'pending', retryAfterMs: 1000 });
@@ -409,9 +409,9 @@ describe('device authorization lifecycle', () => {
     const { flowId } = await starter.startDeviceFlow({ userId: 'admin', sessionId: 'session' });
     store.flows.get(flowId).nextPollAt = 0;
     let resolvePoll;
-    const fetchFn = vi.fn(() => new Promise((resolve) => { resolvePoll = resolve; }));
-    const one = createOpenAiCodexAuth({ store, fetchFn: fetchFn as any, now: () => now });
-    const two = createOpenAiCodexAuth({ store, fetchFn: fetchFn as any, now: () => now });
+    const fetchFn = vi.fn<typeof fetch>(() => new Promise<Response>((resolve) => { resolvePoll = resolve; }));
+    const one = createOpenAiCodexAuth({ store, fetchFn: fetchFn, now: () => now });
+    const two = createOpenAiCodexAuth({ store, fetchFn: fetchFn, now: () => now });
 
     const first = one.pollDeviceFlow({ flowId, userId: 'admin', sessionId: 'session' });
     await vi.waitFor(() => expect(fetchFn).toHaveBeenCalledTimes(1));
@@ -441,7 +441,7 @@ describe('device authorization lifecycle', () => {
     let now = 1000;
     const store = new MemoryStore();
     const fetchFn = vi.fn().mockImplementation(async () => jsonResponse({ device_auth_id: 'd', user_code: 'U', interval: 1 }));
-    const auth = createOpenAiCodexAuth({ store, fetchFn: fetchFn as any, now: () => now });
+    const auth = createOpenAiCodexAuth({ store, fetchFn: fetchFn, now: () => now });
     const cancelled = await auth.startDeviceFlow({ userId: 'admin', sessionId: 'one' });
     const expired = await auth.startDeviceFlow({ userId: 'admin', sessionId: 'two' });
     fetchFn.mockClear();
@@ -457,7 +457,7 @@ describe('device authorization lifecycle', () => {
   it('rejects cancellation after a device flow has completed', async () => {
     const store = new MemoryStore();
     const fetchFn = vi.fn().mockResolvedValue(jsonResponse({ device_auth_id: 'd', user_code: 'U', interval: 1 }));
-    const auth = createOpenAiCodexAuth({ store, fetchFn: fetchFn as any });
+    const auth = createOpenAiCodexAuth({ store, fetchFn: fetchFn });
     const { flowId } = await auth.startDeviceFlow({ userId: 'admin', sessionId: 'session' });
     store.flows.get(flowId).state = 'completed';
 
@@ -474,8 +474,8 @@ describe('device authorization lifecycle', () => {
     const { flowId } = await starter.startDeviceFlow({ userId: 'admin', sessionId: 'session' });
     store.flows.get(flowId).nextPollAt = 0;
     let resolvePoll;
-    const fetchFn = vi.fn(() => new Promise((resolve) => { resolvePoll = resolve; }));
-    const auth = createOpenAiCodexAuth({ store, fetchFn: fetchFn as any });
+    const fetchFn = vi.fn<typeof fetch>(() => new Promise<Response>((resolve) => { resolvePoll = resolve; }));
+    const auth = createOpenAiCodexAuth({ store, fetchFn: fetchFn });
 
     const polling = auth.pollDeviceFlow({ flowId, userId: 'admin', sessionId: 'session' });
     await vi.waitFor(() => expect(fetchFn).toHaveBeenCalledTimes(1));
@@ -496,8 +496,8 @@ describe('device authorization lifecycle', () => {
     const { flowId } = await starter.startDeviceFlow({ userId: 'admin', sessionId: 'session' });
     store.flows.get(flowId).nextPollAt = 0;
     let rejectPoll;
-    const fetchFn = vi.fn(() => new Promise((_resolve, reject) => { rejectPoll = reject; }));
-    const auth = createOpenAiCodexAuth({ store, fetchFn: fetchFn as any });
+    const fetchFn = vi.fn<typeof fetch>(() => new Promise<Response>((_resolve, reject) => { rejectPoll = reject; }));
+    const auth = createOpenAiCodexAuth({ store, fetchFn: fetchFn });
 
     const polling = auth.pollDeviceFlow({ flowId, userId: 'admin', sessionId: 'session' });
     const assertion = expect(polling).rejects.toThrow(/network error/i);
@@ -521,7 +521,7 @@ describe('device authorization lifecycle', () => {
     const fetchFn = vi.fn()
       .mockResolvedValueOnce(jsonResponse({ authorization_code: 'code', code_verifier: 'verifier' }))
       .mockImplementationOnce(() => new Promise((resolve) => { resolveExchange = resolve; }));
-    const auth = createOpenAiCodexAuth({ store, fetchFn: fetchFn as any });
+    const auth = createOpenAiCodexAuth({ store, fetchFn: fetchFn });
 
     const polling = auth.pollDeviceFlow({ flowId, userId: 'admin', sessionId: 'session' });
     await vi.waitFor(() => expect(fetchFn).toHaveBeenCalledTimes(2));
@@ -546,7 +546,7 @@ describe('device authorization lifecycle', () => {
     const fetchFn = vi.fn()
       .mockResolvedValueOnce(jsonResponse({ authorization_code: 'auth-code', code_verifier: 'verifier' }))
       .mockResolvedValueOnce(jsonResponse({ access_token: token, refresh_token: 'refresh-secret', expires_in: 3600 }));
-    const auth = createOpenAiCodexAuth({ store, fetchFn: fetchFn as any });
+    const auth = createOpenAiCodexAuth({ store, fetchFn: fetchFn });
 
     const connected = await auth.pollDeviceFlow({ flowId, userId: 'admin', sessionId: 'session' });
     expect(connected).toEqual({ status: 'connected' });
@@ -628,7 +628,7 @@ describe('credential refresh and disconnect', () => {
     const store = new MemoryStore();
     seedCredential(store, { expiresAt: Date.now() + 120_000 });
     const fetchFn = vi.fn();
-    const auth = createOpenAiCodexAuth({ store, fetchFn: fetchFn as any });
+    const auth = createOpenAiCodexAuth({ store, fetchFn: fetchFn });
 
     await expect(auth.getAccess()).resolves.toEqual({ accessToken: 'old-access', accountId: 'acct_old' });
     expect(fetchFn).not.toHaveBeenCalled();
@@ -644,7 +644,7 @@ describe('credential refresh and disconnect', () => {
       refresh_token: 'rotated-refresh',
       expires_in: 7200,
     }));
-    const auth = createOpenAiCodexAuth({ store, fetchFn: fetchFn as any, now: () => now });
+    const auth = createOpenAiCodexAuth({ store, fetchFn: fetchFn, now: () => now });
 
     await expect(auth.getAccess()).resolves.toEqual({ accessToken: nextAccess, accountId: 'acct_new' });
     expect(fetchFn).toHaveBeenCalledTimes(1);
@@ -667,8 +667,8 @@ describe('credential refresh and disconnect', () => {
     const store = new MemoryStore();
     seedCredential(store, { expiresAt: 0 });
     let resolveFetch;
-    const fetchFn = vi.fn(() => new Promise((resolve) => { resolveFetch = resolve; }));
-    const auth = createOpenAiCodexAuth({ store, fetchFn: fetchFn as any });
+    const fetchFn = vi.fn<typeof fetch>(() => new Promise<Response>((resolve) => { resolveFetch = resolve; }));
+    const auth = createOpenAiCodexAuth({ store, fetchFn: fetchFn });
 
     const first = auth.getAccess();
     const second = auth.getAccess();
@@ -692,8 +692,8 @@ describe('credential refresh and disconnect', () => {
     const fetchFn = vi.fn().mockImplementation(async () => jsonResponse({
       access_token: nextAccess, refresh_token: 'rotated', expires_in: 3600,
     }));
-    const one = createOpenAiCodexAuth({ store, fetchFn: fetchFn as any });
-    const two = createOpenAiCodexAuth({ store, fetchFn: fetchFn as any });
+    const one = createOpenAiCodexAuth({ store, fetchFn: fetchFn });
+    const two = createOpenAiCodexAuth({ store, fetchFn: fetchFn });
 
     await expect(Promise.all([one.getAccess(), two.getAccess()])).resolves.toEqual([
       { accessToken: nextAccess, accountId: 'acct_locked' },
@@ -706,7 +706,7 @@ describe('credential refresh and disconnect', () => {
     const store = new MemoryStore();
     seedCredential(store, { expiresAt: 0 });
     const fetchFn = vi.fn().mockResolvedValue(jsonResponse({ error: 'invalid_grant' }, 400));
-    const auth = createOpenAiCodexAuth({ store, fetchFn: fetchFn as any });
+    const auth = createOpenAiCodexAuth({ store, fetchFn: fetchFn });
 
     await expect(auth.getAccess()).rejects.toMatchObject({
       status: 401,
@@ -740,7 +740,7 @@ describe('credential refresh and disconnect', () => {
     seedCredential(store, { expiresAt: 0 });
     const before = store.credential;
     const fetchFn = vi.fn().mockImplementation(responseFactory);
-    const auth = createOpenAiCodexAuth({ store, fetchFn: fetchFn as any });
+    const auth = createOpenAiCodexAuth({ store, fetchFn: fetchFn });
 
     await expect(auth.getAccess()).rejects.toMatchObject({ transient: true });
     expect(store.credential).toBe(before);
@@ -754,7 +754,7 @@ describe('credential refresh and disconnect', () => {
     const fetchFn = vi.fn().mockResolvedValue(jsonResponse({
       access_token: nextAccess, refresh_token: 'forced-refresh', expires_in: 3600,
     }));
-    const auth = createOpenAiCodexAuth({ store, fetchFn: fetchFn as any });
+    const auth = createOpenAiCodexAuth({ store, fetchFn: fetchFn });
 
     await expect(auth.getAccess({ forceRefresh: true }))
       .resolves.toEqual({ accessToken: nextAccess, accountId: 'acct_forced' });

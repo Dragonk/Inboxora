@@ -43,7 +43,18 @@ export interface LogicalMessageIdentityInput {
   accountId?: string | null;
 }
 
-export function logicalMessageIdentity(message: any, { userId }: LogicalMessageIdentityInput = {}) {
+export interface ConversationMessageInput {
+  message_id?: string | null;
+  messageId?: string | null;
+  date?: string | Date | null;
+  subject?: string | null;
+  from_email?: string | null;
+  from?: string | null;
+  sender?: string | null;
+  [key: string]: unknown;
+}
+
+export function logicalMessageIdentity(message: ConversationMessageInput, { userId }: LogicalMessageIdentityInput = {}) {
   const rawId = message.message_id || message.messageId || null;
   const canonicalMessageId = normalizeMessageId(rawId);
   // Physical copies of one RFC message can legitimately have different stored bodies
@@ -60,7 +71,19 @@ export function logicalMessageIdentity(message: any, { userId }: LogicalMessageI
   return { userId: userId || null, canonicalMessageId, rawMessageId: rawId, collisionKey: fingerprint(stable) };
 }
 
-export function threadingDecision({ message, parent, provider = undefined, identities = [] }: { message: any; parent?: any; provider?: any; identities?: any[]; userId?: any }) {
+export interface ConversationProviderHint {
+  isStrong?: boolean;
+  providerThreadId?: string | null;
+  source?: string;
+}
+
+export function threadingDecision({ message, parent, provider = undefined, identities = [] }: {
+  message: ConversationMessageInput;
+  parent?: ConversationMessageInput | null;
+  provider?: ConversationProviderHint | null;
+  identities?: unknown[];
+  userId?: string | null;
+}) {
   const direction = classifyDirection(message, identities);
   const subject = canonicalConversationSubject(message.subject);
   if (provider?.isStrong && provider.providerThreadId) return { kind: 'provider_thread', reason: provider.source, confidence: 1, direction, subject };

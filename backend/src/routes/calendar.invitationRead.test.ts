@@ -2,6 +2,7 @@
 // could not open or import an invitation ("Nie udało się odczytać lub zapisać
 // zaproszenia") because the .ics MIME part was handed over still base64-encoded.
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
+import type { JsonBody } from '../test/json.js';
 import 'express-async-errors';
 
 const { query } = vi.hoisted<any>(() => ({ query: vi.fn() }));
@@ -77,7 +78,7 @@ describe('GET /api/calendar/invitations/:messageId', () => {
 
     const response = await fetch(`${base}/api/calendar/invitations/${MESSAGE_ID}`);
     expect(response.status).toBe(200);
-    const { invitation } = (await response.json()) as any;
+    const { invitation } = (await response.json()) as JsonBody;
     expect(invitation).toMatchObject({
       method: 'REQUEST',
       uid: '5f49e131-290f-4f27-88d2-3406d72725a5',
@@ -101,7 +102,7 @@ describe('GET /api/calendar/invitations/:messageId', () => {
 
     const response = await fetch(`${base}/api/calendar/invitations/${MESSAGE_ID}`);
     expect(response.status).toBe(200);
-    expect(((await response.json()) as any).invitation.summary).toBe('Testowe wydarzenie');
+    expect(((await response.json()) as JsonBody).invitation.summary).toBe('Testowe wydarzenie');
   });
 
   it('prefers the captured invitation and never opens the mailbox when it parses', async () => {
@@ -126,7 +127,7 @@ describe('GET /api/calendar/invitations/:messageId', () => {
 
     const response = await fetch(`${base}/api/calendar/invitations/${MESSAGE_ID}`);
     expect(response.status).toBe(404);
-    expect(((await response.json()) as any).error).toBe('Calendar invitation not found');
+    expect(((await response.json()) as JsonBody).error).toBe('Calendar invitation not found');
   });
 
   it('imports the invitation into the chosen calendar', async () => {
@@ -144,7 +145,7 @@ describe('GET /api/calendar/invitations/:messageId', () => {
       body: JSON.stringify({ calendarId: 'calendar-1' }),
     });
     expect(response.status).toBe(200);
-    expect((await response.json()) as any).toMatchObject({ added: true, changed: true });
+    expect((await response.json()) as JsonBody).toMatchObject({ added: true, changed: true });
 
     const insert = query.mock.calls.find(([sql]) => sql.includes('INSERT INTO calendar_events'));
     const insertParams = insert[1];

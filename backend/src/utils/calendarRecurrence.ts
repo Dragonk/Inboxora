@@ -1,5 +1,15 @@
 import ICAL from 'ical.js';
 import { calendarZoneResolver, calendarDescription, parseCalendarEvent, parseICalendarDate } from './ical.js';
+/**
+ * The shipped ical.js type definitions omit the `Time.fromString` static although the
+ * runtime provides it (verified against ical.js 2.2). This narrow, documented view
+ * keeps call sites type-checked without a blanket cast.
+ */
+const TimeFromString = ICAL.Time as unknown as {
+  fromString(value: string): InstanceType<typeof ICAL.Time>;
+};
+
+
 
 // Hard ceiling for one resource's recurrence walk. Reaching it is reported as a
 // truncated (partial) projection, never as a silent omission.
@@ -75,14 +85,24 @@ interface ProjectOptions {
   fullScan?: boolean;
 }
 
+export interface ProjectedEvent {
+  id?: string;
+  starts_at?: Date;
+  ends_at?: Date;
+  summary?: string | null;
+  description?: string | null;
+  all_day?: boolean;
+  [key: string]: unknown;
+}
+
 interface ProjectStatus {
-  events: any[];
+  events: ProjectedEvent[];
   truncated: boolean;
   reason: string | null;
   error?: string;
 }
 
-export function projectCalendarResourceWithStatus(row: any, from: any, to: any, options: ProjectOptions = {}) {
+export function projectCalendarResourceWithStatus(row: ProjectedEvent & { raw_ical?: string | null }, from: Date, to: Date, options: ProjectOptions = {}) {
   const { raw_ical, ...metadata } = row;
   const maxIterations = Number.isFinite(options.maxIterations) && options.maxIterations > 0
     ? Math.floor(options.maxIterations)
@@ -200,7 +220,7 @@ export function truncateSeriesBefore(raw, recurrenceId) {
   if (!rule) return null;
 
   const dtstartProperty = master.getFirstProperty('dtstart');
-  const id = (ICAL.Time as any).fromString(recurrenceId);
+  const id = TimeFromString.fromString(recurrenceId);
   const zoneFor = calendarZoneResolver(raw, root);
   // The recurrence id is a bare local time, so it only becomes an instant through the series'
   // own time zone — the same resolution the projection uses.
@@ -215,7 +235,7 @@ export function truncateSeriesBefore(raw, recurrenceId) {
     // A date-valued series needs a date-valued UNTIL, or ical.js compares a DATE against a
     // DATE-TIME and the boundary occurrence survives. ICAL.Time.fromString wants the dashed
     // form for a DATE, not the compact one.
-    ? (ICAL.Time as any).fromString(new Date(startDate.getTime() - 1000).toISOString().slice(0, 10))
+    ? TimeFromString.fromString(new Date(startDate.getTime() - 1000).toISOString().slice(0, 10))
     : ICAL.Time.fromJSDate(new Date(startDate.getTime() - 1000), true);
   rule.until = until;
   master.updatePropertyWithValue('rrule', rule);
@@ -240,7 +260,7 @@ export function mergeCalendarResource(raw, replacementRaw, recurrenceId = null, 
   if (!master) return replacementRaw;
   let target = master;
   if (recurrenceId) {
-    const id = (ICAL.Time as any).fromString(recurrenceId);
+    const id = TimeFromString.fromString(recurrenceId);
     target = root.getAllSubcomponents('vevent').find(event => event.getFirstPropertyValue('recurrence-id')?.toString() === recurrenceId);
     if (!target) {
       target = new ICAL.Component(structuredClone(master.toJSON()));

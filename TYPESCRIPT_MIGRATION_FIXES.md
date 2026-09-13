@@ -617,3 +617,21 @@ Backend any: 283 -> 260 (tsc 0, testy 1785/0, lint czysty).
 - contactTransfer: parseCsv -> string[][]; indeks kolumny bez as any (get(name) ?? "").
 - mailNotificationEvent: opcje i webPush otypowane.
 
+
+## 59. Backend: JsonBody, fabryka SMTP, makiety fetch — duzy skok
+
+Backend any: 260 -> 149 (tsc 0, testy 1785/0, lint czysty).
+
+- Wiele as any w testach bylo ZBEDNYCH: po ich usunieciu zostalo ~50 realnych bledow,
+  bo response.json() daje unknown tylko w czesci przypadkow.
+- Wprowadzony wspolny, udokumentowany JsonBody (src/test/json.ts) dla asercji JSON —
+  50 miejsc otypowanych jedna deklaracja zamiast any.
+- smtpTransport: fabryka transportu (createTransport) byla typowana jako nadmiarowy,
+  przeciażony createTransport z nodemailer -> waski CreateTransportFactory + SmtpTransportLike;
+  metody sendMail/verify rozdzielone (atrapa verify-only nie musi miec sendMail).
+- openaiCodexAuth.test: makiety fetch -> vi.fn<typeof fetch> z Promise<Response>.
+- importOriginal() -> Record<string, unknown> (spread), zamiast any.
+- calendarRecurrence: ProjectedEvent; ICAL Time.fromString ma UDOKUMENTOWANY waski widok typu
+  (brak w typach biblioteki, obecne w runtime — zweryfikowane).
+- conversationEngine: ConversationMessageInput/ConversationProviderHint.
+

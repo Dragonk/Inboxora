@@ -11,8 +11,8 @@ vi.mock('../../middleware/auth.js', () => ({
   requireAuth: (req, _res, next) => { req.session = { userId: 'u1' }; next(); },
 }));
 vi.mock('./gtdConfig.js', async (importOriginal) => {
-  const actual = await importOriginal();
-  return { ...(actual as any), invalidateGtdConfigCache: vi.fn() };
+  const actual = (await importOriginal()) as Record<string, unknown>;
+  return { ...(actual), invalidateGtdConfigCache: vi.fn() };
 });
 // Per-account config store: the route reads the stored folders from here and persists the
 // reconciled effective paths back. Mocked at the source so the api.js barrel re-export resolves here.
@@ -24,6 +24,17 @@ import { setMailEngine } from '../mailEngine.js';
 import { invalidateGtdConfigCache as __mock_invalidateGtdConfigCache } from './gtdConfig.js';
 import { getAccountConfig as __mock_getAccountConfig, setAccountConfig as __mock_setAccountConfig } from '../accountConfig.js';
 import gtdRoutes from './routes.js';
+interface GtdEnsureResponse {
+  error?: string;
+  code?: string;
+  folders?: Record<string, string>;
+  results?: unknown[];
+  reserved?: unknown[];
+  collisions?: unknown[];
+  [key: string]: unknown;
+}
+
+
 
 // Cast mocked module exports so their vitest mock helpers type-check.
 const query = vi.mocked(__mock_query);
@@ -97,7 +108,7 @@ describe('POST /api/gtd/folders/ensure — persist effective paths', () => {
 
     const res = await ensure();
     expect(res.status).toBe(200);
-    const body = (await res.json()) as any;
+    const body = (await res.json()) as GtdEnsureResponse;
 
     const expected = {
       todo: 'INBOX.Todo',
@@ -123,7 +134,7 @@ describe('POST /api/gtd/folders/ensure — persist effective paths', () => {
 
     const res = await ensure();
     expect(res.status).toBe(200);
-    const body = (await res.json()) as any;
+    const body = (await res.json()) as GtdEnsureResponse;
 
     expect(body.folders).toBeUndefined();
     expect(body.results).toHaveLength(5);
@@ -136,7 +147,7 @@ describe('POST /api/gtd/folders/ensure — persist effective paths', () => {
 
     const res = await ensure({ todo: 'INBOX' });
     expect(res.status).toBe(400);
-    const body = (await res.json()) as any;
+    const body = (await res.json()) as GtdEnsureResponse;
     expect(body.error).toMatch(/reserved system folder/i);
     expect(body.reserved).toEqual(['todo']);
     expect(imapManager.ensureFolder).not.toHaveBeenCalled();
@@ -154,7 +165,7 @@ describe('POST /api/gtd/folders/ensure — persist effective paths', () => {
 
     const res = await ensure({ watch: 'todo' });
     expect(res.status).toBe(400);
-    const body = (await res.json()) as any;
+    const body = (await res.json()) as GtdEnsureResponse;
     expect(body.error).toMatch(/same folder/i);
     expect(body.collisions).toEqual([{ folder: 'INBOX.Todo', states: ['todo', 'watch'] }]);
     expect(setAccountConfig).not.toHaveBeenCalled();
@@ -171,7 +182,7 @@ describe('POST /api/gtd/folders/ensure — persist effective paths', () => {
 
     const res = await ensure({ todo: 'TodoNew' });
     expect(res.status).toBe(200);
-    const body = (await res.json()) as any;
+    const body = (await res.json()) as GtdEnsureResponse;
 
     expect(body.folders).toEqual({
       watch: 'INBOX.Watch',

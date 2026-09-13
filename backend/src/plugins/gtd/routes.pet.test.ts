@@ -1,4 +1,5 @@
 import { describe, it, expect, vi, beforeEach, beforeAll, afterAll } from 'vitest';
+import type { JsonBody } from '../../test/json.js';
 
 // GET /api/gtd/pet/:slug/{meta,sheet} ownership scoping (see petRowReadable in gtd.js):
 // a pet is private iff its row carries is_custom (provenance written by importPet,
@@ -109,7 +110,7 @@ describe('GET /api/gtd/pet/:slug/{meta,sheet} — custom pet ownership scoping',
   it('lets the owner read their own custom pet meta + sheet', async () => {
     const metaRes = await petMeta(OWNER_SLUG, OWNER_ID);
     expect(metaRes.status).toBe(200);
-    expect((await metaRes.json()) as any).toEqual({ slug: OWNER_SLUG, displayName: 'My Pet', descriptor: { cols: 8, rows: 1, frameW: 32, frameH: 32, frameCount: 8, staticFrame: 0, hover: { start: 0, count: 8 }, source: 'declared' } });
+    expect((await metaRes.json()) as JsonBody).toEqual({ slug: OWNER_SLUG, displayName: 'My Pet', descriptor: { cols: 8, rows: 1, frameW: 32, frameH: 32, frameCount: 8, staticFrame: 0, hover: { start: 0, count: 8 }, source: 'declared' } });
 
     const sheetRes = await petSheet(OWNER_SLUG, OWNER_ID);
     expect(sheetRes.status).toBe(200);
@@ -119,7 +120,7 @@ describe('GET /api/gtd/pet/:slug/{meta,sheet} — custom pet ownership scoping',
   it("404s a different authenticated user reading someone else's custom pet (never 403 — no existence leak)", async () => {
     const metaRes = await petMeta(OWNER_SLUG, OTHER_ID);
     expect(metaRes.status).toBe(404);
-    expect(((await metaRes.json()) as any).error).toMatch(/not found/i);
+    expect(((await metaRes.json()) as JsonBody).error).toMatch(/not found/i);
 
     const sheetRes = await petSheet(OWNER_SLUG, OTHER_ID);
     expect(sheetRes.status).toBe(404);
@@ -128,7 +129,7 @@ describe('GET /api/gtd/pet/:slug/{meta,sheet} — custom pet ownership scoping',
   it('keeps a public pet whose slug merely starts with custom- readable by anyone (provenance beats slug shape)', async () => {
     const metaRes = await petMeta('custom-cat', OTHER_ID);
     expect(metaRes.status).toBe(200);
-    expect(((await metaRes.json()) as any).slug).toBe('custom-cat');
+    expect(((await metaRes.json()) as JsonBody).slug).toBe('custom-cat');
 
     const sheetRes = await petSheet('custom-cat', OTHER_ID);
     expect(sheetRes.status).toBe(200);
@@ -136,13 +137,13 @@ describe('GET /api/gtd/pet/:slug/{meta,sheet} — custom pet ownership scoping',
 
   it('never leaks the is_custom flag in the meta response', async () => {
     const metaRes = await petMeta(OWNER_SLUG, OWNER_ID);
-    expect(Object.keys((await metaRes.json()) as any).sort()).toEqual(['descriptor', 'displayName', 'slug']);
+    expect(Object.keys((await metaRes.json()) as JsonBody).sort()).toEqual(['descriptor', 'displayName', 'slug']);
   });
 
   it('keeps built-in pet slugs readable by any authenticated user, unchanged', async () => {
     const metaRes = await petMeta('steve-jobs', OTHER_ID);
     expect(metaRes.status).toBe(200);
-    expect(((await metaRes.json()) as any).slug).toBe('steve-jobs');
+    expect(((await metaRes.json()) as JsonBody).slug).toBe('steve-jobs');
 
     const sheetRes = await petSheet('steve-jobs', OWNER_ID);
     expect(sheetRes.status).toBe(200);
@@ -157,7 +158,7 @@ describe('POST /api/gtd/pet/import — error mapping', () => {
     importPet.mockResolvedValueOnce({ slug: 'custom-abc', displayName: 'My Pet', descriptor: { cols: 8, rows: 1, frameW: 32, frameH: 32, frameCount: 8, staticFrame: 0, hover: { start: 0, count: 8 }, source: 'declared' } });
     const res = await petImport({ petJson: '{}', sheet: VALID_SHEET_B64 });
     expect(res.status).toBe(200);
-    expect((await res.json()) as any).toEqual({ slug: 'custom-abc', displayName: 'My Pet', descriptor: { cols: 8, rows: 1, frameW: 32, frameH: 32, frameCount: 8, staticFrame: 0, hover: { start: 0, count: 8 }, source: 'declared' } });
+    expect((await res.json()) as JsonBody).toEqual({ slug: 'custom-abc', displayName: 'My Pet', descriptor: { cols: 8, rows: 1, frameW: 32, frameH: 32, frameCount: 8, staticFrame: 0, hover: { start: 0, count: 8 }, source: 'declared' } });
     // The route decodes the base64 sheet to bytes and passes the pet.json text through verbatim.
     const arg = importPet.mock.calls[0][0];
     expect(Buffer.isBuffer(arg.sheet)).toBe(true);
@@ -168,27 +169,27 @@ describe('POST /api/gtd/pet/import — error mapping', () => {
     importPet.mockRejectedValueOnce(Object.assign(new Error('Spritesheet is not a recognised image'), { code: 'BAD_IMAGE' }));
     const res = await petImport({ petJson: '{}', sheet: VALID_SHEET_B64 });
     expect(res.status).toBe(400);
-    expect(((await res.json()) as any).error).toBe('Spritesheet is not a recognised image');
+    expect(((await res.json()) as JsonBody).error).toBe('Spritesheet is not a recognised image');
   });
 
   it('maps an uncoded failure to 500 (import never touches the network)', async () => {
     importPet.mockRejectedValueOnce(new Error('DB write failed'));
     const res = await petImport({ petJson: '{}', sheet: VALID_SHEET_B64 });
     expect(res.status).toBe(500);
-    expect(((await res.json()) as any).error).toBe('Failed to import pet');
+    expect(((await res.json()) as JsonBody).error).toBe('Failed to import pet');
   });
 
   it('rejects a missing petJson/sheet with 400 before calling importPet', async () => {
     const res = await petImport({ sheet: VALID_SHEET_B64 });
     expect(res.status).toBe(400);
-    expect(((await res.json()) as any).error).toMatch(/petJson and sheet are required/i);
+    expect(((await res.json()) as JsonBody).error).toMatch(/petJson and sheet are required/i);
     expect(importPet).not.toHaveBeenCalled();
   });
 
   it('rejects an undecodable sheet with 400 before calling importPet', async () => {
     const res = await petImport({ petJson: '{}', sheet: 'data:image/png' }); // no comma → decode returns null
     expect(res.status).toBe(400);
-    expect(((await res.json()) as any).error).toMatch(/could not be decoded/i);
+    expect(((await res.json()) as JsonBody).error).toMatch(/could not be decoded/i);
     expect(importPet).not.toHaveBeenCalled();
   });
 });

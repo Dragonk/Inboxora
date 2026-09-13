@@ -1,4 +1,5 @@
 import { describe, it, expect, vi, beforeEach, beforeAll, afterAll } from 'vitest';
+import type { JsonBody } from '../../test/json.js';
 
 // POST /api/gtd/done end-to-end for the archive step's two race/failure contracts (a
 // concurrent /done racing the same INBOX row, and an archive move that throws) —
@@ -112,7 +113,7 @@ describe('POST /api/gtd/done — id validation', () => {
   it('rejects a malformed (non-UUID) id with 400 before any lookup', async () => {
     const res = await done({ id: 'not-a-uuid', states: ['watch'] });
     expect(res.status).toBe(400);
-    expect(((await res.json()) as any).error).toMatch(/invalid message id/i);
+    expect(((await res.json()) as JsonBody).error).toMatch(/invalid message id/i);
     expect(query).not.toHaveBeenCalled();
   });
 });
@@ -123,7 +124,7 @@ describe('POST /api/gtd/done — archive count-adjust race', () => {
     imapManager.moveMessage.mockResolvedValue(88); // UIDPLUS newUid
     const res = await done({ id: MSG_ID, states: ['watch'] });
     expect(res.status).toBe(200);
-    expect((await res.json()) as any).toMatchObject({ ok: true, archived: true, archiveFailed: false });
+    expect((await res.json()) as JsonBody).toMatchObject({ ok: true, archived: true, archiveFailed: false });
     expect(adjustFolderCounts).toHaveBeenCalledTimes(2);
     // The terminal refresh so the rail converges post-done.
     expect(imapManager.broadcast).toHaveBeenCalledWith({ type: 'gtd_sections_updated', accountId: ACCT_ID }, 'u1');
@@ -134,7 +135,7 @@ describe('POST /api/gtd/done — archive count-adjust race', () => {
     imapManager.moveMessage.mockResolvedValue(null); // silent server-side no-op
     const res = await done({ id: MSG_ID, states: ['watch'] });
     expect(res.status).toBe(200);
-    expect((await res.json()) as any).toMatchObject({ ok: true, archived: false, archiveFailed: false });
+    expect((await res.json()) as JsonBody).toMatchObject({ ok: true, archived: false, archiveFailed: false });
     expect(adjustFolderCounts).not.toHaveBeenCalled();
   });
 });
@@ -145,7 +146,7 @@ describe('POST /api/gtd/done — strip-ok + archive-fail', () => {
     imapManager.moveMessage.mockRejectedValue(new Error('IMAP move failed'));
     const res = await done({ id: MSG_ID, states: ['watch'] });
     expect(res.status).toBe(200);
-    expect((await res.json()) as any).toMatchObject({ ok: true, archived: false, archiveFailed: true });
+    expect((await res.json()) as JsonBody).toMatchObject({ ok: true, archived: false, archiveFailed: true });
     expect(imapManager.removeMessageCopy).toHaveBeenCalled(); // step (b) still ran
     expect(adjustFolderCounts).not.toHaveBeenCalled();
   });
@@ -162,7 +163,7 @@ describe('POST /api/gtd/done — strip-ok + archive-fail', () => {
     imapManager.moveMessage.mockResolvedValue(null);
     const res = await done({ id: MSG_ID, states: ['watch'] });
     expect(res.status).toBe(200);
-    expect((await res.json()) as any).toMatchObject({ ok: true, archived: false, archiveFailed: true });
+    expect((await res.json()) as JsonBody).toMatchObject({ ok: true, archived: false, archiveFailed: true });
     expect(imapManager._unguardMoveUid).toHaveBeenCalledWith(ACCT_ID, 'Archive', inboxCopy.uid);
     expect(imapManager._unguardMoveUid).toHaveBeenCalledWith(ACCT_ID, 'INBOX', inboxCopy.uid);
   });
@@ -172,7 +173,7 @@ describe('POST /api/gtd/done — strip-ok + archive-fail', () => {
     imapManager.moveMessage.mockResolvedValue(88);
     const res = await done({ id: MSG_ID, states: ['watch'] });
     expect(res.status).toBe(200);
-    expect((await res.json()) as any).toMatchObject({ ok: true, archived: true, archiveFailed: false, noArchiveFolder: false });
+    expect((await res.json()) as JsonBody).toMatchObject({ ok: true, archived: true, archiveFailed: false, noArchiveFolder: false });
     // The terminal refresh so the rail converges post-done.
     expect(imapManager.broadcast).toHaveBeenCalledWith({ type: 'gtd_sections_updated', accountId: ACCT_ID }, 'u1');
   });

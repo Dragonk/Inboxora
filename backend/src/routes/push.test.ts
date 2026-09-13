@@ -1,4 +1,5 @@
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
+import type { JsonBody } from '../test/json.js';
 
 const {
   listPushDevices, registerPushDevice, removePushDevice, removeAllPushDevices, pruneStalePushDevices,
@@ -65,7 +66,7 @@ describe('POST /api/push/devices', () => {
       method: 'POST', headers: { 'content-type': 'application/json' },
       body: JSON.stringify({ deviceId: 'device-1', platform: 'android', transport: 'unifiedpush', endpoint: 'https://ntfy.example.com/up/abc', appVersion: '4.0.0' }),
     });
-    const body = (await response.json()) as any;
+    const body = (await response.json()) as JsonBody;
 
     expect(response.status).toBe(201);
     expect(body.deviceToken).toBe('mf_push_11111111-2222-3333-4444-555555555555.secret');
@@ -105,7 +106,7 @@ describe('device management', () => {
   it('lists only metadata for the caller devices', async () => {
     listPushDevices.mockResolvedValue([{ id: 'row-1', device_id: 'device-1', platform: 'android', transport: 'fcm', app_version: '4.0.0', created_at: 'a', updated_at: 'b', last_seen: 'c', disabled_at: null }]);
     const response = await fetch(`${base}/api/push/devices`);
-    const body = (await response.json()) as any;
+    const body = (await response.json()) as JsonBody;
     expect(listPushDevices).toHaveBeenCalledWith('user-1');
     expect(body.devices[0]).toEqual({ id: 'row-1', deviceId: 'device-1', platform: 'android', transport: 'fcm', appVersion: '4.0.0', createdAt: 'a', updatedAt: 'b', lastSeen: 'c', disabled: false });
     expect(JSON.stringify(body)).not.toMatch(/endpoint|token/i);
@@ -125,14 +126,14 @@ describe('device management', () => {
   it('removes every device on logout', async () => {
     removeAllPushDevices.mockResolvedValue(2);
     const response = await fetch(`${base}/api/push/devices`, { method: 'DELETE' });
-    expect((await response.json()) as any).toEqual({ ok: true, removed: 2 });
+    expect((await response.json()) as JsonBody).toEqual({ ok: true, removed: 2 });
     expect(removeAllPushDevices).toHaveBeenCalledWith('user-1');
   });
 
   it('reports transport availability without leaking device secrets', async () => {
     query.mockResolvedValue({ rows: [{ total: 2, active: 1 }] });
     const response = await fetch(`${base}/api/push/status`);
-    const body = (await response.json()) as any;
+    const body = (await response.json()) as JsonBody;
     expect(body).toEqual({
       webPushConfigured: true,
       nativeTransports: { unifiedpush: true, fcm: false },
@@ -151,7 +152,7 @@ describe('native background API', () => {
       return Promise.resolve({ rows: [{ id: EVENT_ID, subject: 'Hello', from_name: 'Ada', from_email: 'ada@example.com', account_id: 'acct-1', folder: 'INBOX' }] });
     });
     const response = await fetch(`${base}/api/push/native/messages/${EVENT_ID}`);
-    const body = (await response.json()) as any;
+    const body = (await response.json()) as JsonBody;
     expect(response.status).toBe(200);
     expect(body).toEqual({
       eventId: EVENT_ID,
@@ -180,7 +181,7 @@ describe('native background API', () => {
       return Promise.resolve({ rows: [{ total: 2 }] });
     });
     const response = await fetch(`${base}/api/push/native/inbox`);
-    const body = (await response.json()) as any;
+    const body = (await response.json()) as JsonBody;
     expect(body.eventId).toBe('msg-9');
     expect(body.message.title).toBe('bob@example.com');
     expect(body.unreadCount).toBe(2);

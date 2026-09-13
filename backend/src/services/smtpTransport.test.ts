@@ -8,14 +8,14 @@ vi.mock('./connectionPolicy.js', () => ({ getConnectionPolicy: vi.fn() }));
 vi.mock('./hostValidation.js', () => ({ resolveForConnection: vi.fn() }));
 
 const nodemailer = (await import('nodemailer')).default;
-const { refreshMicrosoftToken } = (await import('../routes/oauth.js')) as any;
-const { getConnectionPolicy } = (await import('./connectionPolicy.js')) as any;
-const { resolveForConnection } = (await import('./hostValidation.js')) as any;
+const { refreshMicrosoftToken } = (await import('../routes/oauth.js'));
+const { getConnectionPolicy } = (await import('./connectionPolicy.js'));
+const { resolveForConnection } = (await import('./hostValidation.js'));
 const {
   createAccountSmtpTransport,
   createSmtpTransport,
   isPreDeliveryConnectionError,
-} = (await import('./smtpTransport.js')) as any;
+} = (await import('./smtpTransport.js'));
 
 const resolved = {
   host: '203.0.113.10',
@@ -103,11 +103,11 @@ describe('createSmtpTransport', () => {
 describe('createAccountSmtpTransport', () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    getConnectionPolicy.mockResolvedValue({
+    vi.mocked(getConnectionPolicy).mockResolvedValue({
       allowPrivateHosts: false,
       allowInsecureTls: false,
     });
-    resolveForConnection.mockResolvedValue(resolved);
+    vi.mocked(resolveForConnection).mockResolvedValue(resolved);
     createTransportMock.mockReturnValue({
       sendMail: vi.fn().mockResolvedValue({ accepted: ['user@example.com'] }),
       close: vi.fn(),
@@ -177,7 +177,7 @@ describe('createAccountSmtpTransport', () => {
   });
 
   it('refreshes an expired Microsoft token before creating the transport', async () => {
-    refreshMicrosoftToken.mockResolvedValue({
+    vi.mocked(refreshMicrosoftToken).mockResolvedValue({
       oauth_provider: 'microsoft',
       oauth_access_token: 'fresh-token',
       oauth_token_expiry: new Date(Date.now() + 5 * 60_000),

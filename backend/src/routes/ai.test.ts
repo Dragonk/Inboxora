@@ -162,7 +162,7 @@ describe('admin authorization and configuration', () => {
     mocks.getAdminAiConfig.mockResolvedValue(config);
     const response = await request('/api/admin/ai');
     expect(response.status).toBe(200);
-    expect((await response.json()) as any).toEqual({ config });
+    expect((await response.json())).toEqual({ config });
   });
 
   it('saves provider selection through the adapter without returning secrets', async () => {
@@ -176,14 +176,14 @@ describe('admin authorization and configuration', () => {
     mocks.saveAiConfig.mockResolvedValue(input);
     const response = await request('/api/admin/ai', { method: 'PATCH', body: input });
     expect(response.status).toBe(200);
-    expect((await response.json()) as any).toEqual({ ok: true, config: input });
+    expect((await response.json())).toEqual({ ok: true, config: input });
     expect(mocks.saveAiConfig).toHaveBeenCalledWith(input);
   });
 
   it('deletes only the provider configuration through the adapter', async () => {
     const response = await request('/api/admin/ai', { method: 'DELETE' });
     expect(response.status).toBe(200);
-    expect((await response.json()) as any).toEqual({ ok: true });
+    expect((await response.json())).toEqual({ ok: true });
     expect(mocks.deleteAiConfig).toHaveBeenCalledTimes(1);
     expect(mocks.disconnectCodex).not.toHaveBeenCalled();
   });
@@ -191,7 +191,7 @@ describe('admin authorization and configuration', () => {
   it('tests the selected provider through the adapter', async () => {
     const response = await request('/api/admin/ai/test', { method: 'POST' });
     expect(response.status).toBe(200);
-    expect((await response.json()) as any).toEqual({ ok: true });
+    expect((await response.json())).toEqual({ ok: true });
     expect(mocks.testAiProvider).toHaveBeenCalledTimes(1);
   });
 
@@ -202,7 +202,7 @@ describe('admin authorization and configuration', () => {
     ));
     const response = await request('/api/admin/ai/test', { method: 'POST' });
     expect(response.status).toBe(502);
-    expect((await response.json()) as any).toEqual({ error: 'AI provider test failed' });
+    expect((await response.json())).toEqual({ error: 'AI provider test failed' });
   });
 
   it('surfaces the real reason when the provider error is marked safe to expose', async () => {
@@ -212,7 +212,7 @@ describe('admin authorization and configuration', () => {
     ));
     const response = await request('/api/admin/ai/test', { method: 'POST' });
     expect(response.status).toBe(502);
-    expect((await response.json()) as any).toEqual({
+    expect((await response.json())).toEqual({
       error: 'AI provider returned an empty completion (finish_reason: length)',
     });
   });
@@ -222,7 +222,7 @@ describe('admin ChatGPT device lifecycle', () => {
   it('binds device start to the initiating admin session', async () => {
     const response = await request('/api/admin/ai/codex/device', { method: 'POST' });
     expect(response.status).toBe(200);
-    expect((await response.json()) as any).toMatchObject({ flowId: FLOW_ID, userCode: 'ABCD-EFGH' });
+    expect((await response.json())).toMatchObject({ flowId: FLOW_ID, userCode: 'ABCD-EFGH' });
     expect(mocks.startDeviceFlow).toHaveBeenCalledWith({
       userId: ADMIN,
       sessionId: `session-${ADMIN}`,
@@ -274,7 +274,7 @@ describe('admin ChatGPT device lifecycle', () => {
   ])('rejects malformed flow IDs before %s dispatch', async (method, path, service) => {
     const response = await request(path, { method, body: { flowId: 'not-a-uuid' } });
     expect(response.status).toBe(400);
-    expect((await response.json()) as any).toEqual({ error: 'Invalid flowId' });
+    expect((await response.json())).toEqual({ error: 'Invalid flowId' });
     expect(service).not.toHaveBeenCalled();
   });
 
@@ -284,7 +284,7 @@ describe('admin ChatGPT device lifecycle', () => {
       method: 'POST', body: { flowId: FLOW_ID },
     });
     expect(response.status).toBe(404);
-    expect((await response.json()) as any).toEqual({ error: 'Device authorization not found' });
+    expect((await response.json())).toEqual({ error: 'Device authorization not found' });
   });
 });
 
@@ -308,7 +308,7 @@ describe('authenticated AI status and streaming', () => {
   ])('rejects invalid chat input %# before calling a provider', async (body, errorPattern) => {
     const response = await chat(body);
     expect(response.status).toBe(400);
-    expect(((await response.json()) as any).error).toMatch(errorPattern);
+    expect(((await response.json()) as { error?: string }).error).toMatch(errorPattern);
     expect(mocks.streamChat).not.toHaveBeenCalled();
   });
 
@@ -338,7 +338,7 @@ describe('authenticated AI status and streaming', () => {
     });
     const response = await chat({ messages: [{ role: 'user', content: 'Hi' }] });
     expect(response.status).toBe(503);
-    expect((await response.json()) as any).toEqual({ error: 'AI provider requires reconnection' });
+    expect((await response.json())).toEqual({ error: 'AI provider requires reconnection' });
     expect(mocks.streamChat).not.toHaveBeenCalled();
   });
 

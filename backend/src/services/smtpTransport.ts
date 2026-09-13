@@ -11,12 +11,26 @@ export function isPreDeliveryConnectionError(err) {
   return err?.command === 'CONN';
 }
 
-async function runWithAddressFallback({
+export interface SmtpTransportLike {
+  sendMail?(mailOptions: unknown): Promise<{ accepted?: string[]; rejected?: string[] }>;
+  verify?(): Promise<unknown>;
+  close?(): void;
+}
+
+type CreateTransportFactory = (options: unknown) => SmtpTransportLike;
+
+async function runWithAddressFallback<T>({
   resolved,
   transportOptions,
   operation,
   createTransport = nodemailer.createTransport,
   now = Date.now,
+}: {
+  resolved: { host: string; servername?: string | null; addresses?: string[] };
+  transportOptions: Record<string, unknown>;
+  operation: (transport: SmtpTransportLike) => Promise<T>;
+  createTransport?: CreateTransportFactory;
+  now?: () => number;
 }) {
   const candidates = [...new Set(
     resolved.addresses?.length ? resolved.addresses : [resolved.host]
@@ -49,18 +63,18 @@ async function runWithAddressFallback({
   throw lastError;
 }
 
-export function createSmtpTransport(resolved, transportOptions, createTransport = nodemailer.createTransport) {
+export function createSmtpTransport(resolved, transportOptions, createTransport: CreateTransportFactory = nodemailer.createTransport) {
   return {
     sendMail: mailOptions => runWithAddressFallback({
       resolved,
       transportOptions,
-      operation: transport => transport.sendMail(mailOptions),
+      operation: (transport: { sendMail: NonNullable<SmtpTransportLike['sendMail']> }) => transport.sendMail(mailOptions),
       createTransport,
     }),
     verify: () => runWithAddressFallback({
       resolved,
       transportOptions,
-      operation: transport => transport.verify(),
+      operation: (transport: { verify: NonNullable<SmtpTransportLike['verify']> }) => transport.verify(),
       createTransport,
     }),
   };
