@@ -1,6 +1,7 @@
 import { Router } from 'express';
 import { requireAuth, requireAdmin } from '../middleware/auth.js';
 import { query } from '../services/db.js';
+import type { Request, Response } from 'express';
 import {
   deleteAiConfig,
   getAdminAiConfig,
@@ -50,11 +51,11 @@ function serviceError(res, error, fallback = 'Request failed') {
   return res.status(status).json({ error: expose ? error.message : fallback });
 }
 
-function owner(req) {
+function owner(req: Request) {
   return { userId: req.session.userId, sessionId: req.sessionID };
 }
 
-function flowInput(req, res) {
+function flowInput(req: Request, res: Response) {
   const flowId = typeof req.body?.flowId === 'string' ? req.body.flowId.trim() : '';
   if (!flowId) {
     res.status(400).json({ error: 'flowId is required' });
@@ -69,7 +70,7 @@ function flowInput(req, res) {
 
 // ── Admin: AI provider configuration ──────────────────────────────────────────
 
-router.get('/admin/ai', requireAdmin, async (_req, res) => {
+router.get('/admin/ai', requireAdmin, async (_req: Request, res: Response) => {
   try {
     res.json({ config: await getAdminAiConfig() });
   } catch (error) {
@@ -77,7 +78,7 @@ router.get('/admin/ai', requireAdmin, async (_req, res) => {
   }
 });
 
-router.patch('/admin/ai', requireAdmin, async (req, res) => {
+router.patch('/admin/ai', requireAdmin, async (req: Request, res: Response) => {
   try {
     const config = await saveAiConfig(req.body);
     console.log(`[admin] ${req.session.username} updated AI config`);
@@ -87,7 +88,7 @@ router.patch('/admin/ai', requireAdmin, async (req, res) => {
   }
 });
 
-router.delete('/admin/ai', requireAdmin, async (_req, res) => {
+router.delete('/admin/ai', requireAdmin, async (_req: Request, res: Response) => {
   try {
     await deleteAiConfig();
     res.json({ ok: true });
@@ -96,7 +97,7 @@ router.delete('/admin/ai', requireAdmin, async (_req, res) => {
   }
 });
 
-router.post('/admin/ai/test', requireAdmin, async (_req, res) => {
+router.post('/admin/ai/test', requireAdmin, async (_req: Request, res: Response) => {
   try {
     res.json(await testAiProvider());
   } catch (error) {
@@ -106,7 +107,7 @@ router.post('/admin/ai/test', requireAdmin, async (_req, res) => {
 
 // ── Admin: ChatGPT device authorization ──────────────────────────────────────
 
-router.post('/admin/ai/codex/device', requireAdmin, async (req, res) => {
+router.post('/admin/ai/codex/device', requireAdmin, async (req: Request, res: Response) => {
   try {
     res.json(await startDeviceFlow(owner(req)));
   } catch (error) {
@@ -114,7 +115,7 @@ router.post('/admin/ai/codex/device', requireAdmin, async (req, res) => {
   }
 });
 
-router.post('/admin/ai/codex/device/poll', requireAdmin, async (req, res) => {
+router.post('/admin/ai/codex/device/poll', requireAdmin, async (req: Request, res: Response) => {
   const input = flowInput(req, res);
   if (!input) return;
   try {
@@ -124,7 +125,7 @@ router.post('/admin/ai/codex/device/poll', requireAdmin, async (req, res) => {
   }
 });
 
-router.delete('/admin/ai/codex/device', requireAdmin, async (req, res) => {
+router.delete('/admin/ai/codex/device', requireAdmin, async (req: Request, res: Response) => {
   const input = flowInput(req, res);
   if (!input) return;
   try {
@@ -134,7 +135,7 @@ router.delete('/admin/ai/codex/device', requireAdmin, async (req, res) => {
   }
 });
 
-router.get('/admin/ai/codex/status', requireAdmin, async (req, res) => {
+router.get('/admin/ai/codex/status', requireAdmin, async (req: Request, res: Response) => {
   try {
     res.json(await getCodexStatus(owner(req)));
   } catch (error) {
@@ -142,7 +143,7 @@ router.get('/admin/ai/codex/status', requireAdmin, async (req, res) => {
   }
 });
 
-router.delete('/admin/ai/codex', requireAdmin, async (_req, res) => {
+router.delete('/admin/ai/codex', requireAdmin, async (_req: Request, res: Response) => {
   try {
     res.json(await disconnectCodex());
   } catch (error) {
@@ -152,7 +153,7 @@ router.delete('/admin/ai/codex', requireAdmin, async (_req, res) => {
 
 // ── Authenticated: AI status (used by compose & message pane) ─────────────────
 
-router.get('/ai/status', requireAuth, async (_req, res) => {
+router.get('/ai/status', requireAuth, async (_req: Request, res: Response) => {
   try {
     res.json(await getAiStatus());
   } catch (error) {
@@ -172,7 +173,7 @@ function validateMessages(messages) {
 
 // ── Authenticated: streaming chat proxy ───────────────────────────────────────
 
-router.post('/ai/chat', requireAuth, async (req, res) => {
+router.post('/ai/chat', requireAuth, async (req: Request, res: Response) => {
   const messages = req.body?.messages;
   const validationError = validateMessages(messages);
   if (validationError) return res.status(400).json({ error: validationError });

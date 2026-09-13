@@ -7,11 +7,12 @@ import express from 'express';
 import { requireAuth } from '../middleware/auth.js';
 import { buildServerReport, scrubReport } from '../services/diagnosticsReport.js';
 import { sessionUserId } from '../utils/query.js';
+import type { Request, Response } from 'express';
 
 const router = express.Router();
 router.use(requireAuth);
 
-router.post('/report', async (req, res) => {
+router.post('/report', async (req: Request, res: Response) => {
   const salt = typeof req.body?.salt === 'string' ? req.body.salt : '';
   if (!/^[0-9a-f]{16,64}$/i.test(salt)) {
     return res.status(400).json({ error: 'salt must be 16-64 hex characters' });

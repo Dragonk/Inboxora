@@ -7,6 +7,7 @@ import { encrypt, decrypt } from '../services/encryption.js';
 import { redactEmail } from '../utils/redact.js';
 import { queryString } from '../utils/query.js';
 import { toAppError } from '../utils/errors.js';
+import type { Request, Response } from 'express';
 
 interface OAuthTokenResponse {
   access_token?: string;
@@ -58,7 +59,7 @@ function getMsConfig() {
 }
 
 // Step 1: redirect user to Microsoft login
-router.get('/microsoft', async (req, res) => {
+router.get('/microsoft', async (req: Request, res: Response) => {
   if (!req.session?.userId) return res.status(401).json({ error: 'Not authenticated' });
 
   const { clientId, tenantId, redirectUri } = getMsConfig();
@@ -89,7 +90,7 @@ router.get('/microsoft', async (req, res) => {
 });
 
 // Step 2: Microsoft redirects back here with auth code
-router.get('/microsoft/callback', async (req, res) => {
+router.get('/microsoft/callback', async (req: Request, res: Response) => {
   const code = queryString(req.query.code);
   const state = queryString(req.query.state);
   const error = queryString(req.query.error);
@@ -241,7 +242,7 @@ async function processMicrosoftTokens(userId: string, tokens, { tenantId, client
 }
 
 // Step 1: initiate device code flow — returns user_code + verification_uri to the frontend.
-router.post('/microsoft/device', async (req, res) => {
+router.post('/microsoft/device', async (req: Request, res: Response) => {
   if (!req.session?.userId) return res.status(401).json({ error: 'Not authenticated' });
   const { clientId, tenantId } = getMsConfig();
   if (!clientId || !tenantId) {
@@ -284,7 +285,7 @@ router.post('/microsoft/device', async (req, res) => {
 });
 
 // Step 2: poll for token — called repeatedly by the frontend until resolved.
-router.get('/microsoft/device/poll', async (req, res) => {
+router.get('/microsoft/device/poll', async (req: Request, res: Response) => {
   if (!req.session?.userId) return res.status(401).json({ error: 'Not authenticated' });
   const flow = deviceFlows.get(req.session.userId);
   if (!flow) return res.status(400).json({ status: 'error', error: 'No pending device code flow' });

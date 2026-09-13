@@ -7,6 +7,7 @@ import { getGtdConfig, resolveGtdStateFolder, sanitizeGtdFolders, sanitizeGtdFol
 import { applyLabel, removeExactLabelCopy, removeLabel, markThreadRead, ensureLabelFolders, archiveInboxCopy, broadcast, loadOwnedMessage, getOwnedAccount, getMessageCopyFolders, getAccountConfig, setAccountConfig } from '../api.js';
 import { queryString, queryInt, routeParam, sessionUserId } from '../../utils/query.js';
 import { toAppError } from '../../utils/errors.js';
+import type { Request, Response } from 'express';
 
 const router = Router();
 router.use(requireAuth);
@@ -63,7 +64,7 @@ export function resolveDoneFolders({ enabled, folders, states, existing = undefi
 // accountId absent => unified across the user's gtd_enabled accounts; present => scoped
 // to that owned account. Ownership + gtd_enabled filtering happen in the service.
 // (Router is mounted at /api/gtd, so the paths here omit the gtd/ prefix.)
-router.get('/sections', async (req, res) => {
+router.get('/sections', async (req: Request, res: Response) => {
   const accountId = queryString(req.query.accountId);
   const limitParam = queryInt(req.query.limit, 0);
   if (accountId && !UUID_RE.test(accountId)) return res.status(400).json({ error: 'Invalid account id' });
@@ -94,7 +95,7 @@ router.get('/sections', async (req, res) => {
 // route body limit (index.js) + the size/magic-byte/parse checks inside importPet. The
 // chosen slug is persisted separately as a user preference (gtdPetSlug via PATCH
 // /auth/preferences); this route only acquires the assets.
-router.post('/pet/import', async (req, res) => {
+router.post('/pet/import', async (req: Request, res: Response) => {
   const { petJson, sheet } = req.body || {};
   if (typeof petJson !== 'string' || typeof sheet !== 'string') {
     return res.status(400).json({ error: 'petJson and sheet are required' });
@@ -124,14 +125,14 @@ function petRowReadable(row: { isCustom?: boolean } | null | undefined, rawSlug:
 }
 
 // GET /api/gtd/pet/:slug/meta — the cached animation descriptor for the frontend.
-router.get('/pet/:slug/meta', async (req, res) => {
+router.get('/pet/:slug/meta', async (req: Request, res: Response) => {
   const meta = await getPetMeta(routeParam(req.params.slug));
   if (!meta || !petRowReadable(meta, routeParam(req.params.slug), sessionUserId(req))) return res.status(404).json({ error: 'Pet not found' });
   res.json({ slug: meta.slug, displayName: meta.displayName, descriptor: meta.descriptor });
 });
 
 // GET /api/gtd/pet/:slug/sheet — the cached spritesheet bytes.
-router.get('/pet/:slug/sheet', async (req, res) => {
+router.get('/pet/:slug/sheet', async (req: Request, res: Response) => {
   const sheet = await getPetSheet(routeParam(req.params.slug));
   if (!sheet || !petRowReadable(sheet, routeParam(req.params.slug), sessionUserId(req))) return res.status(404).end();
   res.set('Content-Type', sheet.mime);
@@ -147,7 +148,7 @@ router.get('/pet/:slug/sheet', async (req, res) => {
 // folder; classify never removes it from the inbox). Thin: resolve the folder,
 // ensure it exists (callers own folder existence), then delegate to
 // imapManager.copyMessage, which also emits gtd_sections_updated.
-router.post('/classify', async (req, res) => {
+router.post('/classify', async (req: Request, res: Response) => {
   const { messageId, state } = req.body || {};
   if (!messageId || !state) return res.status(400).json({ error: 'messageId and state are required' });
   if (!UUID_RE.test(messageId)) return res.status(400).json({ error: 'Invalid message id' });
@@ -183,7 +184,7 @@ router.post('/classify', async (req, res) => {
 // The state is resolved again so a later folder remap invalidates the token instead of deleting
 // from its stale path. removeExactLabelCopy additionally proves the UID still belongs to the
 // source message by RFC Message-ID; replay and stale-token misses are safe no-ops.
-router.post('/classify/undo', async (req, res) => {
+router.post('/classify/undo', async (req: Request, res: Response) => {
   const { messageId, state, folder, uid } = req.body || {};
   if (!messageId || !state || typeof folder !== 'string' || !folder) {
     return res.status(400).json({ error: 'messageId, state, folder, and uid are required' });
@@ -216,7 +217,7 @@ router.post('/classify/undo', async (req, res) => {
 // the message's copy that lives in the state folder, leaving all other copies
 // (INBOX, other labels) intact. The acted message id identifies the thread member
 // by its RFC Message-ID; the copy in the state folder is resolved from that.
-router.delete('/classify', async (req, res) => {
+router.delete('/classify', async (req: Request, res: Response) => {
   const { messageId, state } = req.body || {};
   if (!messageId || !state) return res.status(400).json({ error: 'messageId and state are required' });
   if (!UUID_RE.test(messageId)) return res.status(400).json({ error: 'Invalid message id' });
@@ -261,7 +262,7 @@ router.delete('/classify', async (req, res) => {
 // watch+delegated — leaving any GTD labels in OTHER sections intact; (c) archives the INBOX
 // copy if one exists (reusing resolveArchiveFolder + moveMessage, snooze's in-place UPDATE).
 // One terminal gtd_sections_updated broadcast makes the row disappear cleanly on refetch.
-router.post('/done', async (req, res) => {
+router.post('/done', async (req: Request, res: Response) => {
   const { id, states } = req.body || {};
   if (!id) return res.status(400).json({ error: 'id is required' });
   if (!UUID_RE.test(id)) return res.status(400).json({ error: 'Invalid message id' });
@@ -358,7 +359,7 @@ router.post('/done', async (req, res) => {
 // sanitized before use. Thin over imapManager.ensureFolder.
 // Intentionally NOT gated on gtd_enabled: pre-creating the label folders before
 // flipping GTD on is a legitimate setup step (unlike classify, which requires it on).
-router.post('/folders/ensure', async (req, res) => {
+router.post('/folders/ensure', async (req: Request, res: Response) => {
   const { accountId, folders } = req.body || {};
   if (!accountId) return res.status(400).json({ error: 'accountId is required' });
   if (!UUID_RE.test(accountId)) return res.status(400).json({ error: 'Invalid account id' });

@@ -40,7 +40,7 @@ export function setupWebSocket(wss, sessionMiddleware, imapManager) {
       end: () => {}
     };
 
-    sessionMiddleware(req, fakeRes, (err) => {
+    sessionMiddleware(req, fakeRes, (err: unknown) => {
       if (ws.readyState !== 1) return;
       if (err) {
         // A temporary session-store outage should be retried, not treated as

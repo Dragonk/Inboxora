@@ -4,11 +4,12 @@ import { query } from '../services/db.js';
 import { requireAuth } from '../middleware/auth.js';
 import { consume } from '../services/rateLimiter.js';
 import { hashCalendarFeedToken, issueCalendarFeedToken, serializeCalendarFeed } from '../services/calendarFeed.js';
+import type { Request, Response } from 'express';
 
 const router = Router();
 const PUBLIC_FAILURE_LIMIT = 30;
 const PUBLIC_FAILURE_WINDOW_MS = 60 * 1000;
-const invalidResponse = (res) => res.status(404).type('text').send('Not found');
+const invalidResponse = (res: Response) => res.status(404).type('text').send('Not found');
 
 function compareFeedRows(left, right) {
   for (const field of ['starts_at', 'calendar_id', 'id']) {
@@ -20,7 +21,7 @@ function compareFeedRows(left, right) {
   return 0;
 }
 
-async function failureResponse(req, res) {
+async function failureResponse(req: Request, res: Response) {
   const limited = await consume(`calendar-feed:${req.ip}`, PUBLIC_FAILURE_LIMIT, PUBLIC_FAILURE_WINDOW_MS);
   if (limited.limited) res.setHeader('Retry-After', Math.ceil(limited.resetMs / 1000));
   return invalidResponse(res);
@@ -28,7 +29,7 @@ async function failureResponse(req, res) {
 
 // Anonymous route: token shape is checked before hashing, and all failures share
 // one response so a feed cannot be enumerated.
-router.get(['/calendar/feeds/:token.ics', '/calendar/feeds/:token'], async (req, res) => {
+router.get(['/calendar/feeds/:token.ics', '/calendar/feeds/:token'], async (req: Request, res: Response) => {
   const feedToken = Array.isArray(req.params.token) ? req.params.token[0] : req.params.token;
   const hash = hashCalendarFeedToken(feedToken);
   if (!hash) return failureResponse(req, res);
@@ -54,7 +55,7 @@ router.get(['/calendar/feeds/:token.ics', '/calendar/feeds/:token'], async (req,
 });
 
 router.use('/api/calendar/feeds', requireAuth);
-router.post('/api/calendar/feeds', async (req, res) => {
+router.post('/api/calendar/feeds', async (req: Request, res: Response) => {
   const requested = Array.isArray(req.body?.calendarIds) ? [...new Set(req.body.calendarIds)] : [];
   if (!requested.length || requested.some(id => typeof id !== 'string')) return res.status(400).json({ error: 'calendarIds must contain at least one calendar' });
   const owned = await query('SELECT id, name FROM calendars WHERE id = ANY($1) AND owner_user_id = $2 ORDER BY created_at', [requested, req.session.userId]);
@@ -65,18 +66,18 @@ router.post('/api/calendar/feeds', async (req, res) => {
   return res.status(201).json({ feed: { id: feed.id, calendarIds: feed.calendar_ids, createdAt: feed.created_at, url: `/calendar/feeds/${token}.ics` }, secret: token });
 });
 
-router.get('/api/calendar/feeds', async (req, res) => {
+router.get('/api/calendar/feeds', async (req: Request, res: Response) => {
   const result = await query('SELECT id, calendar_ids, created_at, revoked_at FROM calendar_secret_feeds WHERE owner_user_id = $1 ORDER BY created_at DESC', [req.session.userId]);
   return res.json({ feeds: result.rows.map(feed => ({ id: feed.id, calendarIds: feed.calendar_ids, createdAt: feed.created_at, revokedAt: feed.revoked_at })) });
 });
 
-router.delete('/api/calendar/feeds/:feedId', async (req, res) => {
+router.delete('/api/calendar/feeds/:feedId', async (req: Request, res: Response) => {
   const result = await query('UPDATE calendar_secret_feeds SET revoked_at = COALESCE(revoked_at, NOW()) WHERE id = $1 AND owner_user_id = $2 RETURNING id', [req.params.feedId, req.session.userId]);
   if (!result.rows[0]) return res.status(404).json({ error: 'Feed not found' });
   return res.status(204).end();
 });
 
-router.post('/api/calendar/feeds/:feedId/rotate', async (req, res) => {
+router.post('/api/calendar/feeds/:feedId/rotate', async (req: Request, res: Response) => {
   const { token, hash } = issueCalendarFeedToken();
   const result = await query(
     'UPDATE calendar_secret_feeds SET token_hash = $1, revoked_at = NULL WHERE id = $2 AND owner_user_id = $3 RETURNING id, calendar_ids, created_at',

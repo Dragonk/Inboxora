@@ -3,6 +3,7 @@ import { query } from '../services/db.js';
 import { requireAuth } from '../middleware/auth.js';
 import { applyInboxRules, isDangerousRegex } from '../services/inboxRules.js';
 import { toAppError } from '../utils/errors.js';
+import type { Request, Response } from 'express';
 
 const router = Router();
 router.use(requireAuth);
@@ -74,7 +75,7 @@ export function normalizeActions(actions) {
     ));
 }
 
-router.get('/', async (req, res) => {
+router.get('/', async (req: Request, res: Response) => {
   try {
     const result = await query(
       'SELECT * FROM inbox_rules WHERE user_id = $1 ORDER BY priority ASC, created_at ASC',
@@ -88,7 +89,7 @@ router.get('/', async (req, res) => {
   }
 });
 
-router.post('/run', async (req, res) => {
+router.post('/run', async (req: Request, res: Response) => {
   const imapMgr = req.app.get('imapManager');
   const { accountId } = req.body;
 
@@ -189,7 +190,7 @@ router.post('/run', async (req, res) => {
   res.json({ processed, matched });
 });
 
-router.post('/', async (req, res) => {
+router.post('/', async (req: Request, res: Response) => {
   const { name, accountId, conditionLogic, conditions, actions, enabled, stopProcessing } = req.body;
   if (!Array.isArray(conditions) || !Array.isArray(actions)) {
     return res.status(400).json({ error: 'conditions and actions must be arrays' });
@@ -253,7 +254,7 @@ router.post('/', async (req, res) => {
   }
 });
 
-router.put('/:id', async (req, res) => {
+router.put('/:id', async (req: Request, res: Response) => {
   const { name, accountId, conditionLogic, conditions, actions, enabled, stopProcessing } = req.body;
   if (!Array.isArray(conditions) || !Array.isArray(actions)) {
     return res.status(400).json({ error: 'conditions and actions must be arrays' });
@@ -312,7 +313,7 @@ router.put('/:id', async (req, res) => {
   }
 });
 
-router.delete('/:id', async (req, res) => {
+router.delete('/:id', async (req: Request, res: Response) => {
   try {
     const result = await query(
       'DELETE FROM inbox_rules WHERE id = $1 AND user_id = $2 RETURNING id',
@@ -327,7 +328,7 @@ router.delete('/:id', async (req, res) => {
   }
 });
 
-router.patch('/reorder', async (req, res) => {
+router.patch('/reorder', async (req: Request, res: Response) => {
   const { ids } = req.body;
   if (!Array.isArray(ids)) return res.status(400).json({ error: 'ids must be an array' });
   try {

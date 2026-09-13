@@ -4,6 +4,7 @@ import { requireAuth } from '../middleware/auth.js';
 import { getConversationRebuildJob, startConversationRebuildJob, recordConversationRebuildAudit } from '../services/conversationRebuildJobs.js';
 import { consumeConversationRebuildRateLimit } from '../services/conversationRebuildRateLimit.js';
 import { uuidParam } from '../utils/uuid.js';
+import type { Request, Response } from 'express';
 
 const router = Router();
 router.use(requireAuth);
@@ -11,7 +12,7 @@ router.use(requireAuth);
 // Reuse the upstream uuidParam guard so malformed rebuild job IDs return 400.
 router.param('jobId', uuidParam('jobId'));
 
-router.post('/conversations/rebuild', async (req, res) => {
+router.post('/conversations/rebuild', async (req: Request, res: Response) => {
   const userId = req.session.userId;
   await consumeConversationRebuildRateLimit(userId);
   const accountId = req.body?.accountId || null;
@@ -24,7 +25,7 @@ router.post('/conversations/rebuild', async (req, res) => {
   res.status(202).json(result);
 });
 
-router.get('/conversations/rebuild/:jobId', async (req, res) => {
+router.get('/conversations/rebuild/:jobId', async (req: Request, res: Response) => {
   const result = getConversationRebuildJob({ userId: req.session.userId, jobId: req.params.jobId });
   if (!result) return res.status(404).json({ error: 'Rebuild job not found' });
   res.json(result);

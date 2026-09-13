@@ -15,6 +15,7 @@ import { query } from '../services/db.js';
 import { validateHost } from '../services/hostValidation.js';
 import { routeParam, sessionUserId } from '../utils/query.js';
 import { toAppError } from '../utils/errors.js';
+import type { Request, Response } from 'express';
 
 const router = Router();
 
@@ -22,7 +23,7 @@ const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/
 
 // ── Authenticated device management (/api/push/devices) ──────────────────────
 
-router.get('/devices', requireAuth, async (req, res) => {
+router.get('/devices', requireAuth, async (req: Request, res: Response) => {
   const devices = await listPushDevices(sessionUserId(req));
   res.json({
     devices: devices.map((device) => ({
@@ -42,7 +43,7 @@ router.get('/devices', requireAuth, async (req, res) => {
 // Register (or refresh) this install's native push endpoint. Requires a logged-in
 // session: a caller can only ever register for themselves — the user id comes
 // from the session, never from the body (no cross-user token registration).
-router.post('/devices', requireAuth, async (req, res) => {
+router.post('/devices', requireAuth, async (req: Request, res: Response) => {
   try {
     const input = req.body || {};
 
@@ -89,14 +90,14 @@ router.post('/devices', requireAuth, async (req, res) => {
 });
 
 // Logout / "forget this device" from a trustworthy session.
-router.delete('/devices', requireAuth, async (req, res) => {
+router.delete('/devices', requireAuth, async (req: Request, res: Response) => {
   const removed = await removeAllPushDevices(sessionUserId(req));
   res.json({ ok: true, removed });
 });
 
 // Unregister by the app-generated device id. Scoped to the session's user, so a
 // device id belonging to another account returns 404 rather than deleting it.
-router.delete('/devices/:deviceId', requireAuth, async (req, res) => {
+router.delete('/devices/:deviceId', requireAuth, async (req: Request, res: Response) => {
   const device = await removePushDevice(sessionUserId(req), routeParam(req.params.deviceId));
   if (!device) return res.status(404).json({ error: 'Push device not found' });
   res.json({ ok: true, device: { id: device.id, deviceId: device.device_id } });
@@ -104,7 +105,7 @@ router.delete('/devices/:deviceId', requireAuth, async (req, res) => {
 
 // What the settings screen renders: which transports this server can use and
 // whether the browser leg is configured. Never exposes endpoints or tokens.
-router.get('/status', requireAuth, async (req, res) => {
+router.get('/status', requireAuth, async (req: Request, res: Response) => {
   const result = await query(
     `SELECT COUNT(*)::int AS total,
             COUNT(*) FILTER (WHERE disabled_at IS NULL)::int AS active
@@ -147,7 +148,7 @@ function messageSummary(row) {
 // Fetch the notification details for one specific event id (the message UUID
 // carried opaquely through the provider). Ownership is enforced in SQL, so a
 // leaked event id from another account cannot be read.
-router.get('/native/messages/:id', requireDeviceAuth, async (req, res) => {
+router.get('/native/messages/:id', requireDeviceAuth, async (req: Request, res: Response) => {
   const id = routeParam(req.params.id);
   if (!UUID_RE.test(id)) return res.status(400).json({ error: 'Invalid message id' });
 
@@ -171,7 +172,7 @@ router.get('/native/messages/:id', requireDeviceAuth, async (req, res) => {
 // Reconciliation endpoint for the WorkManager fallback: latest unread INBOX
 // message (if any) plus the authoritative unread total. Returns the same
 // message id the push event would carry so the client can dedup either path.
-router.get('/native/inbox', requireDeviceAuth, async (req, res) => {
+router.get('/native/inbox', requireDeviceAuth, async (req: Request, res: Response) => {
   const latest = await query(
     `SELECT m.id, m.subject, m.from_name, m.from_email, m.account_id, m.folder
        FROM messages m

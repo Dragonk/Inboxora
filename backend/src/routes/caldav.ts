@@ -8,6 +8,7 @@ import { query } from '../services/db.js';
 import { authLimiterConfig } from '../services/authLimiter.js';
 import { createDavAuthMiddleware } from '../services/davServerAuth.js';
 import { toAppError } from '../utils/errors.js';
+import type { Request, Response, NextFunction } from 'express';
 
 const router = Router();
 const caldavBuckets = new Map();
@@ -34,7 +35,7 @@ function sendXml(res, status, body) {
   res.status(status).setHeader('Content-Type', 'application/xml; charset=utf-8').send(body);
 }
 
-function rawBody(req) {
+function rawBody(req: Request) {
   return new Promise<string>(( resolve, reject) => {
     if (typeof req.body === 'string') return resolve(req.body);
     if (Buffer.isBuffer(req.body)) return resolve(req.body.toString('utf8'));
@@ -78,7 +79,7 @@ function response(href: string, properties, status = '200 OK') {
   ].join('');
 }
 
-function caldavRateLimit(req, res, next) {
+function caldavRateLimit(req: Request, res: Response, next: NextFunction) {
   const { windowMs } = authLimiterConfig;
   const now = Date.now();
   const bucket = caldavBuckets.get(req.ip);
@@ -102,14 +103,14 @@ router.use((req, _res, next) => {
   next();
 });
 
-router.options('*', (_req, res) => {
+router.options('*', (_req: Request, res: Response) => {
   res.set({
     Allow: 'OPTIONS, GET, PUT, DELETE, PROPFIND, REPORT',
     DAV: '1, 2, 3, calendar-access',
   }).status(200).end();
 });
 
-router.propfind('/', (req, res) => {
+router.propfind('/', (req: Request, res: Response) => {
   const principalPath = `/caldav/${req.caldavUserId}/`;
   sendXml(res, 207, multistatus([
     response('/caldav/', [
@@ -119,7 +120,7 @@ router.propfind('/', (req, res) => {
   ]));
 });
 
-router.propfind('/:userId/', async (req, res) => {
+router.propfind('/:userId/', async (req: Request, res: Response) => {
   if (req.params.userId !== req.caldavUserId) return res.status(403).end();
 
   const calendars = await query(
@@ -141,7 +142,7 @@ router.propfind('/:userId/', async (req, res) => {
   ]));
 });
 
-router.propfind('/:userId/:calendarId/', async (req, res) => {
+router.propfind('/:userId/:calendarId/', async (req: Request, res: Response) => {
   if (req.params.userId !== req.caldavUserId) return res.status(403).end();
 
   const result = await query(
@@ -161,7 +162,7 @@ router.propfind('/:userId/:calendarId/', async (req, res) => {
   ]));
 });
 
-router.report('/:userId/:calendarId/', async (req, res) => {
+router.report('/:userId/:calendarId/', async (req: Request, res: Response) => {
   if (req.params.userId !== req.caldavUserId) return res.status(403).end();
   const calendarResult = await query(
     'SELECT id, sync_token, sync_version FROM calendars WHERE id = $1 AND user_id = $2',
@@ -240,7 +241,7 @@ router.report('/:userId/:calendarId/', async (req, res) => {
   sendXml(res, 207, xml);
 });
 
-router.get('/:userId/:calendarId/:filename', async (req, res) => {
+router.get('/:userId/:calendarId/:filename', async (req: Request, res: Response) => {
   if (req.params.userId !== req.caldavUserId) return res.status(403).end();
   const uid = req.params.filename;
   const result = await query(
@@ -254,7 +255,7 @@ router.get('/:userId/:calendarId/:filename', async (req, res) => {
   res.set({ ETag: `"${event.etag}"`, 'Content-Type': 'text/calendar; charset=utf-8' }).send(event.raw_ical);
 });
 
-router.put('/:userId/:calendarId/:filename', async (req, res) => {
+router.put('/:userId/:calendarId/:filename', async (req: Request, res: Response) => {
   if (req.params.userId !== req.caldavUserId) return res.status(403).end();
   const calendarResult = await query(
     'SELECT id, source, read_only FROM calendars WHERE id = $1 AND user_id = $2',
@@ -298,7 +299,7 @@ router.put('/:userId/:calendarId/:filename', async (req, res) => {
      res.setHeader('ETag', `"${stored.rows[0].etag}"`).status(current ? 204 : 201).end();
 });
 
-router.delete('/:userId/:calendarId/:filename', async (req, res) => {
+router.delete('/:userId/:calendarId/:filename', async (req: Request, res: Response) => {
   if (req.params.userId !== req.caldavUserId) return res.status(403).end();
   const calendarResult = await query('SELECT id, source, read_only FROM calendars WHERE id = $1 AND user_id = $2', [req.params.calendarId, req.caldavUserId]);
   const calendar = calendarResult.rows[0];

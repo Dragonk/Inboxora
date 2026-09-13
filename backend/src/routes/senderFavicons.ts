@@ -3,8 +3,9 @@ import { requireAuth } from '../middleware/auth.js';
 import { query } from '../services/db.js';
 import { consume } from '../services/rateLimiter.js';
 import { getSenderFavicon, normalizeSenderDomain } from '../services/senderFavicon.js';
+import type { Request, Response, NextFunction } from 'express';
 
-function setPrivateNoStore(res) {
+function setPrivateNoStore(res: Response) {
   res.set('Cache-Control', 'private, no-store');
 }
 
@@ -39,7 +40,7 @@ export function createSenderFaviconHandler({
 }
 
 const router = Router();
-router.use((_req, res, next) => {
+router.use((_req: Request, res: Response, next: NextFunction) => {
   setPrivateNoStore(res);
   next();
 });

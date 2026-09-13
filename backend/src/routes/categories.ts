@@ -6,6 +6,7 @@ import { validateHost } from '../services/hostValidation.js';
 import { safeFetch } from '../services/safeFetch.js';
 import { routeParam, sessionUserId } from '../utils/query.js';
 import { toAppError } from '../utils/errors.js';
+import type { Request, Response } from 'express';
 
 const router = Router();
 
@@ -67,7 +68,7 @@ async function fetchDomainList(url: string) {
 
 // ── List sources ──────────────────────────────────────────────────────────────
 
-router.get('/categories/sources', requireAuth, async (req, res) => {
+router.get('/categories/sources', requireAuth, async (req: Request, res: Response) => {
   const result = await query(
     `SELECT id, source_type, value, label, enabled,
             array_length(resolved_domains, 1) AS domain_count,
@@ -82,7 +83,7 @@ router.get('/categories/sources', requireAuth, async (req, res) => {
 
 // ── Add source ────────────────────────────────────────────────────────────────
 
-router.post('/categories/sources', requireAuth, async (req, res) => {
+router.post('/categories/sources', requireAuth, async (req: Request, res: Response) => {
   const { sourceType, value, label } = req.body;
 
   if (!['manual', 'builtin', 'url'].includes(sourceType)) {
@@ -148,7 +149,7 @@ router.post('/categories/sources', requireAuth, async (req, res) => {
 
 // ── Toggle enabled ─────────────────────────────────────────────────────────────
 
-router.patch('/categories/sources/:id', requireAuth, async (req, res) => {
+router.patch('/categories/sources/:id', requireAuth, async (req: Request, res: Response) => {
   const { enabled } = req.body;
   if (typeof enabled !== 'boolean') return res.status(400).json({ error: 'enabled must be boolean' });
 
@@ -166,7 +167,7 @@ router.patch('/categories/sources/:id', requireAuth, async (req, res) => {
 
 // ── Delete source ─────────────────────────────────────────────────────────────
 
-router.delete('/categories/sources/:id', requireAuth, async (req, res) => {
+router.delete('/categories/sources/:id', requireAuth, async (req: Request, res: Response) => {
   const result = await query(
     'DELETE FROM category_list_sources WHERE id = $1 AND user_id = $2 RETURNING id',
     [req.params.id, req.session.userId]
@@ -179,7 +180,7 @@ router.delete('/categories/sources/:id', requireAuth, async (req, res) => {
 
 // ── Refresh URL subscription ──────────────────────────────────────────────────
 
-router.post('/categories/sources/:id/refresh', requireAuth, async (req, res) => {
+router.post('/categories/sources/:id/refresh', requireAuth, async (req: Request, res: Response) => {
   const check = await query(
     'SELECT id, source_type, value FROM category_list_sources WHERE id = $1 AND user_id = $2',
     [req.params.id, req.session.userId]
@@ -203,7 +204,7 @@ router.post('/categories/sources/:id/refresh', requireAuth, async (req, res) => 
 
 // ── Re-categorize account messages ───────────────────────────────────────────
 
-router.post('/categories/recategorize/:accountId', requireAuth, async (req, res) => {
+router.post('/categories/recategorize/:accountId', requireAuth, async (req: Request, res: Response) => {
   const check = await query(
     `SELECT ea.id FROM email_accounts ea
      JOIN users u ON u.id = ea.user_id
@@ -233,7 +234,7 @@ router.post('/categories/recategorize/:accountId', requireAuth, async (req, res)
 
 const UUID_RE_CAT = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
-router.post('/categories/ai-classify/:messageId', requireAuth, async (req, res) => {
+router.post('/categories/ai-classify/:messageId', requireAuth, async (req: Request, res: Response) => {
   const messageId = routeParam(req.params.messageId);
   if (!UUID_RE_CAT.test(messageId)) return res.status(400).json({ error: 'Invalid message id' });
 

@@ -3,6 +3,7 @@ import { query } from '../services/db.js';
 import { requireAuth } from '../middleware/auth.js';
 import { resolveAccountScope } from '../services/unifiedInbox.js';
 import { queryString, queryInt } from '../utils/query.js';
+import type { Request, Response, NextFunction } from 'express';
 
 const router = Router();
 router.use(requireAuth);
@@ -16,7 +17,7 @@ setInterval(() => {
   }
 }, 60_000);
 
-function searchLimiter(req, res, next) {
+function searchLimiter(req: Request, res: Response, next: NextFunction) {
   const key = req.session.userId;
   const now = Date.now();
   const b = searchBuckets.get(key);
@@ -125,7 +126,7 @@ export function freeTextTermCondition(likeIdx, ftsIdx) {
       )`;
 }
 
-router.get('/', searchLimiter, async (req, res) => {
+router.get('/', searchLimiter, async (req: Request, res: Response) => {
   const q = queryString(req.query.q) ?? '';
   const accountId = queryString(req.query.accountId);
   const limit = queryInt(req.query.limit, 50);
@@ -268,7 +269,7 @@ router.get('/', searchLimiter, async (req, res) => {
 // Priority: addresses the user has sent to (contacts table, ranked by send_count)
 // come first; inbound-only senders from messages fill remaining slots, with
 // obvious bulk/no-reply addresses filtered out.
-router.get('/contacts', searchLimiter, async (req, res) => {
+router.get('/contacts', searchLimiter, async (req: Request, res: Response) => {
   const q = queryString(req.query.q) ?? '';
   const trimmed = q.trim();
   if (!trimmed || trimmed.length < 2) return res.json({ contacts: [] });

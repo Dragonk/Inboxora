@@ -127,7 +127,7 @@ app.use(createBrowserCors({
 // matched route pattern (never the concrete URL, so no ids/PII and bounded
 // cardinality). Registered early so body-parse/session/routing are all included;
 // req.route is populated by the time 'finish' fires. Behavior-neutral.
-app.use((req, res, next) => {
+app.use((req: Request, res: Response, next: NextFunction) => {
   const start = process.hrtime.bigint();
   res.on('finish', () => {
     const ms = Number(process.hrtime.bigint() - start) / 1e6;
@@ -140,7 +140,7 @@ app.use((req, res, next) => {
 });
 
 // Security headers on every response
-app.use((req, res, next) => {
+app.use((req: Request, res: Response, next: NextFunction) => {
   res.setHeader('X-Content-Type-Options', 'nosniff');
   res.setHeader('X-Frame-Options', 'DENY');
   res.setHeader('Referrer-Policy', 'same-origin');
@@ -170,7 +170,7 @@ app.use(sessionMiddleware);
 // (/carddav) and OAuth flows (/oauth) are mounted outside /api and use their own
 // auth, so they are intentionally not gated here.
 const CSRF_SAFE_METHODS = new Set(['GET', 'HEAD', 'OPTIONS']);
-app.use('/api', (req, res, next) => {
+app.use('/api', (req: Request, res: Response, next: NextFunction) => {
   if (CSRF_SAFE_METHODS.has(req.method)) return next();
   if (req.get('X-Requested-With')) return next();
   return res.status(403).json({ error: 'Missing required X-Requested-With header' });
@@ -181,7 +181,7 @@ app.use('/api', (req, res, next) => {
 // 423 Locked until the PIN is verified (routes/auth.js sets req.session.locked).
 // Matches the full path (minus query) so it can't fail open on mount-relative paths.
 const LOCK_ALLOWED = new Set(['/api/auth/unlock', '/api/auth/logout', '/api/auth/me', '/api/health', '/api/version']);
-app.use('/api', (req, res, next) => {
+app.use('/api', (req: Request, res: Response, next: NextFunction) => {
   if (req.session?.locked && !LOCK_ALLOWED.has(req.originalUrl.split('?')[0])) {
     return res.status(423).json({ error: 'Locked', locked: true });
   }
@@ -243,17 +243,17 @@ app.use('/api/diagnostics', diagnosticsRoutes);
 // CardDAV server — body is read lazily inside each handler via rawBody()
 app.use('/carddav', carddavRouter);
 // RFC 6764 well-known redirect — handle all methods so PROPFIND probes also redirect
-app.all('/.well-known/carddav', (req, res) => res.redirect(308, '/carddav/'));
+app.all('/.well-known/carddav', (req: Request, res: Response) => res.redirect(308, '/carddav/'));
 // CalDAV server — shares dedicated DAV application-password authentication with CardDAV.
 app.use('/caldav', caldavRouter);
 // RFC 6764 well-known redirect — DAV clients commonly start discovery here.
-app.all('/.well-known/caldav', (req, res) => res.redirect(308, '/caldav/'));
+app.all('/.well-known/caldav', (req: Request, res: Response) => res.redirect(308, '/caldav/'));
 
-app.get('/api/health', (req, res) => res.json({ status: 'ok' }));
-app.get('/api/version', (_req, res) => res.json({ version: APP_VERSION, sha: process.env.BUILD_SHA || 'dev' }));
+app.get('/api/health', (req: Request, res: Response) => res.json({ status: 'ok' }));
+app.get('/api/version', (_req: Request, res: Response) => res.json({ version: APP_VERSION, sha: process.env.BUILD_SHA || 'dev' }));
 // Server-side update check (#261). Cached in updateCheck.js so repeated hits never
 // re-query GitHub; the browser only talks to Inboxora. Never throws into the response.
-app.get('/api/update', async (_req, res) => {
+app.get('/api/update', async (_req: Request, res: Response) => {
   try { res.json(await getUpdateStatus(APP_VERSION)); }
   catch { res.json({ current: APP_VERSION, latest: null, updateAvailable: false, disabled: false }); }
 });

@@ -8,6 +8,7 @@ import { applyConversationAction, applyBulkConversationAction } from '../service
 import { normalizeMessageId } from '../services/threading/normalizeMessageId.js';
 import { routeParam, sessionUserId } from '../utils/query.js';
 import { toAppError } from '../utils/errors.js';
+import type { Request, Response } from 'express';
 
 const router = Router();
 router.use(requireAuth);
@@ -35,7 +36,7 @@ function encodeCursor(row) {
   return Buffer.from(JSON.stringify({ date: row.sort_date, id: row.conversation_id })).toString('base64url');
 }
 
-router.get('/conversations', async (req, res) => {
+router.get('/conversations', async (req: Request, res: Response) => {
   const userId = req.session.userId;
   const {
     accountId,
@@ -182,7 +183,7 @@ router.get('/conversations', async (req, res) => {
   res.json({ conversations: result.rows, nextCursor, total: result.rows[0]?.total_count || 0 });
 });
 
-router.get('/conversations/:id', async (req, res) => {
+router.get('/conversations/:id', async (req: Request, res: Response) => {
   const client = await pool.connect();
   try {
     const owned = await client.query('SELECT account_id FROM conversations WHERE id = $1 AND user_id = $2', [req.params.id, req.session.userId]);
@@ -223,7 +224,7 @@ router.get('/conversations/:id', async (req, res) => {
   } finally { client.release(); }
 });
 
-router.get('/conversations/:conversationId/logical-messages/:logicalMessageId/body', async (req, res) => {
+router.get('/conversations/:conversationId/logical-messages/:logicalMessageId/body', async (req: Request, res: Response) => {
   const client = await pool.connect();
   try {
     const owned = await client.query('SELECT account_id FROM conversations WHERE id = $1 AND user_id = $2', [req.params.conversationId, req.session.userId]);
@@ -265,7 +266,7 @@ router.get('/conversations/:conversationId/logical-messages/:logicalMessageId/bo
 // normalizer, then candidates are restricted to the requested managed account before
 // ambiguity is evaluated. Copy preference is permitted only after the account-local
 // LogicalMessage/conversation identity is proven unique.
-router.get('/messages/:ref/conversation', async (req, res) => {
+router.get('/messages/:ref/conversation', async (req: Request, res: Response) => {
   const ref = req.params.ref;
   const byPhysicalCopy = isUuid(ref);
   const canonicalMessageId = byPhysicalCopy ? null : normalizeMessageId(ref);
@@ -337,25 +338,25 @@ async function runAction(req, res, action, extra = {}) {
   }
 }
 
-router.post('/conversations/:id/archive', (req, res) => runAction(req, res, 'archive'));
-router.post('/conversations/:id/delete', (req, res) => runAction(req, res, 'delete'));
-router.post('/conversations/:id/move', (req, res) => runAction(req, res, 'move', { targetFolder: req.body?.targetFolder }));
-router.post('/conversations/:id/read', (req, res) => runAction(req, res, 'read', { isRead: req.body?.isRead }));
-router.post('/conversations/:id/star', (req, res) => runAction(req, res, 'star', { isStarred: req.body?.isStarred }));
+router.post('/conversations/:id/archive', (req: Request, res: Response) => runAction(req, res, 'archive'));
+router.post('/conversations/:id/delete', (req: Request, res: Response) => runAction(req, res, 'delete'));
+router.post('/conversations/:id/move', (req: Request, res: Response) => runAction(req, res, 'move', { targetFolder: req.body?.targetFolder }));
+router.post('/conversations/:id/read', (req: Request, res: Response) => runAction(req, res, 'read', { isRead: req.body?.isRead }));
+router.post('/conversations/:id/star', (req: Request, res: Response) => runAction(req, res, 'star', { isStarred: req.body?.isStarred }));
 
-router.post('/conversations/bulk-archive', async (req, res) => {
+router.post('/conversations/bulk-archive', async (req: Request, res: Response) => {
   try { res.json(await applyBulkConversationAction({ userId: sessionUserId(req), conversationIds: req.body?.conversationIds, items: req.body?.items, scope: req.body?.scope || 'THIS_COPY', action: 'archive', imapManager: req.app.get('imapManager') })); }
   catch (err) { res.status(err.statusCode || 400).json({ error: err.message }); }
 });
-router.post('/conversations/bulk-delete', async (req, res) => {
+router.post('/conversations/bulk-delete', async (req: Request, res: Response) => {
   try { res.json(await applyBulkConversationAction({ userId: sessionUserId(req), conversationIds: req.body?.conversationIds, items: req.body?.items, scope: req.body?.scope || 'THIS_COPY', action: 'delete', imapManager: req.app.get('imapManager') })); }
   catch (err) { res.status(err.statusCode || 400).json({ error: err.message }); }
 });
-router.post('/conversations/bulk-read', async (req, res) => {
+router.post('/conversations/bulk-read', async (req: Request, res: Response) => {
   try { res.json(await applyBulkConversationAction({ userId: sessionUserId(req), conversationIds: req.body?.conversationIds, items: req.body?.items, scope: req.body?.scope || 'THIS_COPY', action: 'read', isRead: req.body?.isRead, imapManager: req.app.get('imapManager') })); }
   catch (err) { res.status(err.statusCode || 400).json({ error: err.message }); }
 });
-router.post('/conversations/bulk-move', async (req, res) => {
+router.post('/conversations/bulk-move', async (req: Request, res: Response) => {
   try { res.json(await applyBulkConversationAction({ userId: sessionUserId(req), conversationIds: req.body?.conversationIds, items: req.body?.items, scope: req.body?.scope || 'THIS_COPY', action: 'move', targetFolder: req.body?.targetFolder, imapManager: req.app.get('imapManager') })); }
   catch (err) { res.status(err.statusCode || 400).json({ error: err.message }); }
 });
@@ -372,7 +373,7 @@ import { applyConversationOverride } from '../services/conversationOverrides.js'
 // which handles alias resolution, cycle guard, deterministic locks, provider
 // mappings, evidence reconciliation, overrides reconciliation, aggregate
 // refresh, and cross-conversation edge protection.
-router.post('/conversations/:id/merge', async (req, res) => {
+router.post('/conversations/:id/merge', async (req: Request, res: Response) => {
   const { targetConversationId } = req.body || {};
   if (!targetConversationId) return res.status(400).json({ error: 'targetConversationId required' });
   try {
@@ -393,7 +394,7 @@ router.post('/conversations/:id/merge', async (req, res) => {
 // Split: split a logical message (and optionally its replies) into a new conversation.
 // Delegates to the service layer which handles kind='manual_conversation',
 // cross-conversation edge cleanup, and aggregate refresh.
-router.post('/conversations/:id/logical-messages/:logicalMessageId/split', async (req, res) => {
+router.post('/conversations/:id/logical-messages/:logicalMessageId/split', async (req: Request, res: Response) => {
   const { includeReplies = false } = req.body || {};
   try {
     const result = await applyConversationOverride({
@@ -413,7 +414,7 @@ router.post('/conversations/:id/logical-messages/:logicalMessageId/split', async
 
 // Move a logical message to a different conversation. Delegates to the service
 // layer which handles cross-conversation edge cleanup and aggregate refresh.
-router.post('/conversations/:id/logical-messages/:logicalMessageId/move', async (req, res) => {
+router.post('/conversations/:id/logical-messages/:logicalMessageId/move', async (req: Request, res: Response) => {
   const { targetConversationId } = req.body || {};
   if (!targetConversationId) return res.status(400).json({ error: 'targetConversationId required' });
   try {
@@ -433,7 +434,7 @@ router.post('/conversations/:id/logical-messages/:logicalMessageId/move', async 
 });
 
 // Lock/unlock conversation — delegates to service which uses manually_locked.
-router.post('/conversations/:id/lock', async (req, res) => {
+router.post('/conversations/:id/lock', async (req: Request, res: Response) => {
   try {
     const result = await applyConversationOverride({
       userId: req.session.userId,
@@ -448,7 +449,7 @@ router.post('/conversations/:id/lock', async (req, res) => {
   }
 });
 
-router.post('/conversations/:id/unlock', async (req, res) => {
+router.post('/conversations/:id/unlock', async (req: Request, res: Response) => {
   try {
     const result = await applyConversationOverride({
       userId: req.session.userId,
@@ -464,7 +465,7 @@ router.post('/conversations/:id/unlock', async (req, res) => {
 });
 
 // Force include/exclude a logical message in/from a conversation
-router.post('/conversations/:id/logical-messages/:logicalMessageId/force-include', async (req, res) => {
+router.post('/conversations/:id/logical-messages/:logicalMessageId/force-include', async (req: Request, res: Response) => {
   const result = await applyConversationOverride({
     userId: req.session.userId,
     conversationId: req.params.id,
@@ -476,7 +477,7 @@ router.post('/conversations/:id/logical-messages/:logicalMessageId/force-include
   res.status(201).json(result);
 });
 
-router.post('/conversations/:id/logical-messages/:logicalMessageId/force-exclude', async (req, res) => {
+router.post('/conversations/:id/logical-messages/:logicalMessageId/force-exclude', async (req: Request, res: Response) => {
   const result = await applyConversationOverride({
     userId: req.session.userId,
     conversationId: req.params.id,
@@ -488,7 +489,7 @@ router.post('/conversations/:id/logical-messages/:logicalMessageId/force-exclude
 });
 
 // Diagnostics: "Why is this grouped?"
-router.get('/conversations/:id/diagnostics', async (req, res) => {
+router.get('/conversations/:id/diagnostics', async (req: Request, res: Response) => {
   const client = await pool.connect();
   try {
     const owned = await client.query('SELECT account_id FROM conversations WHERE id = $1 AND user_id = $2', [req.params.id, req.session.userId]);

@@ -5,6 +5,7 @@ import bcrypt from 'bcryptjs';
 import { query } from '../services/db.js';
 import { requireAuth } from '../middleware/auth.js';
 import { encrypt } from '../services/encryption.js';
+import type { Request, Response, NextFunction } from 'express';
 
 const router = Router();
 router.use(requireAuth);
@@ -18,7 +19,7 @@ setInterval(() => {
   }
 }, 5 * 60 * 1000);
 
-function totpLimiter(req, res, next) {
+function totpLimiter(req: Request, res: Response, next: NextFunction) {
   const key = req.session.userId;
   const now = Date.now();
   const bucket = totpBuckets.get(key);
@@ -35,7 +36,7 @@ function totpLimiter(req, res, next) {
 }
 
 // GET /api/totp/setup — generate a new TOTP secret and QR code
-router.get('/setup', async (req, res) => {
+router.get('/setup', async (req: Request, res: Response) => {
   const userResult = await query('SELECT username FROM users WHERE id = $1', [req.session.userId]);
   const username = userResult.rows[0]?.username || 'user';
 
@@ -51,7 +52,7 @@ router.get('/setup', async (req, res) => {
 });
 
 // POST /api/totp/enable — verify a code against the pending secret and save it
-router.post('/enable', totpLimiter, async (req, res) => {
+router.post('/enable', totpLimiter, async (req: Request, res: Response) => {
   const { code } = req.body;
   if (!code) return res.status(400).json({ error: 'Code required' });
 
@@ -79,14 +80,14 @@ router.post('/enable', totpLimiter, async (req, res) => {
 });
 
 // POST /api/totp/cancel — discard a pending setup without enabling TOTP
-router.post('/cancel', (req, res) => {
+router.post('/cancel', (req: Request, res: Response) => {
   delete req.session.pendingTOTPSecret;
   delete req.session.pendingTOTPExpiry;
   res.json({ ok: true });
 });
 
 // POST /api/totp/disable — disable 2FA after confirming password
-router.post('/disable', totpLimiter, async (req, res) => {
+router.post('/disable', totpLimiter, async (req: Request, res: Response) => {
   const { password } = req.body;
   if (!password) return res.status(400).json({ error: 'Password required' });
 

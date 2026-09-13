@@ -13,6 +13,7 @@ import { discoverAddressBooks } from '../services/carddavClient.js';
 import { syncUser, scheduleCardavUser, stopCardavUser, getCardavConfig } from '../services/carddavSync.js';
 import { sessionUserId } from '../utils/query.js';
 import { toAppError } from '../utils/errors.js';
+import type { Request, Response } from 'express';
 
 const router = Router();
 router.use(requireAuth);
@@ -36,11 +37,11 @@ function publicStatus(config) {
   };
 }
 
-router.get('/', async (req, res) => {
+router.get('/', async (req: Request, res: Response) => {
   res.json(publicStatus(await getCardavConfig(sessionUserId(req))));
 });
 
-router.post('/connect', async (req, res) => {
+router.post('/connect', async (req: Request, res: Response) => {
   const { serverUrl, username, password, dupMode, intervalMin } = req.body || {};
   if (!serverUrl || !username || !password) {
     return res.status(400).json({ error: 'Server URL, username, and password are required' });
@@ -98,7 +99,7 @@ router.post('/connect', async (req, res) => {
 });
 
 // Update duplicate handling / interval (and optionally rotate the password).
-router.patch('/', async (req, res) => {
+router.patch('/', async (req: Request, res: Response) => {
   const existing = await getCardavConfig(sessionUserId(req));
   if (!existing?.serverUrl) return res.status(409).json({ error: 'CardDAV not connected' });
 
@@ -117,14 +118,14 @@ router.patch('/', async (req, res) => {
   res.json(publicStatus({ ...existing, ...patch }));
 });
 
-router.post('/sync', async (req, res) => {
+router.post('/sync', async (req: Request, res: Response) => {
   const config = await getCardavConfig(sessionUserId(req));
   if (!config?.serverUrl) return res.status(409).json({ error: 'CardDAV not connected' });
   const result = await syncUser(sessionUserId(req));
   res.json({ ...result, status: publicStatus(await getCardavConfig(sessionUserId(req))) });
 });
 
-router.delete('/', async (req, res) => {
+router.delete('/', async (req: Request, res: Response) => {
   stopCardavUser(sessionUserId(req));
   // Remove the synced (read-only) address books; contacts cascade with them.
   await query(

@@ -2,11 +2,12 @@ import { Router } from 'express';
 import { query } from '../services/db.js';
 import { requireAuth } from '../middleware/auth.js';
 import { toAppError } from '../utils/errors.js';
+import type { Request, Response } from 'express';
 
 const router = Router();
 router.use(requireAuth);
 
-router.get('/', async (req, res) => {
+router.get('/', async (req: Request, res: Response) => {
   try {
     const result = await query(
       'SELECT * FROM block_list WHERE user_id = $1 ORDER BY created_at DESC',
@@ -20,7 +21,7 @@ router.get('/', async (req, res) => {
   }
 });
 
-router.post('/', async (req, res) => {
+router.post('/', async (req: Request, res: Response) => {
   const { emailAddress } = req.body;
   if (!emailAddress || typeof emailAddress !== 'string' || !emailAddress.trim()) {
     return res.status(400).json({ error: 'emailAddress is required' });
@@ -45,7 +46,7 @@ router.post('/', async (req, res) => {
   }
 });
 
-router.delete('/:id', async (req, res) => {
+router.delete('/:id', async (req: Request, res: Response) => {
   try {
     const result = await query(
       'DELETE FROM block_list WHERE id = $1 AND user_id = $2 RETURNING id',

@@ -4,6 +4,7 @@ import { requireAuth } from '../middleware/auth.js';
 import { encrypt, decrypt } from '../services/encryption.js';
 import { sessionUserId } from '../utils/query.js';
 import { toAppError } from '../utils/errors.js';
+import type { Request, Response } from 'express';
 
 interface TodoistListResponse { results?: unknown[] }
 interface TodoistTask { id?: string; content?: string }
@@ -47,7 +48,7 @@ async function todoistFetch<T = unknown>(token: string, method: string, path: st
 }
 
 // GET /api/todoist/status
-router.get('/status', async (req, res) => {
+router.get('/status', async (req: Request, res: Response) => {
   try {
     const result = await query(
       "SELECT id FROM user_integrations WHERE user_id = $1 AND provider = 'todoist'",
@@ -61,7 +62,7 @@ router.get('/status', async (req, res) => {
 });
 
 // POST /api/todoist/connect
-router.post('/connect', async (req, res) => {
+router.post('/connect', async (req: Request, res: Response) => {
   const { token } = req.body;
   if (!token || typeof token !== 'string' || !token.trim()) {
     return res.status(400).json({ error: 'API token is required' });
@@ -95,7 +96,7 @@ router.post('/connect', async (req, res) => {
 });
 
 // DELETE /api/todoist/disconnect
-router.delete('/disconnect', async (req, res) => {
+router.delete('/disconnect', async (req: Request, res: Response) => {
   try {
     await query(
       "DELETE FROM user_integrations WHERE user_id = $1 AND provider = 'todoist'",
@@ -109,7 +110,7 @@ router.delete('/disconnect', async (req, res) => {
 });
 
 // GET /api/todoist/projects
-router.get('/projects', async (req, res) => {
+router.get('/projects', async (req: Request, res: Response) => {
   try {
     const token = await getTodoistToken(sessionUserId(req));
     const data = await todoistFetch<TodoistListResponse>(token, 'GET', '/projects');
@@ -121,7 +122,7 @@ router.get('/projects', async (req, res) => {
 });
 
 // GET /api/todoist/labels
-router.get('/labels', async (req, res) => {
+router.get('/labels', async (req: Request, res: Response) => {
   try {
     const token = await getTodoistToken(sessionUserId(req));
     const data = await todoistFetch<TodoistListResponse>(token, 'GET', '/labels');
@@ -133,7 +134,7 @@ router.get('/labels', async (req, res) => {
 });
 
 // POST /api/todoist/tasks
-router.post('/tasks', async (req, res) => {
+router.post('/tasks', async (req: Request, res: Response) => {
   try {
     const token = await getTodoistToken(sessionUserId(req));
     const { content, description, project_id, labels, priority, due_string, due_date } = req.body;
