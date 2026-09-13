@@ -1,21 +1,29 @@
 let installed = false;
-let plugin = null;
-let registerNativePlugin = null;
-let installPromise = null;
+/** A handle returned by a plugin listener registration. */
+interface NativePluginHandle { remove?(): void }
+
+type NativePlugin = Record<string, (args?: unknown, extra?: unknown) => Promise<unknown>> & {
+  addListener?(event: string, listener: (payload: unknown) => void): Promise<NativePluginHandle>;
+};
+let plugin: NativePlugin | null = null;
+let registerNativePlugin: ((name: string) => NativePlugin) | null = null;
+let installPromise: Promise<boolean> | null = null;
 let pluginUnavailable = false;
 
-function getPlugin() {
+function getPlugin(): NativePlugin {
   if (plugin) return plugin;
+  if (!registerNativePlugin) throw new Error('native bridge is not installed');
   plugin = registerNativePlugin('InboxoraNative');
   return plugin;
 }
 
-async function callNative(method, args = undefined, fallback = null) {
+async function callNative<T>(method: string, args: unknown = undefined, fallback: T | null = null): Promise<T | null> {
   if (pluginUnavailable) return fallback;
 
   try {
     const InboxoraNative = getPlugin();
-    return await InboxoraNative[method](args);
+    // The native side is untyped by definition; the caller declares the shape it expects.
+    return (await InboxoraNative[method](args)) as T;
   } catch (error) {
     if (String(error?.message || error).includes('not implemented')) {
       pluginUnavailable = true;
@@ -24,7 +32,7 @@ async function callNative(method, args = undefined, fallback = null) {
   }
 }
 
-export async function installCapacitorNativeBridge() {
+export async function installCapacitorNativeBridge(): Promise<boolean> {
   if (installed) return true;
   if (installPromise) return installPromise;
 
@@ -41,11 +49,11 @@ export async function installCapacitorNativeBridge() {
       ...existingBridge,
       platform: 'android',
       getHost: async () => {
-        const result = await callNative('getHost', undefined, {});
+        const result = await callNative<{ host?: string | null }>('getHost', undefined, {});
         return result?.host || null;
       },
       saveHost: async (host) => {
-        const result = await callNative('saveHost', { host }, { host });
+        const result = await callNative<{ host?: string | null }>('saveHost', { host }, { host });
         return result?.host || host;
       },
       resetHost: async () => callNative('resetHost'),
@@ -71,12 +79,14 @@ export async function installCapacitorNativeBridge() {
       notifications: {
         ...existingBridge.notifications,
         checkPermission: async () => {
-          const result = await callNative('checkNotificationPermission', undefined, {});
-          return result?.permission || 'default';
+          const result = await callNative<{ permission?: string }>('checkNotificationPermission', undefined, {});
+          const permission = result?.permission;
+          return permission === 'granted' || permission === 'denied' ? permission : 'default';
         },
         requestPermission: async () => {
-          const result = await callNative('requestNotificationPermission', undefined, {});
-          return result?.permission || 'default';
+          const result = await callNative<{ permission?: string }>('requestNotificationPermission', undefined, {});
+          const permission = result?.permission;
+          return permission === 'granted' || permission === 'denied' ? permission : 'default';
         },
         openSettings: async () => callNative('openNotificationSettings'),
         showNewMail: async (notification) => callNative('showNewMail', notification || {}),
@@ -93,7 +103,7 @@ export async function installCapacitorNativeBridge() {
       actions: {
         ...existingBridge.actions,
         getPending: async () => {
-          const result = await callNative('getPendingActions', undefined, {});
+          const result = await callNative<{ actions?: Array<{ id?: string; type?: string; [key: string]: unknown }> }>('getPendingActions', undefined, {});
           return result?.actions || [];
         },
         ack: async (id) => callNative('ackAction', { id }),

@@ -20,14 +20,16 @@ export const AGENDA_WIDTH_MIN = 200;
 export const AGENDA_WIDTH_MAX = 560;
 export const AGENDA_WIDTH_STORAGE_KEY = 'mailflow_agenda_width';
 
-export function clampPanelWidth(value, { min = PANEL_WIDTH_MIN, max = PANEL_WIDTH_MAX } = {}) {
+export function clampPanelWidth(value: unknown, { min = PANEL_WIDTH_MIN, max = PANEL_WIDTH_MAX }: { min?: number; max?: number } = {}): number | null {
   const width = Number(value);
   if (!Number.isFinite(width) || width <= 0) return null;
   return Math.round(Math.min(max, Math.max(min, width)));
 }
 
 // One independently persisted, CSS-variable-backed width.
-function createWidthChannel({ variable, storageKey, fallback, min = PANEL_WIDTH_MIN, max = PANEL_WIDTH_MAX }) {
+interface WidthChannelOptions { variable: string; storageKey: string; fallback: number; min?: number; max?: number }
+
+function createWidthChannel({ variable, storageKey, fallback, min = PANEL_WIDTH_MIN, max = PANEL_WIDTH_MAX }: WidthChannelOptions) {
   const clamp = value => clampPanelWidth(value, { min, max });
 
   const readVariable = () => {
