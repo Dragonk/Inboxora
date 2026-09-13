@@ -2971,7 +2971,7 @@ export class ImapManager {
         const maxKnownUid = Number(max_uid);
 
         const manager = this;
-        let newMessages = [];
+        let newMessages: Array<{ id: string; accountId: string; folder: string; fromEmail?: string | null; isBulk?: boolean; [key: string]: unknown }> = [];
         let insertedCount = 0;
         let broadcastedNewMessages = false;
 
@@ -3014,7 +3014,7 @@ export class ImapManager {
               console.warn(`Message sync skipped: IMAP FETCH returned no UID for ${account.email}/${folder}`);
               return;
             }
-            let safeHtml = null, text = null, atts = [];
+            let safeHtml: string | null = null; let text: string | null = null; let atts: unknown[] = [];
             if (prefetchBody && provider.fetchBody) {
               const body = extractBodyFromMsg(msg);
               safeHtml = body.html ? sanitizeEmail(body.html) : null;
@@ -3691,7 +3691,7 @@ export class ImapManager {
                   console.warn(`Backfill skipped: IMAP FETCH returned no UID for ${account.email}/${folder}`);
                   continue;
                 }
-                let safeHtml = null, bodyText = null, atts = [];
+                let safeHtml: string | null = null; let bodyText: string | null = null; let atts: unknown[] = [];
 
                 if (cfg.fetchBody) {
                   const body = extractBodyFromMsg(msg);

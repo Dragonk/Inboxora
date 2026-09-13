@@ -22,7 +22,7 @@ const setPluginActivated = vi.mocked(__mock_setPluginActivated);
 
 const MANIFEST: PluginManifest = { id: 'gtd', name: 'Getting Things Done', version: '1.0.0', tier: 1 };
 
-let listSpy, hasSpy, runHookSpy;
+let listSpy: ReturnType<typeof vi.spyOn>, hasSpy: ReturnType<typeof vi.spyOn>, runHookSpy: ReturnType<typeof vi.spyOn>;
 
 function buildApp() {
   const app = express();

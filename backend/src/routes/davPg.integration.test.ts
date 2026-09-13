@@ -10,9 +10,11 @@ vi.mock('../services/rateLimiter.js', () => ({ consume: async () => ({ limited: 
 vi.mock('../services/authEvents.js', () => ({ logAuthEvent: () => {} }));
 import carddav from './carddav.js';
 import caldav from './caldav.js';
+import type { Server } from 'node:http';
+import { listeningPort } from '../test/net.js';
 const enabled = process.env.REQUIRE_DAV_POSTGRES === '1';
 describe.skipIf(!enabled)('DAV HTTP with PostgreSQL migrations', () => {
-  let server, base, book, calendar;
+  let server: Server, base: string, book: string, calendar: string;
   const headers = { authorization: `Basic ${Buffer.from('synthetic:dav-test').toString('base64')}` };
   const report = (token = '') => `<D:sync-collection xmlns:D="DAV:"><D:sync-token>${token || ''}</D:sync-token></D:sync-collection>`;
   beforeAll(async () => {
@@ -22,7 +24,7 @@ describe.skipIf(!enabled)('DAV HTTP with PostgreSQL migrations', () => {
     calendar = (await query("INSERT INTO calendars(user_id, owner_user_id, name) VALUES($1,$1,'DAV regression') RETURNING id", [auth.userId])).rows[0].id;
     const app = express(); app.use('/carddav', carddav); app.use('/caldav', caldav);
     await new Promise(resolve => { server = app.listen(0, '127.0.0.1', resolve); });
-    base = `http://127.0.0.1:${server.address().port}`;
+    base = `http://127.0.0.1:${listeningPort(server)}`;
   });
   afterAll(async () => {
     if (server) await new Promise(resolve => server.close(resolve));

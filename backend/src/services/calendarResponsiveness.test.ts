@@ -53,7 +53,7 @@ const TO = new Date('2026-09-15T00:00:00Z');
 // starvation signal: the loop was blocked for the whole measurement, which is
 // exactly what inline expansion does.
 function eventLoopLagWhile(work) {
-  const lags = [];
+  const lags: number[] = [];
   const interval = 10;
   let expected = performance.now() + interval;
   const timer = setInterval(() => {

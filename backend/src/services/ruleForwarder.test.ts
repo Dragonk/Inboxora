@@ -1,4 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
+import type { Mock } from 'vitest';
 
 vi.mock('./db.js', () => ({ query: vi.fn() }));
 vi.mock('./smtpTransport.js', () => ({
@@ -151,14 +152,14 @@ describe('buildForwardMessage', () => {
 });
 
 describe('forwardRuleMessage', () => {
-  let transport;
-  let imapManager;
-  let input;
+  let transport: { sendMail: Mock; verify: Mock };
+  let imapManager: { fetchMessageBody: Mock; fetchMultipleAttachments: Mock };
+  let input: Parameters<typeof forwardRuleMessage>[0];
 
   beforeEach(() => {
     vi.clearAllMocks();
     query.mockReset();
-    transport = { sendMail: vi.fn().mockResolvedValue({ accepted: true }) };
+    transport = { sendMail: vi.fn().mockResolvedValue({ accepted: true }), verify: vi.fn() };
     createAccountSmtpTransport.mockResolvedValue({ account, transport });
     imapManager = {
       fetchMessageBody: vi.fn(),

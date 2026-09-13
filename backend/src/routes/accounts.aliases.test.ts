@@ -26,7 +26,7 @@ const query = vi.mocked(__mock_query);
 // The route now signals identity changes through the generic `onAccountIdentityChanged` hook
 // (GTD's owner-address cache invalidation lives behind it), so we assert the hook dispatch as the
 // boundary rather than the plugin-internal cache call.
-let identityHook;
+let identityHook: ReturnType<typeof vi.spyOn>;
 
 const URL_ACCOUNT_ID = '11111111-1111-4111-8111-111111111111';
 const CHECKED_ACCOUNT_ID = '22222222-2222-4222-8222-222222222222';

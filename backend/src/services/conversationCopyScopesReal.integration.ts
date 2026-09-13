@@ -10,8 +10,8 @@ import { applyConversationAction } from './conversationActions.js';
 const cfg = { host: process.env.DB_HOST || 'localhost', port: Number(process.env.DB_PORT || 5432), database: process.env.DB_NAME || 'mailflow_test', user: process.env.DB_USER || 'test', password: process.env.DB_PASSWORD || 'test' };
 let pool: pg.Pool;
 let userId: string;
-let accountA;
-let accountB;
+let accountA: string;
+let accountB: string;
 const username = `ce-scope-${process.pid}-${Date.now()}`;
 
 async function q(sql: string, params: unknown[] = []): Promise<pg.QueryResult<pg.QueryResultRow>> { return pool.query(sql, params); }

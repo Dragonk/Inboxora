@@ -25,9 +25,9 @@ const enabled = process.env.REQUIRE_PUSH_POSTGRES === '1';
 describe.skipIf(!enabled)('push device registry with PostgreSQL', () => {
   let server: Server;
   let base = '';
-  let ownerId;
-  let otherId;
-  const sessions = { userId: null };
+  let ownerId: string;
+  let otherId: string;
+  const sessions: { userId: string | null } = { userId: null };
 
   beforeAll(async () => {
     ownerId = randomUUID();
@@ -144,7 +144,7 @@ describe.skipIf(!enabled)('push device registry with PostgreSQL', () => {
 
   it('delivers only the opaque event to a UnifiedPush endpoint (mock distributor)', async () => {
     sessions.userId = ownerId;
-    const received = [];
+    const received: Array<{ url: string; method: string; body: string }> = [];
     const mock = createServer((req, res) => {
       let body = '';
       req.on('data', (chunk) => { body += chunk; });

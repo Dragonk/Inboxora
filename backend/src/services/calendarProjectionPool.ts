@@ -107,8 +107,8 @@ function config() {
   };
 }
 
-let slots = null;
-let pending = [];
+let slots: Array<ReturnType<typeof spawnSlot>> | null = null;
+let pending = []; // typed with the projection job shape in a later pass
 let nextJobId = 1;
 let closing = false;
 
@@ -182,7 +182,7 @@ function spawnSlot(settings: ReturnType<typeof config>) {
 
 function ensureSlots(settings: ReturnType<typeof config>) {
   if (slots) return slots;
-  const created = [];
+  const created: Array<ReturnType<typeof spawnSlot>> = [];
   for (let index = 0; index < settings.workers; index += 1) {
     try {
       created.push(spawnSlot(settings));

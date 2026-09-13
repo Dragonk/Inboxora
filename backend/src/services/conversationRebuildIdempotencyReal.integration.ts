@@ -56,7 +56,7 @@ async function ceChecksum(pool, userId: string) {
 }
 
 describe('CE v2 Rebuild idempotency — real PostgreSQL', () => {
-  let userId, accountId;
+  let userId: string, accountId: string;
 
   beforeEach(async () => {
     // Clean
