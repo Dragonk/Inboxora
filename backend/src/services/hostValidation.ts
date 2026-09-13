@@ -1,0 +1,165 @@
+// @ts-nocheck
+import { isIPv4, isIPv6 } from 'net';
+import { promises as dnsPromises } from 'dns';
+
+function ipv4ToLong(ip) {
+  const parts = ip.split('.').map(Number);
+  return ((parts[0] << 24) | (parts[1] << 16) | (parts[2] << 8) | parts[3]) >>> 0;
+}
+
+function inCidr(ip, base, bits) {
+  const mask = bits === 0 ? 0 : ((~0 << (32 - bits)) >>> 0);
+  return (ipv4ToLong(ip) & mask) === (ipv4ToLong(base) & mask);
+}
+
+function isPrivateIPv4(ip) {
+  return (
+    inCidr(ip, '0.0.0.0', 8)      ||  // 0.x.x.x
+    inCidr(ip, '10.0.0.0', 8)     ||  // private
+    inCidr(ip, '100.64.0.0', 10)  ||  // CGNAT shared
+    inCidr(ip, '127.0.0.0', 8)    ||  // loopback
+    inCidr(ip, '169.254.0.0', 16) ||  // link-local (AWS metadata)
+    inCidr(ip, '172.16.0.0', 12)  ||  // private
+    inCidr(ip, '192.0.0.0', 24)   ||  // IETF protocol assignments
+    inCidr(ip, '192.168.0.0', 16) ||  // private
+    inCidr(ip, '198.18.0.0', 15)  ||  // benchmarking
+    inCidr(ip, '240.0.0.0', 4)    ||  // reserved
+    ip === '255.255.255.255'
+  );
+}
+
+function isPrivateIPv6(ip) {
+  const h = ip.toLowerCase();
+  if (h === '::1' || h.startsWith('fc') || h.startsWith('fd') || h.startsWith('fe80')) return true;
+  // IPv4-mapped IPv6 (::ffff:x.x.x.x) — check the embedded IPv4 address.
+  // Without this, ::ffff:127.0.0.1 bypasses the IPv4 private-range checks.
+  if (h.startsWith('::ffff:')) {
+    const embedded = h.slice(7);
+    if (isIPv4(embedded)) return isPrivateIPv4(embedded);
+  }
+  // 6to4 (2002::/16) — embeds an IPv4 address in bits 16-47.
+  // e.g. 2002:7f00:0001:: wraps 127.0.0.1 and bypasses IPv4 checks without this guard.
+  const sixToFour = h.match(/^2002:([0-9a-f]{1,4}):([0-9a-f]{1,4}):/);
+  if (sixToFour) {
+    const hi = parseInt(sixToFour[1].padStart(4, '0'), 16);
+    const lo = parseInt(sixToFour[2].padStart(4, '0'), 16);
+    const embedded = `${hi >> 8}.${hi & 0xff}.${lo >> 8}.${lo & 0xff}`;
+    if (isPrivateIPv4(embedded)) return true;
+  }
+  // Teredo (2001:0000::/32) — reject the entire prefix; Teredo tunnels UDP through NAT
+  // and can reach private ranges via the embedded server/client address fields.
+  if (/^2001:0{1,4}:/.test(h)) return true;
+  return false;
+}
+
+// Synchronous check: literal IPs and reserved hostnames.
+export function validateHostLiteral(host, { allowPrivate = false } = {}) {
+  if (!host || typeof host !== 'string') return null;
+  if (allowPrivate) return null;
+  const h = host.trim().toLowerCase();
+  if (h === 'localhost' || h.endsWith('.local') || h.endsWith('.localhost') || h.endsWith('.internal')) {
+    return 'Host cannot be a local address';
+  }
+  const bare = h.startsWith('[') && h.endsWith(']') ? h.slice(1, -1) : h;
+  if (isIPv4(bare) && isPrivateIPv4(bare)) return 'Host cannot be a private or reserved IP address';
+  if (isIPv6(bare) && isPrivateIPv6(bare)) return 'Host cannot be a private or reserved IP address';
+  return null;
+}
+
+// Async check: resolve A/AAAA records and reject any that are private/reserved.
+// Prevents SSRF via controlled hostnames that resolve to internal addresses.
+export async function validateHost(host, { allowPrivate = false } = {}) {
+  const literalErr = validateHostLiteral(host, { allowPrivate });
+  if (literalErr) return literalErr;
+
+  const h = host.trim().toLowerCase();
+  const bare = h.startsWith('[') && h.endsWith(']') ? h.slice(1, -1) : h;
+
+  // Already a literal IP — validated above.
+  if (isIPv4(bare) || isIPv6(bare)) return null;
+
+  // Resolve A and AAAA records. Ignore DNS errors — if the host can't be resolved,
+  // the IMAP/SMTP connection will fail naturally; the concern is hosts that DO resolve
+  // to private ranges.
+  const [v4, v6] = await Promise.all([
+    dnsPromises.resolve4(bare).catch(() => []),
+    dnsPromises.resolve6(bare).catch(() => []),
+  ]);
+
+  if (!allowPrivate) {
+    for (const addr of [...v4, ...v6]) {
+      if (isIPv4(addr) && isPrivateIPv4(addr)) return 'Host resolves to a private or reserved IP address';
+      if (isIPv6(addr) && isPrivateIPv6(addr)) return 'Host resolves to a private or reserved IP address';
+    }
+  }
+
+  return null;
+}
+
+export function createPinnedLookup(addresses) {
+  const candidates = addresses.map(address => ({
+    address,
+    family: isIPv4(address) ? 4 : 6,
+  }));
+
+  return (_hostname, options, callback) => {
+    if (typeof options === 'function') {
+      callback = options;
+      options = {};
+    }
+    const family = Number(options?.family) || 0;
+    const eligible = family ? candidates.filter(candidate => candidate.family === family) : candidates;
+    if (!eligible.length) {
+      const err = new Error('No validated address matches the requested family');
+      err.code = 'ENOTFOUND';
+      return callback(err);
+    }
+    if (options?.all) return callback(null, eligible.map(candidate => ({ ...candidate })));
+    callback(null, eligible[0].address, eligible[0].family);
+  };
+}
+
+// Resolves a hostname to public IPs for use as the only permitted connection targets,
+// closing the DNS rebinding TOCTOU window between validation and the real connect.
+//
+// `host` remains the first IP for callers that cannot use multi-address fallback. `lookup`
+// exposes the complete validated set without performing DNS again, while `servername`
+// preserves the original hostname for TLS SNI and certificate verification.
+//
+// Throws if the host is a reserved/private literal or if DNS resolves to a private range.
+// Pass { allowPrivate: true } to skip all private/local checks (for self-hosted servers).
+export async function resolveForConnection(hostname, { allowPrivate = false } = {}) {
+  const literalErr = validateHostLiteral(hostname, { allowPrivate });
+  if (literalErr) throw new Error(literalErr);
+
+  const h = hostname.trim();
+  const bare = h.startsWith('[') && h.endsWith(']') ? h.slice(1, -1) : h.toLowerCase();
+
+  // Already a literal IP — validated above, no DNS resolution needed.
+  if (isIPv4(bare) || isIPv6(bare)) return { host: h, servername: null };
+
+  const [v4, v6] = await Promise.all([
+    dnsPromises.resolve4(bare).catch(() => []),
+    dnsPromises.resolve6(bare).catch(() => []),
+  ]);
+
+  if (!allowPrivate) {
+    for (const addr of [...v4, ...v6]) {
+      if (isIPv4(addr) && isPrivateIPv4(addr)) throw new Error('Host resolves to a private or reserved IP address');
+      if (isIPv6(addr) && isPrivateIPv6(addr)) throw new Error('Host resolves to a private or reserved IP address');
+    }
+  }
+
+  const all = [...new Set([...v4, ...v6])];
+  // DNS failed — let the connection attempt fail naturally (NXDOMAIN etc.).
+  if (!all.length) return { host: h, servername: null };
+
+  // Expose only prevalidated addresses to the connection layer. No later DNS query can
+  // substitute an unvalidated target, and TLS still authenticates the original hostname.
+  return {
+    host: all[0],
+    servername: h,
+    addresses: all,
+    lookup: createPinnedLookup(all),
+  };
+}

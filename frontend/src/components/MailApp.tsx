@@ -1,0 +1,1113 @@
+// @ts-nocheck
+import { refreshUnreadCounts } from '../utils/unreadRefresh.ts';
+import { lazy, Suspense, useCallback, useEffect, useRef, useState } from 'react';
+import { useTranslation } from 'react-i18next';
+import { useStore } from '../store/index.ts';
+import { api } from '../utils/api.ts';
+import { conversationApi } from '../utils/conversationApi.ts';
+import { useWebSocket } from '../hooks/useWebSocket.ts';
+import { useBackLayer, useBackNavigation } from '../hooks/useBackNavigation.ts';
+import { useMobile } from '../hooks/useMobile.ts';
+import { useCompactLayout } from '../hooks/useCompactLayout.ts';
+import { Button, PanelResizeHandle } from './ui.tsx';
+import { MobileHeaderHost } from './MobileModuleHeader.tsx';
+import { LAYOUTS } from '../layouts.ts';
+import { beginPanelResize } from '../utils/panelWidth.ts';
+import { shortcutBus } from '../utils/shortcutBus.ts';
+import { setPending, pendingMarkReadMap, completedMarkReadMap } from '../utils/pendingReads.ts';
+import { openReplyFromMessage, openForwardFromMessage } from '../utils/composeFromMessage.ts';
+import { buildKeyMap, buildModKeyMap, getEffectiveShortcuts, getGroupedActions, parseModKey, modLabel, SPECIAL_KEYS, SPECIAL_KEY_LABELS } from '../utils/defaultShortcuts.ts';
+import Sidebar from './Sidebar.tsx';
+import MessageList from './MessageList.tsx';
+import MessagePane from './MessagePane.tsx';
+import NotificationToasts from './NotificationToasts.tsx';
+import ProfileModal from './ProfileModal.tsx';
+// CE v2 uses the native MessageList/MessagePane shells with grouped/conversation modes.
+// on the native MessageList/MessagePane — no separate import needed.
+import CommandPalette from './CommandPalette.tsx';
+import { usePluginSlot, PluginRuntime } from '../plugins/PluginSlot.tsx';
+
+const ContactsPage = lazy(() => import('./ContactsPage.tsx'));
+const CalendarPage = lazy(() => import('./CalendarPage.tsx'));
+const WindowLayer  = lazy(() => import('./WindowLayer.tsx'));
+
+const ComposeModal = lazy(() => import('./ComposeModal.tsx'));
+const AdminPanel   = lazy(() => import('./AdminPanel.tsx'));
+const ElectronNotificationBridge = lazy(() => import('./ElectronNotificationBridge.tsx'));
+
+// Read + atomically clear the deep-link the service worker persisted on a
+// notification tap (shared IndexedDB store 'mailflow-nav'). Fully guarded so any
+// storage error resolves to null instead of throwing.
+function takePendingDeepLink() {
+  return new Promise((resolve) => {
+    let settled = false;
+    const done = (v) => { if (!settled) { settled = true; resolve(v); } };
+    try {
+      const open = indexedDB.open('mailflow-nav', 1);
+      open.onupgradeneeded = () => { try { open.result.createObjectStore('kv'); } catch { /* store already exists */ } };
+      open.onerror = () => done(null);
+      open.onblocked = () => done(null);
+      open.onsuccess = () => {
+        try {
+          const db = open.result;
+          const tx = db.transaction('kv', 'readwrite');
+          const store = tx.objectStore('kv');
+          const getReq = store.get('pending_deeplink');
+          getReq.onsuccess = () => { if (getReq.result != null) store.delete('pending_deeplink'); };
+          tx.oncomplete = () => { const v = getReq.result ?? null; db.close(); done(v); };
+          tx.onerror = () => { db.close(); done(null); };
+          tx.onabort = () => { db.close(); done(null); };
+        } catch { done(null); }
+      };
+    } catch { done(null); }
+  });
+}
+
+const lazyFallback = (
+  <div style={{ position: 'fixed', inset: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000 }}>
+    <div style={{ width: 24, height: 24, border: '2px solid var(--border)', borderTopColor: 'var(--accent)', borderRadius: '50%', animation: 'spin 0.8s linear infinite' }} />
+  </div>
+);
+
+export default function MailApp() {
+  const { t } = useTranslation();
+  const [mobileHeaderHost, setMobileHeaderHost] = useState(null);
+  const {
+    setAccounts, setUnreadCounts, showAdmin,
+    setShowAdmin, setAdminTab, composing, sidebarCollapsed, layout,
+    unreadCounts, selectedAccountId, openCompose, setSelectedAccount,
+    shortcuts, selectedMessageId, setSelectedMessage,
+    mobileSidebarOpen, setMobileSidebarOpen, mobileNavigationPosition, addNotification,
+    fontSize, showAppBadge,
+    sidebarWidth, setSidebarWidth, setIsSidebarResizing,
+    showContacts, showCalendar, setShowContacts, setShowCalendar, setTodoistConnected,
+    accounts, rightSidebarWidth, setRightSidebarWidth, isRightSidebarResizing, setIsRightSidebarResizing,
+    rightSidebarHidden, toggleRightSidebarHidden,
+    conversationReaderViewEnabled,
+  } = useStore();
+
+  const syncInterval = useStore(s => s.syncInterval);
+  const autoLockMinutes = useStore(s => s.autoLockMinutes);
+  const lockScreen = useStore(s => s.lockScreen);
+  const isMobile = useMobile();
+  const compactLayout = useCompactLayout();
+  const [conversationId, setConversationId] = useState(null);
+  const [mobileProfileOpen, setMobileProfileOpen] = useState(false);
+  const [targetLogicalMessageId, setTargetLogicalMessageId] = useState(null);
+  const [selectedConversationCopy, setSelectedConversationCopy] = useState(null);
+  const [conversationResolutionError, setConversationResolutionError] = useState(null);
+  // P1-B: Native thread identity for the reader fallback. When the selected physical
+  // message has a thread_key, the reader loads /mail/thread/:threadId so incomplete CE
+  // state never silently drops messages the native list shows.
+  const [nativeThreadId, setNativeThreadId] = useState(null);
+  const [nativeFolder, setNativeFolder] = useState(null);
+  const [nativeThreadUnavailableFor, setNativeThreadUnavailableFor] = useState(null);
+  const fallbackMarkReadTimerRef = useRef(null);
+  const selectedMessageIdRef = useRef(selectedMessageId);
+  useEffect(() => { selectedMessageIdRef.current = selectedMessageId; }, [selectedMessageId]);
+  const handleNativeThreadUnavailable = useCallback(() => {
+    setNativeThreadId(null);
+    setNativeThreadUnavailableFor(selectedMessageIdRef.current);
+  }, []);
+
+  const replyFromConversation = useCallback(copy => {
+    if (!copy) return;
+    const selectedCopyId = copy.selectedCopyId || copy.id || null;
+    const physical = {
+      ...copy,
+      id: selectedCopyId,
+      selectedCopyId,
+      account_id: copy.accountId,
+      message_id: copy.messageId || copy.canonicalMessageId,
+      subject: copy.subject,
+      from_email: copy.fromEmail,
+      from_name: copy.fromName,
+      to_addresses: copy.to || [],
+      cc_addresses: copy.cc || [],
+      reply_to: copy.replyTo || [],
+      in_reply_to: copy.inReplyTo || null,
+      thread_references: copy.references || null,
+      references: copy.references || null,
+      thread_id: copy.threadId || null,
+      thread_key: copy.threadKey || copy.threadId || null,
+      attachments: copy.attachments || [],
+      delivery_addresses: copy.deliveryAddresses || [],
+      date: copy.date,
+    };
+    const account = accounts.find(item => item.id === physical.account_id);
+    if (copy.forward) return openForwardFromMessage(physical, { openCompose, getMessageBody: api.getMessageBody });
+    return openReplyFromMessage(physical, { accounts: account ? [account] : accounts, openCompose, getMessageBody: api.getMessageBody, replyAll: Boolean(copy.replyAll) });
+  }, [accounts, openCompose]);
+
+  useEffect(() => {
+    if (!conversationReaderViewEnabled || !selectedMessageId) {
+      setConversationId(null);
+      setTargetLogicalMessageId(null);
+      setSelectedConversationCopy(null);
+      setNativeThreadId(null);
+      setNativeFolder(null);
+      return undefined;
+    }
+    let cancelled = false;
+    // The selected physical copy is the canonical selection. Resolve its CE identity
+    // independently of which list path produced the click (flat, ThreadRow parent or child).
+    setConversationId(null);
+    setTargetLogicalMessageId(null);
+    setSelectedConversationCopy(null);
+    setConversationResolutionError(null);
+    if (nativeThreadUnavailableFor !== selectedMessageId) setNativeThreadUnavailableFor(null);
+    const selected = useStore.getState().messages.find(item => item.id === selectedMessageId)
+      || Object.values(useStore.getState().threadMessages || {}).flat().find(item => item.id === selectedMessageId);
+    // Preserve the exact physical selection before CE resolution. Expanded native
+    // children are not in the flat list, and CE may lag native threading; neither
+    // may turn a Reader-on selection into the classic pane or replace its target.
+    setSelectedConversationCopy({
+      id: selected?.id || selectedMessageId,
+      accountId: selected?.account_id || null,
+    });
+    setTargetLogicalMessageId(selected?.message_id || selectedMessageId);
+    setNativeThreadId(null);
+    setNativeFolder(null);
+    // P1-B: Capture the native thread_key from the selected message. The reader uses
+    // /mail/thread/:threadId as the primary thread membership source so CE incompleteness
+    // never reduces the reader below the native thread size.
+    const threadKey = selected?.thread_key || selected?.thread_id || null;
+    const threadAccount = selected?.account_id || null;
+    if (threadKey && threadAccount && nativeThreadUnavailableFor !== selectedMessageId) {
+      setNativeThreadId(threadKey);
+      setNativeFolder(selected?.folder || 'INBOX');
+    }
+    conversationApi.resolveMessage(selectedMessageId, selected?.account_id || null)
+      .then(resolved => {
+        if (!cancelled && resolved?.conversation_id) {
+          setSelectedConversationCopy({
+            id: resolved.physical_copy_id || resolved.id || selected?.id || selectedMessageId,
+            accountId: resolved.account_id || resolved.accountId || selected?.account_id || null,
+          });
+          setTargetLogicalMessageId(resolved.logical_message_id || resolved.logicalMessageId || null);
+          // Publish the conversation last so the reader never mounts without the
+          // resolver's exact physical-copy/account context.
+          setConversationId(resolved.conversation_id);
+        }
+      }).catch(error => {
+        if (!cancelled) {
+          // Never retain a previous conversation for a newly selected copy. This is
+          // diagnostic only: the single-message pane remains a safe fallback when
+          // a message has not yet been ingested by the CE model.
+          setConversationResolutionError(error.message || 'Conversation resolution failed');
+          console.warn('Conversation reader resolution failed', error.message);
+          // MessageList deliberately defers automatic read ownership to the reader
+          // while CE resolution is pending. If neither CE nor a native thread can
+          // supply that reader, preserve the normal single-pane read behavior.
+          if (threadKey && nativeThreadUnavailableFor !== selectedMessageId) return;
+          const markFallbackRead = () => {
+            const state = useStore.getState();
+            if (selectedMessageIdRef.current !== selectedMessageId || state.selectedMessageId !== selectedMessageId) return;
+            const current = state.messages.find(item => item.id === selectedMessageId)
+              || Object.values(state.threadMessages || {}).flat().find(item => item.id === selectedMessageId);
+            if (!current || current.is_read || state.markReadBehavior === 'manual') return;
+            const previousUnreadCount = current.unread_count;
+            state.updateMessage(current.id, { is_read: true, unread_count: 0 });
+            state.decrementUnread(current.account_id);
+            state.adjustCategoryCount(current.category, -1);
+            state.adjustFolderUnread(current.account_id, current.folder, -1);
+            setPending(current.id, current.account_id);
+            api.bulkRead([current.id], true)
+              .then(() => {
+                pendingMarkReadMap.delete(current.id);
+                completedMarkReadMap.set(current.id, current.account_id);
+                setTimeout(() => completedMarkReadMap.delete(current.id), 10000);
+              })
+              .catch(readError => {
+                console.error('Fallback markRead failed:', readError.message);
+                state.updateMessage(current.id, { is_read: false, unread_count: previousUnreadCount });
+                state.incrementUnread(current.account_id);
+                state.adjustCategoryCount(current.category, 1);
+                state.adjustFolderUnread(current.account_id, current.folder, 1);
+                pendingMarkReadMap.delete(current.id);
+              });
+          };
+          if (useStore.getState().markReadBehavior === 'delay') {
+            clearTimeout(fallbackMarkReadTimerRef.current);
+            fallbackMarkReadTimerRef.current = setTimeout(markFallbackRead, useStore.getState().markReadDelay * 1000);
+          } else {
+            markFallbackRead();
+          }
+        }
+      });
+    return () => {
+      cancelled = true;
+      clearTimeout(fallbackMarkReadTimerRef.current);
+      fallbackMarkReadTimerRef.current = null;
+    };
+  }, [conversationReaderViewEnabled, nativeThreadUnavailableFor, selectedMessageId]);
+
+  // Auto-lock after inactivity (#235). MailApp only mounts while unlocked, so this
+  // timer runs only when unlocked; hitting the timeout locks and unmounts this tree.
+  useEffect(() => {
+    if (!autoLockMinutes) return undefined;
+    const ms = autoLockMinutes * 60 * 1000;
+    let last = Date.now();
+    const bump = () => { last = Date.now(); };
+    const maybeLock = () => { if (Date.now() - last >= ms) lockScreen(); };
+    const events = ['mousemove', 'mousedown', 'keydown', 'touchstart', 'scroll', 'wheel'];
+    events.forEach(e => window.addEventListener(e, bump, { passive: true }));
+    // Poll + check on refocus rather than a single setTimeout: a lone timeout gets
+    // throttled/frozen in a backgrounded tab, so an idle session might never fire.
+    // Comparing timestamps every 15s (and on visibilitychange) locks reliably and
+    // catches up when the tab is brought back to the foreground.
+    document.addEventListener('visibilitychange', maybeLock);
+    const iv = setInterval(maybeLock, 15000);
+    return () => {
+      clearInterval(iv);
+      document.removeEventListener('visibilitychange', maybeLock);
+      events.forEach(e => window.removeEventListener(e, bump));
+    };
+  }, [autoLockMinutes, lockScreen]);
+
+  const scale = fontSize / 100;
+  const hasNativeBridge = Boolean(window.inboxoraNative || window.Capacitor?.isNativePlatform?.());
+  const [vpSize, setVpSize] = useState({ w: window.innerWidth, h: window.innerHeight });
+  useEffect(() => {
+    const update = () => setVpSize({ w: window.innerWidth, h: window.innerHeight });
+    window.addEventListener('resize', update);
+    return () => window.removeEventListener('resize', update);
+  }, []);
+
+  useEffect(() => {
+    const onVisible = () => {
+      if (document.visibilityState === 'visible') {
+        window.dispatchEvent(new CustomEvent('inboxora:refresh'));
+      }
+    };
+    document.addEventListener('visibilitychange', onVisible);
+    return () => document.removeEventListener('visibilitychange', onVisible);
+  }, []);
+
+  const [showShortcutHelp, setShowShortcutHelp] = useState(false);
+  const [paletteOpen, setPaletteOpen] = useState(false);
+  const sidebarDragRef = useRef(null);
+  const sidebarResizeRef = useRef(null);
+  const listResizeRef = useRef(null);
+  const rightSidebarResizeRef = useRef(null);
+
+  // Keep the right sidebar's width CSS var in sync with the persisted preference.
+  useEffect(() => {
+    document.documentElement.style.setProperty('--right-sidebar-width', rightSidebarWidth + 'px');
+  }, [rightSidebarWidth]);
+
+  const handleSidebarResizeMouseDown = (e) => {
+    e.preventDefault();
+    const startX = e.clientX;
+    const startWidth = sidebarWidth;
+    setIsSidebarResizing(true);
+    document.body.style.cursor = 'col-resize';
+    document.body.style.userSelect = 'none';
+
+    const onMouseMove = (mv) => {
+      const dx = mv.clientX - startX;
+      const clamped = Math.min(400, Math.max(160, startWidth + dx));
+      setSidebarWidth(clamped);
+    };
+
+    const onMouseUp = () => {
+      setIsSidebarResizing(false);
+      document.body.style.cursor = '';
+      document.body.style.userSelect = '';
+      document.removeEventListener('mousemove', onMouseMove);
+      document.removeEventListener('mouseup', onMouseUp);
+      sidebarResizeRef.current = null;
+    };
+
+    sidebarResizeRef.current = { onMouseMove, onMouseUp };
+    document.addEventListener('mousemove', onMouseMove);
+    document.addEventListener('mouseup', onMouseUp);
+  };
+
+  useEffect(() => {
+    return () => {
+      if (sidebarResizeRef.current) {
+        document.removeEventListener('mousemove', sidebarResizeRef.current.onMouseMove);
+        document.removeEventListener('mouseup', sidebarResizeRef.current.onMouseUp);
+        document.body.style.cursor = '';
+        document.body.style.userSelect = '';
+      }
+      if (listResizeRef.current) {
+        listResizeRef.current();
+        listResizeRef.current = null;
+      }
+      if (rightSidebarResizeRef.current) {
+        document.removeEventListener('mousemove', rightSidebarResizeRef.current.onMouseMove);
+        document.removeEventListener('mouseup', rightSidebarResizeRef.current.onMouseUp);
+        document.body.style.cursor = '';
+        document.body.style.userSelect = '';
+      }
+    };
+  }, []);
+
+  const currentLayout = LAYOUTS[layout] || LAYOUTS.comfortable;
+  const compactMail = compactLayout && currentLayout.direction === 'row';
+  const readerOpen = Boolean(selectedMessageId || (conversationReaderViewEnabled && conversationId));
+
+  // Shortcut hint (e.g. "⌘/") for the collapse/expand tooltips, derived from the
+  // live shortcut map via the existing helpers — no new plumbing. '' when unbound.
+  const rightSidebarToggleParsed = parseModKey(getEffectiveShortcuts(shortcuts).toggleRightSidebar);
+  const rightSidebarToggleHint = rightSidebarToggleParsed ? `${modLabel(rightSidebarToggleParsed.mod)}${rightSidebarToggleParsed.bare}` : '';
+  // The right sidebar renders when a plugin supplies content for the 'right-sidebar' slot. Core is
+  // plugin-agnostic here — it places the seam; a plugin (currently GTD) fills it. The layout/shortcut
+  // infrastructure below keys off whether any content exists, not off any specific feature.
+  const rightSidebarCtx = { accounts, selectedAccountId, onCollapse: toggleRightSidebarHidden, toggleHint: rightSidebarToggleHint };
+  const rightSidebarProviders = usePluginSlot('right-sidebar', rightSidebarCtx);
+  const rightSidebarContent = rightSidebarProviders.length ? rightSidebarProviders[0].render(rightSidebarCtx) : null;
+  const rightSidebarApplicable = !isMobile && currentLayout.direction === 'row' && rightSidebarContent != null;
+
+  const handleListResizeMouseDown = (e) => {
+    // The mail list is the canonical left panel: the width it sets here is the
+    // same shared width the contact list, calendar rail and day agenda use.
+    listResizeRef.current?.();
+    listResizeRef.current = beginPanelResize(e, { edge: 'right' });
+  };
+
+  // Right-sidebar resize — its own width var + handle, independent of --list-width.
+  // The handle sits to its left, so dragging left widens the sidebar.
+  const handleRightSidebarResizeMouseDown = (e) => {
+    e.preventDefault();
+    const startX = e.clientX;
+    const startWidth = parseInt(getComputedStyle(document.documentElement).getPropertyValue('--right-sidebar-width')) || rightSidebarWidth || 296;
+    setIsRightSidebarResizing(true);
+    document.body.style.cursor = 'col-resize';
+    document.body.style.userSelect = 'none';
+
+    const onMouseMove = (mv) => {
+      const dx = mv.clientX - startX;
+      const clamped = Math.max(200, Math.min(600, startWidth - dx));
+      document.documentElement.style.setProperty('--right-sidebar-width', clamped + 'px');
+    };
+
+    const onMouseUp = () => {
+      setIsRightSidebarResizing(false);
+      document.body.style.cursor = '';
+      document.body.style.userSelect = '';
+      document.removeEventListener('mousemove', onMouseMove);
+      document.removeEventListener('mouseup', onMouseUp);
+      rightSidebarResizeRef.current = null;
+      const finalWidth = parseInt(getComputedStyle(document.documentElement).getPropertyValue('--right-sidebar-width'));
+      if (finalWidth) setRightSidebarWidth(finalWidth);
+    };
+
+    rightSidebarResizeRef.current = { onMouseMove, onMouseUp };
+    document.addEventListener('mousemove', onMouseMove);
+    document.addEventListener('mouseup', onMouseUp);
+  };
+
+  const closeReader = useCallback(() => {
+    // Clear the canonical physical selection AND every derived reader identity.
+    // Clearing only CE identity leaves the native reader visible after Back.
+    setSelectedMessage(null);
+    setConversationId(null);
+    setTargetLogicalMessageId(null);
+    setSelectedConversationCopy(null);
+    setNativeThreadId(null);
+    setNativeFolder(null);
+  }, [setSelectedMessage]);
+  useBackNavigation(isMobile);
+  useBackLayer(readerOpen && !showContacts && !showCalendar, closeReader, 10);
+  useBackLayer(showContacts, () => setShowContacts(false), 20);
+  useBackLayer(showCalendar, () => setShowCalendar(false), 20);
+  useBackLayer(mobileSidebarOpen, () => setMobileSidebarOpen(false), 1300);
+  useBackLayer(showAdmin, () => setShowAdmin(false), 2000);
+
+  const wsRef = useWebSocket();
+
+  // Open a specific message by id (fetch → cache → select). Shared by the on-load
+  // deep-link path and the service-worker notification-tap path so both behave
+  // identically.
+  const openDeepLinkMessage = useCallback((id) => {
+    // resolveMessage matches the stable Message-ID header first, then the UUID — so a link
+    // still opens after the email was moved to another folder (#270). Legacy/notification
+    // links carry the UUID and resolve via the fallback.
+    return api.resolveMessage(id)
+      .then(msg => {
+        // threadMessages is not cleared by setMessages(), so storing the message
+        // here keeps it available to MessagePane even after the message list loads
+        // a different folder's page (which would evict it from the main array).
+        useStore.getState().setThreadMessages(`__dl_${msg.id}`, [msg]);
+        setSelectedMessage(msg.id);
+        // The deep-link opens the message directly, bypassing the list/pane
+        // selectAndMarkRead — so mark it read here too. Mirrors that logic exactly,
+        // including the pending-read guard that stops a concurrent sync from
+        // reverting the optimistic flag. Respects the user's manual-mark preference.
+        const st = useStore.getState();
+        if (msg.is_read || st.markReadBehavior === 'manual') return;
+        st.updateMessage(msg.id, { is_read: true });
+        st.decrementUnread(msg.account_id);
+        st.adjustCategoryCount(msg.category, -1);
+        setPending(msg.id, msg.account_id);
+        api.bulkRead([msg.id], true)
+          .then(() => {
+            pendingMarkReadMap.delete(msg.id);
+            completedMarkReadMap.set(msg.id, msg.account_id);
+            setTimeout(() => completedMarkReadMap.delete(msg.id), 10000);
+          })
+          .catch(e => {
+            console.error('Deep-link markRead failed:', e.message);
+            st.updateMessage(msg.id, { is_read: false });
+            st.incrementUnread(msg.account_id);
+            st.adjustCategoryCount(msg.category, 1);
+            pendingMarkReadMap.delete(msg.id);
+          });
+      })
+      .catch(err => console.warn('Deep link message not found:', err.message));
+  }, [setSelectedMessage]);
+
+  // Consume the deep-link the SW persisted on a notification tap: read+clear it,
+  // then open the message. IndexedDB is the reliable channel on iOS (postMessage can
+  // be missed on a focus-with-reload, openWindow's URL is ignored on cold launch).
+  const consumePendingDeepLink = useCallback(() => {
+    takePendingDeepLink().then((url) => {
+      if (!url) return;
+      try {
+        const id = new URL(url, window.location.origin).searchParams.get('m');
+        if (id) openDeepLinkMessage(id);
+      } catch { /* ignore a malformed persisted deep-link */ }
+    });
+  }, [openDeepLinkMessage]);
+
+  // On load: open a deep-linked message from ?m= (Chromium honors openWindow) or a
+  // stored id, plus any target the SW persisted for a notification tap.
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const deepLinkId = params.get('m') || sessionStorage.getItem('mailflow_deep_link_id');
+    if (deepLinkId) {
+      sessionStorage.removeItem('mailflow_deep_link_id');
+      history.replaceState(null, '', window.location.pathname);
+      openDeepLinkMessage(deepLinkId);
+    }
+    consumePendingDeepLink();
+  }, [openDeepLinkMessage, consumePendingDeepLink]);
+
+  // A notification tap that returns to a backgrounded app (the achievable iOS case)
+  // fires visibilitychange; the SW also nudges via postMessage. Both just consume the
+  // persisted target — read+clear is atomic, so whichever runs first wins.
+  useEffect(() => {
+    const onVisible = () => { if (document.visibilityState === 'visible') consumePendingDeepLink(); };
+    document.addEventListener('visibilitychange', onVisible);
+    let onSwMessage;
+    if ('serviceWorker' in navigator) {
+      onSwMessage = (event) => {
+        if (event.data && event.data.type === 'mailflow_deeplink') consumePendingDeepLink();
+      };
+      navigator.serviceWorker.addEventListener('message', onSwMessage);
+    }
+    return () => {
+      document.removeEventListener('visibilitychange', onVisible);
+      if (onSwMessage) navigator.serviceWorker.removeEventListener('message', onSwMessage);
+    };
+  }, [consumePendingDeepLink]);
+
+  // PWA mailto: handler (manifest protocol_handlers → /?mailto=<encoded mailto: URL>).
+  // Parse the mailto and open a pre-filled compose window. Runs once on mount; a no-op
+  // for a normal launch since the param is absent.
+  useEffect(() => {
+    const raw = new URLSearchParams(window.location.search).get('mailto');
+    if (!raw) return;
+    // Strip only the mailto param first so a refresh doesn't reopen compose.
+    const loc = new URL(window.location.href);
+    loc.searchParams.delete('mailto');
+    history.replaceState(null, '', loc.pathname + loc.search);
+    try {
+      const mt = new URL(raw);
+      if (mt.protocol !== 'mailto:') return;
+      const safeDecode = (x) => { try { return decodeURIComponent(x); } catch { return x; } };
+      // pathname addresses are raw-encoded; searchParams values are already decoded.
+      const splitAddrs = (s, decode) => !s ? [] : s.split(',').map(a => decode ? safeDecode(a.trim()) : a.trim()).filter(Boolean);
+      const esc = (x) => x.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+      // A mailto body is plain text (RFC 6068); escape it so it renders literally in
+      // the HTML editor and can't inject markup.
+      const bodyText = mt.searchParams.get('body') || '';
+      openCompose({
+        accountId: useStore.getState().selectedAccountId || undefined,
+        to: [...splitAddrs(mt.pathname, true), ...splitAddrs(mt.searchParams.get('to'), false)],
+        cc: splitAddrs(mt.searchParams.get('cc'), false),
+        bcc: splitAddrs(mt.searchParams.get('bcc'), false),
+        subject: mt.searchParams.get('subject') || '',
+        body: bodyText ? esc(bodyText).replace(/\r?\n/g, '<br>') : '',
+      });
+    } catch (err) {
+      console.warn('Invalid mailto link:', err.message);
+    }
+  }, [openCompose]);
+
+  useEffect(() => {
+    // Load accounts
+    api.getAccounts()
+      .then(accounts => {
+        setAccounts(accounts); // also sets accountsReady:true in the store
+      })
+      .catch(err => {
+        console.error(err);
+        // Even on error, mark accounts as ready so MessageList doesn't hang
+        useStore.setState({ accountsReady: true });
+      });
+
+    // Sync Todoist connection state — localStorage alone isn't enough across devices/sessions
+    api.todoist.status().then(({ connected }) => setTodoistConnected(connected)).catch(() => {});
+
+    // Preload ComposeModal chunk so first open is instant
+    import('./ComposeModal.tsx');
+
+    // Load unread counts
+    const refreshCounts = () => {
+      refreshUnreadCounts();
+    };
+    refreshCounts();
+    // Visible tabs converge even if an individual WebSocket event was lost.
+    const interval = setInterval(() => { if (document.visibilityState === 'visible') refreshCounts(); }, 60000);
+    return () => clearInterval(interval);
+  }, [setAccounts, setUnreadCounts, setTodoistConnected]);
+
+  // WebSocket-independent periodic refresh of the open message list, at the user's chosen sync
+  // interval. Only fires when the tab is visible AND the socket is not OPEN — a true fallback so
+  // read state and new mail still converge if the WebSocket is down, without redundant refetching
+  // while it's healthy (the socket delivers updates instantly in that case).
+  useEffect(() => {
+    const ms = Math.max(15, syncInterval || 60) * 1000;
+    const id = setInterval(() => {
+      if (document.visibilityState === 'visible' && wsRef.current?.readyState !== WebSocket.OPEN) {
+        window.dispatchEvent(new CustomEvent('inboxora:refresh', { detail: { refreshThreads: true } }));
+        refreshUnreadCounts();
+      }
+    }, ms);
+    return () => clearInterval(id);
+  }, [syncInterval, wsRef]);
+
+  // Update browser tab title and PWA home screen badge with unread count
+  useEffect(() => {
+    const total = unreadCounts.total;
+    document.title = 'Inboxora';
+    // App-icon badge always reflects total unread across all accounts so that
+    // selecting a zero-unread account never clears the home screen badge.
+    if ('setAppBadge' in navigator) {
+      if (showAppBadge && total > 0) navigator.setAppBadge(total).catch(() => {});
+      else navigator.clearAppBadge().catch(() => {});
+    }
+    window.inboxoraNative?.badges?.setUnreadCount?.(total).catch(() => {});
+  }, [unreadCounts, showAppBadge]);
+
+  // ── Global keyboard shortcut listener ──────────────────────────────────────
+  // Uses refs for composing/showAdmin so the listener doesn't need to
+  // re-register every time those values change — only re-registers when the
+  // user's custom shortcut map changes.
+  const composingRef  = useRef(composing);
+  const showAdminRef  = useRef(showAdmin);
+  useEffect(() => { composingRef.current  = composing;  }, [composing]);
+  useEffect(() => { showAdminRef.current  = showAdmin;  }, [showAdmin]);
+
+  const mobileSidebarOpenRef = useRef(mobileSidebarOpen);
+  useEffect(() => {
+    if (mobileSidebarOpenRef.current && !mobileSidebarOpen) document.querySelector('[data-testid="mobile-topbar-menu"]')?.focus();
+    mobileSidebarOpenRef.current = mobileSidebarOpen;
+  }, [mobileSidebarOpen]);
+  useBackLayer(showShortcutHelp, () => setShowShortcutHelp(false), 6000);
+  useBackLayer(paletteOpen, () => setPaletteOpen(false), 9500);
+
+  useEffect(() => {
+    if (isMobile) return;
+    const keyMap    = buildKeyMap(shortcuts);
+    const modKeyMap = buildModKeyMap(shortcuts);
+    // Keys that are prefixes of two-key sequences (e.g. 'g' for 'gi').
+    // Special keys like 'Delete' have length > 1 but are single keypresses — exclude them.
+    const prefixKeys = new Set(
+      Object.keys(keyMap).filter(k => k.length > 1 && !SPECIAL_KEYS.has(k)).map(k => k[0])
+    );
+
+    let pendingKey   = null;
+    let pendingTimer = null;
+
+    const clearPending = () => {
+      pendingKey = null;
+      if (pendingTimer) { clearTimeout(pendingTimer); pendingTimer = null; }
+    };
+
+    const handler = (e) => {
+      // Never intercept when the compose modal or admin panel is open, or an input is focused
+      if (composingRef.current || showAdminRef.current) return;
+      const tag = e.target.tagName;
+      if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT' || e.target.isContentEditable) return;
+      // Modifier combos: emit registered actions, pass everything else through
+      if (e.ctrlKey || e.metaKey) {
+        const action = modKeyMap[e.key.toLowerCase()];
+        if (action) { e.preventDefault(); shortcutBus.emit(action); }
+        return;
+      }
+      if (e.altKey) return;
+
+      const key = e.key;
+
+      // Pure modifier keys — never intercept
+      if (['CapsLock', 'Control', 'Meta', 'Alt', 'Shift'].includes(key)) return;
+
+      // Escape cancels any pending prefix sequence
+      if (key === 'Escape') { clearPending(); return; }
+
+      // Resolve two-key sequences
+      let resolved = key;
+      if (pendingKey !== null) {
+        resolved = pendingKey + key;
+        clearPending();
+      }
+
+      // Check the keymap first — bound actions take priority, including special
+      // keys like Delete that would otherwise be skipped below.
+      const action = keyMap[resolved];
+      if (action) {
+        e.preventDefault();
+        shortcutBus.emit(action);
+        return;
+      }
+
+      // Skip non-character keys that aren't bound (arrow keys, F-keys, etc.)
+      if (['Tab', 'Enter', 'Backspace', 'Delete',
+           'ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight',
+           'Home', 'End', 'PageUp', 'PageDown', 'Insert',
+           'F1', 'F2', 'F3', 'F4', 'F5', 'F6',
+           'F7', 'F8', 'F9', 'F10', 'F11', 'F12'].includes(key)) {
+        return;
+      }
+
+      // Check if this single key could start a two-key sequence
+      if (prefixKeys.has(resolved) && resolved.length === 1) {
+        e.preventDefault();
+        pendingKey   = resolved;
+        pendingTimer = setTimeout(clearPending, 1000);
+        return;
+      }
+
+      // Typed key didn't match anything — clear any stale pending state
+      if (pendingKey !== null) clearPending();
+    };
+
+    document.addEventListener('keydown', handler);
+    return () => {
+      document.removeEventListener('keydown', handler);
+      clearPending();
+    };
+  }, [shortcuts, isMobile]); // Re-build key map only when shortcuts or device type changes
+
+  // Subscribe to global actions that MailApp owns
+  useEffect(() => {
+    const onCompose   = () => openCompose({ accountId: useStore.getState().selectedAccountId || undefined });
+    const onGoInbox   = () => setSelectedAccount(null, 'INBOX');
+    const onShowHelp  = () => { if (!isMobile) setShowShortcutHelp(v => !v); };
+
+    shortcutBus.on('compose',   onCompose);
+    shortcutBus.on('goInbox',   onGoInbox);
+    shortcutBus.on('showHelp',  onShowHelp);
+    return () => {
+      shortcutBus.off('compose',   onCompose);
+      shortcutBus.off('goInbox',   onGoInbox);
+      shortcutBus.off('showHelp',  onShowHelp);
+    };
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Whole right-sidebar collapse toggle (cmd+/). Re-subscribed when applicability
+  // flips so the handler never toggles a sidebar that is not rendered.
+  useEffect(() => {
+    const onToggleRightSidebar = () => { if (rightSidebarApplicable) toggleRightSidebarHidden(); };
+    shortcutBus.on('toggleRightSidebar', onToggleRightSidebar);
+    return () => shortcutBus.off('toggleRightSidebar', onToggleRightSidebar);
+  }, [rightSidebarApplicable, toggleRightSidebarHidden]);
+
+  // Close help overlay on Escape
+  useEffect(() => {
+    if (!showShortcutHelp) return;
+    const handler = (e) => { if (e.key === 'Escape') { e.preventDefault(); setShowShortcutHelp(false); } };
+    document.addEventListener('keydown', handler);
+    return () => document.removeEventListener('keydown', handler);
+  }, [showShortcutHelp]);
+
+  // Cmd+K / Ctrl+K opens command palette
+  useEffect(() => {
+    const handler = (e) => {
+      if ((e.metaKey || e.ctrlKey) && e.key === 'k') {
+        e.preventDefault();
+        setPaletteOpen(v => !v);
+      }
+    };
+    document.addEventListener('keydown', handler);
+    return () => document.removeEventListener('keydown', handler);
+  }, []);
+
+  // Handle same-tab OAuth callback redirects (e.g. /?oauth_success=microsoft).
+  // The popup case (window.opener present) is handled earlier in App.jsx before
+  // auth is checked, so MailApp never mounts in that context.
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const provider = params.get('oauth_success');
+    const oauthError = params.get('oauth_error');
+    const oidcSuccess = params.get('oidc_success');
+    const oidcError = params.get('oidc_error');
+
+    if (provider) {
+      window.history.replaceState({}, '', '/');
+      api.getAccounts()
+        .then(accounts => { setAccounts(accounts); })
+        .catch(console.error);
+      setAdminTab('accounts');
+      setShowAdmin(true);
+    } else if (oauthError) {
+      window.history.replaceState({}, '', '/');
+    } else if (oidcSuccess) {
+      window.history.replaceState({}, '', '/');
+      if (oidcSuccess === 'linked') {
+        addNotification({ type: 'info', title: t('admin.ssoLinked.title'), body: t('admin.ssoLinked.body') });
+      }
+    } else if (oidcError) {
+      window.history.replaceState({}, '', '/');
+      addNotification({ type: 'error', title: t('admin.ssoError.title'), body: oidcError });
+    }
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+
+  return (
+    <div style={{
+      width: '100vw', height: 'var(--app-height, 100svh)',
+      overflow: 'hidden', background: 'var(--bg-primary)',
+    }}>
+    <div style={{
+      display: 'flex',
+      width: scale !== 1 ? `${(vpSize.w / scale).toFixed(2)}px` : '100%',
+      height: scale !== 1 ? `${(vpSize.h / scale).toFixed(2)}px` : '100%',
+      '--mobile-nav-height': '0px',
+      ...(scale !== 1 && {
+        transform: `scale(${scale})`,
+        transformOrigin: 'top left',
+        '--app-height': `${(vpSize.h / scale).toFixed(2)}px`,
+      }),
+      overflow: 'hidden',
+      background: 'var(--bg-primary)',
+    }}>
+      {isMobile ? (
+        <MobileHeaderHost.Provider value={mobileHeaderHost}><div style={{ display: 'flex', flexDirection: 'column', width: '100%', height: '100%', minHeight: 0 }}>
+          {/* The mobile bar always hosts the active surface's header: Contacts, Calendar,
+              the message list, or the reader. The bare "Inboxora" fallback used to render
+              only while the reader was open, stacking a second header under this bar — so
+              the reader (like the list) must count as active. */}
+          <MobileTopBar position={mobileNavigationPosition} moduleActive actionsRef={setMobileHeaderHost} onMenu={() => setMobileSidebarOpen(true)} onCompose={() => openCompose({ accountId: selectedAccountId || undefined })} t={t} />
+          <div style={{ display: 'flex', flex: 1, minHeight: 0, width: '100%', position: 'relative' }}>
+          {/* Backdrop — covers full screen including status bar area */}
+          {mobileSidebarOpen && (
+            <div
+              onClick={() => setMobileSidebarOpen(false)}
+              style={{
+                position: 'fixed', inset: 0, zIndex: 1299,
+                background: 'var(--overlay-scrim)',
+                backdropFilter: 'blur(6px)',
+                WebkitBackdropFilter: 'blur(6px)',
+              }}
+            />
+          )}
+          {/* Slide-in sidebar drawer */}
+          <div
+            data-testid="mobile-sidebar"
+            inert={mobileSidebarOpen ? undefined : ''}
+            style={{
+              position: 'fixed', left: 0, top: 0, bottom: 0,
+              zIndex: 1300, display: 'flex',
+              transform: mobileSidebarOpen ? 'translateX(0)' : 'translateX(-100%)',
+              transition: 'transform 0.25s cubic-bezier(0.25,0.46,0.45,0.94)',
+              boxShadow: mobileSidebarOpen ? 'var(--shadow-drawer)' : 'none',
+            }}
+            onTouchStart={(e) => {
+              sidebarDragRef.current = { startX: e.touches[0].clientX, startY: e.touches[0].clientY };
+            }}
+            onTouchEnd={(e) => {
+              const start = sidebarDragRef.current;
+              sidebarDragRef.current = null;
+              if (!start) return;
+              const dx = e.changedTouches[0].clientX - start.startX;
+              const dy = e.changedTouches[0].clientY - start.startY;
+              if (dx < -60 && Math.abs(dy) < Math.abs(dx)) setMobileSidebarOpen(false);
+            }}
+          >
+            <Sidebar onEditProfile={() => setMobileProfileOpen(true)} />
+          </div>
+          {showContacts && <div data-testid="mobile-contacts-page" style={{ display: 'flex', flex: 1, minWidth: 0, overflow: 'hidden', height: '100%' }}>
+            <Suspense fallback={lazyFallback}><ContactsPage isActive={showContacts} /></Suspense>
+          </div>}
+          {showCalendar && <div data-testid="mobile-calendar-page" style={{ display: 'flex', flex: 1, minWidth: 0, overflow: 'hidden', height: '100%' }}>
+            <Suspense fallback={lazyFallback}><CalendarPage isActive={showCalendar} /></Suspense>
+          </div>}
+          <div data-ce-reader-enabled={conversationReaderViewEnabled ? 'true' : 'false'} data-ce-reader-state={conversationReaderViewEnabled ? 'enabled' : 'disabled'} data-ce-conversation-id={conversationId || ''} data-ce-selected-message-id={selectedMessageId || ''} data-ce-resolution-error={conversationResolutionError ? 'true' : 'false'} style={{ flex: 1, display: !showContacts && !showCalendar && !selectedMessageId && !(conversationReaderViewEnabled && conversationId) ? 'flex' : 'none', overflow: 'hidden', height: '100%' }}>
+            <MessageList />
+          </div>
+          <div data-ce-reader-pane="true" style={{ flex: 1, display: !showContacts && !showCalendar && (selectedMessageId || (conversationReaderViewEnabled && conversationId)) ? 'flex' : 'none', overflow: 'hidden', height: '100%', minWidth: 0 }}>
+            <MessagePane mode={conversationReaderViewEnabled && (conversationId || nativeThreadId) ? 'conversation' : 'single'} conversationId={conversationId} targetLogicalMessageId={targetLogicalMessageId} selectedConversationCopy={selectedConversationCopy} nativeThreadId={nativeThreadId} nativeFolder={nativeFolder} onReply={replyFromConversation} onNativeThreadUnavailable={handleNativeThreadUnavailable} onMobileBack={closeReader} />
+          </div>
+          {mobileProfileOpen && <ProfileModal onClose={() => setMobileProfileOpen(false)} />}
+          </div>
+        </div></MobileHeaderHost.Provider>
+      ) : (
+        <>
+          <Sidebar />
+          {!sidebarCollapsed && (
+            <div
+              className="ui-resize-handle"
+              onMouseDown={handleSidebarResizeMouseDown}
+              style={{
+                width: 1, flexShrink: 0, cursor: 'col-resize',
+                background: 'var(--border-subtle)',
+                transition: 'background 0.15s',
+                zIndex: 10,
+              }}
+              onMouseEnter={e => { e.currentTarget.style.background = 'var(--accent)'; }}
+              onMouseLeave={e => { e.currentTarget.style.background = 'var(--border-subtle)'; }}
+            />
+          )}
+          <div style={{
+            flex: 1, display: 'flex', overflow: 'hidden',
+            minWidth: 0, flexDirection: currentLayout.direction,
+            height: '100%',
+          }}>
+            {showContacts && <div style={{ display: 'flex', flex: 1, minWidth: 0, overflow: 'hidden', height: '100%' }}>
+              <Suspense fallback={lazyFallback}><ContactsPage isActive={showContacts} /></Suspense>
+            </div>}
+            {showCalendar && <div data-testid="desktop-calendar-page" style={{ display: 'flex', flex: 1, minWidth: 0, overflow: 'hidden', height: '100%' }}>
+              <Suspense fallback={lazyFallback}><CalendarPage /></Suspense>
+            </div>}
+            <div style={{ position: 'relative', display: showContacts || showCalendar ? 'none' : 'flex', flex: 1, minWidth: 0, overflow: 'hidden', height: '100%', flexDirection: currentLayout.direction }}>
+              <div data-ce-reader-enabled={conversationReaderViewEnabled ? 'true' : 'false'} data-ce-reader-state={conversationReaderViewEnabled ? 'enabled' : 'disabled'} data-ce-conversation-id={conversationId || ''} data-ce-selected-message-id={selectedMessageId || ''} data-ce-resolution-error={conversationResolutionError ? 'true' : 'false'} style={{
+                display: compactMail && readerOpen ? 'none' : 'flex', flex: compactMail ? 1 : currentLayout.direction === 'row' ? '0 0 var(--list-width)' : '1 1 50%',
+                width: compactMail ? '100%' : currentLayout.direction === 'row' ? 'var(--list-width)' : '100%', minWidth: 0, overflow: 'hidden', height: '100%',
+              }}>
+                <MessageList />
+              </div>
+              {!compactMail && currentLayout.direction === 'row' && (
+                <PanelResizeHandle testId="mail-list-resize" onMouseDown={handleListResizeMouseDown} />
+              )}
+              <div data-ce-reader-pane="true" style={{ flex: 1, minWidth: 0, overflow: 'hidden', height: '100%', display: compactMail && !readerOpen ? 'none' : 'flex', flexDirection: 'column' }}>
+                {compactMail && <div className="tablet-reader-back"><Button variant="ghost" onClick={closeReader} aria-label={t('common.back')}>‹ {t('common.back')}</Button></div>}
+                <MessagePane mode={conversationReaderViewEnabled && (conversationId || nativeThreadId) ? 'conversation' : 'single'} conversationId={conversationId} targetLogicalMessageId={targetLogicalMessageId} selectedConversationCopy={selectedConversationCopy} nativeThreadId={nativeThreadId} nativeFolder={nativeFolder} onReply={replyFromConversation} onNativeThreadUnavailable={handleNativeThreadUnavailable} onMobileBack={closeReader} />
+              </div>
+              {/* Generic right-sidebar column, populated from the content seam above. */}
+              {currentLayout.direction === 'row' && rightSidebarContent != null && (
+                <>
+                  {/* Resize handle is omitted while the sidebar is hidden. */}
+                  {!rightSidebarHidden && (
+                    <div
+                      onMouseDown={handleRightSidebarResizeMouseDown}
+                      style={{
+                        width: 4, flexShrink: 0, cursor: 'col-resize',
+                        background: 'var(--border-subtle)',
+                        transition: 'background 0.15s',
+                      }}
+                      onMouseEnter={e => { e.currentTarget.style.background = 'var(--accent)'; }}
+                      onMouseLeave={e => { e.currentTarget.style.background = 'var(--border-subtle)'; }}
+                    />
+                  )}
+                  {/* Column wrapper collapses its width when hidden (message list reflows);
+                      the inner block keeps its full width and slides off the right edge.
+                      overflow:hidden clips the sidebar as it slides, kept mounted so both
+                      directions animate. */}
+                  <div style={{
+                    position: 'relative', flexShrink: 0, overflow: 'hidden', height: '100%',
+                    width: rightSidebarHidden ? 0 : 'var(--right-sidebar-width, 296px)',
+                    ...(compactMail && !rightSidebarHidden ? { position: 'absolute', right: 0, top: 0, bottom: 0, zIndex: 25, background: 'var(--bg-primary)', boxShadow: 'var(--shadow-drawer)' } : {}),
+                    // Disabled while dragging (mirrors Sidebar's isSidebarResizing guard):
+                    // otherwise every mousemove's CSS-var write would animate toward the new
+                    // width instead of tracking the cursor.
+                    transition: isRightSidebarResizing ? 'none' : 'width 0.2s ease',
+                  }}>
+                    <div style={{
+                      width: 'var(--right-sidebar-width, 296px)', height: '100%',
+                      transform: rightSidebarHidden ? 'translateX(100%)' : 'translateX(0)',
+                      transition: 'transform 0.2s ease',
+                    }}>
+                      {rightSidebarContent}
+                    </div>
+                  </div>
+                  {/* Slim always-visible reopen affordance pinned to the right edge. */}
+                  {rightSidebarHidden && (
+                    <button
+                      onClick={toggleRightSidebarHidden}
+                      aria-label={t('rightSidebar.show')}
+                      title={rightSidebarToggleHint ? `${t('rightSidebar.show')} (${rightSidebarToggleHint})` : t('rightSidebar.show')}
+                      style={{
+                        width: 18, flexShrink: 0, cursor: 'pointer', padding: 0,
+                        border: 'none', borderLeft: '1px solid var(--border)',
+                        background: 'var(--bg-secondary)', color: 'var(--text-tertiary)',
+                        display: 'flex', alignItems: 'center', justifyContent: 'center',
+                      }}
+                      onMouseEnter={e => { e.currentTarget.style.color = 'var(--text-secondary)'; e.currentTarget.style.background = 'var(--bg-hover)'; }}
+                      onMouseLeave={e => { e.currentTarget.style.color = 'var(--text-tertiary)'; e.currentTarget.style.background = 'var(--bg-secondary)'; }}
+                    >
+                      <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
+                        <polyline points="15 18 9 12 15 6" />
+                      </svg>
+                    </button>
+                  )}
+                </>
+              )}
+            </div>
+          </div>
+        </>
+      )}
+
+      <Suspense fallback={lazyFallback}>{composing && <ComposeModal />}</Suspense>
+      <Suspense fallback={lazyFallback}>{showAdmin && <AdminPanel />}</Suspense>
+      {/* Detached message windows (#219) — desktop only. */}
+      {!isMobile && <Suspense fallback={null}><WindowLayer /></Suspense>}
+      <Suspense fallback={null}>{hasNativeBridge && <ElectronNotificationBridge />}</Suspense>
+      <NotificationToasts />
+      <PluginRuntime />
+      <CommandPalette open={paletteOpen} onClose={() => setPaletteOpen(false)} />
+
+      {/* Keyboard shortcut help overlay — toggled by the '?' key */}
+      {showShortcutHelp && (
+        <ShortcutHelpOverlay
+          shortcuts={shortcuts}
+          onClose={() => setShowShortcutHelp(false)}
+        />
+      )}
+    </div>
+    </div>
+  );
+}
+
+function MobileTopBar({ position, moduleActive, actionsRef, onMenu, onCompose, t }) {
+  return (
+    <div data-testid="mobile-topbar" data-position={position} style={{
+      order: position === 'bottom' ? 2 : 0,
+      ...(position === 'bottom' && { borderTop: '1px solid var(--border-subtle)' }),
+      display: 'flex', alignItems: 'center', gap: 4, padding: position === 'bottom' ? '4px 8px calc(4px + var(--sab))' : '4px 8px',
+      borderBottom: '1px solid var(--border-subtle)', background: 'var(--bg-secondary)',
+      flexShrink: 0,
+    }}>
+      <button type="button" data-testid="mobile-topbar-menu" onClick={onMenu} aria-label={t('messageList.menu', 'Menu')} style={{
+        background: 'none', border: 'none', color: 'var(--text-secondary)',
+        cursor: 'pointer', padding: 0, borderRadius: 7,
+        display: 'flex', alignItems: 'center', justifyContent: 'center',
+        minWidth: 44, minHeight: 44,
+      }}>
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" aria-hidden="true"><line x1="3" y1="6" x2="21" y2="6"/><line x1="3" y1="12" x2="21" y2="12"/><line x1="3" y1="18" x2="21" y2="18"/></svg>
+      </button>
+      <div ref={actionsRef} className="mobile-header-content" style={{ display: moduleActive ? 'flex' : 'none' }} />
+      {!moduleActive && <><span style={{ fontFamily: 'var(--font-display)', fontSize: 16, fontWeight: 600, flex: 1, minWidth: 0 }}>Inboxora</span>
+      <button type="button" onClick={onCompose} aria-label={t('sidebar.compose')} style={{
+        background: 'none', border: 'none', color: 'var(--accent)',
+        cursor: 'pointer', padding: 0, borderRadius: 7,
+        display: 'flex', alignItems: 'center', justifyContent: 'center',
+        minWidth: 44, minHeight: 44,
+      }}>
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" aria-hidden="true"><path d="M11 4H4a2 2 0 00-2 2v14a2 2 0 002 2h14a2 2 0 002-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 013 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>
+      </button></>}
+    </div>
+  );
+}
+
+function ShortcutHelpOverlay({ shortcuts, onClose }) {
+  const { t } = useTranslation();
+  const effective = getEffectiveShortcuts(shortcuts);
+  const groups    = getGroupedActions();
+
+  const keyBadge = (key) => {
+    if (!key) return <span style={{ color: 'var(--text-tertiary)', fontSize: 11 }}>—</span>;
+    // Modifier combos like 'ctrl+p'
+    const mod = parseModKey(key);
+    if (mod) {
+      return (
+        <span style={{ display: 'flex', alignItems: 'center', gap: 2 }}>
+          <kbd style={kbdStyle}>{modLabel(mod.mod)}</kbd>
+          <span style={{ color: 'var(--text-tertiary)', margin: '0 2px', fontSize: 10 }}>+</span>
+          <kbd style={kbdStyle}>{mod.bare.toUpperCase()}</kbd>
+        </span>
+      );
+    }
+    // Special key names like 'Delete', 'ArrowUp' — single keypress, render as one badge
+    if (SPECIAL_KEY_LABELS[key]) {
+      return <kbd style={kbdStyle}>{SPECIAL_KEY_LABELS[key]}</kbd>;
+    }
+    // For two-key sequences like 'gi', render each key separately
+    const parts = key.length > 1
+      ? [...key].map((c, i) => (
+          <span key={i}>
+            <kbd style={kbdStyle}>{c}</kbd>
+            {i < key.length - 1 && <span style={{ color: 'var(--text-tertiary)', margin: '0 2px', fontSize: 10 }}>{t('shortcuts.then')}</span>}
+          </span>
+        ))
+      : [<kbd key={0} style={kbdStyle}>{key}</kbd>];
+    return <span style={{ display: 'flex', alignItems: 'center', gap: 2 }}>{parts}</span>;
+  };
+
+  return (
+    <div
+      onClick={onClose}
+      style={{
+        position: 'fixed', inset: 0, zIndex: 6000,
+        background: 'rgba(0,0,0,0.6)',
+        backdropFilter: 'blur(8px)',
+        WebkitBackdropFilter: 'blur(8px)',
+        display: 'flex', alignItems: 'center', justifyContent: 'center',
+        padding: 24,
+        animation: 'backdrop-enter var(--motion-fast) var(--ease-standard) both',
+      }}
+    >
+      <div
+        onClick={e => e.stopPropagation()}
+        style={{
+          background: 'var(--bg-secondary)',
+          border: '1px solid var(--border)',
+          borderRadius: 14,
+          boxShadow: 'var(--shadow-modal)',
+          width: '100%', maxWidth: 680,
+          maxHeight: '80vh', overflow: 'auto',
+          padding: '24px 28px',
+          animation: 'modal-enter var(--motion-normal) var(--ease-emphasized) both',
+        }}
+      >
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 20 }}>
+          <div style={{ fontSize: 16, fontWeight: 700, color: 'var(--text-primary)' }}>{t('shortcuts.title')}</div>
+          <button
+            onClick={onClose}
+            style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--text-tertiary)', padding: 4, display: 'flex' }}
+          >
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
+              <line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/>
+            </svg>
+          </button>
+        </div>
+
+        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0 32px' }}>
+          {Object.entries(groups).map(([groupName, actions]) => (
+            <div key={groupName} style={{ marginBottom: 20 }}>
+              <div style={{ fontSize: 11, fontWeight: 600, color: 'var(--text-tertiary)', textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 8 }}>
+                {t(groupName)}
+              </div>
+              {actions.map(({ action, descriptionKey }) => (
+                <div key={action} style={{
+                  display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+                  padding: '5px 0', borderBottom: '1px solid var(--border-subtle)',
+                }}>
+                  <span style={{ fontSize: 12, color: 'var(--text-secondary)' }}>{t(descriptionKey)}</span>
+                  {keyBadge(effective[action])}
+                </div>
+              ))}
+            </div>
+          ))}
+        </div>
+
+        <div style={{ marginTop: 8, fontSize: 11, color: 'var(--text-tertiary)', textAlign: 'center' }}>
+          {t('shortcuts.customizeHint')} &nbsp;·&nbsp; {t('shortcuts.closeHint')}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+const kbdStyle = {
+  display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
+  minWidth: 22, height: 20, padding: '0 5px',
+  background: 'var(--bg-tertiary)', border: '1px solid var(--border)',
+  borderBottomWidth: 2, borderRadius: 4,
+  fontSize: 11, fontFamily: 'monospace', fontWeight: 600,
+  color: 'var(--text-primary)',
+};

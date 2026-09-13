@@ -1,0 +1,472 @@
+// @ts-nocheck
+// CardDAV server — supports Apple Contacts, Thunderbird, DAVx5 / Android.
+// Protocol: RFC 6352 (CardDAV), RFC 4918 (WebDAV).
+// Auth: HTTP Basic with dedicated, revocable DAV application passwords.
+//
+// URL layout:
+//   /.well-known/carddav           → 301 to /carddav/
+//   /carddav/                      → OPTIONS, PROPFIND (discovery)
+//   /carddav/{userId}/             → PROPFIND (principal + addressbook-home-set)
+//   /carddav/{userId}/{bookId}/    → PROPFIND, REPORT (list/sync VCards)
+//   /carddav/{userId}/{bookId}/{uid}.vcf → GET, PUT, DELETE
+
+import { Router } from 'express';
+import crypto from 'crypto';
+import { query } from '../services/db.js';
+import { parseVCard } from '../utils/vcard.js';
+import { authLimiterConfig } from '../services/authLimiter.js';
+import { createDavAuthMiddleware } from '../services/davServerAuth.js';
+
+const router = Router();
+
+
+// ── Rate limiting (shared config, separate buckets from login) ────────────────
+
+const cardavBuckets = new Map();
+setInterval(() => {
+  const now = Date.now();
+  for (const [key, bucket] of cardavBuckets) {
+    if (now > bucket.resetAt) cardavBuckets.delete(key);
+  }
+}, 5 * 60 * 1000).unref();
+
+// CardDAV clients can issue dozens of requests per sync (PROPFIND + per-card GET/PUT).
+// Use a generous per-IP ceiling independent of the login rate-limit config.
+const CARDDAV_MAX_REQUESTS = 500;
+
+function cardavRateLimit(req, res, next) {
+  const { windowMs } = authLimiterConfig;
+  const key = req.ip;
+  const now = Date.now();
+  const bucket = cardavBuckets.get(key);
+  if (!bucket || now > bucket.resetAt) {
+    cardavBuckets.set(key, { count: 1, resetAt: now + windowMs });
+    return next();
+  }
+  if (bucket.count >= CARDDAV_MAX_REQUESTS) {
+    res.setHeader('Retry-After', Math.ceil((bucket.resetAt - now) / 1000));
+    return res.status(429).end();
+  }
+  bucket.count++;
+  next();
+}
+
+// ── HTTP Basic authentication middleware ──────────────────────────────────────
+
+router.use(cardavRateLimit);
+router.use(createDavAuthMiddleware({ realm: 'Inboxora CardDAV', eventType: 'carddav_auth_fail' }));
+router.use((req, _res, next) => {
+  req.cardavUserId = req.davUserId;
+  req.cardavCredentialId = req.davCredentialId;
+  next();
+});
+
+// ── XML helpers ───────────────────────────────────────────────────────────────
+
+const DAV_NS     = 'DAV:';
+const CARD_NS    = 'urn:ietf:params:xml:ns:carddav';
+const syncToken = book => `urn:inboxora:carddav:${book.id}:${book.sync_version || 0}`;
+const CDAV_NS    = 'http://calendarserver.org/ns/';
+
+function xmlHeader() {
+  return '<?xml version="1.0" encoding="UTF-8"?>';
+}
+
+function multistatus(responses) {
+  return [
+    xmlHeader(),
+    `<D:multistatus xmlns:D="${DAV_NS}" xmlns:C="${CARD_NS}" xmlns:CS="${CDAV_NS}">`,
+    ...responses,
+    '</D:multistatus>',
+  ].join('');
+}
+
+function response(href, propstats) {
+  return [
+    '<D:response>',
+    `<D:href>${xmlEscape(href)}</D:href>`,
+    ...propstats,
+    '</D:response>',
+  ].join('');
+}
+
+function propstat(props, status) {
+  return [
+    '<D:propstat>',
+    '<D:prop>',
+    ...props,
+    '</D:prop>',
+    `<D:status>HTTP/1.1 ${status}</D:status>`,
+    '</D:propstat>',
+  ].join('');
+}
+
+function xmlEscape(s) {
+  return String(s || '')
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;');
+}
+
+function sendXml(res, status, xml) {
+  res.status(status)
+     .setHeader('Content-Type', 'application/xml; charset=utf-8')
+     .send(xml);
+}
+
+// Collect the request body as a string by reading the raw stream.
+// We do not go through express.json/text — CardDAV uses custom content types.
+function rawBody(req) {
+  return new Promise((resolve, reject) => {
+    // If a body parser already collected it (unlikely here), use it.
+    if (typeof req.body === 'string') return resolve(req.body);
+    if (Buffer.isBuffer(req.body)) return resolve(req.body.toString('utf8'));
+    let data = '';
+    req.setEncoding('utf8');
+    req.on('data', chunk => { data += chunk; });
+    req.on('end', () => resolve(data));
+    req.on('error', reject);
+  });
+}
+
+// ── OPTIONS (broadcast CardDAV support) ──────────────────────────────────────
+
+router.options('*', (req, res) => {
+  res.set({
+    'Allow': 'OPTIONS, GET, PUT, DELETE, PROPFIND, REPORT',
+    'DAV': '1, 2, 3, addressbook',
+  }).status(200).end();
+});
+
+// ── PROPFIND / (root discovery) ───────────────────────────────────────────────
+
+router.propfind('/', async (req, res) => {
+  const userId = req.cardavUserId;
+  const principalPath = `/carddav/${userId}/`;
+
+  const xml = multistatus([
+    response('/carddav/', [
+      propstat([
+        '<D:resourcetype><D:collection/></D:resourcetype>',
+        `<D:current-user-principal><D:href>${xmlEscape(principalPath)}</D:href></D:current-user-principal>`,
+      ], '200 OK'),
+    ]),
+  ]);
+  sendXml(res, 207, xml);
+});
+
+// ── PROPFIND /{userId}/ (principal) ──────────────────────────────────────────
+
+router.propfind('/:userId/', async (req, res) => {
+  const userId = req.cardavUserId;
+  if (req.params.userId !== userId) return res.status(403).end();
+
+  const principalPath  = `/carddav/${userId}/`;
+  const r = await query('SELECT id, name, sync_token, sync_version FROM address_books WHERE user_id = $1 ORDER BY created_at', [userId]);
+  const principal = response(principalPath, [
+    propstat([
+      '<D:resourcetype><D:principal/><D:collection/></D:resourcetype>',
+      `<D:displayname>${xmlEscape(userId)}</D:displayname>`,
+      `<D:principal-URL><D:href>${xmlEscape(principalPath)}</D:href></D:principal-URL>`,
+      `<C:addressbook-home-set><D:href>${xmlEscape(principalPath)}</D:href></C:addressbook-home-set>`,
+      `<D:current-user-principal><D:href>${xmlEscape(principalPath)}</D:href></D:current-user-principal>`,
+    ], '200 OK'),
+  ]);
+  const books = (req.headers.depth || '0') === '0' ? [] : r.rows.map(book => response(`/carddav/${userId}/${book.id}/`, [
+    propstat([
+      '<D:resourcetype><D:collection/><C:addressbook/></D:resourcetype>',
+      `<D:displayname>${xmlEscape(book.name)}</D:displayname>`,
+      `<D:sync-token>${xmlEscape(syncToken(book))}</D:sync-token>`,
+      `<CS:getctag>${xmlEscape(book.sync_token)}</CS:getctag>`,
+    ], '200 OK'),
+  ]));
+  sendXml(res, 207, multistatus([
+    principal,
+    ...books,
+  ]));
+});
+
+// ── PROPFIND /{userId}/{bookId}/ (address book) ───────────────────────────────
+
+router.propfind('/:userId/:bookId/', async (req, res) => {
+  const userId = req.cardavUserId;
+  if (req.params.userId !== userId) return res.status(403).end();
+
+  const depth = req.headers['depth'] || '0';
+
+  const bookResult = await query(
+    'SELECT * FROM address_books WHERE id = $1 AND user_id = $2',
+    [req.params.bookId, userId]
+  );
+  if (!bookResult.rows.length) return res.status(404).end();
+  const book = bookResult.rows[0];
+
+  const bookPath = `/carddav/${userId}/${book.id}/`;
+
+  const bookResponse = response(bookPath, [
+    propstat([
+      `<D:resourcetype><D:collection/><C:addressbook/></D:resourcetype>`,
+      `<D:displayname>${xmlEscape(book.name)}</D:displayname>`,
+      `<D:sync-token>${xmlEscape(syncToken(book))}</D:sync-token>`,
+      `<CS:getctag>${xmlEscape(book.sync_token)}</CS:getctag>`,
+    ], '200 OK'),
+  ]);
+
+  if (depth === '0') {
+    return sendXml(res, 207, multistatus([bookResponse]));
+  }
+
+  // Depth: 1 — list all VCards in the book.
+  const contacts = await query(
+    'SELECT uid, dav_filename, etag FROM contacts WHERE address_book_id = $1',
+    [book.id]
+  );
+
+  const cardResponses = contacts.rows.map(c =>
+    response(`${bookPath}${encodeURIComponent(c.dav_filename || `${c.uid}.vcf`)}`, [
+      propstat([
+        '<D:resourcetype/>',
+        `<D:getetag>"${xmlEscape(c.etag)}"</D:getetag>`,
+        '<D:getcontenttype>text/vcard;charset=utf-8</D:getcontenttype>',
+      ], '200 OK'),
+    ])
+  );
+
+  sendXml(res, 207, multistatus([bookResponse, ...cardResponses]));
+});
+
+// ── REPORT /{userId}/{bookId}/ (addressbook-query / sync-collection) ──────────
+
+router.report('/:userId/:bookId/', async (req, res) => {
+  const userId = req.cardavUserId;
+  if (req.params.userId !== userId) return res.status(403).end();
+
+  const bookResult = await query(
+    'SELECT * FROM address_books WHERE id = $1 AND user_id = $2',
+    [req.params.bookId, userId]
+  );
+  if (!bookResult.rows.length) return res.status(404).end();
+  const book = bookResult.rows[0];
+  const bookPath = `/carddav/${userId}/${book.id}/`;
+
+  const body = await rawBody(req);
+  const isSyncCollection = body.includes('sync-collection');
+
+  const isMultiget = body.includes('addressbook-multiget');
+  if (!isSyncCollection && !isMultiget && !body.includes('addressbook-query')) return res.status(400).end();
+  let contacts;
+  let filenames = [];
+  if (isSyncCollection) {
+    const token = body.match(/<(?:[\w.-]+:)?sync-token(?:\s[^>]*)?>([^<]*)<\/(?:[\w.-]+:)?sync-token>/)?.[1]?.trim();
+    const prefix = `urn:inboxora:carddav:${book.id}:`;
+    const version = token?.startsWith(prefix) && /^\d+$/.test(token.slice(prefix.length)) ? Number(token.slice(prefix.length)) : NaN;
+    if (token && (!Number.isSafeInteger(version) || version > Number(book.sync_version || 0))) {
+      return sendXml(res, 409, `${xmlHeader()}<D:error xmlns:D="${DAV_NS}"><D:valid-sync-token/></D:error>`);
+    }
+    if (token) contacts = await query(
+      `SELECT DISTINCT ON (filename) filename AS dav_filename, etag, vcard, deleted
+       FROM contact_sync_changes WHERE address_book_id = $1 AND version > $2 AND version <= $3
+       ORDER BY filename, version DESC`, [book.id, version, book.sync_version || 0]);
+  } else if (isMultiget) {
+    try {
+      filenames = [...new Set([...body.matchAll(/<(?:[\w.-]+:)?href(?:\s[^>]*)?>([^<]+)<\/(?:[\w.-]+:)?href>/g)]
+        .map(match => decodeURIComponent(match[1].trim().replace(/^.*\//, ''))))];
+    } catch { return res.status(400).end(); }
+    if (!filenames.length) return res.status(400).end();
+    contacts = await query("SELECT uid, dav_filename, vcard, etag FROM contacts WHERE address_book_id = $1 AND COALESCE(dav_filename, uid || '.vcf') = ANY($2)", [book.id, filenames]);
+  }
+  if (!contacts) contacts = await query('SELECT uid, dav_filename, vcard, etag FROM contacts WHERE address_book_id = $1', [book.id]);
+
+  const cardResponses = contacts.rows.map(c => {
+    const href = `${bookPath}${encodeURIComponent(c.dav_filename || `${c.uid}.vcf`)}`;
+    if (c.deleted) return response(href, ['<D:status>HTTP/1.1 404 Not Found</D:status>']);
+    return response(href, [
+      propstat([
+        '<D:resourcetype/>',
+        `<D:getetag>"${xmlEscape(c.etag)}"</D:getetag>`,
+        '<D:getcontenttype>text/vcard;charset=utf-8</D:getcontenttype>',
+        `<C:address-data>${xmlEscape(c.vcard || '')}</C:address-data>`,
+      ], '200 OK'),
+    ]);
+  });
+
+  const returned = new Set(contacts.rows.map(c => c.dav_filename || `${c.uid}.vcf`));
+  for (const filename of filenames.filter(name => !returned.has(name))) {
+    cardResponses.push(response(`${bookPath}${encodeURIComponent(filename)}`, ['<D:status>HTTP/1.1 404 Not Found</D:status>']));
+  }
+  if (isSyncCollection) {
+    const xml = [
+      xmlHeader(),
+      `<D:multistatus xmlns:D="${DAV_NS}" xmlns:C="${CARD_NS}">`,
+      ...cardResponses,
+      `<D:sync-token>${xmlEscape(syncToken(book))}</D:sync-token>`,
+      '</D:multistatus>',
+    ].join('');
+    return sendXml(res, 207, xml);
+  }
+
+  sendXml(res, 207, multistatus(cardResponses));
+});
+
+// ── GET /{userId}/{bookId}/{uid}.vcf ─────────────────────────────────────────
+
+router.get('/:userId/:bookId/:filename', async (req, res) => {
+  const userId = req.cardavUserId;
+  if (req.params.userId !== userId) return res.status(403).end();
+
+  const uid = req.params.filename;
+
+  const result = await query(
+    `SELECT c.vcard, c.etag FROM contacts c
+     JOIN address_books ab ON ab.id = c.address_book_id
+     WHERE ab.id = $1 AND ab.user_id = $2 AND COALESCE(c.dav_filename, c.uid || '.vcf') = $3`,
+    [req.params.bookId, userId, uid]
+  );
+  if (!result.rows.length) return res.status(404).end();
+
+  const { vcard, etag } = result.rows[0];
+  res.set({
+    'Content-Type': 'text/vcard;charset=utf-8',
+    'ETag': `"${etag}"`,
+  }).send(vcard);
+});
+
+// ── PUT /{userId}/{bookId}/{uid}.vcf (create or update) ──────────────────────
+
+router.put('/:userId/:bookId/:filename', async (req, res) => {
+  const userId = req.cardavUserId;
+  if (req.params.userId !== userId) return res.status(403).end();
+
+  const filename = req.params.filename;
+  const body = await rawBody(req);
+  if (!body.trim()) return res.status(400).end();
+
+  const parsed = parseVCard(body);
+  if (parsed.invalidDates.length || parsed.invalidDateLabels.length) return res.status(400).end();
+  const uid = parsed.uid || filename.replace(/\.vcf$/i, '');
+  const vcard  = body; // store what the client sent verbatim
+  const etag   = crypto.createHash('md5').update(vcard).digest('hex');
+
+  const primaryEmail = (parsed.emails.find(email => email.primary) || parsed.emails[0])?.value?.toLowerCase() || null;
+
+  try {
+    const bookResult = await query(
+      'SELECT id, source FROM address_books WHERE id = $1 AND user_id = $2',
+      [req.params.bookId, userId]
+    );
+    if (!bookResult.rows.length) return res.status(404).end();
+    const book = bookResult.rows[0];
+    if (book.source !== 'local') return res.status(403).end();
+    const bookId = book.id;
+
+    const existing = await query(
+      "SELECT id, uid, dav_filename, etag FROM contacts WHERE address_book_id = $1 AND (uid = $2 OR COALESCE(dav_filename, uid || '.vcf') = $3)",
+      [bookId, uid, filename]
+    );
+
+    const current = existing.rows[0];
+    if (current?.uid && (current.uid !== uid || (current.dav_filename || `${current.uid}.vcf`) !== filename)) return res.status(409).end();
+    if (req.headers['if-none-match'] === '*' && current) return res.status(412).end();
+    if (req.headers['if-match'] && !current) return res.status(412).end();
+    if (existing.rows.length) {
+      // Enforce If-Match precondition (RFC 6352 §6.3.2)
+      const ifMatch = req.headers['if-match'];
+      if (ifMatch && ifMatch !== '*') {
+        const clientEtag = ifMatch.replace(/^"(.*)"$/, '$1');
+        if (clientEtag !== existing.rows[0].etag) return res.status(412).end();
+      }
+      // Update
+      const updated = await query(`
+        UPDATE contacts SET
+          vcard = $1, etag = $2,
+          display_name = $3, first_name = $4, last_name = $5,
+          primary_email = $6, emails = $7, phones = $8,
+          organization = $9, notes = $10, birthday = $11, anniversary = $12, contact_dates = $13::jsonb, photo_data = $14,
+          title = $16, role = $17, nickname = $18, urls = $19::jsonb, instant_messages = $20::jsonb,
+          categories = $21::jsonb, addresses = $22::jsonb, dav_filename = $23,
+          is_auto = false, updated_at = NOW()
+        WHERE id = $15 AND etag = $24 RETURNING id
+      `, [
+        vcard, etag,
+        parsed.displayName, parsed.firstName, parsed.lastName,
+        primaryEmail,
+        JSON.stringify(parsed.emails), JSON.stringify(parsed.phones),
+        parsed.organization, parsed.notes, parsed.birthday, parsed.anniversary, JSON.stringify(parsed.contactDates), parsed.photoData,
+        existing.rows[0].id, parsed.title, parsed.role, parsed.nickname, JSON.stringify(parsed.urls), JSON.stringify(parsed.instantMessages), JSON.stringify(parsed.categories), JSON.stringify(parsed.addresses), filename, current.etag,
+      ]);
+      if (!updated.rows.length) return res.status(412).end();
+      await query(
+        'UPDATE address_books SET sync_token = gen_random_uuid()::text, updated_at = NOW() WHERE id = $1',
+        [bookId]
+      );
+      res.set('ETag', `"${etag}"`).status(204).end();
+    } else {
+      // Create
+      await query(`
+        INSERT INTO contacts (
+          address_book_id, user_id, uid, vcard, etag,
+          display_name, first_name, last_name, primary_email,
+          emails, phones, organization, notes, birthday, anniversary, contact_dates, photo_data, title, role, nickname, urls, instant_messages, categories, addresses, dav_filename, is_auto
+        ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16::jsonb,$17,$18,$19,$20,$21::jsonb,$22::jsonb,$23::jsonb,$24::jsonb,$25, false)
+      `, [
+        bookId, userId, uid, vcard, etag,
+        parsed.displayName, parsed.firstName, parsed.lastName,
+        primaryEmail,
+        JSON.stringify(parsed.emails), JSON.stringify(parsed.phones),
+        parsed.organization, parsed.notes, parsed.birthday, parsed.anniversary, JSON.stringify(parsed.contactDates), parsed.photoData,
+        parsed.title, parsed.role, parsed.nickname, JSON.stringify(parsed.urls), JSON.stringify(parsed.instantMessages), JSON.stringify(parsed.categories), JSON.stringify(parsed.addresses), filename,
+      ]);
+      await query(
+        'UPDATE address_books SET sync_token = gen_random_uuid()::text, updated_at = NOW() WHERE id = $1',
+        [bookId]
+      );
+      res.set('ETag', `"${etag}"`).status(201).end();
+    }
+  } catch (err) {
+    if (err.code === '23505') return res.status(409).end(); // unique conflict
+    console.error('CardDAV PUT error:', err);
+    res.status(500).end();
+  }
+});
+
+// ── DELETE /{userId}/{bookId}/{uid}.vcf ──────────────────────────────────────
+
+router.delete('/:userId/:bookId/:filename', async (req, res) => {
+  const userId = req.cardavUserId;
+  if (req.params.userId !== userId) return res.status(403).end();
+
+  const uid = req.params.filename;
+
+  try {
+    const bookResult = await query(
+      'SELECT id, source FROM address_books WHERE id = $1 AND user_id = $2',
+      [req.params.bookId, userId]
+    );
+    if (!bookResult.rows.length) return res.status(404).end();
+    if (bookResult.rows[0].source !== 'local') return res.status(403).end();
+
+    const result = await query(
+      `DELETE FROM contacts
+       USING address_books
+       WHERE contacts.address_book_id = address_books.id
+         AND address_books.id = $1
+         AND address_books.user_id = $2
+         AND COALESCE(contacts.dav_filename, contacts.uid || '.vcf') = $3
+         AND ($4::text IS NULL OR contacts.etag = $4)
+       RETURNING address_books.id AS book_id`,
+      [req.params.bookId, userId, uid, req.headers['if-match'] && req.headers['if-match'] !== '*' ? req.headers['if-match'].replace(/^"|"$/g, '') : null]
+    );
+    if (!result.rows.length) return res.status(req.headers['if-match'] ? 412 : 404).end();
+    await query(
+      'UPDATE address_books SET sync_token = gen_random_uuid()::text, updated_at = NOW() WHERE id = $1',
+      [result.rows[0].book_id]
+    );
+    res.status(204).end();
+  } catch (err) {
+    console.error('CardDAV DELETE error:', err);
+    res.status(500).end();
+  }
+});
+
+export default router;
