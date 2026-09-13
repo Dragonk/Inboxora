@@ -9,10 +9,10 @@ channel.
 IMAP IDLE / mail sync
         │  new message persisted (messages.id = immutable event id)
         ▼
-buildMailNotificationEvent()          src/services/mailNotificationEvent.js
+buildMailNotificationEvent()          src/services/mailNotificationEvent.ts
         │
         ▼
-dispatchMailNotification()            src/services/pushDispatcher.js
+dispatchMailNotification()            src/services/pushDispatcher.ts
         │
         ├── Web Push  ──▶ push_subscriptions  (browser / installed PWA)
         └── Native    ──▶ push_devices        (Android)

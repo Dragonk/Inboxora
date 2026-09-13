@@ -10,6 +10,10 @@ therefore: back up, change the version, pull, recreate.
 Coming from MailFlow rather than an earlier Inboxora? Use
 [**Migrating from MailFlow**](Migrating-from-MailFlow.md) instead.
 
+> **Upgrading 4.0.0 to 4.0.1 needs nothing beyond the standard steps.** 4.0.1 is the TypeScript
+> rewrite of the codebase: no schema migration, no new environment variable and no interface
+> change. See [Release notes 4.0.1](Release-notes-4.0.1.md).
+
 ## Standard upgrade
 
 ```bash

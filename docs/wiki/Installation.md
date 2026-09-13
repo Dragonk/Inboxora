@@ -31,7 +31,7 @@ candidates for testing only and must not be used for a server people depend on.
    cp .env.example .env
    ```
 
-2. Set a pinned `INBOXORA_VERSION` in `.env` (for example `4.0.0`) instead of relying on a
+2. Set a pinned `INBOXORA_VERSION` in `.env` (for example `4.0.1`) instead of relying on a
    mutable tag.
 
 3. Generate unique secrets and write them into `.env`:

@@ -302,7 +302,7 @@ test('settings: appearance, DAV access and about', async ({ page, fixtureApi }) 
     page.getByText('Thunderbird · laptop', { exact: true }),
   ] });
   await openSettingsTab(page, 'About');
-  await expect(page.getByText('4.0.0', { exact: true })).toBeVisible();
+  await expect(page.getByText('4.0.1', { exact: true })).toBeVisible();
   await capture(page, 'settings-about', { mode: 'workspace', require: [
     page.getByText('AGPL-3.0', { exact: true }),
   ] });

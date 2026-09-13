@@ -3,6 +3,12 @@
 It follows a **Now / Next / Later** format — no dates, no commitments. Priorities shift as the
 community's needs become clear.
 
+## Shipped in 4.0.1
+
+- The whole codebase (backend and frontend) migrated from JavaScript to TypeScript, without
+  `@ts-nocheck`/`@ts-ignore` or blanket `as any` casts, plus the real defects that the migration
+  exposed. No new functionality — a patch release only.
+
 ## Shipped in 4.0.0
 
 - Dedicated, revocable DAV application passwords, so CardDAV and CalDAV sync through DAVx5 works

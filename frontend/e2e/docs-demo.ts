@@ -531,7 +531,7 @@ export async function useDavDemoData(page) {
       { id: 'cred-laptop', label: 'Thunderbird · laptop', created_at: '2026-07-02T18:30:00Z', last_used_at: null },
     ] } });
   });
-  await page.route('**/api/version', route => route.fulfill({ json: { version: '4.0.0', sha: '4f4a2c19d5c8f0b7a1e34a9c6d2b8ef0173c5a64' } }));
+  await page.route('**/api/version', route => route.fulfill({ json: { version: '4.0.1', sha: '4f4a2c19d5c8f0b7a1e34a9c6d2b8ef0173c5a64' } }));
 }
 
 // ─── Presentation contract ────────────────────────────────────────────────────

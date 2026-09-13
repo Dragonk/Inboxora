@@ -17,4 +17,5 @@
   - [Development](Development.md)
 - **Reference**
   - [V3 interface](V3-interface.md)
+  - [Release notes 4.0.1](Release-notes-4.0.1.md)
   - [Release notes 4.0.0](Release-notes-4.0.0.md)

@@ -85,7 +85,7 @@ In `.env`, two things need attention:
 
 ```bash
 # 1. The image version variable was renamed. MAILFLOW_VERSION is no longer read.
-INBOXORA_VERSION=4.0.0
+INBOXORA_VERSION=4.0.1
 
 # 2. Keep your ORIGINAL database name and user. Do not copy Inboxora's defaults here.
 DB_NAME=mailflow

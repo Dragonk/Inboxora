@@ -5,8 +5,86 @@ All notable changes to Inboxora are recorded here. The format follows
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 For the narrative version — what the release means, what to expect when upgrading, and the known
-limitations — read the matching page in the Wiki, for example
+limitations — read the matching page in the Wiki: [Release notes 4.0.1](wiki/Release-notes-4.0.1.md) and
 [Release notes 4.0.0](wiki/Release-notes-4.0.0.md).
+
+## [4.0.1] - 2026-09-13
+
+A patch release with **no new functionality**. The whole application — backend and frontend — was
+migrated from JavaScript to TypeScript, and every defect the migration surfaced was fixed in the
+code instead of being silenced with type-checking suppressions.
+
+### Why this release exists
+
+The codebase was plain JavaScript with no compiler in the loop, so a wrong property name, a missing
+import, a callback the caller never passes, or a comparison that can never be true only failed at
+runtime — usually only on the code path a user happened to hit, and often in a rare state.
+
+The migration was therefore done the strict way: **no `@ts-nocheck`, no blanket `as any`, no
+`@ts-ignore`**. The compiler had to be satisfied with real types and real fixes, which turned the
+migration itself into an audit: the same work removed latent defects rather than hiding them.
+
+### Changed
+
+- **Backend and frontend sources are 100% TypeScript** — `backend/src` 299 `.ts` files,
+  `frontend/src` 236 `.ts`/`.tsx` files, **0 `.js`/`.jsx`**; Playwright specs and
+  configuration are `.ts` as well.
+- Both projects type-check cleanly (`tsc --noEmit` → 0 errors) and lint cleanly with
+  `--max-warnings 0`.
+- **No type-checking suppressions remain**: 0 files with `@ts-nocheck`, `@ts-ignore` or
+  `@ts-expect-error`, and 0 `any` occurrences outside one deliberately documented boundary alias
+  (`DbRow` in `backend/src/services/db.ts`, the dynamic-SQL row type).
+- The backend is built with `tsc -p tsconfig.build.json` into `dist/`; `npm start` runs
+  `node dist/index.js`, `npm run dev` runs `tsx watch src/index.ts`, and the Docker image
+  builds and runs from `dist/`. The frontend entry is `frontend/src/main.tsx`; the Vite build
+  is otherwise unchanged.
+- Shared type infrastructure added: Express and session augmentations, typed `req.query` helpers,
+  JSON response shapes for route tests, and the native-bridge globals.
+
+### Fixed
+
+Real defects found while typing the code — each is something JavaScript could not have caught:
+
+- **An AI result component referenced `renderMarkdown` without importing it.** Every AI summary
+  or custom action output would have thrown `ReferenceError: renderMarkdown is not defined`.
+- **`onContextMenu` read `e.pointerType`**, which does not exist on `MouseEvent`. The guard
+  meant to restrict the folder context menu to a desktop right-click was always true.
+- **A test double returned an array where the production code expects a `Set`**
+  (`resolveAllTrashPaths`); the caller uses `.has()`, so the wrong shape would have thrown.
+- **`providerConversationMetadata` read a `references` field that `parseProviderMetadata`
+  never returns** — a dead fallback that the type checker exposed.
+- **`intervalMilliseconds` and `normalizeHref` returned `null`** while their contracts said
+  `number`/`string`.
+- **`listMessages` accepted both a quoted true string and a boolean** for `unreadOnly`
+  and `threaded`; typing pinned the contract and fixed callers that passed the wrong one.
+- **`computeThreadId` was called with an extra `subject` argument** its four-parameter
+  signature ignored, hiding a mismatch.
+- **`Date` objects were subtracted directly** in sorting and range code (for example
+  `new Date(a) - new Date(b)`), which is only accidentally correct; replaced with `.getTime()`.
+- **The draft and send paths passed the stream-transport message straight to `.on(...)`**, where
+  the type is a union with `Buffer`; the message stream is now narrowed with a hard error.
+- **Outbound-mail responses returned an `ok: true`-only shape** while the client read
+  `sentCopySaved`/`sentFolder`.
+- **Frontend style objects were untyped**, so `boxSizing` widened to `string` and cascaded into
+  dozens of `CSSProperties` errors; the same pattern hid a missing `inert` attribute in the
+  React 18 type definitions.
+- Test doubles and fixtures that silently disagreed with the code they stand in for (a missing
+  `verify()` on the SMTP transport double, `parseMessage` results without their required
+  fields, mock return values without `rows`). The full running list of findings, with the
+  reasoning for each, is kept in `TYPESCRIPT_MIGRATION_FIXES.md`.
+
+### Notes
+
+- **No new features, no database migrations and no configuration changes.** Upgrading from 4.0.0 is
+  a drop-in image update; no data, settings or DAV contracts are touched.
+- One documented exception remains: `backend/src/services/db.ts` exports `type DbRow = any` for
+  dynamic SQL rows. Query parameters are typed `unknown[]` and callers narrow what they read;
+  typing rows as `Record<string, unknown>` was measured to cascade into ~220 errors across
+  ~200 call sites and is tracked as a separate refactor.
+- `strict` and `noImplicitAny` remain **off**. Enabling `strict` was measured at 1609
+  (backend) and 2172 (frontend) additional errors, dominated by untyped parameters; that is
+  follow-up work, not part of this patch.
+
 
 ## [4.0.0] - 2026-09-11
 This is the first release of Inboxora as a suite rather than a mail client. Inboxora began as an
