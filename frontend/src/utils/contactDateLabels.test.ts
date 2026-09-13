@@ -1,4 +1,3 @@
-// @ts-nocheck
 import { it } from 'node:test';
 import assert from 'node:assert/strict';
 import i18next from 'i18next';
@@ -7,7 +6,7 @@ import { contactDateLabel, localizeContactEvent, localizeContactCalendar } from 
 
 for (const language of ['en', 'pl', 'de', 'fr', 'es', 'it', 'cs', 'ru', 'zhCN']) {
   it(`localizes contact-derived calendar events in ${language} without rewriting custom data`, async () => {
-    const translation = JSON.parse(readFileSync(new URL(`../locales/${language}.json`, import.meta.url)));
+    const translation = JSON.parse(readFileSync(new URL(`../locales/${language}.json`, import.meta.url), 'utf8'));
     const i18n = i18next.createInstance();
     await i18n.init({ lng: language, resources: { [language]: { translation } } });
     const t = i18n.t.bind(i18n);

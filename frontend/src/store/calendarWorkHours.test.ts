@@ -1,4 +1,3 @@
-// @ts-nocheck
 import { afterEach, beforeEach, describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
@@ -17,7 +16,7 @@ registerHooks({
   },
 });
 
-globalThis.localStorage = {
+(globalThis as any).localStorage = {
   getItem: () => null,
   setItem: () => {},
   removeItem: () => {},

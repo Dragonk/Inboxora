@@ -1092,7 +1092,7 @@ export const useStore = create<any>((set, get) => ({
   renameFavoriteFolder: ({ accountId, path, label }) => {
     const next = get().favoriteFolders.map(f => {
       if (f.accountId !== accountId || f.path !== path) return f;
-      // eslint-disable-next-line no-unused-vars
+       
       const { label: _old, ...base } = f;
       return label ? { ...base, label } : base;
     });

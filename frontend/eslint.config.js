@@ -10,7 +10,7 @@ export default tseslint.config(
   js.configs.recommended,
   {
     files: ['**/*.{js,jsx,ts,tsx}'],
-    plugins: { 'react-hooks': reactHooks },
+    plugins: { 'react-hooks': reactHooks, '@typescript-eslint': tseslint.plugin },
     languageOptions: {
       parser: tseslint.parser,
       ecmaVersion: 2022,
@@ -27,12 +27,23 @@ export default tseslint.config(
       // Crash-causers — block CI
       'no-undef': 'error',
       // Quality issues — report but don't block
-      'no-unused-vars': 'warn',
+      'no-unused-vars': 'off',
+      '@typescript-eslint/no-unused-vars': ['warn', {
+        argsIgnorePattern: '^_',
+        varsIgnorePattern: '^_',
+        caughtErrorsIgnorePattern: '^_',
+      }],
       'no-empty': 'warn',
       'no-useless-assignment': 'warn',
       'react-hooks/rules-of-hooks': 'warn',
       'react-hooks/exhaustive-deps': 'warn',
     },
+  },
+  {
+    // TypeScript already reports undefined identifiers (including types), so
+    // `no-undef` only produces false positives on type-only names.
+    files: ['**/*.{ts,tsx}'],
+    rules: { 'no-undef': 'off' },
   },
   {
     // Ambient declaration files merge interfaces; the base rule reports the

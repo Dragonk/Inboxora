@@ -1,4 +1,3 @@
-// @ts-nocheck
 import { useTranslation } from 'react-i18next';
 import { useStore } from '../store/index.ts';
 import MessageWindow from './MessageWindow.tsx';
@@ -29,7 +28,7 @@ export default function WindowLayer() {
   const resolveTitle = (messageId) => {
     const list = searchQuery.trim() ? searchResults : messages;
     const msg = list.find(m => m.id === messageId)
-      ?? Object.values(threadMessages).flat().find(m => m.id === messageId);
+      ?? Object.values(threadMessages).flat().find((m: any) => m.id === messageId);
     return {
       title: msg?.subject?.trim() || t('common.noSubject'),
       accent: msg?.account_color || 'var(--accent)',

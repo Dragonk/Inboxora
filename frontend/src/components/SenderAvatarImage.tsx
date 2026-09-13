@@ -1,4 +1,3 @@
-// @ts-nocheck
 import { useEffect, useMemo, useState } from 'react';
 import { useStore } from '../store/index.ts';
 import { avatarImageCandidates } from '../utils/senderAvatar.ts';
@@ -36,7 +35,7 @@ export default function SenderAvatarImage({ email, hasContactPhoto }) {
       alt=""
       loading="lazy"
       decoding="async"
-      style={style}
+      style={style as any}
       onError={() => setFailed(current => new Set(current).add(active.src))}
     />
   );

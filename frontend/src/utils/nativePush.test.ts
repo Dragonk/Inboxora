@@ -1,4 +1,3 @@
-// @ts-nocheck
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 
@@ -23,7 +22,7 @@ test('native push helpers are inert outside a Capacitor native platform', async 
 });
 
 test('a browser window without Capacitor is still treated as non-native', async () => {
-  globalThis.window = {};
+  (globalThis as any).window = {};
   assert.equal(isNativePlatform(), false);
   await clearNativePush();
   delete globalThis.window;

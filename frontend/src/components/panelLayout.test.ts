@@ -54,7 +54,7 @@ function stubDom({ variable = '', stored = null } = {}) {
     },
   };
   globalThis.getComputedStyle = element => element.style;
-  globalThis.localStorage = {
+  (globalThis as any).localStorage = {
     getItem: key => (storage.has(key) ? storage.get(key) : null),
     setItem: (key, value) => storage.set(key, String(value)),
     removeItem: key => storage.delete(key),
@@ -66,7 +66,7 @@ function restoreDom() {
   if (originalDocument === undefined) delete globalThis.document;
   else globalThis.document = originalDocument;
   if (originalLocalStorage === undefined) delete globalThis.localStorage;
-  else globalThis.localStorage = originalLocalStorage;
+  else (globalThis as any).localStorage = originalLocalStorage;
 }
 
 test('panel width clamps to the shared resizable range', t => {

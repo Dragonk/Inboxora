@@ -1,4 +1,3 @@
-// @ts-nocheck
 // Client-side diagnostics report assembly. Collects the environment section,
 // asks the backend for the sanitized server section (accounts/folders/counts/
 // config, all id-hashed with a per-report salt), merges, and runs a final PII
@@ -12,7 +11,7 @@ const REPORT_SCHEMA_VERSION = 1;
 
 export function randomHex(bytes = 16) {
   const a = new Uint8Array(bytes);
-  (globalThis.crypto || {}).getRandomValues?.(a);
+  (globalThis.crypto as Crypto | undefined)?.getRandomValues?.(a);
   return Array.from(a, b => b.toString(16).padStart(2, '0')).join('');
 }
 

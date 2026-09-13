@@ -1,4 +1,3 @@
-// @ts-nocheck
 import { useLayoutEffect, useRef } from 'react';
 import { flushSync } from 'react-dom';
 import { createBackNavigation } from '../utils/backNavigation.ts';

@@ -1,4 +1,3 @@
-// @ts-nocheck
 import { useState, useEffect, useRef } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useStore } from '../../store/index.ts';
@@ -271,7 +270,7 @@ function GtdAccountBlock({ account }) {
                   value={folders[state] ?? ''}
                   onChange={e => setFolders(prev => ({ ...prev, [state]: e.target.value }))}
                   placeholder={DEFAULT_GTD_FOLDERS[state]}
-                  style={{ ...inputStyle, flex: 1 }}
+                  style={{ ...inputStyle, flex: 1 } as any}
                 />
               </div>
             ))}

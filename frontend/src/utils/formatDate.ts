@@ -1,4 +1,3 @@
-// @ts-nocheck
 import { intlLocale } from './intlLocale.ts';
 // Reuse Intl formatters across large mail lists; labels follow the selected UI locale.
 const formatters = new Map();
@@ -10,7 +9,7 @@ function formatter(locale, kind) {
       : { month: 'short', day: 'numeric', ...(kind === 'date-year' ? { year: 'numeric' } : {}) };
     formatters.set(key, kind === 'relative'
       ? new Intl.RelativeTimeFormat(locale, { numeric: 'auto' })
-      : new Intl.DateTimeFormat(locale, options));
+      : new Intl.DateTimeFormat(locale, options as Intl.DateTimeFormatOptions));
   }
   return formatters.get(key);
 }

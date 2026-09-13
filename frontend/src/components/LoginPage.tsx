@@ -1,4 +1,3 @@
-// @ts-nocheck
 import { useState, useEffect } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useStore } from '../store/index.ts';
@@ -960,8 +959,8 @@ export default function LoginPage() {
                 opacity: loading || !username || !password ? 0.6 : 1,
                 transition: 'opacity 0.15s, transform 0.1s', marginTop: 4,
               }}
-              onMouseDown={e => e.target.style.transform = 'scale(0.98)'}
-              onMouseUp={e => e.target.style.transform = 'scale(1)'}
+              onMouseDown={e => (e.target as HTMLElement).style.transform = 'scale(0.98)'}
+              onMouseUp={e => (e.target as HTMLElement).style.transform = 'scale(1)'}
             >
               {loading ? t('login.pleaseWait') : (mode === 'login' ? t('login.signIn') : t('login.createAccount'))}
             </button>

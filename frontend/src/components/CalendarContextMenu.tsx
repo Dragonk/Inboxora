@@ -1,4 +1,3 @@
-// @ts-nocheck
 import { useBackLayer } from '../hooks/useBackNavigation.ts';
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
 
@@ -55,8 +54,8 @@ export default function CalendarContextMenu({ x, y, event, isMobile = false, onE
     restoreFocus();
   };
   return <>
-    <button type="button" aria-label={t('calendar.closeMenu', 'Close calendar menu')} onClick={closeFromOutside} style={scrim} />
-    <div ref={menuRef} role="menu" aria-label={t('calendar.eventActions', 'Event actions')} data-testid="calendar-context-menu" style={{ ...menu, ...(isMobile ? mobileMenu : { left: position.x, top: position.y }) }}>
+    <button type="button" aria-label={t('calendar.closeMenu', 'Close calendar menu')} onClick={closeFromOutside} style={scrim as any} />
+    <div ref={menuRef} role="menu" aria-label={t('calendar.eventActions', 'Event actions')} data-testid="calendar-context-menu" style={{ ...menu, ...(isMobile ? mobileMenu : { left: position.x, top: position.y }) } as any}>
       <strong style={menuTitle}>{event.summary || t('calendar.untitled')}</strong>
       {writable && <>
         <button type="button" role="menuitem" onClick={() => run(onEdit, false)}>{t('calendar.edit')}</button>

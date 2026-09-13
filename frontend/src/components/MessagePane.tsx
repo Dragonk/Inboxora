@@ -1,6 +1,6 @@
 // @ts-nocheck
 import { useBackLayer } from '../hooks/useBackNavigation.ts';
-/* eslint-disable no-unused-vars */
+ 
 import { useEffect, useLayoutEffect, useState, useRef, useCallback, useMemo, lazy, Suspense } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useStore } from '../store/index.ts';
@@ -17,10 +17,9 @@ import { queueReadStateMutation, isLatestReadStateMutation } from '../utils/read
 import { queueStarStateMutation, isLatestStarStateMutation } from '../utils/starStateMutation.ts';
 import { BUILTIN_SUMMARIZE, summarizePromptForLocale } from '../aiActions.ts';
 import { getResults, saveResult, removeResult } from '../aiResults.ts';
-import { renderMarkdown } from '../utils/renderMarkdown.ts';
 import { pickReplyAlias, collectOwnAddresses } from '../utils/replyAlias.ts';
 import { buildReplyHeaders } from '../utils/composeFromMessage.ts';
-import MessageBodyRenderer, { sanitizeMessageHtml } from './MessageBodyRenderer.tsx';
+import { sanitizeMessageHtml } from './MessageBodyRenderer.tsx';
 import { getEmailSurface } from '../themes.ts';
 import MessageDetailContent from './MessageDetailContent.tsx';
 const USE_DIV_RENDER = import.meta.env.VITE_EMAIL_DIV_RENDER === 'true';
@@ -45,7 +44,6 @@ if (USE_DIV_RENDER) {
 import MessageHeaderModal from './MessageHeaderModal.tsx';
 import { MessageAvatar } from './MessagePresentation.tsx';
 import MessageToolbar from './MessageToolbar.tsx';
-import ContextMenu from './ContextMenu.tsx';
 import { MobileModuleHeader, HeaderAction } from './MobileModuleHeader.tsx';
 
 function parseAddressField(raw) {
@@ -57,14 +55,14 @@ function parseAddressField(raw) {
 
 
 
-function formatBytes(bytes) {
+function _formatBytes(bytes) {
   if (!bytes) return '';
   if (bytes < 1024) return `${bytes} B`;
   if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(0)} KB`;
   return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
 }
 
-function fileIcon(type) {
+function _fileIcon(type) {
   const t = (type || '').toLowerCase();
   const p = { width: 18, height: 18, viewBox: '0 0 24 24', fill: 'none', stroke: 'currentColor', strokeWidth: 1.75 };
   if (t.startsWith('image/')) return (
@@ -100,7 +98,7 @@ export default function MessagePane({ windowMessageId = null, onWindowClose = nu
     updateMessage, removeMessage, decrementUnread, incrementUnread, openCompose, accounts, addNotification,
     imageWhitelist, addToImageWhitelist, blockRemoteImages, threadMessages,
     replyDefault, shortcuts,
-    categorizationEnabled, setCategoryCounts, adjustCategoryCount,
+    categorizationEnabled: _categorizationEnabled, setCategoryCounts, adjustCategoryCount,
     aiActions, setShowAdmin, setAdminTab,
     showContacts, showCalendar,
   } = useStore();
@@ -314,8 +312,8 @@ export default function MessagePane({ windowMessageId = null, onWindowClose = nu
   const [bodyError, setBodyError] = useState(null);
   const [retryKey, setRetryKey] = useState(0);
   const [loadingBody, setLoadingBody] = useState(false);
-  const [downloadingPart, setDownloadingPart] = useState(null);
-  const [savingAllow, setSavingAllow] = useState(false);
+  const [_downloadingPart, setDownloadingPart] = useState(null);
+  const [_savingAllow, setSavingAllow] = useState(false);
   const [paneScrolled, setPaneScrolled] = useState(false);
   const [showHeaderModal, setShowHeaderModal] = useState(false);
   const [resolvedSubject, setResolvedSubject] = useState(null);
@@ -333,7 +331,7 @@ export default function MessagePane({ windowMessageId = null, onWindowClose = nu
   // status: 'loading' | 'done' | 'error'. Restored from localStorage on message change.
   const [aiResults, setAiResults] = useState({});
   const [aiClassifying, setAiClassifying] = useState(false);
-  const [unsubscribeStatus, setUnsubscribeStatus] = useState(null); // null | 'loading' | 'done' | 'error'
+  const [_unsubscribeStatus, setUnsubscribeStatus] = useState(null); // null | 'loading' | 'done' | 'error'
   // One AbortController per in-flight action, keyed by action key.
   const aiAbortRefs = useRef({});
   const scrollContainerRef = useRef(null);
@@ -1239,7 +1237,7 @@ ${bodyContent}
   };
 
   // Dismiss a pinned result box and drop its cached copy.
-  const dismissAiResult = (key) => {
+  const _dismissAiResult = (key) => {
     aiAbortRefs.current[key]?.abort();
     removeResult(selectedMessageId, key);
     setAiResults(r => { const next = { ...r }; delete next[key]; return next; });
@@ -1338,7 +1336,7 @@ ${bodyContent}
     if (isMobile) setSelectedMessage(null);
   }, [message, updateMessage, incrementUnread, decrementUnread, adjustCategoryCount, isMobile, setSelectedMessage]);
 
-  const handleEmailClick = useCallback((ev) => {
+  const _handleEmailClick = useCallback((ev) => {
     const anchor = ev.target.closest('a[href]');
     if (!anchor) return;
     ev.preventDefault();
@@ -1794,7 +1792,7 @@ ${bodyContent}
     }
   };
 
-  const handleAiClassify = async () => {
+  const _handleAiClassify = async () => {
     if (!message || aiClassifying) return;
     setAiClassifying(true);
     try {
@@ -1855,7 +1853,7 @@ ${bodyContent}
     } catch { return []; }
   })();
 
-  const attachments = body?.attachments || [];
+  const _attachments = body?.attachments || [];
 
   // CE v2: when mode='conversation', render the conversation reader inside the
   // native MessagePane container — sharing root pane, width, resize, scroll,
@@ -2241,6 +2239,10 @@ ${bodyContent}
 
 // A pinned AI result box shown above the message (#204). Collapsible to keep
 // multiple results from crowding the view; offers regenerate and dismiss.
+
+// Retained for the upcoming AI-summary wiring; referenced by locale-key
+// coverage tests. Suppress the until-it-is-mounted unused warning.
+// eslint-disable-next-line @typescript-eslint/no-unused-vars
 function AiResultBox({ result, canRegen, onRegen, onDismiss }) {
   const { t } = useTranslation();
   const [expanded, setExpanded] = useState(false);

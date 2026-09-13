@@ -1,4 +1,3 @@
-// @ts-nocheck
 import { useBackLayer } from '../hooks/useBackNavigation.ts';
 import { useEffect, useId, useRef } from 'react';
 import { createPortal } from 'react-dom';
@@ -92,7 +91,7 @@ export function Dialog({ title, closeLabel, onClose, children, footer, testId, c
       dialogs.splice(dialogs.indexOf(element), 1);
       document.removeEventListener('keydown', keydown, true);
       clearTimeout(exitTimer.current);
-      if (previous?.isConnected) previous.focus();
+      if (previous?.isConnected) (previous as HTMLElement).focus();
     };
   }, []);
 

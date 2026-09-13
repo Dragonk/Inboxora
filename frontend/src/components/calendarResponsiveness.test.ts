@@ -1,4 +1,3 @@
-// @ts-nocheck
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { describe, it, afterEach } from 'node:test';
@@ -8,7 +7,7 @@ import { api, isAbortError } from '../utils/api.ts';
 const read = name => readFileSync(new URL(`./${name}`, import.meta.url), 'utf8');
 
 const originalFetch = globalThis.fetch;
-afterEach(() => { globalThis.fetch = originalFetch; });
+afterEach(() => { (globalThis as any).fetch = originalFetch; });
 
 describe('calendar request cancellation', () => {
   it('classifies an abort as a cancellation rather than a failure', () => {
@@ -24,7 +23,7 @@ describe('calendar request cancellation', () => {
   it('forwards an AbortSignal to the events request', async () => {
     const controller = new AbortController();
     let seen;
-    globalThis.fetch = async (url, options) => {
+    (globalThis as any).fetch = async (url, options) => {
       seen = { url, options };
       return { ok: true, status: 200, json: async () => ({ events: [] }) };
     };
@@ -36,7 +35,7 @@ describe('calendar request cancellation', () => {
 
   it('sends the flat calendar selection and keeps an empty selection explicit', async () => {
     const urls = [];
-    globalThis.fetch = async (url) => {
+    (globalThis as any).fetch = async (url) => {
       urls.push(url);
       return { ok: true, status: 200, json: async () => ({ events: [] }) };
     };
@@ -51,7 +50,7 @@ describe('calendar request cancellation', () => {
   });
 
   it('propagates a fetch abort untouched so callers can ignore it', async () => {
-    globalThis.fetch = async () => {
+    (globalThis as any).fetch = async () => {
       const error = new Error('The operation was aborted.');
       error.name = 'AbortError';
       throw error;

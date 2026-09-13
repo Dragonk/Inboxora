@@ -1,4 +1,3 @@
-// @ts-nocheck
 import { describe, it, beforeEach } from 'node:test';
 import assert from 'node:assert/strict';
 import {
@@ -8,7 +7,7 @@ import {
 
 function stubStorage({ throwOnUse = false } = {}) {
   const store = new Map();
-  globalThis.localStorage = {
+  (globalThis as any).localStorage = {
     getItem: key => {
       if (throwOnUse) throw new Error('storage blocked');
       return store.has(key) ? store.get(key) : null;

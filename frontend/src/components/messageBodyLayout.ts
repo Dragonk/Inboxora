@@ -1,7 +1,10 @@
-// @ts-nocheck
-export function scheduleInitialLayoutReady(onReady, requestFrame = requestAnimationFrame, cancelFrame = cancelAnimationFrame) {
+export function scheduleInitialLayoutReady(
+  onReady: () => void,
+  requestFrame: (cb: FrameRequestCallback) => number = requestAnimationFrame,
+  cancelFrame: (id: number) => void = cancelAnimationFrame,
+) {
   let cancelled = false;
-  const pendingFrames = new Set();
+  const pendingFrames = new Set<number>();
   const outerFrame = requestFrame(() => {
     pendingFrames.delete(outerFrame);
     if (cancelled) return;

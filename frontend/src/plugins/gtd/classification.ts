@@ -1,4 +1,3 @@
-// @ts-nocheck
 export async function classifyWithUndo(messageId, state, {
   api,
   store,
@@ -16,7 +15,7 @@ export async function classifyWithUndo(messageId, state, {
 
     if (result?.applied && result.undoToken) {
       let consumed = false;
-      notification.onUndo = async () => {
+      (notification as any).onUndo = async () => {
         if (consumed) return false;
         consumed = true;
         try {

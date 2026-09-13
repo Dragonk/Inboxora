@@ -1,4 +1,3 @@
-// @ts-nocheck
 import { useBackLayer } from '../hooks/useBackNavigation.ts';
 import { useState, useRef } from 'react';
 import { useTranslation } from 'react-i18next';
@@ -22,7 +21,7 @@ function resizeImage(file, maxPx = 256) {
         canvas.getContext('2d').drawImage(img, 0, 0, w, h);
         resolve(canvas.toDataURL('image/jpeg', 0.88));
       };
-      img.src = e.target.result;
+      img.src = String(e.target.result);
     };
     reader.readAsDataURL(file);
   });

@@ -1,4 +1,3 @@
-// @ts-nocheck
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import { isInteractiveSwipeTarget } from './useSwipeRow.ts';
@@ -10,7 +9,7 @@ describe('isInteractiveSwipeTarget', () => {
   });
 
   it('allows the row role button when it is the gesture surface', () => {
-    const row = {}; row.closest = () => row;
+    const row: any = {}; row.closest = () => row;
     assert.equal(isInteractiveSwipeTarget(row, row), false);
   });
 

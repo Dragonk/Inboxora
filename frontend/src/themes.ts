@@ -1,4 +1,3 @@
-// @ts-nocheck
 import { brandSvg } from './brandMark.ts';
 export const THEMES = {
   // Ink leads the object on purpose: the appearance tab iterates THEMES in
@@ -811,7 +810,7 @@ export function getEffectiveAccent(fallback = '#7c6af7') {
 
 // Subscribers (e.g. the logo mark) notified when the effective accent changes, so
 // they update on a custom-CSS accent override too — not only on a theme switch.
-const _accentListeners = new Set();
+const _accentListeners = new Set<(accent: string) => void>();
 export function subscribeAccent(fn) {
   _accentListeners.add(fn);
   return () => { _accentListeners.delete(fn); };

@@ -1,4 +1,3 @@
-// @ts-nocheck
 let _audioCtx = null;
 
 function getAudioCtx() {

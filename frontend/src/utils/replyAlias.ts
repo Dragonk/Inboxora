@@ -1,4 +1,3 @@
-// @ts-nocheck
 export function parseAddressListField(value) {
   if (Array.isArray(value)) return value;
   try {
@@ -41,7 +40,7 @@ function normalizeAddress(raw) {
  * `user+newsletter@example.com` would not be recognized as own and Reply All
  * would Cc the user's own copy back to themselves.
  */
-export function collectOwnAddresses({ account, message } = {}) {
+export function collectOwnAddresses({ account, message }: { account?: any; message?: any } = {}) {
   const own = new Set();
   const push = value => {
     const email = normalizeAddress(value);

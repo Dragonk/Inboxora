@@ -4,7 +4,7 @@ import { describe, it, beforeEach } from 'node:test';
 import assert from 'node:assert/strict';
 
 // Minimal localStorage stub (aiResults only touches it inside its functions).
-globalThis.localStorage = (() => {
+(globalThis as any).localStorage = (() => {
   let store = {};
   return {
     getItem: k => (k in store ? store[k] : null),

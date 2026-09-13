@@ -1,4 +1,3 @@
-// @ts-nocheck
 // Each font set defines:
 //   sans  — UI chrome, body text, message list
 //   mono  — code, headers display, email metadata
@@ -431,7 +430,7 @@ export function applyFontSet(fontKey) {
   const set = FONT_SETS[fontKey] || FONT_SETS.default;
   const root = document.documentElement;
   for (const [key, value] of Object.entries(set.vars)) {
-    root.style.setProperty(key, value);
+    root.style.setProperty(key, String(value));
   }
 }
 

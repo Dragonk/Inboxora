@@ -1,4 +1,3 @@
-// @ts-nocheck
 import { api } from './api.ts';
 import { installCapacitorNativeBridge } from './capacitorNativeBridge.ts';
 

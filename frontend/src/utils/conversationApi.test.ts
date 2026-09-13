@@ -1,4 +1,3 @@
-// @ts-nocheck
 import { afterEach, describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import { buildConversationRequestHeaders, conversationApi } from './conversationApi.ts';
@@ -7,7 +6,7 @@ import { CSRF_HEADER, CSRF_VALUE } from './api.ts';
 const originalFetch = globalThis.fetch;
 
 afterEach(() => {
-  globalThis.fetch = originalFetch;
+  (globalThis as any).fetch = originalFetch;
 });
 
 describe('Conversation Engine API client', () => {
@@ -40,7 +39,7 @@ describe('Conversation Engine API client', () => {
 
   it('sends authenticated CSRF-aware requests for destructive and state-changing actions', async () => {
     const calls = [];
-    globalThis.fetch = async (url, init) => {
+    (globalThis as any).fetch = async (url, init) => {
       calls.push({ url, init });
       return { ok: true, json: async () => ({ ok: true }) };
     };

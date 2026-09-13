@@ -1,4 +1,3 @@
-// @ts-nocheck
 import { afterEach, describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import { api, CSRF_HEADER, CSRF_VALUE, streamAiChat } from './api.ts';
@@ -6,13 +5,13 @@ import { api, CSRF_HEADER, CSRF_VALUE, streamAiChat } from './api.ts';
 const originalFetch = globalThis.fetch;
 
 afterEach(() => {
-  globalThis.fetch = originalFetch;
+  (globalThis as any).fetch = originalFetch;
 });
 
 describe('ChatGPT authorization API', () => {
   it('uses the admin Codex lifecycle routes with CSRF-aware requests', async () => {
     const calls = [];
-    globalThis.fetch = async (url, init) => {
+    (globalThis as any).fetch = async (url, init) => {
       calls.push([url, init]);
       return { ok: true, json: async () => ({ ok: true }) };
     };
@@ -37,7 +36,7 @@ describe('ChatGPT authorization API', () => {
 
   it('streams AI text deltas through the shared API client', async () => {
     let request;
-    globalThis.fetch = async (url, init) => {
+    (globalThis as any).fetch = async (url, init) => {
       request = { url, init };
       return new Response([
         'data: {"choices":[{"delta":{"content":"Hello "}}]}\n\n',
@@ -62,7 +61,7 @@ describe('ChatGPT authorization API', () => {
   });
 
   it('rejects streamed error frames instead of completing partial output', async () => {
-    globalThis.fetch = async () => new Response([
+    (globalThis as any).fetch = async () => new Response([
       'data: {"choices":[{"delta":{"content":"Partial"}}]}\n\n',
       'data: {"error":"AI request failed"}\n\n',
       'data: [DONE]\n\n',

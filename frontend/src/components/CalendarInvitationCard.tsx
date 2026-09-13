@@ -1,4 +1,3 @@
-// @ts-nocheck
 import { useEffect, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { api } from '../utils/api.ts';
@@ -67,14 +66,14 @@ export default function CalendarInvitationCard({ messageId }) {
   };
 
   if (error && !invitation) {
-    return <div className="msg-notice" data-testid="calendar-invitation-card" role="alert" style={noticeStyle}>
+    return <div className="msg-notice" data-testid="calendar-invitation-card" role="alert" style={noticeStyle as any}>
       <span style={{ flex: 1 }}>{t('calendar.invitationLoadFailed')}</span>
       <Button onClick={() => setRetry(value => value + 1)} disabled={saving}>{t('common.retry')}</Button>
     </div>;
   }
   if (!invitation) return null;
 
-  return <div className="msg-notice" data-testid="calendar-invitation-card" style={{ ...noticeStyle, borderLeftColor: 'var(--accent)' }}>
+  return <div className="msg-notice" data-testid="calendar-invitation-card" style={{ ...noticeStyle, borderLeftColor: 'var(--accent)' } as any}>
     <span style={{ minWidth: 0, flex: '1 1 200px' }}>
       <span style={{ display: 'block', fontWeight: 500, color: 'var(--text-primary)' }}>
         {cancelledEvent ? t('calendar.invitationCancelledTitle') : t('calendar.mailInvitation')}
