@@ -31,7 +31,7 @@ function GtdPetBlock() {
   const { t } = useTranslation();
   const gtdPetSlug = useStore((s: StoreState) => s.gtdPetSlug);
   const setGtdPetSlug = useStore((s: StoreState) => s.setGtdPetSlug);
-  const [msg, setMsg] = useState(null);
+  const [msg, setMsg] = useState<{ type?: string; text?: string; url?: string; [key: string]: unknown } | null>(null);
   const [petJsonFile, setPetJsonFile] = useState(null);
   const [sheetFile, setSheetFile] = useState(null);
   const [importing, setImporting] = useState(false);
@@ -144,7 +144,7 @@ function GtdAccountBlock({ account }) {
   const [toggling, setToggling] = useState(false);
   const [saving, setSaving] = useState(false);
   const [creating, setCreating] = useState(false);
-  const [msg, setMsg] = useState(null);
+  const [msg, setMsg] = useState<{ type?: string; text?: string; url?: string; [key: string]: unknown } | null>(null);
   // Set right before handleCreate's own updateAccount so the re-seed effect below skips
   // that one self-inflicted gtd_folders change — which would otherwise stomp fields the
   // user is mid-editing. External gtd_folders changes still re-seed as normal.

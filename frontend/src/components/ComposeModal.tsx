@@ -300,7 +300,7 @@ export default function ComposeModal() {
   const [htmlMode, setHtmlMode] = useState(false);
   const [htmlSource, setHtmlSource] = useState('');
   const [aiStatus, setAiStatus] = useState(null);
-  const [aiPanel, setAiPanel] = useState(null);
+  const [aiPanel, setAiPanel] = useState<{ text?: string; status?: string; [key: string]: unknown } | null>(null);
   const aiAbortRef = useRef(null);
   // Stable idempotency key for the current logical send. Generated on the first send
   // attempt, reused across retries (so a retry after a lost response dedupes rather than

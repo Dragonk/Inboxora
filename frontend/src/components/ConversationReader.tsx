@@ -54,7 +54,7 @@ export default function ConversationReader({ conversationId, targetLogicalMessag
   const bodiesRef = useRef({});
   const statusRef = useRef({});
   const aborters = useRef(new Map());
-  const readerRef = useRef(null);
+  const readerRef = useRef<HTMLDivElement | null>(null);
   const autoReadStarted = useRef(new Set());
   const completedNavigationRef = useRef(new Set());
   const navigationStateRef = useRef(new Map());
@@ -298,7 +298,7 @@ export default function ConversationReader({ conversationId, targetLogicalMessag
     if (!state.preliminary || state.finalFrame) return;
     const reader = readerRef.current;
     const anchor = reader && [...reader.querySelectorAll('[data-conversation-message-scroll-anchor]')]
-      .find(element => element.dataset.conversationMessageScrollAnchor === String(copyId));
+      .find((element: HTMLElement) => element.dataset.conversationMessageScrollAnchor === String(copyId));
     if (reader && anchor) state.finalFrame = requestAnimationFrame(() => {
       // The iframe's measured height becomes part of the reader range after its
       // parent card commits. One final frame samples that post-body geometry.
@@ -330,7 +330,7 @@ export default function ConversationReader({ conversationId, targetLogicalMessag
     if (completedNavigationRef.current.has(navigationKey)) return;
     const reader = readerRef.current;
     const anchor = [...reader.querySelectorAll('[data-conversation-message-scroll-anchor]')]
-      .find(element => element.dataset.conversationMessageScrollAnchor === String(selectedCopyFor(navigationTargetId)?.id || ''));
+      .find((element: HTMLElement) => element.dataset.conversationMessageScrollAnchor === String(selectedCopyFor(navigationTargetId)?.id || ''));
     if (!anchor) return;
     const state = navigationStateRef.current.get(navigationKey) || { preliminary: false, bodyReady: false, final: false, userInteracted: false, finalFrame: null };
     navigationStateRef.current.set(navigationKey, state);

@@ -3884,7 +3884,7 @@ function AISection() {
   const [codexStatus, setCodexStatus] = useState<CodexStatusState>({ connected: false, state: 'disconnected' });
   const [deviceState, setDeviceState] = useState(null);
   const [copied, setCopied] = useState(false);
-  const [msg, setMsg] = useState(null);
+  const [msg, setMsg] = useState<{ type?: string; text?: string; url?: string; [key: string]: unknown } | null>(null);
   const pollerRef = useRef(null);
   const formRef = useRef(form);
   const tRef = useRef(t);
@@ -4340,7 +4340,7 @@ function CategoriesSection({ initialSubTab }) {
   const [urlInput, setUrlInput] = useState('');
   const [adding, setAdding] = useState(false);
   const [addError, setAddError] = useState('');
-  const [msg, setMsg] = useState(null);
+  const [msg, setMsg] = useState<{ type?: string; text?: string; url?: string; [key: string]: unknown } | null>(null);
   const [recatAccount, setRecatAccount] = useState('');
   const [recategorizing, setRecategorizing] = useState(false);
 
@@ -4692,7 +4692,7 @@ function SystemEmailSection() {
   const [form, setForm] = useState({ host: '', port: '587', tls: 'STARTTLS', user: '', pass: '', fromName: 'Inboxora', fromEmail: '' });
   const [saving, setSaving] = useState(false);
   const [testing, setTesting] = useState(false);
-  const [msg, setMsg] = useState(null);
+  const [msg, setMsg] = useState<{ type?: string; text?: string; url?: string; [key: string]: unknown } | null>(null);
 
   useEffect(() => {
     api.admin.getSystemEmail()
@@ -4844,7 +4844,7 @@ function UsersAndInvitesPanel() {
   const [regOpen, setRegOpen] = useState(null); // null = loading
   const [inviteEmail, setInviteEmail] = useState('');
   const [inviteLoading, setInviteLoading] = useState(false);
-  const [inviteMsg, setInviteMsg] = useState(null); // { type: 'ok'|'error', text, url? }
+  const [inviteMsg, setInviteMsg] = useState<{ type?: string; text?: string; url?: string; [key: string]: unknown } | null>(null); // { type: 'ok'|'error', text, url? }
   const [loading, setLoading] = useState(true);
   const [copiedId, setCopiedId] = useState(null);
   const [confirmDialog, setConfirmDialog] = useState(null);
@@ -6813,7 +6813,7 @@ function MailboxCleanupTab() {
   const { t } = useTranslation();
   const { accounts } = useStore();
   const [accountId, setAccountId] = useState(accounts[0]?.id || '');
-  const [data, setData] = useState(null);
+  const [data, setData] = useState<{ archiveAvailable?: boolean; inboxTotal?: number; bulkTotal?: number; tier1Senders?: Array<{ fromEmail?: string; fromName?: string; count?: number; [key: string]: unknown }>; tier2Keywords?: Array<{ keyword?: string; count?: number; [key: string]: unknown }>; [key: string]: unknown } | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   const [busySender, setBusySender] = useState('');
