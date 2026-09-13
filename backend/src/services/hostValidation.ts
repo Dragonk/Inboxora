@@ -95,26 +95,46 @@ export async function validateHost(host, { allowPrivate = false } = {}) {
   return null;
 }
 
-export function createPinnedLookup(addresses) {
+interface PinnedLookupOptions {
+  family?: number | string;
+  all?: boolean;
+}
+
+type PinnedLookupCallback = (
+  err: NodeJS.ErrnoException | null,
+  address?: string | Array<{ address: string; family: number }>,
+  family?: number,
+) => void;
+
+type PinnedLookup = (
+  hostname: string,
+  options: PinnedLookupOptions | PinnedLookupCallback,
+  callback?: PinnedLookupCallback,
+) => void;
+
+export function createPinnedLookup(addresses: string[]): PinnedLookup {
   const candidates = addresses.map(address => ({
     address,
     family: isIPv4(address) ? 4 : 6,
   }));
 
-  return (_hostname, options, callback) => {
+  return (_hostname: string, options: PinnedLookupOptions | PinnedLookupCallback, callback?: PinnedLookupCallback) => {
+    let cb = callback;
+    let opts: PinnedLookupOptions = {};
     if (typeof options === 'function') {
-      callback = options;
-      options = {};
+      cb = options;
+    } else if (options) {
+      opts = options;
     }
-    const family = Number(options?.family) || 0;
+    const family = Number(opts.family) || 0;
     const eligible = family ? candidates.filter(candidate => candidate.family === family) : candidates;
     if (!eligible.length) {
-      const err = new Error('No validated address matches the requested family');
+      const err: NodeJS.ErrnoException = new Error('No validated address matches the requested family');
       err.code = 'ENOTFOUND';
-      return callback(err);
+      return cb?.(err);
     }
-    if (options?.all) return callback(null, eligible.map(candidate => ({ ...candidate })));
-    callback(null, eligible[0].address, eligible[0].family);
+    if (opts.all) return cb?.(null, eligible.map(candidate => ({ ...candidate })));
+    cb?.(null, eligible[0].address, eligible[0].family);
   };
 }
 

@@ -16,6 +16,7 @@ vi.mock('../services/hostValidation.js', () => ({ validateHost: vi.fn(async () =
 
 import { query as __mock_query } from '../services/db.js';
 import { buildEndSessionUrl } from './oidc.js';
+let fetchMock: ReturnType<typeof vi.fn>;
 
 // Cast mocked module exports so their vitest mock helpers type-check.
 const query = __mock_query as any;
@@ -24,7 +25,7 @@ const realFetch = global.fetch;
 let discoveryDoc = null;
 
 function discoveryFor(issuer, { endSession = true } = {}) {
-  const doc = {
+  const doc: { issuer: string; authorization_endpoint: string; token_endpoint: string; jwks_uri: string; end_session_endpoint?: string } = {
     issuer,
     authorization_endpoint: `${issuer}/authorize`,
     token_endpoint: `${issuer}/token`,
@@ -36,7 +37,8 @@ function discoveryFor(issuer, { endSession = true } = {}) {
 
 beforeAll(() => {
   process.env.APP_URL = 'https://mail.example.com';
-  global.fetch = vi.fn(async () => ({ ok: true, status: 200, json: async () => discoveryDoc }));
+  fetchMock = vi.fn(async () => ({ ok: true, status: 200, json: async () => discoveryDoc }));
+  global.fetch = fetchMock as unknown as typeof fetch;
 });
 
 afterAll(() => {
@@ -46,7 +48,7 @@ afterAll(() => {
 
 beforeEach(() => {
   query.mockReset();
-  global.fetch.mockClear();
+  fetchMock.mockClear();
 });
 
 afterEach(() => { discoveryDoc = null; });
@@ -103,7 +105,7 @@ describe('buildEndSessionUrl', () => {
   it('never throws — returns null if discovery fails', async () => {
     const issuer = 'https://broken.example.com';
     query.mockResolvedValue({ rows: [{ issuer_url: issuer, client_id: 'cid', allow_insecure: false, rp_initiated_logout: true }] });
-    global.fetch.mockImplementationOnce(async () => { throw new Error('network down'); });
+    fetchMock.mockImplementationOnce(async () => { throw new Error('network down'); });
     expect(await buildEndSessionUrl({ providerId: 'p1', idToken: 'tok' })).toBeNull();
   });
 });

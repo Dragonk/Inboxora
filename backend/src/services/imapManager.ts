@@ -1121,6 +1121,7 @@ interface ResolvedConnection {
   host: string;
   servername?: string | null;
   lookup?: unknown;
+  addresses?: unknown[];
 }
 
 interface EmailAccountRow {

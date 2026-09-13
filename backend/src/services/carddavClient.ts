@@ -70,8 +70,14 @@ async function dav(method: string, url: string, { username, password, depth, bod
 // Merge the <prop> blocks from every 2xx propstat of a <response> into one object.
 // A propstat carrying a non-2xx status (e.g. 404 for unsupported props) is skipped;
 // a propstat with no status line at all is treated as usable.
-function propsOf(response) {
-  const merged = {};
+interface DavPropBlock {
+  resourcetype?: Record<string, unknown>;
+  displayname?: unknown;
+  getetag?: unknown;
+}
+
+function propsOf(response): DavPropBlock {
+  const merged: DavPropBlock = {};
   for (const ps of toArray(response.propstat)) {
     const status = typeof ps.status === 'string' ? ps.status : '';
     if (status && !/\b2\d\d\b/.test(status)) continue;

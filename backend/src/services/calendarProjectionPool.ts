@@ -27,6 +27,8 @@ interface ProjectionEvent {
   series_id?: string;
   starts_at?: Date;
   ends_at?: Date;
+  recurrence_id?: string | null;
+  all_day?: boolean;
 }
 
 interface ProjectionAggregate {

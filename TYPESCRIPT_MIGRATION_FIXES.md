@@ -194,3 +194,25 @@ Backend `tsc`: **38 błędów** (z 474). Czyste m.in.: `routes/oauth.ts`, `route
 `routes/auth.ts`, `services/openaiCodexResponses.ts`, `services/calendarInvitation.ts`.
 Testy: 1785 / 0 failed. Lint: czysty.
 
+
+## 18. MILESTONE: backend bez `@ts-nocheck` i bez błędów `tsc`
+
+Backend `tsc --noEmit`: **0 błędów** (start remediacji: 474, po zdjęciu `@ts-nocheck`).
+Liczba plików z `@ts-nocheck` w backendzie: **0**.
+
+Ostatnie poprawki tej iteracji:
+- `search.ts` — `isNaN(Date)` → `Number.isNaN(d.getTime())` (realny błąd: `isNaN` dostawał Date).
+- `push.integration.test.ts` — typ sesji syntetycznej (`Request["session"]`).
+- `oidc.endsession.test.ts` — typ dokumentu discovery + nazwany mock `fetch`.
+- `senderFavicons.test.ts` — jawny typ zwracany `getFavicon`; `Promise<void>`.
+- `smtpTransport.test.ts` — typowany mock `createTransport` (`vi.hoisted<(options)=>unknown>`).
+- `hostValidation.ts` — `createPinnedLookup` z jawnym `PinnedLookup` (poprawny kontrakt callbacku
+  Node: `(err, address?, family?)`).
+- `hostValidation.test.ts` — `server.listen(0, host, () => resolve())` (callback bezargumentowy).
+- ESLint (backend): `no-undef` wyłączony dla `.ts` (typy takie jak `NodeJS.*` nie są globalami runtime).
+
+## 19. Stan weryfikacji
+
+Backend: tsc 0 · testy 1785 / 0 failed · build OK · lint czysty · 0 `@ts-nocheck`.
+Frontend: 37 plików z `@ts-nocheck` — następny etap.
+

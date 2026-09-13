@@ -227,16 +227,17 @@ describe('createPinnedLookup', () => {
 
   it('lets Node connect to the next same-family candidate', async () => {
     const server = createServer(socket => socket.end());
-    await new Promise(resolve => server.listen(0, '127.0.0.1', resolve));
+    await new Promise<void>(resolve => server.listen(0, '127.0.0.1', () => resolve()));
     try {
       const socket: any = await new Promise((resolve, reject) => {
-        const candidate = connect({
+        const options: import('node:net').TcpNetConnectOpts = {
           host: 'mail.example.com',
           port: (server.address() as any).port,
           lookup: createPinnedLookup(['127.0.0.2', '127.0.0.1']),
           autoSelectFamily: true,
           autoSelectFamilyAttemptTimeout: 10,
-        }, () => resolve(candidate));
+        };
+        const candidate = connect(options, () => resolve(candidate));
         candidate.setTimeout(2000, () => {
           candidate.destroy();
           reject(new Error('Multi-address connection timed out'));

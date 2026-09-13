@@ -60,7 +60,7 @@ export function logicalMessageIdentity(message: any, { userId }: LogicalMessageI
   return { userId: userId || null, canonicalMessageId, rawMessageId: rawId, collisionKey: fingerprint(stable) };
 }
 
-export function threadingDecision({ message, parent, provider = undefined, identities = [] }: { message: any; parent?: any; provider?: any; identities?: any[] }) {
+export function threadingDecision({ message, parent, provider = undefined, identities = [] }: { message: any; parent?: any; provider?: any; identities?: any[]; userId?: any }) {
   const direction = classifyDirection(message, identities);
   const subject = canonicalConversationSubject(message.subject);
   if (provider?.isStrong && provider.providerThreadId) return { kind: 'provider_thread', reason: provider.source, confidence: 1, direction, subject };

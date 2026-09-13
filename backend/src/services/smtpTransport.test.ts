@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
-vi.mock('nodemailer', () => ({ default: { createTransport: vi.fn() } }));
+const createTransportMock = vi.hoisted(() => vi.fn<(options: unknown) => unknown>());
+vi.mock('nodemailer', () => ({ default: { createTransport: createTransportMock } }));
 vi.mock('../routes/oauth.js', () => ({ refreshMicrosoftToken: vi.fn() }));
 vi.mock('./encryption.js', () => ({ decrypt: vi.fn(v => v) }));
 vi.mock('./connectionPolicy.js', () => ({ getConnectionPolicy: vi.fn() }));
@@ -35,7 +36,7 @@ describe('createSmtpTransport', () => {
       .mockRejectedValueOnce(firstError)
       .mockResolvedValueOnce({ accepted: ['user@example.com'] });
     const close = vi.fn();
-    const createTransport = vi.fn(() => ({ sendMail, close }));
+    const createTransport = vi.fn((_options: { host?: string; connectionTimeout?: number; [key: string]: unknown }) => ({ sendMail, close }));
 
     const transport = createSmtpTransport(
       resolved,
@@ -59,7 +60,7 @@ describe('createSmtpTransport', () => {
     ['DATA', 'ETIMEDOUT'],
   ])('does not retry an ambiguous or post-connect %s failure', async (command, code) => {
     const error = Object.assign(new Error(`${command} failed`), { code, command });
-    const createTransport = vi.fn(() => ({
+    const createTransport = vi.fn((_options: { host?: string; connectionTimeout?: number; [key: string]: unknown }) => ({
       sendMail: vi.fn().mockRejectedValue(error),
       close: vi.fn(),
     }));
@@ -80,7 +81,7 @@ describe('createSmtpTransport', () => {
       command: 'CONN',
     });
     const verify = vi.fn().mockRejectedValueOnce(firstError).mockResolvedValueOnce(true);
-    const createTransport = vi.fn(() => ({ verify, close: vi.fn() }));
+    const createTransport = vi.fn((_options: { host?: string; connectionTimeout?: number; [key: string]: unknown }) => ({ verify, close: vi.fn() }));
     const transport = createSmtpTransport(
       resolved,
       { port: 587, secure: false },
@@ -107,7 +108,7 @@ describe('createAccountSmtpTransport', () => {
       allowInsecureTls: false,
     });
     resolveForConnection.mockResolvedValue(resolved);
-    nodemailer.createTransport.mockReturnValue({
+    createTransportMock.mockReturnValue({
       sendMail: vi.fn().mockResolvedValue({ accepted: ['user@example.com'] }),
       close: vi.fn(),
     });

@@ -37,4 +37,10 @@ export default tseslint.config(
       'preserve-caught-error': 'warn',
     },
   },
+  {
+    // TypeScript reports undefined identifiers itself; the base rule only
+    // produces false positives for type-only names such as NodeJS.*.
+    files: ['**/*.ts'],
+    rules: { 'no-undef': 'off' },
+  },
 )

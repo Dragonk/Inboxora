@@ -183,10 +183,10 @@ router.get('/', searchLimiter, async (req, res) => {
       else if (f.value === 'starred') cond = `m.is_starred = true`;
     } else if (f.key === 'after') {
       const d = new Date(f.value);
-      if (!isNaN(d)) { params.push(d.toISOString()); cond = `m.date >= $${p++}`; }
+      if (!Number.isNaN(d.getTime())) { params.push(d.toISOString()); cond = `m.date >= ${p++}`; }
     } else if (f.key === 'before') {
       const d = new Date(f.value);
-      if (!isNaN(d)) { params.push(d.toISOString()); cond = `m.date < $${p++}`; }
+      if (!Number.isNaN(d.getTime())) { params.push(d.toISOString()); cond = `m.date < ${p++}`; }
     }
 
     if (cond) conditions.push(f.negate ? negateCond(cond) : cond);

@@ -15,6 +15,7 @@ import { sendCalendarInvitation } from '../services/calendarInvitation.js';
 import { deliverInvitationOutbox, deliverStoredInvitation, invitationActionsForStorage, invitationDeliveryError, resolveInvitationActions } from '../services/calendarInvitationOutbox.js';
 import { projectCalendarResources } from '../services/calendarProjectionPool.js';
 import { EVENT_COLUMNS, coveragePredicate } from '../services/calendarOccurrences.js';
+import { queryString } from '../utils/query.js';
 
 const router = Router();
 const MAX_EVENT_RANGE_DAYS = 366;
@@ -448,8 +449,8 @@ router.delete('/calendars/:calendarId', async (req, res) => {
 });
 
 router.get('/events', async (req, res) => {
-  const from = new Date(req.query.from);
-  const to = new Date(req.query.to);
+  const from = new Date(queryString(req.query.from) ?? '');
+  const to = new Date(queryString(req.query.to) ?? '');
   if (Number.isNaN(from.getTime()) || Number.isNaN(to.getTime()) || to < from) {
     return res.status(400).json({ error: 'A valid from/to range is required' });
   }
@@ -466,7 +467,7 @@ router.get('/events', async (req, res) => {
   let materializedRows = [];
   let eventRows = [];
   if (selection.ids === null || selectedIds.length > 0) {
-    const params = [req.session.userId, from, to];
+    const params: unknown[] = [req.session.userId, from, to];
     let calendarFilter = '';
     if (selectedIds !== null) { params.push(selectedIds); calendarFilter = ' AND c.id = ANY($4::uuid[])'; }
     // Materialised occurrences: a plain indexed range scan, with no recurrence expansion at
@@ -548,7 +549,7 @@ router.get('/events', async (req, res) => {
   // the process on a series the worker has not reached yet.
   const projection = await projectCalendarResources(eventRows, from, to, { userId: req.session.userId });
   const events = [...materializedRows, ...projection.events, ...contactEvents]
-    .sort((left, right) => new Date(left.starts_at) - new Date(right.starts_at));
+    .sort((left, right) => new Date(left.starts_at).getTime() - new Date(right.starts_at).getTime());
   if (projection.truncated) {
     // A partial result must never look complete. Only the series id and a reason
     // category cross the wire; internal error text stays in the server log.

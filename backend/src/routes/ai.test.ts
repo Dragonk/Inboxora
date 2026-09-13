@@ -1,6 +1,21 @@
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 
-const mocks = vi.hoisted<any>(() => ({
+interface AiRouteMocks {
+  query: ReturnType<typeof vi.fn>;
+  getAdminAiConfig: ReturnType<typeof vi.fn>;
+  saveAiConfig: ReturnType<typeof vi.fn>;
+  deleteAiConfig: ReturnType<typeof vi.fn>;
+  getAiStatus: ReturnType<typeof vi.fn>;
+  testAiProvider: ReturnType<typeof vi.fn>;
+  streamChat: ReturnType<typeof vi.fn>;
+  startDeviceFlow: ReturnType<typeof vi.fn>;
+  pollDeviceFlow: ReturnType<typeof vi.fn>;
+  cancelDeviceFlow: ReturnType<typeof vi.fn>;
+  getCodexStatus: ReturnType<typeof vi.fn>;
+  disconnectCodex: ReturnType<typeof vi.fn>;
+}
+
+const mocks = vi.hoisted<AiRouteMocks>(() => ({
   query: vi.fn(),
   getAdminAiConfig: vi.fn(),
   saveAiConfig: vi.fn(),
@@ -33,6 +48,7 @@ vi.mock('../services/openaiCodexAuth.js', () => ({
 }));
 
 import express from 'express';
+import type { Request } from 'express';
 import aiRoutes, { aiLanguageInstruction } from './ai.js';
 
 const ADMIN = 'admin-user';
@@ -45,7 +61,7 @@ function buildApp() {
   app.use((req, _res, next) => {
     const userId = req.get('x-test-user');
     if (userId) {
-      req.session = { userId, username: userId, destroy: vi.fn() };
+      req.session = { userId, username: userId, destroy: vi.fn() } as unknown as Request['session'];
       req.sessionID = `session-${userId}`;
     }
     next();
@@ -333,7 +349,7 @@ describe('authenticated AI status and streaming', () => {
     mocks.streamChat.mockImplementation(async function* stream(_messages, { signal }) {
       providerSignal = signal;
       yield 'first';
-      await new Promise((resolve) => {
+      await new Promise<void>((resolve) => {
         signal.addEventListener('abort', () => {
           resolveAbort();
           resolve();

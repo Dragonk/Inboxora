@@ -68,7 +68,25 @@ async function setupTestUser() {
   return { userId, accountId, accountId2 };
 }
 
-async function insertMessage({ accountId, userId, uid, folder, messageId, subject, fromEmail, toEmails, inReplyTo, references, date, conversationId, logicalMessageId, canonicalMessageId, direction }) {
+interface InsertMessageInput {
+  accountId: string;
+  userId: string;
+  uid: number;
+  folder: string;
+  messageId: string;
+  subject: string;
+  fromEmail: string;
+  toEmails: string[];
+  inReplyTo?: string | null;
+  references?: string | null;
+  date: string | Date;
+  conversationId: string | null;
+  logicalMessageId: string | null;
+  canonicalMessageId: string;
+  direction: string;
+}
+
+async function insertMessage({ accountId, userId, uid, folder, messageId, subject, fromEmail, toEmails, inReplyTo = null, references = null, date, conversationId, logicalMessageId, canonicalMessageId, direction }: InsertMessageInput) {
   const id = _randomUUID();
   const result = await pool.query(
     `INSERT INTO messages (

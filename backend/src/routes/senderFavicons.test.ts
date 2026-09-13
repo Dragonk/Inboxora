@@ -22,7 +22,7 @@ function dependencies(preferences = {}) {
   return {
     queryFn: vi.fn(async () => ({ rows: [{ preferences }] })),
     consumeFn: vi.fn(async () => ({ limited: false, resetMs: 60_000 })),
-    getFavicon: vi.fn(async () => ({ kind: 'miss', reason: 'not-found' })),
+    getFavicon: vi.fn(async (): Promise<{ kind: string; reason?: string; bytes?: Buffer; source?: string }> => ({ kind: 'miss', reason: 'not-found' })),
     normalizeDomain: vi.fn(value => value === 'bad' ? null : value.toLowerCase()),
   };
 }
@@ -95,7 +95,7 @@ describe('sender favicon router authentication boundary', () => {
     const app = express();
     app.use('/api/sender-favicons', senderFaviconsRouter);
     const server = http.createServer(app);
-    await new Promise((resolve, reject) => {
+    await new Promise<void>((resolve, reject) => {
       server.once('error', reject);
       server.listen(0, '127.0.0.1', resolve);
     });
