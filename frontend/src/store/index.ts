@@ -3,17 +3,15 @@ import { create } from 'zustand';
 import { api } from '../utils/api.ts';
 import { accountAffectsUnifiedInbox } from '../utils/unifiedInbox.ts';
 import {
-  THEMES,
   applyTheme,
   applyCustomCss,
   resolveTheme,
   readThemePrefs,
   normalizeThemeMode,
   themeTone,
-  THEME_MODES,
-} from '../themes.ts';
-import { applyFontSet, applyFontSize, effectiveFontSet, isRetroFont, THEME_FONT } from '../fonts.ts';
-import type { GtdSections } from '../utils/gtd.ts';
+  THEME_MODES, isThemeName } from '../themes.ts';
+import { applyFontSet, applyFontSize, effectiveFontSet, isRetroFont, isThemeFont } from '../fonts.ts';
+import type { GtdSections , GtdRemovalSnapshot } from '../utils/gtd.ts';
 import { applyLayout, normalizeLayout } from '../layouts.ts';
 import { PANEL_WIDTH_STORAGE_KEY, savedPanelWidth } from '../utils/panelWidth.ts';
 import { DEFAULT_AI_ACTIONS } from '../aiActions.ts';
@@ -39,6 +37,9 @@ import i18n from '../i18n.ts';
 
 /** A message row as the store holds it. */
 /** The signed-in user as the store holds it. */
+/** A favourite folder entry. */
+interface FavoriteFolderRow { accountId?: string; path: string; label?: string; [key: string]: unknown }
+
 interface StoreUserRow { id?: string; username?: string; email?: string; [key: string]: unknown }
 
 interface StoreMessageRow { id: string; account_id?: string; folder?: string; is_read?: boolean; is_starred?: boolean; message_id?: string | null; thread_id?: string; date?: string | number | Date | null; [key: string]: unknown }
@@ -86,7 +87,7 @@ let _calendarWorkHoursFlushTimer: ReturnType<typeof setTimeout> | null = null;
 let _calendarWorkHoursSaveChain: Promise<unknown> = Promise.resolve();
 function schedulePrefSave(prefs: Record<string, unknown>): void {
   Object.assign(_pendingPrefs, prefs);
-  clearTimeout(_prefFlushTimer);
+  if (_prefFlushTimer) clearTimeout(_prefFlushTimer);
   _prefFlushTimer = setTimeout(() => {
     const toSave = _pendingPrefs;
     _pendingPrefs = {};
@@ -101,7 +102,7 @@ function isValidCalendarWorkRange(start: string, end: string): boolean {
   return calendarWorkTimeMinutes(start) < calendarWorkTimeMinutes(end);
 }
 function scheduleCalendarWorkHoursSave(prefs: Record<string, unknown>, next: Record<string, unknown>): void {
-  clearTimeout(_calendarWorkHoursFlushTimer);
+  if (_calendarWorkHoursFlushTimer) clearTimeout(_calendarWorkHoursFlushTimer);
   _calendarWorkHoursFlushTimer = setTimeout(() => {
     const userId = useStore.getState().user?.id;
     const save = _calendarWorkHoursSaveChain.then(() => api.savePreferences(prefs));
@@ -124,10 +125,10 @@ function scheduleCalendarWorkHoursSave(prefs: Record<string, unknown>, next: Rec
 // user's account or hit a dead session (401). The prefs are already applied locally; only the
 // deferred network write is discarded.
 function cancelPendingPrefSave() {
-  clearTimeout(_prefFlushTimer);
+  if (_prefFlushTimer) clearTimeout(_prefFlushTimer);
   _prefFlushTimer = null;
   _pendingPrefs = {};
-  clearTimeout(_calendarWorkHoursFlushTimer);
+  if (_calendarWorkHoursFlushTimer) clearTimeout(_calendarWorkHoursFlushTimer);
   _calendarWorkHoursFlushTimer = null;
 }
 
@@ -428,7 +429,7 @@ export const useStore = create<any>((set, get) => ({
     return { sidebarCollapsed: next };
   }),
   sidebarWidth: (() => {
-    const n = parseInt(localStorage.getItem('mailflow_sidebar_width'));
+    const n = parseInt(localStorage.getItem('mailflow_sidebar_width') ?? '');
     return (n >= 160 && n <= 400) ? n : 250;
   })(),
   setSidebarWidth: (w: string) =>{
@@ -438,7 +439,7 @@ export const useStore = create<any>((set, get) => ({
   },
   isSidebarResizing: false,
   setIsSidebarResizing: (v: boolean) =>set({ isSidebarResizing: v }),
-  pageSize: parseInt(localStorage.getItem('mailflow_page_size')) || 50,
+  pageSize: parseInt(localStorage.getItem('mailflow_page_size') ?? '') || 50,
   setPageSize: (size: number) =>{
     localStorage.setItem('mailflow_page_size', String(size));
     set({ pageSize: size });
@@ -470,7 +471,7 @@ export const useStore = create<any>((set, get) => ({
     schedulePrefSave({ swipeActions: next });
     return { swipeActions: next };
   }),
-  syncInterval: parseInt(localStorage.getItem('mailflow_sync_interval')) || 60,
+  syncInterval: parseInt(localStorage.getItem('mailflow_sync_interval') ?? '') || 60,
   setSyncInterval: (seconds: number) =>{
     localStorage.setItem('mailflow_sync_interval', String(seconds));
     set({ syncInterval: seconds });
@@ -479,7 +480,7 @@ export const useStore = create<any>((set, get) => ({
   // Folder-structure sync cadence in seconds; 0 = never. Explicit Number.isFinite
   // check because 0 is a valid stored value that `|| default` would clobber.
   folderSyncInterval: (() => {
-    const v = parseInt(localStorage.getItem('mailflow_folder_sync_interval'));
+    const v = parseInt(localStorage.getItem('mailflow_folder_sync_interval') ?? '');
     return Number.isFinite(v) ? v : 1800;
   })(),
   setFolderSyncInterval: (seconds: number) =>{
@@ -784,8 +785,8 @@ export const useStore = create<any>((set, get) => ({
     const current = { mode: get().themeMode, light: get().lightTheme, dark: get().darkTheme };
     const next = {
       mode: partial.mode !== undefined ? normalizeThemeMode(partial.mode) : current.mode,
-      light: partial.light && THEMES[partial.light] ? partial.light : current.light,
-      dark: partial.dark && THEMES[partial.dark] ? partial.dark : current.dark,
+      light: isThemeName(partial.light) ? partial.light : current.light,
+      dark: isThemeName(partial.dark) ? partial.dark : current.dark,
     };
     const theme = resolveTheme(next);
     localStorage.setItem('mailflow_theme_mode', next.mode);
@@ -796,7 +797,7 @@ export const useStore = create<any>((set, get) => ({
     applyTheme(theme); // keep CSS vars + favicon in sync
     // If a retro font was left as the saved choice, a non-retro theme must not keep it —
     // normalise the stored choice so it can't "stick" (and the font picker stays honest).
-    if (!THEME_FONT[theme] && isRetroFont(get().fontSet)) {
+    if (!isThemeFont(theme) && isRetroFont(get().fontSet)) {
       localStorage.setItem('mailflow_font', 'default');
       set({ fontSet: 'default' });
       schedulePrefSave({ font: 'default' });
@@ -813,7 +814,7 @@ export const useStore = create<any>((set, get) => ({
   // An explicit theme choice targets the slot for its own tone and forces that
   // appearance — the behaviour of the old single-theme picker and the command palette.
   setTheme: (theme: string) =>{
-    if (!THEMES[theme]) return;
+    if (!isThemeName(theme)) return;
     get().applyThemeSelection(themeTone(theme) === 'light'
       ? { mode: 'light', light: theme }
       : { mode: 'dark', dark: theme });
@@ -833,7 +834,7 @@ export const useStore = create<any>((set, get) => ({
 
   // Font
   fontSet: localStorage.getItem('mailflow_font') || 'default',
-  setFontSet: (fontSet) => {
+  setFontSet: (fontSet: string) =>{
     localStorage.setItem('mailflow_font', fontSet);
     set({ fontSet });
     // A retro theme's paired font still wins over an explicit pick while it's active.
@@ -841,8 +842,8 @@ export const useStore = create<any>((set, get) => ({
     schedulePrefSave({ font: fontSet });
   },
 
-  fontSize: parseInt(localStorage.getItem('mailflow_font_size')) || 100,
-  setFontSize: (pct) => {
+  fontSize: parseInt(localStorage.getItem('mailflow_font_size') ?? '') || 100,
+  setFontSize: (pct: number) =>{
     localStorage.setItem('mailflow_font_size', String(pct));
     set({ fontSize: pct });
     applyFontSize(pct);
@@ -866,7 +867,7 @@ export const useStore = create<any>((set, get) => ({
   // Unread counts per category for the tab bar badges { primary: N, newsletter: N, ... }
   categoryCounts: {},
   setCategoryCounts: (counts: Record<string, number>) =>set({ categoryCounts: counts }),
-  adjustCategoryCount: (category, delta: number) =>set((state: StoreStateRead) => {
+  adjustCategoryCount: (category: string, delta: number) =>set((state: StoreStateRead) => {
     const key = category || 'primary';
     const current = state.categoryCounts[key] || 0;
     return { categoryCounts: { ...state.categoryCounts, [key]: Math.max(0, current + delta) } };
@@ -904,7 +905,7 @@ export const useStore = create<any>((set, get) => ({
 
   // Active GTD browse tab in the message-list pill strip (null = normal list).
   activeGtdTab: null,
-  setActiveGtdTab: (tab) => set({ activeGtdTab: tab }),
+  setActiveGtdTab: (tab: string) =>set({ activeGtdTab: tab }),
 
   // Sections data feeding both the rail and the tab list. null before first load.
   gtdSections: null,
@@ -922,7 +923,7 @@ export const useStore = create<any>((set, get) => ({
   // Debounced refetch — used by the WS gtd_sections_updated handler and after a
   // classify so the rail converges without waiting on (or racing) the socket.
   scheduleGtdSectionsFetch: () => {
-    clearTimeout(_gtdFetchTimer);
+    if (_gtdFetchTimer) clearTimeout(_gtdFetchTimer);
     _gtdFetchTimer = setTimeout(() => { get().fetchGtdSections(); }, 400);
   },
   // Optimistically drop a thread's head from the given GTD state sections after a
@@ -931,7 +932,7 @@ export const useStore = create<any>((set, get) => ({
   // are the backend section keys whose labels were removed (todo/watch/delegated/…).
   // Delegates to a pure helper (unit-tested in gtd.test.js) that also keeps the deduped
   // Waiting rollup in step so the Waiting badge is correct instantly.
-  removeGtdThread: (identity: string, states) =>{
+  removeGtdThread: (identity: string, states: string[]) =>{
     let snapshot = null;
     set((state: StoreStateRead) => {
       snapshot = snapshotGtdThreadRemoval(state.gtdSections, identity, states);
@@ -940,7 +941,7 @@ export const useStore = create<any>((set, get) => ({
     });
     return snapshot;
   },
-  restoreGtdThread: (snapshot) => set((state: StoreStateRead) => {
+  restoreGtdThread: (snapshot: GtdRemovalSnapshot) =>set((state: StoreStateRead) => {
     const next = restoreGtdThreadRemoval(state.gtdSections, snapshot);
     return next === state.gtdSections ? {} : { gtdSections: next };
   }),
@@ -980,7 +981,7 @@ export const useStore = create<any>((set, get) => ({
   // Which cached imported pet renders at inbox-zero (null = the built-in SVG dog).
   // A flat user preference; the asset bytes live server-side, keyed by this slug.
   gtdPetSlug: null,
-  setGtdPetSlug: (slug) => {
+  setGtdPetSlug: (slug: string) =>{
     const value = slug || null;
     set({ gtdPetSlug: value });
     // '' is the explicit "clear" sentinel the prefs allow-list understands.
@@ -995,7 +996,7 @@ export const useStore = create<any>((set, get) => ({
     if (raw && raw !== clean) localStorage.setItem('mailflow_layout', clean);
     return clean;
   })(),
-  setLayout: (layout) => {
+  setLayout: (layout: string) =>{
     const clean = normalizeLayout(layout);
     localStorage.setItem('mailflow_layout', clean);
     localStorage.removeItem(PANEL_WIDTH_STORAGE_KEY);
@@ -1015,7 +1016,7 @@ export const useStore = create<any>((set, get) => ({
   // while the fetch was in flight. Never reset — the user-id guard covers account
   // switches, and monotonicity avoids ABA.
   senderFaviconsEpoch: 0,
-  setSenderFavicons: async (enabled) => {
+  setSenderFavicons: async (enabled: boolean) =>{
     if (get().senderFaviconsSaving) return;
     const userId = get().user?.id;
     set((state: StoreStateRead) => ({ senderFaviconsSaving: true, senderFaviconsEpoch: state.senderFaviconsEpoch + 1 }));
@@ -1040,7 +1041,7 @@ export const useStore = create<any>((set, get) => ({
     set({ blockRemoteImages: val });
     return api.savePreferences({ blockRemoteImages: val });
   },
-  setImageWhitelist: (whitelist) => {
+  setImageWhitelist: (whitelist: string[]) =>{
     const prev = get().imageWhitelist;
     set({ imageWhitelist: whitelist });
     return api.savePreferences({ imageWhitelist: whitelist }).catch(err => {
@@ -1067,7 +1068,7 @@ export const useStore = create<any>((set, get) => ({
   // Keyboard shortcuts — stores only user overrides (action → key).
   // Merged with defaults at use-time via getEffectiveShortcuts().
   shortcuts: {},
-  setShortcuts: (overrides) => {
+  setShortcuts: (overrides: Record<string, unknown>) =>{
     set({ shortcuts: overrides });
     return api.savePreferences({ shortcuts: overrides }).catch(() => {});
   },
@@ -1075,21 +1076,21 @@ export const useStore = create<any>((set, get) => ({
   // User-defined AI actions (#202), synced across devices. Each: { id, label, prompt }.
   // null = not yet loaded; loadPreferences seeds defaults on first run.
   aiActions: null,
-  setAiActions: (actions) => {
+  setAiActions: (actions: unknown[]) =>{
     set({ aiActions: actions });
     return api.savePreferences({ aiActions: actions }).catch(() => {});
   },
 
   // Hidden folders — { [accountId]: [path, ...] }
   hiddenFolders: {},
-  setHiddenFolders: (hf) => {
+  setHiddenFolders: (hf: string[]) =>{
     set({ hiddenFolders: hf });
     return api.savePreferences({ hiddenFolders: hf }).catch(() => {});
   },
 
   // Custom per-account folder display order — { [accountId]: [path, ...] }
   folderOrder: readFolderOrder(),
-  setFolderOrder: (accountId: string, paths) =>{
+  setFolderOrder: (accountId: string, paths: string[]) =>{
     const next = mergeFolderOrder(get().folderOrder, accountId, paths);
     set({ folderOrder: next });
     schedulePrefSave({ folderOrder: next });
@@ -1100,7 +1101,7 @@ export const useStore = create<any>((set, get) => ({
     try { return JSON.parse(localStorage.getItem('mailflow_expanded_accounts') || '{}'); }
     catch { return {}; }
   })(),
-  setExpandedAccounts: (updater) => {
+  setExpandedAccounts: (updater: (prev: string[]) => string[]) => {
     const next = typeof updater === 'function' ? updater(get().expandedAccounts) : updater;
     localStorage.setItem('mailflow_expanded_accounts', JSON.stringify(next));
     set({ expandedAccounts: next });
@@ -1115,7 +1116,7 @@ export const useStore = create<any>((set, get) => ({
   toggleCollapsedFolder: (accountId: string, path: string) =>{
     const key = `${accountId}:${path}`;
     const prev = get().collapsedFolders;
-    const next = prev.includes(key) ? prev.filter(k => k !== key) : [...prev, key];
+    const next = prev.includes(key) ? prev.filter((k: string) => k !== key) : [...prev, key];
     localStorage.setItem('mailflow_collapsed_folders', JSON.stringify(next));
     set({ collapsedFolders: next });
     schedulePrefSave({ collapsedFolders: next });
@@ -1128,20 +1129,20 @@ export const useStore = create<any>((set, get) => ({
   })(),
   addFavoriteFolder: ({ accountId, path }: { accountId: string; path: string }) => {
     const prev = get().favoriteFolders;
-    if (prev.some(f => f.accountId === accountId && f.path === path)) return;
+    if (prev.some((f: FavoriteFolderRow) => f.accountId === accountId && f.path === path)) return;
     const next = [...prev, { accountId, path }];
     localStorage.setItem('mailflow_favorite_folders', JSON.stringify(next));
     set({ favoriteFolders: next });
     schedulePrefSave({ favoriteFolders: next });
   },
   removeFavoriteFolder: ({ accountId, path }: { accountId: string; path: string }) => {
-    const next = get().favoriteFolders.filter(f => !(f.accountId === accountId && f.path === path));
+    const next = get().favoriteFolders.filter((f: FavoriteFolderRow) => !(f.accountId === accountId && f.path === path));
     localStorage.setItem('mailflow_favorite_folders', JSON.stringify(next));
     set({ favoriteFolders: next });
     schedulePrefSave({ favoriteFolders: next });
   },
   renameFavoriteFolder: ({ accountId, path, label }: { accountId: string; path: string; label: string }) =>{
-    const next = get().favoriteFolders.map(f => {
+    const next = get().favoriteFolders.map((f: FavoriteFolderRow) => {
       if (f.accountId !== accountId || f.path !== path) return f;
        
       const { label: _old, ...base } = f;
@@ -1162,9 +1163,9 @@ export const useStore = create<any>((set, get) => ({
     try { return JSON.parse(localStorage.getItem('mailflow_recent_folders') || '[]'); }
     catch { return []; }
   })(),
-  recordRecentFolder: ({ accountId, path }) => {
+  recordRecentFolder: ({ accountId, path }: { accountId: string; path: string }) => {
     const prev = get().recentFolders;
-    const deduped = prev.filter(f => !(f.accountId === accountId && f.path === path));
+    const deduped = prev.filter((f: FavoriteFolderRow) => !(f.accountId === accountId && f.path === path));
     const next = [{ accountId, path }, ...deduped].slice(0, 5);
     localStorage.setItem('mailflow_recent_folders', JSON.stringify(next));
     set({ recentFolders: next });
@@ -1185,7 +1186,7 @@ export const useStore = create<any>((set, get) => ({
       // Theme: the server is authoritative. New-style preferences carry the separate
       // light/dark defaults plus the mode; a legacy single `theme` becomes an explicit
       // mode for its own tone, so an upgrade never silently changes someone's look.
-      const hydrateTheme = (next) => {
+      const hydrateTheme = (next: { mode: string; light: string; dark: string }) => {
         const theme = resolveTheme(next);
         localStorage.setItem('mailflow_theme_mode', next.mode);
         localStorage.setItem('mailflow_theme_light', next.light);
@@ -1198,10 +1199,10 @@ export const useStore = create<any>((set, get) => ({
       if (serverMode || prefs.themeLight || prefs.themeDark) {
         hydrateTheme({
           mode: serverMode || 'system',
-          light: THEMES[prefs.themeLight] ? prefs.themeLight : get().lightTheme,
-          dark: THEMES[prefs.themeDark] ? prefs.themeDark : get().darkTheme,
+          light: isThemeName(prefs.themeLight) ? prefs.themeLight : get().lightTheme,
+          dark: isThemeName(prefs.themeDark) ? prefs.themeDark : get().darkTheme,
         });
-      } else if (prefs.theme && THEMES[prefs.theme]) {
+      } else if (isThemeName(prefs.theme)) {
         hydrateTheme(themeTone(prefs.theme) === 'light'
           ? { mode: 'light', light: prefs.theme, dark: get().darkTheme }
           : { mode: 'dark', light: get().lightTheme, dark: prefs.theme });
@@ -1314,7 +1315,7 @@ export const useStore = create<any>((set, get) => ({
         set({ calendarWeekStartsOn: prefs.calendarWeekStartsOn });
       }
       if (Array.isArray(prefs.visibleCalendarIds)) {
-        set({ visibleCalendarIds: prefs.visibleCalendarIds.filter(id => typeof id === 'string') });
+        set({ visibleCalendarIds: prefs.visibleCalendarIds.filter((id: unknown) => typeof id === 'string') });
       }
       if (prefs.mobileNavigationPosition === 'top' || prefs.mobileNavigationPosition === 'bottom') {
         set({ mobileNavigationPosition: prefs.mobileNavigationPosition });

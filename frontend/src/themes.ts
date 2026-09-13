@@ -773,9 +773,9 @@ export function readThemePrefs() {
 
 // The theme that should render for a set of preferences: light/dark is forced by
 // the mode, while `system` follows the operating system colour scheme.
-export function resolveTheme(prefs = readThemePrefs()) {
-  const light = THEMES[prefs?.light] ? prefs.light : DEFAULT_LIGHT_THEME;
-  const dark = THEMES[prefs?.dark] ? prefs.dark : DEFAULT_DARK_THEME;
+export function resolveTheme(prefs: { light?: unknown; dark?: unknown; mode?: unknown } = readThemePrefs()): string {
+  const light = isThemeName(prefs?.light) ? prefs.light : DEFAULT_LIGHT_THEME;
+  const dark = isThemeName(prefs?.dark) ? prefs.dark : DEFAULT_DARK_THEME;
   const mode = normalizeThemeMode(prefs?.mode);
   if (mode === 'light') return light;
   if (mode === 'dark') return dark;
@@ -785,7 +785,7 @@ export function resolveTheme(prefs = readThemePrefs()) {
 // The theme to use before any stored/server preference is known — i.e. on the
 // login screen and the very first visit: the configured light default when the OS
 // is light, the configured dark default when it prefers dark.
-export function getInitialTheme() {
+export function getInitialTheme(): string {
   return resolveTheme();
 }
 
@@ -924,3 +924,9 @@ export function applyTheme(themeName) {
   // applyCustomCss also re-runs this so an override applied afterwards is reflected.
   refreshAccentDerived();
 }
+
+/** Whether a value names a theme in THEMES (the maps are looked up dynamically). */
+export function isThemeName(name: unknown): name is keyof typeof THEMES {
+  return typeof name === 'string' && Object.hasOwn(THEMES, name);
+}
+

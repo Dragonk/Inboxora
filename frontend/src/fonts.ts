@@ -461,3 +461,9 @@ export function effectiveFontSet(theme, savedFont) {
   if (THEME_FONT[theme]) return THEME_FONT[theme];
   return isRetroFont(savedFont) ? 'default' : (savedFont || 'default');
 }
+
+/** Whether a value is a theme that overrides the font (THEME_FONT is looked up dynamically). */
+export function isThemeFont(name: unknown): name is keyof typeof THEME_FONT {
+  return typeof name === 'string' && Object.hasOwn(THEME_FONT, name);
+}
+
