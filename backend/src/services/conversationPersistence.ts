@@ -1,22 +1,75 @@
 import { createHash } from 'crypto';
+import type { PoolClient } from 'pg';
 import { withTransaction } from './db.js';
 import { effectiveConversationOverride, resolveConversationAlias, refreshConversationAggregates } from './conversationOverridePolicy.js';
 import { normalizeMessageIdList } from './threading/normalizeMessageId.js';
 import { canonicalConversationSubject, classifyDirection, logicalMessageIdentity, threadingDecision } from './conversationEngine.js';
+import type { ConversationMessageInput } from './conversationEngine.js';
 import { strictSeriesDecision, smartSeriesDecision } from './automatedSeries.js';
 import { referencesAnchor } from './automatedSeriesAnchor.js';
 
-function fingerprintCopy(copy) {
+/** The outcome of persisting one physical copy into its logical message. */
+export interface ConversationUpsertResult {
+  logicalMessageId: string;
+  conversationId: string | null;
+  kind: string;
+  canonicalSubject?: string | null;
+  [key: string]: unknown;
+}
+
+/** The provider-thread reference the ingest paths pass alongside a copy. */
+export interface ConversationProviderRef {
+  provider?: string | null;
+  isStrong?: boolean;
+  source?: string | null;
+  providerThreadId?: string | null;
+  providerMessageId?: string | null;
+  namespace?: string | null;
+  [key: string]: unknown;
+}
+
+/** A physical message copy as the ingest paths hand it in (a DB row or a payload). */
+export type ConversationCopyInput = ConversationMessageInput & {
+  id?: string;
+  account_id?: string;
+  user_id?: string;
+  userId?: string;
+  body_text?: string | null;
+  conversation_raw_headers?: string | null;
+  raw_headers?: string | null;
+  thread_references?: unknown;
+  in_reply_to?: string | null;
+};
+
+/** The identity/threading view hydrateLogicalMessage derives from a copy. */
+export interface HydratedLogicalMessage {
+  userId?: string | null;
+  accountId?: string;
+  rawHeaders?: string | null;
+  rawInReplyTo?: string | null;
+  rawReferences?: unknown;
+  rawMessageId?: string | null;
+  canonicalMessageId?: string | null;
+  canonicalSubject?: string | null;
+  collisionKey?: string | null;
+  direction?: string | null;
+  messageDate?: unknown;
+  bodyFingerprint?: string | null;
+  headerFingerprint?: string | null;
+  [key: string]: unknown;
+}
+
+function fingerprintCopy(copy: ConversationCopyInput): string {
   return createHash('sha256').update(JSON.stringify([copy.body_text || '', copy.subject || '', copy.from_email || '', copy.date || '', copy.in_reply_to || '', copy.thread_references || ''])).digest('hex');
 }
 
-export async function hydrateLogicalMessage(copy, { identities = [], userId = null } = {}) {
+export async function hydrateLogicalMessage(copy: ConversationCopyInput, { identities = [], userId = null }: { identities?: unknown[]; userId?: string | null } = {}): Promise<HydratedLogicalMessage> {
   const owner = userId || copy.user_id || copy.userId;
   const identity = logicalMessageIdentity(copy, { userId: owner, accountId: copy.account_id });
   return { ...identity, userId: owner, accountId: copy.account_id, rawHeaders: copy.conversation_raw_headers || copy.raw_headers || null, rawInReplyTo: copy.in_reply_to || null, rawReferences: copy.thread_references || null, canonicalSubject: canonicalConversationSubject(copy.subject), direction: classifyDirection(copy, identities), messageDate: copy.date || null, bodyFingerprint: copy.body_text != null ? createHash('sha256').update(String(copy.body_text)).digest('hex') : null, headerFingerprint: createHash('sha256').update(JSON.stringify([copy.message_id, copy.in_reply_to, copy.thread_references, copy.conversation_raw_headers])).digest('hex'), copyFingerprint: fingerprintCopy(copy) };
 }
 
-async function matchingLegacyLogicalRows(client, hydrated) {
+async function matchingLegacyLogicalRows(client: PoolClient, hydrated: HydratedLogicalMessage) {
   if (!hydrated.canonicalMessageId) return [];
   const result = await client.query(`
     SELECT lm.id, lm.conversation_id, lm.message_id_collision_key, lm.created_at,
@@ -43,7 +96,7 @@ interface LogicalMessageRow {
   parent_logical_message_id?: string | null;
 }
 
-async function consolidateLegacyLogicalRows(client, hydrated, rows: LogicalMessageRow[], preferredId: string | null = null) {
+async function consolidateLegacyLogicalRows(client: PoolClient, hydrated: HydratedLogicalMessage, rows: LogicalMessageRow[], preferredId: string | null = null) {
   const uniqueRows = [...new Map(rows.map(row => [row.id, row])).values()];
   if (!uniqueRows.length) return null;
   const ids = uniqueRows.map(row => row.id);
@@ -125,7 +178,7 @@ async function consolidateLegacyLogicalRows(client, hydrated, rows: LogicalMessa
   return { ...winner, message_id_collision_key: hydrated.collisionKey };
 }
 
-async function findExistingLogical(client, hydrated, { repairExisting = false } = {}) {
+async function findExistingLogical(client: PoolClient, hydrated: HydratedLogicalMessage, { repairExisting = false }: { repairExisting?: boolean } = {}) {
   if (hydrated.canonicalMessageId) {
     // P1-07: query directly by (user_id, canonical_message_id, collision_key)
     // instead of LIMIT 2 + JS filtering. This handles >=3 collision variants
@@ -165,7 +218,7 @@ async function findExistingLogical(client, hydrated, { repairExisting = false } 
   return { logical: result.rows[0] || null, collision: false };
 }
 
-async function findParentLogical(client, hydrated) {
+async function findParentLogical(client: PoolClient, hydrated: HydratedLogicalMessage) {
   const replyId = normalizeMessageIdList(hydrated.rawInReplyTo).at(-1);
   if (replyId) {
     const direct = await client.query(`SELECT id, conversation_id, canonical_message_id, subject FROM logical_messages WHERE user_id = $1 AND account_id = $3 AND canonical_message_id = $2 ORDER BY created_at ASC FOR UPDATE`, [hydrated.userId, replyId, hydrated.accountId]);
@@ -203,7 +256,7 @@ async function findParentLogical(client, hydrated) {
   return null;
 }
 
-async function findPreviousSeriesMessage(client, hydrated) {
+async function findPreviousSeriesMessage(client: PoolClient, hydrated: HydratedLogicalMessage) {
   // P1-08: Bounded candidate search — fetch the last N (10) potential candidates
   // with the same canonical subject in the time window, then let the series
   // decision function evaluate them sequentially (newest→oldest) and pick the
@@ -222,7 +275,7 @@ async function findPreviousSeriesMessage(client, hydrated) {
   return result.rows.length ? result.rows : null;
 }
 
-async function findProviderConversation(client, hydrated, provider) {
+async function findProviderConversation(client: PoolClient, hydrated: HydratedLogicalMessage, provider: ConversationProviderRef | null | undefined) {
   // Only provider identities explicitly classified as strong (or the stable
   // Outlook Thread-Index root) may select a conversation. Generic IMAP
   // THREADID/OBJECTID values are provider metadata, not portable threading
@@ -233,7 +286,7 @@ async function findProviderConversation(client, hydrated, provider) {
   return result.rows[0]?.conversation_id || null;
 }
 
-export async function upsertConversationCopy(copy, { identities = [], provider = null, userId = null } = {}) {
+export async function upsertConversationCopy(copy: ConversationCopyInput, { identities = [], provider = null, userId = null }: { identities?: unknown[]; provider?: ConversationProviderRef | null; userId?: string | null } = {}): Promise<ConversationUpsertResult> {
   // P0-02: userId MUST be passed explicitly by the caller (from session context).
   // Do NOT trust copy.user_id — it is caller-controlled and could be spoofed.
   // Tenant ownership must come from the authenticated/session context. A copy row
@@ -246,7 +299,11 @@ export async function upsertConversationCopy(copy, { identities = [], provider =
   }, { serializable: true });
 }
 
-export async function _upsertConversationCopyWithClient(client, copy, { identities = [], provider = null, userId = null, repairExisting = false } = {}) {
+export async function _upsertConversationCopyWithClient(
+  client: PoolClient,
+  copy: ConversationCopyInput,
+  { identities = [], provider = null, userId = null, repairExisting = false }: { identities?: unknown[]; provider?: ConversationProviderRef | null; userId?: string | null; repairExisting?: boolean } = {},
+): Promise<ConversationUpsertResult> {
       // P0-02: Verify ownership using userId from the calling context (session),
       // NOT from copy.user_id which is caller-controlled. The query enforces
       // a.user_id = $2 where $2 is the context userId — a tenant isolation gate.
