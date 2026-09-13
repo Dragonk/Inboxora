@@ -405,7 +405,7 @@ describe('openDeepLinkMessage', () => {
 
 // Capture console.warn for the "never a silent no-op" contract without leaking noise.
 async function withWarnCaptured(fn) {
-  const warned = [];
+  const warned: string[] = [];
   const orig = console.warn;
   console.warn = (...a) => warned.push(a.join(' '));
   try { return { result: await fn(), warned }; } finally { console.warn = orig; }
@@ -513,7 +513,7 @@ describe('appendMessagesByIdentity', () => {
   });
 
   it('de-duplicates within the incoming batch by identity', () => {
-    const existing = [];
+    const existing: unknown[] = [];
     const incoming = [{ id: 'b', message_id: '<m2>' }, { id: 'b2', message_id: '<m2>' }];
     const result = appendMessagesByIdentity(existing, incoming);
     assert.equal(result.length, 1);
@@ -779,7 +779,7 @@ describe('openDeepLinkMessage — click race (sequence token)', () => {
       setThreadMessages: (tid: string) => calls.push(['stash', tid]),
       setSelectedMessage: (id: string) => calls.push(['select', id]),
     });
-    let releaseFirst;
+    let releaseFirst: ((value?: unknown) => void) | undefined;
     const firstGate = new Promise(r => { releaseFirst = r; });
     const m1 = { id: 'm1' };
     const m2 = { id: 'm2' };
@@ -983,7 +983,7 @@ describe('collectThreadReadIds', () => {
   const head = { id: 'head-1', thread_key: 'tk-1' };
 
   it('marking READ targets every message in the thread, not just the head', async () => {
-    const asked = [];
+    const asked: string[] = [];
     const getThread = async (tk: string) => { asked.push(tk); return { messages: [{ id: 'a' }, { id: 'b' }, { id: 'head-1' }] }; };
     const ids = await collectThreadReadIds(head, true, getThread);
     assert.deepEqual(asked, ['tk-1']);
@@ -1040,9 +1040,9 @@ describe('scheduleGtdThreadAutoRead', () => {
 describe('openGtdThreadWithAutoRead', () => {
   it('publishes a delayed timer before orchestration settles so its owner can cancel it', async () => {
     const timer = { id: 'timer' };
-    const cleared = [];
+    const cleared: unknown[] = [];
     let finishOpen;
-    let ownedTimer = null;
+    let ownedTimer: ReturnType<typeof setTimeout> | null = null;
     let settled = false;
     const cancelOwnedTimer = () => {
       cleared.push(ownedTimer);
