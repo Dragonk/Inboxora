@@ -1,6 +1,7 @@
 import { query } from '../services/db.js';
+import type { NextFunction, Request, Response } from 'express';
 
-export async function requireAuth(req, res, next) {
+export async function requireAuth(req: Request, res: Response, next: NextFunction) {
   if (!req.session?.userId) {
     return res.status(401).json({ error: 'Not authenticated' });
   }
@@ -18,7 +19,7 @@ export async function requireAuth(req, res, next) {
 
 // Always verifies against the DB so a revoked admin can't keep using
 // a stale session. The extra query is cheap and only hits admin routes.
-export async function requireAdmin(req, res, next) {
+export async function requireAdmin(req: Request, res: Response, next: NextFunction) {
   if (!req.session?.userId) {
     return res.status(401).json({ error: 'Not authenticated' });
   }

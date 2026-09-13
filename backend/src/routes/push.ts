@@ -13,6 +13,7 @@ import { pushConfigured } from '../services/pushNotifications.js';
 import { allowPrivatePushEndpoints, pushBaseUrl } from '../services/pushConfig.js';
 import { query } from '../services/db.js';
 import { validateHost } from '../services/hostValidation.js';
+import { routeParam } from '../utils/query.js';
 
 const router = Router();
 
@@ -94,7 +95,7 @@ router.delete('/devices', requireAuth, async (req, res) => {
 // Unregister by the app-generated device id. Scoped to the session's user, so a
 // device id belonging to another account returns 404 rather than deleting it.
 router.delete('/devices/:deviceId', requireAuth, async (req, res) => {
-  const device = await removePushDevice(req.session.userId, req.params.deviceId);
+  const device = await removePushDevice(req.session.userId, routeParam(req.params.deviceId));
   if (!device) return res.status(404).json({ error: 'Push device not found' });
   res.json({ ok: true, device: { id: device.id, deviceId: device.device_id } });
 });
@@ -145,7 +146,7 @@ function messageSummary(row) {
 // carried opaquely through the provider). Ownership is enforced in SQL, so a
 // leaked event id from another account cannot be read.
 router.get('/native/messages/:id', requireDeviceAuth, async (req, res) => {
-  const { id } = req.params;
+  const id = routeParam(req.params.id);
   if (!UUID_RE.test(id)) return res.status(400).json({ error: 'Invalid message id' });
 
   const result = await query(

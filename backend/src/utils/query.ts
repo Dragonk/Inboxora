@@ -23,3 +23,9 @@ export function queryInt(value: unknown, fallback: number): number {
   const parsed = Number.parseInt(raw, 10);
   return Number.isFinite(parsed) ? parsed : fallback;
 }
+
+// Express types a route parameter as string | string[]; this application only ever
+// registers scalar parameters, so this narrows the union explicitly.
+export function routeParam(value: unknown): string {
+  return queryString(value) ?? '';
+}

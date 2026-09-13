@@ -6,11 +6,17 @@ const { authenticatePushDevice, bearerTokenFromHeader } = vi.hoisted<any>(() => 
 }));
 vi.mock('../services/pushDevices.js', () => ({ authenticatePushDevice, bearerTokenFromHeader }));
 
+import { mockRequest, mockResponse } from '../test/http.js';
 import { requireDeviceAuth } from './deviceAuth.js';
 
-function harness(headers = {}) {
-  const req: { get(name: string): string | undefined; pushDevice?: unknown } = { get: (name: string) => headers[name.toLowerCase()] };
-  const res = { statusCode: null, body: null, status(code: string) { this.statusCode = code; return this; }, json(body) { this.body = body; return this; } };
+function harness(headers: Record<string, string> = {}) {
+  const req = mockRequest({ get: (name: string) => headers[name.toLowerCase()] });
+  const res = mockResponse({
+    statusCode: null as number | null,
+    body: null as unknown,
+    status(code: number) { this.statusCode = code; return this; },
+    json(body: unknown) { this.body = body; return this; },
+  });
   const next = vi.fn();
   return { req, res, next };
 }

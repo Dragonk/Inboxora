@@ -2,6 +2,7 @@ import { Router } from 'express';
 import { query } from '../services/db.js';
 import { requireAuth, requireAdmin } from '../middleware/auth.js';
 import { encrypt, decrypt, isEncrypted } from '../services/encryption.js';
+import { routeParam } from '../utils/query.js';
 
 const router = Router();
 router.use(requireAuth);
@@ -38,7 +39,7 @@ router.get('/status', async (req, res) => {
 
 // Save/update integration config — admin only (writes affect global OAuth env vars)
 router.post('/:provider', requireAdmin, async (req, res) => {
-  const { provider } = req.params;
+  const provider = routeParam(req.params.provider);
   const allowed = ['microsoft'];
   if (!allowed.includes(provider)) return res.status(400).json({ error: 'Unknown provider' });
 

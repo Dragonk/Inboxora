@@ -4,6 +4,7 @@ import { requireAuth } from '../middleware/auth.js';
 import { invalidateSocialDomainCache, backfillCategories, aiClassifyMessage, BUILTIN_SETS } from '../services/categorizer.js';
 import { validateHost } from '../services/hostValidation.js';
 import { safeFetch } from '../services/safeFetch.js';
+import { routeParam } from '../utils/query.js';
 
 const router = Router();
 
@@ -211,7 +212,7 @@ router.post('/categories/recategorize/:accountId', requireAuth, async (req, res)
 
   // Run in background — large inboxes can take a while
   const userId = req.session.userId;
-  const accountId = req.params.accountId;
+  const accountId = routeParam(req.params.accountId);
   (async () => {
     try {
       const processed = await backfillCategories(accountId, userId);
@@ -229,7 +230,7 @@ router.post('/categories/recategorize/:accountId', requireAuth, async (req, res)
 const UUID_RE_CAT = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 router.post('/categories/ai-classify/:messageId', requireAuth, async (req, res) => {
-  const { messageId } = req.params;
+  const messageId = routeParam(req.params.messageId);
   if (!UUID_RE_CAT.test(messageId)) return res.status(400).json({ error: 'Invalid message id' });
 
   const msgResult = await query(`
