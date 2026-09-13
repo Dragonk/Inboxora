@@ -25,7 +25,16 @@ export async function mappedFolderUsable(accountId: string, path: string) {
 // folder_mappings.trash (user-configured) takes priority over special_use and name heuristics,
 // but only when it points at a selectable folder (see mappedFolderUsable).
 // Also matches "Deleted Messages" / "Deleted Items" in addition to "Trash"-named folders.
-export async function resolveTrashFolder(accountId: string, folderMappings) {
+export interface FolderMappings {
+  trash?: string | null;
+  archive?: string | null;
+  spam?: string | null;
+  sent?: string | null;
+  drafts?: string | null;
+  [key: string]: string | null | undefined;
+}
+
+export async function resolveTrashFolder(accountId: string, folderMappings?: FolderMappings | null) {
   const mapped = await mappedFolderUsable(accountId, folderMappings?.trash);
   if (mapped) return mapped;
   const result = await query(
@@ -42,7 +51,7 @@ export async function resolveTrashFolder(accountId: string, folderMappings) {
 // When a user-configured trash mapping exists, only that folder is considered "trash."
 // Otherwise every folder that matches the trash heuristic is included — this handles
 // accounts that have both e.g. "Trash" and "Deleted Messages" in their folder list.
-export async function resolveAllTrashPaths(accountId: string, folderMappings) {
+export async function resolveAllTrashPaths(accountId: string, folderMappings?: FolderMappings | null) {
   const mapped = await mappedFolderUsable(accountId, folderMappings?.trash);
   if (mapped) return new Set([mapped]);
   const result = await query(
@@ -53,7 +62,7 @@ export async function resolveAllTrashPaths(accountId: string, folderMappings) {
   return new Set(result.rows.map(r => r.path));
 }
 
-export async function resolveAllDraftsPaths(accountId: string, folderMappings) {
+export async function resolveAllDraftsPaths(accountId: string, folderMappings?: FolderMappings | null) {
   const mapped = await mappedFolderUsable(accountId, folderMappings?.drafts);
   if (mapped) return new Set([mapped]);
   const result = await query(
@@ -71,7 +80,7 @@ export async function resolveAllDraftsPaths(accountId: string, folderMappings) {
 // the message to All Mail, which strips the INBOX label.
 // IMPORTANT: callers that persist the destination back to the messages table must
 // special-case an '\All' result — see isAllMailFolder below.
-export async function resolveArchiveFolder(accountId: string, folderMappings) {
+export async function resolveArchiveFolder(accountId: string, folderMappings?: FolderMappings | null) {
   const mapped = await mappedFolderUsable(accountId, folderMappings?.archive);
   if (mapped) return mapped;
   const result = await query(
@@ -111,7 +120,7 @@ export async function isAllMailFolder(accountId: string, path: string) {
 //   - Yahoo:              Bulk Mail
 //   - GMX:                Spamverdacht
 //   - Italian providers:  Indesiderata, Posta indesiderata
-export async function resolveSpamFolder(accountId: string, folderMappings) {
+export async function resolveSpamFolder(accountId: string, folderMappings?: FolderMappings | null) {
   const mapped = await mappedFolderUsable(accountId, folderMappings?.spam);
   if (mapped) return mapped;
   const result = await query(
@@ -128,7 +137,7 @@ export async function resolveSpamFolder(accountId: string, folderMappings) {
 // Resolve ALL spam-like folder paths for an account (used for already-spam checks).
 // Same pattern as resolveAllTrashPaths: when user has configured folder_mappings.spam,
 // only that path is returned. Otherwise every folder matching the heuristic.
-export async function resolveAllSpamPaths(accountId: string, folderMappings) {
+export async function resolveAllSpamPaths(accountId: string, folderMappings?: FolderMappings | null) {
   const mapped = await mappedFolderUsable(accountId, folderMappings?.spam);
   if (mapped) return new Set([mapped]);
   const result = await query(
@@ -144,7 +153,7 @@ export async function resolveAllSpamPaths(accountId: string, folderMappings) {
 // folder_mappings.sent (user-configured) takes priority over special_use auto-detect, but
 // only when it points at a selectable folder (see mappedFolderUsable) — a mapping left on a
 // non-selectable parent like "[Gmail]" would make every sent copy fail to APPEND/sync.
-export async function resolveSentFolder(accountId: string, folderMappings) {
+export async function resolveSentFolder(accountId: string, folderMappings?: FolderMappings | null) {
   const mapped = await mappedFolderUsable(accountId, folderMappings?.sent);
   if (mapped) return mapped;
   const result = await query(
@@ -157,7 +166,7 @@ export async function resolveSentFolder(accountId: string, folderMappings) {
 // Adjust cached folder row counts after local message mutations so that pagination
 // totals stay accurate without waiting for the next IMAP sync. Fire-and-forget —
 // errors are logged but never block the caller; sync will correct any discrepancy.
-export function adjustFolderCounts(accountId: string, path: string, totalDelta, unreadDelta) {
+export function adjustFolderCounts(accountId: string, path: string, totalDelta: number, unreadDelta: number): void {
   if (totalDelta === 0 && unreadDelta === 0) return;
   // Snapshot the pre-update counters (prev) so RETURNING can tell whether the GREATEST(0, …)
   // clamp actually fired. A clamp means the cached counter was already below the applied
@@ -190,7 +199,7 @@ export function adjustFolderCounts(accountId: string, path: string, totalDelta, 
 // (already at the target state), so only rows that genuinely flip are returned — and
 // each returned folder gets its unread count adjusted. Callers gate on the message
 // actually having siblings, so a plain single-folder message never reaches here.
-export async function fanOutReadToSiblings(accountId: string, messageId: string, read) {
+export async function fanOutReadToSiblings(accountId: string, messageId: string, read: boolean) {
   if (!messageId) return; // no shared header → no siblings to fan out to
   const res = await query(
     `UPDATE messages SET is_read = $1, read_changed_at = NOW()
@@ -206,7 +215,7 @@ export async function fanOutReadToSiblings(accountId: string, messageId: string,
 // Star fan-out counterpart. Stars never contribute to folder unread counts (the star
 // route has never touched adjustFolderCounts), so this only mirrors the flag across
 // sibling rows.
-export async function fanOutStarToSiblings(accountId: string, messageId: string, starred) {
+export async function fanOutStarToSiblings(accountId: string, messageId: string, starred: boolean) {
   if (!messageId) return;
   await query(
     `UPDATE messages SET is_starred = $1, star_changed_at = NOW()
@@ -221,7 +230,7 @@ export async function fanOutStarToSiblings(accountId: string, messageId: string,
 // state, and adjusts unread counts per returned (account, folder). Ids are bound as a
 // single array param so the statement composes with the route's 500-id cap without
 // per-id placeholder expansion.
-export async function fanOutBulkReadToSiblings(actedIds, read) {
+export async function fanOutBulkReadToSiblings(actedIds: string[], read: boolean) {
   if (!actedIds.length) return;
   const res = await query(
     `UPDATE messages m SET is_read = $1, read_changed_at = NOW()
@@ -254,7 +263,7 @@ export async function fanOutBulkReadToSiblings(actedIds, read) {
 // no Trash folder is configured (user would have no way to recover the message).
 // allTrashPaths (optional Set) broadens the expunge check to cover accounts that have
 // multiple trash-like folders (e.g. both "Trash" and "Deleted Messages").
-export function getDeleteStrategy(messageFolder, trashPath, allTrashPaths = null) {
+export function getDeleteStrategy(messageFolder: string, trashPath: string | null | undefined, allTrashPaths: Set<string> | null = null) {
   if (!trashPath) return { action: 'no_trash' };
   const isAlreadyInTrash = allTrashPaths ? allTrashPaths.has(messageFolder) : messageFolder === trashPath;
   if (isAlreadyInTrash) return { action: 'expunge' };

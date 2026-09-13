@@ -31,7 +31,7 @@ export function recordBroadcast(type) {
 // hashes the id. Reset on process restart.
 const syncSignals: Record<string, any> = Object.create(null); // "sig|accountId" -> { sig, accountId, count, lastT, sumMag, maxMag }
 
-export function recordSyncSignal(sig, { accountId = null, magnitude = null } = {}) {
+export function recordSyncSignal(sig: string, { accountId = null, magnitude = null }: { accountId?: string | null; magnitude?: number | null } = {}): void {
   if (!sig) return;
   const key = `${sig}|${accountId || ''}`;
   const e = syncSignals[key] || (syncSignals[key] = {

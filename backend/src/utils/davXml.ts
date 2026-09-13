@@ -13,7 +13,7 @@ interface DavMultistatus {
 }
 
 export function requireCompleteMultistatus(raw: string, parsed: DavMultistatus | null | undefined): void {
-  if (XMLValidator.validate(raw) !== true || !Object.hasOwn(parsed || {}, 'multistatus') || (parsed.multistatus !== '' && typeof parsed.multistatus !== 'object')) {
+  if (XMLValidator.validate(raw) !== true || !parsed || !Object.hasOwn(parsed, 'multistatus') || (parsed.multistatus !== '' && typeof parsed.multistatus !== 'object')) {
     throw new Error('DAV server returned an invalid multistatus response');
   }
   const multistatus = parsed.multistatus;

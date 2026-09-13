@@ -60,6 +60,7 @@ async function runInBatches(items, concurrency, fn) {
 
 import { RELOCATE_INSERT_COLS, RELOCATE_SELECT_COLS } from '../utils/relocateColumns.js';
 import { queryString, queryInt } from '../utils/query.js';
+import type { FolderMappings } from '../utils/mailUtils.js';
 
 interface MailMessageRow {
   id: string;
@@ -67,7 +68,7 @@ interface MailMessageRow {
   folder: string;
   account_id: string;
   is_read?: boolean;
-  folder_mappings?: unknown;
+  folder_mappings?: FolderMappings | null;
   subject?: string | null;
 }
 
