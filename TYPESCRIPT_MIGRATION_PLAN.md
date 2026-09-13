@@ -77,9 +77,10 @@ in the code; the running report is `TYPESCRIPT_MIGRATION_FIXES.md`.
 - [x] 5a. Count `any` baseline (backend ~532, frontend ~64)
 - [x] 5b. Remove `any` types (frontend 0; backend 0 except the documented `DbRow` boundary)
 - [ ] 5c. Enable `strict: true` — **NOT done**; measured volume:
-      backend **1609** errors, frontend **2172** errors. This is a separate phase: most sites
-      rely on `noImplicitAny: false` (untyped parameters) and need real signature typing, plus
-      strict-null narrowing. Tracked here so it is visible, not hidden.
+      backend **1609** errors, frontend **2172** errors.
+      Breakdown: `noImplicitAny: true` alone yields backend **3502**, frontend **3599** — i.e.
+      the bulk is untyped parameters that must be given real signatures (strictNullChecks and the
+      rest then become tractable). Tracked here so it is visible, not hidden.
 - [x] 5d. Remove `@ts-ignore` / `@ts-nocheck` (0 files)
 - [x] 5e. Final verification (typecheck, tests, build, lint for both projects)
 

@@ -704,3 +704,13 @@ messageParser.EnrichParsedInput, registry narrowing, aiProvider.test typed optio
   Udokumentowane w TYPESCRIPT_MIGRATION_PLAN.md (5c) jako NIEUKONCZONE, nie ukryte.
 - TYPESCRIPT_MIGRATION_PLAN.md i TYPESCRIPT_MIGRATION_STATUS.md zaktualizowane do stanu koncowego.
 
+
+## 64. Pomiary dlugu strict mode (dowod, nie ukrywanie)
+
+Strict mode NIE jest wlaczony. Zmierzone wolumeny przy jego wlaczeniu:
+- strict: true -> backend 1609, frontend 2172 bledow.
+- Samo noImplicitAny: true -> backend 3502, frontend 3599 bledow.
+
+Wniosek: to osobny, duzy etap (gownie typowanie niejawnych parametrow), ktorego nie da sie
+bezpiecznie dokonczyc bez dlugotrwalej czerwonej galezi. Zostalo to jawnie zapisane w
+TYPESCRIPT_MIGRATION_PLAN.md (5c) oraz tutaj.
