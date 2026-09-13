@@ -4240,7 +4240,72 @@ function EmptyState({ folderSyncing, searchQuery, unreadOnly, selectedFolder, ac
   );
 }
 
-function ThreadRow({ message, isExpanded, threadMsgs, isLoadingThread, selectedMessageId, selectedMid, lastViewedMessageId, showAccount, isNarrow, onThreadClick, showMobileAvatars, showMessagePreviews, onSelect, onOpenWindow, onMarkRead, onStar, onDelete, hoverQuickActions, onContextMenu, onMove, isMobile, swipeLeftAction, swipeRightAction, onSwipeLeft, onSwipeRight, isChecked, selectionMode, onToggleSelect, onRangeSelect, onLongPress, accounts }) {
+interface ThreadRowProps {
+  message: StoreMessageRow;
+  isExpanded?: boolean;
+  threadMsgs?: StoreMessageRow[] | null;
+  isLoadingThread?: boolean;
+  selectedMessageId?: string | null;
+  selectedMid?: string | null;
+  lastViewedMessageId?: string | null;
+  showAccount?: boolean;
+  isNarrow?: boolean;
+  onThreadClick?: () => void;
+  showMobileAvatars?: boolean;
+  showMessagePreviews?: boolean;
+  onSelect?: (message: StoreMessageRow) => void | Promise<void>;
+  onOpenWindow?: (message: StoreMessageRow) => void;
+  onMarkRead?: (event: React.MouseEvent, message: StoreMessageRow) => void;
+  onStar?: (event: React.MouseEvent, message: StoreMessageRow) => void;
+  onDelete?: (event: React.MouseEvent, message: StoreMessageRow) => void;
+  hoverQuickActions?: boolean;
+  onContextMenu?: (event: React.MouseEvent, message: StoreMessageRow) => void;
+  onMove?: (event: React.MouseEvent, message: StoreMessageRow) => void;
+  isMobile?: boolean;
+  swipeLeftAction?: string | null;
+  swipeRightAction?: string | null;
+  onSwipeLeft?: (message: StoreMessageRow) => void;
+  onSwipeRight?: (message: StoreMessageRow) => void;
+  isChecked?: boolean;
+  selectionMode?: boolean;
+  onToggleSelect?: (id: string) => void;
+  onRangeSelect?: (id: string) => void;
+  onLongPress?: (id: string) => void;
+  accounts?: Array<{ id: string; [key: string]: unknown }>;
+}
+
+interface MessageRowProps {
+  message: StoreMessageRow;
+  selected?: boolean;
+  lastViewed?: boolean;
+  isChecked?: boolean;
+  selectionMode?: boolean;
+  showAccount?: boolean;
+  isNarrow?: boolean;
+  onSelect?: (message: StoreMessageRow) => void | Promise<void>;
+  onOpenWindow?: (message: StoreMessageRow) => void;
+  onToggleSelect?: (id: string) => void;
+  onRangeSelect?: (id: string) => void;
+  onAvatarClick?: (id: string) => void;
+  showMobileAvatars?: boolean;
+  showMessagePreviews?: boolean;
+  onMarkRead?: (event: React.MouseEvent, message: StoreMessageRow) => void;
+  onStar?: (event: React.MouseEvent, message: StoreMessageRow) => void;
+  onDelete?: (event: React.MouseEvent, message: StoreMessageRow) => void;
+  hoverQuickActions?: boolean;
+  onContextMenu?: (event: React.MouseEvent, message: StoreMessageRow) => void;
+  onMove?: (event: React.MouseEvent, message: StoreMessageRow) => void;
+  onDragStart?: (event: React.DragEvent, message: StoreMessageRow) => void;
+  isMobile?: boolean;
+  swipeLeftAction?: string | null;
+  swipeRightAction?: string | null;
+  onSwipeLeft?: (message: StoreMessageRow) => void;
+  onSwipeRight?: (message: StoreMessageRow) => void;
+  onLongPress?: (id: string) => void;
+}
+
+
+function ThreadRow({ message, isExpanded, threadMsgs, isLoadingThread, selectedMessageId, selectedMid, lastViewedMessageId, showAccount, isNarrow, onThreadClick, showMobileAvatars, showMessagePreviews, onSelect, onOpenWindow, onMarkRead, onStar, onDelete, hoverQuickActions, onContextMenu, onMove, isMobile, swipeLeftAction, swipeRightAction, onSwipeLeft, onSwipeRight, isChecked, selectionMode, onToggleSelect, onRangeSelect, onLongPress, accounts }: ThreadRowProps) {
   const { t } = useTranslation();
   const [hovered, setHovered] = useState(false);
   // Cached membership is exact. Until interaction resolves it, retain aggregate
@@ -4251,7 +4316,7 @@ function ThreadRow({ message, isExpanded, threadMsgs, isLoadingThread, selectedM
     ? normalizedChildren.length > 1
     : Number(message.message_count || 1) > 1;
   const messageCount = hasResolvedMembership ? normalizedChildren.length : (message.message_count || 1);
-  const unreadCount  = parseInt(message.unread_count) || 0;
+  const unreadCount  = Number(message.unread_count) || 0;
   // The parent row shows the direction of the MOST RECENT unique child in the
   // account-local thread (not the first message, and not a thread-wide label).
   // latest_from_email is emitted by the backend (FIRST_VALUE ORDER BY date DESC);
@@ -4606,7 +4671,7 @@ function ThreadChildRow({ msg, idx, isMobile, swipeLeftAction, swipeRightAction,
   </div>;
 }
 
-function MessageRow({ message, selected, lastViewed, isChecked, selectionMode, showAccount, isNarrow, onSelect, onOpenWindow, onToggleSelect, onRangeSelect, onAvatarClick, showMobileAvatars, showMessagePreviews, onMarkRead, onStar, onDelete, hoverQuickActions, onContextMenu, onMove, onDragStart, isMobile, swipeLeftAction, swipeRightAction, onSwipeLeft, onSwipeRight, onLongPress }) {
+function MessageRow({ message, selected, lastViewed, isChecked, selectionMode, showAccount, isNarrow, onSelect, onOpenWindow, onToggleSelect, onRangeSelect, onAvatarClick, showMobileAvatars, showMessagePreviews, onMarkRead, onStar, onDelete, hoverQuickActions, onContextMenu, onMove, onDragStart, isMobile, swipeLeftAction, swipeRightAction, onSwipeLeft, onSwipeRight, onLongPress }: MessageRowProps) {
   const { t } = useTranslation();
   const [hovered, setHovered] = useState(false);
   const [avatarHovered, setAvatarHovered] = useState(false);

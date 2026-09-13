@@ -331,6 +331,7 @@ export interface StoreMessageRow {
   unread_count?: number | string | null;
   date?: string | number | Date | null;
   subject?: string | null;
+  snippet?: string | null;
   from_name?: string | null;
   from_email?: string | null;
   to_addresses?: unknown;
