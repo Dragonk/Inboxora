@@ -11,6 +11,7 @@ import {
 } from './openaiCodexAuth.js';
 import { decrypt, encrypt } from './encryption.js';
 import { withTransaction as __mock_withTransaction } from './db.js';
+import { mockPoolClient } from '../test/poolClient.js';
 
 // Cast mocked module exports so their vitest mock helpers type-check.
 const withTransaction = vi.mocked(__mock_withTransaction);
@@ -220,7 +221,7 @@ describe('JWT helpers', () => {
 
 describe('Postgres credential lifecycle', () => {
   it('cancels active device flows before deleting the shared credential', async () => {
-    const client = { query: vi.fn().mockResolvedValue({ rows: [] }) };
+    const client = mockPoolClient({ query: vi.fn().mockResolvedValue({ rows: [] }) });
     withTransaction.mockImplementation((callback) => callback(client));
 
     await createPostgresCodexStore().disconnect();
@@ -231,7 +232,7 @@ describe('Postgres credential lifecycle', () => {
   });
 
   it('locks the admin row before replacing an active device flow', async () => {
-    const client = { query: vi.fn().mockResolvedValue({ rows: [] }) };
+    const client = mockPoolClient({ query: vi.fn().mockResolvedValue({ rows: [] }) });
     withTransaction.mockImplementation((callback) => callback(client));
 
     await createPostgresCodexStore().createFlow({

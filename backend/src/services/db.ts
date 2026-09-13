@@ -1,4 +1,5 @@
 import pg from 'pg';
+import type { PoolClient } from 'pg';
 import { encrypt, isEncrypted } from './encryption.js';
 import { recordDb } from './performanceMetrics.js';
 import { toAppError } from '../utils/errors.js';
@@ -56,7 +57,10 @@ export async function query(text: string, params: unknown[] = []): Promise<{ row
 // Run fn(client) inside a serializable transaction. Commits on success, rolls
 // back on throw. The client exposes a .query(text, params) method identical to
 // the top-level query() helper.
-export async function withTransaction(fn, { serializable = false, retries = 2 } = {}) {
+export async function withTransaction<T>(
+  fn: (client: PoolClient) => Promise<T>,
+  { serializable = false, retries = 2 }: { serializable?: boolean; retries?: number } = {},
+): Promise<T> {
   for (let attempt = 0; attempt <= retries; attempt++) {
     const client = await pool.connect();
     try {
@@ -75,7 +79,8 @@ export async function withTransaction(fn, { serializable = false, retries = 2 } 
         // sees what actually went wrong, not the secondary ROLLBACK failure.
         console.warn('ROLLBACK failed (original error preserved):', rollbackErr.message);
       }
-      if (serializable && (err.code === '40001' || err.code === '40P01') && attempt < retries) continue;
+      const txErr = toAppError(err);
+      if (serializable && (txErr.code === '40001' || txErr.code === '40P01') && attempt < retries) continue;
       throw err;
     } finally {
       client.release();

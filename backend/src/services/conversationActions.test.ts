@@ -12,6 +12,7 @@ vi.mock('../utils/mailUtils.js', () => ({
 
 import { COPY_SCOPES, applyConversationAction, applyBulkConversationAction } from './conversationActions.js';
 import { withTransaction as __mock_withTransaction } from './db.js';
+import { mockPoolClient } from '../test/poolClient.js';
 
 // Cast mocked module exports so their vitest mock helpers type-check.
 const withTransaction = vi.mocked(__mock_withTransaction);
@@ -46,7 +47,7 @@ describe('conversation copy-aware actions', () => {
   });
 
   it('passes selected copy and scope through to a transactional read action', async () => {
-    const client = fakeClient();
+    const client = mockPoolClient(fakeClient());
     withTransaction.mockImplementationOnce(async fn => fn(client));
     const result = await applyConversationAction({
       userId: 'user-1', conversationId: 'conversation-1', copyId: 'copy-1',
@@ -57,7 +58,7 @@ describe('conversation copy-aware actions', () => {
   });
 
   it('broadcasts a physical message flag update after a conversation read action', async () => {
-    const client = fakeClient();
+    const client = mockPoolClient(fakeClient());
     const imapManager = { broadcast: vi.fn() };
     withTransaction.mockImplementationOnce(async fn => fn(client));
 
@@ -80,7 +81,7 @@ describe('conversation copy-aware actions', () => {
   });
 
   it('accepts per-row copy selectors for bulk scopes', async () => {
-    const client = fakeClient();
+    const client = mockPoolClient(fakeClient());
     withTransaction.mockImplementationOnce(async fn => fn(client));
     const result = await applyBulkConversationAction({
       userId: 'user-1',
@@ -93,7 +94,7 @@ describe('conversation copy-aware actions', () => {
   });
 
   it('uses the provider move path and refuses a missing destination folder', async () => {
-    const client = fakeClient();
+    const client = mockPoolClient(fakeClient());
     client.query = vi.fn()
       .mockResolvedValueOnce({ rows: [{ account_id: 'account-1' }] })
       .mockResolvedValueOnce({ rows: [{ id: 'copy-1', account_id: 'account-1', logical_message_id: 'logical-1', conversation_id: 'conversation-1', folder: 'INBOX', uid: 7 }] })

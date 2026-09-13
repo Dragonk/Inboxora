@@ -8,6 +8,7 @@ import pg from 'pg';
 import { randomUUID } from 'crypto';
 import { applyConversationOverride } from './conversationOverrides.js';
 import { upsertConversationCopy } from './conversationPersistence.js';
+import { toAppError } from '../utils/errors.js';
 
 const cfg = {
   host: process.env.DB_HOST || 'localhost',
@@ -113,7 +114,9 @@ describe('Conversation Engine v2 — real PostgreSQL concurrency', () => {
   it('25 concurrent upserts of the same physical message produce one LogicalMessage', async () => {
     const messageId = await createMessage({ messageId: `<collision-${randomUUID()}@test>`, subject: 'same-message', uid: 200 });
     const results = await Promise.all(Array.from({ length: 25 }, () =>
-      upsertConversationCopy({ id: messageId }, { userId }).catch(error => ({ error: error.message })),
+      upsertConversationCopy({ id: messageId }, { userId })
+        .then(() => ({ error: null as string | null }))
+        .catch((error: unknown) => ({ error: toAppError(error).message })),
     ));
     const sameRowErrors = results.filter(result => result?.error);
     assert.ok(sameRowErrors.every(result => /serialize|deadlock/i.test(result.error)), `unexpected same-row errors: ${JSON.stringify(sameRowErrors)}`);
@@ -137,7 +140,8 @@ describe('Conversation Engine v2 — real PostgreSQL concurrency', () => {
     const results = await Promise.all(ids.map(id => upsertConversationCopy({ id }, {
       userId,
       provider: { provider: 'gmail', isStrong: true, source: 'x-gm-thread', providerThreadId, providerMessageId: null, namespace: `account:${accountId}` },
-    }).catch(error => ({ error: error.message }))));
+    }).then(() => ({ error: null as string | null }))
+      .catch((error: unknown) => ({ error: toAppError(error).message }))));
     const providerErrors = results.filter(result => result?.error);
     assert.ok(providerErrors.every(result => /serialize|deadlock/i.test(result.error)), `unexpected provider errors: ${JSON.stringify(providerErrors)}`);
     const convs = await q(`SELECT COUNT(DISTINCT conversation_id)::int AS count FROM messages WHERE id=ANY($1::uuid[])`, [ids]);
