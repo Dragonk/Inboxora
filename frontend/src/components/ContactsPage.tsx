@@ -73,6 +73,22 @@ function emptyContact() {
 
 const PAGE_SIZE = 100;
 
+/** A contact row as the contacts API returns it. */
+interface ContactRow {
+  id: string;
+  name?: string | null;
+  display_name?: string | null;
+  primary_email?: string | null;
+  organization?: string | null;
+  visible?: boolean;
+  value?: unknown;
+  [key: string]: unknown;
+}
+
+/** An address book as the contacts API returns it. */
+interface AddressBookRow { id: string; name?: string | null; [key: string]: unknown }
+
+
 export default function ContactsPage({ isActive = true }) {
   const { t } = useTranslation();
   const { showContacts } = useStore();
@@ -86,8 +102,8 @@ export default function ContactsPage({ isActive = true }) {
   const [bookError, setBookError] = useState(null);
   const isMobile = useCompactLayout();
 
-  const [contacts, setContacts]     = useState([]);
-  const [addressBooks, setAddressBooks] = useState([]);
+  const [contacts, setContacts]     = useState<ContactRow[]>([]);
+  const [addressBooks, setAddressBooks] = useState<AddressBookRow[]>([]);
   const [selectedAddressBookId, setSelectedAddressBookId] = useState('');
   const [total, setTotal]           = useState(0);
   const [loading, setLoading]       = useState(true);
