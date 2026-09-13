@@ -5,7 +5,26 @@ import { createAccountSmtpTransport } from './smtpTransport.js';
 
 const MAX_ATTACHMENT_BYTES = 25 * 1024 * 1024;
 
-function escapeHtml(value) {
+/** A message row as the forwarder reads it. */
+interface ForwardRowLike {
+  id?: string;
+  uid?: string | null;
+  account_id?: string;
+  folder?: string;
+  from_email?: string | null;
+  from_name?: string | null;
+  cc_addresses?: unknown;
+  body_text?: string | null;
+  body_html?: string | null;
+  date?: string | number | Date | null;
+  attachments?: unknown;
+  [key: string]: unknown;
+}
+
+/** The account slice the forwarder needs. */
+interface ForwardAccountLike { id?: string; email_address?: string | null; [key: string]: unknown }
+
+function escapeHtml(value: unknown) {
   return String(value ?? '')
     .replaceAll('&', '&amp;')
     .replaceAll('<', '&lt;')
@@ -14,7 +33,7 @@ function escapeHtml(value) {
     .replaceAll("'", '&#39;');
 }
 
-function parseAddresses(value) {
+function parseAddresses(value: unknown) {
   if (Array.isArray(value)) return value;
   if (typeof value !== 'string' || !value.trim()) return [];
 
@@ -37,22 +56,22 @@ function formatAddress(address: AddressLike): string {
   return address.name ? `${address.name} <${email}>` : email;
 }
 
-function formatAddresses(value) {
+function formatAddresses(value: unknown) {
   return parseAddresses(value).map(formatAddress).filter(Boolean).join(', ');
 }
 
-function formatUtcDate(value) {
+function formatUtcDate(value: unknown) {
   if (!value) return '';
-  const date = new Date(value);
+  const date = value instanceof Date ? value : new Date(String(value));
   return Number.isNaN(date.getTime()) ? '' : date.toUTCString();
 }
 
-function forwardSubject(value) {
+function forwardSubject(value: unknown) {
   const subject = String(value ?? '');
   return /^Fwd:/i.test(subject) ? subject : `Fwd: ${subject}`;
 }
 
-function htmlToPlainText(value) {
+function htmlToPlainText(value: unknown) {
   const namedEntities = new Map([
     ['amp', '&'],
     ['apos', "'"],
@@ -82,7 +101,7 @@ function htmlToPlainText(value) {
     .trim();
 }
 
-function parseAttachments(value) {
+function parseAttachments(value: unknown) {
   if (Array.isArray(value)) return value;
   if (typeof value !== 'string' || !value.trim()) return [];
 
@@ -94,7 +113,7 @@ function parseAttachments(value) {
   }
 }
 
-function forwardedHeaders(row) {
+function forwardedHeaders(row: ForwardRowLike) {
   const from = formatAddress({
     name: row.from_name,
     address: row.from_email,
@@ -140,9 +159,9 @@ export function buildForwardMessage({
   };
 }
 
-function ensureAttachmentLimit(attachments) {
+function ensureAttachmentLimit(attachments: Array<{ content?: { length?: number } | null; [key: string]: unknown }>): void {
   const totalBytes = attachments.reduce(
-    (sum, attachment) => sum + (attachment.content?.length || 0),
+    (sum, attachment) => sum + (attachment.content?.length ?? 0),
     0
   );
   if (totalBytes > MAX_ATTACHMENT_BYTES) {
@@ -150,7 +169,7 @@ function ensureAttachmentLimit(attachments) {
   }
 }
 
-async function loadForwardContent({ row, account, imapManager }) {
+async function loadForwardContent({ row, account, imapManager }: { row: ForwardRowLike; account: ForwardAccountLike; imapManager: { fetchMessageBody(account: ForwardAccountLike, uid: string, folder: string): Promise<{ text?: string | null; html?: string | null; attachments?: unknown }>; fetchMultipleAttachments(account: ForwardAccountLike, uid: string, folder: string, parts: unknown[]): Promise<Map<string, Buffer>> } }) {
   let text = row.body_text;
   let html = row.body_html;
   let fetchedParts = [];

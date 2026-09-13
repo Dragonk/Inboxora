@@ -1,7 +1,7 @@
 import ICAL from 'ical.js';
 import { isHtmlDescription, sanitizeDescriptionHtml } from './richText.js';
 
-interface ICalProperty {
+export interface ICalProperty {
   name: string;
   parameters: Record<string, string | undefined>;
   value: string;

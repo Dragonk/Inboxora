@@ -1,9 +1,10 @@
 import { calendarZoneResolver, parseICalendarDate, propertyFromLine } from '../utils/ical.js';
+import type { ICalProperty, ZoneResolver } from '../utils/ical.js';
 const MAX_ICAL_BYTES = 1024 * 1024;
 
-function unfoldLines(raw) {
+function unfoldLines(raw: unknown) {
   const lines = [];
-  for (const physicalLine of raw.split(/\r\n|\n|\r/)) {
+  for (const physicalLine of String(raw).split(/\r\n|\n|\r/)) {
     if (/^[ \t]/.test(physicalLine) && lines.length) lines[lines.length - 1] += physicalLine.slice(1);
     else if (physicalLine) lines.push(physicalLine);
   }
@@ -15,7 +16,7 @@ function componentMarker(line: string) {
   return match && { type: match[1].toUpperCase(), name: match[2].toUpperCase() };
 }
 
-function calendarStructure(lines) {
+function calendarStructure(lines: string[]) {
   const stack = [];
   const calendarLines = [];
   const eventLines = [];
@@ -36,17 +37,17 @@ function calendarStructure(lines) {
   return stack.length === 0 && eventCount === 1 ? { calendarLines, eventLines } : null;
 }
 
-function unescapeText(value) {
-  return value.replace(/\\([\\;,nN])/g, (_match, escaped) => (escaped.toLowerCase() === 'n' ? '\n' : escaped));
+function unescapeText(value: unknown) {
+  return String(value).replace(/\\([\\;,nN])/g, (_match: string, escaped: string) => (escaped.toLowerCase() === 'n' ? '\n' : escaped));
 }
 
-function utcDate(year, month, day, hour = 0, minute = 0, second = 0) {
+function utcDate(year: number, month: number, day: number, hour = 0, minute = 0, second = 0) {
   const date = new Date(Date.UTC(year, month - 1, day, hour, minute, second));
   return date.getUTCFullYear() === year && date.getUTCMonth() === month - 1 && date.getUTCDate() === day
     && date.getUTCHours() === hour && date.getUTCMinutes() === minute && date.getUTCSeconds() === second ? date : null;
 }
 
-function timeZoneParts(date, timeZone) {
+function timeZoneParts(date: Date, timeZone: string) {
   try {
     const parts = new Intl.DateTimeFormat('en-CA', {
       timeZone, year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', second: '2-digit', hourCycle: 'h23',
@@ -57,7 +58,7 @@ function timeZoneParts(date, timeZone) {
   }
 }
 
-function localDateInTimeZone(year, month, day, hour, minute, second, timeZone) {
+function localDateInTimeZone(year: number, month: number, day: number, hour: number, minute: number, second: number, timeZone: string) {
   const wallTime = utcDate(year, month, day, hour, minute, second);
   if (!wallTime) return null;
   const offsets = new Set<number>();
@@ -75,7 +76,7 @@ function localDateInTimeZone(year, month, day, hour, minute, second, timeZone) {
   return candidates.length === 1 ? candidates[0] : null;
 }
 
-function parseDate(property, zoneFor) {
+function parseDate(property: ICalProperty, zoneFor: ZoneResolver) {
   const { value, parameters } = property;
   const allDay = parameters.VALUE?.toUpperCase() === 'DATE' || /^\d{8}$/.test(value);
   if (allDay) {
@@ -98,7 +99,7 @@ function parseDate(property, zoneFor) {
   return date && { date, allDay: false, timeZone, form: 'timezone' };
 }
 
-function isoRecurrenceId(property, zoneFor) {
+function isoRecurrenceId(property: ICalProperty, zoneFor: ZoneResolver) {
   const parsed = parseDate(property, zoneFor);
   return parsed ? parsed.date.toISOString().replace(/[-:]/g, '').replace('.000', '') : null;
 }
