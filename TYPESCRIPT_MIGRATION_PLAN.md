@@ -76,13 +76,33 @@ in the code; the running report is `TYPESCRIPT_MIGRATION_FIXES.md`.
 
 - [x] 5a. Count `any` baseline (backend ~532, frontend ~64)
 - [x] 5b. Remove `any` types (frontend 0; backend 0 except the documented `DbRow` boundary)
-- [ ] 5c. Enable `strict: true` — **NOT done**; measured volume:
-      backend **1609** errors, frontend **2172** errors.
-      Breakdown: `noImplicitAny: true` alone yields backend **3502**, frontend **3599** — i.e.
-      the bulk is untyped parameters that must be given real signatures (strictNullChecks and the
-      rest then become tractable). Tracked here so it is visible, not hidden.
-- [x] 5d. Remove `@ts-ignore` / `@ts-nocheck` (0 files)
-- [x] 5e. Final verification (typecheck, tests, build, lint for both projects)
+- [ ] 5c. Enable `strict: true` + `noImplicitAny` in both projects.
+      Measured remaining findings (2026-09-13, after the annotation work):
+      **backend 3363** (2259 production / 1104 tests, 253 files) and **frontend 5096**
+      (4537 production / 559 tests, 193 files) — **8459 total**. Composition is dominated by
+      TS7006/TS7031 (untyped parameters and bindings) followed by TS18046/48/47 and TS2532
+      (unknown / possibly undefined) and the TS2345/TS2322 fallout those produce.
+
+      **Method that keeps the branch green while this is done** (do not commit the flag until the
+      project is clean):
+
+      1. Pick one slice (one directory, or one file for the large ones) — see the per-area counts
+         in `TYPESCRIPT_MIGRATION_STATUS.md`.
+      2. Temporarily enable strict (script below), fix only that slice with real types and real
+         narrowing — never `@ts-ignore`, never a blanket `as any`, and prefer guards over
+         non-null assertions.
+      3. Verify with the flag OFF that the tree is still green: `npm run typecheck`,
+         `npm test`, `npm run lint`; re-measure the strict count by turning the flag on
+         in a scratch copy.
+      4. Commit the slice, then repeat. Flip the flag permanently only when a project reaches 0.
+
+      Scratch measurement (never committed):
+
+      ```bash
+      node -e "const f='tsconfig.json';const j=require('./tsconfig.json');j.compilerOptions.strict=true;delete j.compilerOptions.noImplicitAny;require('fs').writeFileSync(f,JSON.stringify(j,null,2))"
+      npx tsc --noEmit | grep -c 'error TS'
+      git checkout tsconfig.json
+      ```
 
 ---
 

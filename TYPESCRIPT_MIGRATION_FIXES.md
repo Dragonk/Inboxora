@@ -823,3 +823,19 @@ noImplicitAny zredukowane z 3502 do 2846 w backendzie. Udokumentowane w STATUS i
 - TYPESCRIPT_MIGRATION_STATUS.md: zaktualizowane wyniki E2E, informacja o opublikowanych
   obrazach oraz aktualny dlug strict (backend 3363, frontend 5096).
 
+
+## 72. Zakres pozostalego strict mode (pomiar, 2026-09-13)
+
+Po migracji i wczesniejszych redukcjach pozostaje 8459 znalezisk pelnego strict:
+- backend 3363 (2259 produkcja / 1104 testy, 253 pliki): services 1713, routes 939,
+  plugins 365, utils 250, scripts 71, middleware 16;
+- frontend 5096 (4537 produkcja / 559 testy, 193 pliki): components 3309, utils 1176,
+  store 249, hooks 131, plugins 130, locales 28.
+
+Skład: TS7006/TS7031 (niejawna any w parametrach/destrukturyzacji), TS18046/48/47 i
+TS2532 (unknown / possibly undefined) oraz wynikajace z nich TS2345/TS2322.
+
+Metoda pracy (zapisana w TYPESCRIPT_MIGRATION_PLAN.md, punkt 5c): ciac modulami,
+flag strict wlaczany tylko chwilowo do pomiaru, po kazdym module tsc/testy/lint zielone.
+Flag wlaczamy na stale dopiero, gdy projekt ma 0 bledow.
+
