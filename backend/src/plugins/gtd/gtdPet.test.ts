@@ -20,7 +20,7 @@ const query = vi.mocked(__mock_query);
 
 // ── Image-header fixtures (crafted magic bytes, no image library) ──────────────
 
-function webpVP8X(w, h) {
+function webpVP8X(w: number, h: number): Buffer {
   const buf = Buffer.alloc(30);
   buf.write('RIFF', 0, 'ascii');
   buf.write('WEBP', 8, 'ascii');
@@ -32,7 +32,7 @@ function webpVP8X(w, h) {
   return buf;
 }
 
-function png(w, h) {
+function png(w: number, h: number): Buffer {
   const buf = Buffer.alloc(24);
   Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]).copy(buf, 0);
   buf.write('IHDR', 12, 'ascii');
@@ -41,7 +41,7 @@ function png(w, h) {
   return buf;
 }
 
-function gif(w, h) {
+function gif(w: number, h: number): Buffer {
   // A real GIF header is 13 bytes (6-byte signature + 7-byte logical screen
   // descriptor); dimensions live at offset 6/8.
   const buf = Buffer.alloc(13);
@@ -127,6 +127,7 @@ describe('parsePetJson — defensive parse', () => {
       { cols: 4, rows: 2, staticFrame: 1, animations: { jump: { start: 4, count: 4 } } },
       { width: 400, height: 200 }
     );
+    if (!d) throw new Error('expected a parsed descriptor');
     expect(d).toMatchObject({ cols: 4, rows: 2, frameW: 100, frameH: 100, staticFrame: 1, source: 'declared' });
     expect(d.hover).toEqual({ start: 4, count: 4 });
   });
@@ -150,6 +151,7 @@ describe('customPetSlug', () => {
   it('derives a deterministic, slug-safe key from a user UUID', () => {
     const id = '3F2A1B4C-5D6E-7F80-9A1B-2C3D4E5F6071';
     const slug = customPetSlug(id);
+    if (!slug) throw new Error('expected a custom pet slug');
     expect(slug).toBe('custom-3f2a1b4c5d6e7f809a1b2c3d4e5f6071');
     expect(customPetSlug(id)).toBe(slug);         // deterministic — re-import overwrites
     expect(SLUG_RE.test(slug)).toBe(true);         // no regex change needed anywhere
@@ -177,6 +179,7 @@ describe('decodeUploadedSheet', () => {
   it('decodes a bare base64 string round-trip', () => {
     const bytes = png(64, 64);
     const out = decodeUploadedSheet(bytes.toString('base64'));
+    if (!out) throw new Error('expected the upload to decode');
     expect(Buffer.isBuffer(out)).toBe(true);
     expect(out.equals(bytes)).toBe(true);
   });
@@ -316,6 +319,7 @@ describe('deleteUserPet', () => {
     await deleteUserPet('11111111-1111-4111-8111-111111111111');
     const slug = customPetSlug('11111111-1111-4111-8111-111111111111');
     const del = query.mock.calls.find(([sql]) => /DELETE FROM plugin_data/.test(sql));
+    if (!del) throw new Error('expected the plugin_data DELETE');
     expect(del[1]).toEqual(['gtd', slug]);
   });
 

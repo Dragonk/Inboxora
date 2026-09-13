@@ -201,7 +201,7 @@ interface PetJsonInput {
   [key: string]: unknown;
 }
 
-export function parsePetJson(petJson: PetJsonInput | null | undefined, imageSize: { width?: number; height?: number }): PetDescriptor | null {
+export function parsePetJson(petJson: PetJsonInput | null | undefined, imageSize: { width?: number; height?: number } | null | undefined): PetDescriptor | null {
   const width = Number(imageSize?.width);
   const height = Number(imageSize?.height);
   if (!Number.isFinite(width) || !Number.isFinite(height) || width <= 0 || height <= 0) return null;
@@ -310,7 +310,7 @@ export async function importPet({ petJsonText, sheet, userId }: { petJsonText: u
 // Delete a user's imported pet from plugin storage. Called on user deletion: migrated pet rows
 // have a NULL owner_id (so the plugin_data user-cascade doesn't reach them), so we remove the
 // slug-keyed row explicitly. A no-op when the user has no custom pet.
-export async function deleteUserPet(userId: string) {
+export async function deleteUserPet(userId: string | null | undefined): Promise<void> {
   const slug = customPetSlug(userId);
   if (!slug) return;
   await pluginStorage.del('gtd', slug);

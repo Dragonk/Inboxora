@@ -19,7 +19,7 @@ export const GTD_STATES = ['todo', 'watch', 'delegated', 'someday', 'reference']
 // null for an unknown state so the classify route can reject it with a 400.
 // Pure — no DB — so it is unit-testable without standing up an account.
 export function resolveGtdStateFolder(state: string | null | undefined, folders: GtdFolderMap | null | undefined): string | null {
-  if (!GTD_STATES.includes(state)) return null;
+  if (typeof state !== 'string' || !GTD_STATES.includes(state)) return null;
   const path = folders?.[state];
   return typeof path === 'string' && path.trim() ? path : null;
 }

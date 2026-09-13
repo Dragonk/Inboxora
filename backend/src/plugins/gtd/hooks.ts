@@ -103,7 +103,7 @@ export async function inboxIngest({ mgr, account, newInboxIds, deletedIds }: { m
 // manifest hooks and the sync descriptor share one definition. Async because the per-account
 // enabled flag now lives in the plugin config store (getGtdConfig), not on the account row — core
 // gates on it via registry.hasActiveAsync / an awaited sync.isActive.
-export const gtdEnabledForAccount = async (ctx: PluginContext): Promise<boolean> => {
+export const gtdEnabledForAccount = async (ctx: PluginContext | undefined): Promise<boolean> => {
   const id = ctx?.account?.id;
   if (!id) return false;
   return (await getGtdConfig(id)).enabled;

@@ -5,6 +5,7 @@ vi.mock('../../services/aiProvider.js', () => ({ getAiStatus: vi.fn(), completeT
 
 import { query as __mock_query } from '../../services/db.js';
 import { completeText as __mock_completeText, getAiStatus as __mock_getAiStatus } from '../../services/aiProvider.js';
+import { queryCall } from '../../test/query.js';
 import {
   selectGistCandidates,
   queueGistGeneration,
@@ -20,7 +21,7 @@ const getAiStatus = vi.mocked(__mock_getAiStatus);
 // provider gating, and the bounded write/broadcast path.
 
 describe('selectGistCandidates', () => {
-  const head = (over) => ({ id: over.id, account_id: over.account_id ?? 'a1', gist: over.gist ?? null });
+  const head = (over: { id: string; account_id?: string; gist?: unknown }) => ({ id: over.id, account_id: over.account_id ?? 'a1', gist: over.gist ?? null });
 
   it('returns watch + delegated heads that lack a gist', () => {
     const sections = {
@@ -98,7 +99,7 @@ describe('queueGistGeneration — write path', () => {
   function mockDb({ updateRowCount = 1 } = {}) {
     query.mockImplementation((sql, params) => {
       if (isBodySelect(sql)) {
-        const ids = params[0] as string[];
+        const ids = (params?.[0] ?? []) as string[];
         return Promise.resolve({
           rows: ids.map((id) => ({ id, subject: `S ${id}`, from_name: 'Alice', from_email: 'a@x', content: `body ${id}` })),
         });
@@ -108,7 +109,7 @@ describe('queueGistGeneration — write path', () => {
     });
   }
 
-  const waitingHeads = (ids, accountId = 'a1') => ({
+  const waitingHeads = (ids: string[], accountId = 'a1') => ({
     watch: { threads: ids.map((id) => ({ id, account_id: accountId, gist: null })) },
   });
 
@@ -137,12 +138,14 @@ describe('queueGistGeneration — write path', () => {
     expect(fetch).not.toHaveBeenCalled();
 
     const selectCall = query.mock.calls.find((c) => isBodySelect(c[0]));
+    if (!selectCall) throw new Error('expected the body SELECT call');
     // The body read (getMessageFields) is scoped to the account, not just the id list.
     expect(selectCall[0]).toMatch(/account_id = \$2/);
     expect(selectCall[1]).toEqual([['w1'], 'a1']);
 
     // Persists the sanitised gist under the message's GTD annotation namespace (account-scoped).
     const updateCall = query.mock.calls.find((c) => isGistUpdate(c[0]));
+    if (!updateCall) throw new Error('expected the gist UPDATE call');
     expect(updateCall[1]).toEqual(['a1', 'w1', 'gtd', JSON.stringify({ gist: 'waiting on their reply' })]);
 
     expect(broadcast).toHaveBeenCalledTimes(1);
@@ -169,7 +172,9 @@ describe('queueGistGeneration — write path', () => {
     await queueGistGeneration({ sections: waitingHeads(ids), userId: 'u1', broadcast });
 
     const selectCall = query.mock.calls.find((c) => isBodySelect(c[0]));
-    expect(selectCall[1][0]).toHaveLength(20); // only the cap's worth reaches the DB
+    if (!selectCall) throw new Error('expected the body SELECT call');
+    const [, selectParams] = queryCall({ mock: { calls: [selectCall] } });
+    expect(selectParams[0]).toHaveLength(20); // only the cap's worth reaches the DB
     expect(completeText).toHaveBeenCalledTimes(20); // and only that many are generated
     expect(fetch).not.toHaveBeenCalled();
     expect(broadcast).toHaveBeenCalledTimes(1);
@@ -183,7 +188,7 @@ describe('queueGistGeneration — write path', () => {
     getAiStatus.mockImplementation(() => configGate.then(() => ({ enabled: true, provider: 'api-key', features: { summarize: true }, reconnectRequired: false })));
     query.mockImplementation((sql, params) => {
       if (isBodySelect(sql)) {
-        const ids = params[0] as string[];
+        const ids = (params?.[0] ?? []) as string[];
         return Promise.resolve({ rows: ids.map((id) => ({ id, subject: 'S', from_name: 'A', from_email: 'a@x', content: 'b' })) });
       }
       if (isGistUpdate(sql)) return Promise.resolve({ rows: [], rowCount: 1 });
@@ -199,7 +204,7 @@ describe('queueGistGeneration — write path', () => {
     // load the provider, and regenerate w1 (2 config reads, 2 selects, 2 fetches).
     const second = queueGistGeneration({ sections, userId: 'u1', broadcast });
 
-    releaseConfig();
+    releaseConfig?.();
     await Promise.all([first, second]);
 
     expect(getAiStatus).toHaveBeenCalledTimes(1); // second never reached the gate
