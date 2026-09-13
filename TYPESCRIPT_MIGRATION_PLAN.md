@@ -106,6 +106,48 @@ in the code; the running report is `TYPESCRIPT_MIGRATION_FIXES.md`.
 
 ---
 
+
+## Strict-mode working method (recorded while completing §5c)
+
+These are the practices that repeatedly paid off (and the ones that cost a round when skipped).
+
+### Order of work per file
+1. **Type the data source first** (state, API contract, collection). A single state type removes
+   whole families of `TS2339`/`TS18046` findings - e.g. 199 of the admin panel's findings were
+   `property does not exist on type never`, i.e. `useState([])` states typed `never`.
+2. **Then props**, always read from the **call site** (the handlers actually passed), never from
+   the prop names. Guessing produced 59-85 errors twice; reading the call sites produced -22 and
+   -48 in the same files.
+3. **Then callback parameters.** A name-to-type map is safe only for unambiguously scalar names
+   (`id`, `key`, `i`, `index`, `value`, `name`, `tab`). A map that invents object shapes is worse
+   than leaving the parameter alone: the `account`/`provider`/`a`/`b` map produced 21 errors.
+4. **Never mass-annotate `e`/`event`**: `e` is a mouse event in one handler and a keyboard event
+   in the next; a blanket `React.MouseEvent` broke 22 sites. Type it per file, or read it from
+   `onXxx` context - or better, use `e.currentTarget` where the element is what is needed.
+
+### The mass-annotation engine and its guard
+- `/tmp/apply2.mjs` applies a per-file spec (parameter map, literal pairs, imports) and is
+  deliberately **all-or-nothing per parameter list**: a half-annotated list leaves the rest
+  implicitly `any`.
+- The guard applies a pass across the tree, runs `tsc`, and **reverts every file that reports an
+  error**. It caught: a lazy arrow regex that typed only `res`, a missing `express` type import
+  (which silently resolved `Request` to the fetch API's global), and a wrong relative import path.
+- **Commit before running a guarded pass.** `git checkout` reverts *uncommitted* work too; this
+  cost the same round's progress twice (ComposeModal, AdminPanel).
+- After a pass that a file survived, a follow-up pass over the *same* files is cheap; a pass that
+  reverts a whole file is a signal that the file needs the per-file method instead.
+
+### The inference traps found by this migration (candidates for a lint rule)
+`strict` reports none of these, yet each hid tens of findings:
+1. `param = {}` infers `{}`; `param = null`/`= undefined` infers the literal `null`/`undefined`
+   (storage.put, buildSrcDoc, applyLayout, AccountForm.initial, ImapManager.broadcast).
+2. `Number.isFinite(x)` does not narrow `number | undefined`; `typeof x === 'number'` does.
+3. `useState([])` infers `never[]`; `useState(null)` infers `null`; `useRef(null)` infers `null`.
+4. An `interface` is not assignable to an index-signature type; a `type` alias is.
+5. A missing `express` type import silently resolves `Request`/`Response` to the fetch API globals.
+6. `parseInt(value)` where the API returns `number | string` - use `Number(value)`.
+
+
 ## What was tried and rejected
 
 The first pass silenced the compiler with `@ts-nocheck` and `as any`. That was **reverted on
