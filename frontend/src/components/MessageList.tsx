@@ -72,7 +72,7 @@ function FolderIcon({ specialUse, size = 13 }: FolderIconProps) {
 }
 
 
-function restoreMessagesIfViewCurrent(viewKey, currentViewKeyRef, messages) {
+function restoreMessagesIfViewCurrent(viewKey: string, currentViewKeyRef: { current: string }, messages: StoreMessageRow[]) {
   if (currentViewKeyRef.current === viewKey) useStore.getState().restoreMessages(messages);
 }
 
@@ -90,7 +90,7 @@ const SWIPE_ACTIONS = {
   disabled: { color: 'transparent' },
 };
 
-function getSwipeActionView(action, message, t, unreadCount = null) {
+function getSwipeActionView(action: string, message: StoreMessageRow, t: (key: string, options?: Record<string, unknown>) => string, unreadCount: number | null = null) {
   const unread = unreadCount != null ? unreadCount > 0 : !message.is_read;
   if (action === 'archive') return { label: t('message.archive'), color: SWIPE_ACTIONS.archive.color, icon: 'archive' };
   if (action === 'delete') return { label: t('contextMenu.delete'), color: SWIPE_ACTIONS.delete.color, icon: 'delete' };
@@ -200,7 +200,7 @@ export default function MessageList() {
   const [activeCategory, setActiveCategory] = useState('primary');
   const [currentPage, setCurrentPage] = useState(1);
   const currentPageRef = useRef(1);
-  const archiveViewKeyRef = useRef(null);
+  const archiveViewKeyRef = useRef<string | null>(null);
   const [syncing, setSyncing] = useState(false);
   const [folderSyncing, setFolderSyncing] = useState(false);
   const [showScrollTop, setShowScrollTop] = useState(false);
@@ -213,9 +213,9 @@ export default function MessageList() {
   const [pullDistance, setPullDistance] = useState(0);
   const pullStartXRef = useRef(null);
   const pullStartYRef = useRef(null);
-  const pullDirectionRef = useRef(null);
+  const pullDirectionRef = useRef<'h' | 'v' | null>(null);
   const pullDistRef = useRef(0);
-  const handleSyncRef = useRef(null);
+  const handleSyncRef = useRef<(() => Promise<void>) | null>(null);
   const [contextMenu, setContextMenu] = useState<{ x: number; y: number; message: StoreMessageRow; defaultMoveView?: boolean } | null>(null); // { x, y, message, defaultMoveView? }
   const [searchFocused, setSearchFocused] = useState(false);
   const [searchHasMore, setSearchHasMore] = useState(false);
@@ -324,7 +324,7 @@ export default function MessageList() {
 
   const searchSeq = useRef(0);
   const pendingLiveRefreshRef = useRef(false);
-  const refreshRequestRef = useRef(null);
+  const refreshRequestRef = useRef<{ invalidate: () => void; run: (request: unknown, apply: unknown) => Promise<boolean> } | null>(null);
   if (refreshRequestRef.current === null) refreshRequestRef.current = createLatestRequest();
   // Bumped to force the search effect to re-run (e.g. after rules move messages) so an
   // active search snapshot drops messages that no longer match. See #223.
@@ -814,7 +814,7 @@ export default function MessageList() {
     return threadedView && !searchQuery.trim() && !message._normalizedSingleton && message.thread_id && messageCount > 1;
   }, [threadedView, searchQuery]);
 
-  const resolveMessagesForThreadAction = useCallback(async (message, { forceRefresh = false } = {}) => {
+  const resolveMessagesForThreadAction = useCallback(async (message: StoreMessageRow, { forceRefresh = false }: { forceRefresh?: boolean } = {}) => {
     const tid = message.thread_id || message.id;
     const threadKey = message.thread_key || message.thread_id || message.id;
     if (!isThreadListRow(message)) return [message];
@@ -860,7 +860,7 @@ export default function MessageList() {
     }
   }, [setThreadMessages]);
 
-  const setCachedThreadStates = useCallback((message, field, states) => {
+  const setCachedThreadStates = useCallback((message: StoreMessageRow, field: string, states: { has(id: string): boolean; get(id: string): unknown }) => {
     const tid = message.thread_id || message.id;
     const cached = useStore.getState().threadMessages[tid];
     if (!cached) return;
