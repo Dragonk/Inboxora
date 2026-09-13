@@ -421,7 +421,10 @@ export const FONT_SETS = {
 // index.html), so there is nothing to fetch at runtime. Kept as an exported no-op
 // because AdminPanel still imports it. A declared @font-face never downloads until the
 // active font-family references it, so switching sets costs no network request.
-export function loadFontSet() {}
+export function loadFontSet(_fontKey?: string): void {
+  // Intentionally empty: the @font-face rules are always present and the browser
+  // lazy-loads only the active set, so there is nothing to do at runtime.
+}
 
 // Apply a font set: update the CSS custom properties. The self-hosted @font-face rules
 // are already present, so the browser lazy-loads only the active set's files.

@@ -13,6 +13,11 @@ declare global {
     signedOut?: boolean;
   }
 
+  interface Navigator {
+    // iOS standalone (home-screen web app) flag.
+    standalone?: boolean;
+  }
+
   interface Window {
     inboxoraNative?: any;
     // Capacitor runtime, present only inside the native shells.

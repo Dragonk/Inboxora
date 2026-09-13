@@ -77,7 +77,7 @@ function isMicrosoftImapHost(host) {
   return h.includes('.outlook.com') || h.includes('office365.com') || h.includes('.hotmail.com') || h.includes('.live.com');
 }
 
-function AccountForm({ initial, onSave, onCancel }) {
+function AccountForm({ initial = undefined, onSave, onCancel }) {
   const { t } = useTranslation();
   const { categorizationEnabled } = useStore();
 
@@ -477,7 +477,7 @@ function AccountsTab() {
   };
 
   const handleEdit = async (form) => {
-    const updates = { name: form.name, sender_name: form.sender_name || null, color: form.color, imap_host: form.imap_host, imap_port: form.imap_port, imap_skip_tls_verify: !!form.imap_skip_tls_verify, smtp_host: form.smtp_host, smtp_port: form.smtp_port, smtp_tls: form.smtp_tls, signature: form.signature || null, categorization_enabled: !!form.categorization_enabled, include_in_unified_inbox: form.include_in_unified_inbox !== false };
+    const updates: Record<string, unknown> = { name: form.name, sender_name: form.sender_name || null, color: form.color, imap_host: form.imap_host, imap_port: form.imap_port, imap_skip_tls_verify: !!form.imap_skip_tls_verify, smtp_host: form.smtp_host, smtp_port: form.smtp_port, smtp_tls: form.smtp_tls, signature: form.signature || null, categorization_enabled: !!form.categorization_enabled, include_in_unified_inbox: form.include_in_unified_inbox !== false };
     if (form.auth_pass) updates.auth_pass = form.auth_pass;
     if (form.auth_user) updates.auth_user = form.auth_user;
     // Separate SMTP credentials (optional). A username sends both (a blank password on
@@ -1497,6 +1497,14 @@ function FontsTab() {
 }
 
 // ─── Layout Diagram ───────────────────────────────────────────────────────────
+interface CodexStatusState {
+  connected: boolean;
+  state: string;
+  reconnectRequired?: boolean;
+  reason?: string;
+  accountLabel?: string;
+}
+
 function LayoutDiagram({ layoutConfig, active }) {
   const isColumn = layoutConfig.direction === 'column';
   const accent = active ? 'var(--accent)' : 'var(--border)';
@@ -1663,7 +1671,7 @@ function SettingsChoices({ label, description, testId, value, onChange, options,
 // A single on/off setting as its own row: name + what it does on the left, the
 // switch on the right. The description explains the setting itself and never
 // flips with its state — the switch, its aria-checked and its label carry state.
-function SettingsSwitchRow({ label, description, checked, onChange, testId, disabled = false, ariaLabel = null, children = null }) {
+function SettingsSwitchRow({ label, description, checked, onChange, testId = undefined, disabled = false, ariaLabel = null, children = null }) {
   return <div className="settings-switch-row" data-testid={testId ? `${testId}-row` : undefined}>
     <div className="settings-switch-text">
       <div className="settings-switch-label">{label}</div>
@@ -1797,7 +1805,7 @@ function LayoutsTab() {
               onMouseLeave={e => { if (!isActive) e.currentTarget.style.borderColor = 'var(--border-subtle)'; }}
             >
               <div style={{ flexShrink: 0 }}>
-                <LayoutDiagram layoutKey={key} layoutConfig={l} active={isActive} />
+                <LayoutDiagram layoutConfig={l} active={isActive} />
               </div>
 
               <div style={{ flex: 1, minWidth: 0 }}>
@@ -2495,7 +2503,7 @@ function IntegrationsTab() {
   const { setAccounts, setTodoistConnected, user } = useStore();
   const isAdmin = !!user?.isAdmin;
   const [subTab, setSubTab] = useState('emailProviders');
-  const [configs, setConfigs] = useState({});
+  const [configs, setConfigs] = useState<Record<string, { clientId?: string; [key: string]: unknown }>>({});
   // Non-admins can't read the full config (admin-only), but need to know whether
   // Microsoft OAuth is configured so the connect buttons enable. (#315)
   const [msStatus, setMsStatus] = useState(null); // { configured } for non-admins
@@ -3872,7 +3880,7 @@ function AISection() {
   const [connecting, setConnecting] = useState(false);
   const [disconnecting, setDisconnecting] = useState(false);
   const [cancelling, setCancelling] = useState(false);
-  const [codexStatus, setCodexStatus] = useState({ connected: false, state: 'disconnected', reconnectRequired: false });
+  const [codexStatus, setCodexStatus] = useState<CodexStatusState>({ connected: false, state: 'disconnected' });
   const [deviceState, setDeviceState] = useState(null);
   const [copied, setCopied] = useState(false);
   const [msg, setMsg] = useState(null);
@@ -5901,7 +5909,7 @@ function LanguageTab() {
 }
 
 // ─── Sub-tab navigator (reusable within a top-level tab panel) ───────────────
-function SubTabs({ tabs, initialTab }) {
+function SubTabs({ tabs, initialTab = undefined }) {
   const [active, setActive] = useState(initialTab || tabs[0].id);
   return (
     <div>
@@ -6107,7 +6115,7 @@ function RulesTab() {
       .catch(() => {});
   }, [formMode, formData?.accountId, setFolders]);
 
-  function blankForm(prefill = {}) {
+  function blankForm(prefill: { name?: string; fromEmail?: string; fromName?: string } = {}) {
     return {
       name: prefill.name || '',
       accountId: '',
@@ -7624,8 +7632,8 @@ function SecurityTab() {
   const totpEnabled = user?.totpEnabled;
 
   // Admin-only: login protection settings
-  const [maxAttempts, setMaxAttempts] = useState(10);
-  const [windowMins, setWindowMins] = useState(15);
+  const [maxAttempts, setMaxAttempts] = useState('10');
+  const [windowMins, setWindowMins] = useState('15');
   const [protectionSaving, setProtectionSaving] = useState(false);
   const [protectionSaved, setProtectionSaved] = useState(false);
   const [protectionError, setProtectionError] = useState('');
@@ -7658,8 +7666,8 @@ function SecurityTab() {
     if (user?.isAdmin) {
       api.admin.getSettings()
         .then(d => {
-          if (d.settings.auth_max_attempts) setMaxAttempts(parseInt(d.settings.auth_max_attempts));
-          if (d.settings.auth_window_minutes) setWindowMins(parseInt(d.settings.auth_window_minutes));
+          if (d.settings.auth_max_attempts) setMaxAttempts(d.settings.auth_max_attempts);
+          if (d.settings.auth_window_minutes) setWindowMins(d.settings.auth_window_minutes);
           setAllowPrivateHosts(d.settings.allow_private_hosts === 'true');
           setAllowInsecureTls(d.settings.allow_insecure_tls === 'true');
           setAllowNonstandardPorts(d.settings.allow_nonstandard_ports === 'true');

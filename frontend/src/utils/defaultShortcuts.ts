@@ -118,8 +118,17 @@ export function buildModKeyMap(userOverrides = {}) {
 }
 
 // Returns actions grouped for display in the help overlay / settings tab.
+export interface ShortcutAction {
+  action: string;
+  groupKey: string;
+  labelKey: string;
+  descriptionKey?: string;
+  defaultKey?: string;
+  [key: string]: unknown;
+}
+
 export function getGroupedActions() {
-  const groups = {};
+  const groups: Record<string, ShortcutAction[]> = {};
   for (const [action, def] of Object.entries(ACTION_DEFS)) {
     if (!groups[def.groupKey]) groups[def.groupKey] = [];
     groups[def.groupKey].push({ action, ...def });

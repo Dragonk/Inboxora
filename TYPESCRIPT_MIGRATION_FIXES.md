@@ -384,3 +384,22 @@ Backend: tsc 0 · testy 1785/0.
 Frontend tsc: 183 bledy (z 661). Testy 2335/0 · lint czysty · build OK.
 Backend: tsc 0 · testy 1785/0.
 
+
+## 39. Frontend: AdminPanel i kolejne no-op stuby
+
+- 🔴 loadFontSet() to kolejny pusty stub bez parametru, a wolajacy przekazuja klucz fontu.
+  Zachowanie zamierzone (fonty lazy-loadowane przez @font-face) — parametr dodany i udokumentowany.
+- 🔴 AdminPanel: aktualizacja konta budowala obiekt bez typu, wiec dopisywanie auth_user/auth_pass/
+  smtp_auth_user/smtp_auth_pass bylo niekontrolowane -> Record<string, unknown>.
+- 🔴 configs useState({}) oraz codexStatus (reconnectRequired/reason/accountLabel) otypowane;
+  stan maxAttempts/windowMins byl liczba, a input ustawial string (rozjazd typow) -> stan jako string.
+- 🟠 LayoutDiagram wolane z nieistniejacym propem layoutKey (komponent go nie uzywa) — usuniete.
+- 🟠 AccountForm.initial, SubTabs.initialTab, SettingsSwitchRow.testId — opcjonalne.
+- 🟠 blankForm(prefill), getGroupedActions -> ShortcutAction; Navigator.standalone w augmentacji.
+- 🟠 playNotificationSound(id, customDataUrl?), api.runRules(accountId?).
+
+## 40. Stan weryfikacji
+
+Frontend tsc: 153 bledy (z 661). Testy 2335/0 · lint czysty · build OK.
+Backend: tsc 0 · testy 1785/0.
+
