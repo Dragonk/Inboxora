@@ -7,7 +7,12 @@ export async function classifyWithUndo(messageId, state, {
     const result = await api.gtdClassify(messageId, state);
     store.scheduleGtdSectionsFetch();
 
-    const notification = {
+    const notification: {
+      pluginId: string;
+      title: string;
+      body: string;
+      onUndo?: () => Promise<boolean>;
+    } = {
       pluginId: 'gtd',
       title: t('gtd.classified'),
       body: t(`gtd.state.${state}`),
@@ -15,7 +20,7 @@ export async function classifyWithUndo(messageId, state, {
 
     if (result?.applied && result.undoToken) {
       let consumed = false;
-      (notification as any).onUndo = async () => {
+      notification.onUndo = async () => {
         if (consumed) return false;
         consumed = true;
         try {

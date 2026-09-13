@@ -16,7 +16,7 @@ export default function MessageWindow({ win, zIndex }) {
   // Resolve the title + accent from whatever copy of the message the store has.
   const message = useStore(s =>
     (s.searchQuery.trim() ? s.searchResults : s.messages).find(m => m.id === win.messageId)
-    ?? Object.values(s.threadMessages).flat().find((m: any) => m.id === win.messageId));
+    ?? Object.values(s.threadMessages as Record<string, Array<{ id: string }>>).flat().find(m => m.id === win.messageId));
   const accentColor = message?.account_color || undefined;
   const title = message?.subject?.trim() || t('common.noSubject');
 

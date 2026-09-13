@@ -1,8 +1,9 @@
 import { useEffect, useMemo, useState } from 'react';
 import { useStore } from '../store/index.ts';
 import { avatarImageCandidates } from '../utils/senderAvatar.ts';
+import type { CSSProperties } from 'react';
 
-const imageStyle = {
+const imageStyle: CSSProperties = {
   position: 'absolute', inset: 0,
   width: '100%', height: '100%', objectFit: 'cover',
 };
@@ -25,7 +26,7 @@ export default function SenderAvatarImage({ email, hasContactPhoto }) {
   if (!active) return null;
   // Favicons are commonly alpha-transparent PNGs; back them with an opaque
   // themed surface so the initial letter and sender colour don't bleed through.
-  const style = active.kind === 'favicon'
+  const style: CSSProperties = active.kind === 'favicon'
     ? { ...imageStyle, background: 'var(--bg-elevated)' }
     : imageStyle;
   return (
@@ -35,7 +36,7 @@ export default function SenderAvatarImage({ email, hasContactPhoto }) {
       alt=""
       loading="lazy"
       decoding="async"
-      style={style as any}
+      style={style}
       onError={() => setFailed(current => new Set(current).add(active.src))}
     />
   );

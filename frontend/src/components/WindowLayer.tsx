@@ -28,7 +28,7 @@ export default function WindowLayer() {
   const resolveTitle = (messageId) => {
     const list = searchQuery.trim() ? searchResults : messages;
     const msg = list.find(m => m.id === messageId)
-      ?? Object.values(threadMessages).flat().find((m: any) => m.id === messageId);
+      ?? Object.values(threadMessages as Record<string, Array<{ id: string }>>).flat().find(m => m.id === messageId);
     return {
       title: msg?.subject?.trim() || t('common.noSubject'),
       accent: msg?.account_color || 'var(--accent)',

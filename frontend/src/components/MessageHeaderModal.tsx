@@ -4,7 +4,7 @@ import { useTranslation } from 'react-i18next';
 import { api } from '../utils/api.ts';
 import { useMobile } from '../hooks/useMobile.ts';
 
-export default function MessageHeaderModal({ messageId, subject, onClose, onSubjectResolved = (_subject: any) => {} }) {
+export default function MessageHeaderModal({ messageId, subject, onClose, onSubjectResolved = (_subject: string) => {} }) {
   const { t } = useTranslation();
   const isMobile = useMobile();
   const [headers, setHeaders] = useState(null);

@@ -1,5 +1,5 @@
 export function scheduleInitialLayoutReady(
-  onReady: (value?: any) => void,
+  onReady: (value?: number) => void,
   requestFrame: (cb: FrameRequestCallback) => number = requestAnimationFrame,
   cancelFrame: (id: number) => void = cancelAnimationFrame,
 ) {

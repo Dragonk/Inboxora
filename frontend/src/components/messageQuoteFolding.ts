@@ -18,9 +18,9 @@ export function startsWithReplyMarker(value = '') {
   return normalizedLines(value).slice(0, 4).some(line => REPLY_MARKER_RE.test(line));
 }
 
-function uniqueTopLevel(elements) {
+function uniqueTopLevel(elements: Element[]) {
   const ordered = [...new Set(elements)].filter(Boolean);
-  return ordered.filter(element => !ordered.some(other => other !== element && (other as any).contains(element)));
+  return ordered.filter(element => !ordered.some(other => other !== element && other.contains(element)));
 }
 
 function quoteElements(doc) {

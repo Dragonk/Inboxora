@@ -1,5 +1,6 @@
 import { useBackLayer } from '../hooks/useBackNavigation.ts';
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
+import type { CSSProperties } from 'react';
 
 export default function CalendarContextMenu({ x, y, event, isMobile = false, onEdit, onDelete, onClose, triggerRef, t }) {
   const menuRef = useRef(null);
@@ -54,7 +55,7 @@ export default function CalendarContextMenu({ x, y, event, isMobile = false, onE
     restoreFocus();
   };
   return <>
-    <button type="button" aria-label={t('calendar.closeMenu', 'Close calendar menu')} onClick={closeFromOutside} style={scrim as any} />
+    <button type="button" aria-label={t('calendar.closeMenu', 'Close calendar menu')} onClick={closeFromOutside} style={scrim} />
     <div ref={menuRef} role="menu" aria-label={t('calendar.eventActions', 'Event actions')} data-testid="calendar-context-menu" style={{ ...menu, ...(isMobile ? mobileMenu : { left: position.x, top: position.y }) } as any}>
       <strong style={menuTitle}>{event.summary || t('calendar.untitled')}</strong>
       {writable && <>
@@ -66,8 +67,8 @@ export default function CalendarContextMenu({ x, y, event, isMobile = false, onE
   </>;
 }
 
-const scrim = { position: 'fixed', inset: 0, zIndex: 3999, border: 0, background: 'transparent', padding: 0, cursor: 'default' };
-const menu = { position: 'fixed', zIndex: 4000, display: 'grid', gap: 2, width: 220, maxWidth: 'calc(100vw - 16px)', padding: 6, boxSizing: 'border-box', background: 'var(--bg-elevated)', border: '1px solid var(--border)', borderRadius: 10, boxShadow: 'var(--shadow-modal)' };
+const scrim: CSSProperties = { position: 'fixed', inset: 0, zIndex: 3999, border: 0, background: 'transparent', padding: 0, cursor: 'default' };
+const menu: CSSProperties = { position: 'fixed', zIndex: 4000, display: 'grid', gap: 2, width: 220, maxWidth: 'calc(100vw - 16px)', padding: 6, boxSizing: 'border-box', background: 'var(--bg-elevated)', border: '1px solid var(--border)', borderRadius: 10, boxShadow: 'var(--shadow-modal)' };
 const mobileMenu = { position: 'fixed', left: 12, right: 12, bottom: 'calc(var(--mobile-nav-height) + var(--sab) + 12px)', width: 'auto' };
 const menuTitle = { padding: '7px 9px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', color: 'var(--text-primary)', fontSize: 13 };
 const readOnly = { padding: '7px 9px', color: 'var(--text-tertiary)', fontSize: 12 };

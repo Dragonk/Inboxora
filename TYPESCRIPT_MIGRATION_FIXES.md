@@ -512,3 +512,19 @@ Backend:  tsc 0 · testy 1785/0 · lint czysty · build OK
 Frontend: tsc 0 · testy 2335/0 · lint czysty · build OK
 Maski: 0 plikow z @ts-nocheck/@ts-ignore/@ts-expect-error.
 
+
+## 52. Frontend: usuwanie obejsc any (produkcja)
+
+Frontend any: 64 -> 48 (tsc nadal 0). Naprawione realnie (bez maskowania):
+- CalendarInvitationCard/CalendarContextMenu: stale stylow -> CSSProperties, usuniete rzutowania as any.
+- SenderAvatarImage: imageStyle oraz style -> CSSProperties (position/boxSizing byly szerokim string).
+- GtdSettings: lokalny inputStyle byl nietypowany (boxSizing: string) -> CSSProperties.
+- replyAlias.collectOwnAddresses: account/message otypowane (OwnAddressAccount/OwnAddressMessage);
+  zawężenie aliasu string|obiekt.
+- panelWidth.beginResize: onResize/onEnd -> (width: number) => void.
+- classification.ts: notification z onUndo zamiast (notification as any).onUndo.
+- messageQuoteFolding: uniqueTopLevel(elements: Element[]) — contains bez rzutowania.
+- WindowLayer/MessageWindow: Object.values(threadMessages) -> jawny typ.
+- RichTextEditor: setContent(next, { emitUpdate: false }) zamiast false as any.
+- MessageHeaderModal.onSubjectResolved: (_subject: string).
+

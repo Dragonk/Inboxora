@@ -4,6 +4,7 @@ import { useStore } from '../../store/index.ts';
 import { api } from '../../utils/api.ts';
 import GtdZeroPet from '../../components/GtdZeroPet.tsx';
 import { DEFAULT_GTD_FOLDERS, GTD_STATES, resolveAccountGtdFolders, diffGtdFolders, findGtdFolderCollisions } from '../../utils/gtd.ts';
+import type { CSSProperties } from 'react';
 
 // GTD's settings UI, extracted from AdminPanel's CategoriesSection into the plugin. Registered into
 // the 'settings-categories' slot, which renders it only while GTD is activated — so the former
@@ -222,7 +223,7 @@ function GtdAccountBlock({ account }) {
     } finally { setCreating(false); }
   };
 
-  const inputStyle = { width: '100%', background: 'var(--bg-tertiary)', border: '1px solid var(--border)', borderRadius: 6, padding: '6px 9px', color: 'var(--text-primary)', fontSize: 13, boxSizing: 'border-box' };
+  const inputStyle: CSSProperties = { width: '100%', background: 'var(--bg-tertiary)', border: '1px solid var(--border)', borderRadius: 6, padding: '6px 9px', color: 'var(--text-primary)', fontSize: 13, boxSizing: 'border-box' };
 
   return (
     <div style={{ border: '1px solid var(--border)', borderRadius: 8, padding: '12px 14px', background: 'var(--bg-secondary)' }}>
@@ -270,7 +271,7 @@ function GtdAccountBlock({ account }) {
                   value={folders[state] ?? ''}
                   onChange={e => setFolders(prev => ({ ...prev, [state]: e.target.value }))}
                   placeholder={DEFAULT_GTD_FOLDERS[state]}
-                  style={{ ...inputStyle, flex: 1 } as any}
+                  style={{ ...inputStyle, flex: 1 }}
                 />
               </div>
             ))}

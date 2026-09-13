@@ -39,7 +39,7 @@ export default function RichTextEditor({ value = '', onChange, placeholder = '',
   useEffect(() => {
     if (!editor || editor.isFocused) return;
     const next = richTextEditorContent(value);
-    if (editor.getHTML() !== next) editor.commands.setContent(next, false as any);
+    if (editor.getHTML() !== next) editor.commands.setContent(next, { emitUpdate: false });
   }, [editor, value]);
 
   const state = useEditorState({

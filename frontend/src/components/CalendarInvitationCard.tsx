@@ -3,6 +3,7 @@ import { useTranslation } from 'react-i18next';
 import { api } from '../utils/api.ts';
 import { Button } from './ui.tsx';
 import { formatInvitationRange } from '../utils/invitationTime.ts';
+import type { CSSProperties } from 'react';
 
 // A mail invitation renders as one compact action row, in the same register as the
 // unsubscribe notice: the message already shows the title above and the body below, so
@@ -66,14 +67,14 @@ export default function CalendarInvitationCard({ messageId }) {
   };
 
   if (error && !invitation) {
-    return <div className="msg-notice" data-testid="calendar-invitation-card" role="alert" style={noticeStyle as any}>
+    return <div className="msg-notice" data-testid="calendar-invitation-card" role="alert" style={noticeStyle}>
       <span style={{ flex: 1 }}>{t('calendar.invitationLoadFailed')}</span>
       <Button onClick={() => setRetry(value => value + 1)} disabled={saving}>{t('common.retry')}</Button>
     </div>;
   }
   if (!invitation) return null;
 
-  return <div className="msg-notice" data-testid="calendar-invitation-card" style={{ ...noticeStyle, borderLeftColor: 'var(--accent)' } as any}>
+  return <div className="msg-notice" data-testid="calendar-invitation-card" style={{ ...noticeStyle, borderLeftColor: 'var(--accent)' }}>
     <span style={{ minWidth: 0, flex: '1 1 200px' }}>
       <span style={{ display: 'block', fontWeight: 500, color: 'var(--text-primary)' }}>
         {cancelledEvent ? t('calendar.invitationCancelledTitle') : t('calendar.mailInvitation')}
@@ -116,7 +117,7 @@ export default function CalendarInvitationCard({ messageId }) {
 
 // Matches the unsubscribe / blocked-images notice so the mail reader keeps one visual
 // register for "this message needs one decision from you".
-const noticeStyle = {
+const noticeStyle: CSSProperties = {
   marginBottom: 10, padding: '9px 14px', background: 'var(--bg-secondary)',
   border: '1px solid var(--border)', borderLeft: '3px solid var(--text-tertiary)',
   borderRadius: 8, display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap',

@@ -40,7 +40,16 @@ function normalizeAddress(raw) {
  * `user+newsletter@example.com` would not be recognized as own and Reply All
  * would Cc the user's own copy back to themselves.
  */
-export function collectOwnAddresses({ account, message }: { account?: any; message?: any } = {}) {
+interface OwnAddressAccount {
+  email_address?: string | null;
+  aliases?: Array<{ email?: string | null } | string> | null;
+}
+
+interface OwnAddressMessage {
+  delivery_addresses?: string | Array<{ email?: string | null; address?: string | null } | string> | null;
+}
+
+export function collectOwnAddresses({ account, message }: { account?: OwnAddressAccount | null; message?: OwnAddressMessage | null } = {}) {
   const own = new Set();
   const push = value => {
     const email = normalizeAddress(value);
@@ -50,7 +59,7 @@ export function collectOwnAddresses({ account, message }: { account?: any; messa
   if (account) {
     push(account.email_address);
     const aliases = Array.isArray(account.aliases) ? account.aliases : [];
-    for (const alias of aliases) push(alias?.email ?? alias);
+    for (const alias of aliases) push(typeof alias === 'string' ? alias : alias?.email);
   }
 
   if (message) {

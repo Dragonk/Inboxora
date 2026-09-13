@@ -70,7 +70,7 @@ function createWidthChannel({ variable, storageKey, fallback, min = PANEL_WIDTH_
   // handle sits on, so a handle on the right of a left-hand panel widens it while
   // a handle on the left of a right-hand panel widens it in the opposite
   // direction. Returns a cleanup function suitable for an effect teardown.
-  const beginResize = (event, { edge = 'right', onResize, onEnd }: { edge?: string; onResize?: any; onEnd?: any } = {}) => {
+  const beginResize = (event, { edge = 'right', onResize, onEnd }: { edge?: string; onResize?: (width: number) => void; onEnd?: (width: number) => void } = {}) => {
     event?.preventDefault?.();
     const startX = event?.clientX ?? 0;
     const startWidth = read();
