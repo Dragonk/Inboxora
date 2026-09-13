@@ -20,7 +20,7 @@ export function invalidateActivationCache(userId: string) {
 
 // The set of plugin ids this user has activated. Reads preferences.enabledPlugins; a missing/
 // malformed value reads as the empty set (default off). Cached per user with a short TTL.
-export async function getActivatedPlugins(userId: string): Promise<Set<string>> {
+export async function getActivatedPlugins(userId: string | null | undefined): Promise<Set<string>> {
   if (!userId) return new Set<string>();
   const cached = activationCache.get(userId);
   if (cached && cached.expiry > Date.now()) return cached.value;

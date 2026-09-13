@@ -1,4 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { queryCall } from '../../test/query.js';
 
 vi.mock('../../services/db.js', () => ({ query: vi.fn() }));
 vi.mock('./gtdConfig.js', () => ({
@@ -178,7 +179,7 @@ describe('gtd hooks — emitAfterDeferredCopySync', () => {
     getGtdConfig.mockResolvedValue({ enabled: true });
     query.mockResolvedValueOnce({ rows: [{ thread_key: 'thr-9' }] });
     await emitAfterDeferredCopySync(mgr, account, 'Todo', 100, 'INBOX');
-    expect(query.mock.calls[0][1]).toEqual(['acct-1', 100, 'INBOX']);
+    expect(queryCall(query)[1]).toEqual(['acct-1', 100, 'INBOX']);
     expect(runGtdTransitions).toHaveBeenCalledWith(mgr, account, ['thr-9']);
   });
 
@@ -353,7 +354,7 @@ describe('gtd hooks — onPluginActivationChanged', () => {
     // (user-scoped query) and invalidates GTD's config cache for each.
     query.mockResolvedValueOnce({ rows: [{ id: 'a1' }, { id: 'a2' }] });
     await onPluginActivationChanged({ userId: 'u1', pluginId: 'gtd', activated: false });
-    expect(query.mock.calls[0][1]).toEqual(['u1']);
+    expect(queryCall(query)[1]).toEqual(['u1']);
     expect(invalidateGtdConfigCache).toHaveBeenCalledWith('a1');
     expect(invalidateGtdConfigCache).toHaveBeenCalledWith('a2');
   });

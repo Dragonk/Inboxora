@@ -1,4 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { queryCall } from '../../test/query.js';
 
 vi.mock('../../services/db.js', () => ({ query: vi.fn() }));
 vi.mock('./gtdConfig.js', () => ({ getGtdConfig: vi.fn() }));
@@ -307,7 +308,7 @@ describe('threadKeysForMessageIds', () => {
     query.mockResolvedValue({ rows: [{ thread_key: 't1' }, { thread_key: 't2' }] });
     const keys = await threadKeysForMessageIds('acct-1', ['r1', 'r2']);
     expect(keys).toEqual(['t1', 't2']);
-    const [sql, params] = query.mock.calls[0];
+    const [sql, params] = queryCall(query);
     expect(sql).toContain('id = ANY($2::uuid[])');
     expect(params).toEqual(['acct-1', ['r1', 'r2']]);
   });
@@ -324,7 +325,7 @@ describe('threadKeysForMessageIds', () => {
     query.mockResolvedValue({ rows: [{ thread_key: 't-moved' }] });
     const keys = await threadKeysForMessageIds('acct-1', ['moved-reply']);
     expect(keys).toEqual(['t-moved']);
-    expect(query.mock.calls[0][0]).not.toContain('folder');
+    expect(queryCall(query)[0]).not.toContain('folder');
   });
 });
 
@@ -335,7 +336,7 @@ describe('threadKeysInFolders', () => {
     query.mockResolvedValue({ rows: [{ thread_key: 't1' }] });
     const keys = await threadKeysInFolders('acct-1', ['Watch', 'Todo']);
     expect(keys).toEqual(['t1']);
-    const [sql, params] = query.mock.calls[0];
+    const [sql, params] = queryCall(query);
     expect(sql).toContain('folder = ANY($2::text[])');
     expect(sql).toContain('is_deleted = false');
     expect(params).toEqual(['acct-1', ['Watch', 'Todo']]);

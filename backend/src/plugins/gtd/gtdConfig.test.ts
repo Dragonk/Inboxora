@@ -31,7 +31,7 @@ const isPluginActivatedForAccount = vi.mocked(__mock_isPluginActivatedForAccount
 let nextId = 0;
 const freshId = () => `acct-${++nextId}`;
 
-const mockAccount = (enabled, folders) =>
+const mockAccount = (enabled: boolean, folders: Record<string, string | undefined>) =>
   getAccountConfig.mockResolvedValue({ enabled, folders });
 
 beforeEach(() => {
@@ -333,14 +333,14 @@ describe('gtdTickFolders', () => {
 
 describe('planGtdFolderPersist', () => {
   // Every ensure result carries { folder, path }; `path` is the real server path.
-  const resultsFrom = (fn) => ['Todo', 'Watch', 'Delegated', 'Someday', 'Reference']
+  const resultsFrom = (fn: (folder: string) => string) => ['Todo', 'Watch', 'Delegated', 'Someday', 'Reference']
     .map(folder => ({ folder, path: fn(folder), created: false }));
 
   it('persists the effective paths when a prefixed namespace relocates every folder', () => {
     // INBOX.-prefixed server: each bare configured name lands at INBOX.<name>. Stored
     // overrides are empty (all defaults), so the whole five-state map must be recorded.
     const merged = { ...DEFAULT_GTD_FOLDERS };
-    const results = resultsFrom(f => `INBOX.${f}`);
+    const results = resultsFrom((f: string) => `INBOX.${f}`);
     expect(planGtdFolderPersist({ merged, stored: {}, results })).toEqual({
       changed: true,
       folders: {
@@ -356,7 +356,7 @@ describe('planGtdFolderPersist', () => {
   it('is a no-op on a flat server where every folder lands where configured', () => {
     // Gmail / modern Fastmail: effective path === configured name for all five.
     const merged = { ...DEFAULT_GTD_FOLDERS };
-    const results = resultsFrom(f => f);
+    const results = resultsFrom((f: string) => f);
     expect(planGtdFolderPersist({ merged, stored: {}, results })).toEqual({ changed: false });
   });
 

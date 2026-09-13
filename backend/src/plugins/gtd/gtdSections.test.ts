@@ -1,4 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { queryCall } from '../../test/query.js';
 
 vi.mock('../../services/db.js', () => ({ query: vi.fn() }));
 vi.mock('./gtdConfig.js', () => ({
@@ -74,7 +75,7 @@ describe('getGtdSections — account resolution', () => {
     (await getGtdSections({ userId: 'u1' }));
     // listUserAccounts issues the user-scoped account read; the enabled filter is applied in JS
     // and the per-account GTD gate via getGtdConfig — no gtd_enabled in the SQL anymore.
-    const [sql, params] = query.mock.calls[0];
+    const [sql, params] = queryCall(query);
     expect(sql).toContain('user_id = $1');
     expect(params).toEqual(['u1']);
   });
@@ -403,7 +404,7 @@ describe('emitGtdIfRelevant', () => {
     query.mockResolvedValueOnce({ rows: [{ '?column?': 1 }] }); // EXISTS hit
     await emitGtdIfRelevant(mgr, 'acc-1', 'u1', ['<mid-1@x>', '<mid-2@x>']);
 
-    const [sql, params] = query.mock.calls[0];
+    const [sql, params] = queryCall(query);
     expect(sql).toContain('message_id = ANY($2::text[])');
     expect(sql).toContain('folder = ANY($3::text[])');
     expect(params[0]).toBe('acc-1');

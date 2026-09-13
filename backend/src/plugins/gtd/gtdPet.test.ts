@@ -1,4 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { queryCall } from '../../test/query.js';
 
 vi.mock('../../services/db.js', () => ({ query: vi.fn() }));
 
@@ -212,7 +213,7 @@ describe('importPet', () => {
     // Persisted via generic plugin storage: plugin id ($1), the server-derived slug ($2,
     // never a client-chosen key), and the sniffed mime ($6).
     expect(query).toHaveBeenCalledTimes(1);
-    const params = query.mock.calls[0][1];
+    const params = queryCall(query)[1];
     expect(params[0]).toBe('gtd');
     expect(params[1]).toBe(DERIVED_SLUG);
     expect(params[5]).toBe('image/webp');

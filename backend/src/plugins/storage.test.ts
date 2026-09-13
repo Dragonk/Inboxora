@@ -1,4 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { queryCall } from '../test/query.js';
 
 vi.mock('../services/db.js', () => ({ query: vi.fn() }));
 import { query as __mock_query } from '../services/db.js';
@@ -14,7 +15,7 @@ describe('plugin storage', () => {
     query.mockResolvedValue({ rows: [] });
     const blob = Buffer.from('x');
     await storage.put('gtd', 'k1', { value: { a: 1 }, blob, mime: 'image/webp', ownerId: 'u1', visibility: 'private' });
-    const [sql, params] = query.mock.calls[0];
+    const [sql, params] = queryCall(query);
     expect(sql).toMatch(/INSERT INTO plugin_data/);
     expect(sql).toMatch(/ON CONFLICT \(plugin_id, key\) DO UPDATE/);
     expect(params.slice(0, 3)).toEqual(['gtd', 'k1', 'u1']);
@@ -27,7 +28,7 @@ describe('plugin storage', () => {
   it('put applies safe defaults (empty value, no owner, private)', async () => {
     query.mockResolvedValue({ rows: [] });
     await storage.put('p', 'k');
-    const [, params] = query.mock.calls[0];
+    const [, params] = queryCall(query);
     expect(params[2]).toBeNull();     // ownerId
     expect(params[3]).toBe('{}');     // value
     expect(params[4]).toBeNull();     // blob

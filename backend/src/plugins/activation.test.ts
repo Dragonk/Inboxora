@@ -1,4 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { queryCall } from '../test/query.js';
 
 vi.mock('../services/db.js', () => ({ query: vi.fn() }));
 import { query as __mock_query } from '../services/db.js';
@@ -17,8 +18,8 @@ describe('plugin activation', () => {
     query.mockResolvedValueOnce({ rows: [{ list: ['gtd', 'other'] }] });
     const set = await getActivatedPlugins('u1');
     expect(set).toEqual(new Set(['gtd', 'other']));
-    expect(query.mock.calls[0][0]).toMatch(/preferences->'enabledPlugins'/);
-    expect(query.mock.calls[0][1]).toEqual(['u1']);
+    expect(queryCall(query)[0]).toMatch(/preferences->'enabledPlugins'/);
+    expect(queryCall(query)[1]).toEqual(['u1']);
   });
 
   it('treats a missing/absent value as nothing activated', async () => {
@@ -64,7 +65,7 @@ describe('plugin activation', () => {
     query.mockResolvedValueOnce({ rows: [] });             // the UPDATE
     const set = await setPluginActivated('u6', 'gtd', true);
     expect(set).toEqual(new Set(['gtd']));
-    const updateCall = query.mock.calls.find(([sql]) => /UPDATE users/.test(sql));
+    const updateCall = query.mock.calls.find(([sql]) => /UPDATE users/.test(sql));    if (!updateCall) throw new Error('expected the users UPDATE call');
     expect(updateCall[0]).toMatch(/jsonb_set\(COALESCE\(preferences/);
     expect(updateCall[1]).toEqual(['u6', JSON.stringify(['gtd'])]);
 
@@ -78,7 +79,7 @@ describe('plugin activation', () => {
     query.mockResolvedValueOnce({ rows: [] });
     const set = await setPluginActivated('u6', 'gtd', false);
     expect(set).toEqual(new Set(['other']));
-    const updateCall = query.mock.calls.find(([sql]) => /UPDATE users/.test(sql));
+    const updateCall = query.mock.calls.find(([sql]) => /UPDATE users/.test(sql));    if (!updateCall) throw new Error('expected the users UPDATE call');
     expect(updateCall[1]).toEqual(['u6', JSON.stringify(['other'])]);
   });
 });

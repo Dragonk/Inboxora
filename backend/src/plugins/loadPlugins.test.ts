@@ -12,6 +12,7 @@ describe('loadBundledPlugins', () => {
     const r = createPluginRegistry();
     loadBundledPlugins(r);
     const gtd = r.get('gtd');
+    if (!gtd) throw new Error('expected the bundled gtd plugin to be registered');
     expect(gtd).toBeTruthy();
     expect(gtd.tier).toBe(1);
     expect(gtd.router.base).toBe('/api/gtd');
