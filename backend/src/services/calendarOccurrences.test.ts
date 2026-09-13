@@ -21,7 +21,7 @@ vi.mock('./calendarProjectionPool.js', () => ({ projectCalendarResources }));
 
 const {
   coveragePredicate, materializeEvent, occurrenceHorizon, requestOccurrenceRebuild,
-} = await import('./calendarOccurrences.js');
+} = (await import('./calendarOccurrences.js')) as any;
 
 const ROW = {
   id: 'event-1', user_id: 'user-1', calendar_id: 'calendar-1', uid: 'uid-1', etag: 'etag-1',

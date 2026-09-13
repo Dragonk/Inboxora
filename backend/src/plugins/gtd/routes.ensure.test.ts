@@ -20,11 +20,17 @@ vi.mock('./gtdConfig.js', async (importOriginal) => {
 vi.mock('../accountConfig.js', () => ({ getAccountConfig: vi.fn(), setAccountConfig: vi.fn() }));
 
 import express from 'express';
-import { query } from '../../services/db.js';
+import { query as __mock_query } from '../../services/db.js';
 import { setMailEngine } from '../mailEngine.js';
-import { invalidateGtdConfigCache } from './gtdConfig.js';
-import { getAccountConfig, setAccountConfig } from '../accountConfig.js';
+import { invalidateGtdConfigCache as __mock_invalidateGtdConfigCache } from './gtdConfig.js';
+import { getAccountConfig as __mock_getAccountConfig, setAccountConfig as __mock_setAccountConfig } from '../accountConfig.js';
 import gtdRoutes from './routes.js';
+
+// Cast mocked module exports so their vitest mock helpers type-check.
+const query = __mock_query as any;
+const invalidateGtdConfigCache = __mock_invalidateGtdConfigCache as any;
+const getAccountConfig = __mock_getAccountConfig as any;
+const setAccountConfig = __mock_setAccountConfig as any;
 
 // ensureLabelFolders is a bound plugin-api capability; inject a mock engine (its ensureFolder is
 // asserted on below).

@@ -17,10 +17,15 @@ vi.mock('./gtdConfig.js', async (importOriginal) => {
 });
 
 import express from 'express';
-import { query } from '../../services/db.js';
+import { query as __mock_query } from '../../services/db.js';
 import { setMailEngine } from '../mailEngine.js';
-import { getGtdConfig, DEFAULT_GTD_FOLDERS } from './gtdConfig.js';
+import { getGtdConfig as __mock_getGtdConfig, DEFAULT_GTD_FOLDERS as __mock_DEFAULT_GTD_FOLDERS } from './gtdConfig.js';
 import gtdRoutes from './routes.js';
+
+// Cast mocked module exports so their vitest mock helpers type-check.
+const query = __mock_query as any;
+const getGtdConfig = __mock_getGtdConfig as any;
+const DEFAULT_GTD_FOLDERS = __mock_DEFAULT_GTD_FOLDERS as any;
 
 // The label/broadcast capabilities the routes use are bound (via plugin-api) to the platform's
 // mail engine. Inject a mock engine instead of the real imapManager; the same object is asserted

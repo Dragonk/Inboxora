@@ -8,11 +8,18 @@ vi.mock('./smtpTransport.js', () => ({ createSmtpTransport: vi.fn() }));
 vi.mock('./connectionPolicy.js', () => ({ getConnectionPolicy: vi.fn() }));
 
 import { sendSystemEmail } from './mailer.js';
-import { query } from './db.js';
-import { decrypt } from './encryption.js';
-import { resolveForConnection } from './hostValidation.js';
-import { createSmtpTransport } from './smtpTransport.js';
-import { getConnectionPolicy } from './connectionPolicy.js';
+import { query as __mock_query } from './db.js';
+import { decrypt as __mock_decrypt } from './encryption.js';
+import { resolveForConnection as __mock_resolveForConnection } from './hostValidation.js';
+import { createSmtpTransport as __mock_createSmtpTransport } from './smtpTransport.js';
+import { getConnectionPolicy as __mock_getConnectionPolicy } from './connectionPolicy.js';
+
+// Cast mocked module exports so their vitest mock helpers type-check.
+const query = __mock_query as any;
+const decrypt = __mock_decrypt as any;
+const resolveForConnection = __mock_resolveForConnection as any;
+const createSmtpTransport = __mock_createSmtpTransport as any;
+const getConnectionPolicy = __mock_getConnectionPolicy as any;
 
 const CONFIG = {
   host: 'mail.internal.lan',

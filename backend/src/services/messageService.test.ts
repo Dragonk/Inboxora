@@ -3,7 +3,7 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 
 vi.mock('./db.js', () => ({ query: vi.fn() }));
 
-const { query } = await import('./db.js');
+const { query } = (await import('./db.js')) as any;
 import { listMessages } from './messageService.js';
 
 beforeEach(() => {

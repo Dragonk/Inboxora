@@ -1,4 +1,3 @@
-// @ts-nocheck
 import { describe, it, expect, vi, beforeAll, afterAll, beforeEach } from 'vitest';
 vi.mock('../services/db.js', () => ({ query: vi.fn() }));
 vi.mock('../middleware/auth.js', () => ({ requireAuth: (req, _res, next) => { req.session = { userId: 'u1' }; next(); } }));
@@ -8,10 +7,16 @@ vi.mock('../services/smtpTransport.js', () => ({ createAccountSmtpTransport: vi.
 vi.mock('../utils/mailUtils.js', () => ({ resolveSentFolder: vi.fn() }));
 import express from 'express';
 import routes from './send.js';
-import { query } from '../services/db.js';
-import { redisClient } from '../services/redis.js';
-import { createAccountSmtpTransport } from '../services/smtpTransport.js';
-import { resolveSentFolder } from '../utils/mailUtils.js';
+import { query as __mock_query } from '../services/db.js';
+import { redisClient as __mock_redisClient } from '../services/redis.js';
+import { createAccountSmtpTransport as __mock_createAccountSmtpTransport } from '../services/smtpTransport.js';
+import { resolveSentFolder as __mock_resolveSentFolder } from '../utils/mailUtils.js';
+
+// Cast mocked module exports so their vitest mock helpers type-check.
+const query = __mock_query as any;
+const redisClient = __mock_redisClient as any;
+const createAccountSmtpTransport = __mock_createAccountSmtpTransport as any;
+const resolveSentFolder = __mock_resolveSentFolder as any;
 
 const account = { id: 'a1', email_address: 'me@example.com', name: 'Me', oauth_provider: 'google' };
 const sendMail = vi.fn();

@@ -12,7 +12,7 @@ beforeEach(() => {
 afterEach(() => vi.unstubAllEnvs());
 it('requests prompt delivery and retries a temporary push provider failure', async () => {
   sendNotification.mockRejectedValueOnce({ statusCode: 503, headers: { 'retry-after': '2' } });
-  const { sendPushToUser } = await import('./pushNotifications.js');
+  const { sendPushToUser } = (await import('./pushNotifications.js')) as any;
   await sendPushToUser('user', { title: 'Synthetic message' });
   expect(sendNotification).toHaveBeenCalledTimes(2);
   expect(sendNotification.mock.calls[0][2]).toEqual({ TTL: 86400, urgency: 'high', timeout: 10000 });
@@ -21,7 +21,7 @@ it('requests prompt delivery and retries a temporary push provider failure', asy
 it('removes expired endpoints without retrying or blocking another device', async () => {
   query.mockResolvedValueOnce({ rows: [{ id: 'old', endpoint: 'https://push.example.test/old' }, { id: 'new', endpoint: 'https://push.example.test/new' }] });
   sendNotification.mockRejectedValueOnce({ statusCode: 410 });
-  const { sendPushToUser } = await import('./pushNotifications.js');
+  const { sendPushToUser } = (await import('./pushNotifications.js')) as any;
   await sendPushToUser('user', { title: 'Synthetic message' });
   expect(sendNotification).toHaveBeenCalledTimes(2);
   expect(query).toHaveBeenLastCalledWith('DELETE FROM push_subscriptions WHERE id = ANY($1)', [['old']]);
@@ -29,7 +29,7 @@ it('removes expired endpoints without retrying or blocking another device', asyn
 });
 it('bounds retry attempts on a persistent network failure', async () => {
   sendNotification.mockRejectedValue(new Error('Network failure'));
-  const { sendPushToUser } = await import('./pushNotifications.js');
+  const { sendPushToUser } = (await import('./pushNotifications.js')) as any;
   await sendPushToUser('user', { title: 'Synthetic message' });
   expect(sendNotification).toHaveBeenCalledTimes(3);
 });

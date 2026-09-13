@@ -1,4 +1,3 @@
-// @ts-nocheck
 // Sanitized diagnostics report endpoint. Returns only the server-owned, vetted,
 // non-identifying sections of the report (see services/diagnosticsReport.js),
 // scoped strictly to the authenticated user. The frontend adds environment/meta

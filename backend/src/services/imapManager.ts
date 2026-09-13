@@ -1366,6 +1366,47 @@ export function classifyMoveBySearch(uids, remainingUids, destArrived) {
 }
 
 export class ImapManager {
+  // Runtime state initialised by the constructor. Declared with `declare` so
+  // these are purely type-level (no emitted field initialisers), keeping the
+  // class body's own assignments authoritative.
+  declare wss: any;
+  declare connections: any;
+  declare syncIntervals: any;
+  declare pluginSyncIntervals: any;
+  declare backfillRunning: any;
+  declare backfillAllRunning: any;
+  declare _bgConnSem: any;
+  declare _connectCooldown: any;
+  declare _syncErrorState: any;
+  declare _pendingFlagPush: any;
+  declare _pendingFlagSync: any;
+  declare _pendingInboxSync: any;
+  declare _pendingMoveUids: any;
+  declare _pollOnlyAccounts: any;
+  declare _stalenessCheckRunning: any;
+  declare _stalenessCheckTimer: any;
+  declare _snoozeWakeupRunning: any;
+  declare _snoozeWatcherTimer: any;
+  declare _healthCheckTimer: any;
+  declare _snippetSchedulerTimer: any;
+  declare _flagPushReconcilerTimer: any;
+  declare _flagPushRunning: any;
+  declare _flagDebounceTimers: any;
+  declare _expungeDebounceTimers: any;
+  declare connectingAccounts: any;
+  declare syncingAccounts: any;
+  declare onDemandSyncing: any;
+  declare snippetIndexerRunning: any;
+  declare snippetBackoff: any;
+  declare lastSyncOkAt: any;
+  declare lastFolderSyncAt: any;
+  declare lastUserActivity: any;
+  declare syncStartedAt: any;
+  declare syncTickCount: any;
+  declare syncThrottleSkips: any;
+  declare userSyncIntervalMs: any;
+  declare userFolderSyncIntervalMs: any;
+  declare pluginFacade: any;
   constructor(wss) {
     this.wss = wss;
     this.connections = new Map();   // accountId -> ImapFlow (persistent sync connection)

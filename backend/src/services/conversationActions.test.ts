@@ -12,7 +12,10 @@ vi.mock('../utils/mailUtils.js', () => ({
 }));
 
 import { COPY_SCOPES, applyConversationAction, applyBulkConversationAction } from './conversationActions.js';
-import { withTransaction } from './db.js';
+import { withTransaction as __mock_withTransaction } from './db.js';
+
+// Cast mocked module exports so their vitest mock helpers type-check.
+const withTransaction = __mock_withTransaction as any;
 
 function fakeClient() {
   const calls = [];

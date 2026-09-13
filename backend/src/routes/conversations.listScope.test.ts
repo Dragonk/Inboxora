@@ -11,7 +11,10 @@ vi.mock('../middleware/auth.js', () => ({
 
 import express from 'express';
 import conversationsRoutes from './conversations.js';
-import { query } from '../services/db.js';
+import { query as __mock_query } from '../services/db.js';
+
+// Cast mocked module exports so their vitest mock helpers type-check.
+const query = __mock_query as any;
 
 const ACCOUNT_A = '11111111-1111-4111-8111-111111111119';
 const ACCOUNT_B = '22222222-2222-4222-8222-222222222229';

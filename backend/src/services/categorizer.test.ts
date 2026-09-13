@@ -1,12 +1,15 @@
-// @ts-nocheck
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 vi.mock('./db.js', () => ({ query: vi.fn() }));
 vi.mock('./aiProvider.js', () => ({ completeText: vi.fn() }));
 
-import { query } from './db.js';
-import { completeText } from './aiProvider.js';
+import { query as __mock_query } from './db.js';
+import { completeText as __mock_completeText } from './aiProvider.js';
 import { aiClassifyMessage } from './categorizer.js';
+
+// Cast mocked module exports so their vitest mock helpers type-check.
+const query = __mock_query as any;
+const completeText = __mock_completeText as any;
 
 beforeEach(() => {
   query.mockReset();

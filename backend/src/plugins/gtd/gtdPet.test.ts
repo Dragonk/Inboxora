@@ -3,7 +3,7 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 
 vi.mock('../../services/db.js', () => ({ query: vi.fn() }));
 
-import { query } from '../../services/db.js';
+import { query as __mock_query } from '../../services/db.js';
 import {
   parsePetSlug,
   sniffImageMime,
@@ -14,6 +14,9 @@ import {
   importPet,
   deleteUserPet,
 } from './gtdPet.js';
+
+// Cast mocked module exports so their vitest mock helpers type-check.
+const query = __mock_query as any;
 
 // ── Image-header fixtures (crafted magic bytes, no image library) ──────────────
 

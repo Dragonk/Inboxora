@@ -26,9 +26,14 @@ vi.mock('./gtdPet.js', async (importOriginal) => {
 });
 
 import express from 'express';
-import { query } from '../../services/db.js';
-import { customPetSlug, importPet } from './gtdPet.js';
+import { query as __mock_query } from '../../services/db.js';
+import { customPetSlug as __mock_customPetSlug, importPet as __mock_importPet } from './gtdPet.js';
 import gtdRoutes from './routes.js';
+
+// Cast mocked module exports so their vitest mock helpers type-check.
+const query = __mock_query as any;
+const customPetSlug = __mock_customPetSlug as any;
+const importPet = __mock_importPet as any;
 
 // Must match the requireAuth mock's default userId above.
 const OWNER_ID = '3f2a1b4c-5d6e-7f80-9a1b-2c3d4e5f6071';

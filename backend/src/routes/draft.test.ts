@@ -1,4 +1,3 @@
-// @ts-nocheck
 import { describe, it, expect, vi, beforeAll, afterAll, beforeEach } from 'vitest';
 
 vi.mock('../services/db.js', () => ({ query: vi.fn() }));
@@ -14,7 +13,10 @@ vi.mock('../index.js', () => ({ imapManager }));
 
 import express from 'express';
 import draftRoutes from './draft.js';
-import { query } from '../services/db.js';
+import { query as __mock_query } from '../services/db.js';
+
+// Cast mocked module exports so their vitest mock helpers type-check.
+const query = __mock_query as any;
 
 const ACCOUNT_ID = '11111111-1111-4111-8111-111111111111';
 const ACCOUNT_ROW = {

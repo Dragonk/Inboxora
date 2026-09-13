@@ -1,4 +1,3 @@
-// @ts-nocheck
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 
 // getGtdConfig reads per-account config from the plugin config store and folds in per-user plugin
@@ -7,8 +6,8 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 vi.mock('../accountConfig.js', () => ({ getAccountConfig: vi.fn() }));
 vi.mock('../activation.js', () => ({ isPluginActivatedForAccount: vi.fn() }));
 
-import { getAccountConfig } from '../accountConfig.js';
-import { isPluginActivatedForAccount } from '../activation.js';
+import { getAccountConfig as __mock_getAccountConfig } from '../accountConfig.js';
+import { isPluginActivatedForAccount as __mock_isPluginActivatedForAccount } from '../activation.js';
 import {
   DEFAULT_GTD_FOLDERS,
   GTD_STATES,
@@ -22,6 +21,10 @@ import {
   invalidateGtdConfigCache,
   gtdTickFolders,
 } from './gtdConfig.js';
+
+// Cast mocked module exports so their vitest mock helpers type-check.
+const getAccountConfig = __mock_getAccountConfig as any;
+const isPluginActivatedForAccount = __mock_isPluginActivatedForAccount as any;
 
 // Each test uses a distinct account id so the module-level cache never leaks
 // between cases, then asserts on how many times the DB was hit.

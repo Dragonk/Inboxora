@@ -1,4 +1,3 @@
-// @ts-nocheck
 import { Router } from 'express';
 import { authenticator } from 'otplib';
 import QRCode from 'qrcode';

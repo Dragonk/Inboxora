@@ -1,10 +1,9 @@
-// @ts-nocheck
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 
 vi.mock('./db.js', () => ({ query: vi.fn() }));
 vi.mock('../utils/mailUtils.js', () => ({ fanOutReadToSiblings: vi.fn() }));
-import { query } from './db.js';
-import { fanOutReadToSiblings } from '../utils/mailUtils.js';
+import { query as __mock_query } from './db.js';
+import { fanOutReadToSiblings as __mock_fanOutReadToSiblings } from '../utils/mailUtils.js';
 import {
   applyLabel,
   removeExactLabelCopy,
@@ -13,6 +12,10 @@ import {
   markThreadRead,
   ensureLabelFolders,
 } from './labels.js';
+
+// Cast mocked module exports so their vitest mock helpers type-check.
+const query = __mock_query as any;
+const fanOutReadToSiblings = __mock_fanOutReadToSiblings as any;
 
 const account = { id: 'acct-1' };
 const mkImap = () => ({ ensureFolder: vi.fn(), copyMessage: vi.fn(), removeMessageCopy: vi.fn() });

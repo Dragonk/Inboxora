@@ -8,14 +8,14 @@ vi.mock('./connectionPolicy.js', () => ({ getConnectionPolicy: vi.fn() }));
 vi.mock('./hostValidation.js', () => ({ resolveForConnection: vi.fn() }));
 
 const nodemailer = (await import('nodemailer')).default;
-const { refreshMicrosoftToken } = await import('../routes/oauth.js');
-const { getConnectionPolicy } = await import('./connectionPolicy.js');
-const { resolveForConnection } = await import('./hostValidation.js');
+const { refreshMicrosoftToken } = (await import('../routes/oauth.js')) as any;
+const { getConnectionPolicy } = (await import('./connectionPolicy.js')) as any;
+const { resolveForConnection } = (await import('./hostValidation.js')) as any;
 const {
   createAccountSmtpTransport,
   createSmtpTransport,
   isPreDeliveryConnectionError,
-} = await import('./smtpTransport.js');
+} = (await import('./smtpTransport.js')) as any;
 
 const resolved = {
   host: '203.0.113.10',

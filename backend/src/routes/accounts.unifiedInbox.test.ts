@@ -19,7 +19,10 @@ vi.mock('../services/connectionPolicy.js', () => ({
 
 import express from 'express';
 import accountRoutes from './accounts.js';
-import { query } from '../services/db.js';
+import { query as __mock_query } from '../services/db.js';
+
+// Cast mocked module exports so their vitest mock helpers type-check.
+const query = __mock_query as any;
 
 function buildApp() {
   const app = express();

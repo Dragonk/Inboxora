@@ -1,4 +1,3 @@
-// @ts-nocheck
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 
 vi.mock('../../services/db.js', () => ({ query: vi.fn() }));
@@ -14,9 +13,14 @@ import {
   threadKeysForMessageIds,
   threadKeysInFolders,
 } from './gtdTransitions.js';
-import { query } from '../../services/db.js';
-import { getGtdConfig } from './gtdConfig.js';
-import { resolveAllDraftsPaths } from '../../utils/mailUtils.js';
+import { query as __mock_query } from '../../services/db.js';
+import { getGtdConfig as __mock_getGtdConfig } from './gtdConfig.js';
+import { resolveAllDraftsPaths as __mock_resolveAllDraftsPaths } from '../../utils/mailUtils.js';
+
+// Cast mocked module exports so their vitest mock helpers type-check.
+const query = __mock_query as any;
+const getGtdConfig = __mock_getGtdConfig as any;
+const resolveAllDraftsPaths = __mock_resolveAllDraftsPaths as any;
 
 const DEFAULT_FOLDERS = { todo: 'Todo', watch: 'Watch', delegated: 'Delegated', someday: 'Someday', reference: 'Reference' };
 const account = { id: 'acct-1', user_id: 'user-1', email_address: 'me@example.com', folder_mappings: {} };

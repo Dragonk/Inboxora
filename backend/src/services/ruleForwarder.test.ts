@@ -6,12 +6,16 @@ vi.mock('./smtpTransport.js', () => ({
   createAccountSmtpTransport: vi.fn(),
 }));
 
-import { query } from './db.js';
-import { createAccountSmtpTransport } from './smtpTransport.js';
+import { query as __mock_query } from './db.js';
+import { createAccountSmtpTransport as __mock_createAccountSmtpTransport } from './smtpTransport.js';
 import {
   buildForwardMessage,
   forwardRuleMessage,
 } from './ruleForwarder.js';
+
+// Cast mocked module exports so their vitest mock helpers type-check.
+const query = __mock_query as any;
+const createAccountSmtpTransport = __mock_createAccountSmtpTransport as any;
 
 const account = {
   id: 'account-1',

@@ -1,4 +1,3 @@
-// @ts-nocheck
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 
 vi.mock('./db.js', () => ({ query: vi.fn() }));
@@ -19,7 +18,10 @@ vi.mock('./diagnosticsRing.js', () => ({
 }));
 
 import { hashRef, folderLabel, categorizeSyncError, deriveProvider, scrubReport, buildServerReport } from './diagnosticsReport.js';
-import { query } from './db.js';
+import { query as __mock_query } from './db.js';
+
+// Cast mocked module exports so their vitest mock helpers type-check.
+const query = __mock_query as any;
 
 describe('deriveProvider', () => {
   it('prefers the OAuth provider, else maps known hosts, else generic imap (never the raw host)', () => {

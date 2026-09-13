@@ -1,4 +1,3 @@
-// @ts-nocheck
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 vi.mock('../services/db.js', () => ({ query: vi.fn(), pool: {} }));
@@ -35,8 +34,11 @@ vi.mock('../services/rateLimiter.js', () => ({
   reset: vi.fn(),
 }));
 
-import { query } from '../services/db.js';
+import { query as __mock_query } from '../services/db.js';
 import { patchPreferences } from './auth.js';
+
+// Cast mocked module exports so their vitest mock helpers type-check.
+const query = __mock_query as any;
 
 beforeEach(() => {
   query.mockReset().mockResolvedValue({ rows: [] });

@@ -1,4 +1,3 @@
-// @ts-nocheck
 import { Router } from 'express';
 import crypto from 'crypto';
 import { query } from '../services/db.js';

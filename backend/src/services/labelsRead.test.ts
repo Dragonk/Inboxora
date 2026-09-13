@@ -2,8 +2,11 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 
 vi.mock('./db.js', () => ({ query: vi.fn() }));
-import { query } from './db.js';
+import { query as __mock_query } from './db.js';
 import { listThreadHeadsByLabels, notifyOnLabelTouch } from './labelsRead.js';
+
+// Cast mocked module exports so their vitest mock helpers type-check.
+const query = __mock_query as any;
 
 describe('listThreadHeadsByLabels', () => {
   beforeEach(() => query.mockReset());

@@ -11,10 +11,15 @@ vi.mock('../../utils/mailUtils.js', () => ({ resolveAllDraftsPaths: vi.fn() }));
 // doesn't consume the mocked query sequence (the account/section reads still run for real).
 vi.mock('../../services/mailAccess.js', async (io) => ({ ...await io(), getMessageAnnotations: vi.fn().mockResolvedValue({}) }));
 
-import { query } from '../../services/db.js';
-import { getGtdConfig } from './gtdConfig.js';
-import { resolveAllDraftsPaths } from '../../utils/mailUtils.js';
+import { query as __mock_query } from '../../services/db.js';
+import { getGtdConfig as __mock_getGtdConfig } from './gtdConfig.js';
+import { resolveAllDraftsPaths as __mock_resolveAllDraftsPaths } from '../../utils/mailUtils.js';
 import { getGtdSections, emitGtdIfRelevant } from './gtdSections.js';
+
+// Cast mocked module exports so their vitest mock helpers type-check.
+const query = __mock_query as any;
+const getGtdConfig = __mock_getGtdConfig as any;
+const resolveAllDraftsPaths = __mock_resolveAllDraftsPaths as any;
 
 const DEFAULT_FOLDERS = {
   todo: 'Todo', watch: 'Watch', delegated: 'Delegated', someday: 'Someday', reference: 'Reference',

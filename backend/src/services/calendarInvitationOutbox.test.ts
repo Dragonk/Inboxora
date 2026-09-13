@@ -11,7 +11,7 @@ vi.mock('./calendarInvitation.js', () => ({ sendCalendarInvitation }));
 const {
   deliverInvitationOutbox, deliverStoredInvitation, drainPendingInvitations,
   invitationActionsForStorage, invitationDeliveryError, resolveInvitationActions,
-} = await import('./calendarInvitationOutbox.js');
+} = (await import('./calendarInvitationOutbox.js')) as any;
 
 const startsAt = new Date('2026-09-11T12:00:00.000Z');
 const endsAt = new Date('2026-09-11T13:00:00.000Z');

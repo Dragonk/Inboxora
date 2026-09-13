@@ -1,4 +1,3 @@
-// @ts-nocheck
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 
 vi.mock('../services/db.js', () => ({ query: vi.fn() }));
@@ -11,7 +10,10 @@ vi.mock('../middleware/auth.js', () => ({
 
 import express from 'express';
 import searchRoutes from './search.js';
-import { query } from '../services/db.js';
+import { query as __mock_query } from '../services/db.js';
+
+// Cast mocked module exports so their vitest mock helpers type-check.
+const query = __mock_query as any;
 
 function buildApp() {
   const app = express();

@@ -1,4 +1,3 @@
-// @ts-nocheck
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 
 // gtdSyncTick's config-fetch → per-folder fingerprint/sync → transitions/broadcast sequencing,
@@ -19,11 +18,17 @@ vi.mock('./gtdTransitions.js', () => ({
   threadKeysInFolders: vi.fn(),
 }));
 
-import { query } from '../../services/db.js';
-import { getAccountConfig } from '../accountConfig.js';
+import { query as __mock_query } from '../../services/db.js';
+import { getAccountConfig as __mock_getAccountConfig } from '../accountConfig.js';
 import { invalidateGtdConfigCache } from './gtdConfig.js';
-import { runGtdTransitions, threadKeysInFolders } from './gtdTransitions.js';
+import { runGtdTransitions as __mock_runGtdTransitions, threadKeysInFolders as __mock_threadKeysInFolders } from './gtdTransitions.js';
 import { gtdSyncTick } from './hooks.js';
+
+// Cast mocked module exports so their vitest mock helpers type-check.
+const query = __mock_query as any;
+const getAccountConfig = __mock_getAccountConfig as any;
+const runGtdTransitions = __mock_runGtdTransitions as any;
+const threadKeysInFolders = __mock_threadKeysInFolders as any;
 
 describe('gtd hooks — gtdSyncTick', () => {
   // mgr is core's bounded engine facade (mailEngineFacade), not the raw engine.

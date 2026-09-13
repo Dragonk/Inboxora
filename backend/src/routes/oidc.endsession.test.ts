@@ -15,8 +15,11 @@ vi.mock('../middleware/auth.js', () => ({ requireAuth: (_req, _res, next) => nex
 vi.mock('../services/authEvents.js', () => ({ logAuthEvent: vi.fn() }));
 vi.mock('../services/hostValidation.js', () => ({ validateHost: vi.fn(async () => null) }));
 
-import { query } from '../services/db.js';
+import { query as __mock_query } from '../services/db.js';
 import { buildEndSessionUrl } from './oidc.js';
+
+// Cast mocked module exports so their vitest mock helpers type-check.
+const query = __mock_query as any;
 
 const realFetch = global.fetch;
 let discoveryDoc = null;

@@ -1,9 +1,11 @@
-// @ts-nocheck
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 
 vi.mock('../services/db.js', () => ({ query: vi.fn() }));
-import { query } from '../services/db.js';
+import { query as __mock_query } from '../services/db.js';
 import { getActivatedPlugins, isPluginActivated, setPluginActivated, invalidateActivationCache } from './activation.js';
+
+// Cast mocked module exports so their vitest mock helpers type-check.
+const query = __mock_query as any;
 
 describe('plugin activation', () => {
   beforeEach(() => {

@@ -2,13 +2,17 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 
 vi.mock('./aiProvider.js', () => ({ getAiStatus: vi.fn(), completeText: vi.fn() }));
-import { completeText, getAiStatus } from './aiProvider.js';
+import { completeText as __mock_completeText, getAiStatus as __mock_getAiStatus } from './aiProvider.js';
 import {
   buildSummaryPrompt,
   sanitizeSummaryLine,
   summarizeAvailable,
   summarizeMessage,
 } from './summarize.js';
+
+// Cast mocked module exports so their vitest mock helpers type-check.
+const completeText = __mock_completeText as any;
+const getAiStatus = __mock_getAiStatus as any;
 
 describe('buildSummaryPrompt', () => {
   it('includes from, subject, and a whitespace-collapsed body', () => {

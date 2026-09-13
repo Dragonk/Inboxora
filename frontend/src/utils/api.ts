@@ -9,7 +9,7 @@ export const CSRF_HEADER = 'X-Requested-With';
 export const CSRF_VALUE = 'MailFlow';
 const messageBodyRequests = new Map();
 
-async function request(method, path, body, extraHeaders, extraOptions = {}) {
+async function request(method, path, body = undefined, extraHeaders = undefined, extraOptions = {}) {
   const opts = {
     method,
     credentials: 'include',

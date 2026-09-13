@@ -1,4 +1,3 @@
-// @ts-nocheck
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 
 vi.mock('./db.js', () => ({ query: vi.fn() }));
@@ -12,7 +11,7 @@ vi.mock('../utils/mailUtils.js', () => ({
 }));
 vi.mock('./ruleForwarder.js', () => ({ forwardRuleMessage: vi.fn() }));
 
-const { query } = await import('./db.js');
+const { query } = (await import('./db.js')) as any;
 const {
   resolveArchiveFolder,
   isAllMailFolder,
@@ -20,8 +19,8 @@ const {
   resolveAllTrashPaths,
   getDeleteStrategy,
   adjustFolderCounts,
-} = await import('../utils/mailUtils.js');
-const { forwardRuleMessage } = await import('./ruleForwarder.js');
+} = (await import('../utils/mailUtils.js')) as any;
+const { forwardRuleMessage } = (await import('./ruleForwarder.js')) as any;
 import { applyInboxRules } from './inboxRules.js';
 
 const account = { id: 'acc-1', user_id: 'user-1', folder_mappings: {} };

@@ -1,9 +1,11 @@
-// @ts-nocheck
 import { describe, expect, it, vi } from 'vitest';
 import { conversationViewEnabled, ensureConversationFeatureDefaults } from './conversationPreferences.js';
 
 vi.mock('./db.js', () => ({ query: vi.fn().mockResolvedValue({ rows: [] }) }));
-import { query } from './db.js';
+import { query as __mock_query } from './db.js';
+
+// Cast mocked module exports so their vitest mock helpers type-check.
+const query = __mock_query as any;
 
 describe('conversation feature preferences', () => {
   it('keeps list and reader flags independent', () => {

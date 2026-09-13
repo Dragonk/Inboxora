@@ -13,7 +13,7 @@ describe('conversation ingest envelope', () => {
   });
 
   it('includes delivery identities from case-insensitive Map headers', async () => {
-    const { resolveOwnIdentityAddresses } = await import('./conversationIngestEnvelope.js');
+    const { resolveOwnIdentityAddresses } = (await import('./conversationIngestEnvelope.js')) as any;
     const db = { query: async () => ({ rows: [{ email_address: 'me@example', aliases: [] }] }) };
     await expect(resolveOwnIdentityAddresses(db, 'a1', {
       headers: new Map([['Delivered-To', 'catchall@example.com']]),

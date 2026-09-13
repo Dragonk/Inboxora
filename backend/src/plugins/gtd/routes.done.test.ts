@@ -27,10 +27,10 @@ vi.mock('./gtdConfig.js', async (importOriginal) => {
 });
 
 import express from 'express';
-import { query } from '../../services/db.js';
+import { query as __mock_query } from '../../services/db.js';
 import { setMailEngine } from '../mailEngine.js';
-import { resolveArchiveFolder, isAllMailFolder, adjustFolderCounts, fanOutReadToSiblings } from '../../utils/mailUtils.js';
-import { getGtdConfig, DEFAULT_GTD_FOLDERS } from './gtdConfig.js';
+import { resolveArchiveFolder as __mock_resolveArchiveFolder, isAllMailFolder as __mock_isAllMailFolder, adjustFolderCounts as __mock_adjustFolderCounts, fanOutReadToSiblings as __mock_fanOutReadToSiblings } from '../../utils/mailUtils.js';
+import { getGtdConfig as __mock_getGtdConfig, DEFAULT_GTD_FOLDERS as __mock_DEFAULT_GTD_FOLDERS } from './gtdConfig.js';
 
 // The done route's mail actions (label strip, mark-read, archive, broadcast) go through the bound
 // plugin-api capabilities; inject a mock engine, asserted on directly below.
@@ -44,6 +44,15 @@ const imapManager = {
 };
 setMailEngine(imapManager);
 import gtdRoutes from './routes.js';
+
+// Cast mocked module exports so their vitest mock helpers type-check.
+const query = __mock_query as any;
+const resolveArchiveFolder = __mock_resolveArchiveFolder as any;
+const isAllMailFolder = __mock_isAllMailFolder as any;
+const adjustFolderCounts = __mock_adjustFolderCounts as any;
+const fanOutReadToSiblings = __mock_fanOutReadToSiblings as any;
+const getGtdConfig = __mock_getGtdConfig as any;
+const DEFAULT_GTD_FOLDERS = __mock_DEFAULT_GTD_FOLDERS as any;
 
 const MSG_ID = 'dddddddd-dddd-4ddd-8ddd-dddddddddddd';
 const ACCT_ID = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa';

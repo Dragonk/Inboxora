@@ -12,8 +12,12 @@ vi.mock('../plugins/activation.js', () => ({
 import 'express-async-errors';
 import express from 'express';
 import { pluginRegistry } from '../plugins/registry.js';
-import { getActivatedPlugins, setPluginActivated } from '../plugins/activation.js';
+import { getActivatedPlugins as __mock_getActivatedPlugins, setPluginActivated as __mock_setPluginActivated } from '../plugins/activation.js';
 import pluginsRoutes from './plugins.js';
+
+// Cast mocked module exports so their vitest mock helpers type-check.
+const getActivatedPlugins = __mock_getActivatedPlugins as any;
+const setPluginActivated = __mock_setPluginActivated as any;
 
 const MANIFEST = { id: 'gtd', name: 'Getting Things Done', version: '1.0.0', tier: 1 };
 

@@ -1,4 +1,3 @@
-// @ts-nocheck
 // Plugin management API (v3.0 plugin platform).
 //
 // Lists the plugins registered in this build and lets a user activate/deactivate each for

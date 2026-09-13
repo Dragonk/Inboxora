@@ -1,4 +1,3 @@
-// @ts-nocheck
 import { Router } from 'express';
 import { requireAuth } from '../middleware/auth.js';
 import { applyConversationOverride, listConversationOverrides } from '../services/conversationOverrides.js';

@@ -13,8 +13,12 @@ vi.mock('../services/smtpTransport.js', () => ({ createAccountSmtpTransport: vi.
 
 import express from 'express';
 import sendRoutes from './send.js';
-import { query } from '../services/db.js';
-import { imapManager } from '../index.js';
+import { query as __mock_query } from '../services/db.js';
+import { imapManager as __mock_imapManager } from '../index.js';
+
+// Cast mocked module exports so their vitest mock helpers type-check.
+const query = __mock_query as any;
+const imapManager = __mock_imapManager as any;
 
 const ACCOUNT_ID = 'a1a1a1a1-1111-4111-8111-a1a1a1a1a1a1';
 const MSG_ID = 'b2b2b2b2-2222-4222-8222-b2b2b2b2b2b2';

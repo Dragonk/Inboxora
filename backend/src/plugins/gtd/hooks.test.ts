@@ -15,13 +15,29 @@ vi.mock('./gtdPet.js', () => ({ deleteUserPet: vi.fn() }));
 // gate inside getGtdConfig). Mocked at the source module so the api.js barrel re-export resolves to
 // these fns too.
 vi.mock('../accountConfig.js', () => ({ getAccountConfig: vi.fn(), setAccountConfig: vi.fn() }));
-import { query } from '../../services/db.js';
-import { getGtdFolderSet, getGtdConfig, sanitizeGtdFoldersDetailed, findGtdFolderCollisions, invalidateGtdConfigCache } from './gtdConfig.js';
-import { getAccountConfig, setAccountConfig } from '../accountConfig.js';
-import { runGtdTransitions, threadKeysForMessageIds, runTransitionsForSentMessage, invalidateOwnerAddressesCache } from './gtdTransitions.js';
-import { emitGtdIfRelevant } from './gtdSections.js';
-import { deleteUserPet } from './gtdPet.js';
+import { query as __mock_query } from '../../services/db.js';
+import { getGtdFolderSet as __mock_getGtdFolderSet, getGtdConfig as __mock_getGtdConfig, sanitizeGtdFoldersDetailed as __mock_sanitizeGtdFoldersDetailed, findGtdFolderCollisions as __mock_findGtdFolderCollisions, invalidateGtdConfigCache as __mock_invalidateGtdConfigCache } from './gtdConfig.js';
+import { getAccountConfig as __mock_getAccountConfig, setAccountConfig as __mock_setAccountConfig } from '../accountConfig.js';
+import { runGtdTransitions as __mock_runGtdTransitions, threadKeysForMessageIds as __mock_threadKeysForMessageIds, runTransitionsForSentMessage as __mock_runTransitionsForSentMessage, invalidateOwnerAddressesCache as __mock_invalidateOwnerAddressesCache } from './gtdTransitions.js';
+import { emitGtdIfRelevant as __mock_emitGtdIfRelevant } from './gtdSections.js';
+import { deleteUserPet as __mock_deleteUserPet } from './gtdPet.js';
 import { relocateExemptFolders, sectionsChanged, inboxIngest, selectGtdReevalIds, gtdEnabledForAccount, emitAfterDeferredCopySync, afterLabelCopy, afterLabelRemove, onMailMutation, onSentMessage, onUserDelete, enrichAccount, validateAccountSettings, persistAccountSettings, onAccountIdentityChanged, onPluginActivationChanged } from './hooks.js';
+
+// Cast mocked module exports so their vitest mock helpers type-check.
+const query = __mock_query as any;
+const getGtdFolderSet = __mock_getGtdFolderSet as any;
+const getGtdConfig = __mock_getGtdConfig as any;
+const sanitizeGtdFoldersDetailed = __mock_sanitizeGtdFoldersDetailed as any;
+const findGtdFolderCollisions = __mock_findGtdFolderCollisions as any;
+const invalidateGtdConfigCache = __mock_invalidateGtdConfigCache as any;
+const getAccountConfig = __mock_getAccountConfig as any;
+const setAccountConfig = __mock_setAccountConfig as any;
+const runGtdTransitions = __mock_runGtdTransitions as any;
+const threadKeysForMessageIds = __mock_threadKeysForMessageIds as any;
+const runTransitionsForSentMessage = __mock_runTransitionsForSentMessage as any;
+const invalidateOwnerAddressesCache = __mock_invalidateOwnerAddressesCache as any;
+const emitGtdIfRelevant = __mock_emitGtdIfRelevant as any;
+const deleteUserPet = __mock_deleteUserPet as any;
 
 describe('gtd hooks — relocateExemptFolders', () => {
   beforeEach(() => getGtdFolderSet.mockReset());

@@ -12,7 +12,7 @@ vi.mock('dns', () => ({
 }));
 
 // Pull the mocked fns for per-test control.
-const { promises: dns } = await import('dns');
+const { promises: dns } = (await import('dns')) as any;
 
 beforeEach(() => {
   dns.resolve4.mockClear();

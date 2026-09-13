@@ -1,15 +1,19 @@
-// @ts-nocheck
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 
 vi.mock('../../services/db.js', () => ({ query: vi.fn() }));
 vi.mock('../../services/aiProvider.js', () => ({ getAiStatus: vi.fn(), completeText: vi.fn() }));
 
-import { query } from '../../services/db.js';
-import { completeText, getAiStatus } from '../../services/aiProvider.js';
+import { query as __mock_query } from '../../services/db.js';
+import { completeText as __mock_completeText, getAiStatus as __mock_getAiStatus } from '../../services/aiProvider.js';
 import {
   selectGistCandidates,
   queueGistGeneration,
 } from './gtdGist.js';
+
+// Cast mocked module exports so their vitest mock helpers type-check.
+const query = __mock_query as any;
+const completeText = __mock_completeText as any;
+const getAiStatus = __mock_getAiStatus as any;
 
 // buildGistPrompt/sanitizeGist moved to the generic `summarize` capability — see
 // summarize.test.js. This file now covers only GTD's orchestration: candidate selection,

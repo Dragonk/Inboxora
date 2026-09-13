@@ -34,4 +34,10 @@ export default tseslint.config(
       'react-hooks/exhaustive-deps': 'warn',
     },
   },
+  {
+    // Ambient declaration files merge interfaces; the base rule reports the
+    // merged names as unused.
+    files: ['**/*.d.ts'],
+    rules: { 'no-unused-vars': 'off' },
+  },
 )

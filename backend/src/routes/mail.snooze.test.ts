@@ -1,4 +1,3 @@
-// @ts-nocheck
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 
 vi.mock('../services/db.js', () => ({ query: vi.fn() }));
@@ -6,7 +5,10 @@ vi.mock('../middleware/auth.js', () => ({ requireAuth: (_req, _res, next) => nex
 vi.mock('../index.js', () => ({ imapManager: {} }));
 
 import { gatherSnoozeConversation } from './mail.js';
-import { query } from '../services/db.js';
+import { query as __mock_query } from '../services/db.js';
+
+// Cast mocked module exports so their vitest mock helpers type-check.
+const query = __mock_query as any;
 
 // Column subset that the pool query selects.
 function row(id, message_id, { in_reply_to = null, thread_references = null, folder = 'INBOX', is_read = true } = {}) {

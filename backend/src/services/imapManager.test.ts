@@ -17,13 +17,21 @@ import { ImapManager, providerProfile, makeClientCfg, attachmentTransferEncoding
 import { parseInboundCalendarInvitation } from './inboundCalendarInvitation.js';
 import { pluginRegistry } from '../plugins/registry.js';
 import { EventEmitter } from 'node:events';
-import { ImapFlow } from 'imapflow';
-import { query } from './db.js';
-import { resolveForConnection } from './hostValidation.js';
-import { getConnectionPolicy } from './connectionPolicy.js';
+import { ImapFlow as __mock_ImapFlow } from 'imapflow';
+import { query as __mock_query } from './db.js';
+import { resolveForConnection as __mock_resolveForConnection } from './hostValidation.js';
+import { getConnectionPolicy as __mock_getConnectionPolicy } from './connectionPolicy.js';
 import { invalidateGtdConfigCache } from '../plugins/gtd/gtdConfig.js';
-import { parseMessage } from './messageParser.js';
-import { dispatchMailNotification } from './pushDispatcher.js';
+import { parseMessage as __mock_parseMessage } from './messageParser.js';
+import { dispatchMailNotification as __mock_dispatchMailNotification } from './pushDispatcher.js';
+
+// Cast mocked module exports so their vitest mock helpers type-check.
+const ImapFlow = __mock_ImapFlow as any;
+const query = __mock_query as any;
+const resolveForConnection = __mock_resolveForConnection as any;
+const getConnectionPolicy = __mock_getConnectionPolicy as any;
+const parseMessage = __mock_parseMessage as any;
+const dispatchMailNotification = __mock_dispatchMailNotification as any;
 
 const account = (imap_host, oauth_provider = null) => ({ imap_host, oauth_provider });
 
@@ -365,7 +373,7 @@ describe('insertCopiedSibling', () => {
   });
 
   it('uses the shared projection for CE metadata on partial Sent/repair envelopes', async () => {
-    const sourceText = await import('node:fs').then(({ readFileSync }) => readFileSync(new URL('./imapManager.ts', import.meta.url), 'utf8'));
+    const sourceText = await (import('node:fs') as any).then(({ readFileSync }) => readFileSync(new URL('./imapManager.ts', import.meta.url), 'utf8'));
     expect(sourceText).toContain('const persistenceMessage = { ...result.rows[0], ...(rawMessage || {}) };');
   });
 });

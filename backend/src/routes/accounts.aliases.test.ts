@@ -14,9 +14,12 @@ vi.mock('../index.js', () => ({ imapManager: {} }));
 // mocked above, install it explicitly and give rejected async handlers the same 500 boundary.
 import 'express-async-errors';
 import express from 'express';
-import { query } from '../services/db.js';
+import { query as __mock_query } from '../services/db.js';
 import { pluginRegistry } from '../plugins/registry.js';
 import accountRoutes from './accounts.js';
+
+// Cast mocked module exports so their vitest mock helpers type-check.
+const query = __mock_query as any;
 
 // The route now signals identity changes through the generic `onAccountIdentityChanged` hook
 // (GTD's owner-address cache invalidation lives behind it), so we assert the hook dispatch as the
