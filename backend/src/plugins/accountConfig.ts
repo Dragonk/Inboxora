@@ -7,8 +7,8 @@
 import { query } from '../services/db.js';
 
 // The plugin's config for an account, or {} when none is stored yet.
-export async function getAccountConfig(pluginId: string, accountId: string) {
-  const { rows } = await query(
+export async function getAccountConfig(pluginId: string, accountId: string): Promise<Record<string, unknown>> {
+  const { rows } = await query<{ config?: Record<string, unknown> | null }>(
     'SELECT config FROM plugin_account_config WHERE plugin_id = $1 AND account_id = $2',
     [pluginId, accountId]
   );

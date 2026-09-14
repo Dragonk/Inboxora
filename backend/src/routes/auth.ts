@@ -1,4 +1,19 @@
 import { Router } from 'express';
+
+/** A user row as the auth routes read it. */
+interface UserRow {
+  id: string;
+  username?: string | null;
+  is_admin?: boolean;
+  totp_enabled?: boolean;
+  totp_secret?: string | null;
+  recovery_email?: string | null;
+  password_hash?: string | null;
+  lock_pin_hash?: string | null;
+  [key: string]: unknown;
+}
+
+
 import type { CookieOptions } from 'express';
 import bcrypt from 'bcryptjs';
 import crypto from 'crypto';
@@ -71,7 +86,7 @@ async function destroyUserSessions(userId: string) {
 }
 
 async function createTrustedDevice(userId: string, req, res) {
-  const trustResult = await query(
+  const trustResult = await query<{ value: string }>(
     "SELECT value FROM system_settings WHERE key = 'mfa_device_trust'"
   );
   const trustSetting = trustResult.rows[0]?.value || '30d';
@@ -238,14 +253,14 @@ router.post('/login', authLimiter, async (req, res) => {
   if (!username || !password) return res.status(400).json({ error: 'Username and password required' });
 
   try {
-    const authSetting = await query(
+    const authSetting = await query<{ value: string }>(
       "SELECT value FROM system_settings WHERE key = 'internal_auth_disabled'"
     );
     if (authSetting.rows[0]?.value === 'true') {
       return res.status(403).json({ error: 'Password login is disabled. Please sign in with your SSO provider.' });
     }
 
-    const result = await query('SELECT * FROM users WHERE username = $1', [username.toLowerCase().trim()]);
+    const result = await query<UserRow>('SELECT * FROM users WHERE username = $1', [username.toLowerCase().trim()]);
     const user = result.rows[0];
     if (!user) {
       // Run a dummy bcrypt compare so the response time doesn't reveal whether the
@@ -274,7 +289,7 @@ router.post('/login', authLimiter, async (req, res) => {
     const deviceToken = rawCookies.split(';').map(c => c.trim()).find(c => c.startsWith('mf_td='))?.slice(6);
     if (deviceToken) {
       const tokenHash = crypto.createHash('sha256').update(deviceToken).digest('hex');
-      const deviceRes = await query(
+      const deviceRes = await query<{ id: string }>(
         `SELECT id FROM trusted_devices
          WHERE user_id = $1 AND token_hash = $2
            AND (expires_at IS NULL OR expires_at > NOW())`,
@@ -293,7 +308,7 @@ router.post('/login', authLimiter, async (req, res) => {
     }
 
     // Load enforcement policy and device trust setting together
-    const policyResult = await query(
+    const policyResult = await query<{ key: string; value: string }>(
       "SELECT key, value FROM system_settings WHERE key IN ('mfa_enforcement', 'mfa_device_trust')"
     );
     const policyMap: Record<string, string> = {};
@@ -367,7 +382,7 @@ router.post('/2fa/challenge', authLimiter, async (req, res) => {
     return res.status(429).json({ error: 'Too many attempts. Please log in again.' });
   }
 
-  const result = await query('SELECT * FROM users WHERE id = $1', [req.session.pendingUserId]);
+  const result = await query<UserRow>('SELECT * FROM users WHERE id = $1', [req.session.pendingUserId]);
   const user = result.rows[0];
   if (!user || !user.totp_secret) {
     logAuthEvent('totp_fail', { userId: req.session.pendingUserId, ip: req.ip, success: false });
@@ -453,7 +468,7 @@ router.post('/2fa/send-email-otp', authLimiter, async (req, res) => {
     return res.status(429).json({ error: 'Too many code requests. Please wait before requesting another.' });
   }
 
-  const userResult = await query('SELECT recovery_email FROM users WHERE id = $1', [uid]);
+  const userResult = await query<UserRow>('SELECT recovery_email FROM users WHERE id = $1', [uid]);
   const recoveryEmail = userResult.rows[0]?.recovery_email;
   if (!recoveryEmail) return res.status(400).json({ error: 'No recovery email configured' });
 
@@ -490,7 +505,7 @@ router.post('/2fa/verify-email-otp', authLimiter, async (req, res) => {
   }
 
   const codeHash = crypto.createHash('sha256').update(String(code).trim()).digest('hex');
-  const tokenResult = await query(
+  const tokenResult = await query<{ id: string }>(
     `SELECT id FROM email_otp_tokens
      WHERE user_id = $1 AND code_hash = $2 AND used_at IS NULL AND expires_at > NOW()
      ORDER BY created_at DESC LIMIT 1`,
@@ -503,7 +518,7 @@ router.post('/2fa/verify-email-otp', authLimiter, async (req, res) => {
 
   await query('UPDATE email_otp_tokens SET used_at = NOW() WHERE id = $1', [tokenResult.rows[0].id]);
 
-  const userResult = await query('SELECT * FROM users WHERE id = $1', [uid]);
+  const userResult = await query<UserRow>('SELECT * FROM users WHERE id = $1', [uid]);
   const user = userResult.rows[0];
   if (!user) return res.status(401).json({ error: 'Authentication failed' });
 
@@ -532,7 +547,7 @@ router.get('/2fa/enrollment/setup', async (req, res) => {
     return res.status(400).json({ error: 'Session expired. Please log in again.' });
   }
 
-  const userResult = await query('SELECT username FROM users WHERE id = $1', [req.session.pendingUserId]);
+  const userResult = await query<{ username: string }>('SELECT username FROM users WHERE id = $1', [req.session.pendingUserId]);
   const username = userResult.rows[0]?.username || 'user';
 
   const secret = authenticator.generateSecret(20);
@@ -577,7 +592,7 @@ router.post('/2fa/enrollment/enable', authLimiter, async (req, res) => {
     [encrypt(secret), uid]
   );
 
-  const userResult = await query('SELECT * FROM users WHERE id = $1', [uid]);
+  const userResult = await query<UserRow>('SELECT * FROM users WHERE id = $1', [uid]);
   const user = userResult.rows[0];
   if (!user) return res.status(401).json({ error: 'Authentication failed' });
 
@@ -625,7 +640,7 @@ router.post('/logout', async (req, res) => {
 
 router.get('/me', async (req, res) => {
   if (!req.session.userId) return res.status(401).json({ error: 'Not authenticated' });
-  const result = await query('SELECT id, username, display_name, avatar, is_admin, totp_enabled, password_hash, lock_pin_hash FROM users WHERE id = $1', [req.session.userId]);
+  const result = await query<{ id: string; username?: string | null; display_name?: string | null; avatar?: string | null; is_admin?: boolean; totp_enabled?: boolean; password_hash?: string | null; lock_pin_hash?: string | null }>('SELECT id, username, display_name, avatar, is_admin, totp_enabled, password_hash, lock_pin_hash FROM users WHERE id = $1', [req.session.userId]);
   const user = result.rows[0];
   if (!user) return res.status(401).json({ error: 'Not authenticated' });
   req.session.isAdmin = user.is_admin;
@@ -655,7 +670,7 @@ router.post('/unlock', async (req, res) => {
   if (!req.session.userId) return res.status(401).json({ error: 'Not authenticated' });
   const pin = String(req.body?.pin ?? '');
   if (!pin) return res.status(400).json({ error: 'PIN required' });
-  const result = await query('SELECT lock_pin_hash FROM users WHERE id = $1', [req.session.userId]);
+  const result = await query<UserRow>('SELECT lock_pin_hash FROM users WHERE id = $1', [req.session.userId]);
   const user = result.rows[0];
   if (!user || !user.lock_pin_hash) return res.status(400).json({ error: 'No lock PIN set for this account' });
   const failKey = `unlock:${req.session.userId}`;
@@ -679,7 +694,7 @@ router.post('/lock-pin', async (req, res) => {
   if (!req.session.userId) return res.status(401).json({ error: 'Not authenticated' });
   const pin = String(req.body?.pin ?? '');
   if (!LOCK_PIN_RE.test(pin)) return res.status(400).json({ error: 'PIN must be 4 to 6 digits' });
-  const result = await query('SELECT lock_pin_hash FROM users WHERE id = $1', [req.session.userId]);
+  const result = await query<UserRow>('SELECT lock_pin_hash FROM users WHERE id = $1', [req.session.userId]);
   const existing = result.rows[0]?.lock_pin_hash;
   if (existing) {
     // Changing an existing PIN requires the current one.
@@ -695,7 +710,7 @@ router.post('/lock-pin', async (req, res) => {
 
 router.delete('/lock-pin', async (req, res) => {
   if (!req.session.userId) return res.status(401).json({ error: 'Not authenticated' });
-  const result = await query('SELECT lock_pin_hash FROM users WHERE id = $1', [req.session.userId]);
+  const result = await query<UserRow>('SELECT lock_pin_hash FROM users WHERE id = $1', [req.session.userId]);
   const existing = result.rows[0]?.lock_pin_hash;
   if (!existing) return res.json({ ok: true });
   const currentPin = String(req.body?.currentPin ?? '');
@@ -735,7 +750,7 @@ router.delete('/avatar', async (req, res) => {
 
 // Public endpoint: check registration and auth settings (used by login page)
 router.get('/registration-status', async (req, res) => {
-  const result = await query(
+  const result = await query<{ key: string; value: string }>(
     "SELECT key, value FROM system_settings WHERE key IN ('registration_open', 'internal_auth_disabled')"
   );
   const map: Record<string, string> = {};
@@ -760,8 +775,8 @@ router.get('/invite/:token', async (req, res) => {
 router.get('/preferences', async (req, res) => {
   if (!req.session.userId) return res.status(401).json({ error: 'Not authenticated' });
   const [userResult, cssResult] = await Promise.all([
-    query('SELECT preferences FROM users WHERE id = $1', [req.session.userId]),
-    query("SELECT value FROM system_settings WHERE key = 'custom_css'"),
+    query<{ preferences?: { customCss?: string | null; [key: string]: unknown } | null }>('SELECT preferences FROM users WHERE id = $1', [req.session.userId]),
+    query<{ value: string }>("SELECT value FROM system_settings WHERE key = 'custom_css'"),
   ]);
   const prefs = userResult.rows[0]?.preferences || {};
   const customCss = cssResult.rows[0]?.value;
@@ -875,7 +890,7 @@ export async function patchPreferences(req, res) {
         return res.status(400).json({ error: 'calendar work hours must be a strictly increasing same-day range' });
       }
     } else {
-      const currentPreferences = (await query('SELECT preferences FROM users WHERE id = $1', [req.session.userId])).rows[0]?.preferences || {};
+      const currentPreferences = (await query<{ preferences?: { customCss?: string | null; [key: string]: unknown } | null }>('SELECT preferences FROM users WHERE id = $1', [req.session.userId])).rows[0]?.preferences || {};
       const currentStart = currentPreferences.calendarWorkHoursStart;
       const currentEnd = currentPreferences.calendarWorkHoursEnd;
       const baseStart = validWorkRange(currentStart, currentEnd) ? currentStart : '09:00';
@@ -1030,7 +1045,7 @@ router.post('/preferences/whitelist-add', async (req, res) => {
 
 router.get('/profile/recovery-email', async (req, res) => {
   if (!req.session.userId) return res.status(401).json({ error: 'Not authenticated' });
-  const result = await query('SELECT recovery_email FROM users WHERE id = $1', [req.session.userId]);
+  const result = await query<UserRow>('SELECT recovery_email FROM users WHERE id = $1', [req.session.userId]);
   res.json({ email: result.rows[0]?.recovery_email || null });
 });
 
@@ -1052,7 +1067,7 @@ router.patch('/profile/recovery-email', async (req, res) => {
 // Looks up a user by recovery_email and sends a reset link.
 // Always returns 200 to avoid leaking whether a recovery email exists.
 router.post('/forgot-password', authLimiter, async (req, res) => {
-  const authSetting = await query(
+  const authSetting = await query<{ value: string }>(
     "SELECT value FROM system_settings WHERE key = 'internal_auth_disabled'"
   );
   if (authSetting.rows[0]?.value === 'true') {
@@ -1103,7 +1118,7 @@ router.post('/forgot-password', authLimiter, async (req, res) => {
 
       // 1. Try system SMTP
       try {
-        const sysResult = await query("SELECT value FROM system_settings WHERE key = 'system_email_config'");
+        const sysResult = await query<{ value: string }>("SELECT value FROM system_settings WHERE key = 'system_email_config'");
         if (sysResult.rows.length) {
           const cfg = JSON.parse(sysResult.rows[0].value);
           const pass = cfg.pass ? decrypt(cfg.pass) : null;
@@ -1185,7 +1200,7 @@ router.post('/reset-password', authLimiter, async (req, res) => {
   try {
     // Atomically consume the token — DELETE RETURNING prevents two concurrent resets
     // from both reading a valid token, both updating the password, and only then deleting.
-    const tokenResult = await query(
+    const tokenResult = await query<{ user_id: string }>(
       `DELETE FROM password_reset_tokens
        WHERE token_hash = $1 AND expires_at > NOW()
        RETURNING user_id`,

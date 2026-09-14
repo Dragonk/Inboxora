@@ -47,8 +47,8 @@ export async function put(pluginId: string, key: string, { value = {}, blob = nu
 }
 
 // Metadata (no blob) — key, owner, JSON value, visibility. Null when absent.
-export async function getValue(pluginId: string, key: string) {
-  const { rows } = await query(
+export async function getValue(pluginId: string, key: string): Promise<{ key: string; owner_id?: string | null; value: Record<string, unknown>; visibility?: string | null } | null> {
+  const { rows } = await query<{ key: string; owner_id?: string | null; value: Record<string, unknown>; visibility?: string | null }>(
     `SELECT key, owner_id, value, visibility FROM plugin_data WHERE plugin_id = $1 AND key = $2`,
     [pluginId, key]
   );
@@ -56,8 +56,8 @@ export async function getValue(pluginId: string, key: string) {
 }
 
 // The binary blob + mime (and owner/visibility for gating). Null when absent.
-export async function getBlob(pluginId: string, key: string) {
-  const { rows } = await query(
+export async function getBlob(pluginId: string, key: string): Promise<{ blob: Buffer | string; blob_mime?: string | null; owner_id?: string | null; visibility?: string | null } | null> {
+  const { rows } = await query<{ blob: Buffer | string; blob_mime?: string | null; owner_id?: string | null; visibility?: string | null }>(
     `SELECT blob, blob_mime, owner_id, visibility FROM plugin_data WHERE plugin_id = $1 AND key = $2`,
     [pluginId, key]
   );

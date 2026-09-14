@@ -1,4 +1,5 @@
 import { randomBytes } from 'crypto';
+import type { EmailAccountRow } from '../services/imapManager.js';
 import { Router } from 'express';
 import { createRemoteJWKSet, jwtVerify } from 'jose';
 import { query, withTransaction } from '../services/db.js';
@@ -232,7 +233,7 @@ async function processMicrosoftTokens(userId: string, tokens, { tenantId, client
       accountId = result.rows[0].id;
     }
 
-    const accountResult = await client.query('SELECT * FROM email_accounts WHERE id = $1', [accountId]);
+    const accountResult = await client.query<EmailAccountRow>('SELECT * FROM email_accounts WHERE id = $1', [accountId]);
     return accountResult.rows[0];
   });
 

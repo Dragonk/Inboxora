@@ -10,6 +10,7 @@ import { sanitizeSignature, sanitizeComposeBody } from '../services/emailSanitiz
 import { embedInlineDataImages } from '../utils/inlineImages.js';
 import { redisClient } from '../services/redis.js';
 import { redactEmail } from '../utils/redact.js';
+import type { EmailAccountRow } from '../services/imapManager.js';
 import { resolveSentFolder } from '../utils/mailUtils.js';
 import { generateVCard } from '../utils/vcard.js';
 import { createAccountSmtpTransport } from '../services/smtpTransport.js';
@@ -258,8 +259,8 @@ router.post('/send', async (req, res) => {
   const normalizedSubject = sanitizeHeaderValue(subject || '');
 
   const [result, prefResult] = await Promise.all([
-    query('SELECT * FROM email_accounts WHERE id = $1 AND user_id = $2', [accountId, req.session.userId]),
-    query('SELECT preferences FROM users WHERE id = $1', [req.session.userId]),
+    query<EmailAccountRow>('SELECT * FROM email_accounts WHERE id = $1 AND user_id = $2', [accountId, req.session.userId]),
+    query<{ preferences?: { plaintextEmail?: boolean; [key: string]: unknown } | null }>('SELECT preferences FROM users WHERE id = $1', [req.session.userId]),
   ]);
   if (!result.rows.length) return res.status(404).json({ error: 'Account not found' });
   const plaintextEmail = prefResult.rows[0]?.preferences?.plaintextEmail === true;
@@ -267,12 +268,12 @@ router.post('/send', async (req, res) => {
 
   // Resolve the From identity — account by default, alias if requested
   let fromName = account.sender_name || account.name;
-  let fromEmail = account.email_address;
+  let fromEmail = account.email_address || '';
   let fromSignature = account.signature;
   let fromReplyTo = null;
 
   if (aliasId) {
-    const aliasResult = await query(
+    const aliasResult = await query<{ name?: string | null; email?: string | null; reply_to?: string | null; signature?: string | null; [key: string]: unknown }>(
       'SELECT * FROM account_aliases WHERE id = $1 AND account_id = $2',
       [aliasId, accountId]
     );
@@ -332,7 +333,7 @@ router.post('/send', async (req, res) => {
       // Load the owning accounts once, then fetch bodies with bounded concurrency so we never
       // open a burst of fresh IMAP connections (fetchAttachment opens a connection per call).
       const distinctAcctIds = [...new Set(fetchPlan.map(p => p.msg.account_id))];
-      const acctRows = await query('SELECT * FROM email_accounts WHERE id = ANY($1::uuid[])', [distinctAcctIds]);
+      const acctRows = await query<EmailAccountRow>('SELECT * FROM email_accounts WHERE id = ANY($1::uuid[])', [distinctAcctIds]);
       const acctById = new Map(acctRows.rows.map(a => [a.id, a]));
 
       const FWD_FETCH_CONCURRENCY = 4;
@@ -372,7 +373,7 @@ router.post('/send', async (req, res) => {
     const transport = smtp.transport;
 
     // Use a stable Message-ID so the SMTP copy and any IMAP APPEND reference the same message.
-    const domain = fromEmail.split('@')[1] || 'mailflow.local';
+    const domain = (fromEmail || '').split('@')[1] || 'mailflow.local';
     const mailOptions: SendMailOptions = {
       messageId: `<${randomBytes(16).toString('hex')}@${domain}>`,
       from: `${fromName} <${fromEmail}>`,

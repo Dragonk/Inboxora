@@ -14,6 +14,7 @@ declare module 'express-serve-static-core' {
       id: string;
       userId: string;
       deviceId: string;
+      transport: string;
       [key: string]: unknown;
     };
   }

@@ -37,7 +37,7 @@ function totpLimiter(req: Request, res: Response, next: NextFunction) {
 
 // GET /api/totp/setup — generate a new TOTP secret and QR code
 router.get('/setup', async (req: Request, res: Response) => {
-  const userResult = await query('SELECT username FROM users WHERE id = $1', [req.session.userId]);
+  const userResult = await query<{ username: string }>('SELECT username FROM users WHERE id = $1', [req.session.userId]);
   const username = userResult.rows[0]?.username || 'user';
 
   const secret = authenticator.generateSecret(20);
@@ -98,7 +98,7 @@ router.post('/disable', totpLimiter, async (req: Request, res: Response) => {
   if (!user.password_hash) {
     return res.status(400).json({ error: 'Your account uses SSO login and has no password. Contact an administrator to disable 2FA.' });
   }
-  const valid = await bcrypt.compare(password, user.password_hash);
+  const valid = await bcrypt.compare(password, String(user.password_hash));
   if (!valid) return res.status(401).json({ error: 'Incorrect password' });
 
   await query(

@@ -75,7 +75,7 @@ async function loadSocialDomains(userId: string) {
   const cached = socialDomainCache.get(userId);
   if (cached && cached.expiry > Date.now()) return cached.domains;
 
-  const result = await query(
+  const result = await query<{ source_type: string; value: string; resolved_domains?: unknown }>(
     `SELECT source_type, value, resolved_domains
      FROM category_list_sources
      WHERE user_id = $1 AND enabled = true`,
@@ -180,7 +180,7 @@ export async function backfillCategories(accountId: string, userId: string) {
   let processed = 0;
 
   for (;;) {
-    const result = await query(
+    const result = await query<{ id: string; from_email?: string | null; is_bulk?: boolean | null }>(
       `SELECT id, from_email, is_bulk
        FROM messages
        WHERE account_id = $1

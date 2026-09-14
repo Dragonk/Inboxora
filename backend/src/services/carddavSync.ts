@@ -15,8 +15,8 @@ const DEFAULT_INTERVAL_MIN = 60;
 const timers = new Map();   // userId -> interval id
 const syncing = new Set();  // userIds with a sync in flight (prevents overlap)
 
-export async function getCardavConfig(userId: string) {
-  const r = await query(
+export async function getCardavConfig(userId: string): Promise<{ serverUrl?: string | null; username?: string | null; password?: string | null; dupMode?: string | null; intervalMin?: number | null; [key: string]: unknown } | null> {
+  const r = await query<{ config?: { serverUrl?: string | null; username?: string | null; password?: string | null; dupMode?: string | null; intervalMin?: number | null; [key: string]: unknown } | null }>(
     "SELECT config FROM user_integrations WHERE user_id = $1 AND provider = 'carddav'",
     [userId],
   );
@@ -36,7 +36,7 @@ export async function saveCardavConfig(userId: string, patch) {
 // keyed by external_url. Address-book names are unique per user, so on a name
 // clash we disambiguate with a suffix.
 async function ensureCardavBook(userId: string, book) {
-  const existing = await query(
+  const existing = await query<{ id: string }>(
     "SELECT id FROM address_books WHERE user_id = $1 AND external_url = $2",
     [userId, book.url],
   );
@@ -137,7 +137,7 @@ async function syncBook(userId: string, book, dupMode, creds) {
   // Emails present in the user's OTHER books, for cross-book duplicate handling.
   const otherEmail = new Map(); // email -> existing contact id
   if (dupMode !== 'separate') {
-    const rows = await query(
+    const rows = await query<{ primary_email: string; id: string }>(
       `SELECT id, primary_email FROM contacts
        WHERE user_id = $1 AND address_book_id <> $2 AND primary_email IS NOT NULL`,
       [userId, bookId],
@@ -233,7 +233,7 @@ export function stopCardavUser(userId: string) {
 
 export async function startCardavScheduler() {
   try {
-    const rows = await query("SELECT user_id, config FROM user_integrations WHERE provider = 'carddav'");
+    const rows = await query<{ user_id: string; config?: { serverUrl?: string | null; intervalMin?: number | null } | null }>("SELECT user_id, config FROM user_integrations WHERE provider = 'carddav'");
     for (const row of rows.rows) {
       if (row.config?.serverUrl) scheduleCardavUser(row.user_id, row.config?.intervalMin);
     }

@@ -11,8 +11,19 @@
 import { query } from './db.js';
 
 // A message the user owns (joined through their accounts), or null. Full row (m.*).
-export async function loadOwnedMessage(userId: string, messageId: string) {
-  const { rows } = await query(
+/** A message the user owns, as this module selects it (full row). */
+export interface OwnedMessageRow {
+  id: string;
+  account_id: string;
+  folder?: string | null;
+  uid?: number | string | null;
+  subject?: string | null;
+  is_read?: boolean;
+  is_starred?: boolean;
+  [key: string]: unknown;
+}
+export async function loadOwnedMessage(userId: string, messageId: string): Promise<OwnedMessageRow | null> {
+  const { rows } = await query<OwnedMessageRow>(
     `SELECT m.*
        FROM messages m
        JOIN email_accounts a ON a.id = m.account_id
@@ -33,8 +44,17 @@ export async function getOwnedAccount(userId: string, accountId: string) {
 
 // All of the user's accounts (light columns for listing/iteration). The caller filters by its
 // own per-account config (e.g. which accounts have a feature enabled).
-export async function listUserAccounts(userId: string) {
-  const { rows } = await query(
+/** An account summary as the access helpers select it. */
+export interface UserAccountSummary {
+  id: string;
+  email_address?: string | null;
+  folder_mappings?: Record<string, string> | null;
+  include_in_unified_inbox?: boolean | null;
+  enabled?: boolean | null;
+  [key: string]: unknown;
+}
+export async function listUserAccounts(userId: string): Promise<UserAccountSummary[]> {
+  const { rows } = await query<UserAccountSummary>(
     `SELECT id, email_address, folder_mappings, include_in_unified_inbox, enabled
        FROM email_accounts
       WHERE user_id = $1
@@ -56,9 +76,9 @@ export async function getAccountAddresses(accountId: string) {
 }
 
 // Distinct thread keys for a set of row ids within an account.
-export async function getThreadKeysForMessageIds(accountId: string, ids) {
+export async function getThreadKeysForMessageIds(accountId: string, ids: string[]): Promise<string[]> {
   if (!ids || ids.length === 0) return [];
-  const { rows } = await query(
+  const { rows } = await query<{ thread_key: string }>(
     `SELECT DISTINCT thread_key FROM messages
       WHERE account_id = $1 AND id = ANY($2::uuid[])`,
     [accountId, ids]
@@ -67,9 +87,9 @@ export async function getThreadKeysForMessageIds(accountId: string, ids) {
 }
 
 // Distinct thread keys for the live messages currently in a set of folders within an account.
-export async function getThreadKeysInFolders(accountId: string, folders) {
+export async function getThreadKeysInFolders(accountId: string, folders: string[]): Promise<string[]> {
   if (!folders || folders.length === 0) return [];
-  const { rows } = await query(
+  const { rows } = await query<{ thread_key: string }>(
     `SELECT DISTINCT thread_key FROM messages
       WHERE account_id = $1 AND folder = ANY($2::text[]) AND is_deleted = false`,
     [accountId, folders]
@@ -78,9 +98,9 @@ export async function getThreadKeysInFolders(accountId: string, folders) {
 }
 
 // Distinct thread keys for messages matching any of the given RFC Message-IDs within an account.
-export async function getThreadKeysForMessageIdHeaders(accountId: string, messageIdHeaders) {
+export async function getThreadKeysForMessageIdHeaders(accountId: string, messageIdHeaders): Promise<string[]> {
   if (!messageIdHeaders || messageIdHeaders.length === 0) return [];
-  const { rows } = await query(
+  const { rows } = await query<{ thread_key: string }>(
     `SELECT DISTINCT thread_key FROM messages
       WHERE account_id = $1 AND message_id = ANY($2::text[]) AND is_deleted = false`,
     [accountId, messageIdHeaders]
@@ -90,9 +110,9 @@ export async function getThreadKeysForMessageIdHeaders(accountId: string, messag
 
 // The live messages of a set of threads within an account (fields a labeler needs to decide
 // recency/sender). Excludes deleted rows.
-export async function getMessagesByThreadKeys(accountId: string, threadKeys) {
+export async function getMessagesByThreadKeys(accountId: string, threadKeys: string[]): Promise<Array<{ thread_key: string; uid: number; folder: string; from_email?: string | null; date?: string | Date | null; id?: string }>> {
   if (!threadKeys || threadKeys.length === 0) return [];
-  const { rows } = await query(
+  const { rows } = await query<{ thread_key: string; uid: number; folder: string; from_email?: string | null; date?: string | Date | null; id?: string }>(
     `SELECT thread_key, uid, folder, from_email, date, id
        FROM messages
       WHERE account_id = $1 AND thread_key = ANY($2::text[]) AND is_deleted = false`,
@@ -102,8 +122,8 @@ export async function getMessagesByThreadKeys(accountId: string, threadKeys) {
 }
 
 // The thread key of a single message identified by its (uid, folder) within an account, or null.
-export async function getThreadKeyForUid(accountId: string, uid: number, folder: string) {
-  const { rows } = await query(
+export async function getThreadKeyForUid(accountId: string, uid: number, folder: string): Promise<string | null> {
+  const { rows } = await query<{ thread_key: string }>(
     'SELECT thread_key FROM messages WHERE account_id = $1 AND uid = $2 AND folder = $3 LIMIT 1',
     [accountId, uid, folder]
   );
@@ -138,7 +158,7 @@ export async function getMessageFields(accountId: string, ids) {
 // { [messageId]: <the plugin's annotation object> }. Reads only this plugin's namespace.
 export async function getMessageAnnotations(accountId: string, ids, pluginId: string) {
   if (!ids || ids.length === 0) return {};
-  const { rows } = await query(
+  const { rows } = await query<{ id: string; ann?: string | null }>(
     'SELECT id, plugin_annotations -> $3 AS ann FROM messages WHERE account_id = $1 AND id = ANY($2::uuid[])',
     [accountId, ids, pluginId]
   );

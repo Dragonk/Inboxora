@@ -1,5 +1,16 @@
 import { query } from './db.js';
 
+/** A labelled thread head as the sections builder reads it. */
+export interface LabelledThreadHead {
+  id: string;
+  state: string;
+  total: number;
+  unread: number;
+  gist?: unknown;
+  [key: string]: unknown;
+}
+
+
 // Generic thread-aware "labels" READ capability (v3.0 plugin platform).
 //
 // Given a set of label folders for one account, return the thread HEADS grouped by label,
@@ -89,7 +100,7 @@ const SECTION_SQL = `
 // deduped union rollup (waiting_total/waiting_unread, constant across the returned rows).
 // Returns the raw rows; mapping/presentation is the caller's.
 export async function listThreadHeadsByLabels(accountId: string, { labels, labelFolders, draftFolders, limit, unionLabels }) {
-  const { rows } = await query(SECTION_SQL, [accountId, labels, labelFolders, draftFolders, limit, unionLabels]);
+  const { rows } = await query<LabelledThreadHead>(SECTION_SQL, [accountId, labels, labelFolders, draftFolders, limit, unionLabels]);
   return rows;
 }
 

@@ -1,4 +1,5 @@
 import { mergeCalendarResource, truncateSeriesBefore } from '../utils/calendarRecurrence.js';
+import type { EmailAccountRow } from '../services/imapManager.js';
 import ICAL from 'ical.js';
 import { parseInboundCalendarInvitation } from '../services/inboundCalendarInvitation.js';
 import { parseCalendarEvent } from '../utils/ical.js';
@@ -210,7 +211,7 @@ async function updateInvitedEvent(req, fields) {
     if (cancelledAttendees.length) {
       cancellationAccount = invitationAccount.id === existing.invite_account_id
         ? invitationAccount
-        : (await client.query('SELECT * FROM email_accounts WHERE id = $1 AND user_id = $2 AND smtp_host IS NOT NULL', [existing.invite_account_id, req.session.userId])).rows[0] || null;
+        : (await client.query<EmailAccountRow>('SELECT * FROM email_accounts WHERE id = $1 AND user_id = $2 AND smtp_host IS NOT NULL', [existing.invite_account_id, req.session.userId])).rows[0] || null;
       if (!cancellationAccount) return { cancelFailed: true };
     }
     const rawIcal = mergeCalendarResource(existing.raw_ical, localEventIcal({ uid: existing.uid, summary, description, location, url, organizer, attendees: normalizedAttendees, allDay: Boolean(allDay), ...times }));
@@ -235,8 +236,8 @@ async function writableCalendar(userId: string, calendarId) {
   return { calendar };
 }
 
-async function contactCalendarAppearance(userId: string) {
-  const result = await query("SELECT preferences->'calendarContactAppearance' AS appearance FROM users WHERE id = $1", [userId]);
+async function contactCalendarAppearance(userId: string): Promise<{ name?: string | null; color?: string | null; [key: string]: unknown }> {
+  const result = await query<{ appearance?: { name?: string | null; color?: string | null; [key: string]: unknown } | null }>("SELECT preferences->'calendarContactAppearance' AS appearance FROM users WHERE id = $1", [userId]);
   return result?.rows?.[0]?.appearance || {};
 }
 
@@ -246,7 +247,7 @@ async function fetchInvitationAttachment(row, userId: string) {
   const attachments = typeof row.attachments === 'string' ? JSON.parse(row.attachments) : row.attachments || [];
   const candidates = attachments.filter(item => /^(text\/calendar|application\/(ics|ical|calendar))$/i.test(item.type || '') || /\.ics$/i.test(item.filename || ''));
   if (candidates.length !== 1 || candidates[0].size > 1024 * 1024) return null;
-  const account = await query('SELECT * FROM email_accounts WHERE id = $1 AND user_id = $2', [row.account_id, userId]);
+  const account = await query<EmailAccountRow>('SELECT * FROM email_accounts WHERE id = $1 AND user_id = $2', [row.account_id, userId]);
   if (!account.rows[0]) return null;
   const { imapManager } = await import('../index.js');
   let data;
@@ -592,7 +593,7 @@ router.post('/events', async (req, res) => {
 
   let invitationAccount = null;
   if (sendInvites) {
-    const sender = await query(
+    const sender = await query<EmailAccountRow>(
       'SELECT * FROM email_accounts WHERE id = $1 AND user_id = $2 AND enabled = true AND smtp_host IS NOT NULL',
       [inviteAccountId, req.session.userId],
     );
@@ -648,7 +649,7 @@ router.post('/events', async (req, res) => {
 
   const uid = crypto.randomUUID();
   const rawIcal = localEventIcal({ uid, summary, description, location, url, organizer, attendees: normalizedAttendees, allDay: Boolean(allDay), ...times });
-  const result = await query(
+  const result = await query<{ id: string; calendar_id: string; uid: string; etag?: string | null; summary?: string | null; description?: string | null; location?: string | null; url?: string | null; organizer?: string | null; starts_at?: string | Date | null; ends_at?: string | Date | null; all_day?: boolean | null; timezone?: string | null; attendees?: unknown; invite_account_id?: string | null; invitation_sequence?: number | null; created_at?: string | Date | null }>(
     `INSERT INTO calendar_events (
        calendar_id, user_id, uid, raw_ical, summary, description, location, url, organizer,
        starts_at, ends_at, all_day, timezone, attendees, invite_account_id
@@ -725,7 +726,7 @@ router.patch('/events/:eventId', async (req, res) => {
 
   let invitationAccount = null;
   if (sendInvites) {
-    const sender = await query('SELECT * FROM email_accounts WHERE id = $1 AND user_id = $2 AND enabled = true AND smtp_host IS NOT NULL', [inviteAccountId, req.session.userId]);
+    const sender = await query<EmailAccountRow>('SELECT * FROM email_accounts WHERE id = $1 AND user_id = $2 AND enabled = true AND smtp_host IS NOT NULL', [inviteAccountId, req.session.userId]);
     invitationAccount = sender.rows[0] || null;
     if (!invitationAccount) return res.status(400).json({ error: 'The selected sender account is unavailable' });
   }
@@ -766,7 +767,7 @@ router.patch('/events/:eventId', async (req, res) => {
       : cancelledAttendees.length
         // A disabled account retains SMTP settings for cancellation; referenced
         // sender accounts cannot be deleted because the FK is ON DELETE RESTRICT.
-        ? (await client.query('SELECT * FROM email_accounts WHERE id = $1 AND user_id = $2 AND smtp_host IS NOT NULL', [existingEvent.invite_account_id, req.session.userId])).rows[0] || null
+        ? (await client.query<EmailAccountRow>('SELECT * FROM email_accounts WHERE id = $1 AND user_id = $2 AND smtp_host IS NOT NULL', [existingEvent.invite_account_id, req.session.userId])).rows[0] || null
         : null;
     if (cancelledAttendees.length) {
       if (!cancellationAccount) return { cancelFailed: true };
@@ -821,7 +822,7 @@ router.delete('/events/:eventId', async (req, res) => {
       try {
         // A disabled account retains SMTP settings for cancellation; referenced
         // sender accounts cannot be deleted because the FK is ON DELETE RESTRICT.
-        const sender = await client.query('SELECT * FROM email_accounts WHERE id = $1 AND user_id = $2 AND smtp_host IS NOT NULL', [event.invite_account_id, req.session.userId]);
+        const sender = await client.query<EmailAccountRow>('SELECT * FROM email_accounts WHERE id = $1 AND user_id = $2 AND smtp_host IS NOT NULL', [event.invite_account_id, req.session.userId]);
         if (!sender.rows[0]) return { cancelFailed: true };
         await sendCalendarInvitation({ account: sender.rows[0], attendees: event.attendees, summary: event.summary, description: event.description, location: event.location, uid: event.uid, allDay: Boolean(event.all_day), method: 'CANCEL', sequence: Number(event.invitation_sequence || 0) + 1, startsAt: new Date(event.starts_at), endsAt: new Date(event.ends_at) });
       } catch (caught) {
@@ -881,7 +882,7 @@ router.post('/sources', async (req, res) => {
   try {
     const normalizedUrl = parsed.toString();
     const urlFingerprint = crypto.createHash('sha256').update(normalizedUrl).digest('hex');
-    const result = await query(
+    const result = await query<{ id: string; user_id: string; kind: string; url: string; url_fingerprint?: string | null; username?: string | null; password?: string | null; display_name?: string | null; [key: string]: unknown }>(
       `INSERT INTO calendar_import_sources (user_id, kind, url, url_fingerprint, username, password, display_name, color, interval_min)
        VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9) RETURNING *`,
       [req.session.userId, kind, encrypt(normalizedUrl), urlFingerprint, username || null, password ? encrypt(password) : null, displayName, color, interval],

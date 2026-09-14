@@ -275,7 +275,7 @@ router.get('/contacts', searchLimiter, async (req: Request, res: Response) => {
   if (!trimmed || trimmed.length < 2) return res.json({ contacts: [] });
   if (trimmed.length > 100) return res.status(400).json({ error: 'Query too long' });
 
-  const accountsResult = await query(
+  const accountsResult = await query<{ id: string }>(
     'SELECT id FROM email_accounts WHERE user_id = $1 AND enabled = true',
     [req.session.userId]
   );

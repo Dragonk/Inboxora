@@ -218,7 +218,7 @@ router.propfind('/:userId/:bookId/', async (req, res) => {
   }
 
   // Depth: 1 — list all VCards in the book.
-  const contacts = await query(
+  const contacts = await query<{ uid: string; dav_filename?: string | null; etag?: string | null }>(
     'SELECT uid, dav_filename, etag FROM contacts WHERE address_book_id = $1',
     [book.id]
   );

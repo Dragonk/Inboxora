@@ -161,7 +161,7 @@ export async function materializePendingOccurrences({ limit = BATCH_SIZE } = {})
   // Claim atomically. `FOR UPDATE SKIP LOCKED` inside the UPDATE means two API instances
   // running this worker at the same time never take the same event, and neither blocks on the
   // other. Clearing `dirty` here is what performs the claim; a failure below sets it back.
-  const pending = await query(
+  const pending = await query<{ event_id: string }>(
     `UPDATE calendar_occurrence_state
         SET dirty = false, updated_at = NOW()
       WHERE event_id IN (

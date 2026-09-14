@@ -46,12 +46,12 @@ async function insertLegacyFixture(client: DbClient) {
   await client.query('DELETE FROM users WHERE id = $1', [userId]);
   await client.query('INSERT INTO users (id, username) VALUES ($1,$2)', [userId, `legacy-fixture-${Date.now()}`]);
   await client.query('INSERT INTO email_accounts (id,user_id,name,email_address) VALUES ($1,$3,$4,$5),($2,$3,$6,$7)', [accountA, accountB, userId, 'Legacy A', 'legacy-a@example.test', 'Legacy B', 'legacy-b@example.test']);
-  const fixture = await client.query('SELECT * FROM legacy_conversation_fixture ORDER BY fixture_key');
+  const fixture = await client.query<{ id?: string; fixture_key?: string; [key: string]: unknown }>('SELECT * FROM legacy_conversation_fixture ORDER BY fixture_key');
   const accounts: Record<string, string> = { 'account-a': accountA, 'account-b': accountB };
   for (const row of fixture.rows) {
     const id = `00000000-0000-0000-0000-${String(200 + fixture.rows.indexOf(row)).padStart(12, '0')}`;
-    await client.query(`INSERT INTO messages (id,account_id,uid,folder,message_id,subject,from_email,to_addresses,date,in_reply_to,thread_references,thread_id)
-      VALUES ($1::uuid,$2::uuid,$3::int,$4::text,$5::text,$6::text,$7::text,$8::jsonb,$9::timestamptz,$10::text,$11::text,$5::text)`, [id, accounts[row.account_key], fixture.rows.indexOf(row) + 1, row.sent_copy ? 'Sent' : 'INBOX', row.message_id, row.subject, row.sender, JSON.stringify([{ email: row.recipient }]), row.message_date, row.in_reply_to, row.references_header]);
+    await client.query<{ id: string; [key: string]: unknown }>(`INSERT INTO messages (id,account_id,uid,folder,message_id,subject,from_email,to_addresses,date,in_reply_to,thread_references,thread_id)
+      VALUES ($1::uuid,$2::uuid,$3::int,$4::text,$5::text,$6::text,$7::text,$8::jsonb,$9::timestamptz,$10::text,$11::text,$5::text)`, [id, accounts[String(row.account_key)], fixture.rows.indexOf(row) + 1, row.sent_copy ? 'Sent' : 'INBOX', row.message_id, row.subject, row.sender, JSON.stringify([{ email: row.recipient }]), row.message_date, row.in_reply_to, row.references_header]);
   }
   return { userId, accounts: 2, messages: fixture.rows.length };
 }

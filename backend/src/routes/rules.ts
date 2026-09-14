@@ -1,4 +1,5 @@
 import { Router } from 'express';
+import type { EmailAccountRow } from '../services/imapManager.js';
 import { query } from '../services/db.js';
 import { requireAuth } from '../middleware/auth.js';
 import { applyInboxRules, isDangerousRegex } from '../services/inboxRules.js';
@@ -96,14 +97,14 @@ router.post('/run', async (req: Request, res: Response) => {
   let accountIds;
   try {
     if (accountId) {
-      const owned = await query(
+      const owned = await query<{ id: string }>(
         'SELECT id FROM email_accounts WHERE id = $1 AND user_id = $2',
         [accountId, req.session.userId]
       );
       if (!owned.rows.length) return res.status(404).json({ error: 'Account not found' });
       accountIds = [accountId];
     } else {
-      const accts = await query(
+      const accts = await query<{ id: string }>(
         'SELECT id FROM email_accounts WHERE user_id = $1',
         [req.session.userId]
       );
@@ -120,13 +121,13 @@ router.post('/run', async (req: Request, res: Response) => {
 
   for (const acctId of accountIds) {
     try {
-      const rulesCheck = await query(
+      const rulesCheck = await query<{ cnt: string }>(
         'SELECT COUNT(*) AS cnt FROM inbox_rules WHERE user_id = $1 AND enabled = true AND (account_id IS NULL OR account_id = $2)',
         [req.session.userId, acctId]
       );
       if (parseInt(rulesCheck.rows[0].cnt, 10) === 0) continue;
 
-      const acctResult = await query(
+      const acctResult = await query<EmailAccountRow>(
         'SELECT * FROM email_accounts WHERE id = $1',
         [acctId]
       );
@@ -136,7 +137,7 @@ router.post('/run', async (req: Request, res: Response) => {
       const BATCH = 500;
       let lastId = null;
       while (true) {
-        const msgResult = await query(
+        const msgResult = await query<{ id: string; uid: number; folder: string; from_email?: string | null; from_name?: string | null; to_addresses?: unknown; subject?: string | null; has_attachments?: boolean | null; is_read?: boolean | null }>(
           `SELECT id, uid, folder, from_email, from_name, to_addresses, subject, has_attachments, is_read
            FROM messages
            WHERE account_id = $1 AND lower(folder) = 'inbox'
@@ -204,7 +205,7 @@ router.post('/', async (req: Request, res: Response) => {
     .filter(a => accountId || a.type !== 'move');
   try {
     if (accountId) {
-      const owned = await query(
+      const owned = await query<{ id: string }>(
         'SELECT id FROM email_accounts WHERE id = $1 AND user_id = $2',
         [accountId, req.session.userId]
       );
@@ -214,7 +215,7 @@ router.post('/', async (req: Request, res: Response) => {
     // resolve folder paths. The UI enforces this but a direct API call could bypass it.
     const moveAction = normalizedActions.find(a => a.type === 'move' && a.value?.trim());
     if (moveAction && accountId) {
-      const folderResult = await query(
+      const folderResult = await query<{ total: string; match: string }>(
         `SELECT COUNT(*) AS total, COUNT(*) FILTER (WHERE path = $2) AS match
          FROM folders WHERE account_id = $1`,
         [accountId, moveAction.value.trim()]
@@ -224,7 +225,7 @@ router.post('/', async (req: Request, res: Response) => {
         return res.status(400).json({ error: 'Move destination folder not found for this account' });
       }
     }
-    const countResult = await query(
+    const countResult = await query<{ cnt: string }>(
       'SELECT COUNT(*) AS cnt FROM inbox_rules WHERE user_id = $1',
       [req.session.userId]
     );
@@ -268,7 +269,7 @@ router.put('/:id', async (req: Request, res: Response) => {
     .filter(a => accountId || a.type !== 'move');
   try {
     if (accountId) {
-      const owned = await query(
+      const owned = await query<{ id: string }>(
         'SELECT id FROM email_accounts WHERE id = $1 AND user_id = $2',
         [accountId, req.session.userId]
       );
@@ -276,7 +277,7 @@ router.put('/:id', async (req: Request, res: Response) => {
     }
     const moveAction = normalizedActions.find(a => a.type === 'move' && a.value?.trim());
     if (moveAction && accountId) {
-      const folderResult = await query(
+      const folderResult = await query<{ total: string; match: string }>(
         `SELECT COUNT(*) AS total, COUNT(*) FILTER (WHERE path = $2) AS match
          FROM folders WHERE account_id = $1`,
         [accountId, moveAction.value.trim()]
@@ -333,7 +334,7 @@ router.patch('/reorder', async (req: Request, res: Response) => {
   if (!Array.isArray(ids)) return res.status(400).json({ error: 'ids must be an array' });
   try {
     // Verify all ids belong to this user before updating
-    const owned = await query(
+    const owned = await query<{ id: string }>(
       'SELECT id FROM inbox_rules WHERE id = ANY($1::uuid[]) AND user_id = $2',
       [ids, req.session.userId]
     );

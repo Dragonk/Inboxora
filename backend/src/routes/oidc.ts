@@ -201,7 +201,7 @@ function rememberOidcSession(req, providerId, idToken) {
 export async function buildEndSessionUrl({ providerId, idToken }: EndSessionInput = {}) {
   if (!providerId) return null;
   try {
-    const { rows } = await query(
+    const { rows } = await query<{ issuer_url: string; client_id: string; allow_insecure?: boolean | null; rp_initiated_logout?: boolean | null }>(
       'SELECT issuer_url, client_id, allow_insecure, rp_initiated_logout FROM oidc_providers WHERE id = $1',
       [providerId]
     );
@@ -266,7 +266,7 @@ oidcApiRouter.delete('/identities/:id', requireAuth, async (req, res) => {
     const userResult = await query('SELECT password_hash FROM users WHERE id = $1', [req.session.userId]);
     const hasPassword = !!userResult.rows[0]?.password_hash;
     if (!hasPassword) {
-      const countResult = await query(
+      const countResult = await query<{ count: string }>(
         'SELECT COUNT(*) AS count FROM user_identities WHERE user_id = $1',
         [req.session.userId]
       );
@@ -274,7 +274,7 @@ oidcApiRouter.delete('/identities/:id', requireAuth, async (req, res) => {
         return res.status(400).json({ error: 'Cannot unlink your only login method. Set a password first.' });
       }
     }
-    await query(
+    await query<{ id: string; issuer_url: string; client_id: string; scopes?: string | null; allow_insecure?: boolean | null; rp_initiated_logout?: boolean | null }>(
       'DELETE FROM user_identities WHERE id = $1 AND user_id = $2',
       [req.params.id, req.session.userId]
     );
@@ -309,7 +309,7 @@ oidcBrowserRouter.get('/:slug/start', async (req, res) => {
   }
 
   try {
-    const provResult = await query(
+    const provResult = await query<{ id: string; issuer_url: string; client_id: string; scopes?: string | null; allow_insecure?: boolean | null; rp_initiated_logout?: boolean | null; [key: string]: unknown }>(
       'SELECT * FROM oidc_providers WHERE slug = $1 AND enabled = true',
       [slug]
     );

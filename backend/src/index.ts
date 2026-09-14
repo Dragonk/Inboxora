@@ -276,7 +276,7 @@ await runMigrations();
 // One-time backfill: populate photo_data from existing vcard column for contacts
 // that were synced before CardDAV PUT started persisting photo_data.
 async function backfillContactPhotos() {
-  const { rows } = await query(
+  const { rows } = await query<{ id: string; vcard: string | null }>(
     `SELECT id, vcard FROM contacts WHERE vcard IS NOT NULL AND photo_data IS NULL`
   );
   if (!rows.length) return;
@@ -324,7 +324,7 @@ if (process.env.NODE_ENV !== 'test' && process.env.E2E_DISABLE_IMAP_CONNECT !== 
     if (startupResult.rows.length) {
       console.log(`Reconnecting accounts for ${startupResult.rows.length} user(s) on startup`);
       const MAX_CONCURRENT = 3;
-      const queue = [...startupResult.rows];
+      const queue = [...startupResult.rows] as Array<{ user_id: string; [key: string]: unknown }>;
       function connectNext() {
         if (!queue.length) return;
         const { user_id } = queue.shift();

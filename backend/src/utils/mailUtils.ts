@@ -37,7 +37,7 @@ export interface FolderMappings {
 export async function resolveTrashFolder(accountId: string, folderMappings?: FolderMappings | null) {
   const mapped = await mappedFolderUsable(accountId, folderMappings?.trash);
   if (mapped) return mapped;
-  const result = await query(
+  const result = await query<{ path: string }>(
     `SELECT path FROM folders WHERE account_id = $1
      AND (special_use = '\\Trash' OR lower(name) LIKE '%trash%' OR lower(name) LIKE '%deleted%')
      ORDER BY (CASE WHEN special_use = '\\Trash' THEN 0 ELSE 1 END)
@@ -54,7 +54,7 @@ export async function resolveTrashFolder(accountId: string, folderMappings?: Fol
 export async function resolveAllTrashPaths(accountId: string, folderMappings?: FolderMappings | null) {
   const mapped = await mappedFolderUsable(accountId, folderMappings?.trash);
   if (mapped) return new Set([mapped]);
-  const result = await query(
+  const result = await query<{ path: string }>(
     `SELECT path FROM folders WHERE account_id = $1
      AND (special_use = '\\Trash' OR lower(name) LIKE '%trash%' OR lower(name) LIKE '%deleted%')`,
     [accountId]
@@ -65,7 +65,7 @@ export async function resolveAllTrashPaths(accountId: string, folderMappings?: F
 export async function resolveAllDraftsPaths(accountId: string, folderMappings?: FolderMappings | null) {
   const mapped = await mappedFolderUsable(accountId, folderMappings?.drafts);
   if (mapped) return new Set([mapped]);
-  const result = await query(
+  const result = await query<{ path: string }>(
     `SELECT path FROM folders WHERE account_id = $1
      AND (special_use = '\\Drafts' OR lower(name) LIKE '%draft%')`,
     [accountId]
@@ -83,7 +83,7 @@ export async function resolveAllDraftsPaths(accountId: string, folderMappings?: 
 export async function resolveArchiveFolder(accountId: string, folderMappings?: FolderMappings | null) {
   const mapped = await mappedFolderUsable(accountId, folderMappings?.archive);
   if (mapped) return mapped;
-  const result = await query(
+  const result = await query<{ path: string }>(
     `SELECT path FROM folders WHERE account_id = $1
      AND (special_use = '\\Archive' OR lower(name) LIKE '%archive%' OR special_use = '\\All')
      ORDER BY (CASE
@@ -123,7 +123,7 @@ export async function isAllMailFolder(accountId: string, path?: string | null) {
 export async function resolveSpamFolder(accountId: string, folderMappings?: FolderMappings | null) {
   const mapped = await mappedFolderUsable(accountId, folderMappings?.spam);
   if (mapped) return mapped;
-  const result = await query(
+  const result = await query<{ path: string }>(
     `SELECT path FROM folders WHERE account_id = $1
      AND (special_use = '\\Junk'
           OR lower(name) ~ '(spam|junk|bulk|indesiderata|spamverdacht|courrier ind|posta indesiderata)')
@@ -140,7 +140,7 @@ export async function resolveSpamFolder(accountId: string, folderMappings?: Fold
 export async function resolveAllSpamPaths(accountId: string, folderMappings?: FolderMappings | null) {
   const mapped = await mappedFolderUsable(accountId, folderMappings?.spam);
   if (mapped) return new Set([mapped]);
-  const result = await query(
+  const result = await query<{ path: string }>(
     `SELECT path FROM folders WHERE account_id = $1
      AND (special_use = '\\Junk'
           OR lower(name) ~ '(spam|junk|bulk|indesiderata|spamverdacht|courrier ind|posta indesiderata)')`,
@@ -156,7 +156,7 @@ export async function resolveAllSpamPaths(accountId: string, folderMappings?: Fo
 export async function resolveSentFolder(accountId: string, folderMappings?: FolderMappings | null) {
   const mapped = await mappedFolderUsable(accountId, folderMappings?.sent);
   if (mapped) return mapped;
-  const result = await query(
+  const result = await query<{ path: string }>(
     "SELECT path FROM folders WHERE account_id = $1 AND special_use = '\\Sent' LIMIT 1",
     [accountId]
   );
@@ -201,7 +201,7 @@ export function adjustFolderCounts(accountId: string, path: string, totalDelta: 
 // actually having siblings, so a plain single-folder message never reaches here.
 export async function fanOutReadToSiblings(accountId: string, messageId: string | null, read: boolean) {
   if (!messageId) return; // no shared header → no siblings to fan out to
-  const res = await query(
+  const res = await query<{ folder: string }>(
     `UPDATE messages SET is_read = $1, read_changed_at = NOW()
       WHERE account_id = $2 AND message_id = $3 AND is_read <> $1
       RETURNING folder`,
@@ -232,7 +232,7 @@ export async function fanOutStarToSiblings(accountId: string, messageId: string 
 // per-id placeholder expansion.
 export async function fanOutBulkReadToSiblings(actedIds: string[], read: boolean) {
   if (!actedIds.length) return;
-  const res = await query(
+  const res = await query<{ account_id: string; folder: string }>(
     `UPDATE messages m SET is_read = $1, read_changed_at = NOW()
        FROM (
          SELECT DISTINCT account_id, message_id

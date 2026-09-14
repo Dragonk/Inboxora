@@ -192,7 +192,8 @@ export function createAiProvider({
   async function loadAiConfig() {
     const result = await queryFn("SELECT value FROM system_settings WHERE key = 'ai_config'");
     if (!result.rows.length) return null;
-    const parsed = parseJson(result.rows[0].value);
+    const rawValue = result.rows[0]?.value;
+    const parsed = typeof rawValue === 'string' ? parseJson(rawValue) : null;
     return parsed ? normalizeAiConfig(parsed) : null;
   }
 

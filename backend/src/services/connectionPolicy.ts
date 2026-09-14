@@ -8,7 +8,7 @@ let _cacheAt = 0;
 export async function getConnectionPolicy() {
   const now = Date.now();
   if (_cache && now - _cacheAt < POLICY_TTL_MS) return _cache;
-  const result = await query(
+  const result = await query<{ key: string; value: string }>(
     `SELECT key, value FROM system_settings
      WHERE key IN ('allow_private_hosts', 'allow_insecure_tls', 'allow_nonstandard_ports')`
   );

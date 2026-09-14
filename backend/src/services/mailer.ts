@@ -5,7 +5,7 @@ import { createSmtpTransport } from './smtpTransport.js';
 import { getConnectionPolicy } from './connectionPolicy.js';
 
 export async function sendSystemEmail({ to, subject, text, html = undefined }: { to?: string | string[]; subject?: string; text?: string; html?: string }) {
-  const sysResult = await query(
+  const sysResult = await query<{ value: string }>(
     "SELECT value FROM system_settings WHERE key = 'system_email_config'"
   );
   if (!sysResult.rows.length) throw new Error('System email is not configured');

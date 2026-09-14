@@ -138,10 +138,10 @@ export async function removeAllPushDevices(userId: string) {
 
 // Authenticate a background request by its device token. Returns the owning
 // user id, or null. Prefix lookup keeps it one indexed query + one bcrypt check.
-export async function authenticatePushDevice(tokenValue) {
+export async function authenticatePushDevice(tokenValue: string | null): Promise<{ id: string; userId: string; deviceId: string; transport: string } | null> {
   const parsed = parseDeviceToken(tokenValue);
   if (!parsed) return null;
-  const result = await query(
+  const result = await query<{ id: string; user_id: string; device_id: string; transport: string; token_hash: string }>(
     `SELECT id, user_id, device_id, transport, token_hash
      FROM push_devices
      WHERE token_prefix = $1 AND disabled_at IS NULL`,

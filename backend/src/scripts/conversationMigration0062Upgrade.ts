@@ -320,7 +320,7 @@ async function mismatchCounts(client: DbClient) {
     overrides: `SELECT COUNT(*) FROM conversation_overrides o LEFT JOIN conversations c ON c.id=o.conversation_id LEFT JOIN logical_messages lm ON lm.id=o.logical_message_id LEFT JOIN conversations target ON target.id=o.target_id WHERE (c.id IS NOT NULL AND (o.account_id<>c.account_id OR o.user_id<>c.user_id)) OR (lm.id IS NOT NULL AND (o.account_id<>lm.account_id OR o.user_id<>lm.user_id)) OR (target.id IS NOT NULL AND (o.account_id<>target.account_id OR o.user_id<>target.user_id))`,
   };
   const result: Record<string, number> = {};
-  for (const [name, sql] of Object.entries(queries)) result[name] = Number((await client.query(sql)).rows[0].count);
+  for (const [name, sql] of Object.entries(queries)) result[name] = Number((await client.query<{ count: string }>(sql)).rows[0].count);
   return result;
 }
 
@@ -368,8 +368,8 @@ async function assertMigrationResult(client: DbClient, before: MigrationSnapshot
     const rows = overrideSummary.rows.filter(row => row.override_type === type);
     invariant(rows.some(row => row.account_id === IDS.accountA) && rows.some(row => row.account_id === IDS.accountB), `Override type ${type} was not retained account-locally`, rows);
   }
-  const invalidTarget = await client.query(`SELECT account_id,target_id,target_user_id,reason FROM conversation_overrides WHERE id='62000000-0000-0000-0006-000000000006'`);
-  invariant(invalidTarget.rows.length === 1 && invalidTarget.rows[0].account_id === IDS.accountA && invalidTarget.rows[0].target_id === null && invalidTarget.rows[0].target_user_id === null && invalidTarget.rows[0].reason.includes('[0062: cross-account target removed; original target='), 'Invalid cross-account override target was not retained as auditable state', invalidTarget.rows);
+  const invalidTarget = await client.query<{ account_id: string; target_id?: string | null; target_use?: string | null; reason?: string | null; [key: string]: unknown }>(`SELECT account_id,target_id,target_user_id,reason FROM conversation_overrides WHERE id='62000000-0000-0000-0006-000000000006'`);
+  invariant(invalidTarget.rows.length === 1 && invalidTarget.rows[0].account_id === IDS.accountA && invalidTarget.rows[0].target_id === null && invalidTarget.rows[0].target_user_id === null && (invalidTarget.rows[0].reason ?? '').includes('[0062: cross-account target removed; original target='), 'Invalid cross-account override target was not retained as auditable state', invalidTarget.rows);
 
   const retained = {
     mappings: Number((await client.query('SELECT COUNT(*) FROM provider_thread_mappings')).rows[0].count),
@@ -388,7 +388,7 @@ async function assertMigrationResult(client: DbClient, before: MigrationSnapshot
 }
 
 async function accountStateRows(client: DbClient, accountId: string) {
-  const result = await client.query(`
+  const result = await client.query<AccountStateRow>(`
     WITH rows AS (
       SELECT 'messages' AS kind,id::text AS id,(to_jsonb(m)-ARRAY['synced_at']::text[]) AS data FROM messages m WHERE account_id=$1
       UNION ALL SELECT 'conversations',id::text,to_jsonb(c)-ARRAY['updated_at']::text[] FROM conversations c WHERE account_id=$1
@@ -485,7 +485,7 @@ async function main() {
     const stableRowsA = await accountStateRows(client, IDS.accountA);
     const stableRowsB = await accountStateRows(client, IDS.accountB);
 
-    await client.query('DELETE FROM conversation_rebuild_checkpoints WHERE user_id=$1 AND scope_account_id IN ($2,$3)', [IDS.user, IDS.accountA, IDS.accountB]);
+    await client.query<{ version: string }>('DELETE FROM conversation_rebuild_checkpoints WHERE user_id=$1 AND scope_account_id IN ($2,$3)', [IDS.user, IDS.accountA, IDS.accountB]);
     const secondA = await runRebuildToCompletion(rebuildConversationCopies, { userId: IDS.user, accountId: IDS.accountA });
     const secondB = await runRebuildToCompletion(rebuildConversationCopies, { userId: IDS.user, accountId: IDS.accountB });
     invariant(secondA.updated === 0 && secondB.updated === 0, 'Idempotent rebuild rerun updated rows', { secondA, secondB });

@@ -89,7 +89,7 @@ export async function rebuildConversationCopies({ userId, accountId = null, limi
   // orchestration convenience, but never process a user-wide message stream.
   if (!accountId) {
     if (cursor) throw new Error('An all-account rebuild cannot use one shared cursor');
-    const accounts = await query('SELECT id FROM email_accounts WHERE user_id = $1 ORDER BY id', [userId]);
+    const accounts = await query<{ id: string }>('SELECT id FROM email_accounts WHERE user_id = $1 ORDER BY id', [userId]);
     const aggregate = { scanned: 0, updated: 0, totalScanned: 0, totalUpdated: 0, wouldChange: 0, changed: 0, complete: true, next: null, dryRun, batches: 0, accounts: accounts.rows.length };
     for (const account of accounts.rows) {
       let accountCursor = null;

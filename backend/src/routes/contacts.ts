@@ -1,4 +1,5 @@
 import { Router } from 'express';
+import type { VCardContact } from '../utils/vcard.ts';
 import { query, withTransaction } from '../services/db.js';
 import { requireAuth } from '../middleware/auth.js';
 import { generateVCard, mergeVCard, normalizeContactDateLabel, normalizeVCardDate, parseVCard } from '../utils/vcard.js';
@@ -110,8 +111,10 @@ function localBookName(value: unknown): string | null {
   return name.length >= 1 && name.length <= 120 ? name : null;
 }
 
-async function requireLocalAddressBook(userId: string, addressBookId: string) {
-  const result = await query('SELECT id, name, source, visible FROM address_books WHERE id = $1 AND user_id = $2', [addressBookId, userId]);
+type AddressBookLookup = { book: { id: string; name?: string | null; source?: string | null; visible?: boolean | null } } | { error: string; status: number };
+
+async function requireLocalAddressBook(userId: string, addressBookId: string): Promise<AddressBookLookup> {
+  const result = await query<{ id: string; name?: string | null; source?: string | null; visible?: boolean | null }>('SELECT id, name, source, visible FROM address_books WHERE id = $1 AND user_id = $2', [addressBookId, userId]);
   const book = result.rows[0];
   if (!book) return { error: 'Address book not found', status: 404 };
   if (book.source !== 'local') return { error: 'This address book is read-only', status: 403 };
@@ -145,7 +148,7 @@ router.patch('/address-books/:id', async (req, res) => {
   if (rawName === undefined && visible === undefined) return res.status(400).json({ error: 'No address book changes supplied' });
   try {
     const local = await requireLocalAddressBook(sessionUserId(req), req.params.id);
-    if (local.error) return res.status(local.status).json({ error: local.error });
+    if ('error' in local) return res.status(local.status).json({ error: local.error });
     const result = await query(`UPDATE address_books SET name = COALESCE($1, name), visible = COALESCE($2, visible), updated_at = NOW() WHERE id = $3 AND user_id = $4 RETURNING id, name, source, visible`, [rawName === undefined ? null : localBookName(rawName), visible === undefined ? null : visible, req.params.id, req.session.userId]);
     res.json(result.rows[0]);
   } catch (caught) {
@@ -158,8 +161,8 @@ router.patch('/address-books/:id', async (req, res) => {
 router.delete('/address-books/:id', async (req, res) => {
   try {
     const local = await requireLocalAddressBook(sessionUserId(req), req.params.id);
-    if (local.error) return res.status(local.status).json({ error: local.error });
-    const count = await query(`SELECT COUNT(*)::int AS count FROM address_books WHERE user_id = $1 AND source = 'local'`, [req.session.userId]);
+    if ('error' in local) return res.status(local.status).json({ error: local.error });
+    const count = await query<{ count: number }>(`SELECT COUNT(*)::int AS count FROM address_books WHERE user_id = $1 AND source = 'local'`, [req.session.userId]);
     if (count.rows[0].count <= 1) return res.status(409).json({ error: 'At least one local address book is required' });
     await query('DELETE FROM address_books WHERE id = $1 AND user_id = $2', [req.params.id, req.session.userId]);
     res.status(204).end();
@@ -228,7 +231,7 @@ router.get('/', async (req, res) => {
       LIMIT $${p} OFFSET $${p + 1}
     `, [...params, cap, off]);
 
-    const total = await query(
+    const total = await query<{ count: string }>(
       `SELECT COUNT(*) FROM contacts c JOIN address_books ab ON ab.id = c.address_book_id WHERE ${conditions.join(' AND ')}`,
       params
     );
@@ -250,7 +253,7 @@ router.get('/photo', async (req, res) => {
   if (!email || typeof email !== 'string') return res.status(400).end();
 
   try {
-    const result = await query(
+    const result = await query<{ photo_data: string }>(
       `SELECT photo_data FROM contacts
        WHERE user_id = $1 AND primary_email = lower($2) AND photo_data IS NOT NULL
        LIMIT 1`,
@@ -335,7 +338,7 @@ router.get('/address-books/:id/export', async (req, res) => {
   const format = queryStringOr(req.query.format, '');
   if (!['google-csv', 'outlook-csv', 'vcard'].includes(format)) return res.status(400).json({ error: 'Unsupported export format' });
   try {
-    const book = await query('SELECT id, name FROM address_books WHERE id = $1 AND user_id = $2', [routeParam(req.params.id), sessionUserId(req)]);
+    const book = await query<{ id: string; name?: string | null }>('SELECT id, name FROM address_books WHERE id = $1 AND user_id = $2', [routeParam(req.params.id), sessionUserId(req)]);
     if (!book.rows.length) return res.status(404).json({ error: 'Address book not found' });
     const contacts = await query(`SELECT uid, display_name, first_name, last_name, emails, phones, organization, title, notes FROM contacts WHERE address_book_id = $1 ORDER BY lower(coalesce(display_name, primary_email, ''))`, [book.rows[0].id]);
     const filename = `${book.rows[0].name.replace(/[^a-z0-9_-]+/gi, '-') || 'contacts'}`;
@@ -353,7 +356,7 @@ router.post('/address-books/:id/import/google-csv', async (req, res) => {
   if (!csv || csv.length > 900_000) return res.status(400).json({ error: 'Google CSV must be a non-empty file smaller than 900 KB' });
   try {
     const local = await requireLocalAddressBook(sessionUserId(req), req.params.id);
-    if (local.error) return res.status(local.status).json({ error: local.error });
+    if ('error' in local) return res.status(local.status).json({ error: local.error });
     const contacts = parseGoogleCsv(csv);
     if (!contacts.length) return res.status(400).json({ error: 'No contacts found in Google CSV' });
     await withTransaction(async client => {
@@ -361,7 +364,7 @@ router.post('/address-books/:id/import/google-csv', async (req, res) => {
         const uid = crypto.randomUUID();
         const vcard = generateVCard({ uid, ...contact });
         const etag = crypto.createHash('md5').update(vcard).digest('hex');
-        await client.query(`INSERT INTO contacts (address_book_id, user_id, uid, vcard, etag, display_name, first_name, last_name, primary_email, emails, phones, organization, notes, birthday, anniversary, contact_dates, title, role, nickname, urls, instant_messages, categories, addresses, google_fields, is_auto) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16::jsonb,$17,$18,$19,$20::jsonb,$21::jsonb,$22::jsonb,$23::jsonb,$24::jsonb,false) ON CONFLICT (address_book_id, primary_email) WHERE primary_email IS NOT NULL DO UPDATE SET vcard = EXCLUDED.vcard, etag = EXCLUDED.etag, display_name = EXCLUDED.display_name, first_name = EXCLUDED.first_name, last_name = EXCLUDED.last_name, emails = EXCLUDED.emails, phones = EXCLUDED.phones, organization = EXCLUDED.organization, notes = EXCLUDED.notes, birthday = EXCLUDED.birthday, anniversary = EXCLUDED.anniversary, contact_dates = EXCLUDED.contact_dates, title = EXCLUDED.title, role = EXCLUDED.role, nickname = EXCLUDED.nickname, urls = EXCLUDED.urls, instant_messages = EXCLUDED.instant_messages, categories = EXCLUDED.categories, addresses = EXCLUDED.addresses, google_fields = EXCLUDED.google_fields, is_auto = false, updated_at = NOW()`, [local.book.id, sessionUserId(req), uid, vcard, etag, contact.displayName || null, contact.firstName || null, contact.lastName || null, contact.emails[0]?.value || null, JSON.stringify(contact.emails), JSON.stringify(contact.phones), contact.organization || null, contact.notes || null, contact.birthday || null, contact.anniversary || null, JSON.stringify(contact.contactDates || []), contact.title || null, contact.role || null, contact.nickname || null, JSON.stringify(contact.urls || []), JSON.stringify(contact.instantMessages || []), JSON.stringify(contact.categories || []), JSON.stringify(contact.addresses || []), JSON.stringify(contact.sourceFields || {})]);
+        await client.query<{ vcard?: string | null }>(`INSERT INTO contacts (address_book_id, user_id, uid, vcard, etag, display_name, first_name, last_name, primary_email, emails, phones, organization, notes, birthday, anniversary, contact_dates, title, role, nickname, urls, instant_messages, categories, addresses, google_fields, is_auto) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16::jsonb,$17,$18,$19,$20::jsonb,$21::jsonb,$22::jsonb,$23::jsonb,$24::jsonb,false) ON CONFLICT (address_book_id, primary_email) WHERE primary_email IS NOT NULL DO UPDATE SET vcard = EXCLUDED.vcard, etag = EXCLUDED.etag, display_name = EXCLUDED.display_name, first_name = EXCLUDED.first_name, last_name = EXCLUDED.last_name, emails = EXCLUDED.emails, phones = EXCLUDED.phones, organization = EXCLUDED.organization, notes = EXCLUDED.notes, birthday = EXCLUDED.birthday, anniversary = EXCLUDED.anniversary, contact_dates = EXCLUDED.contact_dates, title = EXCLUDED.title, role = EXCLUDED.role, nickname = EXCLUDED.nickname, urls = EXCLUDED.urls, instant_messages = EXCLUDED.instant_messages, categories = EXCLUDED.categories, addresses = EXCLUDED.addresses, google_fields = EXCLUDED.google_fields, is_auto = false, updated_at = NOW()`, [local.book.id, sessionUserId(req), uid, vcard, etag, contact.displayName || null, contact.firstName || null, contact.lastName || null, contact.emails[0]?.value || null, JSON.stringify(contact.emails), JSON.stringify(contact.phones), contact.organization || null, contact.notes || null, contact.birthday || null, contact.anniversary || null, JSON.stringify(contact.contactDates || []), contact.title || null, contact.role || null, contact.nickname || null, JSON.stringify(contact.urls || []), JSON.stringify(contact.instantMessages || []), JSON.stringify(contact.categories || []), JSON.stringify(contact.addresses || []), JSON.stringify(contact.sourceFields || {})]);
       }
     });
     await bumpSyncToken(local.book.id);
@@ -373,7 +376,7 @@ router.post('/address-books/:id/import/google-csv', async (req, res) => {
 router.get('/:id', async (req, res) => {
   const userId = sessionUserId(req);
   try {
-    const result = await query(
+    const result = await query<{ id: string; uid: string; display_name?: string | null; first_name?: string | null; last_name?: string | null; primary_email?: string | null; emails?: unknown; phones?: unknown; organization?: string | null; notes?: string | null; birthday?: string | null; anniversary?: string | null; contactDates?: unknown; title?: string | null; role?: string | null; nickname?: string | null; urls?: unknown; addresses?: unknown; instantMessages?: unknown; categories?: string[]; googleFields?: unknown; photo_data?: string | null; vcard?: string | null; is_auto?: boolean | null; send_count?: number | null; last_sent?: string | Date | null }>(
       `SELECT c.id, c.uid, c.display_name, c.first_name, c.last_name,
               c.primary_email, c.emails, c.phones, c.organization,
               c.notes, c.birthday, c.anniversary, c.contact_dates AS "contactDates", c.title, c.role, c.nickname,
@@ -424,8 +427,8 @@ router.post('/', async (req, res) => {
     normalizedContactDates, normalizedBirthday, normalizedAnniversary, contactDates !== undefined
   );
   const authoritativeLegacyDates = contactDates === undefined ? null : legacyDatesFromContactDates(storedContactDates);
-  const storedBirthday = authoritativeLegacyDates?.birthday ?? (contactDates === undefined ? normalizedBirthday : null);
-  const storedAnniversary = authoritativeLegacyDates?.anniversary ?? (contactDates === undefined ? normalizedAnniversary : null);
+  const storedBirthday: string | undefined = authoritativeLegacyDates?.birthday ?? (contactDates === undefined ? normalizedBirthday : null);
+  const storedAnniversary: string | undefined = authoritativeLegacyDates?.anniversary ?? (contactDates === undefined ? normalizedAnniversary : null);
 
   const primaryEmail = emails[0]?.value
     ? emails[0].value.toLowerCase().trim()
@@ -441,7 +444,7 @@ router.post('/', async (req, res) => {
     const requestedId = requestedAddressBookId;
     if (requestedId) {
       const local = await requireLocalAddressBook(userId, requestedId);
-      if (local.error) return res.status(local.status).json({ error: local.error });
+      if ('error' in local) return res.status(local.status).json({ error: local.error });
     }
     const uid = crypto.randomUUID();
     const vcard = generateVCard({ uid, displayName, firstName, lastName, emails, phones, organization, notes, birthday: storedBirthday, anniversary: storedAnniversary, contactDates: storedContactDates, ...rich });
@@ -493,7 +496,7 @@ router.patch('/:id', async (req, res) => {
 
   try {
     // Load current contact (with its book source to block edits to synced contacts)
-    const cur = await query(
+    const cur = await query<{ id: string; user_id: string; address_book_id: string; uid?: string | null; vcard?: string | null; book_source?: string | null; title?: string | null; role?: string | null; nickname?: string | null; urls?: VCardContact['urls']; instant_messages?: VCardContact['instantMessages']; categories?: string[] | null; addresses?: VCardContact['addresses']; birthday?: string | null; anniversary?: string | null; [key: string]: unknown }>(
       `SELECT c.*, ab.source AS book_source FROM contacts c
        JOIN address_books ab ON ab.id = c.address_book_id
        WHERE c.id = $1 AND c.user_id = $2`,
@@ -541,7 +544,7 @@ router.patch('/:id', async (req, res) => {
       ? c.primary_email
       : (newEmails[0]?.value ? newEmails[0].value.toLowerCase().trim() : null);
 
-    const contactVCard = {
+    const contactVCard: VCardContact = {
       uid: c.uid,
       displayName: newDisplay,
       firstName: newFirst,
@@ -605,7 +608,7 @@ router.delete('/:id', async (req, res) => {
     if (owner.rows[0].source === 'carddav') {
       return res.status(403).json({ error: 'This contact is synced from CardDAV and is read-only' });
     }
-    const result = await query(
+    const result = await query<{ address_book_id: string }>(
       'DELETE FROM contacts WHERE id = $1 AND user_id = $2 RETURNING address_book_id',
       [req.params.id, userId]
     );

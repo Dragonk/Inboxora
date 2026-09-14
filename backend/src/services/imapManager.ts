@@ -30,7 +30,7 @@ import { toAppError } from '../utils/errors.js';
 
 
 // Shorthand for log lines — keeps domain visible while masking the local part.
-const logAccount = (account: EmailAccountRow) => redactEmail(account?.email_address || '');
+const logAccount = (account: Partial<EmailAccountRow> | null | undefined) => redactEmail(account?.email_address || '');
 
 /** A raw message envelope as the ingest paths pass it (partial on Sent/retry paths). */
 /** A node of the IMAP body structure tree (the fields the parser reads). */
@@ -1188,6 +1188,9 @@ export type EmailAccountRow = {
   sender_name?: string;
   folder_mappings?: Record<string, string> | null;
   categorization_enabled?: boolean;
+  enabled?: boolean;
+  signature?: string | null;
+  smtp_host?: string | null;
   id: string;
   email_address?: string;
   imap_host?: string;
@@ -1631,7 +1634,7 @@ export class ImapManager {
     // IMAP server that times out on the first attempt) without waiting for a manual sync.
     this._healthCheckTimer = setInterval(async () => {
       try {
-        const result = await query(
+        const result = await query<{ id: string; email_address?: string | null }>(
           "SELECT id, email_address FROM email_accounts WHERE enabled = true AND protocol = 'imap'"
         );
         for (const row of result.rows) {
@@ -1646,7 +1649,7 @@ export class ImapManager {
             const cd = this._connectCooldown.get(row.id);
             if (cd && Date.now() < cd.until) continue;
             // Only fetch full credentials when a reconnect is actually needed
-            const full = await query('SELECT * FROM email_accounts WHERE id = $1', [row.id]);
+            const full = await query<EmailAccountRow>('SELECT * FROM email_accounts WHERE id = $1', [row.id]);
             const account = full.rows[0];
             if (!account) continue;
             console.log(`Health check: reconnecting ${logAccount(account)} (not connected)`);
@@ -1684,7 +1687,7 @@ export class ImapManager {
             [accountId]
           );
           if (!backlog.rows.length) continue;
-          const acct = await query('SELECT * FROM email_accounts WHERE id = $1', [accountId]);
+          const acct = await query<EmailAccountRow>('SELECT * FROM email_accounts WHERE id = $1', [accountId]);
           if (!acct.rows.length) continue;
           // Host-level circuit breaker: skip if this account's provider host is backing off
           // (another account on it was just refused). startSnippetIndexer re-checks; this only
@@ -1744,7 +1747,7 @@ export class ImapManager {
           if (!observed) continue;
 
           try {
-            const acct = await query('SELECT * FROM email_accounts WHERE id = $1', [accountId]);
+            const acct = await query<EmailAccountRow>('SELECT * FROM email_accounts WHERE id = $1', [accountId]);
             const account = acct.rows[0];
             if (!account) continue;
             // Our highest synced INBOX UID — the watermark for "have we seen the newest mail".
@@ -1804,7 +1807,7 @@ export class ImapManager {
                       // brackets, some don't) — query both forms and normalise on compare.
                       const forms = [];
                       for (const id of withMid) forms.push(id, `<${id}>`);
-                      const { rows } = await query(
+                      const { rows } = await query<{ message_id: string }>(
                         'SELECT message_id FROM messages WHERE account_id = $1 AND message_id = ANY($2::text[])',
                         [accountId, forms]
                       );
@@ -1957,7 +1960,7 @@ export class ImapManager {
       // attempt, so an outage doesn't burn the give-up budget.
       if (!this.connections.has(accountId)) continue;
 
-      const acct = await query('SELECT * FROM email_accounts WHERE id = $1', [accountId]);
+      const acct = await query<EmailAccountRow>('SELECT * FROM email_accounts WHERE id = $1', [accountId]);
       const account = acct.rows[0];
       if (!account) { this._pendingFlagPush.delete(accountId); continue; }
 
@@ -1970,7 +1973,7 @@ export class ImapManager {
         // which we own via op.value. A concurrent pull may have reverted the row, so
         // re-assert our intended value locally (with a fresh marker) before pushing the
         // same value, so a slow cycle can never let the change be silently lost.
-        const { rows: [msg] } = await query(
+        const { rows: [msg] } = await query<{ uid: number | string; folder: string }>(
           'SELECT uid, folder FROM messages WHERE id = $1',
           [op.messageId]
         );
@@ -2248,7 +2251,7 @@ export class ImapManager {
     if (!Number.isFinite(cap)) return true;
     const host = (account.imap_host || '').toLowerCase();
     if (!host) return true;
-    const rows = await query(
+    const rows = await query<{ id: string }>(
       "SELECT id FROM email_accounts WHERE enabled = true AND protocol = 'imap' AND lower(imap_host) = $1 ORDER BY created_at ASC NULLS FIRST, id ASC",
       [host]
     );
@@ -2338,7 +2341,7 @@ export class ImapManager {
 
   async disconnectUser(userId: string) {
     try {
-      const result = await query(
+      const result = await query<{ id: string }>(
         "SELECT id FROM email_accounts WHERE user_id = $1 AND protocol = 'imap'",
         [userId]
       );
@@ -2472,7 +2475,7 @@ export class ImapManager {
           // the IPv4 fallback (#382) — a single all-encompassing race would otherwise cut the
           // fallback attempt short.
           const setup = await raceTimeout((async () => {
-            const accountResult = await query('SELECT * FROM email_accounts WHERE id = $1', [account.id]);
+            const accountResult = await query<EmailAccountRow>('SELECT * FROM email_accounts WHERE id = $1', [account.id]);
             // Bail if the account was deleted OR disabled since this reconnect was queued.
             // The staleness check schedules a reconnect via setTimeout that disconnectAccount
             // cannot cancel, so a user disabling a stuck account must not be silently revived.
@@ -2837,7 +2840,7 @@ export class ImapManager {
   // intervals for all their active accounts without disconnecting.
   async updateSyncIntervalForUser(userId: string, newMs: number) {
     this.userSyncIntervalMs.set(userId, newMs);
-    const result = await query(
+    const result = await query<EmailAccountRow>(
       "SELECT * FROM email_accounts WHERE user_id = $1 AND enabled = true AND protocol = 'imap'",
       [userId]
     );
@@ -2995,11 +2998,11 @@ export class ImapManager {
         // mailbox.unseen from IMAP SELECT is the sequence number of the first unseen
         // message, NOT the count of unread messages.  Compute the real count from the
         // messages table instead — accurate post-backfill and never inflated.
-        const { rows: [ucRow] } = await query(
+        const { rows: [ucRow] } = await query<{ n: string | number | null }>(
           `SELECT COUNT(*) FILTER (WHERE is_read = false) AS n FROM messages WHERE account_id = $1 AND folder = $2`,
           [account.id, folder]
         );
-        const dbUnreadCount = parseInt(ucRow.n || 0);
+        const dbUnreadCount = Number(ucRow.n || 0);
         await query(`
           INSERT INTO folders (account_id, path, name, total_count, unread_count, uid_validity)
           VALUES ($1, $2, $2, $3, $4, $5)
@@ -3105,7 +3108,7 @@ export class ImapManager {
               } catch { /* non-fatal — leave category NULL */ }
             }
 
-            const result = await query(`
+            const result = await query<{ id: string; is_new?: boolean }>(`
               INSERT INTO messages (
                 account_id, uid, folder, message_id, subject,
                 from_name, from_email, to_addresses, cc_addresses,
@@ -3210,7 +3213,7 @@ export class ImapManager {
             // Propagate resolved thread_id to any earlier messages that used this
             // message as a provisional thread root (out-of-order delivery / sync).
             if (threadId && threadId !== msgId) {
-              await query(
+              await query<{ total: number }>(
                 `UPDATE messages SET thread_id = $1
                  WHERE account_id = $2 AND thread_id = $3 AND message_id != $3`,
                 [threadId, account.id, msgId]
@@ -3290,7 +3293,7 @@ export class ImapManager {
               const survivingIds = new Set(newMessages.map(m => m.id));
               const removedIds = unreadBeforeRules.filter(id => !survivingIds.has(id));
               if (removedIds.length) {
-                const alive = await query(
+                const alive = await query<{ id: string }>(
                   'SELECT id FROM messages WHERE id = ANY($1::uuid[]) AND is_deleted = false',
                   [removedIds]
                 );
@@ -3327,7 +3330,7 @@ export class ImapManager {
             // Try to include the total unread count for the home screen badge.
             // If the query fails for any reason, dispatch without it so
             // notifications are never silently dropped.
-            query(
+            query<{ total: number }>(
               `SELECT COUNT(*)::int AS total FROM messages m
                JOIN email_accounts a ON a.id = m.account_id
                WHERE a.user_id = $1 AND a.enabled = true AND m.folder = 'INBOX' AND m.is_read = false AND m.is_deleted = false`,
@@ -3545,7 +3548,7 @@ export class ImapManager {
     const openBfClient = async () => {
       // Always clean up any existing client before creating a new one
       await closeImapClient(bfClient); bfClient = null;
-      const row = (await query('SELECT * FROM email_accounts WHERE id = $1', [account.id])).rows[0];
+      const row = (await query<EmailAccountRow>('SELECT * FROM email_accounts WHERE id = $1', [account.id])).rows[0];
       // Re-check enabled here: a backfill can sit queued behind the per-host semaphore, and
       // the user may disable the account while it waits. disconnectAccount doesn't cancel a
       // queued backfill, so without this a disabled account would still get a fresh connection.
@@ -3566,12 +3569,12 @@ export class ImapManager {
       // backfill is only needed for historical gaps and first-time population.
       // A false skip is self-correcting: the next reconnect or explicit sync will
       // re-evaluate, and syncMessages independently checks UIDVALIDITY changes.
-      const folderMeta = await query(
+      const folderMeta = await query<{ uid_validity?: number | string | null; total_count?: number | string | null }>(
         'SELECT uid_validity, total_count FROM folders WHERE account_id = $1 AND path = $2',
         [account.id, folder]
       );
       const meta = folderMeta.rows[0];
-      if (meta?.uid_validity && meta.total_count > 0) {
+      if (meta?.uid_validity && Number(meta.total_count) > 0) {
         const countRow = await query(
           'SELECT COUNT(*) AS n FROM messages WHERE account_id = $1 AND folder = $2 AND is_deleted = false',
           [account.id, folder]
@@ -3640,7 +3643,7 @@ export class ImapManager {
       // higher UIDs.  Comparing the highest UID we have against the server's highest
       // UID is correct because IMAP UIDs are monotonically increasing — if our max
       // matches the server's max, there is nothing new to fetch.
-      const dbSummaryResult = await query(
+      const dbSummaryResult = await query<{ count: string; max_uid: number | string }>(
         'SELECT COUNT(*) as count, COALESCE(MAX(uid), 0) as max_uid FROM messages WHERE account_id = $1 AND folder = $2 AND is_deleted = false',
         [account.id, folder]
       );
@@ -3871,7 +3874,7 @@ export class ImapManager {
                   sanitizeStr(parsed.senderName), sanitizeStr(parsed.senderEmail),
                 ]);
                 backfilledRows++;
-                const inserted = await query(`SELECT id FROM messages WHERE account_id = $1 AND uid = $2 AND folder = $3`, [account.id, parsed.uid, folder]);
+                const inserted = await query<{ id: string }>(`SELECT id FROM messages WHERE account_id = $1 AND uid = $2 AND folder = $3`, [account.id, parsed.uid, folder]);
                 if (inserted.rows[0]) {
                   await persistConversationCopyForRow(inserted.rows[0].id, account, msg);
                   await persistInboundCalendarInvitationFromMessage({ client: bfClient, message: msg, messageId: inserted.rows[0].id })
@@ -4029,7 +4032,7 @@ export class ImapManager {
     for (const [folder, msgs] of byFolder) {
       let client = null;
       try {
-        const row = (await query('SELECT * FROM email_accounts WHERE id = $1', [account.id])).rows[0];
+        const row = (await query<EmailAccountRow>('SELECT * FROM email_accounts WHERE id = $1', [account.id])).rows[0];
         if (!row) return;
         const fresh = await ensureFreshToken(row);
         const { resolved, policy } = await resolveAccountHost(fresh);
@@ -4097,7 +4100,7 @@ export class ImapManager {
       await this.backfillMessages(account, 'INBOX');
 
       // Then all other known folders (discovered at connect time by syncFolders)
-      const folderResult = await query(
+      const folderResult = await query<{ path: string }>(
         "SELECT path FROM folders WHERE account_id = $1 AND path != 'INBOX' ORDER BY path",
         [account.id]
       );
@@ -4165,7 +4168,7 @@ export class ImapManager {
     let slotHeld = false; // holding a per-host background-connection slot
     try {
       // Check if there's anything to index before opening a connection
-      const countResult = await query(
+      const countResult = await query<{ count: string }>(
         "SELECT count(*) FROM messages WHERE account_id = $1 AND (snippet IS NULL OR snippet = '') AND snippet_attempted_at IS NULL",
         [account.id]
       );
@@ -4183,7 +4186,7 @@ export class ImapManager {
 
       const openClient = async () => {
         if (siClient) { try { await siClient.logout(); } catch { /* already disconnected */ } siClient = null; }
-        const row = (await query('SELECT * FROM email_accounts WHERE id = $1', [account.id])).rows[0];
+        const row = (await query<EmailAccountRow>('SELECT * FROM email_accounts WHERE id = $1', [account.id])).rows[0];
         if (!row) throw new Error('Account deleted');
         const fresh = await ensureFreshToken(row);
         const { resolved, policy } = await resolveAccountHost(fresh);
@@ -4193,7 +4196,7 @@ export class ImapManager {
       await openClient();
 
       // Get distinct folders that have unindexed messages
-      const foldersResult = await query(
+      const foldersResult = await query<{ folder: string; cnt: string }>(
         `SELECT folder, count(*) as cnt FROM messages
          WHERE account_id = $1 AND (snippet IS NULL OR snippet = '') AND snippet_attempted_at IS NULL
          GROUP BY folder ORDER BY cnt DESC`,
@@ -4216,7 +4219,7 @@ export class ImapManager {
           }
 
           if (batchCount >= MAX_BATCHES_PER_RUN) {
-            const remaining = await query(
+            const remaining = await query<{ count: string }>(
               "SELECT count(*) FROM messages WHERE account_id = $1 AND (snippet IS NULL OR snippet = '') AND snippet_attempted_at IS NULL",
               [account.id]
             );
@@ -4224,7 +4227,7 @@ export class ImapManager {
             return;
           }
 
-          const batchResult = await query(
+          const batchResult = await query<{ uid: number | string; folder: string; count?: number | null }>(
             `SELECT uid FROM messages
              WHERE account_id = $1 AND folder = $2 AND (snippet IS NULL OR snippet = '') AND snippet_attempted_at IS NULL
              ORDER BY date DESC LIMIT $3`,
@@ -4418,7 +4421,7 @@ export class ImapManager {
       sanitizeStr(inReplyTo), sanitizeStr(references),
       safeDate(date), sanitizeStr(snippet || ''), threadId,
     ]);
-    const row = await query('SELECT id FROM messages WHERE account_id = $1 AND uid = $2 AND folder = $3', [account.id, uid, folder]);
+    const row = await query<{ id: string }>('SELECT id FROM messages WHERE account_id = $1 AND uid = $2 AND folder = $3', [account.id, uid, folder]);
     if (row.rows[0]) await persistConversationCopyForRow(row.rows[0].id, account, { messageId: msgId, inReplyTo, references });
   }
 
@@ -4493,7 +4496,7 @@ export class ImapManager {
       bodyText != null ? sanitizeStr(bodyText) : null,
       msgId || null,
     ]);
-    const row = await query('SELECT id FROM messages WHERE account_id = $1 AND uid = $2 AND folder = $3', [account.id, uid, folder]);
+    const row = await query<{ id: string }>('SELECT id FROM messages WHERE account_id = $1 AND uid = $2 AND folder = $3', [account.id, uid, folder]);
     if (row.rows[0]) await persistConversationCopyForRow(row.rows[0].id, account, { messageId, inReplyTo, references: null });
   }
 
@@ -4597,7 +4600,7 @@ export class ImapManager {
     for (const msg of messages) {
       try {
         // Skip if body already cached (concurrent click may have triggered this too)
-        const existing = await query(
+        const existing = await query<{ id: string }>(
           'SELECT id FROM messages WHERE id = $1 AND (body_html IS NOT NULL OR body_text IS NOT NULL)',
           [msg.id]
         );
@@ -4632,12 +4635,12 @@ export class ImapManager {
   async prefetchFolderBodies(accountId: string, messageIds: Array<string | number>) {
     if (!messageIds.length) return;
 
-    const accountResult = await query('SELECT * FROM email_accounts WHERE id = $1', [accountId]);
+    const accountResult = await query<EmailAccountRow>('SELECT * FROM email_accounts WHERE id = $1', [accountId]);
     if (!accountResult.rows.length) return;
     const account = accountResult.rows[0];
     if (!providerProfile(account).snippetIndex) return;
 
-    const uncachedResult = await query(
+    const uncachedResult = await query<{ id: string; uid: number; folder: string }>(
       `SELECT id, uid, folder FROM messages
        WHERE id = ANY($1::uuid[]) AND body_html IS NULL AND body_text IS NULL`,
       [messageIds]
@@ -4651,7 +4654,7 @@ export class ImapManager {
       }
 
       try {
-        const existing = await query(
+        const existing = await query<{ id: string }>(
           'SELECT id FROM messages WHERE id = $1 AND (body_html IS NOT NULL OR body_text IS NOT NULL)',
           [msg.id]
         );
@@ -5216,7 +5219,7 @@ export class ImapManager {
   // hook lets the owning plugin (GTD) broadcast its refresh event and, on the deferred path,
   // reconcile once the sibling lands. copyMessage itself stays label-feature-agnostic.
   async copyMessage(accountId: string, uid: number | string, fromFolder: string, toFolder: string) {
-    const accountResult = await query('SELECT * FROM email_accounts WHERE id = $1', [accountId]);
+    const accountResult = await query<EmailAccountRow>('SELECT * FROM email_accounts WHERE id = $1', [accountId]);
     const account = accountResult.rows[0];
     if (!account) throw new Error(`copyMessage: account ${accountId} not found`);
 
@@ -5259,7 +5262,7 @@ export class ImapManager {
   // Post-remove notification is a plugin concern (generic `afterLabelRemove` hook), so this
   // stays label-feature-agnostic.
   async removeMessageCopy(accountId: string, uid: number | string, folder: string) {
-    const accountResult = await query('SELECT * FROM email_accounts WHERE id = $1', [accountId]);
+    const accountResult = await query<EmailAccountRow>('SELECT * FROM email_accounts WHERE id = $1', [accountId]);
     const account = accountResult.rows[0];
     if (!account) throw new Error(`removeMessageCopy: account ${accountId} not found`);
 
@@ -5474,7 +5477,7 @@ export class ImapManager {
   }
 
   async syncNow(userId: string, accountId = null) {
-    const result = await query(
+    const result = await query<EmailAccountRow>(
       'SELECT * FROM email_accounts WHERE user_id = $1 AND enabled = true AND protocol = $2',
       [userId, 'imap']
     );
@@ -5538,7 +5541,7 @@ export class ImapManager {
   // run alongside a message sync. Disconnected accounts reconnect instead, which
   // runs syncFolders as part of connectAccount's startup sequence.
   async syncFoldersNow(userId: string, accountId = null) {
-    const result = await query(
+    const result = await query<EmailAccountRow>(
       'SELECT * FROM email_accounts WHERE user_id = $1 AND enabled = true AND protocol = $2',
       [userId, 'imap']
     );
@@ -5580,7 +5583,7 @@ export class ImapManager {
   async _runSnoozeWakeup() {
     // Find snoozed messages whose snooze_until has passed and which are still in
     // the snoozed folder (joined via stable Message-ID header).
-    const due = await query(`
+    const due = await query<{ snooze_id: string; user_id: string; account_id: string; message_id_header: string; original_folder: string; snoozed_folder: string; uid: number | string; is_read: boolean | null }>(`
       SELECT sm.id AS snooze_id, sm.user_id, sm.account_id,
              sm.message_id_header, sm.original_folder, sm.snoozed_folder, m.uid, m.is_read
       FROM snoozed_messages sm
@@ -5593,7 +5596,7 @@ export class ImapManager {
 
     for (const row of due.rows) {
       try {
-        const accountResult = await query('SELECT * FROM email_accounts WHERE id = $1', [row.account_id]);
+        const accountResult = await query<EmailAccountRow>('SELECT * FROM email_accounts WHERE id = $1', [row.account_id]);
         if (!accountResult.rows.length) continue;
         const account = accountResult.rows[0];
 
@@ -5737,7 +5740,7 @@ export class ImapManager {
     // describes a mailbox that no longer exists, and trying to open it fails on every cycle.
     // syncFolders now removes those rows, so this is the second line of defence: it keeps a
     // single stranded row from reviving the loop if a folder disappears by another route.
-    const folderResult = await query(
+    const folderResult = await query<{ folder: string }>(
       `SELECT DISTINCT m.folder FROM messages m
         WHERE m.account_id = $1
           AND EXISTS (SELECT 1 FROM folders f WHERE f.account_id = m.account_id AND f.path = m.folder)`,
@@ -5821,13 +5824,13 @@ export class ImapManager {
     // Without this, a user who set e.g. 30 s would silently revert to 60 s after
     // a container restart until they next change the setting.
     try {
-      const prefResult = await query('SELECT preferences FROM users WHERE id = $1', [userId]);
+      const prefResult = await query<{ preferences?: { syncInterval?: string | number | null; folderSyncInterval?: string | number | null; [key: string]: unknown } | null }>('SELECT preferences FROM users WHERE id = $1', [userId]);
       const prefs = prefResult.rows[0]?.preferences || {};
-      const sec = parseInt(prefs.syncInterval);
+      const sec = Number(prefs.syncInterval);
       if (sec >= 15 && sec <= 120) {
         this.userSyncIntervalMs.set(userId, sec * 1000);
       }
-      const folderSec = parseInt(prefs.folderSyncInterval);
+      const folderSec = Number(prefs.folderSyncInterval);
       if ([0, 900, 1800, 3600].includes(folderSec)) {
         this.userFolderSyncIntervalMs.set(userId, folderSec * 1000);
       }
@@ -5836,7 +5839,7 @@ export class ImapManager {
       console.warn(`Failed to load sync preference for user ${userId}:`, err.message);
     }
 
-    const result = await query(
+    const result = await query<EmailAccountRow>(
       'SELECT * FROM email_accounts WHERE user_id = $1 AND enabled = true AND protocol = $2',
       [userId, 'imap']
     );

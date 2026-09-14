@@ -254,7 +254,7 @@ export function createPostgresCodexStore() {
           `DELETE FROM ai_codex_device_flows
            WHERE expires_at < NOW() - INTERVAL '1 day'`,
         );
-        const result = await client.query(
+        const result = await client.query<CodexFlowDbRow>(
           `INSERT INTO ai_codex_device_flows
              (admin_user_id, session_hash, device_auth_id_enc, user_code_enc,
               interval_ms, expires_at, next_poll_at, state, created_at, updated_at)
@@ -271,7 +271,7 @@ export function createPostgresCodexStore() {
 
     async claimFlow({ id, adminUserId, sessionHash, now, staleBefore }: CodexClaimInput) {
       return withTransaction(async (client: DbClient) => {
-        const result = await client.query(
+        const result = await client.query<CodexFlowDbRow>(
           `SELECT * FROM ai_codex_device_flows
            WHERE id = $1 AND admin_user_id = $2 AND session_hash = $3
            FOR UPDATE`,
@@ -335,7 +335,7 @@ export function createPostgresCodexStore() {
 
     async completeFlow({ id, encryptedCredential }: CodexCompleteInput): Promise<boolean> {
       return withTransaction(async (client: DbClient) => {
-        const lock = await client.query(
+        const lock = await client.query<{ state: string; [key: string]: unknown }>(
           `SELECT state FROM ai_codex_device_flows WHERE id = $1 FOR UPDATE`,
           [id],
         );
@@ -373,7 +373,7 @@ export function createPostgresCodexStore() {
     },
 
     async latestOwnedFlow({ adminUserId, sessionHash }: CodexLatestInput) {
-      const result = await query(
+      const result = await query<CodexFlowDbRow>(
         `SELECT * FROM ai_codex_device_flows
          WHERE admin_user_id = $1 AND session_hash = $2
          ORDER BY created_at DESC LIMIT 1`,
@@ -383,7 +383,7 @@ export function createPostgresCodexStore() {
     },
 
     async getCredential(): Promise<string | null> {
-      const result = await query('SELECT encrypted_payload FROM ai_codex_credentials WHERE singleton = TRUE');
+      const result = await query<{ encrypted_payload?: string | null }>('SELECT encrypted_payload FROM ai_codex_credentials WHERE singleton = TRUE');
       return result.rows[0]?.encrypted_payload || null;
     },
 
@@ -401,7 +401,7 @@ export function createPostgresCodexStore() {
 
     async withCredentialLock<T>(callback: (scope: CodexCredentialLock) => Promise<T>): Promise<T> {
       return withTransaction(async (client: DbClient) => {
-        const result = await client.query(
+        const result = await client.query<{ encrypted_payload?: string | null }>(
           'SELECT encrypted_payload FROM ai_codex_credentials WHERE singleton = TRUE FOR UPDATE',
         );
         return callback({

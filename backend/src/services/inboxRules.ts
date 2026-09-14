@@ -37,8 +37,8 @@ interface RuleMessage {
 type RuleAccount = { id: string; user_id: string; folder_mappings?: FolderMappings | null; [key: string]: unknown }
 
 /** The mail-engine slice the rule actions use. */
-async function getRulesForAccount(userId: string, accountId: string) {
-  const result = await query(
+async function getRulesForAccount(userId: string, accountId: string): Promise<InboxRuleRow[]> {
+  const result = await query<InboxRuleRow>(
     `SELECT * FROM inbox_rules
      WHERE user_id = $1 AND enabled = true
        AND (account_id IS NULL OR account_id = $2)
@@ -203,7 +203,7 @@ export async function applyInboxRules<T extends RuleMessage>(messages: T[], acco
   if (needsBody) {
     const ids = messages.map(m => m.id);
     try {
-      const res = await query(
+      const res = await query<{ id: string; body_text?: string | null }>(
         'SELECT id, body_text FROM messages WHERE id = ANY($1::uuid[])',
         [ids]
       );

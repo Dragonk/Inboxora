@@ -2,6 +2,7 @@ import { Router } from 'express';
 import { query } from '../services/db.js';
 import { requireAuth } from '../middleware/auth.js';
 import { imapManager } from '../index.js';
+import type { EmailAccountRow } from '../services/imapManager.js';
 import { encrypt } from '../services/encryption.js';
 import { sanitizeSignature } from '../services/emailSanitizer.js';
 import { validateHost } from '../services/hostValidation.js';
@@ -78,12 +79,12 @@ router.get('/', async (req, res) => {
   const accountIds = result.rows.map(a => a.id);
   let aliasMap = {};
   if (accountIds.length) {
-    const aliasResult = await query(
+    const aliasResult = await query<{ id: string; account_id: string; name?: string | null; email?: string | null; reply_to?: string | null; signature?: string | null; created_at?: string | Date | null }>(
       `SELECT id, account_id, name, email, reply_to, signature, created_at
        FROM account_aliases WHERE account_id = ANY($1) ORDER BY created_at`,
       [accountIds]
     );
-    for (const alias of aliasResult.rows) {
+    for (const alias of aliasResult.rows as Array<{ account_id: string; [key: string]: unknown }>) {
       if (!aliasMap[alias.account_id]) aliasMap[alias.account_id] = [];
       aliasMap[alias.account_id].push(alias);
     }
@@ -91,7 +92,7 @@ router.get('/', async (req, res) => {
 
   // Let plugins re-attach their own account-scoped fields (GTD: gtd_enabled/gtd_folders, no longer
   // columns) so the client sees them as before. Each enrichAccount handler returns a field patch.
-  const enriched = await Promise.all(result.rows.map(async (a) => {
+  const enriched = await Promise.all(result.rows.map(async (a: EmailAccountRow) => {
     const patches = await pluginRegistry.collectHook<Record<string, unknown>>('enrichAccount', { account: a });
     return {
       ...a,
@@ -138,7 +139,7 @@ router.post('/', async (req, res) => {
   }
 
   try {
-    const result = await query(`
+    const result = await query<EmailAccountRow>(`
       INSERT INTO email_accounts (
         user_id, name, sender_name, email_address, color, protocol,
         imap_host, imap_port, imap_tls, imap_skip_tls_verify, smtp_host, smtp_port, smtp_tls,
@@ -173,7 +174,7 @@ router.put('/:id', async (req, res) => {
   const updates = req.body;
 
   // Verify ownership.
-  const check = await query('SELECT id FROM email_accounts WHERE id = $1 AND user_id = $2', [id, req.session.userId]);
+  const check = await query<{ id: string }>('SELECT id FROM email_accounts WHERE id = $1 AND user_id = $2', [id, req.session.userId]);
   if (!check.rows.length) return res.status(404).json({ error: 'Account not found' });
 
   if ('name' in updates && hasHeaderInjectionChars(updates.name)) {
@@ -259,7 +260,7 @@ router.put('/:id', async (req, res) => {
     );
     updated = result.rows[0];
   } else {
-    const reread = await query('SELECT * FROM email_accounts WHERE id = $1', [id]);
+    const reread = await query<EmailAccountRow>('SELECT * FROM email_accounts WHERE id = $1', [id]);
     updated = reread.rows[0];
   }
 
@@ -307,7 +308,7 @@ router.put('/:id', async (req, res) => {
   } else if (needsReconnect && updated.protocol === 'imap' && updated.enabled) {
     reconnectQueue(id, () =>
       imapManager.disconnectAccount(id)
-        .then(() => query('SELECT * FROM email_accounts WHERE id = $1', [id]))
+        .then(() => query<EmailAccountRow>('SELECT * FROM email_accounts WHERE id = $1', [id]))
         .then(r => { if (r.rows.length) return imapManager.connectAccount(r.rows[0]); })
     ).catch(err => console.error(`Failed to reconnect account ${id} after update:`, err.message));
   }
@@ -316,7 +317,7 @@ router.put('/:id', async (req, res) => {
 router.delete('/:id', async (req, res) => {
   try {
     const { id } = req.params;
-    const check = await query('SELECT id FROM email_accounts WHERE id = $1 AND user_id = $2', [id, req.session.userId]);
+    const check = await query<{ id: string }>('SELECT id FROM email_accounts WHERE id = $1 AND user_id = $2', [id, req.session.userId]);
     if (!check.rows.length) return res.status(404).json({ error: 'Account not found' });
 
     // Delete from DB first (cascades to messages and folders immediately).
@@ -339,7 +340,7 @@ router.delete('/:id', async (req, res) => {
 
 router.post('/:id/reconnect', async (req, res) => {
   const { id } = req.params;
-  const result = await query('SELECT * FROM email_accounts WHERE id = $1 AND user_id = $2', [id, req.session.userId]);
+  const result = await query<EmailAccountRow>('SELECT * FROM email_accounts WHERE id = $1 AND user_id = $2', [id, req.session.userId]);
   if (!result.rows.length) return res.status(404).json({ error: 'Account not found' });
 
   imapManager.connectAccount(result.rows[0]).catch(console.error);
@@ -350,10 +351,10 @@ router.post('/:id/reconnect', async (req, res) => {
 
 router.get('/:id/aliases', async (req, res) => {
   const { id } = req.params;
-  const check = await query('SELECT id FROM email_accounts WHERE id = $1 AND user_id = $2', [id, req.session.userId]);
+  const check = await query<{ id: string }>('SELECT id FROM email_accounts WHERE id = $1 AND user_id = $2', [id, req.session.userId]);
   if (!check.rows.length) return res.status(404).json({ error: 'Account not found' });
 
-  const result = await query(
+  const result = await query<{ id: string; account_id: string; name?: string | null; email?: string | null; reply_to?: string | null; signature?: string | null; created_at?: string | Date | null }>(
     'SELECT id, account_id, name, email, reply_to, signature, created_at FROM account_aliases WHERE account_id = $1 ORDER BY created_at',
     [id]
   );
@@ -371,7 +372,7 @@ router.post('/:id/aliases', async (req, res) => {
     return res.status(400).json({ error: 'Fields cannot contain control characters' });
   }
 
-  const check = await query('SELECT id FROM email_accounts WHERE id = $1 AND user_id = $2', [id, req.session.userId]);
+  const check = await query<{ id: string }>('SELECT id FROM email_accounts WHERE id = $1 AND user_id = $2', [id, req.session.userId]);
   if (!check.rows.length) return res.status(404).json({ error: 'Account not found' });
 
   const result = await query(
@@ -390,7 +391,7 @@ router.put('/:id/aliases/:aliasId', async (req, res) => {
     return res.status(400).json({ error: 'Fields cannot contain control characters' });
   }
 
-  const check = await query(
+  const check = await query<{ id: string; account_id: string }>(
     `SELECT a.id, a.account_id FROM account_aliases a
      JOIN email_accounts e ON a.account_id = e.id
      WHERE a.id = $1 AND e.user_id = $2 AND e.id = $3`,
@@ -409,7 +410,7 @@ router.put('/:id/aliases/:aliasId', async (req, res) => {
 router.delete('/:id/aliases/:aliasId', async (req, res) => {
   const { id, aliasId } = req.params;
 
-  const check = await query(
+  const check = await query<{ id: string; account_id: string }>(
     `SELECT a.id, a.account_id FROM account_aliases a
      JOIN email_accounts e ON a.account_id = e.id
      WHERE a.id = $1 AND e.user_id = $2 AND e.id = $3`,
@@ -424,7 +425,7 @@ router.delete('/:id/aliases/:aliasId', async (req, res) => {
 
 router.get('/:id/folders', async (req, res) => {
   const { id } = req.params;
-  const check = await query('SELECT id FROM email_accounts WHERE id = $1 AND user_id = $2', [id, req.session.userId]);
+  const check = await query<{ id: string }>('SELECT id FROM email_accounts WHERE id = $1 AND user_id = $2', [id, req.session.userId]);
   if (!check.rows.length) return res.status(404).json({ error: 'Account not found' });
 
   const result = await query(
@@ -436,7 +437,7 @@ router.get('/:id/folders', async (req, res) => {
 
 router.post('/:id/reindex', async (req, res) => {
   try {
-    const result = await query(
+    const result = await query<EmailAccountRow>(
       "SELECT * FROM email_accounts WHERE id = $1 AND user_id = $2 AND enabled = true AND protocol = 'imap'",
       [req.params.id, req.session.userId]
     );

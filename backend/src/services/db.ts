@@ -42,11 +42,11 @@ pool.on('error', err => {
  * (`query<AccountRow>(...)`); until then the row stays untyped at this single boundary,
  * which is why the alias itself is still `any` and is the last thing to change.
  */
-export type DbRow = any;
+export type DbRow = Record<string, unknown>;
 
 /** The slice of a pool/transaction client this codebase uses. */
 export interface DbClient {
-  query(text: string, params?: unknown[]): Promise<{ rows: DbRow[]; rowCount?: number }>;
+  query<T = DbRow>(text: string, params?: unknown[]): Promise<{ rows: T[]; rowCount?: number }>;
 }
 
 export async function query<T = DbRow>(text: string, params: unknown[] = []): Promise<{ rows: T[]; rowCount?: number }> {

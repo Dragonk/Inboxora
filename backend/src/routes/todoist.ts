@@ -23,7 +23,7 @@ const router = Router();
 router.use(requireAuth);
 
 async function getTodoistToken(userId: string) {
-  const result = await query(
+  const result = await query<{ config?: { token?: string | null; [key: string]: unknown } | null }>(
     "SELECT config FROM user_integrations WHERE user_id = $1 AND provider = 'todoist'",
     [userId]
   );
@@ -50,7 +50,7 @@ async function todoistFetch<T = unknown>(token: string, method: string, path: st
 // GET /api/todoist/status
 router.get('/status', async (req: Request, res: Response) => {
   try {
-    const result = await query(
+    const result = await query<{ id: string }>(
       "SELECT id FROM user_integrations WHERE user_id = $1 AND provider = 'todoist'",
       [req.session.userId]
     );

@@ -57,7 +57,7 @@ export async function listMessages({ userId, accountId, folder = 'INBOX', limit 
   let total = 0;
   try {
     if (isSpecificAccount) {
-      const r = await query(
+      const r = await query<{ total_count?: number | null; unread_count?: number | null }>(
         'SELECT total_count, unread_count FROM folders WHERE account_id = $1 AND path = $2',
         [accountId, folder]
       );
@@ -66,11 +66,11 @@ export async function listMessages({ userId, accountId, folder = 'INBOX', limit 
       }
     } else {
       const r = isUnreadOnly
-        ? await query(
+        ? await query<{ n: number }>(
             "SELECT COALESCE(SUM(unread_count), 0)::int AS n FROM folders WHERE account_id = ANY($1) AND path = 'INBOX'",
             [scopedAccountIds]
           )
-        : await query(
+        : await query<{ n: number }>(
             "SELECT COALESCE(SUM(total_count), 0)::int AS n FROM folders WHERE account_id = ANY($1) AND path = 'INBOX'",
             [scopedAccountIds]
           );

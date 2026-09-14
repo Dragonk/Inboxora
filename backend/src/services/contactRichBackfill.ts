@@ -6,7 +6,7 @@ import type { DbClient } from './db.js';
  * vCards. It is idempotent and leaves contacts.vcard untouched.
  */
 export async function backfillRichContactFields(client: DbClient) {
-  const result = await client.query(`
+  const result = await client.query<{ id: string; vcard: string }>(`
     SELECT id, vcard
     FROM contacts
     WHERE vcard IS NOT NULL

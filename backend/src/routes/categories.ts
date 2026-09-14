@@ -181,7 +181,7 @@ router.delete('/categories/sources/:id', requireAuth, async (req: Request, res: 
 // ── Refresh URL subscription ──────────────────────────────────────────────────
 
 router.post('/categories/sources/:id/refresh', requireAuth, async (req: Request, res: Response) => {
-  const check = await query(
+  const check = await query<{ id: string; source_type: string; value: string }>(
     'SELECT id, source_type, value FROM category_list_sources WHERE id = $1 AND user_id = $2',
     [req.params.id, req.session.userId]
   );
@@ -238,7 +238,7 @@ router.post('/categories/ai-classify/:messageId', requireAuth, async (req: Reque
   const messageId = routeParam(req.params.messageId);
   if (!UUID_RE_CAT.test(messageId)) return res.status(400).json({ error: 'Invalid message id' });
 
-  const msgResult = await query(`
+  const msgResult = await query<{ subject?: string | null; from_email?: string | null; snippet?: string | null }>(`
     SELECT m.subject, m.from_email, m.snippet
     FROM messages m
     JOIN email_accounts a ON m.account_id = a.id

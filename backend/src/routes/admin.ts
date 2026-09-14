@@ -29,7 +29,7 @@ router.get('/users', async (req, res) => {
       'SELECT id, username, is_admin, totp_enabled, created_at FROM users ORDER BY created_at ASC LIMIT $1 OFFSET $2',
       [limit, offset],
     ),
-    query('SELECT COUNT(*) AS total FROM users'),
+    query<{ total: string }>('SELECT COUNT(*) AS total FROM users'),
   ]);
   res.json({
     users: result.rows.map(u => ({ ...u, isAdmin: u.is_admin, totpEnabled: u.totp_enabled })),
@@ -42,7 +42,7 @@ router.post('/users/:id/totp/disable', async (req, res) => {
   if (id === req.session.userId) {
     return res.status(400).json({ error: 'Use your account settings to manage your own 2FA.' });
   }
-  const target = await query('SELECT username FROM users WHERE id = $1', [id]);
+  const target = await query<{ username: string }>('SELECT username FROM users WHERE id = $1', [id]);
   if (!target.rows.length) return res.status(404).json({ error: 'User not found' });
   await query('UPDATE users SET totp_secret = NULL, totp_enabled = false WHERE id = $1', [id]);
   console.log(`[admin] ${req.session.username} disabled 2FA for user ${target.rows[0].username} (${id})`);
@@ -58,7 +58,7 @@ router.patch('/users/:id', async (req, res) => {
     return res.status(400).json({ error: 'Cannot remove your own admin status' });
   }
 
-  const target = await query('SELECT username FROM users WHERE id = $1', [id]);
+  const target = await query<{ username: string }>('SELECT username FROM users WHERE id = $1', [id]);
   if (!target.rows.length) return res.status(404).json({ error: 'User not found' });
 
   await query('UPDATE users SET is_admin = $1 WHERE id = $2', [isAdmin, id]);
@@ -73,7 +73,7 @@ router.delete('/users/:id', async (req, res) => {
   if (id === req.session.userId) {
     return res.status(400).json({ error: 'Cannot delete your own account' });
   }
-  const target = await query('SELECT username FROM users WHERE id = $1', [id]);
+  const target = await query<{ username: string }>('SELECT username FROM users WHERE id = $1', [id]);
   if (!target.rows.length) return res.status(404).json({ error: 'User not found' });
   // Stop live per-user workers BEFORE the delete — disconnectUser looks up the
   // user's accounts, which the cascade delete would remove.
@@ -92,8 +92,8 @@ router.delete('/users/:id', async (req, res) => {
 // ── System settings ────────────────────────────────────────────────────────────
 
 router.get('/settings', async (req, res) => {
-  const result = await query('SELECT key, value FROM system_settings');
-  const settings = {};
+  const result = await query<{ key: string; value: string }>('SELECT key, value FROM system_settings');
+  const settings: Record<string, string> = {};
   for (const row of result.rows) settings[row.key] = row.value;
   res.json({ settings });
 });
@@ -107,7 +107,7 @@ router.get('/auth-events', async (req, res) => {
        FROM auth_events ORDER BY created_at DESC LIMIT $1 OFFSET $2`,
       [limit, offset]
     ),
-    query('SELECT COUNT(*) AS total FROM auth_events'),
+    query<{ total: string }>('SELECT COUNT(*) AS total FROM auth_events'),
   ]);
   res.json({ events: eventsResult.rows, total: parseInt(countResult.rows[0].total) });
 });
@@ -128,7 +128,7 @@ router.patch('/settings', async (req, res) => {
     if (internal_auth_disabled) {
       // Safety: at least one enabled OIDC provider must exist so users have a
       // way to sign in after password login is blocked.
-      const provCheck = await query(
+      const provCheck = await query<{ count: string }>(
         'SELECT COUNT(*) AS count FROM oidc_providers WHERE enabled = true'
       );
       if (parseInt(provCheck.rows[0].count) === 0) {
@@ -138,7 +138,7 @@ router.patch('/settings', async (req, res) => {
       }
       // Safety: the requesting admin must have a linked SSO identity so they
       // can still sign in after their current session expires.
-      const idCheck = await query(
+      const idCheck = await query<{ count: string }>(
         'SELECT COUNT(*) AS count FROM user_identities WHERE user_id = $1',
         [req.session.userId]
       );
@@ -245,7 +245,7 @@ router.get('/invites', async (req, res) => {
        LIMIT $1 OFFSET $2`,
       [limit, offset],
     ),
-    query('SELECT COUNT(*) AS total FROM invites'),
+    query<{ total: string }>('SELECT COUNT(*) AS total FROM invites'),
   ]);
   res.json({ invites: result.rows, total: parseInt(countResult.rows[0].total) });
 });
@@ -280,7 +280,7 @@ router.post('/invites', async (req, res) => {
     let fromHeader = null;
 
     // 1. System SMTP (configured in Admin → Users → System Email)
-    const sysResult = await query(
+    const sysResult = await query<{ value: string }>(
       "SELECT value FROM system_settings WHERE key = 'system_email_config'"
     );
     if (sysResult.rows.length) {
@@ -391,7 +391,7 @@ router.delete('/invites/:id', async (req, res) => {
 // ── System email (SMTP for sending invites & system messages) ──────────────────
 
 router.get('/system-email', async (req, res) => {
-  const result = await query(
+  const result = await query<{ value: string }>(
     "SELECT value FROM system_settings WHERE key = 'system_email_config'"
   );
   if (!result.rows.length) return res.json({ config: null });
@@ -419,7 +419,7 @@ router.post('/system-email', async (req, res) => {
 
   // Load existing config so we can keep the encrypted password if the field wasn't changed
   let existingPass = null;
-  const existing = await query(
+  const existing = await query<{ value: string }>(
     "SELECT value FROM system_settings WHERE key = 'system_email_config'"
   );
   if (existing.rows.length) {
@@ -449,7 +449,7 @@ router.post('/system-email', async (req, res) => {
 });
 
 router.post('/system-email/test', async (req, res) => {
-  const result = await query(
+  const result = await query<{ value: string }>(
     "SELECT value FROM system_settings WHERE key = 'system_email_config'"
   );
   if (!result.rows.length) {
@@ -572,7 +572,7 @@ router.post('/oidc', async (req, res) => {
 async function wouldLockOut(providerId) {
   const s = await query("SELECT value FROM system_settings WHERE key = 'internal_auth_disabled'");
   if (s.rows[0]?.value !== 'true') return null; // password login still available
-  const others = await query(
+  const others = await query<{ count: string }>(
     'SELECT COUNT(*) AS count FROM oidc_providers WHERE enabled = true AND id <> $1',
     [providerId]
   );
