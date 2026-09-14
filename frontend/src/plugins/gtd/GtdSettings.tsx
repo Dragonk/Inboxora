@@ -33,8 +33,8 @@ function GtdPetBlock() {
   const gtdPetSlug = useStore((s: StoreState) => s.gtdPetSlug);
   const setGtdPetSlug = useStore((s: StoreState) => s.setGtdPetSlug);
   const [msg, setMsg] = useState<{ type?: string; text?: string; url?: string; [key: string]: unknown } | null>(null);
-  const [petJsonFile, setPetJsonFile] = useState(null);
-  const [sheetFile, setSheetFile] = useState(null);
+  const [petJsonFile, setPetJsonFile] = useState<File | null>(null);
+  const [sheetFile, setSheetFile] = useState<File | null>(null);
   const [importing, setImporting] = useState(false);
   // Bumped after a successful import to remount the file inputs empty (a file input's
   // value can't be set programmatically, so a changed key is the clean reset).

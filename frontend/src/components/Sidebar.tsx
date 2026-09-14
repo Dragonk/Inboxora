@@ -288,7 +288,7 @@ export default function Sidebar({ onEditProfile = null }) {
     if (isMobile) setMobileSidebarOpen(false);
   }, [selectedAccountId, selectedFolder]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  const [msgDragTarget, setMsgDragTarget] = useState(null);
+  const [msgDragTarget, setMsgDragTarget] = useState<string | null>(null);
   const [folderDrag, setFolderDrag] = useState<{ accountId: string; path?: string; rootPath?: string; [key: string]: unknown } | null>(null);
   const [folderDropTarget, setFolderDropTarget] = useState<{ accountId: string; path?: string; [key: string]: unknown } | null>(null);
 
@@ -470,7 +470,7 @@ export default function Sidebar({ onEditProfile = null }) {
 
   // Update-available check (#261). Reads the cached server-side status; the browser
   // never contacts GitHub. Silent on any failure.
-  const [updateInfo, setUpdateInfo] = useState(null);
+  const [updateInfo, setUpdateInfo] = useState<{ url?: string; version?: string; [key: string]: unknown } | null>(null);
   useEffect(() => {
     let cancelled = false;
     fetch('/api/update')

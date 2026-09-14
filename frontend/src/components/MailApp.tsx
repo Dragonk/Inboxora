@@ -96,13 +96,13 @@ export default function MailApp() {
   const [mobileProfileOpen, setMobileProfileOpen] = useState(false);
   const [targetLogicalMessageId, setTargetLogicalMessageId] = useState<string | null>(null);
   const [selectedConversationCopy, setSelectedConversationCopy] = useState(null);
-  const [conversationResolutionError, setConversationResolutionError] = useState(null);
+  const [conversationResolutionError, setConversationResolutionError] = useState<string | null>(null);
   // P1-B: Native thread identity for the reader fallback. When the selected physical
   // message has a thread_key, the reader loads /mail/thread/:threadId so incomplete CE
   // state never silently drops messages the native list shows.
-  const [nativeThreadId, setNativeThreadId] = useState(null);
-  const [nativeFolder, setNativeFolder] = useState(null);
-  const [nativeThreadUnavailableFor, setNativeThreadUnavailableFor] = useState(null);
+  const [nativeThreadId, setNativeThreadId] = useState<string | null>(null);
+  const [nativeFolder, setNativeFolder] = useState<string | null>(null);
+  const [nativeThreadUnavailableFor, setNativeThreadUnavailableFor] = useState<string | null>(null);
   const fallbackMarkReadTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const selectedMessageIdRef = useRef(selectedMessageId);
   useEffect(() => { selectedMessageIdRef.current = selectedMessageId; }, [selectedMessageId]);

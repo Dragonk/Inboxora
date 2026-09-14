@@ -51,7 +51,7 @@ export default function MessageDetailContent({
   const legacyAiLabels = [t('message.aiClassify.button'), t('message.aiClassify.info')];
   const [downloadingPart, setDownloadingPart] = useState<string | null>(null);
   const [unsubscribeStatus, setUnsubscribeStatus] = useState<string | null>(null);
-  const [contextMenu, setContextMenu] = useState(null);
+  const [contextMenu, setContextMenu] = useState<{ x: number; y: number; selectedText: string } | null>(null);
   const iframeRef = useRef<HTMLIFrameElement | null>(null);
   const attachments = Array.isArray(body?.attachments) ? body.attachments : [];
   const html = body?.html ?? body?.body_html ?? '';

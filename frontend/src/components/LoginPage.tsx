@@ -44,8 +44,8 @@ export default function LoginPage() {
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
   const [registrationOpen, setRegistrationOpen] = useState(null); // null = loading
-  const [inviteToken, setInviteToken] = useState(null);
-  const [inviteEmail, setInviteEmail] = useState(null);
+  const [inviteToken, setInviteToken] = useState<string | null>(null);
+  const [inviteEmail, setInviteEmail] = useState<string | null>(null);
   const [totpRequired, setTotpRequired] = useState(false);
   const [totpCode, setTotpCode] = useState('');
   const [rememberDevice, setRememberDevice] = useState(false);
@@ -55,7 +55,7 @@ export default function LoginPage() {
   const [emailHint, setEmailHint] = useState('');
   const [emailOtpResending, setEmailOtpResending] = useState(false);
   const [mfaEnrollRequired, setMfaEnrollRequired] = useState(false);
-  const [enrollData, setEnrollData] = useState(null); // { qrCode, secret }
+  const [enrollData, setEnrollData] = useState<{ qrCode: string; secret: string } | null>(null); // { qrCode, secret }
   const [enrollStep, setEnrollStep] = useState('intro'); // intro | scan | verify
   const [enrollCode, setEnrollCode] = useState('');
   const [oidcProviders, setOidcProviders] = useState([]);
