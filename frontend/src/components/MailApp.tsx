@@ -92,9 +92,9 @@ export default function MailApp() {
   const lockScreen = useStore((s: StoreState) => s.lockScreen);
   const isMobile = useMobile();
   const compactLayout = useCompactLayout();
-  const [conversationId, setConversationId] = useState(null);
+  const [conversationId, setConversationId] = useState<string | null>(null);
   const [mobileProfileOpen, setMobileProfileOpen] = useState(false);
-  const [targetLogicalMessageId, setTargetLogicalMessageId] = useState(null);
+  const [targetLogicalMessageId, setTargetLogicalMessageId] = useState<string | null>(null);
   const [selectedConversationCopy, setSelectedConversationCopy] = useState(null);
   const [conversationResolutionError, setConversationResolutionError] = useState(null);
   // P1-B: Native thread identity for the reader fallback. When the selected physical

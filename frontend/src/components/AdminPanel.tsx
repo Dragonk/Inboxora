@@ -139,7 +139,7 @@ function AccountForm({ initial = undefined, onSave, onCancel }: AccountFormProps
   const [error, setError] = useState('');
   const [showPass, setShowPass] = useState(false);
   const [showSmtpPass, setShowSmtpPass] = useState(false);
-  const [selectedPreset, setSelectedPreset] = useState(null);
+  const [selectedPreset, setSelectedPreset] = useState<string | null>(null);
   const [mailPolicy, setMailPolicy] = useState({ allowPrivateHosts: false, allowInsecureTls: false, allowNonstandardPorts: false });
 
   useEffect(() => {
@@ -505,12 +505,12 @@ function AccountsTab() {
   const [availableFolders, setAvailableFolders] = useState<Array<{ path?: string; name?: string; [key: string]: unknown }>>([]);
   const [foldersLoading, setFoldersLoading] = useState(false);
   const [foldersSaving, setFoldersSaving] = useState(false);
-  const [confirmDialog, setConfirmDialog] = useState(null);
+  const [confirmDialog, setConfirmDialog] = useState<ConfirmOverlayProps['dialog'] | null>(null);
 
   // Alias form state
-  const [aliasFormMode, setAliasFormMode] = useState(null); // null | 'add' | 'edit'
+  const [aliasFormMode, setAliasFormMode] = useState<'add' | 'edit' | null>(null);
   const [aliasFormData, setAliasFormData] = useState({ name: '', email: '', reply_to: '', signature: '' });
-  const [aliasFormId, setAliasFormId] = useState(null);
+  const [aliasFormId, setAliasFormId] = useState<string | null>(null);
   const [aliasFormError, setAliasFormError] = useState('');
   const [aliasFormSaving, setAliasFormSaving] = useState(false);
   useBackLayer(subview !== 'list', () => setSubview('list'), 2010);

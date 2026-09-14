@@ -30,7 +30,7 @@ export function usePushNotifications() {
   const [supported,        setSupported]        = useState(false);
   const [permission,       setPermission]       = useState('default');
   const [subscribed,       setSubscribed]       = useState(false);
-  const [serverConfigured, setServerConfigured] = useState(null); // null = not yet checked
+  const [serverConfigured, setServerConfigured] = useState<boolean | null>(null); // null = not yet checked
   const [loading,          setLoading]          = useState(false);
   const regRef = useRef(null);
 

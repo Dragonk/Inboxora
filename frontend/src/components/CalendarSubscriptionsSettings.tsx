@@ -29,8 +29,8 @@ export default function CalendarSubscriptionsSettings({ locale }) {
   const [sources, setSources] = useState([]);
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState(false);
-  const [error, setError] = useState(null);
-  const [notice, setNotice] = useState(null);
+  const [error, setError] = useState<string | null>(null);
+  const [notice, setNotice] = useState<string | null>(null);
   const [form, setForm] = useState({ displayName: '', url: '' });
   const [country, setCountry] = useState(() => defaultHolidayCountry(language));
 
