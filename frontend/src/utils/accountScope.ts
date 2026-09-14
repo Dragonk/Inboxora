@@ -11,22 +11,41 @@
 // Both helpers return the input unchanged when they cannot improve on it, including the same
 // object reference for folders, so a no-op cannot trigger a re-render.
 
+type AccountWithId = { id: string };
+
+function hasAccountId(value: unknown): value is AccountWithId {
+  return typeof value === 'object' && value !== null && 'id' in value && typeof value.id === 'string';
+}
+
+function liveAccountIds(accounts: unknown): Set<string> | null {
+  if (!Array.isArray(accounts)) return null;
+
+  const ids = new Set<string>();
+  const entries: unknown[] = accounts;
+  for (const account of entries) {
+    if (hasAccountId(account)) ids.add(account.id);
+  }
+  return ids;
+}
+
 /**
  * The account that should be selected, given the accounts that actually exist.
  * Returns null for the unified inbox, which is the right fallback: it is always valid.
  */
-export function resolveSelectedAccount(accounts, selectedAccountId) {
+export function resolveSelectedAccount(accounts: unknown, selectedAccountId: string | null | undefined): string | null {
   if (!selectedAccountId) return null;                    // already the unified inbox
-  if (!Array.isArray(accounts)) return selectedAccountId; // list unknown, do not guess
-  return accounts.some(a => a?.id === selectedAccountId) ? selectedAccountId : null;
+  const live = liveAccountIds(accounts);
+  if (live === null) return selectedAccountId;            // list unknown, do not guess
+  return live.has(selectedAccountId) ? selectedAccountId : null;
 }
 
 /** Drop cached folder lists belonging to accounts that no longer exist. */
-export function pruneFolders(folders, accounts) {
-  if (!folders || !Array.isArray(accounts)) return folders;
-  const live = new Set(accounts.map(a => a?.id).filter(Boolean));
-  const ids = Object.keys(folders);
-  const kept = ids.filter(id => live.has(id));
-  if (kept.length === ids.length) return folders;         // unchanged: preserve identity
-  return Object.fromEntries(kept.map(id => [id, folders[id]]));
+export function pruneFolders<Value, Folders extends Record<string, Value> | null>(folders: Folders, accounts: unknown) {
+  const live = liveAccountIds(accounts);
+  if (!folders || live === null) return folders;
+
+  const entries = Object.entries(folders);
+  const kept = entries.filter(([id]) => live.has(id));
+  if (kept.length === entries.length) return folders;     // unchanged: preserve identity
+  return Object.fromEntries(kept);
 }
