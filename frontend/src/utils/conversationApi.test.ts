@@ -36,7 +36,7 @@ describe('Conversation Engine API client', () => {
   });
 
   it('sends authenticated CSRF-aware requests for destructive and state-changing actions', async () => {
-    const calls = [];
+    const calls: Array<{ url: string; init: RequestInit }> = [];
     const fetchStub = async (url: string, init: RequestInit) => {
       calls.push({ url, init });
       return { ok: true, json: async () => ({ ok: true }) };
@@ -52,8 +52,8 @@ describe('Conversation Engine API client', () => {
     ]);
     for (const { init } of calls) {
       assert.equal(init.credentials, 'include');
-      assert.equal(init.headers.get(CSRF_HEADER), CSRF_VALUE);
-      assert.equal(init.headers.get('Content-Type'), 'application/json');
+      assert.equal(new Headers(init.headers).get(CSRF_HEADER), CSRF_VALUE);
+      assert.equal(new Headers(init.headers).get('Content-Type'), 'application/json');
     }
   });
 });

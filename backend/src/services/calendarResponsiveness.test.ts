@@ -18,7 +18,7 @@ import { describe, expect, it } from 'vitest';
 
 import { closeCalendarProjectionPool, projectCalendarResources } from './calendarProjectionPool.js';
 
-function ics(lines) {
+function ics(lines: readonly string[]) {
   return ['BEGIN:VCALENDAR', 'VERSION:2.0', 'PRODID:-//Responsiveness//EN', ...lines, 'END:VCALENDAR', ''].join('\r\n');
 }
 
@@ -52,7 +52,7 @@ const TO = new Date('2026-09-15T00:00:00Z');
 // A timer that never fires at all (zero samples) is the strongest possible
 // starvation signal: the loop was blocked for the whole measurement, which is
 // exactly what inline expansion does.
-function eventLoopLagWhile(work) {
+function eventLoopLagWhile(work: () => Promise<unknown>) {
   const lags: number[] = [];
   const interval = 10;
   let expected = performance.now() + interval;
@@ -66,7 +66,7 @@ function eventLoopLagWhile(work) {
     const duration = performance.now() - started;
     clearInterval(timer);
     lags.sort((left, right) => left - right);
-    const at = fraction => lags[Math.min(lags.length - 1, Math.floor(fraction * lags.length))] ?? 0;
+    const at = (fraction: number) => lags[Math.min(lags.length - 1, Math.floor(fraction * lags.length))] ?? 0;
     return { duration, samples: lags.length, median: at(0.5), p95: at(0.95), max: lags[lags.length - 1] ?? 0 };
   });
 }
