@@ -2,11 +2,17 @@ import { useBackLayer } from '../hooks/useBackNavigation.ts';
 import { useState, useEffect } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useStore } from '../store/index.ts';
+import type { StoreMessageRow } from '../store/index.ts';
 import { api } from '../utils/api.ts';
 import type { CSSProperties } from 'react';
 import { toAppError } from '../utils/errors.ts';
 
-export default function TodoistTaskModal({ message, onClose }) {
+interface TodoistTaskModalProps {
+  message?: StoreMessageRow;
+  onClose: () => void;
+}
+
+export default function TodoistTaskModal({ message, onClose }: TodoistTaskModalProps) {
   const { t } = useTranslation();
   const { addNotification } = useStore();
 
@@ -17,7 +23,7 @@ export default function TodoistTaskModal({ message, onClose }) {
   const [priority, setPriority] = useState(1);
   const [dueDate, setDueDate] = useState('');
   const [projects, setProjects] = useState<Array<{ id: string; name?: string; [key: string]: unknown }>>([]);
-  const [labels, setLabels] = useState<Array<{ id: string; name?: string; [key: string]: unknown }>>([]);
+  const [labels, setLabels] = useState<Array<{ id: string; name: string; [key: string]: unknown }>>([]);
   const [loadError, setLoadError] = useState('');
   const [loading, setLoading] = useState(true);
   const [creating, setCreating] = useState(false);

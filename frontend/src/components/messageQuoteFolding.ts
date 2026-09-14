@@ -22,7 +22,7 @@ export function startsWithReplyMarker(value: unknown = ''): boolean {
 interface QuoteToggleOptions {
   showLabel: string;
   hideLabel: string;
-  onChange: () => void;
+  onChange: (() => void) | null;
 }
 
 function uniqueTopLevel<T extends Element>(elements: T[]): T[] {
@@ -75,9 +75,9 @@ function candidateGroups(doc: Document, protectedForwards: HTMLElement[]): HTMLE
 }
 
 function structuralQuoteRoots(doc: Document, protectedSet: Set<Element>, explicitElements: HTMLElement[] = []): HTMLElement[] {
-  const roots = [];
-  const seen = new Set();
-  const topLevel = [...(doc.body?.children || [])];
+  const roots: HTMLElement[] = [];
+  const seen = new Set<HTMLElement>();
+  const topLevel = [...doc.body.querySelectorAll<HTMLElement>(':scope > *')];
   for (let index = 0; index < topLevel.length; index += 1) {
     const element = topLevel[index];
     if (protectedSet.has(element) || seen.has(element)) continue;
@@ -114,7 +114,7 @@ function elementStartsWithReplyMarker(element: Element): boolean {
   return false;
 }
 
-function createToggle(doc: Document, id: string, showLabel: string, hideLabel: string, onChange: () => void): HTMLElement {
+function createToggle(doc: Document, id: string, showLabel: string, hideLabel: string, onChange: (() => void) | null): HTMLElement {
   const button = doc.createElement('button');
   button.type = 'button';
   button.className = 'mailflow-quote-toggle';
@@ -131,7 +131,7 @@ function createToggle(doc: Document, id: string, showLabel: string, hideLabel: s
     }
     button.setAttribute('aria-expanded', String(nextExpanded));
     button.textContent = nextExpanded ? hideLabel : showLabel;
-    onChange?.();
+    if (onChange !== null) onChange();
   });
   return button;
 }
@@ -182,12 +182,11 @@ function installPlainTextGroup(doc: Document, pre: Element, options: QuoteToggle
   return true;
 }
 
-export function installMessageQuoteFolding(doc, {
+export function installMessageQuoteFolding(doc: Document, {
   showLabel = 'Show quoted text',
   hideLabel = 'Hide quoted text',
   onChange = null,
 }: { showLabel?: string; hideLabel?: string; onChange?: (() => void) | null } = {}) {
-  if (!doc?.body) return { count: 0, protectedForwardCount: 0 };
   const plainText = doc.querySelector('[data-mailflow-plain-text="true"]');
   if (plainText) {
     const installed = installPlainTextGroup(doc, plainText, { showLabel, hideLabel, onChange });

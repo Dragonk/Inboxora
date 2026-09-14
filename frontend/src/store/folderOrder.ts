@@ -2,6 +2,10 @@ import { sanitizeFolderOrder } from '../utils/sidebar.ts';
 
 const STORAGE_KEY = 'mailflow_folder_order';
 
+interface FolderOrderPreferences {
+  folderOrder?: unknown;
+}
+
 export function cacheFolderOrder(value: unknown, storage = localStorage) {
   const clean = sanitizeFolderOrder(value);
   storage.setItem(STORAGE_KEY, JSON.stringify(clean));
@@ -19,16 +23,16 @@ export function readFolderOrder(storage = localStorage) {
 }
 
 export function cacheFolderOrderFromPreferences(
-  preferences,
+  preferences: FolderOrderPreferences,
   storage = localStorage,
 ) {
-  return cacheFolderOrder(preferences?.folderOrder ?? {}, storage);
+  return cacheFolderOrder(preferences.folderOrder, storage);
 }
 
 export function mergeFolderOrder(
-  current,
-  accountId,
-  paths,
+  current: unknown,
+  accountId: string,
+  paths: unknown,
   storage = localStorage,
 ) {
   return cacheFolderOrder({

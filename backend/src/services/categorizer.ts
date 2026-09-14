@@ -128,7 +128,7 @@ export function classifyMessage(parsedHeaders: unknown, fromEmail: string | null
 // signals. Returns a valid category string, or null if AI is unavailable or
 // the response is unusable. Errors are swallowed — the caller treats null as
 // 'keep primary'.
-export async function aiClassifyMessage(subject: string, fromEmail: string | null | undefined, snippet: string | null | undefined) {
+export async function aiClassifyMessage(subject: string | null | undefined, fromEmail: string | null | undefined, snippet: string | null | undefined) {
   const prompt = `Classify this email into exactly one category. Reply with only the category name, nothing else.
 
 Categories:

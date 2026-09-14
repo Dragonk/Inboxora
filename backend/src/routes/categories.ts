@@ -12,7 +12,7 @@ const router = Router();
 
 // Validate that a URL is a safe external HTTPS URL (no private/loopback IPs).
 // Returns an error string or null if valid. Async because it performs DNS resolution.
-async function validateSubscriptionUrl(raw) {
+async function validateSubscriptionUrl(raw: string) {
   let url;
   try { url = new URL(raw); } catch { return 'Invalid URL'; }
   if (url.protocol !== 'https:') return 'URL must use HTTPS';
@@ -39,6 +39,7 @@ async function fetchDomainList(url: string) {
 
     // Limit response to 512 KB to prevent memory abuse
     const MAX_BYTES = 512 * 1024;
+    if (res.body === null) return { domains: [], error: 'Response body unavailable' };
     const reader = res.body.getReader();
     const chunks = [];
     let total = 0;
@@ -215,7 +216,7 @@ router.post('/categories/recategorize/:accountId', requireAuth, async (req: Requ
   if (!check.rows.length) return res.status(404).json({ error: 'Account not found or categorization not enabled' });
 
   // Run in background — large inboxes can take a while
-  const userId = req.session.userId;
+  const userId = sessionUserId(req);
   const accountId = routeParam(req.params.accountId);
   (async () => {
     try {

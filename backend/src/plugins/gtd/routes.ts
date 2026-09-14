@@ -106,7 +106,7 @@ router.post('/pet/import', async (req: Request, res: Response) => {
     const pet = await importPet({ petJsonText: petJson, sheet: bytes, userId: sessionUserId(req) });
     res.json(pet);
   } catch (err) {
-    const importError = err as { code?: string; message?: string };
+    const importError = toAppError(err);
     if (importError.code) return res.status(400).json({ error: importError.message });
     console.error('GTD pet import failed:', importError.message);
     res.status(500).json({ error: 'Failed to import pet' });
@@ -164,6 +164,7 @@ router.post('/classify', async (req: Request, res: Response) => {
   if (!toFolder) return res.status(400).json({ error: 'Unknown GTD state' });
 
   const account = await getOwnedAccount(sessionUserId(req), msg.account_id);
+  if (!account) return res.status(404).json({ error: 'Account not found' });
 
   let result;
   try {
@@ -288,13 +289,14 @@ router.post('/done', async (req: Request, res: Response) => {
   if (target.error) return res.status(target.status ?? 400).json({ error: target.error });
 
   const account = await getOwnedAccount(sessionUserId(req), msg.account_id);
+  if (!account) return res.status(404).json({ error: 'Account not found' });
 
   // (a) Mark the whole thread read. The DB fan-out (by Message-ID) covers every sibling
   // copy and adjusts each folder's unread count; \Seen is set on the durable INBOX copy
   // only (it rides the archive move; Gmail propagates message-wide) — the same per-copy
   // asymmetry the ordinary read route accepts. A best-effort flag push is never fatal.
   const { inboxCopy, error: markReadError } = await markThreadRead(account, msg);
-  if (markReadError) console.warn(`GTD done: mark-read for ${id} degraded:`, (markReadError as { message?: string }).message);
+  if (markReadError) console.warn(`GTD done: mark-read for ${id} degraded:`, toAppError(markReadError).message);
 
   // (b) Strip this row's GTD label copies. Each is a distinct folder copy resolved from
   // the shared Message-ID; removeMessageCopy deletes the IMAP + DB copy and adjusts that

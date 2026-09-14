@@ -30,9 +30,22 @@ describe('safeFetch — SSRF guard', () => {
 
   // undici surfaces a connector rejection as `TypeError: fetch failed` with the
   // real error on `.cause`, so assert on the cause code.
-  const causeCode = async (promise) => {
+  const errorCode = (value: unknown): string | null => {
+    if (typeof value !== 'object' || value === null || !('code' in value)) return null;
+    return typeof value.code === 'string' ? value.code : null;
+  };
+
+  const errorCause = (value: unknown): unknown => {
+    if (typeof value !== 'object' || value === null || !('cause' in value)) return undefined;
+    return value.cause;
+  };
+
+  const causeCode = async (promise: Promise<unknown>): Promise<string | null> => {
     try { await promise; return null; }
-    catch (e) { return e.cause?.code ?? e.code; }
+    catch (error: unknown) {
+      const code = errorCode(errorCause(error));
+      return code === null ? errorCode(error) : code;
+    }
   };
 
   it('blocks a literal private IP when allowPrivate=false', async () => {
