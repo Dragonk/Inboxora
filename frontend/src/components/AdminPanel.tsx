@@ -6287,7 +6287,7 @@ function RulesTab() {
     }
   }
 
-  async function handleReorderRules(from, to) {
+  async function handleReorderRules(from: number, to: number) {
     const copy = [...rules];
     const reordered = [...rules];
     const [moved] = reordered.splice(from, 1);
@@ -6298,7 +6298,7 @@ function RulesTab() {
     api.reorderRules(reordered.map(r => r.id)).catch(() => { setRules(copy); })
   }
 
-  function setCondition(idx, key, val) {
+  function setCondition(idx: number, key: string, val: unknown) {
     setFormData(prev => {
       const conditions = prev.conditions.map((c, i) => i === idx ? { ...c, [key]: val } : c);
       return { ...prev, conditions };
