@@ -328,7 +328,7 @@ export async function getPetMeta(slug: string) {
 }
 
 // Read a cached pet's spritesheet bytes + mime. Returns null when absent.
-export async function getPetSheet(slug: string) {
+export async function getPetSheet(slug: string): Promise<{ data: Buffer | string; mime?: string | null; isCustom: boolean } | null> {
   const s = parsePetSlug(slug);
   if (!s) return null;
   const row = await pluginStorage.getBlob('gtd', s);

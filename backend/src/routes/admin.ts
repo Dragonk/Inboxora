@@ -92,8 +92,8 @@ router.delete('/users/:id', async (req, res) => {
 // ── System settings ────────────────────────────────────────────────────────────
 
 router.get('/settings', async (req, res) => {
-  const result = await query('SELECT key, value FROM system_settings');
-  const settings = {};
+  const result = await query<{ key: string; value: string }>('SELECT key, value FROM system_settings');
+  const settings: Record<string, string> = {};
   for (const row of result.rows) settings[row.key] = row.value;
   res.json({ settings });
 });
@@ -128,7 +128,7 @@ router.patch('/settings', async (req, res) => {
     if (internal_auth_disabled) {
       // Safety: at least one enabled OIDC provider must exist so users have a
       // way to sign in after password login is blocked.
-      const provCheck = await query(
+      const provCheck = await query<{ count: string }>(
         'SELECT COUNT(*) AS count FROM oidc_providers WHERE enabled = true'
       );
       if (parseInt(provCheck.rows[0].count) === 0) {
