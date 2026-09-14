@@ -37,6 +37,11 @@ const ComposeModal = lazy(() => import('./ComposeModal.tsx'));
 const AdminPanel   = lazy(() => import('./AdminPanel.tsx'));
 const ElectronNotificationBridge = lazy(() => import('./ElectronNotificationBridge.tsx'));
 
+type LayoutSpec = typeof LAYOUTS[keyof typeof LAYOUTS];
+// Look presets up by an arbitrary persisted key: an unknown/stale key resolves to
+// undefined, so the `|| LAYOUTS.comfortable` fallback below still applies.
+const LAYOUT_BY_NAME: Record<string, LayoutSpec> = LAYOUTS;
+
 // Read + atomically clear the deep-link the service worker persisted on a
 // notification tap (shared IndexedDB store 'mailflow-nav'). Fully guarded so any
 // storage error resolves to null instead of throwing.
@@ -230,7 +235,7 @@ export default function MailApp() {
               });
           };
           if (useStore.getState().markReadBehavior === 'delay') {
-            clearTimeout(fallbackMarkReadTimerRef.current);
+            if (fallbackMarkReadTimerRef.current !== null) clearTimeout(fallbackMarkReadTimerRef.current);
             fallbackMarkReadTimerRef.current = setTimeout(markFallbackRead, useStore.getState().markReadDelay * 1000);
           } else {
             markFallbackRead();
@@ -239,7 +244,7 @@ export default function MailApp() {
       });
     return () => {
       cancelled = true;
-      clearTimeout(fallbackMarkReadTimerRef.current);
+      if (fallbackMarkReadTimerRef.current !== null) clearTimeout(fallbackMarkReadTimerRef.current);
       fallbackMarkReadTimerRef.current = null;
     };
   }, [conversationReaderViewEnabled, nativeThreadUnavailableFor, selectedMessageId]);
@@ -289,9 +294,10 @@ export default function MailApp() {
   const [showShortcutHelp, setShowShortcutHelp] = useState(false);
   const [paletteOpen, setPaletteOpen] = useState(false);
   const sidebarDragRef = useRef<{ startX: number; startY: number; [key: string]: unknown } | null>(null);
-  const sidebarResizeRef = useRef(null);
-  const listResizeRef = useRef(null);
-  const rightSidebarResizeRef = useRef(null);
+  type PanelDragHandlers = { onMouseMove: (mv: MouseEvent) => void; onMouseUp: () => void };
+  const sidebarResizeRef = useRef<PanelDragHandlers | null>(null);
+  const listResizeRef = useRef<(() => void) | null>(null);
+  const rightSidebarResizeRef = useRef<PanelDragHandlers | null>(null);
 
   // Keep the right sidebar's width CSS var in sync with the persisted preference.
   useEffect(() => {
@@ -347,13 +353,16 @@ export default function MailApp() {
     };
   }, []);
 
-  const currentLayout = LAYOUTS[layout] || LAYOUTS.comfortable;
-  const compactMail = compactLayout && currentLayout.direction === 'row';
+  const currentLayout = LAYOUT_BY_NAME[layout] || LAYOUTS.comfortable;
+  // Every preset is row or column; the presets object widens `direction` to
+  // string, so derive the literal union React's flexDirection requires.
+  const currentLayoutDirection: 'row' | 'column' = currentLayout.direction === 'column' ? 'column' : 'row';
+  const compactMail = compactLayout && currentLayoutDirection === 'row';
   const readerOpen = Boolean(selectedMessageId || (conversationReaderViewEnabled && conversationId));
 
   // Shortcut hint (e.g. "⌘/") for the collapse/expand tooltips, derived from the
   // live shortcut map via the existing helpers — no new plumbing. '' when unbound.
-  const rightSidebarToggleParsed = parseModKey(getEffectiveShortcuts(shortcuts).toggleRightSidebar);
+  const rightSidebarToggleParsed = parseModKey(getEffectiveShortcuts(shortcuts).toggleRightSidebar || '');
   const rightSidebarToggleHint = rightSidebarToggleParsed ? `${modLabel(rightSidebarToggleParsed.mod)}${rightSidebarToggleParsed.bare}` : '';
   // The right sidebar renders when a plugin supplies content for the 'right-sidebar' slot. Core is
   // plugin-agnostic here — it places the seam; a plugin (currently GTD) fills it. The layout/shortcut
@@ -361,7 +370,7 @@ export default function MailApp() {
   const rightSidebarCtx = { accounts, selectedAccountId, onCollapse: toggleRightSidebarHidden, toggleHint: rightSidebarToggleHint };
   const rightSidebarProviders = usePluginSlot('right-sidebar', rightSidebarCtx);
   const rightSidebarContent = rightSidebarProviders.length ? rightSidebarProviders[0].render(rightSidebarCtx) : null;
-  const rightSidebarApplicable = !isMobile && currentLayout.direction === 'row' && rightSidebarContent != null;
+  const rightSidebarApplicable = !isMobile && currentLayoutDirection === 'row' && rightSidebarContent != null;
 
   const handleListResizeMouseDown = (e: React.MouseEvent) => {
     // The mail list is the canonical left panel: the width it sets here is the
@@ -522,7 +531,7 @@ export default function MailApp() {
       if (mt.protocol !== 'mailto:') return;
       const safeDecode = (x: string) => { try { return decodeURIComponent(x); } catch { return x; } };
       // pathname addresses are raw-encoded; searchParams values are already decoded.
-      const splitAddrs = (s: string, decode: boolean) => !s ? [] : s.split(',').map((a: string) => decode ? safeDecode(a.trim()) : a.trim()).filter(Boolean);
+      const splitAddrs = (s: string | null, decode: boolean) => !s ? [] : s.split(',').map((a: string) => decode ? safeDecode(a.trim()) : a.trim()).filter(Boolean);
       const esc = (x: string) => x.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
       // A mailto body is plain text (RFC 6068); escape it so it renders literally in
       // the HTML editor and can't inject markup.
@@ -623,7 +632,7 @@ export default function MailApp() {
       Object.keys(keyMap).filter(k => k.length > 1 && !SPECIAL_KEYS.has(k)).map(k => k[0])
     );
 
-    let pendingKey   = null;
+    let pendingKey: string | null = null;
     let pendingTimer: ReturnType<typeof setTimeout> | null = null;
 
     const clearPending = () => {
@@ -870,7 +879,7 @@ export default function MailApp() {
           )}
           <div style={{
             flex: 1, display: 'flex', overflow: 'hidden',
-            minWidth: 0, flexDirection: currentLayout.direction,
+            minWidth: 0, flexDirection: currentLayoutDirection,
             height: '100%',
           }}>
             {showContacts && <div style={{ display: 'flex', flex: 1, minWidth: 0, overflow: 'hidden', height: '100%' }}>
@@ -879,14 +888,14 @@ export default function MailApp() {
             {showCalendar && <div data-testid="desktop-calendar-page" style={{ display: 'flex', flex: 1, minWidth: 0, overflow: 'hidden', height: '100%' }}>
               <Suspense fallback={lazyFallback}><CalendarPage /></Suspense>
             </div>}
-            <div style={{ position: 'relative', display: showContacts || showCalendar ? 'none' : 'flex', flex: 1, minWidth: 0, overflow: 'hidden', height: '100%', flexDirection: currentLayout.direction }}>
+            <div style={{ position: 'relative', display: showContacts || showCalendar ? 'none' : 'flex', flex: 1, minWidth: 0, overflow: 'hidden', height: '100%', flexDirection: currentLayoutDirection }}>
               <div data-ce-reader-enabled={conversationReaderViewEnabled ? 'true' : 'false'} data-ce-reader-state={conversationReaderViewEnabled ? 'enabled' : 'disabled'} data-ce-conversation-id={conversationId || ''} data-ce-selected-message-id={selectedMessageId || ''} data-ce-resolution-error={conversationResolutionError ? 'true' : 'false'} style={{
-                display: compactMail && readerOpen ? 'none' : 'flex', flex: compactMail ? 1 : currentLayout.direction === 'row' ? '0 0 var(--list-width)' : '1 1 50%',
-                width: compactMail ? '100%' : currentLayout.direction === 'row' ? 'var(--list-width)' : '100%', minWidth: 0, overflow: 'hidden', height: '100%',
+                display: compactMail && readerOpen ? 'none' : 'flex', flex: compactMail ? 1 : currentLayoutDirection === 'row' ? '0 0 var(--list-width)' : '1 1 50%',
+                width: compactMail ? '100%' : currentLayoutDirection === 'row' ? 'var(--list-width)' : '100%', minWidth: 0, overflow: 'hidden', height: '100%',
               }}>
                 <MessageList />
               </div>
-              {!compactMail && currentLayout.direction === 'row' && (
+              {!compactMail && currentLayoutDirection === 'row' && (
                 <PanelResizeHandle testId="mail-list-resize" onMouseDown={handleListResizeMouseDown} />
               )}
               <div data-ce-reader-pane="true" style={{ flex: 1, minWidth: 0, overflow: 'hidden', height: '100%', display: compactMail && !readerOpen ? 'none' : 'flex', flexDirection: 'column' }}>
@@ -894,7 +903,7 @@ export default function MailApp() {
                 <MessagePane mode={conversationReaderViewEnabled && (conversationId || nativeThreadId) ? 'conversation' : 'single'} conversationId={conversationId} targetLogicalMessageId={targetLogicalMessageId} selectedConversationCopy={selectedConversationCopy} nativeThreadId={nativeThreadId} nativeFolder={nativeFolder} onReply={replyFromConversation} onNativeThreadUnavailable={handleNativeThreadUnavailable} onMobileBack={closeReader} />
               </div>
               {/* Generic right-sidebar column, populated from the content seam above. */}
-              {currentLayout.direction === 'row' && rightSidebarContent != null && (
+              {currentLayoutDirection === 'row' && rightSidebarContent != null && (
                 <>
                   {/* Resize handle is omitted while the sidebar is hidden. */}
                   {!rightSidebarHidden && (
@@ -1016,12 +1025,14 @@ function MobileTopBar({ position, moduleActive, actionsRef, onMenu, onCompose, t
   );
 }
 
-function ShortcutHelpOverlay({ shortcuts, onClose }) {
+const SPECIAL_KEY_LABEL_BY_NAME: Record<string, string | undefined> = SPECIAL_KEY_LABELS;
+
+function ShortcutHelpOverlay({ shortcuts, onClose }: { shortcuts: Record<string, string>; onClose: () => void }) {
   const { t } = useTranslation();
   const effective = getEffectiveShortcuts(shortcuts);
   const groups    = getGroupedActions();
 
-  const keyBadge = (key: string) => {
+  const keyBadge = (key: string | null | undefined) => {
     if (!key) return <span style={{ color: 'var(--text-tertiary)', fontSize: 11 }}>—</span>;
     // Modifier combos like 'ctrl+p'
     const mod = parseModKey(key);
@@ -1035,8 +1046,9 @@ function ShortcutHelpOverlay({ shortcuts, onClose }) {
       );
     }
     // Special key names like 'Delete', 'ArrowUp' — single keypress, render as one badge
-    if (SPECIAL_KEY_LABELS[key]) {
-      return <kbd style={kbdStyle}>{SPECIAL_KEY_LABELS[key]}</kbd>;
+    const specialLabel = SPECIAL_KEY_LABEL_BY_NAME[key];
+    if (specialLabel) {
+      return <kbd style={kbdStyle}>{specialLabel}</kbd>;
     }
     // For two-key sequences like 'gi', render each key separately
     const parts = key.length > 1

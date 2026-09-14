@@ -29,8 +29,8 @@ import {
   normalizeAiForm,
   selectAiConnectionMethod,
 } from '../utils/aiConfig.ts';
-import type { CodexDeviceState } from '../utils/aiConfig.ts';
-import { THEMES, applyCustomCss, themesByTone } from '../themes.ts';
+import type { CodexDeviceState, AiConfigFormInput } from '../utils/aiConfig.ts';
+import { THEMES, applyCustomCss, themesByTone, isThemeName } from '../themes.ts';
 import { FONT_SETS, loadFontSet, isRetroFont } from '../fonts.ts';
 import { LAYOUTS, localizedLayout, applyLayout } from '../layouts.ts';
 import { NOTIFICATION_SOUNDS, playNotificationSound, playCustomSound, warmUpAudioContext } from '../utils/notificationSounds.ts';
@@ -44,17 +44,33 @@ import { isValidForwardAddress } from '../utils/ruleActions.ts';
 import type { CSSProperties, SVGProps } from 'react';
 import type { StoreState } from '../store/index.ts';
 
+interface AdminAlias {
+  id: string;
+  address?: string | null;
+  name?: string | null;
+  email?: string | null;
+  reply_to?: string | null;
+  signature?: string | null;
+  [key: string]: unknown;
+}
+interface AdminAccount {
+  id: string;
+  email_address?: string | null;
+  aliases?: AdminAlias[];
+  [key: string]: unknown;
+}
+
 // ─── Shared field component ───────────────────────────────────────────────────
 interface FieldProps { label?: React.ReactNode; required?: boolean; children?: React.ReactNode }
 interface ThemeDefaultGridProps { tone?: string; selected?: string; onSelect: (name: string) => void }
 interface IconBtnProps { children?: React.ReactNode; onClick?: (event: React.MouseEvent<HTMLButtonElement>) => void; title?: string; danger?: boolean; disabled?: boolean }
-interface LayoutDiagramProps { layoutConfig?: { direction?: string; listWidth?: number; [key: string]: unknown }; active?: boolean }
+interface LayoutDiagramProps { layoutConfig: (typeof LAYOUTS)[keyof typeof LAYOUTS]; active?: boolean }
 interface SwipeActionIconProps { action?: string; size?: number }
 interface SettingsSwitchRowProps { label?: React.ReactNode; description?: React.ReactNode; checked?: boolean; onChange?: (value: boolean) => void; testId?: string; disabled?: boolean; ariaLabel?: string | null; children?: React.ReactNode }
 interface SubTabSectionProps { initialSubTab?: string }
 interface PluginsSectionProps { onNavigate?: (tab: string, subTab?: string) => void }
-interface ConfirmOverlayProps { dialog?: { title?: React.ReactNode; message?: React.ReactNode; confirmLabel?: React.ReactNode; onConfirm?: () => void; danger?: boolean } | null; onClose: () => void }
-interface SubTabsProps { tabs?: Array<{ id: string; label?: string; content?: React.ReactNode }>; initialTab?: string }
+interface ConfirmOverlayProps { dialog?: { title?: React.ReactNode; message?: React.ReactNode; confirmLabel?: React.ReactNode; onConfirm: () => void; danger?: boolean } | null; onClose: () => void }
+interface SubTabsProps { tabs: Array<{ id: string; label?: string; content?: React.ReactNode }>; initialTab?: string }
 
 
 function Field({ label, required = false, children }: FieldProps) {
@@ -96,7 +112,7 @@ function isMicrosoftImapHost(host: string): boolean {
 interface AccountFormState {
   id?: string;
   name?: string;
-  email_address?: string;
+  email_address?: string | null;
   color?: string;
   protocol?: string;
   imap_host: string;
@@ -154,8 +170,8 @@ function AccountForm({ initial = undefined, onSave, onCancel }: AccountFormProps
 
   const set = (key: string, val: unknown) => setForm(f => ({ ...f, [key]: val }));
 
-  const handlePreset = (key: string) => {
-    const p = PRESETS[key];
+  const handlePreset = (key: keyof typeof PRESETS) => {
+    const p: Partial<typeof PRESETS.gmail> = PRESETS[key];
     if (p.imap_host) setForm(f => ({ ...f, ...p, label: undefined }));
     setSelectedPreset(key);
   };
@@ -184,7 +200,7 @@ function AccountForm({ initial = undefined, onSave, onCancel }: AccountFormProps
       {/* Presets (add only) */}
       {!isEdit && (
         <div style={{ display: 'flex', gap: 6, marginBottom: 18, flexWrap: 'wrap' }}>
-          {Object.entries(PRESETS).map(([key]) => {
+          {(Object.keys(PRESETS) as Array<keyof typeof PRESETS>).map(key => {
             const active = selectedPreset === key;
             const presetLabel = key === 'gmail' ? t('admin.accounts.presetGmail') : key === 'yahoo' ? t('admin.accounts.presetYahoo') : key === 'icloud' ? t('admin.accounts.presetIcloud') : t('admin.accounts.presetCustom');
             return (
@@ -500,8 +516,8 @@ function AccountsTab() {
   const { t } = useTranslation();
   const { accounts, setAccounts, updateAccount, unreadCounts, setUnreadCounts, addNotification, backfillProgress } = useStore();
   const [subview, setSubview] = useState('list'); // 'list' | 'add' | 'edit' | 'folders' | 'aliases'
-  const [editTarget, setEditTarget] = useState<{ id: string; email_address?: string; aliases?: Array<{ id: string; address?: string; name?: string; email?: string; reply_to?: string; [key: string]: unknown }>; [key: string]: unknown } | null>(null);
-  const [folderMappings, setFolderMappings] = useState<Record<string, string>>({});
+  const [editTarget, setEditTarget] = useState<AdminAccount | null>(null);
+  const [folderMappings, setFolderMappings] = useState<Record<string, string | null>>({});
   const [availableFolders, setAvailableFolders] = useState<Array<{ path?: string; name?: string; [key: string]: unknown }>>([]);
   const [foldersLoading, setFoldersLoading] = useState(false);
   const [foldersSaving, setFoldersSaving] = useState(false);
@@ -602,7 +618,7 @@ function AccountsTab() {
     if (!editTarget) return;
     setFoldersSaving(true);
     try {
-      const cleanMappings = {};
+      const cleanMappings: Record<string, string> = {};
       for (const [key, val] of Object.entries(folderMappings)) {
         if (val) cleanMappings[key] = val;
       }
@@ -617,7 +633,7 @@ function AccountsTab() {
     }
   };
 
-  const handleAliasOpen = (account: { id: string; aliases?: Array<{ id: string; address?: string; name?: string; email?: string }>; [key: string]: unknown }) => {
+  const handleAliasOpen = (account: AdminAccount) => {
     setEditTarget(account);
     setAliasFormMode(null);
     setAliasFormData({ name: '', email: '', reply_to: '', signature: '' });
@@ -640,17 +656,18 @@ function AccountsTab() {
         reply_to: aliasFormData.reply_to || null,
         signature: aliasFormData.signature || null,
       };
-      let saved;
+      let saved: AdminAlias;
       if (aliasFormMode === 'add') {
         saved = await api.addAlias(editTarget.id, payload);
         const newAliases = [...(editTarget.aliases || []), saved];
         updateAccount(editTarget.id, { aliases: newAliases });
-        setEditTarget(prev => ({ ...prev, aliases: newAliases }));
+        setEditTarget(prev => prev ? { ...prev, aliases: newAliases } : prev);
       } else {
+        if (!aliasFormId) return;
         saved = await api.updateAlias(editTarget.id, aliasFormId, payload);
         const newAliases = (editTarget.aliases || []).map(a => a.id === aliasFormId ? saved : a);
         updateAccount(editTarget.id, { aliases: newAliases });
-        setEditTarget(prev => ({ ...prev, aliases: newAliases }));
+        setEditTarget(prev => prev ? { ...prev, aliases: newAliases } : prev);
       }
       setAliasFormMode(null);
       setAliasFormData({ name: '', email: '', reply_to: '', signature: '' });
@@ -662,11 +679,11 @@ function AccountsTab() {
     }
   };
 
-  const handleAliasEdit = (alias: { id: string; name?: string; email?: string; reply_to?: string; signature?: string }) => {
+  const handleAliasEdit = (alias: AdminAlias) => {
     setAliasFormId(alias.id);
     setAliasFormData({
-      name: alias.name,
-      email: alias.email,
+      name: alias.name || '',
+      email: alias.email || '',
       reply_to: alias.reply_to || '',
       signature: alias.signature || '',
     });
@@ -684,7 +701,7 @@ function AccountsTab() {
         await api.deleteAlias(editTarget.id, aliasId);
         const newAliases = (editTarget.aliases || []).filter(a => a.id !== aliasId);
         updateAccount(editTarget.id, { aliases: newAliases });
-        setEditTarget(prev => ({ ...prev, aliases: newAliases }));
+        setEditTarget(prev => prev ? { ...prev, aliases: newAliases } : prev);
       },
     });
   };
@@ -1017,7 +1034,7 @@ function AccountsTab() {
         </div>
       )}
 
-      {accounts.map(account => (
+      {accounts.map(account => { const progress = backfillProgress[account.id]; return (
         <div key={account.id} style={{
           border: '1px solid var(--border-subtle)', borderRadius: 10,
           background: 'var(--bg-tertiary)', marginBottom: 10, overflow: 'hidden',
@@ -1085,7 +1102,7 @@ function AccountsTab() {
                   <path d="M9 13a3 3 0 015.4-1.5M15 15a3 3 0 01-5.4 1.5"/>
                 </svg>
               </IconBtn>
-              <IconBtn onClick={() => handleReindex(account.id)} title={t('admin.accounts.reindex')} disabled={!!backfillProgress[account.id]}>
+              <IconBtn onClick={() => handleReindex(account.id)} title={t('admin.accounts.reindex')} disabled={!!progress}>
                 <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
                   <circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/>
                 </svg>
@@ -1115,22 +1132,22 @@ function AccountsTab() {
                 <span style={{ color: 'var(--text-secondary)', fontFamily: 'JetBrains Mono, monospace' }}>{val}</span>
               </div>
             ))}
-            {backfillProgress[account.id] && (
+            {progress && (
               <div style={{ width: '100%', marginTop: 4 }}>
                 <div style={{ fontSize: 11, color: 'var(--text-tertiary)', marginBottom: 4 }}>
-                  {backfillProgress[account.id].total
+                  {progress.total
                     ? t('admin.accounts.reindexProgress', {
-                        synced: backfillProgress[account.id].synced,
-                        total: backfillProgress[account.id].total,
+                        synced: progress.synced,
+                        total: progress.total,
                       })
                     : t('admin.accounts.reindexing')}
                 </div>
-                {backfillProgress[account.id].total && (
+                {typeof progress.total === 'number' && typeof progress.synced === 'number' && (
                   <div style={{ height: 3, borderRadius: 2, background: 'var(--border-subtle)', overflow: 'hidden' }}>
                     <div style={{
                       height: '100%', borderRadius: 2,
                       background: 'var(--accent)',
-                      width: `${Math.min(100, Math.round((backfillProgress[account.id].synced / backfillProgress[account.id].total) * 100))}%`,
+                      width: `${Math.min(100, Math.round((progress.synced / progress.total) * 100))}%`,
                       transition: 'width 0.3s ease',
                     }} />
                   </div>
@@ -1139,7 +1156,7 @@ function AccountsTab() {
             )}
           </div>
         </div>
-      ))}
+      ); })}
       <ConfirmOverlay dialog={confirmDialog} onClose={() => setConfirmDialog(null)} />
     </div>
     </>
@@ -1307,7 +1324,7 @@ function ThemesTab() {
       />
 
       <div style={{ ...sectionHint, marginTop: 16 }}>
-        {t('admin.appearance.activeTheme', { theme: THEMES[theme]?.label || theme })}
+        {t('admin.appearance.activeTheme', { theme: isThemeName(theme) ? THEMES[theme].label : theme })}
       </div>
 
       <div style={{ borderTop: '1px solid var(--border-subtle)', marginTop: 28, paddingTop: 28 }}>
@@ -1564,7 +1581,9 @@ function LayoutDiagram({ layoutConfig, active }: LayoutDiagramProps) {
   // Sidebar width fraction (always ~15% of diagram)
   const sw = 14;
   // List width fraction: derived from listWidth relative to 340 baseline
-  const lw = isColumn ? 50 : Math.round(10 + (layoutConfig.listWidth / 460) * 32);
+  // Row presets always carry a numeric listWidth; column presets carry null.
+  const presetListWidth = typeof layoutConfig.listWidth === 'number' ? layoutConfig.listWidth : 0;
+  const lw = isColumn ? 50 : Math.round(10 + (presetListWidth / 460) * 32);
   const rw = 72 - lw; // reading pane width
 
   if (isColumn) {
@@ -1743,7 +1762,7 @@ function SettingsSwitchRow({ label, description, checked, onChange, testId = und
       aria-checked={checked}
       aria-label={ariaLabel ?? (typeof label === 'string' ? label : undefined)}
       disabled={disabled}
-      onClick={() => onChange(!checked)}
+      onClick={onChange ? () => onChange(!checked) : undefined}
       style={{
         width: 44, height: 24, borderRadius: 12,
         background: checked ? 'var(--accent)' : 'var(--bg-elevated)',
@@ -2564,7 +2583,7 @@ function IntegrationsTab() {
   const [configs, setConfigs] = useState<Record<string, { clientId?: string; [key: string]: unknown }>>({});
   // Non-admins can't read the full config (admin-only), but need to know whether
   // Microsoft OAuth is configured so the connect buttons enable. (#315)
-  const [msStatus, setMsStatus] = useState<Record<string, unknown> | null>(null); // { configured } for non-admins
+  const [msStatus, setMsStatus] = useState<{ configured?: boolean; [key: string]: unknown } | null>(null); // { configured } for non-admins
   const [loading, setLoading] = useState(true);
   const [msForm, setMsForm] = useState({ clientId: '', clientSecret: '', tenantId: '', redirectUri: '' });
   const [msExpanded, setMsExpanded] = useState(false);
@@ -2691,7 +2710,7 @@ function IntegrationsTab() {
         try {
           const result = await api.pollMsDeviceFlow();
           if (result.status === 'pending') return;
-          clearInterval(devicePollRef.current);
+          if (devicePollRef.current !== null) clearInterval(devicePollRef.current);
           devicePollRef.current = null;
           setDeviceStatus(result.status);
           if (result.status === 'success') {
@@ -2700,7 +2719,7 @@ function IntegrationsTab() {
             setTimeout(stopDeviceFlow, 3000);
           }
         } catch {
-          clearInterval(devicePollRef.current);
+          if (devicePollRef.current !== null) clearInterval(devicePollRef.current);
           devicePollRef.current = null;
           setDeviceStatus('error');
         }
@@ -3358,6 +3377,25 @@ const SSO_TEMPLATES = [
   },
 ];
 
+interface SsoProvider {
+  id: string;
+  name: string;
+  slug: string;
+  issuer_url: string;
+  client_id: string;
+  client_secret?: string;
+  scopes: string;
+  provisioning_mode: string;
+  enabled: boolean;
+  allowed_domains?: string | null;
+  require_email_verified?: boolean;
+  allow_insecure?: boolean;
+  admin_group_claim?: string | null;
+  admin_group_value?: string | null;
+  rp_initiated_logout?: boolean;
+  login_match_claim?: string;
+}
+
 const emptyProvider = {
   name: '', slug: '', issuer_url: '', client_id: '', client_secret: '',
   scopes: 'openid email profile', provisioning_mode: 'login_existing_only',
@@ -3373,9 +3411,9 @@ function SSOTab() {
     { value: 'login_existing_only', label: t('admin.sso.provisioningExisting') },
     { value: 'open', label: t('admin.sso.provisioningOpen') },
   ];
-  const [providers, setProviders] = useState<Array<{ id: string; name?: string; enabled?: boolean; issuer_url?: string; slug?: string; [key: string]: unknown }>>([]);
+  const [providers, setProviders] = useState<SsoProvider[]>([]);
   const [loading, setLoading] = useState(true);
-  const [editing, setEditing] = useState<'new' | 'picking' | { id?: string; name?: string; enabled?: boolean; issuer_url?: string; slug?: string; [key: string]: unknown } | null>(null); // null | 'new' | 'picking' | provider object
+  const [editing, setEditing] = useState<'new' | 'picking' | SsoProvider | null>(null); // null | 'new' | 'picking' | provider object
   const [form, setForm] = useState(emptyProvider);
   const [saving, setSaving] = useState(false);
   useBackLayer(editing, () => { if (!saving) setEditing(null); }, 2010);
@@ -3428,13 +3466,13 @@ function SSOTab() {
 
   const openNew = () => { setEditing('picking'); setError(''); };
 
-  const applyTemplate = (tmpl) => {
+  const applyTemplate = (tmpl: (typeof SSO_TEMPLATES)[number]) => {
     setForm({ ...emptyProvider, name: tmpl.id === 'custom' ? '' : tmpl.name, slug: tmpl.slug, issuer_url: tmpl.issuer_url, scopes: tmpl.scopes });
     setTemplateNote(tmpl.note || '');
     setEditing('new');
     setError('');
   };
-  const openEdit = (p) => {
+  const openEdit = (p: SsoProvider) => {
     setForm({ ...p, client_secret: '••••••••', allowed_domains: p.allowed_domains || '', require_email_verified: p.require_email_verified !== false, allow_insecure: p.allow_insecure === true, admin_group_claim: p.admin_group_claim || '', admin_group_value: p.admin_group_value || '', rp_initiated_logout: p.rp_initiated_logout === true, login_match_claim: p.login_match_claim || 'email' });
     setTemplateNote('');
     setEditing(p);
@@ -3485,7 +3523,7 @@ function SSOTab() {
     }
   };
 
-  const handleDelete = (p) => {
+  const handleDelete = (p: SsoProvider) => {
     setConfirmDialog({
       title: t('admin.sso.deleteConfirmTitle', { name: p.name }),
       message: t('admin.sso.deleteConfirmBody'),
@@ -3942,11 +3980,11 @@ function AISection() {
   const [deviceState, setDeviceState] = useState<CodexDeviceState | null>(null);
   const [copied, setCopied] = useState(false);
   const [msg, setMsg] = useState<{ type?: string; text?: string; url?: string; [key: string]: unknown } | null>(null);
-  const pollerRef = useRef<{ start: (device?: unknown) => Promise<unknown>; cancel: () => Promise<void>; dispose: () => void } | null>(null);
+  const pollerRef = useRef<ReturnType<typeof createCodexDevicePoller> | null>(null);
   const formRef = useRef(form);
   const tRef = useRef(t);
 
-  const persistForm = useCallback(async (nextForm) => {
+  const persistForm = useCallback(async (nextForm: AiConfigFormInput) => {
     const payload = buildAiSavePayload(nextForm);
     const result = await api.ai.saveConfig(payload);
     const saved = result.config || payload;
@@ -4081,6 +4119,7 @@ function AISection() {
   };
 
   const handleCopyCode = async () => {
+    if (!deviceState?.userCode) return;
     try {
       await navigator.clipboard.writeText(deviceState.userCode);
       setCopied(true);
@@ -4271,7 +4310,7 @@ function AISection() {
                       {cancelling ? t('admin.ai.cancelling') : t('common.cancel')}
                     </button>
                   </div>
-                  <div style={{ fontSize: 11, color: 'var(--text-tertiary)', marginTop: 8 }}>{t('admin.ai.deviceExpires', { time: new Date(pendingDevice.expiresAt).toLocaleTimeString() })}</div>
+                  <div style={{ fontSize: 11, color: 'var(--text-tertiary)', marginTop: 8 }}>{typeof pendingDevice.expiresAt === 'number' ? t('admin.ai.deviceExpires', { time: new Date(pendingDevice.expiresAt).toLocaleTimeString() }) : null}</div>
                 </div>
               )}
             </div>
@@ -4313,12 +4352,12 @@ function AiActionsTab() {
 
   // Persist only complete, trimmed, bounded actions (mirrors the backend validation).
   const save = (list: Array<{ id: string; label: string; prompt?: string }>) => setAiActions(
-    list.filter(a => a.label.trim() && a.prompt.trim())
+    list.filter((a): a is { id: string; label: string; prompt: string } => Boolean(a.label.trim() && a.prompt && a.prompt.trim()))
       .map(a => ({ id: a.id, label: a.label.trim().slice(0, AI_ACTION_LIMITS.label), prompt: a.prompt.trim().slice(0, AI_ACTION_LIMITS.prompt) }))
   );
 
   const addAction = () => { if (items.length < AI_ACTION_LIMITS.max) setItems([...items, newAiAction('', '')]); };
-  const updateField = (id: string, field: string, value: string) => setItems(items.map((a: { id: string; label: string; prompt: string }) => a.id === id ? { ...a, [field]: value } : a));
+  const updateField = (id: string, field: 'label' | 'prompt', value: string) => setItems(items.map(a => a.id === id ? { ...a, [field]: value } : a));
   const removeAction = (id: string) => { const next = items.filter(a => a.id !== id); setItems(next); save(next); };
 
   const inputStyle: CSSProperties = {
@@ -4792,7 +4831,7 @@ function SystemEmailSection() {
     setMsg({ type: 'ok', text: t('admin.systemEmail.removed') });
   };
 
-  const field = (label: string, key: string, type = 'text', placeholder = '') => (
+  const field = (label: string, key: keyof typeof form, type = 'text', placeholder = '') => (
     <div style={{ marginBottom: 14 }}>
       <label style={{ display: 'block', fontSize: 12, color: 'var(--text-secondary)', marginBottom: 5 }}>{label}</label>
       <input
@@ -4889,13 +4928,31 @@ function UsersTab() {
   );
 }
 
+interface AdminUserRow {
+  id: string;
+  isAdmin?: boolean;
+  username: string;
+  created_at: string;
+  totpEnabled?: boolean;
+  [key: string]: unknown;
+}
+interface AdminInviteRow {
+  id: string;
+  token?: string;
+  email?: string;
+  expires_at: string;
+  used_at?: string;
+  used_by_username?: string;
+  [key: string]: unknown;
+}
+
 function UsersAndInvitesPanel() {
   const { t } = useTranslation();
   const { user: currentUser } = useStore();
-  const [users, setUsers] = useState<Array<{ id: string; isAdmin?: boolean; username?: string; created_at?: string; totpEnabled?: boolean; [key: string]: unknown }>>([]);
+  const [users, setUsers] = useState<AdminUserRow[]>([]);
   const [userTotal, setUserTotal] = useState(0);
   const [usersLoadingMore, setUsersLoadingMore] = useState(false);
-  const [invites, setInvites] = useState<Array<{ id: string; token?: string; email?: string; expires_at?: string; used_at?: string; used_by_username?: string; [key: string]: unknown }>>([]);
+  const [invites, setInvites] = useState<AdminInviteRow[]>([]);
   const [inviteTotal, setInviteTotal] = useState(0);
   const [invitesLoadingMore, setInvitesLoadingMore] = useState(false);
   const [regOpen, setRegOpen] = useState<boolean | null>(null); // null = loading
@@ -4946,13 +5003,13 @@ function UsersAndInvitesPanel() {
     }
   };
 
-  const handleToggleAdmin = async (u) => {
+  const handleToggleAdmin = async (u: AdminUserRow) => {
     const newVal = !u.isAdmin;
     await api.admin.updateUser(u.id, { isAdmin: newVal });
     setUsers(us => us.map(x => x.id === u.id ? { ...x, isAdmin: newVal } : x));
   };
 
-  const handleDeleteUser = (u) => {
+  const handleDeleteUser = (u: AdminUserRow) => {
     setConfirmDialog({
       title: t('admin.users.deleteConfirmTitle', { username: u.username }),
       message: t('admin.users.deleteConfirmBody'),
@@ -4964,7 +5021,7 @@ function UsersAndInvitesPanel() {
     });
   };
 
-  const handleDisableTotp = (u) => {
+  const handleDisableTotp = (u: AdminUserRow) => {
     setConfirmDialog({
       title: t('admin.users.disable2faConfirmTitle', { username: u.username }),
       message: t('admin.users.disable2faConfirmBody'),
@@ -5224,7 +5281,7 @@ function UsersAndInvitesPanel() {
                 {inviteMsg.url}
               </code>
               <button
-                onClick={() => navigator.clipboard.writeText(inviteMsg.url)}
+                onClick={() => { if (inviteMsg.url) navigator.clipboard.writeText(inviteMsg.url); }}
                 style={{
                   padding: '4px 10px', borderRadius: 6, fontSize: 11,
                   background: 'var(--bg-tertiary)', border: '1px solid var(--border)',
@@ -5349,7 +5406,7 @@ function UsersAndInvitesPanel() {
 // All branching lives in deriveInstantPushView() so it is unit-testable.
 function NativePushSection() {
   const { t } = useTranslation();
-  const [state, setState] = useState(null);
+  const [state, setState] = useState<Awaited<ReturnType<typeof getInstantPushState>> | null>(null);
   const [busy, setBusy] = useState(false);
   const [copied, setCopied] = useState(false);
 
@@ -5363,7 +5420,7 @@ function NativePushSection() {
   const distributorName = view.distributorName || t('admin.push.instantFallbackName');
   const recommended = 'ntfy';
 
-  const run = async (action) => {
+  const run = async (action: () => unknown) => {
     setBusy(true);
     try { await action(); await refresh(); } finally { setBusy(false); }
   };
@@ -5628,9 +5685,10 @@ function NotificationsTab() {
   );
   const [uploadError, setUploadError] = useState('');
 
-  const handleFileUpload = (e) => {
-    const file = e.target.files[0];
-    if (!file) return;
+  const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const files = e.target.files;
+    if (!files || files.length === 0) return;
+    const file = files[0];
     setUploadError('');
     if (file.size > 2 * 1024 * 1024) {
       setUploadError(t('admin.notifications.uploadError'));
@@ -5641,8 +5699,10 @@ function NotificationsTab() {
     warmUpAudioContext();
     const reader = new FileReader();
     reader.onload = (ev) => {
-      const dataUrl = ev.target.result;
-      setCustomSoundDataUrl(String(dataUrl));
+      const target = ev.target;
+      if (!target) return;
+      const dataUrl = String(target.result);
+      setCustomSoundDataUrl(dataUrl);
       setCustomFileName(file.name);
       localStorage.setItem('mailflow_custom_sound_name', file.name);
       setNotificationSound('custom');
@@ -5859,7 +5919,7 @@ function ConfirmOverlay({ dialog, onClose }: ConfirmOverlayProps) {
       await dialog.onConfirm();
       onClose();
     } catch (err) {
-      setError(err?.message || String(err));
+      setError(err instanceof Error && err.message ? err.message : String(err));
     } finally {
       setBusy(false);
     }
@@ -6110,14 +6170,50 @@ function AboutTab() {
 }
 
 // ─── Rules Tab ────────────────────────────────────────────────────────────────
+interface RuleCondition {
+  field?: string;
+  operator?: string;
+  value?: string;
+  headerName?: string;
+  [key: string]: unknown;
+}
+interface RuleAction {
+  type: string;
+  value?: string;
+  [key: string]: unknown;
+}
+interface MailRule {
+  id: string;
+  name?: string;
+  enabled?: boolean;
+  account_id?: string;
+  condition_logic?: string;
+  conditions?: RuleCondition[];
+  actions?: RuleAction[];
+  stop_processing?: boolean;
+  [key: string]: unknown;
+}
+interface RuleFormData {
+  name: string;
+  accountId: string;
+  conditionLogic: string;
+  conditions: RuleCondition[];
+  actions: RuleAction[];
+  enabled?: boolean;
+  stopProcessing?: boolean;
+  [key: string]: unknown;
+}
+type RulePrefill = { name?: string; fromEmail?: string | null; fromName?: string | null; [key: string]: unknown };
+
 function RulesTab() {
   const { t } = useTranslation();
   const { accounts, folders: storeFolders, setFolders, rulesPreFill, setRulesPreFill } = useStore();
-  const [rules, setRules] = useState<Array<{ id: string; enabled?: boolean; name?: string; [key: string]: unknown }>>([]);
+  const [rules, setRules] = useState<MailRule[]>([]);
   const [loading, setLoading] = useState(true);
   const [formMode, setFormMode] = useState<'add' | 'edit' | null>(null);
   const [formId, setFormId] = useState<string | null>(null);
-  const [formData, setFormData] = useState<{ accountId?: string; name?: string; conditionLogic?: string; conditions?: Array<{ field?: string; operator?: string; value?: string; headerName?: string; [key: string]: unknown }>; actions?: Array<{ type?: string; value?: string; [key: string]: unknown }>; stopProcessing?: boolean; [key: string]: unknown } | null>(null);
+  const [formData, setFormData] = useState<RuleFormData | null>(null);
+  const updateForm = (fn: (prev: RuleFormData) => RuleFormData) => setFormData(prev => (prev ? fn(prev) : prev));
   const [formError, setFormError] = useState('');
   const [formSaving, setFormSaving] = useState(false);
   useBackLayer(formMode, () => { if (!formSaving) setFormMode(null); }, 2010);
@@ -6173,7 +6269,7 @@ function RulesTab() {
       .catch(() => {});
   }, [formMode, formData?.accountId, setFolders]);
 
-  function blankForm(prefill: { name?: string; fromEmail?: string; fromName?: string } = {}) {
+  function blankForm(prefill: RulePrefill = {}) {
     return {
       name: prefill.name || '',
       accountId: '',
@@ -6189,14 +6285,14 @@ function RulesTab() {
     };
   }
 
-  function openAdd(prefill) {
+  function openAdd(prefill: RulePrefill) {
     setFormData(blankForm(prefill));
     setFormId(null);
     setFormMode('add');
     setFormError('');
   }
 
-  function openEdit(rule) {
+  function openEdit(rule: MailRule) {
     const rawActions = Array.isArray(rule.actions) ? rule.actions : [];
     const destActionsSet = new Set(['move', 'archive', 'delete']);
     let destSeen = false;
@@ -6208,7 +6304,7 @@ function RulesTab() {
       return true;
     }).filter(a => !(a.type === 'move' && !rule.account_id));
     setFormData({
-      name: rule.name,
+      name: rule.name || '',
       accountId: rule.account_id || '',
       conditionLogic: rule.condition_logic || 'AND',
       conditions: Array.isArray(rule.conditions) ? rule.conditions : [],
@@ -6228,7 +6324,7 @@ function RulesTab() {
     setFormError('');
   }
 
-  async function handleToggle(rule) {
+  async function handleToggle(rule: MailRule) {
     const updated = { ...rule, enabled: !rule.enabled };
     try {
       const saved = await api.updateRule(rule.id, {
@@ -6253,6 +6349,7 @@ function RulesTab() {
   }
 
   async function handleSave() {
+    if (!formData) return;
     const { name, conditionLogic, conditions, actions, accountId, enabled, stopProcessing } = formData;
     if (!name.trim() || conditions.length === 0 || actions.length === 0) {
       setFormError(t('admin.rules.errorRequired'));
@@ -6307,29 +6404,29 @@ function RulesTab() {
   }
 
   function setCondition(idx: number, key: string, val: unknown) {
-    setFormData(prev => {
+    updateForm(prev => {
       const conditions = prev.conditions.map((c, i) => i === idx ? { ...c, [key]: val } : c);
       return { ...prev, conditions };
     });
   }
 
   function addCondition() {
-    setFormData(prev => ({
+    updateForm(prev => ({
       ...prev,
       conditions: [...prev.conditions, { field: 'from', operator: 'contains', value: '' }],
     }));
   }
 
-  function removeCondition(idx) {
-    setFormData(prev => ({ ...prev, conditions: prev.conditions.filter((_, i) => i !== idx) }));
+  function removeCondition(idx: number) {
+    updateForm(prev => ({ ...prev, conditions: prev.conditions.filter((_, i) => i !== idx) }));
   }
 
   // move, archive, and delete are mutually exclusive destination actions —
   // only one can apply to a given message. mark_read and star are independent.
   const DESTINATION_ACTIONS = new Set(['move', 'archive', 'delete']);
 
-  function toggleAction(type) {
-    setFormData(prev => {
+  function toggleAction(type: string) {
+    updateForm(prev => {
       const has = prev.actions.some(a => a.type === type);
       let actions;
       if (has) {
@@ -6344,14 +6441,14 @@ function RulesTab() {
     });
   }
 
-  function setActionValue(type, value) {
-    setFormData(prev => ({
+  function setActionValue(type: string, value: string) {
+    updateForm(prev => ({
       ...prev,
       actions: prev.actions.map(a => a.type === type ? { ...a, value } : a),
     }));
   }
 
-  function conditionSummary(rule) {
+  function conditionSummary(rule: MailRule) {
     const conds = Array.isArray(rule.conditions) ? rule.conditions : [];
     if (!conds.length) return '—';
     return conds.slice(0, 2).map(c => {
@@ -6361,10 +6458,10 @@ function RulesTab() {
     }).join(` ${rule.condition_logic} `) + (conds.length > 2 ? ` +${conds.length - 2}` : '');
   }
 
-  function actionSummary(rule) {
+  function actionSummary(rule: MailRule) {
     const acts = Array.isArray(rule.actions) ? rule.actions : [];
     if (!acts.length) return '—';
-    const labels = { mark_read: t('admin.rules.actionMarkRead'), star: t('admin.rules.actionStar'), forward: t('admin.rules.actionForward'), archive: t('admin.rules.actionArchive'), delete: t('admin.rules.actionDelete'), move: t('admin.rules.actionMove') };
+    const labels: Record<string, string> = { mark_read: t('admin.rules.actionMarkRead'), star: t('admin.rules.actionStar'), forward: t('admin.rules.actionForward'), archive: t('admin.rules.actionArchive'), delete: t('admin.rules.actionDelete'), move: t('admin.rules.actionMove') };
     return acts.map(a => labels[a.type] || a.type).join(', ');
   }
 
@@ -6411,7 +6508,7 @@ function RulesTab() {
           <input
             style={inputStyle}
             value={fd.name}
-            onChange={e => setFormData(p => ({ ...p, name: e.target.value }))}
+            onChange={e => updateForm(p => ({ ...p, name: e.target.value }))}
             placeholder={t('admin.rules.namePlaceholder')}
           />
         </Field>
@@ -6420,7 +6517,7 @@ function RulesTab() {
           <select
             style={inputStyle}
             value={fd.accountId}
-            onChange={e => setFormData(p => {
+            onChange={e => updateForm(p => {
               const newAccountId = e.target.value;
               return {
                 ...p,
@@ -6445,7 +6542,7 @@ function RulesTab() {
                 <input
                   type="radio"
                   checked={fd.conditionLogic === val}
-                  onChange={() => setFormData(p => ({ ...p, conditionLogic: val }))}
+                  onChange={() => updateForm(p => ({ ...p, conditionLogic: val }))}
                 />
                 {val === 'AND' ? t('admin.rules.conditionLogicAnd') : t('admin.rules.conditionLogicOr')}
               </label>
@@ -6462,7 +6559,7 @@ function RulesTab() {
                   value={cond.field}
                   onChange={e => {
                     const newField = e.target.value;
-                    setFormData(prev => {
+                    updateForm(prev => {
                       const conditions = prev.conditions.map((c, i) => {
                         if (i !== idx) return c;
                         const next = { ...c, field: newField };
@@ -6607,7 +6704,7 @@ function RulesTab() {
           <input
             type="checkbox"
             checked={fd.stopProcessing}
-            onChange={e => setFormData(p => ({ ...p, stopProcessing: e.target.checked }))}
+            onChange={e => updateForm(p => ({ ...p, stopProcessing: e.target.checked }))}
             style={{ marginTop: 2, flexShrink: 0 }}
           />
           <div>
@@ -6787,7 +6884,7 @@ function BlockListTab() {
       .catch(() => setLoading(false));
   }, []);
 
-  async function handleAdd(e) {
+  async function handleAdd(e: React.FormEvent<HTMLFormElement>) {
     e.preventDefault();
     const email = newEmail.trim();
     if (!email) return;
@@ -6852,7 +6949,7 @@ function BlockListTab() {
   );
 }
 
-function RulesAndBlockListTab({ initialSubTab }) {
+function RulesAndBlockListTab({ initialSubTab }: SubTabSectionProps) {
   const { t } = useTranslation();
   return (
     <SubTabs initialTab={initialSubTab} tabs={[
@@ -6866,11 +6963,31 @@ function RulesAndBlockListTab({ initialSubTab }) {
 // All analysis is read-only; the destructive step reuses the existing, proven bulkDelete (move to
 // Trash, recoverable) in <=500-id batches. Scope is enforced server-side (own account, INBOX, exact
 // sender), and the operation is idempotent: re-running a cleared sender finds nothing.
+interface CleanupSender {
+  fromEmail: string;
+  fromName?: string;
+  count: number;
+  [key: string]: unknown;
+}
+interface CleanupKeyword {
+  keyword: string;
+  count: number;
+  [key: string]: unknown;
+}
+interface CleanupData {
+  archiveAvailable?: boolean;
+  inboxTotal: number;
+  bulkTotal: number;
+  tier1Senders: CleanupSender[];
+  tier2Keywords: CleanupKeyword[];
+  [key: string]: unknown;
+}
+
 function MailboxCleanupTab() {
   const { t } = useTranslation();
   const { accounts } = useStore();
   const [accountId, setAccountId] = useState(accounts[0]?.id || '');
-  const [data, setData] = useState<{ archiveAvailable?: boolean; inboxTotal?: number; bulkTotal?: number; tier1Senders?: Array<{ fromEmail?: string; fromName?: string; count?: number; [key: string]: unknown }>; tier2Keywords?: Array<{ keyword?: string; count?: number; [key: string]: unknown }>; [key: string]: unknown } | null>(null);
+  const [data, setData] = useState<CleanupData | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   const [busySender, setBusySender] = useState('');
@@ -6901,7 +7018,7 @@ function MailboxCleanupTab() {
 
   useEffect(() => { if (accountId) load(accountId); }, [accountId, load]);
 
-  const cleanupSender = async (s) => {
+  const cleanupSender = async (s: CleanupSender) => {
     const isArchive = action === 'archive';
     const label = s.fromName ? `${s.fromName} <${s.fromEmail}>` : s.fromEmail;
     const confirmKey = isArchive ? 'admin.cleanup.confirmArchive' : 'admin.cleanup.confirm';
@@ -7132,7 +7249,8 @@ function ShortcutsTab() {
   const { t } = useTranslation();
   const { shortcuts, setShortcuts } = useStore();
   const [recording, setRecording] = useState<string | null>(null); // action name currently being recorded
-  const [pendingConflict, setPendingConflict] = useState(null); // { action: conflictingAction, key }
+  const [pendingConflict, setPendingConflict] = useState<{ action: string; key: string } | null>(null); // { action: conflictingAction, key }
+  const actionDefs: Record<string, { labelKey: string }> = ACTION_DEFS;
   useBackLayer(recording || pendingConflict, () => { setPendingConflict(null); setRecording(null); }, 2010);
 
   const effective = getEffectiveShortcuts(shortcuts);
@@ -7141,7 +7259,7 @@ function ShortcutsTab() {
   // Listen for key presses while recording
   useEffect(() => {
     if (!recording) return;
-    const handler = (e) => {
+    const handler = (e: KeyboardEvent) => {
       // Ignore pure modifier keys
       if (['Shift', 'Control', 'Meta', 'Alt', 'CapsLock', 'Tab'].includes(e.key)) return;
       e.preventDefault();
@@ -7170,13 +7288,13 @@ function ShortcutsTab() {
     return () => window.removeEventListener('keydown', handler);
   }, [recording, effective, shortcuts]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  const clearShortcut = (action) => {
+  const clearShortcut = (action: string) => {
     const updated = { ...shortcuts, [action]: null };
     setShortcuts(updated);
     setPendingConflict(null);
   };
 
-  const resetAction = (action) => {
+  const resetAction = (action: string) => {
     const updated = { ...shortcuts };
     delete updated[action];
     setShortcuts(updated);
@@ -7198,7 +7316,9 @@ function ShortcutsTab() {
     color: 'var(--text-primary)',
   };
 
-  const renderKey = (action, key) => {
+  const specialKeyLabels: Record<string, string> = SPECIAL_KEY_LABELS;
+
+  const renderKey = (action: string, key: string | null | undefined) => {
     const isRec = recording === action;
     if (isRec) {
       return (
@@ -7227,8 +7347,8 @@ function ShortcutsTab() {
       );
     }
     // Special key names like 'Delete', 'ArrowUp' — single keypress, render as one badge
-    if (SPECIAL_KEY_LABELS[key]) {
-      return <kbd style={kbdStyle}>{SPECIAL_KEY_LABELS[key]}</kbd>;
+    if (specialKeyLabels[key]) {
+      return <kbd style={kbdStyle}>{specialKeyLabels[key]}</kbd>;
     }
     // Multi-char keys like 'gi': render each character as separate kbd with "then"
     if (key.length > 1) {
@@ -7275,7 +7395,7 @@ function ShortcutsTab() {
           background: 'rgba(234, 179, 8, 0.1)', border: '1px solid rgba(234, 179, 8, 0.4)',
           borderRadius: 7, fontSize: 12, color: 'var(--text-secondary)',
         }}>
-          {t('admin.shortcuts.conflict', { key: pendingConflict.key, action: t(ACTION_DEFS[pendingConflict.action]?.labelKey) })}
+          {t('admin.shortcuts.conflict', { key: pendingConflict.key, action: t(actionDefs[pendingConflict.action]?.labelKey) })}
         </div>
       )}
 

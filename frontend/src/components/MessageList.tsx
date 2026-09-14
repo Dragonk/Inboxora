@@ -57,7 +57,7 @@ import type { QueryParams } from '../utils/api.ts';
 // Folder icon for move picker
 interface FolderIconProps { specialUse?: string | null; size?: number }
 interface SwipeActionSvgProps { icon?: string; fill?: string }
-interface SwipeBackgroundProps { side: string; actionView: { icon?: string; fill?: string; label?: string; color?: string; [key: string]: unknown }; innerRef?: { current: HTMLDivElement | null } }
+interface SwipeBackgroundProps { side: string; actionView?: { icon?: string; fill?: string; label?: string; color?: string; [key: string]: unknown } | null; innerRef?: { current: HTMLDivElement | null } }
 interface UndoBarProps { notification: { id?: string; title?: React.ReactNode; message?: React.ReactNode; onUndo?: () => void; undoDurationMs?: number; [key: string]: unknown }; onDismiss: () => void; showTopBorder?: boolean }
 interface BulkBtnProps { children?: React.ReactNode; onClick?: (event: React.MouseEvent<HTMLButtonElement>) => void; title?: string; disabled?: boolean; danger?: boolean }
 interface RowMenuButtonProps { onOpen: (event: React.MouseEvent<HTMLButtonElement>) => void; label: string }
@@ -73,12 +73,26 @@ function FolderIcon({ specialUse, size = 13 }: FolderIconProps) {
 }
 
 
-function restoreMessagesIfViewCurrent(viewKey: string, currentViewKeyRef: { current: string }, messages: StoreMessageRow[]) {
+function restoreMessagesIfViewCurrent(viewKey: string | null, currentViewKeyRef: { current: string | null }, messages: StoreMessageRow[]) {
   if (currentViewKeyRef.current === viewKey) useStore.getState().restoreMessages(messages);
 }
 
 function destructiveMutationKey(message: StoreMessageRow) {
   return `${message.account_id || ''}:${message.thread_id || message.id}`;
+}
+
+/** Narrow the archive util's loosely-typed row back to the store row it came from. */
+function isStoreMessageRow(message: ArchiveMessage | null): message is StoreMessageRow {
+  return !!message && typeof message.id === 'string';
+}
+
+/** One visible row plus the physical copies a bulk archive will act on. */
+type ArchiveRowGroup = { row: StoreMessageRow; targets: StoreMessageRow[] };
+
+function isArchiveRowGroup(value: unknown): value is ArchiveRowGroup {
+  if (typeof value !== 'object' || value === null) return false;
+  if (!('row' in value) || !('targets' in value)) return false;
+  return Array.isArray(value.targets);
 }
 
 const SWIPE_ACTIONS = {
@@ -91,7 +105,7 @@ const SWIPE_ACTIONS = {
   disabled: { color: 'transparent' },
 };
 
-function getSwipeActionView(action: string, message: StoreMessageRow, t: (key: string, options?: Record<string, unknown>) => string, unreadCount: number | null = null) {
+function getSwipeActionView(action: string | null | undefined, message: StoreMessageRow, t: (key: string, options?: Record<string, unknown>) => string, unreadCount: number | null = null) {
   const unread = unreadCount != null ? unreadCount > 0 : !message.is_read;
   if (action === 'archive') return { label: t('message.archive'), color: SWIPE_ACTIONS.archive.color, icon: 'archive' };
   if (action === 'delete') return { label: t('contextMenu.delete'), color: SWIPE_ACTIONS.delete.color, icon: 'delete' };
@@ -177,9 +191,9 @@ export default function MessageList() {
   const searchPageSize = Math.max(1, Math.min(Number(pageSize) || 50, 200));
   const undoableNotifications = notifications.filter(n => n.onUndo);
 
-  const currentLayout = LAYOUTS[layout] || LAYOUTS.comfortable;
+  const currentLayout = LAYOUTS[layout as keyof typeof LAYOUTS] || LAYOUTS.comfortable;
   const isColumn = currentLayout.direction === 'column';
-  const isNarrow = !isColumn && currentLayout.listWidth <= 260;
+  const isNarrow = !isColumn && (currentLayout.listWidth === null || currentLayout.listWidth <= 260);
 
   // Apply optimistic read guard to a batch of messages from the server.
   // Prevents a concurrent sync refresh from reverting a pending or recently-completed
@@ -208,7 +222,7 @@ export default function MessageList() {
   const [listScrolled, setListScrolled] = useState(false);
   const [fabVisible, setFabVisible] = useState(true);
   const threadLoadVersionsRef = useRef(new Map());
-  const archiveVisibleMessageRef = useRef<((message: ArchiveMessage, options?: Record<string, unknown>) => Promise<void>) | null>(null);
+  const archiveVisibleMessageRef = useRef<((message: StoreMessageRow, options?: { alreadyRemoved?: boolean; viewKey?: string | null; onResolution?: (version: string) => void; intentKey?: string; intentVersion?: string | null }) => Promise<void>) | null>(null);
   const setMessagesReadStateRef = useRef<((message: StoreMessageRow, read: boolean) => Promise<void>) | null>(null);
   const lastScrollTopRef = useRef(0);
   const [pullDistance, setPullDistance] = useState(0);
@@ -227,7 +241,7 @@ export default function MessageList() {
   const pendingDeleteTimers = useRef(new Map()); // id/thread key -> pending delete metadata
 
   const recentMessageOpenUntilRef = useRef(0);
-  const deferredRefreshTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const deferredRefreshTimerRef = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
 
   // Bulk selection state
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
@@ -261,7 +275,7 @@ export default function MessageList() {
     window.addEventListener('inboxora:message-opening', markOpening);
     return () => window.removeEventListener('inboxora:message-opening', markOpening);
   }, []);
-  const searchTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const searchTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
 
   // Category tab scroll arrows
   const catScrollRef = useRef<HTMLDivElement | null>(null);
@@ -285,7 +299,7 @@ export default function MessageList() {
   const showGtdTab = gtdActive && !!activeGtdTab && selectedFolder === 'INBOX' && !searchQuery.trim();
   // Unread badge per GTD tab, from the shared sections store (Waiting merged).
   const gtdTabUnread = (() => {
-    const map = {};
+    const map: Record<string, number> = {};
     for (const s of buildGtdDisplaySections(gtdSections)) map[s.key] = s.unread;
     return map;
   })();
@@ -325,8 +339,11 @@ export default function MessageList() {
 
   const searchSeq = useRef(0);
   const pendingLiveRefreshRef = useRef(false);
-  const refreshRequestRef = useRef<{ invalidate: () => void; run: (request: unknown, apply: unknown) => Promise<boolean> } | null>(null);
+  type RefreshRequest = { invalidate: () => void; run: (request: unknown, apply: unknown) => Promise<boolean> };
+  const refreshRequestRef = useRef<RefreshRequest | null>(null);
   if (refreshRequestRef.current === null) refreshRequestRef.current = createLatestRequest();
+  // Non-null alias: the request object is created once above and never reassigned.
+  const refreshRequest: RefreshRequest = refreshRequestRef.current;
   // Bumped to force the search effect to re-run (e.g. after rules move messages) so an
   // active search snapshot drops messages that no longer match. See #223.
   const [searchReloadToken, setSearchReloadToken] = useState(0);
@@ -349,15 +366,16 @@ export default function MessageList() {
     category?: string;
   }
 
-  const scRef = useRef<{
-    messages: Array<{ id: string; [key: string]: unknown }>;
+  type ScRef = {
+    messages: StoreMessageRow[];
     selectedIds: Set<string>;
     setSelectedIds: (updater: Set<string> | ((prev: Set<string>) => Set<string>)) => void;
     updateMessage: (id: string, patch: Record<string, unknown>) => void;
     decrementUnread: (accountId: string, delta: number) => void;
-    addNotification: (notification: unknown) => void;
-    displayMessages?: Array<{ id: string; [key: string]: unknown }>;
-  } | null>(null);
+    addNotification: StoreState['addNotification'];
+    displayMessages?: StoreMessageRow[];
+  };
+  const scRef = useRef<ScRef>({ messages, selectedIds, setSelectedIds, updateMessage, decrementUnread, addNotification });
   scRef.current = { messages, selectedIds, setSelectedIds, updateMessage, decrementUnread, addNotification };
   const tRef = useRef(t);
   useEffect(() => { tRef.current = t; }, [t]);
@@ -454,7 +472,7 @@ export default function MessageList() {
         if (threadedView) params.threaded = 'true';
         if (selectedFolder === 'INBOX' && (categorizationEnabled || selectedAccount?.categorization_enabled)) params.category = activeCategory;
         const __t0 = Date.now();
-        await refreshRequestRef.current.run(
+        await refreshRequest.run(
           () => api.getMessages(params),
           (data: { messages: StoreMessageRow[]; total: number }) => {
             if (cancelled) return;
@@ -485,7 +503,7 @@ export default function MessageList() {
     };
     run();
     return () => { cancelled = true; };
-  }, [selectedAccountId, selectedFolder, unreadOnly, activeCategory, pageSize, scrollMode, accountsReady, unifiedInboxAccountKey, messagesRefreshToken, threadedView, categorizationEnabled, selectedAccount?.categorization_enabled, applyReadGuard, setHasMoreMessages, setLoadingMessages, setMessages, setMessagesOffset, setMessagesTotal]);
+  }, [selectedAccountId, selectedFolder, unreadOnly, activeCategory, pageSize, scrollMode, accountsReady, unifiedInboxAccountKey, messagesRefreshToken, threadedView, categorizationEnabled, selectedAccount?.categorization_enabled, applyReadGuard, setHasMoreMessages, setLoadingMessages, setMessages, setMessagesOffset, setMessagesTotal, refreshRequest]);
 
   // Load next page (called by scroll or button)
   const loadMore = useCallback(async () => {
@@ -541,7 +559,7 @@ export default function MessageList() {
         if (unreadOnly) params.unreadOnly = 'true';
         if (state.threadedView) params.threaded = 'true';
         if (selectedFolder === 'INBOX' && (categorizationEnabled || selectedAccount?.categorization_enabled)) params.category = activeCategory;
-        await refreshRequestRef.current.run(
+        await refreshRequest.run(
           () => api.getMessages(params),
           (data: { messages: StoreMessageRow[]; total: number }) => {
             setMessagesTotal(data.total);
@@ -582,7 +600,7 @@ export default function MessageList() {
       window.removeEventListener('inboxora:refresh', handler);
       clearTimeout(deferredRefreshTimerRef.current);
     };
-  }, [selectedAccountId, selectedFolder, unreadOnly, activeCategory, searchQuery, categorizationEnabled, selectedAccount?.categorization_enabled, applyReadGuard, setHasMoreMessages, setMessages, setMessagesOffset, setMessagesTotal]);
+  }, [selectedAccountId, selectedFolder, unreadOnly, activeCategory, searchQuery, categorizationEnabled, selectedAccount?.categorization_enabled, applyReadGuard, setHasMoreMessages, setMessages, setMessagesOffset, setMessagesTotal, refreshRequest]);
 
   // Search
   useEffect(() => {
@@ -699,7 +717,7 @@ export default function MessageList() {
       if (unreadOnly) params.unreadOnly = 'true';
       if (threadedView) params.threaded = 'true';
       if (selectedFolder === 'INBOX' && (categorizationEnabled || selectedAccount?.categorization_enabled)) params.category = activeCategory;
-      await refreshRequestRef.current.run(
+      await refreshRequest.run(
         () => api.getMessages(params),
         (data: { messages: StoreMessageRow[]; total: number }) => {
           setMessagesTotal(data.total);
@@ -715,7 +733,7 @@ export default function MessageList() {
     } finally {
       setLoadingMessages(false);
     }
-  }, [selectedAccountId, selectedFolder, unreadOnly, activeCategory, pageSize, loadingMessages, threadedView, categorizationEnabled, selectedAccount?.categorization_enabled, applyReadGuard, setExpandedThreadId, setHasMoreMessages, setLoadingMessages, setMessages, setMessagesOffset, setMessagesTotal]);
+  }, [selectedAccountId, selectedFolder, unreadOnly, activeCategory, pageSize, loadingMessages, threadedView, categorizationEnabled, selectedAccount?.categorization_enabled, applyReadGuard, setExpandedThreadId, setHasMoreMessages, setLoadingMessages, setMessages, setMessagesOffset, setMessagesTotal, refreshRequest]);
 
   const handleSync = async () => {
     if (syncing) return;
@@ -750,7 +768,7 @@ export default function MessageList() {
     };
 
     const onTouchMove = (e: TouchEvent) => {
-      if (pullStartYRef.current === null) return;
+      if (pullStartYRef.current === null || pullStartXRef.current === null) return;
       const dx = e.touches[0].clientX - pullStartXRef.current;
       const delta = e.touches[0].clientY - pullStartYRef.current;
       if (!pullDirectionRef.current) {
@@ -1140,7 +1158,7 @@ export default function MessageList() {
           const failedIds = ids.filter(id => !deletedSet.has(id));
           if (failedIds.length > 0) {
             const idToMsg = new Map(deleteMessages.map(m => [m.id, m]));
-            const failedUnreadDelta = failedIds.filter(id => idToMsg.has(id) && !idToMsg.get(id).is_read).length;
+            const failedUnreadDelta = failedIds.filter(id => { const failedMsg = idToMsg.get(id); return !!failedMsg && !failedMsg.is_read; }).length;
             if (isLatestMutation(intentKey, intentVersion)
               && isLatestPerCopyMutation(message.id, resolution.version)) {
               useStore.getState().restoreMessages([visibleMessage]);
@@ -1326,7 +1344,7 @@ export default function MessageList() {
     const handleBeforeUnload = () => {
       pendingDeleteTimers.current.forEach(({ timer, message, ids }) => {
         clearTimeout(timer);
-        const deleteIds = ids?.length ? ids : [message.id];
+        const deleteIds: string[] = ids?.length ? ids : [message.id];
         try {
           if (deleteIds.length > 1) {
             fetch('/api/mail/messages/bulk-delete', {
@@ -1359,7 +1377,7 @@ export default function MessageList() {
   useEffect(() => () => {
     pendingDeleteTimers.current.forEach(({ timer, message, ids }) => {
       clearTimeout(timer);
-      const deleteIds = ids?.length ? ids : [message.id];
+      const deleteIds: string[] = ids?.length ? ids : [message.id];
       const deletePromise =
         deleteIds.length > 1
           ? api.bulkDelete(deleteIds)
@@ -1402,7 +1420,7 @@ export default function MessageList() {
     const guards = [message.id, threadGuard].filter(Boolean);
     const viewKey = archiveViewKeyRef.current;
 
-    refreshRequestRef.current.invalidate();
+    refreshRequest.invalidate();
     guards.forEach(setPendingDelete);
     advanceSelectionAfterRemoval(message.id);
     removeMessage(message.id);
@@ -1432,7 +1450,7 @@ export default function MessageList() {
   }, [
     isThreadListRow, selectedAccountId, selectedFolder, expandedThreadId,
     removeMessage, setExpandedThreadId, decrementUnread, incrementUnread,
-    addNotification, t,
+    addNotification, t, refreshRequest,
   ]);
 
   const handleSwipeStar = useCallback((message: StoreMessageRow) => {
@@ -1564,7 +1582,7 @@ export default function MessageList() {
     const q = searchQuery.trim().toLowerCase();
     if (!q) return [];
     if (/(?:^|\s)-?(?:from|to|subject|has|is|cc|bcc|in|after|before):/.test(q)) return [];
-    const results: Array<{ accountId: string; accountName: string; path: string; name?: string; [key: string]: unknown }> = [];
+    const results: Array<{ accountId: string; accountName: string; path: string; name?: string | null; [key: string]: unknown }> = [];
     for (const [accountId, folderList] of Object.entries(folders)) {
       if (!Array.isArray(folderList)) continue;
       const account = accounts.find(a => a.id === accountId);
@@ -1784,7 +1802,7 @@ export default function MessageList() {
     });
   }, [removeMessage, decrementUnread, incrementUnread, resolveMessagesForThreadAction, addNotification, setThreadMessages, t]);
 
-  const handleRowMove = useCallback((e: React.DragEvent, msg: StoreMessageRow) => {
+  const handleRowMove = useCallback((e: React.MouseEvent, msg: StoreMessageRow) => {
     e.stopPropagation();
     const rect = e.currentTarget.getBoundingClientRect();
     setContextMenu({ x: rect.left, y: rect.bottom + 4, message: msg, defaultMoveView: true });
@@ -1814,7 +1832,7 @@ export default function MessageList() {
     const initialGuards = [...new Set([...ids, ...threadGuardsByRow.values()])];
     const viewKey = archiveViewKeyRef.current;
 
-    refreshRequestRef.current.invalidate();
+    refreshRequest.invalidate();
     initialGuards.forEach(setPendingDelete);
     removeMessages(ids);
     let unreadByAccount = new Map();
@@ -1833,16 +1851,16 @@ export default function MessageList() {
     const archiveAction = createUndoableCommit({
       delayMs: UNDO_COMMIT_DELAY_MS,
       commit: async () => {
-        let groups;
-        let targets;
+        let groups: ArchiveRowGroup[];
+        let targets: StoreMessageRow[] = [];
         try {
-          groups = await archiveTargetGroupsForRows(
+          groups = (await archiveTargetGroupsForRows(
             msgs,
-            message => resolveMessagesForThreadAction(message, { forceRefresh: true }),
+            (message: StoreMessageRow) => resolveMessagesForThreadAction(message, { forceRefresh: true }),
             activeFolder,
             isThreadListRow,
             selectedAccountId,
-          );
+          )).filter(isArchiveRowGroup);
           const seen = new Set();
           targets = groups.flatMap(group => group.targets).filter((target) => {
             if (!target?.id || seen.has(target.id)) return false;
@@ -1916,7 +1934,7 @@ export default function MessageList() {
   }, [
     selectedAccountId, selectedFolder, isThreadListRow, resolveMessagesForThreadAction,
     removeMessages, decrementUnread, incrementUnread, invalidateThreadCache,
-    addNotification, t,
+    addNotification, t, refreshRequest,
   ]);
 
   const archiveVisibleMessage = useCallback(async (message: StoreMessageRow, {
@@ -1927,7 +1945,7 @@ export default function MessageList() {
     intentVersion = null,
   }: {
     alreadyRemoved?: boolean;
-    viewKey?: string;
+    viewKey?: string | null;
     onResolution?: (version: string) => void;
     intentKey?: string;
     intentVersion?: string | null;
@@ -1941,7 +1959,7 @@ export default function MessageList() {
     const initialGuards = [message.id, threadGuard].filter(Boolean);
     const viewKey = actionViewKey;
 
-    refreshRequestRef.current.invalidate();
+    refreshRequest.invalidate();
     initialGuards.forEach(setPendingDelete);
     if (!alreadyRemoved) {
       advanceSelectionAfterRemoval(message.id, true);
@@ -2028,7 +2046,7 @@ export default function MessageList() {
   }, [
     isThreadListRow, selectedAccountId, selectedFolder, expandedThreadId,
     resolveMessagesForThreadAction, removeMessage, setExpandedThreadId,
-    decrementUnread, incrementUnread, invalidateThreadCache, addNotification, t,
+    decrementUnread, incrementUnread, invalidateThreadCache, addNotification, t, refreshRequest,
   ]);
 
   const handleBulkMarkRead = useCallback(async (ids: string[], msgs: StoreMessageRow[]) => {
@@ -2067,14 +2085,14 @@ export default function MessageList() {
     }
   }, [updateMessage, decrementUnread, incrementUnread, adjustCategoryCount]);
 
-  const autoMarkReadTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const autoMarkReadTimerRef = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
   useEffect(() => () => clearTimeout(autoMarkReadTimerRef.current), []);
 
   // Keep refs to bulk handlers so the shortcut effect (registered once) is never stale
   const bulkDeleteRef    = useRef(handleBulkDelete);
   const bulkArchiveRef   = useRef(handleBulkArchive);
   const scheduleDeleteRef = useRef(scheduleDelete);
-  const handleContextActionRef = useRef(null); // assigned below, once handleContextAction is defined
+  const handleContextActionRef = useRef<((action: string, message: StoreMessageRow, data?: string) => Promise<void>) | null>(null); // assigned below, once handleContextAction is defined
   useEffect(() => { bulkDeleteRef.current    = handleBulkDelete;  }, [handleBulkDelete]);
   useEffect(() => { bulkArchiveRef.current   = handleBulkArchive; }, [handleBulkArchive]);
   useEffect(() => { setMessagesReadStateRef.current = setMessagesReadState; }, [setMessagesReadState]);
@@ -2091,7 +2109,7 @@ export default function MessageList() {
       const { markReadBehavior, markReadDelay } = getState();
       if (markReadBehavior === 'manual') return;
       clearTimeout(autoMarkReadTimerRef.current);
-      autoMarkReadTimerRef.current = null;
+      autoMarkReadTimerRef.current = undefined;
       const doMarkRead = () => {
         Promise.resolve(setMessagesReadStateRef.current?.(msg, true)).catch(() => {});
       };
@@ -2148,8 +2166,10 @@ export default function MessageList() {
         bulkArchiveRef.current(ids, msgs);
       } else if (selectedMessageId) {
         const msg = findVisibleArchiveMessage(pool, selectedMessageId, threadMessages);
-        if (!msg) return;
-        archiveVisibleMessageRef.current(msg);
+        if (!isStoreMessageRow(msg)) return;
+        const archiveVisible = archiveVisibleMessageRef.current;
+        if (!archiveVisible) return;
+        archiveVisible(msg);
       }
     };
 
@@ -2228,7 +2248,7 @@ export default function MessageList() {
   }, [showFolderPicker]);
   // ─────────────────────────────────────────────────────────────
 
-  const handleContextAction = async (action, message, data = undefined) => {
+  const handleContextAction = async (action: string, message: StoreMessageRow, data: string | undefined = undefined) => {
     switch (action) {
       case 'open':
         handleSelect(message);
@@ -2237,7 +2257,7 @@ export default function MessageList() {
         handleOpenInWindow(message);
         break;
       case 'markRead': {
-        const uc = parseInt(message.unread_count);
+        const uc = parseInt(String(message.unread_count));
         const threadUnread = Number.isFinite(uc) && uc > 0;
         if (!message.is_read || threadUnread) {
           await setMessagesReadState(message, true);
@@ -2245,7 +2265,7 @@ export default function MessageList() {
         break;
       }
       case 'markUnread': {
-        const uc = parseInt(message.unread_count);
+        const uc = parseInt(String(message.unread_count));
         const needsMarkUnread = message.is_read || (Number.isFinite(uc) && uc === 0);
         if (needsMarkUnread) {
           await setMessagesReadState(message, false);
@@ -2290,17 +2310,17 @@ export default function MessageList() {
         const guards = [archived.id, threadGuard].filter(Boolean);
         const viewKey = archiveViewKeyRef.current;
 
-        refreshRequestRef.current.invalidate();
+        refreshRequest.invalidate();
         guards.forEach(setPendingDelete);
         advanceSelectionAfterRemoval(archived.id);
         removeMessage(archived.id);
         if (threadRow && expandedThreadId === threadId) setExpandedThreadId(null);
-        const aggregateUnread = Number.parseInt(archived.unread_count, 10);
+        const aggregateUnread = Number.parseInt(String(archived.unread_count), 10);
         const optimisticUnread = threadRow && Number.isFinite(aggregateUnread)
           ? aggregateUnread
           : (archived.is_read ? 0 : 1);
         if (optimisticUnread > 0) decrementUnread(archived.account_id, optimisticUnread);
-        let archiveResolutionVersion;
+        let archiveResolutionVersion: string | undefined;
         const archiveAction = createUndoableCommit({
           delayMs: UNDO_COMMIT_DELAY_MS,
           allowUndoWhileCommitting: true,
@@ -2311,7 +2331,7 @@ export default function MessageList() {
               viewKey,
               intentKey,
               intentVersion,
-              onResolution: (version: number) => { archiveResolutionVersion = version; },
+              onResolution: (version: string) => { archiveResolutionVersion = version; },
             });
           },
           undo: () => {
@@ -2358,7 +2378,7 @@ export default function MessageList() {
         advanceSelectionAfterRemoval(moved.id);
         removeMessage(moved.id);
         if (expandedThreadId === (moved.thread_id || moved.id)) setExpandedThreadId(null);
-        const unreadCount = Number.parseInt(moved.unread_count, 10);
+        const unreadCount = Number.parseInt(String(moved.unread_count), 10);
         const unreadDelta = Number.isFinite(unreadCount) ? unreadCount : (moved.is_read ? 0 : 1);
         if (unreadDelta > 0) decrementUnread(moved.account_id, unreadDelta);
         if (selectedIds.has(moved.id)) {
@@ -2512,7 +2532,8 @@ export default function MessageList() {
           const countParams = selectedAccountId ? { accountId: selectedAccountId } : {};
           api.getCategoryCounts(countParams).then(d => setCategoryCounts(d.counts || {})).catch(() => {});
         } catch (err) {
-          console.error('setCategory failed:', err?.message);
+          const errMessage = typeof err === 'object' && err !== null && 'message' in err ? err.message : undefined;
+          console.error('setCategory failed:', errMessage);
         }
         break;
       }
@@ -2526,9 +2547,9 @@ export default function MessageList() {
   // on every commit.
   useEffect(() => { handleContextActionRef.current = handleContextAction; });
 
-  const handleThreadMarkRead = (e, message) => {
+  const handleThreadMarkRead = (e: React.MouseEvent, message: StoreMessageRow) => {
     e.stopPropagation();
-    const uc = parseInt(message.unread_count);
+    const uc = parseInt(String(message.unread_count));
     const hasUnreadInThread = Number.isFinite(uc) && uc > 0;
     handleContextAction(hasUnreadInThread ? 'markRead' : 'markUnread', message);
   };
@@ -2543,7 +2564,7 @@ export default function MessageList() {
     return folderInfo?.special_use === '\\Drafts';
   })();
 
-  const formatAddressArray = (arr) => {
+  const formatAddressArray = (arr: unknown) => {
     if (!Array.isArray(arr)) return [];
     return arr.map(a => {
       if (typeof a === 'string') return a;
@@ -2587,7 +2608,7 @@ export default function MessageList() {
   // path (#219) so both routes behave identically.
   const markMessageReadOnOpen = (message: StoreMessageRow) => {
     clearTimeout(autoMarkReadTimerRef.current);
-    autoMarkReadTimerRef.current = null;
+    autoMarkReadTimerRef.current = undefined;
     if (message.is_read || markReadBehavior === 'manual') return;
     const prevUnread = message.unread_count;
     const doMarkRead = () => {
@@ -2633,8 +2654,8 @@ export default function MessageList() {
   // Native thread children are normalized by the backend. Keep the same deterministic
   // newest ordering that supplies the parent direction: date DESC, then physical ID DESC.
   // This is identity-only; no subject/sender/snippet inference is involved.
-  const newestThreadChild = (children) => [...(children || [])].sort((left, right) => {
-    const byDate = (Date.parse(right.date) || 0) - (Date.parse(left.date) || 0);
+  const newestThreadChild = (children: StoreMessageRow[] | null | undefined) => [...(children || [])].sort((left, right) => {
+    const byDate = (Date.parse(String(right.date)) || 0) - (Date.parse(String(left.date)) || 0);
     return byDate || String(right.id).localeCompare(String(left.id));
   })[0] || null;
 
@@ -2663,15 +2684,15 @@ export default function MessageList() {
   // its current children visible while loading, and discard responses after navigation
   // or a newer mutation. Other threads load fresh when the user expands them.
   useEffect(() => {
-    const refresh = async event => {
-      if (!event.detail?.refreshThreads) return;
+    const refresh = async (event: Event) => {
+      if (!(event instanceof CustomEvent) || !event.detail?.refreshThreads) return;
       const state = useStore.getState();
       const tid = state.expandedThreadId;
       const row = state.messages.find(message => (message.thread_id || message.id) === tid);
       for (const key of Object.keys(state.threadMessages)) {
         if (key !== tid && !key.startsWith('__dl_')) state.clearThreadMessages(key);
       }
-      if (!row) return;
+      if (!row || tid === null) return;
       invalidateThreadLoad(threadLoadVersionsRef.current, tid);
       const version = currentThreadLoadVersion(threadLoadVersionsRef.current, tid);
       try {
@@ -2830,8 +2851,11 @@ export default function MessageList() {
                 <button
                   onClick={() => {
                     if (!showLayoutPicker) {
-                      const rect = layoutPickerRef.current.getBoundingClientRect();
-                      setLayoutPickerPos({ top: rect.bottom + 6, right: window.innerWidth - rect.right });
+                      const layoutPickerEl = layoutPickerRef.current;
+                      if (layoutPickerEl) {
+                        const rect = layoutPickerEl.getBoundingClientRect();
+                        setLayoutPickerPos({ top: rect.bottom + 6, right: window.innerWidth - rect.right });
+                      }
                     }
                     setShowLayoutPicker(v => !v);
                   }}
@@ -2994,8 +3018,11 @@ export default function MessageList() {
               <button
                 onClick={() => {
                   if (!showLayoutPicker) {
-                    const rect = layoutPickerRef.current.getBoundingClientRect();
-                    setLayoutPickerPos({ top: rect.bottom + 6, right: window.innerWidth - rect.right });
+                    const el = layoutPickerRef.current;
+                    if (el) {
+                      const rect = el.getBoundingClientRect();
+                      setLayoutPickerPos({ top: rect.bottom + 6, right: window.innerWidth - rect.right });
+                    }
                   }
                   setShowLayoutPicker(v => !v);
                 }}
@@ -3289,12 +3316,12 @@ export default function MessageList() {
                 )}
               </button>
             )}
-            {gtdActive && [
+            {gtdActive && ([
               { key: 'todo', label: t('gtd.state.todo') },
               { key: 'waiting', label: t('gtd.waiting') },
               { key: 'reference', label: t('gtd.state.reference') },
               { key: 'someday', label: t('gtd.state.someday') },
-            ].map(({ key, label }) => {
+            ] satisfies Array<{ key: keyof typeof GTD_COLORS | 'waiting'; label: string }>).map(({ key, label }) => {
               const isActive = activeGtdTab === key;
               const color = GTD_COLORS[key === 'waiting' ? 'watch' : key];
               const chipBg = GTD_CHIP_BG[key === 'waiting' ? 'watch' : key];
@@ -3860,7 +3887,7 @@ export default function MessageList() {
             message={contextMenu.message}
             defaultMoveView={contextMenu.defaultMoveView}
             onClose={() => setContextMenu(null)}
-            onAction={(action, data) => handleContextAction(action, contextMenu.message, data)}
+            onAction={(action, data) => handleContextAction(action, contextMenu.message, typeof data === 'string' ? data : undefined)}
           />
         )}
 
@@ -4270,13 +4297,13 @@ interface ThreadRowProps {
   showMessagePreviews?: boolean;
   onSelect?: (message: StoreMessageRow) => void | Promise<void>;
   onOpenWindow?: (message: StoreMessageRow) => void;
-  onMarkRead?: (event: React.MouseEvent, message: StoreMessageRow) => void;
-  onStar?: (event: React.MouseEvent, message: StoreMessageRow) => void;
-  onDelete?: (event: React.MouseEvent, message: StoreMessageRow) => void;
+  onMarkRead: (event: React.MouseEvent, message: StoreMessageRow) => void;
+  onStar: (event: React.MouseEvent, message: StoreMessageRow) => void;
+  onDelete: (event: React.MouseEvent, message: StoreMessageRow) => void;
   hoverQuickActions?: boolean;
   onContextMenu?: (event: React.MouseEvent, message: StoreMessageRow) => void;
-  onMove?: (event: React.MouseEvent, message: StoreMessageRow) => void;
-  isMobile?: boolean;
+  onMove: (event: React.MouseEvent, message: StoreMessageRow) => void;
+  isMobile: boolean;
   swipeLeftAction?: string | null;
   swipeRightAction?: string | null;
   onSwipeLeft?: (message: StoreMessageRow) => void;
@@ -4286,7 +4313,7 @@ interface ThreadRowProps {
   onToggleSelect?: (id: string) => void;
   onRangeSelect?: (id: string) => void;
   onLongPress?: (id: string) => void;
-  accounts?: Array<{ id: string; [key: string]: unknown }>;
+  accounts: Array<{ id: string; [key: string]: unknown }>;
 }
 
 interface MessageRowProps {
@@ -4304,14 +4331,14 @@ interface MessageRowProps {
   onAvatarClick?: (id: string) => void;
   showMobileAvatars?: boolean;
   showMessagePreviews?: boolean;
-  onMarkRead?: (event: React.MouseEvent, message: StoreMessageRow) => void;
-  onStar?: (event: React.MouseEvent, message: StoreMessageRow) => void;
-  onDelete?: (event: React.MouseEvent, message: StoreMessageRow) => void;
+  onMarkRead: (event: React.MouseEvent, message: StoreMessageRow) => void;
+  onStar: (event: React.MouseEvent, message: StoreMessageRow) => void;
+  onDelete: (event: React.MouseEvent, message: StoreMessageRow) => void;
   hoverQuickActions?: boolean;
   onContextMenu?: (event: React.MouseEvent, message: StoreMessageRow) => void;
-  onMove?: (event: React.MouseEvent, message: StoreMessageRow) => void;
-  onDragStart?: (event: React.DragEvent, message: StoreMessageRow) => void;
-  isMobile?: boolean;
+  onMove: (event: React.MouseEvent, message: StoreMessageRow) => void;
+  onDragStart: (event: React.DragEvent, message: StoreMessageRow) => void;
+  isMobile: boolean;
   swipeLeftAction?: string | null;
   swipeRightAction?: string | null;
   onSwipeLeft?: (message: StoreMessageRow) => void;
@@ -4528,11 +4555,11 @@ function ThreadRow({ message, isExpanded, threadMsgs, isLoadingThread, selectedM
             <div style={{
               display: 'flex', alignItems: 'center', gap: 4, flexShrink: 0, marginLeft: 8,
             }}>
-              {message.has_attachments && (
+              {message.has_attachments ? (
                 <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="var(--text-tertiary)" strokeWidth="2">
                   <path d="M21.44 11.05l-9.19 9.19a6 6 0 01-8.49-8.49l9.19-9.19a4 4 0 015.66 5.66l-9.2 9.19a2 2 0 01-2.83-2.83l8.49-8.48"/>
                 </svg>
-              )}
+              ) : null}
               {message.is_starred && (
                 <button
                   data-thread-row-star="true"
@@ -4728,7 +4755,7 @@ function MessageRow({ message, selected, lastViewed, isChecked, selectionMode, s
   const leftActionView = getSwipeActionView(swipeRightAction, message, t);
   const rightActionView = getSwipeActionView(swipeLeftAction, message, t);
 
-  const handleClick = (e) => {
+  const handleClick = (e: React.MouseEvent) => {
     if (selectionMode) {
       if (e.shiftKey && onRangeSelect) {
         onRangeSelect(message.id);
@@ -4742,7 +4769,7 @@ function MessageRow({ message, selected, lastViewed, isChecked, selectionMode, s
     }
   };
 
-  const handleAvatarAreaClick = (e) => {
+  const handleAvatarAreaClick = (e: React.MouseEvent) => {
     e.stopPropagation();
     if (selectionMode) {
       if (e.shiftKey && onRangeSelect) {
@@ -4901,11 +4928,11 @@ function MessageRow({ message, selected, lastViewed, isChecked, selectionMode, s
             </span>
           </div>
           <div style={{ display: 'flex', alignItems: 'center', gap: 4, flexShrink: 0, marginLeft: 8 }}>
-            {message.has_attachments && (
+            {message.has_attachments ? (
               <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="var(--text-tertiary)" strokeWidth="2">
                 <path d="M21.44 11.05l-9.19 9.19a6 6 0 01-8.49-8.49l9.19-9.19a4 4 0 015.66 5.66l-9.2 9.19a2 2 0 01-2.83-2.83l8.49-8.48"/>
               </svg>
-            )}
+            ) : null}
             {message.is_starred && (
               <button
                 onClick={e => { e.stopPropagation(); onStar?.(e, message); }}
@@ -4954,7 +4981,7 @@ function MessageRow({ message, selected, lastViewed, isChecked, selectionMode, s
       {hovered && hoverQuickActions && (
         <RowHoverActions
           message={message}
-          isRead={message.is_read}
+          isRead={!!message.is_read}
           background="var(--bg-elevated)"
           deleteTitleKey="common.delete"
           onMarkRead={onMarkRead}

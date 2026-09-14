@@ -49,11 +49,38 @@ function Avatar({ name, email, size = 36, hasContactPhoto }: AvatarProps) {
   );
 }
 
-function EmptyEmailForm() {
+/** One editable entry of the contact form's collections. */
+type FormEmail = { value: string; type: string; primary: boolean };
+type FormPhone = { value: string; type: string };
+type FormDate = { value: string; label: string };
+type FormTextEntry = { value: string; type: string };
+type FormAddress = { type: string; pobox: string; extended: string; street: string; locality: string; region: string; postalCode: string; country: string };
+
+/** The add/edit contact form's state. Collections are also indexed by field name. */
+type ContactFormState = {
+  displayName: string;
+  firstName: string;
+  lastName: string;
+  emails: FormEmail[];
+  phones: FormPhone[];
+  organization: string;
+  notes: string;
+  contactDates: FormDate[];
+  title: string;
+  role: string;
+  nickname: string;
+  urls: FormTextEntry[];
+  instantMessages: FormTextEntry[];
+  categories: string[];
+  addresses: FormAddress[];
+  [key: string]: unknown;
+};
+
+function EmptyEmailForm(): FormEmail[] {
   return [{ value: '', type: 'other', primary: true }];
 }
 
-function emptyContact() {
+function emptyContact(): ContactFormState {
   return {
     displayName: '',
     firstName: '',
@@ -122,6 +149,13 @@ interface ContactRow {
 /** An address book as the contacts API returns it. */
 interface AddressBookRow { id: string; name?: string | null; [key: string]: unknown }
 
+/** The address-book name dialog: null when closed, otherwise the mode and the value
+ * being edited. A real dialog rather than window.prompt, so naming a book looks like
+ * the rest of the app and can show the server's validation error in place. */
+type BookDialogState =
+  | { mode: 'create'; id: null; name: string }
+  | { mode: 'rename'; id: string; name: string };
+
 
 export default function ContactsPage({ isActive = true }) {
   const { t } = useTranslation();
@@ -131,7 +165,7 @@ export default function ContactsPage({ isActive = true }) {
   // The address-book name dialog: null when closed, otherwise the mode and the value
   // being edited. A real dialog rather than window.prompt, so naming a book looks like
   // the rest of the app and can show the server's validation error in place.
-  const [bookDialog, setBookDialog] = useState<{ name?: string; mode?: string; id?: string; [key: string]: unknown } | null>(null);
+  const [bookDialog, setBookDialog] = useState<BookDialogState | null>(null);
   const [bookSaving, setBookSaving] = useState(false);
   const [bookError, setBookError] = useState<string | null>(null);
   const isMobile = useCompactLayout();
@@ -147,8 +181,8 @@ export default function ContactsPage({ isActive = true }) {
   const [editing, setEditing]       = useState(false);
   const [form, setForm]             = useState(emptyContact());
   const [saving, setSaving]         = useState(false);
-  const [error, setError]           = useState(null);
-  const [listError, setListError]   = useState(null);
+  const [error, setError]           = useState<string | null>(null);
+  const [listError, setListError]   = useState<string | null>(null);
   const [confirmDelete, setConfirmDelete] = useState(false);
   const [showNew, setShowNew]       = useState(false);
   // Mobile: 'list' shows the contact list, 'detail' shows contact/form panel
@@ -159,7 +193,7 @@ export default function ContactsPage({ isActive = true }) {
   const mobileBackButtonRef         = useRef<HTMLButtonElement | null>(null);
   const importInputRef              = useRef<HTMLInputElement | null>(null);
   const contactSelectionRequestRef  = useRef(0);
-  const listResizeRef               = useRef(null);
+  const listResizeRef               = useRef<(() => void) | null>(null);
 
   // The contact list resizes with the same shared width the mail list uses, so
   // widening it in Contacts also widens the mail list (and the calendar panels).
@@ -256,7 +290,7 @@ export default function ContactsPage({ isActive = true }) {
   // Both naming flows go through one dialog. Creating and renaming differ only in which
   // request is sent, so they share the field, the validation message and the keyboard flow.
   const openCreateBook = () => { setBookError(null); setBookDialog({ mode: 'create', id: null, name: '' }); };
-  const openRenameBook = (book: { id: string; name?: string | null }) => { setBookError(null); setBookDialog({ mode: 'rename', id: book.id, name: book.name }); };
+  const openRenameBook = (book: { id: string; name?: string | null }) => { setBookError(null); setBookDialog({ mode: 'rename', id: book.id, name: book.name ?? '' }); };
   const submitBookDialog = async () => {
     if (!bookDialog || bookSaving) return;
     const name = bookDialog.name.trim();
@@ -368,22 +402,22 @@ export default function ContactsPage({ isActive = true }) {
       emails:       (selected.emails?.length
         ? selected.emails.map((entry: Record<string, unknown>) => ({ value: String(entry.value ?? ''), type: String(entry.type ?? ''), primary: Boolean(entry.primary) }))
         : EmptyEmailForm()),
-      phones:       selected.phones        || [],
+      phones:       (selected.phones || []).map(entry => ({ value: String(entry.value ?? ''), type: String(entry.type ?? '') })),
       organization: selected.organization  || '',
       notes:        selected.notes         || '',
       contactDates: selected.contactDates?.length
-        ? selected.contactDates
+        ? selected.contactDates.map(entry => ({ value: String(entry.value ?? ''), label: String(entry.label ?? '') }))
         : [
             selected.birthday && { label: 'Birthday', value: String(selected.birthday).slice(0, 10) },
             selected.anniversary && { label: 'Anniversary', value: String(selected.anniversary).slice(0, 10) },
-          ].filter(Boolean),
+          ].filter((date): date is FormDate => Boolean(date)),
       title:        selected.title || '',
       role:         selected.role || '',
       nickname:     selected.nickname || '',
-      urls:         selected.urls || [],
-      instantMessages: selected.instantMessages || [],
+      urls:         (selected.urls || []).map(entry => ({ value: String(entry.value ?? ''), type: String(entry.type ?? '') })),
+      instantMessages: (selected.instantMessages || []).map(entry => ({ value: String(entry.value ?? ''), type: String(entry.type ?? '') })),
       categories:   selected.categories || [],
-      addresses:    selected.addresses || [],
+      addresses:    (selected.addresses || []).map(entry => ({ type: String(entry.type ?? ''), pobox: String(entry.pobox ?? ''), extended: String(entry.extended ?? ''), street: String(entry.street ?? ''), locality: String(entry.locality ?? ''), region: String(entry.region ?? ''), postalCode: String(entry.postalCode ?? ''), country: String(entry.country ?? '') })),
     });
     setEditing(true);
     setError(null);
@@ -434,6 +468,7 @@ export default function ContactsPage({ isActive = true }) {
       if (showNew) {
         saved = await api.createContact({ ...payload, addressBookId: selectedAddressBookId || undefined });
       } else {
+        if (!selected) return;
         saved = await api.updateContact(selected.id, payload);
       }
       // Reload list and re-fetch the saved contact before touching UI state,
@@ -495,20 +530,28 @@ export default function ContactsPage({ isActive = true }) {
     ...f, phones: f.phones.filter((_, i) => i !== idx),
   }));
 
-  const setCollection = (key: string, idx: number, field: string, value: string) => setForm(f => ({
-    ...f,
-    [key]: f[key].map((item, i) => i === idx ? { ...item, [field]: value } : item),
-  }));
+  const setCollection = (key: string, idx: number, field: string, value: string) => setForm(f => {
+    const list = f[key];
+    if (!Array.isArray(list)) return f;
+    return { ...f, [key]: list.map((item: Record<string, unknown>, i: number) => i === idx ? { ...item, [field]: value } : item) };
+  });
 
-  const addCollection = (key: string, item: unknown) => setForm(f => ({ ...f, [key]: [...f[key], item] }));
-  const removeCollection = (key: string, idx: number) => setForm(f => ({ ...f, [key]: f[key].filter((_, i) => i !== idx) }));
+  const addCollection = (key: string, item: unknown) => setForm(f => {
+    const list = f[key];
+    return { ...f, [key]: [...(Array.isArray(list) ? list : []), item] };
+  });
+  const removeCollection = (key: string, idx: number) => setForm(f => {
+    const list = f[key];
+    if (!Array.isArray(list)) return f;
+    return { ...f, [key]: list.filter((_: Record<string, unknown>, i: number) => i !== idx) };
+  });
   const setCategories = (value: string) => setForm(f => ({ ...f, categories: value.split(',').map(category => category.trim()).filter(Boolean) }));
 
   const selectedBook = addressBooks.find(book => book.id === selectedAddressBookId);
   const bookControls = <div className="contacts-book-controls">
     <div className="contacts-books" role="group" aria-label={t('contacts.addressBooks.label')}>
       <button type="button" aria-pressed={!selectedAddressBookId} onClick={() => { setSelectedAddressBookId(''); setBooksOpen(false); }}>{t('contacts.addressBooks.allVisible')}</button>
-      {addressBooks.map(book => <button type="button" key={book.id} aria-pressed={selectedAddressBookId === book.id} onClick={() => { setSelectedAddressBookId(book.id); setBooksOpen(false); }} title={book.name}>{book.visible ? '' : '○ '}{book.name}</button>)}
+      {addressBooks.map(book => <button type="button" key={book.id} aria-pressed={selectedAddressBookId === book.id} onClick={() => { setSelectedAddressBookId(book.id); setBooksOpen(false); }} title={book.name ?? undefined}>{book.visible ? '' : '○ '}{book.name}</button>)}
     </div>
     <details className="contacts-book-menu">
       <summary aria-label={t('contacts.addressBooks.label')}>⋯</summary>
@@ -552,7 +595,7 @@ export default function ContactsPage({ isActive = true }) {
           autoFocus
           maxLength={120}
           value={bookDialog.name}
-          onChange={event => setBookDialog(current => ({ ...current, name: event.target.value }))}
+          onChange={event => setBookDialog(current => current ? { ...current, name: event.target.value } : current)}
           onKeyDown={event => { if (event.key === 'Enter') { event.preventDefault(); submitBookDialog(); } }}
         />
       </label>
@@ -637,11 +680,11 @@ export default function ContactsPage({ isActive = true }) {
                   {c.primary_email}
                 </div>
               )}
-            {(c.organization || c.is_auto || c.address_book_id) && (
+            {Boolean(c.organization || c.is_auto || c.address_book_id) && (
               <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginTop: 5, flexWrap: 'wrap' }}>
-                {c.address_book_id && <span style={rowTypeChip}>{addressBooks.find(book => book.id === c.address_book_id)?.name}</span>}
+                {Boolean(c.address_book_id) && <span style={rowTypeChip}>{addressBooks.find(book => book.id === c.address_book_id)?.name}</span>}
                 {c.organization && <span style={rowTypeChip}>{c.organization}</span>}
-                {c.is_auto && <span style={rowTypeChip}>{t('contacts.auto')}</span>}
+                {Boolean(c.is_auto) && <span style={rowTypeChip}>{t('contacts.auto')}</span>}
               </div>
             )}
             </div>
@@ -822,14 +865,14 @@ export default function ContactsPage({ isActive = true }) {
 
 function ContactDetail({ contact: c, confirmDelete, saving, error, onEdit, onDeleteRequest, onDeleteConfirm, onDeleteCancel, t }: ContactDetailProps) {
   const { i18n } = useTranslation();
-  const detailType = type => type ? t(`contacts.emailTypes.${type}`, { defaultValue: String(type) }) : undefined;
+  const detailType = (type?: string) => type ? t(`contacts.emailTypes.${type}`, { defaultValue: String(type) }) : undefined;
   const openCompose = useStore((state: StoreState) => state.openCompose);
   const contactDates = c.contactDates?.length
     ? c.contactDates
     : [
         c.birthday && { label: 'Birthday', value: String(c.birthday).slice(0, 10) },
         c.anniversary && { label: 'Anniversary', value: String(c.anniversary).slice(0, 10) },
-      ].filter(Boolean);
+      ].filter((date): date is { label: string; value: string } => Boolean(date));
   const primaryEmail = c.primary_email || c.emails?.[0]?.value || '';
 
   return (
@@ -897,9 +940,9 @@ function ContactDetail({ contact: c, confirmDelete, saving, error, onEdit, onDel
         </div>
       )}
 
-      {((c.emails?.length > 0) || (c.phones?.length > 0) || c.notes || contactDates.length || c.title || c.role || c.nickname || c.urls?.length || c.instantMessages?.length || c.categories?.length || c.addresses?.length) && (
+      {((c.emails && c.emails.length > 0) || (c.phones && c.phones.length > 0) || c.notes || contactDates.length || c.title || c.role || c.nickname || c.urls?.length || c.instantMessages?.length || c.categories?.length || c.addresses?.length) && (
         <div>
-          {(c.emails?.length > 0) && (
+          {(c.emails && c.emails.length > 0) && (
             <DetailSection label={t('contacts.fields.email')}>
               {(c.emails || []).map((e, i) => (
                 <DetailRow key={i} icon={fieldIcon.mail} type={t(`contacts.emailTypes.${e.type || 'other'}`, { defaultValue: t('contacts.emailTypes.other') })}>
@@ -908,7 +951,7 @@ function ContactDetail({ contact: c, confirmDelete, saving, error, onEdit, onDel
               ))}
             </DetailSection>
           )}
-          {(c.phones?.length > 0) && (
+          {(c.phones && c.phones.length > 0) && (
             <DetailSection label={t('contacts.fields.phone')}>
               {(c.phones || []).map((p, i) => (
                 <DetailRow key={i} icon={fieldIcon.phone} type={t(`contacts.phoneTypes.${p.type === 'cell' || p.type === 'iphone' ? 'mobile' : (p.type || 'other')}`, { defaultValue: t('contacts.phoneTypes.other') })}>
@@ -917,7 +960,7 @@ function ContactDetail({ contact: c, confirmDelete, saving, error, onEdit, onDel
               ))}
             </DetailSection>
           )}
-          {(c.urls?.length > 0) && (
+          {(c.urls && c.urls.length > 0) && (
             <DetailSection label={t('contacts.fields.url')}>
               {(c.urls || []).map((url, i) => {
                 const href = safeHttpUrl(url.value);
@@ -925,12 +968,12 @@ function ContactDetail({ contact: c, confirmDelete, saving, error, onEdit, onDel
               })}
             </DetailSection>
           )}
-          {(c.instantMessages?.length > 0) && (
+          {(c.instantMessages && c.instantMessages.length > 0) && (
             <DetailSection label={t('contacts.fields.instantMessage')}>
               {(c.instantMessages || []).map((message, i) => <DetailRow key={`im-${i}`} icon={fieldIcon.message} type={message.type ? String(message.type) : undefined}>{message.value}</DetailRow>)}
             </DetailSection>
           )}
-          {(c.addresses?.length > 0) && (
+          {(c.addresses && c.addresses.length > 0) && (
             <DetailSection label={t('contacts.fields.address')}>
               {(c.addresses || []).map((address, i) => <DetailRow key={`address-${i}`} icon={fieldIcon.mapPin} type={detailType(address.type)}>{[address.pobox, address.extended, address.street, address.locality, address.region, address.postalCode, address.country].filter(Boolean).join(', ')}</DetailRow>)}
             </DetailSection>
@@ -940,7 +983,7 @@ function ContactDetail({ contact: c, confirmDelete, saving, error, onEdit, onDel
               {contactDates.map((date, i) => <DetailRow key={`date-${i}`} icon={fieldIcon.calendar} type={contactDateLabel(date.label, t)}>{formatContactDate(date.value, intlLocale(i18n.resolvedLanguage || i18n.language))}</DetailRow>)}
             </DetailSection>
           )}
-          {(c.categories?.length > 0) && (
+          {(c.categories && c.categories.length > 0) && (
             <DetailSection label={t('contacts.fields.categories')}>
               <div style={{ display: 'flex', flexWrap: 'wrap' }}>
                 {c.categories.map((category, i) => <span key={`cat-${i}`} style={{ ...contactStatChip, margin: '2px 6px 2px 0' }}>{category}</span>)}
@@ -952,10 +995,10 @@ function ContactDetail({ contact: c, confirmDelete, saving, error, onEdit, onDel
               <p style={detailNote}>{c.notes}</p>
             </DetailSection>
           )}
-          {(c.role || c.send_count > 0) && (
+          {(c.role || (typeof c.send_count === 'number' && c.send_count > 0)) && (
             <DetailSection>
               {c.role && <DetailRow icon={fieldIcon.briefcase} type={t('contacts.fields.role')}>{c.role}</DetailRow>}
-              {c.send_count > 0 && <DetailRow icon={fieldIcon.mail} type={t('contacts.fields.emailsSent')}>{c.send_count}</DetailRow>}
+              {typeof c.send_count === 'number' && c.send_count > 0 && <DetailRow icon={fieldIcon.mail} type={t('contacts.fields.emailsSent')}>{c.send_count}</DetailRow>}
             </DetailSection>
           )}
         </div>
@@ -984,7 +1027,7 @@ function ContactDetail({ contact: c, confirmDelete, saving, error, onEdit, onDel
 
 /** The add/edit contact form and every mutation its fields need. */
 interface ContactFormProps {
-  form: ReturnType<typeof emptyContact>;
+  form: ContactFormState;
   isNew: boolean;
   saving: boolean;
   error: string | null;
@@ -1263,7 +1306,8 @@ function DetailRow({ icon, type, children }: { icon?: React.ReactNode; type?: st
   );
 }
 
-function ActionBtn({ children, onClick, danger = false, disabled = false }) {
+interface ActionBtnProps { children?: React.ReactNode; onClick?: () => void; danger?: boolean; disabled?: boolean }
+function ActionBtn({ children, onClick, danger = false, disabled = false }: ActionBtnProps) {
   return (
     <button
       type="button"
@@ -1286,7 +1330,7 @@ function ActionBtn({ children, onClick, danger = false, disabled = false }) {
   );
 }
 
-function ContactDangerButton({ children, onClick, disabled = false, ...props }) {
+function ContactDangerButton({ children, onClick, disabled = false, ...props }: React.ButtonHTMLAttributes<HTMLButtonElement>) {
   return (
     <button
       type="button"
@@ -1305,7 +1349,7 @@ function ContactDangerButton({ children, onClick, disabled = false, ...props }) 
   );
 }
 
-function ErrorBanner({ msg }) {
+function ErrorBanner({ msg }: { msg: string }) {
   return (
     <div role="alert" style={{
       marginBottom: 16, padding: '10px 14px', borderRadius: 8,

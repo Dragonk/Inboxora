@@ -59,6 +59,25 @@ type RawMessageInput = {
   fromEmail?: string | null;
 };
 
+/** A newly-arrived unread message queued for notification/rules after an INBOX sync. */
+interface IngestUnreadMessage {
+  id: string;
+  uid: number;
+  accountId: string;
+  account_id?: string;
+  folder: string;
+  subject?: string;
+  fromName?: string;
+  fromEmail?: string;
+  isRead?: boolean;
+  is_read?: boolean;
+  hasAttachments?: boolean;
+  isBulk?: boolean;
+  to?: Array<{ email?: string; name?: string }>;
+  parsedHeaders?: unknown;
+  _bodyText?: string;
+  [key: string]: unknown;
+}
 
 async function persistConversationCopyForRow(rowId: string, account: EmailAccountRow, rawMessage: RawMessageInput | null | undefined): Promise<void> {
   try {
@@ -165,8 +184,9 @@ async function connectImapClient(account: EmailAccountRow, resolved: ResolvedCon
     // stall): a second attempt just piles on pressure and doubles the delay — let the refusal
     // propagate so the caller's cooldown backs off (#384). Otherwise retry IPv4-only for a wedged
     // IPv6 TLS handshake (#382).
-    if (!shouldRetryIPv4(toAppError(err).message, resolved.addresses ?? [], sawRefusal)) throw err;
-    const v4 = resolved.addresses.filter(a => !a.includes(':'));
+    const addresses = resolved.addresses ?? [];
+    if (!shouldRetryIPv4(toAppError(err).message, addresses, sawRefusal)) throw err;
+    const v4 = addresses.filter(a => !a.includes(':'));
     console.warn(`IMAP connect stalled for ${logAccount(account)} (${label}); retrying IPv4-only`);
     const v4Resolved = { ...resolved, addresses: v4, host: v4[0], lookup: createPinnedLookup(v4) };
     return await attempt(v4Resolved, `${label} IPv4-retry`);
@@ -1258,7 +1278,7 @@ export function makeClientCfg(account: EmailAccountRow, resolved: ResolvedConnec
   if ((account.oauth_provider === 'google' || account.oauth_provider === 'microsoft')
       && account.oauth_access_token) {
     cfg.auth = {
-      user: account.auth_user || account.email_address,
+      user: account.auth_user || account.email_address || '',
       accessToken: decrypt(account.oauth_access_token),
     };
   }
@@ -1482,7 +1502,8 @@ export async function ensureMailbox(client: ImapClient, path: string, { resolveP
 // if persisted (planGtdFolderPersist), never case-matches the synced rows' folder value and
 // silently zeroes the state. Best-effort: any list failure (or a client without list) falls
 // back to the caller's known path — never throws.
-async function resolveServerFolderCasing(client: ImapClient, knownPath: string | null | undefined): Promise<string | null | undefined> {
+async function resolveServerFolderCasing<T extends string | null | undefined>(client: ImapClient, knownPath: T): Promise<T | string> {
+  if (knownPath == null) return knownPath;
   if (typeof client.list !== 'function') return knownPath;
   try {
     const wanted = knownPath.toLowerCase();
@@ -1634,7 +1655,7 @@ export class ImapManager {
     // IMAP server that times out on the first attempt) without waiting for a manual sync.
     this._healthCheckTimer = setInterval(async () => {
       try {
-        const result = await query<{ id: string; email_address?: string | null }>(
+        const result = await query<{ id: string; email_address?: string }>(
           "SELECT id, email_address FROM email_accounts WHERE enabled = true AND protocol = 'imap'"
         );
         for (const row of result.rows) {
@@ -2690,7 +2711,7 @@ export class ImapManager {
         )`,
       [uids, reads, starred, account.id, folder]
     );
-    return result.rowCount;
+    return result.rowCount ?? 0;
   }
 
   // Lightweight flag-only sync: fetch uid+flags for the last 200 messages in INBOX
@@ -2782,14 +2803,15 @@ export class ImapManager {
     for (const plugin of pluginRegistry.list()) {
       const sync = plugin.sync;
       if (!sync || typeof sync.tick !== 'function') continue;
+      const tick = sync.tick;
       // isActive may be async (GTD's per-account enable now lives in the plugin config store, not
       // on the account row), so await it — a false gate arms nothing, keeping ticks inert when unused.
       try { if (sync.isActive && !(await sync.isActive({ account }))) continue; } catch { continue; }
       const key = `${account.id}::${plugin.id}`;
       const intervalMs = sync.intervalMs || DEFAULT_PLUGIN_SYNC_INTERVAL_MS;
       const fire = () => {
-        try { Promise.resolve(sync.tick({ mgr: this.pluginFacade, account })).catch(err => console.warn(`Plugin ${plugin.id} sync tick error for ${logAccount(account)}:`, err.message)); }
-        catch (err) { console.warn(`Plugin ${plugin.id} sync tick error for ${logAccount(account)}:`, err.message); }
+        try { Promise.resolve(tick({ mgr: this.pluginFacade, account })).catch(err => console.warn(`Plugin ${plugin.id} sync tick error for ${logAccount(account)}:`, toAppError(err).message)); }
+        catch (err) { console.warn(`Plugin ${plugin.id} sync tick error for ${logAccount(account)}:`, toAppError(err).message); }
       };
       const jitter = Math.floor(Math.random() * Math.min(intervalMs, 30000));
       const t = setTimeout(() => {
@@ -2952,10 +2974,10 @@ export class ImapManager {
         // in which case delta sync transparently falls back to the full UID/sequence phases.
         // Kept as a BigInt (or null); never coerced to a JS Number (modseq can exceed 2^53).
         const serverModseq = mailbox.highestModseq ?? null;
-        let storedModseq = null;        // decimal string from the DB, or null (no baseline yet)
+        let storedModseq: string | number | bigint | null = null;        // decimal string from the DB, or null (no baseline yet)
         let uidValidityChanged = false; // true resets the modseq baseline (epoch changed)
         if (currentValidity) {
-          const foldRow = await query(
+          const foldRow = await query<{ uid_validity?: unknown; highest_modseq?: string | number | bigint | null }>(
             'SELECT uid_validity, highest_modseq FROM folders WHERE account_id = $1 AND path = $2',
             [account.id, folder]
           );
@@ -2973,7 +2995,7 @@ export class ImapManager {
             // A UIDVALIDITY purge drops every row for this folder — including any GTD thread's copy
             // here — so refresh GTD section data like the other sync-delete paths. Backfill re-populates
             // below; the emit just avoids a stale gap. See emitSectionsChanged.
-            await emitSectionsChanged(this.pluginFacade, account, purged.rowCount);
+            await emitSectionsChanged(this.pluginFacade, account, purged.rowCount ?? 0);
             // Route through the per-host backfill cap too: a provider-side mailbox rebuild
             // can reset UIDVALIDITY across many accounts/folders at once, which would
             // otherwise flood connections on exactly the many-account-per-provider setup the
@@ -3032,7 +3054,7 @@ export class ImapManager {
         const maxKnownUid = Number(max_uid);
 
         const manager = this;
-        let newMessages: Array<{ id: string; uid: number; accountId: string; folder: string; fromEmail?: string | null; isBulk?: boolean; [key: string]: unknown }> = [];
+        let newMessages: IngestUnreadMessage[] = [];
         let insertedCount = 0;
         let broadcastedNewMessages = false;
 
@@ -3321,7 +3343,7 @@ export class ImapManager {
           // Fire-and-forget: push errors are non-fatal.
           if (folder === 'INBOX' && alertMessages.length > 0) {
             const latest = alertMessages[alertMessages.length - 1];
-            const dispatch = (unreadCount: number) => dispatchMailNotification(buildMailNotificationEvent({
+            const dispatch = (unreadCount?: number) => dispatchMailNotification(buildMailNotificationEvent({
               userId: account.user_id,
               message: latest,
               alertCount,
@@ -3336,7 +3358,7 @@ export class ImapManager {
                WHERE a.user_id = $1 AND a.enabled = true AND m.folder = 'INBOX' AND m.is_read = false AND m.is_deleted = false`,
               [account.user_id]
             ).then(r => dispatch(r.rows[0]?.total ?? 0))
-              .catch(() => dispatch(null));
+              .catch(() => dispatch());
           }
           // Pre-warm the body cache for newly arrived messages so clicking one
           // immediately after receipt doesn't require a live IMAP fetch.
@@ -3378,7 +3400,8 @@ export class ImapManager {
         // (flagScanComplete=false) and skip advancing the watermark, so it retries next tick with
         // nothing lost — rather than burning the whole-sync budget and forcing a reconnect.
         let flagScanComplete = true;
-        if (plan === 'delta') {
+        if (plan === 'delta' && storedModseq != null) {
+          const baseModseq = storedModseq;
           // Flag-only scan. The only thing that changes on an EXISTING message is its flags
           // (read/star) — new mail is the UID phase's job — so fetch just uid+flags over a recent
           // UID window and bulk-apply. Deliberately lightweight: iCloud advertises CONDSTORE (so
@@ -3391,8 +3414,8 @@ export class ImapManager {
           const flagsToUpdate: Array<{ uid: number; isRead: boolean; isStarred: boolean }> = [];
           try {
             const scan = (async () => {
-              for await (const msg of client.fetch(`${deltaLow}:*`, { uid: true, flags: true }, { uid: true, changedSince: BigInt(storedModseq) })) {
-                flagsToUpdate.push({ uid: msg.uid, isRead: msg.flags.has('\\Seen'), isStarred: msg.flags.has('\\Flagged') });
+              for await (const msg of client.fetch(`${deltaLow}:*`, { uid: true, flags: true }, { uid: true, changedSince: BigInt(baseModseq) })) {
+                flagsToUpdate.push({ uid: msg.uid, isRead: msg.flags?.has('\\Seen') ?? false, isStarred: msg.flags?.has('\\Flagged') ?? false });
               }
             })();
             // If the timeout wins the race, the fetch keeps running until ImapFlow's commandTimeout
@@ -3543,6 +3566,9 @@ export class ImapManager {
     // Dedicated connection managed here — completely independent of the shared pool
     // so backfilling never blocks the user from opening emails.
     let bfClient: ImapClient | null = null;
+    // Read through a closure so control-flow analysis keeps the nullable type: openBfClient
+    // (re)assigns the slot, and a plain outer read would be narrowed to the literal initializer.
+    const getBfClient = (): ImapClient | null => bfClient;
     let batchesOnConn = 0;
 
     const openBfClient = async () => {
@@ -3593,11 +3619,11 @@ export class ImapManager {
       // integers — no message data transferred, even for 50 000-message mailboxes.
       let serverUids;
       {
-        const bf = bfClient;
+        const bf = getBfClient();
         if (!bf) throw new Error('IMAP backfill client is not connected');
         const lock = await bf.getMailboxLock(folder);
         try {
-          const totalExists = openMailbox(bfClient)?.exists || 0;
+          const totalExists = openMailbox(bf)?.exists || 0;
           if (totalExists === 0) {
             logger.debug(`Backfill ${logAccount(account)}: mailbox empty`);
             await query(
@@ -3606,11 +3632,11 @@ export class ImapManager {
             ).catch(() => {});
             return;
           }
-          serverUids = await bfClient.search({ all: true }, { uid: true });
+          serverUids = await bf.search({ all: true }, { uid: true });
 
           // UIDVALIDITY check — if this backfill connection sees a different epoch than
           // what is stored, purge stale rows so the diff below re-fetches everything.
-          const box = openMailbox(bfClient);
+          const box = openMailbox(bf);
           const currentValidity = box?.uidValidity ? Number(box.uidValidity) : null;
           if (currentValidity) {
             const foldRow = await query(
@@ -3622,7 +3648,7 @@ export class ImapManager {
               console.warn(`Backfill: UIDVALIDITY changed for ${logAccount(account)}/${folder}: ${storedValidity} → ${currentValidity}. Purging stale messages.`);
               const purged = await query('DELETE FROM messages WHERE account_id = $1 AND folder = $2', [account.id, folder]);
               // Same GTD section-data staleness gap as the syncMessages purge path.
-              await emitSectionsChanged(this.pluginFacade, account, purged.rowCount);
+              await emitSectionsChanged(this.pluginFacade, account, purged.rowCount ?? 0);
             }
             // Always keep stored validity current
             await query(
@@ -3723,7 +3749,7 @@ export class ImapManager {
         if (batchesOnConn >= cfg.batchesPerConn) {
           try { await openBfClient(); }
           catch (reconnErr) {
-            console.error(`Backfill reconnect failed for ${logAccount(account)}:`, reconnErr.message);
+            console.error(`Backfill reconnect failed for ${logAccount(account)}:`, toAppError(reconnErr).message);
             await new Promise(r => setTimeout(r, cfg.errorDelay));
             continue; // retry same batch after delay
           }
@@ -3734,7 +3760,9 @@ export class ImapManager {
         const uidSet = batch.join(',');
 
         try {
-          const lock = await bfClient.getMailboxLock(folder);
+          const bf = getBfClient();
+          if (!bf) throw new Error('IMAP backfill client is not connected');
+          const lock = await bf.getMailboxLock(folder);
           try {
             // Third arg { uid: true } issues UID FETCH instead of sequence FETCH.
             // bodyParts omitted for Gmail (empty array) — metadata only, no throttling.
@@ -3743,10 +3771,10 @@ export class ImapManager {
               bodyStructure: true, size: true,
               internalDate: true,
               headers: true,
-            }, providerCapabilitiesFromClient(bfClient));
+            }, providerCapabilitiesFromClient(bf));
             if (bodyParts.length > 0) bfQuery.bodyParts = bodyParts;
 
-            for await (const msg of bfClient.fetch(uidSet, bfQuery, { uid: true })) {
+            for await (const msg of bf.fetch(uidSet, bfQuery, { uid: true })) {
               try {
                 const parsed = await parseMessage(msg);
                 enrichParsedMetadata(parsed, {
@@ -3976,7 +4004,7 @@ export class ImapManager {
 
       const upsertResults = await Promise.allSettled(
         messages
-          .filter(msg => msg.fromEmail)
+          .filter((msg): msg is RawMessageInput & { fromEmail: string } => !!msg.fromEmail)
           .map(msg => {
             const primaryEmail = msg.fromEmail.toLowerCase();
             const displayName  = (msg.fromName || '').trim() || primaryEmail;
@@ -3993,7 +4021,7 @@ export class ImapManager {
             `, [addressBookId, userId, uid, vcard, displayName, primaryEmail, emails]);
           })
       );
-      const inserted = upsertResults.filter(r => r.status === 'fulfilled' && r.value?.rowCount > 0).length;
+      const inserted = upsertResults.filter(r => r.status === 'fulfilled' && (r.value?.rowCount ?? 0) > 0).length;
 
       // Bump sync_token only when new contacts were actually added so CardDAV
       // clients that use getctag/sync-token pick up newly discovered senders.
@@ -4160,6 +4188,8 @@ export class ImapManager {
     const MAX_BATCHES_PER_RUN = 200; // 10,000 messages max per session
 
     let siClient: ImapClient | null = null;
+    // Same closure-read rationale as getBfClient above: openClient (re)assigns the slot.
+    const getSiClient = (): ImapClient | null => siClient;
     // Hoisted so the finally can distinguish a productive run from one that failed
     // without indexing anything (the case that should trip the circuit breaker).
     let batchCount = 0;
@@ -4237,9 +4267,11 @@ export class ImapManager {
 
           const uids = batchResult.rows.map(r => r.uid);
           try {
-            const lock = await siClient.getMailboxLock(folder);
+            const sClient = getSiClient();
+            if (!sClient) throw new Error('Snippet indexer client is not connected');
+            const lock = await sClient.getMailboxLock(folder);
             try {
-              for await (const msg of siClient.fetch(uids.join(','), {
+              for await (const msg of sClient.fetch(uids.join(','), {
                 uid: true, envelope: true, bodyStructure: true,
                 bodyParts: BODY_PREFETCH_PARTS,
               }, { uid: true })) {
@@ -4309,7 +4341,8 @@ export class ImapManager {
       failed = true;
       console.error(`Snippet indexer error ${logAccount(account)}:`, err.message);
     } finally {
-      if (siClient) { try { await siClient.logout(); } catch { /* already disconnected */ } }
+      const sClient = getSiClient();
+      if (sClient) { try { await sClient.logout(); } catch { /* already disconnected */ } }
       if (slotHeld) this._bgConnSem.release(host); // free the per-host slot for the next background job
       this.snippetIndexerRunning.delete(account.id);
       // HOST-level circuit breaker: a run that failed without indexing a single batch (e.g. the

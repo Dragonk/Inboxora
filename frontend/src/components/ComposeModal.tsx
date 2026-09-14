@@ -35,7 +35,9 @@ function resizeImageToDataUrl(file: File, maxW = 800): Promise<string> {
       const canvas = document.createElement('canvas');
       canvas.width = Math.round(img.width * scale);
       canvas.height = Math.round(img.height * scale);
-      canvas.getContext('2d').drawImage(img, 0, 0, canvas.width, canvas.height);
+      const ctx = canvas.getContext('2d');
+      if (!ctx) { reject(new Error('2D canvas context unavailable')); return; }
+      ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
       resolve(canvas.toDataURL(file.type === 'image/png' ? 'image/png' : 'image/jpeg', 0.85));
     };
     img.onerror = reject;
@@ -43,7 +45,7 @@ function resizeImageToDataUrl(file: File, maxW = 800): Promise<string> {
   });
 }
 
-function ResizableImageView({ node, updateAttributes, selected }: { node: { attrs?: { src?: string; alt?: string | null; title?: string | null; width?: number; [key: string]: unknown } }; updateAttributes: (attrs: Record<string, unknown>) => void; selected?: boolean }) {
+function ResizableImageView({ node, updateAttributes, selected }: { node: { attrs: { src?: string; alt?: string | null; title?: string | null; width?: number; [key: string]: unknown } }; updateAttributes: (attrs: Record<string, unknown>) => void; selected?: boolean }) {
   const imgRef = useRef<HTMLImageElement | null>(null);
   const { src, alt, title, width } = node.attrs;
 
@@ -125,7 +127,7 @@ function stripHtml(html: string): string {
 // Normalize address arrays to comma-separated string
 // Handles: plain strings, {email} objects, {name, email} objects
 /** A recipient as it arrives from the store or a chip list. */
-type RecipientInput = string | { email?: string; name?: string };
+type RecipientInput = string | { email?: string; name?: string | null };
 
 function normalizeTo(arr: string | RecipientInput[] | null | undefined): string {
   if (!arr) return '';
@@ -145,7 +147,7 @@ function normalizeTo(arr: string | RecipientInput[] | null | undefined): string 
         const name = /[",<>]/.test(t.name) ? `"${t.name.replace(/"/g, '')}"` : t.name;
         return `${name} <${t.email}>`;
       }
-      return t.email || t.name;
+      return t.email || t.name || '';
     }
     return '';
   }).filter(Boolean).join(', ');
@@ -472,8 +474,8 @@ export default function ComposeModal() {
   // Close reply type dropdown on outside click
   useEffect(() => {
     if (!showReplyType) return;
-    const handler = (e) => {
-      if (replyTypeRef.current && !replyTypeRef.current.contains(e.target)) {
+    const handler = (e: MouseEvent) => {
+      if (replyTypeRef.current && e.target instanceof Node && !replyTypeRef.current.contains(e.target)) {
         setShowReplyType(false);
       }
     };
@@ -481,7 +483,7 @@ export default function ComposeModal() {
     return () => document.removeEventListener('mousedown', handler);
   }, [showReplyType]);
 
-  const handleTitleDragStart = useCallback((e: React.PointerEvent) => {
+  const handleTitleDragStart = useCallback((e: React.PointerEvent<HTMLDivElement>) => {
     if (e.button !== 0) return;
     if (e.target instanceof Element && e.target.closest('button, select, a')) return;
     if (maximized) return;
@@ -545,7 +547,7 @@ export default function ComposeModal() {
     window.addEventListener('blur', cleanupNoCommit);
   }, [maximized]);
 
-  const handleResizeDragStart = useCallback((e: React.PointerEvent) => {
+  const handleResizeDragStart = useCallback((e: React.PointerEvent<HTMLDivElement>) => {
     if (e.button !== 0) return;
     e.preventDefault();
     e.stopPropagation();
