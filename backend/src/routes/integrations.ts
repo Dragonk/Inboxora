@@ -75,7 +75,14 @@ router.post('/:provider', requireAdmin, async (req: Request, res: Response) => {
   // Write plaintext values to process.env so oauth routes pick them up immediately
   if (provider === 'microsoft') {
     if (config.clientId) process.env.MS_CLIENT_ID = config.clientId;
-    if (config.clientSecret) process.env.MS_CLIENT_SECRET = decrypt(config.clientSecret);
+    if (config.clientSecret) {
+      const clientSecret = decrypt(config.clientSecret);
+      if (clientSecret === null) {
+        delete process.env.MS_CLIENT_SECRET;
+      } else {
+        process.env.MS_CLIENT_SECRET = clientSecret;
+      }
+    }
     if (config.tenantId) process.env.MS_TENANT_ID = config.tenantId;
     if (config.redirectUri) process.env.MS_REDIRECT_URI = config.redirectUri;
   }
@@ -107,7 +114,14 @@ export async function loadIntegrationConfigs() {
         const c = row.config;
         if (c.clientId) process.env.MS_CLIENT_ID = c.clientId;
         // decrypt() returns value unchanged for plaintext (migration fallback)
-        if (c.clientSecret) process.env.MS_CLIENT_SECRET = decrypt(c.clientSecret);
+        if (c.clientSecret) {
+          const clientSecret = decrypt(c.clientSecret);
+          if (clientSecret === null) {
+            delete process.env.MS_CLIENT_SECRET;
+          } else {
+            process.env.MS_CLIENT_SECRET = clientSecret;
+          }
+        }
         if (c.tenantId) process.env.MS_TENANT_ID = c.tenantId;
         if (c.redirectUri) process.env.MS_REDIRECT_URI = c.redirectUri;
       }

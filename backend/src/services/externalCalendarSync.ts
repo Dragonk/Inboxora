@@ -65,7 +65,11 @@ function propsOf(response: { propstat?: Record<string, unknown> | Array<Record<s
 
 async function remoteFetch(source: ExternalCalendarSource, options: ExternalFetchOptions, policy: ExternalCalendarPolicy, signal: AbortSignal | null | undefined, secretSink?: string[]): Promise<string> {
   const headers: Record<string, string> = { ...options.headers };
-  if (source.kind === 'caldav') headers.Authorization = basicAuth(source.username ?? '', decrypt(source.password ?? ''));
+  if (source.kind === 'caldav') {
+    const password = decrypt(source.password ?? '');
+    if (!password) throw new Error('Stored calendar source password is unavailable');
+    headers.Authorization = basicAuth(source.username ?? '', password);
+  }
   const url = decrypt(source.url);
   if (!url) throw new Error('Stored calendar source URL is unavailable');
   secretSink?.push(url);

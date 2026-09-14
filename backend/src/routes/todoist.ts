@@ -27,10 +27,17 @@ async function getTodoistToken(userId: string) {
     "SELECT config FROM user_integrations WHERE user_id = $1 AND provider = 'todoist'",
     [userId]
   );
-  if (!result.rows.length) {
+  const integration = result.rows[0];
+  const config = integration?.config;
+  if (!config?.token) {
     throw Object.assign(new Error('Todoist not connected'), { status: 409 });
   }
-  return decrypt(result.rows[0].config.token);
+
+  const token = decrypt(config.token);
+  if (!token) {
+    throw Object.assign(new Error('Todoist credential could not be decrypted'), { status: 409 });
+  }
+  return token;
 }
 
 async function todoistFetch<T = unknown>(token: string, method: string, path: string, body?: unknown): Promise<T> {

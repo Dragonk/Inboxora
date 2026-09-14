@@ -174,6 +174,9 @@ async function processMicrosoftTokens(
   { tenantId, clientId, publicClient = false }: { tenantId: string; clientId: string | undefined; publicClient?: boolean },
 ) {
   const { access_token, refresh_token, expires_in, id_token } = tokens;
+  if (!access_token || !refresh_token) {
+    throw new Error('OAuth token response is missing access or refresh token — please reconnect your account');
+  }
   const expiresInSecs = typeof expires_in === 'number' && Number.isFinite(expires_in) && expires_in > 0 ? expires_in : 3600;
   const expiry = new Date(Date.now() + expiresInSecs * 1000);
 
@@ -439,6 +442,7 @@ async function doRefreshMicrosoftToken(account: MicrosoftRefreshAccount): Promis
   if (!tokenRes.ok) throw new Error(tokens.error_description || 'Token refresh failed');
 
   const { access_token, refresh_token, expires_in } = tokens;
+  if (!access_token) throw new Error('Token refresh response is missing an access token — please reconnect your account');
   const refreshExpiresInSecs = typeof expires_in === 'number' && Number.isFinite(expires_in) && expires_in > 0 ? expires_in : 3600;
   const expiry = new Date(Date.now() + refreshExpiresInSecs * 1000);
   const isPublic = !!account.oauth_public_client || becamePublic;

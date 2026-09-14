@@ -137,7 +137,7 @@ function encryptedJson(value: unknown, encryptFn: (value: string) => string) {
   return encryptFn(JSON.stringify(value));
 }
 
-function decryptedJson(value: string, decryptFn: (value: string) => string) {
+function decryptedJson(value: string, decryptFn: (value: string) => string | null) {
   const plaintext = decryptFn(value);
   if (!plaintext) throw new CodexAuthError('Stored ChatGPT authorization is unavailable', { status: 503 });
   try {
@@ -443,6 +443,12 @@ export function createOpenAiCodexAuth({
   now = () => Date.now(),
   encryptFn = encrypt,
   decryptFn = decrypt,
+}: {
+  store?: CodexStore;
+  fetchFn?: typeof fetch;
+  now?: () => number;
+  encryptFn?: typeof encrypt;
+  decryptFn?: (value: string) => string | null;
 } = {}) {
   /** A stored ChatGPT credential row (the fields the access path reads). */
   interface CodexCredential { state?: string | null; accessToken?: string | null; accountId?: string | null; expiresAt?: number; [key: string]: unknown }
@@ -629,6 +635,9 @@ export function createOpenAiCodexAuth({
   }
 
   async function exchangeAuthorizedFlow(flow: CodexDeviceFlow) {
+    if (!flow.authorizationCodeEnc || !flow.codeVerifierEnc) {
+      throw new CodexAuthError('Stored ChatGPT exchange code is unavailable');
+    }
     const authorizationCode = decryptFn(flow.authorizationCodeEnc);
     const codeVerifier = decryptFn(flow.codeVerifierEnc);
     if (!authorizationCode || !codeVerifier) throw new CodexAuthError('Stored ChatGPT exchange code is unavailable');
@@ -689,6 +698,18 @@ export function createOpenAiCodexAuth({
     let flow = claim.flow;
     if (!flow) throw new CodexAuthError('Device authorization not found', { status: 404 });
     if (!flow.authorizationCodeEnc || !flow.codeVerifierEnc) {
+      if (!flow.deviceAuthIdEnc || !flow.userCodeEnc) {
+        const error = new CodexAuthError('Stored ChatGPT device authorization is unavailable');
+        await releaseFailed(flow.id, error);
+        throw error;
+      }
+      const deviceAuthId = decryptFn(flow.deviceAuthIdEnc);
+      const userCode = decryptFn(flow.userCodeEnc);
+      if (!deviceAuthId || !userCode) {
+        const error = new CodexAuthError('Stored ChatGPT device authorization is unavailable');
+        await releaseFailed(flow.id, error);
+        throw error;
+      }
       let response;
       let text;
       try {
@@ -696,8 +717,8 @@ export function createOpenAiCodexAuth({
           method: 'POST',
           headers: authHeaders('application/json'),
           body: JSON.stringify({
-            device_auth_id: decryptFn(flow.deviceAuthIdEnc),
-            user_code: decryptFn(flow.userCodeEnc),
+            device_auth_id: deviceAuthId,
+            user_code: userCode,
           }),
         }));
       } catch (error) {
@@ -762,7 +783,7 @@ export function createOpenAiCodexAuth({
   }
 
   async function getStatus({ userId, sessionId }: { userId?: string; sessionId?: string } = {}) {
-    let credentialStatus = null;
+    let credentialStatus: { connected: false; state: string; reconnectRequired: boolean; reason: string } | null = null;
     const encryptedCredential = await store.getCredential();
     if (encryptedCredential) {
       try {
@@ -793,12 +814,21 @@ export function createOpenAiCodexAuth({
     if (userId && sessionId) {
       const flow = await store.latestOwnedFlow({ ...owner(userId, sessionId) });
       if (flow && ['pending', 'polling', 'authorized'].includes(flow.state) && flow.expiresAt > now()) {
+        const userCode = flow.userCodeEnc ? decryptFn(flow.userCodeEnc) : null;
+        if (!userCode) {
+          return {
+            connected: false,
+            state: 'failed',
+            reconnectRequired: true,
+            reason: 'device_code_unavailable',
+          };
+        }
         return {
           connected: false,
           state: 'pending',
           device: {
             flowId: flow.id,
-            userCode: flow.userCodeEnc ? decryptFn(flow.userCodeEnc) : '',
+            userCode,
             verificationUrl: OPENAI_CODEX_DEVICE_URL,
             expiresAt: flow.expiresAt,
             intervalMs: flow.intervalMs,

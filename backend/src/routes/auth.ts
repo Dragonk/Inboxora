@@ -391,7 +391,8 @@ router.post('/2fa/challenge', authLimiter, async (req, res) => {
   }
 
   const normalizedCode = String(code).replace(/\s/g, '');
-  if (!authenticator.verify({ token: normalizedCode, secret: decrypt(user.totp_secret) })) {
+  const totpSecret = decrypt(user.totp_secret);
+  if (totpSecret === null || !authenticator.verify({ token: normalizedCode, secret: totpSecret })) {
     logAuthEvent('totp_fail', { username: user.username, userId: user.id, ip: req.ip, success: false });
     return res.status(401).json({ error: 'Invalid code' });
   }
