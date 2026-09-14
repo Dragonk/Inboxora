@@ -40,7 +40,7 @@ function stubDom({ variable = '', stored = null } = {}) {
   const storage = new Map();
   if (stored != null) storage.set(PANEL_WIDTH_STORAGE_KEY, String(stored));
   dragListeners = {};
-  globalThis.document = ({
+  Reflect.set(globalThis, 'document', ({
     documentElement: {
       style: {
         setProperty: (key: string, value: unknown) => properties.set(key, value),
@@ -52,13 +52,13 @@ function stubDom({ variable = '', stored = null } = {}) {
     removeEventListener: (type, handler) => {
       dragListeners[type] = (dragListeners[type] || []).filter(item => item !== handler);
     },
-  }) as unknown as Document;
-  globalThis.getComputedStyle = ((element: { style: CSSStyleDeclaration }) => element.style) as unknown as typeof globalThis.getComputedStyle;
-  globalThis.localStorage = ({
+  }));
+  Reflect.set(globalThis, 'getComputedStyle', (element: { style: CSSStyleDeclaration }) => element.style);
+  Reflect.set(globalThis, 'localStorage', ({
     getItem: key => (storage.has(key) ? storage.get(key) : null),
     setItem: (key: string, value: unknown) => storage.set(key, String(value)),
     removeItem: key => storage.delete(key),
-  }) as unknown as Storage;
+  }));
   return { properties, storage };
 }
 
@@ -66,7 +66,7 @@ function restoreDom() {
   if (originalDocument === undefined) delete globalThis.document;
   else globalThis.document = originalDocument;
   if (originalLocalStorage === undefined) delete globalThis.localStorage;
-  else (globalThis as unknown as TestGlobals).localStorage = originalLocalStorage;
+  else Reflect.set(globalThis, 'localStorage', originalLocalStorage);
 }
 
 test('panel width clamps to the shared resizable range', t => {
