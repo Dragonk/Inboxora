@@ -57,19 +57,18 @@ cd frontend && npm run typecheck     # tsc --noEmit
 
 - **No type-checking suppressions.** Do not add `@ts-nocheck`, `@ts-ignore` or `@ts-expect-error`,
   and do not silence an error with a blanket `as any` cast. Fix the type, the signature or the
-  code. The tree currently contains zero of those pragmas and zero `any` occurrences outside the
-  single documented exception below.
+  code. The tree currently contains zero of those pragmas and zero `any` occurrences.
 - **Narrow, do not cast.** `unknown` coming from `catch`, `JSON.parse`, a dynamic SQL row or an
   external payload is narrowed with `typeof`/`instanceof` guards, or asserted to a *declared*
   interface — never to `any`.
-- **One documented exception.** `backend/src/services/db.ts` exports `type DbRow = any`, the row
-  type of dynamic SQL. Query parameters are typed `unknown[]` and callers narrow the columns they
-  read; typing rows as `Record<string, unknown>` was measured to cascade into ~220 errors across
-  ~200 call sites and is tracked as a separate refactor.
-- **`strict` is not enabled yet.** `strict` and `noImplicitAny` remain off in both tsconfigs;
-  turning them on was measured at 1609 (backend) and 2172 (frontend) additional findings, mostly
-  untyped parameters. New code should still be written as if strict mode were on: type the
-  parameters, avoid implicit `any`, and handle `null`/`undefined` explicitly.
+- **Dynamic SQL rows are typed.** `backend/src/services/db.ts` exports
+  `type DbRow = Record<string, unknown>` — the old `any` boundary is gone. `query<{ ... }>(...)`
+  declares the columns a call reads, and that is the expected form for new queries.
+- **`strict` is enabled and is the reference mode.** Both projects carry `tsconfig.strict.json`
+  (`strict: true`, `noImplicitAny: true`). It is **not yet clean**: the current counts are
+  `cd backend && npx tsc -p tsconfig.strict.json --noEmit` → 1231 and the same in `frontend` →
+  2073 (3304 together). New code must be written strict-clean; run that command and reduce the
+  count when you touch a file. Each finding is visible in the build — nothing is suppressed.
 - **`any` must not creep back in.** When you touch a file, leave it typed; a new `any` in a pull
   request should be justified in the description or replaced with a declared shape.
 
