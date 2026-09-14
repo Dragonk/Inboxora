@@ -13,7 +13,7 @@ import type { CSSProperties } from 'react';
 //
 // Cancellation is actionable rather than informational: when the organizer retracts an
 // invitation that was added, the copy this message created can be removed again.
-export default function CalendarInvitationCard({ messageId }) {
+export default function CalendarInvitationCard({ messageId }: { messageId: string }) {
   const { t, i18n } = useTranslation();
   const [invitation, setInvitation] = useState<Record<string, unknown> | null>(null);
   const [calendars, setCalendars] = useState([]);

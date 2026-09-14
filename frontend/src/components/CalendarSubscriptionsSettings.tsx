@@ -22,7 +22,7 @@ function notifyCalendarChanged() {
   if (typeof window !== 'undefined') window.dispatchEvent(new Event('inboxora:calendar-changed'));
 }
 
-export default function CalendarSubscriptionsSettings({ locale }) {
+export default function CalendarSubscriptionsSettings({ locale }: { locale?: string }) {
   const { t, i18n } = useTranslation();
   // The resource ids are not BCP 47 tags (zhCN), so spell them out before any Intl call.
   const language = intlLocale(locale || i18n.resolvedLanguage || i18n.language) || 'en';
@@ -54,7 +54,7 @@ export default function CalendarSubscriptionsSettings({ locale }) {
     .map(entry => ({ ...entry, name: holidayCountryName(entry.code, language) }))
     .sort((a, b) => a.name.localeCompare(b.name, language)), [language]);
 
-  const addSubscription = async ({ displayName, url, intervalMin }) => {
+  const addSubscription = async ({ displayName, url, intervalMin }: { displayName: string; url: string; intervalMin: number }) => {
     setBusy(true); setError(null); setNotice(null);
     try {
       await api.calendar.createSource({ kind: 'ical_url', displayName, url, intervalMin });

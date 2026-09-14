@@ -78,6 +78,9 @@ export interface GtdThread {
   message_id?: string;
   date?: string | number | Date | null;
   is_read?: boolean;
+  subject?: string | null;
+  gist?: string | null;
+  snippet?: string | null;
   /** Attached by the Waiting merge (a thread can carry both watch and delegated). */
   gtdKind?: string;
   gtdKinds?: string[];

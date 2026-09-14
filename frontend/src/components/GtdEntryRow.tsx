@@ -1,4 +1,6 @@
 import i18n from '../i18n.ts';
+import type { TFunction } from 'i18next';
+import type { GtdThread } from '../utils/gtd';
 import { useState } from 'react';
 import {
   GTD_COLORS, GTD_CHIP_BG, agingLabel, resolveRowDisplay,
@@ -50,6 +52,15 @@ const ROW_VARIANTS = {
 export default function GtdEntryRow({
   thread, sectionKey, variant, selected, t,
   onClick, onContextMenu, renderHoverActions,
+}: {
+  thread: GtdThread;
+  sectionKey: string;
+  variant: string;
+  selected?: boolean;
+  t: TFunction;
+  onClick: (event: React.MouseEvent) => void;
+  onContextMenu: (event: React.MouseEvent) => void;
+  renderHoverActions?: () => React.ReactNode;
 }) {
   const v = ROW_VARIANTS[variant];
   const isWaiting = sectionKey === 'waiting';
