@@ -59,7 +59,7 @@ export async function revokeDavAppPassword(userId: string, passwordId) {
 export async function findActiveDavAppPassword(userId: string, value) {
   const parsed = parseDavAppPassword(value);
   if (!userId || !parsed) return null;
-  const result = await query(
+  const result = await query<{ id: string; secret_hash: string }>(
     `SELECT id, secret_hash FROM dav_app_passwords
      WHERE user_id = $1 AND token_prefix = $2 AND revoked_at IS NULL`,
     [userId, parsed.prefix],

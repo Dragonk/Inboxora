@@ -368,7 +368,7 @@ async function assertMigrationResult(client: DbClient, before: MigrationSnapshot
     const rows = overrideSummary.rows.filter(row => row.override_type === type);
     invariant(rows.some(row => row.account_id === IDS.accountA) && rows.some(row => row.account_id === IDS.accountB), `Override type ${type} was not retained account-locally`, rows);
   }
-  const invalidTarget = await client.query(`SELECT account_id,target_id,target_user_id,reason FROM conversation_overrides WHERE id='62000000-0000-0000-0006-000000000006'`);
+  const invalidTarget = await client.query<{ account_id: string; target_id?: string | null; [key: string]: unknown }>(`SELECT account_id,target_id,target_user_id,reason FROM conversation_overrides WHERE id='62000000-0000-0000-0006-000000000006'`);
   invariant(invalidTarget.rows.length === 1 && invalidTarget.rows[0].account_id === IDS.accountA && invalidTarget.rows[0].target_id === null && invalidTarget.rows[0].target_user_id === null && invalidTarget.rows[0].reason.includes('[0062: cross-account target removed; original target='), 'Invalid cross-account override target was not retained as auditable state', invalidTarget.rows);
 
   const retained = {
@@ -485,7 +485,7 @@ async function main() {
     const stableRowsA = await accountStateRows(client, IDS.accountA);
     const stableRowsB = await accountStateRows(client, IDS.accountB);
 
-    await client.query('DELETE FROM conversation_rebuild_checkpoints WHERE user_id=$1 AND scope_account_id IN ($2,$3)', [IDS.user, IDS.accountA, IDS.accountB]);
+    await client.query<{ version: string }>('DELETE FROM conversation_rebuild_checkpoints WHERE user_id=$1 AND scope_account_id IN ($2,$3)', [IDS.user, IDS.accountA, IDS.accountB]);
     const secondA = await runRebuildToCompletion(rebuildConversationCopies, { userId: IDS.user, accountId: IDS.accountA });
     const secondB = await runRebuildToCompletion(rebuildConversationCopies, { userId: IDS.user, accountId: IDS.accountB });
     invariant(secondA.updated === 0 && secondB.updated === 0, 'Idempotent rebuild rerun updated rows', { secondA, secondB });

@@ -1200,7 +1200,7 @@ router.post('/reset-password', authLimiter, async (req, res) => {
   try {
     // Atomically consume the token — DELETE RETURNING prevents two concurrent resets
     // from both reading a valid token, both updating the password, and only then deleting.
-    const tokenResult = await query(
+    const tokenResult = await query<{ user_id: string }>(
       `DELETE FROM password_reset_tokens
        WHERE token_hash = $1 AND expires_at > NOW()
        RETURNING user_id`,

@@ -12,7 +12,7 @@ const DUMMY_DAV_SECRET_HASH = bcrypt.hashSync('mailflow-dav-timing-equalizer', 1
 export async function authenticateDavCredential(username, password) {
   if (typeof username !== 'string' || !username || typeof password !== 'string') return null;
 
-  const result = await query('SELECT id FROM users WHERE username = $1', [username]);
+  const result = await query<{ id: string }>('SELECT id FROM users WHERE username = $1', [username]);
   const user = result.rows[0];
   if (!user) {
     await bcrypt.compare(password, DUMMY_DAV_SECRET_HASH);

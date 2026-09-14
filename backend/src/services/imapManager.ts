@@ -4219,7 +4219,7 @@ export class ImapManager {
           }
 
           if (batchCount >= MAX_BATCHES_PER_RUN) {
-            const remaining = await query(
+            const remaining = await query<string>(
               "SELECT count(*) FROM messages WHERE account_id = $1 AND (snippet IS NULL OR snippet = '') AND snippet_attempted_at IS NULL",
               [account.id]
             );
@@ -4227,7 +4227,7 @@ export class ImapManager {
             return;
           }
 
-          const batchResult = await query<{ uid: number | string }>(
+          const batchResult = await query<{ uid: number | string; folder: string; count?: number | null }>(
             `SELECT uid FROM messages
              WHERE account_id = $1 AND folder = $2 AND (snippet IS NULL OR snippet = '') AND snippet_attempted_at IS NULL
              ORDER BY date DESC LIMIT $3`,
@@ -5740,7 +5740,7 @@ export class ImapManager {
     // describes a mailbox that no longer exists, and trying to open it fails on every cycle.
     // syncFolders now removes those rows, so this is the second line of defence: it keeps a
     // single stranded row from reviving the loop if a folder disappears by another route.
-    const folderResult = await query(
+    const folderResult = await query<{ folder: string }>(
       `SELECT DISTINCT m.folder FROM messages m
         WHERE m.account_id = $1
           AND EXISTS (SELECT 1 FROM folders f WHERE f.account_id = m.account_id AND f.path = m.folder)`,

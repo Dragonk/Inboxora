@@ -23,7 +23,7 @@ const router = Router();
 router.use(requireAuth);
 
 async function getTodoistToken(userId: string) {
-  const result = await query(
+  const result = await query<{ config?: { token?: string | null; [key: string]: unknown } | null }>(
     "SELECT config FROM user_integrations WHERE user_id = $1 AND provider = 'todoist'",
     [userId]
   );

@@ -649,7 +649,7 @@ router.post('/events', async (req, res) => {
 
   const uid = crypto.randomUUID();
   const rawIcal = localEventIcal({ uid, summary, description, location, url, organizer, attendees: normalizedAttendees, allDay: Boolean(allDay), ...times });
-  const result = await query(
+  const result = await query<{ id: string; calendar_id: string; uid: string; etag?: string | null; summary?: string | null; description?: string | null; location?: string | null; url?: string | null; organizer?: string | null; starts_at?: string | Date | null; ends_at?: string | Date | null; all_day?: boolean | null; timezone?: string | null; attendees?: unknown; invite_account_id?: string | null; invitation_sequence?: number | null; created_at?: string | Date | null }>(
     `INSERT INTO calendar_events (
        calendar_id, user_id, uid, raw_ical, summary, description, location, url, organizer,
        starts_at, ends_at, all_day, timezone, attendees, invite_account_id
@@ -882,7 +882,7 @@ router.post('/sources', async (req, res) => {
   try {
     const normalizedUrl = parsed.toString();
     const urlFingerprint = crypto.createHash('sha256').update(normalizedUrl).digest('hex');
-    const result = await query(
+    const result = await query<{ id: string; user_id: string; kind: string; url: string; url_fingerprint?: string | null; username?: string | null; password?: string | null; display_name?: string | null; [key: string]: unknown }>(
       `INSERT INTO calendar_import_sources (user_id, kind, url, url_fingerprint, username, password, display_name, color, interval_min)
        VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9) RETURNING *`,
       [req.session.userId, kind, encrypt(normalizedUrl), urlFingerprint, username || null, password ? encrypt(password) : null, displayName, color, interval],

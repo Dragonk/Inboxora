@@ -267,7 +267,7 @@ router.put('/:userId/:calendarId/:filename', async (req: Request, res: Response)
   const event = parseCalendarEvent(await rawBody(req));
   const filename = req.params.filename;
   if (!event) return res.status(400).end();
-  const currentResult = await query(
+  const currentResult = await query<{ uid: string; dav_filename?: string | null; etag?: string | null; invite_account_id?: string | null }>(
     "SELECT uid, dav_filename, etag, invite_account_id FROM calendar_events WHERE calendar_id = $1 AND (uid = $2 OR COALESCE(dav_filename, uid || '.ics') = $4) AND recurrence_id = $3",
     [calendar.id, event.uid, '', filename],
   );
@@ -306,7 +306,7 @@ router.delete('/:userId/:calendarId/:filename', async (req: Request, res: Respon
   if (!calendar) return res.status(404).end();
   if (calendar.source !== 'local' || calendar.read_only) return res.status(403).end();
   const uid = req.params.filename;
-  const currentResult = await query("SELECT etag, invite_account_id FROM calendar_events WHERE calendar_id = $1 AND COALESCE(dav_filename, uid || '.ics') = $2 AND recurrence_id = $3", [calendar.id, uid, '']);
+  const currentResult = await query<{ etag?: string | null; invite_account_id?: string | null }>("SELECT etag, invite_account_id FROM calendar_events WHERE calendar_id = $1 AND COALESCE(dav_filename, uid || '.ics') = $2 AND recurrence_id = $3", [calendar.id, uid, '']);
   const current = currentResult.rows[0];
   if (!current) return res.status(404).end();
   if (current.invite_account_id) return res.status(409).end();

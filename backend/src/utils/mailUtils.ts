@@ -232,7 +232,7 @@ export async function fanOutStarToSiblings(accountId: string, messageId: string 
 // per-id placeholder expansion.
 export async function fanOutBulkReadToSiblings(actedIds: string[], read: boolean) {
   if (!actedIds.length) return;
-  const res = await query(
+  const res = await query<{ account_id: string; folder: string }>(
     `UPDATE messages m SET is_read = $1, read_changed_at = NOW()
        FROM (
          SELECT DISTINCT account_id, message_id

@@ -2307,7 +2307,7 @@ router.post('/messages/:id/ham', async (req, res) => {
   const { id } = req.params;
   if (!UUID_RE.test(id)) return res.status(400).json({ error: 'Invalid message id' });
 
-  const lookup = await query<{ id: string; account_id: string; folder_mappings?: FolderMappings | null }>(`
+  const lookup = await query<{ id: string; account_id: string; folder: string; folder_mappings?: FolderMappings | null }>(`
     SELECT m.account_id, m.folder, a.folder_mappings FROM messages m
     JOIN email_accounts a ON m.account_id = a.id
     WHERE m.id = $1 AND a.user_id = $2

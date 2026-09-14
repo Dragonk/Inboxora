@@ -25,7 +25,7 @@ export function startConversationRebuildJob({ userId, accountId = null, limit = 
       // independent account rebuilds instead of replaying one cross-account stream.
       const scopes = accountId
         ? [accountId]
-        : (await query('SELECT id FROM email_accounts WHERE user_id = $1 ORDER BY id', [userId])).rows.map(row => row.id);
+        : (await query<{ id: string }>('SELECT id FROM email_accounts WHERE user_id = $1 ORDER BY id', [userId])).rows.map(row => row.id);
       for (const scopeAccountId of scopes) {
         let cursor = null;
         do {

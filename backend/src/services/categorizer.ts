@@ -180,7 +180,7 @@ export async function backfillCategories(accountId: string, userId: string) {
   let processed = 0;
 
   for (;;) {
-    const result = await query(
+    const result = await query<{ id: string; from_email?: string | null; is_bulk?: boolean | null }>(
       `SELECT id, from_email, is_bulk
        FROM messages
        WHERE account_id = $1

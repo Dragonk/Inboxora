@@ -178,7 +178,7 @@ export function createAiProvider({
   streamCodexResponsesFn = streamCodexResponses,
   completeCodexTextFn = completeCodexText,
 }: {
-  queryFn?: (text: string, params?: unknown[]) => Promise<{ rows: DbRow[]; rowCount?: number }>;
+  queryFn?: <T = DbRow>(text: string, params?: unknown[]) => Promise<{ rows: T[]; rowCount?: number }>;
   encryptFn?: typeof encrypt;
   decryptFn?: typeof decrypt;
   validateHostFn?: typeof validateHost;

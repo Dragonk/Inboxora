@@ -274,7 +274,7 @@ oidcApiRouter.delete('/identities/:id', requireAuth, async (req, res) => {
         return res.status(400).json({ error: 'Cannot unlink your only login method. Set a password first.' });
       }
     }
-    await query(
+    await query<{ id: string; issuer_url: string; client_id: string; scopes?: string | null; allow_insecure?: boolean | null; rp_initiated_logout?: boolean | null }>(
       'DELETE FROM user_identities WHERE id = $1 AND user_id = $2',
       [req.params.id, req.session.userId]
     );

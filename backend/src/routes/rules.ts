@@ -225,7 +225,7 @@ router.post('/', async (req: Request, res: Response) => {
         return res.status(400).json({ error: 'Move destination folder not found for this account' });
       }
     }
-    const countResult = await query(
+    const countResult = await query<{ cnt: string }>(
       'SELECT COUNT(*) AS cnt FROM inbox_rules WHERE user_id = $1',
       [req.session.userId]
     );
@@ -277,7 +277,7 @@ router.put('/:id', async (req: Request, res: Response) => {
     }
     const moveAction = normalizedActions.find(a => a.type === 'move' && a.value?.trim());
     if (moveAction && accountId) {
-      const folderResult = await query(
+      const folderResult = await query<{ total: string; match: string }>(
         `SELECT COUNT(*) AS total, COUNT(*) FILTER (WHERE path = $2) AS match
          FROM folders WHERE account_id = $1`,
         [accountId, moveAction.value.trim()]

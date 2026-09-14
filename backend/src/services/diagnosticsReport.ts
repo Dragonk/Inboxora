@@ -107,7 +107,7 @@ export async function buildServerReport(userId: string, salt) {
      FROM email_accounts WHERE user_id = $1 ORDER BY sort_order NULLS LAST, created_at`,
     [userId],
   );
-  const folRes = await query(
+  const folRes = await query<{ account_id: string; count: string }>(
     `SELECT f.account_id, f.name, f.special_use, f.total_count, f.unread_count
      FROM folders f JOIN email_accounts a ON a.id = f.account_id
      WHERE a.user_id = $1`,
@@ -115,7 +115,7 @@ export async function buildServerReport(userId: string, salt) {
   );
   // Match GET /api/mail/unread-counts: the app badge represents enabled
   // accounts' unread INBOX messages, not unread Spam/Junk or custom folders.
-  const unreadRes = await query<{ count: string }>(
+  const unreadRes = await query<{ account_id: string; count: string }>(
     `SELECT m.account_id, COUNT(*)::int AS count
        FROM messages m
        JOIN email_accounts a ON a.id = m.account_id
