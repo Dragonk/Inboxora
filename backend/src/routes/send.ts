@@ -10,6 +10,7 @@ import { sanitizeSignature, sanitizeComposeBody } from '../services/emailSanitiz
 import { embedInlineDataImages } from '../utils/inlineImages.js';
 import { redisClient } from '../services/redis.js';
 import { redactEmail } from '../utils/redact.js';
+import type { EmailAccountRow } from '../services/imapManager.js';
 import { resolveSentFolder } from '../utils/mailUtils.js';
 import { generateVCard } from '../utils/vcard.js';
 import { createAccountSmtpTransport } from '../services/smtpTransport.js';
@@ -259,7 +260,7 @@ router.post('/send', async (req, res) => {
 
   const [result, prefResult] = await Promise.all([
     query('SELECT * FROM email_accounts WHERE id = $1 AND user_id = $2', [accountId, req.session.userId]),
-    query('SELECT preferences FROM users WHERE id = $1', [req.session.userId]),
+    query<{ preferences?: { plaintextEmail?: boolean; [key: string]: unknown } | null }>('SELECT preferences FROM users WHERE id = $1', [req.session.userId]),
   ]);
   if (!result.rows.length) return res.status(404).json({ error: 'Account not found' });
   const plaintextEmail = prefResult.rows[0]?.preferences?.plaintextEmail === true;
@@ -332,7 +333,7 @@ router.post('/send', async (req, res) => {
       // Load the owning accounts once, then fetch bodies with bounded concurrency so we never
       // open a burst of fresh IMAP connections (fetchAttachment opens a connection per call).
       const distinctAcctIds = [...new Set(fetchPlan.map(p => p.msg.account_id))];
-      const acctRows = await query('SELECT * FROM email_accounts WHERE id = ANY($1::uuid[])', [distinctAcctIds]);
+      const acctRows = await query<EmailAccountRow>('SELECT * FROM email_accounts WHERE id = ANY($1::uuid[])', [distinctAcctIds]);
       const acctById = new Map(acctRows.rows.map(a => [a.id, a]));
 
       const FWD_FETCH_CONCURRENCY = 4;

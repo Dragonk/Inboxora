@@ -2,6 +2,7 @@ import { Router } from 'express';
 import { query } from '../services/db.js';
 import { requireAuth } from '../middleware/auth.js';
 import { imapManager } from '../index.js';
+import type { EmailAccountRow } from '../services/imapManager.js';
 import { encrypt } from '../services/encryption.js';
 import { sanitizeSignature } from '../services/emailSanitizer.js';
 import { validateHost } from '../services/hostValidation.js';
@@ -83,7 +84,7 @@ router.get('/', async (req, res) => {
        FROM account_aliases WHERE account_id = ANY($1) ORDER BY created_at`,
       [accountIds]
     );
-    for (const alias of aliasResult.rows) {
+    for (const alias of aliasResult.rows as Array<{ account_id: string; [key: string]: unknown }>) {
       if (!aliasMap[alias.account_id]) aliasMap[alias.account_id] = [];
       aliasMap[alias.account_id].push(alias);
     }
@@ -138,7 +139,7 @@ router.post('/', async (req, res) => {
   }
 
   try {
-    const result = await query(`
+    const result = await query<EmailAccountRow>(`
       INSERT INTO email_accounts (
         user_id, name, sender_name, email_address, color, protocol,
         imap_host, imap_port, imap_tls, imap_skip_tls_verify, smtp_host, smtp_port, smtp_tls,
@@ -259,7 +260,7 @@ router.put('/:id', async (req, res) => {
     );
     updated = result.rows[0];
   } else {
-    const reread = await query('SELECT * FROM email_accounts WHERE id = $1', [id]);
+    const reread = await query<EmailAccountRow>('SELECT * FROM email_accounts WHERE id = $1', [id]);
     updated = reread.rows[0];
   }
 
@@ -307,7 +308,7 @@ router.put('/:id', async (req, res) => {
   } else if (needsReconnect && updated.protocol === 'imap' && updated.enabled) {
     reconnectQueue(id, () =>
       imapManager.disconnectAccount(id)
-        .then(() => query('SELECT * FROM email_accounts WHERE id = $1', [id]))
+        .then(() => query<EmailAccountRow>('SELECT * FROM email_accounts WHERE id = $1', [id]))
         .then(r => { if (r.rows.length) return imapManager.connectAccount(r.rows[0]); })
     ).catch(err => console.error(`Failed to reconnect account ${id} after update:`, err.message));
   }

@@ -159,7 +159,7 @@ router.delete('/address-books/:id', async (req, res) => {
   try {
     const local = await requireLocalAddressBook(sessionUserId(req), req.params.id);
     if (local.error) return res.status(local.status).json({ error: local.error });
-    const count = await query(`SELECT COUNT(*)::int AS count FROM address_books WHERE user_id = $1 AND source = 'local'`, [req.session.userId]);
+    const count = await query<{ count: number }>(`SELECT COUNT(*)::int AS count FROM address_books WHERE user_id = $1 AND source = 'local'`, [req.session.userId]);
     if (count.rows[0].count <= 1) return res.status(409).json({ error: 'At least one local address book is required' });
     await query('DELETE FROM address_books WHERE id = $1 AND user_id = $2', [req.params.id, req.session.userId]);
     res.status(204).end();
