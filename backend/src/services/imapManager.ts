@@ -3213,7 +3213,7 @@ export class ImapManager {
             // Propagate resolved thread_id to any earlier messages that used this
             // message as a provisional thread root (out-of-order delivery / sync).
             if (threadId && threadId !== msgId) {
-              await query(
+              await query<{ total: number }>(
                 `UPDATE messages SET thread_id = $1
                  WHERE account_id = $2 AND thread_id = $3 AND message_id != $3`,
                 [threadId, account.id, msgId]
@@ -5583,7 +5583,7 @@ export class ImapManager {
   async _runSnoozeWakeup() {
     // Find snoozed messages whose snooze_until has passed and which are still in
     // the snoozed folder (joined via stable Message-ID header).
-    const due = await query(`
+    const due = await query<{ snooze_id: string; user_id: string; account_id: string; message_id_header: string; original_folder: string; snoozed_folder: string; uid: number | string; is_read: boolean | null }>(`
       SELECT sm.id AS snooze_id, sm.user_id, sm.account_id,
              sm.message_id_header, sm.original_folder, sm.snoozed_folder, m.uid, m.is_read
       FROM snoozed_messages sm
@@ -5824,7 +5824,7 @@ export class ImapManager {
     // Without this, a user who set e.g. 30 s would silently revert to 60 s after
     // a container restart until they next change the setting.
     try {
-      const prefResult = await query('SELECT preferences FROM users WHERE id = $1', [userId]);
+      const prefResult = await query<{ preferences?: { syncInterval?: string | number | null; folderSyncInterval?: string | number | null; [key: string]: unknown } | null }>('SELECT preferences FROM users WHERE id = $1', [userId]);
       const prefs = prefResult.rows[0]?.preferences || {};
       const sec = parseInt(prefs.syncInterval);
       if (sec >= 15 && sec <= 120) {
