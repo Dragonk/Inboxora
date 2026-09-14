@@ -20,7 +20,7 @@ import type { StoreState } from '../store/index.ts';
 import { toAppError } from '../utils/errors.ts';
 
 // Deterministic avatar color from a string
-function avatarColor(str) {
+function avatarColor(str: string): string {
   const colors = [
     '#6366f1','#8b5cf6','#ec4899','#f43f5e',
     '#f97316','#eab308','#22c55e','#14b8a6',
@@ -163,7 +163,7 @@ export default function ContactsPage({ isActive = true }) {
 
   // The contact list resizes with the same shared width the mail list uses, so
   // widening it in Contacts also widens the mail list (and the calendar panels).
-  const handleListResizeMouseDown = (event) => {
+  const handleListResizeMouseDown = (event: React.MouseEvent) => {
     listResizeRef.current?.();
     listResizeRef.current = beginPanelResize(event, { edge: 'right' });
   };
@@ -243,7 +243,7 @@ export default function ContactsPage({ isActive = true }) {
   }, [load]);
   useEffect(() => { loadAddressBooks().catch(err => setListError(toAppError(err).message)); }, [loadAddressBooks]);
 
-  const onSearchChange = (e) => {
+  const onSearchChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const val = e.target.value;
     setSearch(val);
     searchRef.current = val;
@@ -256,7 +256,7 @@ export default function ContactsPage({ isActive = true }) {
   // Both naming flows go through one dialog. Creating and renaming differ only in which
   // request is sent, so they share the field, the validation message and the keyboard flow.
   const openCreateBook = () => { setBookError(null); setBookDialog({ mode: 'create', id: null, name: '' }); };
-  const openRenameBook = book => { setBookError(null); setBookDialog({ mode: 'rename', id: book.id, name: book.name }); };
+  const openRenameBook = (book: { id: string; name?: string | null }) => { setBookError(null); setBookDialog({ mode: 'rename', id: book.id, name: book.name }); };
   const submitBookDialog = async () => {
     if (!bookDialog || bookSaving) return;
     const name = bookDialog.name.trim();
@@ -286,7 +286,7 @@ export default function ContactsPage({ isActive = true }) {
     } catch (err) { setListError(toAppError(err).message); }
   };
 
-  const importGoogleCsv = async (event) => {
+  const importGoogleCsv = async (event: React.ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
     if (!file || !selectedAddressBookId) return;
     try {
@@ -297,7 +297,7 @@ export default function ContactsPage({ isActive = true }) {
     finally { event.target.value = ''; }
   };
 
-  const handleListScroll = useCallback((e) => {
+  const handleListScroll = useCallback((e: React.UIEvent<HTMLElement>) => {
     const el = e.currentTarget;
     if (el.scrollHeight - el.scrollTop - el.clientHeight > 200) return;
     if (loadingMoreRef.current || contactsRef.current.length >= totalRef.current) return;
@@ -320,7 +320,7 @@ export default function ContactsPage({ isActive = true }) {
       });
   }, [selectedAddressBookId]);
 
-  const selectContact = async (c) => {
+  const selectContact = async (c: { id: string }) => {
     setError(null);
     if (isMobile) selectedRowIdRef.current = c.id;
     const requestId = ++contactSelectionRequestRef.current;
@@ -467,9 +467,9 @@ export default function ContactsPage({ isActive = true }) {
   };
 
   // Form field helpers
-  const setFormField = (key, val) => setForm(f => ({ ...f, [key]: val }));
+  const setFormField = (key: string, val: unknown) => setForm(f => ({ ...f, [key]: val }));
 
-  const setEmail = (idx, field, val) => setForm(f => {
+  const setEmail = (idx: number, field: string, val: string) => setForm(f => {
     const emails = f.emails.map((e, i) => i === idx ? { ...e, [field]: val } : e);
     return { ...f, emails };
   });
@@ -478,11 +478,11 @@ export default function ContactsPage({ isActive = true }) {
     ...f, emails: [...f.emails, { value: '', type: 'other', primary: false }],
   }));
 
-  const removeEmail = (idx) => setForm(f => ({
+  const removeEmail = (idx: number) => setForm(f => ({
     ...f, emails: f.emails.filter((_, i) => i !== idx),
   }));
 
-  const setPhone = (idx, field, val) => setForm(f => {
+  const setPhone = (idx: number, field: string, val: string) => setForm(f => {
     const phones = f.phones.map((p, i) => i === idx ? { ...p, [field]: val } : p);
     return { ...f, phones };
   });
@@ -491,18 +491,18 @@ export default function ContactsPage({ isActive = true }) {
     ...f, phones: [...f.phones, { value: '', type: 'mobile' }],
   }));
 
-  const removePhone = (idx) => setForm(f => ({
+  const removePhone = (idx: number) => setForm(f => ({
     ...f, phones: f.phones.filter((_, i) => i !== idx),
   }));
 
-  const setCollection = (key, idx, field, value) => setForm(f => ({
+  const setCollection = (key: string, idx: number, field: string, value: string) => setForm(f => ({
     ...f,
     [key]: f[key].map((item, i) => i === idx ? { ...item, [field]: value } : item),
   }));
 
-  const addCollection = (key, item) => setForm(f => ({ ...f, [key]: [...f[key], item] }));
-  const removeCollection = (key, idx) => setForm(f => ({ ...f, [key]: f[key].filter((_, i) => i !== idx) }));
-  const setCategories = value => setForm(f => ({ ...f, categories: value.split(',').map(category => category.trim()).filter(Boolean) }));
+  const addCollection = (key: string, item: unknown) => setForm(f => ({ ...f, [key]: [...f[key], item] }));
+  const removeCollection = (key: string, idx: number) => setForm(f => ({ ...f, [key]: f[key].filter((_, i) => i !== idx) }));
+  const setCategories = (value: string) => setForm(f => ({ ...f, categories: value.split(',').map(category => category.trim()).filter(Boolean) }));
 
   const selectedBook = addressBooks.find(book => book.id === selectedAddressBookId);
   const bookControls = <div className="contacts-book-controls">
