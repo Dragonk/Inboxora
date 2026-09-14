@@ -271,7 +271,7 @@ export function createPostgresCodexStore() {
 
     async claimFlow({ id, adminUserId, sessionHash, now, staleBefore }: CodexClaimInput) {
       return withTransaction(async (client: DbClient) => {
-        const result = await client.query(
+        const result = await client.query<CodexFlowDbRow>(
           `SELECT * FROM ai_codex_device_flows
            WHERE id = $1 AND admin_user_id = $2 AND session_hash = $3
            FOR UPDATE`,

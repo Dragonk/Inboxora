@@ -233,7 +233,7 @@ export function stopCardavUser(userId: string) {
 
 export async function startCardavScheduler() {
   try {
-    const rows = await query("SELECT user_id, config FROM user_integrations WHERE provider = 'carddav'");
+    const rows = await query<{ user_id: string; config?: { serverUrl?: string | null; intervalMin?: number | null } | null }>("SELECT user_id, config FROM user_integrations WHERE provider = 'carddav'");
     for (const row of rows.rows) {
       if (row.config?.serverUrl) scheduleCardavUser(row.user_id, row.config?.intervalMin);
     }

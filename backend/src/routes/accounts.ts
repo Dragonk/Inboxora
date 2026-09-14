@@ -391,7 +391,7 @@ router.put('/:id/aliases/:aliasId', async (req, res) => {
     return res.status(400).json({ error: 'Fields cannot contain control characters' });
   }
 
-  const check = await query(
+  const check = await query<{ id: string; account_id: string }>(
     `SELECT a.id, a.account_id FROM account_aliases a
      JOIN email_accounts e ON a.account_id = e.id
      WHERE a.id = $1 AND e.user_id = $2 AND e.id = $3`,
@@ -410,7 +410,7 @@ router.put('/:id/aliases/:aliasId', async (req, res) => {
 router.delete('/:id/aliases/:aliasId', async (req, res) => {
   const { id, aliasId } = req.params;
 
-  const check = await query(
+  const check = await query<{ id: string; account_id: string }>(
     `SELECT a.id, a.account_id FROM account_aliases a
      JOIN email_accounts e ON a.account_id = e.id
      WHERE a.id = $1 AND e.user_id = $2 AND e.id = $3`,
