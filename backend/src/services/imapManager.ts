@@ -1111,17 +1111,18 @@ function sanitizeStr(str: unknown): string {
 }
 
 // Parse RFC 5322 References header into an ordered array of angle-bracketed Message-IDs.
-function parseReferences(refHeader) {
+function parseReferences(refHeader: unknown): string[] {
+  const header = String(refHeader ?? '');
   if (!refHeader) return [];
-  return refHeader.match(/<[^>]+>/g) || [];
+  return header.match(/<[^>]+>/g) || [];
 }
 
 // Compute the legacy thread_id for IMAP list compatibility. Conversation v2 owns
 // semantic grouping; never merge independent messages by normalized subject alone.
-async function computeThreadId(accountId: string, messageId: string, inReplyTo, references) {
+async function computeThreadId(accountId: string, messageId: string, inReplyTo: unknown, references: unknown) {
   if (!messageId) return null;
   const refIds = parseReferences(references);
-  const reply = inReplyTo && !refIds.includes(inReplyTo) ? [inReplyTo] : [];
+  const reply = inReplyTo && !refIds.includes(String(inReplyTo)) ? [String(inReplyTo)] : [];
   const candidates = [...refIds, ...reply];
   if (!candidates.length) return messageId;
   const rows = await query(
@@ -1375,7 +1376,7 @@ async function withFreshClient<T>(account: EmailAccountRow, fn: (client: ImapCli
 // grab a second frozen connection and return a blank body, so the retry must be genuinely
 // fresh. Not pooled itself — a body fetch is user-initiated and infrequent, so the
 // one-off login cost is acceptable for guaranteed correctness.
-async function withFreshLogin(account: EmailAccountRow, fn) {
+async function withFreshLogin<T>(account: EmailAccountRow, fn: (client: ImapClient) => Promise<T>): Promise<T> {
   const fresh = await ensureFreshToken(account);
   const { resolved, policy } = await resolveAccountHost(fresh);
   const client = await connectImapClient(fresh, resolved, { policy }, 30000, 'IMAP fresh-login connect');
@@ -1497,7 +1498,7 @@ async function resolveServerFolderCasing(client: ImapClient, knownPath: string |
 // tell them apart. When fewer messages arrived in the destination than left the source, a stale
 // UID is in the batch, so the WHOLE batch is reported failed (nothing is deleted or misfiled
 // locally; the next sync reconciles) rather than guessing which UID was stale and losing the rest.
-export function classifyMoveBySearch(uids, remainingUids, destArrived) {
+export function classifyMoveBySearch(uids: Array<string | number>, remainingUids: Array<string | number>, destArrived: number | null | undefined) {
   const remaining = new Set(remainingUids.map(Number));
   const gone = uids.filter(u => !remaining.has(Number(u)));
   const stillPresent = uids.filter(u => remaining.has(Number(u)));
@@ -1886,7 +1887,7 @@ export class ImapManager {
   // the intended `value` and preserves the attempt count. The reconciler pushes and
   // re-asserts THIS value — never a re-read of the row, which a concurrent flag-pull could
   // have reverted (that re-read was a silent-loss bug).
-  _enqueueFlagPush(accountId: string, messageId: string, flag: string, value) {
+  _enqueueFlagPush(accountId: string, messageId: string, flag: string, value: boolean) {
     if (!accountId || !messageId) return;
     let ops = this._pendingFlagPush.get(accountId);
     if (!ops) { ops = new Map(); this._pendingFlagPush.set(accountId, ops); }
@@ -1913,7 +1914,7 @@ export class ImapManager {
   // Re-bump the *_changed_at marker for every pending message up-front, before any
   // (possibly slow) setFlag, so the 30s "local wins" window can't lapse mid-cycle and let
   // a concurrent pull revert an unconfirmed change.
-  async _rebumpFlagMarkers(ops) {
+  async _rebumpFlagMarkers(ops: Map<string, { messageId: string; flag: string; value: boolean; attempts: number; resolved?: boolean; [key: string]: unknown }>) {
     const readIds: string[] = [];
     const starIds: string[] = [];
     for (const op of ops.values()) {
