@@ -8,6 +8,14 @@ import type { StoreState } from '../store/index.ts';
 // instead of stacking. Mounted once (desktop only) by MailApp.
 const Z_BASE = 1400; // sits below ComposeModal (1999) so an active compose stays on top.
 
+type StoreMessageWindow = StoreState['messageWindows'][number];
+type IdentifiedMessageWindow = StoreMessageWindow & { winId: string; messageId: string };
+type OrderedMessageWindow = IdentifiedMessageWindow & { z: number };
+
+function hasWindowIdentifiers(window: StoreMessageWindow): window is IdentifiedMessageWindow {
+  return typeof window.winId === 'string' && typeof window.messageId === 'string';
+}
+
 export default function WindowLayer() {
   const { t } = useTranslation();
   const windows = useStore((s: StoreState) => s.messageWindows);
@@ -20,13 +28,15 @@ export default function WindowLayer() {
 
   if (!windows.length) return null;
 
-  const open = windows.filter(w => !w.minimized);
-  const minimized = windows.filter(w => w.minimized);
+  const open = windows.filter((window): window is OrderedMessageWindow =>
+    !window.minimized && hasWindowIdentifiers(window) && typeof window.z === 'number');
+  const minimized = windows.filter((window): window is IdentifiedMessageWindow =>
+    Boolean(window.minimized) && hasWindowIdentifiers(window));
   // Normalize the monotonic z stamps into a compact, bounded band so stacking order
   // is preserved without the raw counter creeping toward the compose modal's z-index.
   const zOrder = [...open].sort((a, b) => a.z - b.z).map(w => w.winId);
 
-  const resolveTitle = (messageId) => {
+  const resolveTitle = (messageId: IdentifiedMessageWindow['messageId']) => {
     const list = searchQuery.trim() ? searchResults : messages;
     const msg = list.find(m => m.id === messageId)
       ?? Object.values(threadMessages).flat().find(m => m.id === messageId);

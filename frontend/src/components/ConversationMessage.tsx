@@ -26,6 +26,31 @@ function address(value: unknown): string {
   }).filter(Boolean).join(', ');
 }
 
+interface ToolbarFolder {
+  path: string;
+  name?: string;
+  [key: string]: unknown;
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null;
+}
+
+function toToolbarFolders(value: unknown): ToolbarFolder[] {
+  const folders = Array.isArray(value)
+    ? value
+    : isRecord(value) && Array.isArray(value.folders)
+      ? value.folders
+      : [];
+
+  return folders.flatMap(folder => {
+    if (!isRecord(folder) || typeof folder.path !== 'string') return [];
+    return typeof folder.name === 'string'
+      ? [{ ...folder, path: folder.path, name: folder.name }]
+      : [{ ...folder, path: folder.path }];
+  });
+}
+
 function date(value: string | number | Date | null | undefined): string {
   return value ? new Date(value).toLocaleString([], {
     year: 'numeric', month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit',
@@ -79,7 +104,7 @@ export default function ConversationMessage({ conversationId, message, selectedC
   const accountColor = account?.color || 'var(--accent)';
   const accountLabel = account?.name || account?.email_address || '';
   const [unsubscribeStatus, setUnsubscribeStatus] = useState<string | null>(null);
-  const [folders, setFolders] = useState<Array<{ path: string; name?: string | null; [key: string]: unknown }>>([]);
+  const [folders, setFolders] = useState<ToolbarFolder[]>([]);
   const [foldersLoading, setFoldersLoading] = useState(false);
   const [showHeaders, setShowHeaders] = useState(false);
   const [actionError, setActionError] = useState<string | null>(null);
@@ -138,8 +163,9 @@ export default function ConversationMessage({ conversationId, message, selectedC
     if (!hasAccountCopy || foldersLoading || folders.length) return;
     setFoldersLoading(true);
     try {
+      if (!selectedAccountId) return;
       const result = await api.getFolders(selectedAccountId);
-      setFolders(Array.isArray(result) ? result : (result.folders || []));
+      setFolders(toToolbarFolders(result));
     } catch (error) {
       setActionError(toAppError(error).message || t('common.error'));
     } finally {
@@ -157,9 +183,9 @@ export default function ConversationMessage({ conversationId, message, selectedC
   };
   const inSpamFolder = /(^|\/)(spam|junk)(\/|$)/i.test(String(copy.folder || ''));
   const availableAiActions = body ? [{ id: 'summarize', label: t('message.summarize'), prompt: 'Summarize this email.' }, ...(aiActions || [])] : [];
-  const runAiAction = (action: { id: string; label: string; prompt?: string }) => {
+  const runAiAction = (action: { id: string; [key: string]: unknown }) => {
     const text = bodyText || String(bodyHtml || '').replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim();
-    if (!text || !action?.prompt) return;
+    if (!text || typeof action.prompt !== 'string') return;
     api.ai.chat([{ role: 'user', content: `${action.prompt}\n\n${text.slice(0, 6000)}` }]).catch(error => setActionError(toAppError(error).message));
   };
 
@@ -225,7 +251,8 @@ export default function ConversationMessage({ conversationId, message, selectedC
         aria-expanded={expanded}
         aria-label={toggleLabel}
         onClick={() => {
-          if (window.getSelection?.().toString()) return;
+          const selection = window.getSelection();
+          if (selection !== null && selection.toString()) return;
           toggle();
         }}
         onKeyDown={event => {
@@ -297,7 +324,7 @@ export default function ConversationMessage({ conversationId, message, selectedC
         physicalCopyId={copy.id}
         message={{ ...copy, id: copy.id, account_id: selectedAccountId, subject, from_email: copy.fromEmail || copy.from_email, from_name: copy.fromName || copy.from_name, list_unsubscribe: copy.listUnsubscribe ?? copy.list_unsubscribe, unsubscribed_at: copy.unsubscribedAt ?? copy.unsubscribed_at }}
         body={body}
-        status={status}
+        status={status === null ? undefined : status}
         remoteImages={remoteImages}
         onLoadBody={(_: unknown, force?: boolean) => onLoadBody(message.id, force)}
         onRemoteImages={() => onRemoteImages(message.id)}

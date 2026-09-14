@@ -1,5 +1,5 @@
 import { useBackLayer } from '../hooks/useBackNavigation.ts';
-import { useState, useEffect } from 'react';
+import { useState, useEffect, type MouseEvent } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useStore } from '../store/index.ts';
 import { useUiScale } from '../hooks/useUiScale.ts';
@@ -8,34 +8,41 @@ import type { StoreState } from '../store/index.ts';
 
 // Sanitized diagnostics report: generate, preview (so the user can see exactly
 // what will be shared), then download or copy. Nothing is sent automatically.
-export default function DiagnosticsReportModal({ onClose }) {
+type DiagnosticsReport = Awaited<ReturnType<typeof generateReport>>;
+
+type DiagnosticsReportModalProps = {
+  onClose: () => void;
+};
+
+type DiagnosticsReportState =
+  | { status: 'loading' }
+  | { status: 'done'; json: DiagnosticsReport['json']; report: DiagnosticsReport['report'] }
+  | { status: 'error'; error: string };
+
+export default function DiagnosticsReportModal({ onClose }: DiagnosticsReportModalProps) {
   const { t, i18n } = useTranslation();
   const theme = useStore((s: StoreState) => s.theme);
   const uiScale = useUiScale();
   const addNotification = useStore((s: StoreState) => s.addNotification);
-  const [state, setState] = useState<{
-    status: string;
-    json?: string;
-    report?: { meta?: { reportId?: string } };
-    error?: string;
-  }>({ status: 'loading' });
+  const [state, setState] = useState<DiagnosticsReportState>({ status: 'loading' });
   useBackLayer(true, onClose, 5000);
 
   useEffect(() => {
     let cancelled = false;
     generateReport({ locale: i18n.language, theme, uiScale })
-      .then(r => { if (!cancelled) setState({ status: 'done', ...r }); })
-      .catch(err => { if (!cancelled) setState({ status: 'error', error: err?.message || 'error' }); });
+      .then(report => { if (!cancelled) setState({ status: 'done', ...report }); })
+      .catch(error => { if (!cancelled) setState({ status: 'error', error: getErrorMessage(error) }); });
     return () => { cancelled = true; };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   const download = () => {
+    if (state.status !== 'done') return;
     const blob = new Blob([state.json], { type: 'application/json' });
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;
-    a.download = `mailflow-diagnostics-${state.report?.meta?.reportId || 'report'}.json`;
+    a.download = `mailflow-diagnostics-${state.report.meta.reportId}.json`;
     document.body.appendChild(a);
     a.click();
     a.remove();
@@ -43,6 +50,7 @@ export default function DiagnosticsReportModal({ onClose }) {
   };
 
   const copy = async () => {
+    if (state.status !== 'done') return;
     try {
       await navigator.clipboard.writeText(state.json);
       addNotification({ title: t('diagnostics.copied') });
@@ -57,7 +65,7 @@ export default function DiagnosticsReportModal({ onClose }) {
       style={{ position: 'fixed', inset: 0, zIndex: 5000, background: 'rgba(0,0,0,0.5)', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 16 }}
     >
       <div
-        onClick={ (e: React.MouseEvent) => e.stopPropagation()}
+        onClick={(event: MouseEvent<HTMLDivElement>) => event.stopPropagation()}
         style={{
           background: 'var(--bg-elevated)', border: '1px solid var(--border)', borderRadius: 12,
           width: 'min(640px, 100%)', maxHeight: '86vh', display: 'flex', flexDirection: 'column',
@@ -99,7 +107,16 @@ export default function DiagnosticsReportModal({ onClose }) {
   );
 }
 
-function btnStyle(primary, disabled) {
+function getErrorMessage(error: unknown): string {
+  if (error instanceof Error && error.message) return error.message;
+  if (typeof error === 'object' && error !== null && 'message' in error) {
+    const { message } = error;
+    if (typeof message === 'string' && message) return message;
+  }
+  return 'error';
+}
+
+function btnStyle(primary: boolean, disabled: boolean) {
   return {
     padding: '7px 14px', borderRadius: 7, fontSize: 12.5, cursor: disabled ? 'not-allowed' : 'pointer',
     opacity: disabled ? 0.5 : 1,
