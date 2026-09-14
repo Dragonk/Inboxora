@@ -593,6 +593,7 @@ export function createOpenAiCodexAuth({
       state: 'pending',
       createdAt: startedAt,
     });
+    if (!flow) throw new CodexAuthError('Could not start the device flow', { status: 500 });
     return {
       flowId: flow.id,
       userCode,
@@ -612,7 +613,7 @@ export function createOpenAiCodexAuth({
     });
   }
 
-  async function exchangeAuthorizedFlow(flow) {
+  async function exchangeAuthorizedFlow(flow: CodexDeviceFlow) {
     const authorizationCode = decryptFn(flow.authorizationCodeEnc);
     const codeVerifier = decryptFn(flow.codeVerifierEnc);
     if (!authorizationCode || !codeVerifier) throw new CodexAuthError('Stored ChatGPT exchange code is unavailable');
@@ -671,6 +672,7 @@ export function createOpenAiCodexAuth({
     if (claim.kind === 'waiting') return { status: 'pending', retryAfterMs: Math.max(MIN_INTERVAL_MS, claim.retryAfterMs) };
 
     let flow = claim.flow;
+    if (!flow) throw new CodexAuthError('Device authorization not found', { status: 404 });
     if (!flow.authorizationCodeEnc || !flow.codeVerifierEnc) {
       let response;
       let text;
