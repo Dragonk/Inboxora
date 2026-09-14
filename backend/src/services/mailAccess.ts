@@ -112,7 +112,7 @@ export async function getThreadKeysForMessageIdHeaders(accountId: string, messag
 // recency/sender). Excludes deleted rows.
 export async function getMessagesByThreadKeys(accountId: string, threadKeys: string[]): Promise<Array<{ thread_key: string; uid: number; folder: string; from_email?: string | null; date?: string | Date | null; id?: string }>> {
   if (!threadKeys || threadKeys.length === 0) return [];
-  const { rows } = await query(
+  const { rows } = await query<{ thread_key: string; uid: number; folder: string; from_email?: string | null; date?: string | Date | null; id?: string }>(
     `SELECT thread_key, uid, folder, from_email, date, id
        FROM messages
       WHERE account_id = $1 AND thread_key = ANY($2::text[]) AND is_deleted = false`,
