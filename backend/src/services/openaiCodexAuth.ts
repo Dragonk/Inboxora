@@ -8,6 +8,7 @@ import { createRequestSignal, parseJson, readLimited, sanitizeText } from './aiH
 import { decrypt, encrypt } from './encryption.js';
 import { query, withTransaction } from './db.js';
 import type { DbClient } from './db.js';
+import { toAppError } from '../utils/errors.js';
 
 export const OPENAI_CODEX_CLIENT_ID = 'app_EMoamEEZ73f0CkXaXp7hrann';
 export const OPENAI_CODEX_DEVICE_URL = 'https://auth.openai.com/codex/device';
@@ -117,7 +118,7 @@ async function fetchAuthResponse(fetchFn: typeof fetch, url: string, init: Reque
     return { response, text };
   } catch (error) {
     if (requestSignal.timedOut()) throw new CodexAuthError('ChatGPT authorization request timed out', { transient: true });
-    throw new CodexAuthError(`ChatGPT authorization network error: ${sanitizeText(error?.message, 300) || 'request failed'}`, {
+    throw new CodexAuthError(`ChatGPT authorization network error: ${sanitizeText(toAppError(error).message, 300) || 'request failed'}`, {
       transient: true,
     });
   } finally {
@@ -428,7 +429,7 @@ function terminalPollResult(state: string, failureCode: string | null) {
   return { status: state };
 }
 
-function credentialExpiry(tokenBody: Record<string, unknown>, claims: Record<string, unknown>, now: number) {
+function credentialExpiry(tokenBody: Record<string, unknown> | null, claims: Record<string, unknown> | null, now: number) {
   const seconds = Number(tokenBody.expires_in);
   if (Number.isFinite(seconds) && seconds > 0) return now + seconds * 1000;
   const exp = Number(claims?.exp);
@@ -443,10 +444,16 @@ export function createOpenAiCodexAuth({
   encryptFn = encrypt,
   decryptFn = decrypt,
 } = {}) {
-  let refreshInFlight = null;
-  const owner = (userId: string, sessionId) => ({ adminUserId: userId, sessionHash: hashSessionId(sessionId) });
+  /** A stored ChatGPT credential row (the fields the access path reads). */
+  interface CodexCredential { state?: string | null; accessToken?: string | null; accountId?: string | null; expiresAt?: number; [key: string]: unknown }
 
-  function accessResult(credential: Record<string, unknown> | null) {
+  /** The shared in-flight refresh: either the new access or the failure to rethrow. */
+  type CodexRefreshResult = { error: CodexAuthError } | { accessToken: string; accountId: string };
+
+  let refreshInFlight: Promise<CodexRefreshResult> | null = null;
+  const owner = (userId: string, sessionId: string | null) => ({ adminUserId: userId, sessionHash: hashSessionId(sessionId) });
+
+  function accessResult(credential: CodexCredential | null): { accessToken: string; accountId: string } {
     if (credential?.state !== 'connected' || !credential.accessToken || !credential.accountId) {
       throw new CodexAuthError('ChatGPT authorization requires reconnection', { status: 401 });
     }
@@ -564,7 +571,7 @@ export function createOpenAiCodexAuth({
       refreshInFlight = refreshUnderLock(forceRefresh).finally(() => { refreshInFlight = null; });
     }
     const result = await refreshInFlight;
-    if (result?.error) throw result.error;
+    if ('error' in result) throw result.error;
     return result;
   }
 
@@ -748,7 +755,7 @@ export function createOpenAiCodexAuth({
     }
   }
 
-  async function cancelDeviceFlow({ flowId, userId, sessionId }) {
+  async function cancelDeviceFlow({ flowId, userId, sessionId }: { flowId: string; userId: string; sessionId: string | null }) {
     const cancelled = await store.cancelFlow({ id: flowId, ...owner(userId, sessionId) });
     if (!cancelled) throw new CodexAuthError('Device authorization not found', { status: 404 });
     return { status: 'cancelled' };
