@@ -110,8 +110,10 @@ function localBookName(value: unknown): string | null {
   return name.length >= 1 && name.length <= 120 ? name : null;
 }
 
-async function requireLocalAddressBook(userId: string, addressBookId: string) {
-  const result = await query('SELECT id, name, source, visible FROM address_books WHERE id = $1 AND user_id = $2', [addressBookId, userId]);
+type AddressBookLookup = { book: { id: string; name?: string | null; source?: string | null; visible?: boolean | null } } | { error: string; status: number };
+
+async function requireLocalAddressBook(userId: string, addressBookId: string): Promise<AddressBookLookup> {
+  const result = await query<{ id: string; name?: string | null; source?: string | null; visible?: boolean | null }>('SELECT id, name, source, visible FROM address_books WHERE id = $1 AND user_id = $2', [addressBookId, userId]);
   const book = result.rows[0];
   if (!book) return { error: 'Address book not found', status: 404 };
   if (book.source !== 'local') return { error: 'This address book is read-only', status: 403 };
@@ -145,7 +147,7 @@ router.patch('/address-books/:id', async (req, res) => {
   if (rawName === undefined && visible === undefined) return res.status(400).json({ error: 'No address book changes supplied' });
   try {
     const local = await requireLocalAddressBook(sessionUserId(req), req.params.id);
-    if (local.error) return res.status(local.status).json({ error: local.error });
+    if ('error' in local) return res.status(local.status).json({ error: local.error });
     const result = await query(`UPDATE address_books SET name = COALESCE($1, name), visible = COALESCE($2, visible), updated_at = NOW() WHERE id = $3 AND user_id = $4 RETURNING id, name, source, visible`, [rawName === undefined ? null : localBookName(rawName), visible === undefined ? null : visible, req.params.id, req.session.userId]);
     res.json(result.rows[0]);
   } catch (caught) {
@@ -158,7 +160,7 @@ router.patch('/address-books/:id', async (req, res) => {
 router.delete('/address-books/:id', async (req, res) => {
   try {
     const local = await requireLocalAddressBook(sessionUserId(req), req.params.id);
-    if (local.error) return res.status(local.status).json({ error: local.error });
+    if ('error' in local) return res.status(local.status).json({ error: local.error });
     const count = await query<{ count: number }>(`SELECT COUNT(*)::int AS count FROM address_books WHERE user_id = $1 AND source = 'local'`, [req.session.userId]);
     if (count.rows[0].count <= 1) return res.status(409).json({ error: 'At least one local address book is required' });
     await query('DELETE FROM address_books WHERE id = $1 AND user_id = $2', [req.params.id, req.session.userId]);
@@ -353,7 +355,7 @@ router.post('/address-books/:id/import/google-csv', async (req, res) => {
   if (!csv || csv.length > 900_000) return res.status(400).json({ error: 'Google CSV must be a non-empty file smaller than 900 KB' });
   try {
     const local = await requireLocalAddressBook(sessionUserId(req), req.params.id);
-    if (local.error) return res.status(local.status).json({ error: local.error });
+    if ('error' in local) return res.status(local.status).json({ error: local.error });
     const contacts = parseGoogleCsv(csv);
     if (!contacts.length) return res.status(400).json({ error: 'No contacts found in Google CSV' });
     await withTransaction(async client => {
@@ -441,7 +443,7 @@ router.post('/', async (req, res) => {
     const requestedId = requestedAddressBookId;
     if (requestedId) {
       const local = await requireLocalAddressBook(userId, requestedId);
-      if (local.error) return res.status(local.status).json({ error: local.error });
+      if ('error' in local) return res.status(local.status).json({ error: local.error });
     }
     const uid = crypto.randomUUID();
     const vcard = generateVCard({ uid, displayName, firstName, lastName, emails, phones, organization, notes, birthday: storedBirthday, anniversary: storedAnniversary, contactDates: storedContactDates, ...rich });
@@ -493,7 +495,7 @@ router.patch('/:id', async (req, res) => {
 
   try {
     // Load current contact (with its book source to block edits to synced contacts)
-    const cur = await query(
+    const cur = await query<{ id: string; user_id: string; address_book_id: string; vcard?: string | null; book_source?: string | null; [key: string]: unknown }>(
       `SELECT c.*, ab.source AS book_source FROM contacts c
        JOIN address_books ab ON ab.id = c.address_book_id
        WHERE c.id = $1 AND c.user_id = $2`,
