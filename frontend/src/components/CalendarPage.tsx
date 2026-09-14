@@ -30,25 +30,25 @@ import { toAppError } from '../utils/errors.ts';
 
 const DATE_LOCALE_OVERRIDES = { zhCN: 'zh-CN' };
 
-function resolveDateLocale(language) {
+function resolveDateLocale(language: string | null | undefined) {
   if (!language) return undefined;
   return DATE_LOCALE_OVERRIDES[language] || language.replace('_', '-');
 }
 
 const emptyForm = (calendarId = '', date = new Date(), inviteAccountId = '') => ({ calendarId, summary: '', description: '', location: '', url: '', organizer: '', attendees: [], sendInvites: false, inviteAccountId, allDay: false, startsAt: toDateTimeLocal(date), endsAt: toDateTimeLocal(new Date(date.getTime() + 3600000)) });
-function iso(date) { return date.toISOString(); }
-function calendarDays(anchor, weekStartsOn = 1) {
+function iso(date: Date) { return date.toISOString(); }
+function calendarDays(anchor: Date, weekStartsOn = 1) {
   const { start } = monthRange(anchor); const first = new Date(start); first.setDate(first.getDate() - ((first.getDay() - weekStartsOn + 7) % 7));
   return Array.from({ length: 42 }, (_, i) => { const day = new Date(first); day.setDate(first.getDate() + i); return day; });
 }
-function weekDays(anchor, workWeek, weekStartsOn = 1, workDays = [1, 2, 3, 4, 5]) {
+function weekDays(anchor: Date, workWeek: boolean, weekStartsOn = 1, workDays: number[] = [1, 2, 3, 4, 5]) {
   const { start } = weekRange(anchor, weekStartsOn);
   if (!workWeek) return Array.from({ length: 7 }, (_, index) => { const day = new Date(start); day.setDate(day.getDate() + index); return day; });
   return [...workDays].sort((a: number, b: number) => ((a - weekStartsOn + 7) % 7) - ((b - weekStartsOn + 7) % 7)).map(dayOfWeek => { const day = new Date(start); day.setDate(day.getDate() + ((dayOfWeek - weekStartsOn + 7) % 7)); return day; });
 }
-function isToday(day) { const today = new Date(); return day.toDateString() === today.toDateString(); }
+function isToday(day: Date) { const today = new Date(); return day.toDateString() === today.toDateString(); }
 function eventTime(event: { starts_at?: string | number | Date | null; [key: string]: unknown }) { return new Date(String(event.starts_at ?? '')).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }); }
-function isWeekend(day) { const weekday = day.getDay(); return weekday === 0 || weekday === 6; }
+function isWeekend(day: Date) { const weekday = day.getDay(); return weekday === 0 || weekday === 6; }
 // "Now" marker for the time grid — read at render time (the line refreshes
 // whenever the view re-renders; purely presentational, no timers).
 function nowMinutes() { const now = new Date(); return now.getHours() * 60 + now.getMinutes(); }
@@ -82,11 +82,11 @@ export default function CalendarPage({ isActive = true }) {
   // The rail carries the shared list width (Mail, Contacts, Calendar rail stay in
   // step). The day agenda is a supplementary column and keeps its own persisted
   // width, so resizing either one never disturbs the other.
-  const handleRailResizeMouseDown = useCallback(event => {
+  const handleRailResizeMouseDown = useCallback((event: React.MouseEvent) => {
     railResizeRef.current?.();
     railResizeRef.current = beginPanelResize(event, { edge: 'right' });
   }, []);
-  const handleAgendaResizeMouseDown = useCallback(event => {
+  const handleAgendaResizeMouseDown = useCallback((event: React.MouseEvent) => {
     agendaResizeRef.current?.();
     agendaResizeRef.current = beginAgendaResize(event, { edge: 'left' });
   }, []);
@@ -115,7 +115,7 @@ export default function CalendarPage({ isActive = true }) {
   // The last view is remembered per device, so leaving the calendar and coming back
   // (the page unmounts) or reloading the app keeps month/week/work-week/agenda.
   const [view, setViewState] = useState(readStoredCalendarView);
-  const setView = useCallback(value => setViewState(storeCalendarView(value)), []);
+  const setView = useCallback((value: string) => setViewState(storeCalendarView(value)), []);
   const [rawCalendars, setCalendars] = useState([]); const [rawEvents, setEvents] = useState([]);
   const calendars = useMemo(() => rawCalendars.map(calendar => localizeContactCalendar(calendar, t)), [rawCalendars, t]);
   const events = useMemo(() => rawEvents.map(event => localizeContactEvent(event, t)), [rawEvents, t]);
@@ -192,7 +192,7 @@ export default function CalendarPage({ isActive = true }) {
     const defaultInviteAccountId = senderAccounts.some(account => account.id === calendarInviteAccountId) ? calendarInviteAccountId : '';
     setForm({ ...emptyForm(writable[0]?.id || '', date, defaultInviteAccountId), mode: 'create' });
   };
-  const openEdit = event => { invitationOperation.current.reset(); setForm({ mode: 'edit', ...event, id: event.series_id || event.id, recurrenceId: event.recurring ? event.recurrence_id : undefined, calendarId: event.calendar_id, summary: event.summary || '', description: event.description || '', location: event.location || '', url: event.url || '', organizer: event.organizer || '', attendees: Array.isArray(event.attendees) ? event.attendees : [], sendInvites: Boolean(event.invite_account_id && event.attendees?.length), inviteAccountId: event.invite_account_id || '', allDay: Boolean(event.all_day), startsAt: event.all_day ? String(event.starts_at).slice(0, 10) : toDateTimeLocal(event.starts_at), endsAt: event.all_day ? String(event.ends_at).slice(0, 10) : toDateTimeLocal(event.ends_at) }); };
+  const openEdit = (event: CalendarViewEvent) => { invitationOperation.current.reset(); setForm({ mode: 'edit', ...event, id: event.series_id || event.id, recurrenceId: event.recurring ? event.recurrence_id : undefined, calendarId: event.calendar_id, summary: event.summary || '', description: event.description || '', location: event.location || '', url: event.url || '', organizer: event.organizer || '', attendees: Array.isArray(event.attendees) ? event.attendees : [], sendInvites: Boolean(event.invite_account_id && event.attendees?.length), inviteAccountId: event.invite_account_id || '', allDay: Boolean(event.all_day), startsAt: event.all_day ? String(event.starts_at).slice(0, 10) : toDateTimeLocal(event.starts_at), endsAt: event.all_day ? String(event.ends_at).slice(0, 10) : toDateTimeLocal(event.ends_at) }); };
   const save = async () => {
     const payload = eventPayload(form);
     if (!payload) { setError(t('calendar.invalidEvent')); return; }
@@ -242,7 +242,7 @@ export default function CalendarPage({ isActive = true }) {
     try { await performDelete(target, 'all'); } finally { setSaving(false); }
   };
   const changeForm = (key: string, value: unknown) => { invitationOperation.current.reset(); setForm(current => ({ ...current, [key]: value, invitationError: null })); };
-  const deleteEvent = async event => {
+  const deleteEvent = async (event: CalendarViewEvent) => {
     const target = { id: event.series_id || event.id, calendarId: event.calendar_id, recurrenceId: event.recurrence_id };
     // A series can be removed from here on, entirely, or just at this occurrence. Asking is the
     // only honest option: the three answers produce three different calendars.
@@ -257,16 +257,16 @@ export default function CalendarPage({ isActive = true }) {
   // One parse-and-bucket pass per event list, reused by every day cell and every
   // render, instead of re-filtering and re-sorting the whole array per day.
   const dayEventsFor = useMemo(() => createDayEventsResolver(visibleEvents), [visibleEvents]);
-  const toggleCalendar = id => {
-    const current = visibleCalendarIds == null ? calendars.map(calendar => calendar.id) : visibleCalendarIds;
+  const toggleCalendar = (id: string) => {
+    const current = visibleCalendarIds == null ? calendars.map((calendar: { id: string }) => calendar.id) : visibleCalendarIds;
     setVisibleCalendarIds(current.includes(id) ? current.filter(value => value !== id) : [...current, id]);
   };
   const title = view === 'month' || view === 'agenda'
     ? anchor.toLocaleDateString(locale, { month: 'long', year: 'numeric' })
     : `${days[0].toLocaleDateString(locale, { month: 'short', day: 'numeric' })} – ${days.at(-1).toLocaleDateString(locale, { month: 'short', day: 'numeric', year: 'numeric' })}`;
-  const step = direction => setAnchor(current => shiftCalendarAnchor(current, view, direction));
-  const shiftMiniMonth = direction => setAnchor(current => shiftCalendarAnchor(current, 'month', direction));
-  const openEvent = event => {
+  const step = (direction: number) => setAnchor(current => shiftCalendarAnchor(current, view, direction));
+  const shiftMiniMonth = (direction: number) => setAnchor(current => shiftCalendarAnchor(current, 'month', direction));
+  const openEvent = (event: CalendarViewEvent) => {
     // Always open the mail-like preview first, for every event. Editing is one tap
     // away from it, so opening a local event no longer skips the readable view (the
     // description is only ever rendered like a message body in the preview).
@@ -286,7 +286,7 @@ export default function CalendarPage({ isActive = true }) {
     if (preview.source_account_id) setSelectedAccount(preview.source_account_id, preview.source_folder || 'INBOX');
     await openDeepLinkMessage(messageId, { getMessage: api.getMessage, setThreadMessages, setSelectedMessage });
   };
-  const selectDay = day => { setAnchor(day); if (compact) setDayPanelOpen(true); };
+  const selectDay = (day: Date) => { setAnchor(day); if (compact) setDayPanelOpen(true); };
   const sidebarProps = { anchor, calendars, visibleCalendarIds, weekStartsOn: calendarWeekStartsOn, locale,
     onSelectDate: setAnchor, onShiftMonth: shiftMiniMonth, onToggleCalendar: toggleCalendar,
     onSourcesChanged: load, onCalendarsChanged: load, onCreate: () => openCreate(), canCreate: writable.length > 0, t };

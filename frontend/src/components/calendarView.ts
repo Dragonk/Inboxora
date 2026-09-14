@@ -5,10 +5,12 @@ export interface CalendarViewEvent {
   id?: string;
   all_day?: boolean;
   allDay?: boolean;
-  starts_at?: string | null;
-  startsAt?: string | null;
-  ends_at?: string | null;
-  endsAt?: string | null;
+  /** The API hands these back as ISO strings, epoch numbers or Dates depending on the calendar. */
+  starts_at?: string | number | Date | null;
+  startsAt?: string | number | Date | null;
+  ends_at?: string | number | Date | null;
+  endsAt?: string | number | Date | null;
+  attendees?: string[] | null;
   calendar_color?: string | null;
   location?: string | null;
   summary?: string | null;
