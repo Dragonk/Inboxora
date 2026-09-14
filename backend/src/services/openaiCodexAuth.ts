@@ -319,7 +319,7 @@ export function createPostgresCodexStore() {
              code_verifier_enc = CASE WHEN $6 THEN NULL ELSE code_verifier_enc END,
              updated_at = NOW()
          WHERE id = $1 AND state IN ('polling', 'authorized')`,
-        [id, state, intervalMs ?? null, nextPollAt === undefined ? null : new Date(nextPollAt), failureCode ?? null, clearSecrets],
+        [id, state, intervalMs ?? null, nextPollAt == null ? null : new Date(nextPollAt), failureCode ?? null, clearSecrets],
       );
     },
 
@@ -330,7 +330,7 @@ export function createPostgresCodexStore() {
          WHERE id = $1 AND state = 'polling'`,
         [id, authorizationCodeEnc, codeVerifierEnc],
       );
-      return result.rowCount > 0;
+      return (result.rowCount ?? 0) > 0;
     },
 
     async completeFlow({ id, encryptedCredential }: CodexCompleteInput): Promise<boolean> {
@@ -430,7 +430,7 @@ function terminalPollResult(state: string, failureCode: string | null) {
 }
 
 function credentialExpiry(tokenBody: Record<string, unknown> | null, claims: Record<string, unknown> | null, now: number) {
-  const seconds = Number(tokenBody.expires_in);
+  const seconds = Number(tokenBody?.expires_in ?? 0);
   if (Number.isFinite(seconds) && seconds > 0) return now + seconds * 1000;
   const exp = Number(claims?.exp);
   if (Number.isFinite(exp) && exp > 0) return exp * 1000;
@@ -451,7 +451,7 @@ export function createOpenAiCodexAuth({
   type CodexRefreshResult = { error: CodexAuthError } | { accessToken: string; accountId: string };
 
   let refreshInFlight: Promise<CodexRefreshResult> | null = null;
-  const owner = (userId: string, sessionId: string | null) => ({ adminUserId: userId, sessionHash: hashSessionId(sessionId) });
+  const owner = (userId: string | null | undefined, sessionId: string | null | undefined) => ({ adminUserId: userId ?? '', sessionHash: hashSessionId(sessionId) });
 
   function accessResult(credential: CodexCredential | null): { accessToken: string; accountId: string } {
     if (credential?.state !== 'connected' || !credential.accessToken || !credential.accountId) {
@@ -683,8 +683,8 @@ export function createOpenAiCodexAuth({
       staleBefore: time - POLL_CLAIM_STALE_MS,
     });
     if (claim.kind === 'not_found') throw new CodexAuthError('Device authorization not found', { status: 404 });
-    if (claim.kind === 'terminal') return terminalPollResult(claim.state, claim.failureCode);
-    if (claim.kind === 'waiting') return { status: 'pending', retryAfterMs: Math.max(MIN_INTERVAL_MS, claim.retryAfterMs) };
+    if (claim.kind === 'terminal') return terminalPollResult(claim.state ?? '', claim.failureCode ?? null);
+    if (claim.kind === 'waiting') return { status: 'pending', retryAfterMs: Math.max(MIN_INTERVAL_MS, claim.retryAfterMs ?? MIN_INTERVAL_MS) };
 
     let flow = claim.flow;
     if (!flow) throw new CodexAuthError('Device authorization not found', { status: 404 });
