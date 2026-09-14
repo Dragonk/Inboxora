@@ -324,7 +324,7 @@ export const api = {
   },
 
   // Sync
-  syncNow: (accountId = undefined) => request('POST', '/mail/sync', accountId ? { accountId } : {}),
+  syncNow: (accountId?: string | undefined) => request('POST', '/mail/sync', accountId ? { accountId } : {}),
   syncFolder: (accountId: string, folder: string) => request('POST', '/mail/sync-folder', { accountId, folder }),
   syncFoldersNow: (accountId: string) => request('POST', '/mail/sync-folders', accountId ? { accountId } : {}),
 
@@ -335,7 +335,7 @@ export const api = {
   emptyFolder: (accountId: string, path: string) => request('POST', '/mail/folders/empty', { accountId, path }),
 
   // Search
-  search: (q, accountId: string, { offset = 0, limit, folder }: { offset?: number; limit?: string | number; folder?: string } = {}) =>{
+  search: (q: string, accountId?: string | undefined, { offset = 0, limit, folder }: { offset?: number; limit?: string | number; folder?: string } = {}) =>{
     const params = new URLSearchParams({ q });
     if (accountId) params.set('accountId', accountId);
     if (limit) params.set('limit', String(limit));
