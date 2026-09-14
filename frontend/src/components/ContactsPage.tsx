@@ -4,6 +4,7 @@ import { useBackLayer } from '../hooks/useBackNavigation.ts';
 import { intlLocale } from '../utils/intlLocale.ts';
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { useTranslation } from 'react-i18next';
+import type { TFunction } from 'i18next';
 import { api } from '../utils/api.ts';
 import { useStore } from '../store/index.ts';
 import { useMobile } from '../hooks/useMobile.ts';
@@ -30,7 +31,7 @@ function avatarColor(str) {
   return colors[h % colors.length];
 }
 
-function Avatar({ name, email, size = 36, hasContactPhoto }) {
+function Avatar({ name, email, size = 36, hasContactPhoto }: AvatarProps) {
   const label = (name || email || '?').charAt(0).toUpperCase();
   const color  = avatarColor(name || email || '');
   return (
@@ -75,6 +76,21 @@ function emptyContact() {
 const PAGE_SIZE = 100;
 
 /** A contact row as the contacts API returns it. */
+/** The avatar shown for a contact or an address-chip. */
+interface AvatarProps { name?: string | null; email?: string | null; size?: number; hasContactPhoto?: boolean | null }
+
+/** The selected contact's detail pane. */
+interface ContactDetailProps {
+  contact: ContactRow;
+  confirmDelete: boolean;
+  saving: boolean;
+  error: string | null;
+  onEdit: () => void;
+  onDeleteRequest: () => void;
+  onDeleteConfirm: () => void;
+  onDeleteCancel: () => void;
+  t: TFunction;
+}
 interface ContactRow {
   id: string;
   name?: string | null;
@@ -92,9 +108,13 @@ interface ContactRow {
   nickname?: string | null;
   urls?: Array<{ value?: string; type?: string; label?: string; [key: string]: unknown }>;
   instantMessages?: Array<{ value?: string; type?: string; label?: string; [key: string]: unknown }>;
-  categories?: Array<{ value?: string; [key: string]: unknown }>;
+  categories?: string[];
   addresses?: Array<{ value?: string; type?: string; label?: string; [key: string]: unknown }>;
   visible?: boolean;
+  has_contact_photo?: boolean | null;
+  last_sent?: string | number | null;
+  send_count?: number;
+  photo_data?: string | null;
   value?: unknown;
   [key: string]: unknown;
 }
@@ -800,7 +820,7 @@ export default function ContactsPage({ isActive = true }) {
   );
 }
 
-function ContactDetail({ contact: c, confirmDelete, saving, error, onEdit, onDeleteRequest, onDeleteConfirm, onDeleteCancel, t }) {
+function ContactDetail({ contact: c, confirmDelete, saving, error, onEdit, onDeleteRequest, onDeleteConfirm, onDeleteCancel, t }: ContactDetailProps) {
   const { i18n } = useTranslation();
   const detailType = type => type ? t(`contacts.emailTypes.${type}`, { defaultValue: String(type) }) : undefined;
   const openCompose = useStore((state: StoreState) => state.openCompose);
@@ -962,13 +982,34 @@ function ContactDetail({ contact: c, confirmDelete, saving, error, onEdit, onDel
   );
 }
 
+/** The add/edit contact form and every mutation its fields need. */
+interface ContactFormProps {
+  form: ReturnType<typeof emptyContact>;
+  isNew: boolean;
+  saving: boolean;
+  error: string | null;
+  onField: (key: string, val: unknown) => void;
+  onSetEmail: (idx: number, field: string, val: string) => void;
+  onAddEmail: () => void;
+  onRemoveEmail: (idx: number) => void;
+  onSetPhone: (idx: number, field: string, val: string) => void;
+  onAddPhone: () => void;
+  onRemovePhone: (idx: number) => void;
+  onSetCollection: (key: string, idx: number, field: string, value: string) => void;
+  onAddCollection: (key: string, item: unknown) => void;
+  onRemoveCollection: (key: string, idx: number) => void;
+  onSetCategories: (value: string) => void;
+  onSave: () => void;
+  onCancel: () => void;
+  t: TFunction;
+}
 function ContactForm({
   form, isNew, saving, error,
   onField, onSetEmail, onAddEmail, onRemoveEmail,
   onSetPhone, onAddPhone, onRemovePhone,
   onSetCollection, onAddCollection, onRemoveCollection, onSetCategories,
   onSave, onCancel, t,
-}) {
+}: ContactFormProps) {
   const inputStyle = sharedInputStyle;
   const labelStyle: CSSProperties = { fontSize: 12, color: 'var(--text-tertiary)', marginBottom: 4, display: 'block' };
 
