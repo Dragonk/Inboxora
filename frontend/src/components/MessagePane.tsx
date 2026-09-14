@@ -1927,6 +1927,7 @@ ${bodyContent}
       )}
 
       {/* Native toolbar presentation shared with expanded conversation messages. */}
+      {message && (
       <MessageToolbar
         folderMappings={account?.folder_mappings}
         isMobile={isMobile}
@@ -1957,6 +1958,7 @@ ${bodyContent}
         shortcutLabel={shortcutLabel}
         style={{ boxShadow: paneScrolled ? '0 1px 10px rgba(0,0,0,0.2)' : 'none', transition: 'box-shadow 0.2s ease' }}
       />
+      )}
 
       {/* Single scroll container — sender card + email body scroll together */}
       <div

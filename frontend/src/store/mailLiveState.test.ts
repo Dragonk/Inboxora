@@ -11,7 +11,7 @@ const { useStore } = await import('./index.ts');
 function seed() {
   useStore.setState({ threadedView: true, selectedAccountId: null, selectedFolder: 'INBOX', showCalendar: true, showContacts: false, mobileSidebarOpen: true, messagesRefreshToken: 4, messagesOffset: 50, expandedThreadId: 'a:thread', searchResults: [],
     messages: [{ id: 'newest', thread_id: 'a:thread', account_id: 'a', message_count: 2, unread_count: 2, is_read: false }],
-    threadMessages: { 'a:thread': [{ id: 'newest', is_read: false }, { id: 'older', is_read: false }] },
+    threadMessages: { 'a:thread': [{ id: 'newest', account_id: 'a', is_read: false }, { id: 'older', account_id: 'a', is_read: false }] },
   });
 }
 test('individual reads include the representative copy and only the final read clears the thread', () => {
@@ -61,8 +61,8 @@ test('different accounts or folders discard the previous scope', () => {
 test('flat rows keep physical read flags even when the reader has cached their thread', () => {
   seed();
   useStore.setState({ threadedView: false, messages: [
-    { id: 'newest', thread_id: 'a:thread', is_read: false },
-    { id: 'older', thread_id: 'a:thread', is_read: false },
+    { id: 'newest', account_id: 'a', thread_id: 'a:thread', is_read: false },
+    { id: 'older', account_id: 'a', thread_id: 'a:thread', is_read: false },
   ] });
   useStore.getState().updateMessage('newest', { is_read: true });
   assert.equal(useStore.getState().messages[0].is_read, true);
