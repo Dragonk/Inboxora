@@ -37,7 +37,7 @@ export interface FolderMappings {
 export async function resolveTrashFolder(accountId: string, folderMappings?: FolderMappings | null) {
   const mapped = await mappedFolderUsable(accountId, folderMappings?.trash);
   if (mapped) return mapped;
-  const result = await query(
+  const result = await query<{ path: string }>(
     `SELECT path FROM folders WHERE account_id = $1
      AND (special_use = '\\Trash' OR lower(name) LIKE '%trash%' OR lower(name) LIKE '%deleted%')
      ORDER BY (CASE WHEN special_use = '\\Trash' THEN 0 ELSE 1 END)
