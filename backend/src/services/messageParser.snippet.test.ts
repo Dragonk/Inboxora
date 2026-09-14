@@ -128,7 +128,7 @@ describe('snippetFromBody', () => {
   // Timing assertions use the fastest of a few runs so GC pauses and cold-JIT
   // noise cannot flake CI; an accidental return to quadratic scanning is
   // orders of magnitude over these thresholds (minutes, not milliseconds).
-  function fastestRunMs(fn, runs) {
+  function fastestRunMs(fn: () => void, runs: number): number {
     let fastest = Infinity;
     for (let i = 0; i < runs; i++) {
       const start = performance.now();

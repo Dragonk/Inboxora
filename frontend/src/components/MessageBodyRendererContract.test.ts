@@ -2,7 +2,16 @@ import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
 import { readFileSync } from 'node:fs';
 
-const read = name => readFileSync(new URL(`./${name}`, import.meta.url), 'utf8');
+const read = (name: string): string => readFileSync(new URL(`./${name}`, import.meta.url), 'utf8');
+
+const captureContractValue = (document: string, expression: RegExp): string => {
+  const match = document.match(expression);
+  assert.ok(match, `Expected document to match ${expression}`);
+  return match[1];
+};
+
+const contentSecurityPolicy = (document: string): string =>
+  captureContractValue(document, /Content-Security-Policy" content="([^"]+)/);
 
 describe('shared message body renderer contract', () => {
   it('uses one quote-folding renderer in single-message and conversation modes', () => {
@@ -86,18 +95,19 @@ describe('safe email CSS contract', () => {
     assert.doesNotMatch(css, /@import|expression|behavior|vbscript/i); assert.match(css, /color:blue/);
     const blocked = buildSrcDoc('<div style="background-image:url(https://cdn.example.test/image.jpg)"></div>', { remoteImages: false });
     const enabled = buildSrcDoc('<div style="background-image:url(https://cdn.example.test/image.jpg)"></div>', { remoteImages: true });
-    assert.doesNotMatch(blocked.match(/Content-Security-Policy" content="([^"]+)/)?.[1] || '', /https:/);
-    assert.match(enabled.match(/Content-Security-Policy" content="([^"]+)/)?.[1] || '', /img-src[^;]*https:/);
+    const blockedCsp = contentSecurityPolicy(blocked);
+    const enabledCsp = contentSecurityPolicy(enabled);
+    assert.doesNotMatch(blockedCsp, /https:/);
+    assert.match(enabledCsp, /img-src[^;]*https:/);
   });
 });
 
 describe('mail body surface contract', () => {
-  const surface = tone => ({ tone, background: '#1a1e25', foreground: '#e8e6df' });
+  const surface = (tone: 'dark' | 'light') => ({ tone, background: '#1a1e25', foreground: '#e8e6df' });
   // The declarations the renderer injected for the frame's own colours. Note that
   // `background-color:` itself ends in `color:`, so the check has to look at the
   // captured declarations rather than at the rendered stylesheet.
-  const surfaceDeclarations = doc =>
-    doc.match(/html, body \{([^}]*)\}/)?.[1] ?? '';
+  const surfaceDeclarations = (doc: string): string => captureContractValue(doc, /html, body \{([^}]*)\}/);
 
   it('declares a dark frame surface so unstyled mail is not black on dark', async () => {
     const { buildSrcDoc } = await import('./messageBodySecurity.ts');
