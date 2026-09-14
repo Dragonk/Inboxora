@@ -1,4 +1,5 @@
 import { refreshUnreadCounts } from '../utils/unreadRefresh.ts';
+import type { TFunction } from 'i18next';
 import { lazy, Suspense, useCallback, useEffect, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useStore } from '../store/index.ts';
@@ -977,7 +978,14 @@ export default function MailApp() {
   );
 }
 
-function MobileTopBar({ position, moduleActive, actionsRef, onMenu, onCompose, t }) {
+function MobileTopBar({ position, moduleActive, actionsRef, onMenu, onCompose, t }: {
+  position: string;
+  moduleActive: boolean;
+  actionsRef: React.Ref<HTMLDivElement>;
+  onMenu: () => void;
+  onCompose: () => void;
+  t: TFunction;
+}) {
   return (
     <div data-testid="mobile-topbar" data-position={position} style={{
       order: position === 'bottom' ? 2 : 0,

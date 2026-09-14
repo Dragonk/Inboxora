@@ -785,7 +785,14 @@ export default function ContextMenu({ x, y, message, onClose, onAction, defaultM
   );
 }
 
-function MenuItem({ icon, label, onClick, danger, hasSubmenu, disabled }) {
+function MenuItem({ icon, label, onClick, danger, hasSubmenu, disabled }: {
+  icon?: React.ReactNode;
+  label: React.ReactNode;
+  onClick: (event: React.MouseEvent) => void;
+  danger?: boolean;
+  hasSubmenu?: boolean;
+  disabled?: boolean;
+}) {
   const [hov, setHov] = useState(false);
   return (
     <div
