@@ -440,7 +440,7 @@ router.get('/messages/:id/body', async (req, res) => {
 
   // Fetch from IMAP — signal user activity so background jobs back off during this request.
   try {
-    const accountResult = await query('SELECT * FROM email_accounts WHERE id = $1', [message.account_id]);
+    const accountResult = await query<EmailAccountRow>('SELECT * FROM email_accounts WHERE id = $1', [message.account_id]);
     const account = accountResult.rows[0];
     imapManager.noteUserActivity(account.id);
 
@@ -522,7 +522,7 @@ router.get('/messages/:id/headers', async (req, res) => {
   const message: MessageHeadersRow = result.rows[0];
 
   try {
-    const accountResult = await query('SELECT * FROM email_accounts WHERE id = $1', [message.account_id]);
+    const accountResult = await query<EmailAccountRow>('SELECT * FROM email_accounts WHERE id = $1', [message.account_id]);
     const account = accountResult.rows[0];
 
     let headers = '';
@@ -591,7 +591,7 @@ router.get('/messages/:id/attachments.zip', async (req, res) => {
   if (eligible.length === 0) return res.status(413).json({ error: 'All attachments exceed the 50 MB per-file limit.' });
 
   try {
-    const accountResult = await query('SELECT * FROM email_accounts WHERE id = $1', [message.account_id]);
+    const accountResult = await query<EmailAccountRow>('SELECT * FROM email_accounts WHERE id = $1', [message.account_id]);
     if (!accountResult.rows.length) return res.status(404).json({ error: 'Account not found' });
     const account = accountResult.rows[0];
 
@@ -674,7 +674,7 @@ router.get('/messages/:id/attachments/:part', async (req, res) => {
   }
 
   try {
-    const accountResult = await query('SELECT * FROM email_accounts WHERE id = $1', [message.account_id]);
+    const accountResult = await query<EmailAccountRow>('SELECT * FROM email_accounts WHERE id = $1', [message.account_id]);
     if (!accountResult.rows.length) return res.status(404).json({ error: 'Account not found' });
     const buffer = await imapManager.fetchAttachment(accountResult.rows[0], message.uid, message.folder, partNum);
 
@@ -893,7 +893,7 @@ router.post('/folders', async (req, res) => {
   if (!accountId || !name?.trim()) return res.status(400).json({ error: 'accountId and name required' });
   if (!isValidFolderName(name.trim())) return res.status(400).json({ error: 'Invalid folder name' });
   if (parentPath && !isValidFolderName(parentPath)) return res.status(400).json({ error: 'Invalid parent path' });
-  const check = await query('SELECT * FROM email_accounts WHERE id = $1 AND user_id = $2', [accountId, req.session.userId]);
+  const check = await query<EmailAccountRow>('SELECT * FROM email_accounts WHERE id = $1 AND user_id = $2', [accountId, req.session.userId]);
   if (!check.rows.length) return res.status(404).json({ error: 'Account not found' });
 
   // Build path: if parentPath given, look up the delimiter used by this account's folders
@@ -923,7 +923,7 @@ router.post('/folders/delete', async (req, res) => {
   const { accountId, path } = req.body;
   if (!accountId || !path) return res.status(400).json({ error: 'accountId and path required' });
   if (!isValidFolderName(path)) return res.status(400).json({ error: 'Invalid folder path' });
-  const check = await query('SELECT * FROM email_accounts WHERE id = $1 AND user_id = $2', [accountId, req.session.userId]);
+  const check = await query<EmailAccountRow>('SELECT * FROM email_accounts WHERE id = $1 AND user_id = $2', [accountId, req.session.userId]);
   if (!check.rows.length) return res.status(404).json({ error: 'Account not found' });
 
   try {
@@ -944,7 +944,7 @@ router.post('/folders/rename', async (req, res) => {
   if (!accountId || !oldPath || !newName?.trim()) return res.status(400).json({ error: 'Missing required fields' });
   if (!isValidFolderName(newName.trim())) return res.status(400).json({ error: 'Invalid folder name' });
   if (!isValidFolderName(oldPath)) return res.status(400).json({ error: 'Invalid folder path' });
-  const check = await query('SELECT * FROM email_accounts WHERE id = $1 AND user_id = $2', [accountId, req.session.userId]);
+  const check = await query<EmailAccountRow>('SELECT * FROM email_accounts WHERE id = $1 AND user_id = $2', [accountId, req.session.userId]);
   if (!check.rows.length) return res.status(404).json({ error: 'Account not found' });
 
   // Build the new path by replacing only the last path component
@@ -1017,7 +1017,7 @@ router.post('/folders/empty', async (req, res) => {
   const { accountId, path } = req.body;
   if (!accountId || !path) return res.status(400).json({ error: 'accountId and path required' });
   if (!isValidFolderName(path)) return res.status(400).json({ error: 'Invalid folder path' });
-  const check = await query('SELECT * FROM email_accounts WHERE id = $1 AND user_id = $2', [accountId, req.session.userId]);
+  const check = await query<EmailAccountRow>('SELECT * FROM email_accounts WHERE id = $1 AND user_id = $2', [accountId, req.session.userId]);
   if (!check.rows.length) return res.status(404).json({ error: 'Account not found' });
   const account = check.rows[0];
 
@@ -1122,7 +1122,7 @@ router.post('/messages/bulk-read', async (req, res) => {
       (byAccount[msg.account_id] = byAccount[msg.account_id] || []).push(msg);
     }
     for (const [accountId, msgs] of Object.entries(byAccount)) {
-      const accountResult = await query('SELECT * FROM email_accounts WHERE id = $1', [accountId]);
+      const accountResult = await query<EmailAccountRow>('SELECT * FROM email_accounts WHERE id = $1', [accountId]);
       const account = accountResult.rows[0];
       const results = await runInBatches(
         msgs, 3,
@@ -1195,7 +1195,7 @@ router.post('/messages/bulk-delete', async (req, res) => {
     const accountsById: Record<string, import('../services/imapManager.js').EmailAccountRow> = {};
 
     for (const [accountId, msgs] of Object.entries(byAccount)) {
-      const accountResult = await query('SELECT * FROM email_accounts WHERE id = $1', [accountId]);
+      const accountResult = await query<EmailAccountRow>('SELECT * FROM email_accounts WHERE id = $1', [accountId]);
       const account = accountResult.rows[0];
       accountsById[accountId] = account;
       const trashPath = await resolveTrashFolder(accountId, msgs[0].folder_mappings);
@@ -1475,7 +1475,7 @@ router.post('/messages/bulk-move', async (req, res) => {
         console.warn(`bulk-move: folder "${folder}" not found for account ${accountId}, skipping`);
         continue;
       }
-      const accountResult = await query('SELECT * FROM email_accounts WHERE id = $1', [accountId]);
+      const accountResult = await query<EmailAccountRow>('SELECT * FROM email_accounts WHERE id = $1', [accountId]);
       const account = accountResult.rows[0];
       const byFolder: Record<string, MailMessageRow[]> = {};
       for (const msg of msgs) {
@@ -1616,7 +1616,7 @@ router.post('/messages/bulk-archive', async (req, res) => {
         allMailDestFolders.add(archiveFolder);
       }
 
-      const accountResult = await query('SELECT * FROM email_accounts WHERE id = $1', [accountId]);
+      const accountResult = await query<EmailAccountRow>('SELECT * FROM email_accounts WHERE id = $1', [accountId]);
       const account = accountResult.rows[0];
       accountsById[accountId] = account;
       const byFolder: Record<string, MailMessageRow[]> = {};
@@ -1851,7 +1851,7 @@ router.post('/messages/:id/snooze', async (req, res) => {
   );
   if (existing.rows.length) return res.status(400).json({ error: 'Message is already snoozed' });
 
-  const accountResult = await query('SELECT * FROM email_accounts WHERE id = $1', [msg.account_id]);
+  const accountResult = await query<EmailAccountRow>('SELECT * FROM email_accounts WHERE id = $1', [msg.account_id]);
   const account = accountResult.rows[0];
 
   // Snooze the whole reply-chain conversation, not just this message (see
@@ -1922,7 +1922,7 @@ router.delete('/messages/:id', async (req, res) => {
   if (!result.rows.length) return res.status(404).json({ error: 'Message not found' });
   const message = result.rows[0];
 
-  const accountResult = await query('SELECT * FROM email_accounts WHERE id = $1', [message.account_id]);
+  const accountResult = await query<EmailAccountRow>('SELECT * FROM email_accounts WHERE id = $1', [message.account_id]);
   const account = accountResult.rows[0];
   const wasUnread = !message.is_read ? 1 : 0;
 
@@ -2038,7 +2038,7 @@ async function moveForSpamLabel(messageId: string, userId: string, destinationFo
     return { ok: true, status: 200, body: { ok: true, alreadyInFolder: true, folder: destinationFolder } };
   }
 
-  const accountResult = await query('SELECT * FROM email_accounts WHERE id = $1', [message.account_id]);
+  const accountResult = await query<EmailAccountRow>('SELECT * FROM email_accounts WHERE id = $1', [message.account_id]);
   const account = accountResult.rows[0];
 
   // Guard the source UID before the IMAP move so reconcileDeletes cannot
