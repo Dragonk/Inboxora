@@ -228,7 +228,7 @@ router.get('/', async (req, res) => {
       LIMIT $${p} OFFSET $${p + 1}
     `, [...params, cap, off]);
 
-    const total = await query(
+    const total = await query<{ count: string }>(
       `SELECT COUNT(*) FROM contacts c JOIN address_books ab ON ab.id = c.address_book_id WHERE ${conditions.join(' AND ')}`,
       params
     );
@@ -250,7 +250,7 @@ router.get('/photo', async (req, res) => {
   if (!email || typeof email !== 'string') return res.status(400).end();
 
   try {
-    const result = await query(
+    const result = await query<{ photo_data: string }>(
       `SELECT photo_data FROM contacts
        WHERE user_id = $1 AND primary_email = lower($2) AND photo_data IS NOT NULL
        LIMIT 1`,

@@ -1189,6 +1189,8 @@ export type EmailAccountRow = {
   folder_mappings?: Record<string, string> | null;
   categorization_enabled?: boolean;
   enabled?: boolean;
+  signature?: string | null;
+  smtp_host?: string | null;
   id: string;
   email_address?: string;
   imap_host?: string;
