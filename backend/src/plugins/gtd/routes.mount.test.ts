@@ -1,4 +1,5 @@
 import { describe, it, expect, vi, beforeAll, afterAll } from 'vitest';
+import type { Request, Response } from 'express';
 import { listeningPort } from '../../test/net.js';
 import type { Server } from 'node:http';
 import type { JsonBody } from '../../test/json.js';
@@ -22,7 +23,7 @@ function buildApp() {
   const app = express();
   app.use('/api/gtd', gtdRoutes);
   app.get('/api/health', (req, res) => res.json({ status: 'ok' }));
-  app.get('/api/version', (_req, res) => res.json({ version: 'test', sha: 'dev' }));
+  app.get('/api/version', (_req: Request, res: Response) => res.json({ version: 'test', sha: 'dev' }));
   return app;
 }
 

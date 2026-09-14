@@ -1,4 +1,5 @@
 import express from 'express';
+import type { Request, Response } from 'express';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { listeningPort } from '../test/net.js';
 import type { Server } from 'node:http';
@@ -10,8 +11,8 @@ let base = '';
 beforeAll(async () => {
   const app = express();
   app.use(createBrowserCors({ origin: 'https://email.kmms.ovh', credentials: true }));
-  app.options('/api/protected', (_req, res) => res.status(401).end());
-  app.options('/carddav/', (_req, res) => res.set('DAV', '1, 2, 3, addressbook').status(200).end());
+  app.options('/api/protected', (_req: Request, res: Response) => res.status(401).end());
+  app.options('/carddav/', (_req: Request, res: Response) => res.set('DAV', '1, 2, 3, addressbook').status(200).end());
   await new Promise((resolve) => { server = app.listen(0, resolve); });
   base = `http://127.0.0.1:${listeningPort(server)}`;
 });

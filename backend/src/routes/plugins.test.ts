@@ -1,4 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach, beforeAll, afterAll } from 'vitest';
+import type { NextFunction, Request, Response } from 'express';
 import type { JsonBody } from '../test/json.js';
 import type { PluginManifest } from '../plugins/registry.js';
 
@@ -30,7 +31,7 @@ function buildApp() {
   const app = express();
   app.use(express.json());
   app.use('/api/plugins', pluginsRoutes);
-  app.use((err, _req, res, next) => { void err; void next; res.status(500).json({ error: 'Internal server error' }); });
+  app.use((err: unknown, _req: Request, res: Response, next: NextFunction) => { void err; void next; res.status(500).json({ error: 'Internal server error' }); });
   return app;
 }
 

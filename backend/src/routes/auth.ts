@@ -1,4 +1,5 @@
 import { Router } from 'express';
+import type { NextFunction, Request, Response } from 'express';
 
 /** A user row as the auth routes read it. */
 interface UserRow {
@@ -113,7 +114,7 @@ async function createTrustedDevice(userId: string, req, res) {
 }
 
 function rateLimit(config) {
-  return async (req, res, next) => {
+  return async (req: Request, res: Response, next: NextFunction) => {
     const { maxRequests, windowMs } = config;
     const key = `auth:${req.ip}`;
     const { limited, resetMs } = await rlConsume(key, maxRequests, windowMs);

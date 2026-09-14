@@ -1,4 +1,5 @@
 import { describe, it, expect, beforeAll, afterAll, afterEach } from 'vitest';
+import type { NextFunction, Request, Response } from 'express';
 import { listeningPort } from '../test/net.js';
 import type { Server } from 'node:http';
 import type { JsonBody } from '../test/json.js';
@@ -19,7 +20,7 @@ vi.mock('../services/encryption.js', () => ({
 vi.mock('../middleware/auth.js', () => ({
   // Authenticated, but deliberately NOT an admin — requireAdmin always 403s here.
   requireAuth: (req: { headers: Record<string, string>; session?: { userId?: string } }, _res: unknown, next: () => void) => { req.session = { userId: 'u1' }; next(); },
-  requireAdmin: (_req, res) => res.status(403).json({ error: 'Admin access required' }),
+  requireAdmin: (_req: Request, res: Response) => res.status(403).json({ error: 'Admin access required' }),
 }));
 
 import 'express-async-errors';
@@ -30,7 +31,7 @@ function buildApp() {
   const app = express();
   app.use(express.json());
   app.use('/api/integrations', integrationsRoutes);
-  app.use((err, _req, res, next) => { void err; void next; res.status(500).json({ error: 'Internal server error' }); });
+  app.use((err: unknown, _req: Request, res: Response, next: NextFunction) => { void err; void next; res.status(500).json({ error: 'Internal server error' }); });
   return app;
 }
 
