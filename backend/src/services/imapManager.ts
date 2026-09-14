@@ -165,7 +165,7 @@ async function connectImapClient(account: EmailAccountRow, resolved: ResolvedCon
     // stall): a second attempt just piles on pressure and doubles the delay — let the refusal
     // propagate so the caller's cooldown backs off (#384). Otherwise retry IPv4-only for a wedged
     // IPv6 TLS handshake (#382).
-    if (!shouldRetryIPv4(err?.message, resolved.addresses, sawRefusal)) throw err;
+    if (!shouldRetryIPv4(toAppError(err).message, resolved.addresses ?? [], sawRefusal)) throw err;
     const v4 = resolved.addresses.filter(a => !a.includes(':'));
     console.warn(`IMAP connect stalled for ${logAccount(account)} (${label}); retrying IPv4-only`);
     const v4Resolved = { ...resolved, addresses: v4, host: v4[0], lookup: createPinnedLookup(v4) };
@@ -536,7 +536,7 @@ function decodeTransferPayload(payload: Buffer | string, encoding: string | null
 }
 
 function parseMimeHeaders(headerBlock: string): Record<string, string> {
-  const headers = {};
+  const headers: Record<string, string> = {};
   for (const line of headerBlock.replace(/\r?\n[ \t]+/g, ' ').split(/\r?\n/)) {
     const m = line.match(/^([^:]+):\s*([\s\S]*)$/);
     if (m) headers[m[1].toLowerCase()] = m[2].trim();
@@ -1205,7 +1205,7 @@ export interface ImapClientCfg {
   host: string;
   port: number;
   secure: boolean;
-  auth: { user: string; pass?: string | null; accessToken?: string };
+  auth: { user: string; pass?: string; accessToken?: string };
   logger: false;
   tls: Record<string, unknown>;
   commandTimeout: number;
@@ -1234,8 +1234,8 @@ export function makeClientCfg(account: EmailAccountRow, resolved: ResolvedConnec
   }
   const cfg: ImapClientCfg = {
     host: resolved.lookup && resolved.servername ? resolved.servername : resolved.host,
-    port: account.imap_port,
-    secure: account.imap_tls,
+    port: account.imap_port ?? 993,
+    secure: account.imap_tls ?? true,
     auth: { user: account.auth_user || account.email_address || '', pass: decrypt(account.auth_pass) },
     logger: false,
     tls: tlsOpts,
@@ -1267,6 +1267,7 @@ function drainWaiters(pool: ConnectionPool): void {
     const free = pool.clients.find(c => !pool.inUse.has(c));
     if (!free) break;
     const entry = pool.waiters.shift();
+    if (!entry) break;
     clearTimeout(entry.timer);
     pool.inUse.add(free);
     entry.resolve(free);
