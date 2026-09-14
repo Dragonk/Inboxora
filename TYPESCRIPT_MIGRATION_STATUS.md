@@ -35,11 +35,11 @@ that `any` had been hiding — they were fixed, not suppressed.
 `strict: true` and `noImplicitAny: true`; that file is the reference mode for this work:
 
 ```bash
-cd backend  && npx tsc -p tsconfig.strict.json --noEmit   # 1224 findings
-cd frontend && npx tsc -p tsconfig.strict.json --noEmit   # 2073 findings
+cd backend  && npx tsc -p tsconfig.strict.json --noEmit   # 837 findings
+cd frontend && npx tsc -p tsconfig.strict.json --noEmit   # 852 findings
 ```
 
-**3297 findings in total.** Dominant code TS7006 (`noImplicitAny` on function parameters), then
+**1689 findings in total.** Dominant code TS7006 (`noImplicitAny` on function parameters), then
 TS2345/TS2322 (argument and assignment mismatches), TS7031 (destructured bindings) and TS18048
 (`possibly undefined`). **None is suppressed** — no `@ts-ignore`, no `@ts-nocheck`, no `as any`
 — so the whole remainder is visible in the build.
@@ -50,7 +50,7 @@ TS2345/TS2322 (argument and assignment mismatches), TS7031 (destructured binding
   pass (the read/star mutation lanes, the compose draft fields), and 40 more came from typing the
   pg mock's `sql` tuple and the `value` callback.
 - **Parameter-name rules do not.** Two engines were built and measured: a blanket `(name) =>`
-  to `(name: string) =>` over 193 (backend) and 282 (frontend) names drove the counts from 1224
+  to `(name: string) =>` over 193 (backend) and 282 (frontend) names drove the counts from 837
   to **1463** and 2076 to **2373** and left hundreds of ordinary-build errors. Most implicit-any
   parameters are not strings, so the rule is rejected by the guard and the files are restored.
 - **Per-site semantic typing is the reliable route**, at roughly 20-40 findings per focused round.

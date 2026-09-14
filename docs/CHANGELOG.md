@@ -83,8 +83,8 @@ Real defects found while typing the code — each is something JavaScript could 
   type errors, and removing it surfaced **79 real backend findings** that `any` had been hiding.
 - **`strict` and `noImplicitAny` are now enforced configurations** — `tsconfig.strict.json` in
   both projects — and the code is type-checked against them. They are **not yet clean**:
-  `npx tsc -p tsconfig.strict.json --noEmit` reports **1224** findings in `backend/src` and
-  **2073** in `frontend/src` (**3297** total), dominated by untyped function parameters
+  `npx tsc -p tsconfig.strict.json --noEmit` reports **837** findings in `backend/src` and
+  **852** in `frontend/src` (**1689** total), dominated by untyped function parameters
   (`noImplicitAny`). Every finding is a real one; none is suppressed. Finishing them is the
   documented follow-up in `docs/wiki/Release-notes-4.0.1.md`.
 
