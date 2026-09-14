@@ -47,7 +47,7 @@ export async function isPluginActivated(userId: string, pluginId: string): Promi
 // Whether a plugin is activated for the user who OWNS an account. Lets a plugin compose activation
 // into per-account logic without holding the account's userId (it resolves the owner internally).
 export async function isPluginActivatedForAccount(pluginId: string, accountId: string) {
-  const { rows } = await query('SELECT user_id FROM email_accounts WHERE id = $1', [accountId]);
+  const { rows } = await query<{ user_id: string }>('SELECT user_id FROM email_accounts WHERE id = $1', [accountId]);
   const userId = rows[0]?.user_id;
   if (!userId) return false;
   return isPluginActivated(userId, pluginId);

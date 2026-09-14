@@ -15,8 +15,8 @@ const DEFAULT_INTERVAL_MIN = 60;
 const timers = new Map();   // userId -> interval id
 const syncing = new Set();  // userIds with a sync in flight (prevents overlap)
 
-export async function getCardavConfig(userId: string) {
-  const r = await query(
+export async function getCardavConfig(userId: string): Promise<{ serverUrl?: string | null; username?: string | null; password?: string | null; dupMode?: string | null; intervalMin?: number | null; [key: string]: unknown } | null> {
+  const r = await query<{ config?: { serverUrl?: string | null; username?: string | null; password?: string | null; dupMode?: string | null; intervalMin?: number | null; [key: string]: unknown } | null }>(
     "SELECT config FROM user_integrations WHERE user_id = $1 AND provider = 'carddav'",
     [userId],
   );

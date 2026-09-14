@@ -49,7 +49,7 @@ router.post('/:provider', requireAdmin, async (req: Request, res: Response) => {
 
   // If clientSecret is redacted, keep the existing stored value (already encrypted or legacy plaintext)
   if (config.clientSecret === '••••••••') {
-    const existing = await query(
+    const existing = await query<{ config: { clientId?: string; clientSecret?: string; tenantId?: string; redirectUri?: string; [key: string]: unknown } }>(
       'SELECT config FROM integration_config WHERE provider = $1',
       [provider]
     );
