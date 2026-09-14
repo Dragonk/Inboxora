@@ -401,7 +401,7 @@ export function createPostgresCodexStore() {
 
     async withCredentialLock<T>(callback: (scope: CodexCredentialLock) => Promise<T>): Promise<T> {
       return withTransaction(async (client: DbClient) => {
-        const result = await client.query(
+        const result = await client.query<{ encrypted_payload?: string | null }>(
           'SELECT encrypted_payload FROM ai_codex_credentials WHERE singleton = TRUE FOR UPDATE',
         );
         return callback({

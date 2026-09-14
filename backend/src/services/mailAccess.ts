@@ -158,7 +158,7 @@ export async function getMessageFields(accountId: string, ids) {
 // { [messageId]: <the plugin's annotation object> }. Reads only this plugin's namespace.
 export async function getMessageAnnotations(accountId: string, ids, pluginId: string) {
   if (!ids || ids.length === 0) return {};
-  const { rows } = await query(
+  const { rows } = await query<{ id: string; ann?: string | null }>(
     'SELECT id, plugin_annotations -> $3 AS ann FROM messages WHERE account_id = $1 AND id = ANY($2::uuid[])',
     [accountId, ids, pluginId]
   );
