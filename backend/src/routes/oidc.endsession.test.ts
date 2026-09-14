@@ -8,7 +8,7 @@ import { describe, it, expect, beforeAll, afterAll, afterEach, beforeEach, vi } 
 //  - never throw (logout must always succeed locally)
 // db, discovery (fetch), and the modules oidc.js imports are stubbed to isolate the logic.
 vi.mock('../services/db.js', () => ({ query: vi.fn(), pool: {} }));
-vi.mock('../services/encryption.js', () => ({ decrypt: (v) => v, isEncrypted: () => false }));
+vi.mock('../services/encryption.js', () => ({ decrypt: (value: string) => value, isEncrypted: () => false }));
 vi.mock('../index.js', () => ({ imapManager: {} }));
 vi.mock('../middleware/auth.js', () => ({ requireAuth: (_req: unknown, _res: unknown, next: () => void) => next() }));
 vi.mock('../services/authEvents.js', () => ({ logAuthEvent: vi.fn() }));
@@ -23,7 +23,7 @@ const query = vi.mocked(__mock_query);
 
 let discoveryDoc: Record<string, unknown> | null = null;
 
-function discoveryFor(issuer, { endSession = true } = {}) {
+function discoveryFor(issuer: string, { endSession = true }: { endSession?: boolean } = {}) {
   const doc: { issuer: string; authorization_endpoint: string; token_endpoint: string; jwks_uri: string; end_session_endpoint?: string } = {
     issuer,
     authorization_endpoint: `${issuer}/authorize`,
@@ -83,6 +83,7 @@ describe('buildEndSessionUrl', () => {
 
     const url = await buildEndSessionUrl({ providerId: 'p1', idToken: 'the-id-token' });
     expect(url).toBeTruthy();
+    if (url === null) throw new Error('Expected an end-session URL');
     const parsed = new URL(url);
     expect(`${parsed.origin}${parsed.pathname}`).toBe(`${issuer}/end-session`);
     expect(parsed.searchParams.get('id_token_hint')).toBe('the-id-token');
@@ -96,6 +97,7 @@ describe('buildEndSessionUrl', () => {
     discoveryDoc = discoveryFor(issuer);
 
     const url = await buildEndSessionUrl({ providerId: 'p1' });
+    if (url === null) throw new Error('Expected an end-session URL');
     const parsed = new URL(url);
     expect(parsed.searchParams.has('id_token_hint')).toBe(false);
     expect(parsed.searchParams.get('client_id')).toBe('my-client');
