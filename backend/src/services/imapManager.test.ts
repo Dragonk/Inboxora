@@ -47,10 +47,10 @@ const getConnectionPolicy = vi.mocked(__mock_getConnectionPolicy);
 const parseMessage = vi.mocked(__mock_parseMessage);
 const dispatchMailNotification = vi.mocked(__mock_dispatchMailNotification);
 
-const account = (imap_host, oauth_provider = null) => ({ imap_host, oauth_provider });
+const account = (imap_host: string, oauth_provider: string | null = null) => ({ id: 'acct-1', user_id: 'user-1', email_address: 'a@example.com', imap_host, oauth_provider });
 
 const resolved = { host: '127.0.0.1', servername: null };
-const baseAccount = { imap_host: '127.0.0.1', imap_port: 1143, imap_tls: true, imap_skip_tls_verify: false, auth_user: 'user', auth_pass: 'enc' };
+const baseAccount = { id: 'acct-1', user_id: 'user-1', email_address: 'a@example.com', imap_host: '127.0.0.1', imap_port: 1143, imap_tls: true, imap_skip_tls_verify: false, auth_user: 'user', auth_pass: 'enc' };
 
 // ── providerProfile — host detection ─────────────────────────────────────────
 
@@ -1552,7 +1552,7 @@ describe('walkStructure attachment classification', () => {
     const manager = new ImapManager(null);
     clearInterval(manager._healthCheckTimer);
     clearInterval(manager._snippetSchedulerTimer);
-    const buffer = await manager.fetchAttachment({ id: 'account-1', imap_host: 'imap.example.test', imap_port: 993, imap_tls: true, auth_user: 'u', auth_pass: 'p' }, 42, 'INBOX', '2');
+    const buffer = await manager.fetchAttachment({ id: 'account-1', user_id: 'user-1', imap_host: 'imap.example.test', imap_port: 993, imap_tls: true, auth_user: 'u', auth_pass: 'p' }, 42, 'INBOX', '2');
 
     const raw = buffer.toString('utf8');
     expect(raw.startsWith('BEGIN:VCALENDAR')).toBe(true);

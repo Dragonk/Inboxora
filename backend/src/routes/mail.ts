@@ -1192,7 +1192,7 @@ router.post('/messages/bulk-delete', async (req, res) => {
     // trashMoveSucceeded: moved from a non-Trash folder into Trash.
     const expungeSucceeded: MailMessageRow[] = [];
     const trashMoveSucceeded: Array<{ msg: MailMessageRow; trashPath: string; newUid: number | null }> = [];
-    const accountsById: Record<string, unknown> = {};
+    const accountsById: Record<string, import('../services/imapManager.js').EmailAccountRow> = {};
 
     for (const [accountId, msgs] of Object.entries(byAccount)) {
       const accountResult = await query('SELECT * FROM email_accounts WHERE id = $1', [accountId]);

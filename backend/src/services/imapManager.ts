@@ -976,7 +976,7 @@ export async function emitSectionsChanged(mgr, account: EmailAccountRow, changed
   await pluginRegistry.runHook('sectionsChanged', { mgr, account, changedCount });
 }
 
-export function providerProfile(account: EmailAccountRow) {
+export function providerProfile(account: Partial<EmailAccountRow>) {
   const host = (account.imap_host || '').toLowerCase();
   if (host.includes('.gmail.com') || host.includes('.googlemail.com')) return PROVIDERS.google;
   if (host.includes('.yahoo.com') || host.includes('.ymail.com')) return PROVIDERS.yahoo;
@@ -1135,13 +1135,13 @@ interface ResolvedConnection {
 }
 
 export type EmailAccountRow = {
-  user_id?: string;
+  user_id: string;
   name?: string;
   email?: string;
   sender_name?: string;
   folder_mappings?: Record<string, string> | null;
   categorization_enabled?: boolean;
-  id?: string;
+  id: string;
   email_address?: string;
   imap_host?: string;
   imap_port?: number;
