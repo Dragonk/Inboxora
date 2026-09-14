@@ -496,7 +496,7 @@ router.patch('/:id', async (req, res) => {
 
   try {
     // Load current contact (with its book source to block edits to synced contacts)
-    const cur = await query<{ id: string; user_id: string; address_book_id: string; uid?: string | null; vcard?: string | null; book_source?: string | null; birthday?: string | null; anniversary?: string | null; [key: string]: unknown }>(
+    const cur = await query<{ id: string; user_id: string; address_book_id: string; uid?: string | null; vcard?: string | null; book_source?: string | null; title?: string | null; role?: string | null; nickname?: string | null; urls?: VCardContact['urls']; instant_messages?: VCardContact['instantMessages']; categories?: string[] | null; addresses?: VCardContact['addresses']; birthday?: string | null; anniversary?: string | null; [key: string]: unknown }>(
       `SELECT c.*, ab.source AS book_source FROM contacts c
        JOIN address_books ab ON ab.id = c.address_book_id
        WHERE c.id = $1 AND c.user_id = $2`,
