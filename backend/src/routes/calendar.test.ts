@@ -31,6 +31,12 @@ import calendarRouter from './calendar.js';
  * Shape of the JSON bodies this suite asserts on. Fields are optional because a
  * single interface covers both success and error responses.
  */
+/** The events endpoint always answers with its list. */
+interface CalendarEventsResponse {
+  events: Array<Record<string, unknown>>;
+  truncated?: boolean;
+  error?: string;
+}
 interface CalendarTestResponse {
   error?: string;
   calendars?: Array<Record<string, unknown>>;
@@ -129,7 +135,7 @@ describe('local calendar API', () => {
       source: expect.not.objectContaining({ url: expect.anything(), username: expect.anything(), password: expect.anything(), url_fingerprint: expect.anything() }),
       sync: { ok: true },
     });
-    const insert = query.mock.calls.find(([sql]) => sql.includes('INSERT INTO calendar_import_sources'));
+    const insert = query.mock.calls.find(([sql]: unknown[]) => String(sql).includes('INSERT INTO calendar_import_sources'));
     expect(insert[1][2]).toBe('enc:v1:https://calendar.example/events.ics');
     expect(insert[1][3]).toMatch(/^[a-f0-9]{64}$/);
   });
@@ -348,7 +354,7 @@ describe('local calendar API', () => {
     }] });
 
     const response = await fetch(`${base}/api/calendar/events?from=2026-09-01T00:00:00.000Z&to=2026-10-01T00:00:00.000Z`);
-    const { events } = (await response.json()) as CalendarTestResponse;
+    const { events } = (await response.json()) as CalendarEventsResponse;
 
     expect(response.status).toBe(200);
     expect(query.mock.calls.some(([sql]) => typeof sql === 'string' && sql.includes('contact_dates'))).toBe(true);
@@ -367,7 +373,7 @@ describe('local calendar API', () => {
     }] });
 
     const response = await fetch(`${base}/api/calendar/events?from=2026-01-01T00:00:00.000Z&to=2027-01-01T00:00:00.000Z`);
-    const { events } = (await response.json()) as CalendarTestResponse;
+    const { events } = (await response.json()) as CalendarEventsResponse;
 
     expect(response.status).toBe(200);
     expect(events).toHaveLength(2);
@@ -380,7 +386,7 @@ describe('local calendar API', () => {
     }] });
     const response = await fetch(`${base}/api/calendar/events?from=2028-02-01T00:00:00.000Z&to=2028-03-01T00:00:00.000Z`);
     expect(response.status).toBe(200);
-    const { events } = (await response.json()) as CalendarTestResponse;
+    const { events } = (await response.json()) as CalendarEventsResponse;
     expect(events).toHaveLength(1);
     expect(events[0]).toMatchObject({ contact_date_label: 'Birthday', starts_at: '2028-02-29T00:00:00.000Z' });
   });
@@ -395,7 +401,7 @@ describe('local calendar API', () => {
     }] });
 
     const response = await fetch(`${base}/api/calendar/events?from=2026-09-01T00:00:00.000Z&to=2026-10-01T00:00:00.000Z`);
-    const { events } = (await response.json()) as CalendarTestResponse;
+    const { events } = (await response.json()) as CalendarEventsResponse;
 
     expect(response.status).toBe(200);
     expect(events).toHaveLength(2);
@@ -452,7 +458,7 @@ describe('local calendar API', () => {
     });
 
     const response = await fetch(`${base}/api/calendar/events?from=2026-09-01T00:00:00.000Z&to=2026-10-01T00:00:00.000Z`);
-    const { events } = (await response.json()) as CalendarTestResponse;
+    const { events } = (await response.json()) as CalendarEventsResponse;
 
     expect(response.status).toBe(200);
     // Ordering is by start time; the fallback event's summary comes from its ICS (the
@@ -822,7 +828,7 @@ describe('local calendar API', () => {
     expect(response.status).toBe(502);
     expect((await response.json()) as CalendarTestResponse).toEqual({ error: 'The previous invitation could not be cancelled, so the event was not changed.' });
     expect(query).toHaveBeenCalledTimes(3);
-    expect(query.mock.calls.some(([sql]) => sql.includes('UPDATE calendar_events'))).toBe(false);
+    expect(query.mock.calls.some(([sql]: unknown[]) => String(sql).includes('UPDATE calendar_events'))).toBe(false);
   });
 
   it('returns a cancellation failure for an idempotent update when the previous sender is unavailable', async () => {
@@ -848,7 +854,7 @@ describe('local calendar API', () => {
     expect(response.status).toBe(502);
     expect((await response.json()) as CalendarTestResponse).toEqual({ error: 'The previous invitation could not be cancelled, so the event was not changed.' });
     expect(query).toHaveBeenCalledTimes(5);
-    expect(query.mock.calls.some(([sql]) => sql.includes('UPDATE calendar_events'))).toBe(false);
+    expect(query.mock.calls.some(([sql]: unknown[]) => String(sql).includes('UPDATE calendar_events'))).toBe(false);
     expect(query.mock.calls.some(([sql]) => /(?:INSERT INTO|UPDATE) calendar_invitation_outbox/.test(sql))).toBe(false);
     expect(sendCalendarInvitation).not.toHaveBeenCalled();
   });
@@ -984,7 +990,7 @@ describe('local calendar API', () => {
     const response = await fetch(`${base}/api/calendar/events`, { method: 'POST', headers: { 'content-type': 'application/json', 'X-Idempotency-Key': 'invite-1' }, body: JSON.stringify({ calendarId: 'calendar-1', summary: 'Planning', sendInvites: true, inviteAccountId: 'account-1', attendees: ['guest@example.test'], startsAt: '2026-09-01T09:00:00.000Z', endsAt: '2026-09-01T10:00:00.000Z' }) });
     expect(response.status).toBe(201);
     expect(sendCalendarInvitation).toHaveBeenCalledTimes(1);
-    expect(query.mock.calls.some(([sql]) => sql.includes('calendar_invitation_outbox'))).toBe(true);
+    expect(query.mock.calls.some(([sql]: unknown[]) => String(sql).includes('calendar_invitation_outbox'))).toBe(true);
   });
 
   it('rolls back the event when the invitation outbox insert fails', async () => {
@@ -1020,7 +1026,7 @@ describe('local calendar API', () => {
     expect(sendCalendarInvitation).toHaveBeenCalledTimes(2);
     expect(sendCalendarInvitation).toHaveBeenNthCalledWith(1, expect.objectContaining({ method: 'CANCEL', account: sender, attendees: ['removed@example.test'], sequence: 3 }));
     expect(sendCalendarInvitation).toHaveBeenNthCalledWith(2, expect.objectContaining({ method: 'REQUEST', account: sender, attendees: ['kept@example.test'], sequence: 3 }));
-    expect(query.mock.calls.filter(([sql]) => sql.includes('UPDATE calendar_events')).length).toBe(1);
+    expect(query.mock.calls.filter(([sql]: unknown[]) => String(sql).includes('UPDATE calendar_events')).length).toBe(1);
   });
 
   it('rejects reuse of an idempotency key for a different update target', async () => {
@@ -1065,7 +1071,7 @@ describe('local calendar API', () => {
     expect(await second.json()).toMatchObject({ invitationStatus: { status: 'sent', lastError: null } });
     expect(sendCalendarInvitation).toHaveBeenCalledTimes(2);
     // The idempotency key still guarantees a single event row.
-    expect(query.mock.calls.filter(([sql]) => sql.includes('INSERT INTO calendar_events')).length).toBe(1);
+    expect(query.mock.calls.filter(([sql]: unknown[]) => String(sql).includes('INSERT INTO calendar_events')).length).toBe(1);
   });
 
   it('does not resend an invitation the outbox already delivered', async () => {
@@ -1124,7 +1130,7 @@ describe('local calendar API', () => {
     expect(second.status).toBe(200);
     expect(await second.json()).toMatchObject({ invitationStatus: { status: 'sent', lastError: null } });
     expect(sendCalendarInvitation).toHaveBeenCalledTimes(2);
-    expect(query.mock.calls.filter(([sql]) => sql.includes('UPDATE calendar_events')).length).toBe(1);
+    expect(query.mock.calls.filter(([sql]: unknown[]) => String(sql).includes('UPDATE calendar_events')).length).toBe(1);
   });
 
 });
@@ -1133,7 +1139,7 @@ it('recovers metadata for already imported events without returning the raw ICS'
   mockEventRead({ events: [{ id: 'event-1', description: null, location: null, attendees: [], starts_at: '2026-09-10T07:00:00Z', raw_ical: outlookCalendar('09', 'DESCRIPTION:Existing agenda\r\nLOCATION:Office\r\nATTENDEE:mailto:jane@example.test\r\n') }] });
   const response = await fetch(`${base}/api/calendar/events?from=2026-09-01&to=2026-10-01`);
   expect(response.status).toBe(200);
-  const { events } = (await response.json()) as CalendarTestResponse;
+  const { events } = (await response.json()) as CalendarEventsResponse;
   expect(events[0]).toMatchObject({ description: 'Existing agenda', location: 'Office', attendees: ['jane@example.test'] });
   expect(events[0]).not.toHaveProperty('raw_ical');
 });
