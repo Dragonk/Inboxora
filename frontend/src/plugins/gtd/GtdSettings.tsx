@@ -6,6 +6,7 @@ import GtdZeroPet from '../../components/GtdZeroPet.tsx';
 import { DEFAULT_GTD_FOLDERS, GTD_STATES, resolveAccountGtdFolders, diffGtdFolders, findGtdFolderCollisions } from '../../utils/gtd.ts';
 import type { CSSProperties } from 'react';
 import type { StoreState } from '../../store/index.ts';
+import type { GtdAccountLike } from '../../utils/gtd.ts';
 import { toAppError } from '../../utils/errors.ts';
 
 // GTD's settings UI, extracted from AdminPanel's CategoriesSection into the plugin. Registered into
@@ -14,11 +15,21 @@ import { toAppError } from '../../utils/errors.ts';
 // owns GTD's disclosure state machine; the per-account/pet blocks below are moved verbatim.
 const TOGGLE_OFF_BACKGROUND = 'var(--border)';
 
+/** One `/gtd/folders/ensure` outcome: `{ folder, path, created }` on success, `{ folder, error }` on failure. */
+type GtdEnsureResult = { folder?: string; path?: string; created?: boolean; error?: unknown };
+
+/** An account row as the store holds it, plus the GTD fields the folder helpers read. */
+type GtdSettingsAccount = StoreState['accounts'][number] & GtdAccountLike;
+
 // Read a File as a base64 data-URL (data:<mime>;base64,…), the transport the pet import expects.
-function readFileAsDataURL(file) {
+function readFileAsDataURL(file: File): Promise<string> {
   return new Promise((resolve, reject) => {
     const reader = new FileReader();
-    reader.onload = () => resolve(reader.result);
+    reader.onload = () => {
+      const result = reader.result;
+      if (typeof result === 'string') resolve(result);
+      else reject(new Error('Could not read file'));
+    };
     reader.onerror = () => reject(new Error('Could not read file'));
     reader.readAsDataURL(file);
   });
@@ -137,7 +148,7 @@ function GtdPetBlock() {
 // Per-account GTD block: an enable toggle, and (only while enabled) the five
 // state→folder inputs with "save" + "create missing folders" actions. A disabled
 // account shows just the toggle so the tab stays quiet for non-GTD accounts.
-function GtdAccountBlock({ account }) {
+function GtdAccountBlock({ account }: { account: GtdSettingsAccount }) {
   const { t } = useTranslation();
   const { updateAccount } = useStore();
   const enabled = !!account.gtd_enabled;
@@ -172,7 +183,7 @@ function GtdAccountBlock({ account }) {
   };
 
   // Comma-joined, translated state labels for the collision / rejection notices.
-  const stateNames = (states) => [...new Set(states)].map(s => t(`gtd.state.${s}`)).join(', ');
+  const stateNames = (states: string[]) => [...new Set(states)].map(s => t(`gtd.state.${s}`)).join(', ');
 
   const handleSave = async () => {
     // Mirror the backend guard: block a save that would point two states at the same
@@ -204,8 +215,8 @@ function GtdAccountBlock({ account }) {
     setCreating(true); setMsg(null);
     try {
       const { results, folders: persisted } = await api.gtdEnsureFolders(account.id, diffGtdFolders(folders));
-      const created = results.filter(r => r.created).length;
-      const existing = results.filter(r => !r.created && !r.error).length;
+      const created = results.filter((r: GtdEnsureResult) => r.created).length;
+      const existing = results.filter((r: GtdEnsureResult) => !r.created && !r.error).length;
       // On a prefixed-namespace server the folders land under a real path (INBOX.Todo) and
       // the backend persists those effective paths; reflect them so the inputs show where
       // labels actually live. Merge the returned states directly onto the current form so a
@@ -333,7 +344,7 @@ function GtdSection() {
 // reveal never writes to the backend — the per-account toggles inside are the real gates. Default
 // open if any account already has GTD on; a manual choice persists in localStorage so it sticks
 // across reopens. A settings-search deep-link (initialSubTab === 'gtd') forces it open.
-export default function GtdSettings({ initialSubTab }) {
+export default function GtdSettings({ initialSubTab }: { initialSubTab?: string | null }) {
   const { t } = useTranslation();
   const accounts = useStore((s: StoreState) => s.accounts);
   const [gtdRevealed, setGtdRevealed] = useState(() => {

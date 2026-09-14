@@ -96,26 +96,26 @@ export const HOLIDAY_CALENDARS = [
   { code: 'VN', file: 'VietnamHolidays' },
 ];
 
-export function holidayCalendarUrl(file) {
+export function holidayCalendarUrl(file: string) {
   return `${THUNDERBIRD_HOLIDAY_URL_BASE}${file}.ics`;
 }
 
 // The calendar panel already normalizes webcal:// on the server, but doing it here keeps
 // the value the user sees and the value stored in the form in step, and it means the
 // URL field accepts the exact string a website hands out.
-export function normalizeSubscriptionUrl(input) {
+export function normalizeSubscriptionUrl(input: unknown) {
   const raw = String(input ?? '').trim();
   if (!raw) return '';
   if (/^webcal:\/\//i.test(raw)) return `https://${raw.slice('webcal://'.length)}`;
   return raw;
 }
 
-const LOCALE_OVERRIDES = { zhCN: 'zh-CN' };
+const LOCALE_OVERRIDES: Record<string, string> = { zhCN: 'zh-CN' };
 
 // Preselect the country that matches the interface language when it is one of the
 // feeds we know, so the common case is one less decision. `Intl.Locale.maximize()`
 // turns a bare language (pl, de, fr) into a likely region (PL, DE, FR).
-export function defaultHolidayCountry(locale) {
+export function defaultHolidayCountry(locale: string) {
   const known = new Set(HOLIDAY_CALENDARS.map(entry => entry.code));
   try {
     const region = new Intl.Locale(LOCALE_OVERRIDES[locale] || locale || 'en').maximize().region;
@@ -124,7 +124,7 @@ export function defaultHolidayCountry(locale) {
   return 'PL';
 }
 
-export function holidayCountryName(code, locale) {
+export function holidayCountryName(code: string, locale: string) {
   const candidates = [LOCALE_OVERRIDES[locale] || locale, 'en'].filter(Boolean);
   for (const candidate of candidates) {
     try {

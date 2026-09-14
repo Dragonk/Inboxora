@@ -32,7 +32,18 @@ async function createConversation(subject: string) {
   return id;
 }
 
-async function createMessage({ messageId, subject, folder = 'INBOX', uid, from = 'alice@example.test', to = 'me@example.test', providerThreadId = null, provider = null }) {
+type CreateMessageParams = {
+  messageId: string;
+  subject: string;
+  uid: number;
+  folder?: string;
+  from?: string;
+  to?: string;
+  providerThreadId?: string | null;
+  provider?: string | null;
+};
+
+async function createMessage({ messageId, subject, folder = 'INBOX', uid, from = 'alice@example.test', to = 'me@example.test', providerThreadId = null, provider = null }: CreateMessageParams) {
   const id = randomUUID();
   await q(`INSERT INTO messages (
       id, account_id, uid, folder, message_id, subject, from_name, from_email,
@@ -119,7 +130,7 @@ describe('Conversation Engine v2 — real PostgreSQL concurrency', () => {
         .catch((error: unknown) => ({ error: toAppError(error).message })),
     ));
     const sameRowErrors = results.filter(result => result?.error);
-    assert.ok(sameRowErrors.every(result => /serialize|deadlock/i.test(result.error)), `unexpected same-row errors: ${JSON.stringify(sameRowErrors)}`);
+    assert.ok(sameRowErrors.every(result => typeof result.error === 'string' && /serialize|deadlock/i.test(result.error)), `unexpected same-row errors: ${JSON.stringify(sameRowErrors)}`);
     const logicals = await q('SELECT id, conversation_id FROM logical_messages WHERE user_id=$1', [userId]);
     assert.equal(logicals.rows.length, 1, 'same collision key must converge to one LogicalMessage');
     const attached = await q('SELECT logical_message_id, conversation_id FROM messages WHERE id=$1', [messageId]);
@@ -143,7 +154,7 @@ describe('Conversation Engine v2 — real PostgreSQL concurrency', () => {
     }).then(() => ({ error: null as string | null }))
       .catch((error: unknown) => ({ error: toAppError(error).message }))));
     const providerErrors = results.filter(result => result?.error);
-    assert.ok(providerErrors.every(result => /serialize|deadlock/i.test(result.error)), `unexpected provider errors: ${JSON.stringify(providerErrors)}`);
+    assert.ok(providerErrors.every(result => typeof result.error === 'string' && /serialize|deadlock/i.test(result.error)), `unexpected provider errors: ${JSON.stringify(providerErrors)}`);
     const convs = await q(`SELECT COUNT(DISTINCT conversation_id)::int AS count FROM messages WHERE id=ANY($1::uuid[])`, [ids]);
     assert.equal(convs.rows[0].count, 1, 'one strong provider thread must map to one Conversation');
     const mapping = await q(`SELECT COUNT(*)::int AS count FROM provider_thread_mappings WHERE user_id=$1 AND provider_thread_id=$2`, [userId, providerThreadId]);
