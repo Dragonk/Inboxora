@@ -1,3 +1,4 @@
+import type { DbClient } from './db.js';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 // The occurrence materialiser runs in the background, but "background" is not the same as
@@ -10,7 +11,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 // of the total. The real database behaviour is covered by
 // calendarOccurrences.integration.test.js.
 
-const { query, withTransaction, projectCalendarResources } = vi.hoisted<any>(() => ({
+const { query, withTransaction, projectCalendarResources } = vi.hoisted(() => ({
   query: vi.fn(),
   withTransaction: vi.fn(),
   projectCalendarResources: vi.fn(),
@@ -34,7 +35,7 @@ const ROW = {
 beforeEach(() => {
   query.mockReset();
   withTransaction.mockReset();
-  withTransaction.mockImplementation(async fn => fn({ query }));
+  withTransaction.mockImplementation(async (fn: (client: DbClient) => Promise<unknown>) => fn({ query }));
   projectCalendarResources.mockReset();
   projectCalendarResources.mockResolvedValue({ events: [], failures: [], truncated: false });
 });
@@ -70,7 +71,7 @@ describe('calendar occurrence materialisation', () => {
     query.mockResolvedValueOnce({ rows: [ROW] });
     projectCalendarResources.mockResolvedValueOnce({ events: [], failures: [], truncated: true });
     const client = { query: vi.fn().mockResolvedValue({ rows: [] }) };
-    withTransaction.mockImplementationOnce(async fn => fn(client));
+    withTransaction.mockImplementationOnce(async (fn: (transactionClient: typeof client) => Promise<unknown>) => fn(client));
 
     const result = await materializeEvent('event-1', occurrenceHorizon());
 
@@ -78,6 +79,7 @@ describe('calendar occurrence materialisation', () => {
     // The final bookkeeping must record `dirty = true`, so the read path keeps expanding this
     // series on the fly rather than presenting a partial month as complete.
     const finalize = client.query.mock.calls.at(-1);
+    if (finalize === undefined) throw new Error('Expected materialization finalization query');
     expect(finalize[1][4]).toBe(true);
   });
 

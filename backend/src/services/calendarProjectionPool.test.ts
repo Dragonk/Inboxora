@@ -7,11 +7,11 @@ import {
   projectCalendarResources,
 } from './calendarProjectionPool.js';
 
-function ics(lines) {
+function ics(lines: string[]) {
   return ['BEGIN:VCALENDAR', 'VERSION:2.0', 'PRODID:-//Test//EN', ...lines, 'END:VCALENDAR', ''].join('\r\n');
 }
 
-function dailyRow(id, { tzid = null, etag = 'etag-1' } = {}) {
+function dailyRow(id: string, { tzid = null, etag = 'etag-1' }: { tzid?: string | null; etag?: string } = {}) {
   const zoneParameter = tzid ? `;TZID=${tzid}` : '';
   const zoneSuffix = tzid ? '' : 'Z';
   return {
@@ -35,7 +35,7 @@ function dailyRow(id, { tzid = null, etag = 'etag-1' } = {}) {
 const FROM = new Date('2026-09-01T00:00:00Z');
 const TO = new Date('2026-09-15T00:00:00Z');
 
-const previousEnv: Record<string, any> = {};
+const previousEnv: Record<string, string | undefined> = {};
 beforeEach(() => {
   clearCalendarProjectionCache();
   for (const name of ['CALENDAR_PROJECTION_DISABLED', 'CALENDAR_PROJECTION_WORKERS', 'CALENDAR_PROJECTION_MAX_ITERATIONS', 'CALENDAR_PROJECTION_MAX_QUEUE', 'CALENDAR_PROJECTION_TIMEOUT_MS', 'CALENDAR_PROJECTION_CACHE_DISABLED', 'CALENDAR_PROJECTION_CACHE_ENTRIES', 'CALENDAR_PROJECTION_CACHE_TTL_MS']) {
@@ -135,7 +135,9 @@ describe('calendar projection worker pool', () => {
 
     // The wide window must contain its own February occurrences, which lie past the horizon
     // the short request cached. Serving the stale entry would end the result in November.
-    const months = new Set(wide.events.map(event => new Date(event.starts_at).getUTCMonth()));
+    for (const event of wide.events) expect(event.starts_at).toBeInstanceOf(Date);
+    const datedEvents = wide.events.filter((event): event is typeof event & { starts_at: Date } => event.starts_at instanceof Date);
+    const months = new Set(datedEvents.map(event => event.starts_at.getUTCMonth()));
     expect(months.has(1)).toBe(true);
     expect(wide.events.length).toBeGreaterThan(150);
   });
