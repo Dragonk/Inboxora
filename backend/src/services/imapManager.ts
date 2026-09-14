@@ -4037,7 +4037,7 @@ export class ImapManager {
 
         const lock = await client.getMailboxLock(folder);
         try {
-          const uidSet = msgs.map(m => m.uid).join(',');
+          const uidSet = msgs.map((m: { uid?: number | string }) => m.uid).join(',');
           for await (const msg of client.fetch(uidSet, {
             uid: true,
             headers: ['list-unsubscribe', 'list-id', 'list-post', 'precedence'],
@@ -4945,7 +4945,7 @@ export class ImapManager {
   // Fetch multiple attachment parts in a single IMAP round trip.
   // parts: array of { part, encoding } (metadata from messages.attachments).
   // Returns Map<partNum, Buffer> — missing or empty parts are omitted.
-  async fetchMultipleAttachments(account: EmailAccountRow, uid: number | string, folder: string, parts) {
+  async fetchMultipleAttachments(account: EmailAccountRow, uid: number | string, folder: string, parts: Array<{ part: string; filename?: string; type?: string; encoding?: string; size?: number; [key: string]: unknown }>) {
     return withFreshClient(account, async (client) => {
       const lock = await client.getMailboxLock(folder);
       try {
@@ -4969,7 +4969,7 @@ export class ImapManager {
           if (msg.bodyParts) {
             for (const [partNum, buf] of msg.bodyParts) {
               if (!buf || buf.length === 0) continue;
-              const inputPart = parts.find(p => p.part === partNum);
+              const inputPart = parts.find((p: { part: string }) => p.part === partNum);
               const encoding = liveEncodings.get(partNum) || inputPart?.encoding || 'base64';
               buffers.set(partNum, decodeAttachmentBuffer(buf, encoding));
             }
@@ -4983,7 +4983,7 @@ export class ImapManager {
     });
   }
 
-  async setFlag(account: EmailAccountRow, uid: number | string, folder: string, flag: string, value) {
+  async setFlag(account: EmailAccountRow, uid: number | string, folder: string, flag: string, value: boolean) {
     console.log(`setFlag: uid=${uid} folder=${folder} flag=${flag} value=${value}`);
     // Up to 2 attempts. ImapFlow returns false when the server did NOT apply the flag —
     // typically a stale/half-open pooled connection whose SELECT view is missing the UID.
@@ -5069,7 +5069,7 @@ export class ImapManager {
     });
   }
 
-  async renameFolder(account: EmailAccountRow, oldPath, newPath) {
+  async renameFolder(account: EmailAccountRow, oldPath: string, newPath: string) {
     return withFreshClient(account, async (client) => {
       await client.mailboxRename(oldPath, newPath);
     });
@@ -5101,7 +5101,7 @@ export class ImapManager {
   // the messages; `apply(client, range)` runs the IMAP command for a UID range and returns
   // imapflow's truthy/false result. Returns the count processed; throws (with progress) if a
   // chunk cannot be confirmed.
-  async _chunkedFolderOp(client, folder: string, searchQuery, apply, { label = 'operation', chunkSize = 500, retryBackoffMs = 500 } = {}) {
+  async _chunkedFolderOp(client: ImapClient, folder: string, searchQuery: unknown, apply: (client: ImapClient, range: unknown) => Promise<boolean>, { label = 'operation', chunkSize = 500, retryBackoffMs = 500 } = {}) {
     const uids = await searchUids(client, searchQuery);
     if (!uids || uids.length === 0) return 0;
     let done = 0;
@@ -5129,10 +5129,10 @@ export class ImapManager {
 
   // Delete every message in the locked folder, chunked (see _chunkedFolderOp). The caller
   // leaves the DB rows in place on throw so the next sync reconciles.
-  async _deleteAllInFolder(client, folder: string, opts = {}) {
+  async _deleteAllInFolder(client: ImapClient, folder: string, opts: { label?: string; chunkSize?: number; retryBackoffMs?: number } = {}) {
     return this._chunkedFolderOp(
       client, folder, { all: true },
-      (c, range) => c.messageDelete(range, { uid: true }),
+      (c: ImapClient, range: unknown) => c.messageDelete(range, { uid: true }),
       { label: 'messageDelete', ...opts },
     );
   }
