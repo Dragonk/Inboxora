@@ -66,8 +66,8 @@ cd frontend && npm run typecheck     # tsc --noEmit
   declares the columns a call reads, and that is the expected form for new queries.
 - **`strict` is enabled and is the reference mode.** Both projects carry `tsconfig.strict.json`
   (`strict: true`, `noImplicitAny: true`). It is **not yet clean**: the current counts are
-  `cd backend && npx tsc -p tsconfig.strict.json --noEmit` → 1231 and the same in `frontend` →
-  2073 (3304 together). New code must be written strict-clean; run that command and reduce the
+  `cd backend && npx tsc -p tsconfig.strict.json --noEmit` → 1224 and the same in `frontend` →
+  2073 (3297 together). New code must be written strict-clean; run that command and reduce the
   count when you touch a file. Each finding is visible in the build — nothing is suppressed.
 - **`any` must not creep back in.** When you touch a file, leave it typed; a new `any` in a pull
   request should be justified in the description or replaced with a declared shape.

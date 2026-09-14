@@ -63,11 +63,11 @@ One item is deliberately left for later, and it does not affect runtime behaviou
   `tsconfig.strict.json` that turns them on, and it is the reference mode for this work:
 
   ```bash
-  cd backend  && npx tsc -p tsconfig.strict.json --noEmit   # 1231 findings
+  cd backend  && npx tsc -p tsconfig.strict.json --noEmit   # 1224 findings
   cd frontend && npx tsc -p tsconfig.strict.json --noEmit   # 2073 findings
   ```
 
-  That is **3304** findings in total, overwhelmingly `noImplicitAny` on function parameters and
+  That is **3297** findings in total, overwhelmingly `noImplicitAny` on function parameters and
   destructured bindings. **None is suppressed** - there is no `@ts-ignore`, no `@ts-nocheck`,
   no `as any` - so every one is visible in the build. Closing them is a per-site typing task:
   the shared-declaration route works (typing one helper or state fixed 37 findings in a single
