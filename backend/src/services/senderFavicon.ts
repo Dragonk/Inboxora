@@ -164,9 +164,9 @@ async function cacheResult(cache: SenderFaviconCache, domain: string, result: Se
 // entry and the inflight promise always carry the domain's fully resolved
 // outcome (image or its final miss), so sibling subdomains reuse it and
 // concurrent callers — direct or walking — dedupe onto the same resolution.
-async function resolveDomain(domain: string, deps: ResolvedDeps) {
+async function resolveDomain(domain: string, deps: ResolvedDeps): Promise<SenderFaviconResult> {
   const key = cacheKey(domain);
-  let cached;
+  let cached: string | null;
   try { cached = await deps.cache.get(key); }
   catch { return miss('cache-unavailable'); }
   if (cached != null) {
@@ -175,8 +175,9 @@ async function resolveDomain(domain: string, deps: ResolvedDeps) {
       try { await deps.cache.del(key); } catch { /* best effort */ }
     }
   }
-  if (inflight.has(domain)) return inflight.get(domain);
-  const pending = resolveWithParents(domain, deps).finally(() => inflight.delete(domain));
+  const active = inflight.get(domain);
+  if (active) return active;
+  const pending: Promise<SenderFaviconResult> = resolveWithParents(domain, deps).finally(() => inflight.delete(domain));
   inflight.set(domain, pending);
   return pending;
 }
@@ -189,12 +190,12 @@ async function resolveDomain(domain: string, deps: ResolvedDeps) {
 // standing. Resolution is context-free — the result depends only on the domain,
 // never on which caller started the walk — so the outcome cached under this
 // domain's own key means direct and indirect lookups can never disagree.
-async function resolveWithParents(domain: string, deps: ResolvedDeps) {
+async function resolveWithParents(domain: string, deps: ResolvedDeps): Promise<SenderFaviconResult> {
   let result: SenderFaviconResult = await fetchProvider(domain, deps);
   if (result.kind === 'miss' && result.reason === 'not-found') {
     const parent = nextParent(domain);
     if (parent) {
-      const step = await resolveDomain(parent, deps);
+      const step: SenderFaviconResult = await resolveDomain(parent, deps);
       if (step.kind === 'image') result = step;
       else if (step.reason === 'transient' || step.reason === 'cache-unavailable') result = miss('transient');
     }

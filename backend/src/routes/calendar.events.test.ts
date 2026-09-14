@@ -5,6 +5,7 @@
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import { listeningPort } from '../test/net.js';
 import type { Server } from 'node:http';
+import type { NextFunction, Request, Response } from 'express';
 import type { JsonBody } from '../test/json.js';
 import 'express-async-errors';
 
@@ -27,7 +28,7 @@ beforeAll(async () => {
   const app = express();
   app.use(express.json());
   app.use('/api/calendar', calendarRouter);
-  app.use((error, _req, res, next) => { void next; return res.status(500).json({ error: error.message }); });
+  app.use((error: Error, _req: Request, res: Response, next: NextFunction) => { void next; return res.status(500).json({ error: error.message }); });
   await new Promise((resolve) => { server = app.listen(0, resolve); });
   base = `http://127.0.0.1:${listeningPort(server)}`;
 });
@@ -156,6 +157,7 @@ describe('GET /api/calendar/events calendar selection', () => {
 
     const response = await fetch(`${base}/api/calendar/events?${RANGE}`);
     const { events } = (await response.json()) as JsonBody;
+    if (events === undefined) throw new Error('Expected calendar events in response');
     expect(events[0]).toMatchObject({
       summary: 'Z zaproszenia', source_message_id: 'copy-1', source_folder: 'INBOX', source_account_id: 'account-1',
     });

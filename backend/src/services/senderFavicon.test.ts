@@ -136,6 +136,7 @@ describe('getSenderFavicon', () => {
     expect(fetchImpl.mock.calls[0][0]).not.toContain('@');
     expect(fetchImpl.mock.calls[0][1]).toMatchObject({ redirect: 'error' });
     expect(result).toMatchObject({ kind: 'image', source: 'upstream' });
+    if (result.kind !== 'image') throw new Error('expected an image favicon');
     expect(result.bytes.equals(png(64))).toBe(true);
     const [key, serialized, options] = cache.set.mock.calls[0];
     expect(key).toMatch(/^sender-favicon:v2:[a-f0-9]{64}$/);

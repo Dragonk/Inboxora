@@ -2,6 +2,7 @@ import { describe, it, expect, vi } from 'vitest';
 import http from 'node:http';
 import express from 'express';
 import senderFaviconsRouter, { createSenderFaviconHandler } from './senderFavicons.js';
+import type { SenderFaviconResult } from '../services/senderFavicon.js';
 import { listeningPort } from '../test/net.js';
 
 function request(domain = 'example.com') {
@@ -32,7 +33,7 @@ function dependencies(preferences = {}) {
   return {
     queryFn: vi.fn(async () => ({ rows: [{ preferences }] })),
     consumeFn: vi.fn(async () => ({ limited: false, resetMs: 60_000 })),
-    getFavicon: vi.fn(async (): Promise<{ kind: string; reason?: string; bytes?: Buffer; source?: string }> => ({ kind: 'miss', reason: 'not-found' })),
+    getFavicon: vi.fn(async (): Promise<SenderFaviconResult> => ({ kind: 'miss', reason: 'not-found' })),
     normalizeDomain: vi.fn(value => value === 'bad' ? null : value.toLowerCase()),
   };
 }

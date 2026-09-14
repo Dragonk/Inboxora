@@ -66,6 +66,30 @@ function asText(value: unknown): string {
   return typeof value === 'string' ? value : '';
 }
 
+interface MovePickerFolder {
+  path: string;
+  name?: string;
+  [key: string]: unknown;
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null;
+}
+
+function parseMovePickerFolders(data: unknown): MovePickerFolder[] {
+  const candidates: unknown[] = Array.isArray(data)
+    ? data
+    : isRecord(data) && Array.isArray(data.folders)
+      ? data.folders
+      : [];
+
+  return candidates.flatMap(folder => {
+    if (!isRecord(folder) || typeof folder.path !== 'string') return [];
+    const { path, name } = folder;
+    return typeof name === 'string' ? [{ ...folder, path, name }] : [{ ...folder, path }];
+  });
+}
+
 function _formatBytes(bytes: number): string {
   if (!bytes) return '';
   if (bytes < 1024) return `${bytes} B`;
@@ -356,7 +380,7 @@ export default function MessagePane({ windowMessageId = null, onWindowClose = nu
   const [paneScrolled, setPaneScrolled] = useState(false);
   const [showHeaderModal, setShowHeaderModal] = useState(false);
   const [resolvedSubject, setResolvedSubject] = useState<string | null>(null);
-  const [movePickerFolders, setMovePickerFolders] = useState<Array<{ path: string; name?: string | null; [key: string]: unknown }>>([]);
+  const [movePickerFolders, setMovePickerFolders] = useState<MovePickerFolder[]>([]);
   const [movePickerLoading, setMovePickerLoading] = useState(false);
   const [contextMenu, setContextMenu] = useState<{
     x: number;
@@ -1370,7 +1394,7 @@ ${bodyContent}
     setMovePickerLoading(true);
     try {
       const data = await api.getFolders(message.account_id);
-      setMovePickerFolders(Array.isArray(data) ? data : (data.folders || []));
+      setMovePickerFolders(parseMovePickerFolders(data));
     } catch (err) {
       console.error('Failed to load folders:', err);
       setMovePickerFolders([]);
@@ -1947,9 +1971,11 @@ ${bodyContent}
             <HeaderAction icon="compose" label={t('sidebar.compose')} onClick={openComposeFromMobileHeader} />
           </MobileModuleHeader>
         )}
-        <Suspense fallback={<div style={{ padding: 24, textAlign: 'center', color: 'var(--text-tertiary)' }}>{t('conversation.loading')}</div>}>
-          <ConversationReader conversationId={conversationId} targetLogicalMessageId={targetLogicalMessageId} selectedCopyId={selectedConversationCopy?.id} selectedAccountId={selectedConversationCopy?.accountId} accounts={accounts} onReply={onReply ?? undefined} nativeThreadId={nativeThreadId} nativeFolder={nativeFolder} onNativeThreadUnavailable={onNativeThreadUnavailable ?? undefined} />
-        </Suspense>
+        {conversationId !== null && (
+          <Suspense fallback={<div style={{ padding: 24, textAlign: 'center', color: 'var(--text-tertiary)' }}>{t('conversation.loading')}</div>}>
+            <ConversationReader conversationId={conversationId} targetLogicalMessageId={targetLogicalMessageId} selectedCopyId={selectedConversationCopy?.id} selectedAccountId={selectedConversationCopy?.accountId} accounts={accounts} onReply={onReply ?? undefined} nativeThreadId={nativeThreadId} nativeFolder={nativeFolder} onNativeThreadUnavailable={onNativeThreadUnavailable ?? undefined} />
+          </Suspense>
+        )}
       </div>
     );
   }

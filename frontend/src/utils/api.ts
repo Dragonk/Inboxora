@@ -1,3 +1,4 @@
+import type { StoreMessageRow } from '../store/index.ts';
 import type { GtdFolderMap } from './gtd.ts';
 
 const BASE = '/api';
@@ -27,6 +28,10 @@ export interface CalendarEventPayload {
 }
 
 export type QueryParams = Record<string, string | number | boolean | null | undefined>;
+
+export interface ThreadResponse {
+  messages: StoreMessageRow[];
+}
 
 /** Serialise query parameters, dropping absent values. */
 export function toSearchParams(params: QueryParams): string {
@@ -277,7 +282,7 @@ export const api = {
     return request('GET', `/mail/resolve-message?${qs}`);
   },
   getMessageBody,
-  getThread: (threadId: string, folder: string, unified = false, accountId: string | null = null) =>{
+  getThread: (threadId: string, folder: string, unified = false, accountId: string | null = null): Promise<ThreadResponse> =>{
     const qs = new URLSearchParams();
     if (folder) qs.set('folder', folder);
     if (unified) qs.set('unified', 'true');

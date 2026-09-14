@@ -1,13 +1,19 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest';
+import type { redisClient } from './redis.js';
+
+type RedisKey = Parameters<typeof redisClient.incr>[0];
+type RedisEntry = { v: number; exp: number };
 
 // Shared mock Redis state (hoisted so the vi.mock factory can reference it).
-const { rs } = vi.hoisted<any>(() => ({ rs: { fail: false, store: new Map() } }));
+const { rs } = vi.hoisted(() => ({
+  rs: { fail: false, store: new Map<RedisKey, RedisEntry>() },
+}));
 vi.mock('./redis.js', () => ({
   redisClient: {
-    async incr(k)        { if (rs.fail) throw new Error('down'); const e = rs.store.get(k) || { v: 0, exp: 0 }; e.v++; rs.store.set(k, e); return e.v; },
-    async pExpire(k, ms: number) { if (rs.fail) throw new Error('down'); const e = rs.store.get(k); if (e) e.exp = Date.now() + ms; return true; },
-    async pTTL(k)        { if (rs.fail) throw new Error('down'); const e = rs.store.get(k); return e ? (e.exp - Date.now()) : -2; },
-    async del(k)         { if (rs.fail) throw new Error('down'); rs.store.delete(k); return 1; },
+    async incr(k: RedisKey) { if (rs.fail) throw new Error('down'); const e = rs.store.get(k) || { v: 0, exp: 0 }; e.v++; rs.store.set(k, e); return e.v; },
+    async pExpire(k: RedisKey, ms: number) { if (rs.fail) throw new Error('down'); const e = rs.store.get(k); if (e) e.exp = Date.now() + ms; return true; },
+    async pTTL(k: RedisKey) { if (rs.fail) throw new Error('down'); const e = rs.store.get(k); return e ? (e.exp - Date.now()) : -2; },
+    async del(k: RedisKey) { if (rs.fail) throw new Error('down'); rs.store.delete(k); return 1; },
   },
 }));
 

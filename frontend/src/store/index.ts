@@ -120,7 +120,7 @@ export interface StoreState {
   setHasMoreMessages: (v: boolean) => void;
   selectedMessageId: string | null;
   lastViewedMessageId: string | null;
-  setSelectedMessage: (id: string) => void;
+  setSelectedMessage: (id: string | null) => void;
   unreadCounts: {
       total: number;
       byAccount: Record<string, number>;
@@ -692,7 +692,7 @@ export const useStore = create<StoreState>()((set, get) => ({
   // Selected message
   selectedMessageId: null,
   lastViewedMessageId: null,
-  setSelectedMessage: (id: string) =>set(id ? { selectedMessageId: id, lastViewedMessageId: id } : { selectedMessageId: null }),
+  setSelectedMessage: (id: string | null) =>set(id ? { selectedMessageId: id, lastViewedMessageId: id } : { selectedMessageId: null }),
 
   // Unread counts
   unreadCounts: { total: 0, byAccount: {} },

@@ -4,7 +4,12 @@ import { randomUUID } from 'crypto';
 import express from 'express';
 import 'express-async-errors';
 import { pool, query } from '../services/db.js';
-const auth = vi.hoisted<any>(() => ({ userId: null }));
+import type { authenticateDavCredential } from '../services/davCredentials.js';
+
+type DavCredential = NonNullable<Awaited<ReturnType<typeof authenticateDavCredential>>>;
+type DavAuthState = Omit<DavCredential, 'userId'> & { userId: DavCredential['userId'] | null };
+
+const auth = vi.hoisted<DavAuthState>(() => ({ userId: null, credentialId: 'synthetic-dav-credential' }));
 vi.mock('../services/davCredentials.js', () => ({ authenticateDavCredential: async () => auth }));
 vi.mock('../services/rateLimiter.js', () => ({ consume: async () => ({ limited: false }) }));
 vi.mock('../services/authEvents.js', () => ({ logAuthEvent: () => {} }));
@@ -16,7 +21,12 @@ const enabled = process.env.REQUIRE_DAV_POSTGRES === '1';
 describe.skipIf(!enabled)('DAV HTTP with PostgreSQL migrations', () => {
   let server: Server, base: string, book: string, calendar: string;
   const headers = { authorization: `Basic ${Buffer.from('synthetic:dav-test').toString('base64')}` };
-  const report = (token = '') => `<D:sync-collection xmlns:D="DAV:"><D:sync-token>${token || ''}</D:sync-token></D:sync-collection>`;
+  const report = (token = '') => `<D:sync-collection xmlns:D="DAV:"><D:sync-token>${token}</D:sync-token></D:sync-collection>`;
+  const requireEtag = (response: Response): string => {
+    const etag = response.headers.get('etag');
+    if (etag === null) throw new Error('DAV response did not include an ETag');
+    return etag;
+  };
   beforeAll(async () => {
     auth.userId = randomUUID();
     await query('INSERT INTO users(id, username, password_hash) VALUES($1,$2,$3)', [auth.userId, `dav-test-${auth.userId}`, 'unused']);
@@ -42,11 +52,13 @@ describe.skipIf(!enabled)('DAV HTTP with PostgreSQL migrations', () => {
     expect(row).toMatchObject({ uid: 'embedded-contact', title: 'Engineer', role: 'Research', primary_email: 'ada@example.test', dav_filename: 'client-generated.vcf' });
     expect(row.addresses).toHaveLength(1);
     const initial = await (await fetch(collection, { method: 'REPORT', headers, body: report() })).text();
-    const token = initial.match(/<D:sync-token>([^<]+)</)[1];
+    const tokenMatch = initial.match(/<D:sync-token>([^<]+)</);
+    if (tokenMatch === null) throw new Error('DAV sync REPORT did not include a sync token');
+    const token = tokenMatch[1];
     expect((await fetch(url, { method: 'PUT', headers: { ...headers, 'if-match': '"stale"' }, body })).status).toBe(412);
-    const updated = await fetch(url, { method: 'PUT', headers: { ...headers, 'if-match': get.headers.get('etag') }, body: body.replace('FN:Ada', 'FN:Ada Lovelace') });
+    const updated = await fetch(url, { method: 'PUT', headers: { ...headers, 'if-match': requireEtag(get) }, body: body.replace('FN:Ada', 'FN:Ada Lovelace') });
     expect(updated.status).toBe(204);
-    expect((await fetch(url, { method: 'DELETE', headers: { ...headers, 'if-match': updated.headers.get('etag') } })).status).toBe(204);
+    expect((await fetch(url, { method: 'DELETE', headers: { ...headers, 'if-match': requireEtag(updated) } })).status).toBe(204);
     const delta = await (await fetch(collection, { method: 'REPORT', headers, body: report(token) })).text();
     expect(delta).toContain('client-generated.vcf</D:href><D:status>HTTP/1.1 404 Not Found');
     expect((await fetch(url, { headers })).status).toBe(404);
@@ -58,10 +70,10 @@ describe.skipIf(!enabled)('DAV HTTP with PostgreSQL migrations', () => {
     expect(created.status).toBe(201);
     expect(await (await fetch(url, { headers })).text()).toContain('DESCRIPTION:Visible details');
     expect((await query('SELECT description, location FROM calendar_events WHERE calendar_id=$1', [calendar])).rows[0]).toEqual({ description: 'Visible details', location: 'Room 1' });
-    const updates = await Promise.all([1, 2].map(n => fetch(url, { method: 'PUT', headers: { ...headers, 'if-match': created.headers.get('etag') }, body: body.replace('SUMMARY:Planning', `SUMMARY:Planning ${n}`) })));
+    const updates = await Promise.all([1, 2].map(n => fetch(url, { method: 'PUT', headers: { ...headers, 'if-match': requireEtag(created) }, body: body.replace('SUMMARY:Planning', `SUMMARY:Planning ${n}`) })));
     expect(updates.map(result => result.status).sort()).toEqual([204, 412]);
     const current = await fetch(url, { headers });
-    expect((await fetch(url, { method: 'DELETE', headers: { ...headers, 'if-match': current.headers.get('etag') } })).status).toBe(204);
+    expect((await fetch(url, { method: 'DELETE', headers: { ...headers, 'if-match': requireEtag(current) } })).status).toBe(204);
     expect((await query('SELECT deleted, dav_filename FROM calendar_sync_changes WHERE calendar_id=$1 ORDER BY version DESC LIMIT 1', [calendar])).rows[0]).toEqual({ deleted: true, dav_filename: 'client-generated.ics' });
   });
 });
