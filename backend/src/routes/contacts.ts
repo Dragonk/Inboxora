@@ -335,7 +335,7 @@ router.get('/address-books/:id/export', async (req, res) => {
   const format = queryStringOr(req.query.format, '');
   if (!['google-csv', 'outlook-csv', 'vcard'].includes(format)) return res.status(400).json({ error: 'Unsupported export format' });
   try {
-    const book = await query('SELECT id, name FROM address_books WHERE id = $1 AND user_id = $2', [routeParam(req.params.id), sessionUserId(req)]);
+    const book = await query<{ id: string; name?: string | null }>('SELECT id, name FROM address_books WHERE id = $1 AND user_id = $2', [routeParam(req.params.id), sessionUserId(req)]);
     if (!book.rows.length) return res.status(404).json({ error: 'Address book not found' });
     const contacts = await query(`SELECT uid, display_name, first_name, last_name, emails, phones, organization, title, notes FROM contacts WHERE address_book_id = $1 ORDER BY lower(coalesce(display_name, primary_email, ''))`, [book.rows[0].id]);
     const filename = `${book.rows[0].name.replace(/[^a-z0-9_-]+/gi, '-') || 'contacts'}`;

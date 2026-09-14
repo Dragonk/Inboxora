@@ -201,7 +201,7 @@ function rememberOidcSession(req, providerId, idToken) {
 export async function buildEndSessionUrl({ providerId, idToken }: EndSessionInput = {}) {
   if (!providerId) return null;
   try {
-    const { rows } = await query(
+    const { rows } = await query<{ issuer_url: string; client_id: string; allow_insecure?: boolean | null; rp_initiated_logout?: boolean | null }>(
       'SELECT issuer_url, client_id, allow_insecure, rp_initiated_logout FROM oidc_providers WHERE id = $1',
       [providerId]
     );
