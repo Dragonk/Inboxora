@@ -378,7 +378,7 @@ router.post('/conversations/:id/merge', async (req: Request, res: Response) => {
   if (!targetConversationId) return res.status(400).json({ error: 'targetConversationId required' });
   try {
     const result = await applyConversationOverride({
-      userId: req.session.userId,
+      userId: sessionUserId(req),
       conversationId: req.params.id,
       overrideType: 'manual-merge',
       targetId: targetConversationId,
@@ -398,7 +398,7 @@ router.post('/conversations/:id/logical-messages/:logicalMessageId/split', async
   const { includeReplies = false } = req.body || {};
   try {
     const result = await applyConversationOverride({
-      userId: req.session.userId,
+      userId: sessionUserId(req),
       conversationId: req.params.id,
       logicalMessageId: routeParam(req.params.logicalMessageId),
       scope: includeReplies ? 'message-with-descendants' : 'message-only',
@@ -419,7 +419,7 @@ router.post('/conversations/:id/logical-messages/:logicalMessageId/move', async 
   if (!targetConversationId) return res.status(400).json({ error: 'targetConversationId required' });
   try {
     const result = await applyConversationOverride({
-      userId: req.session.userId,
+      userId: sessionUserId(req),
       conversationId: req.params.id,
       logicalMessageId: routeParam(req.params.logicalMessageId),
       overrideType: 'manual-move',
@@ -437,7 +437,7 @@ router.post('/conversations/:id/logical-messages/:logicalMessageId/move', async 
 router.post('/conversations/:id/lock', async (req: Request, res: Response) => {
   try {
     const result = await applyConversationOverride({
-      userId: req.session.userId,
+      userId: sessionUserId(req),
       conversationId: req.params.id,
       overrideType: 'lock-conversation',
     });
@@ -452,7 +452,7 @@ router.post('/conversations/:id/lock', async (req: Request, res: Response) => {
 router.post('/conversations/:id/unlock', async (req: Request, res: Response) => {
   try {
     const result = await applyConversationOverride({
-      userId: req.session.userId,
+      userId: sessionUserId(req),
       conversationId: req.params.id,
       overrideType: 'unlock-conversation',
     });
@@ -467,7 +467,7 @@ router.post('/conversations/:id/unlock', async (req: Request, res: Response) => 
 // Force include/exclude a logical message in/from a conversation
 router.post('/conversations/:id/logical-messages/:logicalMessageId/force-include', async (req: Request, res: Response) => {
   const result = await applyConversationOverride({
-    userId: req.session.userId,
+    userId: sessionUserId(req),
     conversationId: req.params.id,
     logicalMessageId: routeParam(req.params.logicalMessageId),
     scope: 'message-only',
@@ -479,7 +479,7 @@ router.post('/conversations/:id/logical-messages/:logicalMessageId/force-include
 
 router.post('/conversations/:id/logical-messages/:logicalMessageId/force-exclude', async (req: Request, res: Response) => {
   const result = await applyConversationOverride({
-    userId: req.session.userId,
+    userId: sessionUserId(req),
     conversationId: req.params.id,
     logicalMessageId: routeParam(req.params.logicalMessageId),
     scope: 'message-only',

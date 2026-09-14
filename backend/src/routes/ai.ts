@@ -21,7 +21,7 @@ import {
 const router = Router();
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
-const AI_LANGUAGE_NAMES = {
+const AI_LANGUAGE_NAMES: Record<string, string> = {
   en: 'English',
   ru: 'Russian',
   de: 'German',
@@ -32,23 +32,29 @@ const AI_LANGUAGE_NAMES = {
   pl: 'Polish',
 };
 
-export function aiLanguageInstruction(language) {
-  const name = Object.hasOwn(AI_LANGUAGE_NAMES, language)
+export function aiLanguageInstruction(language: string | null | undefined) {
+  const name = typeof language === 'string' && Object.hasOwn(AI_LANGUAGE_NAMES, language)
     ? AI_LANGUAGE_NAMES[language]
     : 'the user interface language';
   return `Always respond in ${name}, unless the user explicitly asks for another language. For email drafting and rewriting, preserve the original email language when it differs from ${name}.`;
 }
 
-function serviceError(res, error, fallback = 'Request failed') {
-  const status = Number.isInteger(error?.status) && error.status >= 400 && error.status < 600
-    ? error.status
-    : 500;
+function serviceError(res: Response, error: unknown, fallback = 'Request failed') {
+  const message =
+    typeof error === 'object' && error !== null && 'message' in error ? error.message : undefined;
+  const status =
+    typeof error === 'object' && error !== null
+    && 'status' in error && typeof error.status === 'number' && Number.isInteger(error.status)
+    && error.status >= 400 && error.status < 600
+      ? error.status
+      : 500;
   // Client errors (4xx) and provider errors explicitly marked safe to expose
   // carry their real message; other 5xx fall back to a generic message. Always
   // log server-side on 5xx so the reason is recoverable even when it's hidden.
-  const expose = status < 500 || error?.expose === true;
-  if (status >= 500) console.error(`${fallback}:`, error?.message || error);
-  return res.status(status).json({ error: expose ? error.message : fallback });
+  const expose = status < 500
+    || (typeof error === 'object' && error !== null && 'expose' in error && error.expose === true);
+  if (status >= 500) console.error(`${fallback}:`, message || error);
+  return res.status(status).json({ error: expose ? message : fallback });
 }
 
 function owner(req: Request) {
@@ -161,7 +167,7 @@ router.get('/ai/status', requireAuth, async (_req: Request, res: Response) => {
   }
 });
 
-function validateMessages(messages) {
+function validateMessages(messages: unknown) {
   if (!Array.isArray(messages) || messages.length === 0) return 'messages array is required';
   for (const message of messages) {
     if (!message?.role || typeof message.content !== 'string') return 'Each message must have role and content';

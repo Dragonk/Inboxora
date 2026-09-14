@@ -674,7 +674,7 @@ export function createOpenAiCodexAuth({
     return completed ? { status: 'connected' } : { status: 'cancelled' };
   }
 
-  async function pollDeviceFlow({ flowId, userId, sessionId }: { flowId: string; userId: string; sessionId: string | null }) {
+  async function pollDeviceFlow({ flowId, userId, sessionId }: { flowId: string; userId?: string | null; sessionId: string | null }) {
     const time = now();
     const claim = await store.claimFlow({
       id: flowId,
@@ -755,7 +755,7 @@ export function createOpenAiCodexAuth({
     }
   }
 
-  async function cancelDeviceFlow({ flowId, userId, sessionId }: { flowId: string; userId: string; sessionId: string | null }) {
+  async function cancelDeviceFlow({ flowId, userId, sessionId }: { flowId: string; userId?: string | null; sessionId: string | null }) {
     const cancelled = await store.cancelFlow({ id: flowId, ...owner(userId, sessionId) });
     if (!cancelled) throw new CodexAuthError('Device authorization not found', { status: 404 });
     return { status: 'cancelled' };
