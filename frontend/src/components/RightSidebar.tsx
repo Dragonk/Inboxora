@@ -1,7 +1,16 @@
 import { useState } from 'react';
 import { useTranslation } from 'react-i18next';
 
-export default function RightSidebar({ title, headerAccessory, onCollapse, toggleHint, children }) {
+/** The collapsible right rail used by the module sidebars. */
+interface RightSidebarProps {
+  title: string;
+  headerAccessory?: React.ReactNode;
+  onCollapse?: () => void;
+  toggleHint?: string;
+  children?: React.ReactNode;
+}
+
+export default function RightSidebar({ title, headerAccessory, onCollapse, toggleHint, children }: RightSidebarProps) {
   const { t } = useTranslation();
   const [collapseHover, setCollapseHover] = useState(false);
 

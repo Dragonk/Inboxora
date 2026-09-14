@@ -43,6 +43,12 @@ interface ConversationReaderProps {
 }
 
 
+/** A fetched message body as the reader caches it. */
+interface MessageBody { html?: string | null; text?: string | null; body_html?: string | null; body_text?: string | null; attachments?: unknown[]; remoteImages?: boolean; remote_images?: boolean; [key: string]: unknown }
+
+/** Whether a body is loading or unavailable. */
+interface MessageBodyStatus { loading?: boolean; unavailable?: boolean; [key: string]: unknown }
+
 export default function ConversationReader({ conversationId, targetLogicalMessageId = null, selectedCopyId = null, selectedAccountId = null, accounts = [], onReply, nativeThreadId = null, nativeFolder = null, onNativeThreadUnavailable }: ConversationReaderProps) {
   const { t } = useTranslation();
   const [data, setData] = useState<ConversationReaderData | null>(null);
@@ -50,8 +56,8 @@ export default function ConversationReader({ conversationId, targetLogicalMessag
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
   // Body/cache/request identity is the physical copy ID. A logical message can
   // resolve to a different copy when the selected account/target changes.
-  const [bodiesByCopy, setBodiesByCopy] = useState<Record<string, unknown>>({});
-  const [bodyStatusByCopy, setBodyStatusByCopy] = useState<Record<string, unknown>>({});
+  const [bodiesByCopy, setBodiesByCopy] = useState<Record<string, MessageBody>>({});
+  const [bodyStatusByCopy, setBodyStatusByCopy] = useState<Record<string, MessageBodyStatus>>({});
   const bodiesRef = useRef({});
   const statusRef = useRef({});
   const aborters = useRef(new Map());
