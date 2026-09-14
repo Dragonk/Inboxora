@@ -1,4 +1,19 @@
 import { Router } from 'express';
+
+/** A user row as the auth routes read it. */
+interface UserRow {
+  id: string;
+  username?: string | null;
+  is_admin?: boolean;
+  totp_enabled?: boolean;
+  totp_secret?: string | null;
+  recovery_email?: string | null;
+  password_hash?: string | null;
+  lock_pin_hash?: string | null;
+  [key: string]: unknown;
+}
+
+
 import type { CookieOptions } from 'express';
 import bcrypt from 'bcryptjs';
 import crypto from 'crypto';
@@ -245,7 +260,7 @@ router.post('/login', authLimiter, async (req, res) => {
       return res.status(403).json({ error: 'Password login is disabled. Please sign in with your SSO provider.' });
     }
 
-    const result = await query('SELECT * FROM users WHERE username = $1', [username.toLowerCase().trim()]);
+    const result = await query<UserRow>('SELECT * FROM users WHERE username = $1', [username.toLowerCase().trim()]);
     const user = result.rows[0];
     if (!user) {
       // Run a dummy bcrypt compare so the response time doesn't reveal whether the
@@ -367,7 +382,7 @@ router.post('/2fa/challenge', authLimiter, async (req, res) => {
     return res.status(429).json({ error: 'Too many attempts. Please log in again.' });
   }
 
-  const result = await query('SELECT * FROM users WHERE id = $1', [req.session.pendingUserId]);
+  const result = await query<UserRow>('SELECT * FROM users WHERE id = $1', [req.session.pendingUserId]);
   const user = result.rows[0];
   if (!user || !user.totp_secret) {
     logAuthEvent('totp_fail', { userId: req.session.pendingUserId, ip: req.ip, success: false });
@@ -453,7 +468,7 @@ router.post('/2fa/send-email-otp', authLimiter, async (req, res) => {
     return res.status(429).json({ error: 'Too many code requests. Please wait before requesting another.' });
   }
 
-  const userResult = await query('SELECT recovery_email FROM users WHERE id = $1', [uid]);
+  const userResult = await query<UserRow>('SELECT recovery_email FROM users WHERE id = $1', [uid]);
   const recoveryEmail = userResult.rows[0]?.recovery_email;
   if (!recoveryEmail) return res.status(400).json({ error: 'No recovery email configured' });
 
@@ -503,7 +518,7 @@ router.post('/2fa/verify-email-otp', authLimiter, async (req, res) => {
 
   await query('UPDATE email_otp_tokens SET used_at = NOW() WHERE id = $1', [tokenResult.rows[0].id]);
 
-  const userResult = await query('SELECT * FROM users WHERE id = $1', [uid]);
+  const userResult = await query<UserRow>('SELECT * FROM users WHERE id = $1', [uid]);
   const user = userResult.rows[0];
   if (!user) return res.status(401).json({ error: 'Authentication failed' });
 
@@ -577,7 +592,7 @@ router.post('/2fa/enrollment/enable', authLimiter, async (req, res) => {
     [encrypt(secret), uid]
   );
 
-  const userResult = await query('SELECT * FROM users WHERE id = $1', [uid]);
+  const userResult = await query<UserRow>('SELECT * FROM users WHERE id = $1', [uid]);
   const user = userResult.rows[0];
   if (!user) return res.status(401).json({ error: 'Authentication failed' });
 
@@ -655,7 +670,7 @@ router.post('/unlock', async (req, res) => {
   if (!req.session.userId) return res.status(401).json({ error: 'Not authenticated' });
   const pin = String(req.body?.pin ?? '');
   if (!pin) return res.status(400).json({ error: 'PIN required' });
-  const result = await query('SELECT lock_pin_hash FROM users WHERE id = $1', [req.session.userId]);
+  const result = await query<UserRow>('SELECT lock_pin_hash FROM users WHERE id = $1', [req.session.userId]);
   const user = result.rows[0];
   if (!user || !user.lock_pin_hash) return res.status(400).json({ error: 'No lock PIN set for this account' });
   const failKey = `unlock:${req.session.userId}`;
@@ -679,7 +694,7 @@ router.post('/lock-pin', async (req, res) => {
   if (!req.session.userId) return res.status(401).json({ error: 'Not authenticated' });
   const pin = String(req.body?.pin ?? '');
   if (!LOCK_PIN_RE.test(pin)) return res.status(400).json({ error: 'PIN must be 4 to 6 digits' });
-  const result = await query('SELECT lock_pin_hash FROM users WHERE id = $1', [req.session.userId]);
+  const result = await query<UserRow>('SELECT lock_pin_hash FROM users WHERE id = $1', [req.session.userId]);
   const existing = result.rows[0]?.lock_pin_hash;
   if (existing) {
     // Changing an existing PIN requires the current one.
@@ -695,7 +710,7 @@ router.post('/lock-pin', async (req, res) => {
 
 router.delete('/lock-pin', async (req, res) => {
   if (!req.session.userId) return res.status(401).json({ error: 'Not authenticated' });
-  const result = await query('SELECT lock_pin_hash FROM users WHERE id = $1', [req.session.userId]);
+  const result = await query<UserRow>('SELECT lock_pin_hash FROM users WHERE id = $1', [req.session.userId]);
   const existing = result.rows[0]?.lock_pin_hash;
   if (!existing) return res.json({ ok: true });
   const currentPin = String(req.body?.currentPin ?? '');
@@ -1030,7 +1045,7 @@ router.post('/preferences/whitelist-add', async (req, res) => {
 
 router.get('/profile/recovery-email', async (req, res) => {
   if (!req.session.userId) return res.status(401).json({ error: 'Not authenticated' });
-  const result = await query('SELECT recovery_email FROM users WHERE id = $1', [req.session.userId]);
+  const result = await query<UserRow>('SELECT recovery_email FROM users WHERE id = $1', [req.session.userId]);
   res.json({ email: result.rows[0]?.recovery_email || null });
 });
 
