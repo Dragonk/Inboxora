@@ -20,6 +20,7 @@ import { buildKeyMap, buildModKeyMap, getEffectiveShortcuts, getGroupedActions, 
 import Sidebar from './Sidebar.tsx';
 import MessageList from './MessageList.tsx';
 import MessagePane from './MessagePane.tsx';
+import type { ConversationReplyPayload } from './ConversationReader.tsx';
 import NotificationToasts from './NotificationToasts.tsx';
 import ProfileModal from './ProfileModal.tsx';
 // CE v2 uses the native MessageList/MessagePane shells with grouped/conversation modes.
@@ -76,6 +77,10 @@ const lazyFallback = (
   </div>
 );
 
+// The selected physical copy handed to the reader pane. Derived from the pane's own
+// prop declaration so the two shapes never drift apart.
+type SelectedConversationCopy = NonNullable<NonNullable<Parameters<typeof MessagePane>[0]>['selectedConversationCopy']>;
+
 export default function MailApp() {
   const { t } = useTranslation();
   const [mobileHeaderHost, setMobileHeaderHost] = useState<HTMLElement | null>(null);
@@ -101,7 +106,7 @@ export default function MailApp() {
   const [conversationId, setConversationId] = useState<string | null>(null);
   const [mobileProfileOpen, setMobileProfileOpen] = useState(false);
   const [targetLogicalMessageId, setTargetLogicalMessageId] = useState<string | null>(null);
-  const [selectedConversationCopy, setSelectedConversationCopy] = useState(null);
+  const [selectedConversationCopy, setSelectedConversationCopy] = useState<SelectedConversationCopy | null>(null);
   const [conversationResolutionError, setConversationResolutionError] = useState<string | null>(null);
   // P1-B: Native thread identity for the reader fallback. When the selected physical
   // message has a thread_key, the reader loads /mail/thread/:threadId so incomplete CE
@@ -117,7 +122,7 @@ export default function MailApp() {
     setNativeThreadUnavailableFor(selectedMessageIdRef.current);
   }, []);
 
-  const replyFromConversation = useCallback(copy => {
+  const replyFromConversation = useCallback((copy: ConversationReplyPayload) => {
     if (!copy) return;
     const selectedCopyId = copy.selectedCopyId || copy.id || null;
     const physical = {
@@ -1027,7 +1032,7 @@ function MobileTopBar({ position, moduleActive, actionsRef, onMenu, onCompose, t
 
 const SPECIAL_KEY_LABEL_BY_NAME: Record<string, string | undefined> = SPECIAL_KEY_LABELS;
 
-function ShortcutHelpOverlay({ shortcuts, onClose }: { shortcuts: Record<string, string>; onClose: () => void }) {
+function ShortcutHelpOverlay({ shortcuts, onClose }: { shortcuts: NonNullable<Parameters<typeof getEffectiveShortcuts>[0]>; onClose: () => void }) {
   const { t } = useTranslation();
   const effective = getEffectiveShortcuts(shortcuts);
   const groups    = getGroupedActions();

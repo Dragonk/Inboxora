@@ -1,12 +1,25 @@
+import type { Request } from 'express';
 import { authLimiterConfig } from './authLimiter.js';
 import { logAuthEvent } from './authEvents.js';
 import { authenticateDavCredential } from './davCredentials.js';
 import { consume as rlConsume } from './rateLimiter.js';
 
-export function createDavAuthMiddleware({ realm, eventType }) {
-  return async function davAuth(req, res, next) {
+type DavRequest = Pick<Request, 'headers' | 'davCredentialId' | 'davUserId'> & {
+  ip?: Request['ip'];
+};
+type DavResponse = {
+  end(): unknown;
+  setHeader(name: string, value: string): void;
+  status(code: number): Pick<DavResponse, 'end'>;
+};
+
+export function createDavAuthMiddleware({ realm, eventType }: {
+  realm: string;
+  eventType: Parameters<typeof logAuthEvent>[0];
+}) {
+  return async function davAuth(req: DavRequest, res: DavResponse, next: () => void) {
     const authorization = req.headers.authorization || '';
-    const reject = async (username = null) => {
+    const reject = async (username: Parameters<typeof logAuthEvent>[1]['username'] = null) => {
       const { limited } = await rlConsume(`auth:${req.ip}`, authLimiterConfig.maxRequests, authLimiterConfig.windowMs);
       logAuthEvent(eventType, { username, ip: req.ip, success: false });
       res.setHeader('WWW-Authenticate', `Basic realm="${realm}"`);

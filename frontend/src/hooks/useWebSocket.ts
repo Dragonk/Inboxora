@@ -31,7 +31,7 @@ const NO_RECONNECT_CODES = new Set([4001, 4003]);
 // Module-level timer for debouncing backfill_progress refreshes
 let backfillRefreshTimer: ReturnType<typeof setTimeout> | undefined = undefined;
 // Debounce the unread-count refetch triggered by cross-device flag updates.
-let flagCountRefreshTimer: ReturnType<typeof setTimeout> | null = null;
+let flagCountRefreshTimer: ReturnType<typeof setTimeout> | undefined = undefined;
 const BACKOFF_BASE = 1000;
 const BACKOFF_MAX = 30000;
 
@@ -41,10 +41,44 @@ interface HeartbeatWebSocket extends WebSocket {
   _pingInterval?: ReturnType<typeof setInterval>;
 }
 
+/** A message row as carried by a `new_messages` WebSocket payload (camelCase, unlike StoreMessageRow). */
+interface WsMessageRow {
+  id: string;
+  fromName?: string | null;
+  fromEmail?: string | null;
+  subject?: string | null;
+  [key: string]: unknown;
+}
+
+/** One entry of a `message_flags` payload's `changes` array. */
+interface WsMessageFlagChange {
+  id?: string;
+  is_read?: boolean;
+  is_starred?: boolean;
+}
+
+/** Every core WebSocket message shape, discriminated on `type`. */
+type WsIncomingMessage =
+  | { type: 'new_messages'; accountId: string; folder: string; messages?: WsMessageRow[]; count: number; alertMessages?: WsMessageRow[]; alertCount?: number }
+  | { type: 'exists_hint'; accountId: string; delta: number }
+  | { type: 'account_connected'; accountId: string }
+  | { type: 'folders_synced'; accountId: string }
+  | { type: 'account_error'; accountId: string; error?: string }
+  | { type: 'backfill_all_start'; accountId: string }
+  | { type: 'backfill_progress'; accountId: string; synced: number; total: number | null }
+  | { type: 'backfill_complete'; accountId: string }
+  | { type: 'backfill_all_complete'; accountId: string }
+  | { type: 'folder_updated'; accountId: string; folder: string }
+  | { type: 'sync_complete'; accountId: string | null }
+  | { type: 'folder_emptied'; accountId: string; folder: string; ok: boolean }
+  | { type: 'snooze_wakeup'; accountId: string }
+  | { type: 'flags_synced'; accountId: string }
+  | { type: 'message_flags'; accountId?: string; changes?: WsMessageFlagChange[] };
+
 export function useWebSocket() {
   const { t } = useTranslation();
   const wsRef = useRef<HeartbeatWebSocket | null>(null);
-  const reconnectTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const reconnectTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
   const mountedRef = useRef(true);
   const reconnectAttempt = useRef(0);
   // True once the socket has connected at least once. Distinguishes the initial
@@ -65,7 +99,7 @@ export function useWebSocket() {
       wsRef.current.close();
     }
     const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-    const ws = new WebSocket(`${protocol}//${window.location.host}/ws`) as HeartbeatWebSocket;
+    const ws: HeartbeatWebSocket = new WebSocket(`${protocol}//${window.location.host}/ws`);
 
     ws.onopen = () => {
       const wasReconnect = hasConnectedBefore.current;
@@ -119,7 +153,7 @@ export function useWebSocket() {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  const handleMessage = useCallback((data) => {
+  const handleMessage = useCallback((data: WsIncomingMessage) => {
     switch (data.type) {
       case 'new_messages': {
         // Blip the sync icon — a real change just synced in, so show background activity
@@ -129,7 +163,6 @@ export function useWebSocket() {
         // alertMessages/alertCount are provided by the server when inbox rules ran;
         // they exclude messages silenced by a mark_read rule. Fall back to the full
         // messages/count for servers or code paths that don't send the alert fields.
-        const alertMessages = data.alertMessages ?? messages;
         const alertCount = data.alertCount ?? count;
         const isInbox = !folder || folder === 'INBOX';
 
@@ -138,6 +171,7 @@ export function useWebSocket() {
         recordDiagEvent({ category: 'event', type: 'new_messages', accountId, isInbox, count, alertCount });
 
         if (messages && messages.length > 0) {
+          const alertMessages = data.alertMessages ?? messages;
           // In-app notifications and sounds are inbox-only — non-inbox folder syncs
           // (Archive, Spam, on-demand syncs) should not trigger alerts for old mail.
           // Also skipped when all messages were silenced by a mark_read rule (alertCount === 0).
@@ -282,8 +316,9 @@ export function useWebSocket() {
         // Re-fetch per-folder counts for the affected account so sidebar folder
         // badges stay in sync (unread_count, total_count). Only refresh accounts
         // whose folders are already loaded to avoid unnecessary requests.
-        if (data.accountId && useStore.getState().folders[data.accountId]) {
-          api.getFolders(data.accountId).then(f => setFolders(data.accountId, f)).catch(() => {});
+        const { accountId } = data;
+        if (accountId && useStore.getState().folders[accountId]) {
+          api.getFolders(accountId).then(f => setFolders(accountId, f)).catch(() => {});
         }
         break;
       }
@@ -292,12 +327,13 @@ export function useWebSocket() {
         // Background empty finished (see mail.js /folders/empty). Toast the outcome and refresh
         // the view and counts either way — on failure the messages are still on the server and
         // should reappear.
-        addNotification({ title: data.ok ? t('sidebar.emptied') : t('sidebar.emptyFailed') });
+        const { accountId, ok } = data;
+        addNotification({ title: ok ? t('sidebar.emptied') : t('sidebar.emptyFailed') });
         window.dispatchEvent(new CustomEvent('inboxora:refresh', { detail: { refreshThreads: true } }));
         window.dispatchEvent(new CustomEvent('inboxora:sync_done'));
         refreshUnreadCounts();
-        if (data.accountId && useStore.getState().folders[data.accountId]) {
-          api.getFolders(data.accountId).then(f => setFolders(data.accountId, f)).catch(() => {});
+        if (accountId && useStore.getState().folders[accountId]) {
+          api.getFolders(accountId).then(f => setFolders(accountId, f)).catch(() => {});
         }
         break;
       }
@@ -325,7 +361,7 @@ export function useWebSocket() {
         const { changes } = data;
         if (Array.isArray(changes) && changes.length) {
           const { updateMessage } = useStore.getState();
-          for (const c of changes as Array<{ id?: string; is_read?: boolean; is_starred?: boolean }>) {
+          for (const c of changes) {
             if (!c || !c.id) continue;
             const patch: { is_read?: boolean; is_starred?: boolean } = {};
             if (typeof c.is_read === 'boolean') patch.is_read = c.is_read;
@@ -378,7 +414,7 @@ export function useWebSocket() {
         connect();
       }
     };
-    const pushed = event => { if (event.data?.type === 'inboxora_mail_changed') revive(); };
+    const pushed = (event: MessageEvent) => { if (event.data?.type === 'inboxora_mail_changed') revive(); };
     const countsChanged = () => refreshUnreadCounts();
     navigator.serviceWorker?.addEventListener('message', pushed);
     window.addEventListener('inboxora:unread_changed', countsChanged);

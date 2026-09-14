@@ -11,20 +11,21 @@ import type { ReactNode } from 'react';
 // and `background` + `deleteTitleKey` keep each call site's prior rendering byte-identical.
 // `rowActionCtx`, when present (main-list rows only), renders the 'row-hover-action' plugin slot —
 // a plugin can add its own leading hover button (GTD adds a "done" checkmark). Sidebar rows omit it.
-/** The actions revealed when a message row is hovered. */
-interface RowHoverActionsProps {
-  message: StoreMessageRow;
+/** The actions revealed when a message row is hovered. Generic over the row shape so
+ * both the inbox rows (StoreMessageRow) and GTD rows (GtdThread) reuse the same cluster. */
+interface RowHoverActionsProps<M extends { [key: string]: unknown }> {
+  message: M;
   isRead: boolean;
   background: string;
   deleteTitleKey?: string;
-  onMarkRead: (event: React.MouseEvent, message: StoreMessageRow) => void;
-  onStar: (event: React.MouseEvent, message: StoreMessageRow) => void;
-  onDelete: (event: React.MouseEvent, message: StoreMessageRow) => void;
-  onMove: (event: React.MouseEvent, message: StoreMessageRow) => void;
+  onMarkRead: (event: React.MouseEvent, message: M) => void;
+  onStar: (event: React.MouseEvent, message: M) => void;
+  onDelete: (event: React.MouseEvent, message: M) => void;
+  onMove: (event: React.MouseEvent, message: M) => void;
   rowActionCtx?: unknown;
 }
 
-export default function RowHoverActions({ message, isRead, background, deleteTitleKey = 'common.delete', onMarkRead, onStar, onDelete, onMove, rowActionCtx }: RowHoverActionsProps) {
+export default function RowHoverActions<M extends { [key: string]: unknown } = StoreMessageRow>({ message, isRead, background, deleteTitleKey = 'common.delete', onMarkRead, onStar, onDelete, onMove, rowActionCtx }: RowHoverActionsProps<M>) {
   const { t } = useTranslation();
   return (
     <div style={{

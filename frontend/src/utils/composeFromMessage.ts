@@ -11,8 +11,8 @@ export interface ReplyMessageLike extends OwnAddressMessage {
   from_email?: string | null;
   from_name?: string | null;
   subject?: string | null;
-  account_id?: string;
-  id?: string;
+  account_id?: string | null;
+  id?: string | null;
   selectedCopyId?: string | null;
   date?: string | number | Date | null;
   [key: string]: unknown;

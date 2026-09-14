@@ -84,7 +84,7 @@ export const conversationApi = {
   },
 
   // `ref` may be a selected physical UUID or a durable RFC Message-ID.
-  resolveMessage: (ref: string, accountId = null) =>{
+  resolveMessage: (ref: string, accountId: string | null = null) =>{
     const qs = new URLSearchParams();
     if (accountId) qs.set('accountId', accountId);
     const query = qs.toString() ? `?${qs.toString()}` : '';

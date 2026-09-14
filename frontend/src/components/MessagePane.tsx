@@ -5,6 +5,7 @@ import { useTranslation } from 'react-i18next';
 import { useStore } from '../store/index.ts';
 // CE v2 conversation reader — lazy so single-message users never load it.
 const ConversationReader = lazy(() => import('./ConversationReader.tsx'));
+import type { ConversationReplyPayload } from './ConversationReader.tsx';
 import { api } from '../utils/api.ts';
 import { format } from 'date-fns';
 import { shortcutBus } from '../utils/shortcutBus.ts';
@@ -107,8 +108,8 @@ interface MessagePaneProps {
   mode?: string;
   conversationId?: string | null;
   targetLogicalMessageId?: string | null;
-  selectedConversationCopy?: { id?: string; accountId?: string } | null;
-  onReply?: ((message: unknown) => void) | null;
+  selectedConversationCopy?: { id?: string; accountId?: string | null } | null;
+  onReply?: ((message: ConversationReplyPayload, all?: boolean) => void) | null;
   nativeThreadId?: string | null;
   nativeFolder?: string | null;
   onNativeThreadUnavailable?: (() => void) | null;

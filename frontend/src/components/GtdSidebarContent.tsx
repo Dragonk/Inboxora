@@ -13,6 +13,8 @@ import GtdZeroPet from './GtdZeroPet.tsx';
 import ContextMenu from './ContextMenu.tsx';
 import RightSidebar from './RightSidebar.tsx';
 import type { StoreState } from '../store/index.ts';
+import type { GtdTriageRowActions } from './GtdTriageRow.tsx';
+import type { TFunction } from 'i18next';
 
 // Section key -> the state color/chip-bg used for its header, count chip, and the
 // row's left border. Waiting rows override per gtdKind (watch/delegated).
@@ -102,10 +104,10 @@ function GtdSection({ section, collapsed, onToggle, onOpenRow, rowActions, selec
   collapsed: boolean;
   onToggle: () => void;
   onOpenRow: (row: unknown) => void;
-  rowActions: unknown;
+  rowActions: GtdTriageRowActions;
   selectedMessageId: string | null;
   selectedMid: string | null;
-  t: (key: string, options?: Record<string, unknown>) => string;
+  t: TFunction;
 }) {
   const state = SECTION_STATE[section.key];
   const color = GTD_COLORS[state];

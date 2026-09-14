@@ -1,4 +1,5 @@
 import { clampPanelWidth, PANEL_WIDTH_DEFAULT } from './utils/panelWidth.ts';
+import type { TFunction } from 'i18next';
 
 // Each layout defines the structural arrangement of the three-pane mail UI.
 // direction: 'row' = list beside reading pane; 'column' = list above reading pane
@@ -54,12 +55,19 @@ export const LAYOUTS = {
 
 export const DEFAULT_LAYOUT = 'comfortable';
 
+export type LayoutKey = keyof typeof LAYOUTS;
+
+/** True when a persisted or synced value names a currently-supported preset. */
+function isLayoutKey(value: unknown): value is LayoutKey {
+  return typeof value === 'string' && value in LAYOUTS;
+}
+
 // Coerce a layout key to a known preset, falling back to the default. Guards
 // against stale or removed presets persisted in localStorage or synced from the
 // server — an unknown key (e.g. an old "classic" preset) must never reach a
 // consumer, since it used to crash the message list (#207).
-export function normalizeLayout(layoutKey) {
-  return layoutKey && LAYOUTS[layoutKey] ? layoutKey : DEFAULT_LAYOUT;
+export function normalizeLayout(layoutKey: unknown): LayoutKey {
+  return isLayoutKey(layoutKey) ? layoutKey : DEFAULT_LAYOUT;
 }
 
 // customListWidth: optional px override from drag-to-resize (persisted in localStorage).
@@ -78,8 +86,8 @@ export function applyLayout(layoutKey: string, customListWidth: number | undefin
 }
 
 // Labels are resolved at render time so changing the language updates open menus.
-export function localizedLayout(key, t) {
-  const labels = {
+export function localizedLayout(key: string, t: TFunction): { label: string; description: string } {
+  const labels: Record<string, () => [string, string]> = {
     focused: () => [t('layouts.focused.label'), t('layouts.focused.description')],
     compact: () => [t('layouts.compact.label'), t('layouts.compact.description')],
     comfortable: () => [t('layouts.comfortable.label'), t('layouts.comfortable.description')],

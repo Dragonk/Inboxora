@@ -10,6 +10,27 @@ export interface LabelledThreadHead {
   [key: string]: unknown;
 }
 
+interface ListThreadHeadsByLabelsOptions {
+  labels: string[];
+  labelFolders: string[];
+  draftFolders: string[];
+  limit: number;
+  unionLabels: string[];
+}
+
+interface LabelTouchMailEngine {
+  broadcast(data: unknown, userId: string): void;
+}
+
+interface NotifyOnLabelTouchOptions {
+  accountId?: string;
+  userId?: string;
+  messageIds?: Array<string | number | null | undefined>;
+  actedFolders?: string[] | null;
+  labelFolders?: string[];
+  event?: unknown;
+}
+
 
 // Generic thread-aware "labels" READ capability (v3.0 plugin platform).
 //
@@ -99,7 +120,7 @@ const SECTION_SQL = `
 // One per-account pass: thread heads per label, each label's total/unread counts, and a
 // deduped union rollup (waiting_total/waiting_unread, constant across the returned rows).
 // Returns the raw rows; mapping/presentation is the caller's.
-export async function listThreadHeadsByLabels(accountId: string, { labels, labelFolders, draftFolders, limit, unionLabels }) {
+export async function listThreadHeadsByLabels(accountId: string, { labels, labelFolders, draftFolders, limit, unionLabels }: ListThreadHeadsByLabelsOptions) {
   const { rows } = await query<LabelledThreadHead>(SECTION_SQL, [accountId, labels, labelFolders, draftFolders, limit, unionLabels]);
   return rows;
 }
@@ -119,7 +140,7 @@ export async function listThreadHeadsByLabels(accountId: string, { labels, label
 // type; the plugin never names another user — the broadcast is scoped to `userId`. imapManager
 // is injected so this stays unit-testable without a live socket server. Returns whether it
 // broadcast.
-export async function notifyOnLabelTouch(imapManager, { accountId, userId, messageIds, actedFolders = undefined, labelFolders, event }: { accountId?: string; userId?: string; messageIds?: Array<string | number>; actedFolders?: string[] | null; labelFolders?: string[]; event?: unknown }) {
+export async function notifyOnLabelTouch(imapManager: LabelTouchMailEngine, { accountId, userId, messageIds, actedFolders = undefined, labelFolders, event }: NotifyOnLabelTouchOptions) {
   if (!accountId || !userId || !event) return false;
   const ids = [...new Set((messageIds || []).filter(Boolean))];
   if (!ids.length) return false;

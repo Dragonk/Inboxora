@@ -26,7 +26,7 @@ export default function GtdTabList() {
   const section = buildGtdDisplaySections(gtdSections).find(s => s.key === activeGtdTab);
   const threads = section?.threads || [];
 
-  if (threads.length === 0) {
+  if (!section || threads.length === 0) {
     return (
       <div style={{ padding: '40px 20px', textAlign: 'center', color: 'var(--text-tertiary)', fontSize: 13 }}>
         {t('gtd.tabEmpty')}
@@ -42,7 +42,7 @@ export default function GtdTabList() {
         <GtdTriageRow
           key={thread.id ?? thread.message_id}
           thread={thread}
-          sectionKey={activeGtdTab}
+          sectionKey={section.key}
           variant="list"
           selected={isSelectedRow(thread, selectedMessageId, selectedMid)}
           onOpen={() => openRow(thread)}

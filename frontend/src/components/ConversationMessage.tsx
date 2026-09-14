@@ -1,6 +1,6 @@
 import { useCallback, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
-import type { ConversationLogicalMessage, MessageBody, MessageBodyStatus } from './ConversationReader.tsx';
+import type { ConversationLogicalMessage, ConversationReplyPayload, MessageBody, MessageBodyStatus } from './ConversationReader.tsx';
 import type { StoreState } from '../store/index.ts';
 import { sanitizeMessageHtml } from './MessageBodyRenderer.tsx';
 import MessageDetailContent from './MessageDetailContent.tsx';
@@ -45,7 +45,7 @@ interface ConversationMessageProps {
   status: MessageBodyStatus | null | undefined;
   onLoadBody: (logicalId: string, force?: boolean, remoteImages?: boolean) => void;
   onRemoteImages: (id: string) => void;
-  onReply: (message: ConversationLogicalMessage, all?: boolean) => void;
+  onReply: (message: ConversationReplyPayload, all?: boolean) => void;
   onActionComplete: (mutation: { logicalMessageId?: string; copyId?: string; [key: string]: unknown }) => Promise<void>;
   onSetRead: (copyId: string, read: boolean) => void;
   onInitialBodyLayout?: (copyId: string) => void;

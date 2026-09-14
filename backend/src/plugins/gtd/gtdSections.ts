@@ -36,7 +36,7 @@ interface GtdSectionRow {
 
 /** The mail-engine slice the sections emitter uses. */
 interface GtdSectionsMailEngine {
-  broadcast?(payload: unknown, userId?: string): void;
+  broadcast(payload: unknown, userId: string): void;
   [key: string]: unknown;
 }
 

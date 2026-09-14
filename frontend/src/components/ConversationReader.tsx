@@ -28,6 +28,38 @@ interface ConversationCopyRef { id?: string; accountId?: string; account_id?: st
 /** A logical message with its copies, as the reader API returns it. */
 export interface ConversationLogicalMessage { id: string; copies?: ConversationCopyRef[]; [key: string]: unknown }
 
+/**
+ * The reply/forward payload ConversationMessage builds from the selected physical
+ * copy. The reader echoes it back through onReply, so it is declared alongside the
+ * logical message it is derived from.
+ */
+export interface ConversationReplyPayload {
+  id?: string | null;
+  selectedCopyId?: string | null;
+  accountId?: string | null;
+  logicalMessageId?: string;
+  conversationId?: string;
+  messageId?: string | null;
+  canonicalMessageId?: string | null;
+  canonical_message_id?: string | null;
+  subject?: string | null;
+  fromEmail?: string | null;
+  fromName?: string | null;
+  to?: unknown;
+  cc?: unknown;
+  replyTo?: unknown;
+  inReplyTo?: unknown;
+  references?: unknown;
+  threadId?: string | null;
+  threadKey?: string | null;
+  attachments?: unknown[] | null;
+  deliveryAddresses?: string | Array<{ email?: string | null; address?: string | null } | string> | null;
+  date?: string | number | Date | null;
+  forward?: boolean;
+  replyAll?: boolean;
+  [key: string]: unknown;
+}
+
 /** The reader payload. */
 interface ConversationReaderData { logicalMessages: ConversationLogicalMessage[]; [key: string]: unknown }
 
@@ -46,7 +78,7 @@ interface ConversationReaderProps {
   selectedCopyId?: string | null;
   selectedAccountId?: string | null;
   accounts?: StoreState['accounts'];
-  onReply?: (message: ConversationLogicalMessage, all?: boolean) => void;
+  onReply?: (message: ConversationReplyPayload, all?: boolean) => void;
   nativeThreadId?: string | null;
   nativeFolder?: string | null;
   onNativeThreadUnavailable?: () => void;
@@ -386,7 +418,7 @@ export default function ConversationReader({ conversationId, targetLogicalMessag
   }, [activateMessage]);
   // ConversationMessage declares onReply as required; the reader keeps it optional
   // for callers and always forwards an explicit handler.
-  const handleReply = useCallback((message: ConversationLogicalMessage, all?: boolean) => { onReply?.(message, all); }, [onReply]);
+  const handleReply = useCallback((message: ConversationReplyPayload, all?: boolean) => { onReply?.(message, all); }, [onReply]);
   if (!data && !error) return <div role="status" style={{ padding: 24, textAlign: 'center', color: 'var(--text-tertiary)' }}>{t('conversation.loading')}</div>;
   if (error) return <div role="alert" style={{ padding: 16, color: 'var(--text-danger)' }}>{error instanceof Error ? toAppError(error).message : String(error)}</div>;
   return <section ref={readerRef} aria-label={t('conversation.label')} data-conversation-id={conversationId} data-reader-source={nativeThreadId ? 'native-thread' : 'conversation'} data-selected-copy-id={selectedCopyId || ''} data-selected-account-id={selectedAccountId || ''} style={{ flex: 1, overflowY: 'auto', overflowX: 'hidden', padding: 0, minWidth: 0 }}>
