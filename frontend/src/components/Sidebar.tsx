@@ -122,7 +122,10 @@ function isProtectedFolder(folder, folderMappings) {
 }
 
 // ─── Sidebar context menu (folders + accounts) ────────────────────────────────
-function SidebarCtxMenu({ x, y, items, title, subtitle, onClose }) {
+/** A context-menu entry as the sidebar builds it. */
+interface SidebarMenuItem { label?: string; icon?: ReactNode; action?: () => void; disabled?: boolean; separator?: boolean; danger?: boolean; keepOpen?: boolean }
+
+function SidebarCtxMenu({ x, y, items, title, subtitle, onClose }: { x: number; y: number; items: SidebarMenuItem[]; title?: string; subtitle?: string; onClose: () => void }) {
   useBackLayer(true, onClose, 4000);
   const menuRef = useRef<HTMLDivElement | null>(null);
   const uiScale = useUiScale();
@@ -225,7 +228,7 @@ function SidebarCtxMenu({ x, y, items, title, subtitle, onClose }) {
   );
 }
 
-function CtxMenuItem({ icon, label, onClick, danger = false, disabled = false }) {
+function CtxMenuItem({ icon, label, onClick, danger = false, disabled = false }: { icon?: ReactNode; label?: string; onClick?: () => void; danger?: boolean; disabled?: boolean }) {
   const [hov, setHov] = useState(false);
   return (
     <div
@@ -748,14 +751,7 @@ export default function Sidebar({ onEditProfile = null }) {
     const idx = accounts.findIndex(a => a.id === account.id);
     const isFirst = idx === 0;
     const isLast = idx === accounts.length - 1;
-    const items: Array<{
-      label?: string;
-      icon?: ReactNode;
-      action?: () => void;
-      disabled?: boolean;
-      separator?: boolean;
-      danger?: boolean;
-    }> = [
+    const items: SidebarMenuItem[] = [
       {
         label: t('sidebar.accountMenu.newFolder'),
         icon: <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75"><path d="M22 19a2 2 0 01-2 2H4a2 2 0 01-2-2V5a2 2 0 012-2h5l2 3h9a2 2 0 012 2z"/><line x1="12" y1="11" x2="12" y2="17"/><line x1="9" y1="14" x2="15" y2="14"/></svg>,
@@ -2039,7 +2035,7 @@ export default function Sidebar({ onEditProfile = null }) {
   );
 }
 
-function NavItem({ testId, icon, label, active, collapsed, badge = undefined, onClick }) {
+function NavItem({ testId, icon, label, active, collapsed, badge = undefined, onClick }: { testId: string; icon?: ReactNode; label: string; active: boolean; collapsed: boolean; badge?: number; onClick: () => void }) {
   return (
     <div
       className={active ? 'nav-item nav-item-active' : 'nav-item'}
