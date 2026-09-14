@@ -34,8 +34,15 @@ import {
   findGtdFolderCollisions,
   computeSpriteLayout,
 } from './gtd.ts';
+import type { GtdThread } from './gtd.ts';
 
 const DAY = 24 * 60 * 60 * 1000;
+
+/** Assert a fixture value is present and return it narrowed (test-only). */
+function must<T>(value: T | null | undefined): T {
+  if (value == null) throw new Error('expected a value');
+  return value;
+}
 
 describe('agingDays', () => {
   it('returns whole days elapsed since the head date', () => {
@@ -302,6 +309,7 @@ describe('buildGtdDisplaySections', () => {
     const displaySections = buildGtdDisplaySections(sections);
     assert.deepEqual(displaySections.map(s => s.key), ['todo', 'waiting', 'reference', 'someday']);
     const waiting = displaySections.find(s => s.key === 'waiting');
+    assert.ok(waiting);
     assert.equal(waiting.total, 2);
     assert.equal(waiting.unread, 1);
     assert.deepEqual(waiting.threads.map(t => t.message_id), ['d', 'w']);
@@ -319,6 +327,7 @@ describe('buildGtdDisplaySections', () => {
       delegated: { total: 1, unread: 0, threads: [{ message_id: 'x', date: '2026-07-05' }] },
     };
     const waiting = buildGtdDisplaySections(sections).find(s => s.key === 'waiting');
+    assert.ok(waiting);
     assert.equal(waiting.total, 1);
     assert.equal(waiting.threads.length, 1);
     assert.deepEqual(waiting.threads[0].gtdKinds, ['watch', 'delegated']);
@@ -332,6 +341,7 @@ describe('buildGtdDisplaySections', () => {
       waiting:   { total: 45, unread: 15 },
     };
     const waiting = buildGtdDisplaySections(sections).find(s => s.key === 'waiting');
+    assert.ok(waiting);
     assert.equal(waiting.total, 45);
     assert.equal(waiting.unread, 15);
     assert.deepEqual(waiting.threads.map(t => t.message_id), ['d', 'w']);
@@ -404,7 +414,7 @@ describe('openDeepLinkMessage', () => {
 });
 
 // Capture console.warn for the "never a silent no-op" contract without leaking noise.
-async function withWarnCaptured(fn) {
+async function withWarnCaptured<T>(fn: () => Promise<T>): Promise<{ result: T; warned: string[] }> {
   const warned: string[] = [];
   const orig = console.warn;
   console.warn = (...a) => warned.push(a.join(' '));
@@ -419,12 +429,18 @@ describe('pickThreadMessage', () => {
     // Same logical mail, re-inserted with a new PK after a purge/relocation: match on the
     // stable RFC message_id, not the volatile id.
     const msgs = [{ id: 'fresh', message_id: '<a>', date: '2026-07-01T00:00:00Z' }, B];
-    assert.equal(pickThreadMessage(msgs, '<a>').id, 'fresh');
+    const picked = pickThreadMessage(msgs, '<a>');
+    assert.ok(picked);
+    assert.equal(picked.id, 'fresh');
   });
 
   it('falls back to the newest row when no message_id matches', () => {
-    assert.equal(pickThreadMessage([A, B], '<missing>').id, 'b');
-    assert.equal(pickThreadMessage([A, B], undefined).id, 'b');
+    const missing = pickThreadMessage([A, B], '<missing>');
+    assert.ok(missing);
+    assert.equal(missing.id, 'b');
+    const noMid = pickThreadMessage([A, B], undefined);
+    assert.ok(noMid);
+    assert.equal(noMid.id, 'b');
   });
 
   it('ignores rows without an id and returns null for an empty set', () => {
@@ -513,7 +529,7 @@ describe('appendMessagesByIdentity', () => {
   });
 
   it('de-duplicates within the incoming batch by identity', () => {
-    const existing: unknown[] = [];
+    const existing: GtdThread[] = [];
     const incoming = [{ id: 'b', message_id: '<m2>' }, { id: 'b2', message_id: '<m2>' }];
     const result = appendMessagesByIdentity(existing, incoming);
     assert.equal(result.length, 1);
@@ -602,7 +618,7 @@ describe('missingByIdentity', () => {
 
 describe('openDeepLinkMessage — stale-id recovery', () => {
   const stash = () => {
-    const calls: unknown[] = [];
+    const calls: unknown[][] = [];
     const base = {
       setThreadMessages: (tid: string, msgs: unknown) => calls.push(['stash', tid, msgs]),
       setSelectedMessage: (id: string) => calls.push(['select', id]),
@@ -774,7 +790,7 @@ describe('computeSpriteLayout', () => {
 describe('openDeepLinkMessage — click race (sequence token)', () => {
   it('a slow first click loses to a faster newer click: no overwrite, no warn', async () => {
     const calls: unknown[] = [];
-    const mk = (msg, gate) => ({
+    const mk = (msg: GtdThread & { id: string }, gate: Promise<unknown>) => ({
       getMessage: async () => { await gate; return msg; },
       setThreadMessages: (tid: string) => calls.push(['stash', tid]),
       setSelectedMessage: (id: string) => calls.push(['select', id]),
@@ -787,7 +803,7 @@ describe('openDeepLinkMessage — click race (sequence token)', () => {
     const { result, warned } = await withWarnCaptured(async () => {
       const p1 = openDeepLinkMessage('m1', mk(m1, firstGate));            // starts; fetch held open
       const r2 = await openDeepLinkMessage('m2', mk(m2, Promise.resolve())); // newer click, resolves first
-      releaseFirst();                                                     // first click resolves last
+      if (releaseFirst) releaseFirst();                                   // first click resolves last
       const r1 = await p1;
       return { r1, r2 };
     });
@@ -815,10 +831,10 @@ describe('removeGtdThreadFromSections', () => {
   });
 
   it('a thread in BOTH watch and delegated adjusts the Waiting rollup once', () => {
-    const out = removeGtdThreadFromSections(make(), 'x', ['watch', 'delegated']);
-    assert.deepEqual(out.watch.threads.map(t => t.message_id), ['w2']);
+    const out = must(removeGtdThreadFromSections(make(), 'x', ['watch', 'delegated']));
+    assert.deepEqual(must(out.watch.threads).map(t => t.message_id), ['w2']);
     assert.equal(out.watch.total, 1);
-    assert.equal(out.delegated.threads.length, 0);
+    assert.equal(must(out.delegated.threads).length, 0);
     assert.equal(out.delegated.total, 0);
     // Waiting decremented ONCE (2 -> 1), and once for the single unread copy.
     assert.equal(out.waiting.total, 1);
@@ -827,8 +843,8 @@ describe('removeGtdThreadFromSections', () => {
   });
 
   it('a single-state waiting thread adjusts the rollup once', () => {
-    const out = removeGtdThreadFromSections(make(), 'w2', ['watch']);
-    assert.deepEqual(out.watch.threads.map(t => t.message_id), ['x']);
+    const out = must(removeGtdThreadFromSections(make(), 'w2', ['watch']));
+    assert.deepEqual(must(out.watch.threads).map(t => t.message_id), ['x']);
     assert.equal(out.watch.total, 1);
     // w2 was read: total drops by one, unread is unchanged.
     assert.equal(out.waiting.total, 1);
@@ -836,7 +852,7 @@ describe('removeGtdThreadFromSections', () => {
   });
 
   it('removing a non-waiting (todo) thread leaves the Waiting rollup untouched', () => {
-    const out = removeGtdThreadFromSections(make(), 't1', ['todo']);
+    const out = must(removeGtdThreadFromSections(make(), 't1', ['todo']));
     assert.equal(out.todo.total, 1);
     assert.equal(out.todo.unread, 0);
     assert.equal(out.waiting.total, 2);
@@ -850,7 +866,7 @@ describe('removeGtdThreadFromSections', () => {
       watch: { total: 1, unread: 1, threads: [{ message_id: 'x', is_read: false }] },
       waiting: { total: 0, unread: 0 },
     };
-    const out = removeGtdThreadFromSections(zeroed, 'x', ['watch']);
+    const out = must(removeGtdThreadFromSections(zeroed, 'x', ['watch']));
     assert.equal(out.waiting.total, 0);
     assert.equal(out.waiting.unread, 0);
   });
@@ -891,9 +907,9 @@ describe('GTD row removal rollback', () => {
     const sections = make();
     const snapshot = snapshotGtdThreadRemoval(sections, 'b', ['todo']);
     const removed = removeGtdThreadFromSections(sections, 'b', ['todo']);
-    const restored = restoreGtdThreadRemoval(removed, snapshot);
+    const restored = must(restoreGtdThreadRemoval(removed, snapshot));
 
-    assert.deepEqual(restored.todo.threads.map(row => row.message_id), ['a', 'b', 'c']);
+    assert.deepEqual(must(restored.todo.threads).map(row => row.message_id), ['a', 'b', 'c']);
     assert.equal(restored.todo.total, 3);
     assert.equal(restored.todo.unread, 2);
   });
@@ -903,9 +919,9 @@ describe('GTD row removal rollback', () => {
     const failedSnapshot = snapshotGtdThreadRemoval(sections, 'a', ['todo']);
     const withoutA = removeGtdThreadFromSections(sections, 'a', ['todo']);
     const withoutAOrB = removeGtdThreadFromSections(withoutA, 'b', ['todo']);
-    const restored = restoreGtdThreadRemoval(withoutAOrB, failedSnapshot);
+    const restored = must(restoreGtdThreadRemoval(withoutAOrB, failedSnapshot));
 
-    assert.deepEqual(restored.todo.threads.map(row => row.message_id), ['a', 'c']);
+    assert.deepEqual(must(restored.todo.threads).map(row => row.message_id), ['a', 'c']);
     assert.equal(restored.todo.total, 2);
     assert.equal(restored.todo.unread, 1);
   });
@@ -914,7 +930,7 @@ describe('GTD row removal rollback', () => {
     const sections = make();
     const snapshot = snapshotGtdThreadRemoval(sections, 'b', ['watch', 'delegated']);
     const removed = removeGtdThreadFromSections(sections, 'b', ['watch', 'delegated']);
-    const restored = restoreGtdThreadRemoval(removed, snapshot);
+    const restored = must(restoreGtdThreadRemoval(removed, snapshot));
 
     assert.equal(restored.watch.total, 1);
     assert.equal(restored.delegated.total, 1);
@@ -931,9 +947,9 @@ describe('setGtdThreadReadInSections', () => {
   });
 
   it('marking a both-states thread read flips every copy and nudges the rollup once', () => {
-    const out = setGtdThreadReadInSections(make(), 'x', true);
-    assert.equal(out.watch.threads.find(t => t.message_id === 'x').is_read, true);
-    assert.equal(out.delegated.threads[0].is_read, true);
+    const out = must(setGtdThreadReadInSections(make(), 'x', true));
+    assert.equal(must(must(out.watch.threads).find(t => t.message_id === 'x')).is_read, true);
+    assert.equal(must(out.delegated.threads)[0].is_read, true);
     // Each per-state unread dropped by one...
     assert.equal(out.watch.unread, 1);
     assert.equal(out.delegated.unread, 0);
@@ -943,24 +959,24 @@ describe('setGtdThreadReadInSections', () => {
   });
 
   it('marking a single-state waiting thread read nudges the rollup once', () => {
-    const out = setGtdThreadReadInSections(make(), 'w2', true);
+    const out = must(setGtdThreadReadInSections(make(), 'w2', true));
     assert.equal(out.watch.unread, 1);
     assert.equal(out.waiting.unread, 1);
     assert.equal(out.waiting.total, 2);
   });
 
   it('read then unread restores the rollup (revert path)', () => {
-    const read = setGtdThreadReadInSections(make(), 'x', true);
+    const read = must(setGtdThreadReadInSections(make(), 'x', true));
     assert.equal(read.waiting.unread, 1);
-    const back = setGtdThreadReadInSections(read, 'x', false);
+    const back = must(setGtdThreadReadInSections(read, 'x', false));
     assert.equal(back.waiting.unread, 2);
     assert.equal(back.watch.unread, 2);
     assert.equal(back.delegated.unread, 1);
-    assert.equal(back.watch.threads.find(t => t.message_id === 'x').is_read, false);
+    assert.equal(must(must(back.watch.threads).find(t => t.message_id === 'x')).is_read, false);
   });
 
   it('marking a non-waiting (todo) thread read leaves the Waiting rollup untouched', () => {
-    const out = setGtdThreadReadInSections(make(), 't1', true);
+    const out = must(setGtdThreadReadInSections(make(), 't1', true));
     assert.equal(out.todo.unread, 0);
     assert.equal(out.waiting.unread, 2);
   });
@@ -1041,8 +1057,8 @@ describe('openGtdThreadWithAutoRead', () => {
   it('publishes a delayed timer before orchestration settles so its owner can cancel it', async () => {
     const timer = { id: 'timer' };
     const cleared: unknown[] = [];
-    let finishOpen;
-    let ownedTimer: ReturnType<typeof setTimeout> | null = null;
+    let finishOpen: ((value?: unknown) => void) | undefined;
+    let ownedTimer: unknown = null;
     let settled = false;
     const cancelOwnedTimer = () => {
       cleared.push(ownedTimer);
@@ -1054,11 +1070,11 @@ describe('openGtdThreadWithAutoRead', () => {
       getPreferences: () => ({ markReadBehavior: 'delay', markReadDelay: 3 }),
       readThread: () => {},
       setTimer: () => timer,
-      publishTimer: value => { ownedTimer = value; },
+      publishTimer: (value: unknown) => { ownedTimer = value; },
     });
     opening.then(() => { settled = true; });
 
-    finishOpen({ id: 'opened' });
+    if (finishOpen) finishOpen({ id: 'opened' });
     await Promise.resolve();
 
     assert.equal(ownedTimer, timer);
@@ -1070,7 +1086,7 @@ describe('openGtdThreadWithAutoRead', () => {
   });
 
   it('publishes null for successful immediate, manual, and already-read opens', async () => {
-    const reads = [];
+    const reads: unknown[] = [];
     const cases = [
       { name: 'immediate', thread: { id: 'immediate', is_read: false }, markReadBehavior: 'immediate' },
       { name: 'manual', thread: { id: 'manual', is_read: false }, markReadBehavior: 'manual' },
@@ -1078,14 +1094,14 @@ describe('openGtdThreadWithAutoRead', () => {
     ];
 
     for (const value of cases) {
-      let ownedTimer = 'previous';
+      let ownedTimer: unknown = 'previous';
       await openGtdThreadWithAutoRead(value.thread, {
         openThread: async () => ({ id: 'opened' }),
         isCancelled: () => false,
         getPreferences: () => ({ markReadBehavior: value.markReadBehavior, markReadDelay: 3 }),
-        readThread: thread => reads.push(thread.id),
+        readThread: (thread: GtdThread) => reads.push(thread.id),
         setTimer: () => { throw new Error('must not schedule'); },
-        publishTimer: timer => { ownedTimer = timer; },
+        publishTimer: (timer: unknown) => { ownedTimer = timer; },
       });
       assert.equal(ownedTimer, null, value.name);
     }
@@ -1096,7 +1112,7 @@ describe('openGtdThreadWithAutoRead', () => {
     const thread = { id: 'head', is_read: false };
     const calls: unknown[] = [];
     let cancelled = false;
-    let finishOpen;
+    let finishOpen: ((value?: unknown) => void) | undefined;
     const opening = openGtdThreadWithAutoRead(thread, {
       openThread: () => new Promise(resolve => { finishOpen = resolve; }),
       isCancelled: () => cancelled,
@@ -1106,11 +1122,11 @@ describe('openGtdThreadWithAutoRead', () => {
       },
       readThread: () => calls.push('read'),
       setTimer: () => calls.push('timer'),
-      publishTimer: timer => calls.push(['publish', timer]),
+      publishTimer: (timer: unknown) => calls.push(['publish', timer]),
     });
 
     cancelled = true;
-    finishOpen({ id: 'opened' });
+    if (finishOpen) finishOpen({ id: 'opened' });
 
     assert.equal(await opening, null);
     assert.deepEqual(calls, []);
@@ -1122,22 +1138,22 @@ describe('openGtdThreadWithAutoRead', () => {
   // callback, the owner clears the handle, and advancing the clock must NOT run readThread.
   const makeFakeClock = () => {
     let seq = 0;
-    const tasks = new Map();
+    const tasks = new Map<unknown, () => void>();
     return {
-      setTimer: (fn) => { const id = ++seq; tasks.set(id, fn); return id; },
-      clearTimer: (id: string) => tasks.delete(id),
+      setTimer: (fn: () => void) => { const id = ++seq; tasks.set(id, fn); return id; },
+      clearTimer: (id: unknown) => tasks.delete(id),
       tick: () => { for (const fn of [...tasks.values()]) fn(); tasks.clear(); },
     };
   };
 
   it('fires the delayed auto-read when the window elapses uncancelled', async () => {
     const clock = makeFakeClock();
-    const reads = [];
+    const reads: unknown[] = [];
     await openGtdThreadWithAutoRead({ id: 'head', is_read: false }, {
       openThread: async () => ({ id: 'opened' }),
       isCancelled: () => false,
       getPreferences: () => ({ markReadBehavior: 'delay', markReadDelay: 5 }),
-      readThread: (thread, read) => reads.push([thread.id, read]),
+      readThread: (thread: GtdThread, read: boolean) => reads.push([thread.id, read]),
       setTimer: clock.setTimer,
       publishTimer: () => {},
     });
@@ -1147,15 +1163,15 @@ describe('openGtdThreadWithAutoRead', () => {
 
   it('a mark-unread within the delay window cancels the auto-read: no read (bulkRead) fires', async () => {
     const clock = makeFakeClock();
-    const reads = [];
+    const reads: unknown[] = [];
     let owned = null;
     await openGtdThreadWithAutoRead({ id: 'head', is_read: false }, {
       openThread: async () => ({ id: 'opened' }),
       isCancelled: () => false,
       getPreferences: () => ({ markReadBehavior: 'delay', markReadDelay: 5 }),
-      readThread: (thread, read) => reads.push([thread.id, read]),
+      readThread: (thread: GtdThread, read: boolean) => reads.push([thread.id, read]),
       setTimer: clock.setTimer,
-      publishTimer: (handle) => { owned = handle; },
+      publishTimer: (handle: unknown) => { owned = handle; },
     });
     // Owner (the sidebar) drops the published handle on an explicit mark-unread.
     clock.clearTimer(owned);
@@ -1174,7 +1190,7 @@ describe('classifyThread', () => {
   it('classifies, reconverges the GTD sections store, then notifies success', async () => {
     const calls: unknown[] = [];
     const deps = {
-      gtdClassify: async (id, state) => { calls.push(['classify', id, state]); },
+      gtdClassify: async (id: string, state: string) => { calls.push(['classify', id, state]); },
       addNotification: (n: { title?: string; body?: string; [key: string]: unknown }) => calls.push(['notify', n.title, n.body]),
       scheduleGtdSectionsFetch: () => calls.push(['schedule']),
       t,
@@ -1206,7 +1222,7 @@ describe('unclassifyThread', () => {
   it('unclassifies, reconverges the GTD sections store, then notifies success', async () => {
     const calls: unknown[] = [];
     const deps = {
-      gtdUnclassify: async (id, state) => { calls.push(['unclassify', id, state]); },
+      gtdUnclassify: async (id: string, state: string) => { calls.push(['unclassify', id, state]); },
       addNotification: (n: { title?: string; body?: string; [key: string]: unknown }) => calls.push(['notify', n.title, n.body]),
       scheduleGtdSectionsFetch: () => calls.push(['schedule']),
       t,

@@ -6,13 +6,13 @@ import { createBoundedActionIdTracker, isTrustedNativeMessage } from '../utils/n
 import type { StoreState } from '../store/index.ts';
 import { toAppError } from '../utils/errors.ts';
 
-function linuxInstructionPath(filePath) {
+function linuxInstructionPath(filePath: string | null | undefined) {
   const normalized = String(filePath || '').replace(/\\/g, '/');
   if (!normalized) return null;
   return normalized.replace(/^\/home\/[^/]+(?=\/)/, '$HOME');
 }
 
-function getLinuxInstallCommandFromPath(filePath) {
+function getLinuxInstallCommandFromPath(filePath: string | null | undefined) {
   const normalized = linuxInstructionPath(filePath);
   if (!normalized) return null;
 
@@ -26,9 +26,12 @@ function getLinuxInstallCommandFromPath(filePath) {
   return null;
 }
 
-function isLinuxPackagePath(filePath) {
+function isLinuxPackagePath(filePath: string | null | undefined) {
   return /\.(deb|rpm)$/i.test(String(filePath || ''));
 }
+
+// Native action payloads are untyped across the bridge; each field is read defensively.
+type NativeActionPayload = Record<string, any>;
 
 export default function ElectronNotificationBridge() {
   const addNotification = useStore((state: StoreState) => state.addNotification);
@@ -162,12 +165,12 @@ export default function ElectronNotificationBridge() {
 
   useEffect(() => {
     if (!nativeBridgeReady) return undefined;
-    const getPayloadMessage = (payload) => {
+    const getPayloadMessage = (payload: NativeActionPayload) => {
       const state = useStore.getState();
       return payload?.message || state.messages.find((item: Record<string, unknown>) => item.id === payload?.messageId) || null;
     };
 
-    const openMessageFromPayload = (payload) => {
+    const openMessageFromPayload = (payload: NativeActionPayload) => {
       const messageId = payload?.messageId;
       if (!messageId) return null;
 
@@ -191,17 +194,17 @@ export default function ElectronNotificationBridge() {
       return message;
     };
 
-    const normalizeAddressList = (value) => {
+    const normalizeAddressList = (value: unknown) => {
       if (Array.isArray(value)) return value;
       try {
-        const parsed = JSON.parse(value || '[]');
+        const parsed = JSON.parse(typeof value === 'string' ? value : '[]');
         return Array.isArray(parsed) ? parsed : [];
       } catch {
         return [];
       }
     };
 
-    const openReplyFromPayload = (payload) => {
+    const openReplyFromPayload = (payload: NativeActionPayload) => {
       const message = getPayloadMessage(payload);
       if (!message) return;
 
@@ -232,7 +235,7 @@ export default function ElectronNotificationBridge() {
       });
     };
 
-    const runNativeAction = async (payload) => {
+    const runNativeAction = async (payload: NativeActionPayload) => {
       const action = typeof payload === 'string' ? payload : payload?.action;
       const id = typeof payload === 'object' ? payload?.id : null;
 
@@ -303,11 +306,13 @@ export default function ElectronNotificationBridge() {
       }
     };
 
-    const handleNativeAction = (event) => {
+    const handleNativeAction = (event: Event) => {
+      if (!(event instanceof CustomEvent)) return;
       runNativeAction(event.detail);
     };
 
-    const handleNativeMessage = (event) => {
+    const handleNativeMessage = (event: Event) => {
+      if (!(event instanceof MessageEvent)) return;
       if (!isTrustedNativeMessage(event)) return;
       if (event.data?.type === 'inboxora:native-action') {
         runNativeAction(event.data.payload);

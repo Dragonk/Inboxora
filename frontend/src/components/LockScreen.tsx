@@ -23,7 +23,7 @@ export default function LockScreen() {
     setUser(null);
   }
 
-  async function handleUnlock(e) {
+  async function handleUnlock(e: React.FormEvent<HTMLFormElement>) {
     e.preventDefault();
     if (pin.length < 4) return;
     setUnlocking(true);
@@ -37,8 +37,8 @@ export default function LockScreen() {
     } catch (err) {
       // Lockout: api.unlock already dispatched session_expired (server destroyed the
       // session), which routes to login — nothing more to do here.
-      if (err?.signedOut) return;
-      const msg = err?.message || '';
+      if (typeof err === 'object' && err !== null && 'signedOut' in err && err.signedOut) return;
+      const msg = typeof err === 'object' && err !== null && 'message' in err && typeof err.message === 'string' ? err.message : '';
       setError(msg === 'Incorrect PIN' ? t('lockScreen.wrongPin') : (msg || t('lockScreen.wrongPin')));
       setPin('');
     } finally {

@@ -12,6 +12,16 @@ export interface AutomationSignalsMessage {
   [key: string]: unknown;
 }
 
+/** The message fields the series decisions read. */
+export interface SeriesMessage extends AutomationSignalsMessage {
+  received_at?: string | number | Date | null;
+  date?: string | number | Date | null;
+  body_text?: string | null;
+  canonical_subject?: string | null;
+  referencesAnchor?: unknown;
+  logical_message_count?: number | string | null;
+}
+
 export function automationSignals(message: AutomationSignalsMessage = {}) {
   const headers = message.headers || message.parsedHeaders || {};
   const autoSubmitted = String(headers['auto-submitted'] || '').toLowerCase();
@@ -61,7 +71,7 @@ const IDENTIFIER_KEYWORDS = /(?:order|zamów|ticket|case|ref(?:erence)?|tracking
  * (order, ticket, invoice, tracking, etc.) are PRESERVED so that
  * Order #123456 and Order #987654 produce different fingerprints.
  */
-export function bodyTemplateFingerprint(body = '') {
+export function bodyTemplateFingerprint(body: string | null | undefined = '') {
   const text = String(body);
   // Split into tokens and selectively mask only standalone numbers that
   // are NOT preceded by an identifier keyword.
@@ -81,10 +91,17 @@ export function bodyTemplateFingerprint(body = '') {
   return createHash('sha256').update(masked.replace(/\s+/g, ' ').trim()).digest('hex');
 }
 
-export function strictSeriesDecision({ message, previous, mode = 'strict' }) {
+/** Milliseconds for a date-ish value, matching `new Date(value)` for null (epoch) and undefined (NaN). */
+function timestamp(value: string | number | Date | null | undefined): number {
+  if (value === undefined) return NaN;
+  if (value === null) return 0;
+  return new Date(value).getTime();
+}
+
+export function strictSeriesDecision({ message, previous, mode = 'strict' }: { message: SeriesMessage; previous?: SeriesMessage | null; mode?: string }) {
   if (!previous || mode !== 'strict') return null;
-  const now = new Date(message.received_at || message.date).getTime();
-  const prior = new Date(previous.received_at || previous.date).getTime();
+  const now = timestamp(message.received_at || message.date);
+  const prior = timestamp(previous.received_at || previous.date);
   const signals = automationSignals(message);
   const priorSignals = automationSignals(previous);
   const subject = String(message.canonical_subject || '').toLowerCase();
@@ -101,10 +118,10 @@ export function strictSeriesDecision({ message, previous, mode = 'strict' }) {
   return { kind: 'automated_reference_series', confidence: 0.98, parentLogicalMessageId: null };
 }
 
-export function smartSeriesDecision({ message, previous, enabled = false }) {
+export function smartSeriesDecision({ message, previous, enabled = false }: { message: SeriesMessage; previous?: SeriesMessage | null; enabled?: boolean }) {
   if (!enabled || !previous) return null;
-  const now = new Date(message.received_at || message.date).getTime();
-  const prior = new Date(previous.received_at || previous.date).getTime();
+  const now = timestamp(message.received_at || message.date);
+  const prior = timestamp(previous.received_at || previous.date);
   const signals = automationSignals(message);
   const priorSignals = automationSignals(previous);
   if (!signals.automated || !priorSignals.automated || signals.senderSignature !== priorSignals.senderSignature || signals.recipientSignature !== priorSignals.recipientSignature) return null;

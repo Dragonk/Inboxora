@@ -61,7 +61,7 @@ describe('GET /api/mail/messages/:ref/conversation', () => {
 
   beforeEach(() => query.mockReset());
 
-  async function resolve(ref, userId = 'user-a', accountId = null) {
+  async function resolve(ref: string, userId: string = 'user-a', accountId: string | null = null) {
     const qs = accountId ? `?accountId=${encodeURIComponent(accountId)}` : '';
     return fetch(`${base}/api/mail/messages/${encodeURIComponent(ref)}/conversation${qs}`, {
       headers: { 'x-test-user': userId },
@@ -137,11 +137,14 @@ describe('GET /api/mail/messages/:ref/conversation', () => {
   });
 
   it('resolves the same Message-ID to account A after SQL filters out account B before ambiguity evaluation', async () => {
-    query.mockImplementationOnce(async (_sql, [, , accountId]) => ({
-      rows: accountId === ACCOUNT_A
-        ? [candidate({ id: 'account-a-copy', accountId, logicalMessageId: 'logical-a', conversationId: 'conversation-a' })]
-        : [],
-    }));
+    query.mockImplementationOnce(async (_sql: string, params?: unknown[]) => {
+      const accountId = params?.[2];
+      return {
+        rows: accountId === ACCOUNT_A
+          ? [candidate({ id: 'account-a-copy', accountId, logicalMessageId: 'logical-a', conversationId: 'conversation-a' })]
+          : [],
+      };
+    });
 
     const response = await resolve(MESSAGE_ID, 'user-a', ACCOUNT_A);
 
@@ -150,11 +153,14 @@ describe('GET /api/mail/messages/:ref/conversation', () => {
   });
 
   it('resolves the same Message-ID to account B independently of account A', async () => {
-    query.mockImplementationOnce(async (_sql, [, , accountId]) => ({
-      rows: accountId === ACCOUNT_B
-        ? [candidate({ id: 'account-b-copy', accountId, logicalMessageId: 'logical-b', conversationId: 'conversation-b' })]
-        : [],
-    }));
+    query.mockImplementationOnce(async (_sql: string, params?: unknown[]) => {
+      const accountId = params?.[2];
+      return {
+        rows: accountId === ACCOUNT_B
+          ? [candidate({ id: 'account-b-copy', accountId, logicalMessageId: 'logical-b', conversationId: 'conversation-b' })]
+          : [],
+      };
+    });
 
     const response = await resolve(MESSAGE_ID, 'user-a', ACCOUNT_B);
 
@@ -175,11 +181,14 @@ describe('GET /api/mail/messages/:ref/conversation', () => {
   });
 
   it('passes the session tenant to the Message-ID query, so another user cannot qualify a collision', async () => {
-    query.mockImplementationOnce(async (_sql, [, userId]) => ({
-      rows: userId === 'user-a'
-        ? [candidate({ logicalMessageId: 'logical-a', conversationId: 'conversation-a' })]
-        : [candidate({ logicalMessageId: 'logical-b', conversationId: 'conversation-b' })],
-    }));
+    query.mockImplementationOnce(async (_sql: string, params?: unknown[]) => {
+      const userId = params?.[1];
+      return {
+        rows: userId === 'user-a'
+          ? [candidate({ logicalMessageId: 'logical-a', conversationId: 'conversation-a' })]
+          : [candidate({ logicalMessageId: 'logical-b', conversationId: 'conversation-b' })],
+      };
+    });
 
     const accountId = ACCOUNT_A;
     const response = await resolve(MESSAGE_ID, 'user-a', accountId);
@@ -240,8 +249,8 @@ describe('GET /api/mail/conversations/:id detail scope', () => {
       .mockResolvedValueOnce({ rows: [] })
       .mockResolvedValueOnce({ rows: [{ id: canonical, user_id: 'user-a', logical_id: 'logical-a', canonical_message_id: '<m1@test>', subject: 'Cross', direction: 'incoming', message_date: '2026-08-25T10:00:00Z', threading_reason: 'new-root', threading_confidence: 1, copies: [{ id: COPY_ID, accountId: 'account-a' }] }] });
 
-    let detailServer: Server;
-    await new Promise(resolve => { detailServer = buildApp().listen(0, resolve); });
+    const detailServer = buildApp().listen(0);
+    await new Promise(resolve => detailServer.once('listening', resolve));
     const response = await fetch(`http://127.0.0.1:${listeningPort(detailServer)}/api/mail/conversations/${canonical}`, { headers: { 'x-test-user': 'user-a' } });
     expect(response.status).toBe(200);
     const [sql, params] = client.query.mock.calls[2];

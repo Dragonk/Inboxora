@@ -24,7 +24,7 @@ export async function getCardavConfig(userId: string): Promise<{ serverUrl?: str
 }
 
 // Shallow-merge a patch into the stored JSONB config.
-export async function saveCardavConfig(userId: string, patch) {
+export async function saveCardavConfig(userId: string, patch: Record<string, unknown>) {
   await query(
     `UPDATE user_integrations SET config = config || $2::jsonb, updated_at = NOW()
      WHERE user_id = $1 AND provider = 'carddav'`,
@@ -35,7 +35,7 @@ export async function saveCardavConfig(userId: string, patch) {
 // Find or create the local read-only address book mirroring a remote collection,
 // keyed by external_url. Address-book names are unique per user, so on a name
 // clash we disambiguate with a suffix.
-async function ensureCardavBook(userId: string, book) {
+async function ensureCardavBook(userId: string, book: { url: string; displayName: string }) {
   const existing = await query<{ id: string }>(
     "SELECT id FROM address_books WHERE user_id = $1 AND external_url = $2",
     [userId, book.url],
@@ -45,7 +45,7 @@ async function ensureCardavBook(userId: string, book) {
   for (let attempt = 0; attempt < 20; attempt++) {
     const name = attempt === 0 ? book.displayName : `${book.displayName} (${attempt + 1})`;
     try {
-      const r = await query(
+      const r = await query<{ id: string }>(
         `INSERT INTO address_books (user_id, name, source, external_url)
          VALUES ($1, $2, 'carddav', $3) RETURNING id`,
         [userId, name, book.url],
@@ -60,7 +60,7 @@ async function ensureCardavBook(userId: string, book) {
   throw new Error(`Could not create a local address book for "${book.displayName}"`);
 }
 
-function contactFromVCard(vcard, href: string) {
+function contactFromVCard(vcard: string, href: string) {
   const c = parseVCard(vcard);
   const uid = c.uid || crypto.createHash('md5').update(href).digest('hex');
   const primaryEmail = c.emails.find(e => e.primary)?.value || c.emails[0]?.value || null;
@@ -78,7 +78,9 @@ function contactFromVCard(vcard, href: string) {
   };
 }
 
-async function upsertCardavContact(bookId, userId: string, c) {
+type CardavContact = ReturnType<typeof contactFromVCard>;
+
+async function upsertCardavContact(bookId: string, userId: string, c: CardavContact) {
   const etag = crypto.createHash('md5').update(c.vcard).digest('hex');
   await query(`
     INSERT INTO contacts (
@@ -111,7 +113,7 @@ async function upsertCardavContact(bookId, userId: string, c) {
 // Enrich an existing contact (in another book) with the vCard's descriptive
 // fields. We deliberately leave primary_email/emails untouched to avoid churning
 // that book's per-book email-uniqueness index.
-async function mergeIntoExisting(id, c) {
+async function mergeIntoExisting(id: string, c: CardavContact) {
   const etag = crypto.createHash('md5').update(c.vcard).digest('hex');
   await query(`
     UPDATE contacts SET
@@ -135,7 +137,7 @@ async function syncBook(userId: string, book, dupMode, creds) {
   const bookId = await ensureCardavBook(userId, book);
 
   // Emails present in the user's OTHER books, for cross-book duplicate handling.
-  const otherEmail = new Map(); // email -> existing contact id
+  const otherEmail = new Map<string, string>(); // email -> existing contact id
   if (dupMode !== 'separate') {
     const rows = await query<{ primary_email: string; id: string }>(
       `SELECT id, primary_email FROM contacts
@@ -146,9 +148,9 @@ async function syncBook(userId: string, book, dupMode, creds) {
   }
 
   // Classify first (no writes) so we know the final set before touching the DB.
-  const seenInBook = new Set();
-  const toUpsert = [];
-  const toMerge = []; // { id, contact }
+  const seenInBook = new Set<string>();
+  const toUpsert: CardavContact[] = [];
+  const toMerge: Array<{ id: string; contact: CardavContact }> = []; // { id, contact }
   for (const c of cards) {
     // Avoid violating this book's (address_book_id, primary_email) uniqueness when
     // two cards in the same book share an email — keep the email on the first only.
@@ -157,7 +159,10 @@ async function syncBook(userId: string, book, dupMode, creds) {
 
     if (c.primaryEmail && dupMode !== 'separate' && otherEmail.has(c.primaryEmail)) {
       if (dupMode === 'skip') continue;
-      if (dupMode === 'merge') { toMerge.push({ id: otherEmail.get(c.primaryEmail), contact: c }); continue; }
+      if (dupMode === 'merge') {
+        const existingId = otherEmail.get(c.primaryEmail);
+        if (existingId) { toMerge.push({ id: existingId, contact: c }); continue; }
+      }
     }
     toUpsert.push(c);
   }
@@ -217,9 +222,9 @@ export async function syncUser(userId: string) {
 
 // ── Scheduler ─────────────────────────────────────────────────────────────────
 
-export function scheduleCardavUser(userId: string, intervalMin) {
+export function scheduleCardavUser(userId: string, intervalMin: string | number | null | undefined) {
   stopCardavUser(userId);
-  const min = Math.max(15, Math.min(1440, parseInt(intervalMin) || DEFAULT_INTERVAL_MIN));
+  const min = Math.max(15, Math.min(1440, parseInt(String(intervalMin ?? ''), 10) || DEFAULT_INTERVAL_MIN));
   const id = setInterval(() => {
     syncUser(userId).catch(e => console.warn(`CardDAV sync failed for ${userId}:`, e.message));
   }, min * 60 * 1000);

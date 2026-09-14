@@ -119,33 +119,33 @@ export const conversationApi = {
       body: JSON.stringify({ isRead, scope, copyId, logicalMessageId }),
     }),
 
-  setStarred: (conversationId: string | string[], isStarred, { scope = 'THIS_COPY', copyId = null, logicalMessageId = null }: ConversationTargetOptions = {}) =>
+  setStarred: (conversationId: string | string[], isStarred: boolean, { scope = 'THIS_COPY', copyId = null, logicalMessageId = null }: ConversationTargetOptions = {}) =>
     apiFetch(`/conversations/${conversationId}/star`, {
       method: 'POST',
       body: JSON.stringify({ isStarred, scope, copyId, logicalMessageId }),
     }),
 
   // Bulk variants — operate on multiple conversations at once.
-  bulkArchive: (conversationIds, { scope = 'THIS_COPY', items = null }: BulkConversationOptions = {}) =>
+  bulkArchive: (conversationIds: string[], { scope = 'THIS_COPY', items = null }: BulkConversationOptions = {}) =>
     apiFetch(`/conversations/bulk-archive`, {
       method: 'POST',
       body: JSON.stringify({ conversationIds, items, scope }),
     }),
 
-  bulkDelete: (conversationIds, { scope = 'THIS_COPY', items = null }: BulkConversationOptions = {}) =>
+  bulkDelete: (conversationIds: string[], { scope = 'THIS_COPY', items = null }: BulkConversationOptions = {}) =>
     apiFetch(`/conversations/bulk-delete`, {
       method: 'POST',
       body: JSON.stringify({ conversationIds, items, scope }),
     }),
 
-  bulkSetRead: (conversationIds, isRead: boolean, { scope = 'THIS_COPY', items = null }: BulkConversationOptions = {}) =>
+  bulkSetRead: (conversationIds: string[], isRead: boolean, { scope = 'THIS_COPY', items = null }: BulkConversationOptions = {}) =>
     apiFetch(`/conversations/bulk-read`, {
       method: 'POST',
       body: JSON.stringify({ conversationIds, items, isRead, scope }),
     }),
 
   // Manual operations
-  merge: (sourceId, targetId) =>
+  merge: (sourceId: string, targetId: string) =>
     apiFetch(`/conversations/${sourceId}/merge`, {
       method: 'POST',
       body: JSON.stringify({ targetConversationId: targetId }),
@@ -157,7 +157,7 @@ export const conversationApi = {
       body: JSON.stringify({ includeReplies }),
     }),
 
-  moveLogicalMessage: (conversationId: string | string[], logicalMessageId: string | null, targetConversationId) =>
+  moveLogicalMessage: (conversationId: string | string[], logicalMessageId: string | null, targetConversationId: string) =>
     apiFetch(`/conversations/${conversationId}/logical-messages/${logicalMessageId}/move`, {
       method: 'POST',
       body: JSON.stringify({ targetConversationId }),
@@ -195,5 +195,5 @@ export const conversationApi = {
       }),
     }),
 
-  rebuildStatus: (jobId) => apiFetch(`/conversations/rebuild/${jobId}`),
+  rebuildStatus: (jobId: string) => apiFetch(`/conversations/rebuild/${jobId}`),
 };

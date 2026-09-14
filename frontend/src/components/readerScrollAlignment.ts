@@ -2,7 +2,23 @@
 // the mobile back bar) is a flex sibling, so reader.getBoundingClientRect().top
 // already starts below it. Any future sticky UI rendered *inside* the reader opts
 // in with data-conversation-reader-sticky="true" and is measured, never guessed.
-export function readerVisibleTop(reader) {
+/** A sticky element inside the reader (structural, so tests can supply fakes). */
+interface ReaderSticky { getBoundingClientRect(): { top: number; bottom: number } }
+/** The scrollable reader surface the alignment helpers measure. */
+interface ReaderViewport {
+  scrollTop: number;
+  scrollHeight: number;
+  clientHeight: number;
+  getBoundingClientRect(): { top: number; bottom: number };
+  querySelectorAll(selector: string): Iterable<ReaderSticky>;
+}
+/** The selected header (and its optional state card) the alignment helpers measure. */
+interface ReaderHeader {
+  getBoundingClientRect(): { top: number };
+  closest?(selector: string): { getBoundingClientRect(): { height: number }; nextElementSibling: unknown } | null;
+}
+
+export function readerVisibleTop(reader: ReaderViewport) {
   const readerRect = reader.getBoundingClientRect();
   return [...reader.querySelectorAll('[data-conversation-reader-sticky="true"]')]
     .reduce((bottom, element) => {
@@ -13,7 +29,7 @@ export function readerVisibleTop(reader) {
     }, readerRect.top);
 }
 
-export function alignReaderHeader(reader, header, gap = 8) {
+export function alignReaderHeader(reader: ReaderViewport, header: ReaderHeader, gap = 8) {
   const readerRect = reader.getBoundingClientRect();
   const desiredTop = readerVisibleTop(reader) + gap;
   const headerTop = header.getBoundingClientRect().top;
@@ -27,6 +43,7 @@ export function alignReaderHeader(reader, header, gap = 8) {
   const card = header.closest?.('[data-conversation-message-state]');
   const cardRect = card?.getBoundingClientRect();
   const terminalCard = cardRect
+    && card
     && card.nextElementSibling === null
     && cardRect.height <= reader.clientHeight;
   // Bottom alignment is a terminal-card affordance only. Applying it to a

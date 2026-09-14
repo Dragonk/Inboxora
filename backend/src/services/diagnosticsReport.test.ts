@@ -184,7 +184,9 @@ describe('buildServerReport — unread counts INBOX only', () => {
     const report = await buildServerReport('user-9', 'deadbeefdeadbeef');
     expect(report.counts.unreadTotal).toBe(0);
     expect(report.accounts[0].unread).toBe(0);
-    expect(report.folders.find(f => f.name === 'Spam').unread).toBe(16);
+    const spam = report.folders.find(f => f.name === 'Spam');
+    if (!spam) throw new Error('expected a Spam folder in the report');
+    expect(spam.unread).toBe(16);
   });
 
   it('queries only INBOX unread rows for the requesting user', async () => {
@@ -192,6 +194,7 @@ describe('buildServerReport — unread counts INBOX only', () => {
     await buildServerReport('user-9', 'deadbeefdeadbeef');
     const unreadCall = query.mock.calls.find(c => /FROM messages m/.test(c[0]));
     expect(unreadCall).toBeTruthy();
+    if (!unreadCall) throw new Error('expected an unread-count query');
     expect(unreadCall[0]).toMatch(/a\.user_id = \$1/);
     expect(unreadCall[0]).toMatch(/m\.folder = 'INBOX'/);
     expect(unreadCall[1]).toEqual(['user-9']);

@@ -124,6 +124,7 @@ describe('createAccountSmtpTransport', () => {
       auth_pass: 'test-password',
       imap_skip_tls_verify: false,
     });
+    if (!result.transport) throw new Error('expected an SMTP transport');
     await result.transport.sendMail({ to: 'user@example.com' });
 
     expect(result.error).toBeUndefined();
@@ -146,6 +147,7 @@ describe('createAccountSmtpTransport', () => {
       smtp_auth_pass: 'relay-password',
       imap_skip_tls_verify: false,
     });
+    if (!result.transport) throw new Error('expected an SMTP transport');
     await result.transport.sendMail({ to: 'user@example.com' });
 
     expect(result.error).toBeUndefined();
@@ -168,6 +170,7 @@ describe('createAccountSmtpTransport', () => {
       smtp_auth_pass: null,
       imap_skip_tls_verify: false,
     });
+    if (!result.transport) throw new Error('expected an SMTP transport');
     await result.transport.sendMail({ to: 'user@example.com' });
 
     expect(nodemailer.createTransport).toHaveBeenCalledWith(

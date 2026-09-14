@@ -55,7 +55,7 @@ export default function GtdEntryRow({
 }: {
   thread: GtdThread;
   sectionKey: string;
-  variant: string;
+  variant: keyof typeof ROW_VARIANTS;
   selected?: boolean;
   t: TFunction;
   onClick: (event: React.MouseEvent) => void;

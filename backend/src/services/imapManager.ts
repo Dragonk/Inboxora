@@ -479,7 +479,7 @@ function extractBodyFromMsg(msg: RawMessageInput) {
   return { html, text, attachments: results.attachments };
 }
 
-export async function persistInboundCalendarInvitationFromMessage({ client, message, messageId }: { client: { fetch: (uid: string, query: unknown, options: unknown) => AsyncIterable<{ bodyParts?: Map<string, Buffer>; uid?: number | string }> } | null | undefined; message: RawMessageInput; messageId: string }) {
+export async function persistInboundCalendarInvitationFromMessage({ client, message, messageId }: { client: { fetch: (uid: string, query: { uid?: boolean; bodyParts?: string[] }, options: { uid?: boolean }) => AsyncIterable<{ bodyParts?: Map<string, Buffer>; uid?: number | string }> } | null | undefined; message: RawMessageInput; messageId: string }) {
   if (!client || !messageId || !message?.uid || !message.bodyStructure) return false;
   const results: { textParts: BodyPartRef[]; attachments: AttachmentRef[]; calendarParts: BodyPartRef[] } = { textParts: [], attachments: [], calendarParts: [] };
   walkStructure(message.bodyStructure, results);
@@ -3632,7 +3632,7 @@ export class ImapManager {
             ).catch(() => {});
             return;
           }
-          serverUids = await bf.search({ all: true }, { uid: true });
+          serverUids = await searchUids(bf, { all: true });
 
           // UIDVALIDITY check — if this backfill connection sees a different epoch than
           // what is stored, purge stale rows so the diff below re-fetches everything.
@@ -4629,7 +4629,7 @@ export class ImapManager {
   // Called in the background (via setImmediate) so it doesn't block the sync path.
   // By the time the user clicks the email (typically 2–10s later), the body is already
   // in the DB and the click returns instantly without a live IMAP round-trip.
-  async prefetchNewMessageBodies(account: EmailAccountRow, messages: Array<{ id?: string; uid?: number | string; folder?: string }>) {
+  async prefetchNewMessageBodies(account: EmailAccountRow, messages: Array<{ id?: string; uid: number | string; folder?: string }>) {
     for (const msg of messages) {
       try {
         // Skip if body already cached (concurrent click may have triggered this too)
@@ -5032,7 +5032,7 @@ export class ImapManager {
     // retry is safe. Surfacing the final failure keeps callers such as bulk-read from
     // reporting success while the DB read/flag state silently drifts from the server —
     // which a later flag-sync would then revert, leaving the message unexpectedly unread.
-    let lastErr = null;
+    let lastErr: unknown = null;
     for (let attempt = 1; attempt <= 2; attempt++) {
       try {
         await withFreshClient(account, async (client) => {
@@ -5055,7 +5055,7 @@ export class ImapManager {
         if (attempt < 2) await new Promise(r => setTimeout(r, 400));
       }
     }
-    console.error(`setFlag failed after retry: uid=${uid} ${flag}=${value}:`, lastErr?.message);
+    console.error(`setFlag failed after retry: uid=${uid} ${flag}=${value}:`, toAppError(lastErr).message);
     throw lastErr;
   }
 
@@ -5140,7 +5140,7 @@ export class ImapManager {
   // the messages; `apply(client, range)` runs the IMAP command for a UID range and returns
   // imapflow's truthy/false result. Returns the count processed; throws (with progress) if a
   // chunk cannot be confirmed.
-  async _chunkedFolderOp(client: ImapClient, folder: string, searchQuery: unknown, apply: (client: ImapClient, range: unknown) => Promise<boolean>, { label = 'operation', chunkSize = 500, retryBackoffMs = 500 } = {}) {
+  async _chunkedFolderOp(client: ImapClient, folder: string, searchQuery: Parameters<ImapClient['search']>[0], apply: (client: ImapClient, range: string) => Promise<boolean>, { label = 'operation', chunkSize = 500, retryBackoffMs = 500 } = {}) {
     const uids = await searchUids(client, searchQuery);
     if (!uids || uids.length === 0) return 0;
     let done = 0;
@@ -5171,7 +5171,7 @@ export class ImapManager {
   async _deleteAllInFolder(client: ImapClient, folder: string, opts: { label?: string; chunkSize?: number; retryBackoffMs?: number } = {}) {
     return this._chunkedFolderOp(
       client, folder, { all: true },
-      (c: ImapClient, range: unknown) => c.messageDelete(range, { uid: true }),
+      (c: ImapClient, range: string) => c.messageDelete(range, { uid: true }),
       { label: 'messageDelete', ...opts },
     );
   }
@@ -5730,7 +5730,7 @@ export class ImapManager {
     this.wss.clients.forEach(ws => {
       if (ws.readyState === 1 && (!userId || ws.userId === userId)) {
         try { ws.send(msg); } catch (err) {
-          console.error('WebSocket broadcast send error:', err.message);
+          console.error('WebSocket broadcast send error:', toAppError(err).message);
         }
       }
     });

@@ -123,7 +123,7 @@ export interface StoreState {
   setSelectedMessage: (id: string) => void;
   unreadCounts: {
       total: number;
-      byAccount: {};
+      byAccount: Record<string, number>;
   };
   setUnreadCounts: (counts: { total: number; byAccount: Record<string, number> }) => void;
   decrementUnread: (accountId: string, count?: number) => void;
@@ -151,7 +151,7 @@ export interface StoreState {
   setFolderSyncInterval: (seconds: number) => void;
   notificationSound: string;
   setNotificationSound: (sound: string) => void;
-  customSoundDataUrl: string;
+  customSoundDataUrl: string | null;
   setCustomSoundDataUrl: (dataUrl: string) => void;
   composing: boolean;
   composeData: ComposeDraft | null;
@@ -194,7 +194,7 @@ export interface StoreState {
   setShowCalendar: (showCalendar: boolean) => void;
   calendarWeekStartsOn: number;
   setCalendarWeekStartsOn: (calendarWeekStartsOn: number) => void;
-  visibleCalendarIds: string[];
+  visibleCalendarIds: string[] | null;
   setVisibleCalendarIds: (visibleCalendarIds: string[]) => void;
   mobileNavigationPosition: string;
   setMobileNavigationPosition: (mobileNavigationPosition: string) => void;
@@ -220,19 +220,19 @@ export interface StoreState {
   language: string;
   setLanguage: (lng: string) => void;
   conversationReaderViewEnabled: boolean;
-  setConversationReaderViewEnabled: (val: unknown) => void;
+  setConversationReaderViewEnabled: (val: boolean) => void;
   threadedView: boolean;
-  setThreadedView: (val: unknown) => void;
+  setThreadedView: (val: boolean) => void;
   plaintextEmail: boolean;
-  setPlaintextEmail: (val: unknown) => void;
+  setPlaintextEmail: (val: boolean) => void;
   hoverQuickActions: boolean;
-  setHoverQuickActions: (val: unknown) => void;
+  setHoverQuickActions: (val: boolean) => void;
   showMobileAvatars: boolean;
-  setShowMobileAvatars: (val: unknown) => void;
+  setShowMobileAvatars: (val: boolean) => void;
   gravatarAvatars: boolean;
-  setGravatarAvatars: (val: unknown) => void;
+  setGravatarAvatars: (val: boolean) => void;
   showMessagePreviews: boolean;
-  setShowMessagePreviews: (val: unknown) => void;
+  setShowMessagePreviews: (val: boolean) => void;
   replyDefault: string;
   setReplyDefault: (val: string) => void;
   markReadBehavior: string;
@@ -265,9 +265,9 @@ export interface StoreState {
   fontSize: number;
   setFontSize: (pct: number) => void;
   showAppBadge: boolean;
-  setShowAppBadge: (val: unknown) => void;
+  setShowAppBadge: (val: boolean) => void;
   categorizationEnabled: boolean;
-  setCategorizationEnabled: (val: unknown) => void;
+  setCategorizationEnabled: (val: boolean) => void;
   categoryCounts: Record<string, number>;
   setCategoryCounts: (counts: Record<string, number>) => void;
   adjustCategoryCount: (category: string, delta: number) => void;
@@ -279,7 +279,7 @@ export interface StoreState {
   toggleRightSidebarHidden: () => void;
   gtdCollapsedSections: Record<string, boolean>;
   toggleGtdSection: (section: string) => void;
-  activeGtdTab: string;
+  activeGtdTab: string | null;
   setActiveGtdTab: (tab: string) => void;
   gtdSections: GtdSections | null;
   fetchGtdSections: () => Promise<void>;
@@ -302,7 +302,7 @@ export interface StoreState {
   senderFaviconsSaving: boolean;
   senderFaviconsEpoch: number;
   setSenderFavicons: (enabled: boolean) => Promise<void>;
-  setBlockRemoteImages: (val: unknown) => void;
+  setBlockRemoteImages: (val: boolean) => void;
   setImageWhitelist: (whitelist: { addresses: string[]; domains: string[] }) => void;
   addToImageWhitelist: ({ type, value }: {
       type: string;
@@ -310,7 +310,7 @@ export interface StoreState {
   }) => void;
   shortcuts: Record<string, string>;
   setShortcuts: (overrides: Record<string, string>) => void;
-  aiActions: Array<{ id: string; label: string; prompt?: string; [key: string]: unknown }>;
+  aiActions: Array<{ id: string; label: string; prompt?: string; [key: string]: unknown }> | null;
   setAiActions: (actions: Array<{ id: string; label: string; prompt?: string; [key: string]: unknown }>) => void;
   hiddenFolders: string[];
   setHiddenFolders: (hf: string[]) => void;
@@ -482,19 +482,6 @@ const _initialThemePrefs = readThemePrefs();
 
 // The store shape is intentionally typed as `any` for now: it is a large,
 // dynamically-composed slice object, and typing it in full is tracked as part of
-// the remaining TypeScript migration debt. Anonymous `any` keeps selector
-// callbacks (`useStore(s => s.x)`) usable instead of collapsing to `unknown`.
-interface StoreMessage {
-  id: string;
-  message_id?: string;
-  date?: string | number | Date | null;
-  thread_id?: string;
-  thread_key?: string;
-  uid?: number;
-  is_starred?: boolean;
-  [key: string]: unknown;
-}
-
 export const useStore = create<StoreState>()((set, get) => ({
   // Auth
   user: null,
@@ -645,7 +632,7 @@ export const useStore = create<StoreState>()((set, get) => ({
   updateMessage: (id: string, updates: Record<string, unknown>) =>set((state: StoreStateRead) => {
     const apply = (m: StoreMessageRow) => m.id === id ? { ...m, ...updates } : m;
     const threadMessages = Object.fromEntries(
-      Object.entries(state.threadMessages as Record<string, StoreMessage[]>).map(([tid, msgs]) => [tid, msgs.map(apply)])
+      Object.entries(state.threadMessages as Record<string, StoreMessageRow[]>).map(([tid, msgs]) => [tid, msgs.map(apply)])
     );
     // An explicit unread_count is a whole-thread action. Otherwise a physical
     // copy (including the representative row itself) changes only its own state.

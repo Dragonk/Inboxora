@@ -19,9 +19,9 @@ registerHooks({
 (globalThis as unknown as TestGlobals).localStorage = (() => {
   let values: Record<string, any> = { mailflow_theme: 'dark' };
   return {
-    getItem: key => values[key] ?? null,
+    getItem: (key: string) => values[key] ?? null,
     setItem: (key: string, value: unknown) => { values[key] = String(value); },
-    removeItem: key => { delete values[key]; },
+    removeItem: (key: string) => { delete values[key]; },
     clear: () => { values = {}; },
   };
 })();
@@ -31,10 +31,10 @@ const { useStore } = await import('./index.ts');
 const originalGetPreferences = api.getPreferences;
 const originalSavePreferences = api.savePreferences;
 
-function deferred() {
-  let resolve;
-  let reject;
-  const promise = new Promise((resolvePromise, rejectPromise) => {
+function deferred(): { promise: Promise<unknown>; resolve: (value: unknown) => void; reject: (reason?: unknown) => void } {
+  let resolve: (value: unknown) => void = () => {};
+  let reject: (reason?: unknown) => void = () => {};
+  const promise = new Promise<unknown>((resolvePromise, rejectPromise) => {
     resolve = resolvePromise;
     reject = rejectPromise;
   });

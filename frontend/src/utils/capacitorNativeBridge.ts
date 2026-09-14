@@ -3,7 +3,7 @@ let installed = false;
 interface NativePluginHandle { remove?(): void }
 
 type NativePlugin = Record<string, (args?: unknown, extra?: unknown) => Promise<unknown>> & {
-  addListener?(event: string, listener: (payload: unknown) => void): Promise<NativePluginHandle>;
+  addListener<T>(event: string, listener: (payload: T) => void): Promise<NativePluginHandle>;
 };
 let plugin: NativePlugin | null = null;
 let registerNativePlugin: ((name: string) => NativePlugin) | null = null;
@@ -17,6 +17,12 @@ function getPlugin(): NativePlugin {
   return plugin;
 }
 
+/** Like callNative, but a supplied fallback makes the result non-null (the bridge's own contract). */
+async function callNativeWithFallback<T>(method: string, args: unknown, fallback: T): Promise<T> {
+  const result = await callNative<T>(method, args, fallback);
+  return result ?? fallback;
+}
+
 async function callNative<T>(method: string, args: unknown = undefined, fallback: T | null = null): Promise<T | null> {
   if (pluginUnavailable) return fallback;
 
@@ -25,7 +31,8 @@ async function callNative<T>(method: string, args: unknown = undefined, fallback
     // The native side is untyped by definition; the caller declares the shape it expects.
     return (await InboxoraNative[method](args)) as T;
   } catch (error) {
-    if (String(error?.message || error).includes('not implemented')) {
+    const message = error instanceof Error ? error.message : String(error);
+    if (message.includes('not implemented')) {
       pluginUnavailable = true;
     }
     return fallback;
@@ -64,8 +71,8 @@ export async function installCapacitorNativeBridge(): Promise<boolean> {
       updates: {
         ...existingBridge.updates,
         check: async (verbose) => callNative('checkForUpdates', { verbose }),
-        installDownloaded: async () => callNative('installDownloadedUpdate', undefined, { installed: false, reason: 'unavailable' }),
-        installAuto: async () => callNative('installDownloadedUpdate', undefined, { installed: false, reason: 'unavailable' }),
+        installDownloaded: async () => callNativeWithFallback('installDownloadedUpdate', undefined, { installed: false, reason: 'unavailable' }),
+        installAuto: async () => callNativeWithFallback('installDownloadedUpdate', undefined, { installed: false, reason: 'unavailable' }),
         openDownload: async () => callNative('openDownloadedUpdate'),
         onStatus: (callback) => {
           if (pluginUnavailable) return () => {};
@@ -93,10 +100,10 @@ export async function installCapacitorNativeBridge(): Promise<boolean> {
         // Native push (Android) lifecycle. The native layer owns the provider
         // endpoint/token and the server registration; JS only triggers it and
         // reads a non-secret status for the settings screen.
-        getStatus: async () => callNative('getPushStatus', undefined, { status: 'unavailable' }),
-        register: async () => callNative('registerPush', undefined, { status: 'unavailable' }),
-        clear: async () => callNative('clearPush', undefined, { status: 'unavailable' }),
-        openDistributor: async () => callNative('openPushDistributor', undefined, { opened: false }),
+        getStatus: async () => callNativeWithFallback('getPushStatus', undefined, { status: 'unavailable' }),
+        register: async () => callNativeWithFallback('registerPush', undefined, { status: 'unavailable' }),
+        clear: async () => callNativeWithFallback('clearPush', undefined, { status: 'unavailable' }),
+        openDistributor: async () => callNativeWithFallback('openPushDistributor', undefined, { opened: false }),
         openInstallPage: async () => callNative('openPushInstallPage'),
         openHelp: async () => callNative('openPushHelp'),
       },

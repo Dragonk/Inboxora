@@ -5,22 +5,30 @@ import { normalizeMessageId } from './threading/normalizeMessageId.js';
 const REPLY_PREFIX_RE = /^(?:(?:re|odp|aw|sv|vs|antw|ant|ref|rif|ynt|tr)\s*:\s*)+/i;
 const FORWARD_PREFIX_RE = /^(?:fwd|fw|przek)\s*:\s*/i;
 
-export function canonicalConversationSubject(subject = '') {
+export function canonicalConversationSubject(subject: string | null | undefined = '') {
   const decoded = decodeMimeWords(String(subject || '')).normalize('NFKC').replace(/\s+/gu, ' ').trim();
   if (FORWARD_PREFIX_RE.test(decoded)) return decoded.toLowerCase();
   return decoded.replace(REPLY_PREFIX_RE, '').trim().toLowerCase();
 }
 
-function addressOf(value) {
+function addressOf(value: unknown): string | null {
   if (!value) return null;
   if (typeof value === 'string') return value.match(/<([^>]+)>/)?.[1]?.toLowerCase() || value.trim().toLowerCase();
-  return value.email?.toLowerCase() || value.address?.toLowerCase() || null;
+  if (typeof value === 'object') {
+    const email = 'email' in value && typeof value.email === 'string' ? value.email : undefined;
+    const address = 'address' in value && typeof value.address === 'string' ? value.address : undefined;
+    return email?.toLowerCase() || address?.toLowerCase() || null;
+  }
+  return null;
 }
 
-export function classifyDirection(message, identities = []) {
-  const mine = new Set(identities.map(addressOf).filter(Boolean));
+export function classifyDirection(message: ConversationMessageInput, identities: unknown[] = []) {
+  const mine = new Set(identities.map(addressOf).filter((address): address is string => address !== null));
   const from = addressOf(message.from_email || message.from || message.sender);
-  const recipients = [message.to_addresses, message.cc_addresses, message.delivery_addresses].flatMap(value => Array.isArray(value) ? value : []).map(addressOf).filter(Boolean);
+  const recipients = [message.to_addresses, message.cc_addresses, message.delivery_addresses]
+    .flatMap(value => Array.isArray(value) ? value : [])
+    .map(addressOf)
+    .filter((address): address is string => address !== null);
   const fromMine = from ? mine.has(from) : false;
   const externalRecipient = recipients.some(address => !mine.has(address));
   if (!from && !recipients.length) return 'unknown';
@@ -30,7 +38,7 @@ export function classifyDirection(message, identities = []) {
   return 'unknown';
 }
 
-export function fingerprint(value) {
+export function fingerprint(value: unknown): string {
   return createHash('sha256').update(String(value || '')).digest('hex');
 }
 

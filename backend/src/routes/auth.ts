@@ -56,7 +56,7 @@ function maskEmail(email: string) {
   return masked + '@' + domain;
 }
 
-function getTrustDurationMs(setting) {
+function getTrustDurationMs(setting: string) {
   switch (setting) {
     case '7d': return 7 * 24 * 60 * 60 * 1000;
     case '30d': return 30 * 24 * 60 * 60 * 1000;
@@ -86,7 +86,7 @@ async function destroyUserSessions(userId: string) {
   }
 }
 
-async function createTrustedDevice(userId: string, req, res) {
+async function createTrustedDevice(userId: string, req: Request, res: Response) {
   const trustResult = await query<{ value: string }>(
     "SELECT value FROM system_settings WHERE key = 'mfa_device_trust'"
   );
@@ -113,7 +113,7 @@ async function createTrustedDevice(userId: string, req, res) {
   });
 }
 
-function rateLimit(config) {
+function rateLimit(config: { maxRequests: number; windowMs: number }) {
   return async (req: Request, res: Response, next: NextFunction) => {
     const { maxRequests, windowMs } = config;
     const key = `auth:${req.ip}`;
@@ -412,7 +412,7 @@ router.post('/2fa/challenge', authLimiter, async (req, res) => {
   req.session.isAdmin = user.is_admin;
 
   if (rememberDevice) {
-    try { await createTrustedDevice(user.id, req, res); } catch (err) { console.error('createTrustedDevice failed:', err.message); }
+    try { await createTrustedDevice(user.id, req, res); } catch (err) { console.error('createTrustedDevice failed:', toAppError(err).message); }
   }
 
   imapManager.connectAllForUser(user.id);
@@ -423,7 +423,7 @@ router.post('/2fa/challenge', authLimiter, async (req, res) => {
 });
 
 // Helper: generate and store an email OTP, send it to the given address
-async function sendEmailOtpCode(userId: string, toEmail) {
+async function sendEmailOtpCode(userId: string, toEmail: string) {
   const codeNum = crypto.randomBytes(3).readUIntBE(0, 3) % 900000 + 100000;
   const code = String(codeNum);
   const codeHash = crypto.createHash('sha256').update(code).digest('hex');
@@ -529,7 +529,7 @@ router.post('/2fa/verify-email-otp', authLimiter, async (req, res) => {
   req.session.isAdmin = user.is_admin;
 
   if (rememberDevice) {
-    try { await createTrustedDevice(user.id, req, res); } catch (err) { console.error('createTrustedDevice failed:', err.message); }
+    try { await createTrustedDevice(user.id, req, res); } catch (err) { console.error('createTrustedDevice failed:', toAppError(err).message); }
   }
 
   imapManager.connectAllForUser(user.id);
@@ -876,7 +876,8 @@ export async function patchPreferences(req, res) {
     const [hours, minutes] = value.split(':').map(Number);
     return hours * 60 + minutes;
   };
-  const validWorkRange = (start, end) => validWorkTime(start) && validWorkTime(end) && workTimeMinutes(start) < workTimeMinutes(end);
+  const validWorkRange = (start: unknown, end: unknown): boolean =>
+    typeof start === 'string' && typeof end === 'string' && validWorkTime(start) && validWorkTime(end) && workTimeMinutes(start) < workTimeMinutes(end);
   if (calendarWorkHoursStart !== undefined && !validWorkTime(calendarWorkHoursStart)) {
     return res.status(400).json({ error: 'calendarWorkHoursStart must be a valid HH:mm time' });
   }

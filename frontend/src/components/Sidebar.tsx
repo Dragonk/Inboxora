@@ -126,7 +126,18 @@ function isProtectedFolder(folder: { path?: string | null; special_use?: string 
 /** A context-menu entry as the sidebar builds it. */
 interface SidebarMenuItem { label?: string; icon?: ReactNode; action?: () => void; disabled?: boolean; separator?: boolean; danger?: boolean; keepOpen?: boolean }
 
-function SidebarCtxMenu({ x, y, items, title, subtitle, onClose }: { x: number; y: number; items: SidebarMenuItem[]; title?: string; subtitle?: string; onClose: () => void }) {
+/** Folder tree node produced by buildFolderTree (mirrors the util's internal node shape). */
+interface SidebarFolderNodeLike {
+  path: string;
+  name?: string | null;
+  delimiter?: string;
+  special_use?: string | null;
+  account_id?: string;
+  children: SidebarFolderNodeLike[];
+  [key: string]: unknown;
+}
+
+function SidebarCtxMenu({ x, y, items, title, subtitle, onClose }: { x: number; y: number; items: SidebarMenuItem[]; title?: string | null; subtitle?: string | null; onClose: () => void }) {
   useBackLayer(true, onClose, 4000);
   const menuRef = useRef<HTMLDivElement | null>(null);
   const uiScale = useUiScale();
@@ -218,7 +229,7 @@ function SidebarCtxMenu({ x, y, items, title, subtitle, onClose }: { x: number; 
               danger={item.danger}
               disabled={item.disabled}
               onClick={() => {
-                item.action();
+                if (item.action) item.action();
                 if (!item.keepOpen) onClose();
               }}
             />
@@ -259,7 +270,7 @@ function CtxMenuItem({ icon, label, onClick, danger = false, disabled = false }:
 }
 
 // ─── Main Sidebar ─────────────────────────────────────────────────────────────
-export default function Sidebar({ onEditProfile = null }) {
+export default function Sidebar({ onEditProfile = null }: { onEditProfile?: (() => void) | null }) {
   const { t } = useTranslation();
   const uiScale = useUiScale();
   const {
@@ -371,8 +382,9 @@ export default function Sidebar({ onEditProfile = null }) {
   // Close user menu on outside click
   useEffect(() => {
     if (!userMenuOpen) return;
-    const handler = (e) => {
+    const handler = (e: MouseEvent) => {
       if (
+        e.target instanceof Node &&
         userMenuBtnRef.current && !userMenuBtnRef.current.contains(e.target) &&
         userMenuPopoverRef.current && !userMenuPopoverRef.current.contains(e.target)
       ) {
@@ -391,15 +403,15 @@ export default function Sidebar({ onEditProfile = null }) {
   };
 
   // Context menus
-  const [folderCtxMenu, setFolderCtxMenu] = useState<{ x: number; y: number; accountId: string; folderObj?: { path?: string; name?: string; [key: string]: unknown }; [key: string]: unknown } | null>(null); // {x, y, accountId, folderObj}
-  const [accountCtxMenu, setAccountCtxMenu] = useState<{ x: number; y: number; account: { name?: string | null; email_address?: string | null; [key: string]: unknown }; [key: string]: unknown } | null>(null); // {x, y, account}
+  const [folderCtxMenu, setFolderCtxMenu] = useState<{ x: number; y: number; accountId: string; folderObj: { path: string; name?: string | null; special_use?: string | null; [key: string]: unknown }; [key: string]: unknown } | null>(null); // {x, y, accountId, folderObj}
+  const [accountCtxMenu, setAccountCtxMenu] = useState<{ x: number; y: number; account: StoreState['accounts'][number]; [key: string]: unknown } | null>(null); // {x, y, account}
 
   // Inline rename (IMAP folder)
   const [renamingFolder, setRenamingFolder] = useState<{ accountId: string; path: string; value: string; originalName?: string } | null>(null); // {accountId, path, value}
   const renameInputRef = useRef<HTMLInputElement | null>(null);
 
   // Inline rename (favorite alias)
-  const [renamingFav, setRenamingFav] = useState<{ accountId: string; path: string; value?: string } | null>(null); // {accountId, path, value}
+  const [renamingFav, setRenamingFav] = useState<{ accountId: string; path: string; value: string } | null>(null); // {accountId, path, value}
   const renameFavInputRef = useRef<HTMLInputElement | null>(null);
 
   // Drag-and-drop state for favorites reorder
@@ -470,7 +482,7 @@ export default function Sidebar({ onEditProfile = null }) {
 
   // Update-available check (#261). Reads the cached server-side status; the browser
   // never contacts GitHub. Silent on any failure.
-  const [updateInfo, setUpdateInfo] = useState<{ url?: string; version?: string; [key: string]: unknown } | null>(null);
+  const [updateInfo, setUpdateInfo] = useState<{ url?: string; version?: string; latest?: string; updateAvailable?: boolean; [key: string]: unknown } | null>(null);
   useEffect(() => {
     let cancelled = false;
     fetch('/api/update')
@@ -547,8 +559,8 @@ export default function Sidebar({ onEditProfile = null }) {
     api.syncFolder(accountId, folder).catch(err => console.error('syncFolder failed:', toAppError(err).message));
   };
 
-  const handleStartRename = (accountId, folderObj) => {
-    setRenamingFolder({ accountId, path: folderObj.path, value: folderObj.name, originalName: folderObj.name });
+  const handleStartRename = (accountId: string, folderObj: { path: string; name?: string | null }) => {
+    setRenamingFolder({ accountId, path: folderObj.path, value: folderObj.name ?? '', originalName: folderObj.name ?? undefined });
   };
 
   const handleRenameSubmit = async () => {
@@ -577,10 +589,10 @@ export default function Sidebar({ onEditProfile = null }) {
     }
   };
 
-  const handleDeleteFolder = (accountId, folderPath) => {
+  const handleDeleteFolder = (accountId: string, folderPath: string) => {
     const account = accounts.find(a => a.id === accountId);
     const accountFolders = folders[accountId] || [];
-    const delimiter = accountFolders.find(f => f.delimiter)?.delimiter || '/';
+    const delimiter = String(accountFolders.find(f => f.delimiter)?.delimiter || '/');
     const name = folderPath.split(delimiter).pop();
     const accountLabel = account?.name || account?.email_address || '';
     setConfirmDialog({
@@ -601,10 +613,10 @@ export default function Sidebar({ onEditProfile = null }) {
     });
   };
 
-  const handleEmptyFolder = (accountId, folderPath) => {
+  const handleEmptyFolder = (accountId: string, folderPath: string) => {
     const account = accounts.find(a => a.id === accountId);
     const accountFolders = folders[accountId] || [];
-    const delimiter = accountFolders.find(f => f.delimiter)?.delimiter || '/';
+    const delimiter = String(accountFolders.find(f => f.delimiter)?.delimiter || '/');
     const name = folderPath.split(delimiter).pop();
     const accountLabel = account?.name || account?.email_address || '';
     setConfirmDialog({
@@ -652,7 +664,7 @@ export default function Sidebar({ onEditProfile = null }) {
     }
   };
 
-  const handleMoveAccount = useCallback(async (account, direction) => {
+  const handleMoveAccount = useCallback(async (account: StoreState['accounts'][number], direction: 'up' | 'down') => {
     const idx = accounts.findIndex(a => a.id === account.id);
     if (idx === -1) return;
     const targetIdx = direction === 'up' ? idx - 1 : idx + 1;
@@ -674,7 +686,7 @@ export default function Sidebar({ onEditProfile = null }) {
   }, [accounts, setAccounts, addNotification, t]);
 
   // ── Folder context menu items ──────────────────────────────────────────────
-  const buildFolderMenuItems = (accountId, folderObj) => {
+  const buildFolderMenuItems = (accountId: string, folderObj: { path: string; name?: string | null; special_use?: string | null }) => {
     const accountForFolder = accounts.find(a => a.id === accountId);
     const isProtected = isProtectedFolder(folderObj, accountForFolder?.folder_mappings);
     const isHidden = (hiddenFolders[accountId] || []).includes(folderObj.path);
@@ -748,7 +760,7 @@ export default function Sidebar({ onEditProfile = null }) {
   };
 
   // ── Account context menu items ─────────────────────────────────────────────
-  const buildAccountMenuItems = (account) => {
+  const buildAccountMenuItems = (account: StoreState['accounts'][number]) => {
     const idx = accounts.findIndex(a => a.id === account.id);
     const isFirst = idx === 0;
     const isLast = idx === accounts.length - 1;
@@ -1068,7 +1080,7 @@ export default function Sidebar({ onEditProfile = null }) {
                 const BASE_INDENT = 26;
                 const DEPTH_INDENT = 14;
 
-                const createFolderInput = (indent) => (
+                const createFolderInput = (indent: number) => (
                   <div style={{
                     display: 'flex', alignItems: 'center', gap: 8,
                     padding: `6px 10px 6px ${indent}px`, borderRadius: 7,
@@ -1100,7 +1112,7 @@ export default function Sidebar({ onEditProfile = null }) {
                 const accountHiddenPaths = hiddenFolders[account.id] || [];
                 const showingHidden = showHiddenFor.has(account.id);
 
-                const handleFolderOrderDragStart = (event, path) => {
+                const handleFolderOrderDragStart = (event: React.DragEvent, path: string) => {
                   event.stopPropagation();
                   event.dataTransfer.effectAllowed = 'move';
                   event.dataTransfer.setData(
@@ -1137,10 +1149,11 @@ export default function Sidebar({ onEditProfile = null }) {
                   return true;
                 };
 
-                const handleFolderOrderDrop = (event, path) => {
+                const handleFolderOrderDrop = (event: React.DragEvent, path: string) => {
                   if (!event.dataTransfer.types.includes(FOLDER_ORDER_DRAG_TYPE)) return false;
                   event.preventDefault();
                   event.stopPropagation();
+                  const rect = event.currentTarget.getBoundingClientRect();
                   const next = resolveFolderOrderDrop(
                     accountFolders,
                     folderOrder[account.id],
@@ -1148,14 +1161,14 @@ export default function Sidebar({ onEditProfile = null }) {
                     account.id,
                     path,
                     event.clientY,
-                    event.currentTarget.getBoundingClientRect(),
+                    { top: rect.top, bottom: rect.bottom, height: rect.height },
                   );
                   if (next) setFolderOrder(account.id, next);
                   clearFolderDrag();
                   return true;
                 };
 
-                const renderNode = (node, depth, siblings) => {
+                const renderNode = (node: SidebarFolderNodeLike, depth: number, siblings: SidebarFolderNodeLike[]) => {
                   const { children, ...folder } = node;
                   const isHidden = accountHiddenPaths.includes(folder.path);
                   if (isHidden && !showingHidden) return null;
@@ -1263,7 +1276,7 @@ export default function Sidebar({ onEditProfile = null }) {
                           <input
                             ref={renameInputRef}
                             value={renamingFolder.value}
-                            onChange={ (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement>) => setRenamingFolder(prev => ({ ...prev, value: e.target.value }))}
+                            onChange={ (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement>) => setRenamingFolder(prev => (prev ? { ...prev, value: e.target.value } : prev))}
                             onKeyDown={ (e: React.KeyboardEvent<HTMLElement>) => {
                               if (e.key === 'Enter') handleRenameSubmit();
                               if (e.key === 'Escape') setRenamingFolder(null);
@@ -1293,7 +1306,7 @@ export default function Sidebar({ onEditProfile = null }) {
                             <button onClick={() => setRenamingFolder(null)} style={{ background: 'var(--bg-tertiary)', border: 'none', borderRadius: 4, color: 'var(--text-secondary)', padding: '2px 6px', cursor: 'pointer', fontSize: 11 }}>✕</button>
                           </div>
                         ) : (
-                          folder.unread_count > 0 && (
+                          typeof folder.unread_count === 'number' && folder.unread_count > 0 && (
                             <span style={{ fontSize: 10, color: 'var(--text-tertiary)', background: 'var(--bg-elevated)', padding: '1px 5px', borderRadius: 8, flexShrink: 0 }}>
                               {folder.unread_count}
                             </span>
@@ -1386,7 +1399,7 @@ export default function Sidebar({ onEditProfile = null }) {
               {visibleFaves.map((fav, idx) => {
                 const { accountId, path, label } = fav;
                 const account = accounts.find(a => a.id === accountId);
-                if (!account) return null;
+                if (!account || !accountId) return null;
                 const accountFolders = folders[accountId] || [];
                 const folderObj = accountFolders.find(f => f.path === path);
                 const isActive = !showContacts && !showCalendar && selectedAccountId === accountId && selectedFolder === path;
@@ -1477,7 +1490,7 @@ export default function Sidebar({ onEditProfile = null }) {
                       }
                     }}
                     onTouchCancel={() => {
-                      clearTimeout(favLongPressTimer.current);
+                      if (favLongPressTimer.current) clearTimeout(favLongPressTimer.current);
                       favLongPressTimer.current = null;
                       favTouchStart.current = null;
                     }}
@@ -1526,7 +1539,7 @@ export default function Sidebar({ onEditProfile = null }) {
                       <input
                         ref={renameFavInputRef}
                         value={renamingFav.value}
-                        onChange={ (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement>) => setRenamingFav(prev => ({ ...prev, value: e.target.value }))}
+                        onChange={ (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement>) => setRenamingFav(prev => (prev ? { ...prev, value: e.target.value } : prev))}
                         onKeyDown={ (e: React.KeyboardEvent<HTMLElement>) => {
                           if (e.key === 'Enter') {
                             renameFavoriteFolder({ accountId, path, label: renamingFav.value.trim() });
@@ -1962,7 +1975,7 @@ export default function Sidebar({ onEditProfile = null }) {
             onClick={() => { setUserMenuOpen(false); setShowProfile(true); }} />
           <CtxMenuItem icon={ICONS.settings} label={t('sidebar.settings')}
             onClick={() => { setAdminTab('accounts'); setShowAdmin(true); setUserMenuOpen(false); }} />
-          {user?.hasLockPin && (
+          {Boolean(user?.hasLockPin) && (
             <CtxMenuItem
               icon={<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75"><rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0110 0v4"/></svg>}
               label={t('sidebar.lock')}
@@ -2023,7 +2036,7 @@ export default function Sidebar({ onEditProfile = null }) {
                 padding: '7px 16px', borderRadius: 7, border: '1px solid var(--border-subtle)',
                 background: 'transparent', color: 'var(--text-secondary)', cursor: 'pointer', fontSize: 13,
               }}>{t('common.cancel')}</button>
-              <button onClick={() => { const fn = confirmDialog.onConfirm; setConfirmDialog(null); fn(); }} className="btn-press" style={{
+              <button onClick={() => { const fn = confirmDialog.onConfirm; setConfirmDialog(null); if (fn) fn(); }} className="btn-press" style={{
                 padding: '7px 16px', borderRadius: 7, border: 'none',
                 background: 'var(--red)', color: 'white', cursor: 'pointer', fontSize: 13, fontWeight: 500,
               }}>{t('common.delete')}</button>
@@ -2036,7 +2049,7 @@ export default function Sidebar({ onEditProfile = null }) {
   );
 }
 
-function NavItem({ testId, icon, label, active, collapsed, badge = undefined, onClick }: { testId: string; icon?: ReactNode; label: string; active: boolean; collapsed: boolean; badge?: number; onClick: () => void }) {
+function NavItem({ testId, icon, label, active, collapsed, badge = 0, onClick }: { testId: string; icon?: ReactNode; label: string; active: boolean; collapsed: boolean; badge?: number; onClick: () => void }) {
   return (
     <div
       className={active ? 'nav-item nav-item-active' : 'nav-item'}

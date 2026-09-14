@@ -1,4 +1,5 @@
 import { query, withTransaction } from './db.js';
+import type { DbClient } from './db.js';
 import { projectCalendarResources } from './calendarProjectionPool.js';
 import { toAppError } from '../utils/errors.js';
 
@@ -23,7 +24,7 @@ const BATCH_SIZE = 25;
 // How often the queue is drained.
 const TICK_MS = 5000;
 
-function envInt(name: string, fallback, { min, max }) {
+function envInt(name: string, fallback: number, { min, max }: { min: number; max: number }): number {
   const parsed = Number.parseInt(process.env[name] ?? '', 10);
   if (!Number.isFinite(parsed)) return fallback;
   return Math.max(min, Math.min(max, parsed));
@@ -49,13 +50,21 @@ export const EVENT_COLUMNS = `e.id, e.user_id, e.calendar_id, e.uid, e.etag, e.r
 // The value the parent event carries, used to decide whether an occurrence overrides it.
 // Storing only genuine overrides keeps a description from being duplicated across hundreds
 // of instances.
-function masterValue(row, field) {
+function masterValue(row: Record<string, unknown>, field: string) {
   const value = row[field];
   return value === undefined ? null : value;
 }
 
-function overridesFor(event, row) {
-  const pick = (field, current) => {
+function overridesFor(event: {
+  id?: string;
+  summary?: unknown;
+  description?: unknown;
+  location?: unknown;
+  url?: unknown;
+  organizer?: unknown;
+  attendees?: unknown;
+}, row: Record<string, unknown>) {
+  const pick = (field: string, current: unknown) => {
     const master = masterValue(row, field);
     const same = Array.isArray(master) || Array.isArray(current)
       ? JSON.stringify(master ?? []) === JSON.stringify(current ?? [])
@@ -84,7 +93,12 @@ function overridesFor(event, row) {
  *   * `truncated` keeps a partial expansion dirty, so the read path keeps expanding that series
  *     on the fly instead of presenting a partial month as complete.
  */
-export async function finalizeMaterialization(client, { eventId, horizon, etag, truncated }) {
+export async function finalizeMaterialization(client: DbClient, { eventId, horizon, etag, truncated }: {
+  eventId: string;
+  horizon: { from: Date; to: Date };
+  etag: unknown;
+  truncated: boolean;
+}) {
   await client.query(
     `UPDATE calendar_occurrence_state s
         SET built_from = $2, built_to = $3, built_etag = $4,
@@ -193,7 +207,7 @@ export async function materializePendingOccurrences({ limit = BATCH_SIZE } = {})
 }
 
 /** Queue an event for rebuild and (optionally) rebuild it right away, off the request path. */
-export async function requestOccurrenceRebuild(eventIds) {
+export async function requestOccurrenceRebuild(eventIds: string | string[]) {
   const ids = (Array.isArray(eventIds) ? eventIds : [eventIds]).filter(Boolean);
   if (!ids.length) return { queued: 0 };
   const result = await query(

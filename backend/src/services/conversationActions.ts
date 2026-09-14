@@ -129,7 +129,7 @@ export const COPY_SCOPES = new Set([
 function updateFolderCountsForAction(rows: ConversationRow[], action: string, imapManager: ConversationImapManager | null, userId: string) {
   if (!imapManager || !rows.length || !['archive', 'move', 'delete'].includes(action)) return;
   const deltas = new Map();
-  const add = (accountId: string, folder: string, total, unread) => {
+  const add = (accountId: string, folder: string, total: number, unread: number) => {
     const key = `${accountId}:${folder}`;
     const current = deltas.get(key) || { accountId, folder, total: 0, unread: 0 };
     current.total += total;

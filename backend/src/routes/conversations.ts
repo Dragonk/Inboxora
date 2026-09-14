@@ -19,11 +19,11 @@ router.param('id', uuidParam('id'));
 router.param('conversationId', uuidParam('conversationId'));
 router.param('logicalMessageId', uuidParam('logicalMessageId'));
 
-function parseLimit(value) {
+function parseLimit(value: unknown) {
   return Math.min(Math.max(Number(value) || 50, 1), 100);
 }
 
-function decodeCursor(value) {
+function decodeCursor(value: unknown) {
   if (!value) return null;
   try {
     const parsed = JSON.parse(Buffer.from(String(value), 'base64url').toString('utf8'));
@@ -32,7 +32,7 @@ function decodeCursor(value) {
   } catch { return null; }
 }
 
-function encodeCursor(row) {
+function encodeCursor(row: Record<string, unknown>) {
   return Buffer.from(JSON.stringify({ date: row.sort_date, id: row.conversation_id })).toString('base64url');
 }
 
@@ -179,7 +179,7 @@ router.get('/conversations', async (req: Request, res: Response) => {
      LIMIT $${limitParam}
   `, values);
   for (const row of result.rows) row.latestCopyId = row.latest_copy_id;
-  const nextCursor = result.rows.length === parseLimit(limit) ? encodeCursor(result.rows.at(-1)) : null;
+  const nextCursor = result.rows.length === parseLimit(limit) ? encodeCursor(result.rows[result.rows.length - 1]) : null;
   res.json({ conversations: result.rows, nextCursor, total: result.rows[0]?.total_count || 0 });
 });
 
@@ -319,11 +319,11 @@ router.get('/messages/:ref/conversation', async (req: Request, res: Response) =>
 // These routes are deliberately separate from legacy /messages/bulk-* routes.
 // Every CE action requires an explicit scope and is tenant-scoped by session user.
 
-async function runAction(req, res, action, extra = {}) {
+async function runAction(req: Request, res: Response, action: string, extra: Record<string, unknown> = {}) {
   try {
     const result = await applyConversationAction({
       userId: req.session.userId,
-      conversationId: req.params.id,
+      conversationId: routeParam(req.params.id),
       scope: req.body?.scope || 'THIS_COPY',
       copyId: req.body?.copyId || null,
       logicalMessageId: req.body?.logicalMessageId || null,
@@ -346,19 +346,19 @@ router.post('/conversations/:id/star', (req: Request, res: Response) => runActio
 
 router.post('/conversations/bulk-archive', async (req: Request, res: Response) => {
   try { res.json(await applyBulkConversationAction({ userId: sessionUserId(req), conversationIds: req.body?.conversationIds, items: req.body?.items, scope: req.body?.scope || 'THIS_COPY', action: 'archive', imapManager: req.app.get('imapManager') })); }
-  catch (err) { res.status(err.statusCode || 400).json({ error: err.message }); }
+  catch (caught) { const err = toAppError(caught); res.status(err.statusCode || 400).json({ error: err.message }); }
 });
 router.post('/conversations/bulk-delete', async (req: Request, res: Response) => {
   try { res.json(await applyBulkConversationAction({ userId: sessionUserId(req), conversationIds: req.body?.conversationIds, items: req.body?.items, scope: req.body?.scope || 'THIS_COPY', action: 'delete', imapManager: req.app.get('imapManager') })); }
-  catch (err) { res.status(err.statusCode || 400).json({ error: err.message }); }
+  catch (caught) { const err = toAppError(caught); res.status(err.statusCode || 400).json({ error: err.message }); }
 });
 router.post('/conversations/bulk-read', async (req: Request, res: Response) => {
   try { res.json(await applyBulkConversationAction({ userId: sessionUserId(req), conversationIds: req.body?.conversationIds, items: req.body?.items, scope: req.body?.scope || 'THIS_COPY', action: 'read', isRead: req.body?.isRead, imapManager: req.app.get('imapManager') })); }
-  catch (err) { res.status(err.statusCode || 400).json({ error: err.message }); }
+  catch (caught) { const err = toAppError(caught); res.status(err.statusCode || 400).json({ error: err.message }); }
 });
 router.post('/conversations/bulk-move', async (req: Request, res: Response) => {
   try { res.json(await applyBulkConversationAction({ userId: sessionUserId(req), conversationIds: req.body?.conversationIds, items: req.body?.items, scope: req.body?.scope || 'THIS_COPY', action: 'move', targetFolder: req.body?.targetFolder, imapManager: req.app.get('imapManager') })); }
-  catch (err) { res.status(err.statusCode || 400).json({ error: err.message }); }
+  catch (caught) { const err = toAppError(caught); res.status(err.statusCode || 400).json({ error: err.message }); }
 });
 
 export default router;

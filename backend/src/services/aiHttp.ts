@@ -1,8 +1,18 @@
-export function byteLength(value) {
+/** The response shape the streaming helpers read (structural, so callers can pass fetch responses). */
+interface ReadableResponse {
+  body: {
+    getReader(): {
+      read(): Promise<{ done: true; value?: undefined } | { done: false; value: Uint8Array }>;
+      cancel(): Promise<unknown>;
+    };
+  } | null;
+}
+
+export function byteLength(value: string): number {
   return new TextEncoder().encode(value).byteLength;
 }
 
-export function sanitizeText(value, maxLength = 1000) {
+export function sanitizeText(value: unknown, maxLength = 1000): string {
   if (typeof value !== 'string') return '';
   return Array.from(value, (character) => {
     const code = character.charCodeAt(0);
@@ -19,7 +29,7 @@ export function parseJson(text: string) {
   }
 }
 
-export async function readLimited(response, limitBytes) {
+export async function readLimited(response: ReadableResponse, limitBytes: number): Promise<string> {
   if (!response.body) return '';
   const reader = response.body.getReader();
   const decoder = new TextDecoder();
@@ -42,8 +52,8 @@ export async function readLimited(response, limitBytes) {
   }
 }
 
-export async function* readSseData(response, { signal, maxEventBytes, createError }: { signal?: AbortSignal; maxEventBytes?: number; createError?: (reason: string) => Error } = {}) {
-  const error = (reason) => createError?.(reason) || new Error(reason);
+export async function* readSseData(response: ReadableResponse, { signal, maxEventBytes, createError }: { signal?: AbortSignal; maxEventBytes: number; createError?: (reason: string) => Error }) {
+  const error = (reason: string) => createError?.(reason) || new Error(reason);
   if (!response.body) throw error('empty_body');
   const reader = response.body.getReader();
   const decoder = new TextDecoder();
@@ -51,7 +61,7 @@ export async function* readSseData(response, { signal, maxEventBytes, createErro
   const onAbort = () => { void reader.cancel().catch(() => {}); };
   signal?.addEventListener('abort', onAbort, { once: true });
 
-  function parseBlock(block) {
+  function parseBlock(block: string): string {
     if (byteLength(block) > maxEventBytes) throw error('event_too_large');
     return block
       .split(/\r?\n/)
@@ -89,7 +99,7 @@ export async function* readSseData(response, { signal, maxEventBytes, createErro
   }
 }
 
-export function createRequestSignal(callerSignal, timeoutMs: number, timeoutMessage = 'request timed out') {
+export function createRequestSignal(callerSignal: AbortSignal | null | undefined, timeoutMs: number, timeoutMessage = 'request timed out') {
   const controller = new AbortController();
   let timedOut = false;
   const onAbort = () => controller.abort(callerSignal?.reason || new Error('request aborted'));

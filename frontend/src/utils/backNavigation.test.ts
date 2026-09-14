@@ -3,21 +3,21 @@ import assert from 'node:assert/strict';
 import { createBackNavigation } from './backNavigation.ts';
 
 function fixture() {
-  const entries = [{ external: true }, { otherState: 'preserved' }];
+  const entries: Array<Record<string, unknown>> = [{ external: true }, { otherState: 'preserved' }];
   let index = 1;
-  let listener;
+  let listener: (() => void) | null | undefined;
   /** The pending navigation jobs, newest last. */
   const jobs: Array<() => void> = [];
   const history = {
     get state() { return entries[index]; },
-    pushState(state) { entries.splice(++index, Infinity, state); },
+    pushState(state: Record<string, unknown>) { entries.splice(++index, Infinity, state); },
     back() { jobs.push(() => { if (index > 0) { index--; listener?.(); } }); },
   };
-  const nav = createBackNavigation({ history, listen: fn => { listener = fn; return () => { listener = null; }; }, schedule: fn => jobs.push(fn) });
+  const nav = createBackNavigation({ history, listen: (fn: () => void) => { listener = fn; return () => { listener = null; }; }, schedule: (fn: () => void) => jobs.push(fn) });
   nav.start(); nav.setEnabled(true);
-  const flush = () => { for (let n = 0; jobs.length; n++) { assert.ok(n < 40, 'history must settle'); jobs.shift()(); } };
+  const flush = () => { for (let n = 0; jobs.length; n++) { assert.ok(n < 40, 'history must settle'); const job = jobs.shift(); if (job) job(); } };
   flush();
-  return { nav, history, entries, flush, step: () => jobs.shift()(), get index() { return index; } };
+  return { nav, history, entries, flush, step: () => { const job = jobs.shift(); if (job) job(); }, get index() { return index; } };
 }
 
 describe('system Back layer history', () => {

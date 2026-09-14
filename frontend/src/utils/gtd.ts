@@ -32,11 +32,11 @@ export const GTD_CHIP_BG = {
 // GTD section display order (Waiting merges watch + delegated): Todo → Waiting →
 // Reference → Someday — actionable items first, then delegated/waiting-on items,
 // then reference material, then someday/maybe deferred to last.
-export const GTD_DISPLAY_SECTION_ORDER = ['todo', 'waiting', 'reference', 'someday'];
+export const GTD_DISPLAY_SECTION_ORDER = ['todo', 'waiting', 'reference', 'someday'] as const;
 
 // The five GTD states and their default state→folder map (mirrors the backend
 // gtdConfig defaults). Classify actions COPY into the resolved folder.
-export const GTD_STATES = ['todo', 'watch', 'delegated', 'someday', 'reference'];
+export const GTD_STATES: Array<keyof typeof DEFAULT_GTD_FOLDERS> = ['todo', 'watch', 'delegated', 'someday', 'reference'];
 export const DEFAULT_GTD_FOLDERS = {
   todo: 'Todo', watch: 'Watch', delegated: 'Delegated', someday: 'Someday', reference: 'Reference',
 };
@@ -60,7 +60,7 @@ export interface GtdRowDisplay {
   kinds: string[];
   rowState: string;
   unread: boolean;
-  days: number;
+  days: number | null;
   stale: boolean;
   sender: string;
 }
@@ -89,6 +89,14 @@ export interface GtdThread {
   from_name?: string | null;
   from_email?: string | null;
   [key: string]: unknown;
+}
+
+/** The minimal row shape the identity/dedupe helpers read. */
+export interface GtdIdentityRow {
+  id?: string;
+  message_id?: string | null;
+  folder?: string | null;
+  date?: string | number | Date | null;
 }
 
 export interface GtdSection {
@@ -152,7 +160,7 @@ export function gtdStatesInFolders(folders: string[] | null | undefined, resolve
 // Whole days between a thread head's date and now. null when there is no
 // parseable date. Future dates clamp to 0 (a freshly-synced head can carry a
 // clock-skewed date slightly ahead of the client).
-export function agingDays(dateStr: string | number | Date | null | undefined, now = Date.now()): number {
+export function agingDays(dateStr: string | number | Date | null | undefined, now = Date.now()): number | null {
   if (!dateStr) return null;
   const t = new Date(dateStr).getTime();
   if (!Number.isFinite(t)) return null;
@@ -160,11 +168,11 @@ export function agingDays(dateStr: string | number | Date | null | undefined, no
   return days < 0 ? 0 : days;
 }
 
-export function isStale(days: number): boolean {
+export function isStale(days: number | null): boolean {
   return days != null && days > STALE_DAYS;
 }
 
-export function agingLabel(days: number): string {
+export function agingLabel(days: number | null): string {
   if (days == null) return '';
   return `⏱ ${days}d`;
 }
@@ -217,7 +225,7 @@ function normSection(section?: GtdSection | null): GtdNormalizedSection {
 // single row. message_id is preferred (stable across accounts, matching the
 // backend's cross-account dedupe), then the row id — no thread_key step, to match
 // the backend's analogous dedupe (gtdSections.js: message_id || id).
-function waitingIdentity(t: GtdThread): string | null {
+function waitingIdentity(t: GtdThread): string | undefined {
   return t.message_id || t.id;
 }
 
@@ -288,10 +296,10 @@ export function mergeWaiting(watch?: GtdSection | null, delegated?: GtdSection |
 
 // Ordered GTD display sections with Waiting merged. Each entry:
 // { key, total, unread, threads }.
-export function buildGtdDisplaySections(sections) {
-  const s = sections || {};
+export function buildGtdDisplaySections(sections: GtdSections | null | undefined) {
+  const s: GtdSections = sections || {};
   const waiting = mergeWaiting(s.watch, s.delegated, s.waiting);
-  const byKey = {
+  const byKey: Record<(typeof GTD_DISPLAY_SECTION_ORDER)[number], GtdNormalizedSection> = {
     todo: normSection(s.todo),
     waiting,
     reference: normSection(s.reference),
@@ -309,14 +317,19 @@ export function buildGtdDisplaySections(sections) {
 // both folders is a single Waiting row — so the Waiting badge is correct instantly instead
 // of only after the refetch. Returns the same sections reference when nothing changed, a
 // new object otherwise; never mutates the input.
-export function removeGtdThreadFromSections(sections, identity, states) {
+export function removeGtdThreadFromSections<S extends GtdSections | null | undefined>(
+  sections: S,
+  identity: string | null | undefined,
+  states?: string[],
+): S {
   if (!sections || identity == null) return sections;
-  const next = { ...sections };
+  const current: GtdSections = sections;
+  const next = { ...current };
   let changed = false;
   let waitingRemoved = false;   // present in watch and/or delegated → adjust rollup once
   let waitingUnread = false;    // any removed waiting copy was unread
   for (const key of states || []) {
-    const sec = sections[key];
+    const sec = current[key];
     if (!sec || !Array.isArray(sec.threads)) continue;
     let removed = 0, removedUnread = 0;
     const threads = sec.threads.filter(th => {
@@ -337,14 +350,14 @@ export function removeGtdThreadFromSections(sections, identity, states) {
       threads,
     };
   }
-  if (waitingRemoved && sections.waiting && typeof sections.waiting === 'object') {
+  if (waitingRemoved && current.waiting && typeof current.waiting === 'object') {
     next.waiting = {
-      ...sections.waiting,
-      total: Math.max(0, (Number(sections.waiting.total) || 0) - 1),
-      unread: Math.max(0, (Number(sections.waiting.unread) || 0) - (waitingUnread ? 1 : 0)),
+      ...current.waiting,
+      total: Math.max(0, (Number(current.waiting.total) || 0) - 1),
+      unread: Math.max(0, (Number(current.waiting.unread) || 0) - (waitingUnread ? 1 : 0)),
     };
   }
-  return changed ? next : sections;
+  return (changed ? next : current) as S;
 }
 
 export function snapshotGtdThreadRemoval(sections: GtdSections | null | undefined, identity: string | null | undefined, states?: string[]) {
@@ -451,7 +464,11 @@ export function setGtdThreadReadInSections(sections: GtdSections | null | undefi
 // getThread is injected (like openDeepLinkMessage) so the seam stays unit-testable.
 // Degrades to the head id when the thread lookup fails or returns nothing: bulk-read
 // still flips the head's copies and the gtd refetch re-shows any residual unread.
-export async function collectThreadReadIds(thread, read, getThread) {
+export async function collectThreadReadIds(
+  thread: { id?: string; thread_key?: string },
+  read: boolean,
+  getThread?: (key: string) => Promise<{ messages?: Array<{ id: string }> }>,
+): Promise<Array<string | undefined>> {
   if (!read || !getThread || !thread?.thread_key) return [thread.id];
   try {
     const { messages } = await getThread(thread.thread_key);
@@ -470,9 +487,9 @@ export function scheduleGtdThreadAutoRead(thread: GtdThread, {
 }: {
   markReadBehavior?: string;
   markReadDelay?: number;
-  readThread?: (thread: GtdThread, isRead: boolean) => void;
+  readThread: (thread: GtdThread, isRead: boolean) => void;
   setTimer?: (callback: () => void, delay: number) => unknown;
-} = {}) {
+}) {
   if (!thread || thread.is_read || markReadBehavior === 'manual') return null;
   if (markReadBehavior === 'delay') {
     const seconds = Math.max(1, Number(markReadDelay) || 1);
@@ -482,13 +499,22 @@ export function scheduleGtdThreadAutoRead(thread: GtdThread, {
   return null;
 }
 
-export async function openGtdThreadWithAutoRead(thread, {
+export async function openGtdThreadWithAutoRead(thread: GtdThread, {
   openThread,
   isCancelled,
   getPreferences,
   readThread,
-  setTimer = undefined,
+  setTimer,
   publishTimer,
+}: {
+  openThread: () => Promise<unknown>;
+  isCancelled: () => boolean;
+  getPreferences: () => { markReadBehavior?: string; markReadDelay?: number };
+  readThread: (thread: GtdThread, isRead: boolean) => void;
+  setTimer?: (callback: () => void, delay: number) => unknown;
+  // The handle is opaque: the injected scheduler is either the real setTimeout or a
+  // fake clock in tests, so callers own its concrete type.
+  publishTimer: (timer: any) => void;
 }) {
   const message = await openThread();
   if (!message || isCancelled()) return null;
@@ -516,7 +542,7 @@ export function sectionBadge(count: number) {
 // and the selection carry one — never matches two null/absent message_ids — and otherwise
 // falls back to exact id equality, which is all a single-copy account (or a row/selection
 // without a message_id) ever needs. Pure and unit-testable.
-export function isSelectedRow(row, selectedId, selectedMid) {
+export function isSelectedRow(row: GtdIdentityRow | null | undefined, selectedId?: string | null, selectedMid?: string | null) {
   if (!row) return false;
   if (selectedMid != null && row.message_id != null && row.message_id === selectedMid) return true;
   return row.id != null && row.id === selectedId;
@@ -530,7 +556,7 @@ export function isSelectedRow(row, selectedId, selectedMid) {
 // together). Keying on the Message-ID collapses those; rows without one keep id identity so two
 // distinct id-only rows never merge. Namespaced so a Message-ID can never collide with a UUID.
 // Pure. Mirrors the identity rule in isSelectedRow / pickThreadMessage.
-export function messageIdentity(m: GtdThread) {
+export function messageIdentity(m: GtdIdentityRow | null | undefined) {
   if (!m) return null;
   return m.message_id ? `mid:${m.message_id}` : `id:${m.id}`;
 }
@@ -544,27 +570,31 @@ export function messageIdentity(m: GtdThread) {
 //  - anything genuinely new is appended, de-duplicated within the incoming batch by identity.
 // Returns the original array reference unchanged when nothing was added or replaced, so callers can
 // skip a no-op state update. Pure.
-export function appendMessagesByIdentity(existing, incoming) {
-  const items = (incoming || []).filter(Boolean);
+export function appendMessagesByIdentity<T extends GtdIdentityRow>(
+  existing: T[],
+  incoming: readonly (T | null | undefined)[] | null | undefined,
+): T[] {
+  const items = (incoming || []).filter((m): m is T => !!m);
   if (items.length === 0) return existing;
 
-  const existingIds = new Set(existing.map((m: GtdThread) => m.id));
-  const idxByMid = new Map();
-  existing.forEach((m: GtdThread, i: number) => { if (m.message_id) idxByMid.set(m.message_id, i); });
+  const existingIds = new Set(existing.map(m => m.id));
+  const idxByMid = new Map<string, number>();
+  existing.forEach((m, i) => { if (m.message_id) idxByMid.set(m.message_id, i); });
 
   let messages = existing;
   let mutated = false;
-  const additions = [];
-  const takenKeys = new Set(); // identities already consumed from the incoming batch
+  const additions: T[] = [];
+  const takenKeys = new Set<string | null>(); // identities already consumed from the incoming batch
 
   for (const m of items) {
     if (existingIds.has(m.id)) continue;   // exact same row already present — keep existing
     const key = messageIdentity(m);
     if (takenKeys.has(key)) continue;      // a same-identity incoming row was already handled
     takenKeys.add(key);
-    if (m.message_id && idxByMid.has(m.message_id)) {
+    const staleIndex = m.message_id ? idxByMid.get(m.message_id) : undefined;
+    if (staleIndex !== undefined) {
       if (!mutated) { messages = existing.slice(); mutated = true; }
-      messages[idxByMid.get(m.message_id)] = m; // reindexed: replace the stale row in place
+      messages[staleIndex] = m;              // reindexed: replace the stale row in place
     } else {
       additions.push(m);                        // genuinely new
     }
@@ -582,17 +612,20 @@ export function appendMessagesByIdentity(existing, incoming) {
 // This is the render-time guard the identity-aware merges (appendMessagesByIdentity) don't cover.
 // Order-preserving; on a collision the INBOX copy wins so the list shows the received message.
 // Null-safe: rows without a Message-ID key on their (unique) id, so distinct ones never merge. Pure.
-export function dedupeByIdentity(list) {
-  const idxByKey = new Map(); // identity -> index in result
-  const result = [];
+export function dedupeByIdentity<T extends GtdIdentityRow>(
+  list: readonly (T | null | undefined)[] | null | undefined,
+): T[] {
+  const idxByKey = new Map<string | null, number>(); // identity -> index in result
+  const result: T[] = [];
   for (const m of list || []) {
     if (!m) continue;
     const key = messageIdentity(m);
-    if (!idxByKey.has(key)) {
+    const seenIndex = idxByKey.get(key);
+    if (seenIndex === undefined) {
       idxByKey.set(key, result.length);
       result.push(m);
-    } else if (result[idxByKey.get(key)].folder !== 'INBOX' && m.folder === 'INBOX') {
-      result[idxByKey.get(key)] = m; // prefer the INBOX copy of the same logical message
+    } else if (result[seenIndex].folder !== 'INBOX' && m.folder === 'INBOX') {
+      result[seenIndex] = m; // prefer the INBOX copy of the same logical message
     }
   }
   return result;
@@ -601,17 +634,23 @@ export function dedupeByIdentity(list) {
 // Filter `incoming` to the messages whose stable identity is not already present in `existing`.
 // Used by restore/undo so a message the network refresh already brought back — possibly under a
 // regenerated id, matched via Message-ID — is not re-added as a duplicate. Pure.
-export function missingByIdentity(existing, incoming) {
-  const present = new Set(existing.map(messageIdentity));
-  return (incoming || []).filter((m: GtdThread) => m && !present.has(messageIdentity(m)));
+export function missingByIdentity<T extends GtdIdentityRow>(
+  existing: T[],
+  incoming: readonly (T | null | undefined)[] | null | undefined,
+): T[] {
+  const present = new Set(existing.map(m => messageIdentity(m)));
+  return (incoming || []).filter((m): m is T => !!m && !present.has(messageIdentity(m)));
 }
 
 // Choose which message of a thread a deep-link should open, given the thread's rows and
 // the head's RFC message_id. Prefers the row whose message_id matches — that identity is
 // stable across a purge+reinsert, whereas the row PK is not — then the newest row, then
 // the first. Rows without an id (nothing to open) are ignored. Pure and unit-testable.
-export function pickThreadMessage(messages, messageId) {
-  const list = Array.isArray(messages) ? messages.filter(m => m && m.id) : [];
+export function pickThreadMessage<T extends GtdIdentityRow>(
+  messages: readonly (T | null | undefined)[] | null | undefined,
+  messageId?: string | null,
+): T | null {
+  const list = Array.isArray(messages) ? messages.filter((m): m is T => !!m && !!m.id) : [];
   if (list.length === 0) return null;
   const byMid = messageId && list.find(m => m.message_id === messageId);
   if (byMid) return byMid;
@@ -624,7 +663,14 @@ export function pickThreadMessage(messages, messageId) {
 // not leave INBOX), so both just fire the API call and poke the GTD sections store to reconverge
 // instead of waiting on the WS event. Deps injected (like openDeepLinkMessage) so the call
 // is unit-testable; mirrors the GTD display callers' classify/remove handlers.
-export async function classifyThread(id, state, { gtdClassify, addNotification, scheduleGtdSectionsFetch, t }) {
+export async function classifyThread(id: string, state: string, {
+  gtdClassify, addNotification, scheduleGtdSectionsFetch, t,
+}: {
+  gtdClassify: (id: string, state: string) => Promise<unknown>;
+  addNotification: (n: { title?: string; body?: string }) => void;
+  scheduleGtdSectionsFetch: () => void;
+  t: (key: string) => string;
+}) {
   try {
     await gtdClassify(id, state);
     scheduleGtdSectionsFetch();
@@ -635,7 +681,14 @@ export async function classifyThread(id, state, { gtdClassify, addNotification, 
   }
 }
 
-export async function unclassifyThread(id, state, { gtdUnclassify, addNotification, scheduleGtdSectionsFetch, t }) {
+export async function unclassifyThread(id: string, state: string, {
+  gtdUnclassify, addNotification, scheduleGtdSectionsFetch, t,
+}: {
+  gtdUnclassify: (id: string, state: string) => Promise<unknown>;
+  addNotification: (n: { title?: string; body?: string }) => void;
+  scheduleGtdSectionsFetch: () => void;
+  t: (key: string) => string;
+}) {
   try {
     await gtdUnclassify(id, state);
     scheduleGtdSectionsFetch();
@@ -668,15 +721,15 @@ export async function openDeepLinkMessage(id: string | null | undefined, {
   getMessage, setThreadMessages, setSelectedMessage,
   thread, getThread, onMiss,
 }: {
-  getMessage?: (id: string) => Promise<GtdThread | null>;
-  setThreadMessages?: (key: string, messages: GtdThread[]) => void;
-  setSelectedMessage?: (id: string) => void;
+  getMessage: (id: string) => Promise<(GtdThread & { id: string }) | null>;
+  setThreadMessages: (key: string, messages: GtdThread[]) => void;
+  setSelectedMessage: (id: string) => void;
   thread?: { thread_key?: string; message_id?: string } | null;
-  getThread?: (key: string) => Promise<{ messages: GtdThread[] }>;
+  getThread?: (key: string) => Promise<{ messages: Array<GtdThread & { id: string }> }>;
   onMiss?: () => void;
-} = {}) {
+}) {
   const seq = ++_deepLinkSeq;
-  const open = (msg) => {
+  const open = (msg: GtdThread & { id: string }) => {
     // A newer click superseded this one while we awaited the fetch — losing the race is
     // not an error, so drop the stale write silently (no warn). Guards every state write,
     // including the recovery path below.
@@ -716,7 +769,7 @@ export async function openDeepLinkMessage(id: string | null | undefined, {
 // background-size, the at-rest static frame position, and the horizontal hover run
 // (background-position-x from → to over `hoverCount` steps, on a single row).
 // Pure and DOM-free so the frame math is unit-testable.
-export function computeSpriteLayout({ cols, rows, frameW, frameH, staticFrame = 0, hover, size = 104 }: {
+export function computeSpriteLayout({ cols = 1, rows = 1, frameW = 1, frameH = 1, staticFrame = 0, hover, size = 104 }: {
   cols?: number;
   rows?: number;
   frameW?: number;

@@ -5,11 +5,11 @@ import { useStore } from '../store/index.ts';
 import { api } from '../utils/api.ts';
 import { toAppError } from '../utils/errors.ts';
 
-function resizeImage(file, maxPx = 256) {
+function resizeImage(file: File, maxPx = 256): Promise<string> {
   return new Promise((resolve, reject) => {
     const reader = new FileReader();
     reader.onerror = reject;
-    reader.onload = (e) => {
+    reader.onload = () => {
       const img = new Image();
       img.onerror = reject;
       img.onload = () => {
@@ -19,16 +19,18 @@ function resizeImage(file, maxPx = 256) {
         const canvas = document.createElement('canvas');
         canvas.width = w;
         canvas.height = h;
-        canvas.getContext('2d').drawImage(img, 0, 0, w, h);
+        const ctx = canvas.getContext('2d');
+        if (!ctx) throw new Error('2d canvas context unavailable');
+        ctx.drawImage(img, 0, 0, w, h);
         resolve(canvas.toDataURL('image/jpeg', 0.88));
       };
-      img.src = String(e.target.result);
+      img.src = String(reader.result);
     };
     reader.readAsDataURL(file);
   });
 }
 
-export default function ProfileModal({ onClose }) {
+export default function ProfileModal({ onClose }: { onClose: () => void }) {
   const { t } = useTranslation();
   const { user, updateUser } = useStore();
   const fileRef = useRef<HTMLInputElement | null>(null);
@@ -40,8 +42,8 @@ export default function ProfileModal({ onClose }) {
   const [error, setError] = useState('');
   useBackLayer(true, () => { if (!saving) onClose(); }, 3000);
 
-  async function handleFileChange(e) {
-    const file = e.target.files[0];
+  async function handleFileChange(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0];
     if (!file) return;
     if (!file.type.startsWith('image/')) {
       setError(t('profile.errorNotImage'));

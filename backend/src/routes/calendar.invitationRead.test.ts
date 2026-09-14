@@ -4,6 +4,7 @@
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import { listeningPort } from '../test/net.js';
 import type { Server } from 'node:http';
+import type { NextFunction, Request, Response } from 'express';
 import type { JsonBody } from '../test/json.js';
 import 'express-async-errors';
 
@@ -53,7 +54,7 @@ beforeAll(async () => {
   const app = express();
   app.use(express.json());
   app.use('/api/calendar', calendarRouter);
-  app.use((error, _req, res, next) => { void next; return res.status(500).json({ error: error.message }); });
+  app.use((error: Error, _req: Request, res: Response, next: NextFunction) => { void next; return res.status(500).json({ error: error.message }); });
   await new Promise((resolve) => { server = app.listen(0, resolve); });
   base = `http://127.0.0.1:${listeningPort(server)}`;
 });
@@ -81,6 +82,7 @@ describe('GET /api/calendar/invitations/:messageId', () => {
     const response = await fetch(`${base}/api/calendar/invitations/${MESSAGE_ID}`);
     expect(response.status).toBe(200);
     const { invitation } = (await response.json()) as JsonBody;
+    if (!invitation) throw new Error('expected an invitation in the response');
     expect(invitation).toMatchObject({
       method: 'REQUEST',
       uid: '5f49e131-290f-4f27-88d2-3406d72725a5',
@@ -104,7 +106,9 @@ describe('GET /api/calendar/invitations/:messageId', () => {
 
     const response = await fetch(`${base}/api/calendar/invitations/${MESSAGE_ID}`);
     expect(response.status).toBe(200);
-    expect(((await response.json()) as JsonBody).invitation.summary).toBe('Testowe wydarzenie');
+    const body = (await response.json()) as JsonBody;
+    if (!body.invitation) throw new Error('expected an invitation in the response');
+    expect(body.invitation.summary).toBe('Testowe wydarzenie');
   });
 
   it('prefers the captured invitation and never opens the mailbox when it parses', async () => {
@@ -133,7 +137,7 @@ describe('GET /api/calendar/invitations/:messageId', () => {
   });
 
   it('imports the invitation into the chosen calendar', async () => {
-    query.mockImplementation(async (sql: string, params) => {
+    query.mockImplementation(async (sql: string, params: unknown[]) => {
       if (sql.includes('FROM calendars')) return { rows: [{ id: 'calendar-1', source: 'local', read_only: false }] };
       if (sql.includes('FROM messages')) return { rows: [{ ...MESSAGE_ROW, raw_ical: INVITATION }] };
       if (sql.includes('INSERT INTO calendar_events')) return { rows: [{ id: 'event-1' }] };
@@ -150,6 +154,7 @@ describe('GET /api/calendar/invitations/:messageId', () => {
     expect((await response.json()) as JsonBody).toMatchObject({ added: true, changed: true });
 
     const insert = query.mock.calls.find(([sql]: [string]) => sql.includes('INSERT INTO calendar_events'));
+    if (!insert) throw new Error('expected an INSERT into calendar_events');
     const insertParams = insert[1];
     // A local copy is namespaced and must not collide with the organizer's UID.
     expect(insertParams[2]).toMatch(/^mail-[0-9a-f]{64}$/);

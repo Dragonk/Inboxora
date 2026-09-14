@@ -2,6 +2,7 @@ import { outlookCalendar } from '../test/fixtures/outlookCalendar.js';
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import { listeningPort } from '../test/net.js';
 import type { Server } from 'node:http';
+import type { NextFunction, Request, Response } from 'express';
 import 'express-async-errors';
 
 const { query, withTransaction, sendCalendarInvitation, releaseCalendarSource, scheduleCalendarSource, stopCalendarSource, syncCalendarSource } = vi.hoisted<any>(() => ({
@@ -39,11 +40,11 @@ interface CalendarEventsResponse {
 }
 interface CalendarTestResponse {
   error?: string;
-  calendars?: Array<Record<string, unknown>>;
-  calendar?: Record<string, unknown>;
-  events?: Array<Record<string, unknown>>;
+  calendars: Array<Record<string, unknown>>;
+  calendar: Record<string, unknown>;
+  events: Array<Record<string, unknown>>;
   truncated?: boolean;
-  invitation?: {
+  invitation: {
     description?: string;
     method?: string;
     localEvent?: unknown;
@@ -64,7 +65,7 @@ beforeAll(async () => {
   const app = express();
   app.use(express.json());
   app.use('/api/calendar', calendarRouter);
-  app.use((error, _req, res, next) => { void next; return res.status(500).json({ error: error.message }); });
+  app.use((error: Error, _req: Request, res: Response, next: NextFunction) => { void next; return res.status(500).json({ error: error.message }); });
   await new Promise((resolve) => { server = app.listen(0, resolve); });
   base = `http://127.0.0.1:${listeningPort(server)}`;
 });
@@ -76,7 +77,7 @@ afterAll(async () => {
 beforeEach(() => {
   query.mockReset();
   withTransaction.mockClear();
-  withTransaction.mockImplementation(async (fn) => fn({ query }));
+  withTransaction.mockImplementation(async (fn: (client: { query: typeof query }) => unknown) => fn({ query }));
   sendCalendarInvitation.mockReset();
   releaseCalendarSource.mockReset();
   scheduleCalendarSource.mockReset();
@@ -89,7 +90,11 @@ beforeEach(() => {
 // content rather than by call order, so adding a query to the read path cannot silently
 // rewire which fixture each test receives — which is exactly what happened when
 // materialisation was introduced.
-function mockEventRead({ events = [], contacts = [], occurrences = [] } = {}) {
+function mockEventRead({ events = [], contacts = [], occurrences = [] }: {
+  events?: Array<Record<string, unknown>>;
+  contacts?: Array<Record<string, unknown>>;
+  occurrences?: Array<Record<string, unknown>>;
+} = {}) {
   query.mockImplementation(async (sql: string) => {
     if (typeof sql === 'string' && sql.includes('FROM calendar_occurrences o')) return { rows: occurrences };
     if (typeof sql === 'string' && sql.includes('contact_dates')) return { rows: contacts };
@@ -424,7 +429,7 @@ describe('local calendar API', () => {
     }] });
 
     const response = await fetch(`${base}/api/calendar/events?from=2026-09-01T00:00:00.000Z&to=2026-10-01T00:00:00.000Z`);
-    const { events, truncated } = (await response.json()) as CalendarTestResponse;
+    const { events, truncated } = (await response.json()) as CalendarEventsResponse;
 
     expect(response.status).toBe(200);
     expect(truncated).toBe(false);
@@ -475,9 +480,9 @@ describe('local calendar API', () => {
     const daily = () => ['BEGIN:VCALENDAR', 'VERSION:2.0', 'BEGIN:VEVENT', 'UID:uid-1',
       'DTSTART;TZID=Europe/Warsaw:20260105T090000', 'DTEND;TZID=Europe/Warsaw:20260105T100000',
       'RRULE:FREQ=DAILY;COUNT=10', 'SUMMARY:Daily', 'END:VEVENT', 'END:VCALENDAR'].join('\r\n');
-    const startsOf = raw => projectCalendarResource({ id: 'event-1', uid: 'uid-1', raw_ical: raw, summary: 'Daily' }, new Date('2026-01-01'), new Date('2026-03-01'))
+    const startsOf = (raw: string) => projectCalendarResource({ id: 'event-1', uid: 'uid-1', raw_ical: raw, summary: 'Daily' }, new Date('2026-01-01'), new Date('2026-03-01'))
       .map(event => event.starts_at.toISOString().slice(5, 16));
-    const cancel = body => fetch(`${base}/api/calendar/events/event-1/occurrence`, {
+    const cancel = (body: unknown) => fetch(`${base}/api/calendar/events/event-1/occurrence`, {
       method: 'DELETE', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body),
     });
 
@@ -1006,7 +1011,7 @@ describe('local calendar API', () => {
     const existing = { uid: 'uid-1', attendees: ['kept@example.test', 'removed@example.test'], invite_account_id: 'account-1', invitation_sequence: 2, summary: 'Planning', starts_at: '2026-09-01T09:00:00.000Z', ends_at: '2026-09-01T10:00:00.000Z', all_day: false };
     const event = { id: 'event-1', calendar_id: 'calendar-1', uid: 'uid-1', attendees: ['kept@example.test'], invite_account_id: 'account-1', invitation_sequence: 3 };
     let outbox: { id?: string; [key: string]: unknown } | null;
-    query.mockImplementation(async (sql: string, params) => {
+    query.mockImplementation(async (sql: string, params: unknown[]) => {
       if (sql.includes('FROM calendars')) return { rows: [{ id: 'calendar-1', source: 'local', read_only: false }] };
       if (sql.includes('FROM email_accounts')) return { rows: [sender] };
       if (sql.includes('FROM calendar_invitation_outbox')) return { rows: outbox ? [outbox] : [] };
@@ -1045,7 +1050,7 @@ describe('local calendar API', () => {
     const event = { id: 'event-1', calendar_id: 'calendar-1', uid: 'uid-1', invitation_sequence: 0 };
     let outbox: { id?: string; [key: string]: unknown } | null;
     sendCalendarInvitation.mockRejectedValueOnce(new Error('SMTP unavailable'));
-    query.mockImplementation(async (sql: string, params) => {
+    query.mockImplementation(async (sql: string, params: unknown[]) => {
       if (sql.includes('FROM calendars')) return { rows: [{ id: 'calendar-1', source: 'local', read_only: false }] };
       if (sql.includes('FROM email_accounts')) return { rows: [sender] };
       if (sql.includes('FROM calendar_invitation_outbox')) {
@@ -1078,7 +1083,7 @@ describe('local calendar API', () => {
     const sender = { id: 'account-1', email_address: 'owner@example.test', smtp_host: 'smtp.example.test', enabled: true };
     const event = { id: 'event-1', calendar_id: 'calendar-1', uid: 'uid-1', invitation_sequence: 0 };
     let outbox: { id?: string; [key: string]: unknown } | null;
-    query.mockImplementation(async (sql: string, params) => {
+    query.mockImplementation(async (sql: string, params: unknown[]) => {
       if (sql.includes('FROM calendars')) return { rows: [{ id: 'calendar-1', source: 'local', read_only: false }] };
       if (sql.includes('FROM email_accounts')) return { rows: [sender] };
       if (sql.includes('FROM calendar_invitation_outbox')) return { rows: outbox ? [{ ...outbox, status: 'sent', last_error: null, payload: { actions: [] } }] : [] };
@@ -1107,7 +1112,7 @@ describe('local calendar API', () => {
     const event = { id: 'event-1', calendar_id: 'calendar-1', uid: 'uid-1', attendees: ['guest@example.test'], invite_account_id: 'account-1', invitation_sequence: 0 };
     let outbox: { id?: string; [key: string]: unknown } | null;
     sendCalendarInvitation.mockRejectedValueOnce(new Error('SMTP unavailable'));
-    query.mockImplementation(async (sql: string, params) => {
+    query.mockImplementation(async (sql: string, params: unknown[]) => {
       if (sql.includes('FROM calendars')) return { rows: [{ id: 'calendar-1', source: 'local', read_only: false }] };
       if (sql.includes('FROM email_accounts')) return { rows: [sender] };
       if (sql.includes('FROM calendar_invitation_outbox')) {

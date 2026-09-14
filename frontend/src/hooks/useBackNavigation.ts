@@ -4,7 +4,7 @@ import { createBackNavigation } from '../utils/backNavigation.ts';
 
 const navigation = createBackNavigation({
   history: window.history,
-  listen: handler => {
+  listen: (handler: () => void) => {
     window.addEventListener('popstate', handler);
     return () => window.removeEventListener('popstate', handler);
   },
@@ -12,7 +12,7 @@ const navigation = createBackNavigation({
 });
 
 // Priority follows the visible stacking order; equal-priority layers use LIFO.
-export function useBackLayer(active, onBack, priority = 0) {
+export function useBackLayer(active: unknown, onBack: () => void, priority = 0) {
   const close = useRef(onBack);
   close.current = onBack;
   useLayoutEffect(() => {
@@ -21,7 +21,7 @@ export function useBackLayer(active, onBack, priority = 0) {
   }, [Boolean(active), priority]); // eslint-disable-line react-hooks/exhaustive-deps
 }
 
-export function useBackNavigation(isMobile) {
+export function useBackNavigation(isMobile: boolean) {
   useLayoutEffect(() => {
     const stop = navigation.start();
     window.__inboxoraHandleAndroidBack = () => navigation.back();

@@ -182,7 +182,7 @@ describe('forwardRuleMessage', () => {
 
     await expect(forwardRuleMessage(input)).resolves.toBe('sent');
     expect(transport.sendMail).toHaveBeenCalledTimes(1);
-    expect(query.mock.calls.at(-1)[0]).toContain("status = 'sent'");
+    expect(query.mock.calls[query.mock.calls.length - 1][0]).toContain("status = 'sent'");
   });
 
   it('returns duplicate without sending when the existing reservation is sent', async () => {
@@ -211,13 +211,13 @@ describe('forwardRuleMessage', () => {
   it('allows only one SMTP attempt while another run owns the pending reservation', async () => {
     let reservationCreated = false;
     let reservationStatus = 'pending';
-    let notifyDeliveryStarted;
+    let notifyDeliveryStarted: ((value?: unknown) => void) | undefined;
     let releaseDelivery: ((value?: unknown) => void) | undefined;
     const deliveryStarted = new Promise(resolve => {
       notifyDeliveryStarted = resolve;
     });
     transport.sendMail.mockImplementation(() => {
-      notifyDeliveryStarted();
+      if (notifyDeliveryStarted) notifyDeliveryStarted();
       return new Promise(resolve => {
         releaseDelivery = resolve;
       });
@@ -248,7 +248,7 @@ describe('forwardRuleMessage', () => {
     expect(transport.sendMail).toHaveBeenCalledTimes(1);
     expect(createAccountSmtpTransport).toHaveBeenCalledTimes(1);
 
-    releaseDelivery({ accepted: true });
+    if (releaseDelivery) releaseDelivery({ accepted: true });
     await expect(firstRun).resolves.toBe('sent');
     expect(reservationStatus).toBe('sent');
   });
@@ -260,7 +260,7 @@ describe('forwardRuleMessage', () => {
       .mockResolvedValueOnce({ rows: [] });
 
     await expect(forwardRuleMessage(input)).rejects.toThrow('body unavailable');
-    expect(query.mock.calls.at(-1)[0]).toContain('DELETE FROM inbox_rule_forwards');
+    expect(query.mock.calls[query.mock.calls.length - 1][0]).toContain('DELETE FROM inbox_rule_forwards');
   });
 
   it('keeps the reservation when recording success fails after SMTP delivery', async () => {
@@ -451,7 +451,7 @@ describe('forwardRuleMessage', () => {
       .rejects.toThrow('Total attachment size exceeds 25 MB');
     expect(createAccountSmtpTransport).not.toHaveBeenCalled();
     expect(transport.sendMail).not.toHaveBeenCalled();
-    expect(query.mock.calls.at(-1)[0]).toContain('DELETE FROM inbox_rule_forwards');
+    expect(query.mock.calls[query.mock.calls.length - 1][0]).toContain('DELETE FROM inbox_rule_forwards');
   });
 
   it('rejects declared attachment sizes over 25 MiB before fetching bytes', async () => {
@@ -473,7 +473,7 @@ describe('forwardRuleMessage', () => {
       .rejects.toThrow('Total attachment size exceeds 25 MB');
     expect(imapManager.fetchMultipleAttachments).not.toHaveBeenCalled();
     expect(createAccountSmtpTransport).not.toHaveBeenCalled();
-    expect(query.mock.calls.at(-1)[0]).toContain('DELETE FROM inbox_rule_forwards');
+    expect(query.mock.calls[query.mock.calls.length - 1][0]).toContain('DELETE FROM inbox_rule_forwards');
   });
 
   it('deletes the reservation when an attachment buffer is unavailable', async () => {
@@ -491,7 +491,7 @@ describe('forwardRuleMessage', () => {
       .rejects.toThrow('Forward attachment unavailable');
     expect(createAccountSmtpTransport).not.toHaveBeenCalled();
     expect(transport.sendMail).not.toHaveBeenCalled();
-    expect(query.mock.calls.at(-1)[0]).toContain('DELETE FROM inbox_rule_forwards');
+    expect(query.mock.calls[query.mock.calls.length - 1][0]).toContain('DELETE FROM inbox_rule_forwards');
   });
 
   it('deletes the reservation when SMTP setup returns a safe error', async () => {
@@ -506,7 +506,7 @@ describe('forwardRuleMessage', () => {
 
     await expect(forwardRuleMessage(input)).rejects.toThrow('SMTP is unavailable');
     expect(transport.sendMail).not.toHaveBeenCalled();
-    expect(query.mock.calls.at(-1)[0]).toContain('DELETE FROM inbox_rule_forwards');
+    expect(query.mock.calls[query.mock.calls.length - 1][0]).toContain('DELETE FROM inbox_rule_forwards');
   });
 
   it('clears a failed delivery reservation so a retry can send', async () => {
@@ -538,12 +538,13 @@ describe('forwardRuleMessage', () => {
       throw new Error('Unexpected query');
     });
 
-    let thrown: (Error & { cause?: unknown }) | undefined;
+    let thrown: Error | undefined;
     try {
       await forwardRuleMessage(input);
     } catch (err) {
-      thrown = err;
+      if (err instanceof Error) thrown = err;
     }
+    if (!thrown) throw new Error('expected forwardRuleMessage to throw');
     expect(thrown).toBeInstanceOf(Error);
     expect(thrown.message).toBe('Forward delivery failed');
     expect(thrown.message).not.toContain('recipient@example.com');

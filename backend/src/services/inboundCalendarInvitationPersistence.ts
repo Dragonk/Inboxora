@@ -1,4 +1,25 @@
-export async function persistInboundCalendarInvitation({ query, messageId, invitation }) {
+/** The parsed invitation fields the persistence layer writes. */
+interface InboundInvitation {
+  method?: string | null;
+  state?: string | null;
+  uid?: string | null;
+  recurrenceId?: string | null;
+  sequence?: number | null;
+  summary?: string | null;
+  organizer?: string | null;
+  startsAt?: Date | string | null;
+  endsAt?: Date | string | null;
+  allDay?: boolean | null;
+  timeZone?: string | null;
+  raw?: string | null;
+  [key: string]: unknown;
+}
+
+export async function persistInboundCalendarInvitation({ query, messageId, invitation }: {
+  query: (text: string, params?: unknown[]) => Promise<unknown>;
+  messageId: string;
+  invitation: InboundInvitation;
+}): Promise<unknown> {
   return query(`
     INSERT INTO inbound_calendar_invitations (
       message_id, method, state, uid, recurrence_id, sequence, summary,

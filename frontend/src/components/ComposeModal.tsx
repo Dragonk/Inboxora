@@ -129,6 +129,12 @@ function stripHtml(html: string): string {
 /** A recipient as it arrives from the store or a chip list. */
 type RecipientInput = string | { email?: string; name?: string | null };
 
+/** A contact suggestion returned by the /search/contacts endpoint. */
+type ContactSuggestion = { email: string; name?: string | null };
+
+/** The AI compose actions offered by the toolbar. */
+type AiAction = 'draft' | 'improve' | 'shorten' | 'grammar';
+
 function normalizeTo(arr: string | RecipientInput[] | null | undefined): string {
   if (!arr) return '';
   const list: RecipientInput[] = typeof arr === 'string' ? [arr] : arr;
@@ -280,7 +286,7 @@ export default function ComposeModal() {
     ? (fromAlias.signature !== null && fromAlias.signature !== undefined ? fromAlias.signature : fromAccount?.signature || null)
     : (fromAccount?.signature || null);
 
-  const getSuggestions = useCallback(async (q: string): Promise<string[]> => {
+  const getSuggestions = useCallback(async (q: string): Promise<ContactSuggestion[]> => {
     try {
       const data = await api.suggestContacts(q);
       return data.contacts || [];
@@ -672,7 +678,7 @@ export default function ComposeModal() {
     }
   };
 
-  const handleAiAction = async (action) => {
+  const handleAiAction = async (action: AiAction) => {
     aiAbortRef.current?.abort();
     const controller = new AbortController();
     aiAbortRef.current = controller;
@@ -714,7 +720,7 @@ export default function ComposeModal() {
       });
       setAiPanel(p => p ? { ...p, status: 'done', text: fullText } : p);
     } catch (err) {
-      if (err.name !== 'AbortError') {
+      if (!(typeof err === 'object' && err !== null && 'name' in err && err.name === 'AbortError')) {
         setAiPanel(p => p ? { ...p, status: 'error', text: toAppError(err).message } : p);
       }
     }
@@ -828,8 +834,9 @@ export default function ComposeModal() {
       if (replyThreadId) {
         const refreshThread = async () => {
           try {
-            const data = await api.getThread(replyThreadId, null, false, accountId);
-            if (data.messages?.length) setThreadMessages(replyThreadCacheId, data.messages);
+            const data = await api.getThread(replyThreadId, '', false, accountId);
+            const cacheId = replyThreadCacheId || replyThreadId;
+            if (data.messages?.length) setThreadMessages(cacheId, data.messages);
           } catch { /* best-effort refresh */ }
         };
         refreshThread();
@@ -923,7 +930,16 @@ export default function ComposeModal() {
 
   // Compose state is local to this modal. Autosave preserves edits across a
   // refresh/tab switch without running attachment prompts or noisy notifications.
-  const autosaveRef = useRef(null);
+  type AutosaveState = {
+    isDirty: () => boolean;
+    doSaveDraft: (options?: { closeAfter?: boolean; silent?: boolean }) => Promise<void>;
+    sending: boolean;
+    savingDraft: boolean;
+    fromValue: string;
+    resolveFrom: (val: string | null | undefined) => ReturnType<typeof resolveFrom>;
+    dialogOpen: boolean;
+  };
+  const autosaveRef = useRef<AutosaveState | null>(null);
   const autosaveInFlightRef = useRef(false);
   useEffect(() => {
     autosaveRef.current = { isDirty, doSaveDraft, sending, savingDraft, fromValue, resolveFrom,
@@ -949,7 +965,7 @@ export default function ComposeModal() {
         autosaveInFlightRef.current = false;
       }
     } catch (err) {
-      console.error('Draft autosave failed:', err?.message || err);
+      console.error('Draft autosave failed:', err instanceof Error ? err.message : err);
     }
   }, []);
 
@@ -1218,7 +1234,7 @@ export default function ComposeModal() {
                   );
                 }
                 return (
-                  <optgroup key={a.id} label={a.name} style={{ background: 'var(--bg-tertiary)' }}>
+                  <optgroup key={a.id} label={a.name ?? undefined} style={{ background: 'var(--bg-tertiary)' }}>
                     <option value={`account:${a.id}`} style={{ background: 'var(--bg-tertiary)' }}>
                       {displayName} &lt;{a.email_address}&gt;
                     </option>
@@ -1327,7 +1343,7 @@ export default function ComposeModal() {
             />
           ) : (
             <div className="tiptap-compose" style={{ flex: '1 0 auto', minHeight: 200, display: 'flex', flexDirection: 'column' }}>
-              <RichToolbar editor={editor} onAttach={() => fileInputRef.current?.click()}
+              {editor && <RichToolbar editor={editor} onAttach={() => fileInputRef.current?.click()}
                 htmlMode={htmlMode}
                 onToggleHtml={() => {
                   if (!htmlMode) { setHtmlSource(editor?.getHTML() ?? ''); setHtmlMode(true); }
@@ -1337,7 +1353,7 @@ export default function ComposeModal() {
                 aiEnabled={!htmlMode && aiStatus?.enabled && aiStatus?.features?.compose}
                 onAiAction={handleAiAction}
                 aiPanelOpen={!!aiPanel}
-              />
+              />}
               {aiPanel && !htmlMode && (
                 <div style={{ borderBottom: '1px solid var(--border-subtle)', background: 'var(--bg-secondary)', padding: '10px 16px' }}>
                   <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8 }}>
@@ -1869,7 +1885,7 @@ export default function ComposeModal() {
                 );
               }
               return (
-                <optgroup key={a.id} label={a.name} style={{ background: 'var(--bg-tertiary)' }}>
+                <optgroup key={a.id} label={a.name ?? undefined} style={{ background: 'var(--bg-tertiary)' }}>
                   <option value={`account:${a.id}`} style={{ background: 'var(--bg-tertiary)' }}>
                     {displayName} &lt;{a.email_address}&gt;
                   </option>
@@ -1951,7 +1967,7 @@ export default function ComposeModal() {
       </div>
 
       {/* Toolbar — sits outside overflow container so dropdowns are never clipped */}
-      {!plaintextEmail && <RichToolbar editor={editor} onAttach={() => fileInputRef.current?.click()} onInsertImage={() => imageInputRef.current?.click()}
+      {!plaintextEmail && editor && <RichToolbar editor={editor} onAttach={() => fileInputRef.current?.click()} onInsertImage={() => imageInputRef.current?.click()}
         htmlMode={htmlMode}
         onToggleHtml={() => {
           if (!htmlMode) { setHtmlSource(editor?.getHTML() ?? ''); setHtmlMode(true); }
@@ -2422,7 +2438,7 @@ function Sep() {
   return <span style={{ width: 1, background: 'var(--border-subtle)', margin: '2px 4px', alignSelf: 'stretch' }} />;
 }
 
-function RichToolbar({ editor, onAttach, onInsertImage = undefined, htmlMode, onToggleHtml, isMobile = false, aiEnabled, onAiAction, aiPanelOpen }: { editor: Editor; onAttach: () => void; onInsertImage?: () => void; htmlMode: boolean; onToggleHtml: () => void; isMobile?: boolean; aiEnabled: boolean; onAiAction: (id: string) => void; aiPanelOpen: boolean }) {
+function RichToolbar({ editor, onAttach, onInsertImage = undefined, htmlMode, onToggleHtml, isMobile = false, aiEnabled = false, onAiAction, aiPanelOpen }: { editor: Editor; onAttach: () => void; onInsertImage?: () => void; htmlMode: boolean; onToggleHtml: () => void; isMobile?: boolean; aiEnabled?: boolean; onAiAction: (id: AiAction) => void; aiPanelOpen: boolean }) {
   const { t } = useTranslation();
   const uiScale = useUiScale();
   const savedSelectionRef = useRef<{ from: number; to: number } | null>(null);
@@ -2479,13 +2495,15 @@ function RichToolbar({ editor, onAttach, onInsertImage = undefined, htmlMode, on
 
   useEffect(() => {
     if (!colorPos && !highlightPos && !emojiPos && !linkPos && !tablePos && !aiMenuPos) return;
-    const handler = (e) => {
-      if (colorPos && colorBtnRef.current && !colorBtnRef.current.contains(e.target) && colorPopRef.current && !colorPopRef.current.contains(e.target)) setColorPos(null);
-      if (highlightPos && highlightBtnRef.current && !highlightBtnRef.current.contains(e.target) && highlightPopRef.current && !highlightPopRef.current.contains(e.target)) setHighlightPos(null);
-      if (emojiPos && emojiBtnRef.current && !emojiBtnRef.current.contains(e.target) && emojiPopRef.current && !emojiPopRef.current.contains(e.target)) setEmojiPos(null);
-      if (linkPos && linkBtnRef.current && !linkBtnRef.current.contains(e.target) && linkPopRef.current && !linkPopRef.current.contains(e.target)) setLinkPos(null);
-      if (tablePos && tableBtnRef.current && !tableBtnRef.current.contains(e.target) && tablePopRef.current && !tablePopRef.current.contains(e.target)) setTablePos(null);
-      if (aiMenuPos && aiBtnRef.current && !aiBtnRef.current.contains(e.target) && aiMenuRef.current && !aiMenuRef.current.contains(e.target)) setAiMenuPos(null);
+    const handler = (e: Event) => {
+      const target = e.target;
+      if (!(target instanceof Node)) return;
+      if (colorPos && colorBtnRef.current && !colorBtnRef.current.contains(target) && colorPopRef.current && !colorPopRef.current.contains(target)) setColorPos(null);
+      if (highlightPos && highlightBtnRef.current && !highlightBtnRef.current.contains(target) && highlightPopRef.current && !highlightPopRef.current.contains(target)) setHighlightPos(null);
+      if (emojiPos && emojiBtnRef.current && !emojiBtnRef.current.contains(target) && emojiPopRef.current && !emojiPopRef.current.contains(target)) setEmojiPos(null);
+      if (linkPos && linkBtnRef.current && !linkBtnRef.current.contains(target) && linkPopRef.current && !linkPopRef.current.contains(target)) setLinkPos(null);
+      if (tablePos && tableBtnRef.current && !tableBtnRef.current.contains(target) && tablePopRef.current && !tablePopRef.current.contains(target)) setTablePos(null);
+      if (aiMenuPos && aiBtnRef.current && !aiBtnRef.current.contains(target) && aiMenuRef.current && !aiMenuRef.current.contains(target)) setAiMenuPos(null);
     };
     document.addEventListener('mousedown', handler);
     document.addEventListener('touchstart', handler, { passive: true });
@@ -2591,11 +2609,11 @@ function RichToolbar({ editor, onAttach, onInsertImage = undefined, htmlMode, on
     setColorPos(null); setHighlightPos(null); setEmojiPos(null); setLinkPos(null);
   };
 
-  const tb = (active, title, onMD, children) => (
+  const tb = (active: boolean | undefined, title: string, onMD: MouseEventHandler<HTMLButtonElement>, children: ReactNode) => (
     <TBtn key={title} active={active} title={title} onMouseDown={onMD}>{children}</TBtn>
   );
 
-  const mtb = (active, title, onMD, children) => (
+  const mtb = (active: boolean | undefined, title: string, onMD: MouseEventHandler<HTMLButtonElement>, children: ReactNode) => (
     <button key={title} title={title} onMouseDown={onMD} style={{ background: active ? 'var(--bg-hover)' : 'none', border: 'none', borderRadius: 4, padding: '6px 4px', color: active ? 'var(--accent)' : 'var(--text-secondary)', cursor: 'pointer', fontSize: 14, fontWeight: 600, display: 'inline-flex', alignItems: 'center', justifyContent: 'center', flex: 1, WebkitTapHighlightColor: 'transparent' }}>{children}</button>
   );
 
@@ -2899,7 +2917,7 @@ function RichToolbar({ editor, onAttach, onInsertImage = undefined, htmlMode, on
 
       {emojiPos && emojiPickerRef.current && (
         <div ref={emojiPopRef} style={{ position: 'fixed', top: descale(emojiPos.top, uiScale), bottom: descale(emojiPos.bottom, uiScale), left: descale(emojiPos.left, uiScale), zIndex: 9900, height: 284, overflow: 'hidden', borderRadius: 8 }}>
-          <emojiPickerRef.current.Picker data={emojiPickerRef.current.data} onEmojiSelect={emoji => { editor.chain().focus().insertContent(emoji.native).run(); setEmojiPos(null); }}
+          <emojiPickerRef.current.Picker data={emojiPickerRef.current.data} onEmojiSelect={(emoji: { native: string }) => { editor.chain().focus().insertContent(emoji.native).run(); setEmojiPos(null); }}
             theme="auto" previewPosition="none" skinTonePosition="none"
             perLine={7} emojiSize={18} emojiButtonSize={26} maxFrequentRows={1} />
         </div>
@@ -2948,12 +2966,12 @@ function RichToolbar({ editor, onAttach, onInsertImage = undefined, htmlMode, on
           borderRadius: 8, boxShadow: '0 4px 16px rgba(0,0,0,0.18)',
           padding: '4px 0', minWidth: 148,
         }}>
-          {[
+          {([
             { key: 'draft', label: t('compose.toolbar.aiWriteDraft') },
             { key: 'improve', label: t('compose.toolbar.aiImprove') },
             { key: 'shorten', label: t('compose.toolbar.aiShorten') },
             { key: 'grammar', label: t('compose.toolbar.aiFixGrammar') },
-          ].map(({ key, label }) => (
+          ] as const).map(({ key, label }) => (
             <button key={key} onMouseDown={ (e: React.MouseEvent<HTMLElement>) => {
               e.preventDefault();
               setAiMenuPos(null);
@@ -3015,13 +3033,14 @@ function DropItem({ icon, label, active, onClick }: { icon?: ReactNode; label?: 
 }
 
 
-function formatBytes(bytes) {
-  if (bytes < 1024) return `${bytes}B`;
-  if (bytes < 1048576) return `${(bytes / 1024).toFixed(0)}KB`;
-  return `${(bytes / 1048576).toFixed(1)}MB`;
+function formatBytes(bytes: number | null | undefined): string {
+  const n = Number(bytes);
+  if (n < 1024) return `${bytes}B`;
+  if (n < 1048576) return `${(n / 1024).toFixed(0)}KB`;
+  return `${(n / 1048576).toFixed(1)}MB`;
 }
 
-function AttachmentChips({ attachments, onRemove, mobile = false }: { attachments: Array<{ filename?: string; name?: string; size?: number; [key: string]: unknown }>; onRemove: (index: number) => void; mobile?: boolean }) {
+function AttachmentChips({ attachments, onRemove, mobile = false }: { attachments: Array<{ filename?: string | null; name?: string | null; size?: number | null; [key: string]: unknown }>; onRemove: (index: number) => void; mobile?: boolean }) {
   return (
     <div style={{
       display: 'flex', flexWrap: 'wrap', gap: 6,
@@ -3056,10 +3075,10 @@ function AttachmentChips({ attachments, onRemove, mobile = false }: { attachment
   );
 }
 
-function ChipInput({ chips, onChipsChange, value, onChange, placeholder, autoFocus = false, inputStyle, getSuggestions, containerStyle = undefined }: { chips: string[]; onChipsChange: (chips: string[]) => void; value: string; onChange: (value: string) => void; placeholder?: string; autoFocus?: boolean; inputStyle?: CSSProperties; getSuggestions?: (query: string) => Promise<string[]> | string[]; containerStyle?: CSSProperties }) {
+function ChipInput({ chips, onChipsChange, value, onChange, placeholder, autoFocus = false, inputStyle, getSuggestions, containerStyle = undefined }: { chips: string[]; onChipsChange: (chips: string[]) => void; value: string; onChange: (value: string) => void; placeholder?: string; autoFocus?: boolean; inputStyle?: CSSProperties; getSuggestions?: (query: string) => Promise<ContactSuggestion[]> | ContactSuggestion[]; containerStyle?: CSSProperties }) {
   const { t } = useTranslation();
   const uiScale = useUiScale();
-  const [suggestions, setSuggestions] = useState([]);
+  const [suggestions, setSuggestions] = useState<ContactSuggestion[]>([]);
   const [suggIdx, setSuggIdx] = useState(-1);
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const wrapperRef = useRef<HTMLDivElement | null>(null);
@@ -3072,7 +3091,7 @@ function ChipInput({ chips, onChipsChange, value, onChange, placeholder, autoFoc
   // Debounce contact suggestions — only when getSuggestions is wired up
   useEffect(() => {
     if (!getSuggestions) return;
-    clearTimeout(debounceRef.current);
+    if (debounceRef.current !== null) clearTimeout(debounceRef.current);
     const q = value.trim();
     if (q.length < 2) { setSuggestions([]); setSuggIdx(-1); setDropStyle(null); return; }
     debounceRef.current = setTimeout(async () => {
@@ -3092,7 +3111,7 @@ function ChipInput({ chips, onChipsChange, value, onChange, placeholder, autoFoc
         setSuggIdx(-1);
       } catch { /* intentional */ }
     }, 200);
-    return () => clearTimeout(debounceRef.current);
+    return () => { if (debounceRef.current !== null) clearTimeout(debounceRef.current); };
   }, [value, getSuggestions]);
 
   const clearSuggestions = () => { setSuggestions([]); setSuggIdx(-1); setDropStyle(null); };
@@ -3103,7 +3122,7 @@ function ChipInput({ chips, onChipsChange, value, onChange, placeholder, autoFoc
     clearSuggestions();
   };
 
-  const commitSuggestion = (contact) => {
+  const commitSuggestion = (contact: ContactSuggestion) => {
     const formatted = contact.name ? `${contact.name} <${contact.email}>` : contact.email;
     onChipsChange([...chips, formatted]);
     onChange('');
@@ -3136,11 +3155,11 @@ function ChipInput({ chips, onChipsChange, value, onChange, placeholder, autoFoc
   };
 
   // Pull the bare email out of a chip string ("Jane <jane@x.com>" -> "jane@x.com").
-  const chipEmail = (chip) => {
+  const chipEmail = (chip: string) => {
     const m = (chip || '').match(/<([^>]+)>/);
     return (m ? m[1] : chip || '').trim();
   };
-  const copyText = (text) => { navigator.clipboard?.writeText(text).catch(() => {}); };
+  const copyText = (text: string) => { navigator.clipboard?.writeText(text).catch(() => {}); };
 
   // Load a chip back into the input for editing, preserving any half-typed text.
   const startEdit = (i: number) => {
@@ -3158,17 +3177,17 @@ function ChipInput({ chips, onChipsChange, value, onChange, placeholder, autoFoc
   const openMenu = (clientX: number, clientY: number, index: number) => {
     setMenu({ x: Math.min(clientX, window.innerWidth - 176), y: Math.min(clientY, window.innerHeight - 168), index });
   };
-  const onChipTouchStart = (e, i) => {
+  const onChipTouchStart = (e: React.TouchEvent, i: number) => {
     const touch = e.touches[0];
-    clearTimeout(longPressRef.current);
+    if (longPressRef.current !== null) clearTimeout(longPressRef.current);
     longPressRef.current = setTimeout(() => openMenu(touch.clientX, touch.clientY, i), 500);
   };
-  const cancelLongPress = () => clearTimeout(longPressRef.current);
+  const cancelLongPress = () => { if (longPressRef.current !== null) clearTimeout(longPressRef.current); };
 
   useEffect(() => {
     if (!menu) return;
     const close = () => setMenu(null);
-    const onKey = (e) => { if (e.key === 'Escape') setMenu(null); };
+    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') setMenu(null); };
     document.addEventListener('pointerdown', close);
     document.addEventListener('keydown', onKey);
     return () => { document.removeEventListener('pointerdown', close); document.removeEventListener('keydown', onKey); };

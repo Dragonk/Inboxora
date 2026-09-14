@@ -9,8 +9,9 @@
 import { parentPort } from 'node:worker_threads';
 
 import { projectCalendarResourceWithStatus } from '../utils/calendarRecurrence.js';
+import type { ProjectedEvent } from '../utils/calendarRecurrence.js';
 
-function failureResult(row, error: unknown) {
+function failureResult(row: (ProjectedEvent & { raw_ical?: string | null }) | null | undefined, error: unknown) {
   return {
     ok: false,
     id: row?.id ?? null,
@@ -21,7 +22,10 @@ function failureResult(row, error: unknown) {
   };
 }
 
-parentPort.on('message', (message) => {
+if (!parentPort) throw new Error('calendarProjectionWorker must run inside a worker thread');
+const port = parentPort;
+
+port.on('message', (message) => {
   const { jobId, row, from, to, maxIterations, deadlineMs } = message || {};
   let response;
   try {
@@ -47,5 +51,5 @@ parentPort.on('message', (message) => {
     // instead of letting the worker die with an unhandled rejection.
     response = failureResult(row, error);
   }
-  parentPort.postMessage({ jobId, ...response });
+  port.postMessage({ jobId, ...response });
 });

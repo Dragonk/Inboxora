@@ -34,7 +34,7 @@ interface PushDevice { id?: string; endpoint?: string | null; p256dh?: string | 
 interface PushEvent { title?: string; body?: string; url?: string; tag?: string; data?: Record<string, unknown>; [key: string]: unknown }
 
 /** A Firebase service account (the fields the FCM transport reads). */
-interface ServiceAccount { clientEmail?: string; privateKey?: string; projectId?: string; tokenUri?: string; [key: string]: unknown }
+interface ServiceAccount { clientEmail: string; privateKey: string; projectId: string; tokenUri?: string; [key: string]: unknown }
 
 
 export async function sendUnifiedPush(device: PushDevice, event: PushEvent): Promise<unknown> {
@@ -48,10 +48,11 @@ export async function sendUnifiedPush(device: PushDevice, event: PushEvent): Pro
       body: JSON.stringify(event),
       signal: AbortSignal.timeout(10000),
     }, { allowPrivate: allowPrivatePushEndpoints(), requireHttps: !allowPrivatePushEndpoints() });
-  } catch (err) {
+  } catch (caught) {
     // A blocked/private endpoint is a permanent rejection (SSRF guard); every
     // other network error is transient and worth retrying later.
-    if (err?.code === 'ERR_BLOCKED_PRIVATE_IP' || err?.code === 'ERR_INSECURE_TRANSPORT' || err?.code === 'ERR_UNSUPPORTED_SCHEME') {
+    const code = caught && typeof caught === 'object' && 'code' in caught ? caught.code : undefined;
+    if (code === 'ERR_BLOCKED_PRIVATE_IP' || code === 'ERR_INSECURE_TRANSPORT' || code === 'ERR_UNSUPPORTED_SCHEME') {
       return TRANSPORT_INVALID;
     }
     return TRANSPORT_RETRY;
@@ -180,12 +181,26 @@ export async function sendFcmPush(device: PushDevice, event: PushEvent): Promise
   if (response.status === 429 || response.status >= 500) return TRANSPORT_RETRY;
 
   // 400: the registration token is malformed/expired (UNREGISTERED, INVALID_ARGUMENT).
-  const errorCode = await response.json().then((data) => data?.error?.details?.[0]?.errorCode || data?.error?.status).catch(() => null);
+  const errorCode = errorCodeOf(await response.json().catch(() => null));
   if (response.status === 400 || errorCode === 'UNREGISTERED' || errorCode === 'INVALID_ARGUMENT') return TRANSPORT_INVALID;
   return TRANSPORT_RETRY;
 }
 
-export async function sendNativePush(device, event) {
+/** Read the nested FCM error code from an untyped error body. */
+function errorCodeOf(body: unknown): string | undefined {
+  if (!body || typeof body !== 'object' || !('error' in body)) return undefined;
+  const error = body.error;
+  if (!error || typeof error !== 'object') return undefined;
+  const details = 'details' in error ? error.details : undefined;
+  if (Array.isArray(details)) {
+    const first = details[0];
+    if (first && typeof first === 'object' && 'errorCode' in first && typeof first.errorCode === 'string') return first.errorCode;
+  }
+  const status = 'status' in error ? error.status : undefined;
+  return typeof status === 'string' ? status : undefined;
+}
+
+export async function sendNativePush(device: PushDevice, event: PushEvent): Promise<unknown> {
   if (device?.transport === 'unifiedpush') return sendUnifiedPush(device, event);
   if (device?.transport === 'fcm') return sendFcmPush(device, event);
   return TRANSPORT_DISABLED;

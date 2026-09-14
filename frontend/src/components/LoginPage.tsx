@@ -4,10 +4,14 @@ import { useStore } from '../store/index.ts';
 import { api } from '../utils/api.ts';
 import LogoMark from './LogoMark.tsx';
 import { toAppError } from '../utils/errors.ts';
+import type { TFunction } from 'i18next';
 
 // SSO/OIDC is the highlighted sign-in method: an accent-tinted card with the
 // identity shield from the mock-up, rendered ahead of the password form.
-function SsoProviderButton({ provider: p, t }) {
+function SsoProviderButton({ provider: p, t }: {
+  provider: { id: string; slug?: string; name?: string | null; [key: string]: unknown };
+  t: TFunction;
+}) {
   return (
     <a
       href={`/auth/oidc/${p.slug}/start`}
@@ -116,7 +120,7 @@ export default function LoginPage() {
     }
   }, [t]);
 
-  const submit = async (e) => {
+  const submit = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
     if (!username || !password) return;
     setLoading(true);
@@ -158,7 +162,7 @@ export default function LoginPage() {
     }
   };
 
-  const submitTotp = async (e) => {
+  const submitTotp = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
     if (!totpCode.trim()) return;
     setLoading(true);
@@ -175,7 +179,7 @@ export default function LoginPage() {
     }
   };
 
-  const submitEmailOtp = async (e) => {
+  const submitEmailOtp = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
     if (!emailOtpCode.trim()) return;
     setLoading(true);
@@ -219,7 +223,7 @@ export default function LoginPage() {
     }
   };
 
-  const submitEnrollment = async (e) => {
+  const submitEnrollment = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
     if (!enrollCode.trim()) return;
     setLoading(true);
@@ -236,7 +240,7 @@ export default function LoginPage() {
     }
   };
 
-  const submitForgot = async (e) => {
+  const submitForgot = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
     if (!forgotEmail.trim()) return;
     setLoading(true);
@@ -251,7 +255,7 @@ export default function LoginPage() {
     }
   };
 
-  const submitReset = async (e) => {
+  const submitReset = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
     if (!newPassword || !newPasswordConfirm) return;
     if (newPassword !== newPasswordConfirm) {

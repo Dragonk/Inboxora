@@ -14,29 +14,50 @@
 //    defaults to always-on. Activation is checked separately, so isActive need not re-check it.
 //  - render   — (ctx) => ReactNode. ctx is the slot's documented data contract.
 
-const slots = new Map(); // slotName -> Array<contribution>
+/** A slot's context contract is plugin-defined, so it stays an open record. */
+type SlotContext = Record<string, any>;
 
-export function registerSlot(slotName, contribution) {
+/** A slot contribution as a plugin registers it. */
+interface SlotContribution {
+  pluginId: string;
+  order?: number;
+  isActive?: (ctx: SlotContext) => boolean;
+  render: (ctx: SlotContext) => React.ReactNode;
+  [key: string]: unknown;
+}
+/** A stored slot contribution: the registration defaults are now always present. */
+type RegisteredSlotContribution = SlotContribution & { order: number; isActive: (ctx: SlotContext) => boolean };
+
+const slots = new Map<string, RegisteredSlotContribution[]>(); // slotName -> Array<contribution>
+
+export function registerSlot(slotName: string, contribution: SlotContribution): void {
   const list = slots.get(slotName) || [];
-  list.push({ order: 0, isActive: () => true, ...contribution });
+  const entry: RegisteredSlotContribution = {
+    ...contribution,
+    order: contribution.order ?? 0,
+    isActive: contribution.isActive ?? (() => true),
+  };
+  list.push(entry);
   list.sort((a, b) => a.order - b.order);
   slots.set(slotName, list);
 }
 
-export function getSlotContributions(slotName) {
+export function getSlotContributions(slotName: string): RegisteredSlotContribution[] {
   return slots.get(slotName) || [];
 }
 
 // Static per-plugin metadata a plugin declares about itself, so core never hardcodes plugin facts.
 // e.g. settingsLocation: { tab, subtab, labelKey } tells the Plugins tab where a plugin's own
 // settings live, replacing core's former hardcoded PLUGIN_SETTINGS_LOCATION map.
-const pluginMeta = new Map(); // pluginId -> meta object
+/** Per-plugin metadata is plugin-defined, so it stays an open record. */
+type PluginMeta = Record<string, any>;
+const pluginMeta = new Map<string, PluginMeta>(); // pluginId -> meta object
 
-export function registerPluginMeta(pluginId, meta) {
+export function registerPluginMeta(pluginId: string, meta: PluginMeta): void {
   pluginMeta.set(pluginId, { ...pluginMeta.get(pluginId), ...meta });
 }
 
-export function getPluginMeta(pluginId) {
+export function getPluginMeta(pluginId: string): PluginMeta | null {
   return pluginMeta.get(pluginId) || null;
 }
 
@@ -47,11 +68,11 @@ export function getPluginMeta(pluginId) {
 interface RegisteredRuntime { pluginId: string; component: React.ComponentType }
 const runtimes: RegisteredRuntime[] = []; // [{ pluginId, component }]
 
-export function registerRuntime(contribution) {
+export function registerRuntime(contribution: RegisteredRuntime): void {
   runtimes.push(contribution);
 }
 
-export function getRuntimes() {
+export function getRuntimes(): RegisteredRuntime[] {
   return runtimes;
 }
 
@@ -59,14 +80,20 @@ export function getRuntimes() {
 // items. Unlike slots (which render), a collector's `build(ctx)` returns plain descriptor arrays that
 // core renders with its OWN chrome (so placement/styling stay consistent). Gathered via
 // usePluginCollected, activation-gated.
-const collectors = new Map(); // name -> [{ pluginId, build }]
+/** A collector contribution: plugin id plus the builder core calls with the collector context. */
+interface CollectorContribution {
+  pluginId: string;
+  build: (ctx: SlotContext) => any[] | null | undefined;
+  [key: string]: unknown;
+}
+const collectors = new Map<string, CollectorContribution[]>(); // name -> [{ pluginId, build }]
 
-export function registerCollector(name, contribution) {
+export function registerCollector(name: string, contribution: CollectorContribution): void {
   const list = collectors.get(name) || [];
   list.push(contribution);
   collectors.set(name, list);
 }
 
-export function getCollectors(name: string) {
+export function getCollectors(name: string): CollectorContribution[] {
   return collectors.get(name) || [];
 }

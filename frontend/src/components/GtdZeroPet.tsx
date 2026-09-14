@@ -4,13 +4,29 @@ import { api } from '../utils/api.ts';
 import { computeSpriteLayout } from '../utils/gtd.ts';
 import type { StoreState } from '../store/index.ts';
 
+/** The frame geometry a cached pet descriptor carries. */
+interface PetDescriptor {
+  cols?: number;
+  rows?: number;
+  frameW?: number;
+  frameH?: number;
+  staticFrame?: number;
+  hover?: { start?: number; count?: number };
+  [key: string]: unknown;
+}
+/** The cached-pet meta the GTD pet API returns. */
+interface GtdPetMeta {
+  descriptor?: PetDescriptor;
+  [key: string]: unknown;
+}
+
 // Inbox-zero pet: a configured imported pet when one is set and its cached assets
 // load, otherwise the built-in SVG dog. Static at rest, animated on hover (CSS, not
 // video, so it can respond to hover). The dog is the fallback for no-pet, a meta load
 // failure, and a spritesheet load error — there is never a broken-image state.
-export default function GtdZeroPet({ size = 104 }) {
+export default function GtdZeroPet({ size = 104 }: { size?: number }) {
   const petSlug = useStore((s: StoreState) => s.gtdPetSlug);
-  const [meta, setMeta] = useState(null);        // null = loading/none, object = loaded, 'error'
+  const [meta, setMeta] = useState<GtdPetMeta | 'error' | null>(null); // null = loading/none, object = loaded, 'error'
   const [sheetFailed, setSheetFailed] = useState(false);
 
   useEffect(() => {
@@ -49,7 +65,12 @@ export default function GtdZeroPet({ size = 104 }) {
 // and keyframes are scoped to this instance (useId) because the rail and the settings
 // preview mount their own GtdZeroPet at different sizes — a shared class or keyframes
 // name would let one instance's dimensions win the cascade for both.
-function SpritePet({ slug, descriptor, size, onSheetError }) {
+function SpritePet({ slug, descriptor, size, onSheetError }: {
+  slug: string;
+  descriptor: PetDescriptor;
+  size: number;
+  onSheetError: () => void;
+}) {
   const L = computeSpriteLayout({ ...descriptor, size });
   const sheetUrl = api.gtdPetSheetUrl(slug);
   const uid = useId().replace(/[^a-zA-Z0-9_-]/g, '');
@@ -80,7 +101,7 @@ function SpritePet({ slug, descriptor, size, onSheetError }) {
 
 // The approved SVG dog from the GTD mock. Class names are gtd-pet-scoped so the
 // keyframes never collide.
-function DogPet({ size = 104 }) {
+function DogPet({ size = 104 }: { size?: number }) {
   return (
     <>
       <style>{`

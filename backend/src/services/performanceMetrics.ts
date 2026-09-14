@@ -9,11 +9,14 @@
 const LATENCY_EDGES_MS = [10, 25, 50, 100, 250, 500, 1000, 2500, 5000]; // bucket upper edges
 const DB_SLOW_MS = 200;
 
-function newHisto() {
+/** A bounded latency histogram. */
+interface Histogram { count: number; sumMs: number; maxMs: number; buckets: number[] }
+
+function newHisto(): Histogram {
   return { count: 0, sumMs: 0, maxMs: 0, buckets: new Array(LATENCY_EDGES_MS.length + 1).fill(0) };
 }
 
-function record(h, ms: number) {
+function record(h: Histogram, ms: number) {
   h.count += 1;
   h.sumMs += ms;
   if (ms > h.maxMs) h.maxMs = ms;
@@ -24,7 +27,7 @@ function record(h, ms: number) {
 
 // Percentile estimated from the histogram: returns the bucket's upper edge (an
 // upper bound on the true value), or the observed max for the overflow bucket.
-function percentile(h, p) {
+function percentile(h: Histogram, p: number): number {
   if (!h.count) return 0;
   const target = Math.ceil((p / 100) * h.count);
   let cum = 0;
@@ -41,7 +44,7 @@ const httpRoutes: Record<string, any> = Object.create(null); // routeKey -> { h,
 const db = newHisto();
 let dbSlow = 0;
 
-export function recordHttp(routeKey, ms: number, isError = false) {
+export function recordHttp(routeKey: string, ms: number, isError = false) {
   if (!routeKey || !Number.isFinite(ms)) return;
   const e = httpRoutes[routeKey] || (httpRoutes[routeKey] = { h: newHisto(), errors: 0 });
   record(e.h, ms);
@@ -54,7 +57,7 @@ export function recordDb(ms: number) {
   if (ms >= DB_SLOW_MS) dbSlow += 1;
 }
 
-function summarize(h) {
+function summarize(h: Histogram) {
   return {
     count: h.count,
     meanMs: h.count ? Math.round(h.sumMs / h.count) : 0,

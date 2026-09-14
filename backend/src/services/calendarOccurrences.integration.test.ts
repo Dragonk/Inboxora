@@ -28,7 +28,7 @@ const USER_ID = '00000000-0000-0000-0000-0000000003a1';
 const CALENDAR_ID = '00000000-0000-0000-0000-0000000003a2';
 
 const CRLF = '\r\n';
-const vcalendar = (body, exceptions = []) =>
+const vcalendar = (body: string[], exceptions: string[] = []) =>
   ['BEGIN:VCALENDAR', 'VERSION:2.0', 'PRODID:-//test//EN', 'BEGIN:VEVENT', 'UID:CASE', ...body, 'END:VEVENT', ...exceptions, 'END:VCALENDAR'].join(CRLF);
 
 // Every shape where a stored occurrence could plausibly drift from a live expansion.
@@ -44,7 +44,7 @@ const CASES: Record<string, any> = {
   inherited: ['DTSTART;TZID=Europe/Warsaw:20260105T090000', 'DTEND;TZID=Europe/Warsaw:20260105T100000', 'RRULE:FREQ=DAILY;COUNT=5', 'SUMMARY:Inherited', 'DESCRIPTION:Master text', 'LOCATION:Room 1'],
 };
 
-const EXCEPTIONS = {
+const EXCEPTIONS: Record<string, string[]> = {
   moved: ['BEGIN:VEVENT', 'UID:CASE', 'RECURRENCE-ID;TZID=Europe/Warsaw:20260112T090000', 'DTSTART;TZID=Europe/Warsaw:20260113T140000', 'DTEND;TZID=Europe/Warsaw:20260113T150000', 'SUMMARY:MovedInstance', 'END:VEVENT'],
   cancelled: ['BEGIN:VEVENT', 'UID:CASE', 'RECURRENCE-ID;TZID=Europe/Warsaw:20260107T090000', 'DTSTART;TZID=Europe/Warsaw:20260107T090000', 'DTEND;TZID=Europe/Warsaw:20260107T100000', 'STATUS:CANCELLED', 'SUMMARY:CancelledInstance', 'END:VEVENT'],
 };
@@ -88,7 +88,7 @@ async function storedOccurrences(eventId: string) {
     .sort();
 }
 
-function liveOccurrences(eventId: string, raw, summary) {
+function liveOccurrences(eventId: string, raw: string, summary: string) {
   return projectCalendarResource(eventRow(raw, { id: eventId, summary }), WINDOW.from, WINDOW.to)
     .map(row => `${new Date(row.starts_at).toISOString()}|${new Date(row.ends_at).toISOString()}|${row.summary}|${row.all_day}|${row.description}|${row.location}`)
     .sort();

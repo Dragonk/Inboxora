@@ -51,7 +51,7 @@ const SHIPPING_DOMAINS = new Set([
 
 // Known built-in social domain sets bundled with the app.
 // Users enable these by name; domains are resolved here, not in the DB.
-const BUILTIN_SETS = {
+const BUILTIN_SETS: Record<string, string[]> = {
   social_networks: [
     'facebookmail.com', 'notification.facebook.com', 'facebookappmail.com',
     'twitteremail.com', 'mail.twitter.com', 'x.com',
@@ -101,7 +101,7 @@ async function loadSocialDomains(userId: string) {
 // Determines the category for a single message given its parsed headers,
 // sender address, and the user's social domain set.
 // Returns 'primary' | 'newsletter' | 'promotion' | 'automated' | 'social'.
-export function classifyMessage(parsedHeaders, fromEmail, socialDomains) {
+export function classifyMessage(parsedHeaders: unknown, fromEmail: string | null | undefined, socialDomains: Set<string> | null | undefined) {
   // Social check first — user intent overrides header-based detection.
   if (socialDomains && socialDomains.size > 0 && fromEmail) {
     const addr = fromEmail.toLowerCase().trim();
@@ -128,7 +128,7 @@ export function classifyMessage(parsedHeaders, fromEmail, socialDomains) {
 // signals. Returns a valid category string, or null if AI is unavailable or
 // the response is unusable. Errors are swallowed — the caller treats null as
 // 'keep primary'.
-export async function aiClassifyMessage(subject: string, fromEmail, snippet) {
+export async function aiClassifyMessage(subject: string, fromEmail: string | null | undefined, snippet: string | null | undefined) {
   const prompt = `Classify this email into exactly one category. Reply with only the category name, nothing else.
 
 Categories:
@@ -158,7 +158,7 @@ Category:`;
 
 // Assigns a category to a message and writes it to the DB.
 // Used during IMAP sync for new messages when categorization is enabled.
-export async function categorizeAndStore(messageId: string, parsedHeaders, fromEmail, userId: string) {
+export async function categorizeAndStore(messageId: string, parsedHeaders: unknown, fromEmail: string | null | undefined, userId: string) {
   const socialDomains = await loadSocialDomains(userId);
   const category = classifyMessage(parsedHeaders, fromEmail, socialDomains);
   if (category !== 'primary') {
