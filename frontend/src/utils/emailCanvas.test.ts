@@ -14,17 +14,28 @@ import {
   textForLightBackground,
 } from './emailCanvas.ts';
 
+// The colour-space helpers take and return the module's RGB tuple.
+type Rgb = Parameters<typeof rgbToHsl>[0];
+
+// Mirrors the module's own narrowing of a nullable parsed colour: reaching the
+// colour maths without one is a programming error, so fail loudly.
+function requireRgb(color: Rgb | null): Rgb {
+  if (!color) throw new TypeError('Expected a parsed RGB colour');
+  return color;
+}
+
 // WCAG relative luminance, so the assertions speak in contrast ratios rather than in
-// raw channel values.
-function contrast(a, b) {
-  const luminance = ([r, g, b]) => {
-    const channel = value => {
+// raw channel values. Callers hold either a parsed colour or the nullable result of
+// parseColor, exactly as the module's colour helpers accept.
+function contrast(a: Rgb | null, b: Rgb | null) {
+  const luminance = ([r, g, b]: Rgb) => {
+    const channel = (value: number) => {
       const c = value / 255;
       return c <= 0.03928 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4;
     };
     return 0.2126 * channel(r) + 0.7152 * channel(g) + 0.0722 * channel(b);
   };
-  const [hi, lo] = [luminance(a), luminance(b)].sort((x, y) => y - x);
+  const [hi, lo] = [luminance(requireRgb(a)), luminance(requireRgb(b))].sort((x, y) => y - x);
   return (hi + 0.05) / (lo + 0.05);
 }
 
@@ -62,6 +73,7 @@ describe('colour space round trips', () => {
   it('converts to HSL and back without drifting more than a rounding step', () => {
     for (const hex of ['#000000', '#ffffff', '#666666', '#222222', '#1a1e25', '#00a790', '#ff5a00']) {
       const rgb = parseColor(hex);
+      assert.ok(rgb, hex);
       const back = hslToRgb(rgbToHsl(rgb));
       for (let channel = 0; channel < 3; channel += 1) {
         assert.ok(Math.abs(rgb[channel] - back[channel]) <= 1, `${hex} channel ${channel}: ${rgb[channel]} vs ${back[channel]}`);
@@ -113,7 +125,9 @@ describe('adapting text to the dark canvas', () => {
   });
 
   it('keeps the author’s hue and saturation', () => {
-    const [hue] = rgbToHsl(parseColor('#00a790'));
+    const base = parseColor('#00a790');
+    assert.ok(base);
+    const [hue] = rgbToHsl(base);
     const adapted = rgbToHsl(adaptTextForCanvas(parseColor('#00a790'), false));
     assert.ok(Math.abs(adapted[0] - hue) < 2, `hue drifted from ${hue} to ${adapted[0]}`);
     assert.ok(adapted[1] > 0.3, 'saturation was flattened');

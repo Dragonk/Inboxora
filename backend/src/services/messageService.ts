@@ -1,8 +1,9 @@
 import { query } from './db.js';
+import type { UnifiedInboxAccount } from './unifiedInbox.js';
 import { resolveAccountScope } from './unifiedInbox.js';
 
 export async function listMessages({ userId, accountId, folder = 'INBOX', limit = 50, offset = 0, unreadOnly = undefined, threaded = undefined, category = undefined }: { userId?: string; accountId?: string | null; folder?: string; limit?: number; offset?: number; unreadOnly?: boolean | string; threaded?: boolean | string; category?: string | null }) {
-  const accountsResult = await query(
+  const accountsResult = await query<UnifiedInboxAccount>(
     'SELECT id, include_in_unified_inbox FROM email_accounts WHERE user_id = $1 AND enabled = true',
     [userId]
   );

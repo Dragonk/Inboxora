@@ -1,4 +1,5 @@
 import { Router } from 'express';
+import type { UnifiedInboxAccount } from '../services/unifiedInbox.js';
 import { query } from '../services/db.js';
 import { requireAuth } from '../middleware/auth.js';
 import { resolveAccountScope } from '../services/unifiedInbox.js';
@@ -136,7 +137,7 @@ router.get('/', searchLimiter, async (req: Request, res: Response) => {
   if (!trimmed) return res.json({ messages: [] });
   if (trimmed.length > 500) return res.status(400).json({ error: 'Search query too long' });
 
-  const accountsResult = await query(
+  const accountsResult = await query<UnifiedInboxAccount>(
     'SELECT id, include_in_unified_inbox FROM email_accounts WHERE user_id = $1 AND enabled = true',
     [req.session.userId]
   );
@@ -147,7 +148,7 @@ router.get('/', searchLimiter, async (req: Request, res: Response) => {
   const { filters, terms } = parseSearchQuery(trimmed);
 
   const conditions = [];
-  const params = [targetIds];
+  const params: unknown[] = [targetIds];
   let p = 2;
 
   // Folder scope. `in:` in the query wins; otherwise the client-supplied `folder`

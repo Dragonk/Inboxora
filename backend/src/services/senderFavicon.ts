@@ -13,7 +13,7 @@ const TRANSIENT_TTL = 5 * 60;
 // No legitimate mail sender exceeds ten labels; the cap bounds the parent-walk
 // recursion at the front door so a crafted 253-char domain is rejected outright.
 const MAX_LABELS = 10;
-const inflight = new Map();
+const inflight = new Map<string, Promise<SenderFaviconResult>>();
 const PNG_SIGNATURE = Buffer.from([137, 80, 78, 71, 13, 10, 26, 10]);
 
 // Pragmatic (NOT exhaustive) multi-label public suffixes: the parent walk never
@@ -147,9 +147,13 @@ async function fetchProvider(domain: string, { fetchImpl = safeFetch, timeoutMs 
       ? { kind: 'image', bytes, source: 'upstream' }
       : miss('invalid-image');
   } catch (error) {
-    return error?.code === 'ERR_BODY_TOO_LARGE' ? miss('invalid-image') : miss('transient');
+    const code = typeof error === 'object' && error !== null && 'code' in error ? error.code : undefined;
+    return code === 'ERR_BODY_TOO_LARGE' ? miss('invalid-image') : miss('transient');
   }
 }
+
+/** Deps whose cache is guaranteed present: resolution always reads and writes it. */
+type ResolvedDeps = SenderFaviconDeps & { cache: SenderFaviconCache };
 
 async function cacheResult(cache: SenderFaviconCache, domain: string, result: SenderFaviconResult): Promise<void> {
   try { await cache.set(cacheKey(domain), serialize(result), { EX: ttlFor(result) }); }
@@ -160,7 +164,7 @@ async function cacheResult(cache: SenderFaviconCache, domain: string, result: Se
 // entry and the inflight promise always carry the domain's fully resolved
 // outcome (image or its final miss), so sibling subdomains reuse it and
 // concurrent callers — direct or walking — dedupe onto the same resolution.
-async function resolveDomain(domain: string, deps: SenderFaviconDeps) {
+async function resolveDomain(domain: string, deps: ResolvedDeps) {
   const key = cacheKey(domain);
   let cached;
   try { cached = await deps.cache.get(key); }
@@ -185,7 +189,7 @@ async function resolveDomain(domain: string, deps: SenderFaviconDeps) {
 // standing. Resolution is context-free — the result depends only on the domain,
 // never on which caller started the walk — so the outcome cached under this
 // domain's own key means direct and indirect lookups can never disagree.
-async function resolveWithParents(domain: string, deps: SenderFaviconDeps) {
+async function resolveWithParents(domain: string, deps: ResolvedDeps) {
   let result: SenderFaviconResult = await fetchProvider(domain, deps);
   if (result.kind === 'miss' && result.reason === 'not-found') {
     const parent = nextParent(domain);
@@ -213,12 +217,12 @@ export interface SenderFaviconCache {
 
 export interface SenderFaviconOptions {
   cache?: SenderFaviconCache;
-  fetchImpl?: typeof fetch;
+  fetchImpl?: typeof safeFetch;
   timeoutMs?: number;
   maxBytes?: number;
 }
 
-export async function getSenderFavicon(domain, {
+export async function getSenderFavicon(domain: unknown, {
   cache = redisClient,
   fetchImpl = safeFetch,
   timeoutMs = DEFAULT_TIMEOUT_MS,

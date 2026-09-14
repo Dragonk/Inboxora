@@ -1,4 +1,5 @@
 import { Router } from 'express';
+import type { UnifiedInboxAccount } from '../services/unifiedInbox.js';
 import { createRequire } from 'module';
 const require = createRequire(import.meta.url);
 const archiver = require('archiver');
@@ -300,7 +301,7 @@ router.get('/thread/:threadId', async (req, res) => {
 
   try {
     const requestedAccountId = req.query.accountId || null;
-    const accountsResult = await query(
+    const accountsResult = await query<UnifiedInboxAccount>(
       'SELECT id, include_in_unified_inbox FROM email_accounts WHERE user_id = $1 AND enabled = true',
       [req.session.userId]
     );
@@ -2211,7 +2212,7 @@ router.get('/category-counts', async (req, res) => {
     return res.status(400).json({ error: 'Invalid account id' });
   }
 
-  const accountsResult = await query(
+  const accountsResult = await query<UnifiedInboxAccount>(
     'SELECT id, include_in_unified_inbox FROM email_accounts WHERE user_id = $1 AND enabled = true',
     [req.session.userId]
   );

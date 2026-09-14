@@ -3,6 +3,7 @@ import { useTranslation } from 'react-i18next';
 import { Button, Dialog } from './ui.tsx';
 import { conversationApi } from '../utils/conversationApi.ts';
 import { intlLocale } from '../utils/intlLocale.ts';
+import { toAppError, type AppError } from '../utils/errors.ts';
 
 // Rebuilding conversations re-runs threading over the messages already in the
 // database. It matters most right after a migration from MailFlow, where every
@@ -14,14 +15,38 @@ import { intlLocale } from '../utils/intlLocale.ts';
 // write, which is the difference between "let me see what this would do" and
 // accidentally rewriting a mailbox's threading.
 
+// A caught value is unknown under strict mode; this narrows it to the API error
+// shape the client throws (an Error carrying the HTTP status).
+function isAppError(value: unknown): value is AppError {
+  return value instanceof Error;
+}
+
 const POLL_INTERVAL_MS = 1000;
 // The backend job map is in-process and dropped after an hour; stop polling well
 // before that so a dialog left open cannot hammer the status endpoint forever.
 const POLL_TIMEOUT_MS = 5 * 60 * 1000;
 
-const numberFormat = language => new Intl.NumberFormat(intlLocale(language));
+const numberFormat = (language: string) => new Intl.NumberFormat(intlLocale(language));
 
-function ResultSummary({ result, t, language }) {
+// The rebuild status endpoint answers with plain JSON, so the fields this dialog
+// renders are declared here. Counters are absent while a job is still queued, and
+// the result is null until the first status response carries one.
+interface RebuildResult {
+  scanned?: number;
+  would_change?: number;
+  changed?: number;
+  dryRun?: boolean;
+}
+
+interface RebuildJob {
+  status: string;
+  error?: string;
+  result?: RebuildResult | null;
+}
+
+type Translate = ReturnType<typeof useTranslation>['t'];
+
+function ResultSummary({ result, t, language }: { result: RebuildResult; t: Translate; language: string }) {
   const format = numberFormat(language);
   const scanned = format.format(result?.scanned ?? 0);
   const changes = format.format(result?.would_change ?? result?.changed ?? 0);
@@ -40,13 +65,13 @@ export default function ConversationRebuild() {
   const [confirming, setConfirming] = useState(false);
   const [dryRun, setDryRun] = useState(true);
   const [jobId, setJobId] = useState<string | null>(null);
-  const [job, setJob] = useState<Record<string, unknown> | null>(null);
+  const [job, setJob] = useState<RebuildJob | null>(null);
   const [error, setError] = useState('');
   const [note, setNote] = useState('');
   const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const stopPolling = useCallback(() => {
-    clearTimeout(timer.current);
+    if (timer.current !== null) clearTimeout(timer.current);
     timer.current = null;
   }, []);
 
@@ -70,7 +95,7 @@ export default function ConversationRebuild() {
         }
       } catch (pollError) {
         if (cancelled) return;
-        setError(pollError.message);
+        setError(toAppError(pollError).message);
         setJobId(null);
         return;
       }
@@ -112,9 +137,11 @@ export default function ConversationRebuild() {
     } catch (startError) {
       // The endpoint allows two requests a minute per user, so a third call —
       // for example a retry straight after a failed one — is rate limited.
-      setError(startError.status === 429
-        ? t('conversation.rebuildRateLimited')
-        : t('conversation.rebuildFailed', { message: startError.message }));
+      if (isAppError(startError)) {
+        setError(startError.status === 429
+          ? t('conversation.rebuildRateLimited')
+          : t('conversation.rebuildFailed', { message: startError.message }));
+      }
     }
   };
 
