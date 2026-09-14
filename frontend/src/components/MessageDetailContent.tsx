@@ -50,7 +50,7 @@ export default function MessageDetailContent({
   // Keep existing catalogue entries live while native-only AI notices remain in the outer pane.
   const legacyAiLabels = [t('message.aiClassify.button'), t('message.aiClassify.info')];
   const [downloadingPart, setDownloadingPart] = useState(null);
-  const [unsubscribeStatus, setUnsubscribeStatus] = useState(null);
+  const [unsubscribeStatus, setUnsubscribeStatus] = useState<string | null>(null);
   const [contextMenu, setContextMenu] = useState(null);
   const iframeRef = useRef(null);
   const attachments = Array.isArray(body?.attachments) ? body.attachments : [];

@@ -119,7 +119,7 @@ export default function CalendarPage({ isActive = true }) {
   const [rawCalendars, setCalendars] = useState([]); const [rawEvents, setEvents] = useState([]);
   const calendars = useMemo(() => rawCalendars.map(calendar => localizeContactCalendar(calendar, t)), [rawCalendars, t]);
   const events = useMemo(() => rawEvents.map(event => localizeContactEvent(event, t)), [rawEvents, t]);
-  const [error, setError] = useState(null); const [loading, setLoading] = useState(true); const [form, setForm] = useState(null); const [saving, setSaving] = useState(false);
+  const [error, setError] = useState<string | null>(null); const [loading, setLoading] = useState(true); const [form, setForm] = useState(null); const [saving, setSaving] = useState(false);
   // Read-only events (imported/synced sources) are shown in a preview dialog whose
   // description is rendered by the mail body renderer.
   const descriptionBody = useMemo(() => calendarDescriptionBody(preview?.description), [preview]);

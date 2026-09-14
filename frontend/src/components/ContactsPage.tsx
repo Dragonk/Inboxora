@@ -133,7 +133,7 @@ export default function ContactsPage({ isActive = true }) {
   // the rest of the app and can show the server's validation error in place.
   const [bookDialog, setBookDialog] = useState<{ name?: string; mode?: string; id?: string; [key: string]: unknown } | null>(null);
   const [bookSaving, setBookSaving] = useState(false);
-  const [bookError, setBookError] = useState(null);
+  const [bookError, setBookError] = useState<string | null>(null);
   const isMobile = useCompactLayout();
 
   const [contacts, setContacts]     = useState<ContactRow[]>([]);

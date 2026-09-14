@@ -39,8 +39,8 @@ export default function ConversationRebuild() {
   const { t, i18n } = useTranslation();
   const [confirming, setConfirming] = useState(false);
   const [dryRun, setDryRun] = useState(true);
-  const [jobId, setJobId] = useState(null);
-  const [job, setJob] = useState(null);
+  const [jobId, setJobId] = useState<string | null>(null);
+  const [job, setJob] = useState<Record<string, unknown> | null>(null);
   const [error, setError] = useState('');
   const [note, setNote] = useState('');
   const timer = useRef<ReturnType<typeof setTimeout> | null>(null);

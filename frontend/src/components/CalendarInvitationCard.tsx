@@ -23,7 +23,7 @@ export default function CalendarInvitationCard({ messageId }) {
   // 'added' after this session added it, 'removed' after this session removed it; both
   // are also derived from the server's `localEvent` so a reload shows the same state.
   const [localEvent, setLocalEvent] = useState(null);
-  const [outcome, setOutcome] = useState(null);
+  const [outcome, setOutcome] = useState<string | null>(null);
   const [retry, setRetry] = useState(0);
 
   useEffect(() => {

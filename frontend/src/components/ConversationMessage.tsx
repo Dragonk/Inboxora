@@ -77,11 +77,11 @@ export default function ConversationMessage({ conversationId, message, selectedC
   const summary = String(copy.snippet || '').trim();
   const accountColor = account?.color || 'var(--accent)';
   const accountLabel = account?.name || account?.email_address || '';
-  const [unsubscribeStatus, setUnsubscribeStatus] = useState(null);
+  const [unsubscribeStatus, setUnsubscribeStatus] = useState<string | null>(null);
   const [folders, setFolders] = useState([]);
   const [foldersLoading, setFoldersLoading] = useState(false);
   const [showHeaders, setShowHeaders] = useState(false);
-  const [actionError, setActionError] = useState(null);
+  const [actionError, setActionError] = useState<string | null>(null);
 
   const toggle = () => {
     onToggle(message.id);

@@ -38,16 +38,16 @@ interface CalendarSidebarProps {
 export default function CalendarSidebar({ anchor, calendars, visibleCalendarIds, weekStartsOn = 1, locale, onSelectDate, onShiftMonth, onToggleCalendar, onSourcesChanged, onCalendarsChanged, onCreate, canCreate, sourcePanelRequest = 0, t }: CalendarSidebarProps) {
   const [showSources, setShowSources] = useState(false);
   const [sources, setSources] = useState<Array<{ id: string; displayName?: string; kind?: string; intervalMin?: number; lastError?: string | null; lastSyncAt?: string | null; [key: string]: unknown }>>([]);
-  const [sourceError, setSourceError] = useState(null);
+  const [sourceError, setSourceError] = useState<string | null>(null);
   const mounted = useRef(false);
   const pendingSourceIds = useRef(new Set());
   const sourcePolls = useRef(new Map());
   const sourceRequestGeneration = useRef(0);
   const [form, setForm] = useState({ kind: 'ical_url', displayName: '', url: '', username: '', password: '', color: '#7c6af7', intervalMin: 60 });
-  const [openCalendarMenu, setOpenCalendarMenu] = useState(null);
+  const [openCalendarMenu, setOpenCalendarMenu] = useState<string | null>(null);
   const [syncingSourceIds, setSyncingSourceIds] = useState<Set<string>>(new Set());
   const [calendarEdit, setCalendarEdit] = useState<{ calendar?: { id?: string; name?: string; color?: string; [key: string]: unknown }; name?: string; color?: string; [key: string]: unknown } | null>(null);
-  const [editError, setEditError] = useState(null);
+  const [editError, setEditError] = useState<string | null>(null);
   const [calendarSaving, setCalendarSaving] = useState(false);
   useBackLayer(openCalendarMenu, () => { if (!calendarSaving) setOpenCalendarMenu(null); }, 4510);
   const cells = useMemo(() => monthCells(anchor, weekStartsOn), [anchor, weekStartsOn]);
