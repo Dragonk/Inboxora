@@ -6,6 +6,33 @@ import { query } from '../services/db.js';
 import { requireAuth } from '../middleware/auth.js';
 import { imapManager } from '../index.js';
 import type { EmailAccountRow } from '../services/imapManager.js';
+/** The message row the read routes select, with its account's user and calendar link. */
+interface ReadMessageRow {
+  id: string;
+  account_id: string;
+  folder?: string | null;
+  subject?: string | null;
+  from_name?: string | null;
+  from_email?: string | null;
+  to_addresses?: string | null;
+  cc_addresses?: string | null;
+  body_html?: string | null;
+  body_text?: string | null;
+  attachments?: unknown;
+  is_read?: boolean;
+  is_starred?: boolean;
+  is_deleted?: boolean;
+  date?: string | number | Date | null;
+  uid?: number | string | null;
+  message_id?: string | null;
+  snippet?: string | null;
+  reply_to?: string | null;
+  user_id?: string | null;
+  preferences?: unknown;
+  calendar_invitation_id?: string | null;
+  [key: string]: unknown;
+}
+
 import { sanitizeEmail, stripEmailHead, hasRemoteImages, blockRemoteImages, rewriteEbayImageserUrls, rewriteAnchorHrefs, shouldBlockRemoteImages } from '../services/emailSanitizer.js';
 import { snippetFromBody, decodeMimeWords, parseRawHeaders, buildHeadersFromMessage } from '../services/messageParser.js';
 import { resolveTrashFolder, resolveAllTrashPaths, resolveAllDraftsPaths, resolveArchiveFolder, isAllMailFolder, resolveSpamFolder, resolveAllSpamPaths, getDeleteStrategy, adjustFolderCounts, fanOutReadToSiblings, fanOutStarToSiblings, fanOutBulkReadToSiblings } from '../utils/mailUtils.js';
@@ -363,7 +390,7 @@ router.get('/messages/:id/body', async (req, res) => {
   const { id } = req.params;
   if (!UUID_RE.test(id)) return res.status(400).json({ error: 'Invalid message id' });
 
-  const result = await query(`
+  const result = await query<ReadMessageRow>(`
     SELECT m.*, a.user_id, u.preferences, ci.message_id AS calendar_invitation_id FROM messages m
     JOIN email_accounts a ON m.account_id = a.id
     JOIN users u ON u.id = a.user_id
@@ -503,7 +530,7 @@ router.get('/messages/:id/headers', async (req, res) => {
   const { id } = req.params;
   if (!UUID_RE.test(id)) return res.status(400).json({ error: 'Invalid message id' });
 
-  const result = await query(`
+  const result = await query<MessageHeadersRow>(`
     SELECT m.*, a.user_id FROM messages m
     JOIN email_accounts a ON m.account_id = a.id
     WHERE m.id = $1 AND a.user_id = $2
@@ -566,7 +593,7 @@ router.get('/messages/:id/attachments.zip', async (req, res) => {
   const { id } = req.params;
   if (!UUID_RE.test(id)) return res.status(400).json({ error: 'Invalid message id' });
 
-  const result = await query(`
+  const result = await query<ReadMessageRow>(`
     SELECT m.*, a.user_id FROM messages m
     JOIN email_accounts a ON m.account_id = a.id
     WHERE m.id = $1 AND a.user_id = $2
@@ -650,7 +677,7 @@ router.get('/messages/:id/attachments/:part', async (req, res) => {
     return res.status(400).json({ error: 'Invalid attachment part identifier' });
   }
 
-  const result = await query(`
+  const result = await query<ReadMessageRow>(`
     SELECT m.*, a.user_id FROM messages m
     JOIN email_accounts a ON m.account_id = a.id
     WHERE m.id = $1 AND a.user_id = $2
@@ -1914,7 +1941,7 @@ router.delete('/messages/:id', async (req, res) => {
   const { id } = req.params;
   if (!UUID_RE.test(id)) return res.status(400).json({ error: 'Invalid message id' });
 
-  const result = await query(`
+  const result = await query<ReadMessageRow>(`
     SELECT m.*, a.user_id FROM messages m
     JOIN email_accounts a ON m.account_id = a.id
     WHERE m.id = $1 AND a.user_id = $2
