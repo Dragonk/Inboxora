@@ -7,7 +7,17 @@ import { THEMES } from '../themes.ts';
 
 const THEME_NAMES = Object.keys(THEMES);
 
-function buildActions({ t, openCompose, setSelectedAccount, setShowAdmin, setAdminTab, theme, setTheme, accounts, selectedAccountId }) {
+function buildActions({ t, openCompose, setSelectedAccount, setShowAdmin, setAdminTab, theme, setTheme, accounts, selectedAccountId }: {
+  t: (key: string, options?: Record<string, unknown>) => string;
+  openCompose: (options?: { accountId?: string }) => void;
+  setSelectedAccount: (id: string | null, folder?: string) => void;
+  setShowAdmin: (show: boolean) => void;
+  setAdminTab: (tab: string) => void;
+  theme: string;
+  setTheme: (theme: string) => void;
+  accounts: Array<{ id: string; email_address?: string | null; color?: string | null; [key: string]: unknown }>;
+  selectedAccountId: string | null;
+}) {
   const actions: Array<{ id: string; label: string; icon: ReactNode; active?: boolean; run: () => void }> = [
     {
       id: 'compose',
