@@ -15,15 +15,17 @@ const TTL_MS = 6 * 60 * 60 * 1000;        // re-query GitHub at most every 6 hou
 const FAIL_BACKOFF_MS = 15 * 60 * 1000;   // after a failed check, retry no sooner than 15 min
 const DISABLED = /^(1|true|yes|on)$/i.test(process.env.UPDATE_CHECK_DISABLED || '');
 
-let cache = { latest: null, url: null };
+type ReleaseCache = { latest: string | null; url: string | null };
+
+let cache: ReleaseCache = { latest: null, url: null };
 let nextCheck = 0;
 
-function parse(v) {
+function parse(v: unknown): [number, number, number] | null {
   const m = String(v || '').trim().replace(/^v/i, '').match(/^(\d+)\.(\d+)\.(\d+)/);
   return m ? [Number(m[1]), Number(m[2]), Number(m[3])] : null;
 }
 
-function isNewer(latest, current) {
+function isNewer(latest: unknown, current: unknown): boolean {
   const a = parse(latest), b = parse(current);
   if (!a || !b) return false;
   for (let i = 0; i < 3; i++) {
@@ -32,18 +34,23 @@ function isNewer(latest, current) {
   return false;
 }
 
-async function refresh() {
+function releaseFields(data: unknown): { tag_name?: unknown; html_url?: unknown } {
+  if (typeof data === 'object' && data !== null) return data;
+  return {};
+}
+
+async function refresh(): Promise<ReleaseCache> {
   const res = await safeFetch(RELEASES_URL, {
     headers: { Accept: 'application/vnd.github+json', 'User-Agent': 'Inboxora-update-check' },
     signal: AbortSignal.timeout(5000),
   });
   if (!res.ok) throw new Error(`GitHub ${res.status}`);
-  const data = (await res.json()) as { tag_name?: string; html_url?: string };
+  const data = releaseFields(await res.json());
   const tag = String(data.tag_name || '').trim().replace(/^v/i, '');
   return { latest: tag || null, url: typeof data.html_url === 'string' ? data.html_url : null };
 }
 
-export async function getUpdateStatus(currentVersion) {
+export async function getUpdateStatus(currentVersion: string) {
   if (DISABLED) {
     return { current: currentVersion, latest: null, updateAvailable: false, disabled: true };
   }
