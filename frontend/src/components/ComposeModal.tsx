@@ -322,7 +322,7 @@ export default function ComposeModal() {
   const composeWindowRef = useRef<HTMLDivElement | null>(null);
   const posRef = useRef<{ x: number; y: number } | null>(null);
   const customSizeRef = useRef<{ width?: number; height?: number } | null>(null);
-  const dragCleanupRef = useRef(null);
+  const dragCleanupRef = useRef<((options?: { commit?: boolean }) => void) | null>(null);
   posRef.current = pos;
   customSizeRef.current = customSize;
 
@@ -2423,14 +2423,14 @@ function Sep() {
 function RichToolbar({ editor, onAttach, onInsertImage = undefined, htmlMode, onToggleHtml, isMobile = false, aiEnabled, onAiAction, aiPanelOpen }: { editor: Editor; onAttach: () => void; onInsertImage?: () => void; htmlMode: boolean; onToggleHtml: () => void; isMobile?: boolean; aiEnabled: boolean; onAiAction: (id: string) => void; aiPanelOpen: boolean }) {
   const { t } = useTranslation();
   const uiScale = useUiScale();
-  const savedSelectionRef = useRef(null);
+  const savedSelectionRef = useRef<{ from: number; to: number } | null>(null);
   const [aiMenuPos, setAiMenuPos] = useState(null);
   const aiBtnRef = useRef<HTMLButtonElement | null>(null);
   const aiMenuRef = useRef<HTMLDivElement | null>(null);
   const [colorPos, setColorPos] = useState(null);
   const [highlightPos, setHighlightPos] = useState(null);
   const [emojiPos, setEmojiPos] = useState(null);
-  const emojiPickerRef = useRef(null);
+  const emojiPickerRef = useRef<{ Picker: React.ComponentType<Record<string, unknown>>; data: unknown } | null>(null);
   const [linkPos, setLinkPos] = useState(null);
   const [tablePos, setTablePos] = useState(null);
   const [linkUrl, setLinkUrl] = useState('');

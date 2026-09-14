@@ -52,7 +52,7 @@ export default function MessageDetailContent({
   const [downloadingPart, setDownloadingPart] = useState(null);
   const [unsubscribeStatus, setUnsubscribeStatus] = useState<string | null>(null);
   const [contextMenu, setContextMenu] = useState(null);
-  const iframeRef = useRef(null);
+  const iframeRef = useRef<HTMLIFrameElement | null>(null);
   const attachments = Array.isArray(body?.attachments) ? body.attachments : [];
   const html = body?.html ?? body?.body_html ?? '';
   const text = body?.text ?? body?.body_text ?? '';

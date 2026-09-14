@@ -127,7 +127,7 @@ export default function CalendarPage({ isActive = true }) {
   // events that are shown stay valid, but the view must say it is incomplete
   // rather than silently presenting a partial month as the whole truth.
   const [incompleteSeries, setIncompleteSeries] = useState(0);
-  const invitationOperation = useRef(null);
+  const invitationOperation = useRef<ReturnType<typeof createInvitationOperationController> | null>(null);
   if (!invitationOperation.current) invitationOperation.current = createInvitationOperationController();
   const [mobilePanelOpen, setMobilePanelOpen] = useState(false);
   const range = useMemo(() => calendarVisibleRange(anchor, view, calendarWeekStartsOn), [anchor, calendarWeekStartsOn, view]);
