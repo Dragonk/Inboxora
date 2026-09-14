@@ -7,14 +7,14 @@ Ten plik jest samowystarczalnym przekazaniem zadania. Cel: doprowadzić `dev` do
 
 | Metryka | Wartość |
 |---|---|
-| Gałąź / HEAD | `dev` @ `8eccbb02` |
-| backend strict | **247** znalezisk |
-| frontend strict | **311** znalezisk |
-| razem | **558** |
+| Gałąź / HEAD | `dev` @ `d0a0e6e0` |
+| backend strict | **234** znalezisk |
+| frontend strict | **279** znalezisk |
+| razem | **513** |
 | `npx tsc --noEmit` (oba) | **0 błędów** |
 | suppresje (`as any`, `: any`, `as unknown as`, `@ts-ignore`, `@ts-nocheck`, `@ts-expect-error`) | **0** |
 | Drzewo robocze | czyste |
-| Punkt startowy kampanii | 8459 -> 1689 -> 558 |
+| Punkt startowy kampanii | 8459 -> 1689 -> 513 |
 
 `tsconfig.strict.json` (oba projekty) to `{ extends: ./tsconfig.json, compilerOptions: { strict: true, noImplicitAny: true } }`.
 `DbRow` to już `Record<string, unknown>` (nie `any`) — granica zdjęta.
