@@ -474,7 +474,9 @@ const dir = dirname(fileURLToPath(import.meta.url));
 //
 // Two locales sharing a value is only allowed if both appear in the same group.
 // Any unlisted pair will still fail.
-const SAME_VALUE_ALLOWED = {
+type SameValueRule = 'any' | string[][];
+
+const SAME_VALUE_ALLOWED: Record<string, SameValueRule> = {
   'calendar.contactDateEvent': 'any', // Interpolation-only title template.
   'calendar.unnamedContact': [['en', 'fr'], ['cs', 'de', 'pl']],
   'layouts.compact.label': [['en', 'fr']],
@@ -1062,7 +1064,7 @@ function scanHardcodedStrings() {
   const srcRoot = resolve(dir, '../..');
   const violations: unknown[] = [];
 
-  function walk(d) {
+  function walk(d: string) {
     for (const entry of readdirSync(d, { withFileTypes: true })) {
       const full = join(d, entry.name);
       if (entry.isDirectory()) {
@@ -1138,7 +1140,7 @@ function baseKey(key: string) {
 function loadSourceText() {
   const srcRoot = resolve(dir, '../..');
   const out: unknown[] = [];
-  function walk(d) {
+  function walk(d: string) {
     for (const entry of readdirSync(d, { withFileTypes: true })) {
       const full = join(d, entry.name);
       if (entry.isDirectory()) {
@@ -1160,7 +1162,7 @@ function loadLiteralSourceTranslationKeys(prefix: string) {
   const keys = new Set<string>();
   const literalTranslationCall = /(?<![\w$.])t\(\s*['"]([^'"]+)['"]/g;
 
-  function walk(d) {
+  function walk(d: string) {
     for (const entry of readdirSync(d, { withFileTypes: true })) {
       const full = join(d, entry.name);
       if (entry.isDirectory()) {

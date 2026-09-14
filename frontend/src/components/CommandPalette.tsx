@@ -5,7 +5,18 @@ import { useStore } from '../store/index.ts';
 import { useMobile } from '../hooks/useMobile.ts';
 import { THEMES } from '../themes.ts';
 
-const THEME_NAMES = Object.keys(THEMES);
+interface CommandPaletteAction {
+  id: string;
+  label: string;
+  icon: ReactNode;
+  active?: boolean;
+  run: () => void;
+}
+
+interface CommandPaletteProps {
+  open: boolean;
+  onClose: () => void;
+}
 
 function buildActions({ t, openCompose, setSelectedAccount, setShowAdmin, setAdminTab, theme, setTheme, accounts, selectedAccountId }: {
   t: (key: string, options?: Record<string, unknown>) => string;
@@ -18,7 +29,7 @@ function buildActions({ t, openCompose, setSelectedAccount, setShowAdmin, setAdm
   accounts: Array<{ id: string; email_address?: string | null; color?: string | null; [key: string]: unknown }>;
   selectedAccountId: string | null;
 }) {
-  const actions: Array<{ id: string; label: string; icon: ReactNode; active?: boolean; run: () => void }> = [
+  const actions: CommandPaletteAction[] = [
     {
       id: 'compose',
       label: t('commandPalette.actions.compose'),
@@ -46,8 +57,8 @@ function buildActions({ t, openCompose, setSelectedAccount, setShowAdmin, setAdm
   ];
 
   // Theme switch actions
-  for (const themeKey of THEME_NAMES) {
-    const label = THEMES[themeKey]?.label || themeKey;
+  for (const [themeKey, themeDefinition] of Object.entries(THEMES)) {
+    const label = themeDefinition.label;
     actions.push({
       id: `theme:${themeKey}`,
       label: t('commandPalette.actions.switchTheme', { theme: label }),
@@ -70,7 +81,7 @@ function buildActions({ t, openCompose, setSelectedAccount, setShowAdmin, setAdm
   return actions;
 }
 
-export default function CommandPalette({ open, onClose }) {
+export default function CommandPalette({ open, onClose }: CommandPaletteProps) {
   const { t } = useTranslation();
   const isMobile = useMobile();
   const { openCompose, setSelectedAccount, setShowAdmin, setAdminTab, theme, setTheme, accounts, selectedAccountId } = useStore();
@@ -90,18 +101,21 @@ export default function CommandPalette({ open, onClose }) {
     if (open) {
       setQuery('');
       setActiveIdx(0);
-      setTimeout(() => inputRef.current?.focus(), 30);
+      setTimeout(() => {
+        const input = inputRef.current;
+        if (input) input.focus();
+      }, 30);
     }
   }, [open]);
 
   useEffect(() => { setActiveIdx(0); }, [query]);
 
-  const runAction = useCallback((action) => {
+  const runAction = useCallback((action: CommandPaletteAction) => {
     action.run();
     onClose();
   }, [onClose]);
 
-  const handleKeyDown = (e) => {
+  const handleKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
     if (e.key === 'ArrowDown') {
       e.preventDefault();
       setActiveIdx(i => Math.min(i + 1, filtered.length - 1));
@@ -118,8 +132,13 @@ export default function CommandPalette({ open, onClose }) {
 
   // Scroll active item into view
   useEffect(() => {
-    const el = listRef.current?.children[activeIdx];
-    el?.scrollIntoView({ block: 'nearest' });
+    const list = listRef.current;
+    if (list) {
+      const activeElement = list.children[activeIdx];
+      if (activeElement instanceof HTMLElement) {
+        activeElement.scrollIntoView({ block: 'nearest' });
+      }
+    }
   }, [activeIdx]);
 
   if (!open) return null;
@@ -172,7 +191,7 @@ export default function CommandPalette({ open, onClose }) {
         {/* Results */}
         <div
           ref={listRef}
-          onScroll={e => setListScrolled(e.currentTarget.scrollTop > 4)}
+          onScroll={(e: React.UIEvent<HTMLDivElement>) => setListScrolled(e.currentTarget.scrollTop > 4)}
           style={{
             maxHeight: 360, overflowY: 'auto', padding: '6px 0',
             boxShadow: listScrolled ? 'inset 0 8px 8px -8px rgba(0,0,0,0.25)' : 'none',

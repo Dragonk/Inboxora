@@ -3,19 +3,22 @@ import assert from 'node:assert/strict';
 import * as undoableAction from './undoableAction.ts';
 
 function fakeTimer() {
-  let callback;
+  let callback: (() => void | Promise<void>) | undefined;
   let cancelled = false;
   return {
-    schedule(fn) {
+    schedule(fn: () => void | Promise<void>): string {
       callback = fn;
       return 'timer';
     },
-    cancel(timer) {
+    cancel(timer: unknown): void {
       assert.equal(timer, 'timer');
       cancelled = true;
     },
-    async fire() {
-      return callback();
+    async fire(): Promise<void> {
+      if (callback === undefined) {
+        throw new Error('Timer callback has not been scheduled');
+      }
+      await callback();
     },
     wasCancelled() {
       return cancelled;
@@ -66,8 +69,8 @@ describe('createUndoableCommit', () => {
   it('can undo while an opted-in commit is awaiting asynchronous work', async () => {
     const timer = fakeTimer();
     const calls: unknown[] = [];
-    let release;
-    const pending = new Promise(resolve => { release = resolve; });
+    let release: (() => void) | undefined;
+    const pending = new Promise<void>(resolve => { release = resolve; });
     const action = undoableAction.createUndoableCommit({
       allowUndoWhileCommitting: true,
       commit: async () => { calls.push('commit'); await pending; },
@@ -79,6 +82,7 @@ describe('createUndoableCommit', () => {
     const firing = timer.fire();
     await Promise.resolve();
     assert.equal(action.undo(), true);
+    if (release === undefined) throw new Error('Pending commit resolver has not been installed');
     release();
     await firing;
     assert.deepEqual(calls, ['commit', 'undo']);

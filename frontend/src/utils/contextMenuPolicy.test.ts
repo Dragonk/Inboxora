@@ -39,7 +39,7 @@ test('GTD actions resolve the current row by stable Message-ID', async () => {
     id: 'stale-row',
     message_id: '<stable@example.com>',
     account_id: 'account-1',
-  }, 'gtdSidebar', async (ref, accountId) => {
+  }, 'gtdSidebar', async (ref: string, accountId: string) => {
     calls.push([ref, accountId]);
     return current;
   });
@@ -52,7 +52,7 @@ test('GTD resolution falls back to a legacy row id', async () => {
   const result = await resolveContextMenuMessage(
     { id: 'legacy-row', account_id: 'account-1' },
     'gtdSidebar',
-    async (ref, accountId) => ({ id: ref, accountId }),
+    async (ref: string, accountId: string) => ({ id: ref, accountId }),
   );
 
   assert.deepEqual(result, { id: 'legacy-row', accountId: 'account-1' });

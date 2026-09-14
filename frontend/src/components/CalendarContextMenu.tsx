@@ -9,20 +9,22 @@ export default function CalendarContextMenu({ x, y, event, isMobile = false, onE
   y: number;
   event: CalendarViewEvent;
   isMobile?: boolean;
-  onEdit?: (event: CalendarViewEvent) => void;
-  onDelete?: (event: CalendarViewEvent) => void;
+  onEdit: () => void;
+  onDelete: () => void;
   onClose: () => void;
   triggerRef?: { current: unknown };
   t: TFunction;
 }) {
-  const menuRef = useRef(null);
+  const menuRef = useRef<HTMLDivElement>(null);
   useBackLayer(true, onClose, 4000);
   const onCloseRef = useRef(onClose);
   const [position, setPosition] = useState({ x, y });
   const writable = event.source === 'local' && !event.read_only;
   const restoreFocus = useCallback(() => requestAnimationFrame(() => {
-    const trigger = triggerRef?.current;
-    if (trigger instanceof HTMLElement) trigger.focus();
+    if (triggerRef) {
+      const trigger = triggerRef.current;
+      if (trigger instanceof HTMLElement) trigger.focus();
+    }
   }), [triggerRef]);
   onCloseRef.current = onClose;
 
@@ -36,7 +38,7 @@ export default function CalendarContextMenu({ x, y, event, isMobile = false, onE
   }, [x, y, isMobile]);
 
   useEffect(() => {
-    const handleKeyDown = keyboardEvent => {
+    const handleKeyDown = (keyboardEvent: KeyboardEvent) => {
       if (keyboardEvent.key === 'Escape') {
         keyboardEvent.preventDefault();
         onCloseRef.current();
@@ -45,7 +47,9 @@ export default function CalendarContextMenu({ x, y, event, isMobile = false, onE
       }
       if (!writable || !menuRef.current) return;
       const items = [...menuRef.current.querySelectorAll('[role="menuitem"]')];
-      const currentIndex = items.indexOf(document.activeElement);
+      const activeElement = document.activeElement;
+      let currentIndex = -1;
+      if (activeElement) currentIndex = items.indexOf(activeElement);
       let nextIndex;
       if (keyboardEvent.key === 'ArrowDown') nextIndex = (currentIndex + 1 + items.length) % items.length;
       if (keyboardEvent.key === 'ArrowUp') nextIndex = (currentIndex - 1 + items.length) % items.length;
@@ -53,14 +57,19 @@ export default function CalendarContextMenu({ x, y, event, isMobile = false, onE
       if (keyboardEvent.key === 'End') nextIndex = items.length - 1;
       if (nextIndex === undefined) return;
       keyboardEvent.preventDefault();
-      items[nextIndex]?.focus();
+      const nextItem = items[nextIndex];
+      if (nextItem instanceof HTMLElement) nextItem.focus();
     };
     document.addEventListener('keydown', handleKeyDown);
-    menuRef.current?.querySelector('button')?.focus();
+    const menuElement = menuRef.current;
+    if (menuElement) {
+      const firstButton = menuElement.querySelector('button');
+      if (firstButton instanceof HTMLButtonElement) firstButton.focus();
+    }
     return () => document.removeEventListener('keydown', handleKeyDown);
   }, [triggerRef, writable, restoreFocus]);
 
-  const run = (action, restore = true) => {
+  const run = (action: () => void, restore = true) => {
     action();
     onCloseRef.current();
     if (restore) restoreFocus();
