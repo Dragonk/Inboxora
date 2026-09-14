@@ -104,17 +104,19 @@ function isoRecurrenceId(property: ICalProperty, zoneFor: ZoneResolver) {
   return parsed ? parsed.date.toISOString().replace(/[-:]/g, '').replace('.000', '') : null;
 }
 
-export function parseInboundCalendarInvitation(raw) {
+export function parseInboundCalendarInvitation(raw: unknown) {
   if (typeof raw !== 'string' || !raw.trim() || Buffer.byteLength(raw, 'utf8') > MAX_ICAL_BYTES) return null;
   const zoneFor = calendarZoneResolver(raw);
   const lines = unfoldLines(raw);
   if (lines[0]?.toUpperCase() !== 'BEGIN:VCALENDAR' || lines.at(-1)?.toUpperCase() !== 'END:VCALENDAR') return null;
   const structure = calendarStructure(lines);
   if (!structure) return null;
-  const calendarProperties = structure.calendarLines.map(propertyFromLine);
-  const eventProperties = structure.eventLines.map(propertyFromLine);
-  if (calendarProperties.some(property => !property) || eventProperties.some(property => !property)) return null;
-  const named = (properties, name: string) => properties.filter(property => property.name === name);
+  const rawCalendarProperties = structure.calendarLines.map(propertyFromLine);
+  const rawEventProperties = structure.eventLines.map(propertyFromLine);
+  if (rawCalendarProperties.some(property => !property) || rawEventProperties.some(property => !property)) return null;
+  const calendarProperties = rawCalendarProperties.filter((property): property is ICalProperty => property !== null);
+  const eventProperties = rawEventProperties.filter((property): property is ICalProperty => property !== null);
+  const named = (properties: ICalProperty[], name: string) => properties.filter(property => property.name === name);
   const [method] = named(calendarProperties, 'METHOD');
   const acceptedMethods = new Set(['REQUEST', 'CANCEL']);
   const normalizedMethod = method?.value.trim().toUpperCase();

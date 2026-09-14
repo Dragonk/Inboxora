@@ -417,6 +417,10 @@ export const FONT_SETS = {
   },
 };
 
+// Untyped lookup view of FONT_SETS: callers may hold an arbitrary saved key, and the
+// runtime already falls back to FONT_SETS.default for unknown keys.
+const FONT_SETS_BY_KEY: Record<string, (typeof FONT_SETS)[keyof typeof FONT_SETS]> = FONT_SETS;
+
 // Fonts are self-hosted and declared up front in public/fonts/fonts.css (loaded from
 // index.html), so there is nothing to fetch at runtime. Kept as an exported no-op
 // because AdminPanel still imports it. A declared @font-face never downloads until the
@@ -428,9 +432,9 @@ export function loadFontSet(_fontKey?: string): void {
 
 // Apply a font set: update the CSS custom properties. The self-hosted @font-face rules
 // are already present, so the browser lazy-loads only the active set's files.
-export function applyFontSet(fontKey) {
+export function applyFontSet(fontKey: string) {
   if (typeof document === 'undefined') return; // no-op without a DOM (SSR / tests)
-  const set = FONT_SETS[fontKey] || FONT_SETS.default;
+  const set = FONT_SETS_BY_KEY[fontKey] || FONT_SETS.default;
   const root = document.documentElement;
   for (const [key, value] of Object.entries(set.vars)) {
     root.style.setProperty(key, String(value));
@@ -448,6 +452,9 @@ export function applyFontSize(_pct?: number): void {
 // matching font set. Any theme not listed here uses the user's chosen font.
 export const THEME_FONT = { winxp: 'winxp', win9x: 'win9x' };
 
+// Untyped lookup view, mirroring the dynamic (possibly unknown) theme lookup below.
+const THEME_FONT_BY_THEME: Record<string, string> = THEME_FONT;
+
 // Retro fonts are theme-bound — they're applied automatically by their theme and must NOT
 // be selectable as standalone choices in the font picker, or they'd become the user's saved
 // font and "stick" after switching back to a normal theme.
@@ -457,8 +464,8 @@ export function isRetroFont(key: string) { return RETRO_FONTS.has(key); }
 // The font that should actually render for a given theme: the paired retro font when the
 // theme has one, otherwise the user's saved choice — but never a retro font under a normal
 // theme (that's the "font won't change back" bug), so fall back to the default in that case.
-export function effectiveFontSet(theme, savedFont) {
-  if (THEME_FONT[theme]) return THEME_FONT[theme];
+export function effectiveFontSet(theme: string, savedFont: string) {
+  if (THEME_FONT_BY_THEME[theme]) return THEME_FONT_BY_THEME[theme];
   return isRetroFont(savedFont) ? 'default' : (savedFont || 'default');
 }
 

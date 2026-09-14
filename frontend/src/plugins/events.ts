@@ -7,24 +7,33 @@
 // themselves (they are NOT React hooks). A throwing handler is isolated so it can't break the socket.
 import { useStore } from '../store/index.ts';
 
-const wsHandlers = new Map(); // messageType -> [{ pluginId, handler }]
-const reconnectHandlers = []; // [{ pluginId, handler }]
+/** The plain payload a plugin WS handler receives (what core's socket switch passes through). */
+type WsHandlerPayload = { accountId?: string; [key: string]: unknown };
+/** A registered WS handler together with the plugin that owns it. */
+type WsHandlerEntry = { pluginId: string; handler: (payload: WsHandlerPayload) => void };
+/** A registered reconnect hook together with the plugin that owns it (hooks take no arguments). */
+type ReconnectEntry = { pluginId: string; handler: () => void };
+/** A decoded socket message: `type` selects the registered handler, the rest reaches it as payload. */
+type PluginWsMessage = { type?: string; accountId?: string; [key: string]: unknown };
 
-const isActivated = (pluginId) => useStore.getState().enabledPlugins.includes(pluginId);
+const wsHandlers = new Map<string, WsHandlerEntry[]>(); // messageType -> [{ pluginId, handler }]
+const reconnectHandlers: ReconnectEntry[] = []; // [{ pluginId, handler }]
 
-export function registerWsHandler(messageType: string, { pluginId, handler }: { pluginId: string; handler: (payload: { accountId?: string; [key: string]: unknown }) => void }) {
+const isActivated = (pluginId: string) => useStore.getState().enabledPlugins.includes(pluginId);
+
+export function registerWsHandler(messageType: string, { pluginId, handler }: WsHandlerEntry) {
   const list = wsHandlers.get(messageType) || [];
   list.push({ pluginId, handler });
   wsHandlers.set(messageType, list);
 }
 
-export function registerReconnectHandler({ pluginId, handler }) {
+export function registerReconnectHandler({ pluginId, handler }: ReconnectEntry) {
   reconnectHandlers.push({ pluginId, handler });
 }
 
 // Dispatch a WS message to any activated plugin registered for its type. Core calls this for
 // message types it does not handle itself (the switch default). Returns true if a handler ran.
-export function dispatchPluginWsMessage(data) {
+export function dispatchPluginWsMessage(data: PluginWsMessage) {
   let handled = false;
   for (const { pluginId, handler } of wsHandlers.get(data?.type) || []) {
     if (!isActivated(pluginId)) continue;

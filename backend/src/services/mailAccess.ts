@@ -99,7 +99,7 @@ export async function getThreadKeysInFolders(accountId: string, folders: string[
 }
 
 // Distinct thread keys for messages matching any of the given RFC Message-IDs within an account.
-export async function getThreadKeysForMessageIdHeaders(accountId: string, messageIdHeaders): Promise<string[]> {
+export async function getThreadKeysForMessageIdHeaders(accountId: string, messageIdHeaders: string[]): Promise<string[]> {
   if (!messageIdHeaders || messageIdHeaders.length === 0) return [];
   const { rows } = await query<{ thread_key: string }>(
     `SELECT DISTINCT thread_key FROM messages
@@ -133,8 +133,8 @@ export async function getThreadKeyForUid(accountId: string, uid: number, folder:
 
 // The distinct folders that currently hold a live copy of a message (by RFC Message-ID) in an
 // account — i.e. which label folders a thread is present in.
-export async function getMessageCopyFolders(accountId: string, messageIdHeader) {
-  const { rows } = await query(
+export async function getMessageCopyFolders(accountId: string, messageIdHeader: string): Promise<string[]> {
+  const { rows } = await query<{ folder: string }>(
     'SELECT DISTINCT folder FROM messages WHERE account_id = $1 AND message_id = $2 AND is_deleted = false',
     [accountId, messageIdHeader]
   );
@@ -143,9 +143,16 @@ export async function getMessageCopyFolders(accountId: string, messageIdHeader) 
 
 // Display/summarize fields for a set of message rows within an account (the body is the text body
 // falling back to the snippet). Used e.g. to feed a summarizer.
-export async function getMessageFields(accountId: string, ids) {
+export interface MessageFieldsRow {
+  id: string;
+  subject: string | null;
+  from_name: string | null;
+  from_email: string | null;
+  content: string | null;
+}
+export async function getMessageFields(accountId: string, ids: string[]): Promise<MessageFieldsRow[]> {
   if (!ids || ids.length === 0) return [];
-  const { rows } = await query(
+  const { rows } = await query<MessageFieldsRow>(
     `SELECT id, subject, from_name, from_email,
             COALESCE(NULLIF(body_text, ''), snippet) AS content
        FROM messages
@@ -157,13 +164,13 @@ export async function getMessageFields(accountId: string, ids) {
 
 // A plugin's own per-message annotations for a set of message ids within an account, as
 // { [messageId]: <the plugin's annotation object> }. Reads only this plugin's namespace.
-export async function getMessageAnnotations(accountId: string, ids, pluginId: string) {
+export async function getMessageAnnotations(accountId: string, ids: string[], pluginId: string): Promise<Record<string, unknown>> {
   if (!ids || ids.length === 0) return {};
-  const { rows } = await query<{ id: string; ann?: string | null }>(
+  const { rows } = await query<{ id: string; ann?: unknown }>(
     'SELECT id, plugin_annotations -> $3 AS ann FROM messages WHERE account_id = $1 AND id = ANY($2::uuid[])',
     [accountId, ids, pluginId]
   );
-  const out = {};
+  const out: Record<string, unknown> = {};
   for (const r of rows) if (r.ann != null) out[r.id] = r.ann;
   return out;
 }
@@ -171,7 +178,7 @@ export async function getMessageAnnotations(accountId: string, ids, pluginId: st
 // Merge `patch` into a plugin's namespace of a message's annotations (creating the namespace if
 // absent). Only ever touches plugin_annotations -> pluginId. Returns rows updated (0 if the
 // message isn't in the account). The annotation cache is cleaned with the message row on delete.
-export async function setMessageAnnotation(accountId: string, messageId: string, pluginId: string, patch) {
+export async function setMessageAnnotation(accountId: string, messageId: string, pluginId: string, patch: Record<string, unknown>): Promise<number | undefined> {
   const { rowCount } = await query(
     `UPDATE messages
         SET plugin_annotations = jsonb_set(
