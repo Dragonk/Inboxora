@@ -3372,7 +3372,7 @@ function SSOTab() {
   const [saving, setSaving] = useState(false);
   useBackLayer(editing, () => { if (!saving) setEditing(null); }, 2010);
   const [error, setError] = useState('');
-  const [confirmDialog, setConfirmDialog] = useState(null);
+  const [confirmDialog, setConfirmDialog] = useState<ConfirmOverlayProps['dialog'] | null>(null);
   const [copiedId, setCopiedId] = useState<string | null>(null);
   const [templateNote, setTemplateNote] = useState('');
   const [internalAuthDisabled, setInternalAuthDisabled] = useState(false);
@@ -4645,7 +4645,7 @@ function PluginsSection({ onNavigate }: PluginsSectionProps) {
   const { t } = useTranslation();
   const enabledPlugins = useStore((s: StoreState) => s.enabledPlugins);
   const setPluginActivated = useStore((s: StoreState) => s.setPluginActivated);
-  const [manifests, setManifests] = useState(null); // null = loading
+  const [manifests, setManifests] = useState<Array<{ id: string; name?: string; version?: string; description?: string; [key: string]: unknown }> | null>(null); // null = loading
   const [busyId, setBusyId] = useState<string | null>(null);
   const [error, setError] = useState(false);
 
@@ -4896,7 +4896,7 @@ function UsersAndInvitesPanel() {
   const [inviteMsg, setInviteMsg] = useState<{ type?: string; text?: string; url?: string; [key: string]: unknown } | null>(null); // { type: 'ok'|'error', text, url? }
   const [loading, setLoading] = useState(true);
   const [copiedId, setCopiedId] = useState<string | null>(null);
-  const [confirmDialog, setConfirmDialog] = useState(null);
+  const [confirmDialog, setConfirmDialog] = useState<ConfirmOverlayProps['dialog'] | null>(null);
 
   useEffect(() => {
     Promise.all([
@@ -6113,7 +6113,7 @@ function RulesTab() {
   const [formError, setFormError] = useState('');
   const [formSaving, setFormSaving] = useState(false);
   useBackLayer(formMode, () => { if (!formSaving) setFormMode(null); }, 2010);
-  const [confirmDelete, setConfirmDelete] = useState(null);
+  const [confirmDelete, setConfirmDelete] = useState<string | null>(null);
   useBackLayer(confirmDelete, () => setConfirmDelete(null), 2020);
   const [runningRules, setRunningRules] = useState(false);
   const [runResult, setRunResult] = useState<{ matched?: number; processed?: number; [key: string]: unknown } | null>(null);
@@ -8430,9 +8430,9 @@ function SecurityTab() {
 
 function LinkedIdentitiesSection() {
   const { t } = useTranslation();
-  const [identities, setIdentities] = useState(null); // null = loading
+  const [identities, setIdentities] = useState<Array<{ id: string; address?: string; name?: string; provider_name?: string | null; email?: string | null; issuer?: string | null; [key: string]: unknown }> | null>(null); // null = loading
   const [providers, setProviders] = useState<Array<{ id: string; name?: string; enabled?: boolean; issuer_url?: string; slug?: string; [key: string]: unknown }>>([]);
-  const [confirmDialog, setConfirmDialog] = useState(null);
+  const [confirmDialog, setConfirmDialog] = useState<ConfirmOverlayProps['dialog'] | null>(null);
 
   useEffect(() => {
     Promise.all([

@@ -58,7 +58,7 @@ export default function LoginPage() {
   const [enrollData, setEnrollData] = useState<{ qrCode: string; secret: string } | null>(null); // { qrCode, secret }
   const [enrollStep, setEnrollStep] = useState('intro'); // intro | scan | verify
   const [enrollCode, setEnrollCode] = useState('');
-  const [oidcProviders, setOidcProviders] = useState([]);
+  const [oidcProviders, setOidcProviders] = useState<Array<{ id: string; slug?: string; name?: string | null; [key: string]: unknown }>>([]);
   const [oidcError, setOidcError] = useState('');
   const [internalAuthDisabled, setInternalAuthDisabled] = useState(false);
   const [forgotEmail, setForgotEmail] = useState('');

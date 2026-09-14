@@ -72,7 +72,7 @@ const lazyFallback = (
 
 export default function MailApp() {
   const { t } = useTranslation();
-  const [mobileHeaderHost, setMobileHeaderHost] = useState(null);
+  const [mobileHeaderHost, setMobileHeaderHost] = useState<HTMLElement | null>(null);
   const {
     setAccounts, setUnreadCounts, showAdmin,
     setShowAdmin, setAdminTab, composing, sidebarCollapsed, layout,

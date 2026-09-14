@@ -392,7 +392,7 @@ export default function Sidebar({ onEditProfile = null }) {
 
   // Context menus
   const [folderCtxMenu, setFolderCtxMenu] = useState<{ x: number; y: number; accountId: string; folderObj?: { path?: string; name?: string; [key: string]: unknown }; [key: string]: unknown } | null>(null); // {x, y, accountId, folderObj}
-  const [accountCtxMenu, setAccountCtxMenu] = useState(null); // {x, y, account}
+  const [accountCtxMenu, setAccountCtxMenu] = useState<{ x: number; y: number; account: { name?: string | null; email_address?: string | null; [key: string]: unknown }; [key: string]: unknown } | null>(null); // {x, y, account}
 
   // Inline rename (IMAP folder)
   const [renamingFolder, setRenamingFolder] = useState<{ accountId: string; path: string; value: string; originalName?: string } | null>(null); // {accountId, path, value}
@@ -439,7 +439,7 @@ export default function Sidebar({ onEditProfile = null }) {
 
   // Loading state for folder ops
   const [folderOpLoading, setFolderOpLoading] = useState(false);
-  const [confirmDialog, setConfirmDialog] = useState(null); // { message, onConfirm }
+  const [confirmDialog, setConfirmDialog] = useState<{ message?: string; account?: string; onConfirm?: () => void; [key: string]: unknown } | null>(null); // { message, onConfirm }
   useBackLayer(confirmDialog, () => { if (!folderOpLoading) setConfirmDialog(null); }, 9000);
   useBackLayer(creatingFolder || renamingFolder || renamingFav, () => {
     setCreatingFolder(null); setCreateName(''); setRenamingFolder(null); setRenamingFav(null);
