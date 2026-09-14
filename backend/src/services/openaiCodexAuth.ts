@@ -373,7 +373,7 @@ export function createPostgresCodexStore() {
     },
 
     async latestOwnedFlow({ adminUserId, sessionHash }: CodexLatestInput) {
-      const result = await query(
+      const result = await query<CodexFlowDbRow>(
         `SELECT * FROM ai_codex_device_flows
          WHERE admin_user_id = $1 AND session_hash = $2
          ORDER BY created_at DESC LIMIT 1`,

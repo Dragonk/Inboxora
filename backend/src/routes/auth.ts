@@ -1118,7 +1118,7 @@ router.post('/forgot-password', authLimiter, async (req, res) => {
 
       // 1. Try system SMTP
       try {
-        const sysResult = await query("SELECT value FROM system_settings WHERE key = 'system_email_config'");
+        const sysResult = await query<{ value: string }>("SELECT value FROM system_settings WHERE key = 'system_email_config'");
         if (sysResult.rows.length) {
           const cfg = JSON.parse(sysResult.rows[0].value);
           const pass = cfg.pass ? decrypt(cfg.pass) : null;
