@@ -7,6 +7,8 @@ import { localizeContactCalendar, localizeContactEvent } from '../utils/contactD
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import type { CSSProperties } from 'react';
 import { useTranslation } from 'react-i18next';
+import type { TFunction } from 'i18next';
+import type { CalendarViewEvent, CalendarEventForm } from './calendarView.ts';
 import { api, isAbortError } from '../utils/api.ts';
 import { useStore } from '../store/index.ts';
 import { useMobile } from '../hooks/useMobile.ts';
@@ -364,7 +366,39 @@ export default function CalendarPage({ isActive = true }) {
   </div>;
 }
 
-function CalendarGrid({ days, dayEventsFor, view, anchor, isMobile, locale, onSelectDay, openCreate, openEdit, openContextMenu, t, calendarWorkHoursStart, calendarWorkHoursEnd }) {
+/** Shared props for the month and time grids. */
+interface CalendarGridProps {
+  days: Date[];
+  dayEventsFor: (day: Date) => CalendarViewEvent[];
+  view: string;
+  anchor: Date;
+  isMobile: boolean;
+  locale: string;
+  onSelectDay: (day: Date) => void;
+  openCreate: (date?: Date) => void;
+  openEdit: (event: CalendarViewEvent) => void;
+  openContextMenu: (event: CalendarViewEvent, x: number, y: number, trigger?: unknown) => void;
+  t: TFunction;
+  calendarWorkHoursStart: string;
+  calendarWorkHoursEnd: string;
+}
+
+/** The add/edit event dialog. */
+interface EventDialogProps {
+  form: CalendarEventForm;
+  error: string | null;
+  calendars: Array<{ id: string; name?: string | null; color?: string | null; [key: string]: unknown }>;
+  accounts: Array<{ id: string; email_address?: string | null; name?: string | null; [key: string]: unknown }>;
+  saving: boolean;
+  onChange: (field: string, value: unknown) => void;
+  onAllDayChange: (allDay: boolean) => void;
+  onSave: () => void;
+  onDelete: () => void;
+  onClose: () => void;
+  t: TFunction;
+  fullScreen?: boolean;
+}
+function CalendarGrid({ days, dayEventsFor, view, anchor, isMobile, locale, onSelectDay, openCreate, openEdit, openContextMenu, t, calendarWorkHoursStart, calendarWorkHoursEnd }: CalendarGridProps) {
   const month = view === 'month';
   if (!month) return <TimeGrid days={days} dayEventsFor={dayEventsFor} view={view} isMobile={isMobile} locale={locale} openCreate={openCreate} openEdit={openEdit} openContextMenu={openContextMenu} onSelectDay={onSelectDay} anchor={anchor} t={t} calendarWorkHoursStart={calendarWorkHoursStart} calendarWorkHoursEnd={calendarWorkHoursEnd} />;
   return <div data-testid="calendar-grid" style={{ ...calendarSurface, flex: 1, minWidth: 0 }}>
@@ -396,7 +430,7 @@ function timeToMinutes(value: unknown) {
   return (Number.isFinite(hours) ? hours : 9) * 60 + (Number.isFinite(minutes) ? minutes : 0);
 }
 
-function TimeGrid({ days, dayEventsFor, view, isMobile, locale, openCreate, openEdit, openContextMenu, onSelectDay, anchor, t, calendarWorkHoursStart, calendarWorkHoursEnd }) {
+function TimeGrid({ days, dayEventsFor, view, isMobile, locale, openCreate, openEdit, openContextMenu, onSelectDay, anchor, t, calendarWorkHoursStart, calendarWorkHoursEnd }: CalendarGridProps) {
   const scroller = useRef<HTMLDivElement | null>(null);
   useEffect(() => {
     if (scroller.current) scroller.current.scrollTop = Math.max(0, Math.min(timeToMinutes(calendarWorkHoursStart), timeToMinutes(calendarWorkHoursEnd)) - 120);
@@ -465,7 +499,7 @@ function TimeGrid({ days, dayEventsFor, view, isMobile, locale, openCreate, open
   </div>;
 }
 
-function EventDialog({ form, error, calendars, accounts, saving, onChange, onAllDayChange, onSave, onDelete, onClose, t, fullScreen = false }) {
+function EventDialog({ form, error, calendars, accounts, saving, onChange, onAllDayChange, onSave, onDelete, onClose, t, fullScreen = false }: EventDialogProps) {
   const attendeeValue = form.attendees.join(', ');
   return <Dialog title={form.mode === 'edit' ? t('calendar.editEvent') : t('calendar.newEvent')} closeLabel={t('calendar.close')} onClose={onClose} busy={saving} testId="calendar-event-dialog" className={fullScreen ? 'calendar-event-dialog-full ui-fullscreen' : ''} footer={<>
     <div>{form.mode === 'edit' && <Button variant="danger" disabled={saving} onClick={onDelete}>{t('calendar.delete')}</Button>}</div>
