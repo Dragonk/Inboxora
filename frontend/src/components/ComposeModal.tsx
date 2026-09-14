@@ -1007,7 +1007,7 @@ export default function ComposeModal() {
   const renderSignatureEditor = () => plaintextEmail ? (
     <textarea
       value={plainSig}
-      onChange={e => setPlainSig(e.target.value)}
+      onChange={ (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement>) => setPlainSig(e.target.value)}
       style={{
         width: '100%', fontSize: 13, color: 'var(--text-secondary)', lineHeight: 1.6,
         background: 'transparent', border: 'none', outline: 'none', resize: 'none',
@@ -1192,7 +1192,7 @@ export default function ComposeModal() {
             <span style={labelStyle}>{t('compose.from')}</span>
             <select
               value={fromValue}
-              onChange={e => setFromValue(e.target.value)}
+              onChange={ (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement>) => setFromValue(e.target.value)}
               style={{ ...mobileInputStyle, cursor: 'pointer' }}
             >
               {accounts.map(a => {
@@ -1289,7 +1289,7 @@ export default function ComposeModal() {
           <div style={fieldStyle}>
             <span style={labelStyle}>{t('compose.subject')}</span>
             <input
-              type="text" value={subject} onChange={e => setSubject(e.target.value)}
+              type="text" value={subject} onChange={ (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement>) => setSubject(e.target.value)}
               placeholder={t('compose.subjectPh')}
               style={mobileInputStyle}
             />
@@ -1300,7 +1300,7 @@ export default function ComposeModal() {
             <textarea
               ref={textareaRef}
               value={body}
-              onChange={e => setBody(e.target.value)}
+              onChange={ (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement>) => setBody(e.target.value)}
               placeholder={t('compose.bodyPh')}
               autoFocus={isReply || isForward}
               style={{
@@ -1362,7 +1362,7 @@ export default function ComposeModal() {
               {htmlMode ? (
                 <textarea
                   value={htmlSource}
-                  onChange={e => setHtmlSource(e.target.value)}
+                  onChange={ (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement>) => setHtmlSource(e.target.value)}
                   spellCheck={false}
                   style={{
                     flex: 1, minHeight: 200, padding: '12px 14px',
@@ -1405,7 +1405,7 @@ export default function ComposeModal() {
             ) : (
               <textarea
                 value={quotedBody}
-                onChange={e => setQuotedBody(e.target.value)}
+                onChange={ (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement>) => setQuotedBody(e.target.value)}
                 style={{
                   width: '100%', minHeight: 120,
                   padding: '10px 16px',
@@ -1729,7 +1729,7 @@ export default function ComposeModal() {
       }}
     >
       <input ref={fileInputRef} type="file" multiple onChange={handleFileSelect} style={{ display: 'none' }} />
-      <input ref={imageInputRef} type="file" accept="image/*" onChange={e => { const f = e.target.files?.[0]; if (f) insertImageIntoEditor(f); e.target.value = ''; }} style={{ display: 'none' }} />
+      <input ref={imageInputRef} type="file" accept="image/*" onChange={ (e: React.ChangeEvent<HTMLInputElement>) => { const f = e.target.files?.[0]; if (f) insertImageIntoEditor(f); e.target.value = ''; }} style={{ display: 'none' }} />
       {/* Title bar */}
       <div
         onPointerDown={handleTitleDragStart}
@@ -1749,8 +1749,8 @@ export default function ComposeModal() {
                 color: 'var(--text-primary)', cursor: 'pointer',
                 fontSize: 13, fontWeight: 500, borderRadius: 5,
               }}
-              onMouseEnter={e => e.currentTarget.style.background = 'var(--bg-tertiary)'}
-              onMouseLeave={e => e.currentTarget.style.background = 'none'}
+              onMouseEnter={ (e: React.MouseEvent<HTMLElement>) => e.currentTarget.style.background = 'var(--bg-tertiary)'}
+              onMouseLeave={ (e: React.MouseEvent<HTMLElement>) => e.currentTarget.style.background = 'none'}
             >
               {replyAll ? (
                 <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75">
@@ -1843,7 +1843,7 @@ export default function ComposeModal() {
           <span style={{ fontFamily: 'var(--font-mono, ui-monospace, monospace)', fontSize: 10, letterSpacing: '0.06em', textTransform: 'uppercase', color: 'var(--text-tertiary)', width: 52, flexShrink: 0 }}>{t('compose.from')}</span>
           <select
             value={fromValue}
-            onChange={e => setFromValue(e.target.value)}
+            onChange={ (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement>) => setFromValue(e.target.value)}
             style={{ flex: 1, padding: '8px 4px', background: 'transparent', border: 'none', color: 'var(--text-primary)', fontSize: 13, outline: 'none', cursor: 'pointer' }}
           >
             {accounts.map(a => {
@@ -1931,7 +1931,7 @@ export default function ComposeModal() {
         <div style={{ display: 'flex', alignItems: 'center', borderBottom: '1px solid var(--border-subtle)', padding: '0 12px' }}>
           <span style={{ fontFamily: 'var(--font-mono, ui-monospace, monospace)', fontSize: 10, letterSpacing: '0.06em', textTransform: 'uppercase', color: 'var(--text-tertiary)', width: 52, flexShrink: 0 }}>{t('compose.subject')}</span>
           <input
-            type="text" value={subject} onChange={e => setSubject(e.target.value)}
+            type="text" value={subject} onChange={ (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement>) => setSubject(e.target.value)}
             placeholder={t('compose.subject')}
             style={{ flex: 1, ...inputStyle, borderBottom: 'none', padding: '8px 4px' }}
           />
@@ -1996,7 +1996,7 @@ export default function ComposeModal() {
           <textarea
             ref={textareaRef}
             value={body}
-            onChange={e => setBody(e.target.value)}
+            onChange={ (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement>) => setBody(e.target.value)}
             placeholder={t('compose.bodyPh')}
             autoFocus={isReply || isForward}
             style={{
@@ -2012,7 +2012,7 @@ export default function ComposeModal() {
         ) : htmlMode ? (
           <textarea
             value={htmlSource}
-            onChange={e => setHtmlSource(e.target.value)}
+            onChange={ (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement>) => setHtmlSource(e.target.value)}
             spellCheck={false}
             style={{
               width: '100%', minHeight: isReply || isForward ? 120 : 200,
@@ -2057,7 +2057,7 @@ export default function ComposeModal() {
           ) : (
             <textarea
               value={quotedBody}
-              onChange={e => setQuotedBody(e.target.value)}
+              onChange={ (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement>) => setQuotedBody(e.target.value)}
               style={{
                 width: '100%', minHeight: 120,
                 padding: '10px 14px',
@@ -2117,7 +2117,7 @@ export default function ComposeModal() {
 
         <select
           value={priority}
-          onChange={e => setPriority(e.target.value)}
+          onChange={ (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement>) => setPriority(e.target.value)}
           title={t('compose.priority')}
           style={{
             marginLeft: 'auto',
@@ -2597,7 +2597,7 @@ function RichToolbar({ editor, onAttach, onInsertImage = undefined, htmlMode, on
             {mtb(es.underline, 'Underline', e => { e.preventDefault(); editor.chain().focus().toggleUnderline().run(); }, <u>U</u>)}
             {mtb(es.strike, 'Strikethrough', e => { e.preventDefault(); editor.chain().focus().toggleStrike().run(); }, <s>S</s>)}
             {onAttach && (
-              <button title={t('compose.toolbar.attachFile')} onMouseDown={e => { e.preventDefault(); onAttach(); }}
+              <button title={t('compose.toolbar.attachFile')} onMouseDown={ (e: React.MouseEvent<HTMLElement>) => { e.preventDefault(); onAttach(); }}
                 style={{ background: 'none', border: 'none', borderRadius: 4, padding: '6px 4px', cursor: 'pointer', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', flex: 1, color: 'var(--text-secondary)', WebkitTapHighlightColor: 'transparent' }}>
                 <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
                   <path d="M21.44 11.05l-9.19 9.19a6 6 0 01-8.49-8.49l9.19-9.19a4 4 0 015.66 5.66l-9.2 9.19a2 2 0 01-2.83-2.83l8.49-8.48"/>
@@ -2609,7 +2609,7 @@ function RichToolbar({ editor, onAttach, onInsertImage = undefined, htmlMode, on
               <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M10 13a5 5 0 007.54.54l3-3a5 5 0 00-7.07-7.07l-1.72 1.71"/><path d="M14 11a5 5 0 00-7.54-.54l-3 3a5 5 0 007.07 7.07l1.71-1.71"/></svg>
             </button>
             {aiEnabled && (
-              <button ref={aiBtnRef} title={t('compose.toolbar.aiAssist')} onMouseDown={e => {
+              <button ref={aiBtnRef} title={t('compose.toolbar.aiAssist')} onMouseDown={ (e: React.MouseEvent<HTMLElement>) => {
                 e.preventDefault();
                 if (aiMenuPos) { setAiMenuPos(null); return; }
                 const r = e.currentTarget.getBoundingClientRect();
@@ -2626,7 +2626,7 @@ function RichToolbar({ editor, onAttach, onInsertImage = undefined, htmlMode, on
                 </svg>
               </button>
             )}
-            <button title={t('compose.toolbar.moreFormatting')} onMouseDown={e => { e.preventDefault(); setShowMobileMore(m => !m); }}
+            <button title={t('compose.toolbar.moreFormatting')} onMouseDown={ (e: React.MouseEvent<HTMLElement>) => { e.preventDefault(); setShowMobileMore(m => !m); }}
               style={{ background: showMobileMore ? 'var(--bg-hover)' : 'none', border: 'none', borderRadius: 4, padding: '6px 4px', color: showMobileMore ? 'var(--accent)' : 'var(--text-secondary)', cursor: 'pointer', fontSize: 18, fontWeight: 300, lineHeight: 1, display: 'inline-flex', alignItems: 'center', justifyContent: 'center', flex: 1, WebkitTapHighlightColor: 'transparent' }}>+</button>
           </div>
           {showMobileMore && (
@@ -2650,7 +2650,7 @@ function RichToolbar({ editor, onAttach, onInsertImage = undefined, htmlMode, on
               {onToggleHtml && (
                 <>
                   <Sep />
-                  <button title={htmlMode ? 'Back to rich text' : 'Edit HTML source'} onMouseDown={e => { e.preventDefault(); onToggleHtml(); }}
+                  <button title={htmlMode ? 'Back to rich text' : 'Edit HTML source'} onMouseDown={ (e: React.MouseEvent<HTMLElement>) => { e.preventDefault(); onToggleHtml(); }}
                     style={{ background: htmlMode ? 'var(--accent-dim)' : 'none', border: 'none', borderRadius: 4, padding: '6px 10px', cursor: 'pointer', display: 'inline-flex', alignItems: 'center', color: htmlMode ? 'var(--accent)' : 'var(--text-secondary)', fontFamily: 'monospace', fontSize: 11, fontWeight: 600, letterSpacing: '-0.5px', WebkitTapHighlightColor: 'transparent' }}>{'</>'}</button>
                 </>
               )}
@@ -2666,7 +2666,7 @@ function RichToolbar({ editor, onAttach, onInsertImage = undefined, htmlMode, on
             const { from, to } = editor.state.selection;
             savedSelectionRef.current = { from, to };
           }}
-          onChange={e => {
+          onChange={ (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement>) => {
             const family = e.target.value;
             const sel = savedSelectionRef.current;
             if (family) { editor.chain().focus().setTextSelection(sel ?? editor.state.selection).setFontFamily(family).run(); localStorage.setItem('mailflow_compose_font_family', family); }
@@ -2693,7 +2693,7 @@ function RichToolbar({ editor, onAttach, onInsertImage = undefined, htmlMode, on
             const { from, to } = editor.state.selection;
             savedSelectionRef.current = { from, to };
           }}
-          onChange={e => {
+          onChange={ (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement>) => {
             const size = e.target.value;
             const sel = savedSelectionRef.current;
             editor.chain().focus().setTextSelection(sel ?? editor.state.selection).setFontSize(size).run();
@@ -2709,7 +2709,7 @@ function RichToolbar({ editor, onAttach, onInsertImage = undefined, htmlMode, on
         </select>
 
         {onAttach && (
-          <button title={t('compose.toolbar.attachFile')} onMouseDown={e => { e.preventDefault(); onAttach(); }}
+          <button title={t('compose.toolbar.attachFile')} onMouseDown={ (e: React.MouseEvent<HTMLElement>) => { e.preventDefault(); onAttach(); }}
             style={{ background: 'none', border: 'none', borderRadius: 4, padding: '3px 6px', cursor: 'pointer', display: 'inline-flex', alignItems: 'center', color: 'var(--text-secondary)' }}>
             <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
               <path d="M21.44 11.05l-9.19 9.19a6 6 0 01-8.49-8.49l9.19-9.19a4 4 0 015.66 5.66l-9.2 9.19a2 2 0 01-2.83-2.83l8.49-8.48"/>
@@ -2766,7 +2766,7 @@ function RichToolbar({ editor, onAttach, onInsertImage = undefined, htmlMode, on
         <Sep />
 
         {onInsertImage && (
-          <button title={t('compose.toolbar.insertImage')} onMouseDown={e => { e.preventDefault(); onInsertImage(); }}
+          <button title={t('compose.toolbar.insertImage')} onMouseDown={ (e: React.MouseEvent<HTMLElement>) => { e.preventDefault(); onInsertImage(); }}
             style={{ background: 'none', border: 'none', borderRadius: 4, padding: '3px 6px', cursor: 'pointer', display: 'inline-flex', alignItems: 'center', color: 'var(--text-secondary)' }}>
             <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
               <rect x="3" y="3" width="18" height="18" rx="2" ry="2"/><circle cx="8.5" cy="8.5" r="1.5"/><polyline points="21 15 16 10 5 21"/>
@@ -2784,7 +2784,7 @@ function RichToolbar({ editor, onAttach, onInsertImage = undefined, htmlMode, on
         {aiEnabled && (
           <>
             <Sep />
-            <button ref={aiBtnRef} title={t('compose.toolbar.aiAssist')} onMouseDown={e => {
+            <button ref={aiBtnRef} title={t('compose.toolbar.aiAssist')} onMouseDown={ (e: React.MouseEvent<HTMLElement>) => {
               e.preventDefault();
               if (aiMenuPos) { setAiMenuPos(null); return; }
               const r = e.currentTarget.getBoundingClientRect();
@@ -2806,7 +2806,7 @@ function RichToolbar({ editor, onAttach, onInsertImage = undefined, htmlMode, on
         {onToggleHtml && (
           <>
             <Sep />
-            <button title={htmlMode ? 'Back to rich text' : 'Edit HTML source'} onMouseDown={e => { e.preventDefault(); onToggleHtml(); }}
+            <button title={htmlMode ? 'Back to rich text' : 'Edit HTML source'} onMouseDown={ (e: React.MouseEvent<HTMLElement>) => { e.preventDefault(); onToggleHtml(); }}
               style={{
                 background: htmlMode ? 'var(--accent-dim)' : 'none', border: 'none', borderRadius: 4,
                 padding: '3px 6px', cursor: 'pointer', display: 'inline-flex', alignItems: 'center',
@@ -2830,11 +2830,11 @@ function RichToolbar({ editor, onAttach, onInsertImage = undefined, htmlMode, on
           display: 'flex', flexWrap: 'wrap', gap: 4, width: 136,
         }}>
           {COLORS.map(c => (
-            <button key={c} onMouseDown={e => { e.preventDefault(); editor.chain().focus().setColor(c).run(); setColorPos(null); }}
+            <button key={c} onMouseDown={ (e: React.MouseEvent<HTMLElement>) => { e.preventDefault(); editor.chain().focus().setColor(c).run(); setColorPos(null); }}
               style={{ width: 18, height: 18, borderRadius: 4, background: c, border: '1px solid var(--border)', cursor: 'pointer', padding: 0,
                 outline: editor.isActive('textStyle', { color: c }) ? '2px solid var(--accent)' : 'none', outlineOffset: 1 }} />
           ))}
-          <button onMouseDown={e => { e.preventDefault(); editor.chain().focus().unsetColor().run(); setColorPos(null); }}
+          <button onMouseDown={ (e: React.MouseEvent<HTMLElement>) => { e.preventDefault(); editor.chain().focus().unsetColor().run(); setColorPos(null); }}
             title={t('compose.toolbar.removeColor')}
             style={{ width: 18, height: 18, borderRadius: 4, border: '1px solid var(--border)', cursor: 'pointer', padding: 0,
               background: 'linear-gradient(to bottom right, white calc(50% - 1px), #e03131 calc(50% - 1px), #e03131 calc(50% + 1px), white calc(50% + 1px))' }} />
@@ -2849,11 +2849,11 @@ function RichToolbar({ editor, onAttach, onInsertImage = undefined, htmlMode, on
           display: 'flex', flexWrap: 'wrap', gap: 4, width: 136,
         }}>
           {HIGHLIGHT_COLORS.map(c => (
-            <button key={c} onMouseDown={e => { e.preventDefault(); editor.chain().focus().setBackgroundColor(c).run(); setHighlightPos(null); }}
+            <button key={c} onMouseDown={ (e: React.MouseEvent<HTMLElement>) => { e.preventDefault(); editor.chain().focus().setBackgroundColor(c).run(); setHighlightPos(null); }}
               style={{ width: 18, height: 18, borderRadius: 4, background: c, border: '1px solid var(--border)', cursor: 'pointer', padding: 0,
                 outline: editor.isActive('textStyle', { backgroundColor: c }) ? '2px solid var(--accent)' : 'none', outlineOffset: 1 }} />
           ))}
-          <button onMouseDown={e => { e.preventDefault(); editor.chain().focus().unsetBackgroundColor().run(); setHighlightPos(null); }}
+          <button onMouseDown={ (e: React.MouseEvent<HTMLElement>) => { e.preventDefault(); editor.chain().focus().unsetBackgroundColor().run(); setHighlightPos(null); }}
             title={t('compose.toolbar.removeHighlight')}
             style={{ width: 18, height: 18, borderRadius: 4, border: '1px solid var(--border)', cursor: 'pointer', padding: 0,
               background: 'linear-gradient(to bottom right, white calc(50% - 1px), #e03131 calc(50% - 1px), #e03131 calc(50% + 1px), white calc(50% + 1px))' }} />
@@ -2869,15 +2869,15 @@ function RichToolbar({ editor, onAttach, onInsertImage = undefined, htmlMode, on
         }}>
           <span style={{ fontSize: 11, color: 'var(--text-tertiary)', fontWeight: 500 }}>{t('compose.toolbar.insertLink')}</span>
           <div style={{ display: 'flex', gap: 6 }}>
-            <input ref={linkInputRef} value={linkUrl} onChange={e => setLinkUrl(e.target.value)}
-              onKeyDown={e => { if (e.key === 'Enter') { e.preventDefault(); submitLink(); } if (e.key === 'Escape') setLinkPos(null); }}
+            <input ref={linkInputRef} value={linkUrl} onChange={ (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement>) => setLinkUrl(e.target.value)}
+              onKeyDown={ (e: React.KeyboardEvent) => { if (e.key === 'Enter') { e.preventDefault(); submitLink(); } if (e.key === 'Escape') setLinkPos(null); }}
               placeholder="https://..."
               style={{ flex: 1, background: 'var(--bg-tertiary)', border: '1px solid var(--border)', borderRadius: 5, padding: '6px 8px', color: 'var(--text-primary)', fontSize: 12, outline: 'none' }} />
-            <button onMouseDown={e => { e.preventDefault(); submitLink(); }}
+            <button onMouseDown={ (e: React.MouseEvent<HTMLElement>) => { e.preventDefault(); submitLink(); }}
               style={{ background: 'var(--accent)', border: 'none', borderRadius: 5, color: 'var(--accent-text)', fontSize: 12, padding: '6px 12px', cursor: 'pointer', flexShrink: 0 }}>{t('compose.toolbar.apply')}</button>
           </div>
           {es.link && (
-            <button onMouseDown={e => { e.preventDefault(); editor.chain().focus().unsetLink().run(); setLinkPos(null); }}
+            <button onMouseDown={ (e: React.MouseEvent<HTMLElement>) => { e.preventDefault(); editor.chain().focus().unsetLink().run(); setLinkPos(null); }}
               style={{ background: 'none', border: 'none', color: 'var(--red)', fontSize: 11, cursor: 'pointer', padding: 0, textAlign: 'left' }}>
               Remove link
             </button>
@@ -2907,7 +2907,7 @@ function RichToolbar({ editor, onAttach, onInsertImage = undefined, htmlMode, on
               { label: '3×4', rows: 3, cols: 4 },
               { label: '4×4', rows: 4, cols: 4 },
             ].map(({ label, rows, cols }) => (
-              <button key={label} onMouseDown={e => {
+              <button key={label} onMouseDown={ (e: React.MouseEvent<HTMLElement>) => {
                 e.preventDefault();
                 editor.chain().focus().insertTable({ rows, cols, withHeaderRow: true }).run();
                 setTablePos(null);
@@ -2918,7 +2918,7 @@ function RichToolbar({ editor, onAttach, onInsertImage = undefined, htmlMode, on
               }}>{label}</button>
             ))}
           </div>
-          <button onMouseDown={e => {
+          <button onMouseDown={ (e: React.MouseEvent<HTMLElement>) => {
             e.preventDefault();
             if (editor.isActive('table')) editor.chain().focus().deleteTable().run();
             setTablePos(null);
@@ -2942,7 +2942,7 @@ function RichToolbar({ editor, onAttach, onInsertImage = undefined, htmlMode, on
             { key: 'shorten', label: t('compose.toolbar.aiShorten') },
             { key: 'grammar', label: t('compose.toolbar.aiFixGrammar') },
           ].map(({ key, label }) => (
-            <button key={key} onMouseDown={e => {
+            <button key={key} onMouseDown={ (e: React.MouseEvent<HTMLElement>) => {
               e.preventDefault();
               setAiMenuPos(null);
               onAiAction(key);
@@ -2951,8 +2951,8 @@ function RichToolbar({ editor, onAttach, onInsertImage = undefined, htmlMode, on
               background: 'none', border: 'none', padding: '7px 14px',
               fontSize: 13, color: 'var(--text-primary)', cursor: 'pointer',
             }}
-              onMouseEnter={e => { e.currentTarget.style.background = 'var(--bg-hover)'; }}
-              onMouseLeave={e => { e.currentTarget.style.background = 'none'; }}
+              onMouseEnter={ (e: React.MouseEvent<HTMLElement>) => { e.currentTarget.style.background = 'var(--bg-hover)'; }}
+              onMouseLeave={ (e: React.MouseEvent<HTMLElement>) => { e.currentTarget.style.background = 'none'; }}
             >{label}</button>
           ))}
         </div>
@@ -3175,8 +3175,8 @@ function ChipInput({ chips, onChipsChange, value, onChange, placeholder, autoFoc
         <span key={i}
           title={chip}
           onDoubleClick={() => startEdit(i)}
-          onContextMenu={(e) => { e.preventDefault(); openMenu(e.clientX, e.clientY, i); }}
-          onTouchStart={(e) => onChipTouchStart(e, i)}
+          onContextMenu={ (e: React.MouseEvent<HTMLElement>) => { e.preventDefault(); openMenu(e.clientX, e.clientY, i); }}
+          onTouchStart={ (e: React.TouchEvent) => onChipTouchStart(e, i)}
           onTouchEnd={cancelLongPress}
           onTouchMove={cancelLongPress}
           style={{
@@ -3202,7 +3202,7 @@ function ChipInput({ chips, onChipsChange, value, onChange, placeholder, autoFoc
         ref={inputRef}
         type="text"
         value={value}
-        onChange={e => onChange(e.target.value)}
+        onChange={ (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement>) => onChange(e.target.value)}
         onKeyDown={handleKeyDown}
         onBlur={commitInput}
         placeholder={chips.length ? '' : placeholder}
@@ -3211,7 +3211,7 @@ function ChipInput({ chips, onChipsChange, value, onChange, placeholder, autoFoc
       />
       {suggestions.length > 0 && dropStyle && (
         <div
-          onMouseDown={e => e.preventDefault()} /* keep the input focused; don't clear on interaction */
+          onMouseDown={ (e: React.MouseEvent<HTMLElement>) => e.preventDefault()} /* keep the input focused; don't clear on interaction */
           style={{
             position: 'fixed',
             top: descale(dropStyle.top, uiScale), left: descale(dropStyle.left, uiScale), width: descale(dropStyle.width, uiScale),
@@ -3263,8 +3263,8 @@ function ChipInput({ chips, onChipsChange, value, onChange, placeholder, autoFoc
                 padding: '8px 12px', fontSize: 13, cursor: 'pointer', borderRadius: 6,
                 color: item.danger ? 'var(--red)' : 'var(--text-primary)', whiteSpace: 'nowrap',
               }}
-              onMouseEnter={e => e.currentTarget.style.background = 'var(--bg-hover)'}
-              onMouseLeave={e => e.currentTarget.style.background = 'transparent'}
+              onMouseEnter={ (e: React.MouseEvent<HTMLElement>) => e.currentTarget.style.background = 'var(--bg-hover)'}
+              onMouseLeave={ (e: React.MouseEvent<HTMLElement>) => e.currentTarget.style.background = 'transparent'}
             >
               {item.label}
             </div>
