@@ -33,9 +33,24 @@ import { toAppError } from '../utils/errors.js';
 const logAccount = (account: EmailAccountRow) => redactEmail(account?.email_address || '');
 
 /** A raw message envelope as the ingest paths pass it (partial on Sent/retry paths). */
+/** A node of the IMAP body structure tree (the fields the parser reads). */
+interface BodyStructureNode {
+  part?: string;
+  type?: string;
+  encoding?: string;
+  parameters?: { charset?: string };
+  childNodes?: BodyStructureNode[];
+  disposition?: string;
+  dispositionParameters?: { filename?: string };
+  size?: number;
+  id?: string;
+}
+
 type RawMessageInput = {
   envelope?: { messageId?: string | null } | null;
   messageId?: string | null;
+  bodyStructure?: { part?: string; type?: string; encoding?: string; charset?: string; parameters?: { charset?: string }; childNodes?: BodyStructureNode[]; disposition?: string; dispositionParameters?: { filename?: string }; size?: number; id?: string } | null;
+  bodyParts?: Map<string, Buffer>;
   inReplyTo?: unknown;
   references?: unknown;
 };
@@ -113,7 +128,7 @@ const hostConnectSem = createKeyedSemaphore(CONNECT_CONCURRENCY_PER_HOST);
 async function connectImapClient(account: EmailAccountRow, resolved: ResolvedConnection, cfgOpts: MakeClientCfgOptions, timeoutMs: number, label: string): Promise<ImapFlow> {
   const host = (account.imap_host || '').toLowerCase();
   let sawRefusal = false; // a provider refusal ('Connection not available' etc.) fired mid-attempt
-  const attempt = async (res, tag) => {
+  const attempt = async (res: ResolvedConnection, tag: string): Promise<ImapClient> => {
     const client = new ImapFlow(makeClientCfg(account, res, cfgOpts));
     // #360: an 'error' emitted during the handshake with no listener is unhandled and crashes the
     // process. Attach one that outlives connect; a caller adding its own later just logs alongside.
@@ -269,7 +284,7 @@ export function resolvePersistentCap(envCap: unknown, profileCap: unknown): numb
 // Whether an account keeps a persistent connection, given the host's accounts in a STABLE order
 // (created_at, then id) and the cap: the first `cap` hold IDLE, the rest go poll-only. An account
 // absent from the list defaults to eligible (fail-safe to today's behavior). Pure.
-export function persistentEligible(orderedHostAccountIds, accountId: string, cap) {
+export function persistentEligible(orderedHostAccountIds: string[], accountId: string, cap: number): boolean {
   if (!Number.isFinite(cap) || cap <= 0) return true;
   const rank = orderedHostAccountIds.indexOf(accountId);
   return rank === -1 ? true : rank < cap;
@@ -352,7 +367,7 @@ const DEFAULT_FOLDER_SYNC_INTERVAL_MS = 30 * 60 * 1000;
 // tick-based because the sync-tick cadence is itself user-configurable.
 // intervalMs 0 = never; a missing lastAt means the account has never synced
 // its folder list on this timer, so it is due immediately.
-export function folderSyncDue(intervalMs, lastAt, now = Date.now()) {
+export function folderSyncDue(intervalMs: number | null | undefined, lastAt: number | null | undefined, now = Date.now()): boolean {
   return intervalMs > 0 && now - (lastAt || 0) >= intervalMs;
 }
 
@@ -417,7 +432,7 @@ const BIDI_OVERRIDE_RE = new RegExp(
 );
 
 // Extract html/text/attachments from an already-fetched msg (no extra IMAP round-trip)
-function extractBodyFromMsg(msg) {
+function extractBodyFromMsg(msg: RawMessageInput) {
   if (!msg.bodyStructure) return { html: null, text: null, attachments: [] };
   const results: { textParts: BodyPartRef[]; attachments: AttachmentRef[]; calendarParts?: BodyPartRef[] } = { textParts: [], attachments: [] };
   walkStructure(msg.bodyStructure, results);
@@ -474,7 +489,7 @@ export async function persistInboundCalendarInvitationFromMessage({ client, mess
 // Key invariant: we work with Buffers of raw bytes until the very last step so
 // that multi-byte sequences (e.g. =E2=80=94 → em-dash in UTF-8) are reassembled
 // correctly before being interpreted as any character set.
-function decodeQuotedPrintableToBuffer(input) {
+function decodeQuotedPrintableToBuffer(input: string | Buffer): Buffer {
   const qpStr = Buffer.isBuffer(input) ? input.toString('ascii') : String(input || '');
   const cleaned = qpStr.replace(/=\r\n/g, '').replace(/=\n/g, '');
   const bytes = [];
@@ -494,7 +509,7 @@ function decodeQuotedPrintableToBuffer(input) {
   return Buffer.from(bytes);
 }
 
-function decodeBytes(rawBytes, charset) {
+function decodeBytes(rawBytes: Buffer, charset: string | null | undefined): string {
   let cs = (charset || 'utf-8').toLowerCase().trim().replace(/^['"]|['"]$/g, '');
   if (!cs || cs === 'us-ascii' || cs === 'ascii') cs = 'utf-8'; // ASCII ⊂ UTF-8
   try {
@@ -504,7 +519,7 @@ function decodeBytes(rawBytes, charset) {
   }
 }
 
-function decodeTransferPayload(payload, encoding, charset) {
+function decodeTransferPayload(payload: Buffer | string, encoding: string | null | undefined, charset: string | null | undefined): string {
   const enc = (encoding || '').toLowerCase();
   if (enc === 'base64') {
     const b64 = String(payload || '').replace(/\s/g, '');
@@ -516,7 +531,7 @@ function decodeTransferPayload(payload, encoding, charset) {
   return decodeBytes(Buffer.isBuffer(payload) ? payload : Buffer.from(String(payload || ''), 'utf8'), charset);
 }
 
-function parseMimeHeaders(headerBlock) {
+function parseMimeHeaders(headerBlock: string): Record<string, string> {
   const headers = {};
   for (const line of headerBlock.replace(/\r?\n[ \t]+/g, ' ').split(/\r?\n/)) {
     const m = line.match(/^([^:]+):\s*([\s\S]*)$/);
@@ -529,7 +544,7 @@ function parseMimeHeaders(headerBlock) {
 // part is requested: the payload starts with a MIME boundary and embedded
 // Content-Type/Content-Transfer-Encoding headers. If passed to the sanitizer as
 // HTML, users see boundary lines and quoted-printable garbage (=D0=..., =3D).
-function unwrapEmbeddedMimeText(decoded, depth = 0) {
+function unwrapEmbeddedMimeText(decoded: string, depth = 0): string {
   if (depth >= 5) return decoded;
   const start = String(decoded || '').trimStart();
   if (!/^--[^\r\n]+\r?\nContent-/i.test(start)) return decoded;
@@ -575,7 +590,7 @@ function unwrapEmbeddedMimeText(decoded, depth = 0) {
 // Key invariant: we work with Buffers of raw bytes until the very last step so
 // that multi-byte sequences (e.g. =E2=80=94 → em-dash in UTF-8) are reassembled
 // correctly before being interpreted as any character set.
-function decodeBody(buf, encoding, charset) {
+function decodeBody(buf: Buffer, encoding: string | null | undefined, charset: string | null | undefined): string {
   const enc = (encoding || '').toLowerCase();
   let rawBytes;
   if (enc === 'base64') {
@@ -590,7 +605,7 @@ function decodeBody(buf, encoding, charset) {
   return unwrapEmbeddedMimeText(decodeBytes(rawBytes, charset));
 }
 
-export function looksLikeTextPayload(buf) {
+export function looksLikeTextPayload(buf: Buffer | string): boolean {
   if (!buf || buf.length === 0) return false;
   if (Buffer.isBuffer(buf)) {
     const isPng = buf.length >= 8 && buf.subarray(0, 8).equals(Buffer.from([0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A]));
@@ -611,7 +626,7 @@ export function looksLikeTextPayload(buf) {
 // encoding wins; when the structure declares none (or the part is missing from
 // it) the caller's fallback is kept — an absent value must never override it,
 // because that silently skipped the base64 decoding.
-export function attachmentTransferEncoding(results, partNum, fallback = 'base64') {
+export function attachmentTransferEncoding(results: { attachments: AttachmentRef[] }, partNum: string, fallback = 'base64'): string {
   const match = (results?.attachments || []).find(attachment => String(attachment.part) === String(partNum));
   return match?.encoding || fallback;
 }
