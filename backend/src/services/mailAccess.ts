@@ -11,8 +11,19 @@
 import { query } from './db.js';
 
 // A message the user owns (joined through their accounts), or null. Full row (m.*).
-export async function loadOwnedMessage(userId: string, messageId: string) {
-  const { rows } = await query(
+/** A message the user owns, as this module selects it (full row). */
+export interface OwnedMessageRow {
+  id: string;
+  account_id: string;
+  folder?: string | null;
+  uid?: number | string | null;
+  subject?: string | null;
+  is_read?: boolean;
+  is_starred?: boolean;
+  [key: string]: unknown;
+}
+export async function loadOwnedMessage(userId: string, messageId: string): Promise<OwnedMessageRow | null> {
+  const { rows } = await query<OwnedMessageRow>(
     `SELECT m.*
        FROM messages m
        JOIN email_accounts a ON a.id = m.account_id
@@ -33,8 +44,17 @@ export async function getOwnedAccount(userId: string, accountId: string) {
 
 // All of the user's accounts (light columns for listing/iteration). The caller filters by its
 // own per-account config (e.g. which accounts have a feature enabled).
-export async function listUserAccounts(userId: string) {
-  const { rows } = await query(
+/** An account summary as the access helpers select it. */
+export interface UserAccountSummary {
+  id: string;
+  email_address?: string | null;
+  folder_mappings?: Record<string, string> | null;
+  include_in_unified_inbox?: boolean | null;
+  enabled?: boolean | null;
+  [key: string]: unknown;
+}
+export async function listUserAccounts(userId: string): Promise<UserAccountSummary[]> {
+  const { rows } = await query<UserAccountSummary>(
     `SELECT id, email_address, folder_mappings, include_in_unified_inbox, enabled
        FROM email_accounts
       WHERE user_id = $1
