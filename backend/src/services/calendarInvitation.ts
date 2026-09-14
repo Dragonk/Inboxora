@@ -1,6 +1,6 @@
 import { descriptionContentLines } from '../utils/richText.js';
 
-function escapeICalendarText(value) {
+function escapeICalendarText(value: unknown): string {
   return String(value || '')
     .replaceAll('\\', '\\\\')
     .replaceAll('\r\n', '\n')
@@ -10,12 +10,13 @@ function escapeICalendarText(value) {
     .replaceAll(',', '\\,');
 }
 
-function formatICalendarDate(value) {
+function formatICalendarDate(value: Date): string {
   return value.toISOString().replace(/\.\d{3}Z$/, 'Z').replaceAll('-', '').replaceAll(':', '');
 }
 
-function formatInvitationDate(value, allDay) {
-  return allDay ? value.toISOString().slice(0, 10).replaceAll('-', '') : formatICalendarDate(value);
+function formatInvitationDate(value: string | number | Date, allDay: boolean): string {
+  const date = value instanceof Date ? value : new Date(value);
+  return allDay ? date.toISOString().slice(0, 10).replaceAll('-', '') : formatICalendarDate(date);
 }
 
 function foldICalendarLine(line: string) {
@@ -33,7 +34,26 @@ function foldICalendarLine(line: string) {
   return chunks.join('\r\n ');
 }
 
-function invitationIcal({ uid, summary, description, location, organizerEmail, attendees, startsAt, endsAt, allDay, method, sequence }) {
+/** One invitation to render and send. */
+interface InvitationInput {
+  uid: string;
+  summary?: string | null;
+  description?: string | null;
+  location?: string | null;
+  organizerEmail?: string | null;
+  attendees?: string[];
+  startsAt: Date | string | number;
+  endsAt: Date | string | number;
+  allDay?: boolean;
+  method?: string;
+  sequence?: number;
+}
+
+/** The account slice the invitation is sent from. */
+interface InvitationAccount { id?: string; email_address?: string | null; name?: string | null; [key: string]: unknown }
+
+
+function invitationIcal({ uid, summary, description, location, organizerEmail, attendees, startsAt, endsAt, allDay, method, sequence }: InvitationInput) {
   const lines = [
     'BEGIN:VCALENDAR',
     'VERSION:2.0',
@@ -56,7 +76,7 @@ function invitationIcal({ uid, summary, description, location, organizerEmail, a
   return lines.map(foldICalendarLine).join('\r\n');
 }
 
-export async function sendCalendarInvitation({ account, attendees, summary, description = null, location = null, uid, startsAt, endsAt, allDay = false, method = 'REQUEST', sequence = 0 }) {
+export async function sendCalendarInvitation({ account, attendees, summary, description = null, location = null, uid, startsAt, endsAt, allDay = false, method = 'REQUEST', sequence = 0 }: InvitationInput & { account: InvitationAccount }) {
   const { createAccountSmtpTransport } = await import('./smtpTransport.js');
   const smtp = await createAccountSmtpTransport(account);
   if (smtp.error) throw Object.assign(new Error(smtp.error), { status: smtp.status });
