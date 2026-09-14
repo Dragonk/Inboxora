@@ -1,4 +1,4 @@
-import { removeGtdThreadFromSections } from './gtd.ts';
+import { removeGtdThreadFromSections, type GtdSections } from './gtd.ts';
 
 /** One pending/completed GTD removal, keyed by identity + states. */
 export type GtdRemovalEntry = { identity: string; states: string[]; timer: ReturnType<typeof setTimeout> };
@@ -31,22 +31,22 @@ function clearRemoval(map: Map<string, GtdRemovalEntry>, identity: string, state
   map.delete(key);
 }
 
-export function setPendingGtdRemoval(identity, states) {
+export function setPendingGtdRemoval(identity: string, states: string[]): void {
   clearRemoval(completedGtdRemovalMap, identity, states);
   setExpiring(pendingGtdRemovalMap, identity, states, 30000);
 }
 
-export function setCompletedGtdRemoval(identity, states) {
+export function setCompletedGtdRemoval(identity: string, states: string[]): void {
   clearRemoval(pendingGtdRemovalMap, identity, states);
   setExpiring(completedGtdRemovalMap, identity, states, 10000);
 }
 
-export function clearGtdRemovalGuard(identity, states) {
+export function clearGtdRemovalGuard(identity: string, states: string[]): void {
   clearRemoval(pendingGtdRemovalMap, identity, states);
   clearRemoval(completedGtdRemovalMap, identity, states);
 }
 
-export function applyGtdRemovalGuard(sections) {
+export function applyGtdRemovalGuard<S extends GtdSections>(sections: S): S {
   if (pendingGtdRemovalMap.size === 0 && completedGtdRemovalMap.size === 0) return sections;
   let guarded = sections;
   for (const removal of [...pendingGtdRemovalMap.values(), ...completedGtdRemovalMap.values()]) {

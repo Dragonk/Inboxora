@@ -15,8 +15,9 @@ import { query } from './db.js';
 export interface OwnedMessageRow {
   id: string;
   account_id: string;
-  folder?: string | null;
-  uid?: number | string | null;
+  folder: string;
+  uid: number | string;
+  message_id: string | null;
   subject?: string | null;
   is_read?: boolean;
   is_starred?: boolean;

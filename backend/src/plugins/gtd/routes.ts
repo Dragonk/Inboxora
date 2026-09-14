@@ -135,7 +135,7 @@ router.get('/pet/:slug/meta', async (req: Request, res: Response) => {
 router.get('/pet/:slug/sheet', async (req: Request, res: Response) => {
   const sheet = await getPetSheet(routeParam(req.params.slug));
   if (!sheet || !petRowReadable(sheet, routeParam(req.params.slug), sessionUserId(req))) return res.status(404).end();
-  res.set('Content-Type', sheet.mime);
+  res.set('Content-Type', String(sheet.mime));
   res.set('Cache-Control', 'private, max-age=86400');
   res.send(sheet.data);
 });

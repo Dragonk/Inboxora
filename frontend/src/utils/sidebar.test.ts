@@ -167,7 +167,7 @@ describe('folder ordering', () => {
   it('resolves an immediate typed drop from transfer data and the drop event edge', () => {
     const dataTransfer = {
       types: [FOLDER_ORDER_DRAG_TYPE],
-      getData: type => type === FOLDER_ORDER_DRAG_TYPE
+      getData: (type: string) => type === FOLDER_ORDER_DRAG_TYPE
         ? JSON.stringify({ accountId: 42, path: 'Archive' })
         : '',
     };

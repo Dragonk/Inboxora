@@ -5,7 +5,7 @@ import { _upsertConversationCopyWithClient } from './conversationPersistence.js'
 import { providerIdentityForCopy } from './conversationProviderEnvelope.js';
 import { toAppError } from '../utils/errors.js';
 
-export async function retryConversationIngestFailures({ userId = null, limit = 25 } = {}) {
+export async function retryConversationIngestFailures({ userId = null, limit = 25 }: Parameters<typeof claimConversationIngestFailures>[0] = {}) {
   const failures = await claimConversationIngestFailures({ userId, limit });
   const results = [];
   for (const failure of failures) {

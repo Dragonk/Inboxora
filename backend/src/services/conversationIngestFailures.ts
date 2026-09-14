@@ -17,7 +17,7 @@ export async function recordConversationIngestFailure({ userId, accountId = null
   });
 }
 
-export async function claimConversationIngestFailures({ userId = null, limit = 50 } = {}) {
+export async function claimConversationIngestFailures({ userId = null, limit = 50 }: { userId?: string | null; limit?: number } = {}) {
   const values: Array<string | number> = [];
   const where = ['resolved_at IS NULL', 'next_attempt_at <= NOW()'];
   if (userId) { values.push(userId); where.push(`user_id = $${values.length}`); }

@@ -28,7 +28,7 @@ describe('conversation ingest retry', () => {
     const client = {
       query: vi.fn().mockResolvedValueOnce({ rows: [{ id: 'm1', user_id: 'u1', account_id: 'a1' }] }),
     };
-    withTransaction.mockImplementationOnce(async fn => fn(client));
+    withTransaction.mockImplementationOnce(async (fn: (tx: typeof client) => unknown) => fn(client));
     _upsertWithClient.mockResolvedValueOnce({ conversationId: 'c1' });
     const result = await retryConversationIngestFailures({ userId: 'u1' });
     // The message row SELECT must use the transaction client (FOR UPDATE)
@@ -57,7 +57,7 @@ describe('conversation ingest retry', () => {
     const client = {
       query: vi.fn().mockResolvedValueOnce({ rows: [] }),
     };
-    withTransaction.mockImplementationOnce(async fn => fn(client));
+    withTransaction.mockImplementationOnce(async (fn: (tx: typeof client) => unknown) => fn(client));
     const result = await retryConversationIngestFailures({ userId: 'u1' });
     expect(_upsertWithClient).not.toHaveBeenCalled();
     expect(resolve).not.toHaveBeenCalled();
@@ -70,7 +70,7 @@ describe('conversation ingest retry', () => {
     const client = {
       query: vi.fn().mockResolvedValueOnce({ rows: [{ id: 'm3', user_id: 'u2', account_id: 'a2' }] }),
     };
-    withTransaction.mockImplementationOnce(async fn => fn(client));
+    withTransaction.mockImplementationOnce(async (fn: (tx: typeof client) => unknown) => fn(client));
     _upsertWithClient.mockResolvedValueOnce({ conversationId: 'c3' });
     await retryConversationIngestFailures({ userId: 'u2' });
     expect(_upsertWithClient).toHaveBeenCalledWith(

@@ -339,7 +339,7 @@ export default function MessageList() {
 
   const searchSeq = useRef(0);
   const pendingLiveRefreshRef = useRef(false);
-  type RefreshRequest = { invalidate: () => void; run: (request: unknown, apply: unknown) => Promise<boolean> };
+  type RefreshRequest = ReturnType<typeof createLatestRequest>;
   const refreshRequestRef = useRef<RefreshRequest | null>(null);
   if (refreshRequestRef.current === null) refreshRequestRef.current = createLatestRequest();
   // Non-null alias: the request object is created once above and never reassigned.
@@ -830,7 +830,9 @@ export default function MessageList() {
 
   const isThreadListRow = useCallback((message: StoreMessageRow) => {
     const messageCount = Number(message.message_count);
-    return threadedView && !searchQuery.trim() && !message._normalizedSingleton && message.thread_id && messageCount > 1;
+    return Boolean(
+      threadedView && !searchQuery.trim() && !message._normalizedSingleton && message.thread_id && messageCount > 1,
+    );
   }, [threadedView, searchQuery]);
 
   const resolveMessagesForThreadAction = useCallback(async (message: StoreMessageRow, { forceRefresh = false }: { forceRefresh?: boolean } = {}) => {
@@ -1470,7 +1472,10 @@ export default function MessageList() {
     const myEmail = myAccount?.email_address || '';
     const myAddresses = new Set([
       myEmail.toLowerCase(),
-      ...(myAccount?.aliases || []).map(al => al.email.toLowerCase()),
+      ...(myAccount?.aliases || [])
+        .map(al => al.email)
+        .filter((email): email is string => typeof email === 'string')
+        .map(email => email.toLowerCase()),
     ]);
 
     const replyAliasId = (() => {
@@ -1486,6 +1491,7 @@ export default function MessageList() {
         const allEmails = [...toArr, ...ccArr].map(t => t.email?.toLowerCase()).filter(Boolean);
         const fromEmail = (message.from_email || '').toLowerCase();
         const match = aliases.find(al => {
+          if (typeof al.email !== 'string') return false;
           const aliasEmail = al.email.toLowerCase();
           return allEmails.includes(aliasEmail) || fromEmail === aliasEmail;
         });
@@ -2320,7 +2326,7 @@ export default function MessageList() {
           ? aggregateUnread
           : (archived.is_read ? 0 : 1);
         if (optimisticUnread > 0) decrementUnread(archived.account_id, optimisticUnread);
-        let archiveResolutionVersion: string | undefined;
+        let archiveResolutionVersion: string | number | undefined;
         const archiveAction = createUndoableCommit({
           delayMs: UNDO_COMMIT_DELAY_MS,
           allowUndoWhileCommitting: true,
@@ -2331,7 +2337,7 @@ export default function MessageList() {
               viewKey,
               intentKey,
               intentVersion,
-              onResolution: (version: string) => { archiveResolutionVersion = version; },
+              onResolution: (version: string | number) => { archiveResolutionVersion = version; },
             });
           },
           undo: () => {

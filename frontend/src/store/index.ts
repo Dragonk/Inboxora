@@ -312,8 +312,8 @@ export interface StoreState {
   setShortcuts: (overrides: Record<string, string | null | undefined>) => void;
   aiActions: Array<{ id: string; label: string; prompt?: string; [key: string]: unknown }> | null;
   setAiActions: (actions: Array<{ id: string; label: string; prompt?: string; [key: string]: unknown }>) => void;
-  hiddenFolders: string[];
-  setHiddenFolders: (hf: string[]) => void;
+  hiddenFolders: Record<string, string[]>;
+  setHiddenFolders: (hf: Record<string, string[]>) => void;
   folderOrder: Record<string, string[]>;
   setFolderOrder: (accountId: string, paths: string[]) => void;
   expandedAccounts: Record<string, boolean>;
@@ -1399,8 +1399,8 @@ export const useStore = create<StoreState>()((set, get) => ({
   },
 
   // Hidden folders — { [accountId]: [path, ...] }
-  hiddenFolders: [],
-  setHiddenFolders: (hf: string[]) =>{
+  hiddenFolders: {},
+  setHiddenFolders: (hf: Record<string, string[]>) =>{
     set({ hiddenFolders: hf });
     return api.savePreferences({ hiddenFolders: hf }).catch(() => {});
   },

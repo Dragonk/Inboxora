@@ -83,7 +83,10 @@ export function normalizeFolderOrder(folders: Array<{ path: string; [key: string
   return [...ranked, ...known.filter(folderPath => !seen.has(folderPath))];
 }
 
-export function buildFolderTree(folders, savedOrder = []) {
+export function buildFolderTree(
+  folders: Array<{ path: string; account_id?: string; delimiter?: string; [key: string]: unknown }> | null | undefined,
+  savedOrder: string[] = [],
+): SidebarFolderNode[] {
   const safeFolders = Array.isArray(folders) ? folders : [];
   const delimiter = delimiterFor(safeFolders);
   const map: Record<string, SidebarFolderNode> = {};
@@ -125,7 +128,7 @@ export function buildFolderTree(folders, savedOrder = []) {
     normalizeFolderOrder(safeFolders, savedOrder)
       .map((folderPath, index) => [folderPath, index]),
   );
-  const sortGroup = group => {
+  const sortGroup = (group: SidebarFolderNode[]): void => {
     group.sort((a, b) => {
       const aRank = rank.get(a.path);
       const bRank = rank.get(b.path);
@@ -167,7 +170,7 @@ export function reorderFolderPaths(
     : next;
 }
 
-export function folderDropPosition(clientY, rect) {
+export function folderDropPosition(clientY: number, rect: { top: number; height: number }): 'before' | 'after' {
   return clientY < rect.top + rect.height / 2 ? 'before' : 'after';
 }
 
@@ -178,7 +181,7 @@ export function resolveFolderOrderDrop(
   targetAccountId: string | number,
   targetPath: string,
   clientY: number,
-  rect: { top: number; bottom?: number; height?: number; [key: string]: unknown },
+  rect: { top: number; bottom?: number; height: number; [key: string]: unknown },
 ): string[] | null {
   if (
     !Array.from(dataTransfer?.types || []).includes(FOLDER_ORDER_DRAG_TYPE)
