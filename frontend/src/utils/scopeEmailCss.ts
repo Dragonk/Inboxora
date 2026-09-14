@@ -15,8 +15,11 @@ const REMOVE_ATRULES = new Set([
 // forms so the full prefix is removed in one pass.
 const LEADING_BODY_RE = /^(?:html(?:[\s>+~]+(?:body|:root))?|body|:root)(?=[\s>+~]|$)/i;
 
-export function scopeEmailCss(cssText, prefix) {
-  let root;
+export function scopeEmailCss(
+  cssText: Parameters<typeof postcss.parse>[0],
+  prefix: string,
+) {
+  let root: ReturnType<typeof postcss.parse>;
   try { root = postcss.parse(cssText); } catch { return ''; }
 
   // Pass 1 — remove unsafe at-rules.
@@ -44,9 +47,9 @@ export function scopeEmailCss(cssText, prefix) {
   return root.toResult().css;
 }
 
-export function prepareEmailHtml(rawHtml, uid) {
+export function prepareEmailHtml(rawHtml: string, uid: string) {
   const prefix = `email-${uid}`;
-  const styleBlocks: unknown[] = [];
+  const styleBlocks: string[] = [];
 
   const stripped = rawHtml.replace(
     /<style[^>]*>([\s\S]*?)<\/style>/gi,

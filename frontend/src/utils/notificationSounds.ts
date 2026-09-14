@@ -43,7 +43,7 @@ export const NOTIFICATION_SOUNDS = {
   tweet:      { label: 'Tweet',       description: 'Bird chirp' },
 };
 
-const SYNTHS = {
+const SYNTHS: Record<string, (ac: AudioContext) => void> = {
   tritone(ac: AudioContext) {
     const t = ac.currentTime;
     note(ac, 1047, 'sine', 0.32, t, 0.12);
@@ -111,7 +111,7 @@ const SYNTHS = {
 
   bamboo(ac: AudioContext) {
     const t = ac.currentTime;
-    const knock = (start) => {
+    const knock = (start: number) => {
       const o = ac.createOscillator();
       const g = ac.createGain();
       o.connect(g); g.connect(ac.destination);
@@ -150,7 +150,7 @@ const SYNTHS = {
 
   tweet(ac: AudioContext) {
     const t = ac.currentTime;
-    const chirp = (start, f0, f1) => {
+    const chirp = (start: number, f0: number, f1: number) => {
       const o = ac.createOscillator();
       const g = ac.createGain();
       o.connect(g); g.connect(ac.destination);
@@ -173,7 +173,7 @@ export function warmUpAudioContext() {
   try { getAudioCtx(); } catch { /* intentional */ }
 }
 
-export function playCustomSound(dataUrl) {
+export function playCustomSound(dataUrl: string | null | undefined) {
   if (!dataUrl) return;
   // Decode the base64 data URL manually — fetch('data:...') is blocked by
   // CSP connect-src and new Audio().play() is blocked by autoplay policy.

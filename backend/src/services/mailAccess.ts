@@ -9,6 +9,7 @@
 // established it owns (via one of the user-keyed reads) and only ever read within that account —
 // they never span accounts or users.
 import { query } from './db.js';
+import type { EmailAccountRow } from './imapManager.js';
 
 // A message the user owns (joined through their accounts), or null. Full row (m.*).
 /** A message the user owns, as this module selects it (full row). */
@@ -35,8 +36,8 @@ export async function loadOwnedMessage(userId: string, messageId: string): Promi
 }
 
 // One of the user's accounts by id (ownership enforced), or null. Full row.
-export async function getOwnedAccount(userId: string, accountId: string) {
-  const { rows } = await query(
+export async function getOwnedAccount(userId: string, accountId: string): Promise<EmailAccountRow | null> {
+  const { rows } = await query<EmailAccountRow>(
     'SELECT * FROM email_accounts WHERE id = $1 AND user_id = $2',
     [accountId, userId]
   );

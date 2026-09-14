@@ -7,8 +7,10 @@
 // boot the whole app inside any unit test that loads a plugin file. So index.js pushes the engine
 // here at boot via setMailEngine, and the barrel pulls it lazily via getMailEngine — this leaf
 // module has no side effects and is trivial to inject in tests.
+import type { ImapManager } from '../services/imapManager.js';
+
 /** The narrow mail-engine surface the plugin platform binds to. */
-export interface PluginMailEngine {
+export interface PluginMailEngine extends Pick<ImapManager, '_guardMoveUid' | '_unguardMoveUid' | 'moveMessage'> {
   broadcast(payload: unknown, userId?: string): void;
   connections: { has(accountId: string): boolean };
   onDemandSyncing: { has(key: string): boolean; add(key: string): unknown; delete(key: string): unknown };
