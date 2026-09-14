@@ -38,7 +38,7 @@ try {
     const sorted = [...timings].sort((a, b) => a - b);
     report.cases[name] = { timingsMs: timings, medianMs: sorted[Math.floor(sorted.length / 2)], rows: result.messages.length, total: result.total };
     if (name === 'unified-threaded') {
-      if (new Set(result.messages.map(message => message.thread_id)).size !== 50) throw new Error('Unified thread identities collided across accounts');
+      if (new Set(result.messages.map((message: { thread_id?: string }) => message.thread_id)).size !== 50) throw new Error('Unified thread identities collided across accounts');
       if (new Set(result.messages.map(message => message.account_id)).size !== 3) throw new Error('Missing account in unified listing');
     }
   }

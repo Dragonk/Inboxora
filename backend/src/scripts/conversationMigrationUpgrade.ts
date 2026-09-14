@@ -46,7 +46,7 @@ async function insertLegacyFixture(client: DbClient) {
   await client.query('DELETE FROM users WHERE id = $1', [userId]);
   await client.query('INSERT INTO users (id, username) VALUES ($1,$2)', [userId, `legacy-fixture-${Date.now()}`]);
   await client.query('INSERT INTO email_accounts (id,user_id,name,email_address) VALUES ($1,$3,$4,$5),($2,$3,$6,$7)', [accountA, accountB, userId, 'Legacy A', 'legacy-a@example.test', 'Legacy B', 'legacy-b@example.test']);
-  const fixture = await client.query<{ id?: string; fixture_key?: string | null; [key: string]: unknown }>('SELECT * FROM legacy_conversation_fixture ORDER BY fixture_key');
+  const fixture = await client.query<{ id?: string; fixture_key?: string; [key: string]: unknown }>('SELECT * FROM legacy_conversation_fixture ORDER BY fixture_key');
   const accounts: Record<string, string> = { 'account-a': accountA, 'account-b': accountB };
   for (const row of fixture.rows) {
     const id = `00000000-0000-0000-0000-${String(200 + fixture.rows.indexOf(row)).padStart(12, '0')}`;

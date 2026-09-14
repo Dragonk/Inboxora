@@ -347,7 +347,7 @@ router.post('/done', async (req: Request, res: Response) => {
 
   // One terminal refresh so GTD section data converges to the post-done state (removeMessageCopy
   // also emits mid-op, but this covers the archive that follows it).
-  broadcast({ type: 'gtd_sections_updated', accountId: msg.account_id }, account.user_id);
+  broadcast({ type: 'gtd_sections_updated', accountId: String(msg.account_id) }, account.user_id);
 
   res.json({ ok: true, removed, archived, noArchiveFolder, archiveFailed });
 });
