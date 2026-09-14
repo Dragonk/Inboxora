@@ -137,7 +137,7 @@ async function syncBook(userId: string, book, dupMode, creds) {
   // Emails present in the user's OTHER books, for cross-book duplicate handling.
   const otherEmail = new Map(); // email -> existing contact id
   if (dupMode !== 'separate') {
-    const rows = await query(
+    const rows = await query<{ primary_email: string; id: string }>(
       `SELECT id, primary_email FROM contacts
        WHERE user_id = $1 AND address_book_id <> $2 AND primary_email IS NOT NULL`,
       [userId, bookId],
