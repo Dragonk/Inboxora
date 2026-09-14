@@ -25,8 +25,8 @@ function escapeHtml(str: string) {
 }
 
 // Map SMTP/connection errors to user-friendly messages that don't expose server internals.
-function sanitizeSmtpError(err) {
-  const msg = err.message || '';
+function sanitizeSmtpError(err: unknown): string {
+  const msg = toAppError(err).message || '';
   if (/ECONNREFUSED|ENOTFOUND|ETIMEDOUT|ECONNRESET|EHOSTUNREACH/i.test(msg)) {
     return 'Could not connect to the mail server. Check your SMTP settings.';
   }
@@ -55,11 +55,11 @@ function parseAddress(str: string) {
   return { name: '', email: str.trim().toLowerCase() };
 }
 
-function mapRecipientList(list) {
-  return (list || []).map(addr => parseAddress(addr));
+function mapRecipientList(list: unknown): unknown[] {
+  return (Array.isArray(list) ? list : []).map((addr: unknown) => parseAddress(String(addr ?? '')));
 }
 
-function buildSentSnippet(body, bodyIsHtml) {
+function buildSentSnippet(body: unknown, bodyIsHtml: boolean): string {
   return bodyToPlain(body, bodyIsHtml).replace(/\s+/g, ' ').trim().substring(0, 200);
 }
 
@@ -155,7 +155,7 @@ export async function ensureServerAutoSavedSentCopy({
 
 // Reject any recipient address that contains newlines, null bytes, or looks
 // malformed — these are the classic email header-injection vectors.
-function normalizeRecipients(list, fieldName) {
+function normalizeRecipients(list: unknown, fieldName: string): string[] {
   if (!Array.isArray(list)) throw Object.assign(new Error(`${fieldName} must be an array`), { status: 400 });
   return list.map((addr, i) => {
     if (typeof addr !== 'string' || !addr.trim()) {
@@ -174,7 +174,7 @@ function normalizeRecipients(list, fieldName) {
 }
 
 // Strip header-injection characters from single-line header values.
-function sanitizeHeaderValue(value) {
+function sanitizeHeaderValue(value: unknown): string {
   if (typeof value !== 'string') return '';
   return value.replace(/[\r\n\0]/g, '').trim();
 }
@@ -189,14 +189,15 @@ function sigToPlainText(html: string) {
   return sanitizeHtml(html, { allowedTags: [], allowedAttributes: {} }).trim();
 }
 
-function bodyToPlain(body, isHtml) {
-  if (!isHtml) return body;
-  return sanitizeHtml(body, { allowedTags: [], allowedAttributes: {} });
+function bodyToPlain(body: unknown, isHtml: boolean): string {
+  if (!isHtml) return String(body ?? '');
+  return sanitizeHtml(String(body ?? ''), { allowedTags: [], allowedAttributes: {} });
 }
 
-function bodyToHtml(body, isHtml) {
-  if (!isHtml) return textToHtml(body);
-  return sanitizeComposeBody(body);
+function bodyToHtml(body: unknown, isHtml: boolean): string {
+  const text = String(body ?? '');
+  if (!isHtml) return textToHtml(text);
+  return sanitizeComposeBody(text);
 }
 
 const router = Router();
@@ -485,7 +486,7 @@ router.post('/send', async (req, res) => {
           const addressBookId = abResult.rows[0].id;
 
           const results = await Promise.allSettled(allRecipients.map(addr => {
-            const { name, email } = parseAddress(addr);
+            const { name, email } = parseAddress(String(addr ?? ''));
             if (!email) return Promise.resolve(null);
             const primaryEmail = email.toLowerCase();
             const displayName = name || primaryEmail;
