@@ -1,4 +1,5 @@
 import { Router } from 'express';
+import type { EmailAccountRow } from '../services/imapManager.js';
 import { query } from '../services/db.js';
 import { requireAuth } from '../middleware/auth.js';
 import { applyInboxRules, isDangerousRegex } from '../services/inboxRules.js';
@@ -126,7 +127,7 @@ router.post('/run', async (req: Request, res: Response) => {
       );
       if (parseInt(rulesCheck.rows[0].cnt, 10) === 0) continue;
 
-      const acctResult = await query(
+      const acctResult = await query<EmailAccountRow>(
         'SELECT * FROM email_accounts WHERE id = $1',
         [acctId]
       );
@@ -136,7 +137,7 @@ router.post('/run', async (req: Request, res: Response) => {
       const BATCH = 500;
       let lastId = null;
       while (true) {
-        const msgResult = await query(
+        const msgResult = await query<{ id: string; uid: number; folder: string; from_email?: string | null; from_name?: string | null; to_addresses?: unknown; subject?: string | null; has_attachments?: boolean | null; is_read?: boolean | null }>(
           `SELECT id, uid, folder, from_email, from_name, to_addresses, subject, has_attachments, is_read
            FROM messages
            WHERE account_id = $1 AND lower(folder) = 'inbox'
