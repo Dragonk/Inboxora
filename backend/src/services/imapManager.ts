@@ -2445,7 +2445,7 @@ export class ImapManager {
     this.syncStartedAt.set(account.id, Date.now());
     let activeClient: ImapClient | undefined;
     let usedFreshSyncClient = false;
-    let syncResult;
+    let syncResult: Awaited<ReturnType<ImapManager['_syncInboxWithFreshLogin']>> | undefined;
     try {
       activeClient = this.connections.get(account.id);
       // syncAccount tracks the freshest account data available — updated to freshAccount
@@ -2541,7 +2541,7 @@ export class ImapManager {
         // Wall-clock timeout guards against half-open TCP sockets that never trigger commandTimeout.
         syncResult = await Promise.race([
           this.syncMessages(syncAccount, activeClient, 'INBOX', 20, false, true),
-          new Promise((_, reject) =>
+          new Promise<never>((_, reject) =>
             setTimeout(() => reject(new Error('Sync wall-clock timeout (55s)')), 55000)
           ),
         ]);
