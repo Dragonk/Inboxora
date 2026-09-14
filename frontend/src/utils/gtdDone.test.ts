@@ -7,10 +7,20 @@ import {
   pendingGtdRemovalMap,
 } from './pendingGtdRemovals.ts';
 
+type DoneResult = { ok: boolean; archiveFailed?: boolean };
+type DoneRowDeps = {
+  gtdDone: (id: string, states: string[]) => Promise<DoneResult>;
+  removeGtdThread: (identity: string, states: string[]) => unknown;
+  restoreGtdThread: (snapshot: unknown) => void;
+  addNotification: (notification: { title: string; body: string }) => void;
+  scheduleGtdSectionsFetch: () => void;
+  t: (key: string) => string;
+};
+
 const thread = { id: 'row-x', message_id: 'x', subject: 'A subject' };
 const states = ['todo'];
 
-function deps(overrides = {}) {
+function deps(overrides: Partial<DoneRowDeps> = {}): DoneRowDeps {
   return {
     gtdDone: async () => ({ ok: true }),
     removeGtdThread: () => ({ snapshot: true }),
@@ -31,8 +41,8 @@ describe('doneGtdRow', () => {
 
   it('guards and removes the row before the request settles, then completes the guard', async () => {
     const calls: unknown[] = [];
-    let resolveRequest;
-    const request = new Promise(resolve => { resolveRequest = resolve; });
+    let resolveRequest: ((value: DoneResult) => void) | undefined;
+    const request = new Promise<DoneResult>(resolve => { resolveRequest = resolve; });
     const result = doneGtdRow(thread, states, deps({
       removeGtdThread: (identity, removedStates) => {
         calls.push(['remove', identity, removedStates]);
@@ -52,6 +62,7 @@ describe('doneGtdRow', () => {
     assert.equal(pendingGtdRemovalMap.size, 1);
     assert.equal(completedGtdRemovalMap.size, 0);
 
+    assert.ok(resolveRequest);
     resolveRequest({ ok: true });
     assert.deepEqual(await result, { ok: true });
     assert.equal(pendingGtdRemovalMap.size, 0);

@@ -25,13 +25,13 @@ const MAX_DEVICE_ID = 128;
 const MAX_ENDPOINT = 4096;
 const MAX_APP_VERSION = 64;
 
-export function parseDeviceToken(value) {
+export function parseDeviceToken(value: unknown) {
   if (typeof value !== 'string') return null;
   const match = value.match(TOKEN_RE);
   return match ? { prefix: match[1], secret: match[2] } : null;
 }
 
-export function bearerTokenFromHeader(header) {
+export function bearerTokenFromHeader(header: unknown) {
   if (typeof header !== 'string') return null;
   const match = header.match(/^Bearer\s+(.+)$/i);
   return match ? match[1].trim() : null;
@@ -43,12 +43,22 @@ function generateDeviceToken() {
   return { prefix, secret, token: `${prefix}.${secret}` };
 }
 
-function trimmed(value, max) {
+function trimmed(value: unknown, max: number) {
   if (typeof value !== 'string') return '';
   return value.trim().slice(0, max);
 }
 
-export function validateDeviceRegistration(input) {
+// Untrusted request body: every field is validated (and narrowed) below, so the
+// incoming shape is unknown-valued rather than trusted.
+export interface DeviceRegistrationInput {
+  deviceId?: unknown;
+  platform?: unknown;
+  transport?: unknown;
+  endpoint?: unknown;
+  appVersion?: unknown;
+}
+
+export function validateDeviceRegistration(input: DeviceRegistrationInput) {
   const deviceId = trimmed(input?.deviceId, MAX_DEVICE_ID);
   if (!deviceId) throw Object.assign(new Error('deviceId is required'), { statusCode: 400 });
 
@@ -78,7 +88,7 @@ export function validateDeviceRegistration(input) {
 // Register or refresh a device. Returns the plaintext device token exactly once;
 // it is never retrievable afterwards. Registering an existing (user_id, device_id)
 // rotates the token so a fresh install or a lost token can recover.
-export async function registerPushDevice(userId: string, input) {
+export async function registerPushDevice(userId: string, input: DeviceRegistrationInput) {
   if (!userId) throw Object.assign(new Error('user id is required'), { statusCode: 400 });
   const device = validateDeviceRegistration(input);
   const { prefix, secret, token } = generateDeviceToken();
@@ -165,7 +175,7 @@ export async function listActivePushDevices(userId: string) {
   return result.rows.map((row) => ({ ...row, endpoint: decrypt(row.endpoint) })).filter((row) => !!row.endpoint);
 }
 
-export async function markPushDeviceFailure(id) {
+export async function markPushDeviceFailure(id: unknown) {
   if (!id) return;
   await query(
     'UPDATE push_devices SET failure_count = failure_count + 1, updated_at = NOW() WHERE id = $1',
@@ -174,7 +184,7 @@ export async function markPushDeviceFailure(id) {
 }
 
 // Permanent provider rejection (410/404, FCM UNREGISTERED): stop dispatching.
-export async function disablePushDevice(id) {
+export async function disablePushDevice(id: unknown) {
   if (!id) return;
   await query(
     `UPDATE push_devices SET disabled_at = NOW(), endpoint = '', token_hash = NULL, token_prefix = NULL, updated_at = NOW() WHERE id = $1`,

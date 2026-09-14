@@ -4,7 +4,7 @@ import { describe, it, afterEach, mock } from 'node:test';
 
 import { api, isAbortError } from '../utils/api.ts';
 
-const read = name => readFileSync(new URL(`./${name}`, import.meta.url), 'utf8');
+const read = (name: string) => readFileSync(new URL(`./${name}`, import.meta.url), 'utf8');
 
 afterEach(() => { mock.restoreAll(); });
 
@@ -21,20 +21,21 @@ describe('calendar request cancellation', () => {
 
   it('forwards an AbortSignal to the events request', async () => {
     const controller = new AbortController();
-    let seen;
+    let seen: { url: string; options: RequestInit } | undefined;
     const fetchStub = async (url: string, options: RequestInit) => {
       seen = { url, options };
       return { ok: true, status: 200, json: async () => ({ events: [] }) };
     };
     mock.method(globalThis, 'fetch', fetchStub);
     await api.calendar.listEvents('2026-09-01T00:00:00.000Z', '2026-10-01T00:00:00.000Z', { signal: controller.signal });
+    assert.ok(seen);
     assert.equal(seen.options.signal, controller.signal);
     assert.match(seen.url, /^\/api\/calendar\/events\?/);
     assert.match(seen.url, /from=2026-09-01/);
   });
 
   it('sends the flat calendar selection and keeps an empty selection explicit', async () => {
-    const urls = [];
+    const urls: string[] = [];
     const fetchStub = async (url: string) => {
       urls.push(url);
       return { ok: true, status: 200, json: async () => ({ events: [] }) };

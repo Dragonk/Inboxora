@@ -338,7 +338,7 @@ router.get('/address-books/:id/export', async (req, res) => {
   const format = queryStringOr(req.query.format, '');
   if (!['google-csv', 'outlook-csv', 'vcard'].includes(format)) return res.status(400).json({ error: 'Unsupported export format' });
   try {
-    const book = await query<{ id: string; name?: string | null }>('SELECT id, name FROM address_books WHERE id = $1 AND user_id = $2', [routeParam(req.params.id), sessionUserId(req)]);
+    const book = await query<{ id: string; name: string }>('SELECT id, name FROM address_books WHERE id = $1 AND user_id = $2', [routeParam(req.params.id), sessionUserId(req)]);
     if (!book.rows.length) return res.status(404).json({ error: 'Address book not found' });
     const contacts = await query(`SELECT uid, display_name, first_name, last_name, emails, phones, organization, title, notes FROM contacts WHERE address_book_id = $1 ORDER BY lower(coalesce(display_name, primary_email, ''))`, [book.rows[0].id]);
     const filename = `${book.rows[0].name.replace(/[^a-z0-9_-]+/gi, '-') || 'contacts'}`;
@@ -394,9 +394,15 @@ router.get('/:id', async (req, res) => {
     const contact = result.rows[0];
     if (contact.vcard) {
       const parsed = parseVCard(contact.vcard);
-      for (const field of ['title', 'role', 'nickname', 'urls', 'addresses', 'instantMessages', 'categories']) {
+      const scalarFields: ReadonlyArray<'title' | 'role' | 'nickname'> = ['title', 'role', 'nickname'];
+      for (const field of scalarFields) {
         if (contact[field] == null || (Array.isArray(contact[field]) && !contact[field].length)) contact[field] = parsed[field];
       }
+      const unknownFields: ReadonlyArray<'urls' | 'addresses' | 'instantMessages'> = ['urls', 'addresses', 'instantMessages'];
+      for (const field of unknownFields) {
+        if (contact[field] == null || (Array.isArray(contact[field]) && !contact[field].length)) contact[field] = parsed[field];
+      }
+      if (contact.categories == null || !contact.categories.length) contact.categories = parsed.categories;
     }
     res.json(contact);
   } catch (err) {
@@ -427,8 +433,8 @@ router.post('/', async (req, res) => {
     normalizedContactDates, normalizedBirthday, normalizedAnniversary, contactDates !== undefined
   );
   const authoritativeLegacyDates = contactDates === undefined ? null : legacyDatesFromContactDates(storedContactDates);
-  const storedBirthday: string | undefined = authoritativeLegacyDates?.birthday ?? (contactDates === undefined ? normalizedBirthday : null);
-  const storedAnniversary: string | undefined = authoritativeLegacyDates?.anniversary ?? (contactDates === undefined ? normalizedAnniversary : null);
+  const storedBirthday: string | null | undefined = authoritativeLegacyDates?.birthday ?? (contactDates === undefined ? normalizedBirthday : null);
+  const storedAnniversary: string | null | undefined = authoritativeLegacyDates?.anniversary ?? (contactDates === undefined ? normalizedAnniversary : null);
 
   const primaryEmail = emails[0]?.value
     ? emails[0].value.toLowerCase().trim()
@@ -496,7 +502,7 @@ router.patch('/:id', async (req, res) => {
 
   try {
     // Load current contact (with its book source to block edits to synced contacts)
-    const cur = await query<{ id: string; user_id: string; address_book_id: string; uid?: string | null; vcard?: string | null; book_source?: string | null; title?: string | null; role?: string | null; nickname?: string | null; urls?: VCardContact['urls']; instant_messages?: VCardContact['instantMessages']; categories?: string[] | null; addresses?: VCardContact['addresses']; birthday?: string | null; anniversary?: string | null; [key: string]: unknown }>(
+    const cur = await query<{ id: string; user_id: string; address_book_id: string; uid?: string | null; vcard?: string | null; book_source?: string | null; title?: string | null; role?: string | null; nickname?: string | null; urls?: VCardContact['urls']; instant_messages?: VCardContact['instantMessages']; categories?: string[]; addresses?: VCardContact['addresses']; birthday?: string | null; anniversary?: string | null; [key: string]: unknown }>(
       `SELECT c.*, ab.source AS book_source FROM contacts c
        JOIN address_books ab ON ab.id = c.address_book_id
        WHERE c.id = $1 AND c.user_id = $2`,

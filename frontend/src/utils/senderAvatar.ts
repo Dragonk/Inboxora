@@ -1,4 +1,4 @@
-export function senderDomainFromEmail(email) {
+export function senderDomainFromEmail(email: unknown) {
   if (typeof email !== 'string') return null;
   const value = email.trim();
   const firstAt = value.indexOf('@');
@@ -15,7 +15,12 @@ export function senderDomainFromEmail(email) {
   return domain;
 }
 
-export function avatarImageCandidates({ email, hasContactPhoto, gravatarAvatars = undefined, senderFavicons = undefined }) {
+export function avatarImageCandidates({ email, hasContactPhoto, gravatarAvatars = undefined, senderFavicons = undefined }: {
+  email?: unknown;
+  hasContactPhoto?: boolean;
+  gravatarAvatars?: boolean;
+  senderFavicons?: boolean;
+}) {
   const trimmed = typeof email === 'string' ? email.trim() : '';
   if (!trimmed) return [];
   /** The image sources tried in order, with the reason each one is offered. */

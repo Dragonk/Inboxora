@@ -12,24 +12,25 @@ const HTML_ENTITY = /&(?:nbsp|amp|lt|gt|quot|#\d{2,5}|#x[0-9a-f]{2,5});/i;
 // What an "empty" WYSIWYG document looks like once serialized.
 const EMPTY_DOCUMENT = /^\s*<p>(?:\s|<br\s*\/?>|&nbsp;)*<\/p>\s*$/i;
 
-export function isHtmlRichText(value) {
+export function isHtmlRichText(value: unknown): boolean {
   if (typeof value !== 'string' || !value) return false;
   return HTML_MARKUP.test(value) || HTML_ENTITY.test(value);
 }
 
 // An editor left untouched still emits "<p></p>"; that is no description at all.
-export function isEmptyRichText(value) {
+export function isEmptyRichText(value: unknown): boolean {
   if (typeof value !== 'string') return true;
   const trimmed = value.trim();
   return !trimmed || EMPTY_DOCUMENT.test(trimmed);
 }
 
 // The value the API should store: null when there is nothing to keep.
-export function richTextOrNull(value) {
-  return isEmptyRichText(value) ? null : value.trim();
+export function richTextOrNull(value: string | null | undefined): string | null {
+  if (typeof value !== 'string' || isEmptyRichText(value)) return null;
+  return value.trim();
 }
 
-function escapeHtmlText(value) {
+function escapeHtmlText(value: string): string {
   return value.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/'/g, '&#39;');
 }
 
@@ -40,11 +41,11 @@ const TRAILING_PUNCTUATION = /[.,;:!?)\]]+$/;
 
 // Outlook/Exchange writes plain-text links as <https://example.test/x>; the angle
 // brackets are delimiters, not content, so only the address is kept.
-export function unwrapAngleBracketUrls(text) {
+export function unwrapAngleBracketUrls(text: string): string {
   return String(text || '').replace(/<((?:https?:\/\/|mailto:)[^\s<>]+)>/gi, '$1');
 }
 
-function linkifyLine(line) {
+function linkifyLine(line: string): string {
   const normalized = unwrapAngleBracketUrls(line);
   const parts: unknown[] = [];
   let cursor = 0;
@@ -62,7 +63,7 @@ function linkifyLine(line) {
 
 // Plain text as a mail-like body: blank lines separate paragraphs, single newlines
 // stay line breaks, and every address becomes a working link.
-export function plainTextToHtml(text) {
+export function plainTextToHtml(text: string): string {
   const normalized = String(text || '').replace(/\r\n?/g, '\n');
   if (!normalized.trim()) return '';
   return normalized
@@ -72,8 +73,8 @@ export function plainTextToHtml(text) {
 }
 
 // The props MessageBodyRenderer expects: exactly one of html/text is used.
-export function calendarDescriptionBody(description) {
-  if (isEmptyRichText(description)) return { html: '', text: '' };
+export function calendarDescriptionBody(description: unknown): { html: string; text: string } {
+  if (typeof description !== 'string' || isEmptyRichText(description)) return { html: '', text: '' };
   if (isHtmlRichText(description)) return { html: description, text: '' };
   // A plain-text description — what an invitation accepted from Outlook carries —
   // goes through the same HTML path as a message body so it renders as paragraphs
@@ -84,8 +85,8 @@ export function calendarDescriptionBody(description) {
 // What the WYSIWYG editor should show for a stored description. Plain text keeps
 // its line structure instead of collapsing into a single paragraph, and is escaped
 // so the editor never displays it as markup.
-export function richTextEditorContent(value) {
-  if (isEmptyRichText(value)) return '';
+export function richTextEditorContent(value: string | null | undefined): string {
+  if (typeof value !== 'string' || isEmptyRichText(value)) return '';
   if (isHtmlRichText(value)) return value;
-  return String(value).split(/\r?\n/).map(line => `<p>${escapeHtmlText(line)}</p>`).join('');
+  return value.split(/\r?\n/).map(line => `<p>${escapeHtmlText(line)}</p>`).join('');
 }

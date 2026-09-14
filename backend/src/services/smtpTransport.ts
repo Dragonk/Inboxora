@@ -2,23 +2,57 @@ import nodemailer from 'nodemailer';
 import { refreshMicrosoftToken } from '../routes/oauth.js';
 import { decrypt } from './encryption.js';
 import { getConnectionPolicy } from './connectionPolicy.js';
-import { resolveForConnection } from './hostValidation.js';
+import { resolveForConnection, type ResolvedConnectionInfo } from './hostValidation.js';
 import { toAppError } from '../utils/errors.js';
 
 const SMTP_ATTEMPT_TIMEOUT_MS = 10_000;
 const SMTP_FAILOVER_BUDGET_MS = 45_000;
 
-export function isPreDeliveryConnectionError(err) {
+/** The fields of an SMTP failure this module inspects: nodemailer sets `command` to the
+ *  protocol stage that failed (e.g. 'CONN' for connection establishment). */
+interface SmtpFailureLike {
+  message?: unknown;
+  command?: string;
+}
+
+export function isPreDeliveryConnectionError(err: SmtpFailureLike) {
   return err?.command === 'CONN';
 }
 
+/** The transporter nodemailer hands back, and the option/message shapes it uses. */
+type NodemailerTransporter = ReturnType<typeof nodemailer.createTransport>;
+type NodemailerSentMessageInfo = Awaited<ReturnType<NodemailerTransporter['sendMail']>>;
+type NodemailerTransportOptions = NodemailerTransporter['_defaults'];
+
 export interface SmtpTransportLike {
-  sendMail?(mailOptions: unknown): Promise<{ accepted?: string[]; rejected?: string[] }>;
+  sendMail?(mailOptions: unknown): Promise<NodemailerSentMessageInfo>;
   verify?(): Promise<unknown>;
   close?(): void;
 }
 
-type CreateTransportFactory = (options: unknown) => SmtpTransportLike;
+/** The connection options the factory receives, mirroring nodemailer's own option type. */
+type SmtpTransportOptions = {
+  host?: NodemailerTransportOptions['host'];
+  port?: NodemailerTransportOptions['port'];
+  secure?: NodemailerTransportOptions['secure'];
+  ignoreTLS?: NodemailerTransportOptions['ignoreTLS'];
+  auth?: NodemailerTransportOptions['auth'];
+  tls?: NodemailerTransportOptions['tls'];
+  connectionTimeout?: NodemailerTransportOptions['connectionTimeout'];
+  greetingTimeout?: NodemailerTransportOptions['greetingTimeout'];
+};
+
+type CreateTransportFactory = (options: SmtpTransportOptions) => SmtpTransportLike;
+
+/** A transport guaranteed to implement the method an operation calls. */
+type SmtpSenderLike = SmtpTransportLike & { sendMail: NonNullable<SmtpTransportLike['sendMail']> };
+type SmtpVerifierLike = SmtpTransportLike & { verify: NonNullable<SmtpTransportLike['verify']> };
+
+/** The callbacks this module returns; both are always implemented. */
+interface SmtpTransportHandle {
+  sendMail(mailOptions: unknown): Promise<NodemailerSentMessageInfo>;
+  verify(): Promise<unknown>;
+}
 
 async function runWithAddressFallback<T>({
   resolved,
@@ -27,9 +61,9 @@ async function runWithAddressFallback<T>({
   createTransport = nodemailer.createTransport,
   now = Date.now,
 }: {
-  resolved: { host: string; servername?: string | null; addresses?: string[] };
+  resolved: ResolvedConnectionInfo;
   transportOptions: Record<string, unknown>;
-  operation: (transport: SmtpTransportLike) => Promise<T>;
+  operation(transport: SmtpTransportLike): Promise<T>;
   createTransport?: CreateTransportFactory;
   now?: () => number;
 }) {
@@ -65,31 +99,55 @@ async function runWithAddressFallback<T>({
   throw lastError;
 }
 
-export function createSmtpTransport(resolved, transportOptions, createTransport: CreateTransportFactory = nodemailer.createTransport) {
+export function createSmtpTransport(
+  resolved: ResolvedConnectionInfo,
+  transportOptions: Record<string, unknown>,
+  createTransport: CreateTransportFactory = nodemailer.createTransport,
+): SmtpTransportHandle {
   return {
     sendMail: mailOptions => runWithAddressFallback({
       resolved,
       transportOptions,
-      operation: (transport: { sendMail: NonNullable<SmtpTransportLike['sendMail']> }) => transport.sendMail(mailOptions),
+      operation: (transport: SmtpSenderLike) => transport.sendMail(mailOptions),
       createTransport,
     }),
     verify: () => runWithAddressFallback({
       resolved,
       transportOptions,
-      operation: (transport: { verify: NonNullable<SmtpTransportLike['verify']> }) => transport.verify(),
+      operation: (transport: SmtpVerifierLike) => transport.verify(),
       createTransport,
     }),
   };
 }
 
-export async function createAccountSmtpTransport(inputAccount) {
-  let account = inputAccount;
+/** The account columns the SMTP setup reads. Partial because callers/tests may pass a subset. */
+type SmtpAccountFields = {
+  user_id?: string;
+  id?: string;
+  email_address?: string | null;
+  name?: string | null;
+  sender_name?: string | null;
+  auth_user?: string | null;
+  auth_pass?: string | null;
+  smtp_auth_user?: string | null;
+  smtp_auth_pass?: string | null;
+  smtp_host?: string | null;
+  smtp_port?: number;
+  smtp_tls?: string | null;
+  imap_skip_tls_verify?: boolean;
+  oauth_provider?: string | null;
+  oauth_access_token?: string | null;
+  oauth_token_expiry?: string | Date | null;
+};
+
+export async function createAccountSmtpTransport<Account extends SmtpAccountFields>(inputAccount: Account) {
+  let account: SmtpAccountFields = inputAccount;
   if (account.oauth_provider === 'microsoft') {
     const expiryMs = account.oauth_token_expiry
       ? new Date(account.oauth_token_expiry).getTime()
       : 0;
-    if (expiryMs - Date.now() < 5 * 60 * 1000) {
-      account = await refreshMicrosoftToken(account);
+    if (typeof account.id === 'string' && expiryMs - Date.now() < 5 * 60 * 1000) {
+      account = await refreshMicrosoftToken({ ...account, id: account.id });
     }
   }
 
@@ -137,7 +195,7 @@ export async function createAccountSmtpTransport(inputAccount) {
     };
   }
 
-  const tls: Record<string, any> = {
+  const tls: NonNullable<NodemailerTransportOptions['tls']> = {
     rejectUnauthorized: !(policy.allowInsecureTls && account.imap_skip_tls_verify),
   };
   if (resolved.servername) tls.servername = resolved.servername;
@@ -150,5 +208,8 @@ export async function createAccountSmtpTransport(inputAccount) {
     auth,
     tls,
   });
-  return { account, transport };
+  return {
+    account: account === inputAccount ? inputAccount : { ...inputAccount, ...account },
+    transport,
+  };
 }

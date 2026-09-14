@@ -90,7 +90,7 @@ function stripMsoConditionals(hc: string): string {
   return out + hc.slice(pos);
 }
 
-export function stripEmailHead(html: string): string {
+export function stripEmailHead<T extends string | null | undefined>(html: T): T | string {
   if (!html) return html;
   return scanPaired(html, /<head\b/gi, '</head>', (_open, headContent) => {
     const noMso = stripMsoConditionals(headContent);
@@ -129,7 +129,7 @@ function normalizeHref(href: string): string | null {
 
 // Rewrite anchor hrefs in already-cached HTML — applied at serve-time for emails
 // stored before href normalisation was added to sanitizeEmail().
-export function rewriteAnchorHrefs(html: string): string {
+export function rewriteAnchorHrefs<T extends string | null | undefined>(html: T): T | string {
   if (!html) return html;
   return html.replace(
     /(<a\b[^>]*?\s)href=(["'])([^"']*)\2/gi,
@@ -329,7 +329,7 @@ export function sanitizeEmail(html: string): string {
 
 // Sanitize user-authored compose body HTML — allows rich formatting and inline
 // images (data: or https:) but strips scripts and event handlers.
-export function sanitizeComposeBody(html: string): string {
+export function sanitizeComposeBody<T extends string | null | undefined>(html: T): T | string {
   if (!html) return html;
   return sanitizeHtml(html, {
     allowedTags: [
@@ -365,7 +365,7 @@ export function sanitizeComposeBody(html: string): string {
 
 // Sanitize user-authored signature HTML — allows common formatting and images
 // but strips all event handlers and scripts. Stricter than sanitizeEmail().
-export function sanitizeSignature(html: string): string {
+export function sanitizeSignature<T extends string | null | undefined>(html: T): T | string {
   if (!html) return html;
   return sanitizeHtml(html, {
     allowedTags: [
@@ -400,7 +400,7 @@ export function sanitizeSignature(html: string): string {
 // Returns true if the sanitized HTML contains any remote http/https image references,
 // including CSS @import with a bare quoted URL (not wrapped in url()) which bypasses
 // the url() pattern check but still causes an outbound stylesheet request.
-export function hasRemoteImages(html: string): boolean {
+export function hasRemoteImages<T extends string | null | undefined>(html: T): boolean {
   if (!html) return false;
   return (
     /<img\b[^>]*\ssrc=["']https?:\/\//i.test(html) ||
@@ -415,7 +415,7 @@ export function hasRemoteImages(html: string): boolean {
 // data: and cid: sources are always left intact.
 // Never call this on HTML that will be written back to the database — apply only at
 // response time so the canonical cached body remains unmodified.
-export function blockRemoteImages(html: string): string {
+export function blockRemoteImages<T extends string | null | undefined>(html: T): T | string {
   if (!html) return html;
 
   // Block <img src="https://..."> — replace with a dimension-preserving SVG placeholder

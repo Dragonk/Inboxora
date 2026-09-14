@@ -15,6 +15,39 @@ import { pushConfigured, sendPushToUser } from './pushNotifications.js';
 import { disablePushDevice, listActivePushDevices, markPushDeviceFailure } from './pushDevices.js';
 import { TRANSPORT_INVALID, TRANSPORT_RETRY, sendNativePush } from './pushTransports.js';
 import { toAppError } from '../utils/errors.js';
+import type { buildMailNotificationEvent } from './mailNotificationEvent.js';
+
+/** The canonical event built by buildMailNotificationEvent(). */
+type BuiltMailNotificationEvent = ReturnType<typeof buildMailNotificationEvent>;
+
+/**
+ * The slice of the canonical event the dispatcher consumes. The Web Push payload
+ * is forwarded opaquely, so only its optional fields are declared.
+ */
+type MailNotificationEvent = {
+  userId?: BuiltMailNotificationEvent['userId'];
+  eventId?: BuiltMailNotificationEvent['eventId'];
+  webPush: Partial<BuiltMailNotificationEvent['webPush']>;
+  native: BuiltMailNotificationEvent['native'];
+};
+
+/** A push_devices row after listActivePushDevices() decrypts its endpoint. */
+type ActivePushDevice = {
+  id?: string;
+  device_id?: string;
+  platform?: string;
+  transport?: string;
+  endpoint?: string | null;
+  failure_count?: number;
+};
+
+/** Per-transport outcome accumulated by dispatchMailNotification(). */
+interface DispatchSummary {
+  dispatched: boolean;
+  webPush: string;
+  native: { delivered: number; invalid: number; retry: number; disabled: number; skipped: string | null };
+  skipped?: string;
+}
 
 // Defence-in-depth against a duplicate emission of the same persisted message
 // (e.g. two sync ticks racing to report the same arrival). Bounded and
@@ -43,13 +76,13 @@ export function resetDispatchDedup() {
   recentEvents.clear();
 }
 
-async function dispatchWebPush(event, summary) {
+async function dispatchWebPush(userId: string, event: MailNotificationEvent, summary: DispatchSummary) {
   if (!pushConfigured) {
     summary.webPush = 'disabled';
     return;
   }
   try {
-    await sendPushToUser(event.userId, event.webPush);
+    await sendPushToUser(userId, event.webPush);
     summary.webPush = 'delivered';
   } catch (caught) {
     const err = toAppError(caught);
@@ -58,15 +91,16 @@ async function dispatchWebPush(event, summary) {
   }
 }
 
-async function dispatchNative(event, summary) {
-  if (!event.native?.eventId) {
+async function dispatchNative(userId: string, event: MailNotificationEvent, summary: DispatchSummary) {
+  const native = event.native;
+  if (!native?.eventId) {
     summary.native.skipped = 'no-event-id';
     return;
   }
 
   let devices;
   try {
-    devices = await listActivePushDevices(event.userId);
+    devices = await listActivePushDevices(userId);
   } catch (caught) {
     const err = toAppError(caught);
     summary.native.skipped = 'lookup-failed';
@@ -74,10 +108,10 @@ async function dispatchNative(event, summary) {
     return;
   }
 
-  await Promise.allSettled(devices.map(async (device) => {
+  await Promise.allSettled(devices.map(async (device: ActivePushDevice) => {
     let verdict;
     try {
-      verdict = await sendNativePush(device, event.native);
+      verdict = await sendNativePush(device, native);
     } catch (caught) {
       const err = toAppError(caught);
       // A transport must not throw, but a bug must not take the whole fan-out down.
@@ -99,13 +133,7 @@ async function dispatchNative(event, summary) {
   }));
 }
 
-export async function dispatchMailNotification(event) {
-  interface DispatchSummary {
-    dispatched: boolean;
-    webPush: string;
-    native: { delivered: number; invalid: number; retry: number; disabled: number; skipped: string | null };
-    skipped?: string;
-  }
+export async function dispatchMailNotification(event: MailNotificationEvent) {
   const summary: DispatchSummary = {
     dispatched: false,
     webPush: 'skipped',
@@ -119,8 +147,8 @@ export async function dispatchMailNotification(event) {
 
   summary.dispatched = true;
   await Promise.allSettled([
-    dispatchWebPush(event, summary),
-    dispatchNative(event, summary),
+    dispatchWebPush(event.userId, event, summary),
+    dispatchNative(event.userId, event, summary),
   ]);
   return summary;
 }
