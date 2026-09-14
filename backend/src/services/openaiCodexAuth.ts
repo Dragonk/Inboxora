@@ -406,7 +406,7 @@ export function createPostgresCodexStore() {
         );
         return callback({
           encryptedCredential: result.rows[0]?.encrypted_payload || null,
-          save: async (value) => {
+          save: async (value: string) => {
             await client.query(
               `INSERT INTO ai_codex_credentials (singleton, encrypted_payload, updated_at)
                VALUES (TRUE, $1, NOW())

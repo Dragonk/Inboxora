@@ -288,7 +288,7 @@ describe('runTransitionsForSentMessage', () => {
     const mgr = fakeManager();
     await runTransitionsForSentMessage(mgr, { ...account, gtd_enabled: true }, '<abc@example.com>');
 
-    const midCall = query.mock.calls.find(([sql]) => sql.includes('message_id = ANY'));
+    const midCall = query.mock.calls.find(([sql]: [string]) => sql.includes('message_id = ANY'));
     if (!midCall) throw new Error('expected the Message-ID lookup');
     expect(midCall[1]).toEqual(['acct-1', ['abc@example.com', '<abc@example.com>']]);
     expect(mgr.removeMessageCopy).toHaveBeenCalledWith('acct-1', 81, 'Todo');
@@ -300,7 +300,7 @@ describe('runTransitionsForSentMessage', () => {
     const mgr = fakeManager();
     await runTransitionsForSentMessage(mgr, { ...account, gtd_enabled: true }, '<notyet@example.com>');
     // Only the Message-ID lookup ran; the engine short-circuits on an empty thread set.
-    expect(query.mock.calls.every(([sql]) => sql.includes('message_id = ANY'))).toBe(true);
+    expect(query.mock.calls.every(([sql]: [string]) => sql.includes('message_id = ANY'))).toBe(true);
     expect(mgr.removeMessageCopy).not.toHaveBeenCalled();
     expect(mgr.broadcast).not.toHaveBeenCalled();
   });

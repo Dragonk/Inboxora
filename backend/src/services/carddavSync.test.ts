@@ -41,7 +41,7 @@ describe('remote CardDAV contact-date persistence', () => {
   it('binds Apple and Android labelled dates to contact_dates and updates them idempotently', async () => {
     await expect(syncUser('user-1')).resolves.toMatchObject({ ok: true, contactCount: 2 });
 
-    const upserts = query.mock.calls.filter(([sql]) => sql.includes('INSERT INTO contacts'));
+    const upserts = query.mock.calls.filter(([sql]: [string]) => sql.includes('INSERT INTO contacts'));
     expect(upserts).toHaveLength(2);
     for (const [sql, params] of upserts) {
       expect(sql).toContain('anniversary, contact_dates, photo_data');
@@ -58,7 +58,7 @@ describe('remote CardDAV contact-date persistence', () => {
 
     query.mockClear();
     await expect(syncUser('user-1')).resolves.toMatchObject({ ok: true, contactCount: 2 });
-    const secondUpserts = query.mock.calls.filter(([sql]) => sql.includes('INSERT INTO contacts'));
+    const secondUpserts = query.mock.calls.filter(([sql]: [string]) => sql.includes('INSERT INTO contacts'));
     expect(secondUpserts.map(([, params]) => params[15])).toEqual(upserts.map(([, params]) => params[15]));
   });
 
@@ -79,7 +79,7 @@ describe('remote CardDAV contact-date persistence', () => {
     fetchAddressBookCards.mockResolvedValue([{ href, vcard }]);
 
     await expect(syncUser('user-1')).resolves.toMatchObject({ ok: true, contactCount: 0 });
-    const [mergeSql, mergeParams] = query.mock.calls.find(([sql]) => sql.includes('UPDATE contacts SET'));
+    const [mergeSql, mergeParams] = query.mock.calls.find(([sql]: [string]) => sql.includes('UPDATE contacts SET'));
 
     expect(mergeSql).toContain('contact_dates = $10::jsonb');
     expect(mergeSql).toContain('photo_data = COALESCE($11, photo_data)');
@@ -99,7 +99,7 @@ describe('remote CardDAV contact-date persistence', () => {
 
     query.mockClear();
     await expect(syncUser('user-1')).resolves.toMatchObject({ ok: true, contactCount: 0 });
-    const [, secondMergeParams] = query.mock.calls.find(([sql]) => sql.includes('UPDATE contacts SET'));
+    const [, secondMergeParams] = query.mock.calls.find(([sql]: [string]) => sql.includes('UPDATE contacts SET'));
     expect(secondMergeParams[9]).toBe(mergeParams[9]);
   });
 

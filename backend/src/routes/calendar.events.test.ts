@@ -10,7 +10,7 @@ import 'express-async-errors';
 
 const { query } = vi.hoisted<any>(() => ({ query: vi.fn() }));
 vi.mock('../services/db.js', () => ({ query, withTransaction: vi.fn(async (fn) => fn({ query })) }));
-vi.mock('../services/encryption.js', () => ({ encrypt: (value) => `enc:${value}`, decrypt: (value) => value, }));
+vi.mock('../services/encryption.js', () => ({ encrypt: (value: string) => `enc:${value}`, decrypt: (value: string) => value, }));
 vi.mock('../services/calendarInvitation.js', () => ({ sendCalendarInvitation: vi.fn() }));
 vi.mock('../services/externalCalendarSync.js', () => ({ releaseCalendarSource: vi.fn(), scheduleCalendarSource: vi.fn(), stopCalendarSource: vi.fn(), syncCalendarSource: vi.fn() }));
 vi.mock('../middleware/auth.js', () => ({ requireAuth: (req: { headers: Record<string, string>; session?: { userId?: string } }, _res: unknown, next: () => void) => { req.session = { userId: 'user-1' }; next(); } }));
@@ -47,19 +47,19 @@ const calendarId = '11111111-1111-4111-8111-111111111111';
 describe('GET /api/calendar/events calendar selection', () => {
   it('keeps the owner scope on every query', async () => {
     await fetch(`${base}/api/calendar/events?${RANGE}`);
-    const eventQuery = query.mock.calls.find(([sql]) => sql.includes('FROM calendar_events'));
+    const eventQuery = query.mock.calls.find(([sql]: [string]) => sql.includes('FROM calendar_events'));
     expect(eventQuery[0]).toContain('e.user_id = $1 AND c.user_id = $1 AND c.owner_user_id = $1');
     expect(eventQuery[1][0]).toBe('user-1');
   });
 
   it('adds a parameterised calendar filter only when a selection is supplied', async () => {
     await fetch(`${base}/api/calendar/events?${RANGE}`);
-    const unfiltered = query.mock.calls.find(([sql]) => sql.includes('FROM calendar_events'));
+    const unfiltered = query.mock.calls.find(([sql]: [string]) => sql.includes('FROM calendar_events'));
     expect(unfiltered[0]).not.toContain('ANY($4::uuid[])');
 
     query.mockClear();
     await fetch(`${base}/api/calendar/events?${RANGE}&calendarIds=${calendarId}`);
-    const filtered = query.mock.calls.find(([sql]) => sql.includes('FROM calendar_events'));
+    const filtered = query.mock.calls.find(([sql]: [string]) => sql.includes('FROM calendar_events'));
     expect(filtered[0]).toContain('c.id = ANY($4::uuid[])');
     expect(filtered[1][3]).toEqual([calendarId]);
   });
@@ -69,14 +69,14 @@ describe('GET /api/calendar/events calendar selection', () => {
     expect(response.status).toBe(200);
     expect((await response.json()) as JsonBody).toEqual({ events: [], truncated: false });
     // No event query at all: an empty selection cannot match a calendar.
-    expect(query.mock.calls.some(([sql]) => sql.includes('FROM calendar_events'))).toBe(false);
+    expect(query.mock.calls.some(([sql]: [string]) => sql.includes('FROM calendar_events'))).toBe(false);
   });
 
   it('skips the event query when only the contact calendar is selected', async () => {
     const response = await fetch(`${base}/api/calendar/events?${RANGE}&calendarIds=contacts-birthdays`);
     expect(response.status).toBe(200);
-    expect(query.mock.calls.some(([sql]) => sql.includes('FROM calendar_events'))).toBe(false);
-    expect(query.mock.calls.some(([sql]) => sql.includes('FROM contacts'))).toBe(true);
+    expect(query.mock.calls.some(([sql]: [string]) => sql.includes('FROM calendar_events'))).toBe(false);
+    expect(query.mock.calls.some(([sql]: [string]) => sql.includes('FROM contacts'))).toBe(true);
   });
 
   it('rejects a malformed calendar id before touching the database', async () => {
@@ -89,13 +89,13 @@ describe('GET /api/calendar/events calendar selection', () => {
   it('accepts a comma-separated selection and de-duplicates it', async () => {
     const other = '22222222-2222-4222-8222-222222222222';
     await fetch(`${base}/api/calendar/events?${RANGE}&calendarIds=${calendarId},${other},${calendarId}`);
-    const filtered = query.mock.calls.find(([sql]) => sql.includes('FROM calendar_events'));
+    const filtered = query.mock.calls.find(([sql]: [string]) => sql.includes('FROM calendar_events'));
     expect(filtered[1][3]).toEqual([calendarId, other]);
   });
 
   it('finds recurring series through the indexed column, never a regex over raw_ical', async () => {
     await fetch(`${base}/api/calendar/events?${RANGE}`);
-    const eventQuery = query.mock.calls.find(([sql]) => sql.includes('FROM calendar_events'));
+    const eventQuery = query.mock.calls.find(([sql]: [string]) => sql.includes('FROM calendar_events'));
     // The recurring half of "in this window, or a series" decides whether the planner can
     // use an index at all. As a regex over an unindexed TEXT column it could not, so every
     // event the user owned was scanned and its raw_ical detoasted — measured at 131 ms
@@ -109,7 +109,7 @@ describe('GET /api/calendar/events calendar selection', () => {
     // The read path has two queries now — materialised occurrences and the live fallback — and
     // both expose the mail link, so both must carry the tenant-safe join. Checking only the
     // first match would let a regression through in whichever one moved.
-    const eventQueries = query.mock.calls.filter(([sql]) => sql.includes('FROM calendar_events'));
+    const eventQueries = query.mock.calls.filter(([sql]: [string]) => sql.includes('FROM calendar_events'));
     expect(eventQueries.length).toBeGreaterThan(0);
     for (const [sql] of eventQueries) {
       // The link back to the original mail must not be able to cross tenants, and it
@@ -126,7 +126,7 @@ describe('GET /api/calendar/events calendar selection', () => {
   // appearing in the default colour while their neighbours kept the calendar's own.
   it('exposes the same calendar metadata from both read paths', async () => {
     await fetch(`${base}/api/calendar/events?${RANGE}`);
-    const eventQueries = query.mock.calls.filter(([sql]) => sql.includes('FROM calendar_events') || sql.includes('FROM calendar_occurrences o'));
+    const eventQueries = query.mock.calls.filter(([sql]: [string]) => sql.includes('FROM calendar_events') || sql.includes('FROM calendar_occurrences o'));
     expect(eventQueries.length).toBe(2);
     for (const [sql] of eventQueries) {
       // raw_ical is deliberately absent from the materialised path: stored occurrences do not

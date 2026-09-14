@@ -8,7 +8,7 @@ const { query, safeFetch, getConnectionPolicy } = vi.hoisted<any>(() => ({
 vi.mock('./db.js', () => ({ query }));
 vi.mock('./safeFetch.js', () => ({ safeFetch }));
 vi.mock('./connectionPolicy.js', () => ({ getConnectionPolicy }));
-vi.mock('./encryption.js', () => ({ decrypt: (value) => value?.startsWith('enc:v1:') ? value.slice('enc:v1:'.length) : value }));
+vi.mock('./encryption.js', () => ({ decrypt: (value: string) => value?.startsWith('enc:v1:') ? value.slice('enc:v1:'.length) : value }));
 
 import { stopCalendarSource, syncCalendarSource } from './externalCalendarSync.js';
 
@@ -39,8 +39,8 @@ describe('external calendar imports', () => {
     expect(result).toEqual({ ok: true, eventCount: 1 });
     expect(safeFetch).toHaveBeenCalledWith('https://calendar.example/events.ics', expect.objectContaining({ headers: { Accept: 'text/calendar' } }), { allowPrivate: false });
     expect(query.mock.calls[2][1]).toEqual(['user-1', 'Holiday calendar', null, 'ical_url', 'source:source-1']);
-    const eventInsert = query.mock.calls.find(([sql]) => sql.includes('INSERT INTO calendar_events'));
-    const staleDelete = query.mock.calls.find(([sql]) => sql.includes('DELETE FROM calendar_events'));
+    const eventInsert = query.mock.calls.find(([sql]: [string]) => sql.includes('INSERT INTO calendar_events'));
+    const staleDelete = query.mock.calls.find(([sql]: [string]) => sql.includes('DELETE FROM calendar_events'));
     expect(eventInsert?.[1]).toContain('event-1');
     expect(staleDelete?.[1]).toEqual(['calendar-1', ['event-1']]);
   });
@@ -49,9 +49,9 @@ describe('external calendar imports', () => {
     query.mockResolvedValue({ rows: [] }).mockResolvedValueOnce({ rows: [source] }).mockResolvedValueOnce({ rows: [{ id: 'calendar-work' }] });
     safeFetch.mockResolvedValue({ ok: true, text: vi.fn().mockResolvedValue(outlookCalendar()) });
     expect(await syncCalendarSource('user-1', 'source-1')).toEqual({ ok: true, eventCount: 1 });
-    const inserted = query.mock.calls.find(([sql]) => sql.includes('INSERT INTO calendar_events'));
+    const inserted = query.mock.calls.find(([sql]: [string]) => sql.includes('INSERT INTO calendar_events'));
     expect(inserted[1][6].toISOString()).toBe('2026-09-10T07:00:00.000Z');
-    expect(query.mock.calls.some(([sql]) => /UPDATE calendars|INSERT INTO calendars/.test(sql))).toBe(false);
+    expect(query.mock.calls.some(([sql]: [string]) => /UPDATE calendars|INSERT INTO calendars/.test(sql))).toBe(false);
   });
   it('imports a recurring VEVENT without discarding its VCALENDAR context or non-event siblings', async () => {
     const richIcal = 'BEGIN:VCALENDAR\r\nVERSION:2.0\r\nBEGIN:VTIMEZONE\r\nTZID:Europe/Berlin\r\nEND:VTIMEZONE\r\nBEGIN:VEVENT\r\nUID:weekly-planning\r\nDTSTART;TZID=Europe/Berlin:20260901T090000\r\nDURATION:PT1H\r\nRRULE:FREQ=WEEKLY;COUNT=4\r\nATTENDEE;CN=Sam:mailto:sam@example.test\r\nATTENDEE;CN=Taylor:mailto:taylor@example.test\r\nX-INBOXORA-EXAMPLE:kept\r\nBEGIN:VALARM\r\nACTION:DISPLAY\r\nTRIGGER:-PT15M\r\nDESCRIPTION:Reminder\r\nEND:VALARM\r\nEND:VEVENT\r\nBEGIN:VTODO\r\nUID:todo-1\r\nSUMMARY:Not an event projection\r\nEND:VTODO\r\nBEGIN:VJOURNAL\r\nUID:journal-1\r\nEND:VJOURNAL\r\nBEGIN:VFREEBUSY\r\nUID:freebusy-1\r\nEND:VFREEBUSY\r\nEND:VCALENDAR\r\n';
@@ -67,7 +67,7 @@ describe('external calendar imports', () => {
     const result = await syncCalendarSource('user-1', 'source-1');
 
     expect(result).toEqual({ ok: true, eventCount: 1 });
-    const eventInsert = query.mock.calls.find(([sql]) => sql.includes('INSERT INTO calendar_events'));
+    const eventInsert = query.mock.calls.find(([sql]: [string]) => sql.includes('INSERT INTO calendar_events'));
     const storedRaw = eventInsert?.[1][3];
     expect(storedRaw).toContain('BEGIN:VTIMEZONE');
     expect(storedRaw).toContain('RRULE:FREQ=WEEKLY;COUNT=4');
@@ -75,7 +75,7 @@ describe('external calendar imports', () => {
     expect(storedRaw).toContain('BEGIN:VALARM');
     expect(storedRaw).toContain('X-INBOXORA-EXAMPLE:kept');
     expect(storedRaw).not.toContain('BEGIN:VTODO');
-    const storedDocument = query.mock.calls.find(([sql]) => sql.includes('calendar_import_documents'));
+    const storedDocument = query.mock.calls.find(([sql]: [string]) => sql.includes('calendar_import_documents'));
     expect(storedDocument?.[1]).toEqual(['source-1', richIcal]);
     expect(query.mock.calls.at(-1)[0]).toContain('last_error = NULL');
     expect(query.mock.calls.at(-1)[1]).toEqual(['source-1']);
@@ -95,7 +95,7 @@ describe('external calendar imports', () => {
     const result = await syncCalendarSource('user-1', 'source-1');
 
     expect(result).toEqual({ ok: true, eventCount: 1 });
-    const eventInsert = query.mock.calls.find(([sql]) => sql.includes('INSERT INTO calendar_events'));
+    const eventInsert = query.mock.calls.find(([sql]: [string]) => sql.includes('INSERT INTO calendar_events'));
     expect(eventInsert?.[1][3]).toContain('UID:cr-only\r');
   });
 
@@ -105,7 +105,7 @@ describe('external calendar imports', () => {
     safeFetch.mockResolvedValue({ ok: true, text: vi.fn().mockResolvedValue(fixture) });
     const result = await syncCalendarSource('user-1', 'source-1');
     expect(result).toEqual({ ok: true, eventCount: 1 });
-    const eventInsert = query.mock.calls.find(([sql]) => sql.includes('INSERT INTO calendar_events'));
+    const eventInsert = query.mock.calls.find(([sql]: [string]) => sql.includes('INSERT INTO calendar_events'));
     expect(eventInsert?.[1]).toEqual(expect.arrayContaining(['all-day-no-end', true, new Date('2026-09-01T00:00:00.000Z'), new Date('2026-09-02T00:00:00.000Z')]));
   });
 
@@ -116,7 +116,7 @@ describe('external calendar imports', () => {
     const result = await syncCalendarSource('user-1', 'source-1');
 
     expect(result).toEqual({ ok: false, error: 'Remote calendar contains an unsupported event' });
-    expect(query.mock.calls.some(([sql]) => sql.includes('DELETE FROM calendar_events'))).toBe(false);
+    expect(query.mock.calls.some(([sql]: [string]) => sql.includes('DELETE FROM calendar_events'))).toBe(false);
   });
 
   it('keeps the prior projection when an ICS source returns an empty body', async () => {
@@ -128,7 +128,7 @@ describe('external calendar imports', () => {
     const result = await syncCalendarSource('user-1', 'source-1');
 
     expect(result).toEqual({ ok: false, error: 'Remote calendar did not contain any VEVENT components' });
-    expect(query.mock.calls.some(([sql]) => sql.includes('DELETE FROM calendar_events'))).toBe(false);
+    expect(query.mock.calls.some(([sql]: [string]) => sql.includes('DELETE FROM calendar_events'))).toBe(false);
   });
 
   it('imports valid events while retaining skipped UIDs and reporting a warning', async () => {
@@ -137,7 +137,7 @@ describe('external calendar imports', () => {
     safeFetch.mockResolvedValue({ ok: true, text: vi.fn().mockResolvedValue(mixedIcal) });
     const result = await syncCalendarSource('user-1', 'source-1');
     expect(result).toEqual({ ok: true, eventCount: 1, skipped: [{ uid: 'broken-event', reason: 'unsupported or malformed VEVENT' }] });
-    const staleDelete = query.mock.calls.find(([sql]) => sql.includes('DELETE FROM calendar_events'));
+    const staleDelete = query.mock.calls.find(([sql]: [string]) => sql.includes('DELETE FROM calendar_events'));
     expect(staleDelete?.[1]).toEqual(['calendar-1', ['event-1', 'broken-event']]);
     expect(JSON.parse(query.mock.calls.at(-1)[1][1])).toEqual({ code: 'unsupported_events', count: 1, samples: [{ uid: 'broken-event', reason: 'unsupported or malformed VEVENT' }] });
   });
@@ -173,7 +173,7 @@ it('persists the full visible metadata on external synchronization', async () =>
   query.mockResolvedValue({ rows: [] }).mockResolvedValueOnce({ rows: [source] }).mockResolvedValueOnce({ rows: [{ id: 'calendar-work' }] });
   safeFetch.mockResolvedValue({ ok: true, text: vi.fn().mockResolvedValue(outlookCalendar('09', 'DESCRIPTION:Agenda\r\nLOCATION:Office\r\nURL:https://example.test/join\r\nORGANIZER:mailto:team@example.test\r\nATTENDEE:mailto:jane@example.test\r\n')) });
   expect((await syncCalendarSource('user-1', 'source-1')).ok).toBe(true);
-  const insert = query.mock.calls.find(([sql]) => sql.includes('INSERT INTO calendar_events'));
+  const insert = query.mock.calls.find(([sql]: [string]) => sql.includes('INSERT INTO calendar_events'));
   expect(insert[1].slice(-5)).toEqual(['Agenda', 'Office', 'https://example.test/join', 'team@example.test', '["jane@example.test"]']);
   expect(insert[0]).toContain('description = EXCLUDED.description');
 });
@@ -192,7 +192,7 @@ it('persists the full visible metadata on external synchronization', async () =>
     ])).resolves.toBeUndefined();
 
     await expect(sync).resolves.toEqual({ ok: false, error: 'Calendar source removed' });
-    expect(query.mock.calls.slice(2).some(([sql]) => /INSERT|UPDATE|DELETE/i.test(sql))).toBe(false);
+    expect(query.mock.calls.slice(2).some(([sql]: [string]) => /INSERT|UPDATE|DELETE/i.test(sql))).toBe(false);
   });
 });
 
@@ -201,7 +201,7 @@ it.each(['ical_url', 'caldav'])('removes the previous projection for a validated
   getConnectionPolicy.mockResolvedValue({ allowPrivateHosts: false });
   safeFetch.mockResolvedValue({ ok: true, text: async () => kind === 'caldav' ? '<D:multistatus xmlns:D="DAV:"/>' : 'BEGIN:VCALENDAR\r\nVERSION:2.0\r\nEND:VCALENDAR\r\n' });
   expect(await syncCalendarSource('user-1', `empty-${kind}`)).toEqual({ ok: true, eventCount: 0 });
-  expect(query.mock.calls.find(([sql]) => sql.includes('DELETE FROM calendar_events'))[1]).toEqual(['calendar-1', ['']]);
+  expect(query.mock.calls.find(([sql]: [string]) => sql.includes('DELETE FROM calendar_events'))[1]).toEqual(['calendar-1', ['']]);
 });
 
 it('does not treat an HTML error page as an empty calendar', async () => {
@@ -209,5 +209,5 @@ it('does not treat an HTML error page as an empty calendar', async () => {
   getConnectionPolicy.mockResolvedValue({ allowPrivateHosts: false });
   safeFetch.mockResolvedValue({ ok: true, text: async () => '<html>Service unavailable</html>' });
   expect(await syncCalendarSource('user-1', 'html-source')).toMatchObject({ ok: false });
-  expect(query.mock.calls.some(([sql]) => sql.includes('DELETE FROM calendar_events'))).toBe(false);
+  expect(query.mock.calls.some(([sql]: [string]) => sql.includes('DELETE FROM calendar_events'))).toBe(false);
 });

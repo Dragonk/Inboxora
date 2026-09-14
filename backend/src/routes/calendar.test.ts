@@ -15,8 +15,8 @@ const { query, withTransaction, sendCalendarInvitation, releaseCalendarSource, s
 }));
 vi.mock('../services/db.js', () => ({ query, withTransaction }));
 vi.mock('../services/encryption.js', () => ({
-  encrypt: (value) => `enc:v1:${value}`,
-  decrypt: (value) => value?.startsWith('enc:v1:') ? value.slice('enc:v1:'.length) : value,
+  encrypt: (value: string) => `enc:v1:${value}`,
+  decrypt: (value: string) => value?.startsWith('enc:v1:') ? value.slice('enc:v1:'.length) : value,
 }));
 vi.mock('../services/calendarInvitation.js', () => ({ sendCalendarInvitation }));
 vi.mock('../services/externalCalendarSync.js', () => ({ releaseCalendarSource, scheduleCalendarSource, stopCalendarSource, syncCalendarSource }));
@@ -357,7 +357,7 @@ describe('local calendar API', () => {
     const { events } = (await response.json()) as CalendarEventsResponse;
 
     expect(response.status).toBe(200);
-    expect(query.mock.calls.some(([sql]) => typeof sql === 'string' && sql.includes('contact_dates'))).toBe(true);
+    expect(query.mock.calls.some(([sql]: [string]) => typeof sql === 'string' && sql.includes('contact_dates'))).toBe(true);
     expect(events).toHaveLength(1);
     expect(events[0]).toMatchObject({
       calendar_id: 'contacts-birthdays', uid: expect.stringMatching(/^contacts-contact-1-/), summary: 'Wedding: Ada', contact_date_label: 'Wedding', contact_name: 'Ada',
@@ -490,7 +490,7 @@ describe('local calendar API', () => {
       expect(response.status).toBe(200);
       expect(((await response.json()) as CalendarTestResponse).scope).toBe('following');
 
-      const update = query.mock.calls.find(([sql]) => typeof sql === 'string' && sql.includes('UPDATE calendar_events SET raw_ical'));
+      const update = query.mock.calls.find(([sql]: [string]) => typeof sql === 'string' && sql.includes('UPDATE calendar_events SET raw_ical'));
       expect(update).toBeTruthy();
       // The stored resource itself must only produce the occurrences before the cut.
       expect(startsOf(update[1][0])).toEqual(['01-05T08:00', '01-06T08:00', '01-07T08:00', '01-08T08:00']);
@@ -504,9 +504,9 @@ describe('local calendar API', () => {
       const response = await cancel({ calendarId: 'calendar-1', recurrenceId: '2026-01-05T09:00:00', scope: 'following' });
       expect(response.status).toBe(200);
       // A series that produces nothing must not be left behind as an empty shell.
-      const deletion = query.mock.calls.find(([sql]) => typeof sql === 'string' && sql.includes('DELETE FROM calendar_events'));
+      const deletion = query.mock.calls.find(([sql]: [string]) => typeof sql === 'string' && sql.includes('DELETE FROM calendar_events'));
       expect(deletion).toBeTruthy();
-      expect(query.mock.calls.some(([sql]) => typeof sql === 'string' && sql.includes('UPDATE calendar_events SET raw_ical'))).toBe(false);
+      expect(query.mock.calls.some(([sql]: [string]) => typeof sql === 'string' && sql.includes('UPDATE calendar_events SET raw_ical'))).toBe(false);
     });
 
     it('still cancels a single occurrence by default', async () => {
@@ -518,7 +518,7 @@ describe('local calendar API', () => {
       expect(response.status).toBe(200);
       expect(((await response.json()) as CalendarTestResponse).scope).toBe('single');
 
-      const update = query.mock.calls.find(([sql]) => typeof sql === 'string' && sql.includes('UPDATE calendar_events SET raw_ical'));
+      const update = query.mock.calls.find(([sql]: [string]) => typeof sql === 'string' && sql.includes('UPDATE calendar_events SET raw_ical'));
       // One occurrence is excluded; the rest of the series is untouched.
       expect(startsOf(update[1][0])).toHaveLength(9);
       expect(startsOf(update[1][0])).not.toContain('01-09T08:00');
@@ -855,7 +855,7 @@ describe('local calendar API', () => {
     expect((await response.json()) as CalendarTestResponse).toEqual({ error: 'The previous invitation could not be cancelled, so the event was not changed.' });
     expect(query).toHaveBeenCalledTimes(5);
     expect(query.mock.calls.some(([sql]: unknown[]) => String(sql).includes('UPDATE calendar_events'))).toBe(false);
-    expect(query.mock.calls.some(([sql]) => /(?:INSERT INTO|UPDATE) calendar_invitation_outbox/.test(sql))).toBe(false);
+    expect(query.mock.calls.some(([sql]: [string]) => /(?:INSERT INTO|UPDATE) calendar_invitation_outbox/.test(sql))).toBe(false);
     expect(sendCalendarInvitation).not.toHaveBeenCalled();
   });
 

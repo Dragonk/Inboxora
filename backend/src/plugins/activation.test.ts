@@ -65,7 +65,7 @@ describe('plugin activation', () => {
     query.mockResolvedValueOnce({ rows: [] });             // the UPDATE
     const set = await setPluginActivated('u6', 'gtd', true);
     expect(set).toEqual(new Set(['gtd']));
-    const updateCall = query.mock.calls.find(([sql]) => /UPDATE users/.test(sql));    if (!updateCall) throw new Error('expected the users UPDATE call');
+    const updateCall = query.mock.calls.find(([sql]: [string]) => /UPDATE users/.test(sql));    if (!updateCall) throw new Error('expected the users UPDATE call');
     expect(updateCall[0]).toMatch(/jsonb_set\(COALESCE\(preferences/);
     expect(updateCall[1]).toEqual(['u6', JSON.stringify(['gtd'])]);
 
@@ -79,7 +79,7 @@ describe('plugin activation', () => {
     query.mockResolvedValueOnce({ rows: [] });
     const set = await setPluginActivated('u6', 'gtd', false);
     expect(set).toEqual(new Set(['other']));
-    const updateCall = query.mock.calls.find(([sql]) => /UPDATE users/.test(sql));    if (!updateCall) throw new Error('expected the users UPDATE call');
+    const updateCall = query.mock.calls.find(([sql]: [string]) => /UPDATE users/.test(sql));    if (!updateCall) throw new Error('expected the users UPDATE call');
     expect(updateCall[1]).toEqual(['u6', JSON.stringify(['other'])]);
   });
 });

@@ -318,7 +318,7 @@ describe('deleteUserPet', () => {
     query.mockResolvedValueOnce({ rows: [], rowCount: 1 });
     await deleteUserPet('11111111-1111-4111-8111-111111111111');
     const slug = customPetSlug('11111111-1111-4111-8111-111111111111');
-    const del = query.mock.calls.find(([sql]) => /DELETE FROM plugin_data/.test(sql));
+    const del = query.mock.calls.find(([sql]: [string]) => /DELETE FROM plugin_data/.test(sql));
     if (!del) throw new Error('expected the plugin_data DELETE');
     expect(del[1]).toEqual(['gtd', slug]);
   });

@@ -237,7 +237,7 @@ describe('CardDAV authentication', () => {
     });
 
     expect(response.status).toBe(409);
-    expect(query.mock.calls.some(([sql]) => /INSERT INTO contacts|UPDATE contacts/.test(sql))).toBe(false);
+    expect(query.mock.calls.some(([sql]: [string]) => /INSERT INTO contacts|UPDATE contacts/.test(sql))).toBe(false);
   });
 
   it('rejects an impossible BDAY before querying the address book', async () => {
@@ -288,7 +288,7 @@ describe('CardDAV authentication', () => {
     });
 
     expect(response.status).toBe(409);
-    expect(query.mock.calls.some(([sql]) => /INSERT INTO contacts|UPDATE contacts/.test(sql))).toBe(false);
+    expect(query.mock.calls.some(([sql]: [string]) => /INSERT INTO contacts|UPDATE contacts/.test(sql))).toBe(false);
   });
 });
 
@@ -298,7 +298,7 @@ it('accepts a client chosen filename and maps every rich field and preferred ema
  const raw = ['BEGIN:VCARD', 'VERSION:3.0', 'UID:embedded-uid', 'FN:Ada', 'EMAIL;TYPE=HOME:home@example.test', 'EMAIL;TYPE=WORK,PREF:work@example.test', 'TITLE:Director', 'ROLE:Design', 'NICKNAME:A', 'URL:https://example.test', 'IMPP:matrix:ada@example.test', 'CATEGORIES:Team', 'ADR;TYPE=WORK:;;Main Street;Warsaw;;;Poland', 'END:VCARD'].join('\r\n');
  const response = await fetch(`${base}/carddav/user-1/book-1/client-generated.vcf`, { method: 'PUT', headers: { authorization: basic('sam@example.test','secret'), 'if-none-match': '*' }, body: raw });
  expect(response.status).toBe(201);
- const insert = query.mock.calls.find(([sql]) => sql.includes('INSERT INTO contacts'));
+ const insert = query.mock.calls.find(([sql]: [string]) => sql.includes('INSERT INTO contacts'));
  expect(insert[1][2]).toBe('embedded-uid'); expect(insert[1][8]).toBe('work@example.test');
  expect(insert[1].slice(17,20)).toEqual(['Director','Design','A']);
  expect(insert[1].at(-1)).toBe('client-generated.vcf');

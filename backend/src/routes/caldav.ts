@@ -56,7 +56,7 @@ function uidFromCalendarHref(href: string) {
 }
 
 function etagMatches(header: string, etag: string): boolean {
-  return header === '*' || header.split(',').some((value) => value.trim().replace(/^W\//, '').replaceAll('"', '') === etag);
+  return header === '*' || header.split(',').some((value: string) => value.trim().replace(/^W\//, '').replaceAll('"', '') === etag);
 }
 
 function multistatus(responses) {

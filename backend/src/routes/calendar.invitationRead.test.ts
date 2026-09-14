@@ -9,7 +9,7 @@ import 'express-async-errors';
 
 const { query } = vi.hoisted<any>(() => ({ query: vi.fn() }));
 vi.mock('../services/db.js', () => ({ query, withTransaction: vi.fn(async (fn) => fn({ query })) }));
-vi.mock('../services/encryption.js', () => ({ encrypt: (value) => `enc:${value}`, decrypt: (value) => value }));
+vi.mock('../services/encryption.js', () => ({ encrypt: (value: string) => `enc:${value}`, decrypt: (value: string) => value }));
 vi.mock('../services/calendarInvitation.js', () => ({ sendCalendarInvitation: vi.fn() }));
 vi.mock('../services/externalCalendarSync.js', () => ({ releaseCalendarSource: vi.fn(), scheduleCalendarSource: vi.fn(), stopCalendarSource: vi.fn(), syncCalendarSource: vi.fn() }));
 vi.mock('../middleware/auth.js', () => ({ requireAuth: (req: { headers: Record<string, string>; session?: { userId?: string } }, _res: unknown, next: () => void) => { req.session = { userId: 'user-1' }; next(); } }));
@@ -149,7 +149,7 @@ describe('GET /api/calendar/invitations/:messageId', () => {
     expect(response.status).toBe(200);
     expect((await response.json()) as JsonBody).toMatchObject({ added: true, changed: true });
 
-    const insert = query.mock.calls.find(([sql]) => sql.includes('INSERT INTO calendar_events'));
+    const insert = query.mock.calls.find(([sql]: [string]) => sql.includes('INSERT INTO calendar_events'));
     const insertParams = insert[1];
     // A local copy is namespaced and must not collide with the organizer's UID.
     expect(insertParams[2]).toMatch(/^mail-[0-9a-f]{64}$/);

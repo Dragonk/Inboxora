@@ -71,7 +71,7 @@ describe('Contact REST PATCH legacy date synchronization', () => {
     await new Promise(resolve => server.close(resolve));
 
     expect(response.status).toBe(200);
-    const update = query.mock.calls.find(([sql]) => sql.includes('UPDATE contacts SET'));
+    const update = query.mock.calls.find(([sql]: [string]) => sql.includes('UPDATE contacts SET'));
     expect(update[1][8]).toBeNull();
     expect(JSON.parse(update[1][10])).toEqual([
       { label: 'Wedding', value: '2020-09-14' },
@@ -97,7 +97,7 @@ describe('Contact REST PATCH legacy date synchronization', () => {
     await new Promise(resolve => server.close(resolve));
 
     expect(response.status).toBe(200);
-    const update = query.mock.calls.find(([sql]) => sql.includes('UPDATE contacts SET'));
+    const update = query.mock.calls.find(([sql]: [string]) => sql.includes('UPDATE contacts SET'));
     const dates = JSON.parse(update[1][10]);
     expect(dates).toEqual([
       { label: 'Birthday', value: '1990-01-02' },
@@ -122,7 +122,7 @@ describe('Contact REST PATCH legacy date synchronization', () => {
 
     expect(response.status).toBe(200);
     expect(((await response.json()) as JsonBody).birthday).toBe('1990-01-02');
-    const update = query.mock.calls.find(([sql]) => sql.includes('UPDATE contacts SET'));
+    const update = query.mock.calls.find(([sql]: [string]) => sql.includes('UPDATE contacts SET'));
     expect(update[1][8]).toBe('1990-01-02');
     expect(JSON.parse(update[1][10])).toEqual([{ label: 'Birthday', value: '1990-01-02' }]);
     expect(update[1][18].match(/BDAY/g)).toHaveLength(1);
@@ -139,7 +139,7 @@ describe('Contact REST PATCH legacy date synchronization', () => {
     });
     await new Promise(resolve => server.close(resolve));
     expect(response.status).toBe(200);
-    const update = query.mock.calls.find(([sql]) => sql.includes('UPDATE contacts SET'));
+    const update = query.mock.calls.find(([sql]: [string]) => sql.includes('UPDATE contacts SET'));
     expect(update[1][8]).toBeNull();
     expect(JSON.parse(update[1][10])).toEqual(dates);
     expect(update[1][18]).toContain('BDAY;TYPE=Birthday:--02-29');
@@ -159,7 +159,7 @@ describe('Contact REST PATCH legacy date synchronization', () => {
     await new Promise(resolve => server.close(resolve));
 
     expect(response.status).toBe(200);
-    const update = query.mock.calls.find(([sql]) => sql.includes('UPDATE contacts SET'));
+    const update = query.mock.calls.find(([sql]: [string]) => sql.includes('UPDATE contacts SET'));
     expect(update[1][9]).toBeNull();
     expect(JSON.parse(update[1][10])).toEqual([{ label: 'Wedding', value: '2020-09-14' }]);
     expect(update[1][18]).not.toContain('ANNIVERSARY');
@@ -224,7 +224,7 @@ describe('Contact REST labelled date validation', () => {
     await new Promise(resolve => server.close(resolve));
 
     expect(response.status).toBe(201);
-    const insert = query.mock.calls.find(([sql]) => sql.includes('INSERT INTO contacts'));
+    const insert = query.mock.calls.find(([sql]: [string]) => sql.includes('INSERT INTO contacts'));
     expect(JSON.parse(insert[1][15])).toEqual([
       { label: 'Family:Other', value: '2020-09-14' },
       { label: 'Family;Other', value: '2021-05-06' },
@@ -252,7 +252,7 @@ describe('Google CSV import persistence', () => {
 
     expect(response.status).toBe(201);
     expect((await response.json()) as JsonBody).toEqual({ imported: 1 });
-    const insert = query.mock.calls.find(([sql]) => sql.includes('INSERT INTO contacts'));
+    const insert = query.mock.calls.find(([sql]: [string]) => sql.includes('INSERT INTO contacts'));
     expect(insert[0]).toContain('google_fields');
     expect(JSON.parse(insert[1][15])).toEqual([
       { label: 'Birthday', value: '1815-12-10' }, { label: 'Anniversary', value: '1835-01-01' },

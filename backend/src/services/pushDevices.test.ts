@@ -3,8 +3,8 @@ import { describe, expect, it, vi, beforeEach } from 'vitest';
 const { query } = vi.hoisted<any>(() => ({ query: vi.fn() }));
 vi.mock('./db.js', () => ({ query }));
 vi.mock('./encryption.js', () => ({
-  encrypt: (value) => `enc:v1:${value}`,
-  decrypt: (value) => (typeof value === 'string' ? value.replace(/^enc:v1:/, '') : value),
+  encrypt: (value: string) => `enc:v1:${value}`,
+  decrypt: (value: string) => (typeof value === 'string' ? value.replace(/^enc:v1:/, '') : value),
 }));
 
 import bcrypt from 'bcryptjs';

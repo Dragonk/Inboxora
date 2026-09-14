@@ -348,7 +348,7 @@ const findCall = (frag: string) => {
   if (!call) throw new Error(`no query containing ${frag}`);
   return call;
 };
-const countAdjusts = () => query.mock.calls.filter(([sql]) => sql.includes('UPDATE folders'));
+const countAdjusts = () => query.mock.calls.filter(([sql]: [string]) => sql.includes('UPDATE folders'));
 
 describe('insertCopiedSibling', () => {
   beforeEach(() => query.mockReset());
@@ -1102,8 +1102,8 @@ describe('syncMessages — empty local cache vs nonempty server (wiring)', () =>
       uid: true,
     }));
     expect(vi.mocked(client.fetch).mock.calls[0][2]).toBeUndefined();
-    const insertIndex = query.mock.calls.findIndex(([sql]) => sql.includes('INSERT INTO messages'));
-    const modseqUpdateIndex = query.mock.calls.findIndex(([sql]) => sql.includes('UPDATE folders SET highest_modseq'));
+    const insertIndex = query.mock.calls.findIndex(([sql]: [string]) => sql.includes('INSERT INTO messages'));
+    const modseqUpdateIndex = query.mock.calls.findIndex(([sql]: [string]) => sql.includes('UPDATE folders SET highest_modseq'));
     expect(insertIndex).toBeGreaterThanOrEqual(0);
     expect(modseqUpdateIndex).toBeGreaterThan(insertIndex);
     expect(result).toEqual(expect.objectContaining({ insertedCount: 1 }));
@@ -1145,7 +1145,7 @@ describe('syncMessages — empty local cache vs nonempty server (wiring)', () =>
       expect.objectContaining({ envelope: true, bodyStructure: true }),
       { uid: true }
     );
-    expect(query.mock.calls.some(([sql]) => sql.includes('UPDATE folders SET highest_modseq'))).toBe(false);
+    expect(query.mock.calls.some(([sql]: [string]) => sql.includes('UPDATE folders SET highest_modseq'))).toBe(false);
   });
 
   it('hands a newly-inserted INBOX row to the inboxIngest hook when a plugin is active', async () => {
@@ -1724,7 +1724,7 @@ describe('syncFolders pruning', () => {
     });
     await ImapManager.prototype.syncFolders.call({}, account, client);
 
-    const del = query.mock.calls.find(([sql]) => sql.includes('DELETE FROM folders'));
+    const del = query.mock.calls.find(([sql]: [string]) => sql.includes('DELETE FROM folders'));
     expect(del).toBeTruthy();
     expect(del[0]).toContain("path != 'INBOX'");
     expect(del[1]).toEqual(['acct-1', ['INBOX', 'Projects-Renamed', 'Projects-Renamed/Sub']]);
@@ -1733,7 +1733,7 @@ describe('syncFolders pruning', () => {
   it('never prunes on an empty LIST response', async () => {
     const client = { list: vi.fn().mockResolvedValue([]) };
     await ImapManager.prototype.syncFolders.call({}, account, client);
-    expect(query.mock.calls.some(([sql]) => sql.includes('DELETE FROM folders'))).toBe(false);
+    expect(query.mock.calls.some(([sql]: [string]) => sql.includes('DELETE FROM folders'))).toBe(false);
   });
 
   it('drops the cached messages of a folder the server no longer has', async () => {
@@ -1747,7 +1747,7 @@ describe('syncFolders pruning', () => {
     vi.spyOn(console, 'log').mockImplementation(() => {});
     await ImapManager.prototype.syncFolders.call({}, account, client);
 
-    const del = query.mock.calls.find(([sql]) => sql.includes('DELETE FROM messages'));
+    const del = query.mock.calls.find(([sql]: [string]) => sql.includes('DELETE FROM messages'));
     expect(del).toBeTruthy();
     expect(del[1]).toEqual(['acct-1', ['Newsletter']]);
   });
@@ -1756,13 +1756,13 @@ describe('syncFolders pruning', () => {
     query.mockImplementation(async () => ({ rows: [], rowCount: 0 }));
     const client = { list: vi.fn().mockResolvedValue([{ path: 'INBOX', name: 'INBOX', delimiter: '/' }]) };
     await ImapManager.prototype.syncFolders.call({}, account, client);
-    expect(query.mock.calls.some(([sql]) => sql.includes('DELETE FROM messages'))).toBe(false);
+    expect(query.mock.calls.some(([sql]: [string]) => sql.includes('DELETE FROM messages'))).toBe(false);
   });
 
   it('never deletes messages on an empty LIST, because nothing was pruned', async () => {
     const client = { list: vi.fn().mockResolvedValue([]) };
     await ImapManager.prototype.syncFolders.call({}, account, client);
-    expect(query.mock.calls.some(([sql]) => sql.includes('DELETE FROM messages'))).toBe(false);
+    expect(query.mock.calls.some(([sql]: [string]) => sql.includes('DELETE FROM messages'))).toBe(false);
   });
 
   it('still upserts every listed folder before pruning', async () => {
@@ -1772,10 +1772,10 @@ describe('syncFolders pruning', () => {
       ]),
     });
     await ImapManager.prototype.syncFolders.call({}, account, client);
-    const inserts = query.mock.calls.filter(([sql]) => sql.includes('INSERT INTO folders'));
+    const inserts = query.mock.calls.filter(([sql]: [string]) => sql.includes('INSERT INTO folders'));
     // The listed folder + the implicit INBOX row.
     expect(inserts.length).toBe(2);
-    const del = query.mock.calls.find(([sql]) => sql.includes('DELETE FROM folders'));
+    const del = query.mock.calls.find(([sql]: [string]) => sql.includes('DELETE FROM folders'));
     expect(del[1][1]).toEqual(['Archive']);
   });
 });

@@ -173,7 +173,7 @@ class MemoryStore implements CodexStore {
     try {
       return await callback({
         encryptedCredential: this.credential,
-        save: async (value) => { this.credential = value; },
+        save: async (value: string) => { this.credential = value; },
       });
     } finally {
       release();
