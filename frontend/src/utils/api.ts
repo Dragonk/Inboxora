@@ -415,7 +415,7 @@ export const api = {
   },
 
   // Image whitelist
-  addToImageWhitelist: (entry) => request('POST', '/auth/preferences/whitelist-add', entry),
+  addToImageWhitelist: (entry: Record<string, unknown>) => request('POST', '/auth/preferences/whitelist-add', entry),
 
   // Web Push
   getPushVapidKey:  ()           => request('GET',    '/auth/push/vapid-key'),

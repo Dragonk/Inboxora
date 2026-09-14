@@ -366,7 +366,7 @@ export default function ContactsPage({ isActive = true }) {
       firstName:    selected.first_name    || '',
       lastName:     selected.last_name     || '',
       emails:       (selected.emails?.length
-        ? selected.emails.map((entry) => ({ value: String(entry.value ?? ''), type: String(entry.type ?? ''), primary: Boolean(entry.primary) }))
+        ? selected.emails.map((entry: Record<string, unknown>) => ({ value: String(entry.value ?? ''), type: String(entry.type ?? ''), primary: Boolean(entry.primary) }))
         : EmptyEmailForm()),
       phones:       selected.phones        || [],
       organization: selected.organization  || '',

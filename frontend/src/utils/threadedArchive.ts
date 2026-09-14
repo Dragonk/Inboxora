@@ -102,7 +102,7 @@ export async function archiveTargetGroupsForRows(
   const rows = Array.isArray(messages) ? messages : [];
   const groups: unknown[] = [];
   for (let offset = 0; offset < rows.length; offset += concurrency) {
-    const batch = await Promise.all(rows.slice(offset, offset + concurrency).map(async (row) => {
+    const batch = await Promise.all(rows.slice(offset, offset + concurrency).map(async (row: Record<string, unknown>) => {
       const resolved = await resolveMessages(row);
       return {
         row,

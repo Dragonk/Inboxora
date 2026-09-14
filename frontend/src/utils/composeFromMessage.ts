@@ -84,7 +84,7 @@ function parseAddressField(raw: unknown): string {
     const parsed: unknown = Array.isArray(raw) ? raw : JSON.parse(String(raw || '[]'));
     if (!Array.isArray(parsed)) return '';
     return parsed
-      .map((entry) => {
+      .map((entry: Record<string, unknown>) => {
         const address = entry as { name?: unknown; email?: unknown };
         const name = typeof address.name === 'string' ? address.name : '';
         const email = typeof address.email === 'string' ? address.email : '';

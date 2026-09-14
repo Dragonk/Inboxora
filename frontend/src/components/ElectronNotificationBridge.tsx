@@ -164,7 +164,7 @@ export default function ElectronNotificationBridge() {
     if (!nativeBridgeReady) return undefined;
     const getPayloadMessage = (payload) => {
       const state = useStore.getState();
-      return payload?.message || state.messages.find((item) => item.id === payload?.messageId) || null;
+      return payload?.message || state.messages.find((item: Record<string, unknown>) => item.id === payload?.messageId) || null;
     };
 
     const openMessageFromPayload = (payload) => {
@@ -180,7 +180,7 @@ export default function ElectronNotificationBridge() {
         setSelectedAccount(payload.accountId, folder);
       }
 
-      if (message && !state.messages.some((item) => item.id === message.id)) {
+      if (message && !state.messages.some((item: Record<string, unknown>) => item.id === message.id)) {
         useStore.setState((current) => ({
           messages: [{ ...message, account_id: message.account_id || payload.accountId }, ...current.messages],
         }));
