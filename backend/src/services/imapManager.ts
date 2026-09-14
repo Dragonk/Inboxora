@@ -1,4 +1,5 @@
 import { ImapFlow } from 'imapflow';
+import type { FolderMappings } from '../utils/mailUtils.js';
 import type { MailboxObject } from 'imapflow';
 import { query } from './db.js';
 import { parseMessage, snippetFromBody, detectBulkFromParsedHeaders, parseHeadersInput, headersToRawString, decodeMimeWords, enrichParsedMetadata } from './messageParser.js';
@@ -1206,7 +1207,7 @@ export type EmailAccountRow = {
   name?: string;
   email?: string;
   sender_name?: string;
-  folder_mappings?: Record<string, string> | null;
+  folder_mappings?: FolderMappings | null;
   categorization_enabled?: boolean;
   enabled?: boolean;
   signature?: string | null;
