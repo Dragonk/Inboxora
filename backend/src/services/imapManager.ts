@@ -368,7 +368,7 @@ const DEFAULT_FOLDER_SYNC_INTERVAL_MS = 30 * 60 * 1000;
 // intervalMs 0 = never; a missing lastAt means the account has never synced
 // its folder list on this timer, so it is due immediately.
 export function folderSyncDue(intervalMs: number | null | undefined, lastAt: number | null | undefined, now = Date.now()): boolean {
-  return intervalMs > 0 && now - (lastAt || 0) >= intervalMs;
+  return typeof intervalMs === 'number' && intervalMs > 0 && now - (lastAt || 0) >= intervalMs;
 }
 
 // Circuit-breaker backoff for the snippet indexer. When a run indexes nothing because
@@ -989,7 +989,7 @@ export async function deleteMessageCopyRow(accountId: string, uid: number | stri
 // so a harmless over-emit is preferred to a missed one that leaves durable stale section data.
 // mgr is injected so plugin handlers stay unit-testable without a live socket server; the hook
 // swallows per-plugin errors so an emit failure never disturbs the caller.
-export async function emitSectionsChanged(mgr: { emit?: (...args: unknown[]) => void; broadcast?: (...args: unknown[]) => void } | null | undefined, account: EmailAccountRow, changedCount: number): Promise<void> {
+export async function emitSectionsChanged(mgr: unknown, account: EmailAccountRow, changedCount: number): Promise<void> {
   if (!(changedCount > 0)) return;
   await pluginRegistry.runHook('sectionsChanged', { mgr, account, changedCount });
 }
@@ -1472,7 +1472,7 @@ export async function ensureMailbox(client: ImapClient, path: string, { resolveP
 // if persisted (planGtdFolderPersist), never case-matches the synced rows' folder value and
 // silently zeroes the state. Best-effort: any list failure (or a client without list) falls
 // back to the caller's known path — never throws.
-async function resolveServerFolderCasing(client: ImapClient, knownPath: string | null | undefined): Promise<string> {
+async function resolveServerFolderCasing(client: ImapClient, knownPath: string | null | undefined): Promise<string | null | undefined> {
   if (typeof client.list !== 'function') return knownPath;
   try {
     const wanted = knownPath.toLowerCase();
