@@ -59,7 +59,7 @@ export async function installCapacitorNativeBridge(): Promise<boolean> {
       resetHost: async () => callNative('resetHost'),
       badges: {
         ...existingBridge.badges,
-        setUnreadCount: async (count) => callNative('setUnreadCount', { count }),
+        setUnreadCount: async (count: number) => callNative('setUnreadCount', { count }),
       },
       updates: {
         ...existingBridge.updates,

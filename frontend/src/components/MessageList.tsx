@@ -2311,7 +2311,7 @@ export default function MessageList() {
               viewKey,
               intentKey,
               intentVersion,
-              onResolution: (version) => { archiveResolutionVersion = version; },
+              onResolution: (version: number) => { archiveResolutionVersion = version; },
             });
           },
           undo: () => {
@@ -3940,7 +3940,7 @@ export default function MessageList() {
         {/* Pagination footer */}
         {scrollMode === 'paginated' && !loadingMessages && messagesTotal > 0 && (() => {
           const totalPages = Math.ceil(messagesTotal / pageSize) || 1;
-          const btnStyle = (disabled) => ({
+          const btnStyle = (disabled: boolean) => ({
             padding: '5px 14px', fontSize: 12, borderRadius: 6, cursor: disabled ? 'default' : 'pointer',
             background: disabled ? 'transparent' : 'var(--bg-tertiary)',
             border: '1px solid var(--border)',

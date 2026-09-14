@@ -8706,7 +8706,7 @@ export default function AdminPanel() {
       })
     : null;
 
-  const searchInput = (compact) => (
+  const searchInput = (compact: boolean) => (
     <div style={{ position: 'relative' }}>
       <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"
         style={{ position: 'absolute', left: 9, top: '50%', transform: 'translateY(-50%)', color: 'var(--text-tertiary)', pointerEvents: 'none' }}>
