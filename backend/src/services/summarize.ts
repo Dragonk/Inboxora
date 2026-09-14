@@ -36,7 +36,7 @@ Body: ${body}`;
 // the zero-width joiner / variation selectors / keycap combiner that stitch emoji sequences
 // together (removed with single-char escapes — a character class of combining chars trips
 // no-misleading-character-class).
-function stripEmoji(s) {
+function stripEmoji(s: string) {
   return s
     .replace(/[\p{Extended_Pictographic}\p{Regional_Indicator}]/gu, '')
     .replace(/‍/g, '')  // zero-width joiner
@@ -48,7 +48,7 @@ function stripEmoji(s) {
 // Sanitise a model response into a single clean ≤maxLen line, or null when the output is
 // unusable. Pure. Takes the first non-empty line, strips wrapping quotes and emoji, collapses
 // whitespace, and hard-caps the length.
-export function sanitizeSummaryLine(raw, maxLen = SUMMARY_MAX_LEN) {
+export function sanitizeSummaryLine(raw: unknown, maxLen = SUMMARY_MAX_LEN) {
   if (typeof raw !== 'string') return null;
   let s = (raw.split(/\r?\n/).map(l => l.trim()).find(l => l.length > 0) || '');
   s = s.replace(/^["'“”‘’`]+/, '').replace(/["'“”‘’`]+$/, '');

@@ -45,12 +45,19 @@ describe('sanitizeSummaryLine', () => {
 
   it('collapses whitespace and hard-caps at 120 chars by default', () => {
     const out = sanitizeSummaryLine('a '.repeat(200));
+    if (out === null) {
+      throw new Error('Expected a summary line');
+    }
     expect(out.length).toBeLessThanOrEqual(120);
     expect(out).not.toMatch(/\s{2,}/);
   });
 
   it('respects a custom maxLen cap', () => {
-    expect(sanitizeSummaryLine('a '.repeat(200), 40).length).toBeLessThanOrEqual(40);
+    const out = sanitizeSummaryLine('a '.repeat(200), 40);
+    if (out === null) {
+      throw new Error('Expected a summary line');
+    }
+    expect(out.length).toBeLessThanOrEqual(40);
   });
 
   it('returns null for empty or non-string input', () => {
