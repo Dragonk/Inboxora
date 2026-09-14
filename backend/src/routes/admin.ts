@@ -42,7 +42,7 @@ router.post('/users/:id/totp/disable', async (req, res) => {
   if (id === req.session.userId) {
     return res.status(400).json({ error: 'Use your account settings to manage your own 2FA.' });
   }
-  const target = await query('SELECT username FROM users WHERE id = $1', [id]);
+  const target = await query<{ username: string }>('SELECT username FROM users WHERE id = $1', [id]);
   if (!target.rows.length) return res.status(404).json({ error: 'User not found' });
   await query('UPDATE users SET totp_secret = NULL, totp_enabled = false WHERE id = $1', [id]);
   console.log(`[admin] ${req.session.username} disabled 2FA for user ${target.rows[0].username} (${id})`);
@@ -58,7 +58,7 @@ router.patch('/users/:id', async (req, res) => {
     return res.status(400).json({ error: 'Cannot remove your own admin status' });
   }
 
-  const target = await query('SELECT username FROM users WHERE id = $1', [id]);
+  const target = await query<{ username: string }>('SELECT username FROM users WHERE id = $1', [id]);
   if (!target.rows.length) return res.status(404).json({ error: 'User not found' });
 
   await query('UPDATE users SET is_admin = $1 WHERE id = $2', [isAdmin, id]);
@@ -73,7 +73,7 @@ router.delete('/users/:id', async (req, res) => {
   if (id === req.session.userId) {
     return res.status(400).json({ error: 'Cannot delete your own account' });
   }
-  const target = await query('SELECT username FROM users WHERE id = $1', [id]);
+  const target = await query<{ username: string }>('SELECT username FROM users WHERE id = $1', [id]);
   if (!target.rows.length) return res.status(404).json({ error: 'User not found' });
   // Stop live per-user workers BEFORE the delete — disconnectUser looks up the
   // user's accounts, which the cascade delete would remove.

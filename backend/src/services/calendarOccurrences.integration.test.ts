@@ -167,12 +167,12 @@ describeOrSkip('materialised calendar occurrences', () => {
   it('re-arms on any event write through the trigger, including raw CalDAV-style updates', async () => {
     const eventId = await insertEvent('occ-trigger', vcalendar(CASES.plain), 'plain');
     await materializeEvent(eventId, BUILT);
-    expect((await query('SELECT dirty FROM calendar_occurrence_state WHERE event_id = $1', [eventId])).rows[0].dirty).toBe(false);
+    expect((await query<{ dirty: boolean }>('SELECT dirty FROM calendar_occurrence_state WHERE event_id = $1', [eventId])).rows[0].dirty).toBe(false);
 
     // A raw_ical-only write is what CalDAV and the external sync perform.
     await query('UPDATE calendar_events SET raw_ical = replace(raw_ical, $2, $3), etag = $4 WHERE id = $1',
       [eventId, 'SUMMARY:Plain', 'SUMMARY:Renamed', 'etag-2']);
-    expect((await query('SELECT dirty FROM calendar_occurrence_state WHERE event_id = $1', [eventId])).rows[0].dirty).toBe(true);
+    expect((await query<{ dirty: boolean }>('SELECT dirty FROM calendar_occurrence_state WHERE event_id = $1', [eventId])).rows[0].dirty).toBe(true);
 
     await materializeEvent(eventId, BUILT);
     const stored = await storedOccurrences(eventId);
@@ -186,7 +186,7 @@ describeOrSkip('materialised calendar occurrences', () => {
   it('does not clear the dirty flag when the event changed during the build', async () => {
     const eventId = await insertEvent('occ-race', vcalendar(CASES.plain), 'plain');
     await materializeEvent(eventId, BUILT);
-    expect((await query('SELECT dirty FROM calendar_occurrence_state WHERE event_id = $1', [eventId])).rows[0].dirty).toBe(false);
+    expect((await query<{ dirty: boolean }>('SELECT dirty FROM calendar_occurrence_state WHERE event_id = $1', [eventId])).rows[0].dirty).toBe(false);
 
     // The edit lands while a build is still running: it re-arms dirty, then the build's own
     // bookkeeping runs against the version it originally read. This calls the real recording
@@ -197,14 +197,14 @@ describeOrSkip('materialised calendar occurrences', () => {
     }));
 
     // The stale build must refuse to declare itself current.
-    expect((await query('SELECT dirty FROM calendar_occurrence_state WHERE event_id = $1', [eventId])).rows[0].dirty).toBe(true);
+    expect((await query<{ dirty: boolean }>('SELECT dirty FROM calendar_occurrence_state WHERE event_id = $1', [eventId])).rows[0].dirty).toBe(true);
 
     // And a rebuild must pick the edit up.
     await materializeEvent(eventId, BUILT);
     const stored = await storedOccurrences(eventId);
     expect(stored.length).toBeGreaterThan(0);
     expect(stored.every(entry => entry.includes('Edited'))).toBe(true);
-    expect((await query('SELECT dirty FROM calendar_occurrence_state WHERE event_id = $1', [eventId])).rows[0].dirty).toBe(false);
+    expect((await query<{ dirty: boolean }>('SELECT dirty FROM calendar_occurrence_state WHERE event_id = $1', [eventId])).rows[0].dirty).toBe(false);
   });
 
   it('queues a new event and drains it through the scheduler pass', async () => {

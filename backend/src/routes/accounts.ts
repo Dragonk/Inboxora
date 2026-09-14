@@ -174,7 +174,7 @@ router.put('/:id', async (req, res) => {
   const updates = req.body;
 
   // Verify ownership.
-  const check = await query('SELECT id FROM email_accounts WHERE id = $1 AND user_id = $2', [id, req.session.userId]);
+  const check = await query<{ id: string }>('SELECT id FROM email_accounts WHERE id = $1 AND user_id = $2', [id, req.session.userId]);
   if (!check.rows.length) return res.status(404).json({ error: 'Account not found' });
 
   if ('name' in updates && hasHeaderInjectionChars(updates.name)) {
@@ -317,7 +317,7 @@ router.put('/:id', async (req, res) => {
 router.delete('/:id', async (req, res) => {
   try {
     const { id } = req.params;
-    const check = await query('SELECT id FROM email_accounts WHERE id = $1 AND user_id = $2', [id, req.session.userId]);
+    const check = await query<{ id: string }>('SELECT id FROM email_accounts WHERE id = $1 AND user_id = $2', [id, req.session.userId]);
     if (!check.rows.length) return res.status(404).json({ error: 'Account not found' });
 
     // Delete from DB first (cascades to messages and folders immediately).
@@ -340,7 +340,7 @@ router.delete('/:id', async (req, res) => {
 
 router.post('/:id/reconnect', async (req, res) => {
   const { id } = req.params;
-  const result = await query('SELECT * FROM email_accounts WHERE id = $1 AND user_id = $2', [id, req.session.userId]);
+  const result = await query<EmailAccountRow>('SELECT * FROM email_accounts WHERE id = $1 AND user_id = $2', [id, req.session.userId]);
   if (!result.rows.length) return res.status(404).json({ error: 'Account not found' });
 
   imapManager.connectAccount(result.rows[0]).catch(console.error);
@@ -351,7 +351,7 @@ router.post('/:id/reconnect', async (req, res) => {
 
 router.get('/:id/aliases', async (req, res) => {
   const { id } = req.params;
-  const check = await query('SELECT id FROM email_accounts WHERE id = $1 AND user_id = $2', [id, req.session.userId]);
+  const check = await query<{ id: string }>('SELECT id FROM email_accounts WHERE id = $1 AND user_id = $2', [id, req.session.userId]);
   if (!check.rows.length) return res.status(404).json({ error: 'Account not found' });
 
   const result = await query(
@@ -372,7 +372,7 @@ router.post('/:id/aliases', async (req, res) => {
     return res.status(400).json({ error: 'Fields cannot contain control characters' });
   }
 
-  const check = await query('SELECT id FROM email_accounts WHERE id = $1 AND user_id = $2', [id, req.session.userId]);
+  const check = await query<{ id: string }>('SELECT id FROM email_accounts WHERE id = $1 AND user_id = $2', [id, req.session.userId]);
   if (!check.rows.length) return res.status(404).json({ error: 'Account not found' });
 
   const result = await query(
@@ -425,7 +425,7 @@ router.delete('/:id/aliases/:aliasId', async (req, res) => {
 
 router.get('/:id/folders', async (req, res) => {
   const { id } = req.params;
-  const check = await query('SELECT id FROM email_accounts WHERE id = $1 AND user_id = $2', [id, req.session.userId]);
+  const check = await query<{ id: string }>('SELECT id FROM email_accounts WHERE id = $1 AND user_id = $2', [id, req.session.userId]);
   if (!check.rows.length) return res.status(404).json({ error: 'Account not found' });
 
   const result = await query(

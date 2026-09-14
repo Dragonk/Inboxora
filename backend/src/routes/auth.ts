@@ -547,7 +547,7 @@ router.get('/2fa/enrollment/setup', async (req, res) => {
     return res.status(400).json({ error: 'Session expired. Please log in again.' });
   }
 
-  const userResult = await query('SELECT username FROM users WHERE id = $1', [req.session.pendingUserId]);
+  const userResult = await query<{ username: string }>('SELECT username FROM users WHERE id = $1', [req.session.pendingUserId]);
   const username = userResult.rows[0]?.username || 'user';
 
   const secret = authenticator.generateSecret(20);

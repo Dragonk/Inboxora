@@ -37,7 +37,7 @@ function totpLimiter(req: Request, res: Response, next: NextFunction) {
 
 // GET /api/totp/setup — generate a new TOTP secret and QR code
 router.get('/setup', async (req: Request, res: Response) => {
-  const userResult = await query('SELECT username FROM users WHERE id = $1', [req.session.userId]);
+  const userResult = await query<{ username: string }>('SELECT username FROM users WHERE id = $1', [req.session.userId]);
   const username = userResult.rows[0]?.username || 'user';
 
   const secret = authenticator.generateSecret(20);

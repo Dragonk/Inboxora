@@ -108,7 +108,7 @@ describeOrSkip('CE v2 PostgreSQL regression tests', () => {
       const result = await rebuildConversationCopies({ userId: TEST_USER_ID, accountId: TEST_ACCOUNT_ID, limit: 500, dryRun: false, force: true });
       expect(result.updated).toBeGreaterThan(0);
 
-      const lmCount = await query('SELECT COUNT(*)::int AS c FROM logical_messages WHERE user_id = $1', [TEST_USER_ID]);
+      const lmCount = await query<{ c: number }>('SELECT COUNT(*)::int AS c FROM logical_messages WHERE user_id = $1', [TEST_USER_ID]);
       expect(lmCount.rows[0].c).toBe(5);
 
       const convCount = await query('SELECT COUNT(*)::int AS c FROM conversations WHERE user_id = $1', [TEST_USER_ID]);
@@ -195,7 +195,7 @@ describeOrSkip('CE v2 PostgreSQL regression tests', () => {
       const convCount = await query('SELECT COUNT(*)::int AS c FROM conversations WHERE user_id = $1', [TEST_USER_ID]);
       expect(convCount.rows[0].c).toBe(100);
 
-      const lmCount = await query('SELECT COUNT(*)::int AS c FROM logical_messages WHERE user_id = $1', [TEST_USER_ID]);
+      const lmCount = await query<{ c: number }>('SELECT COUNT(*)::int AS c FROM logical_messages WHERE user_id = $1', [TEST_USER_ID]);
       expect(lmCount.rows[0].c).toBe(100);
     }, 60000);
   });
@@ -220,12 +220,12 @@ describeOrSkip('CE v2 PostgreSQL regression tests', () => {
 
       await rebuildConversationCopies({ userId: TEST_USER_ID, accountId: TEST_ACCOUNT_ID, limit: 500, dryRun: false, force: true });
 
-      const lmCount = await query('SELECT COUNT(*)::int AS c FROM logical_messages WHERE user_id = $1', [TEST_USER_ID]);
+      const lmCount = await query<{ c: number }>('SELECT COUNT(*)::int AS c FROM logical_messages WHERE user_id = $1', [TEST_USER_ID]);
       expect(lmCount.rows[0].c).toBe(4);
 
       // Reingest
       await rebuildConversationCopies({ userId: TEST_USER_ID, accountId: TEST_ACCOUNT_ID, limit: 500, dryRun: false, force: true });
-      const lmCount2 = await query('SELECT COUNT(*)::int AS c FROM logical_messages WHERE user_id = $1', [TEST_USER_ID]);
+      const lmCount2 = await query<{ c: number }>('SELECT COUNT(*)::int AS c FROM logical_messages WHERE user_id = $1', [TEST_USER_ID]);
       expect(lmCount2.rows[0].c).toBe(4);
     }, 30000);
   });
@@ -239,7 +239,7 @@ describeOrSkip('CE v2 PostgreSQL regression tests', () => {
       expect(result.dryRun).toBe(true);
 
       // Verify no conversation/logical_message was created
-      const lmCount = await query('SELECT COUNT(*)::int AS c FROM logical_messages WHERE user_id = $1', [TEST_USER_ID]);
+      const lmCount = await query<{ c: number }>('SELECT COUNT(*)::int AS c FROM logical_messages WHERE user_id = $1', [TEST_USER_ID]);
       expect(lmCount.rows[0].c).toBe(0);
       const convCount = await query('SELECT COUNT(*)::int AS c FROM conversations WHERE user_id = $1', [TEST_USER_ID]);
       expect(convCount.rows[0].c).toBe(0);
