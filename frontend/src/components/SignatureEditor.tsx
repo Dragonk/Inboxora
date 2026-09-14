@@ -9,7 +9,12 @@ const BTN = {
   display: 'flex', alignItems: 'center', justifyContent: 'center',
 };
 
-function ToolBtn({ onClick, title, active = false, children }) {
+function ToolBtn({ onClick, title, active = false, children }: {
+  onClick: () => void;
+  title: string;
+  active?: boolean;
+  children: React.ReactNode;
+}) {
   const [hov, setHov] = useState(false);
   return (
     <button
@@ -32,7 +37,7 @@ function Sep() {
   return <div style={{ width: 1, height: 16, background: 'var(--border)', margin: '0 3px', flexShrink: 0 }} />;
 }
 
-export default function SignatureEditor({ value, onChange }) {
+export default function SignatureEditor({ value, onChange }: { value: string; onChange: (value: string) => void }) {
   const { t } = useTranslation();
   const { addNotification } = useStore();
   const editorRef = useRef<HTMLDivElement | null>(null);

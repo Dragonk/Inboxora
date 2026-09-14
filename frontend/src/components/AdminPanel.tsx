@@ -393,7 +393,7 @@ function AccountForm({ initial = undefined, onSave, onCancel }: AccountFormProps
         {t('admin.accounts.signatureSection')}
       </div>
       <SignatureEditor
-        value={form.signature || ''}
+        value={String(form.signature || '')}
         onChange={val => set('signature', val)}
       />
 
