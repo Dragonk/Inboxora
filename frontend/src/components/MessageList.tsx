@@ -36,6 +36,7 @@ import { mergeThreadCacheField } from '../utils/threadCacheState.ts';
 import { queueStarStateMutation, isLatestStarStateMutation } from '../utils/starStateMutation.ts';
 import { applyDeleteGuard, clearDeleteGuard, clearPendingDelete, setCompletedDelete, setPendingDelete, threadDeleteGuardKey } from '../utils/pendingDeletes.ts';
 import { toAppError } from '../utils/errors.ts';
+import type { ArchiveMessage } from '../utils/threadedArchive.ts';
 import {
   archiveInChunks,
   archiveTargetGroupsForRows,
@@ -207,8 +208,8 @@ export default function MessageList() {
   const [listScrolled, setListScrolled] = useState(false);
   const [fabVisible, setFabVisible] = useState(true);
   const threadLoadVersionsRef = useRef(new Map());
-  const archiveVisibleMessageRef = useRef(null);
-  const setMessagesReadStateRef = useRef(null);
+  const archiveVisibleMessageRef = useRef<((message: ArchiveMessage, options?: Record<string, unknown>) => Promise<void>) | null>(null);
+  const setMessagesReadStateRef = useRef<((message: StoreMessageRow, read: boolean) => Promise<void>) | null>(null);
   const lastScrollTopRef = useRef(0);
   const [pullDistance, setPullDistance] = useState(0);
   const pullStartXRef = useRef<number | null>(null);
@@ -1918,7 +1919,7 @@ export default function MessageList() {
     addNotification, t,
   ]);
 
-  const archiveVisibleMessage = useCallback(async (message, {
+  const archiveVisibleMessage = useCallback(async (message: StoreMessageRow, {
     alreadyRemoved = false,
     viewKey: actionViewKey = archiveViewKeyRef.current,
     onResolution,

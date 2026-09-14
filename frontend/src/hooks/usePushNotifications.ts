@@ -32,7 +32,7 @@ export function usePushNotifications() {
   const [subscribed,       setSubscribed]       = useState(false);
   const [serverConfigured, setServerConfigured] = useState<boolean | null>(null); // null = not yet checked
   const [loading,          setLoading]          = useState(false);
-  const regRef = useRef(null);
+  const regRef = useRef<ServiceWorkerRegistration | null>(null);
 
   useEffect(() => {
     const ok =
@@ -85,7 +85,7 @@ export function usePushNotifications() {
       // Race against a 30-second timeout: pushManager.subscribe() contacts the
       // browser's push service (FCM / Apple APNs / Mozilla) and can hang
       // indefinitely if that service is unreachable from the user's network.
-      const sub = await Promise.race([
+      const sub = await Promise.race<PushSubscription>([
         reg.pushManager.subscribe({
           userVisibleOnly:      true,
           applicationServerKey: urlBase64ToUint8Array(publicKey),
