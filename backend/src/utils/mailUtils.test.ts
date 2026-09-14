@@ -246,12 +246,12 @@ describe('getDeleteStrategy', () => {
 
 // query.mock.calls entries are [sql, params]; find the one whose SQL contains `frag`.
 const callWith = (frag: string) => {
-  const call = query.mock.calls.find(([sql]: [string]) => sql.includes(frag));
+  const call = query.mock.calls.find(([sql]) => sql.includes(frag));
   if (!call) throw new Error('no query call containing ' + frag);
   return call;
 };
 // All folder-count adjustments issued (adjustFolderCounts → UPDATE folders …).
-const countCalls = () => query.mock.calls.filter(([sql]: [string]) => sql.includes('UPDATE folders'));
+const countCalls = () => query.mock.calls.filter(([sql]) => sql.includes('UPDATE folders'));
 
 describe('fanOutReadToSiblings', () => {
   it('does nothing when the message has no Message-ID (no siblings possible)', async () => {

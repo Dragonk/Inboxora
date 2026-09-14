@@ -3,7 +3,12 @@ import { useStore } from '../../store/index.ts';
 import { api } from '../../utils/api.ts';
 import { advanceSelectionAfterRemoval } from '../../utils/listSelection.ts';
 import { ActionBtn } from '../../components/RowHoverActions.tsx';
-import type { StoreState } from '../../store/index.ts';
+import type { StoreMessageRow, StoreState } from '../../store/index.ts';
+
+interface GtdRowDoneProps {
+  message: StoreMessageRow;
+  done?: (event: React.MouseEvent) => void;
+}
 import { toAppError } from '../../utils/errors.ts';
 
 // The GTD "done" checkmark for the row hover cluster, rendered via the 'row-hover-action' slot.
@@ -12,21 +17,21 @@ import { toAppError } from '../../utils/errors.ts';
 // backend marks the thread read, strips every GTD label, archives the INBOX copy; optimistic like
 // archive) and the GTD sidebar rows, which inject their own section-scoped `done` via ctx. When a
 // `done` override is supplied it is used verbatim; otherwise the inbox-archive default runs.
-export default function GtdRowDone({ message, done }) {
+export default function GtdRowDone({ message, done }: GtdRowDoneProps) {
   const { t } = useTranslation();
   const removeMessage = useStore((s: StoreState) => s.removeMessage);
   const decrementUnread = useStore((s: StoreState) => s.decrementUnread);
   const incrementUnread = useStore((s: StoreState) => s.incrementUnread);
   const addNotification = useStore((s: StoreState) => s.addNotification);
 
-  const inboxDone = async (e) => {
+  const inboxDone = async (e: React.MouseEvent) => {
     e.stopPropagation();
     advanceSelectionAfterRemoval(message.id);
     removeMessage(message.id);
     // gtdDone marks the WHOLE thread read server-side and unreadCounts is message-based, so drop the
     // row's full thread-unread (unread_count) like scheduleDelete does — a fixed -1 under-counts a
     // multi-unread thread. Fall back to this row's own unread when absent.
-    const unreadCount = Number.parseInt(message.unread_count, 10);
+    const unreadCount = Number(message.unread_count);
     const unreadDelta = Number.isFinite(unreadCount) ? unreadCount : (message.is_read ? 0 : 1);
     if (unreadDelta > 0) decrementUnread(message.account_id, unreadDelta);
     try {

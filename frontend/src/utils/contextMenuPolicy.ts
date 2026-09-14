@@ -14,7 +14,17 @@ export function getContextMenuPolicy(variant = 'inbox') {
   };
 }
 
-export function resolveContextMenuMessage(message, variant, resolveMessage) {
+interface ContextMenuMessageReference {
+  id: string;
+  message_id?: string | null;
+  account_id?: string;
+}
+
+export function resolveContextMenuMessage<Message extends ContextMenuMessageReference, Resolved>(
+  message: Message,
+  variant: string,
+  resolveMessage: (ref: string, accountId: Message['account_id']) => Promise<Resolved>,
+): Promise<Message | Resolved> {
   if (variant !== 'gtdSidebar') return Promise.resolve(message);
   return resolveMessage(message.message_id || message.id, message.account_id);
 }

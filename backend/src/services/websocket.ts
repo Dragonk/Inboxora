@@ -26,7 +26,13 @@ interface WebSocketLike {
 }
 
 interface WebSocketServerLike {
-  on(event: string, listener: (...args: unknown[]) => void): unknown;
+  on(
+    event: 'connection',
+    listener: (
+      ws: WebSocketLike,
+      req: { headers: { origin?: string }; session?: { userId?: string; locked?: boolean } | null },
+    ) => void,
+  ): unknown;
 }
 
 interface SessionMiddlewareLike {
@@ -76,12 +82,13 @@ export function setupWebSocket(wss: WebSocketServerLike, sessionMiddleware: Sess
         ws.close(1011, 'Session unavailable');
         return;
       }
-      const userId = req.session?.userId;
-      if (!userId) {
+      const session = req.session;
+      if (!session || !session.userId) {
         ws.close(1008, 'Unauthorized');
         return;
       }
-      if (req.session.locked) {
+      const userId = session.userId;
+      if (session.locked) {
         // Screen lock (#235) is server-enforced: don't stream live mail to a locked
         // session. The client closes its own socket on lock; this blocks a new one.
         ws.close(1008, 'Locked');

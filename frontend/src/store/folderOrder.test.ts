@@ -7,6 +7,12 @@ import {
   readFolderOrder,
 } from './folderOrder.ts';
 
+function storedValue(storage: Storage & { value(key: string): string | undefined }, key: string): string {
+  const value = storage.value(key);
+  assert.ok(value !== undefined, `Expected a cached value for ${key}`);
+  return value;
+}
+
 function memoryStorage(initial: Record<string, string> = {}): Storage & { value(key: string): string | undefined } {
   const values = new Map<string, string>(Object.entries(initial));
   return {
@@ -49,7 +55,7 @@ describe('folderOrder store preference', () => {
     };
     assert.deepEqual(next, expected);
     assert.deepEqual(
-      JSON.parse(storage.value('mailflow_folder_order')),
+      JSON.parse(storedValue(storage, 'mailflow_folder_order')),
       expected,
     );
   });
@@ -66,7 +72,7 @@ describe('folderOrder store preference', () => {
     };
     assert.deepEqual(next, expected);
     assert.deepEqual(
-      JSON.parse(storage.value('mailflow_folder_order')),
+      JSON.parse(storedValue(storage, 'mailflow_folder_order')),
       expected,
     );
   });
@@ -82,7 +88,7 @@ describe('folderOrder store preference', () => {
 
     assert.deepEqual(next, {});
     assert.deepEqual(
-      JSON.parse(storage.value('mailflow_folder_order')),
+      JSON.parse(storedValue(storage, 'mailflow_folder_order')),
       {},
     );
   });
