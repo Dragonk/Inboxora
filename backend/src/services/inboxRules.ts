@@ -203,7 +203,7 @@ export async function applyInboxRules<T extends RuleMessage>(messages: T[], acco
   if (needsBody) {
     const ids = messages.map(m => m.id);
     try {
-      const res = await query(
+      const res = await query<{ id: string; body_text?: string | null }>(
         'SELECT id, body_text FROM messages WHERE id = ANY($1::uuid[])',
         [ids]
       );
