@@ -27,7 +27,17 @@ const delay = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
 // ── UnifiedPush ──────────────────────────────────────────────────────────────
 
-export async function sendUnifiedPush(device, event) {
+/** A push target as the database stores it. */
+interface PushDevice { id?: string; endpoint?: string | null; p256dh?: string | null; auth?: string | null; fcm_token?: string | null; [key: string]: unknown }
+
+/** The notification payload sent to a device. */
+interface PushEvent { title?: string; body?: string; url?: string; tag?: string; data?: Record<string, unknown>; [key: string]: unknown }
+
+/** A Firebase service account (the fields the FCM transport reads). */
+interface ServiceAccount { clientEmail?: string; privateKey?: string; projectId?: string; tokenUri?: string; [key: string]: unknown }
+
+
+export async function sendUnifiedPush(device: PushDevice, event: PushEvent): Promise<unknown> {
   if (!device?.endpoint || !event) return TRANSPORT_DISABLED;
 
   let response;
@@ -58,12 +68,12 @@ export async function sendUnifiedPush(device, event) {
 const FCM_SCOPE = 'https://www.googleapis.com/auth/firebase.messaging';
 const FCM_TOKEN_URL = 'https://oauth2.googleapis.com/token';
 
-let cachedServiceAccount = null;
-let cachedServiceAccountRaw = null;
-let cachedAccessToken = null;
+let cachedServiceAccount: ServiceAccount | null = null;
+let cachedServiceAccountRaw: string | null = null;
+let cachedAccessToken: string | null = null;
 let cachedAccessTokenExpiry = 0;
 
-export function parseServiceAccount(raw) {
+export function parseServiceAccount(raw: string): ServiceAccount | null {
   if (!raw || typeof raw !== 'string') return null;
   let text = raw.trim();
   // Accept either raw JSON or a base64-encoded service-account file.
@@ -95,7 +105,7 @@ function serviceAccount() {
 
 export const fcmConfigured = () => !!serviceAccount();
 
-async function fcmAccessToken(account) {
+async function fcmAccessToken(account: ServiceAccount): Promise<string> {
   if (cachedAccessToken && Date.now() < cachedAccessTokenExpiry) return cachedAccessToken;
 
   const key = await importPKCS8(account.privateKey, 'RS256');
@@ -126,7 +136,7 @@ async function fcmAccessToken(account) {
   return cachedAccessToken;
 }
 
-export async function sendFcmPush(device, event) {
+export async function sendFcmPush(device: PushDevice, event: PushEvent): Promise<unknown> {
   const account = serviceAccount();
   if (!account || !device?.endpoint || !event) return TRANSPORT_DISABLED;
 
