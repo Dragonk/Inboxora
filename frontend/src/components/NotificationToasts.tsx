@@ -47,7 +47,21 @@ export default function NotificationToasts() {
   );
 }
 
-function ActionBar({ notification, onDismiss, isMobile }) {
+/** A toast notification as the toasts render it. */
+interface ToastNotification {
+  id?: string;
+  title?: string | null;
+  body?: string | null;
+  type?: string | null;
+  actionLabel?: string | null;
+  onAction?: () => void;
+  onUndo?: () => void;
+  undoDurationMs?: number;
+  persistent?: boolean;
+  allowWrap?: boolean;
+  [key: string]: unknown;
+}
+function ActionBar({ notification, onDismiss, isMobile }: { notification: ToastNotification; onDismiss: () => void; isMobile: boolean }) {
   const { t } = useTranslation();
   const [exiting, setExiting] = useState(false);
 
@@ -140,7 +154,7 @@ function ActionBar({ notification, onDismiss, isMobile }) {
   );
 }
 
-function Toast({ notification, onDismiss, isMobile }) {
+function Toast({ notification, onDismiss, isMobile }: { notification: ToastNotification; onDismiss: () => void; isMobile: boolean }) {
   const { t } = useTranslation();
   const [exiting, setExiting] = useState(false);
 

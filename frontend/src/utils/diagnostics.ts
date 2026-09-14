@@ -71,7 +71,7 @@ export function scrubReport(obj) {
   return { scrubbed: walk(obj), counters };
 }
 
-export function collectEnvironment({ locale, theme, uiScale }) {
+export function collectEnvironment({ locale, theme, uiScale }: { locale?: string; theme?: string; uiScale?: number }) {
   const native = typeof window !== 'undefined' ? window.inboxoraNative : null;
   const { browser, os } = coarsenUserAgent(typeof navigator !== 'undefined' ? navigator.userAgent : '');
   return {
