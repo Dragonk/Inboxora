@@ -1758,9 +1758,9 @@ export const useStore = create<StoreState>()((set, get) => ({
 export function selectSelectedMessageMid(s: {
   selectedMessageId?: string | null;
   searchQuery?: string;
-  searchResults?: StoreMessage[];
-  messages?: StoreMessage[];
-  threadMessages?: Record<string, StoreMessage[]>;
+  searchResults?: StoreMessageRow[];
+  messages?: StoreMessageRow[];
+  threadMessages?: Record<string, StoreMessageRow[]>;
 }) {
   const id = s.selectedMessageId;
   if (id == null) return null;

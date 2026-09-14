@@ -455,7 +455,7 @@ export default function MessageList() {
         const __t0 = Date.now();
         await refreshRequestRef.current.run(
           () => api.getMessages(params),
-          (data: { messages: StoreMessageRow[]; total?: number }) => {
+          (data: { messages: StoreMessageRow[]; total: number }) => {
             if (cancelled) return;
             console.info(`[perf] messages load ${Date.now() - __t0}ms unified=${!selectedAccountId} count=${data.messages.length} total=${data.total}`);
             setMessagesTotal(data.total);
@@ -542,7 +542,7 @@ export default function MessageList() {
         if (selectedFolder === 'INBOX' && (categorizationEnabled || selectedAccount?.categorization_enabled)) params.category = activeCategory;
         await refreshRequestRef.current.run(
           () => api.getMessages(params),
-          (data: { messages: StoreMessageRow[]; total?: number }) => {
+          (data: { messages: StoreMessageRow[]; total: number }) => {
             setMessagesTotal(data.total);
             // If the unread filter is on and the currently open message was just marked
             // read, the server won't return it — preserve it so the user can keep reading.
@@ -700,7 +700,7 @@ export default function MessageList() {
       if (selectedFolder === 'INBOX' && (categorizationEnabled || selectedAccount?.categorization_enabled)) params.category = activeCategory;
       await refreshRequestRef.current.run(
         () => api.getMessages(params),
-        (data: { messages: StoreMessageRow[]; total?: number }) => {
+        (data: { messages: StoreMessageRow[]; total: number }) => {
           setMessagesTotal(data.total);
           setMessages(applyReadGuard(data.messages));
           setMessagesOffset((pageNum - 1) * pageSize + data.messages.length);

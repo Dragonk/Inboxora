@@ -98,7 +98,7 @@ interface AccountFormState {
   email_address?: string;
   color?: string;
   protocol?: string;
-  imap_host?: string;
+  imap_host: string;
   imap_port?: number | string;
   imap_skip_tls_verify?: boolean;
   smtp_host?: string;
@@ -114,7 +114,8 @@ interface AccountFormState {
 }
 
 interface AccountFormProps {
-  initial?: AccountFormState | null;
+  /** Seeds the form; callers may pass a partial account. */
+  initial?: Partial<AccountFormState> | null;
   onSave: (form: AccountFormState) => void;
   onCancel: () => void;
 }
@@ -125,12 +126,13 @@ function AccountForm({ initial = undefined, onSave, onCancel }: AccountFormProps
   const { categorizationEnabled } = useStore();
 
   const isEdit = !!initial?.id;
-  const [form, setForm] = useState(initial || {
-    name: '', email_address: '', color: '#6366f1', protocol: 'imap',
-    imap_host: '', imap_port: 993, imap_skip_tls_verify: false,
-    smtp_host: '', smtp_port: 587, smtp_tls: 'STARTTLS',
-    smtp_auth_user: '', smtp_auth_pass: '',
-    auth_user: '', auth_pass: '', categorization_enabled: false,
+  const [form, setForm] = useState<AccountFormState>({
+      name: '', email_address: '', color: '#6366f1', protocol: 'imap',
+      imap_host: '', imap_port: 993, imap_skip_tls_verify: false,
+      smtp_host: '', smtp_port: 587, smtp_tls: 'STARTTLS',
+      smtp_auth_user: '', smtp_auth_pass: '',
+      auth_user: '', auth_pass: '', categorization_enabled: false,
+    ...(initial ?? {}),
   });
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
