@@ -17,6 +17,19 @@ import { routeParam, sessionUserId } from '../utils/query.js';
 import { toAppError } from '../utils/errors.js';
 import type { Request, Response } from 'express';
 
+type AuthenticatedDeviceRequest = Request & {
+  pushDevice: NonNullable<Request['pushDevice']>;
+};
+
+interface MessageSummaryRow {
+  id: string;
+  account_id: string;
+  folder: string;
+  from_name: string | null;
+  from_email: string | null;
+  subject: string | null;
+}
+
 const router = Router();
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -135,7 +148,7 @@ function unreadTotalSql() {
             AND m.is_read = false AND m.is_deleted = false`;
 }
 
-function messageSummary(row) {
+function messageSummary(row: MessageSummaryRow) {
   return {
     messageId: row.id,
     accountId: row.account_id,
@@ -148,11 +161,11 @@ function messageSummary(row) {
 // Fetch the notification details for one specific event id (the message UUID
 // carried opaquely through the provider). Ownership is enforced in SQL, so a
 // leaked event id from another account cannot be read.
-router.get('/native/messages/:id', requireDeviceAuth, async (req: Request, res: Response) => {
+router.get('/native/messages/:id', requireDeviceAuth, async (req: AuthenticatedDeviceRequest, res: Response) => {
   const id = routeParam(req.params.id);
   if (!UUID_RE.test(id)) return res.status(400).json({ error: 'Invalid message id' });
 
-  const result = await query(
+  const result = await query<MessageSummaryRow>(
     `SELECT m.id, m.subject, m.from_name, m.from_email, m.account_id, m.folder
        FROM messages m
        JOIN email_accounts a ON a.id = m.account_id
@@ -172,8 +185,8 @@ router.get('/native/messages/:id', requireDeviceAuth, async (req: Request, res: 
 // Reconciliation endpoint for the WorkManager fallback: latest unread INBOX
 // message (if any) plus the authoritative unread total. Returns the same
 // message id the push event would carry so the client can dedup either path.
-router.get('/native/inbox', requireDeviceAuth, async (req: Request, res: Response) => {
-  const latest = await query(
+router.get('/native/inbox', requireDeviceAuth, async (req: AuthenticatedDeviceRequest, res: Response) => {
+  const latest = await query<MessageSummaryRow>(
     `SELECT m.id, m.subject, m.from_name, m.from_email, m.account_id, m.folder
        FROM messages m
        JOIN email_accounts a ON a.id = m.account_id

@@ -167,7 +167,7 @@ describe('archiveTargetGroupsForRows', () => {
 
     const first = { id: 'first-head', thread_id: 'thread-1', message_count: 2 };
     const second = { id: 'second-head', thread_id: 'thread-2', message_count: 3 };
-    const resolvedByThread = {
+    const resolvedByThread: Record<string, threadedArchive.ArchiveMessage[]> = {
       'thread-1': [
         { id: 'first-oldest', account_id: 'account-1', folder: 'INBOX' },
         { id: 'first-head', account_id: 'account-1', folder: 'INBOX' },
@@ -231,7 +231,7 @@ describe('archiveInChunks', () => {
   it('keeps each request within the backend limit and merges results', async () => {
     assert.equal(typeof threadedArchive.archiveInChunks, 'function');
     const ids = Array.from({ length: 501 }, (_, index) => `id-${index}`);
-    const calls = [];
+    const calls: string[][] = [];
 
     const result = await threadedArchive.archiveInChunks(ids, async (chunk) => {
       calls.push(chunk);
@@ -258,11 +258,13 @@ describe('archiveInChunks', () => {
         return { archived: chunk, noArchiveFolder: [] };
       });
     } catch (error) {
-      assert.fail(`archiveInChunks discarded completed chunk results: ${error.message}`);
+      const message = error instanceof Error ? error.message : String(error);
+      assert.fail(`archiveInChunks discarded completed chunk results: ${message}`);
     }
 
     assert.deepEqual(result.archived, ids.slice(0, 500));
     assert.deepEqual(result.unconfirmed, ids.slice(500));
+    assert.ok(result.error instanceof Error);
     assert.equal(result.error.message, 'network failed');
     assert.equal(call, 2);
   });
