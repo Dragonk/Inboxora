@@ -1004,7 +1004,7 @@ export function providerProfile(account: Partial<EmailAccountRow>) {
   return PROVIDERS.generic;
 }
 
-export function effectiveSyncIntervalMs(account: EmailAccountRow, requestedMs) {
+export function effectiveSyncIntervalMs(account: EmailAccountRow, requestedMs: number): number {
   const profile = providerProfile(account);
   if (profile.maxSyncIntervalMs) return Math.min(requestedMs, profile.maxSyncIntervalMs);
   return requestedMs;
@@ -1016,7 +1016,7 @@ export function effectiveSyncIntervalMs(account: EmailAccountRow, requestedMs) {
 // are being connected — so a large fleet paces slower — capped at 2x so startup stays bounded.
 // This is proactive pacing; the reactive connectCooldownMs backoff still handles a provider
 // that refuses despite the spacing. (#218)
-export function connectStaggerFor(profile, accountCount) {
+export function connectStaggerFor(profile: ReturnType<typeof providerProfile>, accountCount: number): number {
   const base = profile?.connectStaggerMs ?? 200;
   const factor = Math.min(1 + Math.max(accountCount, 0) / 25, 2);
   return Math.round(base * factor);
@@ -1066,7 +1066,7 @@ const RELOCATE_MESSAGE_SQL = `
     AND 1 = (SELECT COUNT(*) FROM messages WHERE account_id = $3::uuid AND message_id = $4::text)
     AND COALESCE((SELECT special_use FROM folders WHERE account_id = $3::uuid AND path = $1::text), '') NOT IN ('\\All', '\\Important')`;
 
-function relocateMessageParams(folder: string, parsed, accountId: string, msgId) {
+function relocateMessageParams(folder: string, parsed: Record<string, unknown>, accountId: string, msgId: string) {
   return [
     folder, parsed.uid, accountId, msgId,
     sanitizeStr(parsed.subject),
@@ -1090,12 +1090,13 @@ function relocateMessageParams(folder: string, parsed, accountId: string, msgId)
 // non-GTD account keeps byte-identical relocate SQL). Errors in a plugin contribute nothing
 // (collectHook swallows), so a misbehaving plugin can never disturb the sync relocate path.
 // Module-level (not a method) so it depends only on the registry, never on manager state.
-export async function collectRelocateExemptFolders(account: EmailAccountRow) {
+export async function collectRelocateExemptFolders(account: EmailAccountRow): Promise<string[]> {
   const sets = await pluginRegistry.collectHook('relocateExemptFolders', { account, accountId: account.id });
-  return [...new Set(sets.flat().filter(Boolean))];
+  const paths = sets.flat().filter((value): value is string => typeof value === 'string' && value.length > 0);
+  return [...new Set(paths)];
 }
 
-function relocateMessageQuery(folder: string, parsed, accountId: string, msgId, exemptFolders) {
+function relocateMessageQuery(folder: string, parsed: Record<string, unknown>, accountId: string, msgId: string, exemptFolders: string[]) {
   const guard = relocateExemptGuard(exemptFolders, 12);
   return {
     sql: `${RELOCATE_MESSAGE_SQL}${guard.clause}\n  RETURNING id`,
@@ -1104,8 +1105,8 @@ function relocateMessageQuery(folder: string, parsed, accountId: string, msgId, 
 }
 
 // Strip null bytes that PostgreSQL's UTF-8 encoding rejects (some emails contain them)
-function sanitizeStr(str: string) {
-  if (typeof str !== 'string') return str;
+function sanitizeStr(str: unknown): string {
+  if (typeof str !== 'string') return String(str ?? '');
   return str.replace(/\0/g, '');
 }
 
