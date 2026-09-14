@@ -1804,7 +1804,7 @@ export class ImapManager {
                       // brackets, some don't) — query both forms and normalise on compare.
                       const forms = [];
                       for (const id of withMid) forms.push(id, `<${id}>`);
-                      const { rows } = await query(
+                      const { rows } = await query<{ message_id: string }>(
                         'SELECT message_id FROM messages WHERE account_id = $1 AND message_id = ANY($2::text[])',
                         [accountId, forms]
                       );
@@ -2248,7 +2248,7 @@ export class ImapManager {
     if (!Number.isFinite(cap)) return true;
     const host = (account.imap_host || '').toLowerCase();
     if (!host) return true;
-    const rows = await query(
+    const rows = await query<{ id: string }>(
       "SELECT id FROM email_accounts WHERE enabled = true AND protocol = 'imap' AND lower(imap_host) = $1 ORDER BY created_at ASC NULLS FIRST, id ASC",
       [host]
     );
@@ -3640,7 +3640,7 @@ export class ImapManager {
       // higher UIDs.  Comparing the highest UID we have against the server's highest
       // UID is correct because IMAP UIDs are monotonically increasing — if our max
       // matches the server's max, there is nothing new to fetch.
-      const dbSummaryResult = await query(
+      const dbSummaryResult = await query<{ count: string; max_uid: number | string }>(
         'SELECT COUNT(*) as count, COALESCE(MAX(uid), 0) as max_uid FROM messages WHERE account_id = $1 AND folder = $2 AND is_deleted = false',
         [account.id, folder]
       );
@@ -3871,7 +3871,7 @@ export class ImapManager {
                   sanitizeStr(parsed.senderName), sanitizeStr(parsed.senderEmail),
                 ]);
                 backfilledRows++;
-                const inserted = await query(`SELECT id FROM messages WHERE account_id = $1 AND uid = $2 AND folder = $3`, [account.id, parsed.uid, folder]);
+                const inserted = await query<{ id: string }>(`SELECT id FROM messages WHERE account_id = $1 AND uid = $2 AND folder = $3`, [account.id, parsed.uid, folder]);
                 if (inserted.rows[0]) {
                   await persistConversationCopyForRow(inserted.rows[0].id, account, msg);
                   await persistInboundCalendarInvitationFromMessage({ client: bfClient, message: msg, messageId: inserted.rows[0].id })
@@ -4097,7 +4097,7 @@ export class ImapManager {
       await this.backfillMessages(account, 'INBOX');
 
       // Then all other known folders (discovered at connect time by syncFolders)
-      const folderResult = await query(
+      const folderResult = await query<{ path: string }>(
         "SELECT path FROM folders WHERE account_id = $1 AND path != 'INBOX' ORDER BY path",
         [account.id]
       );
@@ -4165,7 +4165,7 @@ export class ImapManager {
     let slotHeld = false; // holding a per-host background-connection slot
     try {
       // Check if there's anything to index before opening a connection
-      const countResult = await query(
+      const countResult = await query<{ count: string }>(
         "SELECT count(*) FROM messages WHERE account_id = $1 AND (snippet IS NULL OR snippet = '') AND snippet_attempted_at IS NULL",
         [account.id]
       );
@@ -4224,7 +4224,7 @@ export class ImapManager {
             return;
           }
 
-          const batchResult = await query(
+          const batchResult = await query<{ uid: number | string }>(
             `SELECT uid FROM messages
              WHERE account_id = $1 AND folder = $2 AND (snippet IS NULL OR snippet = '') AND snippet_attempted_at IS NULL
              ORDER BY date DESC LIMIT $3`,
@@ -4418,7 +4418,7 @@ export class ImapManager {
       sanitizeStr(inReplyTo), sanitizeStr(references),
       safeDate(date), sanitizeStr(snippet || ''), threadId,
     ]);
-    const row = await query('SELECT id FROM messages WHERE account_id = $1 AND uid = $2 AND folder = $3', [account.id, uid, folder]);
+    const row = await query<{ id: string }>('SELECT id FROM messages WHERE account_id = $1 AND uid = $2 AND folder = $3', [account.id, uid, folder]);
     if (row.rows[0]) await persistConversationCopyForRow(row.rows[0].id, account, { messageId: msgId, inReplyTo, references });
   }
 
@@ -4493,7 +4493,7 @@ export class ImapManager {
       bodyText != null ? sanitizeStr(bodyText) : null,
       msgId || null,
     ]);
-    const row = await query('SELECT id FROM messages WHERE account_id = $1 AND uid = $2 AND folder = $3', [account.id, uid, folder]);
+    const row = await query<{ id: string }>('SELECT id FROM messages WHERE account_id = $1 AND uid = $2 AND folder = $3', [account.id, uid, folder]);
     if (row.rows[0]) await persistConversationCopyForRow(row.rows[0].id, account, { messageId, inReplyTo, references: null });
   }
 
