@@ -1193,7 +1193,7 @@ router.post('/messages/bulk-delete', async (req, res) => {
 
   const moveGuards = [];
   try {
-    const result = await query(
+    const result = await query<ReadMessageRow>(
       `SELECT m.*, a.user_id, a.folder_mappings FROM messages m
        JOIN email_accounts a ON m.account_id = a.id
        WHERE m.id = ANY($2::uuid[]) AND a.user_id = $1`,
@@ -1465,7 +1465,7 @@ router.post('/messages/bulk-move', async (req, res) => {
 
   const moveGuards = [];
   try {
-    const result = await query(
+    const result = await query<ReadMessageRow>(
       `SELECT m.*, a.user_id FROM messages m
        JOIN email_accounts a ON m.account_id = a.id
        WHERE m.id = ANY($2::uuid[]) AND a.user_id = $1`,
@@ -1604,7 +1604,7 @@ router.post('/messages/bulk-archive', async (req, res) => {
 
   const moveGuards = [];
   try {
-    const result = await query(
+    const result = await query<ReadMessageRow>(
       `SELECT m.*, a.user_id, a.folder_mappings FROM messages m
        JOIN email_accounts a ON m.account_id = a.id
        WHERE m.id = ANY($2::uuid[]) AND a.user_id = $1`,
@@ -1856,7 +1856,7 @@ router.post('/messages/:id/snooze', async (req, res) => {
   if (untilDate > maxDate) return res.status(400).json({ error: 'until must be within 30 days' });
 
   // Ownership check
-  const msgResult = await query(
+  const msgResult = await query<ReadMessageRow>(
     `SELECT m.*, a.user_id FROM messages m
      JOIN email_accounts a ON a.id = m.account_id
      WHERE m.id = $1 AND a.user_id = $2`,
