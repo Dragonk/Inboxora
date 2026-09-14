@@ -437,7 +437,7 @@ router.get('/:id/folders', async (req, res) => {
 
 router.post('/:id/reindex', async (req, res) => {
   try {
-    const result = await query(
+    const result = await query<EmailAccountRow>(
       "SELECT * FROM email_accounts WHERE id = $1 AND user_id = $2 AND enabled = true AND protocol = 'imap'",
       [req.params.id, req.session.userId]
     );

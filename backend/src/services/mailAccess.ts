@@ -122,8 +122,8 @@ export async function getMessagesByThreadKeys(accountId: string, threadKeys: str
 }
 
 // The thread key of a single message identified by its (uid, folder) within an account, or null.
-export async function getThreadKeyForUid(accountId: string, uid: number, folder: string) {
-  const { rows } = await query(
+export async function getThreadKeyForUid(accountId: string, uid: number, folder: string): Promise<string | null> {
+  const { rows } = await query<{ thread_key: string }>(
     'SELECT thread_key FROM messages WHERE account_id = $1 AND uid = $2 AND folder = $3 LIMIT 1',
     [accountId, uid, folder]
   );
