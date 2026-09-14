@@ -212,7 +212,7 @@ export default function ComposeModal() {
   const [attachWarnDraftCloseAfter, setAttachWarnDraftCloseAfter] = useState(false);
   const [showPrioritySheet, setShowPrioritySheet] = useState(false);
   const [showCcBccMenu, setShowCcBccMenu] = useState(false);
-  const [ccBccMenuPos, setCcBccMenuPos] = useState(null);
+  const [ccBccMenuPos, setCcBccMenuPos] = useState<{ top: number; right: number } | null>(null);
   const ccBccMenuBtnRef = useRef<HTMLButtonElement | null>(null);
   const [draftUid, setDraftUid] = useState(() => composeData?.draftUid ?? null);
   const [draftFolder, setDraftFolder] = useState(() => composeData?.draftFolder ?? null);
@@ -306,7 +306,7 @@ export default function ComposeModal() {
   const [showReplyType, setShowReplyType] = useState(false);
   const [htmlMode, setHtmlMode] = useState(false);
   const [htmlSource, setHtmlSource] = useState('');
-  const [aiStatus, setAiStatus] = useState(null);
+  const [aiStatus, setAiStatus] = useState<{ enabled?: boolean; features?: { summarize?: boolean; compose?: boolean; [key: string]: unknown }; [key: string]: unknown } | null>(null);
   const [aiPanel, setAiPanel] = useState<{ text?: string; status?: string; [key: string]: unknown } | null>(null);
   const aiAbortRef = useRef<AbortController | null>(null);
   // Stable idempotency key for the current logical send. Generated on the first send
@@ -2424,15 +2424,15 @@ function RichToolbar({ editor, onAttach, onInsertImage = undefined, htmlMode, on
   const { t } = useTranslation();
   const uiScale = useUiScale();
   const savedSelectionRef = useRef<{ from: number; to: number } | null>(null);
-  const [aiMenuPos, setAiMenuPos] = useState(null);
+  const [aiMenuPos, setAiMenuPos] = useState<{ top: number; left: number } | null>(null);
   const aiBtnRef = useRef<HTMLButtonElement | null>(null);
   const aiMenuRef = useRef<HTMLDivElement | null>(null);
-  const [colorPos, setColorPos] = useState(null);
-  const [highlightPos, setHighlightPos] = useState(null);
-  const [emojiPos, setEmojiPos] = useState(null);
+  const [colorPos, setColorPos] = useState<{ top: number; left: number } | null>(null);
+  const [highlightPos, setHighlightPos] = useState<{ top: number; left: number } | null>(null);
+  const [emojiPos, setEmojiPos] = useState<{ top?: number; bottom?: number; left: number } | null>(null);
   const emojiPickerRef = useRef<{ Picker: React.ComponentType<Record<string, unknown>>; data: unknown } | null>(null);
-  const [linkPos, setLinkPos] = useState(null);
-  const [tablePos, setTablePos] = useState(null);
+  const [linkPos, setLinkPos] = useState<{ top: number; left: number } | null>(null);
+  const [tablePos, setTablePos] = useState<{ top: number; left: number } | null>(null);
   const [linkUrl, setLinkUrl] = useState('');
   const colorBtnRef = useRef<HTMLButtonElement | null>(null);
   const highlightBtnRef = useRef<HTMLButtonElement | null>(null);
@@ -3062,7 +3062,7 @@ function ChipInput({ chips, onChipsChange, value, onChange, placeholder, autoFoc
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const wrapperRef = useRef<HTMLDivElement | null>(null);
   const inputRef = useRef<HTMLInputElement | null>(null);
-  const [dropStyle, setDropStyle] = useState(null);
+  const [dropStyle, setDropStyle] = useState<Record<string, unknown> | null>(null);
   const [menu, setMenu] = useState<{ x: number; y: number; index: number } | null>(null); // { x, y, index } | null — recipient chip context menu
   useBackLayer(menu, () => setMenu(null), 2200);
   const longPressRef = useRef<ReturnType<typeof setTimeout> | null>(null);

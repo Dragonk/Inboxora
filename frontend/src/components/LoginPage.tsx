@@ -43,7 +43,7 @@ export default function LoginPage() {
   const [password, setPassword] = useState('');
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
-  const [registrationOpen, setRegistrationOpen] = useState(null); // null = loading
+  const [registrationOpen, setRegistrationOpen] = useState<boolean | null>(null); // null = loading
   const [inviteToken, setInviteToken] = useState<string | null>(null);
   const [inviteEmail, setInviteEmail] = useState<string | null>(null);
   const [totpRequired, setTotpRequired] = useState(false);

@@ -26,7 +26,7 @@ export default function CalendarSubscriptionsSettings({ locale }) {
   const { t, i18n } = useTranslation();
   // The resource ids are not BCP 47 tags (zhCN), so spell them out before any Intl call.
   const language = intlLocale(locale || i18n.resolvedLanguage || i18n.language) || 'en';
-  const [sources, setSources] = useState([]);
+  const [sources, setSources] = useState<Array<{ id: string; displayName?: string; kind?: string; intervalMin?: number; lastError?: string | null; lastSyncAt?: string | null; [key: string]: unknown }>>([]);
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
