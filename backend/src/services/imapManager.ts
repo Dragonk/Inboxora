@@ -2338,7 +2338,7 @@ export class ImapManager {
 
   async disconnectUser(userId: string) {
     try {
-      const result = await query(
+      const result = await query<{ id: string }>(
         "SELECT id FROM email_accounts WHERE user_id = $1 AND protocol = 'imap'",
         [userId]
       );
@@ -2837,7 +2837,7 @@ export class ImapManager {
   // intervals for all their active accounts without disconnecting.
   async updateSyncIntervalForUser(userId: string, newMs: number) {
     this.userSyncIntervalMs.set(userId, newMs);
-    const result = await query(
+    const result = await query<EmailAccountRow>(
       "SELECT * FROM email_accounts WHERE user_id = $1 AND enabled = true AND protocol = 'imap'",
       [userId]
     );
@@ -2995,7 +2995,7 @@ export class ImapManager {
         // mailbox.unseen from IMAP SELECT is the sequence number of the first unseen
         // message, NOT the count of unread messages.  Compute the real count from the
         // messages table instead — accurate post-backfill and never inflated.
-        const { rows: [ucRow] } = await query(
+        const { rows: [ucRow] } = await query<{ n: string | number | null }>(
           `SELECT COUNT(*) FILTER (WHERE is_read = false) AS n FROM messages WHERE account_id = $1 AND folder = $2`,
           [account.id, folder]
         );
@@ -3290,7 +3290,7 @@ export class ImapManager {
               const survivingIds = new Set(newMessages.map(m => m.id));
               const removedIds = unreadBeforeRules.filter(id => !survivingIds.has(id));
               if (removedIds.length) {
-                const alive = await query(
+                const alive = await query<{ id: string }>(
                   'SELECT id FROM messages WHERE id = ANY($1::uuid[]) AND is_deleted = false',
                   [removedIds]
                 );
