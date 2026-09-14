@@ -273,7 +273,7 @@ router.post('/send', async (req, res) => {
   let fromReplyTo = null;
 
   if (aliasId) {
-    const aliasResult = await query<{ name?: string | null; email?: string | null; reply_to?: string | null; [key: string]: unknown }>(
+    const aliasResult = await query<{ name?: string | null; email?: string | null; reply_to?: string | null; signature?: string | null; [key: string]: unknown }>(
       'SELECT * FROM account_aliases WHERE id = $1 AND account_id = $2',
       [aliasId, accountId]
     );
