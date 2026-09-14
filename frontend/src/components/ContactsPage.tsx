@@ -153,11 +153,11 @@ export default function ContactsPage({ isActive = true }) {
   const [showNew, setShowNew]       = useState(false);
   // Mobile: 'list' shows the contact list, 'detail' shows contact/form panel
   const [mobilePanel, setMobilePanel] = useState('list');
-  const searchTimer                 = useRef(null);
-  const rowRefs                     = useRef(new Map());
-  const selectedRowIdRef            = useRef(null);
-  const mobileBackButtonRef         = useRef(null);
-  const importInputRef              = useRef(null);
+  const searchTimer                 = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
+  const rowRefs                     = useRef(new Map<string, HTMLElement>());
+  const selectedRowIdRef            = useRef<string | null>(null);
+  const mobileBackButtonRef         = useRef<HTMLButtonElement | null>(null);
+  const importInputRef              = useRef<HTMLInputElement | null>(null);
   const contactSelectionRequestRef  = useRef(0);
   const listResizeRef               = useRef(null);
 
@@ -201,7 +201,7 @@ export default function ContactsPage({ isActive = true }) {
   }, [contacts, isMobile, mobilePanel, selected]);
 
   // Stable refs used inside scroll handler to avoid stale closures.
-  const contactsRef    = useRef([]);
+  const contactsRef    = useRef<ContactRow[]>([]);
   const totalRef       = useRef(0);
   const loadingMoreRef = useRef(false);
   const searchRef      = useRef('');

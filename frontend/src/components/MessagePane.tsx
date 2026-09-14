@@ -365,10 +365,10 @@ export default function MessagePane({ windowMessageId = null, onWindowClose = nu
     return prepareEmailHtml(renderableHtml, windowMode ? `w${message?.id ?? 'preview'}` : String(message?.id ?? 'preview'));
   }, [renderableHtml, message?.id, windowMode]);
   const outerRef = useRef<HTMLDivElement | null>(null);
-  const scaleRef = useRef(null);
-  const innerRef = useRef(null);
+  const scaleRef = useRef<HTMLDivElement | null>(null);
+  const innerRef = useRef<HTMLDivElement | null>(null);
   const bodyCache = useRef({}); // messageId -> body, so revisiting is instant (capped at 50)
-  const bodyCacheOrder = useRef([]); // insertion-order keys for LRU eviction
+  const bodyCacheOrder = useRef<string[]>([]); // insertion-order keys for LRU eviction
   // Ref holding the latest pane action handlers so shortcut subscriptions ([] deps) never go stale
   const paneActionsRef = useRef<{
     reply?: () => void;
