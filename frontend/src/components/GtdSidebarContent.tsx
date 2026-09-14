@@ -15,6 +15,7 @@ import RightSidebar from './RightSidebar.tsx';
 import type { StoreState } from '../store/index.ts';
 import type { GtdTriageRowActions } from './GtdTriageRow.tsx';
 import type { TFunction } from 'i18next';
+import type { GtdNormalizedSection } from '../utils/gtd.ts';
 
 // Section key -> the state color/chip-bg used for its header, count chip, and the
 // row's left border. Waiting rows override per gtdKind (watch/delegated).
@@ -100,7 +101,7 @@ export default function GtdSidebarContent({ onCollapse, toggleHint }: { onCollap
 }
 
 function GtdSection({ section, collapsed, onToggle, onOpenRow, rowActions, selectedMessageId, selectedMid, t }: {
-  section: { key: string; [key: string]: unknown };
+  section: GtdNormalizedSection & { key: string };
   collapsed: boolean;
   onToggle: () => void;
   onOpenRow: (row: unknown) => void;
