@@ -35,6 +35,14 @@ export interface CodexAuthErrorOptions {
   transient?: boolean;
 }
 
+/** Narrow a caught value to the fields the release path records. */
+function codexFailure(caught: unknown): { code?: string; transient?: boolean } {
+  const candidate = caught as { code?: unknown; transient?: unknown } | null | undefined;
+  return {
+    code: typeof candidate?.code === 'string' ? candidate.code : undefined,
+    transient: candidate?.transient === true,
+  };
+}
 export class CodexAuthError extends Error {
   status: number;
   code?: string;
@@ -65,7 +73,7 @@ export function decodeJwtClaims(token: unknown): Record<string, unknown> | null 
   }
 }
 
-export function extractChatGptAccount(claims: Record<string, unknown>) {
+export function extractChatGptAccount(claims: Record<string, unknown> | null) {
   if (!claims || typeof claims !== 'object') throw new CodexAuthError('ChatGPT token has no account information');
   const auth = claims['https://api.openai.com/auth'] as { chatgpt_account_id?: unknown; email?: unknown } | undefined;
   const profile = claims['https://api.openai.com/profile'] as { email?: unknown } | undefined;
@@ -659,7 +667,7 @@ export function createOpenAiCodexAuth({
     return completed ? { status: 'connected' } : { status: 'cancelled' };
   }
 
-  async function pollDeviceFlow({ flowId, userId, sessionId }) {
+  async function pollDeviceFlow({ flowId, userId, sessionId }: { flowId: string; userId: string; sessionId: string | null }) {
     const time = now();
     const claim = await store.claimFlow({
       id: flowId,
@@ -686,7 +694,7 @@ export function createOpenAiCodexAuth({
           }),
         }));
       } catch (error) {
-        await releaseFailed(flow.id, error, 'pending');
+        await releaseFailed(flow.id, codexFailure(error), 'pending');
         throw error;
       }
       const body = parseJson(text);
@@ -735,7 +743,7 @@ export function createOpenAiCodexAuth({
     try {
       return await exchangeAuthorizedFlow(flow);
     } catch (error) {
-      await releaseFailed(flow.id, error, error.transient ? 'authorized' : 'failed');
+      await releaseFailed(flow.id, codexFailure(error), codexFailure(error).transient ? 'authorized' : 'failed');
       throw error;
     }
   }
