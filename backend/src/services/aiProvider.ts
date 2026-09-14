@@ -178,7 +178,7 @@ export function createAiProvider({
   streamCodexResponsesFn = streamCodexResponses,
   completeCodexTextFn = completeCodexText,
 }: {
-  queryFn?: <T = DbRow>(text: string, params?: unknown[]) => Promise<{ rows: T[]; rowCount?: number }>;
+  queryFn?: (text: string, params?: unknown[]) => Promise<{ rows: DbRow[]; rowCount?: number }>;
   encryptFn?: typeof encrypt;
   decryptFn?: typeof decrypt;
   validateHostFn?: typeof validateHost;
@@ -192,7 +192,8 @@ export function createAiProvider({
   async function loadAiConfig() {
     const result = await queryFn("SELECT value FROM system_settings WHERE key = 'ai_config'");
     if (!result.rows.length) return null;
-    const parsed = parseJson(result.rows[0].value);
+    const rawValue = result.rows[0]?.value;
+    const parsed = typeof rawValue === 'string' ? parseJson(rawValue) : null;
     return parsed ? normalizeAiConfig(parsed) : null;
   }
 

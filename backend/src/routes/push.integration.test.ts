@@ -67,7 +67,7 @@ describe.skipIf(!enabled)('push device registry with PostgreSQL', () => {
     expect(response.status).toBe(201);
     expect(body.deviceToken).toMatch(/^mf_push_[0-9a-f-]{36}\./);
 
-    const stored = (await query('SELECT endpoint, token_hash FROM push_devices WHERE user_id=$1 AND device_id=$2', [ownerId, 'device-1'])).rows[0];
+    const stored = (await query<{ endpoint: string; token_hash: string }>('SELECT endpoint, token_hash FROM push_devices WHERE user_id=$1 AND device_id=$2', [ownerId, 'device-1'])).rows[0];
     expect(stored.endpoint.startsWith('enc:v1:')).toBe(true);
     expect(stored.endpoint).not.toContain('distributor.example');
     expect(stored.token_hash).not.toContain(body.deviceToken);

@@ -102,7 +102,7 @@ export function scrubReport(obj) {
 
 // Assemble the server-owned sections of the report, scoped to one user.
 export async function buildServerReport(userId: string, salt) {
-  const accRes = await query(
+  const accRes = await query<{ id: string; include_in_unified_inbox?: boolean | null; last_sync?: string | Date | null; sync_error?: string | null; email_address?: string | null; [key: string]: unknown }>(
     `SELECT id, protocol, oauth_provider, imap_host, enabled, include_in_unified_inbox, last_sync, sync_error
      FROM email_accounts WHERE user_id = $1 ORDER BY sort_order NULLS LAST, created_at`,
     [userId],

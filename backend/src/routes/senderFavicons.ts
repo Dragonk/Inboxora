@@ -24,9 +24,9 @@ export function createSenderFaviconHandler({
   return async function senderFaviconHandler(req, res) {
     setPrivateNoStore(res);
     const userId = req.session.userId;
-    const result = await queryFn<{ preferences?: { senderFavicons?: boolean; [key: string]: unknown } | null }>('SELECT preferences FROM users WHERE id = $1', [userId]);
-    const preferences = result.rows[0]?.preferences || {};
-    if (preferences.senderFavicons === false) return res.status(404).end();
+    const result = await queryFn('SELECT preferences FROM users WHERE id = $1', [userId]);
+    const preferences = result.rows[0]?.preferences;
+    if (preferences && typeof preferences === 'object' && 'senderFavicons' in preferences && preferences.senderFavicons === false) return res.status(404).end();
 
     const domain = normalizeDomain(req.params.domain);
     if (!domain) return res.status(400).end();

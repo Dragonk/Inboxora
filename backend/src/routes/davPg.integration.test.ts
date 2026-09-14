@@ -20,8 +20,8 @@ describe.skipIf(!enabled)('DAV HTTP with PostgreSQL migrations', () => {
   beforeAll(async () => {
     auth.userId = randomUUID();
     await query('INSERT INTO users(id, username, password_hash) VALUES($1,$2,$3)', [auth.userId, `dav-test-${auth.userId}`, 'unused']);
-    book = (await query("INSERT INTO address_books(user_id, name, source) VALUES($1,'DAV regression','local') RETURNING id", [auth.userId])).rows[0].id;
-    calendar = (await query("INSERT INTO calendars(user_id, owner_user_id, name) VALUES($1,$1,'DAV regression') RETURNING id", [auth.userId])).rows[0].id;
+    book = (await query<{ id: string }>("INSERT INTO address_books(user_id, name, source) VALUES($1,'DAV regression','local') RETURNING id", [auth.userId])).rows[0].id;
+    calendar = (await query<{ id: string }>("INSERT INTO calendars(user_id, owner_user_id, name) VALUES($1,$1,'DAV regression') RETURNING id", [auth.userId])).rows[0].id;
     const app = express(); app.use('/carddav', carddav); app.use('/caldav', caldav);
     await new Promise(resolve => { server = app.listen(0, '127.0.0.1', resolve); });
     base = `http://127.0.0.1:${listeningPort(server)}`;
