@@ -6,9 +6,9 @@ Last updated: round 247 (DbRow merge + E2E green).
 
 | Area | State |
 |---|---|
-| Backend source | 305 files, 100% `.ts` (0 `.js`) |
-| Frontend source | 238 files, 100% `.ts`/`.tsx` (0 `.js`/`.jsx`) |
-| Total `.ts`/`.tsx` in both `src` trees | 543 |
+| Backend source | 311 files, 100% `.ts` (0 `.js`) |
+| Frontend source | 239 files, 100% `.ts`/`.tsx` (0 `.js`/`.jsx`) |
+| Total `.ts`/`.tsx` in both `src` trees | 550 |
 | E2E specs | `.ts`; Playwright run: **370 passed, 0 failed**, 357 skipped (727 total) |
 | Backend typecheck | `tsc --noEmit` → **0 errors** |
 | Frontend typecheck | `tsc --noEmit` → **0 errors** |

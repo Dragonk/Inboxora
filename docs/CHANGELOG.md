@@ -26,8 +26,8 @@ migration itself into an audit: the same work removed latent defects rather than
 
 ### Changed
 
-- **Backend and frontend sources are 100% TypeScript** — `backend/src` 305 `.ts` files,
-  `frontend/src` 238 `.ts`/`.tsx` files, **0 `.js`/`.jsx`**; Playwright specs and
+- **Backend and frontend sources are 100% TypeScript** — `backend/src` 311 `.ts` files,
+  `frontend/src` 239 `.ts`/`.tsx` files, **0 `.js`/`.jsx`**; Playwright specs and
   configuration are `.ts` as well.
 - Both projects type-check cleanly (`tsc --noEmit` → 0 errors) and lint cleanly with
   `--max-warnings 0`.
