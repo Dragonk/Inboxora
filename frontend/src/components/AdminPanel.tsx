@@ -29,6 +29,7 @@ import {
   normalizeAiForm,
   selectAiConnectionMethod,
 } from '../utils/aiConfig.ts';
+import type { CodexDeviceState } from '../utils/aiConfig.ts';
 import { THEMES, applyCustomCss, themesByTone } from '../themes.ts';
 import { FONT_SETS, loadFontSet, isRetroFont } from '../fonts.ts';
 import { LAYOUTS, localizedLayout, applyLayout } from '../layouts.ts';
@@ -3930,7 +3931,7 @@ function AISection() {
   const [disconnecting, setDisconnecting] = useState(false);
   const [cancelling, setCancelling] = useState(false);
   const [codexStatus, setCodexStatus] = useState<CodexStatusState>({ connected: false, state: 'disconnected' });
-  const [deviceState, setDeviceState] = useState(null);
+  const [deviceState, setDeviceState] = useState<CodexDeviceState | null>(null);
   const [copied, setCopied] = useState(false);
   const [msg, setMsg] = useState<{ type?: string; text?: string; url?: string; [key: string]: unknown } | null>(null);
   const pollerRef = useRef<{ start: (device?: unknown) => Promise<unknown>; cancel: () => Promise<void>; dispose: () => void } | null>(null);

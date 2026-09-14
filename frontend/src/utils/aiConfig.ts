@@ -152,6 +152,10 @@ export interface CodexDeviceState {
   message?: string;
   reconnectRequired?: boolean;
   reason?: string;
+  /** Present while a device flow is pending (the UI shows the code and link). */
+  userCode?: string;
+  verificationUrl?: string;
+  expiresAt?: number | null;
 }
 
 export interface CodexDevicePollerOptions {
