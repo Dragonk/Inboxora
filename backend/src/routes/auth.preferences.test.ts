@@ -1,4 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { mockRequest, mockResponse, mockSession } from '../test/http.js';
 
 vi.mock('../services/db.js', () => ({ query: vi.fn(), pool: {} }));
 vi.mock('../index.js', () => ({
@@ -47,11 +48,11 @@ beforeEach(() => {
 describe('PATCH /auth/preferences folderOrder', () => {
   it('merges folderOrder into existing preferences as JSONB', async () => {
     const folderOrder = { 'account-1': ['Archive', 'INBOX'] };
-    const req = { session: { userId: 'user-1' }, body: { folderOrder } };
-    const res = {
+    const req = mockRequest({ session: { userId: 'user-1' }, body: { folderOrder } });
+    const res = mockResponse({
       status: vi.fn().mockReturnThis(),
       json: vi.fn(),
-    };
+    });
 
     await patchPreferences(req, res);
 
@@ -68,11 +69,11 @@ describe('PATCH /auth/preferences folderOrder', () => {
 
 describe('PATCH /auth/preferences senderFavicons', () => {
   it('merges the senderFavicons boolean into preferences as JSONB', async () => {
-    const req = { session: { userId: 'user-1' }, body: { senderFavicons: true } };
-    const res = {
+    const req = mockRequest({ session: { userId: 'user-1' }, body: { senderFavicons: true } });
+    const res = mockResponse({
       status: vi.fn().mockReturnThis(),
       json: vi.fn(),
-    };
+    });
 
     await patchPreferences(req, res);
 
@@ -86,11 +87,11 @@ describe('PATCH /auth/preferences senderFavicons', () => {
   });
 
   it('rejects a non-boolean senderFavicons without querying', async () => {
-    const req = { session: { userId: 'user-1' }, body: { senderFavicons: 'yes' } };
-    const res = {
+    const req = mockRequest({ session: { userId: 'user-1' }, body: { senderFavicons: 'yes' } });
+    const res = mockResponse({
       status: vi.fn().mockReturnThis(),
       json: vi.fn(),
-    };
+    });
 
     await patchPreferences(req, res);
 
@@ -102,11 +103,11 @@ describe('PATCH /auth/preferences senderFavicons', () => {
 
 describe('PATCH /auth/preferences obsolete favicon badge', () => {
   it('does not persist the removed favicon badge preference', async () => {
-    const req = { session: { userId: 'user-1' }, body: { showFaviconBadge: true } };
-    const res = {
+    const req = mockRequest({ session: { userId: 'user-1' }, body: { showFaviconBadge: true } });
+    const res = mockResponse({
       status: vi.fn().mockReturnThis(),
       json: vi.fn(),
-    };
+    });
 
     await patchPreferences(req, res);
 
@@ -119,22 +120,22 @@ describe('PATCH /auth/preferences obsolete favicon badge', () => {
 
 describe('PATCH /auth/preferences calendar preferences', () => {
   it('rejects invalid work-day and working-hour preferences without querying', async () => {
-    const res = { status: vi.fn().mockReturnThis(), json: vi.fn() };
-    await patchPreferences({ session: { userId: 'user-1' }, body: { calendarWorkDays: [1, 1] } }, res);
+    const res = mockResponse({ status: vi.fn().mockReturnThis(), json: vi.fn() });
+    await patchPreferences(mockRequest({ session: { userId: 'user-1' }, body: { calendarWorkDays: [1, 1] } }), res);
     expect(res.status).toHaveBeenCalledWith(400);
     expect(query).not.toHaveBeenCalled();
 
     res.status.mockClear(); res.json.mockClear();
-    await patchPreferences({ session: { userId: 'user-1' }, body: { calendarWorkHoursStart: '9:00' } }, res);
+    await patchPreferences(mockRequest({ session: { userId: 'user-1' }, body: { calendarWorkHoursStart: '9:00' } }), res);
     expect(res.status).toHaveBeenCalledWith(400);
     expect(query).not.toHaveBeenCalled();
   });
 
   it('serializes valid work-day and working-hour preferences into JSONB', async () => {
-    const res = { status: vi.fn().mockReturnThis(), json: vi.fn() };
-    await patchPreferences({ session: { userId: 'user-1' }, body: {
+    const res = mockResponse({ status: vi.fn().mockReturnThis(), json: vi.fn() });
+    await patchPreferences(mockRequest({ session: mockSession({ userId: 'user-1' }), body: {
       calendarWorkDays: [1, 2, 3, 4, 5], calendarWorkHoursStart: '08:30', calendarWorkHoursEnd: '17:30',
-    } }, res);
+    } }), res);
     const [sql, params] = query.mock.calls[0];
     expect(sql).toContain("jsonb_build_object('calendarWorkDays', $46::jsonb)");
     expect(sql).toContain("jsonb_build_object('calendarWorkHoursStart', $47::text)");
@@ -146,29 +147,29 @@ describe('PATCH /auth/preferences calendar preferences', () => {
   });
 
   it('rejects equal and reversed effective working-hour ranges without querying', async () => {
-    const res = { status: vi.fn().mockReturnThis(), json: vi.fn() };
-    await patchPreferences({ session: { userId: 'user-1' }, body: { calendarWorkHoursStart: '17:00', calendarWorkHoursEnd: '09:00' } }, res);
+    const res = mockResponse({ status: vi.fn().mockReturnThis(), json: vi.fn() });
+    await patchPreferences(mockRequest({ session: { userId: 'user-1' }, body: { calendarWorkHoursStart: '17:00', calendarWorkHoursEnd: '09:00' } }), res);
     expect(res.status).toHaveBeenCalledWith(400);
     expect(query).not.toHaveBeenCalled();
 
     res.status.mockClear(); res.json.mockClear();
-    await patchPreferences({ session: { userId: 'user-1' }, body: { calendarWorkHoursStart: '09:00', calendarWorkHoursEnd: '09:00' } }, res);
+    await patchPreferences(mockRequest({ session: { userId: 'user-1' }, body: { calendarWorkHoursStart: '09:00', calendarWorkHoursEnd: '09:00' } }), res);
     expect(res.status).toHaveBeenCalledWith(400);
     expect(query).not.toHaveBeenCalled();
   });
 
   it('uses the persisted counterpart for a partial work-hour update', async () => {
     query.mockResolvedValueOnce({ rows: [{ preferences: { calendarWorkHoursStart: '08:00', calendarWorkHoursEnd: '17:00' } }] }).mockResolvedValueOnce({ rows: [] });
-    const res = { status: vi.fn().mockReturnThis(), json: vi.fn() };
-    await patchPreferences({ session: { userId: 'user-1' }, body: { calendarWorkHoursStart: '18:00' } }, res);
+    const res = mockResponse({ status: vi.fn().mockReturnThis(), json: vi.fn() });
+    await patchPreferences(mockRequest({ session: { userId: 'user-1' }, body: { calendarWorkHoursStart: '18:00' } }), res);
     expect(res.status).toHaveBeenCalledWith(400);
     expect(query).toHaveBeenCalledTimes(1);
   });
 
   it('persists a valid partial update with its persisted counterpart', async () => {
     query.mockResolvedValueOnce({ rows: [{ preferences: { calendarWorkHoursStart: '08:00', calendarWorkHoursEnd: '17:00' } }] }).mockResolvedValueOnce({ rows: [] });
-    const res = { status: vi.fn().mockReturnThis(), json: vi.fn() };
-    await patchPreferences({ session: { userId: 'user-1' }, body: { calendarWorkHoursEnd: '18:00' } }, res);
+    const res = mockResponse({ status: vi.fn().mockReturnThis(), json: vi.fn() });
+    await patchPreferences(mockRequest({ session: { userId: 'user-1' }, body: { calendarWorkHoursEnd: '18:00' } }), res);
     const [, params] = query.mock.calls[1];
     expect(params[46]).toBe('08:00');
     expect(params[47]).toBe('18:00');
@@ -177,8 +178,8 @@ describe('PATCH /auth/preferences calendar preferences', () => {
 
   it('repairs a legacy invalid pair during a normal one-control update', async () => {
     query.mockResolvedValueOnce({ rows: [{ preferences: { calendarWorkHoursStart: '17:00', calendarWorkHoursEnd: '09:00' } }] }).mockResolvedValueOnce({ rows: [] });
-    const res = { status: vi.fn().mockReturnThis(), json: vi.fn() };
-    await patchPreferences({ session: { userId: 'user-1' }, body: { calendarWorkHoursEnd: '18:00' } }, res);
+    const res = mockResponse({ status: vi.fn().mockReturnThis(), json: vi.fn() });
+    await patchPreferences(mockRequest({ session: { userId: 'user-1' }, body: { calendarWorkHoursEnd: '18:00' } }), res);
     const [, params] = query.mock.calls[1];
     expect(params[46]).toBe('09:00');
     expect(params[47]).toBe('18:00');
@@ -186,8 +187,8 @@ describe('PATCH /auth/preferences calendar preferences', () => {
   });
 
   it('rejects an unsupported first day of week without querying', async () => {
-    const req = { session: { userId: 'user-1' }, body: { calendarWeekStartsOn: 4 } };
-    const res = { status: vi.fn().mockReturnThis(), json: vi.fn() };
+    const req = mockRequest({ session: { userId: 'user-1' }, body: { calendarWeekStartsOn: 4 } });
+    const res = mockResponse({ status: vi.fn().mockReturnThis(), json: vi.fn() });
 
     await patchPreferences(req, res);
 
@@ -197,8 +198,8 @@ describe('PATCH /auth/preferences calendar preferences', () => {
   });
 
   it('persists validated calendar view preferences as JSONB', async () => {
-    const req = { session: { userId: 'user-1' }, body: { calendarWeekStartsOn: 0, mobileNavigationPosition: 'bottom', visibleCalendarIds: ['personal', 'contacts-birthdays'] } };
-    const res = { status: vi.fn().mockReturnThis(), json: vi.fn() };
+    const req = mockRequest({ session: { userId: 'user-1' }, body: { calendarWeekStartsOn: 0, mobileNavigationPosition: 'bottom', visibleCalendarIds: ['personal', 'contacts-birthdays'] } });
+    const res = mockResponse({ status: vi.fn().mockReturnThis(), json: vi.fn() });
 
     await patchPreferences(req, res);
 

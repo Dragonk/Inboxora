@@ -785,7 +785,7 @@ router.get('/preferences', async (req, res) => {
   res.json(prefs);
 });
 
-export async function patchPreferences(req, res) {
+export async function patchPreferences(req: Request, res: Response) {
   if (!req.session.userId) return res.status(401).json({ error: 'Not authenticated' });
   // themeMode/themeLight/themeDark are read by sanitizeThemePrefs below, which validates
   // them as a group, so they are deliberately not destructured here.
