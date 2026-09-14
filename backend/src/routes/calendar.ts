@@ -1,4 +1,5 @@
 import { mergeCalendarResource, truncateSeriesBefore } from '../utils/calendarRecurrence.js';
+import type { EmailAccountRow } from '../services/imapManager.js';
 import ICAL from 'ical.js';
 import { parseInboundCalendarInvitation } from '../services/inboundCalendarInvitation.js';
 import { parseCalendarEvent } from '../utils/ical.js';
@@ -235,8 +236,8 @@ async function writableCalendar(userId: string, calendarId) {
   return { calendar };
 }
 
-async function contactCalendarAppearance(userId: string) {
-  const result = await query("SELECT preferences->'calendarContactAppearance' AS appearance FROM users WHERE id = $1", [userId]);
+async function contactCalendarAppearance(userId: string): Promise<{ name?: string | null; color?: string | null; [key: string]: unknown }> {
+  const result = await query<{ appearance?: { name?: string | null; color?: string | null; [key: string]: unknown } | null }>("SELECT preferences->'calendarContactAppearance' AS appearance FROM users WHERE id = $1", [userId]);
   return result?.rows?.[0]?.appearance || {};
 }
 
@@ -246,7 +247,7 @@ async function fetchInvitationAttachment(row, userId: string) {
   const attachments = typeof row.attachments === 'string' ? JSON.parse(row.attachments) : row.attachments || [];
   const candidates = attachments.filter(item => /^(text\/calendar|application\/(ics|ical|calendar))$/i.test(item.type || '') || /\.ics$/i.test(item.filename || ''));
   if (candidates.length !== 1 || candidates[0].size > 1024 * 1024) return null;
-  const account = await query('SELECT * FROM email_accounts WHERE id = $1 AND user_id = $2', [row.account_id, userId]);
+  const account = await query<EmailAccountRow>('SELECT * FROM email_accounts WHERE id = $1 AND user_id = $2', [row.account_id, userId]);
   if (!account.rows[0]) return null;
   const { imapManager } = await import('../index.js');
   let data;

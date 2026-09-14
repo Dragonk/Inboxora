@@ -11,12 +11,12 @@ router.use(requireAuth);
 
 // Get all integration configs (secrets redacted) — admin only (exposes OAuth client IDs)
 router.get('/', requireAdmin, async (req: Request, res: Response) => {
-  const result = await query(
+  const result = await query<{ provider: string; config: Record<string, unknown>; updated_at: string | Date | null }>(
     'SELECT provider, config, updated_at FROM integration_config'
   );
 
   // Redact secrets from response
-  const configs = {};
+  const configs: Record<string, Record<string, unknown>> = {};
   for (const row of result.rows) {
     const cfg = { ...row.config };
     if (cfg.clientSecret) cfg.clientSecret = '••••••••';
@@ -101,7 +101,7 @@ router.delete('/:provider', requireAdmin, async (req: Request, res: Response) =>
 // Load saved configs into process.env on startup
 export async function loadIntegrationConfigs() {
   try {
-    const result = await query('SELECT provider, config FROM integration_config');
+    const result = await query<{ provider: string; config: { clientId?: string; clientSecret?: string; tenantId?: string; redirectUri?: string; [key: string]: unknown } }>('SELECT provider, config FROM integration_config');
     for (const row of result.rows) {
       if (row.provider === 'microsoft') {
         const c = row.config;
