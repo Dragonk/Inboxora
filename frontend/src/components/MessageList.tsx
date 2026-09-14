@@ -371,7 +371,7 @@ export default function MessageList() {
 
   // Escape clears selection; click-outside closes folder picker
   useEffect(() => {
-    const onKey = (e) => {
+    const onKey = (e: KeyboardEvent) => {
       if (e.key === 'Escape') {
         setShowFolderPicker(false);
         setShowLayoutPicker(false);
@@ -379,11 +379,11 @@ export default function MessageList() {
         setSelectionModeActive(false);
       }
     };
-    const onPointer = (e) => {
-      if (folderPickerRef.current && !folderPickerRef.current.contains(e.target)) {
+    const onPointer = (e: PointerEvent) => {
+      if (folderPickerRef.current && e.target instanceof Node && !folderPickerRef.current.contains(e.target)) {
         setShowFolderPicker(false);
       }
-      if (layoutPickerRef.current && !layoutPickerRef.current.contains(e.target)) {
+      if (layoutPickerRef.current && e.target instanceof Node && !layoutPickerRef.current.contains(e.target)) {
         setShowLayoutPicker(false);
       }
     };
@@ -548,8 +548,8 @@ export default function MessageList() {
             // read, the server won't return it — preserve it so the user can keep reading.
             let msgs = applyDeleteGuard(applyReadGuard(data.messages));
             const activeId = useStore.getState().selectedMessageId;
-            if (unreadOnly && activeId && !msgs.some(m => m.id === activeId)) {
-              const kept = useStore.getState().messages.find(m => m.id === activeId);
+            if (unreadOnly && activeId && !msgs.some((m: StoreMessageRow) => m.id === activeId)) {
+              const kept = useStore.getState().messages.find((m: StoreMessageRow) => m.id === activeId);
               if (kept) msgs = [kept, ...msgs];
             }
             setMessages(msgs);
@@ -648,7 +648,7 @@ export default function MessageList() {
     }
   }, [searchQuery, selectedAccountId, searchFolder, searchPageSize, searchLoadingMore, applyReadGuard]);
 
-  const prefetchSearchAfterRemoval = useCallback(async (offset) => {
+  const prefetchSearchAfterRemoval = useCallback(async (offset: number) => {
     const qSnapshot = useStore.getState().searchQuery;
     if (!qSnapshot.trim()) return;
     try {
@@ -688,7 +688,7 @@ export default function MessageList() {
   }, [scrollMode, loadMore, loadingMessages, hasMoreMessages]);
 
   // Load a specific page (paginated mode)
-  const loadPage = useCallback(async (pageNum) => {
+  const loadPage = useCallback(async (pageNum: number) => {
     if (loadingMessages) return;
     setLoadingMessages(true);
     setCurrentPage(pageNum);
@@ -741,14 +741,14 @@ export default function MessageList() {
     const THRESHOLD = 64;
     const MAX_PULL = 80;
 
-    const onTouchStart = (e) => {
+    const onTouchStart = (e: TouchEvent) => {
       if (el.scrollTop !== 0) return;
       pullStartXRef.current = e.touches[0].clientX;
       pullStartYRef.current = e.touches[0].clientY;
       pullDirectionRef.current = null;
     };
 
-    const onTouchMove = (e) => {
+    const onTouchMove = (e: TouchEvent) => {
       if (pullStartYRef.current === null) return;
       const dx = e.touches[0].clientX - pullStartXRef.current;
       const delta = e.touches[0].clientY - pullStartYRef.current;
@@ -827,7 +827,7 @@ export default function MessageList() {
     return members.length ? members : [message];
   }, [isThreadListRow, threadMessages, selectedAccountId, selectedFolder]);
 
-  const invalidateThreadCache = useCallback((threadId) => {
+  const invalidateThreadCache = useCallback((threadId: string) => {
     invalidateThreadLoad(threadLoadVersionsRef.current, threadId);
     clearThreadMessages(threadId);
     if (useStore.getState().loadingThread === threadId) setLoadingThread(null);
@@ -1033,7 +1033,7 @@ export default function MessageList() {
     decrementUnread, incrementUnread, adjustCategoryCount,
   ]);
 
-  const handleMarkRead = (e, message) => {
+  const handleMarkRead = (e: React.MouseEvent, message: StoreMessageRow) => {
     e.stopPropagation();
     setMessagesReadState(message, !message.is_read);
   };
@@ -1087,7 +1087,7 @@ export default function MessageList() {
     }
   }, [resolveMessagesForThreadAction, isThreadListRow, updateMessage, setCachedThreadStarred, setCachedThreadStarredForIds]);
 
-  const handleStar = (e, message) => {
+  const handleStar = (e: React.MouseEvent, message: StoreMessageRow) => {
     e.stopPropagation();
     setMessagesStarredState(message, !message.is_starred);
   };
@@ -1206,15 +1206,15 @@ export default function MessageList() {
   // Bulk is handled by collecting `messages` from selectedIds if multiple are
   // selected; the caller (handleContextAction) decides which set to pass.
 
-  const performSpamLabel = useCallback(async (messages, label) => {
+  const performSpamLabel = useCallback(async (messages: StoreMessageRow[], label: string) => {
     if (!messages.length) return;
-    const ids = messages.map(m => m.id);
+    const ids = messages.map((m: StoreMessageRow) => m.id);
     const isBulk = ids.length > 1;
 
     // Optimistic local update: remove from view + drop unread badge.
     const unreadCount = messages.reduce((sum: number, m: StoreMessageRow) => sum + (m.is_read ? 0 : 1), 0);
     const accountId = messages[0].account_id;
-    messages.forEach(m => removeMessage(m.id));
+    messages.forEach((m: StoreMessageRow) => removeMessage(m.id));
     if (unreadCount > 0) decrementUnread(accountId, unreadCount);
 
     // Folder-aware unread badge updates for the sidebar.
