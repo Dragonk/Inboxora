@@ -1,7 +1,14 @@
 import { agendaDays, sortedDayEvents } from './calendarView.ts';
+import type { TFunction } from 'i18next';
+import type { CalendarViewEvent } from './calendarView';
 import { EmptyState } from './ui.tsx';
 
-function AgendaEntries({ events, locale, onOpen, t }) {
+function AgendaEntries({ events, locale, onOpen, t }: {
+  events: CalendarViewEvent[];
+  locale: string;
+  onOpen: (event: CalendarViewEvent) => void;
+  t: TFunction;
+}) {
   return events.map(event => <button key={event.id} type="button" className="calendar-agenda-entry" onClick={() => onOpen(event)}>
     <span className="calendar-agenda-color" style={{ background: event.calendar_color || 'var(--accent)' }} />
     <span className="calendar-agenda-time">{event.all_day || event.allDay ? t('calendar.allDay') : <>{new Date(event.starts_at).toLocaleTimeString(locale, { hour: '2-digit', minute: '2-digit' })}<br />{new Date(event.ends_at).toLocaleTimeString(locale, { hour: '2-digit', minute: '2-digit' })}</>}</span>

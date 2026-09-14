@@ -1,14 +1,29 @@
 import { useBackLayer } from '../hooks/useBackNavigation.ts';
+import type { CalendarViewEvent } from './calendarView';
+import type { TFunction } from 'i18next';
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
 import type { CSSProperties } from 'react';
 
-export default function CalendarContextMenu({ x, y, event, isMobile = false, onEdit, onDelete, onClose, triggerRef, t }) {
+export default function CalendarContextMenu({ x, y, event, isMobile = false, onEdit, onDelete, onClose, triggerRef, t }: {
+  x: number;
+  y: number;
+  event: CalendarViewEvent;
+  isMobile?: boolean;
+  onEdit?: (event: CalendarViewEvent) => void;
+  onDelete?: (event: CalendarViewEvent) => void;
+  onClose: () => void;
+  triggerRef?: { current: unknown };
+  t: TFunction;
+}) {
   const menuRef = useRef(null);
   useBackLayer(true, onClose, 4000);
   const onCloseRef = useRef(onClose);
   const [position, setPosition] = useState({ x, y });
   const writable = event.source === 'local' && !event.read_only;
-  const restoreFocus = useCallback(() => requestAnimationFrame(() => triggerRef?.current?.focus()), [triggerRef]);
+  const restoreFocus = useCallback(() => requestAnimationFrame(() => {
+    const trigger = triggerRef?.current;
+    if (trigger instanceof HTMLElement) trigger.focus();
+  }), [triggerRef]);
   onCloseRef.current = onClose;
 
   useLayoutEffect(() => {
