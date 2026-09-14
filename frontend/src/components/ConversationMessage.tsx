@@ -79,7 +79,7 @@ export default function ConversationMessage({ conversationId, message, selectedC
   const accountColor = account?.color || 'var(--accent)';
   const accountLabel = account?.name || account?.email_address || '';
   const [unsubscribeStatus, setUnsubscribeStatus] = useState<string | null>(null);
-  const [folders, setFolders] = useState([]);
+  const [folders, setFolders] = useState<Array<{ path: string; name?: string | null; [key: string]: unknown }>>([]);
   const [foldersLoading, setFoldersLoading] = useState(false);
   const [showHeaders, setShowHeaders] = useState(false);
   const [actionError, setActionError] = useState<string | null>(null);

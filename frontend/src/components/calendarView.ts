@@ -11,6 +11,10 @@ export interface CalendarViewEvent {
   ends_at?: string | number | Date | null;
   endsAt?: string | number | Date | null;
   attendees?: string[] | null;
+  recurring?: boolean;
+  recurrence_id?: string | null;
+  calendar_id?: string | null;
+  series_id?: string | null;
   calendar_color?: string | null;
   location?: string | null;
   summary?: string | null;

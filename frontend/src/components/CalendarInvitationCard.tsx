@@ -15,14 +15,14 @@ import type { CSSProperties } from 'react';
 // invitation that was added, the copy this message created can be removed again.
 export default function CalendarInvitationCard({ messageId }) {
   const { t, i18n } = useTranslation();
-  const [invitation, setInvitation] = useState(null);
+  const [invitation, setInvitation] = useState<Record<string, unknown> | null>(null);
   const [calendars, setCalendars] = useState([]);
   const [calendarId, setCalendarId] = useState('');
   const [error, setError] = useState(false);
   const [saving, setSaving] = useState(false);
   // 'added' after this session added it, 'removed' after this session removed it; both
   // are also derived from the server's `localEvent` so a reload shows the same state.
-  const [localEvent, setLocalEvent] = useState(null);
+  const [localEvent, setLocalEvent] = useState<Record<string, unknown> | null>(null);
   const [outcome, setOutcome] = useState<string | null>(null);
   const [retry, setRetry] = useState(0);
 

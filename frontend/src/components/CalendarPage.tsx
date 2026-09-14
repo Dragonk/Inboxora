@@ -116,7 +116,7 @@ export default function CalendarPage({ isActive = true }) {
   // (the page unmounts) or reloading the app keeps month/week/work-week/agenda.
   const [view, setViewState] = useState(readStoredCalendarView);
   const setView = useCallback((value: string) => setViewState(storeCalendarView(value)), []);
-  const [rawCalendars, setCalendars] = useState([]); const [rawEvents, setEvents] = useState([]);
+  const [rawCalendars, setCalendars] = useState<Array<{ id: string; name?: string | null; color?: string | null; [key: string]: unknown }>>([]); const [rawEvents, setEvents] = useState<CalendarViewEvent[]>([]);
   const calendars = useMemo(() => rawCalendars.map(calendar => localizeContactCalendar(calendar, t)), [rawCalendars, t]);
   const events = useMemo(() => rawEvents.map(event => localizeContactEvent(event, t)), [rawEvents, t]);
   const [error, setError] = useState<string | null>(null); const [loading, setLoading] = useState(true); const [form, setForm] = useState(null); const [saving, setSaving] = useState(false);
@@ -250,8 +250,8 @@ export default function CalendarPage({ isActive = true }) {
     if (!window.confirm(t('calendar.confirmDelete'))) return;
     await performDelete(target, 'all');
   };
-  const [deleteTarget, setDeleteTarget] = useState(null);
-  const [contextMenu, setContextMenu] = useState(null);
+  const [deleteTarget, setDeleteTarget] = useState<CalendarViewEvent | null>(null);
+  const [contextMenu, setContextMenu] = useState<{ event: CalendarViewEvent; x: number; y: number; triggerRef: { current: unknown } } | null>(null);
   const days = view === 'month' ? calendarDays(anchor, calendarWeekStartsOn) : weekDays(anchor, view === 'workweek', calendarWeekStartsOn, calendarWorkDays);
   const visibleEvents = visibleCalendarIds == null ? events : events.filter(event => visibleCalendarIds.includes(event.calendar_id));
   // One parse-and-bucket pass per event list, reused by every day cell and every

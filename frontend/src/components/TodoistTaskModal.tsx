@@ -13,11 +13,11 @@ export default function TodoistTaskModal({ message, onClose }) {
   const [title, setTitle] = useState(message?.subject || '');
   const [description, setDescription] = useState('');
   const [projectId, setProjectId] = useState('');
-  const [selectedLabels, setSelectedLabels] = useState([]);
+  const [selectedLabels, setSelectedLabels] = useState<string[]>([]);
   const [priority, setPriority] = useState(1);
   const [dueDate, setDueDate] = useState('');
-  const [projects, setProjects] = useState([]);
-  const [labels, setLabels] = useState([]);
+  const [projects, setProjects] = useState<Array<{ id: string; name?: string; [key: string]: unknown }>>([]);
+  const [labels, setLabels] = useState<Array<{ id: string; name?: string; [key: string]: unknown }>>([]);
   const [loadError, setLoadError] = useState('');
   const [loading, setLoading] = useState(true);
   const [creating, setCreating] = useState(false);
