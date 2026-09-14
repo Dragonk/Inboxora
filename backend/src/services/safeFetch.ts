@@ -22,6 +22,9 @@ import { validateHostLiteral } from './hostValidation.js';
 
 const baseConnect = buildConnector({});
 
+// The connector shape undici's Agent expects for its `connect` option.
+type Connector = ReturnType<typeof buildConnector>;
+
 function blocked() {
   return Object.assign(
     new Error('Host resolves to a private or reserved IP address'),
@@ -37,34 +40,46 @@ function insecure() {
 
 // A connector that refuses plaintext (when required) and private/reserved addresses,
 // pinning the socket to a validated IP (with the original hostname kept for TLS SNI).
-function guardedConnector(allowPrivate, requireHttps) {
+function guardedConnector(allowPrivate: boolean, requireHttps: boolean): Connector {
   return (opts, callback) => {
-    if (requireHttps && opts.protocol === 'http:') return callback(insecure());
+    if (requireHttps && opts.protocol === 'http:') return callback(insecure(), null);
     const host = opts.hostname;
     // Literal IP target (e.g. a redirect to http://169.254.169.254) — check directly.
     if (net.isIP(host)) {
-      if (validateHostLiteral(host, { allowPrivate })) return callback(blocked());
+      if (validateHostLiteral(host, { allowPrivate })) return callback(blocked(), null);
       return baseConnect(opts, callback);
     }
     // Hostname — resolve, validate every address, then connect to a checked IP.
     dns.lookup(host, { all: true }, (err, addresses) => {
-      if (err) return callback(err);
+      if (err) return callback(err, null);
       for (const a of addresses) {
-        if (validateHostLiteral(a.address, { allowPrivate })) return callback(blocked());
+        if (validateHostLiteral(a.address, { allowPrivate })) return callback(blocked(), null);
       }
       baseConnect({ ...opts, hostname: addresses[0].address, servername: opts.servername || host }, callback);
     });
   };
 }
 
-const agents = new Map();
-function agentFor(allowPrivate, requireHttps) {
+const agents = new Map<string, Agent>();
+function agentFor(allowPrivate: boolean, requireHttps: boolean): Agent {
   const key = `${allowPrivate ? 'priv' : 'pub'}:${requireHttps ? 'https' : 'any'}`;
-  if (!agents.has(key)) agents.set(key, new Agent({ connect: guardedConnector(allowPrivate, requireHttps) }));
-  return agents.get(key);
+  const existing = agents.get(key);
+  if (existing) return existing;
+  const agent = new Agent({ connect: guardedConnector(allowPrivate, requireHttps) });
+  agents.set(key, agent);
+  return agent;
 }
 
-export function safeFetch(url: string, options = {}, { allowPrivate = false, requireHttps = !allowPrivate } = {}) {
+export interface SafeFetchOptions {
+  allowPrivate?: boolean;
+  requireHttps?: boolean;
+}
+
+export function safeFetch(
+  url: string,
+  options = {},
+  { allowPrivate = false, requireHttps = !allowPrivate }: SafeFetchOptions = {},
+) {
   let parsed;
   try { parsed = new URL(url); }
   catch { return Promise.reject(new Error('Invalid URL')); }

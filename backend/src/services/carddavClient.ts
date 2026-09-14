@@ -13,8 +13,8 @@ import { safeFetch } from './safeFetch.js';
 import { toAppError } from '../utils/errors.js';
 
 interface DavRequestOptions {
-  username?: string;
-  password?: string;
+  username: string;
+  password: string;
   depth?: number | string | null;
   body?: unknown;
   allowPrivate?: boolean;
@@ -46,7 +46,7 @@ async function assertHostAllowed(url: string, allowPrivate: boolean): Promise<vo
   if (err) throw new Error(err);
 }
 
-async function dav(method: string, url: string, { username, password, depth, body, allowPrivate = false }: DavRequestOptions = {}) {
+async function dav(method: string, url: string, { username, password, depth, body, allowPrivate = false }: DavRequestOptions) {
   // Re-validate on every request: hrefs returned by the server (principal, home
   // set, book URLs) are attacker-influenced and could point at internal hosts.
   await assertHostAllowed(url, allowPrivate);
@@ -79,6 +79,9 @@ interface DavPropBlock {
   resourcetype?: Record<string, unknown>;
   displayname?: unknown;
   getetag?: unknown;
+  // PROPFIND/REPORT merges arbitrary namespace-stripped property names into this
+  // object (current-user-principal, addressbook-home-set, address-data, ...).
+  [propName: string]: unknown;
 }
 
 type DavPropStat = { status?: unknown; prop?: Record<string, unknown> };
@@ -131,8 +134,8 @@ export function extractHref(xmlText: unknown, key: string, baseUrl: string): str
   const xml = parser.parse(String(xmlText ?? ''));
   const response = toArray(xml?.multistatus?.response)[0];
   if (!response) return null;
-  const val = propsOf(response)[key];
-  const href = val?.href ?? val;
+  const val: unknown = propsOf(response)[key];
+  const href = val !== null && typeof val === 'object' && 'href' in val ? val.href ?? val : val;
   const text = textOf(href) || (typeof href === 'string' ? href : '');
   return text ? absolute(text, baseUrl) : null;
 }
@@ -148,7 +151,7 @@ async function propfindHref(url: string, propXml: string, key: string, creds: Da
 // Find the user's principal URL. Tries the given URL, then RFC 6764 well-known
 // discovery (Nextcloud users usually enter just the base URL, which 301-redirects
 // from /.well-known/carddav to the DAV context — fetch follows that automatically).
-async function resolvePrincipal(serverUrl: string, creds: DavCredentials): Promise<string | null> {
+async function resolvePrincipal(serverUrl: string, creds: DavCredentials): Promise<string> {
   const origin = new URL(serverUrl).origin;
   const candidates = [serverUrl, `${origin}/.well-known/carddav`];
   let lastErr;

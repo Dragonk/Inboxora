@@ -16,7 +16,7 @@ vi.mock('../services/authEvents.js', () => ({ logAuthEvent: vi.fn() }));
 import express from 'express';
 import carddavRouter from './carddav.js';
 
-function basic(username, password) {
+function basic(username: string, password: string) {
   return `Basic ${Buffer.from(`${username}:${password}`).toString('base64')}`;
 }
 
@@ -126,7 +126,7 @@ describe('CardDAV authentication', () => {
     });
 
     expect(response.status).toBe(201);
-    const [sql, params] = query.mock.calls.find(([statement]) => statement.includes('INSERT INTO contacts'));
+    const [sql, params] = query.mock.calls.find(([statement]: [string, ...unknown[]]) => statement.includes('INSERT INTO contacts'));
     expect(sql.match(/VALUES ([^\n]+)/)?.[1]).toBe('($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16::jsonb,$17,$18,$19,$20,$21::jsonb,$22::jsonb,$23::jsonb,$24::jsonb,$25, false)');
     expect(params).toEqual([
       'book-1', 'user-1', 'contact-1', expect.any(String), expect.any(String),
@@ -200,7 +200,7 @@ describe('CardDAV authentication', () => {
     });
 
     expect(response.status).toBe(201);
-    const [sql, params] = query.mock.calls.find(([statement]) => statement.includes('INSERT INTO contacts'));
+    const [sql, params] = query.mock.calls.find(([statement]: [string, ...unknown[]]) => statement.includes('INSERT INTO contacts'));
     expect(sql).toContain('contact_dates');
     expect(params).toContain(JSON.stringify([{ label: 'Rencontre', value: '2019-10-19' }]));
   });
@@ -222,7 +222,7 @@ describe('CardDAV authentication', () => {
     });
 
     expect(response.status).toBe(201);
-    const [sql, params] = query.mock.calls.find(([statement]) => statement.includes('INSERT INTO contacts'));
+    const [sql, params] = query.mock.calls.find(([statement]: [string, ...unknown[]]) => statement.includes('INSERT INTO contacts'));
     expect(sql).toContain('contact_dates');
     expect(params).toContain(JSON.stringify([{ label: 'Family;Other', value: '2020-09-14' }]));
   });
@@ -273,7 +273,7 @@ describe('CardDAV authentication', () => {
     });
 
     expect(response.status).toBe(201);
-    const [sql, params] = query.mock.calls.find(([statement]) => statement.includes('INSERT INTO contacts'));
+    const [sql, params] = query.mock.calls.find(([statement]: [string, ...unknown[]]) => statement.includes('INSERT INTO contacts'));
     expect(sql).toContain('contact_dates');
     expect(params).toContain(JSON.stringify([{ label: 'Rencontre', value: '2019-10-19' }]));
   });

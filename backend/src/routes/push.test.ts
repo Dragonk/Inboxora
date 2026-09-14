@@ -1,7 +1,12 @@
+import assert from 'node:assert/strict';
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import { listeningPort } from '../test/net.js';
+import type { NextFunction, Request, Response } from 'express';
 import type { Server } from 'node:http';
 import type { JsonBody } from '../test/json.js';
+
+// The mocked middleware only reads these fields off the augmented Request.
+type PushDeviceAttrs = Pick<NonNullable<Request['pushDevice']>, 'id' | 'userId' | 'deviceId'>;
 
 const {
   listPushDevices, registerPushDevice, removePushDevice, removeAllPushDevices, pruneStalePushDevices,
@@ -21,7 +26,7 @@ vi.mock('../middleware/auth.js', () => ({
   requireAuth: (req: { headers: Record<string, string>; session?: { userId?: string } }, _res: unknown, next: () => void) => { req.session = { userId: 'user-1' }; next(); },
 }));
 vi.mock('../middleware/deviceAuth.js', () => ({
-  requireDeviceAuth: (req, _res, next) => { req.pushDevice = { id: 'row-1', userId: 'user-1', deviceId: 'device-1' }; next(); },
+  requireDeviceAuth: (req: { pushDevice?: PushDeviceAttrs }, _res: Response, next: NextFunction) => { req.pushDevice = { id: 'row-1', userId: 'user-1', deviceId: 'device-1' }; next(); },
 }));
 vi.mock('../services/pushDevices.js', () => ({
   listPushDevices, registerPushDevice, removePushDevice, removeAllPushDevices, pruneStalePushDevices,
@@ -69,6 +74,7 @@ describe('POST /api/push/devices', () => {
       body: JSON.stringify({ deviceId: 'device-1', platform: 'android', transport: 'unifiedpush', endpoint: 'https://ntfy.example.com/up/abc', appVersion: '4.0.0' }),
     });
     const body = (await response.json()) as JsonBody;
+    assert.ok(body.device);
 
     expect(response.status).toBe(201);
     expect(body.deviceToken).toBe('mf_push_11111111-2222-3333-4444-555555555555.secret');
@@ -109,6 +115,7 @@ describe('device management', () => {
     listPushDevices.mockResolvedValue([{ id: 'row-1', device_id: 'device-1', platform: 'android', transport: 'fcm', app_version: '4.0.0', created_at: 'a', updated_at: 'b', last_seen: 'c', disabled_at: null }]);
     const response = await fetch(`${base}/api/push/devices`);
     const body = (await response.json()) as JsonBody;
+    assert.ok(body.devices);
     expect(listPushDevices).toHaveBeenCalledWith('user-1');
     expect(body.devices[0]).toEqual({ id: 'row-1', deviceId: 'device-1', platform: 'android', transport: 'fcm', appVersion: '4.0.0', createdAt: 'a', updatedAt: 'b', lastSeen: 'c', disabled: false });
     expect(JSON.stringify(body)).not.toMatch(/endpoint|token/i);
@@ -184,6 +191,7 @@ describe('native background API', () => {
     });
     const response = await fetch(`${base}/api/push/native/inbox`);
     const body = (await response.json()) as JsonBody;
+    assert.ok(body.message);
     expect(body.eventId).toBe('msg-9');
     expect(body.message.title).toBe('bob@example.com');
     expect(body.unreadCount).toBe(2);
