@@ -120,7 +120,7 @@ router.post('/run', async (req: Request, res: Response) => {
 
   for (const acctId of accountIds) {
     try {
-      const rulesCheck = await query(
+      const rulesCheck = await query<{ cnt: string }>(
         'SELECT COUNT(*) AS cnt FROM inbox_rules WHERE user_id = $1 AND enabled = true AND (account_id IS NULL OR account_id = $2)',
         [req.session.userId, acctId]
       );
@@ -214,7 +214,7 @@ router.post('/', async (req: Request, res: Response) => {
     // resolve folder paths. The UI enforces this but a direct API call could bypass it.
     const moveAction = normalizedActions.find(a => a.type === 'move' && a.value?.trim());
     if (moveAction && accountId) {
-      const folderResult = await query(
+      const folderResult = await query<{ total: string; match: string }>(
         `SELECT COUNT(*) AS total, COUNT(*) FILTER (WHERE path = $2) AS match
          FROM folders WHERE account_id = $1`,
         [accountId, moveAction.value.trim()]
