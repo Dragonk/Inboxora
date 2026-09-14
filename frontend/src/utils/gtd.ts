@@ -270,7 +270,7 @@ export function mergeWaiting(watch?: GtdSection | null, delegated?: GtdSection |
 
   const threads = order.map(key => {
     const row = byId.get(key);
-    row.gtdKinds.sort((a, b) => WAITING_KIND_ORDER.indexOf(a) - WAITING_KIND_ORDER.indexOf(b));
+    row.gtdKinds.sort((a: string, b: string) => WAITING_KIND_ORDER.indexOf(a) - WAITING_KIND_ORDER.indexOf(b));
     row.gtdKind = row.gtdKinds[0];
     return row;
   });
@@ -500,7 +500,7 @@ export async function openGtdThreadWithAutoRead(thread, {
   return timerHandle;
 }
 
-export function sectionBadge(count) {
+export function sectionBadge(count: number) {
   const n = Number(count) || 0;
   if (n <= 0) return '';
   return n > 99 ? '99+' : String(n);
@@ -527,7 +527,7 @@ export function isSelectedRow(row, selectedId, selectedMid) {
 // together). Keying on the Message-ID collapses those; rows without one keep id identity so two
 // distinct id-only rows never merge. Namespaced so a Message-ID can never collide with a UUID.
 // Pure. Mirrors the identity rule in isSelectedRow / pickThreadMessage.
-export function messageIdentity(m) {
+export function messageIdentity(m: GtdThread) {
   if (!m) return null;
   return m.message_id ? `mid:${m.message_id}` : `id:${m.id}`;
 }
@@ -545,9 +545,9 @@ export function appendMessagesByIdentity(existing, incoming) {
   const items = (incoming || []).filter(Boolean);
   if (items.length === 0) return existing;
 
-  const existingIds = new Set(existing.map(m => m.id));
+  const existingIds = new Set(existing.map((m: GtdThread) => m.id));
   const idxByMid = new Map();
-  existing.forEach((m, i) => { if (m.message_id) idxByMid.set(m.message_id, i); });
+  existing.forEach((m: GtdThread, i: number) => { if (m.message_id) idxByMid.set(m.message_id, i); });
 
   let messages = existing;
   let mutated = false;
@@ -600,7 +600,7 @@ export function dedupeByIdentity(list) {
 // regenerated id, matched via Message-ID — is not re-added as a duplicate. Pure.
 export function missingByIdentity(existing, incoming) {
   const present = new Set(existing.map(messageIdentity));
-  return (incoming || []).filter(m => m && !present.has(messageIdentity(m)));
+  return (incoming || []).filter((m: GtdThread) => m && !present.has(messageIdentity(m)));
 }
 
 // Choose which message of a thread a deep-link should open, given the thread's rows and
@@ -743,7 +743,7 @@ export function computeSpriteLayout({ cols, rows, frameW, frameH, staticFrame = 
   const hCount = Math.max(1, Math.min(Math.trunc(hover?.count ?? c) || c, c - hCol));
 
   // Normalise -0 (from -(0 * …)) to 0 so it never reaches the CSS as "-0px".
-  const nz = (v) => (v === 0 ? 0 : v);
+  const nz = (v: number) => (v === 0 ? 0 : v);
 
   return {
     dispW, dispH,
