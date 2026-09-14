@@ -1439,7 +1439,7 @@ router.get('/cleanup-preview', async (req, res) => {
   const acct = await query<{ id: string }>('SELECT id FROM email_accounts WHERE id = $1 AND user_id = $2', [accountId, req.session.userId]);
   if (!acct.rows.length) return res.status(404).json({ error: 'Account not found' });
 
-  const rows = await query(
+  const rows = await query<{ id: string }>(
     `SELECT id FROM messages
      WHERE account_id = $1 AND folder = 'INBOX' AND is_bulk AND lower(from_email) = lower($2)`,
     [accountId, fromEmail.trim()]

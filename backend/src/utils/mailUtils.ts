@@ -54,7 +54,7 @@ export async function resolveTrashFolder(accountId: string, folderMappings?: Fol
 export async function resolveAllTrashPaths(accountId: string, folderMappings?: FolderMappings | null) {
   const mapped = await mappedFolderUsable(accountId, folderMappings?.trash);
   if (mapped) return new Set([mapped]);
-  const result = await query(
+  const result = await query<{ path: string }>(
     `SELECT path FROM folders WHERE account_id = $1
      AND (special_use = '\\Trash' OR lower(name) LIKE '%trash%' OR lower(name) LIKE '%deleted%')`,
     [accountId]
@@ -65,7 +65,7 @@ export async function resolveAllTrashPaths(accountId: string, folderMappings?: F
 export async function resolveAllDraftsPaths(accountId: string, folderMappings?: FolderMappings | null) {
   const mapped = await mappedFolderUsable(accountId, folderMappings?.drafts);
   if (mapped) return new Set([mapped]);
-  const result = await query(
+  const result = await query<{ path: string }>(
     `SELECT path FROM folders WHERE account_id = $1
      AND (special_use = '\\Drafts' OR lower(name) LIKE '%draft%')`,
     [accountId]
@@ -83,7 +83,7 @@ export async function resolveAllDraftsPaths(accountId: string, folderMappings?: 
 export async function resolveArchiveFolder(accountId: string, folderMappings?: FolderMappings | null) {
   const mapped = await mappedFolderUsable(accountId, folderMappings?.archive);
   if (mapped) return mapped;
-  const result = await query(
+  const result = await query<{ path: string }>(
     `SELECT path FROM folders WHERE account_id = $1
      AND (special_use = '\\Archive' OR lower(name) LIKE '%archive%' OR special_use = '\\All')
      ORDER BY (CASE
@@ -123,7 +123,7 @@ export async function isAllMailFolder(accountId: string, path?: string | null) {
 export async function resolveSpamFolder(accountId: string, folderMappings?: FolderMappings | null) {
   const mapped = await mappedFolderUsable(accountId, folderMappings?.spam);
   if (mapped) return mapped;
-  const result = await query(
+  const result = await query<{ path: string }>(
     `SELECT path FROM folders WHERE account_id = $1
      AND (special_use = '\\Junk'
           OR lower(name) ~ '(spam|junk|bulk|indesiderata|spamverdacht|courrier ind|posta indesiderata)')
@@ -140,7 +140,7 @@ export async function resolveSpamFolder(accountId: string, folderMappings?: Fold
 export async function resolveAllSpamPaths(accountId: string, folderMappings?: FolderMappings | null) {
   const mapped = await mappedFolderUsable(accountId, folderMappings?.spam);
   if (mapped) return new Set([mapped]);
-  const result = await query(
+  const result = await query<{ path: string }>(
     `SELECT path FROM folders WHERE account_id = $1
      AND (special_use = '\\Junk'
           OR lower(name) ~ '(spam|junk|bulk|indesiderata|spamverdacht|courrier ind|posta indesiderata)')`,
