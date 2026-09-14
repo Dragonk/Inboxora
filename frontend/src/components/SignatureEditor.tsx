@@ -56,8 +56,8 @@ export default function SignatureEditor({ value, onChange }: { value: string; on
 
   // onMouseDown + e.preventDefault() keeps focus in the contenteditable so
   // execCommand acts on the current selection rather than on nothing.
-  const exec = (cmd, val = undefined) => {
-    document.execCommand(cmd, false, val ?? null);
+  const exec = (cmd: string, val?: string) => {
+    document.execCommand(cmd, false, val);
     editorRef.current?.focus();
     emit();
   };
@@ -74,8 +74,10 @@ export default function SignatureEditor({ value, onChange }: { value: string; on
     if (url) exec('insertImage', url);
   };
 
-  const handleFileUpload = (e) => {
-    const file = e.target.files[0];
+  const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const files = e.target.files;
+    if (!files) return;
+    const file = files[0];
     if (!file) return;
     if (file.size > 300 * 1024) {
       addNotification({ type: 'error', title: t('signatureEditor.imageTooLarge.title'), body: t('signatureEditor.imageTooLarge.body') });
@@ -83,7 +85,10 @@ export default function SignatureEditor({ value, onChange }: { value: string; on
       return;
     }
     const reader = new FileReader();
-    reader.onload = () => exec('insertImage', reader.result);
+    reader.onload = () => {
+      const result = reader.result;
+      if (typeof result === 'string') exec('insertImage', result);
+    };
     reader.readAsDataURL(file);
     e.target.value = '';
   };
@@ -107,7 +112,7 @@ export default function SignatureEditor({ value, onChange }: { value: string; on
     }
   };
 
-  const handleSourceChange = (e) => {
+  const handleSourceChange = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
     setSourceVal(e.target.value);
     onChange(e.target.value);
   };
@@ -228,9 +233,10 @@ function saveSelection() {
   return sel.getRangeAt(0).cloneRange();
 }
 
-function restoreSelection(range) {
+function restoreSelection(range: Range | null) {
   if (!range) return;
   const sel = window.getSelection();
+  if (!sel) return;
   sel.removeAllRanges();
   sel.addRange(range);
 }

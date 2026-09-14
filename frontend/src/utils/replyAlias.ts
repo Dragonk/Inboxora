@@ -1,7 +1,14 @@
-export function parseAddressListField(value) {
+/** A name/email entry as stored in a message address-list field. */
+export interface AddressListEntry {
+  name?: string | null;
+  email?: string | null;
+  address?: string | null;
+}
+
+export function parseAddressListField<T = AddressListEntry>(value: unknown): T[] {
   if (Array.isArray(value)) return value;
   try {
-    return JSON.parse(value || '[]');
+    return JSON.parse(String(value || '[]'));
   } catch {
     return [];
   }
@@ -13,7 +20,7 @@ export function parseAddressListField(value) {
  * Mirrors backend `conversationIngestEnvelope.js#normalizeAddress` so the
  * frontend own-identity set matches the server's classification exactly.
  */
-function normalizeAddress(raw) {
+function normalizeAddress(raw: unknown): string | null {
   if (!raw) return null;
   const s = String(raw).trim();
   const angleMatch = s.match(/<([^>]+)>/);
@@ -40,56 +47,78 @@ function normalizeAddress(raw) {
  * `user+newsletter@example.com` would not be recognized as own and Reply All
  * would Cc the user's own copy back to themselves.
  */
+
+/** An account alias / send-as address, as exposed by the accounts store. */
+export interface ReplyAlias {
+  id: string;
+  email?: string | null;
+}
+
 export interface OwnAddressAccount {
   email_address?: string | null;
-  aliases?: Array<{ email?: string | null } | string> | null;
+  aliases?: Array<ReplyAlias> | null;
 }
 
 export interface OwnAddressMessage {
   delivery_addresses?: string | Array<{ email?: string | null; address?: string | null } | string> | null;
 }
 
-export function collectOwnAddresses({ account, message }: { account?: OwnAddressAccount | null; message?: OwnAddressMessage | null } = {}) {
-  const own = new Set();
-  const push = value => {
+export function collectOwnAddresses({ account, message }: { account?: OwnAddressAccount | null; message?: OwnAddressMessage | null } = {}): Set<string> {
+  const own = new Set<string>();
+  const push = (value: unknown) => {
     const email = normalizeAddress(value);
     if (email) own.add(email);
   };
 
   if (account) {
     push(account.email_address);
-    const aliases = Array.isArray(account.aliases) ? account.aliases : [];
+    const aliases: Array<ReplyAlias | string> = Array.isArray(account.aliases) ? account.aliases : [];
     for (const alias of aliases) push(typeof alias === 'string' ? alias : alias?.email);
   }
 
   if (message) {
     const raw = message.delivery_addresses;
-    const list = Array.isArray(raw)
+    const list: unknown = Array.isArray(raw)
       ? raw
       : (typeof raw === 'string'
           ? (() => { try { return JSON.parse(raw); } catch { return []; } })()
           : []);
-    for (const item of list) push(typeof item === 'string' ? item : item?.email ?? item?.address);
+    if (Array.isArray(list)) {
+      for (const item of list) push(typeof item === 'string' ? item : item?.email ?? item?.address);
+    }
   }
 
   return own;
 }
 
-export function pickReplyAlias({ aliases, deliveryAddresses, toAddresses, ccAddresses, fromEmail }) {
+export function pickReplyAlias({
+  aliases,
+  deliveryAddresses,
+  toAddresses,
+  ccAddresses,
+  fromEmail,
+}: {
+  aliases?: Array<ReplyAlias> | null;
+  deliveryAddresses?: unknown;
+  toAddresses?: unknown;
+  ccAddresses?: unknown;
+  fromEmail?: string | null;
+}): string | null {
   if (!aliases || !aliases.length) return null;
 
-  const delivered = parseAddressListField(deliveryAddresses).map(e => (e || '').toLowerCase()).filter(Boolean);
+  const delivered = parseAddressListField<string>(deliveryAddresses).map(e => (e || '').toLowerCase()).filter(Boolean);
   const to = parseAddressListField(toAddresses).map(a => a.email?.toLowerCase()).filter(Boolean);
   const cc = parseAddressListField(ccAddresses).map(a => a.email?.toLowerCase()).filter(Boolean);
   const from = (fromEmail || '').toLowerCase();
 
-  const deliveredMatch = aliases.find(al => delivered.includes(al.email.toLowerCase()));
+  const deliveredMatch = aliases.find(al => typeof al.email === 'string' && delivered.includes(al.email.toLowerCase()));
   if (deliveredMatch) return deliveredMatch.id;
 
   // Same scan as before delivery addresses existed: aliases in creation order
   // against the combined To/Cc/From set, so multi-alias picks don't change.
   const headerEmails = [...to, ...cc];
   const match = aliases.find(al => {
+    if (typeof al.email !== 'string') return false;
     const aliasEmail = al.email.toLowerCase();
     return headerEmails.includes(aliasEmail) || (from && from === aliasEmail);
   });

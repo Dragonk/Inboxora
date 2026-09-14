@@ -4,13 +4,13 @@ import { createLatestRequest } from './latestRequest.ts';
 
 describe('createLatestRequest', () => {
   it('ignores an older response that finishes after a newer response', async () => {
-    const pending = [];
-    const request = () => new Promise(resolve => pending.push(resolve));
-    const applied = [];
+    const pending: ((value: string) => void)[] = [];
+    const request = () => new Promise<string>(resolve => pending.push(resolve));
+    const applied: string[] = [];
     const latest = createLatestRequest();
 
-    const older = latest.run(request, value => applied.push(value));
-    const newer = latest.run(request, value => applied.push(value));
+    const older = latest.run(request, (value: string) => applied.push(value));
+    const newer = latest.run(request, (value: string) => applied.push(value));
 
     pending[1]('new inbox');
     await newer;
@@ -21,16 +21,16 @@ describe('createLatestRequest', () => {
   });
 
   it('ignores an in-flight response after optimistic state invalidates it', async () => {
-    let resolveRequest;
+    const pending: ((value: string) => void)[] = [];
     const latest = createLatestRequest();
-    const applied = [];
+    const applied: string[] = [];
     const inFlight = latest.run(
-      () => new Promise(resolve => { resolveRequest = resolve; }),
-      value => applied.push(value),
+      () => new Promise<string>(resolve => pending.push(resolve)),
+      (value: string) => applied.push(value),
     );
 
     latest.invalidate();
-    resolveRequest('snapshot from before archive');
+    pending[0]('snapshot from before archive');
     await inFlight;
 
     assert.deepEqual(applied, []);
