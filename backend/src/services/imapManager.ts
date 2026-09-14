@@ -3002,7 +3002,7 @@ export class ImapManager {
           `SELECT COUNT(*) FILTER (WHERE is_read = false) AS n FROM messages WHERE account_id = $1 AND folder = $2`,
           [account.id, folder]
         );
-        const dbUnreadCount = parseInt(ucRow.n || 0);
+        const dbUnreadCount = Number(ucRow.n || 0);
         await query(`
           INSERT INTO folders (account_id, path, name, total_count, unread_count, uid_validity)
           VALUES ($1, $2, $2, $3, $4, $5)
@@ -3574,7 +3574,7 @@ export class ImapManager {
         [account.id, folder]
       );
       const meta = folderMeta.rows[0];
-      if (meta?.uid_validity && meta.total_count > 0) {
+      if (meta?.uid_validity && Number(meta.total_count) > 0) {
         const countRow = await query(
           'SELECT COUNT(*) AS n FROM messages WHERE account_id = $1 AND folder = $2 AND is_deleted = false',
           [account.id, folder]
@@ -4640,7 +4640,7 @@ export class ImapManager {
     const account = accountResult.rows[0];
     if (!providerProfile(account).snippetIndex) return;
 
-    const uncachedResult = await query(
+    const uncachedResult = await query<{ id: string; uid: number; folder: string }>(
       `SELECT id, uid, folder FROM messages
        WHERE id = ANY($1::uuid[]) AND body_html IS NULL AND body_text IS NULL`,
       [messageIds]
