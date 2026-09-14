@@ -76,9 +76,9 @@ export async function getAccountAddresses(accountId: string) {
 }
 
 // Distinct thread keys for a set of row ids within an account.
-export async function getThreadKeysForMessageIds(accountId: string, ids) {
+export async function getThreadKeysForMessageIds(accountId: string, ids: string[]): Promise<string[]> {
   if (!ids || ids.length === 0) return [];
-  const { rows } = await query(
+  const { rows } = await query<{ thread_key: string }>(
     `SELECT DISTINCT thread_key FROM messages
       WHERE account_id = $1 AND id = ANY($2::uuid[])`,
     [accountId, ids]
@@ -87,9 +87,9 @@ export async function getThreadKeysForMessageIds(accountId: string, ids) {
 }
 
 // Distinct thread keys for the live messages currently in a set of folders within an account.
-export async function getThreadKeysInFolders(accountId: string, folders) {
+export async function getThreadKeysInFolders(accountId: string, folders: string[]): Promise<string[]> {
   if (!folders || folders.length === 0) return [];
-  const { rows } = await query(
+  const { rows } = await query<{ thread_key: string }>(
     `SELECT DISTINCT thread_key FROM messages
       WHERE account_id = $1 AND folder = ANY($2::text[]) AND is_deleted = false`,
     [accountId, folders]
@@ -100,7 +100,7 @@ export async function getThreadKeysInFolders(accountId: string, folders) {
 // Distinct thread keys for messages matching any of the given RFC Message-IDs within an account.
 export async function getThreadKeysForMessageIdHeaders(accountId: string, messageIdHeaders): Promise<string[]> {
   if (!messageIdHeaders || messageIdHeaders.length === 0) return [];
-  const { rows } = await query(
+  const { rows } = await query<{ thread_key: string }>(
     `SELECT DISTINCT thread_key FROM messages
       WHERE account_id = $1 AND message_id = ANY($2::text[]) AND is_deleted = false`,
     [accountId, messageIdHeaders]
