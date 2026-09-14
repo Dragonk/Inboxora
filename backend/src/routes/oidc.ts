@@ -309,7 +309,7 @@ oidcBrowserRouter.get('/:slug/start', async (req, res) => {
   }
 
   try {
-    const provResult = await query(
+    const provResult = await query<{ id: string; issuer_url: string; client_id: string; allow_insecure?: boolean | null; rp_initiated_logout?: boolean | null; [key: string]: unknown }>(
       'SELECT * FROM oidc_providers WHERE slug = $1 AND enabled = true',
       [slug]
     );

@@ -335,7 +335,7 @@ export function createPostgresCodexStore() {
 
     async completeFlow({ id, encryptedCredential }: CodexCompleteInput): Promise<boolean> {
       return withTransaction(async (client: DbClient) => {
-        const lock = await client.query(
+        const lock = await client.query<{ state: string; [key: string]: unknown }>(
           `SELECT state FROM ai_codex_device_flows WHERE id = $1 FOR UPDATE`,
           [id],
         );
