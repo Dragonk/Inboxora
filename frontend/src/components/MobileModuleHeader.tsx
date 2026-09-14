@@ -1,4 +1,5 @@
 import { createContext, useContext } from 'react';
+import type { ReactNode } from 'react';
 import { createPortal } from 'react-dom';
 
 export const MobileHeaderHost = createContext(null);
@@ -7,7 +8,12 @@ export const MobileHeaderHost = createContext(null);
 // them in the shell avoids duplicate headers and imperative cross-module events.
 // `leading` lets a drill-down view (reader / contact detail) place its back
 // affordance before the title inside the same single top-bar row.
-export function MobileModuleHeader({ leading = null, title = '', subtitle = undefined, children }) {
+export function MobileModuleHeader({ leading = null, title = '', subtitle = undefined, children }: {
+  leading?: ReactNode;
+  title?: string;
+  subtitle?: string | null;
+  children?: ReactNode;
+}) {
   const host = useContext(MobileHeaderHost);
   if (!host) return null;
   return createPortal(<>

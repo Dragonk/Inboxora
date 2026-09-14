@@ -130,7 +130,7 @@ export interface StoreState {
   incrementUnread: (accountId: string, count?: number) => void;
   folders: Record<string, Array<{ path: string; name?: string | null; special_use?: string | null; unread_count?: number; [key: string]: unknown }>>;
   setFolders: (accountId: string, folders: Array<{ path: string; unread_count?: number }>) => void;
-  adjustFolderUnread: (accountId: string, folderPath: string, delta: number) => void;
+  adjustFolderUnread: (accountId: string, folderPath: string | undefined, delta: number) => void;
   sidebarCollapsed: boolean;
   toggleSidebar: () => void;
   sidebarWidth: number;
@@ -178,7 +178,7 @@ export interface StoreState {
   setSearchResults: (r: StoreMessageRow[]) => void;
   loadingMessages: boolean;
   setLoadingMessages: (v: boolean) => void;
-  notifications: Array<{ id?: string; [key: string]: unknown }>;
+  notifications: Array<{ id: string; [key: string]: unknown }>;
   addNotification: (n: {
       id?: string;
       [key: string]: unknown;
@@ -240,12 +240,12 @@ export interface StoreState {
   markReadDelay: number;
   setMarkReadDelay: (val: string | number) => void;
   expandedThreadId: string | null;
-  setExpandedThreadId: (id: string) => void;
+  setExpandedThreadId: (id: string | null) => void;
   threadMessages: Record<string, StoreMessageRow[]>;
   setThreadMessages: (threadId: string, msgs: StoreMessageRow[]) => void;
   clearThreadMessages: (threadId: string) => void;
   loadingThread: string | null;
-  setLoadingThread: (id: string) => void;
+  setLoadingThread: (id: string | null) => void;
   themeMode: string;
   lightTheme: string;
   darkTheme: string;
@@ -270,7 +270,7 @@ export interface StoreState {
   setCategorizationEnabled: (val: boolean) => void;
   categoryCounts: Record<string, number>;
   setCategoryCounts: (counts: Record<string, number>) => void;
-  adjustCategoryCount: (category: string, delta: number) => void;
+  adjustCategoryCount: (category: string | null | undefined, delta: number) => void;
   rightSidebarWidth: number;
   setRightSidebarWidth: (w: number) => void;
   isRightSidebarResizing: boolean;
@@ -280,7 +280,7 @@ export interface StoreState {
   gtdCollapsedSections: Record<string, boolean>;
   toggleGtdSection: (section: string) => void;
   activeGtdTab: string | null;
-  setActiveGtdTab: (tab: string) => void;
+  setActiveGtdTab: (tab: string | null) => void;
   gtdSections: GtdSections | null;
   fetchGtdSections: () => Promise<void>;
   scheduleGtdSectionsFetch: () => void;
@@ -723,7 +723,7 @@ export const useStore = create<StoreState>()((set, get) => ({
   // list. Used for optimistic UI updates when marking messages as read/spam/ham
   // so the sidebar badge updates without waiting for a full folder sync.
   // We clamp at 0 to avoid negative counters when the optimistic guess was off.
-  adjustFolderUnread: (accountId: string, folderPath: string, delta: number) =>set((state: StoreStateRead) => {
+  adjustFolderUnread: (accountId: string, folderPath: string | undefined, delta: number) =>set((state: StoreStateRead) => {
     const accountFolders = state.folders[accountId];
     if (!accountFolders) return {};
     let changed = false;
@@ -1077,7 +1077,7 @@ export const useStore = create<StoreState>()((set, get) => ({
 
   // Thread expansion cache (not persisted — reset on navigation)
   expandedThreadId: null,
-  setExpandedThreadId: (id: string) =>set({ expandedThreadId: id }),
+  setExpandedThreadId: (id: string | null) =>set({ expandedThreadId: id }),
   threadMessages: {},
   setThreadMessages: (threadId: string, msgs: StoreMessageRow[]) =>set((state: StoreStateRead) => ({
     threadMessages: { ...state.threadMessages, [threadId]: msgs },
@@ -1086,7 +1086,7 @@ export const useStore = create<StoreState>()((set, get) => ({
     threadMessages: removeThreadCacheEntry(state.threadMessages, threadId),
   })),
   loadingThread: null,
-  setLoadingThread: (id: string) =>set({ loadingThread: id }),
+  setLoadingThread: (id: string | null) =>set({ loadingThread: id }),
 
   // Theme — a default for the light appearance and one for the dark appearance,
   // plus the mode that picks between them. `theme` stays the *effective* theme so
@@ -1184,7 +1184,7 @@ export const useStore = create<StoreState>()((set, get) => ({
   // Unread counts per category for the tab bar badges { primary: N, newsletter: N, ... }
   categoryCounts: {},
   setCategoryCounts: (counts: Record<string, number>) =>set({ categoryCounts: counts }),
-  adjustCategoryCount: (category: string, delta: number) =>set((state: StoreStateRead) => {
+  adjustCategoryCount: (category: string | null | undefined, delta: number) =>set((state: StoreStateRead) => {
     const key = category || 'primary';
     const current = state.categoryCounts[key] || 0;
     return { categoryCounts: { ...state.categoryCounts, [key]: Math.max(0, current + delta) } };
@@ -1222,7 +1222,7 @@ export const useStore = create<StoreState>()((set, get) => ({
 
   // Active GTD browse tab in the message-list pill strip (null = normal list).
   activeGtdTab: null,
-  setActiveGtdTab: (tab: string) =>set({ activeGtdTab: tab }),
+  setActiveGtdTab: (tab: string | null) =>set({ activeGtdTab: tab }),
 
   // Sections data feeding both the rail and the tab list. null before first load.
   gtdSections: null,

@@ -1,5 +1,5 @@
 import { mergeCalendarResource, truncateSeriesBefore } from '../utils/calendarRecurrence.js';
-import type { EmailAccountRow } from '../services/imapManager.js';
+import type { AttachmentRef, EmailAccountRow } from '../services/imapManager.js';
 import ICAL from 'ical.js';
 import { parseInboundCalendarInvitation } from '../services/inboundCalendarInvitation.js';
 import { parseCalendarEvent } from '../utils/ical.js';
@@ -32,10 +32,10 @@ router.use(requireAuth);
 // Ownership is still enforced by the SQL filter (`c.user_id`/`c.owner_user_id`),
 // so a foreign id can only ever match zero rows.
 /** Either the requested ids (null = all) or a validation error. */
-type CalendarSelection = { ids: string[] | null; error?: undefined } | { ids?: undefined; error: string };
+type CalendarSelection = { ids: string[] | null; error: null } | { ids: null; error: string };
 
 function parseCalendarSelection(raw: unknown): CalendarSelection {
-  if (raw === undefined || raw === null) return { ids: null };
+  if (raw === undefined || raw === null) return { ids: null, error: null };
   const parts = (Array.isArray(raw) ? raw : [raw])
     .flatMap(value => String(value).split(','))
     .map(value => value.trim())
@@ -43,10 +43,10 @@ function parseCalendarSelection(raw: unknown): CalendarSelection {
   const ids: string[] = [];
   for (const id of parts) {
     if (id === CONTACT_CALENDAR_ID) { ids.push(id); continue; }
-    if (!UUID_PATTERN.test(id)) return { error: 'Invalid calendar id' };
+    if (!UUID_PATTERN.test(id)) return { ids: null, error: 'Invalid calendar id' };
     ids.push(id);
   }
-  return { ids: [...new Set(ids)] };
+  return { ids: [...new Set(ids)], error: null };
 }
 
 function parseEventTimes(body: Record<string, unknown> | null | undefined): { startsAt: Date; endsAt: Date } | null {
@@ -57,6 +57,14 @@ function parseEventTimes(body: Record<string, unknown> | null | undefined): { st
   }
   return { startsAt, endsAt };
 }
+
+/** A calendar event row as the /events reads return it. */
+type CalendarEventRow = {
+  id: string;
+  starts_at: Date | string;
+  ends_at: Date | string;
+  [key: string]: unknown;
+};
 
 /** A contact row carrying its date entries. */
 type ContactDateRow = { id?: string; display_name?: string | null; primary_email?: string | null; contact_dates?: unknown; [key: string]: unknown };
@@ -94,6 +102,11 @@ function contactDateEvents(contacts: ContactDateRow[], from: Date, to: Date) {
   return events;
 }
 
+/** Sort key for a stored or projected event; a missing start sorts as invalid, exactly as `new Date(undefined)` did. */
+function eventStartTime(value: Date | string | undefined): number {
+  return value === undefined ? Number.NaN : new Date(value).getTime();
+}
+
 function escapeICalendarText(value: unknown): string {
   return String(value || '')
     .replaceAll('\\', '\\\\')
@@ -126,7 +139,48 @@ function foldICalendarLine(line: string) {
   return chunks.join('\r\n ');
 }
 
-function localEventIcal({ uid, summary, description, location, url, organizer, attendees = [], startsAt, endsAt, allDay }) {
+/** The rendered invitation fields `localEventIcal` turns into one VEVENT. */
+type LocalEventIcalInput = {
+  uid: string;
+  summary?: string | null;
+  description?: string | null;
+  location?: string | null;
+  url?: string | null;
+  organizer?: string | null;
+  attendees?: string[];
+  startsAt: Date;
+  endsAt: Date;
+  allDay: boolean;
+};
+
+/** The values an invitation request carries, shared by the create and update paths. */
+type InvitationFields = {
+  calendarId: string;
+  invitationAccount: EmailAccountRow;
+  normalizedAttendees: string[];
+  times: { startsAt: Date; endsAt: Date };
+  summary?: string | null;
+  description?: string | null;
+  location?: string | null;
+  url?: string | null;
+  organizer?: string | null;
+  allDay?: boolean | null;
+  timezone?: string | null;
+};
+
+/** The outbox delivery result an invitation response reports. */
+type InvitationDeliveryStatus = { status?: string | null; lastError?: string | null };
+
+/** The message columns the invitation attachment fallback reads. */
+type InvitationMessageRow = {
+  account_id: string;
+  uid: string | number;
+  folder: string;
+  attachments?: AttachmentRef[] | string | null;
+  raw_ical?: string | null;
+};
+
+function localEventIcal({ uid, summary, description, location, url, organizer, attendees = [], startsAt, endsAt, allDay }: LocalEventIcalInput) {
   const dateParameter = allDay ? ';VALUE=DATE' : '';
   const lines = ['BEGIN:VCALENDAR', 'VERSION:2.0', 'PRODID:-//Inboxora//DAV Hub//EN', 'BEGIN:VEVENT', `UID:${uid}`, `DTSTAMP:${formatICalendarDate(new Date(), false)}`, `DTSTART${dateParameter}:${formatICalendarDate(startsAt, allDay)}`, `DTEND${dateParameter}:${formatICalendarDate(endsAt, allDay)}`];
   if (summary) lines.push(`SUMMARY:${escapeICalendarText(summary)}`);
@@ -167,7 +221,7 @@ function invitationOperationKey(req: Request): string {
   return crypto.createHash('sha256').update(JSON.stringify(req.body || {})).digest('hex');
 }
 
-function invitationRequestFingerprint(req, fields) {
+function invitationRequestFingerprint(req: Request, fields: InvitationFields) {
   const { calendarId, normalizedAttendees, times, summary, description, location, url, organizer, allDay, timezone, invitationAccount } = fields;
   return crypto.createHash('sha256').update(JSON.stringify({
     eventId: req.params.eventId || null, calendarId, summary: summary || null, description, location, url, organizer,
@@ -177,7 +231,7 @@ function invitationRequestFingerprint(req, fields) {
 }
 
 // The single response shape for anything that may have to deliver an invitation.
-function invitationDeliveryResponse(event, delivery) {
+function invitationDeliveryResponse(event: unknown, delivery: InvitationDeliveryStatus | null | undefined) {
   return {
     event,
     invitationStatus: { status: delivery?.status || 'pending', lastError: delivery?.lastError || null },
@@ -185,7 +239,7 @@ function invitationDeliveryResponse(event, delivery) {
   };
 }
 
-async function updateInvitedEvent(req, fields) {
+async function updateInvitedEvent(req: Request, fields: InvitationFields) {
   const { calendarId, invitationAccount, normalizedAttendees, times, summary, description, location, url, organizer, allDay, timezone } = fields;
   const key = invitationOperationKey(req);
   const fingerprint = invitationRequestFingerprint(req, fields);
@@ -225,7 +279,7 @@ async function updateInvitedEvent(req, fields) {
   });
 }
 
-async function writableCalendar(userId: string, calendarId) {
+async function writableCalendar(userId: string, calendarId: string) {
   const result = await query(
     'SELECT id, source, read_only FROM calendars WHERE id = $1 AND user_id = $2 AND owner_user_id = $2',
     [calendarId, userId],
@@ -243,10 +297,10 @@ async function contactCalendarAppearance(userId: string): Promise<{ name?: strin
 
 // Fetch the raw .ics MIME part of a message. Extracted so the reader can fall back
 // to it whenever the invitation captured during sync is missing or unusable.
-async function fetchInvitationAttachment(row, userId: string) {
-  const attachments = typeof row.attachments === 'string' ? JSON.parse(row.attachments) : row.attachments || [];
+async function fetchInvitationAttachment(row: InvitationMessageRow, userId: string) {
+  const attachments: AttachmentRef[] = typeof row.attachments === 'string' ? JSON.parse(row.attachments) : row.attachments || [];
   const candidates = attachments.filter(item => /^(text\/calendar|application\/(ics|ical|calendar))$/i.test(item.type || '') || /\.ics$/i.test(item.filename || ''));
-  if (candidates.length !== 1 || candidates[0].size > 1024 * 1024) return null;
+  if (candidates.length !== 1 || Number(candidates[0].size) > 1024 * 1024) return null;
   const account = await query<EmailAccountRow>('SELECT * FROM email_accounts WHERE id = $1 AND user_id = $2', [row.account_id, userId]);
   if (!account.rows[0]) return null;
   const { imapManager } = await import('../index.js');
@@ -267,7 +321,7 @@ async function fetchInvitationAttachment(row, userId: string) {
 }
 
 async function readMessageInvitation(messageId: string, userId: string) {
-  const result = await query(`SELECT i.raw_ical, m.account_id, m.uid, m.folder, m.attachments
+  const result = await query<InvitationMessageRow>(`SELECT i.raw_ical, m.account_id, m.uid, m.folder, m.attachments
     FROM messages m JOIN email_accounts a ON a.id = m.account_id
     LEFT JOIN inbound_calendar_invitations i ON i.message_id = m.id
     WHERE m.id = $1 AND a.user_id = $2`, [messageId, userId]);
@@ -352,7 +406,7 @@ router.post('/invitations/:messageId', async (req, res) => {
   const uid = `mail-${crypto.createHash('sha256').update(JSON.stringify([invitation.uid, invitation.organizer, invitation.recurrenceId])).digest('hex')}`;
   const component = new ICAL.Component(ICAL.parse(event.raw));
   component.removeAllProperties('method');
-  component.getFirstSubcomponent('vevent').updatePropertyWithValue('uid', uid);
+  component.getAllSubcomponents('vevent')[0].updatePropertyWithValue('uid', uid);
   const raw = component.toString();
   const result = await query(`INSERT INTO calendar_events
     (calendar_id, user_id, uid, raw_ical, etag, summary, starts_at, ends_at, all_day, timezone, description, location, url, organizer, attendees, invitation_sequence, source_message_id)
@@ -383,12 +437,12 @@ router.get('/calendars', async (req, res) => {
   }] });
 });
 
-function calendarName(value) {
+function calendarName(value: unknown): string | null {
   const name = typeof value === 'string' ? value.trim() : '';
   return name && name.length <= 120 ? name : null;
 }
 
-function calendarColor(value) {
+function calendarColor(value: unknown): string | null | undefined {
   if (value == null || value === '') return null;
   return typeof value === 'string' && /^#[0-9a-f]{6}$/i.test(value) ? value : undefined;
 }
@@ -476,9 +530,9 @@ router.get('/events', async (req, res) => {
   // A selection naming only the contact calendar still needs no event query, and
   // an explicitly empty selection means "no calendars at all". Ownership stays
   // enforced by the SQL predicate, so a foreign id can only match zero rows.
-  let materializedRows = [];
-  let eventRows = [];
-  if (selection.ids === null || selectedIds.length > 0) {
+  let materializedRows: CalendarEventRow[] = [];
+  let eventRows: CalendarEventRow[] = [];
+  if (selectedIds === null || selectedIds.length > 0) {
     const params: unknown[] = [req.session.userId, from, to];
     let calendarFilter = '';
     if (selectedIds !== null) { params.push(selectedIds); calendarFilter = ' AND c.id = ANY($4::uuid[])'; }
@@ -486,7 +540,7 @@ router.get('/events', async (req, res) => {
     // all. Any event whose stored rows are missing, stale, or do not cover this window is
     // excluded here and picked up by the fallback query below, so this read can never be the
     // reason an event is missing — only the reason it appears fast.
-    const result = await query(
+    const result = await query<CalendarEventRow>(
       `SELECT CASE WHEN o.recurrence_id = '' THEN e.id::text ELSE e.id::text || '@' || o.recurrence_id END AS id,
               CASE WHEN e.recurring THEN e.id END AS series_id,
               e.recurring,
@@ -522,7 +576,7 @@ router.get('/events', async (req, res) => {
     // `e.recurring` is a stored, indexed column rather than a regex over raw_ical: the regex
     // could not use an index, so the planner scanned every event the user owned and detoasted
     // each raw_ical. See migration 0082.
-    const fallback = await query(
+    const fallback = await query<CalendarEventRow>(
       `SELECT ${EVENT_COLUMNS},
               CASE WHEN sa.id IS NOT NULL THEN e.source_message_id END AS source_message_id,
               sm.folder AS source_folder,
@@ -541,7 +595,7 @@ router.get('/events', async (req, res) => {
     );
     eventRows = fallback.rows;
   }
-  let contactEvents: Array<Record<string, unknown>> = [];
+  let contactEvents: Array<{ starts_at: Date; ends_at: Date; [key: string]: unknown }> = [];
   if (includeContacts) {
     // Both reads only need the same user id, so they run together rather than one after
     // the other — the contact calendar is on by default, so this is on the common path.
@@ -561,7 +615,7 @@ router.get('/events', async (req, res) => {
   // the process on a series the worker has not reached yet.
   const projection = await projectCalendarResources(eventRows, from, to, { userId: req.session.userId });
   const events = [...materializedRows, ...projection.events, ...contactEvents]
-    .sort((left, right) => new Date(left.starts_at).getTime() - new Date(right.starts_at).getTime());
+    .sort((left, right) => eventStartTime(left.starts_at) - eventStartTime(right.starts_at));
   if (projection.truncated) {
     // A partial result must never look complete. Only the series id and a reason
     // category cross the wire; internal error text stays in the server log.
@@ -601,7 +655,7 @@ router.post('/events', async (req, res) => {
     if (!invitationAccount) return res.status(400).json({ error: 'The selected sender account is unavailable' });
   }
 
-  if (sendInvites && typeof req.headers['x-idempotency-key'] === 'string' && req.headers['x-idempotency-key'].trim()) {
+  if (sendInvites && invitationAccount && typeof req.headers['x-idempotency-key'] === 'string' && req.headers['x-idempotency-key'].trim()) {
     const idempotencyKey = invitationOperationKey(req);
     const fingerprint = invitationRequestFingerprint(req, { calendarId, normalizedAttendees, times, summary, description, location, url, organizer, allDay, timezone, invitationAccount });
     let outcome;
@@ -731,7 +785,7 @@ router.patch('/events/:eventId', async (req, res) => {
     if (!invitationAccount) return res.status(400).json({ error: 'The selected sender account is unavailable' });
   }
 
-  if (sendInvites && typeof req.headers['x-idempotency-key'] === 'string' && req.headers['x-idempotency-key'].trim()) {
+  if (sendInvites && invitationAccount && typeof req.headers['x-idempotency-key'] === 'string' && req.headers['x-idempotency-key'].trim()) {
     let outcome;
     try {
       outcome = await updateInvitedEvent(req, { calendarId, invitationAccount, normalizedAttendees, times, summary, description, location, url, organizer, allDay, timezone });
@@ -841,7 +895,25 @@ router.delete('/events/:eventId', async (req, res) => {
   res.status(204).end();
 });
 
-function publicSource(source) {
+/** A calendar_import_sources row as the source routes return, redact and schedule it. */
+type CalendarSourceRow = {
+  id: string;
+  kind: string;
+  url: string;
+  user_id?: string;
+  url_fingerprint?: string | null;
+  username?: string;
+  password?: string;
+  display_name?: string | null;
+  color?: string | null;
+  interval_min?: number;
+  enabled?: boolean | null;
+  last_sync_at?: string | Date | null;
+  last_error?: string | null;
+  [key: string]: unknown;
+};
+
+function publicSource(source: CalendarSourceRow) {
   const secretValues = source.url ? [source.url, decrypt(source.url)] : [];
   const lastError = typeof source.last_error === 'string'
     ? secretValues.filter(Boolean).reduce((error, secret) => error.replaceAll(secret, '[redacted]'), source.last_error)
@@ -854,7 +926,7 @@ function publicSource(source) {
 }
 
 router.get('/sources', async (req, res) => {
-  const result = await query(
+  const result = await query<CalendarSourceRow>(
     `SELECT id, kind, url, username, display_name, color, interval_min, enabled, last_sync_at, last_error
      FROM calendar_import_sources WHERE user_id = $1 ORDER BY created_at ASC`, [req.session.userId],
   );
@@ -882,7 +954,7 @@ router.post('/sources', async (req, res) => {
   try {
     const normalizedUrl = parsed.toString();
     const urlFingerprint = crypto.createHash('sha256').update(normalizedUrl).digest('hex');
-    const result = await query<{ id: string; user_id: string; kind: string; url: string; url_fingerprint?: string | null; username?: string | null; password?: string | null; display_name?: string | null; [key: string]: unknown }>(
+    const result = await query<CalendarSourceRow>(
       `INSERT INTO calendar_import_sources (user_id, kind, url, url_fingerprint, username, password, display_name, color, interval_min)
        VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9) RETURNING *`,
       [req.session.userId, kind, encrypt(normalizedUrl), urlFingerprint, username || null, password ? encrypt(password) : null, displayName, color, interval],
@@ -923,7 +995,7 @@ router.patch('/sources/:sourceId', async (req, res) => {
   if (!Number.isInteger(interval) || interval < 15 || interval > 1440) {
     return res.status(400).json({ error: 'intervalMin must be between 15 and 1440' });
   }
-  const result = await query(
+  const result = await query<CalendarSourceRow>(
     `UPDATE calendar_import_sources SET interval_min = $1, updated_at = NOW()
      WHERE id = $2 AND user_id = $3 RETURNING *`,
     [interval, req.params.sourceId, req.session.userId],

@@ -17,7 +17,7 @@ import pushRouter from './push.js';
 import { buildMailNotificationEvent } from '../services/mailNotificationEvent.js';
 import { dispatchMailNotification, resetDispatchDedup } from '../services/pushDispatcher.js';
 import { listeningPort } from '../test/net.js';
-import type { Request } from 'express';
+import { mockSession } from '../test/http.js';
 import type { AddressInfo } from 'node:net';
 
 const enabled = process.env.REQUIRE_PUSH_POSTGRES === '1';
@@ -40,7 +40,7 @@ describe.skipIf(!enabled)('push device registry with PostgreSQL', () => {
     const app = express();
     app.use(express.json());
     // The management routes are session-authenticated; inject a synthetic session.
-    app.use('/api/push', (req, _res, next) => { req.session = { userId: sessions.userId } as unknown as Request['session']; next(); });
+    app.use('/api/push', (req, _res, next) => { req.session = mockSession({ userId: sessions.userId }); next(); });
     app.use('/api/push', pushRouter);
     await new Promise((resolve) => { server = app.listen(0, '127.0.0.1', resolve); });
     base = `http://127.0.0.1:${(server.address() as AddressInfo).port}`;

@@ -6,6 +6,7 @@ import {
   openDeepLinkMessage, collectThreadReadIds, openGtdThreadWithAutoRead,
   classifyThread, unclassifyThread,
 } from '../utils/gtd.ts';
+import type { GtdThread } from '../utils/gtd.ts';
 import { openReplyFromMessage, openForwardFromMessage } from '../utils/composeFromMessage.ts';
 import { resolveContextMenuMessage } from '../utils/contextMenuPolicy.ts';
 import { doneGtdRow } from '../utils/gtdDone.ts';
@@ -18,40 +19,38 @@ import { toAppError } from '../utils/errors.ts';
 // read, or double-fire bulkRead when the same thread is opened from both. `owner`
 // remembers which hook instance scheduled the timer so an unmounting surface cancels
 // only its own pending read, never one the still-mounted surface legitimately owns.
-/** A GTD section row (thread) as the triage actions use it. */
-interface GtdTriageThread {
-  id?: string;
-  message_id?: string;
-  account_id?: string;
+/** A GTD section row (thread) as the triage actions use it: every row is a message
+ * row, so the triage engine can rely on its row id and account id; the rest is the
+ * shared GtdThread shape. */
+function gtdAccountIdOf(thread: GtdThread): string | null {
+  const raw: unknown = thread.account_id || thread.accountId;
+  return typeof raw === 'string' && raw !== '' ? raw : null;
+}
+
+interface GtdTriageThread extends GtdThread {
+  id: string;
+  account_id: string;
   accountId?: string;
-  folder?: string;
-  is_read?: boolean;
   is_starred?: boolean;
-  [key: string]: unknown;
 }
 
-/** The store members this hook reads (the store itself is still untyped). */
-interface GtdTriageStoreSlice {
-  setThreadMessages: (threadId: string, msgs: unknown) => unknown;
-  setSelectedMessage: (id: string | null) => unknown;
-  scheduleGtdSectionsFetch: () => void;
-  removeGtdThread: (identity: string, states?: string[]) => unknown;
-  restoreGtdThread: (snapshot: unknown) => unknown;
-  markGtdThreadRead: (identity: string, isRead: boolean) => unknown;
-  markGtdThreadStarred: (identity: string, isStarred: boolean) => unknown;
-  addNotification: (n: unknown) => unknown;
-  accounts: Array<{ id?: string; [key: string]: unknown }>;
-  openCompose: (data?: Record<string, unknown>) => unknown;
+/** The right-click / move-picker menu state a GTD row opens. */
+interface GtdTriageContextMenu {
+  x: number;
+  y: number;
+  message: GtdTriageThread;
+  doneStates: string[];
+  defaultMoveView?: boolean;
 }
 
-interface AutoMarkRead { timer: ReturnType<typeof setTimeout> | null; identity: string | null; owner: unknown }
+interface AutoMarkRead { timer: ReturnType<typeof setTimeout> | null; identity: string | null | undefined; owner: unknown }
 let autoMarkRead: AutoMarkRead = { timer: null, identity: null, owner: null };
 
 // Drop the pending delay-mode auto-read outright (handle + owner identity). openRow uses
 // this: a fresh open — from ANY GTD surface — genuinely supersedes the prior row's
 // pending read.
 const cancelAutoMarkRead = () => {
-  clearTimeout(autoMarkRead.timer);
+  if (autoMarkRead.timer !== null) clearTimeout(autoMarkRead.timer);
   autoMarkRead = { timer: null, identity: null, owner: null };
 };
 
@@ -60,7 +59,7 @@ const cancelAutoMarkRead = () => {
 // (is_read=false) readThread later revert it or fire a spurious bulkRead — but the same
 // action on a DIFFERENT visible row (rapid triage) must leave that other row's
 // still-legitimate pending read running.
-const cancelAutoMarkReadFor = (thread: GtdTriageThread) => {
+const cancelAutoMarkReadFor = (thread: GtdThread) => {
   const identity = thread.message_id || thread.id;
   if (autoMarkRead.identity != null && autoMarkRead.identity === identity) {
     cancelAutoMarkRead();
@@ -80,20 +79,20 @@ const cancelAutoMarkReadFor = (thread: GtdTriageThread) => {
 // here.
 export function useGtdTriage() {
   const { t } = useTranslation();
-  const setThreadMessages = useStore((s: GtdTriageStoreSlice) => s.setThreadMessages);
-  const setSelectedMessage = useStore((s: GtdTriageStoreSlice) => s.setSelectedMessage);
-  const scheduleGtdSectionsFetch = useStore((s: GtdTriageStoreSlice) => s.scheduleGtdSectionsFetch);
-  const removeGtdThread = useStore((s: GtdTriageStoreSlice) => s.removeGtdThread);
-  const restoreGtdThread = useStore((s: GtdTriageStoreSlice) => s.restoreGtdThread);
-  const markGtdThreadRead = useStore((s: GtdTriageStoreSlice) => s.markGtdThreadRead);
-  const markGtdThreadStarred = useStore((s: GtdTriageStoreSlice) => s.markGtdThreadStarred);
-  const addNotification = useStore((s: GtdTriageStoreSlice) => s.addNotification);
-  const accounts = useStore((s: GtdTriageStoreSlice) => s.accounts);
-  const openCompose = useStore((s: GtdTriageStoreSlice) => s.openCompose);
+  const setThreadMessages = useStore((s) => s.setThreadMessages);
+  const setSelectedMessage = useStore((s) => s.setSelectedMessage);
+  const scheduleGtdSectionsFetch = useStore((s) => s.scheduleGtdSectionsFetch);
+  const removeGtdThread = useStore((s) => s.removeGtdThread);
+  const restoreGtdThread = useStore((s) => s.restoreGtdThread);
+  const markGtdThreadRead = useStore((s) => s.markGtdThreadRead);
+  const markGtdThreadStarred = useStore((s) => s.markGtdThreadStarred);
+  const addNotification = useStore((s) => s.addNotification);
+  const accounts = useStore((s) => s.accounts);
+  const openCompose = useStore((s) => s.openCompose);
 
   // Right-click / move-picker menu for a GTD row. Carries the row's doneStates so the
   // menu's "done" and "move" stay section-scoped (the row knows which section it's in).
-  const [contextMenu, setContextMenu] = useState(null);
+  const [contextMenu, setContextMenu] = useState<GtdTriageContextMenu | null>(null);
   const mountedRef = useRef(true);
 
   useEffect(() => {
@@ -125,16 +124,19 @@ export function useGtdTriage() {
   // unread, so marking READ acts on every message in the thread (collectThreadReadIds —
   // the same-message_id fan-out alone can't reach an INBOX-only sibling reply), while
   // marking UNREAD needs only the head copy. On failure, flip back.
-  const setRead = async (thread: GtdTriageThread, read: boolean) => {
+  const setRead = async (thread: GtdThread, read: boolean) => {
     // Explicit mark-unread wins over a pending auto-read: cancel the timer before the no-op
     // guard so it can't later flip this just-opened thread back to read.
     if (!read) cancelAutoMarkReadFor(thread);
     if (!!thread.is_read === read) return;
     const identity = thread.message_id || thread.id;
+    if (identity == null) return;
     markGtdThreadRead(identity, read);
     try {
-      const getAccountThread = (threadKey: string) => api.getThread(threadKey, null, false, thread.account_id || thread.accountId || null);
-      await api.bulkRead(await collectThreadReadIds(thread, read, getAccountThread), read);
+      const getAccountThread = (threadKey: string) => api.getThread(threadKey, '', false, gtdAccountIdOf(thread));
+      const readIds = (await collectThreadReadIds(thread, read, getAccountThread))
+        .filter((id): id is string => typeof id === 'string');
+      await api.bulkRead(readIds, read);
       // Belt-and-braces under the WS read fan-out: reconcile the sidebar counts (the
       // debounce coalesces this with any gtd_sections_updated the mark triggers).
       scheduleGtdSectionsFetch();
@@ -144,13 +146,13 @@ export function useGtdTriage() {
     }
   };
 
-  const openRow = (thread: GtdTriageThread) => {
+  const openRow = (thread: GtdThread) => {
     cancelAutoMarkRead();
     const identity = thread.message_id || thread.id;
     return openGtdThreadWithAutoRead(thread, {
       openThread: () => openDeepLinkMessage(thread.id, {
         getMessage: api.getMessage,
-        getThread: threadKey => api.getThread(threadKey, null, false, thread.account_id || thread.accountId || null),
+        getThread: threadKey => api.getThread(threadKey, '', false, gtdAccountIdOf(thread)),
         setThreadMessages,
         setSelectedMessage,
         thread,
@@ -188,7 +190,7 @@ export function useGtdTriage() {
 
   // Delete this row's copy (the label-folder message). Optimistically drop the row from
   // its section(s); the refetch reconciles (and, on failure, restores it) — no undo timer.
-  const deleteRow = (thread, states) => {
+  const deleteRow = (thread: GtdTriageThread, states: string[]) => {
     cancelAutoMarkReadFor(thread);
     removeGtdThread(thread.message_id || thread.id, states);
     api.deleteMessage(thread.id)
@@ -202,7 +204,7 @@ export function useGtdTriage() {
 
   // Move this row's copy to another folder — it leaves its GTD label folder, so drop it
   // from its section(s) optimistically; the refetch reconciles.
-  const moveRow = (thread, states, folder) => {
+  const moveRow = (thread: GtdTriageThread, states: string[], folder: string) => {
     if (!folder) return;
     cancelAutoMarkReadFor(thread);
     removeGtdThread(thread.message_id || thread.id, states);
@@ -220,26 +222,26 @@ export function useGtdTriage() {
 
   // Classify (add a state label) / remove (strip one). The message stays put, so just
   // poke the sidebar store to reconverge — mirrors MessageList's context-menu handlers.
-  const classifyRow = (thread, state) => classifyThread(thread.id, state, {
+  const classifyRow = (thread: GtdTriageThread, state: string) => classifyThread(thread.id, state, {
     gtdClassify: api.gtdClassify, addNotification, scheduleGtdSectionsFetch, t,
   });
 
-  const removeStateRow = (thread, state) => unclassifyThread(thread.id, state, {
+  const removeStateRow = (thread: GtdTriageThread, state: string) => unclassifyThread(thread.id, state, {
     gtdUnclassify: api.gtdUnclassify, addNotification, scheduleGtdSectionsFetch, t,
   });
 
   // ContextMenu's onAction, routed to the primitives above. GTD section heads are
   // intentionally compact, so compose actions hydrate the full message first.
-  const handleGtdAction = async (action, menu, data) => {
+  const handleGtdAction = async (action: string, menu: GtdTriageContextMenu, data: unknown) => {
     const thread = menu.message;
     switch (action) {
       case 'open': openRow(thread); break;
       case 'markRead': setRead(thread, true); break;
       case 'markUnread': setRead(thread, false); break;
       case 'toggleStar': toggleStar(thread); break;
-      case 'moveTo': moveRow(thread, menu.doneStates, data); break;
-      case 'gtdClassify': classifyRow(thread, data); break;
-      case 'gtdRemove': removeStateRow(thread, data); break;
+      case 'moveTo': if (typeof data === 'string') moveRow(thread, menu.doneStates, data); break;
+      case 'gtdClassify': if (typeof data === 'string') classifyRow(thread, data); break;
+      case 'gtdRemove': if (typeof data === 'string') removeStateRow(thread, data); break;
       case 'gtdDone': doneRow(thread, menu.doneStates); break;
       case 'delete': deleteRow(thread, menu.doneStates); break;
       case 'reply':

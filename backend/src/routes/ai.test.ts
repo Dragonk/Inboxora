@@ -50,7 +50,7 @@ vi.mock('../services/openaiCodexAuth.js', () => ({
 }));
 
 import express from 'express';
-import type { Request } from 'express';
+import { mockSession } from '../test/http.js';
 import aiRoutes, { aiLanguageInstruction } from './ai.js';
 
 const ADMIN = 'admin-user';
@@ -63,7 +63,7 @@ function buildApp() {
   app.use((req, _res, next) => {
     const userId = req.get('x-test-user');
     if (userId) {
-      req.session = { userId, username: userId, destroy: vi.fn() } as unknown as Request['session'];
+      req.session = mockSession({ userId, username: userId, destroy: vi.fn() });
       req.sessionID = `session-${userId}`;
     }
     next();

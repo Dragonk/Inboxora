@@ -7,7 +7,7 @@ import {
 
 function stubStorage({ throwOnUse = false } = {}) {
   const store = new Map();
-  (globalThis as unknown as TestGlobals).localStorage = {
+  Reflect.set(globalThis, 'localStorage', {
     getItem: key => {
       if (throwOnUse) throw new Error('storage blocked');
       return store.has(key) ? store.get(key) : null;
@@ -18,7 +18,7 @@ function stubStorage({ throwOnUse = false } = {}) {
     },
     removeItem: key => store.delete(key),
     clear: () => store.clear(),
-  };
+  });
   return store;
 }
 

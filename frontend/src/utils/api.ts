@@ -1,3 +1,5 @@
+import type { GtdFolderMap } from './gtd.ts';
+
 const BASE = '/api';
 
 // Sent on every /api request so the backend CSRF guard accepts it. A cross-site
@@ -69,8 +71,11 @@ async function request(method: string, path: string, body: unknown = undefined, 
 // Aborting a request rejects with a DOMException named AbortError (or, in some
 // runtimes, an object carrying that name). Callers use this to tell a deliberate
 // cancellation from a real failure, so a cancelled load never surfaces an error.
-export function isAbortError(error) {
-  return Boolean(error) && (error.name === 'AbortError' || error.code === 20);
+export function isAbortError(error: unknown): boolean {
+  if (typeof error !== 'object' || error === null) return false;
+  if ('name' in error && error.name === 'AbortError') return true;
+  if ('code' in error && error.code === 20) return true;
+  return false;
 }
 
 export async function streamAiChat(messages: unknown[], { signal, onDelta }: { signal?: AbortSignal; onDelta?: (fullText: string, delta: string) => void } = {}) {
@@ -93,7 +98,7 @@ export async function streamAiChat(messages: unknown[], { signal, onDelta }: { s
   let fullText = '';
   let completed = false;
 
-  function consumeLine(line) {
+  function consumeLine(line: string) {
     if (!line.startsWith('data:')) return;
     const data = line.slice(5).trim();
     if (!data) return;
@@ -157,7 +162,7 @@ function getMessageBody(id: string, remoteImages = false, copyId = null) {
 
 export const api = {
   get: (path: string, extraOptions = {}) => request('GET', path, undefined, undefined, extraOptions),
-  post: (path: string, body: unknown, extraHeaders) => request('POST', path, body, extraHeaders),
+  post: (path: string, body: unknown, extraHeaders?: Record<string, string>) => request('POST', path, body, extraHeaders),
   put: (path: string, body: unknown) => request('PUT', path, body),
   patch: (path: string, body: unknown) => request('PATCH', path, body),
   delete: (path: string) => request('DELETE', path),
@@ -207,9 +212,9 @@ export const api = {
     enable: (code: string) => request('POST', '/totp/enable', { code }),
     disable: (password: string) => request('POST', '/totp/disable', { password }),
     cancel: () => request('POST', '/totp/cancel'),
-    challenge: (code: string, rememberDevice) => request('POST', '/auth/2fa/challenge', { code, rememberDevice }),
+    challenge: (code: string, rememberDevice: boolean) => request('POST', '/auth/2fa/challenge', { code, rememberDevice }),
     sendEmailOtp: () => request('POST', '/auth/2fa/send-email-otp'),
-    verifyEmailOtp: (code: string, rememberDevice) => request('POST', '/auth/2fa/verify-email-otp', { code, rememberDevice }),
+    verifyEmailOtp: (code: string, rememberDevice: boolean) => request('POST', '/auth/2fa/verify-email-otp', { code, rememberDevice }),
     enrollmentSetup: () => request('GET', '/auth/2fa/enrollment/setup'),
     enrollmentEnable: (code: string) => request('POST', '/auth/2fa/enrollment/enable', { code }),
   },
@@ -256,7 +261,7 @@ export const api = {
   getAliases: (accountId: string) => request('GET', `/accounts/${accountId}/aliases`),
   addAlias: (accountId: string, data: unknown) => request('POST', `/accounts/${accountId}/aliases`, data),
   updateAlias: (accountId: string, aliasId: string, data: unknown) => request('PUT', `/accounts/${accountId}/aliases/${aliasId}`, data),
-  deleteAlias: (accountId: string, aliasId) => request('DELETE', `/accounts/${accountId}/aliases/${aliasId}`),
+  deleteAlias: (accountId: string, aliasId: string) => request('DELETE', `/accounts/${accountId}/aliases/${aliasId}`),
 
   // Mail
   getMessages: (params: QueryParams) =>{
@@ -280,8 +285,8 @@ export const api = {
     const query = qs.size ? `?${qs}` : '';
     return request('GET', `/mail/thread/${encodeURIComponent(threadId)}${query}`);
   },
-  bulkRead: (ids: string[], read) => request('POST', '/mail/messages/bulk-read', { ids, read }),
-  markStarred: (id: string, starred) => request('PATCH', `/mail/messages/${id}/star`, { starred }),
+  bulkRead: (ids: string[], read: boolean) => request('POST', '/mail/messages/bulk-read', { ids, read }),
+  markStarred: (id: string, starred: boolean) => request('PATCH', `/mail/messages/${id}/star`, { starred }),
   markAllRead: (accountId: string, folder: string) => request('POST', '/mail/mark-all-read', { accountId, folder }),
   deleteMessage: (id: string) => request('DELETE', `/mail/messages/${id}`),
   bulkDelete: (ids: string[]) => request('POST', '/mail/messages/bulk-delete', { ids }),
@@ -291,7 +296,7 @@ export const api = {
 
   // Mailbox cleanup (read-only analysis; actual cleanup reuses bulkDelete above).
   mailboxUsage: (accountId: string) => request('GET', `/mail/mailbox-usage?accountId=${encodeURIComponent(accountId)}`),
-  cleanupPreview: (accountId: string, fromEmail) =>
+  cleanupPreview: (accountId: string, fromEmail: string) =>
     request('GET', `/mail/cleanup-preview?accountId=${encodeURIComponent(accountId)}&fromEmail=${encodeURIComponent(fromEmail)}`),
 
   // Antispam (v0.1) — manual user feedback.
@@ -302,7 +307,7 @@ export const api = {
   markHam:  (id: string) => request('POST', `/mail/messages/${id}/ham`),
 
   getMessageHeaders: (id: string) => request('GET', `/mail/messages/${id}/headers`),
-  snoozeMessage: (id: string, until) => request('POST', `/mail/messages/${id}/snooze`, { until }),
+  snoozeMessage: (id: string, until: unknown) => request('POST', `/mail/messages/${id}/snooze`, { until }),
 
   // Sanitized diagnostics report (server-owned sections; scoped to the user).
   diagnosticsReport: (salt: string) => request('POST', '/diagnostics/report', { salt }),
@@ -310,7 +315,7 @@ export const api = {
   // Integrations
   getIntegrations: () => request('GET', '/integrations'),
   getIntegrationsStatus: () => request('GET', '/integrations/status'),
-  saveIntegration: (provider: string, config) => request('POST', `/integrations/${provider}`, config),
+  saveIntegration: (provider: string, config: unknown) => request('POST', `/integrations/${provider}`, config),
   deleteIntegration: (provider: string) => request('DELETE', `/integrations/${provider}`),
   startMsDeviceFlow: async () => {
     const res = await fetch('/oauth/microsoft/device', { method: 'POST', credentials: 'include' });
@@ -329,9 +334,9 @@ export const api = {
   syncFoldersNow: (accountId: string) => request('POST', '/mail/sync-folders', accountId ? { accountId } : {}),
 
   // Folder management
-  createFolder: (accountId: string, name: string, parentPath) => request('POST', '/mail/folders', { accountId, name, parentPath }),
+  createFolder: (accountId: string, name: string, parentPath: string | null | undefined) => request('POST', '/mail/folders', { accountId, name, parentPath }),
   deleteFolder: (accountId: string, path: string) => request('POST', '/mail/folders/delete', { accountId, path }),
-  renameFolder: (accountId: string, oldPath: string, newName) => request('POST', '/mail/folders/rename', { accountId, oldPath, newName }),
+  renameFolder: (accountId: string, oldPath: string, newName: string) => request('POST', '/mail/folders/rename', { accountId, oldPath, newName }),
   emptyFolder: (accountId: string, path: string) => request('POST', '/mail/folders/empty', { accountId, path }),
 
   // Search
@@ -357,7 +362,7 @@ export const api = {
     return request('GET', `/contacts${qs ? '?' + qs : ''}`);
   },
   getContact:    (id: string)       => request('GET',    `/contacts/${id}`),
-  createContact: (data)     => request('POST',   '/contacts', data),
+  createContact: (data: unknown)     => request('POST',   '/contacts', data),
   updateContact: (id: string, data: unknown) => request('PATCH',  `/contacts/${id}`, data),
   deleteContact: (id: string)       => request('DELETE', `/contacts/${id}`),
   addressBooks: {
@@ -365,8 +370,8 @@ export const api = {
     create: (name: string) => request('POST', '/contacts/address-books', { name }),
     update: (id: string, data: unknown) => request('PATCH', `/contacts/address-books/${encodeURIComponent(id)}`, data),
     remove: (id: string) => request('DELETE', `/contacts/address-books/${encodeURIComponent(id)}`),
-    importGoogleCsv: (id: string, csv) => request('POST', `/contacts/address-books/${encodeURIComponent(id)}/import/google-csv`, { csv }),
-    exportUrl: (id: string, format) =>`${BASE}/contacts/address-books/${encodeURIComponent(id)}/export?format=${encodeURIComponent(format)}`,
+    importGoogleCsv: (id: string, csv: string) => request('POST', `/contacts/address-books/${encodeURIComponent(id)}/import/google-csv`, { csv }),
+    exportUrl: (id: string, format: string) =>`${BASE}/contacts/address-books/${encodeURIComponent(id)}/export?format=${encodeURIComponent(format)}`,
   },
 
   // CardDAV contact sync (Nextcloud etc.)
@@ -381,22 +386,22 @@ export const api = {
   // DAV Hub — dedicated, revocable app passwords for CardDAV/CalDAV clients.
   davCredentials: {
     list:   () => request('GET', '/dav-credentials'),
-    create: (label) => request('POST', '/dav-credentials', { label }),
+    create: (label: string) => request('POST', '/dav-credentials', { label }),
     revoke: (id: string) => request('DELETE', `/dav-credentials/${id}`),
   },
 
   // Local calendar resources shared with the built-in CalDAV service.
   calendar: {
-    getInvitation: id => request('GET', `/calendar/invitations/${encodeURIComponent(id)}`),
-    addInvitation: (id: string, calendarId) => request('POST', `/calendar/invitations/${encodeURIComponent(id)}`, { calendarId }),
-    removeInvitation: id => request('DELETE', `/calendar/invitations/${encodeURIComponent(id)}`),
+    getInvitation: (id: string) => request('GET', `/calendar/invitations/${encodeURIComponent(id)}`),
+    addInvitation: (id: string, calendarId: string) => request('POST', `/calendar/invitations/${encodeURIComponent(id)}`, { calendarId }),
+    removeInvitation: (id: string) => request('DELETE', `/calendar/invitations/${encodeURIComponent(id)}`),
     listCalendars: ({ signal }: { signal?: AbortSignal } = {}) => request('GET', '/calendar/calendars', undefined, undefined, { signal }),
     updateCalendar: (id: string, data: unknown) => request('PATCH', `/calendar/calendars/${encodeURIComponent(id)}`, data),
-    deleteCalendar: (id: string, confirmName) => request('DELETE', `/calendar/calendars/${encodeURIComponent(id)}`, { confirmName }),
+    deleteCalendar: (id: string, confirmName: string) => request('DELETE', `/calendar/calendars/${encodeURIComponent(id)}`, { confirmName }),
     // Reads accept an AbortSignal so a superseded range or an unmounting page can
     // cancel work the user no longer needs. `calendarIds` narrows the expansion
     // server-side; `null` means every calendar, `[]` means none.
-    listEvents: (from, to, { signal, calendarIds }: { signal?: AbortSignal; calendarIds?: string[] | null } = {}) => {
+    listEvents: (from: string, to: string, { signal, calendarIds }: { signal?: AbortSignal; calendarIds?: string[] | null } = {}) => {
       const params = new URLSearchParams({ from, to });
       if (Array.isArray(calendarIds)) params.set('calendarIds', calendarIds.join(','));
       return request('GET', `/calendar/events?${params}`, undefined, undefined, { signal });
@@ -419,33 +424,33 @@ export const api = {
 
   // Web Push
   getPushVapidKey:  ()           => request('GET',    '/auth/push/vapid-key'),
-  pushSubscribe:    (subscription) => request('POST',   '/auth/push/subscribe',    subscription),
-  pushUnsubscribe:  (body)       => request('POST',    '/auth/push/unsubscribe',   body),
+  pushSubscribe:    (subscription: PushSubscriptionJSON) => request('POST',   '/auth/push/subscribe',    subscription),
+  pushUnsubscribe:  (body: unknown)       => request('POST',    '/auth/push/unsubscribe',   body),
 
   // Native (Android) push device registry. Registration is normally driven from
   // the native layer (it owns the provider endpoint/token); these calls back the
   // settings UI and the logout path.
   getPushStatus:        ()         => request('GET',    '/push/status'),
   listPushDevices:      ()         => request('GET',    '/push/devices'),
-  removePushDevice:     (deviceId) => request('DELETE', `/push/devices/${encodeURIComponent(deviceId)}`),
+  removePushDevice:     (deviceId: string) => request('DELETE', `/push/devices/${encodeURIComponent(deviceId)}`),
   removeAllPushDevices: ()         => request('DELETE', '/push/devices'),
 
   // Inbox Rules
   getRules:    ()         => request('GET',    '/rules'),
-  createRule:  (data)     => request('POST',   '/rules', data),
-  updateRule:  (id, data) => request('PUT',    `/rules/${id}`, data),
+  createRule:  (data: unknown)     => request('POST',   '/rules', data),
+  updateRule:  (id: string, data: unknown) => request('PUT',    `/rules/${id}`, data),
   deleteRule:  (id: string)       => request('DELETE', `/rules/${id}`),
-  reorderRules:(ids)      => request('PATCH',  '/rules/reorder', { ids }),
+  reorderRules:(ids: string[])      => request('PATCH',  '/rules/reorder', { ids }),
   runRules:    (accountId: string | undefined = undefined) => request('POST',  '/rules/run', accountId ? { accountId } : {}),
 
   // Drafts
-  saveDraft:   (data)              => request('POST',   '/mail/draft', data),
+  saveDraft:   (data: unknown)              => request('POST',   '/mail/draft', data),
   deleteDraft: (accountId: string, uid: number, folder: string) =>
     request('DELETE', `/mail/draft/${uid}?accountId=${encodeURIComponent(accountId)}&folder=${encodeURIComponent(folder)}`),
 
   // Block List
   getBlockList:          ()      => request('GET',    '/block-list'),
-  addToBlockList:        (email) => request('POST',   '/block-list', { emailAddress: email }),
+  addToBlockList:        (email: string) => request('POST',   '/block-list', { emailAddress: email }),
   removeFromBlockList:   (id: string)    => request('DELETE', `/block-list/${id}`),
 
   // AI assistant
@@ -458,9 +463,9 @@ export const api = {
     chat: streamAiChat,
     codex: {
       start: () => request('POST', '/admin/ai/codex/device'),
-      poll: (flowId) => request('POST', '/admin/ai/codex/device/poll', { flowId }),
+      poll: (flowId: string) => request('POST', '/admin/ai/codex/device/poll', { flowId }),
       status: () => request('GET', '/admin/ai/codex/status'),
-      cancel: (flowId) => request('DELETE', '/admin/ai/codex/device', { flowId }),
+      cancel: (flowId: string) => request('DELETE', '/admin/ai/codex/device', { flowId }),
       disconnect: () => request('DELETE', '/admin/ai/codex'),
     },
   },
@@ -472,7 +477,7 @@ export const api = {
   },
 
   // Manual category override for a single message
-  setMessageCategory: (id: string, category) => request('PATCH', `/mail/messages/${id}/category`, { category }),
+  setMessageCategory: (id: string, category: unknown) => request('PATCH', `/mail/messages/${id}/category`, { category }),
 
   // Trigger unsubscribe for a newsletter message
   unsubscribeMessage: (id: string) => request('POST', `/mail/messages/${id}/unsubscribe`),
@@ -481,7 +486,7 @@ export const api = {
   categories: {
     getSources: () => request('GET', '/categories/sources'),
     addSource: (data: unknown) => request('POST', '/categories/sources', data),
-    toggleSource: (id: string, enabled) => request('PATCH', `/categories/sources/${id}`, { enabled }),
+    toggleSource: (id: string, enabled: boolean) => request('PATCH', `/categories/sources/${id}`, { enabled }),
     deleteSource: (id: string) => request('DELETE', `/categories/sources/${id}`),
     refreshSource: (id: string) => request('POST', `/categories/sources/${id}/refresh`),
     recategorize: (accountId: string) => request('POST', `/categories/recategorize/${accountId}`),
@@ -496,36 +501,36 @@ export const api = {
     const qs = p.toString();
     return request('GET', `/gtd/sections${qs ? '?' + qs : ''}`);
   },
-  gtdClassify: (messageId: string, state) => request('POST', '/gtd/classify', { messageId, state }),
-  gtdUndoClassify: (undoToken) => request('POST', '/gtd/classify/undo', undoToken),
-  gtdUnclassify: (messageId: string, state) => request('DELETE', '/gtd/classify', { messageId, state }),
+  gtdClassify: (messageId: string, state: string) => request('POST', '/gtd/classify', { messageId, state }),
+  gtdUndoClassify: (undoToken: unknown) => request('POST', '/gtd/classify/undo', undoToken),
+  gtdUnclassify: (messageId: string, state: string) => request('DELETE', '/gtd/classify', { messageId, state }),
   // GTD "done": strip the row's label(s) for these states, mark read, archive the INBOX
   // copy. id is the rail head's row id (its label-folder copy); the server resolves the
   // INBOX copy from the shared Message-ID.
   gtdDone: (id: string, states: Record<string, unknown> | undefined = undefined) => request('POST', '/gtd/done', { id, states }),
-  gtdEnsureFolders: (accountId: string, folders) => request('POST', '/gtd/folders/ensure', { accountId, folders }),
+  gtdEnsureFolders: (accountId: string, folders: GtdFolderMap) => request('POST', '/gtd/folders/ensure', { accountId, folders }),
 
   // GTD — Inbox-Zero pet. Import uploads your own pet (pet.json text + a base64 spritesheet)
   // and caches it server-side; meta returns the animation descriptor; the sheet URL is used
   // directly as an <img>/background src (authenticated same-origin, cookies ride along).
-  importGtdPet: (payload) => request('POST', '/gtd/pet/import', payload),
-  getGtdPetMeta: (slug) => request('GET', `/gtd/pet/${encodeURIComponent(slug)}/meta`),
-  gtdPetSheetUrl: (slug) => `${BASE}/gtd/pet/${encodeURIComponent(slug)}/sheet`,
+  importGtdPet: (payload: unknown) => request('POST', '/gtd/pet/import', payload),
+  getGtdPetMeta: (slug: string) => request('GET', `/gtd/pet/${encodeURIComponent(slug)}/meta`),
+  gtdPetSheetUrl: (slug: string) => `${BASE}/gtd/pet/${encodeURIComponent(slug)}/sheet`,
 
   // Plugins — registered plugins for this build plus the user's per-user activation. Activation is
   // independent of a plugin's own per-account config (e.g. GTD's gtd_enabled).
   plugins: {
     list: () => request('GET', '/plugins'),
-    setActivated: (id: string, activated) => request('PATCH', `/plugins/${encodeURIComponent(id)}`, { activated }),
+    setActivated: (id: string, activated: boolean) => request('PATCH', `/plugins/${encodeURIComponent(id)}`, { activated }),
   },
 
   // Todoist integration
   todoist: {
     status:       ()       => request('GET',    '/todoist/status'),
-    connect:      (token)  => request('POST',   '/todoist/connect', { token }),
+    connect:      (token: string)  => request('POST',   '/todoist/connect', { token }),
     disconnect:   ()       => request('DELETE', '/todoist/disconnect'),
     getProjects:  ()       => request('GET',    '/todoist/projects'),
     getLabels:    ()       => request('GET',    '/todoist/labels'),
-    createTask:   (data)   => request('POST',   '/todoist/tasks', data),
+    createTask:   (data: unknown)   => request('POST',   '/todoist/tasks', data),
   },
 };

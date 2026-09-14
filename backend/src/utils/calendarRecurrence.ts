@@ -2,16 +2,8 @@ import ICAL from 'ical.js';
 import { calendarZoneResolver, calendarDescription, parseCalendarEvent, parseICalendarDate } from './ical.js';
 import type { ZoneResolver } from './ical.js';
 import { toAppError } from '../utils/errors.js';
-/**
- * The shipped ical.js type definitions omit the `Time.fromString` static although the
- * runtime provides it (verified against ical.js 2.2). This narrow, documented view
- * keeps call sites type-checked without a blanket cast.
- */
-const TimeFromString = ICAL.Time as unknown as {
-  fromString(value: string): InstanceType<typeof ICAL.Time>;
-};
-
-
+// ical.js ships `Time.fromString(value, property?)`; the generated typings mark the property
+// parameter as required, so call sites pass `undefined` explicitly instead of asserting a cast.
 
 // Hard ceiling for one resource's recurrence walk. Reaching it is reported as a
 // truncated (partial) projection, never as a silent omission.
@@ -229,7 +221,7 @@ export function truncateSeriesBefore(raw: string | null | undefined, recurrenceI
   if (!rule) return null;
 
   const dtstartProperty = master.getFirstProperty('dtstart');
-  const id = TimeFromString.fromString(recurrenceId);
+  const id = ICAL.Time.fromString(recurrenceId, undefined);
   const zoneFor = calendarZoneResolver(raw, root);
   // The recurrence id is a bare local time, so it only becomes an instant through the series'
   // own time zone — the same resolution the projection uses.
@@ -244,7 +236,7 @@ export function truncateSeriesBefore(raw: string | null | undefined, recurrenceI
     // A date-valued series needs a date-valued UNTIL, or ical.js compares a DATE against a
     // DATE-TIME and the boundary occurrence survives. ICAL.Time.fromString wants the dashed
     // form for a DATE, not the compact one.
-    ? TimeFromString.fromString(new Date(startDate.getTime() - 1000).toISOString().slice(0, 10))
+    ? ICAL.Time.fromString(new Date(startDate.getTime() - 1000).toISOString().slice(0, 10), undefined)
     : ICAL.Time.fromJSDate(new Date(startDate.getTime() - 1000), true);
   rule.until = until;
   master.updatePropertyWithValue('rrule', rule);
@@ -270,7 +262,7 @@ export function mergeCalendarResource(raw: string | null | undefined, replacemen
   if (!master) return replacementRaw;
   let target: ICAL.Component = master;
   if (recurrenceId) {
-    const id = TimeFromString.fromString(recurrenceId);
+    const id = ICAL.Time.fromString(recurrenceId, undefined);
     const existingException = root.getAllSubcomponents('vevent').find(event => event.getFirstPropertyValue('recurrence-id')?.toString() === recurrenceId);
     if (existingException) {
       target = existingException;

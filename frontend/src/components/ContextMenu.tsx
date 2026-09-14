@@ -31,7 +31,7 @@ interface ContextMenuMessage {
   is_starred?: boolean;
   message_id?: string | null;
   subject?: string | null;
-  unread_count?: number | string;
+  unread_count?: number | string | null;
   [key: string]: unknown;
 }
 

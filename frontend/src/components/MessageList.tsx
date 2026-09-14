@@ -1823,11 +1823,11 @@ export default function MessageList() {
     const threadGuardsByRow = new Map<string, string>(
       msgs
         .filter(message => isThreadListRow(message))
-        .map((message: StoreMessageRow): [string, string] => [
+        .map((message: StoreMessageRow): [string, string | null] => [
           message.id,
           threadDeleteGuardKey(message.thread_id || message.id, activeFolder, selectedAccountId),
         ])
-        .filter(([, guard]) => Boolean(guard)),
+        .filter((entry): entry is [string, string] => Boolean(entry[1])),
     );
     const initialGuards = [...new Set([...ids, ...threadGuardsByRow.values()])];
     const viewKey = archiveViewKeyRef.current;

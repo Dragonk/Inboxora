@@ -2,6 +2,8 @@ import { randomBytes, createHash } from 'crypto';
 import { request as httpsRequest } from 'https';
 import { request as httpRequest } from 'http';
 import { Router } from 'express';
+import type { Request as ExpressRequest, Response as ExpressResponse } from 'express';
+import type { PoolClient } from 'pg';
 import { createRemoteJWKSet, jwtVerify, customFetch } from 'jose';
 import { query, pool } from '../services/db.js';
 import { requireAuth } from '../middleware/auth.js';
@@ -30,12 +32,35 @@ interface OidcTokenResponse {
   error_description?: string;
 }
 
-interface InsecureFetchOptions {
-  method?: string;
-  headers?: Record<string, string>;
-  body?: string;
-  signal?: AbortSignal;
-}
+/** Claims read from the verified id_token; unknown claims stay accessible by name. */
+type OidcIdTokenClaims = {
+  iss?: string;
+  sub?: string;
+  email?: string;
+  email_verified?: boolean | string;
+  nonce?: string;
+  name?: string;
+  [claim: string]: unknown;
+};
+
+/** Columns of oidc_providers read by this router. */
+type OidcProviderRow = {
+  id: string;
+  slug: string;
+  issuer_url: string;
+  client_id: string;
+  client_secret?: string | null;
+  scopes?: string | null;
+  allow_insecure?: boolean | null;
+  rp_initiated_logout?: boolean | null;
+  allowed_domains?: string | null;
+  provisioning_mode?: string | null;
+  require_email_verified?: boolean | null;
+  admin_group_claim?: string | null;
+  admin_group_value?: string | null;
+  login_match_claim?: string | null;
+  [column: string]: unknown;
+};
 
 interface EndSessionInput {
   providerId?: string | null;
@@ -46,18 +71,31 @@ interface EndSessionInput {
 const discoveryCache = new Map();
 const DISCOVERY_TTL_MS = 5 * 60 * 1000;
 
+// Node's HTTP request options expect a plain header record. undici (jose's customFetch
+// path) passes a Headers instance, which the previous implementation forwarded as-is and
+// node serialised to no headers; keep that behaviour and forward only plain records.
+function toNodeHeaders(headers: RequestInit['headers']): Record<string, string | string[]> {
+  if (!headers || Array.isArray(headers) || headers instanceof Headers) return {};
+  const out: Record<string, string | string[]> = {};
+  for (const [key, value] of Object.entries(headers)) {
+    out[key] = typeof value === 'string' ? value : [...value];
+  }
+  return out;
+}
+
 // Fetch that skips TLS certificate verification — only used when allow_insecure is set.
 function makeInsecureFetch(signal?: AbortSignal): typeof fetch {
-  return function insecureFetch(url: string, { method = 'GET', headers = {}, body, signal: optsSignal }: InsecureFetchOptions = {}) {
+  return function insecureFetch(input: string | URL | Request, init: RequestInit = {}): Promise<Response> {
+    const url = typeof input === 'string' ? input : input instanceof URL ? input.href : input.url;
     return new Promise<Response>((resolve, reject) => {
-      const effectiveSignal = optsSignal ?? signal;
+      const effectiveSignal = init.signal ?? signal;
       const parsed = new URL(url);
       const isHttps = parsed.protocol === 'https:';
       const port = parsed.port ? parseInt(parsed.port) : (isHttps ? 443 : 80);
       const reqFn = isHttps ? httpsRequest : httpRequest;
       const chunks: Buffer[] = [];
       const req = reqFn(
-        { hostname: parsed.hostname, port, path: parsed.pathname + parsed.search, method, headers, rejectUnauthorized: false },
+        { hostname: parsed.hostname, port, path: parsed.pathname + parsed.search, method: init.method ?? 'GET', headers: toNodeHeaders(init.headers), rejectUnauthorized: false },
         res => {
           res.on('data', c => chunks.push(c));
           res.on('end', () => {
@@ -69,13 +107,13 @@ function makeInsecureFetch(signal?: AbortSignal): typeof fetch {
       );
       req.on('error', reject);
       if (effectiveSignal) effectiveSignal.addEventListener('abort', () => req.destroy(), { once: true });
-      if (body) req.write(body);
+      if (init.body) req.write(init.body);
       req.end();
     });
   };
 }
 
-async function getDiscovery(issuerUrl, allowInsecure = false) {
+async function getDiscovery(issuerUrl: string, allowInsecure: boolean | null | undefined = false) {
   const parsed = new URL(issuerUrl);
   if (!allowInsecure && parsed.protocol !== 'https:') throw new Error('OIDC issuer URL must use HTTPS');
 
@@ -123,8 +161,10 @@ async function getDiscovery(issuerUrl, allowInsecure = false) {
       if (hostErr) throw new Error(`OIDC discovery ${field} points to a disallowed host: ${hostErr}`);
     }
   }
+  const jwksUri = doc.jwks_uri;
+  if (!jwksUri) throw new Error('OIDC discovery missing required field: jwks_uri');
   const jwksOptions = allowInsecure ? { [customFetch]: makeInsecureFetch() } : {};
-  const jwks = createRemoteJWKSet(new URL(doc.jwks_uri), jwksOptions);
+  const jwks = createRemoteJWKSet(new URL(jwksUri), jwksOptions);
   discoveryCache.set(cacheKey, { doc, jwks, cachedAt: Date.now() });
   return { doc, jwks };
 }
@@ -135,7 +175,7 @@ function generatePKCE() {
   return { verifier, challenge };
 }
 
-function getRedirectUri(provider) {
+function getRedirectUri(provider: Pick<OidcProviderRow, 'slug'>) {
   return `${process.env.APP_URL}/auth/oidc/${provider.slug}/callback`;
 }
 
@@ -143,7 +183,7 @@ function getRedirectUri(provider) {
 // true  → user should be admin
 // false → user should not be admin
 // null  → feature not configured; leave is_admin unchanged
-function resolveAdminFromClaim(payload, provider) {
+function resolveAdminFromClaim(payload: OidcIdTokenClaims, provider: Pick<OidcProviderRow, 'admin_group_claim' | 'admin_group_value'>) {
   if (!provider.admin_group_claim || !provider.admin_group_value) return null;
   const val = payload[provider.admin_group_claim];
   if (val === undefined) return false;
@@ -162,7 +202,7 @@ function resolveAdminFromClaim(payload, provider) {
 // "no matching account"). See issue #289. Never matches secondary email_accounts addresses —
 // proving control of a mailbox a user added must not log you in as that user.
 const DANGEROUS_CLAIM_KEYS = new Set(['__proto__', 'constructor', 'prototype']);
-export function resolveLoginMatchValue(provider, payload, email: string) {
+export function resolveLoginMatchValue(provider: Pick<OidcProviderRow, 'login_match_claim'> | null | undefined, payload: OidcIdTokenClaims | null | undefined, email: string | null | undefined) {
   const claim = (provider?.login_match_claim || 'email').trim() || 'email';
   // Never index the payload by an object-prototype key. `payload["__proto__"]` from JSON.parse is
   // a string own-property that would pass the typeof guard below; the others resolve to functions.
@@ -175,7 +215,7 @@ export function resolveLoginMatchValue(provider, payload, email: string) {
 // Seed users.display_name from the OIDC 'name' (profile) claim on first association, but only
 // when it is currently empty — never overwrite a value the user or admin set. Bounded to the
 // column width (VARCHAR(100)). Best-effort nicety; requested in #289.
-async function maybeBackfillDisplayName(client, userId: string, payload) {
+async function maybeBackfillDisplayName(client: PoolClient, userId: string, payload: OidcIdTokenClaims | null | undefined) {
   const name = typeof payload?.name === 'string' ? payload.name.trim() : '';
   if (!name) return;
   await client.query(
@@ -188,7 +228,7 @@ async function maybeBackfillDisplayName(client, userId: string, payload) {
 // The raw id_token is kept for use as id_token_hint; the provider id lets logout look up
 // its issuer and the rp_initiated_logout toggle. Both are cleared when the session is
 // destroyed at logout.
-function rememberOidcSession(req, providerId, idToken) {
+function rememberOidcSession(req: ExpressRequest, providerId: string, idToken: string | undefined) {
   req.session.oidcProviderId = providerId;
   if (idToken) req.session.oidcIdToken = idToken;
 }
@@ -293,7 +333,7 @@ export const oidcBrowserRouter = Router();
 
 // Error redirect: login-flow errors go to /login?oidc_error= (shown on LoginPage);
 // link-flow errors go to /?oidc_error= (shown as a toast inside MailApp).
-function oidcError(res, action, message) {
+function oidcError(res: ExpressResponse, action: string, message: string) {
   const base = action === 'link' ? '/' : '/login';
   return res.redirect(`${base}?oidc_error=${encodeURIComponent(message)}`);
 }
@@ -309,7 +349,7 @@ oidcBrowserRouter.get('/:slug/start', async (req, res) => {
   }
 
   try {
-    const provResult = await query<{ id: string; issuer_url: string; client_id: string; scopes?: string | null; allow_insecure?: boolean | null; rp_initiated_logout?: boolean | null; [key: string]: unknown }>(
+    const provResult = await query<OidcProviderRow>(
       'SELECT * FROM oidc_providers WHERE slug = $1 AND enabled = true',
       [slug]
     );
@@ -388,7 +428,7 @@ oidcBrowserRouter.get('/:slug/callback', async (req, res) => {
 
   const client = await pool.connect();
   try {
-    const provResult = await client.query(
+    const provResult = await client.query<OidcProviderRow>(
       'SELECT * FROM oidc_providers WHERE id = $1 AND enabled = true',
       [pending.providerId]
     );
@@ -426,9 +466,11 @@ oidcBrowserRouter.get('/:slug/callback', async (req, res) => {
     const tokenData = (await tokenRes.json()) as OidcTokenResponse;
 
     // Verify id_token — strict issuer + audience validation
-    let payload;
+    let payload: OidcIdTokenClaims;
     try {
-      const { payload: p } = await jwtVerify(tokenData.id_token, jwks, {
+      const idToken = tokenData.id_token;
+      if (!idToken) throw new Error('OIDC token response did not include an id_token');
+      const { payload: p } = await jwtVerify<OidcIdTokenClaims>(idToken, jwks, {
         issuer: doc.issuer,
         audience: provider.client_id,
       });
@@ -462,7 +504,7 @@ oidcBrowserRouter.get('/:slug/callback', async (req, res) => {
           return oidcError(res, pending.action, 'A verified email address is required for this SSO provider');
         }
         const domain = email.split('@')[1]?.toLowerCase();
-        if (!allowed.includes(domain)) {
+        if (!domain || !allowed.includes(domain)) {
           return oidcError(res, pending.action, 'Your email domain is not permitted for this SSO provider');
         }
       }

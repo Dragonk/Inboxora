@@ -16,11 +16,11 @@ registerHooks({
   },
 });
 
-(globalThis as unknown as TestGlobals).localStorage = {
+Reflect.set(globalThis, 'localStorage', {
   getItem: () => null,
   setItem: () => {},
   removeItem: () => {},
-};
+});
 
 const { api } = await import('../utils/api.ts');
 const { useStore } = await import('./index.ts');

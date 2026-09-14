@@ -21,7 +21,6 @@ let fetchMock: ReturnType<typeof vi.fn>;
 // Cast mocked module exports so their vitest mock helpers type-check.
 const query = vi.mocked(__mock_query);
 
-const realFetch = global.fetch;
 let discoveryDoc: Record<string, unknown> | null = null;
 
 function discoveryFor(issuer, { endSession = true } = {}) {
@@ -38,11 +37,11 @@ function discoveryFor(issuer, { endSession = true } = {}) {
 beforeAll(() => {
   process.env.APP_URL = 'https://mail.example.com';
   fetchMock = vi.fn(async () => ({ ok: true, status: 200, json: async () => discoveryDoc }));
-  global.fetch = fetchMock as unknown as typeof fetch;
+  vi.stubGlobal('fetch', fetchMock);
 });
 
 afterAll(() => {
-  global.fetch = realFetch;
+  vi.unstubAllGlobals();
   delete process.env.APP_URL;
 });
 

@@ -1,20 +1,19 @@
-import { afterEach, describe, it } from 'node:test';
+import { afterEach, describe, it, mock } from 'node:test';
 import assert from 'node:assert/strict';
 import { api, CSRF_HEADER, CSRF_VALUE, streamAiChat } from './api.ts';
 
-const originalFetch = globalThis.fetch;
-
 afterEach(() => {
-  (globalThis as unknown as TestGlobals).fetch = originalFetch;
+  mock.restoreAll();
 });
 
 describe('ChatGPT authorization API', () => {
   it('uses the admin Codex lifecycle routes with CSRF-aware requests', async () => {
     const calls = [];
-    (globalThis as unknown as TestGlobals).fetch = async (url, init) => {
+    const fetchStub = async (url: string, init: RequestInit) => {
       calls.push([url, init]);
       return { ok: true, json: async () => ({ ok: true }) };
     };
+    mock.method(globalThis, 'fetch', fetchStub);
 
     await api.ai.codex.start();
     await api.ai.codex.poll('flow-123');
@@ -36,7 +35,7 @@ describe('ChatGPT authorization API', () => {
 
   it('streams AI text deltas through the shared API client', async () => {
     let request;
-    (globalThis as unknown as TestGlobals).fetch = async (url, init) => {
+    const fetchStub = async (url: string, init: RequestInit) => {
       request = { url, init };
       return new Response([
         'data: {"choices":[{"delta":{"content":"Hello "}}]}\n\n',
@@ -44,6 +43,7 @@ describe('ChatGPT authorization API', () => {
         'data: [DONE]\n\n',
       ].join(''), { headers: { 'Content-Type': 'text/event-stream' } });
     };
+    mock.method(globalThis, 'fetch', fetchStub);
     const updates = [];
 
     await assert.doesNotReject(async () => {
@@ -61,11 +61,12 @@ describe('ChatGPT authorization API', () => {
   });
 
   it('rejects streamed error frames instead of completing partial output', async () => {
-    (globalThis as unknown as TestGlobals).fetch = async () => new Response([
+    const fetchStub = async () => new Response([
       'data: {"choices":[{"delta":{"content":"Partial"}}]}\n\n',
       'data: {"error":"AI request failed"}\n\n',
       'data: [DONE]\n\n',
     ].join(''), { headers: { 'Content-Type': 'text/event-stream' } });
+    mock.method(globalThis, 'fetch', fetchStub);
     const updates = [];
 
     await assert.rejects(

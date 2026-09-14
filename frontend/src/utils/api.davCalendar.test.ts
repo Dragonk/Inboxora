@@ -1,20 +1,19 @@
-import { afterEach, describe, it } from 'node:test';
+import { afterEach, describe, it, mock } from 'node:test';
 import assert from 'node:assert/strict';
 import { api, CSRF_HEADER, CSRF_VALUE } from './api.ts';
 
-const originalFetch = globalThis.fetch;
-
 afterEach(() => {
-  (globalThis as unknown as TestGlobals).fetch = originalFetch;
+  mock.restoreAll();
 });
 
 describe('DAV Hub API client', () => {
   it('uses authenticated, CSRF-aware routes for revocable DAV application passwords', async () => {
     const calls = [];
-    (globalThis as unknown as TestGlobals).fetch = async (url, init) => {
+    const fetchStub = async (url: string, init: RequestInit) => {
       calls.push([url, init]);
       return { ok: true, json: async () => ({ ok: true }) };
     };
+    mock.method(globalThis, 'fetch', fetchStub);
 
     await api.davCredentials.list();
     await api.davCredentials.create('DAVx5 phone');
@@ -31,11 +30,12 @@ describe('DAV Hub API client', () => {
 
   it('uses the calendar API contract for local event CRUD and range reads', async () => {
     const calls = [];
-    (globalThis as unknown as TestGlobals).fetch = async (url, init) => {
+    const fetchStub = async (url: string, init: RequestInit) => {
       calls.push([url, init]);
       if (init.method === 'DELETE') return { ok: true, status: 204, json: async () => { throw new Error('no content'); } };
       return { ok: true, status: 200, json: async () => ({ ok: true }) };
     };
+    mock.method(globalThis, 'fetch', fetchStub);
     const event = { calendarId: 'calendar-1', summary: 'Planning' };
 
     await api.calendar.listCalendars();
@@ -64,7 +64,8 @@ describe('DAV Hub API client', () => {
 
   it('propagates invitation idempotency keys to event mutations', async () => {
     const calls = [];
-    (globalThis as unknown as TestGlobals).fetch = async (url, init) => { calls.push([url, init]); return { ok: true, status: 200, json: async () => ({ invitationStatus: { status: 'sent' } }) }; };
+    const fetchStub = async (url: string, init: RequestInit) => { calls.push([url, init]); return { ok: true, status: 200, json: async () => ({ invitationStatus: { status: 'sent' } }) }; };
+    mock.method(globalThis, 'fetch', fetchStub);
     const event = { calendarId: 'calendar-1', summary: 'Planning', sendInvites: true };
     await api.calendar.createEvent(event, 'create-retry-key');
     await api.calendar.updateEvent('event-1', event, 'update-retry-key');
@@ -74,11 +75,12 @@ describe('DAV Hub API client', () => {
 
   it('preserves persisted source context when initial source sync fails', async () => {
     const source = { id: 'source-1', displayName: 'Work', kind: 'ical_url' };
-    (globalThis as unknown as TestGlobals).fetch = async () => ({
+    const fetchStub = async () => ({
       ok: false,
       status: 502,
       json: async () => ({ error: 'Remote calendar request failed (503)', source, sync: { ok: false } }),
     });
+    mock.method(globalThis, 'fetch', fetchStub);
 
     await assert.rejects(api.calendar.createSource({ kind: 'ical_url' }), (error: Error) => {
       assert.equal(error.status, 502);

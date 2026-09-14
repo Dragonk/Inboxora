@@ -5,7 +5,7 @@ function normalizedAddress(value) {
   return String(angle?.[1] || text).trim().toLowerCase();
 }
 
-export function accountOwnAddresses(account, copy = null) {
+export function accountOwnAddresses(account, copy: { deliveryAddresses?: unknown; delivery_addresses?: unknown } | null = null) {
   if (!account) return new Set();
   const addresses = [account.email_address, ...(account.aliases || []).map(alias => alias?.email || alias)];
   const delivered = copy?.deliveryAddresses ?? copy?.delivery_addresses ?? [];

@@ -1,13 +1,12 @@
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
-import { describe, it, afterEach } from 'node:test';
+import { describe, it, afterEach, mock } from 'node:test';
 
 import { api, isAbortError } from '../utils/api.ts';
 
 const read = name => readFileSync(new URL(`./${name}`, import.meta.url), 'utf8');
 
-const originalFetch = globalThis.fetch;
-afterEach(() => { (globalThis as unknown as TestGlobals).fetch = originalFetch; });
+afterEach(() => { mock.restoreAll(); });
 
 describe('calendar request cancellation', () => {
   it('classifies an abort as a cancellation rather than a failure', () => {
@@ -23,10 +22,11 @@ describe('calendar request cancellation', () => {
   it('forwards an AbortSignal to the events request', async () => {
     const controller = new AbortController();
     let seen;
-    (globalThis as unknown as TestGlobals).fetch = async (url, options) => {
+    const fetchStub = async (url: string, options: RequestInit) => {
       seen = { url, options };
       return { ok: true, status: 200, json: async () => ({ events: [] }) };
     };
+    mock.method(globalThis, 'fetch', fetchStub);
     await api.calendar.listEvents('2026-09-01T00:00:00.000Z', '2026-10-01T00:00:00.000Z', { signal: controller.signal });
     assert.equal(seen.options.signal, controller.signal);
     assert.match(seen.url, /^\/api\/calendar\/events\?/);
@@ -35,10 +35,11 @@ describe('calendar request cancellation', () => {
 
   it('sends the flat calendar selection and keeps an empty selection explicit', async () => {
     const urls = [];
-    (globalThis as unknown as TestGlobals).fetch = async (url) => {
+    const fetchStub = async (url: string) => {
       urls.push(url);
       return { ok: true, status: 200, json: async () => ({ events: [] }) };
     };
+    mock.method(globalThis, 'fetch', fetchStub);
     await api.calendar.listEvents('2026-09-01', '2026-10-01', { calendarIds: ['cal-a', 'cal-b'] });
     await api.calendar.listEvents('2026-09-01', '2026-10-01', { calendarIds: [] });
     await api.calendar.listEvents('2026-09-01', '2026-10-01');
@@ -50,11 +51,12 @@ describe('calendar request cancellation', () => {
   });
 
   it('propagates a fetch abort untouched so callers can ignore it', async () => {
-    (globalThis as unknown as TestGlobals).fetch = async () => {
+    const fetchStub = async () => {
       const error = new Error('The operation was aborted.');
       error.name = 'AbortError';
       throw error;
     };
+    mock.method(globalThis, 'fetch', fetchStub);
     await assert.rejects(
       () => api.calendar.listEvents('2026-09-01', '2026-10-01'),
       error => isAbortError(error),

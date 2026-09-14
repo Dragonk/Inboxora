@@ -101,8 +101,20 @@ if (process.env.NODE_ENV === 'production' && !process.env.APP_URL) {
 }
 
 // Session
+/**
+ * `connect-redis` ships a real class as its default export, but the auto-included
+ * @types/connect-redis declares that export as its legacy factory, so TypeScript cannot see the
+ * constructor. `Reflect.construct` runs the same [[Construct]] as `new`; the declared constructor
+ * shape documents the real API and types the created store without narrowing the value.
+ */
+type RedisStoreConstructor = new (options: { client: unknown }) => SessionStore;
+
+function createRedisStore(options: ConstructorParameters<RedisStoreConstructor>[0]): SessionStore {
+  return Reflect.construct(RedisStore, [options]);
+}
+
 const sessionMiddleware = session({
-  store: new (RedisStore as unknown as new (options: { client: unknown }) => SessionStore)({ client: redisClient }),
+  store: createRedisStore({ client: redisClient }),
   secret: process.env.SESSION_SECRET,
   resave: false,
   saveUninitialized: false,

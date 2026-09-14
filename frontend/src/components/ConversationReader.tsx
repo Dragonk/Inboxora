@@ -31,13 +31,22 @@ export interface ConversationLogicalMessage { id: string; copies?: ConversationC
 /** The reader payload. */
 interface ConversationReaderData { logicalMessages: ConversationLogicalMessage[]; [key: string]: unknown }
 
+/** Per-navigation scroll-alignment sampling state. */
+interface NavigationAlignmentState {
+  preliminary: boolean;
+  bodyReady: boolean;
+  final: boolean;
+  userInteracted: boolean;
+  finalFrame: number | null;
+}
+
 interface ConversationReaderProps {
   conversationId: string;
   targetLogicalMessageId?: string | null;
   selectedCopyId?: string | null;
   selectedAccountId?: string | null;
   accounts?: StoreState['accounts'];
-  onReply?: (message: unknown) => void;
+  onReply?: (message: ConversationLogicalMessage, all?: boolean) => void;
   nativeThreadId?: string | null;
   nativeFolder?: string | null;
   onNativeThreadUnavailable?: () => void;
@@ -59,13 +68,13 @@ export default function ConversationReader({ conversationId, targetLogicalMessag
   // resolve to a different copy when the selected account/target changes.
   const [bodiesByCopy, setBodiesByCopy] = useState<Record<string, MessageBody>>({});
   const [bodyStatusByCopy, setBodyStatusByCopy] = useState<Record<string, MessageBodyStatus>>({});
-  const bodiesRef = useRef({});
-  const statusRef = useRef({});
-  const aborters = useRef(new Map());
+  const bodiesRef = useRef<Record<string, MessageBody>>({});
+  const statusRef = useRef<Record<string, MessageBodyStatus>>({});
+  const aborters = useRef<Map<string, AbortController>>(new Map());
   const readerRef = useRef<HTMLDivElement | null>(null);
-  const autoReadStarted = useRef(new Set());
-  const completedNavigationRef = useRef(new Set());
-  const navigationStateRef = useRef(new Map());
+  const autoReadStarted = useRef<Set<string>>(new Set());
+  const completedNavigationRef = useRef<Set<string>>(new Set());
+  const navigationStateRef = useRef<Map<string, NavigationAlignmentState>>(new Map());
   const automaticScrollRef = useRef(false);
   const [activeTargetLogicalId, setActiveTargetLogicalId] = useState<string | null>(null);
   const updateMessage = useStore((state: { updateMessage: (id: string, updates: Record<string, unknown>) => void }) => state.updateMessage);
@@ -125,13 +134,13 @@ export default function ConversationReader({ conversationId, targetLogicalMessag
     if (nativeThreadId && selectedAccountId && !native) return;
     if (!ce && !native) return;
     const physical = applyDeleteGuard(native?.messages || []).map((copy: ConversationCopyRef) => {
-      const read = pendingReadState(copy.id);
+      const read = typeof copy.id === 'string' ? pendingReadState(copy.id) : undefined;
       return read === undefined ? copy : { ...copy, is_read: read, isRead: read };
     });
     const nativeMessages = nativeThreadToReaderMessages(physical, selectedAccountId);
-    setData(previous => ({ ...previous, ...ce, logicalMessages: native
+    setData(previous => !previous ? previous : { ...previous, ...ce, logicalMessages: native
       ? mergeThreadWithConversation(ce?.logicalMessages || [], nativeMessages)
-      : ce.logicalMessages || previous.logicalMessages }));
+      : ce.logicalMessages || previous.logicalMessages });
   }, [conversationId, nativeThreadId, nativeFolder, selectedAccountId, data]);
   const handleActionComplete = useCallback(async (mutation: { logicalMessageId?: string; copyId?: string; [key: string]: unknown }) => {
     const { action, copyId, logicalMessageId, isRead, isStarred } = mutation || {};
@@ -204,7 +213,7 @@ export default function ConversationReader({ conversationId, targetLogicalMessag
     if (affectsInbox && read) setPending(copyId, accountId);
     setLocalReadState(copyId, read);
     const mutation = queueReadStateMutation(copyId, read, targetRead => api.bulkRead([copyId], targetRead));
-    return mutation.promise.then(() => { refreshEpoch.current += 1; }).catch(error => {
+    return mutation.promise.then(() => { refreshEpoch.current += 1; }).catch((error: unknown) => {
       if (isLatestReadStateMutation(copyId, mutation.version)) { setLocalReadState(copyId, before); adjustCount(!read); }
       throw error;
     }).finally(() => {
@@ -234,15 +243,17 @@ export default function ConversationReader({ conversationId, targetLogicalMessag
   }, [initialTargetId, messages, selectedCopyFor, setCopyReadState]);
 
   useEffect(() => {
-    const sync = event => {
-      const { id, read } = event.detail || {};
+    const sync = (event: Event) => {
+      if (!(event instanceof CustomEvent)) return;
+      const detail: { id?: string; read: boolean } = event.detail;
+      const { id, read } = detail || {};
       if (id != null) setLocalReadState(id, read);
     };
     window.addEventListener('inboxora:read-state', sync);
     return () => window.removeEventListener('inboxora:read-state', sync);
   }, [setLocalReadState]);
 
-  const loadBody = useCallback((logicalId, force = false, remoteImages = false) => {
+  const loadBody = useCallback((logicalId: string, force = false, remoteImages = false) => {
     const copy = selectedCopyFor(logicalId);
     const physicalCopyId = copy?.id;
     if (!physicalCopyId) return Promise.resolve();
@@ -254,7 +265,7 @@ export default function ConversationReader({ conversationId, targetLogicalMessag
     statusRef.current = { ...statusRef.current, [physicalCopyId]: { loading: true } };
     setBodyStatusByCopy(statusRef.current);
     return api.getMessageBody(physicalCopyId, remoteImages)
-      .then(body => {
+      .then((body: MessageBody) => {
         if (controller.signal.aborted) return;
         const normalized = { ...body, remoteImages: Boolean(remoteImages || body.remoteImages || body.remote_images) };
         const hasContent = Boolean(normalized.html ?? normalized.body_html ?? normalized.text ?? normalized.body_text)
@@ -264,7 +275,7 @@ export default function ConversationReader({ conversationId, targetLogicalMessag
         setBodiesByCopy(bodiesRef.current);
         setBodyStatusByCopy(statusRef.current);
       })
-      .catch(reason => {
+      .catch((reason: { name?: string; message?: string }) => {
         if (reason.name === 'AbortError' || controller.signal.aborted) return;
         statusRef.current = { ...statusRef.current, [physicalCopyId]: { loading: false, error: reason.message || t('conversation.loadBodyFailed') } };
         setBodyStatusByCopy(statusRef.current);
@@ -278,11 +289,11 @@ export default function ConversationReader({ conversationId, targetLogicalMessag
   // Align once when the target header mounts, then once more after that exact
   // body's iframe has applied its first measured height. The second pass uses the
   // final scroll range; later image/quote/resize changes deliberately do not resnap.
-  const navigationKeyFor = useCallback(logicalId => {
+  const navigationKeyFor = useCallback((logicalId: string) => {
     const copy = selectedCopyFor(logicalId);
     return `${conversationId || nativeThreadId || ''}:${copy?.id || logicalId}`;
   }, [conversationId, nativeThreadId, selectedCopyFor]);
-  const alignNavigation = useCallback((navigationKey, reader, anchor, phase) => {
+  const alignNavigation = useCallback((navigationKey: string, reader: HTMLDivElement, anchor: Element, phase: 'preliminary' | 'final') => {
     const state = navigationStateRef.current.get(navigationKey);
     if (!state || state.userInteracted || (phase === 'final' && state.final)) return;
     automaticScrollRef.current = true;
@@ -296,7 +307,7 @@ export default function ConversationReader({ conversationId, targetLogicalMessag
       if (state.bodyReady) state.finalFrame = requestAnimationFrame(() => alignNavigation(navigationKey, reader, anchor, 'final'));
     }
   }, []);
-  const handleInitialTargetBodyLayout = useCallback(copyId => {
+  const handleInitialTargetBodyLayout = useCallback((copyId: string) => {
     const logicalId = navigationTargetId;
     if (!logicalId || String(selectedCopyFor(logicalId)?.id || '') !== String(copyId || '')) return;
     const navigationKey = navigationKeyFor(logicalId);
@@ -305,7 +316,7 @@ export default function ConversationReader({ conversationId, targetLogicalMessag
     state.bodyReady = true;
     if (!state.preliminary || state.finalFrame) return;
     const reader = readerRef.current;
-    const anchor = reader && [...reader.querySelectorAll('[data-conversation-message-scroll-anchor]')]
+    const anchor = reader && [...reader.querySelectorAll<HTMLElement>('[data-conversation-message-scroll-anchor]')]
       .find((element: HTMLElement) => element.dataset.conversationMessageScrollAnchor === String(copyId));
     if (reader && anchor) state.finalFrame = requestAnimationFrame(() => {
       // The iframe's measured height becomes part of the reader range after its
@@ -337,7 +348,7 @@ export default function ConversationReader({ conversationId, targetLogicalMessag
     const navigationKey = navigationKeyFor(navigationTargetId);
     if (completedNavigationRef.current.has(navigationKey)) return;
     const reader = readerRef.current;
-    const anchor = [...reader.querySelectorAll('[data-conversation-message-scroll-anchor]')]
+    const anchor = [...reader.querySelectorAll<HTMLElement>('[data-conversation-message-scroll-anchor]')]
       .find((element: HTMLElement) => element.dataset.conversationMessageScrollAnchor === String(selectedCopyFor(navigationTargetId)?.id || ''));
     if (!anchor) return;
     const state = navigationStateRef.current.get(navigationKey) || { preliminary: false, bodyReady: false, final: false, userInteracted: false, finalFrame: null };
@@ -348,7 +359,7 @@ export default function ConversationReader({ conversationId, targetLogicalMessag
   }, [alignNavigation, navigationKeyFor, navigationTargetId, expanded, messages, selectedCopyFor]);
 
 
-  const activateMessage = useCallback(id => {
+  const activateMessage = useCallback((id: string) => {
     // A new explicit target supersedes any pending automatic alignment for the
     // previously selected target. Without this handoff, a late body-layout frame
     // can write the old scroll position into the new navigation's sample window.
@@ -373,12 +384,15 @@ export default function ConversationReader({ conversationId, targetLogicalMessag
       return toggleConversationExpansion(previous, id);
     });
   }, [activateMessage]);
+  // ConversationMessage declares onReply as required; the reader keeps it optional
+  // for callers and always forwards an explicit handler.
+  const handleReply = useCallback((message: ConversationLogicalMessage, all?: boolean) => { onReply?.(message, all); }, [onReply]);
   if (!data && !error) return <div role="status" style={{ padding: 24, textAlign: 'center', color: 'var(--text-tertiary)' }}>{t('conversation.loading')}</div>;
   if (error) return <div role="alert" style={{ padding: 16, color: 'var(--text-danger)' }}>{error instanceof Error ? toAppError(error).message : String(error)}</div>;
   return <section ref={readerRef} aria-label={t('conversation.label')} data-conversation-id={conversationId} data-reader-source={nativeThreadId ? 'native-thread' : 'conversation'} data-selected-copy-id={selectedCopyId || ''} data-selected-account-id={selectedAccountId || ''} style={{ flex: 1, overflowY: 'auto', overflowX: 'hidden', padding: 0, minWidth: 0 }}>
     {messages.map(message => {
       const physicalCopyId = selectedCopyFor(message.id)?.id;
-      return <ConversationMessage key={message.id} conversationId={conversationId} message={message} selectedCopyId={selectedCopyId} selectedAccountId={selectedAccountId} accounts={accounts} expanded={expanded.has(message.id)} onToggle={toggle} body={physicalCopyId ? bodiesByCopy[physicalCopyId] : null} status={physicalCopyId ? bodyStatusByCopy[physicalCopyId] : { unavailable: true }} onLoadBody={loadBody} onRemoteImages={id => loadBody(id, true, true)} onReply={onReply} onActionComplete={handleActionComplete} onSetRead={setCopyReadState} onInitialBodyLayout={handleInitialTargetBodyLayout} />;
+      return <ConversationMessage key={message.id} conversationId={conversationId} message={message} selectedCopyId={selectedCopyId} selectedAccountId={selectedAccountId} accounts={accounts} expanded={expanded.has(message.id)} onToggle={toggle} body={physicalCopyId ? bodiesByCopy[physicalCopyId] : null} status={physicalCopyId ? bodyStatusByCopy[physicalCopyId] : { unavailable: true }} onLoadBody={loadBody} onRemoteImages={id => loadBody(id, true, true)} onReply={handleReply} onActionComplete={handleActionComplete} onSetRead={setCopyReadState} onInitialBodyLayout={handleInitialTargetBodyLayout} />;
     })}
   </section>;
 }

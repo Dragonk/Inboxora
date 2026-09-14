@@ -16,15 +16,15 @@ registerHooks({
   },
 });
 
-(globalThis as unknown as TestGlobals).localStorage = (() => {
-  let values: Record<string, any> = { mailflow_theme: 'dark' };
+Reflect.set(globalThis, 'localStorage', (() => {
+  let values: Record<string, string> = { mailflow_theme: 'dark' };
   return {
     getItem: (key: string) => values[key] ?? null,
     setItem: (key: string, value: unknown) => { values[key] = String(value); },
     removeItem: (key: string) => { delete values[key]; },
     clear: () => { values = {}; },
   };
-})();
+})());
 
 const { api } = await import('../utils/api.ts');
 const { useStore } = await import('./index.ts');

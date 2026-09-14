@@ -43,6 +43,7 @@ import { toAppError } from '../utils/errors.ts';
 import { isValidForwardAddress } from '../utils/ruleActions.ts';
 import type { CSSProperties, SVGProps } from 'react';
 import type { StoreState } from '../store/index.ts';
+import type { TFunction } from 'i18next';
 
 interface AdminAlias {
   id: string;
@@ -67,10 +68,14 @@ interface IconBtnProps { children?: React.ReactNode; onClick?: (event: React.Mou
 interface LayoutDiagramProps { layoutConfig: (typeof LAYOUTS)[keyof typeof LAYOUTS]; active?: boolean }
 interface SwipeActionIconProps { action?: string; size?: number }
 interface SettingsSwitchRowProps { label?: React.ReactNode; description?: React.ReactNode; checked?: boolean; onChange?: (value: boolean) => void; testId?: string; disabled?: boolean; ariaLabel?: string | null; children?: React.ReactNode }
-interface SubTabSectionProps { initialSubTab?: string }
+interface SubTabSectionProps { initialSubTab?: string | null }
 interface PluginsSectionProps { onNavigate?: (tab: string, subTab?: string) => void }
 interface ConfirmOverlayProps { dialog?: { title?: React.ReactNode; message?: React.ReactNode; confirmLabel?: React.ReactNode; onConfirm: () => void; danger?: boolean } | null; onClose: () => void }
-interface SubTabsProps { tabs: Array<{ id: string; label?: string; content?: React.ReactNode }>; initialTab?: string }
+interface SubTabsProps { tabs: Array<{ id: string; label?: string; content?: React.ReactNode }>; initialTab?: string | null }
+interface SsoIdentity { id: string; address?: string; name?: string; provider_name?: string | null; email?: string | null; issuer?: string | null; [key: string]: unknown }
+interface DavCredential { id: string; label?: string; created_at: string; last_used_at?: string; [key: string]: unknown }
+interface SearchIndexItem { label: string; keywords: string[]; tab: string; subtab?: string; adminOnly?: boolean; mobileHidden?: boolean; breadcrumb: string }
+interface SearchResultsViewProps { results: SearchIndexItem[]; query: string; onNavigate: (tab: string, subtab?: string) => void; t: TFunction }
 
 
 function Field({ label, required = false, children }: FieldProps) {
@@ -7510,7 +7515,7 @@ function PrivacyTab() {
     }
   };
 
-  const removeAddress = async (addr) => {
+  const removeAddress = async (addr: string) => {
     setSaving(true);
     try {
       await setImageWhitelist({
@@ -7538,7 +7543,7 @@ function PrivacyTab() {
     }
   };
 
-  const removeDomain = async (domain) => {
+  const removeDomain = async (domain: string) => {
     setSaving(true);
     try {
       await setImageWhitelist({
@@ -7704,7 +7709,7 @@ function ScreenLockSection() {
   const [saved, setSaved] = useState(false);
   useBackLayer(mode, () => { if (!busy) setMode(null); }, 2010);
 
-  const digits = (v) => v.replace(/\D/g, '').slice(0, 6);
+  const digits = (v: string) => v.replace(/\D/g, '').slice(0, 6);
   const reset = () => { setMode(null); setCurrentPin(''); setPin(''); setConfirm(''); setError(''); setSaved(false); };
 
   async function savePin() {
@@ -7715,7 +7720,7 @@ function ScreenLockSection() {
       await api.setLockPin(pin, hasPin ? currentPin : undefined);
       setUser({ ...user, hasLockPin: true });
       reset(); setSaved(true); setTimeout(() => setSaved(false), 2500);
-    } catch (e) { setError(e?.message || t('admin.lock.saveFailed')); }
+    } catch (e) { setError(toAppError(e).message || t('admin.lock.saveFailed')); }
     finally { setBusy(false); }
   }
 
@@ -7726,12 +7731,12 @@ function ScreenLockSection() {
       setUser({ ...user, hasLockPin: false });
       if (autoLockMinutes) setAutoLockMinutes(0); // no PIN → auto-lock can't unlock
       reset();
-    } catch (e) { setError(e?.message || t('admin.lock.saveFailed')); }
+    } catch (e) { setError(toAppError(e).message || t('admin.lock.saveFailed')); }
     finally { setBusy(false); }
   }
 
   const inputStyle: CSSProperties = { width: '100%', padding: '8px 10px', background: 'var(--bg-tertiary)', border: '1px solid var(--border)', borderRadius: 6, color: 'var(--text-primary)', fontSize: 14, letterSpacing: '0.2em', textAlign: 'center', boxSizing: 'border-box' };
-  const btn = (primary) => ({ padding: '7px 14px', borderRadius: 6, fontSize: 13, fontWeight: 500, cursor: busy ? 'default' : 'pointer', border: primary ? 'none' : '1px solid var(--border)', background: primary ? 'var(--accent)' : 'var(--bg-tertiary)', color: primary ? 'var(--accent-text)' : 'var(--text-primary)', opacity: busy ? 0.6 : 1 });
+  const btn = (primary: boolean) => ({ padding: '7px 14px', borderRadius: 6, fontSize: 13, fontWeight: 500, cursor: busy ? 'default' : 'pointer', border: primary ? 'none' : '1px solid var(--border)', background: primary ? 'var(--accent)' : 'var(--bg-tertiary)', color: primary ? 'var(--accent-text)' : 'var(--text-primary)', opacity: busy ? 0.6 : 1 });
 
   return (
     <div style={{ marginBottom: 28 }}>
@@ -7807,7 +7812,7 @@ function SecurityTab() {
   const [success, setSuccess] = useState('');
   useBackLayer(step !== 'idle' || showDisable, () => { if (!loading) { setShowDisable(false); setStep('idle'); } }, 2010);
 
-  const totpEnabled = user?.totpEnabled;
+  const totpEnabled = Boolean(user?.totpEnabled);
 
   // Admin-only: login protection settings
   const [maxAttempts, setMaxAttempts] = useState('10');
@@ -7837,7 +7842,7 @@ function SecurityTab() {
   const [recoveryError, setRecoveryError] = useState('');
 
   // Admin-only: auth activity log
-  const [authEvents, setAuthEvents] = useState<Array<{ id: string; created_at?: string; event_type?: string; username?: string; ip?: string; success?: boolean; [key: string]: unknown }>>([]);
+  const [authEvents, setAuthEvents] = useState<Array<{ id: string; created_at: string; event_type: string; username?: string; ip?: string; success?: boolean; [key: string]: unknown }>>([]);
   const [eventsLoading, setEventsLoading] = useState(false);
 
   useEffect(() => {
@@ -7853,7 +7858,7 @@ function SecurityTab() {
           if (d.settings.mfa_device_trust) setMfaDeviceTrust(d.settings.mfa_device_trust);
           if (d.settings.internal_auth_disabled === 'true') {
             api.admin.oidc.getProviders()
-              .then(pd => setSsoPasswordLocked(pd.providers.some(p => p.enabled)))
+              .then(pd => setSsoPasswordLocked(pd.providers.some((p: { enabled?: boolean }) => p.enabled)))
               .catch(console.error);
           }
         })
@@ -7900,7 +7905,7 @@ function SecurityTab() {
     }
   };
 
-  const toggleMailPolicy = async (key, newVal) => {
+  const toggleMailPolicy = async (key: string, newVal: boolean) => {
     await api.admin.updateSettings({ [key]: newVal }).catch(console.error);
   };
 
@@ -7933,8 +7938,8 @@ function SecurityTab() {
     }
   };
 
-  const eventLabel = (type) => {
-    const map = {
+  const eventLabel = (type: string) => {
+    const map: Record<string, string> = {
       login_success: t('admin.security.eventLoginSuccess'),
       login_fail:    t('admin.security.eventLoginFail'),
       totp_success:  t('admin.security.eventTotpSuccess'),
@@ -7958,7 +7963,7 @@ function SecurityTab() {
     }
   };
 
-  const verifyEnable = async (e) => {
+  const verifyEnable = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
     if (verifyCode.length !== 6) return;
     setLoading(true);
@@ -7979,7 +7984,7 @@ function SecurityTab() {
     }
   };
 
-  const disableTotp = async (e) => {
+  const disableTotp = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
     if (!disablePassword) return;
     setLoading(true);
@@ -8558,7 +8563,7 @@ function SecurityTab() {
 
 function LinkedIdentitiesSection() {
   const { t } = useTranslation();
-  const [identities, setIdentities] = useState<Array<{ id: string; address?: string; name?: string; provider_name?: string | null; email?: string | null; issuer?: string | null; [key: string]: unknown }> | null>(null); // null = loading
+  const [identities, setIdentities] = useState<SsoIdentity[] | null>(null); // null = loading
   const [providers, setProviders] = useState<Array<{ id: string; name?: string; enabled?: boolean; issuer_url?: string; slug?: string; [key: string]: unknown }>>([]);
   const [confirmDialog, setConfirmDialog] = useState<ConfirmOverlayProps['dialog'] | null>(null);
 
@@ -8572,14 +8577,14 @@ function LinkedIdentitiesSection() {
     }).catch(() => setIdentities([]));
   }, []);
 
-  const handleUnlink = (identity) => {
+  const handleUnlink = (identity: SsoIdentity) => {
     setConfirmDialog({
       title: t('admin.security.ssoUnlinkTitle', { provider: identity.provider_name }),
       message: t('admin.security.ssoUnlinkBody'),
       confirmLabel: t('admin.security.ssoUnlinkConfirm'),
       onConfirm: async () => {
         await api.oidc.unlinkIdentity(identity.id);
-        setIdentities(ids => ids.filter(i => i.id !== identity.id));
+        setIdentities(ids => (Array.isArray(ids) ? ids : []).filter(i => i.id !== identity.id));
       },
     });
   };
@@ -8671,7 +8676,7 @@ function LinkedIdentitiesSection() {
   );
 }
 
-function makeSearchIndex(t) {
+function makeSearchIndex(t: TFunction): SearchIndexItem[] {
   const tabLabel = (id: string) => t(`admin.tabs.${id}`);
   const layoutCrumb = `${tabLabel('appearance')} › ${t('admin.appearance.layout')}`;
   const fontsCrumb = `${tabLabel('appearance')} › ${tabLabel('fontsAndLanguage')}`;
@@ -8742,7 +8747,7 @@ function makeSearchIndex(t) {
   ];
 }
 
-function SearchResultsView({ results, query, onNavigate, t }) {
+function SearchResultsView({ results, query, onNavigate, t }: SearchResultsViewProps) {
   if (results.length === 0) {
     return (
       <div style={{ color: 'var(--text-tertiary)', fontSize: 13, padding: '48px 0', textAlign: 'center' }}>
@@ -8774,12 +8779,12 @@ function SearchResultsView({ results, query, onNavigate, t }) {
 }
 
 function DavCredentialsTab() {
-  const { t } = useTranslation(); const [credentials, setCredentials] = useState<Array<{ id: string; label?: string; created_at?: string; last_used_at?: string; [key: string]: unknown }>>([]); const [label, setLabel] = useState(''); const [secret, setSecret] = useState(''); const [error, setError] = useState(''); const [loading, setLoading] = useState(true); const [busy, setBusy] = useState(false); const [copied, setCopied] = useState(false);
+  const { t } = useTranslation(); const [credentials, setCredentials] = useState<DavCredential[]>([]); const [label, setLabel] = useState(''); const [secret, setSecret] = useState(''); const [error, setError] = useState(''); const [loading, setLoading] = useState(true); const [busy, setBusy] = useState(false); const [copied, setCopied] = useState(false);
   const load = useCallback(async () => { setLoading(true); try { const result = await api.davCredentials.list(); setCredentials(result.credentials || []); } catch (err) { setError(toAppError(err).message || t('admin.davCredentials.loadError')); } finally { setLoading(false); } }, [t]);
   useEffect(() => { load(); }, [load]);
   const create = async () => { if (!label.trim()) return; setBusy(true); setError(''); setSecret(''); setCopied(false); try { const result = await api.davCredentials.create(label.trim()); setCredentials(current => [result.credential, ...current]); setLabel(''); setSecret(result.secret); } catch (err) { setError(toAppError(err).message || t('admin.davCredentials.createError')); } finally { setBusy(false); } };
   const copy = async () => { try { await navigator.clipboard.writeText(secret); setCopied(true); } catch { setError(t('admin.davCredentials.copyError')); } };
-  const revoke = async credential => { setBusy(true); setError(''); try { await api.davCredentials.revoke(credential.id); setCredentials(current => current.filter(item => item.id !== credential.id)); } catch (err) { setError(toAppError(err).message || t('admin.davCredentials.revokeError')); } finally { setBusy(false); } };
+  const revoke = async (credential: DavCredential) => { setBusy(true); setError(''); try { await api.davCredentials.revoke(credential.id); setCredentials(current => current.filter(item => item.id !== credential.id)); } catch (err) { setError(toAppError(err).message || t('admin.davCredentials.revokeError')); } finally { setBusy(false); } };
   const endpoint = window.location.origin;
   return <div style={{ maxWidth: 680 }}><h2 style={{ marginTop: 0 }}>{t('admin.davCredentials.title')}</h2><p style={{ color: 'var(--text-secondary)' }}>{t('admin.davCredentials.description')}</p>{error && <div role="alert" style={{ color: 'var(--red)', marginBottom: 12 }}>{error}</div>}<div style={{ display: 'flex', gap: 8, marginBottom: 18 }}><input aria-label={t('admin.davCredentials.label')} value={label} maxLength={120} onChange={e => setLabel(e.target.value)} onKeyDown={e => e.key === 'Enter' && create()} placeholder={t('admin.davCredentials.labelPlaceholder')} style={inputStyle}/><button disabled={busy || !label.trim()} onClick={create} style={{ background: 'var(--accent)', color: 'var(--accent-text)', border: 0, borderRadius: 6, padding: '7px 12px', cursor: 'pointer', whiteSpace: 'nowrap' }}>{t('admin.davCredentials.create')}</button></div>{secret && <section style={{ border: '1px solid var(--accent)', borderRadius: 8, padding: 16, marginBottom: 18 }}><strong>{t('admin.davCredentials.secretTitle')}</strong><p>{t('admin.davCredentials.secretWarning')}</p><code style={{ display: 'block', overflowWrap: 'anywhere' }}>{secret}</code><button onClick={copy} style={{ marginTop: 10 }}>{copied ? t('admin.davCredentials.copied') : t('common.copy')}</button></section>}<section style={{ border: '1px solid var(--border)', borderRadius: 8, padding: 16, marginBottom: 18 }}><strong>{t('admin.davCredentials.davx5Title')}</strong><p>{t('admin.davCredentials.davx5Description')}</p><code>{endpoint}/.well-known/carddav</code><br/><code>{endpoint}/.well-known/caldav</code><p style={{ color: 'var(--text-tertiary)', marginBottom: 0 }}>{t('admin.davCredentials.davx5Username')}</p></section><h3>{t('admin.davCredentials.activeTitle')}</h3>{loading ? <p>{t('common.loading')}</p> : credentials.length === 0 ? <p>{t('admin.davCredentials.empty')}</p> : <div style={{ display: 'grid', gap: 8 }}>{credentials.map(credential => <div key={credential.id} style={{ display: 'flex', gap: 12, alignItems: 'center', border: '1px solid var(--border)', borderRadius: 8, padding: 12 }}><div style={{ flex: 1 }}><strong>{credential.label}</strong><div style={{ color: 'var(--text-tertiary)', fontSize: 12 }}>{t('admin.davCredentials.metadata', { created: new Date(credential.created_at).toLocaleString(), used: credential.last_used_at ? new Date(credential.last_used_at).toLocaleString() : t('common.never') })}</div></div><button disabled={busy} onClick={() => revoke(credential)} style={{ color: 'var(--red)' }}>{t('admin.davCredentials.revoke')}</button></div>)}</div>}</div>;
 }
@@ -8808,12 +8813,12 @@ export default function AdminPanel() {
 
   const searchIndex = useMemo(() => makeSearchIndex(t), [t]);
 
-  const navigateTo = (tab, subtab) => {
+  const navigateTo = (tab: string, subtab?: string) => {
     setSearchQuery('');
     setAdminTab(tab);
     setPendingSubTab(subtab || null);
   };
-  const handleTabClick = (tabId) => {
+  const handleTabClick = (tabId: string) => {
     setPendingSubTab(null);
     setAdminTab(tabId);
   };

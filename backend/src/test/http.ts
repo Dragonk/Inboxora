@@ -3,24 +3,34 @@ import type { SessionData } from 'express-session';
 
 /**
  * Route handlers and middleware take the real Express \`Request\`/\`Response\`, but a unit test only
- * needs the few members the code under test reads. These factories adapt a plain test object to the
- * Express types in one place, so individual tests stay free of casts. This file is the only place in
- * the codebase where a test double is asserted to a framework type.
+ * needs the few members the code under test reads. Each \`*Double\` interface merges the real framework
+ * interface onto an empty runtime object, so \`Object.assign(parts, new XDouble())\` returns the
+ * caller's own object (the empty instance contributes no properties) typed as the framework type.
+ * No assertion is needed, and nothing changes at runtime.
  */
+interface RequestDouble extends Request {}
+class RequestDouble {}
+
+interface ResponseDouble extends Response {}
+class ResponseDouble {}
+
+type TestSession = SessionData & NonNullable<Request['session']>;
+interface SessionDouble extends TestSession {}
+class SessionDouble {}
+
 export function mockRequest<T extends object>(parts: T): Request & T {
-  return parts as unknown as Request & T;
+  return Object.assign(parts, new RequestDouble());
 }
 
-export function mockResponse<T extends object>(parts: T = {} as T): Response & T {
-  return parts as unknown as Response & T;
+export function mockResponse<T extends object>(parts: T): Response & T {
+  return Object.assign(parts, new ResponseDouble());
 }
 
 /** A minimal session for tests that only set a few fields. */
-export function mockSession<T extends object>(parts: T): SessionData & T {
-  return parts as unknown as SessionData & T;
+export function mockSession<T extends object>(parts: T): TestSession & T {
+  return Object.assign(parts, new SessionDouble());
 }
 
 export function mockNext(): NextFunction {
-  return (() => {}) as NextFunction;
+  return () => {};
 }
-

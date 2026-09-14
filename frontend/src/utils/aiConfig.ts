@@ -65,14 +65,15 @@ export function normalizeAiForm(raw: AiConfigFormInput = {}) {
   const hasLegacyApiConfig = !structured && Boolean(
     cleanString(raw.baseUrl) || cleanString(raw.model) || typeof raw.apiKey === 'string',
   );
-  const inferredConnectionMethod = ACCOUNT_PROVIDERS.has(raw.provider)
+  const provider = typeof raw.provider === 'string' ? raw.provider : '';
+  const inferredConnectionMethod = ACCOUNT_PROVIDERS.has(provider)
     ? AI_CONNECTION_METHOD_ACCOUNT
-    : raw.provider === AI_PROVIDER_API_KEY || hasLegacyApiConfig
+    : provider === AI_PROVIDER_API_KEY || hasLegacyApiConfig
       ? AI_CONNECTION_METHOD_API
       : '';
   const connectionMethod = explicitConnectionMethod || inferredConnectionMethod;
   const accountProvider = explicitAccountProvider
-    || (ACCOUNT_PROVIDERS.has(raw.provider) ? raw.provider : '')
+    || (ACCOUNT_PROVIDERS.has(provider) ? provider : '')
     || (connectionMethod === AI_CONNECTION_METHOD_ACCOUNT ? AI_PROVIDER_CHATGPT : '');
   return {
     enabled: raw.enabled !== false,
@@ -101,7 +102,8 @@ export function selectAiConnectionMethod(form: AiConfigFormInput, connectionMeth
 }
 
 export function isAiFormValid(form: AiConfigFormInput = {}) {
-  if (!CONNECTION_METHODS.has(form.connectionMethod)) return false;
+  if (typeof form.connectionMethod !== 'string'
+      || !CONNECTION_METHODS.has(form.connectionMethod)) return false;
   if (form.enabled === false) return true;
   if (form.connectionMethod === AI_CONNECTION_METHOD_API) {
     return !!cleanBaseUrl(form.apiKeyConfig?.baseUrl) && !!cleanString(form.apiKeyConfig?.model);
@@ -152,6 +154,10 @@ export interface CodexDeviceState {
   message?: string;
   reconnectRequired?: boolean;
   reason?: string;
+  /** Identifier of the pending device flow (used for status polling and cancel). */
+  flowId?: string;
+  /** Suggested delay in milliseconds before the next status poll. */
+  retryAfterMs?: number;
   /** Present while a device flow is pending (the UI shows the code and link). */
   userCode?: string;
   verificationUrl?: string;
@@ -182,8 +188,13 @@ export function createCodexDevicePoller({
     throw new TypeError('ChatGPT device poller dependencies are required');
   }
 
-  let timer = null;
-  let flow = null;
+  const startDeviceFlow: () => Promise<CodexDeviceFlow> = startDevice;
+  const pollDeviceFlow: (flowId: string) => Promise<CodexDevicePollResult> = pollDevice;
+  const cancelDeviceFlow: (flowId: string) => Promise<unknown> = cancelDevice;
+  const emitDeviceState: (state: CodexDeviceState) => void = onState;
+
+  let timer: unknown = null;
+  let flow: CodexDeviceFlow | null = null;
   let generation = 0;
   let disposed = false;
 
@@ -192,24 +203,24 @@ export function createCodexDevicePoller({
     timer = null;
   }
 
-  function isCurrent(expectedGeneration) {
+  function isCurrent(expectedGeneration: number) {
     return !disposed && expectedGeneration === generation;
   }
 
-  function emit(state, expectedGeneration = generation) {
+  function emit(state: CodexDeviceState, expectedGeneration: number = generation) {
     if (!isCurrent(expectedGeneration)) return null;
-    onState(state);
+    emitDeviceState(state);
     return state;
   }
 
-  function schedule(delay, expectedGeneration) {
+  function schedule(delay: unknown, expectedGeneration: number) {
     if (!isCurrent(expectedGeneration) || !flow) return;
     clearScheduledPoll();
     const boundedDelay = Math.max(0, finiteNumber(delay) ?? flow.intervalMs);
     timer = setTimer(() => pollOnce(expectedGeneration), boundedDelay);
   }
 
-  function expireIfNeeded(expectedGeneration) {
+  function expireIfNeeded(expectedGeneration: number) {
     if (!flow || now() < flow.expiresAt) return false;
     flow = null;
     clearScheduledPoll();
@@ -217,12 +228,12 @@ export function createCodexDevicePoller({
     return true;
   }
 
-  async function pollOnce(expectedGeneration) {
+  async function pollOnce(expectedGeneration: number) {
     timer = null;
     if (!isCurrent(expectedGeneration) || !flow || expireIfNeeded(expectedGeneration)) return;
     const activeFlow = flow;
     try {
-      const response = await pollDevice(activeFlow.flowId);
+      const response = await pollDeviceFlow(activeFlow.flowId);
       if (!isCurrent(expectedGeneration) || flow !== activeFlow) return;
       if (expireIfNeeded(expectedGeneration)) return;
 
@@ -241,7 +252,7 @@ export function createCodexDevicePoller({
           reconnectRequired: response.reconnectRequired === true,
           reason: cleanString(response.reason) || 'authorization_failed',
         }, expectedGeneration);
-      } else if (['cancelled', 'expired'].includes(response?.status)) {
+      } else if (response?.status === 'cancelled' || response?.status === 'expired') {
         emit({ phase: response.status }, expectedGeneration);
       } else {
         emit({ phase: 'error', message: 'ChatGPT authorization failed' }, expectedGeneration);
@@ -254,13 +265,13 @@ export function createCodexDevicePoller({
     }
   }
 
-  async function start(existingDevice = null) {
+  async function start(existingDevice: CodexDeviceFlow | null = null) {
     if (disposed) throw new Error('ChatGPT device poller is disposed');
     const expectedGeneration = ++generation;
     flow = null;
     clearScheduledPoll();
     try {
-      const response = existingDevice || await startDevice();
+      const response = existingDevice || await startDeviceFlow();
       if (!isCurrent(expectedGeneration)) return null;
       const flowId = cleanString(response?.flowId);
       const userCode = cleanString(response?.userCode);
@@ -299,7 +310,7 @@ export function createCodexDevicePoller({
     clearScheduledPoll();
     try {
       if (flowId) {
-        await cancelDevice(flowId);
+        await cancelDeviceFlow(flowId);
       }
       emit({ phase: 'cancelled' }, expectedGeneration);
     } catch (error) {

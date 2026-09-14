@@ -73,7 +73,7 @@ export function archiveViewKey({
   ]);
 }
 
-export function archiveTargetsForFolder(message, resolvedMessages, folder, isThreadRow, accountId = null) {
+export function archiveTargetsForFolder(message, resolvedMessages, folder, isThreadRow, accountId: string | null = null) {
   if (!message) return [];
   if (!isThreadRow) return [message];
 
@@ -96,7 +96,7 @@ export async function archiveTargetGroupsForRows(
   resolveMessages,
   folder,
   isThreadRow,
-  accountId = null,
+  accountId: string | null = null,
   concurrency = 8,
 ) {
   const rows = Array.isArray(messages) ? messages : [];

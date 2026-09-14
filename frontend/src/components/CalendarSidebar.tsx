@@ -3,11 +3,58 @@ import { useBackLayer } from '../hooks/useBackNavigation.ts';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { api } from '../utils/api.ts';
 import { Button, Dialog } from './ui.tsx';
-import type { CSSProperties } from 'react';
+import type { CSSProperties, FormEvent } from 'react';
 import { toAppError } from '../utils/errors.ts';
 import type { TFunction } from 'i18next';
 
-function monthCells(anchor, weekStartsOn) {
+/** A calendar source as GET /calendar/sources returns it. */
+interface CalendarSource {
+  id: string;
+  displayName?: string;
+  kind?: string;
+  intervalMin?: number;
+  lastError?: string | null;
+  lastSyncAt?: string | null;
+  [key: string]: unknown;
+}
+
+/** Response of GET /calendar/sources. */
+interface CalendarSourceList {
+  sources?: CalendarSource[];
+}
+
+/** A calendar row as the sidebar receives it (local rows carry ownership fields). */
+interface CalendarRow {
+  id: string;
+  name?: string | null;
+  color?: string | null;
+  source?: string | null;
+  read_only?: boolean | null;
+  owner_user_id?: string | null;
+  display_visible?: boolean | null;
+  custom_name?: boolean | null;
+  [key: string]: unknown;
+}
+
+/** The appearance dialog's draft: the calendar plus its editable field values. */
+interface CalendarEditDraft {
+  calendar: CalendarRow;
+  name: string;
+  color: string;
+}
+
+/** Whether a value carries the id an external calendar source always has. */
+function isCalendarSource(value: unknown): value is CalendarSource {
+  return typeof value === 'object' && value !== null && 'id' in value && typeof value.id === 'string';
+}
+
+/** The source attached to a failed createSource response, when it has one. */
+function failedCalendarSource(error: unknown): CalendarSource | null {
+  if (typeof error !== 'object' || error === null || !('source' in error)) return null;
+  return isCalendarSource(error.source) ? error.source : null;
+}
+
+function monthCells(anchor: Date, weekStartsOn: number): Date[] {
   const first = new Date(anchor.getFullYear(), anchor.getMonth(), 1);
   const offset = (first.getDay() - weekStartsOn + 7) % 7;
   first.setDate(first.getDate() - offset);
@@ -21,7 +68,7 @@ function monthCells(anchor, weekStartsOn) {
 /** The calendar rail: mini month, source panel and calendar toggles. */
 interface CalendarSidebarProps {
   anchor: Date;
-  calendars: Array<{ id: string; name?: string | null; color?: string | null; [key: string]: unknown }>;
+  calendars: CalendarRow[];
   visibleCalendarIds: string[] | null;
   weekStartsOn?: number;
   locale: string;
@@ -37,23 +84,23 @@ interface CalendarSidebarProps {
 }
 export default function CalendarSidebar({ anchor, calendars, visibleCalendarIds, weekStartsOn = 1, locale, onSelectDate, onShiftMonth, onToggleCalendar, onSourcesChanged, onCalendarsChanged, onCreate, canCreate, sourcePanelRequest = 0, t }: CalendarSidebarProps) {
   const [showSources, setShowSources] = useState(false);
-  const [sources, setSources] = useState<Array<{ id: string; displayName?: string; kind?: string; intervalMin?: number; lastError?: string | null; lastSyncAt?: string | null; [key: string]: unknown }>>([]);
+  const [sources, setSources] = useState<CalendarSource[]>([]);
   const [sourceError, setSourceError] = useState<string | null>(null);
   const mounted = useRef(false);
-  const pendingSourceIds = useRef(new Set());
-  const sourcePolls = useRef(new Map());
+  const pendingSourceIds = useRef(new Set<string>());
+  const sourcePolls = useRef(new Map<string, ReturnType<typeof setTimeout>>());
   const sourceRequestGeneration = useRef(0);
   const [form, setForm] = useState({ kind: 'ical_url', displayName: '', url: '', username: '', password: '', color: '#7c6af7', intervalMin: 60 });
   const [openCalendarMenu, setOpenCalendarMenu] = useState<string | null>(null);
   const [syncingSourceIds, setSyncingSourceIds] = useState<Set<string>>(new Set());
-  const [calendarEdit, setCalendarEdit] = useState<{ calendar?: { id?: string; name?: string; color?: string; [key: string]: unknown }; name?: string; color?: string; [key: string]: unknown } | null>(null);
+  const [calendarEdit, setCalendarEdit] = useState<CalendarEditDraft | null>(null);
   const [editError, setEditError] = useState<string | null>(null);
   const [calendarSaving, setCalendarSaving] = useState(false);
   useBackLayer(openCalendarMenu, () => { if (!calendarSaving) setOpenCalendarMenu(null); }, 4510);
   const cells = useMemo(() => monthCells(anchor, weekStartsOn), [anchor, weekStartsOn]);
   const weekdays = useMemo(() => Array.from({ length: 7 }, (_, index) => new Date(2026, 0, 4 + ((index + weekStartsOn) % 7)).toLocaleDateString(locale, { weekday: 'short' })), [locale, weekStartsOn]);
-  const isVisible = id => visibleCalendarIds == null || visibleCalendarIds.includes(id);
-  const clearSourcePoll = id => {
+  const isVisible = (id: string) => visibleCalendarIds == null || visibleCalendarIds.includes(id);
+  const clearSourcePoll = (id: string) => {
     const timer = sourcePolls.current.get(id);
     if (timer) clearTimeout(timer);
     sourcePolls.current.delete(id);
@@ -70,10 +117,10 @@ export default function CalendarSidebar({ anchor, calendars, visibleCalendarIds,
       pending.clear();
     };
   }, []);
-  const loadSources = async () => {
+  const loadSources = async (): Promise<CalendarSourceList | null> => {
     const generation = sourceRequestGeneration.current;
     try {
-      const result = await api.calendar.listSources();
+      const result: CalendarSourceList = await api.calendar.listSources();
       if (!mounted.current || generation !== sourceRequestGeneration.current) return result;
       setSources(result.sources || []); setSourceError(null);
       return result;
@@ -84,7 +131,7 @@ export default function CalendarSidebar({ anchor, calendars, visibleCalendarIds,
       return null;
     }
   };
-  const waitForInitialSync = sourceId => {
+  const waitForInitialSync = (sourceId: string) => {
     if (!sourceId || !mounted.current) return;
     clearSourcePoll(sourceId);
     pendingSourceIds.current.add(sourceId);
@@ -126,7 +173,7 @@ export default function CalendarSidebar({ anchor, calendars, visibleCalendarIds,
       });
     return () => { active = false; };
   }, [sourcePanelRequest]);
-  const addSource = async event => {
+  const addSource = async (event: FormEvent) => {
     event.preventDefault();
     try {
       const result = await api.calendar.createSource({ ...form, password: form.kind === 'caldav' ? form.password : undefined, username: form.kind === 'caldav' ? form.username : undefined });
@@ -135,19 +182,20 @@ export default function CalendarSidebar({ anchor, calendars, visibleCalendarIds,
       await onSourcesChanged();
       if (result?.sync?.pending) waitForInitialSync(result.source?.id);
     } catch (error) {
-      if (error.source) {
-        setSources(current => [...current.filter(source => source.id !== error.source.id), error.source]);
+      const failedSource = failedCalendarSource(error);
+      if (failedSource) {
+        setSources(current => [...current.filter(source => source.id !== failedSource.id), failedSource]);
         try { await onSourcesChanged(); } catch { /* keep the persisted source visible even if refresh fails */ }
       }
       setSourceError(toAppError(error).message);
     }
   };
-  const removeSource = async id => {
+  const removeSource = async (id: string) => {
     sourceRequestGeneration.current += 1;
     try { await api.calendar.deleteSource(id); clearSourcePoll(id); await loadSources(); await onSourcesChanged(); }
     catch (error) { setSourceError(toAppError(error).message); }
   };
-  const syncSource = async id => {
+  const syncSource = async (id: string) => {
     if (syncingSourceIds.has(id)) return;
     setSyncingSourceIds(current => new Set(current).add(id));
     try { await api.calendar.syncSource(id); await loadSources(); await onSourcesChanged(); }
@@ -156,7 +204,7 @@ export default function CalendarSidebar({ anchor, calendars, visibleCalendarIds,
   };
   // The cadence is per calendar, so it saves on change rather than behind a save
   // button: one control, one decision. The row already shows the resulting state.
-  const changeSourceInterval = async (source, intervalMin) => {
+  const changeSourceInterval = async (source: CalendarSource, intervalMin: number) => {
     const previous = source.intervalMin;
     setSources(current => current.map(item => item.id === source.id ? { ...item, intervalMin } : item));
     try { await api.calendar.updateSource(source.id, { intervalMin }); }
@@ -167,19 +215,19 @@ export default function CalendarSidebar({ anchor, calendars, visibleCalendarIds,
       setSourceError(toAppError(error).message);
     }
   };
-  const ownedCalendar = calendar => Boolean(calendar.source === 'local' && !calendar.read_only && calendar.owner_user_id);
-  const updateCalendarAppearance = async (calendar, changes) => {
+  const ownedCalendar = (calendar: CalendarRow) => Boolean(calendar.source === 'local' && !calendar.read_only && calendar.owner_user_id);
+  const updateCalendarAppearance = async (calendar: CalendarRow, changes: { name?: string; color?: string }) => {
     setCalendarSaving(true); setEditError(null);
     try {
       await api.calendar.updateCalendar(calendar.id, { name: changes.name || calendar.name, color: changes.color || calendar.color, displayVisible: calendar.display_visible !== false, customName: Boolean(calendar.custom_name || changes.name !== calendar.name) });
       setOpenCalendarMenu(null); setCalendarEdit(null); await onCalendarsChanged?.();
     } catch (error) { setEditError(toAppError(error).message); } finally { setCalendarSaving(false); }
   };
-  const editCalendar = calendar => {
+  const editCalendar = (calendar: CalendarRow) => {
     setOpenCalendarMenu(null); setEditError(null);
-    setCalendarEdit({ calendar, name: calendar.name, color: calendar.color || '#35558a' });
+    setCalendarEdit({ calendar, name: calendar.name ?? '', color: calendar.color || '#35558a' });
   };
-  const deleteCalendar = async calendar => {
+  const deleteCalendar = async (calendar: CalendarRow) => {
     if (!window.confirm(t('calendar.confirmCalendarDelete', { name: calendar.name }))) return;
     setCalendarSaving(true); setSourceError(null);
     try { await api.calendar.deleteCalendar(calendar.id, calendar.name); setOpenCalendarMenu(null); await onCalendarsChanged?.(); }
@@ -209,10 +257,10 @@ export default function CalendarSidebar({ anchor, calendars, visibleCalendarIds,
     </>}>
       <div className="ui-form">
         {editError && <p role="alert" className="ui-alert">{editError}</p>}
-        <label>{t('calendar.renamePrompt')}<input maxLength={120} value={calendarEdit.name} onChange={event => setCalendarEdit(current => ({ ...current, name: event.target.value }))} /></label>
-        <label>{t('calendar.changeColor')}<input type="color" style={{ height: 44, padding: 4, boxSizing: 'border-box' }} value={calendarEdit.color} onChange={event => setCalendarEdit(current => ({ ...current, color: event.target.value }))} /></label>
+        <label>{t('calendar.renamePrompt')}<input maxLength={120} value={calendarEdit.name} onChange={event => setCalendarEdit(current => current ? { ...current, name: event.target.value } : current)} /></label>
+        <label>{t('calendar.changeColor')}<input type="color" style={{ height: 44, padding: 4, boxSizing: 'border-box' }} value={calendarEdit.color} onChange={event => setCalendarEdit(current => current ? { ...current, color: event.target.value } : current)} /></label>
         <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
-          {['#35558a', '#35793a', '#e879f9', '#e05252', '#d79a28', '#7c6af7'].map(color => <button key={color} type="button" aria-label={`${t('calendar.changeColor')} ${color}`} aria-pressed={calendarEdit.color === color} onClick={() => setCalendarEdit(current => ({ ...current, color }))} style={{ width: 44, height: 44, borderRadius: 8, border: calendarEdit.color === color ? '3px solid var(--text-primary)' : '3px solid transparent', background: color }} />)}
+          {['#35558a', '#35793a', '#e879f9', '#e05252', '#d79a28', '#7c6af7'].map(color => <button key={color} type="button" aria-label={`${t('calendar.changeColor')} ${color}`} aria-pressed={calendarEdit.color === color} onClick={() => setCalendarEdit(current => current ? { ...current, color } : current)} style={{ width: 44, height: 44, borderRadius: 8, border: calendarEdit.color === color ? '3px solid var(--text-primary)' : '3px solid transparent', background: color }} />)}
         </div>
       </div>
     </Dialog>}
@@ -241,9 +289,9 @@ export default function CalendarSidebar({ anchor, calendars, visibleCalendarIds,
 // choose rather than a free-text field that invites typos the server would reject.
 const SYNC_INTERVALS = [15, 30, 60, 180, 360, 720, 1440];
 
-function SourceIntervalSelect({ label, value, onChange, t }: { label: string; value: number; onChange: (value: number) => void; t: TFunction }) {
-  const known = SYNC_INTERVALS.includes(value);
-  const format = minutes => (minutes % 60 === 0 && minutes >= 60
+function SourceIntervalSelect({ label, value, onChange, t }: { label: string; value?: number; onChange: (value: number) => void; t: TFunction }) {
+  const known = value != null && SYNC_INTERVALS.includes(value);
+  const format = (minutes: number) => (minutes % 60 === 0 && minutes >= 60
     ? t('calendar.sourceSyncHours', { count: minutes / 60 })
     : t('calendar.sourceSyncMinutes', { count: minutes }));
   return <label style={intervalLabel}>{label}

@@ -3,7 +3,7 @@ import { describe, it, beforeEach } from 'node:test';
 import assert from 'node:assert/strict';
 
 // Minimal localStorage stub (aiResults only touches it inside its functions).
-(globalThis as unknown as TestGlobals).localStorage = (() => {
+Reflect.set(globalThis, 'localStorage', (() => {
   let store = {};
   return {
     getItem: k => (k in store ? store[k] : null),
@@ -11,7 +11,7 @@ import assert from 'node:assert/strict';
     removeItem: k => { delete store[k]; },
     clear: () => { store = {}; },
   };
-})();
+})());
 
 const { getResults, saveResult, removeResult } = await import('./aiResults.ts');
 

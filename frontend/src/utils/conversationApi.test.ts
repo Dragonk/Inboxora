@@ -1,12 +1,10 @@
-import { afterEach, describe, it } from 'node:test';
+import { afterEach, describe, it, mock } from 'node:test';
 import assert from 'node:assert/strict';
 import { buildConversationRequestHeaders, conversationApi } from './conversationApi.ts';
 import { CSRF_HEADER, CSRF_VALUE } from './api.ts';
 
-const originalFetch = globalThis.fetch;
-
 afterEach(() => {
-  (globalThis as unknown as TestGlobals).fetch = originalFetch;
+  mock.restoreAll();
 });
 
 describe('Conversation Engine API client', () => {
@@ -39,10 +37,11 @@ describe('Conversation Engine API client', () => {
 
   it('sends authenticated CSRF-aware requests for destructive and state-changing actions', async () => {
     const calls = [];
-    (globalThis as unknown as TestGlobals).fetch = async (url, init) => {
+    const fetchStub = async (url: string, init: RequestInit) => {
       calls.push({ url, init });
       return { ok: true, json: async () => ({ ok: true }) };
     };
+    mock.method(globalThis, 'fetch', fetchStub);
 
     await conversationApi.setStarred('conversation-1', true);
     await conversationApi.delete('conversation-1');

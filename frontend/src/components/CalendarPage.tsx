@@ -28,10 +28,60 @@ import './calendar.css';
 import type { StoreState } from '../store/index.ts';
 import { toAppError } from '../utils/errors.ts';
 
-const DATE_LOCALE_OVERRIDES = { zhCN: 'zh-CN' };
+/** The add/edit dialog's form state: the payload fields plus the dialog mode and event identity. */
+type CalendarEventFormState = CalendarEventForm & {
+  mode: 'create' | 'edit';
+  id?: string;
+  calendarId: string;
+  attendees: string[];
+};
 
-function resolveDateLocale(language: string | null | undefined) {
-  if (!language) return undefined;
+/** A calendar event as the read-only preview dialog reads it. */
+interface CalendarEventPreview {
+  read_only?: boolean;
+  source?: string | null;
+  source_account_id?: string | null;
+  source_folder?: string | null;
+  source_message_id?: string | null;
+  all_day?: boolean;
+  starts_at?: string | number | Date | null;
+  ends_at?: string | number | Date | null;
+  location?: string | null;
+  url?: string | null;
+  organizer?: string | null;
+  attendees?: string[] | null;
+  [key: string]: unknown;
+}
+
+/** A view event plus the form-facing string fields its index signature would hide. */
+interface CalendarFormEvent extends CalendarViewEvent {
+  description?: string | null;
+  url?: string | null;
+  organizer?: string | null;
+  invite_account_id?: string | null;
+}
+
+/** The identity of the event (or occurrence) a delete acts on. */
+interface CalendarDeleteTarget {
+  id: string;
+  calendarId: string;
+  recurrenceId?: string | null;
+  [key: string]: unknown;
+}
+
+/** `new Date(value)` for the union the event fields carry: `null` stays the epoch and
+ * `undefined` stays an invalid date, exactly as the Date constructor coerces them. */
+function previewDate(value: string | number | Date | null | undefined): Date {
+  if (value === undefined) return new Date(Number.NaN);
+  if (value === null) return new Date(0);
+  return new Date(value);
+}
+
+const DATE_LOCALE_OVERRIDES: Record<string, string> = { zhCN: 'zh-CN' };
+
+// The i18n instance always reports a language, so a definite tag goes in and comes out;
+// it only needs the override lookup and the `_`→`-` normalisation.
+function resolveDateLocale(language: string): string {
   return DATE_LOCALE_OVERRIDES[language] || language.replace('_', '-');
 }
 
@@ -105,11 +155,12 @@ export default function CalendarPage({ isActive = true }) {
     const observer = new ResizeObserver(() => {
       setSurfaceWidth(surfaceRef.current?.clientWidth || Infinity);
     });
-    observer.observe(surfaceRef.current);
+    const surface = surfaceRef.current;
+    if (surface) observer.observe(surface);
     return () => observer.disconnect();
   }, []);
   const [dayPanelOpen, setDayPanelOpen] = useState(false);
-  const [preview, setPreview] = useState<{ read_only?: boolean; source?: string | null; source_account_id?: string | null; source_folder?: string | null; source_message_id?: string | null; all_day?: boolean; starts_at?: string | number | Date | null; ends_at?: string | number | Date | null; location?: string | null; url?: string | null; organizer?: string | null; attendees?: string[]; [key: string]: unknown } | null>(null);
+  const [preview, setPreview] = useState<CalendarEventPreview | null>(null);
   const [anchor, setAnchor] = useState(() => new Date());
   const loadGeneration = useRef(0);
   // The last view is remembered per device, so leaving the calendar and coming back
@@ -119,7 +170,7 @@ export default function CalendarPage({ isActive = true }) {
   const [rawCalendars, setCalendars] = useState<Array<{ id: string; name?: string | null; color?: string | null; [key: string]: unknown }>>([]); const [rawEvents, setEvents] = useState<CalendarViewEvent[]>([]);
   const calendars = useMemo(() => rawCalendars.map(calendar => localizeContactCalendar(calendar, t)), [rawCalendars, t]);
   const events = useMemo(() => rawEvents.map(event => localizeContactEvent(event, t)), [rawEvents, t]);
-  const [error, setError] = useState<string | null>(null); const [loading, setLoading] = useState(true); const [form, setForm] = useState(null); const [saving, setSaving] = useState(false);
+  const [error, setError] = useState<string | null>(null); const [loading, setLoading] = useState(true); const [form, setForm] = useState<CalendarEventFormState | null>(null); const [saving, setSaving] = useState(false);
   // Read-only events (imported/synced sources) are shown in a preview dialog whose
   // description is rendered by the mail body renderer.
   const descriptionBody = useMemo(() => calendarDescriptionBody(preview?.description), [preview]);
@@ -127,8 +178,9 @@ export default function CalendarPage({ isActive = true }) {
   // events that are shown stay valid, but the view must say it is incomplete
   // rather than silently presenting a partial month as the whole truth.
   const [incompleteSeries, setIncompleteSeries] = useState(0);
-  const invitationOperation = useRef<ReturnType<typeof createInvitationOperationController> | null>(null);
-  if (!invitationOperation.current) invitationOperation.current = createInvitationOperationController();
+  // One operation controller for the page's lifetime; the lazy state initializer
+  // builds it once and keeps it across renders (the same object the ref held before).
+  const [invitation] = useState(createInvitationOperationController);
   const [mobilePanelOpen, setMobilePanelOpen] = useState(false);
   const range = useMemo(() => calendarVisibleRange(anchor, view, calendarWeekStartsOn), [anchor, calendarWeekStartsOn, view]);
   const rangeStart = iso(range.start); const rangeEnd = iso(range.end);
@@ -176,45 +228,51 @@ export default function CalendarPage({ isActive = true }) {
   }, [load]);
   useEffect(() => {
     if (!isMobile || !isActive) return;
-    invitationOperation.current.reset();
+    invitation.reset();
     setForm(null);
     setMobilePanelOpen(false);
     setDayPanelOpen(false);
     setPreview(null);
-  }, [isActive, isMobile]);
+  }, [invitation, isActive, isMobile]);
   const writable = calendars.filter(calendar => !calendar.read_only && calendar.source === 'local');
   const senderAccounts = accounts.filter(account => account.enabled && account.smtp_host);
   const openCreate = (date = anchor) => {
     if (!writable.length) return;
-    invitationOperation.current.reset();
+    invitation.reset();
     // The sender chosen in Settings → Calendar is preselected. A default whose
     // account can no longer send is ignored rather than carried as a dead value.
     const defaultInviteAccountId = senderAccounts.some(account => account.id === calendarInviteAccountId) ? calendarInviteAccountId : '';
     setForm({ ...emptyForm(writable[0]?.id || '', date, defaultInviteAccountId), mode: 'create' });
   };
-  const openEdit = (event: CalendarViewEvent) => { invitationOperation.current.reset(); setForm({ mode: 'edit', ...event, id: event.series_id || event.id, recurrenceId: event.recurring ? event.recurrence_id : undefined, calendarId: event.calendar_id, summary: event.summary || '', description: event.description || '', location: event.location || '', url: event.url || '', organizer: event.organizer || '', attendees: Array.isArray(event.attendees) ? event.attendees : [], sendInvites: Boolean(event.invite_account_id && event.attendees?.length), inviteAccountId: event.invite_account_id || '', allDay: Boolean(event.all_day), startsAt: event.all_day ? String(event.starts_at).slice(0, 10) : toDateTimeLocal(event.starts_at), endsAt: event.all_day ? String(event.ends_at).slice(0, 10) : toDateTimeLocal(event.ends_at) }); };
+  const openEdit = (event: CalendarFormEvent) => { invitation.reset(); setForm({ mode: 'edit', ...event, id: event.series_id || event.id, recurrenceId: event.recurring ? event.recurrence_id : undefined, calendarId: event.calendar_id || '', summary: event.summary || '', description: event.description || '', location: event.location || '', url: event.url || '', organizer: event.organizer || '', attendees: Array.isArray(event.attendees) ? event.attendees : [], sendInvites: Boolean(event.invite_account_id && event.attendees?.length), inviteAccountId: event.invite_account_id || '', allDay: Boolean(event.all_day), startsAt: event.all_day ? String(event.starts_at).slice(0, 10) : toDateTimeLocal(event.starts_at), endsAt: event.all_day ? String(event.ends_at).slice(0, 10) : toDateTimeLocal(event.ends_at) }); };
   const save = async () => {
+    if (!form) return;
     const payload = eventPayload(form);
     if (!payload) { setError(t('calendar.invalidEvent')); return; }
     setSaving(true); setError(null);
     try {
-      const { result, retryable } = await invitationOperation.current.save(form, payload, api.calendar);
+      // `api.calendar.updateEvent` takes a definite id while the retry controller may
+      // pass `undefined`; `String(id)` serialises exactly as the API's own template does.
+      const { result, retryable } = await invitation.save(form, payload, {
+        createEvent: (data, key) => api.calendar.createEvent(data, key),
+        updateEvent: (id, data, key) => api.calendar.updateEvent(String(id), data, key),
+      });
       if (retryable) {
         const message = result?.invitationError || t('calendar.invitationPending', 'Invitation delivery is still pending; retry to check its status.');
-        setForm(current => ({ ...current, invitationError: message }));
+        setForm(current => (current ? { ...current, invitationError: message } : current));
         setError(message);
       } else {
         setForm(null); await load();
       }
     } catch (err) {
       const message = toAppError(err).message || t('calendar.saveFailed');
-      if (payload.sendInvites) setForm(current => ({ ...current, invitationError: message }));
+      if (payload.sendInvites) setForm(current => (current ? { ...current, invitationError: message } : current));
       setError(message);
     } finally { setSaving(false); }
   };
   // `scope` decides the request shape: 'single' and 'following' address one occurrence, 'all'
   // removes the event outright — the path that also notifies invited attendees.
-  const performDelete = async (target, scope) => {
+  const performDelete = async (target: CalendarDeleteTarget, scope: string) => {
     try {
       await api.calendar.deleteEvent(
         target.id,
@@ -222,7 +280,7 @@ export default function CalendarPage({ isActive = true }) {
         scope === 'all' ? undefined : target.recurrenceId,
         scope === 'following' ? 'following' : undefined,
       );
-      invitationOperation.current.reset();
+      invitation.reset();
       setDeleteTarget(null);
       setForm(null);
       await load();
@@ -241,16 +299,18 @@ export default function CalendarPage({ isActive = true }) {
     setSaving(true);
     try { await performDelete(target, 'all'); } finally { setSaving(false); }
   };
-  const changeForm = (key: string, value: unknown) => { invitationOperation.current.reset(); setForm(current => ({ ...current, [key]: value, invitationError: null })); };
+  const changeForm = (key: string, value: unknown) => { invitation.reset(); setForm(current => (current ? { ...current, [key]: value, invitationError: null } : current)); };
   const deleteEvent = async (event: CalendarViewEvent) => {
-    const target = { id: event.series_id || event.id, calendarId: event.calendar_id, recurrenceId: event.recurrence_id };
+    const id = event.series_id || event.id;
+    if (!id) return;
+    const target: CalendarDeleteTarget = { id, calendarId: event.calendar_id || '', recurrenceId: event.recurrence_id };
     // A series can be removed from here on, entirely, or just at this occurrence. Asking is the
     // only honest option: the three answers produce three different calendars.
     if (event.recurring && event.recurrence_id) { setDeleteTarget(target); return; }
     if (!window.confirm(t('calendar.confirmDelete'))) return;
     await performDelete(target, 'all');
   };
-  const [deleteTarget, setDeleteTarget] = useState<CalendarViewEvent | null>(null);
+  const [deleteTarget, setDeleteTarget] = useState<CalendarDeleteTarget | null>(null);
   const [contextMenu, setContextMenu] = useState<{ event: CalendarViewEvent; x: number; y: number; triggerRef: { current: unknown } } | null>(null);
   const days = view === 'month' ? calendarDays(anchor, calendarWeekStartsOn) : weekDays(anchor, view === 'workweek', calendarWeekStartsOn, calendarWorkDays);
   const visibleEvents = visibleCalendarIds == null ? events : events.filter(event => visibleCalendarIds.includes(event.calendar_id));
@@ -263,17 +323,19 @@ export default function CalendarPage({ isActive = true }) {
   };
   const title = view === 'month' || view === 'agenda'
     ? anchor.toLocaleDateString(locale, { month: 'long', year: 'numeric' })
-    : `${days[0].toLocaleDateString(locale, { month: 'short', day: 'numeric' })} – ${days.at(-1).toLocaleDateString(locale, { month: 'short', day: 'numeric', year: 'numeric' })}`;
+    : `${days[0].toLocaleDateString(locale, { month: 'short', day: 'numeric' })} – ${days[days.length - 1].toLocaleDateString(locale, { month: 'short', day: 'numeric', year: 'numeric' })}`;
   const step = (direction: number) => setAnchor(current => shiftCalendarAnchor(current, view, direction));
   const shiftMiniMonth = (direction: number) => setAnchor(current => shiftCalendarAnchor(current, 'month', direction));
   const openEvent = (event: CalendarViewEvent) => {
     // Always open the mail-like preview first, for every event. Editing is one tap
     // away from it, so opening a local event no longer skips the readable view (the
     // description is only ever rendered like a message body in the preview).
-    invitationOperation.current.reset();
+    invitation.reset();
     setPreview(event);
   };
   const editablePreview = Boolean(preview && !preview.read_only && preview.source === 'local');
+  // Validate the preview's link once, so the guard and the anchor share the narrowed value.
+  const previewUrl = preview ? safeHttpUrl(preview.url) : null;
   // The message an invitation was accepted from may sit in another account or folder
   // and is therefore not in the loaded list: fetching it by id and publishing it as a
   // one-message thread is what keeps the reader from opening blank.
@@ -333,7 +395,7 @@ export default function CalendarPage({ isActive = true }) {
     {isMobile && mobilePanelOpen && <Dialog title={t('calendar.panel')} closeLabel={t('calendar.close')} onClose={() => setMobilePanelOpen(false)} testId="calendar-mobile-dock" className="calendar-panel-dialog ui-sheet">
       <CalendarSidebar {...sidebarProps} onSelectDate={day => { setAnchor(day); setMobilePanelOpen(false); }} />
     </Dialog>}
-    {form && <EventDialog form={form} error={error} calendars={writable} accounts={senderAccounts} saving={saving} fullScreen={isMobile} onChange={changeForm} onAllDayChange={allDay => { invitationOperation.current.reset(); setForm(current => toggleAllDayTimes(current, allDay)); }} onSave={save} onDelete={remove} onClose={() => { invitationOperation.current.reset(); setForm(null); setError(null); }} t={t} />}
+    {form && <EventDialog form={form} error={error} calendars={writable} accounts={senderAccounts} saving={saving} fullScreen={isMobile} onChange={changeForm} onAllDayChange={allDay => { invitation.reset(); setForm(current => current && { ...toggleAllDayTimes(current, allDay), mode: current.mode, calendarId: current.calendarId, attendees: current.attendees }); }} onSave={save} onDelete={remove} onClose={() => { invitation.reset(); setForm(null); setError(null); }} t={t} />}
     {preview && <Dialog
       title={localizeContactEvent(preview, t).summary || t('calendar.untitled')}
       closeLabel={t('calendar.close')}
@@ -349,15 +411,15 @@ export default function CalendarPage({ isActive = true }) {
       </>}
     >
       <div className="ui-form">{!editablePreview && <span className="calendar-readonly">{t('calendar.readOnly')}</span>}
-        <p>{preview.all_day ? `${String(preview.starts_at).slice(0, 10)} · ${t('calendar.allDay')}` : `${new Date(preview.starts_at).toLocaleString(locale)} – ${new Date(preview.ends_at).toLocaleString(locale)}`}</p>
+        <p>{preview.all_day ? `${String(preview.starts_at).slice(0, 10)} · ${t('calendar.allDay')}` : `${previewDate(preview.starts_at).toLocaleString(locale)} – ${previewDate(preview.ends_at).toLocaleString(locale)}`}</p>
         {preview.location && <p>{preview.location}</p>}
         {/* The description is rendered exactly like a message body: the same
             sanitized, script-free iframe. Invitations accepted from mail arrive
             with HTML (X-ALT-DESC or markup inside DESCRIPTION); plain text keeps
             the mail reader's text treatment. */}
         {(descriptionBody.html || descriptionBody.text) && <div className="calendar-event-description" data-testid="calendar-event-description-body"><MessageBodyRenderer {...descriptionBody} title={t('calendar.description')} showQuotedTextLabel={t('conversation.showQuotedText')} hideQuotedTextLabel={t('conversation.hideQuotedText')} /></div>}
-        {safeHttpUrl(preview.url) && <p><a href={safeHttpUrl(preview.url)} target="_blank" rel="noopener noreferrer">{preview.url}</a></p>}
-        {preview.attendees?.length > 0 && <p>{t('calendar.attendees')}: {preview.attendees.join(', ')}</p>}
+        {previewUrl && <p><a href={previewUrl} target="_blank" rel="noopener noreferrer">{preview.url}</a></p>}
+        {preview.attendees && preview.attendees.length > 0 && <p>{t('calendar.attendees')}: {preview.attendees.join(', ')}</p>}
         {preview.organizer && <p>{t('calendar.organizer')}: {preview.organizer}</p>}
       </div>
     </Dialog>}
@@ -385,7 +447,7 @@ interface CalendarGridProps {
 
 /** The add/edit event dialog. */
 interface EventDialogProps {
-  form: CalendarEventForm;
+  form: CalendarEventFormState;
   error: string | null;
   calendars: Array<{ id: string; name?: string | null; color?: string | null; [key: string]: unknown }>;
   accounts: Array<{ id: string; email_address?: string | null; name?: string | null; [key: string]: unknown }>;
@@ -409,8 +471,8 @@ function CalendarGrid({ days, dayEventsFor, view, anchor, isMobile, locale, onSe
         return <section key={day.toDateString()} className="cal-cell" data-selected={day.toDateString() === anchor.toDateString()} onClick={event => { if (event.target === event.currentTarget) onSelectDay(day); }} onDoubleClick={event => { if (event.target === event.currentTarget) openCreate(day); }} style={{ ...monthCell, ...(isWeekend(day) ? weekendCell : {}), ...(inMonth ? {} : outCell) }}>
           <button type="button" className="calendar-day-select" aria-label={day.toLocaleDateString(locale, { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' })} aria-pressed={day.toDateString() === anchor.toDateString()} onClick={() => onSelectDay(day)} style={{ ...dateChip, ...(isToday(day) ? dateChipToday : {}) }}>{day.getDate()}</button>
           <div style={eventStack}>{visibleDayEvents.map(event => {
-            const showMenu = target => openContextMenu(event, target.clientX, target.clientY, target.currentTarget);
-            const invokeMenu = keyboardEvent => {
+            const showMenu = (target: React.MouseEvent<HTMLButtonElement>) => openContextMenu(event, target.clientX, target.clientY, target.currentTarget);
+            const invokeMenu = (keyboardEvent: React.KeyboardEvent<HTMLButtonElement>) => {
               if (keyboardEvent.key !== 'ContextMenu' && !(keyboardEvent.shiftKey && keyboardEvent.key === 'F10')) return;
               keyboardEvent.preventDefault();
               openContextMenu(event, keyboardEvent.currentTarget.getBoundingClientRect().right, keyboardEvent.currentTarget.getBoundingClientRect().bottom, keyboardEvent.currentTarget);
@@ -468,8 +530,8 @@ function TimeGrid({ days, dayEventsFor, view, isMobile, locale, openCreate, open
     // must not yank the grid sideways under the finger.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [daysKey, view, isMobile]);
-  const showMenu = (event, target) => openContextMenu(event, target.clientX, target.clientY, target.currentTarget);
-  const invokeMenu = (event, keyboardEvent) => {
+  const showMenu = (event: CalendarViewEvent, target: React.MouseEvent<HTMLButtonElement>) => openContextMenu(event, target.clientX, target.clientY, target.currentTarget);
+  const invokeMenu = (event: CalendarViewEvent, keyboardEvent: React.KeyboardEvent<HTMLButtonElement>) => {
     if (keyboardEvent.key !== 'ContextMenu' && !(keyboardEvent.shiftKey && keyboardEvent.key === 'F10')) return;
     keyboardEvent.preventDefault();
     const target = keyboardEvent.currentTarget;
@@ -513,7 +575,7 @@ function EventDialog({ form, error, calendars, accounts, saving, onChange, onAll
       <div className="ui-form-columns"><label>{t('calendar.starts')}<input type={form.allDay ? 'date' : 'datetime-local'} value={form.startsAt} onChange={e => onChange('startsAt', e.target.value)} /></label><label>{t('calendar.ends')}<input type={form.allDay ? 'date' : 'datetime-local'} value={form.endsAt} onChange={e => onChange('endsAt', e.target.value)} /></label></div>
       <label>{t('calendar.calendar')}<select value={form.calendarId} onChange={e => onChange('calendarId', e.target.value)}>{calendars.map(calendar => <option key={calendar.id} value={calendar.id}>{calendar.name}</option>)}</select></label>
       <label>{t('calendar.location')}<input value={form.location} onChange={e => onChange('location', e.target.value)} /></label>
-      <div className="calendar-description"><span className="calendar-description-label">{t('calendar.description')}</span><RichTextEditor value={form.description} onChange={html => onChange('description', html)} placeholder={t('calendar.descriptionPlaceholder')} label={t('calendar.description')} testId="calendar-event-description" /></div>
+      <div className="calendar-description"><span className="calendar-description-label">{t('calendar.description')}</span><RichTextEditor value={form.description} onChange={(html: string) => onChange('description', html)} placeholder={t('calendar.descriptionPlaceholder')} label={t('calendar.description')} testId="calendar-event-description" /></div>
       <div className="calendar-invites ui-form"><label className="ui-check"><input type="checkbox" checked={form.sendInvites} onChange={e => onChange('sendInvites', e.target.checked)} />{t('calendar.sendInvites')}</label>
         {form.sendInvites && <><label>{t('calendar.attendees')}<input value={attendeeValue} onChange={e => onChange('attendees', e.target.value.split(',').map(email => email.trim()).filter(Boolean))} placeholder={t('calendar.attendeesPlaceholder')} /></label>
           <label>{t('calendar.senderAccount')}<select value={form.inviteAccountId} onChange={e => onChange('inviteAccountId', e.target.value)}><option value="">{t('calendar.chooseSender')}</option>{accounts.map(account => <option key={account.id} value={account.id}>{account.name || account.email_address} · {account.email_address}</option>)}</select></label>

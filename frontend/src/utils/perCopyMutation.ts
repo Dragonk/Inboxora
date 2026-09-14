@@ -23,7 +23,7 @@ function versionFor(lane, version) {
   return version.startsWith(prefix) ? Number(version.slice(prefix.length)) : version;
 }
 
-function laneAndVersion(laneOrVersion, maybeVersion = undefined) {
+function laneAndVersion(laneOrVersion, maybeVersion: string | undefined = undefined) {
   if (maybeVersion !== undefined) return [laneOrVersion, maybeVersion];
   if (typeof laneOrVersion === 'string') {
     const separator = laneOrVersion.lastIndexOf(':');
@@ -50,7 +50,7 @@ export function isLatestPerCopyMutation(id, laneOrVersion, maybeVersion = undefi
 }
 
 // Invalidate a deferred continuation without creating a new request intent.
-export function invalidatePerCopyMutation(id, laneOrVersion, maybeVersion = undefined) {
+export function invalidatePerCopyMutation(id, laneOrVersion, maybeVersion: string | undefined = undefined) {
   const [lane, version] = laneAndVersion(laneOrVersion, maybeVersion);
   const key = keyFor(id, lane);
   const numericVersion = versionFor(lane, version);

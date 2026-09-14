@@ -13,7 +13,7 @@ vi.mock('../utils/redact.js', () => ({ redactEmail: vi.fn() }));
 vi.mock('./hostValidation.js', () => ({ resolveForConnection: vi.fn() }));
 vi.mock('./connectionPolicy.js', () => ({ getConnectionPolicy: vi.fn() }));
 
-import type { CollectedParts } from './imapManager.js';
+import type { CollectedParts, EmailAccountRow } from './imapManager.js';
 import { ImapManager, providerProfile, makeClientCfg, attachmentTransferEncoding, relocateExemptGuard, insertCopiedSibling, deleteMessageCopyRow, emitSectionsChanged, ensureMailbox, createKeyedSemaphore, isConnectionRefusal, connectCooldownMs, effectiveSyncIntervalMs, folderSyncDue, planModseqSync, connectStaggerFor, walkStructure, shouldFallbackToTextPart, persistInboundCalendarInvitationFromMessage, looksLikeTextPayload, parsePersistentCap, resolvePersistentCap, persistentEligible, shouldRetryIPv4, classifyMoveBySearch } from './imapManager.js';
 import { parseInboundCalendarInvitation } from './inboundCalendarInvitation.js';
 import { pluginRegistry } from '../plugins/registry.js';
@@ -348,7 +348,7 @@ const findCall = (frag: string) => {
   if (!call) throw new Error(`no query containing ${frag}`);
   return call;
 };
-const countAdjusts = () => query.mock.calls.filter(([sql]: [string]) => sql.includes('UPDATE folders'));
+const countAdjusts = () => query.mock.calls.filter(([sql]) => sql.includes('UPDATE folders'));
 
 describe('insertCopiedSibling', () => {
   beforeEach(() => query.mockReset());
@@ -1102,8 +1102,8 @@ describe('syncMessages — empty local cache vs nonempty server (wiring)', () =>
       uid: true,
     }));
     expect(vi.mocked(client.fetch).mock.calls[0][2]).toBeUndefined();
-    const insertIndex = query.mock.calls.findIndex(([sql]: [string]) => sql.includes('INSERT INTO messages'));
-    const modseqUpdateIndex = query.mock.calls.findIndex(([sql]: [string]) => sql.includes('UPDATE folders SET highest_modseq'));
+    const insertIndex = query.mock.calls.findIndex(([sql]) => sql.includes('INSERT INTO messages'));
+    const modseqUpdateIndex = query.mock.calls.findIndex(([sql]) => sql.includes('UPDATE folders SET highest_modseq'));
     expect(insertIndex).toBeGreaterThanOrEqual(0);
     expect(modseqUpdateIndex).toBeGreaterThan(insertIndex);
     expect(result).toEqual(expect.objectContaining({ insertedCount: 1 }));
@@ -1145,7 +1145,7 @@ describe('syncMessages — empty local cache vs nonempty server (wiring)', () =>
       expect.objectContaining({ envelope: true, bodyStructure: true }),
       { uid: true }
     );
-    expect(query.mock.calls.some(([sql]: [string]) => sql.includes('UPDATE folders SET highest_modseq'))).toBe(false);
+    expect(query.mock.calls.some(([sql]) => sql.includes('UPDATE folders SET highest_modseq'))).toBe(false);
   });
 
   it('hands a newly-inserted INBOX row to the inboxIngest hook when a plugin is active', async () => {
@@ -1384,7 +1384,7 @@ describe('_syncSpamFolder — periodic spam poll guards', () => {
 });
 
 describe('walkStructure attachment classification', () => {
-  const walk = (node) => {
+  const walk = (node: Parameters<typeof walkStructure>[0]) => {
     const results: CollectedParts = { textParts: [], attachments: [], calendarParts: [] };
     walkStructure(node, results);
     return results;
@@ -1446,8 +1446,8 @@ describe('walkStructure attachment classification', () => {
         },
       ],
     });
-    expect((results as { inlineImages?: Array<{ cid?: string }> }).inlineImages).toHaveLength(1);
-    expect((results as { inlineImages?: Array<{ cid?: string }> }).inlineImages[0]?.cid).toBe('logo@x');
+    expect(results.inlineImages).toHaveLength(1);
+    expect(results.inlineImages?.[0]?.cid).toBe('logo@x');
     expect(results.attachments).toHaveLength(1);
     expect(results.attachments[0].filename).toBe('photo.jpg');
   });
@@ -1468,7 +1468,7 @@ describe('walkStructure attachment classification', () => {
         { part: '1', type: 'text/plain', encoding: '7bit' },
         {
           part: '2', type: 'text/calendar', encoding: 'base64', disposition: 'attachment',
-          parameters: { charset: 'utf-8', method: 'REQUEST' }, dispositionParameters: { filename: 'invite.ics' },
+          parameters: { charset: 'utf-8' }, dispositionParameters: { filename: 'invite.ics' },
         },
         { part: '3', type: 'application/ics', encoding: 'quoted-printable', disposition: 'inline' },
       ],
@@ -1501,7 +1501,7 @@ describe('walkStructure attachment classification', () => {
         { part: '1', type: 'text/plain', encoding: '7bit' },
         {
           part: '2', type: 'text/calendar', encoding: 'base64', disposition: 'attachment',
-          parameters: { charset: 'utf-8', method: 'REQUEST' }, dispositionParameters: { filename: 'invitation.ics' },
+          parameters: { charset: 'utf-8' }, dispositionParameters: { filename: 'invitation.ics' },
         },
       ],
     });
@@ -1533,7 +1533,7 @@ describe('walkStructure attachment classification', () => {
         { part: '1', type: 'text/plain', encoding: '7bit' },
         {
           part: '2', type: 'text/calendar', encoding: 'base64', disposition: 'attachment',
-          parameters: { charset: 'utf-8', method: 'REQUEST' }, dispositionParameters: { filename: 'invitation.ics' },
+          parameters: { charset: 'utf-8' }, dispositionParameters: { filename: 'invitation.ics' },
         },
       ],
     };
@@ -1555,11 +1555,12 @@ describe('walkStructure attachment classification', () => {
     resolveForConnection.mockResolvedValue({ host: '127.0.0.1', addresses: ['127.0.0.1'], servername: null });
     query.mockResolvedValue({ rows: [] });
 
-    const manager = new ImapManager(null);
+    const manager = new ImapManager({ clients: new Set() });
     clearInterval(manager._healthCheckTimer);
     clearInterval(manager._snippetSchedulerTimer);
     const buffer = await manager.fetchAttachment({ id: 'account-1', user_id: 'user-1', imap_host: 'imap.example.test', imap_port: 993, imap_tls: true, auth_user: 'u', auth_pass: 'p' }, 42, 'INBOX', '2');
 
+    if (!buffer) throw new Error('expected a calendar attachment buffer');
     const raw = buffer.toString('utf8');
     expect(raw.startsWith('BEGIN:VCALENDAR')).toBe(true);
     expect(parseInboundCalendarInvitation(raw)).toMatchObject({
@@ -1610,22 +1611,22 @@ describe('persistInboundCalendarInvitationFromMessage', () => {
 // account is genuinely empty (which connectAccount now captures pre-sync).
 
 describe('_shouldAutoBackfillOnConnect (#354)', () => {
-  const gate = acct => ImapManager.prototype._shouldAutoBackfillOnConnect.call({}, acct);
+  const gate = (acct: EmailAccountRow) => ImapManager.prototype._shouldAutoBackfillOnConnect.call({}, acct);
   beforeEach(() => vi.clearAllMocks());
 
   it('always backfills a provider without autoBackfillExistingOnConnect:false, without a DB check', async () => {
-    await expect(gate({ imap_host: 'mail.example.com', id: 'a1' })).resolves.toBe(true);
+    await expect(gate({ id: 'a1', user_id: 'u1', imap_host: 'mail.example.com' })).resolves.toBe(true);
     expect(query).not.toHaveBeenCalled();
   });
 
   it('backfills a fresh PurelyMail account with no cached messages', async () => {
     query.mockResolvedValueOnce({ rows: [] });
-    await expect(gate({ imap_host: 'imap.purelymail.com', id: 'a1' })).resolves.toBe(true);
+    await expect(gate({ id: 'a1', user_id: 'u1', imap_host: 'imap.purelymail.com' })).resolves.toBe(true);
   });
 
   it('skips backfill for a PurelyMail account that already has cached messages', async () => {
     query.mockResolvedValueOnce({ rows: [{ exists: 1 }] });
-    await expect(gate({ imap_host: 'imap.purelymail.com', id: 'a1' })).resolves.toBe(false);
+    await expect(gate({ id: 'a1', user_id: 'u1', imap_host: 'imap.purelymail.com' })).resolves.toBe(false);
   });
 });
 
@@ -1668,7 +1669,7 @@ describe("connectAccount attaches 'error' before connect (#360)", () => {
     vi.spyOn(console, 'error').mockImplementation(() => {});
     vi.spyOn(console, 'log').mockImplementation(() => {});
 
-    const mgr = new ImapManager(null);
+    const mgr = new ImapManager({ clients: new Set() });
     clearInterval(mgr._healthCheckTimer);
     clearInterval(mgr._snippetSchedulerTimer);
     // Stub the post-connect fan-out — this test asserts only the listener-ordering
@@ -1676,7 +1677,7 @@ describe("connectAccount attaches 'error' before connect (#360)", () => {
     mgr.disconnectAccount = vi.fn(() => Promise.resolve());
     mgr._attachIdleListeners = vi.fn();
     mgr.syncFolders = vi.fn(() => Promise.resolve());
-    vi.spyOn(mgr, 'syncMessages').mockResolvedValue(undefined);
+    vi.spyOn(mgr, 'syncMessages').mockResolvedValue({ insertedCount: 0, broadcastedNewMessages: false });
     mgr._shouldAutoBackfillOnConnect = vi.fn(() => Promise.resolve(false));
     mgr.backfillAllFolders = vi.fn(() => Promise.resolve());
     mgr._startSyncInterval = vi.fn();
@@ -1698,7 +1699,7 @@ describe('reconcileDeletes folder source', () => {
     // resurrect a deleted mailbox as something to open.
     query.mockReset();
     query.mockResolvedValue({ rows: [] });
-    await ImapManager.prototype.reconcileDeletes.call({}, { id: 'acct-1', email_address: 'a@example.com' });
+    await ImapManager.prototype.reconcileDeletes.call({}, { id: 'acct-1', user_id: 'user-1', email_address: 'a@example.com' });
     const [sql, params] = query.mock.calls[0];
     expect(sql).toContain('FROM folders f');
     expect(sql).toContain('f.path = m.folder');
@@ -1712,7 +1713,7 @@ describe('syncFolders pruning', () => {
     query.mockResolvedValue({ rows: [] });
   });
 
-  const account = { id: 'acct-1', email_address: 'a@example.com' };
+  const account: EmailAccountRow = { id: 'acct-1', user_id: 'user-1', email_address: 'a@example.com' };
 
   it('deletes DB rows for folders missing from LIST (ghosts after external rename)', async () => {
     const client = mockImapClient({
@@ -1724,16 +1725,16 @@ describe('syncFolders pruning', () => {
     });
     await ImapManager.prototype.syncFolders.call({}, account, client);
 
-    const del = query.mock.calls.find(([sql]: [string]) => sql.includes('DELETE FROM folders'));
+    const del = findCall('DELETE FROM folders');
     expect(del).toBeTruthy();
     expect(del[0]).toContain("path != 'INBOX'");
     expect(del[1]).toEqual(['acct-1', ['INBOX', 'Projects-Renamed', 'Projects-Renamed/Sub']]);
   });
 
   it('never prunes on an empty LIST response', async () => {
-    const client = { list: vi.fn().mockResolvedValue([]) };
+    const client = mockImapClient({ list: vi.fn().mockResolvedValue([]) });
     await ImapManager.prototype.syncFolders.call({}, account, client);
-    expect(query.mock.calls.some(([sql]: [string]) => sql.includes('DELETE FROM folders'))).toBe(false);
+    expect(query.mock.calls.some(([sql]) => sql.includes('DELETE FROM folders'))).toBe(false);
   });
 
   it('drops the cached messages of a folder the server no longer has', async () => {
@@ -1743,26 +1744,26 @@ describe('syncFolders pruning', () => {
     // could never learn the messages were gone, so the rows kept the error alive forever.
     query.mockImplementation(async sql => sql.includes('DELETE FROM folders')
       ? { rows: [{ path: 'Newsletter' }], rowCount: 1 } : { rows: [], rowCount: 0 });
-    const client = { list: vi.fn().mockResolvedValue([{ path: 'INBOX', name: 'INBOX', delimiter: '/' }]) };
+    const client = mockImapClient({ list: vi.fn().mockResolvedValue([{ path: 'INBOX', name: 'INBOX', delimiter: '/' }]) });
     vi.spyOn(console, 'log').mockImplementation(() => {});
     await ImapManager.prototype.syncFolders.call({}, account, client);
 
-    const del = query.mock.calls.find(([sql]: [string]) => sql.includes('DELETE FROM messages'));
+    const del = findCall('DELETE FROM messages');
     expect(del).toBeTruthy();
     expect(del[1]).toEqual(['acct-1', ['Newsletter']]);
   });
 
   it('touches no message rows when no folder was pruned', async () => {
     query.mockImplementation(async () => ({ rows: [], rowCount: 0 }));
-    const client = { list: vi.fn().mockResolvedValue([{ path: 'INBOX', name: 'INBOX', delimiter: '/' }]) };
+    const client = mockImapClient({ list: vi.fn().mockResolvedValue([{ path: 'INBOX', name: 'INBOX', delimiter: '/' }]) });
     await ImapManager.prototype.syncFolders.call({}, account, client);
-    expect(query.mock.calls.some(([sql]: [string]) => sql.includes('DELETE FROM messages'))).toBe(false);
+    expect(query.mock.calls.some(([sql]) => sql.includes('DELETE FROM messages'))).toBe(false);
   });
 
   it('never deletes messages on an empty LIST, because nothing was pruned', async () => {
-    const client = { list: vi.fn().mockResolvedValue([]) };
+    const client = mockImapClient({ list: vi.fn().mockResolvedValue([]) });
     await ImapManager.prototype.syncFolders.call({}, account, client);
-    expect(query.mock.calls.some(([sql]: [string]) => sql.includes('DELETE FROM messages'))).toBe(false);
+    expect(query.mock.calls.some(([sql]) => sql.includes('DELETE FROM messages'))).toBe(false);
   });
 
   it('still upserts every listed folder before pruning', async () => {
@@ -1772,17 +1773,22 @@ describe('syncFolders pruning', () => {
       ]),
     });
     await ImapManager.prototype.syncFolders.call({}, account, client);
-    const inserts = query.mock.calls.filter(([sql]: [string]) => sql.includes('INSERT INTO folders'));
+    const inserts = query.mock.calls.filter(([sql]) => sql.includes('INSERT INTO folders'));
     // The listed folder + the implicit INBOX row.
     expect(inserts.length).toBe(2);
-    const del = query.mock.calls.find(([sql]: [string]) => sql.includes('DELETE FROM folders'));
-    expect(del[1][1]).toEqual(['Archive']);
+    const del = findCall('DELETE FROM folders');
+    const delParams = del[1];
+    if (!delParams) throw new Error('DELETE FROM folders ran without params');
+    expect(delParams[1]).toEqual(['Archive']);
   });
 });
 
 // ── _deleteAllInFolder — chunked, throttle-tolerant empty ─────────────────────
 describe('_deleteAllInFolder — chunked delete', () => {
-  const run = (client, opts = {}) =>
+  const run = (
+    client: Parameters<typeof ImapManager.prototype._deleteAllInFolder>[0],
+    opts: NonNullable<Parameters<typeof ImapManager.prototype._deleteAllInFolder>[2]> = {},
+  ) =>
     ImapManager.prototype._deleteAllInFolder.call(ImapManager.prototype, client, 'Trash', { retryBackoffMs: 0, ...opts });
 
   it('deletes in UID-addressed chunks of chunkSize and returns the total', async () => {
@@ -1848,7 +1854,10 @@ describe('_deleteAllInFolder — chunked delete', () => {
 
 // ── _markSeenInFolder — chunked mark-all-read ────────────────────────────────
 describe('_markSeenInFolder — chunked mark-all-read', () => {
-  const run = (client, opts = {}) =>
+  const run = (
+    client: Parameters<typeof ImapManager.prototype._markSeenInFolder>[0],
+    opts: NonNullable<Parameters<typeof ImapManager.prototype._markSeenInFolder>[2]> = {},
+  ) =>
     ImapManager.prototype._markSeenInFolder.call(ImapManager.prototype, client, 'INBOX', { retryBackoffMs: 0, ...opts });
 
   it('adds \\Seen to UNSEEN messages in UID-addressed chunks', async () => {
@@ -1939,7 +1948,7 @@ describe('_recordAccountError / _clearAccountError', () => {
   const acct = { id: 'a1', user_id: 'u1', email_address: 'x@example.com' };
 
   const mgr = () => {
-    const m = new ImapManager(null);
+    const m = new ImapManager({ clients: new Set() });
     clearInterval(m._healthCheckTimer);
     clearInterval(m._snippetSchedulerTimer);
     m.broadcast = vi.fn();
@@ -2047,7 +2056,7 @@ describe('syncMessages — empty mailbox still stamps last_sync', () => {
   });
 
   it('does not stamp when the mailbox object is missing', async () => {
-    const client = { getMailboxLock: vi.fn().mockResolvedValue({ release: vi.fn() }), mailbox: null };
+    const client = mockImapClient({ getMailboxLock: vi.fn().mockResolvedValue({ release: vi.fn() }), mailbox: null });
     await ImapManager.prototype.syncMessages.call({}, emptyMailboxAccount, client, 'INBOX', 50, false, true);
     expect(query.mock.calls.filter(c => /UPDATE email_accounts SET last_sync/.test(c[0]))).toHaveLength(0);
   });

@@ -675,13 +675,13 @@ const SENDER_PALETTE = [
   '#e11d48', // rose
 ];
 
-function hashIndex(str) {
+function hashIndex(str: string) {
   let h = 0;
   for (let i = 0; i < str.length; i++) h = (h * 31 + str.charCodeAt(i)) >>> 0;
   return h % SENDER_PALETTE.length;
 }
 
-export function senderColor(email) {
+export function senderColor(email: string | null | undefined) {
   const key = (email || '').toLowerCase().trim();
   return SENDER_PALETTE[key ? hashIndex(key) : 0];
 }
@@ -690,7 +690,7 @@ export function senderColor(email) {
 
 const CUSTOM_CSS_ID = 'mailflow-custom-css';
 
-export function applyCustomCss(css) {
+export function applyCustomCss(css: string | null | undefined) {
   let el = document.getElementById(CUSTOM_CSS_ID);
   if (!css) {
     if (el) el.remove();
@@ -724,16 +724,16 @@ export const THEME_MODE_STORAGE_KEYS = {
 
 // A theme is either a light or a dark appearance. The metadata lives on the theme
 // itself so the two pickers can group themes without a second list to maintain.
-export function themeTone(name: string) {
-  return THEMES[name]?.tone === 'light' ? 'light' : 'dark';
+export function themeTone(name: string): 'light' | 'dark' {
+  return isThemeName(name) && THEMES[name].tone === 'light' ? 'light' : 'dark';
 }
 
-export function themesByTone(tone) {
+export function themesByTone(tone?: string) {
   return Object.entries(THEMES).filter(([, theme]) => theme.tone === tone);
 }
 
-export function normalizeThemeMode(mode) {
-  return THEME_MODES.includes(mode) ? mode : 'system';
+export function normalizeThemeMode(mode: unknown): 'system' | 'light' | 'dark' {
+  return mode === 'light' || mode === 'dark' ? mode : 'system';
 }
 
 // matchMedia is guarded so an environment without it (tests, SSR) never throws and
@@ -758,12 +758,12 @@ export function readThemePrefs() {
     const storedDark = readStored(THEME_MODE_STORAGE_KEYS.dark);
     return {
       mode: normalizeThemeMode(storedMode),
-      light: THEMES[storedLight] ? storedLight : DEFAULT_LIGHT_THEME,
-      dark: THEMES[storedDark] ? storedDark : DEFAULT_DARK_THEME,
+      light: isThemeName(storedLight) ? storedLight : DEFAULT_LIGHT_THEME,
+      dark: isThemeName(storedDark) ? storedDark : DEFAULT_DARK_THEME,
     };
   }
   const legacy = readStored('mailflow_theme');
-  if (legacy && THEMES[legacy]) {
+  if (isThemeName(legacy)) {
     return themeTone(legacy) === 'light'
       ? { mode: 'light', light: legacy, dark: DEFAULT_DARK_THEME }
       : { mode: 'dark', light: DEFAULT_LIGHT_THEME, dark: legacy };
@@ -792,7 +792,7 @@ export function getInitialTheme(): string {
 // ── Theme application ─────────────────────────────────────────────────────────
 
 // The favicon follows the same vector master and effective accent as the app.
-export function buildFaviconSvg(accent) {
+export function buildFaviconSvg(accent: string) {
   return `data:image/svg+xml,${encodeURIComponent(brandSvg(accent))}`;
 }
 
@@ -811,7 +811,7 @@ export function getEffectiveAccent(fallback = '#7c6af7') {
 // Subscribers (e.g. the logo mark) notified when the effective accent changes, so
 // they update on a custom-CSS accent override too — not only on a theme switch.
 const _accentListeners = new Set<(accent: string) => void>();
-export function subscribeAccent(fn) {
+export function subscribeAccent(fn: (accent: string) => void) {
   _accentListeners.add(fn);
   return () => { _accentListeners.delete(fn); };
 }
@@ -833,12 +833,12 @@ export function subscribeAccent(fn) {
 // stylesheet, so a hand-written custom CSS value can never break out of the rule.
 const CSS_COLOR_RE = /^(?:#[0-9a-f]{3,8}|rgba?\(\s*[\d.%,\s/]+\)|hsla?\(\s*[\d.%,\s/deg]+\)|[a-z]{3,20})$/i;
 
-function safeColor(value, fallback) {
+function safeColor(value: string | null | undefined, fallback: string) {
   const candidate = String(value ?? '').trim();
   return CSS_COLOR_RE.test(candidate) ? candidate : fallback;
 }
 
-function effectiveToken(name, fallback) {
+function effectiveToken(name: string, fallback: string) {
   try {
     return getComputedStyle(document.documentElement).getPropertyValue(name).trim() || fallback;
   } catch { return fallback; }
@@ -847,8 +847,8 @@ function effectiveToken(name, fallback) {
 // The surface for the mail/description iframe of the given theme. `tone` lets the
 // frame declare its colour scheme, and the two colours are the panel background and
 // its default text colour.
-export function getEmailSurface(themeName) {
-  const name = THEMES[themeName] ? themeName : DEFAULT_LIGHT_THEME;
+export function getEmailSurface(themeName: string) {
+  const name = isThemeName(themeName) ? themeName : DEFAULT_LIGHT_THEME;
   const vars = THEMES[name].vars;
   return {
     tone: themeTone(name),
@@ -898,13 +898,13 @@ function refreshAccentDerived() {
   });
 }
 
-export function applyTheme(themeName) {
-  const theme = THEMES[themeName] || THEMES.dark;
+export function applyTheme(themeName: string) {
+  const theme = isThemeName(themeName) ? THEMES[themeName] : THEMES.dark;
 
   // Expose the active theme as an attribute so a theme can layer scoped skeuomorphic
   // chrome (beveled scrollbars, selection tint) via CSS in index.css without adding
   // structural tokens to every palette. Retro themes (winxp/win9x) use this.
-  document.documentElement.setAttribute('data-mailflow-theme', THEMES[themeName] ? themeName : 'dark');
+  document.documentElement.setAttribute('data-mailflow-theme', isThemeName(themeName) ? themeName : 'dark');
 
   // Inject vars via a <style> element rather than root.style.setProperty so
   // that <style id="mailflow-custom-css"> (appended afterward) can override

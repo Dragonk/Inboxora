@@ -37,7 +37,7 @@ export function clearDeleteGuard(messageId) {
   clearCompletedDelete(messageId);
 }
 
-export function threadDeleteGuardKey(threadId, folder, accountId = null) {
+export function threadDeleteGuardKey(threadId: string | null | undefined, folder: string | null | undefined, accountId: string | null = null): string | null {
   if (!threadId || !folder) return null;
   const accountScope = accountId ? `:account:${accountId}` : '';
   return `thread:${threadId}${accountScope}:folder:${folder}`;
