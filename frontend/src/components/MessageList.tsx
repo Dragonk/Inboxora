@@ -1232,7 +1232,7 @@ export default function MessageList() {
     const spamDest = account?.folder_mappings?.spam;
     const inboxDest = account?.folder_mappings?.inbox || 'INBOX';
     const unreadBySource = new Map();
-    const unreadByHamSource = new Map(); // for ham: track source folder
+    const unreadByHamSource = new Map<string, number>(); // for ham: track source folder
     messages.forEach(m => {
       if (m.is_read) return;
       const src = m.folder;
@@ -1563,7 +1563,7 @@ export default function MessageList() {
     const q = searchQuery.trim().toLowerCase();
     if (!q) return [];
     if (/(?:^|\s)-?(?:from|to|subject|has|is|cc|bcc|in|after|before):/.test(q)) return [];
-    const results: Array<{ accountId: string; accountName: string; [key: string]: unknown }> = [];
+    const results: Array<{ accountId: string; accountName: string; path: string; name?: string; [key: string]: unknown }> = [];
     for (const [accountId, folderList] of Object.entries(folders)) {
       if (!Array.isArray(folderList)) continue;
       const account = accounts.find(a => a.id === accountId);
@@ -3441,7 +3441,7 @@ export default function MessageList() {
                     onClick={e => {
                       e.stopPropagation();
                       if (isFav) {
-                        removeFavoriteFolder(folder.accountId, folder.path);
+                        removeFavoriteFolder({ accountId: folder.accountId, path: folder.path });
                       } else {
                         addFavoriteFolder({ accountId: folder.accountId, path: folder.path, name: folder.name || folder.path });
                       }

@@ -158,7 +158,7 @@ export default function MailApp() {
     setConversationResolutionError(null);
     if (nativeThreadUnavailableFor !== selectedMessageId) setNativeThreadUnavailableFor(null);
     const selected = useStore.getState().messages.find(item => item.id === selectedMessageId)
-      || Object.values((useStore.getState().threadMessages || {}) as Record<string, Array<{ id: string }>>).flat().find(item => item.id === selectedMessageId);
+      || Object.values(useStore.getState().threadMessages || {}).flat().find(item => item.id === selectedMessageId);
     // Preserve the exact physical selection before CE resolution. Expanded native
     // children are not in the flat list, and CE may lag native threading; neither
     // may turn a Reader-on selection into the classic pane or replace its target.
@@ -205,7 +205,7 @@ export default function MailApp() {
             const state = useStore.getState();
             if (selectedMessageIdRef.current !== selectedMessageId || state.selectedMessageId !== selectedMessageId) return;
             const current = state.messages.find(item => item.id === selectedMessageId)
-              || Object.values((state.threadMessages || {}) as Record<string, Array<{ id: string }>>).flat().find(item => item.id === selectedMessageId);
+              || Object.values(state.threadMessages || {}).flat().find(item => item.id === selectedMessageId);
             if (!current || current.is_read || state.markReadBehavior === 'manual') return;
             const previousUnreadCount = current.unread_count;
             state.updateMessage(current.id, { is_read: true, unread_count: 0 });
