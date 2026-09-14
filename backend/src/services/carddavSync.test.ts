@@ -1,13 +1,23 @@
 import crypto from 'crypto';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
-const { query, discoverAddressBooks, fetchAddressBookCards, getConnectionPolicy } = vi.hoisted<any>(() => ({
-  query: vi.fn(), discoverAddressBooks: vi.fn(), fetchAddressBookCards: vi.fn(), getConnectionPolicy: vi.fn(),
+type QueryResult = { rows: Record<string, unknown>[] };
+type QueryParameter = string | null;
+type Query = (sql: string, params: QueryParameter[]) => Promise<QueryResult>;
+type AddressBook = { url: string; displayName: string };
+type AddressBookCard = { href: string; vcard: string };
+type ConnectionPolicy = { allowPrivateHosts: boolean };
+
+const { query, discoverAddressBooks, fetchAddressBookCards, getConnectionPolicy } = vi.hoisted(() => ({
+  query: vi.fn<Query>(),
+  discoverAddressBooks: vi.fn<() => Promise<AddressBook[]>>(),
+  fetchAddressBookCards: vi.fn<() => Promise<AddressBookCard[]>>(),
+  getConnectionPolicy: vi.fn<() => Promise<ConnectionPolicy>>(),
 }));
 vi.mock('./db.js', () => ({ query }));
 vi.mock('./carddavClient.js', () => ({ discoverAddressBooks, fetchAddressBookCards }));
 vi.mock('./connectionPolicy.js', () => ({ getConnectionPolicy }));
-vi.mock('./encryption.js', () => ({ decrypt: value => value }));
+vi.mock('./encryption.js', () => ({ decrypt: (value: string) => value }));
 
 import { syncUser } from './carddavSync.js';
 
@@ -17,6 +27,11 @@ const appleMergeCard = appleCard.replace('FN:Apple Contact\r\n', 'FN:Apple Conta
 const androidMergeCard = androidCard.replace('FN:Android Contact\r\n', 'FN:Android Contact\r\nEMAIL:duplicate@example.com\r\nBDAY:1991-02-03\r\nANNIVERSARY:2021-10-19\r\n');
 const invalidBirthdayCard = 'BEGIN:VCARD\r\nVERSION:3.0\r\nUID:invalid-birthday\r\nFN:Invalid Birthday\r\nBDAY:2020-02-30\r\nEND:VCARD\r\n';
 const invalidAndroidDateCard = 'BEGIN:VCARD\r\nVERSION:3.0\r\nUID:invalid-android-date\r\nFN:Invalid Android Date\r\nX-ANDROID-CUSTOM:vnd.android.cursor.item/contact_event;2024-04-31;0;Meeting;\r\nEND:VCARD\r\n';
+
+function parseJsonParameter(value: QueryParameter): unknown {
+  if (typeof value !== 'string') throw new Error('Expected a JSON query parameter');
+  return JSON.parse(value);
+}
 
 function configureSync() {
   query.mockImplementation(async (sql: string) => {
@@ -41,13 +56,13 @@ describe('remote CardDAV contact-date persistence', () => {
   it('binds Apple and Android labelled dates to contact_dates and updates them idempotently', async () => {
     await expect(syncUser('user-1')).resolves.toMatchObject({ ok: true, contactCount: 2 });
 
-    const upserts = query.mock.calls.filter(([sql]: [string]) => sql.includes('INSERT INTO contacts'));
+    const upserts = query.mock.calls.filter(([sql]) => sql.includes('INSERT INTO contacts'));
     expect(upserts).toHaveLength(2);
     for (const [sql, params] of upserts) {
       expect(sql).toContain('anniversary, contact_dates, photo_data');
       expect(sql).toContain('$16::jsonb,$17,$18,$19,$20,$21::jsonb');
       expect(sql).toContain('contact_dates = EXCLUDED.contact_dates');
-      expect(JSON.parse(params[15])).toEqual([
+      expect(parseJsonParameter(params[15])).toEqual([
         params[2] === 'apple-1' ? { label: 'Wedding', value: '2020-09-14' } : { label: 'Rencontre', value: '2019-10-19' },
       ]);
       expect(params[2]).toMatch(/^(apple|android)-1$/);
@@ -58,7 +73,7 @@ describe('remote CardDAV contact-date persistence', () => {
 
     query.mockClear();
     await expect(syncUser('user-1')).resolves.toMatchObject({ ok: true, contactCount: 2 });
-    const secondUpserts = query.mock.calls.filter(([sql]: [string]) => sql.includes('INSERT INTO contacts'));
+    const secondUpserts = query.mock.calls.filter(([sql]) => sql.includes('INSERT INTO contacts'));
     expect(secondUpserts.map(([, params]) => params[15])).toEqual(upserts.map(([, params]) => params[15]));
   });
 
@@ -79,7 +94,10 @@ describe('remote CardDAV contact-date persistence', () => {
     fetchAddressBookCards.mockResolvedValue([{ href, vcard }]);
 
     await expect(syncUser('user-1')).resolves.toMatchObject({ ok: true, contactCount: 0 });
-    const [mergeSql, mergeParams] = query.mock.calls.find(([sql]: [string]) => sql.includes('UPDATE contacts SET'));
+    const mergeCall = query.mock.calls.find(([sql]) => sql.includes('UPDATE contacts SET'));
+    expect(mergeCall).toBeDefined();
+    if (!mergeCall) throw new Error('Expected an existing-contact merge query');
+    const [mergeSql, mergeParams] = mergeCall;
 
     expect(mergeSql).toContain('contact_dates = $10::jsonb');
     expect(mergeSql).toContain('photo_data = COALESCE($11, photo_data)');
@@ -91,7 +109,7 @@ describe('remote CardDAV contact-date persistence', () => {
     expect(mergeParams[3]).toBeNull();
     expect(mergeParams[7]).toBe(_source === 'Apple' ? '1990-01-02' : '1991-02-03');
     expect(mergeParams[8]).toBe(_source === 'Apple' ? '2020-09-14' : '2021-10-19');
-    expect(JSON.parse(mergeParams[9])).toEqual(contactDates);
+    expect(parseJsonParameter(mergeParams[9])).toEqual(contactDates);
     expect(mergeParams[10]).toBe(_source === 'Apple' ? 'data:image/jpeg;base64,YWJj' : null);
     expect(mergeParams.slice(14, 18)).toEqual(['[]', '[]', '[]', '[]']);
     expect(mergeParams[18]).toBe(vcard);
@@ -99,7 +117,10 @@ describe('remote CardDAV contact-date persistence', () => {
 
     query.mockClear();
     await expect(syncUser('user-1')).resolves.toMatchObject({ ok: true, contactCount: 0 });
-    const [, secondMergeParams] = query.mock.calls.find(([sql]: [string]) => sql.includes('UPDATE contacts SET'));
+    const secondMergeCall = query.mock.calls.find(([sql]) => sql.includes('UPDATE contacts SET'));
+    expect(secondMergeCall).toBeDefined();
+    if (!secondMergeCall) throw new Error('Expected a repeated existing-contact merge query');
+    const [, secondMergeParams] = secondMergeCall;
     expect(secondMergeParams[9]).toBe(mergeParams[9]);
   });
 

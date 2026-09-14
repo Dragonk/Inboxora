@@ -10,12 +10,16 @@
 // RFC 5987 `filename*=UTF-8''…` parameter, and reduces the quoted `filename="…"` fallback to
 // printable ASCII (also neutralizing " and \, which would otherwise break the quoted-string). See #367.
 
+function stripControlCharacters(value: string): string {
+  return Array.from(value).filter(character => {
+    const code = character.charCodeAt(0);
+    return code > 0x1f && code !== 0x7f;
+  }).join('');
+}
+
 export function safeFilename(name: string | null | undefined): string {
   if (!name) return 'attachment';
-  const cleaned = String(name)
-    .replace(/[/\\]/g, '_')
-    // eslint-disable-next-line no-control-regex -- intentionally stripping control characters (U+0000–U+001F, U+007F)
-    .replace(/[\u0000-\u001f\u007f]/g, '')
+  const cleaned = stripControlCharacters(String(name).replace(/[/\\]/g, '_'))
     // Bidi overrides/isolates + RLM/ALM (U+202A–U+202E, U+2066–U+2069, U+200F, U+061C).
     .replace(/[\u202a-\u202e\u2066-\u2069\u200f\u061c]/g, '')
     .trim()

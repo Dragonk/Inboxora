@@ -22,7 +22,7 @@ function getKey() {
 
 // Returns a prefixed string: enc:v1:<iv_hex>:<tag_hex>:<ciphertext_hex>
 // Throws if ENCRYPTION_KEY is not configured — callers must not silently store plaintext credentials.
-export function encrypt(plaintext) {
+export function encrypt(plaintext: string) {
   if (!plaintext) return plaintext;
   const key = getKey();
   if (!key) throw new Error('ENCRYPTION_KEY is not set or invalid — cannot encrypt credential');
@@ -37,7 +37,10 @@ export function encrypt(plaintext) {
 
 // Decrypts a value produced by encrypt(). Returns the original value unchanged
 // if it is not prefixed (plaintext) or if ENCRYPTION_KEY is not set.
-export function decrypt(value) {
+export function decrypt(value: unknown): string | null {
+  if (typeof value !== 'string') {
+    throw new TypeError('Encrypted credential must be a string');
+  }
   if (!value || !value.startsWith(PREFIX)) return value;
   const key = getKey();
   if (!key) {
@@ -69,6 +72,6 @@ export function decrypt(value) {
 }
 
 // Returns true if a value is already encrypted with our scheme.
-export function isEncrypted(value) {
+export function isEncrypted(value: unknown) {
   return typeof value === 'string' && value.startsWith(PREFIX);
 }
