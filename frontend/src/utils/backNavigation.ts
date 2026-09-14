@@ -1,8 +1,27 @@
 // One browser entry represents the current dismissible UI, regardless of depth.
 // Re-arm only while a layer remains; the mailbox root keeps normal browser/OS Back.
 // A UI close consumes that entry too, so repeated open/close never leaves dead steps.
-export function createBackNavigation({ history, listen, commit = fn => fn(), schedule = queueMicrotask }) {
-  const layers = new Map();
+type BackHistory = {
+  state: Record<string, unknown> | null;
+  pushState: (state: Record<string, unknown>, unused: string) => void;
+  back: () => void;
+};
+
+type BackNavigationOptions = {
+  history: BackHistory;
+  listen: (listener: () => void) => () => void;
+  commit?: (callback: () => void) => void;
+  schedule?: (callback: () => void) => void;
+};
+
+type BackLayer = {
+  close: () => void;
+  priority: number;
+  order: number;
+};
+
+export function createBackNavigation({ history, listen, commit = callback => callback(), schedule = queueMicrotask }: BackNavigationOptions) {
+  const layers = new Map<unknown, BackLayer>();
   let sequence = 0;
   let enabled = false;
   let removing = false;
@@ -39,12 +58,12 @@ export function createBackNavigation({ history, listen, commit = fn => fn(), sch
     reconcile();
   };
   return {
-    register(id, close, priority = 0) {
+    register(id: unknown, close: () => void, priority = 0) {
       layers.set(id, { close, priority, order: ++sequence });
       changed();
       return () => { layers.delete(id); changed(); };
     },
-    setEnabled(value) { enabled = value; changed(); },
+    setEnabled(value: boolean) { enabled = value; changed(); },
     back() { const handled = dismiss(); reconcile(); return handled; },
     start() {
       // A reload cannot restore transient editors from history. Adopt its entry

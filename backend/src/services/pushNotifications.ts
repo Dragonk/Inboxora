@@ -12,7 +12,7 @@ const vapidSubject =
 
 export const pushConfigured = !!(vapidPublicKey && vapidPrivateKey);
 
-if (pushConfigured) {
+if (vapidPublicKey && vapidPrivateKey) {
   webPush.setVapidDetails(vapidSubject, vapidPublicKey, vapidPrivateKey);
 } else {
   console.log('Push notifications disabled: VAPID_PUBLIC_KEY / VAPID_PRIVATE_KEY not set.');
@@ -24,17 +24,24 @@ if (pushConfigured) {
  * Errors from individual devices never throw — they are logged and skipped so
  * one bad subscription can't block delivery to the rest.
  */
-export async function sendPushToUser(userId: string, payload) {
+interface PushSubscriptionRow {
+  id: string;
+  endpoint: string;
+  p256dh: string;
+  auth: string;
+}
+
+export async function sendPushToUser(userId: string, payload: unknown) {
   if (!pushConfigured) return;
 
-  const result = await query(
+  const result = await query<PushSubscriptionRow>(
     'SELECT id, endpoint, p256dh, auth FROM push_subscriptions WHERE user_id = $1',
     [userId]
   );
   if (result.rows.length === 0) return;
 
   const body = JSON.stringify(payload);
-  const staleIds = [];
+  const staleIds: string[] = [];
 
   await Promise.allSettled(result.rows.map(async (row) => {
     const subscription = {
@@ -62,7 +69,7 @@ export async function sendPushToUser(userId: string, payload) {
         }
         const retryAfter = err.headers?.['retry-after'];
         const requestedDelay = /^\d+$/.test(String(retryAfter || ''))
-          ? Number(retryAfter) * 1000 : Date.parse(retryAfter) - Date.now();
+          ? Number(retryAfter) * 1000 : Date.parse(String(retryAfter)) - Date.now();
         await delay(Math.min(60000, Math.max(1000 * (2 ** attempt), Number.isFinite(requestedDelay) ? requestedDelay : 0)));
       }
     }
