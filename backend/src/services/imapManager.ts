@@ -53,6 +53,7 @@ type RawMessageInput = {
   bodyParts?: Map<string, Buffer>;
   inReplyTo?: unknown;
   references?: unknown;
+  uid?: number | string;
 };
 
 
@@ -455,7 +456,7 @@ function extractBodyFromMsg(msg: RawMessageInput) {
   return { html, text, attachments: results.attachments };
 }
 
-export async function persistInboundCalendarInvitationFromMessage({ client, message, messageId }) {
+export async function persistInboundCalendarInvitationFromMessage({ client, message, messageId }: { client: { fetch: (uid: string, query: unknown, options: unknown) => AsyncIterable<{ bodyParts?: Map<string, Buffer>; uid?: number | string }> } | null | undefined; message: RawMessageInput; messageId: string }) {
   if (!client || !messageId || !message?.uid || !message.bodyStructure) return false;
   const results: { textParts: BodyPartRef[]; attachments: AttachmentRef[]; calendarParts: BodyPartRef[] } = { textParts: [], attachments: [], calendarParts: [] };
   walkStructure(message.bodyStructure, results);
@@ -1524,11 +1525,14 @@ interface ImapClientNamespace { prefix?: string; delimiter?: string | null }
  */
 export type ImapClient = ImapFlow & { namespace?: ImapClientNamespace };
 
+/** The websocket fan-out the manager broadcasts through. */
+type MailSocketServer = { clients: Set<{ send(data: string): void; readyState?: number; userId?: string }> };
+
 export class ImapManager {
   // Runtime state initialised by the constructor. Declared with `declare` so
   // these are purely type-level (no emitted field initialisers), keeping the
   // class body's own assignments authoritative.
-  declare wss: { clients: Set<{ send(data: string): void; readyState?: number; userId?: string }> };
+  declare wss: MailSocketServer;
   declare connections: Map<string, ImapClient>;
   declare syncIntervals: Map<string, ReturnType<typeof setInterval>>;
   declare pluginSyncIntervals: Map<string, ReturnType<typeof setInterval>>;
@@ -1572,7 +1576,7 @@ export class ImapManager {
   declare userSyncIntervalMs: Map<string, number>;
   declare userFolderSyncIntervalMs: Map<string, number>;
   declare pluginFacade: ReturnType<typeof createPluginMailFacade>;
-  constructor(wss) {
+  constructor(wss: MailSocketServer) {
     this.wss = wss;
     this.connections = new Map();   // accountId -> ImapFlow (persistent sync connection)
     this.syncIntervals = new Map();
@@ -2236,7 +2240,7 @@ export class ImapManager {
   // IMAP accounts sharing the host in a STABLE order (created_at, then id) so the same accounts
   // keep the persistent slots across restarts and reconnects rather than flip-flopping by connect
   // order. Only called when a finite cap is configured.
-  async _isPersistentEligible(account: EmailAccountRow, cap) {
+  async _isPersistentEligible(account: EmailAccountRow, cap: number) {
     if (!Number.isFinite(cap)) return true;
     const host = (account.imap_host || '').toLowerCase();
     if (!host) return true;
@@ -2361,7 +2365,7 @@ export class ImapManager {
   // De-duplicated against the last persisted value: a host that stays down re-enters this on
   // every retry for as long as the outage lasts, and rewriting the same string each time is pure
   // write amplification. Never throws — every caller is already inside an error path.
-  async _recordAccountError(account: EmailAccountRow, detail) {
+  async _recordAccountError(account: EmailAccountRow, detail: unknown) {
     if (this._syncErrorState.get(account.id) === detail) return;
     try {
       await query('UPDATE email_accounts SET sync_error = $1 WHERE id = $2', [detail, account.id]);
@@ -2640,7 +2644,7 @@ export class ImapManager {
   // isn't clobbered by a stale server value, and only touches rows whose flags actually differ.
   // Returns the number of rows changed. Shared by _syncFlagsForRange and the delta flag scan so
   // the flag-conflict logic lives in exactly one place.
-  async _applyFlagUpdates(account: EmailAccountRow, folder: string, flagsToUpdate) {
+  async _applyFlagUpdates(account: EmailAccountRow, folder: string, flagsToUpdate: Array<{ uid: string | number; isRead?: boolean; isStarred?: boolean; [key: string]: unknown }>) {
     if (!flagsToUpdate.length) return 0;
     const uids    = flagsToUpdate.map(f => f.uid);
     const reads   = flagsToUpdate.map(f => f.isRead);
@@ -2827,7 +2831,7 @@ export class ImapManager {
 
   // Called when a user changes their sync interval preference — replaces running
   // intervals for all their active accounts without disconnecting.
-  async updateSyncIntervalForUser(userId: string, newMs) {
+  async updateSyncIntervalForUser(userId: string, newMs: number) {
     this.userSyncIntervalMs.set(userId, newMs);
     const result = await query(
       "SELECT * FROM email_accounts WHERE user_id = $1 AND enabled = true AND protocol = 'imap'",
