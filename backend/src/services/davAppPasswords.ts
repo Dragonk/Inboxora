@@ -5,7 +5,7 @@ import { query } from './db.js';
 const PREFIX_RE = /^(mf_dav_[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})\.([A-Za-z0-9_-]{16,})$/;
 const BCRYPT_ROUNDS = 12;
 
-export function parseDavAppPassword(value) {
+export function parseDavAppPassword(value: unknown) {
   if (typeof value !== 'string') return null;
   const match = value.match(PREFIX_RE);
   return match ? { prefix: match[1], secret: match[2] } : null;
@@ -44,7 +44,7 @@ export async function listDavAppPasswords(userId: string) {
   return result.rows;
 }
 
-export async function revokeDavAppPassword(userId: string, passwordId) {
+export async function revokeDavAppPassword(userId: string, passwordId: unknown) {
   if (!userId || !passwordId) return null;
   const result = await query(
     `UPDATE dav_app_passwords
@@ -56,7 +56,7 @@ export async function revokeDavAppPassword(userId: string, passwordId) {
   return result.rows[0] || null;
 }
 
-export async function findActiveDavAppPassword(userId: string, value) {
+export async function findActiveDavAppPassword(userId: string, value: unknown) {
   const parsed = parseDavAppPassword(value);
   if (!userId || !parsed) return null;
   const result = await query<{ id: string; secret_hash: string }>(
@@ -70,6 +70,6 @@ export async function findActiveDavAppPassword(userId: string, value) {
   return { id: password.id };
 }
 
-export async function verifyDavAppPassword(userId: string, value) {
+export async function verifyDavAppPassword(userId: string, value: unknown) {
   return Boolean(await findActiveDavAppPassword(userId, value));
 }

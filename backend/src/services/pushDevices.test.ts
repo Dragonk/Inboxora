@@ -1,6 +1,9 @@
 import { describe, expect, it, vi, beforeEach } from 'vitest';
 
-const { query } = vi.hoisted<any>(() => ({ query: vi.fn() }));
+type QueryResult = { rows: Record<string, unknown>[]; rowCount?: number };
+type Query = (text: string, params: unknown[]) => Promise<QueryResult>;
+
+const { query } = vi.hoisted(() => ({ query: vi.fn<Query>() }));
 vi.mock('./db.js', () => ({ query }));
 vi.mock('./encryption.js', () => ({
   encrypt: (value: string) => `enc:v1:${value}`,
@@ -108,18 +111,19 @@ describe('authenticatePushDevice', () => {
   it('returns the owner only when the secret matches the stored hash', async () => {
     const token = 'mf_push_11111111-2222-3333-4444-555555555555.secretsecretsecret';
     const parsed = parseDeviceToken(token);
+    if (!parsed) throw new Error('Expected test token to parse');
     const hash = await bcrypt.hash(parsed.secret, 4);
-    // Vitest calls a reset mock's implementation with no args during cleanup, so
-    // only string SQL is treated as a real query.
-    query.mockImplementation((...args) => {
-      const sql = typeof args[0] === 'string' ? args[0] : '';
+    // Vitest invokes the current mock with no arguments during cleanup.
+    query.mockImplementation((sql?: string) => {
+      if (typeof sql !== 'string') return Promise.resolve({ rows: [] });
       if (sql.includes('FROM push_devices')) return Promise.resolve({ rows: [{ id: 'row-1', user_id: 'user-1', device_id: 'device-1', transport: 'fcm', token_hash: hash }] });
       return Promise.resolve({ rows: [] });
     });
 
     await expect(authenticatePushDevice(token)).resolves.toEqual({ id: 'row-1', userId: 'user-1', deviceId: 'device-1', transport: 'fcm' });
     // Prefix lookup is exact and only considers active devices.
-    const lookup = query.mock.calls.find((call) => typeof call[0] === 'string' && call[0].includes('FROM push_devices'));
+    const lookup = query.mock.calls.find((call) => call[0].includes('FROM push_devices'));
+    if (!lookup) throw new Error('Expected device lookup query');
     expect(lookup[1]).toEqual([parsed.prefix]);
   });
 

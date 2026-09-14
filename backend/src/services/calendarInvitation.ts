@@ -20,7 +20,7 @@ function formatInvitationDate(value: string | number | Date, allDay: boolean): s
 }
 
 function foldICalendarLine(line: string) {
-  const chunks = [];
+  const chunks: string[] = [];
   let chunk = '';
   let limit = 75;
   for (const character of line) {
@@ -41,7 +41,7 @@ interface InvitationInput {
   description?: string | null;
   location?: string | null;
   organizerEmail?: string | null;
-  attendees?: string[];
+  attendees: string[];
   startsAt: Date | string | number;
   endsAt: Date | string | number;
   allDay?: boolean;
@@ -53,7 +53,7 @@ interface InvitationInput {
 interface InvitationAccount { id?: string; email_address?: string | null; name?: string | null; [key: string]: unknown }
 
 
-function invitationIcal({ uid, summary, description, location, organizerEmail, attendees, startsAt, endsAt, allDay, method, sequence }: InvitationInput) {
+function invitationIcal({ uid, summary, description, location, organizerEmail, attendees, startsAt, endsAt, allDay = false, method, sequence }: InvitationInput) {
   const lines = [
     'BEGIN:VCALENDAR',
     'VERSION:2.0',

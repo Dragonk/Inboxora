@@ -3087,12 +3087,17 @@ export class ImapManager {
         const processMsg = async (msg: RawMessageInput): Promise<void> => {
           try {
             const parsed = await parseMessage(msg);
+            const folderMappings = account.folder_mappings;
+            let sentFolderPath: string | undefined;
+            if (folderMappings && folderMappings.sent !== null) {
+              sentFolderPath = folderMappings.sent;
+            }
             enrichParsedMetadata(parsed, {
               accountEmail: account.email_address,
               accountName: account.name,
               senderName: account.sender_name,
               folderPath: folder,
-              sentFolderPath: account.folder_mappings?.sent,
+              sentFolderPath,
             });
             if (!parsed.uid) {
               console.warn(`Message sync skipped: IMAP FETCH returned no UID for ${account.email}/${folder}`);
@@ -3778,12 +3783,17 @@ export class ImapManager {
             for await (const msg of bf.fetch(uidSet, bfQuery, { uid: true })) {
               try {
                 const parsed = await parseMessage(msg);
+                const folderMappings = account.folder_mappings;
+                let sentFolderPath: string | undefined;
+                if (folderMappings && folderMappings.sent !== null) {
+                  sentFolderPath = folderMappings.sent;
+                }
                 enrichParsedMetadata(parsed, {
                   accountEmail: account.email_address,
                   accountName: account.name,
                   senderName: account.sender_name,
                   folderPath: folder,
-                  sentFolderPath: account.folder_mappings?.sent,
+                  sentFolderPath,
                 });
                 if (!parsed.uid) {
                   console.warn(`Backfill skipped: IMAP FETCH returned no UID for ${account.email}/${folder}`);
@@ -4645,7 +4655,9 @@ export class ImapManager {
         );
         const safeHtml = html ? sanitizeEmail(html) : null;
         if (safeHtml || text) {
-          const snip = snippetFromBody(text, safeHtml || html);
+          const snippetSource = text ?? safeHtml;
+          if (snippetSource === null) throw new Error('Snippet source invariant violated');
+          const snip = snippetFromBody(snippetSource, text === null ? html : safeHtml || html);
           await query(
             `UPDATE messages
              SET body_html = $1, body_text = $2, attachments = $3,
@@ -4697,7 +4709,9 @@ export class ImapManager {
         const { html, text, attachments } = await this.fetchMessageBody(account, msg.uid, msg.folder);
         const safeHtml = html ? sanitizeEmail(html) : null;
         if (safeHtml || text) {
-          const snip = snippetFromBody(text, safeHtml || html);
+          const snippetSource = text ?? safeHtml;
+          if (snippetSource === null) throw new Error('Snippet source invariant violated');
+          const snip = snippetFromBody(snippetSource, text === null ? html : safeHtml || html);
           await query(
             `UPDATE messages
              SET body_html = $1, body_text = $2, attachments = $3,
