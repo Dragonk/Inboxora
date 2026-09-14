@@ -1181,7 +1181,21 @@ function ContactForm({
   );
 }
 
-function ContactTextCollection({ label, items, inputType = 'text', placeholder, onSet, onAdd, onRemove, inputStyle, addLabel, removeLabel }) {
+/** An editable list of single-value contact entries (urls, instant messages). */
+interface ContactTextCollectionProps {
+  label: string;
+  items: Array<{ value?: string; type?: string; [key: string]: unknown }>;
+  inputType?: string;
+  placeholder?: string;
+  onSet: (index: number, value: string) => void;
+  onAdd: () => void;
+  onRemove: (index: number) => void;
+  inputStyle?: CSSProperties;
+  addLabel?: string;
+  removeLabel?: string;
+}
+
+function ContactTextCollection({ label, items, inputType = 'text', placeholder, onSet, onAdd, onRemove, inputStyle, addLabel, removeLabel }: ContactTextCollectionProps) {
   return <div style={{ marginBottom: 12 }}>
     <label style={{ fontSize: 12, color: 'var(--text-tertiary)', marginBottom: 4, display: 'block' }}>{label}</label>
     {items.map((item, index) => <div key={index} style={{ display: 'flex', gap: 6, marginBottom: 6 }}>
@@ -1224,7 +1238,7 @@ const fieldIcon = {
   briefcase: <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" aria-hidden="true"><rect x="2" y="7" width="20" height="14" rx="2"/><path d="M16 21V5a2 2 0 00-2-2h-4a2 2 0 00-2 2v16"/></svg>,
 };
 
-function DetailSection({ label = undefined, children }) {
+function DetailSection({ label = undefined, children }: { label?: string; children?: React.ReactNode }) {
   return (
     <section style={{
       borderTop: '1px solid var(--border-subtle)',
@@ -1236,7 +1250,7 @@ function DetailSection({ label = undefined, children }) {
   );
 }
 
-function DetailRow({ icon, type, children }) {
+function DetailRow({ icon, type, children }: { icon?: React.ReactNode; type?: string; children?: React.ReactNode }) {
   return (
     <div style={{
       display: 'flex', alignItems: 'center', gap: 10, padding: '5px 0',
