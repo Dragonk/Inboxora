@@ -14,7 +14,12 @@ import type { StoreState } from '../../store/index.ts';
 // The classify + remove submenu shown when the "GTD" item is opened. Renders its own back row and
 // takes over the menu content area (via core's generic plugin-submenu view). Classify offers every
 // state; "Remove from <state>" is offered only for the states this thread is actually labelled with.
-function GtdContextSubmenu({ message, account, onClose, onBack }) {
+function GtdContextSubmenu({ message, account, onClose, onBack }: {
+  message: { id?: string; folders?: string[]; [key: string]: unknown };
+  account: { id: string; [key: string]: unknown };
+  onClose: () => void;
+  onBack: () => void;
+}) {
   const { t } = useTranslation();
   const addNotification = useStore((s: StoreState) => s.addNotification);
   const scheduleGtdSectionsFetch = useStore((s: StoreState) => s.scheduleGtdSectionsFetch);

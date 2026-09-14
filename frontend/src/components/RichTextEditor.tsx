@@ -12,7 +12,13 @@ import { richTextEditorContent } from '../utils/richText.ts';
 // lets the reader render it through the mail body renderer.
 const BUTTON = { background: 'none', border: 'none', borderRadius: 4, color: 'var(--text-secondary)', cursor: 'pointer', padding: '3px 7px', fontSize: 12, lineHeight: 1.4, minWidth: 26 };
 
-function ToolButton({ label, active = false, onActivate, testId, children }) {
+function ToolButton({ label, active = false, onActivate, testId, children }: {
+  label: string;
+  active?: boolean;
+  onActivate: () => void;
+  testId?: string;
+  children: React.ReactNode;
+}) {
   return <button type="button" title={label} aria-label={label} aria-pressed={Boolean(active)} data-testid={testId}
     onMouseDown={event => { event.preventDefault(); onActivate(); }}
     style={{ ...BUTTON, background: active ? 'var(--bg-hover)' : 'none', color: active ? 'var(--accent)' : 'var(--text-secondary)' }}

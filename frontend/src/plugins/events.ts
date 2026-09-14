@@ -12,7 +12,7 @@ const reconnectHandlers = []; // [{ pluginId, handler }]
 
 const isActivated = (pluginId) => useStore.getState().enabledPlugins.includes(pluginId);
 
-export function registerWsHandler(messageType, { pluginId, handler }) {
+export function registerWsHandler(messageType: string, { pluginId, handler }: { pluginId: string; handler: (payload: { accountId?: string; [key: string]: unknown }) => void }) {
   const list = wsHandlers.get(messageType) || [];
   list.push({ pluginId, handler });
   wsHandlers.set(messageType, list);
