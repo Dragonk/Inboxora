@@ -10,7 +10,7 @@ import type { EmailAccountRow } from '../services/imapManager.js';
 interface ReadMessageRow {
   id: string;
   account_id: string;
-  folder?: string | null;
+  folder: string;
   subject?: string | null;
   from_name?: string | null;
   from_email?: string | null;
@@ -23,14 +23,14 @@ interface ReadMessageRow {
   is_starred?: boolean;
   is_deleted?: boolean;
   date?: string | number | Date | null;
-  uid?: number | string | null;
+  uid: number;
   message_id?: string | null;
   snippet?: string | null;
   reply_to?: string | null;
   user_id?: string | null;
   preferences?: unknown;
   calendar_invitation_id?: string | null;
-  folder_mappings?: unknown;
+  folder_mappings?: FolderMappings | null;
   [key: string]: unknown;
 }
 
