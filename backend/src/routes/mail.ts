@@ -36,20 +36,20 @@ function isValidFolderName(name: string) {
 }
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
-function areValidUUIDs(ids) {
+function areValidUUIDs(ids: unknown[]): boolean {
   return ids.every(id => typeof id === 'string' && UUID_RE.test(id));
 }
 
 // Strip NUL bytes from strings before DB writes. PostgreSQL UTF-8 text columns
 // reject 0x00, and malformed MIME bodies can contain embedded NUL characters.
-function sanitizeDbText(value) {
-  if (typeof value !== 'string') return value;
+function sanitizeDbText(value: unknown): string {
+  if (typeof value !== 'string') return String(value ?? '');
   return value.replace(/\0/g, '');
 }
 
 // Process IMAP operations in bounded batches so a 500-message bulk action
 // does not spawn hundreds of parallel temporary IMAP connections.
-async function runInBatches(items, concurrency, fn) {
+async function runInBatches(items: unknown[], concurrency: number, fn: (item: unknown) => Promise<unknown>): Promise<Array<PromiseSettledResult<unknown>>> {
   const results = [];
   for (let i = 0; i < items.length; i += concurrency) {
     const batch = items.slice(i, i + concurrency);
@@ -79,16 +79,17 @@ interface MailMessageRow {
 //   - &entity; — undecoded HTML entities from before the entity-stripping fix
 //   - ##marker## — unexpanded template placeholders (UPS, Epsilon marketing mail)
 //   - --> — dangling HTML comment end leaked by comment-stripping gap
-function snippetIsGarbled(s) {
-  return s && (
-    /&[a-z][a-z0-9]*;/i.test(s) ||   // undecoded HTML entity
-    /##[^#]*##/.test(s) ||             // unexpanded template placeholder
-    /-->/.test(s) ||                   // dangling HTML comment fragment
-    /\{[^}]*[:;][^}]*\}/.test(s) ||   // stored CSS rule block
-    /<[a-z][^>]*>/i.test(s) ||         // raw HTML tag
-    /<\/[a-z][a-z0-9:-]*\s*>/i.test(s) || // stray closing HTML tag
-    /([=_*#~-])\1{3,}/.test(s) ||      // decorative divider run
-    /\[[^\]]+\]\(https?:\/\//.test(s)  // Markdown link syntax from ESP text/plain generators
+function snippetIsGarbled(s: unknown): boolean {
+  const text = String(s ?? '');
+  return text && (
+    /&[a-z][a-z0-9]*;/i.test(text) ||   // undecoded HTML entity
+    /##[^#]*##/.test(text) ||             // unexpanded template placeholder
+    /-->/.test(text) ||                   // dangling HTML comment fragment
+    /\{[^}]*[:;][^}]*\}/.test(text) ||   // stored CSS rule block
+    /<[a-z][^>]*>/i.test(text) ||         // raw HTML tag
+    /<\/[a-z][a-z0-9:-]*\s*>/i.test(text) || // stray closing HTML tag
+    /([=_*#~-])\1{3,}/.test(text) ||      // decorative divider run
+    /\[[^\]]+\]\(https?:\/\//.test(text)  // Markdown link syntax from ESP text/plain generators
   );
 }
 
@@ -100,7 +101,7 @@ function snippetIsGarbled(s) {
 // no post-mutation sibling to find). Rows are the pre-mutation message rows so their message_id
 // and folder are captured before a move/delete can drop them; the hook swallows per-plugin
 // errors, so a completed mutation is never turned into a 500.
-function notifyMailMutation(rows, userId: string) {
+function notifyMailMutation(rows: Array<{ id: string; account_id?: string; folder?: string; [key: string]: unknown }>, userId: string): void {
   const byAccount = new Map();
   for (const m of rows) {
     if (!m.message_id) continue;
@@ -348,9 +349,9 @@ const BODY_FETCH_TIMEOUT_MS = 40000;
 // fetch keeps running and releases its pooled client via withFreshClient's own cleanup;
 // we just stop making the HTTP request wait on it. clearTimeout avoids keeping the
 // event loop alive after the race settles.
-function fetchWithTimeout(promise, ms: number) {
+function fetchWithTimeout<T>(promise: Promise<T>, ms: number): Promise<T> {
   let timer: NodeJS.Timeout | undefined;
-  const timeout = new Promise((_, reject) => {
+  const timeout = new Promise<never>((_, reject) => {
     timer = setTimeout(() => reject(new Error('BODY_FETCH_TIMEOUT')), ms);
   });
   return Promise.race([promise, timeout]).finally(() => clearTimeout(timer));
@@ -1125,7 +1126,7 @@ router.post('/messages/bulk-read', async (req, res) => {
       const account = accountResult.rows[0];
       const results = await runInBatches(
         msgs, 3,
-        msg => imapManager.setFlag(account, msg.uid, msg.folder, '\\Seen', read)
+        (msg: { id: string; uid: string | number; folder: string }) => imapManager.setFlag(account, msg.uid, msg.folder, '\\Seen', read)
       );
       results.forEach((r, i) => {
         if (r.status === 'rejected') {
