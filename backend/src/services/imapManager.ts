@@ -1190,7 +1190,7 @@ export type EmailAccountRow = {
   imap_skip_tls_verify?: boolean;
   auth_user?: string;
   auth_pass?: string;
-  oauth_provider?: string;
+  oauth_provider?: string | null;
   oauth_access_token?: string | null;
   oauth_token_expiry?: string | Date | null;
 };
@@ -1547,12 +1547,12 @@ export class ImapManager {
   declare _pendingMoveUids: Map<string, number>;
   declare _pollOnlyAccounts: Set<string>;
   declare _stalenessCheckRunning: boolean;
-  declare _stalenessCheckTimer: ReturnType<typeof setInterval> | null;
+  declare _stalenessCheckTimer: ReturnType<typeof setInterval> | undefined;
   declare _snoozeWakeupRunning: boolean;
-  declare _snoozeWatcherTimer: ReturnType<typeof setInterval> | null;
-  declare _healthCheckTimer: ReturnType<typeof setInterval> | null;
-  declare _snippetSchedulerTimer: ReturnType<typeof setInterval> | null;
-  declare _flagPushReconcilerTimer: ReturnType<typeof setInterval> | null;
+  declare _snoozeWatcherTimer: ReturnType<typeof setInterval> | undefined;
+  declare _healthCheckTimer: ReturnType<typeof setInterval> | undefined;
+  declare _snippetSchedulerTimer: ReturnType<typeof setInterval> | undefined;
+  declare _flagPushReconcilerTimer: ReturnType<typeof setInterval> | undefined;
   declare _flagPushRunning: boolean;
   declare _flagDebounceTimers: Map<string, ReturnType<typeof setTimeout>>;
   declare _expungeDebounceTimers: Map<string, ReturnType<typeof setTimeout>>;
