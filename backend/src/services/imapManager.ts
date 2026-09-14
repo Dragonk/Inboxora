@@ -4196,7 +4196,7 @@ export class ImapManager {
       await openClient();
 
       // Get distinct folders that have unindexed messages
-      const foldersResult = await query(
+      const foldersResult = await query<{ folder: string; cnt: string }>(
         `SELECT folder, count(*) as cnt FROM messages
          WHERE account_id = $1 AND (snippet IS NULL OR snippet = '') AND snippet_attempted_at IS NULL
          GROUP BY folder ORDER BY cnt DESC`,

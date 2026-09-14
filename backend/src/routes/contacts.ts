@@ -427,8 +427,8 @@ router.post('/', async (req, res) => {
     normalizedContactDates, normalizedBirthday, normalizedAnniversary, contactDates !== undefined
   );
   const authoritativeLegacyDates = contactDates === undefined ? null : legacyDatesFromContactDates(storedContactDates);
-  const storedBirthday = authoritativeLegacyDates?.birthday ?? (contactDates === undefined ? normalizedBirthday : null);
-  const storedAnniversary = authoritativeLegacyDates?.anniversary ?? (contactDates === undefined ? normalizedAnniversary : null);
+  const storedBirthday: string | undefined = authoritativeLegacyDates?.birthday ?? (contactDates === undefined ? normalizedBirthday : null);
+  const storedAnniversary: string | undefined = authoritativeLegacyDates?.anniversary ?? (contactDates === undefined ? normalizedAnniversary : null);
 
   const primaryEmail = emails[0]?.value
     ? emails[0].value.toLowerCase().trim()
