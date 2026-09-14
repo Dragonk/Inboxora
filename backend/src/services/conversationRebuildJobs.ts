@@ -53,12 +53,12 @@ export function startConversationRebuildJob({ userId, accountId = null, limit = 
   return { jobId, status: 'queued' };
 }
 
-export function getConversationRebuildJob({ userId, jobId }) {
+export function getConversationRebuildJob({ userId, jobId }: { userId: string | undefined; jobId: string | string[] }) {
   const job = jobs.get(jobId);
   if (!job || job.userId !== userId || Date.now() - job.createdAt > JOB_TTL_MS) return null;
   return { jobId: job.jobId, status: job.status, result: job.result, error: job.error };
 }
 
-export async function recordConversationRebuildAudit({ userId, jobId, action, details = {} }) {
+export async function recordConversationRebuildAudit({ userId, jobId, action, details = {} }: { userId: string | undefined; jobId: string; action: string; details?: Record<string, unknown> }) {
   await query('INSERT INTO conversation_rebuild_audit (user_id, job_id, action, details) VALUES ($1,$2,$3,$4::jsonb)', [userId, jobId, action, JSON.stringify(details)]);
 }

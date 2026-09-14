@@ -11,6 +11,9 @@ describe('performanceMetrics', () => {
     recordHttp('GET /api/mail/messages', 4000, true); // one slow error
     const snap = getPerformanceSnapshot();
     const row = snap.http.slowest.find(r => r.route === 'GET /api/mail/messages');
+    if (row === undefined) {
+      throw new Error('Expected HTTP metrics for GET /api/mail/messages');
+    }
     expect(row.count).toBe(101);
     expect(row.errors).toBe(1);
     expect(row.maxMs).toBe(4000);
