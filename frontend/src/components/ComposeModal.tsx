@@ -47,16 +47,16 @@ function ResizableImageView({ node, updateAttributes, selected }: { node: { attr
   const imgRef = useRef<HTMLImageElement | null>(null);
   const { src, alt, title, width } = node.attrs;
 
-  const onMouseDown = useCallback((e) => {
+  const onMouseDown = useCallback((e: React.MouseEvent) => {
     e.preventDefault();
     const startX = e.clientX;
     const startW = imgRef.current ? imgRef.current.offsetWidth : (width ?? 200);
 
-    const onMouseMove = (ev) => {
+    const onMouseMove = (ev: MouseEvent) => {
       const newWidth = Math.max(50, Math.round(startW + ev.clientX - startX));
       if (imgRef.current) imgRef.current.style.width = `${newWidth}px`;
     };
-    const onMouseUp = (ev) => {
+    const onMouseUp = (ev: MouseEvent) => {
       document.removeEventListener('mousemove', onMouseMove);
       document.removeEventListener('mouseup', onMouseUp);
       updateAttributes({ width: Math.max(50, Math.round(startW + ev.clientX - startX)) });
@@ -116,7 +116,7 @@ const ResizableImage = Image.extend({
   },
 });
 
-function stripHtml(html) {
+function stripHtml(html: string): string {
   const div = document.createElement('div');
   div.innerHTML = html;
   return div.textContent || div.innerText || '';
@@ -124,9 +124,14 @@ function stripHtml(html) {
 
 // Normalize address arrays to comma-separated string
 // Handles: plain strings, {email} objects, {name, email} objects
-function normalizeTo(arr) {
-  if (!arr || !arr.length) return '';
-  return arr.map(t => {
+/** A recipient as it arrives from the store or a chip list. */
+type RecipientInput = string | { email?: string; name?: string };
+
+function normalizeTo(arr: string | RecipientInput[] | null | undefined): string {
+  if (!arr) return '';
+  const list: RecipientInput[] = typeof arr === 'string' ? [arr] : arr;
+  if (!list.length) return '';
+  return list.map((t: RecipientInput) => {
     if (typeof t === 'string') return t;
     if (t && (t.email || t.name)) {
       if (t.name && t.email) {
@@ -150,7 +155,7 @@ function normalizeTo(arr) {
 // Splits on commas that are not inside quoted strings ("...") or angle brackets (<...>),
 // so display names like "Smith, John <j@example.com>" are kept intact.
 function parseChips(val: unknown): string[] {
-  const str = typeof val === 'string' ? val : normalizeTo(val);
+  const str = typeof val === 'string' ? val : normalizeTo(val as RecipientInput[] | null | undefined);
   if (!str) return [];
   const parts: string[] = [];
   let current = '';
@@ -255,7 +260,7 @@ export default function ComposeModal() {
   };
   const [fromValue, setFromValue] = useState(initialFromValue);
 
-  const resolveFrom = (val) => {
+  const resolveFrom = (val: string | null | undefined) => {
     if (!val) return { accountId: '', aliasId: null };
     if (val.startsWith('alias:')) {
       const parts = val.split(':');
@@ -273,7 +278,7 @@ export default function ComposeModal() {
     ? (fromAlias.signature !== null && fromAlias.signature !== undefined ? fromAlias.signature : fromAccount?.signature || null)
     : (fromAccount?.signature || null);
 
-  const getSuggestions = useCallback(async (q) => {
+  const getSuggestions = useCallback(async (q: string): Promise<string[]> => {
     try {
       const data = await api.suggestContacts(q);
       return data.contacts || [];
@@ -386,7 +391,7 @@ export default function ComposeModal() {
     if (family) editor.commands.setFontFamily(family);
   }, [editor, isReply, isForward]);
 
-  const insertImageIntoEditor = useCallback(async (file) => {
+  const insertImageIntoEditor = useCallback(async (file: File): Promise<void> => {
     if (!file || !file.type.startsWith('image/')) return;
     try {
       const dataUrl = await resizeImageToDataUrl(file);
@@ -476,9 +481,9 @@ export default function ComposeModal() {
     return () => document.removeEventListener('mousedown', handler);
   }, [showReplyType]);
 
-  const handleTitleDragStart = useCallback((e) => {
+  const handleTitleDragStart = useCallback((e: React.PointerEvent) => {
     if (e.button !== 0) return;
-    if (e.target.closest('button, select, a')) return;
+    if (e.target instanceof Element && e.target.closest('button, select, a')) return;
     if (maximized) return;
     e.preventDefault();
     const el = composeWindowRef.current;
@@ -511,7 +516,7 @@ export default function ComposeModal() {
     let curY = startY;
     // Mutate the DOM directly during drag — avoids a React re-render on every
     // pointermove event, which was the source of lag and jerkiness.
-    const onMove = (ev) => {
+    const onMove = (ev: PointerEvent) => {
       curX = Math.max(0, Math.min(window.innerWidth - w, startX + ev.clientX - startMouseX));
       curY = Math.max(0, Math.min(Math.max(0, window.innerHeight - h), startY + ev.clientY - startMouseY));
       el.style.left = curX + 'px';
@@ -519,7 +524,7 @@ export default function ComposeModal() {
     };
     const cleanup = ({ commit = true } = {}) => {
       captureEl.removeEventListener('pointermove', onMove);
-      captureEl.removeEventListener('pointerup', cleanup);
+      captureEl.removeEventListener('pointerup', onPointerUp);
       captureEl.removeEventListener('pointercancel', cleanupNoCommit);
       window.removeEventListener('blur', cleanupNoCommit);
       if (captureEl.hasPointerCapture?.(pointerId)) captureEl.releasePointerCapture(pointerId);
@@ -531,14 +536,16 @@ export default function ComposeModal() {
       if (commit) setPos({ x: curX, y: curY });
     };
     const cleanupNoCommit = () => cleanup({ commit: false });
+    // cleanup takes options, so the listener wraps it rather than being it.
+    const onPointerUp = () => cleanup();
     dragCleanupRef.current = cleanup;
     captureEl.addEventListener('pointermove', onMove);
-    captureEl.addEventListener('pointerup', cleanup);
+    captureEl.addEventListener('pointerup', onPointerUp);
     captureEl.addEventListener('pointercancel', cleanupNoCommit);
     window.addEventListener('blur', cleanupNoCommit);
   }, [maximized]);
 
-  const handleResizeDragStart = useCallback((e) => {
+  const handleResizeDragStart = useCallback((e: React.PointerEvent) => {
     if (e.button !== 0) return;
     e.preventDefault();
     e.stopPropagation();
@@ -565,7 +572,7 @@ export default function ComposeModal() {
     document.body.style.userSelect = 'none';
     let curW = startWidth;
     let curH = startHeight;
-    const onMove = (ev) => {
+    const onMove = (ev: PointerEvent) => {
       curW = Math.min(window.innerWidth - 16, Math.max(360, startWidth + ev.clientX - startMouseX));
       curH = Math.min(window.innerHeight - 40, Math.max(200, startHeight + ev.clientY - startMouseY));
       el.style.width = curW + 'px';
@@ -573,7 +580,7 @@ export default function ComposeModal() {
     };
     const cleanup = ({ commit = true } = {}) => {
       captureEl.removeEventListener('pointermove', onMove);
-      captureEl.removeEventListener('pointerup', cleanup);
+      captureEl.removeEventListener('pointerup', onPointerUp);
       captureEl.removeEventListener('pointercancel', cleanupNoCommit);
       window.removeEventListener('blur', cleanupNoCommit);
       if (captureEl.hasPointerCapture?.(pointerId)) captureEl.releasePointerCapture(pointerId);
@@ -586,9 +593,11 @@ export default function ComposeModal() {
       }
     };
     const cleanupNoCommit = () => cleanup({ commit: false });
+    // cleanup takes options, so the listener wraps it rather than being it.
+    const onPointerUp = () => cleanup();
     dragCleanupRef.current = cleanup;
     captureEl.addEventListener('pointermove', onMove);
-    captureEl.addEventListener('pointerup', cleanup);
+    captureEl.addEventListener('pointerup', onPointerUp);
     captureEl.addEventListener('pointercancel', cleanupNoCommit);
     window.addEventListener('blur', cleanupNoCommit);
   }, []);
@@ -654,7 +663,7 @@ export default function ComposeModal() {
     e.target.value = '';
   };
 
-  const handleKeyDown = (e) => {
+  const handleKeyDown = (e: React.KeyboardEvent) => {
     if ((e.ctrlKey || e.metaKey) && e.key === 'Enter') {
       e.preventDefault();
       handleSend();
@@ -964,7 +973,7 @@ export default function ComposeModal() {
   }, [runAutosave]);
 
   useEffect(() => {
-    const onBeforeUnload = (event) => {
+    const onBeforeUnload = (event: BeforeUnloadEvent) => {
       if (!autosaveRef.current?.isDirty()) return;
       event.preventDefault();
       event.returnValue = '';
@@ -2506,7 +2515,7 @@ function RichToolbar({ editor, onAttach, onInsertImage = undefined, htmlMode, on
 
   if (!editor) return null;
 
-  const openColor = (e) => {
+  const openColor = (e: React.MouseEvent) => {
     e.preventDefault();
     if (colorPos) { setColorPos(null); return; }
     const r = e.currentTarget.getBoundingClientRect();
@@ -2514,7 +2523,7 @@ function RichToolbar({ editor, onAttach, onInsertImage = undefined, htmlMode, on
     setColorPos({ top: r.bottom + 4, left });
     setHighlightPos(null); setEmojiPos(null); setLinkPos(null);
   };
-  const openHighlight = (e) => {
+  const openHighlight = (e: React.MouseEvent) => {
     e.preventDefault();
     if (highlightPos) { setHighlightPos(null); return; }
     const r = e.currentTarget.getBoundingClientRect();
@@ -3099,7 +3108,7 @@ function ChipInput({ chips, onChipsChange, value, onChange, placeholder, autoFoc
     clearSuggestions();
   };
 
-  const handleKeyDown = (e) => {
+  const handleKeyDown = (e: React.KeyboardEvent) => {
     if (suggestions.length > 0) {
       if (e.key === 'ArrowDown') { e.preventDefault(); setSuggIdx(i => Math.min(i + 1, suggestions.length - 1)); return; }
       if (e.key === 'ArrowUp') { e.preventDefault(); setSuggIdx(i => Math.max(i - 1, -1)); return; }
