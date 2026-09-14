@@ -441,6 +441,10 @@ oidcBrowserRouter.get('/:slug/callback', async (req, res) => {
     const clientSecret = isEncrypted(provider.client_secret)
       ? decrypt(provider.client_secret)
       : provider.client_secret;
+    if (isEncrypted(provider.client_secret) && clientSecret === null) {
+      console.error('OIDC client secret decryption failed');
+      return oidcError(res, pending.action, 'OIDC provider configuration error');
+    }
 
     // Exchange authorization code for tokens
     const tokenParams = new URLSearchParams({
@@ -448,9 +452,11 @@ oidcBrowserRouter.get('/:slug/callback', async (req, res) => {
       code,
       redirect_uri: redirectUri,
       client_id: provider.client_id,
-      client_secret: clientSecret,
       code_verifier: pending.verifier,
     });
+    if (clientSecret !== null && clientSecret !== undefined) {
+      tokenParams.set('client_secret', clientSecret);
+    }
     const tokenFetch = provider.allow_insecure ? makeInsecureFetch() : fetch;
     const tokenRes = await tokenFetch(doc.token_endpoint, {
       method: 'POST',

@@ -914,7 +914,10 @@ type CalendarSourceRow = {
 };
 
 function publicSource(source: CalendarSourceRow) {
-  const secretValues = source.url ? [source.url, decrypt(source.url)] : [];
+  const decryptedUrl = source.url ? decrypt(source.url) : null;
+  const secretValues = decryptedUrl === null
+    ? (source.url ? [source.url] : [])
+    : [source.url, decryptedUrl];
   const lastError = typeof source.last_error === 'string'
     ? secretValues.filter(Boolean).reduce((error, secret) => error.replaceAll(secret, '[redacted]'), source.last_error)
     : source.last_error;
