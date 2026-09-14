@@ -128,7 +128,7 @@ async function buildRawDraft({ accountId, aliasId, to, cc, bcc, subject, body, b
 async function resolveDraftsFolder(account) {
   const mapped = account.folder_mappings?.drafts;
   if (mapped) return mapped;
-  const result = await query(
+  const result = await query<{ path: string }>(
     "SELECT path FROM folders WHERE account_id = $1 AND special_use = '\\Drafts' LIMIT 1",
     [account.id]
   );
@@ -139,7 +139,7 @@ router.post('/draft', async (req, res) => {
   const { accountId, aliasId, to, cc, bcc, subject, body, bodyIsHtml = false, quotedBody, quotedBodyHtml, editedSignature, existingUid, existingFolder } = req.body;
   if (!accountId) return res.status(400).json({ error: 'accountId required' });
 
-  const ownerCheck = await query(
+  const ownerCheck = await query<{ id: string }>(
     'SELECT id FROM email_accounts WHERE id = $1 AND user_id = $2',
     [accountId, req.session.userId]
   );

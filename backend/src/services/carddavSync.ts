@@ -36,7 +36,7 @@ export async function saveCardavConfig(userId: string, patch) {
 // keyed by external_url. Address-book names are unique per user, so on a name
 // clash we disambiguate with a suffix.
 async function ensureCardavBook(userId: string, book) {
-  const existing = await query(
+  const existing = await query<{ id: string }>(
     "SELECT id FROM address_books WHERE user_id = $1 AND external_url = $2",
     [userId, book.url],
   );

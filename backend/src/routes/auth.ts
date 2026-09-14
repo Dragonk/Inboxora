@@ -86,7 +86,7 @@ async function destroyUserSessions(userId: string) {
 }
 
 async function createTrustedDevice(userId: string, req, res) {
-  const trustResult = await query(
+  const trustResult = await query<{ value: string }>(
     "SELECT value FROM system_settings WHERE key = 'mfa_device_trust'"
   );
   const trustSetting = trustResult.rows[0]?.value || '30d';
@@ -253,7 +253,7 @@ router.post('/login', authLimiter, async (req, res) => {
   if (!username || !password) return res.status(400).json({ error: 'Username and password required' });
 
   try {
-    const authSetting = await query(
+    const authSetting = await query<{ value: string }>(
       "SELECT value FROM system_settings WHERE key = 'internal_auth_disabled'"
     );
     if (authSetting.rows[0]?.value === 'true') {
@@ -289,7 +289,7 @@ router.post('/login', authLimiter, async (req, res) => {
     const deviceToken = rawCookies.split(';').map(c => c.trim()).find(c => c.startsWith('mf_td='))?.slice(6);
     if (deviceToken) {
       const tokenHash = crypto.createHash('sha256').update(deviceToken).digest('hex');
-      const deviceRes = await query(
+      const deviceRes = await query<{ id: string }>(
         `SELECT id FROM trusted_devices
          WHERE user_id = $1 AND token_hash = $2
            AND (expires_at IS NULL OR expires_at > NOW())`,
@@ -505,7 +505,7 @@ router.post('/2fa/verify-email-otp', authLimiter, async (req, res) => {
   }
 
   const codeHash = crypto.createHash('sha256').update(String(code).trim()).digest('hex');
-  const tokenResult = await query(
+  const tokenResult = await query<{ id: string }>(
     `SELECT id FROM email_otp_tokens
      WHERE user_id = $1 AND code_hash = $2 AND used_at IS NULL AND expires_at > NOW()
      ORDER BY created_at DESC LIMIT 1`,
@@ -1067,7 +1067,7 @@ router.patch('/profile/recovery-email', async (req, res) => {
 // Looks up a user by recovery_email and sends a reset link.
 // Always returns 200 to avoid leaking whether a recovery email exists.
 router.post('/forgot-password', authLimiter, async (req, res) => {
-  const authSetting = await query(
+  const authSetting = await query<{ value: string }>(
     "SELECT value FROM system_settings WHERE key = 'internal_auth_disabled'"
   );
   if (authSetting.rows[0]?.value === 'true') {

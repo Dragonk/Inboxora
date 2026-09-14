@@ -843,7 +843,7 @@ router.post('/sync', async (req, res) => {
   const { accountId } = req.body; // optional — omit for all accounts
   if (accountId) {
     if (!UUID_RE.test(accountId)) return res.status(400).json({ error: 'Invalid account id' });
-    const check = await query(
+    const check = await query<{ id: string }>(
       'SELECT id FROM email_accounts WHERE id = $1 AND user_id = $2',
       [accountId, req.session.userId]
     );
@@ -862,7 +862,7 @@ router.post('/sync-folders', async (req, res) => {
   const { accountId } = req.body; // optional — omit for all accounts
   if (accountId) {
     if (!UUID_RE.test(accountId)) return res.status(400).json({ error: 'Invalid account id' });
-    const check = await query(
+    const check = await query<{ id: string }>(
       'SELECT id FROM email_accounts WHERE id = $1 AND user_id = $2',
       [accountId, req.session.userId]
     );
@@ -1874,7 +1874,7 @@ router.post('/messages/:id/snooze', async (req, res) => {
   }
 
   // Check if already snoozed
-  const existing = await query(
+  const existing = await query<{ id: string }>(
     'SELECT id FROM snoozed_messages WHERE account_id = $1 AND message_id_header = $2',
     [msg.account_id, msg.message_id]
   );

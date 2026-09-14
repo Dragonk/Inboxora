@@ -211,7 +211,7 @@ async function updateInvitedEvent(req, fields) {
     if (cancelledAttendees.length) {
       cancellationAccount = invitationAccount.id === existing.invite_account_id
         ? invitationAccount
-        : (await client.query('SELECT * FROM email_accounts WHERE id = $1 AND user_id = $2 AND smtp_host IS NOT NULL', [existing.invite_account_id, req.session.userId])).rows[0] || null;
+        : (await client.query<EmailAccountRow>('SELECT * FROM email_accounts WHERE id = $1 AND user_id = $2 AND smtp_host IS NOT NULL', [existing.invite_account_id, req.session.userId])).rows[0] || null;
       if (!cancellationAccount) return { cancelFailed: true };
     }
     const rawIcal = mergeCalendarResource(existing.raw_ical, localEventIcal({ uid: existing.uid, summary, description, location, url, organizer, attendees: normalizedAttendees, allDay: Boolean(allDay), ...times }));
@@ -593,7 +593,7 @@ router.post('/events', async (req, res) => {
 
   let invitationAccount = null;
   if (sendInvites) {
-    const sender = await query(
+    const sender = await query<EmailAccountRow>(
       'SELECT * FROM email_accounts WHERE id = $1 AND user_id = $2 AND enabled = true AND smtp_host IS NOT NULL',
       [inviteAccountId, req.session.userId],
     );
@@ -726,7 +726,7 @@ router.patch('/events/:eventId', async (req, res) => {
 
   let invitationAccount = null;
   if (sendInvites) {
-    const sender = await query('SELECT * FROM email_accounts WHERE id = $1 AND user_id = $2 AND enabled = true AND smtp_host IS NOT NULL', [inviteAccountId, req.session.userId]);
+    const sender = await query<EmailAccountRow>('SELECT * FROM email_accounts WHERE id = $1 AND user_id = $2 AND enabled = true AND smtp_host IS NOT NULL', [inviteAccountId, req.session.userId]);
     invitationAccount = sender.rows[0] || null;
     if (!invitationAccount) return res.status(400).json({ error: 'The selected sender account is unavailable' });
   }
@@ -767,7 +767,7 @@ router.patch('/events/:eventId', async (req, res) => {
       : cancelledAttendees.length
         // A disabled account retains SMTP settings for cancellation; referenced
         // sender accounts cannot be deleted because the FK is ON DELETE RESTRICT.
-        ? (await client.query('SELECT * FROM email_accounts WHERE id = $1 AND user_id = $2 AND smtp_host IS NOT NULL', [existingEvent.invite_account_id, req.session.userId])).rows[0] || null
+        ? (await client.query<EmailAccountRow>('SELECT * FROM email_accounts WHERE id = $1 AND user_id = $2 AND smtp_host IS NOT NULL', [existingEvent.invite_account_id, req.session.userId])).rows[0] || null
         : null;
     if (cancelledAttendees.length) {
       if (!cancellationAccount) return { cancelFailed: true };
@@ -822,7 +822,7 @@ router.delete('/events/:eventId', async (req, res) => {
       try {
         // A disabled account retains SMTP settings for cancellation; referenced
         // sender accounts cannot be deleted because the FK is ON DELETE RESTRICT.
-        const sender = await client.query('SELECT * FROM email_accounts WHERE id = $1 AND user_id = $2 AND smtp_host IS NOT NULL', [event.invite_account_id, req.session.userId]);
+        const sender = await client.query<EmailAccountRow>('SELECT * FROM email_accounts WHERE id = $1 AND user_id = $2 AND smtp_host IS NOT NULL', [event.invite_account_id, req.session.userId]);
         if (!sender.rows[0]) return { cancelFailed: true };
         await sendCalendarInvitation({ account: sender.rows[0], attendees: event.attendees, summary: event.summary, description: event.description, location: event.location, uid: event.uid, allDay: Boolean(event.all_day), method: 'CANCEL', sequence: Number(event.invitation_sequence || 0) + 1, startsAt: new Date(event.starts_at), endsAt: new Date(event.ends_at) });
       } catch (caught) {

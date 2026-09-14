@@ -266,7 +266,7 @@ oidcApiRouter.delete('/identities/:id', requireAuth, async (req, res) => {
     const userResult = await query('SELECT password_hash FROM users WHERE id = $1', [req.session.userId]);
     const hasPassword = !!userResult.rows[0]?.password_hash;
     if (!hasPassword) {
-      const countResult = await query(
+      const countResult = await query<{ count: string }>(
         'SELECT COUNT(*) AS count FROM user_identities WHERE user_id = $1',
         [req.session.userId]
       );

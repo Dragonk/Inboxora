@@ -391,7 +391,7 @@ router.delete('/invites/:id', async (req, res) => {
 // ── System email (SMTP for sending invites & system messages) ──────────────────
 
 router.get('/system-email', async (req, res) => {
-  const result = await query(
+  const result = await query<{ value: string }>(
     "SELECT value FROM system_settings WHERE key = 'system_email_config'"
   );
   if (!result.rows.length) return res.json({ config: null });
@@ -419,7 +419,7 @@ router.post('/system-email', async (req, res) => {
 
   // Load existing config so we can keep the encrypted password if the field wasn't changed
   let existingPass = null;
-  const existing = await query(
+  const existing = await query<{ value: string }>(
     "SELECT value FROM system_settings WHERE key = 'system_email_config'"
   );
   if (existing.rows.length) {
@@ -449,7 +449,7 @@ router.post('/system-email', async (req, res) => {
 });
 
 router.post('/system-email/test', async (req, res) => {
-  const result = await query(
+  const result = await query<{ value: string }>(
     "SELECT value FROM system_settings WHERE key = 'system_email_config'"
   );
   if (!result.rows.length) {
