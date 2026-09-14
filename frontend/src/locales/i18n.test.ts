@@ -1045,7 +1045,7 @@ const attrStringRe = new RegExp(
 // avoids false positives from JS arrow functions (=>) and comparison operators (<=).
 const textNodeRe = />([^<>{}]+)<\//g;
 
-function looksLikeUserText(str) {
+function looksLikeUserText(str: string): boolean {
   const s = str.trim();
   if (s.length < 4) return false;
   if (!/[a-zA-Z]/.test(s)) return false;
@@ -1101,14 +1101,14 @@ function scanHardcodedStrings() {
 
 // ── helpers ──────────────────────────────────────────────────────────────────
 
-function flatten(obj, prefix = '') {
-  const out = {};
+function flatten(obj: Record<string, unknown>, prefix = ''): Record<string, string> {
+  const out: Record<string, string> = {};
   for (const [k, v] of Object.entries(obj)) {
     const path = prefix ? `${prefix}.${k}` : k;
     if (v !== null && typeof v === 'object') {
-      Object.assign(out, flatten(v, path));
+      Object.assign(out, flatten(v as Record<string, unknown>, path));
     } else {
-      out[path] = v;
+      out[path] = String(v);
     }
   }
   return out;
@@ -1116,7 +1116,7 @@ function flatten(obj, prefix = '') {
 
 function loadLocales() {
   const files = readdirSync(dir).filter(f => f.endsWith('.json'));
-  const locales = {};
+  const locales: Record<string, Record<string, string>> = {};
   for (const file of files) {
     const lang = file.replace('.json', '');
     locales[lang] = flatten(JSON.parse(readFileSync(join(dir, file), 'utf8')));
@@ -1155,7 +1155,7 @@ function loadSourceText() {
   return out.join('\n');
 }
 
-function loadLiteralSourceTranslationKeys(prefix) {
+function loadLiteralSourceTranslationKeys(prefix: string) {
   const srcRoot = resolve(dir, '../..');
   const keys = new Set<string>();
   const literalTranslationCall = /(?<![\w$.])t\(\s*['"]([^'"]+)['"]/g;
@@ -1184,7 +1184,7 @@ function loadLiteralSourceTranslationKeys(prefix) {
   return [...keys].sort();
 }
 
-function isAllowedPair(key, lang1, lang2) {
+function isAllowedPair(key: string, lang1: string, lang2: string): boolean {
   const rule = SAME_VALUE_ALLOWED[key];
   if (!rule) return false;
   if (rule === 'any') return true;
@@ -1193,7 +1193,7 @@ function isAllowedPair(key, lang1, lang2) {
 
 // ── tests ─────────────────────────────────────────────────────────────────────
 
-const locales = loadLocales();
+const locales: Record<string, Record<string, string>> = loadLocales();
 const langs = Object.keys(locales).sort();
 const allKeys = [...new Set(langs.flatMap(l => Object.keys(locales[l])))].filter(k => !LOCALE_SPECIFIC_KEYS.has(k)).sort();
 
