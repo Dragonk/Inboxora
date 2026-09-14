@@ -222,7 +222,7 @@ export default function MessageList() {
   const [listScrolled, setListScrolled] = useState(false);
   const [fabVisible, setFabVisible] = useState(true);
   const threadLoadVersionsRef = useRef(new Map());
-  const archiveVisibleMessageRef = useRef<((message: StoreMessageRow, options?: { alreadyRemoved?: boolean; viewKey?: string | null; onResolution?: (version: string) => void; intentKey?: string; intentVersion?: string | null }) => Promise<void>) | null>(null);
+  const archiveVisibleMessageRef = useRef<((message: StoreMessageRow, options?: { alreadyRemoved?: boolean; viewKey?: string | null; onResolution?: (version: string | number) => void; intentKey?: string; intentVersion?: string | null }) => Promise<void>) | null>(null);
   const setMessagesReadStateRef = useRef<((message: StoreMessageRow, read: boolean) => Promise<void>) | null>(null);
   const lastScrollTopRef = useRef(0);
   const [pullDistance, setPullDistance] = useState(0);
@@ -1946,7 +1946,7 @@ export default function MessageList() {
   }: {
     alreadyRemoved?: boolean;
     viewKey?: string | null;
-    onResolution?: (version: string) => void;
+    onResolution?: (version: string | number) => void;
     intentKey?: string;
     intentVersion?: string | null;
   } = {}) => {

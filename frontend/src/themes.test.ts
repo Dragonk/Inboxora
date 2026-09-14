@@ -1,9 +1,11 @@
 // Run with: node --test src/themes.test.ts
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
-import { THEMES, DEFAULT_LIGHT_THEME, DEFAULT_DARK_THEME, themeTone, themesByTone, resolveTheme, readThemePrefs } from './themes.ts';
+import { THEMES, DEFAULT_LIGHT_THEME, DEFAULT_DARK_THEME, themeTone, themesByTone, resolveTheme, readThemePrefs, isThemeName } from './themes.ts';
 
-const names = Object.keys(THEMES);
+// `isThemeName` is the module's own narrowing predicate, so the key list is typed
+// as `(keyof typeof THEMES)[]` and every `THEMES[name]` lookup below is a real key.
+const names = Object.keys(THEMES).filter(isThemeName);
 
 // The canonical CSS-variable contract every theme must satisfy is taken from the
 // first theme rather than a hardcoded list — so the check tracks the real set and a
@@ -86,7 +88,7 @@ describe('light/dark theme defaults', () => {
       Reflect.set(globalThis, 'window', { matchMedia: () => ({ matches: true }) });
       assert.equal(resolveTheme({ mode: 'system', light: 'parchment', dark: 'nord' }), 'nord');
     } finally {
-      if (original === undefined) delete globalThis.window;
+      if (original === undefined) Reflect.deleteProperty(globalThis, 'window');
       else Reflect.set(globalThis, 'window', original);
     }
   });
@@ -94,16 +96,17 @@ describe('light/dark theme defaults', () => {
   it('falls back to the shipped defaults when a stored theme is unknown', () => {
     const original = globalThis.localStorage;
     try {
+      const stored: Record<string, string> = {
+        mailflow_theme_mode: 'system',
+        mailflow_theme_light: 'does_not_exist',
+        mailflow_theme_dark: 'dark_ink',
+      };
       Reflect.set(globalThis, 'localStorage', {
-        getItem: key => ({
-          mailflow_theme_mode: 'system',
-          mailflow_theme_light: 'does_not_exist',
-          mailflow_theme_dark: 'dark_ink',
-        })[key] ?? null,
+        getItem: (key: string) => stored[key] ?? null,
       });
       assert.deepEqual(readThemePrefs(), { mode: 'system', light: 'ink', dark: 'dark_ink' });
     } finally {
-      if (original === undefined) delete globalThis.localStorage;
+      if (original === undefined) Reflect.deleteProperty(globalThis, 'localStorage');
       else Reflect.set(globalThis, 'localStorage', original);
     }
   });
@@ -112,15 +115,15 @@ describe('light/dark theme defaults', () => {
     const original = globalThis.localStorage;
     try {
       Reflect.set(globalThis, 'localStorage', {
-        getItem: key => (key === 'mailflow_theme' ? 'gruvbox' : null),
+        getItem: (key: string) => (key === 'mailflow_theme' ? 'gruvbox' : null),
       });
       assert.deepEqual(readThemePrefs(), { mode: 'dark', light: 'ink', dark: 'gruvbox' });
       Reflect.set(globalThis, 'localStorage', {
-        getItem: key => (key === 'mailflow_theme' ? 'parchment' : null),
+        getItem: (key: string) => (key === 'mailflow_theme' ? 'parchment' : null),
       });
       assert.deepEqual(readThemePrefs(), { mode: 'light', light: 'parchment', dark: 'dark_ink' });
     } finally {
-      if (original === undefined) delete globalThis.localStorage;
+      if (original === undefined) Reflect.deleteProperty(globalThis, 'localStorage');
       else Reflect.set(globalThis, 'localStorage', original);
     }
   });

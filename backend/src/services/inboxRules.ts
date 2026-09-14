@@ -52,6 +52,11 @@ function normalizeStr(val: unknown): string {
   return String(val || '').toLowerCase().trim();
 }
 
+/** True when a parsed-headers value is a header bag (a plain object of header values). */
+function isHeaderBag(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null;
+}
+
 // Returns true if a user-supplied regex is unsafe to run: too long, uncompilable,
 // or a catastrophic-backtracking shape. User regexes run synchronously on the event
 // loop for every incoming message, so a single bad pattern can freeze the whole
@@ -159,7 +164,7 @@ function evaluateCondition(cond: RuleCondition | null | undefined, msg: RuleMess
     case 'header': {
       const headerName = (cond.headerName || '').toLowerCase().trim();
       if (!headerName) return false;
-      const headers = msg.parsedHeaders || {};
+      const headers = isHeaderBag(msg.parsedHeaders) ? msg.parsedHeaders : {};
       const headerVal = headers[headerName] || '';
       return matchOperator(operator, headerVal, value);
     }
@@ -207,7 +212,7 @@ export async function applyInboxRules<T extends RuleMessage>(messages: T[], acco
         'SELECT id, body_text FROM messages WHERE id = ANY($1::uuid[])',
         [ids]
       );
-      const byId = {};
+      const byId: Record<string, (typeof res.rows)[number]> = {};
       for (const row of res.rows) byId[row.id] = row;
       for (const msg of messages) {
         msg._bodyText = byId[msg.id]?.body_text || '';
@@ -273,7 +278,9 @@ export async function applyInboxRules<T extends RuleMessage>(messages: T[], acco
 
     const flushDeferredDestinations = async () => {
       while (deferredDestinations.length) {
-        const { action, ruleId } = deferredDestinations.shift();
+        const next = deferredDestinations.shift();
+        if (!next) continue;
+        const { action, ruleId } = next;
         if (removedIds.has(msg.id) || destinationBlockedIds.has(msg.id)) continue;
         await executeNonForwardAction(action, ruleId, true);
       }
@@ -370,7 +377,7 @@ export async function applyBlockList<T extends RuleMessage>(messages: T[], accou
 
   let blockedRows;
   try {
-    const res = await query(
+    const res = await query<{ email_address: string }>(
       'SELECT email_address FROM block_list WHERE user_id = $1',
       [account.user_id]
     );
@@ -406,22 +413,23 @@ export async function applyBlockList<T extends RuleMessage>(messages: T[], accou
     }
     try {
       const strategy = getDeleteStrategy(msg.folder, trashFolder, allTrashPaths);
-      if (strategy.action === 'move') {
+      if (strategy.action === 'move' && typeof strategy.destination === 'string') {
+        const destFolder = strategy.destination;
         imapManager._guardMoveUid(account.id, msg.folder, msg.uid);
         try {
-          const result = await imapManager.bulkMoveMessages(account, [msg.uid], msg.folder, strategy.destination);
+          const result = await imapManager.bulkMoveMessages(account, [msg.uid], msg.folder, destFolder);
           if (!result.failed?.length) {
             const newUid = result.uidMap?.get(Number(msg.uid));
             if (newUid) {
-              await query('UPDATE messages SET folder = $1, uid = $2 WHERE id = $3', [strategy.destination, newUid, msg.id]);
+              await query('UPDATE messages SET folder = $1, uid = $2 WHERE id = $3', [destFolder, newUid, msg.id]);
             } else {
-              imapManager._guardMoveUid(account.id, strategy.destination, msg.uid);
-              await query('UPDATE messages SET folder = $1 WHERE id = $2', [strategy.destination, msg.id]);
-              setTimeout(() => imapManager._unguardMoveUid(account.id, strategy.destination, msg.uid), 10_000);
+              imapManager._guardMoveUid(account.id, destFolder, msg.uid);
+              await query('UPDATE messages SET folder = $1 WHERE id = $2', [destFolder, msg.id]);
+              setTimeout(() => imapManager._unguardMoveUid(account.id, destFolder, msg.uid), 10_000);
             }
             const wasUnread = !(msg.isRead ?? msg.is_read);
             adjustFolderCounts(account.id, msg.folder, -1, wasUnread ? -1 : 0);
-            adjustFolderCounts(account.id, strategy.destination, 1, wasUnread ? 1 : 0);
+            adjustFolderCounts(account.id, destFolder, 1, wasUnread ? 1 : 0);
           } else {
             remaining.push(msg);
           }
@@ -461,12 +469,14 @@ async function applyAction(action: RuleAction, msg: RuleMessage, account: RuleAc
       // reaches SMTP/OAuth setup, which should not initialize for ordinary rule
       // evaluation or route validation.
       const { forwardRuleMessage } = await import('./ruleForwarder.js');
+      const recipient = action.value;
+      if (typeof recipient !== 'string') return false;
       return forwardRuleMessage({
         ruleId,
         message: msg,
         account,
         imapManager,
-        recipient: action.value,
+        recipient,
       });
     }
 
@@ -608,22 +618,23 @@ async function applyAction(action: RuleAction, msg: RuleMessage, account: RuleAc
       const allTrashPaths = resolverCache.allTrashPaths;
       const strategy = getDeleteStrategy(msg.folder, trashFolder, allTrashPaths);
       if (strategy.action === 'no_trash') return false;
-      if (strategy.action === 'move') {
+      if (strategy.action === 'move' && typeof strategy.destination === 'string') {
+        const destFolder = strategy.destination;
         imapManager._guardMoveUid(account.id, msg.folder, msg.uid);
         try {
-          const deleteResult = await imapManager.bulkMoveMessages(account, [msg.uid], msg.folder, strategy.destination);
+          const deleteResult = await imapManager.bulkMoveMessages(account, [msg.uid], msg.folder, destFolder);
           if (deleteResult.failed?.length) throw new Error(`IMAP delete-move failed for uid ${msg.uid}`);
           const newDeleteUid = deleteResult.uidMap?.get(Number(msg.uid));
           if (newDeleteUid) {
-            await query('UPDATE messages SET folder = $1, uid = $2 WHERE id = $3', [strategy.destination, newDeleteUid, msg.id]);
+            await query('UPDATE messages SET folder = $1, uid = $2 WHERE id = $3', [destFolder, newDeleteUid, msg.id]);
           } else {
-            imapManager._guardMoveUid(account.id, strategy.destination, msg.uid);
-            await query('UPDATE messages SET folder = $1 WHERE id = $2', [strategy.destination, msg.id]);
-            setTimeout(() => imapManager._unguardMoveUid(account.id, strategy.destination, msg.uid), 10_000);
+            imapManager._guardMoveUid(account.id, destFolder, msg.uid);
+            await query('UPDATE messages SET folder = $1 WHERE id = $2', [destFolder, msg.id]);
+            setTimeout(() => imapManager._unguardMoveUid(account.id, destFolder, msg.uid), 10_000);
           }
           const wasUnread = !(msg.isRead ?? msg.is_read);
           adjustFolderCounts(account.id, msg.folder, -1, wasUnread ? -1 : 0);
-          adjustFolderCounts(account.id, strategy.destination, 1, wasUnread ? 1 : 0);
+          adjustFolderCounts(account.id, destFolder, 1, wasUnread ? 1 : 0);
         } finally {
           imapManager._unguardMoveUid(account.id, msg.folder, msg.uid);
         }

@@ -2,14 +2,19 @@ import { afterEach, describe, it, mock } from 'node:test';
 import assert from 'node:assert/strict';
 import { api, CSRF_HEADER, CSRF_VALUE } from './api.ts';
 
+/** The init object `request()` builds always carries a plain headers record. */
+type RecordedInit = Omit<RequestInit, 'headers'> & { headers: Record<string, string> };
+/** One recorded fetch() call: [url, init]. */
+type RecordedCall = [url: string, init: RecordedInit];
+
 afterEach(() => {
   mock.restoreAll();
 });
 
 describe('DAV Hub API client', () => {
   it('uses authenticated, CSRF-aware routes for revocable DAV application passwords', async () => {
-    const calls = [];
-    const fetchStub = async (url: string, init: RequestInit) => {
+    const calls: RecordedCall[] = [];
+    const fetchStub = async (url: string, init: RecordedInit) => {
       calls.push([url, init]);
       return { ok: true, json: async () => ({ ok: true }) };
     };
@@ -29,8 +34,8 @@ describe('DAV Hub API client', () => {
   });
 
   it('uses the calendar API contract for local event CRUD and range reads', async () => {
-    const calls = [];
-    const fetchStub = async (url: string, init: RequestInit) => {
+    const calls: RecordedCall[] = [];
+    const fetchStub = async (url: string, init: RecordedInit) => {
       calls.push([url, init]);
       if (init.method === 'DELETE') return { ok: true, status: 204, json: async () => { throw new Error('no content'); } };
       return { ok: true, status: 200, json: async () => ({ ok: true }) };
@@ -63,8 +68,8 @@ describe('DAV Hub API client', () => {
   });
 
   it('propagates invitation idempotency keys to event mutations', async () => {
-    const calls = [];
-    const fetchStub = async (url: string, init: RequestInit) => { calls.push([url, init]); return { ok: true, status: 200, json: async () => ({ invitationStatus: { status: 'sent' } }) }; };
+    const calls: RecordedCall[] = [];
+    const fetchStub = async (url: string, init: RecordedInit) => { calls.push([url, init]); return { ok: true, status: 200, json: async () => ({ invitationStatus: { status: 'sent' } }) }; };
     mock.method(globalThis, 'fetch', fetchStub);
     const event = { calendarId: 'calendar-1', summary: 'Planning', sendInvites: true };
     await api.calendar.createEvent(event, 'create-retry-key');

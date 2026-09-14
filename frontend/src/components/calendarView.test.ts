@@ -32,7 +32,9 @@ describe('calendar desktop helpers', () => {
     const base = { calendarId: 'one', startsAt: '2026-09-10T10:00', endsAt: '2026-09-10T11:00', summary: 'Planning', description: '', location: '', url: '', organizer: '', sendInvites: true, attendees: ['guest@example.test'] };
     assert.equal(eventPayload(base), null);
     assert.equal(eventPayload({ ...base, inviteAccountId: 'account-1', attendees: [] }), null);
-    assert.deepEqual(eventPayload({ ...base, inviteAccountId: 'account-1' }).attendees, ['guest@example.test']);
+    const invited = eventPayload({ ...base, inviteAccountId: 'account-1' });
+    assert.ok(invited);
+    assert.deepEqual(invited.attendees, ['guest@example.test']);
   });
   it('converts date field values when toggling all-day mode', () => {
     const timed = { allDay: false, startsAt: '2026-09-10T09:30', endsAt: '2026-09-10T10:30' };
@@ -41,6 +43,7 @@ describe('calendar desktop helpers', () => {
   });
   it('preserves selected all-day dates as UTC date boundaries', () => {
     const payload = eventPayload({ calendarId: 'one', allDay: true, startsAt: '2026-09-10', endsAt: '2026-09-11', summary: '', description: '', location: '', url: '', organizer: '' });
+    assert.ok(payload);
     assert.equal(payload.startsAt, '2026-09-10T00:00:00.000Z');
     assert.equal(payload.endsAt, '2026-09-11T00:00:00.000Z');
   });
@@ -64,7 +67,7 @@ describe('calendar desktop helpers', () => {
 
 describe('calendar timed-event layout', () => {
   const day = new Date(2026, 8, 14);
-  const timed = (id, start, end) => ({ id, starts_at: `2026-09-14T${start}:00`, ends_at: `2026-09-14T${end}:00` });
+  const timed = (id: string, start: string, end: string) => ({ id, starts_at: `2026-09-14T${start}:00`, ends_at: `2026-09-14T${end}:00` });
 
   it('is deterministic for the same input', () => {
     const events = [timed('a', '09:00', '11:00'), timed('b', '10:00', '12:00'), timed('c', '10:00', '12:00')];
@@ -104,7 +107,7 @@ describe('calendar timed-event layout', () => {
 });
 
 describe('calendar day event index', () => {
-  const collect = (events, day) => sortedDayEvents([...events], day).map(event => event.id);
+  const collect = (events: NonNullable<Parameters<typeof sortedDayEvents>[0]>, day: Date) => sortedDayEvents([...events], day).map(event => event.id);
 
   it('matches the direct scan for mixed timed, all-day and multi-day events', () => {
     const events = [
@@ -153,7 +156,9 @@ describe('week grid focus and centring', () => {
     // Mon 7 → Fri 11 September, which is what a work-week view renders.
     const workWeek = Array.from({ length: 5 }, (_, offset) => new Date(2026, 8, 7 + offset));
     // Today is Saturday and the anchor is that same Saturday, so neither is in view.
-    assert.equal(workWeek.at(-1).toDateString(), 'Fri Sep 11 2026');
+    const lastWorkDay = workWeek.at(-1);
+    assert.ok(lastWorkDay);
+    assert.equal(lastWorkDay.toDateString(), 'Fri Sep 11 2026');
     assert.equal(weekFocusIndex(workWeek, new Date(2026, 8, 12), new Date(2026, 8, 12)), -1);
   });
 
@@ -190,7 +195,7 @@ describe('week grid focus and centring', () => {
 
 describe('calendar all-day and multi-day stretch layout', () => {
   const day = new Date(2026, 8, 14); // Mon 14 Sep 2026
-  const allDay = (id, start, end) => ({ id, all_day: true, starts_at: start, ends_at: end });
+  const allDay = (id: string, start: string, end: string) => ({ id, all_day: true, starts_at: start, ends_at: end });
 
   it('gives a single all-day event the whole day column', () => {
     const laidOut = layoutAllDayEvents([allDay('a', '2026-09-14', '2026-09-15')], day);

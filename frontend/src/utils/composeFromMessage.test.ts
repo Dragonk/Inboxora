@@ -1,14 +1,39 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import { openReplyFromMessage, openForwardFromMessage } from './composeFromMessage.ts';
+import type { ReplyOpenOptions } from './composeFromMessage.ts';
 
-function harness(body = null) {
-  let payload = null;
+/** The draft shape the compose callbacks receive. */
+type ComposeDraft = Parameters<ReplyOpenOptions['openCompose']>[0];
+
+/** An attachment entry as the body endpoint returns it. */
+interface FetchedAttachment {
+  part: string;
+  filename: string;
+  type: string;
+  size: number;
+}
+
+/** The message body a getMessageBody collaborator resolves. */
+interface FetchedBody {
+  text?: string;
+  html?: string;
+  attachments?: FetchedAttachment[];
+}
+
+function harness(body: FetchedBody | null = null) {
+  let payload: ComposeDraft = {};
   return {
-    openCompose: (p) => { payload = p; },
+    openCompose: (p: ComposeDraft) => { payload = p; },
     getMessageBody: () => Promise.resolve(body),
     payload: () => payload,
   };
+}
+
+/** The draft values are unknown; narrow a field the test reads as a string. */
+function requireString(value: unknown): string {
+  if (typeof value !== 'string') throw new Error(`expected a string field, received ${typeof value}`);
+  return value;
 }
 
 describe('openReplyFromMessage reply target', () => {
@@ -129,7 +154,7 @@ describe('subject prefixing', () => {
 
   it('adds Fwd: unless already present', async () => {
     for (const [subject, expected] of [['Hello', 'Fwd: Hello'], ['Fwd: Hello', 'Fwd: Hello']]) {
-      const h = harness({ text: '', html: null, attachments: [] });
+      const h = harness({ text: '', attachments: [] });
       await openForwardFromMessage(
         { account_id: 'a', subject },
         { openCompose: h.openCompose, getMessageBody: h.getMessageBody },
@@ -171,7 +196,7 @@ describe('references chain', () => {
 
 describe('openForwardFromMessage', () => {
   it('includes To/Cc lines only when present', async () => {
-    const h = harness({ text: 'BODY', html: null, attachments: [] });
+    const h = harness({ text: 'BODY', attachments: [] });
     await openForwardFromMessage(
       {
         account_id: 'a', subject: 'S', from_email: 'f@example.com',
@@ -179,22 +204,22 @@ describe('openForwardFromMessage', () => {
       },
       { openCompose: h.openCompose, getMessageBody: h.getMessageBody },
     );
-    assert.match(h.payload().quotedBody, /\nTo: to@example\.com/);
-    assert.match(h.payload().quotedBody, /\nCc: C <cc@example\.com>/);
+    assert.match(requireString(h.payload().quotedBody), /\nTo: to@example\.com/);
+    assert.match(requireString(h.payload().quotedBody), /\nCc: C <cc@example\.com>/);
   });
 
   it('omits To/Cc lines when the fields are empty', async () => {
-    const h = harness({ text: 'BODY', html: null, attachments: [] });
+    const h = harness({ text: 'BODY', attachments: [] });
     await openForwardFromMessage(
       { account_id: 'a', subject: 'S', from_email: 'f@example.com', to_addresses: [], cc_addresses: [] },
       { openCompose: h.openCompose, getMessageBody: h.getMessageBody },
     );
-    assert.doesNotMatch(h.payload().quotedBody, /\nTo:/);
-    assert.doesNotMatch(h.payload().quotedBody, /\nCc:/);
+    assert.doesNotMatch(requireString(h.payload().quotedBody), /\nTo:/);
+    assert.doesNotMatch(requireString(h.payload().quotedBody), /\nCc:/);
   });
 
   it('maps fetched attachments into forwardedAttachments', async () => {
-    const h = harness({ text: 'BODY', html: null, attachments: [{ part: '2', filename: 'a.pdf', type: 'application/pdf', size: 10 }] });
+    const h = harness({ text: 'BODY', attachments: [{ part: '2', filename: 'a.pdf', type: 'application/pdf', size: 10 }] });
     await openForwardFromMessage(
       { id: 'm1', account_id: 'a', subject: 'S', from_email: 'f@example.com' },
       { openCompose: h.openCompose, getMessageBody: h.getMessageBody },
@@ -221,13 +246,13 @@ describe('malformed address fields fall back cleanly', () => {
   });
 
   it('forward drops the To/Cc lines for malformed fields', async () => {
-    const h = harness({ text: 'BODY', html: null, attachments: [] });
+    const h = harness({ text: 'BODY', attachments: [] });
     await openForwardFromMessage(
       { account_id: 'a', subject: 'S', from_email: 'f@example.com', to_addresses: '{bad', cc_addresses: 'nope' },
       { openCompose: h.openCompose, getMessageBody: h.getMessageBody },
     );
-    assert.doesNotMatch(h.payload().quotedBody, /\nTo:/);
-    assert.doesNotMatch(h.payload().quotedBody, /\nCc:/);
+    assert.doesNotMatch(requireString(h.payload().quotedBody), /\nTo:/);
+    assert.doesNotMatch(requireString(h.payload().quotedBody), /\nCc:/);
   });
 });
 
@@ -299,10 +324,11 @@ describe('quoted body templates', () => {
 
   it('reply references preserve and deduplicate a ten-level RFC chain', async () => {
   const chain = Array.from({ length: 10 }, (_, i) => `<m${i}@example.test>`).join(' ');
-  let captured;
+  let captured: ComposeDraft = {};
   await openReplyFromMessage({ id: 'm10', message_id: '<m10@example.test>', in_reply_to: '<m9@example.test>', thread_references: chain, from_email: 'sender@example.test', subject: 'Topic', date: '2026-01-01' }, { accounts: [], openCompose: value => { captured = value; }, getMessageBody: () => Promise.resolve({ text: '' }) });
   assert.equal(captured.inReplyTo, '<m10@example.test>');
-  assert.equal(captured.references.split(' ').length, 11);
+  const references = captured.references;
+  assert.equal(typeof references === 'string' ? references.split(' ').length : 0, 11);
   });
 
 });

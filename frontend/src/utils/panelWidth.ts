@@ -29,8 +29,13 @@ export function clampPanelWidth(value: unknown, { min = PANEL_WIDTH_MIN, max = P
 // One independently persisted, CSS-variable-backed width.
 interface WidthChannelOptions { variable: string; storageKey: string; fallback: number; min?: number; max?: number }
 
+// Pointer event a resize handle receives (React's synthetic MouseEvent satisfies
+// this shape) and the callbacks a handle may register.
+interface PanelResizeHandleEvent { preventDefault?: () => void; clientX?: number }
+interface PanelResizeOptions { edge?: string; onResize?: (width: number) => void; onEnd?: (width: number) => void }
+
 function createWidthChannel({ variable, storageKey, fallback, min = PANEL_WIDTH_MIN, max = PANEL_WIDTH_MAX }: WidthChannelOptions) {
-  const clamp = value => clampPanelWidth(value, { min, max });
+  const clamp = (value: unknown) => clampPanelWidth(value, { min, max });
 
   const readVariable = () => {
     if (typeof document === 'undefined') return null;
@@ -52,14 +57,14 @@ function createWidthChannel({ variable, storageKey, fallback, min = PANEL_WIDTH_
 
   const read = () => readVariable() ?? saved() ?? fallback;
 
-  const apply = value => {
+  const apply = (value: unknown) => {
     const clamped = clamp(value);
     if (clamped == null) return read();
     if (typeof document !== 'undefined') document.documentElement.style.setProperty(variable, `${clamped}px`);
     return clamped;
   };
 
-  const persist = value => {
+  const persist = (value: unknown) => {
     const clamped = clamp(value);
     if (clamped == null) return read();
     try {
@@ -72,7 +77,7 @@ function createWidthChannel({ variable, storageKey, fallback, min = PANEL_WIDTH_
   // handle sits on, so a handle on the right of a left-hand panel widens it while
   // a handle on the left of a right-hand panel widens it in the opposite
   // direction. Returns a cleanup function suitable for an effect teardown.
-  const beginResize = (event, { edge = 'right', onResize, onEnd }: { edge?: string; onResize?: (width: number) => void; onEnd?: (width: number) => void } = {}) => {
+  const beginResize = (event: PanelResizeHandleEvent, { edge = 'right', onResize, onEnd }: PanelResizeOptions = {}) => {
     event?.preventDefault?.();
     const startX = event?.clientX ?? 0;
     const startWidth = read();
@@ -82,7 +87,7 @@ function createWidthChannel({ variable, storageKey, fallback, min = PANEL_WIDTH_
     document.body.style.cursor = 'col-resize';
     document.body.style.userSelect = 'none';
 
-    const onMouseMove = move => {
+    const onMouseMove = (move: MouseEvent) => {
       // Apply first, then notify. Writing the width must never depend on an
       // observer being registered — `onResize?.(apply(...))` would short-circuit
       // the whole argument list and silently drop every drag.
@@ -137,14 +142,14 @@ export const agendaPanelWidth = createWidthChannel({
 
 export const savedPanelWidth = () => listPanelWidth.saved();
 export const readPanelWidth = () => listPanelWidth.read();
-export const applyPanelWidth = width => listPanelWidth.apply(width);
-export const persistPanelWidth = width => listPanelWidth.persist(width);
-export const beginPanelResize = (event, options) => listPanelWidth.beginResize(event, options);
+export const applyPanelWidth = (width: Parameters<typeof listPanelWidth.apply>[0]) => listPanelWidth.apply(width);
+export const persistPanelWidth = (width: Parameters<typeof listPanelWidth.persist>[0]) => listPanelWidth.persist(width);
+export const beginPanelResize = (event: PanelResizeHandleEvent, options?: PanelResizeOptions) => listPanelWidth.beginResize(event, options);
 
 // ── Day-agenda width (independent of the shared list column) ─────────────────
 
 export const savedAgendaWidth = () => agendaPanelWidth.saved();
 export const readAgendaWidth = () => agendaPanelWidth.read();
-export const applyAgendaWidth = width => agendaPanelWidth.apply(width);
-export const persistAgendaWidth = width => agendaPanelWidth.persist(width);
-export const beginAgendaResize = (event, options) => agendaPanelWidth.beginResize(event, options);
+export const applyAgendaWidth = (width: Parameters<typeof agendaPanelWidth.apply>[0]) => agendaPanelWidth.apply(width);
+export const persistAgendaWidth = (width: Parameters<typeof agendaPanelWidth.persist>[0]) => agendaPanelWidth.persist(width);
+export const beginAgendaResize = (event: PanelResizeHandleEvent, options?: PanelResizeOptions) => agendaPanelWidth.beginResize(event, options);

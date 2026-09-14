@@ -2,24 +2,54 @@ import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import { classifyWithUndo, undoLatestGtdNotification } from './classification.ts';
 
-function createHarness(classifyResult = {}) {
-  const notifications = [];
-  const calls = { classify: [], undo: [], refresh: 0, removed: [] };
-  const api = {
-    gtdClassify: async (...args) => {
+type GtdNotification = {
+  id: string;
+  pluginId?: string;
+  type?: string;
+  title?: string;
+  body?: string;
+  onUndo?: () => Promise<boolean>;
+};
+
+type ClassifyHarness = {
+  api: {
+    gtdClassify: (...args: string[]) => Promise<unknown>;
+    gtdUndoClassify: (token: unknown) => Promise<{ ok: boolean; removed: boolean }>;
+  };
+  store: {
+    addNotification: (notification: Omit<GtdNotification, 'id'>) => void;
+    scheduleGtdSectionsFetch: () => void;
+  };
+  t: (key: string) => string;
+  notifications: GtdNotification[];
+  calls: {
+    classify: string[][];
+    undo: unknown[];
+    refresh: number;
+    removed: string[];
+  };
+};
+
+function createHarness(classifyResult: unknown = {}): ClassifyHarness {
+  const notifications: GtdNotification[] = [];
+  const calls: ClassifyHarness['calls'] = { classify: [], undo: [], refresh: 0, removed: [] };
+  const api: ClassifyHarness['api'] = {
+    gtdClassify: async (...args: string[]) => {
       calls.classify.push(args);
       return classifyResult;
     },
-    gtdUndoClassify: async token => {
+    gtdUndoClassify: async (token: unknown) => {
       calls.undo.push(token);
       return { ok: true, removed: true };
     },
   };
-  const store = {
-    addNotification: notification => notifications.unshift({ id: `n-${notifications.length + 1}`, ...notification }),
+  const store: ClassifyHarness['store'] = {
+    addNotification: notification => {
+      notifications.unshift({ id: `n-${notifications.length + 1}`, ...notification });
+    },
     scheduleGtdSectionsFetch: () => { calls.refresh += 1; },
   };
-  const t = key => key;
+  const t = (key: string) => key;
   return { api, store, t, notifications, calls };
 }
 
@@ -38,11 +68,14 @@ describe('classifyWithUndo', () => {
     assert.deepEqual(harness.calls.classify, [['message-1', 'todo']]);
     assert.equal(harness.calls.refresh, 1);
     assert.equal(harness.notifications.length, 1);
-    assert.equal(harness.notifications[0].pluginId, 'gtd');
-    assert.equal(typeof harness.notifications[0].onUndo, 'function');
+    const notification = harness.notifications[0];
+    assert.equal(notification.pluginId, 'gtd');
+    assert.equal(typeof notification.onUndo, 'function');
 
-    await harness.notifications[0].onUndo();
-    await harness.notifications[0].onUndo();
+    const onUndo = notification.onUndo;
+    assert.ok(onUndo);
+    await onUndo();
+    await onUndo();
 
     assert.deepEqual(harness.calls.undo, [undoToken]);
     assert.equal(harness.calls.refresh, 2);
@@ -54,8 +87,9 @@ describe('classifyWithUndo', () => {
     await classifyWithUndo('message-1', 'watch', harness);
 
     assert.equal(harness.notifications.length, 1);
-    assert.equal(harness.notifications[0].pluginId, 'gtd');
-    assert.equal(harness.notifications[0].onUndo, undefined);
+    const notification = harness.notifications[0];
+    assert.equal(notification.pluginId, 'gtd');
+    assert.equal(notification.onUndo, undefined);
   });
 
   it('reports undo failures without refreshing the GTD sections', async () => {
@@ -69,7 +103,9 @@ describe('classifyWithUndo', () => {
     harness.api.gtdUndoClassify = async () => { throw new Error('offline'); };
 
     await classifyWithUndo('message-1', 'delegated', harness);
-    await harness.notifications[0].onUndo();
+    const onUndo = harness.notifications[0].onUndo;
+    assert.ok(onUndo);
+    await onUndo();
 
     assert.equal(harness.calls.refresh, 1);
     assert.equal(harness.notifications[0].type, 'error');
@@ -91,15 +127,15 @@ describe('classifyWithUndo', () => {
 
 describe('undoLatestGtdNotification', () => {
   it('removes and invokes only the newest GTD undo notification', () => {
-    const invoked = [];
+    const invoked: string[] = [];
     const notifications = [
       { id: 'unrelated', onUndo: () => invoked.push('unrelated') },
       { id: 'newest-gtd', pluginId: 'gtd', onUndo: () => invoked.push('newest-gtd') },
       { id: 'older-gtd', pluginId: 'gtd', onUndo: () => invoked.push('older-gtd') },
     ];
-    const removed = [];
+    const removed: string[] = [];
 
-    const handled = undoLatestGtdNotification(notifications, id => removed.push(id));
+    const handled = undoLatestGtdNotification(notifications, (id: string) => removed.push(id));
 
     assert.equal(handled, true);
     assert.deepEqual(removed, ['newest-gtd']);

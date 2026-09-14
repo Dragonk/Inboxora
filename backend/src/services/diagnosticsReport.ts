@@ -22,7 +22,7 @@ const BACKEND_VERSION = (process.env.APP_VERSION || packageMeta.version || '0.0.
 
 // Salted, truncated hash. Same (id, salt) -> same ref within one report; a
 // different salt (i.e. a different report) -> a different ref. Not reversible.
-export function hashRef(id, salt) {
+export function hashRef(id: string, salt: string) {
   return crypto.createHash('sha256').update(`${salt}:${id}`).digest('hex').slice(0, 8);
 }
 
@@ -33,7 +33,7 @@ const STANDARD_FOLDERS = new Set([
   'Deleted Items', 'Deleted Messages', 'Junk E-Mail', 'Sent Items', 'Sent Messages', 'Notes', 'Starred',
 ]);
 
-export function folderLabel(name: string, specialUse, salt) {
+export function folderLabel(name: string, specialUse: string | null, salt: string) {
   if (!name) return `custom:${hashRef('(unnamed)', salt)}`;
   if (STANDARD_FOLDERS.has(name)) return name;
   if (name.startsWith('[Gmail]/') || name.startsWith('[Google Mail]/')) return name;
@@ -45,7 +45,7 @@ export function folderLabel(name: string, specialUse, salt) {
 // otherwise maps well-known IMAP hosts to a service name. The raw host is never
 // included (a custom-domain host would be identifying) — unknown hosts collapse
 // to the generic "imap".
-export function deriveProvider(imapHost, oauthProvider) {
+export function deriveProvider(imapHost: string | null | undefined, oauthProvider: string | null | undefined): string {
   if (oauthProvider) return oauthProvider;
   const h = String(imapHost || '').toLowerCase();
   if (!h) return 'unknown';
@@ -61,7 +61,7 @@ export function deriveProvider(imapHost, oauthProvider) {
 }
 
 // Map a raw sync_error string to a non-identifying category enum.
-export function categorizeSyncError(err) {
+export function categorizeSyncError(err: string | null | undefined) {
   if (!err) return 'none';
   const s = String(err).toLowerCase();
   if (/auth|login|password|credential|invalid.*(user|pass)|xoauth|token|535|534/.test(s)) return 'auth';
@@ -82,16 +82,19 @@ const PII_PATTERNS = [
   /(ghp_|gho_|sk-|xoxb-|Bearer\s+\S)/i,           // token prefixes
 ];
 
-export function scrubReport(obj) {
-  const counters = { fieldsDropped: 0, hitsRedacted: 0 };
-  const walk = (v) => {
+type ScrubCounters = { fieldsDropped: number; hitsRedacted: number };
+
+export function scrubReport<T>(obj: T): { scrubbed: T; counters: ScrubCounters };
+export function scrubReport(obj: unknown): { scrubbed: unknown; counters: ScrubCounters } {
+  const counters: ScrubCounters = { fieldsDropped: 0, hitsRedacted: 0 };
+  const walk = (v: unknown): unknown => {
     if (typeof v === 'string') {
       if (PII_PATTERNS.some(re => re.test(v))) { counters.hitsRedacted += 1; return '[redacted]'; }
       return v;
     }
     if (Array.isArray(v)) return v.map(walk);
     if (v && typeof v === 'object') {
-      const out = {};
+      const out: Record<string, unknown> = {};
       for (const [k, val] of Object.entries(v)) out[k] = walk(val);
       return out;
     }
@@ -101,8 +104,8 @@ export function scrubReport(obj) {
 }
 
 // Assemble the server-owned sections of the report, scoped to one user.
-export async function buildServerReport(userId: string, salt) {
-  const accRes = await query<{ id: string; include_in_unified_inbox?: boolean | null; last_sync?: string | Date | null; sync_error?: string | null; email_address?: string | null; [key: string]: unknown }>(
+export async function buildServerReport(userId: string, salt: string) {
+  const accRes = await query<{ id: string; protocol?: string | null; oauth_provider?: string | null; imap_host?: string | null; enabled?: boolean | null; include_in_unified_inbox?: boolean | null; last_sync?: string | Date | null; sync_error?: string | null; email_address?: string | null; [key: string]: unknown }>(
     `SELECT id, protocol, oauth_provider, imap_host, enabled, include_in_unified_inbox, last_sync, sync_error
      FROM email_accounts WHERE user_id = $1 ORDER BY sort_order NULLS LAST, created_at`,
     [userId],
@@ -135,7 +138,7 @@ export async function buildServerReport(userId: string, salt) {
   const now = Date.now();
   const accounts = [];
   const folders = [];
-  const unreadByAccountRef = {};
+  const unreadByAccountRef: Record<string, number> = {};
   let unreadTotal = 0;
 
   for (const a of accRes.rows) {

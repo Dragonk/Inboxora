@@ -59,10 +59,15 @@ export interface HydratedLogicalMessage {
   [key: string]: unknown;
 }
 
+/** The hydrated view produced by the persistence path, where the owning user is required. */
+type HydratedPersistedMessage = HydratedLogicalMessage & { userId: string };
+
 function fingerprintCopy(copy: ConversationCopyInput): string {
   return createHash('sha256').update(JSON.stringify([copy.body_text || '', copy.subject || '', copy.from_email || '', copy.date || '', copy.in_reply_to || '', copy.thread_references || ''])).digest('hex');
 }
 
+export async function hydrateLogicalMessage(copy: ConversationCopyInput, options: { identities?: unknown[]; userId: string }): Promise<HydratedPersistedMessage>;
+export async function hydrateLogicalMessage(copy: ConversationCopyInput, options?: { identities?: unknown[]; userId?: string | null }): Promise<HydratedLogicalMessage>;
 export async function hydrateLogicalMessage(copy: ConversationCopyInput, { identities = [], userId = null }: { identities?: unknown[]; userId?: string | null } = {}): Promise<HydratedLogicalMessage> {
   const owner = userId || copy.user_id || copy.userId;
   const identity = logicalMessageIdentity(copy, { userId: owner, accountId: copy.account_id });
@@ -96,11 +101,11 @@ interface LogicalMessageRow {
   parent_logical_message_id?: string | null;
 }
 
-async function consolidateLegacyLogicalRows(client: PoolClient, hydrated: HydratedLogicalMessage, rows: LogicalMessageRow[], preferredId: string | null = null) {
+async function consolidateLegacyLogicalRows(client: PoolClient, hydrated: HydratedPersistedMessage, rows: LogicalMessageRow[], preferredId: string | null = null) {
   const uniqueRows = [...new Map(rows.map(row => [row.id, row])).values()];
   if (!uniqueRows.length) return null;
   const ids = uniqueRows.map(row => row.id);
-  const conversationIds = [...new Set(uniqueRows.map(row => row.conversation_id).filter(Boolean))];
+  const conversationIds = [...new Set(uniqueRows.map(row => row.conversation_id).filter((id): id is string => Boolean(id)))];
   const preferred = uniqueRows.find(row => row.id === preferredId) || uniqueRows[0];
   // Never erase explicit user intent while repairing generated legacy state.
   const protectedState = await client.query(`
@@ -155,7 +160,7 @@ async function consolidateLegacyLogicalRows(client: PoolClient, hydrated: Hydrat
          SET parent_logical_message_id = $1, updated_at = NOW()
        WHERE user_id = $2 AND account_id = $4 AND parent_logical_message_id = ANY($3::uuid[]) AND id <> $1
     `, [winner.id, hydrated.userId, loserIds, hydrated.accountId]);
-    if (loserIds.includes(winner.parent_logical_message_id)) {
+    if (loserIds.some(id => id === winner.parent_logical_message_id)) {
       await client.query('UPDATE logical_messages SET parent_logical_message_id = NULL, updated_at = NOW() WHERE id = $1 AND user_id = $2 AND account_id = $3', [winner.id, hydrated.userId, hydrated.accountId]);
     }
     await client.query(`
@@ -178,7 +183,7 @@ async function consolidateLegacyLogicalRows(client: PoolClient, hydrated: Hydrat
   return { ...winner, message_id_collision_key: hydrated.collisionKey };
 }
 
-async function findExistingLogical(client: PoolClient, hydrated: HydratedLogicalMessage, { repairExisting = false }: { repairExisting?: boolean } = {}) {
+async function findExistingLogical(client: PoolClient, hydrated: HydratedPersistedMessage, { repairExisting = false }: { repairExisting?: boolean } = {}) {
   if (hydrated.canonicalMessageId) {
     // P1-07: query directly by (user_id, canonical_message_id, collision_key)
     // instead of LIMIT 2 + JS filtering. This handles >=3 collision variants
@@ -449,7 +454,7 @@ export async function _upsertConversationCopyWithClient(
          WHERE lm.user_id = $2 AND lm.account_id = $3 AND NOT lm.id = ANY(component.path)
       ) SELECT lm.id, lm.conversation_id, c.manually_locked FROM logical_messages lm JOIN component ON component.id = lm.id LEFT JOIN conversations c ON c.id = lm.conversation_id`, [reference.child_logical_message_id, hydrated.userId, hydrated.accountId]);
       let blockedMove = false;
-      const oldConversationIds = new Set();
+      const oldConversationIds = new Set<string>();
       for (const node of component.rows) {
         if (node.conversation_id) oldConversationIds.add(node.conversation_id);
       }
@@ -507,7 +512,10 @@ export async function _upsertConversationCopyWithClient(
       }
     }
     if (parent?.ambiguous) await client.query(`INSERT INTO conversation_evidence (user_id, account_id, conversation_id, logical_message_id, evidence_type, evidence_value_hash, weight, details) VALUES ($1,$2,$3,$4,'ambiguous-parent',$5,0,$6::jsonb) ON CONFLICT DO NOTHING`, [hydrated.userId, hydrated.accountId, conversationId, logical.id, createHash('sha256').update(String(parent.canonical_message_id)).digest('hex'), JSON.stringify({ canonical_message_id: parent.canonical_message_id, relation_type: parent.relationType })]);
-    const evidence = [[decision.reason, decision.confidence, { relationType: parent?.relationType || null, provider: provider?.provider || null }], ...(series ? [[series.kind, series.confidence, { mode: seriesMode, previousLogicalMessageId: matchedPrevious?.id || null }]] : []), ...(parent ? [['rfc-parent', 0.99, { parentLogicalMessageId: parent.id }]] : []), ...((provider?.isStrong || provider?.source === 'outlook-conversation-index-root') && provider?.providerThreadId ? [['provider-thread-id', 1, { provider: provider.provider }]] : [])];
+    const evidence: [string | undefined, number | undefined, Record<string, unknown>][] = [[decision.reason, decision.confidence, { relationType: parent?.relationType || null, provider: provider?.provider || null }]];
+    if (series) evidence.push([series.kind, series.confidence, { mode: seriesMode, previousLogicalMessageId: matchedPrevious?.id || null }]);
+    if (parent) evidence.push(['rfc-parent', 0.99, { parentLogicalMessageId: parent.id }]);
+    if ((provider?.isStrong || provider?.source === 'outlook-conversation-index-root') && provider?.providerThreadId) evidence.push(['provider-thread-id', 1, { provider: provider.provider }]);
     if (collision) evidence.push(['message-id-collision', 0, { canonicalMessageId: hydrated.canonicalMessageId, collisionKey: hydrated.collisionKey }]);
     for (const [type, weight, details] of evidence) await client.query(`INSERT INTO conversation_evidence (user_id, account_id, conversation_id, logical_message_id, evidence_type, evidence_value_hash, weight, details) VALUES ($1,$2,$3,$4,$5,$6,$7,$8::jsonb) ON CONFLICT DO NOTHING`, [hydrated.userId, hydrated.accountId, conversationId, logical.id, type, createHash('sha256').update(JSON.stringify(details)).digest('hex'), weight, JSON.stringify(details)]);
     await client.query(`UPDATE conversations c SET first_message_at = (SELECT MIN(message_date) FROM logical_messages WHERE conversation_id = c.id), last_message_at = (SELECT MAX(message_date) FROM logical_messages WHERE conversation_id = c.id), subject_snapshot = COALESCE((SELECT subject FROM logical_messages WHERE conversation_id = c.id ORDER BY message_date ASC NULLS LAST, id LIMIT 1), c.subject_snapshot), canonical_subject = COALESCE((SELECT canonical_subject FROM logical_messages WHERE conversation_id = c.id ORDER BY message_date ASC NULLS LAST, id LIMIT 1), c.canonical_subject), logical_message_count = (SELECT COUNT(*) FROM logical_messages WHERE conversation_id = c.id), copy_count = (SELECT COUNT(*) FROM messages WHERE conversation_id = c.id AND is_deleted = false), unread_count = (SELECT COUNT(*) FROM logical_messages lm WHERE lm.conversation_id = c.id AND EXISTS (SELECT 1 FROM messages m WHERE m.logical_message_id = lm.id AND m.conversation_id = c.id AND m.is_deleted = false AND m.is_read = false)), updated_at = NOW() WHERE c.id = $1`, [conversationId]);

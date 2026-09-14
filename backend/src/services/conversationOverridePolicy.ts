@@ -1,5 +1,6 @@
 import { query } from './db.js';
 import type { DbClient } from './db.js';
+import { routeParam } from '../utils/query.js';
 
 // P1-01: Override scoping — CONVERSATION-LEVEL vs MESSAGE-LEVEL.
 // Conversation-level overrides: lock-conversation, unlock-conversation, manual-merge.
@@ -11,7 +12,7 @@ import type { DbClient } from './db.js';
 // a message-level override for L1 could be picked up when querying for L2 in the
 // same conversation. Now we query message-level overrides ONLY by their exact
 // logical_message_id, and conversation-level overrides ONLY by conversation_id.
-export async function effectiveConversationOverride(client, { userId, accountId, conversationId, logicalMessageId = null }: { userId?: string; accountId?: string; conversationId?: string; logicalMessageId?: string | null } = {}) {
+export async function effectiveConversationOverride(client: DbClient, { userId, accountId, conversationId, logicalMessageId = null }: { userId?: string | null; accountId?: string | null; conversationId?: string; logicalMessageId?: string | null } = {}) {
   // Conversation-level overrides (lock/unlock/merge) — keyed by conversation_id only.
   const conversationResult = await client.query(`
     SELECT id, override_type, target_id, reason, logical_message_id, created_at
@@ -82,27 +83,27 @@ export async function effectiveConversationOverride(client, { userId, accountId,
   };
 }
 
-export async function resolveConversationAlias(client: DbClient, { userId, accountId = null, conversationId }) {
-  let current = conversationId;
-  const seen = new Set();
+export async function resolveConversationAlias(client: DbClient, { userId, accountId = null, conversationId }: { userId?: string | null; accountId?: unknown; conversationId: string | string[] }) {
+  let current = routeParam(conversationId);
+  const seen = new Set<string>();
   for (let i = 0; i < 20; i++) {
     if (seen.has(current)) throw new Error('Conversation alias cycle detected');
     seen.add(current);
-    const result = await client.query('SELECT canonical_conversation_id FROM conversation_aliases WHERE user_id = $1 AND alias_conversation_id = $2 AND ($3::uuid IS NULL OR account_id = $3)', [userId, current, accountId]);
+    const result = await client.query<{ canonical_conversation_id: string }>('SELECT canonical_conversation_id FROM conversation_aliases WHERE user_id = $1 AND alias_conversation_id = $2 AND ($3::uuid IS NULL OR account_id = $3)', [userId, current, accountId]);
     if (!result.rows[0] || result.rows[0].canonical_conversation_id === current) return current;
     current = result.rows[0].canonical_conversation_id;
   }
   throw new Error('Conversation alias chain too deep');
 }
 
-export async function assertNoAliasCycle(client, { userId, accountId, sourceConversationId, targetConversationId }) {
+export async function assertNoAliasCycle(client: DbClient, { userId, accountId, sourceConversationId, targetConversationId }: { userId?: string | null; accountId?: string | null; sourceConversationId: string; targetConversationId: string }) {
   let current = targetConversationId;
-  const seen = new Set();
+  const seen = new Set<string>();
   for (let i = 0; i < 20; i++) {
     if (current === sourceConversationId) throw new Error('manual-merge would create an alias cycle');
     if (seen.has(current)) throw new Error('Conversation alias cycle detected');
     seen.add(current);
-    const result = await client.query(
+    const result = await client.query<{ canonical_conversation_id: string }>(
       'SELECT canonical_conversation_id FROM conversation_aliases WHERE user_id = $1 AND account_id = $3 AND alias_conversation_id = $2 FOR UPDATE',
       [userId, current, accountId],
     );
@@ -113,7 +114,7 @@ export async function assertNoAliasCycle(client, { userId, accountId, sourceConv
   throw new Error('Conversation alias chain too deep');
 }
 
-export async function refreshConversationAggregates(client, userId: string, conversationId: string) {
+export async function refreshConversationAggregates(client: DbClient, userId: string, conversationId: string) {
   await client.query(`
     UPDATE conversations c SET
       first_message_at = (SELECT MIN(message_date) FROM logical_messages WHERE conversation_id = c.id),
@@ -128,13 +129,13 @@ export async function refreshConversationAggregates(client, userId: string, conv
 
 // P1-05: Deterministic lock order — sort UUIDs lexicographically to prevent deadlocks.
 // P2-04: Use a text-based sort (not int32 hash) to avoid collision risk.
-export async function lockConversationsDeterministically(client, userId: string, ids) {
+export async function lockConversationsDeterministically(client: DbClient, userId: string, ids: string[]) {
   const ordered = [...new Set(ids.filter(Boolean))].sort(); // lexicographic sort of UUID strings
   if (ordered.length) await client.query('SELECT id FROM conversations WHERE user_id = $1 AND id = ANY($2::uuid[]) ORDER BY id FOR UPDATE', [userId, ordered]);
   return ordered;
 }
 
-export async function assertConversationOwner(client, userId: string, conversationId: string, accountId = null) {
+export async function assertConversationOwner(client: DbClient, userId: string, conversationId: string, accountId: string | null = null) {
   const result = await client.query('SELECT id, user_id, manually_locked FROM conversations WHERE id = $1 AND user_id = $2 AND ($3::uuid IS NULL OR account_id = $3) FOR UPDATE', [conversationId, userId, accountId]);
   if (!result.rows[0]) { const error = new Error('Conversation not found'); error.statusCode = 404; throw error; }
   return result.rows[0];

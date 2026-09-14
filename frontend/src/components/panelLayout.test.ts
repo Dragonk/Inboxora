@@ -25,8 +25,8 @@ import {
 } from '../utils/panelWidth.ts';
 import { applyLayout } from '../layouts.ts';
 
-const read = name => readFileSync(new URL(`./${name}`, import.meta.url), 'utf8');
-const readUtil = name => readFileSync(new URL(`../utils/${name}`, import.meta.url), 'utf8');
+const read = (name: string) => readFileSync(new URL(`./${name}`, import.meta.url), 'utf8');
+const readUtil = (name: string) => readFileSync(new URL(`../utils/${name}`, import.meta.url), 'utf8');
 
 const originalDocument = globalThis.document;
 const originalLocalStorage = globalThis.localStorage;
@@ -34,7 +34,13 @@ const originalLocalStorage = globalThis.localStorage;
 type DragListener = (event: { clientX?: number }) => void;
 let dragListeners: Record<string, DragListener[]> = {};
 
-function stubDom({ variable = '', stored = null } = {}) {
+function lastDragListener(type: string): DragListener {
+  const listener = dragListeners[type].at(-1);
+  assert.ok(listener, `expected a registered ${type} listener`);
+  return listener;
+}
+
+function stubDom({ variable = '', stored = null }: { variable?: string; stored?: number | null } = {}) {
   const properties = new Map();
   if (variable) properties.set('--list-width', variable);
   const storage = new Map();
@@ -44,28 +50,28 @@ function stubDom({ variable = '', stored = null } = {}) {
     documentElement: {
       style: {
         setProperty: (key: string, value: unknown) => properties.set(key, value),
-        getPropertyValue: key => properties.get(key) || '',
+        getPropertyValue: (key: string) => properties.get(key) || '',
       },
     },
     body: { style: {} },
-    addEventListener: (type, handler) => { (dragListeners[type] ||= []).push(handler); },
-    removeEventListener: (type, handler) => {
+    addEventListener: (type: string, handler: DragListener) => { (dragListeners[type] ||= []).push(handler); },
+    removeEventListener: (type: string, handler: DragListener) => {
       dragListeners[type] = (dragListeners[type] || []).filter(item => item !== handler);
     },
   }));
   Reflect.set(globalThis, 'getComputedStyle', (element: { style: CSSStyleDeclaration }) => element.style);
   Reflect.set(globalThis, 'localStorage', ({
-    getItem: key => (storage.has(key) ? storage.get(key) : null),
+    getItem: (key: string) => (storage.has(key) ? storage.get(key) : null),
     setItem: (key: string, value: unknown) => storage.set(key, String(value)),
-    removeItem: key => storage.delete(key),
+    removeItem: (key: string) => storage.delete(key),
   }));
   return { properties, storage };
 }
 
 function restoreDom() {
-  if (originalDocument === undefined) delete globalThis.document;
+  if (originalDocument === undefined) Reflect.deleteProperty(globalThis, 'document');
   else globalThis.document = originalDocument;
-  if (originalLocalStorage === undefined) delete globalThis.localStorage;
+  if (originalLocalStorage === undefined) Reflect.deleteProperty(globalThis, 'localStorage');
   else Reflect.set(globalThis, 'localStorage', originalLocalStorage);
 }
 
@@ -124,7 +130,7 @@ test('a drag applies the new width even without an onResize observer', t => {
 
   // The left-edge channel mirrors the delta, so dragging left widens it.
   const stopAgenda = beginAgendaResize({ preventDefault() {}, clientX: 900 }, { edge: 'left' });
-  dragListeners.mousemove.at(-1)({ clientX: 860 });
+  lastDragListener('mousemove')({ clientX: 860 });
   assert.equal(properties.get('--agenda-width'), `${AGENDA_WIDTH_DEFAULT + 40}px`);
   stopAgenda();
 });
@@ -148,7 +154,7 @@ test('finishing a drag persists the width even though no caller passes onEnd', t
   // The agenda channel persists through the same path.
   const agendaStorage = stubDom().storage;
   const stopAgenda = beginAgendaResize({ preventDefault() {}, clientX: 900 }, { edge: 'left' });
-  dragListeners.mousemove.at(-1)({ clientX: 840 });
+  lastDragListener('mousemove')({ clientX: 840 });
   dragListeners.mouseup.forEach(handler => handler({}));
   assert.equal(agendaStorage.get(AGENDA_WIDTH_STORAGE_KEY), String(AGENDA_WIDTH_DEFAULT + 60));
   stopAgenda();

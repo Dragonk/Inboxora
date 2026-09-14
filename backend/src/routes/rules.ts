@@ -18,7 +18,41 @@ const FIELDS_REQUIRING_VALUE = new Set(['from', 'to', 'subject', 'body', 'header
 
 // Validates condition shapes. Returns an error string on the first problem,
 // or null when all conditions are valid. Exported for unit testing.
-export function validateConditions(conditions) {
+// A stored rule condition. has_attachment carries no value; the rest match a field.
+export interface RuleCondition {
+  field: string;
+  value: string;
+  operator?: string;
+  headerName?: string;
+  status?: string;
+  pattern?: string;
+}
+
+// A stored rule action. Extra keys are preserved because the engine round-trips them.
+export interface RuleAction {
+  type: string;
+  value?: string;
+  [key: string]: unknown;
+}
+
+// Untrusted as stored or posted: the validators below are what turn these into the shapes above.
+export interface RuleConditionInput {
+  field?: unknown;
+  value?: unknown;
+  operator?: unknown;
+  headerName?: unknown;
+  status?: unknown;
+  pattern?: unknown;
+  [key: string]: unknown;
+}
+
+export interface RuleActionInput {
+  type?: unknown;
+  value?: unknown;
+  [key: string]: unknown;
+}
+
+export function validateConditions(conditions: ReadonlyArray<RuleConditionInput>): string | null {
   for (const cond of conditions) {
     if (!cond || typeof cond.field !== 'string') {
       return 'Each condition must have a valid field';
@@ -39,7 +73,7 @@ export function validateConditions(conditions) {
   return null;
 }
 
-export function validateActions(actions) {
+export function validateActions(actions: ReadonlyArray<RuleActionInput>): string | null {
   for (const action of actions) {
     if (action.type !== 'forward') continue;
     const value = typeof action.value === 'string' ? action.value.trim() : '';
@@ -53,11 +87,11 @@ export function validateActions(actions) {
 // Strip duplicate destination and forward actions (keeping the first) and trim
 // move and forward values.
 // Silently drops malformed entries (null, non-object, missing/non-string type).
-export function normalizeActions(actions) {
+export function normalizeActions(actions: ReadonlyArray<RuleActionInput>): RuleAction[] {
   let destSeen = false;
   let forwardSeen = false;
   return actions
-    .filter(a => {
+    .filter((a): a is RuleAction => {
       if (!a || typeof a.type !== 'string') return false;
       if (DESTINATION_ACTIONS.has(a.type)) {
         if (destSeen) return false;
@@ -135,7 +169,7 @@ router.post('/run', async (req: Request, res: Response) => {
       if (!account) continue;
 
       const BATCH = 500;
-      let lastId = null;
+      let lastId: string | null = null;
       while (true) {
         const msgResult = await query<{ id: string; uid: number; folder: string; from_email?: string | null; from_name?: string | null; to_addresses?: unknown; subject?: string | null; has_attachments?: boolean | null; is_read?: boolean | null }>(
           `SELECT id, uid, folder, from_email, from_name, to_addresses, subject, has_attachments, is_read

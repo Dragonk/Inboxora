@@ -2,13 +2,19 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import { createInvitationOperationController } from './calendarInvitationRetry.ts';
 
+/** The argument tuple of the controller's save method, taken from the exported factory. */
+type InvitationSaveArgs = Parameters<ReturnType<typeof createInvitationOperationController>['save']>;
+/** The calendar API and payload shapes the save method declares. */
+type InvitationCalendarApi = InvitationSaveArgs[2];
+type InvitationPayload = InvitationSaveArgs[1];
+
 test('retries ambiguous invitation saves with the original key and payload', async () => {
-  const calls = [];
+  const calls: Array<{ method: string; id?: string; payload: InvitationPayload; key?: string }> = [];
   const responses = [
     { invitationError: 'delivery failed', invitationStatus: { status: 'failed' } },
     { invitationStatus: { status: 'sent' } },
   ];
-  const api = {
+  const api: InvitationCalendarApi = {
     createEvent: async (payload, key) => { calls.push({ method: 'create', payload, key }); return responses.shift(); },
     updateEvent: async (id, payload, key) => { calls.push({ method: 'update', id, payload, key }); return responses.shift(); },
   };
@@ -29,8 +35,8 @@ test('retries ambiguous invitation saves with the original key and payload', asy
 });
 
 test('resetting an abandoned retry prevents cross-event key reuse', async () => {
-  const calls = [];
-  const api = {
+  const calls: Array<{ payload: InvitationPayload; key?: string }> = [];
+  const api: InvitationCalendarApi = {
     createEvent: async (payload, key) => { calls.push({ payload, key }); return { invitationError: 'delivery failed' }; },
   };
   const controller = createInvitationOperationController({ randomUUID: (() => { let i = 0; return () => `key-${++i}`; })() });
@@ -43,8 +49,8 @@ test('resetting an abandoned retry prevents cross-event key reuse', async () => 
 });
 
 test('changing the payload starts a distinct invitation operation', async () => {
-  const calls = [];
-  const api = {
+  const calls: Array<{ payload: InvitationPayload; key?: string }> = [];
+  const api: InvitationCalendarApi = {
     createEvent: async (payload, key) => { calls.push({ payload, key }); return { invitationError: 'delivery failed' }; },
   };
   const controller = createInvitationOperationController({ randomUUID: (() => { let i = 0; return () => `key-${++i}`; })() });

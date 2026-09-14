@@ -17,6 +17,12 @@ interface AiRouteMocks {
   disconnectCodex: ReturnType<typeof vi.fn>;
 }
 
+/** Shape of the errors the app-level handler reads: an optional status code and a message. */
+interface HttpError {
+  status?: number;
+  message: string;
+}
+
 const mocks = vi.hoisted<AiRouteMocks>(() => ({
   query: vi.fn(),
   getAdminAiConfig: vi.fn(),
@@ -49,7 +55,7 @@ vi.mock('../services/openaiCodexAuth.js', () => ({
   disconnectCodex: mocks.disconnectCodex,
 }));
 
-import express from 'express';
+import express, { type NextFunction, type Request, type Response } from 'express';
 import { mockSession } from '../test/http.js';
 import aiRoutes, { aiLanguageInstruction } from './ai.js';
 
@@ -70,7 +76,7 @@ function buildApp() {
   });
   app.use('/api', aiRoutes);
   // Mirrors index.js without exposing internal exception messages.
-  app.use((error, _req, res, _next) => {
+  app.use((error: HttpError, _req: Request, res: Response, _next: NextFunction) => {
     res.status(error.status || 500).json({ error: error.status ? error.message : 'Internal server error' });
   });
   return app;
@@ -78,12 +84,12 @@ function buildApp() {
 
 interface TestRequestOptions {
   method?: string;
-  user?: string;
+  user?: string | null;
   body?: unknown;
 }
 
 function request(path: string, { method = 'GET', user = ADMIN, body }: TestRequestOptions = {}) {
-  const headers = {};
+  const headers: Record<string, string> = {};
   if (user) headers['x-test-user'] = user;
   if (body !== undefined) headers['content-type'] = 'application/json';
   return fetch(`${base}${path}`, {
@@ -93,11 +99,11 @@ function request(path: string, { method = 'GET', user = ADMIN, body }: TestReque
   });
 }
 
-function chat(body, options = {}) {
+function chat(body: unknown, options: TestRequestOptions = {}) {
   return request('/api/ai/chat', { method: 'POST', user: MEMBER, body, ...options });
 }
 
-async function* deltas(...values) {
+async function* deltas(...values: string[]) {
   yield* values;
 }
 
@@ -345,9 +351,9 @@ describe('authenticated AI status and streaming', () => {
   });
 
   it('aborts the provider stream when the HTTP client disconnects', async () => {
-    let providerSignal;
-    let resolveAbort: ((value?: unknown) => void) | undefined;
-    const aborted = new Promise((resolve) => { resolveAbort = resolve; });
+    let providerSignal: AbortSignal | undefined;
+    let resolveAbort: () => void = () => undefined;
+    const aborted = new Promise<void>((resolve) => { resolveAbort = resolve; });
     mocks.streamChat.mockImplementation(async function* stream(_messages, { signal }) {
       providerSignal = signal;
       yield 'first';
@@ -366,10 +372,12 @@ describe('authenticated AI status and streaming', () => {
       body: JSON.stringify({ messages: [{ role: 'user', content: 'Hi' }] }),
       signal: controller.signal,
     });
+    if (!response.body) throw new Error('Expected a streaming response body');
     const reader = response.body.getReader();
     await reader.read();
     controller.abort();
     await aborted;
+    if (!providerSignal) throw new Error('Provider stream signal was not captured');
     expect(providerSignal.aborted).toBe(true);
   });
 
