@@ -57,15 +57,28 @@ root.
 
 ## Known follow-up work
 
-Two items are deliberately left for later, and neither affects runtime behaviour:
+One item is deliberately left for later, and it does not affect runtime behaviour:
 
-- **`strict` / `noImplicitAny` remain off.** Enabling strict mode was measured at 1609
-  (backend) and 2172 (frontend) additional findings, dominated by untyped function parameters.
-  Typing those signatures is a multi-step refactor rather than part of this patch.
-- **One typed boundary keeps an explicit `any`**: `type DbRow = any` in
-  `backend/src/services/db.ts`, the row type of dynamic SQL. Query parameters are typed
-  `unknown[]` and callers narrow what they read; typing rows as `Record<string, unknown>` was
-  measured to cascade into ~220 errors across ~200 call sites.
+- **`strict` / `noImplicitAny` are enabled but not yet clean.** Both projects carry a
+  `tsconfig.strict.json` that turns them on, and it is the reference mode for this work:
+
+  ```bash
+  cd backend  && npx tsc -p tsconfig.strict.json --noEmit   # 1231 findings
+  cd frontend && npx tsc -p tsconfig.strict.json --noEmit   # 2073 findings
+  ```
+
+  That is **3304** findings in total, overwhelmingly `noImplicitAny` on function parameters and
+  destructured bindings. **None is suppressed** - there is no `@ts-ignore`, no `@ts-nocheck`,
+  no `as any` - so every one is visible in the build. Closing them is a per-site typing task:
+  the shared-declaration route works (typing one helper or state fixed 37 findings in a single
+  pass), while mechanical rules over parameter names were measured to make the total *worse*,
+  because most untyped parameters are not strings. Start from the largest files:
+  `backend/src/services/imapManager.ts` (58), `backend/src/routes/auth.ts` (39),
+  `frontend/src/components/AdminPanel.tsx` (170), `frontend/src/components/MessageList.tsx` (162).
+
+  The previous typed boundary - `type DbRow = any` - has been **removed** as part of 4.0.1: it
+  is `Record<string, unknown>` now, with the call sites that read dynamic rows declaring their
+  columns.
 
 See `docs/CHANGELOG.md` for the change-by-change entry and `TYPESCRIPT_MIGRATION_STATUS.md` for the
 verified state.

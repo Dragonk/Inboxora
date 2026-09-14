@@ -77,13 +77,16 @@ Real defects found while typing the code — each is something JavaScript could 
 
 - **No new features, no database migrations and no configuration changes.** Upgrading from 4.0.0 is
   a drop-in image update; no data, settings or DAV contracts are touched.
-- One documented exception remains: `backend/src/services/db.ts` exports `type DbRow = any` for
-  dynamic SQL rows. Query parameters are typed `unknown[]` and callers narrow what they read;
-  typing rows as `Record<string, unknown>` was measured to cascade into ~220 errors across
-  ~200 call sites and is tracked as a separate refactor.
-- `strict` and `noImplicitAny` remain **off**. Enabling `strict` was measured at 1609
-  (backend) and 2172 (frontend) additional errors, dominated by untyped parameters; that is
-  follow-up work, not part of this patch.
+- **The dynamic SQL boundary is gone.** `backend/src/services/db.ts` no longer exports
+  `type DbRow = any`; it is `Record<string, unknown>`, and the ~350 call sites that read dynamic
+  rows now declare the columns they actually use. This was the single largest source of hidden
+  type errors, and removing it surfaced **79 real backend findings** that `any` had been hiding.
+- **`strict` and `noImplicitAny` are now enforced configurations** — `tsconfig.strict.json` in
+  both projects — and the code is type-checked against them. They are **not yet clean**:
+  `npx tsc -p tsconfig.strict.json --noEmit` reports **1231** findings in `backend/src` and
+  **2073** in `frontend/src` (**3304** total), dominated by untyped function parameters
+  (`noImplicitAny`). Every finding is a real one; none is suppressed. Finishing them is the
+  documented follow-up in `docs/wiki/Release-notes-4.0.1.md`.
 
 
 ## [4.0.0] - 2026-09-11

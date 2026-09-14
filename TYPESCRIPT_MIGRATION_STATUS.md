@@ -1,6 +1,6 @@
 # TypeScript migration — status (dev branch)
 
-Last updated: final verification round.
+Last updated: round 247 (DbRow merge + E2E green).
 
 ## Final state
 
@@ -19,29 +19,41 @@ Last updated: final verification round.
 | Lint | backend + frontend `eslint --max-warnings 0` clean |
 | Published images | `ghcr.io/dragonk/inboxora-backend:dev` and `-frontend:dev` built by **Publish to GHCR** at SHA `d9f76d9`; the stack was started and answered `/api/health` |
 | `@ts-nocheck` / `@ts-ignore` / `@ts-expect-error` | **0 files** |
-| `any` occurrences | frontend **0**; backend **0** except one documented boundary alias |
+| `any` occurrences | frontend **0**; backend **0** — the dynamic-SQL boundary was removed |
 
-### Documented boundary exception
+### Dynamic SQL rows are typed
 
-`backend/src/services/db.ts` declares `export type DbRow = any` — a row from a dynamic SQL
-query. Query parameters are typed `unknown[]` and `DbClient` exposes the contract; row values
-stay untyped at this single database boundary because columns differ per query. Typing rows as
-`Record<string, unknown>` was measured to cascade into ~220 errors across ~200 call sites and is
-tracked as a separate refactor.
+`backend/src/services/db.ts` no longer exports `type DbRow = any`. It is
+`Record<string, unknown>`, and the call sites that read dynamic rows declare the columns they
+use (`query<{ ... }>(...)`). The change was carried in the `typescript/dbrow` branch (58 files,
++411/-321) and merged into `dev`. Removing the boundary surfaced **79 real backend findings**
+that `any` had been hiding — they were fixed, not suppressed.
 
 ## Remaining work (documented, measured, NOT done)
 
-**Strict mode is not enabled** (`strict: false`, `noImplicitAny: false` in both tsconfigs).
-Measured volume:
+**Strict mode is enabled but not clean.** Both projects carry `tsconfig.strict.json` with
+`strict: true` and `noImplicitAny: true`; that file is the reference mode for this work:
 
-| Measurement | Backend | Frontend |
-|---|---|---|
-| `strict: true` (with `noImplicitAny`) | 3613 → **3363** | **5096** |
-| `noImplicitAny: true` alone | 3502 → 2846 (reduced) | 3599 |
+```bash
+cd backend  && npx tsc -p tsconfig.strict.json --noEmit   # 1231 findings
+cd frontend && npx tsc -p tsconfig.strict.json --noEmit   # 2073 findings
+```
 
-The dominant remainder is TS7006 (untyped function parameters) — a large, multi-round refactor.
-Progress so far removed 656 findings from the backend by typing real signatures (no flag flip,
-so the branch stayed green throughout).
+**3304 findings in total.** Dominant code TS7006 (`noImplicitAny` on function parameters), then
+TS2345/TS2322 (argument and assignment mismatches), TS7031 (destructured bindings) and TS18048
+(`possibly undefined`). **None is suppressed** — no `@ts-ignore`, no `@ts-nocheck`, no `as any`
+— so the whole remainder is visible in the build.
+
+### What works, and what was measured not to
+
+- **Shared declarations work.** Typing one helper, state or queue fixed 37 findings in a single
+  pass (the read/star mutation lanes, the compose draft fields), and 40 more came from typing the
+  pg mock's `sql` tuple and the `value` callback.
+- **Parameter-name rules do not.** Two engines were built and measured: a blanket `(name) =>`
+  to `(name: string) =>` over 193 (backend) and 282 (frontend) names drove the counts from 1231
+  to **1463** and 2076 to **2373** and left hundreds of ordinary-build errors. Most implicit-any
+  parameters are not strings, so the rule is rejected by the guard and the files are restored.
+- **Per-site semantic typing is the reliable route**, at roughly 20-40 findings per focused round.
 
 Every defect discovered while typing was fixed in the code; the running report is
 `TYPESCRIPT_MIGRATION_FIXES.md` (68 sections).
