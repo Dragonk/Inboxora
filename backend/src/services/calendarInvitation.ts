@@ -80,6 +80,9 @@ export async function sendCalendarInvitation({ account, attendees, summary, desc
   const { createAccountSmtpTransport } = await import('./smtpTransport.js');
   const smtp = await createAccountSmtpTransport(account);
   if (smtp.error) throw Object.assign(new Error(smtp.error), { status: smtp.status });
+  // createAccountSmtpTransport returns either { account, transport } or { status, error }; the guard above
+  // catches the error branch, so this is unreachable - it exists so the compiler can see the same fact.
+  if (!smtp.account || !smtp.transport) throw Object.assign(new Error(smtp.error || 'SMTP transport unavailable'), { status: smtp.status });
   const sendingAccount = smtp.account;
   const fromEmail = sendingAccount.email_address;
   const fromName = sendingAccount.sender_name || sendingAccount.name || fromEmail;
