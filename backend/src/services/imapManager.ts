@@ -4219,7 +4219,7 @@ export class ImapManager {
           }
 
           if (batchCount >= MAX_BATCHES_PER_RUN) {
-            const remaining = await query<string>(
+            const remaining = await query<{ count: string }>(
               "SELECT count(*) FROM messages WHERE account_id = $1 AND (snippet IS NULL OR snippet = '') AND snippet_attempted_at IS NULL",
               [account.id]
             );

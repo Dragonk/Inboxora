@@ -543,7 +543,7 @@ router.patch('/:id', async (req, res) => {
       ? c.primary_email
       : (newEmails[0]?.value ? newEmails[0].value.toLowerCase().trim() : null);
 
-    const contactVCard = {
+    const contactVCard: VCardContact = {
       uid: c.uid,
       displayName: newDisplay,
       firstName: newFirst,
