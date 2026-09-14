@@ -493,7 +493,7 @@ export default function ContactsPage({ isActive = true }) {
     <details className="contacts-book-menu">
       <summary aria-label={t('contacts.addressBooks.label')}>⋯</summary>
       <div className="contacts-book-actions">
-        <select data-testid="contacts-address-book-select" aria-label={t('contacts.addressBooks.label')} value={selectedAddressBookId} onChange={e => setSelectedAddressBookId(e.target.value)} style={sharedInputStyle}>
+        <select data-testid="contacts-address-book-select" aria-label={t('contacts.addressBooks.label')} value={selectedAddressBookId} onChange={ (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement>) => setSelectedAddressBookId(e.target.value)} style={sharedInputStyle}>
           <option value="">{t('contacts.addressBooks.allVisible')}</option>
           {addressBooks.map(book => <option key={book.id} value={book.id}>{book.visible ? '' : '○ '}{book.name}</option>)}
         </select>
@@ -581,7 +581,7 @@ export default function ContactsPage({ isActive = true }) {
             tabIndex={0}
             aria-label={contactName}
             onClick={() => selectContact(c)}
-            onKeyDown={e => {
+            onKeyDown={ (e: React.KeyboardEvent<HTMLElement>) => {
               if (e.key !== 'Enter' && e.key !== ' ') return;
               e.preventDefault();
               selectContact(c);
@@ -593,8 +593,8 @@ export default function ContactsPage({ isActive = true }) {
               background: selected?.id === c.id ? 'var(--accent-dim)' : 'transparent',
               transition: 'background 0.1s',
             }}
-            onMouseEnter={e => { if (selected?.id !== c.id) e.currentTarget.style.background = 'color-mix(in srgb, var(--bg-hover) 42%, transparent)'; }}
-            onMouseLeave={e => { if (selected?.id !== c.id) e.currentTarget.style.background = 'transparent'; }}
+            onMouseEnter={ (e: React.MouseEvent<HTMLElement>) => { if (selected?.id !== c.id) e.currentTarget.style.background = 'color-mix(in srgb, var(--bg-hover) 42%, transparent)'; }}
+            onMouseLeave={ (e: React.MouseEvent<HTMLElement>) => { if (selected?.id !== c.id) e.currentTarget.style.background = 'transparent'; }}
           >
             <Avatar
               name={c.display_name}
@@ -983,31 +983,31 @@ function ContactForm({
       <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12, marginBottom: 12 }}>
         <div>
           <label htmlFor="contact-firstName" style={labelStyle}>{t('contacts.fields.firstName')}</label>
-          <input id="contact-firstName" style={inputStyle} value={form.firstName} onChange={e => onField('firstName', e.target.value)} />
+          <input id="contact-firstName" style={inputStyle} value={form.firstName} onChange={ (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement>) => onField('firstName', e.target.value)} />
         </div>
         <div>
           <label htmlFor="contact-lastName" style={labelStyle}>{t('contacts.fields.lastName')}</label>
-          <input id="contact-lastName" style={inputStyle} value={form.lastName} onChange={e => onField('lastName', e.target.value)} />
+          <input id="contact-lastName" style={inputStyle} value={form.lastName} onChange={ (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement>) => onField('lastName', e.target.value)} />
         </div>
       </div>
 
       <div style={{ marginBottom: 12 }}>
         <label htmlFor="contact-displayName" style={labelStyle}>{t('contacts.fields.displayName')}</label>
-        <input id="contact-displayName" style={inputStyle} value={form.displayName} onChange={e => onField('displayName', e.target.value)} />
+        <input id="contact-displayName" style={inputStyle} value={form.displayName} onChange={ (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement>) => onField('displayName', e.target.value)} />
       </div>
 
       <div style={{ marginBottom: 12 }}>
         <label htmlFor="contact-organization" style={labelStyle}>{t('contacts.fields.organization')}</label>
-        <input id="contact-organization" style={inputStyle} value={form.organization} onChange={e => onField('organization', e.target.value)} />
+        <input id="contact-organization" style={inputStyle} value={form.organization} onChange={ (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement>) => onField('organization', e.target.value)} />
       </div>
 
       <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12, marginBottom: 12 }}>
-        <div><label htmlFor="contact-title" style={labelStyle}>{t('contacts.fields.title')}</label><input id="contact-title" style={inputStyle} value={form.title} onChange={e => onField('title', e.target.value)} /></div>
-        <div><label htmlFor="contact-role" style={labelStyle}>{t('contacts.fields.role')}</label><input id="contact-role" style={inputStyle} value={form.role} onChange={e => onField('role', e.target.value)} /></div>
+        <div><label htmlFor="contact-title" style={labelStyle}>{t('contacts.fields.title')}</label><input id="contact-title" style={inputStyle} value={form.title} onChange={ (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement>) => onField('title', e.target.value)} /></div>
+        <div><label htmlFor="contact-role" style={labelStyle}>{t('contacts.fields.role')}</label><input id="contact-role" style={inputStyle} value={form.role} onChange={ (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement>) => onField('role', e.target.value)} /></div>
       </div>
       <div style={{ marginBottom: 12 }}>
         <label htmlFor="contact-nickname" style={labelStyle}>{t('contacts.fields.nickname')}</label>
-        <input id="contact-nickname" style={inputStyle} value={form.nickname} onChange={e => onField('nickname', e.target.value)} />
+        <input id="contact-nickname" style={inputStyle} value={form.nickname} onChange={ (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement>) => onField('nickname', e.target.value)} />
       </div>
 
       <div style={{ marginBottom: 12 }}>
@@ -1096,7 +1096,7 @@ function ContactForm({
           rows={3}
           style={{ ...inputStyle, resize: 'vertical' }}
           value={form.notes}
-          onChange={e => onField('notes', e.target.value)}
+          onChange={ (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement>) => onField('notes', e.target.value)}
         />
       </div>
 

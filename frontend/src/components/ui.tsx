@@ -46,8 +46,8 @@ export function PanelResizeHandle({ onMouseDown, testId, width = 1, zIndex = 10 
         transition: 'background 0.15s',
         zIndex,
       }}
-      onMouseEnter={e => { e.currentTarget.style.background = 'var(--accent)'; }}
-      onMouseLeave={e => { e.currentTarget.style.background = 'var(--border-subtle)'; }}
+      onMouseEnter={ (e: React.MouseEvent<HTMLElement>) => { e.currentTarget.style.background = 'var(--accent)'; }}
+      onMouseLeave={ (e: React.MouseEvent<HTMLElement>) => { e.currentTarget.style.background = 'var(--border-subtle)'; }}
     />
   );
 }

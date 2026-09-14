@@ -124,8 +124,8 @@ function GtdSection({ section, collapsed, onToggle, onOpenRow, rowActions, selec
             background: 'none', border: 'none', cursor: 'pointer', textAlign: 'left', color: 'inherit',
             transition: 'all 0.1s',
           }}
-          onMouseEnter={e => { e.currentTarget.style.background = 'var(--bg-tertiary)'; }}
-          onMouseLeave={e => { e.currentTarget.style.background = 'none'; }}
+          onMouseEnter={ (e: React.MouseEvent<HTMLElement>) => { e.currentTarget.style.background = 'var(--bg-tertiary)'; }}
+          onMouseLeave={ (e: React.MouseEvent<HTMLElement>) => { e.currentTarget.style.background = 'none'; }}
         >
           <span style={{ display: 'flex', width: 11, color: 'var(--text-tertiary)', flexShrink: 0 }}>
             <svg
@@ -165,8 +165,8 @@ function GtdSection({ section, collapsed, onToggle, onOpenRow, rowActions, selec
                 background: 'transparent', textAlign: 'left',
                 fontSize: 11, color: 'var(--text-secondary)', cursor: 'pointer',
               }}
-              onMouseEnter={e => { e.currentTarget.style.color = 'var(--text-primary)'; }}
-              onMouseLeave={e => { e.currentTarget.style.color = 'var(--text-secondary)'; }}
+              onMouseEnter={ (e: React.MouseEvent<HTMLElement>) => { e.currentTarget.style.color = 'var(--text-primary)'; }}
+              onMouseLeave={ (e: React.MouseEvent<HTMLElement>) => { e.currentTarget.style.color = 'var(--text-secondary)'; }}
             >
               {expanded
                 ? `${t('gtd.showLess')} ↑`

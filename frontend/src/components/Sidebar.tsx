@@ -855,8 +855,8 @@ export default function Sidebar({ onEditProfile = null }) {
             display: 'flex', alignItems: 'center', justifyContent: 'center',
             marginLeft: sidebarCollapsed ? 'auto' : 0,
           }}
-          onMouseEnter={e => { e.currentTarget.style.background = 'var(--bg-tertiary)'; e.currentTarget.style.borderColor = 'var(--border)'; }}
-          onMouseLeave={e => { e.currentTarget.style.background = 'transparent'; e.currentTarget.style.borderColor = 'transparent'; }}
+          onMouseEnter={ (e: React.MouseEvent<HTMLElement>) => { e.currentTarget.style.background = 'var(--bg-tertiary)'; e.currentTarget.style.borderColor = 'var(--border)'; }}
+          onMouseLeave={ (e: React.MouseEvent<HTMLElement>) => { e.currentTarget.style.background = 'transparent'; e.currentTarget.style.borderColor = 'transparent'; }}
         >
           {isMobile ? (
             <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
@@ -883,8 +883,8 @@ export default function Sidebar({ onEditProfile = null }) {
             justifyContent: sidebarCollapsed ? 'center' : 'flex-start',
             gap: 8, transition: 'opacity 0.15s',
           }}
-          onMouseEnter={e => e.currentTarget.style.opacity = '0.85'}
-          onMouseLeave={e => e.currentTarget.style.opacity = '1'}
+          onMouseEnter={ (e: React.MouseEvent<HTMLElement>) => e.currentTarget.style.opacity = '0.85'}
+          onMouseLeave={ (e: React.MouseEvent<HTMLElement>) => e.currentTarget.style.opacity = '1'}
         >
           {ICONS.compose}
           {!sidebarCollapsed && t('sidebar.compose')}
@@ -973,11 +973,11 @@ export default function Sidebar({ onEditProfile = null }) {
                   transition: 'background 0.1s',
                   justifyContent: sidebarCollapsed ? 'center' : 'flex-start',
                 }}
-                onMouseEnter={e => {
+                onMouseEnter={ (e: React.MouseEvent<HTMLElement>) => {
                   if (!(isSelected && selectedFolder === 'INBOX'))
                     e.currentTarget.style.background = 'var(--bg-tertiary)';
                 }}
-                onMouseLeave={e => {
+                onMouseLeave={ (e: React.MouseEvent<HTMLElement>) => {
                   if (!(isSelected && selectedFolder === 'INBOX'))
                     e.currentTarget.style.background = 'transparent';
                 }}
@@ -1048,7 +1048,7 @@ export default function Sidebar({ onEditProfile = null }) {
                       )}
                       {/* Expand toggle */}
                       <button
-                        onClick={e => { e.stopPropagation(); toggleAccount(account.id); }}
+                        onClick={ (e: React.MouseEvent<HTMLElement>) => { e.stopPropagation(); toggleAccount(account.id); }}
                         style={{
                           background: 'none', border: 'none', padding: 2,
                           color: 'var(--text-tertiary)', cursor: 'pointer',
@@ -1080,9 +1080,9 @@ export default function Sidebar({ onEditProfile = null }) {
                     <input
                       ref={createInputRef}
                       value={createName}
-                      onChange={e => setCreateName(e.target.value)}
+                      onChange={ (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement>) => setCreateName(e.target.value)}
                       placeholder={creatingFolder?.parentPath ? t('sidebar.subfolderPh') : t('sidebar.folderPh')}
-                      onKeyDown={e => {
+                      onKeyDown={ (e: React.KeyboardEvent<HTMLElement>) => {
                         if (e.key === 'Enter') handleCreateFolderSubmit();
                         if (e.key === 'Escape') { setCreatingFolder(null); setCreateName(''); }
                         e.stopPropagation();
@@ -1191,10 +1191,10 @@ export default function Sidebar({ onEditProfile = null }) {
                               ? 'inset 0 -2px var(--accent)'
                               : 'none',
                         }}
-                        onMouseEnter={e => { if (!isFolderSelected && !isRenaming) e.currentTarget.style.background = 'var(--bg-tertiary)'; }}
-                        onMouseLeave={e => { if (!isFolderSelected) e.currentTarget.style.background = 'transparent'; }}
+                        onMouseEnter={ (e: React.MouseEvent<HTMLElement>) => { if (!isFolderSelected && !isRenaming) e.currentTarget.style.background = 'var(--bg-tertiary)'; }}
+                        onMouseLeave={ (e: React.MouseEvent<HTMLElement>) => { if (!isFolderSelected) e.currentTarget.style.background = 'transparent'; }}
                         onClick={() => !isRenaming && setSelectedAccount(account.id, folder.path)}
-                        onContextMenu={e => openFolderCtxMenu(e, account.id, folder)}
+                        onContextMenu={ (e: React.MouseEvent<HTMLElement>) => openFolderCtxMenu(e, account.id, folder)}
                         onDragOver={event => {
                           if (handleFolderOrderDragOver(event, folder.path, siblings)) return;
                           event.preventDefault();
@@ -1241,7 +1241,7 @@ export default function Sidebar({ onEditProfile = null }) {
                         {/* Chevron toggle for parent folders; invisible spacer for leaf folders to align icons */}
                         {hasChildren ? (
                           <button
-                            onClick={e => { e.stopPropagation(); toggleCollapsedFolder(account.id, folder.path); }}
+                            onClick={ (e: React.MouseEvent<HTMLElement>) => { e.stopPropagation(); toggleCollapsedFolder(account.id, folder.path); }}
                             style={{
                               background: 'none', border: 'none', padding: 2, margin: 0, flexShrink: 0,
                               color: 'var(--text-tertiary)', cursor: 'pointer',
@@ -1266,13 +1266,13 @@ export default function Sidebar({ onEditProfile = null }) {
                           <input
                             ref={renameInputRef}
                             value={renamingFolder.value}
-                            onChange={e => setRenamingFolder(prev => ({ ...prev, value: e.target.value }))}
-                            onKeyDown={e => {
+                            onChange={ (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement>) => setRenamingFolder(prev => ({ ...prev, value: e.target.value }))}
+                            onKeyDown={ (e: React.KeyboardEvent<HTMLElement>) => {
                               if (e.key === 'Enter') handleRenameSubmit();
                               if (e.key === 'Escape') setRenamingFolder(null);
                               e.stopPropagation();
                             }}
-                            onClick={e => e.stopPropagation()}
+                            onClick={ (e: React.MouseEvent<HTMLElement>) => e.stopPropagation()}
                             style={{
                               flex: 1, fontSize: 12, background: 'var(--bg-primary)',
                               border: '1px solid var(--accent)', borderRadius: 4,
@@ -1289,7 +1289,7 @@ export default function Sidebar({ onEditProfile = null }) {
                         )}
 
                         {isRenaming ? (
-                          <div style={{ display: 'flex', gap: 2, flexShrink: 0 }} onClick={e => e.stopPropagation()}>
+                          <div style={{ display: 'flex', gap: 2, flexShrink: 0 }} onClick={ (e: React.MouseEvent<HTMLElement>) => e.stopPropagation()}>
                             <button onClick={handleRenameSubmit} disabled={folderOpLoading} style={{ background: 'var(--accent)', border: 'none', borderRadius: 4, color: 'var(--accent-text)', padding: '2px 6px', cursor: 'pointer', fontSize: 11 }}>
                               {folderOpLoading ? '…' : '✓'}
                             </button>
@@ -1334,8 +1334,8 @@ export default function Sidebar({ onEditProfile = null }) {
                           color: showingHidden ? 'var(--accent)' : 'var(--text-tertiary)',
                           fontSize: 11, width: '100%', transition: 'color 0.1s',
                         }}
-                        onMouseEnter={e => e.currentTarget.style.color = showingHidden ? 'var(--accent)' : 'var(--text-secondary)'}
-                        onMouseLeave={e => e.currentTarget.style.color = showingHidden ? 'var(--accent)' : 'var(--text-tertiary)'}
+                        onMouseEnter={ (e: React.MouseEvent<HTMLElement>) => e.currentTarget.style.color = showingHidden ? 'var(--accent)' : 'var(--text-secondary)'}
+                        onMouseLeave={ (e: React.MouseEvent<HTMLElement>) => e.currentTarget.style.color = showingHidden ? 'var(--accent)' : 'var(--text-tertiary)'}
                       >
                         <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
                           {showingHidden
@@ -1359,8 +1359,8 @@ export default function Sidebar({ onEditProfile = null }) {
                             color: 'var(--text-tertiary)', fontSize: 11, width: '100%',
                             transition: 'color 0.1s',
                           }}
-                          onMouseEnter={e => e.currentTarget.style.color = 'var(--text-secondary)'}
-                          onMouseLeave={e => e.currentTarget.style.color = 'var(--text-tertiary)'}
+                          onMouseEnter={ (e: React.MouseEvent<HTMLElement>) => e.currentTarget.style.color = 'var(--text-secondary)'}
+                          onMouseLeave={ (e: React.MouseEvent<HTMLElement>) => e.currentTarget.style.color = 'var(--text-tertiary)'}
                         >
                           <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
                             <line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/>
@@ -1402,7 +1402,7 @@ export default function Sidebar({ onEditProfile = null }) {
                   <div
                     key={`${accountId}:${path}`}
                     className="no-callout"
-                    onDragOver={e => {
+                    onDragOver={ (e: React.DragEvent<HTMLElement>) => {
                       e.preventDefault();
                       if (e.dataTransfer.types.includes('application/x-mailflow-message')) {
                         e.dataTransfer.dropEffect = 'move';
@@ -1411,11 +1411,11 @@ export default function Sidebar({ onEditProfile = null }) {
                         setFavDropIdx(idx);
                       }
                     }}
-                    onDragLeave={e => {
+                    onDragLeave={ (e: React.DragEvent<HTMLElement>) => {
                       const related = e.relatedTarget;
                       if (!(related instanceof Node) || !e.currentTarget.contains(related)) setMsgDragTarget(null);
                     }}
-                    onDrop={e => {
+                    onDrop={ (e: React.DragEvent<HTMLElement>) => {
                       if (e.dataTransfer.types.includes('application/x-mailflow-message')) {
                         handleMsgDrop(e, path);
                         return;
@@ -1438,7 +1438,7 @@ export default function Sidebar({ onEditProfile = null }) {
                     }}
                     onDragEnd={canDrag ? () => { setFavDragIdx(null); setFavDropIdx(null); } : undefined}
                     onClick={() => { if (!isRenamingThis) setSelectedAccount(accountId, path); }}
-                    onTouchStart={e => {
+                    onTouchStart={ (e: React.TouchEvent<HTMLElement>) => {
                       if (isRenamingThis) return;
                       // Prevent iOS from processing this touch natively (drag mode,
                       // text selection, "Copy | Look Up | Translate" callout).
@@ -1459,7 +1459,7 @@ export default function Sidebar({ onEditProfile = null }) {
                         }
                       }, 500);
                     }}
-                    onTouchMove={e => {
+                    onTouchMove={ (e: React.TouchEvent<HTMLElement>) => {
                       if (!favLongPressTimer.current || !favTouchStart.current) return;
                       const touch = e.touches[0];
                       const dx = Math.abs(touch.clientX - favTouchStart.current.x);
@@ -1484,7 +1484,7 @@ export default function Sidebar({ onEditProfile = null }) {
                       favLongPressTimer.current = null;
                       favTouchStart.current = null;
                     }}
-                    onContextMenu={e => {
+                    onContextMenu={ (e: React.MouseEvent<HTMLElement>) => {
                       e.preventDefault();
                       e.stopPropagation();
                       // Desktop right-click only — touch is fully handled above. A MouseEvent
@@ -1506,8 +1506,8 @@ export default function Sidebar({ onEditProfile = null }) {
                       opacity: isDragging ? 0.4 : 1,
                       borderTop: isDropTarget ? '2px solid var(--accent)' : '2px solid transparent',
                     }}
-                    onMouseEnter={e => { if (!isActive) { e.currentTarget.style.background = 'var(--bg-tertiary)'; e.currentTarget.style.color = 'var(--text-primary)'; } }}
-                    onMouseLeave={e => { if (!isActive) { e.currentTarget.style.background = 'transparent'; e.currentTarget.style.color = 'var(--text-secondary)'; } }}
+                    onMouseEnter={ (e: React.MouseEvent<HTMLElement>) => { if (!isActive) { e.currentTarget.style.background = 'var(--bg-tertiary)'; e.currentTarget.style.color = 'var(--text-primary)'; } }}
+                    onMouseLeave={ (e: React.MouseEvent<HTMLElement>) => { if (!isActive) { e.currentTarget.style.background = 'transparent'; e.currentTarget.style.color = 'var(--text-secondary)'; } }}
                   >
                     {canDrag && (
                       <span
@@ -1529,8 +1529,8 @@ export default function Sidebar({ onEditProfile = null }) {
                       <input
                         ref={renameFavInputRef}
                         value={renamingFav.value}
-                        onChange={e => setRenamingFav(prev => ({ ...prev, value: e.target.value }))}
-                        onKeyDown={e => {
+                        onChange={ (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement>) => setRenamingFav(prev => ({ ...prev, value: e.target.value }))}
+                        onKeyDown={ (e: React.KeyboardEvent<HTMLElement>) => {
                           if (e.key === 'Enter') {
                             renameFavoriteFolder({ accountId, path, label: renamingFav.value.trim() });
                             setRenamingFav(null);
@@ -1539,7 +1539,7 @@ export default function Sidebar({ onEditProfile = null }) {
                           e.stopPropagation();
                         }}
                         onBlur={() => setRenamingFav(null)}
-                        onClick={e => e.stopPropagation()}
+                        onClick={ (e: React.MouseEvent<HTMLElement>) => e.stopPropagation()}
                         style={{
                           flex: 1, fontSize: 13, background: 'var(--bg-primary)',
                           border: '1px solid var(--accent)', borderRadius: 4,
@@ -1564,8 +1564,8 @@ export default function Sidebar({ onEditProfile = null }) {
               })}
               {favDragIdx !== null && (
                 <div
-                  onDragOver={e => { e.preventDefault(); setFavDropIdx(visibleFaves.length); }}
-                  onDrop={e => {
+                  onDragOver={ (e: React.DragEvent<HTMLElement>) => { e.preventDefault(); setFavDropIdx(visibleFaves.length); }}
+                  onDrop={ (e: React.DragEvent<HTMLElement>) => {
                     e.preventDefault();
                     if (favDragIdx !== null && favDragIdx !== visibleFaves.length - 1) {
                       const fullArr = [...favoriteFolders];
@@ -1601,8 +1601,8 @@ export default function Sidebar({ onEditProfile = null }) {
               paddingBottom: bottomExpanded ? 10 : 'calc(var(--sab) + 10px)',
               cursor: 'pointer', WebkitTapHighlightColor: 'transparent',
             }}
-            onTouchStart={e => e.currentTarget.style.background = 'var(--bg-tertiary)'}
-            onTouchEnd={e => e.currentTarget.style.background = ''}
+            onTouchStart={ (e: React.TouchEvent<HTMLElement>) => e.currentTarget.style.background = 'var(--bg-tertiary)'}
+            onTouchEnd={ (e: React.TouchEvent<HTMLElement>) => e.currentTarget.style.background = ''}
             onTouchCancel={e => e.currentTarget.style.background = ''}
           >
             {user?.avatar ? (
@@ -1709,8 +1709,8 @@ export default function Sidebar({ onEditProfile = null }) {
               padding: '8px 14px', cursor: 'pointer',
               WebkitTapHighlightColor: 'transparent',
             }}
-            onTouchStart={e => e.currentTarget.style.background = 'var(--bg-tertiary)'}
-            onTouchEnd={e => e.currentTarget.style.background = ''}
+            onTouchStart={ (e: React.TouchEvent<HTMLElement>) => e.currentTarget.style.background = 'var(--bg-tertiary)'}
+            onTouchEnd={ (e: React.TouchEvent<HTMLElement>) => e.currentTarget.style.background = ''}
             onTouchCancel={e => e.currentTarget.style.background = ''}
           >
             <span style={{ color: 'var(--text-tertiary)', display: 'flex', flexShrink: 0 }}>
@@ -1731,8 +1731,8 @@ export default function Sidebar({ onEditProfile = null }) {
               padding: '8px 14px', cursor: 'pointer',
               WebkitTapHighlightColor: 'transparent',
             }}
-            onTouchStart={e => e.currentTarget.style.background = 'var(--bg-tertiary)'}
-            onTouchEnd={e => e.currentTarget.style.background = ''}
+            onTouchStart={ (e: React.TouchEvent<HTMLElement>) => e.currentTarget.style.background = 'var(--bg-tertiary)'}
+            onTouchEnd={ (e: React.TouchEvent<HTMLElement>) => e.currentTarget.style.background = ''}
             onTouchCancel={e => e.currentTarget.style.background = ''}
           >
             <span style={{ color: 'var(--text-tertiary)', display: 'flex', flexShrink: 0 }}>
@@ -1752,8 +1752,8 @@ export default function Sidebar({ onEditProfile = null }) {
             <div
               onClick={() => { setMobileSidebarOpen(false); window.open(updateInfo.url, '_blank', 'noopener'); }}
               style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '8px 14px', cursor: 'pointer', WebkitTapHighlightColor: 'transparent' }}
-              onTouchStart={e => e.currentTarget.style.background = 'var(--bg-tertiary)'}
-              onTouchEnd={e => e.currentTarget.style.background = ''}
+              onTouchStart={ (e: React.TouchEvent<HTMLElement>) => e.currentTarget.style.background = 'var(--bg-tertiary)'}
+              onTouchEnd={ (e: React.TouchEvent<HTMLElement>) => e.currentTarget.style.background = ''}
               onTouchCancel={e => e.currentTarget.style.background = ''}
             >
               <span style={{ color: 'var(--accent)', display: 'flex', flexShrink: 0 }}>
@@ -1772,8 +1772,8 @@ export default function Sidebar({ onEditProfile = null }) {
                 padding: '8px 14px', cursor: 'pointer',
                 WebkitTapHighlightColor: 'transparent',
               }}
-              onTouchStart={e => e.currentTarget.style.background = 'var(--bg-tertiary)'}
-              onTouchEnd={e => e.currentTarget.style.background = ''}
+              onTouchStart={ (e: React.TouchEvent<HTMLElement>) => e.currentTarget.style.background = 'var(--bg-tertiary)'}
+              onTouchEnd={ (e: React.TouchEvent<HTMLElement>) => e.currentTarget.style.background = ''}
               onTouchCancel={e => e.currentTarget.style.background = ''}
             >
               <span style={{ color: 'var(--text-tertiary)', display: 'flex', flexShrink: 0 }}>
@@ -1795,8 +1795,8 @@ export default function Sidebar({ onEditProfile = null }) {
               paddingBottom: 'calc(var(--sab) + 12px)', cursor: 'pointer',
               WebkitTapHighlightColor: 'transparent',
             }}
-            onTouchStart={e => e.currentTarget.style.background = 'var(--bg-tertiary)'}
-            onTouchEnd={e => e.currentTarget.style.background = ''}
+            onTouchStart={ (e: React.TouchEvent<HTMLElement>) => e.currentTarget.style.background = 'var(--bg-tertiary)'}
+            onTouchEnd={ (e: React.TouchEvent<HTMLElement>) => e.currentTarget.style.background = ''}
             onTouchCancel={e => e.currentTarget.style.background = ''}
           >
             <span style={{ color: 'var(--red, #f87171)', display: 'flex', flexShrink: 0 }}>
@@ -1826,8 +1826,8 @@ export default function Sidebar({ onEditProfile = null }) {
               transition: 'background 0.1s',
               justifyContent: sidebarCollapsed ? 'center' : 'flex-start',
             }}
-            onMouseEnter={e => { if (!userMenuOpen) e.currentTarget.style.background = 'var(--bg-tertiary)'; }}
-            onMouseLeave={e => { if (!userMenuOpen) e.currentTarget.style.background = 'transparent'; }}
+            onMouseEnter={ (e: React.MouseEvent<HTMLElement>) => { if (!userMenuOpen) e.currentTarget.style.background = 'var(--bg-tertiary)'; }}
+            onMouseLeave={ (e: React.MouseEvent<HTMLElement>) => { if (!userMenuOpen) e.currentTarget.style.background = 'transparent'; }}
           >
             {user?.avatar ? (
               <img src={user.avatar} alt="" style={{ width: 26, height: 26, borderRadius: '50%', objectFit: 'cover', flexShrink: 0 }} />
@@ -2012,7 +2012,7 @@ export default function Sidebar({ onEditProfile = null }) {
             background: 'var(--bg-secondary)', border: '1px solid var(--border-subtle)',
             borderRadius: 12, padding: '24px 24px 20px', maxWidth: 360, width: '100%',
             boxShadow: 'var(--shadow-modal)',
-          }} onClick={e => e.stopPropagation()}>
+          }} onClick={ (e: React.MouseEvent<HTMLElement>) => e.stopPropagation()}>
             {confirmDialog.account && (
               <p style={{ margin: '0 0 6px', fontSize: 12, color: 'var(--text-secondary)' }}>
                 {confirmDialog.account}
@@ -2061,10 +2061,10 @@ function NavItem({ testId, icon, label, active, collapsed, badge = undefined, on
         justifyContent: collapsed ? 'center' : 'flex-start',
         position: 'relative',
       }}
-      onMouseEnter={e => {
+      onMouseEnter={ (e: React.MouseEvent<HTMLElement>) => {
         if (!active) { e.currentTarget.style.background = 'var(--bg-tertiary)'; e.currentTarget.style.color = 'var(--text-primary)'; }
       }}
-      onMouseLeave={e => {
+      onMouseLeave={ (e: React.MouseEvent<HTMLElement>) => {
         if (!active) { e.currentTarget.style.background = 'transparent'; e.currentTarget.style.color = 'var(--text-secondary)'; }
       }}
     >

@@ -818,10 +818,10 @@ export default function MailApp() {
               transition: 'transform 0.25s cubic-bezier(0.25,0.46,0.45,0.94)',
               boxShadow: mobileSidebarOpen ? 'var(--shadow-drawer)' : 'none',
             }}
-            onTouchStart={(e) => {
+            onTouchStart={ (e: React.TouchEvent<HTMLElement>) => {
               sidebarDragRef.current = { startX: e.touches[0].clientX, startY: e.touches[0].clientY };
             }}
-            onTouchEnd={(e) => {
+            onTouchEnd={ (e: React.TouchEvent<HTMLElement>) => {
               const start = sidebarDragRef.current;
               sidebarDragRef.current = null;
               if (!start) return;
@@ -860,8 +860,8 @@ export default function MailApp() {
                 transition: 'background 0.15s',
                 zIndex: 10,
               }}
-              onMouseEnter={e => { e.currentTarget.style.background = 'var(--accent)'; }}
-              onMouseLeave={e => { e.currentTarget.style.background = 'var(--border-subtle)'; }}
+              onMouseEnter={ (e: React.MouseEvent<HTMLElement>) => { e.currentTarget.style.background = 'var(--accent)'; }}
+              onMouseLeave={ (e: React.MouseEvent<HTMLElement>) => { e.currentTarget.style.background = 'var(--border-subtle)'; }}
             />
           )}
           <div style={{
@@ -901,8 +901,8 @@ export default function MailApp() {
                         background: 'var(--border-subtle)',
                         transition: 'background 0.15s',
                       }}
-                      onMouseEnter={e => { e.currentTarget.style.background = 'var(--accent)'; }}
-                      onMouseLeave={e => { e.currentTarget.style.background = 'var(--border-subtle)'; }}
+                      onMouseEnter={ (e: React.MouseEvent<HTMLElement>) => { e.currentTarget.style.background = 'var(--accent)'; }}
+                      onMouseLeave={ (e: React.MouseEvent<HTMLElement>) => { e.currentTarget.style.background = 'var(--border-subtle)'; }}
                     />
                   )}
                   {/* Column wrapper collapses its width when hidden (message list reflows);
@@ -938,8 +938,8 @@ export default function MailApp() {
                         background: 'var(--bg-secondary)', color: 'var(--text-tertiary)',
                         display: 'flex', alignItems: 'center', justifyContent: 'center',
                       }}
-                      onMouseEnter={e => { e.currentTarget.style.color = 'var(--text-secondary)'; e.currentTarget.style.background = 'var(--bg-hover)'; }}
-                      onMouseLeave={e => { e.currentTarget.style.color = 'var(--text-tertiary)'; e.currentTarget.style.background = 'var(--bg-secondary)'; }}
+                      onMouseEnter={ (e: React.MouseEvent<HTMLElement>) => { e.currentTarget.style.color = 'var(--text-secondary)'; e.currentTarget.style.background = 'var(--bg-hover)'; }}
+                      onMouseLeave={ (e: React.MouseEvent<HTMLElement>) => { e.currentTarget.style.color = 'var(--text-tertiary)'; e.currentTarget.style.background = 'var(--bg-secondary)'; }}
                     >
                       <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
                         <polyline points="15 18 9 12 15 6" />
@@ -1053,7 +1053,7 @@ function ShortcutHelpOverlay({ shortcuts, onClose }) {
       }}
     >
       <div
-        onClick={e => e.stopPropagation()}
+        onClick={ (e: React.MouseEvent<HTMLElement>) => e.stopPropagation()}
         style={{
           background: 'var(--bg-secondary)',
           border: '1px solid var(--border)',

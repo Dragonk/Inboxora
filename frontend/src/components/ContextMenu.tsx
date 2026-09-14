@@ -382,7 +382,7 @@ export default function ContextMenu({ x, y, message, onClose, onAction, defaultM
       <div onClick={onClose} aria-hidden style={{ position: 'fixed', inset: 0, zIndex: 3999 }} />
       <div
         ref={menuRef}
-        onClick={e => e.stopPropagation()}
+        onClick={ (e: React.MouseEvent<HTMLElement>) => e.stopPropagation()}
         style={{
           background: 'var(--bg-elevated)',
           border: '1px solid var(--border)',
@@ -457,8 +457,8 @@ export default function ContextMenu({ x, y, message, onClose, onAction, defaultM
                 borderBottom: '1px solid var(--border-subtle)',
                 color: 'var(--text-secondary)', fontSize: 12,
               }}
-              onMouseEnter={e => e.currentTarget.style.background = 'var(--bg-hover)'}
-              onMouseLeave={e => e.currentTarget.style.background = 'transparent'}
+              onMouseEnter={ (e: React.MouseEvent<HTMLElement>) => e.currentTarget.style.background = 'var(--bg-hover)'}
+              onMouseLeave={ (e: React.MouseEvent<HTMLElement>) => e.currentTarget.style.background = 'transparent'}
             >
               <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
                 <polyline points="15 18 9 12 15 6"/>
@@ -476,8 +476,8 @@ export default function ContextMenu({ x, y, message, onClose, onAction, defaultM
                     padding: '7px 14px', cursor: isCurrent ? 'default' : 'pointer',
                     fontSize: 13, color: isCurrent ? 'var(--text-tertiary)' : 'var(--text-primary)',
                   }}
-                  onMouseEnter={e => { if (!isCurrent) e.currentTarget.style.background = 'var(--bg-hover)'; }}
-                  onMouseLeave={e => { e.currentTarget.style.background = 'transparent'; }}
+                  onMouseEnter={ (e: React.MouseEvent<HTMLElement>) => { if (!isCurrent) e.currentTarget.style.background = 'var(--bg-hover)'; }}
+                  onMouseLeave={ (e: React.MouseEvent<HTMLElement>) => { e.currentTarget.style.background = 'transparent'; }}
                 >
                   <span style={{ flex: 1 }}>{t(`messageList.categories.${cat}`)}</span>
                   {isCurrent && (
@@ -501,8 +501,8 @@ export default function ContextMenu({ x, y, message, onClose, onAction, defaultM
                   borderBottom: '1px solid var(--border-subtle)',
                   color: 'var(--text-secondary)', fontSize: 12,
                 }}
-                onMouseEnter={e => e.currentTarget.style.background = 'var(--bg-hover)'}
-                onMouseLeave={e => e.currentTarget.style.background = 'transparent'}
+                onMouseEnter={ (e: React.MouseEvent<HTMLElement>) => e.currentTarget.style.background = 'var(--bg-hover)'}
+                onMouseLeave={ (e: React.MouseEvent<HTMLElement>) => e.currentTarget.style.background = 'transparent'}
               >
                 <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
                   <polyline points="15 18 9 12 15 6"/>
@@ -515,7 +515,7 @@ export default function ContextMenu({ x, y, message, onClose, onAction, defaultM
                     type="date"
                     value={customDate}
                     min={new Date().toISOString().slice(0, 10)}
-                    onChange={e => setCustomDate(e.target.value)}
+                    onChange={ (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement>) => setCustomDate(e.target.value)}
                     style={{
                       flex: 1, background: 'var(--bg-hover)', border: '1px solid var(--border)',
                       borderRadius: 6, color: 'var(--text-primary)', fontSize: 12,
@@ -525,7 +525,7 @@ export default function ContextMenu({ x, y, message, onClose, onAction, defaultM
                   <input
                     type="time"
                     value={customTime}
-                    onChange={e => setCustomTime(e.target.value)}
+                    onChange={ (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement>) => setCustomTime(e.target.value)}
                     style={{
                       width: 80, background: 'var(--bg-hover)', border: '1px solid var(--border)',
                       borderRadius: 6, color: 'var(--text-primary)', fontSize: 12,
@@ -563,8 +563,8 @@ export default function ContextMenu({ x, y, message, onClose, onAction, defaultM
                   borderBottom: '1px solid var(--border-subtle)',
                   color: 'var(--text-secondary)', fontSize: 12,
                 }}
-                onMouseEnter={e => e.currentTarget.style.background = 'var(--bg-hover)'}
-                onMouseLeave={e => e.currentTarget.style.background = 'transparent'}
+                onMouseEnter={ (e: React.MouseEvent<HTMLElement>) => e.currentTarget.style.background = 'var(--bg-hover)'}
+                onMouseLeave={ (e: React.MouseEvent<HTMLElement>) => e.currentTarget.style.background = 'transparent'}
               >
                 <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
                   <polyline points="15 18 9 12 15 6"/>
@@ -589,8 +589,8 @@ export default function ContextMenu({ x, y, message, onClose, onAction, defaultM
                   key={label}
                   onClick={() => { onAction('snooze', getDate().toISOString()); onClose(); }}
                   style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '8px 14px', cursor: 'pointer', fontSize: 13, color: 'var(--text-primary)' }}
-                  onMouseEnter={e => e.currentTarget.style.background = 'var(--bg-hover)'}
-                  onMouseLeave={e => e.currentTarget.style.background = 'transparent'}
+                  onMouseEnter={ (e: React.MouseEvent<HTMLElement>) => e.currentTarget.style.background = 'var(--bg-hover)'}
+                  onMouseLeave={ (e: React.MouseEvent<HTMLElement>) => e.currentTarget.style.background = 'transparent'}
                 >
                   <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
                   {label}
@@ -605,8 +605,8 @@ export default function ContextMenu({ x, y, message, onClose, onAction, defaultM
                   setCustomSnoozeView(true);
                 }}
                 style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '8px 14px', cursor: 'pointer', fontSize: 13, color: 'var(--text-primary)' }}
-                onMouseEnter={e => e.currentTarget.style.background = 'var(--bg-hover)'}
-                onMouseLeave={e => e.currentTarget.style.background = 'transparent'}
+                onMouseEnter={ (e: React.MouseEvent<HTMLElement>) => e.currentTarget.style.background = 'var(--bg-hover)'}
+                onMouseLeave={ (e: React.MouseEvent<HTMLElement>) => e.currentTarget.style.background = 'transparent'}
               >
                 <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75"><rect x="3" y="4" width="18" height="18" rx="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>
                 {t('contextMenu.snooze.custom')}
@@ -636,8 +636,8 @@ export default function ContextMenu({ x, y, message, onClose, onAction, defaultM
                   borderBottom: '1px solid var(--border-subtle)',
                   color: 'var(--text-secondary)', fontSize: 12,
                 }}
-                onMouseEnter={e => e.currentTarget.style.background = 'var(--bg-hover)'}
-                onMouseLeave={e => e.currentTarget.style.background = 'transparent'}
+                onMouseEnter={ (e: React.MouseEvent<HTMLElement>) => e.currentTarget.style.background = 'var(--bg-hover)'}
+                onMouseLeave={ (e: React.MouseEvent<HTMLElement>) => e.currentTarget.style.background = 'transparent'}
               >
                 <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
                   <polyline points="15 18 9 12 15 6"/>
@@ -649,7 +649,7 @@ export default function ContextMenu({ x, y, message, onClose, onAction, defaultM
               <input
                 autoFocus={!isMobile}
                 value={folderSearch}
-                onChange={e => setFolderSearch(e.target.value)}
+                onChange={ (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement>) => setFolderSearch(e.target.value)}
                 placeholder={t('contextMenu.folders.search')}
                 style={{
                   width: '100%', boxSizing: 'border-box',

@@ -41,8 +41,8 @@ function GtdContextSubmenu({ message, account, onClose, onBack }) {
           borderBottom: '1px solid var(--border-subtle)',
           color: 'var(--text-secondary)', fontSize: 12,
         }}
-        onMouseEnter={e => e.currentTarget.style.background = 'var(--bg-hover)'}
-        onMouseLeave={e => e.currentTarget.style.background = 'transparent'}
+        onMouseEnter={ (e: React.MouseEvent<HTMLElement>) => e.currentTarget.style.background = 'var(--bg-hover)'}
+        onMouseLeave={ (e: React.MouseEvent<HTMLElement>) => e.currentTarget.style.background = 'transparent'}
       >
         <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
           <polyline points="15 18 9 12 15 6"/>
@@ -54,8 +54,8 @@ function GtdContextSubmenu({ message, account, onClose, onBack }) {
           key={state}
           onClick={() => classify(state)}
           style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '7px 14px', cursor: 'pointer', fontSize: 13, color: 'var(--text-primary)' }}
-          onMouseEnter={e => e.currentTarget.style.background = 'var(--bg-hover)'}
-          onMouseLeave={e => e.currentTarget.style.background = 'transparent'}
+          onMouseEnter={ (e: React.MouseEvent<HTMLElement>) => e.currentTarget.style.background = 'var(--bg-hover)'}
+          onMouseLeave={ (e: React.MouseEvent<HTMLElement>) => e.currentTarget.style.background = 'transparent'}
         >
           <span style={{ width: 9, height: 9, borderRadius: 3, flexShrink: 0, background: GTD_COLORS[state] }} />
           <span style={{ flex: 1 }}>{t(`gtd.state.${state}`)}</span>
@@ -69,8 +69,8 @@ function GtdContextSubmenu({ message, account, onClose, onBack }) {
               key={`rm-${state}`}
               onClick={() => removeFrom(state)}
               style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '7px 14px', cursor: 'pointer', fontSize: 13, color: 'var(--text-secondary)' }}
-              onMouseEnter={e => e.currentTarget.style.background = 'var(--bg-hover)'}
-              onMouseLeave={e => e.currentTarget.style.background = 'transparent'}
+              onMouseEnter={ (e: React.MouseEvent<HTMLElement>) => e.currentTarget.style.background = 'var(--bg-hover)'}
+              onMouseLeave={ (e: React.MouseEvent<HTMLElement>) => e.currentTarget.style.background = 'transparent'}
             >
               <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75"><line x1="5" y1="12" x2="19" y2="12"/></svg>
               <span style={{ flex: 1 }}>{t('gtd.removeFrom', { state: t(`gtd.state.${state}`) })}</span>

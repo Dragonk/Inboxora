@@ -75,8 +75,8 @@ export default function GtdEntryRow({
         cursor: 'pointer', borderLeft: `2px solid ${GTD_COLORS[rowState] || 'transparent'}`,
         background: selected ? 'var(--bg-tertiary)' : 'transparent',
       }}
-      onMouseEnter={e => { if (trackHover) setHovered(true); if (!selected) e.currentTarget.style.background = 'var(--bg-hover)'; }}
-      onMouseLeave={e => { if (trackHover) setHovered(false); if (!selected) e.currentTarget.style.background = 'transparent'; }}
+      onMouseEnter={ (e: React.MouseEvent<HTMLElement>) => { if (trackHover) setHovered(true); if (!selected) e.currentTarget.style.background = 'var(--bg-hover)'; }}
+      onMouseLeave={ (e: React.MouseEvent<HTMLElement>) => { if (trackHover) setHovered(false); if (!selected) e.currentTarget.style.background = 'transparent'; }}
     >
       <div style={{ display: 'flex', alignItems: 'center', gap: v.headerGap }}>
         {v.showUnreadDot && unread && (

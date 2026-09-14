@@ -135,7 +135,7 @@ export default function CommandPalette({ open, onClose }) {
           overflow: 'hidden',
           animation: 'modal-enter var(--motion-fast) var(--ease-emphasized) both',
         }}
-        onClick={e => e.stopPropagation()}
+        onClick={ (e: React.MouseEvent<HTMLElement>) => e.stopPropagation()}
       >
         {/* Search input */}
         <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '12px 16px', borderBottom: '1px solid var(--border-subtle)' }}>
@@ -145,7 +145,7 @@ export default function CommandPalette({ open, onClose }) {
           <input
             ref={inputRef}
             value={query}
-            onChange={e => setQuery(e.target.value)}
+            onChange={ (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement>) => setQuery(e.target.value)}
             onKeyDown={handleKeyDown}
             placeholder={t('commandPalette.placeholder')}
             style={{
@@ -178,9 +178,9 @@ export default function CommandPalette({ open, onClose }) {
               key={action.id}
               onClick={() => runAction(action)}
               onMouseEnter={() => setActiveIdx(i)}
-              onMouseDown={e => { e.currentTarget.style.transform = 'scale(0.98)'; }}
-              onMouseUp={e => { e.currentTarget.style.transform = ''; }}
-              onMouseLeave={e => { e.currentTarget.style.transform = ''; }}
+              onMouseDown={ (e: React.MouseEvent<HTMLElement>) => { e.currentTarget.style.transform = 'scale(0.98)'; }}
+              onMouseUp={ (e: React.MouseEvent<HTMLElement>) => { e.currentTarget.style.transform = ''; }}
+              onMouseLeave={ (e: React.MouseEvent<HTMLElement>) => { e.currentTarget.style.transform = ''; }}
               style={{
                 display: 'flex', alignItems: 'center', gap: 12,
                 padding: '9px 16px', cursor: 'pointer',

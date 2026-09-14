@@ -113,8 +113,8 @@ function ActionBar({ notification, onDismiss, isMobile }) {
           cursor: 'pointer', flexShrink: 0,
           transition: 'background 0.12s',
         }}
-        onMouseEnter={e => { e.currentTarget.style.background = 'rgba(124,106,247,0.25)'; }}
-        onMouseLeave={e => { e.currentTarget.style.background = 'var(--accent-dim)'; }}
+        onMouseEnter={ (e: React.MouseEvent<HTMLElement>) => { e.currentTarget.style.background = 'rgba(124,106,247,0.25)'; }}
+        onMouseLeave={ (e: React.MouseEvent<HTMLElement>) => { e.currentTarget.style.background = 'var(--accent-dim)'; }}
       >
         {t('common.undo')}
       </button>
@@ -129,8 +129,8 @@ function ActionBar({ notification, onDismiss, isMobile }) {
           display: 'flex', flexShrink: 0,
           transition: 'color 0.15s',
         }}
-        onMouseEnter={e => { e.currentTarget.style.color = 'var(--text-primary)'; }}
-        onMouseLeave={e => { e.currentTarget.style.color = 'var(--text-tertiary)'; }}
+        onMouseEnter={ (e: React.MouseEvent<HTMLElement>) => { e.currentTarget.style.color = 'var(--text-primary)'; }}
+        onMouseLeave={ (e: React.MouseEvent<HTMLElement>) => { e.currentTarget.style.color = 'var(--text-tertiary)'; }}
       >
         <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
           <line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/>
@@ -220,8 +220,8 @@ function Toast({ notification, onDismiss, isMobile }) {
             padding: '3px 10px', cursor: 'pointer', flexShrink: 0,
             transition: 'background 0.12s',
           }}
-          onMouseEnter={e => { e.currentTarget.style.background = 'var(--bg-hover)'; }}
-          onMouseLeave={e => { e.currentTarget.style.background = 'var(--bg-tertiary)'; }}
+          onMouseEnter={ (e: React.MouseEvent<HTMLElement>) => { e.currentTarget.style.background = 'var(--bg-hover)'; }}
+          onMouseLeave={ (e: React.MouseEvent<HTMLElement>) => { e.currentTarget.style.background = 'var(--bg-tertiary)'; }}
         >
           {notification.actionLabel || t('common.view')}
         </button>
@@ -235,8 +235,8 @@ function Toast({ notification, onDismiss, isMobile }) {
             padding: '3px 10px', cursor: 'pointer', flexShrink: 0,
             transition: 'background 0.12s',
           }}
-          onMouseEnter={e => { e.currentTarget.style.background = 'rgba(124,106,247,0.25)'; }}
-          onMouseLeave={e => { e.currentTarget.style.background = 'var(--accent-dim)'; }}
+          onMouseEnter={ (e: React.MouseEvent<HTMLElement>) => { e.currentTarget.style.background = 'rgba(124,106,247,0.25)'; }}
+          onMouseLeave={ (e: React.MouseEvent<HTMLElement>) => { e.currentTarget.style.background = 'var(--accent-dim)'; }}
         >
           {t('common.undo')}
         </button>
@@ -249,8 +249,8 @@ function Toast({ notification, onDismiss, isMobile }) {
           cursor: 'pointer', padding: 2, display: 'flex', flexShrink: 0,
           transition: 'color 0.15s',
         }}
-        onMouseEnter={e => { e.currentTarget.style.color = 'var(--text-primary)'; }}
-        onMouseLeave={e => { e.currentTarget.style.color = 'var(--text-tertiary)'; }}
+        onMouseEnter={ (e: React.MouseEvent<HTMLElement>) => { e.currentTarget.style.color = 'var(--text-primary)'; }}
+        onMouseLeave={ (e: React.MouseEvent<HTMLElement>) => { e.currentTarget.style.color = 'var(--text-tertiary)'; }}
       >
         <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
           <line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/>
