@@ -46,25 +46,25 @@ import { MessageAvatar } from './MessagePresentation.tsx';
 import MessageToolbar from './MessageToolbar.tsx';
 import { MobileModuleHeader, HeaderAction } from './MobileModuleHeader.tsx';
 import { renderMarkdown } from '../utils/renderMarkdown.ts';
-import type { StoreState } from '../store/index.ts';
+import type { StoreMessageRow, StoreState } from '../store/index.ts';
 
-function parseAddressField(raw) {
+function parseAddressField(raw: unknown): string {
   try {
-    const arr = Array.isArray(raw) ? raw : JSON.parse(raw || '[]');
-    return arr.map(a => a.name ? `${a.name} <${a.email}>` : a.email).filter(Boolean).join(', ');
+    const arr = Array.isArray(raw) ? raw : JSON.parse(typeof raw === 'string' ? raw : '[]');
+    return arr.map((a: { name?: string; email?: string }) => a.name ? `${a.name} <${a.email}>` : a.email).filter(Boolean).join(', ');
   } catch { return ''; }
 }
 
 
 
-function _formatBytes(bytes) {
+function _formatBytes(bytes: number): string {
   if (!bytes) return '';
   if (bytes < 1024) return `${bytes} B`;
   if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(0)} KB`;
   return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
 }
 
-function _fileIcon(type) {
+function _fileIcon(type: string | null | undefined): React.ReactNode {
   const t = (type || '').toLowerCase();
   const p = { width: 18, height: 18, viewBox: '0 0 24 24', fill: 'none', stroke: 'currentColor', strokeWidth: 1.75 };
   if (t.startsWith('image/')) return (
@@ -129,7 +129,7 @@ export default function MessagePane({ windowMessageId = null, onWindowClose = nu
   const defaultReplyAll = replyDefault === 'replyAll';
 
   const effectiveShortcuts = getEffectiveShortcuts(shortcuts);
-  const shortcutLabel = (action) => {
+  const shortcutLabel = (action: string) => {
     const k = effectiveShortcuts[action];
     if (!k) return null;
     const mod = parseModKey(k);
@@ -138,7 +138,7 @@ export default function MessagePane({ windowMessageId = null, onWindowClose = nu
   // Navigate to a message and mark it as read in one shot.
   // Arrow buttons and swipe gestures bypass handleSelect in MessageList, so they
   // must duplicate the mark-as-read logic here to keep state consistent.
-  const selectAndMarkRead = useCallback((msg) => {
+  const selectAndMarkRead = useCallback((msg: StoreMessageRow) => {
     window.dispatchEvent(new CustomEvent(MESSAGE_OPENING_EVENT));
     api.getMessageBody(msg.id).catch(() => {});
     setSelectedMessage(msg.id);
@@ -160,7 +160,7 @@ export default function MessagePane({ windowMessageId = null, onWindowClose = nu
             completedMarkReadMap.set(msg.id, msg.account_id);
             setTimeout(() => completedMarkReadMap.delete(msg.id), 10000);
           })
-          .catch(e => {
+          .catch((e: unknown) => {
             if (!isLatestReadStateMutation(msg.id, mutation.version)) return;
             console.error('markRead failed:', toAppError(e).message);
             updateMessage(msg.id, { is_read: false });
@@ -272,7 +272,7 @@ export default function MessagePane({ windowMessageId = null, onWindowClose = nu
   // Mark current message as spam / ham from the MessagePane toolbar.
   // Mirrors MessageList.performSpamLabel (single-message variant). Kept inline
   // here so the MessagePane doesn't need to reach into MessageList internals.
-  const performSingleSpamLabel = useCallback(async (label) => {
+  const performSingleSpamLabel = useCallback(async (label: string) => {
     if (!message) return;
     const wasUnread = !message.is_read;
     removeMessage(message.id);
@@ -386,11 +386,11 @@ export default function MessagePane({ windowMessageId = null, onWindowClose = nu
     return window.getSelection?.().toString() || '';
   }, []);
 
-  const isSelectionContextTarget = useCallback((event, doc = document) => {
+  const isSelectionContextTarget = useCallback((event: { target?: unknown }, doc: Document = document) => {
     const selection = doc.getSelection?.();
     if (!selection?.toString().trim() || selection.rangeCount === 0) return false;
     const target = event.target;
-    if (!target || target === doc.body || target === doc.documentElement) return false;
+    if (!(target instanceof Node) || target === doc.body || target === doc.documentElement) return false;
     try {
       return selection.containsNode(target, true) || selection.getRangeAt(0).intersectsNode(target);
     } catch {
@@ -398,9 +398,10 @@ export default function MessagePane({ windowMessageId = null, onWindowClose = nu
     }
   }, []);
 
-  const hasNativeContextTarget = useCallback((event, doc = document) => {
+  const hasNativeContextTarget = useCallback((event: { target?: unknown }, doc: Document = document) => {
     if (isSelectionContextTarget(event, doc)) return true;
-    return Boolean(event.target?.closest?.(
+    const target = event.target;
+    return target instanceof Element && Boolean(target.closest?.(
       'a[href], img, input, textarea, select, button, [role="button"], [contenteditable="true"], [contenteditable=""]'
     ));
   }, [isSelectionContextTarget]);
@@ -416,7 +417,7 @@ export default function MessagePane({ windowMessageId = null, onWindowClose = nu
     });
   }, [getPaneSelectionText, message]);
 
-  const handlePaneContextMenu = useCallback((event) => {
+  const handlePaneContextMenu = useCallback((event: React.MouseEvent) => {
     if (hasNativeContextTarget(event, event.currentTarget?.ownerDocument || document)) return;
     event.preventDefault();
     event.stopPropagation();
@@ -517,7 +518,7 @@ export default function MessagePane({ windowMessageId = null, onWindowClose = nu
 
     // Auto-retry helper: retries on transient errors (not-found race, dead IMAP
     // connection, etc.) with exponential backoff before surfacing a permanent error.
-    const fetchWithRetry = async (id, attemptsLeft = 2, delay = 500) => {
+    const fetchWithRetry = async (id: string, attemptsLeft = 2, delay = 500) => {
       try {
         return await api.getMessageBody(id, imagesRequestedRef.current.has(id));
       } catch (err) {
