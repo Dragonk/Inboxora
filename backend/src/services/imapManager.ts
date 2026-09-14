@@ -54,6 +54,9 @@ type RawMessageInput = {
   inReplyTo?: unknown;
   references?: unknown;
   uid?: number | string;
+  subject?: string | null;
+  fromName?: string | null;
+  fromEmail?: string | null;
 };
 
 
@@ -2849,7 +2852,7 @@ export class ImapManager {
   // Called when a user changes their folder-structure sync preference. Purely a
   // map update — the folder sync piggybacks on _syncTick behind a time gate, so
   // there are no timers to re-arm. 0 disables the periodic folder sync.
-  updateFolderSyncIntervalForUser(userId: string, newMs) {
+  updateFolderSyncIntervalForUser(userId: string, newMs: number) {
     this.userFolderSyncIntervalMs.set(userId, newMs);
   }
 
@@ -3054,7 +3057,7 @@ export class ImapManager {
         // Insert/update a single fetched message and track it as new if appropriate.
         // Called from both Phase 1 and Phase 2; ON CONFLICT handles deduplication so
         // a message processed in both phases is never double-counted.
-        const processMsg = async (msg) => {
+        const processMsg = async (msg: RawMessageInput): Promise<void> => {
           try {
             const parsed = await parseMessage(msg);
             enrichParsedMetadata(parsed, {
@@ -3314,7 +3317,7 @@ export class ImapManager {
           // Fire-and-forget: push errors are non-fatal.
           if (folder === 'INBOX' && alertMessages.length > 0) {
             const latest = alertMessages[alertMessages.length - 1];
-            const dispatch = (unreadCount) => dispatchMailNotification(buildMailNotificationEvent({
+            const dispatch = (unreadCount: number) => dispatchMailNotification(buildMailNotificationEvent({
               userId: account.user_id,
               message: latest,
               alertCount,
@@ -3668,7 +3671,7 @@ export class ImapManager {
       // Step 3 — compute missing UIDs, newest-first so recent mail is accessible fast.
       const missingUids = serverUids
         .filter((uid: number) => !existingUids.has(uid))
-        .sort((a, b) => b - a);
+        .sort((a: number, b: number) => b - a);
 
       if (missingUids.length === 0) {
         console.log(`Backfill ${logAccount(account)}: no missing UIDs (${dbCount} in DB vs ${serverTotal} on server — within tolerance)`);
@@ -3955,7 +3958,7 @@ export class ImapManager {
   // Insert auto-discovered contacts for inbound senders that don't already have a contact record.
   // Existing contacts (manual or sent-to) are never modified; is_auto=true entries are never
   // downgraded by this path.
-  async upsertAutoContacts(userId: string, messages) {
+  async upsertAutoContacts(userId: string, messages: RawMessageInput[]) {
     try {
       const abResult = await query(
         `INSERT INTO address_books (user_id, name) VALUES ($1, 'Personal')
@@ -4322,7 +4325,7 @@ export class ImapManager {
     }
   }
 
-  async appendToFolder(account: EmailAccountRow, folder: string, rawMessage, flags = ['\\Seen']) {
+  async appendToFolder(account: EmailAccountRow, folder: string, rawMessage: Buffer, flags = ['\\Seen']) {
     let uid = null;
     await withFreshClient(account, async (client) => {
       const result = await client.append(folder, rawMessage, flags);
@@ -4351,6 +4354,17 @@ export class ImapManager {
     date = new Date(),
     inReplyTo = null,
     references = null,
+  }: {
+    messageId: string;
+    subject?: string | null;
+    fromName?: string | null;
+    fromEmail?: string | null;
+    to?: Array<{ name?: string; email?: string }>;
+    cc?: Array<{ name?: string; email?: string }>;
+    snippet?: string;
+    date?: Date;
+    inReplyTo?: string | { address?: string } | null;
+    references?: string | string[] | null;
   }) {
     if (!uid || !folder) return;
     const msgId = sanitizeStr(messageId);

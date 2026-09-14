@@ -55,7 +55,7 @@ function parseAddress(str: string) {
   return { name: '', email: str.trim().toLowerCase() };
 }
 
-function mapRecipientList(list: unknown): unknown[] {
+function mapRecipientList(list: unknown): Array<{ name: string; email: string }> {
   return (Array.isArray(list) ? list : []).map((addr: unknown) => parseAddress(String(addr ?? '')));
 }
 
