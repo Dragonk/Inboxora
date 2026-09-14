@@ -48,5 +48,5 @@ artifacts/
 .toolchain/
 
 # Local git bundles/backups (not part of the project)
+# NOTE: tsconfig.strict.json is intentionally tracked - it is the strict reference config.
 .backup/
-tsconfig.strict.json
