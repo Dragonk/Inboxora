@@ -14,10 +14,11 @@ import { api } from '../utils/api.ts';
 import { conversationApi } from '../utils/conversationApi.ts';
 import { toAppError } from '../utils/errors.ts';
 
-function address(value) {
+function address(value: unknown): string {
   if (!value) return '';
-  if (typeof value === 'string') { try { value = JSON.parse(value); } catch { return value; } }
-  const values = Array.isArray(value) ? value : [value];
+  let parsed: unknown = value;
+  if (typeof value === 'string') { try { parsed = JSON.parse(value); } catch { return value; } }
+  const values = Array.isArray(parsed) ? parsed : [parsed];
   return values.map(item => {
     if (typeof item === 'string') return item;
     const email = item.email || item.address || '';
@@ -25,7 +26,7 @@ function address(value) {
   }).filter(Boolean).join(', ');
 }
 
-function date(value) {
+function date(value: string | number | Date | null | undefined): string {
   return value ? new Date(value).toLocaleString([], {
     year: 'numeric', month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit',
   }) : '';
@@ -118,7 +119,7 @@ export default function ConversationMessage({ conversationId, message, selectedC
   };
 
   const actionOptions = { scope: 'THIS_COPY', copyId: copy.id, logicalMessageId: message.id };
-  const runAction = async (callback, action, actionState = {}) => {
+  const runAction = async (callback: () => void, action: string, actionState: Record<string, unknown> = {}) => {
     if (!hasAccountCopy) return;
     setActionError(null);
     try {
@@ -148,7 +149,7 @@ export default function ConversationMessage({ conversationId, message, selectedC
   const handlePrint = () => {
     const win = window.open('', '_blank');
     if (!win) return;
-    const escaped = value => String(value || '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+    const escaped = (value: unknown) => String(value || '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
     const content = bodyHtml ? sanitizeMessageHtml(bodyHtml) : `<pre>${escaped(bodyText)}</pre>`;
     win.document.write(`<!doctype html><html><head><meta charset="utf-8"><meta http-equiv="Content-Security-Policy" content="script-src 'none'; object-src 'none'; base-uri 'none'"><title>${escaped(subject)}</title></head><body><h1>${escaped(subject)}</h1><p>${escaped(sender)} · ${escaped(date(message.messageDate || copy.date))}</p>${content}</body></html>`);
     win.document.close();
@@ -156,7 +157,7 @@ export default function ConversationMessage({ conversationId, message, selectedC
   };
   const inSpamFolder = /(^|\/)(spam|junk)(\/|$)/i.test(String(copy.folder || ''));
   const availableAiActions = body ? [{ id: 'summarize', label: t('message.summarize'), prompt: 'Summarize this email.' }, ...(aiActions || [])] : [];
-  const runAiAction = action => {
+  const runAiAction = (action: { id: string; label: string; prompt?: string }) => {
     const text = bodyText || String(bodyHtml || '').replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim();
     if (!text || !action?.prompt) return;
     api.ai.chat([{ role: 'user', content: `${action.prompt}\n\n${text.slice(0, 6000)}` }]).catch(error => setActionError(toAppError(error).message));
@@ -298,15 +299,15 @@ export default function ConversationMessage({ conversationId, message, selectedC
         body={body}
         status={status}
         remoteImages={remoteImages}
-        onLoadBody={(_, force) => onLoadBody(message.id, force)}
+        onLoadBody={(_: unknown, force?: boolean) => onLoadBody(message.id, force)}
         onRemoteImages={() => onRemoteImages(message.id)}
         onUnsubscribe={handleUnsubscribe}
-        onDownload={async (physicalCopyId, part, filename) => {
+        onDownload={async (physicalCopyId: string, part: string, filename: string) => {
           const response = await fetch(`/api/mail/messages/${encodeURIComponent(physicalCopyId)}/attachments/${encodeURIComponent(part)}`);
           if (!response.ok) throw new Error('Download failed');
           const blob = await response.blob(); const url = URL.createObjectURL(blob); const anchor = document.createElement('a'); anchor.href = url; anchor.download = filename || 'attachment'; anchor.click(); URL.revokeObjectURL(url);
         }}
-        onContextAction={(action, data, physicalCopyId) => {
+        onContextAction={(action: string, data: string, physicalCopyId: string) => {
           if (action === 'reply') return reply(); if (action === 'replyAll') return reply(true); if (action === 'forward') return reply(false, true);
           if (action === 'archive') return runAction(() => conversationApi.archive(conversationId, { ...actionOptions, copyId: physicalCopyId }), 'archive', { copyId: physicalCopyId });
           if (action === 'delete') return runAction(() => conversationApi.delete(conversationId, { ...actionOptions, copyId: physicalCopyId }), 'delete', { copyId: physicalCopyId });

@@ -4,7 +4,7 @@ import { useTranslation } from 'react-i18next';
 import MessageBodyRenderer from './MessageBodyRenderer.tsx';
 import ContextMenu from './ContextMenu.tsx';
 
-function formatBytes(bytes) {
+function formatBytes(bytes: number): string {
   if (!bytes) return '';
   if (bytes < 1024) return `${bytes} B`;
   if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(0)} KB`;
@@ -62,7 +62,7 @@ export default function MessageDetailContent({
   const openContextMenu = useCallback(({ x, y, selectedText = '' }) => {
     setContextMenu({ x, y, selectedText });
   }, []);
-  const download = async attachment => {
+  const download = async (attachment: { part?: string; filename?: string }) => {
     if (!physicalCopyId || !canAccessCopy || downloadingPart !== null) return;
     setDownloadingPart(attachment.part);
     try { await onDownload?.(physicalCopyId, attachment.part, attachment.filename); }
@@ -87,7 +87,7 @@ export default function MessageDetailContent({
         </a>}
       </div>
       <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
-        {attachments.map((att, i) => <button key={att.part || i} data-message-detail-attachment={String(att.part || i)} onClick={() => download(att)} disabled={!canAccessCopy || downloadingPart === att.part} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '8px 12px', borderRadius: 8, background: 'var(--bg-secondary)', border: '1px solid var(--border)', cursor: downloadingPart === att.part ? 'wait' : 'pointer', color: 'var(--text-primary)', maxWidth: 240 }}>
+        {attachments.map((att: { part?: string; type?: string; filename?: string; size?: number }, i: number) => <button key={att.part || i} data-message-detail-attachment={String(att.part || i)} onClick={() => download(att)} disabled={!canAccessCopy || downloadingPart === att.part} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '8px 12px', borderRadius: 8, background: 'var(--bg-secondary)', border: '1px solid var(--border)', cursor: downloadingPart === att.part ? 'wait' : 'pointer', color: 'var(--text-primary)', maxWidth: 240 }}>
           <span style={{ display: 'flex', flexShrink: 0, color: 'var(--text-secondary)' }}><FileIcon type={att.type} /></span>
           <span style={{ minWidth: 0, textAlign: 'left' }}><span style={{ display: 'block', fontSize: 12, fontWeight: 500, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{att.filename}</span><span style={{ display: 'block', fontSize: 11, color: 'var(--text-tertiary)' }}>{downloadingPart === att.part ? t('message.downloading') : formatBytes(att.size)}</span></span>
         </button>)}
