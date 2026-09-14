@@ -46,7 +46,7 @@ export type DbRow = Record<string, unknown>;
 
 /** The slice of a pool/transaction client this codebase uses. */
 export interface DbClient {
-  query(text: string, params?: unknown[]): Promise<{ rows: DbRow[]; rowCount?: number }>;
+  query<T = DbRow>(text: string, params?: unknown[]): Promise<{ rows: T[]; rowCount?: number }>;
 }
 
 export async function query<T = DbRow>(text: string, params: unknown[] = []): Promise<{ rows: T[]; rowCount?: number }> {

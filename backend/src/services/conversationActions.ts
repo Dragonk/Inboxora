@@ -211,7 +211,7 @@ async function resolvePhysicalIds(client: DbClient, { userId, conversationId, sc
     )`;
   }
 
-  const selected = await client.query(
+  const selected = await client.query<ConversationRow>(
     `SELECT m.id, m.account_id, m.logical_message_id, m.conversation_id
        FROM messages m
        JOIN email_accounts a ON a.id = m.account_id AND a.user_id = $1
