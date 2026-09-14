@@ -2723,8 +2723,8 @@ export class ImapManager {
           for await (const msg of client.fetch(fetchRange, { uid: true, flags: true })) {
             flagsToUpdate.push({
               uid: msg.uid,
-              isRead: msg.flags.has('\\Seen'),
-              isStarred: msg.flags.has('\\Flagged'),
+              isRead: msg.flags?.has('\\Seen') ?? false,
+              isStarred: msg.flags?.has('\\Flagged') ?? false,
             });
           }
 
@@ -3589,7 +3589,9 @@ export class ImapManager {
       // integers — no message data transferred, even for 50 000-message mailboxes.
       let serverUids;
       {
-        const lock = await bfClient.getMailboxLock(folder);
+        const bf = bfClient;
+        if (!bf) throw new Error('IMAP backfill client is not connected');
+        const lock = await bf.getMailboxLock(folder);
         try {
           const totalExists = openMailbox(bfClient)?.exists || 0;
           if (totalExists === 0) {
@@ -5140,7 +5142,7 @@ export class ImapManager {
   // Add \Seen to every unread message in the locked folder, chunked (see _chunkedFolderOp).
   // Searching UNSEEN only touches what needs changing (idempotent, and a no-op on an
   // already-read folder).
-  async _markSeenInFolder(client, folder: string, opts = {}) {
+  async _markSeenInFolder(client: ImapClient, folder: string, opts: { label?: string; chunkSize?: number; retryBackoffMs?: number; uidSet?: string } = {}) {
     return this._chunkedFolderOp(
       client, folder, { seen: false },
       (c, range) => c.messageFlagsAdd(range, ['\\Seen'], { uid: true }),
@@ -5276,7 +5278,7 @@ export class ImapManager {
   // destination UIDNEXT so the DB can store the correct new UIDs.
   // On command failure, verifies via UID SEARCH and confirms destination arrival
   // before trusting the source-absence result.
-  async bulkMoveMessages(account: EmailAccountRow, uids, fromFolder: string, toFolder: string) {
+  async bulkMoveMessages(account: EmailAccountRow, uids: Array<number | string>, fromFolder: string, toFolder: string) {
     if (!uids.length) return { uidMap: new Map(), succeeded: [], failed: [] };
     let destUidNextBefore = null;
 
@@ -5297,7 +5299,7 @@ export class ImapManager {
       const serverUidMap = await withFreshClient(account, async (client) => {
         const lock = await client.getMailboxLock(fromFolder);
         try {
-          const result = await client.messageMove(uids.map(String), toFolder, { uid: true });
+          const result = await client.messageMove(uids.map(Number), toFolder, { uid: true });
           if (result === false) throw new Error('bulk messageMove returned false — server did not confirm move');
           return result?.uidMap?.size ? result.uidMap : null;
         } finally {
@@ -5314,7 +5316,7 @@ export class ImapManager {
         // never moved (a transient wrong-deletion) and silently defeated inboxRules' failure
         // guards. Returning it in `failed` leaves the local row for the next sync to reconcile.
         // `stale_mutation_uid` also measures how often this race actually fires.
-        const succeeded = uids.filter(u => serverUidMap.has(Number(u)));
+        const succeeded = uids.filter((u: number | string) => serverUidMap.has(Number(u)));
         const failed = uids.filter(u => !serverUidMap.has(Number(u)));
         if (failed.length) recordSyncSignal('stale_mutation_uid', { accountId: account.id, magnitude: failed.length });
         return { uidMap: serverUidMap, succeeded, failed };
@@ -5358,7 +5360,7 @@ export class ImapManager {
   // classifyMoveBySearch; this method just does the two IMAP searches and the sorted-order mapping.
   // Returns { uidMap, succeeded, failed, staleCount } (staleCount is the inferred stale-UID count,
   // or null when it could not be determined).
-  async _reconcileMoveBySearch(account: EmailAccountRow, uids, fromFolder: string, toFolder: string, destUidNextBefore) {
+  async _reconcileMoveBySearch(account: EmailAccountRow, uids: Array<number | string>, fromFolder: string, toFolder: string, destUidNextBefore: number | null | undefined) {
     let remaining;
     try {
       remaining = await withFreshClient(account, async (client) => {
@@ -5411,7 +5413,7 @@ export class ImapManager {
   // Without UIDPLUS: plain EXPUNGE removes ALL \Deleted messages in the mailbox.
   // To prevent collateral damage, we temporarily unflag any other \Deleted messages
   // before expunging, then restore them in a finally block.
-  async bulkPermanentDelete(account: EmailAccountRow, uids, folder: string) {
+  async bulkPermanentDelete(account: EmailAccountRow, uids: Array<number | string>, folder: string) {
     if (!uids.length) return { succeeded: [], failed: [] };
     try {
       await withFreshClient(account, async (client) => {
@@ -5425,7 +5427,7 @@ export class ImapManager {
             // No UIDPLUS: protect other \Deleted messages from the broad EXPUNGE.
             const ourSet = new Set(uids.map(Number));
             const allDeleted = await searchUids(client, { deleted: true });
-            const othersDeleted = allDeleted.filter((uid: number | string) => !ourSet.has(uid));
+            const othersDeleted = allDeleted.filter((uid: number | string) => !ourSet.has(Number(uid)));
             if (othersDeleted.length > 0) {
               await client.messageFlagsRemove(othersDeleted.join(','), ['\\Deleted'], { uid: true });
             }
