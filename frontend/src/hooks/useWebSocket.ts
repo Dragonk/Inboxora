@@ -12,7 +12,7 @@ import { accountAffectsUnifiedInbox } from '../utils/unifiedInbox.ts';
 import { recordDiagEvent } from '../utils/diagEvents.ts';
 
 
-async function _forwardNativeNewMailNotification(notification) {
+async function _forwardNativeNewMailNotification(notification: { title?: string; body?: string; [key: string]: unknown }) {
   await installCapacitorNativeBridge();
   window.inboxoraNative?.notifications?.showNewMail?.({
     title: notification.title,
@@ -29,15 +29,21 @@ async function _forwardNativeNewMailNotification(notification) {
 const NO_RECONNECT_CODES = new Set([4001, 4003]);
 
 // Module-level timer for debouncing backfill_progress refreshes
-let backfillRefreshTimer: ReturnType<typeof setTimeout> | null = null;
+let backfillRefreshTimer: ReturnType<typeof setTimeout> | undefined = undefined;
 // Debounce the unread-count refetch triggered by cross-device flag updates.
 let flagCountRefreshTimer: ReturnType<typeof setTimeout> | null = null;
 const BACKOFF_BASE = 1000;
 const BACKOFF_MAX = 30000;
 
+/** The socket this hook uses, plus the heartbeat fields it attaches. */
+interface HeartbeatWebSocket extends WebSocket {
+  _lastActivity?: number;
+  _pingInterval?: ReturnType<typeof setInterval>;
+}
+
 export function useWebSocket() {
   const { t } = useTranslation();
-  const wsRef = useRef(null);
+  const wsRef = useRef<HeartbeatWebSocket | null>(null);
   const reconnectTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const mountedRef = useRef(true);
   const reconnectAttempt = useRef(0);
@@ -59,10 +65,6 @@ export function useWebSocket() {
       wsRef.current.close();
     }
     const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-    interface HeartbeatWebSocket extends WebSocket {
-      _lastActivity?: number;
-      _pingInterval?: ReturnType<typeof setInterval>;
-    }
     const ws = new WebSocket(`${protocol}//${window.location.host}/ws`) as HeartbeatWebSocket;
 
     ws.onopen = () => {
