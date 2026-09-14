@@ -291,7 +291,7 @@ export default function ComposeModal() {
   const [priority, setPriority] = useState('normal');
   const [minimized, setMinimized] = useState(false);
   const [maximized, setMaximized] = useState(false);
-  const [pos, setPos] = useState(null);
+  const [pos, setPos] = useState<{ x: number; y: number } | null>(null);
   const [customSize, setCustomSize] = useState(() => {
     try {
       const saved = localStorage.getItem('mailflow_compose_size');

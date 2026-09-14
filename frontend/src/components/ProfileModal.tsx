@@ -35,7 +35,7 @@ export default function ProfileModal({ onClose }) {
 
   const [displayName, setDisplayName] = useState(user?.displayName || '');
   const [avatarPreview, setAvatarPreview] = useState(user?.avatar || null);
-  const [pendingAvatar, setPendingAvatar] = useState(null); // base64 to upload, or false = delete
+  const [pendingAvatar, setPendingAvatar] = useState<string | false | null>(null); // base64 to upload, or false = delete
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
   useBackLayer(true, () => { if (!saving) onClose(); }, 3000);
@@ -50,7 +50,7 @@ export default function ProfileModal({ onClose }) {
     try {
       const dataUrl = await resizeImage(file);
       setAvatarPreview(String(dataUrl));
-      setPendingAvatar(dataUrl);
+      setPendingAvatar(String(dataUrl));
       setError('');
     } catch {
       setError(t('profile.errorProcess'));

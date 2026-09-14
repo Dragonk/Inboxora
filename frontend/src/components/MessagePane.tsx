@@ -311,15 +311,15 @@ export default function MessagePane({ windowMessageId = null, onWindowClose = nu
   const hasNext = currentIdx >= 0 && currentIdx < allMessages.length - 1;
 
   const [body, setBody] = useState<{ html?: string | null; text?: string | null; senderName?: string | null; senderEmail?: string | null; attachments?: Array<{ part?: string; filename?: string; type?: string; size?: number; [key: string]: unknown }>; [key: string]: unknown } | null>(null);
-  const [bodyError, setBodyError] = useState(null);
+  const [bodyError, setBodyError] = useState<string | null>(null);
   const [retryKey, setRetryKey] = useState(0);
   const [loadingBody, setLoadingBody] = useState(false);
   const [_downloadingPart, setDownloadingPart] = useState(null);
   const [_savingAllow, setSavingAllow] = useState(false);
   const [paneScrolled, setPaneScrolled] = useState(false);
   const [showHeaderModal, setShowHeaderModal] = useState(false);
-  const [resolvedSubject, setResolvedSubject] = useState(null);
-  const [movePickerFolders, setMovePickerFolders] = useState([]);
+  const [resolvedSubject, setResolvedSubject] = useState<string | null>(null);
+  const [movePickerFolders, setMovePickerFolders] = useState<Array<{ path: string; name?: string | null; [key: string]: unknown }>>([]);
   const [movePickerLoading, setMovePickerLoading] = useState(false);
   const [contextMenu, setContextMenu] = useState<{
     x: number;
@@ -334,12 +334,12 @@ export default function MessagePane({ windowMessageId = null, onWindowClose = nu
   const [findMatchCase, setFindMatchCase] = useState(false);
   const [findMatchIndex, setFindMatchIndex] = useState(-1);
   const findInputRef = useRef<HTMLInputElement | null>(null);
-  const [aiStatus, setAiStatus] = useState(null);
+  const [aiStatus, setAiStatus] = useState<{ enabled?: boolean; features?: { summarize?: boolean; [key: string]: unknown }; [key: string]: unknown } | null>(null);
   // Per-action results for the current message: { [actionKey]: { status, text, label } }.
   // status: 'loading' | 'done' | 'error'. Restored from localStorage on message change.
   const [aiResults, setAiResults] = useState<Record<string, { status?: string; text?: string; [key: string]: unknown }>>({});
   const [aiClassifying, setAiClassifying] = useState(false);
-  const [_unsubscribeStatus, setUnsubscribeStatus] = useState(null); // null | 'loading' | 'done' | 'error'
+  const [_unsubscribeStatus, setUnsubscribeStatus] = useState<string | null>(null); // null | 'loading' | 'done' | 'error'
   // One AbortController per in-flight action, keyed by action key.
   const aiAbortRefs = useRef<Record<string, AbortController | undefined>>({});
   const scrollContainerRef = useRef<HTMLDivElement | null>(null);

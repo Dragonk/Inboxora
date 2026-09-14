@@ -403,8 +403,8 @@ export default function Sidebar({ onEditProfile = null }) {
   const renameFavInputRef = useRef<HTMLInputElement | null>(null);
 
   // Drag-and-drop state for favorites reorder
-  const [favDragIdx, setFavDragIdx] = useState(null);
-  const [favDropIdx, setFavDropIdx] = useState(null);
+  const [favDragIdx, setFavDragIdx] = useState<number | null>(null);
+  const [favDropIdx, setFavDropIdx] = useState<number | null>(null);
   const favLongPressTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const favTouchStart = useRef<{ x: number; y: number } | null>(null); // { x, y } captured at touchstart for movement threshold
 
