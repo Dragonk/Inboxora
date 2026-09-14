@@ -28,7 +28,7 @@ function buildApp() {
   return app;
 }
 const tick = () => new Promise(r => setTimeout(r, 20));
-const clearedDb = () => query.mock.calls.some(([sql]: [string]) => sql.includes('DELETE FROM messages WHERE account_id = $1 AND folder = $2'));
+const clearedDb = () => query.mock.calls.some(([sql]) => sql.includes('DELETE FROM messages WHERE account_id = $1 AND folder = $2'));
 interface EmittedPayload { type?: string; ok?: boolean }
 
 const emittedType = (type: string): EmittedPayload | undefined => imapManager.broadcast.mock.calls
@@ -75,12 +75,13 @@ describe('POST /api/mail/folders/empty — async background empty', () => {
   });
 
   it('rejects a concurrent empty of the same folder with 409', async () => {
-    let release: ((value?: unknown) => void) | undefined;
-    imapManager.emptyFolder.mockImplementation(() => new Promise(r => { release = r; }));
+    let release: (() => void) | undefined;
+    imapManager.emptyFolder.mockImplementation(() => new Promise<void>((resolve) => { release = () => resolve(); }));
     const first = await empty('Junk');
     expect(first.status).toBe(202);
     const second = await empty('Junk');   // same folder still in flight
     expect(second.status).toBe(409);
+    if (release === undefined) throw new Error('Empty operation did not start');
     release();                            // let the first complete so the guard clears
     await tick();
   });

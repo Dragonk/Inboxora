@@ -280,7 +280,11 @@ app.use((err: unknown, req: Request, res: Response, _next: NextFunction) => {
 });
 
 // WebSocket
-setupWebSocket(wss, sessionMiddleware, imapManager);
+setupWebSocket(wss, (req, res, next) => {
+  // WebSocket upgrade objects provide the request/response subset used by
+  // express-session, but they are not Express's full request/response types.
+  Reflect.apply(sessionMiddleware, undefined, [req, res, next]);
+}, imapManager);
 
 // Run pending schema migrations then start
 await runMigrations();
@@ -295,6 +299,7 @@ async function backfillContactPhotos() {
 
   let count = 0;
   for (const row of rows) {
+    if (row.vcard === null) continue;
     const parsed = parseVCard(row.vcard);
     if (!parsed.photoData) continue;
     await query('UPDATE contacts SET photo_data = $1 WHERE id = $2', [parsed.photoData, row.id]);
@@ -336,10 +341,16 @@ if (process.env.NODE_ENV !== 'test' && process.env.E2E_DISABLE_IMAP_CONNECT !== 
     if (startupResult.rows.length) {
       console.log(`Reconnecting accounts for ${startupResult.rows.length} user(s) on startup`);
       const MAX_CONCURRENT = 3;
-      const queue = [...startupResult.rows] as Array<{ user_id: string; [key: string]: unknown }>;
+      const queue = [...startupResult.rows];
       function connectNext() {
-        if (!queue.length) return;
-        const { user_id } = queue.shift();
+        const account = queue.shift();
+        if (!account) return;
+        const { user_id } = account;
+        if (typeof user_id !== 'string') {
+          console.error('Startup account connection skipped: invalid user id');
+          connectNext();
+          return;
+        }
         imapManager.connectAllForUser(user_id)
           .catch(err => console.error(`Startup connect failed for user ${user_id}:`, err.message))
           .finally(connectNext);
