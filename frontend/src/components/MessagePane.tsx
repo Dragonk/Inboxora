@@ -34,9 +34,13 @@ const SPAM_NAME_RE = /(spam|junk|bulk|indesiderata|spamverdacht|courrier\s*ind|p
 // USE_DIV_RENDER compiles to false, stripping PostCSS and both utility modules.
 // In the flag-on build they live in the same chunk, so the dynamic imports
 // resolve synchronously — no perceptible delay before first render.
-let prepareEmailHtml  = null;
-let injectEmailStyles = null;
-let removeEmailStyles = null;
+type PrepareEmailHtml  = typeof import('../utils/scopeEmailCss.ts')['prepareEmailHtml'];
+type InjectEmailStyles = typeof import('../utils/emailStyleRegistry.ts')['injectEmailStyles'];
+type RemoveEmailStyles = typeof import('../utils/emailStyleRegistry.ts')['removeEmailStyles'];
+
+let prepareEmailHtml:  PrepareEmailHtml  | null = null;
+let injectEmailStyles: InjectEmailStyles | null = null;
+let removeEmailStyles: RemoveEmailStyles | null = null;
 if (USE_DIV_RENDER) {
   ({ prepareEmailHtml }                    = await import('../utils/scopeEmailCss.ts'));
   ({ injectEmailStyles, removeEmailStyles } = await import('../utils/emailStyleRegistry.ts'));
@@ -56,6 +60,10 @@ function parseAddressField(raw: unknown): string {
 }
 
 
+
+function asText(value: unknown): string {
+  return typeof value === 'string' ? value : '';
+}
 
 function _formatBytes(bytes: number): string {
   if (!bytes) return '';
@@ -93,7 +101,33 @@ function _fileIcon(type: string | null | undefined): React.ReactNode {
   );
 }
 
-export default function MessagePane({ windowMessageId = null, onWindowClose = null, mode = 'single', conversationId = null, targetLogicalMessageId = null, selectedConversationCopy = null, onReply = null, nativeThreadId = null, nativeFolder = null, onNativeThreadUnavailable = null, onMobileBack = null } = {}) {
+interface MessagePaneProps {
+  windowMessageId?: string | null;
+  onWindowClose?: (() => void) | null;
+  mode?: string;
+  conversationId?: string | null;
+  targetLogicalMessageId?: string | null;
+  selectedConversationCopy?: { id?: string; accountId?: string } | null;
+  onReply?: ((message: unknown) => void) | null;
+  nativeThreadId?: string | null;
+  nativeFolder?: string | null;
+  onNativeThreadUnavailable?: (() => void) | null;
+  onMobileBack?: (() => void) | null;
+}
+
+interface MessageBodyState {
+  html?: string | null;
+  text?: string | null;
+  senderName?: string | null;
+  senderEmail?: string | null;
+  attachments?: Array<{ part?: string; filename?: string; type?: string; size?: number; [key: string]: unknown }>;
+  hasBlockedRemoteImages?: boolean;
+  [key: string]: unknown;
+}
+
+interface FindMatch { doc: Document; node: Node; start: number; end: number }
+
+export default function MessagePane({ windowMessageId = null, onWindowClose = null, mode = 'single', conversationId = null, targetLogicalMessageId = null, selectedConversationCopy = null, onReply = null, nativeThreadId = null, nativeFolder = null, onNativeThreadUnavailable = null, onMobileBack = null }: MessagePaneProps = {}) {
   const { t, i18n } = useTranslation();
   const {
     messages, searchResults, searchQuery, selectedMessageId: globalSelectedId, setSelectedMessage,
@@ -129,7 +163,8 @@ export default function MessagePane({ windowMessageId = null, onWindowClose = nu
   const defaultReplyAll = replyDefault === 'replyAll';
 
   const effectiveShortcuts = getEffectiveShortcuts(shortcuts);
-  const shortcutLabel = (action: string) => {
+  const shortcutLabel = (action: string | undefined) => {
+    if (!action) return null;
     const k = effectiveShortcuts[action];
     if (!k) return null;
     const mod = parseModKey(k);
@@ -142,7 +177,7 @@ export default function MessagePane({ windowMessageId = null, onWindowClose = nu
     window.dispatchEvent(new CustomEvent(MESSAGE_OPENING_EVENT));
     api.getMessageBody(msg.id).catch(() => {});
     setSelectedMessage(msg.id);
-    clearTimeout(autoMarkReadTimerRef.current);
+    if (autoMarkReadTimerRef.current) clearTimeout(autoMarkReadTimerRef.current);
     autoMarkReadTimerRef.current = null;
     if (!msg.is_read) {
       const { markReadBehavior, markReadDelay } = useStore.getState();
@@ -150,7 +185,7 @@ export default function MessagePane({ windowMessageId = null, onWindowClose = nu
       const doMarkRead = () => {
         updateMessage(msg.id, { is_read: true });
         decrementUnread(msg.account_id);
-        adjustCategoryCount(msg.category, -1);
+        adjustCategoryCount(msg.category || 'primary', -1);
         setPending(msg.id, msg.account_id);
         const mutation = queueReadStateMutation(msg.id, true, read => api.bulkRead([msg.id], read));
         mutation.promise
@@ -165,7 +200,7 @@ export default function MessagePane({ windowMessageId = null, onWindowClose = nu
             console.error('markRead failed:', toAppError(e).message);
             updateMessage(msg.id, { is_read: false });
             incrementUnread(msg.account_id);
-            adjustCategoryCount(msg.category, 1);
+            adjustCategoryCount(msg.category || 'primary', 1);
             pendingMarkReadMap.delete(msg.id);
           });
       };
@@ -184,7 +219,7 @@ export default function MessagePane({ windowMessageId = null, onWindowClose = nu
   useEffect(() => () => {
     mountedRef.current = false;
     if (swipeBackTimerRef.current) clearTimeout(swipeBackTimerRef.current);
-    clearTimeout(autoMarkReadTimerRef.current);
+    if (autoMarkReadTimerRef.current) clearTimeout(autoMarkReadTimerRef.current);
   }, []);
 
   const resetPaneSwipeStyles = useCallback(() => {
@@ -222,7 +257,7 @@ export default function MessagePane({ windowMessageId = null, onWindowClose = nu
     aiAbortRefs.current = {};
     // Restore persisted results (#204) so they reappear instead of vanishing.
     const saved = getResults(selectedMessageId);
-    const restored = {};
+    const restored: Record<string, { status: string; text: string; label?: string }> = {};
     for (const [key, r] of Object.entries(saved)) {
       restored[key] = { status: 'done', text: r.text, label: r.label };
     }
@@ -258,7 +293,8 @@ export default function MessagePane({ windowMessageId = null, onWindowClose = nu
   // Antispam (v0.1) — toolbar visibility for the spam / ham buttons.
   // Mirrors the heuristic in ContextMenu.jsx so the toolbar matches the menu.
   const account = accounts.find(a => a.id === message?.account_id);
-  const accountFolders = useStore((s: StoreState) => s.folders[message?.account_id] || []);
+  const accountId = message?.account_id;
+  const accountFolders = useStore((s: StoreState) => (accountId ? s.folders[accountId] : undefined) || []);
   const spamFolderPaths = (() => {
     const mapped = account?.folder_mappings?.spam;
     if (mapped) return new Set([mapped]);
@@ -266,7 +302,7 @@ export default function MessagePane({ windowMessageId = null, onWindowClose = nu
       f.special_use === '\\Junk' || SPAM_NAME_RE.test(f.name || '')
     ).map(f => f.path));
   })();
-  const inSpamFolder = message ? spamFolderPaths.has(message.folder) : false;
+  const inSpamFolder = message?.folder ? spamFolderPaths.has(message.folder) : false;
   const hasSpamFolder = spamFolderPaths.size > 0;
 
   // Mark current message as spam / ham from the MessagePane toolbar.
@@ -310,11 +346,11 @@ export default function MessagePane({ windowMessageId = null, onWindowClose = nu
   const hasPrev = currentIdx > 0;
   const hasNext = currentIdx >= 0 && currentIdx < allMessages.length - 1;
 
-  const [body, setBody] = useState<{ html?: string | null; text?: string | null; senderName?: string | null; senderEmail?: string | null; attachments?: Array<{ part?: string; filename?: string; type?: string; size?: number; [key: string]: unknown }>; [key: string]: unknown } | null>(null);
+  const [body, setBody] = useState<MessageBodyState | null>(null);
   const [bodyError, setBodyError] = useState<string | null>(null);
   const [retryKey, setRetryKey] = useState(0);
   const [loadingBody, setLoadingBody] = useState(false);
-  const [_downloadingPart, setDownloadingPart] = useState(null);
+  const [_downloadingPart, setDownloadingPart] = useState<string | null>(null);
   const [_savingAllow, setSavingAllow] = useState(false);
   const [paneScrolled, setPaneScrolled] = useState(false);
   const [showHeaderModal, setShowHeaderModal] = useState(false);
@@ -361,29 +397,35 @@ export default function MessagePane({ windowMessageId = null, onWindowClose = nu
   // eslint-disable-next-line react-hooks/exhaustive-deps
   const renderableHtml = useMemo(() => body?.html ? sanitizeMessageHtml(body.html, { remoteImages: allowRemoteImages, tone: getEmailSurface(paneTheme)?.tone }) : '', [body?.html, allowRemoteImages, retryKey, paneTheme]);
   const prepared = useMemo(() => {
-    if (!USE_DIV_RENDER || !renderableHtml) return null;
+    if (!USE_DIV_RENDER || !renderableHtml || !prepareEmailHtml) return null;
     return prepareEmailHtml(renderableHtml, windowMode ? `w${message?.id ?? 'preview'}` : String(message?.id ?? 'preview'));
   }, [renderableHtml, message?.id, windowMode]);
   const outerRef = useRef<HTMLDivElement | null>(null);
   const scaleRef = useRef<HTMLDivElement | null>(null);
   const innerRef = useRef<HTMLDivElement | null>(null);
-  const bodyCache = useRef({}); // messageId -> body, so revisiting is instant (capped at 50)
+  const bodyCache = useRef<Record<string, MessageBodyState>>({}); // messageId -> body, so revisiting is instant (capped at 50)
   const bodyCacheOrder = useRef<string[]>([]); // insertion-order keys for LRU eviction
   // Ref holding the latest pane action handlers so shortcut subscriptions ([] deps) never go stale
   const paneActionsRef = useRef<{
-    reply?: () => void;
-    replyAll?: () => void;
-    forward?: () => void;
-    toggleStar?: () => void;
-    print?: () => void;
-  }>({});
+    reply: () => void;
+    replyAll: () => void;
+    forward: () => void;
+    toggleStar: () => void;
+    print: () => void;
+  }>({
+    reply: () => {},
+    replyAll: () => {},
+    forward: () => {},
+    toggleStar: () => {},
+    print: () => {},
+  });
   const emailScaleRef = useRef(1); // scale applied to wide emails that resist CSS reflow
 
   const getPaneSelectionText = useCallback(() => {
     const iframeDoc = iframeRef.current?.contentDocument;
-    const iframeSelection = iframeDoc?.getSelection?.().toString() || '';
+    const iframeSelection = iframeDoc?.getSelection?.()?.toString() || '';
     if (iframeSelection.trim()) return iframeSelection;
-    return window.getSelection?.().toString() || '';
+    return window.getSelection?.()?.toString() || '';
   }, []);
 
   const isSelectionContextTarget = useCallback((event: { target?: unknown }, doc: Document = document) => {
@@ -543,7 +585,7 @@ export default function MessagePane({ windowMessageId = null, onWindowClose = nu
           // Evict oldest entry when cache exceeds 50 messages
           if (bodyCacheOrder.current.length > 50) {
             const evicted = bodyCacheOrder.current.shift();
-            delete bodyCache.current[evicted];
+            if (evicted) delete bodyCache.current[evicted];
           }
         }
         setBody(data);
@@ -730,7 +772,7 @@ export default function MessagePane({ windowMessageId = null, onWindowClose = nu
         const rect = iframe.getBoundingClientRect();
         openPaneContextMenu(rect.left + ev.clientX, rect.top + ev.clientY, {
           source: 'iframe',
-          selectedText: doc.getSelection?.().toString() || '',
+          selectedText: doc.getSelection?.()?.toString() || '',
         });
       };
       contextMenuDoc = doc;
@@ -761,7 +803,7 @@ export default function MessagePane({ windowMessageId = null, onWindowClose = nu
     }
 
     return () => {
-      cancelAnimationFrame(rafId);
+      if (rafId) cancelAnimationFrame(rafId);
       if (roRef.current) { roRef.current.disconnect(); roRef.current = null; }
       if (contextMenuDoc && iframeContextMenuHandler) {
         contextMenuDoc.removeEventListener('contextmenu', iframeContextMenuHandler);
@@ -778,9 +820,11 @@ export default function MessagePane({ windowMessageId = null, onWindowClose = nu
   // useLayoutEffect runs synchronously after DOM mutations and before the browser paints,
   // so the <style> tag is in <head> before the email div becomes visible.
   useLayoutEffect(() => {
-    if (!prepared) return;
-    injectEmailStyles(prepared.prefix, prepared.styleBlocks);
-    return () => removeEmailStyles(prepared.prefix);
+    const inject = injectEmailStyles;
+    const remove = removeEmailStyles;
+    if (!prepared || !inject || !remove) return;
+    inject(prepared.prefix, prepared.styleBlocks);
+    return () => remove(prepared.prefix);
   }, [prepared]);
 
   // Div render path — scale-to-fit for wide fixed-layout emails.
@@ -860,7 +904,7 @@ export default function MessagePane({ windowMessageId = null, onWindowClose = nu
     };
 
     // Store image listeners so we can remove them if the message changes mid-load.
-    const imageListeners: unknown[] = [];
+    const imageListeners: Array<{ img: HTMLImageElement; handler: () => void }> = [];
     innerRef.current?.querySelectorAll('img').forEach(img => {
       if (!img.complete) {
         const handler = () => scheduleScale();
@@ -872,7 +916,7 @@ export default function MessagePane({ windowMessageId = null, onWindowClose = nu
     // Watch inner for content reflow (web fonts, dynamic content).
     // Do NOT observe outer — we set outer.style.height ourselves, which would
     // immediately re-fire the observer and produce a measurement loop.
-    let ro;
+    let ro: ResizeObserver | undefined;
     if (window.ResizeObserver && innerRef.current) {
       ro = new ResizeObserver(scheduleScale);
       ro.observe(innerRef.current);
@@ -902,7 +946,7 @@ export default function MessagePane({ windowMessageId = null, onWindowClose = nu
     const el = paneRef.current;
     if (!el) return;
 
-    let startX = 0, startY = 0, dir = null, active = false, fromEdge = false;
+    let startX = 0, startY = 0, dir: 'h' | 'v' | null = null, active = false, fromEdge = false;
 
     const onStart = (e: TouchEvent) => {
       const t = e.touches[0];
@@ -969,7 +1013,7 @@ export default function MessagePane({ windowMessageId = null, onWindowClose = nu
           window.dispatchEvent(new CustomEvent(MESSAGE_OPENING_EVENT));
           api.getMessageBody(target.id).catch(() => {});
           setSel(target.id);
-          clearTimeout(autoMarkReadTimerRef.current);
+          if (autoMarkReadTimerRef.current) clearTimeout(autoMarkReadTimerRef.current);
           autoMarkReadTimerRef.current = null;
           if (!target.is_read) {
             const { markReadBehavior, markReadDelay } = useStore.getState();
@@ -977,7 +1021,7 @@ export default function MessagePane({ windowMessageId = null, onWindowClose = nu
               const doMarkRead = () => {
                 updMsg(target.id, { is_read: true });
                 decUnread(target.account_id);
-                adjCat(target.category, -1);
+                adjCat(target.category || 'primary', -1);
                 setPending(target.id, target.account_id);
                 const mutation = queueReadStateMutation(target.id, true, read => api.bulkRead([target.id], read));
                 mutation.promise
@@ -992,7 +1036,7 @@ export default function MessagePane({ windowMessageId = null, onWindowClose = nu
                     console.error('markRead failed:', toAppError(e).message);
                     updMsg(target.id, { is_read: false });
                     incUnread(target.account_id);
-                    adjCat(target.category, 1);
+                    adjCat(target.category || 'primary', 1);
                     pendingMarkReadMap.delete(target.id);
                   });
               };
@@ -1146,14 +1190,14 @@ export default function MessagePane({ windowMessageId = null, onWindowClose = nu
 
   const handlePrint = () => {
     if (!message) return;
-    const esc = (s: string) => (s || '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+    const esc = (s: string | null | undefined) => (s || '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
     const date = message.date ? new Date(message.date).toLocaleString() : '';
     const fromStr = message.from_name
       ? `${esc(message.from_name)} &lt;${esc(message.from_email)}&gt;`
       : esc(message.from_email);
 
-    const parseList = (raw: string | unknown[] | null | undefined): unknown[] => {
-      try { return Array.isArray(raw) ? raw : JSON.parse(raw || '[]'); } catch { return []; }
+    const parseList = (raw: unknown): Array<{ name?: string | null; email?: string | null }> => {
+      try { return Array.isArray(raw) ? raw : JSON.parse(typeof raw === 'string' ? raw : '[]'); } catch { return []; }
     };
     const fmtAddr = (r: { name?: string | null; email?: string | null }) => r.name ? `${esc(r.name)} &lt;${esc(r.email || '')}&gt;` : esc(r.email || '');
     const toStr = parseList(message.to_addresses).map(fmtAddr).join(', ');
@@ -1197,15 +1241,15 @@ ${bodyContent}
   // Label shown on a result box for a given action key. The built-in summarize
   // key maps to the translated "Summary"; custom actions use their label. Falls
   // back to a stored label (so a result survives its action being deleted).
-  const aiActionLabel = useCallback((key: string, fallback: string) => {
+  const aiActionLabel = useCallback((key: string, fallback: unknown) => {
     if (key === BUILTIN_SUMMARIZE.id) return t('message.summary');
     const found = (aiActions || []).find(a => a.id === key);
-    return found?.label || fallback || key;
+    return found?.label || (typeof fallback === 'string' ? fallback : '') || key;
   }, [aiActions, t]);
 
   // Run an AI action against the current message and stream the result into a
   // pinned box. Cached results are shown instantly unless force=true (Regenerate).
-  const runAiAction = async (action: { id: string; label: string; prompt?: string; builtin?: boolean }, { force = false }: { force?: boolean } = {}) => {
+  const runAiAction = async (action: { id: string; [key: string]: unknown }, { force = false }: { force?: boolean } = {}) => {
     if (!action?.id) return;
     const key = action.id;
 
@@ -1247,7 +1291,7 @@ ${bodyContent}
       // Persist only completed results, keyed to the message it ran against.
       if (fullText) saveResult(msgId, key, fullText, label);
     } catch (err) {
-      if (err.name === 'AbortError') return;
+      if (typeof err === 'object' && err !== null && 'name' in err && err.name === 'AbortError') return;
       setAiResults(r => ({ ...r, [key]: { status: 'error', text: toAppError(err).message, label } }));
     }
   };
@@ -1338,7 +1382,7 @@ ${bodyContent}
     if (!message || !message.is_read) return;
     updateMessage(message.id, { is_read: false });
     incrementUnread(message.account_id);
-    adjustCategoryCount(message.category, 1);
+    adjustCategoryCount(message.category || 'primary', 1);
     completedMarkReadMap.delete(message.id);
     pendingMarkReadMap.delete(message.id);
     const mutation = queueReadStateMutation(message.id, false, read => api.bulkRead([message.id], read));
@@ -1347,13 +1391,14 @@ ${bodyContent}
       console.error('markUnread failed:', toAppError(e).message);
       updateMessage(message.id, { is_read: true });
       decrementUnread(message.account_id);
-      adjustCategoryCount(message.category, -1);
+      adjustCategoryCount(message.category || 'primary', -1);
     });
     if (isMobile) setSelectedMessage(null);
   }, [message, updateMessage, incrementUnread, decrementUnread, adjustCategoryCount, isMobile, setSelectedMessage]);
 
-  const _handleEmailClick = useCallback((ev) => {
-    const anchor = ev.target.closest('a[href]');
+  const _handleEmailClick = useCallback((ev: React.MouseEvent) => {
+    const target = ev.target;
+    const anchor = target instanceof Element ? target.closest('a[href]') : null;
     if (!anchor) return;
     ev.preventDefault();
     let raw = anchor.getAttribute('href') || '';
@@ -1380,7 +1425,7 @@ ${bodyContent}
     };
   }, [body?.html]);
 
-  const collectFindMatches = useCallback((query, matchCase) => {
+  const collectFindMatches = useCallback((query: string, matchCase: boolean) => {
     const { doc, root } = getFindRoot();
     if (!query || !root) return [];
 
@@ -1394,21 +1439,24 @@ ${bodyContent}
       },
     });
 
-    const matches: unknown[] = [];
+    const matches: FindMatch[] = [];
     let node = walker.nextNode();
     while (node) {
-      const haystack = matchCase ? node.nodeValue : node.nodeValue.toLowerCase();
-      let index = haystack.indexOf(needle);
-      while (index !== -1) {
-        matches.push({ doc, node, start: index, end: index + query.length });
-        index = haystack.indexOf(needle, index + Math.max(needle.length, 1));
+      const text = node.nodeValue;
+      if (text !== null) {
+        const haystack = matchCase ? text : text.toLowerCase();
+        let index = haystack.indexOf(needle);
+        while (index !== -1) {
+          matches.push({ doc, node, start: index, end: index + query.length });
+          index = haystack.indexOf(needle, index + Math.max(needle.length, 1));
+        }
       }
       node = walker.nextNode();
     }
     return matches;
   }, [getFindRoot]);
 
-  const selectFindMatch = useCallback((match) => {
+  const selectFindMatch = useCallback((match: FindMatch | undefined) => {
     if (!match) return;
     const range = match.doc.createRange();
     range.setStart(match.node, match.start);
@@ -1452,7 +1500,7 @@ ${bodyContent}
     setTimeout(() => findInputRef.current?.focus(), 0);
   }, [findDialogOpen]);
 
-  const handleMoveToFolder = useCallback((folder) => {
+  const handleMoveToFolder = useCallback((folder: string) => {
     if (!message) return;
     const moved = message;
     removeMessage(moved.id);
@@ -1609,13 +1657,13 @@ ${bodyContent}
         undone = true;
         clearTimeout(timer);
         const state = useStore.getState();
-        state.setMessages([...state.messages, archived].sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime()));
+        state.setMessages([...state.messages, archived].sort((a, b) => new Date(b.date || 0).getTime() - new Date(a.date || 0).getTime()));
         if (!archived.is_read) incrementUnread(archived.account_id);
       },
     });
   };
 
-  const handlePaneContextAction = async (action, data = undefined) => {
+  const handlePaneContextAction = async (action: string, data: unknown = undefined) => {
     if (!message) return;
 
     switch (action) {
@@ -1635,8 +1683,9 @@ ${bodyContent}
           const doc = iframeRef.current.contentDocument;
           const range = doc.createRange();
           range.selectNodeContents(doc.body);
-          doc.getSelection?.().removeAllRanges();
-          doc.getSelection?.().addRange(range);
+          const docSelection = doc.getSelection?.();
+          docSelection?.removeAllRanges();
+          docSelection?.addRange(range);
         } else if (scrollContainerRef.current) {
           const range = document.createRange();
           range.selectNodeContents(scrollContainerRef.current);
@@ -1656,7 +1705,7 @@ ${bodyContent}
         if (!message.is_read) {
           updateMessage(message.id, { is_read: true });
           decrementUnread(message.account_id);
-          adjustCategoryCount(message.category, -1);
+          adjustCategoryCount(message.category || 'primary', -1);
           setPending(message.id, message.account_id);
           const mutation = queueReadStateMutation(message.id, true, read => api.bulkRead([message.id], read));
           mutation.promise.catch((e: unknown) => {
@@ -1664,7 +1713,7 @@ ${bodyContent}
             console.error('markRead failed:', toAppError(e).message);
             updateMessage(message.id, { is_read: false });
             incrementUnread(message.account_id);
-            adjustCategoryCount(message.category, 1);
+            adjustCategoryCount(message.category || 'primary', 1);
             pendingMarkReadMap.delete(message.id);
           });
         }
@@ -1688,7 +1737,7 @@ ${bodyContent}
         handleArchive();
         break;
       case 'moveTo':
-        if (data) handleMoveToFolder(data);
+        if (typeof data === 'string') handleMoveToFolder(data);
         break;
       case 'delete':
         handleDelete();
@@ -1740,7 +1789,7 @@ ${bodyContent}
           const params = message.account_id ? { accountId: message.account_id } : {};
           api.getCategoryCounts(params).then(d => setCategoryCounts(d.counts || {})).catch(() => {});
         } catch (err) {
-          console.error('setCategory failed:', err?.message);
+          console.error('setCategory failed:', toAppError(err).message);
         }
         break;
       }
@@ -1751,7 +1800,7 @@ ${bodyContent}
 
   const handleLoadImages = () => {
     imagesRequestedRef.current.add(selectedMessageId);
-    delete bodyCache.current[selectedMessageId];
+    if (selectedMessageId) delete bodyCache.current[selectedMessageId];
     setRetryKey(k => k + 1);
   };
 
@@ -1857,7 +1906,7 @@ ${bodyContent}
     }
   };
 
-  const toList = (() => {
+  const toList: Array<{ name?: string | null; email?: string | null }> = (() => {
     try {
       return Array.isArray(message?.to_addresses)
         ? message.to_addresses
@@ -1865,8 +1914,8 @@ ${bodyContent}
     } catch { return []; }
   })();
 
-  const ccList = (() => {
-    if (!message) return;
+  const ccList: Array<{ name?: string | null; email?: string | null }> = (() => {
+    if (!message) return [];
     try {
       return Array.isArray(message?.cc_addresses)
         ? message.cc_addresses
@@ -1898,11 +1947,13 @@ ${bodyContent}
           </MobileModuleHeader>
         )}
         <Suspense fallback={<div style={{ padding: 24, textAlign: 'center', color: 'var(--text-tertiary)' }}>{t('conversation.loading')}</div>}>
-          <ConversationReader conversationId={conversationId} targetLogicalMessageId={targetLogicalMessageId} selectedCopyId={selectedConversationCopy?.id} selectedAccountId={selectedConversationCopy?.accountId} accounts={accounts} onReply={onReply} nativeThreadId={nativeThreadId} nativeFolder={nativeFolder} onNativeThreadUnavailable={onNativeThreadUnavailable} />
+          <ConversationReader conversationId={conversationId} targetLogicalMessageId={targetLogicalMessageId} selectedCopyId={selectedConversationCopy?.id} selectedAccountId={selectedConversationCopy?.accountId} accounts={accounts} onReply={onReply ?? undefined} nativeThreadId={nativeThreadId} nativeFolder={nativeFolder} onNativeThreadUnavailable={onNativeThreadUnavailable ?? undefined} />
         </Suspense>
       </div>
     );
   }
+
+  if (!message) return null;
 
   return (
     <div
@@ -2033,7 +2084,7 @@ ${bodyContent}
                         ? toList.map((r: { name?: string | null; email?: string | null }, i: number) => (
                             <span key={i}>{r.name || r.email}{i < toList.length - 1 ? ', ' : ''}</span>
                           ))
-                        : (message.account_email || message.account_name || '')}
+                        : (asText(message.account_email) || asText(message.account_name) || '')}
                     </span>
                   </div>
                   {ccList.length > 0 && (
@@ -2075,7 +2126,7 @@ ${bodyContent}
                               {i < toList.length - 1 ? ', ' : ''}
                             </span>
                           ))
-                        : (message.account_email || message.account_name || '')}
+                        : (asText(message.account_email) || asText(message.account_name) || '')}
                     </span>
                   </div>
                   {ccList.length > 0 && (
@@ -2123,7 +2174,7 @@ ${bodyContent}
             body={body}
             status={{ loading: loadingBody, error: bodyError }}
             remoteImages={allowRemoteImages}
-            onLoadBody={() => { delete bodyCache.current[selectedMessageId]; setRetryKey(k => k + 1); }}
+            onLoadBody={() => { if (selectedMessageId) delete bodyCache.current[selectedMessageId]; setRetryKey(k => k + 1); }}
             onRemoteImages={handleLoadImages}
             onAllowSender={handleAllowSender}
             onAllowDomain={handleAllowDomain}
@@ -2266,7 +2317,12 @@ ${bodyContent}
 // Retained for the upcoming AI-summary wiring; referenced by locale-key
 // coverage tests. Suppress the until-it-is-mounted unused warning.
 // eslint-disable-next-line @typescript-eslint/no-unused-vars
-function AiResultBox({ result, canRegen, onRegen, onDismiss }) {
+function AiResultBox({ result, canRegen, onRegen, onDismiss }: {
+  result: { status?: string; text?: string; label?: string };
+  canRegen?: boolean;
+  onRegen?: () => void;
+  onDismiss?: () => void;
+}) {
   const { t } = useTranslation();
   const [expanded, setExpanded] = useState(false);
   const loading = result.status === 'loading';
@@ -2276,7 +2332,7 @@ function AiResultBox({ result, canRegen, onRegen, onDismiss }) {
   const html = useMemo(() => renderMarkdown(result.text || ''), [result.text]);
   const [copied, setCopied] = useState(false);
   const copyTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  useEffect(() => () => clearTimeout(copyTimerRef.current), []);
+  useEffect(() => () => { if (copyTimerRef.current) clearTimeout(copyTimerRef.current); }, []);
   // Copy the output to the clipboard as BOTH rich text (the rendered HTML) and source
   // (the raw markdown), so pasting into a rich editor gives formatting and pasting into a
   // plain field gives the markdown source (#215). Falls back to plain text where the async
@@ -2285,7 +2341,7 @@ function AiResultBox({ result, canRegen, onRegen, onDismiss }) {
     const source = result.text || '';
     const flash = () => {
       setCopied(true);
-      clearTimeout(copyTimerRef.current);
+      if (copyTimerRef.current) clearTimeout(copyTimerRef.current);
       copyTimerRef.current = setTimeout(() => setCopied(false), 1500);
     };
     try {
