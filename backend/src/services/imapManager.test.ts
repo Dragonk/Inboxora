@@ -13,6 +13,7 @@ vi.mock('../utils/redact.js', () => ({ redactEmail: vi.fn() }));
 vi.mock('./hostValidation.js', () => ({ resolveForConnection: vi.fn() }));
 vi.mock('./connectionPolicy.js', () => ({ getConnectionPolicy: vi.fn() }));
 
+import type { CollectedParts } from './imapManager.js';
 import { ImapManager, providerProfile, makeClientCfg, attachmentTransferEncoding, relocateExemptGuard, insertCopiedSibling, deleteMessageCopyRow, emitSectionsChanged, ensureMailbox, createKeyedSemaphore, isConnectionRefusal, connectCooldownMs, effectiveSyncIntervalMs, folderSyncDue, planModseqSync, connectStaggerFor, walkStructure, shouldFallbackToTextPart, persistInboundCalendarInvitationFromMessage, looksLikeTextPayload, parsePersistentCap, resolvePersistentCap, persistentEligible, shouldRetryIPv4, classifyMoveBySearch } from './imapManager.js';
 import { parseInboundCalendarInvitation } from './inboundCalendarInvitation.js';
 import { pluginRegistry } from '../plugins/registry.js';
@@ -341,7 +342,12 @@ describe('makeClientCfg — rejectUnauthorized', () => {
 // live pool), so the destination-sibling INSERT is extracted here and tested with
 // the UID a UIDPLUS copyuid map would yield — same seam as gtdRelocateGuard in 1a.
 
-const findCall = (frag) => query.mock.calls.find(([sql]) => sql.includes(frag));
+/** The recorded query containing the fragment; fails loudly when it never ran. */
+const findCall = (frag: string) => {
+  const call = query.mock.calls.find((args: unknown[]) => String(args[0]).includes(frag));
+  if (!call) throw new Error(`no query containing ${frag}`);
+  return call;
+};
 const countAdjusts = () => query.mock.calls.filter(([sql]) => sql.includes('UPDATE folders'));
 
 describe('insertCopiedSibling', () => {
@@ -1379,7 +1385,7 @@ describe('_syncSpamFolder — periodic spam poll guards', () => {
 
 describe('walkStructure attachment classification', () => {
   const walk = (node) => {
-    const results = { textParts: [], attachments: [], calendarParts: [] };
+    const results: CollectedParts = { textParts: [], attachments: [], calendarParts: [] };
     walkStructure(node, results);
     return results;
   };

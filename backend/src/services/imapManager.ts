@@ -626,7 +626,7 @@ export function looksLikeTextPayload(buf: Buffer | string): boolean {
 // encoding wins; when the structure declares none (or the part is missing from
 // it) the caller's fallback is kept — an absent value must never override it,
 // because that silently skipped the base64 decoding.
-export function attachmentTransferEncoding(results: { attachments: AttachmentRef[] }, partNum: string, fallback = 'base64'): string {
+export function attachmentTransferEncoding(results: { attachments?: AttachmentRef[] } | null | undefined, partNum: string, fallback = 'base64'): string {
   const match = (results?.attachments || []).find(attachment => String(attachment.part) === String(partNum));
   return match?.encoding || fallback;
 }
@@ -1168,12 +1168,12 @@ interface ResolvedConnection {
 
 /** A body part the parser collects while walking the structure. */
 /** The parts collected while walking one body structure. */
-interface CollectedParts { textParts: BodyPartRef[]; attachments: AttachmentRef[]; calendarParts?: BodyPartRef[]; inlineImages?: BodyPartRef[] }
+export interface CollectedParts { textParts: BodyPartRef[]; attachments: AttachmentRef[]; calendarParts?: BodyPartRef[]; inlineImages?: BodyPartRef[] }
 
-interface BodyPartRef { part: string; type: string; encoding: string; charset?: string; cid?: string | null }
+export interface BodyPartRef { part: string; type: string; encoding: string; charset?: string; cid?: string | null }
 
 /** An attachment entry the parser collects. */
-interface AttachmentRef { part: string; filename?: string; type?: string; encoding?: string; size?: number; disposition?: string; [key: string]: unknown }
+export interface AttachmentRef { part: string; filename?: string; type?: string; encoding?: string; size?: number; disposition?: string; [key: string]: unknown }
 
 export type EmailAccountRow = {
   user_id: string;
