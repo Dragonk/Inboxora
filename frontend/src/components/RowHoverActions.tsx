@@ -1,6 +1,8 @@
 import { useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { PluginSlot } from '../plugins/PluginSlot.tsx';
+import type { StoreMessageRow } from '../store/index.ts';
+import type { ReactNode } from 'react';
 
 // Bottom-right hover quick-actions cluster shared by the flat MessageRow and the threaded
 // ThreadRow and GTD sidebar rows. Presentational and closure-free: each action
@@ -9,7 +11,20 @@ import { PluginSlot } from '../plugins/PluginSlot.tsx';
 // and `background` + `deleteTitleKey` keep each call site's prior rendering byte-identical.
 // `rowActionCtx`, when present (main-list rows only), renders the 'row-hover-action' plugin slot —
 // a plugin can add its own leading hover button (GTD adds a "done" checkmark). Sidebar rows omit it.
-export default function RowHoverActions({ message, isRead, background, deleteTitleKey = 'common.delete', onMarkRead, onStar, onDelete, onMove, rowActionCtx }) {
+/** The actions revealed when a message row is hovered. */
+interface RowHoverActionsProps {
+  message: StoreMessageRow;
+  isRead: boolean;
+  background: string;
+  deleteTitleKey?: string;
+  onMarkRead: (event: React.MouseEvent, message: StoreMessageRow) => void;
+  onStar: (event: React.MouseEvent, message: StoreMessageRow) => void;
+  onDelete: (event: React.MouseEvent, message: StoreMessageRow) => void;
+  onMove: (event: React.MouseEvent, message: StoreMessageRow) => void;
+  rowActionCtx?: unknown;
+}
+
+export default function RowHoverActions({ message, isRead, background, deleteTitleKey = 'common.delete', onMarkRead, onStar, onDelete, onMove, rowActionCtx }: RowHoverActionsProps) {
   const { t } = useTranslation();
   return (
     <div style={{
@@ -62,7 +77,7 @@ export default function RowHoverActions({ message, isRead, background, deleteTit
   );
 }
 
-export function ActionBtn({ children, onClick, title }) {
+export function ActionBtn({ children, onClick, title }: { children?: ReactNode; onClick?: (event: React.MouseEvent) => void; title?: string }) {
   const [hov, setHov] = useState(false);
   return (
     <button
