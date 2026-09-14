@@ -320,7 +320,7 @@ async function mismatchCounts(client: DbClient) {
     overrides: `SELECT COUNT(*) FROM conversation_overrides o LEFT JOIN conversations c ON c.id=o.conversation_id LEFT JOIN logical_messages lm ON lm.id=o.logical_message_id LEFT JOIN conversations target ON target.id=o.target_id WHERE (c.id IS NOT NULL AND (o.account_id<>c.account_id OR o.user_id<>c.user_id)) OR (lm.id IS NOT NULL AND (o.account_id<>lm.account_id OR o.user_id<>lm.user_id)) OR (target.id IS NOT NULL AND (o.account_id<>target.account_id OR o.user_id<>target.user_id))`,
   };
   const result: Record<string, number> = {};
-  for (const [name, sql] of Object.entries(queries)) result[name] = Number((await client.query<AccountStateRow>(sql)).rows[0].count);
+  for (const [name, sql] of Object.entries(queries)) result[name] = Number((await client.query<{ count: string }>(sql)).rows[0].count);
   return result;
 }
 
