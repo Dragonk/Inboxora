@@ -159,6 +159,7 @@ export function useGtdTriage() {
       isCancelled: () => !mountedRef.current,
       getPreferences: () => useStore.getState(),
       readThread: setRead,
+      setTimer: (callback: () => void, delay: number) => setTimeout(callback, delay),
       publishTimer: timerHandle => {
         // Only a scheduled (delay-mode) timer has an identity/owner to guard;
         // immediate/manual publish null. mountedRef doubles as the per-instance

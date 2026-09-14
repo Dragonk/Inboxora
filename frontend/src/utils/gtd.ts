@@ -479,16 +479,16 @@ export async function collectThreadReadIds(
   }
 }
 
-export function scheduleGtdThreadAutoRead(thread: GtdThread, {
+export function scheduleGtdThreadAutoRead<T = ReturnType<typeof setTimeout>>(thread: GtdThread, {
   markReadBehavior,
   markReadDelay,
   readThread,
-  setTimer = setTimeout,
+  setTimer,
 }: {
   markReadBehavior?: string;
   markReadDelay?: number;
   readThread: (thread: GtdThread, isRead: boolean) => void;
-  setTimer?: (callback: () => void, delay: number) => unknown;
+  setTimer: (callback: () => void, delay: number) => T;
 }) {
   if (!thread || thread.is_read || markReadBehavior === 'manual') return null;
   if (markReadBehavior === 'delay') {
@@ -499,7 +499,7 @@ export function scheduleGtdThreadAutoRead(thread: GtdThread, {
   return null;
 }
 
-export async function openGtdThreadWithAutoRead(thread: GtdThread, {
+export async function openGtdThreadWithAutoRead<T = ReturnType<typeof setTimeout>>(thread: GtdThread, {
   openThread,
   isCancelled,
   getPreferences,
@@ -511,10 +511,10 @@ export async function openGtdThreadWithAutoRead(thread: GtdThread, {
   isCancelled: () => boolean;
   getPreferences: () => { markReadBehavior?: string; markReadDelay?: number };
   readThread: (thread: GtdThread, isRead: boolean) => void;
-  setTimer?: (callback: () => void, delay: number) => unknown;
+  setTimer: (callback: () => void, delay: number) => T;
   // The handle is opaque: the injected scheduler is either the real setTimeout or a
   // fake clock in tests, so callers own its concrete type.
-  publishTimer: (timer: any) => void;
+  publishTimer: (timer: T | null) => void;
 }) {
   const message = await openThread();
   if (!message || isCancelled()) return null;

@@ -1026,6 +1026,7 @@ describe('scheduleGtdThreadAutoRead', () => {
     const timer = scheduleGtdThreadAutoRead(thread, {
       markReadBehavior: 'immediate',
       markReadDelay: 3,
+      setTimer: (callback: () => void, delay: number) => setTimeout(callback, delay),
       readThread: (value, read) => calls.push([value.id, read]),
     });
     assert.equal(timer, null);
@@ -1046,7 +1047,7 @@ describe('scheduleGtdThreadAutoRead', () => {
 
   it('does nothing in manual mode or for an already-read thread', () => {
     const calls: unknown[] = [];
-    const deps = { readThread: () => calls.push('read') };
+    const deps = { setTimer: (callback: () => void, delay: number) => setTimeout(callback, delay), readThread: () => calls.push('read') };
     assert.equal(scheduleGtdThreadAutoRead(thread, { ...deps, markReadBehavior: 'manual' }), null);
     assert.equal(scheduleGtdThreadAutoRead({ ...thread, is_read: true }, { ...deps, markReadBehavior: 'immediate' }), null);
     assert.deepEqual(calls, []);
