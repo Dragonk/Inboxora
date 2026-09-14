@@ -30,7 +30,7 @@ import { toAppError } from '../utils/errors.js';
 
 
 // Shorthand for log lines — keeps domain visible while masking the local part.
-const logAccount = (account: EmailAccountRow) => redactEmail(account?.email_address || '');
+const logAccount = (account: Partial<EmailAccountRow> | null | undefined) => redactEmail(account?.email_address || '');
 
 /** A raw message envelope as the ingest paths pass it (partial on Sent/retry paths). */
 /** A node of the IMAP body structure tree (the fields the parser reads). */
@@ -1631,7 +1631,7 @@ export class ImapManager {
     // IMAP server that times out on the first attempt) without waiting for a manual sync.
     this._healthCheckTimer = setInterval(async () => {
       try {
-        const result = await query(
+        const result = await query<{ id: string; email_address?: string | null }>(
           "SELECT id, email_address FROM email_accounts WHERE enabled = true AND protocol = 'imap'"
         );
         for (const row of result.rows) {
