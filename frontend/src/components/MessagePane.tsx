@@ -427,7 +427,7 @@ export default function MessagePane({ windowMessageId = null, onWindowClose = nu
   }, [getPaneSelectionText, hasNativeContextTarget, openPaneContextMenu]);
 
   // Track previous blocking policy so we can detect tightening vs loosening.
-  const prevBlockingPolicyRef = useRef<{ blockRemoteImages?: boolean; addrCount?: number; domainCount?: number } | null>(null);
+  const prevBlockingPolicyRef = useRef<{ blockRemoteImages: boolean; addrCount: number; domainCount: number } | null>(null);
 
   // Flush body cache when the image-blocking policy changes:
   // - Tightening (blocking ON, or whitelist entry removed): evict unblocked entries so they
@@ -1550,6 +1550,7 @@ ${bodyContent}
   }
 
   const handleDelete = () => {
+    if (!message) return;
     const deleted = message;
     setPendingDelete(deleted.id);
     removeMessage(deleted.id);
@@ -1582,6 +1583,7 @@ ${bodyContent}
   };
 
   const handleArchive = () => {
+    if (!message) return;
     const archived = message;
     removeMessage(archived.id);
     closeWindowIfWindowed();
@@ -1753,6 +1755,7 @@ ${bodyContent}
   };
 
   const handleAllowSender = async () => {
+    if (!message) return;
     const senderEmail = message.from_email?.toLowerCase();
     if (!senderEmail) return;
     setSavingAllow(true);
@@ -1830,6 +1833,7 @@ ${bodyContent}
   };
 
   const handleAllowDomain = async () => {
+    if (!message) return;
     const senderEmail = message.from_email?.toLowerCase() || '';
     const senderDomain = senderEmail.includes('@') ? senderEmail.split('@')[1] : '';
     if (!senderDomain) return;
@@ -1861,6 +1865,7 @@ ${bodyContent}
   })();
 
   const ccList = (() => {
+    if (!message) return;
     try {
       return Array.isArray(message?.cc_addresses)
         ? message.cc_addresses
