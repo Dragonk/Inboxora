@@ -16,9 +16,9 @@ import type { StoreState } from '../store/index.ts';
 
 // Section key -> the state color/chip-bg used for its header, count chip, and the
 // row's left border. Waiting rows override per gtdKind (watch/delegated).
-const SECTION_STATE = { todo: 'todo', waiting: 'watch', reference: 'reference', someday: 'someday' };
+const SECTION_STATE: Record<string, string> = { todo: 'todo', waiting: 'watch', reference: 'reference', someday: 'someday' };
 
-export default function GtdSidebarContent({ onCollapse, toggleHint }) {
+export default function GtdSidebarContent({ onCollapse, toggleHint }: { onCollapse: () => void; toggleHint: string }) {
   const { t } = useTranslation();
   const gtdSections = useStore((s: StoreState) => s.gtdSections);
   const gtdCollapsedSections = useStore((s: StoreState) => s.gtdCollapsedSections);
@@ -97,7 +97,16 @@ export default function GtdSidebarContent({ onCollapse, toggleHint }) {
   );
 }
 
-function GtdSection({ section, collapsed, onToggle, onOpenRow, rowActions, selectedMessageId, selectedMid, t }) {
+function GtdSection({ section, collapsed, onToggle, onOpenRow, rowActions, selectedMessageId, selectedMid, t }: {
+  section: { key: string; [key: string]: unknown };
+  collapsed: boolean;
+  onToggle: () => void;
+  onOpenRow: (row: unknown) => void;
+  rowActions: unknown;
+  selectedMessageId: string | null;
+  selectedMid: string | null;
+  t: (key: string, options?: Record<string, unknown>) => string;
+}) {
   const state = SECTION_STATE[section.key];
   const color = GTD_COLORS[state];
   const label = section.key === 'waiting' ? t('gtd.waiting') : t(`gtd.state.${section.key}`);
