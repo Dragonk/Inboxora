@@ -2531,7 +2531,7 @@ function RichToolbar({ editor, onAttach, onInsertImage = undefined, htmlMode, on
     setHighlightPos({ top: r.bottom + 4, left });
     setColorPos(null); setEmojiPos(null); setLinkPos(null);
   };
-  const openEmoji = async (e) => {
+  const openEmoji = async (e: React.MouseEvent) => {
     e.preventDefault();
     if (emojiPos) { setEmojiPos(null); return; }
     if (!emojiPickerRef.current) {
@@ -2551,7 +2551,7 @@ function RichToolbar({ editor, onAttach, onInsertImage = undefined, htmlMode, on
     setEmojiPos(pos);
     setColorPos(null); setHighlightPos(null); setLinkPos(null);
   };
-  const openLink = (e) => {
+  const openLink = (e: React.MouseEvent) => {
     e.preventDefault();
     if (linkPos) { setLinkPos(null); return; }
     const r = e.currentTarget.getBoundingClientRect();
@@ -2580,7 +2580,7 @@ function RichToolbar({ editor, onAttach, onInsertImage = undefined, htmlMode, on
     setLinkUrl('');
   };
 
-  const openTable = (e) => {
+  const openTable = (e: React.MouseEvent) => {
     e.preventDefault();
     if (tablePos) { setTablePos(null); return; }
     const r = e.currentTarget.getBoundingClientRect();
@@ -2602,10 +2602,10 @@ function RichToolbar({ editor, onAttach, onInsertImage = undefined, htmlMode, on
       {isMobile ? (
         <>
           <div ref={mobileBarRef} style={{ borderBottom: '1px solid var(--border-subtle)', display: 'flex', alignItems: 'center', padding: '2px 0' }}>
-            {mtb(es.bold, 'Bold', e => { e.preventDefault(); editor.chain().focus().toggleBold().run(); }, <b>B</b>)}
-            {mtb(es.italic, 'Italic', e => { e.preventDefault(); editor.chain().focus().toggleItalic().run(); }, <i>I</i>)}
-            {mtb(es.underline, 'Underline', e => { e.preventDefault(); editor.chain().focus().toggleUnderline().run(); }, <u>U</u>)}
-            {mtb(es.strike, 'Strikethrough', e => { e.preventDefault(); editor.chain().focus().toggleStrike().run(); }, <s>S</s>)}
+            {mtb(es.bold, 'Bold', (e: React.MouseEvent) => { e.preventDefault(); editor.chain().focus().toggleBold().run(); }, <b>B</b>)}
+            {mtb(es.italic, 'Italic', (e: React.MouseEvent) => { e.preventDefault(); editor.chain().focus().toggleItalic().run(); }, <i>I</i>)}
+            {mtb(es.underline, 'Underline', (e: React.MouseEvent) => { e.preventDefault(); editor.chain().focus().toggleUnderline().run(); }, <u>U</u>)}
+            {mtb(es.strike, 'Strikethrough', (e: React.MouseEvent) => { e.preventDefault(); editor.chain().focus().toggleStrike().run(); }, <s>S</s>)}
             {onAttach && (
               <button title={t('compose.toolbar.attachFile')} onMouseDown={ (e: React.MouseEvent<HTMLElement>) => { e.preventDefault(); onAttach(); }}
                 style={{ background: 'none', border: 'none', borderRadius: 4, padding: '6px 4px', cursor: 'pointer', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', flex: 1, color: 'var(--text-secondary)', WebkitTapHighlightColor: 'transparent' }}>
@@ -2651,12 +2651,12 @@ function RichToolbar({ editor, onAttach, onInsertImage = undefined, htmlMode, on
                 <span style={{ fontSize: 13, fontWeight: 700, color: '#1a1a1a', lineHeight: 1, background: es.backgroundColor || '#ffd43b', padding: '0 2px', borderRadius: 2, border: '1px solid rgba(0,0,0,0.2)' }}>A</span>
               </button>
               <Sep />
-              {mtb(es.alignLeft, 'Align left', e => { e.preventDefault(); editor.chain().focus().setTextAlign('left').run(); }, <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><line x1="3" y1="6" x2="21" y2="6"/><line x1="3" y1="12" x2="15" y2="12"/><line x1="3" y1="18" x2="18" y2="18"/></svg>)}
-              {mtb(es.alignCenter, 'Align center', e => { e.preventDefault(); editor.chain().focus().setTextAlign('center').run(); }, <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><line x1="3" y1="6" x2="21" y2="6"/><line x1="6" y1="12" x2="18" y2="12"/><line x1="4" y1="18" x2="20" y2="18"/></svg>)}
-              {mtb(es.alignRight, 'Align right', e => { e.preventDefault(); editor.chain().focus().setTextAlign('right').run(); }, <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><line x1="3" y1="6" x2="21" y2="6"/><line x1="9" y1="12" x2="21" y2="12"/><line x1="6" y1="18" x2="21" y2="18"/></svg>)}
+              {mtb(es.alignLeft, 'Align left', (e: React.MouseEvent) => { e.preventDefault(); editor.chain().focus().setTextAlign('left').run(); }, <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><line x1="3" y1="6" x2="21" y2="6"/><line x1="3" y1="12" x2="15" y2="12"/><line x1="3" y1="18" x2="18" y2="18"/></svg>)}
+              {mtb(es.alignCenter, 'Align center', (e: React.MouseEvent) => { e.preventDefault(); editor.chain().focus().setTextAlign('center').run(); }, <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><line x1="3" y1="6" x2="21" y2="6"/><line x1="6" y1="12" x2="18" y2="12"/><line x1="4" y1="18" x2="20" y2="18"/></svg>)}
+              {mtb(es.alignRight, 'Align right', (e: React.MouseEvent) => { e.preventDefault(); editor.chain().focus().setTextAlign('right').run(); }, <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><line x1="3" y1="6" x2="21" y2="6"/><line x1="9" y1="12" x2="21" y2="12"/><line x1="6" y1="18" x2="21" y2="18"/></svg>)}
               <Sep />
-              {mtb(es.bulletList, 'Bullet list', e => { e.preventDefault(); editor.chain().focus().toggleBulletList().run(); }, <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><line x1="9" y1="6" x2="20" y2="6"/><line x1="9" y1="12" x2="20" y2="12"/><line x1="9" y1="18" x2="20" y2="18"/><circle cx="4" cy="6" r="1.5" fill="currentColor" stroke="none"/><circle cx="4" cy="12" r="1.5" fill="currentColor" stroke="none"/><circle cx="4" cy="18" r="1.5" fill="currentColor" stroke="none"/></svg>)}
-              {mtb(es.orderedList, 'Numbered list', e => { e.preventDefault(); editor.chain().focus().toggleOrderedList().run(); }, <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><line x1="10" y1="6" x2="21" y2="6"/><line x1="10" y1="12" x2="21" y2="12"/><line x1="10" y1="18" x2="21" y2="18"/><text x="1" y="8" fontSize="7" fill="currentColor" stroke="none" fontFamily="sans-serif">1.</text><text x="1" y="14" fontSize="7" fill="currentColor" stroke="none" fontFamily="sans-serif">2.</text><text x="1" y="20" fontSize="7" fill="currentColor" stroke="none" fontFamily="sans-serif">3.</text></svg>)}
+              {mtb(es.bulletList, 'Bullet list', (e: React.MouseEvent) => { e.preventDefault(); editor.chain().focus().toggleBulletList().run(); }, <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><line x1="9" y1="6" x2="20" y2="6"/><line x1="9" y1="12" x2="20" y2="12"/><line x1="9" y1="18" x2="20" y2="18"/><circle cx="4" cy="6" r="1.5" fill="currentColor" stroke="none"/><circle cx="4" cy="12" r="1.5" fill="currentColor" stroke="none"/><circle cx="4" cy="18" r="1.5" fill="currentColor" stroke="none"/></svg>)}
+              {mtb(es.orderedList, 'Numbered list', (e: React.MouseEvent) => { e.preventDefault(); editor.chain().focus().toggleOrderedList().run(); }, <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><line x1="10" y1="6" x2="21" y2="6"/><line x1="10" y1="12" x2="21" y2="12"/><line x1="10" y1="18" x2="21" y2="18"/><text x="1" y="8" fontSize="7" fill="currentColor" stroke="none" fontFamily="sans-serif">1.</text><text x="1" y="14" fontSize="7" fill="currentColor" stroke="none" fontFamily="sans-serif">2.</text><text x="1" y="20" fontSize="7" fill="currentColor" stroke="none" fontFamily="sans-serif">3.</text></svg>)}
               {onToggleHtml && (
                 <>
                   <Sep />
@@ -2729,10 +2729,10 @@ function RichToolbar({ editor, onAttach, onInsertImage = undefined, htmlMode, on
 
         <Sep />
 
-        {tb(es.bold, 'Bold', e => { e.preventDefault(); editor.chain().focus().toggleBold().run(); }, <b>B</b>)}
-        {tb(es.italic, 'Italic', e => { e.preventDefault(); editor.chain().focus().toggleItalic().run(); }, <i>I</i>)}
-        {tb(es.underline, 'Underline', e => { e.preventDefault(); editor.chain().focus().toggleUnderline().run(); }, <u>U</u>)}
-        {tb(es.strike, 'Strikethrough', e => { e.preventDefault(); editor.chain().focus().toggleStrike().run(); }, <s>S</s>)}
+        {tb(es.bold, 'Bold', (e: React.MouseEvent) => { e.preventDefault(); editor.chain().focus().toggleBold().run(); }, <b>B</b>)}
+        {tb(es.italic, 'Italic', (e: React.MouseEvent) => { e.preventDefault(); editor.chain().focus().toggleItalic().run(); }, <i>I</i>)}
+        {tb(es.underline, 'Underline', (e: React.MouseEvent) => { e.preventDefault(); editor.chain().focus().toggleUnderline().run(); }, <u>U</u>)}
+        {tb(es.strike, 'Strikethrough', (e: React.MouseEvent) => { e.preventDefault(); editor.chain().focus().toggleStrike().run(); }, <s>S</s>)}
 
         <Sep />
 
@@ -2749,18 +2749,18 @@ function RichToolbar({ editor, onAttach, onInsertImage = undefined, htmlMode, on
 
         <Sep />
 
-        {tb(es.alignLeft, 'Align left', e => { e.preventDefault(); editor.chain().focus().setTextAlign('left').run(); },
+        {tb(es.alignLeft, 'Align left', (e: React.MouseEvent) => { e.preventDefault(); editor.chain().focus().setTextAlign('left').run(); },
           <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><line x1="3" y1="6" x2="21" y2="6"/><line x1="3" y1="12" x2="15" y2="12"/><line x1="3" y1="18" x2="18" y2="18"/></svg>)}
-        {tb(es.alignCenter, 'Align center', e => { e.preventDefault(); editor.chain().focus().setTextAlign('center').run(); },
+        {tb(es.alignCenter, 'Align center', (e: React.MouseEvent) => { e.preventDefault(); editor.chain().focus().setTextAlign('center').run(); },
           <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><line x1="3" y1="6" x2="21" y2="6"/><line x1="6" y1="12" x2="18" y2="12"/><line x1="4" y1="18" x2="20" y2="18"/></svg>)}
-        {tb(es.alignRight, 'Align right', e => { e.preventDefault(); editor.chain().focus().setTextAlign('right').run(); },
+        {tb(es.alignRight, 'Align right', (e: React.MouseEvent) => { e.preventDefault(); editor.chain().focus().setTextAlign('right').run(); },
           <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><line x1="3" y1="6" x2="21" y2="6"/><line x1="9" y1="12" x2="21" y2="12"/><line x1="6" y1="18" x2="21" y2="18"/></svg>)}
 
         <Sep />
 
-        {tb(es.bulletList, 'Bullet list', e => { e.preventDefault(); editor.chain().focus().toggleBulletList().run(); },
+        {tb(es.bulletList, 'Bullet list', (e: React.MouseEvent) => { e.preventDefault(); editor.chain().focus().toggleBulletList().run(); },
           <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><line x1="9" y1="6" x2="20" y2="6"/><line x1="9" y1="12" x2="20" y2="12"/><line x1="9" y1="18" x2="20" y2="18"/><circle cx="4" cy="6" r="1.5" fill="currentColor" stroke="none"/><circle cx="4" cy="12" r="1.5" fill="currentColor" stroke="none"/><circle cx="4" cy="18" r="1.5" fill="currentColor" stroke="none"/></svg>)}
-        {tb(es.orderedList, 'Numbered list', e => { e.preventDefault(); editor.chain().focus().toggleOrderedList().run(); },
+        {tb(es.orderedList, 'Numbered list', (e: React.MouseEvent) => { e.preventDefault(); editor.chain().focus().toggleOrderedList().run(); },
           <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><line x1="10" y1="6" x2="21" y2="6"/><line x1="10" y1="12" x2="21" y2="12"/><line x1="10" y1="18" x2="21" y2="18"/><text x="1" y="8" fontSize="7" fill="currentColor" stroke="none" fontFamily="sans-serif">1.</text><text x="1" y="14" fontSize="7" fill="currentColor" stroke="none" fontFamily="sans-serif">2.</text><text x="1" y="20" fontSize="7" fill="currentColor" stroke="none" fontFamily="sans-serif">3.</text></svg>)}
 
         <Sep />
